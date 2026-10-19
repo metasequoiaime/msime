@@ -27,7 +27,7 @@ Status: implemented
 - `border_width_dip`：外框线宽，0 不画外框。
 - `item_corner_radius_dip`：高亮圆角，拼音行底色同圆角。
 - `shadow`：只缩放宿主阴影的不透明度，`soft` 乘 0.5、`strong` 乘 1.6 且不超过 1、`none` 不画（不画时连兜底阴影也跳过），几何不变，同 msime-windows 的 `ShadowAlphaScale`。
-- `backdrop`：本宿主还没有系统材质，按 msime-windows 在透明效果关闭或系统不支持时的回退画：`surface` 补成不透明。
+- `backdrop`：本宿主还没有系统材质，按 msime-windows 在透明效果关闭或系统不支持时的回退画：`surface` 补成不透明。后来由 [Windows 候选窗按皮肤垫系统材质](2026-10-19-windows-candidate-backdrop-material.md) 补上了亚克力和云母，这里的不透明底色只在材质画不出来时用。
 - `page_arrows`：翻页从首行挪进列表，首行不再为它留宽度和高度，也不画「n / m」。横排是候选右侧的一窄列，箭头贴右下角、竖直居中在最后一行上；竖排是最后一行下方 `button_height + 2` 高的一矮行，「‹」的左端对齐序号左端。按钮尺寸、外边距和字形照 `candidate_skin_scene.cpp` 与 `PagerArrows.cpp`。点击仍走 `candidate_pager_hit`（`CandidatePagerLayout::in_list` 区分两种翻页），上一页在第一页上变暗、不响应，下一页一直可用，与首行翻页同一条规则。悬停铺 `hover`，按下铺 `selected`（透明时仍是 `hover`）。
 - `page_arrow_style`：`chevron` 是序号色折线；`triangle` 是候选文字色的圆角实心三角，按钮与候选行等高，横排更宽、前面一条 `page_arrow_divider` 色的 1 DIP 竖线，这个颜色槽位因此第一次被画出来。
 - `fit_content`：不垫 160 DIP 最小宽度，行内不留宿主文字后的余量，右侧留白等于序号左侧留白（msime-windows 的 `contentPadRight = contentPadLeft + textPadLeft`），横排每列只带 `item_gap`；`min_width_dip` 照常生效。本宿主的卡片在同一次输入里本来就不只增不减，msime-windows 说的「宽度立刻缩回」不需要另做。
@@ -45,7 +45,7 @@ msime-windows 里没写的键沿用 `base` 外观的出厂清单（`wechat` 的 
 - **把 msime-windows 的 `CandSkinTokens` 与 msimeui `CandidateList` 整套搬过来，替换 `CandidateCardSize.h`** —— 最强的理由是与 msime-windows 逐像素一致，连没写的键也按 Fluent 的出厂值画。不采用：本宿主的卡片有 logo、首行翻页、释义预留行高、横排单行收窄这些 msime-windows 没有的规则，整套换掉会让每一个现有皮肤和无皮肤的卡片都变样，违背这一步的约束；逐键映射到现有 metrics 既能保住默认，又能让写了键的皮肤得到来源的含义。
 - **在共享 catalog 的 `windows_looks` 里按 `base` 外观补版式** —— 这样没写的键也有 msime-windows 的值，`base = "microsoft"` 的皮肤会自动有三角翻页箭头。不采用：已经在用的 `base = "wechat"` / `graphite` 等皮肤即使一个版式键都没写，卡片也会变样，而且这是改所有宿主共享的扫描结果；留到确定各宿主都要这些出厂版式时再做。
 - **`page_arrows` 只把箭头挪进列表，首行保留「n / m」** —— 页码信息不丢。不采用：同一张卡片两处翻页控件，首行也因此一直占着高度；为 msime-windows 设计的皮肤本来就没有页码。
-- **真的画亚克力和云母** —— 这是 `backdrop` 的本义。需要把 msimeui 的 `DeviceResources` 从 DirectComposition 交换链换成 Windows.UI.Composition（DispatcherQueue、HostBackdropBrush、效果画刷），没有 Windows 工具链验证，MinGW 交叉构建里的 WinRT 头文件也没有核实过；这一步先做来源本来就有的「材质不可用」回退，免得半透明底色直接透出后面的窗口。
+- **真的画亚克力和云母** —— 这是 `backdrop` 的本义。需要把 msimeui 的 `DeviceResources` 从 DirectComposition 交换链换成 Windows.UI.Composition（DispatcherQueue、HostBackdropBrush、效果画刷），没有 Windows 工具链验证，MinGW 交叉构建里的 WinRT 头文件也没有核实过；这一步先做来源本来就有的「材质不可用」回退，免得半透明底色直接透出后面的窗口。之后的做法和 MinGW 头文件的处理见 [Windows 候选窗按皮肤垫系统材质](2026-10-19-windows-candidate-backdrop-material.md)。
 - **`shadow` 档位直接用 msime-windows 的两层阴影参数** —— 档位写了以后更接近来源的样子。不采用：来源对这个键的定义是只缩放阴影不透明度、不改几何，缩放宿主自己的阴影符合这一定义，`soft` / `strong` 也和没写时属于同一套阴影。
 
 ## Consequences
@@ -54,7 +54,7 @@ msime-windows 里没写的键沿用 `base` 外观的出厂清单（`wechat` 的 
 
 代价：
 - 没写的键回到本宿主版式而不是 `base` 外观的出厂值，同一个包在两边仍会有差别；`base = "microsoft"` 但没写 `page_arrows` 的皮肤在这里没有列表翻页箭头。
-- `backdrop` 只是不透明回退，没有模糊材质。
+- `backdrop` 只是不透明回退，没有模糊材质（已补上，见 [Windows 候选窗按皮肤垫系统材质](2026-10-19-windows-candidate-backdrop-material.md)）。
 - 打开 `page_arrows` 的皮肤看不到「n / m」页码，读屏也不再报告页码这一项（两个箭头照常报告、可执行）。
 - 九宫格 `border_image`、自由挂件、insets 和 `line_gap_dip` 见 [Windows 候选窗绘制 canvas 皮肤](2026-10-19-windows-candidate-canvas.md)，`expand_panel` / `expand_rows` 见 [Windows 候选窗绘制皮肤的卷轴展开](2026-10-19-windows-candidate-skin-expand-panel.md)；原生设置窗口的皮肤预览也还不画这些键。
 

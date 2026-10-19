@@ -17,6 +17,7 @@ Status: implemented
 - `verify-canvas`：`canvas` 基底的九宫格（深浅两张）、内容内边距、外留白、行距、三个自由挂件（其中一个是 6 帧 APNG）和 `[animation]`。
 - `verify-v2-motion-system`：`system` 基底上的 v2，三个动效预设都写出，装饰图是 8 帧 APNG 并带 `motion = "float"`。
 - `verify-color-syntax`：catalog 接受的每一个候选颜色键、右键菜单和工具栏颜色键，七种颜色写法混用，配 `backdrop = "acrylic"` 和两个材质参数。
+- `verify-backdrop-mica`：`backdrop = "mica"`，深浅两套半透明底色和材质参数，验证 Windows 的云母（见 [Windows 候选窗按皮肤垫系统材质](../feature/2026-10-19-windows-candidate-backdrop-material.md)）。
 - `verify-canvas-keys-ignored`：`system` 基底上写了五个画布专属键，引用的图片故意不在包里，证明它们不校验、只给一条提示，动效照常。
 
 图片由同目录的 `generate.py` 生成：只用 Python 标准库（`zlib`、`struct`、`tomllib`），自己编码 PNG 和 APNG，没有随机数，重跑逐字节相同；预览图的颜色和几何直接读各包的 `skin.toml`，改了清单重跑一次即可。图片总共一百多 KB，单张都在几 KB 到十几 KB。
@@ -35,6 +36,6 @@ Windows 的截图工具渲染的也是这批包，这是它们放在共享 crate
 
 收益：每个兼容 msime-windows 的皮肤键都有一个真实、可安装、看得出效果的包，catalog 解析结果和宿主绘制结果可以对着同一个包核对；社区打包与 MCP 创建对 `canvas` 的限制有了一条会在规则变化时失败的断言。
 
-代价：仓库里多了十个包和一百多 KB 的生成图片；改清单或图片时，`gallery_tests.rs` 的断言要一起改，新增包要登记进 `GALLERY`。预览图只是示意（候选字画成笔画块、拼音和序号是点阵字、1 DIP 按 1 像素），不代表任何宿主的逐像素外观。
+代价：仓库里多了十二个包和一百多 KB 的生成图片；改清单或图片时，`gallery_tests.rs` 的断言要一起改，新增包要登记进 `GALLERY`。预览图只是示意（候选字画成笔画块、拼音和序号是点阵字、1 DIP 按 1 像素），不代表任何宿主的逐像素外观。
 
 验证：`rbuild cargo test --locked -p msime-client-services skin::` 通过（277 项，其中本图库 13 项）；`rbuild cargo clippy --locked -p msime-client-services --all-targets -- -D warnings` 无警告；`cargo fmt --all -- --check` 通过；`generate.py` 重跑后所有图片的哈希不变。

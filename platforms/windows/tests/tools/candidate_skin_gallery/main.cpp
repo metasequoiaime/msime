@@ -125,10 +125,10 @@ void pump(CandidateWindow *window, DWORD wait) {
   }
 }
 
-// 铺满主显示器工作区的纯色窗口，放在候选窗下面：截图里阴影和透明的圆角外面是一块已知的颜色，而不是 runner 桌面上碰巧有的东西。
+// 铺满主显示器工作区的纯色窗口，放在候选窗下面：截图里阴影和透明的圆角外面是一块已知的颜色，而不是 runner 桌面上碰巧有的东西。要系统材质的皮肤铺彩色竖条纹（gallery::backdrop_stripe_color），看得出卡片后面有没有模糊。
 class Backdrop final {
 public:
-  explicit Backdrop(const RECT &area) {
+  explicit Backdrop(const RECT &area) : area_(area) {
     WNDCLASSEXW descriptor{};
     descriptor.cbSize = sizeof(descriptor);
     descriptor.lpfnWndProc = procedure;
@@ -151,11 +151,14 @@ public:
   }
   Backdrop(const Backdrop &) = delete;
   Backdrop &operator=(const Backdrop &) = delete;
-  void set_color(uint32_t rgb) {
+  // stripes 有值时铺深色（true）或浅色（false）的条纹，没有时铺 rgb 纯色。
+  void set_color(uint32_t rgb, std::optional<bool> stripes = std::nullopt) {
     color_ = RGB((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff);
+    stripes_ = stripes;
     InvalidateRect(window_, nullptr, TRUE);
     UpdateWindow(window_);
   }
+  const RECT &area() const { return area_; }
 
 private:
   static LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -168,7 +171,16 @@ private:
     if (self && message == WM_PAINT) {
       PAINTSTRUCT paint{};
       const HDC dc = BeginPaint(window, &paint);
-      if (dc) {
+      if (dc && self->stripes_) {
+        for (LONG left = paint.rcPaint.left - paint.rcPaint.left % gallery::stripe_width; left < paint.rcPaint.right;
+             left += gallery::stripe_width) {
+          const uint32_t rgb = gallery::backdrop_stripe_color(static_cast<int>(left), *self->stripes_);
+          const HBRUSH brush = CreateSolidBrush(RGB((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff));
+          const RECT stripe{left, paint.rcPaint.top, left + gallery::stripe_width, paint.rcPaint.bottom};
+          FillRect(dc, &stripe, brush);
+          DeleteObject(brush);
+        }
+      } else if (dc) {
         const HBRUSH brush = CreateSolidBrush(self->color_);
         FillRect(dc, &paint.rcPaint, brush);
         DeleteObject(brush);
@@ -178,8 +190,10 @@ private:
     }
     return DefWindowProcW(window, message, wparam, lparam);
   }
+  RECT area_{};
   HWND window_ = nullptr;
   COLORREF color_ = RGB(0xE6, 0xE6, 0xE6);
+  std::optional<bool> stripes_;
 };
 
 // 从屏幕 DC 截下 rect（物理像素）。截的是 DWM 合成之后的桌面，所以 DirectComposition 交换链和分层窗口都在里面；返回逐行的 BGRA，alpha 填成不透明。
@@ -294,7 +308,20 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
                  Backdrop &backdrop, const std::filesystem::path &output) {
   const auto label = gallery::shot_label(shot);
   const uint32_t backdrop_color = shot.dark ? dark_backdrop : light_backdrop;
-  backdrop.set_color(backdrop_color);
+  // 要系统材质的皮肤铺条纹，先截下候选窗出现之前的屏幕，空白和裁边的自检拿它比，而不是和纯色比。
+  const bool striped = look.assets.layout.backdrop != CandidateSkinBackdrop::none;
+  backdrop.set_color(backdrop_color, striped ? std::optional<bool>(shot.dark) : std::nullopt);
+  std::optional<std::vector<uint8_t>> behind_screen;
+  if (striped) {
+    pump(nullptr, 100);
+    DwmFlush();
+    std::string error;
+    behind_screen = capture_screen(backdrop.area(), error);
+    if (!behind_screen) {
+      report(label + ": FAILED, capture of the striped backdrop: " + error);
+      return false;
+    }
+  }
   const auto presentation = gallery::gallery_presentation(anchor.x, anchor.y);
   const auto expanded =
       std::make_shared<const std::vector<ExpandedCandidate>>(gallery::gallery_expanded_candidates());
@@ -407,16 +434,32 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
       return false;
     }
     const int width = rect.right - rect.left, height = rect.bottom - rect.top;
-    const auto verdict = gallery::capture_verdict(*pixels, backdrop_color);
+    std::vector<uint8_t> behind;
+    if (behind_screen) {
+      const RECT &area = backdrop.area();
+      behind = gallery::crop(*behind_screen, area.right - area.left, area.bottom - area.top,
+                             {rect.left - area.left, rect.top - area.top, rect.right - area.left,
+                              rect.bottom - area.top});
+      if (behind.empty()) {
+        report(label + ": FAILED, the window " + rect_text(rect) + " is not inside the striped work area");
+        return false;
+      }
+    }
+    const auto verdict = behind_screen ? gallery::capture_verdict(*pixels, behind)
+                                       : gallery::capture_verdict(*pixels, backdrop_color);
     // 自检二：截图最外一圈应该是底色（阴影到边上已经淡没了），卡片画到边上就是被窗口裁掉了。
-    const auto bleed = gallery::edge_bleed(*pixels, width, height, backdrop_color);
+    const auto bleed = behind_screen ? gallery::edge_bleed(*pixels, behind, width, height)
+                                     : gallery::edge_bleed(*pixels, width, height, backdrop_color);
     char share[96];
     std::snprintf(share, sizeof(share),
                   "%.1f%% of pixels differ from the backdrop, edges L%.0f%% T%.0f%% R%.0f%% B%.0f%%",
                   verdict.fraction() * 100.0, bleed.left * 100.0, bleed.top * 100.0,
                   bleed.right * 100.0, bleed.bottom * 100.0);
     const auto file = output / std::filesystem::u8path(gallery::shot_file_name(shot));
-    const auto summary = "window " + rect_text(rect) + card + ", " + std::to_string(frames) + " frames, " + share;
+    auto summary = "window " + rect_text(rect) + card + ", " + std::to_string(frames) + " frames, " + share;
+    // 要系统材质的皮肤：卡片背后实际垫了什么（或为什么是不透明底色），见 CandidateBackdrop.h。
+    if (striped)
+      summary += ", backdrop " + window.painted_backdrop();
     std::string problem;
     if (gallery::capture_blank(verdict))
       problem = "the capture is blank";
@@ -559,6 +602,30 @@ int wmain(int argc, wchar_t **argv) {
     }
     const RECT work = monitor.rcWork;
     report("primary work area " + rect_text(work));
+    {
+      // 系统材质跟着这两个开关走：透明效果关着或高对比度时，要材质的皮肤画不透明底色。
+      DWORD transparency = 1, size = sizeof(transparency);
+      const bool transparency_known =
+          RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                       L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &transparency, &size) == ERROR_SUCCESS;
+      HIGHCONTRASTW contrast{};
+      contrast.cbSize = sizeof(contrast);
+      const bool high_contrast = SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+                                 (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+      OSVERSIONINFOW version{};
+      version.dwOSVersionInfoSize = sizeof(version);
+      using RtlGetVersion = LONG(WINAPI *)(OSVERSIONINFOW *);
+      const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+      const auto get_version = ntdll ? reinterpret_cast<RtlGetVersion>(
+                                           reinterpret_cast<void *>(GetProcAddress(ntdll, "RtlGetVersion")))
+                                     : nullptr;
+      if (get_version)
+        get_version(&version);
+      report("Windows " + std::to_string(version.dwMajorVersion) + "." + std::to_string(version.dwMinorVersion) +
+             " build " + std::to_string(version.dwBuildNumber) + "; transparency effects " +
+             (transparency_known ? (transparency ? "on" : "off") : "unset (on)") + ", high contrast " +
+             (high_contrast ? "on" : "off"));
+    }
     // 光标底边的锚点放在工作区左上部，候选窗出现在它下面；鼠标挪到右下角，免得悬停底色落在候选上。
     const POINT anchor{work.left + 64, work.top + 112};
     SetCursorPos(work.right - 2, work.bottom - 2);

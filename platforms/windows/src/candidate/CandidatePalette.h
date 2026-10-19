@@ -137,6 +137,9 @@ struct CandidatePalette {
   std::optional<CandidateColor> translation;
   // The floating toolbar's separator; none draws it in the border colour.
   std::optional<CandidateColor> divider;
+  // 皮肤 `backdrop = "acrylic" | "mica"` 的材质参数（`backdrop_opacity`、`backdrop_luminosity`，0-1），按明暗各写各的；没写时按 CandidateBackdrop.h 的缺省。
+  std::optional<float> backdrop_opacity;
+  std::optional<float> backdrop_luminosity;
   // 菜单与输入浮层保留柔和阴影。
   float shadow_alpha = 0.14f;
   float radius = 10.0f;

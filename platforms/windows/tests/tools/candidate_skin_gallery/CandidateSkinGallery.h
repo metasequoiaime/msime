@@ -124,30 +124,43 @@ inline CaptureVerdict capture_verdict(const std::vector<uint8_t> &pixels, uint32
   }
   return verdict;
 }
+// 两个 BGRA 像素是否不同：任一颜色通道差超过 tolerance，alpha 不看。
+inline bool pixel_differs(const uint8_t *bgra, const uint8_t *reference, int tolerance) {
+  return std::abs(bgra[0] - reference[0]) > tolerance || std::abs(bgra[1] - reference[1]) > tolerance ||
+         std::abs(bgra[2] - reference[2]) > tolerance;
+}
+// 和同一块屏幕在候选窗出现之前的样子（reference，同样大小的 BGRA）比，有多少像素不同。底色是条纹而不是纯色时（要系统材质的皮肤，见 backdrop_stripe_color）用它代替和底色比；大小对不上时一个像素也不算。
+inline CaptureVerdict capture_verdict(const std::vector<uint8_t> &pixels, const std::vector<uint8_t> &reference,
+                                      int tolerance = 12) {
+  CaptureVerdict verdict;
+  if (reference.size() != pixels.size())
+    return verdict;
+  for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4) {
+    ++verdict.total;
+    if (pixel_differs(&pixels[offset], &reference[offset], tolerance))
+      ++verdict.differing;
+  }
+  return verdict;
+}
 // 窗口最外一圈像素里和底色不同的比例，四条边分开算。窗口四周是阴影边距，阴影到边上已经淡没了，最外一圈应该就是底色；卡片的底色、外框或文字出现在这一圈上，说明卡片画到了窗口边上、被窗口裁掉了。
 struct EdgeBleed {
   double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
   double worst() const { return (std::max)((std::max)(left, right), (std::max)(top, bottom)); }
 };
-inline EdgeBleed edge_bleed(const std::vector<uint8_t> &pixels, int width, int height,
-                            uint32_t backdrop, int tolerance = 12) {
+namespace detail {
+// differs(x, y) 说这个像素和后面的画面是否不同；四条边分开数。
+template <class Differs> EdgeBleed edge_bleed(int width, int height, Differs differs) {
   EdgeBleed bleed;
-  if (width <= 0 || height <= 0 ||
-      pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4)
-    return bleed;
-  const auto at = [&](int x, int y) {
-    return &pixels[(static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4];
-  };
   const auto column = [&](int x) {
     size_t count = 0;
     for (int y = 0; y < height; ++y)
-      count += pixel_differs(at(x, y), backdrop, tolerance) ? 1 : 0;
+      count += differs(x, y) ? 1 : 0;
     return static_cast<double>(count) / static_cast<double>(height);
   };
   const auto row = [&](int y) {
     size_t count = 0;
     for (int x = 0; x < width; ++x)
-      count += pixel_differs(at(x, y), backdrop, tolerance) ? 1 : 0;
+      count += differs(x, y) ? 1 : 0;
     return static_cast<double>(count) / static_cast<double>(width);
   };
   bleed.left = column(0);
@@ -155,6 +168,31 @@ inline EdgeBleed edge_bleed(const std::vector<uint8_t> &pixels, int width, int h
   bleed.top = row(0);
   bleed.bottom = row(height - 1);
   return bleed;
+}
+inline size_t pixel_offset(int width, int x, int y) {
+  return (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
+}
+} // namespace detail
+inline EdgeBleed edge_bleed(const std::vector<uint8_t> &pixels, int width, int height,
+                            uint32_t backdrop, int tolerance = 12) {
+  if (width <= 0 || height <= 0 ||
+      pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4)
+    return {};
+  return detail::edge_bleed(width, height, [&](int x, int y) {
+    return pixel_differs(&pixels[detail::pixel_offset(width, x, y)], backdrop, tolerance);
+  });
+}
+// 同上，和候选窗出现之前同一块屏幕的样子比（条纹底色）。
+inline EdgeBleed edge_bleed(const std::vector<uint8_t> &pixels, const std::vector<uint8_t> &reference, int width,
+                            int height, int tolerance = 12) {
+  if (width <= 0 || height <= 0 ||
+      pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4 ||
+      reference.size() != pixels.size())
+    return {};
+  return detail::edge_bleed(width, height, [&](int x, int y) {
+    const auto offset = detail::pixel_offset(width, x, y);
+    return pixel_differs(&pixels[offset], &reference[offset], tolerance);
+  });
 }
 // 最外一圈里不同的像素超过这个比例就算卡片被裁：画到边上的卡片占满那一边的大半，淡阴影和抗锯齿的零星像素远不到这个量。
 inline constexpr double maximum_edge_fraction = 0.1;
@@ -167,6 +205,33 @@ inline bool capture_blank(const CaptureVerdict &verdict) {
 struct PixelRect {
   long left = 0, top = 0, right = 0, bottom = 0;
 };
+// 从 source（source_width x source_height 的逐行 BGRA）裁出 rect；rect 为空、越界或 source 大小对不上时返回空。
+inline std::vector<uint8_t> crop(const std::vector<uint8_t> &source, int source_width, int source_height,
+                                 const PixelRect &rect) {
+  if (source_width <= 0 || source_height <= 0 ||
+      source.size() != static_cast<size_t>(source_width) * static_cast<size_t>(source_height) * 4 ||
+      rect.left < 0 || rect.top < 0 || rect.right > source_width || rect.bottom > source_height ||
+      rect.right <= rect.left || rect.bottom <= rect.top)
+    return {};
+  std::vector<uint8_t> result;
+  const auto row_bytes = static_cast<size_t>(rect.right - rect.left) * 4;
+  result.reserve(row_bytes * static_cast<size_t>(rect.bottom - rect.top));
+  for (long y = rect.top; y < rect.bottom; ++y) {
+    const auto begin = source.begin() + static_cast<std::ptrdiff_t>(
+                                            detail::pixel_offset(source_width, static_cast<int>(rect.left),
+                                                                 static_cast<int>(y)));
+    result.insert(result.end(), begin, begin + static_cast<std::ptrdiff_t>(row_bytes));
+  }
+  return result;
+}
+// 要系统材质（`backdrop`）的皮肤截图时铺在候选窗后面的竖条纹，每条 stripe_width 像素宽，在几种饱和色之间循环，返回 0xRRGGBB。纯色底上看不出模糊；条纹在亚克力卡片后面糊成一片混色，卡片外面仍是清楚的条纹，截图里一眼就能看出材质垫没垫上。深色截图用暗一些的一组。
+inline constexpr int stripe_width = 24;
+inline uint32_t backdrop_stripe_color(int x, bool dark) {
+  static constexpr std::array<uint32_t, 6> light = {0xE53935, 0xFDD835, 0x43A047, 0x1E88E5, 0x8E24AA, 0xFFFFFF};
+  static constexpr std::array<uint32_t, 6> darker = {0x8E1B1B, 0x8A7400, 0x1B5E20, 0x0D47A1, 0x4A148C, 0x000000};
+  const int stripe = (x >= 0 ? x : -x) / stripe_width;
+  return (dark ? darker : light)[static_cast<size_t>(stripe) % light.size()];
+}
 // 上一帧画出的卡片（CandidateWindow::painted_card）是否落在客户区里，且和按窗口尺寸推出的卡片（card_on_screen 换到客户区坐标）每条边相差不超过 tolerance 像素。画卡片用的尺寸和定窗口用的尺寸不是同一个时，这里不成立。
 inline bool card_fits(const PixelRect &painted, long client_width, long client_height,
                       const PixelRect &expected, long tolerance = 2) {

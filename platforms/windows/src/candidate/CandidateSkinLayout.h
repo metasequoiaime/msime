@@ -40,6 +40,8 @@ struct CandidateSkinLayout {
   std::optional<CandidateSkinShadow> shadow;
   // msime-windows 里没写等于 `none`。
   CandidateSkinBackdrop backdrop = CandidateSkinBackdrop::none;
+  // 包有九宫格面板（`border_image`，只在 `base = "canvas"` 时有）。面板盖住整张卡片，msime-windows 这时不垫系统材质（CandidateBackdrop.h）。
+  bool panel_image = false;
   std::optional<bool> page_arrows, fit_content;
   // `expand_panel`（横排的卷轴展开）与 `expand_rows`（展开后一屏的网格行数，2-8），见 CandidateExpandPanel.h。
   std::optional<bool> expand_panel;
@@ -136,7 +138,7 @@ inline float candidate_skin_shadow_alpha(std::optional<CandidateSkinShadow> shad
   }
   return alpha;
 }
-// 卡片底色的不透明度。本宿主还没有系统材质（亚克力、云母要 Windows.UI.Composition 的模糊背景，这里的候选窗只有 DirectComposition 交换链），所以要材质的皮肤按 msime-windows 在系统关闭透明效果或不支持时的做法画：`surface` 补成不透明，免得为材质准备的半透明底色直接透出后面的窗口。用户的候选窗不透明度之后照常作用在它上面。
+// 要材质的皮肤在材质画不出来时（系统关闭透明效果、高对比度、建不起合成）卡片底色的不透明度：按 msime-windows 的回退把 `surface` 补成不透明，免得为材质准备的半透明底色直接透出后面的窗口。垫上材质时卡片不画底色，由 CandidateBackdrop.h 的 candidate_backdrop_surface_alpha 决定。用户的候选窗不透明度之后照常作用在它上面。
 inline float candidate_skin_surface_alpha(CandidateSkinBackdrop backdrop,
                                           float alpha) {
   return backdrop == CandidateSkinBackdrop::none ? alpha : 1.0f;

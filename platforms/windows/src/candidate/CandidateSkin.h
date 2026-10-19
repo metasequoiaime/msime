@@ -267,6 +267,7 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
     else if (backdrop == "mica")
       layout.backdrop = CandidateSkinBackdrop::mica;
   }
+  layout.panel_image = package->contains("borderImage") && package->at("borderImage").is_object();
   layout.page_arrows = detail::candidate_skin_flag(*package, "pageArrows");
   layout.fit_content = detail::candidate_skin_flag(*package, "fitContent");
   layout.expand_panel = detail::candidate_skin_flag(*package, "expandPanel");
@@ -505,6 +506,16 @@ inline CandidatePalette apply_candidate_skin_extra_slots(
   optional("preedit_background", palette.preedit_background);
   optional("preedit_divider", palette.preedit_divider);
   optional("page_arrow_divider", palette.page_arrow_divider);
+  // 材质参数是 0-1 的数，catalog 已经校验过范围；读不懂的当作没写。
+  auto fraction = [&colors](const char *key, std::optional<float> &target) {
+    if (colors.contains(key) && colors.at(key).is_number()) {
+      const auto value = colors.at(key).get<double>();
+      if (value >= 0.0 && value <= 1.0)
+        target = static_cast<float>(value);
+    }
+  };
+  fraction("backdrop_opacity", palette.backdrop_opacity);
+  fraction("backdrop_luminosity", palette.backdrop_luminosity);
   if (colors.contains("menu") && colors.at("menu").is_object()) {
     const auto &menu = colors.at("menu");
     auto menu_color = [&menu](const char *key, CandidateColor &target) {

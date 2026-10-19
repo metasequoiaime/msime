@@ -9,15 +9,48 @@
 #include <dxgi1_2.h>
 #include <dwrite.h>
 #include <wincodec.h>
+#include <memory>
 #include <string>
 #include <vector>
 #include <wrl/client.h>
 
 namespace msimeui
 {
+// SetBackdrop 那块圆角矩形里垫的系统材质，按 Fluent 亚克力与云母的配方叠三层：模糊的来源、把明暗拉到色调那边的亮度层（文字在亮背景或暗背景上都保得住对比度）、色调。
+struct BackdropMaterial
+{
+    enum class Source
+    {
+        // 窗口后面的画面，模糊（亚克力）。
+        WindowsBehind,
+        // 桌面壁纸，模糊，不管中间隔着哪些窗口（云母）。要 Windows 11，没有时按 WindowsBehind 画。
+        Wallpaper,
+    };
+    Source source = Source::WindowsBehind;
+    // 只用 RGB；下面两个不透明度决定它露出多少。
+    D2D1_COLOR_F tint = {0.0f, 0.0f, 0.0f, 1.0f};
+    float tintOpacity = 0.0f;
+    float luminosityOpacity = 0.0f;
+
+    bool operator==(const BackdropMaterial &other) const
+    {
+        return source == other.source && tint.r == other.tint.r && tint.g == other.tint.g && tint.b == other.tint.b &&
+               tintOpacity == other.tintOpacity && luminosityOpacity == other.luminosityOpacity;
+    }
+    bool operator!=(const BackdropMaterial &other) const
+    {
+        return !(*this == other);
+    }
+};
+
 class DeviceResources
 {
   public:
+    DeviceResources();
+    ~DeviceResources();
+    DeviceResources(const DeviceResources &) = delete;
+    DeviceResources &operator=(const DeviceResources &) = delete;
+
     bool EnsureFactories();
     bool EnsureForWindow(HWND hwnd);
     bool EnsureForComposition(HWND hwnd);
@@ -55,6 +88,18 @@ class DeviceResources
     void ClearBitmapCache() { bitmapCache_.clear(); }
     bool UsesComposition() const;
 
+    // 系统材质模式：EnsureForComposition 改用 Windows.UI.Composition 的桌面窗口目标，GetRenderTarget() 画进一张离屏位图，Present() 把它拷进合成器的绘制表面，绘制表面下面垫一个按 SetBackdrop 裁成圆角矩形的系统模糊（HostBackdropBrush，或 Windows 11 的壁纸模糊）。内容和材质的形状在合成器的同一次提交里上屏，卡片伸缩时材质贴着它，不会像交换链 Present 与合成器提交那样各走各的、错开一帧。调用方的 BeginDraw/EndDraw/Present 不用改。改动在下一次 EnsureForComposition 生效；需要 Windows 10 1903，建不起来（或之后绘制表面出错）时 EnsureForComposition 返回 false，这时不走分层窗口回退，调用方应关掉材质模式再来一次。
+    void SetBackdropComposition(bool enabled);
+    bool UsesBackdropComposition() const;
+    // 材质模式下这一帧材质的位置：rect 和 radius 是渲染目标坐标里的 DIP，opacity 是整块材质的不透明度（用户的候选窗不透明度、进出场动效）。在 Present 之前调用，和这一帧的内容同一次提交；空矩形把材质藏起来。不在材质模式时什么也不做。
+    void SetBackdrop(const D2D1_RECT_F &rect, float radius, float opacity);
+    // 材质参数，换了合成表面也保留。
+    void SetBackdropMaterial(const BackdropMaterial &material);
+    // 这台机器上建没建起壁纸模糊画刷（云母的来源）；没有时 Wallpaper 按 WindowsBehind 画。还没建过合成时是 false。
+    bool BackdropWallpaperAvailable() const;
+    // 材质模式最近一次失败在哪一步、HRESULT 是多少（例如 "CreateHostBackdropBrush 0x80004002"），没失败过时为空。只给诊断日志和截图工具看。
+    std::string BackdropFailure() const;
+
   private:
     struct BrushCacheEntry
     {
@@ -88,6 +133,24 @@ class DeviceResources
 
     static bool IsSameColor(const D2D1_COLOR_F &lhs, const D2D1_COLOR_F &rhs);
     bool BindCompositionSurface();
+    // Direct3D、DXGI 与 Direct2D 设备和设备上下文；交换链与系统材质两条合成路径共用。
+    bool CreateRenderingDevice();
+    bool EnsureBackdropSurface(HWND hwnd);
+    bool BindBackdropTarget();
+    bool ApplyBackdropMaterial();
+    HRESULT PresentBackdrop();
+    // 记下材质模式失败的那一步；成功时什么也不做。返回 hr 是否成功，好串成一条条件。
+    bool BackdropStep(const char *step, HRESULT hr);
+    // Windows.UI.Composition 的对象放在 DeviceResources.cpp 里，用 msimeui 的地方不必看到那些接口。
+    struct BackdropComposition;
+    std::unique_ptr<BackdropComposition> backdrop_;
+    bool backdropComposition_ = false;
+    // 绘制表面出过不是设备丢失的错：这次运行不再尝试材质模式。
+    bool backdropBroken_ = false;
+    bool backdropWallpaper_ = false;
+    const char *backdropFailureStep_ = nullptr;
+    HRESULT backdropFailureResult_ = S_OK;
+    BackdropMaterial backdropMaterial_;
     FLOAT DpiForHwnd() const;
 
     FLOAT dpiOverride_ = 0.0f;

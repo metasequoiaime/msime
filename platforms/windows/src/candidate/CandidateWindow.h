@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateBackdrop.h"
 #include "CandidateCanvas.h"
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
@@ -136,6 +137,8 @@ public:
   std::optional<TypingRect> card_on_screen() const { return typing_effect_card(); }
   // 上一帧实际画出的卡片在客户区里的矩形（物理像素，不含阴影边距、canvas 的外留白和吉祥物那一条；canvas 时是整块面板），还没画过时为空。只读，Server 不用；候选皮肤截图工具拿它和窗口客户区、card_on_screen() 比，确认卡片没有画到窗口外面。
   std::optional<RECT> painted_card() const;
+  // 上一帧卡片背后的系统材质（皮肤 `backdrop`），一行说明：垫了哪种材质和参数，或为什么退回不透明底色。只读，Server 不用；候选皮肤截图工具写进日志。
+  std::string painted_backdrop() const;
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
@@ -243,6 +246,11 @@ private:
   unsigned painted_dpi_ = 0;
   // 上一帧画出的卡片矩形（DIP），painted_card() 读它。
   std::optional<D2D1_RECT_F> painted_card_;
+  // 这一帧卡片背后垫什么（CandidateBackdrop.h），读系统的透明效果和高对比度开关。
+  CandidateBackdropPlan backdrop_plan() const;
+  // 建 Windows.UI.Composition 的材质合成失败过：这个窗口不再尝试，要材质的皮肤画不透明底色（同 msime-windows 的 backdropUnavailable_）。
+  bool backdrop_unavailable_ = false;
+  CandidateBackdropPlan painted_backdrop_;
   bool failed_ = false;
   std::optional<ComponentFailureSite> failure_site_;
   unsigned font_size_ = 16;

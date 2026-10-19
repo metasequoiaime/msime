@@ -27,6 +27,8 @@ fn gallery() -> tempfile::TempDir {
         "verify-arrows-chevron/skin.toml",
         "verify-arrows-triangle/preview.png",
         "verify-arrows-triangle/skin.toml",
+        "verify-backdrop-mica/preview.png",
+        "verify-backdrop-mica/skin.toml",
         "verify-canvas-frame/assets/frame.png",
         "verify-canvas-frame/assets/leaf.png",
         "verify-canvas-frame/assets/ribbon.png",
@@ -61,9 +63,10 @@ fn gallery() -> tempfile::TempDir {
 }
 
 /// 目录里的全部验证皮肤，按名字排序。新加一个包时要在这里登记，并给它写断言。
-const GALLERY: [&str; 11] = [
+const GALLERY: [&str; 12] = [
     "verify-arrows-chevron",
     "verify-arrows-triangle",
+    "verify-backdrop-mica",
     "verify-canvas",
     "verify-canvas-frame",
     "verify-canvas-keys-ignored",
@@ -258,6 +261,33 @@ fn frame_none_has_no_frame_no_shadow_and_fits_its_content() {
     let json = serde_json::to_value(&package).unwrap();
     assert_eq!(json["fitContent"], true);
     assert_eq!(json["borderWidthDip"], 0.0);
+}
+
+#[test]
+fn backdrop_mica_writes_both_material_parameters_per_mode() {
+    let package = package("verify-backdrop-mica");
+    assert_eq!(package.backdrop.as_deref(), Some("mica"));
+    assert_eq!(package.shadow.as_deref(), Some("soft"));
+    assert_eq!(package.corner_radius_dip, Some(8.0));
+    assert_eq!(package.border_width_dip, Some(1.0));
+    assert_eq!(package.border_image, None);
+    // 两套材质参数都写出，底色半透明，留给画得出云母的宿主做色调。
+    for (palette, surface, opacity, luminosity) in [
+        (
+            &package.candidate.light,
+            "rgba(232, 244, 240, 0.6)",
+            0.5,
+            0.9,
+        ),
+        (&package.candidate.dark, "rgba(22, 38, 35, 0.7)", 0.8, 1.0),
+    ] {
+        assert_eq!(palette.surface.as_deref(), Some(surface));
+        assert_eq!(palette.backdrop_opacity, Some(opacity));
+        assert_eq!(palette.backdrop_luminosity, Some(luminosity));
+    }
+    let json = serde_json::to_value(&package).unwrap();
+    assert_eq!(json["backdrop"], "mica");
+    assert_eq!(json["candidate"]["dark"]["backdrop_opacity"], 0.8);
 }
 
 #[test]

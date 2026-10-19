@@ -344,6 +344,31 @@ build_font_fallback(IDWriteFactory *factory,
     result.Reset();
   return result;
 }
+// 系统「透明效果」（设置 → 个性化 → 颜色）。关着时系统材质一律退回纯色，要材质的皮肤也退回不透明底色；读不到时按开着处理，同 msime-windows。
+bool system_transparency_enabled() {
+  DWORD value = 1;
+  DWORD size = sizeof(value);
+  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                   L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+    return true;
+  return value != 0;
+}
+bool system_high_contrast() {
+  HIGHCONTRASTW contrast{};
+  contrast.cbSize = sizeof(contrast);
+  return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+         (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+msimeui::BackdropMaterial backdrop_material(const CandidateBackdropMaterial &material) {
+  msimeui::BackdropMaterial converted;
+  converted.source = material.source == CandidateBackdropSource::wallpaper
+                         ? msimeui::BackdropMaterial::Source::Wallpaper
+                         : msimeui::BackdropMaterial::Source::WindowsBehind;
+  converted.tint = D2D1::ColorF(material.tint_r, material.tint_g, material.tint_b, 1.0f);
+  converted.tintOpacity = material.tint_opacity;
+  converted.luminosityOpacity = material.luminosity_opacity;
+  return converted;
+}
 // Owner-drawn menu rows.
 //
 // The rows and their rules were already right; only the presentation was the
@@ -1346,8 +1371,20 @@ void CandidateWindow::paint() {
       style_.scale_percent == 100
           ? 0.0f
           : static_cast<float>(layout_scale(GetDpiForWindow(window_)) * 96.0));
-  if (!device_.EnsureForComposition(window_))
-    throw std::runtime_error("Candidate device unavailable");
+  // 皮肤的系统材质（CandidateBackdrop.h）：要垫材质时 DeviceResources 换成 Windows.UI.Composition 合成，材质参数先交给它，建表面时就用上。建不起来就记下，这个窗口以后按材质不可用的回退画。
+  auto backdrop = backdrop_plan();
+  if (backdrop.active())
+    device_.SetBackdropMaterial(backdrop_material(backdrop.material));
+  device_.SetBackdropComposition(backdrop.active());
+  if (!device_.EnsureForComposition(window_)) {
+    if (!backdrop.active())
+      throw std::runtime_error("Candidate device unavailable");
+    backdrop_unavailable_ = true;
+    backdrop = backdrop_plan();
+    device_.SetBackdropComposition(false);
+    if (!device_.EnsureForComposition(window_))
+      throw std::runtime_error("Candidate device unavailable");
+  }
   auto *target = device_.GetRenderTarget();
   if (!target)
     throw std::runtime_error("Candidate render target unavailable");
@@ -1494,17 +1531,46 @@ void CandidateWindow::paint() {
   const float radius = candidate_card_radius(style_, skin_radius_, palette_.radius);
   const float row_radius = candidate_row_radius(
       style_, skin_layout_.item_corner_radius.value_or(palette_.item_radius), radius);
+  // 卡片外缘：外框线的外沿，圆角跟着外扩半个线宽（直角卡片的外框是直角）。系统材质按它裁剪，阴影在垫了材质时只画在它外面。
+  const D2D1_RECT_F card_outer{static_cast<float>(panel.left), static_cast<float>(panel.top),
+                               static_cast<float>(panel.right), static_cast<float>(panel.bottom)};
+  const float card_outer_radius = radius > 0.0f ? radius + inset : 0.0f;
   // 透明度为 0 的一层画不出来时，draw_window_shadow_passes 会退回一层兜底阴影，所以 `none` 直接跳过。
-  if (shadow_alpha > 0.0f && !panel_bitmap)
-    draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
-                              std::size(shadow_passes));
+  if (shadow_alpha > 0.0f && !panel_bitmap) {
+    // 垫了材质时卡片底色是透明的，阴影透上来会把毛玻璃压暗，只画在卡片外面（msime-windows 的 SetShadowOutsideOnly）；裁剪用的几何建不起来就不画阴影。
+    Microsoft::WRL::ComPtr<ID2D1Geometry> outside;
+    if (backdrop.active()) {
+      Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+      target->GetFactory(&factory);
+      Microsoft::WRL::ComPtr<ID2D1RectangleGeometry> everything;
+      Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> inside;
+      Microsoft::WRL::ComPtr<ID2D1GeometryGroup> group;
+      if (factory &&
+          SUCCEEDED(factory->CreateRectangleGeometry(
+              D2D1::RectF(-size.width, -size.height, size.width * 2.0f, size.height * 2.0f), &everything)) &&
+          SUCCEEDED(factory->CreateRoundedRectangleGeometry(D2D1::RoundedRect(card_outer, card_outer_radius, card_outer_radius),
+                                                            &inside))) {
+        ID2D1Geometry *parts[] = {everything.Get(), inside.Get()};
+        if (SUCCEEDED(factory->CreateGeometryGroup(D2D1_FILL_MODE_ALTERNATE, parts, 2, &group)))
+          outside = group;
+      }
+    }
+    if (!backdrop.active() || outside) {
+      if (outside)
+        target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), outside.Get()), nullptr);
+      draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
+                                std::size(shadow_passes));
+      if (outside)
+        target->PopLayer();
+    }
+  }
   const D2D1_ROUNDED_RECT card{card_rect, radius, radius};
-  // The user's opacity fades the card itself - surface, package background and border - and nothing drawn on it, so the text stays as legible as the theme made it. 要系统材质的皮肤在这里先把底色补成不透明（candidate_skin_surface_alpha）。
+  // The user's opacity fades the card itself - surface, package background and border - and nothing drawn on it, so the text stays as legible as the theme made it. 垫了系统材质时色调已经在合成层里，卡片不再叠底色；要材质却画不出来时底色补成不透明（candidate_backdrop_surface_alpha）。材质本身随用户的不透明度一起淡化，见 EndDraw 之前的 SetBackdrop。
   if (panel_bitmap) {
     draw_canvas_panel(target, panel_bitmap, *canvas_.border, panel, style_.opacity() * motion_alpha);
   } else {
     auto surface = palette_.surface;
-    surface.a = candidate_skin_surface_alpha(skin_layout_.backdrop, surface.a);
+    surface.a = candidate_backdrop_surface_alpha(backdrop, surface.a);
     target->FillRoundedRectangle(card, brush(candidate_faded(surface, style_)));
   }
   const float background_opacity = panel_bitmap ? 0.0f : background_.opacity * style_.opacity();
@@ -1988,6 +2054,14 @@ void CandidateWindow::paint() {
   // z_index 不低于 1 的挂件在面板与候选文字之上；挂件只是装饰，点击照样落在下面的候选上。
   draw_decorations(canvas_layers_.above);
   target->SetTransform(D2D1::Matrix3x2F::Identity());
+  // 材质的位置和这一帧的内容一起提交：跟着卡片的平移、缩放和抖动走，和卡片底色一样随用户的不透明度与进出场动效淡化。
+  if (backdrop.active()) {
+    const auto area = candidate_backdrop_rect(card_outer.left, card_outer.top, card_outer.right, card_outer.bottom,
+                                              card_outer_radius, shake, motion_offset_y, motion_scale,
+                                              size.width / 2.0f, size.height / 2.0f);
+    device_.SetBackdrop(D2D1_RECT_F{area.left, area.top, area.right, area.bottom}, area.radius,
+                        style_.opacity() * motion_alpha);
+  }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
   const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
@@ -2012,6 +2086,7 @@ void CandidateWindow::paint() {
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
   painted_dpi_ = GetDpiForWindow(window_);
+  painted_backdrop_ = backdrop;
   painted_card_ = D2D1_RECT_F{static_cast<float>(panel.left), static_cast<float>(panel.top),
                               static_cast<float>(panel.right), static_cast<float>(panel.bottom)};
   painted_expand_ = expand_layout;
@@ -2220,6 +2295,24 @@ std::optional<RECT> CandidateWindow::painted_card() const {
               static_cast<LONG>(std::lround(painted_card_->top * scale)),
               static_cast<LONG>(std::lround(painted_card_->right * scale)),
               static_cast<LONG>(std::lround(painted_card_->bottom * scale))};
+}
+std::string CandidateWindow::painted_backdrop() const {
+  auto label = candidate_backdrop_label(painted_backdrop_, device_.BackdropWallpaperAvailable());
+  // 建不起材质时带上失败在哪一步（DeviceResources::BackdropFailure），截图日志里看得出原因。
+  if (painted_backdrop_.state == CandidateBackdropState::unavailable)
+    if (const auto failure = device_.BackdropFailure(); !failure.empty())
+      label += ": " + failure;
+  return label;
+}
+CandidateBackdropPlan CandidateWindow::backdrop_plan() const {
+  CandidateBackdropSystem system;
+  system.composition_unavailable = backdrop_unavailable_;
+  // 只有要材质的皮肤才去读系统开关，其余皮肤每帧不多读一次注册表。
+  if (skin_layout_.backdrop != CandidateSkinBackdrop::none && !skin_layout_.panel_image) {
+    system.transparency_enabled = system_transparency_enabled();
+    system.high_contrast = system_high_contrast();
+  }
+  return candidate_backdrop_plan(skin_layout_.backdrop, skin_layout_.panel_image, palette_, system);
 }
 bool CandidateWindow::open_expansion() {
   if (!expand_.expanded)

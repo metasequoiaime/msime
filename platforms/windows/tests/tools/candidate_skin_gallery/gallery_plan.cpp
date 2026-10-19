@@ -137,6 +137,37 @@ void edges() {
   require(edge_bleed(pixels, width + 1, height, backdrop).worst() == 0.0);
 }
 
+void striped_backdrop() {
+  // 条纹每 24 像素换一种颜色，六种一轮，深浅各一组；负坐标（副显示器在主显示器左边）按绝对值算，不越界。
+  require(backdrop_stripe_color(0, false) == backdrop_stripe_color(23, false));
+  require(backdrop_stripe_color(0, false) != backdrop_stripe_color(24, false));
+  require(backdrop_stripe_color(0, false) == backdrop_stripe_color(stripe_width * 6, false));
+  require(backdrop_stripe_color(0, true) != backdrop_stripe_color(0, false));
+  require(backdrop_stripe_color(-30, false) == backdrop_stripe_color(30, false));
+  // 4 x 3 的屏幕裁出中间 2 x 2：逐行拷对位置。
+  std::vector<uint8_t> screen;
+  for (int y = 0; y < 3; ++y)
+    for (int x = 0; x < 4; ++x)
+      screen.insert(screen.end(), {static_cast<uint8_t>(x), static_cast<uint8_t>(y), 0, 0xff});
+  const auto window = crop(screen, 4, 3, {1, 1, 3, 3});
+  require((window == std::vector<uint8_t>{1, 1, 0, 0xff, 2, 1, 0, 0xff, 1, 2, 0, 0xff, 2, 2, 0, 0xff}));
+  require(crop(screen, 4, 3, {3, 1, 5, 3}).empty());
+  require(crop(screen, 4, 3, {-1, 0, 2, 2}).empty());
+  require(crop(screen, 4, 3, {2, 2, 2, 3}).empty());
+  require(crop(screen, 5, 3, {0, 0, 1, 1}).empty());
+  // 和截图之前的屏幕比：一样的不算画了东西，改了一个像素的那一个算；大小对不上的一个都不算。
+  auto shot = window;
+  require(capture_verdict(shot, window).differing == 0 && capture_verdict(shot, window).total == 4);
+  require(capture_blank(capture_verdict(shot, window)));
+  shot[4] = 0x80;
+  require(capture_verdict(shot, window).differing == 1);
+  require(capture_verdict(shot, screen).total == 0);
+  // 边：只有右上那个像素改了，右边一半、上边一半不同。
+  const auto bleed = edge_bleed(shot, window, 2, 2);
+  require(bleed.left == 0.0 && bleed.bottom == 0.0 && bleed.right == 0.5 && bleed.top == 0.5);
+  require(edge_bleed(shot, screen, 2, 2).worst() == 0.0);
+}
+
 void card_geometry() {
   // 592 x 182 的窗口，阴影边距 32/20/32/40：卡片应在 (32,20)-(560,142)。
   const PixelRect expected{32, 20, 560, 142};
@@ -158,6 +189,7 @@ int main() {
     expanded();
     blank_capture();
     edges();
+    striped_backdrop();
     card_geometry();
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
