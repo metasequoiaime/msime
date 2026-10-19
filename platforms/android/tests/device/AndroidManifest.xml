@@ -125,5 +125,6 @@
     <instrumentation android:name="app.msime.android.test.ClipboardExportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NumberLayerEntryDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NumberLayerRestartDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.CompositionRestartDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ClipboardSegmentActionsDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

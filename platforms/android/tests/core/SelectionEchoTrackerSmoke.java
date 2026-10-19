@@ -4,6 +4,23 @@ public final class SelectionEchoTrackerSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
+        SelectionEchoTracker restarted = new SelectionEchoTracker();
+        restarted.reset(4, 4);
+        check(!restarted.matchesRestartComposition(4, 4, 1));
+        restarted.compose(2);
+        restarted.expect();
+        check(restarted.matchesRestartComposition(6, 6, 2));
+        check(!restarted.matchesRestartComposition(5, 5, 2));
+        check(!restarted.matchesRestartComposition(6, 7, 2));
+        check(!restarted.matchesRestartComposition(6, 6, 1));
+        check(!restarted.matchesRestartComposition(6, 6, 0));
+        restarted.acknowledge(6, 6, 4, 6);
+        check(restarted.matchesRestartComposition(6, 6, 2));
+        restarted.finish();
+        check(!restarted.matchesRestartComposition(6, 6, 2));
+        restarted.invalidate();
+        check(!restarted.matchesRestartComposition(6, 6, 2));
+
         // 九键：上屏「你好」之后用户已经按下了下一个数字键（九键组字不写编辑器），上屏的回声迟到也不算光标移动。
         SelectionEchoTracker nineKey = new SelectionEchoTracker();
         nineKey.reset(5, 5);

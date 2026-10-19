@@ -184,6 +184,7 @@ platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java
 platforms/android/tests/device/keyboard/RestartingEditorActivity.java
 platforms/android/tests/device/keyboard/NumberLayerRestartDeviceSmoke.java
+platforms/android/tests/device/keyboard/CompositionRestartDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseShiftReturnDeviceSmoke.java
 platforms/android/java/app/msime/android/NativeHandlePolicy.java
 platforms/android/java/app/msime/android/policy/SmartPunctuationContext.java
