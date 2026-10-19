@@ -363,7 +363,13 @@ def polish(text, config, options, cancelled=None):
         body["thinking"] = {"type": "disabled"}
     try:
         result = polish_request(config, body, cancelled)
-        return bounded_text(result["choices"][0]["message"]["content"]) or text
+        if result.get("error") is not None:
+            return text
+        choice = result["choices"][0]
+        # 明确截断或过滤的正文不能替换完整转写；缺省状态兼容旧服务。
+        if choice.get("finish_reason") in ("length", "content_filter"):
+            return text
+        return bounded_text(choice["message"]["content"]) or text
     except Exception:
         return text
 
