@@ -34,7 +34,7 @@ async function openInputPage(
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
-  await screen.findByRole("radio", { name: "中文" });
+  await screen.findByRole("combobox", { name: "输入语言" });
 }
 
 function radio(name: string): HTMLInputElement {
@@ -52,8 +52,8 @@ test("a Windows capability shows 粤拼, 注音, 笔画, 越南文 and 藏文 di
   expect(radio("粤拼").disabled).toBe(true);
   expect(radio("注音").disabled).toBe(true);
   expect(radio("笔画").disabled).toBe(true);
-  expect(radio("越南文").disabled).toBe(true);
-  expect(radio("藏文").disabled).toBe(true);
+  expect((screen.getByRole("option", { name: "越南文" }) as HTMLOptionElement).disabled).toBe(true);
+  expect((screen.getByRole("option", { name: "藏文" }) as HTMLOptionElement).disabled).toBe(true);
   expect(radio("五笔").disabled).toBe(false);
   expect(screen.getByText("此平台暂不支持粤拼、注音、笔画")).toBeTruthy();
 });
@@ -80,13 +80,19 @@ test("a macOS capability offers every scheme", async () => {
   expect(radio("粤拼").disabled).toBe(false);
   expect(radio("注音").disabled).toBe(false);
   expect(radio("笔画").disabled).toBe(false);
-  expect(radio("越南文").disabled).toBe(false);
+  expect((screen.getByRole("option", { name: "越南文" }) as HTMLOptionElement).disabled).toBe(
+    false,
+  );
   expect(screen.queryByText(/此平台暂不支持/)).toBeNull();
-  fireEvent.click(radio("越南文"));
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "vietnamese" },
+  });
   expect(radio("Telex").checked).toBe(true);
   expect(radio("新式 hoà").checked).toBe(true);
-  expect(radio("藏文").disabled).toBe(false);
-  fireEvent.click(radio("藏文"));
+  expect((screen.getByRole("option", { name: "藏文" }) as HTMLOptionElement).disabled).toBe(false);
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "tibetan" },
+  });
   // 藏文只有一个方案，是一行说明，不是只有一项的选择器。
   expect(screen.getByText(/^威利转写：/).closest("[hidden]")).toBeNull();
   expect(screen.queryByRole("radio", { name: "威利转写" })).toBeNull();

@@ -232,7 +232,7 @@ inline CandidateSkinGeometry candidate_skin_geometry_table(const nlohmann::json 
   return geometry;
 }
 } // namespace detail
-// 包的版式、外框、阴影、材质、翻页箭头和收紧宽度（见 CandidateSkinLayout.h）。读不懂的值当作没写，卡片保留宿主自己的值。
+// 包的版式、外框、阴影、材质、翻页箭头、收紧宽度和卷轴展开（见 CandidateSkinLayout.h）。读不懂的值当作没写，卡片保留宿主自己的值。
 inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
                                                  const std::string &id) {
   CandidateSkinLayout layout;
@@ -268,6 +268,11 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
   }
   layout.page_arrows = detail::candidate_skin_flag(*package, "pageArrows");
   layout.fit_content = detail::candidate_skin_flag(*package, "fitContent");
+  layout.expand_panel = detail::candidate_skin_flag(*package, "expandPanel");
+  // catalog 只收 2-8 的整数，越界或不是整数时当作没写。
+  if (const auto rows = detail::candidate_skin_number(*package, "expandRows", 8.0);
+      rows && *rows >= 2.0 && std::floor(*rows) == *rows)
+    layout.expand_rows = static_cast<int>(*rows);
   return layout;
 }
 inline CandidateSkinBackground

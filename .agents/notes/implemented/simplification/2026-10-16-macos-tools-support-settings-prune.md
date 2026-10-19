@@ -113,3 +113,5 @@ Windows 的「帮助与反馈」并入「关于」、手写并入屏幕键盘后
 macOS 云词库入口收窄到输入法菜单，设置进程已有面板的账号回退见[云词库回退](../bug-fix/2026-10-18-macos-cloud-dictionary-account-fallback.md)。
 
 [设置账号接线组件](2026-10-19-settings-account-page.md)继续保留桌面词库跳转优先和 macOS 原生云端入口限制，公共账号动作不改变这些平台筛选。
+
+AI 服务的接口地址与模型目录现由[按依赖顺序配置服务](../bug-fix/2026-10-19-ai-service-setup-order.md)部分取代：基础连接直接可见，仅提示词单独折叠。当前槽位与各宿主能力边界继续适用。

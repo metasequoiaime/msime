@@ -36,7 +36,7 @@ function renderSettings(platform: string, host: Record<string, unknown> = {}) {
   );
 }
 
-// 手机从触屏首页的根页行进入它；2in1 的手写并进了屏幕键盘页，从侧边栏的「屏幕键盘与手写」进入。
+// 手机从首页进入独立手写页；2-in-1 从侧栏「键盘手写」进入后切到「手写」标签。
 async function handwritingPage(mobile = true) {
   await settingsFormReady();
   const { fireEvent } = await import("@testing-library/react");
@@ -51,7 +51,9 @@ async function handwritingPage(mobile = true) {
   );
   if (!row) throw new Error("no row for 屏幕键盘与手写");
   fireEvent.click(row);
-  return screen.getByRole("group", { name: "键盘手写" });
+  const page = screen.getByRole("group", { name: "键盘手写" });
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
+  return within(page).getByRole("tabpanel", { name: "手写" });
 }
 
 // HarmonyOS reaches handwriting by switching the keyboard's input scheme, the way the other
@@ -83,5 +85,6 @@ test("a desktop host still gets the launch button", async () => {
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
   const page = screen.getByRole("group", { name: "键盘手写" });
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });

@@ -1372,7 +1372,8 @@ int wmain(int argc, wchar_t **argv) {
       if (click.action == CandidateAction::Select) {
         if (server.request_selection(click.lease, click.session,
                                      click.generation, click.index,
-                                     click.translation_page) ==
+                                     click.translation_page,
+                                     click.expanded_text) ==
             SelectionRequestResult::Failed)
           throw std::runtime_error("Candidate selection failed");
         return;
@@ -1466,6 +1467,10 @@ int wmain(int argc, wchar_t **argv) {
           server.candidate_rendered(value.lease, value.render_serial);
         },
         candidate_mouse_wheel->load(std::memory_order_acquire));
+    // 皮肤的卷轴展开：点开「∨」后由 Server 在输入队列上取这一代的完整候选列表，随候选快照交回候选窗。
+    candidates.set_expansion_handler([&](const FocusLease &lease, bool open) {
+      server.set_candidate_expansion(lease, open);
+    });
     if (typing_overlay)
       candidates.set_typing_effect_presenter([&typing_overlay](const TypingEffectPresentation &presentation) {
         return typing_overlay->present(presentation);

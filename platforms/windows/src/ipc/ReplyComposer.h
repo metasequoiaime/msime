@@ -156,9 +156,11 @@ public:
   // Stale/busy clicks are rejected without advancing Engine. UI receipts use
   // the resulting view generation, not the id-zero wire request identifier.
   // translation_page 是点击所在那一帧的释义页编号（Engine 自己的候选为 0），必须等于眼下的 translation_page()：释义页沿用 Engine 列表的 session 和 generation、序号也从 0 起，只靠这两个字段分不清点的是哪一张表。
+  // expanded_text 有值时选的是卷轴展开网格里的候选：index 是 msime_client_all_candidates 那份完整列表里的下标（不在当前页上，用 msime_client_select_any_candidate 选），这一代里那个下标上的候选画出来必须正是 expanded_text，否则当作过期的点击拒绝。释义页开着时网格不存在，一律拒绝。
   std::optional<PendingReply> select_candidate(ServerSession &session,
       uint64_t expected_session, uint64_t generation, size_t index,
-      uint64_t translation_page, bool continuation_supported = false);
+      uint64_t translation_page, bool continuation_supported = false,
+      const std::optional<std::string> &expanded_text = std::nullopt);
   // Ctrl+Enter 打开的释义页的编号，没有打开时为 0。每打开一页取一个新编号，写进这一页 view 的 translation_page，候选窗画出来、点击原样带回。
   uint64_t translation_page() const {
     return translation_page_active_ ? translation_page_serial_ : 0;

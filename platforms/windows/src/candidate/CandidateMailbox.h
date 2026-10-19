@@ -111,8 +111,71 @@ public:
   void action(const FocusLease &lease, const nlohmann::json &view) {
     refresh_view(lease, view, true);
   }
+  // 卷轴展开（CandidateExpandPanel.h）：候选窗点开「∨」时 open 为 true，只认这个租约；收起、候选窗隐藏、断开时清掉，连同手里的完整候选列表。界面线程调用，只拿这把锁。
+  void expansion(const FocusLease &lease, bool open) {
+    std::lock_guard lock(mutex_);
+    clear_expansion_locked();
+    if (open && !stopped_)
+      expansion_lease_ = lease;
+  }
+  // 要不要为这个租约再取一次完整候选列表：展开着、正显示着这个租约的候选，而手里的列表不是眼下这一代的（接着打字、翻页、云候选到达都会换代；只补上释义的同一代不用再取）。
+  bool expansion_due(const FocusLease &lease) {
+    std::lock_guard lock(mutex_);
+    apply_pending_hide_locked();
+    return !stopped_ && expansion_lease_ && same_lease(*expansion_lease_, lease) && latest_ &&
+           same_lease(latest_->lease, lease) && latest_->visible && !suppressed_ &&
+           !latest_->candidates.empty() && latest_->translation_page == 0 &&
+           !expanded_current_locked(*latest_);
+  }
+  // 输入队列上取到的完整候选列表（expanded_candidates_from_snapshot），属于 session 的 generation 那一代。只在展开还开着、而且正是眼下这一页的代次时留下，并发布一个新快照让候选窗重画；繁体输出时文字换成繁体，和这一页画的一样。繁简转换要调用共享层，在锁外做。
+  void expanded(const FocusLease &lease, uint64_t session, uint64_t generation,
+                std::vector<ExpandedCandidate> items) {
+    bool traditional = false;
+    {
+      std::lock_guard lock(mutex_);
+      if (!expansion_matches_locked(lease, session, generation))
+        return;
+      traditional = latest_->traditional_output;
+    }
+    if (traditional)
+      for (auto &item : items)
+        item.text = simplified_to_traditional(item.text, true);
+    auto shared = std::make_shared<const std::vector<ExpandedCandidate>>(std::move(items));
+    std::lock_guard lock(mutex_);
+    // 换算期间切换了简繁：这份文字已经不对，等下一次取。
+    if (!expansion_matches_locked(lease, session, generation) ||
+        latest_->traditional_output != traditional)
+      return;
+    expanded_ = std::move(shared);
+    expanded_session_ = session;
+    expanded_generation_ = generation;
+    expanded_traditional_ = traditional;
+    latest_->render_serial = ++render_serial_;
+  }
 
 private:
+  static bool same_lease(const FocusLease &a, const FocusLease &b) {
+    return a.epoch == b.epoch && a.token == b.token && same_ticket(a.transport, b.transport);
+  }
+  bool expansion_matches_locked(const FocusLease &lease, uint64_t session,
+                                uint64_t generation) const {
+    return !stopped_ && expansion_lease_ && same_lease(*expansion_lease_, lease) && latest_ &&
+           same_lease(latest_->lease, lease) && latest_->session == session &&
+           latest_->generation == generation && latest_->visible;
+  }
+  void clear_expansion_locked() {
+    expansion_lease_.reset();
+    expanded_.reset();
+    expanded_session_ = 0;
+    expanded_generation_ = 0;
+    expanded_traditional_ = false;
+  }
+  // 手里的完整列表是不是这一页的：同一会话、同一代，文字按同一种简繁换算过。切换简繁（Ctrl+Shift+F）只换投影、不换代次，不比简繁的话网格会停在旧的字形上，点哪个都因文字对不上被拒绝。
+  bool expanded_current_locked(const CandidatePresentation &value) const {
+    return expanded_ && expanded_session_ == value.session &&
+           expanded_generation_ == value.generation &&
+           expanded_traditional_ == value.traditional_output;
+  }
   // 繁体输出时候选显示的是繁体，所以每条读音按繁体文字再存一份。在锁外做：繁简转换要调用共享层。
   static CandidateReadings keyed_readings(CandidateReadings readings) {
     CandidateReadings keyed;
@@ -215,6 +278,7 @@ public:
         latest_->visible = false;
         latest_->preedit.clear();
         latest_->candidates.clear();
+        clear_expansion_locked();
       }
       break;
     case FanyImePipeEventType::ShowCandidateWnd:
@@ -248,11 +312,14 @@ public:
       rendered_lease_.reset();
       rendered_generation_ = 0;
     }
+    if (expansion_lease_ && same_ticket(expansion_lease_->transport, ticket))
+      clear_expansion_locked();
   }
   void stop() {
     std::lock_guard lock(mutex_);
     stopped_ = true;
     latest_.reset();
+    clear_expansion_locked();
     pending_hide_.reset();
     rendered_lease_.reset();
     rendered_generation_ = 0;
@@ -292,6 +359,13 @@ public:
             latest_->lease.token == lease->token &&
             same_ticket(latest_->lease.transport, lease->transport))
           result = latest_;
+        // 完整候选列表只跟着取它的那一代、那种简繁走：换代或切换简繁之后、重新取到之前，这一页没有网格。
+        if (result) {
+          result->expansion_open =
+              expansion_lease_ && same_lease(*expansion_lease_, result->lease);
+          if (result->expansion_open && expanded_current_locked(*result))
+            result->expanded = expanded_;
+        }
         if (result && suppressed_) {
           result->visible = false;
           result->preedit.clear();
@@ -324,6 +398,7 @@ private:
     latest_->visible = false;
     latest_->preedit.clear();
     latest_->candidates.clear();
+    clear_expansion_locked();
   }
 
   std::mutex mutex_;
@@ -333,6 +408,11 @@ private:
   std::optional<CandidatePresentation> latest_;
   // 最近一次翻译算出的读音，按候选文字存，见 translations()。
   CandidateReadings readings_;
+  // 卷轴展开开着时的租约，以及为它取到的完整候选列表和那一代的身份，见 expansion()。
+  std::optional<FocusLease> expansion_lease_;
+  std::shared_ptr<const std::vector<ExpandedCandidate>> expanded_;
+  uint64_t expanded_session_ = 0, expanded_generation_ = 0;
+  bool expanded_traditional_ = false;
   std::optional<FocusLease> rendered_lease_;
   uint64_t rendered_generation_ = 0;
   uint64_t render_serial_ = 0;

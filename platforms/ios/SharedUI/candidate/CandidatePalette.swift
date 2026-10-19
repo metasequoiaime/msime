@@ -28,8 +28,9 @@ struct CandidatePalette: Equatable {
   static let editableColors: [(slot: String, title: String)] = [("text", "文字"), ("surface", "背景"), ("hover", "首选高亮")]
 
   /// 开关关闭或主题未提供候选色时返回 nil；成功绘制面板后才允许使用贴图配色。
-  static func active(in preferences: [String: Any]?, systemDark: Bool, canvasPanelDrawn: Bool = false) -> CandidatePalette? {
-    guard followsDesktop, let resolved = resolveTheme(preferences, systemDark: systemDark, canvasPanelDrawn: canvasPanelDrawn), resolved.candidate != nil
+  static func active(in preferences: [String: Any]?, systemDark: Bool, skinsRoot: URL? = ExternalCandidateSkin.defaultRoot,
+                     canvasPanelDrawn: Bool = false) -> CandidatePalette? {
+    guard followsDesktop, let resolved = resolveTheme(preferences, systemDark: systemDark, skinsRoot: skinsRoot, canvasPanelDrawn: canvasPanelDrawn), resolved.candidate != nil
     else { return nil }
     return palette(resolved)
   }

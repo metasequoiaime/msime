@@ -4,7 +4,7 @@
 #include <optional>
 
 namespace msime::windows {
-// 皮肤包 `[candidate_window]` 里的版式、外框、阴影、材质、翻页箭头和收紧宽度这几组键，来自共享 catalog 的 `SkinSummary`（`geometry` / `horizontal` / `vertical`、`borderWidthDip`、`itemCornerRadiusDip`、`shadow`、`backdrop`、`pageArrows`、`fitContent`），含义照 msime-windows c0a9d371 的 candidate_skin_tokens.cpp 与 candidate_skin_scene.cpp。没写的键为空，卡片保留宿主自己的值：不写这些键的皮肤和没有皮肤时，画出来与以前一样。这里不碰 JSON 和 Direct2D，换算规则在没有 Windows 的机器上也能测。
+// 皮肤包 `[candidate_window]` 里的版式、外框、阴影、材质、翻页箭头、收紧宽度和卷轴展开这几组键，来自共享 catalog 的 `SkinSummary`（`geometry` / `horizontal` / `vertical`、`borderWidthDip`、`itemCornerRadiusDip`、`shadow`、`backdrop`、`pageArrows`、`fitContent`、`expandPanel`、`expandRows`），含义照 msime-windows c0a9d371 的 candidate_skin_tokens.cpp 与 candidate_skin_scene.cpp。没写的键为空，卡片保留宿主自己的值：不写这些键的皮肤和没有皮肤时，画出来与以前一样。这里不碰 JSON 和 Direct2D，换算规则在没有 Windows 的机器上也能测。
 //
 // msime-windows 里没写的键沿用 `base` 外观自己的出厂清单（例如 `wechat` 的 `padding = 2`）；共享 catalog 目前只按外观补颜色和卡片圆角，不补版式，所以这里没写的键回到的是本宿主的默认版式，而不是 `base` 外观的。
 
@@ -41,6 +41,9 @@ struct CandidateSkinLayout {
   // msime-windows 里没写等于 `none`。
   CandidateSkinBackdrop backdrop = CandidateSkinBackdrop::none;
   std::optional<bool> page_arrows, fit_content;
+  // `expand_panel`（横排的卷轴展开）与 `expand_rows`（展开后一屏的网格行数，2-8），见 CandidateExpandPanel.h。
+  std::optional<bool> expand_panel;
+  std::optional<int> expand_rows;
 };
 // 当前排列下生效的版式表：横排或竖排表里写了的键盖过共享表，同 msime-windows 的 ApplyLayer 先套 geometry 再套排列表。
 inline CandidateSkinGeometry candidate_skin_geometry(const CandidateSkinLayout &layout,
@@ -76,6 +79,9 @@ struct CandidateSkinMetrics {
       selected_bar_width, selected_bar_height;
   bool selected_bar_inside = false, corners_follow_card = false,
        justify_rows = false, page_arrows = false, fit_content = false;
+  // 卷轴展开只在横排生效（msime-windows 的 ResolveExpandPanel 只在横排时问）；打开时 page_arrows 被忽略。expand_rows 没写时是 4。
+  bool expand_panel = false;
+  int expand_rows = 4;
   CandidatePageArrowStyle page_arrow_style = CandidatePageArrowStyle::chevron;
   CandidateSkinInsets preedit_margin{};
 };
@@ -109,6 +115,10 @@ inline CandidateSkinMetrics candidate_skin_metrics(const CandidateSkinLayout &la
   metrics.preedit_margin = geometry.preedit_margin.value_or(CandidateSkinInsets{});
   metrics.page_arrows = layout.page_arrows.value_or(false);
   metrics.fit_content = layout.fit_content.value_or(false);
+  metrics.expand_panel = horizontal && layout.expand_panel.value_or(false);
+  metrics.expand_rows = std::clamp(layout.expand_rows.value_or(4), 2, 8);
+  if (metrics.expand_panel)
+    metrics.page_arrows = false;
   return metrics;
 }
 // 卡片阴影的不透明度。皮肤的档位只缩放阴影的不透明度、不改几何（msime-windows 的 ShadowAlphaScale：soft 乘 0.5，strong 乘 1.6），`none` 不画；没写时是宿主自己的 `alpha`。Windows 上没有阴影的用户偏好，皮肤直接决定。

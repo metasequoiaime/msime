@@ -247,8 +247,9 @@ final class CandidateCanvasTests: XCTestCase {
     }
     defaults.set(true, forKey: CandidatePalette.followsDesktopKey)
     InputSchemePreference.scheme = .quanpin
-    let source = try root().appendingPathComponent("canvas-fixture")
-    let destination = try XCTUnwrap(ExternalCandidateSkin.defaultRoot)
+    let fixtureRoot = try root()
+    let source = fixtureRoot.appendingPathComponent("canvas-fixture")
+    let destination = fixtureRoot.appendingPathComponent("installed-skins")
     let id = "ios-canvas-" + UUID().uuidString.lowercased()
     let renamed = source.deletingLastPathComponent().appendingPathComponent(id)
     try FileManager.default.moveItem(at: source, to: renamed)
@@ -263,6 +264,7 @@ final class CandidateCanvasTests: XCTestCase {
       $0["custom_theme"] = ["candidate_skin": id, "candidate_skin_dark": id]
     })
     let controller = KeyboardViewController()
+    controller.candidateSkinsRoot = destination
     controller.overrideUserInterfaceStyle = .light
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
@@ -298,7 +300,9 @@ final class CandidateCanvasTests: XCTestCase {
 
   /// 本机验收时暂存固定上游资源；CI 不下载、不复制这些图片进仓库。
   func testUpstreamCanvasesOnRealControllerWhenStaged() async throws {
-    let root = try XCTUnwrap(ExternalCandidateSkin.defaultRoot)
+    guard let root = ExternalCandidateSkin.defaultRoot else {
+      throw XCTSkip("本机上游图片验收需要已签名的 App Group 容器")
+    }
     guard ["green_leaf", "sakura-night"].allSatisfy({ FileManager.default.fileExists(atPath: root.appendingPathComponent($0).appendingPathComponent("skin.toml").path) }) else {
       throw XCTSkip("未暂存固定上游的两款 canvas 皮肤")
     }

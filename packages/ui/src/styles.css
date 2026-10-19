@@ -3029,3 +3029,237 @@ html[data-macos-liquid-glass="true"]
   border-color: rgba(255, 255, 255, 0.25);
   backdrop-filter: blur(16px) saturate(1.25);
 }
+
+/* 服务商菜单用本地图标识别每一项，并继承设置页的深浅配色。 */
+.ai-provider-select {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.ai-provider-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(280px, 100%);
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--p-hair, var(--border-color));
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--p-text, var(--text-primary));
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ai-provider-trigger:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.ai-provider-trigger:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+.ai-provider-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+}
+.ai-provider-icon[data-brand-tile] {
+  background: #fff;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.12);
+}
+.ai-provider-icon[data-brand-tile="dark"] {
+  background: #171719;
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.16);
+}
+.ai-provider-icon > img {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+.ai-provider-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-provider-chevron {
+  flex: none;
+  width: 12px;
+  height: 16px;
+  margin-left: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ai-provider-menu {
+  z-index: 100;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--p-hair, var(--border-color));
+  border-radius: 12px;
+  background: var(--p-bg, var(--surface-raised));
+  background: color-mix(in srgb, var(--p-bg, var(--surface-raised)) 90%, transparent);
+  color: var(--p-text, var(--text-primary));
+  box-shadow:
+    0 12px 36px rgb(0 0 0 / 0.22),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.15);
+  backdrop-filter: blur(24px) saturate(1.3);
+  font: inherit;
+  font-size: 13px;
+}
+.ai-provider-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: default;
+  user-select: none;
+}
+.ai-provider-option[data-active] {
+  background: var(--accent-color);
+  color: var(--p-on-accent, white);
+}
+.ai-provider-check {
+  flex: none;
+  width: 16px;
+  margin-left: auto;
+  text-align: center;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ai-provider-menu {
+    background: var(--p-bg, var(--surface-raised));
+    backdrop-filter: none;
+  }
+}
+@media (forced-colors: active) {
+  .ai-provider-menu,
+  .ai-provider-trigger {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    backdrop-filter: none;
+  }
+  .ai-provider-option[data-active] {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
+/* macOS 文本框与密钥框使用一致的字体、高度和输入表面，避免浏览器默认的窄白框。 */
+[data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: var(--control-bg);
+  --settings-input-border: var(--control-border);
+}
+
+html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: rgba(0, 0, 0, 0.12);
+  --settings-input-border: rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"]
+  [data-settings-shell][data-platform="mac"] {
+  --settings-input-bg: rgba(255, 255, 255, 0.24);
+  --settings-input-border: rgba(0, 0, 0, 0.14);
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea)) {
+  box-sizing: border-box;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--settings-input-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--settings-input-bg);
+  color: var(--p-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+[data-settings-shell][data-platform="mac"] :is(.settings-text-input, input.settings-field-input) {
+  min-height: 32px;
+}
+
+[data-settings-shell][data-platform="mac"] .settings-text-input {
+  width: 240px;
+}
+
+[data-settings-shell][data-platform="mac"] .settings-text-input[type="number"] {
+  width: 84px;
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea))::placeholder {
+  color: var(--p-sub);
+  opacity: 0.75;
+}
+
+[data-settings-shell][data-platform="mac"]
+  :is(.settings-text-input, .settings-field-input:is(input, textarea))[aria-invalid="true"] {
+  border-color: var(--danger-text);
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input {
+  display: flex;
+  width: 280px;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input > input {
+  flex: 1;
+  width: 0;
+}
+
+[data-settings-shell][data-platform="mac"] .secret-input-toggle {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-height: 32px;
+  border: 1px solid var(--settings-input-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--p-btn-bg);
+  color: var(--p-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* AI 地址、凭据与模型名称都是长文本，标题在上、输入在下，避免挤进窄小的行尾。 */
+[data-settings-shell][data-platform="mac"] .ai-settings .settings-wide-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+[data-settings-shell][data-platform="mac"] .ai-settings .settings-wide-row-control {
+  min-width: 0;
+  width: 100%;
+}
+
+[data-settings-shell][data-platform="mac"]
+  .ai-settings
+  .settings-wide-row-control
+  > :is(.settings-text-input, .secret-input) {
+  width: 100%;
+}

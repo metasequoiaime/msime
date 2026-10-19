@@ -1,6 +1,7 @@
 #pragma once
 #include "CandidateCardSize.h"
 #include "CandidateClickWorker.h"
+#include "CandidateExpandPanel.h"
 #include "CandidateFontSettings.h"
 #include "CandidateLayoutSettings.h"
 #include "CandidateMenuLayout.h"
@@ -15,6 +16,7 @@
 #include "FullscreenForeground.h"
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
@@ -105,8 +107,11 @@ public:
   }
   // The card radius a package asks for; none keeps the theme's.
   void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
-  // 包的版式、外框线宽、高亮圆角、阴影档位、材质、翻页箭头和收紧宽度（CandidateSkinLayout.h）。每次排版按当前排列和字号解析；和用户偏好的先后见 paint() 里的说明。
+  // 包的版式、外框线宽、高亮圆角、阴影档位、材质、翻页箭头、收紧宽度和卷轴展开（CandidateSkinLayout.h）。每次排版按当前排列和字号解析；和用户偏好的先后见 paint() 里的说明。卷轴展开的开关变了就收起。
   void set_skin_layout(const CandidateSkinLayout &layout);
+  // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
+  using Expansion = std::function<void(const FocusLease &, bool)>;
+  void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
   // The package's bounded native motion model. Reduced motion in Windows
   // disables it at paint time without changing the candidate semantics.
   void set_skin_animation(CandidateSkinAnimation animation) {
@@ -172,12 +177,48 @@ private:
   void show_context_menu(const CandidateClick &click, POINT client_point);
   // 按刚画好的行重新登记悬停提示的区域；行的位置和快照都没变时不动，打字闪光每秒重画几十次也不会反复登记。
   void sync_tooltips();
-  // 读屏要求执行一个元素（accessible_invoke_message）：候选行等同于点它，翻页箭头等同于点箭头。`token` 对不上当前的树时丢掉。
+  // 读屏要求执行一个元素（accessible_invoke_message）：候选行等同于点它，翻页箭头等同于点箭头，展开按钮和网格里的候选也一样。`token` 对不上当前的树时丢掉。
   void invoke_accessible(int id, LPARAM token);
+  // 这一帧用的皮肤版式。卷轴展开只对能用鼠标选的 Engine 列表有意义：释义页和只能用键盘选的列表照常画列表和翻页（page_arrows 照常生效）。
+  CandidateSkinMetrics skin_metrics(const CandidatePresentation &value) const;
+  // 这一帧网格要排的后续候选：挂着的完整列表里排在当前页之后的那些（start 起 available 个），最多排出 count 个（一批一批地加）。顺带对照网格第一项，换了候选就回到顶部。没展开、这一页不能展开或列表还没到时为空。
+  struct ExpandGrid {
+    std::shared_ptr<const std::vector<ExpandedCandidate>> items;
+    size_t start = 0, count = 0, available = 0;
+  };
+  ExpandGrid expand_grid(const CandidatePresentation &value);
+  // 网格里每个候选的文字宽度（候选字号），按文字缓存：同一批候选每次重画都要排一遍网格，DirectWrite 只量一次。
+  std::vector<double> grid_widths(const ExpandGrid &grid);
+  // 每页候选数，网格最多分这么多列；view 没带时按这一页的候选数。
+  static size_t expand_page_size(const CandidatePresentation &value);
+  // 点「∨」「∧」：展开或收起，并通知 Server。
+  void toggle_expansion();
+  // 收起（候选窗关闭、换了客户端、改成竖排、换了皮肤）；没展开时什么也不做。
+  void collapse_expansion();
+  // 滚到离底部一行半以内、还有没排出来的候选时再排一批。
+  void reveal_if_near_end();
+  // 点网格里第 slot 个候选：带着它在完整列表里的下标和画出来的文字交给 click_。
+  void commit_cell(size_t slot);
+  // 客户区像素换成卡片坐标（DIP），和 hit() 同一种换算。
+  std::pair<double, double> card_point(int x, int y) const;
   Reader reader_;
   Click click_;
   Page page_;
   Rendered rendered_;
+  Expansion expansion_;
+  // 卷轴展开的状态和打开它时的租约；expand_viewport_ 是上一帧展开区的高度，后续候选还在路上的那一帧沿用它，卡片不先缩回一行再长回来。
+  CandidateExpandState expand_;
+  std::optional<FocusLease> expand_lease_;
+  double expand_viewport_ = 0.0;
+  std::unordered_map<std::string, double> grid_width_cache_;
+  // 刚画好的展开区（滚动偏移为 0 的布局）、画时用的偏移（按设备像素取整）、一格滚动的距离和网格里的候选，点击、悬停和读屏都读这些。
+  std::optional<CandidateExpandLayout> painted_expand_;
+  double painted_expand_offset_ = 0.0, painted_expand_step_ = 0.0;
+  ExpandGrid painted_grid_;
+  std::optional<size_t> hovered_cell_, pressed_cell_;
+  bool hovered_toggle_ = false, pressed_toggle_ = false, hovered_scrollbar_ = false;
+  // 正在拖滚动条时，按下处在滑块里的高度。
+  std::optional<double> thumb_grab_;
   HWND window_ = nullptr;
   std::optional<CandidatePresentation> shown_;
   unsigned shown_dpi_ = 0;

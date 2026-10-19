@@ -34,7 +34,8 @@ int main() {
     const auto layout = candidate_skin_layout(catalog, "plain");
     require(!layout.border_width && !layout.item_corner_radius && !layout.shadow &&
             layout.backdrop == CandidateSkinBackdrop::none && !layout.page_arrows &&
-            !layout.fit_content && !layout.geometry.padding && !layout.horizontal.padding);
+            !layout.fit_content && !layout.expand_panel && !layout.expand_rows &&
+            !layout.geometry.padding && !layout.horizontal.padding);
     const auto metrics = candidate_skin_metrics(layout, true, 16.0);
     require(metrics.horizontal && !metrics.padding && !metrics.item_gap &&
             !metrics.number_scale && !metrics.selected_bar_height && !metrics.page_arrows &&
@@ -141,11 +142,20 @@ int main() {
                                {"preeditMarginDip", Json{{"top", 1.0}, {"right", 2.0}}},
                                {"itemExtraHeight", 3.0}};
     hostile["vertical"] = 7;
+    hostile["expandPanel"] = "yes";
+    hostile["expandRows"] = 4.5;
     const auto parsed =
         candidate_skin_layout(Json{{"packages", Json::array({hostile})}}, "hostile");
     require(!parsed.border_width && !parsed.item_corner_radius && !parsed.shadow &&
             parsed.backdrop == CandidateSkinBackdrop::none && !parsed.page_arrows &&
-            !parsed.fit_content);
+            !parsed.fit_content && !parsed.expand_panel && !parsed.expand_rows);
+    // expand_rows 只收 2-8 的整数。
+    for (const double rows : {1.0, 9.0, -2.0}) {
+      auto out_of_range = package("rows");
+      out_of_range["expandRows"] = rows;
+      require(!candidate_skin_layout(Json{{"packages", Json::array({out_of_range})}}, "rows")
+                   .expand_rows);
+    }
     require(!parsed.geometry.padding && !parsed.geometry.item_gap &&
             !parsed.geometry.number_scale && !parsed.geometry.selected_bar_width &&
             !parsed.geometry.page_arrow_style && !parsed.geometry.preedit_margin &&
@@ -166,6 +176,24 @@ int main() {
   require(near(candidate_skin_surface_alpha(CandidateSkinBackdrop::none, 0.6f), 0.6));
   require(near(candidate_skin_surface_alpha(CandidateSkinBackdrop::acrylic, 0.6f), 1.0));
   require(near(candidate_skin_surface_alpha(CandidateSkinBackdrop::mica, 0.15f), 1.0));
+
+  // 卷轴展开：expandPanel 与 expandRows 读进来；只在横排生效，打开时 page_arrows 被忽略，expand_rows 没写时是 4。
+  {
+    auto scroll = package("wechat-scroll-like");
+    scroll["expandPanel"] = true;
+    scroll["expandRows"] = 6;
+    scroll["pageArrows"] = true;
+    const auto layout =
+        candidate_skin_layout(Json{{"packages", Json::array({scroll})}}, "wechat-scroll-like");
+    require(layout.expand_panel == true && layout.expand_rows == 6 && layout.page_arrows == true);
+    const auto horizontal = candidate_skin_metrics(layout, true, 16.0);
+    require(horizontal.expand_panel && horizontal.expand_rows == 6 && !horizontal.page_arrows);
+    const auto vertical = candidate_skin_metrics(layout, false, 16.0);
+    require(!vertical.expand_panel && vertical.page_arrows);
+    auto defaults = layout;
+    defaults.expand_rows.reset();
+    require(candidate_skin_metrics(defaults, true, 16.0).expand_rows == 4);
+  }
 
   // 资源一起带上版式。
   {
