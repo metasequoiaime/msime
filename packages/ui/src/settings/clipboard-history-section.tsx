@@ -1,5 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
@@ -18,6 +18,10 @@ import {
   defaultClipboardHistoryLimit,
 } from "./clipboard-history-preferences";
 import { SelectRow } from "./select-row";
+import { DictionaryPagination } from "./dictionary-pagination";
+import { useSettingsTabs } from "./use-settings-tabs";
+
+const HISTORY_PAGE_SIZE = 20;
 
 export type { ClipboardHistoryClient, ClipboardHistoryEntry } from "./clipboard-history-model";
 
@@ -29,6 +33,8 @@ export interface ClipboardHistorySectionProps {
   revision?: number;
   page?: string;
   ios: boolean;
+  /** 桌面设置按「剪贴板」「历史记录」分标签；独立控件与触屏宿主默认顺序显示。 */
+  tabbed?: boolean;
   onToggle: (enabled: boolean) => void;
   onLimitChange?: (limit: number) => void;
   onError: (message: string) => void;
@@ -50,6 +56,7 @@ export function ClipboardHistorySection({
   revision,
   page,
   ios,
+  tabbed = false,
   onToggle,
   onLimitChange,
   onError,
@@ -74,6 +81,27 @@ export function ClipboardHistorySection({
     cloudRoute,
     historyShown,
   });
+  const [offset, setOffset] = useState(0);
+  const lastOffset =
+    Math.max(0, Math.ceil(entries.length / HISTORY_PAGE_SIZE) - 1) * HISTORY_PAGE_SIZE;
+  const currentOffset = Math.min(offset, lastOffset);
+  const visibleEntries = entries.slice(currentOffset, currentOffset + HISTORY_PAGE_SIZE);
+  const tabsEnabled = tabbed && Boolean(client?.list);
+  const { tabList, panel } = useSettingsTabs(
+    [
+      { id: "clipboard", title: "剪贴板" },
+      { id: "history", title: "历史记录" },
+    ] as const,
+    "剪贴管理分类",
+    tabsEnabled,
+  );
+
+  useEffect(() => {
+    setOffset(0);
+  }, [client, ios, historyEnabled, persistedHistoryEnabled]);
+  useEffect(() => {
+    setOffset((previous) => Math.min(previous, lastOffset));
+  }, [lastOffset]);
 
   const clipboardDescription = ios
     ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
@@ -81,98 +109,125 @@ export function ClipboardHistorySection({
 
   return (
     <>
-      <GroupList title="剪贴板">
-        {note && <SettingsGroupNote>{note}</SettingsGroupNote>}
-        {ios ? (
-          <Row title="剪贴板历史" description={clipboardDescription} />
-        ) : (
-          <SwitchRow
-            title="剪贴板历史"
-            description={clipboardDescription}
-            aria-label="剪贴板历史"
-            checked={historyEnabled}
-            disabled={historyBusy}
-            onChange={toggle}
-          />
-        )}
-        <SelectRow
-          title="历史记录上限"
-          description="达到上限后，最旧的未固定记录会被新记录替换。"
-          value={String(clipboardHistoryLimit({ clipboard_history_limit: historyLimit }))}
-          disabled={historyBusy}
-          onChange={(event) => onLimitChange?.(Number(event.currentTarget.value))}
-        >
-          {clipboardHistoryLimits.map((limit) => (
-            <option key={limit} value={limit}>
-              {limit} 条
-            </option>
-          ))}
-        </SelectRow>
-        {client && entries.length > 0 && (
-          <SettingsManagerBlock>
-            <SettingsManagerActions>
-              <ActionButton
-                action={() => void clear()}
-                disabled={!historyEnabled || historyBusy}
-                label={clearArmed ? "确认清空" : "清空历史"}
-              />
-            </SettingsManagerActions>
-          </SettingsManagerBlock>
-        )}
-      </GroupList>
-      {historyShown && (
-        <GroupList title="历史记录">
-          {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
-          <div className={settings.clipboardList} aria-label="剪贴板历史">
-            {entries.length === 0 ? (
-              <SettingsEmptyMessage>暂无历史记录</SettingsEmptyMessage>
+      {tabList}
+      {panel(
+        "clipboard",
+        <>
+          <GroupList title="剪贴板">
+            {note && <SettingsGroupNote>{note}</SettingsGroupNote>}
+            {ios ? (
+              <Row title="剪贴板历史" description={clipboardDescription} />
             ) : (
-              entries.map((entry) => (
-                <div className={settings.clipboardRow} data-clipboard-entry-row="" key={entry.text}>
-                  <span className={settings.clipboardEntry}>
-                    <span title={entry.text}>{entry.text}</span>
-                    <small>
-                      {entry.pinned ? "已固定 · " : ""}
-                      {entry.timestampMs > 1_000_000_000_000
-                        ? formatDateTime(entry.timestampMs)
-                        : "旧记录"}
-                    </small>
-                  </span>
-                  <span className={settings.clipboardActions}>
-                    {client?.copy && (
-                      <ActionButton action={() => void copy(entry.text)} label="重新复制" />
-                    )}
-                    {cloudRequest && (
-                      <ActionButton
-                        action={() => void sendToCloud(entry.text)}
-                        disabled={cloud !== "ready" || sending}
-                        label="发到云剪贴板"
-                      />
-                    )}
-                    {client?.setPinned && (
-                      <ActionButton
-                        action={() => void setPinned(entry.text, !entry.pinned)}
-                        ariaLabel={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
-                        disabled={historyBusy}
-                        label={entry.pinned ? "取消固定" : "固定"}
-                      />
-                    )}
-                    {client?.remove && (
-                      <ActionButton
-                        action={() => void remove(entry.text)}
-                        ariaLabel="删除剪贴板记录"
-                        disabled={historyBusy}
-                        label="删除"
-                      />
-                    )}
-                  </span>
-                </div>
-              ))
+              <SwitchRow
+                title="剪贴板历史"
+                description={clipboardDescription}
+                aria-label="剪贴板历史"
+                checked={historyEnabled}
+                disabled={historyBusy}
+                onChange={toggle}
+              />
             )}
-          </div>
-        </GroupList>
+            <SelectRow
+              title="历史记录上限"
+              description="达到上限后，最旧的未固定记录会被新记录替换。"
+              value={String(clipboardHistoryLimit({ clipboard_history_limit: historyLimit }))}
+              disabled={historyBusy}
+              onChange={(event) => onLimitChange?.(Number(event.currentTarget.value))}
+            >
+              {clipboardHistoryLimits.map((limit) => (
+                <option key={limit} value={limit}>
+                  {limit} 条
+                </option>
+              ))}
+            </SelectRow>
+          </GroupList>
+          {tabsEnabled && children}
+        </>,
       )}
-      {children}
+      {(historyShown || tabsEnabled) &&
+        panel(
+          "history",
+          <GroupList title="历史记录">
+            {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
+            {historyShown && entries.length > 0 && (
+              <SettingsManagerBlock>
+                <SettingsManagerActions>
+                  <ActionButton
+                    action={() => void clear()}
+                    disabled={!historyEnabled || historyBusy}
+                    label={clearArmed ? "确认清空" : "清空历史"}
+                  />
+                  {entries.length > HISTORY_PAGE_SIZE && (
+                    <div className="ml-auto">
+                      <DictionaryPagination
+                        busy={historyBusy}
+                        offset={currentOffset}
+                        hasMore={currentOffset < lastOffset}
+                        status={`第 ${currentOffset / HISTORY_PAGE_SIZE + 1} / ${lastOffset / HISTORY_PAGE_SIZE + 1} 页 · 共 ${entries.length} 条`}
+                        pageSize={HISTORY_PAGE_SIZE}
+                        onPageChange={setOffset}
+                      />
+                    </div>
+                  )}
+                </SettingsManagerActions>
+              </SettingsManagerBlock>
+            )}
+            <div className={settings.clipboardList} aria-label="剪贴板历史">
+              {!historyShown ? (
+                <SettingsEmptyMessage>请先在「剪贴板」中开启剪贴板历史</SettingsEmptyMessage>
+              ) : entries.length === 0 ? (
+                <SettingsEmptyMessage>暂无历史记录</SettingsEmptyMessage>
+              ) : (
+                visibleEntries.map((entry) => (
+                  <div
+                    className={settings.clipboardRow}
+                    data-clipboard-entry-row=""
+                    key={entry.text}
+                  >
+                    <span className={settings.clipboardEntry}>
+                      <span title={entry.text}>{entry.text}</span>
+                      <small>
+                        {entry.pinned ? "已固定 · " : ""}
+                        {entry.timestampMs > 1_000_000_000_000
+                          ? formatDateTime(entry.timestampMs)
+                          : "旧记录"}
+                      </small>
+                    </span>
+                    <span className={settings.clipboardActions}>
+                      {client?.copy && (
+                        <ActionButton action={() => void copy(entry.text)} label="重新复制" />
+                      )}
+                      {cloudRequest && (
+                        <ActionButton
+                          action={() => void sendToCloud(entry.text)}
+                          disabled={cloud !== "ready" || sending}
+                          label="发到云剪贴板"
+                        />
+                      )}
+                      {client?.setPinned && (
+                        <ActionButton
+                          action={() => void setPinned(entry.text, !entry.pinned)}
+                          ariaLabel={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
+                          disabled={historyBusy}
+                          label={entry.pinned ? "取消固定" : "固定"}
+                        />
+                      )}
+                      {client?.remove && (
+                        <ActionButton
+                          action={() => void remove(entry.text)}
+                          ariaLabel="删除剪贴板记录"
+                          disabled={historyBusy}
+                          label="删除"
+                        />
+                      )}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </GroupList>,
+        )}
+      {!tabsEnabled && children}
     </>
   );
 }

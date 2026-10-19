@@ -2824,6 +2824,7 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(剪贴板|剪贴管理)$/ }));
   expect(await screen.findByText("synthetic pinned")).toBeDefined();
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   expect(screen.getByText(/已固定/)).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "固定剪贴板记录" }));
@@ -2990,6 +2991,7 @@ test("clipboard history waits for the sync turning it on before accepting deleti
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   const deleteButton = within(row).getByRole("button", {
     name: "删除剪贴板记录",
   }) as HTMLButtonElement;
@@ -3028,6 +3030,7 @@ test("clipboard history refreshes a deletion that finishes after leaving and reo
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
   fireEvent.click(within(row).getByRole("button", { name: "删除剪贴板记录" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith(entry.text));
 
@@ -3037,9 +3040,11 @@ test("clipboard history refreshes a deletion that finishes after leaving and reo
   expect(screen.getByText(entry.text)).toBeDefined();
   const deleteButton = screen.getByRole("button", { name: "删除剪贴板记录" }) as HTMLButtonElement;
   expect(deleteButton.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("tab", { name: "剪贴板" }));
   expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
     true,
   );
+  fireEvent.click(screen.getByRole("tab", { name: "历史记录" }));
 
   await act(async () => pendingDelete.resolve());
   expect(screen.queryByText(entry.text)).toBeNull();
@@ -6166,6 +6171,8 @@ test("macOS shows the screen keyboard without size controls and previews the fix
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
   const page = await screen.findByRole("group", { name: "键盘手写" });
+  expect(within(page).getByRole("tab", { name: "键盘", selected: true })).toBeTruthy();
+  expect(within(page).queryByRole("tabpanel", { name: "手写" })).toBeNull();
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).queryByRole("slider", { name: slider })).toBeNull();
   expect(within(page).queryByText("尺寸")).toBeNull();
@@ -6176,8 +6183,13 @@ test("macOS shows the screen keyboard without size controls and previews the fix
   expect(preview.getAttribute("data-row-spacing")).toBe("7.0");
   expect(preview.getAttribute("data-keyboard-height")).toBe("400");
   expect(within(page).getByText("打开屏幕键盘")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
   expect(within(page).getByText("macOS 手写识别板")).toBeTruthy();
   expect(within(page).getByText("打开手写识别板")).toBeTruthy();
+  expect(within(page).getByRole("tabpanel", { name: "手写" })).toBeTruthy();
+  expect(within(page).queryByRole("img", { name: "屏幕键盘完整布局预览" })).toBeNull();
+  fireEvent.click(within(page).getByRole("tab", { name: "键盘" }));
+  expect(within(page).getByRole("img", { name: "屏幕键盘完整布局预览" })).toBe(preview);
   // 这一页没有偏好，页脚不给全局的「恢复默认设置」。
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
@@ -6204,11 +6216,12 @@ test("Linux keeps the spacing sliders but drops the height that its keyboard win
   expect(within(page).getByRole("slider", { name: "行间距" })).toBeTruthy();
   expect(within(page).getByLabelText("拖动预览调整键盘间距")).toBeTruthy();
   expect(within(page).getByText("间距和顶部语音入口回到默认")).toBeTruthy();
-  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   fireEvent.click(within(page).getByRole("button", { name: "恢复屏幕键盘默认设置" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByText("间距和顶部语音入口都会回到默认。")).toBeTruthy();
   await answerConfirm("cancel");
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });
 
 // Windows 的手写页也只有一个打开按钮，与原生设置窗口一样并进「屏幕键盘与手写」；Windows 有触屏设备，高度和间距都在。
@@ -6230,9 +6243,10 @@ test("Windows folds handwriting into the screen keyboard page and keeps every si
   const page = await screen.findByRole("group", { name: "键盘手写" });
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
-  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
   expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
+  fireEvent.click(within(page).getByRole("tab", { name: "手写" }));
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });
 
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
@@ -7188,8 +7202,8 @@ const referenceSections: {
     page: "input",
     button: "输入设置",
     titles: [
-      "输入模式",
-      "输入方案",
+      "输入语言",
+      "中文方案",
       "双拼方案",
       "五笔方案",
       "日语方案",
@@ -7995,8 +8009,8 @@ test.each(optionHosts)(
     ]);
     const present = sectionTitles(input);
     const expected = [
-      "输入模式",
-      "输入方案",
+      "输入语言",
+      "中文方案",
       "双拼方案",
       // 双拼方案只在双拼下显示，五笔方案只在五笔下显示，日语只有一个方案、只在日语下显示，但都仍在页面里。
       "五笔方案",
@@ -8011,8 +8025,7 @@ test.each(optionHosts)(
       "拼音方案调频",
     ];
     const ordered = present.filter((text) => expected.includes(text));
-    // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
-    // the tree, so collapse a repeat rather than reading it as a move.
+    // 同名设置可能因宿主分支保留在树中，核对顺序前先合并相邻重复项。
     const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
     expect(collapsed).toEqual(expected);
   },
@@ -8808,6 +8821,7 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   // 手写在 macOS 上并进「屏幕键盘与手写」页。
   expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "键盘手写" }));
+  fireEvent.click(screen.getByRole("tab", { name: "手写" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
   expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
   expect(screen.getByText(/从输入法悬浮工具栏或菜单打开手写板/)).toBeDefined();
@@ -9576,7 +9590,9 @@ test.each([
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("radio", { name: label });
-  fireEvent.click(screen.getByRole("radio", { name: "日文" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "japanese" },
+  });
   expect(screen.queryByRole("radio", { name: label })).toBeNull();
   // 日语只有一个方案，用一行说明代替只有一项的选择器。
   const romaji = () => screen.getByText(/^罗马音：/);
@@ -9589,9 +9605,11 @@ test.each([
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
-  await screen.findByRole("radio", { name: "中文" });
+  await screen.findByRole("combobox", { name: "输入语言" });
   expect(romaji().closest("[hidden]")).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "中文" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "输入语言" }), {
+    target: { value: "chinese" },
+  });
   expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
   expect(romaji().closest("[hidden]")).not.toBeNull();
 });
@@ -10422,16 +10440,17 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。Windows 固定 AI 候选数量，「联想」组不出现。
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
   expect(pageGroupTitles(page)).toEqual(["服务"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
-  const more = endpoint.closest("details");
-  expect(more).not.toBeNull();
-  expect(more!.open).toBe(false);
+  expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
   expect(prompt.value).toBe("second");
-  expect(prompt.closest("details")).toBe(more);
-  expect(within(more!).getByRole("button", { name: "获取模型列表" })).toBeTruthy();
+  expect(prompt.closest("details")!.open).toBe(false);
+  expect(prompt.closest("details")!.querySelector("summary")!.textContent).toContain(
+    "自定义提示词",
+  );
+  expect(within(page).getByRole("button", { name: "获取模型列表" }).closest("details")).toBeNull();
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

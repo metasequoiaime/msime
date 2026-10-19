@@ -23,6 +23,8 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
 
 ## Decision
 
+语言与中文方案的选择控件由[输入语言与中文方案分层选择](../feature/2026-10-19-input-language-scheme-hierarchy.md)补充；本篇关于单方案说明和按当前方案显示选项的约束继续保留。
+
 ### macOS 固定三项（按宿主能力位）
 
 - `HostCapabilities` 新增 `tab_page_paging_switches` 和 `mixed_input_minimum_prefix`，macOS 为假。其余宿主上的取值见下面的「各平台跟进」：`tab_page_paging_switches` 在 Windows 和 HarmonyOS 上也为假，Linux、Android、iOS 为真；`mixed_input_minimum_prefix` 在 Windows 和 Linux 上也为假，三个触屏宿主为真。TS 类型里两项可选，缺省按真处理（早于它们的宿主照旧显示）。

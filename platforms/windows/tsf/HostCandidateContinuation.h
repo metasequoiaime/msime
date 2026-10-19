@@ -26,7 +26,23 @@ bool ContinueHostCandidate(Host &host, const std::string &payload) {
             if (found) return false;
             found = &candidate;
         }
-        if (!found || !host.select(parsed.view.generation, found->index, &raw, &error)) return false;
+        if (found) {
+            if (!host.select(parsed.view.generation, found->index, &raw, &error)) return false;
+        } else {
+            // 当前页上没有：Server 卷轴展开网格里的候选（网址补全这类续接候选也会排到网格里）。到本会话这一代的完整候选列表里按文字找唯一的一个，按全局下标选；取完整列表可能让引擎放出扣着的尾部、代次前进，所以用列表自己的代次。
+            if (!host.all_candidates(&raw, &error)) return false;
+            const auto all = nlohmann::json::parse(raw).at("value");
+            bool matched = false;
+            std::size_t index = 0;
+            for (const auto &candidate : all.at("candidates")) {
+                if (candidate.at("text").get<std::string>() != target) continue;
+                if (matched) return false;
+                matched = true;
+                index = candidate.at("id").at("index").get<std::size_t>();
+            }
+            if (!matched || !host.select_any(all.at("generation").get<uint64_t>(), index, &raw, &error))
+                return false;
+        }
         const auto selected = nlohmann::json::parse(raw).at("value");
         return selected.at("handled").get<bool>() && selected.at("commit").is_null() &&
                candidate_continuation_state(selected.at("view")) == request.at("after");

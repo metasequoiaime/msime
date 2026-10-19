@@ -1628,12 +1628,22 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if privateSession { _ = try? Self.decode(msimeClientSetPrivateSession(handle, true)) }
   }
 
-  func localDictionaryStateVersion() throws -> String {
-    // A runtime that failed to prepare has no options to describe, and asking the snapshot API about the empty dictionary only answers "invalid snapshot options" - which the snapshot worker then shows in place of the real reason on the keyboard's diagnostic line.
+  /// 主线程复制选项；后台版本读取不访问可变会话，也不占用按键线程。
+  func dictionaryStateVersionOptions() throws -> Data {
+    // 初始化失败时保留原诊断，不让空选项的版本错误盖掉它。
     if let initializationDiagnostic, options["user_data"] == nil {
       throw InputBridgeFailure.response(initializationDiagnostic)
     }
-    let result = try Self.callOptions(msimeClientSnapshotVersion, options)
+    return try JSONSerialization.data(withJSONObject: options)
+  }
+
+  func localDictionaryStateVersion() throws -> String {
+    try Self.localDictionaryStateVersion(preparedOptions: dictionaryStateVersionOptions())
+  }
+
+  /// 这个 C ABI 只读文件版本，不使用线程绑定的会话句柄。
+  static func localDictionaryStateVersion(preparedOptions: Data) throws -> String {
+    let result = try callDirectory(msimeClientSnapshotVersion, preparedOptions)
     guard let version = result["version"] as? String, version.utf8.count == 64,
           let generation = result["generation"] as? String,
           generation == "legacy" || UUID(uuidString: generation)?.uuidString == generation else {

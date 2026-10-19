@@ -11,6 +11,30 @@ void check(bool condition, const char *what) {
     ++failures;
   }
 }
+// 目录由 Rust 提供；这里用固定输入验证原生控件规则，不在测试程序里调用宿主 DLL。
+const std::vector<ProviderDefaults> &asr_provider_defaults() {
+  static const std::vector<ProviderDefaults> table{
+      {L"doubao", L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", L"", {}, L"", L"豆包"},
+      {L"siliconflow", L"https://api.siliconflow.cn/v1/audio/transcriptions", L"FunAudioLLM/SenseVoiceSmall", {}, L"", L"SiliconFlow"},
+      {L"openai", L"https://api.openai.com/v1/audio/transcriptions", L"whisper-1", {}, L"", L"OpenAI"},
+      {L"groq", L"https://api.groq.com/openai/v1/audio/transcriptions", L"whisper-large-v3-turbo", {}, L"", L"Groq"},
+      {L"everyapi", L"https://api.everyapi.ai/v1/audio/transcriptions", L"volc.seedasr.sauc.duration", {}, L"", L"EveryAPI"},
+      {L"mistral", L"https://api.mistral.ai/v1/audio/transcriptions", L"voxtral-mini-latest", {}, L"", L"Mistral · Voxtral"},
+      {L"bailian", L"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", L"qwen3-asr-flash", {}, L"", L"阿里云百炼 · 千问"},
+      {L"system", L"", L"", {}, L"", L"Windows 系统识别"},
+      {L"local", L"", L"", {}, L"", L"本地模型（离线）"},
+  };
+  return table;
+}
+const std::vector<ProviderDefaults> &polish_provider_defaults() {
+  static const std::vector<ProviderDefaults> table{
+      {L"siliconflow", L"https://api.siliconflow.cn/v1/chat/completions", L"Qwen/Qwen3-8B", {}, L"", L"SiliconFlow"},
+      {L"openai", L"https://api.openai.com/v1/chat/completions", L"gpt-4o-mini", {}, L"", L"OpenAI"},
+      {L"deepseek", L"https://api.deepseek.com/chat/completions", L"deepseek-v4-flash", {}, L"", L"DeepSeek"},
+      {L"groq", L"https://api.groq.com/openai/v1/chat/completions", L"llama-3.3-70b-versatile", {}, L"", L"Groq"},
+  };
+  return table;
+}
 std::wstring_view asr_default(std::wstring_view provider, bool endpoint) {
   const auto *defaults = find_defaults(asr_provider_defaults(), provider);
   return defaults ? (endpoint ? defaults->endpoint : defaults->model) : std::wstring_view();
@@ -19,14 +43,23 @@ std::wstring_view asr_default(std::wstring_view provider, bool endpoint) {
 
 int main() {
   // 共享页的服务列表：七个云服务，Windows 再加系统识别和本地模型。
-  const auto choices = asr_provider_choices();
+  const auto choices = asr_provider_choices(asr_provider_defaults());
   check(choices.size() == 9 && choices.front().value == L"doubao" &&
             choices[6].value == L"bailian" && choices[7].value == L"system" &&
             choices[7].label == L"Windows 系统识别" && choices[8].value == L"local",
         "the Windows recognition list");
-  check(is_asr_service_provider(L"bailian") && is_asr_service_provider(L"doubao") &&
-            !is_asr_service_provider(L"system") && !is_asr_service_provider(L"local"),
+  check(is_asr_service_provider(asr_provider_defaults(), L"bailian") && is_asr_service_provider(asr_provider_defaults(), L"doubao") &&
+            !is_asr_service_provider(asr_provider_defaults(), L"system") && !is_asr_service_provider(asr_provider_defaults(), L"local"),
         "service providers are the seven cloud ones");
+
+  // 新目录的值直接影响选项、回退和换服务，不依赖编译进界面的服务名单。
+  const std::vector<ProviderDefaults> catalog{
+      {L"synthetic", L"https://example.invalid/new", L"fixture-model", {L"fixture-model"},
+       L"https://example.invalid/docs", L"合成服务"}};
+  check(asr_provider_choices(catalog)[0].label == L"合成服务" &&
+            is_asr_service_provider(catalog, L"synthetic"), "injected catalog controls choices");
+  check(asr_provider_update(catalog, L"synthetic", {}).model == std::wstring(L"fixture-model"),
+        "injected catalog controls provider defaults");
 
   // providerSettingValue：编辑过的值去掉空白，空时退回默认值，不认识的服务为空。
   check(provider_setting_value(L"  https://asr.internal.example/v1  ", L"openai",
@@ -40,48 +73,48 @@ int main() {
   // 选系统识别：清掉令牌，原服务的令牌记下来，换回时还原。
   ProviderFields openai{L"openai", std::wstring(asr_default(L"openai", true)), L"whisper-1",
                         L"synthetic-openai", {{L"system", L"unused-synthetic"}}};
-  const auto system = asr_provider_update(L"system", openai);
+  const auto system = asr_provider_update(asr_provider_defaults(), L"system", openai);
   check(system.provider == L"system" && system.token.empty(), "system recognition has no token");
   check(system.endpoint && system.endpoint->empty() && system.model && system.model->empty(),
         "system recognition clears the shipped endpoint and model");
   check(system.tokens == TokenMap{{L"openai", L"synthetic-openai"}},
         "the OpenAI token is kept in its slot");
-  const auto restored = asr_provider_update(
+  const auto restored = asr_provider_update(asr_provider_defaults(),
       L"openai", {L"system", *system.endpoint, *system.model, system.token, system.tokens});
   check(restored.token == L"synthetic-openai", "the OpenAI token comes back");
   check(restored.endpoint == std::wstring(asr_default(L"openai", true)) &&
             restored.model == std::wstring(L"whisper-1"),
         "the OpenAI defaults come back");
-  const auto custom = asr_provider_update(
+  const auto custom = asr_provider_update(asr_provider_defaults(),
       L"system", {L"", L"https://example.invalid/custom", L"synthetic-model", L"", {}});
   check(!custom.endpoint && !custom.model, "a custom endpoint and model are kept");
 
   // 豆包默认的 wss 地址换成 OpenAI 的，令牌不会发给豆包。
-  const auto rewritten = asr_provider_update(
+  const auto rewritten = asr_provider_update(asr_provider_defaults(),
       L"openai", {L"doubao", std::wstring(asr_default(L"doubao", true)), L"", L"", {}});
   check(rewritten.endpoint == std::wstring(asr_default(L"openai", true)) &&
             rewritten.model == std::wstring(L"whisper-1"),
         "the shipped Doubao endpoint is replaced");
   // 空令牌框去掉原服务那一项。
-  const auto emptied = asr_provider_update(
+  const auto emptied = asr_provider_update(asr_provider_defaults(),
       L"groq", {L"openai", L"", L"", L"", {{L"openai", L"old"}, {L"groq", L"g"}}});
   check(emptied.tokens == TokenMap{{L"groq", L"g"}} && emptied.token == L"g",
         "an empty box removes the old slot");
   // 不认识的服务只换令牌。
-  const auto unknown = asr_provider_update(L"nobody", {L"openai", L"x", L"y", L"t", {}});
+  const auto unknown = asr_provider_update(asr_provider_defaults(), L"nobody", {L"openai", L"x", L"y", L"t", {}});
   check(!unknown.endpoint && !unknown.model && unknown.token.empty() &&
             unknown.tokens == TokenMap{{L"openai", L"t"}},
         "an unknown provider only swaps the token");
 
   // 润色换服务：默认模型跟着换，自己填的保留。
-  const auto polish = polish_provider_update(
+  const auto polish = polish_provider_update(polish_provider_defaults(),
       L"deepseek", {L"siliconflow", L"https://api.siliconflow.cn/v1/chat/completions",
                     L"Qwen/Qwen3-8B", L"sf", {}});
   check(polish.endpoint == std::wstring(L"https://api.deepseek.com/chat/completions") &&
             polish.model == std::wstring(L"deepseek-v4-flash") && polish.token.empty() &&
             polish.tokens == TokenMap{{L"siliconflow", L"sf"}},
         "polish defaults follow the provider");
-  const auto kept = polish_provider_update(L"groq", {L"openai", L"", L"my-model", L"", {}});
+  const auto kept = polish_provider_update(polish_provider_defaults(), L"groq", {L"openai", L"", L"my-model", L"", {}});
   check(kept.endpoint && !kept.model, "a typed polish model is kept");
 
   // 豆包流式接口。
@@ -96,15 +129,15 @@ int main() {
         "an empty address is the default bidirectional stream");
 
   // 「更多选项」在用户改过接口地址或资源 ID 时打开就展开。
-  check(!asr_advanced_changed(L"doubao", L"", L"") &&
-            !asr_advanced_changed(L"doubao", asr_default(L"doubao", true), L"volc.seedasr.sauc.duration"),
+  check(!asr_advanced_changed(asr_provider_defaults(), L"doubao", L"", L"") &&
+            !asr_advanced_changed(asr_provider_defaults(), L"doubao", asr_default(L"doubao", true), L"volc.seedasr.sauc.duration"),
         "factory Doubao settings stay folded");
-  check(asr_advanced_changed(L"doubao", L"wss://example.invalid", L""), "a custom address unfolds");
-  check(asr_advanced_changed(L"doubao", L"", L"volc.bigasr.sauc.duration"),
+  check(asr_advanced_changed(asr_provider_defaults(), L"doubao", L"wss://example.invalid", L""), "a custom address unfolds");
+  check(asr_advanced_changed(asr_provider_defaults(), L"doubao", L"", L"volc.bigasr.sauc.duration"),
         "a changed resource ID unfolds");
-  check(!asr_advanced_changed(L"openai", L"", L"volc.bigasr.sauc.duration") &&
-            !asr_advanced_changed(L"openai", asr_default(L"openai", true), L"") &&
-            asr_advanced_changed(L"openai", L"https://example.invalid/v1", L""),
+  check(!asr_advanced_changed(asr_provider_defaults(), L"openai", L"", L"volc.bigasr.sauc.duration") &&
+            !asr_advanced_changed(asr_provider_defaults(), L"openai", asr_default(L"openai", true), L"") &&
+            asr_advanced_changed(asr_provider_defaults(), L"openai", L"https://example.invalid/v1", L""),
         "only Doubao reads the resource ID; other services compare their own default address");
 
   // 「测试豆包识别配置」的资源 ID 与 Server 录音时一样回退到出厂值。

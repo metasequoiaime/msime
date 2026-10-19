@@ -1,6 +1,7 @@
 import type { InputScheme } from "../core/input-scheme";
 
-import { SegmentedRow } from "./segmented-row";
+import { useId } from "react";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import {
   baseInputSchemes,
   chineseInputSchemeOptions,
@@ -43,7 +44,7 @@ function supportHint(
   return note ? `${note}，${fallback}` : fallback;
 }
 
-/** Radio selector for the desktop Chinese input schemes. */
+/** 桌面中文方案单独占一块网格，与上方的语言下拉区分层级。 */
 export function InputSchemeSelectorSection({
   value,
   onChange,
@@ -53,6 +54,7 @@ export function InputSchemeSelectorSection({
   lastChineseScheme,
   hidden,
 }: InputSchemeSelectorSectionProps) {
+  const id = useId();
   const listed = editionSchemes
     ? chineseInputSchemeOptions.filter((option) => editionSchemes.includes(option.value))
     : chineseInputSchemeOptions;
@@ -61,15 +63,40 @@ export function InputSchemeSelectorSection({
     disabled: !supportedSchemes.includes(option.value),
   }));
   const hint = supportHint(value, listed, supportedSchemes, lastChineseScheme, defaultScheme);
-  // Five two-character segments measured about 262px, so the six with 笔画 come to about 315px. Beside the macOS look's 260px sidebar and 48px page margins the row fits in any window from about 730px wide, and the window opens at 1000px, so this stays a Segmented rather than falling back to a Select.
   return (
-    <SegmentedRow
-      title="输入方案"
-      description={hint}
-      hidden={hidden || options.length <= 1}
-      options={options}
-      value={value}
-      onChange={onChange}
-    />
+    <SettingsManagerBlock hidden={hidden || options.length <= 1}>
+      <span id={`${id}-title`} data-row-title="" className="[font-size:var(--p-row-fs)]">
+        中文方案
+      </span>
+      <div
+        role="radiogroup"
+        aria-labelledby={`${id}-title`}
+        aria-describedby={hint ? `${id}-hint` : undefined}
+        className="grid grid-cols-3 gap-2"
+      >
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border [border-color:var(--p-row-divider)] px-3 py-3 [font-size:var(--p-row-fs)] hover:bg-[var(--p-hover)] has-[:checked]:border-accent has-[:checked]:bg-[var(--accent-soft)] has-[:disabled]:cursor-default has-[:disabled]:opacity-50 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+          >
+            <input
+              type="radio"
+              name={id}
+              value={option.value}
+              checked={value === option.value}
+              disabled={option.disabled}
+              onChange={() => onChange(option.value)}
+              className="m-0 shrink-0 accent-accent"
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+      {hint && (
+        <span id={`${id}-hint`} className="[font-size:var(--p-sub-fs)] [color:var(--p-sub)]">
+          {hint}
+        </span>
+      )}
+    </SettingsManagerBlock>
   );
 }
