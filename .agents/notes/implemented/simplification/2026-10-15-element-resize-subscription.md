@@ -28,3 +28,5 @@ Status: implemented
 ## Existing notes audit
 
 以 `ResizeObserver`、尺寸观察和主题轮播检索活跃笔记，无同一机制的既有决定。渲染值引用笔记持有轮播当前位置的引用边界，本片保持其即时更新方式；媒体查询订阅负责另一种浏览器通知，不合并 API。
+
+候选按钮完整的视图与快捷键契约由[手写候选按钮组件](./2026-10-19-handwriting-candidate-button.md)承接；这里继续只负责元素观察的公共订阅边界。

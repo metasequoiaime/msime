@@ -7,7 +7,6 @@ import { useCloudDictionaryApplyPanel } from "./use-cloud-dictionary-apply-panel
 import { useCloudDictionaryPanel } from "./use-cloud-dictionary-panel";
 import { useCloudClipboardPanel } from "./use-cloud-clipboard-panel";
 import { useVoicePanel } from "./use-voice-panel";
-import { isComposingKeyEvent } from "../core/ime-key-event";
 import type {
   PanelClient,
   VoicePanelClient,
@@ -19,13 +18,11 @@ import type {
 } from "./panel-client";
 import { FluentIcon } from "../core/fluent-icons";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
-import { subscribeToElementResize } from "../core/element-resize";
-import { subscribeToWindowEvent } from "../core/window-focus";
 import { clamp } from "../core/number";
 import { touchKeyboardSpacing } from "../settings/touch-keyboard-spacing";
 import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
 import { useHandwritingPanel } from "./use-handwriting-panel";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import type { GlobalTheme } from "../theme/global-theme";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
@@ -47,6 +44,7 @@ import { CloudDictionarySelectField } from "./cloud-dictionary-select-field";
 import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
 import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import { clipboardTooltip, emojiDisplayName, symbolCategoryTitle } from "./emoji-panel-helpers";
+import { HandwritingCandidateButton } from "./handwriting-candidate-button";
 import { HandwritingModelNotice } from "./handwriting-model-notice";
 
 export { emojiDisplayName } from "./emoji-panel-helpers";
@@ -230,64 +228,6 @@ export function KeyboardPanel({
         </div>
       </div>
     </main>
-  );
-}
-
-function HandwritingCandidateButton({
-  candidate,
-  copy,
-  disabled,
-  onChoose,
-  onCopy,
-}: {
-  candidate: string;
-  copy: boolean;
-  disabled: boolean;
-  onChoose: () => void;
-  onCopy?: () => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  const [width, setWidth] = useState(64);
-  useEffect(() => {
-    const element = button.current;
-    if (!element) return;
-    const resize = () => setWidth(element.getBoundingClientRect().width);
-    resize();
-    return subscribeToElementResize(element, resize) ?? subscribeToWindowEvent("resize", resize);
-  }, []);
-  // Use Unicode code points so supplementary Han does not count as two glyphs.
-  const length = Math.max(1, Array.from(candidate).length);
-  const fontSize = clamp(Math.min(width * 0.52, (width - 12) / length), 13, 34);
-  function copyShortcut(event: import("react").KeyboardEvent<HTMLButtonElement>) {
-    if (
-      !onCopy ||
-      disabled ||
-      event.defaultPrevented ||
-      isComposingKeyEvent(event) ||
-      !event.ctrlKey ||
-      event.metaKey ||
-      event.altKey ||
-      event.shiftKey ||
-      event.key.toLowerCase() !== "c"
-    )
-      return;
-    event.preventDefault();
-    if (!event.repeat) onCopy();
-  }
-  return (
-    <button
-      ref={button}
-      type="button"
-      className={surface.candidateSubmit}
-      style={{ fontSize }}
-      title={`${copy ? "复制" : "输入"}：${candidate}`}
-      aria-keyshortcuts={onCopy ? "Control+c" : undefined}
-      disabled={disabled}
-      onClick={onChoose}
-      onKeyDown={copyShortcut}
-    >
-      {candidate}
-    </button>
   );
 }
 

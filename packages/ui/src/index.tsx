@@ -1689,6 +1689,10 @@ export {
   VoicePanel,
 } from "./keyboard/panels";
 export { HandwritingModelNotice } from "./keyboard/handwriting-model-notice";
+export {
+  HandwritingCandidateButton,
+  type HandwritingCandidateButtonProps,
+} from "./keyboard/handwriting-candidate-button";
 export type {
   CloudCandidate,
   CloudCandidateKind,
