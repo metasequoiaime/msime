@@ -10,7 +10,9 @@ Status: implemented
 
 沿用 #8346 已实现的共享 runtime 规则，只把共享 Rust、共享设置页和 macOS 回退缺省改为默认开启。用户显式关闭后仍保留关闭状态；旧文档缺少该字段时按新默认开启，下一次保存会写出 `true`。
 
-macOS 的共享偏好同步同时接受显式 `false`，避免用户关闭后旧的进程内覆盖继续保留。现有 #8346 的「编辑优先」、整句改字和特殊候选列表边界不变。
+`left_right` 保存时始终写出布尔值，包括显式 `false`；默认开启的字段不能再使用「关闭时省略」的序列化规则，否则保存后重新加载会恢复开启。macOS 沿用严格布尔值同步，路由回归确认显式 `false` 能覆盖默认开启状态。现有 #8346 的「编辑优先」、整句改字和特殊候选列表边界不变。
+
+macOS 的命令路由测试区分两条路径：默认开启时发送 `MSIME_MOVE_RIGHT`，由真实 runtime 做端点转换；显式关闭时保留宿主已有的末尾 `MSIME_NEXT_CANDIDATE` 分支。记录命令的假会话不模拟 runtime，因此不能用最终候选命令断言默认路由。
 
 ## Alternatives considered
 
@@ -27,7 +29,9 @@ macOS 的共享偏好同步同时接受显式 `false`，避免用户关闭后旧
 
 ## Verification
 
-- `cargo test -p msime-client-core`：426 项通过。
+- `cargo test -p msime-client-core`：427 项单元测试及 4 项集成测试通过；真实 `PreferencesStore` 的显式关闭落盘与重新加载回归在修复前因字段被省略而失败。
+- macOS `ctest -R '^shortcut$' --output-on-failure` 通过，覆盖全拼、双拼、普通及展开候选的默认路由和显式关闭回退。
+- 严格 all-targets clippy、Rust 格式、笔记和差异检查通过。
 - `cargo test -p msime-host-api left_right_navigation_preference_reaches_real_sessions_and_live_updates`：通过，覆盖默认开启和运行中显式关闭。
 - `pnpm --filter @msime/desktop exec vitest run tests/settings/candidate-paging-options.test.ts tests/settings/candidate-paging-preferences.test.ts`：13 项通过。
 - `pnpm --filter @msime/desktop exec vitest run tests/settings/settings.test.tsx -t "word-to-character and paging|paging defaults match Windows"`：2 项通过。

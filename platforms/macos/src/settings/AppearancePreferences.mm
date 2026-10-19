@@ -2953,8 +2953,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
             _sharedNavigation[@"arrows"] = @([navigation[@"candidate_arrow_navigation"] boolValue]);
         // 左右键的那一项没有复选框（冻结窗口只画 NavigationControls() 里的键），但方向键路由要读到它：
         // 它开着时下面的拼音分支不再自己判端点，交给共享 runtime 统一判断。
-        id leftRight = navigation[@"left_right"];
-        if ([leftRight isKindOfClass:NSNumber.class]) _sharedNavigation[@"left_right"] = @([leftRight boolValue]);
+        if (LocalModeBoolean(navigation[@"left_right"])) _sharedNavigation[@"left_right"] = navigation[@"left_right"];
     }
     id layout = preferences[@"candidate_layout"];
     if ([@[@"horizontal", @"vertical"] containsObject:layout]) _sharedVertical = @([layout isEqual:@"vertical"]);

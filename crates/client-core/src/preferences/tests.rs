@@ -2371,6 +2371,19 @@ fn navigation_accepts_windows_candidate_arrow_alias() {
 }
 
 #[test]
+fn navigation_left_right_explicit_false_survives_store_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut preferences = Preferences::default();
+    preferences.navigation.left_right = false;
+    let saved = store.save(0, preferences).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(document["preferences"]["navigation"]["left_right"], false);
+    assert_eq!(PreferencesStore::new(dir.path()).load().unwrap(), saved);
+}
+
+#[test]
 fn navigation_defaults_and_independent_flags_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());

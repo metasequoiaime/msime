@@ -2145,7 +2145,7 @@ pub struct NavigationPreferences {
     /// 不带修饰键的左右方向键：光标已经停在输入串的这一端、编辑器动不了它时，改成移动候选高亮（左是上一个、右是下一个）；光标还能移动时照旧编辑输入串。与 `arrows` 各自独立，默认开启。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
-    #[serde(default = "enabled_by_default", skip_serializing_if = "is_false")]
+    #[serde(default = "enabled_by_default")]
     pub left_right: bool,
 }
 
