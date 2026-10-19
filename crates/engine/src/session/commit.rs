@@ -236,7 +236,11 @@ impl InputSession {
             .get(index)
             .map(|item| clone_selected_candidate(item, copy_sentence_words));
         let text = match &selected {
-            Some(item) => Some(item.word.clone()),
+            Some(item) => {
+                let mut text = item.word.clone();
+                self.apply_english_word_case(item.source, &mut text);
+                Some(text)
+            }
             // The bare prefix letter of a temporary mode is a marker, not text.
             None if matches!(
                 self.local_mode,

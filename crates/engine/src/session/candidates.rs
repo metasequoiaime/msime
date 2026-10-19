@@ -64,6 +64,33 @@ pub(super) fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<Wo
 }
 
 impl InputSession {
+    /// 仅改显示或上屏副本，内部词条保留词库拼写供调频、置顶和删除定位。
+    pub(super) fn apply_english_word_case(&self, source: CandidateSource, word: &mut String) {
+        if source != CandidateSource::EnglishDictionary
+            || self.local_mode != LocalInputMode::None
+            || self.dedicated_english
+            || self.has_active_helpcode()
+        {
+            return;
+        }
+        let raw = &self.engine.request().raw_input_with_cases;
+        if !raw.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            return;
+        }
+        if raw.len() > 1 && raw.bytes().all(|byte| byte.is_ascii_uppercase()) {
+            word.make_ascii_uppercase();
+        } else if word
+            .get(..raw.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(raw))
+        {
+            word.replace_range(..raw.len(), raw);
+        } else if raw.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
+            if let Some(first) = word.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+        }
+    }
+
     /// 前缀或引擎候选经过个人上下文重排，再混入英文、表情、颜文字并应用固定位置。
     pub(super) fn update_mixed_candidates(&mut self) {
         self.refresh_prefix_candidates();

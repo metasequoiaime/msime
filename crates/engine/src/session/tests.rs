@@ -730,7 +730,7 @@ INSERT INTO english_words VALUES('he','he',500);",
 #[test]
 fn shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word() {
     let fixture = Fixture::new(HELLO_FIXTURE)
-        .with_english("INSERT INTO english_words VALUES('observable','Observable',100);");
+        .with_english("INSERT INTO english_words VALUES('observable','observable',100);");
     let mut session = fixture.session_with(|options| {
         options.english.mixed_candidates = true;
         options.english.minimum_prefix = 1;
@@ -741,6 +741,79 @@ fn shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word() {
     type_text(&mut session, "bservable");
     assert!(words(&session).contains(&"Observable".to_owned()));
     assert_eq!(session.snapshot().preedit, "Observable");
+}
+
+#[test]
+fn mixed_english_completion_and_commit_keep_typed_case_without_changing_lookup_key() {
+    let fixture = Fixture::new(HELLO_FIXTURE).with_english(
+        "INSERT INTO english_words VALUES('observable','observable',100),('openai','OpenAI',90);",
+    );
+    for (input, expected, key) in [
+        ("O", "Observable", "observable"),
+        ("Ob", "Observable", "observable"),
+        ("OBS", "OBSERVABLE", "observable"),
+        ("oBs", "oBservable", "observable"),
+        ("open", "OpenAI", "openai"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.english.mixed_candidates = true;
+            options.english.minimum_prefix = 1;
+            options.helpcode = false;
+        });
+        assert!(session.character(input.as_bytes()[0], true).handled);
+        type_text(&mut session, &input[1..]);
+        let snapshot = session.snapshot();
+        let index = snapshot
+            .candidates
+            .iter()
+            .position(|item| {
+                item.source == CandidateSource::EnglishDictionary && item.word == expected
+            })
+            .unwrap_or_else(|| panic!("英文补全未保留 {input:?} 的大小写：{:?}", words(&session)));
+        assert_eq!(snapshot.candidates[index].pinyin, key);
+        assert_eq!(snapshot.preedit, input);
+        assert_eq!(session.select(index).commit.as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn mixed_english_case_preserves_dictionary_identity_for_frequency_learning() {
+    let fixture = Fixture::new(HELLO_FIXTURE).with_english(
+        "INSERT INTO english_words VALUES('observer','observer',200),('observable','observable',100);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.english.mixed_candidates = true;
+        options.english.minimum_prefix = 1;
+        options.helpcode = false;
+        options.frequency.mode = FrequencyAdjustmentMode::Linear;
+    });
+    assert!(session.character(b'O', true).handled);
+    type_text(&mut session, "b");
+    let index = words(&session)
+        .iter()
+        .position(|word| word == "Observable")
+        .unwrap();
+    let promoted = session.pin(index);
+    assert!(promoted.handled);
+    assert_eq!(promoted.diagnostic, None);
+    let index = words(&session)
+        .iter()
+        .position(|word| word == "Observable")
+        .unwrap();
+    let result = session.select(index);
+    assert_eq!(result.commit.as_deref(), Some("Observable"));
+    assert_eq!(result.diagnostic, None);
+    let (display, weight): (String, i64) =
+        Connection::open(fixture.path().join(assets::ENGLISH_DICTIONARY))
+            .unwrap()
+            .query_row(
+                "SELECT display, weight FROM english_words WHERE word='observable'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(display, "observable");
+    assert!(weight > 100);
 }
 
 #[test]
