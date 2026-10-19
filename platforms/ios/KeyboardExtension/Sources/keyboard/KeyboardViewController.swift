@@ -63,6 +63,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     provider.onApplied = { [weak self] in self?.render($0) }
     return provider
   }()
+  /// 云候选和候选栏 AI 都关闭时，按键路径不需要为每个字符序列化一次在线查询。
+  private var onlineCandidatesEnabled = false
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private weak var compositionContainer: UIView?
@@ -70,6 +72,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var personalDictionaryTimer: Timer?
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
+  private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
   private let hanjaButton = UIButton()
@@ -82,6 +85,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let expandDivider = UIView()
   private let candidateStack = UIStackView()
   private let candidateEmptySpacer = UIView()
+  private struct CandidateButtonInputs: Equatable {
+    let candidate: String
+    let hint: String
+    let hintSpoken: String?
+    let reading: String?
+    let glosses: [String]
+    let markers: [CandidateMarker]
+    let number: Int
+    let converting: Bool
+    let aiPlaceholder: Bool
+    let styleRevision: UInt64
+  }
+  private var candidateButtonInputs: [CandidateButtonInputs?] = []
+  private var candidateButtonStyleRevision: UInt64 = 0
   /// 输入方式：始终在工具栏里，在键区打开方案选择。
   private let schemeButton = KeyboardToolbarButton(icon: .toolbarScheme, accessibilityLabel: "选择输入方案")
   private let shortcutBar = UIStackView()
@@ -626,6 +643,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     appliedChinesePunctuation = Self.sharedChinesePunctuation(session.sharedPreferences)
     chinesePunctuation = appliedChinesePunctuation
     synchronizeAICredential()
+    synchronizeOnlineCandidatePreference()
     applyKeyboardAppearance()
     // 隐私模式要在诊断日志配置之前读出来：开着时日志一行也不写，包括下面这行。
     incognito = KeyboardPrivacyPreference.incognito
@@ -735,6 +753,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
     _ = synchronizeTranslationRoute()
+    synchronizeOnlineCandidatePreference()
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
@@ -753,6 +772,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeCharacterWidth()
       self.synchronizeChinesePunctuation()
       self.synchronizeAICredential()
+      self.synchronizeOnlineCandidatePreference()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       let translationRouteChanged = self.synchronizeTranslationRoute()
@@ -4204,6 +4224,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     topRowHeightConstraint?.constant = shownTopRowHeight
     readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale)
     updatePreferredKeyboardHeight()
+    candidateButtonStyleRevision &+= 1
     renderCandidateStrip()
   }
 
@@ -4972,25 +4993,33 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     inlineReadingCollapse?.isActive = collapsed
     if preeditButton.isHidden != collapsed { preeditButton.isHidden = collapsed }
 
-    let modes = enabledLocalInputModes
+    let modes = idle && supportsLocalTools ? enabledLocalInputModes : []
     let offersModes = idle && supportsLocalTools && !modes.isEmpty
     let spellingMenu = idle ? nil : editableSpelling.map(Self.spellingEditMenu)
-    preeditButton.menu =
-      offersModes
-      ? UIMenu(
-        title: "本地输入",
-        children: modes.map { mode in
-          UIAction(title: mode.title) { [weak self] _ in
-            self?.openLocalInputMode(mode.trigger)
-          }
-        })
+    let menuKey = offersModes
+      ? "local|" + modes.map { "\($0.trigger):\($0.key)" }.joined(separator: ",")
       : spellingMenu.map { items in
-        UIMenu(title: "编辑拼写", children: items.map { item in
-          UIAction(title: item.title, attributes: item.enabled ? [] : .disabled) { [weak self] _ in
-            self?.editSpelling(item.edit)
-          }
-        })
-      }
+        "spelling|" + items.map { "\($0.title):\($0.enabled ? 1 : 0)" }.joined(separator: ",")
+      } ?? "none"
+    if appliedPreeditMenuKey != menuKey {
+      appliedPreeditMenuKey = menuKey
+      preeditButton.menu =
+        offersModes
+        ? UIMenu(
+          title: "本地输入",
+          children: modes.map { mode in
+            UIAction(title: mode.title) { [weak self] _ in
+              self?.openLocalInputMode(mode.trigger)
+            }
+          })
+        : spellingMenu.map { items in
+          UIMenu(title: "编辑拼写", children: items.map { item in
+            UIAction(title: item.title, attributes: item.enabled ? [] : .disabled) { [weak self] _ in
+              self?.editSpelling(item.edit)
+            }
+          })
+        }
+    }
     // Withdrawing the menu is what makes the button inert; disabling it would dim the title, and
     // this is the preedit, which has to keep reading as the text the user is composing.
     preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : title
@@ -5892,6 +5921,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.setAICredential(try? KeyboardAIService.token(for: configuration))
   }
 
+  /// 在线候选没有开启时跳过 `online_query` 的 C ABI 往返；设置在键盘重新出现或共享文档重载后同步。
+  private func synchronizeOnlineCandidatePreference() {
+    let enabled = CloudCandidatePreference.enabled || AICandidatePreference.isEnabled(session.sharedPreferences)
+    onlineCandidatesEnabled = enabled
+    if !enabled { onlineCandidates.cancel() }
+  }
+
   /// A value changed in the settings app replaces the card's switch; a document that only changed something else leaves it.
   private func synchronizeChinesePunctuation() {
     let shared = Self.sharedChinesePunctuation(session.sharedPreferences)
@@ -6099,7 +6135,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     refreshCandidatePanelAnnotations()
     updateSpellingStrip()
     scheduleCandidateGlosses()
-    onlineCandidates.refresh(allowed: hasFullAccess && hasComposition && !isInLocalMode)
+    if onlineCandidatesEnabled {
+      onlineCandidates.refresh(allowed: hasFullAccess && hasComposition && !isInLocalMode)
+    }
     if !hasComposition { releaseDeferredEngineCache() }
   }
 
@@ -6183,28 +6221,48 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     while candidateStack.arrangedSubviews.count < page.count {
       let index = candidateStack.arrangedSubviews.count
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
+      candidateButtonInputs.append(nil)
     }
+    while candidateButtonInputs.count < candidateStack.arrangedSubviews.count { candidateButtonInputs.append(nil) }
     for (offset, view) in candidateStack.arrangedSubviews.enumerated() {
       guard let chip = view as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
-      guard offset < page.count else { continue }
+      guard offset < page.count else {
+        candidateButtonInputs[offset] = nil
+        continue
+      }
       if !visibleEmailSuffixes.isEmpty {
         // 样式与英文建议的词块相同，只是读作邮箱后缀。
-        updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false)
-        chip.accessibilityLabel = "邮箱后缀 \(offset + 1)：\(page[offset])"
+        let inputs = CandidateButtonInputs(
+          candidate: page[offset], hint: "", hintSpoken: nil, reading: nil, glosses: [], markers: [],
+          number: offset + 1, converting: false, aiPlaceholder: false, styleRevision: candidateButtonStyleRevision)
+        if candidateButtonInputs[offset] != inputs {
+          updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false)
+          chip.accessibilityLabel = "邮箱后缀 \(offset + 1)：\(page[offset])"
+          candidateButtonInputs[offset] = inputs
+        }
         continue
       }
       // A Korean Hanja's 훈음 goes on the first line under it rather than after it, so it is not read as part of the candidate.
       let annotation = candidateAnnotation(at: offset)
+      let hint = typesKorean ? "" : annotation.text
+      let hintSpoken = readsChaizi ? annotation.accessibilityDescription : nil
+      let reading = typesKorean ? annotation.text : nil
+      let glosses = candidateGlosses(at: offset)
+      let markers = candidateMarkers(at: offset)
+      let aiPlaceholder = visibleCandidateSources.indices.contains(offset)
+        && (visibleCandidateSources[offset] == CandidateMarker.aiPendingSource
+          || visibleCandidateSources[offset] == CandidateMarker.cloudPendingSource)
+      let inputs = CandidateButtonInputs(
+        candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading, glosses: glosses,
+        markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
+        aiPlaceholder: aiPlaceholder, styleRevision: candidateButtonStyleRevision)
+      guard candidateButtonInputs[offset] != inputs else { continue }
       updateCandidateButton(
-        chip, candidate: page[offset], hint: typesKorean ? "" : annotation.text,
-        hintSpoken: readsChaizi ? annotation.accessibilityDescription : nil,
-        reading: typesKorean ? annotation.text : nil,
-        glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
-        converting: japaneseConversionIndex == offset,
-        aiPlaceholder: visibleCandidateSources.indices.contains(offset)
-          && (visibleCandidateSources[offset] == CandidateMarker.aiPendingSource
-            || visibleCandidateSources[offset] == CandidateMarker.cloudPendingSource))
+        chip, candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading,
+        glosses: glosses, markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
+        aiPlaceholder: aiPlaceholder)
+      candidateButtonInputs[offset] = inputs
     }
     updateExpandControl()
 
@@ -6665,7 +6723,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) {
     let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
     guard glossLines > 0, let title else {
-      existing?.isActive = false
+      if existing?.isActive == true { existing?.isActive = false }
       return
     }
     let text = NSAttributedString(title)
@@ -6678,6 +6736,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       glossLine: glossLine, glossLines: glossLines, column: candidateColumnWidth(),
       insets: button.configuration?.contentInsets ?? .zero)
     if let existing {
+      guard !existing.isActive || abs(existing.constant - width) > 0.5 else { return }
       existing.constant = width
       existing.isActive = true
     } else {
@@ -7558,6 +7617,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     replyModel.objectWillChange.send()
     let skin = KeyboardTheme.current
     candidatePalette = currentCandidatePalette()
+    candidateButtonStyleRevision &+= 1
     view.backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
     skinBackdrop.skin = skin
     // Only here, not in KeyboardSkinBackgroundView: the App's skin previews have no system backdrop behind them.
@@ -7639,6 +7699,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard palette != candidatePalette else { return }
     if palette == nil { applyKeyboardSkin(); return }
     candidatePalette = palette
+    candidateButtonStyleRevision &+= 1
     compositionContainer?.backgroundColor = palette?.surface
     exitLocalModeButton.configuration?.baseForegroundColor = palette?.accent
     preeditButton.configuration?.baseForegroundColor = palette?.secondary
