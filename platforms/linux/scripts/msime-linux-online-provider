@@ -239,8 +239,8 @@ http_process_lock = threading.Lock()
 http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
 MAX_TRANSLATION_CACHE_ENTRIES = 4096
-# 缓存不跨进程保留；随机密钥让凭据指纹也只在本进程内稳定。
-_CREDENTIAL_CACHE_KEY = os.urandom(32)
+# 缓存不跨进程保留；随机挑战让凭据签名也只在本进程内稳定。
+_CREDENTIAL_CACHE_CHALLENGE = os.urandom(32)
 NEGATIVE_TRANSLATION_CACHE_TTL = 480
 CLOUD_REQUEST_TIMEOUT = 2.0
 # AI 推理与 Windows、client-providers 保持 8 秒总预算和 2.5 秒连接预算。
@@ -467,7 +467,10 @@ def ai_config_matches(options, config):
 
 
 def credential_cache_fingerprint(value):
-    return hmac.digest(_CREDENTIAL_CACHE_KEY, value, "sha256")
+    # API 凭据作为 HMAC 密钥，对本进程的随机挑战签名，不创建密码验证器。
+    # 长度前缀区分 HMAC 补零后可能相同的密钥，例如空串和一个 NUL。
+    key = len(value).to_bytes(4, "big") + value
+    return hmac.digest(key, _CREDENTIAL_CACHE_CHALLENGE, "sha256")
 
 
 def ai_cache_key(query, config):

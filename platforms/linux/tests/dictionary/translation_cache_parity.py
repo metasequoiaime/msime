@@ -87,6 +87,11 @@ class TranslationCacheParity(unittest.TestCase):
             keys.append(key)
         self.assertNotEqual(keys[0], keys[1])
 
+    def test_hmac_key_padding_cannot_alias_distinct_credentials(self):
+        for value in (b"", b"synthetic-key", b"s" * 64):
+            self.assertNotEqual(provider.credential_cache_fingerprint(value),
+                                provider.credential_cache_fingerprint(value + b"\0"))
+
 
 if __name__ == "__main__":
     unittest.main()
