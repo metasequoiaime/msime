@@ -310,6 +310,8 @@ pub struct HostCapabilities {
     /// open, so it asks the user to point at the skin instead. The page needs
     /// to know which of the two it is, because the button says so.
     pub skin_directory_import: bool,
+    /// 设置页的皮肤页提供「制作皮肤」标签：在页面里编辑候选窗皮肤，经 `msime_client_services::skin::candidate_editor` 用社区下载和 MCP 同一个安装器装进皮肤目录。三个桌面宿主的共享设置页（Tauri）能调用它；HarmonyOS 只在 2in1 上由自己的设置投影打开，手机继续用原来的皮肤界面；iOS 和 Android 没有这个入口。
+    pub candidate_skin_editor: bool,
     /// The one candidate page size the host draws, when it offers no choice. The iOS keyboard numbers its strip's chips 1-9 to match the digits on its symbol layer and lays the expanded panel out in nines, so it holds the Engine to nine whatever the shared setting says; the page shows the count instead of a selector that would do nothing. Absent on a host that pages by the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_page_size: Option<u8>,
@@ -751,6 +753,8 @@ impl HostCapabilities {
             ),
             // The skin folder is inside the sandbox on HarmonyOS and in the App Group container on iOS, where no file manager reaches it, so the skin is picked and copied in instead.
             skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
+            // 编辑器只在桌面形态的设置页里出现；HarmonyOS 的 2in1 由 `SettingsFormFactorCapabilities` 按设备形态打开。
+            candidate_skin_editor: platform.is_desktop(),
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             max_candidate_page_size: platform.max_candidate_page_size(),
             fixed_ai_candidate_limit: platform.fixed_ai_candidate_limit(),

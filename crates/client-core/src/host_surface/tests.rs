@@ -170,6 +170,8 @@ fn capabilities_describe_each_host() {
     assert!(linux.restart_input_method);
     assert!(linux.ime_mode_scope);
     assert!(linux.panel_windows);
+    // 共享设置页经 Tauri 装入编辑好的候选窗皮肤。
+    assert!(linux.candidate_skin_editor);
     assert!(linux.mode_switch_shortcuts);
     // Linux stands the toolbar up as an IBus property menu: the switch and
     // component visibility work, but scale and icon size have no surface.
@@ -216,6 +218,7 @@ fn capabilities_describe_each_host() {
     // explanation of the gesture would be describing something that does not happen here.
     assert!(!windows.helpcode_shift_entry);
     assert!(!windows.skin_directory_import);
+    assert!(windows.candidate_skin_editor);
     // The TIP reads the CN/EN and 简繁 hotkeys from the shared preferences document, so the toggles take effect.
     assert!(windows.mode_switch_shortcuts);
     assert!(
@@ -242,6 +245,7 @@ fn capabilities_describe_each_host() {
     // native preference owner selects either that map or its global mode.
     assert!(macos.ime_mode_scope);
     assert!(macos.voice_capture_devices);
+    assert!(macos.candidate_skin_editor);
     assert!(
         macos.floating_toolbar
             && macos.floating_toolbar_appearance
@@ -351,6 +355,7 @@ fn capabilities_describe_each_host() {
     // Mobile hosts draw no toolbar at all.
     let android = HostCapabilities::for_platform(HostPlatform::Android);
     assert!(android.mobile_settings);
+    assert!(!android.candidate_skin_editor);
     // Android's InputMethodService keys the persisted mode by the focused
     // editor package when the shared scope is set to app.
     assert!(android.ime_mode_scope);
@@ -380,6 +385,8 @@ fn capabilities_describe_each_host() {
     assert!(ios.helpcode_shift_entry);
     // Files cannot reach the App Group skin folder, so the skin button imports a picked folder.
     assert!(ios.skin_directory_import);
+    // 手机不提供「制作皮肤」标签，皮肤页保持原样。
+    assert!(!ios.candidate_skin_editor);
     // The strip pages in nines and is always a horizontal row, whatever the shared document says.
     assert_eq!(ios.fixed_candidate_page_size, Some(9));
     assert_eq!(ios.max_candidate_page_size, 9);
@@ -624,6 +631,8 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     // Its skin folder is inside the sandbox, so the page asks the user to point at a skin
     // rather than offering to open a folder that nothing can browse.
     assert!(harmony.skin_directory_import);
+    // 2in1 的设置投影按设备形态再打开它，平台默认按手机处理。
+    assert!(!harmony.candidate_skin_editor);
     assert!(harmony.number_row_selection);
     // The two network providers create their own capturer, so a chosen microphone is routable.
     assert!(harmony.voice_capture_devices);
