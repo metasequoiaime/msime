@@ -48,7 +48,7 @@ pub fn make_skin_text(style: Option<String>) -> String {
 5. Use base = \"canvas\" only when the user explicitly asks for an msime-windows full-image (nine-slice) skin. It needs schema_version = 2 (version 1 with canvas is refused); give it a [candidate_window.border_image] whose images can be PNG/JPEG/APNG/GIF/WebP. border_image, [[candidate_window.decorations]] (plural: free widgets) and the canvas insets are read only with base = canvas. The Web engine and the macOS, Windows, iOS, Android and HarmonyOS candidate windows draw these canvas textures using their platform image codecs, while a host without that renderer (Linux for now) uses a readable opaque canvas look (only accent and menu colours are kept in that fallback). Explain the target host's support before making the skin. [animation] and decoration motion work on canvas as on any other base. The preview, panel and widgets count toward the 37-image limit. canvas and wechat_scroll are reserved and cannot be a package_id. Extended resources and new bases require explicit server support before upload; older deployments keep these skins local.
 6. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG, and an APNG is the same file with an acTL chunk and one fcTL plus fdAT pair per extra frame) runs without installing anything; use Pillow only if it is already installed. Use PNG/JPEG/APNG/GIF/WebP for resources and PNG/JPEG for the preview. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 37 images and 2 MiB together. Have the script save each image as a file in a new folder of its own and pass the files' absolute paths in image_files, keyed by the path the manifest uses; do not copy base64 into the call, where a single wrong character gets the whole skin refused. Only if you cannot write files, have the script print each image's base64 and pass it in images. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
 7. If create_candidate_skin refuses the skin, read the reason, fix the manifest or the images, and try again.
-8. Once it is installed, tell the user how to use it: in the MSIME settings, open 主题 and pick the skin under 我的皮肤. If they are signed in, they can request sync to save it to their cloud library as a private skin and publish it from its card there. Extended resources require explicit server support."
+8. Once it is installed, offer to switch to it, and do it yourself when the user agrees: read get_preferences, then call update_preferences with that revision and the skin as candidate_skin for light mode (a skin on a light base, light or paper, or on system) and as candidate_skin_dark for dark mode (a dark base, night, ink or shuishan, or system). This also switches the theme to custom, and the input method shows it within a few seconds. Note the global_theme and skins get_preferences reported, so you can switch back if the user does not like it. The user can also pick it in the MSIME settings: open 主题 and choose it under 我的皮肤. If they are signed in, they can request sync to save it to their cloud library as a private skin and publish it from its card there. Extended resources require explicit server support."
     )
 }
 
@@ -128,6 +128,18 @@ mod tests {
             "(Linux for now)",
             "#RRGGBB or #RRGGBBAA",
             "require explicit server support before upload",
+        ] {
+            assert!(text.contains(word), "{word}");
+        }
+    }
+
+    #[test]
+    fn make_skin_switches_to_the_skin_it_made() {
+        let text = super::make_skin_text(None);
+        for word in [
+            "call update_preferences with that revision and the skin as candidate_skin",
+            "as candidate_skin_dark for dark mode",
+            "so you can switch back",
         ] {
             assert!(text.contains(word), "{word}");
         }

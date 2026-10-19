@@ -36,6 +36,7 @@ Testing by hand:
   If some <keys> cannot be looked up, the others still are and expand exits 1.
   Every run reads the current preferences; there is nothing to reload.
   The input method applies config set within a few seconds.
+  Pick a skin with config set candidate_skin=<id> candidate_skin_dark=<id>.
   expand leaves out cloud and AI candidates and the context of earlier words.
   From a terminal, expand implies --allow-dictionary-read.
   From a terminal, config set implies --allow-write.

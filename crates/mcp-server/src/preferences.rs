@@ -8,6 +8,8 @@ use msime_client_core::preferences::{
     InputScheme, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinCustomProfile, ShuangpinProfile, WubiProfile,
 };
+use msime_client_core::theme::{GlobalTheme, ThemeAppearance};
+use msime_client_services::skin::{catalog, theme::skin_appearance};
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -189,6 +191,54 @@ pub enum StartMode {
 pub enum Width {
     Halfwidth,
     Fullwidth,
+}
+
+/// 全局主题，与 `GlobalTheme` 同名同值。
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    /// 跟随系统的明暗，画平台自己的配色。
+    System,
+    /// 只有 iOS 提供；其他宿主按 system 画。
+    Native,
+    Shuishan,
+    Light,
+    Paper,
+    Night,
+    Ink,
+    /// 用户自己的主题：候选窗画 candidate_skin / candidate_skin_dark 选中的皮肤。
+    Custom,
+}
+
+impl From<GlobalTheme> for Theme {
+    fn from(value: GlobalTheme) -> Self {
+        match value {
+            GlobalTheme::System => Self::System,
+            GlobalTheme::Native => Self::Native,
+            GlobalTheme::Shuishan => Self::Shuishan,
+            GlobalTheme::Light => Self::Light,
+            GlobalTheme::Paper => Self::Paper,
+            GlobalTheme::Night => Self::Night,
+            GlobalTheme::Ink => Self::Ink,
+            GlobalTheme::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<Theme> for GlobalTheme {
+    fn from(value: Theme) -> Self {
+        match value {
+            Theme::System => Self::System,
+            Theme::Native => Self::Native,
+            Theme::Shuishan => Self::Shuishan,
+            Theme::Light => Self::Light,
+            Theme::Paper => Self::Paper,
+            Theme::Night => Self::Night,
+            Theme::Ink => Self::Ink,
+            Theme::Custom => Self::Custom,
+        }
+    }
 }
 
 impl From<InputScheme> for Scheme {
@@ -403,6 +453,12 @@ pub struct PreferencesView {
     pub learning: bool,
     /// AI 助手：组字停顿后把拼音和前文发给用户配置的模型，回答作为一个候选放在固定座位上，等待时那一格显示「…」，没有回答时显示「—」。接口地址、模型和密钥不在这里。
     pub ai_assistant: bool,
+    /// 全局主题，候选窗、悬浮工具栏、菜单和触屏键盘共用。只有 `custom` 画下面两个槽位里的皮肤；内置主题（shuishan、light、paper、night、ink）在两种明暗下都画自己的固定配色，system 跟随系统。
+    pub global_theme: Theme,
+    /// 浅色模式用的候选窗皮肤（list_candidate_skins 的 id），candidate_skin_dark 为 null 时深色模式也用它；null 表示没有。主题不是 custom 时这里的选择保留着但不画。
+    pub candidate_skin: Option<String>,
+    /// 深色模式用的候选窗皮肤，null 时深色模式取 candidate_skin。
+    pub candidate_skin_dark: Option<String>,
 }
 
 impl From<&PreferencesSnapshot> for PreferencesView {
@@ -452,6 +508,9 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             game_candidate_overlay: preferences.game_compatibility.candidate_overlay,
             learning: preferences.learning,
             ai_assistant: preferences.ai_assistant.enabled,
+            global_theme: preferences.global_theme.into(),
+            candidate_skin: preferences.custom_theme.candidate_skin.clone(),
+            candidate_skin_dark: preferences.custom_theme.candidate_skin_dark.clone(),
         }
     }
 }
@@ -516,6 +575,14 @@ pub struct PreferencesChange {
     pub game_candidate_overlay: Option<bool>,
     /// 只能关：用户嫌 AI 候选慢、占位置或不想用时关掉它。打开会把用户打的字发给外部服务并产生费用，由用户在设置里自己打开，这里给 true 会被拒绝。
     pub ai_assistant: Option<bool>,
+    /// 换全局主题。选内置主题就在两种明暗下都画它；要画皮肤用 custom，或者直接给 candidate_skin / candidate_skin_dark。
+    pub global_theme: Option<Theme>,
+    /// 浅色模式的皮肤：已安装、能用的皮肤 id（list_candidate_skins 列出的），它的 base 必须画在浅色下（system 或浅色的内置主题）；null 取下。没给 global_theme 时，选上皮肤会把全局主题换成 custom，与设置页一样。
+    #[serde(default, deserialize_with = "present")]
+    pub candidate_skin: Option<Option<String>>,
+    /// 深色模式的皮肤，规则同 candidate_skin，base 必须画在深色下（system 或深色的内置主题）；null 取下，深色模式改用 candidate_skin。
+    #[serde(default, deserialize_with = "present")]
+    pub candidate_skin_dark: Option<Option<String>>,
 }
 
 impl PreferencesChange {
@@ -553,6 +620,23 @@ impl PreferencesChange {
             && self.diagnostic_log_tsf.is_none()
             && self.game_candidate_overlay.is_none()
             && self.ai_assistant.is_none()
+            && self.global_theme.is_none()
+            && self.candidate_skin.is_none()
+            && self.candidate_skin_dark.is_none()
+    }
+
+    /// 这次修改选上的皮肤，按槽位：`(槽位名, 皮肤 id, 是否深色槽位)`。
+    fn selected_skins(&self) -> impl Iterator<Item = (&'static str, &str, bool)> {
+        [
+            ("candidate_skin", &self.candidate_skin, false),
+            ("candidate_skin_dark", &self.candidate_skin_dark, true),
+        ]
+        .into_iter()
+        .filter_map(|(slot, skin, dark)| {
+            skin.as_ref()
+                .and_then(Option::as_deref)
+                .map(|id| (slot, id, dark))
+        })
     }
 
     fn apply(&self, preferences: &mut Preferences) {
@@ -664,6 +748,26 @@ impl PreferencesChange {
         if let Some(value) = self.ai_assistant {
             preferences.ai_assistant.enabled = value;
         }
+        let custom = &mut preferences.custom_theme;
+        let had_skin = custom.candidate_skin.is_some() || custom.candidate_skin_dark.is_some();
+        if let Some(skin) = &self.candidate_skin {
+            custom.candidate_skin = skin.clone();
+        }
+        if let Some(skin) = &self.candidate_skin_dark {
+            custom.candidate_skin_dark = skin.clone();
+        }
+        // 与设置页取下皮肤时一样：两个槽位都空了，底改回 system。设置页应用皮肤时把包的 base 写进底，留着深色皮肤的 night 会让浅色模式也画成深色。
+        if had_skin && custom.candidate_skin.is_none() && custom.candidate_skin_dark.is_none() {
+            custom.base = GlobalTheme::System;
+        }
+        match self.global_theme {
+            Some(theme) => preferences.global_theme = theme.into(),
+            // 与设置页一样，选上皮肤就换到画皮肤的自定义主题。
+            None if self.selected_skins().next().is_some() => {
+                preferences.global_theme = GlobalTheme::Custom;
+            }
+            None => {}
+        }
     }
 }
 
@@ -716,6 +820,9 @@ pub fn update(
     if change.ai_assistant == Some(true) && !previous.preferences.ai_assistant.enabled {
         return Err("the AI assistant sends what the user types to an outside service; only the user can turn it on, in the input method's settings".into());
     }
+    for (slot, id, dark) in change.selected_skins() {
+        check_skin(state_dir, slot, id, dark)?;
+    }
     let mut preferences = previous.preferences.clone();
     change.apply(&mut preferences);
     // 键位表合不合法只有 Engine 说了算：给了新表，或者要用自定义方案，就先校验，免得存下一张输入法用不了、只能悄悄退回小鹤的表。
@@ -745,6 +852,33 @@ pub fn update(
         }
     }
     Ok(PreferencesView::from(&snapshot))
+}
+
+/// 槽位里要放的皮肤必须是皮肤目录里能用的那款（与 list_candidate_skins 同一条规则），而且它的 base 要画在这个槽位的明暗下：深色 base 的皮肤放进浅色槽位，浅色模式根本不画它。
+fn check_skin(state_dir: &Path, slot: &str, id: &str, dark: bool) -> Result<(), String> {
+    if GlobalTheme::from_id(id).is_some_and(|theme| theme != GlobalTheme::Native) {
+        return Err(format!(
+            "{slot}: {id} is a built-in theme, not a skin; set global_theme to {id} to use it"
+        ));
+    }
+    let skin = catalog::load_package(state_dir.join(crate::skins::SKIN_DIRECTORY), id).map_err(
+        |reason| {
+            format!("{slot}: {id} is not an installed skin that can be used ({reason}); list_candidate_skins shows the installed skins")
+        },
+    )?;
+    let mode = |appearance: ThemeAppearance| match appearance {
+        ThemeAppearance::Light => "light",
+        ThemeAppearance::Dark => "dark",
+    };
+    match skin_appearance(skin.base) {
+        Some(appearance) if (appearance == ThemeAppearance::Dark) != dark => Err(format!(
+            "{slot}: {id} is drawn over the {mode} base {base}, so it shows only in {mode} mode; put it in {other} instead",
+            mode = mode(appearance),
+            base = skin.base.id(),
+            other = if dark { "candidate_skin" } else { "candidate_skin_dark" },
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The most runtime-options.json may hold on Linux: the IBus launcher, the Fcitx5 addon and the upgrade refresh all read at most 16 KiB (`LINUX_RUNTIME_OPTIONS_LIMIT` in the desktop app).
@@ -872,6 +1006,123 @@ mod tests {
             same(json!(Width::from(width)), json!(width));
             assert_eq!(CharacterWidthPreference::from(Width::from(width)), width);
         }
+        for theme in GlobalTheme::ALL {
+            same(json!(Theme::from(theme)), json!(theme));
+            assert_eq!(GlobalTheme::from(Theme::from(theme)), theme);
+        }
+    }
+
+    /// 在 `state` 的皮肤目录里放一款画在 `base` 上的最小皮肤。
+    fn install_skin(state: &Path, id: &str, base: &str) {
+        let folder = state.join(crate::skins::SKIN_DIRECTORY).join(id);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("skin.toml"),
+            format!("schema_version = 1\nid = '{id}'\nname = '{id}'\nversion = '1.0'\nbase = '{base}'\n[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['dark', 'light']\n[candidate_window]\nmin_width_dip = 200\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_skin_is_selected_for_each_mode_after_the_catalog_accepts_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = directory.path();
+        let options = state.join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        install_skin(state, "dusk", "night");
+        install_skin(state, "dawn", "paper");
+        install_skin(state, "plain", "system");
+        let run = |value: Value| {
+            let change: PreferencesChange = serde_json::from_value(value).unwrap();
+            update(state, &options, Edition::full(), &change)
+        };
+        let before = load(state, Edition::full()).unwrap();
+        assert_eq!(before.global_theme, Theme::System);
+        assert_eq!(
+            (
+                before.candidate_skin.as_deref(),
+                before.candidate_skin_dark.as_deref()
+            ),
+            (None, None)
+        );
+
+        // 选上深色皮肤，没给主题时换到 custom，与设置页一样。
+        let dark =
+            run(json!({ "expected_revision": before.revision, "candidate_skin_dark": "dusk" }))
+                .unwrap();
+        assert_eq!(dark.global_theme, Theme::Custom);
+        assert_eq!(dark.candidate_skin_dark.as_deref(), Some("dusk"));
+        assert_eq!(dark.candidate_skin, None);
+
+        // 拒绝：深色皮肤放进浅色槽位、内置主题当皮肤、没装的皮肤、过期的修订号。偏好都不动。
+        for (value, expected) in [
+            (
+                json!({ "candidate_skin": "dusk" }),
+                "shows only in dark mode; put it in candidate_skin_dark",
+            ),
+            (
+                json!({ "candidate_skin_dark": "dawn" }),
+                "shows only in light mode; put it in candidate_skin",
+            ),
+            (
+                json!({ "candidate_skin": "night" }),
+                "is a built-in theme, not a skin; set global_theme to night",
+            ),
+            (
+                json!({ "candidate_skin": "missing" }),
+                "is not an installed skin",
+            ),
+            (
+                json!({ "candidate_skin": "fluent" }),
+                "is not an installed skin",
+            ),
+        ] {
+            let mut value = value;
+            value["expected_revision"] = json!(dark.revision);
+            let error = run(value).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+        let error = run(json!({ "expected_revision": before.revision, "candidate_skin": "dawn" }))
+            .unwrap_err();
+        assert!(error.contains("changed since"), "{error}");
+        assert_eq!(load(state, Edition::full()).unwrap(), dark);
+
+        // 浅色槽位放浅色或 system 底的皮肤；给了主题时按给的主题。
+        let both = run(json!({ "expected_revision": dark.revision, "candidate_skin": "dawn", "global_theme": "night" }))
+            .unwrap();
+        assert_eq!(both.global_theme, Theme::Night);
+        assert_eq!(both.candidate_skin.as_deref(), Some("dawn"));
+        assert_eq!(both.candidate_skin_dark.as_deref(), Some("dusk"));
+        let plain = run(json!({ "expected_revision": both.revision, "candidate_skin": "plain", "candidate_skin_dark": "plain", "global_theme": "custom" }))
+            .unwrap();
+        assert_eq!(
+            (
+                plain.candidate_skin.as_deref(),
+                plain.candidate_skin_dark.as_deref()
+            ),
+            (Some("plain"), Some("plain"))
+        );
+
+        // 取下最后一款皮肤时底改回 system；主题不动。
+        let mut stored = PreferencesStore::new(state).load().unwrap();
+        stored.preferences.custom_theme.base = GlobalTheme::Night;
+        let saved = PreferencesStore::new(state)
+            .save(stored.revision, stored.preferences)
+            .unwrap();
+        let cleared = run(json!({ "expected_revision": saved.revision, "candidate_skin": null, "candidate_skin_dark": null }))
+            .unwrap();
+        assert_eq!(cleared.global_theme, Theme::Custom);
+        assert_eq!(
+            (cleared.candidate_skin, cleared.candidate_skin_dark),
+            (None, None)
+        );
+        let stored = PreferencesStore::new(state).load().unwrap().preferences;
+        assert_eq!(stored.custom_theme.base, GlobalTheme::System);
+
+        // 只换主题。
+        let builtin =
+            run(json!({ "expected_revision": cleared.revision, "global_theme": "paper" })).unwrap();
+        assert_eq!(builtin.global_theme, Theme::Paper);
     }
 
     fn change(revision: u64) -> PreferencesChange {

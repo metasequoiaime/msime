@@ -269,7 +269,7 @@ impl MsimeServer {
 
     #[tool(
         name = "get_preferences",
-        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches, whether the AI assistant is on and a few more. Pass the returned revision to update_preferences.",
+        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches, whether the AI assistant is on, the global theme and the candidate-window skin chosen for light and for dark mode, and a few more. Pass the returned revision to update_preferences.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
@@ -284,7 +284,7 @@ impl MsimeServer {
 
     #[tool(
         name = "update_preferences",
-        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, for a scheme the installed edition of the input method does not offer, and for turning the AI assistant on. Turn the AI assistant off when the user finds the AI candidate slow or in the way: it holds one candidate slot showing … while it waits for the model.",
+        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, for a scheme the installed edition of the input method does not offer, and for turning the AI assistant on. Turn the AI assistant off when the user finds the AI candidate slow or in the way: it holds one candidate slot showing … while it waits for the model. To use an installed skin (an id list_candidate_skins lists), set candidate_skin for light mode and candidate_skin_dark for dark mode; candidate_skin also serves dark mode while candidate_skin_dark is null, and null takes a skin out of its slot. A skin is drawn only in the mode of its manifest base: on night, ink or shuishan only in dark mode, on light or paper only in light mode, on system in both, so a slot refuses a skin that cannot show in its mode, and it refuses an id that is not an installed, usable skin. Choosing a skin also switches global_theme to custom, the theme that draws skins, unless global_theme is given; a built-in theme (system, shuishan, light, paper, night, ink) is chosen with global_theme alone and keeps the skin choice for later.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -844,6 +844,31 @@ mod tests {
         assert!(list.contains("whether it is a canvas"));
         assert!(list.contains("notices about keys that were ignored or are not drawn"));
         assert!(create.contains("reports such ignored or undrawn keys as notices"));
+    }
+
+    #[test]
+    fn preference_tools_describe_choosing_a_skin() {
+        let description = |name: &str| {
+            server(true)
+                .tool_router
+                .list_all()
+                .into_iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description)
+                .unwrap()
+                .to_string()
+        };
+        assert!(description("get_preferences")
+            .contains("the candidate-window skin chosen for light and for dark mode"));
+        let update = description("update_preferences");
+        for word in [
+            "set candidate_skin for light mode and candidate_skin_dark for dark mode",
+            "candidate_skin also serves dark mode while candidate_skin_dark is null",
+            "on night, ink or shuishan only in dark mode, on light or paper only in light mode, on system in both",
+            "switches global_theme to custom",
+        ] {
+            assert!(update.contains(word), "{word}");
+        }
     }
 
     #[test]

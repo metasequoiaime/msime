@@ -1018,5 +1018,39 @@ async fn an_agent_manages_candidate_skins() {
     .await;
     assert!(error.contains("is not an absolute path"), "{error}");
 
+    // 选上它作深色模式的皮肤：主题随之换到 custom，get_preferences 报告这个选择。
+    let before = ok(&client, "get_preferences", json!({})).await;
+    assert_eq!(before["global_theme"], "system");
+    assert_eq!(before["candidate_skin"], Value::Null);
+    assert_eq!(before["candidate_skin_dark"], Value::Null);
+    after_write_interval().await;
+    let error = refused(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": before["revision"], "candidate_skin": "dusk" }),
+    )
+    .await;
+    assert!(error.contains("put it in candidate_skin_dark"), "{error}");
+    after_write_interval().await;
+    let selected = ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": before["revision"], "candidate_skin_dark": "dusk" }),
+    )
+    .await;
+    assert_eq!(selected["global_theme"], "custom");
+    assert_eq!(selected["candidate_skin_dark"], "dusk");
+    assert_eq!(ok(&client, "get_preferences", json!({})).await, selected);
+    // 换回原来的主题，取下皮肤。
+    after_write_interval().await;
+    let restored = ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": selected["revision"], "global_theme": "system", "candidate_skin_dark": null }),
+    )
+    .await;
+    assert_eq!(restored["global_theme"], "system");
+    assert_eq!(restored["candidate_skin_dark"], Value::Null);
+
     client.cancel().await.unwrap();
 }
