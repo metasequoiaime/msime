@@ -4021,6 +4021,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(candidatePanel(in: controller))
     XCTAssertEqual(try preedit(in: controller), composition, "收起不能删除组字")
     expand.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
     let reopened = try XCTUnwrap(candidatePanel(in: controller))
     let candidate = try XCTUnwrap(descendants(reopened).compactMap { $0 as? UIButton }
       .first { $0.accessibilityIdentifier == "panelCandidate-1" })
