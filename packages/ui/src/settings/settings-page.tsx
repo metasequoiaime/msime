@@ -68,7 +68,6 @@ function SettingsShell(props: SettingsPageProps) {
     inputSourceStartup,
     dismissInputSourceStartup,
     page,
-    dictionaryTab,
     settingsContentRef,
     windowMaximized,
     reload,
@@ -139,7 +138,15 @@ function SettingsShell(props: SettingsPageProps) {
       animation.play();
     }
   }, [page, pushedPage]);
-  const mascotIntro = mobilePlatform ? undefined : settingsMascotIntro(page);
+  const mascotIntro = mobilePlatform
+    ? undefined
+    : settingsMascotIntro(page, {
+        ...model.introTabs,
+        "screen-keyboard": model.handwritingOnScreenKeyboardPage
+          ? model.introTabs["screen-keyboard"]
+          : "keyboard",
+        tools: client.clipboard?.list ? model.introTabs.tools : "clipboard",
+      });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   // 社区图库「添加」词库的去处：宿主有命名词库时装成一个独立的词库，否则导入本机词库。「社区」页和功能页里的图库共用。宿主能核对第三方词库时，发布词库前用它拦下来自搜狗细胞词库的词。
   const communityLocalDictionary = createCommunityLocalDictionary(

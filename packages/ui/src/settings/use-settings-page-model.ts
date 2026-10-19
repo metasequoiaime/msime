@@ -56,6 +56,7 @@ import { defaultTouchKeyboardSchemes } from "./touch-keyboard-scheme-helpers";
 import { communityDestinationView } from "../community/community-destination";
 import { describeInstallerTrust } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
+import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
 
 export type SettingsPageProps = {
   client: SettingsClient;
@@ -68,6 +69,7 @@ export type SettingsPageProps = {
 
 /** 设置窗口的状态、副作用和处理器；外壳与各设置页面消费同一份模型。 */
 export function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
+  const { introTabs, selectIntroTab } = useSettingsIntroTabs();
   useEffect(() => {
     const automatic = () => {
       void client.dictionary?.updates?.("automatic").catch(() => undefined);
@@ -659,6 +661,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     initialMine: initialCommunityMine,
   } = communityDestinationView(communityDestination);
   return {
+    introTabs,
+    selectIntroTab,
     client,
     confirmation,
     confirm,

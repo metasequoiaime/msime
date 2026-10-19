@@ -5,6 +5,7 @@ import type {
 import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import { useSettingsTabs } from "./use-settings-tabs";
+import type { SettingsIntroTabs } from "./use-settings-intro-tabs";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import * as settings from "./settings-style";
 import { SettingsPageHeader } from "./settings-page-header";
@@ -85,6 +86,8 @@ export function desktopVoiceServiceStatus(
 }
 
 export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
+  activeTab?: SettingsIntroTabs["voice"];
+  onTabChange?: (tab: SettingsIntroTabs["voice"]) => void;
   disabled: boolean;
   hidden: boolean;
   client: SettingsClient;
@@ -135,6 +138,8 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
 
 /** 共用语音设置页，宿主状态与副作用由设置表单持有。 */
 export function VoiceSettingsContent({
+  activeTab,
+  onTabChange,
   disabled,
   hidden,
   client,
@@ -192,7 +197,13 @@ export function VoiceSettingsContent({
     encode: () => ({ voiceService: true }),
     isActiveState: (state) => state?.voiceService === true,
   });
-  const { tabList, panel } = useSettingsTabs(voiceTabs, "语音输入设置分类", !mobilePlatform);
+  const { tabList, panel } = useSettingsTabs(
+    voiceTabs,
+    "语音输入设置分类",
+    !mobilePlatform,
+    activeTab,
+    onTabChange,
+  );
   const serviceOpen = serviceSubview === true;
   useEffect(() => {
     if (hidden) resetServiceSubview();
