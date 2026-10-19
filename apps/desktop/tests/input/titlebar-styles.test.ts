@@ -113,3 +113,10 @@ test("window SVGs retain upstream sizing and light-theme contrast", () => {
   expect(close).toContain("light-theme:hover:[&_img]:[filter:none]");
   expect(close).toContain("light-theme:active:[&_img]:[filter:none]");
 });
+
+test("macOS liquid glass toolbar avoids a second blur pass and rounds its lower edge", () => {
+  expect(utilities(settings.macosToolbar)).toContain("rounded-bl-[16px]");
+  expect(styles).toContain(
+    'html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {\n  border-bottom-color: transparent;\n  /* 原生液态玻璃已经负责窗口材质；工具栏再次采样滚动内容会在 WebKit 中闪烁。 */\n  backdrop-filter: none;\n  -webkit-backdrop-filter: none;',
+  );
+});

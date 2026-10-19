@@ -2861,6 +2861,9 @@ html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {
 
 html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {
   border-bottom-color: transparent;
+  /* 原生液态玻璃已经负责窗口材质；工具栏再次采样滚动内容会在 WebKit 中闪烁。 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* 新系统导航使用胶囊选中态，表单沿用共享控件与键盘、读屏行为。 */
