@@ -252,7 +252,7 @@ test("starting from a fixed-mode theme limits the skin to that mode", async () =
   fireEvent.change(screen.getByRole("combobox", { name: "从这里开始" }), {
     target: { value: "theme:night" },
   });
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "从这里开始" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "载入" })));
   expect((screen.getByRole("combobox", { name: "底色" }) as HTMLSelectElement).value).toBe("night");
   expect(screen.getByText("底色是深色主题，这款皮肤只用在深色模式。")).toBeTruthy();
   expect(
@@ -281,7 +281,7 @@ test("a Windows look asks the host for its palette, and leaving edits asks first
   fireEvent.change(screen.getByRole("combobox", { name: "从这里开始" }), {
     target: { value: "look:wechat" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "从这里开始" }));
+  fireEvent.click(screen.getByRole("button", { name: "载入" }));
   const dialog = await screen.findByRole("alertdialog", { name: "换一个起点？" });
   fireEvent.click(within(dialog).getByRole("button", { name: "换起点" }));
   await waitFor(() => expect(client.check).toHaveBeenCalledTimes(1));
@@ -303,7 +303,7 @@ test("duplicating an installed skin starts from a copy with its own id", async (
   fireEvent.change(screen.getByRole("combobox", { name: "从这里开始" }), {
     target: { value: "skin:sample" },
   });
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "从这里开始" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "载入" })));
   expect((screen.getByRole("textbox", { name: "皮肤名称" }) as HTMLInputElement).value).toBe(
     "Synthetic external 副本",
   );

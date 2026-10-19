@@ -125,8 +125,9 @@ export const skinCandidateStages = "flex flex-wrap items-start [&>*]:max-w-full 
 // ---- 「制作皮肤」编辑器 ----
 
 /** 编辑时一直看得见的预览：贴在内容区顶部，下面的表单从它底下滚过。 */
-export const skinEditorPreview =
-  "sticky top-0 z-10 flex flex-col gap-3 rounded-[var(--p-group-r)] border border-edge bg-[var(--p-group-bg)] p-4 shadow-card linux:shadow-none";
+/** 横排预览贴在内容区顶部，下面的表单从它底下滚过；竖排预览太高，贴住会挡掉半个窗口，所以跟着页面走。贴住的位置让开 macOS 窗口里同样贴在顶部的 52px 工具栏。分组底色在深色下是半透明的，叠在页面底色上才挡得住滚过去的内容。 */
+export const skinEditorPreview = (sticky: boolean) =>
+  `${sticky ? "sticky top-2 z-[5] mac:top-[60px]" : ""} flex flex-col gap-3 rounded-[var(--p-group-r)] border border-edge [background:linear-gradient(var(--p-group-bg),var(--p-group-bg)),var(--p-bg)] p-4 shadow-card linux:shadow-none`;
 export const skinEditorPreviewBar = "flex flex-wrap items-center justify-between gap-3";
 export const skinEditorPreviewModes =
   "grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]";
@@ -137,6 +138,7 @@ export const skinEditorPreviewEmpty =
 export const skinEditorPreviewLabel = "text-xs font-medium text-muted";
 export const skinEditorColor = "flex items-center gap-2";
 export const skinEditorHex = "settings-text-input w-[7.5rem] font-mono uppercase";
+export const skinEditorAlpha = "w-9 text-right text-xs tabular-nums [color:var(--p-sub)]";
 export const skinEditorContrast =
   "m-0 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-[13px] [color:var(--p-sub)]";
 export const skinEditorContrastValue = (ok: boolean) =>

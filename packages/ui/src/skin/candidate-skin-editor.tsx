@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { GroupList, Row, Segmented, Switch } from "../core/platform-controls";
+import { GroupList, Row, Segmented, Select, Switch } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
@@ -104,6 +104,10 @@ function ColorRow({
           }}
           onBlur={() => setText(value)}
         />
+        {/* 原生取色器画不出透明度，半透明的颜色在色值后面写出不透明度。 */}
+        <span className={settings.skinEditorAlpha} aria-hidden="true">
+          {alpha ? `${Math.round((parseInt(alpha, 16) / 255) * 100)}%` : ""}
+        </span>
       </span>
     </Row>
   );
@@ -112,6 +116,7 @@ function ColorRow({
 /** 选一张图片：按钮打开系统的文件选择器（隐藏的文件输入框只接收结果，键盘焦点停在按钮上）。 */
 function ImageRow({
   title,
+  label,
   description,
   image,
   disabled,
@@ -119,6 +124,8 @@ function ImageRow({
   onRemove,
 }: {
   title: string;
+  /** 按钮的名字里用的图片名，例如「背景图」。 */
+  label: string;
   description: ReactNode;
   image: DraftImage | null;
   disabled: boolean;
@@ -148,14 +155,14 @@ function ImageRow({
             action={onRemove}
             disabled={disabled}
             label="移除"
-            ariaLabel={`移除${title}`}
+            ariaLabel={`移除${label}`}
           />
         )}
         <ActionButton
           action={() => input.current?.click()}
           disabled={disabled}
           label={image ? "更换图片" : "选择图片"}
-          ariaLabel={`${image ? "更换" : "选择"}${title}`}
+          ariaLabel={`${image ? "更换" : "选择"}${label}`}
         />
         <input
           ref={input}
@@ -462,11 +469,14 @@ export function CandidateSkinEditor({
     showProblems ? problems.find((problem) => problem.field === field)?.message : undefined;
   const decoration = draft.decoration;
   const background = draft.background;
-  const schema2Note = "这一项会把皮肤写成第 2 版清单，旧版输入法会忽略它。";
+  const schema2Note = "打开后皮肤写成第 2 版清单，较早版本的输入法读不了它。";
 
   return (
     <div className="flex flex-col gap-6">
-      <section className={settings.skinEditorPreview} aria-label="实时预览">
+      <section
+        className={settings.skinEditorPreview(orientation === "horizontal")}
+        aria-label="实时预览"
+      >
         <div className={settings.skinEditorPreviewBar}>
           <Segmented
             aria-label="预览的候选排列"
@@ -504,50 +514,49 @@ export function CandidateSkinEditor({
       </section>
 
       <GroupList title="起点">
-        <SelectRow
-          title="从这里开始"
-          description="换起点会用它的配色和设置重新填写下面的内容。"
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-        >
-          <option value="blank">空白皮肤</option>
-          <optgroup label="内置主题">
-            {builtinBases.map((id) => (
-              <option key={id} value={`theme:${id}`}>
-                {themeEntry(id).title}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Windows 外观">
-            {windowsLooks.map((look) => (
-              <option key={look.id} value={`look:${look.id}`}>
-                {look.title}
-              </option>
-            ))}
-          </optgroup>
-          {!!catalog?.packages.length && (
-            <optgroup label="复制已安装的皮肤">
-              {catalog.packages.map((skin) => (
-                <option key={skin.id} value={`skin:${skin.id}`}>
-                  {skin.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </SelectRow>
-        <SettingsGroupBlock>
+        <Row title="从这里开始" description="载入会用它的配色和设置重新填写下面的内容。">
           <span className={settings.skinEditorActions}>
+            <Select value={source} onChange={(event) => setSource(event.target.value)}>
+              <option value="blank">空白皮肤</option>
+              <optgroup label="内置主题">
+                {builtinBases.map((id) => (
+                  <option key={id} value={`theme:${id}`}>
+                    {themeEntry(id).title}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Windows 外观">
+                {windowsLooks.map((look) => (
+                  <option key={look.id} value={`look:${look.id}`}>
+                    {look.title}
+                  </option>
+                ))}
+              </optgroup>
+              {!!catalog?.packages.length && (
+                <optgroup label="复制已安装的皮肤">
+                  {catalog.packages.map((skin) => (
+                    <option key={skin.id} value={`skin:${skin.id}`}>
+                      {skin.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </Select>
             <ActionButton
               action={start}
               disabled={starting || saving}
-              label={starting ? "正在读取…" : "从这里开始"}
+              label={starting ? "正在读取…" : "载入"}
             />
           </span>
-          {startError && <ErrorAlert>{startError}</ErrorAlert>}
-          {startNotice && (
-            <StatusMessage className={settings.skinCardDescription}>{startNotice}</StatusMessage>
-          )}
-        </SettingsGroupBlock>
+        </Row>
+        {(startError || startNotice) && (
+          <SettingsGroupBlock>
+            {startError && <ErrorAlert>{startError}</ErrorAlert>}
+            {startNotice && (
+              <StatusMessage className={settings.skinCardDescription}>{startNotice}</StatusMessage>
+            )}
+          </SettingsGroupBlock>
+        )}
       </GroupList>
 
       <GroupList title="基本信息">
@@ -572,14 +581,14 @@ export function CandidateSkinEditor({
         <TextInputRow
           title="皮肤 ID"
           description={
-            idCheck.kind === "ok"
+            idCheck.kind === "ok" || (!draft.id && !showProblems)
               ? draft.idEdited
                 ? "皮肤文件夹的名字，只能用小写英文字母、数字和 . _ -。"
                 : "按名称自动生成；也可以自己改。"
               : idCheck.message
           }
           label="皮肤 ID"
-          aria-invalid={idCheck.kind === "error"}
+          aria-invalid={idCheck.kind === "error" && (draft.id !== "" || showProblems)}
           spellCheck={false}
           autoCapitalize="off"
           value={draft.id}
@@ -774,8 +783,9 @@ export function CandidateSkinEditor({
 
       <GroupList title="背景图">
         <ImageRow
-          title="背景图"
-          description="画在窗口底色之上、候选之下，按窗口圆角裁剪。PNG、JPEG、GIF 或 WebP，不超过 1 MB。"
+          title="图片"
+          label="背景图"
+          description="画在窗口底色之上、候选之下，按窗口圆角裁剪，浅色和深色模式共用。PNG、JPEG、GIF 或 WebP，不超过 1 MB。上面的文字对比度不计背景图，换图后请看预览确认文字清楚。"
           image={background?.image ?? null}
           disabled={saving}
           onPick={(file) => pickImage("background", file)}
@@ -810,7 +820,8 @@ export function CandidateSkinEditor({
 
       <GroupList title="装饰图">
         <ImageRow
-          title="装饰图"
+          title="图片"
+          label="装饰图"
           description="候选窗上方的一张小图，例如吉祥物，底部压在窗口上沿。可以是 APNG 动图。"
           image={decoration?.image ?? null}
           disabled={saving}
