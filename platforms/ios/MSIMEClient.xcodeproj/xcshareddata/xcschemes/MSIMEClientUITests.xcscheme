@@ -21,6 +21,20 @@
                ReferencedContainer = "container:MSIMEClient.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "69CEC806C67E3F35E458FA5A"
+               BuildableName = "MSIMEKeyboardTestHost.app"
+               BlueprintName = "MSIMEKeyboardTestHost"
+               ReferencedContainer = "container:MSIMEClient.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

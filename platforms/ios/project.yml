@@ -45,6 +45,7 @@ schemes:
     build:
       targets:
         MSIMEClientUITests: all
+        MSIMEKeyboardTestHost: all
     test:
       targets:
         - MSIMEClientUITests

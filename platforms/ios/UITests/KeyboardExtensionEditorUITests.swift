@@ -116,8 +116,13 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let field = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(field.waitForExistence(timeout: 15), "试用编辑器必须可用")
     if toolbarTest { field.tap() }
-    // This screen focuses the field on appearance; tapping an already focused field while the
-    // keyboard animates can land on a key instead.
+    return try activeSystemKeyboard(in: app, field: field, toolbarTest: toolbarTest)
+  }
+
+  /// 共用系统键盘识别与切换流程，编辑器可以属于产品宿主或独立测试应用。
+  private func activeSystemKeyboard(in app: XCUIApplication, field: XCUIElement,
+                                    toolbarTest: Bool = false) throws -> XCUIElement {
+    // 编辑器出现时自动聚焦，键盘动画期间再次点击可能误触按键。
     let focused = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
     if XCTWaiter.wait(for: [focused], timeout: 10) != .completed { field.tap() }
@@ -167,6 +172,108 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     throw XCTSkip(
       "\(keyboardIdentifier) never became the active keyboard. keyboards=\(keys) globe="
         + "\(globe.exists) keys=[\(buttons)]")
+  }
+
+  /// 宿主反复切换四种方案后，在系统键盘验证候选展开、收起和上屏。
+  func testCandidatePanelAfterHostSchemeChanges() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    defer { editor.terminate() }
+
+    func selectInHost(_ scheme: String) {
+      if app.state == .notRunning { app.launch() } else { app.activate() }
+      let settings = app.tabBars.buttons["设置"]
+      XCTAssertTrue(settings.waitForExistence(timeout: 10))
+      settings.tap()
+      settings.tap()
+      let input = app.buttons["inputSettingsLink"].firstMatch
+      for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+      XCTAssertTrue(input.waitForExistence(timeout: 10))
+      input.tap()
+      let language = app.buttons["inputLanguage_mandarin"]
+      XCTAssertTrue(language.waitForExistence(timeout: 10))
+      language.tap()
+      if scheme == "shuangpin" {
+        let group = app.buttons["inputSchemeGroup_shuangpin"]
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        group.tap()
+      }
+      let option = app.buttons["inputScheme_\(scheme)"]
+      XCTAssertTrue(option.waitForExistence(timeout: 5), "宿主设置必须提供被测方案")
+      option.tap()
+    }
+
+    func typeSyllable(_ scheme: String) {
+      let titles = ["shuangpin": "小鹤双拼", "quanpin": "全拼 26 键",
+                    "nineKey": "全拼 9 键", "fourteenKey": "全拼 14 键"]
+      let loaded = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "value == %@", titles[scheme] ?? "未知方案"),
+        object: editor.buttons["schemeButton"])
+      XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 8), .completed,
+                     "系统扩展必须加载宿主保存的方案，不能继续使用旧键面")
+      let language = editor.buttons["bottomLanguageKey"]
+      if language.label == "切换到中文输入" { language.tap() }
+      switch scheme {
+      case "nineKey":
+        for digit in "64" { editor.buttons["nineKey\(digit)"].tap() }
+      case "fourteenKey":
+        for label in ["按键 B N", "按键 U I"] {
+          let key = editor.buttons[label].exists ? editor.buttons[label] : editor.keys[label]
+          XCTAssertTrue(key.waitForExistence(timeout: 5))
+          key.tap()
+        }
+      default:
+        for label in ["字母 N", "字母 I"] {
+          let key = editor.keys[label]
+          XCTAssertTrue(key.waitForExistence(timeout: 5))
+          key.tap()
+        }
+      }
+      XCTAssertTrue(editor.buttons["candidate-1"].waitForExistence(timeout: 8), "组字必须产生候选")
+    }
+
+    selectInHost("quanpin")
+    #if targetEnvironment(simulator)
+    addKeyboardInSettingsIfNeeded()
+    #endif
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10), "独立编辑器测试应用必须已安装")
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    typeSyllable("quanpin")
+    for round in 0..<3 {
+      for scheme in ["shuangpin", "quanpin", "nineKey", "fourteenKey"] {
+        // 保持独立编辑器进程和未完成组字，切到宿主保存方案后再切回来。
+        selectInHost(scheme)
+        editor.activate()
+        _ = try activeSystemKeyboard(in: editor, field: field)
+        let initial = field.value as? String ?? ""
+        let prefix = initial == field.placeholderValue ? "" : initial
+        typeSyllable(scheme)
+        let expand = editor.buttons["expandCandidates"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        expand.tap()
+        let candidate = editor.buttons["panelCandidate-1"]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 8), "切换方案后候选必须能够展开")
+        XCTAssertTrue(candidate.isHittable, "展开的候选必须能被真实触摸命中")
+        XCTAssertEqual(expand.label, "收起候选")
+        expand.tap()
+        XCTAssertTrue(candidate.waitForNonExistence(timeout: 5), "收起后不能留下旧面板")
+        expand.tap()
+        XCTAssertTrue(candidate.waitForExistence(timeout: 8), "收起后必须能再次展开")
+        candidate.tap()
+        let committed = field.value as? String ?? ""
+        XCTAssertTrue(committed.hasPrefix(prefix), "选词不能覆盖已有正文")
+        let appended = String(committed.dropFirst(prefix.count))
+        XCTAssertNotNil(appended.range(of: "^[\\p{Han}]+$", options: .regularExpression),
+                        "完整候选必须跨进程提交汉字，不能残留本次原始编码")
+        XCTAssertNotEqual(editor.buttons["returnKey"].label, "确认", "单音节选词后必须结束组字")
+        typeSyllable(scheme)
+      }
+      print("CANDIDATE_PANEL_SCHEME_SWITCH round=\(round + 1) schemes=4 completed=1")
+    }
   }
 
   /// 在真机系统键盘中重复组字、选词和提交，输入始终使用合成拼音。

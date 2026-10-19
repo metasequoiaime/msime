@@ -311,6 +311,24 @@ xcrun simctl delete "$device"
 
 `KeyboardExtensionEditorUITests` 是唯一把键盘扩展当成系统键盘来用的一组用例：其余所有套件都直接在测试宿主里构造 `KeyboardViewController`，那条路覆盖不到只在运行期才存在的部分——系统是否真的加载这个扩展、扩展进程能否读到 App Group 共享容器、上屏文本是否真的到达别人的 `UITextDocumentProxy`。它要求键盘已在「设置」里启用；没启用时跳过而不是失败，并在跳过信息里带上当时键面上有什么。
 
+`testCandidatePanelAfterHostSchemeChanges` 专门重放 #8782 的应用切换：在独立编辑器中保留未完成组字，切到产品 App 保存方案，再切回原编辑器展开、收起候选并选词上屏，双拼、全拼、九键、十四键共三轮。它复用 `MSIMEKeyboardTestHost` 的 `--system-keyboard-editor` 启动入口；该入口只提供普通 `UITextField`，不加载产品键盘控制器。`MSIMEClientUITests` scheme 同时构建这个独立应用，但运行前需要把它装入目标设备；不能把用例跳过记作验收通过。真机在上面的资源、原生库、语音运行库与 Pods 准备完成后执行：
+
+```sh
+xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientUITests \
+  -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
+  -derivedDataPath target/ios/derived-device -allowProvisioningUpdates \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
+xcrun devicectl device install app --device <udid> \
+  target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEKeyboardTestHost.app
+xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientUITests \
+  -configuration Release -destination 'platform=iOS,id=<udid>' \
+  -derivedDataPath target/ios/derived-device \
+  -only-testing:MSIMEClientUITests/KeyboardExtensionEditorUITests/testCandidatePanelAfterHostSchemeChanges \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
+```
+
+设备须解锁，并已启用水杉系统键盘。用例在独立测试编辑器中只输入合成拼音，不使用设备上的浏览器或备忘录。
+
 **在 iOS 27 模拟器上，键盘能装上但切不过去。** 启用和切换是两件事，要分开看：
 
 - **启用是成功的。** 往 `.GlobalPreferences` 写 `AppleKeyboards`（加上扩展 bundle id `app.msime.ios.keyboard`）并重启模拟器之后，设置 → 通用 → 键盘 → 键盘 里确实列着「水杉输入法 · 中文」。要确认这一点得走 Settings 把每一层的单元格文案打出来看，只凭「键盘环里没有它」会误判成写入无效。
