@@ -3,6 +3,7 @@
 #include "NativeCanvasAnimation.h"
 #include <pango/pangocairo.h>
 #include <functional>
+#include <limits>
 #include <map>
 #include <vector>
 
@@ -228,18 +229,33 @@ struct NativeCanvasLayout {
   NativeCanvasMetrics metrics;
   NativeCanvasRect panel, preedit, auxiliary, previous, next;
   std::vector<NativeCanvasRect> items;
+  // 保留测量时的文字宽度；均分背景后绘制仍沿用原断行。
+  std::vector<double> item_text_widths;
+  double preedit_width = -1, auxiliary_width = -1;
   double width = 0, height = 0;
 };
 
-inline std::pair<double, double> native_canvas_text_size(cairo_t *cr, const std::string &font,
-                                                        const std::string &text) {
+inline PangoLayout *native_canvas_text_layout(cairo_t *cr, const std::string &font,
+    const std::string &text, double max_width = -1, double font_size = 0) {
   auto *layout = pango_cairo_create_layout(cr);
   auto *description = pango_font_description_from_string(font.c_str());
+  if (font_size > 0) pango_font_description_set_absolute_size(description, font_size * PANGO_SCALE);
   pango_layout_set_font_description(layout, description);
   pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+  if (std::isfinite(max_width) && max_width >= 0) {
+    pango_layout_set_width(layout, static_cast<int>(std::clamp(std::floor(max_width * PANGO_SCALE),
+        1.0, static_cast<double>(G_MAXINT))));
+    pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
+  }
+  pango_font_description_free(description);
+  return layout;
+}
+
+inline std::pair<double, double> native_canvas_text_size(cairo_t *cr, const std::string &font,
+    const std::string &text, double max_width = -1, double font_size = 0) {
+  auto *layout = native_canvas_text_layout(cr, font, text, max_width, font_size);
   int width = 0, height = 0;
   pango_layout_get_pixel_size(layout, &width, &height);
-  pango_font_description_free(description);
   g_object_unref(layout);
   return {static_cast<double>(width), static_cast<double>(height)};
 }
@@ -247,14 +263,20 @@ inline std::pair<double, double> native_canvas_text_size(cairo_t *cr, const std:
 // 释义范围按原串字节解释；只给共享层识别的区段加属性，不在宿主重做词性识别。
 inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMetrics &metrics,
     const NativeCanvasItem &item, bool horizontal, const nlohmann::json &colors = nlohmann::json::object(),
-    bool highlighted = false) {
-  auto *line = pango_cairo_create_layout(cr);
-  auto *font = pango_font_description_from_string(metrics.font.c_str());
-  pango_layout_set_font_description(line, font);
-  pango_font_description_free(font);
-  const std::string gap = item.translation.empty() ? "" : horizontal ? "\n" : " ";
+    bool highlighted = false, double max_width = -1) {
+  bool inline_translation = !horizontal;
+  if (inline_translation && !item.translation.empty() && std::isfinite(max_width) && max_width >= 0) {
+    auto *body = native_canvas_text_layout(cr, metrics.font, item.text);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(body, &width, &height);
+    const auto translation = native_canvas_text_size(cr, metrics.font, item.translation, -1, metrics.font_size * 0.78);
+    inline_translation = pango_layout_get_line_count(body) == 1 &&
+        width + metrics.font_size * 0.65 + translation.first <= max_width;
+    g_object_unref(body);
+  }
+  const std::string gap = item.translation.empty() ? "" : inline_translation ? " " : "\n";
   const auto value = item.text + gap + item.translation + item.suffix;
-  pango_layout_set_text(line, value.c_str(), static_cast<int>(value.size()));
+  auto *line = native_canvas_text_layout(cr, metrics.font, value, max_width);
   if (item.translation.empty()) return line;
   const auto start = item.text.size() + gap.size(), end = start + item.translation.size();
   auto *attributes = pango_attr_list_new();
@@ -264,7 +286,7 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
     pango_attr_list_change(attributes, attribute);
   };
   insert(pango_attr_size_new_absolute(static_cast<int>(std::round(metrics.font_size * 0.78 * PANGO_SCALE))), start, end);
-  if (!horizontal) {
+  if (inline_translation) {
     PangoRectangle ink{}, logical{0, 0, static_cast<int>(std::round(metrics.font_size * 0.65 * PANGO_SCALE)), 0};
     insert(pango_attr_shape_new(&ink, &logical), item.text.size(), start);
   }
@@ -307,8 +329,8 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
 }
 
 inline std::pair<double, double> native_canvas_item_size(cairo_t *cr, const NativeCanvasMetrics &metrics,
-                                                        const NativeCanvasItem &item, bool horizontal) {
-  auto *line = native_canvas_item_layout(cr, metrics, item, horizontal);
+    const NativeCanvasItem &item, bool horizontal, double max_width = -1) {
+  auto *line = native_canvas_item_layout(cr, metrics, item, horizontal, nlohmann::json::object(), false, max_width);
   int width = 0, height = 0;
   pango_layout_get_pixel_size(line, &width, &height);
   g_object_unref(line);
@@ -316,56 +338,93 @@ inline std::pair<double, double> native_canvas_item_size(cairo_t *cr, const Nati
 }
 
 inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets,
-                                                const NativeCanvasContent &content) {
+    const NativeCanvasContent &content, double panel_width_limit = -1) {
   NativeCanvasLayout layout;
   layout.metrics = native_canvas_metrics(cr, assets, content);
   const auto &metrics = layout.metrics;
   const auto &padding = metrics.content;
+  const double available = panel_width_limit > 0 ? std::max(1.0, panel_width_limit - padding[3] - padding[1]) :
+      std::numeric_limits<double>::infinity();
   const auto line = native_canvas_text_size(cr, metrics.font, "国Mg").second;
   const auto number_line = metrics.number_scale == 0 ? 0 : native_canvas_text_size(cr, metrics.number_font, "Mg").second;
   double y = padding[0], width = 0;
   if (!content.preedit.empty()) {
-    const auto size = native_canvas_text_size(cr, metrics.font, content.preedit);
     const auto &margin = metrics.preedit_margin;
-    layout.preedit = {padding[3] + margin[3], y + margin[0], size.first, line};
-    width = size.first + margin[3] + margin[1];
-    y += margin[0] + line + margin[2];
+    const double caret = std::isfinite(available) && content.preedit_cursor >= 0 && !content.menu ? 2 : 0;
+    layout.preedit_width = std::isfinite(available) ? std::max(1.0, available - margin[3] - margin[1] - caret) : -1;
+    const auto size = native_canvas_text_size(cr, metrics.font, content.preedit, layout.preedit_width);
+    const double height = std::max(line, size.second);
+    layout.preedit = {padding[3] + margin[3], y + margin[0], size.first, height};
+    width = size.first + margin[3] + margin[1] + caret;
+    y += margin[0] + height + margin[2];
   }
-  const double row_y = y;
-  const double base_height = std::max({line, number_line, metrics.font_size * 1.35 + metrics.extra_height});
-  double x = padding[3], row_height = 0;
+  const double controls = content.previous || content.next ? line * 2 + 12 : 0;
+  std::pair<double, double> auxiliary{};
+  if (!content.auxiliary.empty() || controls > 0) {
+    layout.auxiliary_width = std::isfinite(available) ? std::max(1.0, available - controls) : -1;
+    auxiliary = native_canvas_text_size(cr, metrics.font, content.auxiliary, layout.auxiliary_width);
+    auxiliary.second = std::max(line, auxiliary.second);
+    width = std::max(width, auxiliary.first + controls);
+  }
+  width = std::max(width, std::min(available, std::max(0.0, assets.min_width - padding[3] - padding[1])));
+  std::vector<double> natural_widths, text_offsets;
+  double vertical_width = width;
   for (const auto &item : content.items) {
     const auto size = native_canvas_item_size(cr, metrics, item, content.horizontal);
     const auto label = item.label.empty() ? 0 : std::max(metrics.number_min_width,
         metrics.number_scale == 0 ? 0 : native_canvas_text_size(cr, metrics.number_font, item.label).first);
+    const double offset = metrics.number_inset + label + (label > 0 ? metrics.number_gap : 0);
+    text_offsets.push_back(offset);
+    const double natural = std::max(metrics.min_item_width, size.first + offset + metrics.right);
+    natural_widths.push_back(natural);
+    vertical_width = std::max(vertical_width, natural);
+  }
+  vertical_width = std::min(vertical_width, available);
+  const double base_height = std::max({line, number_line, metrics.font_size * 1.35 + metrics.extra_height});
+  double x = padding[3], row_height = 0;
+  std::size_t first = 0;
+  std::vector<std::pair<std::size_t, std::size_t>> rows;
+  const auto finish_row = [&] {
+    for (std::size_t at = first; at < layout.items.size(); ++at) layout.items[at].height = row_height;
+    rows.emplace_back(first, layout.items.size());
+  };
+  for (std::size_t at = 0; at < content.items.size(); ++at) {
+    const auto &item = content.items[at];
+    const double fixed = text_offsets[at] + metrics.right;
+    double item_width = std::max(fixed + 1, content.horizontal ? std::min(natural_widths[at], available) : vertical_width);
+    const double text_width = std::isfinite(available) ? std::max(1.0, item_width - fixed) : -1;
+    const auto size = native_canvas_item_size(cr, metrics, item, content.horizontal, text_width);
+    // 单个不可拆字形或序号栏也放不下时，让窗口尺寸复核触发原有回退，不能悄悄裁字。
+    item_width = std::max(item_width, size.first + fixed);
     const double item_height = metrics.custom_height ? std::max(base_height, size.second) :
         std::max({line, number_line, size.second}) + metrics.extra_height;
-    row_height = std::max(row_height, item_height);
-    const double item_width = std::max(metrics.min_item_width,
-        size.first + label + metrics.number_inset + metrics.right + (label > 0 ? metrics.number_gap : 0));
+    if (content.horizontal && x > padding[3] && x + item_width > padding[3] + available + 0.001) {
+      finish_row();
+      y += row_height + metrics.gap;
+      x = padding[3]; row_height = 0; first = layout.items.size();
+    }
     layout.items.push_back({x, y, item_width, item_height});
+    layout.item_text_widths.push_back(text_width);
     width = std::max(width, x - padding[3] + item_width);
+    row_height = std::max(row_height, item_height);
     if (content.horizontal) x += item_width + metrics.gap;
     else y += item_height + metrics.gap;
   }
   if (content.horizontal && !layout.items.empty()) {
-    y = row_y + row_height;
-    for (auto &item : layout.items) item.height = row_height;
+    finish_row();
+    y += row_height;
   }
   if (!content.horizontal && !layout.items.empty()) y -= metrics.gap;
-  if (!content.auxiliary.empty() || content.previous || content.next) {
+  if (!content.auxiliary.empty() || controls > 0) {
     y += 4;
-    const auto size = native_canvas_text_size(cr, metrics.font, content.auxiliary);
-    layout.auxiliary = {padding[3], y, size.first, line};
-    width = std::max(width, size.first + (content.previous || content.next ? line * 2 + 12 : 0));
-    y += line;
+    layout.auxiliary = {padding[3], y, auxiliary.first, auxiliary.second};
+    y += auxiliary.second;
   }
-  width = std::max(width, assets.min_width - padding[3] - padding[1]);
-  if (metrics.justify && !layout.items.empty()) {
-    const double used = layout.items.back().x + layout.items.back().width - padding[3];
-    const double extra = std::max(0.0, width - used) / layout.items.size();
-    for (std::size_t at = 0; at < layout.items.size(); ++at) {
-      layout.items[at].x += at * extra;
+  if (metrics.justify) for (const auto &[begin, end] : rows) {
+    const double used = layout.items[end - 1].x + layout.items[end - 1].width - padding[3];
+    const double extra = std::max(0.0, width - used) / (end - begin);
+    for (std::size_t at = begin; at < end; ++at) {
+      layout.items[at].x += (at - begin) * extra;
       layout.items[at].width += extra;
     }
   }
@@ -530,15 +589,11 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     cairo_set_line_width(cr, border_width); cairo_stroke(cr);
   }
   const auto text = [&](const std::string &value, const NativeCanvasRect &rect, const std::string &font_name,
-                        const char *key, const char *fallback) {
-    auto *line = pango_cairo_create_layout(cr);
-    auto *font = pango_font_description_from_string(font_name.c_str());
-    pango_layout_set_font_description(line, font);
-    pango_layout_set_text(line, value.c_str(), static_cast<int>(value.size()));
+                        const char *key, const char *fallback, double max_width = -1) {
+    auto *line = native_canvas_text_layout(cr, font_name, value, max_width);
     native_canvas_color(cr, colors, key, fallback);
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
-    pango_font_description_free(font);
     g_object_unref(line);
   };
   if (!content.preedit.empty()) {
@@ -550,22 +605,19 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     native_canvas_round_rect(cr, background, {radius, radius, radius, radius}); cairo_fill(cr);
     native_canvas_color(cr, colors, "preedit_divider", "#00000000");
     cairo_rectangle(cr, background.x, background.y + background.height - 1, background.width, 1); cairo_fill(cr);
-    text(content.preedit, layout.preedit, metrics.font, "preedit_text", "#202020");
+    text(content.preedit, layout.preedit, metrics.font, "preedit_text", "#202020", layout.preedit_width);
     if (!content.menu && content.preedit_cursor >= 0 &&
         static_cast<std::size_t>(content.preedit_cursor) <= content.preedit.size() &&
         (static_cast<std::size_t>(content.preedit_cursor) == content.preedit.size() ||
          (static_cast<unsigned char>(content.preedit[content.preedit_cursor]) & 0xc0) != 0x80)) {
-      auto *line = pango_cairo_create_layout(cr);
-      auto *font = pango_font_description_from_string(metrics.font.c_str());
-      pango_layout_set_font_description(line, font);
-      pango_layout_set_text(line, content.preedit.c_str(), static_cast<int>(content.preedit.size()));
+      auto *line = native_canvas_text_layout(cr, metrics.font, content.preedit, layout.preedit_width);
       PangoRectangle strong{}, weak{};
       pango_layout_get_cursor_pos(line, content.preedit_cursor, &strong, &weak);
       native_canvas_color(cr, colors, "preedit_caret", "#3584e4");
       cairo_rectangle(cr, layout.preedit.x + strong.x / static_cast<double>(PANGO_SCALE),
           layout.preedit.y + strong.y / static_cast<double>(PANGO_SCALE), 2,
           strong.height / static_cast<double>(PANGO_SCALE)); cairo_fill(cr);
-      pango_font_description_free(font); g_object_unref(line);
+      g_object_unref(line);
     }
   }
   const auto show_bar = colors.find("show_selected_bar");
@@ -588,7 +640,8 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
       }
     }
     const auto &item = content.items[at];
-    const auto text_height = native_canvas_item_size(cr, metrics, item, content.horizontal).second;
+    const auto text_width = layout.item_text_widths[at];
+    const auto text_height = native_canvas_item_size(cr, metrics, item, content.horizontal, text_width).second;
     const auto label_size = native_canvas_text_size(cr, metrics.number_font, item.label);
     const double top = rect.y;
     const bool centered = metrics.custom_height || metrics.number_scale != 1 || !assets.font_family.empty();
@@ -601,13 +654,13 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     if (!item.label.empty()) rect.x += std::max(metrics.number_min_width,
         metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
-    auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed);
+    auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed, text_width);
     native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
     g_object_unref(line);
   }
-  text(content.auxiliary, layout.auxiliary, metrics.font, "secondary", "#555555");
+  text(content.auxiliary, layout.auxiliary, metrics.font, "secondary", "#555555", layout.auxiliary_width);
   if (content.previous) text("‹", layout.previous, metrics.font, "text", "#202020");
   if (content.next) text("›", layout.next, metrics.font, "text", "#202020");
   widgets(true);

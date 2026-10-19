@@ -168,6 +168,8 @@ WIDGET = (255, 0, 171)
 def synthetic_translation_provider(root, cleanups):
     """只返回合成释义，通过真实本地 socket 进入宿主刷新链。"""
     path = root / "translation.sock"
+    fixture = root / "translation.txt"
+    fixture.write_text("proper n. MMM；n. MMM")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(path))
     server.listen(4)
@@ -196,7 +198,7 @@ def synthetic_translation_provider(root, cleanups):
                     document = json.loads(request)
                     assert document["kind"] == "translation"
                     texts = document["query"]["candidates"]
-                    reply = {"translations": ([{"text": texts[0], "translation": "proper n. MMM；n. MMM"}]
+                    reply = {"translations": ([{"text": texts[0], "translation": fixture.read_text()}]
                                                if texts else [])}
                     client.sendall(json.dumps(reply).encode() + b"\n")
             except Exception as error:
@@ -345,7 +347,7 @@ def accept_appearance(manifest, preferences, publish, entry):
     wait(lambda: all(screenshot()[1][color] < 16 for color in (bar, background, divider, caret)))
 
 
-def accept_translation(manifest, preferences, publish, entry):
+def accept_translation(manifest, preferences, publish, entry, fixture):
     original = manifest.read_text()
     normal = ((239, 48, 64), (20, 223, 90), (40, 112, 255))
     selected = ((255, 212, 42), (250, 57, 224), (38, 231, 231))
@@ -386,12 +388,32 @@ def accept_translation(manifest, preferences, publish, entry):
     manifest.write_text(style.replace("#FA39E0", "#C667F1"))
     wait(lambda: visible((selected[0], replacement, selected[2])))
     save_image("native-translation-hot-update")
+    short_height = selected_pixels()[1]
     left, top, right, bottom = color_bounds(SELECTED)
     subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str((top + bottom) // 2), "click", "1"],
                    check=True, timeout=5)
     wait(lambda: entry.get_text() == "你")
     assert "MMM" not in entry.get_text(), "释义进入了上屏文字"
     wait(lambda: native_window() is None)
+    # 重建组合后通过真实异步协议返回长释义；不能把回退 classicui 当作成功换行。
+    fixture.write_text("proper n. " + "MMM " * 55 + "；n. " + "合成MMM" * 12)
+    entry.set_text("")
+    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
+    wait(lambda: native_window() is not None and selected_pixels() is not None and
+         selected_pixels()[1] > short_height + 10 * NATIVE_SCALE)
+    wait(lambda: visible((selected[0], replacement, selected[2])))
+    bounds = window_geometry(native_window())
+    screen = screenshot()[0]
+    assert 0 <= int(bounds["X"]) <= screen.get_width() - int(bounds["WIDTH"]), "长释义窗口横向超出工作区"
+    assert 0 <= int(bounds["Y"]) <= screen.get_height() - int(bounds["HEIGHT"]), "长释义窗口纵向超出工作区"
+    save_image("native-long-translation")
+    left, top, right, bottom = color_bounds(SELECTED)
+    # 点击新增行高的底部，检查换行后的矩形仍使用原候选身份。
+    subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str(bottom - 3 * NATIVE_SCALE), "click", "1"],
+                   check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你")
+    wait(lambda: native_window() is None)
+    fixture.write_text("proper n. MMM；n. MMM")
     preferences["candidate_translations"] = False
     publish()
     manifest.write_text(original)
@@ -661,7 +683,7 @@ def main():
                     wait(lambda: selected_pixels() == original_selected)
                     accept_appearance(manifest, preferences, publish, entry)
                     wait(lambda: selected_pixels() == original_selected)
-                    accept_translation(manifest, preferences, publish, entry)
+                    accept_translation(manifest, preferences, publish, entry, root / "translation.txt")
                     wait(lambda: selected_pixels() == original_selected)
                     before_move = window_geometry(native_window())
                     window.move(100, 80)
