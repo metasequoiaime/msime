@@ -220,6 +220,39 @@ fn canvas_requires_v2_and_reserved_canvas_id_is_not_external() {
 }
 
 #[test]
+fn jpeg_remains_valid_for_legacy_background_but_not_canvas_images() {
+    let root = tempdir().unwrap();
+    let skin = resource_package(root.path());
+    let mut jpeg = Cursor::new(Vec::new());
+    image::RgbImage::new(6, 6)
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    fs::write(skin.join("photo.jpg"), jpeg.into_inner()).unwrap();
+    fs::write(skin.join("panel.png"), encoded_png(6, 6)).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        format!(
+            "{}\n[candidate_window.background]\nimage = 'photo.jpg'\n",
+            manifest("sample")
+        ),
+    )
+    .unwrap();
+    assert!(load_package(root.path(), "sample").is_ok());
+    let canvas = manifest("sample")
+        .replace("schema_version = 1", "schema_version = 2")
+        .replace("base = 'night'", "base = 'canvas'");
+    // 与固定上游的 bi-jpg、bi-light-jpg 和 dec-ext 断言一致，不因解码器支持 JPEG 扩大清单协议。
+    for (extra, reason) in [
+        ("[candidate_window.border_image]\nsource = 'photo.jpg'\nslice_dip = [2]\n", "invalid border_image source"),
+        ("[candidate_window.border_image]\nsource = 'panel.png'\nlight_source = 'photo.jpg'\nslice_dip = [2]\n", "invalid border_image light_source"),
+        ("[[candidate_window.decorations]]\nimage = 'photo.jpg'\nwidth_dip = 6\nheight_dip = 6\n", "invalid decoration image"),
+    ] {
+        fs::write(skin.join("skin.toml"), format!("{canvas}\n{extra}")).unwrap();
+        assert!(load_package(root.path(), "sample").err().unwrap().contains(reason));
+    }
+}
+
+#[test]
 fn animated_decorations_are_bounded_by_frames_and_decoded_pixels() {
     let root = tempdir().unwrap();
     decorated_package(root.path(), &encoded_apng(2, 2, MAX_ANIMATION_FRAMES), "");

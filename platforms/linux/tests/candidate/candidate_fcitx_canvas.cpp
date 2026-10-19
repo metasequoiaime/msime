@@ -18,6 +18,17 @@ static std::uint32_t pixel(const std::filesystem::path &file, int x, int y) {
 }
 
 int main() {
+  // 共享像素是非预乘 RGBA，Cairo 必须得到本机字节序的预乘 ARGB。
+  host::FcitxCanvas alpha(2, 1, 1);
+  alpha.blend(0, 0, 0x2864a0, 128.0f / 255);
+  auto *decoded = host::decode_fcitx_canvas_image(host::fcitx_png_encode(alpha));
+  assert(decoded && cairo_image_surface_get_width(decoded) == 2);
+  cairo_surface_flush(decoded);
+  std::uint32_t words[2];
+  std::memcpy(words, cairo_image_surface_get_data(decoded), sizeof(words));
+  assert(words[0] == 0x80143250 && words[1] == 0);
+  cairo_surface_destroy(decoded);
+  assert(!host::decode_fcitx_canvas_image("broken"));
   char pattern[] = "/tmp/msime-fcitx-canvas-XXXXXX";
   const auto *name = mkdtemp(pattern);
   assert(name);

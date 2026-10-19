@@ -422,6 +422,16 @@ char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
+/* 同步解码有界内存中的 PNG/APNG 默认图或 GIF/JPEG/WebP 首帧，不读文件。
+ * 输入最多 8 MiB，边长最多 2048。成功时只调用一次回调，rgba 为非预乘 RGBA8，
+ * length = width * height * 4。字节只在回调期间有效，宿主必须当场复制；回调不得抛异常。
+ * 只有回调返回 1 时整个调用返回 1；其他回调值返回 0。
+ * 坏图、空指针和超限返回 0，且不调用回调。
+ * 只能在皮肤资源变化时加载，不能在逐键绘制中解码；这不是动画播放接口。 */
+typedef int32_t (*msime_client_skin_image_callback)(void *context, const uint8_t *rgba,
+                                                   size_t length, uint32_t width, uint32_t height);
+int32_t msime_client_skin_image_decode(const uint8_t *bytes, size_t length,
+                                      msime_client_skin_image_callback on_frame, void *context);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
  * Returns {contentType,bytes}; the manifest and package containment are
  * revalidated for every call and the requested kind must match the asset. */
