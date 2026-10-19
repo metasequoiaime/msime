@@ -279,6 +279,9 @@ impl InputSession {
         if raw_with_cases.is_empty() {
             return Vec::new();
         }
+        if self.has_literal_capitals() {
+            return self.literal_raw_boundaries();
+        }
         match self.engine.current_scheme_type() {
             SchemeType::Shuangpin => {
                 let profile = self.shuangpin_profile();

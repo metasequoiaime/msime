@@ -1,6 +1,6 @@
 {
  "name": "bridge_helpcode_shouyouplus_off",
- "source": "92d382bac:crates/engine-bridge/src/tests.rs:448-470",
+ "source": "92d382bac:crates/engine-bridge/src/tests.rs:448-470; #8773 普通大写保留字面内容，仅小写片段参与中文转换",
  "covers": [
   "helpcode"
  ],

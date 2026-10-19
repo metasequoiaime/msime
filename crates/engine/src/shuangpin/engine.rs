@@ -115,6 +115,20 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
     paths
 }
 
+/// 音节内双辅助码的第二码可以大写，但音节本身的大写仍属于字面英文。
+pub(crate) fn direct_helpcodes_own_capitals(typed: &str, profile: &ShuangpinProfile) -> bool {
+    direct_helpcode_paths(typed, profile).iter().any(|path| {
+        let mut start = 0;
+        path.iter().all(|spelling| {
+            let lowercase_code = typed.as_bytes()[start..start + 2]
+                .iter()
+                .all(u8::is_ascii_lowercase);
+            start = spelling.end;
+            lowercase_code
+        })
+    })
+}
+
 fn direct_helpcode_matches(word: &str, path: &[DirectSpelling], keymap: &HelpcodeKeymap) -> bool {
     let mut characters = word.chars();
     let mut next_index = 0;

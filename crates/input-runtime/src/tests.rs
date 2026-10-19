@@ -5411,6 +5411,35 @@ fn character(runtime: &mut Runtime, value: u8) -> Transition {
 }
 
 #[test]
+fn literal_capitals_survive_runtime_space_selection_with_lowercase_chinese() {
+    for (scheme, input, expected) in [
+        (0, "Fnihao", "F你好"),
+        (1, "Fnihc", "F你好"),
+        (0, "NIHAO", "NIHAO"),
+        (1, "NIHC", "NIHC"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = scheme;
+        rusqlite::Connection::open(std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch("CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER); INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);")
+            .unwrap();
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        for value in input.bytes() {
+            let transition = character(&mut runtime, value);
+            assert!(transition.handled && transition.commit.is_none());
+        }
+        assert_eq!(runtime.view().candidates[0].text, expected);
+        let selected = runtime.dispatch(Action::SelectHighlighted).unwrap();
+        assert_eq!(selected.commit.as_deref(), Some(expected));
+        assert!(selected.view.editing_text.is_empty());
+    }
+}
+
+#[test]
 fn mention_places_switch_on_live_and_carry_their_parent() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = generated_mode_runtime(directory.path());

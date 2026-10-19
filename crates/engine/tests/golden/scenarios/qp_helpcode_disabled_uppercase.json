@@ -1,6 +1,6 @@
 {
  "name": "qp_helpcode_disabled_uppercase",
- "source": "tests/src/test_input_session.cpp:384-430,534-535; case :676-680",
+ "source": "tests/src/test_input_session.cpp:384-430,534-535; case :676-680; #8773 普通大写保留字面内容，仅小写片段参与中文转换",
  "covers": [
   "helpcode"
  ],

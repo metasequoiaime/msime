@@ -12,6 +12,8 @@ Status: implemented
 
 本决定只改变已有组合内的行为；空组合的 Shift 快捷模式由[总开关决定](../feature/2026-10-11-shift-letter-entry-switch.md)。
 
+原文接收、光标编辑和辅助码优先级继续成立。普通大写参与小写中文查询、双拼大写结尾允许在线查询的部分由[大写字面片段](2026-10-19-uppercase-literal-pinyin-boundaries.md)取代；该篇将字面片段与小写拼音分开查询和消费，并保留实际位于辅助码位置的大写。
+
 ## Alternatives considered
 
 只在 macOS 宿主拦截并延迟完成组合，改动面较小，但宿主没有可写入 Engine 预编辑的独立原文；其余平台也会继续在同一 Engine 拒收大写字母。让宿主自行维护一份拼音原文会打破输入算法归 Engine 的边界。

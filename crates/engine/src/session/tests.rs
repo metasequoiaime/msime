@@ -728,6 +728,224 @@ INSERT INTO english_words VALUES('he','he',500);",
 }
 
 #[test]
+fn capital_pinyin_spelling_keeps_the_typed_latin_word() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+        });
+        let text = if scheme == SchemeType::Quanpin {
+            "NIHAO"
+        } else {
+            "NIHC"
+        };
+        for byte in text.bytes() {
+            assert!(session.character(byte, true).handled);
+        }
+        assert_eq!(words(&session).first().map(String::as_str), Some(text));
+        assert!(!words(&session).iter().any(|word| word.contains("你好")));
+        assert_eq!(session.select(0).commit.as_deref(), Some(text));
+    }
+}
+
+#[test]
+fn capital_literal_prefix_keeps_the_following_lowercase_chinese_conversion() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, tail) in [
+        (SchemeType::Quanpin, "nihao"),
+        (SchemeType::Shuangpin, "nihc"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+        });
+        assert!(session.character(b'F', true).handled);
+        type_text(&mut session, tail);
+        assert!(
+            words(&session).contains(&"F你好".to_owned()),
+            "{:?}",
+            words(&session)
+        );
+        assert!(!words(&session).contains(&"你好".to_owned()));
+        let index = words(&session)
+            .iter()
+            .position(|word| word == "F你好")
+            .unwrap();
+        assert_eq!(session.select(index).commit.as_deref(), Some("F你好"));
+    }
+}
+
+#[test]
+fn capital_literal_partial_selection_consumes_only_its_raw_span_and_does_not_learn() {
+    for (scheme, input, rest) in [
+        (SchemeType::Quanpin, "Fnihao", "hao"),
+        (SchemeType::Shuangpin, "Fnihc", "hc"),
+    ] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+        });
+        assert!(session.character(b'F', true).handled);
+        type_text(&mut session, &input[1..]);
+        let journal_before = journal_rows(&fixture.journal());
+        let index = words(&session)
+            .iter()
+            .position(|word| word == "F你")
+            .unwrap();
+        assert!(!session.snapshot().candidate_answers_key[index]);
+        assert!(!session.pin(index).handled);
+        assert!(!session.remove(index).handled);
+        assert_eq!(session.select(index).commit.as_deref(), Some("F你"));
+        assert_eq!(session.snapshot().editing_text, rest);
+        assert_eq!(journal_rows(&fixture.journal()), journal_before);
+        assert_eq!(words(&session)[0], "好");
+        assert_eq!(session.select(0).commit.as_deref(), Some("好"));
+    }
+}
+
+#[test]
+fn capital_literal_manual_delimiters_are_consumed_without_becoming_commit_text() {
+    for (scheme, input, expected) in [
+        (SchemeType::Quanpin, "F'ni'hao", "F你好"),
+        (SchemeType::Shuangpin, "F'ni'hc", "F你好"),
+        (SchemeType::Quanpin, "ni'hao'F", "你好F"),
+        (SchemeType::Shuangpin, "ni'hc'F", "你好F"),
+    ] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+        });
+        assert!(session.character(input.as_bytes()[0], true).handled);
+        type_text(&mut session, &input[1..]);
+        assert_eq!(words(&session)[0], expected);
+        assert_eq!(session.select(0).commit.as_deref(), Some(expected));
+        assert!(session.snapshot().editing_text.is_empty());
+    }
+}
+
+#[test]
+fn capital_literal_segment_boundaries_keep_lowercase_syllables() {
+    for (scheme, input, expected) in [
+        (SchemeType::Quanpin, "FnihaoX", vec![0, 1, 3, 6, 7]),
+        (SchemeType::Shuangpin, "FnihcX", vec![0, 1, 3, 5, 6]),
+    ] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+        });
+        assert!(session.character(b'F', true).handled);
+        type_text(&mut session, &input[1..]);
+        assert_eq!(session.segment_raw_boundaries(), expected);
+    }
+}
+
+#[test]
+fn capital_literal_caret_selection_preserves_the_unselected_suffix() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, input, caret, rest) in [
+        (SchemeType::Quanpin, "FniXhao", 3, "Xhao"),
+        (SchemeType::Shuangpin, "FniXhc", 3, "Xhc"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+        });
+        assert!(session.character(b'F', true).handled);
+        type_text(&mut session, &input[1..]);
+        session.set_caret(Some(caret));
+        assert_eq!(words(&session)[0], "F你");
+        assert_eq!(session.select(0).commit.as_deref(), Some("F你"));
+        assert_eq!(session.snapshot().editing_text, rest);
+        assert_eq!(
+            session.command(Command::CommitCandidate).commit.as_deref(),
+            Some("X好")
+        );
+    }
+}
+
+#[test]
+fn capital_literal_deletion_reenables_lowercase_conversion() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.helpcode = false);
+    assert!(session.character(b'F', true).handled);
+    type_text(&mut session, "nihao");
+    session.set_caret(Some(1));
+    assert!(session.command(Command::Backspace).handled);
+    session.set_caret(None);
+    assert_eq!(session.snapshot().editing_text, "nihao");
+    assert_eq!(words(&session)[0], "你好");
+    assert!(session.online_query().is_some());
+}
+
+#[test]
+fn capital_literal_rejects_old_online_answers_and_finishes_without_rewriting_capitals() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, input) in [
+        (SchemeType::Quanpin, "niXhao"),
+        (SchemeType::Shuangpin, "niXhc"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+        });
+        type_text(&mut session, "ni");
+        let query = session.online_query().unwrap();
+        assert!(session.character(b'X', true).handled);
+        type_text(&mut session, &input[3..]);
+        assert!(session.online_query().is_none());
+        assert!(!session.apply_online_candidate(
+            &query,
+            "合成旧响应",
+            CandidateSource::CloudSuggestion
+        ));
+        assert_eq!(session.finish(0).commit.as_deref(), Some("你X好"));
+        assert!(session.snapshot().preedit.is_empty());
+    }
+}
+
+#[test]
+fn capital_literal_english_word_wins_over_chinese_and_keeps_completion() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(
+        "INSERT INTO english_words VALUES('python','python',100),('pythonic','pythonic',90);",
+    );
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode = false;
+            options.english.mixed_candidates = true;
+        });
+        assert!(session.character(b'P', true).handled);
+        type_text(&mut session, "ython");
+        assert_eq!(words(&session)[0], "Python");
+        assert_eq!(
+            words(&session)
+                .iter()
+                .filter(|word| *word == "Python")
+                .count(),
+            1
+        );
+        assert!(words(&session).contains(&"Pythonic".to_owned()));
+        assert_eq!(session.select(0).commit.as_deref(), Some("Python"));
+    }
+}
+
+#[test]
+fn capital_literal_english_case_does_not_mistake_the_word_for_helpcode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('hao','hao',100);");
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.english.mixed_candidates = true;
+    });
+    assert!(session.character(b'H', true).handled);
+    type_text(&mut session, "AO");
+    assert_eq!(words(&session)[0], "HAO");
+    assert_eq!(session.select(0).commit.as_deref(), Some("HAO"));
+}
+
+#[test]
 fn shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word() {
     let fixture = Fixture::new(HELLO_FIXTURE)
         .with_english("INSERT INTO english_words VALUES('observable','observable',100);");
@@ -832,7 +1050,7 @@ fn punctuation_after_unspellable_shifted_word_commits_typed_text() {
 }
 
 #[test]
-fn punctuation_after_complete_shifted_pinyin_keeps_candidate_commit() {
+fn punctuation_after_capitalized_spelling_keeps_literal_capital() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
 
@@ -840,7 +1058,7 @@ fn punctuation_after_complete_shifted_pinyin_keeps_candidate_commit() {
     type_text(&mut session, "i");
 
     let result = session.punctuation(b'<');
-    assert_eq!(result.commit.as_deref(), Some("你《"), "{result:?}");
+    assert_eq!(result.commit.as_deref(), Some("Ni《"), "{result:?}");
 }
 
 /// 辅助码激活时大写的辅助码被转成小写拼进查英文的输入（`niC` 查的是 `nic`），光标前缀解码时选英文会扔掉光标后的输入：两种情况英文都不领先。
@@ -3046,7 +3264,8 @@ INSERT INTO tbl_1_m VALUES('mao','m','猫',100);",
     assert!(shifted.handled);
     assert!(shifted.commit.is_none());
     assert_eq!(session.snapshot().preedit, "maO");
-    assert!(words(&session).contains(&"猫".to_owned()));
+    assert!(words(&session).contains(&"马O".to_owned()));
+    assert!(!words(&session).contains(&"猫".to_owned()));
     assert_eq!(
         session.command(Command::CommitRaw).commit.as_deref(),
         Some("maO")
@@ -3086,7 +3305,7 @@ fn shifted_letter_keeps_unfinished_shuangpin_when_helpcode_is_off() {
 }
 
 #[test]
-fn shifted_letter_can_finish_a_shuangpin_online_query_without_helpcode() {
+fn shifted_literal_closes_the_shuangpin_online_query_without_helpcode() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
         options.scheme = SchemeType::Shuangpin;
@@ -3095,7 +3314,7 @@ fn shifted_letter_can_finish_a_shuangpin_online_query_without_helpcode() {
     type_text(&mut session, "ni'h");
 
     assert!(session.character(b'C', true).handled);
-    assert!(session.online_query().is_some());
+    assert!(session.online_query().is_none());
 }
 
 #[test]
