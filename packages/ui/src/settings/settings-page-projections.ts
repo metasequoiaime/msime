@@ -23,7 +23,7 @@ export interface SettingsPageProjectionOptions {
   hasHandwriting: boolean;
   /** 「手写输入」并进「屏幕键盘」页，那一页改叫「键盘与手写」。macOS、Linux、Windows 和 HarmonyOS 2-in-1 上手写页只有一个打开按钮或一段说明，单占一个侧栏入口不值得，Windows 原生设置窗口的 `SettingsNavigation.h` 也同样并成一页；触屏宿主的手写页另有内容，不并。本版本不提供手写时没有可并的页。 */
   handwritingOnScreenKeyboardPage?: boolean;
-  /** 宿主能报告本机 MCP 服务状态时，提供独立的「AI 助手」设置页。 */
+  /** 宿主能报告本机 MCP 服务状态时，提供 MCP 连接内容；桌面通过「AI」顶部标签进入。 */
   hasMcp: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
@@ -104,9 +104,11 @@ export function settingsPageProjections({
       ...item,
       title: mobilePlatform
         ? mobilePageTitle(item.id, item.title)
-        : handwritingOnScreenKeyboardPage && item.id === "screen-keyboard"
-          ? screenKeyboardAndHandwritingTitle
-          : item.title,
+        : item.id === "ai"
+          ? "AI"
+          : handwritingOnScreenKeyboardPage && item.id === "screen-keyboard"
+            ? screenKeyboardAndHandwritingTitle
+            : item.title,
     }));
 
   // 触屏的「设置」列表（和 iPad 侧栏）不列底部标签页自己的根页：社区、统计、我的已经各占一格。桌面和 2in1 的侧栏不经过这条过滤。

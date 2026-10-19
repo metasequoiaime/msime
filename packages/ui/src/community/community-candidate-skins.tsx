@@ -131,7 +131,8 @@ export function CommunityCandidateSkinsPage({
         note="为输入候选窗口换一身新装，安装后在「本地皮肤」中启用"
       />
       <CommunityNotice>
-        MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤。先到「工具 → AI 助手」连接
+        MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤。先到桌面设置的「AI →
+        连接助手」（手机为「AI 助手」）连接
         MCP，打开「允许修改设置」，再告诉助手想要的颜色、风格和明暗模式；例如“帮我做一款深色的青绿色皮肤”。助手会生成并安装皮肤，登录后还会保存到你的皮肤库。回到这里点「发布皮肤」，就能把它分享给社区。
       </CommunityNotice>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">

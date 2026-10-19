@@ -69,7 +69,7 @@ test("macOS AI entry opens the shared AI category without implicit credential re
       }}
     />,
   );
-  expect(await screen.findByRole("heading", { name: /^(AI 辅助|智能辅助)$/ })).toBeDefined();
+  expect(await screen.findByRole("heading", { name: /^(AI|AI 辅助)$/ })).toBeDefined();
   expect(await settingsFormReady()).toBeDefined();
   expect(probe).not.toHaveBeenCalled();
 });
@@ -87,7 +87,7 @@ test("a menu entry picked while the page is open navigates without dropping the 
   });
 
   view.rerender(<SettingsPage initialPage="ai" route={{ page: "ai", nonce: 1 }} client={client} />);
-  expect(await screen.findByRole("heading", { name: /^(AI 辅助|智能辅助)$/ })).toBeDefined();
+  expect(await screen.findByRole("heading", { name: /^(AI|AI 辅助)$/ })).toBeDefined();
   // The same section asked for again still counts as a request.
   view.rerender(
     <SettingsPage initialPage="input" route={{ page: "input", nonce: 2 }} client={client} />,

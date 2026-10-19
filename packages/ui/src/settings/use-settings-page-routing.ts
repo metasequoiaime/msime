@@ -8,6 +8,7 @@ import {
 import { desktopPage, pages, type SettingsPageId } from "./settings-page-registry";
 import { useSettingsContentScrollReset } from "./use-settings-content-scroll-reset";
 import type { DictionaryTab } from "./dictionary-tabs";
+import type { AiTab } from "./ai-tabs";
 import type { AboutTab } from "./about-tabs";
 
 export interface UseSettingsPageRoutingOptions {
@@ -39,10 +40,15 @@ export function useSettingsPageRouting({
   const [aboutTab, setAboutTab] = useState<AboutTab>(
     requestedSettingsPage === "feedback" ? "feedback" : "version",
   );
+  const [aiTab, setAiTab] = useState<AiTab>(
+    requestedSettingsPage === "mcp" ? "connection" : "assistance",
+  );
   const setPage = useCallback<Dispatch<SetStateAction<SettingsPageId>>>(
     (next) => {
       // 同一设置窗口再次收到反馈路由时，也要从当前的关于标签切到反馈。
       if (!mobilePlatform && next === "feedback") setAboutTab("feedback");
+      if (!mobilePlatform && next === "mcp") setAiTab("connection");
+      if (!mobilePlatform && next === "ai") setAiTab("assistance");
       setRequestedPage(next);
     },
     [mobilePlatform],
@@ -59,7 +65,11 @@ export function useSettingsPageRouting({
     account: mobileInitialTab === "account" ? page : "account",
   });
   const settingsContentRef = useSettingsContentScrollReset(
-    page === "about" && !mobilePlatform ? `about:${aboutTab}` : page,
+    !mobilePlatform && page === "about"
+      ? `about:${aboutTab}`
+      : !mobilePlatform && page === "ai"
+        ? `ai:${aiTab}`
+        : page,
   );
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
@@ -80,5 +90,7 @@ export function useSettingsPageRouting({
     setDictionaryTab,
     aboutTab,
     setAboutTab,
+    aiTab,
+    setAiTab,
   };
 }

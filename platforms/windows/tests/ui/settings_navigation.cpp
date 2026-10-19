@@ -36,7 +36,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // 侧栏：17 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
+    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;
@@ -47,13 +47,13 @@ int main() {
       previous_group = page.group;
       groups.insert(page.group);
     }
-    require(ids.size() == 17);
+    require(ids.size() == 16);
     require(groups.size() == page_group_count);
     // 分组和顺序与共享设置 UI 的 `settingsNavGroups` 一致，合并页仍通过旧路由打开。
-    const std::array<std::pair<std::string_view, std::size_t>, 17> sidebar{{
+    const std::array<std::pair<std::string_view, std::size_t>, 16> sidebar{{
         {"typing", 0}, {"lexicon", 0}, {"shortcuts", 0}, {"expression", 0},
         {"voice", 1}, {"osk", 1}, {"themes", 2}, {"candidate", 2},
-        {"toolbar", 2}, {"clip", 3}, {"ai", 3}, {"mcp", 3}, {"plugins", 3},
+        {"toolbar", 2}, {"clip", 3}, {"ai", 3}, {"plugins", 3},
         {"stats", 4}, {"account", 4}, {"dev", 5}, {"about", 5}}};
     require(sidebar.size() == pages.size());
     for (std::size_t i = 0; i < pages.size(); ++i)
@@ -84,9 +84,9 @@ int main() {
     require(find_page("download") == nullptr);
     // 手写设置只有一个打开面板的按钮，并进了屏幕键盘页，没有单独的手写页。
     require(find_page("hand") == nullptr);
-    // MCP 与其他工具页一样在本窗口原生绘制，维护页只保留维护与诊断。
+    // MCP 与辅助配置共用原生 AI 页，维护页只保留维护与诊断。
     for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts", "lexicon",
-                    "clip", "stats", "plugins", "ai", "mcp", "account", "dev", "about"})
+                    "clip", "stats", "plugins", "ai", "account", "dev", "about"})
       require(find_page(id)->host == PageHost::Native);
     // 本窗口不再打开共享应用的任何设置页：留下的都是输入工具的面板。
     for (const auto &target : shell_links::all) {
@@ -126,6 +126,8 @@ int main() {
     require(page_for_route("skin") == "themes");
     require(page_for_route("vocabulary") == "lexicon");
     require(page_for_route("ai") == "ai");
+    require(page_for_route("mcp") == "ai");
+    require(find_page("mcp") == nullptr);
     require(page_for_route("chat") == "ai");
     require(page_for_route("community") == "themes");
     require(page_for_route("tools") == "clip");

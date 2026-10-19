@@ -63,7 +63,7 @@ async function openAi(platform: string) {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
 }
 
 test("Linux points AI credentials at the private provider config", async () => {
@@ -118,7 +118,7 @@ test("Linux writes the AI token to the provider file, bound to the current setti
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   const group = screen.getByRole("group", { name: "AI 凭据" });
   expect(group.textContent).toContain("尚未保存");
   const save = screen.getByRole("button", { name: "保存凭据" }) as HTMLButtonElement;
@@ -171,7 +171,7 @@ test("Linux reports a provider file it cannot use", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   await screen.findByText(/现有 ai-provider.json 无效/);
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "sk-live" } });
   fireEvent.click(screen.getByRole("button", { name: "保存凭据" }));
@@ -218,7 +218,7 @@ test("Linux lets the user reveal the AI token before saving it", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   await screen.findByRole("group", { name: "AI 凭据" });
 
   expectRevealToggle();

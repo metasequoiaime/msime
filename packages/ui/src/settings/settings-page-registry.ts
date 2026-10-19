@@ -97,7 +97,7 @@ export const pages = [
     title: "发送哪些内容",
     icon: settingsIcons.about,
   },
-  // 只在宿主提供 MCP 状态时显示；桌面和触屏宿主都作为独立设置页。
+  // 只在宿主提供 MCP 状态时可路由；桌面并进「AI」的连接标签，触屏保留独立页。
   {
     id: "mcp",
     title: "AI 助手",
@@ -150,6 +150,7 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
  */
 export const desktopMergedPages: Partial<Record<SettingsPageId, SettingsPageId>> = {
   feedback: "about",
+  mcp: "ai",
 };
 
 /** 桌面上真正显示的页面：并进别的页的 id 换成承载它的页，其他原样返回。 */

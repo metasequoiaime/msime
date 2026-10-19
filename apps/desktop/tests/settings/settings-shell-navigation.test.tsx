@@ -123,11 +123,11 @@ test("搜索框回调使用外壳的查询 setter和页面选择器", () => {
 });
 
 test.each([
-  ["AI", "ai", "AI 辅助"],
+  ["AI", "ai", "AI"],
   ["工具栏", "floating-toolbar", "悬浮工具栏"],
   ["快捷键", "shortcuts", "快捷键"],
   ["屏幕键盘", "screen-keyboard", "键盘与手写"],
-  ["辅助", "ai", "AI 辅助"],
+  ["辅助", "ai", "AI"],
 ] as const)("菜单改名后仍能用 %s 搜索并按回车进入", (query, id, title) => {
   const sidebarGroups = [{ pages: [page(id, title)] }];
   const { result, selectPage } = renderNavigation({ navQuery: query, sidebarGroups });
@@ -135,4 +135,17 @@ test.each([
   render(result.current.navSearchField);
   fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
   expect(selectPage).toHaveBeenCalledWith(id);
+});
+
+test("桌面按助手搜索仍找到合并后的 AI 入口，无 MCP 能力时不匹配助手", () => {
+  const sidebarGroups = [{ pages: [page("ai", "AI")] }];
+  const availablePages = [page("ai", "AI"), page("mcp", "AI 助手")];
+  const { result } = renderNavigation({ navQuery: "助手", sidebarGroups, availablePages });
+  expect(result.current.shownSidebarGroups).toEqual(sidebarGroups);
+  const missing = renderNavigation({
+    navQuery: "助手",
+    sidebarGroups,
+    availablePages: [page("ai", "AI")],
+  });
+  expect(missing.result.current.shownSidebarGroups).toEqual([]);
 });

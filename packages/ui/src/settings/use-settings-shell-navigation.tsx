@@ -47,9 +47,18 @@ export function useSettingsShellNavigation({
           ...group,
           // 显示名和注册名都参与搜索，合并后的「键盘与手写」仍能按「屏幕键盘」查找。
           pages: group.pages.filter((item) =>
-            [item.title, pages.find((page) => page.id === item.id)?.title ?? ""].some((title) =>
-              title.toLocaleLowerCase().includes(navNeedle),
-            ),
+            [
+              item.title,
+              ...pages
+                .filter(
+                  (page) =>
+                    page.id === item.id ||
+                    (page.id === "mcp" &&
+                      item.id === "ai" &&
+                      availablePages.some((available) => available.id === page.id)),
+                )
+                .map((page) => page.title),
+            ].some((title) => title.toLocaleLowerCase().includes(navNeedle)),
           ),
         }))
         .filter((group) => group.pages.length > 0)

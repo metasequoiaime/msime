@@ -1,10 +1,14 @@
+import { aiTabs } from "../ai-tabs";
+import { useSettingsTabs } from "../use-settings-tabs";
+import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { McpSettingsContent } from "./mcp-page";
 import { AiSettingsContent } from "../ai-settings-content";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { AiReplyTemplates } from "../ai-reply-templates";
 
-/** AI 辅助页提供 AI 对话二级入口，并列出社区回复模板。 */
-export function AiSettingsPage() {
+/** AI 辅助内容保留原有表单与草稿，切换标签不卸载。 */
+function AiAssistanceContent() {
   const {
     client,
     linuxPlatform,
@@ -86,5 +90,25 @@ export function AiSettingsPage() {
         </>
       }
     />
+  );
+}
+
+/** 桌面 AI 入口分开辅助配置与助手连接，触屏保留原有独立页面。 */
+export function AiSettingsPage() {
+  const { client, mobilePlatform, busy, page, aiTab, setAiTab } = useSettingsForm();
+  const combined = !mobilePlatform && Boolean(client.mcpServerStatus);
+  const { tabList, panel } = useSettingsTabs(aiTabs, "AI 设置分类", combined, aiTab, setAiTab);
+  if (mobilePlatform) return <AiAssistanceContent />;
+  return (
+    <SettingsPageFieldset
+      disabled={busy}
+      hidden={page !== "ai"}
+      ariaLabel="AI"
+      className="[&_.ai-settings>div]:mt-0"
+    >
+      {tabList}
+      {panel("assistance", <AiAssistanceContent />)}
+      {combined && panel("connection", <McpSettingsContent />)}
+    </SettingsPageFieldset>
   );
 }

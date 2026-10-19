@@ -1,4 +1,3 @@
-import { McpConnectSection } from "../mcp-connect";
 import { useSettingsForm } from "../settings-form-context";
 import { DiagnosticLogsSection } from "../diagnostic-logs-section";
 import { DataDirectorySection } from "../data-directory-section";
@@ -84,30 +83,6 @@ export function DeveloperSettingsPage() {
           onCancelUninstall={cancelUninstall}
         />
       )}
-    </SettingsPageFieldset>
-  );
-}
-
-/** 桌面和触屏宿主共用 MCP 连接内容。 */
-function McpSettingsContent() {
-  const { client } = useSettingsForm();
-  if (!client.mcpServerStatus) return null;
-  return (
-    <McpConnectSection
-      status={client.mcpServerStatus}
-      install={client.installMcpClient}
-      copyText={client.copyText}
-    />
-  );
-}
-
-/** `mcp` 是独立的 AI 助手设置页，桌面和触屏宿主都从设置导航进入。 */
-export function McpSettingsPage() {
-  const { client, busy, page } = useSettingsForm();
-  if (!client.mcpServerStatus) return null;
-  return (
-    <SettingsPageFieldset disabled={busy} hidden={page !== "mcp"} ariaLabel="AI 助手">
-      <McpSettingsContent />
     </SettingsPageFieldset>
   );
 }

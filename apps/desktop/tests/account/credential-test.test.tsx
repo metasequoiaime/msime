@@ -96,7 +96,7 @@ test("Linux voice and AI tests never send private tokens from preferences", asyn
   fireEvent.click(screen.getByRole("button", { name: "测试语音润色配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(3));
 
@@ -122,7 +122,7 @@ test("provider transport failures remain actionable and stale results disappear 
   mount(testApiCredential);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
   await screen.findByText("无法连接 provider，请确认服务已启动。");
   fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "" } });

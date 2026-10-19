@@ -159,9 +159,7 @@ test("a 我的 community row opens the gallery on its feature page, and back unw
   const { resources } = renderPhone("account");
   fireEvent.click(await communityRow("收藏的回复模板"));
 
-  expect(
-    await screen.findByRole("heading", { level: 1, name: /^(AI 辅助|智能辅助)$/ }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
   const gallery = await screen.findByRole("dialog", { name: "社区回复模板" });
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("reply", "saved", "", 0));
   expect(window.history.state).toMatchObject({
@@ -188,7 +186,7 @@ test("a 我的 community row opens the gallery on its feature page, and back unw
 
   window.history.back();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "社区回复模板" })).toBeNull());
-  expect(screen.getByRole("heading", { level: 1, name: /^(AI 辅助|智能辅助)$/ })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
 
   window.history.back();
   expect(await screen.findByRole("heading", { level: 1, name: "我的" })).toBeTruthy();
@@ -297,9 +295,7 @@ test("the desktop AI page has no reply template group", async () => {
   const resources = resourcesClient(replies);
   renderPhone("ai", { platform: "windows", resources });
 
-  expect(
-    await screen.findByRole("heading", { level: 1, name: /^(AI 辅助|智能辅助)$/ }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "回复模板" })).toBeNull();
   expect(resources.list).not.toHaveBeenCalled();
 });

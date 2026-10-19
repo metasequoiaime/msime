@@ -51,7 +51,7 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
     { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "工具", ids: ["tools", "ai", "mcp", "plugins"] },
+    { title: "工具", ids: ["tools", "ai", "plugins"] },
     { title: "数据", ids: ["typing-statistics", "account"] },
     // 桌面上「帮助与反馈」并进「关于」，侧栏不再列出它；它仍是可路由的页面。
     { title: "支持", ids: ["developer", "about"] },
@@ -72,8 +72,7 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     "候选窗口",
     "悬浮工具栏",
     "剪贴板",
-    "AI 辅助",
-    "AI 助手",
+    "AI",
     "插件",
     "打字统计",
     "账号与同步",
@@ -96,17 +95,17 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "打字", ids: ["input", "dictionary", "shortcuts", "expression"] },
     { title: "输入方式", ids: ["voice", "screen-keyboard", "handwriting"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
-    { title: "工具", ids: ["tools", "ai", "mcp"] },
+    { title: "工具", ids: ["tools", "ai"] },
     { title: "支持", ids: ["developer", "about"] },
   ]);
 });
 
-test("MCP is an independent 工具 page only where the host reports the server", () => {
+test("桌面 MCP 并入 AI 导航但保留能力条件路由，触屏仍独立", () => {
   const desktop = project();
   expect(desktop.availablePages.map((page) => page.id)).toContain("mcp");
-  expect(desktop.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id))).toContain(
-    "mcp",
-  );
+  expect(
+    desktop.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id)),
+  ).not.toContain("mcp");
   expect(desktop.availablePages.find((page) => page.id === "mcp")?.title).toBe("AI 助手");
   expect(project({ hasMcp: false }).availablePages.map((page) => page.id)).not.toContain("mcp");
 });
@@ -216,7 +215,7 @@ test("places the 插件 page in 工具 and drops it where the host does not back
     item.pages.some((page) => page.id === "tools"),
   );
   expect(group?.title).toBe("工具");
-  expect(group?.pages.map((page) => page.id)).toEqual(["tools", "ai", "mcp", "plugins"]);
+  expect(group?.pages.map((page) => page.id)).toEqual(["tools", "ai", "plugins"]);
   expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("插件");
 
   expect(project({ hasPlugins: false }).availablePages.map((page) => page.id)).not.toContain(

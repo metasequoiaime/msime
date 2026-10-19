@@ -1397,7 +1397,7 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   const endpoint = (await screen.findByLabelText("AI 接口地址")) as HTMLInputElement;
   const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
   expect(token.value).toBe("first-origin-fixture");
@@ -1473,7 +1473,7 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /^(AI|AI 辅助)$/ }));
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
@@ -1522,7 +1522,7 @@ test("a provider-credential host runs the AI service controls without a token", 
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /^(AI|AI 辅助)$/ }));
   expect(screen.queryByLabelText("AI API Token")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
@@ -6858,7 +6858,7 @@ test("侧栏连续平铺页面，宿主不提供的页不留空位", async () =>
     "候选窗口",
     "悬浮工具栏",
     "剪贴板",
-    "AI 辅助",
+    "AI",
     "维护与诊断",
     "关于",
   ]);
@@ -7326,7 +7326,7 @@ const referenceSections: {
   },
   {
     page: "ai",
-    button: "AI 辅助",
+    button: "AI",
     titles: [
       // 来源：启用 AI 联想。这里的开关还管 iOS 键盘的 AI 回复与 Android 的选中文字润色，
       // 所以名字不按来源收窄到候选联想。
@@ -7381,7 +7381,7 @@ const referencePageGroups: Record<string, string> = {
   "floating-toolbar": "悬浮工具栏",
   skin: "主题",
   dictionary: "词库",
-  ai: "AI 辅助",
+  ai: "AI",
   shortcuts: "快捷键",
   developer: "维护与诊断",
 };
@@ -8410,7 +8410,7 @@ test("macOS 侧栏连续平铺所有可用页面", async () => {
     "候选窗口",
     "悬浮工具栏",
     "剪贴板",
-    "AI 辅助",
+    "AI",
     "维护与诊断",
     "关于",
   ]);

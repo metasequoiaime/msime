@@ -147,7 +147,7 @@ test("the AI page edits the active prompt slot inside 更多选项, without a sl
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: /^(AI 辅助|智能辅助)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(AI|AI 辅助)$/ }));
   const page = screen.getByRole("group", { name: "AI 辅助" });
   // 三个槽位的切换没人用，只剩一个文本框，绑在当前槽位上；`prompt_id` 和其他槽位原样保留。
   expect(within(page).queryByLabelText("AI 联想提示词方案")).toBeNull();
@@ -155,8 +155,8 @@ test("the AI page edits the active prompt slot inside 更多选项, without a sl
   expect(prompt.value).toBe("第二个方案");
   expect(prompt.closest("details")).not.toBeNull();
   // 说明照实说：填写会整个替换内置提示词，不是「额外」追加。
-  expect(within(page).getByText(/整个替换内置提示词，不是追加/)).toBeTruthy();
-  expect(within(page).getByText(/当前使用的是槽位二/)).toBeTruthy();
+  expect(within(page).getByText(/填写后完整替换，请要求只输出 JSON 格式的候选/)).toBeTruthy();
+  expect(within(page).getByText(/当前使用槽位二/)).toBeTruthy();
   expect(within(page).queryByText(/额外提示词/)).toBeNull();
   fireEvent.change(prompt, { target: { value: "改过的方案" } });
   saveSettingsNow();

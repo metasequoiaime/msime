@@ -25,7 +25,7 @@ struct Page {
 inline constexpr std::size_t page_group_count = 6;
 
 // 侧栏顺序与共享设置 UI 的 `settingsNavGroups` 一致：打字、输入方式、外观、工具、数据、支持。桌面不列 `desktopMergedPages` 的页面；手写并进屏幕键盘，提供手写的版本叫「键盘与手写」。
-inline constexpr std::array<Page, 17> pages{{
+inline constexpr std::array<Page, 16> pages{{
     {"typing", 0, PageHost::Native, {}},
     {"lexicon", 0, PageHost::Native, {}},
     {"shortcuts", 0, PageHost::Native, {}},
@@ -37,7 +37,6 @@ inline constexpr std::array<Page, 17> pages{{
     {"toolbar", 2, PageHost::Native, {}},
     {"clip", 3, PageHost::Native, {}},
     {"ai", 3, PageHost::Native, {}},
-    {"mcp", 3, PageHost::Native, {}},
     {"plugins", 3, PageHost::Native, {}},
     {"stats", 4, PageHost::Native, {}},
     {"account", 4, PageHost::Native, {}},
@@ -83,7 +82,7 @@ inline constexpr std::array<RouteAlias, 23> route_aliases{{
     {"handwriting", "osk"},
     {"voice", "voice"},
     {"ai", "ai"},
-    {"mcp", "mcp"},
+    {"mcp", "ai"},
     {"tools", "clip"},
     {"plugins", "plugins"},
     {"floating-toolbar", "toolbar"},
