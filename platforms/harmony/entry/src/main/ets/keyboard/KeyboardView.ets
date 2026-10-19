@@ -1,3 +1,4 @@
+import { CandidateCanvasFrame } from './candidate/CandidateCanvasFrame';
 import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, ExpandedCandidate,
   EmojiPage, EmojiRow, ClipboardHistoryMutation
@@ -3170,13 +3171,31 @@ struct KeyboardView {
       this.settings.candidateEnglishFont, this.settings.candidateFallbackFonts);
   }
 
-  /**
-   * The candidate colours for the surface drawing them.
-   *
-   * The 2in1 candidate window wears the theme's candidate palette, resolved in the candidate window's own mode. The touch strip sits on the keyboard, so it wears the keyboard palette instead: the keyboard's text, its secondary colour for hints, and the accent for the selected candidate with no fill behind it.
-   */
+  @State private canvasReadySurfaces: string[] = [];
+  @State private canvasColorKey: string = '';
+  @State private canvasExpandedWidth: number = 0;
+  @State private canvasColors: CandidateColors | null = null;
+
+  private canvasReady(surface: string, key: string, ready: boolean): void {
+    const identity: string = `${surface}:${key}`;
+    this.canvasReadySurfaces = this.canvasReadySurfaces.filter((value: string): boolean => value !== identity);
+    if (ready && this.settings.candidateCanvas?.key === key) {
+      if (this.canvasColorKey !== key || this.canvasColors === null) {
+        this.canvasColors = KeyboardSession.shared.canvasCandidateColors(key);
+        this.canvasColorKey = key;
+      }
+      this.canvasReadySurfaces.push(identity);
+    }
+  }
+
+  /** 2in1 与 canvas 使用候选区配色；普通触屏条沿用键盘配色。 */
   private candidateColors(): CandidateColors {
-    if (KeyboardFormFactor.isDesktop()) {
+    const scene = this.settings.candidateCanvas;
+    if (scene !== null && this.canvasColorKey === scene.key && this.canvasColors !== null
+      && this.canvasReadySurfaces.some((value: string): boolean => value.endsWith(`:${scene.key}`))) {
+      return this.canvasColors;
+    }
+    if (KeyboardFormFactor.isDesktop() || scene !== null) {
       return this.settings.candidateColors;
     }
     const colors: CandidateColors = {
@@ -3365,6 +3384,11 @@ struct KeyboardView {
   /** 2in1 候选窗：组合行在候选上方，整体是一张卡片。触屏键盘改为绘制 `touchStrip()`。 */
   @Builder
   candidateStrip() {
+    CandidateCanvasFrame({ scene: this.settings.candidateCanvas,
+      surfaceOpacity: this.settings.candidateWindowOpacity,
+      fallbackColor: this.settings.candidateColors.surface,
+      onSize: (width: number): void => { this.availableWidth = width; },
+      onPanelReady: (key: string, ready: boolean): void => this.canvasReady('strip', key, ready) }) {
     Stack({ alignContent: Alignment.Top }) {
       Column() {
       // The composition line, reserved whether or not anything is being composed so that nothing
@@ -3446,6 +3470,7 @@ struct KeyboardView {
       .width('100%')
       .height(KeyboardFormFactor.isDesktop() && !this.settings.candidateShowPreedit
         ? 0 : KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize))
+      .margin({ bottom: this.settings.candidateShowPreedit ? this.settings.candidateCanvas?.lineGapDip ?? 0 : 0 })
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
@@ -3467,16 +3492,16 @@ struct KeyboardView {
       // 2in1 卡片内设计稿的 8vp，`KeyboardMetrics.candidateHeightVp` 和 `CandidateWidthPolicy.EXTRA_WIDTH_VP` 按此给窗口定尺寸。
       .padding(KeyboardFormFactor.isDesktop() ? KeyboardMetrics.CANDIDATE_CARD_PADDING_VP : 0)
       .margin({ top: this.settings.candidateDecorationTopVp })
-      .backgroundColor(this.candidateCardColor(this.candidateColors().surface))
+      .backgroundColor(this.settings.candidateCanvas === null ? this.candidateCardColor(this.candidateColors().surface) : TRANSPARENT)
       .background(this.candidateBackground)
       .clip(this.settings.candidateBackgroundImage !== null)
       .borderRadius(KeyboardFormFactor.isDesktop()
         ? this.candidateCardRadius()
         : KeyboardMetrics.STRIP_CORNER_VP)
-      .borderWidth(KeyboardFormFactor.isDesktop() ? 1 : 0)
+      .borderWidth(KeyboardFormFactor.isDesktop() && this.settings.candidateCanvas === null ? 1 : 0)
       .borderColor(this.candidateCardColor(this.candidateColors().border))
       .onAreaChange((_old: Area, now: Area): void => {
-        this.availableWidth = Number(now.width);
+        if (this.settings.candidateCanvas === null) this.availableWidth = Number(now.width);
         this.effectCardHeight = Number(now.height);
       })
       // The typing-effect flash: an accent wash over the card that fades after each key. Always present on a 2in1 at opacity 0, so a fade is never cut short by the node going away; it takes no touches.
@@ -3511,6 +3536,7 @@ struct KeyboardView {
       }
     }
     .width('100%')
+    }
   }
 
   /**
@@ -3810,6 +3836,10 @@ struct KeyboardView {
    */
   @Builder
   touchStrip() {
+    CandidateCanvasFrame({ scene: this.stripIdle() || this.surface === SURFACE_GEOMETRY ? null : this.settings.candidateCanvas,
+      fixedContent: true, frameHeight: KeyboardMetrics.STRIP_HEIGHT_VP, fallbackColor: this.settings.candidateColors.surface,
+      onSize: (width: number): void => { this.availableWidth = width; },
+      onPanelReady: (key: string, ready: boolean): void => this.canvasReady('strip', key, ready) }) {
     Column() {
       if (this.surface === SURFACE_GEOMETRY) {
         HeightBar({
@@ -3834,14 +3864,15 @@ struct KeyboardView {
       }
     }
     .width('100%')
-    .height(KeyboardMetrics.STRIP_HEIGHT_VP)
-    .backgroundColor(this.candidateCardColor(this.candidateColors().surface))
+    .height('100%')
+    .backgroundColor(this.settings.candidateCanvas === null || this.stripIdle() ? this.candidateCardColor(this.candidateColors().surface) : TRANSPARENT)
     .background(this.candidateBackground)
     .clip(this.settings.candidateBackgroundImage !== null)
     .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
     .onAreaChange((_old: Area, now: Area): void => {
-      this.availableWidth = Number(now.width);
+      if (this.settings.candidateCanvas === null) this.availableWidth = Number(now.width);
     })
+    }
   }
 
   /**
@@ -7519,7 +7550,8 @@ struct KeyboardView {
 
   /** 网格在内边距以内排布格子所用的宽度；全拼九键三栏面板里是中栏的宽度（`expandedGridWidth`）。 */
   private expandedInnerWidth(): number {
-    return Math.max(0, this.expandedGridWidth() - EXPANDED_PADDING_VP * 2);
+    const width: number = this.settings.candidateCanvas === null ? this.expandedGridWidth() : this.canvasExpandedWidth;
+    return Math.max(0, width - EXPANDED_PADDING_VP * 2);
   }
 
   /** 键盘宽度能容纳的列数，每列至少 `EXPANDED_MIN_COLUMN_VP`。 */
@@ -7619,6 +7651,10 @@ struct KeyboardView {
   /** 展开面板的候选网格，按 `expandedInnerWidth` 排列；整块面板和全拼九键三栏面板的中栏共用。 */
   @Builder
   expandedGrid() {
+    Column() {
+    CandidateCanvasFrame({ scene: this.settings.candidateCanvas, fixedContent: true,
+      fallbackColor: this.settings.candidateColors.surface,
+      onPanelReady: (key: string, ready: boolean): void => this.canvasReady('expanded', key, ready) }) {
     Scroll() {
       Column({ space: EXPANDED_GAP_VP }) {
         ForEach(this.expandedRows(), (row: ExpandedCandidateCell[]) => {
@@ -7629,11 +7665,14 @@ struct KeyboardView {
                 .height(EXPANDED_CELL_HEIGHT_VP)
                 .padding({ left: EXPANDED_CELL_PADDING_VP, right: EXPANDED_CELL_PADDING_VP })
                 .borderRadius(EXPANDED_CELL_RADIUS_VP)
-                .backgroundColor(this.expandedHighlighted(cell.index) ? this.skin.toggleBackground
-                  : this.skin.keyBackground)
+                .backgroundColor(this.settings.candidateCanvas !== null
+                  ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selected : TRANSPARENT)
+                  : this.expandedHighlighted(cell.index) ? this.skin.toggleBackground : this.skin.keyBackground)
                 .fontSize(EXPANDED_FONT_SIZE)
                 .fontWeight(this.expandedHighlighted(cell.index) ? 600 : 400)
-                .fontColor(this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
+                .fontColor(this.settings.candidateCanvas !== null
+                  ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selectedText : this.candidateColors().text)
+                  : this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
                 .fontFamily(this.candidateFontFamily())
                 .textAlign(TextAlign.Center)
                 .maxLines(1)
@@ -7670,6 +7709,10 @@ struct KeyboardView {
     .edgeEffect(EdgeEffect.None)
     .align(Alignment.Top)
     .width('100%')
+    .height('100%')
+    .onAreaChange((_old: Area, now: Area): void => { this.canvasExpandedWidth = Number(now.width); })
+    }
+    }
     .layoutWeight(1)
   }
 
@@ -9169,6 +9212,8 @@ struct KeyboardView {
       }
       .width('100%')
       .height('100%')
+      .opacity(KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.NONE
+        && this.settings.candidateCanvas !== null ? 0 : 1)
       .padding({ top: CandidateDecorationLayout.backdropInsetVp(KeyboardFormFactor.isDesktop(),
         this.settings.candidateDecorationImage !== null, this.settings.candidateDecorationTopVp,
         KeyboardMetrics.ROOT_VERTICAL_PADDING_VP) })

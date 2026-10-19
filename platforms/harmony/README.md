@@ -609,3 +609,7 @@ bash platforms/harmony/tests/run.sh
 ```
 
 该命令编译并运行 `tests/keyboard-logic.test.ts`，CI 的 `ci-platforms.yml` harmonyos job 跑的就是这条。三道门禁各自回答不同的问题，互相替代不了：`tests/run.sh` 覆盖纯逻辑，`build-native.sh` 覆盖指定 OpenHarmony NDK 下的 Rust/C++/NAPI 交叉构建与 ELF 导出检查，`hvigorw assembleHap` 覆盖 ArkTS 编译与 HAP 打包。设备侧的系统输入法注册、焦点与编辑器接管、面板生命周期见上面的「模拟器验证」两节。
+
+## Canvas 候选皮肤
+
+`base = "canvas"` 的候选包由共享 Rust 校验，普通候选条、展开网格及九键中栏使用 Image Kit 解码和原生 Canvas 绘制九宫格与自由挂件。触屏固定高度时等比缩小留白，2in1 的原生面板尺寸包含留白与预编辑行距。面板成功绘制后才启用贴图配色，失败保留可读回退。GIF/WebP/APNG 的动画取决于设备 Image Kit 实际提供的帧，不能提供时尝试静态图；HAP 编译通过不能代替动画与输入法设备验收。设计边界与验证记录见[决策笔记](../../.agents/notes/implemented/feature/2026-10-19-harmony-candidate-canvas.md)。

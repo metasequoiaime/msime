@@ -5,18 +5,20 @@ export interface SettingsPageFieldsetProps {
   disabled: boolean;
   hidden: boolean;
   ariaLabel: string;
+  className?: string;
   children: ReactNode;
 }
 
-/** Shared disabled, hidden and grouped shell for settings pages. */
+/** 设置页共享的禁用、隐藏与分组容器。 */
 export function SettingsPageFieldset({
   disabled,
   hidden,
   ariaLabel,
+  className,
   children,
 }: SettingsPageFieldsetProps) {
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label={ariaLabel}>
+    <fieldset disabled={disabled} hidden={hidden} aria-label={ariaLabel} className={className}>
       <div className={settings.groups}>{children}</div>
     </fieldset>
   );

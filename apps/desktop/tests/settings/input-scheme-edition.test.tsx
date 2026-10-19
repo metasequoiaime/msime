@@ -81,13 +81,9 @@ test("full keeps every scheme, the input modes, helper codes and 临时日语", 
   for (const name of ["全拼", "双拼", "五笔", "粤拼", "注音", "笔画"]) {
     expect(screen.getByRole("radio", { name })).toBeTruthy();
   }
-  expect(screen.getByRole("radio", { name: "中文" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "输入语言" })).toBeTruthy();
   expect(screen.getByText("此平台暂不支持粤拼、注音、笔画")).toBeTruthy();
-  expect(
-    screen.getByText(
-      "切换中文、日文、韩文、越南文或藏文输入，并保留各模式上次选择的方案；此平台暂不支持越南文、藏文",
-    ),
-  ).toBeTruthy();
+  expect(screen.getByText("此平台暂不支持越南文、藏文")).toBeTruthy();
   selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeTruthy();
@@ -147,7 +143,7 @@ test("the pinyin edition lists only its two schemes and names the fallback for a
   }
   expect(screen.getByText("已回退到全拼")).toBeTruthy();
   // 拼音版没有日文、韩文、越南文方案，输入模式只剩「中文」，不显示。
-  expect(screen.queryByRole("radio", { name: "中文" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "输入语言" })).toBeNull();
   selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeTruthy();

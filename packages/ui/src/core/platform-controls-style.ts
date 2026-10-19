@@ -29,9 +29,9 @@ export const rowText = sharedRowText;
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const rowControl = controlRow;
-/** 控件要整行宽度的行（文本框、整行滑块）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行，和标题之间只隔 6px；其余平台与 `row` 相同。 */
-export const wideRow = `${row} harmony:flex-wrap harmony:gap-y-1.5`;
-export const wideRowControl = `${rowControl} harmony:w-full harmony:shrink`;
+/** 控件要整行宽度的行（文本框、整行滑块）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行，和标题之间只隔 6px；macOS AI 页的长文本也使用标题下方布局，其余页面与 `row` 相同。 */
+export const wideRow = `settings-wide-row ${row} harmony:flex-wrap harmony:gap-y-1.5`;
+export const wideRowControl = `settings-wide-row-control ${rowControl} harmony:w-full harmony:shrink`;
 /** 跳转行：整行是一个按钮，外形与 `row` 相同，悬停时变色。 */
 export const linkRow = `${row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`;
 
@@ -76,9 +76,9 @@ export const select =
 
 // ---- text input ----
 
-/** 设置行里的文本框。桌面平台保持原样；HarmonyOS 手机上画成与词库页搜索框同款的无边框胶囊，底色比所在分组略深一层，占满控件区。 */
+/** 设置行里的文本框。macOS 统一输入表面与尺寸；HarmonyOS 手机使用占满控件区的无边框胶囊。 */
 export const textInput =
-  "harmony:box-border harmony:h-10 harmony:min-w-0 harmony:flex-1 harmony:appearance-none harmony:rounded-full harmony:border-0 harmony:bg-[rgba(255,255,255,0.08)] harmony:px-4 harmony:[font-family:inherit] harmony:text-[15px] harmony:text-[var(--p-text)] harmony:placeholder:text-[var(--p-sub)] harmony:light-theme:bg-[rgba(0,0,0,0.05)]";
+  "settings-text-input harmony:box-border harmony:h-10 harmony:min-w-0 harmony:flex-1 harmony:appearance-none harmony:rounded-full harmony:border-0 harmony:bg-[rgba(255,255,255,0.08)] harmony:px-4 harmony:[font-family:inherit] harmony:text-[15px] harmony:text-[var(--p-text)] harmony:placeholder:text-[var(--p-sub)] harmony:light-theme:bg-[rgba(0,0,0,0.05)]";
 /** 带「显示」按钮的密钥框：框占满剩余宽度，按钮是行尾的强调色文字。 */
 export const secretInput =
   "harmony:flex harmony:w-full harmony:min-w-0 harmony:items-center harmony:gap-2";

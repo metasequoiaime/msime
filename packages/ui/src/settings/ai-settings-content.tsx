@@ -175,7 +175,6 @@ export function AiSettingsContent({
           <AiApiTokenSection
             origin={aiOrigin}
             endpoint={ai.endpoint}
-            endpointHint={aiEndpointHint(ai.endpoint)}
             token={aiToken}
             onTokenChange={updateAiToken}
           />

@@ -1,6 +1,6 @@
 import type { ChineseScheme, InputScheme } from "../core/input-scheme";
 
-import { SegmentedRow } from "./segmented-row";
+import { SelectRow } from "./select-row";
 import {
   baseInputSchemes,
   fallbackChineseScheme,
@@ -41,14 +41,6 @@ const inputModeLabels: Record<InputMode, string> = {
   tibetan: "藏文",
 };
 
-/** 把模式名连成「中文、日文、韩文、越南文或藏文」。 */
-function joinModes(modes: readonly InputMode[]): string {
-  const labels = modes.map((mode) => inputModeLabels[mode]);
-  return labels.length > 1
-    ? `${labels.slice(0, -1).join("、")}或${labels[labels.length - 1]}`
-    : (labels[0] ?? "");
-}
-
 /** 中文、日文、韩文、越南文、藏文输入模式选择器，记住上次的中文方案：「方案」分组的第一行。 */
 export function InputModeSection({
   scheme,
@@ -73,22 +65,21 @@ export function InputModeSection({
     disabled: mode !== "chinese" && unsupported.includes(mode),
   }));
   const chineseFallback = fallbackChineseScheme(lastChineseScheme, supportedSchemes, defaultScheme);
-  const base = `切换${joinModes(modes)}输入，并保留各模式上次选择的方案`;
-  // A document naming a mode this host does not offer runs host-api's fallback scheme, and the row says which.
+  // 文档里的语言在当前宿主不可用时，说明实际回退到哪个中文方案。
   const description =
     !isChineseScheme(scheme) && unsupported.includes(scheme)
       ? `此平台暂不支持${inputModeLabels[scheme]}，已回退到${schemeTitle(chineseFallback)}`
       : unsupported.length > 0
-        ? `${base}；此平台暂不支持${unsupported.map((mode) => inputModeLabels[mode]).join("、")}`
-        : base;
+        ? `此平台暂不支持${unsupported.map((mode) => inputModeLabels[mode]).join("、")}`
+        : undefined;
   return (
-    <SegmentedRow
-      title="输入模式"
+    <SelectRow
+      title="输入语言"
       description={description}
       hidden={hidden || modes.length <= 1}
-      options={options}
       value={isChineseScheme(scheme) ? "chinese" : scheme}
-      onChange={(mode) =>
+      onChange={(event) => {
+        const mode = event.currentTarget.value as InputMode;
         onChange(
           mode === "chinese"
             ? { scheme: chineseFallback }
@@ -96,8 +87,14 @@ export function InputModeSection({
                 last_chinese_scheme: isChineseScheme(scheme) ? scheme : lastChineseScheme,
                 scheme: mode,
               },
-        )
-      }
-    />
+        );
+      }}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value} disabled={option.disabled}>
+          {option.label}
+        </option>
+      ))}
+    </SelectRow>
   );
 }

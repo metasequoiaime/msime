@@ -16,6 +16,7 @@ import { supportedInputSchemes } from "../input-scheme-options";
 import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-defaults";
 import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
+import { useSettingsTabs } from "../use-settings-tabs";
 
 type HarmonyKeyboardLayout = "twenty_six_key" | "fourteen_key" | "nine_key";
 
@@ -183,120 +184,140 @@ export function ScreenKeyboardSettingsPage() {
       <SettingsPreviewBlock aria-label="屏幕键盘预览">{draggablePreview}</SettingsPreviewBlock>
     </GroupList>
   );
+  const { tabList, panel } = useSettingsTabs(
+    [
+      { id: "keyboard", title: "键盘" },
+      { id: "handwriting", title: "手写" },
+    ] as const,
+    "键盘手写分类",
+    handwritingOnScreenKeyboardPage,
+  );
   return (
     <SettingsPageFieldset
       disabled={busy}
       hidden={page !== "screen-keyboard"}
       ariaLabel={handwritingOnScreenKeyboardPage ? screenKeyboardAndHandwritingTitle : "屏幕键盘"}
     >
-      {!harmonyPhone && keyboardPreview}
-      <TouchKeyboardGeometrySection
-        layoutRows={
-          harmonyPhone && (
-            <HarmonyChineseKeyboardRow
-              selected={selectedTouchKeyboardScheme}
-              onSelect={selectHomeScheme}
-            />
-          )
-        }
-        preview={harmonyPhone && phonePreview}
-        heightAdjustment={touchKeyboardHeightAdjustment}
-        keySpacingTenths={touchKeySpacingTenths}
-        rowSpacingTenths={touchRowSpacingTenths}
-        showHeight={showTouchKeyboardHeight}
-        showSpacing={showTouchKeyboardSpacing}
-        touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
-        // HarmonyOS 键盘的工具栏已经没有语音按钮（语音在功能面板里），那里也没有任何地方读取 `touch_voice_shortcut`，所以这个开关不会起作用。
-        voiceShortcutKind={
-          macosPlatform || harmonyPlatform ? "hidden" : iosPlatform ? "last-result" : "start-voice"
-        }
-        toolbarComponents={Boolean(host?.touch_toolbar_components)}
-        toolbar={draft.touch_toolbar}
-        // 只有报告 `touch_toolbar_tools` 的宿主（HarmonyOS 手机）给出这组开关，其他宿主的页面不变。
-        harmonyToolbar={host?.touch_toolbar_tools ? (draft.harmony_toolbar ?? {}) : undefined}
-        tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
-        tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
-        glideTyping={mobileKeyboardFeedback?.glideTyping}
-        swipeSymbols={mobileKeyboardFeedback?.swipeSymbols}
-        swipeSymbolsDirection={mobileKeyboardFeedback?.swipeSymbolsDirection}
-        // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为关，与 client-core 的默认值一致。
-        shuangpinKeyHints={
-          mobilePlatform && supportedInputSchemes(host).includes("shuangpin")
-            ? (draft.touch_shuangpin_key_hints ?? false)
-            : undefined
-        }
-        tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
-        onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
-          onPreferencesChange({ touch_keyboard_height_adjustment })
-        }
-        onKeySpacingChange={(touch_key_spacing_tenths) =>
-          onPreferencesChange({ touch_key_spacing_tenths })
-        }
-        onRowSpacingChange={(touch_row_spacing_tenths) =>
-          onPreferencesChange({ touch_row_spacing_tenths })
-        }
-        onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
-          onPreferencesChange({ touch_voice_shortcut })
-        }
-        onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
-          onPreferencesChange({ touch_shuangpin_key_hints })
-        }
-        onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
-        onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}
-        onTabletFullKeysChange={(tabletFullKeys) => {
-          if (mobileKeyboardFeedback) {
-            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletFullKeys });
-          }
-        }}
-        onTabletSplitKeyboardChange={(tabletSplitKeyboard) => {
-          if (mobileKeyboardFeedback) {
-            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletSplitKeyboard });
-          }
-        }}
-        onGlideTypingChange={(glideTyping) => {
-          if (mobileKeyboardFeedback) {
-            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, glideTyping });
-          }
-        }}
-        onSwipeSymbolsChange={(swipeSymbols) => {
-          if (mobileKeyboardFeedback) {
-            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, swipeSymbols });
-          }
-        }}
-        onSwipeSymbolsDirectionChange={(swipeSymbolsDirection) => {
-          if (mobileKeyboardFeedback) {
-            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, swipeSymbolsDirection });
-          }
-        }}
-        onReset={(subjects) => void resetTouchKeyboardSettings(subjects)}
-      />
-      <MobileKeyboardFeedbackSettings
-        mobile={mobilePlatform}
-        client={client.mobileKeyboardFeedback}
-        value={mobileKeyboardFeedback}
-        busy={mobileKeyboardFeedbackBusy}
-        ios={iosPlatform}
-        // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
-        showEnglishSuggestions={false}
-        onChange={(value) => void saveMobileKeyboardFeedback(value)}
-        onPreview={() => void previewMobileKeyboardHaptics()}
-      />
-      {/* 桌面宿主（macOS、Linux、Windows、HarmonyOS 2-in-1）上「手写输入」并进这一页（见 `settingsPageProjections`）：手写那一组紧跟在屏幕键盘之后。 */}
-      {handwritingOnScreenKeyboardPage && <HandwritingSettingsContent />}
-      {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows、Linux 和 HarmonyOS）没有「高级」组，键盘跟随「主题」页的颜色模式和主题，描述照实说。HarmonyOS 手机的皮肤页只有网格、没有「高级」，这一行指向的东西不存在，所以不画。 */}
-      {!harmonyPhone && (
-        <GroupList title="外观">
-          <LinkRow
-            title="屏幕键盘外观"
-            description={
-              surfaceThemesFollow
-                ? "屏幕键盘跟随「主题」页的颜色模式和主题"
-                : "主题与明暗外观在「主题」页的「高级」中设置"
+      {tabList}
+      {panel(
+        "keyboard",
+        <>
+          {!harmonyPhone && keyboardPreview}
+          <TouchKeyboardGeometrySection
+            layoutRows={
+              harmonyPhone && (
+                <HarmonyChineseKeyboardRow
+                  selected={selectedTouchKeyboardScheme}
+                  onSelect={selectHomeScheme}
+                />
+              )
             }
-            onClick={() => selectPage("skin")}
+            preview={harmonyPhone && phonePreview}
+            heightAdjustment={touchKeyboardHeightAdjustment}
+            keySpacingTenths={touchKeySpacingTenths}
+            rowSpacingTenths={touchRowSpacingTenths}
+            showHeight={showTouchKeyboardHeight}
+            showSpacing={showTouchKeyboardSpacing}
+            touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
+            // HarmonyOS 键盘的工具栏已经没有语音按钮（语音在功能面板里），那里也没有任何地方读取 `touch_voice_shortcut`，所以这个开关不会起作用。
+            voiceShortcutKind={
+              macosPlatform || harmonyPlatform
+                ? "hidden"
+                : iosPlatform
+                  ? "last-result"
+                  : "start-voice"
+            }
+            toolbarComponents={Boolean(host?.touch_toolbar_components)}
+            toolbar={draft.touch_toolbar}
+            // 只有报告 `touch_toolbar_tools` 的宿主（HarmonyOS 手机）给出这组开关，其他宿主的页面不变。
+            harmonyToolbar={host?.touch_toolbar_tools ? (draft.harmony_toolbar ?? {}) : undefined}
+            tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
+            tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
+            glideTyping={mobileKeyboardFeedback?.glideTyping}
+            swipeSymbols={mobileKeyboardFeedback?.swipeSymbols}
+            swipeSymbolsDirection={mobileKeyboardFeedback?.swipeSymbolsDirection}
+            // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为关，与 client-core 的默认值一致。
+            shuangpinKeyHints={
+              mobilePlatform && supportedInputSchemes(host).includes("shuangpin")
+                ? (draft.touch_shuangpin_key_hints ?? false)
+                : undefined
+            }
+            tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
+            onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
+              onPreferencesChange({ touch_keyboard_height_adjustment })
+            }
+            onKeySpacingChange={(touch_key_spacing_tenths) =>
+              onPreferencesChange({ touch_key_spacing_tenths })
+            }
+            onRowSpacingChange={(touch_row_spacing_tenths) =>
+              onPreferencesChange({ touch_row_spacing_tenths })
+            }
+            onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
+              onPreferencesChange({ touch_voice_shortcut })
+            }
+            onShuangpinKeyHintsChange={(touch_shuangpin_key_hints) =>
+              onPreferencesChange({ touch_shuangpin_key_hints })
+            }
+            onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
+            onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}
+            onTabletFullKeysChange={(tabletFullKeys) => {
+              if (mobileKeyboardFeedback) {
+                void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletFullKeys });
+              }
+            }}
+            onTabletSplitKeyboardChange={(tabletSplitKeyboard) => {
+              if (mobileKeyboardFeedback) {
+                void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletSplitKeyboard });
+              }
+            }}
+            onGlideTypingChange={(glideTyping) => {
+              if (mobileKeyboardFeedback) {
+                void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, glideTyping });
+              }
+            }}
+            onSwipeSymbolsChange={(swipeSymbols) => {
+              if (mobileKeyboardFeedback) {
+                void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, swipeSymbols });
+              }
+            }}
+            onSwipeSymbolsDirectionChange={(swipeSymbolsDirection) => {
+              if (mobileKeyboardFeedback) {
+                void saveMobileKeyboardFeedback({
+                  ...mobileKeyboardFeedback,
+                  swipeSymbolsDirection,
+                });
+              }
+            }}
+            onReset={(subjects) => void resetTouchKeyboardSettings(subjects)}
           />
-        </GroupList>
+          <MobileKeyboardFeedbackSettings
+            mobile={mobilePlatform}
+            client={client.mobileKeyboardFeedback}
+            value={mobileKeyboardFeedback}
+            busy={mobileKeyboardFeedbackBusy}
+            ios={iosPlatform}
+            // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
+            showEnglishSuggestions={false}
+            onChange={(value) => void saveMobileKeyboardFeedback(value)}
+            onPreview={() => void previewMobileKeyboardHaptics()}
+          />
+          {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows、Linux 和 HarmonyOS）没有「高级」组，键盘跟随「主题」页的颜色模式和主题，描述照实说。HarmonyOS 手机的皮肤页只有网格、没有「高级」，这一行指向的东西不存在，所以不画。 */}
+          {!harmonyPhone && (
+            <GroupList title="外观">
+              <LinkRow
+                title="屏幕键盘外观"
+                description={
+                  surfaceThemesFollow
+                    ? "屏幕键盘跟随「主题」页的颜色模式和主题"
+                    : "主题与明暗外观在「主题」页的「高级」中设置"
+                }
+                onClick={() => selectPage("skin")}
+              />
+            </GroupList>
+          )}
+        </>,
       )}
+      {handwritingOnScreenKeyboardPage && panel("handwriting", <HandwritingSettingsContent />)}
     </SettingsPageFieldset>
   );
 }

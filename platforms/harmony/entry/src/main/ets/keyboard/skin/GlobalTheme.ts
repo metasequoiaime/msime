@@ -87,6 +87,7 @@ export interface ResolveThemeRequest {
   readonly dark: boolean;
   readonly layout: string;
   readonly skins_directory: string;
+  readonly canvas_panel_drawn?: boolean;
 }
 
 /** Every candidate-window colour, with the native token already standing in for any slot the theme left unset. */

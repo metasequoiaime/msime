@@ -498,6 +498,7 @@ public final class MSIMEInputService extends InputMethodService {
     Runnable diagnosticDismissTask;
     final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     boolean dedicatedEnglish;
+    private boolean temporaryEnglishShift;
     /** 方案异步保存完成前暂不绘制中间的中文视图。 */
     private boolean renderingSuppressed;
     private boolean hardwareLanguageShift = true;
@@ -1960,6 +1961,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 会话停下时不知道编辑器里是否还有组字区（restartInput 前应用常已清空或改写了文字），换成确定读音可能把它插进文档，所以只结束组字区，不写文字。
         else if (connection != null) bridge.abandon(sink(typingSource()));
         view = null;
+        if (temporaryEnglishShift) {
+            dedicatedEnglish = false;
+            temporaryEnglishShift = false;
+            letterCase.reset();
+        }
         closeCandidatePanel();
         // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
         if (keepMoreTools) {
@@ -3813,6 +3819,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (TextPolicy.isAsciiLetter(output)) {
                 commitEnglishLiteral(output);
                 if (letterCase.consumeLetter()) {
+                    finishTemporaryEnglishShift();
                     imeLetterRows.refreshLetterCase();
                     render();
                 }
@@ -4500,6 +4507,12 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void toggleInputLanguage(boolean shouldRender) {
+        temporaryEnglishShift = false;
+        toggleInputLanguage(shouldRender, true);
+    }
+
+    /** 临时大写只改变当前会话，不覆盖用户主动选择的中英模式。 */
+    private void toggleInputLanguage(boolean shouldRender, boolean rememberMode) {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
         boolean previousSuppressed = renderingSuppressed;
@@ -4511,7 +4524,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean previousUppercase = letterCase.usesUppercase();
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
-            if (inputModeStore != null) {
+            if (rememberMode && inputModeStore != null) {
                 inputModeStore.remember(imeModeScope, currentEditorPackage, nextEnglish);
             }
             view = nextView;
@@ -4531,6 +4544,12 @@ public final class MSIMEInputService extends InputMethodService {
         } finally {
             renderingSuppressed = previousSuppressed;
         }
+    }
+
+    private void finishTemporaryEnglishShift() {
+        if (!temporaryEnglishShift || letterCase.usesUppercase()) return;
+        temporaryEnglishShift = false;
+        if (dedicatedEnglish && session != 0) toggleInputLanguage(true, false);
     }
 
     private static int touchLayout(JSONObject value) {
@@ -4838,7 +4857,10 @@ public final class MSIMEInputService extends InputMethodService {
                     char output = letterCase.usesUppercase() || event.isShiftPressed()
                         ? Character.toUpperCase((char) unicode) : Character.toLowerCase((char) unicode);
                     commitEnglishLiteral(output);
-                    if (letterCase.consumeLetter()) imeLetterRows.refreshLetterCase();
+                    if (letterCase.consumeLetter()) {
+                        finishTemporaryEnglishShift();
+                        imeLetterRows.refreshLetterCase();
+                    }
                 } else {
                     commitEnglishLiteral(unicode);
                 }
@@ -8419,13 +8441,14 @@ public final class MSIMEInputService extends InputMethodService {
             // 韩语键面上 Shift 是双辅音那一排，不是切到英文的入口；越南语和藏文里它是字母大小写。
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
                     && !letterCompositionActive()) {
-                toggleInputLanguage();
-                if (!dedicatedEnglish) return;
-                // Match Apple: the Shift that entered English starts from lowercase even if the
-                // editor would otherwise request automatic capitalization.
+                toggleInputLanguage(false, false);
+                if (!dedicatedEnglish || session == 0) return;
+                temporaryEnglishShift = true;
+                // 这次 Shift 从小写开始，避免编辑器的自动大写把首次点按解释为关闭。
                 letterCase.reset();
             }
             letterCase.toggle(SystemClock.uptimeMillis());
+            finishTemporaryEnglishShift();
             // 只换键面不重建键行（#6997）：重建后的新键在下一次布局前宽高为 0，紧跟着 Shift 按下的字母会被丢掉。
             imeLetterRows.refreshLetterCase();
             render();
