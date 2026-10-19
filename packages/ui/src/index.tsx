@@ -422,6 +422,11 @@ export type {
   TypingStatisticsUploadStatus,
 } from "./settings/typing-statistics-model";
 export {
+  useTypingStatisticsUpload,
+  type UseTypingStatisticsUploadOptions,
+  type TypingStatisticsUploadState,
+} from "./settings/use-typing-statistics-upload";
+export {
   keyboardHeatmapLayout,
   keyboardHeatmapModel,
   keyHeatLevel,
@@ -1764,6 +1769,10 @@ export {
   CloudFixedPositions,
   type CloudFixedPositionsProps,
 } from "./keyboard/cloud-candidate-results";
+export {
+  CloudDictionaryApplyContent,
+  type CloudDictionaryApplyContentProps,
+} from "./keyboard/cloud-dictionary-apply-content";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
   PanelActivationButtons,
@@ -1947,6 +1956,12 @@ export {
   SettingsFeaturePages,
   type SettingsFeaturePagesProps,
 } from "./settings/settings-feature-pages";
+
+export {
+  CandidateFontSettingsRows,
+  type CandidateFontSettingsRowsPreferences,
+  type CandidateFontSettingsRowsProps,
+} from "./settings/candidate-font-settings-rows";
 
 export { useVoicePanel, type VoicePanelState } from "./keyboard/use-voice-panel";
 

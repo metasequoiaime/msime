@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-提供 `useCloudDictionaryApplyPanel(client)` 与派生的 `CloudDictionaryApplyPanelState`。迁移现有状态、状态文案函数及动作，面板只消费返回值，继续拥有 DOM、禁用条件、宿主能力展示和窗口导航。
+提供 `useCloudDictionaryApplyPanel(client)` 与派生的 `CloudDictionaryApplyPanelState`。迁移现有状态、状态文案函数及动作，面板消费返回值并连接[公共应用内容视图](./2026-10-19-cloud-dictionary-apply-content.md)，由该受控组件持有 DOM、禁用条件与宿主提示；面板保留确认框、状态通知和窗口导航。
 
 保持原 hook 调用顺序、客户端 effect、先作废后读取、每 2000 ms 轮询及先作废再停止的 cleanup 顺序。`statusRevision` 与 `lifecycleRevision` 继续分别保护并发状态请求和客户端生命周期，确认仍在调用宿主前核对生命周期。丢弃预览的内联更新命名为 `discardPreview`，不增加守卫。
 
@@ -31,7 +31,7 @@ Status: implemented
 
 抽取前相关消费者和共享守卫 34 项、设置页应用面板 1 项通过。新 hook 首次运行 7 项均因缺少公开导出失败；迁移后直接 hook 与原相关套件合计 41 项通过。覆盖 StrictMode 下初始化及轮询清理、客户端切换后重建轮询相位、并发状态响应先后隔离、旧预览成功与失败隔离、旧完成不释放新忙碌、同步防重、忙碌时暂停状态读取、清理预览和令牌、缺少本机版本和无效预览错误。真实桌面消费者覆盖预览、确认、撤销、面板内重试提示及状态请求不能覆盖操作结果。
 
-设置页真实应用面板另 1 项通过，合计 42 项；最终新 hook 7 项重跑通过，独立审查也重跑 7 项通过。AST 对照确认全部原逻辑、helper、完整 JSX 与丢弃预览回调等价，56 个传递模块没有运行时入口循环。桌面类型检查和生产构建、HarmonyOS 类型检查、改动文件 lint/格式、笔记与差异检查通过。
+设置页真实应用面板另 1 项通过，合计 42 项；最终新 hook 7 项重跑通过，独立审查也重跑 7 项通过。状态抽取时 AST 对照确认全部原逻辑、helper、JSX 与丢弃预览回调等价，56 个传递模块没有运行时入口循环。桌面类型检查和生产构建、HarmonyOS 类型检查、改动文件 lint/格式、笔记与差异检查通过。
 
 `bash scripts/verify-local.sh --quick` 输出 `quick check passed`，覆盖仓库契约、Rust workspace、Android 目标、Linux 设置外壳和共享 Apple bridge 编译；HarmonyOS 原生构建缺少 hvigorw 与 staged 依赖、Windows 缺 MinGW，其余原生宿主按改动范围跳过。
 

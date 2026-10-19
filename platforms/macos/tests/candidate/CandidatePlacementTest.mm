@@ -80,6 +80,20 @@ int main()
         assert(card.y == 600 - 120 - 4);
         assert(card.y + decorated.height - band == NSMinY(caret) - 4);
         assert(card.y + decorated.height > NSMaxY(caret));
+        // canvas 四边外留白：卡片左边对齐光标，翻转后卡片底边仍只与光标相隔 4pt。
+        const NSSize canvasPanel = NSMakeSize(338, 138);
+        const NSPoint canvasUnder = MSIMECandidateOrigin(caret, canvasPanel, screen, 0, 11, 5, 7);
+        assert(canvasUnder.x + 5 == NSMinX(caret));
+        assert(canvasUnder.y + canvasPanel.height - 11 == NSMinY(caret) - 4);
+        const NSPoint canvasAbove = MSIMECandidateOrigin(low, canvasPanel, screen, 0, 11, 5, 7);
+        assert(canvasAbove.y + 7 == NSMaxY(low) + 4);
+        // 卡片能放下、仅底部透明留白放不下时，不应提前翻转。
+        const NSRect almostLow = NSMakeRect(400, 126, 2, 18);
+        const NSPoint canvasStillUnder = MSIMECandidateOrigin(almostLow, canvasPanel, screen, 0, 11, 5, 7);
+        assert(canvasStillUnder.y == NSMinY(screen));
+        // 翻到光标上方后，透明底留白仍随整个窗口留在屏幕内。
+        const NSRect bottomEdge = NSMakeRect(400, 1, 2, 18);
+        assert(MSIMECandidateOrigin(bottomEdge, canvasPanel, screen, 0, 11, 5, 40).y == NSMinY(screen));
         // 没有装饰带时和以前逐点相同；负的带高当 0。
         for (const NSRect probe : {caret, low, right, far, top, mid})
             for (const NSRect display : {screen, left})

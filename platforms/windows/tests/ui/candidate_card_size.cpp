@@ -949,4 +949,283 @@ int main() {
     reserved.reserved_secondary_lines = 2;
     require(near(candidate_card_size(reserved).height, vertical_bare.height));
   }
+
+  // 皮肤包的版式：一个键都没写时，解析出的版式和不传皮肤一模一样，卡片的尺寸、行和翻页逐位相同，现有皮肤和无皮肤的卡片画出来不变。
+  {
+    const auto empty_skin = candidate_skin_metrics(CandidateSkinLayout{}, false, 16.0);
+    const auto with = candidate_card_metrics(16.0, 16.0, true, true, true, empty_skin, 9.5);
+    const auto without = candidate_card_metrics(16.0, 16.0, true, true, true);
+    require(with.pad_x == without.pad_x && with.pad_y == without.pad_y &&
+            with.slack_x == without.slack_x && with.slack_y == without.slack_y &&
+            with.number_and_bar == without.number_and_bar &&
+            with.preedit_row == without.preedit_row &&
+            with.candidate_row == without.candidate_row &&
+            with.min_width == without.min_width &&
+            with.column_gap == without.column_gap && with.item_gap == without.item_gap &&
+            with.item_padding_right == 0.0 && with.item_min_width == 0.0 &&
+            !with.justify_rows && !with.corners_follow_card && !with.list_arrows &&
+            with.number_font == 16.0 && with.number_column == 16.0 * 0.8 &&
+            !with.number_inset && with.selection_bar_width == candidate_selection_bar_width &&
+            !with.selection_bar_height && !with.selection_bar_inside);
+    for (const bool across : {false, true}) {
+      CandidateCardInput plain;
+      plain.horizontal = across;
+      plain.preedit_width = 70.0;
+      plain.page_width = 30.0;
+      plain.items = {{60.0, 20.0, 40.0}, {120.0}, {0.0}, {80.0, 0.0, 300.0}};
+      CandidateCardInput skinned = plain;
+      skinned.skin = candidate_skin_metrics(CandidateSkinLayout{}, across, 16.0);
+      skinned.number_width = 9.5;
+      const auto a = candidate_card_size(plain), b = candidate_card_size(skinned);
+      require(a.width == b.width && a.height == b.height);
+      const auto shape = candidate_card_metrics(16.0, 16.0, true, true, true);
+      const auto rows_a = candidate_page_layout(plain.items, a.width, shape, across);
+      const auto rows_b = candidate_page_layout(
+          plain.items, a.width,
+          candidate_card_metrics(16.0, 16.0, true, true, true, skinned.skin, 9.5), across);
+      require(rows_a.size() == rows_b.size());
+      for (size_t index = 0; index < rows_a.size(); ++index)
+        require(rows_a[index].bounds.left == rows_b[index].bounds.left &&
+                rows_a[index].bounds.right == rows_b[index].bounds.right &&
+                rows_a[index].bounds.top == rows_b[index].bounds.top &&
+                rows_a[index].bounds.bottom == rows_b[index].bounds.bottom);
+      const auto logo = candidate_logo_bounds(shape);
+      require(logo.top == shape.pad_y + (shape.preedit_row - shape.logo_side) / 2.0);
+    }
+  }
+
+  // padding、item_gap、item_extra_height：卡片四边到候选的距离、行（列）之间的空和行高。横排每列自带的空是 msime-windows 文字后的 6 DIP 加 item_gap。
+  {
+    CandidateSkinMetrics skin;
+    skin.padding = 2.0;
+    skin.item_gap = 0.0;
+    skin.item_extra_height = 10.0;
+    const auto shape = candidate_card_metrics(16.0, 16.0, false, false, false, skin);
+    require(near(shape.pad_x, 4.0) && near(shape.pad_y, 2.0) && near(shape.slack_y, 2.0) &&
+            near(shape.slack_x, 14.0));
+    require(near(shape.item_gap, 0.0) && near(shape.column_gap, 6.0));
+    require(near(shape.candidate_row, 16.0 * 1.35 + 10.0));
+    const auto rows = candidate_page_layout({{40.0}, {40.0}}, 200.0, shape, false);
+    require(near(rows[0].bounds.left, 2.0) && near(rows[0].bounds.top, 2.0) &&
+            near(rows[1].bounds.top, rows[0].bounds.bottom));
+    CandidateCardInput input;
+    input.preedit_visible = false;
+    input.logo_visible = false;
+    input.items = {{200.0}, {40.0}};
+    input.skin = skin;
+    const auto card = candidate_card_size(input);
+    require(near(card.width, 200.0 + 16.0 + 8.0 + 4.0 + 14.0));
+    require(near(card.height, 2.0 + 2.0 + shape.candidate_row * 2.0));
+  }
+
+  // 序号：number_scale 改字号；number_inset 让序号从行左缘量起左对齐，不小于 5；序号与候选之间是 number_gap。只写其中一个时，另一个保持宿主的值。
+  {
+    CandidateSkinMetrics scale;
+    scale.number_scale = 0.8;
+    const auto small_numbers = candidate_card_metrics(16.0, 16.0, true, true, true, scale, 7.0);
+    require(near(small_numbers.number_font, 12.8) && !small_numbers.number_inset &&
+            near(small_numbers.number_and_bar, 16.0 + 8.0) &&
+            near(small_numbers.number_left, 16.0 * 0.8 - 7.0));
+    CandidateSkinMetrics inset;
+    inset.number_inset = 2.0;
+    inset.number_gap = 1.5;
+    const auto inset_shape = candidate_card_metrics(16.0, 16.0, true, true, true, inset, 7.0);
+    require(inset_shape.number_inset && near(*inset_shape.number_inset, 5.0) &&
+            near(inset_shape.number_left, 5.0));
+    // 序号宽按 msime-windows 的下限 9 DIP 算。
+    require(near(inset_shape.number_and_bar, 5.0 + 9.0 + 1.5));
+    inset.number_inset = 11.0;
+    require(near(candidate_card_metrics(16.0, 16.0, true, true, true, inset, 12.0).number_and_bar,
+                 11.0 + 12.0 + 1.5));
+    CandidateSkinMetrics gap_only;
+    gap_only.number_gap = 3.0;
+    require(near(candidate_card_metrics(16.0, 16.0, true, true, true, gap_only).number_and_bar,
+                 16.0 * 0.8 + 3.0));
+  }
+
+  // item_padding_right 留在内容后面，横排的 item_min_width 只撑窄列，justify_rows 把一行多出的宽度均分给各列。
+  {
+    CandidateSkinMetrics skin;
+    skin.horizontal = true;
+    skin.item_padding_right = 10.0;
+    skin.item_min_width = 80.0;
+    skin.justify_rows = true;
+    const auto shape = candidate_card_metrics(16.0, 16.0, true, true, false, skin);
+    require(near(shape.item_padding_right, 10.0) && near(shape.item_min_width, 80.0) &&
+            shape.justify_rows);
+    require(near(candidate_item_natural_width({20.0}, shape, true), 80.0));
+    require(near(candidate_item_natural_width({100.0}, shape, true), 100.0 + 24.0 + 10.0));
+    // 竖排不受 item_min_width 和 justify_rows 影响。
+    skin.horizontal = false;
+    const auto upright = candidate_card_metrics(16.0, 16.0, true, true, false, skin);
+    require(near(upright.item_min_width, 0.0) && !upright.justify_rows &&
+            near(candidate_item_natural_width({20.0}, upright, false), 20.0 + 24.0 + 10.0));
+    const auto rows = candidate_page_layout({{20.0}, {100.0}}, 400.0, shape, true);
+    const double line = 400.0 - shape.pad_x;
+    require(near(rows[0].bounds.left, shape.pad_x / 2.0) &&
+            near(rows[1].bounds.right, shape.pad_x / 2.0 + line) &&
+            near(rows[0].bounds.right, rows[1].bounds.left));
+    const double natural0 = 80.0 + shape.column_gap, natural1 = 134.0 + shape.column_gap;
+    const double share = (line - natural0 - natural1) / 2.0;
+    require(near(rows[0].bounds.right - rows[0].bounds.left, natural0 + share) &&
+            near(rows[1].bounds.right - rows[1].bounds.left, natural1 + share));
+    // 列里的内容宽度扣掉序号栏和右侧留白。
+    require(near(rows[1].item.text_width, 100.0));
+  }
+
+  // fit_content：没有 160 DIP 的最小宽度和文字后的余量，右侧留白等于序号左侧的留白；皮肤的 min_width_dip 照常生效。
+  {
+    CandidateSkinMetrics skin;
+    skin.fit_content = true;
+    skin.number_inset = 5.0;
+    const auto shape = candidate_card_metrics(16.0, 16.0, false, false, false, skin, 8.0);
+    require(near(shape.min_width, 0.0) && near(shape.slack_x, 0.0) &&
+            near(shape.item_padding_right, 5.0) && near(shape.column_gap, 2.0));
+    CandidateCardInput input;
+    input.preedit_visible = false;
+    input.logo_visible = false;
+    input.items = {{30.0}};
+    input.skin = skin;
+    input.number_width = 8.0;
+    const double gutter = 5.0 + 9.0 + 16.0 * 0.2 + 8.0;
+    require(near(candidate_card_size(input).width, 30.0 + gutter + 5.0 + 12.0));
+    input.skin_min_width = 120.0;
+    require(near(candidate_card_size(input).width, 120.0));
+    skin.fit_content = false;
+    input.skin = skin;
+    input.skin_min_width = 0.0;
+    require(near(candidate_card_size(input).width, 160.0));
+  }
+
+  // 选中竖条：宽不小于 3、高按字号倍数、可以落在高亮左缘之内。
+  {
+    CandidateSkinMetrics skin;
+    skin.selected_bar_width = 2.0;
+    skin.selected_bar_height = 16.0 * 0.85;
+    skin.selected_bar_inside = true;
+    const auto shape = candidate_card_metrics(16.0, 16.0, true, true, true, skin);
+    require(near(shape.selection_bar_width, 3.0) && shape.selection_bar_height &&
+            near(*shape.selection_bar_height, 13.6) && shape.selection_bar_inside);
+    const auto bar = candidate_selection_bar(6.0, 10.0, 10.0 + shape.candidate_row,
+                                             shape.candidate_row, shape.selection_bar_width,
+                                             shape.selection_bar_height,
+                                             shape.selection_bar_inside);
+    require(near(bar.left, 6.0) && near(bar.right, 9.0) && near(bar.bottom - bar.top, 13.6));
+    const auto outside = candidate_selection_bar(6.0, 0.0, 30.0, 23.6, 4.0, 1.0, false);
+    require(near(outside.left, 4.0) && near(outside.right, 8.0) &&
+            near(outside.bottom - outside.top, 8.0));
+  }
+
+  // preedit_margin_dip：拼音行四周的外边距，只在显示拼音时生效；上下两段撑高首行，logo 与首行翻页在中间那一段里居中。
+  {
+    CandidateSkinMetrics skin;
+    skin.preedit_margin = {6.0, 3.0, 2.0, 7.0};
+    const auto shape = candidate_card_metrics(16.0, 16.0, true, true, true, skin);
+    const double reading_row = 16.0 * 1.4 + 6.0;
+    require(near(shape.preedit_row, reading_row + 8.0));
+    const auto band = candidate_header_band(shape);
+    require(near(band.top, shape.pad_y + 6.0) && near(band.bottom, shape.pad_y + 6.0 + reading_row) &&
+            near(band.height, reading_row));
+    require(near(candidate_preedit_left(shape), shape.pad_x + 16.0 + 6.0 + 7.0));
+    require(near(candidate_logo_bounds(shape).top, band.top + (reading_row - 16.0) / 2.0));
+    const auto pager = candidate_pager_layout(300.0, 30.0, shape);
+    require(pager && near(pager->next.top, band.top) && near(pager->next.bottom, band.bottom));
+    require(near(candidate_page_layout({{40.0}}, 300.0, shape, false)[0].bounds.top,
+                 shape.pad_y + reading_row + 8.0));
+    // 宽度为拼音的外边距让出左右两段。
+    CandidateCardInput input;
+    input.preedit_width = 300.0;
+    input.items = {{40.0}};
+    input.skin = skin;
+    require(near(candidate_card_size(input).width, 16.0 + 6.0 + 300.0 + 6.0 + 10.0 + 12.0 + 14.0));
+    require(near(candidate_card_metrics(16.0, 16.0, false, true, true, skin).preedit_row, 22.0));
+  }
+
+  // page_arrows：翻页从首行挪进列表。横排是候选右侧一窄列、竖直居中在最后一行上，竖排是最后一行下方一矮行、「‹」对齐序号左端；首行不再为翻页留高度。
+  {
+    CandidateSkinMetrics skin;
+    skin.page_arrows = true;
+    skin.horizontal = true;
+    const auto shape = candidate_card_metrics(16.0, 16.0, false, false, true, skin);
+    require(near(shape.preedit_row, 0.0) && shape.list_arrows && !shape.list_arrows->triangle);
+    const auto &arrows = *shape.list_arrows;
+    require(near(arrows.button_width, 12.0) && near(arrows.button_height, 14.0) &&
+            near(arrows.gap, 1.0) && near(arrows.column, 2.0 + 24.0 + 1.0 + 1.0) &&
+            near(shape.slack_x, 0.0));
+    require(near(arrows.margin_bottom, (shape.candidate_row - 14.0) / 2.0));
+    // 没有翻页可画时什么都不加。
+    require(!candidate_card_metrics(16.0, 16.0, false, false, false, skin).list_arrows);
+    CandidateCardInput input;
+    input.horizontal = true;
+    input.preedit_visible = false;
+    input.logo_visible = false;
+    input.page_width = 30.0;
+    input.items = {{100.0}, {100.0}};
+    input.skin = skin;
+    const auto card = candidate_card_size(input);
+    require(near(card.width, 2.0 * (100.0 + 24.0 + 8.0) + 12.0 + arrows.column));
+    require(near(card.height, 6.0 + 6.0 + shape.candidate_row));
+    const auto rows = candidate_page_layout(input.items, card.width, shape, true);
+    const auto layout = candidate_list_arrows_layout(card.width, rows, shape);
+    require(layout && layout->in_list && near(layout->indicator.right - layout->indicator.left, 0.0));
+    require(near(layout->next.right, card.width - 6.0 - 1.0) &&
+            near(layout->next.left, layout->next.right - 12.0) &&
+            near(layout->previous.right, layout->next.left - 1.0));
+    require(near((layout->next.top + layout->next.bottom) / 2.0,
+                 (rows[0].bounds.top + rows[0].bounds.bottom) / 2.0));
+    require(rows[1].bounds.right <= layout->previous.left - 2.0 + 0.001);
+    require(candidate_pager_hit((layout->previous.left + layout->previous.right) / 2.0,
+                                layout->previous.top + 1.0, layout, false) == true);
+    require(!candidate_pager_hit((layout->previous.left + layout->previous.right) / 2.0,
+                                 layout->previous.top + 1.0, layout, true));
+
+    // 三角箭头：按钮与候选行等高、横排更宽，前面隔一条 1 DIP 的竖线。
+    skin.page_arrow_style = CandidatePageArrowStyle::triangle;
+    const auto triangle = candidate_card_metrics(16.0, 16.0, false, false, true, skin);
+    require(triangle.list_arrows && triangle.list_arrows->triangle &&
+            near(triangle.list_arrows->button_height, std::round(triangle.candidate_row)) &&
+            near(triangle.list_arrows->button_width, 15.0) &&
+            near(triangle.list_arrows->divider_width, 1.0) &&
+            near(triangle.list_arrows->divider_gap, 2.0) &&
+            near(triangle.list_arrows->column, 5.0 + 1.0 + 2.0 + 30.0));
+
+    // 竖排：最后一行下方加 button_height + 2 的一矮行，「‹」的左端对齐序号左端。
+    skin.horizontal = false;
+    skin.page_arrow_style = CandidatePageArrowStyle::chevron;
+    skin.number_inset = 5.0;
+    const auto upright = candidate_card_metrics(16.0, 16.0, false, false, true, skin, 8.0);
+    require(upright.list_arrows && near(upright.list_arrows->row, 16.0) &&
+            near(candidate_list_arrow_column(upright), 0.0));
+    input.horizontal = false;
+    input.skin = skin;
+    input.number_width = 8.0;
+    const auto stacked_card = candidate_card_size(input);
+    require(near(stacked_card.height, 6.0 + 6.0 + upright.candidate_row * 2.0 + 2.0 + 16.0));
+    const auto vertical_rows = candidate_page_layout(input.items, stacked_card.width, upright, false);
+    const auto under = candidate_list_arrows_layout(stacked_card.width, vertical_rows, upright);
+    require(under && near(under->previous.top, vertical_rows[1].bounds.bottom + 1.0) &&
+            near(under->previous.left + (12.0 - upright.list_arrows->glyph_width()) / 2.0,
+                 6.0 + 5.0) &&
+            near(under->next.left, under->previous.right + 1.0));
+  }
+
+  // item_corners_follow_card：落在列表四角上的高亮角跟卡片同圆角，顶上两角只在首行不占高度时算。
+  {
+    const CandidateRowBounds area{6.0, 6.0, 194.0, 100.0};
+    const auto top_row = candidate_row_corner_radii({6.0, 6.0, 194.0, 30.0}, area, true, 4.0, 9.0);
+    require(near(top_row[0], 9.0) && near(top_row[1], 9.0) && near(top_row[2], 4.0) && near(top_row[3], 4.0));
+    const auto no_top = candidate_row_corner_radii({6.0, 6.0, 194.0, 30.0}, area, false, 4.0, 9.0);
+    require(near(no_top[0], 4.0) && near(no_top[1], 4.0));
+    const auto last = candidate_row_corner_radii({6.0, 70.0, 100.0, 100.0}, area, true, 4.0, 9.0);
+    require(near(last[0], 4.0) && near(last[1], 4.0) && near(last[2], 4.0) && near(last[3], 9.0));
+    CandidateSkinMetrics skin;
+    skin.corners_follow_card = true;
+    const auto shape = candidate_card_metrics(16.0, 16.0, true, true, false, skin);
+    require(shape.corners_follow_card);
+    const auto rows = candidate_page_layout({{40.0}, {60.0}}, 200.0, shape, false);
+    const auto rows_area = candidate_rows_area(200.0, rows, shape);
+    require(rows_area && near(rows_area->left, 6.0) && near(rows_area->right, 194.0) &&
+            near(rows_area->top, rows[0].bounds.top) &&
+            near(rows_area->bottom, rows[1].bounds.bottom));
+  }
 }

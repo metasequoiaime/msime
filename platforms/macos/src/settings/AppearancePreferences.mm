@@ -3,6 +3,7 @@
 #import "../backend/account/BackendAccountEntry.h"
 #import "../candidate/CandidateFontCache.h"
 #import "../candidate/CandidateSkinPreviewView.h"
+#import "../candidate/CandidateCanvas.h"
 #import "../candidate/SkinSettingsView.h"
 #import "../cloud/CloudAppearanceSettings.h"
 #import "RuntimeOptions.h"
@@ -1127,6 +1128,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSImage *_darkDecorationImage;
     NSImage *_lightBackgroundImage;
     NSImage *_darkBackgroundImage;
+    MSIMECandidateCanvasAssets *_lightCanvasAssets;
+    MSIMECandidateCanvasAssets *_darkCanvasAssets;
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     msime::mac::SkinTokens _lightToolbarSkin;
@@ -1639,6 +1642,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _darkSkin = msime::mac::ResolveSkin(self.globalTheme.UTF8String, custom, true, layout, root);
     _lightToolbarSkin = msime::mac::ToolbarSkinTokens(_lightSkin, root);
     _darkToolbarSkin = msime::mac::ToolbarSkinTokens(_darkSkin, root);
+    _lightCanvasAssets = _lightSkin.canvas ? [MSIMECandidateCanvasAssets assetsForCanvas:*_lightSkin.canvas dark:NO] : nil;
+    _darkCanvasAssets = _darkSkin.canvas ? [MSIMECandidateCanvasAssets assetsForCanvas:*_darkSkin.canvas dark:YES] : nil;
+    // 工具栏保留自己的配色；候选面板成功解码后才重新走共享层的取色器覆盖规则。
+    if (_lightCanvasAssets.panelLoaded)
+        _lightSkin = msime::mac::ResolveSkin(self.globalTheme.UTF8String, custom, false, layout, root, true);
+    if (_darkCanvasAssets.panelLoaded)
+        _darkSkin = msime::mac::ResolveSkin(self.globalTheme.UTF8String, custom, true, layout, root, true);
     _resolvedThemeKey = [self themeResolutionKey];
     // 每种明暗只读它自己画的那个包的图：浅色、深色槽位可以是两个包，一张图给两种明暗用会把一个包的装饰画到另一个包的配色上。
     auto load = [](const std::string &path) -> NSImage * {
@@ -1651,6 +1661,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _darkDecorationImage = decorationPath(_darkSkin) == decorationPath(_lightSkin) ? _lightDecorationImage : load(decorationPath(_darkSkin));
     _lightBackgroundImage = load(_lightSkin.backgroundPath);
     _darkBackgroundImage = _darkSkin.backgroundPath == _lightSkin.backgroundPath ? _lightBackgroundImage : load(_darkSkin.backgroundPath);
+}
+- (MSIMECandidateCanvasAssets *)canvasAssetsForDark:(BOOL)dark {
+    [self resolveSelectedSkinIfChanged];
+    return dark ? _darkCanvasAssets : _lightCanvasAssets;
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)candidateFollowCursor {

@@ -49,7 +49,8 @@ final class ImeCandidates {
         if (s.candidateAppearance.externalSkin()) {
             selectedBackground = s.candidateAppearance.chip();
             selectedText = s.candidateAppearance.chipText();
-            keyBackground = s.candidateAppearance.surface();
+            keyBackground = s.candidateAppearance.canvas() == null
+                ? s.candidateAppearance.surface() : android.graphics.Color.TRANSPARENT;
             keyForeground = s.candidateAppearance.text();
             accentSoft = selectedBackground;
             accentText = selectedText;
@@ -59,7 +60,10 @@ final class ImeCandidates {
 
     /** 首选候选 chip：字母键的底（kb.key）、圆角 9，皮肤强调色 600 字重；其余候选不画底。 */
     private android.graphics.drawable.GradientDrawable chip(int color, int radiusDp) {
-        return DrawablePolicy.rounded(color, s.pixels(radiusDp));
+        CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
+        float radius = canvas == null || canvas.itemRadius == null ? s.pixels(radiusDp)
+            : (float) (canvas.itemRadius * s.getResources().getDisplayMetrics().density);
+        return DrawablePolicy.rounded(color, radius);
     }
 
     void styleCandidateButton(Button button) {

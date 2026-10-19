@@ -1,7 +1,9 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include "CandidatePalette.h"
+#include "CandidateSkinLayout.h"
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -156,6 +158,117 @@ inline std::optional<float> candidate_skin_corner_radius(const nlohmann::json &c
   const auto *package = detail::candidate_skin_package(catalog, id);
   return package ? detail::candidate_skin_radius(*package, "cornerRadiusDip")
                  : std::nullopt;
+}
+namespace detail {
+// 一个 0 到 max 之间的数，越界、不是数或没写都是空。共享 catalog 已经按同样的范围校验过清单，这里只是不把读不懂的值带进几何。
+inline std::optional<double> candidate_skin_number(const nlohmann::json &object,
+                                                   const char *key, double max) {
+  if (!object.is_object() || !object.contains(key) || !object.at(key).is_number())
+    return std::nullopt;
+  const auto value = object.at(key).get<double>();
+  if (!std::isfinite(value) || value < 0.0 || value > max)
+    return std::nullopt;
+  return value;
+}
+inline std::optional<bool> candidate_skin_flag(const nlohmann::json &object,
+                                               const char *key) {
+  if (!object.is_object() || !object.contains(key) || !object.at(key).is_boolean())
+    return std::nullopt;
+  return object.at(key).get<bool>();
+}
+// `SkinLength` 序列化成 `{"value": 数, "em": 布尔}`；DIP 和 em 各有自己的上限，与 catalog 的 read_length 相同。
+inline std::optional<CandidateSkinLength>
+candidate_skin_length_value(const nlohmann::json &object, const char *key,
+                            double max_dip, double max_em) {
+  if (!object.is_object() || !object.contains(key) || !object.at(key).is_object())
+    return std::nullopt;
+  const auto &length = object.at(key);
+  const auto em = candidate_skin_flag(length, "em").value_or(false);
+  const auto value = candidate_skin_number(length, "value", em ? max_em : max_dip);
+  if (!value)
+    return std::nullopt;
+  return CandidateSkinLength{*value, em};
+}
+// 一张 `SkinGeometry`（camelCase）。
+inline CandidateSkinGeometry candidate_skin_geometry_table(const nlohmann::json &table) {
+  CandidateSkinGeometry geometry;
+  if (!table.is_object())
+    return geometry;
+  geometry.padding = candidate_skin_length_value(table, "padding", 64.0, 4.0);
+  geometry.item_gap = candidate_skin_length_value(table, "itemGap", 64.0, 4.0);
+  geometry.item_extra_height =
+      candidate_skin_length_value(table, "itemExtraHeight", 64.0, 4.0);
+  geometry.number_inset = candidate_skin_length_value(table, "numberInset", 64.0, 4.0);
+  geometry.item_padding_right =
+      candidate_skin_length_value(table, "itemPaddingRight", 64.0, 4.0);
+  geometry.item_min_width =
+      candidate_skin_length_value(table, "itemMinWidth", 500.0, 40.0);
+  geometry.number_gap = candidate_skin_length_value(table, "numberGap", 64.0, 4.0);
+  geometry.selected_bar_width =
+      candidate_skin_length_value(table, "selectedBarWidth", 16.0, 1.0);
+  geometry.number_scale = candidate_skin_number(table, "numberScale", 2.0);
+  geometry.selected_bar_height_em =
+      candidate_skin_number(table, "selectedBarHeightEm", 2.0);
+  geometry.selected_bar_inside = candidate_skin_flag(table, "selectedBarInside");
+  geometry.item_corners_follow_card =
+      candidate_skin_flag(table, "itemCornersFollowCard");
+  geometry.justify_rows = candidate_skin_flag(table, "justifyRows");
+  if (table.contains("pageArrowStyle") && table.at("pageArrowStyle").is_string()) {
+    const auto style = table.at("pageArrowStyle").get<std::string>();
+    if (style == "chevron")
+      geometry.page_arrow_style = CandidatePageArrowStyle::chevron;
+    else if (style == "triangle")
+      geometry.page_arrow_style = CandidatePageArrowStyle::triangle;
+  }
+  if (table.contains("preeditMarginDip") && table.at("preeditMarginDip").is_object()) {
+    const auto &margin = table.at("preeditMarginDip");
+    const auto top = candidate_skin_number(margin, "top", 500.0),
+               right = candidate_skin_number(margin, "right", 500.0),
+               bottom = candidate_skin_number(margin, "bottom", 500.0),
+               left = candidate_skin_number(margin, "left", 500.0);
+    if (top && right && bottom && left)
+      geometry.preedit_margin = CandidateSkinInsets{*top, *right, *bottom, *left};
+  }
+  return geometry;
+}
+} // namespace detail
+// 包的版式、外框、阴影、材质、翻页箭头和收紧宽度（见 CandidateSkinLayout.h）。读不懂的值当作没写，卡片保留宿主自己的值。
+inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
+                                                 const std::string &id) {
+  CandidateSkinLayout layout;
+  const auto *package = detail::candidate_skin_package(catalog, id);
+  if (!package)
+    return layout;
+  for (const auto &[key, target] :
+       {std::pair{"geometry", &layout.geometry},
+        std::pair{"horizontal", &layout.horizontal},
+        std::pair{"vertical", &layout.vertical}})
+    if (package->contains(key))
+      *target = detail::candidate_skin_geometry_table(package->at(key));
+  if (const auto width = detail::candidate_skin_number(*package, "borderWidthDip", 4.0))
+    layout.border_width = static_cast<float>(*width);
+  if (const auto radius =
+          detail::candidate_skin_number(*package, "itemCornerRadiusDip", 16.0))
+    layout.item_corner_radius = static_cast<float>(*radius);
+  if (package->contains("shadow") && package->at("shadow").is_string()) {
+    const auto shadow = package->at("shadow").get<std::string>();
+    if (shadow == "none")
+      layout.shadow = CandidateSkinShadow::none;
+    else if (shadow == "soft")
+      layout.shadow = CandidateSkinShadow::soft;
+    else if (shadow == "strong")
+      layout.shadow = CandidateSkinShadow::strong;
+  }
+  if (package->contains("backdrop") && package->at("backdrop").is_string()) {
+    const auto backdrop = package->at("backdrop").get<std::string>();
+    if (backdrop == "acrylic")
+      layout.backdrop = CandidateSkinBackdrop::acrylic;
+    else if (backdrop == "mica")
+      layout.backdrop = CandidateSkinBackdrop::mica;
+  }
+  layout.page_arrows = detail::candidate_skin_flag(*package, "pageArrows");
+  layout.fit_content = detail::candidate_skin_flag(*package, "fitContent");
+  return layout;
 }
 inline CandidateSkinBackground
 candidate_skin_background(const nlohmann::json &catalog, const std::string &id,

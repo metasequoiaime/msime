@@ -71,6 +71,8 @@
 @end
 @implementation HTTPControllerFixture
 - (void)ensureAppearance {}
+// 语音夹具没有完整会话；切换客户端时也只消费测试提供的偏好，不启动真实偏好的异步重载。
+- (void)reloadPreferences {}
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new];
     if (self.requestSampleLimit) self.requestFixture.sampleLimit = self.requestSampleLimit;

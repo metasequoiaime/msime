@@ -105,6 +105,8 @@ public:
   }
   // The card radius a package asks for; none keeps the theme's.
   void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
+  // 包的版式、外框线宽、高亮圆角、阴影档位、材质、翻页箭头和收紧宽度（CandidateSkinLayout.h）。每次排版按当前排列和字号解析；和用户偏好的先后见 paint() 里的说明。
+  void set_skin_layout(const CandidateSkinLayout &layout);
   // The package's bounded native motion model. Reduced motion in Windows
   // disables it at paint time without changing the candidate semantics.
   void set_skin_animation(CandidateSkinAnimation animation) {
@@ -140,6 +142,8 @@ private:
   // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
   std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
+  // 这一页最宽的序号（1 到 count）按序号字号量出的宽度。只有皮肤的版式用得上它（number_inset、fit_content、竖排的列表翻页箭头），其他时候不量、返回 0，没有皮肤时排版和以前一样。
+  double number_label_width(size_t count, const CandidateSkinMetrics &skin);
   // 横排候选为还没到的释义预留几行：偏好算出的有释义来源的目标语言行数（这一页不请求释义时为 0），韩文汉字列表再加 훈음 那一行。card_bounds 和 paint 都读它，量出来的尺寸和画出来的行才一致。
   size_t reserved_secondary_lines(const CandidatePresentation &value) const;
   // 预留的 lines 行释义用释义字体量出的高度（lines 行占位文字，和 wrap_measure 量多行释义同一种格式），交给 candidate_reserved_row_height。不到两行时为 0：一行释义按固定行高算，不用量。
@@ -186,6 +190,8 @@ private:
   // The pager arrow a press started on; the page turns when the release lands on the same arrow.
   std::optional<bool> pressed_page_;
   std::optional<size_t> hovered_;
+  // 鼠标停在列表里的哪一枚翻页箭头上（皮肤 `page_arrows`），按 msime-windows 的 PagerArrows 画悬停底色；首行的翻页没有悬停底色。
+  std::optional<bool> hovered_page_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
   std::optional<ComponentFailureSite> failure_site_;
@@ -235,6 +241,7 @@ private:
   CandidateSkinAlign decoration_align_ = CandidateSkinAlign::right;
   CandidateSkinBackground background_;
   std::optional<float> skin_radius_;
+  CandidateSkinLayout skin_layout_;
   CandidateSkinAnimation animation_;
   CandidateSkinAnimationPreset active_animation_ = CandidateSkinAnimationPreset::none;
   uint64_t animation_started_ = 0;

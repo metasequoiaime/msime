@@ -65,21 +65,27 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
     preedit.automation_id = "candidate-preedit";
     preedit.name = "候选窗预编辑";
     preedit.value = value.preedit;
-    const double right = pager ? pager->left - metrics.pager_gap
-                               : frame.card_width - metrics.pad_x / 2.0;
-    preedit.bounds = client({candidate_preedit_left(metrics), metrics.pad_y, right,
-                             metrics.pad_y + metrics.preedit_row});
+    // 皮肤把翻页画在列表里时首行没有翻页，拼音一直到右边距（再减去皮肤给拼音行的右外边距），与 paint 画的一样。
+    const double right = pager && !pager->in_list
+                             ? pager->left - metrics.pager_gap
+                             : frame.card_width - metrics.pad_x / 2.0 -
+                                   metrics.preedit_margin.right;
+    const auto band = candidate_header_band(metrics);
+    preedit.bounds = client({candidate_preedit_left(metrics), band.top, right, band.bottom});
     tree.elements.push_back(std::move(preedit));
   }
   if (pager && value.page < value.page_count) {
-    AccessibleElement page;
-    page.id = candidate_accessible_page;
-    page.role = AccessibleRole::Text;
-    page.automation_id = "candidate-page-indicator";
-    page.name = "第 " + std::to_string(value.page + 1) + " 页，共 " +
-                std::to_string(value.page_count) + " 页";
-    page.bounds = client(pager->indicator);
-    tree.elements.push_back(std::move(page));
+    // 列表里的箭头不带页码，没有画出来的东西就不报给读屏。
+    if (!pager->in_list) {
+      AccessibleElement page;
+      page.id = candidate_accessible_page;
+      page.role = AccessibleRole::Text;
+      page.automation_id = "candidate-page-indicator";
+      page.name = "第 " + std::to_string(value.page + 1) + " 页，共 " +
+                  std::to_string(value.page_count) + " 页";
+      page.bounds = client(pager->indicator);
+      tree.elements.push_back(std::move(page));
+    }
     // 上一页在第一页上不可用，和画出来变暗、点了不翻页一致；下一页总是可用，因为引擎按需取候选，页数会随翻页增长。
     const bool live = pageable && value.pointer_input;
     for (const bool previous : {true, false}) {

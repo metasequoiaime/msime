@@ -28,9 +28,10 @@ final class ImeStyler {
         this.s = s;
     }
 
-    /** 读音行组字光标竖条的颜色：皮肤的强调色（#6110）。 */
+    /** 读音行光标使用候选包的专用颜色，未指定时保留皮肤强调色。 */
     int caretColor() {
-        return color(s.skin.accent());
+        int fallback = color(s.skin.accent());
+        return s.candidateAppearance.externalSkin() ? s.candidateAppearance.preeditCaret(fallback) : fallback;
     }
 
     /** Skin colours repeat across every key in a render; keep the bounded palette parsed once. */
@@ -426,10 +427,23 @@ final class ImeStyler {
         ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
         s.imeFrame.applyNavigationBar(rootColor, s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
+        CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
+        boolean canvasActive = canvas != null && ViewPolicy.isVisible(s.candidateViewport);
+        int candidateSurface = s.candidateAppearance.surface();
+        if (s.candidateCanvasRegion != null)
+            s.candidateCanvasRegion.apply(canvas, canvasActive, candidateSurface);
+        if (s.expandedCandidateCanvas != null)
+            s.expandedCandidateCanvas.apply(canvas, ViewPolicy.isVisible(s.expandedCandidateScroll), candidateSurface);
         if (s.candidateViewport != null)
-            ViewPolicy.setBackgroundColor(s.candidateViewport, s.candidateAppearance.surface());
+            ViewPolicy.setBackgroundColor(s.candidateViewport, canvasActive ? Color.TRANSPARENT : candidateSurface);
         if (s.expandedCandidates != null)
-            ViewPolicy.setBackgroundColor(s.expandedCandidates, s.candidateAppearance.surface());
+            ViewPolicy.setBackgroundColor(s.expandedCandidates, canvas == null ? candidateSurface : Color.TRANSPARENT);
+        if (s.candidateHeader != null) {
+            int gap = canvasActive && canvas.lineGap >= 0 ? Math.round((float) canvas.lineGap
+                * s.getResources().getDisplayMetrics().density) : s.pixels(ImeToolbar.READING_GAP_DP);
+            ViewPolicy.setPadding(s.candidateHeader, s.candidateHeader.getPaddingLeft(),
+                s.candidateHeader.getPaddingTop(), s.candidateHeader.getPaddingRight(), gap);
+        }
         if (s.clipboardPanel != null)
             applySkinBackground(s.clipboardPanel);
         if (s.schemePanel != null)

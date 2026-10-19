@@ -74,6 +74,21 @@ public final class CandidateSkinDeviceSmoke extends DeviceSmoke {
             stage = "manifest update repaints without a preference revision";
             writeSkin(dark, DARK, "night", "horizontal", "#461357");
             awaitCandidateColour(0xff461357);
+            stage = "canvas texture reaches the live candidate strip";
+            writeCanvas(dark, DARK);
+            awaitCandidateColour(0xff314159);
+            check(dominantColour(bounds(describedPrefix("候选 2："))) == 0xff28465a,
+                "unselected candidate covered the panel texture");
+            check(dominantColour(bounds(key("n"))) == keyboardColour, "canvas recoloured keyboard keys");
+            stage = "expanded candidates retain a fixed canvas";
+            tap(described("展开候选"));
+            check(dominantColour(bounds(described("候选面板"))) == 0xff28465a,
+                "expanded candidate surface did not draw the canvas");
+            tap(described("收起候选面板"));
+            stage = "canvas keeps the original candidate click path";
+            tap(describedPrefix("候选 2："));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && !node.getText().toString().endsWith("ni")));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences);
@@ -175,6 +190,23 @@ public final class CandidateSkinDeviceSmoke extends DeviceSmoke {
             + "']\n[candidate_window]\nmin_width_dip = 10\n"
             + "decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate." + mode
             + "]\nselected = '" + selected + "'\ntext = '#123456'\nsurface = '#E9E1D2'\n";
+        Files.write(path.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void writeCanvas(Path path, String id) throws Exception {
+        Bitmap bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        try (var output = Files.newOutputStream(path.resolve("panel.png"))) {
+            bitmap.eraseColor(0xff28465a);
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output), "synthetic panel encoding");
+        } finally { bitmap.recycle(); }
+        String manifest = "schema_version=2\nid='" + id
+            + "'\nname='Synthetic canvas integration'\nversion='1.0'\nbase='canvas'\n"
+            + "[supports]\nlayouts=['horizontal']\nthemes=['dark','light']\n"
+            + "[candidate_window]\ncontent_insets_dip={top=4,right=6,bottom=4,left=6}\n"
+            + "outer_insets_dip={top=2,right=2,bottom=2,left=2}\nline_gap_dip=4\n"
+            + "[candidate_window.border_image]\nsource='panel.png'\nslice_dip=[2]\nwidth_dip=[2]\n"
+            + "[candidate.dark]\ntext='#FFFFFF'\nselected='#314159'\n"
+            + "[candidate.light]\ntext='#FFFFFF'\nselected='#314159'\n";
         Files.write(path.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
     }
 

@@ -182,6 +182,51 @@ SkinToolbarColors ToolbarColorsFromJSON(NSDictionary *palette)
     return colors;
 }
 
+std::array<double, 4> BoxField(id raw)
+{
+    NSArray *values = raw;
+    if (![values isKindOfClass:NSArray.class] || (values.count != 1 && values.count != 2 && values.count != 4)) return {};
+    auto number = [&](NSUInteger index) { return [values[index] isKindOfClass:NSNumber.class] ? [values[index] doubleValue] : 0.0; };
+    return {number(0), number(values.count == 1 ? 0 : 1), number(values.count == 4 ? 2 : 0), number(values.count == 4 ? 3 : values.count == 1 ? 0 : 1)};
+}
+SkinInsets InsetsField(NSDictionary *object)
+{
+    return {NumberField(object, @"top"), NumberField(object, @"right"), NumberField(object, @"bottom"), NumberField(object, @"left")};
+}
+std::optional<SkinCanvas> CanvasFromJSON(NSDictionary *object)
+{
+    if (![object[@"canvas"] isEqual:@YES] || NumberField(object, @"schemaVersion") != 2) return std::nullopt;
+    SkinCanvas canvas;
+    NSDictionary *border = object[@"borderImage"];
+    if ([border isKindOfClass:NSDictionary.class]) {
+        SkinBorderImage image;
+        image.source = StringField(border, @"source");
+        image.lightSource = StringField(border, @"lightSource");
+        image.slice = BoxField([border[@"stretchDip"] isKindOfClass:NSArray.class] ? border[@"stretchDip"] : border[@"sliceDip"]);
+        image.width = [border[@"widthDip"] isKindOfClass:NSArray.class] ? BoxField(border[@"widthDip"]) : image.slice;
+        image.fill = ![border[@"fill"] isEqual:@NO];
+        canvas.border = std::move(image);
+    }
+    if ([object[@"contentInsetsDip"] isKindOfClass:NSDictionary.class]) canvas.content = InsetsField(object[@"contentInsetsDip"]);
+    if ([object[@"outerInsetsDip"] isKindOfClass:NSDictionary.class]) canvas.outer = InsetsField(object[@"outerInsetsDip"]);
+    canvas.lineGap = OptionalNumberField(object, @"lineGapDip");
+    NSArray *decorations = object[@"decorations"];
+    if ([decorations isKindOfClass:NSArray.class]) for (NSDictionary *item in decorations) {
+        if (![item isKindOfClass:NSDictionary.class]) continue;
+        SkinFreeDecoration decoration;
+        decoration.image = StringField(item, @"image");
+        decoration.width = NumberField(item, @"widthDip");
+        decoration.height = NumberField(item, @"heightDip");
+        decoration.anchor = StringField(item, @"anchor");
+        decoration.offsetX = NumberField(item, @"offsetXDip");
+        decoration.offsetY = NumberField(item, @"offsetYDip");
+        decoration.zIndex = static_cast<int>(NumberField(item, @"zIndex"));
+        canvas.decorations.push_back(std::move(decoration));
+    }
+    std::stable_sort(canvas.decorations.begin(), canvas.decorations.end(), [](const auto &a, const auto &b) { return a.zIndex < b.zIndex; });
+    return canvas;
+}
+
 std::optional<SkinPackage> PackageFromJSON(id value)
 {
     NSDictionary *object = value;
@@ -204,6 +249,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     package.decorationTopDip = NumberField(object, @"decorationTopDip");
     package.decorationWidthDip = NumberField(object, @"decorationWidthDip");
     package.cornerRadiusDip = OptionalNumberField(object, @"cornerRadiusDip");
+    package.itemCornerRadiusDip = OptionalNumberField(object, @"itemCornerRadiusDip");
     package.decorationImage = StringField(object, @"decorationImage");
     const std::string align = StringField(object, @"decorationAlign");
     package.decorationAlign = align == "left"     ? DecorationAlign::left
@@ -236,6 +282,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.toolbar.dark = ToolbarColorsFromJSON(toolbar[@"dark"]);
         package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
     }
+    package.canvas = CanvasFromJSON(object);
     package.animation = AnimationFromJSON(object[@"animation"]);
     NSDictionary *license = object[@"license"];
     if ([license isKindOfClass:NSDictionary.class])
@@ -573,7 +620,7 @@ std::string ThemeTitle(std::string_view id)
 }
 
 ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom, bool dark, std::string_view layout,
-                         const std::filesystem::path &skinsRoot)
+                         const std::filesystem::path &skinsRoot, bool canvasPanelDrawn)
 {
     @autoreleasepool
     {
@@ -619,6 +666,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             customTheme[@"candidate_colors"] = colors;
         }
         NSMutableDictionary *requestObject = [@{
+            @"canvas_panel_drawn" : @(canvasPanelDrawn),
             @"global_theme" : @(resolved.id.c_str()),
             @"custom_theme" : customTheme,
             @"dark" : @(dark),
@@ -677,6 +725,14 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 tokens.showSelectedBar = bar.boolValue;
             }
         }
+        NSDictionary *details = value[@"candidate_details"];
+        if ([details isKindOfClass:NSDictionary.class]) {
+            resolved.tokens.preeditText = ParseCssColor(StringField(details, @"preedit_text"));
+            resolved.tokens.preeditCaret = ParseCssColor(StringField(details, @"preedit_caret"));
+            resolved.tokens.selectedBar = ParseCssColor(StringField(details, @"selected_bar"));
+            if (auto selectedTranslation = ParseCssColor(StringField(details, @"selected_translation")))
+                resolved.tokens.selectedTranslation = selectedTranslation;
+        }
         NSString *drawn = value[@"candidate_skin"];
         if ([drawn isKindOfClass:NSString.class] && drawn.length > 0)
         {
@@ -684,6 +740,17 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             // The decoration, background, card radius and minimum width still come from the package itself; the theme only says whether it is drawn.
             if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
             {
+                resolved.canvas = package->canvas;
+                if (resolved.canvas) {
+                    const auto absolute = [&](const std::string &path) { return path.empty() ? path : (skinsRoot / package->id / path).string(); };
+                    if (resolved.canvas->border) {
+                        auto &border = *resolved.canvas->border;
+                        border.source = absolute(border.source);
+                        border.lightSource = absolute(border.lightSource);
+                        resolved.canvasPanelDrawn = canvasPanelDrawn;
+                    }
+                    for (auto &decoration : resolved.canvas->decorations) decoration.image = absolute(decoration.image);
+                }
                 resolved.name = package->name;
                 resolved.animation = package->animation;
                 resolved.decorationTopDip = package->decorationTopDip;
@@ -695,6 +762,10 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 if (package->cornerRadiusDip)
                 {
                     resolved.tokens.radius = static_cast<float>(*package->cornerRadiusDip);
+                }
+                if (package->itemCornerRadiusDip)
+                {
+                    resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(*package->itemCornerRadiusDip);
                 }
                 // decorationImage is the manifest's decoration.image, or else an image preview, and is set only for a decorated package.
                 if (!package->decorationImage.empty())

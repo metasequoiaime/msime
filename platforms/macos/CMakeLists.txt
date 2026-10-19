@@ -1039,9 +1039,14 @@ add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
-add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm)
+# Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
+add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
+target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-canvas-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
+add_test(NAME candidate-canvas COMMAND candidate-canvas-test)
+add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit")
+target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
 
 add_executable(settings-glass-test tests/settings/SettingsGlassTest.mm)
@@ -1282,7 +1287,7 @@ foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
 endforeach()
 
 # CandidateSkin.cpp 通过 SkinManifestBridge.mm 读取外部皮肤清单，后者调用 Rust 宿主库里共享的 client-services 加载器。编译其中一个文件的每个目标都需要另一个文件和 apple-client，所以由这个循环把它们绑在一起，而不是手工维护一份新使用方可能漏掉的列表。
-set_source_files_properties(src/candidate/SkinManifestBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(src/candidate/SkinManifestBridge.mm src/candidate/CandidateCanvas.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 get_property(MSIME_SKIN_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
   get_target_property(msime_target_sources ${msime_target} SOURCES)
@@ -1292,7 +1297,8 @@ foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
   if(NOT "src/candidate/SkinManifestBridge.mm" IN_LIST msime_target_sources)
     target_sources(${msime_target} PRIVATE src/candidate/SkinManifestBridge.mm)
   endif()
-  target_link_libraries(${msime_target} PRIVATE apple-client)
+  target_sources(${msime_target} PRIVATE src/candidate/CandidateCanvas.mm)
+  target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore" "-framework ImageIO")
 endforeach()
 
 # VoiceInputService.mm passes the system recogniser's text through shared/voice's tidy_local_transcript, so every target compiling it links the library that defines it. Found by source rather than listed, for the same reason as the loops above.

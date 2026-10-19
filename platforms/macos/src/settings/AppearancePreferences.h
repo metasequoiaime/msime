@@ -3,6 +3,8 @@
 #import "../../../../shared/apple/TextClient.h"
 #include "../candidate/CandidateSkin.h"
 
+@class MSIMECandidateCanvasAssets;
+
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNotification;
 /// Set to @YES in the userInfo of an MSIMEAppearanceDidChangeNotification that only moved the Chinese/English mode. The mode is not part of the shared preferences document, so observers refresh what they show but have nothing to save.
@@ -33,6 +35,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (NSImage *)decorationImageForDark:(BOOL)dark;
 /// 这种明暗画的那个皮肤包的背景图，与装饰图一起读好；候选窗只在这种明暗的解析结果带 backgroundPath 时画它。
 - (NSImage *)backgroundImageForDark:(BOOL)dark;
+// 已解码的 canvas 资源；候选布局复用，不在按键路径读文件。
+- (MSIMECandidateCanvasAssets *)canvasAssetsForDark:(BOOL)dark;
 /// 主题固定的明暗：浅色、深色两次解析给出同一个固定明暗时才有值（见 msime::mac::FixedThemeMode），候选窗、悬浮工具栏和菜单据此钉住明暗。
 - (std::optional<bool>)fixedThemeMode;
 @property(nonatomic, readonly) NSURL *skinsRoot;

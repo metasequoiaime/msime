@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <optional>
 #include <stdexcept>
 #include <vector>
+#include "CandidateSkinLayout.h"
 
 namespace msime::windows {
 // Card geometry ported from the shipped Windows presenter. Widths arrive
@@ -46,6 +48,10 @@ struct CandidateCardInput {
   size_t reserved_secondary_lines = 0;
   // 这几行释义用释义字体量出来的高度：窗口拿同一个 DirectWrite 格式量 reserved_secondary_lines 行占位文字，和释义到达后多行释义的测量（CandidateWrapMeasure）同一条路，预留的和画出来的才一样高。0 时按 translation_line 估算。
   double reserved_secondary_height = 0.0;
+  // 皮肤包按当前排列和字号解析好的版式（candidate_skin_metrics），空的键用宿主自己的值。
+  CandidateSkinMetrics skin;
+  // 这一页最宽的序号按序号字号量出的宽度；只有皮肤写了 number_inset、fit_content 或翻页箭头时才用得上，0 时按 msime-windows 的下限 9 DIP 算。
+  double number_width = 0.0;
 };
 struct CandidateCardSize {
   double width, height;
@@ -71,34 +77,174 @@ struct CandidateCardMetrics {
   // 首行打头的全彩水杉 logo，和 macOS 候选窗、悬浮工具栏一样：pad_x 处一个 logo_side 见方的图，再隔 logo_gap 才是拼音。只要有 logo 或翻页，拼音隐藏时首行也至少 header_row 高，logo 上下各留 3 DIP；`show_app_logo` 关掉时 logo_visible 为 false，logo 和它的间隔都不占宽度。
   double logo_side = 16.0, logo_gap = 6.0, header_row = 22.0;
   bool logo_visible = true;
+  // 以下是皮肤包能改的版式，缺省值就是没有皮肤时的样子。
+  // 序号：字号，它那一栏的宽度（序号在栏里右对齐），皮肤写了 number_inset 时改为从行左缘 number_inset 处左对齐。number_left 是序号字形左缘到行左缘的距离，收紧宽度和竖排翻页箭头按它对齐。
+  double number_font = 0.0, number_column = 0.0, number_left = 0.0;
+  std::optional<double> number_inset;
+  // 候选内容之后、行（横排是列）右缘之前的留白；横排每一列至少这么宽（0 为不限）。
+  double item_padding_right = 0.0, item_min_width = 0.0;
+  // 横排时把一行多出的宽度均分给这一行的各列；落在列表四角上的高亮角跟卡片同圆角。
+  bool justify_rows = false, corners_follow_card = false;
+  // 选中竖条：宽，高（空时是单行行高的 40%），是否落在高亮左缘之内。
+  double selection_bar_width = 3.0;
+  std::optional<double> selection_bar_height;
+  bool selection_bar_inside = false;
+  // 拼音行的外边距，只在显示拼音时生效。上下两段算在 preedit_row 里，logo 和首行翻页在去掉它们之后的那一段里居中。
+  CandidateSkinInsets preedit_margin{};
+  // 皮肤 `page_arrows` 打开时的翻页箭头：不再画在首行，而是横排时候选右侧的一窄列（column 宽）、竖排时最后一行下方的一矮行（row 高），按 msime-windows 的 PagerArrows 摆放。
+  struct ListArrows {
+    bool triangle = false;
+    double button_width = 0.0, button_height = 0.0, gap = 0.0;
+    double margin_left = 0.0, margin_right = 0.0, margin_bottom = 0.0;
+    // 三角箭头横排时前面那条竖线，宽为 0 时不画也不占宽度。
+    double divider_width = 0.0, divider_gap = 0.0;
+    // 箭头字形的高；chevron 是线宽，triangle 是三个角各圆掉多少。
+    double glyph_size = 0.0, stroke = 0.0;
+    double column = 0.0, row = 0.0;
+    // 一个字形的宽，竖排时据此让「‹」的左端对齐序号左端。
+    double glyph_width() const {
+      return triangle ? glyph_size * 0.84 : glyph_size * 0.5 * 0.55;
+    }
+  };
+  std::optional<ListArrows> list_arrows;
 };
-// logo_visible 和 pager_visible 只决定首行：两者都没有、拼音也隐藏时首行高度为 0。
+// 首行里 logo、拼音和首行翻页所在的那一段（卡片坐标的上下边）：拼音行外边距之内。
+struct CandidateHeaderBand {
+  double top = 0.0, bottom = 0.0, height = 0.0;
+};
+inline CandidateHeaderBand candidate_header_band(const CandidateCardMetrics &metrics) {
+  const auto &margin = metrics.preedit_margin;
+  return {metrics.pad_y + margin.top,
+          metrics.pad_y + metrics.preedit_row - margin.bottom,
+          metrics.preedit_row - margin.top - margin.bottom};
+}
+// logo_visible 和 pager_visible 只决定首行：两者都没有、拼音也隐藏时首行高度为 0。pager_visible 是这一页有没有翻页可画；皮肤打开 `page_arrows` 时翻页改画在列表里，首行就不再为它留高度。
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
                                                    bool preedit_visible,
                                                    bool logo_visible = true,
-                                                   bool pager_visible = true) {
+                                                   bool pager_visible = true,
+                                                   const CandidateSkinMetrics &skin = {},
+                                                   double number_width = 0.0) {
   if (!std::isfinite(font_size) || font_size < 12.0 || font_size > 32.0 ||
       !std::isfinite(preedit_font_size) || preedit_font_size < 12.0 ||
       preedit_font_size > 32.0)
     throw std::invalid_argument("Invalid candidate card font size");
   CandidateCardMetrics metrics;
+  const bool list_arrows = skin.page_arrows && pager_visible;
+  // `padding` 是卡片边缘到候选的距离，四边相同：行左右各缩进 pad_x / 2，上边 pad_y，下边 slack_y。
+  if (skin.padding) {
+    metrics.pad_x = *skin.padding * 2.0;
+    metrics.pad_y = *skin.padding;
+    metrics.slack_y = *skin.padding;
+  }
+  // 序号默认用候选字号画在 0.8 倍字号宽的一栏里、右对齐。皮肤的 number_scale 改字号；number_inset 改成从行左缘量起左对齐（msime-windows 不让它小于 5），序号之后的空由 number_gap 给出，两者没写时序号栏和它后面的空保持宿主的值。
+  metrics.number_font = font_size * skin.number_scale.value_or(1.0);
+  metrics.number_column = font_size * 0.8;
+  const double label_width = (std::max)(number_width, 9.0);
+  double number_right = metrics.number_column;
+  if (skin.number_inset) {
+    metrics.number_inset = (std::max)(*skin.number_inset, 5.0);
+    metrics.number_left = *metrics.number_inset;
+    number_right = *metrics.number_inset + label_width;
+  } else {
+    metrics.number_left = (std::max)(0.0, metrics.number_column - number_width);
+  }
   // Selection number column plus the separator bar before the candidate text.
-  metrics.number_and_bar = font_size * 0.8 + font_size * 0.2 + 8.0;
+  metrics.number_and_bar =
+      skin.number_inset || skin.number_gap
+          ? number_right + skin.number_gap.value_or(font_size * 0.2 + 8.0)
+          : font_size * 0.8 + font_size * 0.2 + 8.0;
   // kCandidateMinWidthDip in the shipped presenter (card->SetMinWidth), independent of the font size.
   metrics.min_width = 160.0;
+  // `item_gap` 是两行之间、横排两列之间的空。横排每列自带的 column_gap 原本是 msime-windows 文字后的 6 DIP 加上这段间距。
+  if (skin.item_gap) {
+    metrics.item_gap = *skin.item_gap;
+    metrics.column_gap = 6.0 + *skin.item_gap;
+  }
+  metrics.item_padding_right = skin.item_padding_right.value_or(0.0);
+  if (skin.horizontal) {
+    metrics.item_min_width = skin.item_min_width.value_or(0.0);
+    metrics.justify_rows = skin.justify_rows;
+  }
+  metrics.corners_follow_card = skin.corners_follow_card;
+  // `fit_content`：不垫 160 DIP 的最小宽度，文字后也不留宿主的余量，行右侧的留白等于序号左侧的留白，卡片两边对称（msime-windows 让 contentPadRight = contentPadLeft + textPadLeft）。皮肤的 min_width_dip 照常生效。
+  if (skin.fit_content) {
+    metrics.min_width = 0.0;
+    metrics.slack_x = 0.0;
+    metrics.column_gap = metrics.item_gap;
+    metrics.item_padding_right = metrics.number_left;
+  }
+  // msime-windows 的选中竖条不窄于 3 DIP，高不矮于宽的两倍。
+  if (skin.selected_bar_width)
+    metrics.selection_bar_width = (std::max)(*skin.selected_bar_width, 3.0);
+  metrics.selection_bar_height = skin.selected_bar_height;
+  metrics.selection_bar_inside = skin.selected_bar_inside;
   // 首行：显示拼音时是拼音那一行，有 logo 或翻页时不矮于它们需要的高度；三者都没有时不占高度。
   metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
       preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0,
-      logo_visible || pager_visible ? metrics.header_row : 0.0);
+      logo_visible || (pager_visible && !list_arrows) ? metrics.header_row : 0.0);
+  if (preedit_visible) {
+    metrics.preedit_margin = skin.preedit_margin;
+    metrics.preedit_row += metrics.preedit_margin.top + metrics.preedit_margin.bottom;
+  }
   // The shipped presenter's CandidateList itemHeight: the minimum height of one candidate row.
-  metrics.candidate_row = font_size * 1.35 + 2.0;
+  metrics.candidate_row = font_size * 1.35 + skin.item_extra_height.value_or(2.0);
   metrics.annotation_line = font_size * 1.25;
   metrics.translation_font = font_size * 0.78;
   metrics.translation_gap = font_size * 0.65;
   metrics.translation_line = metrics.translation_font * 1.25;
+  if (list_arrows) {
+    // msime-windows candidate_skin_scene.cpp 的翻页箭头外观：跟着候选字号缩放；三角箭头按钮与候选行等高，横排时更宽、前面隔一条竖线。
+    CandidateCardMetrics::ListArrows arrows;
+    arrows.triangle = skin.page_arrow_style == CandidatePageArrowStyle::triangle;
+    if (arrows.triangle) {
+      arrows.glyph_size = font_size * 0.52;
+      arrows.stroke = arrows.glyph_size * 0.375;
+      arrows.button_height = std::round(metrics.candidate_row);
+      if (skin.horizontal) {
+        arrows.button_width = std::round(font_size * 0.96);
+        arrows.divider_width = 1.0;
+        arrows.divider_gap = std::round(font_size * 0.12);
+        arrows.margin_left = std::round(font_size * 0.3);
+      } else {
+        arrows.button_width = std::round(font_size * 0.81);
+        arrows.button_height = std::round(font_size * 1.2);
+      }
+    } else {
+      arrows.button_width = std::round(font_size * 0.72);
+      arrows.button_height = std::round(font_size * 0.9);
+      arrows.gap = 1.0;
+      arrows.glyph_size = font_size * 0.5;
+      arrows.stroke = (std::max)(1.2, font_size / 13.0);
+      // 横排的一窄列和候选之间留一点空，箭头竖直居中在最后一行上。
+      if (skin.horizontal) {
+        arrows.margin_left = 2.0;
+        arrows.margin_right = 1.0;
+        arrows.margin_bottom =
+            (std::max)(0.0, (metrics.candidate_row - arrows.button_height) * 0.5);
+      }
+    }
+    if (skin.horizontal) {
+      arrows.column = arrows.margin_left +
+                      (arrows.divider_width > 0.0
+                           ? arrows.divider_width + arrows.divider_gap
+                           : 0.0) +
+                      arrows.button_width * 2.0 + arrows.gap + arrows.margin_right;
+      // 箭头列接在候选后面，候选列自带的 column_gap 已经是它们之间的空。
+      metrics.slack_x = 0.0;
+    } else {
+      // 竖排那一矮行：msime-windows 的 body 行距 2 DIP，加上箭头上 -1、下 1 的外边距。
+      arrows.row = arrows.button_height + 2.0;
+    }
+    metrics.list_arrows = arrows;
+  }
   return metrics;
+}
+// 列表里的翻页箭头在横排时占去的宽度（候选右侧那一窄列），没有时为 0。
+inline double candidate_list_arrow_column(const CandidateCardMetrics &metrics) {
+  return metrics.list_arrows ? metrics.list_arrows->column : 0.0;
 }
 // Row rectangle in card coordinates for rows of one line each; the caller supplies the card width it actually got. candidate_page_layout starts a vertical page from these and grows the rows that carry wrapped runs; the first row's top and minimum height are the same either way. The horizontal branch is an even split of the width, which candidate_page_layout no longer uses: a horizontal page gets columns of each candidate's natural width instead.
 struct CandidateRowBounds {
@@ -130,9 +276,11 @@ inline double candidate_pager_width(double indicator_width,
   return indicator_width + metrics.pager_gap + metrics.pager_arrow * 2.0;
 }
 // Where the pager sits in the preedit row of a card `width` wide, in card coordinates: right aligned to the rows' right edge, the arrows last. `left` is the pager's left edge, which the preedit is clipped before, less pager_gap.
+// in_list 为 true 时是皮肤 `page_arrows` 画在列表里的两枚箭头（candidate_list_arrows_layout），没有页码，indicator 宽为 0，首行也不因它让出位置。
 struct CandidatePagerLayout {
   double left = 0.0;
   CandidateRowBounds indicator{}, previous{}, next{};
+  bool in_list = false;
 };
 inline std::optional<CandidatePagerLayout>
 candidate_pager_layout(double width, double indicator_width,
@@ -141,7 +289,8 @@ candidate_pager_layout(double width, double indicator_width,
   if (!(pager > 0.0) || metrics.preedit_row <= 0.0 || !std::isfinite(width) ||
       width <= 0.0)
     return std::nullopt;
-  const double top = metrics.pad_y, bottom = metrics.pad_y + metrics.preedit_row;
+  const auto band = candidate_header_band(metrics);
+  const double top = band.top, bottom = band.bottom;
   const double right = width - metrics.pad_x / 2.0;
   CandidatePagerLayout layout;
   layout.next = {right - metrics.pager_arrow, top, right, bottom};
@@ -154,15 +303,16 @@ candidate_pager_layout(double width, double indicator_width,
 }
 // The brand mark's square in the preedit row, in card coordinates: at the row's left padding and centred in the row.
 inline CandidateRowBounds candidate_logo_bounds(const CandidateCardMetrics &metrics) {
-  const double top =
-      metrics.pad_y + (metrics.preedit_row - metrics.logo_side) / 2.0;
+  const auto band = candidate_header_band(metrics);
+  const double top = band.top + (band.height - metrics.logo_side) / 2.0;
   return {metrics.pad_x, top, metrics.pad_x + metrics.logo_side,
           top + metrics.logo_side};
 }
-// 拼音在首行里从哪里开始（卡片坐标）：logo 和它的间隔之后；不画 logo 时就在左边距处。
+// 拼音在首行里从哪里开始（卡片坐标）：logo 和它的间隔之后，再加上皮肤给拼音行的左外边距；不画 logo 时就在左边距处。
 inline double candidate_preedit_left(const CandidateCardMetrics &metrics) {
   return metrics.pad_x +
-         (metrics.logo_visible ? metrics.logo_side + metrics.logo_gap : 0.0);
+         (metrics.logo_visible ? metrics.logo_side + metrics.logo_gap : 0.0) +
+         metrics.preedit_margin.left;
 }
 // Which arrow of a drawn pager a card point falls on: true for the previous page, false for the next. The previous arrow is inert on the first page. The next one is always live, because the Engine hands candidates over lazily and the page count grows as the user pages.
 inline std::optional<bool>
@@ -185,15 +335,18 @@ struct CandidateSelectionBar {
   double left, right, top, bottom;
 };
 inline constexpr double candidate_selection_bar_width = 3.0;
-inline CandidateSelectionBar candidate_selection_bar(double row_left,
-                                                     double row_top,
-                                                     double row_bottom,
-                                                     double line_height) {
-  const double width = candidate_selection_bar_width;
-  const double height = (std::max)(line_height * 0.4, width * 2.0);
+// 皮肤可以改竖条的宽（`selected_bar_width`）、高（`selected_bar_height_em`，给出时代替 40% 行高）和位置（`selected_bar_inside`：贴在高亮左缘之内，而不是骑在左缘上），见 candidate_card_metrics。
+inline CandidateSelectionBar
+candidate_selection_bar(double row_left, double row_top, double row_bottom,
+                        double line_height,
+                        double width = candidate_selection_bar_width,
+                        std::optional<double> bar_height = std::nullopt,
+                        bool inside = false) {
+  const double height = (std::max)(bar_height.value_or(line_height * 0.4), width * 2.0);
   const double top =
       row_top + (std::max)((row_bottom - row_top - height) * 0.5, 0.0);
-  return {row_left - width * 0.5, row_left + width * 0.5, top, top + height};
+  const double left = inside ? row_left : row_left - width * 0.5;
+  return {left, left + width, top, top + height};
 }
 // A run's box relative to the row's text column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.
 struct CandidateRunBox {
@@ -285,7 +438,9 @@ inline double candidate_item_natural_width(const CandidateItemWidths &item,
           : line + (item.translation > 0.0
                         ? metrics.translation_gap + item.translation
                         : 0.0);
-  return content + metrics.number_and_bar;
+  // 皮肤的 item_padding_right 留在内容之后；横排每列不窄于 item_min_width（msime-windows 的 minItemWidth，列间距不算在内）。
+  const double width = content + metrics.number_and_bar + metrics.item_padding_right;
+  return horizontal ? (std::max)(width, metrics.item_min_width) : width;
 }
 // The narrowest a horizontal page's columns can be on one line, column gaps included: each candidate's line (text and annotation) with its number and bar, the translations left to wrap under them. The macOS port is SingleLineMinimumWidth.
 inline double
@@ -365,8 +520,9 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
   std::vector<CandidateRowLayout> rows;
   rows.reserve(items.size());
   double top = metrics.pad_y + metrics.preedit_row, tallest = 0.0;
-  // Horizontal cursor: x within the line, and where the current line's columns begin.
-  const double line_width = (std::max)(width - metrics.pad_x, 1.0);
+  // Horizontal cursor: x within the line, and where the current line's columns begin. 皮肤的翻页箭头在横排时占去右侧一窄列，候选只排在它左边。
+  const double line_width =
+      (std::max)(width - metrics.pad_x - candidate_list_arrow_column(metrics), 1.0);
   double x = 0.0;
   size_t line_start = 0;
   const auto single_line =
@@ -375,6 +531,27 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
   auto close_line = [&](size_t end) {
     for (size_t index = line_start; index < end; ++index)
       rows[index].bounds.bottom = rows[index].bounds.top + tallest;
+    // 皮肤的 justify_rows：这一行比列表窄时，多出的宽度均分给这一行看得见的各列，末列贴到列表右缘（msime-windows CandidateList::ItemRect）。列里的文字跟着列一起右移，排版宽度不变。
+    if (metrics.justify_rows && horizontal) {
+      size_t columns = 0;
+      for (size_t index = line_start; index < end; ++index)
+        if (rows[index].bounds.right > rows[index].bounds.left)
+          ++columns;
+      const double extra = line_width - x;
+      if (columns > 0 && extra > 0.0) {
+        const double share = extra / static_cast<double>(columns);
+        double shift = 0.0;
+        for (size_t index = line_start; index < end; ++index) {
+          auto &bounds = rows[index].bounds;
+          bounds.left += shift;
+          bounds.right += shift;
+          if (bounds.right > bounds.left) {
+            bounds.right += share;
+            shift += share;
+          }
+        }
+      }
+    }
     line_start = end;
   };
   for (size_t index = 0; index < items.size(); ++index) {
@@ -404,7 +581,8 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
         return wrapped(index, run, run_width);
       };
     auto item = candidate_item_layout(
-        items[index], bounds.right - bounds.left - metrics.number_and_bar,
+        items[index],
+        bounds.right - bounds.left - metrics.number_and_bar - metrics.item_padding_right,
         metrics, horizontal, measure);
     if (!horizontal) {
       bounds.top = top;
@@ -450,7 +628,11 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
       throw std::invalid_argument("Invalid candidate card measurement");
   const auto shape = candidate_card_metrics(
       input.font_size, input.preedit_font_size, input.preedit_visible,
-      input.logo_visible, input.page_width > 0.0);
+      input.logo_visible, input.page_width > 0.0, input.skin,
+      std::isfinite(input.number_width) ? input.number_width : 0.0);
+  // 皮肤把翻页画在列表里时，横排在候选右侧加一窄列，竖排在最后一行下方加一矮行。
+  const double arrow_column = candidate_list_arrow_column(shape);
+  const double arrow_row = shape.list_arrows ? shape.list_arrows->row : 0.0;
   const double pad_x = shape.pad_x, pad_y = shape.pad_y,
                slack_x = shape.slack_x, slack_y = shape.slack_y;
   // The skin's floor only ever raises the built-in one, never lowers it: a
@@ -467,10 +649,13 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   double height = pad_y + slack_y;
   // 首行：显示时的 logo、显示时的拼音，以及翻页。三者都没有时首行高度为 0。
   {
-    const double pager = candidate_pager_width(input.page_width, shape);
+    const double pager =
+        shape.list_arrows ? 0.0 : candidate_pager_width(input.page_width, shape);
     width = (std::max)(width, (shape.logo_visible ? shape.logo_side + shape.logo_gap : 0.0) +
                                   (input.preedit_visible
-                                       ? input.preedit_width + 6.0
+                                       ? input.preedit_width + 6.0 +
+                                             shape.preedit_margin.left +
+                                             shape.preedit_margin.right
                                        : 0.0) +
                                   (pager > 0.0 ? shape.pager_gap + pager : 0.0));
     height += preedit_row;
@@ -489,7 +674,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     row_width_max = (std::max)(row_width_max, row);
   }
   width = (std::max)(input.horizontal ? row_width_sum : row_width_max, width);
-  width = (std::max)(width + pad_x + slack_x, min_width);
+  width = (std::max)(width + pad_x + slack_x + arrow_column, min_width);
   auto clamp = [](double value, double cap) {
     value = (std::max)(value, 1.0);
     return cap > 1.0 ? (std::min)(value, cap) : value;
@@ -502,7 +687,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
         width_cap,
         (std::min)(input.max_single_line_width,
                    candidate_single_line_minimum_width(input.items, shape) +
-                       pad_x + slack_x));
+                       pad_x + slack_x + arrow_column));
   width = clamp(width, width_cap);
   // Heights come from the width the card will actually get: a capped card wraps the runs that no longer fit, and grows by exactly what the painter will draw.
   const double reserved =
@@ -527,8 +712,71 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     stacked = true;
   }
   // 空列表也留一行，卡片不会塌掉；横排时留的是预留了释义的行高。
-  height += (std::max)(rows_height, (std::max)(candidate_row, reserved));
+  height += (std::max)(rows_height, (std::max)(candidate_row, reserved)) + arrow_row;
   return {width, clamp(height, input.max_height)};
+}
+// 列表占的矩形（卡片坐标）：左右是行的左右缘（横排时右缘让开翻页箭头那一列），上下是首行的顶和最后一行的底。没有看得见的行时为空。
+inline std::optional<CandidateRowBounds>
+candidate_rows_area(double width, const std::vector<CandidateRowLayout> &rows,
+                    const CandidateCardMetrics &metrics) {
+  std::optional<CandidateRowBounds> area;
+  for (const auto &row : rows) {
+    if (!(row.bounds.right > row.bounds.left))
+      continue;
+    if (!area)
+      area = CandidateRowBounds{metrics.pad_x / 2.0, row.bounds.top,
+                                width - metrics.pad_x / 2.0 -
+                                    candidate_list_arrow_column(metrics),
+                                row.bounds.bottom};
+    area->top = (std::min)(area->top, row.bounds.top);
+    area->bottom = (std::max)(area->bottom, row.bounds.bottom);
+  }
+  return area;
+}
+// 皮肤 `page_arrows` 画在列表里的两枚翻页箭头（卡片坐标），按 msime-windows 的 PagerArrows 摆：横排时在候选右侧那一窄列里贴右下角，竖直居中在最后一行上；竖排时在最后一行下方那一矮行里靠左，「‹」的左端与序号左端对齐。没有列表箭头或没有行时为空。点击沿用 candidate_pager_hit。
+inline std::optional<CandidatePagerLayout>
+candidate_list_arrows_layout(double width, const std::vector<CandidateRowLayout> &rows,
+                             const CandidateCardMetrics &metrics) {
+  const auto area = candidate_rows_area(width, rows, metrics);
+  if (!metrics.list_arrows || !area || !std::isfinite(width) || width <= 0.0)
+    return std::nullopt;
+  const auto &arrows = *metrics.list_arrows;
+  CandidatePagerLayout layout;
+  layout.in_list = true;
+  if (arrows.column > 0.0) {
+    const double right = width - metrics.pad_x / 2.0 - arrows.margin_right;
+    const double bottom = area->bottom - arrows.margin_bottom;
+    const double height =
+        (std::min)(arrows.button_height, (std::max)(bottom - area->top, 0.0));
+    layout.next = {right - arrows.button_width, bottom - height, right, bottom};
+    layout.previous = {layout.next.left - arrows.gap - arrows.button_width,
+                       bottom - height, layout.next.left - arrows.gap, bottom};
+  } else {
+    const double left = metrics.pad_x / 2.0 + metrics.number_left -
+                        (arrows.button_width - arrows.glyph_width()) * 0.5;
+    const double top = area->bottom + 1.0;
+    layout.previous = {left, top, left + arrows.button_width,
+                       top + arrows.button_height};
+    layout.next = {layout.previous.right + arrows.gap, top,
+                   layout.previous.right + arrows.gap + arrows.button_width,
+                   top + arrows.button_height};
+  }
+  layout.indicator = {layout.previous.left, layout.previous.top,
+                      layout.previous.left, layout.previous.bottom};
+  layout.left = layout.previous.left;
+  return layout;
+}
+// 皮肤 `item_corners_follow_card`：高亮落在列表四角上的那几个角改用卡片圆角（msime-windows CandidateList::Render 的 outerCornerRadius），其余角仍是高亮圆角 `inner`。顶上两个角只在 `top_edge` 时算（首行不占高度，列表贴着卡片内容的顶边）。返回左上、右上、右下、左下。
+inline std::array<double, 4>
+candidate_row_corner_radii(const CandidateRowBounds &row, const CandidateRowBounds &area,
+                           bool top_edge, double inner, double outer) {
+  constexpr double edge = 0.5;
+  const bool top = top_edge && row.top <= area.top + edge;
+  const bool bottom = row.bottom >= area.bottom - edge;
+  const bool left = row.left <= area.left + edge;
+  const bool right = row.right >= area.right - edge;
+  return {top && left ? outer : inner, top && right ? outer : inner,
+          bottom && right ? outer : inner, bottom && left ? outer : inner};
 }
 // Where the card sits relative to the caret. All values are physical pixels
 // except scale, which is dpi/96; the design offsets below are DIPs so the gaps

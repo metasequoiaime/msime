@@ -64,13 +64,19 @@ int main()
                     NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
                 assert(chrome.subviews.firstObject == glass);
             } else {
-                assert(chrome.subviews.count == 1);
+                assert(chrome.subviews.count == 2);
             }
         } else {
-            assert(chrome.subviews.count == 1);
+            assert(chrome.subviews.count == 2);
         }
         chrome.liquidGlassEnabled = NO;
-        assert(chrome.subviews.count == 1 && chrome.subviews.firstObject == chrome.candidateContentView && button.superview == chrome.candidateContentView);
+        // 独立卡片背景留在候选容器下方，透明回退仍保留按钮身份与鼠标命中。
+        assert(chrome.subviews.count == 2);
+        assert([chrome.subviews.firstObject isKindOfClass:MSIMECandidateCardBackgroundView.class]);
+        assert(((MSIMECandidateCardBackgroundView *)chrome.subviews.firstObject).owner == chrome);
+        assert(chrome.subviews.lastObject == chrome.candidateContentView && button.superview == chrome.candidateContentView);
+        assert([chrome.subviews.firstObject hitTest:NSMakePoint(20, 20)] == nil);
+        assert([chrome hitTest:NSMakePoint(20, 20)] == button);
         assert(chrome.fillColor.alphaComponent == 0.6);
         puts("Candidate hover tracking passed");
     }

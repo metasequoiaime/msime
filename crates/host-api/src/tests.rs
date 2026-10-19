@@ -4224,6 +4224,90 @@ fn exported_settings_import_as_a_compare_and_swap_that_keeps_local_services() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn canvas_panel_palette_is_opt_in_and_keeps_picker_precedence() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = directory.path().join("panel-fixture");
+    std::fs::create_dir(&package).unwrap();
+    // 合成的 1×1 PNG，不含用户内容。
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==")
+        .unwrap();
+    std::fs::write(package.join("panel.png"), png).unwrap();
+    std::fs::write(
+        package.join("skin.toml"),
+        r##"
+schema_version = 2
+id = "panel-fixture"
+name = "合成贴图"
+version = "1.0"
+base = "canvas"
+[supports]
+layouts = ["vertical"]
+themes = ["light", "dark"]
+[candidate_window.border_image]
+source = "panel.png"
+slice_dip = [0]
+[candidate.light]
+text = "#ABCDEF"
+number = "#FEDCBA"
+selected = "#112233"
+selected_text = "#AABBCC"
+selected_number = "#DDEEFF"
+preedit_caret = "#778899"
+selected_translation = "#334455"
+[candidate.dark]
+text = "#123456"
+"##,
+    )
+    .unwrap();
+    let call = |drawn: Option<bool>, dark: bool, picked: bool, layout: &str| {
+        let mut request = json!({
+            "global_theme": "custom", "dark": dark, "layout": layout,
+            "skins_directory": directory.path(),
+            "custom_theme": {"candidate_skin": "panel-fixture"},
+        });
+        if let Some(drawn) = drawn {
+            request["canvas_panel_drawn"] = json!(drawn);
+        }
+        if picked {
+            request["custom_theme"]["candidate_colors"] =
+                json!({"text": "#010203", "selected": "#FFFFFF"});
+        }
+        let raw = request.to_string();
+        let reply = read(unsafe { msime_client_resolve_theme(raw.as_ptr(), raw.len()) });
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["value"].clone()
+    };
+    let fallback = call(None, false, false, "vertical");
+    assert_eq!(fallback, call(Some(false), false, false, "vertical"));
+    assert_eq!(fallback["candidate_skin"], "panel-fixture");
+    assert_ne!(fallback["candidate"]["text"], "#ABCDEF");
+    assert_eq!(
+        call(Some(true), false, false, "vertical")["candidate"]["text"],
+        "#ABCDEF"
+    );
+    assert_eq!(
+        call(Some(true), true, false, "vertical")["candidate"]["text"],
+        "#123456"
+    );
+    let picked = call(Some(true), false, true, "vertical");
+    assert_eq!(picked["candidate"]["text"], "#010203");
+    assert_eq!(picked["candidate"]["selected"], "#FFFFFF");
+    assert_eq!(picked["candidate"]["selected_text"], "#000000");
+    assert_eq!(
+        picked["candidate_details"]["selected_translation"],
+        "#0000009D"
+    );
+    let authored = call(Some(true), false, false, "vertical");
+    assert_eq!(authored["candidate"]["selected_text"], "#AABBCC");
+    assert_eq!(authored["candidate"]["selected_number"], "#DDEEFF");
+    assert_eq!(authored["candidate_details"]["preedit_caret"], "#778899");
+    assert!(call(Some(true), false, false, "horizontal")["candidate_skin"].is_null());
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn resolve_theme_reads_the_package_from_either_source() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");

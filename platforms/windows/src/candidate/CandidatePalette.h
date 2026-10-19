@@ -131,7 +131,7 @@ struct CandidatePalette {
   // The reading's rounded band and the 1 DIP rule under the preedit row.
   std::optional<CandidateColor> preedit_background;
   std::optional<CandidateColor> preedit_divider;
-  // Parsed for catalog parity but not drawn: msime-windows draws it only before its triangle pager buttons, and this card's pager is the "n / m" text indicator with arrows.
+  // 三角翻页箭头横排时前面那条竖线（皮肤 `page_arrows` 加 `page_arrow_style = "triangle"`），和 msime-windows 一样只在那里画；首行的「n / m」翻页不用它。
   std::optional<CandidateColor> page_arrow_divider;
   // The translation line, when the theme's secondary colour is not simply the numbers (an external package's `translation`); none draws it like the numbers.
   std::optional<CandidateColor> translation;

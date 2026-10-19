@@ -458,6 +458,9 @@ struct ResolveThemeRequest {
     layout: msime_client_core::preferences::CandidateLayout,
     skins_directory: Option<String>,
     package: Option<serde_json::Value>,
+    /// 宿主确认当前面板贴图已解码且将绘制，才使用贴图原配色；旧宿主缺省使用可读回退。
+    #[serde(default)]
+    canvas_panel_drawn: bool,
 }
 
 /// 应用主题请求里的月份所在的季节；没传月份时按 UTC 月份，月份不在 1..=12 时请求失败。
@@ -472,12 +475,13 @@ fn requested_season(
     }
 }
 
-/// Resolve the colours a host draws for a global theme.
+/// 解析宿主绘制全局主题所用的颜色。
 ///
 /// 请求带着宿主读到的两个偏好字段，所以这里不需要偏好目录，也不做偏好 I/O：`global_theme`（`GlobalTheme::ALL` 的八个 id 之一，本平台目录里没有的 `native` 也接受，解析结果与 `system` 相同、只是 `id` 为 `native`；其他 id，包括已停用的皮肤 id，都以 `invalid theme request` 失败）和 `custom_theme`（可省略，按偏好本身同样严格地校验）。`dark` 是宿主正在绘制的界面当前的明暗模式，`layout`（`horizontal` 或 `vertical`）是它的候选排列：皮肤包只在清单声明的排列和模式下绘制，宿主不另设一道关卡。`dark` 同时决定取哪个槽位：深色模式取 `custom_theme.candidate_skin_dark`，没设时与浅色模式一样取 `custom_theme.candidate_skin`；选中的包只在它清单 `base` 的明暗下绘制（见 `theme::resolve`）。`custom` 主题要用皮肤包时，宿主最多用下面两者之一说明包从哪里来：`skins_directory`（皮肤根目录的绝对路径；包按 `msime_client_skin_package` 的规则加载和校验；除 Linux 外的宿主都扫描根目录）或 `package`（已发布的 `candidate_skin_catalog` 中的一项，只有 Linux 宿主读它，宿主要传当前模式槽位指名的那一项）。`package` 不是这样的一项时（包括 `msime_client_skin_catalog` 给出的 `SkinSummary`）调用失败：那是宿主的缺陷，照读会悄悄丢掉它声明的模式和选中条。根目录里没有、磁盘上无效、或不是当前槽位指名的那个包会被略过而不是让调用失败：主题照常在它的底上解析。
+/// `canvas_panel_drawn` 缺省为 false。只有已成功解码且实际绘制当前 canvas 面板的宿主才传 true；共享层在包配色上套用原有取色器规则，不能由宿主另行覆盖最终配色。此标志只作用于 `skins_directory` 读取的含面板包，Linux 公共 catalog 仍使用可读回退。
 /// # Safety
-/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节，不接受空指针。
+/// 返回的响应必须通过 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_resolve_theme(
     request: *const u8,
@@ -519,7 +523,14 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
             (Some(id), Some(directory), _) => {
                 msime_client_services::skin::catalog::load_package(&directory, id)
                     .ok()
-                    .map(|summary| msime_client_services::skin::theme::ThemePackage::from(&summary))
+                    .map(|mut summary| {
+                        if request.canvas_panel_drawn {
+                            if let Some(colors) = summary.panel_candidate.take() {
+                                summary.candidate = colors;
+                            }
+                        }
+                        msime_client_services::skin::theme::ThemePackage::from(&summary)
+                    })
             }
             (Some(_), None, entry) => entry,
             _ => None,

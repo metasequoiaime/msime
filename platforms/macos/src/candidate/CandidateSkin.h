@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <functional>
@@ -22,6 +23,9 @@ struct Rgba
 
 struct SkinTokens
 {
+    std::optional<Rgba> preeditText;
+    std::optional<Rgba> preeditCaret;
+    std::optional<Rgba> selectedBar;
     Rgba surface;
     Rgba border;
     Rgba text;
@@ -115,6 +119,54 @@ struct SkinBackground
     BackgroundFit fit = BackgroundFit::cover;
     double opacity = 1.0;
 };
+
+// Canvas 的长度是 DIP，只有 slice 保留源图片像素；路径在包里相对、解析后的皮肤里绝对。
+struct SkinInsets
+{
+    double top = 0, right = 0, bottom = 0, left = 0;
+};
+struct SkinBorderImage
+{
+    std::string source;
+    std::string lightSource;
+    std::array<double, 4> slice{};
+    std::array<double, 4> width{};
+    bool fill = true;
+};
+struct SkinFreeDecoration
+{
+    std::string image;
+    double width = 0, height = 0;
+    std::string anchor = "right";
+    double offsetX = 0, offsetY = 0;
+    int zIndex = 2;
+};
+struct SkinCanvas
+{
+    // 宿主的不透明度只淡化面板贴图，不影响文字或自由挂件。
+    double panelOpacity = 1.0;
+    std::optional<SkinBorderImage> border;
+    std::optional<SkinInsets> content;
+    SkinInsets outer;
+    std::optional<double> lineGap;
+    std::vector<SkinFreeDecoration> decorations;
+};
+
+inline SkinInsets CanvasContentInsets(const SkinCanvas &canvas, double inset)
+{
+    const auto width = canvas.border ? canvas.border->width : std::array<double, 4>{};
+    if (canvas.content) {
+        const auto &content = *canvas.content;
+        return {std::max(content.top, width[0]), std::max(content.right, width[1]),
+                std::max(content.bottom, width[2]), std::max(content.left, width[3])};
+    }
+    return {inset + width[0], inset + width[1], inset + width[2], inset + width[3]};
+}
+inline double CanvasExtraWidth(const SkinCanvas &canvas, double inset)
+{
+    const auto content = CanvasContentInsets(canvas, inset);
+    return content.left + content.right - 2 * inset + canvas.outer.left + canvas.outer.right;
+}
 
 // One mode of a package's floating toolbar colours, each `#RRGGBB`/`#RRGGBBAA` as the shared loader normalized it, or empty for what the theme derives.
 struct SkinToolbarColors
@@ -301,6 +353,8 @@ struct SkinPackage
     double minWidthDip = 0.0;
     // `candidate_window.corner_radius_dip` (0-32); none keeps the theme's card radius.
     std::optional<double> cornerRadiusDip;
+    // 候选行的选中与悬停圆角，与卡片圆角独立。
+    std::optional<double> itemCornerRadiusDip;
     double decorationTopDip = 0.0;
     double decorationWidthDip = 0.0;
     // The image drawn in the decoration band, package-relative: the manifest's `decoration.image`, or else an image preview. Empty unless decorated.
@@ -312,6 +366,7 @@ struct SkinPackage
     // 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG 为它的动画帧数。
     unsigned decorationFrames = 0;
     std::optional<SkinBackground> background;
+    std::optional<SkinCanvas> canvas;
     SkinToolbar toolbar;
     SkinAnimation animation;
     std::optional<SkinLicense> license;
@@ -390,6 +445,8 @@ struct ResolvedSkin
     double backgroundOpacity = 1.0;
     double minWidthDip = 0.0;
     SkinAnimation animation;
+    std::optional<SkinCanvas> canvas;
+    bool canvasPanelDrawn = false;
 };
 
 bool IsSafeSkinId(std::string_view id);
@@ -428,7 +485,7 @@ CustomTheme RemoveCandidateSkin(CustomTheme custom, const std::string &id);
 std::optional<bool> FixedThemeMode(const ResolvedSkin &light, const ResolvedSkin &dark);
 // Resolve the candidate palette of a global theme through msime_client_resolve_theme, over NativeCandidateTokens for every null slot. This reads the package from disk, so callers resolve when the theme, the mode, the layout or the skin root changes, never while drawing. `layout` is "horizontal" or "vertical".
 ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom, bool dark, std::string_view layout,
-                         const std::filesystem::path &skinsRoot);
+                         const std::filesystem::path &skinsRoot, bool canvasPanelDrawn = false);
 /// The floating toolbar's palette: the candidate palette it derives from (surface, text, hover, selected with selected text, border) at the native toolbar radius, never the package's card radius; then the drawn package's `[toolbar]` radius and colours for the resolved mode (background, border, divider, icon, hover; handle has no macOS target); then the safe color/geometry subset of the package's toolbar stylesheet when there is one, which wins over both. Unsupported CSS (layout, scripts, images, effects) is intentionally ignored because the macOS toolbar is an AppKit view rather than a WebView.
 SkinTokens ToolbarSkinTokens(const ResolvedSkin &skin, const std::filesystem::path &skinsRoot);
 std::optional<Rgba> ParseCssColor(std::string_view text);
