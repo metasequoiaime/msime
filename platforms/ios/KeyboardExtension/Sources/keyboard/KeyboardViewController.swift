@@ -3346,7 +3346,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func deliverNineKeySnapshot(_ snapshot: MetasequoiaInputSnapshot,
-                                      epoch: UInt64, document: UUID) {
+                                      epoch: UInt64, document: UUID?) {
     guard inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
           KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
     if snapshot.commitText != nil {
