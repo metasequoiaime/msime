@@ -422,6 +422,11 @@ export type {
   TypingStatisticsUploadStatus,
 } from "./settings/typing-statistics-model";
 export {
+  useTypingStatisticsUpload,
+  type UseTypingStatisticsUploadOptions,
+  type TypingStatisticsUploadState,
+} from "./settings/use-typing-statistics-upload";
+export {
   keyboardHeatmapLayout,
   keyboardHeatmapModel,
   keyHeatLevel,
