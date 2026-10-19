@@ -24,23 +24,23 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "U",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "U"
+     }
+    ],
     "caret": 1,
     "dedicated_english": false,
     "editing_text": "U",
     "local_mode": "none",
     "normalized_segmentation": "u",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "u",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "u"
-     ],
-     "query_text": "u",
-     "scheme": "quanpin"
-    },
     "preedit": "U",
     "raw_segmentation": "U",
     "scheme": "quanpin",
@@ -58,28 +58,29 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "UT",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "UT"
+     }
+    ],
     "caret": 2,
     "dedicated_english": false,
     "editing_text": "UT",
     "local_mode": "none",
     "normalized_segmentation": "ut",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "ut",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "ut"
-     ],
-     "query_text": "ut",
-     "scheme": "quanpin"
-    },
     "preedit": "UT",
     "raw_segmentation": "UT",
     "scheme": "quanpin",
     "segment_boundaries": [
      0,
+     1,
      2
     ],
     "shuangpin_profile": "xiaohe"
@@ -92,28 +93,30 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "UTK",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "UTK"
+     }
+    ],
     "caret": 3,
     "dedicated_english": false,
     "editing_text": "UTK",
     "local_mode": "none",
     "normalized_segmentation": "utk",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "utk",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "utk"
-     ],
-     "query_text": "utk",
-     "scheme": "quanpin"
-    },
     "preedit": "UTK",
     "raw_segmentation": "UTK",
     "scheme": "quanpin",
     "segment_boundaries": [
      0,
+     1,
+     2,
      3
     ],
     "shuangpin_profile": "xiaohe"
@@ -126,28 +129,31 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "UTKE",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "UTKE"
+     }
+    ],
     "caret": 4,
     "dedicated_english": false,
     "editing_text": "UTKE",
     "local_mode": "none",
     "normalized_segmentation": "utke",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "utke",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "utke"
-     ],
-     "query_text": "utke",
-     "scheme": "quanpin"
-    },
     "preedit": "UTKE",
     "raw_segmentation": "UTKE",
     "scheme": "quanpin",
     "segment_boundaries": [
      0,
+     1,
+     2,
+     3,
      4
     ],
     "shuangpin_profile": "xiaohe"
@@ -160,28 +166,32 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "UTKEM",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "UTKEM"
+     }
+    ],
     "caret": 5,
     "dedicated_english": false,
     "editing_text": "UTKEM",
     "local_mode": "none",
     "normalized_segmentation": "utkem",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "utkem",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "utkem"
-     ],
-     "query_text": "utkem",
-     "scheme": "quanpin"
-    },
     "preedit": "UTKEM",
     "raw_segmentation": "UTKEM",
     "scheme": "quanpin",
     "segment_boundaries": [
      0,
+     1,
+     2,
+     3,
+     4,
      5
     ],
     "shuangpin_profile": "xiaohe"

@@ -24,23 +24,23 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "Y",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "Y"
+     }
+    ],
     "caret": 1,
     "dedicated_english": false,
     "editing_text": "Y",
     "local_mode": "none",
     "normalized_segmentation": "y",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "y",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "y"
-     ],
-     "query_text": "y",
-     "scheme": "quanpin"
-    },
     "preedit": "Y",
     "raw_segmentation": "Y",
     "scheme": "quanpin",
@@ -58,24 +58,23 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "YR",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "YR"
+     }
+    ],
     "caret": 2,
     "dedicated_english": false,
     "editing_text": "YR",
     "local_mode": "none",
     "normalized_segmentation": "y'r",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "yr",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "y",
-      "r"
-     ],
-     "query_text": "y'r",
-     "scheme": "quanpin"
-    },
     "preedit": "YR",
     "raw_segmentation": "Y'R",
     "scheme": "quanpin",
@@ -94,25 +93,23 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 0,
-    "candidates": [],
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "YRJ",
+      "scheme": "quanpin",
+      "source": 9,
+      "weight": 0,
+      "word": "YRJ"
+     }
+    ],
     "caret": 3,
     "dedicated_english": false,
     "editing_text": "YRJ",
     "local_mode": "none",
     "normalized_segmentation": "y'r'j",
-    "online_query": {
-     "ai_eligible": false,
-     "cache_key": "yrj",
-     "cloud_eligible": true,
-     "pinyin_segments": [
-      "y",
-      "r",
-      "j"
-     ],
-     "query_text": "y'r'j",
-     "scheme": "quanpin"
-    },
     "preedit": "YRJ",
     "raw_segmentation": "Y'R'J",
     "scheme": "quanpin",

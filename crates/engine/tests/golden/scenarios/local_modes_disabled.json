@@ -1,6 +1,6 @@
 {
  "name": "local_modes_disabled",
- "source": "tests/src/test_temporary_input_session.cpp:261-271; test_jianpin_input_session.cpp:197-203",
+ "source": "tests/src/test_temporary_input_session.cpp:261-271; test_jianpin_input_session.cpp:197-203; #8773 普通大写保留字面内容，仅小写片段参与中文转换",
  "covers": [
   "local modes"
  ],
