@@ -15,6 +15,9 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 HELPER = ROOT / "platforms/macos/scripts/staple-ticket.sh"
 DISCONNECT = "Error Domain=NSURLErrorDomain Code=-1005 synthetic disconnect"
+# stapler 原文的拼写就是 expections。
+CLOUDKIT = "CloudKit's response is inconsistent with expections: (null)"
+DELAYS = [["15"], ["30"], ["60"], ["90"], ["120"]]
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "需要 POSIX bash")
@@ -102,11 +105,26 @@ sys.exit(reply["status"])
         self.assertEqual(len(state["calls"]), 3)
         self.assertEqual(state["delays"], [["15"], ["30"]])
 
+    def test_cloudkit_inconsistency_alone_retries(self):
+        result, state = self.run_helper(
+            [{"status": 68, "message": CLOUDKIT}] * 3
+            + [{"status": 0, "message": "synthetic success"}]
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(state["calls"]), 4)
+        self.assertEqual(state["delays"], [["15"], ["30"], ["60"]])
+
     def test_exhausted_disconnections_keep_the_failure(self):
-        result, state = self.run_helper([{"status": 68, "message": DISCONNECT}] * 3)
+        result, state = self.run_helper([{"status": 68, "message": DISCONNECT}] * 6)
         self.assertEqual(result.returncode, 68)
-        self.assertEqual(len(state["calls"]), 3)
-        self.assertEqual(state["delays"], [["15"], ["30"]])
+        self.assertEqual(len(state["calls"]), 6)
+        self.assertEqual(state["delays"], DELAYS)
+
+    def test_cloudkit_inconsistency_with_other_status_does_not_retry(self):
+        result, state = self.run_helper([{"status": 65, "message": CLOUDKIT}])
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(len(state["calls"]), 1)
+        self.assertEqual(state["delays"], [])
 
     def test_other_ticket_failures_do_not_retry(self):
         result, state = self.run_helper([{"status": 68, "message": "synthetic missing ticket"}])

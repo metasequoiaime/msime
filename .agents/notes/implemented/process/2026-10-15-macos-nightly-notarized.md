@@ -19,7 +19,9 @@ Status: implemented
 
 没有配置这些 secrets 的仓库（fork）照旧退回 ad-hoc，`package-release.sh` 打印未公证的警告；这时 `README.txt` 的说法不成立，但 fork 不会发布这个仓库的 nightly。
 
-`notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断时，在 15、30 秒后重试同一个 DMG，最多三次。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
+`notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断或 `CloudKit's response is inconsistent`（stapler 原文拼作 expections）时，依次在 15、30、60、90、120 秒后重试同一个 DMG，最多 6 次、合计约 5 分钟。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
+
+窗口最初是 15、30 秒后共三次。Release macOS 0.54.0（run `39267138324` 第 1 次尝试）的五笔版在 15:22:41 公证获批，15:22:49、15:23:11、15:23:48 三次装订都向 `api.apple-cloudkit.com` 的 `com.apple.gk.ticket-delivery` 查询时断线（`NSURLErrorDomain Code=-1005`，随后 `CloudKit's response is inconsistent with expections: (null)`，`Error 68`），一分钟内用完重试，已经编好、公证过的整轮产物作废，job 在 1 小时 7 分后失败，只能整个重跑。断线持续的时间比原窗口长，所以把窗口放宽到分钟级；只在这一组合上等待，签名或票据本身的错误仍立即失败。
 
 ## Alternatives considered
 
@@ -36,4 +38,4 @@ Status: implemented
 
 - `actionlint .github/workflows/release-macos.yml .github/workflows/nightly.yml` 通过；`python3 scripts/test-nightly-packaging.py` 通过。
 - 落地后第一次 nightly 的 macOS 任务日志里应出现 `notarytool submit` 与 `stapler staple`，且没有 `warning: not notarized`；下载其中一个 DMG 运行 `xcrun stapler validate` 应通过。
-- `test-macos-stapler-retry.py` 用合成 `xcrun` 与 `sleep` 检查成功、断线后恢复、重试耗尽和永久错误，核对同一 DMG 参数、等待间隔及最终退出码；不访问 Apple 服务或读取签名凭据。完整签名打包和服务恢复仍需实际 nightly 运行验证。
+- `test-macos-stapler-retry.py` 用合成 `xcrun` 与 `sleep` 检查成功、断线后恢复、只报 CloudKit 应答异常时同样重试、6 次重试耗尽（等待 15/30/60/90/120 秒）和永久错误，核对同一 DMG 参数、等待间隔及最终退出码；不访问 Apple 服务或读取签名凭据。完整签名打包和服务恢复仍需实际 nightly 运行验证。
