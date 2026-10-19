@@ -349,11 +349,20 @@ fn apply_normalized_edit(
         let mut payload = String::new();
         append_payload(&mut payload, old);
         append_payload(&mut payload, new);
-        if check_receipt(transaction, request_id, &payload)? == Receipt::Retry {
-            return Ok(AppliedEdit {
-                outcome: PersonalDictionaryApplied::Written,
-                forgotten: None,
-            });
+        match check_receipt(transaction, request_id, &payload)? {
+            Receipt::Fresh => {}
+            Receipt::Retry => {
+                return Ok(AppliedEdit {
+                    outcome: PersonalDictionaryApplied::Written,
+                    forgotten: None,
+                });
+            }
+            Receipt::AlreadyPresent => {
+                return Ok(AppliedEdit {
+                    outcome: PersonalDictionaryApplied::AlreadyPresent,
+                    forgotten: None,
+                });
+            }
         }
         payload
     };
@@ -364,6 +373,10 @@ fn apply_normalized_edit(
                 params![new.kind.journal_name(), new.key, new.value], |_| Ok(()),
             ).optional().map_err(|_| failed(DICTIONARY_NOT_READ))?;
             if present.is_some() || bundled_entry_present(transaction, new)? {
+                if !request_id.is_empty() {
+                    let receipt_payload = format!("{ALREADY_PRESENT_RECEIPT_PREFIX}{payload}");
+                    save_receipt(transaction, request_id, &receipt_payload)?;
+                }
                 return Ok(AppliedEdit {
                     outcome: PersonalDictionaryApplied::AlreadyPresent,
                     forgotten: None,
@@ -631,11 +644,15 @@ pub(super) fn open_edit_connection(
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Receipt {
-    /// No edit has used the id yet.
+    /// 还没有编辑使用这个请求 id。
     Fresh,
-    /// The same edit already committed under the id; commit and report success.
+    /// 相同编辑已经用这个 id 提交；提交并报告成功。
     Retry,
+    /// 相同的保留已有词条编辑已经用这个 id 提交；提交并报告已存在。
+    AlreadyPresent,
 }
+
+const ALREADY_PRESENT_RECEIPT_PREFIX: &str = "already_present;";
 
 /// Idempotency by request id: the stored payload must match exactly (J:1858-1880).
 pub(super) fn check_receipt(
@@ -655,6 +672,14 @@ pub(super) fn check_receipt(
     match stored {
         None => Ok(Receipt::Fresh),
         Some(stored) if stored.as_deref() == Some(payload) => Ok(Receipt::Retry),
+        Some(stored)
+            if stored
+                .as_deref()
+                .and_then(|stored| stored.strip_prefix(ALREADY_PRESENT_RECEIPT_PREFIX))
+                == Some(payload) =>
+        {
+            Ok(Receipt::AlreadyPresent)
+        }
         Some(_) => Err(failed(RECEIPT_REUSED)),
     }
 }
@@ -854,6 +879,105 @@ mod tests {
             .query_row(&query, params![entry.key, entry.value], |row| row.get(0))
             .unwrap();
         count > 0
+    }
+
+    #[test]
+    fn preserved_import_receipt_survives_removal_before_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let original = entry(PersonalDictionaryKind::Pinyin, "ni'hao", "合成", 50_000);
+        edit_personal_dictionary(&paths, None, Some(&original), "fixture-owner").unwrap();
+        let imported = PersonalDictionaryEntry {
+            weight: 10_000,
+            ..original.clone()
+        };
+        let batch = [PersonalDictionaryEdit {
+            previous: None,
+            replacement: Some(&imported),
+            request_id: "collections-preserved-retry",
+            preserve_existing: true,
+        }];
+        let first = edit_personal_dictionary_batch_with(&paths, true, &batch).unwrap();
+        assert_eq!(
+            first[0].as_ref().unwrap(),
+            &PersonalDictionaryApplied::AlreadyPresent
+        );
+        edit_personal_dictionary(&paths, Some(&original), None, "fixture-owner-removes").unwrap();
+        assert!(!has(&paths, &original));
+        let retried = edit_personal_dictionary_batch_with(&paths, true, &batch).unwrap();
+        assert_eq!(
+            retried[0].as_ref().unwrap(),
+            &PersonalDictionaryApplied::AlreadyPresent
+        );
+        assert!(!has(&paths, &imported));
+    }
+
+    #[test]
+    fn preserved_import_receipt_rejects_a_changed_payload() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let original = entry(PersonalDictionaryKind::Pinyin, "ni'hao", "合成", 50_000);
+        edit_personal_dictionary(&paths, None, Some(&original), "fixture-owner").unwrap();
+        let imported = PersonalDictionaryEntry {
+            weight: 10_000,
+            ..original
+        };
+        let attempt = |replacement| {
+            edit_personal_dictionary_batch_with(
+                &paths,
+                true,
+                &[PersonalDictionaryEdit {
+                    previous: None,
+                    replacement: Some(replacement),
+                    request_id: "collections-preserved-payload",
+                    preserve_existing: true,
+                }],
+            )
+            .unwrap()
+            .remove(0)
+        };
+        assert_eq!(
+            attempt(&imported).unwrap(),
+            PersonalDictionaryApplied::AlreadyPresent
+        );
+        let changed = PersonalDictionaryEntry {
+            weight: 10_001,
+            ..imported.clone()
+        };
+        assert_eq!(attempt(&changed).unwrap_err().to_string(), RECEIPT_REUSED);
+    }
+
+    #[test]
+    fn preserved_import_receipt_failure_is_not_reported_as_success() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let original = entry(PersonalDictionaryKind::Pinyin, "ni'hao", "合成", 50_000);
+        edit_personal_dictionary(&paths, None, Some(&original), "fixture-owner").unwrap();
+        let journal = paths.user(assets::USER_JOURNAL);
+        sql(&journal, "CREATE TRIGGER reject_preserved_receipt BEFORE INSERT ON personal_dictionary_receipts WHEN NEW.request_id='collections-preserved-failure' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;");
+        let imported = PersonalDictionaryEntry {
+            weight: 10_000,
+            ..original.clone()
+        };
+        let result = edit_personal_dictionary_batch_with(
+            &paths,
+            true,
+            &[PersonalDictionaryEdit {
+                previous: None,
+                replacement: Some(&imported),
+                request_id: "collections-preserved-failure",
+                preserve_existing: true,
+            }],
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(result.unwrap_err().to_string(), RECEIPT_NOT_SAVED);
+        assert!(has(&paths, &original));
+        let receipts: i64 = Connection::open(journal).unwrap().query_row(
+            "SELECT count(*) FROM personal_dictionary_receipts WHERE request_id='collections-preserved-failure'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(receipts, 0);
     }
 
     // engine-bridge tests.rs `validates_and_normalizes_personal_dictionary_entries` and test_personal_dictionary.cpp:63-76 with the overlay's English rule.

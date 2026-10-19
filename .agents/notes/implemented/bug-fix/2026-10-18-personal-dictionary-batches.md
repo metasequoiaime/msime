@@ -63,3 +63,5 @@ API 35 原生 APK 的独立导入套件通过：74 个合成词全部应用，�
 
 下一步交付边界的恢复约束见[稳定集合意图提案](../../proposed/bug-fix/2026-10-19-durable-collection-delivery.md)；该篇仍为提案，不改变这里已实现的产品契约。
 
+集合保留已有词条的回执恢复语义见[保留已有词条的导入回执](2026-10-20-preserved-import-receipts.md)。
+
