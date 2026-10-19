@@ -11,6 +11,12 @@ final class OnlineCandidateTests: XCTestCase {
     super.setUp()
     state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-online-candidates-\(UUID().uuidString)", isDirectory: true)
+    // 传输测试需要实际调用替身，不能复用其他测试写入的进程级云候选缓存。
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      var provider = $0["cloud_candidate_provider"] as? [String: Any] ?? [:]
+      provider["cache_enabled"] = false
+      $0["cloud_candidate_provider"] = provider
+    })
     storedPreference = CloudCandidatePreference.defaults.object(forKey: CloudCandidatePreference.key)
   }
 
@@ -18,6 +24,29 @@ final class OnlineCandidateTests: XCTestCase {
     CloudCandidatePreference.defaults.set(storedPreference, forKey: CloudCandidatePreference.key)
     try? FileManager.default.removeItem(at: state)
     super.tearDown()
+  }
+
+  func testCustomCloudDescriptorAndProviderIdentity() throws {
+    let descriptor: [String: Any] = ["url": "http://127.0.0.1:8764/candidates", "method": "POST",
+      "headers": ["Authorization": "Bearer synthetic", "Content-Type": "application/json"],
+      "body_utf8": "{\"query\":\"nihao\"}", "timeout_ms": 200, "connect_timeout_ms": 200,
+      "max_response_bytes": 262144, "provider_id": "synthetic-provider"]
+    let request = try XCTUnwrap(OnlineCandidateProvider.cloudRequest(descriptor))
+    XCTAssertEqual(request.urlRequest.httpMethod, "POST")
+    XCTAssertEqual(request.urlRequest.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic")
+    XCTAssertEqual(request.urlRequest.httpBody, Data("{\"query\":\"nihao\"}".utf8))
+    XCTAssertEqual(request.timeout, 0.2)
+    XCTAssertTrue(request.allowsLocalHTTP)
+    var query: [String: Any] = ["session_id": 1, "cache_key": "nihao", "identity": "0:nihao",
+      "cloud_candidates": true, "cloud_eligible": true, "ai_eligible": false,
+      "cloud_request": descriptor]
+    let before = OnlineCandidateProvider.signature(query)
+    var changed = descriptor
+    changed["provider_id"] = "another-provider"
+    query["cloud_request"] = changed
+    XCTAssertNotEqual(before, OnlineCandidateProvider.signature(query))
+    changed["timeout_ms"] = 0
+    XCTAssertNil(OnlineCandidateProvider.cloudRequest(changed))
   }
 
   func testACloudReplyJoinsTheCandidates() throws {

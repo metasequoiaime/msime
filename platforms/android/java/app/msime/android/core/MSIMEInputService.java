@@ -3468,17 +3468,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** The cloud service URL the shared host built for this query, or empty when unavailable. */
-    private String cloudRequestUrl(String document) {
-        try {
-            JSONObject envelope = new JSONObject(NativeClient.cloudRequestUrl(document));
-            return JsonPolicy.strictTrue(envelope.opt("ok"))
-                ? envelope.optString("value", "") : "";
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            return "";
-        }
-    }
-
     /** The AI HTTPS descriptor in this envelope, or null when it no longer matches the settings. */
     private static JSONObject aiRequestDescriptor(String raw) {
         if (raw == null) return null;
@@ -3519,7 +3508,9 @@ public final class MSIMEInputService extends InputMethodService {
             InputViewValuePolicy.booleanValue(query, "cloud_candidates", false),
             InputViewValuePolicy.booleanValue(query, "cloud_eligible", false),
             InputViewValuePolicy.booleanValue(query, "ai_eligible", false),
-            InputViewValuePolicy.booleanValue(assistant, "enabled", false) ? assistant.toString() : "");
+            InputViewValuePolicy.booleanValue(assistant, "enabled", false) ? assistant.toString() : "")
+            + "|cloud_provider=" + (query.optJSONObject("cloud_request") == null ? ""
+                : query.optJSONObject("cloud_request").optString("provider_id", ""));
         if (signature.equals(onlineSignature)) return;
         onlineSignature = signature;
         if (!signature.equals(aiResolvedSignature)) aiResolvedSignature = "";
@@ -3553,9 +3544,9 @@ public final class MSIMEInputService extends InputMethodService {
             cloudComplete = !requestsCloud(query);
             String aiDocument = document;
             if (requestsCloud(query)) {
-                String url = cloudRequestUrl(document);
-                if (!url.isEmpty()) {
-                    String body = OnlineCandidateTransport.cloud(url);
+                JSONObject descriptor = query.optJSONObject("cloud_request");
+                if (descriptor != null) {
+                    String body = OnlineCandidateTransport.cloud(descriptor);
                     if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
                         String refreshed = applyOnlineResult(targetSession, epoch,
                             () -> NativeClient.applyCloudResponse(targetSession, document, body));
@@ -7489,14 +7480,14 @@ public final class MSIMEInputService extends InputMethodService {
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted) {
         if (annotation.isEmpty() && prefix.isEmpty())
-            return CandidateSymbolLabel.apply(text, 0, text.length());
+            return CandidateSymbolLabel.apply(this, text, 0, text.length());
         String primary = prefix + text;
         SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
         if (!prefix.isEmpty()) {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.numberFor(highlighted)), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        if (annotation.isEmpty()) return CandidateSymbolLabel.apply(label, prefix.length(), primary.length());
+        if (annotation.isEmpty()) return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
         // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
         label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
@@ -7506,7 +7497,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? candidateAppearance.secondaryFor(highlighted) : ColorPolicy.withAlpha(foreground, 0.58f);
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return CandidateSymbolLabel.apply(label, prefix.length(), primary.length());
+        return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
     }
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */

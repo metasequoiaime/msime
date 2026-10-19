@@ -244,10 +244,11 @@ CLOUD_REQUEST_TIMEOUT = 2.0
 # AI 推理与 Windows、client-providers 保持 8 秒总预算和 2.5 秒连接预算。
 AI_REQUEST_TIMEOUT = 8.0
 AI_CONNECT_TIMEOUT = 2.5
-HTTP_WORKER_MAX_TIMEOUT = AI_REQUEST_TIMEOUT
-# One request line from client-core. UnixSocketProvider::ai_test lets a polish test carry an 8192-byte prompt and an 8192-byte sample in a request up to 32768 bytes, so that kind alone gets the larger limit; every other request keeps the 16384-byte one.
+HTTP_WORKER_MAX_TIMEOUT = 10.0
+# 在线查询包含再次转义的 HTTP 模板与请求头；其余请求保留原有上限。
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
+ONLINE_REQUEST_LINE_LIMIT = 131072
 # 空白提示词槽位所代表的联想提示词：Windows 把它编译进 AiAssistantConfig::prompt（ime_config.h），client-providers 把同样的文本存为 ai::DEFAULT_CANDIDATE_PROMPT，供在那里构造请求的宿主使用。共享偏好让这个槽位留空，所以没有这一份时，Linux 的每个 AI 请求都带着空的 system 消息，模型回的是 JSON 解析器拒收的散文。ai_service_contract.py 保证这份副本与 client-providers 的那份相同。
 DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"
 DEFAULT_TRANSLATION_PROMPT = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。"
@@ -294,7 +295,7 @@ def request_opener(url, connect_timeout=None):
     return urllib.request.build_opener(*handlers)
 
 
-def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None):
+def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None, max_response_bytes=65536):
     headers = {"Content-Type": "application/json", "User-Agent": "MSIME-Client"}
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -302,13 +303,13 @@ def fetch_direct(url, timeout, body=None, token=None, extra_headers=None, connec
     payload = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(url, data=payload, headers=headers)
     with request_opener(url, connect_timeout).open(request, timeout=timeout) as response:
-        payload = response.read(65537)
-    if len(payload) > 65536:
+        payload = response.read(max_response_bytes + 1)
+    if len(payload) > max_response_bytes:
         raise ValueError("response too large")
     return payload
 
 
-def fetch(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None):
+def fetch(url, timeout, body=None, token=None, extra_headers=None, connect_timeout=None, max_response_bytes=65536):
     # Include DNS, TLS, upload and response reads in one deadline. Request data travels only through anonymous pipes, never command-line arguments.
     deadline = time.monotonic() + timeout
     body = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode()
@@ -317,6 +318,8 @@ def fetch(url, timeout, body=None, token=None, extra_headers=None, connect_timeo
                "token": token, "extra_headers": extra_headers}
     if connect_timeout is not None:
         request["connect_timeout"] = connect_timeout
+    if max_response_bytes != 65536:
+        request["max_response_bytes"] = max_response_bytes
     metadata = json.dumps(request).encode()
     if len(metadata) > 262144 or timeout <= 0:
         raise ValueError("invalid HTTP request")
@@ -332,7 +335,7 @@ def fetch(url, timeout, body=None, token=None, extra_headers=None, connect_timeo
         if remaining <= 0:
             raise TimeoutError("HTTP request deadline exceeded")
         output, _ = process.communicate(metadata, timeout=remaining)
-        if process.returncode != 0 or len(output) > 65536:
+        if process.returncode != 0 or len(output) > max_response_bytes:
             raise ValueError("HTTP request failed")
         return json.loads(output)
     finally:
@@ -370,6 +373,9 @@ def http_request_worker():
         if connect_timeout is not None and (
                 type(connect_timeout) not in (int, float) or not 0 < connect_timeout <= timeout):
             return 1
+        limit = request.get("max_response_bytes", 65536)
+        if type(limit) is not int or not 0 < limit <= 262144:
+            return 1
         # The parent normally enforces the deadline and reaps this worker.
         # Keep a process-local limit too, so a crashed parent cannot leave DNS
         # or a slowly streaming HTTP response running indefinitely. The default
@@ -399,24 +405,34 @@ def candidate(text, source):
 
 
 def cloud(query):
-    # A cache probe never leaves the machine; only the debounced request may reach the network.
+    """只执行 Rust 的描述符；把原始 JSON 交回共享解析器，不在脚本里维护服务协议。"""
     if (query.get("ai_cache_only") or not query.get("cloud_candidates", True) or
             not query.get("cloud_eligible")):
         return None
-    text = query.get("query_text")
-    if not isinstance(text, str) or not text or len(text.encode()) > 4096:
+    descriptor = query.get("cloud_request")
+    if not isinstance(descriptor, dict):
         return None
-    params = urllib.parse.urlencode({"text": text, "itc": "ja-t-i0-und" if
-        query.get("scheme") == 3 else "zh-t-i0-pinyin", "num": 1, "ie": "utf-8", "oe": "utf-8"})
-    result = fetch("https://inputtools.google.com/request?" + params, CLOUD_REQUEST_TIMEOUT)
-    # Match Windows cloud_ime's SUCCESS/first-candidate contract while
-    # rejecting malformed provider JSON before indexing nested values.
-    if (isinstance(result, list) and len(result) >= 2 and result[0] == "SUCCESS" and
-        isinstance(result[1], list) and result[1] and isinstance(result[1][0], list) and
-        len(result[1][0]) >= 2 and isinstance(result[1][0][1], list) and
-        result[1][0][1]):
-        return candidate(result[1][0][1][0], 0)
-    return None
+    if isinstance(descriptor.get("cached_response"), str):
+        return {"cloud_response": descriptor["cached_response"]}
+    url = descriptor.get("url")
+    method = descriptor.get("method")
+    timeout_ms = descriptor.get("timeout_ms")
+    connect_ms = descriptor.get("connect_timeout_ms")
+    if (not isinstance(url, str) or not secure_custom_endpoint(url)
+            or method not in ("GET", "POST")
+            or not isinstance(timeout_ms, int) or not 100 <= timeout_ms <= 10000
+            or not isinstance(connect_ms, int) or not 0 < connect_ms <= timeout_ms):
+        return None
+    body = descriptor.get("body_utf8", "")
+    headers = descriptor.get("headers")
+    if not isinstance(body, str) or len(body.encode()) > 8192 or not isinstance(headers, dict):
+        return None
+    result = fetch(url, timeout_ms / 1000,
+                   body.encode() if method == "POST" else None,
+                   extra_headers=headers, connect_timeout=connect_ms / 1000, max_response_bytes=262144)
+    if result is None:
+        return None
+    return {"cloud_response": json.dumps(result, ensure_ascii=False)}
 
 
 def ai_prompt(options):
@@ -1104,13 +1120,14 @@ def read_request(rfile):
 
     The limits count the JSON without its newline, the way client-core checks request.len() before appending the terminator.
     """
-    line = rfile.readline(AI_TEST_REQUEST_LINE_LIMIT + 2)
-    if len(line) - 1 > AI_TEST_REQUEST_LINE_LIMIT or not line.endswith(b"\n"):
+    line = rfile.readline(ONLINE_REQUEST_LINE_LIMIT + 2)
+    if len(line) - 1 > ONLINE_REQUEST_LINE_LIMIT or not line.endswith(b"\n"):
         return None
     request = json.loads(line)
     if not isinstance(request, dict):
         return None
-    if len(line) - 1 > REQUEST_LINE_LIMIT and request.get("kind") != "ai_test":
+    limit = {"online": ONLINE_REQUEST_LINE_LIMIT, "ai_test": AI_TEST_REQUEST_LINE_LIMIT}.get(request.get("kind"), REQUEST_LINE_LIMIT)
+    if len(line) - 1 > limit:
         return None
     return request
 
@@ -1154,18 +1171,24 @@ class Handler(socketserver.StreamRequestHandler):
                                     self.server.ai_candidate_cache,
                                     self.server.ai_candidate_cache_lock)]
                 rows = []
+                cloud_response = None
                 seen = set()
                 for job in jobs:
                     result = job.result()
                     for row in result if isinstance(result, list) else [result]:
-                        if row is None or row["text"] in seen:
+                        if row is None:
+                            continue
+                        if "cloud_response" in row:
+                            cloud_response = row["cloud_response"]
+                            continue
+                        if row["text"] in seen:
                             continue
                         proposed = rows + [row]
                         if len(json.dumps({"candidates": proposed}, ensure_ascii=False).encode()) + 1 > 16384:
                             continue
                         rows.append(row)
                         seen.add(row["text"])
-            self.wfile.write(json.dumps({"candidates": rows}, ensure_ascii=False).encode() + b"\n")
+            self.wfile.write(json.dumps({"candidates": rows, "cloud_response": cloud_response}, ensure_ascii=False).encode() + b"\n")
         except Exception:
             pass
 

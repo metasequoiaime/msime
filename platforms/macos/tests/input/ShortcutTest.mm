@@ -7355,10 +7355,19 @@ static void TestSkinSlotsPerMode(MSIMEInputController *controller, HiddenCandida
 @end
 @interface CloudShortcutController : ModeController
 @property(nonatomic, strong) NSMutableArray<ControlledCloudRequest *> *requests;
+@property(nonatomic, copy) NSString *expectedCloudMethod;
 @end
 @implementation CloudShortcutController
 - (MSIMECloudCandidateRequest *)cloudRequestForURL:(NSURL *)url completion:(void (^)(NSData *))completion {
     assert([url.host isEqual:@"inputtools.google.com"]);
+    ControlledCloudRequest *request = [ControlledCloudRequest new];
+    request.reply = completion;
+    [self.requests addObject:request];
+    return request;
+}
+- (MSIMECloudCandidateRequest *)cloudRequestForDescriptor:(NSDictionary *)descriptor completion:(void (^)(NSData *))completion {
+    assert(([@[@"GET", @"POST"] containsObject:descriptor[@"method"]]));
+    if (self.expectedCloudMethod) assert([descriptor[@"method"] isEqual:self.expectedCloudMethod]);
     ControlledCloudRequest *request = [ControlledCloudRequest new];
     request.reply = completion;
     [self.requests addObject:request];
@@ -7369,9 +7378,13 @@ static void TestSkinSlotsPerMode(MSIMEInputController *controller, HiddenCandida
 
 static void TestCloudCandidateScheduling() {
     CloudShortcutController *controller = [CloudShortcutController alloc];
+    controller.expectedCloudMethod = @"POST";
     controller.requests = [NSMutableArray array];
     CloudShortcutSession *session = [CloudShortcutSession new];
     session.query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
+    NSMutableDictionary *customQuery = [session.query mutableCopy];
+    customQuery[@"cloud_request"] = @{ @"url": @"https://cloud.example.invalid/api", @"method": @"POST" };
+    session.query = customQuery;
     ShortcutClient *client = [ShortcutClient new], *other = [ShortcutClient new];
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
@@ -7557,7 +7570,7 @@ static void TestAiCandidateEngineDelivery() {
     assert(![session applyOnlineCandidates:@[oversized] source:1 query:query error:&error] && error);
     error = nil;
     NSMutableDictionary *largeQuery = [query mutableCopy];
-    largeQuery[@"synthetic"] = [@"x" stringByPaddingToLength:16385 withString:@"x" startingAtIndex:0];
+    largeQuery[@"synthetic"] = [@"x" stringByPaddingToLength:MSIME_ONLINE_QUERY_MAX_BYTES + 1 withString:@"x" startingAtIndex:0];
     assert(![session applyOnlineCandidates:@[@"合成"] source:1 query:largeQuery error:&error] && error);
     error = nil;
     applied = [session applyOnlineCandidates:@[] source:1 query:query error:&error];

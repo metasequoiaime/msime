@@ -221,7 +221,7 @@ static void TestEngineMaintenance() {
     assert(!error && [cloud[@"applied"] isEqual:@NO]);
     assert(![session applyCloudResponse:[NSMutableData dataWithLength:262145] query:query error:&error] && error);
     error = nil;
-    assert(![MSIMEClientSession cloudRequestURLForQuery:@{@"padding":[@"x" stringByPaddingToLength:16385 withString:@"x" startingAtIndex:0]} error:&error] && error);
+    assert(![MSIMEClientSession cloudRequestURLForQuery:@{@"padding":[@"x" stringByPaddingToLength:MSIME_ONLINE_QUERY_MAX_BYTES + 1 withString:@"x" startingAtIndex:0]} error:&error] && error);
     error = nil;
     for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
     NSDictionary *identifier = MaintenanceCandidate(session);

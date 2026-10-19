@@ -130,7 +130,7 @@ inline std::filesystem::path prepare_host_state_in_directory(
   if (!response.value("ok", false) || !response.at("value").is_object())
     throw std::runtime_error("Shared host preparation failed");
   const auto document = response.at("value").dump(2) + "\n";
-  if (document.size() > 16384)
+  if (document.size() > 1048576)
     throw std::runtime_error("Prepared configuration oversized");
   const auto temporary = state / ".runtime-options-prepared";
   const auto destination = state / "runtime-options.json";

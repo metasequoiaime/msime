@@ -296,6 +296,9 @@ fn default_ai_candidate_limit() -> u8 {
     3
 }
 
+/// 在线查询包含完整 HTTP 描述符，允许模板与请求头在 JSON 中再次转义。
+pub const MAX_ONLINE_QUERY_BYTES: usize = 131_072;
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
     /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
@@ -312,6 +315,9 @@ pub struct OnlineQuery {
     /// Host preference controlling whether a provider may return cloud suggestions.
     #[serde(default = "default_cloud_candidates")]
     pub cloud_candidates: bool,
+    /// 共享层生成的 HTTP 描述符；凭据只经过平台传输，不进入签名和日志。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_request: Option<msime_client_core::cloud::candidates::CloudHttpRequest>,
     pub session_id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_assistant: Option<AiAssistantProviderConfig>,

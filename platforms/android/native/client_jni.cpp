@@ -72,7 +72,7 @@ constexpr jsize kGlideRequestLimit = 65536;
 // 与 msime_client_set_nine_key_filter 的笔画上限一致。
 constexpr jsize kNineKeyStrokesLimit = 64;
 constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
-constexpr jsize kOnlineQueryLimit = 16384;
+constexpr jsize kOnlineQueryLimit = MSIME_ONLINE_QUERY_MAX_BYTES;
 constexpr jsize kOnlineBodyLimit = 262144;
 constexpr jsize kOnlineCandidatesLimit = 16384;
 constexpr jsize kDoubaoAudioPcmLimit = 1 * 1024 * 1024;

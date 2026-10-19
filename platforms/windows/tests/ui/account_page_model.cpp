@@ -43,28 +43,13 @@ std::wstring widen(const std::string &text) {
 } // namespace
 
 int main() {
-  // normalizeAccountName 与 JavaScript 的 trim 一样去掉全角空格、不换行空格和 BOM，中间的空白留着。
-  check(normalize_name(L"  水杉 小鹿\t") == L"水杉 小鹿", "ascii trim");
-  check(normalize_name(L"　 名字﻿ ") == L"名字", "unicode trim");
-  check(normalize_name(L" \t ").empty(), "blank trims to empty");
+  // 登录目标沿用现有的去空白方式；昵称规则的测试随实现迁到共享 Rust。
+  check(trim_login_target(L"  demo@example.test\t") == L"demo@example.test", "ascii trim");
+  check(trim_login_target(L"\u3000\u00a0demo@example.test\ufeff\u2028") == L"demo@example.test",
+        "unicode trim");
+  check(trim_login_target(L" \t ").empty(), "blank trims to empty");
 
-  // isValidAccountName：非空、最多 64 个码点、不含控制字符。
-  check(!valid_name(L""), "empty name is invalid");
-  check(!valid_name(L"   "), "blank name is invalid");
-  check(valid_name(L" 小鹿 "), "trimmed name is valid");
-  check(valid_name(std::wstring(64, L'名')), "64 characters");
-  check(!valid_name(std::wstring(65, L'名')), "65 characters");
-  std::wstring emoji;
-  for (int i = 0; i < 64; ++i)
-    emoji += L"\U0001F98C";
-  check(code_points(emoji) == 64 && valid_name(emoji), "a surrogate pair counts once");
-  check(!valid_name(emoji + L"\U0001F98C"), "65 surrogate pairs");
-  check(!valid_name(L"a\nb") && !valid_name(L"a\x7F") && !valid_name(std::wstring(L"a\0b", 3)),
-        "control characters");
-
-  // preferredAccountName 和账号 ID 的短写。
-  check(preferred_name(L"  小鹿 ", L"abcdef12-3456") == L"小鹿", "own name");
-  check(preferred_name(L" ", L"abcdef12-3456") == L"水杉小鹿·ABCDEF", "generated name");
+  // 账号 ID 的短写。
   check(id_label(L"0a1b2c3d-x") == L"#0A1B2C", "id label");
   check(id_label(L"ab") == L"#AB", "short id");
   check(initial(L"水杉") == L"水" && initial(L"\U0001F98C鹿") == L"\U0001F98C" && initial(L"").empty(),

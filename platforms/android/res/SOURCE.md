@@ -34,3 +34,11 @@ The foreground is rendered by the same script, from the same artwork, with two d
 | xxxhdpi | 432 |
 
 Both repositories are metasequoiaime's own and share its licence; no third-party distribution restriction applies to this asset.
+
+## 候选手势兜底
+
+`drawable-nodpi/noto_emoji_u1faf*.png` 为 Noto Emoji 四个手势及五种肤色的 128×128 图像。来源固定在 `googlefonts/noto-emoji` 提交 `e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e` 的 `2D/svg/`；该目录使用 Apache 2.0。无字体随包。
+
+逐文件来源和输入、输出 SHA-256 在 [`../third_party/noto-emoji/sources.json`](../third_party/noto-emoji/sources.json)，完整许可、版权与转换说明在同目录，构建时也复制到 APK 的 `assets/native-notices/noto-emoji/`。图片仅在系统字体缺少手势时用于候选显示，不改原始 Unicode。
+
+重建时按清单从固定提交下载 SVG 并核对 `source_sha256`，用清单记录的 librsvg 执行 `rsvg-convert -w 128 -h 128 -o <output> <source.svg>`，再核对 `output_sha256`。图像不放入密度缩放目录，绘制尺寸由候选字号决定。

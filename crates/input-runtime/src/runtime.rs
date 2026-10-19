@@ -271,6 +271,7 @@ impl Runtime<Session> {
             cloud_eligible: query.cloud_eligible,
             ai_eligible: query.ai_eligible,
             cloud_candidates: true,
+            cloud_request: None,
             session_id: query.session_id,
             ai_context: if query.ai_eligible {
                 self.ai_context.clone()

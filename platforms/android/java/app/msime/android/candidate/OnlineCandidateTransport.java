@@ -15,12 +15,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Bounded transport for the optional cloud and AI candidate providers. 云候选只走 https；AI 候选走 https，或 AiEndpointPolicy 放行的本机、局域网 http。
- *
- * <p>Both requests are built by the shared host: the cloud URL comes from `cloud_request_url` and
- * the AI descriptor from `ai_request_for_query`, so credentials stay inside the session and this
- * class only carries bytes. It returns null rather than throwing, because an unavailable provider
- * is an ordinary outcome that must leave the composition alone.
+ * 执行共享宿主构造的云候选与 AI 描述符，只传输字节，不复制协议解析。
+ * 云候选允许 HTTPS 与本机 HTTP；AI 另允许 AiEndpointPolicy 放行的局域网 HTTP。
+ * 失败返回 null，保留本地候选，描述符中的凭据不得写入日志。
  */
 public final class OnlineCandidateTransport {
     private static final int CONNECT_TIMEOUT_MILLIS = 2_500;
@@ -33,31 +30,49 @@ public final class OnlineCandidateTransport {
 
     private OnlineCandidateTransport() {}
 
-    /** GET the cloud candidate service. Returns null when it is unusable or answers too much. */
-    public static String cloud(String url) {
-        final long deadline = System.nanoTime()
-            + TimeUnit.MILLISECONDS.toNanos(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
-        HttpsURLConnection connection = null;
+    /** 执行共享云候选描述符；命中本机缓存时直接交回响应，不建立连接。 */
+    public static String cloud(JSONObject descriptor) {
+        if (descriptor == null) return null;
+        String cached = JsonPolicy.strictString(descriptor.opt("cached_response"));
+        if (cached != null) return OnlineCandidatePolicy.acceptsCloudBody(cached) ? cached : null;
+        int timeout = NumberPolicy.strictInt(descriptor, "timeout_ms", 0);
+        int connectTimeout = NumberPolicy.strictInt(descriptor, "connect_timeout_ms", 0);
+        if (timeout < 100 || timeout > 10_000 || connectTimeout <= 0 || connectTimeout > timeout
+                || NumberPolicy.strictInt(descriptor, "max_response_bytes", 0)
+                    != OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES) return null;
+        final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout);
+        HttpURLConnection connection = null;
         ScheduledFuture<?> watchdog = null;
         try {
-            URL target = new URL(url);
-            if (!OnlineCandidatePolicy.validURL(target)) return null;
-            connection = (HttpsURLConnection) target.openConnection();
+            String rawUrl = JsonPolicy.strictString(descriptor.opt("url"));
+            if (!OnlineCandidatePolicy.validAiURL(rawUrl)) return null;
+            URL target = AiEndpointPolicy.uri(rawUrl).toURL();
+            String method = descriptor.optString("method", "");
+            if (!"GET".equals(method) && !"POST".equals(method)) return null;
+            connection = (HttpURLConnection) AiEndpointPolicy.open(target);
             HttpConnectionPolicy.rejectRedirects(connection);
-            connection.setRequestMethod("GET");
-            HttpConnectionPolicy.setTimeouts(connection,
-                OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
-            connection.setRequestProperty("Accept", "application/json");
-            watchdog = CLOUD_DEADLINES.schedule(connection::disconnect,
-                OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
-            int status = connection.getResponseCode();
-            if (!HttpConnectionPolicy.isSuccessful(status)) return null;
+            connection.setRequestMethod(method);
+            HttpConnectionPolicy.setTimeouts(connection, connectTimeout, timeout);
+            JSONObject headers = descriptor.getJSONObject("headers");
+            for (Iterator<String> names = headers.keys(); names.hasNext();) {
+                String name = names.next();
+                connection.setRequestProperty(name, headers.getString(name));
+            }
+            watchdog = CLOUD_DEADLINES.schedule(connection::disconnect, timeout, TimeUnit.MILLISECONDS);
+            if ("POST".equals(method)) {
+                byte[] payload = TextPolicy.utf8Bytes(descriptor.getString("body_utf8"));
+                if (payload.length > 8192) return null;
+                connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(payload.length);
+                try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
+            }
+            if (!HttpConnectionPolicy.isSuccessful(connection.getResponseCode())) return null;
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readWithin(input,
                     OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES, deadline);
                 return body == null ? null : TextPolicy.utf8(body);
             }
-        } catch (IOException | RuntimeException error) {
+        } catch (IOException | JSONException | RuntimeException error) {
             return null;
         } finally {
             if (watchdog != null) watchdog.cancel(false);

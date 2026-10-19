@@ -86,8 +86,9 @@ final class OnlineCandidateProvider {
     }
     var aiDocument = document
     if let query = Self.object(document), Self.requestsCloud(query),
-       let url = MetasequoiaInputSessionBridge.cloudRequestURL(query: document),
-       let body = await transport.fetch(Self.cloudRequest(url)), target == epoch,
+       let descriptor = query["cloud_request"] as? [String: Any],
+       let request = Self.cloudRequest(descriptor),
+       let body = await cloudBody(descriptor, request: request), target == epoch,
        // Applying a cloud result advances the Engine's generation, so the AI request has to be built from the query as it stands afterwards or it arrives stale.
        let refreshed = apply({ try self.session.applyCloudResponse(query: document, body: body) }) {
       cloudApplied = true
@@ -146,12 +147,40 @@ final class OnlineCandidateProvider {
       assistant = String(decoding: data, as: UTF8.self)
     }
     let session = (query["session_id"] as? NSNumber)?.stringValue ?? "0"
-    return "session=\(session)|cache=\(field(query["cache_key"] as? String))|identity=\(field(query["identity"] as? String))|cloud=\(query["cloud_candidates"] as? Bool == true)|cloud_eligible=\(query["cloud_eligible"] as? Bool == true)|ai_eligible=\(query["ai_eligible"] as? Bool == true)|assistant=\(field(assistant))"
+    let provider = (query["cloud_request"] as? [String: Any])?["provider_id"] as? String
+    return "cloud_provider=\(field(provider))|session=\(session)|cache=\(field(query["cache_key"] as? String))|identity=\(field(query["identity"] as? String))|cloud=\(query["cloud_candidates"] as? Bool == true)|cloud_eligible=\(query["cloud_eligible"] as? Bool == true)|ai_eligible=\(query["ai_eligible"] as? Bool == true)|assistant=\(field(assistant))"
   }
 
   private static func field(_ value: String?) -> String {
     let value = value ?? ""
     return "\(value.utf8.count):\(value)"
+  }
+
+  private func cloudBody(_ descriptor: [String: Any], request: OnlineCandidateRequest) async -> Data? {
+    if let cached = descriptor["cached_response"] as? String {
+      let data = Data(cached.utf8)
+      return data.count <= Self.maxCloudResponseBytes ? data : nil
+    }
+    return await transport.fetch(request)
+  }
+
+  /// 云候选只执行共享层的字节描述符，模板与响应路径由 Rust 处理。
+  static func cloudRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
+    guard let address = descriptor["url"] as? String, let url = AIEndpointPolicy.validatedURL(address),
+          let method = descriptor["method"] as? String, ["GET", "POST"].contains(method),
+          let timeout = SharedNumber.strictInt(descriptor["timeout_ms"]), (100...10000).contains(timeout),
+          let connect = SharedNumber.strictInt(descriptor["connect_timeout_ms"]), (1...timeout).contains(connect),
+          SharedNumber.strictInt(descriptor["max_response_bytes"]) == maxCloudResponseBytes,
+          let body = descriptor["body_utf8"] as? String, body.utf8.count <= 8192,
+          let headers = descriptor["headers"] as? [String: String] else { return nil }
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.allHTTPHeaderFields = headers
+    request.httpShouldHandleCookies = false
+    if method == "POST" { request.httpBody = Data(body.utf8) }
+    return OnlineCandidateRequest(urlRequest: request, allowsLocalHTTP: true,
+                                  connectTimeout: Double(connect) / 1000, timeout: Double(timeout) / 1000,
+                                  maxBytes: maxCloudResponseBytes)
   }
 
   static func cloudRequest(_ url: URL) -> OnlineCandidateRequest {

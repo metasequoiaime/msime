@@ -164,6 +164,8 @@ char *msime_client_google_loopback(const uint8_t *request, size_t length);
  * {operation:"session_adopt",path?,identity_path?,item:"account"|"anonymous",from:"settings"|"keyboard"} → {outcome:"adopted"|"unchanged"|"cleared",local_unreadable?:true}：只能带 directory（带 session_store 是 account_invalid），给鸿蒙设置应用与键盘两个沙箱之间的会话镜像。path 是另一边发布的会话文件的绝对路径，不给、或文件（连同所在目录）不存在，表示发布方没有这份会话；读它时不跟随符号链接、最多 64 KiB；鸿蒙上文件属主必须是本进程的有效 uid（不看所在目录的属主：发布目录由发布方自己建，看有效 uid 是为了拒收别的 uid 先建好目录再放进的文件；前提是设置应用和键盘是同一个应用的两个进程、有效 uid 相同），只拒绝其他用户位；其他平台与 directory 里的会话文件相同，属主与所在目录相同、只能属主可读写，Native、Apple 和鸿蒙扁平布局都认，读不了或不是合法会话时是 account_storage，本地不动。item 选 directory 里的 account-session.json（登录会话）或 anonymous-session.json（匿名会话）。identity_path 只能和 item:"anonymous" 一起给（和 item:"account" 一起是 account_invalid），是另一边发布的匿名账号身份文件 anonymous-account.json 的绝对路径，读的规则与 path 相同，文件（连同所在目录）不存在表示发布方没有身份，读不了或不是合法身份时是 account_storage，本地不动；给了时身份跟着匿名会话走：结果是 adopted 时，在同一把锁里、写会话之前把 directory 里的 anonymous-account.json 换成发布方的身份，发布方没有身份而采用的会话换了账号（本地原来没有匿名会话、读不了，或 user.id 不同）时删掉本地身份，同一个 user.id 时不动，会话和身份始终属于同一个匿名账号；写会话失败时尽力还原身份；结果不是 adopted 时身份不动。不给 identity_path 时身份文件不动，与加这个字段之前相同。整个决定在 directory 的 account-refresh.lock 里做，与刷新、登录、退出互斥，不联网。两种 item 只看 user.id 和 expires_at，不看 session_id（有没有、相不相同、v4 还是 v8 都一样），规则除下面注明的两处外相同：同一个 user.id 时 expires_at 更晚的胜，from:"settings" 和 from:"keyboard" 都一样，相同时 unchanged；不同的 user.id（换号）时 from:"settings" 直接替换、from:"keyboard" 是 unchanged，设置应用里的换号不会被键盘的旧副本撤销；本地没有会话或读不了时：item:"account" 与换号相同（读不了而没有采用时 outcome 仍是 unchanged，另带 local_unreadable:true：这个结论取决于本地此刻读不读得了，本地恢复可读以后同一份发布物可能就该采用，宿主不能把它记成同一份发布物不用再试；其他结果不带这个字段）；item:"anonymous" 两个方向都是 adopted，用户没打开过设置应用就先启用了键盘时，设置应用第一次启动采用键盘注册的那个匿名账号，不再注册第二个、多用一次注册额度（带 identity_path 时连同键盘的身份）。expires_at 是拿到令牌的时刻加服务端给的固定时长，两个沙箱用同一台设备的时钟，后签发的会话一定过期得更晚，所以刷新过的那份胜过刷新前的、同一个账号重新登录的那份胜过上一次登录留下的：只要另一边给的是更新的那份，session_adopt 不会留下、也不会换回用过的刷新令牌（中间把系统时钟往回调过时除外）。发布方没有会话时：item:"account" 且 from:"settings" 清掉本地会话，与 forget 相同（连同云剪贴板密钥串），本地原来就没有时是 unchanged；item:"account" 且 from:"keyboard" 是 unchanged；item:"anonymous" 两个方向都是 unchanged、本地不动，匿名账号没有退出登录，清掉只会逼着重新注册、用掉每个 IP 每天 5 次的注册额度，所以 cleared 只出现在 item:"account"。采用的会话按 Native 布局原样写进 directory（session_id 照抄，没有的在第一次认证请求前补上）。两个沙箱各用各的锁，两边各自拿同一枚刷新令牌刷新的风险这里消除不了。
  * 其余失败时 error 是账号错误码：account_invalid（请求或参数不合法）、account_unauthorized（未登录或会话失效）、account_rate_limited、account_storage、account_cancelled、account_conflict、account_unavailable、account_blocked_content、account_screening_unavailable、account_banned；只有上面新增的操作和 purpose:"link" 的几步还会返回 account_too_large、account_not_found、account_recent_login_required、account_identity_changed、account_no_verified_email 和 account_network（msime_client_account_chat_stream 另有 account_busy；已有操作的码不变，例如 delete 遇到需要最近登录时仍是 account_unauthorized，断网时仍是 account_unavailable）。除 status、google_cancel、forget、session_adopt 外都会阻塞网络（session_adopt 不联网，但可能等另一个进程的刷新最多 20 秒）：放在工作线程上调用。 */
 char *msime_client_account(const uint8_t *request, size_t length);
+/* 昵称草稿的纯计算，不创建会话、不读文件、不联网。请求最多 16384 字节的 UTF-8 JSON {name, id}，id 是账号 UUID，编辑草稿时可传空串；未知字段、字段类型错误、无效缓冲区和 UTF-8 都返回 account_invalid，不回显输入。Value 为 {normalized, preferred, valid, maximum_chars, maximum_utf16_units}：normalized 按既有设置界面的 JavaScript trim 去首尾空白（含 BOM，不含 U+0085）；valid 直接复用账号改名的校验（规范化后非空、最多 64 个 Unicode 码点、没有控制字符）；preferred 在 normalized 为空时是「水杉小鹿·」加 id 前六个字符的大写，否则就是 normalized。空白或不合法的草稿仍成功返回，只把 valid 设为 false；宿主只可提交 valid 为 true 时的 normalized。maximum_utf16_units 是容纳 maximum_chars 个码点所需的 UTF-16 单元上限（当前 128），给控件限制输入长度；实际合法性只看 valid。 */
+char *msime_client_account_name(const uint8_t *request, size_t length);
 /* 流式对话（#8201 的决定 15）：与 msime_client_account 的 chat 相同的请求、预检和会话选择，只是以 stream:true 请求 POST /v1/chat/completions，回复每到一段就交给 on_delta，并且能取消。request 最多 1 MiB：{directory?|session_store?, legacy_directory?, client_agent?, request_id, messages, model}，directory、legacy_directory、client_agent、session_store 与 msime_client_account 相同（恰好给 directory 或 session_store 之一）；request_id 是宿主为这次对话取的 1–96 个 [A-Za-z0-9_-]，取消时用它；messages、model 与 chat 相同，序列化后超过 65536 字节是 account_too_large。登录账号优先，没有登录时用本机匿名账号，与 chat 相同；服务端以 401 拒绝令牌时刷新一次、在同一个账号里重试，被拒的那次没有交出增量。
  * on_delta 可为 NULL；否则每收到一段非空的增量就在调用本函数的线程上调用一次：text 是这段增量的 UTF-8 字节（length 个，不以 NUL 结尾，不会把一个字符拆在两段里），只在回调期间有效；按到达顺序依次调用，不会并发，本函数返回以后不会再调用。回调里不得重入 msime_client_*，唯一的例外是 msime_client_account_chat_cancel（调用回调时 Rust 不持有登记表的锁，也不持有会话锁）。增量可能只有空白；所有增量连起来就是成功时的 content。
  * 成功时 Value 是 {content}，整段回复，最多 16 KiB，与 chat 相同。不认识 stream 的旧后端回 400 invalid_chat_request 时退回非流式请求，整段回复作为一段增量交出；服务端回了 200 却不是 text/event-stream 时同样按非流式的 JSON 读。失败时 error 是账号错误码，与 chat 相同的规则：开始输出之前的失败带状态码的细节（被限流是 account_rate_limited，带 retry_after_seconds；503 server_busy 也是带 retry_after_seconds 的 account_rate_limited；没拿到响应是 account_network；5xx 是 account_unavailable）。开始输出以后：服务端发来上游失败的事件（data: {"error":...}）、回复超过 16 KiB、含换行、回车和制表符以外的控制字符、或只有空白就结束时是 account_unavailable；没等到 data: [DONE] 连接就断开、读到一半出错或到了 125 秒的总时限时是 account_network；这两种情况下已经交出的增量不收回，宿主自己决定留不留。同一个 request_id 正在进行时是 account_busy，原来那次不受影响。回答完整以后与 chat 一样核对给出令牌的账号，期间退出或换了号时是 account_cancelled，这时增量已经交出去了，宿主要丢掉它们。
@@ -806,13 +808,11 @@ char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
  * 中文标点下 '\'' 与 '"' 出哪种引号、'[' ']' 出哪种方头括号由偏好 quote_style、bracket_style 决定（契约 shared/contracts/punctuation 的 styles 段）。View.punctuation_marks 报告引擎已应用的样式：{"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}，corner_when_traditional 已按繁体输出开关解析成 curly 或 corner。宿主做成对补全、跨过后半个、空格转换、英文模式下的中文标点和画触屏键面时读它，不自己解析偏好；改了偏好要等空闲重建后它才变，和引擎出字同步。
  */
 char *msime_client_view(uint64_t session);
-/* Return a copied OnlineQuery JSON object, or null when the current composition
- * is not eligible for an online provider. Linux responses may include the
- * validated ai_assistant provider/model/prompt configuration (never its token).
- * The document also carries the validated cloud_candidates preference so a
- * user-owned provider can distinguish cloud suggestions from AI suggestions.
- * The caller may perform provider work off-thread and pass the unchanged
- * document back to apply_online_candidate. */
+/* 在线候选查询包含 cloud_request（GET/POST、请求头、JSON 请求体、超时、响应格式和可选缓存回包）。
+ * 描述符可能含自定义服务凭据，只交给宿主传输，不写日志或上传诊断。
+ * 各接收 OnlineQuery 的接口最多接受 128 KiB UTF-8 JSON；候选列表与回包沿用各自上限。
+ * 云与 AI 共用这份查询，宿主在后台执行后原样交回，组字或来源变化会拒绝迟到结果。 */
+#define MSIME_ONLINE_QUERY_MAX_BYTES 131072
 char *msime_client_online_query(uint64_t session);
 /* Build a validated AI HTTP descriptor for a copied OnlineQuery. The host
  * resolves credentials from its current preferences; the query must still
@@ -830,21 +830,13 @@ char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
  * While the composition is a /fy request (command mode) the query is that request alone, whatever the gloss switches say: sentence:true, target_language "zh", one candidate {text, online_gloss:false} holding the English typed after the command, no resources, user_data or offline_gloss_languages, and null when no service of the user's own (tencent, niutrans or custom) is selected. Ask only that service, without the offline dictionary or the gloss cache, and hand the answer back through msime_client_apply_translations, which shows it as the first row and commits the translation.
  */
 char *msime_client_translation_query(uint64_t session);
-/* How long a cloud candidate is worth waiting for: connecting, and in total.
- * Mirrors client-core's cloud::candidates, which takes them from the reference,
- * whose cloud worker gives every phase of the request 2000 ms. A host must not
- * choose its own: a reply arriving after a private deadline is one the
- * reference would have shown.
- */
+/* Google 的默认预算；cloud_request 存在时按描述符中的毫秒预算执行。 */
 #define MSIME_CLOUD_CONNECT_TIMEOUT_MS 2000
 #define MSIME_CLOUD_REQUEST_TIMEOUT_MS 2000
-/* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
- * host performs network I/O and applies the copied result separately. */
+/* 兼容 GET 云候选的 URL 入口；POST 宿主直接执行 OnlineQuery.cloud_request。 */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
-/* Parse a host-fetched response using the shared cloud parser. Returns
- * {applied,view}; no-result/malformed provider documents do not mutate input.
- * Query <=16 KiB, response <=256 KiB. Stale queries and disabled cloud
- * preferences (including a pending disable) cannot apply candidates. */
+/* 共享解析器处理宿主取得的云响应，返回 {applied,view}；空或无效响应不改变组字。
+ * 查询最多 128 KiB，响应最多 256 KiB。过期、关闭或切换来源的查询不应用候选。 */
 char *msime_client_apply_cloud_response(uint64_t session,
                                       const uint8_t *query, size_t query_length,
                                       const uint8_t *body, size_t body_length);

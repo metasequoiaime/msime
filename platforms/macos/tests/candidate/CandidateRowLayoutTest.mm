@@ -56,6 +56,14 @@ static void Spin(NSTimeInterval seconds)
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
+// 按完成状态等待主队列回调；单次 runUntilDate 返回不保证到期回调已经执行。
+static bool SpinUntil(BOOL (^finished)(void))
+{
+    const CFTimeInterval deadline = CACurrentMediaTime() + 2.0;
+    while (!finished() && CACurrentMediaTime() < deadline) Spin(0.01);
+    return finished();
+}
+
 // 图层在窗口根图层坐标系里的纵坐标，带上它此刻的模型变换。
 static CGFloat RootY(CALayer *layer)
 {
@@ -202,8 +210,9 @@ stagger_ms = 10
     assert([motion.selectionLayer animationForKey:@"msime-candidate-selection"] != nil);
     assert([selected.layer animationForKey:@"msime-candidate-selection"] == nil);
     assert([CandidateButton(content, 8).layer animationForKey:@"msime-candidate-row-reveal"] != nil);
-    Spin(0.45);
-    assert(motion.selectionLayer == nil && !CandidateButton(panel.contentView, 2).selectionFillDetached);
+    assert(SpinUntil(^BOOL {
+        return motion.selectionLayer == nil && !CandidateButton(panel.contentView, 2).selectionFillDetached;
+    }));
 
     // 打字让 Engine 把高亮放回第一格：那不是选中，不装饰。
     [controller setValue:MotionView(@"ces", 9, 0) forKey:@"view"];

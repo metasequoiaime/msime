@@ -597,7 +597,7 @@ test("a host with one commit path is not offered a choice between three", async 
       }}
     />,
   );
-  await screen.findByRole("tab", { name: "录音行为" });
+  await settingsFormReady();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
   render(
@@ -765,7 +765,7 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
   expect(screen.queryByLabelText("可用录音设备")).toBeNull();
   cleanup();
   voice(false);
-  await screen.findByRole("tab", { name: "录音行为" });
+  await settingsFormReady();
   expect(screen.queryByLabelText("麦克风")).toBeNull();
 });
 

@@ -20,7 +20,7 @@ namespace {
 // The reference debounces AI requests harder than cloud ones: each is a paid
 // model call, and a user mid-word would otherwise spend several.
 constexpr auto kDebounce = std::chrono::milliseconds(650);
-constexpr size_t kMaximumQueryBytes = 16384;
+constexpr size_t kMaximumQueryBytes = MSIME_ONLINE_QUERY_MAX_BYTES;
 constexpr size_t kMaximumResponseBytes = 1024 * 1024;
 constexpr uint8_t kDefaultLimit = 3;
 constexpr size_t kMaximumCacheEntries = 4096;
