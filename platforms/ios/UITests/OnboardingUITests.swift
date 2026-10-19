@@ -772,6 +772,24 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testSettingsDeepLinkFromTryoutOpensInputSettings() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.buttons["keyboardTryoutLink"].tap()
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].waitForExistence(timeout: 5))
+    // 直接经系统交付链接，区分宿主路由与扩展打开 URL 的责任。
+    XCUIDevice.shared.system.open(URL(string: "msime://settings/input")!)
+    let opened = app.navigationBars["输入"].waitForExistence(timeout: 8)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "从试用页打开输入设置"
+    shot.lifetime = .keepAlways
+    add(shot)
+    XCTAssertTrue(opened, "正在试用键盘时的深链接必须进入输入设置，不能只回设置根页")
+  }
+
+  @MainActor
   func testSkinPageTabsTakeCommunitySkinIntoMine() {
     let app = XCUIApplication()
     // 获取社区皮肤会存一款进皮肤库；先清空，免得之前失败的用例占满十二个槽位。
