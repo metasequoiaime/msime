@@ -200,7 +200,7 @@ fn a_published_session_is_read_with_the_same_rules_in_any_layout() {
     }
 }
 
-/// 鸿蒙上发布文件的属主规则：属主是本进程的有效 uid 就认，不看所在目录的属主；其他平台仍要求与目录同一个属主。data-group 共享目录的属主在真机上没有核对过，这里用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出「目录不是自己的、文件是自己写的」这种发布目录。以 root 运行时两者相同，造不出来，什么也不查。
+/// 鸿蒙上发布文件的属主规则：属主是本进程的有效 uid 就认，不看所在目录的属主；其他平台仍要求与目录同一个属主。data-group 共享目录的属主在真机上没有核对过，这里用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出「目录不是自己的、文件是自己写的」这种发布目录。以 root 运行时两者相同，造不出来，什么也不查；没有 `/tmp` 的系统（Android 15 以前，API 28 的设备单测就是这样）同样造不出来，也什么都不查。
 #[cfg(unix)]
 #[test]
 fn harmony_reads_a_published_session_it_owns_in_a_directory_owned_by_someone_else() {
@@ -212,6 +212,9 @@ fn harmony_reads_a_published_session_it_owns_in_a_directory_owned_by_someone_els
     } else {
         Path::new("/tmp")
     };
+    if !shared.is_dir() {
+        return;
+    }
     let mut file = tempfile::Builder::new()
         .prefix("msime-synthetic-published-")
         .tempfile_in(shared)

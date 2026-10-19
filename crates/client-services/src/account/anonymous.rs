@@ -1433,7 +1433,7 @@ mod tests {
         assert!(!owner_is_trusted(other, other, me, true, true));
     }
 
-    /// 发布的身份文件与发布的会话文件同一条规则：鸿蒙上自己写在别人目录里的照样读，其他平台拒收。用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出这种目录；以 root 运行时造不出来，什么也不查。
+    /// 发布的身份文件与发布的会话文件同一条规则：鸿蒙上自己写在别人目录里的照样读，其他平台拒收。用 root 的 `/tmp`（macOS 上是 `/private/tmp`）造出这种目录；以 root 运行时造不出来，没有 `/tmp` 的系统（Android 15 以前，API 28 的设备单测就是这样）也造不出来，都什么也不查。
     #[cfg(unix)]
     #[test]
     fn harmony_reads_a_published_identity_it_owns_in_a_directory_owned_by_someone_else() {
@@ -1445,6 +1445,9 @@ mod tests {
         } else {
             Path::new("/tmp")
         };
+        if !shared.is_dir() {
+            return;
+        }
         let mut file = tempfile::Builder::new()
             .prefix("msime-synthetic-identity-")
             .tempfile_in(shared)
