@@ -93,15 +93,8 @@ int main() {
             assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
             options[name] = path;
         }
-        // Four of the eight modes are gated on a runtime resource as well as on the preference: emoji and
-        // kaomoji read msime-others.db, temporary English reads msime-english.db, temporary Japanese reads
-        // msime-japanese.dat. apply_local_mode_resource_gates turns the mode off when the file is absent, so
-        // that a missing optional resource makes Shift+E insert a capital E rather than swallow the key.
-        //
-        // Without these, this test asserted something that could not hold, and it had been read as the
-        // Engine refusing to enter the mode. The gate only asks whether the file is there, so empty files
-        // are enough to let the preference plumbing this test is actually about run for all eight modes -
-        // and keeping them empty keeps the test off the fetched dictionaries.
+        // 表情、颜文字、临时英文和临时日文除了偏好，还需要可选资源；缺文件时入口大写留在普通组字。
+        // 门禁只核对文件存在，空文件足以测试偏好传递，避免依赖下载词库。
         NSString *resources = options[@"resources"];
         NSArray<NSString *> *gated = @[@"msime-others.db", @"msime-english.db", @"msime-japanese.dat"];
         for (NSString *resource in gated)
@@ -112,9 +105,11 @@ int main() {
         assert(session && !error && [session setFocused:YES error:&error]);
         NSDictionary *shared = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(shared && !error);
-        // 偏好里没有拆字这个键时，桌面构建的 host-api 不开这个模式：Shift+C 不被吃掉，大写 C 交还应用。
+        // 偏好里没有拆字这个键时，桌面不开这个模式；Shift+C 留在普通组字，随后取消以便测试下一份偏好。
         NSDictionary *untouched = [session typeASCII:'C' shift:YES error:&error];
-        assert([untouched[@"handled"] isEqual:@NO] && [untouched[@"view"][@"local_mode"] isEqual:@"none"]);
+        assert([untouched[@"handled"] isEqual:@YES] && [untouched[@"view"][@"local_mode"] isEqual:@"none"]);
+        assert([untouched[@"view"][@"editing_text"] isEqual:@"C"]);
+        assert([session command:MSIME_CANCEL error:&error]);
         NSUInteger revision = 0;
         NSArray<NSArray<NSString *> *> *modes = @[@[@"unicode", @"U"], @[@"date_time", @"T"],
             @[@"quick_phrase", @"K"], @[@"emoji", @"E"], @[@"kaomoji", @"M"],
@@ -185,10 +180,8 @@ int main() {
         assert([chosen[@"commit"] isEqual:@"焱"] && [chosen[@"view"][@"local_mode"] isEqual:@"none"]);
         assert([session closeWithError:&error] && !error);
 
-        // The other half of the same contract, which nothing here covered: with the resource gone the mode
-        // stays off however the preference is set, and the trigger key falls back to inserting its capital
-        // rather than being swallowed. A session reads the gate when it applies a snapshot, so this needs a
-        // fresh one rather than another revision on the session above.
+        // 缺少可选资源时，模式不因偏好开启而启用；入口大写留在普通组字。
+        // 资源门禁在应用快照时读取，因此使用新会话验证。
         for (NSString *resource in gated)
             assert([NSFileManager.defaultManager removeItemAtPath:[resources stringByAppendingPathComponent:resource]
                                                             error:nil]);
@@ -203,9 +196,9 @@ int main() {
             uint8_t trigger = (uint8_t)[entry[1] characterAtIndex:0];
             NSDictionary *reply = [ungated typeASCII:trigger shift:YES error:&error];
             assert(![reply[@"view"][@"local_mode"] isEqual:entry[0]]);
-            // Not swallowed: unhandled is what leaves the application to insert the capital itself.
-            assert([reply[@"handled"] isEqual:@NO]);
-            assert([reply[@"view"][@"editing_text"] isEqual:@""]);
+            // 保留原字母，不能因缺少资源而吞键或误入模式。
+            assert([reply[@"handled"] isEqual:@YES]);
+            assert([reply[@"view"][@"editing_text"] isEqual:entry[1]]);
             assert([ungated command:MSIME_CANCEL error:&error]);
         }
         assert([ungated closeWithError:&error] && !error);
