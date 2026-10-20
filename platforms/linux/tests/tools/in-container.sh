@@ -147,6 +147,8 @@ value.pop("preferences_directory", None)
 with os.fdopen(os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as output:
     json.dump(value, output)
 PYTHON
+python3 platforms/linux/tests/runtime/daemon_activation.py "$installed_host" \
+  /build/stage/usr/local/share/ibus/component/msime-linux.xml --options "$global_mode_options"
 dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$global_mode_options"
 
 GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/runtime/gtk_smoke.py

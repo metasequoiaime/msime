@@ -16,6 +16,8 @@
 #include "Telemetry.h"
 
 namespace {
+constexpr char kIBusComponentName[] = MSIME_EDITION_TAURI_IDENTIFIER ".IBus";
+
 struct OptionsWatch {
   const char *path;
   GFile *file;
@@ -160,9 +162,17 @@ int main(int argc, char **argv) {
         return engine;
       }), nullptr);
 #endif
+  // daemon 从 XML 按需启动时，靠组件总线名把工厂交给正在等待的首次选择；动态注册不能代替它。
+  if (ibus_bus_request_name(bus, kIBusComponentName, IBUS_BUS_NAME_FLAG_DO_NOT_QUEUE) !=
+      IBUS_BUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
+    std::cerr << "Cannot acquire IBus component name\n";
+    g_object_unref(factory);
+    g_object_unref(bus);
+    return 1;
+  }
   // 组件名、引擎名、显示名和登记的语言按版本取（LinuxEdition.h）：几个版本的 IBus 宿主是各自的进程，名字不同才能同时注册；日文、越南文、藏文版登记在各自的语言下。
   auto component = ibus_component_new(
-      MSIME_EDITION_TAURI_IDENTIFIER, MSIME_EDITION_IBUS_LONGNAME, "0.1.0",
+      kIBusComponentName, MSIME_EDITION_IBUS_LONGNAME, "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
