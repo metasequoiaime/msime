@@ -1013,8 +1013,8 @@ inline std::shared_ptr<NativeCanvasAssets> native_canvas_theme_assets(const Nati
       result->horizontal = layout->value("horizontal", nlohmann::json::object());
       result->vertical = layout->value("vertical", nlohmann::json::object());
       result->fit_content = layout->value("fitContent", false);
-      if (const auto rows = layout->find("expandRows"); rows != layout->end() && rows->is_number_unsigned())
-        result->expand_rows = std::clamp<std::size_t>(rows->get<std::size_t>(), 2, 8);
+      if (const auto rows = layout->find("expandRows"); rows != layout->end() && rows->is_number_integer())
+        result->expand_rows = static_cast<std::size_t>(std::clamp<std::int64_t>(rows->get<std::int64_t>(), 2, 8));
     }
     result->font_family = package.value("fontFamily", std::string{});
     read_native_canvas_animation(*result, package);
