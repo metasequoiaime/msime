@@ -8,11 +8,15 @@ macOS 与 Windows 共用的 `parse_transcription` 按 `text`、`transcription`�
 
 Linux 用户会话语音服务的独立 `transcript` 入口存在同一缺口；四种文字别名都能绕过回复的失败状态。
 
+iOS `AppServicesBridge.parseResponse` 的 `voice` 分支只检查文字类型和长度，顶层错误与明确的聊天截断、过滤状态仍可带着部分正文返回。
+
 ## Decision
 
 在共享 C++ 解析入口提取任何文字之前，拒绝非 `null` 顶层错误，以及首候选 `length`、`content_filter`。抛出固定 `VoiceError`，沿用 `recognize_cloud_asr` 的 `CloudAsrError` 和宿主现有识别失败处理，不透传服务端错误正文。缺省、`null` 与正常结束保持兼容；转写字段顺序、请求、重试和空文字契约保持原样。
 
 Linux `transcript` 在提取任何别名前应用同一规则，抛出固定、不可重试的 `VoiceRequestError()`。`Handler.handle` 沿用原有异常分支发送空正文的 `ok: false`，不会进入部分文字发送、润色或最终文字投递；SiliconFlow 不把这类协议失败当网络故障重试。通用 HTTP worker、凭据探测和既有 4096 字节文字边界保持原样。
+
+iOS `voice` 解析分支在读取 `text` 或 `choices[0].message.content` 前应用同一规则，抛固定 `ServiceFailure`，不透传服务端错误正文；`error: null`、缺省结束原因和正常文字保持兼容。非语音 AI 分支的既有规则不变。
 
 ## 历史笔记审计
 
@@ -39,11 +43,13 @@ Linux 的 `scripts/test-linux-voice-asr-reply.py` 经真实 HTTP worker 和回�
 
 本批再次运行 `bash scripts/verify-local.sh --quick` 时，Rust workspace 因缺少既有的 `target/macos/水杉输入法.app` 资源而失败；Linux Docker 桌面与原生宿主阶段因本机没有 Docker 跳过。笔记校验、差异检查及上述 Linux 回归通过。
 
+iOS `CustomServiceTests` 新增 4 种明确失败回复和 `error: null` 兼容回归；Swift 源文件 `swiftc -parse`、iOS 项目配置、特殊文件读取和请求生命周期静态回归通过。由于外置盘低于 50 GB，本批未启动 Xcode 构建或模拟器。
+
 ## Consequences
 
 - 明确失败的转写不会进入润色或投递，宿主沿用现有失败提示；不增加日志或服务端错误正文透传。
 - 省略结束状态的服务依然不能证明结果完整，未知结束原因沿用现有兼容行为。明确失败时舍弃服务已经生成的部分文字。
-- 覆盖共享 C++ 的 macOS、Windows 转写入口及 Linux 用户会话服务的批量转写，不覆盖 Android、iOS、HarmonyOS 的独立解析路径、流式识别或凭据探测。
+- 覆盖共享 C++ 的 macOS、Windows 转写入口、Linux 用户会话服务的批量转写及 iOS 整句转写解析，不覆盖 Android、HarmonyOS 的独立解析路径、流式识别或凭据探测。
 - 本机缺少 Windows 完整交叉工具链，共享测试不能替代 Windows 产品构建与系统输入法验收；也未验证外部 HTTPS、麦克风录音或完整语音交互。
 
 ## Sources
