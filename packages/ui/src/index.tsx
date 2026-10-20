@@ -1748,6 +1748,7 @@ export type {
   CloudDictionarySnapshotRequest,
   CloudFixedPosition,
   CloudRankingMode,
+  ClipboardCaptureStatus,
   EmojiPanelClient,
   PanelClient,
   VoicePanelClient,

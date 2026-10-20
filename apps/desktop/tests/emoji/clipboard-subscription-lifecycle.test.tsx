@@ -233,7 +233,7 @@ test("polling waits while a clipboard mutation is pending and resumes afterward"
   const remove = vi.fn(() => deletion.promise);
   render(view({ ...current.client, clipboard: { ...current.clipboard, remove } }));
   await act(async () => undefined);
-  fireEvent.click(screen.getByRole("button", { name: "删除此条记录" }));
+  fireEvent.click(screen.getByRole("button", { name: "删除此条历史记录" }));
   expect(remove).toHaveBeenCalledWith("合成初始历史");
   await act(async () => vi.advanceTimersByTimeAsync(800));
   expect(current.clipboard.list).toHaveBeenCalledOnce();

@@ -1,4 +1,9 @@
-export type CloudClipboardItemShape = { id: string; text: string };
+export type CloudClipboardItemShape = {
+  id: string;
+  text: string;
+  pinned?: boolean;
+  device?: string;
+};
 /** 云剪贴板端到端加密的本机状态：`ready` 可读写，`pending` 等待另一台设备允许，`disabled` 账号关闭了云剪贴板。 */
 export type CloudClipboardE2eStatus = "ready" | "pending" | "disabled";
 /** `list` 结果里的 `e2e` 对象，见 `docs/cloud-clipboard-e2e.md`。 */
@@ -72,13 +77,21 @@ export function cloudResponseRequest<T extends { status: string }>(value: {
 
 export function cloudClipboardItems(value: { items?: unknown }): CloudClipboardItemShape[] {
   return Array.isArray(value.items)
-    ? value.items.filter(
-        (item): item is CloudClipboardItemShape =>
-          Boolean(item) &&
-          typeof item === "object" &&
-          typeof (item as CloudClipboardItemShape).id === "string" &&
-          typeof (item as CloudClipboardItemShape).text === "string",
-      )
+    ? value.items
+        .filter(
+          (item): item is CloudClipboardItemShape =>
+            Boolean(item) &&
+            typeof item === "object" &&
+            typeof (item as CloudClipboardItemShape).id === "string" &&
+            typeof (item as CloudClipboardItemShape).text === "string",
+        )
+        .map(({ id, text, pinned, device }) => ({
+          id,
+          text,
+          // 元信息只在形状正确时保留：置顶必须是布尔值，来源设备必须是非空字符串。
+          ...(typeof pinned === "boolean" ? { pinned } : {}),
+          ...(typeof device === "string" && device.trim() ? { device: device.trim() } : {}),
+        }))
     : [];
 }
 

@@ -90,10 +90,89 @@ pub(crate) fn write_linux_clipboard(text: &str) -> bool {
     false
 }
 
+/// 剪贴板采集最近一轮的结果，给面板的状态行用，对应 macOS 原生剪贴板页 `MacClipboardMonitor.Status` 的四种状态；Linux 多一种读不到系统剪贴板（缺 wl-clipboard、xclip 或 xsel，或会话里没有可读的剪贴板）。
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ClipboardCaptureStatus {
+    Disabled,
+    Monitoring,
+    Unavailable,
+    ReadUnavailable,
+    SaveFailed,
+}
+
+#[cfg(target_os = "linux")]
+impl ClipboardCaptureStatus {
+    const fn code(self) -> u8 {
+        match self {
+            Self::Disabled => 1,
+            Self::Monitoring => 2,
+            Self::Unavailable => 3,
+            Self::ReadUnavailable => 4,
+            Self::SaveFailed => 5,
+        }
+    }
+
+    fn from_code(code: u8) -> Option<Self> {
+        [
+            Self::Disabled,
+            Self::Monitoring,
+            Self::Unavailable,
+            Self::ReadUnavailable,
+            Self::SaveFailed,
+        ]
+        .into_iter()
+        .find(|status| status.code() == code)
+    }
+}
+
+/// 监视线程写、`clipboard_capture_status` 读的最近状态；0 表示还没跑完第一轮。
+#[cfg(target_os = "linux")]
+#[derive(Clone, Default)]
+pub(crate) struct ClipboardCaptureState(Arc<std::sync::atomic::AtomicU8>);
+
+#[cfg(target_os = "linux")]
+impl ClipboardCaptureState {
+    /// 记下这一轮的状态，返回它是否与上一轮不同。
+    pub(crate) fn update(&self, status: ClipboardCaptureStatus) -> bool {
+        self.0
+            .swap(status.code(), std::sync::atomic::Ordering::AcqRel)
+            != status.code()
+    }
+
+    pub(crate) fn current(&self) -> Option<ClipboardCaptureStatus> {
+        ClipboardCaptureStatus::from_code(self.0.load(std::sync::atomic::Ordering::Acquire))
+    }
+}
+
+/// 一轮采集的状态：偏好读不出来时暂停；关闭历史时停用；读不到剪贴板时报读取不可用；剪贴板里是密码管理器标了保密的内容（`Ok(None)`）也算在正常采集；保存失败下一轮重试。
+#[cfg(target_os = "linux")]
+pub(crate) fn clipboard_capture_round(
+    preferences_readable: bool,
+    enabled: bool,
+    read: &Result<Option<String>, HostActionError>,
+    saved: Option<bool>,
+) -> ClipboardCaptureStatus {
+    if !preferences_readable {
+        ClipboardCaptureStatus::Unavailable
+    } else if !enabled {
+        ClipboardCaptureStatus::Disabled
+    } else if read.is_err() {
+        ClipboardCaptureStatus::ReadUnavailable
+    } else if saved == Some(false) {
+        ClipboardCaptureStatus::SaveFailed
+    } else {
+        ClipboardCaptureStatus::Monitoring
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn start_linux_clipboard_monitor(
     history: Arc<Mutex<ClipboardHistoryStore>>,
     preferences: Arc<PreferencesStore>,
+    capture: ClipboardCaptureState,
+    on_status_changed: impl Fn() + Send + 'static,
 ) {
     let _ = std::thread::Builder::new()
         .name("msime-clipboard-monitor".to_owned())
@@ -104,30 +183,49 @@ pub(crate) fn start_linux_clipboard_monitor(
                 let enabled = snapshot
                     .as_ref()
                     .is_some_and(|snapshot| snapshot.preferences.clipboard_history);
-                if let Some(snapshot) = snapshot {
+                if let Some(snapshot) = snapshot.as_ref() {
                     if let Ok(mut store) = history.lock() {
                         store.set_limit(snapshot.preferences.clipboard_history_limit);
                     }
                 }
+                let mut read = Ok(None);
+                // `Some(false)` 是这一轮保存失败；没有新内容要保存时为 `None`。
+                let mut saved = None;
                 if !enabled {
                     last_text = None;
-                } else if let Ok(Some(text)) = linux_clipboard_text() {
-                    if last_text.as_deref() != Some(text.as_str()) {
-                        match preferences.capture_clipboard_text(text.clone()) {
-                            Ok(true) => {
-                                if let Ok(mut store) = history.lock() {
-                                    let _ = store.load();
+                } else {
+                    read = linux_clipboard_text();
+                    if let Ok(Some(text)) = &read {
+                        if last_text.as_deref() != Some(text.as_str()) {
+                            match preferences.capture_clipboard_text(text.clone()) {
+                                Ok(true) => {
+                                    if let Ok(mut store) = history.lock() {
+                                        let _ = store.load();
+                                    }
+                                    last_text = Some(text.clone());
                                 }
-                                last_text = Some(text);
+                                Ok(false) => last_text = None,
+                                Err(_) => saved = Some(false),
                             }
-                            Ok(false) => last_text = None,
-                            Err(_) => {}
                         }
                     }
+                }
+                let status = clipboard_capture_round(snapshot.is_some(), enabled, &read, saved);
+                if capture.update(status) {
+                    on_status_changed();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(750));
             }
         });
+}
+
+/// 剪贴板面板状态行要显示的采集状态；监视线程还没跑完第一轮时为 `None`。
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub(crate) fn clipboard_capture_status(
+    state: tauri::State<'_, ClipboardCaptureState>,
+) -> Option<ClipboardCaptureStatus> {
+    state.current()
 }
 
 #[tauri::command]

@@ -14,7 +14,11 @@ import {
 } from "../emoji/emoji-catalog";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import { useAsyncGeneration } from "../settings/use-async-generation";
-import type { EmojiPanelClient } from "./panel-client";
+import {
+  CLOUD_CLIPBOARD_MAX_UTF16,
+  cloudClipboardErrorMessage,
+} from "../settings/cloud-clipboard-send";
+import type { ClipboardCaptureStatus, EmojiPanelClient } from "./panel-client";
 import type { PanelActivationMode } from "./panel-activation-buttons";
 import {
   flattenGroups,
@@ -25,6 +29,18 @@ import {
 import { usePanelAction } from "./use-panel-action";
 
 export type EmojiPage = "home" | "emoji" | "sticker" | "gif" | "kaomoji" | "symbols" | "clipboard";
+
+/** 底部状态行与浮动提示共用一个计时值：临时消息（复制、输入、删除成功等）以 macOS 原生面板那样的胶囊提示浮在内容上方 1.6 秒，常驻提示和错误留在底部状态行。 */
+type PanelNotice = { text: string; toast: boolean };
+const NO_NOTICE: PanelNotice = { text: "", toast: false };
+
+/** 胶囊提示里被复制的内容只留一行、最多 24 个 UTF-16 单元，与 macOS 的 `MacEmojiToastState.preview` 一致，不截断代理对。 */
+export function emojiToastPreview(text: string): string {
+  const line = text.replace(/[\r\n]/g, "");
+  if (line.length <= 24) return line;
+  const end = /[\uD800-\uDBFF]/.test(line[23]) ? 23 : 24;
+  return `${line.slice(0, end)}...`;
+}
 
 /** 表情、符号和剪贴板面板的目录、操作与订阅状态；导航绑定须挂在面板根元素上。 */
 export function useEmojiPanel(
@@ -71,11 +87,14 @@ export function useEmojiPanel(
   const [clipboardRefresh, setClipboardRefresh] = useState(0);
   const [activationMode, setActivationMode] = useState<PanelActivationMode>("copy");
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
+  const [captureStatus, setCaptureStatus] = useState<ClipboardCaptureStatus | null>(null);
   const clipboardGeneration = useAsyncGeneration();
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
     null,
   );
-  const [notice, setNoticeText] = useTimedValue("");
+  const [panelNotice, setPanelNotice] = useTimedValue<PanelNotice>(NO_NOTICE);
+  const notice = panelNotice.toast ? "" : panelNotice.text;
+  const toast = panelNotice.toast ? panelNotice.text : "";
   const [catalog, setCatalog] = useState({
     emoji: fallbackEmojiGroups,
     kaomoji: fallbackKaomojiGroups,
@@ -90,7 +109,10 @@ export function useEmojiPanel(
   const clipboardLifecycle = useAsyncGeneration(client, page, clipboardRefresh);
 
   function setNotice(message: string, temporary = false) {
-    setNoticeText(message, temporary ? 1600 : undefined);
+    setPanelNotice(
+      message ? { text: message, toast: temporary } : NO_NOTICE,
+      temporary ? 1600 : undefined,
+    );
   }
 
   useEffect(() => {
@@ -180,6 +202,11 @@ export function useEmojiPanel(
             setClipboardEnabled(enabled);
             setClipboardLoadFailed(false);
           }
+        })
+        .then(() => client.clipboard?.captureStatus?.())
+        .then((status) => {
+          if (isCurrent() && request === clipboardGeneration.current)
+            setCaptureStatus(status ?? null);
         })
         .catch(() => {
           if (isCurrent() && request === clipboardGeneration.current) {
@@ -337,6 +364,21 @@ export function useEmojiPanel(
   const canCopy = Boolean(client.copyText ?? client.clipboard?.copy);
   const effectiveMode = !client.sendText ? "copy" : !canCopy ? "input" : activationMode;
 
+  /** 插入成功后关闭面板（`closeAfterInsert`）：关窗前把最近使用直接写进存储，因为窗口关掉后 React 来不及在提交阶段落盘。 */
+  function closeAfterInsert(recentItem?: EmojiCatalogItem) {
+    if (!client.closeAfterInsert) return;
+    if (recentItem) {
+      const remember = (list: EmojiCatalogItem[]) =>
+        [recentItem, ...list.filter((item) => item.text !== recentItem.text)].slice(0, 28);
+      writeOptionalJson("msime.emoji.recent", remember(recent));
+      if (page === "symbols") writeOptionalJson("msime.symbols.recent", remember(symbolRecent));
+    }
+    // 粘贴时仍在它自己的面板动作里，不能再经 `closeEmoji` 排队，直接请宿主关窗。
+    void Promise.resolve()
+      .then(() => client.close())
+      .catch(() => setNotice("无法关闭面板，请重试"));
+  }
+
   function copy(text: string, isClipboardItem = false, keywords = text) {
     const input = !isClipboardItem && effectiveMode === "input";
     const action = input
@@ -352,10 +394,7 @@ export function useEmojiPanel(
     void action(text)
       .then(() => {
         if (revision !== operationRevision.current) return;
-        setNotice(
-          input ? "已输入到原应用" : isClipboardItem ? "已复制到剪贴板" : `已复制：${text}`,
-          true,
-        );
+        setNotice(input ? "已输入到原应用" : `已复制  ${emojiToastPreview(text)}`, true);
         if (page === "symbols")
           setSymbolRecent((current) =>
             [{ text, keywords }, ...current.filter((item) => item.text !== text)].slice(0, 28),
@@ -364,6 +403,7 @@ export function useEmojiPanel(
           setRecent((current) =>
             [{ text, keywords }, ...current.filter((item) => item.text !== text)].slice(0, 28),
           );
+        if (input) closeAfterInsert({ text, keywords });
       })
       .catch(() => {
         if (revision === operationRevision.current)
@@ -415,8 +455,30 @@ export function useEmojiPanel(
     if (!paste) return;
     return runOperation(async (revision) => {
       await paste(text);
-      if (revision === operationRevision.current) setNotice("已粘贴到原应用", true);
+      if (revision !== operationRevision.current) return;
+      setNotice("已粘贴到原应用", true);
+      closeAfterInsert();
     }, "无法粘贴，请使用复制后手动粘贴");
+  }
+
+  /** 把一条本地记录发到云剪贴板，只发用户点名的这一条；结果用胶囊提示报告，失败按宿主错误码说明原因。 */
+  function sendClipboardToCloud(text: string) {
+    const send = client.clipboard?.sendToCloud;
+    if (!send) return;
+    if (text.length > CLOUD_CLIPBOARD_MAX_UTF16) {
+      setNotice(`云剪贴板最多保存 ${CLOUD_CLIPBOARD_MAX_UTF16} 个字符，这条记录太长`, true);
+      return;
+    }
+    return runOperation(async (revision) => {
+      try {
+        await send(text);
+      } catch (error) {
+        if (revision === operationRevision.current)
+          setNotice(cloudClipboardErrorMessage(error, "发到云剪贴板失败，请重试"));
+        return;
+      }
+      if (revision === operationRevision.current) setNotice("已发到云剪贴板", true);
+    }, "发到云剪贴板失败，请重试");
   }
 
   function removeClipboard(text: string) {
@@ -430,7 +492,7 @@ export function useEmojiPanel(
     return changeClipboard(
       () => client.clipboard!.remove!(text),
       () => clipboard.filter((item) => item !== text),
-      "记录已删除",
+      "已删除历史记录（不会清空系统剪贴板）",
     );
   }
 
@@ -582,7 +644,9 @@ export function useEmojiPanel(
     clipboardBusy,
     clipboardLoadFailed,
     clipboardEnabled,
+    captureStatus,
     notice,
+    toast,
     catalogUnavailable,
     catalogLoading,
     categoryPage,
@@ -603,6 +667,7 @@ export function useEmojiPanel(
     enableClipboard,
     syncClipboard,
     pasteClipboard,
+    sendClipboardToCloud,
     removeClipboard,
     clearClipboard,
     clearRecent,

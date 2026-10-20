@@ -1618,6 +1618,57 @@ fn linux_input_method_key_request_names_the_keysym_and_evdev_code() {
     );
 }
 
+// 剪贴板面板的状态行按这一轮的结果说话：偏好读不出、历史关闭、剪贴板读不到、保存失败各有一句，其余都是正常采集。
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_clipboard_capture_status_names_each_round() {
+    use super::clipboard_history::{
+        clipboard_capture_round, ClipboardCaptureState, ClipboardCaptureStatus,
+    };
+    let text = Ok(Some("synthetic".to_owned()));
+    let unreadable = Err(HostActionError {
+        code: "unavailable",
+    });
+    assert_eq!(
+        clipboard_capture_round(false, false, &Ok(None), None),
+        ClipboardCaptureStatus::Unavailable
+    );
+    assert_eq!(
+        clipboard_capture_round(true, false, &Ok(None), None),
+        ClipboardCaptureStatus::Disabled
+    );
+    assert_eq!(
+        clipboard_capture_round(true, true, &unreadable, None),
+        ClipboardCaptureStatus::ReadUnavailable
+    );
+    assert_eq!(
+        clipboard_capture_round(true, true, &text, Some(false)),
+        ClipboardCaptureStatus::SaveFailed
+    );
+    assert_eq!(
+        clipboard_capture_round(true, true, &text, None),
+        ClipboardCaptureStatus::Monitoring
+    );
+    // 保密内容（`Ok(None)`）不保存，但采集本身是正常的。
+    assert_eq!(
+        clipboard_capture_round(true, true, &Ok(None), None),
+        ClipboardCaptureStatus::Monitoring
+    );
+    let state = ClipboardCaptureState::default();
+    assert_eq!(state.current(), None);
+    assert!(state.update(ClipboardCaptureStatus::Monitoring));
+    assert!(!state.update(ClipboardCaptureStatus::Monitoring));
+    assert!(state.update(ClipboardCaptureStatus::ReadUnavailable));
+    assert_eq!(
+        state.current(),
+        Some(ClipboardCaptureStatus::ReadUnavailable)
+    );
+    assert_eq!(
+        serde_json::to_value(ClipboardCaptureStatus::ReadUnavailable).unwrap(),
+        serde_json::json!("read_unavailable")
+    );
+}
+
 // 与 macOS 一致：屏幕键盘贴着工作区底部居中，表情和本地剪贴板面板在工作区居中，其余面板仍在输入窗口下方。
 #[cfg(target_os = "linux")]
 #[test]

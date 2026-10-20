@@ -8938,7 +8938,7 @@ test("emoji panel searches, copies items, tracks recent use and reads clipboard 
   fireEvent.click(screen.getByRole("button", { name: "😀" }));
   fireEvent.click(screen.getByRole("button", { name: "😂" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("😂"));
-  expect(screen.getByRole("status").textContent).toContain("已复制：😂");
+  expect(document.querySelector("[data-panel-toast]")?.textContent).toBe("已复制  😂");
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "laugh" } });
   expect(screen.getByRole("button", { name: "😂" })).toBeDefined();

@@ -5276,7 +5276,20 @@ pub fn run() {
                 directory.join("clipboard_history.json"),
             );
             #[cfg(target_os = "linux")]
-            start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
+            {
+                let capture = clipboard_history::ClipboardCaptureState::default();
+                app.manage(capture.clone());
+                let emitter = app.handle().clone();
+                // 采集状态变了就发一次剪贴板变化通知，开着的剪贴板面板随之重读列表和状态行。
+                start_linux_clipboard_monitor(
+                    Arc::clone(&clipboard_state.0),
+                    preferences,
+                    capture,
+                    move || {
+                        let _ = emitter.emit("clipboard-history-changed", ());
+                    },
+                );
+            }
             #[cfg(target_os = "windows")]
             msime_host_windows::start_clipboard_monitor({
                 let preferences = preferences.clone();
@@ -5659,6 +5672,8 @@ pub fn run() {
             linux_provider_credentials::clear_voice_provider_credential,
             save_preferences,
             clipboard_history::list_clipboard_history,
+            #[cfg(target_os = "linux")]
+            clipboard_history::clipboard_capture_status,
             clipboard_history::clear_clipboard_history,
             clipboard_history::remove_clipboard_history,
             clipboard_history::set_clipboard_history_pinned,

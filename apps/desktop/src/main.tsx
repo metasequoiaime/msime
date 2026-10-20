@@ -84,7 +84,7 @@ import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard } from "./input/desktop-keyboard";
 import { createDesktopPanelClients } from "./input/desktop-panel-clients";
 import { createDesktopClipboardClient } from "./input/desktop-clipboard-client";
-import { useHostPlatform } from "./input/panel-host";
+import { useHostPlatform, usePanelHost } from "./input/panel-host";
 import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopEmojiPanel } from "./input/desktop-emoji-panel";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
@@ -385,6 +385,27 @@ function DesktopHandwritingSurface({ theme }: { theme: "dark" | "light" }) {
       theme={theme}
       platform={platform}
     />
+  );
+}
+
+/** 独立的表情和本地剪贴板窗口：等宿主报告平台后再挂面板，免得面板先按一种平台装好客户端、随后又整个换掉。 */
+function DesktopEmojiSurface({
+  theme,
+  initialPage,
+}: {
+  theme: "dark" | "light";
+  initialPage?: "home" | "clipboard";
+}) {
+  const host = usePanelHost(client.host);
+  return host.resolved ? (
+    <DesktopEmojiPanel
+      client={panelClients.emoji}
+      theme={theme}
+      initialPage={initialPage}
+      hostPlatform={host.host?.platform}
+    />
+  ) : (
+    <StatusMessage role="status">正在连接面板…</StatusMessage>
   );
 }
 
@@ -1067,13 +1088,11 @@ const content =
     <DesktopCloudDictionarySurface />
   ) : panel === "clipboard" ? (
     <DesktopPanelTheme preferences={client} surface="emoji">
-      {(theme) => (
-        <DesktopEmojiPanel client={panelClients.emoji} theme={theme} initialPage="clipboard" />
-      )}
+      {(theme) => <DesktopEmojiSurface theme={theme} initialPage="clipboard" />}
     </DesktopPanelTheme>
   ) : panel === "emoji" ? (
     <DesktopPanelTheme preferences={client} surface="emoji">
-      {(theme) => <DesktopEmojiPanel client={panelClients.emoji} theme={theme} />}
+      {(theme) => <DesktopEmojiSurface theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "vocabulary" ? (
     <VocabularyReviewPanel client={vocabularyReview} />

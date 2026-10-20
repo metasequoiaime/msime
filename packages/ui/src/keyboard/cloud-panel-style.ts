@@ -47,6 +47,8 @@ export const clipboardItem =
   "flex items-start gap-2 border-b border-white/[0.09] py-2.5 [&>button:first-child]:flex-1 [&>button:first-child]:border-0 [&>button:first-child]:bg-transparent [&>button:first-child]:p-0 [&>button:first-child]:text-left [&>button:first-child]:whitespace-pre-wrap [&>button:first-child]:wrap-anywhere [&>button:first-child]:text-[#f5f5f7]";
 export const clipboardDelete =
   "shrink-0 grow-0 basis-auto rounded-md border-0 bg-[#3a3945] px-2 py-1 text-[#e7b4bb]";
+/** 条目文字下方的「已置顶 · 设备名」，小一号、弱化，作为按钮名称的一部分被读出。 */
+export const clipboardItemMeta = "mt-1 block text-[11px] leading-snug text-[#aeb0b7]";
 /** 端到端加密的设备区块：本机待允许的说明、等待允许的设备和设备列表，与开关同一种底框。 */
 export const clipboardSection = `flex flex-col gap-2 p-3 text-xs ${clipField} ${clipText}`;
 /** 等待允许的设备是需要用户处理的提示，用绿色描边与普通区块区分开。 */
