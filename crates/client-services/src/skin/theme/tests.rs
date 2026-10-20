@@ -830,6 +830,7 @@ fn summary_packages_keep_only_declared_modes() {
         themes: vec!["dark".into()],
         min_width_dip: 0.0,
         canvas: false,
+        resolved_layout: None,
         corner_radius_dip: None,
         border_width_dip: None,
         item_corner_radius_dip: None,

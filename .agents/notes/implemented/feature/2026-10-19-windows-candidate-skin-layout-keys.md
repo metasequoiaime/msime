@@ -10,6 +10,8 @@ Status: implemented
 
 `CandidateSkin.h` 的 `candidate_skin_layout` 从 `SkinSummary` 读出这几组键，交给 `CandidateWindow::set_skin_layout`。`CandidateSkinLayout.h`（不碰 JSON 和 Direct2D）按当前排列和候选字号解析成 `CandidateSkinMetrics`：横排或竖排表里写了的键盖过共享表，em 长度乘候选字号后取整，同 msime-windows 的 `ApplyLayer` 与 `ResolveLength`。`candidate_card_metrics` 多收这份解析结果和这一页最宽序号的实测宽度，只改皮肤写了的那几项，其余字段的算式一字不改；尺寸、行、首行、点击和读屏都还是读这一份 metrics。
 
+[共享出厂布局](2026-10-20-skin-factory-layout.md)补齐 Windows 基底的默认：新 catalog 的 `resolvedLayout` 已完成出厂公共、出厂排列、包公共、包排列四层覆盖，本宿主直接使用其横竖排结果；旧 catalog 仍按原始表读取。用户偏好优先级和每个键的绘制含义保持如下约定。
+
 ### 每个键在这张卡片上的含义
 
 - `padding`：卡片四边到候选的距离，行左右各缩进它，上下边距都是它。

@@ -46,3 +46,5 @@ Web 绘制切片的后续验证：本机 `node --test 'packages/web-engine/test/
 选中条、逐角高亮、悬停与预编辑配色由[原生画布外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)补充，保留本篇其余范围与生命周期规则。
 
 [候选释义分段](2026-10-20-candidate-translation-runs.md)由共享 Rust 层发布 UTF-8 同源范围与规范化颜色；Linux 原生画布消费这些范围，其他宿主可继续忽略新增的可选字段。
+
+Windows 基底的绘制默认由[共享出厂布局](2026-10-20-skin-factory-layout.md)补齐：`resolvedLayout` 与编辑器原始声明分开，供各宿主逐步接入。

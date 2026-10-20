@@ -1,0 +1,104 @@
+# 内置皮肤「微软」的出厂清单：皮肤级的开关与完整外观都在这里，输入法按它绘制候选框与悬浮工具栏。
+# 安装或升级时整份覆盖，不建议直接修改；想要自己的样式，复制一份到 skins\<新 id>\ 做成外部皮肤
+# （写 base = "microsoft"，只写想改的键）。基于 microsoft 的外部皮肤没写的键沿用这里的值。
+# 字段说明见 skins/README.md。
+schema_version = 1
+id = "microsoft"
+name = "微软 Microsoft"
+description = "仿 Windows 11 微软拼音：宽候选格、紫色选中条与实心翻页三角"
+
+[candidate_window]
+# 候选框里的翻页箭头：与微软拼音一样默认打开。横排在候选右侧、隔一条分隔线，竖排在最后一行下方、与序号左对齐
+page_arrows = true
+# 候选框严格按文字所需的宽度收紧（默认关闭）：不垫出厂最小宽度，同一输入里也不只增不减
+fit_content = false
+# 横排候选用卷轴展开代替翻页（默认关闭）
+expand_panel = false
+
+corner_radius_dip = 8
+border_width_dip = 1
+item_corner_radius_dip = 4
+# 几何随字号缩放（em 按候选字号换算后取整）。
+padding = "0.3em"
+item_gap = 2
+item_extra_height = "0.24em"
+# 序号左端距高亮左缘 0.4em。
+number_inset = "0.4em"
+item_padding_right = "0.3em"
+number_scale = 1.0
+number_gap = "0.2em"
+selected_bar_width = 3
+selected_bar_height_em = 0.9
+selected_bar_inside = true
+item_corners_follow_card = false
+justify_rows = false
+trim_hidden_preedit_gap = true
+# 翻页箭头画成候选文字色的实心三角，横排时前面再加一条分隔线（page_arrow_divider）。
+page_arrow_style = "triangle"
+preedit_margin_dip = [0, 0, 0, 0]
+
+[candidate_window.horizontal]
+item_gap = "0.15em"
+item_min_width = "3.5em"
+
+[candidate.dark]
+surface = "#2C2C2C"
+border = "#1C1C1C"
+text = "#FFFFFF"
+number = "#CFCFCF"
+accent = "#E183D9"
+selected = "#383838"
+hover = "#353535"
+show_selected_bar = true
+page_arrow_divider = "#3D3D3D"
+# 单词 Notion Pink，与粉色选中条同一色相；词性 Notion Purple。
+translation = "#E255A1"
+translation_pos = "#9A6DD780"
+translation_separator = "#E255A173"
+
+[candidate.dark.menu]
+background = "#2C2C2C"
+border = "#1C1C1C"
+text = "#FFFFFF"
+hover = "#383838"
+
+[candidate.light]
+surface = "#F9F9F9"
+border = "rgba(0, 0, 0, 0.1)"
+text = "#1A1A1A"
+number = "#5F5F5F"
+accent = "#E183D9"
+selected = "#EAEAEA"
+hover = "#F0F0F0"
+show_selected_bar = true
+page_arrow_divider = "#E0E0E0"
+translation = "#AD1A72"
+translation_pos = "#6940A580"
+translation_separator = "#AD1A7273"
+
+[candidate.light.menu]
+background = "#F9F9F9"
+border = "rgba(0, 0, 0, 0.1)"
+text = "#1A1A1A"
+hover = "#EAEAEA"
+
+# 工具栏沿用 Fluent 的配色，只有拖拽条跟候选框选中条同为粉紫色。
+[toolbar]
+corner_radius_dip = 8
+icon_corner_radius_dip = 6
+
+[toolbar.dark]
+background = "#1A1A1A"
+border = "rgba(255, 255, 255, 0.15)"
+icon = "#FFFFFF"
+hover = "rgba(255, 255, 255, 0.10)"
+divider = "rgba(255, 255, 255, 0.15)"
+handle = "#E183D9"
+
+[toolbar.light]
+background = "#FFFFFF"
+border = "rgba(0, 0, 0, 0.12)"
+icon = "#1A1A1A"
+hover = "rgba(0, 0, 0, 0.08)"
+divider = "rgba(0, 0, 0, 0.12)"
+handle = "#E183D9"

@@ -721,6 +721,18 @@ def main():
                         popup = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), int(native_window()))
                         assert popup.get_visual().get_depth() == 32, "合成器存在时没有创建 ARGB 候选窗"
                     wait(lambda: palette_visible((WIDGET, SELECTED)))
+                    # 清单未写高亮圆角，必须继承 canvas 的 4 DIP；显式零值仍应画直角。
+                    manifest = skin / "skin.toml"
+                    default_manifest = manifest.read_text()
+                    default_selected = selected_pixels()
+                    assert default_selected[2][:3] != bytes(SELECTED), "缺省高亮未继承出厂圆角"
+                    assert default_selected[1] >= (20 * 1.35 + 2) * NATIVE_SCALE
+                    save_image("native-factory-layout")
+                    manifest.write_text(default_manifest.replace(
+                        "[candidate_window]\n", "[candidate_window]\nitem_corner_radius_dip = 0\n"))
+                    wait(lambda: selected_pixels() is not None and selected_pixels()[2][:3] == bytes(SELECTED))
+                    manifest.write_text(default_manifest)
+                    wait(lambda: selected_pixels() == default_selected)
                     selected_before = palette_top(SELECTED)
                     widget_before = palette_top(WIDGET)
                     assert widget_before < selected_before, "上方挂件未扩展原生窗口留白"
@@ -741,12 +753,14 @@ def main():
                         "number_scale = 0.45\nnumber_inset = 16\nnumber_gap = 24\n"
                         "item_padding_right = 20\nitem_gap = 12\npreedit_margin_dip = [7, 11, 9, 13]\n")
                     manifest.write_text(styled_manifest)
-                    wait(lambda: selected_pixels() is not None and
-                         selected_pixels()[1] >= int(preferences['candidate_font_size'] * 1.35 + 34) * NATIVE_SCALE)
+                    def selected_height_at_least(height):
+                        pixels = selected_pixels()
+                        return pixels is not None and pixels[1] >= height * NATIVE_SCALE
+                    wait(lambda: selected_height_at_least(int(preferences['candidate_font_size'] * 1.35 + 34)))
                     assert palette_top(SELECTED) == selected_before + 7 * NATIVE_SCALE, "拼音上边距未进入真实候选布局"
                     before_font = selected_pixels()
                     manifest.write_text(styled_manifest.replace("[candidate_window]\n", "[candidate_window]\nfont_family = 'monospace'\n"))
-                    wait(lambda: selected_pixels() is not None and selected_pixels() != before_font)
+                    wait(lambda: (pixels := selected_pixels()) is not None and pixels != before_font)
                     save_image("native-skin-layout")
                     assert focused(), "布局或字体热更新抢走编辑器焦点"
                     # 点击新增行高底部，若命中仍用旧矩形就会错选下一项。

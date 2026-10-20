@@ -57,13 +57,16 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
                                                             const std::string &id, bool dark) {
   if (!package.is_object() || package.value("id", std::string{}) != id || !package.value("canvas", false)) return {};
   auto result = std::make_shared<NativeCanvasAssets>();
-  result->geometry = package.value("geometry", nlohmann::json::object());
-  result->horizontal = package.value("horizontal", nlohmann::json::object());
-  result->vertical = package.value("vertical", nlohmann::json::object());
+  // 解析结果已按出厂公共、出厂排列、包公共、包排列合并，不再叠加原始公共表。
+  const auto resolved = package.find("resolvedLayout");
+  const auto &layout = resolved != package.end() && resolved->is_object() ? *resolved : package;
+  result->geometry = layout.value("geometry", nlohmann::json::object());
+  result->horizontal = layout.value("horizontal", nlohmann::json::object());
+  result->vertical = layout.value("vertical", nlohmann::json::object());
   result->font_family = package.value("fontFamily", std::string{});
   const auto number = [&](const char *key) {
-    const auto at = package.find(key);
-    return at != package.end() && at->is_number() ? at->get<double>() : 0.0;
+    const auto at = layout.find(key);
+    return at != layout.end() && at->is_number() ? at->get<double>() : 0.0;
   };
   result->card_radius = number("cornerRadiusDip");
   result->item_radius = number("itemCornerRadiusDip");
@@ -71,10 +74,9 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->min_width = package.value("minWidthDip", 0.0);
   result->explicit_content = package.contains("contentInsetsDip");
   result->explicit_line_gap = package.contains("lineGapDip");
-  result->fit_content = package.value("fitContent", false);
-  // 原生画布只接受 canvas 基底；其出厂开关沿用 fluent，翻页缺省关闭。
-  result->page_arrows = package.value("pageArrows", false);
-  result->expand_panel = package.value("expandPanel", false);
+  result->fit_content = layout.value("fitContent", false);
+  result->page_arrows = layout.value("pageArrows", false);
+  result->expand_panel = layout.value("expandPanel", false);
   std::map<std::string, std::shared_ptr<const NativeCanvasAnimation>> cache;
   std::uint64_t remaining_pixels = 8000000;
   auto load = [&](const nlohmann::json &name) -> std::shared_ptr<const NativeCanvasAnimation> {

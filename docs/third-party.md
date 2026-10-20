@@ -406,3 +406,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 ## Linux 原生画布翻页
 
 `platforms/linux/src/candidates/NativeCanvas.h` 的翻页尺寸、布局规则与圆角三角路径参考 msime-windows 固定提交 `dd018f79858314ed542a47c528608752b13bd261` 的 `server/src/window/candidate_skin_scene.cpp` 和 `ui/src/PagerArrows.cpp`，以 Cairo 路径和 Pango 字号重写；按 GPL-3.0 分发，完整许可见仓库根目录的 [LICENSE](../LICENSE)。本段与来源提交信息随源代码保留，二进制分发沿用本项目 GPL 许可和对应源代码提供要求。
+
+## Windows 皮肤出厂布局
+
+`crates/client-services/src/skin/catalog/factory-layouts/` 的八份 TOML 原样取自 [msime-windows 固定提交 `a60e2948dbba29f32bec58ee4bf44d68ce953a0b` 的 `skins/default/`](https://github.com/metasequoiaime/msime-windows/tree/a60e2948dbba29f32bec58ee4bf44d68ce953a0b/skins/default)，上游各 `<base>/skin.toml` 在本仓以 `<base>.toml` 保存。共享层只读取候选窗几何与开关，不执行样式或脚本。按上游 GPL-3.0 与本仓一同分发，许可全文为仓库根目录的 [LICENSE](../LICENSE)；二进制仍通过各平台既有 GPL 通知和对应源码提供这些内容，无额外分发限制。

@@ -122,6 +122,8 @@ impl ThemePackage {
             _decoration_align: serde::de::IgnoredAny,
             #[serde(default, rename = "corner_radius_dip")]
             _corner_radius_dip: serde::de::IgnoredAny,
+            #[serde(default, rename = "resolvedLayout")]
+            _resolved_layout: serde::de::IgnoredAny,
         }
         #[derive(Default, Deserialize)]
         #[serde(deny_unknown_fields)]

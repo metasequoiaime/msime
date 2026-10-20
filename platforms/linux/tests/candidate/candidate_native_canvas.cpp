@@ -442,6 +442,35 @@ int main() {
   const auto expanding = host::load_native_canvas(package, root, "fixture", true);
   assert(expanding->page_arrows && expanding->expand_panel);
   assert(cached && cached->panel_animation == cached->decorations[0].animation);
+  // 共享解析结果独立于编辑器声明；默认高亮圆角和两种排列的几何都进入真实测量。
+  package["resolvedLayout"] = {{"cornerRadiusDip", 0}, {"itemCornerRadiusDip", 4},
+      {"borderWidthDip", 0}, {"fitContent", false}, {"pageArrows", false}, {"expandPanel", false},
+      {"horizontal", {{"padding", {{"value", 5}, {"em", false}}},
+                      {"itemExtraHeight", {{"value", 2}, {"em", false}}}}},
+      {"vertical", {{"padding", {{"value", 7}, {"em", false}}},
+                    {"itemExtraHeight", {{"value", 2}, {"em", false}}}}}};
+  const auto inherited = host::load_native_canvas(package, root, "fixture", true);
+  assert(inherited && inherited->geometry.empty() && inherited->item_radius == 4);
+  // 排列默认与显式关闭都读取共享结果，不被编辑器原始声明反向覆盖。
+  assert(!inherited->page_arrows && !inherited->expand_panel && !inherited->fit_content);
+  package["resolvedLayout"]["pageArrows"] = true;
+  package["resolvedLayout"]["expandPanel"] = true;
+  package["resolvedLayout"]["fitContent"] = true;
+  package["pageArrows"] = false;
+  package["expandPanel"] = false;
+  const auto resolved_switches = host::load_native_canvas(package, root, "fixture", true);
+  assert(resolved_switches->page_arrows && resolved_switches->expand_panel && resolved_switches->fit_content);
+  const auto canvas = image(700, 700, 0);
+  auto *context = cairo_create(canvas.get());
+  host::NativeCanvasContent factory_content;
+  factory_content.font = "Sans 20px";
+  factory_content.items = {{"1. ", "synthetic"}};
+  auto metrics = host::measure_native_canvas(context, *inherited, factory_content);
+  assert(metrics.metrics.content[0] == 9 && metrics.metrics.item_radius == 4);
+  factory_content.horizontal = true;
+  metrics = host::measure_native_canvas(context, *inherited, factory_content);
+  assert(metrics.metrics.content[0] == 7);
+  cairo_destroy(context);
   package["decorations"][0]["image"] = "b.png";
   assert(!host::load_native_canvas(package, root, "fixture", true));
 
