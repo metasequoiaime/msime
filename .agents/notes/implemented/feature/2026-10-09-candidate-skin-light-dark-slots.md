@@ -14,7 +14,7 @@ Status: implemented
 
 皮肤包属于哪个槽位由它清单 `base` 对应内置主题的明暗决定（`theme::skin_appearance`）：浅色底进浅色槽位，深色底进深色槽位，`system` 底两个槽位都可以放。`resolve` 只在皮肤包所属的明暗下画它（`ThemePackage::draws_in`）；不符时不画，主题落回底。设过皮肤、当前模式却没有可画的包时，`custom.base` 也只在属于当前明暗时作底，否则按 `system`：应用皮肤时包的 `base` 会被写进 `custom.base`，不这样做，浅色模式会落回深色皮肤留下的 `night`。完全没设皮肤的自定义主题照旧用 `custom.base`。
 
-槽位选择在 client-core 里完成：`msime_client_resolve_theme` 带 `skins_directory` 时按 `dark` 加载对应槽位的包，所以扫描皮肤根目录的宿主只需把 `custom_theme` 原样带上；Linux 宿主带 `package`，由宿主按同一规则挑当前模式槽位的那一项，Tauri 发布 `candidate_skin_catalog` 时两个槽位的皮肤都保留在上限之内。
+槽位选择在 client-core 里完成：`msime_client_resolve_theme` 带 `skins_directory` 时按 `dark` 加载对应槽位的包，所以扫描皮肤根目录的宿主只需把 `custom_theme` 原样带上；Linux 宿主带 `package`，由宿主按同一规则挑当前模式槽位的那一项，设置应用和 MCP 服务经共享的 `skin::linux_runtime_options` 发布 `candidate_skin_catalog` 时两个槽位的皮肤都保留在上限之内。
 
 应用皮肤的规则在设置页（`applyCandidateSkin` / `removeCandidateSkin`，packages/ui/src/theme/global-theme.ts）和各原生设置界面保持一致：深色皮肤写深色槽位，并清掉旧文档放在 `candidate_skin` 里的深色皮肤；浅色皮肤写浅色槽位，深色槽位空着而原来的 `candidate_skin` 不是浅色皮肤时，先把它挪进深色槽位；`system` 底的皮肤写两个槽位；`base` 照旧写成包的 base。取消使用只清放着它的槽位，清空皮肤的路径两个槽位一起清。取消使用的是最后一款皮肤时，`base` 改回 `system`（TS `removeCandidateSkin`、macOS `RemoveCandidateSkin`、iOS `removingPackage`）：两个槽位都空以后 `resolve` 回到「没设皮肤」的分支，在两种明暗下都用 `custom.base`，留着深色皮肤写进来的 `night` 会让浅色模式变成深色，这是单槽位时不会出现的。「自定义」卡片和 Linux 的「自定义」菜单项不改底：它们按原样选中自定义主题，卡片预览画的就是那个底。
 

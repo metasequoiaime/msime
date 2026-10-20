@@ -394,6 +394,11 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
 }
 
 impl Config {
+    /// 写过皮肤目录之后要把皮肤目录发布进去的运行时选项文档：Linux 的 IBus 和 Fcitx5 宿主只从这份文档知道装了哪些皮肤，其他系统的宿主直接扫皮肤目录（macOS 按包的文件身份、Windows 每 500 ms 按文件指纹发现同名替换），没有要发布的，是 `None`。
+    pub fn linux_host_options(&self) -> Option<&Path> {
+        cfg!(target_os = "linux").then_some(self.options.as_path())
+    }
+
     /// The runtime-options document as it is now.
     pub fn read_options(&self) -> Result<Value, String> {
         let file = crate::bounded::open_private(&self.options)
@@ -478,6 +483,20 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn only_linux_publishes_the_skin_catalog_to_the_runtime_options() {
+        let config = Config {
+            options: PathBuf::from("/state/runtime-options.json"),
+            state_dir: None,
+            allow_write: true,
+            allow_dictionary_read: false,
+        };
+        assert_eq!(
+            config.linux_host_options(),
+            cfg!(target_os = "linux").then_some(Path::new("/state/runtime-options.json"))
+        );
     }
 
     fn serve(command: Command) -> Config {
