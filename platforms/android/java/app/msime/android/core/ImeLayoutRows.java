@@ -889,11 +889,13 @@ final class ImeLayoutRows {
         showTextOptions(anchor, SuperscriptShortcutPolicy.variants());
     }
 
-    /** 英文键盘长按 O 的唯一入口：先切到拼音键盘，用户选字后自行切回英文。 */
-    void showEnglishPinyinOption(Button anchor) {
-        showChoiceOptions(anchor, java.util.List.of("⮕"), ignored -> {
-            dismissNineKeyHoldOptions();
-            s.toggleInputLanguage();
+    /** 英文长按提供字符变体，O 另保留进入拼音键盘的动作。 */
+    void showEnglishLetterOptions(Button anchor, String input) {
+        showChoiceOptions(anchor, EnglishLetterHoldPolicy.choices(input), choice -> {
+            if (EnglishLetterHoldPolicy.PINYIN_KEYBOARD.equals(choice)) {
+                dismissNineKeyHoldOptions();
+                s.toggleInputLanguage();
+            } else commitNineKeyHoldOption(choice);
         });
     }
 
@@ -904,23 +906,35 @@ final class ImeLayoutRows {
 
     private void showChoiceOptions(Button anchor, java.util.List<String> choices,
             java.util.function.Consumer<String> action) {
+        dismissNineKeyHoldOptions();
+        if (s.keyboardRoot == null || choices.isEmpty()) return;
         s.imeKeyFeedback.playFeedback(anchor);
-        LinearLayout options = LayoutPolicy.row(s);
+        LinearLayout options = LayoutPolicy.column(s);
         int padding = s.pixels(5);
+        int cellWidth = s.pixels(36);
+        int gap = s.pixels(2);
+        int columns = Math.max(1, Math.min(5,
+            (s.keyboardRoot.getWidth() - 2 * padding + gap) / (cellWidth + gap)));
         ViewPolicy.setSymmetricPadding(options, padding, padding);
         GradientDrawable surface = DrawablePolicy.outlined(
             Color.parseColor(s.skin.background()), s.pixels(10),
             DimensionPolicy.atLeastOnePixel(s, 1), Color.parseColor(s.skin.accent()));
         ViewPolicy.setBackground(options, surface);
-        for (String choice : choices) {
+        LinearLayout row = null;
+        for (int index = 0; index < choices.size(); index++) {
+            if (index % columns == 0) {
+                row = LayoutPolicy.row(s);
+                options.addView(row);
+            }
+            String choice = choices.get(index);
             Button option = s.keyboardKey(choice, "输入 " + choice,
                 () -> action.accept(choice));
             option.setContentDescription("⮕".equals(choice) ? "切换到拼音键盘" : "输入 " + choice);
             ViewPolicy.clearPadding(option);
             LinearLayout.LayoutParams params = LayoutPolicy.linearParamsPx(
                 s.pixels(36), s.pixels(38));
-            if (options.getChildCount() > 0) params.setMarginStart(s.pixels(2));
-            options.addView(option, params);
+            if (row.getChildCount() > 0) params.setMarginStart(gap);
+            row.addView(option, params);
         }
 
         options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -938,9 +952,20 @@ final class ImeLayoutRows {
             if (s.nineKeyHoldPopup == holder[0]) s.nineKeyHoldPopup = null;
         });
         s.nineKeyHoldPopup = popup;
-        int xOffset = (anchor.getWidth() - options.getMeasuredWidth()) / 2;
-        int yOffset = -anchor.getHeight() - options.getMeasuredHeight() - s.pixels(6);
-        popup.showAsDropDown(anchor, xOffset, yOffset);
+        int[] rootPosition = new int[2];
+        int[] anchorPosition = new int[2];
+        s.keyboardRoot.getLocationOnScreen(rootPosition);
+        anchor.getLocationOnScreen(anchorPosition);
+        int width = options.getMeasuredWidth();
+        int height = options.getMeasuredHeight();
+        int x = Math.max(rootPosition[0], Math.min(anchorPosition[0] + (anchor.getWidth() - width) / 2,
+            rootPosition[0] + s.keyboardRoot.getWidth() - width));
+        // API 28 子窗口仍受 IME 父窗口裁剪；空间不足时向键区内展开，保证每个选项可见可点。
+        int y = Math.max(rootPosition[1], Math.min(anchorPosition[1] - height - s.pixels(6),
+            rootPosition[1] + s.keyboardRoot.getHeight() - height));
+        // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
+        popup.showAsDropDown(anchor, x - anchorPosition[0],
+            y - anchorPosition[1] - anchor.getHeight());
     }
 
     void commitNineKeyHoldOption(String text) {

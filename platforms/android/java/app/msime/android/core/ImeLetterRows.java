@@ -189,7 +189,7 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入右上角的提示字符；长按到系统长按时长也输入它，长按不受这两项设置影响。两种手势触发后气泡改显示右上角的键面，没有触发时照常交给按钮自己的点击。
+     * 字母键按压时按「按键弹出」（`touch_key_popup`）显示气泡。长按英文键提供大写、上下标和声调，中文键提供小写、大写和角标；长按不受气泡和滑动设置影响。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置方向滑过 14 dp 松手仍输入角标；未触发手势时照常交给按钮的点击。
      *
      * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
      *
@@ -205,8 +205,9 @@ final class ImeLetterRows {
             triggered[0] = true;
             optionsShown[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
-            if (s.dedicatedEnglish && "o".equalsIgnoreCase(input)) {
-                s.imeLayoutRows.showEnglishPinyinOption(key);
+            if (s.dedicatedEnglish) {
+                hideKeyPreview(key);
+                s.imeLayoutRows.showEnglishLetterOptions(key, input);
             } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
