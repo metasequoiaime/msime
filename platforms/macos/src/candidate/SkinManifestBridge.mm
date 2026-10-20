@@ -835,7 +835,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                     resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);
                     if (direction.padding) {
-                        // em padding is converted by the candidate presenter once it knows the font size.
+                        // em 内边距由候选呈现器拿到实际字号后换算。
                         if (!direction.padding->em) resolved.tokens.pad = static_cast<float>(direction.padding->value);
                     }
                 }

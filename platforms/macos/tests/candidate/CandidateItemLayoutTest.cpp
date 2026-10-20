@@ -130,6 +130,11 @@ int main()
         assert(Near(CandidatePageHeight(rows), 32.0));
         const auto vertical = LayoutCandidatePage({{30.0}, {40.0}}, 220.0, skinned, false);
         assert(Near(vertical[1].y, vertical[0].height + 6.0));
+
+        // Windows 横排在 itemGap 之外固定增加 6 DIP；旧调用未设置 columnGap 时仍回退到 itemGap。
+        skinned.columnGap = 12.0;
+        const auto spaced = LayoutCandidatePage({{30.0}, {40.0}}, 240.0, skinned, true);
+        assert(Near(spaced[1].x, 102.0));
     }
 
     // A horizontal page runs natural-width columns left to right and breaks the line when the next would pass its end; every column on a line takes the line's tallest height, and the minimum reserves room for a gloss.

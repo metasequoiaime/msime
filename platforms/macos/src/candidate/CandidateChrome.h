@@ -91,13 +91,14 @@ static inline msime::mac::CandidateItemWidths MSIMECandidateItemWidths(NSString 
 }
 
 // Wrapped height of each run, as the layout asks for it: the text keeps the row's padding, a gloss its own.
-static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0)
+static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0, CGFloat rowPadding = -1.0)
 {
-    return [text = [text copy], annotation = [annotation copy], translation = [translation copy], font, glossFont, scale](msime::mac::CandidateRun run, double width) -> double {
+    if (rowPadding < 0.0) rowPadding = MSIMECandidateRowPadding * scale;
+    return [text = [text copy], annotation = [annotation copy], translation = [translation copy], font, glossFont, scale, rowPadding](msime::mac::CandidateRun run, double width) -> double {
         switch (run)
         {
         case msime::mac::CandidateRun::text:
-            return MSIMECandidateWrappedHeight(text, font, width) + MSIMECandidateRowPadding * scale;
+            return MSIMECandidateWrappedHeight(text, font, width) + rowPadding;
         case msime::mac::CandidateRun::annotation:
             return MSIMECandidateWrappedHeight(annotation, font, width);
         case msime::mac::CandidateRun::translation:
@@ -183,6 +184,9 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat selectionLeftInset;
 // candidate_scale_percent as a factor, for the lengths the row draws itself: the text insets and the selection bar. Zero draws at 100%.
 @property(nonatomic) CGFloat chromeScale;
+// 显式零留白只在皮肤布局中生效；旧按钮继续使用原生默认。
+@property(nonatomic) BOOL hasSkinLayout;
+@property(nonatomic) BOOL hidesNumber;
 @property(nonatomic) CGFloat textLeftInset;
 @property(nonatomic) CGFloat textRightInset;
 @property(nonatomic) CGFloat selectedBarWidth;
@@ -267,7 +271,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
         const CGFloat barHeight = self.selectedBarHeight > 0.0 ? self.selectedBarHeight : MAX(10.0 * scale, self.font.pointSize * 0.8);
         [self.barColor setFill];
         [[NSBezierPath
-            bezierPathWithRoundedRect:NSMakeRect(self.selectedBarWidth > 0.0 && !self.selectedBarInside ? 0.0 : MAX(1.0, self.selectionLeftInset),
+            bezierPathWithRoundedRect:NSMakeRect(self.hasSkinLayout ? (self.selectedBarInside ? MAX(1.0, self.selectionLeftInset) : -self.selectedBarWidth / 2.0) : MAX(1.0, self.selectionLeftInset),
                                                  (self.bounds.size.height - barHeight) / 2.0,
                                                  self.selectedBarWidth > 0.0 ? self.selectedBarWidth : 3.0 * scale, barHeight)
                               xRadius:(self.selectedBarWidth > 0.0 ? self.selectedBarWidth : 3.0 * scale) / 2.0
@@ -282,8 +286,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     NSDictionary *titleAttributes = MSIMECandidateRunAttributes(self.font, titleColor, NO);
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
-    const CGFloat textLeft = self.textLeftInset > 0.0 ? self.textLeftInset : MSIMECandidateTextLeft(self.showSelectedBar, scale);
-    const CGFloat textRight = self.textRightInset > 0.0 ? self.textRightInset : MSIMECandidateTextRight * scale;
+    const CGFloat textLeft = self.hasSkinLayout ? self.textLeftInset : MSIMECandidateTextLeft(self.showSelectedBar, scale);
+    const CGFloat textRight = self.hasSkinLayout ? self.textRightInset : MSIMECandidateTextRight * scale;
     const BOOL flipped = self.isFlipped;
     const CGFloat boundsHeight = self.bounds.size.height;
     // Layout boxes run downwards from the row top; convert them for either orientation of the view.
@@ -341,7 +345,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     {
         [word drawInRect:box(contentLeft, textTop, MAX(layout.textWidth, ceil(wordSize.width)) + 1.0, wordSize.height) withAttributes:titleAttributes];
     }
-    [number drawInRect:box(textLeft, textTop + (firstLine - numberSize.height) / 2, ceil(numberSize.width) + 1.0, numberSize.height)
+    if (!self.hidesNumber) [number drawInRect:box(textLeft, textTop + (firstLine - numberSize.height) / 2, ceil(numberSize.width) + 1.0, numberSize.height)
         withAttributes:numberAttributes];
     if (annotation.length && layout.annotation.width > 0.0)
     {
