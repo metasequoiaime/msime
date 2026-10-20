@@ -143,14 +143,14 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     for (index, tab) in availableTabs.enumerated() {
       let button = UIButton(type: .system)
       button.configuration = showsHeader ? Self.tabConfiguration(title: tab.title) : chipConfiguration(Self.chipGlyph(tab))
+      button.accessibilityIdentifier = "emojiCategory-\(index)"
+      button.accessibilityLabel = tab.title
       if !showsHeader, tab == .stickers, let first = stickers.first {
         // 分类签上画第一张（开心）的缩略图，保持原色，不随选中态着色。
         button.configuration?.image = KeyboardStickerCatalog.thumbnail(
           first, side: 26, scale: traitCollection.displayScale)?.withRenderingMode(.alwaysOriginal)
         button.accessibilityLabel = "\(KeyboardStickerCatalog.pack)表情包"
       }
-      button.accessibilityIdentifier = "emojiCategory-\(index)"
-      button.accessibilityLabel = tab.title
       button.addAction(UIAction { [weak self] _ in self?.selectTab(index) },
                        for: .primaryActionTriggered)
       if !showsHeader {
