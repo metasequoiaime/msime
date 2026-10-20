@@ -10887,7 +10887,8 @@ private:
       start = end == std::wstring::npos ? end
                                         : preview_sample_.find_first_not_of(whitespace, end);
     }
-    // 行距、序号、释义字号跟着候选窗的缺省版式（CandidateCardSize.h，和 macOS 一样）：行挨着行，序号 0.8 倍字号、从行左缘 8 DIP 起，候选文字紧跟在序号后 1.5 DIP，行高是文字上下各 6 DIP，释义固定 12。
+    // 行距、序号、释义字号跟着候选窗的缺省版式（CandidateCardSize.h，和 macOS 一样）：行挨着行，序号 0.8 倍字号、从行左缘 8 DIP 起（主题打开选中竖条时 14 DIP，竖条画在行内 1 DIP 处），候选文字紧跟在序号后 1.5 DIP，行高是文字上下各 6 DIP，释义固定 12。
+    const double number_left = theme.show_selected_bar ? 14.0 : 8.0;
     StackPanel list;
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
     list.Spacing(0);
@@ -10897,7 +10898,7 @@ private:
                                                 : samples[static_cast<size_t>(i) % samples.size()];
       const bool highlighted = i == 0;
       Grid item;
-      item.Padding(Thickness{8 * scale, 6 * scale, 8 * scale, 6 * scale});
+      item.Padding(Thickness{number_left * scale, 6 * scale, 8 * scale, 6 * scale});
       item.CornerRadius(CornerRadius{row_radius, row_radius, row_radius, row_radius});
       if (highlighted)
         item.Background(brush(to_color(theme.selected)));
@@ -10910,7 +10911,7 @@ private:
         bar.Background(brush(to_color(theme.accent)));
         bar.HorizontalAlignment(HorizontalAlignment::Left);
         bar.VerticalAlignment(VerticalAlignment::Center);
-        bar.Margin(Thickness{-8 * scale, 0, 0, 0});
+        bar.Margin(Thickness{(1.0 - number_left) * scale, 0, 0, 0});
         item.Children().Append(bar);
       }
       StackPanel cell;

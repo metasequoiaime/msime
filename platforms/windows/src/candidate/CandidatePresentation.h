@@ -84,7 +84,41 @@ inline std::string candidate_translation_display(const PresentationCandidate &ca
   }
   return candidate_gloss_display(lines, readings, reading_ranges);
 }
-// 脚本插件的注释收拾成能画成一行的文本，和 macOS 的 MSIMECandidateScriptAnnotationRun 一样：控制字符和各种换行（含 U+0085、U+2028、U+2029，释义那一段正是按 "\n" 分行的）连成的一段换成一个空格，再去掉首尾空白。长度由共享内核按 32 个 UTF-16 码元截好。
+// 去掉首尾空白，和 macOS 的 whitespaceAndNewlineCharacterSet 一样：ASCII 空白、U+0085，以及 Unicode 的空格分隔符（U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）。
+inline std::string_view candidate_trim_unicode_spaces(std::string_view trimmed) {
+  static constexpr std::string_view spaces[] = {
+      "\t", "\n", "\v", "\f", "\r", " ", "\xC2\x85", "\xC2\xA0", "\xE1\x9A\x80",
+      "\xE2\x80\x80", "\xE2\x80\x81", "\xE2\x80\x82", "\xE2\x80\x83", "\xE2\x80\x84",
+      "\xE2\x80\x85", "\xE2\x80\x86", "\xE2\x80\x87", "\xE2\x80\x88", "\xE2\x80\x89",
+      "\xE2\x80\x8A", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80\xAF", "\xE2\x81\x9F",
+      "\xE3\x80\x80"};
+  for (bool stripped = true; stripped && !trimmed.empty();) {
+    stripped = false;
+    for (const auto space : spaces) {
+      if (trimmed.substr(0, space.size()) == space) {
+        trimmed.remove_prefix(space.size());
+        stripped = true;
+      }
+      if (trimmed.size() >= space.size() &&
+          trimmed.substr(trimmed.size() - space.size()) == space) {
+        trimmed.remove_suffix(space.size());
+        stripped = true;
+      }
+    }
+  }
+  return trimmed;
+}
+// macOS 的 controlCharacterSet 里除了 Cc（C0、DEL、C1）之外的格式字符（Unicode 的 Cf）：软连字符、阿拉伯字母标记、零宽字符、双向控制符（U+202A–U+202E、U+2066–U+2069）、BOM 等。插件注释里的 U+202E 不去掉的话会把自己那一行倒过来画。
+inline bool candidate_format_code_point(char32_t c) {
+  return c == 0xAD || (c >= 0x600 && c <= 0x605) || c == 0x61C || c == 0x6DD || c == 0x70F ||
+         c == 0x890 || c == 0x891 || c == 0x8E2 || c == 0x180E || (c >= 0x200B && c <= 0x200F) ||
+         (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) ||
+         (c >= 0x2066 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB) ||
+         c == 0x110BD || c == 0x110CD || (c >= 0x13430 && c <= 0x1343F) ||
+         (c >= 0x1BCA0 && c <= 0x1BCA3) || (c >= 0x1D173 && c <= 0x1D17A) || c == 0xE0001 ||
+         (c >= 0xE0020 && c <= 0xE007F);
+}
+// 脚本插件的注释收拾成能画成一行的文本，和 macOS 的 MSIMECandidateScriptAnnotationRun 一样：控制字符（Cc）、格式字符（Cf，见 candidate_format_code_point）和各种换行（含 U+0085、U+2028、U+2029，释义那一段正是按 "\n" 分行的）连成的一段换成一个空格，再去掉首尾空白（candidate_trim_unicode_spaces）。长度由共享内核按 32 个 UTF-16 码元截好。
 inline std::string candidate_script_annotation_line(const std::string &value) {
   std::string line;
   line.reserve(value.size());
@@ -94,27 +128,35 @@ inline std::string candidate_script_annotation_line(const std::string &value) {
     const auto next = [&](size_t offset) {
       return index + offset < value.size() ? static_cast<unsigned char>(value[index + offset]) : 0u;
     };
-    size_t skip = 0;
-    if (byte < 0x20 || byte == 0x7F)
-      skip = 1;
-    else if (byte == 0xC2 && next(1) >= 0x80 && next(1) <= 0x9F)
-      skip = 2;
-    else if (byte == 0xE2 && next(1) == 0x80 && (next(2) == 0xA8 || next(2) == 0xA9))
-      skip = 3;
-    if (skip) {
+    // 按 UTF-8 解出这个码位；不成形的字节原样留下，一次走一个字节。
+    size_t length = 1;
+    char32_t code = byte;
+    if (byte >= 0xC0 && byte < 0xF8) {
+      length = byte < 0xE0 ? 2 : byte < 0xF0 ? 3 : 4;
+      code = byte & (0x7F >> length);
+      for (size_t offset = 1; offset < length; ++offset) {
+        if ((next(offset) & 0xC0) != 0x80) {
+          length = 1;
+          code = byte;
+          break;
+        }
+        code = (code << 6) | (next(offset) & 0x3F);
+      }
+    }
+    const bool breaking = code < 0x20 || (code >= 0x7F && code <= 0x9F) || code == 0x2028 ||
+                          code == 0x2029 || candidate_format_code_point(code);
+    if (breaking && (length > 1 || byte < 0x80)) {
       broken = true;
-      index += skip;
+      index += length;
       continue;
     }
     if (broken)
       line.push_back(' ');
     broken = false;
-    line.push_back(value[index++]);
+    line.append(value, index, length);
+    index += length;
   }
-  const auto first = line.find_first_not_of(' ');
-  if (first == std::string::npos)
-    return {};
-  return line.substr(first, line.find_last_not_of(' ') - first + 1);
+  return std::string(candidate_trim_unicode_spaces(line));
 }
 // 一行候选下面那段较小的次要文字，连同要换样式画的几段：只有 훈음、只有释义，或 훈음 在上、释义在下一行；脚本插件的注释单独占最后一行，排在输入法自己的读音、译文之后，不挪动它们的位置，和 macOS 的 MSIMECandidateGlossWithScriptAnnotation 一样。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，插件注释再加上去超过时就不带插件注释，免得一条很长的释义让整个候选窗画不出来。
 struct CandidateSecondaryRun {
@@ -177,28 +219,8 @@ inline std::string candidate_primary_text(const PresentationCandidate &candidate
 }
 // 一行候选的注释那一段：引擎的注释（辅助码、五笔的剩余编码、emoji 说明、地名所属省份……）一律包在半角括号里、紧贴候选文字，画成「你好(wqvb)」，和 macOS 的 MSIMEParenthesizedAnnotation 一样；已经带半角或全角括号的原样保留，只有空白时不画。韩文汉字的 훈음 不在这里，它已经挪到释义那一段（move_korean_hanja_gloss）；脚本插件的注释也不在这里，见 candidate_secondary_run。
 inline std::string candidate_annotation_run(const PresentationCandidate &candidate) {
-  // 首尾去掉的空白和 macOS 的 whitespaceAndNewlineCharacterSet 一样：ASCII 空白、U+0085，以及 Unicode 的空格分隔符（U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）。
-  static constexpr std::string_view spaces[] = {
-      "\t", "\n", "\v", "\f", "\r", " ", "\xC2\x85", "\xC2\xA0", "\xE1\x9A\x80",
-      "\xE2\x80\x80", "\xE2\x80\x81", "\xE2\x80\x82", "\xE2\x80\x83", "\xE2\x80\x84",
-      "\xE2\x80\x85", "\xE2\x80\x86", "\xE2\x80\x87", "\xE2\x80\x88", "\xE2\x80\x89",
-      "\xE2\x80\x8A", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80\xAF", "\xE2\x81\x9F",
-      "\xE3\x80\x80"};
-  std::string_view trimmed = candidate.annotation;
-  for (bool stripped = true; stripped && !trimmed.empty();) {
-    stripped = false;
-    for (const auto space : spaces) {
-      if (trimmed.substr(0, space.size()) == space) {
-        trimmed.remove_prefix(space.size());
-        stripped = true;
-      }
-      if (trimmed.size() >= space.size() &&
-          trimmed.substr(trimmed.size() - space.size()) == space) {
-        trimmed.remove_suffix(space.size());
-        stripped = true;
-      }
-    }
-  }
+  // 首尾空白和 macOS 的 whitespaceAndNewlineCharacterSet 一样去掉（candidate_trim_unicode_spaces）。
+  const std::string_view trimmed = candidate_trim_unicode_spaces(candidate.annotation);
   if (trimmed.empty())
     return {};
   const std::string annotation(trimmed);

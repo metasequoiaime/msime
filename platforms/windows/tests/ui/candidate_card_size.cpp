@@ -825,7 +825,7 @@ int main() {
     require(caught);
   }
 
-  // The Fluent selection pill: 40% of a one-line row tall, so it runs from 30% to 70% of that row, and it stays that height and centred when the row grows instead of stretching with it. Horizontally it is 3 DIP wide and centred on the row's left edge.
+  // The Fluent selection pill: 40% of a one-line row tall, so it runs from 30% to 70% of that row, and it stays that height and centred when the row grows instead of stretching with it. Horizontally it is 3 DIP wide and, given no offset, centred on the row's left edge.
   {
     const double row_top = 30.0, row_left = 6.0;
     const auto single = candidate_selection_bar(
@@ -1164,11 +1164,47 @@ int main() {
     const auto bar = candidate_selection_bar(6.0, 10.0, 10.0 + shape.candidate_row,
                                              shape.candidate_row, shape.selection_bar_width,
                                              shape.selection_bar_height,
-                                             shape.selection_bar_inside);
-    require(near(bar.left, 6.0) && near(bar.right, 9.0) && near(bar.bottom - bar.top, 13.6));
-    const auto outside = candidate_selection_bar(6.0, 0.0, 30.0, 23.6, 4.0, 1.0, false);
+                                             shape.selection_bar_offset);
+    require(near(shape.selection_bar_offset, 0.0) && near(bar.left, 6.0) &&
+            near(bar.right, 9.0) && near(bar.bottom - bar.top, 13.6));
+    const auto outside = candidate_selection_bar(6.0, 0.0, 30.0, 23.6, 4.0, 1.0);
     require(near(outside.left, 4.0) && near(outside.right, 8.0) &&
             near(outside.bottom - outside.top, 8.0));
+    // 带着共享层版式、没写 selected_bar_inside 的皮肤：竖条骑在行左缘上，序号位置不因竖条改变。
+    CandidateSkinMetrics shared;
+    shared.shared_layout = true;
+    shared.selected_bar_width = 4.0;
+    shared.show_selected_bar = true;
+    const auto edge = candidate_card_metrics(16.0, 16.0, true, true, true, shared);
+    require(near(edge.selection_bar_offset, -2.0));
+    CandidateSkinMetrics inset;
+    inset.number_inset = 10.0;
+    inset.show_selected_bar = true;
+    require(near(candidate_card_metrics(16.0, 16.0, true, true, true, inset).number_left, 10.0));
+  }
+
+  // 调色板打开选中竖条的缺省版式，和 macOS 一样：序号从行左缘 14 DIP 起（MSIMECandidateTextLeft(YES) = 8 + 6），整列跟着右移 6 DIP；竖条画在行内 1 DIP 处，落在缩进 1 DIP 的高亮底色里，而不是骑在行左缘上。
+  {
+    CandidateSkinMetrics bar_palette;
+    bar_palette.show_selected_bar = true;
+    const auto plain = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 9.5);
+    const auto barred = candidate_card_metrics(16.0, 16.0, true, true, true, bar_palette, 9.5);
+    require(near(plain.number_left, 8.0) && near(barred.number_left, 14.0) &&
+            near(barred.number_and_bar - plain.number_and_bar, 6.0));
+    require(near(plain.selection_bar_offset, 1.0) && near(barred.selection_bar_offset, 1.0));
+    const auto bar = candidate_selection_bar(6.0, 0.0, barred.candidate_row, barred.candidate_row,
+                                             barred.selection_bar_width,
+                                             barred.selection_bar_height,
+                                             barred.selection_bar_offset);
+    require(near(bar.left, 7.0) && near(bar.right, 10.0) && bar.left >= 6.0 + barred.selection_inset);
+    // 卡片随之变宽 6 DIP。
+    CandidateCardInput input;
+    input.preedit_visible = false;
+    input.items = {{200.0}};
+    input.number_width = 9.5;
+    const auto narrow = candidate_card_size(input);
+    input.skin = bar_palette;
+    require(near(candidate_card_size(input).width - narrow.width, 6.0));
   }
 
   // preedit_margin_dip：拼音行四周的外边距，只在显示拼音时生效；上下两段撑高首行，logo 与首行翻页在中间那一段里居中。

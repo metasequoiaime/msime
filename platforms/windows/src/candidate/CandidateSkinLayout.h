@@ -90,6 +90,8 @@ struct CandidateSkinMetrics {
   int expand_rows = 4;
   CandidatePageArrowStyle page_arrow_style = CandidatePageArrowStyle::chevron;
   CandidateSkinInsets preedit_margin{};
+  // 调色板的 `show_selected_bar`（主题或皮肤包打开了选中竖条）。不是版式键，由窗口按当前调色板填上：缺省版式和 macOS 的 MSIMECandidateTextLeft(showSelectedBar) 一样，有竖条时序号多让出 6 DIP。
+  bool show_selected_bar = false;
 };
 inline CandidateSkinMetrics candidate_skin_metrics(const CandidateSkinLayout &layout,
                                                    bool horizontal,

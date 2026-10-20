@@ -79,6 +79,12 @@ int main() {
     // 插件注释收拾成一行：控制字符和换行（含 U+2028）连成的一段换成一个空格，去掉首尾空白。
     require(candidate_script_annotation_line(" 常\n\n用\u2028x\t ") == "常 用 x");
     require(candidate_script_annotation_line("\r\n").empty());
+    // 格式字符（双向控制符、零宽字符、BOM）和控制字符一样换成空格，和 macOS 的 controlCharacterSet 一样：U+202E 不能把这一行倒过来画。首尾的全角空格、不换行空格也去掉。
+    require(candidate_script_annotation_line("\xE3\x80\x80\xE2\x80\xAE" "abc\xE2\x80\x8B" "def\xEF\xBB\xBF\xC2\xA0") ==
+            "abc def");
+    require(candidate_script_annotation_line("a\xE2\x81\xA6" "b\xE2\x81\xA9" "c\xC2\xAD" "d") == "a b c d");
+    // 别的非 ASCII 文字原样留着，C1 控制字符（U+0085）照旧算换行。
+    require(candidate_script_annotation_line("\xE5\xB8\xB8\xC2\x85\xE7\x94\xA8") == "\xE5\xB8\xB8 \xE7\x94\xA8");
     PresentationCandidate multiline{};
     multiline.text = "你";
     multiline.translation = "you";

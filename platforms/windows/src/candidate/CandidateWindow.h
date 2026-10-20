@@ -117,6 +117,9 @@ public:
   // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
   using Expansion = std::function<void(const FocusLease &, bool)>;
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
+  // 不阻塞地问一个焦点租约是否仍是当前焦点（SessionController::candidate_lease_current）。读快照读不到时，候选窗靠它分清只是没抢到锁还是焦点已经换走：换走了就不让退场继续画旧候选，和 macOS 隐私收起时 finishExit 一样立即消失。没设时按没抢到锁处理，退场照常播完。
+  using LeaseCheck = std::function<bool(const FocusLease &)>;
+  void set_lease_check(LeaseCheck check) { lease_current_ = std::move(check); }
   // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
   bool open_expansion();
   // The package's bounded native motion model. Reduced motion in Windows
@@ -179,8 +182,10 @@ private:
   void finish_skin_animation();
   void hide_now();
   void hide_immediately();
-  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起；读不到快照时已经在播的退场不打断。
+  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起；读不到快照时已经在播的退场只在退场那一帧的租约仍是当前焦点时播完（exit_lease_lost）。
   void hide_for(const std::optional<CandidatePresentation> &value);
+  // 正在播的退场所画的那一帧，它的焦点租约已经不是当前焦点（焦点换到了别的客户端或应用）。
+  bool exit_lease_lost() const;
   bool skin_motion_enabled() const;
   float skin_motion_progress() const;
   // Device pixels per DIP for a window DPI, including the user's scale. Layout, rendering, the logo and hit testing all read this one factor.
@@ -224,6 +229,7 @@ private:
   Page page_;
   Rendered rendered_;
   Expansion expansion_;
+  LeaseCheck lease_current_;
   // 卷轴展开的状态和打开它时的租约；expand_viewport_ 是上一帧展开区的高度，后续候选还在路上的那一帧沿用它，卡片不先缩回一行再长回来。
   CandidateExpandState expand_;
   std::optional<FocusLease> expand_lease_;

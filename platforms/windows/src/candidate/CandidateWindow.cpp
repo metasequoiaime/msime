@@ -476,7 +476,13 @@ ID2D1Bitmap *CandidateWindow::logo_bitmap(int pixels) {
                                               std::to_wstring(pixels));
 }
 void CandidateWindow::set_palette(CandidatePalette palette) {
+  // 选中竖条开关会挪动缺省版式的序号（见 skin_metrics），这时要重排，不只是重画。
+  const bool relayout = palette.show_selected_bar != palette_.show_selected_bar;
   palette_ = std::move(palette);
+  if (relayout) {
+    invalidate_geometry();
+    return;
+  }
   painted_.reset();
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
@@ -714,10 +720,18 @@ void CandidateWindow::hide_immediately() {
   hide_now();
 }
 
+bool CandidateWindow::exit_lease_lost() const {
+  return finishing_animation_ && exit_value_ && lease_current_ &&
+         !lease_current_(exit_value_->lease);
+}
+
 void CandidateWindow::hide_for(const std::optional<CandidatePresentation> &value) {
-  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场。退场只在组字正常结束时开始，退场途中换了焦点也只是让这段已经开始的退场播完。
-  if (!value && finishing_animation_)
+  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场。退场只在组字正常结束时开始；退场途中焦点换走了（租约不再是当前焦点），旧候选不能留在新的前台上，立即收起，和 macOS 隐私收起时 finishExit 一样。
+  if (!value && finishing_animation_) {
+    if (exit_lease_lost())
+      hide_immediately();
     return;
+  }
   if (value && value->composition_ended)
     hide();
   else
@@ -1058,6 +1072,12 @@ void CandidateWindow::reposition() {
                              ? animation_.enter
                              : CandidateSkinAnimationPreset::none,
                          value->candidates.size());
+  } else if (animation_active_ && !selection_animation_ && !finishing_animation_) {
+    // 进场还在播时高亮移动不重播（见下一支），但新的一页比第一帧多了行：最后一行晚到的那段也要播完，结束时刻只往后推、不提前，和 macOS showPanel 给新行补 addRowReveals 再抬高 _enterEnd 一样。
+    animation_total_ms_ = (std::max)(
+        animation_total_ms_,
+        candidate_enter_total_ms(active_animation_, animation_.duration_ms,
+                                 animation_.stagger_ms, value->candidates.size()));
   } else if (previous_highlight != next_highlight &&
              (!animation_active_ || selection_animation_)) {
     // A highlight move while the card is still entering lets the entrance finish rather than restarting the card.
@@ -1397,7 +1417,7 @@ void CandidateWindow::paint() {
   if (!painting.dc)
     throw std::runtime_error("Candidate painting unavailable");
   auto value = reader_(); // Never paint the last cached owner's text unless an exit animation owns that last frame.
-  if ((!value || !value->visible) && finishing_animation_ && exit_value_)
+  if ((!value || !value->visible) && finishing_animation_ && exit_value_ && !exit_lease_lost())
     value = exit_value_;
   if (!value || !value->visible) {
     hide_for(value);
@@ -1484,8 +1504,9 @@ void CandidateWindow::paint() {
                          : (active_animation_ == CandidateSkinAnimationPreset::spring
                                 ? 0.96f + 0.04f * (eased + 0.08f * std::sin(eased * 6.2831853f) * (1.0f - eased))
                                 : 0.96f + 0.04f * eased);
+    // slide_up 进场从下方 8 DIP 升到原位；退场是进场的倒放，向下沉出 8 DIP，和 macOS 的 CenteredTransform(layer, 1.0, -kSlideDistance) 一样（D2D 的 y 朝下，所以是正的）。
     if (active_animation_ == CandidateSkinAnimationPreset::slide_up)
-      motion_offset_y = finishing_animation_ ? -8.0f * eased : 8.0f * (1.0f - eased);
+      motion_offset_y = finishing_animation_ ? 8.0f * eased : 8.0f * (1.0f - eased);
   }
   // 逐行浮现（fade_scale、slide_up 的进场）：每一行在卡片之外再按自己的进度淡入、从下方 3 DIP 升到原位，第 i 行晚 min(i × stagger_ms, 80ms) 开始，见 CandidateMotion.h。
   const bool row_reveal = motion_entering && !finishing_animation_ &&
@@ -1918,11 +1939,11 @@ void CandidateWindow::paint() {
           target->DrawRoundedRectangle(selection, brush(glow), 2.0f);
       }
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
-        // 竖条的宽、高和位置可以由皮肤改（selected_bar_width、selected_bar_height_em、selected_bar_inside）。
+        // 竖条的宽、高和位置可以由皮肤改（selected_bar_width、selected_bar_height_em、selected_bar_inside）；缺省版式和 macOS 一样画在行内 1 DIP 处。
         const auto extent = candidate_selection_bar(
             rect.left, rect.top, rect.bottom, metrics.candidate_row,
             metrics.selection_bar_width, metrics.selection_bar_height,
-            metrics.selection_bar_inside);
+            metrics.selection_bar_offset);
         const float bar_radius =
             static_cast<float>(metrics.selection_bar_width * 0.5);
         const D2D1_ROUNDED_RECT bar{{static_cast<float>(extent.left),
@@ -2305,6 +2326,7 @@ CandidateSkinMetrics CandidateWindow::skin_metrics(const CandidatePresentation &
   // canvas 的 `line_gap_dip` 落在拼音行的下外边距上。
   auto skin = candidate_canvas_skin_metrics(
       candidate_skin_metrics(skin_layout_, horizontal_, font_size_), canvas_);
+  skin.show_selected_bar = palette_.show_selected_bar;
   if (skin.expand_panel && (!value.pointer_input || value.translation_page != 0)) {
     skin.expand_panel = false;
     skin.page_arrows = skin_layout_.page_arrows.value_or(false);

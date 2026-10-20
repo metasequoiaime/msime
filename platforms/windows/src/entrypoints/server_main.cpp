@@ -1473,6 +1473,9 @@ int wmain(int argc, wchar_t **argv) {
     candidates.set_expansion_handler([&](const FocusLease &lease, bool open) {
       server.set_candidate_expansion(lease, open);
     });
+    // 退场途中焦点换走时立即收起，不让旧候选在新的前台上淡出。
+    candidates.set_lease_check(
+        [&](const FocusLease &lease) { return server.candidate_lease_current(lease); });
     if (typing_overlay)
       candidates.set_typing_effect_presenter([&typing_overlay](const TypingEffectPresentation &presentation) {
         return typing_overlay->present(presentation);

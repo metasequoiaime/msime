@@ -86,17 +86,18 @@ struct CandidateCardMetrics {
   double logo_side = 16.0, logo_gap = 6.0, header_row = 26.0;
   bool logo_visible = true;
   // 以下是皮肤包能改的版式，缺省值就是没有皮肤时的样子。
-  // 序号：字号（缺省是候选字号的 0.8 倍），从行左缘 number_left 处左对齐（缺省 8 DIP，皮肤写了 number_inset 时是它）。number_column 是 msime-windows 版式里序号那一栏的宽度。number_left 也是收紧宽度和竖排翻页箭头对齐的位置。
+  // 序号：字号（缺省是候选字号的 0.8 倍），从行左缘 number_left 处左对齐（缺省 8 DIP，调色板打开选中竖条时 14 DIP，皮肤写了 number_inset 时是它）。number_column 是 msime-windows 版式里序号那一栏的宽度。number_left 也是收紧宽度和竖排翻页箭头对齐的位置。
   double number_font = 0.0, number_column = 0.0, number_left = 0.0;
   std::optional<double> number_inset;
   // 候选内容之后、行（横排是列）右缘之前的留白，缺省 8 DIP（macOS 的 MSIMECandidateTextRight）；横排每一列至少这么宽（0 为不限）。
   double item_padding_right = 8.0, item_min_width = 0.0;
   // 横排时把一行多出的宽度均分给这一行的各列；落在列表四角上的高亮角跟卡片同圆角。
   bool justify_rows = false, corners_follow_card = false;
-  // 选中竖条：宽，高（空时是单行行高的 40%），是否落在高亮左缘之内。
+  // 选中竖条：宽，高（空时是单行行高的 40%），是否落在高亮左缘之内，左缘离行左缘多远（缺省是 macOS 的行内 1 DIP；皮肤版式下是 0 或负半个宽，见 candidate_card_metrics）。
   double selection_bar_width = 3.0;
   std::optional<double> selection_bar_height;
   bool selection_bar_inside = false;
+  double selection_bar_offset = 1.0;
   // 拼音行的外边距，只在显示拼音时生效。上下两段算在 preedit_row 里，logo 和首行翻页在去掉它们之后的那一段里居中。
   CandidateSkinInsets preedit_margin{};
   // 皮肤 `page_arrows` 打开时的翻页箭头：不再画在首行，而是横排时候选右侧的一窄列（column 宽）、竖排时最后一行下方的一矮行（row 高），按 msime-windows 的 PagerArrows 摆放。
@@ -173,7 +174,8 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
     metrics.number_and_bar = *metrics.number_inset + (std::max)(number_width, 9.0) +
                              skin.number_gap.value_or(font_size * 0.2 + 8.0);
   } else {
-    metrics.number_left = 8.0;
+    // 调色板打开选中竖条时再让出 6 DIP 给竖条，和 macOS 的 MSIMECandidateTextLeft(showSelectedBar) 一样是 14。
+    metrics.number_left = skin.show_selected_bar ? 14.0 : 8.0;
     metrics.number_and_bar =
         metrics.number_left + std::ceil(digits) + skin.number_gap.value_or(1.5);
   }
@@ -207,6 +209,10 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
     metrics.selection_bar_width = (std::max)(*skin.selected_bar_width, 3.0);
   metrics.selection_bar_height = skin.selected_bar_height;
   metrics.selection_bar_inside = skin.selected_bar_inside;
+  // 竖条的位置：带着共享层版式的皮肤（macOS 的 hasSkinLayout）和写了 selected_bar_inside 的皮肤按 msime-windows，贴在行左缘之内或骑在左缘上；缺省版式和 macOS 一样画在行内 1 DIP 处（max(1, scale)），落在缩进 1 DIP 的高亮底色里。
+  if (skin.shared_layout || skin.selected_bar_inside)
+    metrics.selection_bar_offset =
+        skin.selected_bar_inside ? 0.0 : -metrics.selection_bar_width * 0.5;
   // 首行：显示拼音时是拼音那一行，有 logo 或翻页时不矮于它们需要的高度；三者都没有时不占高度。
   metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
@@ -405,22 +411,22 @@ candidate_pager_hit(double x, double y,
     return false;
   return std::nullopt;
 }
-// The Fluent selection pill on the selected row: 3 DIP wide and centred on the row's left edge, 40% of a one-line row tall (never less than twice its width) and centred in the row, so a one-line row has it from 30% to 70% of its height. A row that grows because its text or annotation wrapped keeps the same pill in its middle instead of a stretched one; a row shorter than the pill starts it at the row top. The corner radius is half the width.
+// The Fluent selection pill on the selected row: 3 DIP wide, starting `offset` DIPs right of the row's left edge (centred on that edge when no offset is given), 40% of a one-line row tall (never less than twice its width) and centred in the row, so a one-line row has it from 30% to 70% of its height. A row that grows because its text or annotation wrapped keeps the same pill in its middle instead of a stretched one; a row shorter than the pill starts it at the row top. The corner radius is half the width.
 struct CandidateSelectionBar {
   double left, right, top, bottom;
 };
 inline constexpr double candidate_selection_bar_width = 3.0;
-// 皮肤可以改竖条的宽（`selected_bar_width`）、高（`selected_bar_height_em`，给出时代替 40% 行高）和位置（`selected_bar_inside`：贴在高亮左缘之内，而不是骑在左缘上），见 candidate_card_metrics。
+// 皮肤可以改竖条的宽（`selected_bar_width`）、高（`selected_bar_height_em`，给出时代替 40% 行高）和位置（`selected_bar_inside`：贴在高亮左缘之内，而不是骑在左缘上）；窗口传 CandidateCardMetrics::selection_bar_offset，缺省版式是 macOS 的行内 1 DIP，见 candidate_card_metrics。
 inline CandidateSelectionBar
 candidate_selection_bar(double row_left, double row_top, double row_bottom,
                         double line_height,
                         double width = candidate_selection_bar_width,
                         std::optional<double> bar_height = std::nullopt,
-                        bool inside = false) {
+                        std::optional<double> offset = std::nullopt) {
   const double height = (std::max)(bar_height.value_or(line_height * 0.4), width * 2.0);
   const double top =
       row_top + (std::max)((row_bottom - row_top - height) * 0.5, 0.0);
-  const double left = inside ? row_left : row_left - width * 0.5;
+  const double left = row_left + offset.value_or(-width * 0.5);
   return {left, left + width, top, top + height};
 }
 // A run's box relative to the row's text column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.

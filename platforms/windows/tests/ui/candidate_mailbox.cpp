@@ -267,8 +267,26 @@ void candidate_mailbox_tests() {
     require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
     require(!mailbox.snapshot(gate)->visible);
   }
+  // 读快照读不到既可能是没抢到锁也可能是焦点换走了；still_current 不加锁地分清后者，候选窗据此决定退场要不要播完。
+  require(gate.still_current(first) && !gate.still_current(FocusLease{}));
+  {
+    // 闸门被占着时 try_with_active 读不到，still_current 照样答得出租约仍是当前焦点。
+    std::promise<void> held, release;
+    auto holder = std::async(std::launch::async, [&] {
+      gate.with_active(first, [&] {
+        held.set_value();
+        release.get_future().wait();
+      });
+    });
+    held.get_future().wait();
+    require(!gate.try_with_active(first, [] {}) && gate.still_current(first));
+    release.set_value();
+    holder.get();
+  }
   const auto pending = gate.begin(b, 2);
-  require(pending.has_value() && !mailbox.snapshot(gate));
+  // 新的激活一开始，旧租约就不再是当前焦点，哪怕新租约还没确认。
+  require(pending.has_value() && !mailbox.snapshot(gate) && !gate.still_current(first) &&
+          gate.still_current(pending->pending));
   require(gate.acknowledge(pending->pending, [] { return true; }));
   require(!mailbox.snapshot(gate)); // No old owner's frame on the new focus.
   require(!publish(first, 2));
@@ -299,7 +317,7 @@ void candidate_mailbox_tests() {
   reader.get();
   require(mailbox.snapshot(gate)->generation == 204);
   require(gate.deactivate(next));
-  require(!mailbox.snapshot(gate));
+  require(!mailbox.snapshot(gate) && !gate.still_current(next));
   const auto final = activate(replacement, 4);
   require(publish(final, 205));
   mailbox.disconnected(replacement);
