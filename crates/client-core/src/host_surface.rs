@@ -167,7 +167,7 @@ pub struct HostCapabilities {
     pub panel_windows: bool,
     /// The host keeps per-application versus global Chinese/English mode state.
     pub ime_mode_scope: bool,
-    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名。
+    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名（Fcitx5 的 `InputContext::program()`；IBus 只有 GTK 程序经 1.5.27 起的客户端名报告）。
     pub app_input_mode_rules: bool,
     /// The host records typing statistics.
     pub typing_statistics: bool,
@@ -525,7 +525,7 @@ impl HostCapabilities {
                     | HostPlatform::Harmony
             ),
             // macOS 的输入控制器在每次切换客户端时按 bundle id 查规则；Windows 由 Server 按焦点客户端的进程基名查规则，TIP 激活时也按它定起始模式。其余宿主不认规则，设置页不显示规则表。
-            app_input_mode_rules: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
+            app_input_mode_rules: platform.is_desktop(),
             typing_statistics: true,
             // Every input host consumes the shared fuzzy-pinyin options. The
             // iOS Tauri settings surface writes the same PreferencesStore that

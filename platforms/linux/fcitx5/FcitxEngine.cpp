@@ -77,6 +77,7 @@
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/ClientInputModeMemory.h"
+#include "../src/core/AppInputModeRules.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/core/KoreanHanja.h"
 #include "../src/core/InputSchemes.h"
@@ -385,6 +386,8 @@ using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
 // policy bounds this table and provides an anonymous fallback.
 msime::linux_host::ClientInputModeMemory fcitx_app_input_modes;
 std::optional<bool> fcitx_global_input_mode;
+// 应用例外的停留也在插件范围：同一个程序的几个输入上下文属于同一次停留（AppInputModeRules.h）。
+msime::linux_host::AppInputModeRuleStay fcitx_app_rule_stay;
 // Addon scope too: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch fcitx_typing_statistics{msime_client_typing_statistics_enabled};
 // Key press writes still running on their own threads, which ~FcitxEngine waits for so the addon library is not unloaded, nor the process ended, under them.
@@ -1172,6 +1175,8 @@ public:
     if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
+    // 用户手动切换：这个程序的应用例外在这次停留里让位。
+    fcitx_app_rule_stay.yield(ic_.program());
     // 从托盘切换时上下文已经失焦，失焦那一刻记下的是切换前的模式；回到这个应用时按记下的恢复，所以这里重记一次。
     if (!ic_.hasFocus()) rememberInputMode();
     if (!input_enabled_) {
@@ -1536,10 +1541,13 @@ public:
   void maintenance(int operation);
   bool reloadService();
   void rememberInputMode() {
-    if (preferences_.value("ime_mode_scope", std::string("app")) == "global")
-      fcitx_global_input_mode = input_enabled_;
-    else
+    if (preferences_.value("ime_mode_scope", std::string("app")) == "global") {
+      // 应用例外定下的模式不改全局状态，和 macOS、Windows 一样；用户在这个程序里手动切换过才算全局的选择。
+      if (!msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay))
+        fcitx_global_input_mode = input_enabled_;
+    } else {
       fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
+    }
   }
   void restoreInputMode() {
     const auto fallback = preferences_.value("default_ime_mode", "chinese") != "english";
@@ -1547,8 +1555,16 @@ public:
       input_enabled_ = fcitx_global_input_mode.value_or(fallback);
     else
       input_enabled_ = fcitx_app_input_modes.restore(ic_.program(), fallback);
+    applyAppInputModeRule();
     ime_mode_chosen_ = true;
     mode_restore_pending_ = false;
+  }
+  // 应用例外（`app_input_mode_rules`）排在作用域、记忆和 `default_ime_mode` 前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是；用户在这次停留里手动切换后让位，离开再回来重新生效。程序名是 Fcitx5 前端报告的 `program()`，报告不了的前端（空程序名）照旧。
+  void applyAppInputModeRule() {
+    fcitx_app_rule_stay.enter(ic_.program());
+    if (const auto rule =
+            msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay))
+      input_enabled_ = *rule;
   }
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
@@ -1848,6 +1864,7 @@ public:
         restore_changed_mode = input_enabled_ != before;
       } else {
         input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
+        applyAppInputModeRule();
         ime_mode_chosen_ = true;
       }
     }
@@ -6670,8 +6687,11 @@ public:
     panel_focus_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextFocusIn,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
+          auto *focused = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          // 任何上下文获得焦点都可能是换了程序，不论它用哪个输入法：离开有规则的程序再回来，规则要重新生效。
+          fcitx_app_rule_stay.enter(focused->program());
           // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
-          releaseMenuContext(static_cast<fcitx::InputContextEvent &>(event).inputContext());
+          releaseMenuContext(focused);
           ++panel_input_generation_;
           listenPanelInput();
         });

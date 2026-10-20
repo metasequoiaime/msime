@@ -289,6 +289,8 @@ if(BUILD_TESTING)
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --local-modes)
     add_test(NAME fcitx5-caps-lock-tap
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --caps-lock)
+    add_test(NAME fcitx5-app-input-mode-rules
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --app-rules)
     add_test(NAME fcitx5-japanese-toggle
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --japanese-toggle)
     find_package(Python3 COMPONENTS Interpreter)

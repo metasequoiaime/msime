@@ -1453,6 +1453,40 @@ int main(int argc, char **argv) {
       invoke("FocusOut");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
+#if IBUS_CHECK_VERSION(1, 5, 27)
+      // 应用例外：GTK 输入法模块在客户端名里带程序名（gtk3-im:<程序名>）。焦点进入有规则的程序从规则的模式开始；手动切换后同一程序的另一个上下文仍是手动选的模式；换到别的程序再回来，规则重新生效；匿名客户端不套用。
+      {
+        auto ruled = follow;
+        ruled["preferences"]["app_input_mode_rules"] = {{"Synthetic-Ruled", "english"}};
+        msime_ibus_configure(ruled.dump());
+        engine = create_engine();
+        seen = Observation{};
+        const auto composes = [&] {
+          const bool consumed = key('n');
+          if (consumed) {
+            key(IBUS_Escape);
+            key(IBUS_Escape, IBUS_RELEASE_MASK);
+          }
+          key('n', IBUS_RELEASE_MASK);
+          return consumed;
+        };
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes(), "a ruled program did not start in its rule's English mode");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled-2", "gtk3-im:synthetic-ruled"));
+        require(composes(), "another context of the same program put the rule back over the user's switch");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes(), "an unruled program did not start in the default Chinese mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "coming back from another program did not apply the rule again");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/qt", "QIBusInputContext"));
+        require(composes(), "an anonymous Qt client took a rule");
+        invoke("FocusOut");
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+      }
+#endif
       // The "always English punctuation" lock keeps English mode ASCII whatever Ctrl+. says.
       auto english_lock = follow;
       english_lock["preferences"]["default_ime_mode"] = "english";

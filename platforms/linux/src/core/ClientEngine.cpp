@@ -50,6 +50,7 @@
 #include "../candidates/ShuangpinProfileNames.h"
 #include "../candidates/WubiProfileNames.h"
 #include "ClientInputModeMemory.h"
+#include "AppInputModeRules.h"
 #include "../system/DiagnosticLog.h"
 #include "../system/KeySound.h"
 #include "../system/LifecycleFeedback.h"
@@ -183,6 +184,8 @@ void apply_candidate_panel_font(const Json &preferences) {
 bool system_dark = false;
 msime::linux_host::CandidateTheme candidate_theme(const Json &preferences);
 std::optional<bool> global_input_enabled;
+// 应用例外的停留在进程范围：IBus 可能给每个上下文一个引擎实例，同一个程序的几个上下文属于同一次停留（AppInputModeRules.h）。
+msime::linux_host::AppInputModeRuleStay app_rule_stay;
 // The shared preference defaults, read once from the Host API rather than
 // restated here. A nested preference object is optional as a whole but requires
 // every one of its members, so patching a single key into an object the
@@ -552,6 +555,8 @@ struct State {
   bool voice_hotkey_ctrl_f9 = true;
   // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
   bool caps_lock = false;
+  // 当前模式来自这次聚焦的应用例外，用户还没有手动切换：全局作用域不拿全局状态覆盖它。
+  bool app_rule_active = false;
   // Key ownership lasts until release, independently of provider completion.
   std::set<guint> voice_consumed_keys;
   guint voice_hold_key = 0;
@@ -617,6 +622,21 @@ struct State {
     const auto fallback = configured.value("preferences", Json::object())
                               .value("default_ime_mode", "chinese") != "english";
     input_enabled = app_input_modes.restore(focused_client, fallback);
+  }
+  // 应用例外（`app_input_mode_rules`）排在作用域和记忆前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是，全局状态不动；用户在这次停留里手动切换后让位（`yield_app_input_mode_rule`），离开再回来重新生效。程序名只有 GTK 输入法模块经 IBus 1.5.27 起的客户端名给出（`ibus_app_rule_program`），Qt、XIM 和更早的 IBus 是匿名的，规则对它们不生效。
+  void apply_app_input_mode_rule() {
+    const auto program = msime::linux_host::ibus_app_rule_program(focused_client);
+    app_rule_stay.enter(program);
+    const auto rule = msime::linux_host::app_input_mode_rule_start(
+        configured.value("preferences", Json::object()), program, app_rule_stay);
+    app_rule_active = rule.has_value();
+    if (rule)
+      input_enabled = *rule;
+  }
+  // 用户手动切换了中英文：规则在这次停留里让位，此后照常按作用域走。
+  void yield_app_input_mode_rule() {
+    app_rule_stay.yield(msime::linux_host::ibus_app_rule_program(focused_client));
+    app_rule_active = false;
   }
   void configure_clipboard(std::string path, bool enabled) {
     if (!path.empty() && path.front() != '/')
@@ -781,7 +801,7 @@ struct State {
       if (!global_input_enabled)
         global_input_enabled =
             base_preferences.value("default_ime_mode", "chinese") != "english";
-      if (!session)
+      if (!session && !app_rule_active)
         input_enabled = *global_input_enabled;
     }
     if (session || blocked || !focused || !input_enabled)
@@ -996,7 +1016,7 @@ struct State {
       if (!global_input_enabled)
         global_input_enabled =
             preferences.value("default_ime_mode", "chinese") != "english";
-      if (!session)
+      if (!session && !app_rule_active)
         input_enabled = *global_input_enabled;
     }
     navigation = msime::linux_host::NavigationBindings::read(preferences);
@@ -3731,7 +3751,7 @@ void resync_punctuation_for_mode(IBusEngine *engine) {
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.mode_scope_global || !global_input_enabled ||
+  if (!s.mode_scope_global || !global_input_enabled || s.app_rule_active ||
       s.input_enabled == *global_input_enabled)
     return;
   if (!*global_input_enabled && s.voice_active)
@@ -4867,6 +4887,7 @@ void focus_in(IBusEngine *engine) {
       s.refresh_provider_sockets(engine);
     const bool mode_before_restore = s.input_enabled;
     s.restore_app_input_mode();
+    s.apply_app_input_mode_rule();
     s.open();
     // Windows re-resolves punctuation on every OPENCLOSE change, including one the focus brings, so a Ctrl+. choice or override from the previous app does not outlive the switch.
     if (s.input_enabled != mode_before_restore)
@@ -4879,14 +4900,16 @@ void focus_in(IBusEngine *engine) {
     sync_global_input_mode(engine);
     // IBus may replay focus after negotiating client identity. Re-focusing
     // the same runtime would cancel input already typed during negotiation.
-    if (s.session && (!already_focused || s.session != previous_session))
+    // 例外是名字带来了另一个模式（应用例外）：会话要照切换中英文时那样按新模式聚焦。
+    const bool mode_changed = s.input_enabled != mode_before_restore;
+    if (s.session && (!already_focused || s.session != previous_session || mode_changed))
       apply(engine, s.focus_session(s.input_enabled));
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
       s.properties_registered = true;
     } else if (s.properties_registered &&
-               (!already_focused || s.session != previous_session)) {
+               (!already_focused || s.session != previous_session || mode_changed)) {
       // FocusOut disabled the existing menu. Refresh its state on activation
       // without re-registering it or disturbing repeated focus negotiation.
       publish_mode(engine);
@@ -6050,6 +6073,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.mode_scope_global)
         global_input_enabled = enabled;
       s.input_enabled = enabled;
+      s.yield_app_input_mode_rule();
       s.open();
       resync_punctuation_for_mode(engine);
       if (s.session)
@@ -6277,6 +6301,7 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = !s.input_enabled;
+  s.yield_app_input_mode_rule();
   s.remember_app_input_mode();
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
@@ -8472,6 +8497,8 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
       // IBus disables the old engine when changing input sources. Unlike a
       // focus transfer, reactivation must start from the configured CN/EN mode.
       global_input_enabled.reset();
+      app_rule_stay = {};
+      state(engine).app_rule_active = false;
       // The daemon clears properties on disable; register them on reactivation.
       state(engine).properties_registered = false;
       state(engine).app_input_modes.clear();

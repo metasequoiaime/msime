@@ -322,10 +322,10 @@ fn capabilities_describe_each_host() {
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);
     assert!(linux.input_mode_hud);
-    // 应用例外只在认得前台应用、并按规则定起始模式的两个桌面宿主上提供。
+    // 应用例外只在认得前台应用、并按规则定起始模式的三个桌面宿主上提供。
     assert!(macos.app_input_mode_rules);
     assert!(windows.app_input_mode_rules);
-    assert!(!linux.app_input_mode_rules);
+    assert!(linux.app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);

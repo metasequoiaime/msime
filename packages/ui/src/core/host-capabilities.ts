@@ -11,7 +11,7 @@ export interface HostCapabilities {
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
-  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
+  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS、Windows 和 Linux）。 */
   app_input_mode_rules?: boolean;
   typing_statistics: boolean;
   /** 宿主已接通共享的背单词入口。 */
