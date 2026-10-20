@@ -277,7 +277,13 @@ jobs:
             prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
             cask="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" cask)"
             dmg="dist/${prefix}-${VERSION}-universal.dmg"
-            if ! xcrun stapler validate "$dmg"; then
+            # staple-ticket.sh --validate 核对 DMG 里装订的票据，与装订用同一个断线重试窗口：0.54.0（run 39267138324）这里直接调 stapler validate，碰上 CloudKit 断线（Error 68）就把 full 版当成未公证，msime cask 停在上一版而 job 照样成功。重试用完返回 75，与真正没有公证分开提示。
+            validate_status=0
+            bash platforms/macos/scripts/staple-ticket.sh --validate "$dmg" || validate_status=$?
+            if [[ "$validate_status" -eq 75 ]]; then
+              echo "::warning::Apple's ticket service kept dropping the connection while validating $dmg; the $cask cask was left at its previous version and has to be updated by hand"
+              continue
+            elif [[ "$validate_status" -ne 0 ]]; then
               echo "::warning::$dmg is not notarized; the $cask cask was left at its previous version"
               continue
             fi
