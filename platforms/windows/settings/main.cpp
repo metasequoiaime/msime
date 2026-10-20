@@ -54,6 +54,8 @@
 #include "PreferencePath.h"
 #include "PunctuationSettings.h"
 #include "SettingsDocumentFile.h"
+#include "SettingsMascotIntro.h"
+#include "SettingsNavIcons.h"
 #include "SettingsNavigation.h"
 #include "SettingsStateDirectory.h"
 #include "ShellLauncher.h"
@@ -1005,34 +1007,31 @@ std::optional<Color> parse_hex(std::wstring_view value) {
 
 // ---- Page labels ----
 
-// 页面名称、说明与侧栏图标，按稳定的路由 id 取值。
+// 页面名称与图标字形，按稳定的路由 id 取值。侧栏画的是 `SettingsNavIcons.h` 里的产品图标，这里的 Segoe Fluent Icons 字形留给正文里代表整页的行（交给共享应用的页面、插件页的插件包行）；页首的说明和插画在 `SettingsMascotIntro.h`。
 struct PageLabel {
   std::string_view id;
   const wchar_t *title;
   wchar_t glyph;
-  const wchar_t *summary;
 };
 
 // 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
 constexpr std::array<PageLabel, 16> page_labels{{
-    {"typing", L"输入", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
-    {"expression", L"标点与翻译", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
-    {"shortcuts", L"快捷键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
-    {"lexicon", L"词库", 0xE82D, L"管理本机词库、个人词条和常用语。"},
-    {"themes", L"主题", 0xE790, L"选择皮肤与配色；布局、字体和显示方式在「候选窗口」中设置。"},
-    {"candidate", L"候选窗口", 0xE8FD, L"调整布局、字体和显示方式；皮肤与配色在「主题」中设置。"},
-    {"toolbar", L"悬浮工具栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
-    {"osk", MSIME_EDITION_HANDWRITING ? L"键盘与手写" : L"屏幕键盘", 0xE92E,
-     MSIME_EDITION_HANDWRITING ? L"设置屏幕键盘的布局、按键和外观，打开手写识别板。"
-                               : L"设置屏幕键盘的布局、按键和外观。"},
-    {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
-    {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
-    {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
-    {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
-    {"ai", L"AI", 0xE99A, L"配置 AI 辅助功能，连接本机 AI 助手。"},
-    {"account", L"账号与同步", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
-    {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
-    {"about", L"关于", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
+    {"typing", L"输入", 0xE765},
+    {"expression", L"标点与翻译", 0xE8C1},
+    {"shortcuts", L"快捷键", 0xEDA7},
+    {"lexicon", L"词库", 0xE82D},
+    {"themes", L"主题", 0xE790},
+    {"candidate", L"候选窗口", 0xE8FD},
+    {"toolbar", L"悬浮工具栏", 0xE7F4},
+    {"osk", MSIME_EDITION_HANDWRITING ? L"键盘与手写" : L"屏幕键盘", 0xE92E},
+    {"voice", L"语音输入", 0xE720},
+    {"clip", L"剪贴板", 0xE77F},
+    {"stats", L"打字统计", 0xE9D2},
+    {"plugins", L"插件", 0xEA86},
+    {"ai", L"AI", 0xE99A},
+    {"account", L"账号与同步", 0xE77B},
+    {"dev", L"维护与诊断", 0xE90F},
+    {"about", L"关于", 0xE946},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
@@ -1227,26 +1226,47 @@ std::vector<uint8_t> const &logo_png() {
   return bytes;
 }
 
-fire_and_forget show_logo(Image image, int32_t pixels) {
-  const auto &bytes = logo_png();
-  if (bytes.empty())
+// Decodes PNG bytes into `image`. The bytes must outlive the decode: callers pass the static logo copy or a resource, which stays mapped as long as the process runs. `pixels` is the decode width, 0 for the picture's own.
+fire_and_forget show_png(Image image, uint8_t const *data, size_t size, int32_t pixels) {
+  if (size == 0)
     co_return;
   // Created on the UI thread before the first suspension; awaiting a WinRT operation resumes on this apartment.
   Imaging::BitmapImage bitmap;
-  bitmap.DecodePixelWidth(pixels);
+  if (pixels > 0)
+    bitmap.DecodePixelWidth(pixels);
   try {
     Windows::Storage::Streams::InMemoryRandomAccessStream stream;
     Windows::Storage::Streams::DataWriter writer(stream);
-    writer.WriteBytes(
-        array_view<uint8_t const>(bytes.data(), bytes.data() + bytes.size()));
+    writer.WriteBytes(array_view<uint8_t const>(data, data + size));
     co_await writer.StoreAsync();
     writer.DetachStream();
     stream.Seek(0);
     co_await bitmap.SetSourceAsync(stream);
     image.Source(bitmap);
   } catch (hresult_error const &) {
-    // A logo that cannot be decoded leaves the space empty; nothing else depends on it.
+    // A picture that cannot be decoded leaves the space empty; nothing else depends on it.
   }
+}
+
+void show_logo(Image image, int32_t pixels) {
+  const auto &bytes = logo_png();
+  show_png(image, bytes.data(), bytes.size(), pixels);
+}
+
+// 页首的水杉娘插画：Settings.rc 里那张 PNG（RCDATA）。资源缺失时留空，页首只剩说明文字。
+void show_mascot(Image image, nav::MascotScene scene) {
+  const HMODULE instance = GetModuleHandleW(nullptr);
+  const HRSRC resource =
+      FindResourceW(instance, MAKEINTRESOURCEW(nav::mascot_resource(scene)),
+                    MAKEINTRESOURCEW(10) /* RT_RCDATA */);
+  if (!resource)
+    return;
+  const HGLOBAL handle = LoadResource(instance, resource);
+  const auto *data =
+      handle ? static_cast<const uint8_t *>(LockResource(handle)) : nullptr;
+  if (!data)
+    return;
+  show_png(image, data, SizeofResource(instance, resource), 0);
 }
 
 struct Option {
@@ -3581,6 +3601,9 @@ private:
     root.Children().Append(navigation_);
 
     track_pointer(root);
+    root.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
+      update_intro_size();
+    });
     root_ = root;
     Content(root);
     SetTitleBar(titlebar_);
@@ -3751,8 +3774,9 @@ private:
       const auto &label = page_label(page.id);
       NavigationViewItem item;
       item.Content(box_value(hstring(label.title)));
-      auto icon = make_icon(label.glyph, 15, palette_.text);
-      icon.ClearValue(IconElement::ForegroundProperty());
+      // 产品图标照 macOS 侧栏：15 DIP、不透明度 0.9（`settings-style.ts` 的 `navIcon`）。前景交给模板的 NavigationViewItemForeground* 这组键，也就是正文色。
+      auto icon = make_nav_icon(page.id, 15);
+      icon.Opacity(0.9);
       item.Icon(icon);
       item.FontSize(14);
       item.MinHeight(38);
@@ -4009,7 +4033,7 @@ private:
     return Thickness{side, 24, side, 44};
   }
 
-  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部是一行 13 DIP 的页面说明，左右 8 DIP 与下面各组的组名对齐；「候选窗口」「主题」两页在它下面右侧放 Windows 自己的预览工具。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页。
+  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部照 macOS 的页首引导（`settings-mascot-intro.tsx` 的 `SettingsMascotIntro`）：左边一句 13 DIP、1.625 倍行高的次要色说明，右边一张 80 DIP 的水杉娘插画，两者竖直居中、相隔 20，整行左右各留 4；窗口矮于 700 DIP 时插画缩到 56、间隔收成 12（`update_intro_size`）。说明和插画按页面与当前标签取自 `SettingsMascotIntro.h`，「关于」没有这一行。「候选窗口」「主题」两页在它下面右侧放 Windows 自己的预览工具。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页；「关于」页由品牌卡上的产品名带这个 ID。
   FrameworkElement make_page_header() {
     Grid row;
     ColumnDefinition title_column;
@@ -4019,11 +4043,38 @@ private:
     row.ColumnDefinitions().Append(title_column);
     row.ColumnDefinitions().Append(tools_column);
 
-    auto heading = make_text(page_label(current_page_).summary, 13, palette_.sub);
-    A11y::SetAutomationId(heading, text("settings-page-" + current_page_));
-    heading.Margin(Thickness{8, 0, 8, 0});
-    Grid::SetColumnSpan(heading, 2);
-    row.Children().Append(heading);
+    intro_row_ = nullptr;
+    intro_text_ = nullptr;
+    intro_mascot_ = nullptr;
+    if (nav::mascot_intro(current_page_)) {
+      Grid intro;
+      intro.Padding(Thickness{4, 0, 4, 0});
+      ColumnDefinition description_column;
+      description_column.Width(GridLength{1, GridUnitType::Star});
+      ColumnDefinition mascot_column;
+      mascot_column.Width(GridLength{1, GridUnitType::Auto});
+      intro.ColumnDefinitions().Append(description_column);
+      intro.ColumnDefinitions().Append(mascot_column);
+      auto description = make_text(L"", 13, palette_.sub);
+      description.LineHeight(13 * 1.625);
+      description.VerticalAlignment(VerticalAlignment::Center);
+      A11y::SetAutomationId(description, text("settings-page-" + current_page_));
+      intro.Children().Append(description);
+      Image mascot;
+      mascot.Stretch(Stretch::Uniform);
+      mascot.VerticalAlignment(VerticalAlignment::Center);
+      // 纯装饰：旁边的说明已经讲清这一页，读屏不读它，与共享 UI 插画的 aria-hidden 相同。
+      A11y::SetAccessibilityView(mascot, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+      Grid::SetColumn(mascot, 1);
+      intro.Children().Append(mascot);
+      Grid::SetColumnSpan(intro, 2);
+      row.Children().Append(intro);
+      intro_row_ = intro;
+      intro_text_ = description;
+      intro_mascot_ = mascot;
+      show_page_intro_tab({});
+      update_intro_size();
+    }
     RowDefinition heading_row;
     heading_row.Height(GridLength{1, GridUnitType::Auto});
     RowDefinition actions_row;
@@ -4079,6 +4130,29 @@ private:
       row.Children().Append(tools);
     }
     return row;
+  }
+
+  // 把页首引导换成这一页 `tab` 标签的说明和插画，不重画整页；`tab` 为空时是打开页面时的那个标签。页内标签切换时调用（Windows 上「语音输入」「键盘与手写」「剪贴板」还没有标签，现在只有 `make_page_header` 用空标签调用）。这一页没有引导时什么也不做。
+  void show_page_intro_tab(std::string_view tab) {
+    if (!intro_text_ || !intro_mascot_)
+      return;
+    const auto intro = nav::mascot_intro(current_page_, tab);
+    if (!intro)
+      return;
+    intro_text_.Text(hstring(intro->description));
+    show_mascot(intro_mascot_, intro->scene);
+  }
+
+  // macOS 的引导行在视口矮于 700 时把插画缩到 56、间隔收成 12（`[@media(max-height:700px)]`）。这里按窗口内容区的高度判断，窗口拉高拉矮时由 `build_shell` 里根元素的 SizeChanged 跟着改。
+  void update_intro_size() {
+    if (!intro_row_ || !intro_mascot_)
+      return;
+    const double height = root_ ? root_.ActualHeight() : 0;
+    const bool short_window = height > 0 && height < 700;
+    const double size = short_window ? 56 : 80;
+    intro_mascot_.Width(size);
+    intro_mascot_.Height(size);
+    intro_row_.ColumnSpacing(short_window ? 12 : 20);
   }
 
   static bool has_preview(std::string_view page) {
@@ -4502,6 +4576,21 @@ private:
     block.Foreground(brush(color));
     block.TextWrapping(TextWrapping::Wrap);
     return block;
+  }
+
+  // 侧栏的产品图标（`SettingsNavIcons.h`）。路径坐标在 24 × 24 的方框里，按 `size` 缩放；图标本身定成 size × size，保留图源四周的留白，导航项模板里装图标的 Viewbox 因此不再按路径的外框放大。不设前景，由所在的模板或父元素决定。
+  static PathIcon make_nav_icon(std::string_view page, double size) {
+    const std::wstring markup =
+        L"<PathIcon xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"" +
+        std::wstring(nav::nav_icon_path(page)) + L"\"/>";
+    auto icon = Markup::XamlReader::Load(hstring(markup)).as<PathIcon>();
+    ScaleTransform scale;
+    scale.ScaleX(size / nav::nav_icon_box);
+    scale.ScaleY(size / nav::nav_icon_box);
+    icon.Data().Transform(scale);
+    icon.Width(size);
+    icon.Height(size);
+    return icon;
   }
 
   FontIcon make_icon(wchar_t glyph, double size, Color const &color) {
@@ -20301,6 +20390,8 @@ private:
       // 产品名按版本取，与窗口标题和侧栏一致；full 仍是「水杉输入法」。
       auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 20, palette_.text);
       product.FontWeight(Windows::UI::Text::FontWeight{600});
+      // 关于页没有页首引导（与 macOS 相同），界面验收认的 `settings-page-about` 落在产品名上。
+      A11y::SetAutomationId(product, L"settings-page-about");
       names.Children().Append(product);
       names.Children().Append(make_text(L"© 2026 Metasequoia", 12, palette_.faint));
       Grid::SetColumn(names, 1);
@@ -20860,6 +20951,10 @@ private:
   Grid titlebar_{nullptr};
   AutoSuggestBox search_{nullptr};
   TextBlock toolbar_title_{nullptr};
+  // 当前页页首引导的那一行、说明和插画；没有引导的页面（「关于」）为空。
+  Grid intro_row_{nullptr};
+  TextBlock intro_text_{nullptr};
+  Image intro_mascot_{nullptr};
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};

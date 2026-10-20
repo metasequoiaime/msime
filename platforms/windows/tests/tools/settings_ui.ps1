@@ -414,6 +414,14 @@ try {
                 if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
                 # 与 macOS 一样，标题栏里只有页名，没有跨页面的历史返回按钮。
                 if (Find-ByName $window '返回') { throw "Settings title bar still has a history back button on $page" }
+                # 页首照 macOS 的水杉娘引导（SettingsMascotIntro.h）：除「关于」外，正文顶部是一句说明配插画，说明带 settings-page-<页面>；「关于」没有引导，这个 ID 落在品牌卡的产品名上。
+                $intro = Find-ById $content "settings-page-$page"
+                if ($page -eq 'about') {
+                    if (-not $window.Current.Name.StartsWith($intro.Current.Name + ' · ')) { throw "About page identifies itself as '$($intro.Current.Name)' instead of the product name" }
+                } elseif (-not $intro.Current.Name.EndsWith('。')) {
+                    throw "Page intro of $page is not a sentence: '$($intro.Current.Name)'"
+                }
+                if ($page -eq 'account' -and $intro.Current.Name -ne '管理账号与跨设备设置同步。') { throw "Account page intro does not follow macOS: '$($intro.Current.Name)'" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
                 if ($page -eq 'clip') {
