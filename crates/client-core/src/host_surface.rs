@@ -167,7 +167,7 @@ pub struct HostCapabilities {
     pub panel_windows: bool,
     /// The host keeps per-application versus global Chinese/English mode state.
     pub ime_mode_scope: bool,
-    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名（Fcitx5 的 `InputContext::program()`；IBus 只有 GTK 程序经 1.5.27 起的客户端名报告）。
+    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名（Fcitx5 的 `InputContext::program()`；IBus 只有经 IBus GTK 输入法模块输入的程序经 1.5.27 起的客户端名报告，GNOME Wayland 下经 GNOME Shell 转发的程序是匿名的）。
     pub app_input_mode_rules: bool,
     /// The host records typing statistics.
     pub typing_statistics: bool,
