@@ -82,11 +82,14 @@ inline CandidatePagerMetrics CandidatePager(double font, double scale, double it
         [path closePath];
         [path fill];
     } else {
-        [path moveToPoint:upper]; [path lineToPoint:tip]; [path lineToPoint:lower];
         path.lineWidth = metrics.stroke;
-        path.lineCapStyle = NSLineCapStyleRound;
-        path.lineJoinStyle = NSLineJoinStyleRound;
-        [path stroke];
+        path.lineCapStyle = NSLineCapStyleButt;
+        // 来源用两段平头直线；分别绘制也保留禁用颜色在交点的透明度叠加。
+        for (NSPoint endpoint : {upper, lower}) {
+            [path removeAllPoints];
+            [path moveToPoint:endpoint]; [path lineToPoint:tip];
+            [path stroke];
+        }
     }
 }
 @end

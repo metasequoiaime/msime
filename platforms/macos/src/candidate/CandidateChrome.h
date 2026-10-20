@@ -148,6 +148,36 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     return gloss.length ? [NSString stringWithFormat:@"%@\n%@", gloss, scriptAnnotation] : scriptAnnotation;
 }
 
+// 路径同时用于静态底色和选中动效；半径按相邻边长统一收缩，避免小格的曲线相交。
+static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 4> radii, BOOL flipped) CF_RETURNS_RETAINED
+{
+    const CGFloat width = MAX(0.0, NSWidth(rect)), height = MAX(0.0, NSHeight(rect));
+    for (auto &radius : radii) radius = std::max(0.0, radius);
+    double factor = 1.0;
+    const auto fit = [&](double edge, double sum) { if (sum > 0) factor = std::min(factor, edge / sum); };
+    fit(width, radii[0] + radii[1]); fit(width, radii[3] + radii[2]);
+    fit(height, radii[0] + radii[3]); fit(height, radii[1] + radii[2]);
+    for (auto &radius : radii) radius *= factor;
+    const CGFloat left = NSMinX(rect), right = NSMaxX(rect), bottom = NSMinY(rect), top = NSMaxY(rect);
+    const auto [tl, tr, br, bl] = radii;
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathMoveToPoint(path, nullptr, left + bl, bottom);
+    CGPathAddLineToPoint(path, nullptr, right - br, bottom);
+    CGPathAddArcToPoint(path, nullptr, right, bottom, right, bottom + br, br);
+    CGPathAddLineToPoint(path, nullptr, right, top - tr);
+    CGPathAddArcToPoint(path, nullptr, right, top, right - tr, top, tr);
+    CGPathAddLineToPoint(path, nullptr, left + tl, top);
+    CGPathAddArcToPoint(path, nullptr, left, top, left, top - tl, tl);
+    CGPathAddLineToPoint(path, nullptr, left, bottom + bl);
+    CGPathAddArcToPoint(path, nullptr, left, bottom, left + bl, bottom, bl);
+    CGPathCloseSubpath(path);
+    if (!flipped) return path;
+    const CGAffineTransform flip = CGAffineTransformMake(1, 0, 0, -1, 0, bottom + top);
+    CGPathRef result = CGPathCreateCopyByTransformingPath(path, &flip);
+    CGPathRelease(path);
+    return result;
+}
+
 @interface MSIMECandidateButton : NSButton <MSIMECandidateSelectionFillHost>
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic, strong) NSFont *numberFont;
@@ -181,6 +211,9 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) BOOL showSelectedBar;
 @property(nonatomic) BOOL candidateHovered;
 @property(nonatomic) CGFloat cornerRadius;
+// 仅共享皮肤的贴角模式使用四角；关闭后保留原生统一圆角路径。
+@property(nonatomic) BOOL hasCornerRadii;
+@property(nonatomic) std::array<double, 4> cornerRadii;
 @property(nonatomic) CGFloat selectionLeftInset;
 // candidate_scale_percent as a factor, for the lengths the row draws itself: the text insets and the selection bar. Zero draws at 100%.
 @property(nonatomic) CGFloat chromeScale;
@@ -253,6 +286,11 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     self.candidateHovered = NO;
     self.needsDisplay = YES;
 }
+- (CGPathRef)createSelectionFillPath
+{
+    if (!self.hasCornerRadii) return nullptr;
+    return MSIMECreateCandidateCornerPath(NSInsetRect(self.bounds, 1, 1), self.cornerRadii, self.isFlipped);
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     if (self.tag < 0) { [super drawRect:dirtyRect]; return; }
@@ -264,7 +302,15 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     if (background != nil && background.alphaComponent > 0.01)
     {
         [background setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
+        CGPathRef path = [self createSelectionFillPath];
+        if (path) {
+            CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+            CGContextAddPath(context, path);
+            CGContextFillPath(context);
+            CGPathRelease(path);
+        } else {
+            [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
+        }
     }
     if (self.candidateHighlighted && self.showSelectedBar)
     {
@@ -401,6 +447,9 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat backgroundOpacity;
 // The transparent band above the card that a skin's decoration stands in. The fill, background image and stroke cover only the card below it.
 @property(nonatomic) CGFloat cardTopInset;
+// 候选列表的实际区域；画布平移时与真实按钮一起移动。
+@property(nonatomic) NSRect candidateRowsRect;
+@property(nonatomic) BOOL candidateRowsTouchTop;
 // 系统主题允许原生玻璃；旧系统和降低透明度时仍画原有卡片。
 @property(nonatomic) BOOL liquidGlassEnabled;
 @property(nonatomic, readonly) BOOL liquidGlassActive;
