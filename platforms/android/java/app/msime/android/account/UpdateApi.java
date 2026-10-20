@@ -33,7 +33,7 @@ import org.json.JSONObject;
 /**
  * 关于页「检查更新」和每天一次的自动更新共用的一层：查 msime.app 的 Android 发行版列表、按更新通道挑出比当前版本新的那一个、把本版本（edition）的 APK 下载到 `cache/updates/`，并在交给系统安装器之前核对 SHA-256 与签名证书。
  *
- * <p>发行版列表来自 `https://msime.app/api/releases?platform=android`（msime-web 带缓存的 GitHub 发行版镜像，避开 GitHub 对未鉴权请求每小时 60 次的限额），条目只有 `tag`、`version`、`prerelease` 等元数据，没有资产地址。APK 按发布流程的命名（`release-android.yml` 用 `edition_android.py` 的 `apk_name`：full 是 `msime-android.apk`，其他版本是 `msime-android-<id>.apk`）从 GitHub 发布页下载，校验值是同一发布里的 `<apk>.sha256`（`sha256sum` 的格式）。没有校验文件的发布一律不装。
+ * <p>发行版列表来自 `https://msime.app/api/releases?platform=android`（msime-web 带缓存的 GitHub 发行版镜像，避开 GitHub 对未鉴权请求每小时 60 次的限额），条目只有 `tag`、`version`、`prerelease` 等元数据，没有资产地址。APK 按发布流程的命名（`release-android.yml` 用 `edition_android.py` 的 `apk_name`：full 是 `msime-android.apk`，其他版本是 `msime-android-<id>.apk`）从 GitHub 发布页下载，校验值先取同一发布里只列安装包的 `SHA256SUMS`（`sha256sum` 的多行输出），里面没有这个 APK 或取不到时退回同一发布里的 `<apk>.sha256`（单行的 `sha256sum` 输出）。0.4.2 及更早的发布只有后者；而已安装的旧版本只会按新版本的 tag 拼 `<tag>/<apk>.sha256`，所以版本发布页上暂时两者都放，见 `.agents/notes/implemented/process/2026-10-20-android-release-page-sha256sums.md`。两种都没有的发布一律不装。
  *
  * <p>APK 和校验文件都先从国内镜像 {@link #MIRROR_PREFIX} 下载，镜像的任何失败（网络、HTTP 状态、摘要不符）都换回 GitHub 原地址。镜像同时提供 APK 和校验值，所以 SHA-256 只防传输损坏；真正挡住被替换的包的是安装前的 {@link #verifyArchive}：包名相同、版本号更高、签名证书与当前安装的一致，镜像伪造不出来。
  *
@@ -52,8 +52,12 @@ public final class UpdateApi {
         "msime.app", "dl.msime.app", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com");
     /** 下载到应用缓存下的这个子目录，FileProvider 的 `updates` 路径指向它。 */
     public static final String CACHE_DIRECTORY = "updates";
+    /** 版本发布页上只列安装包的校验清单，`release-android.yml` 在 publish 里写出。 */
+    public static final String SUMS_ASSET = "SHA256SUMS";
     static final int MAX_LIST_BYTES = 2 * 1024 * 1024;
     static final int MAX_CHECKSUM_BYTES = 4 * 1024;
+    /** 六个 APK 的清单不到 1 KiB，留足以后加版本的余量。 */
+    static final int MAX_SUMS_BYTES = 64 * 1024;
     /** APK 大小上限；超过就不是我们发的包。 */
     static final long MAX_APK_BYTES = 512L * 1024 * 1024;
     static final int MAX_REDIRECTS = 5;
@@ -94,8 +98,8 @@ public final class UpdateApi {
     /** 发行版列表里的一项。 */
     public record Release(String tag, String version, boolean prerelease) {}
 
-    /** 一个可以下载的更新：哪个发布、APK 与校验文件的地址、下载后的文件名。 */
-    public record Update(Release release, String apkUrl, String checksumUrl, String fileName) {}
+    /** 一个可以下载的更新：哪个发布、APK 的地址、`SHA256SUMS` 与 `<apk>.sha256` 两个校验文件的地址、下载后的文件名。 */
+    public record Update(Release release, String apkUrl, String sumsUrl, String checksumUrl, String fileName) {}
 
     /** 检查或安装失败的原因；`message` 是给用户看的中文。 */
     public static final class Failure extends Exception {
@@ -246,7 +250,7 @@ public final class UpdateApi {
         if (release == null || release.tag() == null || !TAG.matcher(release.tag()).matches()) return null;
         String file = apkAssetName(edition) + ".apk";
         String apk = DOWNLOAD_PREFIX + release.tag() + "/" + file;
-        return new Update(release, apk, apk + ".sha256", file);
+        return new Update(release, apk, DOWNLOAD_PREFIX + release.tag() + "/" + SUMS_ASSET, apk + ".sha256", file);
     }
 
     /** 读 `sha256sum` 的输出：第一个字段是 64 位十六进制；读不出时返回 null。 */
@@ -257,6 +261,24 @@ public final class UpdateApi {
         while (end < trimmed.length() && !TextPolicy.isWhitespace(trimmed.charAt(end))) end++;
         String digest = TextPolicy.lowercase(trimmed.substring(0, end));
         return TextPolicy.isLowerHex(digest, 64) ? digest : null;
+    }
+
+    /**
+     * 在 `SHA256SUMS`（`sha256sum` 的多行输出，每行「64 位十六进制、空格、空格或 `*`、文件名」）里找 `fileName` 那一行，返回它的摘要。没有这一行、这一行的摘要不是十六进制、或同名的行给出两个不同的摘要时返回 null；别的文件的行格式不对不影响结果。
+     */
+    public static String parseSums(String sums, String fileName) {
+        if (sums == null || fileName == null || fileName.isEmpty()) return null;
+        String found = null;
+        for (String raw : sums.split("\n", -1)) {
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            if (line.length() <= 66 || line.charAt(64) != ' ' || (line.charAt(65) != ' ' && line.charAt(65) != '*')) continue;
+            if (!line.substring(66).equals(fileName)) continue;
+            String digest = TextPolicy.lowercase(line.substring(0, 64));
+            if (!TextPolicy.isLowerHex(digest, 64)) return null;
+            if (found != null && !found.equals(digest)) return null;
+            found = digest;
+        }
+        return found;
     }
 
     /** 读 msime.app 的发行版列表：`{items:[{tag,version,prerelease,…}]}`，只保留平台是 android 的条目。 */
@@ -330,12 +352,12 @@ public final class UpdateApi {
         File partial = new File(directory, update.fileName() + ".part");
         Failure failure = null;
         List<String> apkSources = sources(update.apkUrl());
+        List<String> sumsSources = sources(update.sumsUrl());
         List<String> checksumSources = sources(update.checksumUrl());
         for (int index = 0; index < apkSources.size(); index++) {
             String expected;
             try {
-                expected = parseChecksum(new String(fetch(checksumSources.get(index), MAX_CHECKSUM_BYTES), StandardCharsets.UTF_8));
-                if (expected == null) throw new Failure("这个版本没有校验信息，请到官网下载");
+                expected = expectedDigest(sumsSources.get(index), checksumSources.get(index), update.fileName());
             } catch (Failure sourceFailed) {
                 failure = sourceFailed;
                 continue;
@@ -362,6 +384,21 @@ public final class UpdateApi {
             return target;
         }
         throw failure;
+    }
+
+    /**
+     * 一个源上这个 APK 应有的 SHA-256：先读这个源上的 `SHA256SUMS`，取不到、或里面没有这个 APK 时，退回同一个源上的 `<apk>.sha256`。两份校验文件和 APK 都取自同一个源，GitHub 的 APK 只用 GitHub 上的校验值核对。`SHA256SUMS` 列了这个 APK 时以它为准，不再去读 `<apk>.sha256`。
+     */
+    private String expectedDigest(String sumsUrl, String checksumUrl, String fileName) throws Failure {
+        try {
+            String listed = parseSums(new String(fetch(sumsUrl, MAX_SUMS_BYTES), StandardCharsets.UTF_8), fileName);
+            if (listed != null) return listed;
+        } catch (Failure unavailable) {
+            // 0.4.2 及更早的发布没有 SHA256SUMS（404），照旧读 `<apk>.sha256`；它也取不到时，报的是那一次的失败。
+        }
+        String expected = parseChecksum(new String(fetch(checksumUrl, MAX_CHECKSUM_BYTES), StandardCharsets.UTF_8));
+        if (expected == null) throw new Failure("这个版本没有校验信息，请到官网下载");
+        return expected;
     }
 
     /** 依次尝试的下载地址：先国内镜像，再 GitHub 原地址。 */

@@ -71,14 +71,16 @@ jobs:
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
         run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK
-        # API 35 的完整验收会切换到注音九键，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。
+        # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。背单词的设备验收（SettingsDeviceSmoke -e vocabulary true）要读 APK 里的内置词书，所以也生成词书并要求它们进包。
         env:
-          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: ${{ matrix.api == 35 && '1' || '0' }}
+          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: '1'
+          MSIME_REQUIRE_WORDBOOKS: '1'
         run: |
           set -euo pipefail
           if [[ "$MSIME_REQUIRE_LANGUAGE_DICTIONARIES" == 1 ]]; then
             python3 scripts/fetch_language_dictionaries.py
           fi
+          python3 scripts/fetch_wordbooks.py
           bash platforms/windows/bootstrap-vcpkg.sh
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"

@@ -18,6 +18,7 @@ struct CandidatePalette: Equatable {
   var preeditText: UIColor? = nil
   var selectedBar: UIColor? = nil
   var showSelectedBar = false
+  var layout: CandidateSkinLayout? = nil
 
   static let followsDesktopKey = "candidate_palette_follows_desktop"
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
@@ -64,7 +65,7 @@ struct CandidatePalette: Equatable {
       surface: candidate?.surface ?? keyboard.background,
       border: candidate?.border ?? .clear, selectedText: candidate?.selectedText,
       selectedTranslation: resolved.candidateDetails?.selectedTranslation, preeditText: resolved.candidateDetails?.preeditText,
-      selectedBar: resolved.candidateDetails?.selectedBar, showSelectedBar: candidate?.showSelectedBar ?? false)
+      selectedBar: resolved.candidateDetails?.selectedBar, showSelectedBar: candidate?.showSelectedBar ?? false, layout: resolved.candidateLayout)
   }
 
   /// `candidate_theme` first, then the app's light or dark mode (`theme`), then the system.
@@ -79,5 +80,63 @@ struct CandidatePalette: Equatable {
     case "light": return false
     default: return systemDark
     }
+  }
+}
+
+
+/// 共享出厂版式的触屏映射；保留长度单位，在当前字号下换算，不改变键盘的横排与触控下限。
+struct CandidateSkinLayout: Equatable {
+  struct Length: Equatable {
+    let value: CGFloat
+    let em: Bool
+    init?(_ raw: Any?) {
+      guard let raw = raw as? [String: Any], let value = CandidateSkinLayout.number(raw["value"], maximum: 500),
+            let em = raw["em"] as? Bool else { return nil }
+      self.value = value
+      self.em = em
+    }
+    func dip(fontSize: CGFloat) -> CGFloat { em ? (value * fontSize).rounded() : value }
+  }
+  let padding: Length?
+  let itemGap: Length?
+  let itemExtraHeight: Length?
+  let itemPaddingRight: Length?
+  let itemMinWidth: Length?
+  let selectedBarWidth: Length?
+  let selectedBarHeightEm: CGFloat?
+  let selectedBarInside: Bool?
+  let itemRadius: CGFloat?
+  let borderWidth: CGFloat?
+  let fitContent: Bool
+
+  init?(_ raw: Any?) {
+    guard let raw = raw as? [String: Any], let geometry = (raw["horizontal"] ?? raw["geometry"]) as? [String: Any] else { return nil }
+    padding = Length(geometry["padding"])
+    itemGap = Length(geometry["itemGap"])
+    itemExtraHeight = Length(geometry["itemExtraHeight"])
+    itemPaddingRight = Length(geometry["itemPaddingRight"])
+    itemMinWidth = Length(geometry["itemMinWidth"])
+    selectedBarWidth = Length(geometry["selectedBarWidth"])
+    selectedBarHeightEm = Self.number(geometry["selectedBarHeightEm"], maximum: 10)
+    selectedBarInside = geometry["selectedBarInside"] as? Bool
+    itemRadius = Self.number(raw["itemCornerRadiusDip"], maximum: 32)
+    borderWidth = Self.number(raw["borderWidthDip"], maximum: 10)
+    fitContent = raw["fitContent"] as? Bool ?? false
+  }
+
+  static func number(_ raw: Any?, maximum: CGFloat) -> CGFloat? {
+    guard let value = raw as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
+    let result = CGFloat(value.doubleValue)
+    return result.isFinite && result >= 0 && result <= maximum ? result : nil
+  }
+
+  func horizontalGap(fontSize: CGFloat, fallback: CGFloat = 6) -> CGFloat {
+    itemGap.map { $0.dip(fontSize: fontSize) + (fitContent ? 0 : 6) } ?? fallback
+  }
+
+  func chipInsets(fontSize: CGFloat, fallback: NSDirectionalEdgeInsets) -> NSDirectionalEdgeInsets {
+    let vertical = itemExtraHeight.map { min(fallback.top, $0.dip(fontSize: fontSize) / 2) } ?? fallback.top
+    return NSDirectionalEdgeInsets(top: vertical, leading: itemPaddingRight?.dip(fontSize: fontSize) ?? fallback.leading,
+                                   bottom: vertical, trailing: itemPaddingRight?.dip(fontSize: fontSize) ?? fallback.trailing)
   }
 }

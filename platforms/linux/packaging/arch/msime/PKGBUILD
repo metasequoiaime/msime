@@ -115,6 +115,8 @@ prepare() {
   python scripts/fetch_handwriting_model.py --out "$srcdir/handwriting-model"
   python scripts/fetch_offline_glosses.py --out "$srcdir/offline-glosses"
   python scripts/fetch_language_dictionaries.py --out "$srcdir/language-dictionaries"
+  # 背单词的内置词书：按锁文件下载 ECDICT 并核对 SHA-256，再生成八本词书和许可声明。
+  python scripts/fetch_wordbooks.py --out "$srcdir/wordbooks"
   # linux-v0.11.0 的启动器只禁用了 WebKit 合成；Arch 的新版 WebKitGTK 在 NVIDIA + Wayland 下还会因 DMA-BUF 的显式同步协议错误退出。新版本源码已经带上完整的 NVIDIA 判断，这个兼容补丁只在旧启动器没有该变量时插入第二个规避，避免发布包在下一次版本发布前继续闪退。
   local settings_launcher="$(_srcdir)/platforms/linux/data/msime-linux-settings.in"
   if ! grep -q 'WEBKIT_DISABLE_DMABUF_RENDERER' "$settings_launcher"; then
@@ -155,7 +157,9 @@ build() {
     -DMSIME_HANDWRITING_MODEL_DIR="$srcdir/handwriting-model" \
     -DMSIME_OFFLINE_GLOSSES="$srcdir/offline-glosses" \
     -DMSIME_LANGUAGE_DICTIONARIES="$srcdir/language-dictionaries" \
-    -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+    -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON \
+    -DMSIME_WORDBOOKS="$srcdir/wordbooks" \
+    -DMSIME_REQUIRE_WORDBOOKS=ON
   cmake --build "$srcdir/build"
 }
 

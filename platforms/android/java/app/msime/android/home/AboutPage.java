@@ -376,7 +376,9 @@ public final class AboutPage extends DetailPage {
             }
         }
         for (String fixed : new String[] {"client-LICENSE.txt", "emoji-combinations-NOTICE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
-                "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt"}) {
+                "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt",
+                // 背单词内置词书取自 ECDICT（MIT），许可声明随词书一起打进 assets/wordbooks。
+                "wordbooks/wordbooks-NOTICE.txt"}) {
             if (exists(assets, fixed)) found.add(fixed);
         }
         String[] languages = assets.list("language-dictionaries");

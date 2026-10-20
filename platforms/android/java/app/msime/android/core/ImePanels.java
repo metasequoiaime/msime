@@ -70,6 +70,10 @@ final class ImePanels {
     }
 
     void renderEmojiStatus() {
+        if (s.imeStickers.selected()) {
+            showEmojiStatus(StickerPackModel.status(s.imeStickers.pack()));
+            return;
+        }
         // 分类栏只剩图标，分类名和数量放在网格的状态描述里，界面上不再占一行。
         String title = s.emojiSelectedCategory == -1 ? EmojiCatalogModel.RECENTS.title()
             : s.emojiSelectedCategory >= 0 && s.emojiSelectedCategory < EmojiCatalogModel.categories().size()
@@ -87,9 +91,26 @@ final class ImePanels {
     void renderEmojiTabs() {
         if (s.emojiTabs == null) return;
         s.emojiTabs.removeAllViews();
-        if (!s.emojiRecents.isEmpty()) addEmojiTab(EmojiCatalogModel.RECENTS, -1);
-        for (int index = 0; index < EmojiCatalogModel.categories().size(); index++)
-            addEmojiTab(EmojiCatalogModel.categories().get(index), index);
+        // 顺序和横划切换共用一份：表情包在时排第一，之后是「最近」和各 Emoji 分类。
+        for (int category : s.imeStickers.categoryOrder()) {
+            if (category == s.imeStickers.category()) addStickerTab();
+            else if (category == StickerPackModel.RECENTS_CATEGORY)
+                addEmojiTab(EmojiCatalogModel.RECENTS, StickerPackModel.RECENTS_CATEGORY);
+            else addEmojiTab(EmojiCatalogModel.categories().get(category), category);
+        }
+    }
+
+    /** 第一个分类签「水杉娘」：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
+    private void addStickerTab() {
+        ImeStickers.StickerButton tab = emojiButton(new ImeStickers.StickerButton(s, s.pixels(2),
+            s.pixels(StickerPackModel.TAB_ICON_DP)), KeyboardKeyRole.PLAIN, false,
+            () -> s.selectEmojiCategory(s.imeStickers.category()));
+        tab.setImage(s.imeStickers.tabIcon());
+        ViewPolicy.setSelected(tab, s.imeStickers.selected());
+        tab.setContentDescription(StickerPackModel.TAB_DESCRIPTION);
+        if (Build.VERSION.SDK_INT >= 30)
+            tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
+        s.emojiTabs.addView(tab, LayoutPolicy.weightedMatchParentParams(1));
     }
 
     void addEmojiTab(EmojiCatalogModel.Category entry, int category) {
@@ -131,6 +152,10 @@ final class ImePanels {
     void renderEmojiGrid() {
         if (s.emojiGrid == null) return;
         s.emojiGrid.removeAllViews();
+        if (s.imeStickers.selected()) {
+            renderStickerGrid();
+            return;
+        }
         // 普通 Emoji 每行八格；组合与含组合的最近页用宽格，长短语按实测文字宽度跨格。
         android.graphics.Paint layoutPaint = new android.graphics.Paint();
         boolean combinations = s.emojiItems.stream().anyMatch(item ->
@@ -169,6 +194,37 @@ final class ImePanels {
         s.imeStyler.applySkin();
     }
 
+    /** 水杉娘表情包的网格：正方形格子，竖屏手机一行五格，更宽时按每格约 72 dp 加列；缩略图由 {@link ImeStickers} 按格子大小在后台解码，只给看得见的格子。 */
+    private void renderStickerGrid() {
+        StickerPackModel.Pack pack = s.imeStickers.pack();
+        int width = s.emojiGridScroll.getWidth();
+        if (width <= 0) width = s.getResources().getDisplayMetrics().widthPixels - s.pixels(12);
+        int columns = StickerPackModel.columns(
+            Math.round(width / s.getResources().getDisplayMetrics().density));
+        int cell = BoundsPolicy.atLeast(1, width / columns);
+        s.emojiGridScroll.setContentDescription(StickerPackModel.gridDescription(columns));
+        ArrayList<ImeStickers.StickerButton> cells = new ArrayList<>(pack.stickers().size());
+        LinearLayout row = null;
+        for (int index = 0; index < pack.stickers().size(); index++) {
+            if (index % columns == 0) {
+                row = LayoutPolicy.row(s);
+                row.setWeightSum(columns);
+                s.emojiGrid.addView(row, LayoutPolicy.matchWidthHeightPx(cell));
+            }
+            int position = index;
+            ImeStickers.StickerButton button = emojiButton(new ImeStickers.StickerButton(s,
+                s.pixels(StickerPackModel.CELL_PADDING_DP), 0), KeyboardKeyRole.PLAIN, true,
+                () -> s.imeStickers.send(position));
+            button.setContentDescription(StickerPackModel.description(pack, pack.stickers().get(index)));
+            row.addView(button, LayoutPolicy.weightedMatchParentParams(1));
+            cells.add(button);
+        }
+        renderEmojiStatus();
+        s.imeStyler.applySkin();
+        s.imeStickers.bindGrid(cells, columns, cell,
+            StickerPackModel.thumbnailEdge(cell, s.pixels(StickerPackModel.CELL_PADDING_DP)));
+    }
+
     void insertEmoji(String text) {
         if (!s.emojiPickerVisible() || s.connection == null) return;
         if (!s.commitText(text, TypingSource.LOCAL)) return;
@@ -186,7 +242,11 @@ final class ImePanels {
     }
 
     private KeyboardPressButton emojiButton(KeyboardKeyRole role, boolean counted, Runnable action) {
-        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        return emojiButton(ViewPolicy.newPressButton(s), role, counted, action);
+    }
+
+    private <T extends KeyboardPressButton> T emojiButton(T button, KeyboardKeyRole role, boolean counted,
+            Runnable action) {
         button.setKeyboardRole(role);
         compactEmojiButton(button);
         if (counted) {
@@ -220,7 +280,8 @@ final class ImePanels {
         s.emojiRecents = s.loadEmojiRecents();
         ViewPolicy.show(s.emojiPanel);
         s.emojiPanel.requestFocus();
-        s.selectEmojiCategory(s.emojiRecents.isEmpty() ? 0 : -1);
+        // 表情包在时默认选中它，直接显示表情包网格；读不到清单时沿用「有最近就最近，否则第一个分类」。
+        s.selectEmojiCategory(s.imeStickers.defaultCategory());
     }
 
     void showSymbolPanel() {
@@ -1886,7 +1947,7 @@ final class ImePanels {
     private LinearLayout clipboardCardRow;
 
     /**
-     * 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
+     * 剪贴板卡片：键帽色圆角卡，最多显示三行，长文本可在卡片内滚动预览。正文后是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
      *
      * <p>`index`/`count` 决定它排在哪：单列时一条一行；双列（本地设置 `platform.android.clipboard_columns`，#5642）时两条一行等宽，最后一行只有一条时右边留空，不把它拉满整行。`selected` 的卡片（长按打开了操作行的那条）画成选中样式，元信息不再用次要色，免得压在强调色上看不清。
      */
@@ -1899,7 +1960,7 @@ final class ImePanels {
 
     /** 只造卡片，不放进面板；本机历史要先把它包进左滑容器（{@link #clipboardSwipeCell}）再放。 */
     private Button newClipboardCard(String text, String meta, boolean selected, Runnable action) {
-        KeyboardPressButton card = ViewPolicy.newPressButton(s);
+        KeyboardPressButton card = new ClipboardPreviewButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
         if (!meta.isEmpty()) {
@@ -1915,7 +1976,7 @@ final class ImePanels {
         ViewPolicy.setSelected(card, selected);
         card.setText(label);
         ViewPolicy.setStartCenteredTextSizeSp(card, 15);
-        ViewPolicy.setMaxLinesEllipsized(card, 3);
+        card.setGravity(Gravity.START | Gravity.TOP);
         LayoutPolicy.setSymmetricPaddingDp(card, s, 12, 8);
         ViewPolicy.clearMinimumHeight(card);
         ViewPolicy.clearStateListAnimator(card);
@@ -2466,7 +2527,9 @@ final class ImePanels {
         s.emojiGridScroll.setContentDescription("表情网格；每行八个");
         s.emojiGridScroll.addView(s.emojiGrid, LayoutPolicy.scrollMatchWidthWrapParams());
         s.emojiGridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
-            if (scrollY > oldY && !view.canScrollVertically(1)) s.loadEmojiPage();
+            // 表情包一次就全部摆好，滚动时只按位置给格子上图、放图。
+            if (s.imeStickers.selected()) s.imeStickers.bindVisible();
+            else if (scrollY > oldY && !view.canScrollVertically(1)) s.loadEmojiPage();
         });
         // 第一次排布出真实高度后按三行重排格子高度。
         s.emojiGridScroll.addOnLayoutChangeListener((view, left, top, right, bottom,
@@ -2491,6 +2554,8 @@ final class ImePanels {
         s.emojiPanel.addView(bar, LayoutPolicy.matchWidthHeightPx(s.pixels(46)));
         ViewPolicy.hide(s.emojiPanel);
         s.keyboardSurface.addView(s.emojiPanel, LayoutPolicy.frameMatchParentParams());
+        // 表情包清单和分类签缩略图提前在后台读好，打开面板时分类签已经在。
+        s.imeStickers.load();
     }
 
     /** 横划在容器上接管并取消原按钮点击，纵向滚动和加载下一页仍由 ScrollView 处理。 */
@@ -2531,10 +2596,9 @@ final class ImePanels {
                 horizontal = false;
                 if (action == MotionEvent.ACTION_UP && !multiplePointers &&
                         Math.abs(dx) >= s.pixels(48) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    int category = s.emojiSelectedCategory + (dx < 0 ? 1 : -1);
-                    int first = s.emojiRecents.isEmpty() ? 0 : -1;
-                    if (category >= first && category < EmojiCatalogModel.categories().size())
-                        s.selectEmojiCategory(category);
+                    // 按底栏分类签的顺序切换（表情包在时是第一个），到两端不回绕。
+                    int category = s.imeStickers.swipeCategory(dx < 0 ? 1 : -1);
+                    if (category != StickerPackModel.NO_CATEGORY) s.selectEmojiCategory(category);
                 }
             }
             return true;

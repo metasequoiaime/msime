@@ -380,6 +380,106 @@ def accept_appearance(manifest, preferences, publish, entry):
     wait(lambda: all(screenshot()[1][color] < 16 for color in (bar, background, divider, caret)))
 
 
+def accept_pager(manifest, preferences, publish, entry):
+    original = manifest.read_text()
+    original_pixels = selected_pixels()
+    font_size = preferences['candidate_font_size']
+    preferences['candidate_font_size'] = 24
+    publish()
+    hover, divider = (34, 238, 119), (49, 209, 255)
+    horizontal = preferences['candidate_layout'] == 'horizontal'
+    for triangle in (False, True):
+        style = original.replace('[candidate_window]\n',
+                                 '[candidate_window]\npage_arrows = true\n'
+                                 f"page_arrow_style = '{'chevron' if triangle else 'triangle'}'\n")
+        style += (f"\n[candidate_window.{preferences['candidate_layout']}]\n"
+                  f"page_arrow_style = '{'triangle' if triangle else 'chevron'}'\n"
+                  'item_extra_height = 20\n')
+        for mode in ('light', 'dark'):
+            style = style.replace(f'[candidate.{mode}]\n', f'[candidate.{mode}]\n'
+                                  "hover = '#22EE77'\npage_arrow_divider = '#31D1FF'\n")
+        manifest.write_text(style)
+        # 最小候选行高为 24 * 1.35 + 20；热更新后再据真实面板边缘定位。
+        wait(lambda: selected_pixels() and selected_pixels()[1] >= 52 * NATIVE_SCALE)
+        subprocess.run(['xdotool', 'mousemove', '0', '0'], check=True, timeout=5)
+
+        def buttons():
+            left, top, _, bottom = color_bounds(SELECTED)
+            panel_right = color_bounds(LIGHT[2])[2]
+            panel_bottom = color_bounds(LIGHT[8])[3]
+            width = round(24 * (0.96 if horizontal else 0.81)) if triangle else round(24 * 0.72)
+            height = round(24 * 1.35 + 20) if triangle and horizontal else round(24 * (1.2 if triangle else 0.9))
+            gap = 0 if triangle else 1
+            if horizontal:
+                lift = 0 if triangle else (24 * 1.35 + 20 - height) / 2
+                x = panel_right - (12 + (0 if triangle else 1) + width / 2) * NATIVE_SCALE
+                y = bottom - (lift + height / 2) * NATIVE_SCALE
+            else:
+                glyph = 24 * (0.52 * 0.84 if triangle else 0.5 * 0.5 * 0.55)
+                x = left + (8 + glyph / 2 + width + gap) * NATIVE_SCALE
+                # 真实分页状态仍在辅助行；从预编辑到首候选的距离实测字体行高。
+                panel_top = color_bounds(LIGHT[0])[1]
+                line_height = (top - panel_top) / NATIVE_SCALE - 12 - 19
+                y = panel_bottom - (12 + line_height + 4 + 1 + height / 2) * NATIVE_SCALE
+            return (round(x - (width + gap) * NATIVE_SCALE), round(y)), (round(x), round(y))
+
+        def mouse(point, *actions):
+            subprocess.run(['xdotool', 'mousemove', *map(str, point), *actions], check=True, timeout=5)
+
+        previous, next_button = buttons()
+        before = selected_pixels()
+        candidate_box = color_bounds(SELECTED)
+
+        def candidate_pixels():
+            image, _ = screenshot()
+            data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+            left, top, right, bottom = candidate_box
+            return b''.join(data[y * stride + left * channels:y * stride + right * channels]
+                            for y in range(top, bottom))
+
+        first_page = candidate_pixels()
+        # 第一页的上一页箭头不可用，仍接收点击但不穿透、不高亮，也不改变候选。
+        mouse(previous, 'click', '1')
+        while GLib.MainContext.default().iteration(False):
+            pass
+        assert selected_pixels() == before and entry.get_text() == ''
+        assert not palette_visible((hover,)), '禁用翻页箭头响应了悬停'
+        mouse(next_button)
+        wait(lambda: palette_visible((hover,)))
+        if triangle and horizontal:
+            wait(lambda: palette_visible((divider,)))
+            box = color_bounds(divider)
+            assert box[2] - box[0] == NATIVE_SCALE, '翻页分隔线宽度错误'
+        elif not horizontal:
+            assert not palette_visible((divider,)), '竖排错误地绘制了翻页分隔线'
+        save_image('native-pager-' + ('triangle' if triangle else 'chevron'))
+        mouse(next_button, 'mousedown', '1')
+        wait(lambda: not palette_visible((hover,)))
+        subprocess.run(['xdotool', 'mousemove', '0', '0', 'mouseup', '1'], check=True, timeout=5)
+        wait(lambda: selected_pixels() == before)
+        assert candidate_pixels() == first_page and entry.get_text() == '', '拖出箭头后仍然翻页或上屏'
+        mouse(next_button, 'click', '1')
+        wait(lambda: candidate_pixels() != first_page)
+        wait(lambda: palette_visible((SELECTED,)))
+        assert entry.get_text() == '', '翻页点击错误地选择了候选'
+        previous, _ = buttons()
+        mouse(previous, 'click', '1')
+        wait(lambda: candidate_pixels() == first_page)
+        wait(lambda: selected_pixels() == before)
+        # 开关热更新必须清掉旧按下状态；关闭后的释放不能触发旧页回调。
+        _, next_button = buttons()
+        mouse(next_button, 'mousedown', '1')
+        old_geometry = window_geometry(native_window())
+        manifest.write_text(style.replace('page_arrows = true', 'page_arrows = false'))
+        wait(lambda: not palette_visible((hover,)) and window_geometry(native_window()) != old_geometry)
+        subprocess.run(['xdotool', 'mouseup', '1', 'mousemove', '0', '0'], check=True, timeout=5)
+        assert selected_pixels() == before and entry.get_text() == ''
+    preferences['candidate_font_size'] = font_size
+    publish()
+    manifest.write_text(original)
+    wait(lambda: selected_pixels() == original_pixels)
+
+
 def accept_translation(manifest, preferences, publish, entry, fixture):
     original = manifest.read_text()
     normal = ((239, 48, 64), (20, 223, 90), (40, 112, 255))
@@ -589,7 +689,8 @@ def main():
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         if NATIVE:
             preferences["navigation"]["mouse_wheel"] = True
-            preferences.update(candidate_translations=False, candidate_english_gloss=False)
+            # 固定合成字号，避免默认偏好借用桌面字体后，改字号再恢复变成首次显式设置。
+            preferences.update(candidate_translations=False, candidate_english_gloss=False, candidate_font_size=20)
             options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)
         preferences["custom_theme"].update(base="system", candidate_skin="canvas-fixture",
                                            candidate_skin_dark="canvas-fixture")
@@ -700,6 +801,18 @@ def main():
                         popup = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), int(native_window()))
                         assert popup.get_visual().get_depth() == 32, "合成器存在时没有创建 ARGB 候选窗"
                     wait(lambda: palette_visible((WIDGET, SELECTED)))
+                    # 清单未写高亮圆角，必须继承 canvas 的 4 DIP；显式零值仍应画直角。
+                    manifest = skin / "skin.toml"
+                    default_manifest = manifest.read_text()
+                    default_selected = selected_pixels()
+                    assert default_selected[2][:3] != bytes(SELECTED), "缺省高亮未继承出厂圆角"
+                    assert default_selected[1] >= (20 * 1.35 + 2) * NATIVE_SCALE
+                    save_image("native-factory-layout")
+                    manifest.write_text(default_manifest.replace(
+                        "[candidate_window]\n", "[candidate_window]\nitem_corner_radius_dip = 0\n"))
+                    wait(lambda: selected_pixels() is not None and selected_pixels()[2][:3] == bytes(SELECTED))
+                    manifest.write_text(default_manifest)
+                    wait(lambda: selected_pixels() == default_selected)
                     selected_before = palette_top(SELECTED)
                     widget_before = palette_top(WIDGET)
                     assert widget_before < selected_before, "上方挂件未扩展原生窗口留白"
@@ -720,12 +833,14 @@ def main():
                         "number_scale = 0.45\nnumber_inset = 16\nnumber_gap = 24\n"
                         "item_padding_right = 20\nitem_gap = 12\npreedit_margin_dip = [7, 11, 9, 13]\n")
                     manifest.write_text(styled_manifest)
-                    wait(lambda: selected_pixels() is not None and
-                         selected_pixels()[1] >= original_selected[1] + 24 * NATIVE_SCALE)
+                    def selected_height_at_least(height):
+                        pixels = selected_pixels()
+                        return pixels is not None and pixels[1] >= height * NATIVE_SCALE
+                    wait(lambda: selected_height_at_least(int(preferences['candidate_font_size'] * 1.35 + 34)))
                     assert palette_top(SELECTED) == selected_before + 7 * NATIVE_SCALE, "拼音上边距未进入真实候选布局"
                     before_font = selected_pixels()
                     manifest.write_text(styled_manifest.replace("[candidate_window]\n", "[candidate_window]\nfont_family = 'monospace'\n"))
-                    wait(lambda: selected_pixels() is not None and selected_pixels() != before_font)
+                    wait(lambda: (pixels := selected_pixels()) is not None and pixels != before_font)
                     save_image("native-skin-layout")
                     assert focused(), "布局或字体热更新抢走编辑器焦点"
                     # 点击新增行高底部，若命中仍用旧矩形就会错选下一项。
@@ -740,6 +855,8 @@ def main():
                     manifest.write_text(original_manifest)
                     wait(lambda: selected_pixels() == original_selected)
                     accept_appearance(manifest, preferences, publish, entry)
+                    wait(lambda: selected_pixels() == original_selected)
+                    accept_pager(manifest, preferences, publish, entry)
                     wait(lambda: selected_pixels() == original_selected)
                     accept_translation(manifest, preferences, publish, entry, root / "translation.txt")
                     wait(lambda: selected_pixels() == original_selected)

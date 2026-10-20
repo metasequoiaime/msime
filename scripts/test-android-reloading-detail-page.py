@@ -27,6 +27,7 @@ CONSUMERS = (
     "TypingPage.java",
     "TranslationServicePage.java",
     "VoicePage.java",
+    "VocabularyReviewPage.java",
 )
 
 

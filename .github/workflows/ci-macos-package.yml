@@ -52,7 +52,7 @@ jobs:
               # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
               platforms/macos/package-release.sh|platforms/macos/scripts/settings_updater.py|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
-              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json)
+              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
               crates/client-core/src/resources.rs|crates/client-providers/src/resource_packs.rs|crates/client-providers/src/voice/local_models.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;
@@ -163,8 +163,13 @@ jobs:
         run: python3 scripts/fetch_offline_glosses.py
       - name: Fetch the locked English gloss tables
         run: python3 scripts/fetch_gloss_tables.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # 不签名、不公证：没有 MACOS_SIGNING_IDENTITY 时 package-release.sh 用 ad-hoc 签名，其余步骤和发布完全相同，包括编译前的资源包可下载检查和 check_app 的缺席与体积检查。
       - name: Build the macOS package
+        env:
+          MSIME_REQUIRE_WORDBOOKS: '1'
         run: bash platforms/macos/package-release.sh "$(tr -d '[:space:]' < platforms/macos/version.txt)" "$RUNNER_TEMP/dist"
       - name: Report the package
         run: |

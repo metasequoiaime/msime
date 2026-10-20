@@ -281,6 +281,23 @@ pub(crate) fn host_edition(
     }
 }
 
+/// 背单词内置词书的资源根，`wordbooks/` 在它下面（`builtin::directory`）：放着 Engine 资源目录的那一层，不是资源目录本身。
+///
+/// Linux 的 Engine 资源装在 `share/<client>/resources`，不在 `resource_dir()`（`<prefix>/lib/<productName>`，安装时从不创建）下，所以按 HostOptions 求随包资源的目录（`msime_host_api::bundled_resource_root`：`resources` 的上一级，词库在线更新后是原安装包目录的上一级），词书装在那里的 `share/<client>/wordbooks`（platforms/linux/CMakeLists.txt）。Android 合包同理：`resource_dir()` 是 `asset://localhost/`，不是真实目录，HostOptions（`files/runtime-options.json`）的 `resources` 是 `files/bootstrap/resources`，Bootstrap 把词书解到它的同级 `files/bootstrap/wordbooks`，与原生背单词页读的是同一处。每次命令时现读：首次运行时这份文档还没写好。读不到时退回 `fallback`，那里没有词书，页面只列导入的词表。其余平台用 `fallback`，即 `VocabularyState` 里的 `resource_dir()`。
+fn vocabulary_resources(app: &tauri::AppHandle, fallback: &std::path::Path) -> PathBuf {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if let Some(root) = app
+        .try_state::<DictionaryHostOptions>()
+        .and_then(|options| options.snapshot().ok())
+        .and_then(|document| msime_host_api::bundled_resource_root(&document))
+    {
+        return root;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let _ = app;
+    fallback.to_path_buf()
+}
+
 /// Cantonese, Zhuyin and Stroke each read a dictionary the package installs beside the Engine resources, which the HostOptions document names in `language_dictionaries` only when one is there. Without its dictionary host-api falls back from the scheme, so the page shows it unavailable instead of offering a choice that never takes effect. Every other scheme needs nothing beyond the resources.
 ///
 /// `beside_resources` is for Windows, whose `runtime-options.json` is written once at first run and never refreshed: the Server and the TIP each find the dictionaries beside the resources in memory, so a document without the key still means the `language-dictionaries` directory next to its absolute `resources`.
@@ -1894,10 +1911,12 @@ fn sync_runtime_options(
         current["preferences"] = host_preferences;
         #[cfg(target_os = "linux")]
         let bytes = match &catalog {
-            Some((root, catalog)) => {
-                runtime_options_with_skin_catalog(&mut current, root, catalog)?
-            }
-            None => linux_runtime_options_bytes(&current)?,
+            Some((root, catalog)) => linux_runtime_options::runtime_options_with_skin_catalog(
+                &mut current,
+                root,
+                catalog,
+            )?,
+            None => linux_runtime_options::runtime_options_bytes(&current)?,
         };
         #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
@@ -1912,74 +1931,15 @@ fn sync_runtime_options(
     Ok(())
 }
 
-/// The most runtime-options.json may hold. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer.
+// 宿主读的上限、皮肤目录的裁剪和「没变就不写」与 MCP 服务共用 `skin::linux_runtime_options`，这里只做文件读写。
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_LIMIT: usize = 16384;
+use msime_client_services::skin::linux_runtime_options;
 
-/// How large the skin catalog may let runtime-options.json grow: the last 1 KiB of `LINUX_RUNTIME_OPTIONS_LIMIT` is left for the upgrade refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = LINUX_RUNTIME_OPTIONS_LIMIT - 1024;
-
-/// Serialize `document` as the Linux hosts will read it, refusing one longer than they read so that a save never replaces a working file with one that stops both hosts.
-#[cfg(target_os = "linux")]
-fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptionsError> {
-    let bytes = serde_json::to_vec_pretty(document)
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
-    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
-        return Err(RuntimeOptionsError::TooLarge);
+impl From<linux_runtime_options::TooLarge> for RuntimeOptionsError {
+    fn from(_: linux_runtime_options::TooLarge) -> Self {
+        Self::TooLarge
     }
-    Ok(bytes)
-}
-
-/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
-///
-/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
-#[cfg(target_os = "linux")]
-fn runtime_options_with_skin_catalog(
-    document: &mut Value,
-    root: &std::path::Path,
-    catalog: &msime_client_services::skin::catalog::SkinCatalog,
-) -> Result<Vec<u8>, RuntimeOptionsError> {
-    let serialize = |document: &Value| {
-        serde_json::to_vec_pretty(document)
-            .map_err(|error| std::io::Error::other(error.to_string()))
-    };
-    let custom_theme = &document["preferences"]["custom_theme"];
-    let selected: Vec<String> = ["candidate_skin", "candidate_skin_dark"]
-        .into_iter()
-        .filter_map(|slot| custom_theme[slot].as_str())
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
-        .collect();
-    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
-    let mut published =
-        msime_client_services::skin::catalog::host_candidate_catalog(catalog, root, &selected);
-    loop {
-        document["candidate_skin_catalog"] = published.clone();
-        let bytes = serialize(document)?;
-        if bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET {
-            return Ok(bytes);
-        }
-        let Some(packages) = published["packages"].as_array_mut() else {
-            break;
-        };
-        if packages.is_empty() {
-            break;
-        }
-        let dropped = packages
-            .iter()
-            .rposition(|package| {
-                !package["id"]
-                    .as_str()
-                    .is_some_and(|id| selected.contains(&id))
-            })
-            .unwrap_or(packages.len() - 1);
-        packages.remove(dropped);
-    }
-    if let Some(object) = document.as_object_mut() {
-        object.remove("candidate_skin_catalog");
-    }
-    linux_runtime_options_bytes(document)
 }
 
 /// Write a freshly scanned catalog into the runtime options the Linux hosts read, leaving every other key as it is on disk. Before setup there is no document to publish into, which is not an error.
@@ -2000,10 +1960,9 @@ fn publish_candidate_skin_catalog(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    let unchanged = current.get("candidate_skin_catalog").cloned();
-    let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
     // A rescan that finds what was already published leaves the file alone, so the hosts watching it do not reload for nothing.
-    if current.get("candidate_skin_catalog") != unchanged.as_ref() {
+    if let Some(bytes) = linux_runtime_options::republish_skin_catalog(&mut current, root, catalog)?
+    {
         shared::atomic_file::write(path, &bytes)?;
     }
     *document = current;
@@ -5256,16 +5215,7 @@ pub fn run() {
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(DiagnosticLogState(directory.clone()));
             app.manage(notices::NoticesState(directory.clone()));
-            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
-            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
-            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
-            // would break the check whose job is to prove a shipped dictionary is intact. A host
-            // that stages no books simply offers the imported ones.
-            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
-            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
-            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
-            // would break the check whose job is to prove a shipped dictionary is intact. A host
-            // that stages no books simply offers the imported ones.
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a sibling of `EngineResources/` because `ResourceStore::verify` requires that directory to hold exactly the pinned dictionary artifacts, and one extra entry would break the check whose job is to prove a shipped dictionary is intact. A host that stages no books simply offers the imported ones. Linux 和 Android 的资源不在这里，见 `vocabulary_resources`。
             app.manage(VocabularyState(
                 directory.clone(),
                 app.path()

@@ -35,6 +35,7 @@ struct NativeCanvasAssets {
   std::string font_family;
   double min_width = 0;
   bool explicit_content = false, explicit_line_gap = false, fit_content = false;
+  bool page_arrows = false, expand_panel = false;
   double card_radius = 0, item_radius = 0, border_width = 0;
   bool user_radius = false;
 };
@@ -57,13 +58,16 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
                                                             const std::string &id, bool dark) {
   if (!package.is_object() || package.value("id", std::string{}) != id || !package.value("canvas", false)) return {};
   auto result = std::make_shared<NativeCanvasAssets>();
-  result->geometry = package.value("geometry", nlohmann::json::object());
-  result->horizontal = package.value("horizontal", nlohmann::json::object());
-  result->vertical = package.value("vertical", nlohmann::json::object());
+  // 解析结果已按出厂公共、出厂排列、包公共、包排列合并，不再叠加原始公共表。
+  const auto resolved = package.find("resolvedLayout");
+  const auto &layout = resolved != package.end() && resolved->is_object() ? *resolved : package;
+  result->geometry = layout.value("geometry", nlohmann::json::object());
+  result->horizontal = layout.value("horizontal", nlohmann::json::object());
+  result->vertical = layout.value("vertical", nlohmann::json::object());
   result->font_family = package.value("fontFamily", std::string{});
   const auto number = [&](const char *key) {
-    const auto at = package.find(key);
-    return at != package.end() && at->is_number() ? at->get<double>() : 0.0;
+    const auto at = layout.find(key);
+    return at != layout.end() && at->is_number() ? at->get<double>() : 0.0;
   };
   result->card_radius = number("cornerRadiusDip");
   result->item_radius = number("itemCornerRadiusDip");
@@ -71,7 +75,9 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->min_width = package.value("minWidthDip", 0.0);
   result->explicit_content = package.contains("contentInsetsDip");
   result->explicit_line_gap = package.contains("lineGapDip");
-  result->fit_content = package.value("fitContent", false);
+  result->fit_content = layout.value("fitContent", false);
+  result->page_arrows = layout.value("pageArrows", false);
+  result->expand_panel = layout.value("expandPanel", false);
   std::map<std::string, std::shared_ptr<const NativeCanvasAnimation>> cache;
   std::uint64_t remaining_pixels = 8000000;
   auto load = [&](const nlohmann::json &name) -> std::shared_ptr<const NativeCanvasAnimation> {
@@ -154,6 +160,7 @@ struct NativeCanvasMetrics {
   std::array<double, 4> content{}, preedit_margin{};
   double gap = 4, extra_height = 8, number_inset = 8, right = 8, number_gap = 0, min_item_width = 0;
   bool custom_height = false, justify = false, corners_follow_card = false, bar_inside = false;
+  bool triangle_pager = false;
   double card_radius = 0, item_radius = 0, bar_width = 3, bar_height = 0;
 };
 
@@ -217,6 +224,7 @@ inline NativeCanvasMetrics native_canvas_metrics(cairo_t *cr, const NativeCanvas
   result.number_gap = length("numberGap", 0);
   result.min_item_width = content.horizontal ? length("itemMinWidth", 0) : 0;
   result.justify = content.horizontal && geometry.value("justifyRows", false);
+  result.triangle_pager = geometry.value("pageArrowStyle", std::string("chevron")) == "triangle";
   if (geometry.contains("preeditMarginDip")) {
     const auto &margin = geometry.at("preeditMarginDip");
     result.preedit_margin = {margin.at("top"), margin.at("right"), margin.at("bottom"), margin.at("left")};
@@ -225,9 +233,51 @@ inline NativeCanvasMetrics native_canvas_metrics(cairo_t *cr, const NativeCanvas
   return result;
 }
 
+struct NativeCanvasPager {
+  bool visible = false, triangle = false;
+  double button_width = 0, button_height = 0, gap = 1, glyph = 0, stroke = 0, radius = 0;
+  double divider_width = 0, divider_gap = 0, left = 0, right = 0, lift = 0;
+  double glyph_width() const { return glyph * (triangle ? 0.84 : 0.5 * 0.55); }
+  double width() const { return divider_width + divider_gap + 2 * button_width + gap; }
+  double extent() const { return left + width() + right; }
+};
+
+inline NativeCanvasPager native_canvas_pager(const NativeCanvasAssets &assets,
+    const NativeCanvasContent &content, const NativeCanvasMetrics &metrics, double item_height) {
+  NativeCanvasPager pager;
+  pager.visible = assets.page_arrows && !(content.horizontal && assets.expand_panel) &&
+      !content.menu && !content.items.empty();
+  if (!pager.visible) return pager;
+  pager.triangle = metrics.triangle_pager;
+  const double em = metrics.font_size;
+  pager.button_width = std::round(em * 0.72);
+  pager.button_height = std::round(em * 0.9);
+  pager.glyph = em * 0.5;
+  pager.stroke = std::max(1.2, em / 13);
+  pager.radius = std::min(3.0, metrics.item_radius);
+  if (pager.triangle) {
+    pager.glyph = em * 0.52;
+    pager.stroke = pager.glyph * 0.375;
+    pager.radius = metrics.item_radius;
+    pager.gap = 0;
+    pager.button_width = std::round(em * (content.horizontal ? 0.96 : 0.81));
+    pager.button_height = content.horizontal ? std::round(item_height) : std::round(em * 1.2);
+    if (content.horizontal) {
+      pager.divider_width = 1;
+      pager.divider_gap = std::round(em * 0.12);
+      pager.left = std::round(em * 0.3);
+    }
+  } else if (content.horizontal) {
+    pager.left = 2; pager.right = 1;
+    pager.lift = std::max(0.0, (item_height - pager.button_height) / 2);
+  }
+  return pager;
+}
+
 struct NativeCanvasLayout {
   NativeCanvasMetrics metrics;
-  NativeCanvasRect panel, preedit, auxiliary, previous, next;
+  NativeCanvasPager pager;
+  NativeCanvasRect panel, preedit, auxiliary, previous, next, page_divider;
   std::vector<NativeCanvasRect> items;
   // 保留测量时的文字宽度；均分背景后绘制仍沿用原断行。
   std::vector<double> item_text_widths;
@@ -358,15 +408,19 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
     width = size.first + margin[3] + margin[1] + caret;
     y += margin[0] + height + margin[2];
   }
-  const double controls = content.previous || content.next ? line * 2 + 12 : 0;
   std::pair<double, double> auxiliary{};
-  if (!content.auxiliary.empty() || controls > 0) {
-    layout.auxiliary_width = std::isfinite(available) ? std::max(1.0, available - controls) : -1;
+  if (!content.auxiliary.empty()) {
+    layout.auxiliary_width = std::isfinite(available) ? available : -1;
     auxiliary = native_canvas_text_size(cr, metrics.font, content.auxiliary, layout.auxiliary_width);
     auxiliary.second = std::max(line, auxiliary.second);
-    width = std::max(width, auxiliary.first + controls);
+    width = std::max(width, auxiliary.first);
   }
   width = std::max(width, std::min(available, std::max(0.0, assets.min_width - padding[3] - padding[1])));
+  layout.pager = native_canvas_pager(assets, content, metrics, metrics.font_size * 1.35 + metrics.extra_height);
+  const auto &pager = layout.pager;
+  // 横排翻页独占右侧一列，候选只在其左侧折行。
+  const double list_available = pager.visible && content.horizontal ?
+      std::max(1.0, available - pager.extent()) : available;
   std::vector<double> natural_widths, text_offsets;
   double vertical_width = width;
   for (const auto &item : content.items) {
@@ -380,8 +434,9 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
     vertical_width = std::max(vertical_width, natural);
   }
   vertical_width = std::min(vertical_width, available);
+  const double row_y = y;
   const double base_height = std::max({line, number_line, metrics.font_size * 1.35 + metrics.extra_height});
-  double x = padding[3], row_height = 0;
+  double x = padding[3], row_height = 0, list_width = 0;
   std::size_t first = 0;
   std::vector<std::pair<std::size_t, std::size_t>> rows;
   const auto finish_row = [&] {
@@ -391,20 +446,21 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
   for (std::size_t at = 0; at < content.items.size(); ++at) {
     const auto &item = content.items[at];
     const double fixed = text_offsets[at] + metrics.right;
-    double item_width = std::max(fixed + 1, content.horizontal ? std::min(natural_widths[at], available) : vertical_width);
+    double item_width = std::max(fixed + 1, content.horizontal ? std::min(natural_widths[at], list_available) : vertical_width);
     const double text_width = std::isfinite(available) ? std::max(1.0, item_width - fixed) : -1;
     const auto size = native_canvas_item_size(cr, metrics, item, content.horizontal, text_width);
     // 单个不可拆字形或序号栏也放不下时，让窗口尺寸复核触发原有回退，不能悄悄裁字。
     item_width = std::max(item_width, size.first + fixed);
     const double item_height = metrics.custom_height ? std::max(base_height, size.second) :
         std::max({line, number_line, size.second}) + metrics.extra_height;
-    if (content.horizontal && x > padding[3] && x + item_width > padding[3] + available + 0.001) {
+    if (content.horizontal && x > padding[3] && x + item_width > padding[3] + list_available + 0.001) {
       finish_row();
       y += row_height + metrics.gap;
       x = padding[3]; row_height = 0; first = layout.items.size();
     }
     layout.items.push_back({x, y, item_width, item_height});
     layout.item_text_widths.push_back(text_width);
+    list_width = std::max(list_width, x - padding[3] + item_width);
     width = std::max(width, x - padding[3] + item_width);
     row_height = std::max(row_height, item_height);
     if (content.horizontal) x += item_width + metrics.gap;
@@ -415,18 +471,41 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
     y += row_height;
   }
   if (!content.horizontal && !layout.items.empty()) y -= metrics.gap;
-  if (!content.auxiliary.empty() || controls > 0) {
+  const double list_bottom = y;
+  if (pager.visible) {
+    if (content.horizontal) {
+      width = std::max(width, list_width + pager.extent());
+      y = std::max(y, row_y + pager.button_height + pager.lift);
+    } else {
+      const double left = std::max(0.0, padding[3] + metrics.number_inset -
+          (pager.button_width - pager.glyph_width()) / 2);
+      layout.previous = {left, y + 1, pager.button_width, pager.button_height};
+      layout.next = {left + pager.button_width + pager.gap, y + 1, pager.button_width, pager.button_height};
+      width = std::max(width, left + pager.width() - padding[3]);
+      y += pager.button_height + 2;
+    }
+  }
+  if (!content.auxiliary.empty()) {
     y += 4;
     layout.auxiliary = {padding[3], y, auxiliary.first, auxiliary.second};
     y += auxiliary.second;
   }
   if (metrics.justify) for (const auto &[begin, end] : rows) {
     const double used = layout.items[end - 1].x + layout.items[end - 1].width - padding[3];
-    const double extra = std::max(0.0, width - used) / (end - begin);
+    const double extra = std::max(0.0, width - (pager.visible ? pager.extent() : 0) - used) / (end - begin);
     for (std::size_t at = begin; at < end; ++at) {
       layout.items[at].x += (at - begin) * extra;
       layout.items[at].width += extra;
     }
+  }
+  if (pager.visible && content.horizontal) {
+    const double right = padding[3] + width - pager.right;
+    const double bottom = std::max(list_bottom, row_y + pager.button_height + pager.lift) - pager.lift;
+    layout.previous = {right - 2 * pager.button_width - pager.gap, bottom - pager.button_height,
+        pager.button_width, pager.button_height};
+    layout.next = {right - pager.button_width, layout.previous.y, pager.button_width, pager.button_height};
+    layout.page_divider = {layout.previous.x - pager.divider_gap - pager.divider_width, layout.previous.y,
+        pager.divider_width, pager.button_height};
   }
   layout.panel = {0, 0, width + padding[3] + padding[1], y + padding[2]};
   auto reach = assets.outer;
@@ -440,16 +519,23 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
   for (auto &edge : reach) edge = std::clamp(edge, 0.0, 500.0);
   auto shift = [&](NativeCanvasRect &rect) { rect.x += reach[3]; rect.y += reach[0]; };
   shift(layout.panel); shift(layout.preedit); shift(layout.auxiliary);
+  shift(layout.previous); shift(layout.next); shift(layout.page_divider);
   for (auto &item : layout.items) {
     if (!content.horizontal) item.width = width;
     shift(item);
   }
-  layout.previous = {layout.panel.x + layout.panel.width - padding[1] - line * 2 - 8,
-                     layout.auxiliary.y, line, line};
-  layout.next = {layout.previous.x + line + 8, layout.previous.y, line, line};
   layout.width = std::ceil(layout.panel.width + reach[1] + reach[3]);
   layout.height = std::ceil(layout.panel.height + reach[0] + reach[2]);
   return layout;
+}
+
+inline int native_canvas_hit(const NativeCanvasContent &content, const NativeCanvasLayout &layout,
+                             double x, double y) {
+  for (std::size_t at = 0; at < layout.items.size(); ++at)
+    if (layout.items[at].contains(x, y)) return static_cast<int>(at);
+  if (layout.pager.visible && content.previous && layout.previous.contains(x, y)) return -2;
+  if (layout.pager.visible && content.next && layout.next.contains(x, y)) return -3;
+  return -1;
 }
 
 // 逐角路径与来源一致：每角上限为短边的一半；0 仍是合法直角。
@@ -661,8 +747,62 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     g_object_unref(line);
   }
   text(content.auxiliary, layout.auxiliary, metrics.font, "secondary", "#555555", layout.auxiliary_width);
-  if (content.previous) text("‹", layout.previous, metrics.font, "text", "#202020");
-  if (content.next) text("›", layout.next, metrics.font, "text", "#202020");
+  if (layout.pager.visible) {
+    const auto &pager = layout.pager;
+    if (pager.divider_width > 0) {
+      native_canvas_color(cr, colors, "page_arrow_divider", "#00000000");
+      const auto &box = layout.page_divider;
+      cairo_rectangle(cr, box.x, box.y, box.width, box.height); cairo_fill(cr);
+    }
+    for (const bool next : {false, true}) {
+      const auto &box = next ? layout.next : layout.previous;
+      const int part = next ? -3 : -2;
+      const bool enabled = next ? content.next : content.previous;
+      if (enabled && (pointer.pressed == part || pointer.hovered == part)) {
+        const auto selected = theme_color(colors.value("selected", nlohmann::json{}));
+        native_canvas_color(cr, colors, pointer.pressed == part && selected && selected->alpha > 0 ? "selected" : "hover",
+            "#00000010");
+        native_canvas_round_rect(cr, box, {pager.radius, pager.radius, pager.radius, pager.radius}); cairo_fill(cr);
+      }
+      const auto glyph = theme_color(colors.value(pager.triangle ? "text" : "number", nlohmann::json{}))
+          .value_or(ThemeColor{pager.triangle ? 0x202020u : 0x555555u, 255});
+      const double alpha = glyph.alpha / 255.0 * (enabled ? 1 : pager.triangle ? 0.25 : 0.3);
+      cairo_set_source_rgba(cr, ((glyph.rgb >> 16) & 255) / 255.0,
+          ((glyph.rgb >> 8) & 255) / 255.0, (glyph.rgb & 255) / 255.0, alpha);
+      const double cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      const double height = std::min(pager.glyph, box.height), width = pager.glyph_width();
+      const double tip = cx + (next ? width / 2 : -width / 2), tail = 2 * cx - tip;
+      if (pager.triangle) {
+        // 三角逐角切圆后一次填充；禁用时不会因半透明描边重叠而变深。
+        using Point = std::pair<double, double>;
+        const std::array<Point, 3> corners{{{tip, cy}, {tail, cy - height / 2}, {tail, cy + height / 2}}};
+        const double radius = std::clamp(pager.stroke, 0.0, height / 2);
+        const auto toward = [radius](Point from, Point to) {
+          const double dx = to.first - from.first, dy = to.second - from.second;
+          const double length = std::hypot(dx, dy), t = length > 0 ? radius / length : 0;
+          return Point{from.first + dx * t, from.second + dy * t};
+        };
+        const auto start = toward(corners[0], corners[1]);
+        cairo_move_to(cr, start.first, start.second);
+        for (int at = 1; at <= 3; ++at) {
+          const auto corner = corners[at % 3];
+          const auto before = toward(corner, corners[at - 1]);
+          const auto after = toward(corner, corners[(at + 1) % 3]);
+          cairo_line_to(cr, before.first, before.second);
+          cairo_curve_to(cr, before.first + (corner.first - before.first) * 2 / 3,
+              before.second + (corner.second - before.second) * 2 / 3,
+              after.first + (corner.first - after.first) * 2 / 3,
+              after.second + (corner.second - after.second) * 2 / 3, after.first, after.second);
+        }
+        cairo_close_path(cr); cairo_fill(cr);
+      } else {
+        cairo_move_to(cr, tail, cy - height / 2); cairo_line_to(cr, tip, cy);
+        cairo_line_to(cr, tail, cy + height / 2);
+        cairo_set_line_width(cr, pager.stroke); cairo_set_line_join(cr, CAIRO_LINE_JOIN_MITER);
+        cairo_stroke(cr);
+      }
+    }
+  }
   widgets(true);
 }
 

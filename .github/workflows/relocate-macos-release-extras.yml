@@ -1,0 +1,66 @@
+name: Relocate macOS release extras
+# 把一个已发布的 macOS 版本里用户用不到的资产搬离 macos-vVERSION：Sparkle 更新包搬到 macos-appcast（appcast 改指向那里并重新签名），dSYM 搬到 macos-symbols，SHA256SUMS 改成只列 DMG。之后版本发布页与 release-macos.yml 现在发布的一样，只有 DMG 和 SHA256SUMS。步骤和顺序见 platforms/macos/scripts/relocate-release-extras.sh：所有核对都通过之后才删除版本发布页上的资产，可以重跑。
+# 这会改变所有 macOS 用户正在用的更新通道，先用 dry_run 跑一次，看过日志再正式运行。
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: 'Published macOS version, X.Y.Z (the macos-vX.Y.Z release)', required: true, type: string}
+      dry_run: {description: Verify and re-sign only; upload and delete nothing, required: false, default: true, type: boolean}
+permissions: {contents: write}
+# 与发版共用并发组：发版也在改 macos-appcast 和版本发布页，两者不能同时跑。
+concurrency: {group: release-macos, cancel-in-progress: false}
+jobs:
+  relocate:
+    # generate_appcast 是 macOS 可执行文件。
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      # 与 release-macos.yml 同一个钉住的版本、摘要和缓存键。
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle-archive
+          key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
+      - name: Prepare pinned Sparkle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sparkle-archive"
+          archive="$RUNNER_TEMP/sparkle-archive/Sparkle-2.9.6.tar.xz"
+          if [[ ! -f "$archive" ]]; then
+            curl --fail --location --retry 3 \
+              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
+              --output "$archive"
+          fi
+          printf '%s  %s\n' \
+            '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+            "$archive" | shasum -a 256 --check
+          rm -rf "$RUNNER_TEMP/sparkle"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          test -x "$RUNNER_TEMP/sparkle/bin/generate_appcast"
+          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Relocate the Sparkle archives and the dSYM
+        env:
+          GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          VERSION: "${{ inputs.version }}"
+          DRY_RUN: "${{ inputs.dry_run }}"
+          MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_ED_PRIVATE_KEY }}"
+        run: |
+          set -euo pipefail
+          flags=()
+          [[ "$DRY_RUN" == true ]] && flags=(--dry-run)
+          bash platforms/macos/scripts/relocate-release-extras.sh ${flags[@]+"${flags[@]}"} "$VERSION" "$RUNNER_TEMP/relocate"
+      # 重新生成的 appcast 和两份校验文件留作记录；更新包本身很大，不放进来。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: macos-relocate-${{ inputs.version }}
+          path: |
+            ${{ runner.temp }}/relocate/publish/*.xml
+            ${{ runner.temp }}/relocate/publish/sparkle-SHA256SUMS
+            ${{ runner.temp }}/relocate/upload/SHA256SUMS
+            ${{ runner.temp }}/relocate/moved-SHA256SUMS
+          if-no-files-found: warn

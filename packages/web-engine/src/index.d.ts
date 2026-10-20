@@ -315,8 +315,40 @@ export interface ResolvedCanvasGeometry {
   }>[];
 }
 
+/** 共享扫描器保留单位的长度；em 按候选字号缩放，DIP 对应 CSS px。 */
+export interface MsimeSkinLength {
+  value: number;
+  em: boolean;
+}
+export interface MsimeSkinGeometry {
+  padding?: MsimeSkinLength;
+  itemGap?: MsimeSkinLength;
+  itemExtraHeight?: MsimeSkinLength;
+  numberInset?: MsimeSkinLength;
+  numberGap?: MsimeSkinLength;
+  itemPaddingRight?: MsimeSkinLength;
+  itemMinWidth?: MsimeSkinLength;
+  numberScale?: number;
+  selectedBarWidth?: MsimeSkinLength;
+  selectedBarHeightEm?: number;
+  selectedBarInside?: boolean;
+}
+/** 四层继承完成的 Windows 基底版式，由共享 catalog 提供。 */
+export interface MsimeResolvedLayout {
+  cornerRadiusDip?: number;
+  borderWidthDip?: number;
+  itemCornerRadiusDip?: number;
+  pageArrows?: boolean;
+  fitContent?: boolean;
+  expandPanel?: boolean;
+  geometry?: MsimeSkinGeometry;
+  horizontal?: MsimeSkinGeometry;
+  vertical?: MsimeSkinGeometry;
+}
+
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
 export interface MsimeSkin {
+  resolvedLayout?: MsimeResolvedLayout | null;
   id?: string;
   /** 外部清单的 schema_version；写 2 时对任何 base 都启用动画，未提供 animation 也采用漂亮的安全默认动画。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
   schemaVersion?: 1 | 2;
@@ -393,6 +425,25 @@ export interface ResolvedSkin {
   readonly fallbackVariables: Readonly<Record<string, string>>;
   readonly geometry: Readonly<{
     canvas: Readonly<ResolvedCanvasGeometry> | null;
+    layout?: Readonly<{
+      padding: MsimeSkinLength | null;
+      itemGap: MsimeSkinLength | null;
+      itemExtraHeight: MsimeSkinLength | null;
+      numberInset: MsimeSkinLength | null;
+      numberGap: MsimeSkinLength | null;
+      itemPaddingRight: MsimeSkinLength | null;
+      itemMinWidth: MsimeSkinLength | null;
+      selectedBarWidth: MsimeSkinLength | null;
+      numberScale: number | null;
+      selectedBarHeightEm: number | null;
+      selectedBarInside: boolean | null;
+      itemRadius: number | null;
+      radius: number | null;
+      borderWidth: number | null;
+      pageArrows: boolean | null;
+      fitContent: boolean | null;
+      expandPanel: boolean | null;
+    }>;
     /** 圆角（px），皮肤没给时为 null。 */
     cornerRadius: number | null;
     minWidth: number | null;

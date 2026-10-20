@@ -6,6 +6,7 @@
 
 这份指南覆盖八种类型：音效包（`sound`）、音乐包（`music`）、指令表（`command_table`）、特效包（`effect`）、短语表（`phrase_table`）、辅助码表（`helpcode`）、单词本（`wordbook`）和符号集（`symbol_set`）。下面的限制都取自 `crates/client-services/src/plugins/` 里的代码，两者不一致时以代码为准。`crates/client-services/tests/fixtures/plugin-packs/` 里有每种新类型能通过和会被拒绝的示例包，社区后端用同一批包校验。
 
+- 想先看懂插件系统怎么工作：[plugin-architecture.html](plugin-architecture.html) 是一页原理图，讲两种插件、生命周期事件和安全模型，底部有给开发者的模块分层和调用时序。GitHub 上只显示它的源码，下载后用浏览器打开；它由 `scripts/generate_plugin_architecture.py` 生成，改图请改脚本。
 - 想直接开始：复制 [plugin-template](plugin-template/)，这是一个能通过校验的最小按键音效包。
 - 想分享自己的包：在 Windows、macOS 或 Linux 上登录账号，打开设置里的「插件 → 社区插件」，点「发布我的插件」，选一个自己导入的包即可。八种类型都能发布，特效包也一样；内置包不能发布。压缩后的包不超过 8 MB，每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。别人发布的包也在这一页浏览、安装和评分。
 

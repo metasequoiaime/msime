@@ -9,7 +9,7 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory]}
+resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
 # check runs again on the device inside prepare_host. Failing here is far cheaper than failing there.
@@ -51,6 +51,13 @@ rm -rf "$sound_packs_staged"
 mkdir -p "$sound_packs_staged"
 cp -R resources/sound-packs/. "$sound_packs_staged/"
 echo "Sound packs staged for the HAP: $sound_packs_staged"
+
+# 表情面板里的水杉娘表情包（66 张透明 WebP 加 manifest.json），iOS 与 Android 打包的是同一份。与音效包一样放在 engine 目录旁边，resfile 会把它解压到 context.resourceDir/stickers/shuishan，键盘的 MascotStickerStore 从那里读清单，ArkUI Image 直接按沙箱路径加载图片。
+stickers_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/stickers/shuishan"
+rm -rf "$stickers_staged"
+mkdir -p "$stickers_staged"
+cp -R resources/stickers/shuishan/. "$stickers_staged/"
+echo "Mascot stickers staged for the HAP: $stickers_staged"
 
 # Optional non-English candidate glosses built by scripts/build_offline_glosses.py. They sit beside the engine directory rather than in it, which the lock check above would reject; the keyboard copies them next to its copy of the resources, where the Engine looks for one zh-<lang>.db per target language. Without them only English is glossed offline.
 glosses_source=${2:-$repo_root/target/offline-glosses}
@@ -98,5 +105,22 @@ if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
       echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not staged from $languages_source" >&2
       exit 1
     fi
+  done
+fi
+
+# 背单词的内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成），和 engine 目录并列放在 resfile/wordbooks：设置页把 context.resourceDir 交给共享层，共享层在它下面的 wordbooks/ 里找书（VocabularyReviewRequest）。八本书只和许可声明一起暂存；没有时背单词只列用户导入的词表。MSIME_REQUIRE_WORDBOOKS=1 时缺了 resources/wordbook.lock.json 列出的任何一本就失败。
+wordbooks_source=${4:-$repo_root/target/wordbooks}
+wordbooks_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/wordbooks"
+rm -rf "$wordbooks_staged"
+if compgen -G "$wordbooks_source/*.json" >/dev/null && [ -f "$wordbooks_source/wordbooks-NOTICE.txt" ]; then
+  mkdir -p "$wordbooks_staged"
+  cp "$wordbooks_source"/*.json "$wordbooks_source/wordbooks-NOTICE.txt" "$wordbooks_staged/"
+  echo "Wordbooks staged for the HAP: $wordbooks_staged"
+else
+  echo "no wordbooks at $wordbooks_source; 背单词 offers only imported books"
+fi
+if [ "${MSIME_REQUIRE_WORDBOOKS:-0}" = 1 ]; then
+  for id in $(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' "$repo_root/resources/wordbook.lock.json"); do
+    [ -f "$wordbooks_staged/$id.json" ] || { echo "MSIME_REQUIRE_WORDBOOKS=1 but $id.json, listed by resources/wordbook.lock.json, was not staged from $wordbooks_source; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
   done
 fi

@@ -35,6 +35,8 @@ PACKAGING_INPUTS = (
     "resources/handwriting-model.lock.json",
     "resources/offline-glosses.lock.json",
     "resources/voice-runtime-macos.lock.json",
+    "resources/wordbook.lock.json",
+    "scripts/fetch_wordbooks.py",
     "crates/client-core/src/resources.rs",
     "crates/client-providers/src/resource_packs.rs",
     "crates/client-providers/src/voice/local_models.rs",
@@ -155,6 +157,12 @@ def main() -> int:
         check(path in workflow, f"ci-macos-package.yml does not treat {path} as a packaging input")
 
     check(any("platforms/macos/package-release.sh" in line for line in live_lines(RELEASE_WORKFLOW)), "release-macos.yml no longer runs platforms/macos/package-release.sh")
+    # 背单词的内置词书曾经从来没进过发布包：生成脚本存在，却没有任何工作流运行它，设置页的词书列表在每个安装上都是空的。发布和 develop 打包检查都必须生成词书并要求它们在包里。
+    for workflow_path in (RELEASE_WORKFLOW, PR_WORKFLOW):
+        lines = live_lines(workflow_path)
+        name = workflow_path.relative_to(ROOT)
+        check(any("python3 scripts/fetch_wordbooks.py" in line for line in lines), f"{name} does not build the bundled wordbooks with scripts/fetch_wordbooks.py")
+        check(any("MSIME_REQUIRE_WORDBOOKS: '1'" in line for line in lines), f"{name} does not set MSIME_REQUIRE_WORDBOOKS, so a package without the bundled wordbooks would still ship")
 
     check('create_dmg "$dmg" -volname' in package_text, "package-release.sh bypasses the DMG creation retry")
     check_dmg_creation()

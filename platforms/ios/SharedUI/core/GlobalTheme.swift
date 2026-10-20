@@ -337,6 +337,7 @@ struct ResolvedTheme: Equatable {
   let keyboard: ThemeKeyboardPalette?
   let candidateSkin: String?
   var candidateDetails: ThemeCandidateDetails? = nil
+  var candidateLayout: CandidateSkinLayout? = nil
 
   /// The native tokens, which is also what a refused request draws.
   static let system = ResolvedTheme(id: GlobalThemeCatalog.systemId, source: "system", appearance: nil,
@@ -384,7 +385,8 @@ struct ResolvedTheme: Equatable {
                                  candidate: ThemeCandidatePalette(value["candidate"]),
                                  keyboard: ThemeKeyboardPalette(value["keyboard"]),
                                  candidateSkin: value["candidate_skin"] as? String,
-                                 candidateDetails: ThemeCandidateDetails(value["candidate_details"]))
+                                 candidateDetails: ThemeCandidateDetails(value["candidate_details"]),
+                                 candidateLayout: CandidateSkinLayout(value["candidate_layout"]))
     lock.lock()
     // A handful of themes and modes are in play at once; a design photo makes a key large, so the cache stays small.
     if cache.count >= 16 { cache.removeAll() }

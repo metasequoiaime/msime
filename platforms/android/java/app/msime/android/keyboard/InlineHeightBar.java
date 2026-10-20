@@ -26,7 +26,7 @@ import app.msime.android.KeyboardGeometry;
 /**
  * 内联的键盘高度调整条，替换工具栏那一行：取消 | 拖动柄「上下拖动调整 · N% · H px」| 重置 | 完成。
  *
- * <p>拖动柄是 44×5、圆角 3 的 kbFg@.35 横条加 12 sp 的说明；上拖变高、下拖变矮，范围 75–160%。说明里百分比后面是键盘此刻实际画出来的高度（物理像素，含导航栏那一截），拖动时随布局刷新（#5564 的建议：只看百分比不知道键盘到底多高）；还没量到时只显示百分比。说明比拖动柄宽时整体缩小字号，不截断。「完成」是 32 dp 高的 accent 胶囊（14 sp 粗体，onAccent 字）。整条的描述是「键盘布局调整」，带 75–160 的 RangeInfo 和前后滚动动作（每次 5%），供 TalkBack 调整。颜色由调用方从皮肤传入。
+ * <p>拖动柄是 44×5、圆角 3 的 kbFg@.35 横条加 12 sp 的说明；上拖变高、下拖变矮，范围 75–170%。说明里百分比后面是键盘此刻实际画出来的高度（物理像素，含导航栏那一截），拖动时随布局刷新（#5564 的建议：只看百分比不知道键盘到底多高）；还没量到时只显示百分比。说明比拖动柄宽时整体缩小字号，不截断。「完成」是 32 dp 高的 accent 胶囊（14 sp 粗体，onAccent 字）。整条的描述是「键盘布局调整」，带 75–170 的 RangeInfo 和前后滚动动作（每次 5%），供 TalkBack 调整。颜色由调用方从皮肤传入。
  */
 public final class InlineHeightBar extends LinearLayout {
     /** 高度变化与三个按钮的回调。 */
@@ -92,7 +92,7 @@ public final class InlineHeightBar extends LinearLayout {
         return button;
     }
 
-    /** 把百分比夹进 75–160。 */
+    /** 把百分比夹进 75–170。 */
     public static int clamp(int value) {
         return BoundsPolicy.bounded(value, MIN_PERCENT, MAX_PERCENT);
     }

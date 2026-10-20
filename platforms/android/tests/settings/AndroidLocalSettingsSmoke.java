@@ -149,8 +149,8 @@ public final class AndroidLocalSettingsSmoke {
         AndroidLocalSettings.Spec height = AndroidLocalSettings.spec(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT);
         check(Integer.valueOf(-46).equals(height.accept(-46)), "height 75%");
         check(Integer.valueOf(55).equals(height.accept(55)), "height 130%");
-        check(Integer.valueOf(110).equals(height.accept(110)), "height 160% (#5564)");
-        check(height.accept(-47) == null && height.accept(111) == null, "height outside the design range");
+        check(Integer.valueOf(129).equals(height.accept(129)), "height 170% (#8779)");
+        check(height.accept(-47) == null && height.accept(130) == null, "height outside the design range");
 
         // 浮动键盘（#5621）：默认关，位置默认水平居中、贴底，千分比 0–1000，工具栏按钮默认不显示。
         AndroidLocalSettings.Snapshot fresh = AndroidLocalSettings.defaults();

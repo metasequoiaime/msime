@@ -15,6 +15,7 @@ pub mod folder_import;
 pub mod image_animation;
 pub mod image_frame;
 pub mod keyboard_trial;
+pub mod linux_runtime_options;
 pub mod season;
 pub mod theme;
 

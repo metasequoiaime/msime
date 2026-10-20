@@ -65,6 +65,11 @@ inline const nlohmann::json *candidate_skin_package(const nlohmann::json &catalo
       return &package;
   return nullptr;
 }
+// 新 catalog 提供四层合并后的布局；旧 catalog 继续使用包的原始声明。
+inline const nlohmann::json &candidate_skin_render_layout(const nlohmann::json &package) {
+  const auto at = package.find("resolvedLayout");
+  return at != package.end() && at->is_object() ? *at : package;
+}
 // A package-relative file as an absolute path, or empty when the value is not a plausible relative path or the file is not there. The catalog already refused a path that escapes the package directory.
 inline std::wstring candidate_skin_file(const nlohmann::json &value,
                                         const std::string &id,
@@ -153,11 +158,11 @@ inline double candidate_skin_min_width(const nlohmann::json &catalog,
     return 0.0;
   return value;
 }
-// The card radius a package asks for, in DIPs; none keeps the theme's.
+// 卡片圆角优先使用共享层合并后的布局；未提供时沿用原声明或主题。
 inline std::optional<float> candidate_skin_corner_radius(const nlohmann::json &catalog,
                                                          const std::string &id) {
   const auto *package = detail::candidate_skin_package(catalog, id);
-  return package ? detail::candidate_skin_radius(*package, "cornerRadiusDip")
+  return package ? detail::candidate_skin_radius(detail::candidate_skin_render_layout(*package), "cornerRadiusDip")
                  : std::nullopt;
 }
 namespace detail {
@@ -240,19 +245,20 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
   const auto *package = detail::candidate_skin_package(catalog, id);
   if (!package)
     return layout;
+  const auto &resolved = detail::candidate_skin_render_layout(*package);
   for (const auto &[key, target] :
        {std::pair{"geometry", &layout.geometry},
         std::pair{"horizontal", &layout.horizontal},
         std::pair{"vertical", &layout.vertical}})
-    if (package->contains(key))
-      *target = detail::candidate_skin_geometry_table(package->at(key));
-  if (const auto width = detail::candidate_skin_number(*package, "borderWidthDip", 4.0))
+    if (resolved.contains(key))
+      *target = detail::candidate_skin_geometry_table(resolved.at(key));
+  if (const auto width = detail::candidate_skin_number(resolved, "borderWidthDip", 4.0))
     layout.border_width = static_cast<float>(*width);
   if (const auto radius =
-          detail::candidate_skin_number(*package, "itemCornerRadiusDip", 16.0))
+          detail::candidate_skin_number(resolved, "itemCornerRadiusDip", 16.0))
     layout.item_corner_radius = static_cast<float>(*radius);
-  if (package->contains("shadow") && package->at("shadow").is_string()) {
-    const auto shadow = package->at("shadow").get<std::string>();
+  if (resolved.contains("shadow") && resolved.at("shadow").is_string()) {
+    const auto shadow = resolved.at("shadow").get<std::string>();
     if (shadow == "none")
       layout.shadow = CandidateSkinShadow::none;
     else if (shadow == "soft")
@@ -268,11 +274,11 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
       layout.backdrop = CandidateSkinBackdrop::mica;
   }
   layout.panel_image = package->contains("borderImage") && package->at("borderImage").is_object();
-  layout.page_arrows = detail::candidate_skin_flag(*package, "pageArrows");
-  layout.fit_content = detail::candidate_skin_flag(*package, "fitContent");
-  layout.expand_panel = detail::candidate_skin_flag(*package, "expandPanel");
+  layout.page_arrows = detail::candidate_skin_flag(resolved, "pageArrows");
+  layout.fit_content = detail::candidate_skin_flag(resolved, "fitContent");
+  layout.expand_panel = detail::candidate_skin_flag(resolved, "expandPanel");
   // catalog 只收 2-8 的整数，越界或不是整数时当作没写。
-  if (const auto rows = detail::candidate_skin_number(*package, "expandRows", 8.0);
+  if (const auto rows = detail::candidate_skin_number(resolved, "expandRows", 8.0);
       rows && *rows >= 2.0 && std::floor(*rows) == *rows)
     layout.expand_rows = static_cast<int>(*rows);
   return layout;

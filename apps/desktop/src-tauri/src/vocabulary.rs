@@ -44,11 +44,12 @@ fn today() -> String {
 }
 
 async fn run(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
     action: ReviewAction,
 ) -> Result<ReviewStatus, CommandError> {
     let directory = state.0.clone();
-    let resources = state.1.clone();
+    let resources = crate::vocabulary_resources(&app, &state.1);
     let plugins = state.2.clone();
     // Takes a file lock and may read a multi-megabyte book, so it never runs on the UI thread.
     tauri::async_runtime::spawn_blocking(move || {
@@ -66,28 +67,32 @@ async fn run(
 
 #[tauri::command]
 pub async fn load_vocabulary_review(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
 ) -> Result<ReviewStatus, CommandError> {
-    run(state, ReviewAction::Load).await
+    run(app, state, ReviewAction::Load).await
 }
 
 #[tauri::command]
 pub async fn answer_vocabulary_card(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
     word: String,
     known: bool,
 ) -> Result<ReviewStatus, CommandError> {
-    run(state, ReviewAction::Answer { word, known }).await
+    run(app, state, ReviewAction::Answer { word, known }).await
 }
 
 #[tauri::command]
 pub async fn set_vocabulary_settings(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
     wordbook: String,
     new_per_day: u32,
     session_limit: u32,
 ) -> Result<ReviewStatus, CommandError> {
     run(
+        app,
         state,
         ReviewAction::SetSettings {
             wordbook,
@@ -100,26 +105,29 @@ pub async fn set_vocabulary_settings(
 
 #[tauri::command]
 pub async fn import_vocabulary_wordbook(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
     name: String,
     text: String,
 ) -> Result<ReviewStatus, CommandError> {
-    run(state, ReviewAction::Import { name, text }).await
+    run(app, state, ReviewAction::Import { name, text }).await
 }
 
 #[tauri::command]
 pub async fn remove_vocabulary_wordbook(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
     wordbook: String,
 ) -> Result<ReviewStatus, CommandError> {
-    run(state, ReviewAction::Remove { wordbook }).await
+    run(app, state, ReviewAction::Remove { wordbook }).await
 }
 
 #[tauri::command]
 pub async fn reset_vocabulary_review(
+    app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
 ) -> Result<ReviewStatus, CommandError> {
-    run(state, ReviewAction::Reset).await
+    run(app, state, ReviewAction::Reset).await
 }
 
 #[cfg(test)]

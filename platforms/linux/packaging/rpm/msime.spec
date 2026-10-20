@@ -1,6 +1,6 @@
 # 水杉输入法 Linux 完整版的 RPM 规格文件，供 Fedora COPR 与 openSUSE OBS 从源码构建。
 #
-# 内容与 release-linux.yml 用 CPack 打出的 msime-linux RPM 相同（Fcitx5 插件、IBus engine、msime-linux-setup 等入口、MCP 服务和 Tauri 设置窗口），构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。区别只在依赖来源：COPR（默认）和 OBS 构建时没有网络，所以 Cargo 依赖、设置窗口的前端、OpenCC 编译输入和需要下载的数据都来自 Source1，即 make-source-tarballs.sh 随每个 linux-v 发布生成的 vendor 包。词库照旧不随包，由用户首次配置时 msime-linux-setup --download 取回。
+# 内容与 release-linux.yml 用 CPack 打出的 msime-linux RPM 相同（Fcitx5 插件、IBus engine、msime-linux-setup 等入口、MCP 服务和 Tauri 设置窗口），构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。区别只在依赖来源：COPR（默认）和 OBS 构建时没有网络，所以 Cargo 依赖、设置窗口的前端、OpenCC 编译输入和需要下载的数据都来自 Source1，即 make-source-tarballs.sh 为每个 Linux 正式版生成、放在滚动的 linux-sources release 上的 vendor 包（版本发布页 linux-vVERSION 只放给用户下载的安装包；0.12.1 及更早版本的源码包仍在各自的发布页上）。词库照旧不随包，由用户首次配置时 msime-linux-setup --download 取回。
 #
 # Version 与 %%changelog 由 render-sources.py 按发布版本改写；仓库里的值只是上一次渲染的样子。
 #
@@ -30,8 +30,8 @@ Summary:        Metasequoia IME (水杉输入法): Chinese input method for Fcit
 # 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据：Rust crate 与 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。
 License:        GPL-3.0-only AND Apache-2.0 AND MIT AND BSD-3-Clause AND HPND AND LGPL-2.1-or-later AND LGPL-3.0-only AND CC-BY-4.0 AND CC-BY-SA-4.0 AND MPL-2.0 AND WTFPL AND Unicode-3.0 AND ISC AND Zlib
 URL:            https://github.com/metasequoiaime/msime
-Source0:        %{url}/releases/download/linux-v%{version}/msime-%{version}.tar.xz
-Source1:        %{url}/releases/download/linux-v%{version}/msime-%{version}-vendor.tar.xz
+Source0:        %{url}/releases/download/linux-sources/msime-%{version}.tar.xz
+Source1:        %{url}/releases/download/linux-sources/msime-%{version}-vendor.tar.xz
 # OBS 自动读取与包同名的 rpmlintrc；列为 Source 让它也进 .src.rpm。
 Source99:       msime-rpmlintrc
 
@@ -167,7 +167,9 @@ cmake -S platforms/linux -B build/cmake \
   -DMSIME_HANDWRITING_MODEL_DIR="$PWD/vendor/handwriting-model" \
   -DMSIME_OFFLINE_GLOSSES="$PWD/vendor/offline-glosses" \
   -DMSIME_LANGUAGE_DICTIONARIES="$PWD/vendor/language-dictionaries" \
-  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON \
+  -DMSIME_WORDBOOKS="$PWD/vendor/wordbooks" \
+  -DMSIME_REQUIRE_WORDBOOKS=ON
 cmake --build build/cmake %{?_smp_mflags}
 
 %install

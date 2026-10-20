@@ -12,11 +12,13 @@ use std::io::Cursor;
 use std::path::Path;
 use toml::Value;
 
+mod factory_layout;
 mod windows_looks;
 /// 定义在 `crate::text`（偏好校验要用），从这里导回。
 pub(crate) use crate::text::safe_id;
 /// 定义在 `crate::theme`（偏好校验要用），从这里导回，原来的路径照常可用。
 pub use crate::theme::is_selectable_id;
+pub use factory_layout::ResolvedSkinLayout;
 pub use windows_looks::{
     is_windows_look, WINDOWS_BUILTIN_IDS, WINDOWS_DEFAULTS_FOLDER, WINDOWS_LOOK_IDS,
 };
@@ -230,6 +232,9 @@ pub struct SkinSummary {
     pub horizontal: SkinGeometry,
     #[serde(skip_serializing_if = "SkinGeometry::is_empty")]
     pub vertical: SkinGeometry,
+    /// 绘制专用的出厂继承结果；原始几何字段保留皮肤声明，供编辑器区分“未声明”。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_layout: Option<ResolvedSkinLayout>,
     pub decoration_top_dip: f64,
     pub decoration_width_dip: f64,
     /// The image drawn in the decoration band, relative to the package: `candidate_window.decoration.image`, or else the package `preview` when that is an image. Set only for a decorated package (both decoration sizes above zero).
@@ -451,14 +456,14 @@ pub struct SkinToolbar {
 }
 
 /// 候选窗清单中的长度：可以是固定 DIP，也可以是按候选字号缩放的 em。
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinLength {
     pub value: f64,
     pub em: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinInsets {
     pub top: f64,
@@ -467,7 +472,7 @@ pub struct SkinInsets {
     pub left: f64,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinGeometry {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1009,6 +1014,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         geometry,
         horizontal,
         vertical,
+        resolved_layout: None,
         decoration_top_dip: top,
         decoration_width_dip: width,
         decoration_image,
@@ -1032,6 +1038,14 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         license,
         notices,
     };
+    summary.resolved_layout = factory_layout::resolve(
+        if canvas {
+            Some("canvas")
+        } else {
+            windows_look.as_deref()
+        },
+        &summary,
+    );
     summary.decoration_frames = validate_image_dimensions(&dir, &summary)?;
     Ok(summary)
 }
@@ -2004,11 +2018,11 @@ pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 
 /// 原生候选宿主读取的已安装皮肤目录（Linux 运行时选项中的 `candidate_skin_catalog`）。
 /// 每个条目包含 `id`、清单名称 `title`、全局主题 `base`、声明的 `layouts`、各主题的候选配色、
-/// `show_selected_bar`、可选的 `corner_radius_dip`，以及已声明装饰的尺寸、绝对图片路径和非默认对齐。
+/// `show_selected_bar`、可选的 `corner_radius_dip`、Windows 基底的 `resolvedLayout`，以及已声明装饰的尺寸、绝对图片路径和非默认对齐。
 /// 配色由 `theme::normalized_color` 规范化；把条目作为 `package` 传给 `msime_client_resolve_theme`，
 /// 与从皮肤根目录加载同一个包的解析结果一致。`root` 必须对应扫描 `catalog` 的目录。
 ///
-/// 严格条目不携带背景、工具栏、其他路径或样式表，以兼容旧宿主并控制整份文档的大小。
+/// 严格条目不携带背景、工具栏、其他路径或样式表；`resolvedLayout` 只含已校验的数字和开关，以兼容旧宿主并控制整份文档的大小。
 /// 没有装饰的包不写装饰键；不可解析的颜色省略，只保留清单声明主题的配色。
 /// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
@@ -2041,6 +2055,9 @@ pub fn host_candidate_catalog(
     let mut packages = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES);
     packages.extend(listed.into_iter().map(|package| {
             let mut entry = serde_json::json!({ "id": package.id, "title": package.name, "base": package.base, "layouts": package.layouts });
+            if let Some(layout) = &package.resolved_layout {
+                entry["resolvedLayout"] = serde_json::to_value(layout).expect("布局结果可序列化");
+            }
             let mut candidate = serde_json::Map::new();
             for (theme, palette) in [
                 ("light", &package.candidate.light),

@@ -54,7 +54,7 @@ docker run --rm --init \
     ebuild /var/db/repos/msime/app-i18n/msime/msime-9999.ebuild clean unpack
     work=/var/tmp/portage/app-i18n/msime-9999/work
     ls "$work"
-    for dir in voice-runtime handwriting-model offline-glosses language-dictionaries; do
+    for dir in voice-runtime handwriting-model offline-glosses language-dictionaries wordbooks; do
       echo "$dir: $(find "$work/$dir" -maxdepth 1 -type f | wc -l) files"
     done
     test -d "$work/msime-9999/node_modules"

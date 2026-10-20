@@ -22,7 +22,7 @@ gloss line, which is what a card shows, and writes one compact JSON per book in 
 Idempotent: a download matching the pinned digest is reused, and books already written are only
 rewritten when their contents change.
 
-usage: fetch_wordbooks.py [--out <directory>]   (default: target/wordbooks)
+usage: fetch_wordbooks.py [--out <directory>] [--cache <directory>]   (defaults: target/wordbooks, <out>/../wordbook-source)
 """
 import argparse
 import csv
@@ -36,6 +36,8 @@ import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/wordbook.lock.json"
+# 随词书一起进包的许可证声明。宿主只按 `<id>.json` 读书（`builtin.rs`），这个文件放在同一目录里不会被当成一本书。
+NOTICE = "wordbooks-NOTICE.txt"
 
 # A card shows one line. ECDICT packs several senses and a "[网络]" section into ``translation``
 # separated by newlines; the first line is the dictionary sense and the rest is noise on a card.
@@ -150,12 +152,25 @@ def build(csv_path: Path, books: list[dict], out: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=str(ROOT / "target/wordbooks"))
+    # 66 MB 的 ECDICT CSV 和 LICENSE 放在哪里。缺省是输出目录旁边的 wordbook-source；生成发行版 vendor 包时要放到包外，免得把源 CSV 打进去。
+    parser.add_argument("--cache")
     arguments = parser.parse_args()
 
     lock = read_lock()
     out = Path(arguments.out)
-    source = fetch(lock["artifact"], Path(arguments.out).parent / "wordbook-source")
+    cache = Path(arguments.cache) if arguments.cache else Path(arguments.out).parent / "wordbook-source"
+    source = fetch(lock["artifact"], cache)
     build(source, lock["books"], out)
+    # MIT 要求版权和许可声明随数据一起分发，所以逐字复制锁定提交的 LICENSE，不做转述；内容不变时不重写。
+    license_text = fetch(lock["license_file"], cache).read_text(encoding="utf-8")
+    notice = (
+        f"The bundled wordbooks are derived from ECDICT ({lock['source']}), commit {lock['source_commit']}.\n"
+        "Each book keeps the words ECDICT tags for that syllabus, with the phonetic and the first dictionary sense.\n\n"
+        + license_text
+    )
+    notice_path = out / NOTICE
+    if not notice_path.is_file() or notice_path.read_text(encoding="utf-8") != notice:
+        notice_path.write_text(notice, encoding="utf-8")
     print(f"wordbooks built from ECDICT {lock['source_commit'][:12]} ({lock['license']}): {out}")
     return 0
 

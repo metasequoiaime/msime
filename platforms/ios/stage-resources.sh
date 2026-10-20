@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory]}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/ios/EngineResources"
 # 发布用瘦包只省略附加语言资源，日文独立版本的主词库不能省。
@@ -83,6 +83,22 @@ if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "$omit_on_demand" !=
       echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not staged from $languages_source" >&2
       exit 1
     fi
+  done
+fi
+# 背单词的内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成），和 EngineResources 一起放进键盘扩展：设置 App 在它的同级 wordbooks/ 里找书（VocabularyReviewStore）。目录总是建出来，没有词书时为空，因为键盘扩展把它当文件夹打包；八本书只和许可声明一起暂存，没有时背单词只列用户导入的词表。词书不分版本，也不是按需下载的资源，瘦包同样带。MSIME_REQUIRE_WORDBOOKS=1 时缺了 resources/wordbook.lock.json 列出的任何一本就失败。
+wordbooks_source=${4:-$repo_root/target/wordbooks}
+wordbooks_destination="$repo_root/target/ios/wordbooks"
+rm -rf "$wordbooks_destination"
+mkdir -p "$wordbooks_destination"
+if compgen -G "$wordbooks_source/*.json" >/dev/null && [ -f "$wordbooks_source/wordbooks-NOTICE.txt" ]; then
+  cp "$wordbooks_source"/*.json "$wordbooks_source/wordbooks-NOTICE.txt" "$wordbooks_destination/"
+  echo "wordbooks staged: $wordbooks_destination"
+else
+  echo "no wordbooks at $wordbooks_source; 背单词 offers only imported books"
+fi
+if [ "${MSIME_REQUIRE_WORDBOOKS:-0}" = 1 ]; then
+  for id in $(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' "$repo_root/resources/wordbook.lock.json"); do
+    [ -f "$wordbooks_destination/$id.json" ] || { echo "MSIME_REQUIRE_WORDBOOKS=1 but $id.json, listed by resources/wordbook.lock.json, was not staged from $wordbooks_source; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
   done
 fi
 echo "iOS resources staged from the pinned dictionary release: $destination"

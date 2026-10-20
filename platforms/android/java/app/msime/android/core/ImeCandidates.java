@@ -28,6 +28,7 @@ final class ImeCandidates {
     private int accentSoft;
     private int accentText;
     private Typeface candidateTypeface;
+    private CandidateAppearance.Layout candidateLayout;
     /** 整面展开网格；滚动视图随键盘视图重建时跟着换。 */
     private ImeCandidateGrid expandedGrid;
 
@@ -56,12 +57,15 @@ final class ImeCandidates {
             accentText = selectedText;
         }
         candidateTypeface = s.imeStyler.candidateTypeface();
+        candidateLayout = s.candidateAppearance.layout();
     }
 
     /** 首选候选 chip：字母键的底（kb.key）、圆角 9，皮肤强调色 600 字重；其余候选不画底。 */
     private android.graphics.drawable.GradientDrawable chip(int color, int radiusDp) {
         CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
-        float radius = canvas == null || canvas.itemRadius == null ? s.pixels(radiusDp)
+        CandidateAppearance.Layout layout = candidateLayout;
+        float radius = canvas == null || canvas.itemRadius == null
+            ? s.pixels(layout == null ? radiusDp : (int) Math.round(layout.itemRadius))
             : (float) (canvas.itemRadius * s.getResources().getDisplayMetrics().density);
         return DrawablePolicy.rounded(color, radius);
     }
@@ -90,9 +94,22 @@ final class ImeCandidates {
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
-        ViewPolicy.setMinimumWidth(button, s.pixels(30));
+        int minimum = candidateLayout == null || !Double.isFinite(candidateLayout.itemMinWidth) ? 30
+            : (int) Math.ceil(candidateLayout.itemMinWidth);
+        ViewPolicy.setMinimumWidth(button, s.pixels(Math.max(0, minimum)));
         ViewPolicy.clearMinimumHeight(button);
-        LayoutPolicy.setHorizontalPaddingDp(button, s, 11);
+        int horizontal = candidateLayout == null || !Double.isFinite(candidateLayout.itemPaddingRight)
+            ? 11 : (int) Math.ceil(candidateLayout.itemPaddingRight);
+        LayoutPolicy.setHorizontalPaddingDp(button, s, Math.max(0, horizontal));
+        int vertical = candidateLayout == null || !Double.isFinite(candidateLayout.itemExtraHeight) ? 0
+            : s.pixels((int) Math.ceil(Math.min(4, candidateLayout.itemExtraHeight / 2)));
+        button.setPadding(button.getPaddingLeft(), vertical, button.getPaddingRight(), vertical);
+        if (button.getLayoutParams() instanceof LinearLayout.LayoutParams params) {
+            double gap = candidateLayout == null || !Double.isFinite(candidateLayout.itemGap) ? 0
+                : candidateLayout.itemGap + (candidateLayout.fitContent ? 0 : 6);
+            params.rightMargin = s.pixels((int) Math.round(gap));
+            button.setLayoutParams(params);
+        }
         ViewPolicy.setLineSpacing(button, 0, 1.0f);
         ViewPolicy.clearFontPadding(button);
         ViewPolicy.clearElevation(button);

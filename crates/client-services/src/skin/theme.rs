@@ -6,7 +6,7 @@
 //!
 //! Every colour this module emits is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `None` slot means "the host's own platform token for that slot", never "transparent".
 
-use super::catalog::{CandidatePalette, SkinSummary};
+use super::catalog::{CandidatePalette, ResolvedSkinLayout, SkinSummary};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{CandidateLayout, CustomTheme, TouchKeyboardSkinDesign};
 use crate::theme::{readable_text, rgb};
@@ -66,6 +66,8 @@ pub struct ThemePackage {
     pub light: Option<CandidatePalette>,
     /// `None` when the package does not declare dark support.
     pub dark: Option<CandidatePalette>,
+    /// Windows 基底皮肤的出厂版式继承结果；非 Windows 基底为 `None`。
+    pub resolved_layout: Option<ResolvedSkinLayout>,
 }
 
 impl From<&SkinSummary> for ThemePackage {
@@ -89,6 +91,7 @@ impl From<&SkinSummary> for ThemePackage {
             layouts,
             light: declared("light").then(|| summary.candidate.light.clone()),
             dark: declared("dark").then(|| summary.candidate.dark.clone()),
+            resolved_layout: summary.resolved_layout.clone(),
         }
     }
 }
@@ -122,6 +125,8 @@ impl ThemePackage {
             _decoration_align: serde::de::IgnoredAny,
             #[serde(default, rename = "corner_radius_dip")]
             _corner_radius_dip: serde::de::IgnoredAny,
+            #[serde(default, rename = "resolvedLayout")]
+            resolved_layout: Option<ResolvedSkinLayout>,
         }
         #[derive(Default, Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -171,6 +176,7 @@ impl ThemePackage {
             layouts: entry.layouts,
             light: entry.candidate.light.map(Into::into),
             dark: entry.candidate.dark.map(Into::into),
+            resolved_layout: entry.resolved_layout,
         })
     }
 }
@@ -198,6 +204,8 @@ pub struct CandidateDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preedit_divider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_arrow_divider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub menu_surface: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menu_border: Option<String>,
@@ -222,6 +230,9 @@ pub struct ResolvedTheme {
     pub keyboard: Option<KeyboardThemePalette>,
     /// The external package drawn on this surface: the custom theme names it, it was found, and its manifest declares both `layout` and the mode drawn. Hosts draw the package's decoration and minimum width only when this is set.
     pub candidate_skin: Option<String>,
+    /// 当前候选排列对应的 Windows 兼容版式；旧包和非 Windows 基底保持为空。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_layout: Option<ResolvedSkinLayout>,
 }
 
 /// 以 `base` 为底的皮肤包属于哪种明暗：固定明暗的内置主题给出它自己的明暗，`system` 为 `None`，两种模式都可以画。
@@ -254,6 +265,7 @@ pub fn resolve(
             keyboard: Some(builtin.keyboard()),
             candidate_skin: None,
             candidate_details: None,
+            candidate_layout: None,
         };
     }
     // `native` 与 `system` 一样不带调色板，两者的区别只在宿主怎么画：`id` 原样带回，宿主据此分辨。
@@ -266,6 +278,7 @@ pub fn resolve(
             keyboard: None,
             candidate_skin: None,
             candidate_details: None,
+            candidate_layout: None,
         };
     }
     let package = package
@@ -349,6 +362,7 @@ pub fn resolve(
             selected_bar: color(&palette.selected_bar),
             preedit_background: color(&palette.preedit_background),
             preedit_divider: color(&palette.preedit_divider),
+            page_arrow_divider: color(&palette.page_arrow_divider),
             menu_surface: palette
                 .menu
                 .as_ref()
@@ -359,6 +373,7 @@ pub fn resolve(
         };
         (details != CandidateDetails::default()).then_some(details)
     });
+    let candidate_layout = drawn.and_then(|(package, _)| package.resolved_layout.clone());
     let candidate = CandidateThemePalette {
         surface: explicit.surface.or(base_palette.surface),
         border: explicit.border.or(base_palette.border),
@@ -400,6 +415,7 @@ pub fn resolve(
             .or_else(|| base.map(BuiltinTheme::keyboard)),
         candidate_skin: drawn.map(|(package, _)| package.id.clone()),
         candidate_details,
+        candidate_layout,
     }
 }
 

@@ -193,13 +193,14 @@ jobs:
         with:
           name: official-plugin-packs-windows
           path: target/plugin-packs
-      - name: Fetch offline candidate glosses, English gloss tables and language dictionaries
-        # bash 在第一条失败的命令处停下，多行的 pwsh 步骤只报告最后一条的结果。粤拼和注音词库要等 resources/language-dictionaries.lock.json 锁定发布版本后才下载。落定重排模型和手写模型不进安装包，由设置应用按需下载。英文释义表（单字、词、读音）由 Prepare-PackageFiles.ps1 从 target/<表名> 装进 resources 旁边。
+      - name: Fetch offline candidate glosses, English gloss tables, language dictionaries and wordbooks
+        # bash 在第一条失败的命令处停下，多行的 pwsh 步骤只报告最后一条的结果。背单词的内置词书由 fetch_wordbooks.py 从锁定的 ECDICT 提交生成到 target/wordbooks，Prepare-PackageFiles.ps1 装进 Server 目录旁的 wordbooks；打包步骤设 MSIME_REQUIRE_WORDBOOKS=1，缺了它们的安装包打不出来。粤拼和注音词库要等 resources/language-dictionaries.lock.json 锁定发布版本后才下载。落定重排模型和手写模型不进安装包，由设置应用按需下载。英文释义表（单字、词、读音）由 Prepare-PackageFiles.ps1 从 target/<表名> 装进 resources 旁边。
         shell: bash
         run: |
           python scripts/fetch_offline_glosses.py
           python scripts/fetch_gloss_tables.py
           python scripts/fetch_language_dictionaries.py
+          python scripts/fetch_wordbooks.py
       # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
       # Restore and save separately so a run that fails after this point still keeps the installed dependencies for the retry.
       - id: vcpkg-cache
@@ -290,7 +291,7 @@ jobs:
           ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows') -SupplementalNotices $rust, $frontend -Edition $env:EDITION
       - name: Stage package files
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}", MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}", MSIME_REQUIRE_OFFICIAL_PLUGINS: '1', MSIME_REQUIRE_WORDBOOKS: '1'}
         # The same arguments Package-SimplySign.ps1 passes.
         run: >-
           ./platforms/windows/installer/Prepare-PackageFiles.ps1 -TargetVersion $env:VERSION

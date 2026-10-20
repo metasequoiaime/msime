@@ -60,6 +60,9 @@ jobs:
           packs=(japanese offline-glosses voice-runtime)
           if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries); fi
           cargo run --quiet -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，build-apk.sh 打进 assets/wordbooks。词书不是按需资源包，每个版本（包括瘦包）都带；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 APK 打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
       # build-native.sh 只认固定的 NDK 28.2.13676358。此前一直靠 ubuntu-24.04 镜像碰巧预装它，镜像 20261002 起不再带这个版本，Android 0.2.1 第一次发布就因此失败。缺了就用 runner 自带的 sdkmanager 装上，装完再核对一次版本。
       - name: Install the pinned Android NDK
@@ -74,6 +77,7 @@ jobs:
         env:
           MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
           MSIME_EDITION: "${{ matrix.edition }}"
+          MSIME_REQUIRE_WORDBOOKS: '1'
           PUBLISH: "${{ inputs.publish }}"
           RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
           MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
@@ -126,17 +130,29 @@ jobs:
         # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          # 每个版本的 APK 都要在：少一个就不发，免得版本页上缺了某个版本的包。
-          for edition in $(python3 platforms/android/scripts/edition_android.py editions | tr ',' ' '); do
+          # 每个版本的 APK 都要在，也不能多：少一个就不发，免得版本页上缺了某个版本的包。
+          editions="$(python3 platforms/android/scripts/edition_android.py editions)"
+          IFS=, read -r -a edition_list <<< "$editions"
+          for edition in "${edition_list[@]}"; do
             apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$edition" apk_name)"
             [[ -f "dist/$apk_name.apk" ]] || { echo "dist/$apk_name.apk for edition $edition is missing" >&2; exit 1; }
           done
-          # 应用内更新（UpdateApi）会下载与 APK 同名的 <apk>.sha256，缺了就拒绝更新，所以每个 APK 都附一行 sha256sum 输出；在 dist 里面算，行里写的才是不带路径的文件名。
+          apks=(dist/*.apk)
+          [[ ${#apks[@]} -eq ${#edition_list[@]} ]] || { echo "expected ${#edition_list[@]} APKs in dist, found ${#apks[@]}" >&2; exit 1; }
+          # 版本发布页的 SHA256SUMS 只列这些 APK；新版本的应用内更新（UpdateApi）先读它。在 dist 里面算，行里写的才是不带路径的文件名。
+          (cd dist && sha256sum -- *.apk > SHA256SUMS && sha256sum -c SHA256SUMS)
+          # 0.2.0 到 0.4.2 的应用内更新只认与 APK 同名的 <apk>.sha256，地址按新版本自己的 tag 拼（releases/download/<tag>/<apk>.sha256），缺了就拒绝更新；滚动 release 接不住这个地址，所以每个 APK 仍附一行 sha256sum 输出，什么时候撤掉由维护者看读 SHA256SUMS 的安装够多了再定，见 .agents/notes/implemented/process/2026-10-20-android-release-page-sha256sums.md。
           (cd dist && for apk in *.apk; do sha256sum "$apk" > "$apk.sha256"; done)
           tag="android-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
           stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
-          python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/*.apk.sha256
+          python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
+          # 发布说明开头是从版本表生成的下载指引：六个 APK 各是什么、大多数人该下哪个。
+          prerelease=(); [[ "$PRERELEASE" == true ]] && prerelease=(--prerelease)
+          python3 platforms/android/scripts/edition_android.py download-guide --editions "$editions" \
+            --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${prerelease[@]+"${prerelease[@]}"} > release-notes.md
+          { echo; cat changes.md; } >> release-notes.md
+          # 重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/SHA256SUMS dist/*.apk.sha256

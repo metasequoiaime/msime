@@ -80,6 +80,11 @@ ${platformVariables(PLATFORM_PALETTE.light)}
   --msime-skin-decoration-top: 0px;
   --msime-skin-decoration-width: 0px;
   --msime-skin-selected-bar: block;
+  --msime-skin-border-width: 1.5px;
+  --msime-skin-item-radius: 4px;
+  --msime-skin-item-padding-right: 4px;
+  --msime-skin-selected-bar-width: 0.2em;
+  --msime-skin-selected-bar-height: 0.8em;
   --msime-skin-background-fit: cover;
   --msime-skin-background-opacity: 1;
   --msime-skin-animation-duration: 0ms;
@@ -198,9 +203,9 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
   position: relative;
   pointer-events: auto;
   margin: 0;
-  padding: var(--msime-candidate-pad-y) var(--msime-candidate-pad-x);
+  padding: var(--msime-skin-padding, var(--msime-candidate-pad-y)) var(--msime-skin-padding, var(--msime-candidate-pad-x));
   background: var(--cand-bg);
-  border: 1.5px solid var(--cand-border);
+  border: var(--msime-skin-border-width) solid var(--cand-border);
   border-radius: var(--msime-skin-radius);
   box-shadow: var(--cand-shadow);
   min-width: max(7em, var(--msime-skin-min-width));
@@ -317,22 +322,25 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
   position: relative;
 }
 .wnd-h .row-wrapper {
+  margin-right: var(--msime-skin-horizontal-gap, 0px);
   display: inline-block;
   vertical-align: top;
   max-width: 100%;
   min-width: 0;
 }
+.wnd-v .row-wrapper { margin-bottom: var(--msime-skin-vertical-gap, 0px); }
 .cand {
   position: relative;
-  border-radius: 4px;
+  min-width: var(--msime-skin-item-min-width, 0px);
+  border-radius: var(--msime-skin-item-radius);
   cursor: pointer;
 }
 .wnd-h .cand {
-  padding: 2px 4px 2px 0;
+  padding: calc(2px + var(--msime-skin-item-extra-height, 0px) / 2) var(--msime-skin-item-padding-right) calc(2px + var(--msime-skin-item-extra-height, 0px) / 2) 0;
 }
 .wnd-v .cand {
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding-top: calc(1px + var(--msime-skin-item-extra-height, 0px) / 2);
+  padding-bottom: calc(1px + var(--msime-skin-item-extra-height, 0px) / 2);
 }
 .cand .text {
   display: flex;
@@ -350,11 +358,14 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 }
 .num {
   flex: none;
-  font-size: 0.8em;
+  font-size: var(--msime-skin-number-size, 0.8em);
+  min-width: var(--msime-skin-number-column, 0px);
+  margin-left: var(--msime-skin-number-inset, 0px);
+  margin-right: var(--msime-skin-number-gap, 0px);
   color: var(--cand-num);
 }
 .wnd-v .num {
-  margin-right: 1.5px;
+  margin-right: var(--msime-skin-number-gap, 1.5px);
 }
 .cand-helpcode {
   margin-left: 0.15em;
@@ -382,11 +393,11 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 .first::before {
   content: "";
   position: absolute;
-  left: 0;
   top: 53%;
   transform: translateY(-50%);
-  height: 0.8em;
-  width: 0.2em;
+  left: var(--msime-skin-selected-bar-left, 0px);
+  height: max(6px, calc(var(--msime-skin-selected-bar-width) * 2), var(--msime-skin-selected-bar-height));
+  width: max(3px, var(--msime-skin-selected-bar-width));
   display: var(--msime-skin-selected-bar);
   background: var(--accent-strong);
   border-radius: 8px;
@@ -671,8 +682,9 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     const border = canvas.borderImage?.width;
     for (const side of ["top", "right", "bottom", "left"]) {
       const base = side === "top" || side === "bottom" ? 2 : resolved.layout === "vertical" ? 2 : 1;
-      const content = canvas.contentInsets ? Math.max(canvas.contentInsets[side], border?.[side] ?? 0) : (border?.[side] ?? 0) + base;
-      root.style.setProperty(`--msime-canvas-content-${side}`, `${content}px`);
+      const content = canvas.contentInsets ? `${Math.max(canvas.contentInsets[side], border?.[side] ?? 0)}px`
+        : `calc(${border?.[side] ?? 0}px + var(--msime-skin-padding, ${base}px))`;
+      root.style.setProperty(`--msime-canvas-content-${side}`, content);
       root.style.setProperty(`--msime-canvas-outer-${side}`, `${canvas.outerInsets?.[side] ?? 0}px`);
     }
     if (canvas.lineGap !== null) root.style.setProperty("--msime-canvas-line-gap", `${canvas.lineGap}px`);
@@ -700,6 +712,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     for (const name of applied) root.style.removeProperty(name);
     applied = [];
     root.className = `candidate wnd-${resolved.layout === "vertical" ? "v" : "h"}`;
+    if (resolved.geometry.layout) root.style.setProperty("--msime-skin-number-column", "9px");
+    else root.style.removeProperty("--msime-skin-number-column");
     root.dataset.theme = resolved.dark ? "dark" : "light";
     root.dataset.animationEnter = resolved.animation.enter;
     root.dataset.animationSelection = resolved.animation.selection;

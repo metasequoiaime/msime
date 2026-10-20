@@ -277,6 +277,38 @@ fn versions_are_numeric_and_reject_unstable_tags() {
 }
 
 #[test]
+fn pending_restart_follows_what_the_input_host_loaded() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    // 从没装过更新时不建更新目录。
+    record_loaded(state, &fixture.context.resources).unwrap();
+    assert!(!root(state).exists());
+
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let active = selected(state, &fixture.context.baseline).unwrap();
+    let updated = directory(state, &active.desktop).unwrap();
+    // 设置宿主只认得自己的随包资源：输入宿主还没建过会话时仍要求重新打开。
+    assert!(status(&fixture.context).pending_restart);
+
+    record_loaded(state, &updated).unwrap();
+    let after_reopen = status(&fixture.context);
+    assert!(!after_reopen.pending_restart);
+    assert_eq!(after_reopen.version, "dict-v2.0.10");
+
+    record_loaded(state, &fixture.context.resources).unwrap();
+    assert!(status(&fixture.context).pending_restart);
+
+    // 回退到随包代次后，输入宿主还开着下载的代次时要重新打开，换回随包资源后不再提示。
+    record_loaded(state, &updated).unwrap();
+    rollback(&fixture.context).unwrap();
+    assert!(selected(state, &fixture.context.baseline).is_none());
+    assert!(status(&fixture.context).pending_restart);
+    record_loaded(state, &fixture.context.resources).unwrap();
+    assert!(!status(&fixture.context).pending_restart);
+}
+
+#[test]
 fn a_complete_update_is_verified_and_original_bytes_remain() {
     let fixture = Fixture::new();
     fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);

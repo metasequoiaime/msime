@@ -1,0 +1,106 @@
+# 内置皮肤「微信绿」的出厂清单：皮肤级的开关与完整外观都在这里，输入法按它绘制候选框与悬浮工具栏。
+# 安装或升级时整份覆盖，不建议直接修改；想要自己的样式，复制一份到 skins\<新 id>\ 做成外部皮肤
+# （写 base = "wechat"，只写想改的键）。基于 wechat 的外部皮肤没写的键沿用这里的值。
+# 字段说明见 skins/README.md。
+schema_version = 1
+id = "wechat"
+name = "微信绿主题"
+description = "微信绿候选窗与悬浮工具栏"
+
+[candidate_window]
+# 候选框里的翻页箭头（默认关闭）：横排在候选右侧、贴着最后一行，竖排在最后一行下方、与序号左对齐
+page_arrows = false
+# 候选框严格按文字所需的宽度收紧（默认关闭）：不垫出厂最小宽度，同一输入里也不只增不减
+fit_content = false
+# 横排候选用卷轴展开代替翻页（默认关闭）
+expand_panel = false
+
+corner_radius_dip = 5
+border_width_dip = 1
+item_corner_radius_dip = 4
+padding = 2
+item_gap = 2
+item_extra_height = 2
+number_inset = 5
+item_padding_right = 0
+number_scale = 0.8
+number_gap = 1.5
+selected_bar_width = 3
+selected_bar_height_em = 0.85
+selected_bar_inside = false
+justify_rows = false
+trim_hidden_preedit_gap = false
+page_arrow_style = "chevron"
+preedit_margin_dip = [0, 0, 0, 0]
+
+[candidate_window.horizontal]
+item_corners_follow_card = true
+
+[candidate.dark]
+surface = "#151515"
+border = "#292929"
+text = "#B7B7B7"
+number = "#858585"
+accent = "#07C160"
+selected = "#07C160"
+hover = "rgba(7, 193, 96, 0.32)"
+show_selected_bar = false
+selected_text = "#FFFFFF"
+selected_number = "#FFFFFF"
+# 单词 Notion Blue，词性 Notion Green；选中行是实色绿底，单词换成半透明白，词性换 Notion Yellow。
+translation = "#529CCA"
+translation_pos = "#4DAB9A80"
+translation_separator = "#529CCA73"
+selected_translation = "rgba(255, 255, 255, 0.8)"
+selected_translation_pos = "rgba(255, 220, 73, 0.85)"
+selected_translation_separator = "rgba(255, 255, 255, 0.3608)"
+
+[candidate.dark.menu]
+background = "#1F1F1F"
+border = "#343434"
+text = "#D0D0D0"
+hover = "#2A2A2A"
+
+[candidate.light]
+surface = "#F7F7F7"
+border = "#DEDEDE"
+text = "#333333"
+number = "#757575"
+accent = "#07C160"
+selected = "#07C160"
+hover = "rgba(7, 193, 96, 0.14)"
+show_selected_bar = false
+selected_text = "#FFFFFF"
+selected_number = "#FFFFFF"
+translation = "#0B6E99"
+translation_pos = "#0F7B6C80"
+translation_separator = "#0B6E9973"
+selected_translation = "rgba(255, 255, 255, 0.8)"
+selected_translation_pos = "rgba(255, 220, 73, 0.85)"
+selected_translation_separator = "rgba(255, 255, 255, 0.3608)"
+
+[candidate.light.menu]
+background = "#FFFFFF"
+border = "#D9D9D9"
+text = "#333333"
+hover = "#EEEEEE"
+
+[toolbar]
+corner_radius_dip = 8
+icon_corner_radius_dip = 6
+
+[toolbar.dark]
+background = "#151515"
+border = "#292929"
+icon = "#FFFFFF"
+hover = "rgba(7, 193, 96, 0.16)"
+divider = "rgba(255, 255, 255, 0.15)"
+handle = "#07C160"
+
+[toolbar.light]
+background = "#F7F7F7"
+border = "#DEDEDE"
+icon = "#1A1A1A"
+hover = "rgba(7, 193, 96, 0.12)"
+divider = "rgba(0, 0, 0, 0.12)"
+handle = "#07C160"

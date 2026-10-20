@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 # 水杉输入法 Linux 完整版的 Debian 源码包构建，供 Launchpad PPA 或 OBS 使用。构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和 Tauri 设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。
 #
-# 构建农场没有网络。Cargo 依赖、设置窗口的前端和需要下载的数据来自组件 tarball msime_VERSION.orig-vendor.tar.xz，dpkg-source 把它解到 vendor/；它就是发布页上的 msime-VERSION-vendor.tar.xz，由 platforms/linux/packaging/make-source-tarballs.sh 生成。
+# 构建农场没有网络。Cargo 依赖、设置窗口的前端和需要下载的数据来自组件 tarball msime_VERSION.orig-vendor.tar.xz，dpkg-source 把它解到 vendor/；它就是 linux-sources release 上的 msime-VERSION-vendor.tar.xz，由 platforms/linux/packaging/make-source-tarballs.sh 生成。
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export PYTHONDONTWRITEBYTECODE = 1
@@ -71,7 +71,9 @@ override_dh_auto_configure:
 	  -DMSIME_HANDWRITING_MODEL_DIR=$(VENDOR)/handwriting-model \
 	  -DMSIME_OFFLINE_GLOSSES=$(VENDOR)/offline-glosses \
 	  -DMSIME_LANGUAGE_DICTIONARIES=$(VENDOR)/language-dictionaries \
-	  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+	  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON \
+	  -DMSIME_WORDBOOKS=$(VENDOR)/wordbooks \
+	  -DMSIME_REQUIRE_WORDBOOKS=ON
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))

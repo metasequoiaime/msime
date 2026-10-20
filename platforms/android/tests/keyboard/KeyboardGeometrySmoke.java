@@ -42,10 +42,10 @@ public final class KeyboardGeometrySmoke {
         checkRows(0, 52, 52, 52, 52);       // 100%
         checkRows(-46, 41, 41, 40, 40);     // 75%
         checkRows(55, 66, 66, 66, 65);      // 130%
-        checkRows(110, 80, 80, 79, 79);     // 160%
+        checkRows(129, 85, 84, 84, 84);     // 170%
         check(KeyboardHeightPolicy.bottomRowAdjustment(Integer.MIN_VALUE) == 0
             && KeyboardHeightPolicy.keyRowsAdjustment(Integer.MIN_VALUE) == 0, "missing adjustment is zero");
-        check(KeyboardHeightPolicy.bottomRowAdjustment(500) == 27 && KeyboardHeightPolicy.keyRowsAdjustment(500) == 83,
+        check(KeyboardHeightPolicy.bottomRowAdjustment(500) == 32 && KeyboardHeightPolicy.keyRowsAdjustment(500) == 97,
             "shares clamp to the design range");
         for (int adjustment = KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
                 adjustment <= KeyboardHeightPolicy.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP; adjustment++) {
@@ -70,34 +70,36 @@ public final class KeyboardGeometrySmoke {
             check(tallest - shortest <= 1, "rows differ by at most 1 dp at " + adjustment);
         }
         // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
-        int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160};
-        int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110};
+        int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160, 170};
+        int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110, 129};
         for (int index = 0; index < percents.length; index++) {
             check(KeyboardHeightPolicy.heightPercentToAdjustment(percents[index]) == adjustments[index]);
             check(KeyboardHeightPolicy.heightAdjustmentToPercent(adjustments[index]) == percents[index]);
         }
         check(KeyboardHeightPolicy.heightPercentToAdjustment(60) == -46);
-        check(KeyboardHeightPolicy.heightPercentToAdjustment(200) == 110);
+        check(KeyboardHeightPolicy.heightPercentToAdjustment(200) == 129);
         check(KeyboardHeightPolicy.designHeightAdjustment(Integer.MIN_VALUE) == 0);
         check(KeyboardHeightPolicy.designHeightAdjustment(-60) == -46);
         check(KeyboardHeightPolicy.designHeightAdjustment(60) == 60);
-        check(KeyboardHeightPolicy.designHeightAdjustment(200) == 110);
-        // #5564：130% 以内照画；更高的部分最多占窗口高度的 14%，但不低于 130% 的 55 dp。
+        check(KeyboardHeightPolicy.designHeightAdjustment(200) == 129);
+        // #8779：130% 以内照画；更高的部分最多占窗口高度的 17%，但不低于 130% 的 55 dp。
         check(KeyboardHeightPolicy.windowHeightAdjustment(55, 360) == 55);
         check(KeyboardHeightPolicy.windowHeightAdjustment(-46, 360) == -46);
         check(KeyboardHeightPolicy.windowHeightAdjustment(Integer.MIN_VALUE, 800) == 0);
-        check(KeyboardHeightPolicy.windowHeightAdjustment(110, 792) == 110, "portrait phone reaches 160%");
-        check(KeyboardHeightPolicy.windowHeightAdjustment(110, 700) == 98, "shorter window caps the extra height");
-        check(KeyboardHeightPolicy.windowHeightAdjustment(110, 360) == 55, "landscape phone stops at 130%");
-        check(KeyboardHeightPolicy.windowHeightAdjustment(110, 0) == 55, "unknown window stops at 130%");
-        check(KeyboardHeightPolicy.windowHeightAdjustment(500, 5000) == 110, "never beyond the design range");
-        // 行高按新设计的范围钳制：-46 与 110 都要画出来，不再被共享偏好的 -12..48 截住。
-        check(KeyboardHeightPolicy.adjustedRowHeight(56, 110, 3, 0) == 93
-            && KeyboardHeightPolicy.adjustedRowHeight(56, 110, 3, 1) == 93
-            && KeyboardHeightPolicy.adjustedRowHeight(56, 110, 3, 2) == 92);
+        check(KeyboardHeightPolicy.windowHeightAdjustment(129, 792) == 129, "portrait phone reaches 170%");
+        check(KeyboardHeightPolicy.windowHeightAdjustment(129, 700) == 119, "shorter window caps the extra height");
+        check(KeyboardHeightPolicy.windowHeightAdjustment(129, 360) == 61, "short landscape window caps the extra height");
+        check(KeyboardHeightPolicy.windowHeightAdjustment(129, 0) == 55, "unknown window stops at 130%");
+        check(KeyboardHeightPolicy.windowHeightAdjustment(500, 5000) == 129, "never beyond the design range");
+        // 行高按新设计的范围钳制：-46 与 129 都要画出来，不再被共享偏好的 -12..48 截住。
+        check(KeyboardHeightPolicy.adjustedRowHeight(56, 129, 3, 0) == 99
+            && KeyboardHeightPolicy.adjustedRowHeight(56, 129, 3, 1) == 99
+            && KeyboardHeightPolicy.adjustedRowHeight(56, 129, 3, 2) == 99);
         check(KeyboardHeightPolicy.adjustedRowHeight(56, -46, 3, 0) == 41);
         check(KeyboardHeightPolicy.adjustedRowHeight(168, 55, 1, 0) == 223);
-        check(KeyboardHeightPolicy.designKeyHeight(100) == 46 && KeyboardHeightPolicy.designKeyHeight(127) == 58);
+        check(KeyboardHeightPolicy.designKeyHeight(100) == 46
+            && KeyboardHeightPolicy.designKeyHeight(127) == 58
+            && KeyboardHeightPolicy.designKeyHeight(170) == 78);
         check(KeyboardHeightPolicy.displayPercent(127).equals("127%"));
         check(KeyboardSpacingPolicy.keySpacing(29) == 30);
         check(KeyboardSpacingPolicy.keySpacing(61) == 60);

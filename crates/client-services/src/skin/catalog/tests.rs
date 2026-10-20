@@ -980,6 +980,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             themes: vec!["light".into()],
             min_width_dip: 0.0,
             canvas: false,
+            resolved_layout: None,
             corner_radius_dip: None,
             border_width_dip: None,
             item_corner_radius_dip: None,

@@ -9,6 +9,7 @@
 #   MSIME_RELEASE_DATE=YYYY-MM-DD 是设置应用关于页显示的发布日期（apps/desktop/src-tauri/build.rs），缺省取 HEAD 的提交日期。
 #   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
 #   MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails unless target/language-dictionaries holds every dictionary resources/language-dictionaries.lock.json pins, each with its licence; the default packages whatever is there.
+#   MSIME_REQUIRE_WORDBOOKS=1 fails unless target/wordbooks holds every 背单词 wordbook resources/wordbook.lock.json lists, with wordbooks-NOTICE.txt (python3 scripts/fetch_wordbooks.py builds them; release-linux.yml sets it); the default installs them into share/<client>/wordbooks when they are there
 #   MSIME_REQUIRE_OFFICIAL_PLUGINS=1 fails unless target/plugin-packs holds the official plugin packs scripts/build-official-plugins.sh builds (release-linux.yml sets it); the default installs them into share/<client>/plugin-packs when they are there and packages without them otherwise.
 #   MSIME_PACKAGE_EDITIONS 是要打包的版本 id，逗号分隔，缺省是版本表里每个有 Linux 段的版本（platforms/linux/scripts/edition_linux.py editions）。各版本共用同一次构建出的宿主库、msime-mcp 和桌面二进制，原生宿主按版本各配置、各打一个包：full 是今天的 msime-linux，装在 /usr；其他版本是 msime-linux-<id>，装在 /opt/msime-linux-<id>。单测只在 full 的构建上跑，其他版本的原生代码与它只差 LinuxEdition.h 里的名字。
 #   MSIME_PACKAGE_FORMAT=rpm builds the RPM in a Fedora container (tests/tools/Dockerfile.package-rpm) instead of the .deb and .tar.gz in the Debian one. It is a separate build, not a conversion: rpmbuild takes Requires from the libraries the binaries link, so they have to be linked against Fedora's (#2095).
@@ -92,6 +93,7 @@ docker run --rm --init \
   -e MSIME_PACKAGE_EDITIONS="$editions" \
   -e MSIME_REQUIRE_LANGUAGE_DICTIONARIES="${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" \
   -e MSIME_REQUIRE_OFFICIAL_PLUGINS="${MSIME_REQUIRE_OFFICIAL_PLUGINS:-0}" \
+  -e MSIME_REQUIRE_WORDBOOKS="${MSIME_REQUIRE_WORDBOOKS:-0}" \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
@@ -131,6 +133,11 @@ docker run --rm --init \
       echo "MSIME_REQUIRE_OFFICIAL_PLUGINS=1 but target/plugin-packs holds no official plugin packs; run scripts/build-official-plugins.sh first" >&2
       exit 1
     fi
+    # 背单词的内置词书（scripts/fetch_wordbooks.py），每个版本都装，装在 share/<client>/wordbooks；MSIME_REQUIRE_WORDBOOKS=1 时 CMake 在缺了锁文件列出的任何一本时失败。
+    wordbooks_args=(-DMSIME_REQUIRE_WORDBOOKS="$([ "$MSIME_REQUIRE_WORDBOOKS" = 1 ] && echo ON || echo OFF)")
+    if [ -d target/wordbooks ]; then
+      wordbooks_args+=(-DMSIME_WORDBOOKS=/source/target/wordbooks)
+    fi
     # The Cantonese, Zhuyin and Stroke dictionaries from scripts/fetch_language_dictionaries.py, each installed with its licence text; without them the package offers those schemes as unavailable. MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails the package instead.
     languages_args=(-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES="$([ "$MSIME_REQUIRE_LANGUAGE_DICTIONARIES" = 1 ] && echo ON || echo OFF)")
     if [ -d target/language-dictionaries ]; then
@@ -164,7 +171,7 @@ docker run --rm --init \
         -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
         -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \
         -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF \
-        "${desktop_args[@]}" "${glosses_args[@]}" "${plugin_packs_args[@]}" "${edition_languages_args[@]}"
+        "${desktop_args[@]}" "${glosses_args[@]}" "${plugin_packs_args[@]}" "${edition_languages_args[@]}" "${wordbooks_args[@]}"
       cmake --build "$build"
       if [ "$testing" = ON ]; then
         ctest --test-dir "$build" --output-on-failure

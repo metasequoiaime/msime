@@ -1,0 +1,106 @@
+# 内置皮肤「秋桂」的出厂清单：皮肤级的开关与完整外观都在这里，输入法按它绘制候选框与悬浮工具栏。
+# 安装或升级时整份覆盖，不建议直接修改；想要自己的样式，复制一份到 skins\<新 id>\ 做成外部皮肤
+# （写 base = "autumn_osmanthus"，只写想改的键）。基于 autumn_osmanthus 的外部皮肤没写的键沿用这里的值。
+# 字段说明见 skins/README.md。
+schema_version = 1
+id = "autumn_osmanthus"
+name = "秋桂 Autumn osmanthus"
+description = "灰蓝底色与桂花色圆角高亮"
+
+[candidate_window]
+# 候选框里的翻页箭头（默认关闭）：横排在候选右侧、贴着最后一行，竖排在最后一行下方、与序号左对齐
+page_arrows = false
+# 候选框严格按文字所需的宽度收紧（默认关闭）：不垫出厂最小宽度，同一输入里也不只增不减
+fit_content = false
+# 横排候选用卷轴展开代替翻页（默认关闭）
+expand_panel = false
+
+corner_radius_dip = 10
+border_width_dip = 0
+# 高亮块内缩在卡片里：普通角 6，贴着卡片四角的那几个角与卡片同为 10。
+item_corner_radius_dip = 6
+item_corners_follow_card = true
+padding = 5
+item_gap = 2
+item_extra_height = 2
+number_inset = 5
+item_padding_right = 0
+number_scale = 0.8
+number_gap = 1.5
+selected_bar_width = 3
+selected_bar_height_em = 0.85
+selected_bar_inside = false
+justify_rows = false
+trim_hidden_preedit_gap = false
+page_arrow_style = "chevron"
+preedit_margin_dip = [0, 0, 0, 0]
+
+[candidate.dark]
+surface = "#7D929F"
+border = "transparent"
+text = "#F5F8FA"
+number = "#E1E8EC"
+accent = "#F97D0A"
+selected = "#F97D0A"
+hover = "rgba(249, 125, 10, 0.30)"
+show_selected_bar = false
+selected_text = "#FFFFFF"
+selected_number = "#FFFFFF"
+# 单词 Notion Yellow、词性 Notion Orange；选中行橙底上单词换半透明白、词性换 Notion Brown。
+translation = "#FFDC49"
+translation_pos = "#FFA34480"
+translation_separator = "#FFDC4973"
+selected_translation = "rgba(255, 255, 255, 0.8)"
+selected_translation_pos = "rgba(100, 71, 58, 0.85)"
+selected_translation_separator = "rgba(255, 255, 255, 0.3608)"
+
+[candidate.dark.menu]
+background = "#6F8491"
+border = "#8CA0AC"
+text = "#F5F8FA"
+hover = "#637885"
+
+[candidate.light]
+surface = "#D6ECF0"
+border = "transparent"
+text = "#1F3138"
+number = "#5B727B"
+accent = "#E6A817"
+selected = "#FFE399"
+hover = "rgba(255, 227, 153, 0.55)"
+show_selected_bar = false
+selected_text = "#1A1A1A"
+selected_number = "#1A1A1A"
+# 单词 Notion Orange、词性 Notion Red，选中行的淡黄高亮上单词换 Notion Brown。
+translation = "#D9730D"
+translation_pos = "#E03E3E80"
+translation_separator = "#D9730D73"
+selected_translation = "#64473A"
+selected_translation_pos = "#E03E3E80"
+selected_translation_separator = "#64473A73"
+
+[candidate.light.menu]
+background = "#E8F5F7"
+border = "#BCD8DE"
+text = "#1F3138"
+hover = "#D2E8EC"
+
+[toolbar]
+corner_radius_dip = 10
+icon_corner_radius_dip = 6
+
+[toolbar.dark]
+background = "#7D929F"
+border = "#8FA3AF"
+icon = "#FFFFFF"
+hover = "rgba(249, 125, 10, 0.28)"
+divider = "rgba(255, 255, 255, 0.15)"
+handle = "#F97D0A"
+
+[toolbar.light]
+background = "#D6ECF0"
+border = "#BCD8DE"
+icon = "#1A1A1A"
+hover = "rgba(255, 227, 153, 0.70)"
+divider = "rgba(0, 0, 0, 0.12)"
+handle = "#E6A817"

@@ -5,6 +5,7 @@
  *
  * 共享层把颜色写成 `#RRGGBB` 或 `#RRGGBBAA`，alpha 在最后。ArkUI 把八位颜色读作 `#AARRGGBB`，所以每个颜色在解析结果时转换一次，下游看不到共享层的顺序。
  */
+import { CandidateLayoutPolicy, CandidateResolvedLayout } from "../candidate/CandidateSkinPolicy";
 import { CustomSkinDocument } from "./CustomKeyboardSkin";
 
 export interface CandidateThemePalette {
@@ -57,6 +58,7 @@ export interface ResolvedTheme {
   readonly keyboard: KeyboardThemePalette | null;
   /** The external package whose colours were drawn. The single signal for its decoration and minimum width. */
   readonly candidate_skin: string | null;
+  readonly candidate_layout?: CandidateResolvedLayout | null;
 }
 
 export interface CustomCandidateColors {
@@ -403,6 +405,7 @@ export class GlobalTheme {
       candidate: GlobalTheme.candidatePalette(field(value, "candidate")),
       keyboard: GlobalTheme.keyboardPalette(field(value, "keyboard")),
       candidate_skin: text(value, "candidate_skin"),
+      candidate_layout: CandidateLayoutPolicy.parse(field(value, "candidate_layout")),
     };
   }
 

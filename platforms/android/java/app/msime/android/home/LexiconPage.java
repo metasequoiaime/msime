@@ -37,7 +37,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 词库页：已安装（内置拼音词库加各个命名词库，操作收在标题右侧的管理菜单），发现词库（社区里的前几个，末尾「浏览更多词库」进社区词库的完整列表），学习组「记忆新词」，以及只在 Tauri 合包里出现的「更多」组（背单词、云词库，P21）。
+ * 词库页：已安装（内置拼音词库加各个命名词库，操作收在标题右侧的管理菜单），发现词库（社区里的前几个，末尾「浏览更多词库」进社区词库的完整列表），学习组「记忆新词」和「背单词」（原生页 {@link VocabularyReviewPage}），以及只在 Tauri 合包里出现的「更多」组（云词库，P21）。
  *
  * <p>新建、导入、导出和刷新是低频管理操作，放进「已安装」标题右侧的菜单，不在词库列表下面占四行高度；大标题和其他详情页一样只放标题。
  *
@@ -194,10 +194,11 @@ public final class LexiconPage extends ReloadingDetailPage {
         GroupCard learning = GroupCard.add(sectionColumn(target, "学习"), "学习");
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
+        learning.nav(PageId.VOCABULARY_REVIEW.title(), "用内置词书或自己的词表复习英文单词", null,
+            () -> SettingsNavigator.open(context, PageId.VOCABULARY_REVIEW, null));
 
         if (ManagementUi.available()) {
             GroupCard more = GroupCard.add(sectionColumn(target, "已安装"), "更多");
-            more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
         }
     }
@@ -442,14 +443,6 @@ public final class LexiconPage extends ReloadingDetailPage {
     }
 
     // ---- 只在 Tauri 合包里有用的入口（P21），跳转写法与原 KeyboardFragment / AccountFragment 一致 ----
-
-    private void openVocabularyReview() {
-        if (!ManagementUi.available()) {
-            MsToast.show(requireContext(), "背单词需要管理界面合包，请使用 Tauri 合包打开。");
-            return;
-        }
-        startActivity(ManagementUi.settingsPage(requireContext(), "vocabulary"));
-    }
 
     private void openCloudDictionary() {
         if (!ManagementUi.available()) {

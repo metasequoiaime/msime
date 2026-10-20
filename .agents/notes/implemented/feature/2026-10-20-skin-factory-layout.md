@@ -1,0 +1,55 @@
+# Agent Note: 共享皮肤布局继承 Windows 出厂清单
+
+Status: implemented
+
+## Problem
+
+共享扫描器保留皮肤声明的布局，却未补齐 `msime-windows` 基底的出厂几何。`canvas` 未声明内边距与高亮圆角时，Linux 画成 12 DIP 和直角，来源为 5 DIP 和 4 DIP；`microsoft` 与 `willow_green` 的排列默认也丢失。直接在 `SkinSummary.geometry` 补值会污染编辑器的“未声明”语义，且简单合并两张排列表会让基底的排列默认压过皮肤的公共声明。
+
+## Decision
+
+固定 `msime-windows` 默认分支 `develop@a60e2948dbba29f32bec58ee4bf44d68ce953a0b`，内嵌八份出厂清单，由共享解析器生成可选的 `resolvedLayout`。只对 Windows 外观基底与 `canvas` 提供，保留其余主题的宿主默认。每种排列依次叠加出厂公共、出厂排列、皮肤公共、皮肤排列；em 留到宿主按实际字号换算，显式零值与 `false` 照常覆盖。原始字段继续服务编辑器，绘制路径选用解析结果。Windows 与 Linux 的 catalog 消费者直接接入该结果；Android、iOS 和 HarmonyOS 通过共享主题响应的可选 `candidate_layout` 接入，网页 SDK 接受 catalog 原样携带的 `resolvedLayout`。只有实际绘制当前排列与明暗的包才输出该字段，旧主题响应不增加空字段，用户配置保持现有优先级。
+
+## 宿主映射
+
+`ThemePackage` 从扫描结果与 host catalog 保留 `ResolvedSkinLayout`，主题解析负责确认实际绘制的包，各宿主只在原生长度单位与实际候选字号之间换算。移动端沿用固定横排、键盘高度和触控入口；桌面窗口的布局开关不用于删除手机的展开入口。网页端没有桌面卷轴展开面板，内置皮肤 ID 继续使用原有默认几何，调用方传共享 catalog 时才消费合并版式。
+
+| 消费者 | 本次接入的绘制字段 | 平台适配 |
+| --- | --- | --- |
+| Android 原生候选条 | 候选圆角、候选最小宽度、右内边距、额外行内边距（上下各至多 4dp）、横排间距及紧凑开关 | 使用真实候选字号换算 em；仅布局更新也失效样式缓存；触屏不显示桌面序号与分页箭头 |
+| iOS 原生候选条与展开网格 | 候选圆角、描边、内边距、横排间距、候选最小宽度、选中条宽高与内外位置 | 额外垂直内边距受固定触屏栏空间限制；展开网格保持原生列数和点击面积 |
+| HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
+| 网页候选栏 | 卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开 |
+
+该表只描述本次接入的字段。`shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未在这四条路径完成与 Windows 的同等消费；不能因为读模型携带这些字段就声称已实现。macOS 由独立 PR 接入，不能将那一分支未合并的结果算成本分支的运行证据。
+
+## 历史审计
+
+- [清单对齐](../../implemented/feature/2026-10-19-windows-skin-schema-parity.md)：部分重叠，继续持有字段校验和基底识别，本篇补出厂继承。
+- [Windows 布局字段](../../implemented/feature/2026-10-19-windows-candidate-skin-layout-keys.md)：部分重叠，继续持有实际绘制与用户偏好优先级。
+- [Linux 布局](../../implemented/feature/2026-10-20-linux-canvas-layout.md)：部分重叠，继续持有测量、绘制与命中，本篇替换未声明字段的缺省来源。
+- [Linux 外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)：部分重叠，继续持有高亮、竖条和细分颜色。
+
+## Alternatives considered
+
+- 所有平台原样照搬桌面尺寸与结构开关：最容易逐字段一致，但会改变触屏固定键盘高度、隐藏必需的展开入口；按平台映射适用几何，未消费字段明确列出，未来增加桌面形态时重新评估。
+- 各宿主各补一张默认表：接入工作小，也不用扩展共享 JSON；但外观与排列默认在六个宿主间继续漂移，因此共用固定清单。
+- 直接填满原始字段：旧宿主无需改动就能继承；但编辑器会把基底默认误作皮肤声明，且无法表达四层覆盖顺序，因此单独提供绘制结果。
+- 只提取几何片段：更省字节，但升级时需要人工重制清单；保留来源原文件使固定提交逐字核对成为可能。暂不使用其中的颜色和工具栏字段，避免改变现有颜色回退契约。
+
+## Consequences
+
+一份固定出厂清单统一基底默认和覆盖顺序，后续宿主可直接接入；代价是增加静态清单体积与 JSON 布局输出，升级来源时要核对八份原文件。增加的 JSON 字段需要绘制宿主主动接入，宿主也需要维护各自的边界读取和原生单位转换。触屏适配保留原生交互，但无法保证与 Windows 截图逐像素一致；各字段的消费范围见上表。Linux 列表内翻页已进入共同基线，其 `pageArrows`、`expandPanel` 与 `fitContent` 同样读取共享解析结果，避免两套缺省来源；旧 catalog 仍从原字段读取。长文本组合行为仍需基于共同基线验收。
+
+共享测试覆盖八种基底、横竖排默认、四层覆盖、em 延迟换算、显式零值与关闭开关、原始声明不变和普通主题不继承。Windows 布局测试覆盖新输出与旧 catalog；Linux 原生测试检查合并结果进入测量，GTK 六组横竖排、2 倍缩放与合成器验收检查出厂圆角和显式零值热切换。验证结果随本次提交记录，不把编译或单测当作 Windows 真机目测。
+
+## Testing
+
+- `cargo test -p msime-client-services --locked`：1254 项单测通过、1 项忽略，另有 4 项集成测试通过；clippy 通过。新增测试覆盖只给实际绘制的包输出布局、em、零值、false 与 host catalog 往返。
+- `node --test packages/web-engine/test/*.test.mjs` 和 `candidates.browser.mjs`：38 项单测及 Chrome 浏览器检查通过，包括实际 computed style、方向切换和清除旧变量。
+- iOS 专用模拟器运行 `CandidatePaletteTests` 与 `CandidateCanvasTests`：32 项中 31 项通过、1 项因未暂存固定上游皮肤跳过；使用 ad-hoc 签名，覆盖真实控制器的既有 canvas 回归与新增长度解析。
+- Android API 28 与 API 35 专用模拟器：`CandidateCanvasDeviceSmoke`、`CandidateSkinDeviceSmoke` 通过；新布局字段通过本分支 JNI 与实际解码路径，现有皮肤用例检查真实候选绘制及点击。
+- HarmonyOS 纯逻辑套件、原生 release 库和 ArkTS HAP 构建通过；独立合成测试包同时断言原生共享主题返回的 em 与零值。模拟器浅色、深色、浅色坏图、深色坏图四阶段均通过，检查真实输入、面板和挂件动画/回退、候选点击上屏、隐藏再显示。触屏路径新增的最小宽度、间距与零圆角的真实几何断言也在四阶段通过。首次验收暴露的编辑连接时序由测试在输入前明确收起再聚焦并等待连接日志解决，不以字母节点出现代替连接就绪。
+- HarmonyOS 翻译契约检查跟随新的布局策略入口，仍检查不显示译文时用候选原文计算宽度；不再要求已被替换的旧函数调用字面量。
+
+补充的 API 35 核心冒烟在笔画数字键盘用例失败：本次瘦包明确省略可选笔画词库，已核对 APK 不含该数据，而用例仍要求笔画键面；未把完整核心冒烟记为通过。皮肤与画布专项在最终 APK 上已分别重跑通过。

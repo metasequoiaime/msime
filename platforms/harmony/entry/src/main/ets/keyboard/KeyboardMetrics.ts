@@ -112,6 +112,7 @@ export class KeyboardMetrics {
     glossRows: number = 0,
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
+    itemGapVp: number = 0,
   ): number {
     const rows: number =
       layout === "vertical" ? KeyboardMetrics.visibleCandidateRows(candidateCount) : 1;
@@ -121,6 +122,7 @@ export class KeyboardMetrics {
       decoration +
       (showPreedit ? KeyboardMetrics.compositionRowHeightVp(preeditFontSize) : 0) +
       KeyboardMetrics.candidateRowHeightVp(candidateFontSize, true) * rows +
+      Math.max(0, rows - 1) * itemGapVp +
       (layout === "vertical" ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize)) +
       KeyboardMetrics.CANDIDATE_CARD_PADDING_VP * 2 +
       KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2

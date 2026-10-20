@@ -17,7 +17,7 @@ import java.nio.file.StandardOpenOption;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 首次安装时解包词库并准备配置。已有配置只经共享刷新跟上安装包：可选的离线释义、辅助码表与语言词库随安装包替换；安装包换了词库版本时，把 APK 里的词库重新解包到同一个资源目录，再由刷新准备新代次。 */
+/** 首次安装时解包词库并准备配置。已有配置只经共享刷新跟上安装包：可选的离线释义、辅助码表、语言词库与背单词内置词书随安装包替换；安装包换了词库版本时，把 APK 里的词库重新解包到同一个资源目录，再由刷新准备新代次。 */
 public final class Bootstrap {
     private Bootstrap() {}
     public static boolean prepare(Context context) throws Exception {
@@ -30,6 +30,7 @@ public final class Bootstrap {
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
             installSoundPacks(context, HostOptionsPolicy.soundPacksDirectory(root));
+            installWordbooks(context, new File(root, "bootstrap/wordbooks"));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
             // 必须在刷新和 extractDictionary 之前：extractDictionary 会把新安装包的锁里没有的文件移出资源目录，老用户已解压的日文词典要先收编。
@@ -200,6 +201,38 @@ public final class Bootstrap {
         } catch (Exception error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Language dictionary extraction failed", error);
+        }
+    }
+
+    /**
+     * 背单词的八本内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成）和它们的许可声明，解到 `bootstrap/wordbooks`，与 `bootstrap/resources` 同级：设置页把 `bootstrap` 作为资源根交给共享层，共享层在它下面的 `wordbooks/` 里找 `<id>.json`（`builtin::directory`）。
+     *
+     * <p>与语言词库同样的规则：不属于校验过的词库，跟着安装包走；安装包变了就经同级的暂存目录整体替换，不再带词书的安装包会把旧的一并去掉。词书不是按需资源包，没有收编这一步。失败时背单词只列用户导入的词表，键盘和词库准备都不受影响。
+     */
+    private static void installWordbooks(Context context, File destination) {
+        try {
+            String stamp = Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+            File marker = new File(destination, ".package");
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
+            File staging = new File(destination.getParentFile(), "wordbooks.staging");
+            ensureSafeDirectory(destination.getParentFile().toPath());
+            deleteTree(staging);
+            ensureSafeDirectory(staging.toPath());
+            String[] names = context.getAssets().list("wordbooks");
+            for (String name : names == null ? new String[0] : names) {
+                requireAssetName(name);
+                try (InputStream input = context.getAssets().open("wordbooks/" + name)) {
+                    copyAsset(input, new File(staging, name).toPath());
+                }
+            }
+            writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            deleteTree(destination);
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception error) {
+            // 只记失败的类别，不带异常消息：消息里可能有应用私有目录的路径。
+            android.util.Log.w("MSIMEBootstrap", "Wordbook extraction failed: " + error.getClass().getSimpleName());
         }
     }
 

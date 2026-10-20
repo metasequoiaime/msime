@@ -54,9 +54,29 @@ jobs:
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
       MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
+      # Rust 编译缓存（sccache）存进 GitHub Actions 缓存：托管 runner 没有 Depot Cache。RUSTC_WRAPPER 不在这里设，由下面的「Enable sccache」在 sccache 确实起来之后才写进 GITHUB_ENV。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中 sccache 服务出错时 rustc 退回本机直接编，不让缓存故障弄坏发版。
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      # 服务默认空闲 600 秒就退出，而六个版本打包时十几分钟不编 Rust；退出后最后的统计步骤会起一个计数为零的新服务（第一次验证运行 39288415598 就这样显示 0 次请求）。runner 用完即弃，让它一直活到 job 结束。
+      SCCACHE_IDLE_TIMEOUT: '0'
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
+      # 缓存只为加速，装不上或起不来都不该让发版失败：安装步骤失败时继续，只有 sccache 服务真正启动了才把 RUSTC_WRAPPER 写进环境，否则照常不带缓存编译。读写缓存出错时 sccache 按未命中处理，照样编译。
+      # 缓存的可见范围由 GitHub 决定：在 main 上的发布读 main 和默认分支 develop 写的条目，PR 写的条目它看不到，所以 PR 里的改动污染不到发布用的缓存。条目的键是 rustc 的全部输入（编译器版本、参数、源文件和依赖产物的哈希），命中时拿到的就是同样输入编出的同一份产物。
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         name: Resolve independent macOS version
@@ -128,6 +148,9 @@ jobs:
       # The same goes for target/character-glosses, target/word-glosses and target/pronunciations: without them single characters and long-tail words have no English gloss, English glosses no IPA, and sentence candidates no word-by-word breakdown.
       - name: Fetch the locked English gloss tables
         run: python3 scripts/fetch_gloss_tables.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 暂存、package-release.sh 放进设置应用；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # Fetches the pinned dictionaries, builds the Release host library, the input method bundle and the Tauri settings app that embeds both, signs them (Developer ID when the secrets are present, ad-hoc otherwise), checks the embedded resources and signatures inside the mounted DMG, notarizes when the Apple ID secrets are present, and writes SHA256SUMS.
       # 包里只带核心词库；日文词典、粤拼/注音词库和手写模型由 App 首次用到时下载。package-release.sh 在编译之前先用 App 的同一个安装器把三个资源包装一遍，地址失效或哈希不符就在这里失败，不会发出一个补不齐数据的包。
       # package-release.sh 按这两个 target 各编一次 Rust 产物再合并；rust-toolchain.toml 只固定编译器版本，不带这两个标准库。
@@ -142,11 +165,19 @@ jobs:
         env:
           VERSION: "${{ steps.version.outputs.value }}"
           MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'
+          MSIME_REQUIRE_WORDBOOKS: '1'
           APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
           APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
           APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
           MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_ED_PRIVATE_KEY }}"
         run: bash platforms/macos/package-release.sh --editions "$MACOS_EDITIONS" "$VERSION" dist
+      # 命中率写进摘要，方便看缓存是否真的起作用；只是统计，失败不影响发版。
+      - name: Show sccache statistics
+        if: ${{ always() && env.RUSTC_WRAPPER == 'sccache' }}
+        continue-on-error: true
+        run: |
+          sccache --show-stats
+          { echo '### sccache'; echo; echo '```'; sccache --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
         run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
@@ -157,28 +188,32 @@ jobs:
           shopt -s nullglob
           dmgs=(dist/*.dmg)
           IFS=, read -r -a editions <<< "$MACOS_EDITIONS"
-          # 每个版本恰好一个 DMG，名字是该版本的 dmg_prefix 加版本号；full 仍是 msime-macos-VERSION-universal.dmg。
+          # 每个版本恰好一个 DMG，名字是该版本的 dmg_prefix 加版本号；full 仍是 msime-macos-VERSION-universal.dmg。版本发布页上只放这些 DMG 和只列它们的 SHA256SUMS。
           [[ ${#dmgs[@]} -eq ${#editions[@]} ]]
+          [[ -f dist/SHA256SUMS ]]
+          [[ "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq ${#editions[@]} ]]
           for edition in "${editions[@]}"; do
             prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
             [[ -f "dist/${prefix}-${VERSION}-universal.dmg" ]]
             grep -q " ${prefix}-${VERSION}-universal.dmg\$" dist/SHA256SUMS
           done
-          [[ -f dist/SHA256SUMS ]]
-          # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它作为发布资产长期保留，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
+          # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它长期保留在 macos-symbols release 上，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
           [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
-          grep -q " msime-macos-${VERSION}-dsym.zip\$" dist/SHA256SUMS
-          # 有 Sparkle 私钥时，每个版本分别提供输入法和完整设置应用的归档与 appcast；必须全部存在。
+          # 有 Sparkle 私钥时，每个版本分别提供输入法和完整设置应用的归档与 appcast，必须全部存在；归档的摘要在 sparkle-SHA256SUMS 里，不在 SHA256SUMS 里。
           appcasts=(dist/appcast-*.xml)
           if [[ ${#appcasts[@]} -gt 0 ]]; then
             [[ ${#appcasts[@]} -eq $((${#editions[@]} * 2)) ]]
+            [[ "$(wc -l < dist/sparkle-SHA256SUMS | tr -d ' ')" -eq $((${#editions[@]} * 2)) ]]
             for edition in "${editions[@]}"; do
               prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
               [[ -f "dist/appcast-${edition}.xml" && -f "dist/${prefix}-${VERSION}-input-method.zip" ]]
-              grep -q " ${prefix}-${VERSION}-input-method.zip\$" dist/SHA256SUMS
+              grep -q " ${prefix}-${VERSION}-input-method.zip\$" dist/sparkle-SHA256SUMS
               [[ -f "dist/appcast-settings-${edition}.xml" && -f "dist/${prefix}-${VERSION}-settings.zip" ]]
-              grep -q " ${prefix}-${VERSION}-settings.zip\$" dist/SHA256SUMS
+              grep -q " ${prefix}-${VERSION}-settings.zip\$" dist/sparkle-SHA256SUMS
             done
+            python3 platforms/macos/scripts/sparkle_feed.py verify --archives dist \
+              --url-prefix https://github.com/metasequoiaime/msime/releases/download/macos-appcast/ "${appcasts[@]}"
+            (cd dist && shasum -a 256 -c sparkle-SHA256SUMS)
           fi
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
@@ -201,10 +236,20 @@ jobs:
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
           stable='^macos-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
-          python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          shopt -s nullglob
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/*-input-method.zip dist/*-settings.zip "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
-      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，分别写进各自的 SUFeedURL。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户。appcast 指向刚发布的 macos-vVERSION 里的更新 zip，所以先确认它们已经在那个 release 上；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
+          python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
+          # 发布说明开头是从版本表生成的下载指引：六个 DMG 各是什么、大多数人该下哪个。Homebrew 只在 main 的正式版之后更新，其他发布不列 brew 命令。
+          homebrew=(); [[ "$PRERELEASE" != true && "$GITHUB_REF_NAME" == main ]] && homebrew=(--homebrew)
+          python3 platforms/macos/scripts/edition_bundle.py download-guide --editions "$MACOS_EDITIONS" --version "$VERSION" \
+            --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${homebrew[@]+"${homebrew[@]}"} > release-notes.md
+          { echo; cat changes.md; } >> release-notes.md
+          # 版本发布页只放给用户下载的 DMG 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）；重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/SHA256SUMS
+      # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
+      - name: Upload the dSYM to macos-symbols
+        if: ${{ inputs.publish }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}"}
+        run: bash platforms/macos/scripts/publish-dsym.sh "dist/msime-macos-${VERSION}-dsym.zip" "msime-macos-${RELEASE}-dsym.zip"
+      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，分别写进各自的 SUFeedURL；它们指向的更新 zip 也放在那里，不进版本发布页。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户，它们的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，最后删掉不再被任何 appcast 指向的旧 zip；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
       - name: Update the Sparkle appcasts
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}"}
@@ -216,28 +261,7 @@ jobs:
             echo "::warning::SPARKLE_ED_PRIVATE_KEY is not set; the input methods in this release have no Sparkle feed and the appcasts were left as they were"
             exit 0
           fi
-          published="$(gh release view "macos-v${VERSION}" --json assets --jq '.assets[].name')"
-          for zip in dist/*-input-method.zip dist/*-settings.zip; do
-            grep -qxF "$(basename "$zip")" <<< "$published"
-          done
-          if ! gh release view macos-appcast >/dev/null 2>&1; then
-            gh release create macos-appcast --prerelease --latest=false --target "$(git rev-parse HEAD)" --title "macOS Sparkle appcasts" \
-              --notes "macOS 输入法与完整设置应用的 Sparkle 更新通道：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml，由 main 上的正式发布更新，归档放在对应 macos-v 发布中。"
-          fi
-          mkdir -p "$RUNNER_TEMP/appcast-current"
-          gh release download macos-appcast --pattern 'appcast-*.xml' --dir "$RUNNER_TEMP/appcast-current" --clobber || true
-          for appcast in "${appcasts[@]}"; do
-            current="$RUNNER_TEMP/appcast-current/$(basename "$appcast")"
-            new_build="$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' "$appcast" | head -1)"
-            [[ -n "$new_build" ]]
-            old_build=""
-            if [[ -f "$current" ]]; then old_build="$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' "$current" | head -1)"; fi
-            if [[ -n "$old_build" && "$old_build" -gt "$new_build" ]]; then
-              echo "::error::$(basename "$appcast") already offers build $old_build, newer than $new_build"
-              exit 1
-            fi
-          done
-          gh release upload macos-appcast "${appcasts[@]}" --clobber
+          bash platforms/macos/scripts/publish-sparkle-feed.sh dist "$VERSION"
       # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
@@ -257,7 +281,13 @@ jobs:
             prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
             cask="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" cask)"
             dmg="dist/${prefix}-${VERSION}-universal.dmg"
-            if ! xcrun stapler validate "$dmg"; then
+            # staple-ticket.sh --validate 核对 DMG 里装订的票据，与装订用同一个断线重试窗口：0.54.0（run 39267138324）这里直接调 stapler validate，碰上 CloudKit 断线（Error 68）就把 full 版当成未公证，msime cask 停在上一版而 job 照样成功。重试用完返回 75，与真正没有公证分开提示。
+            validate_status=0
+            bash platforms/macos/scripts/staple-ticket.sh --validate "$dmg" || validate_status=$?
+            if [[ "$validate_status" -eq 75 ]]; then
+              echo "::warning::Apple's ticket service kept dropping the connection while validating $dmg; the $cask cask was left at its previous version and has to be updated by hand"
+              continue
+            elif [[ "$validate_status" -ne 0 ]]; then
               echo "::warning::$dmg is not notarized; the $cask cask was left at its previous version"
               continue
             fi

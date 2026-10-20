@@ -51,6 +51,15 @@ import {
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
 import { PluginSymbolGroupPolicy } from "../entry/src/main/ets/keyboard/emoji/PluginSymbolGroupPolicy";
+import {
+  MASCOT_STICKER_MAX_COUNT,
+  MASCOT_STICKER_PANEL,
+  MascotSticker,
+  MascotStickerFailure,
+  MascotStickerPolicy,
+  PASTEBOARD_BUSY_CODE,
+  PASTEBOARD_PROHIBITED_CODE,
+} from "../entry/src/main/ets/keyboard/emoji/MascotStickerPolicy";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
@@ -10294,6 +10303,119 @@ group("recent emoji are most-recent first, deduplicated and bounded", () => {
   check(
     JSON.parse(EmojiCatalogModel.serializeRecents(["b", "a", "b"]))[0] === "b",
     "serialization writes the normalized newest-first list",
+  );
+});
+
+group("水杉娘表情包的清单逐条校验，有一条不合格就整份不用", () => {
+  const bundled = MascotStickerPolicy.parse(
+    require("fs").readFileSync(`${__dirname}/../../../resources/stickers/shuishan/manifest.json`, "utf8"),
+  );
+  check(bundled.length === 66, "随包的清单读出 66 张");
+  check(
+    bundled[0].file === "01.webp" && bundled[0].name === "开心",
+    "按清单顺序，第一张是 01 开心（底栏缩略图用它）",
+  );
+  const entry = (file: unknown, name: unknown): string => JSON.stringify({ file: file, name: name });
+  const manifest = (...entries: string[]): string => `{"name":"水杉娘","stickers":[${entries.join(",")}]}`;
+  const parsed: MascotSticker[] = MascotStickerPolicy.parse(manifest(entry("02.webp", "  大笑 "), entry("01.webp", "开心")));
+  check(
+    parsed.map((sticker: MascotSticker): string => `${sticker.file}:${sticker.name}`).join(",") ===
+      "02.webp:大笑,01.webp:开心",
+    "保留清单顺序，名字去掉首尾空白",
+  );
+  for (const file of ["1.webp", "001.webp", "01.png", "../01.webp", "01.webp/", "ab.webp", "01.WEBP", 1]) {
+    check(MascotStickerPolicy.parse(manifest(entry("01.webp", "开心"), entry(file, "大笑"))).length === 0,
+      `文件名 ${String(file)} 不是两位数字加 .webp，整份不用`);
+  }
+  check(
+    MascotStickerPolicy.parse(manifest(entry("01.webp", "开心"), entry("01.webp", "大笑"))).length === 0,
+    "重复的文件名整份不用",
+  );
+  for (const name of ["", "   ", "一二三四五六七八九十一二三四五六七", 7, null]) {
+    check(MascotStickerPolicy.parse(manifest(entry("01.webp", name))).length === 0,
+      `名字 ${String(name)} 为空、过长或不是字符串，整份不用`);
+  }
+  check(
+    MascotStickerPolicy.parse(manifest(entry("01.webp", "一二三四五六七八九十一二三四五六"))).length === 1,
+    "名字恰好 16 个字符仍可用",
+  );
+  const tooMany: string[] = [];
+  for (let index = 0; index <= MASCOT_STICKER_MAX_COUNT; index++) {
+    tooMany.push(entry(`${String(index % 100).padStart(2, "0")}.webp`, `第${index}张`));
+  }
+  check(MascotStickerPolicy.parse(manifest(...tooMany)).length === 0, "条目超过上限整份不用");
+  check(MascotStickerPolicy.parse(manifest()).length === 0, "没有条目就没有这一页");
+  for (const document of [null, "", "not json", "[]", '{"stickers":{}}', '{"stickers":[null]}']) {
+    check(MascotStickerPolicy.parse(document).length === 0, `形状不对的清单 ${String(document)} 读作空`);
+  }
+  check(
+    MascotStickerPolicy.parse(manifest(entry("01.webp", "开心")) + " ".repeat(64 * 1024)).length === 0,
+    "超过 64KB 的清单不解析",
+  );
+});
+
+group("水杉娘贴纸网格：竖屏一行五个正方形格子，更宽时按每格约 72vp 加列", () => {
+  check(MascotStickerPolicy.columns(360) === 5, "360vp 的竖屏手机一行五个");
+  check(MascotStickerPolicy.columns(411) === 5, "411vp 仍是五个");
+  check(MascotStickerPolicy.columns(300) === 5, "再窄也至少五列");
+  check(MascotStickerPolicy.columns(432) === 6, "432vp 放得下六格约 72vp 的格子");
+  check(MascotStickerPolicy.columns(704) === 9, "704vp 的横屏或平板九列");
+  check(MascotStickerPolicy.columns(0) === 5 && MascotStickerPolicy.columns(Number.NaN) === 5,
+    "宽度还没量出来时按五列");
+  check(MascotStickerPolicy.cellSideVp(356, 5, 2) === 69, "边长是扣掉列间距后的平分宽度");
+  check(MascotStickerPolicy.cellSideVp(0, 5, 2) === 0, "没有宽度就没有格子");
+  check(MascotStickerPolicy.decodeSideVp(69) === 61, "解码边长扣掉四周 4vp 留白");
+  check(MascotStickerPolicy.decodeSideVp(0) === 1, "解码边长至少 1vp");
+});
+
+group("水杉娘排在表情面板的第一个页签，打开面板默认停在它", () => {
+  const byId = (panel: string): string => panel;
+  const phone: string[] = ["emoji", "kaomoji", "symbols", MASCOT_STICKER_PANEL];
+  const desktop: string[] = phone.concat(["clipboard"]);
+  check(
+    MascotStickerPolicy.tabOrder(phone, byId, true).join(",") === `${MASCOT_STICKER_PANEL},emoji,kaomoji,symbols`,
+    "读得到表情包时「水杉娘」挪到最前，其余保持原来的顺序（触屏底栏上它因此排在 🕘 和表情分类之前）",
+  );
+  check(
+    MascotStickerPolicy.tabOrder(desktop, byId, true).join(",") ===
+      `${MASCOT_STICKER_PANEL},emoji,kaomoji,symbols,clipboard`,
+    "2in1 的标签行同样是「水杉娘」第一，「剪贴板」仍在最后",
+  );
+  check(
+    MascotStickerPolicy.tabOrder(desktop, byId, false).join(",") === "emoji,kaomoji,symbols,clipboard",
+    "读不到表情包时去掉「水杉娘」，退回原来的顺序",
+  );
+  check(MascotStickerPolicy.tabOrder(phone, byId, true).length === phone.length, "排序不增删页签");
+  check(MascotStickerPolicy.openingPanel("kaomoji", true) === MASCOT_STICKER_PANEL, "读得到表情包时打开就是「水杉娘」");
+  check(MascotStickerPolicy.openingPanel("kaomoji", false) === "kaomoji", "读不到表情包时照旧回到原来那一页");
+});
+
+group("水杉娘贴纸的读屏文字与复制提示", () => {
+  const happy: MascotSticker = { file: "01.webp", name: "开心" };
+  check(MascotStickerPolicy.accessibilityText(happy) === "水杉娘 开心", "每格读作「水杉娘 开心」");
+  check(MascotStickerPolicy.tabAccessibilityText(false) === "水杉娘表情包", "页签读作「水杉娘表情包」");
+  check(MascotStickerPolicy.tabAccessibilityText(true) === "水杉娘表情包，已选中", "选中时加「已选中」");
+  check(
+    MascotStickerPolicy.copiedNotice(happy) === "已复制水杉娘「开心」，长按输入框粘贴发送",
+    "复制成功的提示与 iOS 同一句",
+  );
+  check(
+    MascotStickerPolicy.clipboardFailure(PASTEBOARD_BUSY_CODE) === MascotStickerFailure.CLIPBOARD_BUSY &&
+      MascotStickerPolicy.clipboardFailure(PASTEBOARD_PROHIBITED_CODE) === MascotStickerFailure.CLIPBOARD_PROHIBITED &&
+      MascotStickerPolicy.clipboardFailure(401) === MascotStickerFailure.CLIPBOARD_FAILED &&
+      MascotStickerPolicy.clipboardFailure(undefined) === MascotStickerFailure.CLIPBOARD_FAILED,
+    "剪贴板的错误码归到对应的失败，不认识的算写入失败",
+  );
+  const notices: string[] = [
+    MascotStickerFailure.IMAGE_UNREADABLE,
+    MascotStickerFailure.CLIPBOARD_BUSY,
+    MascotStickerFailure.CLIPBOARD_PROHIBITED,
+    MascotStickerFailure.CLIPBOARD_FAILED,
+  ].map((failure: MascotStickerFailure): string => MascotStickerPolicy.failureNotice(failure));
+  check(new Set(notices).size === notices.length, "每种失败各有一句提示");
+  check(
+    notices.every((notice: string): boolean => notice.startsWith("表情包复制失败")),
+    "失败提示都以「表情包复制失败」开头",
   );
 });
 

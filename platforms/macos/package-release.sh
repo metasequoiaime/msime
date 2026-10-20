@@ -14,12 +14,13 @@
 # Usage: platforms/macos/package-release.sh [--editions ID[,ID...]] [VERSION] [OUT_DIR]
 #   --editions 是版本表 shared/contracts/editions.json 里的版本 id，缺省只打 full，产物与引入版本之前相同。几个版本共用一次编译：输入法、msime-mcp 和设置应用的可执行文件都只编一遍，每个版本只重新暂存自己的资源、用 platforms/macos/scripts/edition_bundle.py 把输入法 bundle 改成该版本的身份、按该版本的 identifier 和 productName 打一个设置应用，再各出一个 DMG。多个版本可以同时安装，彼此完全隔离。
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
-#   OUT_DIR defaults to target/macos-package/dist and receives one <dmg_prefix>-VERSION-universal.dmg per edition (full: msime-macos-VERSION-universal.dmg) and SHA256SUMS.
-#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它作为发布资产上传。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
+#   OUT_DIR 缺省是 target/macos-package/dist，每个版本在里面得到一个 <dmg_prefix>-VERSION-universal.dmg（full 是 msime-macos-VERSION-universal.dmg），另有只列这些 DMG 的 SHA256SUMS：版本发布页上只放它们。
+#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它传到滚动的 macos-symbols release，不放进版本发布页。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
 #   MSIME_REQUIRE_OFFICIAL_PLUGINS 1 refuses to package without the official plugin packs in target/plugin-packs (scripts/build-official-plugins.sh builds them; release-macos.yml sets it); otherwise the bundle carries them when they are there
+#   MSIME_REQUIRE_WORDBOOKS       1 时 target/wordbooks 里没有锁文件 resources/wordbook.lock.json 列出的全部内置词书和 wordbooks-NOTICE.txt 就不打包（python3 scripts/fetch_wordbooks.py 生成它们；release-macos.yml 和 ci-macos-package.yml 设它）；不设时有就带上，没有时背单词只列用户导入的词表
 #   CARGO_TARGET_DIR              defaults to target/ in the repository
 #   MSIME_MACOS_BUILD_DIR         CMake build tree; defaults to target/macos-release
 #   MACOS_SIGNING_IDENTITY        a "Developer ID Application: ... (TEAMID)" identity in the keychain. Without it everything is signed ad-hoc: the package builds and the settings app runs, but macOS will not register the embedded input method as an input source (see scripts/install.sh)
@@ -27,7 +28,7 @@
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
 #   MSIME_SPARKLE_PRIVATE_KEY     与 platforms/macos/sparkle-public-key.txt 对应的 base64 EdDSA 私钥（generate_keys -x 导出的 32 字节种子或旧版 96 字节格式）。同时具备私钥和签名身份时，每个发行版本生成输入法与完整设置应用的签名归档和独立 appcast；缺少时不配置更新通道，保留下载页入口
 #   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
-#   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX where the update zips are served; defaults to the macos-vVERSION release
+#   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX 更新包的下载地址前缀，缺省也是 macos-appcast release：更新包和 appcast 放在一起，不进版本发布页（见 platforms/macos/scripts/publish-sparkle-feed.sh）
 #
 # 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
 set -Eeuo pipefail
@@ -69,7 +70,7 @@ if [ -n "$sparkle_key" ] && [ -z "$identity" ]; then
 fi
 if [ -n "$sparkle_key" ]; then
   sparkle_appcast_base="${MSIME_SPARKLE_APPCAST_BASE_URL:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
-  sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-v$version/}"
+  sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
   # 私钥与仓库里的公钥对不上时，发出去的每个更新包都会被 Sparkle 当作签名无效拒绝，而发版本身照常成功；所以在编译之前从私钥推出公钥比一遍。macOS 自带的 LibreSSL 不支持 Ed25519，用 Homebrew 的 OpenSSL 3。
   # Sparkle 认两种私钥（common_cli/Secret.swift）：generate_keys 现在导出的 32 字节种子，公钥由它推出；以前的 96 字节格式是 64 字节私钥接 32 字节公钥。
   case "$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | wc -c | tr -d '[:space:]')" in
@@ -98,22 +99,74 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 按 rust_targets 各编一次（其余参数原样传给 cargo build），再把每个 target 的同名产物用 lipo 合并到第一个参数指定的路径。
+# 用法：cargo_universal 输出目录 产物名... -- cargo build 参数...。按 rust_targets 各编一次（`--` 之后的参数原样传给 cargo build），再把每个 target 的各个同名产物用 lipo 合并到输出目录。一次调用编几个包时，它们共用的依赖按同一组 feature 只编一遍。
 cargo_universal() {
-  local output="$1" name="$2" target slices=()
-  shift 2
+  local output_dir="$1" target name names=() slices
+  shift
+  while [ "$1" != -- ]; do
+    names+=("$1")
+    shift
+  done
+  shift
   for target in "${rust_targets[@]}"; do
     cargo build --release --locked --target "$target" "$@"
-    slices+=("$CARGO_TARGET_DIR/$target/release/$name")
   done
-  mkdir -p "$(dirname "$output")"
-  lipo -create "${slices[@]}" -output "$output"
+  mkdir -p "$output_dir"
+  for name in "${names[@]}"; do
+    slices=()
+    for target in "${rust_targets[@]}"; do
+      slices+=("$CARGO_TARGET_DIR/$target/release/$name")
+    done
+    lipo -create "${slices[@]}" -output "$output_dir/$name"
+  done
 }
 universal_dir="$CARGO_TARGET_DIR/universal/release"
 
 if [ -z "$identity" ]; then
   echo "warning: MACOS_SIGNING_IDENTITY is not set; signing ad-hoc. The settings app will run, but macOS will not register the embedded input method as an input source until it is re-signed with a Developer ID (platforms/macos/scripts/install.sh)." >&2
 fi
+# 有签名身份和三项公证凭据时公证并装订每个 DMG。
+notarize=""
+if [ -n "$identity" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+  notarize=1
+fi
+
+# 公证分两步：每个版本的 DMG 一做好就提交（notary_submit，不等结果），接着打下一个版本；全部版本提交之后再逐个取结果（notary_result）。Apple 处理一份要一到两分钟，以前 `submit --wait` 让六个版本依次各等一遍。两个函数都不回显命令行，免得把公证密码打进日志。
+notary_ids=()
+# 从 notarytool 的 --output-format json 输出里取一个字段。整段不是 JSON 时（前面夹着别的提示行）取最后一行 JSON。
+notary_field() {
+  python3 -c '
+import json, sys
+text = sys.stdin.read()
+try:
+    data = json.loads(text)
+except ValueError:
+    data = json.loads([line for line in text.splitlines() if line.lstrip().startswith("{")][-1])
+print(data[sys.argv[1]])
+' "$1"
+}
+notary_submit() {
+  local output id
+  output="$(xcrun notarytool submit "$1" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --output-format json)"
+  id="$(notary_field id <<< "$output")"
+  echo "notarization submitted: $(basename "$1") id=$id"
+  notary_ids+=("$id")
+}
+# 打印一个提交的最终状态（Accepted、Invalid 或 Rejected）。`notarytool wait` 因网络中断提前返回时还拿不到最终状态，这时隔 15 秒再等，最多五轮；状态以 `notarytool info` 为准，不看 wait 的退出码。
+notary_result() {
+  local id="$1" attempt status=""
+  for attempt in 1 2 3 4 5; do
+    xcrun notarytool wait "$id" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" >&2 || true
+    status="$(xcrun notarytool info "$id" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --output-format json \
+      | notary_field status)" || status=""
+    case "$status" in
+      Accepted | Invalid | Rejected) break ;;
+    esac
+    echo "notarization $id has no final status yet (${status:-unknown}); waiting again ($attempt/5)" >&2
+    sleep 15
+  done
+  printf '%s\n' "${status:-unknown}"
+}
 
 # 带安全时间戳的 codesign。时间戳要现场向 Apple 的时间戳服务器取，服务器偶尔会回 "The timestamp service is not available."，这时重试即可，不能让一次抖动白白废掉整次发版（2026-10-05 的 Release macOS 就是在 wubi 版签名时这样失败的）。其他错误不是抖动，原样失败。
 codesign_timestamped() {
@@ -215,8 +268,10 @@ fi
 
 # ---- Input method bundle ----
 # The minimum system version goes to the C/C++ compilers and to CMake separately, never as MACOSX_DEPLOYMENT_TARGET: rustc applies that to host proc-macro dylibs too, which then fail to load (README.md, 构建与本地测试).
-CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$universal_dir/libmsime_host_api.a" libmsime_host_api.a -p msime-host-api
+# host 库和 msime-mcp 在同一次 cargo 调用里编：分开编时两次的 feature 集合不同（msime-mcp 多开了 tokio 的 io-std 和 macros、futures-util 的 async-await 和 channel、tracing 的 attributes 等），engine、client-core、host-api 和半数第三方依赖每个 target 要编两遍。合在一起后 msime-mcp 的 feature 集合与单独编时完全相同，host 库只多出这几项纯增量的 API，行为不变。设置应用（msime-desktop）不并进来：它会给 objc2 打开 exception、给 serde_json 打开 unbounded_depth，这些会改变 host 库和 msime-mcp 的行为。
+# The same compiler flags for both: msime-mcp links the Engine through msime-host-api. Nothing in the app starts msime-mcp; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio. MSIME_VERSION 是 msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs），与这个包的版本相同；host-api 不读它。
+MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
@@ -225,7 +280,8 @@ cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREF
   -DMSIME_BUNDLE_VOICE_RUNTIME="$([ "$omit_voice_runtime" = 1 ] && echo OFF || echo ON)" \
   -DMSIME_REQUIRE_OFFICIAL_PLUGINS="$([ "${MSIME_REQUIRE_OFFICIAL_PLUGINS:-}" = 1 ] && echo ON || echo OFF)"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
-cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
+# 只编包里要的目标：输入法 bundle（连同它依赖的 Swift 后端、msime-voice-local 和语音运行库）和下面 ctest 要跑的 backend-library-load-test。CMakeLists.txt 里另有上百个测试可执行文件和 Swift 测试，发布包一个都不用，全编要多花约 10 分钟；CI 和本地开发照常不带 --target 全编、跑完整 ctest。
+cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)" --target MSIMEClientInputMethod backend-library-load-test
 # `backend-library-load` 加载 bundle 里的 MSIMEBackend.dylib（Release 构建会对它做优化、dead strip 和剥离符号，见 scripts/build_backend_swift.sh），确认输入法按名字查找的 Objective-C 类和 selector 都还在。
 ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^(bundle-contents|backend-library-load)$'
 
@@ -248,11 +304,17 @@ if [ "$omit_voice_runtime" != 1 ]; then
 fi
 
 # ---- MCP server ----
-# The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
-# MSIME_VERSION 是 msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs），与这个包的版本相同。
-MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
+# 已随 host 库编好（见上面的 cargo_universal）。
 strip_executable "$universal_dir/msime-mcp"
+
+# 背单词的内置词书：要求带上时在编译之前就查，缺了不白编一遍。stage-resources.sh 把它们暂存到 target/macos/wordbooks，下面拷进设置应用的 Contents/Resources/wordbooks，即 EngineResources 的同级，设置应用按 resource_dir 读这里。
+wordbook_ids="$(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' resources/wordbook.lock.json)"
+if [ "${MSIME_REQUIRE_WORDBOOKS:-}" = 1 ]; then
+  for id in $wordbook_ids; do
+    test -f "target/wordbooks/$id.json" || { echo "MSIME_REQUIRE_WORDBOOKS is set but target/wordbooks/$id.json is missing; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
+  done
+  test -f target/wordbooks/wordbooks-NOTICE.txt || { echo "MSIME_REQUIRE_WORDBOOKS is set but target/wordbooks/wordbooks-NOTICE.txt is missing; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
+fi
 
 # tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.
 MSIME_EDITION=full MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
@@ -270,7 +332,7 @@ pnpm --filter @msime/desktop build
   unset MACOSX_DEPLOYMENT_TARGET
   TAURI_CONFIG="{\"version\":\"$version\"}" \
     CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-    cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+    cargo_universal "$CARGO_TARGET_DIR/release" msime-desktop -- -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 )
 strip_executable "$CARGO_TARGET_DIR/release/msime-desktop"
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
@@ -278,9 +340,9 @@ tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 glosses="$repo_root/target/macos/offline-glosses"
 
 mkdir -p "$out_dir"
-rm -f "$out_dir/SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip "$out_dir"/*-settings.zip
+rm -f "$out_dir/SHA256SUMS" "$out_dir/sparkle-SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip "$out_dir"/*-settings.zip
 dmgs=()
-# 更新 zip 随 DMG 一起挂在 macos-vVERSION 上并写进 SHA256SUMS；appcast 挂在滚动的 macos-appcast 上，不写进去。
+# 更新 zip 和 appcast 都挂在滚动的 macos-appcast 上，不进版本发布页；zip 的摘要写进单独的 sparkle-SHA256SUMS，随它们一起上传。
 update_zips=()
 
 # 同一种签名与校验流程分别生成输入法和完整设置应用的更新归档。
@@ -305,16 +367,21 @@ create_sparkle_update() {
   update_zips+=("$update_zip")
 }
 
-# 打一个版本：暂存该版本的资源和输入法 bundle，打设置应用，出 DMG 并在挂载后的 DMG 里再检查一遍。下面这些变量对当前版本有效，check_app 也读它们。
+# 一个版本的身份与内容开关。package_edition 和 finish_edition 都先调用它，check_app 读的版本变量都在这里设，两处不会各算一套。
+load_edition() {
+  edition="$1"
+  bundle_name="$(python3 "$edition_tool" field --edition "$edition" bundle_name)"
+  bundle_id="$(python3 "$edition_tool" field --edition "$edition" input_method_bundle_id)"
+  display_name="$(python3 "$edition_tool" field --edition "$edition" display_name.zh-Hans)"
+  dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
+  # 非英文离线释义按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带：stage-resources.sh 不暂存，check_app 再确认包里没有。
+  offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)"
+  wubi_bundled="$(python3 -I -c 'import json, sys; print(int(next(edition["default_scheme"] for edition in json.load(open(sys.argv[1]))["editions"] if edition["id"] == sys.argv[2]) == "wubi"))' "$repo_root/shared/contracts/editions.json" "$edition")"
+}
+
+# 打一个版本：暂存该版本的资源和输入法 bundle，打设置应用，出 DMG、签名并提交公证；挂载 DMG 的最终检查在全部版本装订之后（finish_edition）。下面这些变量对当前版本有效，check_app 也读它们。
 package_edition() {
-edition="$1"
-bundle_name="$(python3 "$edition_tool" field --edition "$edition" bundle_name)"
-bundle_id="$(python3 "$edition_tool" field --edition "$edition" input_method_bundle_id)"
-display_name="$(python3 "$edition_tool" field --edition "$edition" display_name.zh-Hans)"
-dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
-# 非英文离线释义按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带：stage-resources.sh 不暂存，check_app 再确认包里没有。
-offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)"
-wubi_bundled="$(python3 -I -c 'import json, sys; print(int(next(edition["default_scheme"] for edition in json.load(open(sys.argv[1]))["editions"] if edition["id"] == sys.argv[2]) == "wubi"))' "$repo_root/shared/contracts/editions.json" "$edition")"
+load_edition "$1"
 echo "packaging edition $edition: $bundle_name ($bundle_id)"
 
 # ---- Core dictionaries for this edition ----
@@ -329,6 +396,14 @@ ditto "$built_bundle" "target/macos/$bundle_name"
 staged_bundle="$(only target/macos/*.app)"
 # 编出来的是 full 的 bundle；不是 full 的版本换上该版本的 Info.plist、InfoPlist.strings 和可执行文件名，签名在这之后。full 什么也不改。
 python3 "$edition_tool" apply --edition "$edition" "$staged_bundle"
+# 英文释义表也随独立的 InputMethodKit bundle 安装。旧配置可能仍使用较早的 EngineResources，
+# InputController 会把这个 bundle 的 Resources 作为补充词库只读回退。
+for table in character-glosses word-glosses; do
+  source="$repo_root/target/macos/$table"
+  if [ -d "$source" ]; then
+    ditto "$source" "$staged_bundle/Contents/Resources/$table"
+  fi
+done
 # --deep, as scripts/install.sh does: Sparkle arrives signed by its publisher, and under the hardened runtime a process cannot load a library whose Team ID differs from its own. The entitlements carry microphone access for voice input.
 if [ -n "$identity" ]; then
   codesign_timestamped --force --deep --options runtime --entitlements "$entitlements" --sign "$identity" "$staged_bundle"
@@ -404,6 +479,11 @@ words="$repo_root/target/macos/word-glosses"
 if [ -d "$words" ]; then
   ditto "$words" "$app/Contents/Resources/word-glosses"
 fi
+# 背单词的内置词书（scripts/fetch_wordbooks.py），设置应用在 EngineResources 的同级读 wordbooks/。
+wordbooks="$repo_root/target/macos/wordbooks"
+if [ -d "$wordbooks" ]; then
+  ditto "$wordbooks" "$app/Contents/Resources/wordbooks"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -460,11 +540,23 @@ check_app() {
   if [ -d "$characters" ]; then
     test -f "$resources_dir/character-glosses/character-glosses-NOTICE.txt"
   fi
+  if [ "${MSIME_REQUIRE_WORDBOOKS:-}" = 1 ] || [ -d "$wordbooks" ]; then
+    for id in $wordbook_ids; do
+      test -f "$resources_dir/wordbooks/$id.json"
+    done
+    test -f "$resources_dir/wordbooks/wordbooks-NOTICE.txt"
+  fi
   if [ -d "$words" ]; then
     test -f "$resources_dir/word-glosses/word-glosses-NOTICE.txt"
   fi
   local nested
   nested="$(only "$resources_dir"/*.app)"
+  if [ -d "$characters" ]; then
+    test -f "$nested/Contents/Resources/character-glosses/character-glosses-NOTICE.txt"
+  fi
+  if [ -d "$words" ]; then
+    test -f "$nested/Contents/Resources/word-glosses/word-glosses-NOTICE.txt"
+  fi
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"
   # 版本声明：full 的包不带，其他版本的声明必须是本版本。
   if [ "$edition" = full ]; then
@@ -558,48 +650,101 @@ if [ -n "$identity" ]; then
   codesign --verify --strict "$dmg"
 fi
 
-if [ -n "$identity" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
-  xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-  bash "$repo_root/platforms/macos/scripts/staple-ticket.sh" "$dmg"
-  spctl -a -t open --context context:primary-signature -v "$dmg"
+if [ -n "$notarize" ]; then
+  notary_submit "$dmg"
 else
   echo "warning: not notarized; Gatekeeper will quarantine the downloaded app until the user opens it with right-click Open" >&2
 fi
 
-mount_point="$work/mount"
-mkdir -p "$mount_point"
-hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount_point" "$dmg"
-check_app "$(only "$mount_point"/*.app)"
-test -L "$mount_point/Applications"
-test -f "$mount_point/安装说明.txt"
-hdiutil detach -quiet "$mount_point"
-mount_point=""
-
-# 体积报告：DMG 本身和 App 的 Contents/Resources。在 GitHub Actions 里同时写进这一步的摘要，方便逐次对比。
-# /usr/bin/stat, not whatever is first on PATH: a GNU coreutils stat reads -f as --file-system and fails, after the package is already built.
-dmg_bytes="$(/usr/bin/stat -f %z "$dmg")"
-resources_kib="$(du -sk "$app/Contents/Resources" | cut -f1)"
-echo "DMG size: $dmg_bytes bytes; Contents/Resources: $resources_kib KiB"
-if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  printf '### macOS package size\n\n- %s: %s bytes\n- Contents/Resources: %s KiB\n' "$(basename "$dmg")" "$dmg_bytes" "$resources_kib" >> "$GITHUB_STEP_SUMMARY"
-fi
-# 完整应用也已随 DMG 完成签名与公证，再生成供设置应用直接安装的归档。
+# 体积报告里 App 的 Contents/Resources 在这里量：下一个版本打包前会清掉 Tauri 的 bundle 目录。DMG 本身的大小要等装订之后（finish_edition）。
+resources_kibs+=("$(du -sk "$app/Contents/Resources" | cut -f1)")
+# 供设置应用直接安装的归档取的是这个已签名的应用本身。公证票据不装订进应用，所以不必等公证结果，内容与等到之后再打相同；任何一个版本公证失败整个打包都失败，归档不会单独发出去。
 if [ -n "$sparkle_key" ]; then
   create_sparkle_update "$app" "$dmg_prefix-$version-settings.zip" "appcast-settings-$edition.xml"
 fi
 dmgs+=("$dmg")
 }
 
+# 装订之后对一个版本做最终检查：Gatekeeper 评估、挂载 DMG 后再跑一遍 check_app，再报告体积。参数是版本在 editions 里的下标。
+finish_edition() {
+  load_edition "${editions[$1]}"
+  dmg="${dmgs[$1]}"
+  # check_app 拿设置应用的构建号和公钥跟输入法比对。这个版本暂存在 target/macos 的输入法已被后面的版本清掉，改用它 DMG 暂存目录里那份 ditto 出来的同一个 bundle。
+  staged_bundle="$(only "$work/dmg-$edition"/*.app/Contents/Resources/*.app)"
+  if [ -n "$notarize" ]; then
+    spctl -a -t open --context context:primary-signature -v "$dmg"
+  fi
+
+  mount_point="$work/mount"
+  mkdir -p "$mount_point"
+  hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount_point" "$dmg"
+  check_app "$(only "$mount_point"/*.app)"
+  test -L "$mount_point/Applications"
+  test -f "$mount_point/安装说明.txt"
+  hdiutil detach -quiet "$mount_point"
+  mount_point=""
+
+  # 体积报告：DMG 本身和 App 的 Contents/Resources。在 GitHub Actions 里同时写进这一步的摘要，方便逐次对比。
+  # /usr/bin/stat, not whatever is first on PATH: a GNU coreutils stat reads -f as --file-system and fails, after the package is already built.
+  local dmg_bytes resources_kib="${resources_kibs[$1]}"
+  dmg_bytes="$(/usr/bin/stat -f %z "$dmg")"
+  echo "DMG size ($edition): $dmg_bytes bytes; Contents/Resources: $resources_kib KiB"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### macOS package size\n\n- %s: %s bytes\n- Contents/Resources: %s KiB\n' "$(basename "$dmg")" "$dmg_bytes" "$resources_kib" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+resources_kibs=()
 for edition in "${editions[@]}"; do
   package_edition "$edition"
 done
 
-# 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 随 DMG 一起作为发布资产上传并写进 SHA256SUMS，用来符号化这个版本的崩溃报告。
+# ---- 公证结果与装订 ----
+# 全部版本都已提交，先提交的多半已经处理完。任何一个没有通过时，先把每个版本的结果和失败提交的公证日志都打出来，再让打包失败。
+if [ -n "$notarize" ]; then
+  notary_failed=0
+  for index in "${!editions[@]}"; do
+    edition="${editions[$index]}"
+    notary_status="$(notary_result "${notary_ids[$index]}")"
+    echo "notarization $edition (${notary_ids[$index]}): $notary_status"
+    if [ "$notary_status" != Accepted ]; then
+      notary_failed=1
+      xcrun notarytool log "${notary_ids[$index]}" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" >&2 || true
+    fi
+  done
+  if [ "$notary_failed" -ne 0 ]; then
+    echo "notarization failed for at least one edition; see the notarytool log above" >&2
+    exit 1
+  fi
+  # 全部公证通过之后才逐个装订，不同时向 CloudKit 取几份票据。staple-ticket.sh 已对票据下载断线重试过；某个版本仍然失败时先装订其余版本，过一分钟再给失败的补一轮，已经编好、公证过的其他版本不因一个版本的票据下载断线而作废。补一轮仍失败才让打包失败。
+  staple_failed=()
+  for dmg in "${dmgs[@]}"; do
+    if ! bash "$repo_root/platforms/macos/scripts/staple-ticket.sh" "$dmg"; then
+      staple_failed+=("$dmg")
+    fi
+  done
+  if [ "${#staple_failed[@]}" -gt 0 ]; then
+    echo "stapling failed for ${#staple_failed[@]} DMG(s); retrying them once more in 60s" >&2
+    sleep 60
+    for dmg in "${staple_failed[@]}"; do
+      bash "$repo_root/platforms/macos/scripts/staple-ticket.sh" "$dmg"
+    done
+  fi
+fi
+
+for index in "${!editions[@]}"; do
+  finish_edition "$index"
+done
+
+# 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 长期留在 macos-symbols release 上，用来符号化这个版本的崩溃报告；它不进 SHA256SUMS，上传时以 GitHub 记录的摘要核对。
 dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
 rm -f "$dsym_zip"
 ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
 
-(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" "${dsym_zip##*/}" ${update_zips[@]+"${update_zips[@]##*/}"} > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+if [ ${#update_zips[@]} -gt 0 ]; then
+  (cd "$out_dir" && shasum -a 256 -- "${update_zips[@]##*/}" > sparkle-SHA256SUMS && shasum -a 256 -c sparkle-SHA256SUMS)
+fi
 for dmg in "${dmgs[@]}"; do
   echo "macOS package: $dmg"
 done

@@ -6,6 +6,8 @@ import UIKit
 ///
 /// Search swaps the category bar for a letter pad of the picker's own. A keyboard extension has no text field it can type into, and the Engine matches Emoji and kaomoji by pinyin and English keywords, both of which are letters, so the pad types the query and the grid above it shows the matches. While searching, the category bar's place holds two scopes, 表情 and 颜文字, like the separate Emoji and kaomoji results of the Windows panel's search; the search opens on 颜文字 from the kaomoji tab and on 表情 from any other.
 ///
+/// 宿主给了 `onSticker` 时，水杉娘表情包是第一个分类，打开面板默认就显示它：正方形格子的图片网格，点一张交给宿主复制，不进最近使用，也不参与搜索。
+///
 /// 带标题栏时（默认）选择器盖住整个键盘：一行带返回、搜索和删除的标题，下面是分类栏和网格。不带标题栏时（`showsHeader: false`）选择器放在按键区里，即设计稿的表情面板：网格在上，底部是一条 ABC | 分类签 | ⌫ 的栏，搜索是第一个分类签。
 final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
   typealias PageLoader = @Sendable (
@@ -16,17 +18,30 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case recent
     case recentKaomoji
     case category(KeyboardEmojiCatalog.Category)
+    /// 水杉娘表情包，排在最前。
+    case stickers
 
     var title: String {
       switch self {
       case .recent: return "最近"
       case .recentKaomoji: return "最近颜文字"
       case .category(let category): return category.title
+      case .stickers: return KeyboardStickerCatalog.pack
       }
     }
   }
 
   private let onInsert: (String) -> Void
+  /// 点一张表情包；没有它时面板不显示表情包分类。
+  private let onSticker: ((KeyboardStickerCatalog.Sticker) -> Void)?
+  private let stickers: [KeyboardStickerCatalog.Sticker]
+  private let stickerQueue = DispatchQueue(label: "app.msime.ios.sticker-thumbnails", qos: .userInitiated)
+  /// 解码好的格子缩略图；一屏只看得到十几张，留几屏的量就够，不把 66 张全留在键盘扩展有限的内存里。
+  private let stickerThumbnails: NSCache<NSURL, UIImage> = {
+    let cache = NSCache<NSURL, UIImage>()
+    cache.countLimit = 32
+    return cache
+  }()
   private let onDelete: () -> Void
   private let onCatalogChange: (() -> Void)?
   private let loader: PageLoader
@@ -88,9 +103,13 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     onDelete: @escaping () -> Void,
     onClose: @escaping () -> Void,
     onABC: (() -> Void)? = nil,
-    onCatalogChange: (() -> Void)? = nil
+    onCatalogChange: (() -> Void)? = nil,
+    stickers: [KeyboardStickerCatalog.Sticker] = KeyboardStickerCatalog.bundled,
+    onSticker: ((KeyboardStickerCatalog.Sticker) -> Void)? = nil
   ) {
     self.onInsert = onInsert
+    self.onSticker = onSticker
+    self.stickers = onSticker == nil ? [] : stickers
     self.onDelete = onDelete
     self.onCatalogChange = onCatalogChange
     self.showsHeader = showsHeader
@@ -98,7 +117,8 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       try KeyboardEmojiCatalog.loadPage(
         resources: resources, category: category, offset: offset)
     }
-    availableTabs = (KeyboardEmojiRecents.stored.isEmpty ? [] : [.recent])
+    availableTabs = (onSticker == nil || stickers.isEmpty ? [] : [.stickers])
+      + (KeyboardEmojiRecents.stored.isEmpty ? [] : [.recent])
       + KeyboardEmojiCatalog.categories.map(Tab.category)
       + (KeyboardKaomojiRecents.stored.isEmpty ? [] : [.recentKaomoji])
       + [.category(KeyboardEmojiCatalog.kaomoji)]
@@ -125,6 +145,12 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       button.configuration = showsHeader ? Self.tabConfiguration(title: tab.title) : chipConfiguration(Self.chipGlyph(tab))
       button.accessibilityIdentifier = "emojiCategory-\(index)"
       button.accessibilityLabel = tab.title
+      if !showsHeader, tab == .stickers, let first = stickers.first {
+        // 分类签上画第一张（开心）的缩略图，保持原色，不随选中态着色。
+        button.configuration?.image = KeyboardStickerCatalog.thumbnail(
+          first, side: 26, scale: traitCollection.displayScale)?.withRenderingMode(.alwaysOriginal)
+        button.accessibilityLabel = "\(KeyboardStickerCatalog.pack)表情包"
+      }
       button.addAction(UIAction { [weak self] _ in self?.selectTab(index) },
                        for: .primaryActionTriggered)
       if !showsHeader {
@@ -146,6 +172,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     grid.backgroundColor = .clear
     grid.accessibilityIdentifier = "emojiGrid"
     grid.register(KeyboardEmojiCell.self, forCellWithReuseIdentifier: KeyboardEmojiCell.reuseIdentifier)
+    grid.register(KeyboardStickerCell.self, forCellWithReuseIdentifier: KeyboardStickerCell.reuseIdentifier)
     grid.disableEdgeEffects()
     grid.contentInsetAdjustmentBehavior = .never
     categoryPan.delegate = self
@@ -370,6 +397,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case .recent: return (nil, "clock")
     case .recentKaomoji: return (nil, "clock.arrow.circlepath")
     case .category(let category) where category.isKaomoji: return ("^_^", nil)
+    case .stickers: return (nil, nil)
     case .category(let category):
       return (categoryGlyphs[category.group] ?? String(category.title.prefix(1)), nil)
     }
@@ -408,14 +436,27 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     }
   }
 
+  private var showsStickers: Bool { currentTab == .stickers }
+  /// 网格里的格子数：表情包分类是全部表情包，其余是已读到的 Emoji 或颜文字。
+  private var gridCount: Int { showsStickers ? stickers.count : items.count }
+
   /// Columns for the kaomoji tab: as many 170-point columns as the width holds, and never fewer than two.
   static func kaomojiColumns(width: CGFloat) -> Int { max(2, Int(width / 170)) }
   /// Columns for emoji: the catalog's eight on a phone, and as many 56-point cells as a wider keyboard holds, so an iPad shows several rows instead of two rows of oversized cells.
   static func emojiColumns(width: CGFloat) -> Int { max(KeyboardEmojiCatalog.columns, Int(width / 56)) }
 
-  /// 网格：带标题栏时是正方形的 Emoji 格子；在按键区里是设计稿的 40pt 格子、2pt 间距。颜文字在两种情况下都是 44pt 一行。
+  /// 网格：带标题栏时是正方形的 Emoji 格子；在按键区里是设计稿的 40pt 格子、2pt 间距。颜文字在两种情况下都是 44pt 一行。表情包在两种情况下都是正方形格子，手机竖屏一行四个。
   private func makeLayout() -> UICollectionViewCompositionalLayout {
     UICollectionViewCompositionalLayout { [weak self] _, environment in
+      if self?.showsStickers == true {
+        let columns = KeyboardStickerCatalog.columns(width: environment.container.effectiveContentSize.width)
+        let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+          widthDimension: .fractionalWidth(1.0 / CGFloat(columns)), heightDimension: .fractionalHeight(1)))
+        let group = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(
+          widthDimension: .fractionalWidth(1), heightDimension: .fractionalWidth(1.0 / CGFloat(columns))),
+          subitems: [item])
+        return NSCollectionLayoutSection(group: group)
+      }
       let kaomoji = self?.showsKaomoji ?? false
       let columns = kaomoji
         ? Self.kaomojiColumns(width: environment.container.effectiveContentSize.width)
@@ -483,6 +524,9 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case .category:
       reloadCatalog()
       loadNextPage()
+    case .stickers:
+      complete = true
+      reloadCatalog()
     }
   }
 
@@ -550,6 +594,11 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private func updateStatus() {
+    if showsStickers {
+      status.text = "\(stickers.count) 个\(KeyboardStickerCatalog.pack)表情包 · 点一下复制"
+      updateStatusVisibility()
+      return
+    }
     let noun = showsKaomoji || (searchQuery != nil && searchesKaomoji) ? "颜文字" : "表情"
     if searchQuery?.isEmpty == true { status.text = "输入拼音或英文搜索\(noun)" }
     else if loading && items.isEmpty { status.text = searchQuery == nil ? "正在加载\(noun)…" : "正在搜索…" }
@@ -563,7 +612,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   /// 在按键区里状态叠在网格上，所以只在网格为空时显示；带标题栏时它单独占一行。
   private func updateStatusVisibility() {
     guard !showsHeader else { return }
-    status.isHidden = !items.isEmpty
+    status.isHidden = gridCount > 0
   }
 
   private func buildLetterPad() {
@@ -697,12 +746,20 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   func numberOfSections(in collectionView: UICollectionView) -> Int { 1 }
 
   func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-    items.count
+    gridCount
   }
 
   func collectionView(
     _ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath
   ) -> UICollectionViewCell {
+    if showsStickers {
+      let cell = collectionView.dequeueReusableCell(
+        withReuseIdentifier: KeyboardStickerCell.reuseIdentifier, for: indexPath)
+      if let cell = cell as? KeyboardStickerCell, stickers.indices.contains(indexPath.item) {
+        showSticker(stickers[indexPath.item], in: cell)
+      }
+      return cell
+    }
     let cell = collectionView.dequeueReusableCell(
       withReuseIdentifier: KeyboardEmojiCell.reuseIdentifier, for: indexPath)
     (cell as? KeyboardEmojiCell)?.show(items[indexPath.item], kaomoji: showsKaomoji, compact: !showsHeader)
@@ -710,11 +767,34 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+    if showsStickers {
+      collectionView.deselectItem(at: indexPath, animated: false)
+      guard stickers.indices.contains(indexPath.item) else { return }
+      onSticker?(stickers[indexPath.item])
+      return
+    }
     guard items.indices.contains(indexPath.item) else { return }
     collectionView.deselectItem(at: indexPath, animated: false)
     let emoji = items[indexPath.item].text
     if showsKaomoji { KeyboardKaomojiRecents.record(emoji) } else { KeyboardEmojiRecents.record(emoji) }
     onInsert(emoji)
+  }
+
+  /// 先用缓存里的缩略图；没有就在后台按格子大小解码，回来时格子若已被复用给别的表情包就不再设置。
+  private func showSticker(_ sticker: KeyboardStickerCatalog.Sticker, in cell: KeyboardStickerCell) {
+    cell.show(sticker, image: stickerThumbnails.object(forKey: sticker.url as NSURL))
+    guard cell.image == nil else { return }
+    let columns = KeyboardStickerCatalog.columns(width: grid.bounds.width)
+    let side = max(1, grid.bounds.width / CGFloat(columns) - 2 * KeyboardStickerCell.inset)
+    let scale = traitCollection.displayScale
+    stickerQueue.async { [weak self] in
+      let image = KeyboardStickerCatalog.thumbnail(sticker, side: side, scale: scale)
+      DispatchQueue.main.async { [weak self, weak cell] in
+        guard let image else { return }
+        self?.stickerThumbnails.setObject(image, forKey: sticker.url as NSURL)
+        if let cell, cell.sticker == sticker { cell.show(sticker, image: image) }
+      }
+    }
   }
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -775,5 +855,59 @@ private final class KeyboardEmojiCell: UICollectionViewCell {
     label.textColor = KeyboardTheme.current.keyForeground
     label.text = item.text
     accessibilityLabel = item.annotation.isEmpty ? item.text : "\(item.text)，\(item.annotation)"
+  }
+}
+
+/// 一张表情包：等比缩放居中，四周留 4pt；按下时与 Emoji 格子一样放大。
+private final class KeyboardStickerCell: UICollectionViewCell {
+  static let reuseIdentifier = "KeyboardStickerCell"
+  static let inset: CGFloat = 4
+  private let imageView = UIImageView()
+  private(set) var sticker: KeyboardStickerCatalog.Sticker?
+  var image: UIImage? { imageView.image }
+
+  override var isHighlighted: Bool {
+    didSet {
+      guard isHighlighted != oldValue else { return }
+      let scale: CGFloat = isHighlighted ? 1.12 : 1
+      guard !UIAccessibility.isReduceMotionEnabled, window != nil else {
+        imageView.transform = .identity
+        return
+      }
+      UIView.animate(withDuration: 0.08, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+        self.imageView.transform = CGAffineTransform(scaleX: scale, y: scale)
+      }
+    }
+  }
+
+  override func prepareForReuse() {
+    super.prepareForReuse()
+    imageView.transform = .identity
+    imageView.image = nil
+    sticker = nil
+  }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    imageView.contentMode = .scaleAspectFit
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    contentView.addSubview(imageView)
+    NSLayoutConstraint.activate([
+      imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.inset),
+      imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.inset),
+      imageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.inset),
+      imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.inset),
+    ])
+    isAccessibilityElement = true
+    accessibilityTraits = .button
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  func show(_ sticker: KeyboardStickerCatalog.Sticker, image: UIImage?) {
+    self.sticker = sticker
+    imageView.image = image
+    accessibilityLabel = "\(KeyboardStickerCatalog.pack) \(sticker.name)"
+    accessibilityHint = "复制到剪贴板"
   }
 }

@@ -93,14 +93,18 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         touch(down, MotionEvent.ACTION_DOWN, key.centerX(), key.centerY());
         try {
             SystemClock.sleep(600);
-            Bitmap held = capture(region);
+            Bitmap held = null;
+            int changed = 0;
+            long previewDeadline = SystemClock.uptimeMillis() + 1200;
+            do {
+                if (held != null) held.recycle();
+                held = capture(region);
+                changed = changedPixels(before, held);
+                if (changed >= 60 * getContext().getResources().getDisplayMetrics().density
+                        * getContext().getResources().getDisplayMetrics().density) break;
+                SystemClock.sleep(100);
+            } while (SystemClock.uptimeMillis() < previewDeadline);
             try {
-                int changed = 0;
-                for (int y = 0; y < held.getHeight(); y++) {
-                    for (int x = 0; x < held.getWidth(); x++) {
-                        if (held.getPixel(x, y) != before.getPixel(x, y)) changed++;
-                    }
-                }
                 float density = getContext().getResources().getDisplayMetrics().density;
                 try (FileOutputStream output = new FileOutputStream(new File(
                         getTargetContext().getFilesDir(), layout.contains("9")
@@ -124,6 +128,16 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(250);
         if (released <= 1 || length() != released)
             throw new AssertionError("Release or cancel cleared text or left repeat deletion running");
+    }
+
+    private int changedPixels(Bitmap before, Bitmap after) {
+        int changed = 0;
+        for (int y = 0; y < after.getHeight(); y++) {
+            for (int x = 0; x < after.getWidth(); x++) {
+                if (after.getPixel(x, y) != before.getPixel(x, y)) changed++;
+            }
+        }
+        return changed;
     }
 
     private void swipeAfterHold(String layout) {

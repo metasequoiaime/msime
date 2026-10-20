@@ -129,6 +129,26 @@ public final class CustomSkinLibrary {
         });
     }
 
+    /** 删除一个命名设计；没有这个 id 时不写库并返回 false。 */
+    public static boolean remove(Path preferencesDirectory, String id) throws IOException {
+        if (id == null || id.isEmpty()) return false;
+        Path root = checkedRoot(preferencesDirectory);
+        ensureSafeDirectory(root);
+        return locked(root, () -> {
+            List<Item> existing = read(root);
+            JSONArray values = new JSONArray();
+            boolean removed = false;
+            for (Item item : existing) {
+                if (item.id().equals(id)) {
+                    removed = true;
+                } else {
+                    values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
+                }
+            }
+            return removed && write(root, values);
+        });
+    }
+
     /**
      * 在锁里做一次「读 - 改 - 写」：`:ime` 装社区皮肤和主进程云同步导入可能同时改库，不加锁时后写的一方会用自己读到的旧库整份覆盖，悄悄丢掉对方刚加的设计。
      *

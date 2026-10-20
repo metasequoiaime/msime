@@ -285,7 +285,6 @@ void translation_appearance() {
   assert(inherited.second.at(0x9e9e9e) > 3);
 }
 
-
 void constrained_text_layout() {
   host::NativeCanvasAssets assets;
   host::NativeCanvasContent content;
@@ -385,7 +384,7 @@ void constrained_text_layout() {
   content.items = {{"1.", "M"}};
   assets = {};
   assert(host::measure_native_canvas(cr, assets, content, 30).width > 30);
-  // 换行后的拼音光标与辅助行共用测量宽度，翻页按钮保留独立空间。
+  // 换行后的拼音光标与辅助行共用测量宽度；翻页不再挤在辅助行末尾。
   content = {};
   content.font = "Sans 22px";
   content.preedit = std::string(60, 'M');
@@ -395,7 +394,7 @@ void constrained_text_layout() {
   const auto wrapped = host::measure_native_canvas(cr, assets, content, 240);
   assert(wrapped.width <= 240);
   assert(wrapped.preedit.height > 26 && wrapped.auxiliary.height > 26);
-  assert(wrapped.auxiliary.x + wrapped.auxiliary.width < wrapped.previous.x);
+  assert(wrapped.auxiliary.x + wrapped.auxiliary.width <= wrapped.panel.x + wrapped.panel.width);
   line = host::native_canvas_text_layout(cr, wrapped.metrics.font, content.preedit, wrapped.preedit_width);
   PangoRectangle strong{}, weak{};
   pango_layout_get_cursor_pos(line, content.preedit_cursor, &strong, &weak);
@@ -412,10 +411,114 @@ void constrained_text_layout() {
     if (color == 0x0000ff) { assert(wrapped.auxiliary.contains(x, y)); ++auxiliary_ink; }
   }
   assert(caret_ink > 20 && auxiliary_ink > 100);
+  // 横排翻页独占右列；折行与逐行均分后的候选都不能伸进翻页槽位。
+  content = {};
+  content.font = "Sans 22px";
+  content.horizontal = true;
+  content.next = true;
+  content.items = {{"1.", "MMMM"}, {"2.", "MMMM"}, {"3.", std::string(40, 'M')}};
+  assets.page_arrows = true;
+  assets.horizontal = {{"justifyRows", true}};
+  const auto paged = host::measure_native_canvas(cr, assets, content, 320);
+  assert(paged.pager.visible && paged.width <= 320);
+  assert(paged.items.back().y > paged.items.front().y);
+  for (const auto &box : paged.items) assert(box.x + box.width < paged.previous.x);
   cairo_destroy(cr);
 }
 
+void pager_layout() {
+  const Json palette = {{"surface", "#000000"}, {"text", "#FFFFFF"}, {"number", "#FFFFFF"},
+      {"hover", "#00FF00"}, {"selected", "#FF0000"}, {"page_arrow_divider", "#0000FF"}};
+  for (bool horizontal : {false, true}) for (bool triangle : {false, true}) {
+    host::NativeCanvasAssets assets;
+    assets.page_arrows = true;
+    assets.outer = {5, 7, 9, 11};
+    assets.item_radius = 3;
+    assets.geometry["pageArrowStyle"] = triangle ? "chevron" : "triangle";
+    (horizontal ? assets.horizontal : assets.vertical)["pageArrowStyle"] = triangle ? "triangle" : "chevron";
+    host::NativeCanvasContent content;
+    content.font = "Sans 20px";
+    content.horizontal = horizontal;
+    content.next = true;
+    content.preedit = "synthetic preedit";
+    content.auxiliary = "auxiliary information wider than candidate rows";
+    content.items = {{"1.", "alpha"}, {"2.", "beta\nsecond line"}};
+    const auto target = image(1000, 600, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    const auto &pager = layout.pager;
+    assert(pager.visible && pager.triangle == triangle);
+    assert(pager.button_width == (triangle ? horizontal ? 19 : 16 : 14));
+    assert(pager.button_height == (triangle ? horizontal ? 35 : 24 : 18));
+    assert(layout.previous.width == pager.button_width && layout.next.height == pager.button_height);
+    const auto center = [](const host::NativeCanvasRect &box) {
+      return std::make_pair(box.x + box.width / 2, box.y + box.height / 2);
+    };
+    const auto previous = center(layout.previous), next = center(layout.next);
+    assert(host::native_canvas_hit(content, layout, previous.first, previous.second) == -1);
+    assert(host::native_canvas_hit(content, layout, next.first, next.second) == -3);
+    assert(host::native_canvas_hit(content, layout, layout.next.x + layout.next.width, next.second) == -1);
+    for (const auto &box : layout.items) {
+      assert(!box.contains(previous.first, previous.second) && !box.contains(next.first, next.second));
+      if (horizontal) assert(box.x + box.width < layout.previous.x);
+      else assert(box.y + box.height < layout.previous.y);
+    }
+    assert(layout.auxiliary.y > layout.next.y + layout.next.height);
+    assert(layout.panel.contains(layout.previous.x, layout.previous.y));
+    assert(layout.panel.contains(layout.next.x + layout.next.width - 0.1, layout.next.y + layout.next.height - 0.1));
+    if (!horizontal) {
+      const double tip = layout.previous.x + (pager.button_width - pager.glyph_width()) / 2;
+      assert(std::abs(tip - layout.items.front().x - layout.metrics.number_inset) < 0.001);
+    }
+    host::paint_native_canvas(cr, assets, content, layout, palette, 0, {-3, -1});
+    assert((pixel(target.get(), layout.next.x + 2, layout.next.y + 2) & 0xffffff) == 0x00ff00);
+    assert((pixel(target.get(), layout.previous.x + 2, layout.previous.y + 2) & 0xffffff) == 0);
+    host::paint_native_canvas(cr, assets, content, layout, palette, 0, {-2, -3});
+    assert((pixel(target.get(), layout.next.x + 2, layout.next.y + 2) & 0xffffff) == 0xff0000);
+    assert((pixel(target.get(), layout.previous.x + 2, layout.previous.y + 2) & 0xffffff) == 0);
+    if (triangle && horizontal) {
+      assert(layout.page_divider.width == 1);
+      assert((pixel(target.get(), layout.page_divider.x, layout.page_divider.y + 2) & 0xffffff) == 0x0000ff);
+    } else assert(layout.page_divider.width == 0);
+    // 禁用字形仍存在；同一颜色按来源透明度衰减，不能把不可用箭头直接删掉。
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    int disabled_ink = 0, enabled_ink = 0;
+    for (int y = layout.previous.y; y < layout.previous.y + pager.button_height; ++y)
+      for (int x = layout.previous.x; x < layout.previous.x + pager.button_width; ++x) {
+        const auto value = pixel(target.get(), x, y) & 255;
+        disabled_ink += value > 0;
+        assert(value <= (triangle ? 64u : 77u));
+      }
+    for (int y = layout.next.y; y < layout.next.y + pager.button_height; ++y)
+      for (int x = layout.next.x; x < layout.next.x + pager.button_width; ++x)
+        enabled_ink += (pixel(target.get(), x, y) & 255) > 100;
+    assert(disabled_ink > 3 && enabled_ink > 3);
+    content.previous = true;
+    assert(host::native_canvas_hit(content, layout, previous.first, previous.second) == -2);
+    // 均分只分配候选区，不能把翻页槽位覆盖掉；没有辅助行也保留独立翻页区。
+    content.auxiliary.clear();
+    assets.min_width = 700;
+    assets.horizontal["justifyRows"] = true;
+    auto justified = host::measure_native_canvas(cr, assets, content);
+    if (horizontal) assert(justified.items.back().x + justified.items.back().width < justified.previous.x);
+    content.previous = content.next = false;
+    assert(host::measure_native_canvas(cr, assets, content).pager.visible);
+    assets.expand_panel = true;
+    assert(host::measure_native_canvas(cr, assets, content).pager.visible == !horizontal);
+    assets.expand_panel = false;
+    content.menu = true;
+    assert(!host::measure_native_canvas(cr, assets, content).pager.visible);
+    content.menu = false;
+    assets.page_arrows = false;
+    const auto hidden = host::measure_native_canvas(cr, assets, content);
+    assert(!hidden.pager.visible && hidden.previous.width == 0 && hidden.next.width == 0);
+    assert(host::native_canvas_hit(content, hidden, next.first, next.second) >= -1);
+    cairo_destroy(cr);
+  }
+}
+
 int main() {
+  pager_layout();
   skin_layout();
   skin_appearance();
   translation_appearance();
@@ -472,7 +575,45 @@ int main() {
   const auto cached = host::load_native_canvas(package, root, "fixture", true);
   assert(cached && cached->font_family == "monospace" && cached->min_width == 320);
   assert(cached->geometry == package["geometry"]);
+  assert(!cached->page_arrows);
+  package["pageArrows"] = true;
+  assert(host::load_native_canvas(package, root, "fixture", true)->page_arrows);
+  package["pageArrows"] = false;
+  assert(!host::load_native_canvas(package, root, "fixture", true)->page_arrows);
+  package["pageArrows"] = true;
+  package["expandPanel"] = true;
+  const auto expanding = host::load_native_canvas(package, root, "fixture", true);
+  assert(expanding->page_arrows && expanding->expand_panel);
   assert(cached && cached->panel_animation == cached->decorations[0].animation);
+  // 共享解析结果独立于编辑器声明；默认高亮圆角和两种排列的几何都进入真实测量。
+  package["resolvedLayout"] = {{"cornerRadiusDip", 0}, {"itemCornerRadiusDip", 4},
+      {"borderWidthDip", 0}, {"fitContent", false}, {"pageArrows", false}, {"expandPanel", false},
+      {"horizontal", {{"padding", {{"value", 5}, {"em", false}}},
+                      {"itemExtraHeight", {{"value", 2}, {"em", false}}}}},
+      {"vertical", {{"padding", {{"value", 7}, {"em", false}}},
+                    {"itemExtraHeight", {{"value", 2}, {"em", false}}}}}};
+  const auto inherited = host::load_native_canvas(package, root, "fixture", true);
+  assert(inherited && inherited->geometry.empty() && inherited->item_radius == 4);
+  // 排列默认与显式关闭都读取共享结果，不被编辑器原始声明反向覆盖。
+  assert(!inherited->page_arrows && !inherited->expand_panel && !inherited->fit_content);
+  package["resolvedLayout"]["pageArrows"] = true;
+  package["resolvedLayout"]["expandPanel"] = true;
+  package["resolvedLayout"]["fitContent"] = true;
+  package["pageArrows"] = false;
+  package["expandPanel"] = false;
+  const auto resolved_switches = host::load_native_canvas(package, root, "fixture", true);
+  assert(resolved_switches->page_arrows && resolved_switches->expand_panel && resolved_switches->fit_content);
+  const auto canvas = image(700, 700, 0);
+  auto *context = cairo_create(canvas.get());
+  host::NativeCanvasContent factory_content;
+  factory_content.font = "Sans 20px";
+  factory_content.items = {{"1. ", "synthetic"}};
+  auto metrics = host::measure_native_canvas(context, *inherited, factory_content);
+  assert(metrics.metrics.content[0] == 9 && metrics.metrics.item_radius == 4);
+  factory_content.horizontal = true;
+  metrics = host::measure_native_canvas(context, *inherited, factory_content);
+  assert(metrics.metrics.content[0] == 7);
+  cairo_destroy(context);
   package["decorations"][0]["image"] = "b.png";
   assert(!host::load_native_canvas(package, root, "fixture", true));
 

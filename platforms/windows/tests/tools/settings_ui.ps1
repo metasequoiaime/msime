@@ -85,29 +85,38 @@ function Assert-CanvasPreview($window, [string]$mode) {
     $input.SetFocus()
     $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('合成画布')
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Start-Sleep -Milliseconds 700
     foreach ($layout in @('horizontal', 'vertical')) {
-        $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
-        if (-not $image -or $image.Current.IsOffscreen) { throw "Canvas $layout image is not visible" }
-        $bounds = $image.Current.BoundingRectangle
-        if ($bounds.Width -lt 40 -or $bounds.Height -lt 15) { throw 'Canvas image has no usable size' }
-        $bitmap = New-Object Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
-        $graphics = [Drawing.Graphics]::FromImage($bitmap)
-        try {
-            $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $bitmap.Size)
-            $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
-            $count = 0
-            for ($y = 0; $y -lt $bitmap.Height; $y++) {
-                for ($x = 0; $x -lt $bitmap.Width; $x++) {
-                    if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
+        $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
+        $ready = $false
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        do {
+            $image = Find-ById $window "canvas-preview-verify-canvas-$layout"
+            if ($image -and -not $image.Current.IsOffscreen) {
+                $bounds = $image.Current.BoundingRectangle
+                if ($bounds.Width -ge 40 -and $bounds.Height -ge 15) {
+                    $bitmap = New-Object Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
+                    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+                    try {
+                        $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $bitmap.Size)
+                        $count = 0
+                        for ($y = 0; $y -lt $bitmap.Height; $y++) {
+                            for ($x = 0; $x -lt $bitmap.Width; $x++) {
+                                if (($bitmap.GetPixel($x, $y).ToArgb() -band 0xffffff) -eq $expected) { $count++ }
+                            }
+                        }
+                        if ($count -ge 8) {
+                            $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
+                            $ready = $true
+                        }
+                    } finally {
+                        $graphics.Dispose()
+                        $bitmap.Dispose()
+                    }
                 }
             }
-            $bitmap.Save((Join-Path $outputPath "$mode-canvas-$layout.png"), [Drawing.Imaging.ImageFormat]::Png)
-            if ($count -lt 8) { throw "Canvas $mode $layout panel pixels are absent or from the wrong mode" }
-        } finally {
-            $graphics.Dispose()
-            $bitmap.Dispose()
-        }
+            if (-not $ready) { Start-Sleep -Milliseconds 200 }
+        } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $ready) { throw "Canvas $mode $layout panel pixels are absent or from the wrong mode" }
     }
     Save-Window $window "$mode-canvas-settings.png"
     $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')

@@ -761,6 +761,14 @@ if ! rg -A 6 'boolean recentImageSendable\(' "$service_java" \
   echo "Android recent-clip images must show only in editors that accept them and be sent as a FileProvider copy from cache/clipboard-images (#6781)" >&2
   exit 1
 fi
+# 水杉娘表情包发出去的 PNG 放在 cache/sticker-images，必须在 FileProvider 的路径表里；键盘自己放进剪贴板的贴纸会触发自己的剪贴板监听，「最近复制」不能把它当成用户复制的图片再提供一次。那一张只在写下一张时替换，不定时删、不随键盘进程启动或退出清空：贴纸是随包素材，剪贴板里的 URI 要在进程被回收后仍能粘贴。
+if ! rg -qF '<cache-path name="sticker-images" path="sticker-images/" />' \
+    "$repo_root/platforms/android/res/xml/msime_file_paths.xml" \
+  || ! rg -q 'if \(imeStickers\.ownsClip\(image\.uri\(\)\)\) return;' <<< "$offer_body" \
+  || rg -q 'postDelayed|ClipboardImageCache\.clear\(' "$repo_root/platforms/android/java/app/msime/android/core/ImeStickers.java"; then
+  echo "Android stickers must be shared from cache/sticker-images through the FileProvider, replaced only by the next sticker, and never offered back as a recent copied image" >&2
+  exit 1
+fi
 if ! rg -q 'ClipboardCapturePolicy\.captures' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2

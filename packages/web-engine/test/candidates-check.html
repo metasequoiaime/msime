@@ -398,8 +398,37 @@
         check(!bar.element.isConnected, "late image errors cannot resurrect a destroyed popup");
       }
 
+      async function factoryGeometry() {
+        current = "resolved factory geometry";
+        const dip = (value, em = false) => ({ value, em });
+        const skin = { base: "system", resolvedLayout: { borderWidthDip: 0, itemCornerRadiusDip: 0,
+          horizontal: { padding: dip(.5, true), itemMinWidth: dip(80), numberScale: 0, itemGap: dip(0),
+            numberGap: dip(.2, true), selectedBarWidth: dip(0), selectedBarHeightEm: 0 },
+          vertical: { padding: dip(3), numberScale: 1, itemGap: dip(4) } } };
+        const bar = createCandidateBar({ skin, dark: false });
+        bar.render(composingFrame("ni", ["示例甲", "示例乙"]), { left: 20, top: 20, bottom: 40 });
+        const root = parts(bar.element).root;
+        const card = root.querySelector(".container");
+        const font = parseFloat(getComputedStyle(root).fontSize);
+        equal(parseFloat(getComputedStyle(card).paddingLeft), font / 2, "em padding uses the actual candidate font");
+        equal(getComputedStyle(card).borderTopWidth, "0px", "zero border reaches the card");
+        equal(getComputedStyle(parts(bar.element).first).borderRadius, "0px", "zero radius reaches candidate rendering");
+        const number = parts(bar.element).first.querySelector(".num");
+        equal(getComputedStyle(number).fontSize, "0px", "zero number scale hides the glyph");
+        equal(parseFloat(getComputedStyle(number).marginRight), font * .2, "number gap uses candidate font even when the number is hidden");
+        equal(getComputedStyle(parts(bar.element).first, "::before").height, "6px", "selection bar keeps twice its minimum width");
+        check(number.getBoundingClientRect().width >= 9, "hidden ordinal retains its minimum column");
+        check(parts(bar.element).first.getBoundingClientRect().width >= 80, "minimum width belongs to the candidate");
+        bar.setLayout("vertical");
+        equal(getComputedStyle(card).paddingLeft, "3px", "changing direction uses the vertical geometry");
+        bar.setSkin("system");
+        equal(root.style.getPropertyValue("--msime-skin-padding"), "", "changing skin removes old layout variables");
+        bar.destroy();
+      }
+
       try {
         await candidateBar();
+        await factoryGeometry();
         await motionReplay();
         await canvasSkin();
         await attached();

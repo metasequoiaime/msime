@@ -1,0 +1,114 @@
+# 内置皮肤「杨柳青」的出厂清单：皮肤级的开关与完整外观都在这里，输入法按它绘制候选框与悬浮工具栏。
+# 安装或升级时整份覆盖，不建议直接修改；想要自己的样式，复制一份到 skins\<新 id>\ 做成外部皮肤
+# （写 base = "willow_green"，只写想改的键）。基于 willow_green 的外部皮肤没写的键沿用这里的值。
+# 字段说明见 skins/README.md。
+schema_version = 1
+id = "willow_green"
+name = "杨柳青 Willow green"
+description = "柔和圆角与柳绿色整行高亮"
+
+[candidate_window]
+# 候选框里的翻页箭头（默认关闭）：横排在候选右侧、贴着最后一行，竖排在最后一行下方、与序号左对齐
+page_arrows = false
+# 候选框严格按文字所需的宽度收紧（默认关闭）：不垫出厂最小宽度，同一输入里也不只增不减
+fit_content = false
+# 横排候选用卷轴展开代替翻页（默认关闭）
+expand_panel = false
+
+corner_radius_dip = 9
+border_width_dip = 0
+# 高亮整行（竖排）/整列（横排）铺满、左右贴着卡片边，行本身是直角；落在卡片四角上的那几个角跟卡片同圆角。
+item_corner_radius_dip = 0
+item_corners_follow_card = true
+padding = 0
+item_gap = 0
+number_scale = 0.8
+number_gap = 1.5
+selected_bar_width = 3
+selected_bar_height_em = 0.85
+selected_bar_inside = false
+justify_rows = true
+trim_hidden_preedit_gap = false
+page_arrow_style = "chevron"
+
+# 行内边距对齐原 CSS 的 .row.cand padding（加上 .text 的左内边距），预编辑行对齐 .row.pinyin。
+[candidate_window.horizontal]
+item_extra_height = 10
+number_inset = 11
+item_padding_right = 10
+preedit_margin_dip = [6, 5, 1, 3]
+
+[candidate_window.vertical]
+item_extra_height = 8
+number_inset = 14
+item_padding_right = 14
+preedit_margin_dip = [6, 7, 2, 3]
+
+[candidate.dark]
+surface = "#2D2F2E"
+border = "transparent"
+text = "#D8DBD8"
+number = "#A6ABA7"
+accent = "#65C98D"
+selected = "#65C98D"
+hover = "rgba(101, 201, 141, 0.22)"
+show_selected_bar = false
+selected_text = "#FFFFFF"
+selected_number = "#FFFFFF"
+# 单词 Notion Green，词性 Notion Blue；选中行是实色绿底，单词换成半透明白，词性换 Notion Yellow。
+translation = "#4DAB9A"
+translation_pos = "#529CCA80"
+translation_separator = "#4DAB9A73"
+selected_translation = "rgba(255, 255, 255, 0.8)"
+selected_translation_pos = "rgba(255, 220, 73, 0.85)"
+selected_translation_separator = "rgba(255, 255, 255, 0.3608)"
+
+[candidate.dark.menu]
+background = "#343635"
+border = "#454845"
+text = "#E0E2DF"
+hover = "#414441"
+
+[candidate.light]
+surface = "#F4F5F3"
+border = "transparent"
+text = "#343936"
+number = "#686F6A"
+accent = "#58B980"
+selected = "#58B980"
+hover = "rgba(88, 185, 128, 0.16)"
+show_selected_bar = false
+selected_text = "#FFFFFF"
+selected_number = "#FFFFFF"
+translation = "#0F7B6C"
+translation_pos = "#0B6E9980"
+translation_separator = "#0F7B6C73"
+selected_translation = "rgba(255, 255, 255, 0.8)"
+selected_translation_pos = "rgba(255, 220, 73, 0.85)"
+selected_translation_separator = "rgba(255, 255, 255, 0.3608)"
+
+[candidate.light.menu]
+background = "#FBFCFA"
+border = "#D8DED9"
+text = "#343936"
+hover = "#E9EEEA"
+
+[toolbar]
+corner_radius_dip = 9
+icon_corner_radius_dip = 6
+
+[toolbar.dark]
+background = "#2D2F2E"
+border = "#3B3E3C"
+icon = "#FFFFFF"
+hover = "rgba(101, 201, 141, 0.20)"
+divider = "rgba(255, 255, 255, 0.15)"
+handle = "#65C98D"
+
+[toolbar.light]
+background = "#F4F5F3"
+border = "#DFE3DF"
+icon = "#1A1A1A"
+hover = "rgba(88, 185, 128, 0.16)"
+divider = "rgba(0, 0, 0, 0.12)"
+handle = "#58B980"

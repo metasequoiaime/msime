@@ -283,7 +283,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   }
 
   private func layoutGrid(width: CGFloat) {
-    let padding = Self.gridPadding, spacing = Self.cellSpacing
+    let padding = Self.gridPadding
+    let spacing = palette?.layout?.itemGap?.dip(fontSize: CandidateFontPreference.font(.body, scale: candidateScale).pointSize) ?? Self.cellSpacing
     let content = max(0, width - padding * 2)
     let columns = Self.columns(width: content)
     let columnWidth = max(0, (content - spacing * CGFloat(columns - 1)) / CGFloat(columns))
@@ -364,16 +365,16 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
     let aiPlaceholder = aiPlaceholders.contains(index)
     if aiPlaceholder { configuration.baseForegroundColor = secondary }
-    configuration.contentInsets = Self.cellInsets
+    configuration.contentInsets = palette?.layout?.chipInsets(fontSize: font.pointSize, fallback: Self.cellInsets) ?? Self.cellInsets
     configuration.background.cornerRadius = skin.cornerRadius
     let fill = selected ? palette?.selected ?? skin.accentSoft : palette != nil ? UIColor.clear : skin.keyBackground
     configuration.background.backgroundColor = fill
     if selected, let palette, palette.showSelectedBar {
-      configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent)
+      configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout, fontSize: font.pointSize)
     }
-    configuration.background.strokeWidth = palette == nil ? 0 : 1
+    configuration.background.strokeWidth = palette == nil ? 0 : palette?.layout?.borderWidth ?? 1
     configuration.background.strokeColor = palette?.border ?? .clear
-    configuration.background.cornerRadius = canvas?.itemCornerRadius ?? skin.cornerRadius
+    configuration.background.cornerRadius = palette?.layout?.itemRadius ?? canvas?.itemCornerRadius ?? skin.cornerRadius
     chip.configuration = configuration
     chip.configurationUpdateHandler = { button in
       button.configuration?.background.backgroundColor = button.isHighlighted ? fill.keyboardPressedBrightness(0.88) : fill

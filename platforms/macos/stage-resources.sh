@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory]}
+source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory] [wordbooks-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -155,5 +155,16 @@ if [ -f "$words_source/zh-en.db" ] && [ -f "$words_source/word-glosses-NOTICE.tx
   echo "word glosses staged: $words_destination"
 else
   echo "no word glosses at $words_source; English glosses come from english.db only"
+fi
+# 背单词的内置词书，由 scripts/fetch_wordbooks.py 从 ECDICT 生成；设置应用在资源目录的同级读 wordbooks/，八本书只和许可证声明一起暂存。没有它们时词书列表里只有用户导入的词表。
+wordbooks_source=${8:-$repo_root/target/wordbooks}
+wordbooks_destination="$repo_root/target/macos/wordbooks"
+rm -rf "$wordbooks_destination"
+if compgen -G "$wordbooks_source/*.json" >/dev/null && [ -f "$wordbooks_source/wordbooks-NOTICE.txt" ]; then
+  mkdir -p "$wordbooks_destination"
+  cp "$wordbooks_source"/*.json "$wordbooks_source/wordbooks-NOTICE.txt" "$wordbooks_destination/"
+  echo "wordbooks staged: $wordbooks_destination"
+else
+  echo "no wordbooks at $wordbooks_source; 背单词 offers only imported books"
 fi
 echo "macOS resources staged from the pinned dictionary release: $destination"

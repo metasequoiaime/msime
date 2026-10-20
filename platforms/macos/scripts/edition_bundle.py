@@ -23,6 +23,7 @@ full 是现有产品本身：对 full，这里的每个输出都与输入逐字�
     edition_bundle.py marker  --edition ID --output edition.json      # 设置应用 Resources 里的版本声明；full 不写
     edition_bundle.py tauri-config --edition ID --version VERSION     # 设置应用按版本打包时传给 tauri bundle --config 的配置
     edition_bundle.py cask    --edition ID --version V --sha256 S --template msime.rb.in
+    edition_bundle.py download-guide --editions ID[,ID...] --version V --download-base URL [--homebrew]  # 发布说明开头的下载指引
 """
 
 from __future__ import annotations
@@ -393,9 +394,50 @@ def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
     return text
 
 
+def download_guide(edition_ids: list[str], version: str, download_base: str, homebrew: bool) -> str:
+    """macOS 发布说明开头的下载指引：每个版本一行，写明安装包和 Homebrew 命令，完整版排第一、标为推荐。版本发布页上有六个 DMG，不说明的话来下载的人不知道该选哪个。名字、DMG 前缀和 cask 都取自版本表，不手写。"""
+    table = load_table()
+    if FULL not in edition_ids:
+        raise SystemExit("the download guide recommends the full edition, which is not in --editions")
+    ordered = [FULL] + [edition for edition in edition_ids if edition != FULL]
+    full_macos = full_entry(table)["platforms"]["macos"]
+    full_dmg = f"{full_macos['dmg_prefix']}-{version}-universal.dmg"
+    # 首尾的注释在 GitHub 上不显示，标出这一段是生成的下载指引，读发布说明做更新日志的地方（官网下载页的更新记录）可以按它跳过。
+    lines = [
+        "<!-- msime-download-guide -->",
+        "## 下载",
+        "",
+        f"大多数人下载第一行的**{full_entry(table)['display_name']['zh-Hans']}**（`{full_dmg}`）就行：它是完整版，包含全部输入方案。"
+        "其他版本只带其中一部分方案，可以和完整版同时安装。每个安装包都同时支持 Apple 芯片和 Intel 芯片的 Mac。",
+        "",
+        "| 版本 | 安装包 | Homebrew |" if homebrew else "| 版本 | 安装包 |",
+        "| --- | --- | --- |" if homebrew else "| --- | --- |",
+    ]
+    for edition_id in ordered:
+        entry = edition_entry(edition_id, table)
+        macos = entry["platforms"]["macos"]
+        dmg = f"{macos['dmg_prefix']}-{version}-universal.dmg"
+        name = entry["display_name"]["zh-Hans"]
+        label = f"**{name}**（完整版，推荐）" if edition_id == FULL else name
+        row = f"| {label} | [{dmg}]({download_base}{dmg}) |"
+        if homebrew:
+            row += f" `brew install --cask metasequoiaime/tap/{macos['cask']}` |"
+        lines.append(row)
+    lines += ["", "打开 DMG，把应用拖进「应用程序」，再打开它一次完成安装。`SHA256SUMS` 是这些安装包的 SHA-256 校验值。"]
+    if not homebrew:
+        lines += ["", "这是预览版，Homebrew 只提供正式版。"]
+    lines.append("<!-- /msime-download-guide -->")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    guide = commands.add_parser("download-guide")
+    guide.add_argument("--editions", required=True)
+    guide.add_argument("--version", required=True)
+    guide.add_argument("--download-base", required=True)
+    guide.add_argument("--homebrew", action="store_true")
     for name in ["plist", "strings", "settings-strings", "apply", "field", "marker", "tauri-config", "cask"]:
         command = commands.add_parser(name)
         command.add_argument("--edition", required=True)
@@ -439,6 +481,8 @@ def main() -> int:
         print(json.dumps(tauri_config(args.edition, args.version), ensure_ascii=False, separators=(",", ":")))
     elif args.command == "cask":
         sys.stdout.write(cask(args.template.read_text(encoding="utf-8"), args.edition, args.version, args.sha256))
+    elif args.command == "download-guide":
+        sys.stdout.write(download_guide(args.editions.split(","), args.version, args.download_base, args.homebrew))
     return 0
 
 

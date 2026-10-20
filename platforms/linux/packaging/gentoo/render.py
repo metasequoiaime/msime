@@ -69,6 +69,10 @@ def resources() -> tuple[list[str], list[str]]:
             sys.exit(f"resources/{lock_name} pins no artifacts")
         for artifact in lock["artifacts"]:
             add(artifact, directory)
+    # 背单词的内置词书在构建时由 fetch_wordbooks.py 生成，distfile 是它的输入：锁文件固定的 ECDICT CSV 和 LICENSE，放在脚本的缺省缓存目录里。
+    wordbook = json.loads((ROOT / "resources" / "wordbook.lock.json").read_text(encoding="utf-8"))
+    for artifact in (wordbook["artifact"], wordbook["license_file"]):
+        add(artifact, "wordbook-source")
     voice = json.loads((ROOT / "resources" / "voice-runtime.lock.json").read_text(encoding="utf-8"))
     for keyword, platform in VOICE_PLATFORMS.items():
         add(voice["platforms"][platform], "voice-runtime/.archive", keyword)

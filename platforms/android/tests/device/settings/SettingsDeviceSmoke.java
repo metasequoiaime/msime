@@ -2,6 +2,7 @@ package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Drive the actual React DOM and Tauri IPC, then observe a separate system editor. */
+/** 设置页设备回归：默认操作 React 页面与 Tauri IPC，原生皮肤删除和背单词内置词书由显式参数选择。 */
 public final class SettingsDeviceSmoke extends DeviceSmoke {
     private static final String PUNCTUATION_CHECKBOX =
         "Array.from(document.querySelectorAll('label')).find(label => "
@@ -57,10 +58,29 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "Array.from(document.querySelectorAll('[role=tab]')).find(tab => "
         + "tab.textContent?.trim() === '我的')";
     private WebView web;
+    private boolean skinDelete;
+    private boolean vocabulary;
+
+    @Override public void onCreate(Bundle arguments) {
+        skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
+        vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
+        if (vocabulary) return "bundled wordbooks extracted, listed through JNI and answered";
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (skinDelete) {
+            new SkinDeleteDeviceCheck(this).run();
+            return;
+        }
+        if (vocabulary) {
+            new VocabularyReviewDeviceCheck(this).run();
+            return;
+        }
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
         File directory = new File(options.getString("preferences_directory")).getCanonicalFile();

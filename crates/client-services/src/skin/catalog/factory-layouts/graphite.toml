@@ -1,0 +1,99 @@
+# 内置皮肤「石墨」的出厂清单：皮肤级的开关与完整外观都在这里，输入法按它绘制候选框与悬浮工具栏。
+# 安装或升级时整份覆盖，不建议直接修改；想要自己的样式，复制一份到 skins\<新 id>\ 做成外部皮肤
+# （写 base = "graphite"，只写想改的键）。基于 graphite 的外部皮肤没写的键沿用这里的值。
+# 字段说明见 skins/README.md。
+schema_version = 1
+id = "graphite"
+name = "石墨 Graphite"
+description = "克制、平直的候选窗与悬浮工具栏"
+
+[candidate_window]
+# 候选框里的翻页箭头（默认关闭）：横排在候选右侧、贴着最后一行，竖排在最后一行下方、与序号左对齐
+page_arrows = false
+# 候选框严格按文字所需的宽度收紧（默认关闭）：不垫出厂最小宽度，同一输入里也不只增不减
+fit_content = false
+# 横排候选用卷轴展开代替翻页（默认关闭）
+expand_panel = false
+
+corner_radius_dip = 3
+border_width_dip = 1
+item_corner_radius_dip = 2
+padding = 5
+item_gap = 2
+item_extra_height = 2
+number_inset = 5
+item_padding_right = 0
+number_scale = 0.8
+number_gap = 1.5
+selected_bar_width = 3
+selected_bar_height_em = 0.85
+selected_bar_inside = false
+item_corners_follow_card = false
+justify_rows = false
+trim_hidden_preedit_gap = false
+page_arrow_style = "chevron"
+preedit_margin_dip = [0, 0, 0, 0]
+
+[candidate.dark]
+surface = "#1C1F23"
+border = "#30353B"
+text = "#AEB6C2"
+number = "#707987"
+accent = "#8993A0"
+# 选中项不铺底色，只换文字色。
+selected = "transparent"
+hover = "rgba(255, 255, 255, 0.055)"
+show_selected_bar = false
+selected_text = "#F1F3F5"
+selected_number = "#F1F3F5"
+# 单词 Notion Brown，石墨铅笔的木杆色，压在冷灰底上不抢候选；词性 Notion Orange。
+translation = "#937264"
+translation_pos = "#FFA34480"
+translation_separator = "#93726473"
+
+[candidate.dark.menu]
+background = "#23272C"
+border = "#3A4047"
+text = "#C7CDD5"
+hover = "#30353B"
+
+[candidate.light]
+surface = "#FBFBFC"
+border = "#E2E5E9"
+text = "#586476"
+number = "#8993A1"
+accent = "#5F6B7A"
+selected = "transparent"
+hover = "rgba(31, 41, 55, 0.055)"
+show_selected_bar = false
+selected_text = "#111827"
+selected_number = "#111827"
+translation = "#64473A"
+translation_pos = "#D9730D80"
+translation_separator = "#64473A73"
+
+[candidate.light.menu]
+background = "#FFFFFF"
+border = "#DFE3E8"
+text = "#374151"
+hover = "#F1F3F5"
+
+[toolbar]
+corner_radius_dip = 4
+icon_corner_radius_dip = 3
+
+[toolbar.dark]
+background = "#1C1F23"
+border = "#30353B"
+icon = "#D7DCE2"
+hover = "rgba(255, 255, 255, 0.055)"
+divider = "rgba(255, 255, 255, 0.10)"
+handle = "#8993A0"
+
+[toolbar.light]
+background = "#FBFBFC"
+border = "#E2E5E9"
+icon = "#374151"
+hover = "rgba(31, 41, 55, 0.055)"
+divider = "rgba(31, 41, 55, 0.10)"
+handle = "#5F6B7A"

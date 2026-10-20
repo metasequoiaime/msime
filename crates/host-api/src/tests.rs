@@ -3081,6 +3081,51 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// 设置宿主看不到输入法实际加载了哪份词库：建会话时把资源目录记进词库更新目录，从没装过更新时不建这个目录。
+#[test]
+fn creating_a_session_records_the_resources_it_loaded_for_dictionary_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    let state = path("state");
+    let fixture = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_n VALUES('ni','n','你',100);
+                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                   CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                   CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(fixture)
+            .unwrap();
+    }
+    let create = || {
+        let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences_directory": state, "preferences": chinese_preferences() }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        read(msime_client_destroy(
+            created["value"]["session"].as_u64().unwrap(),
+        ));
+    };
+    let updates = state.join("dictionary-updates");
+    create();
+    assert!(!updates.exists());
+
+    std::fs::create_dir(&updates).unwrap();
+    create();
+    let loaded: Value =
+        serde_json::from_slice(&std::fs::read(updates.join("loaded.json")).unwrap()).unwrap();
+    assert_eq!(
+        Path::new(loaded["resources"].as_str().unwrap()),
+        std::fs::canonicalize(&resources).unwrap()
+    );
+}
+
 /// 三端宿主都开着 `phrase_preedit`。14 键里选了只覆盖前一段的词，退格到只剩一个组码再退格，收回这次选词：组码要回到 14 键网格里，而不是变成全拼 26 键的 `bu`，之后的 14 键照样能打。
 #[test]
 fn retreating_a_fourteen_key_selection_keeps_composing_on_the_grid() {
@@ -12728,6 +12773,75 @@ fn refresh_downloaded_generation_restores_bundled_language_dictionaries() {
     );
 }
 
+/// 背单词的内置词书和音效包一样随安装包走：没有在线更新时在 `resources` 的上一级；更新后 `resources` 指向下载代次，仍回到更新记录里的原安装包目录。
+#[test]
+fn bundled_resource_root_survives_a_downloaded_generation() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("bundle");
+    let resources = bundle.join("resources");
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(state.join("dictionary-updates")).unwrap();
+    let shipped = json!({
+        "resources": resources,
+        "user_data": state.join("user"),
+        "dictionaries": state.join("user/dictionaries/shipped"),
+        "preferences_directory": state,
+    });
+    assert_eq!(super::bundled_resource_root(&shipped), Some(bundle.clone()));
+
+    let baseline = Edition::full().resource_set().unwrap();
+    let version = msime_client_providers::dictionary_updates::baseline_version(&baseline);
+    let mut desktop = baseline.clone();
+    for file in &mut desktop.artifacts {
+        if file
+            .url
+            .starts_with("https://github.com/metasequoiaime/msime-dictionary/releases/download/")
+        {
+            file.url = format!(
+                "https://github.com/metasequoiaime/msime-dictionary/releases/download/{version}/{}",
+                file.name
+            );
+        }
+    }
+    let selection = msime_client_providers::dictionary_updates::Selection {
+        baseline_generation: baseline.generation().unwrap(),
+        version,
+        desktop,
+        languages: None,
+        bundled_resources: resources.clone(),
+    };
+    std::fs::write(
+        state.join("dictionary-updates/installed.json"),
+        serde_json::to_vec(&json!({"active": selection, "previous": null})).unwrap(),
+    )
+    .unwrap();
+    let downloaded = state.join("dictionary-updates/generations/synthetic");
+    std::fs::create_dir_all(&downloaded).unwrap();
+    let mut updated = shipped.clone();
+    updated["resources"] = json!(downloaded);
+    updated["dictionaries"] = json!(state.join("user/dictionaries/synthetic"));
+    assert_eq!(super::bundled_resource_root(&updated), Some(bundle.clone()));
+
+    // 更新记录里的安装包目录已经不在（应用挪了位置）时不去猜，退回 `resources` 的上一级。
+    std::fs::remove_dir_all(&bundle).unwrap();
+    assert_eq!(
+        super::bundled_resource_root(&updated),
+        Some(state.join("dictionary-updates/generations"))
+    );
+    // 不是准备布局的文档只看 `resources`；相对路径说不清指向哪里。
+    let elsewhere = root.path().join("elsewhere/resources");
+    assert_eq!(
+        super::bundled_resource_root(&json!({ "resources": elsewhere })),
+        Some(root.path().join("elsewhere"))
+    );
+    assert_eq!(
+        super::bundled_resource_root(&json!({ "resources": "share/msime-client/resources" })),
+        None
+    );
+    assert_eq!(super::bundled_resource_root(&json!({})), None);
+}
+
 /// The language directory follows the resources a stale generation was prepared from, not the ones the old document recorded.
 #[test]
 fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resources() {
@@ -15105,6 +15219,53 @@ fn english_glosses_prefer_the_dictionaries_and_keep_learned_ones() {
             {"text": "看", "translation": "look, see"},
             {"text": "hello", "translation": "你好"}
         ])
+    );
+}
+
+/// 旧 macOS 配置可能仍把 `EngineResources` 放在更新前的应用包外。随包输入法提供补充表作为只读回退，
+/// 这样酸奶等长尾词不会退回到较小的反向 ECDICT 表。
+#[test]
+fn candidate_gloss_request_reads_packaged_supplementary_fallback() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("old-resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("msime-english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;",
+        )
+        .unwrap();
+    let packaged = root.path().join("packaged");
+    let words = packaged.join("word-glosses/zh-en.db");
+    offline_gloss_fixture(&words, "en");
+    rusqlite::Connection::open(&words)
+        .unwrap()
+        .execute(
+            "INSERT INTO zh_glosses VALUES('酸奶', 'yogurt', 'cc-cedict')",
+            [],
+        )
+        .unwrap();
+    let resources = resources.to_string_lossy().into_owned();
+    let packaged = packaged.to_string_lossy().into_owned();
+    let request = serde_json::to_vec(&json!({
+        "generation": 1,
+        "supplementary_resources": packaged,
+        "candidates": [{"text": "酸奶", "source": 0}]
+    }))
+    .unwrap();
+    let result = read(unsafe {
+        msime_client_candidate_gloss_request(
+            request.as_ptr(),
+            request.len(),
+            resources.as_ptr(),
+            resources.len(),
+        )
+    });
+    assert_eq!(
+        result["value"]["translations"],
+        json!([{"text": "酸奶", "translation": "yogurt"}])
     );
 }
 

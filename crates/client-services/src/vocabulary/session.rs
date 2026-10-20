@@ -55,11 +55,13 @@ pub enum ReviewSessionError {
 pub struct ReviewStatus {
     pub wordbooks: Vec<WordbookSummary>,
     pub settings: VocabularyReviewSettings,
-    /// 今日待复习: cards already waiting, before the new-card allowance is added.
+    /// 今日待复习：今天还在等的卡片，包括今天会话要出的新卡。超出会话上限的积压也全数计入。
     pub due: usize,
     /// 已完成: answers recorded today.
     pub answered_today: u32,
+    /// `due` 里的新卡数。
     pub introducing: usize,
+    /// 未开始：从没出过、今天也不会出的词。
     pub remaining: usize,
     /// The session queue in the order it should be shown.
     pub queue: Vec<WordbookEntry>,
@@ -297,7 +299,12 @@ fn status_with(
                 }
                 ordered.into_iter().flatten().collect()
             };
-            (cards, built.due, built.introducing, built.remaining)
+            (
+                cards,
+                built.due + built.introducing,
+                built.introducing,
+                built.remaining,
+            )
         }
     };
 
@@ -486,8 +493,49 @@ mod tests {
 
         let tomorrow = status(root.path(), root.path(), None, "2026-09-24").unwrap();
         assert_eq!(tomorrow.answered_today, 0);
-        assert_eq!(tomorrow.due, 1);
+        assert_eq!(
+            tomorrow.due, 3,
+            "alpha comes back, and beta and gamma are still new"
+        );
+        assert_eq!(tomorrow.introducing, 2);
         assert_eq!(tomorrow.queue[0].word, "alpha");
+    }
+
+    #[test]
+    fn the_progress_row_counts_what_today_still_shows_and_what_was_never_started() {
+        let root = directory();
+        let chosen = import(root.path(), "合成词表");
+        assert_eq!(
+            (chosen.due, chosen.answered_today, chosen.remaining),
+            (3, 0, 0),
+            "a card on screen under 今日待复习 0 reads as a page with nothing to do"
+        );
+
+        let answer = |word: &str, known: bool| {
+            apply(
+                root.path(),
+                root.path(),
+                None,
+                TODAY,
+                ReviewAction::Answer {
+                    word: word.to_owned(),
+                    known,
+                },
+            )
+            .unwrap()
+        };
+        let recalled = answer("alpha", true);
+        assert_eq!(
+            (recalled.due, recalled.answered_today, recalled.remaining),
+            (2, 1, 0),
+            "a recalled card is scheduled for later, not returned to 未开始"
+        );
+        let failed = answer("beta", false);
+        assert_eq!(
+            (failed.due, failed.answered_today, failed.remaining),
+            (2, 2, 0),
+            "a failed card is still waiting today"
+        );
     }
 
     #[test]

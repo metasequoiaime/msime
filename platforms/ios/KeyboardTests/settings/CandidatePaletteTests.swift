@@ -2,6 +2,30 @@ import XCTest
 
 /// 候选条的桌面候选配色就是 client-services 为全局主题解析出的配色（内置主题，或自定义主题的 base、皮肤包和取色器），在 iOS 开关打开之前一直关闭。
 final class CandidatePaletteTests: XCTestCase {
+  func testResolvedLayoutKeepsUnitsZeroValuesAndTouchInsets() throws {
+    let layout = try XCTUnwrap(CandidateSkinLayout([
+      "itemCornerRadiusDip": 0, "borderWidthDip": 0, "fitContent": false,
+      "horizontal": ["itemGap": ["value": 0, "em": false],
+                     "itemPaddingRight": ["value": 0.3, "em": true],
+                     "itemExtraHeight": ["value": 4, "em": false],
+                     "selectedBarWidth": ["value": 0, "em": false], "selectedBarHeightEm": 0],
+    ]))
+    XCTAssertEqual(layout.itemRadius, 0)
+    XCTAssertEqual(layout.borderWidth, 0)
+    XCTAssertEqual(layout.horizontalGap(fontSize: 19), 6)
+    let insets = layout.chipInsets(fontSize: 19, fallback: NSDirectionalEdgeInsets(top: 4, leading: 11, bottom: 4, trailing: 11))
+    XCTAssertEqual(insets.leading, 6)
+    XCTAssertEqual(insets.top, 2)
+    XCTAssertEqual(CandidateSelectionBarView.barRect(bounds: CGRect(x: 0, y: 0, width: 80, height: 34),
+                                                    layout: layout, fontSize: 19),
+                   CGRect(x: 0, y: 14, width: 3, height: 6))
+    XCTAssertNil(CandidateSkinLayout(nil))
+    let invalid = try XCTUnwrap(CandidateSkinLayout(["geometry": ["itemGap": ["value": -1, "em": false]], "itemCornerRadiusDip": 200]))
+    XCTAssertNil(invalid.itemGap)
+    XCTAssertNil(invalid.itemRadius)
+    XCTAssertEqual(invalid.horizontalGap(fontSize: 19), 6)
+  }
+
   override func tearDown() {
     CandidatePalette.defaults.removeObject(forKey: CandidatePalette.followsDesktopKey)
     super.tearDown()

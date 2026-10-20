@@ -418,6 +418,42 @@ foreach ($table in @(
         Write-Host "No $($table.Database) with $($table.Notice) in $tableSource; $($table.Name) not packaged"
     }
 }
+# 背单词的内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成到 target/wordbooks），装在 resources 旁边的 wordbooks：设置应用 msime-client-settings.exe 和共享面板 MSIME.exe 都把自己所在的 Server 目录当作资源根，在那里找 wordbooks。只随许可声明 wordbooks-NOTICE.txt 一起装；没有时背单词只列用户导入的词表。词书不分版本，背英文单词和有没有中文方案无关。设置 MSIME_REQUIRE_WORDBOOKS=1 时，resources/wordbook.lock.json 列出的每一本都必须装入。
+$wordbooksSource = Join-Path $RepoRoot 'target/wordbooks'
+$wordbooksTarget = Join-Path $targetServer 'wordbooks'
+if (Test-Path -LiteralPath $wordbooksTarget) {
+    Remove-Item -LiteralPath $wordbooksTarget -Recurse -Force
+}
+if (-not $Light) {
+    $wordbookNotice = Join-Path $wordbooksSource 'wordbooks-NOTICE.txt'
+    $wordbookFiles = @()
+    if (Test-Path -LiteralPath $wordbookNotice -PathType Leaf) {
+        $wordbookFiles = @(Get-ChildItem -LiteralPath $wordbooksSource -Filter '*.json' -File)
+    }
+    if ($wordbookFiles.Count -gt 0) {
+        New-Item -ItemType Directory -Path $wordbooksTarget -Force | Out-Null
+        foreach ($file in $wordbookFiles) { Copy-Item -LiteralPath $file.FullName -Destination $wordbooksTarget -Force }
+        Copy-Item -LiteralPath $wordbookNotice -Destination $wordbooksTarget -Force
+        Write-Host "背单词内置词书已装入（$($wordbookFiles.Count) 本）：$wordbooksTarget"
+    } else {
+        Write-Host "未找到带许可声明的内置词书（$wordbooksSource），背单词只列用户导入的词表"
+    }
+    if ($env:MSIME_REQUIRE_WORDBOOKS -eq '1') {
+        $wordbookLock = Join-Path $RepoRoot 'resources/wordbook.lock.json'
+        if (-not (Test-Path -LiteralPath $wordbookLock -PathType Leaf)) {
+            throw "MSIME_REQUIRE_WORDBOOKS=1，但 $wordbookLock 不存在"
+        }
+        $pinnedBooks = @((Get-Content -LiteralPath $wordbookLock -Raw -Encoding UTF8 | ConvertFrom-Json).books | ForEach-Object { $_.id })
+        if ($pinnedBooks.Count -eq 0) {
+            throw "MSIME_REQUIRE_WORDBOOKS=1，但 $wordbookLock 没有列出任何词书"
+        }
+        foreach ($id in $pinnedBooks) {
+            if (-not (Test-Path -LiteralPath (Join-Path $wordbooksTarget "$id.json") -PathType Leaf)) {
+                throw "MSIME_REQUIRE_WORDBOOKS=1，但锁文件列出的词书 $id 没有从 $wordbooksSource 装入，先运行 python scripts/fetch_wordbooks.py"
+            }
+        }
+    }
+}
 # 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有带上 resources/language-dictionaries.lock.json 固定的每一个词库的包会失败。
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'

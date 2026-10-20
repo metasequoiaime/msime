@@ -76,7 +76,9 @@ try {
         'target/pronunciations/pronunciations-NOTICE.txt',
         'target/character-glosses/zh-en.db',
         'target/character-glosses/character-glosses-NOTICE.txt',
-        'target/word-glosses/zh-en.db'
+        'target/word-glosses/zh-en.db',
+        'target/wordbooks/cet4.json',
+        'target/wordbooks/wordbooks-NOTICE.txt'
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
@@ -166,6 +168,8 @@ try {
                          'server_exe/pronunciations/pronunciations-NOTICE.txt',
                          'server_exe/character-glosses/zh-en.db',
                          'server_exe/character-glosses/character-glosses-NOTICE.txt',
+                         'server_exe/wordbooks/cet4.json',
+                         'server_exe/wordbooks/wordbooks-NOTICE.txt',
                          'app_data/helpcodes/helpcode.txt',
                          'app_data/sound-packs/default/plugin.toml', 'app_data/sound-packs/default/key.wav',
                          'server_exe/plugin-packs/script/uuid/plugin.toml',
@@ -504,6 +508,22 @@ try {
     }
     # 英文读音表不分版本：英文候选和英文释义在每个版本里都可能出现。
     if (-not (Test-Path (Join-Path $installer 'server_exe/pronunciations/en-phonetic.db'))) { throw 'Edition without a Chinese scheme lost server_exe/pronunciations' }
+    # 背单词的内置词书同样不分版本。
+    if (-not (Test-Path (Join-Path $installer 'server_exe/wordbooks/cet4.json'))) { throw 'Edition without a Chinese scheme lost server_exe/wordbooks' }
+    # MSIME_REQUIRE_WORDBOOKS=1 时锁文件列出的每一本都要装入：夹具只有 cet4，锁里再列一本 gre 就必须失败，只列 cet4 时照常打包。
+    Write-Fixture 'resources/wordbook.lock.json' (@{ books = @(@{ id = 'cet4' }, @{ id = 'gre' }) } | ConvertTo-Json -Depth 5)
+    $env:MSIME_REQUIRE_WORDBOOKS = '1'
+    try {
+        $rejected = $false
+        try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture }
+        catch { $rejected = $_.Exception.Message -match '词书 gre 没有' }
+        if (-not $rejected) { throw 'MSIME_REQUIRE_WORDBOOKS accepted a package missing a locked wordbook' }
+        Write-Fixture 'resources/wordbook.lock.json' (@{ books = @(@{ id = 'cet4' }) } | ConvertTo-Json -Depth 5)
+        & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
+        if (-not (Test-Path (Join-Path $installer 'server_exe/wordbooks/wordbooks-NOTICE.txt'))) { throw 'MSIME_REQUIRE_WORDBOOKS package lost the wordbook notice' }
+    } finally {
+        Remove-Item Env:MSIME_REQUIRE_WORDBOOKS -ErrorAction SilentlyContinue
+    }
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition klingon }
     catch { $rejected = $_.Exception.Message -match 'klingon' }

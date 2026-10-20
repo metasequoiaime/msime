@@ -13,6 +13,13 @@ inline CGFloat MSIMETallestCandidateHeight(CGFloat remembered, CGFloat current, 
     return vertical ? MAX(base, current) : base;
 }
 
+// 横排候选窗自上次显示以来最宽的一次。横排卡片的宽度按这一页候选的长短算，打字时候选每个键都在变，不记的话卡片随每个键忽长忽短（实测一次输入里在 557pt 和 792pt 之间来回跳，同一个键补一轮候选还会再变一次）。记住之后，候选窗一直开着的这段时间里卡片只变宽不变窄；候选窗隐藏过（上屏、取消、失焦）就从头记，与 MSIMETallestCandidateHeight 对竖排高度的处理相同。竖排不记，返回 0。
+inline CGFloat MSIMEWidestCandidateWidth(CGFloat remembered, CGFloat current, bool vertical, bool panelWasVisible) {
+    if (vertical) return 0.0;
+    const CGFloat base = panelWasVisible ? MAX(remembered, 0.0) : 0.0;
+    return MAX(base, current);
+}
+
 // Decides the side of the caret with the taller of the current height and flipDecisionHeight, but places the panel with its current height. A vertical list that grows as candidates arrive therefore does not jump from below the caret to above it, and a shorter later page that stays above the caret sits against the line instead of leaving the tallest page's gap.
 // cardTopInset 是窗口顶上留给皮肤装饰的透明带（MSIMECandidateChromeView.cardTopInset），size 和 flipDecisionHeight 都含这条带。放在光标下方时贴着光标的是卡片顶边，不是窗口顶边：透明带朝上伸，盖在光标所在的这一行和上面几行上，装饰图不透明的地方会挡住那里的字。放不下、翻到光标上方时窗口底边就是卡片底边，透明带在最上面，和以前一样贴着光标上方。翻不翻只看卡片：卡片在光标下方放得下就放下方，透明带朝上伸不占光标下方的地方。最后整个窗口（连同透明带）仍夹进可见区域，光标贴近屏幕上边、透明带伸出上边时宁可把窗口往下压、卡片和光标之间留出一段，也不让装饰图被屏幕边缘裁掉；留出的这段至多是透明带伸出的部分，比以前整条透明带的空隙小。cardTopInset 为 0 时结果和以前完全一样。
 // canvas 的左、下外留白不参与卡片对齐和翻转判断；窗口仍整体夹进可见区域，保留原有装饰裁切策略。

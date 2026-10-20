@@ -51,6 +51,8 @@ public enum PageId {
     LEXICON("LexiconPage", "词库", HostDeepLink.TAB_SETTINGS,
         "自动更新词库", "检查词库更新", "恢复上一版词库", "已安装", "拼音词库", "管理", "新建词库", "导入词库", "刷新词库", "导出词库", "发现词库", "社区词库", "浏览更多词库", "提交缺失词条", "记忆新词", "学习", "背单词", "云词库"),
     LEXICON_DETAIL("LexiconDetailPage", "词库详情", HostDeepLink.TAB_SETTINGS),
+    VOCABULARY_REVIEW("VocabularyReviewPage", "背单词", HostDeepLink.TAB_SETTINGS,
+        "今日待复习", "已完成", "未开始", "词书", "每日新词", "导入词表（CSV / TXT）", "删除这个词表", "不认识", "认识", "清空复习进度"),
     PHRASES("PhrasesPage", "常用语", HostDeepLink.TAB_SETTINGS,
         "添加常用语", "修改常用语", "删除常用语", "浏览社区短语包"),
     VOICE("VoicePage", "语音输入", HostDeepLink.TAB_SETTINGS,

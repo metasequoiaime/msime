@@ -9,7 +9,8 @@ import org.json.JSONObject;
 
 /** 在偏好工作线程读取并解码候选包，输入线程只取与当前请求相符的缓存。 */
 public final class CandidateSkinResolver {
-    private record Resolved(String request, String id, Map<String, String> colours, CandidateCanvasAssets canvas) {}
+    private record Resolved(String request, String id, Map<String, String> colours,
+            CandidateCanvasAssets canvas, CandidateAppearance.Layout layout) {}
     private record Modes(String directory, Resolved light, Resolved dark) {}
     private volatile Modes modes;
     private Map<String, CandidateCanvasAssets.Image> images = Map.of();
@@ -80,7 +81,9 @@ public final class CandidateSkinResolver {
             String colour = JsonPolicy.strictString(details.opt(name));
             if (colour != null) colours.put(name, colour);
         }
-        return new Resolved(key, id, Map.copyOf(colours), canvas);
+        CandidateAppearance.Layout layout = CandidateAppearance.Layout.from(value.optJSONObject("candidate_layout"),
+            CandidateAppearance.fontSize(NumberPolicy.strictInt(preferences, "candidate_font_size", 16)));
+        return new Resolved(key, id, Map.copyOf(colours), canvas, layout);
     }
 
     /** 不触碰文件系统，也不把旧请求的包颜色套到刚切换的主题上。 */
@@ -93,7 +96,7 @@ public final class CandidateSkinResolver {
         if (selected == null) return fallback;
         try {
             if (selected.request().equals(request(preferences, dark)))
-                return CandidateAppearance.fromResolved(fallback, selected.id(), selected.colours(), selected.canvas());
+                return CandidateAppearance.fromResolved(fallback, selected.id(), selected.colours(), selected.canvas(), selected.layout());
         } catch (JSONException ignored) {
             // 与键盘相同，非法主题请求不保留另一份主题的颜色。
         }

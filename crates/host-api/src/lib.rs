@@ -2463,6 +2463,28 @@ fn replace_options_file(
     Ok(())
 }
 
+/// 随包资源所在的目录：安装包里 Engine 资源目录的上一级，设置应用在这里找背单词的内置词书（`wordbooks/`）。
+///
+/// 词库在线更新后，准备出的文档里 `resources` 指向状态目录下的下载代次，那里没有随包资源；这时取更新记录里的原安装包目录，与 [`prepare_host_with_updates`] 给音效包和插件包定位、[`with_installed_language_dictionaries`] 找语言词库的规则相同。文档不是准备布局、或没有可用的更新记录时用 `resources` 本身；`resources` 不是绝对路径时为 `None`。
+pub fn bundled_resource_root(document: &Value) -> Option<PathBuf> {
+    let resources = document
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(Path::new)
+        .filter(|resources| resources.is_absolute())?;
+    let bundled = prepared_layout(document)
+        .and_then(|(_, _, state)| {
+            let baseline = Edition::of_host_options(document)?.resource_set().ok()?;
+            msime_client_providers::dictionary_updates::bundled_resources(state, &baseline)
+        })
+        .filter(|bundled| bundled.is_dir());
+    bundled
+        .as_deref()
+        .unwrap_or(resources)
+        .parent()
+        .map(Path::to_path_buf)
+}
+
 /// The `resources`, `dictionaries` and state directory of a document in the layout `prepare_host_configuration` produces, or `None` for any other document.
 fn prepared_layout(document: &Value) -> Option<(&Path, &Path, &Path)> {
     let path = |key: &str| {

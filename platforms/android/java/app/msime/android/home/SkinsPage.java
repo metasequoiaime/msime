@@ -20,6 +20,8 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
 import app.msime.android.R;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
 import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -254,6 +256,13 @@ public final class SkinsPage extends ReloadingDetailPage {
         ViewPolicy.bindClick(cell, () -> {
             if (!card.selected()) select(card);
         });
+        if (card.design() != null) {
+            cell.setContentDescription("皮肤 " + card.title() + "，点击使用，长按删除");
+            cell.setOnLongClickListener(ignored -> {
+                confirmDelete(card);
+                return true;
+            });
+        }
         return cell;
     }
 
@@ -283,6 +292,33 @@ public final class SkinsPage extends ReloadingDetailPage {
             }
             reload();
         });
+    }
+
+    private void confirmDelete(Card card) {
+        MessageDialog.confirm(requireContext(), "删除「" + card.title() + "」？",
+            "这款皮肤会从本机的“我的”皮肤中移除，正在使用的皮肤会保留。", "删除",
+            () -> HostTask.run(this, context -> delete(context, card), removed -> {
+                if (!Boolean.TRUE.equals(removed)) {
+                    MsToast.show(requireContext(), "删除失败，请重试");
+                    reload();
+                    return;
+                }
+                MsToast.show(requireContext(), "已删除");
+                reload();
+            }));
+    }
+
+    private static boolean delete(Context context, Card card) {
+        String directory = HostStore.directory(context);
+        if (directory.isEmpty() || card.design() == null) return false;
+        try {
+            boolean removed = CustomSkinLibrary.remove(Paths.get(directory), card.id());
+            if (removed) SyncSignals.markDirty(context, SyncSwitch.SKINS);
+            return removed;
+        } catch (java.io.IOException | RuntimeException error) {
+            android.util.Log.w("MSIMESettings", "Custom skin was not deleted", error);
+            return false;
+        }
     }
 
     @Nullable private static JSONObject apply(Context context, Card card) {

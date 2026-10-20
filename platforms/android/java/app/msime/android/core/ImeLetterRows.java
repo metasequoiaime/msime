@@ -199,12 +199,16 @@ final class ImeLetterRows {
         final String hint = LetterHintTable.hint(input);
         final float[] downY = new float[1];
         final boolean[] triggered = new boolean[1];
+        final boolean[] optionsShown = new boolean[1];
         Runnable hold = () -> {
             if (triggered[0] || !key.isPressed()) return;
             triggered[0] = true;
+            optionsShown[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
             if (s.dedicatedEnglish && "o".equalsIgnoreCase(input)) {
                 s.imeLayoutRows.showEnglishPinyinOption(key);
+            } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
+                s.imeLayoutRows.showLetterOptions(key, input);
             } else {
                 showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
@@ -223,12 +227,21 @@ final class ImeLetterRows {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
+                    if (hint != null && !triggered[0]
+                            && !s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                            && SwipeHintPolicy.swiped("up", 14f, downY[0],
+                                DimensionPolicy.fromPixels(s, event.getY()))) {
+                        triggered[0] = true;
+                        optionsShown[0] = true;
+                        key.removeCallbacks(hold);
+                        s.imeLayoutRows.showLetterOptions(key, input);
+                    } else if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                             && SwipeHintPolicy.swiped(
                                 s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
                                 DimensionPolicy.fromPixels(s, event.getY()))) {
                         triggered[0] = true;
                         key.removeCallbacks(hold);
+                        optionsShown[0] = false;
                         if (keyPreview != null && keyPreviewOwner == key)
                             keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
                     }
@@ -246,9 +259,11 @@ final class ImeLetterRows {
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
                     // Engine 不收时（会话还没起来）退回按字面上屏，和注音九键的逗号键、commitNineKeyPeriod 同一个写法。
-                    boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
-                        && s.punctuation(hint.charAt(0));
-                    if (!engine) s.imeLayoutRows.commitNineKeyLiteral(hint);
+                    if (!optionsShown[0]) {
+                        boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
+                            && s.punctuation(hint.charAt(0));
+                        if (!engine) s.imeLayoutRows.commitNineKeyLiteral(hint);
+                    }
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {

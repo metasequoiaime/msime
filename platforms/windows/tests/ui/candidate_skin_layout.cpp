@@ -28,6 +28,35 @@ Json package(const char *id) {
 } // namespace
 
 int main() {
+  // 共享层合并后的排列表优先；原始表仍是编辑器看到的声明，不能重新覆盖解析结果。
+  {
+    auto skin = package("factory");
+    skin["geometry"] = {{"padding", length(19)}, {"itemGap", length(13)}};
+    skin["resolvedLayout"] = {
+        {"cornerRadiusDip", 0}, {"borderWidthDip", 0}, {"itemCornerRadiusDip", 4},
+        {"shadow", "none"}, {"pageArrows", true}, {"fitContent", false},
+        {"expandPanel", false}, {"expandRows", 4},
+        {"geometry", {{"padding", length(5)}}},
+        {"horizontal", {{"padding", length(5)}, {"itemGap", length(0.15, true)},
+                        {"itemMinWidth", length(3.5, true)}}},
+        {"vertical", {{"padding", length(5)}, {"itemGap", length(13)}}}};
+    skin["backdrop"] = "mica";
+    skin["borderImage"] = Json::object();
+    const Json catalog{{"packages", Json::array({skin})}};
+    const auto layout = candidate_skin_layout(catalog, "factory");
+    const auto horizontal = candidate_skin_metrics(layout, true, 24);
+    const auto vertical = candidate_skin_metrics(layout, false, 24);
+    require(horizontal.padding == 5 && horizontal.item_gap == 4 && horizontal.item_min_width == 84);
+    require(vertical.padding == 5 && vertical.item_gap == 13 && !vertical.item_min_width);
+    require(layout.item_corner_radius == 4 && layout.border_width == 0);
+    require(layout.shadow == CandidateSkinShadow::none && layout.page_arrows == true);
+    require(layout.backdrop == CandidateSkinBackdrop::mica && layout.panel_image);
+    require(candidate_skin_corner_radius(catalog, "factory") == 0);
+    // 旧 catalog 与损坏的可选扩展仍使用既有声明路径。
+    skin["resolvedLayout"] = nullptr;
+    const auto legacy = candidate_skin_layout(Json{{"packages", Json::array({skin})}}, "factory");
+    require(candidate_skin_metrics(legacy, true, 24).padding == 19);
+  }
   // 一个键都没写的包解析出空的版式，候选窗用宿主自己的值。
   {
     const Json catalog{{"packages", Json::array({package("plain")})}};

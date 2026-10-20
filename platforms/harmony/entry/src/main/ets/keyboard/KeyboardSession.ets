@@ -1,3 +1,4 @@
+import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
 import inputMethodEngine from '@ohos.inputMethodEngine';
@@ -51,6 +52,7 @@ import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { HardwareKeyTarget } from './HardwareKeyDispatch';
 import { EmojiPanelKey } from './emoji/EmojiPanelKeyPolicy';
+import { MascotStickerStore } from './emoji/MascotStickerStore';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
@@ -82,6 +84,7 @@ import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration, CandidateSkinBackground,
   CandidateSkinAlign, CandidateSkinFit, CandidateSkinAnimation
 } from './candidate/CandidateSkinCatalogPolicy';
+import { CandidateSkinPackageIdentity, SkinFileStat } from './candidate/CandidateSkinPackageIdentity';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
@@ -982,6 +985,7 @@ export interface KeyboardPreferences {
   readonly candidateBackgroundImage: string | null;
   /** 共享扫描器校验后的 canvas 快照；逐键只消费，不访问文件。 */
   readonly candidateCanvas: CandidateCanvasScene | null;
+  readonly candidateSkinLayout?: CandidateResolvedLayout | null;
   readonly candidateBackgroundFit: CandidateSkinFit;
   readonly candidateBackgroundOpacity: number;
   /** The bounded native motion presets from the selected candidate package. */
@@ -1212,6 +1216,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Key, melody, commit and achievement sounds. Configured off on a phone, which keeps its own key feedback.
   private readonly soundPlayer: KeySoundPlayer = new KeySoundPlayer();
   private readonly musicPlayer: MusicPlayer = new MusicPlayer();
+  /** 表情面板里随包的水杉娘表情包；扩展在创建时用自己的 `resourceDir` 配置它，见 `MascotStickerStore.use`。 */
+  readonly mascotStickers: MascotStickerStore = new MascotStickerStore();
   /** The typing effect and combo settings the preferences ask for; off on a phone, as the sounds are. */
   private typingEffectPreferences: TypingEffectSettings = TYPING_EFFECTS_OFF;
   /** `typingEffectPreferences` with the selected effect pack resolved by host-api: what is drawn. */
@@ -1459,6 +1465,53 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private canvasGeneration: number = 0;
   private canvasPreferences: PreparedPreferences | null = null;
+  /** 上次 `applyAppearance` 读包之前取的选中包目录和 `skin.toml` 的身份，以及读完之后取的画出的装饰图、背景图的身份，见 `reloadReplacedSkinPackages`。 */
+  private skinPackageIdentity: string = '';
+  private skinImagePaths: string[] = [];
+  private skinImageIdentity: string = '';
+
+  /** 一次 `fs.statSync`。包目录被删掉、图片不在时返回 null，身份里记作缺失，不算错误。 */
+  private static statSkinFile(path: string): SkinFileStat | null {
+    try {
+      const stat: fs.Stat = fs.statSync(path);
+      const nanoseconds: bigint | undefined = stat.mtimeNs;
+      return {
+        ino: stat.ino.toString(),
+        mtime: nanoseconds === undefined ? `${stat.mtime}` : nanoseconds.toString(),
+        size: stat.size
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 浅色、深色两个槽位选中的包（`custom_theme.candidate_skin` 与 `candidate_skin_dark`）的目录和 `skin.toml` 的身份。 */
+  private selectedSkinPackageIdentity(preferences: PreparedPreferences): string {
+    const paths: string[] = CandidateSkinPackageIdentity.packagePaths(`${this.stateDirectory}/skins`,
+      [preferences.custom_theme?.candidate_skin, preferences.custom_theme?.candidate_skin_dark]);
+    return CandidateSkinPackageIdentity.identity(paths, KeyboardSession.statSkinFile);
+  }
+
+  /**
+   * 选中的皮肤包在原处被同名替换后重新应用外观，返回是否重新应用了。
+   *
+   * 设置应用重装图库作品、皮肤编辑器覆盖保存或导入同名包时，选择和偏好修订号都不变，`reloadChangedPreferences` 不会重建会话，`applyAppearance` 解析出的配色、装饰图、背景图和贴图面板会一直是旧包的，直到键盘进程重启。这里对选中的包目录、`skin.toml` 和画出的图各做一次 stat（见 `CandidateSkinPackageIdentity`），什么都没变时不读包。
+   */
+  reloadReplacedSkinPackages(): boolean {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    if (this.handle === 0 || preferences === undefined) {
+      return false;
+    }
+    if (this.skinPackageIdentity === this.selectedSkinPackageIdentity(preferences)
+      && this.skinImageIdentity === CandidateSkinPackageIdentity.identity(this.skinImagePaths,
+        KeyboardSession.statSkinFile)) {
+      return false;
+    }
+    KeyboardLog.info('selected candidate skin package changed on disk; appearance reapplied');
+    this.applyAppearance(preferences);
+    this.refreshToolbar();
+    return true;
+  }
 
   private readCandidateCanvas(packages: CandidateSkinPackage[], id: string | null, dark: boolean): CandidateCanvasScene | null {
     const entry: CandidateSkinPackage | null = id === null ? null : CandidateSkinCatalogPolicy.package(packages, id);
@@ -1504,6 +1557,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 外观重载时统一解析明暗主题；各界面保留自己的模式规则，逐键绘制不读取皮肤目录。 */
   private applyAppearance(preferences: PreparedPreferences): void {
     this.canvasPreferences = preferences;
+    // 在读包之前取：读的过程中包又被换掉时，下一次检查看到的身份和这里不同，会再应用一次，而不是把新身份记在旧内容上。
+    this.skinPackageIdentity = this.selectedSkinPackageIdentity(preferences);
     if (this.themeCatalog.length === 0) {
       this.themeCatalog = this.readThemeCatalog();
     }
@@ -1547,13 +1602,20 @@ export class KeyboardSession implements HardwareKeyTarget {
       ? this.readCandidateSkinImage(this.stateDirectory, packageId,
         skinBackground === null ? null : skinBackground.relative)
       : NO_CANDIDATE_SKIN_IMAGE;
+    // 读完之后取刚读的两张图的身份：包目录 inode 不变、只原地改写了图片时靠它们发现。触屏键盘不画这两张图，不取。
+    this.skinImagePaths = KeyboardFormFactor.isDesktop()
+      ? CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`, packageId,
+        [skinDecoration === null ? null : skinDecoration.relative,
+          skinBackground === null ? null : skinBackground.relative])
+      : [];
+    this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
     // The store validates both to the shared bounds; an out-of-range value from an older or foreign document is ignored rather than drawn.
     const userRadius: number | null | undefined = preferences.candidate_corner_radius;
     const userRadiusValid: boolean =
       typeof userRadius === 'number' && Number.isFinite(userRadius) && userRadius >= 0 && userRadius <= 32;
     const candidateRadius: number | null = userRadiusValid
       ? userRadius as number
-      : packageId === null ? null : CandidateSkinCatalogPolicy.cornerRadiusVp(skinPackages, packageId);
+      : candidateTheme?.candidate_layout?.cornerRadius ?? (packageId === null ? null : CandidateSkinCatalogPolicy.cornerRadiusVp(skinPackages, packageId));
     const opacityPercent: number | undefined = preferences.candidate_opacity_percent;
     const windowOpacity: number = typeof opacityPercent === 'number' && Number.isFinite(opacityPercent)
       ? Math.max(50, Math.min(100, opacityPercent)) / 100 : 1;
@@ -1573,6 +1635,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateCornerRadiusUser: userRadiusValid,
       candidateBackgroundImage: backgroundImage.image,
       candidateCanvas: this.readCandidateCanvas(skinPackages, packageId, candidateDark),
+      candidateSkinLayout: candidateTheme?.candidate_layout ?? null,
       candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
       candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
       candidateAnimation: candidateAnimation,
@@ -3171,6 +3234,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     // 先导入设置应用经共享沙箱发布的改动，随后的修订号比较、按键反馈和应用主题的重新读取就会看到它们。
     this.syncSharedState();
     this.reloadChangedPreferences();
+    // 镜像导入的 `skins` 可能换掉了正在用的包而偏好修订号没动，上面那步不会重新应用外观。会话建好之后键盘只在这里导入皮肤目录（扩展 `onCreate` 的那次在 `start` 之前，`start` 本来就读新包），所以也只在这里查。视图的 reload 钩子按新外观重画。
+    if (this.reloadReplacedSkinPackages() && this.onViewPreferencesReloaded !== undefined) {
+      this.onViewPreferencesReloaded();
+    }
     // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
     this.refreshFeedback();
     this.followPrivacyMode();
@@ -4464,12 +4531,31 @@ export class KeyboardSession implements HardwareKeyTarget {
         CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp)
       : CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
         settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
+    // 横排窗口和候选格使用同一份版式，序号缩为零时仍预留 9vp。
+    let layoutExtra: number = 0;
+    if (settings.candidateLayout !== 'vertical' && settings.candidateSkinLayout !== null
+      && settings.candidateSkinLayout !== undefined) {
+      const geometry = settings.candidateSkinLayout.horizontal;
+      const numberSize: number = CandidateLayoutPolicy.numberSize(geometry, settings.candidateFontSize,
+        CandidateNumberFontPolicy.size(settings.candidateFontSize));
+      entries.forEach((entry: CandidateEntry, index: number): void => {
+        const oldContent: number = CandidateWidthPolicy.chipContentVp(entry, index, settings.candidateFontSize,
+          CandidateNumberFontPolicy.size(settings.candidateFontSize));
+        const content: number = CandidateWidthPolicy.chipContentVp(entry, index, settings.candidateFontSize, numberSize)
+          + Math.max(0, 9 - (numberSize > 0 ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, numberSize) : -CandidateWidthPolicy.ORDINAL_GAP_VP));
+        layoutExtra += CandidateLayoutPolicy.chipWidth(geometry, settings.candidateFontSize, content,
+          KeyboardMetrics.CANDIDATE_PADDING_VP) - oldContent - 2 * KeyboardMetrics.CANDIDATE_PADDING_VP;
+      });
+      layoutExtra += CandidateLayoutPolicy.gap(settings.candidateSkinLayout, false, settings.candidateFontSize)
+        * Math.max(0, entries.length - 1);
+    }
     const width: number = settings.candidateShowPreedit
       ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount,
         CandidateWidthPolicy.MAX_WIDTH_VP, CandidateLogoPolicy.slotWidthVp(
           CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), settings.candidateShowPreedit)))
       : base;
-    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, width + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
+    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, Math.max(settings.candidateMinWidthVp, width + layoutExtra)
+      + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
   }
 
   private publishTranslationPage(): void {

@@ -17,12 +17,22 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     private static final String PLAIN = "msime-test-plain";
     /** 下滑距离（dp）：比 `SwipeHintPolicy.THRESHOLD_DP` 的 14 dp 大一截，不会落在阈值边上。 */
     private static final float SWIPE_DP = 28f;
+    private android.os.Bundle arguments;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        this.arguments = arguments;
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
         return "letter hints and comma hold route punctuation once, commit composition and preserve the symbol panel entry";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (arguments != null && "true".equals(arguments.getString("letter-hold"))) {
+            runLetterHoldChecks();
+            return;
+        }
         // 前置生命周期用例可能强停宿主，先恢复系统输入法绑定再打开编辑器。
         shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         restartIme();
@@ -86,6 +96,60 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         await(described("符号面板"));
         tap(described("关闭符号面板"));
         await(key("v"));
+    }
+
+    private void runLetterHoldChecks() throws Exception {
+        shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        restartIme();
+        startActivitySync(new Intent(getTargetContext(), EditorActivity.class)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        tap(field(PLAIN));
+        await(key("q"));
+        stage = "long press uppercase choice";
+        holdLetter("q");
+        tap(described("输入 Q"));
+        await(field(PLAIN).and(node -> equalsText("Q", node.getText())));
+        stage = "long press symbol choice";
+        holdLetter("a");
+        tap(described("输入 @"));
+        await(field(PLAIN).and(node -> equalsText("Q@", node.getText())));
+        stage = "upward swipe uppercase choice";
+        swipeUpLetter("w");
+        tap(described("输入 W"));
+        await(field(PLAIN).and(node -> equalsText("Q@W", node.getText())));
+    }
+
+    private void holdLetter(String value) throws Exception {
+        Rect bounds = bounds(await(key(value)));
+        long started = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN,
+            bounds.centerX(), bounds.centerY(), 0);
+        try { down.setSource(InputDevice.SOURCE_TOUCHSCREEN); automation.injectInputEvent(down, true); }
+        finally { down.recycle(); }
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 180);
+        MotionEvent up = MotionEvent.obtain(started, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP,
+            bounds.centerX(), bounds.centerY(), 0);
+        try { up.setSource(InputDevice.SOURCE_TOUCHSCREEN); automation.injectInputEvent(up, true); }
+        finally { up.recycle(); }
+        await(described("输入 " + value.toUpperCase(java.util.Locale.ROOT)));
+    }
+
+    private void swipeUpLetter(String value) throws Exception {
+        Rect bounds = bounds(await(key(value)));
+        float x = bounds.centerX();
+        float startY = bounds.centerY();
+        float endY = startY - SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        long started = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, x, startY, 0);
+        MotionEvent move = MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_MOVE, x, endY, 0);
+        MotionEvent up = MotionEvent.obtain(started, started + 80, MotionEvent.ACTION_UP, x, endY, 0);
+        try {
+            for (MotionEvent event : new MotionEvent[] {down, move, up}) {
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                automation.injectInputEvent(event, true);
+            }
+        } finally { down.recycle(); move.recycle(); up.recycle(); }
+        await(described("输入 " + value.toUpperCase(java.util.Locale.ROOT)));
     }
 
     private static Rect bounds(AccessibilityNodeInfo node) {

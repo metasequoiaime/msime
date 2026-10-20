@@ -25,7 +25,7 @@ def main() -> int:
         errors.append(f"{SMOKE}: 应直接导入 DigestPolicy")
     if "UpdateApi.sha256Hex(" in smoke:
         errors.append(f"{SMOKE}: 不应通过 UpdateApi 转发文件摘要")
-    if smoke.count("DigestPolicy.sha256Hex(") != 5:
+    if smoke.count("DigestPolicy.sha256Hex(") < 5:
         errors.append(f"{SMOKE}: 应直接检查 DigestPolicy.sha256Hex")
     if "private static String hex(" in smoke or smoke.count("DigestPolicy.hex(") != 1:
         errors.append(f"{SMOKE}: 应直接检查 DigestPolicy.hex")

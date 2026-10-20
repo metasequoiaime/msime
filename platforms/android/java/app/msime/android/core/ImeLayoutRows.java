@@ -870,6 +870,18 @@ final class ImeLayoutRows {
         showTextOptions(anchor, choices);
     }
 
+    /** 中文字母键的长按/上滑选项：保留小写、提供大写，并把右上角符号放在同一组里。 */
+    void showLetterOptions(Button anchor, String input) {
+        String lower = input.toLowerCase(java.util.Locale.ROOT);
+        String upper = input.toUpperCase(java.util.Locale.ROOT);
+        String hint = LetterHintTable.hint(input);
+        java.util.List<String> choices = new java.util.ArrayList<>();
+        choices.add(lower);
+        if (!upper.equals(lower)) choices.add(upper);
+        if (hint != null) choices.add(hint);
+        showTextOptions(anchor, choices);
+    }
+
     /** 123 符号页「！」键长按的上标、下标选项。 */
     void showSuperscriptOptions(Button anchor) {
         dismissNineKeyHoldOptions();
