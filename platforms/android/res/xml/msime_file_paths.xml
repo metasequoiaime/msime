@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider（authorities `${applicationId}.files`）能分享出去的目录，全部在应用缓存下：诊断包、下载的更新安装包、导出的词库与设置，以及键盘发送「最近复制」图片时的那一份副本（#6781，见 ClipboardImageCache）。其他目录一律不暴露。 -->
+<!-- FileProvider（authorities `${applicationId}.files`）能分享出去的目录，全部在应用缓存下：诊断包、下载的更新安装包、导出的词库与设置，键盘发送「最近复制」图片时的那一份副本（#6781，见 ClipboardImageCache），以及表情面板发送或复制水杉娘表情包时转成的 PNG（见 ImeStickers）。其他目录一律不暴露。 -->
 <paths>
     <cache-path name="diagnostics" path="diagnostics/" />
     <cache-path name="updates" path="updates/" />
     <cache-path name="exports" path="exports/" />
     <cache-path name="clipboard-images" path="clipboard-images/" />
+    <cache-path name="sticker-images" path="sticker-images/" />
 </paths>
