@@ -164,7 +164,7 @@ def main() -> int:
     # MIT 要求版权和许可声明随数据一起分发，所以逐字复制锁定提交的 LICENSE，不做转述；内容不变时不重写。
     license_text = fetch(lock["license_file"], cache).read_text(encoding="utf-8")
     notice = (
-        f"The wordbooks in this directory are derived from ECDICT ({lock['source']}), commit {lock['source_commit']}.\n"
+        f"The bundled wordbooks are derived from ECDICT ({lock['source']}), commit {lock['source_commit']}.\n"
         "Each book keeps the words ECDICT tags for that syllabus, with the phonetic and the first dictionary sense.\n\n"
         + license_text
     )
