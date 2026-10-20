@@ -27,3 +27,5 @@ Status: implemented
 ## Verification
 
 `platforms/android/tests/clipboard/ClipboardLayoutPolicySmoke.java` 验证取值、默认值、只在本机和行号换算；`bash platforms/android/check-host.sh` 编译面板代码并运行它。设置页（`home/KeyboardOptionsPage.java`）只在 Gradle 构建里编译。双列在真机上的观感没有在设备上验证。
+
+#9004 在 API 28 专用模拟器的原生拼音版中复现：保存值已经是 `two`，页面仍显示单列。安装本分支编译的 Rust/JNI 与原生 APK 后，在同一页面连续单列→双列→单列，保存值与页面文字均一致；截图复核再次打开面板后的勾选分别落在单列、双列。退出恢复原本的本地设置和引导状态。`scripts/verify-local.sh --quick` 通过，包含 Android Java/JVM/NDK 与 Rust 编译；未在 vivo 真机验收。
