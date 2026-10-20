@@ -5497,7 +5497,7 @@ pub fn run() {
             // 每天一次的后台更新检查（只提醒，不在应用里安装），见 `update_check` 里 Linux 后台检查一节。开发构建不联网检查。
             #[cfg(target_os = "linux")]
             {
-                app.manage(update_check::BackgroundUpdateState::default());
+                app.manage(update_check::BackgroundUpdateState::new(&directory));
                 if !tauri::is_dev() {
                     update_check::start_linux_background_update_check(
                         app.handle().clone(),

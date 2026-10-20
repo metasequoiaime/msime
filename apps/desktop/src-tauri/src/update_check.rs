@@ -3,6 +3,8 @@
 //! 检查放在这里而不是在 webview 里 `fetch`，是为了让每个宿主都问同一份 Rust 代码：哪个发布更新、哪个安装包属于本版本和本架构；原生 Windows 设置窗口和 HarmonyOS 页面经由 `msime_client_update_check` 调到同一个函数。
 
 use crate::CommandError;
+#[cfg(any(target_os = "linux", test))]
+use msime_client_services::update_check::ReleaseUpdate;
 use msime_client_services::update_check::{
     check_for_update, UpdateCheck, UpdateCheckError, UpdateCheckRequest,
 };
@@ -82,7 +84,7 @@ pub async fn application_update_check(app: tauri::AppHandle) -> Result<(), Comma
 
 // ---- Linux 后台更新检查 ----
 //
-// macOS 的输入法每天在后台检查一次、静默下载并在切换输入源时安装；Linux 的安装包归包管理器管（deb、rpm、AUR、OBS、nix），不能在应用里安装，所以这里只做检查和提醒：设置应用启动时（打开设置窗口或任何一个面板都会启动它）若距上次检查已满一天，就在后台问一次发布列表，发现新版本时发一条桌面通知，点通知打开设置的「关于」页，关于页直接显示这次找到的新版本。检查在设置应用里跑，不在 Fcitx5 插件或 IBus 宿主里联网。
+// macOS 的输入法每天在后台检查一次、静默下载并在切换输入源时安装；Linux 的安装包归包管理器管（deb、rpm、AUR、OBS、nix），不能在应用里安装，所以这里只做检查和提醒：设置应用启动时（打开设置窗口或任何一个面板都会启动它）若距上次检查已满一天，就在后台问一次发布列表，发现新版本时发一条桌面通知，点通知打开设置的「关于」页，关于页直接显示找到的新版本。找到的版本记进 `update-check.json`，发通知的那个进程退出以后再打开关于页也能看到，直到运行的版本追上它。通知上的「查看」只在发通知的进程还在时有效（它要等 notify-send 退出才知道点了哪个动作），之后从设置窗口打开「关于」页即可。检查在设置应用里跑，不在 Fcitx5 插件或 IBus 宿主里联网。
 
 /// 两次后台检查之间至少隔多久，与 macOS 输入法的每日检查一致。
 #[cfg(any(target_os = "linux", test))]
@@ -90,7 +92,7 @@ const BACKGROUND_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
 /// 状态目录里记下上次检查时间和已提醒过的版本的文件。
 #[cfg(target_os = "linux")]
 const BACKGROUND_RECORD: &str = "update-check.json";
-/// 这份记录只有两个字段，读的时候限制大小，坏文件当作从没检查过。
+/// 这份记录只有几个短字段，读的时候限制大小，坏文件当作从没检查过。
 #[cfg(target_os = "linux")]
 const BACKGROUND_RECORD_LIMIT: u64 = 4096;
 /// 等用户点通知最多等多久；之后结束等待的 notify-send，不留下一直挂着的进程。
@@ -106,6 +108,9 @@ pub(crate) struct BackgroundRecord {
     /// 已经发过通知的版本号，同一个版本只提醒一次。
     #[serde(default)]
     pub(crate) notified_version: Option<String>,
+    /// 上次检查找到的新版本。关于页打开时显示它，不必等下一次检查；运行的版本追上它以后不再显示。
+    #[serde(default)]
+    pub(crate) available: Option<ReleaseUpdate>,
 }
 
 /// 现在是否该再检查一次：满一天，或者时钟被往回拨过（记录在将来）。
@@ -130,10 +135,30 @@ pub(crate) fn background_notification(
     }
 }
 
-/// 本进程后台检查找到的新版本，关于页打开时直接显示；没找到或还没检查时为 `None`。
+/// 关于页要显示的后台检查结果：记录里找到的新版本仍高于运行的版本时才算，升级以后旧记录不再提示。
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn pending_update(
+    record: &BackgroundRecord,
+    current_version: &str,
+) -> Option<UpdateCheck> {
+    use msime_client_services::update_check::{compare_versions, parse_version};
+    let update = record.available.as_ref()?;
+    let current = parse_version(current_version)?;
+    compare_versions(&update.version, &current)
+        .is_gt()
+        .then(|| UpdateCheck::Available(update.clone()))
+}
+
+/// 后台检查的记录文件（状态目录下的 `update-check.json`），关于页从这里读上次找到的新版本。
 #[cfg(target_os = "linux")]
-#[derive(Default)]
-pub(crate) struct BackgroundUpdateState(std::sync::Mutex<Option<UpdateCheck>>);
+pub(crate) struct BackgroundUpdateState(std::path::PathBuf);
+
+#[cfg(target_os = "linux")]
+impl BackgroundUpdateState {
+    pub(crate) fn new(directory: &std::path::Path) -> Self {
+        Self(directory.join(BACKGROUND_RECORD))
+    }
+}
 
 /// 关于页的「版本与更新」先显示后台检查已经找到的新版本，不必再点一次「检查更新」。
 #[tauri::command]
@@ -141,8 +166,11 @@ pub fn pending_update_check(app: tauri::AppHandle) -> Option<UpdateCheck> {
     #[cfg(target_os = "linux")]
     {
         use tauri::Manager;
-        app.try_state::<BackgroundUpdateState>()
-            .and_then(|state| state.0.lock().ok().and_then(|found| found.clone()))
+        let state = app.try_state::<BackgroundUpdateState>()?;
+        pending_update(
+            &read_background_record(&state.0),
+            &app.package_info().version.to_string(),
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -201,16 +229,13 @@ pub(crate) fn start_linux_background_update_check(
             let updated = BackgroundRecord {
                 checked_at: now,
                 notified_version: notify.clone().or(record.notified_version),
+                available: match check {
+                    UpdateCheck::Available(update) => Some(update),
+                    UpdateCheck::Current(_) | UpdateCheck::None => None,
+                },
             };
             if let Ok(text) = serde_json::to_vec(&updated) {
                 let _ = crate::shared::atomic_file::write(&path, &text);
-            }
-            if matches!(check, UpdateCheck::Available(_)) {
-                if let Some(state) = app.try_state::<BackgroundUpdateState>() {
-                    if let Ok(mut found) = state.0.lock() {
-                        *found = Some(check);
-                    }
-                }
             }
             if let Some(version) = notify {
                 notify_linux_update(&app, &version);
@@ -218,11 +243,27 @@ pub(crate) fn start_linux_background_update_check(
         });
 }
 
+/// 通知用的应用名和图标名：随本安装包所属的版本（五笔版是「水杉五笔」和 `msime-linux-wubi`），与引导脚本按版本改写出的通知一致；full 是「水杉输入法」和 `msime-linux`。设置程序在各版本之间共用，写死 full 的名字时五笔版的通知会找不到图标，并排安装时两条通知也分不出是谁的。
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn update_notification_identity(
+    edition: &msime_client_core::edition::Edition,
+) -> Option<(&str, &str)> {
+    Some((
+        edition.display_name.zh_hans.as_str(),
+        edition.linux()?.package.as_str(),
+    ))
+}
+
 /// 发「有新版本」的桌面通知。notify-send 支持动作（libnotify 0.7.9 起的 `--action`）时，点通知上的「查看」打开设置的「关于」页；它要等通知被点掉或关闭才退出，所以在单独的线程里等，最多等 `NOTIFICATION_WAIT`。
 #[cfg(target_os = "linux")]
 fn notify_linux_update(app: &tauri::AppHandle, version: &str) {
     use crate::platform::linux::linux_process;
-    let title = format!("水杉输入法有新版本 v{version}");
+    use msime_client_core::edition::Edition;
+    let edition = Edition::of_linux_package().unwrap_or_else(|_| Edition::full());
+    let Some((name, icon)) = update_notification_identity(edition) else {
+        return;
+    };
+    let title = format!("{name}有新版本 v{version}");
     let body = "Linux 版由安装它的包管理器更新（apt、dnf、pacman 或 AUR 等），也可以从发布页下载对应的安装包。打开设置的「关于」页查看这个版本。";
     let actions = linux_process::read_text(
         "notify-send",
@@ -234,21 +275,13 @@ fn notify_linux_update(app: &tauri::AppHandle, version: &str) {
     if !actions {
         linux_process::launch(
             "notify-send",
-            &["-a", "水杉输入法", "-i", "msime-linux", &title, body],
+            &["-a", name, "-i", icon, &title, body],
             std::time::Duration::from_millis(300),
         );
         return;
     }
     let Ok(mut child) = std::process::Command::new("notify-send")
-        .args([
-            "-a",
-            "水杉输入法",
-            "-i",
-            "msime-linux",
-            "--action=about=查看",
-            &title,
-            body,
-        ])
+        .args(["-a", name, "-i", icon, "--action=about=查看", &title, body])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -314,6 +347,7 @@ mod tests {
         let record = BackgroundRecord {
             checked_at: 1_000_000,
             notified_version: None,
+            available: None,
         };
         assert!(background_check_due(
             &BackgroundRecord::default(),
@@ -332,6 +366,44 @@ mod tests {
     }
 
     #[test]
+    fn notification_names_the_installed_edition() {
+        use msime_client_core::edition::Edition;
+        assert_eq!(
+            update_notification_identity(Edition::full()),
+            Some(("水杉输入法", "msime-linux"))
+        );
+        let wubi = Edition::by_id("wubi").unwrap();
+        assert_eq!(
+            update_notification_identity(wubi),
+            Some(("水杉五笔", "msime-linux-wubi"))
+        );
+    }
+
+    #[test]
+    fn the_about_page_keeps_showing_a_found_update_until_it_is_installed() {
+        let record = BackgroundRecord {
+            checked_at: 1,
+            notified_version: Some("9.9.9".to_owned()),
+            available: Some(release("9.9.9")),
+        };
+        // 发通知的进程退出以后，关于页仍从记录里读到这个版本。
+        assert_eq!(
+            pending_update(&record, "1.2.3"),
+            Some(UpdateCheck::Available(release("9.9.9")))
+        );
+        // 已经升级到（或越过）这个版本时不再提示。
+        assert_eq!(pending_update(&record, "9.9.9"), None);
+        assert_eq!(pending_update(&record, "10.0.0"), None);
+        assert_eq!(pending_update(&BackgroundRecord::default(), "1.2.3"), None);
+        // 记录写成文件再读回来是同一个版本。
+        let text = serde_json::to_string(&record).unwrap();
+        assert_eq!(
+            serde_json::from_str::<BackgroundRecord>(&text).unwrap(),
+            record
+        );
+    }
+
+    #[test]
     fn each_new_version_is_announced_once() {
         let fresh = BackgroundRecord::default();
         assert_eq!(
@@ -341,6 +413,7 @@ mod tests {
         let told = BackgroundRecord {
             checked_at: 1,
             notified_version: Some("9.9.9".to_owned()),
+            available: None,
         };
         assert_eq!(
             background_notification(&UpdateCheck::Available(release("9.9.9")), &told),
@@ -360,7 +433,8 @@ mod tests {
             serde_json::from_str::<BackgroundRecord>("{\"checked_at\":5}").unwrap(),
             BackgroundRecord {
                 checked_at: 5,
-                notified_version: None
+                notified_version: None,
+                available: None,
             }
         );
     }
