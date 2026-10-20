@@ -7564,7 +7564,8 @@ void FcitxState::render() {
 bool FcitxState::nativeChromeActive() const {
   return engine_ && engine_->native_canvas_owned_ && engine_->native_canvas_assets_ &&
       engine_->native_canvas_assets_->chrome && engine_->instance_->currentUI() == "classicui" &&
-      ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0;
+      ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
+      !ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel);
 }
 
 // 网格这时候还能不能开着：偏好打开、横排、有焦点、原生画布按 macOS 结构画，没有打开候选列表（韩文汉字、注音）或释义页。
@@ -7767,8 +7768,10 @@ bool FcitxState::expandedKey(fcitx::KeyEvent &event) {
 bool FcitxState::renderNativeCanvas() {
   namespace host = msime::linux_host;
   const auto list = ic_.inputPanel().candidateList();
+  // 客户端自己画候选面板（ClientSideInputPanel，例如 fcitx5-gtk 的客户端面板）时 classicui 也不画，原生画布同样让给它。
   const bool drawable = engine_ && engine_->native_canvas_owned_ && engine_->native_canvas_assets_ &&
-      engine_->instance_->currentUI() == "classicui" && ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0;
+      engine_->instance_->currentUI() == "classicui" && ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
+      !ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel);
   if (!drawable || !list || list->size() == 0) {
     // 只有普通收起（上屏、取消后没了候选）播退场；失焦、换界面、换到 Wayland 一律立即收起，不在屏幕上留旧候选文字。
     if (native_canvas_) native_canvas_->hide(drawable);
