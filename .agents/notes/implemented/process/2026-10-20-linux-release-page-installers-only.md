@@ -65,7 +65,7 @@ publish job 拆成三步：先在本地备齐 `SHA256SUMS`、更新记录和指�
   - beta 与 alpha 的源码包不再挂在任何 release 上，只在 workflow artifact 里，90 天后过期。它们之前挂在预发布页上，但没有任何消费方。
   - 0.12.1 及更早版本的源码包仍在各自的版本发布页上，`download-sources.sh` 的回退分支要一直保留到这些版本都迁移或不再需要补发。
   - 指引里的系统列表（Debian 12、Ubuntu 22.04、Fedora 44、glibc 2.28–2.34）是手写的，与 `platforms/linux/README.md`「生成 Linux 安装包」「旧发行版的 legacy 包」两节相同；构建基线变了（例如换成 Debian 13 容器）要一起改。
-  - 官网下载页的更新记录把发布说明逐行显示，下载指引那一段要在 msime-web 里按那对注释跳过（macOS 的指引已经有同样的问题）。
+  - 官网下载页的更新记录把发布说明逐行显示；msime-web#458 已经让它按那对注释跳过下载指引，Linux 用同一对注释，不用再改。
 
 ## Verification
 
