@@ -90,7 +90,16 @@ Chocolatey 用的 nuspec 架构是它自己维护的 NuGet 分支里的那份（
 
 ## 发布步骤
 
-先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME-Full_Setup_v<版本>.exe MetasequoiaIME-Full_Setup_v<版本>.exe.sha256 --clobber`），再在 Windows 上渲染；不在 Windows 上时手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
+先把签名的安装包和它的 `.sha256` 替换到发布上，并把发布页 `SHA256SUMS` 里这个安装包的那一行换成新的，否则校验值和安装包对不上：
+
+```sh
+installer=MetasequoiaIME-Full_Setup_v<版本>.exe
+gh release download windows-v<版本> -p SHA256SUMS -O SHA256SUMS --clobber
+{ grep -vF "  $installer" SHA256SUMS; cat "$installer.sha256"; } > SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS
+gh release upload windows-v<版本> "$installer" "$installer.sha256" SHA256SUMS --clobber
+```
+
+再在 Windows 上渲染；不在 Windows 上时手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
 
 ```sh
 python platforms/windows/packaging/render.py --tag windows-v<版本> --output out/package-managers

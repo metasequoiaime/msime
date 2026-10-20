@@ -10,6 +10,9 @@
 // 选中预设接管高亮底色的候选行：动画期间底色画在动效自己的图层上，行只画文字和选中条。
 @protocol MSIMECandidateSelectionFillHost <NSObject>
 @property(nonatomic) BOOL selectionFillDetached;
+@optional
+// 返回行局部坐标的底色轮廓，由调用方释放；空值使用统一圆角。
+- (CGPathRef)createSelectionFillPath CF_RETURNS_RETAINED;
 @end
 
 // 进场期间切换皮肤后，结束回调只能恢复当前内容仍需要的系统窗口阴影。

@@ -7543,6 +7543,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         frame.origin.y += canvas.outer.bottom + extra.bottom + deltaHeight;
         child.frame = frame;
     }
+    content.candidateRowsRect = NSOffsetRect(content.candidateRowsRect, padding.left - inset, padding.bottom - inset);
     content.canvasOuterInsets = canvas.outer;
     NSSize size = content.frame.size;
     size.width += deltaWidth + canvas.outer.left + canvas.outer.right + extra.left + extra.right;
@@ -7706,6 +7707,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     content.candidateContentView.clipsToBounds = YES;
+    content.candidateRowsRect = NSMakeRect(inset, inset, MAX(0.0, width - 2 * inset), rowsHeight);
+    content.candidateRowsTouchTop = headerHeight == 0;
     CGFloat rowTop = headerBottom;
     for (NSUInteger offset = 0; offset < layouts.size(); ++offset) {
         const MSIMECandidatePageGeometry &geometry = layouts[offset];
@@ -7988,6 +7991,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     }
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    content.candidateRowsRect = NSMakeRect(inset, inset, pageGeometry.lineWidth, pageGeometry.rowsHeight);
+    content.candidateRowsTouchTop = headerHeight == 0;
     NSUInteger slot = 0;
     const CGFloat rowsTop = headerBottom;
     for (NSDictionary *candidate in candidates) {
@@ -8195,6 +8200,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         button.barColor = SkinColor(tokens.selectedBar.value_or(tokens.accent));
         button.showSelectedBar = tokens.showSelectedBar;
         button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted);
+        button.hasCornerRadii = skin.layout && skin.layout->itemCornersFollowCard.value_or(false);
+        if (button.hasCornerRadii) {
+            const NSRect row = button.frame, area = content.candidateRowsRect;
+            button.cornerRadii = msime::mac::CandidateRowCornerRadii(
+                {NSMinX(row), -NSMaxY(row), NSWidth(row), NSHeight(row)},
+                {NSMinX(area), -NSMaxY(area), NSWidth(area), NSHeight(area)}, content.candidateRowsTouchTop,
+                button.cornerRadius, MAX(0.01, tokens.radius), 0.5 * MSIMECandidateScale(_appearance));
+        }
         button.selectionLeftInset = MSIMECandidateScale(_appearance);
         button.contentTintColor = SkinColor(tokens.text);
         button.needsDisplay = YES;
