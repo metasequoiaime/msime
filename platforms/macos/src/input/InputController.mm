@@ -6029,7 +6029,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     BOOL staleCapsLock = NO;
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
         // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
-        if (MSIMECapsLockPhysicallyHeld()) _capsLockTapReleased = NO;
+        if (MSIMECapsLockKeyHeld()) _capsLockTapReleased = NO;
         else { capsLock = NO; staleCapsLock = YES; }
     }
     if (_capsLockTapReleased && event.type == NSEventTypeKeyDown && event.keyCode != 0x39 && capsLock) {
