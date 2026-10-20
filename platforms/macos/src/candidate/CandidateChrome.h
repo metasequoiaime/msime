@@ -183,6 +183,11 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat selectionLeftInset;
 // candidate_scale_percent as a factor, for the lengths the row draws itself: the text insets and the selection bar. Zero draws at 100%.
 @property(nonatomic) CGFloat chromeScale;
+@property(nonatomic) CGFloat textLeftInset;
+@property(nonatomic) CGFloat textRightInset;
+@property(nonatomic) CGFloat selectedBarWidth;
+@property(nonatomic) CGFloat selectedBarHeight;
+@property(nonatomic) BOOL selectedBarInside;
 // 选中动效期间高亮底色由 MSIMECandidateMotion 的图层画，行只画文字和选中条。
 @property(nonatomic) BOOL selectionFillDetached;
 // 右键才构建操作菜单，普通输入不创建菜单树。
@@ -259,14 +264,14 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     }
     if (self.candidateHighlighted && self.showSelectedBar)
     {
-        const CGFloat barHeight = MAX(10.0 * scale, self.font.pointSize * 0.8);
+        const CGFloat barHeight = self.selectedBarHeight > 0.0 ? self.selectedBarHeight : MAX(10.0 * scale, self.font.pointSize * 0.8);
         [self.barColor setFill];
         [[NSBezierPath
-            bezierPathWithRoundedRect:NSMakeRect(MAX(1.0, self.selectionLeftInset),
+            bezierPathWithRoundedRect:NSMakeRect(self.selectedBarWidth > 0.0 && !self.selectedBarInside ? 0.0 : MAX(1.0, self.selectionLeftInset),
                                                  (self.bounds.size.height - barHeight) / 2.0,
-                                                 3.0 * scale, barHeight)
-                              xRadius:1.5 * scale
-                              yRadius:1.5 * scale] fill];
+                                                 self.selectedBarWidth > 0.0 ? self.selectedBarWidth : 3.0 * scale, barHeight)
+                              xRadius:(self.selectedBarWidth > 0.0 ? self.selectedBarWidth : 3.0 * scale) / 2.0
+                              yRadius:barHeight / 2.0] fill];
     }
     NSDictionary *numberAttributes = @{
         NSFontAttributeName : self.numberFont ?: MSIMECandidateNumberFont(self.font),
@@ -277,8 +282,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     NSDictionary *titleAttributes = MSIMECandidateRunAttributes(self.font, titleColor, NO);
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
-    const CGFloat textLeft = MSIMECandidateTextLeft(self.showSelectedBar, scale);
-    const CGFloat textRight = MSIMECandidateTextRight * scale;
+    const CGFloat textLeft = self.textLeftInset > 0.0 ? self.textLeftInset : MSIMECandidateTextLeft(self.showSelectedBar, scale);
+    const CGFloat textRight = self.textRightInset > 0.0 ? self.textRightInset : MSIMECandidateTextRight * scale;
     const BOOL flipped = self.isFlipped;
     const CGFloat boundsHeight = self.bounds.size.height;
     // Layout boxes run downwards from the row top; convert them for either orientation of the view.

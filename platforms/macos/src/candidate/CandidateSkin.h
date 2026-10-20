@@ -125,6 +125,47 @@ struct SkinInsets
 {
     double top = 0, right = 0, bottom = 0, left = 0;
 };
+
+// 共享 catalog 的候选几何长度。`em` 长度在宿主拿到候选字号后换算；固定 DIP 长度直接使用。
+struct SkinLength
+{
+    double value = 0.0;
+    bool em = false;
+};
+
+struct SkinLayoutGeometry
+{
+    std::optional<SkinLength> padding;
+    std::optional<SkinLength> itemGap;
+    std::optional<SkinLength> itemExtraHeight;
+    std::optional<SkinLength> numberInset;
+    std::optional<SkinLength> itemPaddingRight;
+    std::optional<SkinLength> itemMinWidth;
+    std::optional<SkinLength> numberGap;
+    std::optional<double> numberScale;
+    std::optional<SkinLength> selectedBarWidth;
+    std::optional<double> selectedBarHeightEm;
+    std::optional<bool> selectedBarInside;
+    std::optional<bool> itemCornersFollowCard;
+    std::optional<bool> justifyRows;
+    std::optional<bool> trimHiddenPreeditGap;
+    std::optional<std::string> pageArrowStyle;
+    std::optional<SkinInsets> preeditMarginDip;
+};
+
+struct ResolvedSkinLayout
+{
+    double cornerRadiusDip = 0.0;
+    double borderWidthDip = 0.0;
+    double itemCornerRadiusDip = 0.0;
+    bool pageArrows = false;
+    bool fitContent = false;
+    bool expandPanel = false;
+    unsigned expandRows = 4;
+    SkinLayoutGeometry geometry;
+    SkinLayoutGeometry horizontal;
+    SkinLayoutGeometry vertical;
+};
 struct SkinBorderImage
 {
     std::string source;
@@ -368,6 +409,7 @@ struct SkinPackage
     std::optional<SkinBackground> background;
     std::optional<SkinCanvas> canvas;
     SkinToolbar toolbar;
+    std::optional<ResolvedSkinLayout> resolvedLayout;
     SkinAnimation animation;
     std::optional<SkinLicense> license;
     SkinColors dark;
@@ -446,6 +488,8 @@ struct ResolvedSkin
     double minWidthDip = 0.0;
     SkinAnimation animation;
     std::optional<SkinCanvas> canvas;
+    // 当前横/竖排的共享出厂继承结果；没有 Windows 基底的包保持空值，继续使用 macOS 原生默认。
+    std::optional<SkinLayoutGeometry> layout;
     bool canvasPanelDrawn = false;
 };
 

@@ -10,18 +10,21 @@ Status: implemented
 
 固定 `msime-windows` 默认分支 `develop@a60e2948dbba29f32bec58ee4bf44d68ce953a0b`，内嵌八份出厂清单，由共享解析器生成可选的 `resolvedLayout`。只对 Windows 外观基底与 `canvas` 提供，保留其余主题的宿主默认。每种排列依次叠加出厂公共、出厂排列、皮肤公共、皮肤排列；em 留到宿主按实际字号换算，显式零值与 `false` 照常覆盖。原始字段继续服务编辑器，绘制路径选用解析结果。Windows 与 Linux 的 catalog 消费者直接接入该结果；Android、iOS 和 HarmonyOS 通过共享主题响应的可选 `candidate_layout` 接入，网页 SDK 接受 catalog 原样携带的 `resolvedLayout`。只有实际绘制当前排列与明暗的包才输出该字段，旧主题响应不增加空字段，用户配置保持现有优先级。
 
+macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra height、number scale/inset/gap、横排最小格宽、选中条尺寸，测量与绘制使用同一份几何；旧包没有结果时继续使用既有 macOS 默认。
+
 ## 宿主映射
 
 `ThemePackage` 从扫描结果与 host catalog 保留 `ResolvedSkinLayout`，主题解析负责确认实际绘制的包，各宿主只在原生长度单位与实际候选字号之间换算。移动端沿用固定横排、键盘高度和触控入口；桌面窗口的布局开关不用于删除手机的展开入口。网页端没有桌面卷轴展开面板，内置皮肤 ID 继续使用原有默认几何，调用方传共享 catalog 时才消费合并版式。
 
 | 消费者 | 本次接入的绘制字段 | 平台适配 |
 | --- | --- | --- |
+| macOS 原生候选窗 | padding、行间距、额外行高、序号字号与间距、横排最小格宽、选中条尺寸与位置 | 横排保留固定 6 DIP 间距；隐藏序号仍保留 9 DIP 栏位；键位图按当前候选几何避让 |
 | Android 原生候选条 | 候选圆角、候选最小宽度、右内边距、额外行内边距（上下各至多 4dp）、横排间距及紧凑开关 | 使用真实候选字号换算 em；仅布局更新也失效样式缓存；触屏不显示桌面序号与分页箭头 |
 | iOS 原生候选条与展开网格 | 候选圆角、描边、内边距、横排间距、候选最小宽度、选中条宽高与内外位置 | 额外垂直内边距受固定触屏栏空间限制；展开网格保持原生列数和点击面积 |
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
 | 网页候选栏 | 卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开 |
 
-该表只描述本次接入的字段。`shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未在这四条路径完成与 Windows 的同等消费；不能因为读模型携带这些字段就声称已实现。macOS 由独立 PR 接入，不能将那一分支未合并的结果算成本分支的运行证据。
+该表只描述本次接入的字段。`shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未在这四条路径完成与 Windows 的同等消费；不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，完整安装与真实编辑器入口仍需验收；Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
 
 ## 历史审计
 
@@ -53,3 +56,7 @@ Status: implemented
 - HarmonyOS 翻译契约检查跟随新的布局策略入口，仍检查不显示译文时用候选原文计算宽度；不再要求已被替换的旧函数调用字面量。
 
 补充的 API 35 核心冒烟在笔画数字键盘用例失败：本次瘦包明确省略可选笔画词库，已核对 APK 不含该数据，而用例仍要求笔画键面；未把完整核心冒烟记为通过。皮肤与画布专项在最终 APK 上已分别重跑通过。
+
+macOS 的无 AppKit 排版测试覆盖行距、最小格宽、横排固定 6 DIP 间距和旧默认回退，并以 Objective-C++ 语法检查验证清单桥与真实控制器接线。接入时必须使用 optional 的 `has_value()` 判断 `numberScale`，否则 `0` 会错误回退到默认字号；隐藏序号仍保留 9 DIP 的栏位。macOS 的 CMake 宿主目标和候选排版测试已在 Sparkle 2.9.6 可用后完成构建；尚未在真实编辑器入口安装验收。
+
+双拼键位图同样读取当前皮肤的排版几何，让开的距离覆盖实际候选卡片。`shortcut` 回归测试将预留高度与控制器真实排版后的窗口高度比较，覆盖皮肤默认、零边距与 24pt 大边距，同时保留后备字形高度的检查；不再把旧版每侧 12pt 内边距写死为所有皮肤的下限。

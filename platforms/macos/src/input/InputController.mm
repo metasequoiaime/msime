@@ -437,7 +437,19 @@ struct MSIMECandidatePageGeometry {
     CGFloat lineWidth = 0;
     CGFloat rowsHeight = 0;
     CGFloat contentLeft = 0;
+    CGFloat textLeft = 0;
+    CGFloat textRight = 0;
+    CGFloat selectedBarWidth = 3;
+    CGFloat selectedBarHeight = 0;
+    BOOL selectedBarInside = NO;
 };
+
+static CGFloat MSIMESkinLengthValue(const std::optional<msime::mac::SkinLength> &length, CGFloat fontSize,
+                                    CGFloat scale, CGFloat fallback = 0.0) {
+    if (!length) return fallback;
+    const double value = length->em ? length->value * fontSize : length->value;
+    return std::isfinite(value) && value >= 0.0 ? static_cast<CGFloat>(value * (length->em ? 1.0 : scale)) : fallback;
+}
 
 // 释义每个目标语言占一行，宿主内部用 "\n" 分行；共享会话每个候选只存一条不含控制字符的释义，msime_client_apply_translations 遇到 "\n" 会把整批释义拒收，设了第二释义语言后候选下一条释义都不显示（#5598）。所以交给会话时把行分隔换成 U+2028 LINE SEPARATOR（它不是控制字符），读回时在 CandidateTranslation 这唯一的读取处换回 "\n"。
 static NSString *const MSIMEGlossLineSeparator = @"\u2028";
@@ -1221,6 +1233,7 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _backspaceHoldArmed;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
+    std::optional<msime::mac::SkinLayoutGeometry> _candidateLayoutGeometry;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
     // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
@@ -7032,7 +7045,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     // The fonts arrive at the window's scale already; the row's own paddings follow them.
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    NSFont *numberFont = MSIMECandidateNumberFont(font);
+    const auto &layout = _candidateLayoutGeometry;
+    const CGFloat numberScale = layout && layout->numberScale ? static_cast<CGFloat>(std::clamp(*layout->numberScale, 0.0, 2.0)) : MSIMECandidateNumberScale;
+    NSFont *numberFont = [NSFont fontWithDescriptor:font.fontDescriptor size:font.pointSize * numberScale] ?: MSIMECandidateNumberFont(font);
     NSMutableArray<NSString *> *texts = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *annotations = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *displays = [NSMutableArray arrayWithCapacity:candidates.count];
@@ -7042,7 +7057,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSMutableArray<NSString *> *tooltips = [NSMutableArray arrayWithCapacity:candidates.count];
     // A Korean Hanja's 훈음 (나라 이름 한) arrives as the row's annotation. Drawn inline at the candidate size it made every row several times as wide as its one character, so it goes on the small gloss line under the Hanja instead, always, with any translation on the lines after it. It stays out of `translation`, which is what the gloss commit chords write.
     const BOOL hanjaReadings = MSIMEKoreanHanjaListOpen(_view);
-    CGFloat candidateRow = MSIMECandidateTextHeight(@"", font) + MSIMECandidateRowPadding * scale;
+    const CGFloat itemExtraHeight = layout ? MSIMESkinLengthValue(layout->itemExtraHeight, font.pointSize, scale, 0.0) : 0.0;
+    CGFloat candidateRow = MSIMECandidateTextHeight(@"", font) + MSIMECandidateRowPadding * scale + itemExtraHeight;
     CGFloat numberWidth = 0;
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
@@ -7077,7 +7093,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
         numberWidth = MAX(numberWidth, [number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width);
         // Fallback glyphs can stand taller than the primary font; a one-line row is as tall as its tallest.
-        candidateRow = MAX(candidateRow, MSIMECandidateTextHeight([text stringByAppendingString:annotation], font) + MSIMECandidateRowPadding * scale);
+        candidateRow = MAX(candidateRow, MSIMECandidateTextHeight([text stringByAppendingString:annotation], font) + MSIMECandidateRowPadding * scale + itemExtraHeight);
     }
     geometry.texts = texts;
     geometry.annotations = annotations;
@@ -7085,9 +7101,20 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     geometry.readings = readings;
     geometry.scriptAnnotations = scriptAnnotations;
     geometry.tooltips = tooltips;
-    geometry.contentLeft = MSIMECandidateTextLeft(showSelectedBar, scale) + ceil(numberWidth) + MSIMECandidateNumberGap * scale;
-    const msime::mac::CandidateLayoutMetrics metrics =
-        MSIMECandidateLayoutMetrics(font, glossFont, candidateRow, geometry.contentLeft + MSIMECandidateTextRight * scale, scale);
+    const CGFloat textLeft = layout && layout->numberInset ? MSIMESkinLengthValue(layout->numberInset, font.pointSize, scale, 0.0)
+                                                            : MSIMECandidateTextLeft(showSelectedBar, scale);
+    const CGFloat numberGap = layout ? MSIMESkinLengthValue(layout->numberGap, font.pointSize, scale, MSIMECandidateNumberGap * scale)
+                                     : MSIMECandidateNumberGap * scale;
+    geometry.textLeft = textLeft;
+    geometry.textRight = layout ? MSIMESkinLengthValue(layout->itemPaddingRight, font.pointSize, scale, MSIMECandidateTextRight * scale)
+                                : MSIMECandidateTextRight * scale;
+    geometry.contentLeft = textLeft + ceil(numberWidth) + numberGap;
+    msime::mac::CandidateLayoutMetrics metrics =
+        MSIMECandidateLayoutMetrics(font, glossFont, candidateRow, geometry.contentLeft + geometry.textRight, scale);
+    if (layout) {
+        metrics.itemGap = MSIMESkinLengthValue(layout->itemGap, font.pointSize, scale, 0.0);
+        metrics.itemMinWidth = MSIMESkinLengthValue(layout->itemMinWidth, font.pointSize, scale, 0.0);
+    }
     std::vector<msime::mac::CandidateItemWidths> items;
     items.reserve(candidates.count);
     CGFloat natural = 0;
@@ -7096,6 +7123,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const CGFloat itemWidth = ceil(msime::mac::CandidateItemNaturalWidth(items.back(), metrics, !vertical));
         natural = vertical ? MAX(natural, itemWidth) : natural + itemWidth;
     }
+    if (!vertical && items.size() > 1) natural += metrics.itemGap * static_cast<CGFloat>(items.size() - 1);
     // The page arrows sit in the card's top row beside the reading, so they take no width from the candidate line.
     CGFloat width = MAX(20, natural + 2 * inset);
     width = MAX(width, preeditWidth);
@@ -7128,6 +7156,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         row.height = bottom - top;
     }
     geometry.rowsHeight = ceil(msime::mac::CandidatePageHeight(geometry.rows));
+    geometry.selectedBarWidth = layout && layout->selectedBarWidth ? MSIMESkinLengthValue(layout->selectedBarWidth, font.pointSize, scale, 3.0 * scale) : 3.0 * scale;
+    geometry.selectedBarHeight = layout && layout->selectedBarHeightEm
+        ? MAX(geometry.selectedBarWidth * 2.0, static_cast<CGFloat>(*layout->selectedBarHeightEm * font.pointSize))
+        : 0.0;
+    geometry.selectedBarInside = layout && layout->selectedBarInside.value_or(false);
     return geometry;
 }
 
@@ -7375,6 +7408,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     button.font = font;
     button.numberFont = numberFont;
     button.chromeScale = scale;
+    button.textLeftInset = geometry.textLeft;
+    button.textRightInset = geometry.textRight;
+    button.selectedBarWidth = geometry.selectedBarWidth;
+    button.selectedBarHeight = geometry.selectedBarHeight;
+    button.selectedBarInside = geometry.selectedBarInside;
     button.lineBreakMode = NSLineBreakByWordWrapping;
     button.annotation = row.item.annotation.width > 0 ? geometry.annotations[slot] : @"";
     button.translation = CandidateTranslation(candidate);
@@ -7481,20 +7519,24 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
-    const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
-    const auto tokens = skin.tokens;
-    _skinShowsSelectedBar = tokens.showSelectedBar;
+    auto skin = [_appearance candidateWindowSkinForDark:skinDark];
+    _candidateLayoutGeometry = skin.layout;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
     _renderedDecorationMotion = skin.decorationMotion;
     _renderedDecorationPeriodMs = skin.decorationMotionPeriodMs;
-    _renderedCandidateAccent = SkinColor(tokens.accent);
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = msime::mac::CandidateInset(tokens);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
-    NSFont *numberFont = MSIMECandidateNumberFont(font);
+    if (skin.layout && skin.layout->padding)
+        skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
+    const auto tokens = skin.tokens;
+    _skinShowsSelectedBar = tokens.showSelectedBar;
+    _renderedCandidateAccent = SkinColor(tokens.accent);
+    const CGFloat inset = msime::mac::CandidateInset(tokens);
+    const CGFloat numberScale = skin.layout && skin.layout->numberScale ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0)) : MSIMECandidateNumberScale;
+    NSFont *numberFont = [NSFont fontWithDescriptor:font.fontDescriptor size:font.pointSize * numberScale] ?: MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
@@ -7717,20 +7759,23 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     // The styled skin carries the window's scale in its pad, radii, decoration and minimum width; the fonts and the fixed lengths below take it from `scale`.
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
-    const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
-    const auto geometry = skin.tokens;
-    _skinShowsSelectedBar = geometry.showSelectedBar;
+    auto skin = [_appearance candidateWindowSkinForDark:skinDark];
+    _candidateLayoutGeometry = skin.layout;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
     _renderedDecorationMotion = skin.decorationMotion;
     _renderedDecorationPeriodMs = skin.decorationMotionPeriodMs;
-    _renderedCandidateAccent = SkinColor(geometry.accent);
+    _renderedCandidateAccent = SkinColor(skin.tokens.accent);
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = msime::mac::CandidateInset(geometry);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
+    if (skin.layout && skin.layout->padding)
+        skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
+    const auto geometry = skin.tokens;
+    _skinShowsSelectedBar = geometry.showSelectedBar;
+    const CGFloat inset = msime::mac::CandidateInset(geometry);
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
@@ -7757,7 +7802,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL compactExpand = expandable && !pageControls && !preedit.length && !logo;
     const CGFloat pageControlsWidth = (pageControls ? pageIndicatorWidth + indicatorGap + 2 * arrowWidth : 0) + (expandable && !compactExpand ? arrowWidth : 0);
     const CGFloat headerHeight = MAX(preeditHeight, pageControls || logo || (expandable && !compactExpand) ? headerRow : 0);
-    NSFont *numberFont = MSIMECandidateNumberFont(font);
+    const CGFloat numberScale = skin.layout && skin.layout->numberScale ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0)) : MSIMECandidateNumberScale;
+    NSFont *numberFont = [NSFont fontWithDescriptor:font.fontDescriptor size:font.pointSize * numberScale] ?: MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
@@ -7826,6 +7872,11 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.itemLayout = row.item;
             button.hasItemLayout = YES;
             button.contentLeft = pageGeometry.contentLeft;
+            button.textLeftInset = pageGeometry.textLeft;
+            button.textRightInset = pageGeometry.textRight;
+            button.selectedBarWidth = pageGeometry.selectedBarWidth;
+            button.selectedBarHeight = pageGeometry.selectedBarHeight;
+            button.selectedBarInside = pageGeometry.selectedBarInside;
             button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || button.scriptAnnotation.length ? row.item.translation.below : !vertical;
             button.needsDisplay = YES;
         }

@@ -120,6 +120,18 @@ int main()
         assert(Near(CandidatePageHeight(rows), 176.0));
     }
 
+    // A skin layout contributes the shared inter-item gap and horizontal minimum cell width without changing the legacy defaults.
+    {
+        auto skinned = Metrics();
+        skinned.itemGap = 6.0;
+        skinned.itemMinWidth = 90.0;
+        const auto rows = LayoutCandidatePage({{30.0}, {40.0}}, 220.0, skinned, true);
+        assert(Near(rows[0].width, 90.0) && Near(rows[1].x, 96.0) && Near(rows[1].width, 90.0));
+        assert(Near(CandidatePageHeight(rows), 32.0));
+        const auto vertical = LayoutCandidatePage({{30.0}, {40.0}}, 220.0, skinned, false);
+        assert(Near(vertical[1].y, vertical[0].height + 6.0));
+    }
+
     // A horizontal page runs natural-width columns left to right and breaks the line when the next would pass its end; every column on a line takes the line's tallest height, and the minimum reserves room for a gloss.
     {
         const std::vector<CandidateItemWidths> items{{100.0, 0.0, 20.0}, {50.0}, {80.0}};

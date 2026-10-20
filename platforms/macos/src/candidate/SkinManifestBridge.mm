@@ -193,6 +193,65 @@ SkinInsets InsetsField(NSDictionary *object)
 {
     return {NumberField(object, @"top"), NumberField(object, @"right"), NumberField(object, @"bottom"), NumberField(object, @"left")};
 }
+
+std::optional<SkinLength> LengthField(id raw)
+{
+    if (![raw isKindOfClass:NSDictionary.class]) return std::nullopt;
+    NSDictionary *object = raw;
+    NSNumber *value = object[@"value"];
+    NSNumber *em = object[@"em"];
+    if (![value isKindOfClass:NSNumber.class] || ![em isKindOfClass:NSNumber.class]) return std::nullopt;
+    return SkinLength{value.doubleValue, em.boolValue};
+}
+
+SkinLayoutGeometry LayoutGeometryFromJSON(id raw)
+{
+    SkinLayoutGeometry geometry;
+    if (![raw isKindOfClass:NSDictionary.class]) return geometry;
+    NSDictionary *object = raw;
+    geometry.padding = LengthField(object[@"padding"]);
+    geometry.itemGap = LengthField(object[@"itemGap"]);
+    geometry.itemExtraHeight = LengthField(object[@"itemExtraHeight"]);
+    geometry.numberInset = LengthField(object[@"numberInset"]);
+    geometry.itemPaddingRight = LengthField(object[@"itemPaddingRight"]);
+    geometry.itemMinWidth = LengthField(object[@"itemMinWidth"]);
+    geometry.numberGap = LengthField(object[@"numberGap"]);
+    geometry.numberScale = OptionalNumberField(object, @"numberScale");
+    geometry.selectedBarWidth = LengthField(object[@"selectedBarWidth"]);
+    geometry.selectedBarHeightEm = OptionalNumberField(object, @"selectedBarHeightEm");
+    NSNumber *selectedBarInside = object[@"selectedBarInside"];
+    if ([selectedBarInside isKindOfClass:NSNumber.class]) geometry.selectedBarInside = selectedBarInside.boolValue;
+    NSNumber *itemCornersFollowCard = object[@"itemCornersFollowCard"];
+    if ([itemCornersFollowCard isKindOfClass:NSNumber.class]) geometry.itemCornersFollowCard = itemCornersFollowCard.boolValue;
+    NSNumber *justifyRows = object[@"justifyRows"];
+    if ([justifyRows isKindOfClass:NSNumber.class]) geometry.justifyRows = justifyRows.boolValue;
+    NSNumber *trimHiddenPreeditGap = object[@"trimHiddenPreeditGap"];
+    if ([trimHiddenPreeditGap isKindOfClass:NSNumber.class]) geometry.trimHiddenPreeditGap = trimHiddenPreeditGap.boolValue;
+    NSString *pageArrowStyle = object[@"pageArrowStyle"];
+    if ([pageArrowStyle isKindOfClass:NSString.class]) geometry.pageArrowStyle = std::string(pageArrowStyle.UTF8String ?: "");
+    if ([object[@"preeditMarginDip"] isKindOfClass:NSDictionary.class]) geometry.preeditMarginDip = InsetsField(object[@"preeditMarginDip"]);
+    return geometry;
+}
+
+std::optional<ResolvedSkinLayout> ResolvedLayoutFromJSON(id raw)
+{
+    if (![raw isKindOfClass:NSDictionary.class]) return std::nullopt;
+    NSDictionary *object = raw;
+    ResolvedSkinLayout layout;
+    layout.cornerRadiusDip = NumberField(object, @"cornerRadiusDip");
+    layout.borderWidthDip = NumberField(object, @"borderWidthDip");
+    layout.itemCornerRadiusDip = NumberField(object, @"itemCornerRadiusDip");
+    layout.pageArrows = [object[@"pageArrows"] isKindOfClass:NSNumber.class] && [object[@"pageArrows"] boolValue];
+    layout.fitContent = [object[@"fitContent"] isKindOfClass:NSNumber.class] && [object[@"fitContent"] boolValue];
+    layout.expandPanel = [object[@"expandPanel"] isKindOfClass:NSNumber.class] && [object[@"expandPanel"] boolValue];
+    NSNumber *expandRows = object[@"expandRows"];
+    if ([expandRows isKindOfClass:NSNumber.class]) layout.expandRows = expandRows.unsignedIntValue;
+    layout.geometry = LayoutGeometryFromJSON(object[@"geometry"]);
+    layout.horizontal = LayoutGeometryFromJSON(object[@"horizontal"]);
+    layout.vertical = LayoutGeometryFromJSON(object[@"vertical"]);
+    return layout;
+}
+
 std::optional<SkinCanvas> CanvasFromJSON(NSDictionary *object)
 {
     if (![object[@"canvas"] isEqual:@YES] || NumberField(object, @"schemaVersion") != 2) return std::nullopt;
@@ -282,6 +341,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.toolbar.dark = ToolbarColorsFromJSON(toolbar[@"dark"]);
         package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
     }
+    package.resolvedLayout = ResolvedLayoutFromJSON(object[@"resolvedLayout"]);
     package.canvas = CanvasFromJSON(object);
     package.animation = AnimationFromJSON(object[@"animation"]);
     NSDictionary *license = object[@"license"];
@@ -766,6 +826,18 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 if (package->itemCornerRadiusDip)
                 {
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(*package->itemCornerRadiusDip);
+                }
+                if (package->resolvedLayout) {
+                    const auto &layoutResult = *package->resolvedLayout;
+                    const auto &direction = layout == "vertical" ? layoutResult.vertical : layoutResult.horizontal;
+                    resolved.layout = direction;
+                    resolved.tokens.radius = static_cast<float>(layoutResult.cornerRadiusDip);
+                    resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
+                    resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);
+                    if (direction.padding) {
+                        // em padding is converted by the candidate presenter once it knows the font size.
+                        if (!direction.padding->em) resolved.tokens.pad = static_cast<float>(direction.padding->value);
+                    }
                 }
                 // decorationImage is the manifest's decoration.image, or else an image preview, and is set only for a decorated package.
                 if (!package->decorationImage.empty())
