@@ -16,6 +16,8 @@ Status: implemented
 
 删除只移除本机保存项，不改正在使用的皮肤：`KeyboardSheets.applyDesign` 和键盘的 `saveKeyboardSkin` 已把完整设计复制进 `custom_theme.keyboard`，运行时不引用库项 id，因此不存在删除后引用悬空的问题。确认文案明确保留当前皮肤。皮肤库继续使用既有 Java 存储与锁，原因见 [Android 设置页接入共享 Rust 服务](../architecture/2026-10-18-android-settings-pages-through-rust.md)。云同步仍沿用按 id 合并的契约；本次不引入删除墓碑，也不承诺从其他设备删除同款皮肤。
 
+删除的设备回归由现有 `SettingsDeviceSmoke` 的显式 `skin-delete` 参数转给原生检查，`smoke.sh` 在 `--core` 返回之前运行，因此最低 API 和 CI 的设备门禁也能覆盖。复用入口避免超过 Android instrumentation 清单的 100 项上限；检查经安装产品的 `CustomSkinLibrary` 准备合成保存项，再长按真实皮肤卡并操作确认框，结束后恢复原皮肤库和偏好。未带参数的设置回归保留原入口行为。
+
 检索审计：[Android 社区内容并进功能页](2026-10-11-android-community-into-feature-pages.md)的皮肤列表排布与本篇部分重叠，社区加载和使用的决定继续成立；皮肤明暗过滤和 AI 视图生命周期笔记与本次分类位置无关，不修改。
 
 
@@ -27,6 +29,7 @@ Status: implemented
 - **把各分类做成独立详情页**：能复用导航栈，但每次切类别都增加一层返回行为，无法在当前皮肤页直接比较类别。
 - **修改所有详情页的布局资源**：固定导航容器可以通用，但无分类的页面也需要解释新增层级；使用可选的原生控件入口，把行为限定在皮肤页。
 - **删除正在使用的皮肤时回退到之前的主题**：能立即看到该皮肤已经删除，但运行时使用的是独立的完整快照，回退没有存储上的必要，还会把清理保存项变成一次意外换肤，因此保留当前外观。
+- **单独注册皮肤删除 instrumentation**：入口名称直观，专项也能独立运行；但默认清单已经达到系统允许的 100 项，新增入口会使测试 APK 无法安装。由现有设置 runner 按参数分派，保留独立检查类与原设置测试。
 
 ## Consequences
 
@@ -48,4 +51,6 @@ Status: implemented
 
 真实 `org.json` 下运行 `CustomSkinDesignExchangeCheck` 通过，覆盖不存在项不改写文件、删除后其余条目的顺序与设计和时间戳、删到空库、释放满库名额。`check-host.sh` 的 248 项 JVM 冒烟通过，包含符号链接库拒绝删除；194 个设备测试源文件编译通过。原生宿主 `:app:compileFullReleaseJavaWithJavac`、`scripts/verify-local.sh --quick` 在远端通过，仓库契约、笔记和空白检查在本机通过。
 
-上述 UI 与设备验证属于原分类导航与预览功能，不覆盖新增删除动作。新增功能的 API 28/35 模拟器验收尚缺；本机剩余磁盘低于 50 GB，编译门禁转到远端，没有在本机起新的原生产物树。
+API 28（`emulator-5566`）和 API 35（`emulator-5580`）均通过原生皮肤删除专项，覆盖真实卡片长按、取消、删除当前项、保留其余项、清空库、重复删除和当前设计快照不变；专项结束后恢复原皮肤库和偏好。两版设备均通过 `client-base`、`client-core`、`client-providers`、`client-services` 单测（每版合计 1885 项通过，按 runner 规则过滤 7 项并忽略 15 项）。完整原生 APK 在补齐锁定的粤拼、注音和笔画词库后构建成功；API 28 的 `smoke.sh --core` 与 API 35 的普通 `smoke.sh` 全部通过，随后 `scripts/verify-local.sh --quick` 通过。验收工具自动将专用 AVD 的全拼基线、偏好、库文件和输入模式恢复，并卸载临时包。
+
+原生构建和设备验收在远端专用模拟器完成，本机没有新建完整构建树。

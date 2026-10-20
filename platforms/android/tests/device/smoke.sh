@@ -83,9 +83,9 @@ run_instrumentation() {
     || { echo "Unknown instrumentation target: $component" >&2; return 1; }
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
     "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
-    "$adb" -s "$serial" shell am instrument --no-restart -w "$component"
+    "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
   else
-    "$adb" -s "$serial" shell am instrument -w "$component"
+    "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
   fi
 }
 # 输入法 id 必须写成 `ime list` 给出的短写：系统按字符串原样查找，长写 app.msime.android/app.msime.android.MSIMEInputService 在 `ime enable` 时报 Unknown input method。设备测试里的 `ime` 命令都用同一个短写。
@@ -234,6 +234,10 @@ result=$(run_instrumentation app.msime.android.test/app.msime.android.test.Sessi
 "$adb" -s "$serial" shell ime set app.msime.android/.MSIMEInputService >/dev/null
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Session store JNI acceptance failed" >&2; exit 1; }
+# 原生皮肤删除覆盖真实确认框、锁与原子替换；最低 API 的核心验收也运行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e skin-delete true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native saved skin deletion acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
