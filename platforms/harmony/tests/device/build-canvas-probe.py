@@ -104,6 +104,12 @@ base = "canvas"
 [supports]
 layouts = ["horizontal", "vertical"]
 themes = ["light", "dark"]
+[candidate_window]
+item_gap = "0.3em"
+item_padding_right = 0
+item_min_width = 72
+number_scale = 0
+item_corner_radius_dip = 0
 [candidate_window.border_image]
 source = "panel.apng"
 slice_dip = [2]

@@ -3,6 +3,7 @@ import common from '@ohos.app.ability.common';
 import client from 'libmsimeclient.so';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { GlobalTheme, ResolvedTheme } from '../keyboard/skin/GlobalTheme';
+import { CandidateLayoutPolicy } from '../keyboard/candidate/CandidateSkinPolicy';
 
 interface ProbeSnapshot {
   format_version: number;
@@ -80,6 +81,13 @@ export class CandidateCanvasDeviceFixture {
       skins_directory: `${state}/skins`, canvas_panel_drawn: false
     })));
     if (resolved?.candidate_skin !== id) throw new Error('probe theme lost canvas package');
+    const layout = resolved?.candidate_layout;
+    if (layout?.itemRadius !== 0 || layout.horizontal.numberScale !== 0
+      || CandidateLayoutPolicy.dip(layout.horizontal.itemGap, 19, -1) !== 6
+      || CandidateLayoutPolicy.dip(layout.horizontal.itemPaddingRight, 19, -1) !== 0
+      || CandidateLayoutPolicy.dip(layout.horizontal.itemMinWidth, 19, -1) !== 72) {
+      throw new Error('probe theme lost resolved layout units or zero values');
+    }
     KeyboardLog.info(`canvas probe phase ${phase % 4} ready: ${mode}, ${id}`);
   }
 

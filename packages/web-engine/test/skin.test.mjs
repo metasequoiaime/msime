@@ -464,3 +464,40 @@ test("canvas geometry follows source slice, DIP widths, bounded insets and stabl
   assert.equal(hostile.geometry.canvas.lineGap, 0);
   assertComplete(hostile);
 });
+
+
+test("resolved layout preserves em, zero values and direction without changing card minimum width", () => {
+  const length = (value, em = false) => ({ value, em });
+  const skin = { base: "system", minWidthDip: 160, resolvedLayout: {
+    cornerRadiusDip: 0, borderWidthDip: 0, itemCornerRadiusDip: 0, fitContent: false,
+    horizontal: { padding: length(.3, true), itemGap: length(0), itemExtraHeight: length(4),
+      itemMinWidth: length(80), numberScale: 0, numberGap: length(.2, true) },
+    vertical: { padding: length(8), itemGap: length(3) },
+  } };
+  const horizontal = resolveSkin(skin);
+  assert.equal(horizontal.geometry.minWidth, 160);
+  assert.equal(horizontal.geometry.cornerRadius, 0);
+  assert.equal(horizontal.variables["--msime-skin-padding"], "0.3em");
+  assert.equal(horizontal.variables["--msime-skin-item-min-width"], "80px");
+  assert.equal(horizontal.variables["--msime-skin-number-size"], "0em");
+  assert.equal(horizontal.variables["--msime-skin-border-width"], "0px");
+  assert.equal(horizontal.variables["--msime-skin-horizontal-gap"], "calc(0px + 6px)");
+  assert.equal(resolveSkin({ ...skin, resolvedLayout: { ...skin.resolvedLayout, fitContent: true } }).variables["--msime-skin-horizontal-gap"], "0px");
+  const vertical = resolveSkin(skin, { layout: "vertical" });
+  assert.equal(vertical.variables["--msime-skin-padding"], "8px");
+  assert.equal(vertical.variables["--msime-skin-vertical-gap"], "3px");
+  assert.equal(resolveSkin({ ...skin, layouts: ["vertical"] }).geometry.layout, undefined);
+});
+
+test("malformed resolved geometry cannot inject CSS or unbounded sizes", () => {
+  const resolved = resolveSkin({ base: "system", resolvedLayout: {
+    geometry: { padding: { value: "1px;display:none", em: false }, itemGap: { value: Infinity, em: false },
+      itemMinWidth: { value: -1, em: false }, numberScale: 999 },
+    borderWidthDip: -1, itemCornerRadiusDip: 100000,
+  } });
+  assert.equal(resolved.variables["--msime-skin-padding"], undefined);
+  assert.equal(resolved.variables["--msime-skin-item-min-width"], undefined);
+  assert.equal(resolved.variables["--msime-skin-number-size"], undefined);
+  assert.equal(resolved.variables["--msime-skin-border-width"], undefined);
+  assert.equal(resolved.variables["--msime-skin-item-radius"], undefined);
+});

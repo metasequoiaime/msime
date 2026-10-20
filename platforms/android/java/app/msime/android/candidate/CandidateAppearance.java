@@ -60,6 +60,11 @@ public final class CandidateAppearance {
 
     public static Palette fromResolved(Palette fallback, String id, Map<String, String> colours,
             CandidateCanvasAssets canvas) {
+        return fromResolved(fallback, id, colours, canvas, null);
+    }
+
+    public static Palette fromResolved(Palette fallback, String id, Map<String, String> colours,
+            CandidateCanvasAssets canvas, Layout layout) {
         int text = resolvedColour(colours, "text", fallback.text());
         int accent = resolvedColour(colours, "accent", fallback.accent());
         int selected = resolvedColour(colours, "selected", fallback.chip());
@@ -73,7 +78,7 @@ public final class CandidateAppearance {
             fallback.fontFamily(), fallback.englishFont(), fallback.fallbackFonts(),
             selected, selectedText,
             resolvedColour(colours, "secondary", number),
-            resolvedColour(colours, "selected_number", selectedText), true, canvas, colours);
+            resolvedColour(colours, "selected_number", selectedText), true, canvas, colours, layout);
     }
 
     private static int resolvedColour(Map<String, String> colours, String name, int fallback) {
@@ -135,12 +140,13 @@ public final class CandidateAppearance {
         private final boolean externalSkin;
         private final CandidateCanvasAssets canvas;
         private final Map<String, String> details;
+        private final Layout layout;
 
         private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border, String fontFamily,
                         String englishFont, List<String> fallbackFonts, int chip, int chipText) {
             this(id, text, number, accent, selected, hover, surface, border, fontFamily,
-                englishFont, fallbackFonts, chip, chipText, number, number, false);
+                englishFont, fallbackFonts, chip, chipText, number, number, false, null, Map.of(), null);
         }
 
         private Palette(String id, int text, int number, int accent, int selected,
@@ -148,14 +154,14 @@ public final class CandidateAppearance {
                         String englishFont, List<String> fallbackFonts, int chip, int chipText,
                         int secondary, int selectedNumber, boolean externalSkin) {
             this(id, text, number, accent, selected, hover, surface, border, fontFamily,
-                englishFont, fallbackFonts, chip, chipText, secondary, selectedNumber, externalSkin, null, Map.of());
+                englishFont, fallbackFonts, chip, chipText, secondary, selectedNumber, externalSkin, null, Map.of(), null);
         }
 
         private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border, String fontFamily,
                         String englishFont, List<String> fallbackFonts, int chip, int chipText,
                         int secondary, int selectedNumber, boolean externalSkin, CandidateCanvasAssets canvas,
-                        Map<String, String> details) {
+                        Map<String, String> details, Layout layout) {
             this.id = id;
             this.text = text;
             this.number = number;
@@ -174,6 +180,7 @@ public final class CandidateAppearance {
             this.externalSkin = externalSkin;
             this.canvas = canvas;
             this.details = Map.copyOf(details);
+            this.layout = layout;
         }
 
         public String id() { return id; }
@@ -200,6 +207,7 @@ public final class CandidateAppearance {
         /** 是否使用外部候选包，展开网格据此使用候选底色而非键帽底色。 */
         public boolean externalSkin() { return externalSkin; }
         public CandidateCanvasAssets canvas() { return canvas; }
+        public Layout layout() { return layout; }
         /** 新设计里某个候选的底色：首选为 {@link #chip()}，其余不填（0）。 */
         public int chipFor(boolean selected) { return selected ? chip : 0; }
         /** 新设计里某个候选的字重：首选 600，其余 400。 */
@@ -220,7 +228,61 @@ public final class CandidateAppearance {
                 + ":" + Integer.toHexString(chipText) + ":" + externalSkin
                 + ":" + Integer.toHexString(secondary) + ":" + Integer.toHexString(selectedNumber)
                 + ":" + preeditText() + ":" + preeditCaret(accent) + ":" + secondaryFor(true)
-                + ":" + (canvas == null ? "" : canvas.key());
+                + ":" + (canvas == null ? "" : canvas.key())
+                + ":" + (layout == null ? "" : layout.key);
+        }
+    }
+
+    /** `ResolvedTheme.candidate_layout` 的有界 Android 读模型；旧解析结果为空时保留原生间距。 */
+    public static final class Layout {
+        public final double padding, itemGap, itemExtraHeight, numberInset, numberGap,
+            itemPaddingRight, itemMinWidth, numberScale, selectedBarWidth,
+            selectedBarHeightEm, itemRadius, borderWidth;
+        public final boolean selectedBarInside, pageArrows, fitContent, expandPanel;
+        private final String key;
+
+        private Layout(double padding, double itemGap, double itemExtraHeight, double numberInset,
+                double numberGap, double itemPaddingRight, double itemMinWidth, double numberScale,
+                double selectedBarWidth, double selectedBarHeightEm, double itemRadius,
+                double borderWidth, boolean selectedBarInside, boolean pageArrows,
+                boolean fitContent, boolean expandPanel, String key) {
+            this.padding = padding; this.itemGap = itemGap; this.itemExtraHeight = itemExtraHeight;
+            this.numberInset = numberInset; this.numberGap = numberGap;
+            this.itemPaddingRight = itemPaddingRight; this.itemMinWidth = itemMinWidth;
+            this.numberScale = numberScale; this.selectedBarWidth = selectedBarWidth;
+            this.selectedBarHeightEm = selectedBarHeightEm; this.itemRadius = itemRadius;
+            this.borderWidth = borderWidth; this.selectedBarInside = selectedBarInside;
+            this.pageArrows = pageArrows; this.fitContent = fitContent; this.expandPanel = expandPanel;
+            this.key = key;
+        }
+
+        static Layout from(JSONObject value, int fontSize) {
+            if (value == null) return null;
+            JSONObject geometry = value.optJSONObject("horizontal");
+            if (geometry == null) geometry = value.optJSONObject("geometry");
+            if (geometry == null) return null;
+            return new Layout(length(geometry, "padding", fontSize), length(geometry, "itemGap", fontSize),
+                length(geometry, "itemExtraHeight", fontSize), length(geometry, "numberInset", fontSize),
+                length(geometry, "numberGap", fontSize), length(geometry, "itemPaddingRight", fontSize),
+                length(geometry, "itemMinWidth", fontSize), number(geometry, "numberScale", .8),
+                Math.max(3, length(geometry, "selectedBarWidth", fontSize)),
+                number(geometry, "selectedBarHeightEm", 0), number(value, "itemCornerRadiusDip", 4),
+                number(value, "borderWidthDip", 1.5), geometry.optBoolean("selectedBarInside", false),
+                value.optBoolean("pageArrows", false), value.optBoolean("fitContent", false),
+                value.optBoolean("expandPanel", false), value.toString() + ":" + fontSize);
+        }
+
+        private static double length(JSONObject object, String name, int fontSize) {
+            JSONObject value = object.optJSONObject(name);
+            if (value == null || !(value.opt("value") instanceof Number)) return Double.NaN;
+            double result = ((Number) value.opt("value")).doubleValue();
+            if (!Double.isFinite(result) || result < 0 || result > 500) return Double.NaN;
+            return Boolean.TRUE.equals(value.opt("em")) ? Math.round(result * fontSize) : result;
+        }
+
+        private static double number(JSONObject object, String name, double fallback) {
+            double result = object.has(name) ? object.optDouble(name, Double.NaN) : fallback;
+            return Double.isFinite(result) && result >= 0 ? result : fallback;
         }
     }
 }

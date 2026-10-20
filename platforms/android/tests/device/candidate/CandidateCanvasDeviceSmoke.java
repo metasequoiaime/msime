@@ -59,7 +59,7 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         png(skin.resolve("widget.png"), 1, 1, new int[] {0xff1234ab});
         String manifest = "schema_version=2\nid='canvas-device'\nname='Synthetic canvas'\nversion='1.0'\nbase='canvas'\n"
             + "[supports]\nlayouts=['horizontal','vertical']\nthemes=['light','dark']\n"
-            + "[candidate_window]\ncontent_insets_dip={top=2,right=3,bottom=4,left=5}\n"
+            + "[candidate_window]\nitem_gap='0.3em'\nitem_padding_right=0\nnumber_scale=0\nitem_corner_radius_dip=0\ncontent_insets_dip={top=2,right=3,bottom=4,left=5}\n"
             + "outer_insets_dip={top=4,right=6,bottom=8,left=10}\n"
             + "[candidate_window.border_image]\nsource='atlas.png'\nlight_source='light.png'\nslice_dip=[1]\nwidth_dip=[2]\nfill=true\n"
             + "[[candidate_window.decorations]]\nimage='widget.png'\nanchor='center'\nwidth_dip=12\nheight_dip=12\nz_index=0\n"
@@ -80,6 +80,25 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         preferences = loaded.getJSONObject("value").getJSONObject("preferences");
         Object dark = resolve(resolver, state, preferences, true);
         Object light = resolve(resolver, state, preferences, false);
+        stage = "resolved factory geometry and explicit zero values";
+        Object layout = property(dark, "layout");
+        check(layout != null, "factory layout was lost by JNI or the resolver");
+        check(layout.getClass().getField("itemGap").getDouble(layout) == Math.round(preferences.optInt("candidate_font_size", 16) * .3),
+            "em length did not use the actual candidate font size");
+        check(layout.getClass().getField("itemPaddingRight").getDouble(layout) == 0,
+            "zero padding became a fallback");
+        check(layout.getClass().getField("numberScale").getDouble(layout) == 0,
+            "zero number scale became a fallback");
+        check(layout.getClass().getField("itemRadius").getDouble(layout) == 0,
+            "zero item radius became a fallback");
+        String layoutKey = (String) property(dark, "key");
+        Files.write(skin.resolve("skin.toml"), manifest.replace("item_gap='0.3em'", "item_gap='0.6em'").getBytes(StandardCharsets.UTF_8));
+        call(resolver, "read", new Class<?>[] {String.class}, state.toString());
+        check(!layoutKey.equals(property(resolve(resolver, state, preferences, true), "key")),
+            "layout-only replacement reused the appearance cache key");
+        Files.write(skin.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
+        call(resolver, "read", new Class<?>[] {String.class}, state.toString());
+        dark = resolve(resolver, state, preferences, true);
         Object canvas = property(dark, "canvas");
         check(canvas != null && property(canvas, "panelDrawn").equals(true),
             "panel did not decode for " + property(dark, "id"));

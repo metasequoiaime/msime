@@ -6840,13 +6840,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 复用构造释义行时已经算好的内容宽度，避免再次转换富文本并测量首行。
   private func pinCandidateWidth(of button: KeyboardKeyButton, contentWidth: CGFloat?) {
+    let minimumWidth = candidatePalette?.layout?.itemMinWidth?.dip(fontSize: Self.candidateChipFontSize * candidateFontScale) ?? 0
+    if let minimum = button.constraints.first(where: { $0.identifier == "candidateSkinMinimumWidth" }) {
+      minimum.constant = minimumWidth
+    } else {
+      let minimum = button.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth)
+      minimum.identifier = "candidateSkinMinimumWidth"
+      minimum.isActive = true
+    }
     let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
     guard let contentWidth else {
       if existing?.isActive == true { existing?.isActive = false }
       return
     }
     let insets = button.configuration?.contentInsets ?? .zero
-    let width = ceil(contentWidth + insets.leading + insets.trailing)
+    let width = max(minimumWidth, ceil(contentWidth + insets.leading + insets.trailing))
     if let existing {
       guard !existing.isActive || abs(existing.constant - width) > 0.5 else { return }
       existing.constant = width
@@ -6869,12 +6877,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let palette = candidatePalette {
       // canvas 首选用选中色，其余透明；既有桌面配色保留「首选高亮」取色器的 hover 语义。
       configuration.background.customView = number == 1 && palette.showSelectedBar
-        ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent) : nil
+        ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout,
+                                    fontSize: Self.candidateChipFontSize * candidateFontScale) : nil
       configuration.background.backgroundColor = converting ? palette.selected.withAlphaComponent(0.35)
         : number == 1 ? (candidateCanvasSkin == nil ? palette.hover : palette.selected)
         : candidateCanvasSkin == nil ? palette.surface : .clear
-      configuration.background.cornerRadius = candidateCanvasSkin?.itemCornerRadius ?? 9
-      configuration.background.strokeWidth = 1
+      configuration.background.cornerRadius = candidatePalette?.layout?.itemRadius ?? candidateCanvasSkin?.itemCornerRadius ?? 9
+      configuration.background.strokeWidth = palette.layout?.borderWidth ?? 1
       configuration.background.strokeColor = palette.border
       configuration.baseForegroundColor = palette.text
       button.layer.shadowOpacity = 0
@@ -6948,6 +6957,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       configuration.attributedTitle = title
     }
+    configuration.contentInsets = candidatePalette?.layout?.chipInsets(fontSize: candidateFont.pointSize, fallback: Self.candidateChipInsets) ?? Self.candidateChipInsets
     button.configuration = configuration
     button.titleLineCount = 1 + lines.count
     pinCandidateWidth(of: button, contentWidth: contentWidth)
@@ -7884,6 +7894,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func applyCandidateAppearance() {
     candidateButtonStyleRevision &+= 1
+    candidateStack.spacing = candidatePalette?.layout?.horizontalGap(fontSize: Self.candidateChipFontSize * candidateFontScale) ?? 6
     let skin = KeyboardTheme.current
     compositionContainer?.canvas = candidateCanvasSkin
     updateCandidateCanvasMetrics()

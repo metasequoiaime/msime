@@ -253,6 +253,29 @@ function insets(value, maximum, topBottomMaximum = maximum) {
   return Object.fromEntries(["top", "right", "bottom", "left"].map((side) => [side, dimension(value[side] ?? 0, side === "top" || side === "bottom" ? topBottomMaximum : maximum)]));
 }
 
+/** 共享 catalog 发布的 Windows 出厂版式；旧网页结果没有该字段时保持旧默认。 */
+function resolvedLayout(skin, layout) {
+  const raw = skin?.resolvedLayout;
+  if (raw === null || typeof raw !== "object") return null;
+  const source = raw[layout] !== null && typeof raw[layout] === "object" ? raw[layout] : raw.geometry;
+  if (source === null || typeof source !== "object") return null;
+  const length = (value) => value !== null && typeof value === "object" && Number.isFinite(value.value)
+    && value.value >= 0 && value.value <= 500 && typeof value.em === "boolean"
+    ? { value: value.value, em: value.em } : null;
+  const number = (object, key, max = 500) => typeof object?.[key] === "number" && Number.isFinite(object[key])
+    && object[key] >= 0 && object[key] <= max ? object[key] : null;
+  return {
+    padding: length(source.padding), itemGap: length(source.itemGap), itemExtraHeight: length(source.itemExtraHeight),
+    numberInset: length(source.numberInset), numberGap: length(source.numberGap), itemPaddingRight: length(source.itemPaddingRight),
+    itemMinWidth: length(source.itemMinWidth), numberScale: number(source, "numberScale", 2), selectedBarWidth: length(source.selectedBarWidth),
+    selectedBarHeightEm: number(source, "selectedBarHeightEm", 10), selectedBarInside: typeof source.selectedBarInside === "boolean" ? source.selectedBarInside : null,
+    itemRadius: number(raw, "itemCornerRadiusDip", 32), radius: number(raw, "cornerRadiusDip", 32), borderWidth: number(raw, "borderWidthDip", 10),
+    pageArrows: typeof raw.pageArrows === "boolean" ? raw.pageArrows : null,
+    fitContent: typeof raw.fitContent === "boolean" ? raw.fitContent : null,
+    expandPanel: typeof raw.expandPanel === "boolean" ? raw.expandPanel : null,
+  };
+}
+
 /** Canvas 字段只接受共享 catalog 的有界数据；图片地址继续走与旧装饰图相同的校验。 */
 function canvasGeometry(skin, mode) {
   const raw = skin.borderImage;
@@ -280,8 +303,9 @@ function canvasGeometry(skin, mode) {
 }
 
 /** 画出来的皮肤包的几何：最小宽度、圆角、装饰带和背景图，取值规则同 `skinGeometryStyle` 和 `usePreviewBackground`。装饰带没有可用的图片时不画（网页上空着的装饰带只会在候选条上方留一块透明区域）。 */
-function packageGeometry(pkg, mode) {
+function packageGeometry(pkg, mode, layout = "horizontal") {
   const { skin } = pkg;
+  const layoutGeometry = resolvedLayout(skin, layout);
   const top = dimension(skin.decorationTopDip, 500);
   const width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
@@ -289,9 +313,9 @@ function packageGeometry(pkg, mode) {
   const rawBackground = skin.background !== null && typeof skin.background === "object" ? skin.background : null;
   const backgroundUrl = rawBackground ? skinImageUrl(rawBackground.image) : null;
   const opacity = rawBackground?.opacity;
-  return {
+  const result = {
     canvas: pkg.canvas && pkg.v2 ? canvasGeometry(skin, mode) : null,
-    cornerRadius: pkg.cornerRadius,
+    cornerRadius: layoutGeometry?.radius ?? pkg.cornerRadius,
     minWidth: skin.minWidthDip === undefined || skin.minWidthDip === null ? null : dimension(skin.minWidthDip, 1000),
     decoration: decorationUrl
       ? { url: decorationUrl, top, width, align: DECORATION_ALIGNS.includes(skin.decorationAlign) ? skin.decorationAlign : "right" }
@@ -305,6 +329,8 @@ function packageGeometry(pkg, mode) {
         }
       : null,
   };
+  if (layoutGeometry) result.layout = layoutGeometry;
+  return result;
 }
 
 const NO_GEOMETRY = { canvas: null, cornerRadius: null, minWidth: null, decoration: null, background: null };
@@ -361,6 +387,28 @@ function cssVariables(palette, geometry) {
     "--msime-skin-decoration-top": `${geometry.decoration ? geometry.decoration.top : 0}px`,
     "--msime-skin-decoration-width": `${geometry.decoration ? geometry.decoration.width : 0}px`,
   };
+  const layout = geometry.layout;
+  if (layout) {
+    const length = (value) => `${value.value}${value.em ? "em" : "px"}`;
+    for (const [field, name] of Object.entries({ padding: "padding", itemExtraHeight: "item-extra-height", numberInset: "number-inset",
+      numberGap: "number-gap", itemPaddingRight: "item-padding-right", itemMinWidth: "item-min-width", selectedBarWidth: "selected-bar-width" })) {
+      if (layout[field] !== null) {
+        const value = layout[field];
+        variables[`--msime-skin-${name}`] = (field === "numberInset" || field === "numberGap") && value.em
+          ? `calc(var(--cand-font-size) * ${value.value})` : length(value);
+      }
+    }
+    if (layout.itemGap !== null) {
+      const gap = length(layout.itemGap);
+      variables["--msime-skin-horizontal-gap"] = layout.fitContent ? gap : `calc(${gap} + 6px)`;
+      variables["--msime-skin-vertical-gap"] = gap;
+    }
+    if (layout.numberScale !== null) variables["--msime-skin-number-size"] = `${layout.numberScale}em`;
+    if (layout.itemRadius !== null) variables["--msime-skin-item-radius"] = `${layout.itemRadius}px`;
+    if (layout.borderWidth !== null) variables["--msime-skin-border-width"] = `${layout.borderWidth}px`;
+    if (layout.selectedBarHeightEm !== null) variables["--msime-skin-selected-bar-height"] = `${layout.selectedBarHeightEm}em`;
+    if (layout.selectedBarInside !== null) variables["--msime-skin-selected-bar-left"] = layout.selectedBarInside ? "1px" : "0px";
+  }
   if (geometry.minWidth !== null) variables["--msime-skin-min-width"] = `${geometry.minWidth}px`;
   if (geometry.cornerRadius !== null) variables["--msime-skin-radius"] = `${geometry.cornerRadius}px`;
   if (geometry.decoration) variables["--msime-skin-decoration-image"] = `url("${geometry.decoration.url}")`;
@@ -418,7 +466,7 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
       const pkg = readPackage({ base: target });
       mode = requested;
       raw = customCandidatePalette(pkg.base, undefined, pkg.candidate[mode]);
-      geometry = packageGeometry(pkg, mode);
+      geometry = packageGeometry(pkg, mode, layout);
       selectedText = pkg.selectedText[mode];
       animation = pkg.animation;
     }
@@ -429,7 +477,7 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
     drawn = pkg.layouts.includes(layout) && pkg.themes.includes(mode);
     raw = customCandidatePalette(pkg.base, undefined, drawn ? pkg.candidate[mode] : null);
     if (drawn) {
-      geometry = packageGeometry(pkg, mode);
+      geometry = packageGeometry(pkg, mode, layout);
       selectedText = pkg.selectedText[mode];
       animation = pkg.animation;
       detail = pkg.candidate[mode];
