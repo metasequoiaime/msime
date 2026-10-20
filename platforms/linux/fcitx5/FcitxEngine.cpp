@@ -2498,6 +2498,8 @@ public:
                   std::optional<msime::linux_host::TypingSource> source = std::nullopt,
                   bool typingStatistics = true) {
     if (text.empty()) return;
+    // 提交前的文档不再描述新光标；先作废，保留同步前端在提交回调内发布的新前文。
+    ic_.surroundingText().invalidate();
     ic_.commitString(text);
     if (typingStatistics) recordTypingStatistics(text, source.value_or(typingSource()));
     rememberSmartPunctuationCommit(text);
