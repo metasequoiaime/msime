@@ -1807,6 +1807,8 @@ int main(int argc, char **argv) {
     }
     // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。
     if (argc == 3 && std::string(argv[2]) == "--app-rules") {
+      // 前面的状态栏开关在后台保存偏好；等它落盘再读修订号，免得这次保存撞上它。
+      state->waitForPreferenceSave();
       {
         auto snapshot = response(msime_client_load_preferences(
             reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
@@ -1969,6 +1971,7 @@ int main(int argc, char **argv) {
       require(state->voice_host_options_.value("quick_phrase_candidates", false),
               "the session was not asked for quick phrase candidates");
       // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      state->waitForPreferenceSave();
       {
         auto snapshot = response(msime_client_load_preferences(
             reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
