@@ -16,6 +16,29 @@ public final class CompositionCaretPolicySmoke {
     }
 
     public static void main(String[] args) {
+        // 输入框的组字内选择可以包含显示用分隔符；跨出组字、范围改变与选中文字都不接管。
+        check(CompositionCaretPolicy.editorTapTarget("ni'hao", "64426", 0, 8, 14, 11, 11) == 2,
+            "nine-key selection skips the displayed separator");
+        check(CompositionCaretPolicy.editorTapTarget("合成nihao", "nihao", 2, 8, 15, 12, 12) == 2,
+            "chosen prefix does not count as key letters");
+        check(CompositionCaretPolicy.editorTapTarget("nihao", "nihao", 0, 8, 13, 8, 8) == 0,
+            "composition start remains editable");
+        check(CompositionCaretPolicy.editorTapTarget("nihao", "nihao", 0, 8, 13, 13, 13) == 5,
+            "composition end remains editable");
+        for (int[] selection : new int[][] {{7, 7}, {14, 14}, {9, 11}}) {
+            check(CompositionCaretPolicy.editorTapTarget("nihao", "nihao", 0, 8, 13,
+                selection[0], selection[1]) == -1, "outside or range selection is not a caret tap");
+        }
+        check(CompositionCaretPolicy.editorTapTarget("nihao", "nihao", 0, -1, -1, 2, 2) == -1,
+            "missing composition markers");
+        check(CompositionCaretPolicy.editorTapTarget("nihao", "nihao", 0, 8, 12, 10, 10) == -1,
+            "truncated editor composition");
+        check(CompositionCaretPolicy.editorTapTarget("nihao", "9426", 0, 8, 13, 10, 10) == -1,
+            "changed spelling must not revive a composition");
+        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 5) == 6,
+            "magnified caret can be drawn at the end");
+        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 2) == 3,
+            "magnified caret follows a display separator");
         // 能点的方案：光标留在组字里的那些。韩语、注音、越南语、藏文锁住光标，日语和笔画画的是 reading，本地模式和专用英文各管各的。
         check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "jintianci"), "quanpin");
         check(CompositionCaretPolicy.editable(InputSchemeTraits.SHUANGPIN, "none", false, "jntm"), "shuangpin");
