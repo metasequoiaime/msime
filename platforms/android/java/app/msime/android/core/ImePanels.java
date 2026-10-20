@@ -36,6 +36,7 @@ final class ImePanels {
     private static final String SYMBOL_RECENTS_PREFERENCES = "android-symbol-recents";
     private static final String SYMBOL_RECENTS_KEY = "items";
     private final MSIMEInputService s;
+    private final ClipboardTextPreview clipboardPreview;
     private SharedPreferences symbolPreferences;
     // 只在主线程上用（打开符号面板、点符号记进「常用」时）；`emojiGlyphPaint` 归 `emojiWorker`，Paint 不能跨线程共用。
     private final Paint symbolRecentsGlyphPaint = new Paint();
@@ -44,6 +45,11 @@ final class ImePanels {
 
     ImePanels(MSIMEInputService s) {
         this.s = s;
+        clipboardPreview = new ClipboardTextPreview(s);
+    }
+
+    void dismissClipboardPreview() {
+        clipboardPreview.dismiss();
     }
 
     void invalidateReplyTemplateReads() {
@@ -1453,6 +1459,7 @@ final class ImePanels {
     private final java.util.Set<String> clipboardSelectedTexts = new java.util.LinkedHashSet<>();
 
     void renderClipboardHistory() {
+        dismissClipboardPreview();
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
         clipboardCardRow = null;
@@ -1602,7 +1609,7 @@ final class ImePanels {
                     }
                     s.insertClipboardText(item.text());
                 });
-                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按管理");
+                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按预览全文和管理");
                 if (clipboardSelectionMode) {
                     card.setContentDescription((clipboardSelectedTexts.contains(item.text()) ? "已选择；" : "")
                         + "点按选择剪贴板记录");
@@ -1614,6 +1621,7 @@ final class ImePanels {
                     clipboardClearPending = false;
                     clipboardSwipedText = null;
                     renderClipboardHistory();
+                    clipboardPreview.show(item.text());
                     return true;
                 });
                 placeClipboardCell(index, items.size(), clipboardSwipeCell(card, item, swiped, reveal));
