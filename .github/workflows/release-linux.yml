@@ -250,21 +250,15 @@ jobs:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}
           path: dist
           merge-multiple: true
-      # 发行版源码包传到滚动的 linux-sources release（预发布、不设为 latest），每个版本一组、文件名带版本号、长期保留，不进版本发布页。只对从 main 发出的版本：下面的 package-definitions、COPR、OBS 与 PPA 也只用它们；beta 与 alpha 的文件名同样不带后缀，传上去会覆盖同一版本号的正式版，所以只留在 workflow artifact 里。放在版本发布页之前，发布页上线时包定义要的源码包已经在了；上传后按 GitHub 记录的摘要逐个核对。
-      - name: Upload the distro source tarballs to linux-sources
-        if: ${{ needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}"}
-        run: bash platforms/linux/packaging/publish-sources.sh dist "$VERSION"
-      # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
-      - name: Publish independent Linux release
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+      # 先在本地备齐版本发布页的全部内容，任何一处不对（缺一个安装包、指引链接到不存在的文件）都在上传任何东西之前失败。版本发布页只放给用户下载的安装包：每个版本两个架构的 .deb、.rpm 与 .tar.gz，勾选了 legacy 时再加两个 legacy .deb，以及只列这些安装包的 SHA256SUMS。每次构建各写了一份 SHA256SUMS，合并 artifact 时只留下一份，这里按要发布的安装包重新算。源码包（.tar.xz 与 msime-VERSION-SHA256SUMS）进 linux-sources，见下一步。
+      - name: Prepare the release page
+        id: page
+        env: {VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
-          # 版本发布页只放给用户下载的安装包：每个版本两个架构的 .deb、.rpm 与 .tar.gz，勾选了 legacy 时再加两个 legacy .deb，以及只列这些安装包的 SHA256SUMS。每次构建各写了一份 SHA256SUMS，合并 artifact 时只留下一份，这里按要发布的安装包重新算。源码包（.tar.xz 与 msime-VERSION-SHA256SUMS）在上一步进了 linux-sources，不在这里。
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
           tag="linux-v${RELEASE}"
-          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          [[ "$RELEASE" == "$VERSION" ]] || PRERELEASE=true
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
           stable='^linux-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'linux-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
@@ -274,8 +268,18 @@ jobs:
           python3 platforms/linux/scripts/edition_linux.py download-guide --version "$VERSION" --dist "$dist" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${repositories[@]+"${repositories[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
-          # 重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装包放在一起的源码包。
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS"
+          { echo "tag=$tag"; echo "prerelease=$PRERELEASE"; } >> "$GITHUB_OUTPUT"
+      # 发行版源码包传到滚动的 linux-sources release（预发布、不设为 latest），每个版本一组、文件名带版本号、长期保留，不进版本发布页。只对从 main 发出的版本：下面的 package-definitions、COPR、OBS 与 PPA 也只用它们；beta 与 alpha 的文件名同样不带后缀，传上去会覆盖同一版本号的正式版，所以只留在 workflow artifact 里。放在版本发布页之前，发布页上线时包定义要的源码包已经在了；上传后按 GitHub 记录的摘要逐个核对。
+      - name: Upload the distro source tarballs to linux-sources
+        if: ${{ needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}"}
+        run: bash platforms/linux/packaging/publish-sources.sh dist "$VERSION"
+      # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      - name: Publish independent Linux release
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", TAG: "${{ steps.page.outputs.tag }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ steps.page.outputs.prerelease }}"}
+        # 重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装包放在一起的源码包。
+        run: bash scripts/publish-release.sh "$TAG" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md dist/*.deb dist/*.rpm dist/*.tar.gz dist/SHA256SUMS
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页（.rpm 与 SHA256SUMS）和 linux-sources（源码包与 msime-VERSION-SHA256SUMS）上的地址取文件，校验值也以那里的为准。
   package-definitions:
     needs: [source, deb, publish]
