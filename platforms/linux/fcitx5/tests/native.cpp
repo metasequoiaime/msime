@@ -1617,6 +1617,99 @@ int main(int argc, char **argv) {
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
       return 0;
     }
+    // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。排在快捷模式那一段之前，免得那里的失败让它跑不到。
+    if (argc == 3 && std::string(argv[2]) == "--app-rules") {
+      const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+      // 前面的状态栏开关在后台保存偏好；等它落盘再读修订号，免得这次保存撞上它。
+      state->waitForPreferenceSave();
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["app_input_mode_rules"] = Json{{"Synthetic-Ruled", "english"}};
+        snapshot["preferences"]["default_ime_mode"] = "chinese";
+        snapshot["preferences"]["ime_mode_scope"] = "app";
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+      }
+      const auto focusContext = [&](FixtureContext &context) {
+        context.focusIn();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusIn);
+        engine.activate(entry, event);
+      };
+      const auto blurContext = [&](FixtureContext &context) {
+        context.focusOut();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusOut);
+        engine.deactivate(entry, event);
+      };
+      const bool unruledMode = state->input_enabled_;
+      blur();
+      FixtureContext ruled(instance.inputContextManager(), "synthetic-ruled");
+      ruled.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+      auto *ruledState = ruled.propertyFor(&engine.factory_);
+      focusContext(ruled);
+      require(ruledState->session_ != 0 && !ruledState->input_enabled_,
+              "a ruled program did not start in its rule's English mode");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese");
+      blurContext(ruled);
+      focusContext(ruled);
+      require(ruledState->input_enabled_,
+              "refocusing the same program put the rule back over the user's own switch");
+      {
+        FixtureContext sameProgram(instance.inputContextManager(), "synthetic-ruled");
+        sameProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        blurContext(ruled);
+        focusContext(sameProgram);
+        require(sameProgram.propertyFor(&engine.factory_)->input_enabled_,
+                "another window of the same program is not the same stay");
+        blurContext(sameProgram);
+      }
+      focusContext(ic);
+      require(state->input_enabled_ == unruledMode, "an unruled program took the ruled program's mode");
+      blurContext(ic);
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "coming back from another program did not apply the rule again");
+      // 没有程序名的上下文（不报告程序名的 Wayland text-input、XIM 前端）也是另一个客户端：经过它再回来，手动切换过的程序重新套用规则。
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese again");
+      blurContext(ruled);
+      {
+        FixtureContext anonymous(instance.inputContextManager(), "");
+        anonymous.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(anonymous);
+        blurContext(anonymous);
+        anonymous.propertyFor(&engine.factory_)->close();
+      }
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a context without a program name did not end the stay");
+      // 全局作用域：规则定下的模式不写进全局状态，从状态栏切到全局时、离开这个程序时都是；用户在这个程序里手动切换过才写进去。
+      fcitx_global_input_mode = true;
+      engine.mode_scope_action_.activate(&ruled);
+      ruledState->waitForPreferenceSave();
+      require(ruledState->preferences_.value("ime_mode_scope", std::string{}) == "global",
+              "the mode scope action did not switch to global scope");
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "switching to global scope wrote the rule's English mode into the global state");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "leaving a ruled program wrote the rule's mode into the global state");
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope");
+      engine.input_mode_action_.activate(&ruled);
+      engine.input_mode_action_.activate(&ruled);
+      require(!ruledState->input_enabled_, "switching twice did not come back to English");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(false),
+              "a manual switch in a ruled program did not reach the global state");
+      ruledState->close();
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield, re-entry, anonymous contexts and global scope passed\n";
+      return 0;
+    }
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {
       const auto press = [&](fcitx::KeySym sym) {
@@ -1803,98 +1896,6 @@ int main(int argc, char **argv) {
       state->close();
       removeFixtureTree(directory);
       std::cout << "Fcitx5 Ctrl+Space defaults, passthrough, hot-reload and repeat passed\n";
-      return 0;
-    }
-    // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。
-    if (argc == 3 && std::string(argv[2]) == "--app-rules") {
-      // 前面的状态栏开关在后台保存偏好；等它落盘再读修订号，免得这次保存撞上它。
-      state->waitForPreferenceSave();
-      {
-        auto snapshot = response(msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
-        const auto revision = snapshot.at("revision").get<uint64_t>();
-        snapshot["preferences"]["app_input_mode_rules"] = Json{{"Synthetic-Ruled", "english"}};
-        snapshot["preferences"]["default_ime_mode"] = "chinese";
-        snapshot["preferences"]["ime_mode_scope"] = "app";
-        const auto document = snapshot.dump();
-        response(msime_client_save_preferences(
-            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
-            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
-      }
-      const auto focusContext = [&](FixtureContext &context) {
-        context.focusIn();
-        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusIn);
-        engine.activate(entry, event);
-      };
-      const auto blurContext = [&](FixtureContext &context) {
-        context.focusOut();
-        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusOut);
-        engine.deactivate(entry, event);
-      };
-      const bool unruledMode = state->input_enabled_;
-      blur();
-      FixtureContext ruled(instance.inputContextManager(), "synthetic-ruled");
-      ruled.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
-      auto *ruledState = ruled.propertyFor(&engine.factory_);
-      focusContext(ruled);
-      require(ruledState->session_ != 0 && !ruledState->input_enabled_,
-              "a ruled program did not start in its rule's English mode");
-      engine.input_mode_action_.activate(&ruled);
-      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese");
-      blurContext(ruled);
-      focusContext(ruled);
-      require(ruledState->input_enabled_,
-              "refocusing the same program put the rule back over the user's own switch");
-      {
-        FixtureContext sameProgram(instance.inputContextManager(), "synthetic-ruled");
-        sameProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
-        blurContext(ruled);
-        focusContext(sameProgram);
-        require(sameProgram.propertyFor(&engine.factory_)->input_enabled_,
-                "another window of the same program is not the same stay");
-        blurContext(sameProgram);
-      }
-      focusContext(ic);
-      require(state->input_enabled_ == unruledMode, "an unruled program took the ruled program's mode");
-      blurContext(ic);
-      focusContext(ruled);
-      require(!ruledState->input_enabled_, "coming back from another program did not apply the rule again");
-      // 没有程序名的上下文（不报告程序名的 Wayland text-input、XIM 前端）也是另一个客户端：经过它再回来，手动切换过的程序重新套用规则。
-      engine.input_mode_action_.activate(&ruled);
-      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese again");
-      blurContext(ruled);
-      {
-        FixtureContext anonymous(instance.inputContextManager(), "");
-        anonymous.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
-        focusContext(anonymous);
-        blurContext(anonymous);
-        anonymous.propertyFor(&engine.factory_)->close();
-      }
-      focusContext(ruled);
-      require(!ruledState->input_enabled_, "a context without a program name did not end the stay");
-      // 全局作用域：规则定下的模式不写进全局状态，从状态栏切到全局时、离开这个程序时都是；用户在这个程序里手动切换过才写进去。
-      fcitx_global_input_mode = true;
-      engine.mode_scope_action_.activate(&ruled);
-      ruledState->waitForPreferenceSave();
-      require(ruledState->preferences_.value("ime_mode_scope", std::string{}) == "global",
-              "the mode scope action did not switch to global scope");
-      require(fcitx_global_input_mode == std::optional<bool>(true),
-              "switching to global scope wrote the rule's English mode into the global state");
-      blurContext(ruled);
-      require(fcitx_global_input_mode == std::optional<bool>(true),
-              "leaving a ruled program wrote the rule's mode into the global state");
-      focusContext(ruled);
-      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope");
-      engine.input_mode_action_.activate(&ruled);
-      engine.input_mode_action_.activate(&ruled);
-      require(!ruledState->input_enabled_, "switching twice did not come back to English");
-      blurContext(ruled);
-      require(fcitx_global_input_mode == std::optional<bool>(false),
-              "a manual switch in a ruled program did not reach the global state");
-      ruledState->close();
-      state->close();
-      removeFixtureTree(directory);
-      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield, re-entry, anonymous contexts and global scope passed\n";
       return 0;
     }
     // 单按 Caps Lock 切换中英文，从真实的 keyEvent 驱动。撤回大写锁定换成测试的实现：数撤回了几次，也能让它失败，不碰 X 服务器。按下事件带按下前的锁定状态，松开事件带按下后的。

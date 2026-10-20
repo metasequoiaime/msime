@@ -272,6 +272,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-app-input-mode-rules
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --app-rules)
+    set_tests_properties(ibus-app-input-mode-rules PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
