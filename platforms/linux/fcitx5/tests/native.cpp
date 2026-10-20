@@ -1859,11 +1859,42 @@ int main(int argc, char **argv) {
       blurContext(ic);
       focusContext(ruled);
       require(!ruledState->input_enabled_, "coming back from another program did not apply the rule again");
+      // 没有程序名的上下文（不报告程序名的 Wayland text-input、XIM 前端）也是另一个客户端：经过它再回来，手动切换过的程序重新套用规则。
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese again");
       blurContext(ruled);
+      {
+        FixtureContext anonymous(instance.inputContextManager(), "");
+        anonymous.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(anonymous);
+        blurContext(anonymous);
+        anonymous.propertyFor(&engine.factory_)->close();
+      }
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a context without a program name did not end the stay");
+      // 全局作用域：规则定下的模式不写进全局状态，从状态栏切到全局时、离开这个程序时都是；用户在这个程序里手动切换过才写进去。
+      fcitx_global_input_mode = true;
+      engine.mode_scope_action_.activate(&ruled);
+      ruledState->waitForPreferenceSave();
+      require(ruledState->preferences_.value("ime_mode_scope", std::string{}) == "global",
+              "the mode scope action did not switch to global scope");
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "switching to global scope wrote the rule's English mode into the global state");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "leaving a ruled program wrote the rule's mode into the global state");
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope");
+      engine.input_mode_action_.activate(&ruled);
+      engine.input_mode_action_.activate(&ruled);
+      require(!ruledState->input_enabled_, "switching twice did not come back to English");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(false),
+              "a manual switch in a ruled program did not reach the global state");
       ruledState->close();
       state->close();
       removeFixtureTree(directory);
-      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield and re-entry passed\n";
+      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield, re-entry, anonymous contexts and global scope passed\n";
       return 0;
     }
     // 单按 Caps Lock 切换中英文，从真实的 keyEvent 驱动。撤回大写锁定换成测试的实现：数撤回了几次，也能让它失败，不碰 X 服务器。按下事件带按下前的锁定状态，松开事件带按下后的。

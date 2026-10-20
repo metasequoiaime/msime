@@ -1482,6 +1482,42 @@ int main(int argc, char **argv) {
         require(!composes() && !seen.input_enabled, "coming back from another program did not apply the rule again");
         invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/qt", "QIBusInputContext"));
         require(composes(), "an anonymous Qt client took a rule");
+        // 有客户端名、没有程序名的客户端是另一个程序，经过它再回来，手动切换过的程序重新套用规则；IBus 的 fake 上下文认不出离没离开，停留保持不变。
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese again");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/fake", "fake"));
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(composes(), "IBus's fake context ended the stay");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/qt", "QIBusInputContext"));
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "an anonymous Qt client did not end the stay");
+        invoke("FocusOut");
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        // 全局作用域：规则定下的模式不改全局状态，离开有规则的程序后别的程序仍是全局的中文；在有规则的程序里手动切换才改全局状态。
+        auto global = ruled;
+        global["preferences"]["ime_mode_scope"] = "global";
+        msime_ibus_configure(global.dump());
+        engine = create_engine();
+        seen = Observation{};
+        // 停用再启用时宿主忘掉之前定下的全局模式，从 default_ime_mode 开始，不受前面几段的影响。
+        invoke("Disable");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes(), "an unruled program did not start in the global Chinese mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "a ruled program did not start in its rule's mode under global scope");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes() && seen.input_enabled, "a ruled program changed the global mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes(), "re-entering a ruled program under global scope did not apply the rule");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese under global scope");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+                "Shift did not switch the ruled program back to English under global scope");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(!composes() && !seen.input_enabled,
+                "a manual switch in a ruled program did not reach the global mode");
         invoke("FocusOut");
         ibus_object_destroy(IBUS_OBJECT(engine));
         g_object_unref(engine);

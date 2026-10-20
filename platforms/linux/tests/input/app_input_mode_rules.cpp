@@ -42,9 +42,14 @@ int main() {
   // 同一程序的另一个窗口不是新的停留。
   assert(!stay.enter("Code"));
   assert(!app_input_mode_rule_start(preferences, "code", stay));
-  // 认不出程序的焦点不结束这次停留。
+  // 认不出换没换客户端的焦点（IBus 的匿名协商、`fake` 上下文）不结束这次停留。
   assert(!stay.enter(""));
   assert(!app_input_mode_rule_start(preferences, "code", stay));
+  // 确定是另一个、只是没有程序名的客户端结束这次停留：回到原来的程序时规则重新生效。
+  stay.leave();
+  assert(stay.enter("code"));
+  assert(app_input_mode_rule_start(preferences, "code", stay) == false);
+  stay.yield("code");
   assert(stay.enter("gedit"));
   assert(app_input_mode_rule_start(preferences, "gedit", stay) == true);
   // 让位只对当时所在的程序。

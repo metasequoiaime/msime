@@ -56,7 +56,7 @@ inline std::string ibus_app_rule_program(std::string_view client) {
   return std::string(client.substr(colon + 1));
 }
 
-// 一次停留：焦点留在同一个程序里（几个窗口、一个窗口里的几个输入框）算同一次，进入另一个程序才是新的一次。用户在一次停留里手动切换中英文后，规则让位到离开这个程序为止，和 macOS、Windows 一样。程序名为空（框架没报告）时认不出换没换程序，停留保持不变。
+// 一次停留：焦点留在同一个程序里（几个窗口、一个窗口里的几个输入框）算同一次，进入另一个程序才是新的一次。用户在一次停留里手动切换中英文后，规则让位到离开这个程序为止，和 macOS、Windows 一样。焦点到了一个没有程序名的上下文时由调用方判断：确定是另一个客户端（IBus 的 Qt 插件、XIM、GNOME Shell，Fcitx5 不报告程序名的前端）就调 `leave`，这次停留结束；认不出换没换客户端（IBus 先匿名聚焦、稍后补名的协商，IBus 自己的 `fake` 上下文）就调 `enter("")`，停留保持不变。
 class AppInputModeRuleStay {
 public:
   // 焦点进入 `program`。返回这次是不是新的停留。
@@ -66,6 +66,12 @@ public:
     program_ = std::string(program);
     yielded_ = false;
     return true;
+  }
+
+  // 焦点进入一个没有程序名、但确定不是当前程序的客户端：和 macOS、Windows 切到别的程序一样，这次停留结束，回到原来的程序时规则重新生效。
+  void leave() {
+    program_.clear();
+    yielded_ = false;
   }
 
   // 用户在 `program` 里手动切换了中英文。

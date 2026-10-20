@@ -623,10 +623,14 @@ struct State {
                               .value("default_ime_mode", "chinese") != "english";
     input_enabled = app_input_modes.restore(focused_client, fallback);
   }
-  // 应用例外（`app_input_mode_rules`）排在作用域和记忆前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是，全局状态不动；用户在这次停留里手动切换后让位（`yield_app_input_mode_rule`），离开再回来重新生效。程序名只有 GTK 输入法模块经 IBus 1.5.27 起的客户端名给出（`ibus_app_rule_program`），Qt、XIM 和更早的 IBus 是匿名的，规则对它们不生效。
+  // 应用例外（`app_input_mode_rules`）排在作用域和记忆前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是，全局状态不动；用户在这次停留里手动切换后让位（`yield_app_input_mode_rule`），离开再回来重新生效。程序名只有 GTK 输入法模块经 IBus 1.5.27 起的客户端名给出（`ibus_app_rule_program`），Qt、XIM、GNOME Wayland 下经 GNOME Shell 转发的程序和更早的 IBus 是匿名的，规则对它们不生效。
   void apply_app_input_mode_rule() {
     const auto program = msime::linux_host::ibus_app_rule_program(focused_client);
-    app_rule_stay.enter(program);
+    // 有客户端名却没有程序名（Qt 插件的 `QIBusInputContext`、`xim`、GNOME Wayland 下所有程序共用的 `gnome-shell`）是确实换了客户端，这次停留结束；空客户端名是 IBus 还没协商出身份的那次聚焦，`fake` 是没有输入框的窗口，都认不出离没离开当前程序，停留保持不变。
+    if (program.empty() && !focused_client.empty() && focused_client != "fake")
+      app_rule_stay.leave();
+    else
+      app_rule_stay.enter(program);
     const auto rule = msime::linux_host::app_input_mode_rule_start(
         configured.value("preferences", Json::object()), program, app_rule_stay);
     app_rule_active = rule.has_value();

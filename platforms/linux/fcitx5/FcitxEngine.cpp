@@ -388,6 +388,13 @@ msime::linux_host::ClientInputModeMemory fcitx_app_input_modes;
 std::optional<bool> fcitx_global_input_mode;
 // 应用例外的停留也在插件范围：同一个程序的几个输入上下文属于同一次停留（AppInputModeRules.h）。
 msime::linux_host::AppInputModeRuleStay fcitx_app_rule_stay;
+// 焦点进入 `program` 的上下文。Fcitx5 的上下文建起来时就带着前端报告的程序名，没有 IBus 那种先匿名、稍后补名的协商，所以程序名为空的上下文（不报告程序名的前端，例如部分 Wayland text-input 客户端）获得焦点就是换了客户端，和 macOS、Windows 切到别的程序一样结束这次停留。
+void enterAppRuleStay(const std::string &program) {
+  if (program.empty())
+    fcitx_app_rule_stay.leave();
+  else
+    fcitx_app_rule_stay.enter(program);
+}
 // Addon scope too: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch fcitx_typing_statistics{msime_client_typing_statistics_enabled};
 // Key press writes still running on their own threads, which ~FcitxEngine waits for so the addon library is not unloaded, nor the process ended, under them.
@@ -1499,8 +1506,8 @@ public:
     applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("ime_mode_scope", next);
-    if (next == "global") fcitx_global_input_mode = input_enabled_;
-    else fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
+    // 按新作用域记下当前模式；应用例外定下、还没被手动切换过的模式不写进全局状态，和失焦时一样。
+    rememberInputMode();
     render();
     return true;
   }
@@ -1561,7 +1568,7 @@ public:
   }
   // 应用例外（`app_input_mode_rules`）排在作用域、记忆和 `default_ime_mode` 前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是；用户在这次停留里手动切换后让位，离开再回来重新生效。程序名是 Fcitx5 前端报告的 `program()`，报告不了的前端（空程序名）照旧。
   void applyAppInputModeRule() {
-    fcitx_app_rule_stay.enter(ic_.program());
+    enterAppRuleStay(ic_.program());
     if (const auto rule =
             msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay))
       input_enabled_ = *rule;
@@ -6689,7 +6696,7 @@ public:
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
           auto *focused = static_cast<fcitx::InputContextEvent &>(event).inputContext();
           // 任何上下文获得焦点都可能是换了程序，不论它用哪个输入法：离开有规则的程序再回来，规则要重新生效。
-          fcitx_app_rule_stay.enter(focused->program());
+          enterAppRuleStay(focused->program());
           // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
           releaseMenuContext(focused);
           ++panel_input_generation_;
