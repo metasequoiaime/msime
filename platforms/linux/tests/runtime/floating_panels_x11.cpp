@@ -357,20 +357,25 @@ void keymap(Display *display) {
   const host::ShuangpinKeymapHint hint{"xiaohe", 'H'};
   const auto colors = host::shuangpin_keymap_colors(host::CandidateTheme{});
   // 光标在上半屏：放在光标下方、让开候选窗再隔 8，左边对齐光标。
-  require(keymap.show("", hint, colors, {200, 150, 2, 20, 60}), "键位图没有画出来");
+  require(keymap.show("", hint, colors, {200, 150, 2, 20, 60, std::nullopt}), "键位图没有画出来");
   XSync(display, False);
   auto window = visible(display, "MSIMEShuangpinKeymap");
   require(window && window->x == 200 && window->y == 150 + 20 + 60 + 8, "键位图没有放在光标下方");
   require(window->width == 620 && window->height == 203, "键位图尺寸不对");
   save(display, *window, "shuangpin-keymap-x11.png");
+  // 宿主量出了候选窗的真实高度（Fcitx5 的原生画布）：按它让开，不用按字号估计的高度。
+  require(keymap.show("", hint, colors, {200, 150, 2, 20, 60, 100}), "键位图没有画出来");
+  XSync(display, False);
+  window = visible(display, "MSIMEShuangpinKeymap");
+  require(window && window->y == 150 + 20 + 100 + 8, "键位图没有按量出的候选窗高度让开");
   // 光标靠近底边：翻到光标上方。
   const int bottom = DisplayHeight(display, DefaultScreen(display)) - 40;
-  require(keymap.show("", hint, colors, {200, bottom, 2, 20, 60}), "键位图没有画出来");
+  require(keymap.show("", hint, colors, {200, bottom, 2, 20, 60, std::nullopt}), "键位图没有画出来");
   XSync(display, False);
   window = visible(display, "MSIMEShuangpinKeymap");
   require(window && window->y + window->height == bottom - 60 - 8, "键位图没有翻到光标上方");
   // 光标矩形不可用时不画。
-  require(!keymap.show("", hint, colors, {0, 0, 0, 0, 60}), "没有光标时不该画键位图");
+  require(!keymap.show("", hint, colors, {0, 0, 0, 0, 60, std::nullopt}), "没有光标时不该画键位图");
   XSync(display, False);
   require(!visible(display, "MSIMEShuangpinKeymap").has_value(), "没有光标时键位图还在");
 }

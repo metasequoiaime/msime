@@ -6634,7 +6634,9 @@ void sync_shuangpin_keymap([[maybe_unused]] IBusEngine *engine, [[maybe_unused]]
       msime::linux_host::shuangpin_keymap_candidate_clearance(
           msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences)), 1.0,
           s.candidate_orientation == IBUS_ORIENTATION_HORIZONTAL, candidates.is_array() ? candidates.size() : 0,
-          preedit_row)};
+          preedit_row),
+      // IBus 的候选窗由桌面面板画，宿主拿不到它的矩形，只能按字号估计。
+      std::nullopt};
   keymap->show("", *hint, s.keymap_colors, anchor);
 #endif
 }
