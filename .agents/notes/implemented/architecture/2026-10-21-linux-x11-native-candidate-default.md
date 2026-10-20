@@ -35,6 +35,9 @@ macOS 候选窗的每个像素都由水杉自己画：首行有 logo、半粗体
 
 ## Testing
 
-- macOS：`target/macos-isolated` 编译 `MSIMEClientInputMethod` 与 `candidate-*` 单测，`candidate-item-layout`、`candidate-pagination`、`candidate-expanded-grid`、`candidate-placement`、`candidate-row-layout`、`candidate-panel`、`candidate-canvas`、`candidate-hover` 通过。
-- Linux 原生：`platforms/linux/build-container.sh` 在 Debian 容器里编译 IBus、Fcitx5 和全部单测，ctest 全部通过；新增的 `linux-candidate-native-canvas-chrome` 在内存里检查首行、行与释义、网格、缩放、装饰带、调色板、定位和动效采样，`linux-candidate-fcitx-canvas` 检查角上挂件进面板图，`linux-candidate-panel-status` 检查 `renderer` 字段。
-- 真实窗口：`fcitx5-native-chrome-{horizontal,vertical}` 在独立 Xvfb、D-Bus 和真实 GTK 编辑器里用 `system` 主题检查原生窗口出现、首行翻页、悬停、展开网格和点选上屏；原有的 canvas 包与 classicui 验收照旧运行，classicui 的译文验收用逃生口关掉原生画布。
+- macOS：在 `target/macos-isolated` 编译产品目标 `MSIMEClientInputMethod` 和候选相关单测，`candidate-skin`、`external-skin`、`candidate-panel`、`candidate-item-layout`、`candidate-row-layout`、`candidate-canvas`、`candidate-hover`、`candidate-placement`、`candidate-pagination`、`candidate-expanded-grid` 十项通过。
+- Linux 原生：`platforms/linux/build-container.sh` 在 Debian 容器里编译 IBus、Fcitx5（full 与 wubi）和全部单测，ctest 96/96 通过；新增的 `linux-candidate-native-canvas-chrome` 在内存里检查首行、行与释义、网格、缩放、装饰带、调色板、定位和动效采样，`linux-candidate-fcitx-canvas` 检查角上挂件进面板图，`linux-candidate-panel-status` 检查 `renderer` 字段。
+- Rust：桌面检查镜像里 `cargo clippy -p msime-client-core -p msime-desktop --all-targets -D warnings` 通过，`host_surface` 33 项与 `msime-desktop` 的 `candidate_panel` 3 项单测通过。
+- 真实窗口：Fcitx5 验收镜像（Xvfb、独立 D-Bus、真实 GTK 编辑器、sway）里跑 `fcitx5-container.sh` 的全部用例加上 `page-number-visibility` 与六项帧动画，42 项中 40 项通过；`fcitx5-native-chrome-{horizontal,vertical}` 用 `system` 主题检查原生窗口出现、首行翻页、悬停、展开网格和点选，以及非 canvas 皮肤包的顶带装饰；Wayland 的六项 canvas 用例照旧通过。没过的 `fcitx5-native-context` 和 `fcitx5-native-ai` 都停在「Disabled expression mode must pass through」，同一镜像里别的分支也是这样，与本篇无关。IBus 的 `ibus-engine-smoke` 通过了「1 / 」页码的检查，停在之后一条同样早已存在的智能标点检查上。
+- 验收里修了两处与本篇相关的老问题：`fcitx5-container.sh` 按前缀嵌套的 ctest 正则超出 CMake 正则 10 组括号的上限，一个用例也不跑，改成逐个列出用例名；canvas 翻页验收的两轮行高相同，等待在热更新生效前就会通过，横排改为等翻页分隔线出现或消失再取按钮位置（修之前在构建机负载高时偶发点错位置，修之后连跑六轮通过）。
+- 客户端自己画候选面板（`ClientSideInputPanel`）时原生画布让给客户端：`fcitx5-page-number-visibility` 用这种上下文验收，原生画布接管时客户端收不到候选。
