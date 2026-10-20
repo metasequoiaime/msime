@@ -1069,6 +1069,7 @@ add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --decl
 add_test(NAME candidate-factory-layout COMMAND candidate-row-layout-test --factory-layout)
 add_test(NAME candidate-factory-shadow COMMAND candidate-row-layout-test --shadow-host)
 add_test(NAME candidate-factory-pager COMMAND candidate-row-layout-test --pager-host)
+add_test(NAME candidate-factory-expand-toggle COMMAND candidate-row-layout-test --expand-toggle)
 # Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
 add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
