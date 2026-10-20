@@ -703,6 +703,8 @@ public:
   std::string modeIndicatorLabel() const {
     switch (msime::linux_host::input_mode_indicator(input_enabled_, effectiveScheme(), caps_lock_)) {
     case msime::linux_host::InputModeIndicator::Chinese: return "中";
+    case msime::linux_host::InputModeIndicator::Shuangpin: return "双";
+    case msime::linux_host::InputModeIndicator::Wubi: return "五";
     case msime::linux_host::InputModeIndicator::Japanese: return "日";
     case msime::linux_host::InputModeIndicator::Korean: return "한";
     case msime::linux_host::InputModeIndicator::Cantonese: return "粤";

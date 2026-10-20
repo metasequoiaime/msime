@@ -2862,9 +2862,12 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
                                                        : "直接输入（不转换）"),
       s.focused && !s.blocked, TRUE,
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  const char *symbol = "文";
+  // 与 Fcitx5 的状态文字和 macOS 的输入模式图标同一套字：中、双、五……英。
+  const char *symbol = "中";
   switch (msime::linux_host::input_mode_indicator(s.input_enabled, scheme, s.caps_lock)) {
-  case msime::linux_host::InputModeIndicator::Chinese: symbol = "文"; break;
+  case msime::linux_host::InputModeIndicator::Chinese: symbol = "中"; break;
+  case msime::linux_host::InputModeIndicator::Shuangpin: symbol = "双"; break;
+  case msime::linux_host::InputModeIndicator::Wubi: symbol = "五"; break;
   case msime::linux_host::InputModeIndicator::Japanese: symbol = "日"; break;
   case msime::linux_host::InputModeIndicator::Korean: symbol = "한"; break;
   case msime::linux_host::InputModeIndicator::Cantonese: symbol = "粤"; break;
@@ -2872,7 +2875,7 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   case msime::linux_host::InputModeIndicator::Stroke: symbol = "笔"; break;
   case msime::linux_host::InputModeIndicator::Vietnamese: symbol = "越"; break;
   case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;
-  case msime::linux_host::InputModeIndicator::English: symbol = "A"; break;
+  case msime::linux_host::InputModeIndicator::English: symbol = "英"; break;
   case msime::linux_host::InputModeIndicator::CapsLock: symbol = "⇪"; break;
   }
   ibus_property_set_symbol(property, ibus_text_new_from_static_string(symbol));

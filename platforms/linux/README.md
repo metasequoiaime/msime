@@ -167,7 +167,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=0
   ```
 
   按住说话不需要合成器绑定：输入法自己处理按住 RAlt（或 Ctrl+Win、RCtrl+RAlt）录音、松开结束，Ctrl+F9 开始/结束切换（见「语音输入」）。别把这些组合键绑给 Hyprland，否则按键到不了输入法。上面三个组合键在 Omarchy 默认绑定里空着，自定义过绑定的话先用 `omarchy menu keybindings --print` 确认。
-- **状态栏插件代替托盘。** `--disable notificationitem` 让 Fcitx5 不注册托盘图标，水杉的中/英标签和托盘菜单在 Omarchy 上就都看不到了。`msime-linux-setup` 在 Omarchy 上把随包安装的插件目录 `<前缀>/share/msime-client/omarchy/plugin` 链接为 `~/.config/omarchy/plugins/metasequoia.msime`，并提示运行 `omarchy plugin enable metasequoia.msime` 把它放上状态栏（setup 不改用户的状态栏布局）。插件显示当前的 中/英/日/⇪，悬停显示当前方案；左键打开菜单（设置、词库、手写、屏幕键盘、表情、语音输入、云剪贴板、重载水杉输入法，`omarchy-fcitx5.service` 在运行时还有重启 Fcitx5），中键直接打开设置。数据来自 Fcitx5 插件写的 `$XDG_RUNTIME_DIR/msime-client/input-status.json`：`{"active":bool,"label":"中","scheme":"quanpin"}`，焦点上下文由水杉处理时 `active` 为真，切到别的输入法或失去焦点后为假，插件随之隐藏；内容不变时不重写。`--unregister` 只移除指向水杉插件的链接。由 `tests/core/input_status.cpp` 和 `tests/core/setup_omarchy.py` 钉住。
+- **状态栏插件代替托盘。** `--disable notificationitem` 让 Fcitx5 不注册托盘图标，水杉的中/英标签和托盘菜单在 Omarchy 上就都看不到了。`msime-linux-setup` 在 Omarchy 上把随包安装的插件目录 `<前缀>/share/msime-client/omarchy/plugin` 链接为 `~/.config/omarchy/plugins/metasequoia.msime`，并提示运行 `omarchy plugin enable metasequoia.msime` 把它放上状态栏（setup 不改用户的状态栏布局）。插件显示当前的 中/双/五/英/日/⇪，悬停显示当前方案；左键打开菜单（设置、词库、手写、屏幕键盘、表情、语音输入、云剪贴板、重载水杉输入法，`omarchy-fcitx5.service` 在运行时还有重启 Fcitx5），中键直接打开设置。数据来自 Fcitx5 插件写的 `$XDG_RUNTIME_DIR/msime-client/input-status.json`：`{"active":bool,"label":"中","scheme":"quanpin"}`，焦点上下文由水杉处理时 `active` 为真，切到别的输入法或失去焦点后为假，插件随之隐藏；内容不变时不重写。`--unregister` 只移除指向水杉插件的链接。由 `tests/core/input_status.cpp` 和 `tests/core/setup_omarchy.py` 钉住。
 
 ## 生成 Linux 安装包
 
@@ -546,7 +546,7 @@ Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（
 
 共享设置页「剪贴板」的「云剪贴板同步方式」可以改成自建中继（地址和令牌存在共享偏好的 `cloud_clipboard_relay`，协议与部署见 `docs/cloud-clipboard-relay.md`）。设置窗口和云剪贴板面板此后按这个顺序选路：配置的 `cloud_clipboard_provider_socket`（或环境变量），然后是中继，然后是自动发现的 socket，最后是水杉账号。中继的本机密钥串 `cloud-clipboard-relay-keystore` 与 `account-session.json` 在同一个状态目录。Fcitx5 键盘里的云剪贴板栏也按显式 socket、中继、自动发现的 socket 选路；没有 socket 时可直接读取中继列表，后台请求失败不转发到其他服务。键盘栏与设置面板共用中继密钥串，地址、令牌或状态目录变化会清空旧列表；新设备的批准仍在云剪贴板面板完成。
 
-IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号为「文」或「A」，日语方案开启转换时为「日」，韩语方案为谚文「한」，粤拼、注音、笔画、越南文、藏文方案分别为「粤」「注」「笔」「越」「藏」（与其它宿主一致），CapsLock 打开时无论哪种模式都显示「⇪」（与 Windows 语言栏图标的优先级一致），不把日语、韩语等已配置方案误标为中文。Fcitx5 宿主通过输入法子模式标签在托盘和面板上显示同样的状态，用词与模式提示一致：「中」「英」「粤」「注」「笔」「日」「한」「越」「藏」「⇪」。CapsLock 状态取自按键事件（松开 CapsLock 时即更新）。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
+IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号与 macOS 的输入模式图标同一套字：全拼为「中」，双拼为「双」，五笔为「五」，直接输入为「英」，日语方案开启转换时为「日」，韩语方案为谚文「한」，粤拼、注音、笔画、越南文、藏文方案分别为「粤」「注」「笔」「越」「藏」，CapsLock 打开时无论哪种模式都显示「⇪」（与 Windows 语言栏图标的优先级一致，macOS 没有这一项），不把日语、韩语等已配置方案误标为中文。Fcitx5 宿主通过输入法子模式标签在托盘和面板上显示同样的状态：「中」「双」「五」「英」「粤」「注」「笔」「日」「한」「越」「藏」「⇪」。CapsLock 状态取自按键事件（松开 CapsLock 时即更新）。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
 
 `ime_mode_scope` 可设为 `app` 或 `global`。按应用时按 IBus 提供的客户端身份分别记忆每个编辑器的中英文状态；没有客户端身份时回退到 `default_ime_mode`。状态表有界且只保存在当前 IBus 进程内。设为全局时，当前 IBus 进程的输入上下文在获得焦点时同步同一个中英文状态；该状态不写回偏好文件，也不干预桌面环境已有的输入源切换。
 
