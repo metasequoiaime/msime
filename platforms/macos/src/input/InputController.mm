@@ -1242,6 +1242,8 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMEDecorationFrames *_decorationFrames;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
+    // 横排候选窗这次显示以来最宽的卡片宽度（不含 canvas 外留白），见 MSIMEWidestCandidateWidth。
+    CGFloat _widestHorizontalCandidateWidth;
     NSInteger _armedGlossColumn;
     // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
     // is untouched while that page is up - nothing was typed - so leaving it only needs the view
@@ -7756,11 +7758,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
     rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
+    // 同一次输入里横排卡片只变宽不变窄（MSIMEWidestCandidateWidth）：记下的宽度作为这一页的最小宽度交给排版，候选行、翻页和展开键都按同一个宽度对齐，多出来的地方留在右边。记下的宽度含首行右端的展开键那一格，这一页也带它时要先扣掉。
+    const CGFloat steadyWidth = vertical || !_panel.isVisible ? 0.0 : MAX(0.0, _widestHorizontalCandidateWidth - (compactExpand ? arrowWidth : 0));
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible preeditWidth:headerWidth
-                       minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra)];
+                       minimumWidth:MAX(MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra), steadyWidth)];
     const CGFloat width = pageGeometry.width + (compactExpand ? arrowWidth : 0);
+    _widestHorizontalCandidateWidth = MSIMEWidestCandidateWidth(_widestHorizontalCandidateWidth, width, vertical, _panel.isVisible);
     MSIMECandidatePanel *candidatePanel = [self candidatePanelWithAppearance:candidateAppearance];
     candidatePanel.scrollHandler = nil;
     if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];

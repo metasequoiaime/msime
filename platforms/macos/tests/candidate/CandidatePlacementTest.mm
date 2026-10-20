@@ -143,6 +143,18 @@ int main()
         assert(MSIMETallestCandidateHeight(tallest, 40, false, true) == 300);
         assert(MSIMETallestCandidateHeight(tallest, 40, false, false) == 0);
 
+        // 横排宽度的记忆：候选窗开着时只变宽不变窄，隐藏过就从这一次的宽度重新记，竖排不记。
+        CGFloat widest = MSIMEWidestCandidateWidth(0, 642, false, false);
+        assert(widest == 642);
+        widest = MSIMEWidestCandidateWidth(widest, 716, false, true);
+        assert(widest == 716);
+        widest = MSIMEWidestCandidateWidth(widest, 558, false, true);
+        assert(widest == 716);
+        widest = MSIMEWidestCandidateWidth(widest, 792, false, true);
+        assert(widest == 792);
+        assert(MSIMEWidestCandidateWidth(widest, 600, false, false) == 600);
+        assert(MSIMEWidestCandidateWidth(widest, 600, true, true) == 0);
+
         // What counts as a caret worth positioning against. A zero-height rect is what a client
         // that does not implement the caret query returns, and NaN is what an arithmetic failure
         // upstream produces; both would otherwise park the window somewhere arbitrary.
