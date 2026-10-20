@@ -12773,6 +12773,75 @@ fn refresh_downloaded_generation_restores_bundled_language_dictionaries() {
     );
 }
 
+/// 背单词的内置词书和音效包一样随安装包走：没有在线更新时在 `resources` 的上一级；更新后 `resources` 指向下载代次，仍回到更新记录里的原安装包目录。
+#[test]
+fn bundled_resource_root_survives_a_downloaded_generation() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("bundle");
+    let resources = bundle.join("resources");
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(state.join("dictionary-updates")).unwrap();
+    let shipped = json!({
+        "resources": resources,
+        "user_data": state.join("user"),
+        "dictionaries": state.join("user/dictionaries/shipped"),
+        "preferences_directory": state,
+    });
+    assert_eq!(super::bundled_resource_root(&shipped), Some(bundle.clone()));
+
+    let baseline = Edition::full().resource_set().unwrap();
+    let version = msime_client_providers::dictionary_updates::baseline_version(&baseline);
+    let mut desktop = baseline.clone();
+    for file in &mut desktop.artifacts {
+        if file
+            .url
+            .starts_with("https://github.com/metasequoiaime/msime-dictionary/releases/download/")
+        {
+            file.url = format!(
+                "https://github.com/metasequoiaime/msime-dictionary/releases/download/{version}/{}",
+                file.name
+            );
+        }
+    }
+    let selection = msime_client_providers::dictionary_updates::Selection {
+        baseline_generation: baseline.generation().unwrap(),
+        version,
+        desktop,
+        languages: None,
+        bundled_resources: resources.clone(),
+    };
+    std::fs::write(
+        state.join("dictionary-updates/installed.json"),
+        serde_json::to_vec(&json!({"active": selection, "previous": null})).unwrap(),
+    )
+    .unwrap();
+    let downloaded = state.join("dictionary-updates/generations/synthetic");
+    std::fs::create_dir_all(&downloaded).unwrap();
+    let mut updated = shipped.clone();
+    updated["resources"] = json!(downloaded);
+    updated["dictionaries"] = json!(state.join("user/dictionaries/synthetic"));
+    assert_eq!(super::bundled_resource_root(&updated), Some(bundle.clone()));
+
+    // 更新记录里的安装包目录已经不在（应用挪了位置）时不去猜，退回 `resources` 的上一级。
+    std::fs::remove_dir_all(&bundle).unwrap();
+    assert_eq!(
+        super::bundled_resource_root(&updated),
+        Some(state.join("dictionary-updates/generations"))
+    );
+    // 不是准备布局的文档只看 `resources`；相对路径说不清指向哪里。
+    let elsewhere = root.path().join("elsewhere/resources");
+    assert_eq!(
+        super::bundled_resource_root(&json!({ "resources": elsewhere })),
+        Some(root.path().join("elsewhere"))
+    );
+    assert_eq!(
+        super::bundled_resource_root(&json!({ "resources": "share/msime-client/resources" })),
+        None
+    );
+    assert_eq!(super::bundled_resource_root(&json!({})), None);
+}
+
 /// The language directory follows the resources a stale generation was prepared from, not the ones the old document recorded.
 #[test]
 fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resources() {

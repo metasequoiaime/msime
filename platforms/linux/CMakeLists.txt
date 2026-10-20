@@ -844,7 +844,7 @@ elseif(MSIME_OFFLINE_GLOSSES)
   install(FILES ${MSIME_OFFLINE_GLOSS_FILES} "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/offline-glosses")
 endif()
-# 背单词的内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成），装在资源目录的同级 wordbooks：设置窗口取 HostOptions 里 resources 的上一级作为词书的资源根（apps/desktop/src-tauri/src/lib.rs 的 vocabulary_resources）。只随许可声明 wordbooks-NOTICE.txt 一起装；没有时背单词只列用户导入的词表。词书不分版本。没指定时从 target/wordbooks 捡；MSIME_REQUIRE_WORDBOOKS 让缺了 resources/wordbook.lock.json 列出的任何一本的构建失败。
+# 背单词的内置词书（scripts/fetch_wordbooks.py 从 ECDICT 生成），装在资源目录的同级 wordbooks：设置窗口按 HostOptions 求随包资源的目录（host-api 的 bundled_resource_root：resources 的上一级，词库在线更新后是原安装包目录的上一级）。只随许可声明 wordbooks-NOTICE.txt 一起装；没有时背单词只列用户导入的词表。词书不分版本。没指定时从 target/wordbooks 捡；MSIME_REQUIRE_WORDBOOKS 让缺了 resources/wordbook.lock.json 列出的任何一本的构建失败。
 set(MSIME_WORDBOOKS "" CACHE PATH "Bundled 背单词 wordbooks with their notice, e.g. target/wordbooks")
 option(MSIME_REQUIRE_WORDBOOKS "Fail unless every wordbook resources/wordbook.lock.json lists is installed" OFF)
 if(NOT MSIME_WORDBOOKS AND IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/wordbooks")
