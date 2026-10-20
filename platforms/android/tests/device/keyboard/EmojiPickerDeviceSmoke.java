@@ -1,6 +1,5 @@
 package app.msime.android.test;
 
-import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -8,16 +7,29 @@ import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** 表情面板的分类布局、默认的水杉娘表情包、真实滑动、分页和上屏设备验收。 */
+/** 表情面板的空白常用首页、分类布局、真实滑动、分页和上屏设备验收。 */
 public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     /** 表情包分类签的无障碍描述（StickerPackModel.TAB_DESCRIPTION）；APK 总是带着表情包，所以它一定在。 */
     private static final String STICKER_TAB = "水杉娘表情包";
 
     @Override protected String successDescription() {
-        return "category width, sticker pack first and default, horizontal gestures, vertical pages, insertion, deletion, recents and restart";
+        return "empty common emoji first and default, sticker second, horizontal gestures, paging, insertion, deletion and recent restart";
     }
 
     @Override protected void runChecks() throws Exception {
+        android.content.SharedPreferences history = getTargetContext().getSharedPreferences("android-emoji-recents", 0);
+        String original = history.getString("items", null);
+        try {
+            if (!history.edit().remove("items").commit()) throw new AssertionError("常用测试历史准备失败");
+            runPanelChecks();
+        } finally {
+            android.content.SharedPreferences.Editor restore = history.edit();
+            if (original == null) restore.remove("items"); else restore.putString("items", original);
+            if (!restore.commit()) throw new AssertionError("常用历史恢复失败");
+        }
+    }
+
+    private void runPanelChecks() throws Exception {
         restartIme();
         openEditor();
         stage = "emoji composition";
@@ -47,10 +59,21 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         if (categoryBounds.width() < panelBounds.width() - chromeWidth)
             throw new AssertionError("Emoji categories did not receive the freed return-key width");
 
-        stage = "sticker pack is the first and default category";
-        AccessibilityNodeInfo firstTab = await(description("表情分类")).getChild(0);
-        if (firstTab == null || !equalsText(STICKER_TAB, firstTab.getContentDescription()))
-            throw new AssertionError("The sticker pack was not the first emoji category");
+        stage = "empty common emoji is the first and default category";
+        AccessibilityNodeInfo tabs = await(description("表情分类"));
+        AccessibilityNodeInfo firstTab = tabs.getChild(0);
+        AccessibilityNodeInfo secondTab = tabs.getChild(1);
+        if (firstTab == null || !equalsText("表情分类 常用", firstTab.getContentDescription())
+                || secondTab == null || !equalsText(STICKER_TAB, secondTab.getContentDescription()))
+            throw new AssertionError("常用与水杉娘没有依次位于最左侧");
+        await(description("表情分类 常用").and(AccessibilityNodeInfo::isSelected));
+        await(node -> equalsText("app.msime.android", node.getPackageName())
+            && equalsText("点过的表情会出现在这里", node.getText()));
+        if (find(await(description("表情面板")), node -> node.getContentDescription() != null
+                && node.getContentDescription().toString().startsWith("按键 表情 ")) != null)
+            throw new AssertionError("空白常用页被预填表情");
+        stage = "sticker second category still opens";
+        tap(description(STICKER_TAB));
         await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
         // Pixel 6 竖屏：一行五格。
         await(description("表情网格；" + STICKER_TAB + "，每行 5 个"));
@@ -82,16 +105,13 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(emojiCount(value -> value > 0));
         assertEditorText(beforeSwipe);
         stage = "first category and recents boundary";
-        // 往右划依次经过「最近」（有记录时）到第一个分类表情包，再划不回绕，也不发出表情包。
-        boolean hasRecents = find(await(description("表情面板")), description("表情分类 最近")) != null;
-        if (hasRecents) {
-            swipe(1, false);
-            await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
-        }
+        // 往右划依次经过水杉娘和空白常用，再划不回绕，也不发出表情。
         swipe(1, false);
         await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
         swipe(1, false);
-        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
+        await(description("表情分类 常用").and(AccessibilityNodeInfo::isSelected));
+        swipe(1, false);
+        await(description("表情分类 常用").and(AccessibilityNodeInfo::isSelected));
         assertEditorText(beforeSwipe);
         tap(description("表情分类 笑脸"));
         stage = "cancelled horizontal gesture keeps category";
@@ -106,7 +126,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(description("表情网格；组合表情自动适配宽度"));
         assertEditorText(beforeSwipe);
         stage = "select last category";
-        AccessibilityNodeInfo tabs = await(description("表情分类"));
+        tabs = await(description("表情分类"));
         AccessibilityNodeInfo lastTab = tabs.getChild(tabs.getChildCount() - 1);
         if (lastTab == null || lastTab.getContentDescription() == null)
             throw new AssertionError("Last emoji category was not exposed");
@@ -148,6 +168,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         stage = "emoji recent entry";
         tap(description("表情"));
         openRecents();
+        await(emojiCount(value -> value == 1));
         stage = "emoji deletion";
         tap(description("删除"));
         tap(description("返回键盘"));
@@ -169,11 +190,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(key("n").and(AccessibilityNodeInfo::isClickable));
     }
 
-    /** 有最近记录时面板仍默认打开表情包，「最近」排在它后面，要点一下才切过去。 */
+    /** 再次打开与重启后都默认停在常用，无需额外切分类。 */
     private void openRecents() throws Exception {
-        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
-        tap(description("表情分类 最近"));
-        await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
+        await(description("表情分类 常用").and(AccessibilityNodeInfo::isSelected));
     }
 
     private void assertEditorText(String expected) throws Exception {
@@ -220,9 +239,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor() throws Exception {
-        Intent intent = new Intent(getTargetContext(), EditorActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivitySync(intent);
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
     }

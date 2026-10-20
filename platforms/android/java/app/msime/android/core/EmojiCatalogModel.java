@@ -10,7 +10,7 @@ public final class EmojiCatalogModel {
     public static final int PAGE_SIZE = 64;
     public static final int RECENTS_LIMIT = 24;
     // 分类栏用图标而不是文字，十个分类才能在一行里等分放下；图标与共享 UI `emoji-catalog.ts` 一致。
-    public static final Category RECENTS = new Category("最近", "最近", "🕘");
+    public static final Category RECENTS = new Category("最近", "常用", "🕘");
     public static final int MAX_TEXT_CODE_POINTS = 32;
     public static final int MAX_ANNOTATION_CODE_POINTS = 1_024;
 

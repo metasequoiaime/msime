@@ -91,7 +91,7 @@ final class ImePanels {
     void renderEmojiTabs() {
         if (s.emojiTabs == null) return;
         s.emojiTabs.removeAllViews();
-        // 顺序和横划切换共用一份：表情包在时排第一，之后是「最近」和各 Emoji 分类。
+        // 顺序和横划切换共用一份：常用始终排第一，水杉娘可用时排第二。
         for (int category : s.imeStickers.categoryOrder()) {
             if (category == s.imeStickers.category()) addStickerTab();
             else if (category == StickerPackModel.RECENTS_CATEGORY)
@@ -100,7 +100,7 @@ final class ImePanels {
         }
     }
 
-    /** 第一个分类签「水杉娘」：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
+    /** 「水杉娘」分类签：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
     private void addStickerTab() {
         ImeStickers.StickerButton tab = emojiButton(new ImeStickers.StickerButton(s, s.pixels(2),
             s.pixels(StickerPackModel.TAB_ICON_DP)), KeyboardKeyRole.PLAIN, false,
@@ -168,6 +168,10 @@ final class ImePanels {
         if (width <= 0) width = s.getResources().getDisplayMetrics().widthPixels - s.pixels(12);
         int rowHeight = visible > 0
             ? BoundsPolicy.atLeast(s.pixels(40), visible / 3) : s.pixels(48);
+        if (s.emojiSelectedCategory == StickerPackModel.RECENTS_CATEGORY && s.emojiItems.isEmpty()) {
+            TextView hint = ViewPolicy.centeredText(s, "点过的表情会出现在这里", 13);
+            s.emojiGrid.addView(hint, LayoutPolicy.matchWidthHeightPx(rowHeight));
+        }
         LinearLayout row = null;
         int used = 0;
         for (EmojiCatalogModel.Item item : s.emojiItems) {
@@ -280,8 +284,8 @@ final class ImePanels {
         s.emojiRecents = s.loadEmojiRecents();
         ViewPolicy.show(s.emojiPanel);
         s.emojiPanel.requestFocus();
-        // 表情包在时默认选中它，直接显示表情包网格；读不到清单时沿用「有最近就最近，否则第一个分类」。
-        s.selectEmojiCategory(s.imeStickers.defaultCategory());
+        // 有无使用记录都默认打开常用，异步加载贴纸不改变当前分类。
+        s.selectEmojiCategory(StickerPackModel.RECENTS_CATEGORY);
     }
 
     void showSymbolPanel() {
@@ -2596,7 +2600,7 @@ final class ImePanels {
                 horizontal = false;
                 if (action == MotionEvent.ACTION_UP && !multiplePointers &&
                         Math.abs(dx) >= s.pixels(48) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    // 按底栏分类签的顺序切换（表情包在时是第一个），到两端不回绕。
+                    // 按底栏分类签的顺序切换，常用在最左，两端不回绕。
                     int category = s.imeStickers.swipeCategory(dx < 0 ? 1 : -1);
                     if (category != StickerPackModel.NO_CATEGORY) s.selectEmojiCategory(category);
                 }

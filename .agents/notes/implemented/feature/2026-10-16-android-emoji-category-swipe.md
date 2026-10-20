@@ -12,6 +12,8 @@ Status: implemented
 
 ## Historical audit
 
+- [常用表情默认页](2026-10-21-android-common-emoji-default.md)部分取代分类顺序：常用始终参与横划并位于最左，水杉娘可用时排第二；本篇的取消、分页及不回绕规则保持。
+
 - [符号目录与表情候选](2026-10-08-android-symbol-catalog-and-emoji-candidates.md)部分重叠：保留目录分页和字体过滤，不改变符号面板或候选算法。
 - [Android 设备门禁](../testing/2026-10-08-android-device-gates.md)部分重叠：复用专用模拟器与现有表情设备验收，手势通过真实触摸注入验证。
 
