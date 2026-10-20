@@ -80,7 +80,6 @@ int main() {
         {K::Separator, C::OpenSettings},
         {K::Item, C::OpenCloudClipboard},
         {K::Item, C::OpenCloudDictionary},
-        {K::Separator, C::OpenSettings},
         {K::Item, C::OpenDictionary},
         {K::Item, C::OpenSettings},
         {K::Item, C::OpenAbout},
@@ -102,8 +101,8 @@ int main() {
     require(items[12].label == "主题" && items[12].hint == "水杉" &&
             items[12].submenu);
     require(items[20].label == "云剪贴板…" && items[21].label == "云词库…" &&
-            items[23].label == "词库…" && items[24].label == "水杉输入法设置…" &&
-            items[25].label == "关于水杉输入法…");
+            items[22].label == "词库…" && items[23].label == "水杉输入法设置…" &&
+            items[24].label == "关于水杉输入法…");
     for (const auto &row : items)
       require(!row.back && (row.submenu == (row.command == C::ShowSchemes ||
                                             row.command == C::ShowThemes) ||
@@ -490,7 +489,7 @@ int main() {
   require(near(geometry.size.width, 260.0));
   const double expected_height =
       metrics.padding * 2.0 + metrics.header_height +
-      metrics.separator_height * 6.0 + metrics.row_height * 14.0 +
+      metrics.separator_height * 5.0 + metrics.row_height * 14.0 +
       metrics.tool_height;
   require(near(geometry.size.height, expected_height));
   require(near(tray_menu_size(items, metrics).height, expected_height));
@@ -504,8 +503,8 @@ int main() {
     require(tray_menu_geometry(tray_menu_items(all, state, TrayMenuPage::Themes),
                                metrics)
                 .size.height <= work);
-    // 比设计高度矮、压到最小行高又放得下的工作区。
-    const double short_work = 540.0;
+    // 200% 缩放的 1080p 工作区（约 500 DIP）：比设计高度矮，压到最小行高放得下，最后一行不被裁掉。
+    const double short_work = 500.0;
     const auto fitted = tray_menu_fitted_metrics(items, metrics, short_work);
     require(fitted.row_height < metrics.row_height &&
             fitted.row_height >= tray_menu_compact_row_height);

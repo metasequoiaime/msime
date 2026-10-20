@@ -400,8 +400,7 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       capabilities.cloud_clipboard, false);
   row(TrayMenuCommand::OpenCloudDictionary, "云词库…",
       capabilities.cloud_dictionary, false);
-  separator();
-  // 设置应用的页面。「水杉输入法设置…」「关于水杉输入法…」与 macOS 输入菜单的末两行相同，产品名按版本取。
+  // 设置应用的页面，与云剪贴板、云词库之间不另加分隔线：macOS 输入菜单这一组只在设置之前有一条分隔线，这里工具条之后已经有一条，再加一条只会让卡片在矮工作区里放不下。「水杉输入法设置…」「关于水杉输入法…」与 macOS 输入菜单的末两行相同，产品名按版本取。
   row(TrayMenuCommand::OpenDictionary, "词库…", capabilities.settings, false);
   row(TrayMenuCommand::OpenSettings, capabilities.product_name + "设置…",
       capabilities.settings, false);
@@ -515,8 +514,8 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   geometry.size.height = top + metrics.padding;
   return geometry;
 }
-// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。
-inline constexpr double tray_menu_compact_row_height = 28.0;
+// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 26 DIP 让主页压缩后约 499 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）。
+inline constexpr double tray_menu_compact_row_height = 26.0;
 inline TrayMenuMetrics tray_menu_fitted_metrics(
     const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
     double available_height) {
