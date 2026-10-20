@@ -15108,6 +15108,53 @@ fn english_glosses_prefer_the_dictionaries_and_keep_learned_ones() {
     );
 }
 
+/// 旧 macOS 配置可能仍把 `EngineResources` 放在更新前的应用包外。随包输入法提供补充表作为只读回退，
+/// 这样酸奶等长尾词不会退回到较小的反向 ECDICT 表。
+#[test]
+fn candidate_gloss_request_reads_packaged_supplementary_fallback() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("old-resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("msime-english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;",
+        )
+        .unwrap();
+    let packaged = root.path().join("packaged");
+    let words = packaged.join("word-glosses/zh-en.db");
+    offline_gloss_fixture(&words, "en");
+    rusqlite::Connection::open(&words)
+        .unwrap()
+        .execute(
+            "INSERT INTO zh_glosses VALUES('酸奶', 'yogurt', 'cc-cedict')",
+            [],
+        )
+        .unwrap();
+    let resources = resources.to_string_lossy().into_owned();
+    let packaged = packaged.to_string_lossy().into_owned();
+    let request = serde_json::to_vec(&json!({
+        "generation": 1,
+        "supplementary_resources": packaged,
+        "candidates": [{"text": "酸奶", "source": 0}]
+    }))
+    .unwrap();
+    let result = read(unsafe {
+        msime_client_candidate_gloss_request(
+            request.as_ptr(),
+            request.len(),
+            resources.as_ptr(),
+            resources.len(),
+        )
+    });
+    assert_eq!(
+        result["value"]["translations"],
+        json!([{"text": "酸奶", "translation": "yogurt"}])
+    );
+}
+
 #[test]
 fn gloss_breakdown_request_lines_sentences_up_with_english_words() {
     let root = tempfile::tempdir().unwrap();

@@ -275,7 +275,7 @@ pub(crate) fn known_pieces(resources: &Path, texts: &[String]) -> Option<HashMap
     if ["character-glosses", "word-glosses"]
         .iter()
         .all(|directory| {
-            crate::supplementary_glosses::database_beside(resources, directory).is_none()
+            crate::supplementary_glosses::database_beside(resources, None, directory).is_none()
         })
     {
         return None;
@@ -283,7 +283,8 @@ pub(crate) fn known_pieces(resources: &Path, texts: &[String]) -> Option<HashMap
     let pieces = pieces_to_ask(texts);
     let mut known = HashMap::new();
     let lookup = |directory: &str, asked: &[String]| -> Vec<(String, String)> {
-        let Some(database) = crate::supplementary_glosses::database_beside(resources, directory)
+        let Some(database) =
+            crate::supplementary_glosses::database_beside(resources, None, directory)
         else {
             return Vec::new();
         };

@@ -21,15 +21,25 @@ const CHARACTER_TABLE: &str = "character-glosses";
 const WORD_TABLE: &str = "word-glosses";
 
 /// `<directory>/zh-en.db` beside the resource directory, when it is installed.
-pub(crate) fn database_beside(resources: &Path, directory: &str) -> Option<PathBuf> {
-    let path = resources.parent()?.join(directory).join("zh-en.db");
-    path.is_file().then_some(path)
+pub(crate) fn database_beside(
+    resources: &Path,
+    supplementary_resources: Option<&Path>,
+    directory: &str,
+) -> Option<PathBuf> {
+    let candidates = [
+        resources
+            .parent()
+            .map(|parent| parent.join(directory).join("zh-en.db")),
+        supplementary_resources.map(|root| root.join(directory).join("zh-en.db")),
+    ];
+    candidates.into_iter().flatten().find(|path| path.is_file())
 }
 
 /// Replace glosses with the tables' entries in place; `glosses` and `learned` are parallel to `candidates`, and a
 /// learned gloss is kept. The tables only hold Chinese keys, so English candidates keep their Chinese gloss.
 pub(crate) fn prefer(
     resources: &Path,
+    supplementary_resources: Option<&Path>,
     candidates: &[(String, u8)],
     glosses: &mut [String],
     learned: &[bool],
@@ -46,7 +56,13 @@ pub(crate) fn prefer(
         let asked = (0..candidates.len())
             .filter(|index| !settled[*index] && wanted(&candidates[*index].0))
             .collect::<Vec<_>>();
-        for (index, gloss) in lookup(resources, directory, candidates, &asked) {
+        for (index, gloss) in lookup(
+            resources,
+            supplementary_resources,
+            directory,
+            candidates,
+            &asked,
+        ) {
             glosses[index] = gloss;
             settled[index] = true;
         }
@@ -56,6 +72,7 @@ pub(crate) fn prefer(
 /// The non-empty entries of `directory`'s table for the candidates at `indices`.
 fn lookup(
     resources: &Path,
+    supplementary_resources: Option<&Path>,
     directory: &str,
     candidates: &[(String, u8)],
     indices: &[usize],
@@ -63,7 +80,7 @@ fn lookup(
     if indices.is_empty() {
         return Vec::new();
     }
-    let Some(database) = database_beside(resources, directory) else {
+    let Some(database) = database_beside(resources, supplementary_resources, directory) else {
         return Vec::new();
     };
     let Some(database) = database.to_str() else {

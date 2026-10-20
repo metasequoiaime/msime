@@ -3083,8 +3083,13 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
         @"directory":_preferencesDirectory ?: @""} : nil;
 }
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
-    return [MSIMEClientSession candidateGlossRequest:@{@"generation":request[@"generation"],
-        @"candidates":request[@"candidates"]} resources:resources error:nil];
+    NSMutableDictionary *query = [@{@"generation":request[@"generation"],
+        @"candidates":request[@"candidates"]} mutableCopy];
+    // 旧安装可能把 EngineResources 留在 Application Support，而随包补充词库在输入法 bundle
+    // 里。把 bundle 作为只读回退交给 Host API，不要求重新准备词库代次。
+    NSString *supplementary = [NSBundle.mainBundle.resourcePath copy];
+    if (supplementary.isAbsolutePath) query[@"supplementary_resources"] = supplementary;
+    return [MSIMEClientSession candidateGlossRequest:query resources:resources error:nil];
 }
 + (dispatch_queue_t)learnedTranslationQueue {
     static dispatch_queue_t queue;

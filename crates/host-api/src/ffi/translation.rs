@@ -644,6 +644,9 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         /// The `state_root` of the translation query, when an offline dictionary came from the downloaded pack.
         #[serde(default)]
         state_root: Option<String>,
+        /// 当前 Engine 资源目录较旧时可选的随包补充资源目录。
+        #[serde(default)]
+        supplementary_resources: Option<String>,
         candidates: Vec<GlossCandidate>,
     }
     #[derive(Deserialize)]
@@ -668,6 +671,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             user_data,
             target_language,
             state_root,
+            supplementary_resources,
             candidates: raw_candidates,
         } = request;
         if state_root.as_deref().is_some_and(|state_root| {
@@ -687,6 +691,19 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             "resources path is not UTF-8",
             "resources path must be absolute",
         )?;
+        let supplementary_resources = supplementary_resources
+            .as_deref()
+            .map(|path| {
+                if path.len() > 4096 {
+                    return Err("supplementary resources path is too long".into());
+                }
+                super::parse_absolute_path(
+                    path.as_bytes(),
+                    "supplementary resources path is not UTF-8",
+                    "supplementary resources path must be absolute",
+                )
+            })
+            .transpose()?;
         let mut candidates = Vec::with_capacity(raw_candidates.len());
         candidates.extend(
             raw_candidates
@@ -722,6 +739,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                     };
                     crate::supplementary_glosses::prefer(
                         std::path::Path::new(resources),
+                        supplementary_resources.map(std::path::Path::new),
                         candidates,
                         &mut glosses,
                         &learned,
