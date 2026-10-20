@@ -69,6 +69,7 @@ fn options(root: &Path) -> EngineOptions {
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         helpcode_table: None,
+        helpcode_fallback_resources: None,
         sentence_association: SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -2359,6 +2360,58 @@ fn an_unreadable_helpcode_table_still_creates_the_session() {
         "{:?}",
         view.candidate_annotations
     );
+}
+
+#[test]
+fn missing_builtin_helpcode_uses_host_fallback_for_annotations_and_filtering() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(root.path(), "", "");
+    std::fs::remove_file(
+        Path::new(&options.resources).join("helpcodes/zrm_helpcode_big_unique.txt"),
+    )
+    .unwrap();
+    let fallback = root.path().join("bundle");
+    std::fs::create_dir_all(fallback.join("helpcodes")).unwrap();
+    for (file, table) in [
+        ("zrm_helpcode_big_unique.txt", "你=ab\n好=cd\n拟=ef\n"),
+        ("xiaohe_helpcode.txt", "你=gh\n好=ij\n拟=kl\n"),
+    ] {
+        std::fs::write(fallback.join("helpcodes").join(file), table).unwrap();
+    }
+    options.helpcode_fallback_resources = Some(fallback.to_str().unwrap().to_owned());
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nihao");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .candidate_annotations
+        .iter()
+        .any(|a| a.to_ascii_uppercase().contains("AC")));
+    session.character(b'E', true).unwrap();
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates[0], "拟好");
+
+    session.command(Command::Cancel).unwrap();
+    session
+        .set_helpcode_table(Some(std::sync::Arc::new(
+            crate::helpcode::HelpcodeKeymap::default(),
+        )))
+        .unwrap();
+    session.set_helpcode_table(None).unwrap();
+    type_text(&mut session, b"nihao");
+    session.character(b'E', true).unwrap();
+    assert_eq!(session.snapshot().unwrap().candidates[0], "拟好");
+
+    // 重建和方案切换均保留宿主回退目录。
+    options.helpcode_schema = "xiaohe".into();
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nihao");
+    assert!(session
+        .snapshot()
+        .unwrap()
+        .candidate_annotations
+        .iter()
+        .any(|a| a.to_ascii_uppercase().contains("GI")));
 }
 
 #[test]

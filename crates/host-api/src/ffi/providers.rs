@@ -192,8 +192,7 @@ fn selected_translation_services(
     } else if tencent.enabled {
         TranslationService::Tencent
     } else if preferences.ai_assistant.enabled
-        && (msime_client_providers::ai::credential_for_endpoint(&preferences.ai_assistant)
-            .is_some()
+        && (msime_client_providers::ai::has_request_credential(&preferences.ai_assistant)
             || session_ai_credential.is_some_and(|credential| {
                 credential.endpoint == preferences.ai_assistant.endpoint
                     && msime_client_core::translation::usable_credential(&credential.token)

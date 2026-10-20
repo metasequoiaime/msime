@@ -3,9 +3,9 @@
     "10": {
       "cases": 9,
       "found": 0.444,
-      "mrr": 0.349,
-      "top1": 0.333,
-      "top1_char_prefix": 0.533,
+      "mrr": 0.275,
+      "top1": 0.222,
+      "top1_char_prefix": 0.444,
       "top5": 0.333,
       "top9": 0.444
     },
@@ -14,16 +14,16 @@
       "found": 0.667,
       "mrr": 0.568,
       "top1": 0.556,
-      "top1_char_prefix": 0.838,
+      "top1_char_prefix": 0.818,
       "top5": 0.556,
       "top9": 0.667
     },
     "12": {
       "cases": 9,
       "found": 0.778,
-      "mrr": 0.623,
-      "top1": 0.556,
-      "top1_char_prefix": 0.741,
+      "mrr": 0.679,
+      "top1": 0.667,
+      "top1_char_prefix": 0.787,
       "top5": 0.667,
       "top9": 0.778
     },
@@ -48,20 +48,20 @@
     "6": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.784,
-      "top1": 0.778,
-      "top1_char_prefix": 0.852,
-      "top5": 0.778,
-      "top9": 0.778
+      "mrr": 0.889,
+      "top1": 0.889,
+      "top1_char_prefix": 0.963,
+      "top5": 0.889,
+      "top9": 0.889
     },
     "7": {
       "cases": 9,
       "found": 0.667,
-      "mrr": 0.467,
-      "top1": 0.444,
-      "top1_char_prefix": 0.492,
-      "top5": 0.444,
-      "top9": 0.556
+      "mrr": 0.571,
+      "top1": 0.556,
+      "top1_char_prefix": 0.603,
+      "top5": 0.556,
+      "top9": 0.667
     },
     "8": {
       "cases": 9,
@@ -74,54 +74,54 @@
     },
     "9": {
       "cases": 9,
-      "found": 1.0,
-      "mrr": 0.821,
-      "top1": 0.778,
-      "top1_char_prefix": 0.914,
-      "top5": 0.889,
-      "top9": 1.0
+      "found": 0.889,
+      "mrr": 0.609,
+      "top1": 0.556,
+      "top1_char_prefix": 0.84,
+      "top5": 0.667,
+      "top9": 0.778
     }
   },
   "by_tag": {
     "question": {
       "cases": 11,
       "found": 1.0,
-      "mrr": 0.755,
-      "top1": 0.727,
-      "top1_char_prefix": 0.765,
-      "top5": 0.727,
-      "top9": 0.909
+      "mrr": 0.841,
+      "top1": 0.818,
+      "top1_char_prefix": 0.856,
+      "top5": 0.818,
+      "top9": 1.0
     },
     "request": {
       "cases": 18,
-      "found": 0.667,
-      "mrr": 0.57,
-      "top1": 0.556,
-      "top1_char_prefix": 0.737,
-      "top5": 0.556,
-      "top9": 0.667
+      "found": 0.611,
+      "mrr": 0.464,
+      "top1": 0.444,
+      "top1_char_prefix": 0.713,
+      "top5": 0.444,
+      "top9": 0.556
     },
     "statement": {
       "cases": 52,
       "found": 0.731,
-      "mrr": 0.64,
-      "top1": 0.615,
-      "top1_char_prefix": 0.775,
-      "top5": 0.673,
-      "top9": 0.692
+      "mrr": 0.655,
+      "top1": 0.635,
+      "top1_char_prefix": 0.779,
+      "top5": 0.692,
+      "top9": 0.712
     }
   },
   "cases": 81,
   "gold_source": {
     "database": 7,
-    "generated": 54
+    "generated": 53
   },
   "overall": {
     "cases": 81,
-    "found": 0.753,
-    "mrr": 0.64,
+    "found": 0.741,
+    "mrr": 0.638,
     "top1": 0.617,
-    "top1_char_prefix": 0.765,
+    "top1_char_prefix": 0.775,
     "top5": 0.654,
     "top9": 0.716
   },
@@ -137,15 +137,8 @@
       "gold": "我们走路去",
       "id": "nk-013",
       "input": "womenzouluqu",
-      "rank": 73,
+      "rank": 72,
       "top1": "我们有录取"
-    },
-    {
-      "gold": "晚饭想吃什么",
-      "id": "nk-020",
-      "input": "wanfanxiangchishenme",
-      "rank": 18,
-      "top1": "早饭想吃什么"
     },
     {
       "gold": "电脑突然死机",
@@ -155,25 +148,18 @@
       "top1": "电脑突然奇迹"
     },
     {
-      "gold": "这件衣服很好看",
-      "id": "nk-029",
-      "input": "zhejianyifuhenhaokan",
-      "rank": null,
-      "top1": "这叫一度很好看"
-    },
-    {
       "gold": "地铁站离这很近",
       "id": "nk-033",
       "input": "ditiezhanlizhehenjin",
       "rank": null,
-      "top1": "地铁线记者跟进"
+      "top1": "地铁站记者很近"
     },
     {
       "gold": "下班以后去超市",
       "id": "nk-034",
       "input": "xiabanyihouquchaoshi",
-      "rank": 16,
-      "top1": "一把安逸后去便是"
+      "rank": null,
+      "top1": "一把安置牧区便是"
     },
     {
       "gold": "孩子已经睡着了",
@@ -208,7 +194,7 @@
       "id": "nk-040",
       "input": "wogangcaiquletangyinhang",
       "rank": null,
-      "top1": "我刚才去了唐姓啊你"
+      "top1": "我刚才去课堂姨娘"
     },
     {
       "gold": "晚上一起看电视吧",
@@ -229,7 +215,14 @@
       "id": "nk-044",
       "input": "qingbadengguandiaozaichuqu",
       "rank": null,
-      "top1": "请把风管点在出去"
+      "top1": "请把灯管掉在出去"
+    },
+    {
+      "gold": "请大家准时参加会议",
+      "id": "nk-047",
+      "input": "qingdajiazhunshicanjiahuiyi",
+      "rank": null,
+      "top1": "请大家准时报价会议"
     },
     {
       "gold": "天气预报说明天有雨",
@@ -239,11 +232,18 @@
       "top1": "天气预报说明提案由于"
     },
     {
+      "gold": "周末我们去看电影吧",
+      "id": "nk-051",
+      "input": "zhoumowomenqukandianyingba",
+      "rank": 11,
+      "top1": "周末我们去看电影啊啊"
+    },
+    {
       "gold": "我已经把钱转给你了",
       "id": "nk-054",
       "input": "woyijingbaqianzhuangeinile",
       "rank": 4,
-      "top1": "我已经把钱庄顶了"
+      "top1": "我已经把山庄顶了"
     },
     {
       "gold": "我们一起去公园散步吧",
@@ -271,7 +271,7 @@
       "id": "nk-058",
       "input": "nibanagehongsedebaogeiwo",
       "rank": null,
-      "top1": "拟办车工惹得把你敌我"
+      "top1": "密保车工热的报给我"
     },
     {
       "gold": "这次考试的题目有点难",
@@ -288,6 +288,13 @@
       "top1": "我们一百再来这里吃饭"
     },
     {
+      "gold": "你们先吃我马上就过来",
+      "id": "nk-063",
+      "input": "nimenxianchiwomashangjiuguolai",
+      "rank": 3,
+      "top1": "你们小吃我马上就过来"
+    },
+    {
       "gold": "你可以先去那里等我一下",
       "id": "nk-065",
       "input": "nikeyixianqunalidengwoyixia",
@@ -299,28 +306,28 @@
       "id": "nk-066",
       "input": "womenkeyiyiqiqumaidiandongxi",
       "rank": null,
-      "top1": "我们可以一起去那个好东西"
+      "top1": "我们可以一起去那个感恩你一"
     },
     {
       "gold": "我还以为你已经回到家了",
       "id": "nk-070",
       "input": "wohaiyiweiniyijinghuidaojiale",
       "rank": null,
-      "top1": "我还以为你已经回到嫁了"
+      "top1": "我还以为你已经回到加了"
     },
     {
       "gold": "这是我第一次来这个地方",
       "id": "nk-072",
       "input": "zheshiwodiyicilaizhegedifang",
       "rank": null,
-      "top1": "这是我第一次来着各地方"
+      "top1": "这是我第一避开这个地方"
     },
     {
       "gold": "我们可以一起去买点东西吃",
       "id": "nk-073",
       "input": "womenkeyiyiqiqumaidiandongxichi",
       "rank": null,
-      "top1": "我们可以一起去那个寒冬一尺"
+      "top1": "我们可以一起去那个感动一尺"
     },
     {
       "gold": "你可以先去那里等我一下吗",
@@ -330,18 +337,11 @@
       "top1": "你可以先去哪里等我一下吗"
     },
     {
-      "gold": "这个地方我以前来过好几次",
-      "id": "nk-076",
-      "input": "zhegedifangwoyiqianlaiguohaojici",
-      "rank": 2,
-      "top1": "这个地方我以前开过好几次"
-    },
-    {
       "gold": "你下次来的时候提前告诉我",
       "id": "nk-079",
       "input": "nixiacilaideshihoutiqiangaosuwo",
       "rank": null,
-      "top1": "你一才来的时候提前好去我"
+      "top1": "你一才来的时候提前赶去我"
     }
   ],
   "top1_source": {

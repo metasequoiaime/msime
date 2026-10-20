@@ -23,7 +23,6 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[3]
 REPO = "metasequoiaime/msime"
 # CPack 生成的 .rpm 的 Release 字段，packaging.cmake 没有设置 CPACK_RPM_PACKAGE_RELEASE，默认是 1。
 RPM_RELEASE = "1"
@@ -46,8 +45,9 @@ def source_sha256(version: str) -> str:
 
 
 def tag_date(version: str) -> str:
+    # render-definitions.sh 把这个目录复制到 Arch 容器的 /home/builder/arch 再运行，那里不在仓库里，所以不按脚本路径推算仓库根目录（上层目录不够会在导入时就失败）；在仓库里时 git 从 HERE 自己找到仓库。
     result = subprocess.run(
-        ["git", "-C", str(ROOT), "log", "-1", "--format=%cs", f"linux-v{version}"],
+        ["git", "-C", str(HERE), "log", "-1", "--format=%cs", f"linux-v{version}"],
         capture_output=True,
         text=True,
     )

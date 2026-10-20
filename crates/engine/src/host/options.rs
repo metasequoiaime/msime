@@ -80,6 +80,8 @@ pub struct EngineOptions {
     pub helpcode_schema: String,
     /// 宿主给的辅助码表（已安装的辅助码表插件）；有它时 Engine 直接用它，`helpcode_schema` 只用来校验和作为回退。
     pub helpcode_table: Option<SharedKeymap>,
+    /// 主资源缺少内置辅助码表时，从宿主指定的随包资源根目录读取；自定义表不回退。
+    pub helpcode_fallback_resources: Option<String>,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     pub punctuation_lock: u8,
@@ -200,6 +202,7 @@ pub fn prepare_options_for(
         show_helpcode: true,
         helpcode_schema: "ziranma".to_owned(),
         helpcode_table: None,
+        helpcode_fallback_resources: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -320,6 +323,10 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.helpcode = options.helpcode;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
+    session.helpcode_fallback_resources = options
+        .helpcode_fallback_resources
+        .as_ref()
+        .map(PathBuf::from);
     session.frequency = FrequencyAdjustmentOptions {
         mode,
         trigger_count: i32::from(options.frequency_trigger_count),

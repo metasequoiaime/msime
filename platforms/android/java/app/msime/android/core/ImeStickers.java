@@ -4,12 +4,14 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ImageDecoder;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.net.Uri;
+import android.os.Bundle;
 import android.util.LruCache;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -208,6 +210,10 @@ final class ImeStickers {
         StickerPackModel.Sticker sticker = current.stickers().get(index);
         EditorInfo info = s.getCurrentInputEditorInfo();
         boolean commit = info != null && StickerPackModel.commitsContent(info.contentMimeTypes);
+        // 微信这类经私有命令收表情的输入框：记下它的包名，交图前给它读权限。
+        String expressionTarget = info != null && info.extras != null && info.packageName != null
+            && StickerPackModel.sendsExpression(info.contentMimeTypes,
+                info.extras.getInt(StickerPackModel.EXPRESSION_EXTRA, 0)) ? info.packageName : null;
         long generation = s.clipboardImageGeneration;
         File directory = new File(s.getCacheDir(), StickerPackModel.DIRECTORY);
         worker.execute(() -> {
@@ -218,13 +224,13 @@ final class ImeStickers {
                 // 解码、编码或写缓存失败：下面只提示，不留半成品（ClipboardImageCache.replace 已删掉）。
             }
             File result = png;
-            s.main.post(() -> deliver(generation, current, sticker, result, commit));
+            s.main.post(() -> deliver(generation, current, sticker, result, commit, expressionTarget));
         });
     }
 
-    /** {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 交给它，交不出去就复制到剪贴板。PNG 留到写下一张时才被替换。 */
+    /** {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 交给它（`commitContent` 或微信的私有命令），交不出去就复制到剪贴板。PNG 留到写下一张时才被替换。 */
     private void deliver(long generation, StickerPackModel.Pack current, StickerPackModel.Sticker sticker,
-            File png, boolean commit) {
+            File png, boolean commit, String expressionTarget) {
         if (worker.isShutdown()) return;
         if (generation != s.clipboardImageGeneration || s.connection == null) {
             // 编码期间换了输入框、收起了键盘或重建了会话（包括切换隐私模式）：这张不再发。
@@ -252,6 +258,7 @@ final class ImeStickers {
                 sent = false;
             }
         }
+        if (!sent && expressionTarget != null) sent = sendExpression(uri, expressionTarget);
         if (!sent) {
             if (!copy(uri, sticker)) {
                 s.notice("无法复制这张表情");
@@ -259,6 +266,23 @@ final class ImeStickers {
             }
             s.notice(StickerPackModel.copiedNotice(current, sticker));
         }
+    }
+
+    /**
+     * 经微信的私有表情命令交图：先把 URI 的读权限授给输入框所在的应用，再发命令。微信收下后自己弹出发送确认，返回 true；返回 false 或授权失败时由调用方退回剪贴板。
+     *
+     * <p>授权在 `commitContent` 里由系统随 `INPUT_CONTENT_GRANT_READ_URI_PERMISSION` 完成，私有命令没有这一步，只能经 `grantUriPermission` 显式授给对方包名（provider 声明了 `grantUriPermissions`）。
+     */
+    private boolean sendExpression(Uri uri, String target) {
+        try {
+            s.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (RuntimeException error) {
+            // 系统边界上的拒绝（对方包不可见、provider 不允许授权）：退回剪贴板。
+            return false;
+        }
+        Bundle data = new Bundle();
+        data.putParcelable(StickerPackModel.EXPRESSION_URI, uri);
+        return InputConnectionGuard.performPrivateCommand(s.connection, StickerPackModel.EXPRESSION_COMMAND, data);
     }
 
     /**

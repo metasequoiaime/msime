@@ -56,6 +56,8 @@ const SEED_TAIL_LIMIT: usize = 3;
 /// 有种子时，数字至少这么长才把按音节频度留的切分截到 `SEEDED_PATH_LIMIT` 条：长串的好切分主要靠种子补，频度切分截短省下的查询抵掉种子的开销；短串（词级输入）照旧留满 `PATH_LIMIT` 条。
 const SEEDED_TRUNCATE_DIGITS: usize = 12;
 const SEEDED_PATH_LIMIT: usize = 24;
+/// 音节频度取这个音节权重最高的几个单字之和，见 `SyllablePrior`。
+const PRIOR_CHAR_LIMIT: usize = 3;
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
@@ -3496,7 +3498,9 @@ impl SpellingTable {
     }
 }
 
-/// 音节和音节前缀的单字频度：音节取词库里它最常用那个字的权重取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
+/// 音节和音节前缀的单字频度：音节取词库里它权重最高的 `PRIOR_CHAR_LIMIT` 个字的权重之和取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径、种子接哪几条尾段和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
+///
+/// 原先只取最常用的那一个字。dict-v2.0.30 只调了单字权重，na 最常用的「那」从 9929703 降到 5580163，ma 的「吗」从 9028487 降到 5664547，两个音节的先后就翻了过来；种子 wo'men'jin'tian'qu'na 接 6254 的三条尾段变成 ma'ji、na'ji、ma'li，na'li 排第四被丢掉，`966365468426786254` 的首选从「我们今天去哪里」变成「我们今天去马力」，「哪里」不在 128 行里。取前三个字之和时 na 有 那、哪、拿 三个常用字，比只有一个常用字「吗」的 ma 稳。
 #[derive(Default)]
 struct SyllablePrior<'a> {
     scores: HashMap<&'a str, f64>,
@@ -3514,7 +3518,7 @@ impl<'a> SyllablePrior<'a> {
             .iter()
             .map(|(syllable, _)| syllable.clone())
             .collect();
-        let weights = dictionary.best_weights(&keys);
+        let weights = dictionary.top_weight_sums(&keys, PRIOR_CHAR_LIMIT);
         Self::from_weights(&table.syllables, &weights)
     }
 
@@ -3979,6 +3983,52 @@ mod tests {
             &prior,
         );
         assert_eq!(whole, [path(&["wo", "men", "yi", "qi"])]);
+    }
+
+    /// 种子接尾段时只取频度最高的 `SEED_TAIL_LIMIT` 条，两个音节各有一对读法（ma/na、ji/li）时四种组合留三种；只按最常用的一个字估频度，na 和 ma 的单字权重差几个百分点就决定 na'li 在不在。权重取自 dict-v2.0.32。
+    #[test]
+    fn seed_tails_keep_a_reading_whose_best_character_barely_loses() {
+        let table = SpellingTable::new(&[
+            "wo", "men", "jin", "tian", "qu", "na", "ma", "li", "ji", "jiu",
+        ]);
+        let remaining = encode("wo'men'jin'tian'qu'na'li");
+        let seeds = ["wo'men'jin'tian'qu'na".to_owned()];
+        let wanted = path(&["wo", "men", "jin", "tian", "qu", "na", "li"]);
+        // 每个音节权重最高的三个字；末尾的 ji 按前缀取以它开头的 jiu 的频度，jiu 的权重是编的。
+        let characters: [(&str, [i64; 3]); 10] = [
+            ("wo", [3_000_000, 50_000, 40_000]),
+            ("men", [1_788_123, 544_382, 24_690]),
+            ("jin", [2_000_000, 900_000, 500_000]),
+            ("tian", [2_000_000, 400_000, 100_000]),
+            ("qu", [3_000_000, 800_000, 300_000]),
+            ("na", [5_580_163, 1_372_701, 1_345_242]),
+            ("ma", [5_664_547, 279_925, 112_776]),
+            ("li", [7_995_093, 999_387, 380_201]),
+            ("ji", [2_726_986, 1_102_969, 159_650]),
+            ("jiu", [8_500_000, 600_000, 200_000]),
+        ];
+        let tails = |weights: HashMap<String, i64>| {
+            let prior = SyllablePrior::from_weights(&table.syllables, &weights);
+            let mut alternatives = Vec::new();
+            seeded_paths(&mut alternatives, &seeds, &remaining, &table, &prior);
+            alternatives
+        };
+        let best: HashMap<String, i64> = characters
+            .iter()
+            .map(|(syllable, weights)| (syllable.to_string(), weights[0]))
+            .collect();
+        let summed: HashMap<String, i64> = characters
+            .iter()
+            .map(|(syllable, weights)| {
+                (
+                    syllable.to_string(),
+                    weights[..PRIOR_CHAR_LIMIT].iter().sum(),
+                )
+            })
+            .collect();
+        // 只看最常用的字：吗 比 那 高 1.5%，尾段取 ma'ji、na'ji、ma'li，na'li 排第四。
+        assert!(!tails(best).contains(&wanted));
+        assert!(tails(summed).contains(&wanted));
     }
 
     /// 末尾只按了一个音节开头的数字、没有覆盖全部数字的行时，种子留着；组字结束时清空。

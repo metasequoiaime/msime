@@ -9,6 +9,7 @@ import zhipu from "../assets/providers/zhipu.svg";
 import siliconcloud from "../assets/providers/siliconcloud.svg";
 import groq from "../assets/providers/groq.svg";
 import openrouter from "../assets/providers/openrouter.svg";
+import ollama from "../assets/providers/ollama.svg";
 import { FluentIcon } from "../core/fluent-icons";
 
 const icons: Record<string, string> = {
@@ -23,6 +24,7 @@ const icons: Record<string, string> = {
   siliconflow: siliconcloud,
   groq,
   openrouter,
+  ollama,
 };
 
 /** 保留品牌配色；需要底色的标志使用固定底色，深浅主题和选中行都不改写图标颜色。 */

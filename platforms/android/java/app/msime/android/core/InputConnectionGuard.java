@@ -89,4 +89,10 @@ final class InputConnectionGuard {
         try { return connection.commitContent(content, flags, options); }
         catch (RuntimeException ignored) { return false; }
     }
+
+    static boolean performPrivateCommand(InputConnection connection, String action, Bundle data) {
+        if (connection == null) return false;
+        try { return connection.performPrivateCommand(action, data); }
+        catch (RuntimeException ignored) { return false; }
+    }
 }

@@ -55,6 +55,8 @@ inline std::vector<Provider> const &providers() {
        L"https://console.groq.com/docs/quickstart"},
       {L"openrouter", L"OpenRouter", L"https://openrouter.ai/api/v1/chat/completions",
        L"openrouter/auto", {L"openrouter/auto"}, L"https://openrouter.ai/docs/quickstart"},
+      {L"ollama", L"Ollama", L"http://localhost:11434/v1/chat/completions", L"", {},
+       L"https://docs.ollama.com/api/openai-compatibility"},
       {L"custom", L"自定义", L"", L"", {}, L""},
   };
   return table;
@@ -94,10 +96,16 @@ inline ProviderFields provider_update(std::wstring_view provider, ProviderFields
   return update;
 }
 
-// 「测试 AI 辅助配置」不可用：AI 辅助关着、接口地址不能用、没填模型或没填 API Token（aiServiceCredentialTestDisabled）。
+// aiProviderUsesToken：Ollama 不鉴权，页面不显示 API Token，请求也不带（client-providers 的 `ai::provider_uses_token`）。
+inline bool provider_uses_token(std::wstring_view provider) {
+  return provider != L"ollama";
+}
+
+// 「测试 AI 辅助配置」不可用：AI 辅助关着、接口地址不能用、没填模型，或服务要 Token 却没填（aiServiceCredentialTestDisabled）。
 inline bool credential_test_disabled(bool enabled, bool has_origin, std::wstring_view model,
-                                     std::wstring_view token) {
-  return !enabled || !has_origin || js_trim(model).empty() || js_trim(token).empty();
+                                     std::wstring_view token, std::wstring_view provider) {
+  return !enabled || !has_origin || js_trim(model).empty() ||
+         (provider_uses_token(provider) && js_trim(token).empty());
 }
 
 struct PromptSlot {

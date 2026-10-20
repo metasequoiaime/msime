@@ -227,6 +227,9 @@ char *msime_client_cloud_dictionary(const uint8_t *request, size_t length);
  * installers ship (<kind>/<id>/ folders: the uuid script plugin, the latex-symbols phrase
  * table); absent means plugin-packs beside the built-in sound packs, and nothing when that
  * directory is not there (mobile, development builds without them).
+ * 可选 helpcode_fallback_resources 是随包资源的绝对根目录。仅主资源缺少内置辅助码表时
+ * 才从这里读取 helpcodes/；已有表、自定义表和插件表继续优先。宿主可仅在内存配置中
+ * 注入此键，避免旧版宿主读取不认识的持久化键。
  * Do not delete .msime-dictionary-access.lock files. Legacy/external writers do
  * not participate; preparation/upgrades still require stopped sessions.
  */

@@ -326,6 +326,16 @@ def main():
                 publish()
                 control.ReloadAddonConfig("msime")
                 print("Fcitx5 智能 ABC 偏好热切换与组词上屏通过")
+                # 周边文本的光标为 0 时没有前一字符，不能读取负索引或回退到旧的输入影子。
+                for document, cursor in (("", 0), ("abc", 0), ("合成", 0), ("合成", 2)):
+                    for key, modifiers, punctuation in ((ord("."), 0, "。"), (ord("?"), 1, "？")):
+                        context.SetSurroundingText(document, dbus.UInt32(cursor), dbus.UInt32(cursor))
+                        expected = commits + [punctuation]
+                        assert context.ProcessKeyEvent(key, 0, modifiers, False, 0), \
+                            f"中文标点按键未被处理：text={document!r}, cursor={cursor}, key={chr(key)}"
+                        context.ProcessKeyEvent(key, 0, modifiers, True, 0)
+                        wait(lambda: commits == expected)
+                print("Fcitx5 文本开头与中文前文的句号、问号上屏通过")
                 context.FocusOut()
                 context.DestroyIC()
                 if os.environ.get("MSIME_TEST_GTK") == "1":

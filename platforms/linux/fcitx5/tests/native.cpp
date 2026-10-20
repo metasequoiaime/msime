@@ -107,7 +107,7 @@ void koreanHanjaGlossRow() {
   auto translated = hanja;
   translated["translation"] = "Korea";
   const auto glossed = word(translated, true, "나라 이름 한, 한나라 한");
-  require(shown(glossed).toString() == "韓  나라 이름 한, 한나라 한  Korea" && shown(glossed).size() == 3 &&
+  require(shown(glossed).toString() == "韓  나라 이름 한, 한나라 한\nKorea" && shown(glossed).size() == 3 &&
               shown(glossed).formatAt(1) == secondary &&
               shown(glossed).formatAt(2) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag),
           "a translation follows the 훈음 and the annotation is not drawn twice");
@@ -136,7 +136,7 @@ void scriptAnnotationRow() {
   require(off.text() == "你", "the script annotation stays out of the selected text");
   const auto both = word(Json{{"text", "你"}, {"annotation", "ab"}, {"script_annotation", "常用"},
                               {"translation", "you"}}, true);
-  require(shown(both).toString() == "你  ab  you  〔常用〕",
+  require(shown(both).toString() == "你  ab\nyou  〔常用〕",
           "the engine annotation and the translation stay, the script annotation comes last");
   require(both.display().body == "你  ab" && both.display().translation == "you" &&
               both.display().suffix == "  〔常用〕" && both.text() == "你",
@@ -145,6 +145,12 @@ void scriptAnnotationRow() {
   const auto segmented = word(Json{{"text", "你"}, {"translation", "n. synthetic"}, {"translation_runs", runs}}, false);
   require(segmented.display().translation_runs == runs && segmented.display().translation == "n. synthetic",
           "原生画布接收共享层的同源释义分段，不在宿主重新解析");
+  const auto lines = shown(segmented).splitByLine();
+  require(lines.size() == 2 && lines[0].toString() == "你" && lines[1].toString() == "n. synthetic",
+          "classicui 通过真实 Text 分行把译文放到候选下方");
+  const auto empty = word(Json{{"text", "你"}, {"translation", ""}}, false);
+  require(shown(empty).toString() == "你" && shown(empty).splitByLine().size() == 1,
+          "空译文不增加空白行");
   const auto hanja = word(Json{{"text", "韓"}, {"annotation", "나라 이름 한"}, {"script_annotation", "注"}},
                           false, "나라 이름 한");
   require(shown(hanja).toString() == "韓  나라 이름 한  〔注〕",

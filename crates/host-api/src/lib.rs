@@ -1641,6 +1641,9 @@ fn helpcode_for_scheme(
 struct HostOptions {
     api_version: u32,
     resources: String,
+    /// 当前宿主随包提供的内置辅助码回退资源根目录；只在内存文档中注入，不要求旧配置写入。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    helpcode_fallback_resources: Option<String>,
     user_data: String,
     cache: String,
     dictionaries: String,
@@ -1824,6 +1827,7 @@ impl HostOptions {
             quick_phrase_table: Vec::new(),
             quick_phrase_candidates: false,
             helpcode_table: None,
+            helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
             ),
@@ -2245,6 +2249,7 @@ fn prepare_shipped_host_configuration(
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,
         resources: prepared.resources,
+        helpcode_fallback_resources: None,
         user_data: prepared.user_data,
         cache: prepared.cache,
         dictionaries: prepared.dictionaries,

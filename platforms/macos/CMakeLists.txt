@@ -264,6 +264,13 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/cppco
 file(GLOB MSIME_LEGAL_RESOURCES CONFIGURE_DEPENDS "${MSIME_LEGAL_DIRECTORY}/*")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_LEGAL_RESOURCES})
 set_source_files_properties(${MSIME_LEGAL_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
+# 输入法独立安装后也能读取内置辅助码，不依赖旧配置或下载词库目录里是否含有这些表。
+set(MSIME_HELPCODE_RESOURCES "")
+foreach(MSIME_HELPCODE_FILE helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt)
+  list(APPEND MSIME_HELPCODE_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/${MSIME_HELPCODE_FILE}")
+endforeach()
+target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_HELPCODE_RESOURCES})
+set_source_files_properties(${MSIME_HELPCODE_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/helpcodes")
 # The Dock takes its label from the bundle's filename — not CFBundleDisplayName, CFBundleName or a
 # localized InfoPlist.strings, all of which it ignores here. Naming the product is the only lever.
 set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "${MSIME_INPUT_METHOD_NAME}")

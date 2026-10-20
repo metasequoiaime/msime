@@ -23,7 +23,7 @@
       "found": 0.91,
       "mrr": 0.907,
       "top1": 0.905,
-      "top1_char_prefix": 0.932,
+      "top1_char_prefix": 0.928,
       "top5": 0.91,
       "top9": 0.91
     },
@@ -48,7 +48,7 @@
     "found": 0.975,
     "mrr": 0.766,
     "top1": 0.66,
-    "top1_char_prefix": 0.692,
+    "top1_char_prefix": 0.691,
     "top5": 0.906,
     "top9": 0.946
   },

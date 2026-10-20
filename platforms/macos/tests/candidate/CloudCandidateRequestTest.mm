@@ -229,6 +229,24 @@ static void TestAIRejectsPlainHTTP() {
             configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
             completion:^(NSData *body) { assert(!body); }];
         assert(![request valueForKey:@"translationRequest"]);
+    }    // Ollama 不鉴权，描述符只带 Content-Type；带了 Authorization 就必须是 Bearer。
+    NSMutableDictionary *tokenless = [descriptor mutableCopy];
+    tokenless[@"url"] = @"http://localhost:11434/v1/chat/completions";
+    tokenless[@"headers"] = @{@"Content-Type":@"application/json"};
+    request = [[MSIMECloudCandidateRequest alloc]
+        initWithAITranslationDescriptor:tokenless
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+        completion:^(NSData *body) { assert(!body); }];
+    NSURLRequest *tokenlessRequest = [request valueForKey:@"translationRequest"];
+    assert(tokenlessRequest && ![tokenlessRequest valueForHTTPHeaderField:@"Authorization"]);
+    for (NSDictionary *refusedHeaders in @[@{@"Content-Type":@"application/json", @"Authorization":@"Basic synthetic"},
+                                           @{@"Content-Type":@"application/json", @"X-Other":@"synthetic"}]) {
+        tokenless[@"headers"] = refusedHeaders;
+        request = [[MSIMECloudCandidateRequest alloc]
+            initWithAITranslationDescriptor:tokenless
+            configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+            completion:^(NSData *body) { assert(!body); }];
+        assert(![request valueForKey:@"translationRequest"]);
     }
 }
 

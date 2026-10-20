@@ -201,7 +201,7 @@ std::optional<SkinLength> LengthField(id raw)
     NSNumber *value = object[@"value"];
     NSNumber *em = object[@"em"];
     if (![value isKindOfClass:NSNumber.class] || ![em isKindOfClass:NSNumber.class]) return std::nullopt;
-    return SkinLength{value.doubleValue, em.boolValue};
+    return SkinLength{value.doubleValue, static_cast<bool>(em.boolValue)};
 }
 
 SkinLayoutGeometry LayoutGeometryFromJSON(id raw)

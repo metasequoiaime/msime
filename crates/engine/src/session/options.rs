@@ -41,6 +41,8 @@ pub struct SessionOptions {
     pub helpcode_schema: String,
     /// 宿主给的辅助码表；有它时直接装上它，不再按 `helpcode_schema` 读表（名字仍然要合法）。`Session::set_helpcode_table` 可以实时替换。
     pub helpcode_table: Option<SharedKeymap>,
+    /// 内置辅助码表缺失时使用的随包资源根目录。
+    pub helpcode_fallback_resources: Option<PathBuf>,
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
@@ -102,6 +104,7 @@ impl SessionOptions {
             japanese_dictionary: PathBuf::new(),
             helpcode_schema: "lantian".to_owned(),
             helpcode_table: None,
+            helpcode_fallback_resources: None,
             autocorrect_types: 0,
             helpcode: true,
             chinese_punctuation: true,

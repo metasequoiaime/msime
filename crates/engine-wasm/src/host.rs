@@ -251,6 +251,12 @@ pub struct Frame {
     pub caret: u32,
     /// 当前页，最多 `page_size` 行。
     pub page: Vec<Row>,
+    /// 列表版本只在候选身份改变时前进，翻页与移动高亮不改变它。
+    pub candidate_revision: u64,
+    pub page_start: u32,
+    pub page_size: u32,
+    /// 仅卷轴展开期间发布，位置是排序后的全局座位。
+    pub all_candidates: Option<Vec<Row>>,
     pub page_index: u32,
     pub has_prev: bool,
     /// 本页之后还有候选，或者这是最后一页而这次组字还没尝试过展开。
@@ -308,6 +314,8 @@ pub struct WebHost {
     highlighted: usize,
     /// 这次组字已经尝试过展开被截留的候选。
     expanded: bool,
+    candidate_revision: u64,
+    panel_open: bool,
     out: Vec<Out>,
     rerank_ms: f64,
 }
@@ -384,6 +392,8 @@ impl WebHost {
             engine_changes: 0,
             highlighted: 0,
             expanded: false,
+            candidate_revision: 0,
+            panel_open: false,
             out: Vec::new(),
             rerank_ms: 0.0,
         })
@@ -394,6 +404,9 @@ impl WebHost {
         self.begin();
         for &key in keys {
             self.key(key);
+            if self.panel_open && !self.composing() {
+                self.panel_open = false;
+            }
         }
         self.frame()
     }
@@ -407,6 +420,66 @@ impl WebHost {
             if seat < self.ordered.rows.len() {
                 self.select_seat(seat, seat_number(seat));
             }
+        }
+        self.frame()
+    }
+
+    /// 点选画出来的候选，过期身份或文字不符时只返回当前帧。
+    pub fn pick_candidate(
+        &mut self,
+        index: usize,
+        revision: u64,
+        text: &str,
+        global: bool,
+    ) -> Frame {
+        self.begin();
+        self.ensure_ordered();
+        let valid_index = if global {
+            self.panel_open
+        } else {
+            index < self.page_size
+        };
+        let seat = if global {
+            index
+        } else {
+            self.page_start().saturating_add(index)
+        };
+        if valid_index
+            && revision == self.candidate_revision
+            && self.composing()
+            && self
+                .ordered
+                .rows
+                .get(seat)
+                .is_some_and(|row| row.text == text)
+        {
+            self.select_seat(seat, seat_number(seat));
+        }
+        self.frame()
+    }
+
+    /// 翻页不改变完整列表版本，所以当前页点击还必须核对画面里的起始座位。
+    pub fn pick_page_candidate(
+        &mut self,
+        slot: usize,
+        revision: u64,
+        text: &str,
+        page_start: usize,
+    ) -> Frame {
+        self.begin();
+        self.ensure_ordered();
+        if page_start != self.page_start() {
+            return self.frame();
+        }
+        self.pick_candidate(slot, revision, text, false)
+    }
+
+    /// 展开与收起和候选帧一起返回，不能继续沿用展开前的座位身份。
+    pub fn set_candidate_expansion(&mut self, open: bool, revision: u64) -> Frame {
+        self.begin();
+        self.ensure_ordered();
+        if !open || revision == self.candidate_revision {
+            self.panel_open = open && self.composing() && !self.ordered.rows.is_empty();
         }
         self.frame()
     }
@@ -467,6 +540,11 @@ impl WebHost {
         self.slow_streak = 0;
         self.highlighted = 0;
         self.expanded = false;
+        self.panel_open = false;
+        self.candidate_revision = self
+            .candidate_revision
+            .checked_add(1)
+            .expect("candidate revision exhausted");
         self.ordered = Ordered::default();
         self.invalidate();
         self.composing_hint = Some(false);
@@ -558,6 +636,7 @@ impl WebHost {
                 }
             }
             Key::Escape => {
+                self.panel_open = false;
                 if self.composing() {
                     let result = self.session.command(Command::Cancel);
                     self.apply(result, -1);
@@ -880,6 +959,7 @@ impl WebHost {
     }
 
     fn commit(&mut self, text: String, seat: i32) {
+        self.panel_open = false;
         if text.is_empty() {
             return;
         }
@@ -1019,6 +1099,12 @@ impl WebHost {
             self.engine_changes <= 1 && editing_text == self.ordered.editing_text;
         self.engine_changes = 0;
         let unchanged = same_composition && ordered_rows == self.ordered.rows;
+        if !unchanged || order != self.ordered.engine_order {
+            self.candidate_revision = self
+                .candidate_revision
+                .checked_add(1)
+                .expect("candidate revision exhausted");
+        }
         if !same_composition {
             self.expanded = false;
         }
@@ -1056,6 +1142,13 @@ impl WebHost {
 
     fn frame(&mut self) -> Frame {
         self.ensure_ordered();
+        if self.panel_open {
+            if !self.composing() || self.ordered.rows.is_empty() {
+                self.panel_open = false;
+            } else if !self.expanded {
+                self.expand();
+            }
+        }
         let wubi = self.scheme.is_wubi();
         let japanese = self.scheme.is_japanese();
         let snapshot = self.ensure_snapshot();
@@ -1087,6 +1180,10 @@ impl WebHost {
             preedit,
             caret,
             page: self.ordered.rows[start.min(len)..end].to_vec(),
+            candidate_revision: self.candidate_revision,
+            page_start: u32::try_from(start).unwrap_or(u32::MAX),
+            page_size: u32::try_from(self.page_size).unwrap_or(u32::MAX),
+            all_candidates: self.panel_open.then(|| self.ordered.rows.clone()),
             page_index: u32::try_from(page).unwrap_or(u32::MAX),
             has_prev: page > 0,
             has_next: len > 0 && (page < last_page || !self.expanded),

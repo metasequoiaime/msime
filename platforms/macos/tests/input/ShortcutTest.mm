@@ -2091,6 +2091,15 @@ static void TestSessionOptions() {
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 
+    // 下载词库缺少辅助码时，会话从当前输入法包回退；原始配置继续供旧宿主读取。
+    NSDictionary *helpcodes = MSIMESessionOptions(file, nil, @"/synthetic/bundle/Contents/Resources");
+    assert([helpcodes[@"helpcode_fallback_resources"] isEqual:@"/synthetic/bundle/Contents/Resources"]);
+    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 3);
+    assert(!MSIMESessionOptions(file, nil, @"relative/resources")[@"helpcode_fallback_resources"]);
+    NSDictionary *explicitHelpcodes = MSIMESessionOptions(@{@"helpcode_fallback_resources":@"/configured/resources"},
+        nil, @"/synthetic/bundle/Contents/Resources");
+    assert([explicitHelpcodes[@"helpcode_fallback_resources"] isEqual:@"/configured/resources"]);
+
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSString *bundlePath = [root stringByAppendingPathComponent:@"Synthetic.bundle"];
     NSString *resources = [bundlePath stringByAppendingPathComponent:@"Contents/Resources"];

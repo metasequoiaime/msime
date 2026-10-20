@@ -25,12 +25,24 @@ function assertSafeVariables(variables) {
   for (const [name, value] of Object.entries(variables)) {
     assert.match(name, /^--[a-z-]+$/);
     assert.equal(typeof value, "string", name);
+    if (name === "--msime-skin-font-family") {
+      assert.match(value, /^"[^"'\\,;{}<>`\u0000-\u001f\u007f]+"$/);
+      continue;
+    }
+    if (value.startsWith("calc(")) {
+      if (name === "--msime-skin-horizontal-gap") assert.match(value, /^calc\(\d+(\.\d+)?(px|em) \+ 6px\)$/);
+      else {
+        assert.ok(["--msime-skin-number-inset", "--msime-skin-number-gap"].includes(name));
+        assert.match(value, /^calc\(var\(--cand-font-size\) \* \d+(\.\d+)?\)$/);
+      }
+      continue;
+    }
     const inner = /^url\("(.*)"\)$/.exec(value);
     if (inner) {
       assert.doesNotMatch(inner[1], /["'\\()\s<>{}`]/, `${name}: ${value}`);
       assert.doesNotMatch(inner[1], /^javascript:/i);
     } else {
-      assert.match(value, /^(#[0-9A-F]{6}([0-9A-F]{2})?|-?\d+(\.\d+)?(e-?\d+)?(px|ms)?|block|none|cover|contain|fill)$/, `${name}: ${value}`);
+      assert.match(value, /^(#[0-9A-F]{6}([0-9A-F]{2})?|-?\d+(\.\d+)?(e-?\d+)?(px|ms|em)?|block|none|cover|contain|fill)$/, `${name}: ${value}`);
       assert.doesNotMatch(value, BREAKOUT);
     }
   }
@@ -54,10 +66,10 @@ test("the generated catalog module is deterministic and carries every Windows lo
 
 test("SKINS lists system, the catalog's built-in themes and the Windows looks", () => {
   const builtins = catalog.filter((entry) => entry.candidate !== null).map((entry) => entry.id);
-  assert.deepEqual([...SKINS], ["system", ...builtins, ...WINDOWS_LOOKS]);
+  assert.deepEqual([...SKINS], ["system", ...builtins, ...WINDOWS_LOOKS, "fluent"]);
   assert.deepEqual(builtins, ["shuishan", "light", "paper", "night", "ink"]);
   assert.ok(Object.isFrozen(SKINS));
-  assert.ok(!SKINS.includes("custom") && !SKINS.includes("fluent") && !SKINS.includes("canvas"));
+  assert.ok(!SKINS.includes("custom") && !SKINS.includes("canvas"));
   assert.equal(DEFAULT_SKIN, "shuishan");
   // index.d.ts 的 MsimeSkinId 必须与运行时的 SKINS 同步，否则 TypeScript 用户选不了运行时接受的外观。
   const typings = readFileSync(resolve(repoRoot, "packages/web-engine/src/index.d.ts"), "utf8");
@@ -189,8 +201,9 @@ test("Windows looks match msime-windows over system", () => {
   assert.equal(pkg.palette.surface, "#FBFBFC");
   assert.equal(pkg.geometry.cornerRadius, 3);
   assert.equal(resolveSkin({ base: "graphite", cornerRadiusDip: 12 }).geometry.cornerRadius, 12);
-  // fluent 就是 system。
+  // Fluent 沿用平台配色，但有独立的 Windows 出厂版式。
   assert.deepEqual(resolveSkin({ base: "fluent" }).palette, resolveSkin({ base: "system" }).palette);
+  assert.equal(resolveSkin("fluent").variables["--msime-skin-padding"], "5px");
 });
 
 test("the Windows looks' highlighted text colour matches the vendored msime-windows stylesheets", () => {
@@ -216,7 +229,7 @@ test("the Windows looks' highlighted text colour matches the vendored msime-wind
 test("unknown ids, bases and layouts throw", () => {
   assert.throws(() => resolveSkin("nope"), { name: "TypeError", message: "unknown skin: nope" });
   assert.throws(() => resolveSkin("custom"), { name: "TypeError", message: "unknown skin: custom" });
-  assert.throws(() => resolveSkin("fluent"), TypeError);
+  assert.throws(() => resolveSkin("canvas"), TypeError);
   assert.throws(() => resolveSkin({ base: "custom" }), TypeError);
   assert.throws(() => resolveSkin({ base: 3 }), TypeError);
   assert.throws(() => resolveSkin("light", { layout: "diagonal" }), TypeError);
@@ -500,4 +513,129 @@ test("malformed resolved geometry cannot inject CSS or unbounded sizes", () => {
   assert.equal(resolved.variables["--msime-skin-number-size"], undefined);
   assert.equal(resolved.variables["--msime-skin-border-width"], undefined);
   assert.equal(resolved.variables["--msime-skin-item-radius"], undefined);
+});
+
+test("resolved layout retains direction-specific switches and bounds preedit margins", () => {
+  const skin = { resolvedLayout: { shadow: "soft", fitContent: true,
+    horizontal: { justifyRows: false, itemCornersFollowCard: true, trimHiddenPreeditGap: true, pageArrowStyle: "triangle",
+      preeditMarginDip: { top: 0, right: 4, bottom: 7, left: 2 } },
+    vertical: { justifyRows: true, itemCornersFollowCard: false, trimHiddenPreeditGap: false } } };
+  const horizontal = resolveSkin(skin);
+  assert.equal(horizontal.geometry.layout.justifyRows, false);
+  assert.equal(horizontal.geometry.layout.itemCornersFollowCard, true);
+  assert.equal(horizontal.geometry.layout.pageArrowStyle, "triangle");
+  assert.equal(horizontal.variables["--msime-skin-preedit-margin-bottom"], "7px");
+  assert.equal(horizontal.variables["--msime-skin-preedit-margin-top"], "0px");
+  assert.equal(horizontal.variables["--msime-skin-shadow-scale"], "0.5");
+  assert.equal(horizontal.variables["--msime-skin-card-floor"], "0px");
+  const vertical = resolveSkin(skin, { layout: "vertical" });
+  assert.equal(vertical.geometry.layout.itemCornersFollowCard, false);
+  assert.equal(vertical.geometry.layout.trimHiddenPreeditGap, false);
+  assert.equal(vertical.variables["--msime-skin-preedit-margin-bottom"], undefined);
+  const hostile = resolveSkin({ resolvedLayout: { shadow: "none;display:none", horizontal: {
+    justifyRows: "true", itemCornersFollowCard: 1, pageArrowStyle: "<svg>",
+    preeditMarginDip: { top: Infinity, right: "5px", bottom: -1, left: 501 } } } });
+  assert.equal(hostile.geometry.layout.shadow, null);
+  assert.equal(hostile.geometry.layout.justifyRows, null);
+  assert.equal(hostile.geometry.layout.itemCornersFollowCard, null);
+  assert.equal(hostile.geometry.layout.pageArrowStyle, null);
+  assert.deepEqual(hostile.geometry.layout.preeditMargin, { top: 0, right: 0, bottom: 0, left: 0 });
+  assertSafeVariables(hostile.variables);
+});
+
+test("skin font family keeps the shared single-family byte limit and declaration safety", () => {
+  for (const fontFamily of ["Courier New", "示".repeat(21), "initial"]) {
+    const result = resolveSkin({ fontFamily });
+    assert.equal(result.geometry.fontFamily, fontFamily);
+    assert.equal(result.variables["--msime-skin-font-family"], JSON.stringify(fontFamily));
+    assertSafeVariables(result.variables);
+  }
+  for (const fontFamily of ["", "示".repeat(22), "a,b", 'a"b', "a\\b", "a;b", "a\nb", "<font>"]) {
+    const result = resolveSkin({ fontFamily });
+    assert.equal(result.geometry.fontFamily, undefined);
+    assert.equal(result.variables["--msime-skin-font-family"], undefined);
+  }
+  assert.equal(resolveSkin({ fontFamily: "MSIME Fixture", layouts: ["vertical"] }).geometry.fontFamily, undefined);
+});
+
+test("all Windows bases use the shared factory geometry without a host catalog", () => {
+  const factories = JSON.parse(readFileSync(resolve(repoRoot, "packages/web-engine/tools/factory-layouts.json"), "utf8"));
+  assert.equal(Object.keys(factories).length, 8);
+  for (const [base, factory] of Object.entries(factories)) {
+    for (const layout of ["horizontal", "vertical"]) {
+      const skin = { base, ...(base === "canvas" ? { schemaVersion: 2 } : {}) };
+      const result = resolveSkin(skin, { layout });
+      const geometry = result.geometry.layout;
+      assert.ok(geometry, `${base}.${layout}: factory geometry is present`);
+      assert.deepEqual(geometry.padding, factory[layout].padding, `${base}.${layout}: padding`);
+      assert.deepEqual(geometry.itemGap, factory[layout].itemGap, `${base}.${layout}: item gap`);
+      assert.deepEqual(geometry.itemExtraHeight, factory[layout].itemExtraHeight ?? null, `${base}.${layout}: extra height`);
+      assert.deepEqual(geometry.preeditMargin, factory[layout].preeditMarginDip, `${base}.${layout}: margins`);
+      assert.equal(geometry.radius, factory.cornerRadiusDip);
+      assert.equal(geometry.pageArrows, factory.pageArrows);
+      assert.equal(geometry.expandPanel, factory.expandPanel);
+      assert.equal(geometry.expandRows, factory.expandRows);
+      assert.equal(result.variables["--msime-skin-card-floor"], "160px");
+      if (SKINS.includes(base)) assert.deepEqual(resolveSkin(base, { layout }).geometry, result.geometry);
+      assertComplete(result);
+    }
+  }
+  for (const id of ["system", "shuishan", "light", "paper", "night", "ink"]) {
+    assert.equal(resolveSkin(id).geometry.layout, undefined, `${id}: keeps native defaults`);
+  }
+});
+
+test("raw package declarations overlay factory direction defaults and retain zero and false", () => {
+  const dip = (value, em = false) => ({ value, em });
+  const skin = { base: "willow_green", cornerRadiusDip: 0, borderWidthDip: 0, itemCornerRadiusDip: 0,
+    pageArrows: false, fitContent: false, expandPanel: false, shadow: "none",
+    geometry: { itemExtraHeight: dip(0), itemGap: dip(.7, true), numberScale: 0, justifyRows: false,
+      preeditMarginDip: { top: 0, right: 0, bottom: 0, left: 0 } },
+    horizontal: { itemGap: dip(13) } };
+  const before = JSON.stringify(skin);
+  const horizontal = resolveSkin(skin);
+  const vertical = resolveSkin(skin, { layout: "vertical" });
+  assert.deepEqual(horizontal.geometry.layout.itemExtraHeight, dip(0));
+  assert.deepEqual(vertical.geometry.layout.itemExtraHeight, dip(0));
+  assert.deepEqual(horizontal.geometry.layout.itemGap, dip(13));
+  assert.deepEqual(vertical.geometry.layout.itemGap, dip(.7, true));
+  assert.equal(horizontal.geometry.layout.numberScale, 0);
+  assert.equal(horizontal.geometry.layout.justifyRows, false);
+  assert.equal(horizontal.geometry.layout.pageArrows, false);
+  assert.equal(horizontal.geometry.layout.expandPanel, false);
+  assert.equal(horizontal.geometry.layout.shadow, "none");
+  assert.equal(horizontal.geometry.cornerRadius, 0);
+  assert.equal(horizontal.variables["--msime-skin-border-width"], "0px");
+  assert.equal(horizontal.variables["--msime-skin-preedit-margin-top"], "0px");
+  assert.equal(JSON.stringify(skin), before, "resolution does not fill in the editor's raw declarations");
+  const supplied = resolveSkin({ ...skin, resolvedLayout: { cornerRadiusDip: 9, horizontal: { itemGap: dip(3) } } });
+  assert.equal(supplied.geometry.cornerRadius, 9, "the shared resolved result remains authoritative");
+  assert.deepEqual(supplied.geometry.layout.itemGap, dip(3));
+  assert.equal(supplied.geometry.layout.numberScale, null, "raw declarations are not reapplied over a resolved result");
+});
+
+test("invalid raw layout values cannot displace bounded factory defaults", () => {
+  const result = resolveSkin({ base: "microsoft", shadow: "none;display:none", pageArrows: "false",
+    geometry: { padding: { value: 65, em: false }, itemExtraHeight: { value: 4.1, em: true },
+      numberInset: { value: Infinity, em: false }, numberScale: -1,
+      selectedBarWidth: { value: 1.1, em: true }, itemCornersFollowCard: "true", pageArrowStyle: "<svg>" },
+    horizontal: { itemMinWidth: { value: 41, em: true } } });
+  const factory = resolveSkin("microsoft");
+  assert.deepEqual(result.geometry, factory.geometry);
+  assertSafeVariables(result.variables);
+  assert.equal(resolveSkin({ base: "system", cornerRadiusDip: 9 }).geometry.layout, undefined);
+  const declared = resolveSkin({ base: "system", geometry: { padding: { value: 0, em: false } } });
+  assert.equal(declared.variables["--msime-skin-padding"], "0px", "explicit geometry can be consumed without a Windows base");
+});
+
+
+test("expansion rows keep factory inheritance and explicit bounded overrides", () => {
+  for (const rows of [2, 4, 8]) {
+    assert.equal(resolveSkin({ base: "wechat_scroll", expandRows: rows }).geometry.layout.expandRows, rows);
+    assert.equal(resolveSkin({ resolvedLayout: { expandPanel: true, expandRows: rows, horizontal: {} } }).geometry.layout.expandRows, rows);
+  }
+  for (const rows of [0, 1, 9, 2.5, "2", NaN, Infinity, null]) {
+    assert.equal(resolveSkin({ base: "wechat_scroll", expandRows: rows }).geometry.layout.expandRows, 4);
+  }
+  assert.equal(resolveSkin({ base: "wechat_scroll", expandPanel: false }).geometry.layout.expandPanel, false);
 });
