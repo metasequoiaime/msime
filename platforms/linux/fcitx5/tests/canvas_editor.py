@@ -140,7 +140,7 @@ def accept_animation(skin, entry, control, daemon):
     print(f"真实 GTK 原生 {FORMAT} 动画、连续输入、隐藏重显、文件失效和九宫格播放通过")
 
 
-def screenshot():
+def capture_image():
     if WAYLAND:
         loader = GdkPixbuf.PixbufLoader.new_with_type("png")
         loader.write(subprocess.check_output(["grim", "-"], timeout=5))
@@ -150,6 +150,12 @@ def screenshot():
         root = Gdk.get_default_root_window()
         image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
     assert image is not None, "无法读取隔离显示的像素"
+    return image
+
+
+def screenshot():
+    # 只有读取颜色数量的断言才统计整屏，几何与存图直接复用原始像素。
+    image = capture_image()
     channels, stride = image.get_n_channels(), image.get_rowstride()
     data = image.get_pixels()
     packed = b"".join(data[y * stride:y * stride + image.get_width() * channels]
@@ -265,7 +271,7 @@ def window_geometry(window):
 
 
 def selected_pixels():
-    image, _ = screenshot()
+    image = capture_image()
     channels, stride = image.get_n_channels(), image.get_rowstride()
     data = image.get_pixels()
     window = native_window()
@@ -289,7 +295,7 @@ def selected_pixels():
 
 
 def color_position(color):
-    image, _ = screenshot()
+    image = capture_image()
     channels, stride = image.get_n_channels(), image.get_rowstride()
     data = image.get_pixels()
     for y in range(image.get_height()):
@@ -301,7 +307,7 @@ def color_position(color):
 
 
 def color_bounds(color):
-    image, _ = screenshot()
+    image = capture_image()
     channels, stride, data = image.get_n_channels(), image.get_rowstride(), image.get_pixels()
     bounds = window_geometry(native_window())
     left, top, width, height = (int(bounds[key]) for key in ("X", "Y", "WIDTH", "HEIGHT"))
@@ -369,7 +375,7 @@ def accept_appearance(manifest, preferences, publish, entry):
     def picked_preedit():
         # 字体抗锯齿不保证存在足够多纯色像素；只查预编辑背景框内向取色器绿色收敛的字形。
         left, top, right, bottom = color_bounds(background)
-        image, _ = screenshot()
+        image = capture_image()
         data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
         return sum(data[y * stride + x * channels + 1] > data[y * stride + x * channels] + 100 and
                    data[y * stride + x * channels + 1] > data[y * stride + x * channels + 2] + 100
@@ -390,6 +396,8 @@ def accept_pager(manifest, preferences, publish, entry):
     hover, divider = (34, 238, 119), (49, 209, 255)
     horizontal = preferences['candidate_layout'] == 'horizontal'
     for triangle in (False, True):
+        ready = (91, 41, 221 if triangle else 201)
+        ready_hex = "#%02X%02X%02X" % ready
         style = original.replace('[candidate_window]\n',
                                  '[candidate_window]\npage_arrows = true\n'
                                  f"page_arrow_style = '{'chevron' if triangle else 'triangle'}'\n")
@@ -398,8 +406,11 @@ def accept_pager(manifest, preferences, publish, entry):
                   'item_extra_height = 20\n')
         for mode in ('light', 'dark'):
             style = style.replace(f'[candidate.{mode}]\n', f'[candidate.{mode}]\n'
-                                  "hover = '#22EE77'\npage_arrow_divider = '#31D1FF'\n")
+                                  "hover = '#22EE77'\npage_arrow_divider = '#31D1FF'\n"
+                                  f"preedit_background = '{ready_hex}'\n")
         manifest.write_text(style)
+        # 两种形状行高相同，必须等各自的配色实际绘出，不能命中上一轮的旧几何。
+        wait(lambda: palette_visible((ready,)))
         # 最小候选行高为 24 * 1.35 + 20；热更新后再据真实面板边缘定位。
         wait(lambda: selected_pixels() and selected_pixels()[1] >= 52 * NATIVE_SCALE)
         subprocess.run(['xdotool', 'mousemove', '0', '0'], check=True, timeout=5)
@@ -432,7 +443,7 @@ def accept_pager(manifest, preferences, publish, entry):
         candidate_box = color_bounds(SELECTED)
 
         def candidate_pixels():
-            image, _ = screenshot()
+            image = capture_image()
             data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
             left, top, right, bottom = candidate_box
             return b''.join(data[y * stride + left * channels:y * stride + right * channels]
@@ -537,7 +548,7 @@ def accept_expand(manifest, preferences, publish, entry, host, value, options, c
     toggle()
     wait(lambda: int(window_geometry(native_window())['HEIGHT']) > collapsed_height)
     geometry = window_geometry(native_window())
-    screen = screenshot()[0]
+    screen = capture_image()
     assert int(geometry['WIDTH']) <= screen.get_width() // 2, '含挂件的展开窗口超过半屏宽度'
     assert int(geometry['HEIGHT']) <= screen.get_height() // 2, '含挂件的展开窗口超过半屏高度'
     save_image('native-expand-open')
@@ -651,7 +662,7 @@ def accept_translation(manifest, preferences, publish, entry, fixture):
     wait(lambda: native_window() is not None and selected_height() > short_height + 10 * NATIVE_SCALE)
     wait(lambda: visible((selected[0], replacement, selected[2])))
     bounds = window_geometry(native_window())
-    screen = screenshot()[0]
+    screen = capture_image()
     assert 0 <= int(bounds["X"]) <= screen.get_width() - int(bounds["WIDTH"]), "长释义窗口横向超出工作区"
     assert 0 <= int(bounds["Y"]) <= screen.get_height() - int(bounds["HEIGHT"]), "长释义窗口纵向超出工作区"
     save_image("native-long-translation")
@@ -703,7 +714,7 @@ def palette_visible(colors):
 
 
 def palette_top(color):
-    image, _ = screenshot()
+    image = capture_image()
     channels, stride = image.get_n_channels(), image.get_rowstride()
     pixel = bytes(color) + (b"\xff" if channels == 4 else b"")
     data = image.get_pixels()
@@ -720,7 +731,7 @@ def save_image(name):
                      if NATIVE else "wayland" if WAYLAND else "x11") / FORMAT
                      / os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
         directory.mkdir(parents=True, exist_ok=True)
-        screenshot()[0].savev(str(directory / f"{name}.png"), "png", [], [])
+        capture_image().savev(str(directory / f"{name}.png"), "png", [], [])
 
 
 def fallback_visible(theme):
@@ -739,7 +750,7 @@ def accept_translation_below(preferences, publish, entry, control, daemon):
     selected, foreground = bytes((7, 91, 173)), bytes((255, 255, 255))
 
     def selected_area():
-        image, _ = screenshot()
+        image = capture_image()
         data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
         points = [(x, y) for y in range(image.get_height()) for x in range(image.get_width())
                   if data[y * stride + x * channels:y * stride + x * channels + 3] == selected]
