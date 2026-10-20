@@ -89,6 +89,7 @@ final class ImeStickers {
                 if (worker.isShutdown() || result == null) return;
                 pack = result;
                 tabIcon = resultIcon;
+                if (s.symbolPanel != null) s.symbolPanel.setHeaderMascot(resultIcon);
                 if (s.emojiPickerVisible()) {
                     s.imePanels.renderEmojiTabs();
                     s.imeStyler.applySkin();

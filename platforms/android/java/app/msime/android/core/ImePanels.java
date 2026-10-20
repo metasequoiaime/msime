@@ -2418,6 +2418,7 @@ final class ImePanels {
 
                 @Override public void restyle(View view) { s.imeStyler.applySkinToView(view); }
             });
+        s.symbolPanel.setHeaderMascot(s.imeStickers.tabIcon());
         symbolPreferences = s.getSharedPreferences(SYMBOL_RECENTS_PREFERENCES, Context.MODE_PRIVATE);
         ViewPolicy.hide(s.symbolPanel);
         s.keyboardSurface.addView(s.symbolPanel, LayoutPolicy.frameMatchParentParams());
