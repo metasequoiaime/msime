@@ -811,6 +811,50 @@ mod tests {
         assert_eq!(words(&session)[0], "或");
     }
 
+    #[test]
+    fn shuangpin_fuzzy_selection_survives_a_new_session() {
+        for input in ["nihc", "lihc"] {
+            let fixture = Fixture::new(
+                &[
+                    ("ni'hao", "你好", 100),
+                    ("ni'hao", "拟好", 90),
+                    ("li'hao", "利好", 200),
+                ],
+                &[],
+            );
+            let create = || {
+                fixture.session(|options| {
+                    options.scheme = SchemeType::Shuangpin;
+                    options.helpcode = false;
+                    options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::N_L;
+                    options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+                })
+            };
+            {
+                let mut session = create();
+                for round in 0..3 {
+                    type_text(&mut session, input);
+                    if round == 0 {
+                        assert_ne!(words(&session)[0], "拟好", "夹具必须从非首选学习");
+                    }
+                    let result = select_word(&mut session, "拟好");
+                    assert_eq!(result.commit.as_deref(), Some("拟好"));
+                    assert_eq!(result.diagnostic, None);
+                }
+            }
+            assert!(fixture.journal_count("SELECT count(*) FROM user_dictionary_operations WHERE key='ni''hao' AND value='拟好'") > 0);
+            for spelling in [input.to_owned(), format!("{}'{}", &input[..2], &input[2..])] {
+                let mut session = create();
+                type_text(&mut session, &spelling);
+                assert_eq!(
+                    words(&session)[0],
+                    "拟好",
+                    "重建会话后 {spelling} 的选择退回"
+                );
+            }
+        }
+    }
+
     /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。
     #[test]
     fn wubi_learning_survives_the_split_dictionary_layout() {

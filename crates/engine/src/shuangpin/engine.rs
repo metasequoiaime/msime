@@ -363,7 +363,7 @@ impl ShuangpinEngine {
         candidates
     }
 
-    /// Quanpin fuzzy rows for the decoded segmentation, labelled with the shuangpin keys they cover, filtered or reordered by the helpcodes, appended uniquely by word, and the whole list stable-sorted by typed coverage (engine.cpp:227-258).
+    /// 模糊候选沿用覆盖的双拼按键，按词面去重合并；同覆盖词库行共用调频权重，辅助码匹配仍优先。
     fn append_fuzzy(
         &mut self,
         mut exact: Vec<WordItem>,
@@ -395,6 +395,11 @@ impl ShuangpinEngine {
         }
         append_fuzzy_rows(&mut exact, fuzzy);
         sort_by_coverage(&mut exact);
+        sort_dictionary_weights(&mut exact);
+        if help_codes.len() == 1 {
+            exact = reorder_candidates_with_single_helpcode(exact, help_codes, keymap);
+            sort_by_coverage(&mut exact);
+        }
         exact
     }
 
@@ -480,9 +485,69 @@ fn request_autocorrect_types(request: &QueryRequest) -> u32 {
     transposition | neighbor
 }
 
+/// 展示用音节分隔符不增加实际按键覆盖。
+fn coverage(item: &WordItem) -> usize {
+    item.pinyin.bytes().filter(|&byte| byte != b'\'').count()
+}
+
 /// 按覆盖的按键长度稳定排序。纠错整句覆盖全部按键，可能因此被排到第一位，由 `keep_typo_sentence_off_first_seat` 在 `query` 返回前挪开。
 fn sort_by_coverage(rows: &mut [WordItem]) {
-    rows.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
+    rows.sort_by_key(|item| std::cmp::Reverse(coverage(item)));
+    let Some(first) = rows.first() else {
+        return;
+    };
+    if !first.sentence_association {
+        return;
+    }
+    let full = coverage(first);
+    let bucket = rows
+        .iter()
+        .take_while(|item| coverage(item) == full)
+        .count();
+    if rows[..bucket]
+        .iter()
+        .any(|item| !item.fuzzy && item.source.is_dictionary())
+    {
+        return;
+    }
+    // 没有字面整词时，模糊整词仍优先于替补整句；顺序不再依靠分隔符的虚假长度。
+    rows[..bucket].sort_by_key(|item| !(item.fuzzy && item.source.is_dictionary()));
+}
+
+/// 同一覆盖内的词库行共用调频权重；整句分数不参与比较，并留在原来的位置。
+fn sort_dictionary_weights(rows: &mut [WordItem]) {
+    let mut start = 0;
+    while start < rows.len() {
+        let count = coverage(&rows[start]);
+        let end = start
+            + rows[start..]
+                .iter()
+                .take_while(|row| coverage(row) == count)
+                .count();
+        let bucket = &mut rows[start..end];
+        let mut previous = i64::MAX;
+        let unsorted = bucket
+            .iter()
+            .filter(|row| row.source.is_dictionary())
+            .any(|row| {
+                let inverted = row.weight > previous;
+                previous = row.weight;
+                inverted
+            });
+        if unsorted {
+            let (positions, mut dictionary): (Vec<_>, Vec<_>) = bucket
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, row)| row.source.is_dictionary())
+                .map(|(index, row)| (index, std::mem::take(row)))
+                .unzip();
+            dictionary.sort_by_key(|row| std::cmp::Reverse(row.weight));
+            for (index, row) in positions.into_iter().zip(dictionary) {
+                bucket[index] = row;
+            }
+        }
+        start = end;
+    }
 }
 
 /// 纠错整句不抢首选（见 `dictionary::typo_sentence_seat`）。词典放好座位之后还有几道重排会把它挪到第一位：模糊音按覆盖长度排序（整句块为空、全码又没有词条时它是唯一最长的一行），单辅助码把匹配的行提到最前，双辅助码滤掉排在它前面的行。所以不在每道重排里各自守，而在 `query` 返回前统一处理：首位是纠错行时，把第一条非纠错行提到首位，其余行相对顺序不变。整张表只剩纠错行（例如双辅助码只留下了它）时没有可让的位置，和 `typo_sentence_seat` 在表空时不给纠错行一样，整张表清空，免得空格直接上屏一条改正。
@@ -617,12 +682,30 @@ mod tests {
 
     use super::{
         append_fuzzy_rows, keep_typo_sentence_off_first_seat, relabel_fuzzy_rows, segment_count,
-        sort_by_coverage,
+        sort_by_coverage, sort_dictionary_weights,
     };
     use crate::types::{CandidateSource, WordItem};
 
     fn row(word: &str) -> WordItem {
         WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
+
+    #[test]
+    fn fuzzy_dictionary_weights_keep_sentence_scores_and_prefix_slots_separate() {
+        let literal = WordItem::new("nihc", "你好", 100, CandidateSource::Database, "ni'hao");
+        let mut fuzzy = WordItem::new("ni'hc", "利好", 500, CandidateSource::Database, "li'hao");
+        fuzzy.fuzzy = true;
+        let sentence = WordItem::new("nihc", "拟好", 10000, CandidateSource::Generated, "ni'hao");
+        let prefix = WordItem::new("ni", "你", 100000, CandidateSource::Database, "ni");
+        let mut rows = vec![
+            literal.clone(),
+            sentence.clone(),
+            fuzzy.clone(),
+            prefix.clone(),
+        ];
+        sort_by_coverage(&mut rows);
+        sort_dictionary_weights(&mut rows);
+        assert_eq!(rows, [fuzzy, sentence, literal, prefix]);
     }
 
     #[test]

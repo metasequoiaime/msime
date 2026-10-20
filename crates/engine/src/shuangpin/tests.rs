@@ -418,9 +418,9 @@ fn fuzzy_rows_take_the_typed_keys() {
         rules: fuzzy_rule::Z_ZH,
     };
     let fuzzy = engine.query(&typed, None);
-    assert_eq!(words(&fuzzy), ["字", "之"]);
-    assert_eq!(fuzzy[1].pinyin, "zi");
-    assert!(fuzzy[1].fuzzy);
+    assert_eq!(words(&fuzzy), ["之", "字"]);
+    assert_eq!(fuzzy[0].pinyin, "zi");
+    assert!(fuzzy[0].fuzzy);
 }
 
 #[test]
