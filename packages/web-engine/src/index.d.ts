@@ -332,12 +332,18 @@ export interface MsimeSkinGeometry {
   selectedBarWidth?: MsimeSkinLength;
   selectedBarHeightEm?: number;
   selectedBarInside?: boolean;
+  itemCornersFollowCard?: boolean;
+  justifyRows?: boolean;
+  trimHiddenPreeditGap?: boolean;
+  pageArrowStyle?: "chevron" | "triangle";
+  preeditMarginDip?: { top: number; right: number; bottom: number; left: number };
 }
 /** 四层继承完成的 Windows 基底版式，由共享 catalog 提供。 */
 export interface MsimeResolvedLayout {
   cornerRadiusDip?: number;
   borderWidthDip?: number;
   itemCornerRadiusDip?: number;
+  shadow?: "none" | "soft" | "strong";
   pageArrows?: boolean;
   fitContent?: boolean;
   expandPanel?: boolean;
@@ -366,6 +372,8 @@ export interface MsimeSkin {
   minWidthDip?: number;
   /** 候选框圆角，0 到 32。 */
   cornerRadiusDip?: number;
+  /** 优先使用的单字体名称，最多 64 个 UTF-8 字节；默认字体链继续用于回退。 */
+  fontFamily?: string;
   /** 候选框上方装饰带的高度，0 到 500，与 decorationWidthDip 都大于 0 且有图片时才画。 */
   decorationTopDip?: number;
   /** 装饰图的宽度，0 到 1000。 */
@@ -424,6 +432,8 @@ export interface ResolvedSkin {
   readonly fallbackPalette: ResolvedSkin["palette"];
   readonly fallbackVariables: Readonly<Record<string, string>>;
   readonly geometry: Readonly<{
+    /** 皮肤优先字体名称，宿主默认字体链保留作回退。 */
+    fontFamily?: string;
     canvas: Readonly<ResolvedCanvasGeometry> | null;
     layout?: Readonly<{
       padding: MsimeSkinLength | null;
@@ -443,6 +453,12 @@ export interface ResolvedSkin {
       pageArrows: boolean | null;
       fitContent: boolean | null;
       expandPanel: boolean | null;
+      shadow: "none" | "soft" | "strong" | null;
+      itemCornersFollowCard: boolean | null;
+      justifyRows: boolean | null;
+      trimHiddenPreeditGap: boolean | null;
+      pageArrowStyle: "chevron" | "triangle" | null;
+      preeditMargin: Readonly<{ top: number; right: number; bottom: number; left: number }> | null;
     }>;
     /** 圆角（px），皮肤没给时为 null。 */
     cornerRadius: number | null;

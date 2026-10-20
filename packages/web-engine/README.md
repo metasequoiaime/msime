@@ -226,7 +226,9 @@ attachInput(textarea, engine, {
 
 共享扫描器返回的 `resolvedLayout` 可以随 `SkinSummary` 原样传入。候选栏按当前 `horizontal` / `vertical` 版式使用圆角、描边、padding、候选最小宽度、间距、序号与选中条尺寸；`{ value, em }` 保留单位，em 随候选字号缩放，显式 `0` 与 `false` 保留覆盖语义。`itemMinWidth` 只影响一个候选，整张卡片的最小宽度仍由 `minWidthDip` 控制。换布局或换皮肤时会重新应用几何。旧对象和内置皮肤 ID 继续使用原有默认值。
 
-网页候选栏没有桌面卷轴展开面板；`pageArrows`、`expandPanel`、`expandRows`、阴影和其余桌面专用布局开关不改变网页交互。不要把携带完整 catalog 与实现全部桌面布局行为混为一谈。
+`fontFamily` 可指定皮肤优先字体，沿用共享层的单字体名称及 64 个 UTF-8 字节上限，宿主默认字体链保留作回退。`resolvedLayout.shadow` 的 `none`、`soft`、`strong` 使用 Windows 的双层阴影配方；成功加载九宫格面板后不画阴影。`pageArrows` 控制翻页标记，`pageArrowStyle` 选择尖括号或三角；预编辑边距、`justifyRows`、`itemCornersFollowCard` 和 `trimHiddenPreeditGap` 也参与实际布局。贴角以实际换行结果判定，预编辑隐藏时才启用上角，零卡片圆角仍覆盖普通候选圆角。`fitContent` 去掉旧的 7em 最小卡宽，并使右内边距与序号左留白对称。
+
+网页候选栏仍没有桌面卷轴展开面板，`expandPanel`、`expandRows` 尚未消费；翻页标记不新增点击接口，页切换继续走引擎按键。携带 catalog 不代表已经实现全部桌面交互。
 
 ### `resolveSkin(skin?, { dark, layout }?)`
 

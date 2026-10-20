@@ -22,9 +22,13 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 | Android 原生候选条 | 候选圆角、候选最小宽度、右内边距、额外行内边距（上下各至多 4dp）、横排间距及紧凑开关 | 使用真实候选字号换算 em；仅布局更新也失效样式缓存；触屏不显示桌面序号与分页箭头 |
 | iOS 原生候选条与展开网格 | 候选圆角、描边、内边距、横排间距、候选最小宽度、选中条宽高与内外位置 | 额外垂直内边距受固定触屏栏空间限制；展开网格保持原生列数和点击面积 |
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
-| 网页候选栏 | 卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开 |
+| 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
-该表只描述本次接入的字段。`shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未在这四条路径完成与 Windows 的同等消费；不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，完整安装与真实编辑器入口仍需验收；Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
+该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费；网页仍缺少卷轴展开面板及其 `expandPanel`、`expandRows`。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，完整安装与真实编辑器入口仍需验收；Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
+
+网页字体沿用共享扫描器的单字体名称和 64 个 UTF-8 字节上限，经固定引号包裹后放在宿主字体链前；不把任意 CSS 字体串或包内字体资源当成字体名。翻页标记横排占候选右侧窄列，竖排另起下方一行，与来源场景的结构一致。网页阴影沿用固定来源 `candidate_skin_scene.cpp` 的两层配方：偏移与模糊为 `8/10/24`、`2/3/8`，浅色透明度 `0.18/0.10`、深色 `0.34/0.22`，`soft` 乘 `0.5`、`strong` 乘 `1.6`，`none` 和成功加载的九宫格面板关闭阴影。外角按浏览器实际换行后的矩形判定；预编辑隐藏时才启用顶角，卡片零圆角仍覆盖普通候选圆角。空预编辑留下来源的 2px 间距，贴角或显式 trim 时去掉；canvas 的 `lineGapDip` 继续优先于预编辑下边距。序号 inset 从候选边缘量起，不再叠加旧宿主的固定左留白；额外行高只加在 `1.35em` 行高之上一次。
+
+预编辑与候选组用纵向 flex 排列，避免浏览器相邻外边距折叠吞掉来源的 2px 行距。Canvas 的 `lineGapDip` 已是最终距离，需要抵消这 2px，不与预编辑下边距叠加。Canvas 启用皮肤阴影时，卡片阴影允许延伸到弹窗外；挂件改在图片图层裁到预留弹窗范围，避免为了放出阴影连带放出越界挂件。
 
 ## 历史审计
 
@@ -49,7 +53,7 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 ## Testing
 
 - `cargo test -p msime-client-services --locked`：1254 项单测通过、1 项忽略，另有 4 项集成测试通过；clippy 通过。新增测试覆盖只给实际绘制的包输出布局、em、零值、false 与 host catalog 往返。
-- `node --test packages/web-engine/test/*.test.mjs` 和 `candidates.browser.mjs`：38 项单测及 Chrome 浏览器检查通过，包括实际 computed style、方向切换和清除旧变量。
+- `node --test packages/web-engine/test/*.test.mjs` 和 `candidates.browser.mjs`：40 项单测及 Chrome 浏览器检查通过，包括字体名称的 UTF-8 字节上限与注入边界、实际字体栈、computed style、方向切换、清除旧变量、深浅阴影档位、显式关闭翻页、三角标记、预编辑四边距、贴角及零圆角、横排行对齐、隐藏预编辑间距和收紧宽度。序号边缘偏移、实际行高、预编辑到候选的最终距离以及换行后缩放时的外角重算另以 DOM 矩形核对。横排翻页标记的 DOM 矩形断言先复现错误的下方槽位，改成右侧窄列后通过。Canvas 阴影像素检查先复现外侧阴影被裁掉，再在修正后通过；同一截图确认越界挂件仍被裁掉。
 - iOS 专用模拟器运行 `CandidatePaletteTests` 与 `CandidateCanvasTests`：32 项中 31 项通过、1 项因未暂存固定上游皮肤跳过；使用 ad-hoc 签名，覆盖真实控制器的既有 canvas 回归与新增长度解析。
 - Android API 28 与 API 35 专用模拟器：`CandidateCanvasDeviceSmoke`、`CandidateSkinDeviceSmoke` 通过；新布局字段通过本分支 JNI 与实际解码路径，现有皮肤用例检查真实候选绘制及点击。
 - HarmonyOS 纯逻辑套件、原生 release 库和 ArkTS HAP 构建通过；独立合成测试包同时断言原生共享主题返回的 em 与零值。模拟器浅色、深色、浅色坏图、深色坏图四阶段均通过，检查真实输入、面板和挂件动画/回退、候选点击上屏、隐藏再显示。触屏路径新增的最小宽度、间距与零圆角的真实几何断言也在四阶段通过。首次验收暴露的编辑连接时序由测试在输入前明确收起再聚焦并等待连接日志解决，不以字母节点出现代替连接就绪。

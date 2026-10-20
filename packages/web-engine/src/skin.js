@@ -273,6 +273,12 @@ function resolvedLayout(skin, layout) {
     pageArrows: typeof raw.pageArrows === "boolean" ? raw.pageArrows : null,
     fitContent: typeof raw.fitContent === "boolean" ? raw.fitContent : null,
     expandPanel: typeof raw.expandPanel === "boolean" ? raw.expandPanel : null,
+    shadow: ["none", "soft", "strong"].includes(raw.shadow) ? raw.shadow : null,
+    itemCornersFollowCard: typeof source.itemCornersFollowCard === "boolean" ? source.itemCornersFollowCard : null,
+    justifyRows: typeof source.justifyRows === "boolean" ? source.justifyRows : null,
+    trimHiddenPreeditGap: typeof source.trimHiddenPreeditGap === "boolean" ? source.trimHiddenPreeditGap : null,
+    preeditMargin: insets(source.preeditMarginDip, 500),
+    pageArrowStyle: ["chevron", "triangle"].includes(source.pageArrowStyle) ? source.pageArrowStyle : null,
   };
 }
 
@@ -329,6 +335,9 @@ function packageGeometry(pkg, mode, layout = "horizontal") {
         }
       : null,
   };
+  // 与共享 catalog 的单字体名称约束一致，不把任意 CSS 字体串当作皮肤字段。
+  if (typeof skin.fontFamily === "string" && skin.fontFamily.length > 0 && new TextEncoder().encode(skin.fontFamily).length <= 64
+      && !/[\u0000-\u001f\u007f"'\\,;{}<>`]/.test(skin.fontFamily)) result.fontFamily = skin.fontFamily;
   if (layoutGeometry) result.layout = layoutGeometry;
   return result;
 }
@@ -364,7 +373,7 @@ function completePalette(raw, mode, lookSelectedText, detail) {
 }
 
 /**
- * 候选条用的 CSS 自定义属性。与桌面同名的沿用 `candidatePaletteStyle`（`--cand-*`、`--accent-strong`）和 `skinGeometryStyle`（`--msime-skin-*`）的名字；桌面样式表没有的几项是 SDK 新增的：`--cand-secondary`、`--cand-selected-text`、`--cand-selected-num`、`--msime-skin-selected-bar`（`block` 或 `none`，对应 `selectedBarCss` 隐藏选中条）、`--msime-skin-decoration-image`、`--msime-skin-background-image`、`--msime-skin-background-opacity` 和 `--msime-skin-background-fit`（`object-fit` 的值，`stretch` 写成 `fill`）。每个值都是规范化的颜色、有限的数字、白名单里的关键字或经 `skinImageUrl` 检查过的 `url("…")`，跳不出声明。阴影不随皮肤变，由候选条按明暗自己画。
+ * 候选条用的 CSS 自定义属性。与桌面同名的沿用 `candidatePaletteStyle`（`--cand-*`、`--accent-strong`）和 `skinGeometryStyle`（`--msime-skin-*`）的名字。值只来自规范化颜色、有界数字、白名单关键字或经 `skinImageUrl` 检查的图片地址；皮肤阴影档位按 Windows 的固定双层配方换算，不接受任意 CSS。
  */
 function cssVariables(palette, geometry) {
   const variables = {
@@ -388,6 +397,7 @@ function cssVariables(palette, geometry) {
     "--msime-skin-decoration-width": `${geometry.decoration ? geometry.decoration.width : 0}px`,
   };
   const layout = geometry.layout;
+  if (geometry.fontFamily) variables["--msime-skin-font-family"] = JSON.stringify(geometry.fontFamily);
   if (layout) {
     const length = (value) => `${value.value}${value.em ? "em" : "px"}`;
     for (const [field, name] of Object.entries({ padding: "padding", itemExtraHeight: "item-extra-height", numberInset: "number-inset",
@@ -408,6 +418,14 @@ function cssVariables(palette, geometry) {
     if (layout.borderWidth !== null) variables["--msime-skin-border-width"] = `${layout.borderWidth}px`;
     if (layout.selectedBarHeightEm !== null) variables["--msime-skin-selected-bar-height"] = `${layout.selectedBarHeightEm}em`;
     if (layout.selectedBarInside !== null) variables["--msime-skin-selected-bar-left"] = layout.selectedBarInside ? "1px" : "0px";
+    if (layout.fitContent) variables["--msime-skin-card-floor"] = "0px";
+    if (layout.preeditMargin) {
+      for (const [side, value] of Object.entries(layout.preeditMargin)) variables[`--msime-skin-preedit-margin-${side}`] = `${value}px`;
+    }
+    if (layout.shadow !== null) {
+      const scale = { none: 0, soft: 0.5, strong: 1.6 }[layout.shadow];
+      variables["--msime-skin-shadow-scale"] = String(scale);
+    }
   }
   if (geometry.minWidth !== null) variables["--msime-skin-min-width"] = `${geometry.minWidth}px`;
   if (geometry.cornerRadius !== null) variables["--msime-skin-radius"] = `${geometry.cornerRadius}px`;

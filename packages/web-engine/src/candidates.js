@@ -77,6 +77,12 @@ ${platformVariables(PLATFORM_PALETTE.light)}
   --cand-selected-num: var(--cand-num);
   --msime-skin-radius: 6px;
   --msime-skin-min-width: 0px;
+  --msime-skin-card-floor: 7em;
+  --msime-skin-preedit-margin-top: 0px;
+  --msime-skin-preedit-margin-right: 0px;
+  --msime-skin-preedit-margin-bottom: 0px;
+  --msime-skin-preedit-margin-left: 0px;
+  --msime-skin-shadow-scale: 1;
   --msime-skin-decoration-top: 0px;
   --msime-skin-decoration-width: 0px;
   --msime-skin-selected-bar: block;
@@ -208,7 +214,7 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
   border: var(--msime-skin-border-width) solid var(--cand-border);
   border-radius: var(--msime-skin-radius);
   box-shadow: var(--cand-shadow);
-  min-width: max(7em, var(--msime-skin-min-width));
+  min-width: max(var(--msime-skin-card-floor, 7em), var(--msime-skin-min-width));
   width: max-content;
   max-width: var(--msime-max-width);
   overflow-wrap: anywhere;
@@ -316,6 +322,49 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 .paging > [data-off] {
   opacity: 0.35;
 }
+
+/* 共享版式采用来源的双层阴影；只缩放透明度，换回旧皮肤时仍使用旧宿主默认。 */
+.candidate[data-shadow] .container {
+  --msime-shadow-outer: 0.18;
+  --msime-shadow-inner: 0.10;
+  box-shadow: 8px 10px 24px rgb(0 0 0 / calc(var(--msime-shadow-outer) * var(--msime-skin-shadow-scale))),
+    2px 3px 8px rgb(0 0 0 / calc(var(--msime-shadow-inner) * var(--msime-skin-shadow-scale)));
+}
+.candidate[data-theme="dark"][data-shadow] .container {
+  --msime-shadow-outer: 0.34;
+  --msime-shadow-inner: 0.22;
+}
+.candidate[data-shadow="none"] .container,
+.candidate[data-shadow] .container[data-panel] { box-shadow: none; }
+.candidate[data-canvas][data-shadow] { overflow: visible; }
+.candidate[data-font-family] { font-family: var(--msime-skin-font-family), var(--cand-font-family); }
+.candidate[data-layout] .container { display: flex; flex-direction: column; }
+.candidate[data-layout] .pinyin {
+  margin: var(--msime-skin-preedit-margin-top, 0px) var(--msime-skin-preedit-margin-right, 0px)
+    var(--msime-skin-preedit-margin-bottom, 0px) var(--msime-skin-preedit-margin-left, 0px);
+}
+.candidate[data-layout] .pinyin[hidden] { display: none; }
+.candidate[data-layout][data-canvas] .pinyin {
+  margin-bottom: calc(var(--msime-canvas-line-gap, calc(var(--msime-skin-preedit-margin-bottom, 0px) + 2px)) - 2px);
+}
+.candidate-items { position: relative; z-index: 1; margin-top: 2px; }
+.candidate[data-trim-preedit] .candidate-items { margin-top: 0; }
+.candidate[data-layout] .candidate-items .row-wrapper { margin: 0; }
+.candidate[data-layout] .candidate-items .cand { margin: 0; }
+.candidate[data-layout] .cand {
+  padding: calc(var(--msime-skin-item-extra-height, 0px) / 2) var(--msime-skin-item-padding-right)
+    calc(var(--msime-skin-item-extra-height, 0px) / 2) 0;
+}
+.candidate[data-layout] .cand .text { padding-left: max(3px, var(--msime-skin-number-inset, 3px)); padding-right: 0; line-height: 1.35; }
+.candidate[data-layout] .num { margin-left: 0; }
+.candidate[data-fit-content] .cand { padding-right: max(3px, var(--msime-skin-number-inset, 3px)); }
+.wnd-h .candidate-items { display: flex; flex-wrap: wrap; gap: var(--msime-skin-horizontal-gap, 0px); }
+.wnd-v .candidate-items { display: flex; flex-direction: column; gap: var(--msime-skin-vertical-gap, 0px); }
+.candidate[data-justify-rows].wnd-h .candidate-items > .row-wrapper { flex-grow: 1; }
+.candidate[data-layout] .paging-row { display: flex; justify-content: flex-end; margin-top: 2px; }
+.candidate-body { display: flex; position: relative; z-index: 1; }
+.candidate-body > .candidate-items { flex: 1; min-width: 0; }
+.candidate-body > .paging-row { flex: none; align-items: flex-end; }
 
 /* ---- 候选 ---- */
 .row-wrapper {
@@ -638,6 +687,12 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     const canvas = resolved.geometry.canvas;
     if (!canvas) return;
     const width = card.offsetWidth, height = card.offsetHeight;
+    const bounds = root.getBoundingClientRect();
+    const layerBounds = stage.getBoundingClientRect();
+    // 挂件裁到预留弹窗范围，卡片阴影则可以延伸到范围外。
+    const clip = `inset(${bounds.top - layerBounds.top}px ${layerBounds.right - bounds.right}px ${layerBounds.bottom - bounds.bottom}px ${bounds.left - layerBounds.left}px)`;
+    below.style.setProperty("clip-path", clip);
+    above.style.setProperty("clip-path", clip);
     for (const picture of pictures) {
       const deco = picture.decoration;
       if (!deco) continue;
@@ -712,6 +767,13 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     for (const name of applied) root.style.removeProperty(name);
     applied = [];
     root.className = `candidate wnd-${resolved.layout === "vertical" ? "v" : "h"}`;
+    const geometry = resolved.geometry.layout;
+    root.toggleAttribute("data-layout", Boolean(geometry));
+    root.toggleAttribute("data-font-family", Boolean(resolved.geometry.fontFamily));
+    root.toggleAttribute("data-fit-content", geometry?.fitContent === true);
+    root.toggleAttribute("data-justify-rows", geometry?.justifyRows === true);
+    if (geometry?.shadow != null) root.dataset.shadow = geometry.shadow;
+    else delete root.dataset.shadow;
     if (resolved.geometry.layout) root.style.setProperty("--msime-skin-number-column", "9px");
     else root.style.removeProperty("--msime-skin-number-column");
     root.dataset.theme = resolved.dark ? "dark" : "light";
@@ -754,25 +816,34 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     if (card.dataset.background !== undefined) rows.push(background);
 
     const pinyin = element(doc, "div", "row pinyin", PARTS.preedit);
+    const geometry = resolved.geometry.layout;
+    const preeditHidden = Boolean(geometry) && !String(frame.preedit ?? "");
+    pinyin.hidden = preeditHidden;
+    root.toggleAttribute("data-trim-preedit", preeditHidden && (geometry.trimHiddenPreeditGap === true || geometry.itemCornersFollowCard === true));
     const reading = element(doc, "div", "text");
     reading.append(String(frame.preedit ?? ""), element(doc, "span", "cursor", PARTS.caret));
     pinyin.append(reading);
-    if (frame.hasPrev || frame.hasNext) {
+    let pager = null;
+    if ((frame.hasPrev || frame.hasNext) && geometry?.pageArrows !== false) {
       const paging = element(doc, "div", "paging", PARTS.paging);
       paging.setAttribute("aria-hidden", "true");
       const prev = element(doc, "span", "page-prev");
-      prev.textContent = "‹";
+      prev.textContent = geometry?.pageArrowStyle === "triangle" ? "◀" : "‹";
       if (!frame.hasPrev) prev.dataset.off = "";
       const next = element(doc, "span", "page-next");
-      next.textContent = "›";
+      next.textContent = geometry?.pageArrowStyle === "triangle" ? "▶" : "›";
       if (!frame.hasNext) next.dataset.off = "";
       paging.append(prev, next);
-      pinyin.append(paging);
+      if (geometry) {
+        pager = element(doc, "div", "paging-row");
+        pager.append(paging);
+      } else pinyin.append(paging);
     }
     rows.push(pinyin);
 
     const vertical = resolved.layout === "vertical";
     const page = Array.isArray(frame.page) ? frame.page : [];
+    const items = geometry ? element(doc, "div", "candidate-items") : null;
     page.forEach((item, index) => {
       const highlighted = index === frame.highlight;
       const wrapper = element(doc, "div", index === 0 && !vertical ? "row-wrapper first-row-wrapper" : "row-wrapper");
@@ -797,8 +868,18 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       }
       cand.append(text);
       wrapper.append(cand);
-      rows.push(wrapper);
+      if (items) items.append(wrapper);
+      else rows.push(wrapper);
     });
+    if (items && pager && !vertical) {
+      // 横排为箭头保留右侧窄列；竖排仍在列表下方另起一行。
+      const body = element(doc, "div", "candidate-body");
+      body.append(items, pager);
+      rows.push(body);
+    } else {
+      if (items) rows.push(items);
+      if (pager) rows.push(pager);
+    }
     card.replaceChildren(...rows);
     shownHighlight = Number.isInteger(frame.highlight) && frame.highlight >= 0 && frame.highlight < page.length ? frame.highlight : null;
     root.hidden = false;
@@ -816,6 +897,21 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.style.setProperty("top", "0px");
     layoutCanvas();
     const { width, height } = root.getBoundingClientRect();
+    const items = card.querySelector(".candidate-items");
+    if (items && resolved.geometry.layout?.itemCornersFollowCard) {
+      const bounds = items.getBoundingClientRect();
+      const hiddenPreedit = card.querySelector(".pinyin")?.hidden;
+      const positions = [...items.querySelectorAll(".cand")].map((node) => [node, node.getBoundingClientRect()]);
+      // 按实际换行结果只放大四个外角；直角卡片同样覆盖普通候选圆角。
+      for (const [node, rect] of positions) {
+        for (const [corner, outer] of Object.entries({
+          "top-left": hiddenPreedit && Math.abs(rect.top - bounds.top) < 1 && Math.abs(rect.left - bounds.left) < 1,
+          "top-right": hiddenPreedit && Math.abs(rect.top - bounds.top) < 1 && Math.abs(rect.right - bounds.right) < 1,
+          "bottom-left": Math.abs(rect.bottom - bounds.bottom) < 1 && Math.abs(rect.left - bounds.left) < 1,
+          "bottom-right": Math.abs(rect.bottom - bounds.bottom) < 1 && Math.abs(rect.right - bounds.right) < 1,
+        })) node.style.setProperty(`border-${corner}-radius`, outer ? "var(--msime-skin-radius)" : "var(--msime-skin-item-radius)");
+      }
+    }
     const left = finite(anchor?.left, MARGIN);
     const top = finite(anchor?.top, 0);
     const bottom = finite(anchor?.bottom, top);

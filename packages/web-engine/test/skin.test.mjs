@@ -25,6 +25,10 @@ function assertSafeVariables(variables) {
   for (const [name, value] of Object.entries(variables)) {
     assert.match(name, /^--[a-z-]+$/);
     assert.equal(typeof value, "string", name);
+    if (name === "--msime-skin-font-family") {
+      assert.match(value, /^"[^"'\\,;{}<>`\u0000-\u001f\u007f]+"$/);
+      continue;
+    }
     const inner = /^url\("(.*)"\)$/.exec(value);
     if (inner) {
       assert.doesNotMatch(inner[1], /["'\\()\s<>{}`]/, `${name}: ${value}`);
@@ -500,4 +504,47 @@ test("malformed resolved geometry cannot inject CSS or unbounded sizes", () => {
   assert.equal(resolved.variables["--msime-skin-number-size"], undefined);
   assert.equal(resolved.variables["--msime-skin-border-width"], undefined);
   assert.equal(resolved.variables["--msime-skin-item-radius"], undefined);
+});
+
+test("resolved layout retains direction-specific switches and bounds preedit margins", () => {
+  const skin = { resolvedLayout: { shadow: "soft", fitContent: true,
+    horizontal: { justifyRows: false, itemCornersFollowCard: true, trimHiddenPreeditGap: true, pageArrowStyle: "triangle",
+      preeditMarginDip: { top: 0, right: 4, bottom: 7, left: 2 } },
+    vertical: { justifyRows: true, itemCornersFollowCard: false, trimHiddenPreeditGap: false } } };
+  const horizontal = resolveSkin(skin);
+  assert.equal(horizontal.geometry.layout.justifyRows, false);
+  assert.equal(horizontal.geometry.layout.itemCornersFollowCard, true);
+  assert.equal(horizontal.geometry.layout.pageArrowStyle, "triangle");
+  assert.equal(horizontal.variables["--msime-skin-preedit-margin-bottom"], "7px");
+  assert.equal(horizontal.variables["--msime-skin-preedit-margin-top"], "0px");
+  assert.equal(horizontal.variables["--msime-skin-shadow-scale"], "0.5");
+  assert.equal(horizontal.variables["--msime-skin-card-floor"], "0px");
+  const vertical = resolveSkin(skin, { layout: "vertical" });
+  assert.equal(vertical.geometry.layout.itemCornersFollowCard, false);
+  assert.equal(vertical.geometry.layout.trimHiddenPreeditGap, false);
+  assert.equal(vertical.variables["--msime-skin-preedit-margin-bottom"], undefined);
+  const hostile = resolveSkin({ resolvedLayout: { shadow: "none;display:none", horizontal: {
+    justifyRows: "true", itemCornersFollowCard: 1, pageArrowStyle: "<svg>",
+    preeditMarginDip: { top: Infinity, right: "5px", bottom: -1, left: 501 } } } });
+  assert.equal(hostile.geometry.layout.shadow, null);
+  assert.equal(hostile.geometry.layout.justifyRows, null);
+  assert.equal(hostile.geometry.layout.itemCornersFollowCard, null);
+  assert.equal(hostile.geometry.layout.pageArrowStyle, null);
+  assert.deepEqual(hostile.geometry.layout.preeditMargin, { top: 0, right: 0, bottom: 0, left: 0 });
+  assertSafeVariables(hostile.variables);
+});
+
+test("skin font family keeps the shared single-family byte limit and declaration safety", () => {
+  for (const fontFamily of ["Courier New", "示".repeat(21), "initial"]) {
+    const result = resolveSkin({ fontFamily });
+    assert.equal(result.geometry.fontFamily, fontFamily);
+    assert.equal(result.variables["--msime-skin-font-family"], JSON.stringify(fontFamily));
+    assertSafeVariables(result.variables);
+  }
+  for (const fontFamily of ["", "示".repeat(22), "a,b", 'a"b', "a\\b", "a;b", "a\nb", "<font>"]) {
+    const result = resolveSkin({ fontFamily });
+    assert.equal(result.geometry.fontFamily, undefined);
+    assert.equal(result.variables["--msime-skin-font-family"], undefined);
+  }
+  assert.equal(resolveSkin({ fontFamily: "MSIME Fixture", layouts: ["vertical"] }).geometry.fontFamily, undefined);
 });

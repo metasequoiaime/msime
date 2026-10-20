@@ -426,9 +426,124 @@
         bar.destroy();
       }
 
+      async function layoutControls() {
+        current = "resolved layout controls";
+        const dip = (value) => ({ value, em: false });
+        const geometry = { padding: dip(0), numberScale: 0, numberInset: dip(8), itemPaddingRight: dip(12), itemExtraHeight: dip(6), itemGap: dip(0), itemCornersFollowCard: true,
+          preeditMarginDip: { top: 3, right: 4, bottom: 7, left: 5 }, justifyRows: true, pageArrowStyle: "triangle" };
+        const layout = { cornerRadiusDip: 8, itemCornerRadiusDip: 2, borderWidthDip: 0, shadow: "soft", pageArrows: true,
+          horizontal: geometry, vertical: geometry };
+        const skin = { base: "system", minWidthDip: 300, fontFamily: "MSIME Fixture", resolvedLayout: layout };
+        const bar = createCandidateBar({ skin, layout: "vertical", dark: false });
+        const shown = composingFrame("ni", ["示例甲", "示例乙"]);
+        bar.render(shown, { left: 20, top: 20, bottom: 40 });
+        const root = parts(bar.element).root;
+        const card = root.querySelector(".container");
+        check(getComputedStyle(root).fontFamily.startsWith('"MSIME Fixture",'), "skin font leads the preserved platform fallback chain");
+        const preedit = root.querySelector(".pinyin");
+        let first = root.querySelector(".cand");
+        const font = parseFloat(getComputedStyle(root).fontSize);
+        check(Math.abs(first.querySelector(".num").getBoundingClientRect().left - first.getBoundingClientRect().left - 8) < 1, "number inset is measured from the item edge without duplicate padding");
+        check(Math.abs(first.getBoundingClientRect().height - (font * 1.35 + 6)) < 1, "extra item height is added once to the Windows line height");
+        equal(getComputedStyle(first).paddingRight, "12px", "right padding is not duplicated by the text row");
+        equal(getComputedStyle(preedit).marginTop, "3px", "preedit top margin reaches the rendered row");
+        equal(getComputedStyle(preedit).marginBottom, "7px", "preedit bottom margin reaches the rendered row");
+        check(Math.abs(first.getBoundingClientRect().top - preedit.getBoundingClientRect().bottom - 9) < 1, "preedit bottom margin is added to the fixed two-pixel body gap");
+        equal(getComputedStyle(preedit).marginLeft, "5px", "preedit left margin reaches the rendered row");
+        check(getComputedStyle(card).boxShadow.includes("0.09"), "light soft shadow uses the Windows outer alpha");
+        check(root.querySelector(".paging-row .page-next")?.textContent === "▶", "triangle pager is rendered below the candidates");
+        check(root.querySelector(".paging-row").getBoundingClientRect().top >= root.querySelector(".candidate-items").getBoundingClientRect().bottom - 1,
+          "vertical pager occupies a row below the candidates");
+        equal(getComputedStyle(root.querySelector(".cand")).borderTopLeftRadius, "2px", "visible preedit keeps inner top corners");
+        bar.render({ ...shown, preedit: "", hasNext: false }, { left: 20, top: 20, bottom: 40 });
+        const candidates = root.querySelectorAll(".cand");
+        equal(getComputedStyle(root.querySelector(".pinyin")).display, "none", "empty preedit is hidden for resolved layouts");
+        equal(getComputedStyle(root.querySelector(".candidate-items")).marginTop, "0px", "attached corners remove hidden preedit spacing");
+        equal(getComputedStyle(candidates[0]).borderTopLeftRadius, "8px", "first outer corner follows the card");
+        equal(getComputedStyle(candidates[1]).borderBottomRightRadius, "8px", "last outer corner follows the card");
+        const separate = { ...geometry, itemCornersFollowCard: false, trimHiddenPreeditGap: false };
+        bar.setSkin({ ...skin, resolvedLayout: { ...layout, vertical: separate } });
+        equal(getComputedStyle(root.querySelector(".candidate-items")).marginTop, "2px", "false preserves the hidden preedit gap");
+        equal(getComputedStyle(root.querySelector(".cand")).borderTopLeftRadius, "2px", "false keeps the ordinary item corner");
+        bar.setSkin({ ...skin, resolvedLayout: { ...layout, vertical: { ...separate, trimHiddenPreeditGap: true } } });
+        equal(getComputedStyle(root.querySelector(".candidate-items")).marginTop, "0px", "trim switch removes the gap without enabling attached corners");
+        bar.setSkin({ ...skin, resolvedLayout: { ...layout, cornerRadiusDip: 0, shadow: "none", pageArrows: false } });
+        equal(getComputedStyle(root.querySelector(".cand")).borderTopLeftRadius, "0px", "zero card radius overrides the ordinary item radius");
+        equal(getComputedStyle(card).boxShadow, "none", "none disables both shadow layers");
+        bar.render(shown, { left: 20, top: 20, bottom: 40 });
+        check(!root.querySelector(".paging"), "explicit false hides paging despite hasNext");
+        bar.setLayout("horizontal");
+        let items = root.querySelector(".candidate-items");
+        let last = items.lastElementChild;
+        check(Math.abs(last.getBoundingClientRect().right - items.getBoundingClientRect().right) < 1, "justified horizontal row fills the card");
+        bar.setSkin({ ...skin, resolvedLayout: { ...layout, horizontal: { ...geometry, justifyRows: false } } });
+        items = root.querySelector(".candidate-items"); last = items.lastElementChild;
+        check(last.getBoundingClientRect().right < items.getBoundingClientRect().right - 10, "explicit false restores natural item widths");
+        const horizontalPager = root.querySelector(".paging-row").getBoundingClientRect();
+        check(horizontalPager.left >= items.getBoundingClientRect().right - 1
+          && horizontalPager.top < items.getBoundingClientRect().bottom, "horizontal pager occupies a column beside the candidates");
+        card.style.setProperty("width", "300px");
+        bar.setSkin({ ...skin, minWidthDip: 0, resolvedLayout: { ...layout, pageArrows: false, horizontal: { ...geometry, itemMinWidth: dip(140) } } });
+        bar.render(composingFrame("", ["甲", "乙", "丙"]), { left: 20, top: 20, bottom: 40 });
+        const wrapped = root.querySelectorAll(".cand");
+        check(Math.abs(wrapped[0].getBoundingClientRect().top - wrapped[1].getBoundingClientRect().top) < 1
+          && wrapped[2].getBoundingClientRect().top > wrapped[1].getBoundingClientRect().top, "horizontal candidates wrap at their actual minimum widths");
+        equal(getComputedStyle(wrapped[0]).borderBottomLeftRadius, "2px", "wrapped inner corner keeps the ordinary radius");
+        equal(getComputedStyle(wrapped[1]).borderTopRightRadius, "8px", "first row outer corner follows the card");
+        equal(getComputedStyle(wrapped[2]).borderBottomRightRadius, "8px", "justified last row follows both outer sides");
+        card.style.setProperty("width", "220px");
+        window.dispatchEvent(new Event("resize"));
+        check(wrapped[1].getBoundingClientRect().top > wrapped[0].getBoundingClientRect().top, "resize recomputes the wrapping geometry");
+        equal(getComputedStyle(wrapped[1]).borderTopRightRadius, "2px", "resize removes a corner that is no longer on the top row");
+        card.style.removeProperty("width");
+        bar.setDark(true);
+        check(getComputedStyle(card).boxShadow.includes("0.17"), "dark soft shadow uses the Windows outer alpha");
+        bar.setSkin({ ...skin, minWidthDip: 0, resolvedLayout: { ...layout, fitContent: true, pageArrows: false } });
+        bar.render(composingFrame("", ["甲"]), { left: 20, top: 20, bottom: 40 });
+        first = root.querySelector(".cand");
+        equal(getComputedStyle(first).paddingRight, "8px", "fit-content right padding mirrors the number inset");
+        check(card.getBoundingClientRect().width < font * 7, "fit-content removes the legacy seven-em card minimum");
+        bar.setSkin("system");
+        check(!getComputedStyle(root).fontFamily.includes("MSIME Fixture"), "switching skin removes the preferred font");
+        check(!root.hasAttribute("data-shadow") && !root.hasAttribute("data-layout"), "switching skin clears layout and shadow state");
+        equal(root.style.getPropertyValue("--msime-skin-preedit-margin-bottom"), "", "switching skin removes preedit margin variables");
+        bar.destroy();
+        const patch = document.createElement("canvas"); patch.width = patch.height = 4;
+        const patchContext = patch.getContext("2d"); patchContext.fillStyle = "#00ff00"; patchContext.fillRect(0, 0, 4, 4);
+        const canvasBar = createCandidateBar({ dark: false, skin: { ...skin, schemaVersion: 2, base: "canvas",
+          lineGapDip: 6,
+          animation: { enter: "none", exit: "none", selection: "none" },
+          decorations: [{ image: patch.toDataURL(), anchor: "top-right", offsetXDip: 20, widthDip: 20, heightDip: 20 }],
+          resolvedLayout: { ...layout, shadow: "strong", pageArrows: false } } });
+        canvasBar.render(shown, { left: 40, top: 80, bottom: 100 });
+        const canvasCard = parts(canvasBar.element).root.querySelector(".container");
+        const rect = canvasCard.getBoundingClientRect();
+        check(Math.abs(canvasCard.querySelector(".cand").getBoundingClientRect().top - canvasCard.querySelector(".pinyin").getBoundingClientRect().bottom - 6) < 1,
+          "canvas line gap overrides the preedit margin without adding the body gap twice");
+        await Promise.all([...canvasBar.element.shadowRoot.querySelectorAll(".skin-picture img")].map((image) => image.decode()));
+        const [shadowPixel] = await screenshotPixels([{ x: rect.right + 5, y: rect.top + 10 }]);
+        check(shadowPixel[0] < 250, "canvas fallback shadow is actually painted outside the popup bounds");
+        equal(shadowPixel[0], shadowPixel[1], "widgets remain clipped outside the popup while the neutral shadow is visible");
+        canvasBar.destroy();
+        document.body.style.setProperty("--msime-skin-card-floor", "900px");
+        document.body.style.setProperty("--msime-skin-preedit-margin-bottom", "900px");
+        try {
+          const isolated = createCandidateBar({ skin: { minWidthDip: 0, resolvedLayout: { horizontal: {} } } });
+          isolated.render(shown, { left: 20, top: 20, bottom: 40 });
+          const isolatedRoot = parts(isolated.element).root;
+          equal(getComputedStyle(isolatedRoot.querySelector(".pinyin")).marginBottom, "0px", "page variables cannot supply an undeclared preedit margin");
+          check(isolatedRoot.querySelector(".container").getBoundingClientRect().width < 900, "page variables cannot replace the card minimum");
+          isolated.destroy();
+        } finally {
+          document.body.style.removeProperty("--msime-skin-card-floor");
+          document.body.style.removeProperty("--msime-skin-preedit-margin-bottom");
+        }
+      }
+
       try {
         await candidateBar();
         await factoryGeometry();
+        await layoutControls();
         await motionReplay();
         await canvasSkin();
         await attached();
