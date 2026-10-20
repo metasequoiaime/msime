@@ -569,7 +569,7 @@ struct State {
   // 与语音失败提示同一套做法。
   uint64_t mode_hint_id = 0;
   // 切换徽章的颜色，与语音浮层一样取解析出的主题，明暗跟随颜色模式。
-  msime::linux_host::FloatingSurfaceColors mode_badge_colors;
+  msime::linux_host::FloatingSurfaceColors mode_badge_colors{};
 #ifdef MSIME_IBUS_MODE_BADGE
   // 自绘的切换徽章（见 show_input_mode_hint）。拿不到后端时记下来，不在每次切换时重试。代次丢弃过期的淡出回调。
   std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge;
