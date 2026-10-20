@@ -26,6 +26,10 @@ final class ImeLayoutRows {
     private final MSIMEInputService s;
     /** 拼音九键侧栏里的标点列；拼音列出现时让出位置。换了布局后它已不在侧栏里，按父视图判断。 */
     private View nineKeyPunctuation;
+    private Button letterOptionsAnchor;
+    private LinearLayout letterOptions;
+    private int letterOptionIndex = -1;
+    private boolean letterOptionsEntered;
 
     ImeLayoutRows(MSIMEInputService s) {
         this.s = s;
@@ -870,16 +874,74 @@ final class ImeLayoutRows {
         showTextOptions(anchor, choices);
     }
 
-    /** 中文字母键的长按/上滑选项：保留小写、提供大写，并把右上角符号放在同一组里。 */
+    /** 中文字母的选项保留点选，并把原按键后续的移动用于拖选。 */
     void showLetterOptions(Button anchor, String input) {
         String lower = input.toLowerCase(java.util.Locale.ROOT);
         String upper = input.toUpperCase(java.util.Locale.ROOT);
-        String hint = LetterHintTable.hint(input);
+        String hint = LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks());
         java.util.List<String> choices = new java.util.ArrayList<>();
         choices.add(lower);
         if (!upper.equals(lower)) choices.add(upper);
         if (hint != null) choices.add(hint);
-        showTextOptions(anchor, choices);
+        LinearLayout options = showChoiceOptions(anchor, choices, choice -> {
+            if (choice.equals(hint)) commitLetterHint(input);
+            else commitNineKeyHoldOption(choice);
+        });
+        if (options != null) {
+            letterOptionsAnchor = anchor;
+            letterOptions = options;
+        }
+    }
+
+    /** 弹窗可能贴着屏幕边缘移动，用每个选项布局后的屏幕坐标命中。 */
+    void moveLetterOptions(Button anchor, MotionEvent event) {
+        if (letterOptionsAnchor != anchor || letterOptions == null) return;
+        int selected = -1;
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        int[] location = new int[2];
+        for (int index = 0; index < letterOptions.getChildCount(); index++) {
+            View option = letterOptions.getChildAt(index);
+            option.getLocationOnScreen(location);
+            bounds.set(location[0], location[1], location[0] + option.getWidth(), location[1] + option.getHeight());
+            if (option.isShown() && bounds.contains((int) event.getRawX(), (int) event.getRawY())) {
+                selected = index;
+                break;
+            }
+        }
+        // 长按后的轻微抖动不算拖选；进入过选项后，滑出才转为取消选择。
+        letterOptionsEntered |= selected >= 0;
+        if (selected == letterOptionIndex) return;
+        letterOptionIndex = selected;
+        for (int index = 0; index < letterOptions.getChildCount(); index++) {
+            Button option = (Button) letterOptions.getChildAt(index);
+            option.setSelected(index == selected);
+            s.imeStyler.styleButton(option, false);
+        }
+    }
+
+    /** 未进入选项的长按仍等下一次点选；进入过则在原手势内选中一次或关闭。 */
+    boolean finishLetterOptions(Button anchor, MotionEvent event) {
+        if (letterOptionsAnchor != anchor || letterOptions == null || !letterOptionsEntered) return false;
+        moveLetterOptions(anchor, event);
+        Button selected = letterOptionIndex < 0 ? null
+            : (Button) letterOptions.getChildAt(letterOptionIndex);
+        if (selected == null) dismissNineKeyHoldOptions();
+        else selected.performClick();
+        return true;
+    }
+
+    void cancelLetterOptions(Button anchor) {
+        if (letterOptionsAnchor == anchor) dismissNineKeyHoldOptions();
+    }
+
+    /** 直接滑出角标与选项中的符号共用 Engine 标点路由，保留组字转换、引号和成对补全。 */
+    void commitLetterHint(String input) {
+        dismissNineKeyHoldOptions();
+        String hint = LetterHintTable.hint(input);
+        if (hint == null) return;
+        boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
+            && s.punctuation(hint.charAt(0));
+        if (!engine) commitNineKeyLiteral(hint);
     }
 
     /** 123 符号页「！」键长按的上标、下标选项。 */
@@ -902,8 +964,10 @@ final class ImeLayoutRows {
         showChoiceOptions(anchor, choices, this::commitNineKeyHoldOption);
     }
 
-    private void showChoiceOptions(Button anchor, java.util.List<String> choices,
+    private LinearLayout showChoiceOptions(Button anchor, java.util.List<String> choices,
             java.util.function.Consumer<String> action) {
+        dismissNineKeyHoldOptions();
+        if (s.keyboardRoot == null) return null;
         s.imeKeyFeedback.playFeedback(anchor);
         LinearLayout options = LayoutPolicy.row(s);
         int padding = s.pixels(5);
@@ -936,11 +1000,20 @@ final class ImeLayoutRows {
         ViewPolicy.setElevation(popup, s.pixels(4));
         popup.setOnDismissListener(() -> {
             if (s.nineKeyHoldPopup == holder[0]) s.nineKeyHoldPopup = null;
+            if (letterOptions == options) clearLetterOptions();
         });
         s.nineKeyHoldPopup = popup;
         int xOffset = (anchor.getWidth() - options.getMeasuredWidth()) / 2;
         int yOffset = -anchor.getHeight() - options.getMeasuredHeight() - s.pixels(6);
         popup.showAsDropDown(anchor, xOffset, yOffset);
+        return options;
+    }
+
+    private void clearLetterOptions() {
+        letterOptionsAnchor = null;
+        letterOptions = null;
+        letterOptionIndex = -1;
+        letterOptionsEntered = false;
     }
 
     void commitNineKeyHoldOption(String text) {
@@ -951,6 +1024,7 @@ final class ImeLayoutRows {
     }
 
     void dismissNineKeyHoldOptions() {
+        clearLetterOptions();
         if (s.nineKeyHoldPopup != null) {
             s.nineKeyHoldPopup.dismiss();
             s.nineKeyHoldPopup = null;

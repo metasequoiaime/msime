@@ -189,7 +189,7 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入右上角的提示字符；长按到系统长按时长也输入它，长按不受这两项设置影响。两种手势触发后气泡改显示右上角的键面，没有触发时照常交给按钮自己的点击。
+     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入角标；中文状态反方向滑动或长按打开小写、大写、符号选项，继续移动可拖选。关闭开关停用两种滑动，长按不受影响；英文等其他状态的长按保留角标提示。没有触发时照常交给按钮自己的点击。
      *
      * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
      *
@@ -208,8 +208,10 @@ final class ImeLetterRows {
             if (s.dedicatedEnglish && "o".equalsIgnoreCase(input)) {
                 s.imeLayoutRows.showEnglishPinyinOption(key);
             } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
+                hideKeyPreview(key);
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
+                optionsShown[0] = false;
                 showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
@@ -218,6 +220,8 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     triggered[0] = false;
+                    optionsShown[0] = false;
+                    s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
                     if (hint != null) {
@@ -227,23 +231,26 @@ final class ImeLetterRows {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (hint != null && !triggered[0]
-                            && !s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                            && SwipeHintPolicy.swiped("up", 14f, downY[0],
-                                DimensionPolicy.fromPixels(s, event.getY()))) {
-                        triggered[0] = true;
-                        optionsShown[0] = true;
-                        key.removeCallbacks(hold);
-                        s.imeLayoutRows.showLetterOptions(key, input);
-                    } else if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
-                            && SwipeHintPolicy.swiped(
-                                s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
-                                DimensionPolicy.fromPixels(s, event.getY()))) {
-                        triggered[0] = true;
-                        key.removeCallbacks(hold);
-                        optionsShown[0] = false;
-                        if (keyPreview != null && keyPreviewOwner == key)
-                            keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                    if (optionsShown[0]) {
+                        s.imeLayoutRows.moveLetterOptions(key, event);
+                    } else if (hint != null && !triggered[0]
+                            && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)) {
+                        String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
+                        String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
+                        float currentY = DimensionPolicy.fromPixels(s, event.getY());
+                        if (SwipeHintPolicy.swiped(direction, downY[0], currentY)) {
+                            triggered[0] = true;
+                            key.removeCallbacks(hold);
+                            if (keyPreview != null && keyPreviewOwner == key)
+                                keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                        } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
+                            triggered[0] = true;
+                            optionsShown[0] = true;
+                            key.removeCallbacks(hold);
+                            hideKeyPreview(key);
+                            s.imeLayoutRows.showLetterOptions(key, input);
+                        }
                     }
                     return triggered[0];
                 }
@@ -256,19 +263,16 @@ final class ImeLetterRows {
                     key.onTouchEvent(cancel);
                     cancel.recycle();
                     key.setPressed(false);
+                    if (optionsShown[0] && s.imeLayoutRows.finishLetterOptions(key, event)) return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
-                    // Engine 不收时（会话还没起来）退回按字面上屏，和注音九键的逗号键、commitNineKeyPeriod 同一个写法。
-                    if (!optionsShown[0]) {
-                        boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
-                            && s.punctuation(hint.charAt(0));
-                        if (!engine) s.imeLayoutRows.commitNineKeyLiteral(hint);
-                    }
+                    if (!optionsShown[0]) s.imeLayoutRows.commitLetterHint(input);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
+                    s.imeLayoutRows.cancelLetterOptions(key);
                     return false;
                 }
                 default -> { return false; }

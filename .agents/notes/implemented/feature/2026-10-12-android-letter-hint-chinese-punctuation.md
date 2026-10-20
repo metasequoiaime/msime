@@ -9,12 +9,14 @@ Status: implemented
 ## Decision
 
 - 中文标点生效时（`MSIMEInputService.sendsChinesePunctuation()`，它已经排除了英文、日语、韩语、越南语、藏文和本地模式），j k l v b 的角标画 （ ） “ ？ ！，键面由 `LetterHintTable.face(letter, chinesePunctuation)` 给出，映射复用 123 层的 `ChineseSymbolFaces`，不另起一张中文角标表。其余 21 个角标（数字、`@ # % & * ~ - /`、¥、…、、）在任何状态下都不变。
-- 下滑或长按松手时，`ImeLetterRows.bindLetterGestures` 对 `LetterHintTable.routesThroughEngine(hint)` 为真的提示（单个 ASCII 字符、且 `ChineseSymbolFaces` 有中文形式，即 ( ) " ? !）调用 `MSIMEInputService.punctuation()`；Engine 不收时（会话还没起来）退回 `commitNineKeyLiteral`。写法与注音九键的逗号键、`commitNineKeyPeriod` 相同。`ChineseSymbolFaces` 的每一项都在 `crates/engine/src/punctuation.rs` 的 SIMPLE 表、引号交替或书名号嵌套之内，所以这个判定与 Engine 是否转写一致。
+- 下滑或长按松手时，`ImeLayoutRows.commitLetterHint` 对 `LetterHintTable.routesThroughEngine(hint)` 为真的提示（单个 ASCII 字符、且 `ChineseSymbolFaces` 有中文形式，即 ( ) " ? !）调用 `MSIMEInputService.punctuation()`；Engine 不收时（会话还没起来）退回 `commitNineKeyLiteral`。写法与注音九键的逗号键、`commitNineKeyPeriod` 相同。`ChineseSymbolFaces` 的每一项都在 `crates/engine/src/punctuation.rs` 的 SIMPLE 表、引号交替或书名号嵌套之内，所以这个判定与 Engine 是否转写一致。
 - `punctuation()` 在组字中先按高亮候选结束组字再接中文标点（input-runtime 的 `punctuation` 路由），智能标点、成对补全和跨过后半个、引号交替都在里面，角标因此得到与逗号键相同的行为。l 键键面画前引号 “，实际上屏交给 Engine 交替成 “ 或 ”。
 - 上屏走 `punctuation()` 而不是 `type()`：`type()` 末尾会 `letterCase.consumeLetter()`，按过一次性 Shift 后滑出标点会把 Shift 用掉；按字面上屏的其他角标从不消耗 Shift，两类角标保持一致。`type()` 多出来的微软双拼 `;` 判定和 `DeclinedKeyPolicy` 回退对 ( ) " ? ! 用不到。
 - 中文标点不生效时一字不改：键面和输出仍是 ASCII 提示，经 `commitNineKeyLiteral` 上屏（藏文下滑 m 仍是 `/`）。
 - 中文标点状态在手势触发时读，不在建键时记下。`render()` 里紧跟 `updateSymbolKeyFaces()` 调 `updateLetterCornerHints()`，遍历 `shuangpinKeyButtons`（只有 26 键字母层通用分支建的键，含分离式键盘右半边重复的 G、V；跳过微软双拼的 `;`）就地 `setCornerHint`。工具面板和 Ctrl + . 走 `toggleChinesePunctuation()`，那里本来就无条件 `rebuildKeyRows()`，新键建出来时按当时状态取键面，不靠这一步；就地更新要覆盖的是另外三种不重建字母层的情形：设置页改「中文标点」（`applyPreferences` 只调 `applyChinesePunctuation`）、切换中英文（`toggleInputLanguage` 布局不变时只就地改大小写）、以及会话起来前 view 为 null、到达后 `sendsChinesePunctuation()` 由假变真。为这三种情形扩展 `layerPunctuationStale` 去重建整排键代价过大，见下面被否掉的方案。
 - 只改 Android。iOS（`LetterHintTable.swift`、`KeyboardViewController` 的 `onCornerHint`）和 HarmonyOS（`LetterHintTable.ts`、`KeyboardView.ets` 的 `typeLetterHint`）的角标仍按字面上屏；三端的规范表本身不变，`hint()` 仍是同一张表，差别只在键面和路由。
+
+字母选项中的符号也经同一入口提交；选项滑动、方向设置及关闭规则见 [字母选项手势与设置](../bug-fix/2026-10-21-android-letter-option-gesture-settings.md)。
 
 ## 与其他宿主跟进时的注意点
 

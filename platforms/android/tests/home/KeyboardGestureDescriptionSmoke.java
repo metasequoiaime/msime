@@ -8,7 +8,8 @@ public final class KeyboardGestureDescriptionSmoke {
     public static void main(String[] args) throws Exception {
         Path source = repoRoot().resolve("platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java");
         String text = Files.readString(source, StandardCharsets.UTF_8);
-        check(text.contains("GroupCard.Row directionRow = gestures.nav(\"滑动方向\", \"选择在字母键上滑动输入角标符号的方向；关闭滑动输入符号后不生效\""),
+        check(text.contains("该方向直接输入角标，中文时反方向打开选项")
+                && text.contains("关闭滑动输入符号后两种滑动都不生效"),
             "滑动方向必须说明方向和总开关关系");
         check(text.contains("gestures.slider(\"九键滑动距离\",\n                \"手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动\""),
             "九键滑动距离必须说明阈值和误触影响");
