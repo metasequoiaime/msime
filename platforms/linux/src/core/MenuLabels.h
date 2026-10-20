@@ -22,7 +22,7 @@ inline constexpr const char *kChinesePunctuation = "中文标点（Ctrl+.）";
 inline constexpr const char *kTranslations = "显示译文";
 inline constexpr const char *kScheme = "输入方案";
 inline constexpr const char *kTheme = "主题";
-// macOS 的「悬浮工具栏」。Linux 不画悬浮窗，这个开关决定菜单里有没有「工具栏」子菜单（见 2026-10-09-linux-toolbar-settings-menu-copy.md），所以写成「显示工具栏」。
+// macOS 的「悬浮工具栏」。这个开关同时决定 X11 上的悬浮工具栏和菜单里的「工具栏」子菜单（画不出悬浮窗口的会话只有后者，见 2026-10-09-linux-toolbar-settings-menu-copy.md 与 2026-10-21-linux-x11-floating-panels.md），所以仍写成「显示工具栏」。
 inline constexpr const char *kToolbarEnabled = "显示工具栏";
 inline constexpr const char *kEmojiPanel = "水杉表情面板…";
 inline constexpr const char *kCloudClipboard = "云剪贴板…";

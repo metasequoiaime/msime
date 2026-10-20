@@ -134,6 +134,8 @@ def main():
             (root / "options.json").write_text(json.dumps(options))
 
         options["preferences"].update(learning=False, cloud_candidates=False)
+        # 悬浮工具栏在有 DISPLAY 时会画在屏幕右下角；这些用例只看候选和组字，不让它多出一块窗口。
+        options["preferences"]["floating_toolbar"]["enabled"] = False
         if "--wayland-punctuation" in sys.argv[4:]:
             options["preferences"]["usage_reporting"] = False
         publish()

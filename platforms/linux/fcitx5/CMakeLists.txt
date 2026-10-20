@@ -106,6 +106,11 @@ if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
   if(MSIME_BADGE_X11_SOURCES)
     target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_X11)
     target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_X11)
+    # 悬浮工具栏和双拼键位图与徽章用同一套 X11、cairo 和 pango：没有它们时只有状态区的「工具栏」子菜单，也不画键位图。
+    target_sources(msime-fcitx5 PRIVATE ../src/overlay/OverlayX11Window.cpp ../src/overlay/ShuangpinKeymapX11Surface.cpp
+        ../src/overlay/FloatingToolbar.cpp ../src/overlay/FloatingToolbarFactory.cpp
+        ../src/overlay/FloatingToolbarX11Surface.cpp)
+    target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_FLOATING_PANELS)
   endif()
 endif()
 set(MSIME_FCITX5_WAVE_SOURCES)

@@ -65,6 +65,13 @@
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
+#include "../src/overlay/FloatingPanelColors.h"
+#include "../src/overlay/FloatingToolbarModel.h"
+#include "../src/overlay/ShuangpinKeymapModel.h"
+#ifdef MSIME_LINUX_FLOATING_PANELS
+#include "../src/overlay/FloatingToolbar.h"
+#include "../src/overlay/ShuangpinKeymapX11Surface.h"
+#endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/core/SmartPunctuationChoice.h"
@@ -695,6 +702,7 @@ public:
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     if (native_canvas_) native_canvas_->hide();
 #endif
+    hideShuangpinKeymap();
     ic_.inputPanel().reset();
     ic_.updatePreedit();
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
@@ -733,6 +741,8 @@ public:
   // Called wherever the mode can change; the status area is asked to redraw only when the label actually does.
   void refreshModeIndicator() {
     if (ic_.hasFocus()) publishInputStatus(true);
+    // 模式可能变化的地方都会走到这里，悬浮工具栏跟着刷新（只有属主的状态会画出来）。
+    syncFloatingToolbar();
     auto label = modeIndicatorLabel();
     if (label == mode_indicator_label_) return;
     mode_indicator_label_ = std::move(label);
@@ -1151,6 +1161,11 @@ public:
   // `trigger` 区分真正的切换和获得焦点（#2589）：获得焦点时输入框要过一会儿才报光标矩形，光标徽章先等它（见 settleFocusInputModeHud），FocusSettled 是等完之后的那一次。
   enum class ModeHudTrigger { Switch, FocusEntered, FocusSettled };
   void showInputModeHud(ModeHudTrigger trigger = ModeHudTrigger::Switch);
+  // 悬浮工具栏和双拼键位图（定义在 FcitxEngine 之后，它们用 FcitxEngine 的成员）。syncFloatingToolbar 把开关、外观和这个上下文的状态交给整个插件共用的工具栏，focus_entered 时这个上下文接手成为属主；没有 X11 绘制的构建里都是空操作。
+  void syncFloatingToolbar(bool focus_entered = false);
+  msime::linux_host::FloatingToolbarState floatingToolbarState() const;
+  void renderShuangpinKeymap();
+  void hideShuangpinKeymap();
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 获得焦点后的光标徽章在等光标矩形：输入框报来新矩形（FcitxEngine 的 mode_hud_cursor_watch_）或等满 ModeBadgeTiming::focus_caret_wait_ms 时调用，只放一次。GTK、Qt 的输入法模块在获得焦点之后才在空闲回调里补报光标，新建的上下文这时的矩形还是全 0，立刻放会把徽章放到屏幕下方。
   void settleFocusInputModeHud() {
@@ -3851,6 +3866,26 @@ public:
   msime::linux_host::LanguageDictionaryAvailability scheme_dictionaries_;
   bool caps_lock_ = false;
   std::string mode_indicator_label_;
+  // 悬浮工具栏和键位图的颜色，连同算它们时的偏好、系统明暗和皮肤目录；输入没变就不重新解析主题（解析要经 host-api，按键时不做）。
+  struct ResolvedPanelColors {
+    Json preferences;
+    bool dark = false;
+    Json catalog;
+    bool resolved = false;
+    msime::linux_host::FloatingToolbarColors toolbar{};
+    msime::linux_host::ShuangpinKeymapColors keymap{};
+    // 输入变了就记下新的输入并回答 true，调用方随即重算。
+    bool stale(const Json &next_preferences, bool next_dark, const Json &next_catalog) {
+      if (resolved && dark == next_dark && preferences == next_preferences && catalog == next_catalog) return false;
+      preferences = next_preferences;
+      dark = next_dark;
+      catalog = next_catalog;
+      resolved = true;
+      return true;
+    }
+  };
+  ResolvedPanelColors floating_colors_;
+  ResolvedPanelColors keymap_colors_;
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
   // Set while the matching override's own status-bar save has not reached the store.
@@ -6290,6 +6325,100 @@ public:
         });
   }
 #endif
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  // fcitx::EventLoop 上的 OverlayLoop（见 OverlayLoop.h）。回调先把函数对象复制出来再调用：回调里换掉自己的令牌会连同事件源一起析构它原来的那份。
+  msime::linux_host::OverlayLoop overlayLoop() {
+    msime::linux_host::OverlayLoop loop;
+    auto *events = &instance_->eventLoop();
+    loop.watch = [events](int fd, std::function<void()> ready) -> msime::linux_host::OverlayLoop::Token {
+      return std::shared_ptr<fcitx::EventSourceIO>(events->addIOEvent(
+          fd, fcitx::IOEventFlag::In, [ready](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+            const auto callback = ready;
+            callback();
+            return true;
+          }));
+    };
+    loop.timer = [events](int milliseconds, std::function<void()> fire) -> msime::linux_host::OverlayLoop::Token {
+      return std::shared_ptr<fcitx::EventSourceTime>(events->addTimeEvent(
+          CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + static_cast<uint64_t>(std::max(0, milliseconds)) * 1000ULL, 0,
+          [fire](fcitx::EventSourceTime *, uint64_t) {
+            const auto callback = fire;
+            callback();
+            return true;
+          }));
+    };
+    return loop;
+  }
+  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在开关开着、有上下文接手时才建；建不出来（没有 X 服务器）时记下来不再重试，之后只有状态区的「工具栏」子菜单。
+  msime::linux_host::FloatingToolbar *floatingToolbar(bool create) {
+    if (!floating_toolbar_ && create && !floating_toolbar_unavailable_) {
+      msime::linux_host::FloatingToolbar::Options options;
+      options.icon_path = MSIME_MODE_BADGE_ICON;
+      options.display_name = MSIME_EDITION_DISPLAY_NAME;
+      if (auto file = msime::linux_host::floating_toolbar_position_path(
+              std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY))
+        options.position_file = *file;
+      const char *wayland = std::getenv("WAYLAND_DISPLAY");
+      options.hide_on_focus_out = wayland && *wayland;
+      auto loop = overlayLoop();
+      floating_toolbar_ = msime::linux_host::FloatingToolbar::create(
+          loop,
+          [this](msime::linux_host::FloatingToolbar::Owner owner, msime::linux_host::FloatingToolbarAction action,
+                 const std::string &argument) {
+            floatingToolbarAction(static_cast<fcitx::InputContext *>(const_cast<void *>(owner)), action, argument);
+          },
+          std::move(options), msime::linux_host::FloatingToolbar::default_surfaces(loop));
+      floating_toolbar_unavailable_ = !floating_toolbar_;
+    }
+    return floating_toolbar_.get();
+  }
+  // 工具栏上的按钮和菜单项就是状态区里的同一个动作，与「工具栏」子菜单一样不另写一份。属主在上下文销毁时已经放开（floating_toolbar_destroy_watch_），这里的指针总是活的。
+  void floatingToolbarAction(fcitx::InputContext *ic, msime::linux_host::FloatingToolbarAction action,
+                             const std::string &argument) {
+    using Action = msime::linux_host::FloatingToolbarAction;
+    fcitx::Action *target = nullptr;
+    switch (action) {
+    case Action::ToggleInputMode: target = &input_mode_action_; break;
+    case Action::SelectScheme:
+      for (const auto &[id, item] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
+               {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
+               {"wubi", &scheme_wubi_action_}, {"japanese", &scheme_japanese_action_},
+               {"korean", &scheme_korean_action_}, {"cantonese", &scheme_cantonese_action_},
+               {"zhuyin", &scheme_zhuyin_action_}, {"vietnamese", &scheme_vietnamese_action_},
+               {"tibetan", &scheme_tibetan_action_}, {"stroke", &scheme_stroke_action_}})
+        if (id == argument) target = item;
+      break;
+    case Action::TogglePunctuation: target = &chinese_punctuation_action_; break;
+    case Action::ToggleFullwidth: target = &width_action_; break;
+    case Action::ToggleCharacterSet: target = &traditional_action_; break;
+    case Action::OpenEmoji: target = &desktop_emoji_action_; break;
+    case Action::OpenHandwriting:
+      if (MSIME_EDITION_HANDWRITING != 0) target = &handwriting_action_;
+      break;
+    case Action::OpenScreenKeyboard: target = &keyboard_action_; break;
+    case Action::ToggleVoice: target = &voice_action_; break;
+    case Action::OpenSettings: target = &settings_action_; break;
+    case Action::Promotion: target = &promotion_action_; break;
+    case Action::Website: target = &website_action_; break;
+    case Action::Help: target = &help_action_; break;
+    case Action::About: target = &about_action_; break;
+    case Action::Feedback: target = &feedback_action_; break;
+    case Action::Hide: {
+      // 「隐藏悬浮状态栏」写共享偏好 floating_toolbar.enabled，与状态区取消「显示工具栏」同一条保存路径。
+      auto *state = ic->propertyFor(&factory_);
+      if (state->preferences_.value("floating_toolbar", Json::object()).value("enabled", true)) {
+        try { state->toggleFloatingToolbar(); } catch (...) {}
+      }
+      return;
+    }
+    }
+    if (target) target->activate(ic);
+  }
+  msime::linux_host::ShuangpinKeymapX11Surface &shuangpinKeymap() {
+    if (!shuangpin_keymap_) shuangpin_keymap_ = std::make_unique<msime::linux_host::ShuangpinKeymapX11Surface>();
+    return *shuangpin_keymap_;
+  }
+#endif
 #ifdef MSIME_FCITX5_HINT_FONT
   // classicui 的面板只在画水杉主题时才有装饰图；此时把「中」「英」补到主题自己预留的宽度，
   // 装饰就不会被 OverlayClipMargin 从两侧切掉。第三方主题、没有装饰、以及 kimpanel（不画
@@ -6676,6 +6805,12 @@ public:
           ic->propertyFor(&factory_)->settleFocusInputModeHud();
         });
 #endif
+#ifdef MSIME_LINUX_FLOATING_PANELS
+    floating_toolbar_destroy_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextDestroyed, fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
+          if (floating_toolbar_) floating_toolbar_->deactivate(static_cast<fcitx::InputContextEvent &>(event).inputContext());
+        });
+#endif
     capability_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCapabilityChanged,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
@@ -6933,11 +7068,20 @@ public:
     // 工具栏与语音两项要看会话，在建会话之后才定。
     state->refreshToolbar();
     state->syncVoiceAction();
+    // 悬浮工具栏的属主交给这个上下文（获得焦点或切换到本输入法），与 macOS 的 activateServer: 相同。
+    state->syncFloatingToolbar(true);
     state->publishInputStatus(true);
     noticeReplacedAddon(*state);
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+#ifdef MSIME_LINUX_FLOATING_PANELS
+    // 失焦照 macOS 留着悬浮工具栏；换到别的输入法才收起并放开属主（deactivateForInputSourceSwitch）。
+    if (floating_toolbar_) {
+      if (event.type() == fcitx::EventType::InputContextFocusOut) floating_toolbar_->focus_out(event.inputContext());
+      else floating_toolbar_->deactivate(event.inputContext());
+    }
+#endif
     // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
@@ -7027,6 +7171,10 @@ public:
   }
   void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+#ifdef MSIME_LINUX_FLOATING_PANELS
+    // 每一次按下都让空闲隐藏的工具栏回来并重新计时，与 macOS 的 wakeForInputDelegate: 相同。
+    if (floating_toolbar_ && !event.isRelease()) floating_toolbar_->note_input(event.inputContext());
+#endif
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try {
       if (state->ensure()) {
@@ -7136,6 +7284,12 @@ public:
   // Last appearance the addon-wide probe reported; see stepSystemTheme.
   bool system_dark_ = false;
   std::shared_future<Json> system_theme_job_;
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  // 声明在 factory_ 之前，所以比各输入上下文的 FcitxState 活得久：上下文在插件卸载时析构，那时它们可能还要收起键位图。
+  std::unique_ptr<msime::linux_host::FloatingToolbar> floating_toolbar_;
+  bool floating_toolbar_unavailable_ = false;
+  std::unique_ptr<msime::linux_host::ShuangpinKeymapX11Surface> shuangpin_keymap_;
+#endif
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
     return new FcitxState(ic, this, instance_->eventLoop(), system_dark_);
   }};
@@ -7146,6 +7300,10 @@ public:
   std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
   int mode_badge_fade_step_ = 0;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> mode_hud_cursor_watch_;
+#endif
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  // 工具栏的属主是输入上下文本身，上下文销毁时放开它。
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> floating_toolbar_destroy_watch_;
 #endif
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
@@ -7509,6 +7667,7 @@ void FcitxState::render() {
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   renderNativeCanvas();
 #endif
+  renderShuangpinKeymap();
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -7670,6 +7829,81 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
     instance->showCustomInputMethodInformation(&ic_, label);
 #endif
   }
+#endif
+}
+
+// 悬浮工具栏的状态，与状态区那几个动作显示的勾选一致：中英文、英文候选模式、大写锁定、方案、标点、全半角、简繁，以及方案菜单（只列本版本提供、这台机器上也能运行的方案，与 rebuildSchemeMenu 相同）。
+msime::linux_host::FloatingToolbarState FcitxState::floatingToolbarState() const {
+  msime::linux_host::FloatingToolbarState toolbar;
+  toolbar.input_enabled = input_enabled_;
+  toolbar.english_candidates = view_.is_object() && view_.value("dedicated_english", false);
+  toolbar.caps_lock = caps_lock_;
+  toolbar.scheme = effectiveScheme();
+  toolbar.scheme_title = schemeMenuTitle(toolbar.scheme);
+  toolbar.chinese_punctuation = chinese_punctuation_;
+  toolbar.fullwidth = fullwidthOutput();
+  toolbar.traditional = traditional_;
+  for (const char *scheme : msime::linux_host::kSchemeMenuOrder) {
+    const std::string_view id(scheme);
+    const bool offered = id == "cantonese" || id == "zhuyin" || id == "stroke" ? schemeAvailable(scheme)
+                                                                              : msime::linux_host::edition_offers_scheme(id);
+    if (offered) toolbar.schemes.push_back({scheme, schemeMenuTitle(id)});
+  }
+  return toolbar;
+}
+
+void FcitxState::syncFloatingToolbar([[maybe_unused]] bool focus_entered) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (!engine_ || !preferences_.is_object()) return;
+  // 能接手的只有正在用水杉、有焦点的上下文：activate 时（focus_entered）总能接手；之后只有有会话的上下文才算，换到别的输入法时 deactivate 先关掉会话再清面板，清面板走到这里不会把刚放开的工具栏又接回来。
+  const bool can_own = ic_.hasFocus() && (focus_entered || session_);
+  const auto config = msime::linux_host::floating_toolbar_config(preferences_, MSIME_EDITION_HANDWRITING != 0, voice_enabled_);
+  // 只在开关开着、这个上下文有焦点时才建：失焦的上下文刷新状态区时不为它连 X 服务器。
+  auto *toolbar = engine_->floatingToolbar(config.enabled && can_own);
+  if (!toolbar) return;
+  // 主题要经 host-api 解析，只在偏好、系统明暗或皮肤目录变了时重算，不在每次按键时解析。
+  if (floating_colors_.stale(preferences_, system_dark_, candidate_skin_document_))
+    floating_colors_.toolbar = msime::linux_host::floating_toolbar_colors(
+        fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_));
+  toolbar->configure(config, floating_colors_.toolbar);
+  if (can_own && (focus_entered || !toolbar->owner()))
+    toolbar->activate(&ic_, floatingToolbarState());
+  else
+    toolbar->update(&ic_, floatingToolbarState());
+#endif
+}
+
+// 双拼键位图，条件与 macOS 的 updateKeymapPanel 相同：有焦点、中文输入开着、偏好打开、双拼组字中（shuangpin_keymap_hint）。只给 X11 客户端画：只有它们报的光标矩形是根窗口坐标；Wayland 原生客户端的光标是它自己表面里的局部坐标，那里不画键位图。光标矩形不可用时不画。
+void FcitxState::renderShuangpinKeymap() {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  std::optional<msime::linux_host::ShuangpinKeymapHint> hint;
+  if (engine_ && session_ && ic_.hasFocus() && !restricted() && input_enabled_ && voice_preedit_.empty() &&
+      ic_.display().rfind("x11:", 0) == 0 && msime::linux_host::shuangpin_keymap_preference(preferences_))
+    hint = msime::linux_host::shuangpin_keymap_hint(view_);
+  if (!hint) {
+    hideShuangpinKeymap();
+    return;
+  }
+  if (keymap_colors_.stale(preferences_, system_dark_, candidate_skin_document_))
+    keymap_colors_.keymap = msime::linux_host::shuangpin_keymap_colors(
+        resolveCandidateTheme(preferences_, system_dark_, candidate_skin_document_));
+  const auto rect = ic_.cursorRect();
+  const auto candidates = view_.value("candidates", Json::array());
+  const bool preedit_row = preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin" &&
+                           !view_.value("preedit", std::string{}).empty();
+  const msime::linux_host::ShuangpinKeymapAnchor anchor{
+      rect.left(), rect.top(), rect.width(), rect.height(),
+      msime::linux_host::shuangpin_keymap_candidate_clearance(
+          msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences_)), 1.0,
+          preferences_.value("candidate_layout", std::string("vertical")) == "horizontal",
+          candidates.is_array() ? candidates.size() : 0, preedit_row)};
+  engine_->shuangpinKeymap().show(ic_.display().substr(4), *hint, keymap_colors_.keymap, anchor);
+#endif
+}
+
+void FcitxState::hideShuangpinKeymap() {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (engine_ && engine_->shuangpin_keymap_) engine_->shuangpin_keymap_->hide();
 #endif
 }
 

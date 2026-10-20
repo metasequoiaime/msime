@@ -732,6 +732,8 @@ def main():
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
+        # 悬浮工具栏会画在屏幕右下角；截图只看候选画布，不让它进到画面里。
+        preferences["floating_toolbar"]["enabled"] = False
         if TRANSLATION_BELOW:
             preferences.update(candidate_translations=False, candidate_english_gloss=False, candidate_font_size=20)
             options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)
