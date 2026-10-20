@@ -36,7 +36,7 @@ pub struct SkinView {
     pub layouts: Vec<String>,
     /// The colour modes the skin supports: dark, light.
     pub themes: Vec<String>,
-    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 原生候选窗通过各自图片解码器绘制贴图，尚无对应绘制能力的宿主（目前是 Linux）使用不透明的可读回退。
+    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 2in1 和 Linux X11 的对应原生入口通过各自图片解码器绘制贴图；Linux 原生窗口还要求焦点与 classicui 所有权，其他入口沿用各自静态或不透明的可读回退。声明可读不代表目标设备已完成绘制验收。
     pub canvas: bool,
     /// 不阻止加载的提示，例如非 canvas 基底上忽略的专用字段，或需要宿主绘制能力的 canvas 贴图；没有提示时是空列表。始终输出：输出 schema 把它列为必填，省略会让按 schema 校验结构化结果的客户端（如 Claude Code）拒绝整个列表。
     pub notices: Vec<String>,
@@ -58,7 +58,7 @@ pub struct SkinDecorationView {
     pub motion_period_ms: u16,
     /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。
     pub frames: u32,
-    /// 装饰图是不是多帧的 APNG（frames 大于 1）。能播帧动画的宿主（目前是 macOS）播放它，其他宿主只画第一帧。
+    /// 装饰图是否多帧（frames 大于 1）；这是资源元数据，实际帧播放与待机变换分别取决于宿主入口的能力，不能据此认定所有宿主都已播放动画。
     pub animated: bool,
     /// 装饰框内叠加候选词的声明；绘制覆盖面由各宿主决定，不能把列表中的声明当成设备验收结果。
     #[serde(skip_serializing_if = "Option::is_none")]
