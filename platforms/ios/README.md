@@ -42,6 +42,8 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 开启“候选栏使用主题配色”后，`base = "canvas"` 的候选皮肤在普通条与展开网格（含九键三栏）绘制九宫格、前后层挂件与 APNG/GIF/WebP 帧动画。共享 Rust 校验资源，后台解码，按键复用；面板成功解码才启用贴图配色，失败使用可读回退。普通条固定高度不变，大留白与装饰等比缩小以保留文字空间；隐藏、切后台和系统减少动态效果时停动画。App 外部皮肤选择器的三词预览复用同一画布，按实际候选明暗加载，替换同名资源后随页面刷新重载；通用六词预览卡仍使用安全配色。预览专项为 `MSIMEKeyboardTests/CandidateSkinPreviewTests`，键盘专项测试为 `MSIMEKeyboardTests/CandidateCanvasTests`；其中上游实图验收从测试模拟器 App Group 的 `MSIME/skins/{green_leaf,sakura-night}` 读取固定上游包，未暂存时明确跳过，并将 16 张真实控制器栅格图写到 `MSIME/canvas-acceptance/`，不把这些图片提交进仓库。
 
+传统装饰带及 `candidate_overlay_*` 同样由这份资源快照绘制，`candidate_overlay_index = 0` 跟随当前页实际高亮，其他序号从 1 开始；展开网格仍取普通当前页，云／AI 标注由 `candidate_overlay_strip_badge` 独立控制。图片、声明框、字号和偏移一起按候选条可用空间缩小，超宽文字实测缩字，达到最小字号后保留完整单行。坏图、越界与关闭皮肤清掉旧词，不增加键盘高度；尚未接入桌面装饰待机变换。
+
 同一页顶部「字号与字体」一节的两个字号直接写共享文档的 `candidate_font_size` 和 `candidate_preedit_font_size`（默认 18 和 15，与桌面候选窗同一对字段）。iOS 候选用 Dynamic Type 绘制，所以默认值就是原来的 `.body` 和 `.subheadline`，其他值按同一比例放大或缩小，系统文字大小仍在其上生效。手机候选栏宽度有限，候选字号限制在 12–24、编码字号 12–20；停靠的 iPad 键盘是 12–32 和 12–24，浮动的小键盘按手机处理。桌面同步来的更大字号会被夹到当前表面的上限，不改写文档。候选行和编码行随字号变高、键盘整体随之加高，字号变小时行高不低于默认值，触摸目标不缩小。这两个字段只影响键盘自己绘制，不交给会话；键盘每次出现重新读取共享文档后即生效，候选面板同样按这个字号绘制。
 
 同一节的「中文字体」和「英文字体」写 `candidate_font_family` 与 `candidate_english_font`，与桌面候选窗同一组字段；补充字体 `candidate_fallback_fonts` 没有编辑界面（各端设置页都不提供），由桌面的字体预设写入并随文档同步。键盘按桌面的顺序拼出字体链：英文字体在前，负责拉丁字母；其后是中文字体与后备字体，按 `UIFontDescriptor` 的 cascade list 补齐前者缺的字形；链里都没有的字形交给系统字体。链中只保留本机装有的字体：桌面同步来的 Microsoft YaHei、共享默认值 Noto Sans SC 在 iPhone 上都不存在，因此没人改过的文档照旧用系统字体（苹方）。字体按字号与 Dynamic Type 缩放，只用于候选文字，编码行与注释仍用系统字体。选择列表列出本机字体、每一项用自身字体绘制；文档里本机没有的名字保留在列表顶端并标明「未安装」，而不是悄悄换成别的。`candidate_font_controls` 与 `candidate_english_font` 两个宿主能力位因此对 iOS 打开。

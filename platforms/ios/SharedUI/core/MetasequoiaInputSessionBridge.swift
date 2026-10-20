@@ -395,6 +395,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
   let candidateFixedPositions: [Int]
+  /// 引擎当前页的高亮状态，跟随候选一起过滤与换页。
+  let candidateHighlighted: [Bool]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -433,7 +435,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
        candidateGlosses: [String] = [],
        candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
-       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateHighlighted: [Bool] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
@@ -451,6 +453,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidateAnnotations = candidateAnnotations
     self.candidateSources = candidateSources
     self.candidateFixedPositions = candidateFixedPositions
+    self.candidateHighlighted = candidateHighlighted
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
@@ -1954,6 +1957,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
+      candidateHighlighted: try rows.map { try strictBool($0["highlighted"], fallback: false) },
       candidatePageCount: pageCount,
       answeredByPinyinFallback: try strictBool(view["answered_by_pinyin_fallback"], fallback: false),
       diagnosticText: value["diagnostic"] as? String,
