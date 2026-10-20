@@ -2247,13 +2247,13 @@ int main(int argc, char **argv) {
       }
       ic.focusIn();
       engine.activate(entry, focus);
-      require(state->session_ != 0 && statusActions() == 24, "focus brings the session and the status actions back");
+      require(state->session_ != 0 && statusActions() == 32, "focus brings the session and the status actions back");
       fcitx::InputContextEvent switched(&ic, fcitx::EventType::InputContextSwitchInputMethod);
       engine.deactivate(entry, switched);
       require(state->session_ == 0 && statusActions() == 0,
               ("switching input methods removes the status actions: " + std::to_string(statusActions())).c_str());
       engine.activate(entry, focus);
-      require(state->session_ != 0 && statusActions() == 24, "switching back restores the status actions");
+      require(state->session_ != 0 && statusActions() == 32, "switching back restores the status actions");
     }
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
