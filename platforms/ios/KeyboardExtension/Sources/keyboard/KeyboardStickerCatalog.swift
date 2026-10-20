@@ -19,8 +19,8 @@ enum KeyboardStickerCatalog {
   /// 单张贴纸文件的上限；随包的都在 40KB 以内。
   static let maximumImageBytes = 512 * 1024
   /// 一格在手机竖屏上至少这么宽；更宽的键盘按它增加列数。
-  static let cellWidth: CGFloat = 88
-  static let minimumColumns = 4
+  static let cellWidth: CGFloat = 72
+  static let minimumColumns = 5
 
   /// 随键盘打包的表情包，读不到或清单无效时为空，面板也就不显示这个分类。
   static let bundled: [Sticker] = {

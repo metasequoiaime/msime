@@ -6,7 +6,7 @@ import UIKit
 ///
 /// Search swaps the category bar for a letter pad of the picker's own. A keyboard extension has no text field it can type into, and the Engine matches Emoji and kaomoji by pinyin and English keywords, both of which are letters, so the pad types the query and the grid above it shows the matches. While searching, the category bar's place holds two scopes, 表情 and 颜文字, like the separate Emoji and kaomoji results of the Windows panel's search; the search opens on 颜文字 from the kaomoji tab and on 表情 from any other.
 ///
-/// 宿主给了 `onSticker` 时，颜文字之后还有一个水杉娘表情包分类：正方形格子的图片网格，点一张交给宿主复制，不进最近使用，也不参与搜索。
+/// 宿主给了 `onSticker` 时，水杉娘表情包是第一个分类，打开面板默认就显示它：正方形格子的图片网格，点一张交给宿主复制，不进最近使用，也不参与搜索。
 ///
 /// 带标题栏时（默认）选择器盖住整个键盘：一行带返回、搜索和删除的标题，下面是分类栏和网格。不带标题栏时（`showsHeader: false`）选择器放在按键区里，即设计稿的表情面板：网格在上，底部是一条 ABC | 分类签 | ⌫ 的栏，搜索是第一个分类签。
 final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
@@ -18,7 +18,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     case recent
     case recentKaomoji
     case category(KeyboardEmojiCatalog.Category)
-    /// 水杉娘表情包，排在最后。
+    /// 水杉娘表情包，排在最前。
     case stickers
 
     var title: String {
@@ -117,11 +117,11 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       try KeyboardEmojiCatalog.loadPage(
         resources: resources, category: category, offset: offset)
     }
-    availableTabs = (KeyboardEmojiRecents.stored.isEmpty ? [] : [.recent])
+    availableTabs = (onSticker == nil || stickers.isEmpty ? [] : [.stickers])
+      + (KeyboardEmojiRecents.stored.isEmpty ? [] : [.recent])
       + KeyboardEmojiCatalog.categories.map(Tab.category)
       + (KeyboardKaomojiRecents.stored.isEmpty ? [] : [.recentKaomoji])
       + [.category(KeyboardEmojiCatalog.kaomoji)]
-      + (onSticker == nil || stickers.isEmpty ? [] : [.stickers])
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardEmojiPicker"
     // 在按键区里透出键盘自己的背景，和被面板替换掉的按键底下一样。

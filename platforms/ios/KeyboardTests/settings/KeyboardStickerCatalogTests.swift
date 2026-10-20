@@ -38,10 +38,10 @@ final class KeyboardStickerCatalogTests: XCTestCase {
     XCTAssertThrowsError(try KeyboardStickerCatalog.parse(manifest: Data("[]".utf8), directory: directory))
   }
 
-  func testColumnsKeepFourOnAPhoneAndGrowOnWiderKeyboards() {
-    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 320), 4)
-    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 390), 4)
-    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 844), 9)
+  func testColumnsKeepFiveOnAPhoneAndGrowOnWiderKeyboards() {
+    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 320), 5)
+    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 390), 5)
+    XCTAssertEqual(KeyboardStickerCatalog.columns(width: 844), 11)
   }
 
   func testStickerDecodesToThumbnailAndTransparentPNG() throws {
@@ -58,7 +58,7 @@ final class KeyboardStickerCatalogTests: XCTestCase {
     XCTAssertEqual(KeyboardStickerCatalog.copiedMessage(sticker), "已复制水杉娘「开心」，长按输入框粘贴发送")
   }
 
-  func testPickerShowsStickersLastAndHandsATappedOneToTheHost() throws {
+  func testPickerOpensOnStickersFirstAndHandsATappedOneToTheHost() throws {
     let stickers = try KeyboardStickerCatalog.load(directory: Self.packaged)
     var copied: KeyboardStickerCatalog.Sticker?
     let picker = KeyboardEmojiPickerView(
@@ -75,11 +75,10 @@ final class KeyboardStickerCatalogTests: XCTestCase {
 
     let chips = descendants(picker).compactMap { $0 as? UIButton }
       .filter { $0.accessibilityIdentifier?.hasPrefix("emojiCategory-") == true }
-    let last = try XCTUnwrap(chips.first { $0.accessibilityLabel == "水杉娘表情包" })
-    XCTAssertEqual(last.accessibilityIdentifier, "emojiCategory-\(chips.count - 1)", "the sticker tab comes last")
-    XCTAssertNotNil(last.configuration?.image, "the chip shows the first sticker")
-    last.sendActions(for: .primaryActionTriggered)
-    picker.layoutIfNeeded()
+    let chip = try XCTUnwrap(chips.first { $0.accessibilityLabel == "水杉娘表情包" })
+    XCTAssertEqual(chip.accessibilityIdentifier, "emojiCategory-0", "the sticker tab comes first")
+    XCTAssertNotNil(chip.configuration?.image, "the chip shows the first sticker")
+    XCTAssertTrue(chip.accessibilityTraits.contains(.selected), "the panel opens on the stickers")
 
     let grid = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiGrid" } as? UICollectionView)
     XCTAssertEqual(grid.numberOfItems(inSection: 0), 66)
