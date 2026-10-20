@@ -84,6 +84,20 @@ Status: implemented
 | 「Build macOS package」合计 | 76m25 | 58m06 | 37m45 |
 | release job 合计 | 78m14 | 60m04 | 39m42 |
 
+rebase 到 develop `eb5bd41b55` 后又在同一源码上比了一次：旧脚本是维护者发的 0.54.1-beta（run `39345442127`），新脚本是本分支第三次验证运行（run `39354321497`）。这次的缓存来自上面 `7c3c919f75` 的运行，中间改过的工作区 crate 不命中，最接近真实发版：
+
+| 阶段 | 旧脚本 0.54.1-beta | 新脚本 |
+| --- | --- | --- |
+| 资源准备 | 1m23 | 1m19 |
+| host 库 + msime-mcp | 11m00 + 12m45 | 8m36 |
+| CMake 构建 | 16m30 | 3m18 |
+| 设置应用 | 17m13 | 12m14 |
+| 六个版本打包、公证、装订、检查 | 23m26 | 17m01 |
+| 「Build macOS package」合计 | 83m04 | 43m00 |
+| release job 合计 | 87m01 | 44m41 |
+
+sccache 这次 1295 次命中、27 次未命中（Rust 25 次，C/C++ 2 次），命中率 97.95%；六个 DMG 的 `Contents/Resources` 与 beta 逐个相同，`Verify release assets` 通过。
+
 - **收益**：CMake 一步省约 9 分钟，host 库与 msime-mcp 合并在冷缓存下也省约 4.5 分钟，并行公证让六个版本的打包少约 6 分钟（以前每个版本约 1 分钟的公证等待现在与下一个版本的打包重叠，最后一个版本提交后只等了不到一分钟）。sccache 热缓存再省约 20 分钟：第二次运行 1322 次命中、0 次未命中。真实发版改动过的工作区 crate 不命中，Rust 部分会落在冷、热两列之间。装订失败不再让同一次运行里已经公证过的其他版本作废：第二次运行里拼音版第一次装订就遇到 `NSURLErrorDomain Code=-1005`，15 秒后重试成功，其余版本照常。
 - **产物**：两次验证运行和 nightly 都产出同样的六个 DMG、同样的 artifact 文件清单，`Verify release assets` 通过，各版本 `Contents/Resources` 大小一致。把 nightly 与第一次验证运行的 full 版 DMG 挂载比对：1580 个文件名、符号链接全部相同；除 Mach-O 和 `CodeResources` 外 1563 个文件内容逐字节相同；去掉代码签名后，msime-mcp、MSIMEBackend.dylib、msime-voice-local、sherpa-onnx 和 Sparkle 的各个可执行文件逐字节相同。msime-desktop 只差 LC_UUID 和调试映射里目标文件的修改时间，这是两次构建之间本来就有的差异。输入法可执行文件小 544 字节：链接进来的 host 库换了 feature 集合，依赖 crate 的哈希随之改变，mangled 符号名里的哈希段不同，`__text` 相差约 3 KB（arm64，约 0.016%）；导入的符号完全相同。
 - **代价**：host 库的静态库比以前多带几项未使用的依赖 API（链接时剥掉）。DMG 体积报告从「每个版本打完立即输出」变成全部装订之后集中输出。sccache 一个 ref 范围约 1321 个条目、1.2 GB，占仓库 GitHub Actions 缓存额度（10 GB，验证后约 3.8 GB 已用），由 GitHub 按 7 天未访问和 LRU 淘汰；冷缓存时写入条目让 Rust 编译反而慢一点（设置应用 18m18 对 17m08）。
@@ -95,4 +109,4 @@ Status: implemented
 - `python3 scripts/test-macos-notarization-flow.py`：用合成的 `xcrun` 跑 `notary_submit` 与 `notary_result`，覆盖处理中提前返回、Invalid、Rejected、取不到状态，以及密码不进输出；还核对脚本不再 `--wait`、装订经过 `staple-ticket.sh`。
 - `python3 scripts/test-macos-stapler-retry.py`：装订与 `--validate` 两种模式的断线重试、重试用完的退出码（装订 68，核对 75）。
 - 在 Mac Studio 上 `cmake --build target/macos-isolated --target MSIMEClientInputMethod backend-library-load-test` 后跑 `bundle-contents` 与 `backend-library-load`，再构建其余全部目标，输入法 bundle 的 184 个条目（文件哈希和符号链接）前后完全相同。
-- 两次 `gh workflow run release-macos.yml -f publish=false`（runs `39288415598`、`39337923532`）成功；`publish` 为假时发布、appcast 和 Homebrew 三步都跳过。
+- 三次 `gh workflow run release-macos.yml -f publish=false`（runs `39288415598`、`39337923532`、`39354321497`）成功；`publish` 为假时发布、上传 dSYM、appcast 和 Homebrew 几步都跳过，没有建出任何 tag 或 release。
