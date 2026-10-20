@@ -82,6 +82,8 @@ done
 python3 scripts/fetch_handwriting_model.py --out "$vendor/handwriting-model" >/dev/null
 python3 scripts/fetch_offline_glosses.py --out "$vendor/offline-glosses" >/dev/null
 python3 scripts/fetch_language_dictionaries.py --out "$vendor/language-dictionaries" >/dev/null
+# 背单词的内置词书只放生成好的八本和许可声明（约 3.3 MB）：66 MB 的 ECDICT 源 CSV 缓存在 vendor 包外，构建农场不重新生成，词书的完整性由 vendor 包自己的 SHA-256 保证。
+python3 scripts/fetch_wordbooks.py --out "$vendor/wordbooks" --cache "$stage/wordbook-source" >/dev/null
 opencc_dir=$(python3 scripts/fetch_opencc.py)
 cp -a "$opencc_dir/." "$vendor/opencc/"
 

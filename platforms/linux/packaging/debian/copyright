@@ -68,6 +68,14 @@ Comment:
  Built from the kaikki.org extraction of the English Wiktionary; see
  offline-glosses-NOTICE.txt.
 
+Files: vendor/wordbooks/*
+Copyright: 2025 Linwei
+License: MIT
+Comment:
+ The 背单词 wordbooks are built from ECDICT
+ (https://github.com/skywind3000/ECDICT) by scripts/fetch_wordbooks.py; see
+ wordbooks-NOTICE.txt.
+
 Files: vendor/language-dictionaries/*
 Copyright: The rime-cantonese, libchewing-data and rime-stroke authors
 License: CC-BY-4.0 and LGPL-2.1+ and LGPL-3

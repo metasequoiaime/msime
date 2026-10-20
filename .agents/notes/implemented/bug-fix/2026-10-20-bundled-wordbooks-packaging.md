@@ -24,8 +24,11 @@ Status: implemented
 | --- | --- | --- | --- |
 | macOS | 设置应用 `MSIME.app`，按 `resource_dir()` | `MSIME.app/Contents/Resources/wordbooks` | `stage-resources.sh` 暂存到 `target/macos/wordbooks`，`package-release.sh` 拷进包并在 `check_app` 里核对；`release-macos.yml`、`ci-macos-package.yml` 生成词书 |
 | Windows | `msime-client-settings.exe` 和 `MSIME.exe`，都以所在的 Server 目录为资源根 | 安装目录 `server\wordbooks` | `Prepare-PackageFiles.ps1` 装进 `server_exe\wordbooks`；`release-windows.yml` 生成词书 |
+| Linux | 设置窗口 `msime-desktop`，取 HostOptions 里 `resources` 的上一级（`apps/desktop/src-tauri/src/lib.rs` 的 `vocabulary_resources`），每次命令时现读 | `share/<client>/wordbooks`，与 `resources`、`offline-glosses` 同级 | CMake 的 `MSIME_WORDBOOKS`（缺省从 `target/wordbooks` 取）和 `MSIME_REQUIRE_WORDBOOKS`；`package-container.sh` 和 `release-linux.yml` 打发布页的 deb、rpm；发行版定义见下 |
 
-Linux、Android、iOS 的宿主当前传进来的资源根不对（Linux 的 `resource_dir()` 指向不会被安装的 `lib/MSIME`，Android 的是 `asset://localhost/`，iOS 传的是 `EngineResources` 本身），鸿蒙的发版工作流不生成词书；这四个平台随后续改动接入，接入时更新这张表。
+Linux 的设置窗口原来按 `resource_dir()` 找，那是 `<prefix>/lib/<productName>`，安装时从不创建，所以即使装了词书也读不到。发行版的几条路径各自取词书：COPR、OBS 和 PPA 用的 vendor 包由 `make-source-tarballs.sh` 放进生成好的八本词书和 NOTICE（源 CSV 缓存在包外，词书的完整性由 vendor 包的 SHA-256 保证，构建农场不联网也不重新生成），`debian/rules` 和 `rpm/msime.spec` 直接用它；Arch 的 `msime` 和 Gentoo 在构建时按锁文件下载 ECDICT 并生成，Gentoo 的 ECDICT CSV 和 LICENSE 由 `render.py` 写成 distfile，放在 `fetch_wordbooks.py` 的缺省缓存目录 `wordbook-source` 里，离线核对后生成。legacy 包不带设置窗口，不装词书。
+
+Android、iOS 的宿主当前传进来的资源根不对（Android 的 `resource_dir()` 是 `asset://localhost/`，iOS 传的是 `EngineResources` 本身），鸿蒙的发版工作流不生成词书；这三个平台随后续改动接入，接入时更新这张表。
 
 ## Alternatives considered
 
@@ -36,6 +39,8 @@ Linux、Android、iOS 的宿主当前传进来的资源根不对（Linux 的 `re
 ## Consequences
 
 - 每个桌面安装包增加约 3.3 MB（八本词书合计）。
+- 从源码构建的 Arch `msime` 和 Gentoo 每次构建多下载一次 ECDICT CSV（约 66 MB），Gentoo 作为 distfile 只下载一次；COPR、OBS 和 PPA 的 vendor 包增加约 3.3 MB。
 - macOS 和 Windows 的发版、macOS 的 develop 打包检查每次多下载一次 ECDICT CSV（约 66 MB，按锁核对哈希）并生成词书。
 - 本地用 `package-release.sh` 打包时不设 `MSIME_REQUIRE_WORDBOOKS`，没先跑 `python3 scripts/fetch_wordbooks.py` 的话包里照旧没有内置词书，背单词只列导入的词表。
+- Linux 的验证：把 CMake 那段放进临时工程，确认有词书时装到 `share/msime-client/wordbooks`、要求模式下缺一本或缺 NOTICE 时配置失败、不要求且没有词书时照常配置；`resources_parent` 的单测和 `msime-desktop` 的 vocabulary 测试、`clippy -D warnings` 在 macOS 上通过，Linux 分支的编译由 CI 的 `linux-desktop` 任务跑；Gentoo `render.py --no-crates` 渲染出 ECDICT 的两个 distfile。发布页 deb、rpm 的完整打包和各发行版构建没有在本机跑过。
 - 验证：本机跑 `fetch_wordbooks.py` 产出八本词书和 NOTICE；`stage-resources.sh` 把它们暂存到 `target/macos/wordbooks`；`cargo test -p msime-client-services --lib vocabulary` 104 个用例通过；`scripts/test-macos-package-resources.py` 和 `scripts/run-checks.sh` 通过。macOS 的完整 universal 打包和 Windows 的安装包测试（`package-files.ps1`，需要 PowerShell）由 CI 运行，没有在本机跑过。

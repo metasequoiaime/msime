@@ -85,6 +85,9 @@ jobs:
       # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，package-container.sh 装进 share/<client>/wordbooks；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS. 每个有 Linux 段的版本各出一个包（full 是 msime-linux，其他版本是装在 /opt 下的 msime-linux-<id>），共用同一次构建的宿主库和桌面二进制。
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份），package-container.sh 把它装进 share/<client>/plugin-packs；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的包打不出来。
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -92,7 +95,7 @@ jobs:
           name: official-plugin-packs-linux
           path: target/plugin-packs
       - name: Build Linux packages
-        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'}
+        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_REQUIRE_OFFICIAL_PLUGINS: '1', MSIME_REQUIRE_WORDBOOKS: '1'}
         run: bash platforms/linux/package-container.sh "$VERSION"
       # Asset names come from CPack (<package>_VERSION_ARCH.deb with dpkg's amd64/arm64, <package>-VERSION-linux-ARCH.tar.gz with x86_64/aarch64, <package> 取自版本表：full 是 msime-linux，其他版本是 msime-linux-<id>). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the edition's own .deb (else .tar.gz) for the host's architecture, picked by the package name and that architecture part (packages/ui/src/settings/update-manifest.ts).
       - name: Verify Linux packages
@@ -172,13 +175,16 @@ jobs:
       # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，package-container.sh 装进 share/<client>/wordbooks；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份），package-container.sh 把它装进 share/<client>/plugin-packs；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的包打不出来。
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: official-plugin-packs-linux
           path: target/plugin-packs
       - name: Build Linux RPM
-        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm, MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'}
+        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm, MSIME_REQUIRE_OFFICIAL_PLUGINS: '1', MSIME_REQUIRE_WORDBOOKS: '1'}
         run: bash platforms/linux/package-container.sh "$VERSION"
       # Installs the RPMs into a clean Fedora container and erases them again, which is where an unsatisfiable Requires shows up; every edition's RPM goes in together, and removing one must leave the others' files in place.
       - name: Verify Linux RPM

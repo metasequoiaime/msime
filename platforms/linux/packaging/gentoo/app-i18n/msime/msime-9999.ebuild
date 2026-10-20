@@ -104,6 +104,8 @@ src_unpack() {
 	"${EPYTHON}" scripts/fetch_handwriting_model.py --out "${WORKDIR}/handwriting-model" || die
 	"${EPYTHON}" scripts/fetch_offline_glosses.py --out "${WORKDIR}/offline-glosses" || die
 	"${EPYTHON}" scripts/fetch_language_dictionaries.py --out "${WORKDIR}/language-dictionaries" || die
+	# 背单词的内置词书：ECDICT 的 CSV 和 LICENSE 在 ${WORKDIR}/wordbook-source（脚本的缺省缓存），核对 SHA-256 后生成八本词书和许可声明。
+	"${EPYTHON}" scripts/fetch_wordbooks.py --out "${WORKDIR}/wordbooks" || die
 }
 
 src_prepare() {
@@ -151,6 +153,8 @@ src_compile() {
 		-DMSIME_OFFLINE_GLOSSES="${WORKDIR}/offline-glosses"
 		-DMSIME_LANGUAGE_DICTIONARIES="${WORKDIR}/language-dictionaries"
 		-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+		-DMSIME_WORDBOOKS="${WORKDIR}/wordbooks"
+		-DMSIME_REQUIRE_WORDBOOKS=ON
 	)
 	cmake_src_configure
 	cmake_src_compile

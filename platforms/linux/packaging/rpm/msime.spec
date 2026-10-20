@@ -167,7 +167,9 @@ cmake -S platforms/linux -B build/cmake \
   -DMSIME_HANDWRITING_MODEL_DIR="$PWD/vendor/handwriting-model" \
   -DMSIME_OFFLINE_GLOSSES="$PWD/vendor/offline-glosses" \
   -DMSIME_LANGUAGE_DICTIONARIES="$PWD/vendor/language-dictionaries" \
-  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON \
+  -DMSIME_WORDBOOKS="$PWD/vendor/wordbooks" \
+  -DMSIME_REQUIRE_WORDBOOKS=ON
 cmake --build build/cmake %{?_smp_mflags}
 
 %install
