@@ -3476,8 +3476,8 @@ int main(int argc, char **argv) {
         fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
     engine.keyEvent(entry, voiceHotkey);
     require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
-    require(state->wave_overlay_.actions_visible && state->wave_overlay_.listening,
-            "voice start arms the native wave overlay actions");
+    require(!state->wave_overlay_.actions_visible() && state->wave_overlay_.listening,
+            "voice start shows the bare wave; the round actions wait for a Space lock or recognition");
     bool observedVoicePartial = false;
     bool observedVoicePreedit = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -3575,18 +3575,28 @@ int main(int argc, char **argv) {
       state->wave_overlay_failed_ = false;
       state->wave_overlay_visible_ = false;
       state->voice_loading_ = true;
-      state->voice_phase_ = "录音中";
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
+      state->wave_overlay_.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
       const auto voiceAux = [&] { return ic.inputPanel().auxUp().toString(); };
       state->updateVoiceOverlay();
       require(shows == 1 && state->wave_overlay_failed_ && !state->wave_overlay_visible_,
               "a surface that cannot show is marked failed");
-      require(voiceAux().rfind("语音：录音中", 0) == 0, "a failed surface falls back to the auxiliary text");
+      require(voiceAux().rfind("正在录音…  麦克风 [", 0) == 0,
+              "a failed surface falls back to the auxiliary text the IBus host shows");
       state->voice_transcript_ = "你好";
       state->updateVoiceOverlay();
-      require(shows == 1 && voiceAux() == "语音：录音中：你好",
+      require(shows == 1 && voiceAux() == msime::linux_host::wave_overlay_feedback_text(state->wave_overlay_) &&
+                  voiceAux().find("\n你好") != std::string::npos,
               "later updates stay on the auxiliary text without retrying the surface");
+      state->voice_space_locked_ = true;
+      state->updateVoiceOverlay();
+      require(voiceAux().rfind(msime::linux_host::kVoiceStatusLockedHint, 0) == 0,
+              "a Space-locked recording says so in the auxiliary text");
+      state->voice_space_locked_ = false;
+      state->updateVoiceOverlay();
+      const auto statusBeforeRedraw = voiceAux();
       state->render();
-      require(voiceAux() == "语音：录音中：你好", "a panel redraw keeps the voice status");
+      require(voiceAux() == statusBeforeRedraw, "a panel redraw keeps the voice status");
       state->voice_loading_ = false;
       state->voice_transcript_.clear();
       state->wave_overlay_failed_ = false;
@@ -3611,9 +3621,16 @@ int main(int argc, char **argv) {
       state->refreshVoice();
       require(!state->voice_job_.valid() && !state->voice_loading_, "a failed voice result is reclaimed");
       require(ic.committed == committedBeforeFailure, "a failed voice result commits nothing");
-      require(ic.inputPanel().auxUp().toString() == "语音：" + notice,
+      require(ic.inputPanel().auxUp().toString() == notice,
               "a provider failure shows its fixed notice");
-      state->voice_failure_visible_ = false;
+      require(state->wave_overlay_.failure && !state->wave_overlay_.actions_visible(),
+              "a failure notice shows its message alone, without actions");
+      // Esc takes the notice down before its six seconds are up.
+      fcitx::KeyEvent dismiss(&ic, fcitx::Key(FcitxKey_Escape));
+      engine.keyEvent(entry, dismiss);
+      require(!state->voice_failure_visible_ && !state->wave_overlay_.failure &&
+                  ic.inputPanel().auxUp().toString() != notice,
+              "Esc dismisses a voice failure notice");
       state->hideVoiceOverlay();
       ic.inputPanel().setAuxUp(fcitx::Text());
     }

@@ -2,28 +2,37 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
 
 #include "../candidates/CandidatePalette.h"
+#include "WaveOverlayLayout.h"
 
 namespace msime::linux_host {
 
 struct WaveOverlayModel {
   enum class Action { Cancel, Confirm };
   enum class CompactStatus { None, Recognizing, Processing };
-  static constexpr std::size_t kLevelCount = 12;
+  static constexpr std::size_t kLevelCount = kWaveOverlayBarCount;
+  // The bars as drawn; advance() moves them toward input_level one frame at a time.
   std::array<float, kLevelCount> levels{};
+  // The latest microphone level, 0...1.
+  float input_level = 0.0f;
   bool listening = false;
   bool show_transcript = true;
-  bool actions_visible = false;
+  // A failure notice: `status` holds its fixed message, drawn alone in a pill widened to fit it.
+  bool failure = false;
   bool light_theme = false;
   // The resolved theme's colours for the surfaces MSIME draws itself (X11, Wayland); unset keeps their built-in light or dark colours. The IBus fallback shows only text and ignores it.
   std::optional<FloatingSurfaceColors> palette;
   std::string transcript;
+  // Older text was dropped to keep the transcript within kWaveOverlayTranscriptWindow, so every preview of it starts with "…".
+  bool transcript_truncated = false;
   std::string status;
+  // Space locked a hold-to-record recording: it goes on after the shortcut is released.
   bool locked = false;
 
   void reset() {
@@ -74,7 +83,7 @@ struct WaveOverlayModel {
       offset += width;
     }
 
-    constexpr std::size_t kVisibleCharacters = 160;
+    constexpr std::size_t kVisibleCharacters = kWaveOverlayTranscriptWindow;
     std::size_t count = 0;
     for (std::size_t offset = 0; offset < valid.size();) {
       ++count;
@@ -91,17 +100,60 @@ struct WaveOverlayModel {
           first < 0x80 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
     }
     transcript = valid.substr(first_visible);
+    transcript_truncated = first_visible > 0;
   }
   Action pressed_action = Action::Confirm;
   CompactStatus compact_status = CompactStatus::None;
 
+  // The level the wave moves toward; the bars themselves change only in advance().
   void set_input_level(float value) {
-    value = std::clamp(value, 0.0f, 1.0f);
-    for (std::size_t i = 0; i < kLevelCount; ++i) {
-      const float center = 1.0f - static_cast<float>(i) / kLevelCount;
-      levels[i] = std::clamp(value * (0.55f + center * 0.45f), 0.0f, 1.0f);
-    }
+    input_level = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
   }
+  // One animation frame at monotonic time `seconds`.
+  void advance(double seconds) {
+    wave_overlay_advance_levels(levels, input_level, listening, seconds);
+  }
+
+  // Recognition or polishing is pending after the recording ended.
+  bool processing() const { return compact_status != CompactStatus::None; }
+  // The macOS rule: the round cancel and confirm actions appear while a locked recording is listening or while recognition or polishing is pending, never during a plain hold and never on a failure.
+  bool actions_visible() const {
+    return !failure && (processing() || (locked && listening));
+  }
+  // A status label replaces the wave while recognition or polishing is pending and on a failure; a recording shows the bare wave.
+  bool label_visible() const { return failure || processing(); }
+  std::string label() const {
+    if (failure) return status;
+    return compact_status == CompactStatus::Processing ? kVoiceStatusProcessing
+                                                       : kVoiceStatusRecognizing;
+  }
+  bool has_transcript() const { return show_transcript && !failure && !transcript.empty(); }
+  WaveOverlayLayout layout() const {
+    return wave_overlay_layout(actions_visible(), label_visible(), has_transcript());
+  }
+  // The wave animates whenever it is drawn, that is whenever no label stands in its place.
+  bool animates() const { return !label_visible(); }
 };
+
+// Which action, if any, the logical point (x, y) of a `width` x `height` overlay lands on; only the two round actions take the pointer.
+inline bool wave_overlay_hit_action(const WaveOverlayModel &model, double x, double y, double width,
+                                    double height, WaveOverlayModel::Action &action) {
+  if (!model.actions_visible()) return false;
+  const double center_y = wave_overlay_action_center_y(height);
+  const auto inside = [x, y, center_y](double center_x) {
+    const double dx = x - center_x;
+    const double dy = y - center_y;
+    return dx * dx + dy * dy <= kWaveOverlayActionRadius * kWaveOverlayActionRadius;
+  };
+  if (inside(wave_overlay_cancel_center_x())) {
+    action = WaveOverlayModel::Action::Cancel;
+    return true;
+  }
+  if (inside(wave_overlay_confirm_center_x(width))) {
+    action = WaveOverlayModel::Action::Confirm;
+    return true;
+  }
+  return false;
+}
 
 }  // namespace msime::linux_host

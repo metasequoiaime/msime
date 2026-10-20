@@ -619,9 +619,15 @@ for marker in (
     "updateVoiceOverlay",
     "hideVoiceOverlay",
     "wave_overlay_.set_input_level",
-    "wave_overlay_.actions_visible = true",
+    "syncVoiceOverlaySources",
+    "wave_overlay_dismissed_",
+    "dismissVoiceFailure",
+    "msime::linux_host::wave_overlay_feedback_text(wave_overlay_)",
+    "msime::linux_host::kWaveOverlayFailureMilliseconds",
 ):
     assert marker in source, marker
+# The overlay decides when the round actions show (a Space-locked recording or pending recognition, as on macOS); the host no longer arms them at the start of every recording.
+assert "actions_visible = true" not in source
 assert "WaveOverlayX11Surface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 

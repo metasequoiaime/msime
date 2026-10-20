@@ -16,14 +16,15 @@ int main() {
   assert(bounded_work_areas.size() == 2);
   assert(bounded_work_areas.capacity() >= 8);
 
+  // The default gap is the macOS and Windows 10 px above the bottom of the work area.
   const auto primary = wave_overlay_bottom_center({0, 0, 1920, 1080}, 420, 132);
   assert(primary.x == 750);
-  assert(primary.y == 924);
+  assert(primary.y == 938);
 
   const auto negative =
       wave_overlay_bottom_center({-1920, 40, 1920, 1040}, 420, 132);
   assert(negative.x == -1170);
-  assert(negative.y == 924);
+  assert(negative.y == 938);
 
   const auto narrow =
       wave_overlay_bottom_center({100, 200, 300, 100}, 420, 132);

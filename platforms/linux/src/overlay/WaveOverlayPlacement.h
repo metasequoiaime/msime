@@ -27,7 +27,8 @@ struct WaveOverlayMonitor {
   WaveOverlayWorkArea work;
 };
 
-constexpr int kWaveOverlayBottomMargin = 24;
+// The gap above the bottom of the work area, the same 10 px as the macOS and Windows voice bars (kWaveOverlayWorkAreaGap in WaveOverlayLayout.h).
+constexpr int kWaveOverlayBottomMargin = 10;
 
 constexpr WaveOverlayPosition
 wave_overlay_bottom_center(WaveOverlayWorkArea work_area, int overlay_width,

@@ -567,11 +567,17 @@ struct State {
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
-  std::string voice_phase = "正在录音…";
+  std::string voice_phase = msime::linux_host::kVoiceStatusRecording;
   std::optional<unsigned> voice_level;
   msime::linux_host::WaveOverlayModel wave_overlay;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface;
   bool wave_overlay_visible = false;
+  // The 16 ms wave animation and the watch on the overlay's display connection; both run only while a drawn overlay is shown (sync_wave_overlay_sources).
+  guint wave_overlay_timer = 0;
+  guint wave_overlay_watch = 0;
+  int wave_overlay_watch_fd = -1;
+  // Confirm was clicked while recognition was pending: the bar stays down for the rest of this recording, whose result is still committed, as macOS dismissProcessing does.
+  bool wave_overlay_dismissed = false;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -672,6 +678,10 @@ struct State {
   guint surrounding_anchor = 0;
   ~State() {
     alive->store(false);
+    if (wave_overlay_timer)
+      g_source_remove(wave_overlay_timer);
+    if (wave_overlay_watch)
+      g_source_remove(wave_overlay_watch);
     close();
   }
   void close() {
@@ -3820,6 +3830,90 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   }
   return paging;
 }
+// The engine a voice overlay source belongs to, with its liveness flag: a source that outlives the engine sees the flag cleared and removes itself without touching the freed state.
+struct WaveOverlaySource {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+};
+void delete_wave_overlay_source(gpointer data) { delete static_cast<WaveOverlaySource *>(data); }
+void sync_wave_overlay_sources(IBusEngine *engine);
+// One 16 ms frame of the wave: the bars move toward the latest microphone level and the surface redraws.
+gboolean wave_overlay_frame(gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface || !s.wave_overlay_surface->animates() ||
+      !s.wave_overlay.animates()) {
+    s.wave_overlay_timer = 0;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay.advance(static_cast<double>(g_get_monotonic_time()) / G_USEC_PER_SEC);
+  // update() also reads the pointer and expose events Xlib or libwayland already queued.
+  s.wave_overlay_surface->update(s.wave_overlay);
+  return G_SOURCE_CONTINUE;
+}
+// The overlay's display connection became readable: a click on an action or an expose is handled now, not at the next redraw.
+gboolean wave_overlay_events(gint, GIOCondition condition, gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface ||
+      (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))) {
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = -1;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay_surface->dispatch_events();
+  return G_SOURCE_CONTINUE;
+}
+// Start or stop the wave animation and the event watch to match what is on screen: the animation runs while a drawn overlay shows the wave, the watch while a drawn overlay is shown at all. The auxiliary-text fallback needs neither.
+void sync_wave_overlay_sources(IBusEngine *engine) {
+  auto &s = state(engine);
+  auto *surface = s.wave_overlay_surface.get();
+  const bool shown = surface && s.wave_overlay_visible;
+  const bool animate = shown && surface->animates() && s.wave_overlay.animates();
+  if (animate && !s.wave_overlay_timer) {
+    s.wave_overlay_timer = g_timeout_add_full(
+        G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFrameMilliseconds, wave_overlay_frame,
+        new WaveOverlaySource{engine, s.alive}, delete_wave_overlay_source);
+  } else if (!animate && s.wave_overlay_timer) {
+    g_source_remove(s.wave_overlay_timer);
+    s.wave_overlay_timer = 0;
+    // The next wave starts from dots, as macOS resets its bars when the animation stops.
+    s.wave_overlay.levels.fill(0.0f);
+  }
+  const int fd = shown ? surface->event_fd() : -1;
+  if (fd != s.wave_overlay_watch_fd) {
+    if (s.wave_overlay_watch)
+      g_source_remove(s.wave_overlay_watch);
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = fd;
+    if (fd >= 0)
+      s.wave_overlay_watch = g_unix_fd_add_full(G_PRIORITY_DEFAULT, fd, G_IO_IN, wave_overlay_events,
+                                                new WaveOverlaySource{engine, s.alive},
+                                                delete_wave_overlay_source);
+  }
+}
+// Show or redraw the voice overlay from s.wave_overlay.
+void present_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.wave_overlay_surface)
+    return;
+  if (s.wave_overlay_visible)
+    s.wave_overlay_surface->update(s.wave_overlay);
+  else
+    s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
+  sync_wave_overlay_sources(engine);
+}
+void hide_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.wave_overlay_surface && s.wave_overlay_visible)
+    s.wave_overlay_surface->hide();
+  s.wave_overlay_visible = false;
+  sync_wave_overlay_sources(engine);
+}
 void render(IBusEngine *engine, const Json &view) {
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
@@ -3846,19 +3940,15 @@ void render(IBusEngine *engine, const Json &view) {
     publish_candidate_properties(engine);
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
-    s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
-    if (s.wave_overlay_surface) {
-      if (s.wave_overlay_visible)
-        s.wave_overlay_surface->update(s.wave_overlay);
-      else
-        s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-    }
+    s.wave_overlay.listening = !s.voice_stopping;
+    if (s.wave_overlay_dismissed)
+      hide_wave_overlay(engine);
+    else
+      present_wave_overlay(engine);
     return;
   }
-  if (state(engine).wave_overlay_surface && state(engine).wave_overlay_visible) {
-    state(engine).wave_overlay_surface->hide();
-    state(engine).wave_overlay_visible = false;
-  }
+  if (state(engine).wave_overlay_visible)
+    hide_wave_overlay(engine);
   // 临时译文页只在它自己画出的那一页上有效（render_translation_candidates 给它的视图带上 translation_page）。别的视图画上来，例如菜单改每页候选数、异步到达的译文或云候选、偏好更新换掉了 s.view，译文页就已经不在面板上了：丢掉它的状态，也不恢复保存的视图，之后的点选、数字键和 Esc 才作用于面板上真正显示的候选，而不是按一页已经不在的译文去选，或者把一份过时的视图恢复回来。
   if (state(engine).translation_candidates_active && !view.contains("translation_page")) {
     auto &s = state(engine);
@@ -4288,10 +4378,7 @@ void render_after_voice(IBusEngine *engine) {
     render(engine, s.view);
     return;
   }
-  if (s.wave_overlay_surface && s.wave_overlay_visible) {
-    s.wave_overlay_surface->hide();
-    s.wave_overlay_visible = false;
-  }
+  hide_wave_overlay(engine);
   s.wave_overlay.reset();
   clear(engine);
 }
@@ -4313,13 +4400,10 @@ void voice_cancel(IBusEngine *engine) {
     msime::host_api::discard_string(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_stopping = false;
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
-  s.wave_overlay.actions_visible = false;
-  if (s.wave_overlay_surface && s.wave_overlay_visible)
-    s.wave_overlay_surface->hide();
-  s.wave_overlay_visible = false;
+  hide_wave_overlay(engine);
   s.voice_generation = 0;
 
   s.voice_preedit.clear();
@@ -4339,19 +4423,16 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   s.wave_overlay.reset();
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
-  s.wave_overlay.actions_visible = false;
+  s.wave_overlay.failure = true;
   s.wave_overlay.listening = false;
-  if (s.wave_overlay_surface) {
-    if (s.wave_overlay_visible)
-      s.wave_overlay_surface->update(s.wave_overlay);
-    else
-      s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-  }
+  s.wave_overlay_dismissed = false;
+  present_wave_overlay(engine);
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_static_string(message), TRUE);
   auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
+  // The macOS overlay keeps a failure up for six seconds; Esc, a focus change, the next keystroke or the next recording take it down sooner.
   g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 1200,
+      G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFailureMilliseconds,
       +[](gpointer data) -> gboolean {
         std::unique_ptr<VoiceFailureNotice> notice(
             static_cast<VoiceFailureNotice *>(data));
@@ -4359,12 +4440,9 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
         if (!s.voice_active &&
-            s.voice_failure_id == notice->id) {
-          if (s.wave_overlay_visible && s.wave_overlay_surface) {
-            s.wave_overlay_surface->hide();
-            s.wave_overlay_visible = false;
-            s.wave_overlay.reset();
-          }
+            s.voice_failure_id == notice->id && s.wave_overlay_visible) {
+          hide_wave_overlay(notice->engine);
+          s.wave_overlay.reset();
         }
         return G_SOURCE_REMOVE;
       },
@@ -4393,7 +4471,8 @@ void voice_stop(IBusEngine *engine) {
         engine, "结束录音失败，本次语音已取消，请检查语音服务后重试");
   } else {
     s.voice_stopping = true;
-    s.voice_phase = "正在识别…";
+    s.voice_phase = msime::linux_host::kVoiceStatusRecognizing;
+    s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
     render(engine, s.view);
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -4430,12 +4509,11 @@ void voice_start_impl(IBusEngine *engine) {
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
   sync_music(engine);
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
   s.wave_overlay.listening = true;
-  s.wave_overlay.actions_visible = true;
-  s.wave_overlay_visible = false;
+  s.wave_overlay_dismissed = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
@@ -4458,7 +4536,9 @@ void voice_start_impl(IBusEngine *engine) {
         const auto query = msime::linux_host::voice_query(language, generation, provider_options, hotword_options).dump();
         VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
-          const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
+          const char *labels[] = {msime::linux_host::kVoiceStatusRecording,
+                                  msime::linux_host::kVoiceStatusRecognizing,
+                                  msime::linux_host::kVoiceStatusProcessing};
           auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, labels[phase], false};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
@@ -4467,15 +4547,16 @@ void voice_start_impl(IBusEngine *engine) {
             if (!voice_result_current(s, result->generation, result->session,
                                       result->focus_epoch))
               return G_SOURCE_REMOVE;
-            if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
+            const bool recording = result->text == msime::linux_host::kVoiceStatusRecording;
+            if (s.voice_stopping && recording) return G_SOURCE_REMOVE;
             s.voice_phase = std::move(result->text);
-            if (s.voice_phase == "正在录音…")
+            if (recording)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
-            else if (s.voice_phase.find("识别") != std::string::npos)
+            else if (s.voice_phase == msime::linux_host::kVoiceStatusRecognizing)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
             else
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Processing;
-            if (s.voice_phase != "正在录音…") s.voice_stopping = true;
+            if (!recording) s.voice_stopping = true;
             render(result->engine, s.view);
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
@@ -4494,9 +4575,10 @@ void voice_start_impl(IBusEngine *engine) {
               return G_SOURCE_REMOVE;
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
-              s.wave_overlay.listening = true;
               s.wave_overlay.set_input_level(result->level / 10.0f);
-              render(result->engine, s.view);
+              // A drawn wave picks the level up on its next frame; only the text fallback's meter needs a redraw.
+              if (!s.wave_overlay_surface || !s.wave_overlay_surface->animates())
+                render(result->engine, s.view);
             }
             return G_SOURCE_REMOVE;
           }, result, nullptr);
@@ -6318,6 +6400,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Esc takes a voice failure notice down, as on macOS, and still goes on to the editor or the composition.
+  if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
+      s.wave_overlay_visible) {
+    hide_wave_overlay(engine);
+    s.wave_overlay.reset();
+  }
   if (!release &&
       (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
        key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
@@ -8399,10 +8487,17 @@ static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
   engine->state->wave_overlay_surface =
       msime::linux_host::create_wave_overlay_surface(
           IBUS_ENGINE(engine), [engine](msime::linux_host::WaveOverlayModel::Action action) {
-            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
-              voice_cancel(IBUS_ENGINE(engine));
-            else
-              voice_stop(IBUS_ENGINE(engine));
+            auto *ibus_engine = IBUS_ENGINE(engine);
+            auto &s = state(ibus_engine);
+            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
+              voice_cancel(ibus_engine);
+            } else if (s.voice_active && s.voice_stopping) {
+              // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
+              s.wave_overlay_dismissed = true;
+              hide_wave_overlay(ibus_engine);
+            } else {
+              voice_stop(ibus_engine);
+            }
           });
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.

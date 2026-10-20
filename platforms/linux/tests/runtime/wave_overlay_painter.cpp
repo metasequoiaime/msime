@@ -1,0 +1,138 @@
+#include "../src/overlay/WaveOverlayPainter.h"
+
+#include <cairo/cairo.h>
+
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <string>
+
+namespace {
+
+using msime::linux_host::WaveOverlayFrame;
+using msime::linux_host::WaveOverlayLayout;
+using msime::linux_host::WaveOverlayModel;
+using msime::linux_host::WaveOverlayPainter;
+
+struct Image {
+  cairo_surface_t *surface = nullptr;
+  ~Image() { cairo_surface_destroy(surface); }
+  std::uint32_t pixel(int x, int y) const {
+    const auto *data = cairo_image_surface_get_data(surface);
+    const auto stride = cairo_image_surface_get_stride(surface);
+    return *reinterpret_cast<const std::uint32_t *>(data + y * stride + x * 4);
+  }
+  int alpha(int x, int y) const { return static_cast<int>(pixel(x, y) >> 24); }
+};
+
+// Paint `model` at `scale` device pixels per logical pixel, as the surfaces do, and keep a PNG of it when MSIME_TEST_CANVAS_ARTIFACTS names a directory.
+Image paint(WaveOverlayPainter &painter, const WaveOverlayModel &model, int scale, bool translucent,
+            const std::string &name, WaveOverlayFrame *frame_out = nullptr) {
+  const auto frame = painter.frame(model);
+  if (frame_out) *frame_out = frame;
+  Image image;
+  image.surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, frame.width * scale, frame.height * scale);
+  auto *cairo = cairo_create(image.surface);
+  cairo_scale(cairo, scale, scale);
+  painter.paint(cairo, frame, model, translucent);
+  cairo_destroy(cairo);
+  cairo_surface_flush(image.surface);
+  if (const char *directory = std::getenv("MSIME_TEST_CANVAS_ARTIFACTS"); directory && *directory) {
+    const auto path = std::string(directory) + "/wave-overlay-" + name + ".png";
+    assert(cairo_surface_write_to_png(image.surface, path.c_str()) == CAIRO_STATUS_SUCCESS);
+  }
+  return image;
+}
+
+WaveOverlayModel listening(bool light) {
+  WaveOverlayModel model;
+  model.light_theme = light;
+  model.listening = true;
+  model.set_input_level(0.8f);
+  for (int frame = 0; frame < 30; ++frame) model.advance(100.0 + frame * 0.016);
+  return model;
+}
+
+}  // namespace
+
+int main() {
+  WaveOverlayPainter painter;
+  for (const bool light : {false, true}) {
+    const std::string theme = light ? "light" : "dark";
+
+    // The compact pill: 78x32, transparent outside its rounded corners, the panel at the macOS 0.90 opacity.
+    WaveOverlayFrame frame;
+    auto compact = listening(light);
+    const auto compact_image = paint(painter, compact, 2, true, "compact-" + theme, &frame);
+    assert(frame.layout == WaveOverlayLayout::Compact && frame.width == 78 && frame.height == 32);
+    assert(!frame.actions && !frame.label && frame.transcript.empty());
+    assert(compact_image.alpha(0, 0) == 0);
+    const int panel_alpha = compact_image.alpha(78, 8);
+    assert(panel_alpha >= 226 && panel_alpha <= 234);
+    // Without an alpha channel the panel is opaque.
+    const auto opaque = paint(painter, compact, 1, false, "compact-opaque-" + theme);
+    assert(opaque.alpha(39, 4) == 255);
+
+    // A locked recording: the 142x40 action pill with two neutral circles around the wave.
+    auto locked = listening(light);
+    locked.locked = true;
+    const auto locked_image = paint(painter, locked, 2, true, "locked-" + theme, &frame);
+    assert(frame.layout == WaveOverlayLayout::Action && frame.width == 142 && frame.height == 40 && frame.actions);
+    assert(locked_image.pixel(36, 24) != locked_image.pixel(142, 8));
+
+    // Recognition: the actions stay and the macOS label replaces the wave.
+    WaveOverlayModel processing;
+    processing.light_theme = light;
+    processing.compact_status = WaveOverlayModel::CompactStatus::Recognizing;
+    paint(painter, processing, 2, true, "recognizing-" + theme, &frame);
+    assert(frame.layout == WaveOverlayLayout::Action && frame.label && frame.label_text == "识别中...");
+
+    // A streaming transcript: the 420x112 card keeps the newest three lines behind "…".
+    auto transcript = listening(light);
+    std::string text;
+    for (int i = 0; i < 40; ++i) text += "这是一段比较长的实时转写文字，用来检查只显示最新的三行。";
+    text += "最新的结尾";
+    transcript.set_transcript(text);
+    paint(painter, transcript, 2, true, "transcript-" + theme, &frame);
+    assert(frame.layout == WaveOverlayLayout::Transcript && frame.width == 420 && frame.height == 112);
+    assert(frame.transcript.rfind("…", 0) == 0);
+    assert(text.size() >= frame.transcript.size() - 3 &&
+           text.compare(text.size() - (frame.transcript.size() - 3), std::string::npos, frame.transcript.substr(3)) == 0);
+    assert(painter.transcript_line_count(frame.transcript, 392) <= 3);
+    // A short transcript is shown whole.
+    transcript.set_transcript("你好，世界");
+    assert(painter.frame(transcript).transcript == "你好，世界");
+
+    // A failure: no wave, no actions, the message alone in a pill widened to fit it.
+    WaveOverlayModel failure;
+    failure.light_theme = light;
+    failure.failure = true;
+    failure.status = "语音输入失败，请检查语音服务、麦克风及提供商配置后重试";
+    paint(painter, failure, 2, true, "failure-" + theme, &frame);
+    assert(frame.layout == WaveOverlayLayout::Processing && frame.height == 40 && !frame.actions && frame.label);
+    assert(frame.width > 112 && frame.width <= WaveOverlayPainter::kMaxFailureWidth);
+    failure.status = "失败";
+    assert(painter.frame(failure).width == 112);
+  }
+
+  // A theme palette replaces the built-in colours, and without its own outline the panel has none.
+  {
+    auto skinned = listening(false);
+    skinned.palette = msime::linux_host::FloatingSurfaceColors{0x336699u, 0xFFFFFFu, 0xFFCC00u, std::nullopt};
+    const auto image = paint(painter, skinned, 1, false, "skin");
+    const auto panel = image.pixel(39, 4);
+    assert(((panel >> 16) & 0xff) == 0x33 && ((panel >> 8) & 0xff) == 0x66 && (panel & 0xff) == 0x99);
+  }
+
+  // A cut never splits a base letter from its combining mark.
+  {
+    WaveOverlayModel marks;
+    marks.listening = true;
+    std::string text;
+    for (int i = 0; i < 600; ++i) text += "e\xcc\x81 ";
+    marks.set_transcript(text);
+    const auto visible = painter.frame(marks).transcript;
+    assert(visible.rfind("…", 0) == 0 && visible.size() > 3);
+    assert(visible.compare(3, 2, "\xcc\x81") != 0);
+  }
+}

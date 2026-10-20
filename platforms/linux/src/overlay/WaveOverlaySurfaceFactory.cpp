@@ -49,6 +49,19 @@ class FallbackSurface final : public WaveOverlaySurface {
     using_primary_ = false;
   }
 
+  int event_fd() const override {
+    return using_primary_ && primary_ ? primary_->event_fd() : -1;
+  }
+
+  void dispatch_events() override {
+    if (using_primary_ && primary_)
+      primary_->dispatch_events();
+  }
+
+  bool animates() const override {
+    return using_primary_ && primary_ && primary_->animates();
+  }
+
  private:
   std::unique_ptr<WaveOverlaySurface> primary_;
   std::unique_ptr<WaveOverlaySurface> fallback_;

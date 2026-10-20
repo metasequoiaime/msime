@@ -88,6 +88,7 @@
 #include "../src/voice/VoiceAction.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
+#include "../src/overlay/WaveOverlayFeedback.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
 #ifdef MSIME_LINUX_HAS_X11_SURFACE
@@ -519,10 +520,15 @@ public:
       : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark) {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
         [this](msime::linux_host::WaveOverlayModel::Action action) {
-          if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
+          if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
             cancelVoice();
-          else
+          } else if (voice_loading_ && wave_overlay_.processing()) {
+            // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
+            wave_overlay_dismissed_ = true;
+            hideVoiceOverlay();
+          } else {
             stopVoice();
+          }
         });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
@@ -2884,6 +2890,50 @@ public:
     if (wave_overlay_surface_ && wave_overlay_visible_)
       wave_overlay_surface_->hide();
     wave_overlay_visible_ = false;
+    syncVoiceOverlaySources();
+  }
+  // Start or stop the 16 ms wave animation and the watch on the overlay's display connection to match what is on screen: the animation runs while a drawn overlay shows the wave, the watch while a drawn overlay is shown at all. The auxiliary-text fallback needs neither.
+  void syncVoiceOverlaySources() {
+    auto *surface = wave_overlay_surface_.get();
+    const bool shown = surface && wave_overlay_visible_ && !wave_overlay_failed_;
+    const bool animate = shown && surface->animates() && wave_overlay_.animates();
+    if (animate && !wave_overlay_frame_timer_ && loop_) {
+      constexpr uint64_t interval = msime::linux_host::kWaveOverlayFrameMilliseconds * 1000;
+      wave_overlay_frame_timer_ = loop_->addTimeEvent(
+          CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + interval, 1000,
+          [this](fcitx::EventSourceTime *timer, uint64_t now) {
+            if (wave_overlay_surface_ && wave_overlay_visible_ && wave_overlay_.animates()) {
+              // The provider's level arrives on its own thread; the frame reads the newest one rather than waiting for the 250 ms poll.
+              if (const auto mailbox = voice_mailbox_) {
+                std::lock_guard lock(mailbox->mutex);
+                if (mailbox->level_seen) wave_overlay_.set_input_level(static_cast<float>(mailbox->level) / 10.0f);
+              }
+              wave_overlay_.advance(static_cast<double>(now) / 1e6);
+              // update() also reads the pointer and expose events Xlib or libwayland already queued, and an action may stop this timer meanwhile.
+              wave_overlay_surface_->update(wave_overlay_);
+            }
+            if (wave_overlay_frame_timer_.get() == timer) {
+              timer->setNextInterval(interval);
+              timer->setOneShot();
+            }
+            return true;
+          });
+    } else if (!animate && wave_overlay_frame_timer_) {
+      wave_overlay_frame_timer_.reset();
+      // The next wave starts from dots, as macOS resets its bars when the animation stops.
+      wave_overlay_.levels.fill(0.0f);
+    }
+    const int fd = shown ? surface->event_fd() : -1;
+    if (fd != wave_overlay_io_fd_) {
+      wave_overlay_io_.reset();
+      wave_overlay_io_fd_ = fd;
+      if (fd >= 0 && loop_)
+        wave_overlay_io_ = loop_->addIOEvent(fd, fcitx::IOEventFlag::In,
+            [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+              if (wave_overlay_surface_ && wave_overlay_visible_) wave_overlay_surface_->dispatch_events();
+              return true;
+            });
+    }
   }
   // Release the session, and with it the shared dictionary lock, when the settings window asks for maintenance (core/DictionaryQuiesceLease.h). The composition is finished first, so nothing typed is lost; ensure() opens a new session once the lease is gone.
   void refreshDictionaryQuiesce() {
@@ -2910,59 +2960,70 @@ public:
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
+    wave_overlay_.listening = voice_loading_ && !wave_overlay_.processing();
     wave_overlay_.locked = voice_space_locked_ && wave_overlay_.listening;
     wave_overlay_.set_transcript(voice_transcript_);
     wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
+    if (wave_overlay_dismissed_) {
+      hideVoiceOverlay();
+      return;
+    }
     if (wave_overlay_surface_ && !wave_overlay_failed_) {
       if (wave_overlay_visible_) {
         wave_overlay_surface_->update(wave_overlay_);
+        syncVoiceOverlaySources();
         return;
       }
       wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      syncVoiceOverlaySources();
       if (wave_overlay_visible_) return;
       // No surface on this display (GNOME Wayland has no layer-shell): the rest of this recording uses the auxiliary text, as the IBus host's FallbackSurface does. The next recording tries the surface again.
       wave_overlay_failed_ = true;
     }
     if (voice_loading_) {
-      std::string status = voice_phase_;
-      if (voice_level_ != 0) status += " " + std::string(voice_level_, '#');
-      if (!voice_transcript_.empty()) status += "：" + voice_transcript_;
-      ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
+      // The same text the IBus host's fallback shows: status or locked hint, microphone meter, newest transcript.
+      ic_.inputPanel().setAuxUp(fcitx::Text(msime::linux_host::wave_overlay_feedback_text(wave_overlay_)));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
   }
-  // Tell the user why nothing was typed, as the Windows service does with a message box and the IBus host with show_voice_failure: the overlay (or the auxiliary text when there is no overlay surface) carries a fixed message for 1.2 seconds. The messages are fixed on purpose, since provider errors can carry private values.
+  // Tell the user why nothing was typed, as the Windows service does with a message box, macOS in its overlay and the IBus host with show_voice_failure: the overlay (and the auxiliary text, which is all there is without an overlay surface) carries a fixed message for six seconds, or until Esc or the next recording. The messages are fixed on purpose, since provider errors can carry private values.
   void showVoiceFailure(const char *message) {
     if (++voice_failure_id_ == 0) ++voice_failure_id_;
     const auto id = voice_failure_id_;
-    const std::string aux = std::string("语音：") + message;
+    voice_failure_message_ = message;
     voice_failure_visible_ = true;
+    wave_overlay_dismissed_ = false;
     wave_overlay_.reset();
     wave_overlay_.status = message;
     wave_overlay_.show_transcript = false;
-    wave_overlay_.actions_visible = false;
+    wave_overlay_.failure = true;
     wave_overlay_.listening = false;
     if (wave_overlay_surface_) {
       if (wave_overlay_visible_)
         wave_overlay_surface_->update(wave_overlay_);
       else
         wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      syncVoiceOverlaySources();
     }
-    ic_.inputPanel().setAuxUp(fcitx::Text(aux));
+    ic_.inputPanel().setAuxUp(fcitx::Text(voice_failure_message_));
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     voice_failure_timer_ = loop_->addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000, 0,
-        [this, id, aux](fcitx::EventSourceTime *, uint64_t) {
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + uint64_t{msime::linux_host::kWaveOverlayFailureMilliseconds} * 1000, 0,
+        [this, id](fcitx::EventSourceTime *, uint64_t) {
           if (voice_loading_ || voice_failure_id_ != id) return true;
-          voice_failure_visible_ = false;
-          hideVoiceOverlay();
-          wave_overlay_.reset();
-          if (ic_.inputPanel().auxUp().toString() == aux) {
-            ic_.inputPanel().setAuxUp(fcitx::Text());
-            ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-          }
+          dismissVoiceFailure();
           return true;
         });
+  }
+  void dismissVoiceFailure() {
+    if (!voice_failure_visible_) return;
+    voice_failure_visible_ = false;
+    hideVoiceOverlay();
+    wave_overlay_.reset();
+    if (ic_.inputPanel().auxUp().toString() == voice_failure_message_) {
+      ic_.inputPanel().setAuxUp(fcitx::Text());
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
   }
   bool refreshVoice() {
     try {
@@ -2998,7 +3059,9 @@ public:
             }
             render();
           }
-          const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
+          const char *phaseLabel[] = {msime::linux_host::kVoiceStatusRecording,
+                                      msime::linux_host::kVoiceStatusRecognizing,
+                                      msime::linux_host::kVoiceStatusProcessing};
           if (phaseSeen) {
             voice_phase_ = phaseLabel[std::min<size_t>(phase, 2)];
             if (phase >= 2)
@@ -3122,14 +3185,14 @@ public:
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
     voice_transcript_.clear();
-    voice_phase_ = "录音中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecording;
     voice_level_ = 0;
     voice_failure_visible_ = false;
     wave_overlay_failed_ = false;
+    wave_overlay_dismissed_ = false;
     wave_overlay_.reset();
     wave_overlay_.listening = true;
     wave_overlay_.show_transcript = true;
-    wave_overlay_.actions_visible = true;
     updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
     voice_job_ = detachedJob([socket, generation, language, options, host_options, mailbox] {
@@ -3154,6 +3217,8 @@ public:
   }
   bool stopVoice() {
     if (!voice_loading_ || voice_socket_.empty() || voice_generation_ == 0) return false;
+    // Already stopped and waiting for recognition: a second confirm, shortcut or menu click must not send the provider another stop, whose refusal would cancel the recording.
+    if (wave_overlay_.processing()) return true;
     const auto socket = voice_socket_;
     bool stopped = false;
     try {
@@ -3168,7 +3233,7 @@ public:
       showVoiceFailure("结束录音失败，本次语音已取消，请检查语音服务后重试");
       return true;
     }
-    voice_phase_ = "识别中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecognizing;
     wave_overlay_.listening = false;
     wave_overlay_.compact_status =
         msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
@@ -3197,7 +3262,7 @@ public:
     voice_level_seen_ = false;
     voice_preedit_.clear();
     voice_transcript_.clear();
-    voice_phase_ = "录音中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecording;
     voice_level_ = 0;
     hideVoiceOverlay();
     render();
@@ -3984,6 +4049,7 @@ public:
   uint64_t voice_failure_id_ = 0;
   bool voice_options_valid_ = true;
   bool voice_failure_visible_ = false;
+  std::string voice_failure_message_;
   std::unique_ptr<fcitx::EventSourceTime> voice_failure_timer_;
   // Which context starts in Chinese, and which of the four configurable mode
   // chords this host answers. Fcitx5 had the CN/EN toggle on its status area
@@ -4029,12 +4095,18 @@ public:
   bool voice_level_seen_ = false;
   bool voice_loading_ = false;
   bool voice_cancelled_ = false;
-  std::string voice_phase_ = "录音中";
+  std::string voice_phase_ = msime::linux_host::kVoiceStatusRecording;
   uint8_t voice_level_ = 0;
   msime::linux_host::WaveOverlayModel wave_overlay_;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
   bool wave_overlay_failed_ = false;
+  // Confirm was clicked while recognition was pending: the bar stays down for the rest of this recording.
+  bool wave_overlay_dismissed_ = false;
+  // Declared after the surface so they are destroyed before it closes its display connection.
+  std::unique_ptr<fcitx::EventSourceTime> wave_overlay_frame_timer_;
+  std::unique_ptr<fcitx::EventSourceIO> wave_overlay_io_;
+  int wave_overlay_io_fd_ = -1;
   bool system_dark_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
@@ -7584,6 +7656,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
        sym == FcitxKey_Home || sym == FcitxKey_End || sym == FcitxKey_Page_Up ||
        sym == FcitxKey_Page_Down))
     forgetSmartPunctuationShadow();
+  // Esc takes a voice failure notice down, as on macOS, and still goes on to the editor or the composition.
+  if (!event.isRelease() && sym == FcitxKey_Escape && !voice_loading_) dismissVoiceFailure();
   // 和裸 Shift 一样，切换之后松开事件照常交给应用；布防了的按下也只交给应用。
   if (observeCapsLockTap(event)) return false;
   // 规范化后的符号可能已丢掉 Shift 位，光标转发必须按原始事件判断。
@@ -7814,7 +7888,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       (voice_ralt_held_ || voice_ctrl_win_held_ || voice_rctrl_ralt_held_);
   if (sym == FcitxKey_space && holdVoice) {
     voice_space_consumed_ = true;
-    voice_space_locked_ = true;
+    if (!voice_space_locked_) {
+      voice_space_locked_ = true;
+      // The locked look (the round actions, or the locked hint in the text fallback) shows now rather than at the next 250 ms poll.
+      updateVoiceOverlay();
+    }
     return true;
   }
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&

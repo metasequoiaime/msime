@@ -53,8 +53,8 @@ pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
-# The voice overlay enumerates monitors with RandR 1.5 to follow the focused window; libXrandr ships with every X desktop that has libXfixes.
-pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)
+# The voice overlay enumerates monitors with RandR 1.5 to follow the focused window; libXrandr ships with every X desktop that has libXfixes. Both overlay backends draw through WaveOverlayPainter.h with Cairo and Pango (cairo-xlib on X11), which every desktop with GTK has; without them the overlay falls back to the auxiliary text.
+pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr cairo-xlib pangocairo)
 pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_TEXT QUIET IMPORTED_TARGET pangocairo)
 find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
@@ -145,16 +145,17 @@ if(X11_SURFACE_FOUND)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(msime-ibus-host PUBLIC PkgConfig::X11_SURFACE)
 endif()
-if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
+# The Wayland overlay needs the layer-shell and xdg-shell protocol code and pangocairo for its drawing.
+set(MSIME_WAVE_WAYLAND_SURFACE OFF)
+if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML AND WAYLAND_TEXT_FOUND)
+  set(MSIME_WAVE_WAYLAND_SURFACE ON)
+endif()
+if(MSIME_WAVE_WAYLAND_SURFACE)
   target_sources(msime-ibus-host PRIVATE src/overlay/WaveOverlayWaylandSurface.cpp
                  "${MSIME_LAYER_SHELL_CODE}" ${MSIME_XDG_SHELL_CODE})
   target_include_directories(msime-ibus-host PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
-  target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_CLIENT ${MSIME_SHM_LIBRARIES})
-  if(WAYLAND_TEXT_FOUND)
-    target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_WAYLAND_TEXT)
-    target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_TEXT)
-  endif()
+  target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_CLIENT PkgConfig::WAYLAND_TEXT ${MSIME_SHM_LIBRARIES})
 endif()
 # The version the IBus host reports in telemetry, which is also the package version packaging.cmake hands to CPack. Like MSIME_WINDOWS_VERSION on Windows it defaults to this platform's version.txt, the file the release workflow reads for the linux-vVERSION tag; package-container.sh passes the release version explicitly.
 set(MSIME_PACKAGE_VERSION "" CACHE STRING "Package version; empty uses platforms/linux/version.txt")
@@ -1078,7 +1079,7 @@ if(BUILD_TESTING)
     target_compile_definitions(linux-wave-overlay-model-test PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
     target_link_libraries(linux-wave-overlay-model-test PRIVATE PkgConfig::X11_SURFACE)
   endif()
-  if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
+  if(MSIME_WAVE_WAYLAND_SURFACE)
     target_sources(linux-wave-overlay-model-test PRIVATE
                    src/overlay/WaveOverlayWaylandSurface.cpp "${MSIME_LAYER_SHELL_CODE}"
                    ${MSIME_XDG_SHELL_CODE})
@@ -1087,15 +1088,18 @@ if(BUILD_TESTING)
     target_compile_definitions(linux-wave-overlay-model-test PRIVATE
                                MSIME_LINUX_HAS_WAYLAND_SURFACE)
     target_link_libraries(linux-wave-overlay-model-test PRIVATE
-                          PkgConfig::WAYLAND_CLIENT ${MSIME_SHM_LIBRARIES})
-    if(WAYLAND_TEXT_FOUND)
-      target_compile_definitions(linux-wave-overlay-model-test PRIVATE
-                                 MSIME_LINUX_WAYLAND_TEXT)
-      target_link_libraries(linux-wave-overlay-model-test PRIVATE
-                            PkgConfig::WAYLAND_TEXT)
-    endif()
+                          PkgConfig::WAYLAND_CLIENT PkgConfig::WAYLAND_TEXT ${MSIME_SHM_LIBRARIES})
   endif()
   add_test(NAME linux-wave-overlay-model COMMAND linux-wave-overlay-model-test)
+  # The shared drawing: layout sizes, the failure pill, the newest-three-lines transcript and the painted panel, measured with real Pango. MSIME_TEST_CANVAS_ARTIFACTS saves every presentation as a PNG for a visual check.
+  if(WAYLAND_TEXT_FOUND)
+    add_executable(linux-wave-overlay-painter-test tests/runtime/wave_overlay_painter.cpp)
+    target_compile_features(linux-wave-overlay-painter-test PRIVATE cxx_std_17)
+    target_compile_options(linux-wave-overlay-painter-test PRIVATE -Wall -Wextra -Werror)
+    target_include_directories(linux-wave-overlay-painter-test PRIVATE src)
+    target_link_libraries(linux-wave-overlay-painter-test PRIVATE PkgConfig::WAYLAND_TEXT)
+    add_test(NAME linux-wave-overlay-painter COMMAND linux-wave-overlay-painter-test)
+  endif()
   # 此测试检查 X11 的定位并读取 RandR 头文件，仅在构建 X11 浮层时启用。
   if(X11_SURFACE_FOUND)
     add_executable(linux-wave-overlay-placement-test tests/runtime/wave_overlay_placement.cpp)

@@ -14,7 +14,7 @@ RUN printf '%s\n' \
     build-essential ninja-build pkg-config python3 curl ca-certificates xz-utils \
     libasound2-dev libcurl4-openssl-dev \
     libibus-1.0-dev libxkbcommon-dev \
-    libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev libcairo2-dev \
+    libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev libcairo2-dev libpango1.0-dev \
     dbus dpkg-dev file \
   && rm -rf /var/lib/apt/lists/*
 RUN set -eu; \
