@@ -533,6 +533,15 @@ impl QuanpinDictionary {
             .collect()
     }
 
+    /// `keys`（以 `'` 连接的完整音节）各自权重最高的 `per_key` 行的权重之和；没有行的键不出现。九宫格用它给每个音节估频度：只看最常用那一个字时，词库发版改动一个字的权重就能让两个音节的先后翻转。
+    pub fn top_weight_sums(&self, keys: &[String], per_key: usize) -> HashMap<String, i64> {
+        self.database
+            .query_exact_keys_per_key(keys, per_key)
+            .into_iter()
+            .map(|(key, rows)| (key, rows.iter().map(|row| row.weight.max(0)).sum()))
+            .collect()
+    }
+
     /// 整句改字的候选：读音恰为 `span`（完整音节）的词条，按权重从高到低，至多 `limit` 条。
     pub fn conversion_rows(&mut self, span: &[String], limit: usize) -> Vec<DictRow> {
         self.validate_row_caches();
