@@ -10,6 +10,7 @@ Status: implemented
 
 - 本地设置 `platform.android.clipboard_columns`（`AndroidLocalSettings.CLIPBOARD_COLUMNS`），取值 `one` / `two`，默认 `one`，只在本机、不随账号同步：同步字段表（`crates/client-services/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`）里没有它，加进去要改 Rust 和服务端字段表。
 - 设置入口在「键盘」页新增的「剪贴板」一节：「排列」→ 单列 / 双列。键盘在 `applyLocalSettings` 里读成 `clipboardColumns`，和其他本地设置一样，下次弹出键盘时生效。
+- #9004：列数保存成功后重新读取并绘制设置页，让「排列」的文字和再次打开选择面板时的勾选跟随已保存值；保存失败也重新读取，不把未保存的选择显示成成功。
 - `ImePanels.clipboardCard` 按列数排：双列时两条一行、等宽同高，最后一行只有一条时右边留空；本机和云端两个分段都这样排。列数与行号的换算在 `ClipboardLayoutPolicy`。
 - 双列时长按一条打开的操作行跨在那一行下方，被长按的那条画成选中样式，看得出操作对着哪一条；单列时也一样标出。
 
