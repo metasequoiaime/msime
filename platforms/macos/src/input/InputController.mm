@@ -6028,8 +6028,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (_capsLockTapReleased && !capsLock) _capsLockTapReleased = NO;
     BOOL staleCapsLock = NO;
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
-        // A real new press is still held at this point; an event arriving after the synthetic
-        // release is only a delayed copy of the old lock state.
+        // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
         if (MSIMECapsLockPhysicallyHeld()) _capsLockTapReleased = NO;
         else { capsLock = NO; staleCapsLock = YES; }
     }
