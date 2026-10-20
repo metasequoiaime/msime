@@ -30,7 +30,7 @@ Status: implemented
 - 自己的选择回声不触发编辑；选区跨出组字、丢失标记、方案不支持时仍沿用原规则。
 - `CompositionCaretPolicySmoke` 覆盖组字边界、前缀、分隔符、范围选择、丢失标记和截短；JVM 冒烟、远端 quick、原生 full APK 与 ABI 检查通过。
 - Android API 28：`CompositionRestartDeviceSmoke -e magnifier true` 与默认套件、`CompositionBatchDeviceSmoke`、基础 `DeviceSmoke` 通过；实际放大条和右侧手柄已截图检查。旧 APK 在 Android API 35 的同一放大编辑专项失败。
-- Android API 35 新版专项待专用模拟器空闲，不能把 API 28 的结果视为该版本验收。
+- Android API 35：新版放大编辑专项通过；默认组字重启（含放大编辑）、批量编辑与基础输入回归也全部通过。运行 instrumentation 前按现有设备脚本先启动产品主进程，使用 `--no-restart`；逐项检查通过标记，不以 instrumentation 进程退出码代替断言。
 
 ## Consequences
 
