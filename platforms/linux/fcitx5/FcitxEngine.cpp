@@ -6394,8 +6394,14 @@ public:
       replaceable = host::fcitx_candidate_theme_drawn(selection.theme,
                                                       selection.dark_theme ? &*selection.dark_theme : nullptr);
     }
-    host::write_candidate_panel_status(
-        *file, host::candidate_panel_status_document("fcitx5", host::fcitx_candidate_panel_limit(ui, replaceable)));
+    const auto limit = host::fcitx_candidate_panel_limit(ui, replaceable);
+    bool native = false;
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+    native = limit == host::CandidatePanelLimit::None && ui == "classicui" && native_canvas_assets_ &&
+        native_canvas_assets_->chrome &&
+        host::candidate_session_is_x11(std::getenv("XDG_SESSION_TYPE"), std::getenv("DISPLAY"), std::getenv("WAYLAND_DISPLAY"));
+#endif
+    host::write_candidate_panel_status(*file, host::candidate_panel_status_document("fcitx5", limit, native));
   }
   // Runs before any session exists: a package upgrade leaves the user's options on the previous dictionary generation until this re-prepares it. The system-wide file belongs to the administrator and is not rewritten.
   static void refreshOptions() {
@@ -7449,7 +7455,7 @@ std::string FcitxState::candidateAux() const {
   const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
   const auto page_count =
       msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
-  std::string aux = std::to_string(page + 1) + "/" + std::to_string(page_count);
+  std::string aux = msime::linux_host::candidate_page_indicator(page, page_count);
   if (!preferences_.value("show_candidate_page_number", true)) aux.clear();
   const auto mode = view_.value("local_mode", std::string("none"));
   if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))

@@ -222,7 +222,7 @@ def main():
                         return "".join(str(part[0]) for parts in (panel[2], panel[3]) for part in parts)
 
                     # Missing keys retain the old page indicator, independently of reading text.
-                    assert aux(compose(None)).startswith("1/"), "Legacy page indicator missing"
+                    assert aux(compose(None)).startswith("1 / "), "Legacy page indicator missing"
                     first = compose(False)
                     assert aux(first) == "", "Hidden page/preedit left an auxiliary line"
                     assert context.ProcessKeyEvent(ord("]"), 0, 0, False, 0)
@@ -233,7 +233,7 @@ def main():
                     assert context.ProcessKeyEvent(32, 0, 0, False, 0)
                     wait(lambda: len(commits) == 2)
                     assert commits[-1] == "你好", "Hidden indicator broke candidate selection"
-                    assert aux(compose(True)).startswith("1/"), "Re-enabled page indicator missing"
+                    assert aux(compose(True)).startswith("1 / "), "Re-enabled page indicator missing"
                     reading = aux(compose(False, "pinyin"))
                     assert "ni" in reading and "/" not in reading and not reading.startswith(" · "), \
                         "Page visibility changed the independent reading or left a separator"

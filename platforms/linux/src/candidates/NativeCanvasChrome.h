@@ -233,7 +233,8 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   layout.page_controls = page_controls;
   if (page_controls)
     layout.indicator_text = grid ? std::to_string(content.grid_row + 1) + " / " + std::to_string(content.grid_rows)
-                                 : std::to_string(content.page_index + 1) + " / " + std::to_string(content.page_count);
+                                 : candidate_page_indicator(static_cast<std::size_t>(std::max(0, content.page_index)),
+                                                            static_cast<std::size_t>(content.page_count));
   const double indicator_width = page_controls ? std::ceil(native_canvas_text_size(cr, layout.indicator_font, layout.indicator_text).first) : 0;
   const double indicator_height = page_controls ? std::ceil(native_canvas_text_size(cr, layout.indicator_font, layout.indicator_text).second) : 0;
   const bool expandable = !grid && !menu && content.expandable;
