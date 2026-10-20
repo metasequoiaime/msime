@@ -1,4 +1,5 @@
 import { CandidateCanvasSpec } from "./CandidateCanvasPolicy";
+import { ToolbarImageSpec } from "../ToolbarImagePolicy";
 
 import { KeyboardGeometry } from "../KeyboardGeometry";
 
@@ -42,6 +43,7 @@ export interface CandidateSkinPackage extends CandidateCanvasSpec {
   readonly decorationAlign?: string;
   readonly background?: CandidateSkinBackgroundEntry | null;
   readonly toolbar?: CandidateSkinToolbar;
+  readonly toolbarImage?: ToolbarImageSpec;
   readonly toolbarStylesheet?: string | null;
   readonly preview: string | null;
   readonly animation?: CandidateSkinAnimation | null;

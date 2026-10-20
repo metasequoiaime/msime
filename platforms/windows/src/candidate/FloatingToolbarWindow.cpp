@@ -63,7 +63,54 @@ std::string utf8(const std::wstring &text) {
 } // namespace
 
 std::vector<int> FloatingToolbarWindow::slots() const {
+  if (image_.active()) {
+    std::vector<int> active;
+    for (const auto &button : image_.buttons) active.push_back(button.id);
+    return active;
+  }
   return floating_toolbar_slots(layout_, MSIME_EDITION_HANDWRITING != 0);
+}
+ToolbarRect FloatingToolbarWindow::cell(size_t index) const {
+  return image_.active() ? image_.buttons.at(index).rect : toolbar_cell(index, metrics());
+}
+std::optional<size_t> FloatingToolbarWindow::button_at_pixel(double x, double y) const {
+  if (image_.active()) {
+    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    return image_.button_at(x / unit, y / unit);
+  }
+  return toolbar_button_at_pixel(x, y, GetDpiForWindow(window_), scale_, slots().size(), metrics());
+}
+bool FloatingToolbarWindow::drag_at_pixel(double x, double y) const {
+  if (image_.active()) {
+    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    return image_.drag_at(x / unit, y / unit);
+  }
+  return toolbar_drag_at_pixel(x, y, GetDpiForWindow(window_), scale_, metrics());
+}
+bool FloatingToolbarWindow::card_at_pixel(double x, double y) const {
+  return image_.active() ? (button_at_pixel(x, y).has_value() || drag_at_pixel(x, y))
+      : toolbar_card_at_pixel(x, y, GetDpiForWindow(window_), scale_, slots().size(), metrics());
+}
+void FloatingToolbarWindow::update_image() {
+  image_dirty_ = false;
+  if (!image_.active() || !shown_) return;
+  const std::string language = language_.caps_lock ? "caps" : !shown_->chinese ? "en"
+      : language_.dedicated_english ? "en-candidate" : language_.mode == scheme::InputMode::Japanese ? "ja" : "cn";
+  image_.update(floating_toolbar_slots(layout_, MSIME_EDITION_HANDWRITING != 0),
+      {language, shown_->fullwidth ? "full" : "half", shown_->chinese_punctuation ? "cn" : "en",
+       shown_character_set_.value_or(false) ? "traditional" : "simplified", "", "", ""});
+}
+void FloatingToolbarWindow::set_image_skin(nlohmann::json manifest, std::filesystem::path directory) {
+  try {
+    image_.set_skin(std::move(manifest), std::move(directory));
+    image_dirty_ = true;
+    if (!image_.active() && window_) {
+      SetWindowRgn(window_, nullptr, TRUE);
+      KillTimer(window_, 1);
+    }
+    shown_.reset();
+    if (window_) InvalidateRect(window_, nullptr, FALSE);
+  } catch (...) { fail(failure_at_stage("toolbar_image", static_cast<uint32_t>(GetLastError()))); }
 }
 ToolbarMetrics FloatingToolbarWindow::metrics() const {
   return toolbar_metrics(static_cast<double>(font_size_), true, layout_.show_logo);
@@ -90,13 +137,12 @@ ToolbarMenuAnchor FloatingToolbarWindow::menu_anchor(std::optional<size_t> index
     if (!GetWindowRect(window_, &physical))
       physical = window;
   }
-  const auto layout = metrics();
   const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
-  const auto card = toolbar_card(slots().size(), layout);
+  const auto card = image_.active() ? ToolbarRect{0, 0, image_.width, image_.height} : toolbar_card(slots().size(), metrics());
   double centre = static_cast<double>(x);
   if (index) {
-    const auto cell = toolbar_cell(*index, layout);
-    centre = (cell.left + cell.right) / 2.0 * unit;
+    const auto box = cell(*index);
+    centre = (box.left + box.right) / 2.0 * unit;
   }
   const auto horizontal = [&](int value) {
     return toolbar_physical_coordinate(value, window.left, window.right, physical.left,
@@ -122,11 +168,10 @@ void FloatingToolbarWindow::sync_tooltips() {
     SendMessageW(tooltip_, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
   }
   tooltip_tools_ = 0;
-  const auto layout = metrics();
   const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
   const auto count = slots().size();
   for (size_t index = 0; index < count; ++index) {
-    const auto cell = toolbar_cell(index, layout);
+    const auto cell = this->cell(index);
     tool = {};
     tool.cbSize = TTTOOLINFOW_V2_SIZE;
     tool.uFlags = TTF_SUBCLASS;
@@ -176,9 +221,19 @@ void FloatingToolbarWindow::sync_accessibility(const std::optional<ModePresentat
   std::vector<ToolbarAccessibleButton> buttons;
   for (const int button : slots())
     buttons.push_back({button, utf8(button_name(button, value)), usable(button)});
-  accessible_->publish(toolbar_accessible_tree(
+  auto tree = toolbar_accessible_tree(
       buttons, metrics(), toolbar_pixel_unit(GetDpiForWindow(window_), scale_), layout_.show_logo,
-      MSIME_EDITION_DISPLAY_NAME_UTF8));
+      MSIME_EDITION_DISPLAY_NAME_UTF8);
+  if (image_.active()) {
+    tree = toolbar_accessible_tree(buttons, metrics(), 1, false, MSIME_EDITION_DISPLAY_NAME_UTF8);
+    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    for (size_t at = 0; at < tree.elements.size(); ++at) {
+      const auto box = cell(at);
+      tree.elements[at].bounds = {std::floor(box.left * unit), std::floor(box.top * unit),
+                                  std::ceil(box.right * unit), std::ceil(box.bottom * unit)};
+    }
+  }
+  accessible_->publish(std::move(tree));
 }
 void FloatingToolbarWindow::invoke_accessible(int id, LPARAM token) {
   if (!accessible_ || !accessible_->current(token) || !IsWindowVisible(window_))
@@ -279,6 +334,7 @@ ID2D1Bitmap *FloatingToolbarWindow::logo_bitmap(int pixels) {
   return device_.GetBitmapFromIcon(logo_, L"icon:toolbar-logo:" + std::to_wstring(pixels));
 }
 void FloatingToolbarWindow::hide() {
+  if (window_) KillTimer(window_, 1);
   // A hidden toolbar has no pointer over it; leaving these set would show a
   // stale highlight the next time it appears.
   hovered_.reset();
@@ -315,7 +371,7 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     }
     const auto character_set = character_set_reader_ ? character_set_reader_()
                                                      : std::nullopt;
-    const bool changed = !shown_ || !same(shown_->lease, value->lease) ||
+    const bool changed = image_dirty_ || !shown_ || !same(shown_->lease, value->lease) ||
                          shown_->chinese != value->chinese ||
                          shown_->chinese_punctuation != value->chinese_punctuation ||
                          shown_->fullwidth != value->fullwidth ||
@@ -323,6 +379,8 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     if (!changed && IsWindowVisible(window_)) return;
     shown_ = value;
     shown_character_set_ = character_set;
+    update_image();
+    if (image_.active() && (!(image_.width > 0) || !(image_.height > 0))) { hide(); return; }
     RECT work{};
     // With no position of its own the toolbar follows the focused window's
     // monitor. Once it has one - dragged or restored from the config - it stays
@@ -340,8 +398,8 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     const auto layout = metrics();
     const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
     const int width = static_cast<int>(std::ceil(
-        toolbar_window_width(slots().size(), layout) * unit));
-    const int height = static_cast<int>(std::ceil(toolbar_window_height(layout) * unit));
+        (image_.active() ? image_.width : toolbar_window_width(slots().size(), layout)) * unit));
+    const int height = static_cast<int>(std::ceil((image_.active() ? image_.height : toolbar_window_height(layout)) * unit));
     const int margin = dpi_scale(window_, 20);
     FloatingToolbarPlacementInput placement;
     placement.width = width;
@@ -368,6 +426,10 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     // Only after the move succeeded, so a failed first placement retries the
     // corner rather than preserving a position the window never took.
     placed_ = true;
+    if (image_.active()) {
+      image_.apply_region(window_, unit);
+      SetTimer(window_, 1, 33, nullptr);
+    }
     sync_tooltips();
     InvalidateRect(window_, nullptr, FALSE);
   } catch (...) { fail(failure_at_stage("refresh", static_cast<uint32_t>(GetLastError()))); }
@@ -434,16 +496,20 @@ void FloatingToolbarWindow::paint() {
   // Transparent, not the surface colour: everything outside the bar is either
   // shadow or the desktop showing through.
   target->Clear(D2D1::ColorF(0, 0.0f));
-  draw_window_shadow(target, card_rect, palette_.radius * unit,
-                     static_cast<float>(bar.shadow.scale));
-  const float inset = palette_.border_width * unit / 2.0f;
-  const D2D1_ROUNDED_RECT body{{card_rect.left + inset, card_rect.top + inset,
-                                card_rect.right - inset,
-                                card_rect.bottom - inset},
-                               palette_.radius * unit, palette_.radius * unit};
-  target->FillRoundedRectangle(body, brush(palette_.surface));
-  target->DrawRoundedRectangle(body, brush(palette_.border),
-                               palette_.border_width * unit);
+  if (!image_.active()) {
+    draw_window_shadow(target, card_rect, palette_.radius * unit,
+                       static_cast<float>(bar.shadow.scale));
+    const float inset = palette_.border_width * unit / 2.0f;
+    const D2D1_ROUNDED_RECT body{{card_rect.left + inset, card_rect.top + inset,
+                                  card_rect.right - inset,
+                                  card_rect.bottom - inset},
+                                 palette_.radius * unit, palette_.radius * unit};
+    target->FillRoundedRectangle(body, brush(palette_.surface));
+    target->DrawRoundedRectangle(body, brush(palette_.border),
+                                 palette_.border_width * unit);
+  } else {
+    image_.draw_background(target, unit);
+  }
   const auto value = reader_();
   if (value && shown_ && same(value->lease, shown_->lease)) {
     auto *factory = device_.GetDWriteFactory();
@@ -463,60 +529,61 @@ void FloatingToolbarWindow::paint() {
     // The product mark at the far left. Drawn before the drag strip and the
     // buttons, and skipped rather than substituted if the icon will not load -
     // a missing mark costs nothing, a placeholder box would look like a bug.
-    const auto mark = toolbar_logo(layout);
-    if (layout_.show_logo) {
-      // 按画出来的实际像素尺寸加载，而不是 Direct2D 的 DIP：msime.ico 带 16 到 256 的各档图像，取对那一档图标才清晰，取错就是重新采样过的模糊图标。
-      const double pixels = (mark.right - mark.left) *
-                            toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
-      if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
-        target->DrawBitmap(logo,
-                           D2D1_RECT_F{static_cast<float>(mark.left) * unit,
-                                       static_cast<float>(mark.top) * unit,
-                                       static_cast<float>(mark.right) * unit,
-                                       static_cast<float>(mark.bottom) * unit},
-                           1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-    } else {
-      // logo 关掉时画握把：两列三行小圆点，尺寸与 macOS 的握把相同（点径 2.4、间距 4.4，再乘用户缩放），颜色取分隔线色。
-      const float dot = 1.2f * unit;
-      const float pitch = 4.4f * unit;
-      const float centre_x = static_cast<float>(mark.left + mark.right) / 2.0f * unit;
-      const float centre_y = static_cast<float>(mark.top + mark.bottom) / 2.0f * unit;
-      auto *grip = brush(palette_.divider.value_or(palette_.border));
-      for (int column = 0; column < 2; ++column)
-        for (int row = 0; row < 3; ++row)
-          target->FillEllipse(
-              D2D1::Ellipse({centre_x + (static_cast<float>(column) - 0.5f) * pitch,
-                             centre_y + static_cast<float>(row - 1) * pitch},
-                            dot, dot),
-              grip);
+    if (!image_.active()) {
+      const auto mark = toolbar_logo(layout);
+      if (layout_.show_logo) {
+        // 按画出来的实际像素尺寸加载，而不是 Direct2D 的 DIP：msime.ico 带 16 到 256 的各档图像，取对那一档图标才清晰，取错就是重新采样过的模糊图标。
+        const double pixels = (mark.right - mark.left) *
+                              toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+        if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
+          target->DrawBitmap(logo,
+                             D2D1_RECT_F{static_cast<float>(mark.left) * unit,
+                                         static_cast<float>(mark.top) * unit,
+                                         static_cast<float>(mark.right) * unit,
+                                         static_cast<float>(mark.bottom) * unit},
+                             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+      } else {
+        // logo 关掉时画握把：两列三行小圆点，尺寸与 macOS 的握把相同（点径 2.4、间距 4.4，再乘用户缩放），颜色取分隔线色。
+        const float dot = 1.2f * unit;
+        const float pitch = 4.4f * unit;
+        const float centre_x = static_cast<float>(mark.left + mark.right) / 2.0f * unit;
+        const float centre_y = static_cast<float>(mark.top + mark.bottom) / 2.0f * unit;
+        auto *grip = brush(palette_.divider.value_or(palette_.border));
+        for (int column = 0; column < 2; ++column)
+          for (int row = 0; row < 3; ++row)
+            target->FillEllipse(
+                D2D1::Ellipse({centre_x + (static_cast<float>(column) - 0.5f) * pitch,
+                               centre_y + static_cast<float>(row - 1) * pitch},
+                              dot, dot),
+                grip);
+      }
+      // 普通条的拖动柄与分隔线跟随高度居中，图片模式的拖动区域由背景 alpha 决定。
+      const auto height = static_cast<float>(layout.height);
+      const float top = card_rect.top;
+      const float strip = card_rect.left + static_cast<float>(layout.logo) * unit;
+      const float handle_left = strip + 3.0f * unit;
+      const D2D1_ROUNDED_RECT handle{{handle_left, top + height * 0.269f * unit,
+                                      handle_left + 2.0f * unit,
+                                      top + height * 0.731f * unit},
+                                     1.0f * unit, 1.0f * unit};
+      target->FillRoundedRectangle(handle, brush(palette_.accent));
+      const float divider =
+          strip + static_cast<float>(layout.handle - 1.0) * unit;
+      target->DrawLine({divider, top + height * 0.231f * unit},
+                       {divider, top + height * 0.769f * unit},
+                       brush(palette_.divider.value_or(palette_.border)), 1.0f * unit);
     }
-    // The drag strip and the divider that separates it from the buttons. The
-    // strip is the only part that drags, so it has to be visible; upstream
-    // draws it in the accent colour. Both follow the bar height so they stay
-    // centred when the icon size changes.
-    const auto height = static_cast<float>(layout.height);
-    const float top = card_rect.top;
-    const float strip = card_rect.left + static_cast<float>(layout.logo) * unit;
-    const float handle_left = strip + 3.0f * unit;
-    const D2D1_ROUNDED_RECT handle{{handle_left, top + height * 0.269f * unit,
-                                    handle_left + 2.0f * unit,
-                                    top + height * 0.731f * unit},
-                                   1.0f * unit, 1.0f * unit};
-    target->FillRoundedRectangle(handle, brush(palette_.accent));
-    const float divider =
-        strip + static_cast<float>(layout.handle - 1.0) * unit;
-    target->DrawLine({divider, top + height * 0.231f * unit},
-                     {divider, top + height * 0.769f * unit},
-                     brush(palette_.divider.value_or(palette_.border)), 1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
-      const auto box = toolbar_cell(i, layout);
+      const auto box = this->cell(i);
       const D2D1_RECT_F cell{static_cast<float>(box.left) * unit,
                              static_cast<float>(box.top) * unit,
                              static_cast<float>(box.right) * unit,
                              static_cast<float>(box.bottom) * unit};
       // Hover and press fills, so a button looks like one. Pressed is drawn like the card's selected row, the selected fill with the selected text colour on it, rather than a darker hover. A button the shell would have to answer is drawn disabled: no hover fill and the secondary text colour, exactly as the tray draws a row whose capability is missing.
       const bool usable = this->usable(button);
+      const float icon_size = static_cast<float>(image_.active() ? image_.buttons[i].icon : font_size_) * unit;
+      if (image_.active()) image_.draw(target, image_.buttons[i].background, box, unit);
       const bool down = usable && hovered_ == i && pressed_ == i;
       const auto &glyph_color = !usable ? palette_.number
                                 : down  ? palette_.selected_text
@@ -529,6 +596,7 @@ void FloatingToolbarWindow::paint() {
         target->FillRoundedRectangle(
             fill, brush(down ? palette_.selected : palette_.hover));
       }
+      if (image_.active() && image_.draw(target, image_.buttons[i].image, box, unit)) continue;
       const auto icon = toolbar_icon(button, states[button], language_);
       // Draw the glyph only when the installed icon font really has it;
       // otherwise the text fallback, which is always readable.
@@ -537,11 +605,12 @@ void FloatingToolbarWindow::paint() {
       const wchar_t text[] = {icon.codepoint, L'\0'};
       auto *cell_format =
           glyph ? device_.GetTextFormat(
-                      icon_family, static_cast<float>(font_size_) * unit,
+                      icon_family, icon_size,
                       DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
                       DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
                       DWRITE_WORD_WRAPPING_NO_WRAP)
-                : format;
+                : image_.active() ? device_.GetTextFormat(L"Segoe UI", icon_size, DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP) : format;
       if (!cell_format)
         cell_format = format;
       const wchar_t *drawn_text = glyph ? text : icon.fallback;
@@ -554,7 +623,7 @@ void FloatingToolbarWindow::paint() {
       // twelfth of the cell and floors both the offset and the stroke, so it
       // stays a visible line rather than thinning away at small icon sizes.
       if (icon.underline && !glyph) {
-        const float size = static_cast<float>(font_size_) * unit;
+        const float size = icon_size;
         const float side = (cell.right - cell.left) * 0.08f;
         const float y = cell.bottom - (std::max)(2.0f * unit, size * 0.12f);
         target->DrawLine({cell.left + side, y}, {cell.right - side, y},
@@ -568,6 +637,7 @@ void FloatingToolbarWindow::paint() {
   const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
   // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
   if (msimeui::DeviceResources::IsDeviceLost(presented)) {
+    image_.reset_target();
     device_.DiscardTarget();
     InvalidateRect(window_, nullptr, FALSE);
     return;
@@ -612,6 +682,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Cached composition surfaces retain their old DPI even when large
       // enough for the new window, and display/DWM/resume edges can invalidate
       // their underlying device. Recreate this window's target only.
+      self->image_.reset_target();
       self->device_.DiscardTarget();
       if (visible) self->refresh(true);
       return message == WM_POWERBROADCAST ? TRUE : 0;
@@ -624,6 +695,9 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       if (self->shown_) self->refresh(true);
       return 0;
     case WM_PAINT: self->paint(); return 0;
+    case WM_TIMER:
+      if (w == 1 && self->image_.active() && IsWindowVisible(window)) InvalidateRect(window, nullptr, FALSE);
+      return 0;
     case WM_ENTERSIZEMOVE: {
       self->moving_ = true;
       RECT rect{};
@@ -702,17 +776,13 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Only the strip left of the first button drags. Treating the whole
       // window as a caption meant a press on a button entered the system move
       // loop, and the click below only ran for whatever button-up survived it.
-      const auto drag = self->metrics();
-      if (toolbar_drag_at_pixel(GET_X_LPARAM(l), GET_Y_LPARAM(l),
-                                GetDpiForWindow(window), self->scale_, drag)) {
+      if (self->drag_at_pixel(GET_X_LPARAM(l), GET_Y_LPARAM(l))) {
         ReleaseCapture();
         SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return 0;
       }
       // Pressing a button shows it pressed until the release is handled.
-      self->pressed_ = toolbar_button_at_pixel(
-          GET_X_LPARAM(l), GET_Y_LPARAM(l), GetDpiForWindow(window),
-          self->scale_, self->slots().size(), drag);
+      self->pressed_ = self->button_at_pixel(GET_X_LPARAM(l), GET_Y_LPARAM(l));
       const auto value = self->reader_();
       if (self->pressed_ && value && self->shown_ &&
           same(value->lease, self->shown_->lease)) {
@@ -734,9 +804,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
         RECT bounds{};
         if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor) &&
             GetClientRect(window, &bounds) &&
-            toolbar_drag_at_pixel(
-                cursor.x, cursor.y, GetDpiForWindow(window), self->scale_,
-                self->metrics())) {
+            self->drag_at_pixel(cursor.x, cursor.y)) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;
         }
@@ -746,10 +814,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // Hover feedback needs to know where the pointer is; without tracking,
       // the buttons gave no sign that they were buttons at all.
       const int x = GET_X_LPARAM(l);
-      const auto active = self->slots();
-      const auto layout = self->metrics();
-      const auto hovered = toolbar_button_at_pixel(
-          x, GET_Y_LPARAM(l), GetDpiForWindow(window), self->scale_, active.size(), layout);
+      const auto hovered = self->button_at_pixel(x, GET_Y_LPARAM(l));
       if (self->pressed_ && self->pressed_ != hovered) {
         self->pressed_.reset();
         InvalidateRect(window, nullptr, FALSE);
@@ -786,11 +851,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       }
       const auto value = self->reader_();
       const int x = GET_X_LPARAM(l);
-      const auto active = self->slots();
-      const auto layout = self->metrics();
-      const auto position_at =
-          toolbar_button_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
-                                  self->scale_, active.size(), layout);
+      const auto position_at = self->button_at_pixel(x, GET_Y_LPARAM(l));
       const bool valid_click = toolbar_release(
           self->pressed_, position_at,
           value && self->pressed_lease_ && self->shown_ &&
@@ -809,8 +870,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
       // 卡片上任何位置点右键都打开实用菜单。macOS 只挂在设置按钮上；这里不限按钮，设置按钮被关掉时菜单也够得着，隐藏工具栏这一项更不能因此丢掉。
       const int x = GET_X_LPARAM(l);
       if (self->context_menu_action_ &&
-          toolbar_card_at_pixel(x, GET_Y_LPARAM(l), GetDpiForWindow(window),
-                                self->scale_, self->slots().size(), self->metrics()))
+          self->card_at_pixel(x, GET_Y_LPARAM(l)))
         self->context_menu_action_(self->menu_anchor(std::nullopt, x));
       return 0;
     }

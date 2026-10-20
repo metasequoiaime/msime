@@ -1601,6 +1601,11 @@ int wmain(int argc, wchar_t **argv) {
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     uint64_t toolbar_theme_applied = candidate_theme_generation;
     toolbar.set_palette(toolbar_surface_palette(toolbar_dark_applied));
+    {
+      const auto &theme = resolved_theme(toolbar_dark_applied, candidate_horizontal_applied);
+      const auto &assets = package_assets(theme.candidate_skin);
+      toolbar.set_image_skin(assets.toolbar_image, assets.toolbar_directory);
+    }
     // 中英文切换提示，穿工具栏的配色、用工具栏的尺寸。建不出窗口时记一条诊断，Server 照常服务输入，和工具栏失败时一样。
     std::optional<InputModeHudWindow> mode_hud;
     try {
@@ -2297,6 +2302,9 @@ int wmain(int argc, wchar_t **argv) {
         toolbar_dark_applied = dark;
         toolbar_theme_applied = candidate_theme_generation;
         toolbar.set_palette(toolbar_surface_palette(dark));
+        const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
+        const auto &assets = package_assets(theme.candidate_skin);
+        toolbar.set_image_skin(assets.toolbar_image, assets.toolbar_directory);
         if (mode_hud)
           mode_hud->set_palette(toolbar_surface_palette(dark));
       }

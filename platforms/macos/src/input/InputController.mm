@@ -3543,6 +3543,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     [self refreshFloatingToolbarState];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -5044,6 +5046,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     MSIMEFocusedController = self;
@@ -5466,9 +5470,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // 选中的皮肤包被同名替换（MCP 的 `create_candidate_skin` 带 replace、皮肤编辑器、图库重装）时选择没变，偏好文档的 revision 也不变，-completePreferenceLoad: 不会重新应用，旧的配色和装饰图会一直画到进程重启。这里问外观设置包是否换过（几次 stat），换过就让工具栏取新的调色板；候选窗的皮肤和装饰图在下一次绘制时从外观设置读。
 - (BOOL)applyReplacedSkinPackages {
     if (!_appearance || ![_appearance reloadReplacedSkinPackages]) return NO;
+    [_toolbar reloadToolbarImages];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     return YES;
 }
 
@@ -5616,6 +5623,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     const BOOL systemGlass = [_appearance.globalTheme isEqual:@"system"];
     _toolbar.liquidGlassEnabled = systemGlass;
     [MSIMEInputModeHUDPanel sharedPanel].liquidGlassEnabled = systemGlass;
