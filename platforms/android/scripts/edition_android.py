@@ -9,6 +9,7 @@ full 是现有产品本身：applicationId 仍是 `app.msime.android`，APK 叫 
 
     edition_android.py editions                    # 有 Android 段的版本 id，逗号分隔，full 在最前
     edition_android.py field --edition ID KEY      # 打印 Android 段的字段，或 id、resource_lock、language_dictionaries（每行一个）、features.<功能>（true/false）
+    edition_android.py download-guide --editions ID[,ID...] --download-base URL [--prerelease]  # 发布说明开头的下载指引
 """
 
 from __future__ import annotations
@@ -54,6 +55,41 @@ def field(entry: dict, key: str) -> str:
     return section[key]
 
 
+def download_guide(edition_ids: list[str], download_base: str, prerelease: bool) -> str:
+    """Android 发布说明开头的下载指引：每个版本一行，写明中文名和 APK，完整版排第一、标为推荐。版本发布页上有六个 APK，不说明的话来下载的人不知道该选哪个。名字和 APK 名都取自版本表，加一个版本不用改文案。"""
+    if FULL not in edition_ids:
+        raise SystemExit("the download guide recommends the full edition, which is not in --editions")
+    ordered = [FULL] + [edition for edition in edition_ids if edition != FULL]
+    entries = [edition_entry(edition_id) for edition_id in ordered]
+    full = entries[0]
+    full_apk = f"{full['platforms']['android']['apk_name']}.apk"
+    # 首尾的注释在 GitHub 上不显示，标出这一段是生成的下载指引，读发布说明做更新日志的地方（官网下载页的更新记录）可以按它跳过；与 macOS 的 edition_bundle.py download-guide 用同一对标记。
+    lines = [
+        "<!-- msime-download-guide -->",
+        "## 下载",
+        "",
+        f"大多数人下载第一行的**{full['display_name']['zh-Hans']}**（`{full_apk}`）就行：它是完整版，包含全部输入方案。"
+        "其他版本只带其中一部分方案，包名各不相同，可以和完整版装在同一台手机上。安装包都只支持 64 位 ARM（arm64-v8a）的手机。",
+        "",
+        "| 版本 | 安装包 |",
+        "| --- | --- |",
+    ]
+    for entry in entries:
+        apk = f"{entry['platforms']['android']['apk_name']}.apk"
+        name = entry["display_name"]["zh-Hans"]
+        label = f"**{name}**（完整版，推荐）" if entry["id"] == FULL else name
+        lines.append(f"| {label} | [{apk}]({download_base}{apk}) |")
+    lines += [
+        "",
+        "下载后在手机上打开 APK 安装，再到系统设置的输入法列表里启用它。已经装好的应用会在应用内收到更新，不用再来这里下载。"
+        "`SHA256SUMS` 是这些安装包的 SHA-256 校验值；每个安装包旁边的 `.apk.sha256` 是给旧版本的应用内更新用的，不用下载。",
+    ]
+    if prerelease:
+        lines += ["", "这是预览版：应用内更新只在「预览版」通道提供它，「稳定版」通道不会收到。"]
+    lines.append("<!-- /msime-download-guide -->")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -61,9 +97,15 @@ def main() -> int:
     lookup = commands.add_parser("field")
     lookup.add_argument("--edition", required=True)
     lookup.add_argument("key")
+    guide = commands.add_parser("download-guide")
+    guide.add_argument("--editions", required=True)
+    guide.add_argument("--download-base", required=True)
+    guide.add_argument("--prerelease", action="store_true")
     args = parser.parse_args()
     if args.command == "editions":
         print(",".join(entry["id"] for entry in android_editions()))
+    elif args.command == "download-guide":
+        sys.stdout.write(download_guide(args.editions.split(","), args.download_base, args.prerelease))
     else:
         value = field(edition_entry(args.edition), args.key)
         if value:
