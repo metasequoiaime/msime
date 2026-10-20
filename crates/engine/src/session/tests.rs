@@ -10309,3 +10309,79 @@ fn a_host_finish_ends_the_uppercase_run() {
         LocalInputMode::TemporaryEnglish
     );
 }
+
+#[test]
+fn contacts_lead_with_name_and_combination_without_learning() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, input) in [
+        (SchemeType::Quanpin, "nihao"),
+        (SchemeType::Quanpin, "ni'hao"),
+        (SchemeType::Quanpin, "nh"),
+        (SchemeType::Shuangpin, "nihc"),
+    ] {
+        for slot in 0..2 {
+            let mut session = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.frequency.mode = FrequencyAdjustmentMode::Promote;
+                options.mention_entries = vec![crate::types::MentionEntry {
+                    text: "拟好".into(),
+                    key: "ni'hao".into(),
+                    phone: "202-555-0101".into(),
+                }];
+            });
+            session.set_cloud_candidates_enabled(true);
+            type_text(&mut session, input);
+            let expected = ["拟好", "拟好 202-555-0101"];
+            let view = session.snapshot();
+            assert_eq!(&words(&session)[..2], expected, "{scheme:?}: {input}");
+            assert!(view.candidate_sources[..2]
+                .iter()
+                .all(|source| *source == CandidateSource::Contact));
+            assert!(view.candidate_answers_key[..2].iter().all(|answer| !answer));
+            assert_eq!(
+                words(&session)
+                    .iter()
+                    .filter(|word| *word == "拟好")
+                    .count(),
+                1
+            );
+            if let Some(query) = session.online_query() {
+                session.apply_online_candidate(
+                    &query,
+                    "合成云词",
+                    CandidateSource::CloudSuggestion,
+                );
+                assert_eq!(&words(&session)[..2], expected);
+            }
+            assert_eq!(session.select(slot).commit.as_deref(), Some(expected[slot]));
+            assert!(session.snapshot().editing_text.is_empty());
+            assert!(!fixture.journal().exists(), "联系人选择不得写入个人词库");
+        }
+    }
+}
+
+#[test]
+fn contacts_refresh_live_and_do_not_replace_caret_prefixes() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.set_mention_entries(&[crate::types::MentionEntry {
+        text: "拟好".into(),
+        key: "ni'hao".into(),
+        phone: "202-555-0102".into(),
+    }]);
+    assert_eq!(&words(&session)[..2], ["拟好", "拟好 202-555-0102"]);
+    session.set_caret(Some(2));
+    assert!(!session
+        .snapshot()
+        .candidate_sources
+        .contains(&CandidateSource::Contact));
+    session.set_caret(None);
+    assert_eq!(words(&session)[0], "拟好");
+    session.set_mention_entries(&[]);
+    assert!(!session
+        .snapshot()
+        .candidate_sources
+        .contains(&CandidateSource::Contact));
+    assert_eq!(words(&session)[0], "你好");
+}

@@ -10,6 +10,8 @@ Status: implemented
 
 在 Android 原生输入设置中增加联系人页。只有点击导入或刷新时申请 `READ_CONTACTS`，读取姓名和手机号后写入共享 mentions 名单；清空只删除输入法自己的名单，不触碰系统电话本。名单写入通过 `msime_client_plugins` 的 `save_mentions`，与输入进程共享并由引擎匹配。共享条目增加可选 `phone` 字段，普通 `@` 名单保持为空；引擎把姓名拼音命中的手机号作为 `CandidateSource::Contact` 置顶候选，宿主显示小人标记并禁止释义、学习和候选管理。
 
+姓名与组合候选、独立装载和计数修复由[联系人计数与姓名候选](../bug-fix/2026-10-21-android-contact-candidates.md)部分取代；显式导入、本机快照与共享存储的决定保留。
+
 ## Alternatives considered
 
 每次输入都直接查询系统电话本能得到最新数据，但会在每次输入时读取联系人并扩大隐私边界，也无法满足用户手动刷新要求，因此采用显式导入的本地快照。

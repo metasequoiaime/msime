@@ -412,3 +412,15 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
+
+联系人专项验收（#9000）只在专用 API 28/35 AVD 上执行。先构建并安装当前分支的原生 APK（必须包含当前 Rust 库），再运行：
+
+```sh
+MSIME_ANDROID_CONTACTS_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
+adb -s <serial> install -r target/android/editor-test.apk
+adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.ContactsDeviceSmoke
+```
+
+此开关仅在测试清单中替换一个入口，避免超过 Android 35 的 100 项 instrumentation 限制，不改变产品清单。用例经系统联系人 provider 创建合成姓名和保留号码，实际点击导入、刷新、清空，核对保存计数、普通条及展开面板的完整上屏和右上角标；结束移除本次合成电话本条目并恢复原名单与偏好。必须检查输出含 `MSIME_DEVICE_SMOKE_PASSED` 且不含 `FAILED`，不能只依赖 adb 退出码。
+
+验收拼音版时先安装本分支的 `pinyin` 原生 APK，再用 `MSIME_ANDROID_CONTACTS_SMOKE=pinyin` 构建测试包；instrumentation 命令相同，目标切到 `app.msime.android.pinyin`，测试不会借用全功能版的数据目录。

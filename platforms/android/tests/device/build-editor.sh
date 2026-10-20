@@ -31,6 +31,15 @@ if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
   sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.CandidateUpstreamSkinDeviceSmoke/' \
     platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
 fi
+# 联系人专项复用一个原生宿主入口，避免超过 Android 35 的 100 项限制。
+if [[ "${MSIME_ANDROID_CONTACTS_SMOKE:-0}" == 1 || "${MSIME_ANDROID_CONTACTS_SMOKE:-0}" == pinyin ]]; then
+  contacts_target=app.msime.android
+  if [[ "$MSIME_ANDROID_CONTACTS_SMOKE" == pinyin ]]; then contacts_target=app.msime.android.pinyin; fi
+  contacts_manifest="$build_dir/contacts-manifest.xml"
+  sed "s/app.msime.android.test.CandidateCanvasDeviceSmoke\" android:targetPackage=\"app.msime.android\"/app.msime.android.test.ContactsDeviceSmoke\" android:targetPackage=\"$contacts_target\"/" \
+    "$editor_manifest" > "$contacts_manifest"
+  editor_manifest="$contacts_manifest"
+fi
 "$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" -o "$build_dir/unsigned.apk"
 (cd "$build_dir/dex" && zip -q -0 "$build_dir/unsigned.apk" classes.dex)
 "$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"

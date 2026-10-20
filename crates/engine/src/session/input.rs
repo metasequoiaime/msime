@@ -1276,12 +1276,17 @@ impl InputSession {
             .flatten()
     }
 
-    /// Replaces the `@` mode's list, refreshing the list on screen when that mode is open.
+    /// 替换本地名单，刷新打开的 `@` 列表或普通组字中的联系人候选。
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
         self.queries.set_mentions(entries);
-        (self.local_mode == LocalInputMode::Mention)
-            .then(|| self.update_local_candidates())
-            .flatten()
+        if self.local_mode == LocalInputMode::Mention {
+            self.update_local_candidates()
+        } else {
+            if self.local_mode == LocalInputMode::None && self.has_composition() {
+                self.update_mixed_candidates();
+            }
+            None
+        }
     }
 
     pub fn set_mention_places(&mut self, enabled: bool) -> Option<String> {

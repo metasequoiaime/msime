@@ -216,12 +216,12 @@ final class ImeCandidates {
         s.bindCandidateRenderRelease(button);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
-        String displayedText = ContactCandidatePolicy.displayText(source, text);
+        ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
         String annotation = s.candidateAnnotation(candidate, typed);
-        button.setText(s.candidateLabel("", displayedText, annotation, highlighted));
+        button.setText(s.candidateLabel("", text, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
@@ -285,8 +285,7 @@ final class ImeCandidates {
     }
 
     private KeyboardPressButton candidateButton() {
-        KeyboardPressButton button = ViewPolicy.newPressButton(s);
-        return button;
+        return new ContactCandidateButton(s);
     }
 
     void renderExpandedCandidates() {

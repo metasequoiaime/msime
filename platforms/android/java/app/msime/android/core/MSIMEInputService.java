@@ -7797,7 +7797,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
-        String displayedText = ContactCandidatePolicy.displayText(source, text);
+        ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
@@ -7809,7 +7809,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
-        button.setText(candidateLabel(number, displayedText, annotation, highlighted));
+        button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
