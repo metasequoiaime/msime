@@ -85,7 +85,9 @@ import {
   EmojiPanelKey, EmojiPanelKeyAction, EmojiPanelKeyDecision, EmojiPanelKeyPolicy
 } from './emoji/EmojiPanelKeyPolicy';
 import { EMOJI_TOOLTIP_DELAY_MS, CLIPBOARD_TOOLTIP_MAX_LINES, EmojiPanelTooltipPolicy } from './emoji/EmojiPanelTooltipPolicy';
-import { MASCOT_STICKER_INSET_VP, MascotSticker, MascotStickerPolicy } from './emoji/MascotStickerPolicy';
+import {
+  MASCOT_STICKER_INSET_VP, MASCOT_STICKER_PANEL, MascotSticker, MascotStickerPolicy
+} from './emoji/MascotStickerPolicy';
 import { MascotStickerSource } from './emoji/MascotStickerStore';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
@@ -404,8 +406,8 @@ const SYMBOL_MIN_FONT_SIZE: number = 8;
 const EMOJI_PANEL: string = 'emoji';
 const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
-// 随包的水杉娘表情包，排在「颜文字」「符号」之后；手机底栏上画第一张的缩略图而不是标题。
-const STICKER_PANEL: string = 'mascot-stickers';
+// 随包的水杉娘表情包，读得到时排在所有页签最前、打开面板默认停在这一页（`MascotStickerPolicy.tabOrder` / `openingPanel`）；手机底栏上画第一张的缩略图而不是标题。
+const STICKER_PANEL: string = MASCOT_STICKER_PANEL;
 /** 底栏「水杉娘」页签缩略图四周的留白，让图不贴着选中态的圆角底色。 */
 const STICKER_TAB_INSET_VP: number = 2;
 // The Windows emoji panel's last page (`EmojiPanel::Page::Clipboard`). Only a 2in1 draws it as a tab: the phone reaches clipboard history from its own tools face.
@@ -851,6 +853,8 @@ struct KeyboardView {
         this.loadMascotStickers();
         if (this.emojiItems.length === 0) {
           this.loadEmoji(this.emojiGroup);
+          // 第一次打开时默认选中「水杉娘」，之后与 Windows 的面板一样回到上次那一页；读不到表情包时停在表情页。
+          this.emojiPanel = MascotStickerPolicy.openingPanel(this.emojiPanel, this.mascotStickers.length > 0);
         }
       }
     };
@@ -2143,7 +2147,9 @@ struct KeyboardView {
     if (this.surface === SURFACE_EMOJI) {
       // 最近使用标签位于每一页的底行，所以无论重新打开的是哪一页都会读取它们。
       this.emojiRecents = KeyboardSession.shared.emojiRecents();
-      this.showEmojiPanel(this.emojiPanel);
+      // 与 iOS 每次新建的表情面板一样，有水杉娘表情包时每次打开都直接显示它；读不到时照旧回到上次那一页。
+      this.loadMascotStickers();
+      this.showEmojiPanel(MascotStickerPolicy.openingPanel(this.emojiPanel, this.mascotStickers.length > 0));
     }
   }
 
@@ -8628,7 +8634,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏表情面板，与设计稿和 Android 的 `buildEmojiPanel` 一致：没有标题栏，八列网格，底行是 ABC、分类标签和 ⌫。标签依次是有最近使用时的 🕘、每个 Unicode 分类一个图标，然后是「颜文字」「符号」和画成缩略图的「水杉娘」；「颜文字」「符号」两页放的是文字，各有自己的网格，并在网格上方一行列出分组名；「水杉娘」是贴纸网格，见 `mascotStickerGrid`。
+   * 触屏表情面板，与设计稿和 Android 的 `buildEmojiPanel` 一致：没有标题栏，八列网格，底行是 ABC、分类标签和 ⌫。标签依次是画成缩略图的「水杉娘」（读不到表情包时没有这一个）、有最近使用时的 🕘、每个 Unicode 分类一个图标，然后是「颜文字」「符号」；「颜文字」「符号」两页放的是文字，各有自己的网格，并在网格上方一行列出分组名；「水杉娘」是贴纸网格，见 `mascotStickerGrid`。
    */
   @Builder
   touchEmojiFace() {
@@ -8722,6 +8728,9 @@ struct KeyboardView {
 
         Scroll() {
           Row({ space: EMOJI_GRID_GAP_VP }) {
+            ForEach(this.touchPageTabs(true), (panel: EmojiPanelTab) => {
+              this.touchPageTab(panel)
+            }, (panel: EmojiPanelTab) => `${panel.id}:${this.emojiPanel === panel.id}`)
             if (this.emojiRecents.length > 0) {
               Text(EMOJI_RECENTS_ICON)
                 .fontSize(EMOJI_TAB_FONT_SIZE)
@@ -8753,35 +8762,8 @@ struct KeyboardView {
                 .onClick(() => this.loadEmoji(category.group))
             }, (category: EmojiCategory) =>
               `${category.group}:${this.emojiCategoryActive(category.group)}`)
-            ForEach(this.emojiPageTabs(EMOJI_PANEL_TABS).filter((panel: EmojiPanelTab): boolean => panel.id !== EMOJI_PANEL),
-              (panel: EmojiPanelTab) => {
-              if (panel.id === STICKER_PANEL) {
-                // 「水杉娘」画清单第一张的缩略图，大小、圆角和选中态底色与分类图标一样。
-                Image(KeyboardSession.shared.mascotStickers.uri(this.mascotStickers[0]))
-                  .width(EMOJI_TAB_VP)
-                  .height(EMOJI_TAB_VP)
-                  .padding(STICKER_TAB_INSET_VP)
-                  .objectFit(ImageFit.Contain)
-                  .sourceSize({ width: EMOJI_TAB_VP, height: EMOJI_TAB_VP })
-                  .draggable(false)
-                  .borderRadius(EMOJI_TAB_RADIUS_VP)
-                  .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
-                  .opacity(this.emojiPanel === panel.id ? 1 : EMOJI_TAB_IDLE_OPACITY)
-                  .accessibilityText(MascotStickerPolicy.tabAccessibilityText(this.emojiPanel === panel.id))
-                  .onClick(() => this.showEmojiPanel(panel.id))
-              } else {
-                Text(panel.title)
-                  .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-                  .fontColor(this.emojiPanel === panel.id ? this.emojiSkin.keyForeground : this.emojiSkin.secondary)
-                  .textAlign(TextAlign.Center)
-                  .constraintSize({ minWidth: EMOJI_TAB_VP })
-                  .height(EMOJI_TAB_VP)
-                  .padding({ left: EMOJI_PAGE_TAB_PADDING_VP, right: EMOJI_PAGE_TAB_PADDING_VP })
-                  .borderRadius(EMOJI_TAB_RADIUS_VP)
-                  .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
-                  .accessibilityText(this.emojiPanel === panel.id ? `${panel.title}，已选中` : panel.title)
-                  .onClick(() => this.showEmojiPanel(panel.id))
-              }
+            ForEach(this.touchPageTabs(false), (panel: EmojiPanelTab) => {
+              this.touchPageTab(panel)
             }, (panel: EmojiPanelTab) => `${panel.id}:${this.emojiPanel === panel.id}`)
           }
           .constraintSize({ minWidth: '100%' })
@@ -8828,10 +8810,50 @@ struct KeyboardView {
     .backgroundColor(this.emojiSkin.background)
   }
 
-  /** 要画的页签：包里没有水杉娘表情包时不画「水杉娘」。 */
+  /** 要画的页签和顺序：读得到水杉娘表情包时「水杉娘」排第一，读不到时不画它，其余照常量里的顺序。 */
   private emojiPageTabs(tabs: EmojiPanelTab[]): EmojiPanelTab[] {
-    return tabs.filter((panel: EmojiPanelTab): boolean =>
-      panel.id !== STICKER_PANEL || this.mascotStickers.length > 0);
+    return MascotStickerPolicy.tabOrder<EmojiPanelTab>(tabs, (panel: EmojiPanelTab): string => panel.id,
+      this.mascotStickers.length > 0);
+  }
+
+  /**
+   * 触屏底栏上「表情」一页展开成 🕘 和各分类图标，其他页签按 `emojiPageTabs` 的顺序分在它两边：`leading` 为真时取排在「表情」之前的（读得到表情包时就是「水杉娘」），否则取之后的「颜文字」「符号」。
+   */
+  private touchPageTabs(leading: boolean): EmojiPanelTab[] {
+    const tabs: EmojiPanelTab[] = this.emojiPageTabs(EMOJI_PANEL_TABS);
+    const emoji: number = tabs.findIndex((panel: EmojiPanelTab): boolean => panel.id === EMOJI_PANEL);
+    return leading ? tabs.slice(0, emoji) : tabs.slice(emoji + 1);
+  }
+
+  /** 触屏底栏上的一个页签：「水杉娘」画清单第一张的缩略图，大小、圆角和选中态底色与分类图标一样；其余画标题。 */
+  @Builder
+  touchPageTab(panel: EmojiPanelTab) {
+    if (panel.id === STICKER_PANEL) {
+      Image(KeyboardSession.shared.mascotStickers.uri(this.mascotStickers[0]))
+        .width(EMOJI_TAB_VP)
+        .height(EMOJI_TAB_VP)
+        .padding(STICKER_TAB_INSET_VP)
+        .objectFit(ImageFit.Contain)
+        .sourceSize({ width: EMOJI_TAB_VP, height: EMOJI_TAB_VP })
+        .draggable(false)
+        .borderRadius(EMOJI_TAB_RADIUS_VP)
+        .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
+        .opacity(this.emojiPanel === panel.id ? 1 : EMOJI_TAB_IDLE_OPACITY)
+        .accessibilityText(MascotStickerPolicy.tabAccessibilityText(this.emojiPanel === panel.id))
+        .onClick(() => this.showEmojiPanel(panel.id))
+    } else {
+      Text(panel.title)
+        .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+        .fontColor(this.emojiPanel === panel.id ? this.emojiSkin.keyForeground : this.emojiSkin.secondary)
+        .textAlign(TextAlign.Center)
+        .constraintSize({ minWidth: EMOJI_TAB_VP })
+        .height(EMOJI_TAB_VP)
+        .padding({ left: EMOJI_PAGE_TAB_PADDING_VP, right: EMOJI_PAGE_TAB_PADDING_VP })
+        .borderRadius(EMOJI_TAB_RADIUS_VP)
+        .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
+        .accessibilityText(this.emojiPanel === panel.id ? `${panel.title}，已选中` : panel.title)
+        .onClick(() => this.showEmojiPanel(panel.id))
+    }
   }
 
   /** 贴纸格子的边长，按量出来的网格宽度和列数算。 */
@@ -8841,7 +8863,7 @@ struct KeyboardView {
   }
 
   /**
-   * 水杉娘表情包的网格，触屏与 2in1 共用：竖屏手机四列正方形格子，更宽时按每格约 88vp 加列（`MascotStickerPolicy.columns`）。每格等比缩放居中、四周留白，按显示大小下采样解码；按下时与表情格一样放大。宽度量出来之前不放格子，免得先按 1vp 解码一遍。
+   * 水杉娘表情包的网格，触屏与 2in1 共用：竖屏手机一行五个正方形格子，更宽时按每格约 72vp 加列（`MascotStickerPolicy.columns`）。每格等比缩放居中、四周留白，按显示大小下采样解码；按下时与表情格一样放大。宽度量出来之前不放格子，免得先按 1vp 解码一遍。
    */
   @Builder
   mascotStickerGrid() {
@@ -8888,7 +8910,7 @@ struct KeyboardView {
     })
   }
 
-  /** 2in1 表情面板，参照 Windows 版：「表情」「颜文字」「符号」「水杉娘」「剪贴板」标签、分组行、搜索行和网格。 */
+  /** 2in1 表情面板，参照 Windows 版：「水杉娘」「表情」「颜文字」「符号」「剪贴板」标签（读不到表情包时没有「水杉娘」）、分组行、搜索行和网格。 */
   @Builder
   desktopEmojiFace() {
     Column() {

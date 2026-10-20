@@ -2,7 +2,7 @@ import { TextPolicy } from "../TextPolicy";
 import { utf8Length } from "../Utf8";
 
 /**
- * 表情面板里的水杉娘表情包：清单解析与边界校验、网格列数和复制后的提示文案。
+ * 表情面板里的水杉娘表情包：清单解析与边界校验、页签顺序与默认页、网格列数和复制后的提示文案。
  *
  * 素材是仓库里的 `resources/stickers/shuishan`（66 张 320px 透明 WebP 加 `manifest.json`），由 `stage-resources.sh` 放进 resfile，安装后在 `context.resourceDir/stickers/shuishan`；iOS 与 Android 读的是同一份。清单顺序就是显示顺序，`name` 是这张的含义，读屏标签和提示都用它。上限与 iOS 的 `KeyboardStickerCatalog` 相同。
  */
@@ -11,14 +11,16 @@ import { utf8Length } from "../Utf8";
 export const MASCOT_STICKER_DIRECTORY: string = "stickers/shuishan";
 export const MASCOT_STICKER_MANIFEST: string = "manifest.json";
 export const MASCOT_STICKER_PACK_NAME: string = "水杉娘";
+/** 表情面板里「水杉娘」这一页的标识，页签顺序和打开时停在哪一页都按它认。 */
+export const MASCOT_STICKER_PANEL: string = "mascot-stickers";
 export const MASCOT_STICKER_MAX_COUNT: number = 256;
 export const MASCOT_STICKER_MAX_NAME_CHARACTERS: number = 16;
 export const MASCOT_STICKER_MAX_MANIFEST_BYTES: number = 64 * 1024;
 /** 单张贴纸文件的上限；随包的都在 40KB 以内。 */
 export const MASCOT_STICKER_MAX_IMAGE_BYTES: number = 512 * 1024;
-/** 手机竖屏至少四列；更宽的面板按每格约 88vp 增加列数。 */
-export const MASCOT_STICKER_MIN_COLUMNS: number = 4;
-export const MASCOT_STICKER_CELL_VP: number = 88;
+/** 手机竖屏一行至少五个；更宽的面板按每格约 72vp 增加列数。 */
+export const MASCOT_STICKER_MIN_COLUMNS: number = 5;
+export const MASCOT_STICKER_CELL_VP: number = 72;
 /** 每格图片四周的留白。 */
 export const MASCOT_STICKER_INSET_VP: number = 4;
 
@@ -93,7 +95,24 @@ export class MascotStickerPolicy {
     return typeof file === "string" && FILE_PATTERN.test(file);
   }
 
-  /** 网格列数：至少四列，更宽时按每格约 88vp 增加；宽度还没量出来时按四列。 */
+  /**
+   * 表情面板的页签顺序：有表情包时「水杉娘」挪到最前，其余页签保持原来的相对顺序；读不到表情包（清单无效或包里没有素材）时去掉它，其余照旧。
+   */
+  static tabOrder<T>(tabs: T[], panelOf: (tab: T) => string, available: boolean): T[] {
+    const others: T[] = tabs.filter((tab: T): boolean => panelOf(tab) !== MASCOT_STICKER_PANEL);
+    if (!available) {
+      return others;
+    }
+    const stickers: T[] = tabs.filter((tab: T): boolean => panelOf(tab) === MASCOT_STICKER_PANEL);
+    return stickers.concat(others);
+  }
+
+  /** 打开表情面板时显示哪一页：有表情包时是「水杉娘」，否则还是原来那一页。 */
+  static openingPanel(current: string, available: boolean): string {
+    return available ? MASCOT_STICKER_PANEL : current;
+  }
+
+  /** 网格列数：至少五列，更宽时按每格约 72vp 增加；宽度还没量出来时按五列。 */
   static columns(widthVp: number): number {
     if (!Number.isFinite(widthVp) || widthVp <= 0) {
       return MASCOT_STICKER_MIN_COLUMNS;
