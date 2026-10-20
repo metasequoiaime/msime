@@ -410,3 +410,5 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 ## Windows 皮肤出厂布局
 
 `crates/client-services/src/skin/catalog/factory-layouts/` 的八份 TOML 原样取自 [msime-windows 固定提交 `a60e2948dbba29f32bec58ee4bf44d68ce953a0b` 的 `skins/default/`](https://github.com/metasequoiaime/msime-windows/tree/a60e2948dbba29f32bec58ee4bf44d68ce953a0b/skins/default)，上游各 `<base>/skin.toml` 在本仓以 `<base>.toml` 保存。共享层只读取候选窗几何与开关，不执行样式或脚本。按上游 GPL-3.0 与本仓一同分发，许可全文为仓库根目录的 [LICENSE](../LICENSE)；二进制仍通过各平台既有 GPL 通知和对应源码提供这些内容，无额外分发限制。
+
+macOS 的 `platforms/macos/src/candidate/CandidatePager.h` 对照 msime-windows 固定提交 `a60e2948dbba29f32bec58ee4bf44d68ce953a0b` 的 `server/src/window/candidate_skin_scene.cpp` 与 `ui/src/PagerArrows.cpp`，以 AppKit 重写列表翻页尺寸、布局与圆角三角路径。按 GPL-3.0 与本仓一同分发，许可全文见仓库根目录 [LICENSE](../LICENSE)；二进制分发沿用对应源码提供要求。
