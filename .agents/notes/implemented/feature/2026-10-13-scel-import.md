@@ -74,3 +74,5 @@ Status: implemented
 - [iOS 与鸿蒙的全平台设计](2026-10-07-ios-harmony-all-platform-design.md)：命名词库在那里作为单独的一块列出，细胞词库经它的 `import` 动作进来。
 
 - [Android 导入后应用词条](../bug-fix/2026-10-17-android-import-apply-before-success.md)：解析和权重不变，补充集合入队后趁空闲应用以及繁忙提示。
+
+- [Gboard v1 文本导入](2026-10-20-gboard-dictionary-import.md)：文本格式识别复用共享解析，不改变细胞词库的固定列序与默认权重。
