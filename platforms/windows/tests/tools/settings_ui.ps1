@@ -257,8 +257,20 @@ function Set-CandidateMore($window, [bool]$expanded) {
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
     # 折叠区的标题行是一个整行按钮（照 macOS 的 MoreOptions），没有 ExpandCollapse 模式。主流程的行一直在，折叠区里的行只在展开时出现在 UIA 树里，所以按里面那行在不在判断状态，不对时点按一次标题行。
+    # 这个宿主里，Invoke 对滚出视口的按钮不起作用（IsOffscreen 为真、BoundingRectangle 为空，Click 不触发；云剪贴板的保存按钮同样先滚到底），所以点按前先一档一档往下滚，直到标题行进入视口。用户用鼠标点时它本来就在屏幕上。
     $content = Find-ById $window 'settings-content'
     if ([bool](Find-ByName $content '行内预编辑') -ne $expanded) {
+        $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+        if ($scroll.Current.VerticallyScrollable) {
+            foreach ($percent in 0..10) {
+                $fold = Find-ById $window 'candidate-more'
+                if ($fold -and -not $fold.Current.IsOffscreen) { break }
+                $scroll.SetScrollPercent(-1, $percent * 10)
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        $fold = Find-ById $window 'candidate-more'
+        if (-not $fold -or $fold.Current.IsOffscreen) { throw 'Candidate 更多选项 fold could not be scrolled into view' }
         $fold.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     }
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -267,19 +279,7 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $content = Find-ById $window 'settings-content'
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
-    if ([bool]$inside -ne $expanded) {
-        $again = Find-ById $window 'candidate-more'
-        $content = Find-ById $window 'settings-content'
-        $all = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'candidate-more')))
-        Write-Host "diag: fold count=$($all.Count) status='$($again.Current.ItemStatus)' enabled=$($again.Current.IsEnabled) offscreen=$($again.Current.IsOffscreen) bounds=$($again.Current.BoundingRectangle) logo=$([bool](Find-ByName $content '显示水杉 logo')) follow=$([bool](Find-ByName $content '候选窗口跟随光标')) preedit=$([bool](Find-ByName $content '候选窗口预编辑'))"
-        $again.SetFocus()
-        Start-Sleep -Milliseconds 300
-        [System.Windows.Forms.SendKeys]::SendWait(' ')
-        Start-Sleep -Milliseconds 1500
-        $content = Find-ById $window 'settings-content'
-        Write-Host "diag: after keyboard status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' preedit-inline=$([bool](Find-ByName $content '行内预编辑')) logo=$([bool](Find-ByName $content '显示水杉 logo'))"
-        throw "Candidate 更多选项 did not change to expanded=$expanded"
-    }
+    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
     # 读屏从 ItemStatus 得知展开与否。
     $wanted = if ($expanded) { '已展开' } else { '已收起' }
     $status = (Find-ById $window 'candidate-more').Current.ItemStatus
