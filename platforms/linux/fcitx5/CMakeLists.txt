@@ -281,6 +281,8 @@ if(BUILD_TESTING)
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
     add_test(NAME fcitx5-native-smart-abc
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --smart-abc)
+    add_test(NAME fcitx5-punctuation-context
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --punctuation-context)
     add_test(NAME fcitx5-native-ai
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --ai)
     add_test(NAME fcitx5-local-mode-shortcuts
@@ -324,6 +326,14 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
         foreach(canvas_layout horizontal vertical)
+          add_test(NAME fcitx5-translation-below-${canvas_layout}
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+              MSIME_TEST_TRANSLATION_BELOW=1
+              "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+              "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-translation-below-${canvas_layout} PROPERTIES TIMEOUT 90)
           add_test(NAME fcitx5-gtk-canvas-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
               "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --

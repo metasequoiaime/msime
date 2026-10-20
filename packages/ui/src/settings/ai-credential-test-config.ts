@@ -2,6 +2,7 @@ import type {
   AiCredentialPreferences,
   AiCredentialTestPreferences,
 } from "./ai-credential-preferences";
+import { aiProviderUsesToken } from "./ai-provider-options";
 
 /** Configuration sent to the Linux provider when checking the AI settings. */
 export function aiProviderCredentialTestConfig(
@@ -21,7 +22,7 @@ export function aiServiceCredentialTestConfig(
 ): Record<string, unknown> {
   return {
     ...aiProviderCredentialTestConfig(ai),
-    token,
+    token: aiProviderUsesToken(ai.provider) ? token : "",
   };
 }
 
@@ -35,9 +36,11 @@ export function aiCredentialTestDisabled(
 
 /** Whether the shared AI settings are incomplete for a remote service test. */
 export function aiServiceCredentialTestDisabled(
-  ai: AiCredentialTestPreferences,
+  ai: AiCredentialTestPreferences & Pick<AiCredentialPreferences, "provider">,
   origin: string | null,
   token: string,
 ): boolean {
-  return aiCredentialTestDisabled(ai, origin) || !token.trim();
+  return (
+    aiCredentialTestDisabled(ai, origin) || (aiProviderUsesToken(ai.provider) && !token.trim())
+  );
 }

@@ -831,6 +831,8 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                     const auto &layoutResult = *package->resolvedLayout;
                     const auto &direction = layout == "vertical" ? layoutResult.vertical : layoutResult.horizontal;
                     resolved.layout = direction;
+                    resolved.fitContent = layoutResult.fitContent;
+                    resolved.expandRows = std::clamp(layoutResult.expandRows, 2u, 8u);
                     resolved.tokens.radius = static_cast<float>(layoutResult.cornerRadiusDip);
                     resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);

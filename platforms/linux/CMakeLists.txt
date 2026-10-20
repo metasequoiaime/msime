@@ -577,6 +577,12 @@ endif()
 # IBus 组件文件以版本的包名命名，组件名和引擎名也随版本（full 仍是 msime-linux.xml）。
 msime_edition_source(MSIME_IBUS_COMPONENT_SOURCE data/msime-linux.xml.in)
 configure_file("${MSIME_IBUS_COMPONENT_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml @ONLY)
+if(BUILD_TESTING)
+  add_test(NAME linux-ibus-demand-activation
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/daemon_activation.py"
+                   $<TARGET_FILE:msime-linux-ibus> "${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml")
+  set_tests_properties(linux-ibus-demand-activation PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+endif()
 install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
                 msime-linux-handwriting msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

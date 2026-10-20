@@ -148,6 +148,36 @@ try {
   await engine.keys([...letters("nihao"), null]);
   const picked = await engine.pick(0);
   assert.equal(picked.out.filter((o) => o.t === "commit").length, 1, `pick did not commit: ${JSON.stringify(picked.out)}`);
+  // 卷轴取到真实尾部，页外点选必须保留排序后的座位，过期与伪造文字不能上屏。
+  const shortList = await engine.keys(letters("a"));
+  assert.equal(shortList.allCandidates, null);
+  const full = await engine.setCandidateExpansion(true, shortList.candidateRevision);
+  assert.ok(full.allCandidates.length > 24, "expansion must release the real withheld tail");
+  const last = full.allCandidates.length - 1;
+  const tail = full.allCandidates[last].text;
+  assert.deepEqual((await engine.pickAny(last, full.candidateRevision, "合成错误文字")).out, []);
+  assert.deepEqual((await engine.pickAny(1.5, full.candidateRevision, tail)).out, []);
+  const selectedTail = await engine.pickAny(last, full.candidateRevision, tail);
+  assert.deepEqual(selectedTail.out, [{ t: "commit", text: tail, seat: last }]);
+  assert.equal(selectedTail.allCandidates, null);
+  await engine.reset();
+  const again = await engine.keys(letters("a"));
+  assert.notEqual(again.candidateRevision, full.candidateRevision);
+  assert.deepEqual((await engine.pickAny(last, full.candidateRevision, tail)).out, []);
+  assert.equal((await engine.setCandidateExpansion(true, full.candidateRevision)).allCandidates, null);
+  const opened = await engine.setCandidateExpansion(true, again.candidateRevision);
+  assert.ok(opened.allCandidates);
+  const closed = await engine.setCandidateExpansion(false, opened.candidateRevision);
+  assert.equal(closed.allCandidates, null);
+  assert.deepEqual((await engine.pickAny(0, closed.candidateRevision, closed.page[0].text)).out, []);
+  await engine.setScheme("xiaohe");
+  await engine.setScheme("quanpin");
+  const newInstance = await engine.keys(letters("a"));
+  assert.notEqual(newInstance.candidateRevision.split(":")[0], again.candidateRevision.split(":")[0]);
+  assert.deepEqual((await engine.pick(0, again.candidateRevision, again.page[0].text, 0)).out, []);
+  assert.deepEqual((await engine.pick(0, newInstance.candidateRevision, newInstance.page[0].text, 9)).out, []);
+  assert.equal((await engine.pick(0, newInstance.candidateRevision, newInstance.page[0].text, 0)).out[0].text, newInstance.page[0].text);
+  console.log("smoke: real expanded tail, guarded global/page picks, reset and rebuilt-instance identities verified");
   // 连续切换及返回当前方案都必须逐条结束，真实 Worker 回复也要带回请求编号。
   await Promise.all([engine.setScheme("xiaohe"), engine.setScheme("ziranma"), engine.setScheme("quanpin")]);
   assert.equal(engine.scheme, "quanpin");

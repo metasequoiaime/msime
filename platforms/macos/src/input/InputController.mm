@@ -453,6 +453,19 @@ static CGFloat MSIMESkinLengthValue(const std::optional<msime::mac::SkinLength> 
     return std::isfinite(value) && value >= 0.0 ? static_cast<CGFloat>(value * (length->em ? 1.0 : scale)) : fallback;
 }
 
+// 预编辑外边距只在有文字时参与；canvas 显式行距替换下外边距，稍后由画布统一加到行间。
+static msime::mac::SkinInsets MSIMECandidatePreeditMargins(const msime::mac::ResolvedSkin &skin, BOOL visible, CGFloat scale) {
+    msime::mac::SkinInsets margin;
+    if (!visible || !skin.layout || !skin.layout->preeditMarginDip) return margin;
+    margin = *skin.layout->preeditMarginDip;
+    margin.top *= scale;
+    margin.right *= scale;
+    margin.bottom *= scale;
+    margin.left *= scale;
+    if (skin.canvas && skin.canvas->lineGap) margin.bottom = 0;
+    return margin;
+}
+
 // 释义每个目标语言占一行，宿主内部用 "\n" 分行；共享会话每个候选只存一条不含控制字符的释义，msime_client_apply_translations 遇到 "\n" 会把整批释义拒收，设了第二释义语言后候选下一条释义都不显示（#5598）。所以交给会话时把行分隔换成 U+2028 LINE SEPARATOR（它不是控制字符），读回时在 CandidateTranslation 这唯一的读取处换回 "\n"。
 static NSString *const MSIMEGlossLineSeparator = @"\u2028";
 
@@ -1236,6 +1249,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     std::optional<msime::mac::SkinLayoutGeometry> _candidateLayoutGeometry;
+    BOOL _candidateLayoutFitContent;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
     // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
@@ -7122,6 +7136,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     geometry.textLeft = textLeft;
     geometry.textRight = layout ? MSIMESkinLengthValue(layout->itemPaddingRight, font.pointSize, scale, MSIMECandidateTextRight * scale)
                                 : MSIMECandidateTextRight * scale;
+    if (layout && _candidateLayoutFitContent) geometry.textRight = textLeft;
     // 来源在隐藏序号时仍保留至少 9 DIP 的序号栏，测量和绘制共用同一列起点。
     if (layout) numberWidth = MAX(9.0 * scale, numberWidth);
     geometry.contentLeft = textLeft + ceil(numberWidth) + numberGap;
@@ -7129,7 +7144,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         MSIMECandidateLayoutMetrics(font, glossFont, candidateRow, geometry.contentLeft + geometry.textRight, scale);
     if (layout) {
         metrics.itemGap = MSIMESkinLengthValue(layout->itemGap, font.pointSize, scale, 0.0);
-        metrics.columnGap = metrics.itemGap + 6.0 * scale;
+        metrics.columnGap = metrics.itemGap + (_candidateLayoutFitContent ? 0.0 : 6.0 * scale);
+        metrics.justifyRows = layout->justifyRows.value_or(false);
         metrics.itemMinWidth = vertical ? 0.0 : MSIMESkinLengthValue(layout->itemMinWidth, font.pointSize, scale);
     }
     std::vector<msime::mac::CandidateItemWidths> items;
@@ -7153,8 +7169,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     width = MIN(width, widthCap);
     if (paging) width = MAX(width, 76 * scale);
-    // At least 7em of the candidate font, raised by the skin's floor; the 7em part stays within the half-screen cap (CandidateItemLayout.h).
-    width = MAX(width, msime::mac::CandidateCardMinimumWidth(font.pointSize, minimumWidth, widthCap));
+    // 共享版式用固定 160 DIP 下限，收紧取消下限；原生主题保留 7em。包与装饰的下限始终参与。
+    width = MAX(width, msime::mac::CandidateCardMinimumWidth(font.pointSize, minimumWidth, widthCap,
+        layout ? std::optional<bool>(_candidateLayoutFitContent) : std::nullopt, scale));
     geometry.width = width;
     geometry.lineWidth = MAX(1, width - 2 * inset);
     const msime::mac::CandidatePageMeasure measure = [texts, annotations, translations, font, glossFont, scale, rowPadding](std::size_t row, msime::mac::CandidateRun run, double runWidth) {
@@ -7210,6 +7227,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSUInteger pageCount = 0;
     MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     if (_appearance.vertical) clearance = ((_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0) * scale;
+    CGFloat preeditExtra = 0;
+    id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
@@ -7220,7 +7239,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSAppearance *current = _keymapPanel.appearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
         NSString *theme = [current bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
         auto skin = [_appearance candidateWindowSkinForDark:[theme isEqual:NSAppearanceNameDarkAqua]];
+        const auto margin = MSIMECandidatePreeditMargins(skin, _appearance.showsCandidatePreedit && [preedit length], scale);
+        preeditExtra = margin.top + margin.bottom + (skin.canvas ? skin.canvas->lineGap.value_or(0) : 0);
         _candidateLayoutGeometry = skin.layout;
+        _candidateLayoutFitContent = skin.fitContent;
         _skinShowsSelectedBar = skin.tokens.showSelectedBar;
         if (skin.layout && skin.layout->padding)
             skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
@@ -7231,7 +7253,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                 visible:screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900) preeditWidth:0 minimumWidth:0];
         clearance = MAX(clearance, geometry.rowsHeight + 2 * inset);
     }
-    id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if ([_view[@"candidates"] count]) {
         // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page and `show_candidate_page_number` is on.
         CGFloat header = (pageCount > 1 && _appearance.showsCandidatePageNumber) || (_appearance.showsAppLogo && MSIMECandidateLogoImage()) ? MSIMECandidateHeaderHeight * scale : 0;
@@ -7239,7 +7260,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
             header = MAX(header, MAX(22.0 * scale, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0 * scale));
         }
-        clearance += header;
+        clearance += header + (header > 0 ? preeditExtra : 0);
     }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
@@ -7549,6 +7570,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
+    _candidateLayoutFitContent = skin.fitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
@@ -7588,7 +7610,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     [_keymapPanel orderOut:nil];
     _expandedCursor = MIN(_expandedCursor, count - 1);
     const NSUInteger cursorRow = _expandedCursor / columns;
-    const NSUInteger windowRows = MIN(rows, msime::mac::kExpandedGridVisibleRows);
+    // 来源的 expand_rows 只数首行之后的网格；原生网格把当前页也计入视口。
+    const NSUInteger windowRows = MIN(rows, skin.expandRows ? 1 + *skin.expandRows : msime::mac::kExpandedGridVisibleRows);
     if (_expandedPendingScrollDelta == 0 && _expandedScrollOffset == 0)
         _expandedFirstRow = msime::mac::ExpandedGridFirstRow(_expandedFirstRow, cursorRow, rows, windowRows);
 
@@ -7598,8 +7621,10 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     NSString *rowIndicator = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(cursorRow + 1), (unsigned long)rows];
     const CGFloat indicatorWidth = pageControls ? ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].width) : 0;
     const CGFloat controlsWidth = pageControls ? indicatorWidth + indicatorGap + arrowWidth : 0;
-    const CGFloat headerHeight = (preedit.length || logo || pageControls) ? MAX(preeditHeight, headerRow) : 0;
-    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
+    const auto preeditMargin = MSIMECandidatePreeditMargins(skin, preedit.length > 0, scale);
+    const CGFloat headerContentHeight = (preedit.length || logo || pageControls) ? MAX(preeditHeight, headerRow) : 0;
+    const CGFloat headerHeight = headerContentHeight + preeditMargin.top + preeditMargin.bottom;
+    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     const CGFloat headerWidth = 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControls ? indicatorGap : 0) + controlsWidth;
 
     NSRect rowVisible = visible;
@@ -7683,7 +7708,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         }
         rowTop -= geometry.rowsHeight;
     }
-    const CGFloat controlsBottom = headerBottom + floor((headerHeight - headerRow) / 2);
+    const CGFloat controlsBottom = headerBottom + preeditMargin.bottom + floor((headerContentHeight - headerRow) / 2);
     const CGFloat collapseLeft = width - inset - arrowWidth;
     if (pageControls) {
         NSTextField *indicator = [NSTextField labelWithString:rowIndicator];
@@ -7699,8 +7724,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     }
     if (preedit.length) {
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
-        label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
-                                 width - 2 * inset - logoWidth - controlsWidth - (pageControls ? indicatorGap : 0), preeditHeight);
+        label.frame = NSMakeRect(inset + logoWidth + preeditMargin.left, headerBottom + preeditMargin.bottom + floor((headerContentHeight - preeditHeight) / 2),
+                                 MAX(0.0, width - 2 * inset - logoWidth - preeditMargin.left - preeditMargin.right - controlsWidth - (pageControls ? indicatorGap : 0)), preeditHeight);
         [content.candidateContentView addSubview:label];
     }
     if (logo) {
@@ -7708,7 +7733,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         mark.identifier = @"candidate-logo";
         mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
-        mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
+        mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + preeditMargin.bottom + floor((headerContentHeight - logoSide) / 2), logoSide, logoSide);
         [content.candidateContentView addSubview:mark];
     }
     content.cardTopInset = decorationHeight;
@@ -7791,6 +7816,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
+    _candidateLayoutFitContent = skin.fitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
@@ -7831,26 +7857,29 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL expandable = _appearance.showsCandidateExpandButton && [self expandedCandidatesOffered];
     const BOOL compactExpand = expandable && !pageControls && !preedit.length && !logo;
     const CGFloat pageControlsWidth = (pageControls ? pageIndicatorWidth + indicatorGap + 2 * arrowWidth : 0) + (expandable && !compactExpand ? arrowWidth : 0);
-    const CGFloat headerHeight = MAX(preeditHeight, pageControls || logo || (expandable && !compactExpand) ? headerRow : 0);
+    const auto preeditMargin = MSIMECandidatePreeditMargins(skin, preedit.length > 0, scale);
+    const CGFloat headerContentHeight = MAX(preeditHeight, pageControls || logo || (expandable && !compactExpand) ? headerRow : 0);
+    const CGFloat headerHeight = headerContentHeight + preeditMargin.top + preeditMargin.bottom;
     const CGFloat numberScale = skin.layout && skin.layout->numberScale.has_value()
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
-    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
+    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
     NSRect rowVisible = visible;
     const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
     rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
-    // 同一次输入里横排卡片只变宽不变窄（MSIMEWidestCandidateWidth）：记下的宽度作为这一页的最小宽度交给排版，候选行、翻页和展开键都按同一个宽度对齐，多出来的地方留在右边。记下的宽度含首行右端的展开键那一格，这一页也带它时要先扣掉。
-    const CGFloat steadyWidth = vertical || !_panel.isVisible ? 0.0 : MAX(0.0, _widestHorizontalCandidateWidth - (compactExpand ? arrowWidth : 0));
+    // 普通横排同次组字只变宽不变窄；fitContent 则允许缩回实际内容宽度。历史宽度含首行右端的展开键，当前页带它时先扣掉。
+    const CGFloat steadyWidth = vertical || skin.fitContent || !_panel.isVisible ? 0.0 : MAX(0.0, _widestHorizontalCandidateWidth - (compactExpand ? arrowWidth : 0));
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible preeditWidth:headerWidth
                        minimumWidth:MAX(MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra), steadyWidth)];
     const CGFloat width = pageGeometry.width + (compactExpand ? arrowWidth : 0);
-    _widestHorizontalCandidateWidth = MSIMEWidestCandidateWidth(_widestHorizontalCandidateWidth, width, vertical, _panel.isVisible);
+    _widestHorizontalCandidateWidth = skin.fitContent ? width
+        : MSIMEWidestCandidateWidth(_widestHorizontalCandidateWidth, width, vertical, _panel.isVisible);
     MSIMECandidatePanel *candidatePanel = [self candidatePanelWithAppearance:candidateAppearance];
     candidatePanel.scrollHandler = nil;
     if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];
@@ -7952,7 +7981,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     }
     if (pageControls) {
         // Right-aligned in the top row, centred on the reading when that is taller than the arrows.
-        const CGFloat controlsBottom = headerBottom + floor((headerHeight - headerRow) / 2);
+        const CGFloat controlsBottom = headerBottom + preeditMargin.bottom + floor((headerContentHeight - headerRow) / 2);
         const CGFloat arrowsLeft = width - inset - (expandable ? 3 : 2) * arrowWidth;
         NSTextField *indicator = [NSTextField labelWithString:pageIndicator];
         indicator.identifier = @"candidate-page-indicator";
@@ -7979,14 +8008,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (expandable) {
         const CGFloat buttonHeight = compactExpand ? MIN(headerRow, pageGeometry.rows.front().height) : headerRow;
         const CGFloat buttonBottom = compactExpand ? rowsTop - pageGeometry.rows.front().height + floor((pageGeometry.rows.front().height - buttonHeight) / 2)
-                                                  : headerBottom + floor((headerHeight - headerRow) / 2);
+                                                  : headerBottom + preeditMargin.bottom + floor((headerContentHeight - headerRow) / 2);
         [content.candidateContentView addSubview:[self expandedCandidatesToggleButton:NO
             frame:NSMakeRect(width - inset - arrowWidth, buttonBottom, arrowWidth, buttonHeight) scale:scale]];
     }
     if (preedit.length) {
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
-        label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
-                                 width - 2 * inset - logoWidth - (pageControlsWidth ? pageControlsWidth + indicatorGap : 0), preeditHeight);
+        label.frame = NSMakeRect(inset + logoWidth + preeditMargin.left, headerBottom + preeditMargin.bottom + floor((headerContentHeight - preeditHeight) / 2),
+                                 MAX(0.0, width - 2 * inset - logoWidth - preeditMargin.left - preeditMargin.right - (pageControlsWidth ? pageControlsWidth + indicatorGap : 0)), preeditHeight);
         [content.candidateContentView addSubview:label];
     }
     if (logo) {
@@ -7994,7 +8023,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         mark.identifier = @"candidate-logo";
         mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
-        mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
+        mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + preeditMargin.bottom + floor((headerContentHeight - logoSide) / 2), logoSide, logoSide);
         [content.candidateContentView addSubview:mark];
     }
     content.cardTopInset = decorationHeight;

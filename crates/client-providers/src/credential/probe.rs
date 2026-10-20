@@ -39,18 +39,20 @@ impl ProbeTransport for ChatProbeTransport {
             .timeout(Duration::from_secs(15))
             .build()
             .map_err(|_| ProbeFailure::Connection)?;
-        let response = client
-            .post(endpoint)
-            .bearer_auth(token)
-            .json(body)
-            .send()
-            .map_err(|error| {
-                if error.is_timeout() {
-                    ProbeFailure::Timeout
-                } else {
-                    ProbeFailure::Connection
-                }
-            })?;
+        // 空 Token 是不鉴权的服务（Ollama），不带 Authorization。
+        let request = client.post(endpoint);
+        let request = if token.is_empty() {
+            request
+        } else {
+            request.bearer_auth(token)
+        };
+        let response = request.json(body).send().map_err(|error| {
+            if error.is_timeout() {
+                ProbeFailure::Timeout
+            } else {
+                ProbeFailure::Connection
+            }
+        })?;
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
             return Ok(status);
@@ -107,10 +109,12 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
         return result(false, "此配置测试类型尚未接入。");
     }
     let value = |key| config.get(key).and_then(Value::as_str).unwrap_or("").trim();
-    let token = value("token");
+    // Ollama 不鉴权（`ai::provider_uses_token`）：不看也不发 Token。
+    let uses_token = service != "ai.assistant" || crate::ai::provider_uses_token(value("provider"));
+    let token = if uses_token { value("token") } else { "" };
     let endpoint = value("endpoint");
     let model = value("model");
-    if !crate::credential::usable_token(token) {
+    if uses_token && !crate::credential::usable_token(token) {
         return result(false, "请先填写有效的 API Key。");
     }
     // AI 辅助的接口地址按 `ai::endpoint` 检查，本机和局域网的 http 也可以；语音润色仍只收 https。
@@ -164,6 +168,7 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
         body["reasoning_effort"] = json!("low");
     }
     match transport.post(endpoint, token, &body) {
+        Ok(200..=299) if !uses_token => result(true, "连接成功，模型配置有效。"),
         Ok(200..=299) => result(true, "连接成功，API Key 和模型配置有效。"),
         Ok(401 | 403) => result(false, "认证失败，请检查 API Key 和访问权限。"),
         Ok(429) => result(false, "服务限流或额度不足，请稍后重试。"),
@@ -247,6 +252,29 @@ mod tests {
         }
         assert!(!test_chat("voice.asr", &config("openai"), &fake).ok);
         assert!(fake.bodies.borrow().is_empty());
+    }
+    #[test]
+    fn ollama_chat_test_sends_no_token() {
+        struct Recording(RefCell<Vec<String>>);
+        impl ProbeTransport for Recording {
+            fn post(&self, _: &str, token: &str, _: &Value) -> Result<u16, ProbeFailure> {
+                self.0.borrow_mut().push(token.into());
+                Ok(200)
+            }
+        }
+        let transport = Recording(RefCell::default());
+        let mut request = config("ollama");
+        request["endpoint"] = json!("http://localhost:11434/v1/chat/completions");
+        let tested = test_chat("ai.assistant", &request, &transport);
+        assert!(tested.ok);
+        request["token"] = json!("");
+        assert!(test_chat("ai.assistant", &request, &transport).ok);
+        // 即使请求里带着旧 Token 也不发；语音润色没有不鉴权的服务。
+        assert_eq!(*transport.0.borrow(), ["", ""]);
+        assert!(!test_chat("voice.polish", &request, &transport).ok);
+        request["endpoint"] = json!("http://8.8.8.8/v1/chat/completions");
+        assert!(!test_chat("ai.assistant", &request, &transport).ok);
+        assert_eq!(transport.0.borrow().len(), 2);
     }
     #[test]
     fn credential_chat_accepts_local_network_http_only_for_ai_assistant() {

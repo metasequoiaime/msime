@@ -17055,7 +17055,8 @@ fn ai_settings_exports_reject_invalid_requests_offline() {
         |request: &str| read(unsafe { msime_client_ai_test(request.as_ptr(), request.len()) });
     for request in [
         json!({"endpoint": "http://ai.example/v1/chat/completions", "token": "synthetic"}),
-        json!({"endpoint": "https://ai.example/v1/chat/completions", "token": ""}),
+        // 空 Token 表示不鉴权的服务（Ollama），会真的发请求，这里只放检查拦得住的。
+        json!({"endpoint": "https://ai.example/v1/chat/completions", "token": "bad\ntoken"}),
         json!({"endpoint": "https://ai.example/v1/chat/completions"}),
         json!({"endpoint": "https://ai.example/v1/chat/completions", "token": 7}),
     ] {
@@ -17074,7 +17075,7 @@ fn ai_settings_exports_reject_invalid_requests_offline() {
         ("endpoint", json!("https://user:secret@ai.example/v1")),
         ("model", json!("")),
         ("prompt", json!("bad\0prompt")),
-        ("token", json!("")),
+        ("token", json!("bad\ntoken")),
         ("text", json!("")),
         ("text", Value::Null),
     ] {

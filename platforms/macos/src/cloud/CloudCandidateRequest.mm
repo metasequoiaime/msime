@@ -174,9 +174,11 @@ static BOOL MSIMEIsAllowedDescriptorURL(NSURL *url) {
     NSURL *url = [NSURL URLWithString:address];
     NSDictionary *headers = descriptor[@"headers"];
     // AI 描述符按 AIEndpointPolicy.h 检查：https 不限主机，http 只能指向本机或局域网（如 LM Studio）；翻译描述符仍用上面只放行回环地址的规则。
+    // 不鉴权的服务（Ollama）没有 Authorization，只有 Content-Type 一个头；有 Authorization 时必须是 Bearer。
+    id authorization = [headers isKindOfClass:NSDictionary.class] ? headers[@"Authorization"] : nil;
     if (MSIMEAIEndpointCheck(address) != MSIMEAIEndpointProblemNone || !url.host.length || ![headers isKindOfClass:NSDictionary.class] ||
-        headers.count != 2 || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
-        ![headers[@"Authorization"] isKindOfClass:NSString.class] || ![headers[@"Authorization"] hasPrefix:@"Bearer "]) return self;
+        headers.count != (authorization ? 2 : 1) || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
+        (authorization && (![authorization isKindOfClass:NSString.class] || ![authorization hasPrefix:@"Bearer "]))) return self;
     for (NSString *name in headers) {
         NSString *value = headers[name];
         if (![value isKindOfClass:NSString.class] || !value.length || [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 8192 ||

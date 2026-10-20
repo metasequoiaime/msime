@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <filesystem>
+#include <functional>
 #include <stdexcept>
 #include <thread>
 #include <chrono>
@@ -32,13 +33,17 @@ public:
   explicit FixtureContext(fcitx::InputContextManager &manager) : InputContext(manager, "msime-test") { created(); }
   ~FixtureContext() override { destroy(); }
   const char *frontend() const override { return "msime-test"; }
-  void commitStringImpl(const std::string &text) override { committed += text; }
+  void commitStringImpl(const std::string &text) override {
+    committed += text;
+    if (on_commit) on_commit();
+  }
   void deleteSurroundingTextImpl(int, unsigned int) override {}
   void forwardKeyImpl(const fcitx::ForwardKeyEvent &event) override {
     forwarded.emplace_back(event.rawKey(), event.isRelease());
   }
   void updatePreeditImpl() override {}
   std::string committed;
+  std::function<void()> on_commit;
   std::vector<std::pair<fcitx::Key, bool>> forwarded;
 };
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
@@ -107,7 +112,7 @@ void koreanHanjaGlossRow() {
   auto translated = hanja;
   translated["translation"] = "Korea";
   const auto glossed = word(translated, true, "나라 이름 한, 한나라 한");
-  require(shown(glossed).toString() == "韓  나라 이름 한, 한나라 한  Korea" && shown(glossed).size() == 3 &&
+  require(shown(glossed).toString() == "韓  나라 이름 한, 한나라 한\nKorea" && shown(glossed).size() == 3 &&
               shown(glossed).formatAt(1) == secondary &&
               shown(glossed).formatAt(2) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag),
           "a translation follows the 훈음 and the annotation is not drawn twice");
@@ -136,7 +141,7 @@ void scriptAnnotationRow() {
   require(off.text() == "你", "the script annotation stays out of the selected text");
   const auto both = word(Json{{"text", "你"}, {"annotation", "ab"}, {"script_annotation", "常用"},
                               {"translation", "you"}}, true);
-  require(shown(both).toString() == "你  ab  you  〔常用〕",
+  require(shown(both).toString() == "你  ab\nyou  〔常用〕",
           "the engine annotation and the translation stay, the script annotation comes last");
   require(both.display().body == "你  ab" && both.display().translation == "you" &&
               both.display().suffix == "  〔常用〕" && both.text() == "你",
@@ -145,6 +150,12 @@ void scriptAnnotationRow() {
   const auto segmented = word(Json{{"text", "你"}, {"translation", "n. synthetic"}, {"translation_runs", runs}}, false);
   require(segmented.display().translation_runs == runs && segmented.display().translation == "n. synthetic",
           "原生画布接收共享层的同源释义分段，不在宿主重新解析");
+  const auto lines = shown(segmented).splitByLine();
+  require(lines.size() == 2 && lines[0].toString() == "你" && lines[1].toString() == "n. synthetic",
+          "classicui 通过真实 Text 分行把译文放到候选下方");
+  const auto empty = word(Json{{"text", "你"}, {"translation", ""}}, false);
+  require(shown(empty).toString() == "你" && shown(empty).splitByLine().size() == 1,
+          "空译文不增加空白行");
   const auto hanja = word(Json{{"text", "韓"}, {"annotation", "나라 이름 한"}, {"script_annotation", "注"}},
                           false, "나라 이름 한");
   require(shown(hanja).toString() == "韓  나라 이름 한  〔注〕",
@@ -1246,8 +1257,9 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--caps-lock" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
-                                       std::string(argv[2]) == "--smart-abc")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes|--smart-abc]");
+                                       std::string(argv[2]) == "--smart-abc" ||
+                                       std::string(argv[2]) == "--punctuation-context")),
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1556,6 +1568,53 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--punctuation-context") {
+      engine.scheme_shuangpin_action_.activate(&ic);
+      state->navigation_["comma_period"] = false;
+      const auto press = [&](fcitx::KeySym sym) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym));
+        engine.keyEvent(entry, event);
+        fcitx::KeyEvent release(&ic, fcitx::Key(sym), true);
+        engine.keyEvent(entry, release);
+        return event.accepted();
+      };
+      const auto compose = [&] {
+        for (const auto sym : {FcitxKey_n, FcitxKey_i, FcitxKey_h, FcitxKey_c})
+          require(press(sym), "双拼按键应参与组字");
+      };
+      ic.surroundingText().setText("A", 1, 1);
+      compose();
+      require(press(FcitxKey_space) && ic.committed == "你好",
+              "空格应上屏合成中文候选");
+      require(press(FcitxKey_comma) && ic.committed == "你好，",
+              "中文上屏后不能沿用提交前的 ASCII 前文");
+      // 客户端随后发布的空文档仍是权威状态，不能被旧的 ASCII 影子盖过。
+      state->commitText("A");
+      require(!press(FcitxKey_comma), "尚未刷新文档时应保留刚提交的 ASCII 前文");
+      ic.surroundingText().setText("", 0, 0);
+      require(press(FcitxKey_comma) && ic.committed == "你好，A，",
+              "提交后的新空文档不能回退到旧 ASCII 影子");
+      // 同步前端也可能在提交回调内发布新文档，返回后不能再次把它作废。
+      ic.on_commit = [&] { ic.surroundingText().setText("", 0, 0); };
+      state->commitText("A");
+      ic.on_commit = {};
+      require(press(FcitxKey_comma) && ic.committed == "你好，A，A，",
+              "提交回调内的新前文应保持权威");
+      ic.committed.clear();
+      compose();
+      require(press(FcitxKey_comma) && ic.committed == "你好，",
+              "关闭逗号翻页时组字中的逗号应直接上屏");
+      state->navigation_["comma_period"] = true;
+      compose();
+      const auto beforePage = ic.committed;
+      require(press(FcitxKey_comma) && ic.committed == beforePage && state->composingOrCandidates(),
+              "启用逗号翻页时应保留既有导航行为");
+      press(FcitxKey_Escape);
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
+      return 0;
+    }
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {
       const auto press = [&](fcitx::KeySym sym) {
@@ -2723,9 +2782,6 @@ int main(int argc, char **argv) {
       require(shadowDigit.first, "Unicode mode could not start for smart punctuation shadow");
       for (const auto sym : {FcitxKey_0, FcitxKey_0, FcitxKey_3, FcitxKey_0})
         require(committedBy(sym).first, "Unicode digit input was not consumed");
-      // Publish an authoritative empty document before leaving Unicode mode; the key below commits the
-      // synthetic digit through the normal input-method path and must not make the test lose its shadow.
-      ic.surroundingText().setText("", 0, 0);
       const auto unicodeSpace = committedBy(FcitxKey_space);
       require(unicodeSpace == std::make_pair(true, std::string("0")),
               "Unicode mode did not commit the synthetic ASCII digit");
@@ -2733,10 +2789,11 @@ int main(int argc, char **argv) {
       engine.keyEvent(entry, unicodeSpaceRelease);
       require(!unicodeSpaceRelease.accepted(),
               "Unicode Space release was unexpectedly consumed");
-      // Valid empty surrounding at the document start is authoritative and must not fall back to the old shadow digit.
+      // 提交后由客户端发布的新空文档才代表当前光标，不回退旧的数字影子。
+      ic.surroundingText().setText("", 0, 0);
       require(committedBy(FcitxKey_period) == std::make_pair(true, std::string("。")),
               "Fcitx5 fell back to the shadow after receiving empty surrounding text");
-      // Rebuild the shadow after the Chinese mark above; the next press verifies that a genuinely unavailable document still uses it after a real release.
+      // 重建数字影子，核对文档确实不可用时，真实松键事件仍保留它。
       ic.surroundingText().invalidate();
       require(committedBy(FcitxKey_U, fcitx::KeyStates(fcitx::KeyState::Shift)).first,
               "Unicode mode could not restart for the released-key shadow check");

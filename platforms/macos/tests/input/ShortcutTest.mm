@@ -1321,6 +1321,69 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     assert(!panel.requestedVisible && toggle.state == NSControlStateValueOff);
 }
 
+// 预编辑外边距撑高候选窗时，键位图的避让高度必须覆盖最终卡片。
+static void TestKeymapPreeditMargins()
+{
+    char temporary[] = "/tmp/msime-keymap-preedit-margin-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    std::filesystem::create_directory(root / "margin");
+    {
+        std::ofstream manifest(root / "margin" / "skin.toml");
+        manifest << R"toml(schema_version = 2
+id = "margin"
+name = "Synthetic Keymap Margin"
+version = "1"
+base = "microsoft"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["light", "dark"]
+[candidate_window]
+preedit_margin_dip = [70, 11, 80, 17]
+)toml";
+        assert(manifest.good());
+    }
+    NSString *suite = [@"app.msime.test.keymap-preedit-margin." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+    [defaults setObject:@"margin" forKey:@"MSIMEClientCustomCandidateSkin"];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+        skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    appearance.shuangpinKeymap = YES;
+    appearance.showsAppLogo = NO;
+    appearance.showsCandidatePageNumber = NO;
+    appearance.showsCandidateExpandButton = NO;
+    appearance.preeditFontSize = 12;
+    appearance.themeMode = @"light";
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(20, 400, 1, 20);
+    HiddenKeymapPanel *keymap = [[HiddenKeymapPanel alloc] init];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:keymap forKey:@"keymapPanel"];
+    [controller setValue:panel forKey:@"panel"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    [controller setValue:@{@"scheme": @1, @"local_mode": @"none", @"dedicated_english": @NO,
+        @"shuangpin_profile": @"microsoft", @"editing_text": @"b;", @"preedit": @"bing", @"focused": @YES,
+        @"page": @0, @"page_count": @1, @"candidates": @[@{@"text": @"合成"}]} forKey:@"view"];
+    for (NSNumber *percent in @[@100, @150]) for (NSNumber *vertical in @[@NO, @YES]) {
+        appearance.candidateScalePercent = percent.integerValue;
+        appearance.vertical = vertical.boolValue;
+        for (NSNumber *visible in @[@NO, @YES]) {
+            appearance.showsCandidatePreedit = visible.boolValue;
+            [controller updateKeymapPanel];
+            [controller renderCandidates];
+            assert(keymap.requestedVisible && panel.requestedVisible);
+            assert(keymap.clearance >= panel.frame.size.height);
+        }
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    std::filesystem::remove_all(root);
+}
+
 static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(appearance.chinesePunctuation);
     ModeController *controller = [ModeController alloc];
@@ -12061,6 +12124,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
+        @autoreleasepool { TestKeymapPreeditMargins(); }
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
         assert(fontMethod);
         originalMonospacedFont = method_setImplementation(fontMethod, (IMP)MissingKeyFont);

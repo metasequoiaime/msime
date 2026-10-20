@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component>
-  <name>msime-linux</name>
+  <name>@MSIME_EDITION_TAURI_IDENTIFIER@.IBus</name>
   <description>MSIME Linux input method</description>
   <exec>&quot;@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-ibus-launcher&quot; &quot;@CMAKE_INSTALL_FULL_SYSCONFDIR@/msime-client/runtime-options.json&quot;</exec>
   <version>0.1.0</version>

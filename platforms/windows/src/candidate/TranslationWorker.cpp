@@ -556,18 +556,18 @@ std::optional<std::string> account_glosses(
       reinterpret_cast<const uint8_t *>(parse_request.data()), parse_request.size()));
   if (parsed && parsed->is_object() && parsed->contains("translations") &&
       parsed->at("translations").is_array()) {
-    std::vector<std::optional<std::string>> translations;
+    std::vector<std::optional<std::string>> replies;
     bool shaped = true;
     for (const auto &item : parsed->at("translations")) {
       if (item.is_string())
-        translations.emplace_back(item.get<std::string>());
+        replies.emplace_back(item.get<std::string>());
       else if (item.is_null())
-        translations.emplace_back();
+        replies.emplace_back();
       else
         shaped = false;
     }
     if (shaped)
-      values = account_gloss_values(words, std::move(translations));
+      values = account_gloss_values(words, std::move(replies));
   }
   if (!values)
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
