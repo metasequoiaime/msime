@@ -126,7 +126,8 @@ def main():
             daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env, stdout=log, stderr=log)
             try:
                 if COMPOSITED:
-                    compositor = subprocess.Popen(["xcompmgr", "-a"], env=env, stdout=log, stderr=log)
+                    # -n 由 xcompmgr 自己按 alpha 合成到根窗口上；-a 交给服务器自动重定向，不按 alpha 混合，投影边距会成一圈黑，看不出投影。
+                    compositor = subprocess.Popen(["xcompmgr", "-n"], env=env, stdout=log, stderr=log)
                     wait(lambda: Gdk.selection_owner_get(Gdk.Atom.intern("_NET_WM_CM_S0", False)) is not None)
                 wait(lambda: bus.name_has_owner("org.fcitx.Fcitx5"))
                 control = dbus.Interface(bus.get_object("org.fcitx.Fcitx5", "/controller"),
@@ -221,18 +222,22 @@ def main():
                 subprocess.run(["xdotool", "mousemove", "0", "0"], check=True, timeout=5)
                 wait(lambda: not card_visible(HOVER))
                 if COMPOSITED:
-                    # 卡片正下方 3px 处压着投影，比窗口下面同一列的编辑器底色暗；投影边距不吞鼠标，指针移过去不算悬停。
+                    # 卡片正下方 3px 处压着投影，比窗口下面同一列的编辑器底色暗，但不是黑的；离卡片 11px 的左边距几乎就是编辑器底色（投影边距按 alpha 合成，不是一圈不透明的底）。
                     image, _ = screenshot()
                     channels, stride, data = image.get_n_channels(), image.get_rowstride(), image.get_pixels()
-                    left, _, right, bottom = card_rect()
+                    left, top, right, bottom = card_rect()
                     bounds = window_geometry(native_window())
                     column = (left + right) // 2
                     beneath = int(bounds["Y"]) + int(bounds["HEIGHT"]) + 2 * SCALE
 
-                    def brightness(y):
-                        return sum(data[y * stride + column * channels:y * stride + column * channels + 3])
+                    def brightness(x, y):
+                        return sum(data[y * stride + x * channels:y * stride + x * channels + 3])
 
-                    assert brightness(bottom + 3 * SCALE) + 30 < brightness(beneath), "卡片下方没有投影"
+                    background = brightness(column, beneath)
+                    shaded = brightness(column, bottom + 3 * SCALE)
+                    assert background - 250 < shaded < background - 30, f"卡片下方没有投影：{shaded} 对 {background}"
+                    margin = brightness(left - 11 * SCALE, (top + bottom) // 2)
+                    assert margin > background - 20, f"投影边距没有按 alpha 合成：{margin} 对 {background}"
                 if LAYOUT == "horizontal":
                     # 「展开候选」打开时 ↓ 把全部候选排成多行网格，Esc 收起而组字保留。
                     height = int(window_geometry(native_window())["HEIGHT"])
