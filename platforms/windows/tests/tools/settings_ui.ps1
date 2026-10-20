@@ -296,11 +296,11 @@ public static class SettingsMouse {
         $bottom = $window.Current.BoundingRectangle.Bottom - 6
         $x = [int]($rect.Left + 40)
         $y = [int][Math]::Min($rect.Top + $rect.Height / 2, $bottom)
-        Write-Host "diag: after invoke status='$($fold.Current.ItemStatus)' offscreen=$($fold.Current.IsOffscreen) rect=$rect click=($x,$y)"
+        Write-Host "diag: after invoke help='$($fold.Current.HelpText)' status='$($fold.Current.ItemStatus)' offscreen=$($fold.Current.IsOffscreen) rect=$rect click=($x,$y)"
         [SettingsMouse]::Click($x, $y)
         Start-Sleep -Milliseconds 1500
         $content = Find-ById $window 'settings-content'
-        Write-Host "diag: after mouse status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' inside=$([bool](Find-ByName $content '行内预编辑'))"
+        Write-Host "diag: after mouse help='$((Find-ById $window 'candidate-more').Current.HelpText)' status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' inside=$([bool](Find-ByName $content '行内预编辑'))"
         Save-Window $window 'diag-after-mouse.png'
         throw "Candidate 更多选项 did not change to expanded=$expanded"
     }

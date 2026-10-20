@@ -4715,15 +4715,25 @@ private:
     header.Click([this, weak_body = make_weak(body), weak_turn = make_weak(turn),
                   on_toggle = std::move(remember)](Inspectable const &sender,
                                                    RoutedEventArgs const &) {
+      auto self = sender.as<Button>();
+      A11y::SetHelpText(self, L"diag:enter");
       auto panel = weak_body.get();
-      if (!panel)
+      if (!panel) {
+        A11y::SetHelpText(self, L"diag:no-panel");
         return;
+      }
       const bool expanded = panel.Visibility() == Visibility::Collapsed;
       panel.Visibility(expanded ? Visibility::Visible : Visibility::Collapsed);
-      A11y::SetItemStatus(sender.as<Button>(), expanded ? L"已展开" : L"已收起");
-      if (auto marker_turn = weak_turn.get())
-        turn_fold_marker(marker_turn, expanded);
+      A11y::SetItemStatus(self, expanded ? L"已展开" : L"已收起");
+      A11y::SetHelpText(self, expanded ? L"diag:shown" : L"diag:hidden");
+      try {
+        if (auto marker_turn = weak_turn.get())
+          turn_fold_marker(marker_turn, expanded);
+      } catch (hresult_error const &error) {
+        A11y::SetHelpText(self, hstring(L"diag:turn-threw ") + error.message());
+      }
       on_toggle(expanded);
+      A11y::SetHelpText(self, hstring(L"diag:done ") + (panel.Visibility() == Visibility::Visible ? L"visible" : L"collapsed"));
     });
     group.Children().Append(fold);
     return rows;
