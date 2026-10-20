@@ -574,6 +574,43 @@ try {
             }
         }
         Assert-CanvasPreview $window $theme
+        # 侧栏搜索照 macOS：有查询时页面列表整个换成结果列表，名字匹配的页面排在最前，设置行的第二行（读屏帮助文本）是「页 › 标签 › 分组」；查不到时写「没有匹配的设置」；Esc 清空查询，页面列表回来。
+        $search = Find-ById $window 'settings-search'
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+        $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
+        if (-not $input) { throw 'Settings search input is missing' }
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('剪贴板')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $results = Find-ById $window 'settings-search-results'
+            $first = if ($results) { Find-ById $results 'settings-search-result-0' } else { $null }
+            $row = if ($results) { Find-ByName $results '剪贴板历史' } else { $null }
+        } while ((-not $first -or -not $row) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $first -or $first.Current.Name -ne '剪贴板' -or $first.Current.HelpText) { throw 'Search results do not start with the matching page' }
+        if (-not $row -or $row.Current.HelpText -ne '剪贴板 › 设置 › 剪贴板') { throw "Search result path is wrong: $($row.Current.HelpText)" }
+        $listed = Find-ById $window 'typing'
+        if ($listed -and -not $listed.Current.IsOffscreen) { throw 'The page list is still shown while searching' }
+        Save-Window $window "$theme-search-results.png"
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('没有这个设置项')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $results = Find-ById $window 'settings-search-results'
+            $empty = if ($results) { Find-ByName $results '没有匹配的设置' } else { $null }
+        } while (-not $empty -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $empty) { throw 'Search without matches does not say 没有匹配的设置' }
+        $input.SetFocus()
+        [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $item = Find-ById $window 'typing'
+        } while ((-not $item -or $item.Current.IsOffscreen) -and [DateTime]::UtcNow -lt $deadline)
+        $results = Find-ById $window 'settings-search-results'
+        if (-not $item -or $item.Current.IsOffscreen -or ($results -and -not $results.Current.IsOffscreen)) { throw 'Escape did not clear the search and bring the page list back' }
         # 搜索落到页内标签里的行时先切到那个标签：「打开手写识别板」在「键盘与手写」页的「手写」标签里，从「键盘」标签搜它。
         Open-Page $window 'osk'
         Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'

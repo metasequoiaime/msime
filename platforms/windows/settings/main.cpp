@@ -59,6 +59,7 @@
 #include "SettingsNavIcons.h"
 #include "SettingsNavigation.h"
 #include "SettingsStateDirectory.h"
+#include "SettingsText.h"
 #include "ShellLauncher.h"
 #include "ThemeSkinModel.h"
 #include "ToolbarIcons.h"
@@ -1045,8 +1046,20 @@ const PageLabel &page_label(std::string_view id) {
   return page_labels[0];
 }
 
-// The line the search list shows when nothing matches. It is a list item, so it can be highlighted and submitted like a result; the search box treats it as neither.
-constexpr std::wstring_view no_search_results = L"没有找到相关设置";
+// 页面结果除了侧栏上的名字，也按共享设置 UI 的注册名匹配（`use-settings-shell-navigation.tsx` 的 `shownSidebarGroups`）：合并后的「键盘与手写」仍能按「屏幕键盘」找到，AI 页也能按「AI 辅助」和并进来的连接助手页「AI 助手」找到。
+std::vector<std::wstring_view> page_search_names(std::string_view id) {
+  std::vector<std::wstring_view> names{page_label(id).title};
+  if (id == "osk")
+    names.push_back(L"屏幕键盘");
+  if (id == "ai") {
+    names.push_back(L"AI 辅助");
+    names.push_back(L"AI 助手");
+  }
+  return names;
+}
+
+// 侧栏搜索没有结果时结果列表里的那句话，与 macOS 相同。
+constexpr std::wstring_view no_search_results = L"没有匹配的设置";
 
 constexpr const wchar_t *download_url = L"https://msime.app/download/";
 constexpr const wchar_t *privacy_url = L"https://msime.app/privacy/";
@@ -1665,13 +1678,15 @@ struct Check {
   bool enabled = true;
 };
 
+// 侧栏搜索的一条结果：整页（`whole_page`，只写页名，打开那一页）或页里的一行（打开那一页并把焦点交给这一行）。
 struct SearchEntry {
   std::wstring title;
-  std::wstring detail;
   std::string page;
   // 条目所在的页内标签（`page_tab_bar`），不在标签里时为空；选中这条结果时先切到这个标签。
   std::wstring tab;
-  std::wstring display;
+  // 结果第二行的位置「页 › 标签 › 分组」，没有标签或分组时省掉那一段，整页结果为空。
+  std::wstring path;
+  bool whole_page = false;
 };
 
 struct ThemePreview {
@@ -3379,7 +3394,7 @@ private:
     render_page(true);
   }
 
-  // 切换明暗时保留滚动位置和侧栏搜索内容；恢复文字不会主动打开建议列表。
+  // 切换明暗时保留滚动位置和侧栏搜索内容；写回文字时结果列表随之重建。
   void rebuild_shell() {
     const double offset = scroll_ ? scroll_.VerticalOffset() : 0.0;
     const hstring query = search_ ? search_.Text() : hstring();
@@ -3691,39 +3706,130 @@ private:
     return bar;
   }
 
-  AutoSuggestBox make_search_field() {
-    search_ = AutoSuggestBox();
-    search_.PlaceholderText(L"搜索设置");
-    search_.QueryIcon(SymbolIcon(Symbol::Find));
+  // 侧栏搜索框照 macOS（`settings-style.ts` 的 `sidebarSearch`、`settings-navigation-search.tsx`）：32 DIP 高、圆角 8、没有描边，底色浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.07)，悬停不变；左边 10 DIP 处一个 15 DIP 的次要色放大镜，相隔 8 是 13 DIP 的文字，占位文字「搜索」；聚焦时是 2 DIP 的强调色边框。WinUI 的 `TextBox` 没有左侧图标，放大镜叠在输入框上、不接收指针，输入框用左内边距给它让位；底色、边框和文字色经模板资源 `TextControl*` 覆盖，模板的视觉状态才不会把它们换回系统色。读屏名仍是「搜索设置」，自动化 ID 是 `settings-search`。
+  FrameworkElement make_search_field() {
+    Grid field;
+    field.Height(32);
+    field.Margin(Thickness{12, 4, 12, 12});
+    field.HorizontalAlignment(HorizontalAlignment::Stretch);
+    field.VerticalAlignment(VerticalAlignment::Center);
+
+    search_ = TextBox();
+    search_.PlaceholderText(L"搜索");
+    search_.FontSize(13);
     search_.Height(32);
-    search_.Margin(Thickness{12, 4, 12, 12});
+    search_.MinHeight(32);
+    search_.Padding(Thickness{33, 7, 10, 7});
+    search_.CornerRadius(CornerRadius{8, 8, 8, 8});
+    search_.BorderThickness(Thickness{0, 0, 0, 0});
     search_.HorizontalAlignment(HorizontalAlignment::Stretch);
-    search_.VerticalAlignment(VerticalAlignment::Center);
+    const auto fill = palette_.dark ? rgba(255, 255, 255, .07) : rgba(0, 0, 0, .055);
+    auto resources = search_.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    for (const auto *suffix : {L"", L"PointerOver", L"Focused"}) {
+      put((std::wstring(L"TextControlBackground") + suffix).c_str(), fill);
+      put((std::wstring(L"TextControlForeground") + suffix).c_str(), palette_.text);
+      put((std::wstring(L"TextControlPlaceholderForeground") + suffix).c_str(), palette_.sub);
+    }
+    put(L"TextControlBorderBrush", transparent_color());
+    put(L"TextControlBorderBrushPointerOver", transparent_color());
+    put(L"TextControlBorderBrushFocused", palette_.accent);
+    // 模板的 Focused 状态把边框厚度换成这个资源（不聚焦时用控件自己的 0），四边都是 2，就是 macOS 聚焦时的强调色外框。
+    resources.Insert(box_value(L"TextControlBorderThemeThicknessFocused"),
+                     box_value(Thickness{2, 2, 2, 2}));
     A11y::SetName(search_, L"搜索设置");
     A11y::SetAutomationId(search_, L"settings-search");
-    search_.TextChanged([this](AutoSuggestBox const &sender,
-                               AutoSuggestBoxTextChangedEventArgs const &args) {
-      const auto reason = args.Reason();
-      if (reason == AutoSuggestionBoxTextChangeReason::UserInput) {
-        search_query_ = sender.Text().c_str();
-        update_suggestions(search_query_);
-      } else if (reason == AutoSuggestionBoxTextChangeReason::SuggestionChosen &&
-                 std::wstring_view(sender.Text()) == no_search_results) {
-        // 无结果提示不能替换用户已经输入的查询。
-        sender.Text(hstring(search_query_));
-      }
+    search_.TextChanged([this](Inspectable const &, TextChangedEventArgs const &) {
+      update_search_results(std::wstring(search_.Text().c_str()));
     });
-    search_.QuerySubmitted(
-        [this](AutoSuggestBox const &,
-               AutoSuggestBoxQuerySubmittedEventArgs const &args) {
-          std::wstring chosen;
-          if (const auto item = args.ChosenSuggestion())
-            chosen = unbox_value_or<hstring>(item, L"").c_str();
-          if (std::wstring_view(chosen) == no_search_results)
-            return;
-          open_search_result(chosen, std::wstring(args.QueryText().c_str()));
-        });
-    return search_;
+    // 与 macOS 一样，组字期间不抢回车和 Esc（`settings-navigation-search.tsx` 的 `isComposingKeyEvent`）：输入法的组字起止由这两个事件告知。
+    search_composing_ = false;
+    search_.TextCompositionStarted(
+        [this](TextBox const &, TextCompositionStartedEventArgs const &) { search_composing_ = true; });
+    search_.TextCompositionEnded(
+        [this](TextBox const &, TextCompositionEndedEventArgs const &) { search_composing_ = false; });
+    // 有查询时上下键在结果里移动高亮、回车打开高亮的那条，Esc 清空查询。
+    search_.PreviewKeyDown([this](Inspectable const &, Input::KeyRoutedEventArgs const &args) {
+      if (search_composing_)
+        return;
+      const auto key = args.Key();
+      if (key == Windows::System::VirtualKey::Escape) {
+        if (search_.Text().empty())
+          return;
+        args.Handled(true);
+        clear_search();
+        return;
+      }
+      if (key != Windows::System::VirtualKey::Down && key != Windows::System::VirtualKey::Up &&
+          key != Windows::System::VirtualKey::Enter)
+        return;
+      const std::wstring typed(search_.Text().c_str());
+      if (search_needle(typed).empty())
+        return;
+      args.Handled(true);
+      // UI 自动化直接写值后马上回车时，TextChanged 可能还没轮到，先按框里的文字重查。
+      if (typed != search_query_)
+        update_search_results(typed);
+      if (search_hits_.empty())
+        return;
+      if (key == Windows::System::VirtualKey::Enter) {
+        open_search_result(search_hits_[std::min(search_active_, search_hits_.size() - 1)]);
+        return;
+      }
+      const size_t count = search_hits_.size();
+      search_active_ = key == Windows::System::VirtualKey::Down
+                           ? (search_active_ + 1) % count
+                           : (search_active_ + count - 1) % count;
+      paint_search_results();
+      search_buttons_[search_active_].StartBringIntoView();
+    });
+    field.Children().Append(search_);
+
+    // 放大镜照 macOS 的 16 × 16 图形：圆心 (7, 7)、半径 5 的圆和从 (11, 11) 到 (14.5, 14.5) 的柄，1.8 粗、圆头，整体缩到 15 DIP。XAML 的椭圆把描边画在宽高之内，所以外径是 10 加一个线宽。
+    const double unit = 15.0 / 16.0;
+    Canvas glyph;
+    glyph.Width(15);
+    glyph.Height(15);
+    glyph.Margin(Thickness{10, 0, 0, 0});
+    glyph.HorizontalAlignment(HorizontalAlignment::Left);
+    glyph.VerticalAlignment(VerticalAlignment::Center);
+    glyph.IsHitTestVisible(false);
+    Shapes::Ellipse lens;
+    lens.Width(11.8 * unit);
+    lens.Height(11.8 * unit);
+    lens.Stroke(brush(palette_.sub));
+    lens.StrokeThickness(1.8 * unit);
+    Canvas::SetLeft(lens, 1.1 * unit);
+    Canvas::SetTop(lens, 1.1 * unit);
+    glyph.Children().Append(lens);
+    Shapes::Line handle;
+    handle.X1(11 * unit);
+    handle.Y1(11 * unit);
+    handle.X2(14.5 * unit);
+    handle.Y2(14.5 * unit);
+    handle.Stroke(brush(palette_.sub));
+    handle.StrokeThickness(1.8 * unit);
+    handle.StrokeStartLineCap(PenLineCap::Round);
+    handle.StrokeEndLineCap(PenLineCap::Round);
+    glyph.Children().Append(handle);
+    field.Children().Append(glyph);
+    return field;
+  }
+
+  // 侧栏搜索结果，照 macOS（`use-settings-shell-navigation.tsx` 的 `navSearchResults`）：有查询时页面列表整个换成结果列表，不是下拉框。结果放在导航视图的 PaneCustomContent 里（模板中排在页面列表之上），查询期间页面列表的各项收起；列表自己滚动，最高到侧栏底部（`fit_search_results`）。读屏名「设置搜索结果」，自动化 ID 是 `settings-search-results`。
+  ScrollViewer make_search_results() {
+    search_list_ = StackPanel();
+    search_list_.Margin(Thickness{12, 0, 12, 0});
+    search_scroll_ = ScrollViewer();
+    search_scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+    search_scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    search_scroll_.Content(search_list_);
+    search_scroll_.Visibility(Visibility::Collapsed);
+    A11y::SetName(search_scroll_, L"设置搜索结果");
+    A11y::SetAutomationId(search_scroll_, L"settings-search-results");
+    return search_scroll_;
   }
 
   NavigationView make_navigation() {
@@ -3775,6 +3881,10 @@ private:
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     view.PaneHeader(make_search_field());
+    view.PaneCustomContent(make_search_results());
+    view.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
+      fit_search_results();
+    });
 
     // 与 macOS 侧栏一样平铺 16 个页面，不插分组标题；顺序取自 `SettingsNavigation.h`（按共享设置 UI 的 `settingsNavGroups` 排列）。
     for (const auto &page : nav::pages) {
@@ -3881,27 +3991,39 @@ private:
     for (const auto &page : nav::pages) {
       current_page_ = std::string(page.id);
       tab_index_.clear();
+      index_tabs_.clear();
+      group_index_.clear();
       StackPanel scratch;
       build_page(page.id, scratch);
     }
     current_page_ = saved_page;
     tab_index_.clear();
+    index_tabs_.clear();
+    group_index_.clear();
     indexing_ = false;
     index_revision_ = document_.revision();
     index_valid_ = true;
   }
 
-  void record(std::wstring const &title, std::wstring const &detail) {
+  // 说明不进索引：与 macOS 一样只按行标题匹配（`settings-search-index.ts` 不读说明、表单值和历史），调用处照常传行的说明。结果的第二行是「页 › 标签 › 分组」：标签取建索引时正在画的那一块（`in_tab`），分组取这一行之前最近的 `add_group` 标题。
+  void record(std::wstring const &title, [[maybe_unused]] std::wstring const &detail) {
     if (!indexing_ || title.empty())
       return;
     if (!fold_index_.empty())
       search_folds_[title] = fold_index_;
     SearchEntry entry;
     entry.title = title;
-    entry.detail = detail;
     entry.page = current_page_;
     entry.tab = tab_index_;
-    entry.display = title + L" · " + page_label(current_page_).title;
+    entry.path = page_label(current_page_).title;
+    if (!tab_index_.empty())
+      for (const auto &tab : index_tabs_)
+        if (tab.value == tab_index_) {
+          entry.path += L" › " + tab.label;
+          break;
+        }
+    if (!group_index_.empty())
+      entry.path += L" › " + group_index_;
     search_index_.push_back(std::move(entry));
   }
 
@@ -3919,61 +4041,163 @@ private:
       focus_target_ = element;
   }
 
-  std::vector<SearchEntry const *> search(std::wstring const &query) {
-    if (!index_valid_ || index_revision_ != document_.revision())
-      rebuild_search_index();
-    std::vector<SearchEntry const *> matches;
-    matches.reserve(12);
-    const auto needle = lowercase(query);
+  // 查询按 JavaScript 的 trim 去掉两头空白再转小写，与 macOS 的 `navQuery.trim().toLocaleLowerCase()` 相同；为空表示没在搜索。
+  static std::wstring search_needle(std::wstring const &query) {
+    return lowercase(nav::text::trim(query));
+  }
+
+  // 结果照 macOS 的顺序：先是名字匹配的页面（侧栏顺序），再是标题匹配的设置行（索引顺序），不设条数上限。同一页同一位置的同名行只列一次。
+  std::vector<SearchEntry> search(std::wstring const &query) {
+    std::vector<SearchEntry> matches;
+    const auto needle = search_needle(query);
     if (needle.empty())
       return matches;
+    if (!index_valid_ || index_revision_ != document_.revision())
+      rebuild_search_index();
+    for (const auto &page : nav::pages) {
+      const auto names = page_search_names(page.id);
+      if (std::none_of(names.begin(), names.end(), [&needle](std::wstring_view name) {
+            return lowercase(name).find(needle) != std::wstring::npos;
+          }))
+        continue;
+      SearchEntry entry;
+      entry.title = page_label(page.id).title;
+      entry.page = std::string(page.id);
+      entry.whole_page = true;
+      matches.push_back(std::move(entry));
+    }
     for (const auto &entry : search_index_) {
-      const bool hit =
-          lowercase(entry.title).find(needle) != std::wstring::npos ||
-          lowercase(entry.detail).find(needle) != std::wstring::npos ||
-          lowercase(page_label(entry.page).title).find(needle) !=
-              std::wstring::npos;
-      if (hit)
-        matches.push_back(&entry);
-      if (matches.size() == 12)
-        break;
+      if (lowercase(entry.title).find(needle) == std::wstring::npos)
+        continue;
+      const bool repeated = std::any_of(matches.begin(), matches.end(), [&entry](SearchEntry const &shown) {
+        return !shown.whole_page && shown.title == entry.title && shown.page == entry.page &&
+               shown.path == entry.path;
+      });
+      if (!repeated)
+        matches.push_back(entry);
     }
     return matches;
   }
 
-  void update_suggestions(std::wstring const &query) {
-    std::vector<Inspectable> items;
-    items.reserve(13);
-    for (const auto *entry : search(query))
-      items.push_back(box_value(hstring(entry->display)));
-    if (items.empty() && !query.empty())
-      items.push_back(box_value(hstring(no_search_results)));
-    search_.ItemsSource(single_threaded_vector<Inspectable>(std::move(items)));
+  // 按查询重建结果列表：有查询时收起页面列表、显示结果，第一条高亮；查询清空时换回页面列表。
+  void update_search_results(std::wstring const &query) {
+    search_query_ = query;
+    const bool searching = !search_needle(query).empty();
+    search_hits_ = search(query);
+    search_active_ = 0;
+    search_buttons_.clear();
+    if (!search_list_ || !navigation_)
+      return;
+    search_list_.Children().Clear();
+    for (auto const &value : navigation_.MenuItems())
+      if (const auto item = value.try_as<NavigationViewItem>())
+        item.Visibility(searching ? Visibility::Collapsed : Visibility::Visible);
+    search_scroll_.Visibility(searching ? Visibility::Visible : Visibility::Collapsed);
+    if (!searching)
+      return;
+    fit_search_results();
+    search_scroll_.ChangeView(nullptr, 0.0, nullptr, true);
+    if (search_hits_.empty()) {
+      // 照 macOS 的 `role="status"`：14 DIP、60% 不透明度，读屏礼貌播报。
+      auto empty = make_text(no_search_results, 14, palette_.text);
+      empty.Opacity(0.6);
+      empty.Margin(Thickness{12, 8, 12, 8});
+      A11y::SetLiveSetting(empty, Automation::Peers::AutomationLiveSetting::Polite);
+      search_list_.Children().Append(empty);
+      return;
+    }
+    for (size_t i = 0; i < search_hits_.size(); ++i) {
+      auto button = make_search_result(search_hits_[i], i);
+      search_buttons_.push_back(button);
+      search_list_.Children().Append(button);
+    }
+    paint_search_results();
   }
 
-  void open_search_result(std::wstring const &chosen, std::wstring const &query) {
-    const auto matches = search(query.empty() ? chosen : query);
-    SearchEntry const *target = nullptr;
-    for (const auto *entry : matches)
-      if (entry->display == chosen)
-        target = entry;
-    if (!target && !chosen.empty())
-      for (const auto &entry : search_index_)
-        if (entry.display == chosen)
-          target = &entry;
-    if (!target && !matches.empty())
-      target = matches.front();
-    if (!target)
+  // 一条结果照 macOS 的结果按钮：内边距左右 12、上下 8，圆角 8，条与条相隔 4；13 DIP 标题，下面相隔 4 是 12 DIP、60% 不透明度的位置。悬停铺 10% 的强调色，高亮的那条是 15%（`paint_search_results`）。结果不进 Tab 顺序，键盘在搜索框里用上下键选；读屏名是标题，帮助文本是位置。
+  Button make_search_result(SearchEntry const &hit, size_t index) {
+    StackPanel lines;
+    lines.Spacing(4);
+    lines.Children().Append(make_text(hit.title, 13, palette_.text));
+    if (!hit.path.empty()) {
+      auto path = make_text(hit.path, 12, palette_.text);
+      path.Opacity(0.6);
+      lines.Children().Append(path);
+    }
+    Button button;
+    button.Content(lines);
+    button.HorizontalAlignment(HorizontalAlignment::Stretch);
+    button.HorizontalContentAlignment(HorizontalAlignment::Left);
+    button.Padding(Thickness{12, 8, 12, 8});
+    button.Margin(Thickness{0, 0, 0, 4});
+    button.CornerRadius(CornerRadius{8, 8, 8, 8});
+    button.BorderThickness(Thickness{0, 0, 0, 0});
+    button.IsTabStop(false);
+    auto resources = button.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", faded(palette_.accent, .1));
+    put(L"ButtonBackgroundPressed", faded(palette_.accent, .15));
+    put(L"ButtonForeground", palette_.text);
+    put(L"ButtonForegroundPointerOver", palette_.text);
+    put(L"ButtonForegroundPressed", palette_.text);
+    A11y::SetName(button, hstring(hit.title));
+    if (!hit.path.empty())
+      A11y::SetHelpText(button, hstring(hit.path));
+    A11y::SetAutomationId(button, hstring(L"settings-search-result-" + std::to_wstring(index)));
+    button.Click([this, hit](Inspectable const &, RoutedEventArgs const &) {
+      // 打开结果会清空查询、卸下这个按钮，放到下一轮再做。
+      DispatcherQueue().TryEnqueue([weak = get_weak(), hit] {
+        if (auto self = weak.get())
+          self->open_search_result(hit);
+      });
+    });
+    return button;
+  }
+
+  // 高亮的那条铺 15% 的强调色，ItemStatus 是「已选择」，与页内标签的写法相同。
+  void paint_search_results() {
+    for (size_t i = 0; i < search_buttons_.size(); ++i) {
+      const bool active = i == search_active_;
+      search_buttons_[i].Background(brush(active ? faded(palette_.accent, .15) : transparent_color()));
+      A11y::SetItemStatus(search_buttons_[i], active ? L"已选择" : L"");
+    }
+  }
+
+  // PaneCustomContent 所在的模板行按内容定高，结果多了会伸出侧栏，所以给列表定一个最高值：从搜索框底下（加上搜索框外框的 12 DIP 下边距）到侧栏底部，再留 16。搜索框还没进可视树时（换明暗重建外壳后写回查询）先不算，导航视图第一次排版的 SizeChanged 会再算。
+  void fit_search_results() {
+    if (!search_scroll_ || !navigation_ || !search_ || !search_.IsLoaded())
       return;
-    focus_row_ = target->title;
-    const auto page = target->page;
-    if (!target->tab.empty())
-      page_tabs_[page] = target->tab;
-    if (page == current_page_) {
+    const auto bottom = search_.TransformToVisual(navigation_)
+                            .TransformPoint(point_at(0, search_.ActualHeight()))
+                            .Y;
+    search_scroll_.MaxHeight(std::max(0.0, navigation_.ActualHeight() - bottom - 12 - 16));
+  }
+
+  // 打开一条结果，照 macOS 的 `openResult`：先清空查询、换回页面列表，整页结果只切到那一页；设置行切到它所在的页和标签，画好后滚到那一行，是控件时把焦点交给它（`render_page_at`），所在的折叠区由 `fold_holds_focus` 展开。
+  void open_search_result(SearchEntry hit) {
+    clear_search();
+    if (hit.whole_page) {
+      navigate(hit.page);
+      return;
+    }
+    focus_row_ = hit.title;
+    if (!hit.tab.empty())
+      page_tabs_[hit.page] = hit.tab;
+    if (hit.page == current_page_) {
       render_page(true);
       return;
     }
-    navigate(page);
+    navigate(hit.page);
+  }
+
+  // 清空查询：TextBox 的 TextChanged 是异步的，这里直接换回页面列表，之后到的 TextChanged 再算一遍也是同样的结果。
+  void clear_search() {
+    if (search_)
+      search_.Text(L"");
+    update_search_results(L"");
   }
 
   // ---- Page scaffolding ----
@@ -4314,6 +4538,9 @@ private:
 
   // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。密度照 macOS 的平台 token（`platform-tokens.ts` 的 `groupTitle`、`groupsGap`）：组名 14 DIP 半粗体、左右缩进 8，与卡片相隔 8；组与组相隔 24（这里的上边距 20 加页面的 Spacing 4）。卡片里的行面板左右留 16 DIP：不是行的内容（说明、表单、子卡片）照这个缩进，`add_row` 等行再用负边距伸到卡片两边，分隔线和悬停底色因此贯穿整行。
   StackPanel add_group(StackPanel const &page, std::wstring const &title) {
+    // 建索引时记下组名，之后 record 的行在搜索结果里写成「页 › 分组」。
+    if (indexing_)
+      group_index_ = title;
     StackPanel section;
     section.Spacing(8);
     section.Margin(Thickness{0, 20, 0, 0});
@@ -4746,11 +4973,16 @@ private:
 
   // ---- 页内标签 ----
 
-  // 页内顶部标签，照共享设置 UI 的 `useSettingsTabs`（桌面用 `candidateTabs` 样式，即 segmented_control 的 `full_width`）：一页的内容分成几块，一次只画选中的那一块。选中哪个标签记在窗口成员 `page_tabs_` 里，按页面 id 存，跨页面保留、不写偏好（与 macOS 的 `useSettingsIntroTabs` 相同）；还没选过、或记下的标签这一页没有时，落到第一个。切标签时整页重画，页首引导随之换成这个标签的说明和插画（`SettingsMascotIntro.h`）。用法是先 `const auto tab = page_tab_bar(page, 名称, 标签, 自动化前缀);`，再把每块内容包在 `if (in_tab(tab, L"<标签 id>"))` 里。标签按钮的自动化 ID 是 `<自动化前缀>-<标签 id>`。建搜索索引时不画标签条、返回空，`in_tab` 对每块都返回真，并把之后 record 的条目记在那个标签下（`tab_index_`）；选中搜索结果时 open_search_result 先把它所在的标签设成当前标签，再画页面，结果因此总在画出来的那块里。
+  // 页内顶部标签，照共享设置 UI 的 `useSettingsTabs`（桌面用 `candidateTabs` 样式，即 segmented_control 的 `full_width`）：一页的内容分成几块，一次只画选中的那一块。选中哪个标签记在窗口成员 `page_tabs_` 里，按页面 id 存，跨页面保留、不写偏好（与 macOS 的 `useSettingsIntroTabs` 相同）；还没选过、或记下的标签这一页没有时，落到第一个。切标签时整页重画，页首引导随之换成这个标签的说明和插画（`SettingsMascotIntro.h`）。用法是先 `const auto tab = page_tab_bar(page, 名称, 标签, 自动化前缀);`，再把每块内容包在 `if (in_tab(tab, L"<标签 id>"))` 里。标签按钮的自动化 ID 是 `<自动化前缀>-<标签 id>`。建搜索索引时不画标签条、返回空，只记下各标签的名字（`index_tabs_`，结果第二行的位置要写标签名），`in_tab` 对每块都返回真，并把之后 record 的条目记在那个标签下（`tab_index_`）；选中搜索结果时 open_search_result 先把它所在的标签设成当前标签，再画页面，结果因此总在画出来的那块里。
   std::wstring page_tab_bar(StackPanel const &page, std::wstring const &name,
                             std::vector<Option> const &tabs,
                             std::wstring const &automation_prefix) {
-    if (indexing_ || tabs.empty())
+    // 建索引时只记下各标签的名字，搜索结果的位置要写标签名。
+    if (indexing_) {
+      index_tabs_ = tabs;
+      return {};
+    }
+    if (tabs.empty())
       return {};
     auto current = page_tab(current_page_);
     if (std::none_of(tabs.begin(), tabs.end(),
@@ -4773,6 +5005,7 @@ private:
   bool in_tab(std::wstring const &current, std::wstring const &tab) {
     if (indexing_) {
       tab_index_ = tab;
+      group_index_.clear();
       return true;
     }
     return current == tab;
@@ -20891,6 +21124,9 @@ private:
   // 每页选中的页内标签（页面 id → 标签 id），跨页面保留、不写偏好；以及建索引时正在画的标签。见 page_tab_bar。
   std::map<std::string, std::wstring> page_tabs_;
   std::wstring tab_index_;
+  // 建索引时这一页的标签（取标签名）和正在画的分组标题，写进搜索结果的位置，见 record。
+  std::vector<Option> index_tabs_;
+  std::wstring group_index_;
   // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
   bool candidate_more_open_ = false;
   bool custom_colors_open_ = false;
@@ -20903,8 +21139,12 @@ private:
   bool index_valid_ = false;
   uint64_t index_revision_ = 0;
   std::wstring focus_row_;
-  // What was last typed in the title bar search, which the no-results line must not replace.
+  // 侧栏结果列表现在对应的查询、结果、高亮的那条和每条的按钮，见 update_search_results。
   std::wstring search_query_;
+  std::vector<SearchEntry> search_hits_;
+  size_t search_active_ = 0;
+  std::vector<Button> search_buttons_;
+  bool search_composing_ = false;
   FrameworkElement focus_target_{nullptr};
 
   std::wstring mcp_result_;
@@ -21198,7 +21438,9 @@ private:
 
   Grid root_{nullptr};
   Grid titlebar_{nullptr};
-  AutoSuggestBox search_{nullptr};
+  TextBox search_{nullptr};
+  ScrollViewer search_scroll_{nullptr};
+  StackPanel search_list_{nullptr};
   TextBlock toolbar_title_{nullptr};
   // 当前页页首引导的那一行、说明和插画；没有引导的页面（「关于」）为空。
   Grid intro_row_{nullptr};

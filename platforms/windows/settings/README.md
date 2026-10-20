@@ -44,6 +44,8 @@
 
 窗口参照 macOS 原生设置：侧栏只保留一个设置项搜索，正文工具栏显示当前页面；各页标题附一行用途说明。「输入方案」逐项选择输入方式，专属选项和辅助码随当前方案变化；「输入习惯」集中混输、输出、快捷模式、纠错和调频；「按键」集中选词、翻页与快捷键。原有路由 id 不变，搜索结果按新归属打开页面。
 
+侧栏搜索照 macOS（`settings-style.ts` 的 `sidebarSearch`，`use-settings-shell-navigation.tsx` 的结果列表）。搜索框 32 DIP 高、圆角 8、没有描边，底色浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.07)，左边是 15 DIP 的次要色放大镜，占位文字「搜索」，聚焦时一圈 2 DIP 的强调色边框；它是普通的 `TextBox`（自动化 ID `settings-search`，读屏名「搜索设置」），不再有下拉建议。输入后侧栏的页面列表整个换成结果列表（`settings-search-results`，放在导航视图的 PaneCustomContent 里，页面列表的各项在查询期间收起）：先是名字匹配的页面（也认共享设置 UI 的注册名，「屏幕键盘」找得到「键盘与手写」，「AI 辅助」「AI 助手」找得到 AI 页），再是标题匹配的设置行；说明文字不参与匹配，条数不设上限，同一位置的同名行只列一次。每条是 13 DIP 的标题，设置行下面是 12 DIP、60% 不透明度的位置「页 › 标签 › 分组」，没有标签或分组时省掉那一段；高亮的那条铺 15% 的强调色（ItemStatus「已选择」），悬停 10%。查询按 trim 后不分大小写匹配；查不到时写「没有匹配的设置」。上下键移动高亮、回车打开，Esc 清空查询，输入法组字期间不接管这几个键。打开一条结果时先清空查询、换回页面列表：页面结果只切到那一页；设置行切到所在的页和标签，展开所在的折叠区，滚到那一行，是控件时把键盘焦点交给它。换明暗重建外壳时保留查询和结果。
+
 页内顶部标签照共享设置 UI 的 `useSettingsTabs`（桌面的 `candidateTabs` 样式），`main.cpp` 里是 `page_tab_bar` 加 `in_tab`，后续要分标签的页面都用它，不要再各自拼一个分段控件：标签条铺满正文宽度、各段等宽，段高 36 DIP、14 DIP 正文色的字，底色和选中浮起与紧凑分段控件相同（`segmented_control` 的 `full_width`），段数不受三段的限制；与页首引导、下面的第一组各相隔 24 DIP。一次只画选中标签的那几组；选中哪个标签按页面 id 记在窗口里（`page_tabs_`），跨页面保留、不写偏好，没选过时是第一个。切标签时整页重画，页首引导换成这个标签的说明和插画。建搜索索引时每个标签的内容都画，每个条目记下所在的标签；选中搜索结果时先切到那个标签再画页面（折叠区仍由 `fold_holds_focus` 展开）。打开某个标签的路由在构造窗口时写进 `page_tabs_`（`mcp` 打开 AI 页的「连接助手」，`handwriting` 打开「键盘与手写」的「手写」）。标签按钮的自动化 ID 是 `<前缀>-<标签 id>`，选中的那个 ItemStatus 是「已选择」。现在用它的是「键盘与手写」（`osk-tab`）、「剪贴板」（`clip-tab`）和 AI（`ai-settings`）三页；行内的小分段（发声方式、效果样式等）和打字统计、社区图库的标签仍是紧凑样式。
 
 实时预览位于「皮肤」「候选窗口」页的独立预览区域，横向候选可滚动。示例文字可按空格分成候选，短列表循环填满一页；清空恢复默认示例。预览明暗可单独切换，也可跟随保存的设置；示例和预览明暗在离开再回到页面后保留，仅保存在当前窗口。
@@ -100,7 +102,7 @@ Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项�
 
 ## 界面验收
 
-`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 17 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
+`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 17 页，在浅色、深色及 800／1000 宽窗口下保存截图，并核对侧栏搜索：结果替换页面列表、页面结果在前、设置行的位置写成「页 › 标签 › 分组」、查不到时的「没有匹配的设置」、Esc 换回页面列表，以及回车打开的结果切到所在标签、展开折叠区；产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
 
 ```powershell
 powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
