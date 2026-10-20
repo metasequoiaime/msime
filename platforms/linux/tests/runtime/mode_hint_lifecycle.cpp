@@ -28,6 +28,7 @@ void wait_until(Predicate ready, const char *message = "未收到预期的 IBus 
   require(ready(), message);
 }
 
+#ifdef MSIME_TEST_X11_BADGE
 // 让主循环空转 milliseconds 毫秒，期间到期的定时器都有机会执行。
 void run_for(int milliseconds) {
   bool elapsed = false;
@@ -48,7 +49,6 @@ void run_for(int milliseconds) {
   }
 }
 
-#ifdef MSIME_TEST_X11_BADGE
 struct BadgeWindow {
   int x = 0;
   int y = 0;
@@ -115,12 +115,16 @@ struct Fixture {
     if (!x11)
       g_unsetenv("DISPLAY");
     g_unsetenv("WAYLAND_DISPLAY");
+    const std::string display = x11 && g_getenv("DISPLAY") ? g_getenv("DISPLAY") : "";
     g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
     msime_ibus_configure(
         R"({"preferences":{"default_ime_mode":"english","input_mode_hud":true,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":false}}})");
     ibus_init();
     bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
+    // g_test_dbus_up 会清掉 DISPLAY，免得测试连到用户的会话；x11 场景要的正是 xvfb-run 给的那个，放回去。
+    if (!display.empty())
+      g_setenv("DISPLAY", display.c_str(), TRUE);
     const auto connect = [&] {
       return g_dbus_connection_new_for_address_sync(
           g_test_dbus_get_bus_address(bus),

@@ -1499,7 +1499,7 @@ void sync_music(IBusEngine *engine) {
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
 // 切换提示的来由：真正的切换，获得焦点（#2589），以及获得焦点后等到光标位置（或等满时间）的那一次。
-enum class ModeHintTrigger { Switch, FocusIn, FocusSettled };
+enum class ModeHintTrigger { Switch, FocusEntered, FocusSettled };
 void show_input_mode_hint(IBusEngine *engine, ModeHintTrigger trigger = ModeHintTrigger::Switch);
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
@@ -4978,7 +4978,7 @@ void focus_in(IBusEngine *engine) {
     }
     // Moving into another text field shows the current 中/英 as a switch does (#2589). Only a new focus: the replay IBus sends while it negotiates the client's identity is the same focus, and showing it again would put the hint back over input the user has started. show_input_mode_hint keeps to the input_mode_hud preference and stays quiet in blocked fields.
     if (!already_focused)
-      show_input_mode_hint(engine, ModeHintTrigger::FocusIn);
+      show_input_mode_hint(engine, ModeHintTrigger::FocusEntered);
     sync_music(engine);
     schedule_upgrade_restart(engine);
   });
@@ -6423,7 +6423,7 @@ void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger t
   auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_session, show_logo) ? mode_badge_surface() : nullptr;
   hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_session, show_logo);
   // 获得焦点时客户端还没报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报 set_cursor_location，这时的 cursor_area 还是上一个位置或全 0。先等它报来（set_cursor_location 里放），最多等 focus_caret_wait_ms。
-  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHintTrigger::FocusIn) {
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHintTrigger::FocusEntered) {
     s.mode_hint_after_focus = true;
     ++s.mode_hint_focus_id;
     g_timeout_add_full(

@@ -1149,7 +1149,7 @@ public:
   void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」：能放到光标旁时是自绘徽章，否则是 Fcitx5 面板的文字提示（见 ModeBadgePlacement.h 的 mode_badge_hint）；定义在 FcitxEngine 之后，它需要那个类型完整。
   // `trigger` 区分真正的切换和获得焦点（#2589）：获得焦点时输入框要过一会儿才报光标矩形，光标徽章先等它（见 settleFocusInputModeHud），FocusSettled 是等完之后的那一次。
-  enum class ModeHudTrigger { Switch, FocusIn, FocusSettled };
+  enum class ModeHudTrigger { Switch, FocusEntered, FocusSettled };
   void showInputModeHud(ModeHudTrigger trigger = ModeHudTrigger::Switch);
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 获得焦点后的光标徽章在等光标矩形：输入框报来新矩形（FcitxEngine 的 mode_hud_cursor_watch_）或等满 ModeBadgeTiming::focus_caret_wait_ms 时调用，只放一次。GTK、Qt 的输入法模块在获得焦点之后才在空闲回调里补报光标，新建的上下文这时的矩形还是全 0，立刻放会把徽章放到屏幕下方。
@@ -6926,7 +6926,7 @@ public:
         state->syncMusic();
         // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
         if (event.type() == fcitx::EventType::InputContextFocusIn)
-          state->showInputModeHud(FcitxState::ModeHudTrigger::FocusIn);
+          state->showInputModeHud(FcitxState::ModeHudTrigger::FocusEntered);
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
@@ -7634,7 +7634,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   const bool x11_client = ic_.display().rfind("x11:", 0) == 0;
   auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_client, show_logo) ? engine_->modeBadge() : nullptr;
   hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_client, show_logo);
-  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHudTrigger::FocusIn && loop_) {
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHudTrigger::FocusEntered && loop_) {
     mode_hud_after_focus_ = true;
     mode_hud_focus_timer_ = loop_->addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + msime::linux_host::ModeBadgeTiming::focus_caret_wait_ms * 1000ULL,
