@@ -17,6 +17,7 @@
       import { attachInput } from "../src/input.js";
       import { KeyKind, packKey } from "../src/keys.js";
       import { resolveSkin } from "../src/skin.js";
+      import { factoryLayouts } from "../src/theme-catalog.js";
 
       const log = document.getElementById("log");
       const failures = [];
@@ -316,7 +317,8 @@
         equal(getComputedStyle(root.querySelector(".pinyin .text")).color, rgb("#FFC4DC"), "preedit colour slot");
         equal(card.dataset.background, undefined, "panel takes priority over the legacy background image");
         equal(getComputedStyle(card).paddingLeft, "20px", "content insets from the panel edge");
-        equal(getComputedStyle(root.querySelector(".pinyin")).marginBottom, "6px", "line gap");
+        check(Math.abs(root.querySelector(".candidate-items").getBoundingClientRect().top
+          - root.querySelector(".pinyin").getBoundingClientRect().bottom - 6) < 1, "canvas final line gap remains six pixels with factory layout");
         const box = card.getBoundingClientRect();
         const all = root.getBoundingClientRect();
         equal(box.left - all.left, 16, "outer left inset affects the popup bounds");
@@ -610,6 +612,33 @@
         check(!parts(legacy.element).root.querySelector(".expand-toggle"), "a custom host without expansion hooks gets no dead toggle");
         legacy.destroy();
 
+        current = "factory expansion entry points";
+        for (const [name, factorySkin, count, enabled] of [
+          ["builtin", "wechat_scroll", 4, true],
+          ["raw", { base: "wechat_scroll" }, 4, true],
+          ["catalog", { base: "wechat_scroll", expandPanel: false, resolvedLayout: { ...factoryLayouts.wechat_scroll, expandRows: 3 } }, 3, true],
+          ["raw override", { base: "wechat_scroll", expandRows: 2 }, 2, true],
+          ["invalid override", { base: "wechat_scroll", expandRows: 9 }, 4, true],
+          ["explicit false", { base: "wechat_scroll", expandPanel: false, expandRows: 8 }, 8, false],
+        ]) {
+          let factoryBar;
+          factoryBar = createCandidateBar({ skin: factorySkin, onPickAny: () => {},
+            onExpand: (open) => factoryBar.render(open ? opened : initial, anchor) });
+          factoryBar.render(initial, anchor);
+          const factoryRoot = parts(factoryBar.element).root;
+          const toggle = factoryRoot.querySelector(".expand-toggle");
+          equal(Boolean(toggle), enabled, `${name}: factory expansion switch reaches the button`);
+          if (toggle) {
+            toggle.click();
+            await tick();
+            const grid = factoryRoot.querySelector(".expanded-viewport");
+            const firstHeight = factoryRoot.querySelector(".candidate-items .cand").getBoundingClientRect().height;
+            check(grid && Math.abs(grid.clientHeight - firstHeight * count) < 2, `${name}: resolved expandRows reaches actual grid height`);
+            equal(factoryRoot.querySelector(".expanded-candidate").dataset.index, "9", `${name}: expansion keeps the global seat`);
+          }
+          factoryBar.destroy();
+        }
+
         current = "attached expansion and late reply";
         const field = document.getElementById("field");
         field.value = "";
@@ -654,11 +683,47 @@
         field.value = "";
       }
 
+      async function builtinFactoryLayout() {
+        current = "built-in factory layout";
+        const bar = createCandidateBar({ skin: "microsoft", dark: false });
+        const shown = composingFrame("ni", ["甲", "乙"]);
+        bar.render(shown, { left: 20, top: 20, bottom: 40 });
+        const root = parts(bar.element).root;
+        const card = root.querySelector(".container");
+        const font = parseFloat(getComputedStyle(root).fontSize);
+        equal(getComputedStyle(card).minWidth, "160px", "Windows factory card floor is independent of font size");
+        check(Math.abs(parseFloat(getComputedStyle(card).paddingLeft) - font * .3) < 1, "Microsoft factory padding reaches the card without a catalog");
+        check(root.querySelector(".cand").getBoundingClientRect().width >= font * 3.5 - 1, "Microsoft horizontal factory candidate width is applied");
+        equal(root.querySelector(".page-next").textContent, "▶", "Microsoft factory arrows use triangles");
+        check(getComputedStyle(card).boxShadow.includes("0.18"), "unspecified Windows shadow uses the normal two-pass recipe");
+        root.style.setProperty("--cand-font-size", "20px");
+        window.dispatchEvent(new Event("resize"));
+        check(root.querySelector(".cand").getBoundingClientRect().width >= 69, "factory em lengths follow the candidate font at runtime");
+        bar.setSkin("willow_green");
+        equal(getComputedStyle(card).paddingLeft, "0px", "Willow factory zero padding replaces Microsoft padding");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "5px", "horizontal factory margins are applied");
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "5px", "horizontal factory extra height is applied once");
+        bar.setLayout("vertical");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "7px", "direction switch replaces factory margins");
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "4px", "vertical factory extra height remains distinct");
+        bar.setSkin({ base: "willow_green", fitContent: true, shadow: "none", geometry: { padding: { value: 0, em: false },
+          itemExtraHeight: { value: 0, em: false }, preeditMarginDip: { top: 0, right: 0, bottom: 0, left: 0 } } });
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "0px", "raw common zero overrides factory direction defaults");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "0px", "raw zero margins override factory margins");
+        equal(getComputedStyle(card).boxShadow, "none", "raw shadow switch reaches painting");
+        equal(getComputedStyle(card).minWidth, "0px", "raw fit-content removes the factory floor");
+        bar.setSkin("system");
+        check(!root.hasAttribute("data-layout"), "global theme restores native layout");
+        equal(getComputedStyle(card).paddingLeft, "2px", "global theme restores native vertical padding");
+        bar.destroy();
+      }
+
       try {
         await candidateBar();
         await expandedCandidates();
         await factoryGeometry();
         await layoutControls();
+        await builtinFactoryLayout();
         await motionReplay();
         await canvasSkin();
         await attached();

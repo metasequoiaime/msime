@@ -22,10 +22,11 @@ Status: implemented
 
 ## Testing
 
-- Rust 合成词库验证完整列表放出尾部、页外点选映射、过期与伪造点击拒绝、翻页不换列表身份、重置和同码新组字换身份。
-- SDK 与实际 Worker 验证展开、收起及点选参数传递；WASM 冒烟验证实例重建不复用身份。
-- Chrome 验证横排展开/收起、`expandRows`、网格跨格与滚动、延迟回复和失焦、真实页外候选点选、竖排与关闭开关的回退。
-- 相关 Rust 测试与 clippy、SDK 测试、TypeScript 声明检查、Chrome 浏览器检查、笔记校验及 quick 门禁随最终集成结果核对；远端构建使用仓库固定产物目录，不在空间不足的开发机创建构建树。
+- `cargo test --locked -p msime-engine-wasm` 全部通过，其中 61 项路由测试覆盖真实尾部放出、页外点选映射、过期与伪造点击拒绝、翻页不换列表身份、重置和同码新组字换身份；原生 clippy 通过；独立运行 `20261020-192902` 的 wasm32 clippy 与原始 glue/WASM 冒烟也通过。
+- `node --test packages/web-engine/test/*.test.mjs` 的 46 项测试通过，SDK 与真实 Worker handler 核对展开、收起和点选参数及 u32 转换前的非法数值拒绝。
+- WASM release、npm 包组装及 `packages/web-engine/test/smoke.mjs` 通过，合成词库真实尾部上屏、实例重建、旧版本及错误页起点拒绝均经过 SDK → Worker handler → WASM。共享出厂布局的 7 项测试通过。
+- Chrome 候选栏检查通过：内置 `wechat_scroll`、直接对象和 catalog 三入口，显式关闭与行数覆盖、实际高度、跨格、300→600→631 节点、滚动位置、页内/全局点选参数、迟到回复、失焦、解除绑定与快速排列切换。
+- TypeScript 声明检查不使用 `skipLibCheck`；格式、笔记与差异校验通过。最终集成源码的远端运行 `20261020-192148` 中 `scripts/verify-local.sh --quick` 通过：171 项 Windows 可移植策略测试、HarmonyOS 设置构建、Rust/Android/WASM 检查、Java/JNI 冒烟、Linux 设置壳及原生 93 项测试、macOS 宿主和 Apple bridge 通过；Windows 系统构建和 HarmonyOS HAP 缺少远端前置而跳过。远端沿用固定产物目录，不在磁盘不足的开发机创建构建树。
 
 ## Consequences
 

@@ -22,6 +22,38 @@ fn dip(value: f64) -> Option<SkinLength> {
 }
 
 #[test]
+fn web_factory_layout_copy_matches_shared_resolution() {
+    let layouts: serde_json::Map<String, serde_json::Value> = factories()
+        .iter()
+        .map(|(base, _)| {
+            let resolved = package(base, "").resolved_layout.unwrap();
+            (base.to_string(), serde_json::to_value(resolved).unwrap())
+        })
+        .collect();
+    let layouts = serde_json::Value::Object(layouts);
+    // 网页构建只需 Node；镜像由共享解析器生成并逐字段比对，不另维护 TOML 解析器。
+    if std::env::var_os("MSIME_WRITE_FACTORY_LAYOUTS").is_some() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/web-engine/tools/factory-layouts.json");
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&layouts).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+    // 设备单测不具备构建机源码目录，正常校验使用编译时内嵌的镜像。
+    let copy: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/web-engine/tools/factory-layouts.json"
+    )))
+    .unwrap();
+    assert_eq!(
+        copy, layouts,
+        "网页出厂版式镜像已过时，请设置 MSIME_WRITE_FACTORY_LAYOUTS=1 重跑本测试"
+    );
+}
+
+#[test]
 fn all_factory_bases_reach_renderers_without_rewriting_declarations() {
     // 值来自固定来源的八份出厂清单，覆盖不同的圆角、开关和排列默认。
     for (base, radius, border, item_radius, padding) in [

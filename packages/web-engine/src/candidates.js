@@ -830,7 +830,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.toggleAttribute("data-font-family", Boolean(resolved.geometry.fontFamily));
     root.toggleAttribute("data-fit-content", geometry?.fitContent === true);
     root.toggleAttribute("data-justify-rows", geometry?.justifyRows === true);
-    if (geometry?.shadow != null) root.dataset.shadow = geometry.shadow;
+    if (geometry) root.dataset.shadow = geometry.shadow ?? "default";
     else delete root.dataset.shadow;
     if (resolved.geometry.layout) root.style.setProperty("--msime-skin-number-column", "9px");
     else root.style.removeProperty("--msime-skin-number-column");
