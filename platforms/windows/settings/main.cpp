@@ -78,6 +78,7 @@
 #include <winrt/Microsoft.UI.Xaml.Documents.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
@@ -3648,30 +3649,15 @@ private:
     identity.Children().Append(product);
     bar.Children().Append(identity);
 
-    StackPanel tools;
-    tools.Orientation(Orientation::Horizontal);
-    tools.Spacing(8);
-    tools.Margin(Thickness{12, 0, 0, 0});
-    tools.VerticalAlignment(VerticalAlignment::Center);
-    back_ = Button();
-    back_.Width(32);
-    back_.Height(30);
-    back_.Padding(Thickness{0, 0, 0, 0});
-    back_.CornerRadius(CornerRadius{6, 6, 6, 6});
-    back_.Background(brush(transparent_color()));
-    back_.BorderThickness(Thickness{0, 0, 0, 0});
-    back_.Content(make_icon(0xE72B, 12, palette_.text));
-    back_.IsEnabled(!history_.empty());
-    A11y::SetName(back_, L"返回");
-    back_.Click([this](Inspectable const &, RoutedEventArgs const &) { go_back(); });
-    tools.Children().Append(back_);
-    toolbar_title_ = make_text(page_label(current_page_).title, 13, palette_.sub);
+    // 页名只写在这里，正文不再画大标题，与 macOS 的页面工具栏（`settings-style.ts` 的 `macosToolbar`：左右 20 DIP 内边距，15 DIP 粗体、正文色，放不下时截断）相同。macOS 没有跨页面的历史返回，这里也不放返回按钮，整条标题栏都是拖动区，不需要放行区域。
+    toolbar_title_ = make_text(page_label(current_page_).title, 15, palette_.text);
+    toolbar_title_.FontWeight(Windows::UI::Text::FontWeight{700});
+    toolbar_title_.TextWrapping(TextWrapping::NoWrap);
+    toolbar_title_.TextTrimming(TextTrimming::CharacterEllipsis);
+    toolbar_title_.Margin(Thickness{20, 0, 20, 0});
     toolbar_title_.VerticalAlignment(VerticalAlignment::Center);
-    tools.Children().Append(toolbar_title_);
-    Grid::SetColumn(tools, 1);
-    bar.Children().Append(tools);
-    bar.Loaded([this](Inspectable const &, RoutedEventArgs const &) { update_passthrough(); });
-    bar.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) { update_passthrough(); });
+    Grid::SetColumn(toolbar_title_, 1);
+    bar.Children().Append(toolbar_title_);
     return bar;
   }
 
@@ -3708,33 +3694,6 @@ private:
           open_search_result(chosen, std::wstring(args.QueryText().c_str()));
         });
     return search_;
-  }
-
-  // 标题栏保留拖动区域；返回按钮接收自己的点击。
-  void update_passthrough() {
-    if (!titlebar_ || !titlebar_.XamlRoot())
-      return;
-    const double scale = titlebar_.XamlRoot().RasterizationScale();
-    std::vector<Windows::Graphics::RectInt32> rects;
-    rects.reserve(2);
-    auto add = [&rects, scale](FrameworkElement const &element) {
-      if (!element || element.ActualWidth() <= 0)
-        return;
-      const auto bounds = element.TransformToVisual(nullptr).TransformBounds(
-          Windows::Foundation::Rect{0, 0,
-                                    static_cast<float>(element.ActualWidth()),
-                                    static_cast<float>(element.ActualHeight())});
-      rects.push_back(Windows::Graphics::RectInt32{
-          static_cast<int32_t>(std::lround(bounds.X * scale)),
-          static_cast<int32_t>(std::lround(bounds.Y * scale)),
-          static_cast<int32_t>(std::lround(bounds.Width * scale)),
-          static_cast<int32_t>(std::lround(bounds.Height * scale))});
-    };
-    add(back_);
-    Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(
-        AppWindow().Id())
-        .SetRegionRects(Microsoft::UI::Input::NonClientRegionKind::Passthrough,
-                        rects);
   }
 
   NavigationView make_navigation() {
@@ -3814,7 +3773,7 @@ private:
             return;
           const auto item = sender.SelectedItem().try_as<NavigationViewItem>();
           if (item)
-            navigate(utf8(unbox_value<hstring>(item.Tag())), true);
+            navigate(utf8(unbox_value<hstring>(item.Tag())));
         });
 
     scroll_ = ScrollViewer();
@@ -3837,14 +3796,12 @@ private:
     }
   }
 
-  void navigate(std::string const &page, bool remember) {
+  void navigate(std::string const &page) {
     const auto *target = nav::find_page(page);
     const std::string id(target ? target->id : nav::default_page);
     flush_pending();
     if (id == current_page_ && focus_row_.empty())
       return;
-    if (remember && id != current_page_)
-      history_.push_back(current_page_);
     // 每次进入「输入」页都重读已安装的辅助码表插件。
     if (id == "typing" && id != current_page_)
       helpcode_packs_stale_ = true;
@@ -3881,14 +3838,6 @@ private:
     current_page_ = id;
     select_navigation_item();
     render_page(false);
-  }
-
-  void go_back() {
-    if (history_.empty())
-      return;
-    const auto page = history_.back();
-    history_.pop_back();
-    navigate(page, false);
   }
 
   // ---- Search ----
@@ -3988,7 +3937,7 @@ private:
       render_page(true);
       return;
     }
-    navigate(page, true);
+    navigate(page);
   }
 
   // ---- Page scaffolding ----
@@ -4003,7 +3952,6 @@ private:
   void render_page_at(double offset) {
     if (!scroll_)
       return;
-    back_.IsEnabled(!history_.empty());
     toolbar_title_.Text(page_label(current_page_).title);
     preview_host_ = nullptr;
     toolbar_preview_host_ = nullptr;
@@ -4015,12 +3963,15 @@ private:
     focus_target_ = nullptr;
 
     StackPanel page;
-    page.Padding(Thickness{22, 22, 22, 32});
+    page.Padding(content_padding(scroll_.ActualWidth()));
+    page.SizeChanged([](Inspectable const &sender, SizeChangedEventArgs const &args) {
+      sender.as<StackPanel>().Padding(content_padding(args.NewSize().Width));
+    });
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)
       page.Children().Append(make_input_method_banner());
-    page.Children().Append(make_page_title());
+    page.Children().Append(make_page_header());
     if (!loaded_)
       page.Children().Append(make_load_failure());
     if (!notice_.empty())
@@ -4052,10 +4003,15 @@ private:
     });
   }
 
-  FrameworkElement make_page_title() {
+  // 正文边距照 macOS 的 `contentColumn`（`settings-style.ts` 的 `mac:px-12 mac:pt-6 mac:pb-11`）：上 24、左右 48、下 44。macOS 窄于 601 时收起侧栏，这个窗口的侧栏常驻，窗口拉到最窄（800）时正文只剩 540 宽，左右退到 32，给卡片多留些宽度。
+  static Thickness content_padding(double width) {
+    const double side = width > 0 && width < 640 ? 32 : 48;
+    return Thickness{side, 24, side, 44};
+  }
+
+  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部是一行 13 DIP 的页面说明，左右 8 DIP 与下面各组的组名对齐；「候选窗口」「主题」两页在它下面右侧放 Windows 自己的预览工具。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页。
+  FrameworkElement make_page_header() {
     Grid row;
-    row.MinHeight(40);
-    row.Margin(Thickness{0, 0, 0, 8});
     ColumnDefinition title_column;
     title_column.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition tools_column;
@@ -4063,14 +4019,9 @@ private:
     row.ColumnDefinitions().Append(title_column);
     row.ColumnDefinitions().Append(tools_column);
 
-    auto title = make_text(page_label(current_page_).title, 22, palette_.text);
-    A11y::SetAutomationId(title, text("settings-page-" + current_page_));
-    title.FontWeight(Windows::UI::Text::FontWeight{600});
-    title.VerticalAlignment(VerticalAlignment::Center);
-    StackPanel heading;
-    heading.Spacing(4);
-    heading.Children().Append(title);
-    heading.Children().Append(make_text(page_label(current_page_).summary, 11, palette_.sub));
+    auto heading = make_text(page_label(current_page_).summary, 13, palette_.sub);
+    A11y::SetAutomationId(heading, text("settings-page-" + current_page_));
+    heading.Margin(Thickness{8, 0, 8, 0});
     Grid::SetColumnSpan(heading, 2);
     row.Children().Append(heading);
     RowDefinition heading_row;
@@ -4117,7 +4068,7 @@ private:
         edit.Content(label);
         A11y::SetName(edit, L"编辑主题");
         edit.Click([this](Inspectable const &, RoutedEventArgs const &) {
-          navigate("themes", true);
+          navigate("themes");
         });
         tools.Children().Append(edit);
       }
@@ -4275,18 +4226,19 @@ private:
     queue_refresh();
   }
 
-  // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。
+  // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。密度照 macOS 的平台 token（`platform-tokens.ts` 的 `groupTitle`、`groupsGap`）：组名 14 DIP 半粗体、左右缩进 8，与卡片相隔 8；组与组相隔 24（这里的上边距 20 加页面的 Spacing 4）。卡片里的行面板左右留 16 DIP：不是行的内容（说明、表单、子卡片）照这个缩进，`add_row` 等行再用负边距伸到卡片两边，分隔线和悬停底色因此贯穿整行。
   StackPanel add_group(StackPanel const &page, std::wstring const &title) {
     StackPanel section;
-    section.Spacing(6);
-    section.Margin(Thickness{0, 14, 0, 0});
+    section.Spacing(8);
+    section.Margin(Thickness{0, 20, 0, 0});
     if (!title.empty()) {
-      auto heading = make_text(title, 13, palette_.text);
+      auto heading = make_text(title, 14, palette_.text);
       heading.FontWeight(Windows::UI::Text::FontWeight{600});
+      heading.Margin(Thickness{8, 0, 8, 0});
       section.Children().Append(heading);
     }
     StackPanel rows;
-    rows.Padding(Thickness{12, 6, 12, 6});
+    rows.Padding(Thickness{row_inset, 0, row_inset, 0});
     auto card = make_card();
     card.Child(rows);
     section.Children().Append(card);
@@ -4304,37 +4256,188 @@ private:
     return card;
   }
 
-  // 组末的「更多选项」折叠区，对应共享页的 MoreOptions，写法与本地识别模型、AI 辅助两处的 Expander 相同：展开与否记在 `open` 这个成员里，跨页面重建保留；`focused` 为真（搜索落到折叠区里的某一行）时直接展开。返回放行的面板。
-  StackPanel add_more_options(StackPanel const &group, bool &open, bool focused) {
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(open || focused);
-    // `open` 是窗口自己的成员，与这些控件同寿。
-    bool *const state = &open;
-    more.Expanding([state](Expander const &, ExpanderExpandingEventArgs const &) {
-      *state = true;
+  // 放进分组卡片里的子卡片（说明文字、表单、列表）：上下各留 10 DIP，与 macOS 组内非行内容的 `groupBlock` 内边距相同，排在组首或组末时不和外层卡片的边框贴在一起。
+  Border make_inner_card() {
+    auto card = make_card();
+    card.Margin(Thickness{0, 10, 0, 10});
+    return card;
+  }
+
+  // 卡片行面板左右各留的宽度，也是每行左右的内边距，与 macOS 的 `rowPad`（10px 16px）相同。
+  static constexpr double row_inset = 16;
+
+  // 组内一行的外框：左右用负边距伸到卡片边缘，不是第一项时顶上一条贯穿整行的 1 DIP 分隔线，与 macOS 的 `groupRows` 相同。
+  Border append_row_frame(StackPanel const &group, UIElement const &child) {
+    Border frame;
+    frame.Margin(Thickness{-row_inset, 0, -row_inset, 0});
+    if (group.Children().Size() > 0) {
+      frame.BorderBrush(brush(palette_.divider));
+      frame.BorderThickness(Thickness{0, 1, 0, 0});
+    }
+    frame.Child(child);
+    group.Children().Append(frame);
+    return frame;
+  }
+
+  // 整行可点的透明按钮，跳转行和折叠区的标题行共用，对应共享页的 `linkRow` 和 `moreOptionsSummary`：内边距与普通行相同，悬停和按下铺 `palette_.hover`。底色走模板资源，模板的视觉状态才不会把它盖回系统色。
+  Button make_row_button(bool described) {
+    Button button;
+    button.HorizontalAlignment(HorizontalAlignment::Stretch);
+    button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    button.VerticalContentAlignment(VerticalAlignment::Center);
+    button.MinHeight(described ? 56 : 44);
+    button.Padding(Thickness{row_inset, 10, row_inset, 10});
+    button.CornerRadius(CornerRadius{0, 0, 0, 0});
+    button.BorderThickness(Thickness{0, 0, 0, 0});
+    button.Background(brush(transparent_color()));
+    auto resources = button.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", palette_.hover);
+    put(L"ButtonBackgroundPressed", palette_.hover);
+    put(L"ButtonBackgroundDisabled", transparent_color());
+    put(L"ButtonForeground", palette_.text);
+    put(L"ButtonForegroundPointerOver", palette_.text);
+    put(L"ButtonForegroundPressed", palette_.text);
+    return button;
+  }
+
+  // 跳转行，对应共享页的 LinkRow：没有单独的按钮，整行就是按钮，行尾是 12 DIP 的灰色「↗」（`external`，打开网页、文件这类窗口外的东西）或「›」（本窗口的另一页）。按钮以标题命名、以说明描述，箭头不进无障碍树。
+  Button link_row(StackPanel const &group, std::wstring const &title,
+                  std::wstring const &subtitle, bool external,
+                  std::function<void()> click) {
+    record(title, subtitle);
+    Grid content;
+    content.ColumnSpacing(12);
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition arrow_column;
+    arrow_column.Width(GridLength{1, GridUnitType::Auto});
+    content.ColumnDefinitions().Append(text_column);
+    content.ColumnDefinitions().Append(arrow_column);
+    StackPanel texts;
+    texts.Spacing(2);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    texts.Children().Append(make_text(title, 14, palette_.text));
+    if (!subtitle.empty())
+      texts.Children().Append(make_text(subtitle, 12, palette_.sub));
+    content.Children().Append(texts);
+    auto arrow = make_text(external ? L"\u2197" : L"\u203A", 12, palette_.sub);
+    arrow.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAccessibilityView(arrow, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    Grid::SetColumn(arrow, 1);
+    content.Children().Append(arrow);
+
+    auto button = make_row_button(!subtitle.empty());
+    button.Content(content);
+    A11y::SetName(button, hstring(title));
+    if (!subtitle.empty())
+      A11y::SetHelpText(button, hstring(subtitle));
+    button.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
+      on_click();
     });
-    more.Collapsed([state](Expander const &, ExpanderCollapsedEventArgs const &) {
-      *state = false;
-    });
+    append_row_frame(group, button);
+    mark_search_target(title, button);
+    return button;
+  }
+
+  // 组里的折叠区，对应共享页的 MoreOptions：标题行与普通行同高、没有边框，悬停铺中性底色，标题右边一个灰色「›」，展开时转 90°（关掉系统动画效果时直接转过去）；展开后的各行和组内其他行一样带分隔线，第一行上面那条由折叠体的上边框画出。名字默认是「更多选项」，只有里面是同一类具体东西时才写它是什么（「自定义配色」「更多音效」）。`open` 是画出来时展开与否，点按时经 `remember` 交给调用方记在自己的成员里，跨页面重建保留。标题行是普通按钮，展开与否用 ItemStatus（「已展开」「已收起」）告诉读屏。返回放行的面板。
+  StackPanel add_fold(StackPanel const &group, std::wstring const &title, bool open,
+                      std::function<void(bool)> remember,
+                      std::wstring const &automation_id = L"") {
+    StackPanel fold;
+    fold.Margin(Thickness{-row_inset, 0, -row_inset, 0});
+
+    StackPanel label;
+    label.Orientation(Orientation::Horizontal);
+    label.Spacing(12);
+    auto heading = make_text(title, 14, palette_.text);
+    heading.VerticalAlignment(VerticalAlignment::Center);
+    label.Children().Append(heading);
+    auto marker = make_text(L"\u203A", 12, palette_.sub);
+    marker.VerticalAlignment(VerticalAlignment::Center);
+    marker.RenderTransformOrigin(Windows::Foundation::Point{0.5f, 0.5f});
+    RotateTransform turn;
+    turn.Angle(open ? 90 : 0);
+    marker.RenderTransform(turn);
+    A11y::SetAccessibilityView(marker, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    label.Children().Append(marker);
+
+    auto header = make_row_button(false);
+    header.Content(label);
+    A11y::SetName(header, hstring(title));
+    A11y::SetItemStatus(header, open ? L"已展开" : L"已收起");
+    if (!automation_id.empty())
+      A11y::SetAutomationId(header, hstring(automation_id));
+    Border head;
+    if (group.Children().Size() > 0) {
+      head.BorderBrush(brush(palette_.divider));
+      head.BorderThickness(Thickness{0, 1, 0, 0});
+    }
+    head.Child(header);
+    fold.Children().Append(head);
+
     StackPanel rows;
-    rows.Spacing(4);
-    more.Content(rows);
-    group.Children().Append(more);
+    Border body;
+    body.BorderBrush(brush(palette_.divider));
+    body.BorderThickness(Thickness{0, 1, 0, 0});
+    body.Padding(Thickness{row_inset, 0, row_inset, 0});
+    body.Visibility(open ? Visibility::Visible : Visibility::Collapsed);
+    body.Child(rows);
+    fold.Children().Append(body);
+
+    header.Click([this, weak_body = make_weak(body), weak_turn = make_weak(turn),
+                  on_toggle = std::move(remember)](Inspectable const &sender,
+                                                   RoutedEventArgs const &) {
+      auto panel = weak_body.get();
+      if (!panel)
+        return;
+      const bool expanded = panel.Visibility() == Visibility::Collapsed;
+      panel.Visibility(expanded ? Visibility::Visible : Visibility::Collapsed);
+      A11y::SetItemStatus(sender.as<Button>(), expanded ? L"已展开" : L"已收起");
+      if (auto marker_turn = weak_turn.get())
+        turn_fold_marker(marker_turn, expanded);
+      on_toggle(expanded);
+    });
+    group.Children().Append(fold);
     return rows;
   }
 
-  // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。
+  // 折叠区的「›」转到展开（90°）或收起（0°），与共享页 `moreOptionsMarker` 的 transition 一样用 150 ms；系统关掉了动画效果时直接转过去，对应 `motion-reduce:transition-none`。
+  void turn_fold_marker(RotateTransform const &turn, bool expanded) {
+    const double angle = expanded ? 90 : 0;
+    if (!ui_settings_.AnimationsEnabled()) {
+      turn.Angle(angle);
+      return;
+    }
+    Media::Animation::DoubleAnimation spin;
+    spin.To(angle);
+    spin.Duration(DurationHelper::FromTimeSpan(std::chrono::milliseconds(150)));
+    Media::Animation::Storyboard::SetTarget(spin, turn);
+    Media::Animation::Storyboard::SetTargetProperty(spin, L"Angle");
+    Media::Animation::Storyboard board;
+    board.Children().Append(spin);
+    board.Begin();
+  }
+
+  // 组末的「更多选项」折叠区：展开与否记在 `open` 这个成员里，跨页面重建保留；`focused` 为真（搜索落到折叠区里的某一行）时直接展开。返回放行的面板。
+  StackPanel add_more_options(StackPanel const &group, bool &open, bool focused) {
+    // `open` 是窗口自己的成员，与这些控件同寿。
+    bool *const state = &open;
+    return add_fold(group, L"更多选项", open || focused, [state](bool expanded) { *state = expanded; });
+  }
+
+  // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。尺寸照 macOS 的 `group` token：左右 16、上下 10 的内边距，行高至少 56（有说明时；没有说明的行 44，避免一列开关显得松散），标题 14 DIP、说明 12 DIP。
   Border add_row(StackPanel const &group, wchar_t,
                  std::wstring const &title, std::wstring const &subtitle,
                  FrameworkElement const &control,
                  FrameworkElement const &below = nullptr) {
     record(title, subtitle);
     Grid header;
-    header.MinHeight(subtitle.empty() ? 30 : 38);
-    header.Padding(Thickness{0, 4, 0, 4});
+    // 行的上下内边距各 10，标题区至少 36（或 24），合起来就是 56（或 44）。
+    header.MinHeight(subtitle.empty() ? 24 : 36);
     header.ColumnSpacing(12);
     ColumnDefinition text_column;
     text_column.Width(GridLength{1, GridUnitType::Star});
@@ -4352,11 +4455,10 @@ private:
     StackPanel texts;
     texts.Spacing(2);
     texts.VerticalAlignment(VerticalAlignment::Center);
-    texts.Children().Append(make_text(title, 13, palette_.text));
+    texts.Children().Append(make_text(title, 14, palette_.text));
     if (!subtitle.empty())
-      texts.Children().Append(make_text(subtitle, 11, palette_.sub));
+      texts.Children().Append(make_text(subtitle, 12, palette_.sub));
     header.Children().Append(texts);
-
     if (control) {
       control.VerticalAlignment(VerticalAlignment::Center);
       control.HorizontalAlignment(HorizontalAlignment::Right);
@@ -4385,13 +4487,8 @@ private:
     body.Children().Append(header);
     if (below)
       body.Children().Append(below);
-    Border row;
-    if (group.Children().Size() > 0) {
-      row.BorderBrush(brush(palette_.divider));
-      row.BorderThickness(Thickness{0, 1, 0, 0});
-    }
-    row.Child(body);
-    group.Children().Append(row);
+    auto row = append_row_frame(group, body);
+    row.Padding(Thickness{row_inset, 10, row_inset, 10});
     mark_search_target(title, row);
     return row;
   }
@@ -4753,11 +4850,10 @@ private:
             button_control(action, [this, target] { open_shell(target); }));
   }
 
-  void url_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
-               std::wstring const &subtitle, std::wstring const &action,
-               const wchar_t *url) {
-    add_row(group, glyph, title, subtitle,
-            button_control(action, [this, url] { open_url(url); }));
+  // 打开网页的跳转行，行尾是「↗」。
+  void url_row(StackPanel const &group, std::wstring const &title,
+               std::wstring const &subtitle, const wchar_t *url) {
+    link_row(group, title, subtitle, true, [this, url] { open_url(url); });
   }
 
   // ---- 检查更新 ----
@@ -7400,26 +7496,14 @@ private:
     // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
     auto colors = add_group(page, L"自定义主题");
     record(L"自定义主题", L"候选颜色取色器");
-    Expander custom_colors;
-    custom_colors.Header(box_value(L"自定义配色"));
-    custom_colors.HorizontalAlignment(HorizontalAlignment::Stretch);
-    custom_colors.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    custom_colors.IsExpanded(custom_colors_open_ || focus_row_ == L"自定义主题" ||
-                             fold_holds_focus(L"custom-colors"));
-    custom_colors.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      custom_colors_open_ = true;
-    });
-    custom_colors.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      custom_colors_open_ = false;
-    });
-    mark_search_target(L"自定义主题", custom_colors);
-    StackPanel color_rows;
-    color_rows.Spacing(4);
+    mark_search_target(L"自定义主题", colors);
+    auto color_rows = add_fold(colors, L"自定义配色",
+                               custom_colors_open_ || focus_row_ == L"自定义主题" ||
+                                   fold_holds_focus(L"custom-colors"),
+                               [this](bool expanded) { custom_colors_open_ = expanded; });
     fold_index_ = L"custom-colors";
     candidate_color_rows(color_rows);
     fold_index_.clear();
-    custom_colors.Content(color_rows);
-    colors.Children().Append(custom_colors);
   }
 
   // ---- 皮肤包 ----
@@ -8053,7 +8137,7 @@ private:
   }
 
   // 共享页的 openAccountLogin：去「账号与同步」页登录。
-  void open_account_login() { navigate("account", true); }
+  void open_account_login() { navigate("account"); }
 
   // ---- 标签 ----
 
@@ -10987,20 +11071,9 @@ private:
                L"candidate_font_size", 12, 32, 18);
 
     // 搜索命中折叠区里的某一行时展开它（fold_holds_focus）。
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    A11y::SetAutomationId(more, L"candidate-more");
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(candidate_more_open_ || fold_holds_focus(L"candidate-more"));
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      candidate_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      candidate_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        layout, L"更多选项", candidate_more_open_ || fold_holds_focus(L"candidate-more"),
+        [this](bool expanded) { candidate_more_open_ = expanded; }, L"candidate-more");
     fold_index_ = L"candidate-more";
     // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
     bool_row(rows, 0xE790, L"显示水杉 logo",
@@ -11028,8 +11101,6 @@ private:
                 {L"empty", L"不显示"}},
                L"raw");
     fold_index_.clear();
-    more.Content(rows);
-    layout.Children().Append(more);
 
     auto games = add_group(page, L"游戏");
     bool_row(
@@ -11525,7 +11596,7 @@ private:
     add_row(general, 0xE790, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
               focus_row_ = L"颜色模式";
-              navigate("themes", true);
+              navigate("themes");
             }));
     std::vector<Check> checks;
     for (const auto &component : toolbar_components_) {
@@ -11790,14 +11861,8 @@ private:
       A11y::SetName(radio, hstring(option.label + L"输入"));
       A11y::SetAutomationId(radio, hstring(L"scheme-" + option.value));
       record(option.label + L"输入", L"输入方案");
-      Border choice;
-      choice.Padding(Thickness{0, 2, 0, 2});
-      if (schemes.Children().Size() > 0) {
-        choice.BorderBrush(brush(palette_.divider));
-        choice.BorderThickness(Thickness{0, 1, 0, 0});
-      }
-      choice.Child(radio);
-      schemes.Children().Append(choice);
+      auto choice = append_row_frame(schemes, radio);
+      choice.Padding(Thickness{row_inset, 2, row_inset, 2});
       mark_search_target(option.label + L"输入", radio);
     }
     StackPanel scheme_options_group{nullptr};
@@ -12383,22 +12448,12 @@ private:
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
     // 「更多选项」：方头括号样式、智能标点总开关和它的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。搜索落在其中任何一行时展开。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(punctuation_more_open_ || focus_row_ == L"方头括号样式" ||
-                    focus_row_ == L"智能标点" || focus_row_ == L"重复标点转中文" ||
-                    focus_row_ == L"中文标点后按空格转换" || focus_row_ == L"数字后直出" ||
-                    focus_row_ == L"字母后直出");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      punctuation_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      punctuation_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        punctuation, L"更多选项",
+        punctuation_more_open_ || focus_row_ == L"方头括号样式" || focus_row_ == L"智能标点" ||
+            focus_row_ == L"重复标点转中文" || focus_row_ == L"中文标点后按空格转换" ||
+            focus_row_ == L"数字后直出" || focus_row_ == L"字母后直出",
+        [this](bool expanded) { punctuation_more_open_ = expanded; });
     select_row(rows, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
                L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
     // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII。四个键默认都是开（client-core 的 smart_punctuation_default，读进来的文档总带着这些键，这里的回退值只是与它一致）。只写过总开关的旧文档在说明里多一句提示，不改写存储。
@@ -12427,8 +12482,6 @@ private:
     bool_row(rows, 0xE8EE, L"字母后直出",
              L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
              L"smart_punctuation_direct_letter", true, true, smart);
-    more.Content(rows);
-    punctuation.Children().Append(more);
 
     build_input_habits(page);
 
@@ -12455,19 +12508,9 @@ private:
                L"candidate_pronunciation", false);
     // 第二种语言：候选窗在第一种语言下面再画一行。和共享页 CandidateTranslationOptionsSection 的默认布局一样收进「更多选项」（它会上云，所以只折叠不砍），翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
     {
-      Expander translation_more;
-      translation_more.Header(box_value(L"更多选项"));
-      translation_more.HorizontalAlignment(HorizontalAlignment::Stretch);
-      translation_more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-      translation_more.IsExpanded(translation_more_open_ || focus_row_ == L"第二种语言");
-      translation_more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-        translation_more_open_ = true;
-      });
-      translation_more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-        translation_more_open_ = false;
-      });
-      StackPanel translation_rows;
-      translation_rows.Spacing(4);
+      auto translation_rows = add_fold(
+          candidates, L"更多选项", translation_more_open_ || focus_row_ == L"第二种语言",
+          [this](bool expanded) { translation_more_open_ = expanded; });
       add_row(translation_rows, 0xE774, L"第二种语言", L"候选词下方可同时显示第二种释义",
               select_control(L"第二种语言",
                              {{L"", L"不显示第二种语言"}, {L"en", L"英语"}, {L"fr", L"法语"},
@@ -12484,8 +12527,6 @@ private:
                                }, false);
                              },
                              glosses));
-      translation_more.Content(translation_rows);
-      candidates.Children().Append(translation_more);
     }
     // 翻译服务：共享页「翻译服务」一行（`translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
     // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
@@ -12546,7 +12587,7 @@ private:
   // 分组里的一条警告（共享页的 `SettingsWarning`），文字为空时收起；读屏在文字变化时播报。
   TextBlock group_warning() {
     auto warning = make_text(L"", 13, danger_color());
-    warning.Margin(Thickness{4, 2, 4, 4});
+    warning.Margin(Thickness{0, 2, 0, 10});
     warning.Visibility(Visibility::Collapsed);
     A11y::SetLiveSetting(warning, Automation::Peers::AutomationLiveSetting::Polite);
     return warning;
@@ -12661,7 +12702,7 @@ private:
     content.Padding(Thickness{25, 12, 25, 12});
     content.Children().Append(button);
     content.Children().Append(message);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
     if (indexing_)
@@ -12794,19 +12835,9 @@ private:
     // 地域收进「更多选项」：请求一律发往 tmt.tencentcloudapi.com，地域只写进 X-TC-Region，留空按广州处理（crates/client-core/src/translation.rs），平时用不着改；需要境外数据驻留的人仍能填。与共享页 MoreOptions 的 defaultOpen 相同，第一次画出时已存的地域不合规就展开，让错误旁边就是要改的那一格。
     if (!indexing_ && !tencent_region_open_)
       tencent_region_open_ = !nav::tencent_credential_issue(L"", L"", fields->region).empty();
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(tencent_region_open_.value_or(false) || focus_row_ == L"地域");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      tencent_region_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      tencent_region_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        group, L"更多选项", tencent_region_open_.value_or(false) || focus_row_ == L"地域",
+        [this](bool expanded) { tencent_region_open_ = expanded; });
     add_row(rows, 0xE774, L"地域", L"",
             credential_input(L"腾讯云地域", fields->region, false, L"ap-guangzhou", available,
                              [this, fields, refresh](std::wstring const &value) {
@@ -12817,8 +12848,6 @@ private:
                                refresh();
                                return saved;
                              }));
-    more.Content(rows);
-    group.Children().Append(more);
     add_credential_test(
         group, L"translation.tencent", L"测试腾讯云翻译配置",
         [fields] {
@@ -15961,11 +15990,8 @@ private:
         12, palette_.sub);
     privacy.Margin(Thickness{0, 16, 0, 0});
     actions.Children().Append(privacy);
-    Border actions_row;
-    actions_row.BorderBrush(brush(palette_.divider));
-    actions_row.BorderThickness(Thickness{0, 1, 0, 0});
-    actions_row.Child(actions);
-    group.Children().Append(actions_row);
+    auto actions_row = append_row_frame(group, actions);
+    actions_row.Padding(Thickness{row_inset, 0, row_inset, 0});
 
     const auto message = typing::availability_notice(
         statistics.enabled, statistics.total, status.never_written,
@@ -16379,7 +16405,7 @@ private:
           }
           apply_vocabulary_response(response);
           focus_row_ = L"词书";
-          navigate("lexicon", true);
+          navigate("lexicon");
         });
   }
 
@@ -16517,7 +16543,7 @@ private:
         actions.Children().Append(button);
       body.Children().Append(actions);
     }
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(body);
     group.Children().Append(card);
   }
@@ -16556,7 +16582,7 @@ private:
       divider.Child(texts);
       list.Children().Append(divider);
     }
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(list);
     group.Children().Append(card);
   }
@@ -16752,7 +16778,7 @@ private:
     add_row(import, 0xE8B5, L"从文件导入", std::wstring(pg::import_description), buttons);
     if (!plugins_notice_.empty()) {
       auto notice = group_note(plugins_notice_);
-      notice.Margin(Thickness{4, 4, 4, 4});
+      notice.Margin(Thickness{0, 4, 0, 10});
       A11y::SetLiveSetting(notice, Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
       import.Children().Append(notice);
     }
@@ -16767,7 +16793,7 @@ private:
                                              (issue.folder.empty() ? std::wstring(L"目录") : issue.folder) +
                                              L" 无法载入：" + issue.reason,
                                          13, palette_.sub));
-      auto card = make_card();
+      auto card = make_inner_card();
       A11y::SetName(card, L"无法载入的插件");
       card.Child(list);
       issues.Children().Append(card);
@@ -16851,19 +16877,10 @@ private:
               set([on](pg::Preferences &next) { next.commit_sound_enabled = on; });
             }));
     // 成就音效和升档音都是默认关闭的小玩法，收进「更多音效」，主列表只留常用的几项；搜索落到其中一项时展开。
-    Expander more;
-    more.Header(box_value(L"更多音效"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      plugin_sound_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      plugin_sound_more_open_ = false;
-    });
-    StackPanel extra;
-    extra.Spacing(4);
+    auto extra = add_fold(
+        keys, L"更多音效",
+        plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音",
+        [this](bool expanded) { plugin_sound_more_open_ = expanded; });
     const bool achievements_blocked =
         pg::achievements_blocked(plugin_statistics_enabled_, preferences.achievements_enabled);
     add_row(extra, 0xE734, L"成就音效",
@@ -16882,8 +16899,6 @@ private:
                              set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
                            },
                            preferences.combo_counter));
-    more.Content(extra);
-    keys.Children().Append(more);
 
     // 选了特效包时由它决定样式，这一项只描述不选包时画什么。强度在 Windows 上固定为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），宿主不读存下的值，所以没有「效果强度」。
     const bool pack_selected = !preferences.effect_pack.empty();
@@ -17020,7 +17035,7 @@ private:
     plugin_mentions_save_ = save;
     actions.Children().Append(save);
     body.Children().Append(actions);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(body);
     group.Children().Append(card);
     update_plugin_mentions_state();
@@ -17192,7 +17207,7 @@ private:
     const auto preferences = plugin_preferences();
     const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     auto select = [this, pack] { change_plugins(pg::with_pack_selected(plugin_preferences(), pack)); };
-    auto go_typing = [this] { navigate("typing", true); };
+    auto go_typing = [this] { navigate("typing"); };
     if (pack.kind == L"sound") {
       const auto action = pg::sound_pack_action(pack, preferences);
       plugin_action_block(group, action.note,
@@ -17753,7 +17768,7 @@ private:
     add_row(look, 0xE790, L"屏幕键盘外观", L"屏幕键盘跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
               focus_row_ = L"颜色模式";
-              navigate("themes", true);
+              navigate("themes");
             }));
   }
 
@@ -18382,7 +18397,7 @@ private:
         auto silence = make_text(
             L"测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。", 12,
             palette_.sub);
-        silence.Margin(Thickness{4, 8, 4, 4});
+        silence.Margin(Thickness{0, 8, 0, 10});
         config.Children().Append(silence);
         add_credential_test(config, L"voice.asr",
                             doubao ? L"测试豆包识别配置" : L"测试语音识别配置",
@@ -18426,22 +18441,10 @@ private:
                                  doc.SetBoolean(L"voice_input." + std::wstring(key), on);
                              }, true);
                            }));
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      voice_hotkeys_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      voice_hotkeys_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        shortcuts, L"更多选项", voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音",
+        [this](bool expanded) { voice_hotkeys_more_open_ = expanded; });
     bool_row(rows, 0xEDA7, L"Ctrl+F9 切换语音", L"", L"voice_input.hotkey_ctrl_f9", true);
-    more.Content(rows);
-    shortcuts.Children().Append(more);
   }
 
   void redraw_voice() {
@@ -18568,7 +18571,7 @@ private:
     content.Padding(Thickness{25, 12, 25, 12});
     content.Children().Append(
         button_control(label + L"接入说明与 API Key", [this, url] { open_url(url.c_str()); }));
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
   }
@@ -18665,22 +18668,12 @@ private:
     static constexpr std::array<std::wstring_view, 9> folded{
         L"流式接口", L"自定义接口地址", L"识别接口地址", L"识别模型", L"自定义模型",
         L"Doubao 资源 ID", L"数字格式化", L"语义顺滑", L"热词表 ID"};
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(
+    auto rows = add_fold(
+        group, L"更多选项",
         voice_service_more_open_.value_or(vs::asr_advanced_changed(voice_provider_catalog().asr,
             provider, endpoint, document_.String(L"voice_input.asr_resource_id", L""))) ||
-        std::find(folded.begin(), folded.end(), focus_row_) != folded.end());
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      voice_service_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      voice_service_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+            std::find(folded.begin(), folded.end(), focus_row_) != folded.end(),
+        [this](bool expanded) { voice_service_more_open_ = expanded; });
     if (doubao || indexing_) {
       // 地址为空时宿主用默认的双向流式地址，下拉照实显示它；选「自定义地址」不改地址，只重画出输入框（共享页 DoubaoStreamEndpointSection 的 customRequested），在输入框里打出预设的地址也不收起。
       const bool custom = voice_custom_endpoint_ || vs::doubao_stream_endpoint_id(endpoint) == L"custom";
@@ -18754,8 +18747,6 @@ private:
       voice_text_row(rows, 0xE8EC, L"热词表 ID", L"", L"热词表 ID",
                      L"voice_input.doubao_boosting_table_id");
     }
-    more.Content(rows);
-    group.Children().Append(more);
   }
 
   // 「测试豆包识别配置」「测试语音识别配置」发给 msime_client_test_api_credential 的配置（asrServiceCredentialTestConfig）。
@@ -18935,7 +18926,7 @@ private:
         write_credential(prompt_key, textarea_value(sender.as<TextBox>()));
       });
     block.Children().Append(prompt);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     group.Children().Append(card);
     mark_search_target(L"润色提示词", card);
@@ -19093,20 +19084,10 @@ private:
     if (!indexing_ && local_models_stale_)
       refresh_local_models();
     add_local_model_manager(group);
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(local_more_open_ || focus_row_ == L"模型下载镜像" ||
-                    focus_row_ == L"本地模型目录");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      local_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      local_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        group, L"更多选项",
+        local_more_open_ || focus_row_ == L"模型下载镜像" || focus_row_ == L"本地模型目录",
+        [this](bool expanded) { local_more_open_ = expanded; });
     voice_text_row(rows, 0xE896, L"模型下载镜像",
                    L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载",
                    L"模型下载镜像", L"voice_input.asr_model_mirror", false,
@@ -19132,8 +19113,6 @@ private:
     }, loaded_));
     add_row(rows, 0xE8B7, L"本地模型目录", L"已安装模型所在文件夹的绝对路径（包含 msime-model.json）",
             path);
-    more.Content(rows);
-    group.Children().Append(more);
   }
 
   // 模型管理器（LocalModelManager）：每个模型一张卡片，写着它是什么、多大、许可，按状态给出下载、从文件导入、取消、使用、删除。
@@ -19160,7 +19139,7 @@ private:
       block.Children().Append(notice);
     }
     A11y::SetName(block, L"本地识别模型");
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     group.Children().Append(card);
     mark_search_target(L"本地识别模型", card);
@@ -19815,21 +19794,12 @@ private:
                                     return true;
                                   });
         });
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
     // 搜索落到收在里面的行时展开。
-    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址" ||
-                    focus_row_ == L"服务模型" || focus_row_ == L"自定义提示词");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      ai_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      ai_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        service, L"更多选项",
+        ai_more_open_.value_or(false) || focus_row_ == L"接口地址" || focus_row_ == L"服务模型" ||
+            focus_row_ == L"自定义提示词",
+        [this](bool expanded) { ai_more_open_ = expanded; });
     const auto endpoint_text = document_.String(L"ai_assistant.endpoint", L"");
     auto endpoint_input = credential_input(
         L"AI 接口地址", endpoint_text, false, L"", true, [this](std::wstring const &value) {
@@ -19887,12 +19857,10 @@ private:
       sync_ai();
     });
     block.Children().Append(prompt);
-    auto prompt_card = make_card();
+    auto prompt_card = make_inner_card();
     prompt_card.Child(block);
     rows.Children().Append(prompt_card);
     mark_search_target(label, prompt_card);
-    more.Content(rows);
-    service.Children().Append(more);
     add_credential_test(
         service, L"ai.assistant", L"测试 AI 辅助配置",
         [this] {
@@ -20089,7 +20057,7 @@ private:
       // `add_group` 返回的就是卡片里的行面板，直接放进行面板与其他工具页对齐。
       StackPanel content;
       content.Spacing(10);
-      content.Padding(Thickness{0, 4, 0, 4});
+      content.Padding(Thickness{0, 10, 0, 10});
       append_mcp_section(content);
       mark_search_target(L"连接 AI 助手", content);
       mcp.Children().Append(content);
@@ -20167,14 +20135,14 @@ private:
     block.Children().Append(make_text(
         L"提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。", 12,
         palette_.sub));
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     report.Children().Append(card);
     mark_search_target(L"提交可复现的问题", card);
     report.Children().Append(group_note(
         L"提交问题时建议附上系统版本、输入方案、复现步骤、相关截图，以及诊断日志中的关键片段。"));
-    add_row(report, 0xEBE8, L"诊断日志", L"在维护与诊断页开启日志并打开日志目录",
-            button_control(L"前往", [this] { navigate("dev", true); }));
+    link_row(report, L"诊断日志", L"在维护与诊断页开启日志并打开日志目录", false,
+             [this] { navigate("dev"); });
 
     // 「反馈与交流」的三张渠道卡片（`feedback-channels.tsx`），每张下面是地址或群号。图标用 Segoe Fluent 的通用字形，本窗口不带品牌标志。
     const std::wstring issues(msime::settings::feedback_issues_url);
@@ -20207,7 +20175,8 @@ private:
   // 分组里的一段说明文字，对应共享页的 `SettingsGroupNote`。
   TextBlock group_note(std::wstring_view value) {
     auto note = make_text(value, 12, palette_.sub);
-    note.Margin(Thickness{4, 0, 4, 4});
+    // 上下 10 与 macOS `groupNote` 的行内边距相同；左右由卡片行面板的 16 DIP 缩进给出。
+    note.Margin(Thickness{0, 10, 0, 10});
     return note;
   }
 
@@ -20270,7 +20239,7 @@ private:
     record(L"帮助", intro);
     auto note = make_text(intro, 14, palette_.sub);
     note.IsTextSelectionEnabled(true);
-    note.Margin(Thickness{4, 0, 4, 4});
+    note.Margin(Thickness{0, 10, 0, 10});
     help.Children().Append(note);
     mark_search_target(L"帮助", note);
 
@@ -20282,7 +20251,9 @@ private:
          L"语音识别和 AI 联想需要自行填入 API 和 token。云候选目前支持谷歌的云接口，请注意网络问题。",
          L"更多功能欢迎自由探索～"});
     auto more = add_group(page, L"更多");
-    url_row(more, 0xE8A5, L"完整文档", L"", L"完整文档（网页）", documentation_url);
+    // 共享帮助页这一行是带按钮的 ActionRow，不是跳转行，照旧用按钮。
+    add_row(more, 0xE8A5, L"完整文档", L"",
+            button_control(L"完整文档（网页）", [this] { open_url(documentation_url); }));
   }
 
   // 一个带标题的分组，里面只有一张写着几段说明文字的卡片，对应共享页的 `GroupList` + `SettingsGroupBlock`。搜索按分组标题找到它。
@@ -20300,7 +20271,7 @@ private:
       detail.append(paragraph);
     }
     record(title, detail);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
     mark_search_target(title, card);
@@ -20364,9 +20335,8 @@ private:
       update_detail_ = update_detail;
     }
     show_update_outcome();
-    url_row(updates, 0xE896, L"其他平台下载",
-            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。",
-            L"打开下载页", download_url);
+    url_row(updates, L"其他平台下载",
+            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。", download_url);
     add_row(updates, 0xE8C8, L"复制下载链接", download_url,
             button_control(L"复制链接", [this] {
               if (copy_text(download_url))
@@ -20374,7 +20344,7 @@ private:
               else
                 show_notice(L"复制失败，请重试");
             }));
-    url_row(updates, 0xE8A5, L"历史版本", L"各版本的更新说明与安装包。", L"查看", releases_url);
+    url_row(updates, L"历史版本", L"各版本的更新说明与安装包。", releases_url);
 
     // 并进来的帮助与反馈，顺序与共享的 about-page.tsx 相同：版本与更新 → 帮助与反馈 → 许可与隐私。
     build_feedback_sections(page);
@@ -20383,11 +20353,11 @@ private:
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
              L"仅发送匿名使用记录和崩溃摘要，不含输入内容、候选、剪贴板、账号或设备信息；关闭后不再发送，并清空待发记录。",
              L"usage_reporting", true);
-    url_row(privacy, 0xEA18, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
-            L"查看", privacy_url);
-    url_row(privacy, 0xE8A5, L"开源许可协议", L"水杉输入法的开源许可证", L"查看", license_url);
-    add_row(privacy, 0xE8A5, L"第三方组件许可", L"随安装包提供的第三方组件许可声明",
-            button_control(L"查看", [this] { open_third_party_notices(); }));
+    url_row(privacy, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
+            privacy_url);
+    url_row(privacy, L"开源许可协议", L"水杉输入法的开源许可证", license_url);
+    link_row(privacy, L"第三方组件许可", L"随安装包提供的第三方组件许可声明", true,
+             [this] { open_third_party_notices(); });
   }
 
   // ---- 连接 AI 助手 ----
@@ -20396,14 +20366,14 @@ private:
                       hstring description) {
     auto heading_text = TextBlock();
     heading_text.Text(heading);
-    // 13/11 DIP 是卡片内标签和说明的尺寸（`add_row`、README 的「组内使用细分隔线、13 DIP 标签和 11 DIP 说明」）；这里原来用 14 DIP，比组标题还大，卡片内外对不上。
-    heading_text.FontSize(13);
+    // 与 `add_row` 的标签和说明同尺寸（14/12 DIP，README 的「14 DIP 标签和 12 DIP 说明」），卡片内外对得上。
+    heading_text.FontSize(14);
     heading_text.FontWeight(Windows::UI::Text::FontWeight{600});
     heading_text.Foreground(brush(palette_.text));
     panel.Children().Append(heading_text);
     auto description_text = TextBlock();
     description_text.Text(description);
-    description_text.FontSize(11);
+    description_text.FontSize(12);
     description_text.TextWrapping(TextWrapping::Wrap);
     description_text.IsTextSelectionEnabled(true);
     description_text.Foreground(brush(palette_.sub));
@@ -20572,7 +20542,6 @@ private:
   Palette palette_;
 
   std::string current_page_;
-  std::vector<std::string> history_;
   bool selecting_ = false;
   bool refresh_queued_ = false;
   bool closed_ = false;
@@ -20889,7 +20858,6 @@ private:
 
   Grid root_{nullptr};
   Grid titlebar_{nullptr};
-  Button back_{nullptr};
   AutoSuggestBox search_{nullptr};
   TextBlock toolbar_title_{nullptr};
   NavigationView navigation_{nullptr};

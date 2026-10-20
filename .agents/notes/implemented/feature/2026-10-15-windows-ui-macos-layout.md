@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-Windows 设置窗口把每一项设置画成独立的高卡片，侧栏和页边距挤占正文；候选窗使用蓝色文字与竖线标记选中。macOS 使用紧凑的分组卡片和实心绿色选中底。两边功能接近，视觉层级却不同，用户要求 Windows 参考 macOS 改版。本篇接管[Windows 候选窗口补齐 macOS](2026-10-10-windows-candidate-window-mac-parity.md)中的默认外观，候选内容及交互约定继续沿用。设置窗口的初始尺寸和侧栏选中样式后来由[外壳配色与侧栏对齐 macOS](2026-10-20-windows-settings-mac-shell.md)接管：窗口改为 1000 × 780，侧栏选中改为中性底色。
+Windows 设置窗口把每一项设置画成独立的高卡片，侧栏和页边距挤占正文；候选窗使用蓝色文字与竖线标记选中。macOS 使用紧凑的分组卡片和实心绿色选中底。两边功能接近，视觉层级却不同，用户要求 Windows 参考 macOS 改版。本篇接管[Windows 候选窗口补齐 macOS](2026-10-10-windows-candidate-window-mac-parity.md)中的默认外观，候选内容及交互约定继续沿用。设置窗口的初始尺寸和侧栏选中样式后来由[外壳配色与侧栏对齐 macOS](2026-10-20-windows-settings-mac-shell.md)接管：窗口改为 1000 × 780，侧栏选中改为中性底色。分组与行的具体尺寸、正文边距、页面标题和标题栏返回按钮后来由[行与组密度对齐 macOS](2026-10-20-windows-settings-mac-density.md)接管。
 
 ## Decision
 

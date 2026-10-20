@@ -256,12 +256,11 @@ function Set-CandidateMore($window, [bool]$expanded) {
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
-    $pattern = $fold.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
-    $wanted = if ($expanded) { [System.Windows.Automation.ExpandCollapseState]::Expanded } else { [System.Windows.Automation.ExpandCollapseState]::Collapsed }
-    if ($pattern.Current.ExpandCollapseState -ne $wanted) {
-        if ($expanded) { $pattern.Expand() } else { $pattern.Collapse() }
+    # 折叠区的标题行是一个整行按钮（照 macOS 的 MoreOptions），没有 ExpandCollapse 模式。主流程的行一直在，折叠区里的行只在展开时出现在 UIA 树里，所以按里面那行在不在判断状态，不对时点按一次标题行。
+    $content = Find-ById $window 'settings-content'
+    if ([bool](Find-ByName $content '行内预编辑') -ne $expanded) {
+        $fold.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     }
-    # 主流程的行一直在；折叠区里的行只在展开时出现在 UIA 树里。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
@@ -269,6 +268,10 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
     if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
+    # 读屏从 ItemStatus 得知展开与否。
+    $wanted = if ($expanded) { '已展开' } else { '已收起' }
+    $status = (Find-ById $window 'candidate-more').Current.ItemStatus
+    if ($status -ne $wanted) { throw "Candidate 更多选项 reports ItemStatus '$status' instead of '$wanted'" }
     if (-not (Find-ByName $content '候选项排列方式')) { throw 'Candidate main rows are missing' }
 }
 function Select-ComboChoice($window, [string]$id, [string]$label) {
@@ -409,6 +412,8 @@ try {
                 Open-Page $window $page
                 $content = Find-ById $window 'settings-content'
                 if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
+                # 与 macOS 一样，标题栏里只有页名，没有跨页面的历史返回按钮。
+                if (Find-ByName $window '返回') { throw "Settings title bar still has a history back button on $page" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
                 if ($page -eq 'clip') {
