@@ -56,7 +56,8 @@ Status: implemented
 
 ## Verification
 
-- Rust：`apps/desktop` 在 Linux 容器里 `cargo clippy -p msime-desktop --all-targets` 无新告警；`client-core` 的 `host_surface` 测试断言 Linux 声明 `caps_lock_punctuation`、`quick_phrase_candidates` 和 `app_input_mode_rules`。
-- 前端：`mobile-host-capabilities.test.ts`、`desktop-cloud-dictionary-client.test.ts`（Linux 快照能力、只有 Linux 用宿主保存导出）、`app-input-mode-rules.test.tsx`（Linux 手填程序名、路径只取文件名、不调用选应用和名称查询）。
-- 宿主：`linux-app-input-mode-rules`（规则匹配、IBus 客户端名解析、停留与让位）；`fcitx5-native-test --app-rules`；`fcitx5-native-test --caps-lock` 和 `ibus-engine-smoke --caps-lock` 末尾的大写锁定标点用例；`fcitx5-native-test --caps-lock` 同时断言会话请求了快捷短语候选；`ibus-engine-smoke` 默认流程里的应用例外用例。资源相关的用例需要已验证的词库目录，各自的运行结果写在 PR 里。
-- 没有在真实 Linux 桌面上用真实账号做联网验收，也没有在真实 GTK、Qt 程序上核对报告的程序名。
+- Rust（Linux 容器，`Dockerfile.desktop-check` 镜像）：`cargo clippy -p msime-desktop --all-targets` 只报 host-api 里一条与本改动无关的旧告警；`cargo test -p msime-desktop --lib` 312 项通过；`cargo test -p msime-client-core --lib host_surface` 32 项通过，断言 Linux 声明 `caps_lock_punctuation`、`quick_phrase_candidates` 和 `app_input_mode_rules`。
+- 前端：`pnpm run lint`、`pnpm run format:check`、`apps/desktop` 的 `tsc --noEmit` 通过；`apps/desktop` 全量 vitest 784 个文件 4851 项通过，其中新增或改动的有 `mobile-host-capabilities.test.ts`、`desktop-cloud-dictionary-client.test.ts`（Linux 快照能力、只有 Linux 用宿主保存导出）和 `app-input-mode-rules.test.tsx`（Linux 手填程序名、路径只取文件名、不调用选应用和名称查询）。
+- 原生编译门禁 `platforms/linux/build-container.sh`：IBus 引擎、Fcitx5 插件和全部单测编译通过，ctest 95 项全过，含新增的 `linux-app-input-mode-rules`。
+- 需要已验证词库的用例在门禁镜像里对着按 `desktop-dictionary.lock.json` 下载校验的词库手动运行：`ibus-engine-smoke --caps-lock`（含大写锁定标点）通过；`ibus-engine-smoke` 默认流程跑过了新增的应用例外用例，停在后面一条与本改动无关、在 develop 上同样失败的断言（`IBus did not keep an input-method ASCII digit as smart-punctuation context`），另有一次在剪贴板清除用例上的偶发失败，重跑两次都没有复现。`fcitx5-native-test` 在 develop 上就过不了「快捷模式」那一段（`Disabled expression mode must pass through`），它排在 `--caps-lock` 和 `--app-rules` 的分支之前；临时跳过那一段后，`--caps-lock`（含大写锁定标点和快捷短语候选请求）连跑 6 次、`--app-rules` 连跑 5 次都通过。
+- 没有在真实 Linux 桌面上用真实账号做联网验收（云词库、完整备份、「应用到本机」、设置同步、社区词包都只在单测和编译层面验证），也没有在真实 GTK、Qt 程序上核对报告的程序名。
