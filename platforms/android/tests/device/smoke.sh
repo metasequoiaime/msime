@@ -239,7 +239,7 @@ result=$(run_instrumentation app.msime.android.test/app.msime.android.test.Setti
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native saved skin deletion acceptance failed" >&2; exit 1; }
 # 背单词内置词书：Bootstrap 解到 files/bootstrap/wordbooks，设置页经真实 JNI 读到八本书并能作答。这是应用私有目录里的解包和文件锁，最低 API 的核心验收也运行；APK 要先用 scripts/fetch_wordbooks.py 生成的词书打包。
-result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VocabularyReviewDeviceSmoke)
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Bundled wordbook acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then

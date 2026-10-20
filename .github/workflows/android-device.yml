@@ -71,7 +71,7 @@ jobs:
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
         run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK
-        # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。VocabularyReviewDeviceSmoke 要读 APK 里的背单词内置词书，所以也生成词书并要求它们进包。
+        # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。背单词的设备验收（SettingsDeviceSmoke -e vocabulary true）要读 APK 里的内置词书，所以也生成词书并要求它们进包。
         env:
           MSIME_REQUIRE_LANGUAGE_DICTIONARIES: '1'
           MSIME_REQUIRE_WORDBOOKS: '1'
