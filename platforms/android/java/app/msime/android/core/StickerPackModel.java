@@ -30,7 +30,7 @@ public final class StickerPackModel {
     public static final int CELL_PADDING_DP = 4;
     /** 分类签上那张缩略图的边长，和其他分类签 17 sp 的 Emoji 图标看起来一样大。 */
     public static final int TAB_ICON_DP = 24;
-    /** 发出去的 PNG 放在应用缓存下的这个目录里，`res/xml/msime_file_paths.xml` 按同名把它暴露给 FileProvider。 */
+    /** 发出去的 PNG 放在应用缓存下的这个目录里，`res/xml/msime_file_paths.xml` 按同名把它暴露给 FileProvider。目录里始终至多一张，只在写下一张时替换，不定时删：复制到剪贴板的那张要在键盘进程被回收后仍能粘贴。 */
     public static final String DIRECTORY = "sticker-images";
     /** 发出去的类型：WebP 解码后转成保留透明的 PNG，收图的应用普遍认 PNG，不一定认 WebP。 */
     public static final String MIME_TYPE = "image/png";

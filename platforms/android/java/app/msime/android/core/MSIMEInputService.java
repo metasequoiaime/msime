@@ -1650,7 +1650,6 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboard != null) clipboard.addPrimaryClipChangedListener(clipboardWatcher);
         // 键盘进程上次没走到 onDestroy 就被回收时，发出去的图片副本还留在缓存里。
         clearClipboardImages();
-        imeStickers.clearSentImages();
     }
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {

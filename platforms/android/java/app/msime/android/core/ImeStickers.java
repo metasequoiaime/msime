@@ -31,7 +31,7 @@ import org.json.JSONException;
  *
  * <p>直接从 APK 的 assets 读（`build-apk.sh` 把 `resources/stickers/shuishan` 放到 `assets/stickers/shuishan`），不解包到 filesDir。清单、缩略图、PNG 编码和清理都在 {@link #worker} 上，主线程只摆格子。缩略图只给看得见的格子（上下各多一行），其余格子放掉位图；解码结果按字节数有界缓存，离开这个分类或收起面板时清空。
  *
- * <p>发送：输入框声明收 PNG 时把 WebP 转成保留透明的 PNG，写进 `cache/sticker-images/`，经本应用的 FileProvider（`${applicationId}.files`）给出 content URI，用 `commitContent` 带读权限交给输入框；不收或没收下时把同一个 URI 放进系统剪贴板，提示用户长按粘贴。目录里只留最近一张，发出 {@link ClipboardImagePolicy#RETENTION_MS} 后、键盘进程启动和退出时都清空，做法与「最近复制」的图片副本（{@link ClipboardImageCache}）相同。
+ * <p>发送：输入框声明收 PNG 时把 WebP 转成保留透明的 PNG，写进 `cache/sticker-images/`，经本应用的 FileProvider（`${applicationId}.files`）给出 content URI，用 `commitContent` 带读权限交给输入框；不收或没收下时把同一个 URI 放进系统剪贴板，提示用户长按粘贴。目录里始终至多一张：写下一张之前删掉旧的（{@link ClipboardImageCache#replace}），此外不定时删、键盘进程启动和退出时也不清空。贴纸是随包素材，不是用户内容，没有尽快删除的隐私理由；而复制到剪贴板的 URI 要在用户切到别的应用、键盘进程被回收之后仍能粘贴，所以不沿用「最近复制」图片副本的 {@link ClipboardImagePolicy#RETENTION_MS}。
  */
 final class ImeStickers {
     /** 缩略图缓存的上限：每格不超过 160 px 时 66 张整套放得下（约 6.5 MiB），格子更大时只留最近画过的那些。 */
@@ -45,8 +45,6 @@ final class ImeStickers {
     private final HashSet<Integer> pending = new HashSet<>();
     /** 解码失败过的格子：滚动时不再一遍遍重试，换格子大小或重新打开时才再试。 */
     private final HashSet<Integer> failed = new HashSet<>();
-    /** 发出 {@link ClipboardImagePolicy#RETENTION_MS} 之后删掉缓存里的 PNG。 */
-    private final Runnable cleanup = this::clearSentImages;
     private StickerPackModel.Pack pack;
     private boolean loadStarted;
     private Bitmap tabIcon;
@@ -208,13 +206,12 @@ final class ImeStickers {
         });
     }
 
-    /** {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 交给它，交不出去就复制到剪贴板，并安排过一会儿删掉 PNG。 */
+    /** {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 交给它，交不出去就复制到剪贴板。PNG 留到写下一张时才被替换。 */
     private void deliver(long generation, StickerPackModel.Pack current, StickerPackModel.Sticker sticker,
             File png, boolean commit) {
         if (worker.isShutdown()) return;
         if (generation != s.clipboardImageGeneration || s.connection == null) {
-            // 编码期间换了输入框、收起了键盘或重建了会话（包括切换隐私模式）：这张不再发，PNG 也不留。
-            clearSentImages();
+            // 编码期间换了输入框、收起了键盘或重建了会话（包括切换隐私模式）：这张不再发。
             return;
         }
         if (png == null) {
@@ -225,11 +222,9 @@ final class ImeStickers {
         try {
             uri = ClipboardImageCache.contentUri(s, png);
         } catch (IOException error) {
-            clearSentImages();
             s.notice("无法发送这张表情");
             return;
         }
-        s.main.removeCallbacks(cleanup);
         boolean sent = false;
         if (commit) {
             try {
@@ -243,13 +238,11 @@ final class ImeStickers {
         }
         if (!sent) {
             if (!copy(uri, sticker)) {
-                clearSentImages();
                 s.notice("无法复制这张表情");
                 return;
             }
             s.notice(StickerPackModel.copiedNotice(current, sticker));
         }
-        s.main.postDelayed(cleanup, ClipboardImagePolicy.RETENTION_MS);
     }
 
     /**
@@ -277,17 +270,8 @@ final class ImeStickers {
             uri.getScheme(), uri.getAuthority(), uri.getPath(), s.getPackageName());
     }
 
-    /** 在 {@link #worker} 上清空发出去的 PNG；键盘进程正在退出、线程已经停了时什么也不做（退出前已经排过一次清理）。 */
-    void clearSentImages() {
-        if (worker.isShutdown()) return;
-        File directory = new File(s.getCacheDir(), StickerPackModel.DIRECTORY);
-        worker.execute(() -> ClipboardImageCache.clear(directory));
-    }
-
-    /** 键盘进程退出：清理排在 shutdown 之前，正在写的那张写完后连同更早的一起删掉。 */
+    /** 键盘进程退出：停掉工作线程、放掉缩略图。发送目录里那一张留着，剪贴板里的 URI 在进程被回收后仍要能粘贴。 */
     void shutdown() {
-        s.main.removeCallbacks(cleanup);
-        clearSentImages();
         worker.shutdown();
         release();
     }

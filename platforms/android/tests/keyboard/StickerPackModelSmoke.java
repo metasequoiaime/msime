@@ -1,9 +1,16 @@
+import app.msime.android.ClipboardImageCache;
 import app.msime.android.ClipboardImagePolicy;
 import app.msime.android.StickerPackModel;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-/** 水杉娘表情包：清单条目的边界校验、网格列数、缩略图尺寸、文案、直接发图的判断和自己写进剪贴板的贴纸的识别。 */
+/** 水杉娘表情包：清单条目的边界校验、网格列数、缩略图尺寸、文案、直接发图的判断、自己写进剪贴板的贴纸的识别，以及发送目录只在写下一张时替换。 */
 public final class StickerPackModelSmoke {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -18,7 +25,7 @@ public final class StickerPackModelSmoke {
         throw new AssertionError(message);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         // 文件名只认两位数字加 .webp，路径穿越、别的扩展名和非字符串一律拒绝。
         StickerPackModel.Sticker happy = StickerPackModel.sticker("01.webp", "开心");
         check("01.webp".equals(happy.file()) && "开心".equals(happy.name()), "a plain entry is kept as is");
@@ -128,6 +135,27 @@ public final class StickerPackModelSmoke {
             "app.msime.android"), "only content URIs");
         check(!StickerPackModel.ownClipUri("content", ".files", "/sticker-images/clip-1.png", "")
             && !StickerPackModel.ownClipUri("content", null, null, null), "missing parts never match");
+        // 发送目录始终至多一张：写下一张时替换旧的，写完的那张一直留着（不定时删，复制到剪贴板的 URI 要在键盘进程被回收后仍能粘贴）。
+        Path root = Files.createTempDirectory("msime-sticker-smoke");
+        File directory = root.resolve(StickerPackModel.DIRECTORY).toFile();
+        try {
+            byte[] first = new byte[] {(byte) 0x89, 'P', 'N', 'G', 1};
+            File sent = ClipboardImageCache.replace(new ByteArrayInputStream(first), directory,
+                StickerPackModel.EXTENSION, ClipboardImagePolicy.MAX_BYTES);
+            File[] kept = directory.listFiles();
+            check(kept != null && kept.length == 1 && kept[0].equals(sent) && sent.getName().endsWith(".png")
+                && Arrays.equals(first, Files.readAllBytes(sent.toPath())), "the sent sticker stays as the one PNG");
+            byte[] second = new byte[] {(byte) 0x89, 'P', 'N', 'G', 2};
+            File next = ClipboardImageCache.replace(new ByteArrayInputStream(second), directory,
+                StickerPackModel.EXTENSION, ClipboardImagePolicy.MAX_BYTES);
+            kept = directory.listFiles();
+            check(kept != null && kept.length == 1 && kept[0].equals(next) && !sent.exists()
+                && Arrays.equals(second, Files.readAllBytes(next.toPath())), "the next sticker replaces the previous one");
+        } finally {
+            ClipboardImageCache.clear(directory);
+            Files.deleteIfExists(directory.toPath());
+            Files.deleteIfExists(root);
+        }
         System.out.println("StickerPackModelSmoke passed");
     }
 }
