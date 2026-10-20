@@ -3,7 +3,7 @@
     "10": {
       "cases": 9,
       "found": 0.444,
-      "mrr": 0.34,
+      "mrr": 0.344,
       "top1": 0.333,
       "top1_char_prefix": 0.556,
       "top5": 0.333,
@@ -21,7 +21,7 @@
     "12": {
       "cases": 9,
       "found": 0.778,
-      "mrr": 0.671,
+      "mrr": 0.67,
       "top1": 0.667,
       "top1_char_prefix": 0.769,
       "top5": 0.667,
@@ -86,7 +86,7 @@
     "question": {
       "cases": 11,
       "found": 1.0,
-      "mrr": 0.824,
+      "mrr": 0.823,
       "top1": 0.818,
       "top1_char_prefix": 0.841,
       "top5": 0.818,
@@ -104,7 +104,7 @@
     "statement": {
       "cases": 52,
       "found": 0.827,
-      "mrr": 0.708,
+      "mrr": 0.709,
       "top1": 0.692,
       "top1_char_prefix": 0.854,
       "top5": 0.731,
@@ -145,7 +145,7 @@
       "id": "nk-014",
       "input": "xiawusandianjian",
       "rank": 5,
-      "top1": "下午三度案件"
+      "top1": "下午三度按键"
     },
     {
       "gold": "电脑突然死机",
@@ -194,7 +194,7 @@
       "id": "nk-040",
       "input": "wogangcaiquletangyinhang",
       "rank": null,
-      "top1": "我刚才去了杨银行"
+      "top1": "我刚才去了养银行"
     },
     {
       "gold": "晚上一起看电视吧",
@@ -228,7 +228,7 @@
       "gold": "我已经把钱转给你了",
       "id": "nk-054",
       "input": "woyijingbaqianzhuangeinile",
-      "rank": 45,
+      "rank": 42,
       "top1": "我已经把钱装入不了"
     },
     {
@@ -257,20 +257,20 @@
       "id": "nk-058",
       "input": "nibanagehongsedebaogeiwo",
       "rank": null,
-      "top1": "不难社工涩的报给我"
+      "top1": "你爸爸褐红色德保给我"
     },
     {
       "gold": "我们一起去喝杯咖啡吧",
       "id": "nk-061",
       "input": "womenyiqiquhebeikafeiba",
       "rank": null,
-      "top1": "我们一起去个被卡得把"
+      "top1": "我们一起五个被卡得把"
     },
     {
       "gold": "你们先吃我马上就过来",
       "id": "nk-063",
       "input": "nimenxianchiwomashangjiuguolai",
-      "rank": 18,
+      "rank": 10,
       "top1": "你们先出我马上就过来"
     },
     {
@@ -285,7 +285,7 @@
       "id": "nk-070",
       "input": "wohaiyiweiniyijinghuidaojiale",
       "rank": null,
-      "top1": "我还以为你已经回到嫁了"
+      "top1": "我还以为你已经回到加了"
     },
     {
       "gold": "这是我第一次来这个地方",
@@ -305,7 +305,7 @@
       "gold": "你可以先去那里等我一下吗",
       "id": "nk-074",
       "input": "nikeyixianqunalidengwoyixiama",
-      "rank": 27,
+      "rank": 39,
       "top1": "你可以嫌弃哪里等我一下吗"
     },
     {

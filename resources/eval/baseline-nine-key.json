@@ -20,37 +20,37 @@
     },
     "4": {
       "cases": 556,
-      "found": 0.881,
-      "mrr": 0.878,
-      "top1": 0.876,
-      "top1_char_prefix": 0.898,
-      "top5": 0.879,
-      "top9": 0.879
+      "found": 0.885,
+      "mrr": 0.881,
+      "top1": 0.879,
+      "top1_char_prefix": 0.901,
+      "top5": 0.883,
+      "top9": 0.883
     },
     "5": {
       "cases": 10,
-      "found": 0.0,
-      "mrr": 0.0,
-      "top1": 0.0,
-      "top1_char_prefix": 0.44,
-      "top5": 0.0,
-      "top9": 0.0
+      "found": 0.1,
+      "mrr": 0.1,
+      "top1": 0.1,
+      "top1_char_prefix": 0.54,
+      "top5": 0.1,
+      "top9": 0.1
     }
   },
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2699,
+    "database": 2702,
     "generated": 3
   },
   "overall": {
     "cases": 2791,
-    "found": 0.968,
-    "mrr": 0.692,
-    "top1": 0.574,
-    "top1_char_prefix": 0.606,
-    "top5": 0.851,
-    "top9": 0.906
+    "found": 0.969,
+    "mrr": 0.693,
+    "top1": 0.575,
+    "top1_char_prefix": 0.607,
+    "top5": 0.852,
+    "top9": 0.907
   },
   "sample_failures": [
     {
@@ -197,7 +197,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baochan",
-      "rank": 6,
+      "rank": 9,
       "top1": "操场"
     },
     {
@@ -211,7 +211,7 @@
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baojiang",
-      "rank": 2,
+      "rank": 3,
       "top1": "颁奖"
     },
     {
@@ -335,7 +335,7 @@
     }
   ],
   "top1_source": {
-    "database": 2734,
-    "generated": 57
+    "database": 2737,
+    "generated": 54
   }
 }
