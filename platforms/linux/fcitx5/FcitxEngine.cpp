@@ -7041,6 +7041,13 @@ public:
         ? MSIME_EDITION_DISPLAY_NAME "已升级：执行 " + restart + " 或注销后重新登录即可使用新版本"
         : MSIME_EDITION_DISPLAY_NAME "已卸载：执行 " + restart + " 或注销后重新登录即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    // 升级时另发一条桌面通知，带「立即重启 Fcitx5」按钮，用户不必自己去敲命令（见 msime-linux-first-run-guide 的 upgraded）。卸载时脚本可能已经不在，只留辅助行。
+    if (current == ProgramFileState::Replaced) {
+      const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
+      if (access(guide.c_str(), X_OK) == 0)
+        fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--restart-unit",
+                             msime::linux_host::current_user_service_unit().value_or(std::string())});
+    }
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
   static void notConfigured(FcitxState &state, bool guide) {

@@ -266,6 +266,30 @@ def main() -> int:
         settle()
         assert len(calls(log, "notify")) == notified + 2 and not outdated_stamp.exists() and not first_run_stamp.exists()
 
+        # 升级之后：IBus 宿主换成新版本后说新版本已经生效；Fcitx5 插件不能热重载，通知给出重启命令并带「立即重启 Fcitx5」按钮。这个原因不写标记，同一会话里再升级一次照样通知。桩 notify-send 不回答按钮，所以不会真的重启。
+        upgraded = [outdated[0], "--reason", "upgraded"]
+        for round_ in range(2):
+            count = len(calls(log, "notify"))
+            assert subprocess.run([*upgraded, "--host", "ibus"], env=graphical, timeout=10).returncode == 0
+            wait_for(lambda: len(calls(log, "notify")) == count + 1, "IBus upgrade notification missing")
+            assert "水杉输入法已更新" in calls(log, "notify")[-1], calls(log, "notify")
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--restart-unit", "omarchy-fcitx5.service"],
+                              env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification missing")
+        message = calls(log, "notify")[-1]
+        assert "--action=restart=立即重启 Fcitx5" in message and "systemctl --user restart omarchy-fcitx5.service" in message, message
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--restart-unit", ""], env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification without a unit missing")
+        assert "执行 fcitx5 -r 或注销后重新登录" in calls(log, "notify")[-1], calls(log, "notify")
+        assert not (runtime / "msime-client/upgraded.stamp").exists()
+        # 没有图形会话时同样不通知。
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "ibus"], env=base, timeout=10).returncode == 0
+        settle()
+        assert len(calls(log, "notify")) == count, log.read_text()
+
     # 引导脚本本身不发起任何下载：msime-linux-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
     guide = (SCRIPTS / "msime-linux-first-run-guide").read_text()
     for forbidden in ("curl", "wget"):

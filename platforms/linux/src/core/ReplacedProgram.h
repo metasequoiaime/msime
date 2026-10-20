@@ -117,8 +117,8 @@ inline std::optional<std::string> user_service_unit(std::string_view cgroup) {
   return std::nullopt;
 }
 
-// The command that restarts the running fcitx5 so it loads the replaced addon.
-inline std::string fcitx5_restart_command() {
+// 本进程所在的 systemd 用户服务（读 /proc/self/cgroup），没有时为空。升级通知的「立即重启 Fcitx5」按钮按它决定重启服务还是 fcitx5 -r。
+inline std::optional<std::string> current_user_service_unit() {
   std::string cgroup;
   if (FILE *file = std::fopen("/proc/self/cgroup", "re")) {
     char buffer[4096];
@@ -127,7 +127,12 @@ inline std::string fcitx5_restart_command() {
       cgroup.append(buffer, length);
     std::fclose(file);
   }
-  if (const auto unit = user_service_unit(cgroup))
+  return user_service_unit(cgroup);
+}
+
+// The command that restarts the running fcitx5 so it loads the replaced addon.
+inline std::string fcitx5_restart_command() {
+  if (const auto unit = current_user_service_unit())
     return "systemctl --user restart " + *unit;
   return "fcitx5 -r";
 }

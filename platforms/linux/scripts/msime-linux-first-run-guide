@@ -5,21 +5,25 @@
 #
 # The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
 #
-# Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
+# 升级之后两个宿主还以 --reason upgraded 调用它，对应 macOS 设置应用的「水杉输入法已更新到 X」。IBus 宿主由启动器换成新版本后调用，通知说新版本已经生效；Fcitx5 插件不能自己热重载，调用时还带 --restart-unit（插件所在的 systemd 用户服务，没有时为空），通知给出重启命令和一个「立即重启 Fcitx5」按钮。升级本来就少，宿主自己只通知一次，所以这个原因不写标记。
+#
+# Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated|upgraded] [--restart-unit UNIT]. The host only selects the recovery step named in the first-run notification.
 set -u
 
 host=
 reason=first-run
+restart_unit=
 while [ $# -ge 2 ]; do
   case "$1" in
     --host) host=$2 ;;
     --reason) reason=$2 ;;
+    --restart-unit) restart_unit=$2 ;;
     *) break ;;
   esac
   shift 2
 done
 case "$reason" in
-  first-run|dictionary-outdated) ;;
+  first-run|dictionary-outdated|upgraded) ;;
   *) exit 2 ;;
 esac
 
@@ -28,6 +32,41 @@ cooldown_seconds=300
 
 # Without a graphical session there is no window to open and nobody to notify; the caller's stderr line is all there is.
 if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  exit 0
+fi
+
+# Detach from the caller: the IBus launcher exits right after this, and neither ibus-daemon nor Fcitx5 should end up owning the settings window or a notify-send stuck waiting on D-Bus.
+detach() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "$@" </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+if [ "$reason" = upgraded ]; then
+  command -v notify-send >/dev/null 2>&1 || exit 0
+  if [ "$host" != fcitx5 ]; then
+    detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法已更新" "新版本已经生效，可以继续输入。"
+    exit 0
+  fi
+  restart="fcitx5 -r"
+  [ -n "$restart_unit" ] && restart="systemctl --user restart $restart_unit"
+  title="水杉输入法已升级"
+  body="执行 $restart 或注销后重新登录即可使用新版本。"
+  # 带按钮的通知要等用户点击，所以整段放到后台。notify-send 0.7.10 起才有 --action，更早的版本不认这个选项、立即出错，这时退回不带按钮的通知。点了按钮才重启：systemd 管着 Fcitx5 时重启那个服务，否则用 fcitx5 -r -d 换掉正在运行的实例。
+  (
+    choice=$(notify-send -a "水杉输入法" -i msime-linux --action=restart=立即重启\ Fcitx5 "$title" "$body" 2>/dev/null) || {
+      notify-send -a "水杉输入法" -i msime-linux "$title" "$body"
+      exit 0
+    }
+    [ "$choice" = restart ] || exit 0
+    if [ -n "$restart_unit" ]; then
+      systemctl --user restart "$restart_unit"
+    else
+      fcitx5 -r -d
+    fi
+  ) </dev/null >/dev/null 2>&1 &
   exit 0
 fi
 
@@ -71,15 +110,6 @@ else
   fi
   [ "$(cat "$stamp" 2>/dev/null)" = "$token" ] || exit 0
 fi
-
-# Detach from the caller: the IBus launcher exits right after this, and neither ibus-daemon nor Fcitx5 should end up owning the settings window or a notify-send stuck waiting on D-Bus.
-detach() {
-  if command -v setsid >/dev/null 2>&1; then
-    setsid "$@" </dev/null >/dev/null 2>&1 &
-  else
-    nohup "$@" </dev/null >/dev/null 2>&1 &
-  fi
-}
 
 if [ "$reason" = dictionary-outdated ]; then
   if command -v notify-send >/dev/null 2>&1; then
