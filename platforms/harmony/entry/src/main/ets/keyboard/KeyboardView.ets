@@ -1,3 +1,4 @@
+import { CandidateDecorationView } from './candidate/CandidateDecorationView';
 import { CandidateCanvasFrame } from './candidate/CandidateCanvasFrame';
 import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, ExpandedCandidate,
@@ -3620,14 +3621,18 @@ struct KeyboardView {
           .hitTestBehavior(HitTestMode.Transparent)
         }
       }
-      // After the card, so it is drawn over the card's top edge: that overlap is the whole point of the decoration.
+      // 后画装饰组，覆盖卡片顶边；图片和文字都不接收点击。
       if (this.settings.candidateDecorationImage !== null && this.candidateDecorationRect() !== null) {
-        Image(this.settings.candidateDecorationImage)
-          .position({ x: this.candidateDecorationRect()!.x, y: this.candidateDecorationRect()!.y })
-          .width(this.candidateDecorationRect()!.width)
-          .height(this.candidateDecorationRect()!.height)
-          .objectFit(ImageFit.Contain)
-          .hitTestBehavior(HitTestMode.Transparent)
+        ForEach([this.settings.candidateDecorationImage], (image: string) => {
+          CandidateDecorationView({
+            image: image, rect: this.candidateDecorationRect()!,
+            boxWidth: this.settings.candidateDecorationWidthVp,
+            boxHeight: this.settings.candidateDecorationTopVp,
+            imageAlign: this.settings.candidateDecorationAlign,
+            fontFamily: this.candidateFontFamily(), style: this.settings.candidateDecorationCandidate,
+            candidates: this.candidates
+          })
+        }, (image: string): string => image)
       }
     }
     .width('100%')
