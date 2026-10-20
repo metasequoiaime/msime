@@ -358,6 +358,14 @@ if(BUILD_TESTING)
                 "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
                 "$<TARGET_FILE:msime-fcitx5>")
             set_tests_properties(fcitx5-native-canvas-${canvas_layout}-scale2 PROPERTIES TIMEOUT 90)
+            # system 主题也由原生画布按 macOS 结构画：首行翻页、悬停、展开网格和点选上屏。
+            add_test(NAME fcitx5-native-chrome-${canvas_layout}
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_chrome.py"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-native-chrome-${canvas_layout} PROPERTIES TIMEOUT 90)
             foreach(animation_format apng gif webp)
               add_test(NAME fcitx5-native-canvas-${canvas_layout}-animation-${animation_format}
                 COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
