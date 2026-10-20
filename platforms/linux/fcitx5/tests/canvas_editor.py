@@ -2,7 +2,7 @@
 import ctypes
 import configparser
 from collections import Counter
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 import io
 import json
 import os
@@ -163,6 +163,39 @@ NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
 COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
 SELECTED = (7, 91, 173)
 WIDGET = (255, 0, 171)
+
+
+
+@contextmanager
+def synthetic_work_area(width, height):
+    """仅在专用 Xvfb 中设置合成工作区，退出时移除该测试属性。"""
+    x11 = ctypes.CDLL("libX11.so.6")
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x11.XDefaultRootWindow.restype = ctypes.c_ulong
+    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x11.XInternAtom.restype = ctypes.c_ulong
+    x11.XChangeProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong,
+                                    ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int]
+    x11.XDeleteProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong]
+    x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    display = x11.XOpenDisplay(None)
+    assert display, "无法打开隔离 Xvfb"
+    root = x11.XDefaultRootWindow(display)
+    atom = x11.XInternAtom(display, b"_NET_WORKAREA", False)
+    cardinal = x11.XInternAtom(display, b"CARDINAL", False)
+    try:
+        data = (ctypes.c_ulong * 4)(0, 0, width, height)
+        x11.XChangeProperty(display, root, atom, cardinal, 32, 0,
+                            ctypes.cast(data, ctypes.POINTER(ctypes.c_ubyte)), 4)
+        x11.XSync(display, False)
+        yield
+    finally:
+        x11.XDeleteProperty(display, root, atom)
+        x11.XSync(display, False)
+        x11.XCloseDisplay(display)
 
 
 def synthetic_translation_provider(root, cleanups):
@@ -377,6 +410,10 @@ def accept_translation(manifest, preferences, publish, entry, fixture):
             return result
         return all(ink(color) >= 2 for color in colors)
 
+    def selected_height():
+        size = selected_pixels()
+        return size[1] if size is not None else 0
+
     wait(lambda: visible(selected))
     save_image("native-translation-selected")
     subprocess.run(["xdotool", "key", "Down"], check=True, timeout=5)
@@ -388,7 +425,7 @@ def accept_translation(manifest, preferences, publish, entry, fixture):
     manifest.write_text(style.replace("#FA39E0", "#C667F1"))
     wait(lambda: visible((selected[0], replacement, selected[2])))
     save_image("native-translation-hot-update")
-    short_height = selected_pixels()[1]
+    short_height = selected_height()
     left, top, right, bottom = color_bounds(SELECTED)
     subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str((top + bottom) // 2), "click", "1"],
                    check=True, timeout=5)
@@ -399,14 +436,35 @@ def accept_translation(manifest, preferences, publish, entry, fixture):
     fixture.write_text("proper n. " + "MMM " * 55 + "；n. " + "合成MMM" * 12)
     entry.set_text("")
     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
-    wait(lambda: native_window() is not None and selected_pixels() is not None and
-         selected_pixels()[1] > short_height + 10 * NATIVE_SCALE)
+    wait(lambda: native_window() is not None and selected_height() > short_height + 10 * NATIVE_SCALE)
     wait(lambda: visible((selected[0], replacement, selected[2])))
     bounds = window_geometry(native_window())
     screen = screenshot()[0]
     assert 0 <= int(bounds["X"]) <= screen.get_width() - int(bounds["WIDTH"]), "长释义窗口横向超出工作区"
     assert 0 <= int(bounds["Y"]) <= screen.get_height() - int(bounds["HEIGHT"]), "长释义窗口纵向超出工作区"
     save_image("native-long-translation")
+    original_width, original_height = int(bounds["WIDTH"]), selected_height()
+    narrow_width = screen.get_width() // 2
+    assert original_width > narrow_width, "合成长释义没有触达原工作区宽度"
+    with synthetic_work_area(narrow_width, screen.get_height()):
+        # 只移动光标矩形，不发按键或更新候选；窗口必须按新工作区重新断行。
+        entry.set_alignment(1.0)
+        wait(lambda: native_window() is not None and int(window_geometry(native_window())["WIDTH"]) <= narrow_width)
+        wait(lambda: selected_height() > original_height)
+        save_image("native-long-translation-narrow-workarea")
+    entry.set_alignment(0.0)
+    wait(lambda: native_window() is not None and int(window_geometry(native_window())["WIDTH"]) == original_width)
+    wait(lambda: selected_height() == original_height)
+    with synthetic_work_area(narrow_width, 20):
+        entry.set_alignment(0.5)
+        wait(lambda: native_window() is None)
+        wait(lambda: palette_visible((SELECTED,)))
+        assert entry.get_text() == "", "工作区回退意外提交了候选"
+        save_image("native-long-translation-workarea-fallback")
+    entry.set_alignment(0.0)
+    subprocess.run(["xdotool", "key", "BackSpace", "i"], check=True, timeout=5)
+    wait(lambda: native_window() is not None and int(window_geometry(native_window())["WIDTH"]) == original_width)
+    wait(lambda: selected_height() == original_height)
     left, top, right, bottom = color_bounds(SELECTED)
     # 点击新增行高的底部，检查换行后的矩形仍使用原候选身份。
     subprocess.run(["xdotool", "mousemove", str((left + right) // 2), str(bottom - 3 * NATIVE_SCALE), "click", "1"],

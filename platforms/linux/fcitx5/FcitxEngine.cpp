@@ -6597,7 +6597,9 @@ public:
           auto *state = ic->propertyFor(&factory_);
           if (!state->native_canvas_) return;
           const auto rect = ic->cursorRect();
-          state->native_canvas_->move(rect.left(), rect.top(), rect.height());
+          if (!state->native_canvas_->move(rect.left(), rect.top(), rect.height())) {
+            try { state->render(); } catch (...) { unavailable(*state); }
+          }
         });
     native_canvas_ui_watch_ = instance->watchEvent(
         fcitx::EventType::UIChanged, fcitx::EventWatcherPhase::PostInputMethod,

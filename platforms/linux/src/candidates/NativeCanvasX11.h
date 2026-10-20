@@ -15,7 +15,8 @@ public:
   bool show(const std::string &display, std::shared_ptr<NativeCanvasAssets> assets,
             NativeCanvasContent content, nlohmann::json palette,
             int cursor_x, int cursor_y, int cursor_height);
-  void move(int cursor_x, int cursor_y, int cursor_height);
+  // 工作区变化时重排；返回 false 时宿主需要恢复桌面候选。
+  bool move(int cursor_x, int cursor_y, int cursor_height);
   void hide();
 private:
   struct Impl;
