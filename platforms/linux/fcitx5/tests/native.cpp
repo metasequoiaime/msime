@@ -1904,10 +1904,49 @@ int main(int argc, char **argv) {
       setBinding(false);
       tap();
       require(state->input_enabled_ && releases == 5, "a disabled Caps Lock switched or released the lock");
+      // 会话建立时就请求了把快捷短语编码排进普通候选，和 macOS 一样。
+      require(state->voice_host_options_.value("quick_phrase_candidates", false),
+              "the session was not asked for quick phrase candidates");
+      // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["caps_lock_ascii_punctuation"] = true;
+        snapshot["preferences"]["smart_punctuation"] = false;
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+          state->refreshPreferences();
+          if (state->preferences_.value("caps_lock_ascii_punctuation", false) &&
+              !state->preferences_.value("smart_punctuation", true))
+            break;
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+        require(state->preferences_.value("caps_lock_ascii_punctuation", false),
+                "Caps Lock punctuation preference did not hot-reload");
+      }
+      const auto comma = [&](fcitx::KeyStates states) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_comma, states));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      {
+        const auto before = ic.committed;
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，",
+                "a comma without Caps Lock did not commit Chinese punctuation");
+        require(!comma(lock) && ic.committed == before + "，",
+                "a comma under Caps Lock was not left to the application as English punctuation");
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，，",
+                "releasing Caps Lock did not bring Chinese punctuation back");
+      }
       state->close();
       removeFixtureTree(directory);
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
-      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release, hot-reload, Caps Lock punctuation and quick phrase candidates passed\n";
       return 0;
     }
     // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 keyEvent 驱动：缺省关时交给应用；打开后中文方案去日语并记下这个中文方案，再按回到它；一次按下只切换一次；组字中先上屏；英文模式和 Engine 的英文模式里交给应用。

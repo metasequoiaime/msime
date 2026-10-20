@@ -872,10 +872,34 @@ int main(int argc, char **argv) {
                 return ignored;
               }),
               "Disabling Caps Lock switching did not hot-reload");
+      // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      {
+        nlohmann::json snapshot;
+        std::ifstream(root / "preferences.json") >> snapshot;
+        snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+        snapshot["preferences"]["caps_lock_ascii_punctuation"] = true;
+        snapshot["preferences"]["smart_punctuation"] = false;
+        std::ofstream(root / "next.json") << snapshot.dump();
+        std::filesystem::rename(root / "next.json", root / "preferences.json");
+      }
+      // 宿主每秒读一次偏好存储；不按键，等过两次读取，免得读到之前按下的逗号被智能标点的连按规则改写。
+      for (const auto settle = g_get_monotonic_time() + 2500 * 1000; g_get_monotonic_time() < settle;) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      {
+        const auto before = seen.committed;
+        require(key(',') && seen.committed == before + "，",
+                "a comma without Caps Lock did not commit Chinese punctuation");
+        require(!key(',', IBUS_LOCK_MASK) && seen.committed == before + "，",
+                "a comma under Caps Lock was not left to the application as English punctuation");
+        require(key(',') && seen.committed == before + "，，",
+                "releasing Caps Lock did not bring Chinese punctuation back");
+      }
       invoke("Disable");
       finish();
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
-      std::cout << "IBus Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      std::cout << "IBus Caps Lock tap, long press, chords, failed release, hot-reload and Caps Lock punctuation passed\n";
       return 0;
     }
     // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 process_key 驱动：缺省关时交给应用；打开后中文方案去日语并把这个中文方案写进 last_chinese_scheme，再按回到它；一次按下只切换一次；英文模式和 Engine 的英文模式里交给应用。

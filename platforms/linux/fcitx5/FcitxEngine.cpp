@@ -734,6 +734,12 @@ public:
     caps_lock_ = caps_lock;
     refreshModeIndicator();
   }
+  // 把大写锁定报告给会话（msime_client_set_caps_lock），「大写锁定时使用英文标点」才在这个宿主上生效。会话不从别处得知它、新会话从关开始，所以每个键分发之前比较会话上次收到的值，变了才报告；打开新会话的那个键也在分发之前报告。
+  void syncSessionCapsLock() {
+    if (!session_ || session_caps_lock_ == caps_lock_) return;
+    response(msime_client_set_caps_lock(session_, caps_lock_));
+    session_caps_lock_ = caps_lock_;
+  }
   bool restricted() const {
     return ic_.capabilityFlags().testAny(fcitx::CapabilityFlags{
       fcitx::CapabilityFlag::Password, fcitx::CapabilityFlag::Digit,
@@ -1905,6 +1911,8 @@ public:
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["quick_phrase_candidates"] = true;
     // The built-in sound packs of this installation, unless the runtime options name others. The Host API's own fallback looks beside the configured resource directory, which is no longer the installed one once the user has downloaded a newer dictionary into their own data directory.
     if (std::error_code error; !options.contains("sound_packs") &&
                                std::filesystem::is_directory(MSIME_SOUND_PACKS, error))
@@ -1917,6 +1925,7 @@ public:
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session_, MSIME_LIFECYCLE_FEEDBACK);
     syncFieldTraits();
+    session_caps_lock_ = false;
     applied_preferences_revision_ = 0;
     msime_linux_diagnostic_write("focus_in");
     session_chinese_punctuation_ =
@@ -3838,6 +3847,8 @@ public:
   // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese, Zhuyin and Stroke can run (noteSchemeOptions).
   msime::linux_host::LanguageDictionaryAvailability scheme_dictionaries_;
   bool caps_lock_ = false;
+  // The lock the session was last told; see syncSessionCapsLock(). A new session starts unlocked.
+  bool session_caps_lock_ = false;
   std::string mode_indicator_label_;
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
@@ -6954,6 +6965,7 @@ public:
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try {
       if (state->ensure()) {
+        state->syncSessionCapsLock();
         state->countKeyPress(event);
         const auto comboBefore = state->typing_combo_;
         state->keyDown(event);

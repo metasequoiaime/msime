@@ -277,17 +277,18 @@ fn capabilities_describe_each_host() {
     assert!(macos.app_logo);
     assert!(windows.app_logo);
     assert!(!linux.app_logo);
-    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS。
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语编码进普通候选也是这两个。
     for platform in [
         HostPlatform::Windows,
-        HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
-        assert!(!HostCapabilities::for_platform(platform).caps_lock_punctuation);
+        let host = HostCapabilities::for_platform(platform);
+        assert!(!host.caps_lock_punctuation && !host.quick_phrase_candidates);
     }
-    assert!(macos.caps_lock_punctuation);
+    assert!(macos.caps_lock_punctuation && macos.quick_phrase_candidates);
+    assert!(linux.caps_lock_punctuation && linux.quick_phrase_candidates);
     // 「单按 Caps Lock 切换中英文」和「Shift+字母进入快捷模式」总开关只在三个桌面宿主上提供。
     for platform in [
         HostPlatform::Windows,

@@ -375,6 +375,8 @@ struct State {
   std::optional<bool> session_chinese_punctuation;
   // The width the session was last told. update_preferences never touches the runtime's width, so a preference or menu change reaches the session only when the host re-states it.
   std::optional<bool> session_fullwidth;
+  // The Caps Lock state the session was last told; see sync_caps_lock(). A new session starts unlocked.
+  bool session_caps_lock = false;
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
@@ -590,6 +592,13 @@ struct State {
     }
     g_clear_object(&clipboard_watch_file);
   }
+  // 把大写锁定报告给会话（msime_client_set_caps_lock），「大写锁定时使用英文标点」才在这个宿主上生效。会话不从别处得知它、新会话从关开始，所以建会话时和每个键分发之前比较会话上次收到的值，变了才报告。
+  void sync_caps_lock() {
+    if (!session || session_caps_lock == caps_lock)
+      return;
+    response(msime_client_set_caps_lock(session, caps_lock));
+    session_caps_lock = caps_lock;
+  }
   void remember_app_input_mode() {
     if (!mode_scope_global)
       app_input_modes.remember(focused_client, input_enabled);
@@ -677,6 +686,7 @@ struct State {
   void close() {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
+    session_caps_lock = false;
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -892,6 +902,8 @@ struct State {
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["quick_phrase_candidates"] = true;
     auto encoded = options.dump();
     auto bindings =
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
@@ -913,6 +925,7 @@ struct State {
     // CN/EN passthrough defaults are independent of the English candidate mode.
     english_mode = dedicated_english_override.value_or(false);
     view = response(msime_client_set_english_mode(session, english_mode));
+    sync_caps_lock();
     if (active_scheme == "quanpin" && nine_key_override)
       view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
     chinese_punctuation = punctuation_override.value_or(
@@ -6332,6 +6345,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.caps_lock = caps_lock;
     publish_mode(engine);
   }
+  guarded(engine, "process_key", [&] { s.sync_caps_lock(); });
   // 单按 Caps Lock 切换中英文。认的是 Caps_Lock 这个符号：被 xkb 选项改成 Control 或 Escape 的 Caps Lock 键不算，被改成 Caps_Lock 的 Shift 键（evdev 键码 42、54）也不算。按下时布防（按下事件带的是按下前的锁定状态），别的键按下取消，松开时认定为轻点就先撤回大写锁定、成功后切换；松开本身照常交给应用，和裸 Shift 一样。
   const bool caps_lock_key = key == IBUS_Caps_Lock && keycode != 42 && keycode != 54;
   if (!caps_lock_key) {

@@ -379,7 +379,7 @@ pub struct HostCapabilities {
     pub caps_lock_language_switch: bool,
     /// 宿主的快捷模式只从实体键盘的 Shift+字母进入，所以「Shift+字母进入快捷模式」总开关（`LocalModePreferences::shift_letter_entry`）在这里有意义。触屏键盘从菜单打开快捷模式，走的也是 Engine 的同一个入口，不提供这个开关，以免关掉后菜单失灵。
     pub shift_letter_entry_switch: bool,
-    /// 宿主把快捷短语编码追加到普通候选。当前只有 macOS 提供，其他宿主仍从 K 模式进入。
+    /// 宿主把快捷短语编码追加到普通候选。macOS 和 Linux 提供，其他宿主仍从 K 模式进入。
     pub quick_phrase_candidates: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
@@ -795,12 +795,13 @@ impl HostCapabilities {
             music: platform.is_desktop(),
             // macOS 画火花、卡片闪光和连击徽标（TypingEffectPanel.mm）；Windows 画同样的东西，火花在候选窗旁的光标浮层里（TypingEffectOverlay.cpp），卡片闪光和 Power Mode 的抖动在 CandidateWindow.cpp；两个 Linux 宿主在候选栏的辅助行里显示连击数（KeySound.h）；HarmonyOS 在 KeyboardView 上画闪光和连击徽标。Linux 不画任何样式，只显示计数，设置页自己在那里藏起样式控件（`showTypingEffectStyles`）。HarmonyOS 仍在自己的设置投影里按设备形态收窄；Android 和 iOS 都没有接入。
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // 目前只有 macOS 报告大写锁定（`InputController.mm` 的 `syncCapsLock`）。Windows、Linux 的宿主和带实体键盘的移动端接上同一个调用后在这里加上自己。
-            caps_lock_punctuation: platform == HostPlatform::Macos,
+            // macOS（`InputController.mm` 的 `syncCapsLock`）和 Linux 的两个宿主（IBus 的 `sync_caps_lock`、Fcitx5 的 `syncSessionCapsLock`，都从按键事件带的锁定状态读）报告大写锁定。Windows 的宿主和带实体键盘的移动端接上同一个调用后在这里加上自己。
+            caps_lock_punctuation: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // 三个桌面宿主都在自己的按键路径上分辨 Caps Lock 的轻点和长按：macOS 用 IOKit 撤回大写锁定，Windows 用 SendInput 再按一次，Linux 在 X11 会话里用 XKB 撤回（Wayland 会话里由合成器持有锁定状态，宿主撤不回，那里轻点照常是大写锁定）。
             caps_lock_language_switch: platform.is_desktop(),
             shift_letter_entry_switch: platform.is_desktop(),
-            quick_phrase_candidates: platform == HostPlatform::Macos,
+            // macOS 和 Linux 的两个宿主建会话时都请求 `quick_phrase_candidates`。
+            quick_phrase_candidates: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // Windows 和 Linux 只注册了一个中文输入法，没有别的键盘快捷键能换到日语方案。macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要它。Android 实体键盘和 HarmonyOS 2in1 实体键盘也读共享快捷键，但还没有接上这个组合键，接上的那次改动再在这里加上自己。
             japanese_toggle_shortcut: matches!(
                 platform,
