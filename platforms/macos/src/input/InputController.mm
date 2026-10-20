@@ -5210,7 +5210,8 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
 // built inside prepareSession, where a test would have to stand up a whole Engine to see it.
 //
 // soundPacks is the bundle's built-in sound-pack directory, or nil when the bundle has none. The host library otherwise looks for it beside `resources`, and here that is EngineResources in Application Support, not in the bundle.
-static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString *soundPacks) {
+static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString *soundPacks,
+                                        NSString *helpcodeResources = nil) {
     if (![runtimeOptions isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *requested = [runtimeOptions mutableCopy];
     // This host draws view.phrase_prefix, so a phrase being assembled out of several selections
@@ -5220,6 +5221,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     requested[@"quick_phrase_candidates"] = @YES;
     // An options file that names a directory itself keeps it.
     if (soundPacks.length && !requested[@"sound_packs"]) requested[@"sound_packs"] = soundPacks;
+    // 旧目录或在线更新代次可能没有内置码表，当前输入法包提供只读回退，不改写磁盘配置。
+    if (helpcodeResources.isAbsolutePath && !requested[@"helpcode_fallback_resources"])
+        requested[@"helpcode_fallback_resources"] = helpcodeResources;
     return requested;
 }
 
@@ -5295,7 +5299,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     BOOL reopened = NO;
     BOOL created = NO;
     if (!_session) {
-        NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle));
+        NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle),
+                                                   NSBundle.mainBundle.resourcePath);
         // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
         if (options && MSIMEDictionaryQuiesced(options)) {
             if (!_preferencesTimer) [self startPreferencesMonitoring];

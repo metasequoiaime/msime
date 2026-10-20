@@ -9,7 +9,9 @@ use super::options::{runtime_paths, session_options, EngineOptions};
 use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
-use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
+use crate::helpcode::{
+    compute_helpcodes, load_helpcode_keymap_with_fallback, HelpcodeKeymap, SharedKeymap,
+};
 use crate::japanese::romaji::romaji_display_reading_into;
 use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::KeyGrid;
@@ -180,9 +182,13 @@ impl Session {
         let helpcode_keymap = if options.helpcode {
             match &options.helpcode_table {
                 Some(table) => Some(table.clone()),
-                None => Some(Arc::new(load_helpcode_keymap(
+                None => Some(Arc::new(load_helpcode_keymap_with_fallback(
                     Path::new(&options.resources),
                     &options.helpcode_schema,
+                    options
+                        .helpcode_fallback_resources
+                        .as_deref()
+                        .map(Path::new),
                 )?)),
             }
         } else {
@@ -419,9 +425,13 @@ impl Session {
         let keymap = match &table {
             Some(table) => table.clone(),
             None => Arc::new(
-                load_helpcode_keymap(
+                load_helpcode_keymap_with_fallback(
                     Path::new(&self.options.resources),
                     &self.options.helpcode_schema,
+                    self.options
+                        .helpcode_fallback_resources
+                        .as_deref()
+                        .map(Path::new),
                 )
                 .unwrap_or_else(|error| {
                     eprintln!(

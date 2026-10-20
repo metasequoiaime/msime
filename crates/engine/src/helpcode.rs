@@ -150,6 +150,25 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
     Ok(HelpcodeKeymap::from_codes(parse_helpcode_table(&bytes)))
 }
 
+/// 主资源确实缺少内置表时，读取宿主指定的随包副本；已有表和自定义表不回退。
+pub(crate) fn load_helpcode_keymap_with_fallback(
+    resources: &Path,
+    schema: &str,
+    fallback_resources: Option<&Path>,
+) -> Result<HelpcodeKeymap> {
+    if built_in_helpcode_file(schema).is_some() {
+        let path = helpcode_path(resources, schema)?;
+        if std::fs::symlink_metadata(path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
+            if let Some(fallback) = fallback_resources.filter(|path| path.is_absolute()) {
+                return load_helpcode_keymap(fallback, schema);
+            }
+        }
+    }
+    load_helpcode_keymap(resources, schema)
+}
+
 fn read_helpcode_file(file: File) -> Option<Vec<u8>> {
     let size = file.metadata().ok()?.len();
     if size > MAX_HELPCODE_BYTES {
@@ -492,6 +511,55 @@ mod tests {
                 );
             }
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+    }
+
+    #[test]
+    fn builtin_fallback_only_handles_missing_builtin_files() {
+        let resources = tempfile::tempdir().unwrap();
+        let bundle = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(bundle.path().join("helpcodes/custom")).unwrap();
+        std::fs::write(
+            bundle.path().join("helpcodes/xiaohe_helpcode.txt"),
+            "合=ab\n",
+        )
+        .unwrap();
+        std::fs::write(
+            bundle.path().join("helpcodes/custom/synthetic.txt"),
+            "合=cd\n",
+        )
+        .unwrap();
+        let load = |schema| {
+            load_helpcode_keymap_with_fallback(resources.path(), schema, Some(bundle.path()))
+        };
+        assert_eq!(load("xiaohe").unwrap().code("合"), Some("ab"));
+        assert!(load("custom/synthetic").is_err());
+        assert!(load("unknown").is_err());
+        assert!(load_helpcode_keymap_with_fallback(
+            resources.path(),
+            "xiaohe",
+            Some(Path::new("relative"))
+        )
+        .unwrap()
+        .is_empty());
+        let primary = resources.path().join("helpcodes/xiaohe_helpcode.txt");
+        std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+        std::fs::write(&primary, "合=ef\n").unwrap();
+        assert_eq!(load("xiaohe").unwrap().code("合"), Some("ef"));
+        std::fs::write(&primary, "").unwrap();
+        assert!(load("xiaohe").unwrap().is_empty());
+        std::fs::remove_file(&primary).unwrap();
+        std::fs::create_dir(&primary).unwrap();
+        assert!(load("xiaohe").unwrap().is_empty());
+        #[cfg(unix)]
+        {
+            std::fs::remove_dir(&primary).unwrap();
+            std::os::unix::fs::symlink(
+                bundle.path().join("helpcodes/xiaohe_helpcode.txt"),
+                &primary,
+            )
+            .unwrap();
+            assert!(load("xiaohe").unwrap().is_empty());
         }
     }
 

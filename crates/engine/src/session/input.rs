@@ -14,7 +14,9 @@ use crate::assets;
 use crate::cantonese;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
-use crate::helpcode::{is_supported_helpcode_schema, load_helpcode_keymap, SharedKeymap};
+use crate::helpcode::{
+    is_supported_helpcode_schema, load_helpcode_keymap_with_fallback, SharedKeymap,
+};
 use crate::ime::queries::CandidateQueries;
 use crate::ime::ImeSession;
 use crate::local::date_time::LocalDateTime;
@@ -69,6 +71,7 @@ pub(super) struct InputSession {
     pub quanpin_helpcode_enabled: bool,
     pub shuangpin_helpcode_enabled: bool,
     pub helpcode_keymap: Option<SharedKeymap>,
+    pub helpcode_fallback_resources: Option<PathBuf>,
     pub chinese_punctuation_enabled: bool,
     pub punctuation_lock: i32,
     pub learning_enabled: bool,
@@ -154,6 +157,7 @@ impl InputSession {
             quanpin_helpcode_enabled: true,
             shuangpin_helpcode_enabled: true,
             helpcode_keymap: None,
+            helpcode_fallback_resources: options.helpcode_fallback_resources.clone(),
             chinese_punctuation_enabled: true,
             punctuation_lock: 0,
             learning_enabled: true,
@@ -1627,7 +1631,11 @@ impl InputSession {
     }
 
     fn install_helpcode_keymap(&mut self, schema: &str) -> Result<()> {
-        let keymap = Arc::new(load_helpcode_keymap(&self.paths.resources, schema)?);
+        let keymap = Arc::new(load_helpcode_keymap_with_fallback(
+            &self.paths.resources,
+            schema,
+            self.helpcode_fallback_resources.as_deref(),
+        )?);
         self.install_helpcode_table(keymap);
         Ok(())
     }

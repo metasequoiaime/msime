@@ -294,6 +294,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         helpcode_table: None,
+        helpcode_fallback_resources: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -3812,6 +3813,66 @@ fn english_completion_boundary_is_read_only_and_case_insensitive() {
     assert_eq!(read(msime_client_view(handle))["value"], before);
     let invalid = read(unsafe { msime_client_english_completions(handle, b"he!".as_ptr(), 3, 2) });
     assert_eq!(invalid["ok"], false);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn host_helpcode_fallback_survives_preference_and_plugin_changes() {
+    use msime_client_core::preferences::HelpcodeSchema;
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_destroy(handle));
+    let fallback = dir.path().join("bundle");
+    std::fs::create_dir_all(fallback.join("helpcodes")).unwrap();
+    std::fs::write(
+        fallback.join("helpcodes/xiaohe_helpcode.txt"),
+        "本=ab\n地=cd\n拟=ef\n好=gh\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fallback.join("helpcodes/zrm_helpcode_big_unique.txt"),
+        "本=ij\n地=kl\n拟=mn\n好=op\n",
+    )
+    .unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.quanpin_helpcode.schema = HelpcodeSchema::Xiaohe;
+    preferences.quanpin_helpcode.show_in_candidate_window = true;
+    let document = json!({"api_version":1, "resources":dir.path().join("resources"),
+        "user_data":dir.path().join("user"), "cache":dir.path().join("cache"),
+        "dictionaries":dir.path().join("dictionaries"), "preferences":preferences,
+        "preferences_directory":dir.path().join("state"), "helpcode_fallback_resources":fallback})
+    .to_string();
+    let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    for (revision, expected) in [(1, "AC"), (2, "IK"), (3, "QR"), (4, "IK")] {
+        if revision == 2 {
+            preferences.quanpin_helpcode.schema = HelpcodeSchema::Ziranma;
+        } else if revision == 3 {
+            install_helpcode_pack(dir.path(), "synthetic", "本=qa\n地=rb\n");
+            preferences.plugins.helpcode_pack_quanpin = "synthetic".into();
+        } else if revision == 4 {
+            preferences.plugins.helpcode_pack_quanpin.clear();
+        }
+        assert_eq!(update(handle, revision, &preferences)["ok"], true);
+        let view = type_letters(handle, b"nihao");
+        let candidate = view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["text"] == "本地")
+            .unwrap();
+        assert!(
+            candidate["annotation"]
+                .as_str()
+                .unwrap()
+                .to_ascii_uppercase()
+                .contains(expected),
+            "{view}"
+        );
+        read(msime_client_command(handle, 3));
+    }
     read(msime_client_destroy(handle));
 }
 
