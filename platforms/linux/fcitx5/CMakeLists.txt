@@ -326,9 +326,10 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
         foreach(canvas_layout horizontal vertical)
+          # 这一项验收 X11 上的 classicui 主题本身，所以用逃生口关掉默认的原生画布。
           add_test(NAME fcitx5-translation-below-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
-              MSIME_TEST_TRANSLATION_BELOW=1
+              MSIME_TEST_TRANSLATION_BELOW=1 MSIME_FCITX5_CANDIDATE_RENDERER=classicui
               "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
               "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
               "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
@@ -430,6 +431,13 @@ if(MSIME_BADGE_X11_FOUND)
     target_include_directories(linux-candidate-native-canvas-test PRIVATE ../../../crates/host-api/include)
     target_link_libraries(linux-candidate-native-canvas-test PRIVATE PkgConfig::MSIME_BADGE_X11 nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
     add_test(NAME linux-candidate-native-canvas COMMAND linux-candidate-native-canvas-test)
+    # macOS 结构的默认画法（NativeCanvasChrome.h）与它和 macOS 共用的 shared/candidate 规则。
+    add_executable(linux-candidate-native-canvas-chrome-test ../tests/candidate/candidate_native_canvas_chrome.cpp)
+    target_compile_features(linux-candidate-native-canvas-chrome-test PRIVATE cxx_std_20)
+    target_compile_options(linux-candidate-native-canvas-chrome-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_include_directories(linux-candidate-native-canvas-chrome-test PRIVATE ../../../crates/host-api/include)
+    target_link_libraries(linux-candidate-native-canvas-chrome-test PRIVATE PkgConfig::MSIME_BADGE_X11 nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+    add_test(NAME linux-candidate-native-canvas-chrome COMMAND linux-candidate-native-canvas-chrome-test)
   endif()
   foreach(canvas_target msime-fcitx5 fcitx5-native-test)
     if(TARGET ${canvas_target})

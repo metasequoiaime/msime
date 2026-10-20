@@ -17,7 +17,10 @@ public:
             int cursor_x, int cursor_y, int cursor_height);
   // 工作区变化时重排；返回 false 时宿主需要恢复桌面候选。
   bool move(int cursor_x, int cursor_y, int cursor_height);
-  void hide();
+  // 收起候选窗。`animate` 为 true 且皮肤写了退场预设时，窗口在不接收鼠标的状态下播完退场再撤下；失焦、隐私输入这类收起传 false，立即撤下。
+  void hide(bool animate = false);
+  // 桌面的「减弱动态效果」：为真时不播进场、退场、选中和装饰图待机动效，APNG、GIF、WebP 停在首帧。
+  void setReduceMotion(bool reduce);
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
