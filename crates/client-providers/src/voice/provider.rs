@@ -139,14 +139,6 @@ pub fn websocket_endpoint_descriptor(endpoint: &str) -> Option<VoiceWebSocketEnd
         return None;
     }
     let url = reqwest::Url::parse(endpoint).ok()?;
-    if url.port().is_some_and(|port| port == 0)
-        || !valid_percent_escapes(url.path())
-        || url
-            .query()
-            .is_some_and(|query| !valid_percent_escapes(query))
-    {
-        return None;
-    }
     let host = url.host_str()?.to_owned();
     let socket_host = host
         .strip_prefix('[')
@@ -179,25 +171,6 @@ pub fn websocket_endpoint_descriptor(endpoint: &str) -> Option<VoiceWebSocketEnd
         host_header,
         request_target,
     })
-}
-
-fn valid_percent_escapes(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            if index + 2 >= bytes.len()
-                || !bytes[index + 1].is_ascii_hexdigit()
-                || !bytes[index + 2].is_ascii_hexdigit()
-            {
-                return false;
-            }
-            index += 3;
-        } else {
-            index += 1;
-        }
-    }
-    true
 }
 
 fn bounded_resolved_voice_fields(fields: &ResolvedVoiceFields) -> bool {
@@ -722,12 +695,29 @@ mod tests {
     }
 
     #[test]
-    fn websocket_endpoint_descriptor_rejects_invalid_ports_and_controls() {
+    fn websocket_endpoint_descriptor_matches_shared_validation_and_url_serialization() {
         for endpoint in [
             "wss://fixture.invalid:0/stream",
+            "wss://fixture.invalid/%zz?value=%",
+        ] {
+            assert!(valid_mobile_voice_endpoint(endpoint, true));
+            let url = reqwest::Url::parse(endpoint).unwrap();
+            let descriptor = websocket_endpoint_descriptor(endpoint).unwrap();
+            assert_eq!(descriptor.port, url.port_or_known_default().unwrap());
+            let expected = if let Some(query) = url.query() {
+                format!("{}?{query}", url.path())
+            } else {
+                url.path().to_owned()
+            };
+            assert_eq!(descriptor.request_target, expected);
+        }
+    }
+
+    #[test]
+    fn websocket_endpoint_descriptor_rejects_invalid_ports_and_controls() {
+        for endpoint in [
             "wss://fixture.invalid:65536/stream",
             "wss://fixture.invalid/stream\nX: y",
-            "wss://fixture.invalid/%zz",
         ] {
             assert!(
                 websocket_endpoint_descriptor(endpoint).is_none(),

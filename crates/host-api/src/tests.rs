@@ -17559,11 +17559,21 @@ fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
             "request_target":"/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
         }})
     );
-    let invalid = "wss://fixture.invalid:0/stream";
+    let invalid = "wss://fixture.invalid:65536/stream";
     assert_eq!(
         read(unsafe { msime_client_voice_websocket_endpoint(invalid.as_ptr(), invalid.len()) }),
         serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
     );
+    for (pointer, length) in [
+        (std::ptr::null(), 1),
+        (b"\xff".as_ptr(), 1),
+        (endpoint.as_ptr(), 65_537),
+    ] {
+        assert_eq!(
+            read(unsafe { msime_client_voice_websocket_endpoint(pointer, length) }),
+            serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+        );
+    }
 }
 
 #[test]

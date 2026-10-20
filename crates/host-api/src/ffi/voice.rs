@@ -56,8 +56,8 @@ pub unsafe extern "C" fn msime_client_voice_websocket_endpoint(
                         endpoint,
                     )
                     .ok_or_else(|| "invalid voice websocket endpoint".to_owned())?;
-                Ok(serde_json::to_value(descriptor)
-                    .map_err(|_| "invalid voice websocket endpoint".to_owned())?)
+                serde_json::to_value(descriptor)
+                    .map_err(|_| "invalid voice websocket endpoint".to_owned())
             },
         )
     })

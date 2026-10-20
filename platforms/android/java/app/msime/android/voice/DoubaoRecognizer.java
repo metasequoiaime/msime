@@ -366,15 +366,18 @@ public final class DoubaoRecognizer {
         /** URL 语法只由共享 Rust 解析器决定；Java 只校验类型化信封。 */
         private static Endpoint parse(String endpoint) {
             try {
-                JSONObject root = new JSONObject(NativeClient.voiceWebSocketEndpoint(endpoint));
+                String response = NativeClient.voiceWebSocketEndpoint(endpoint);
+                if (response == null || response.length() > 32768
+                        || TextPolicy.utf8Length(response) > 32768) return null;
+                JSONObject root = new JSONObject(response);
                 JSONObject value = JsonPolicy.objectValue(root);
                 if (value == null) return null;
                 String socketHost = JsonPolicy.strictString(value.opt("socket_host"));
                 Integer port = JsonPolicy.strictInteger(value.opt("port"));
                 String hostHeader = JsonPolicy.strictString(value.opt("host_header"));
                 String requestTarget = JsonPolicy.strictString(value.opt("request_target"));
-                if (!validField(socketHost, 255) || port == null || port < 1 || port > 65535
-                        || !validField(hostHeader, 512) || !validField(requestTarget, 8192)
+                if (!validField(socketHost, 8192) || port == null || port < 0 || port > 65535
+                        || !validField(hostHeader, 8192) || !validField(requestTarget, 8192)
                         || !requestTarget.startsWith("/")) return null;
                 return new Endpoint(socketHost, port, hostHeader, requestTarget);
             } catch (JSONException | RuntimeException | LinkageError error) {
