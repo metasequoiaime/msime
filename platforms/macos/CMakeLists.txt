@@ -1063,6 +1063,12 @@ add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
+# 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
+add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
+# 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
+add_test(NAME candidate-factory-layout COMMAND candidate-row-layout-test --factory-layout)
+add_test(NAME candidate-factory-shadow COMMAND candidate-row-layout-test --shadow-host)
+add_test(NAME candidate-factory-pager COMMAND candidate-row-layout-test --pager-host)
 # Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
 add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

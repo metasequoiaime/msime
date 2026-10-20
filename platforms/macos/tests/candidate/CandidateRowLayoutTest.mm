@@ -122,9 +122,6 @@ static NSDictionary *MotionView(NSString *editing, NSUInteger count, NSUInteger 
 // 产品路径（InputController）在皮肤包写了动效时的行为：每次排版都换一个新的内容视图，显示和装饰在同一轮事件里发生，候选行这时还没有自己的图层。
 static void TestDeclaredMotion(RowLayoutClient *client)
 {
-    // 合成面板可能完全被遮挡；只在计时验收期间避免 App Nap 延迟主队列定时回调，保留原来的两秒门限。
-    id activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
-        reason:@"验证候选动画的主队列完成回调"];
     char temporary[] = "/tmp/msime-candidate-motion-XXXXXX";
     assert(mkdtemp(temporary));
     const std::filesystem::path root(temporary);
@@ -292,7 +289,6 @@ stagger_ms = 10
     [motion stop];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     std::filesystem::remove_all(root);
-    [NSProcessInfo.processInfo endActivity:activity];
 }
 
 // 写一张 width×height、frames 帧、每帧 delay 秒、无限循环的 APNG，各帧颜色不同。
@@ -1654,25 +1650,44 @@ int main(int argc, char **argv)
     @autoreleasepool
     {
         [NSApplication sharedApplication];
+        // 动效需要独立的主事件循环，避免大布局矩阵的旧窗口回调占用计时阶段。
+        if (argc == 2 && std::string(argv[1]) == "--declared-motion") {
+            RowLayoutClient *client = [RowLayoutClient new];
+            const NSRect screen = NSScreen.mainScreen.visibleFrame;
+            client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+            TestDeclaredMotion(client);
+            TestDecorationMotion(client);
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--factory-layout") {
+            RowLayoutClient *client = [RowLayoutClient new];
+            const NSRect screen = NSScreen.mainScreen.visibleFrame;
+            client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+            @autoreleasepool { TestFactoryFitAndJustify(client); }
+            @autoreleasepool { TestFactoryPreeditMargins(client); }
+            @autoreleasepool { TestSkinPreeditGap(client); }
+            @autoreleasepool { TestFactoryCornerRadii(client); }
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--skin-preedit-gap") {
             RowLayoutClient *client = [RowLayoutClient new];
             const NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
-            TestSkinPreeditGap(client);
+            @autoreleasepool { TestSkinPreeditGap(client); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--shadow-host") {
             RowLayoutClient *client = [RowLayoutClient new];
             NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
-            TestFactoryShadows(client);
+            @autoreleasepool { TestFactoryShadows(client); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--pager-host") {
             RowLayoutClient *client = [RowLayoutClient new];
             NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMinX(screen) + 100, NSMidY(screen), 1, 20);
-            TestFactoryPager(client);
+            @autoreleasepool { TestFactoryPager(client); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--glass-host-visual") { TestHostAppearance(YES); return 0; }
@@ -1683,8 +1698,8 @@ int main(int argc, char **argv)
             TestCanvasHost(std::filesystem::path(argv[2]), @"sakura-night", output);
             return 0;
         }
-        TestCanvasHostFixture();
-        TestHostAppearance(NO);
+        @autoreleasepool { TestCanvasHostFixture(); }
+        @autoreleasepool { TestHostAppearance(NO); }
         NSString *suite = [@"app.msime.test.rowfit." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -1693,7 +1708,6 @@ int main(int argc, char **argv)
         RowLayoutClient *client = [RowLayoutClient new];
         NSRect screen = NSScreen.mainScreen.visibleFrame;
         client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
-        TestFactoryShadows(client);
         RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
                                                                   styleMask:NSWindowStyleMaskBorderless |
                                                                             NSWindowStyleMaskNonactivatingPanel
@@ -2120,14 +2134,7 @@ int main(int argc, char **argv)
         assert([controller renderExpandedCandidates]);
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         TestPronunciationLine(controller, panel, appearance);
-        TestSelectedGlossColour(client);
-        TestFactoryFitAndJustify(client);
-        TestFactoryPreeditMargins(client);
-        TestSkinPreeditGap(client);
-        TestFactoryPager(client);
-        TestFactoryCornerRadii(client);
-        TestDeclaredMotion(client);
-        TestDecorationMotion(client);
+        @autoreleasepool { TestSelectedGlossColour(client); }
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
