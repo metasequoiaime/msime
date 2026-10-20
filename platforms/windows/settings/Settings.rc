@@ -3,3 +3,14 @@
 101 ICON "..\\tsf\\assets\\msime.ico"
 // The same icon file as raw bytes: the window decodes its PNG frame for the title bar and the about page.
 102 RCDATA "..\\tsf\\assets\\msime.ico"
+// The mascot illustrations of the page intros (SettingsMascotIntro.h), converted to PNG from the WebP files of the same name in packages/ui/src/assets/mascot: BitmapImage decodes WebP only through a system codec that older Windows 10 builds lack. The id is 110 plus the MascotScene ordinal, so the order follows that enum. Comments in this file stay ASCII: rc.exe reads it in the build machine's ANSI code page.
+110 RCDATA "assets\\mascot\\settings.png"
+111 RCDATA "assets\\mascot\\welcome.png"
+112 RCDATA "assets\\mascot\\input.png"
+113 RCDATA "assets\\mascot\\notes.png"
+114 RCDATA "assets\\mascot\\privacy.png"
+115 RCDATA "assets\\mascot\\sync.png"
+116 RCDATA "assets\\mascot\\updated.png"
+117 RCDATA "assets\\mascot\\empty.png"
+118 RCDATA "assets\\mascot\\offline.png"
+119 RCDATA "assets\\mascot\\downloading.png"
