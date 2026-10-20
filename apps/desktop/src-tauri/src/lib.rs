@@ -283,9 +283,9 @@ pub(crate) fn host_edition(
 
 /// 背单词内置词书的资源根，`wordbooks/` 在它下面（`builtin::directory`）：放着 Engine 资源目录的那一层，不是资源目录本身。
 ///
-/// Linux 的 Engine 资源装在 `share/<client>/resources`，不在 `resource_dir()`（`<prefix>/lib/<productName>`，安装时从不创建）下，所以按 HostOptions 求随包资源的目录（`msime_host_api::bundled_resource_root`：`resources` 的上一级，词库在线更新后是原安装包目录的上一级），词书装在那里的 `share/<client>/wordbooks`（platforms/linux/CMakeLists.txt）。每次命令时现读：首次运行时这份文档还没写好。读不到时退回 `fallback`，那里没有词书，页面只列导入的词表。其余平台用 `fallback`，即 `VocabularyState` 里的 `resource_dir()`。
+/// Linux 的 Engine 资源装在 `share/<client>/resources`，不在 `resource_dir()`（`<prefix>/lib/<productName>`，安装时从不创建）下，所以按 HostOptions 求随包资源的目录（`msime_host_api::bundled_resource_root`：`resources` 的上一级，词库在线更新后是原安装包目录的上一级），词书装在那里的 `share/<client>/wordbooks`（platforms/linux/CMakeLists.txt）。Android 合包同理：`resource_dir()` 是 `asset://localhost/`，不是真实目录，HostOptions（`files/runtime-options.json`）的 `resources` 是 `files/bootstrap/resources`，Bootstrap 把词书解到它的同级 `files/bootstrap/wordbooks`，与原生背单词页读的是同一处。每次命令时现读：首次运行时这份文档还没写好。读不到时退回 `fallback`，那里没有词书，页面只列导入的词表。其余平台用 `fallback`，即 `VocabularyState` 里的 `resource_dir()`。
 fn vocabulary_resources(app: &tauri::AppHandle, fallback: &std::path::Path) -> PathBuf {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if let Some(root) = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok())
@@ -293,7 +293,7 @@ fn vocabulary_resources(app: &tauri::AppHandle, fallback: &std::path::Path) -> P
     {
         return root;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let _ = app;
     fallback.to_path_buf()
 }
@@ -5215,7 +5215,7 @@ pub fn run() {
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(DiagnosticLogState(directory.clone()));
             app.manage(notices::NoticesState(directory.clone()));
-            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a sibling of `EngineResources/` because `ResourceStore::verify` requires that directory to hold exactly the pinned dictionary artifacts, and one extra entry would break the check whose job is to prove a shipped dictionary is intact. A host that stages no books simply offers the imported ones. Linux 的资源不在这里，见 `vocabulary_resources`。
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a sibling of `EngineResources/` because `ResourceStore::verify` requires that directory to hold exactly the pinned dictionary artifacts, and one extra entry would break the check whose job is to prove a shipped dictionary is intact. A host that stages no books simply offers the imported ones. Linux 和 Android 的资源不在这里，见 `vocabulary_resources`。
             app.manage(VocabularyState(
                 directory.clone(),
                 app.path()
