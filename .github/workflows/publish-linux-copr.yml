@@ -2,7 +2,7 @@ name: Publish Linux to COPR
 
 # 把已发布的 linux-vX.Y.Z 的源码包交给 Fedora COPR（项目 <COPR 用户>/msime），由 COPR 为各 Fedora chroot 构建并托管软件源，用户执行 dnf copr enable msime/msime 后就能 dnf install msime（见 platforms/linux/README.md「包管理器」）。Release Linux 发布成功后调用它；上传或构建失败时也可以单独手动触发，重新提交同一个版本，不用重新发版。
 #
-# SRPM 由 render-definitions.sh 用 linux-vX.Y.Z 那个提交的 spec 现场打出，两个源码 tarball 从发布页下载并对着 SHA256SUMS 核对。凭据是仓库 secret COPR_CONFIG，即 https://copr.fedorainfracloud.org/api/ 给出的整段 ~/.config/copr；没有配置时只留一条警告，不让发版失败。
+# SRPM 由 render-definitions.sh 用 linux-vX.Y.Z 那个提交的 spec 现场打出，两个源码 tarball 由 packaging/download-sources.sh 从滚动的 linux-sources release 下载并核对（linux-sources 出现之前的版本从它自己的发布页下载）。凭据是仓库 secret COPR_CONFIG，即 https://copr.fedorainfracloud.org/api/ 给出的整段 ~/.config/copr；没有配置时只留一条警告，不让发版失败。
 on:
   workflow_call:
     inputs:
@@ -35,6 +35,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ steps.check.outputs.skip == 'false' }}
         with: {ref: "linux-v${{ inputs.version }}", persist-credentials: false}
+      # 下载脚本取自触发这次运行的提交，不是发布的那个提交：linux-vX.Y.Z 可能早于它出现。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        with: {path: tools, sparse-checkout: platforms/linux/packaging, persist-credentials: false}
       - name: Install copr-cli
         if: ${{ steps.check.outputs.skip == 'false' }}
         run: pipx install copr-cli==2.6
@@ -60,7 +64,7 @@ jobs:
       - name: Download the release's source tarballs
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
-        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz"
+        run: bash tools/platforms/linux/packaging/download-sources.sh "$VERSION" target/release
       - name: Build the source RPM
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: rpm, MSIME_RELEASE_DIR: target/release}

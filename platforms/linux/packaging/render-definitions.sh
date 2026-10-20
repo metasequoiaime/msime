@@ -5,13 +5,13 @@
 #   在 linux-vVERSION 那个提交的检出里运行：RPM 规格、debian/、PKGBUILD 与 ebuild 模板都取自当前检出，Gentoo 的 CRATES 取自当前检出的 Cargo.lock。release-linux.yml 的 package-definitions job 在发布之后以同一提交调用它。
 #   需要 docker 与网络。每一步在各自发行版的官方容器里跑，OUTDIR 下得到：
 #     rpm/      渲染好的 msime.spec、msime-rpmlintrc 与 msime-VERSION-1.src.rpm（COPR 直接构建它；OBS 用 spec 加两个 tarball）
-#     debian/   msime_VERSION-1.dsc 与 msime_VERSION-1.debian.tar.xz（orig tarball 就是发布页上的 msime-VERSION.tar.xz 与 msime-VERSION-vendor.tar.xz 改名）
+#     debian/   msime_VERSION-1.dsc 与 msime_VERSION-1.debian.tar.xz（orig tarball 就是 linux-sources 上的 msime-VERSION.tar.xz 与 msime-VERSION-vendor.tar.xz 改名）
 #     arch/     msime/ 与 msime-bin/，各含 PKGBUILD、.SRCINFO 与 msime.install，原样复制到 AUR 仓库
 #     gentoo/   一个完整的 overlay：版本 ebuild、live ebuild、metadata.xml、Manifest、metadata/ 与 profiles/
 #
 # 环境变量：
 #   MSIME_DEFINITIONS   要渲染的部分，逗号分隔，默认 rpm,debian,arch,gentoo。
-#   MSIME_RELEASE_DIR   本地目录，里面放 SHA256SUMS 与发布资产；给了就不从发布页下载。用于在发布前验证，或复用刚构建出的文件。Gentoo 生成 Manifest 时，这里有的 msime-VERSION-frontend.tar.xz 直接当作 distfile，不再下载。
+#   MSIME_RELEASE_DIR   本地目录，里面放要用到的文件；给了就不下载。用于在发布前验证，或复用刚构建出的文件。rpm、debian 要 msime-VERSION-SHA256SUMS 与它列出的源码包和 vendor 包，gentoo 要它与前端包（都在 linux-sources 上，或是 make-source-tarballs.sh 的输出），arch 要版本发布页的 SHA256SUMS。
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
@@ -28,7 +28,10 @@ repo_root=$(cd "$here/../../.." && pwd)
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
 parts=",${MSIME_DEFINITIONS:-rpm,debian,arch,gentoo},"
+# 版本发布页只放给用户下载的安装包和只列它们的 SHA256SUMS（AUR 的 msime-bin 重新打包其中的 .rpm）；发行版构建用的三个源码包在滚动的 linux-sources release 上，校验值在同处的 msime-VERSION-SHA256SUMS 里（packaging/publish-sources.sh）。
 release_url="https://github.com/metasequoiaime/msime/releases/download/linux-v$version"
+sources_url="https://github.com/metasequoiaime/msime/releases/download/linux-sources"
+sources_sums="msime-$version-SHA256SUMS"
 # 设置应用关于页的发布日期，与发布包编进去的同是当前检出 HEAD 的提交日期。AUR 的 msime 从标签归档构建，里面没有 .git，由 arch/render.py 写进 PKGBUILD；渲染它的容器里没有仓库，在这里算好传进去。
 release_date=$(git -C "$repo_root" log -1 --format=%cs HEAD)
 want() { [[ "$parts" == *",$1,"* ]]; }
@@ -36,25 +39,33 @@ want() { [[ "$parts" == *",$1,"* ]]; }
 reclaim() { docker run --rm -v "$out":/out debian:sid chown -R "$(id -u):$(id -g)" /out 2>/dev/null || true; }
 trap reclaim EXIT
 
-# 发布资产：本地目录优先，否则下载到 OUTDIR/.release。凡是 SHA256SUMS 列出的文件都对着它核对，校验值只认发布时算的那一份。
+# 要用到的文件：本地目录优先，否则下载到 OUTDIR/.release。源码包必须列在 msime-VERSION-SHA256SUMS 里并对得上，校验值只认发布时算的那一份。
 release=${MSIME_RELEASE_DIR:-$out/.release}
 mkdir -p "$release"
 release=$(cd "$release" && pwd)
-asset() {
-  if [ ! -f "$release/$1" ]; then
-    [ -z "${MSIME_RELEASE_DIR:-}" ] || { echo "$1 is not in MSIME_RELEASE_DIR ($release)" >&2; exit 1; }
-    curl -fsSL --retry 3 -o "$release/$1.part" "$release_url/$1"
-    mv "$release/$1.part" "$release/$1"
-  fi
-  if [ "$1" != SHA256SUMS ] && grep -qE "^[0-9a-f]{64} [ *]$1\$" "$release/SHA256SUMS"; then
-    (cd "$release" && grep -E "^[0-9a-f]{64} [ *]$1\$" SHA256SUMS | sha256sum -c --quiet -)
+fetch() {
+  if [ ! -f "$release/$2" ]; then
+    [ -z "${MSIME_RELEASE_DIR:-}" ] || { echo "$2 is not in MSIME_RELEASE_DIR ($release)" >&2; exit 1; }
+    curl -fsSL --retry 3 -o "$release/$2.part" "$1/$2"
+    mv "$release/$2.part" "$release/$2"
   fi
 }
-asset SHA256SUMS
-
+source_asset() {
+  fetch "$sources_url" "$1"
+  local line
+  line=$(grep -E "^[0-9a-f]{64} [ *]${1//./\\.}\$" "$release/$sources_sums") || { echo "$1 is not listed in $sources_sums" >&2; exit 1; }
+  (cd "$release" && sha256sum -c --quiet - <<<"$line")
+}
+# AUR 的 msime-bin 从版本发布页的 SHA256SUMS 取 .rpm 的校验值（arch/render.py --sha256sums）。
+if want arch; then
+  fetch "$release_url" SHA256SUMS
+fi
+if want rpm || want debian || want gentoo; then
+  fetch "$sources_url" "$sources_sums"
+fi
 if want rpm || want debian; then
-  asset "msime-$version.tar.xz"
-  asset "msime-$version-vendor.tar.xz"
+  source_asset "msime-$version.tar.xz"
+  source_asset "msime-$version-vendor.tar.xz"
 fi
 
 if want rpm; then
@@ -120,10 +131,9 @@ if want gentoo; then
   echo "== gentoo"
   rm -rf "$out/gentoo"
   mkdir -p "$out/gentoo" "$out/.gentoo-distfiles"
-  # 发布前验证时前端归档还不在发布页上，从 MSIME_RELEASE_DIR 预先放进 distfiles，Portage 生成 Manifest 时就不再下载它。
-  if [ -f "$release/msime-$version-frontend.tar.xz" ]; then
-    cp "$release/msime-$version-frontend.tar.xz" "$out/.gentoo-distfiles/"
-  fi
+  # 前端包先核对过再放进 distfiles，Portage 生成 Manifest 时就不再下载它，Manifest 记下的就是 msime-VERSION-SHA256SUMS 里的那一份；发布前验证时它来自 MSIME_RELEASE_DIR。
+  source_asset "msime-$version-frontend.tar.xz"
+  cp "$release/msime-$version-frontend.tar.xz" "$out/.gentoo-distfiles/"
   image="msime-gentoo-tools:$(printf %s "$repo_root" | shasum | cut -c1-12)"
   docker pull -q gentoo/stage3:latest >/dev/null
   docker pull -q gentoo/portage:latest >/dev/null

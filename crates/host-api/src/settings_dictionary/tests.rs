@@ -155,6 +155,32 @@ fn phrases(count: usize, special: &[(usize, &str)]) -> String {
 }
 
 #[test]
+fn gboard_batches_keep_the_detected_format_without_repeating_the_header() {
+    let mut host = FakeHost::new();
+    let mut text = String::from("\u{feff}# Gboard Dictionary version:1\n");
+    for line in 1..=2500 {
+        if line == 1800 {
+            text.push_str("坏行\n");
+        } else {
+            text.push_str(&format!("{}\t合成短语{line}\t\n", code(line)));
+        }
+    }
+    let report = host
+        .import("quick_phrase", "standard", &text, "gboard-import")
+        .unwrap();
+    assert_eq!(report["applied"], 2499);
+    assert_eq!(report["failed"], 1);
+    assert_eq!(report["swapped"], false);
+    assert_eq!(failures(&report), [(1801, "column_count".to_owned())]);
+    assert_eq!(host.store.len(), 2499);
+    assert!(host.actions.len() >= 3);
+    assert!(host
+        .actions
+        .iter()
+        .all(|action| action["format"] == "gboard"));
+}
+
+#[test]
 fn five_thousand_rows_land_in_batches_and_failures_keep_their_file_lines() {
     let mut host = FakeHost::refusing(|entry| entry.key == "refused");
     let text = phrases(

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """按发布版本渲染发行版源码包的版本相关文件：RPM 规格文件（msime.spec）和 Debian 的 debian/changelog。
 
-两者的源码地址都由版本号推出（发布页 linux-vVERSION 下的 msime-VERSION.tar.xz 与 msime-VERSION-vendor.tar.xz），校验和在 .src.rpm 和 .dsc 生成时由 rpmbuild、dpkg-source 自己算出，所以这里只改版本、发布号和更新日志，不抄写任何哈希。
+两者的源码地址都由版本号推出（滚动的 linux-sources release 下的 msime-VERSION.tar.xz 与 msime-VERSION-vendor.tar.xz），校验和在 .src.rpm 和 .dsc 生成时由 rpmbuild、dpkg-source 自己算出，所以这里只改版本、发布号和更新日志，不抄写任何哈希。
 
   render-sources.py --version 0.9.1 --spec-out OUT.spec --changelog-out OUT/changelog
       [--rpm-release 1] [--debian-revision 1] [--debian-distribution unstable] [--date 2026-10-05]
