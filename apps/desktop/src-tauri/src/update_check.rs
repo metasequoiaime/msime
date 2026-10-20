@@ -203,7 +203,6 @@ pub(crate) fn start_linux_background_update_check(
     let _ = std::thread::Builder::new()
         .name("msime-update-check".to_owned())
         .spawn(move || {
-            use tauri::Manager;
             let path = directory.join(BACKGROUND_RECORD);
             let record = read_background_record(&path);
             let Ok(now) = std::time::SystemTime::now()
