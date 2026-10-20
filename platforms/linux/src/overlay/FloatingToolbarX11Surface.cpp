@@ -74,15 +74,18 @@ bool FloatingToolbarX11Surface::open() {
 bool FloatingToolbarX11Surface::visible() const { return toolbar_ && toolbar_->visible(); }
 
 void FloatingToolbarX11Surface::dispatch() {
+  dispatching_ = true;
   while (display_ && XPending(display_)) {
     XEvent event{};
     XNextEvent(display_, &event);
     handle(event);
   }
+  dispatching_ = false;
 }
 
 void FloatingToolbarX11Surface::drain_later() {
-  if (!display_ || XQLength(display_) == 0) return;
+  // 正在分发时不另排：上面的循环会接着把队列取空。这也让空闲分发的定时器不会在它自己的回调里被换掉。
+  if (!display_ || dispatching_ || XQLength(display_) == 0) return;
   drain_ = loop_.timer(0, [this] { dispatch(); });
 }
 

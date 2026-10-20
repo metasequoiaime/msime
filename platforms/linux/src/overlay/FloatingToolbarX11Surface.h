@@ -57,6 +57,7 @@ class FloatingToolbarX11Surface final : public FloatingToolbarSurface {
   bool randr_monitors_ = false;
   OverlayLoop::Token watch_;
   OverlayLoop::Token drain_;
+  bool dispatching_ = false;
   OverlayLoop::Token tooltip_timer_;
   std::unique_ptr<OverlayX11Window> toolbar_;
   std::unique_ptr<OverlayX11Window> menu_;
