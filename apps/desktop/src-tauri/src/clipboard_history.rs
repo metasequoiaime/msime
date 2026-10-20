@@ -7,7 +7,7 @@
 #[cfg(target_os = "android")]
 use crate::platform::android::android_account;
 #[cfg(target_os = "linux")]
-use crate::platform::linux::linux_clipboard;
+use crate::platform::linux::{linux_clipboard, linux_process};
 use crate::{
     clipboard_history_uses_preference, host_platform, ClipboardHistoryState, HostActionError,
 };
@@ -33,8 +33,7 @@ pub(crate) fn clipboard_enabled(
 }
 
 #[cfg(target_os = "linux")]
-/// `Ok(None)` means a password manager marked the copy secret, so there is
-/// nothing to capture.
+/// `Ok(None)` means there is no text to capture: a password manager marked the copy secret, or a reader ran but the clipboard is empty or holds no text (an image, files, nothing copied since login). `Err` means no reader program for this session is installed, see [`clipboard_without_text`].
 pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> {
     type Arguments = &'static [&'static str];
     let mut commands: Vec<(&str, Arguments, Option<Arguments>)> = Vec::with_capacity(3);
@@ -63,6 +62,9 @@ pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> 
     // listing that fails is not treated as secret, or history would stop
     // working with tools that cannot list.
     // Preserve source line endings; wl-paste suppresses its own separator.
+    let reader_installed = commands
+        .iter()
+        .any(|(program, ..)| linux_process::program_available(program));
     for (program, arguments, targets) in commands {
         if targets.is_some_and(|targets| linux_clipboard::offers_secret(program, targets)) {
             return Ok(None);
@@ -71,9 +73,21 @@ pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> 
             return Ok(Some(text));
         }
     }
-    Err(HostActionError {
-        code: "unavailable",
-    })
+    clipboard_without_text(reader_installed)
+}
+
+/// 本会话可用的读取程序都没读到文本时的结果。`wl-paste`、`xclip` 在剪贴板为空或只有图片、文件时也以非零状态退出，与没装它们在 `read_text` 看来一样，所以按有没有装来分：装了其中任何一个，读取本身是通的，只是这时没有文本，按没有内容处理（`Ok(None)`），采集照常；一个都没装（或会话里没有能用的显示）才是读不了剪贴板，面板的状态行据此提示安装 wl-clipboard、xclip 或 xsel。
+#[cfg(target_os = "linux")]
+pub(crate) fn clipboard_without_text(
+    reader_installed: bool,
+) -> Result<Option<String>, HostActionError> {
+    if reader_installed {
+        Ok(None)
+    } else {
+        Err(HostActionError {
+            code: "unavailable",
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -146,7 +160,7 @@ impl ClipboardCaptureState {
     }
 }
 
-/// 一轮采集的状态：偏好读不出来时暂停；关闭历史时停用；读不到剪贴板时报读取不可用；剪贴板里是密码管理器标了保密的内容（`Ok(None)`）也算在正常采集；保存失败下一轮重试。
+/// 一轮采集的状态：偏好读不出来时暂停；关闭历史时停用；没有能读剪贴板的程序时报读取不可用；剪贴板里没有文本或是密码管理器标了保密的内容（`Ok(None)`）也算在正常采集；保存失败下一轮重试。
 #[cfg(target_os = "linux")]
 pub(crate) fn clipboard_capture_round(
     preferences_readable: bool,

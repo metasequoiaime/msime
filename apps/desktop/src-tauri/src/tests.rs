@@ -1623,7 +1623,8 @@ fn linux_input_method_key_request_names_the_keysym_and_evdev_code() {
 #[test]
 fn linux_clipboard_capture_status_names_each_round() {
     use super::clipboard_history::{
-        clipboard_capture_round, ClipboardCaptureState, ClipboardCaptureStatus,
+        clipboard_capture_round, clipboard_without_text, ClipboardCaptureState,
+        ClipboardCaptureStatus,
     };
     let text = Ok(Some("synthetic".to_owned()));
     let unreadable = Err(HostActionError {
@@ -1653,6 +1654,15 @@ fn linux_clipboard_capture_status_names_each_round() {
     assert_eq!(
         clipboard_capture_round(true, true, &Ok(None), None),
         ClipboardCaptureStatus::Monitoring
+    );
+    // 装了读取程序、剪贴板却是空的或只有图片时，wl-paste、xclip 都以非零状态退出；这不是读不了剪贴板，状态行不能提示去装已经装好的工具。
+    assert_eq!(
+        clipboard_capture_round(true, true, &clipboard_without_text(true), None),
+        ClipboardCaptureStatus::Monitoring
+    );
+    assert_eq!(
+        clipboard_capture_round(true, true, &clipboard_without_text(false), None),
+        ClipboardCaptureStatus::ReadUnavailable
     );
     let state = ClipboardCaptureState::default();
     assert_eq!(state.current(), None);
