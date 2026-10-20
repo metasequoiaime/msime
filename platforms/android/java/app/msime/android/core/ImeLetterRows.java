@@ -210,7 +210,7 @@ final class ImeLetterRows {
             } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
-                s.imeLayoutRows.showLetterOptions(key, input);
+                showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
         key.setOnTouchListener((view, event) -> {
