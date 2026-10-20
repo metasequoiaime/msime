@@ -17,7 +17,7 @@ constexpr std::uint32_t lifecycle_field_traits(bool private_field, bool no_spell
          (no_spellcheck ? MSIME_TRAIT_NO_SPELLCHECK : 0u);
 }
 
-// msime_client_key 的参数：按键类别（key_sound_class 的 0-3），自动重复再带 MSIME_KEY_REPEAT。两个 Linux 宿主现在与 macOS 一样根本不为自动重复调 msime_client_key（KeyRepeat 认出重复就返回），所以实际传的 repeat 总是 false；带重复位的编码留给仍然报告重复的调用方。
+// msime_client_key 的参数：按键类别（key_sound_class 的 0-3），自动重复再带 MSIME_KEY_REPEAT。Linux 的自动重复照旧出声，只是画出来不计连击（设计待决问题 Q3：各宿主保留现状）。
 constexpr std::uint32_t lifecycle_key(std::uint32_t key_class, bool repeat) {
   return key_class | (repeat ? MSIME_KEY_REPEAT : 0u);
 }
