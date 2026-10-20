@@ -467,12 +467,12 @@ int main() {
     assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0, std::nullopt, true, large),
                     "[InputPanel/Background/Margin]\nLeft=36\nRight=36\nTop=36\nBottom=40\n"));
   }
-  // 用户的内边距代替 4 px，描边仍在里面：0 px 时内容离卡片外沿只剩 1 px 发丝线。
+  // 用户的内边距代替 4 px，描边仍在里面。0 px 时 macOS 的内容只离卡片外沿 1 px 发丝线，行圆角放大到与卡片同心；classicui 的行圆角最多 6 px，高亮的角会伸出 10 px 的卡片圆角，所以内边距留到 2 px（fcitx_card_inset）。
   {
     host::FcitxCandidateStyle tight;
     tight.padding = 0.0;
     assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false, tight),
-                    "[InputPanel/ContentMargin]\nLeft=13\nRight=13\nTop=9\nBottom=17\n"));
+                    "[InputPanel/ContentMargin]\nLeft=14\nRight=14\nTop=10\nBottom=18\n"));
     tight.padding = 10.0;
     assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false, tight),
                     "[InputPanel/ContentMargin]\nLeft=22\nRight=22\nTop=18\nBottom=26\n"));
