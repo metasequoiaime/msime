@@ -39,6 +39,19 @@ def save_image(name):
         screenshot()[0].savev(str(directory / f"{name}.png"), "png", [], [])
 
 
+def bounds_below(color, top):
+    """窗口里 y 不小于 top 的这种颜色的外接框：有装饰带时窗口向上盖住编辑器，编辑器的焦点框也是 Adwaita 蓝，只看卡片那一段。"""
+    image, _ = screenshot()
+    channels, stride, data = image.get_n_channels(), image.get_rowstride(), image.get_pixels()
+    bounds = window_geometry(native_window())
+    left, width = int(bounds["X"]), int(bounds["WIDTH"])
+    bottom = int(bounds["Y"]) + int(bounds["HEIGHT"])
+    points = [(x, y) for y in range(max(top, int(bounds["Y"])), bottom) for x in range(left, left + width)
+              if data[y * stride + x * channels:y * stride + x * channels + 3] == bytes(color)]
+    assert points, f"原生窗口缺少配色 {color}"
+    return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points) + 1, max(y for _, y in points) + 1
+
+
 def pump():
     while GLib.MainContext.default().iteration(False):
         pass
@@ -226,9 +239,11 @@ def main():
                 save_image("band")
                 window_bounds = window_geometry(native_window())
                 band_box = color_bounds(band)
-                selected_box = color_bounds(SELECTED)
-                # 装饰图在窗口顶部的带里（浮动时上下不超过留出的 4pt 余量），压在卡片顶边上；选中行在它下面。
+                # 装饰图在窗口顶部 24pt 的带里（浮动时上下不超过留出的 4pt 余量），底边压进卡片顶边一个内边距；选中行在卡片里、装饰图下面。
+                card_top = int(window_bounds["Y"]) + 24 * SCALE
                 assert band_box[1] >= int(window_bounds["Y"]), "装饰图伸出了窗口"
+                assert band_box[3] <= card_top + (4 + 3) * SCALE + 1, "装饰图没有画在卡片上方的带里"
+                selected_box = bounds_below(SELECTED, card_top)
                 assert band_box[3] <= selected_box[1], "装饰图压到了候选行上"
                 subprocess.run(["xdotool", "mousemove", str((selected_box[0] + selected_box[2]) // 2),
                                 str((selected_box[1] + selected_box[3]) // 2), "click", "1"], check=True, timeout=5)

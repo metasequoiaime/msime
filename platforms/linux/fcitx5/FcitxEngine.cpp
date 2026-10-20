@@ -6220,6 +6220,8 @@ public:
       native_canvas_logo_.reset();
       // 所画皮肤包的完整清单（msime_client_skin_package）：非 canvas 包也从这里取共享版式、`[animation]` 和装饰图待机动效。
       Json drawn_package = Json::object();
+      // canvas 包（或读不出来、不知道是不是 canvas 的包）贴图坏了时照旧退回 classicui 的静态面板，不改用 macOS 结构的卡片：canvas 包的外观由它自己的贴图和清单版式决定。
+      bool canvas_package = false;
 #endif
       candidate_canvas_source_.clear();
       if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
@@ -6228,6 +6230,7 @@ public:
           const auto package = response(msime_client_skin_package(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
           drawn_package = package;
+          canvas_package = package.value("canvas", false);
 #endif
           candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
           canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
@@ -6270,6 +6273,7 @@ public:
         } catch (const std::exception &) {
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
           native_canvas_assets_.reset();
+          canvas_package = true;
 #endif
           canvas_panel.reset();
           // 无效包不能阻止之后的资源修复；失败扫描每十秒重试，不进入每拍热路径。
@@ -6280,7 +6284,7 @@ public:
       // X11 上原生画布是所有主题的默认画法：没有 canvas 包时按主题配色、用户样式和皮肤包的版式合成 macOS 结构的卡片。逃生口 MSIME_FCITX5_CANDIDATE_RENDERER=classicui 让整套退回 classicui；Wayland 和 kimpanel 本来就不走这里（renderNativeCanvas 只认 X11 上的 classicui）。
       const bool native_renderer = host::native_canvas_renderer_enabled(std::getenv("MSIME_FCITX5_CANDIDATE_RENDERER"));
       if (!native_renderer) native_canvas_assets_.reset();
-      if (native_renderer && !native_canvas_assets_) {
+      if (native_renderer && !native_canvas_assets_ && !canvas_package) {
         try {
           const auto query = host::candidate_theme_request(preferences, resolved.dark, catalog).dump();
           const auto document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
