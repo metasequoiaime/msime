@@ -153,6 +153,15 @@ public final class StickerPackModelSmoke {
         check(!StickerPackModel.commitsContent(new String[] {"image/gif"}), "GIF-only editors fall back to the clipboard");
         check(!StickerPackModel.commitsContent(new String[0]) && !StickerPackModel.commitsContent(null),
             "editors without content types fall back to the clipboard");
+        // 微信的聊天输入框不声明图片类型，只在 extras 里写 1，走它的私有表情命令。
+        check(StickerPackModel.sendsExpression(null, 1), "WeChat-style editors take the private expression command");
+        check(StickerPackModel.sendsExpression(new String[] {"image/gif"}, 1), "a GIF-only editor that also opts in takes the command");
+        check(!StickerPackModel.sendsExpression(new String[] {"image/png"}, 1), "PNG editors keep commitContent");
+        check(!StickerPackModel.sendsExpression(null, 0) && !StickerPackModel.sendsExpression(null, 2),
+            "editors that do not write 1 fall back to the clipboard");
+        check("SUPPORT_SOGOU_EXPRESSION".equals(StickerPackModel.EXPRESSION_EXTRA)
+            && "com.sogou.inputmethod.exp.commit".equals(StickerPackModel.EXPRESSION_COMMAND)
+            && "EXP_PATH_URI".equals(StickerPackModel.EXPRESSION_URI), "the names match what WeChat reads");
         check(StickerPackModel.EXTENSION.equals(ClipboardImagePolicy.extension(StickerPackModel.MIME_TYPE)),
             "the file extension maps back to the declared type");
         check("sticker-images".equals(StickerPackModel.DIRECTORY),

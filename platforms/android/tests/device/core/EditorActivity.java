@@ -92,6 +92,13 @@ public final class EditorActivity extends Activity {
         image.setHint("Editor that accepts images");
         showImeOnFocus(image);
         layout.addView(image);
+        // 学微信聊天输入框的输入框：不声明 contentMimeTypes，只在 extras 里写 SUPPORT_SOGOU_EXPRESSION = 1，经私有命令收表情；读到的图片同样写进上面的状态行，前缀是 expression。
+        EditText expression = new ExpressionEditText(this);
+        expression.setInputType(InputType.TYPE_CLASS_TEXT);
+        expression.setContentDescription("msime-test-expression");
+        expression.setHint("Editor that takes expression commands");
+        showImeOnFocus(expression);
+        layout.addView(expression);
         // 把一张合成的 PNG 以本测试包的 content URI 放进系统剪贴板，相当于用户在别的应用里「复制图片」。按钮在触摸模式下不抢焦点，输入框和键盘保持不变。
         Button copyImage = new Button(this);
         copyImage.setText("Copy synthetic image");
@@ -203,6 +210,34 @@ public final class EditorActivity extends Activity {
                     return receiveImage(content, flags);
                 }
             };
+        }
+    }
+
+    /** 微信聊天输入框的做法：extras 里声明私有表情命令，收到 `com.sogou.inputmethod.exp.commit` 时从 `EXP_PATH_URI` 读图。读权限由输入法事先 `grantUriPermission` 授给本包。 */
+    private final class ExpressionEditText extends EditText {
+        ExpressionEditText(Context context) { super(context); }
+
+        @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            InputConnection connection = super.onCreateInputConnection(outAttrs);
+            if (outAttrs.extras == null) outAttrs.extras = new Bundle();
+            outAttrs.extras.putInt("SUPPORT_SOGOU_EXPRESSION", 1);
+            return connection;
+        }
+
+        // 带类型的 getParcelable 要 API 33，这个编辑器也跑在 API 28 的 AVD 上。
+        @SuppressWarnings("deprecation")
+        @Override public boolean onPrivateIMECommand(String action, Bundle data) {
+            if (!"com.sogou.inputmethod.exp.commit".equals(action) || data == null) return super.onPrivateIMECommand(action, data);
+            Uri uri = data.getParcelable("EXP_PATH_URI");
+            if (uri == null) return false;
+            try (InputStream input = getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new IOException("no stream");
+                imageStatus.setText("expression:" + getContentResolver().getType(uri) + ":" + describe(input));
+                return true;
+            } catch (IOException | SecurityException error) {
+                imageStatus.setText("expression-failed:" + error.getClass().getSimpleName());
+                return false;
+            }
         }
     }
 

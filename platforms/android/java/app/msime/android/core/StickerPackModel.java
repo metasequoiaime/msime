@@ -186,6 +186,18 @@ public final class StickerPackModel {
     }
 
     /**
+     * 微信的聊天输入框不声明 `contentMimeTypes`，`commitContent` 发不进去；它另在 `EditorInfo.extras` 里写 {@link #EXPRESSION_EXTRA} = 1，表示收一条私有命令：输入法调 `performPrivateCommand`（{@link #EXPRESSION_COMMAND}，Bundle 里 {@link #EXPRESSION_URI} 放图片的 content URI），微信读图后弹出带预览的发送确认。命令和键名是微信为搜狗输入法定的，微信对任何当前输入法都处理（只在统计和个别会话限制上区分搜狗与 QQ 拼音），所以照它的名字用。
+     */
+    public static final String EXPRESSION_EXTRA = "SUPPORT_SOGOU_EXPRESSION";
+    public static final String EXPRESSION_COMMAND = "com.sogou.inputmethod.exp.commit";
+    public static final String EXPRESSION_URI = "EXP_PATH_URI";
+
+    /** 输入框 extras 里 {@link #EXPRESSION_EXTRA} 的值：微信写的是整数 1。不收 PNG 的输入框才走这条路，收 PNG 的照常 `commitContent`。 */
+    public static boolean sendsExpression(String[] editorMimeTypes, int expressionExtra) {
+        return !commitsContent(editorMimeTypes) && expressionExtra == 1;
+    }
+
+    /**
      * 系统剪贴板里的这个 URI 是不是键盘自己放进去的贴纸：本应用 FileProvider（`<包名>.files`）下 {@link #DIRECTORY} 里的文件。
      *
      * <p>键盘写剪贴板也会触发自己的剪贴板监听；不排除的话，刚复制的贴纸会被当成用户复制的图片，在工具栏上变成「发送复制的图片」。
