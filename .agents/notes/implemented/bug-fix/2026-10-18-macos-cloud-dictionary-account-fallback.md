@@ -20,7 +20,7 @@ macOS 保留显式 provider、原生会话和发现 socket 的优先级；没有
 
 ## Consequences
 
-不把已有 provider 的业务失败当作缺少入口；保持 Linux 的 provider-only 行为。真实账号联网验收不使用用户凭据。
+不把已有 provider 的业务失败当作缺少入口；当时保持 Linux 的 provider-only 行为，后来由 [Linux 账号云功能对齐](../feature/2026-10-20-linux-account-features-and-input-parity.md) 翻转：Linux 没有 provider 时也走账号会话，provider 优先、失败不重发照旧。真实账号联网验收不使用用户凭据。
 
 设置页云词库入口由[词库顶部标签](../feature/2026-10-17-dictionary-top-tabs-and-lookup.md)接管：提供页内客户端时显示标签，原生菜单与账号回退协议继续沿用本篇。
 

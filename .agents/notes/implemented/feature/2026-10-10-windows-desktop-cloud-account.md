@@ -10,7 +10,7 @@ Windows 的设置应用（Tauri）已经能登录水杉账号，但账号之外�
 
 ### 云词库
 
-账号操作（列表、目录、增删改、导入导出、候选调频、固定排位）的分发从 `mobile_account_helpers.rs` 移到 `apps/desktop/src-tauri/src/platform/cloud_dictionary.rs` 的 `account_request`，对会话的后端和存储泛型；iOS、Android 经原来的 `cloud_dictionary_account_request` 包一层调用它，行为不变。Windows 的 `cloud_dictionary_request` 在 `not(unix)` 分支把请求交给 `platform/desktop/desktop_cloud_dictionary.rs`，用 `desktop_account::AccountState` 的会话。Linux 与 macOS 的 provider socket、原生会话路径不动。
+账号操作（列表、目录、增删改、导入导出、候选调频、固定排位）的分发从 `mobile_account_helpers.rs` 移到 `apps/desktop/src-tauri/src/platform/cloud_dictionary.rs` 的 `account_request`，对会话的后端和存储泛型；iOS、Android 经原来的 `cloud_dictionary_account_request` 包一层调用它，行为不变。Windows 的 `cloud_dictionary_request` 在 `not(unix)` 分支把请求交给 `platform/desktop/desktop_cloud_dictionary.rs`，用 `desktop_account::AccountState` 的会话。Linux 与 macOS 的 provider socket、原生会话路径不动；Linux 后来在没有 provider 时也走这条账号路径，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)。
 
 快照在 `desktop_cloud_dictionary.rs` 里做，`cloudDictionaryCapabilities("windows")` 是 `snapshot: true, snapshotNative: false`，与移动端同一条非原生路径：
 
@@ -24,7 +24,7 @@ Windows 的设置应用（Tauri）已经能登录水杉账号，但账号之外�
 
 ### 设置同步
 
-`settings_sync.rs` 把 Android 映射里各平台共有的 `input.*` 部分抽成 `insert_input_settings` / `apply_input_settings`，新增 `export_desktop_settings` / `apply_desktop_settings` 只用这一部分。`platform/windows/windows_settings_sync.rs` 注册与移动端同名的四个命令；应用时按读到时的修订号经 `save_preferences_impl` 写入，期间本机设置变过就拒绝，并同步进运行时选项。卡片的说明文字由 `SettingsSyncClient.description` 给出，Windows 写明只同步输入设置；应用成功后的提示由 `appliedMessage` 给出，Windows 只说「已应用云端设置。」，不沿用移动端「请重新打开键盘」那半句，因为 Server 从共享偏好里当场读到新设置。
+`settings_sync.rs` 把 Android 映射里各平台共有的 `input.*` 部分抽成 `insert_input_settings` / `apply_input_settings`，新增 `export_desktop_settings` / `apply_desktop_settings` 只用这一部分。`platform/desktop/desktop_settings_sync.rs`（原 `platform/windows/windows_settings_sync.rs`，现在 Windows 和 Linux 共用）注册与移动端同名的四个命令；应用时按读到时的修订号经 `save_preferences_impl` 写入，期间本机设置变过就拒绝，并同步进运行时选项。卡片的说明文字由 `SettingsSyncClient.description` 给出，Windows 写明只同步输入设置；应用成功后的提示由 `appliedMessage` 给出，Windows 只说「已应用云端设置。」，不沿用移动端「请重新打开键盘」那半句，因为 Server 从共享偏好里当场读到新设置。
 
 ### 与输入法共用账号会话
 
@@ -54,7 +54,7 @@ char *msime_client_account_access_token(const uint8_t *request, size_t length);
   - 回复模板在 Windows 上只能收藏、评分、举报、发布，不能用于输入：桌面没有「高情商回复」键盘。
   - 设置同步只覆盖 `input.*`，候选窗口、快捷键、皮肤等桌面设置不跨机器同步。
   - 设置应用的账号页还不显示本机匿名账号（macOS 原生账号窗口的「本机账号」标记和登录后弃用匿名账号）。Server 的翻译线程用 `msime_client_account_access_token` 取令牌做「水杉账号」候选释义，见 [Windows 的释义列快捷键与「水杉账号」候选释义](2026-10-10-windows-gloss-columns-and-account-glosses.md)。
-  - Linux 与 macOS 的 Tauri 应用没有社区词包与设置同步；要在 Linux 打开时，把 `community_resources` 和设置同步命令的目标条件加上 Linux 并在 `main.tsx` 同步打开。
+  - macOS 的 Tauri 应用没有社区词包与设置同步；Linux 已按这里说的做法打开，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)。
 
 ## Verification
 

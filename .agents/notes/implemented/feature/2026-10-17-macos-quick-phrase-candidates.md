@@ -8,7 +8,7 @@ macOS 的快捷短语目前只能在按下 `Shift+K` 后进入 K 模式。快捷
 
 ## Decision
 
-macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组字查询在保留原有候选顺序的基础上追加编码匹配的快捷短语；其他平台和普通会话保持现状。快捷短语行继续使用 `CandidateSource::QuickPhrase`，选中后直接提交文本。`Shift+K` 手动模式保留，供需要独立查看短语表的用户使用。
+macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组字查询在保留原有候选顺序的基础上追加编码匹配的快捷短语；其他平台和普通会话保持现状。Linux 的两个宿主后来也请求这项能力，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)。快捷短语行继续使用 `CandidateSource::QuickPhrase`，选中后直接提交文本。`Shift+K` 手动模式保留，供需要独立查看短语表的用户使用。
 
 ## Alternatives considered
 
