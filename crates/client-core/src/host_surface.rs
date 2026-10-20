@@ -190,7 +190,7 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
     pub floating_toolbar_voice: bool,
-    /// 工具栏带切换输入方案的按钮。macOS 和 Windows 的工具栏画它，Linux 的「工具栏」子菜单列出同样内容的方案子菜单，其它宿主不提供这个开关。
+    /// 工具栏带切换输入方案的按钮。macOS、Windows 和 Linux 的悬浮工具栏画它，Linux 的「工具栏」子菜单另列出同样内容的方案子菜单，其它宿主不提供这个开关。
     pub floating_toolbar_input_scheme: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
@@ -550,13 +550,9 @@ impl HostCapabilities {
                     | HostPlatform::Harmony
                     | HostPlatform::Linux
             ),
-            // Linux maps the component switches to IBus menu entries; the
-            // native-window hosts apply them to their own toolbar buttons. The
-            // HarmonyOS panel hides the button and narrows itself, and its
-            // emoji and screen-keyboard buttons open the same surfaces its
-            // phone keyboard reaches from a key face.
+            // 自己画工具栏窗口的宿主（macOS、Windows，以及 Linux 在 X11 和 Xwayland 上的悬浮工具栏）按这些开关排自己的按钮；Linux 另把它们映射到 IBus 属性菜单和 Fcitx5 状态区的「工具栏」子菜单，画不出悬浮窗口的会话靠后者。HarmonyOS 的面板隐藏对应按钮并收窄自己，表情和屏幕键盘按钮打开手机键盘从键面进入的同一些面。
             floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // macOS 和 Windows 的工具栏画这三个按钮，Linux 的 IBus 与 Fcitx5「工具栏」子菜单列出对应的三项；手写还要随版本收窄（narrow_to_edition）。
+            // macOS、Windows 和 Linux 的悬浮工具栏画这三个按钮，Linux 的 IBus 与 Fcitx5「工具栏」子菜单另列出对应的三项；手写还要随版本收窄（narrow_to_edition）。
             floating_toolbar_handwriting: matches!(
                 platform,
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux

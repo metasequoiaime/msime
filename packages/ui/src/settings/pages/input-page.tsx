@@ -222,6 +222,7 @@ export function InputSettingsPage() {
             touchKeyboardSchemes={touchKeyboardSchemes}
             selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
             macos={macosPlatform}
+            linux={linuxPlatform}
             inputSchemes={supportedInputSchemes(host)}
             edition={host?.edition}
             // 共享偏好里还没有这一项时，macOS 显示本机 defaults 里的旧选择，与输入法实际的行为一致；其他宿主按关显示。

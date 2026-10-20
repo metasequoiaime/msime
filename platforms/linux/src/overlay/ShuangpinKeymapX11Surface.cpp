@@ -51,7 +51,7 @@ bool ShuangpinKeymapX11Surface::open(const std::string &display) {
 
 void ShuangpinKeymapX11Surface::close() {
   window_.reset();
-  if (display_) XCloseDisplay(display_);
+  close_overlay_display(display_);
   display_ = nullptr;
   lost_ = false;
   display_name_.clear();

@@ -9823,13 +9823,37 @@ test("a host that draws no shuangpin keymap does not offer the switch", async ()
       preferences: { ...initial.preferences, scheme: "shuangpin" },
     }),
     save: vi.fn(),
-    host: testHost({ platform: "linux" }),
+    host: testHost({ platform: "linux", shuangpin_keymap_hint: false }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("combobox", { name: "双拼方案" });
   expect(screen.queryByRole("switch", { name: "输入时显示双拼键位提示" })).toBeNull();
+});
+
+test("Linux offers the shuangpin keymap switch and says it only shows for X11 applications", async () => {
+  // Linux 宿主只给报根窗口坐标光标的 X11 客户端画键位图：Wayland 桌面上 IBus 不画，Fcitx5 只给经 Xwayland 运行的应用画，描述照实说。
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, scheme: "shuangpin" },
+    }),
+    save: vi.fn(),
+    host: testHost({ platform: "linux" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  const keymap = (await screen.findByRole("switch", {
+    name: "输入时显示双拼键位提示",
+  })) as HTMLInputElement;
+  expect(keymap.checked).toBe(false);
+  expect(
+    screen.getByText(
+      /Linux 只为 X11 应用显示：Wayland 桌面上 IBus 不显示，Fcitx5 只为经 Xwayland 运行的应用显示。/,
+    ),
+  ).toBeTruthy();
 });
 
 test("an edit made while a save is in flight is kept and saved after it", async () => {

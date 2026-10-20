@@ -9,8 +9,10 @@
 
 namespace msime::linux_host {
 
-// 打开一条浮层用的 X 连接（name 为空时用 DISPLAY），连不上时返回空指针。连接断开时（X 服务器退出，Wayland 会话里 Xwayland 崩溃或被合成器重启）Xlib 默认会结束整个进程，对 IBus 引擎和 fcitx5 守护进程来说就是丢掉全部输入；这里给这条连接装上不退出的处理（libX11 1.7 起的 XSetIOErrorExitHandler）：断开后 *lost 变成 true，之后这条连接上的 Xlib 调用都是空操作，调用方在自己的调用栈之外关掉它、下次要画时再连。lost 指向的变量要活得比连接久。更早的 libX11 没有这个接口（legacy 包的 Debian 10 是 1.6.7），那里断开仍会结束进程，与以前相同。
+// 打开一条浮层用的 X 连接（name 为空时用 DISPLAY），连不上时返回空指针。连接断开时（X 服务器退出，Wayland 会话里 Xwayland 崩溃或被合成器重启）Xlib 默认会结束整个进程，对 IBus 引擎和 fcitx5 守护进程来说就是丢掉全部输入；这里给这条连接装上不退出的处理（libX11 1.7 起的 XSetIOErrorExitHandler，另加一个只对这些连接返回、别的连接照旧交给之前处理的进程级 I/O 错误处理）：断开后 *lost 变成 true，之后这条连接上的 Xlib 调用都是空操作，调用方在自己的调用栈之外关掉它、下次要画时再连。lost 指向的变量要活得比连接久。更早的 libX11 没有这个接口（legacy 包的 Debian 10 是 1.6.7），那里断开仍会结束进程，与以前相同。
 Display *open_overlay_display(const char *name, bool *lost);
+// 关掉 open_overlay_display 打开的连接。
+void close_overlay_display(Display *display);
 
 // 一块由输入法自己画的 override-redirect 窗口：双拼键位图、悬浮工具栏、它弹出的菜单和按钮提示都是这一种。不进任务栏、不被窗口管理器摆布、不抢焦点；拿得到 32 位 ARGB visual 时窗口带透明，圆角和阴影由画法自己画。
 //

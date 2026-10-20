@@ -5,21 +5,66 @@
 #include <X11/extensions/shape.h>
 #include <cairo/cairo-xlib.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace msime::linux_host {
+
+#ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
+namespace {
+
+// 用 open_overlay_display 打开、还没关掉的连接。Xlib 的 I/O 错误处理是整个进程一个，默认的那个打印一行就 exit(1)，不会走到每条连接的退出处理；所以这里装一个进程级的处理：这些连接只打印一行并返回，让 Xlib 接着调用它们自己的退出处理（记下断开），别的连接照旧交给之前的处理（默认的仍然退出）。只在主线程上用：IBus 引擎和 Fcitx5 插件的浮层都在宿主的主循环里。
+std::vector<Display *> &overlay_displays() {
+  static std::vector<Display *> displays;
+  return displays;
+}
+
+XIOErrorHandler &previous_io_error_handler() {
+  static XIOErrorHandler previous = nullptr;
+  return previous;
+}
+
+int overlay_io_error(Display *display) {
+  const auto &displays = overlay_displays();
+  if (std::find(displays.begin(), displays.end(), display) != displays.end()) {
+    std::fprintf(stderr, "MSIME: X connection to %s broken; closing the overlay connection\n", DisplayString(display));
+    return 0;
+  }
+  return previous_io_error_handler() ? previous_io_error_handler()(display) : 0;
+}
+
+}  // namespace
+#endif
 
 Display *open_overlay_display(const char *name, bool *lost) {
   *lost = false;
   Display *display = XOpenDisplay(name);
 #ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
-  // 只装在这条连接上：Xlib 进程级的 I/O 错误处理照旧只打印一行，退出由每条连接的退出处理决定，这里换成记下断开并返回。
-  if (display)
+  if (display) {
+    static const bool installed = [] {
+      previous_io_error_handler() = XSetIOErrorHandler(overlay_io_error);
+      return true;
+    }();
+    (void)installed;
+    overlay_displays().push_back(display);
+    // 这条连接自己的退出处理：不退出，记下断开并返回。
     XSetIOErrorExitHandler(
         display, [](Display *, void *flag) { *static_cast<bool *>(flag) = true; }, lost);
+  }
 #endif
   return display;
+}
+
+void close_overlay_display(Display *display) {
+  if (!display) return;
+#ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
+  auto &displays = overlay_displays();
+  displays.erase(std::remove(displays.begin(), displays.end(), display), displays.end());
+#endif
+  XCloseDisplay(display);
 }
 
 OverlayX11Window::OverlayX11Window(Display *display, const char *res_name, const char *res_class,

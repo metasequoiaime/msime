@@ -60,7 +60,7 @@ export function testHost(
     touch_keyboard_height: !macos && !linux,
     touch_keyboard_spacing: !macos,
     shuangpin_preedit: macos,
-    shuangpin_keymap_hint: macos || platform === "windows",
+    shuangpin_keymap_hint: macos || windows || linux,
     maintenance_shortcuts: false,
     fullwidth_chord: macos,
     voice_provider_settings: !android,

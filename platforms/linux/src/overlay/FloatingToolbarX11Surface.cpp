@@ -57,7 +57,7 @@ bool FloatingToolbarX11Surface::open() {
                                                 "_NET_WM_WINDOW_TYPE_UTILITY", true);
   if (!toolbar_->valid()) {
     toolbar_.reset();
-    XCloseDisplay(display_);
+    close_overlay_display(display_);
     display_ = nullptr;
     lost_ = false;
     return false;
@@ -102,7 +102,7 @@ void FloatingToolbarX11Surface::close_connection() {
   menu_opened_by_press_ = false;
   dragging_ = false;
   dragged_ = false;
-  if (display_) XCloseDisplay(display_);
+  close_overlay_display(display_);
   display_ = nullptr;
   lost_ = false;
 }
