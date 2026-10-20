@@ -212,14 +212,14 @@ int main() {
     scroll["expandPanel"] = true;
     scroll["expandRows"] = 6;
     scroll["pageArrows"] = true;
-    const auto layout =
+    const auto scroll_layout =
         candidate_skin_layout(Json{{"packages", Json::array({scroll})}}, "wechat-scroll-like");
-    require(layout.expand_panel == true && layout.expand_rows == 6 && layout.page_arrows == true);
-    const auto horizontal = candidate_skin_metrics(layout, true, 16.0);
+    require(scroll_layout.expand_panel == true && scroll_layout.expand_rows == 6 && scroll_layout.page_arrows == true);
+    const auto horizontal = candidate_skin_metrics(scroll_layout, true, 16.0);
     require(horizontal.expand_panel && horizontal.expand_rows == 6 && !horizontal.page_arrows);
-    const auto vertical = candidate_skin_metrics(layout, false, 16.0);
+    const auto vertical = candidate_skin_metrics(scroll_layout, false, 16.0);
     require(!vertical.expand_panel && vertical.page_arrows);
-    auto defaults = layout;
+    auto defaults = scroll_layout;
     defaults.expand_rows.reset();
     require(candidate_skin_metrics(defaults, true, 16.0).expand_rows == 4);
   }

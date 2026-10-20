@@ -1968,7 +1968,7 @@ void CandidateWindow::paint() {
     }
     target->PopAxisAlignedClip();
     // 展开按钮：序号色的折线，收起时尖朝下「∨」，展开时尖朝上「∧」；悬停铺 hover，按下铺 selected（透明时仍是 hover）。
-    const auto &panel = *metrics.expand_panel;
+    const auto &expand_style = *metrics.expand_panel;
     const auto button = box(expand_layout->toggle);
     if (pressed_toggle_ || hovered_toggle_) {
       const float button_radius = (std::min)(4.0f, row_radius);
@@ -1978,12 +1978,12 @@ void CandidateWindow::paint() {
                                    brush(fill));
     }
     const float half_width =
-        (std::min)(static_cast<float>(panel.glyph), button.right - button.left) * 0.5f;
+        (std::min)(static_cast<float>(expand_style.glyph), button.right - button.left) * 0.5f;
     const float half_height = half_width * 0.5f;
     const float cx = (button.left + button.right) * 0.5f, cy = (button.top + button.bottom) * 0.5f;
     const float tip = expand_.expanded ? cy - half_height : cy + half_height;
     const float tail = expand_.expanded ? cy + half_height : cy - half_height;
-    const float stroke = static_cast<float>(panel.stroke);
+    const float stroke = static_cast<float>(expand_style.stroke);
     target->DrawLine(D2D1_POINT_2F{cx - half_width, tail}, D2D1_POINT_2F{cx, tip},
                      brush(palette_.number), stroke);
     target->DrawLine(D2D1_POINT_2F{cx, tip}, D2D1_POINT_2F{cx + half_width, tail},
