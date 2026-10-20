@@ -179,7 +179,7 @@ private:
   void finish_skin_animation();
   void hide_now();
   void hide_immediately();
-  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起。
+  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起；读不到快照时已经在播的退场不打断。
   void hide_for(const std::optional<CandidatePresentation> &value);
   bool skin_motion_enabled() const;
   float skin_motion_progress() const;

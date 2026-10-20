@@ -715,6 +715,9 @@ void CandidateWindow::hide_immediately() {
 }
 
 void CandidateWindow::hide_for(const std::optional<CandidatePresentation> &value) {
+  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场。退场只在组字正常结束时开始，退场途中换了焦点也只是让这段已经开始的退场播完。
+  if (!value && finishing_animation_)
+    return;
   if (value && value->composition_ended)
     hide();
   else
@@ -1959,9 +1962,10 @@ void CandidateWindow::paint() {
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
                     rect.top + static_cast<float>(item.text_height)},
         brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
+    // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
     const auto annotation_color =
-        candidate_row_text_color(palette_, text_color, selected, false);
+        candidate_row_text_color(palette_, text_color, selected,
+                                 value->candidates[i].fixed_position != 0);
     const auto translation_color = candidate_row_translation_color(
         palette_, selected, value->candidates[i].fixed_position != 0);
     // Runs extend to the row's right edge rather than their measured width, so rounding cannot wrap or clip a run that was laid out as fitting.

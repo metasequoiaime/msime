@@ -262,7 +262,8 @@ public:
       // the old projection. A mode request alone is not a notification.
       if (packet.keycode != 0)
         break;
-      english_mode = true;
+      // 只有 IMESwitch 是用户切到英文；StatusSnapshot 也在线程焦点变化和重连时发，FocusRestored 本身就是焦点转移，它们带走的候选立即消失，和 macOS 的 focus_out 一样。
+      english_mode = packet.event_type == FanyImePipeEventType::IMESwitch;
       [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
       if ((packet.modifiers_down & internal_continuation_hide) != 0) {

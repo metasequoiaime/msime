@@ -177,11 +177,31 @@ inline std::string candidate_primary_text(const PresentationCandidate &candidate
 }
 // 一行候选的注释那一段：引擎的注释（辅助码、五笔的剩余编码、emoji 说明、地名所属省份……）一律包在半角括号里、紧贴候选文字，画成「你好(wqvb)」，和 macOS 的 MSIMEParenthesizedAnnotation 一样；已经带半角或全角括号的原样保留，只有空白时不画。韩文汉字的 훈음 不在这里，它已经挪到释义那一段（move_korean_hanja_gloss）；脚本插件的注释也不在这里，见 candidate_secondary_run。
 inline std::string candidate_annotation_run(const PresentationCandidate &candidate) {
-  const auto &value = candidate.annotation;
-  const auto first = value.find_first_not_of(" \t\r\n");
-  if (first == std::string::npos)
+  // 首尾去掉的空白和 macOS 的 whitespaceAndNewlineCharacterSet 一样：ASCII 空白、U+0085，以及 Unicode 的空格分隔符（U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）。
+  static constexpr std::string_view spaces[] = {
+      "\t", "\n", "\v", "\f", "\r", " ", "\xC2\x85", "\xC2\xA0", "\xE1\x9A\x80",
+      "\xE2\x80\x80", "\xE2\x80\x81", "\xE2\x80\x82", "\xE2\x80\x83", "\xE2\x80\x84",
+      "\xE2\x80\x85", "\xE2\x80\x86", "\xE2\x80\x87", "\xE2\x80\x88", "\xE2\x80\x89",
+      "\xE2\x80\x8A", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80\xAF", "\xE2\x81\x9F",
+      "\xE3\x80\x80"};
+  std::string_view trimmed = candidate.annotation;
+  for (bool stripped = true; stripped && !trimmed.empty();) {
+    stripped = false;
+    for (const auto space : spaces) {
+      if (trimmed.substr(0, space.size()) == space) {
+        trimmed.remove_prefix(space.size());
+        stripped = true;
+      }
+      if (trimmed.size() >= space.size() &&
+          trimmed.substr(trimmed.size() - space.size()) == space) {
+        trimmed.remove_suffix(space.size());
+        stripped = true;
+      }
+    }
+  }
+  if (trimmed.empty())
     return {};
-  const auto annotation = value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
+  const std::string annotation(trimmed);
   const auto wrapped = [&](std::string_view open, std::string_view close) {
     return annotation.size() >= open.size() + close.size() &&
            annotation.compare(0, open.size(), open) == 0 &&

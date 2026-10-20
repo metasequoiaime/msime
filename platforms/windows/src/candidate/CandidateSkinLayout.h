@@ -6,7 +6,7 @@
 namespace msime::windows {
 // 皮肤包 `[candidate_window]` 里的版式、外框、阴影、材质、翻页箭头、收紧宽度和卷轴展开这几组键，来自共享 catalog 的 `SkinSummary`（`geometry` / `horizontal` / `vertical`、`borderWidthDip`、`itemCornerRadiusDip`、`shadow`、`backdrop`、`pageArrows`、`fitContent`、`expandPanel`、`expandRows`），含义照 msime-windows c0a9d371 的 candidate_skin_tokens.cpp 与 candidate_skin_scene.cpp。没写的键为空，卡片保留宿主自己的值：不写这些键的皮肤和没有皮肤时，画出来与以前一样。这里不碰 JSON 和 Direct2D，换算规则在没有 Windows 的机器上也能测。
 //
-// msime-windows 里没写的键沿用 `base` 外观自己的出厂清单（例如 `wechat` 的 `padding = 2`）；共享 catalog 目前只按外观补颜色和卡片圆角，不补版式，所以这里没写的键回到的是本宿主的默认版式，而不是 `base` 外观的。
+// msime-windows 里没写的键沿用 `base` 外观自己的出厂清单（例如 `wechat` 的 `padding = 2`）；有 Windows 外观基底或 canvas 基底的包，共享 catalog 给的 `resolvedLayout` 就是这份出厂版式叠上包自己写的键（见 `shared`）。只有不带 `resolvedLayout` 的包，没写的键才回到本宿主的默认版式。
 
 // 版式长度：固定 DIP，或按候选字号缩放的 em。em 换算后取整，同 msime-windows 的 CandidateSkinCatalog::ResolveLength。
 struct CandidateSkinLength {

@@ -259,9 +259,10 @@ void candidate_mailbox_tests() {
     require(mailbox.snapshot(gate)->visible);
     require(visual_event(first, mode_event));
     const auto hidden_now = mailbox.snapshot(gate);
-    // 切到英文和上屏一样算正常结束，可以播退场。
+    // 切到英文（IMESwitch）和上屏一样算正常结束，可以播退场；状态快照和焦点恢复是焦点转移，立即收起。
     require(hidden_now && !hidden_now->visible && hidden_now->preedit.empty() &&
-            hidden_now->composition_ended);
+            hidden_now->composition_ended ==
+                (mode_event == FanyImePipeEventType::IMESwitch));
     require(visual_event(first, mode_event, 0, 1));
     require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
     require(!mailbox.snapshot(gate)->visible);

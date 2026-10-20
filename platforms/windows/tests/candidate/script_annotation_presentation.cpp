@@ -94,6 +94,8 @@ int main() {
              {"（广东）", "（广东）"},
              {"(广东", "((广东)"},
              {"  ", ""},
+             {"\xE3\x80\x80wqvb\xC2\xA0", "(wqvb)"},
+             {"\xE3\x80\x80\xE2\x80\x83\xC2\xA0", ""},
              {"", ""}}) {
       noted.annotation = raw;
       require(candidate_annotation_run(noted) == drawn);
