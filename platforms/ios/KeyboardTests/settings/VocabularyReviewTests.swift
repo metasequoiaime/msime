@@ -5,7 +5,28 @@ final class VocabularyReviewTests: XCTestCase {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-    return VocabularyReviewStore(directory: directory)
+    // 不用测试宿主自带的 EngineResources：它旁边可能暂存了真实的内置词书，这里的用例只看导入的词表。
+    return VocabularyReviewStore(directory: directory, resources: nil)
+  }
+
+  /// 内置词书放在 EngineResources 的同级 wordbooks/ 里（stage-resources.sh 和键盘扩展的打包都按这个布局），共享层不向上找，所以存储传的必须是上一级目录。
+  func testBundledBooksAreReadBesideTheEngineResources() throws {
+    let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: base) }
+    let engine = base.appendingPathComponent("bundle/EngineResources", isDirectory: true)
+    let wordbooks = base.appendingPathComponent("bundle/wordbooks", isDirectory: true)
+    try FileManager.default.createDirectory(at: engine, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: wordbooks, withIntermediateDirectories: true)
+    let book = #"{"id":"cet4","name":"CET-4","entries":[{"word":"abandon","phonetic":"/a/","meaning":"v. 放弃"},{"word":"ability","phonetic":"","meaning":"n. 能力"}]}"#
+    try Data(book.utf8).write(to: wordbooks.appendingPathComponent("cet4.json"))
+
+    let store = VocabularyReviewStore(
+      directory: base.appendingPathComponent("state", isDirectory: true), resources: engine)
+    let status = try store.load()
+    let bundled = try XCTUnwrap(status.wordbooks.first { $0.id == "cet4" })
+    XCTAssertEqual(bundled.name, "CET-4")
+    XCTAssertEqual(bundled.total, 2)
+    XCTAssertTrue(bundled.builtin)
   }
 
   private let list = "alpha,/a/,adj. 甲\nbeta,adj. 乙\ngamma,adj. 丙\n"

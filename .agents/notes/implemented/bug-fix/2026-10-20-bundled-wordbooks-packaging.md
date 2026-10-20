@@ -25,10 +25,12 @@ Status: implemented
 | macOS | 设置应用 `MSIME.app`，按 `resource_dir()` | `MSIME.app/Contents/Resources/wordbooks` | `stage-resources.sh` 暂存到 `target/macos/wordbooks`，`package-release.sh` 拷进包并在 `check_app` 里核对；`release-macos.yml`、`ci-macos-package.yml` 生成词书 |
 | Windows | `msime-client-settings.exe` 和 `MSIME.exe`，都以所在的 Server 目录为资源根 | 安装目录 `server\wordbooks` | `Prepare-PackageFiles.ps1` 装进 `server_exe\wordbooks`；`release-windows.yml` 生成词书 |
 | Linux | 设置窗口 `msime-desktop`，按 HostOptions 求随包资源的目录（host-api 的 `bundled_resource_root`，经 `apps/desktop/src-tauri/src/lib.rs` 的 `vocabulary_resources`），每次命令时现读 | `share/<client>/wordbooks`，与 `resources`、`offline-glosses` 同级 | CMake 的 `MSIME_WORDBOOKS`（缺省从 `target/wordbooks` 取）和 `MSIME_REQUIRE_WORDBOOKS`；`package-container.sh` 和 `release-linux.yml` 打发布页的 deb、rpm；发行版定义见下 |
+| iOS | 设置 App 的 `VocabularyReviewStore`，传键盘扩展里 `EngineResources` 的上一级（原来传的是 `EngineResources` 本身，共享层在它里面找 `wordbooks/`，永远找不到） | 键盘扩展包内 `wordbooks/`，与 `EngineResources` 同级 | `stage-resources.sh` 暂存到 `target/ios/wordbooks`，`project.yml` 把它作为文件夹打进键盘扩展和测试宿主；`release-ios.yml` 生成词书 |
+| 鸿蒙 | 设置页，传 `context.resourceDir` | HAP 的 `resfile/wordbooks`，与 `engine` 同级 | `stage-resources.sh` 暂存；`release-harmony.yml` 生成词书 |
 
 Linux 的设置窗口原来按 `resource_dir()` 找，那是 `<prefix>/lib/<productName>`，安装时从不创建，所以即使装了词书也读不到。也不能简单取 HostOptions 里 `resources` 的上一级：词库在线更新后 `resources` 指向状态目录下的下载代次，那里没有随包资源。`bundled_resource_root` 这时取更新记录里的原安装包目录，与 `prepare_host_with_updates` 给音效包和插件包定位的规则相同。发行版的几条路径各自取词书：COPR、OBS 和 PPA 用的 vendor 包由 `make-source-tarballs.sh` 放进生成好的八本词书和 NOTICE（源 CSV 缓存在包外，词书的完整性由 vendor 包的 SHA-256 保证，构建农场不联网也不重新生成），`debian/rules` 和 `rpm/msime.spec` 直接用它；Arch 的 `msime` 和 Gentoo 在构建时按锁文件下载 ECDICT 并生成，Gentoo 的 ECDICT CSV 和 LICENSE 由 `render.py` 写成 distfile，放在 `fetch_wordbooks.py` 的缺省缓存目录 `wordbook-source` 里，离线核对后生成。legacy 包不带设置窗口，不装词书。
 
-Android、iOS 的宿主当前传进来的资源根不对（Android 的 `resource_dir()` 是 `asset://localhost/`，iOS 传的是 `EngineResources` 本身），鸿蒙的发版工作流不生成词书；这三个平台随后续改动接入，接入时更新这张表。
+Android 不带词书。发布的 APK（`build-apk.sh`）不含 Tauri 管理界面，原生设置里的「背单词」只提示「需要管理界面合包」（`LexiconPage.openVocabularyReview`），带上词书用户也用不到，只会让 APK 多出 3.3 MB。只有不对外发布的 Tauri 合包（`build-client-apk.sh`）有背单词页，而它的资源根也不对：`resource_dir()` 在 Android 上是 `asset://localhost/`，不是真实路径。等 Android 发布包有了背单词页再接入：词书解包到 `bootstrap/wordbooks`（`bootstrap/resources` 的同级），`vocabulary_resources` 对 Android 也走 `bundled_resource_root`。
 
 ## Alternatives considered
 

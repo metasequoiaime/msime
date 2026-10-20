@@ -43,6 +43,9 @@ jobs:
       # stage-resources.sh stages target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 放进键盘扩展、EngineResources 的同级；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的构建失败。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # build-app.sh generates the Xcode project with xcodegen, and build-native.sh refuses to start without the simulator Rust target; rust-toolchain.toml installs neither, and the runner image has no xcodegen.
       - name: Install xcodegen and the simulator Rust target
         run: |
@@ -51,7 +54,7 @@ jobs:
           rustup target add aarch64-apple-ios-sim
       # 发布只带核心词库，日语及粤拼、注音、笔画由 App Group 资源包按需下载。
       - name: Build native iOS host
-        env: {MSIME_IOS_OMIT_ON_DEMAND: "1"}
+        env: {MSIME_IOS_OMIT_ON_DEMAND: "1", MSIME_REQUIRE_WORDBOOKS: "1"}
         run: |
           set -euo pipefail
           mkdir -p target/resources
