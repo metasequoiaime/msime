@@ -8,7 +8,7 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 
 - 切换提示：Fcitx5 的自绘徽章是 macOS 改成紧凑尺寸之前的样子（44 px 高、22.8 px 半粗体字），总带产品标志，显示 1.2 秒后直接消失，固定在屏幕右下角；同时还弹一个跟着光标的面板文字提示，一次切换出两处提示。IBus 只有辅助文本，没有徽章。macOS 是光标下方一块 32 pt 的紧凑徽章，标志默认不显示，0.6 秒后在 0.18 秒内淡出。
 - 模式字：Linux 没有「双」「五」，IBus 面板还写「文」和「A」。
-- 菜单：顺序、层级和名字都不同。英文候选模式和繁体输出收在「输入选项」里，表情、云剪贴板、云词库、屏幕键盘和手写收在「桌面工具」里，名字是「表情与符号」「手写识别板」「设置…」「主题：X」「86 五笔」「日文」，没有快捷键提示；Fcitx5 每一行都画同一个键盘图标。工具栏子菜单只有八项，表情默认开（共享默认值是关），没有切换方案、手写、语音，也没有 macOS 齿轮菜单里的宣传、官网、帮助、关于和反馈；Fcitx5 没有 Ctrl+Shift+P。
+- 菜单：顺序、层级和名字都不同。英文候选模式和繁体输出收在「输入选项」里，表情、云剪贴板、云词库、屏幕键盘和手写收在「桌面工具」里，名字是「表情与符号」「手写识别板」「设置…」「主题：X」「86 五笔」「日文」，没有快捷键提示；Fcitx5 每一行都画同一个键盘图标。工具栏子菜单只有八项，表情默认开（共享默认值是关），没有切换方案、手写、语音，也没有 macOS 齿轮菜单里的宣传、官网、帮助、关于和反馈。
 - 其他：按住按键时每次自动重复都响一次按键音（macOS 只响一次）；IBus 组件的图标名 `msime-client` 不存在；升级后 IBus 什么都不说，Fcitx5 只在辅助行里给一条命令。
 
 ## Decision
@@ -18,6 +18,8 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 切换提示（`platforms/linux/src/overlay/ModeBadge*`）：
 
 - 尺寸与 macOS `InputModeHUDPanel.mm` 相同：18 px 常规字重，32 px 高，左右 8 px 内边距，8 px 圆角；标志跟随 `show_app_logo`，默认不画。显示 0.6 秒后分四帧在 0.18 秒内淡出（`ModeBadgeTiming`）。有合成器时画一圈阴影并淡出；没有合成器的 X11 上透明像素会变黑，所以不画阴影、到时直接收起。
+- 两个宿主各只有一块徽章表面（Fcitx5 在 `FcitxEngine` 上，IBus 是进程级的 `process_mode_badge`），第一次真要画时才建（`mode_badge_surface_wanted`）：新的提示替换屏幕上那块，与 macOS 只有一个提示面板相同；IBus 为每个输入上下文建一个引擎对象，徽章跟着引擎走的话，每个获得过焦点的输入框都各占一条显示服务器连接，快速换输入框时还会在几个光标下同时留着几块徽章。
+- 获得焦点时（#2589）光标徽章先等客户端报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报光标位置，那一刻的矩形是上一个位置或全 0。Fcitx5 等 `InputContextCursorRectChanged`，IBus 等 `set_cursor_location`，最多等 `ModeBadgeTiming::focus_caret_wait_ms`（150 ms，矩形没变时 Fcitx5 不发变化事件）；等完仍没有可用矩形就改用面板的文字提示（`mode_badge_focus_hint`），不把徽章放到屏幕下方。真正的切换不等，那时客户端早已报过光标。
 - 一次切换只出一处提示（`ModeBadgePlacement.h` 的 `mode_badge_hint`）：X11 客户端（Fcitx5 看输入上下文的 display，IBus 看会话里没有 `WAYLAND_DISPLAY`）时，徽章按 `MSIMEInputModeHUDFrame` 的规则放在光标下方 10 px，下面放不下就翻到上方，夹在工作区 8 px 以内，没有光标时放在下沿离底边四分之一高的位置，不再发面板提示。其余情况由面板的文字提示跟随光标；只有用户要了标志时，带标志的徽章另放在屏幕角上，因为面板提示带不了图。
 - IBus 也链接同一套后端，有 X11 或 layer-shell 时画徽章，否则保留辅助文本。辅助文本的显示时间也改成 0.6 秒。
 
@@ -26,16 +28,16 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 - 顶层顺序与 macOS `InputController.mm` 的 `menu` 相同：中文输入、英文候选模式（Ctrl+Shift+E）；繁体输出、全角字符（Ctrl+Shift+Space）、中文标点（Ctrl+.）、显示译文；输入方案（当前方案）、主题（当前主题）；显示工具栏和工具栏子菜单、水杉表情面板…、云剪贴板…、云词库…、水杉屏幕键盘…、手写输入…、开始/结束语音输入；水杉输入法设置…、关于水杉输入法…。之后是 Linux 独有的词库…、候选操作、九键、剪贴板、三个选项子菜单和「桌面工具」。
 - 方案名与 macOS 相同（双拼（小鹤）、五笔 86、日语、韩语、越南语）。Fcitx5 的方案子菜单按 Engine 顺序排成一组；IBus 保留「中文」一行和两组单选，两组内部按 Engine 顺序。
 - Fcitx5 的状态区由 `arrangeStatusArea` 按顺序重新 addAction 一遍（已在的动作会移到末尾），工具栏和语音两项要等会话建好才定，`refreshToolbar` 和 `syncVoiceAction` 会再排一次。只出现在子菜单里的动作不带图标。
-- 工具栏子菜单的项目、顺序和默认值与 macOS 悬浮工具栏相同，后面接齿轮菜单的宣传、官网、帮助、关于和反馈；`host_surface.rs` 对 Linux 报 `floating_toolbar_input_scheme`、`floating_toolbar_voice`、`floating_toolbar_handwriting`，设置页给这三个开关。Fcitx5 也处理 Ctrl+Shift+P。
+- 工具栏子菜单的项目、顺序和默认值与 macOS 悬浮工具栏相同，后面接齿轮菜单的宣传、官网、帮助、关于和反馈；`host_surface.rs` 对 Linux 报 `floating_toolbar_input_scheme`、`floating_toolbar_voice`、`floating_toolbar_handwriting`，设置页给这三个开关。Fcitx5 不加 Ctrl+Shift+P：macOS 和 Windows 的「宣传水杉输入法」都只在菜单里，而 Linux 上 VS Code、JetBrains、终端和浏览器都把 Ctrl+Shift+P 用作命令面板或隐私窗口，插件吃掉它会把四行介绍打进用户的文件；IBus 宿主原有的这个组合键不在本次范围里，没有改。
 
 其他：
 
 - 模式字加「双」「五」，IBus 面板符号改为「中」「英」（`InputModeIndicator.h`）。「⇪」仍保留，这是 Windows 语言栏的规则，macOS 没有。
-- 自动重复不调 `msime_client_key`，与 macOS 的 `!event.isARepeat`（`InputController.mm` 里 `reportKeyToLifecycle:` 的调用处）相同：不出按键音、不画特效，重复引起的派发算在第一次按下的那一轮里，这是 `msime_client.h` 顺序契约里「不开新一轮的按下」那条过渡期例外，macOS 早就这样用。
+- 自动重复不调 `msime_client_key`，与 macOS 的 `!event.isARepeat`（`InputController.mm` 里 `reportKeyToLifecycle:` 的调用处）相同：不出按键音、不画特效，重复引起的派发算在第一次按下的那一轮里。`msime_client.h` 顺序契约下的过渡期例外随之列上自动重复；这一条取代[桌面端生命周期核心](../architecture/2026-10-11-desktop-lifecycle-core.md)里「自动重复照旧出声」（Q3）在 Linux 上的做法，那篇已标注，Windows 仍按原样带 `MSIME_KEY_REPEAT` 出声。
 - IBus 组件图标改为 `msime-linux`，引擎描述是产品名；Fcitx5 条目和桌面入口加 `zh_TW`、`zh_HK` 名称。
 - 升级后：IBus 启动器换上新版本后经 `msime-linux-first-run-guide --reason upgraded` 发「水杉输入法已更新」通知；Fcitx5 插件发「水杉输入法已升级」通知，带「立即重启 Fcitx5」按钮。
 
-历史检索：[macOS 紧凑切换提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)定下了这里照搬的尺寸，部分重叠，互链；[Linux 设置页把工具栏写成输入法菜单](../bug-fix/2026-10-09-linux-toolbar-settings-menu-copy.md)说明工具栏在 Linux 上是菜单，这里没有改，只是让它的项目和默认值跟 macOS 一致，并打开那篇说过不动的三个能力位；[Windows 托盘菜单对齐 macOS](2026-10-10-windows-tray-menu-mac-parity.md)是同一件事在 Windows 上的做法，部分重叠；[Fcitx5 模式提示补宽](../bug-fix/2026-10-07-fcitx5-mode-hint-width.md)的补宽在面板提示那条路上照旧生效。
+历史检索：[桌面端生命周期核心](../architecture/2026-10-11-desktop-lifecycle-core.md)的「自动重复照旧出声」在 Linux 上被本篇取代，已在那篇标注；[macOS 紧凑切换提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)定下了这里照搬的尺寸，部分重叠，互链；[Linux 设置页把工具栏写成输入法菜单](../bug-fix/2026-10-09-linux-toolbar-settings-menu-copy.md)说明工具栏在 Linux 上是菜单，这里没有改，只是让它的项目和默认值跟 macOS 一致，并打开那篇说过不动的三个能力位；[Windows 托盘菜单对齐 macOS](2026-10-10-windows-tray-menu-mac-parity.md)是同一件事在 Windows 上的做法，部分重叠；[Fcitx5 模式提示补宽](../bug-fix/2026-10-07-fcitx5-mode-hint-width.md)的补宽在面板提示那条路上照旧生效。
 
 ## Alternatives considered
 
@@ -43,7 +45,7 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 - **IBus 方案菜单去掉「中文」一行，像 macOS 一样做成一个单选列表** — 与 macOS 一致，也少一行。没有采用：「中文」这一行的作用是回到上次用的中文方案，去掉它要先决定这个入口放哪里，这是产品行为，不在这次范围里。
 - **Wayland 上也只显示徽章，放弃面板提示** — 一处提示，有图。没有采用：layer-shell 拿不到光标的屏幕坐标，徽章只能放在角上，离用户正在看的地方很远；面板提示由合成器放在光标旁，更接近 macOS。
 - **Fcitx5 状态区也画分隔线** — classicui 和托盘菜单会画出分组。没有采用：kimpanel 把状态动作原样列出，分隔线在那里是空白项，KDE 用户的状态区会多出几个空按钮。
-- **按模式出单色托盘图标（`*-symbolic.svg`）** — 与 macOS 的每模式图标一致。这次没有做：仓库里没有能把字形转成路径的工具，需要新引入 fontTools 之类的生成工具和字体来源记录，按规则先报告，不在这里加。
+- **按模式出单色托盘图标（`*-symbolic.svg`）** — 与 macOS 的每模式图标一致。这次没有做。工具不是障碍：已经链接的 Pango 和 Cairo 可以把字形画到 `cairo_svg_surface_create` 的 SVG 表面上，输出的就是轮廓路径，不需要新依赖。没定的是随包分发的字形 SVG 取自哪套字体、按 OFL 怎样署名，这要先有字体来源和许可记录。
 
 ## Consequences
 

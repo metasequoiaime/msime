@@ -571,11 +571,9 @@ struct State {
   // 切换徽章的颜色，与语音浮层一样取解析出的主题，明暗跟随颜色模式。
   msime::linux_host::FloatingSurfaceColors mode_badge_colors{};
 #ifdef MSIME_IBUS_MODE_BADGE
-  // 自绘的切换徽章（见 show_input_mode_hint）。拿不到后端时记下来，不在每次切换时重试。代次丢弃过期的淡出回调。
-  std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge;
-  bool mode_badge_unavailable = false;
-  uint64_t mode_badge_id = 0;
-  int mode_badge_fade_step = 0;
+  // 获得焦点时的光标徽章正在等客户端报光标（见 show_input_mode_hint）；代次丢弃过期的等待超时。徽章表面本身整个进程共用一块（process_mode_badge）。
+  bool mode_hint_after_focus = false;
+  uint64_t mode_hint_focus_id = 0;
 #endif
   // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
   uint64_t candidate_menu_hint_id = 0;
@@ -1500,7 +1498,9 @@ void sync_music(IBusEngine *engine) {
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
-void show_input_mode_hint(IBusEngine *engine);
+// 切换提示的来由：真正的切换，获得焦点（#2589），以及获得焦点后等到光标位置（或等满时间）的那一次。
+enum class ModeHintTrigger { Switch, FocusIn, FocusSettled };
+void show_input_mode_hint(IBusEngine *engine, ModeHintTrigger trigger = ModeHintTrigger::Switch);
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -4978,7 +4978,7 @@ void focus_in(IBusEngine *engine) {
     }
     // Moving into another text field shows the current 中/英 as a switch does (#2589). Only a new focus: the replay IBus sends while it negotiates the client's identity is the same focus, and showing it again would put the hint back over input the user has started. show_input_mode_hint keeps to the input_mode_hud preference and stays quiet in blocked fields.
     if (!already_focused)
-      show_input_mode_hint(engine);
+      show_input_mode_hint(engine, ModeHintTrigger::FocusIn);
     sync_music(engine);
     schedule_upgrade_restart(engine);
   });
@@ -6347,29 +6347,51 @@ bool mode_badge_x11_session() {
   const char *x11 = std::getenv("DISPLAY");
   return (!wayland || !*wayland) && x11 && *x11;
 }
-// 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出（ModeBadgeTiming），与 macOS 相同；后端做不到半透明时直接隐藏。
-void schedule_mode_badge_fade(IBusEngine *engine, guint interval) {
-  auto &s = state(engine);
-  auto *notice = new ModeHintNotice{engine, s.alive, s.mode_badge_id};
+// 整个引擎进程只有一块切换徽章，与 macOS 只有一个提示面板相同。IBus 为每个输入上下文建一个引擎对象，徽章若跟着引擎走，每个获得过焦点的输入框都会各占一条 X 或 Wayland 连接直到它销毁，快速切换输入框时还会在几个光标下同时留着几块徽章；共用一块时新的提示替换屏幕上那块。第一次真要画时才建（见 mode_badge_surface_wanted），拿不到后端时记下来不再重试。代次丢弃过期的淡出回调。
+struct ProcessModeBadge {
+  std::unique_ptr<msime::linux_host::ModeBadgeSurface> surface;
+  bool unavailable = false;
+  uint64_t id = 0;
+  int fade_step = 0;
+};
+ProcessModeBadge &process_mode_badge() {
+  static ProcessModeBadge badge;
+  return badge;
+}
+msime::linux_host::ModeBadgeSurface *mode_badge_surface() {
+  auto &badge = process_mode_badge();
+  if (!badge.surface && !badge.unavailable) {
+    badge.surface = msime::linux_host::ModeBadgeSurface::create();
+    badge.unavailable = !badge.surface;
+  }
+  return badge.surface.get();
+}
+// 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出（ModeBadgeTiming），与 macOS 相同；后端做不到半透明时直接隐藏。徽章不属于哪个引擎，回调只认代次。
+void schedule_mode_badge_fade(guint interval) {
   g_timeout_add_full(
       G_PRIORITY_DEFAULT, interval,
       +[](gpointer data) -> gboolean {
-        std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
-        if (!notice->alive->load())
-          return G_SOURCE_REMOVE;
-        auto &s = state(notice->engine);
-        if (s.mode_badge_id != notice->id || !s.mode_badge)
+        auto &badge = process_mode_badge();
+        if (badge.id != *static_cast<uint64_t *>(data) || !badge.surface)
           return G_SOURCE_REMOVE;
         using Timing = msime::linux_host::ModeBadgeTiming;
-        ++s.mode_badge_fade_step;
-        const double alpha = msime::linux_host::mode_badge_fade_alpha(s.mode_badge_fade_step);
-        if (alpha > 0.0 && s.mode_badge->set_opacity(alpha))
-          schedule_mode_badge_fade(notice->engine, Timing::fade_ms / Timing::fade_steps);
+        ++badge.fade_step;
+        const double alpha = msime::linux_host::mode_badge_fade_alpha(badge.fade_step);
+        if (alpha > 0.0 && badge.surface->set_opacity(alpha))
+          schedule_mode_badge_fade(Timing::fade_ms / Timing::fade_steps);
         else
-          s.mode_badge->hide();
+          badge.surface->hide();
         return G_SOURCE_REMOVE;
       },
-      notice, nullptr);
+      new uint64_t(process_mode_badge().id), +[](gpointer data) { delete static_cast<uint64_t *>(data); });
+}
+// 获得焦点后等到了光标位置，或等满 ModeBadgeTiming::focus_caret_wait_ms：放那条一直在等的提示，只放一次。
+void settle_focus_mode_hint(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.mode_hint_after_focus)
+    return;
+  s.mode_hint_after_focus = false;
+  show_input_mode_hint(engine, ModeHintTrigger::FocusSettled);
 }
 #endif
 // 中英文切换后短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
@@ -6379,8 +6401,13 @@ void schedule_mode_badge_fade(IBusEngine *engine, guint interval) {
 // 隐藏辅助文本时先确认辅助区域还属于这条提示：用户可能在这 0.6 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
 //
 // 这 0.6 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
-void show_input_mode_hint(IBusEngine *engine) {
+void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger trigger) {
   auto &s = state(engine);
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 新的提示取代还在等光标的那条获得焦点提示。
+  if (trigger != ModeHintTrigger::FocusSettled)
+    s.mode_hint_after_focus = false;
+#endif
   if (!configured.contains("preferences") ||
       !configured.at("preferences").value("input_mode_hud", true))
     return;
@@ -6390,24 +6417,41 @@ void show_input_mode_hint(IBusEngine *engine) {
   const char *label = s.input_enabled ? "中" : "英";
   auto hint = msime::linux_host::ModeBadgeHint::PanelText;
 #ifdef MSIME_IBUS_MODE_BADGE
-  if (!s.mode_badge && !s.mode_badge_unavailable) {
-    s.mode_badge = msime::linux_host::ModeBadgeSurface::create();
-    s.mode_badge_unavailable = !s.mode_badge;
-  }
   // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。
   const bool show_logo = configured.at("preferences").value("show_app_logo", false);
-  hint = msime::linux_host::mode_badge_hint(s.mode_badge != nullptr, s.mode_badge && s.mode_badge->follows_caret(),
-                                            mode_badge_x11_session(), show_logo);
+  const bool x11_session = mode_badge_x11_session();
+  auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_session, show_logo) ? mode_badge_surface() : nullptr;
+  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_session, show_logo);
+  // 获得焦点时客户端还没报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报 set_cursor_location，这时的 cursor_area 还是上一个位置或全 0。先等它报来（set_cursor_location 里放），最多等 focus_caret_wait_ms。
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHintTrigger::FocusIn) {
+    s.mode_hint_after_focus = true;
+    ++s.mode_hint_focus_id;
+    g_timeout_add_full(
+        G_PRIORITY_DEFAULT, msime::linux_host::ModeBadgeTiming::focus_caret_wait_ms,
+        +[](gpointer data) -> gboolean {
+          std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
+          if (!notice->alive->load() || state(notice->engine).mode_hint_focus_id != notice->id)
+            return G_SOURCE_REMOVE;
+          guarded(notice->engine, "mode_hint_focus_wait", [&] { settle_focus_mode_hint(notice->engine); });
+          return G_SOURCE_REMOVE;
+        },
+        new ModeHintNotice{engine, s.alive, s.mode_hint_focus_id}, nullptr);
+    return;
+  }
+  const msime::linux_host::ModeBadgeCaret caret_area{engine->cursor_area.x, engine->cursor_area.y,
+                                                     engine->cursor_area.width, engine->cursor_area.height};
+  if (trigger == ModeHintTrigger::FocusSettled)
+    hint = msime::linux_host::mode_badge_focus_hint(hint, caret_area);
   if (hint != msime::linux_host::ModeBadgeHint::PanelText) {
     std::optional<msime::linux_host::ModeBadgeCaret> caret;
     if (hint == msime::linux_host::ModeBadgeHint::CaretBadge)
-      caret = msime::linux_host::ModeBadgeCaret{engine->cursor_area.x, engine->cursor_area.y,
-                                                engine->cursor_area.width, engine->cursor_area.height};
+      caret = caret_area;
     const msime::linux_host::ModeBadgeStyle style{msime::linux_host::ModeBadgeMetrics{}, s.mode_badge_colors};
-    if (s.mode_badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
-      ++s.mode_badge_id;
-      s.mode_badge_fade_step = 0;
-      schedule_mode_badge_fade(engine, msime::linux_host::ModeBadgeTiming::visible_ms);
+    if (badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
+      auto &shared = process_mode_badge();
+      ++shared.id;
+      shared.fade_step = 0;
+      schedule_mode_badge_fade(msime::linux_host::ModeBadgeTiming::visible_ms);
     } else {
       hint = msime::linux_host::ModeBadgeHint::PanelText;
     }
@@ -8600,6 +8644,14 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   };
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 获得焦点后在等光标的切换徽章，客户端一报光标就放（见 show_input_mode_hint）。先交给 IBusEngine 自己的处理，cursor_area 由它维护。
+  engine->set_cursor_location = [](IBusEngine *engine, gint x, gint y, gint w, gint h) {
+    if (auto *parent = IBUS_ENGINE_CLASS(msime_ibus_engine_parent_class)->set_cursor_location)
+      parent(engine, x, y, w, h);
+    guarded(engine, "set_cursor_location", [&] { settle_focus_mode_hint(engine); });
+  };
+#endif
 #if IBUS_CHECK_VERSION(1, 5, 27)
   engine->focus_in_id = [](IBusEngine *engine, const gchar *context, const gchar *client) {
     auto &s = state(engine);

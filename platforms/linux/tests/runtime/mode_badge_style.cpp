@@ -78,5 +78,22 @@ int main() {
     assert(host::mode_badge_hint(true, false, true, true) == ModeBadgeHint::PanelTextAndCornerBadge);
     assert(host::mode_badge_hint(true, true, false, true) == ModeBadgeHint::PanelTextAndCornerBadge);
     assert(host::mode_badge_hint(false, false, false, true) == ModeBadgeHint::PanelText);
+    // Wayland 客户端且没要标志时结果一定是面板提示，不必建表面。
+    assert(!host::mode_badge_surface_wanted(false, false));
+    assert(host::mode_badge_surface_wanted(true, false) && host::mode_badge_surface_wanted(false, true));
+  }
+
+  // 获得焦点时等过光标仍拿不到矩形，就改用面板提示，不把徽章放到屏幕下方；有矩形或本来就不是光标徽章时照旧。
+  {
+    using host::ModeBadgeHint;
+    assert(host::ModeBadgeTiming::focus_caret_wait_ms > 0 &&
+           host::ModeBadgeTiming::focus_caret_wait_ms < host::ModeBadgeTiming::visible_ms);
+    const host::ModeBadgeCaret none{};
+    const host::ModeBadgeCaret caret{400, 300, 1, 18};
+    assert(host::mode_badge_focus_hint(ModeBadgeHint::CaretBadge, none) == ModeBadgeHint::PanelText);
+    assert(host::mode_badge_focus_hint(ModeBadgeHint::CaretBadge, caret) == ModeBadgeHint::CaretBadge);
+    assert(host::mode_badge_focus_hint(ModeBadgeHint::PanelTextAndCornerBadge, none) ==
+           ModeBadgeHint::PanelTextAndCornerBadge);
+    assert(host::mode_badge_focus_hint(ModeBadgeHint::PanelText, caret) == ModeBadgeHint::PanelText);
   }
 }

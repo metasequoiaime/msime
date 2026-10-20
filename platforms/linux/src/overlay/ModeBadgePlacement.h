@@ -56,4 +56,15 @@ constexpr ModeBadgeHint mode_badge_hint(bool badge_available, bool badge_follows
   return ModeBadgeHint::PanelText;
 }
 
+// 只有可能画出东西时才建徽章表面：输入框的光标不是根窗口坐标、用户也没要标志时，mode_badge_hint 无论有没有表面都回答面板提示，建了只是白占一条显示服务器连接。
+constexpr bool mode_badge_surface_wanted(bool caret_in_root_coordinates, bool show_logo) {
+  return caret_in_root_coordinates || show_logo;
+}
+
+// 获得焦点时的提示（#2589）在输入框补报光标之后才定（宿主最多等 ModeBadgeTiming::focus_caret_wait_ms）。等完仍没有可用的光标矩形时不把徽章放到屏幕下方的回退位置，因为用户看的是刚点进去的输入框：改用面板的文字提示，它由面板跟着之后报来的光标摆放。真正的切换不走这里，那时输入框早已报过光标，与 macOS 一样用回退位置。
+constexpr ModeBadgeHint mode_badge_focus_hint(ModeBadgeHint hint, const ModeBadgeCaret &caret) {
+  if (hint == ModeBadgeHint::CaretBadge && !mode_badge_caret_usable(caret)) return ModeBadgeHint::PanelText;
+  return hint;
+}
+
 }  // namespace msime::linux_host

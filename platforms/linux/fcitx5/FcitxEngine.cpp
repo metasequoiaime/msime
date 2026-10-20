@@ -1148,27 +1148,16 @@ public:
   bool candidateThemeSelectionChanged(const Json &preferences);
   void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」：能放到光标旁时是自绘徽章，否则是 Fcitx5 面板的文字提示（见 ModeBadgePlacement.h 的 mode_badge_hint）；定义在 FcitxEngine 之后，它需要那个类型完整。
-  void showInputModeHud();
+  // `trigger` 区分真正的切换和获得焦点（#2589）：获得焦点时输入框要过一会儿才报光标矩形，光标徽章先等它（见 settleFocusInputModeHud），FocusSettled 是等完之后的那一次。
+  enum class ModeHudTrigger { Switch, FocusIn, FocusSettled };
+  void showInputModeHud(ModeHudTrigger trigger = ModeHudTrigger::Switch);
 #ifdef MSIME_FCITX5_MODE_BADGE
-  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。
-  void scheduleModeBadgeHide() {
-    if (!loop_) return;
-    using Timing = msime::linux_host::ModeBadgeTiming;
-    mode_badge_fade_step_ = 0;
-    mode_badge_timer_ = loop_->addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + Timing::visible_ms * 1000ULL, 0,
-        [this](fcitx::EventSourceTime *timer, uint64_t) {
-          if (!mode_badge_) return true;
-          ++mode_badge_fade_step_;
-          const double alpha = msime::linux_host::mode_badge_fade_alpha(mode_badge_fade_step_);
-          if (alpha > 0.0 && mode_badge_->set_opacity(alpha)) {
-            timer->setNextInterval(Timing::fade_ms * 1000ULL / Timing::fade_steps);
-            timer->setOneShot();
-            return true;
-          }
-          mode_badge_->hide();
-          return true;
-        });
+  // 获得焦点后的光标徽章在等光标矩形：输入框报来新矩形（FcitxEngine 的 mode_hud_cursor_watch_）或等满 ModeBadgeTiming::focus_caret_wait_ms 时调用，只放一次。GTK、Qt 的输入法模块在获得焦点之后才在空闲回调里补报光标，新建的上下文这时的矩形还是全 0，立刻放会把徽章放到屏幕下方。
+  void settleFocusInputModeHud() {
+    if (!mode_hud_after_focus_) return;
+    mode_hud_after_focus_ = false;
+    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
+    showInputModeHud(ModeHudTrigger::FocusSettled);
   }
 #endif
   // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
@@ -2521,7 +2510,7 @@ public:
     if (typingStatistics) recordTypingStatistics(text, source.value_or(typingSource()));
     rememberSmartPunctuationCommit(text);
   }
-  // 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（MenuLabels.h 的 kPromotionText），与 IBus 宿主相同。Ctrl+Shift+P 和工具栏菜单项共用。
+  // 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（MenuLabels.h 的 kPromotionText），与 IBus 宿主相同。Fcitx5 只从工具栏菜单项进入，不占用 Ctrl+Shift+P：Linux 应用普遍把它用作命令面板或隐私窗口。
   void commitPromotion() {
     if (session_ && !view_.value("editing_text", std::string{}).empty()) command(MSIME_FINISH_COMPOSITION);
     commitText(msime::linux_host::kPromotionText, msime::linux_host::TypingSource::Local);
@@ -4036,10 +4025,9 @@ public:
   bool ctrl_in_combination_ = false;
   fcitx::EventLoop *loop_ = nullptr;
 #ifdef MSIME_FCITX5_MODE_BADGE
-  std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge_;
-  bool mode_badge_unavailable_ = false;
-  std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
-  int mode_badge_fade_step_ = 0;
+  // 获得焦点时的光标徽章正在等光标矩形（见 settleFocusInputModeHud）。徽章表面本身属于 FcitxEngine，整个插件共用一块。
+  bool mode_hud_after_focus_ = false;
+  std::unique_ptr<fcitx::EventSourceTime> mode_hud_focus_timer_;
 #endif
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
@@ -6273,6 +6261,35 @@ public:
     candidate_theme_attempt_.clear();
     return true;
   }
+#ifdef MSIME_FCITX5_MODE_BADGE
+  // 整个插件只有一块切换徽章，与 macOS 只有一个提示面板相同：新的提示替换屏幕上那块，而不是在另一个输入框的光标下再叠一块；Fcitx5 也只为它占一条显示服务器连接，而不是每个输入上下文一条。第一次真要画时才建，连不上合成器或 X 服务器时记下来不再重试，之后只用面板的文字提示。
+  msime::linux_host::ModeBadgeSurface *modeBadge() {
+    if (!mode_badge_ && !mode_badge_unavailable_) {
+      mode_badge_ = msime::linux_host::ModeBadgeSurface::create();
+      mode_badge_unavailable_ = !mode_badge_;
+    }
+    return mode_badge_.get();
+  }
+  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。新的提示重新计时。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。
+  void scheduleModeBadgeHide() {
+    using Timing = msime::linux_host::ModeBadgeTiming;
+    mode_badge_fade_step_ = 0;
+    mode_badge_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + Timing::visible_ms * 1000ULL, 0,
+        [this](fcitx::EventSourceTime *timer, uint64_t) {
+          if (!mode_badge_) return true;
+          ++mode_badge_fade_step_;
+          const double alpha = msime::linux_host::mode_badge_fade_alpha(mode_badge_fade_step_);
+          if (alpha > 0.0 && mode_badge_->set_opacity(alpha)) {
+            timer->setNextInterval(Timing::fade_ms * 1000ULL / Timing::fade_steps);
+            timer->setOneShot();
+            return true;
+          }
+          mode_badge_->hide();
+          return true;
+        });
+  }
+#endif
 #ifdef MSIME_FCITX5_HINT_FONT
   // classicui 的面板只在画水杉主题时才有装饰图；此时把「中」「英」补到主题自己预留的宽度，
   // 装饰就不会被 OverlayClipMargin 从两侧切掉。第三方主题、没有装饰、以及 kimpanel（不画
@@ -6650,6 +6667,15 @@ public:
           });
         });
 #endif
+#ifdef MSIME_FCITX5_MODE_BADGE
+    // 获得焦点后在等光标矩形的徽章，等到输入框报来新矩形就放（见 FcitxState::settleFocusInputModeHud）。
+    mode_hud_cursor_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
+        [this](fcitx::Event &event) {
+          auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          ic->propertyFor(&factory_)->settleFocusInputModeHud();
+        });
+#endif
     capability_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCapabilityChanged,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
@@ -6899,7 +6925,8 @@ public:
         state->render();
         state->syncMusic();
         // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
-        if (event.type() == fcitx::EventType::InputContextFocusIn) state->showInputModeHud();
+        if (event.type() == fcitx::EventType::InputContextFocusIn)
+          state->showInputModeHud(FcitxState::ModeHudTrigger::FocusIn);
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
@@ -7113,6 +7140,13 @@ public:
     return new FcitxState(ic, this, instance_->eventLoop(), system_dark_);
   }};
   std::unique_ptr<fcitx::EventSourceTime> system_theme_timer_;
+#ifdef MSIME_FCITX5_MODE_BADGE
+  std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge_;
+  bool mode_badge_unavailable_ = false;
+  std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
+  int mode_badge_fade_step_ = 0;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> mode_hud_cursor_watch_;
+#endif
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   // 失焦后留给托盘菜单的那个上下文，见 holdMenuContext；上下文销毁时自动失效。
@@ -7580,36 +7614,48 @@ msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences
   return resolveThemeInMode(preferences, dark, catalog);
 }
 
-void FcitxState::showInputModeHud() {
+void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+#ifdef MSIME_FCITX5_MODE_BADGE
+  // 新的提示取代还在等光标的那条获得焦点提示。
+  if (trigger != ModeHudTrigger::FocusSettled && mode_hud_after_focus_) {
+    mode_hud_after_focus_ = false;
+    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
+  }
+#endif
   // 共享偏好 input_mode_hud 控制，默认开启。
   if (!preferences_.value("input_mode_hud", true)) return;
   if (restricted() || privateInput() || !ic_.hasFocus()) return;
   const std::string label = input_enabled_ ? "中" : "英";
   auto hint = msime::linux_host::ModeBadgeHint::PanelText;
 #ifdef MSIME_FCITX5_MODE_BADGE
-  // 连不上合成器或 X 服务器时记下来不再重试，只用面板的文字提示。
-  if (!mode_badge_ && !mode_badge_unavailable_) {
-    mode_badge_ = msime::linux_host::ModeBadgeSurface::create();
-    mode_badge_unavailable_ = !mode_badge_;
-  }
   // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。只有 X11 客户端报的光标矩形是根窗口坐标；Wayland 客户端的是它自己表面里的局部坐标，拿来放徽章会放错地方。
   const bool show_logo = preferences_.value("show_app_logo", false);
   const bool x11_client = ic_.display().rfind("x11:", 0) == 0;
-  hint = msime::linux_host::mode_badge_hint(mode_badge_ != nullptr, mode_badge_ && mode_badge_->follows_caret(),
-                                            x11_client, show_logo);
+  auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_client, show_logo) ? engine_->modeBadge() : nullptr;
+  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_client, show_logo);
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHudTrigger::FocusIn && loop_) {
+    mode_hud_after_focus_ = true;
+    mode_hud_focus_timer_ = loop_->addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + msime::linux_host::ModeBadgeTiming::focus_caret_wait_ms * 1000ULL,
+        0, [this](fcitx::EventSourceTime *, uint64_t) {
+          settleFocusInputModeHud();
+          return true;
+        });
+    return;
+  }
+  const auto &rect = ic_.cursorRect();
+  const msime::linux_host::ModeBadgeCaret caret_rect{rect.left(), rect.top(), rect.width(), rect.height()};
+  if (trigger == ModeHudTrigger::FocusSettled) hint = msime::linux_host::mode_badge_focus_hint(hint, caret_rect);
   if (hint != msime::linux_host::ModeBadgeHint::PanelText) {
     const msime::linux_host::ModeBadgeStyle style{
         msime::linux_host::ModeBadgeMetrics{},
         msime::linux_host::floating_surface_colors(
             fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
     std::optional<msime::linux_host::ModeBadgeCaret> caret;
-    if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) {
-      const auto &rect = ic_.cursorRect();
-      caret = msime::linux_host::ModeBadgeCaret{rect.left(), rect.top(), rect.width(), rect.height()};
-    }
-    if (mode_badge_->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
-      scheduleModeBadgeHide();
+    if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) caret = caret_rect;
+    if (badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
+      engine_->scheduleModeBadgeHide();
     } else {
       hint = msime::linux_host::ModeBadgeHint::PanelText;
     }
@@ -7675,10 +7721,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
-  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j、P 和 p 同理（Ctrl+Shift+P 同样只插入一次）。
+  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j 同理。
   if (toggle_chord_held_ != FcitxKey_None &&
-      (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym == FcitxKey_P ? FcitxKey_p : sym) ==
-          toggle_chord_held_) {
+      (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym) == toggle_chord_held_) {
     if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
     return true;
   }
@@ -7836,16 +7881,6 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Hyper}) &&
       ic_.hasFocus() && !restricted() && !privateInput() && ensure())
     return launchDesktopPanel("keyboard");
-  // Ctrl+Shift+P 插入固定的产品介绍，与 IBus 宿主和工具栏菜单的「宣传水杉输入法」相同；中英文模式下都有效，不改动用户常用语。
-  if ((sym == FcitxKey_p || sym == FcitxKey_P) && !event.isRelease() &&
-      states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
-      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super, fcitx::KeyState::Hyper,
-                                       fcitx::KeyState::Meta}) &&
-      ic_.hasFocus() && !restricted()) {
-    commitPromotion();
-    toggle_chord_held_ = FcitxKey_p;
-    return true;
-  }
   if (voice_hotkey_rctrl_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       (rightControlKey || rightAltKey) &&
       states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}) &&

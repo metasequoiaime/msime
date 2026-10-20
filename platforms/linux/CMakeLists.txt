@@ -274,6 +274,16 @@ if(BUILD_TESTING)
   add_test(NAME ibus-native-compose-no-session
     COMMAND ibus-mode-hint-lifecycle compose)
   set_tests_properties(ibus-native-compose-no-session PROPERTIES TIMEOUT 15)
+  # IBus 在 X11 会话里把切换徽章画在光标下方，这条路要一个 X 服务器：有 xvfb-run 时（编译门禁镜像）在 Xvfb 里跑，验证获得焦点时先等光标、画了徽章就不发辅助文本、引擎销毁后徽章照常收起。
+  find_program(MSIME_XVFB_RUN xvfb-run)
+  if(MODE_BADGE_X11_FOUND AND MSIME_XVFB_RUN)
+    target_compile_definitions(ibus-mode-hint-lifecycle PRIVATE MSIME_TEST_X11_BADGE)
+    foreach(scenario x11-badge x11-badge-no-caret)
+      add_test(NAME ibus-mode-hint-${scenario}
+        COMMAND "${MSIME_XVFB_RUN}" -a $<TARGET_FILE:ibus-mode-hint-lifecycle> ${scenario})
+      set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 30)
+    endforeach()
+  endif()
   add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
   target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
   target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host Threads::Threads)

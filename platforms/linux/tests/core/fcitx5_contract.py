@@ -93,11 +93,16 @@ assert "input_mode_hud" in source
 # #2589: moving into another text field shows the current mode too, after the panel is drawn for the same reason as above, and only for a focus change (switching to this input method gets Fcitx5's own popup).
 activate = source[source.index("void activate(const fcitx::InputMethodEntry &") :]
 activate = activate[: activate.index("void deactivate(const fcitx::InputMethodEntry &")]
-assert (
-    "event.type() == fcitx::EventType::InputContextFocusIn) state->showInputModeHud();"
-    in activate
-)
-assert activate.index("state->render();") < activate.index("state->showInputModeHud();")
+focus_hint = "state->showInputModeHud(FcitxState::ModeHudTrigger::FocusIn);"
+assert "event.type() == fcitx::EventType::InputContextFocusIn)\n          " + focus_hint in activate
+assert activate.index("state->render();") < activate.index(focus_hint)
+# 获得焦点时的光标徽章要等输入框补报光标（GTK、Qt 在获得焦点之后的空闲回调里才报），整个插件只用一块徽章表面，新的提示替换屏幕上那块。
+assert "InputContextCursorRectChanged" in source and "settleFocusInputModeHud();" in source
+assert "mode_badge_focus_hint(hint, caret_rect)" in source
+assert "engine_->modeBadge()" in source and "engine_->scheduleModeBadgeHide();" in source
+# Linux 应用普遍把 Ctrl+Shift+P 用作命令面板或隐私窗口；Fcitx5 只从工具栏菜单插入宣传文字，与 macOS 相同。
+assert "FcitxKey_P ? FcitxKey_p" not in source
+assert "toggle_chord_held_ = FcitxKey_p" not in source
 assert "tsf_preedit_style" in source
 assert "candidate_preedit_style" in source
 assert "FcitxSchemeBooleanAction" in source

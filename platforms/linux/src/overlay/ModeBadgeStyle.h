@@ -28,6 +28,8 @@ struct ModeBadgeTiming {
   static constexpr int visible_ms = 600;
   static constexpr int fade_ms = 180;
   static constexpr int fade_steps = 4;
+  // 获得焦点时最多等这么久让输入框报光标矩形（见 ModeBadgePlacement.h 的 mode_badge_focus_hint）。GTK 和 Qt 的输入法模块在获得焦点之后才在空闲回调里补报光标，通常几毫秒就到；矩形与上次相同时 Fcitx5 不发变化事件，这时等满这段时间再用记下的矩形。
+  static constexpr int focus_caret_wait_ms = 150;
 };
 
 // 淡出第 step 帧（从 1 起）的不透明度；step 到 fade_steps 时为 0，宿主随即隐藏。
