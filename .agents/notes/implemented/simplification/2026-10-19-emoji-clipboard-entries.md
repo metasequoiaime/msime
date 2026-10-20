@@ -10,7 +10,7 @@ Status: implemented
 
 公开受控的 `EmojiClipboardEntries` 和 props 类型，接收只读记录数组、忙状态、复制能力、复制动作、条目键盘事件，以及可选的粘贴和删除动作。面板按宿主能力提供可选回调，复制适配器继续调用 hook 的 `copy(text, true)`；组件本身不处理宿主、请求、快捷键或焦点。
 
-保留记录顺序、原文 key、列表及每行 DOM、ARIA、导航属性和按钮顺序。主按钮把换行、回车、制表符显示成空格，tooltip 继续复用原 helper，所有回调传原文。键盘事件原样转发给 hook；删除后的焦点恢复仍依赖同一根节点下的 `data-clipboard-row` 和 `data-clipboard-item`，不得新增包装层。
+保留记录顺序、原文 key、列表及每行 DOM、ARIA、导航属性和按钮顺序。主按钮把换行、回车、制表符显示成空格，长文本预览气泡复用原 helper（`clipboardTooltip`），所有回调传原文。键盘事件原样转发给 hook；删除后的焦点恢复仍依赖同一根节点下的 `data-clipboard-row` 和 `data-clipboard-item`，列表容器和 `data-clipboard-row` 之间不得新增包装层。行内为了把 × 删除按钮叠在记录右端，记录按钮和 × 包在一个 `group/row` 外框里（见 [Linux 面板对齐 macOS](../../implemented/feature/2026-10-20-linux-panels-and-setup-mac-parity.md)），`data-clipboard-item` 仍在 `data-clipboard-row` 之内。
 
 把现有 `panelField`、记录按钮和侧边按钮样式移到内部 `emoji-panel-style.ts`，面板搜索框与记录视图直接复用同一字段配色，不公开新的样式配置。Tailwind 类名保留静态字面量与分组明暗变体。
 
