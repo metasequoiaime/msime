@@ -54,9 +54,29 @@ jobs:
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
       MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
+      # Rust 编译缓存（sccache）存进 GitHub Actions 缓存：托管 runner 没有 Depot Cache。RUSTC_WRAPPER 不在这里设，由下面的「Enable sccache」在 sccache 确实起来之后才写进 GITHUB_ENV。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中 sccache 服务出错时 rustc 退回本机直接编，不让缓存故障弄坏发版。
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      # 服务默认空闲 600 秒就退出，而六个版本打包时十几分钟不编 Rust；退出后最后的统计步骤会起一个计数为零的新服务（第一次验证运行 39288415598 就这样显示 0 次请求）。runner 用完即弃，让它一直活到 job 结束。
+      SCCACHE_IDLE_TIMEOUT: '0'
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
+      # 缓存只为加速，装不上或起不来都不该让发版失败：安装步骤失败时继续，只有 sccache 服务真正启动了才把 RUSTC_WRAPPER 写进环境，否则照常不带缓存编译。读写缓存出错时 sccache 按未命中处理，照样编译。
+      # 缓存的可见范围由 GitHub 决定：在 main 上的发布读 main 和默认分支 develop 写的条目，PR 写的条目它看不到，所以 PR 里的改动污染不到发布用的缓存。条目的键是 rustc 的全部输入（编译器版本、参数、源文件和依赖产物的哈希），命中时拿到的就是同样输入编出的同一份产物。
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
       # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         name: Resolve independent macOS version
@@ -147,6 +167,13 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
           MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_ED_PRIVATE_KEY }}"
         run: bash platforms/macos/package-release.sh --editions "$MACOS_EDITIONS" "$VERSION" dist
+      # 命中率写进摘要，方便看缓存是否真的起作用；只是统计，失败不影响发版。
+      - name: Show sccache statistics
+        if: ${{ always() && env.RUSTC_WRAPPER == 'sccache' }}
+        continue-on-error: true
+        run: |
+          sccache --show-stats
+          { echo '### sccache'; echo; echo '```'; sccache --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
         run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
