@@ -490,6 +490,8 @@ struct ResolvedSkin
     std::optional<SkinCanvas> canvas;
     // 当前横/竖排的共享出厂继承结果；没有 Windows 基底的包保持空值，继续使用 macOS 原生默认。
     std::optional<SkinLayoutGeometry> layout;
+    // 只在共享版式存在时生效；收紧取消默认卡宽、固定列间余量和同次组字只增不减。
+    bool fitContent = false;
     bool canvasPanelDrawn = false;
 };
 

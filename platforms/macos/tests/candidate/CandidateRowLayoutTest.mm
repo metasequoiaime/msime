@@ -44,6 +44,13 @@
 }
 @end
 
+// 专门模拟正在显示的窗口，检查同次组字的历史宽度不会覆盖收紧开关。
+@interface VisibleRowLayoutPanel : RowLayoutPanel
+@end
+@implementation VisibleRowLayoutPanel
+- (BOOL)isVisible { return YES; }
+@end
+
 static MSIMECandidateButton *CandidateButton(NSView *content, NSInteger tag)
 {
     for (NSView *view in MSIMECandidateControlsView(content).subviews)
@@ -556,6 +563,80 @@ static void TestSelectedGlossColour(RowLayoutClient *client)
         }
         NSBitmapImageRep *bitmap = [selected bitmapImageRepForCachingDisplayInRect:selected.bounds];
         [selected cacheDisplayInRect:selected.bounds toBitmapImageRep:bitmap];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    std::filesystem::remove_all(root);
+}
+
+// 皮肤的收紧和横排均分必须到达真实控制器，不能只在清单读模型里保留字段。
+static void TestFactoryFitAndJustify(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-factory-row-layout-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    CGFloat regularWidth = 0;
+    for (const char *identifier : {"regular", "compact", "justified"}) {
+        const bool compact = std::string(identifier) == "compact";
+        const bool justified = std::string(identifier) == "justified";
+        std::filesystem::create_directory(root / identifier);
+        {
+            std::ofstream manifest(root / identifier / "skin.toml");
+            manifest << "schema_version = 1\nid = \"" << identifier << "\"\nname = \"Synthetic Layout\"\nversion = \"1\"\nbase = \"microsoft\"\n"
+                     << "[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n"
+                     << "[candidate_window]\nmin_width_dip = " << (justified ? 260 : 0)
+                     << "\nfit_content = " << (compact ? "true" : "false")
+                     << "\n[candidate_window.horizontal]\nitem_gap = 11\njustify_rows = " << (justified ? "true" : "false") << "\n";
+            assert(manifest.good());
+        }
+        NSString *suite = [@"app.msime.test.factory-row-layout." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [defaults setObject:@(identifier) forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+            skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        appearance.vertical = NO;
+        appearance.showsAppLogo = NO;
+        appearance.showsCandidatePreedit = NO;
+        appearance.showsCandidatePageNumber = NO;
+        appearance.showsCandidateExpandButton = NO;
+        appearance.candidateTranslations = NO;
+        MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+        RowLayoutPanel *panel = [[VisibleRowLayoutPanel alloc] initWithContentRect:NSZeroRect
+            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"ce", @"page": @0, @"page_count": @1,
+            @"candidates": justified ? @[@{@"text": @"甲", @"highlighted": @YES}, @{@"text": @"乙"}]
+                                      : @[@{@"text": @"甲", @"highlighted": @YES}]} forKey:@"view"];
+        [controller renderCandidates];
+        const CGFloat initialWidth = NSWidth(panel.contentView.frame);
+        if (!compact) assert(initialWidth >= 159);
+        else assert(initialWidth < 140);
+        [controller setValue:@400 forKey:@"widestHorizontalCandidateWidth"];
+        [controller renderCandidates];
+        MSIMECandidateButton *first = CandidateButton(panel.contentView, 0);
+        assert(first && first.hasSkinLayout);
+        const CGFloat width = NSWidth(panel.contentView.frame);
+        if (compact) {
+            assert(width < regularWidth - 20 && fabs(width - initialWidth) < 1);
+            assert(fabs(first.textLeftInset - first.textRightInset) < 0.1);
+        } else if (justified) {
+            MSIMECandidateButton *last = CandidateButton(panel.contentView, 1);
+            assert(last && fabs(NSMaxX(last.frame) - (width - NSMinX(first.frame))) < 1);
+            assert(NSWidth(first.frame) > 100 && NSWidth(last.frame) > 100);
+        } else {
+            regularWidth = width;
+            assert(width >= 399);
+        }
+        if (!justified) {
+            [controller setValue:@{@"focused": @YES, @"editing_text": @"ce", @"page": @0, @"page_count": @1,
+                @"candidates": @[@{@"text": @"甲", @"highlighted": @YES}, @{@"text": @"乙"}]} forKey:@"view"];
+            [controller renderCandidates];
+            first = CandidateButton(panel.contentView, 0);
+            MSIMECandidateButton *second = CandidateButton(panel.contentView, 1);
+            assert(first && second && fabs(NSMinX(second.frame) - NSMaxX(first.frame) - (compact ? 11 : 17)) < 0.1);
+        }
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     std::filesystem::remove_all(root);
@@ -1322,6 +1403,7 @@ int main(int argc, char **argv)
         assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         TestPronunciationLine(controller, panel, appearance);
         TestSelectedGlossColour(client);
+        TestFactoryFitAndJustify(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
         MSIMERemoveTestPreferenceSuite(defaults, suite);

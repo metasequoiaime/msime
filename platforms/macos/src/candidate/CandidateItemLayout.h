@@ -40,9 +40,11 @@ struct CandidateLayoutMetrics
     double translationGap = 0.0;
     double translationLine = 0.0;
     double itemGap = 0.0;
-    // 横排列距包含 msime-windows 文字后的固定 6 DIP；竖排仍只用 itemGap。
+    // 普通横排列距包含文字后的固定 6 DIP；收紧时和竖排一样只用 itemGap。
     double columnGap = 0.0;
     double itemMinWidth = 0.0;
+    // 横排每行剩余宽度只均分给可见候选，空行不能变成可点击的空格。
+    bool justifyRows = false;
 };
 
 // A run's box relative to the row's content column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.
@@ -227,6 +229,25 @@ inline std::vector<CandidateRowLayout> LayoutCandidatePage(const std::vector<Can
         tallest = std::max(tallest, floorHeight);
         for (std::size_t index = lineStart; index < end; ++index)
             rows[index].height = tallest;
+        if (metrics.justifyRows)
+        {
+            double used = 0.0;
+            std::size_t count = 0;
+            for (std::size_t index = lineStart; index < end; ++index)
+                if (rows[index].width > 0.0)
+                {
+                    used = std::max(used, rows[index].x + rows[index].width);
+                    ++count;
+                }
+            const double extra = count ? std::max(0.0, lineWidth - used) / static_cast<double>(count) : 0.0;
+            std::size_t visible = 0;
+            for (std::size_t index = lineStart; index < end; ++index)
+                if (rows[index].width > 0.0)
+                {
+                    rows[index].x += static_cast<double>(visible++) * extra;
+                    rows[index].width += extra;
+                }
+        }
         lineStart = end;
     };
     const auto singleLine = horizontal ? SingleLineColumns(items, lineWidth, metrics) : std::nullopt;
@@ -278,12 +299,15 @@ inline std::vector<CandidateRowLayout> LayoutCandidatePage(const std::vector<Can
     return rows;
 }
 
-// The card's built-in minimum width is seven times the candidate font size, the source skins' `.container { min-width: 7em }` and the Windows port's candidate_card_metrics min_width. A skin package's floor (its min_width_dip or decoration width) only ever raises it; a non-finite or non-positive skin value is ignored. When `screenCap` is positive the 7em part never goes past it, so the largest font on a narrow screen cannot push the card off the visible area; the skin floor keeps its own value.
+// 原生主题保留 7em 卡片下限；共享 Windows 版式使用固定 160 DIP，fitContent 取消默认下限。
+// 内置下限夹在可见屏幕内，包声明与装饰的独立下限始终保留；没有共享版式时不改变旧调用。
 constexpr double kCandidateMinWidthEm = 7.0;
 
-inline double CandidateCardMinimumWidth(double fontSize, double skinMinWidth, double screenCap)
+inline double CandidateCardMinimumWidth(double fontSize, double skinMinWidth, double screenCap,
+                                         std::optional<bool> skinFitContent = std::nullopt, double scale = 1.0)
 {
-    double builtIn = std::isfinite(fontSize) && fontSize > 0.0 ? fontSize * kCandidateMinWidthEm : 0.0;
+    double builtIn = skinFitContent.has_value() ? (*skinFitContent ? 0.0 : 160.0 * scale)
+        : std::isfinite(fontSize) && fontSize > 0.0 ? fontSize * kCandidateMinWidthEm : 0.0;
     if (std::isfinite(screenCap) && screenCap > 0.0)
         builtIn = std::min(builtIn, screenCap);
     const double skin = std::isfinite(skinMinWidth) && skinMinWidth > 0.0 ? skinMinWidth : 0.0;

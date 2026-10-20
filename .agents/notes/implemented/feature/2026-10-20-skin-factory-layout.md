@@ -12,19 +12,21 @@ Status: implemented
 
 macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra height、number scale/inset/gap、横排最小格宽、选中条尺寸，测量与绘制使用同一份几何；旧包没有结果时继续使用既有 macOS 默认。
 
+macOS 的共享版式还控制 `fitContent` 与 `justifyRows`：收紧时移除默认卡片宽度和横排固定 6 DIP 余量，右留白与序号左留白对称；普通 Windows 基底使用与字号无关的 160 DIP 卡片下限。横排每个实际换行后的剩余宽度均分给该行可见候选，按钮绘制与命中继续使用同一排版结果；均分不作用于竖排，没有共享版式的原生主题保留既有行为。额外卡片宽度来自包的最小宽度、装饰、首行或同次组字的稳定宽度时也遵守这两个开关。
+
 ## 宿主映射
 
 `ThemePackage` 从扫描结果与 host catalog 保留 `ResolvedSkinLayout`，主题解析负责确认实际绘制的包，各宿主只在原生长度单位与实际候选字号之间换算。移动端沿用固定横排、键盘高度和触控入口；桌面窗口的布局开关不用于删除手机的展开入口。网页端没有桌面卷轴展开面板，内置皮肤 ID 继续使用原有默认几何，调用方传共享 catalog 时才消费合并版式。
 
 | 消费者 | 本次接入的绘制字段 | 平台适配 |
 | --- | --- | --- |
-| macOS 原生候选窗 | padding、行间距、额外行高、序号字号与间距、横排最小格宽、选中条尺寸与位置 | 横排保留固定 6 DIP 间距；隐藏序号仍保留 9 DIP 栏位；键位图按当前候选几何避让 |
+| macOS 原生候选窗 | padding、行间距、额外行高、序号字号与间距、横排最小格宽、选中条尺寸与位置、内容收紧与横排行对齐 | 普通横排保留固定 6 DIP 间距，收紧时移除；横排按需均分每行；隐藏序号仍保留 9 DIP 栏位；键位图按当前候选几何避让 |
 | Android 原生候选条 | 候选圆角、候选最小宽度、右内边距、额外行内边距（上下各至多 4dp）、横排间距及紧凑开关 | 使用真实候选字号换算 em；仅布局更新也失效样式缓存；触屏不显示桌面序号与分页箭头 |
 | iOS 原生候选条与展开网格 | 候选圆角、描边、内边距、横排间距、候选最小宽度、选中条宽高与内外位置 | 额外垂直内边距受固定触屏栏空间限制；展开网格保持原生列数和点击面积 |
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
 | 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
-该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费；网页仍缺少卷轴展开面板及其 `expandPanel`、`expandRows`。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，完整安装与真实编辑器入口仍需验收；Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
+该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费；网页仍缺少卷轴展开面板及其 `expandPanel`、`expandRows`。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，但皮肤的 `shadow`、`pageArrows`、`pageArrowStyle`、`expandPanel`、`expandRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 仍未完整控制原生候选窗；这些结构开关、完整安装与真实编辑器入口仍需验收。Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
 
 网页字体沿用共享扫描器的单字体名称和 64 个 UTF-8 字节上限，经固定引号包裹后放在宿主字体链前；不把任意 CSS 字体串或包内字体资源当成字体名。翻页标记横排占候选右侧窄列，竖排另起下方一行，与来源场景的结构一致。网页阴影沿用固定来源 `candidate_skin_scene.cpp` 的两层配方：偏移与模糊为 `8/10/24`、`2/3/8`，浅色透明度 `0.18/0.10`、深色 `0.34/0.22`，`soft` 乘 `0.5`、`strong` 乘 `1.6`，`none` 和成功加载的九宫格面板关闭阴影。外角按浏览器实际换行后的矩形判定；预编辑隐藏时才启用顶角，卡片零圆角仍覆盖普通候选圆角。空预编辑留下来源的 2px 间距，贴角或显式 trim 时去掉；canvas 的 `lineGapDip` 继续优先于预编辑下边距。序号 inset 从候选边缘量起，不再叠加旧宿主的固定左留白；额外行高只加在 `1.35em` 行高之上一次。
 
@@ -64,3 +66,7 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 macOS 的无 AppKit 排版测试覆盖行距、最小格宽、横排固定 6 DIP 间距和旧默认回退，并以 Objective-C++ 语法检查验证清单桥与真实控制器接线。接入时必须使用 optional 的 `has_value()` 判断 `numberScale`，否则 `0` 会错误回退到默认字号；隐藏序号仍保留 9 DIP 的栏位。macOS 的 CMake 宿主目标和候选排版测试已在 Sparkle 2.9.6 可用后完成构建；尚未在真实编辑器入口安装验收。
 
 双拼键位图同样读取当前皮肤的排版几何，让开的距离覆盖实际候选卡片。`shortcut` 回归测试将预留高度与控制器真实排版后的窗口高度比较，覆盖皮肤默认、零边距与 24pt 大边距，同时保留后备字形高度的检查；不再把旧版每侧 12pt 内边距写死为所有皮肤的下限。
+
+macOS 的 `fitContent` 与 `justifyRows` 专项测试先在未修复控制器上复现普通 Windows 基底仍低于 160 DIP 的断言失败，接线后通过。无 AppKit 测试检查 DIP/缩放/屏幕上限与包下限、逐行均分、空候选不膨胀和竖排不变；真实控制器测试用独立合成皮肤检查固定下限、对称留白、额外列间距与历史 400pt 稳定宽度的收紧回退，以及按钮右缘和命中宽度。没有把单测称为新安装包的逐款皮肤画面验收。
+
+本轮最终源码在远端 macOS 通过 `scripts/verify-local.sh --quick`，随后 `ctest --test-dir target/macos-isolated -R "^(candidate-|skin-|shortcut$)" --output-on-failure` 的 16 项候选、皮肤与快捷键回归全部通过。

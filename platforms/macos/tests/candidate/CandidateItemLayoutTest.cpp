@@ -187,5 +187,36 @@ int main()
         // The skin's own floor is not clamped by the cap.
         assert(Near(CandidateCardMinimumWidth(16.0, 300.0, 90.0), 300.0));
     }
+    // 共享版式使用 DIP 下限；收紧保留包下限，原生主题继续按字号计算。
+    {
+        assert(Near(CandidateCardMinimumWidth(32.0, 0.0, 720.0, false), 160.0));
+        assert(Near(CandidateCardMinimumWidth(16.0, 0.0, 720.0, false, 2.0), 320.0));
+        assert(Near(CandidateCardMinimumWidth(16.0, 0.0, 90.0, false), 90.0));
+        assert(Near(CandidateCardMinimumWidth(32.0, 0.0, 720.0, true), 0.0));
+        assert(Near(CandidateCardMinimumWidth(16.0, 300.0, 90.0, true), 300.0));
+        assert(Near(CandidateCardMinimumWidth(16.0, 200.0, 90.0, false), 200.0));
+    }
+
+    // 均分只扩展可见列，保留列间距，换行后每行单独贴到右缘。
+    {
+        auto justified = metrics;
+        justified.justifyRows = true;
+        justified.columnGap = 6.0;
+        const auto single = LayoutCandidatePage({{60.0}, {30.0}}, 250.0, justified, true);
+        assert(Near(single[0].width, 137.0) && Near(single[1].width, 107.0));
+        assert(Near(single[1].x, 143.0) && Near(single[1].x + single[1].width, 250.0));
+        const auto lines = LayoutCandidatePage({{100.0}, {50.0}, {40.0}}, 250.0, justified, true);
+        assert(Near(lines[0].width, 147.0) && Near(lines[1].width, 97.0));
+        assert(Near(lines[1].x + lines[1].width, 250.0));
+        assert(Near(lines[2].x, 0.0) && Near(lines[2].width, 250.0) && lines[2].y > 0.0);
+        const auto hidden = LayoutCandidatePage({{60.0}, {}, {30.0}}, 250.0, justified, true);
+        assert(Near(hidden[1].width, 0.0));
+        assert(Near(hidden[2].x + hidden[2].width, 250.0));
+        const auto empty = LayoutCandidatePage({{}, {}}, 250.0, justified, true);
+        assert(Near(empty[0].width, 0.0) && Near(empty[1].width, 0.0));
+        const auto vertical = LayoutCandidatePage({{60.0}, {30.0}}, 250.0, justified, false);
+        const auto original = LayoutCandidatePage({{60.0}, {30.0}}, 250.0, metrics, false);
+        assert(Near(vertical[0].width, original[0].width) && Near(vertical[1].y, original[1].y));
+    }
     return 0;
 }
