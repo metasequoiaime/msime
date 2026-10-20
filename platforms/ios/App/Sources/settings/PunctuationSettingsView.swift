@@ -33,7 +33,7 @@ struct PunctuationSettingsView: View {
         }
         .accessibilityIdentifier("bracketStyle")
       } footer: {
-        Text("中文标点下 ' 键和 Shift+' 键输出的引号、[ ] 键输出的括号。直角引号：' 出「」，Shift+' 出『』。")
+        Text("中文标点下输入 ' 和 \" 时的引号、输入 [ ] 时的括号。直角引号：' 出「」，\" 出『』。")
       }
       .designRow()
       Section {

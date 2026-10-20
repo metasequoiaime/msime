@@ -31,7 +31,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     /** 共享偏好 `quote_style` 的取值与显示文字，缺省（文档里没有这个键）是弯引号。 */
     private static final String[] QUOTE_STYLES = {"curly", "corner", "corner_when_traditional"};
     private static final String[] QUOTE_STYLE_LABELS = {"弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号"};
-    private static final String QUOTE_STYLE_DESCRIPTION = "中文标点下 ' 键和 Shift+' 键输出的引号。直角引号：' 出「」，Shift+' 出『』";
+    private static final String QUOTE_STYLE_DESCRIPTION = "中文标点下输入 ' 和 \" 时的引号。直角引号：' 出「」，\" 出『』";
     /** 共享偏好 `bracket_style` 的取值与显示文字，缺省是实心。 */
     private static final String[] BRACKET_STYLES = {"solid", "hollow"};
     private static final String[] BRACKET_STYLE_LABELS = {"实心 【 】", "空心 〖 〗"};

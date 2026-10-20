@@ -15,7 +15,7 @@ struct CommonPhrasesSettingsView: View {
       Section {
         if let phrases {
           if phrases.isEmpty {
-            note("还没有常用语。添加以后，在键盘的「常用语」面板里点一下就能发送。")
+            note("还没有常用语。")
           }
           ForEach(Array(phrases.enumerated()), id: \.element.id) { index, phrase in
             Text(phrase.text).font(.system(size: 17)).foregroundStyle(.primary).lineLimit(3)
