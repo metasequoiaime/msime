@@ -132,30 +132,48 @@ def main():
                 wait(native_window)
                 wait(lambda: palette_visible((SELECTED,)))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
+
+                def settle():
+                    # GTK 在打完字之后才补报光标矩形，候选窗随之横移；等窗口位置连续几次不变再取坐标。
+                    previous, steady = None, 0
+                    deadline = time.monotonic() + 5
+                    while steady < 3 and time.monotonic() < deadline:
+                        pump()
+                        current = window_geometry(native_window())
+                        steady = steady + 1 if current == previous else 0
+                        previous = current
+                        time.sleep(0.1)
+                    return previous
+
+                settle()
                 save_image("initial")
-                bounds = window_geometry(native_window())
-                left, top = int(bounds["X"]), int(bounds["Y"])
-                width = int(bounds["WIDTH"])
-                selected = color_bounds(SELECTED)
 
                 def selected_pixels():
+                    # 每次按当前的选中行取像素，窗口随光标或宽度变化移动时比较的仍是同一行的内容。
                     image, _ = screenshot()
                     data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
-                    l, t, r, b = selected
+                    l, t, r, b = color_bounds(SELECTED)
                     return b"".join(data[y * stride + l * channels:y * stride + r * channels] for y in range(t, b))
 
+                def arrows():
+                    # 首行右端的 ‹ ›：内边距 4pt，横排时最右边是展开键；按钮 28x26，首行从卡片顶边 4pt 处开始。
+                    bounds = settle()
+                    left, top, width = int(bounds["X"]), int(bounds["Y"]), int(bounds["WIDTH"])
+                    arrow = 28 * SCALE
+                    right = left + width - 4 * SCALE - (arrow if LAYOUT == "horizontal" else 0)
+                    next_point = (right - arrow // 2, top + (4 + 13) * SCALE)
+                    return (next_point[0] - arrow, next_point[1]), next_point
+
                 first_page = selected_pixels()
-                # 首行右端的 ›：内边距 4pt，横排时最右边是展开键；按钮 28x26，首行从卡片顶边 4pt 处开始。
-                arrow = 28 * SCALE
-                right = left + width - 4 * SCALE - (arrow if LAYOUT == "horizontal" else 0)
-                next_point = (right - arrow // 2, top + (4 + 13) * SCALE)
-                previous_point = (next_point[0] - arrow, next_point[1])
+                _, next_point = arrows()
                 subprocess.run(["xdotool", "mousemove", *map(str, next_point), "click", "1"], check=True, timeout=5)
                 wait(lambda: selected_pixels() != first_page)
                 assert entry.get_text() == "", "翻页按钮错误地上屏"
                 save_image("next-page")
+                previous_point, _ = arrows()
                 subprocess.run(["xdotool", "mousemove", *map(str, previous_point), "click", "1"], check=True, timeout=5)
                 wait(lambda: selected_pixels() == first_page)
+                selected = color_bounds(SELECTED)
                 # 悬停：指针移到另一行时画悬停色，键盘选中不变。
                 l, t, r, b = selected
                 hover_point = (r + 20 * SCALE, (t + b) // 2) if LAYOUT == "horizontal" else ((l + r) // 2, b + 20 * SCALE)
