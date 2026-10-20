@@ -533,6 +533,7 @@ char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
  * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
  * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
+char *msime_client_voice_websocket_endpoint(const uint8_t *endpoint, size_t length);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and

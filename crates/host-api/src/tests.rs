@@ -17546,6 +17546,27 @@ fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
 }
 
 #[test]
+fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
+    let endpoint = "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=";
+    let result =
+        read(unsafe { msime_client_voice_websocket_endpoint(endpoint.as_ptr(), endpoint.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "socket_host":"xn--fsqu00a.invalid",
+            "port":8443,
+            "host_header":"xn--fsqu00a.invalid:8443",
+            "request_target":"/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+        }})
+    );
+    let invalid = "wss://fixture.invalid:0/stream";
+    assert_eq!(
+        read(unsafe { msime_client_voice_websocket_endpoint(invalid.as_ptr(), invalid.len()) }),
+        serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+    );
+}
+
+#[test]
 fn account_name_export_returns_the_shared_presentation_without_a_session() {
     let request = serde_json::json!({"name":"\u{feff} 小鹿 \u{3000}","id":"abcdef12"}).to_string();
     let result = read(unsafe { msime_client_account_name(request.as_ptr(), request.len()) });

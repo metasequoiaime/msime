@@ -58,6 +58,29 @@ public final class VoiceEndpointSettingsDeviceSmoke extends Instrumentation {
             require(parse.invoke(null, broken) != null, "损坏或矛盾响应不能放行保存");
         }
         Class<?> bridge = loader.loadClass("app.msime.android.NativeClient");
+        Method descriptor = bridge.getMethod("voiceWebSocketEndpoint", String.class);
+        JSONObject descriptorRoot = new JSONObject((String) descriptor.invoke(null,
+            "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty="));
+        JSONObject descriptorValue = descriptorRoot.getJSONObject("value");
+        require("xn--fsqu00a.invalid".equals(descriptorValue.getString("socket_host")),
+            "共享描述符使用规范化域名");
+        require(descriptorValue.getInt("port") == 8443,
+            "共享描述符保留非默认端口");
+        require("xn--fsqu00a.invalid:8443".equals(descriptorValue.getString("host_header")),
+            "共享描述符保留 Host 端口");
+        require("/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+                .equals(descriptorValue.getString("request_target")),
+            "共享描述符保留路径与查询编码");
+        JSONObject ipv6 = new JSONObject((String) descriptor.invoke(null, "wss://[::1]/stream?"))
+            .getJSONObject("value");
+        require("::1".equals(ipv6.getString("socket_host"))
+                && "[::1]".equals(ipv6.getString("host_header"))
+                && "/stream?".equals(ipv6.getString("request_target")),
+            "共享描述符分别格式化 IPv6 socket 和 Host");
+        for (String invalid : new String[] {"wss://example.invalid:0/stream", "wss://example.invalid/%zz"}) {
+            JSONObject rejected = new JSONObject((String) descriptor.invoke(null, invalid));
+            require(!rejected.optBoolean("ok", false), "共享描述符拒绝无效端点");
+        }
         Method bounded = bridge.getMethod("voiceEndpointIssue", String.class, boolean.class);
         for (String oversized : new String[] {"x".repeat(65_537), "合".repeat(30_000)}) {
             try {
