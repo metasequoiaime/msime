@@ -267,7 +267,19 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $content = Find-ById $window 'settings-content'
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
-    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
+    if ([bool]$inside -ne $expanded) {
+        $again = Find-ById $window 'candidate-more'
+        $content = Find-ById $window 'settings-content'
+        $all = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'candidate-more')))
+        Write-Host "diag: fold count=$($all.Count) status='$($again.Current.ItemStatus)' enabled=$($again.Current.IsEnabled) offscreen=$($again.Current.IsOffscreen) bounds=$($again.Current.BoundingRectangle) logo=$([bool](Find-ByName $content '显示水杉 logo')) follow=$([bool](Find-ByName $content '候选窗口跟随光标')) preedit=$([bool](Find-ByName $content '候选窗口预编辑'))"
+        $again.SetFocus()
+        Start-Sleep -Milliseconds 300
+        [System.Windows.Forms.SendKeys]::SendWait(' ')
+        Start-Sleep -Milliseconds 1500
+        $content = Find-ById $window 'settings-content'
+        Write-Host "diag: after keyboard status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' preedit-inline=$([bool](Find-ByName $content '行内预编辑')) logo=$([bool](Find-ByName $content '显示水杉 logo'))"
+        throw "Candidate 更多选项 did not change to expanded=$expanded"
+    }
     # 读屏从 ItemStatus 得知展开与否。
     $wanted = if ($expanded) { '已展开' } else { '已收起' }
     $status = (Find-ById $window 'candidate-more').Current.ItemStatus
