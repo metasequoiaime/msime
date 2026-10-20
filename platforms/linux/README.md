@@ -618,7 +618,7 @@ Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其�
 
 候选操作菜单还提供将当前词库候选固定到第 1–5 位及取消固定。固定位置由 Engine 持久化并随候选快照返回；Linux 宿主只传递候选身份和目标槽位，不复制词典写入或排序逻辑，并在 IBus 候选行显示“固定 N”状态。
 
-`bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon，也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
+`bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon（只有 `ibus-mode-hint-x11-badge*` 两项经 `xvfb-run` 在测试里起停一个 Xvfb，验证 IBus 在 X11 会话里画的切换徽章），也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
 
 `scripts/verify-local.sh` 的「compile: linux desktop shell」阶段在非 Linux 主机上用 `tests/tools/Dockerfile.desktop-check` 构建的镜像跑 `cargo check -p msime-desktop --locked --all-targets`：与编译门禁同一个固定摘要的 `rust:1.97.1-bookworm`，预装 Tauri 外壳需要的 webkit2gtk、gtk3、libsoup、javascriptcoregtk 和 cpal 需要的 ALSA 开发包，apt 只在 Dockerfile 变化后的第一次运行时执行，`--quick` 和 pre-push 钩子不再每次重装。镜像构建日志留在 `target/linux-desktop-check/image.log`，apt 失败时阶段打印其末尾并 FAIL。
 
