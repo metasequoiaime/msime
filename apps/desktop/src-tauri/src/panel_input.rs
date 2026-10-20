@@ -103,6 +103,73 @@ pub(crate) fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)
     ))
 }
 
+/// Linux 上各面板打开时的落点，与 macOS 对齐：屏幕键盘贴在工作区底部居中（macOS 的 `macos_keyboard` 同样如此），表情和本地剪贴板面板居中（macOS 不给位置，窗口由系统居中），其余面板仍放在输入窗口下方，紧挨着要输入的地方。
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LinuxPanelPlacement {
+    BelowTarget,
+    Center,
+    BottomCenter,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_panel_placement(label: &str) -> LinuxPanelPlacement {
+    match label {
+        "keyboard-panel" => LinuxPanelPlacement::BottomCenter,
+        "emoji-panel" | "clipboard-panel" => LinuxPanelPlacement::Center,
+        _ => LinuxPanelPlacement::BelowTarget,
+    }
+}
+
+/// 在一块工作区（左、上、宽、高）里按落点摆放 `width`×`height` 的面板，返回左上角。面板比工作区大时贴左上，不越出工作区的起点。`BelowTarget` 没有工作区内的固定位置，按居中处理，调用方不会这样用。
+#[cfg(target_os = "linux")]
+pub(crate) fn place_in_work_area(
+    area: (f64, f64, f64, f64),
+    width: f64,
+    height: f64,
+    placement: LinuxPanelPlacement,
+) -> (f64, f64) {
+    let (left, top, area_width, area_height) = area;
+    let x = left + ((area_width - width).max(0.0) / 2.0);
+    let free_height = (area_height - height).max(0.0);
+    let y = match placement {
+        LinuxPanelPlacement::BottomCenter => top + free_height,
+        LinuxPanelPlacement::Center | LinuxPanelPlacement::BelowTarget => top + free_height / 2.0,
+    };
+    (x, y)
+}
+
+/// 由输入窗口矩形（左、上、宽、高）和它所在的工作区算出面板位置。`BelowTarget` 放在窗口下方 16 像素并水平居中；其余落点在已知工作区时直接按工作区摆放。工作区未知时（X11 的工作区要等窗口建好后由 Tauri 的显示器信息给出）返回一个锚点：横向让面板以窗口中线居中，纵向是窗口中线，`panel_window::visible_panel_position` 据此找到窗口所在的显示器再按落点摆放。
+#[cfg(target_os = "linux")]
+pub(crate) fn panel_anchor(
+    rect: (f64, f64, f64, f64),
+    workspace: Option<(f64, f64, f64, f64)>,
+    width: f64,
+    height: f64,
+    placement: LinuxPanelPlacement,
+) -> (f64, f64) {
+    let workspace = workspace.filter(|(left, top, workspace_width, workspace_height)| {
+        [*left, *top, *workspace_width, *workspace_height]
+            .iter()
+            .all(|value| value.is_finite())
+            && *workspace_width > 0.0
+            && *workspace_height > 0.0
+    });
+    if placement != LinuxPanelPlacement::BelowTarget {
+        return match workspace {
+            Some(area) => place_in_work_area(area, width, height, placement),
+            None => (rect.0 + (rect.2 - width) / 2.0, rect.1 + rect.3 / 2.0),
+        };
+    }
+    let mut x = rect.0 + (rect.2 - width) / 2.0;
+    let mut y = rect.1 + rect.3 + 16.0;
+    if let Some((left, top, workspace_width, workspace_height)) = workspace {
+        x = x.clamp(left, left + (workspace_width - width).max(0.0));
+        y = y.clamp(top, top + (workspace_height - height).max(0.0));
+    }
+    (x, y)
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn panel_position(
     state: &PanelInputState,
@@ -141,19 +208,13 @@ pub(crate) fn panel_position(
     {
         return None;
     }
-    let mut x = rect.0 + (rect.2 - width) / 2.0;
-    let mut y = rect.1 + rect.3 + 16.0;
-    if let Some((left, top, workspace_width, workspace_height)) = logical_workspace {
-        if [left, top, workspace_width, workspace_height]
-            .iter()
-            .all(|value| value.is_finite())
-            && workspace_width > 0.0
-            && workspace_height > 0.0
-        {
-            x = x.clamp(left, left + (workspace_width - width).max(0.0));
-            y = y.clamp(top, top + (workspace_height - height).max(0.0));
-        }
-    }
+    let (x, y) = panel_anchor(
+        rect,
+        logical_workspace,
+        width,
+        height,
+        linux_panel_placement(label),
+    );
     if !x.is_finite() || !y.is_finite() {
         return None;
     }

@@ -3821,6 +3821,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   expect(await screen.findByLabelText("输入法日志")).toBeDefined();
   // Without the host callback, as on the phones, there is no button that would fail when pressed.
   expect(screen.queryByRole("button", { name: "在 Finder 中显示" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "在文件管理器中显示" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开日志目录" })).toBeNull();
   unmount();
 
@@ -3837,9 +3838,18 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
-  // Outside macOS the action opens the folder and says so.
-  fireEvent.click(await screen.findByRole("button", { name: "打开日志目录" }));
+  // Linux 也选中文件本身，按钮按文件管理器命名；说明提到选不中时退回打开目录。
+  const log = await screen.findByLabelText("输入法宿主日志");
+  const description =
+    document.getElementById(log.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  expect(description).toContain("在文件管理器中显示");
+  fireEvent.click(await screen.findByRole("button", { name: "在文件管理器中显示" }));
   expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
+  openDiagnosticLogDirectory.mockRejectedValueOnce(new Error("storage"));
+  fireEvent.click(screen.getByRole("button", { name: "在文件管理器中显示" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "无法在文件管理器中显示诊断日志，可能是文件管理器不可用。",
+  );
 });
 
 test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])(

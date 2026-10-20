@@ -712,13 +712,13 @@ async fn open_directory(root: PathBuf) -> Result<(), CommandError> {
 /// What the settings page's diagnostic-log action should show: the log file itself where the platform can select a file in its file manager and the file exists, otherwise the directory that will hold it.
 #[derive(Debug, PartialEq, Eq)]
 enum DiagnosticLogTarget {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     File(PathBuf),
     Directory(PathBuf),
 }
 
 fn diagnostic_log_target(directory: &std::path::Path) -> DiagnosticLogTarget {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let file = directory.join("diagnostic.log");
         if file.is_file() {
@@ -741,9 +741,43 @@ fn reveal_file_in_finder(file: &std::path::Path) -> Result<(), &'static str> {
     status.success().then_some(()).ok_or("storage")
 }
 
+/// `org.freedesktop.FileManager1.ShowItems` 的参数：只含这一个文件 URI 的 GVariant 字符串数组。URI 经百分号编码后仍可能带单引号，按 GVariant 文本格式转义单引号和反斜杠。
+#[cfg(any(target_os = "linux", test))]
+fn file_manager_show_items_argument(uri: &str) -> String {
+    let escaped = uri.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("['{escaped}']")
+}
+
+/// 在文件管理器里选中诊断日志：先走桌面通用的 `org.freedesktop.FileManager1.ShowItems`（Nautilus、Dolphin、Nemo、Thunar 等都实现了它），没有会话总线、没有实现它的文件管理器或 `gdbus` 不在时，退回用 `xdg-open` 打开它所在的目录。
+#[cfg(target_os = "linux")]
+fn reveal_file_in_file_manager(file: &std::path::Path) -> Result<(), &'static str> {
+    let shown = tauri::Url::from_file_path(file).is_ok_and(|uri| {
+        linux_process::run_status(
+            "gdbus",
+            &[
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.FileManager1",
+                "--object-path",
+                "/org/freedesktop/FileManager1",
+                "--method",
+                "org.freedesktop.FileManager1.ShowItems",
+                &file_manager_show_items_argument(uri.as_str()),
+                "",
+            ],
+            std::time::Duration::from_secs(3),
+        )
+    });
+    if shown {
+        return Ok(());
+    }
+    skin_directory::open(file.parent().ok_or("storage")?)
+}
+
 /// Reveal the input method's diagnostic log so it can be sent after a reproduction.
 ///
-/// MSIME-Windows writes its log to the Desktop to make it easy to find; on macOS the file stays in the preferences directory under Application Support and this action selects it in Finder instead. The host picks the location - the webview cannot name one.
+/// MSIME-Windows writes its log to the Desktop to make it easy to find; on macOS the file stays in the preferences directory under Application Support and this action selects it in Finder instead. Linux 上同样选中数据目录里的 diagnostic.log（见 `reveal_file_in_file_manager`）。The host picks the location - the webview cannot name one.
 #[tauri::command]
 async fn open_diagnostic_log_directory(
     state: tauri::State<'_, DiagnosticLogState>,
@@ -752,7 +786,9 @@ async fn open_diagnostic_log_directory(
     tauri::async_runtime::spawn_blocking(move || match diagnostic_log_target(&directory) {
         #[cfg(target_os = "macos")]
         DiagnosticLogTarget::File(file) => reveal_file_in_finder(&file),
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        DiagnosticLogTarget::File(file) => reveal_file_in_file_manager(&file),
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         DiagnosticLogTarget::File(_) => Err("unavailable"),
         DiagnosticLogTarget::Directory(root) => skin_directory::open(&root),
     })

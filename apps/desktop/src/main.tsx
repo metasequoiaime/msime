@@ -634,8 +634,8 @@ function DesktopSettings() {
             host.platform === "windows"
               ? { resourcePacks }
               : {}),
-            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
-            ...(host.platform === "macos"
+            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there. Linux 的两个宿主把它写进数据目录（通常是隐藏的 ~/.config 下），宿主同样在文件管理器里选中它。
+            ...(host.platform === "macos" || host.platform === "linux"
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
             // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
