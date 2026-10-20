@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 import org.json.JSONException;
 
 /**
- * 表情面板最后一个分类「水杉娘」表情包：读随包清单、按格子大小解码缩略图、点一张发出去。网格和分类签由 {@link ImePanels} 搭，清单校验和文案在 {@link StickerPackModel}。
+ * 表情面板第一个分类「水杉娘」表情包：读随包清单、按格子大小解码缩略图、点一张发出去。网格和分类签由 {@link ImePanels} 搭，清单校验和文案在 {@link StickerPackModel}。
  *
  * <p>直接从 APK 的 assets 读（`build-apk.sh` 把 `resources/stickers/shuishan` 放到 `assets/stickers/shuishan`），不解包到 filesDir。清单、缩略图、PNG 编码和清理都在 {@link #worker} 上，主线程只摆格子。缩略图只给看得见的格子（上下各多一行），其余格子放掉位图；解码结果按字节数有界缓存，离开这个分类或收起面板时清空。
  *
@@ -59,7 +59,7 @@ final class ImeStickers {
         this.s = s;
     }
 
-    /** 在工作线程上读一次清单和分类签上的缩略图；读完时面板开着就重画分类签。读不出来时这个分类不出现，同一个进程里不再重试（随包资源坏了重试也一样）。 */
+    /** 在工作线程上读一次清单和分类签上的缩略图；读完时面板开着就重画分类签（不改当前选中的分类）。读不出来时这个分类不出现，底栏和默认分类退回原来的顺序，同一个进程里不再重试（随包资源坏了重试也一样）。 */
     void load() {
         if (loadStarted || worker.isShutdown()) return;
         loadStarted = true;
@@ -101,11 +101,27 @@ final class ImeStickers {
 
     Bitmap tabIcon() { return tabIcon; }
 
-    /** 表情包在分类序号里的位置：排在所有 Emoji 分类之后。 */
-    int category() { return EmojiCatalogModel.categories().size(); }
+    /** 表情包的分类序号：取在所有 Emoji 分类之后的那个号，显示时却排在第一个（{@link StickerPackModel#categoryOrder}）。 */
+    int category() { return StickerPackModel.category(EmojiCatalogModel.categories().size()); }
 
-    /** 横划和点分类签能到的最后一个分类序号。 */
+    /** 点分类签能选到的最大分类序号。 */
     int lastEmojiCategory() { return available() ? category() : EmojiCatalogModel.categories().size() - 1; }
+
+    /** 底栏分类签从左到右的分类序号，横划按同一顺序切换。 */
+    List<Integer> categoryOrder() {
+        return StickerPackModel.categoryOrder(available(), !s.emojiRecents.isEmpty(), EmojiCatalogModel.categories().size());
+    }
+
+    /** 打开表情面板时选中的分类：表情包在时是它，否则沿用原来的「有最近就最近，否则第一个 Emoji 分类」。 */
+    int defaultCategory() {
+        return StickerPackModel.defaultCategory(available(), !s.emojiRecents.isEmpty(), EmojiCatalogModel.categories().size());
+    }
+
+    /** 从当前分类横划一步（`step` 为 1 往右、-1 往左）到的分类；到头时是 {@link StickerPackModel#NO_CATEGORY}。 */
+    int swipeCategory(int step) {
+        return StickerPackModel.swipeCategory(s.emojiSelectedCategory, step, available(), !s.emojiRecents.isEmpty(),
+            EmojiCatalogModel.categories().size());
+    }
 
     boolean selected() { return available() && s.emojiSelectedCategory == category(); }
 

@@ -9,7 +9,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 表情面板最后一个分类「水杉娘」表情包：随包清单的校验、网格列数、文案和「能不能直接发图」的判断。
+ * 表情面板第一个分类「水杉娘」表情包：随包清单的校验、分类签的排序和默认分类、网格列数、文案和「能不能直接发图」的判断。
  *
  * <p>只放不依赖 Android 运行时的部分，JVM 冒烟测得到。清单（`assets/stickers/shuishan/manifest.json`，来自 `resources/stickers/shuishan`）的顺序就是显示顺序，`name` 是含义，读屏和提示都用它。解码、发送和剪贴板在 {@link ImeStickers}。
  */
@@ -23,9 +23,9 @@ public final class StickerPackModel {
     public static final int MAX_NAME_CODE_POINTS = 16;
     /** 源图边长的上限：素材是 320×320，超出这个数说明 assets 被换成了不该在键盘进程里整张解码的东西。 */
     public static final int MAX_SOURCE_EDGE = 1024;
-    /** 竖屏手机上一行四格；更宽时按每格约 88 dp 加列。 */
-    public static final int MIN_COLUMNS = 4;
-    public static final int CELL_DP = 88;
+    /** 竖屏手机上一行五格；更宽时按每格约 72 dp 加列。 */
+    public static final int MIN_COLUMNS = 5;
+    public static final int CELL_DP = 72;
     /** 贴纸四周的留白。 */
     public static final int CELL_PADDING_DP = 4;
     /** 分类签上那张缩略图的边长，和其他分类签 17 sp 的 Emoji 图标看起来一样大。 */
@@ -37,6 +37,10 @@ public final class StickerPackModel {
     public static final String EXTENSION = "png";
     /** 分类签的无障碍描述。 */
     public static final String TAB_DESCRIPTION = "水杉娘表情包";
+    /** 「最近」的分类序号；各 Emoji 分类从 0 起编号。 */
+    public static final int RECENTS_CATEGORY = -1;
+    /** 没有可切换的分类（横划已在两端，或当前分类不在底栏里）。 */
+    public static final int NO_CATEGORY = Integer.MIN_VALUE;
     private static final Pattern FILE = Pattern.compile("[0-9]{2}\\.webp");
 
     private StickerPackModel() {}
@@ -102,7 +106,38 @@ public final class StickerPackModel {
         return ASSET_DIRECTORY + "/" + sticker.file();
     }
 
-    /** 网格一行几格：至少四格，宽度每多约 88 dp 多一格。 */
+    /** 表情包的分类序号：取在所有 Emoji 分类之后的那个号。它只是标识，显示时排在第一个，见 {@link #categoryOrder}。 */
+    public static int category(int emojiCategories) {
+        return emojiCategories;
+    }
+
+    /**
+     * 底栏分类签从左到右的分类序号，横划也按这个顺序切换：表情包在时排第一，之后是「最近」（有记录时才有）和各 Emoji 分类。读不到清单（`stickers` 为 false）时就是原来的「最近、各 Emoji 分类」。
+     */
+    public static List<Integer> categoryOrder(boolean stickers, boolean recents, int emojiCategories) {
+        ArrayList<Integer> order = new ArrayList<>(emojiCategories + 2);
+        if (stickers) order.add(category(emojiCategories));
+        if (recents) order.add(RECENTS_CATEGORY);
+        for (int index = 0; index < emojiCategories; index++) order.add(index);
+        return List.copyOf(order);
+    }
+
+    /** 打开表情面板时选中的分类：底栏第一个，即表情包；没有表情包时有最近记录就是「最近」，否则是第一个 Emoji 分类。 */
+    public static int defaultCategory(boolean stickers, boolean recents, int emojiCategories) {
+        List<Integer> order = categoryOrder(stickers, recents, emojiCategories);
+        return order.isEmpty() ? NO_CATEGORY : order.get(0);
+    }
+
+    /** 从 `current` 横划一步（`step` 为 1 往右、-1 往左）到的分类；在两端不回绕，当前分类不在底栏里时也不切换，都返回 {@link #NO_CATEGORY}。 */
+    public static int swipeCategory(int current, int step, boolean stickers, boolean recents, int emojiCategories) {
+        List<Integer> order = categoryOrder(stickers, recents, emojiCategories);
+        int position = order.indexOf(current);
+        if (position < 0) return NO_CATEGORY;
+        int next = position + Integer.signum(step);
+        return next >= 0 && next < order.size() ? order.get(next) : NO_CATEGORY;
+    }
+
+    /** 网格一行几格：至少五格，宽度每多约 72 dp 多一格。 */
     public static int columns(int widthDp) {
         return Math.max(MIN_COLUMNS, widthDp / CELL_DP);
     }

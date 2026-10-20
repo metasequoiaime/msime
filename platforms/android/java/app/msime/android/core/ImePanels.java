@@ -91,13 +91,16 @@ final class ImePanels {
     void renderEmojiTabs() {
         if (s.emojiTabs == null) return;
         s.emojiTabs.removeAllViews();
-        if (!s.emojiRecents.isEmpty()) addEmojiTab(EmojiCatalogModel.RECENTS, -1);
-        for (int index = 0; index < EmojiCatalogModel.categories().size(); index++)
-            addEmojiTab(EmojiCatalogModel.categories().get(index), index);
-        if (s.imeStickers.available()) addStickerTab();
+        // 顺序和横划切换共用一份：表情包在时排第一，之后是「最近」和各 Emoji 分类。
+        for (int category : s.imeStickers.categoryOrder()) {
+            if (category == s.imeStickers.category()) addStickerTab();
+            else if (category == StickerPackModel.RECENTS_CATEGORY)
+                addEmojiTab(EmojiCatalogModel.RECENTS, StickerPackModel.RECENTS_CATEGORY);
+            else addEmojiTab(EmojiCatalogModel.categories().get(category), category);
+        }
     }
 
-    /** 最后一个分类签「水杉娘」：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
+    /** 第一个分类签「水杉娘」：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
     private void addStickerTab() {
         ImeStickers.StickerButton tab = emojiButton(new ImeStickers.StickerButton(s, s.pixels(2),
             s.pixels(StickerPackModel.TAB_ICON_DP)), KeyboardKeyRole.PLAIN, false,
@@ -191,7 +194,7 @@ final class ImePanels {
         s.imeStyler.applySkin();
     }
 
-    /** 水杉娘表情包的网格：正方形格子，竖屏手机一行四格，更宽时按每格约 88 dp 加列；缩略图由 {@link ImeStickers} 按格子大小在后台解码，只给看得见的格子。 */
+    /** 水杉娘表情包的网格：正方形格子，竖屏手机一行五格，更宽时按每格约 72 dp 加列；缩略图由 {@link ImeStickers} 按格子大小在后台解码，只给看得见的格子。 */
     private void renderStickerGrid() {
         StickerPackModel.Pack pack = s.imeStickers.pack();
         int width = s.emojiGridScroll.getWidth();
@@ -277,7 +280,8 @@ final class ImePanels {
         s.emojiRecents = s.loadEmojiRecents();
         ViewPolicy.show(s.emojiPanel);
         s.emojiPanel.requestFocus();
-        s.selectEmojiCategory(s.emojiRecents.isEmpty() ? 0 : -1);
+        // 表情包在时默认选中它，直接显示表情包网格；读不到清单时沿用「有最近就最近，否则第一个分类」。
+        s.selectEmojiCategory(s.imeStickers.defaultCategory());
     }
 
     void showSymbolPanel() {
@@ -2592,11 +2596,9 @@ final class ImePanels {
                 horizontal = false;
                 if (action == MotionEvent.ACTION_UP && !multiplePointers &&
                         Math.abs(dx) >= s.pixels(48) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    int category = s.emojiSelectedCategory + (dx < 0 ? 1 : -1);
-                    int first = s.emojiRecents.isEmpty() ? 0 : -1;
-                    // 表情包在时是最后一个分类，横划能到它，不回绕。
-                    if (category >= first && category <= s.imeStickers.lastEmojiCategory())
-                        s.selectEmojiCategory(category);
+                    // 按底栏分类签的顺序切换（表情包在时是第一个），到两端不回绕。
+                    int category = s.imeStickers.swipeCategory(dx < 0 ? 1 : -1);
+                    if (category != StickerPackModel.NO_CATEGORY) s.selectEmojiCategory(category);
                 }
             }
             return true;

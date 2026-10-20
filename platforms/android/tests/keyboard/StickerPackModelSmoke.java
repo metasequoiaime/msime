@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** 水杉娘表情包：清单条目的边界校验、网格列数、缩略图尺寸、文案、直接发图的判断、自己写进剪贴板的贴纸的识别，以及发送目录只在写下一张时替换。 */
+/** 水杉娘表情包：清单条目的边界校验、底栏分类顺序与默认分类、网格列数、缩略图尺寸、文案、直接发图的判断、自己写进剪贴板的贴纸的识别，以及发送目录只在写下一张时替换。 */
 public final class StickerPackModelSmoke {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -72,12 +72,52 @@ public final class StickerPackModelSmoke {
         rejects(() -> StickerPackModel.pack("水杉娘", many), "oversized pack accepted");
         check(StickerPackModel.MAX_STICKERS >= 66, "the shipped 66 stickers fit the bound");
 
-        // 竖屏手机四列，更宽时每约 88 dp 加一列，至少四列。
-        check(StickerPackModel.columns(0) == 4, "no width still gives four columns");
-        check(StickerPackModel.columns(320) == 4 && StickerPackModel.columns(360) == 4
-            && StickerPackModel.columns(412) == 4, "portrait phones show four columns");
-        check(StickerPackModel.columns(440) == 5, "a wider panel adds a column per 88 dp");
-        check(StickerPackModel.columns(704) == 8 && StickerPackModel.columns(800) == 9, "landscape and tablets add columns");
+        // 竖屏手机五列，更宽时每约 72 dp 加一列，至少五列。
+        check(StickerPackModel.columns(0) == 5, "no width still gives five columns");
+        check(StickerPackModel.columns(320) == 5 && StickerPackModel.columns(360) == 5
+            && StickerPackModel.columns(412) == 5, "portrait phones show five columns");
+        check(StickerPackModel.columns(432) == 6, "a wider panel adds a column per 72 dp");
+        check(StickerPackModel.columns(704) == 9 && StickerPackModel.columns(800) == 11, "landscape and tablets add columns");
+
+        // 底栏分类顺序：表情包排第一（在「最近」之前），默认选中它；横划按同一顺序走，两端不回绕。
+        int emojiCategories = 10;
+        int stickerCategory = StickerPackModel.category(emojiCategories);
+        int recents = StickerPackModel.RECENTS_CATEGORY;
+        int none = StickerPackModel.NO_CATEGORY;
+        check(stickerCategory == emojiCategories && stickerCategory >= 0,
+            "the sticker category id follows the emoji categories");
+        check(List.of(StickerPackModel.category(3), recents, 0, 1, 2).equals(StickerPackModel.categoryOrder(true, true, 3)),
+            "stickers lead, then recents and the emoji categories");
+        check(List.of(StickerPackModel.category(3), 0, 1, 2).equals(StickerPackModel.categoryOrder(true, false, 3)),
+            "without recents the stickers are followed by the first emoji category");
+        check(List.of(recents, 0, 1, 2).equals(StickerPackModel.categoryOrder(false, true, 3))
+            && List.of(0, 1, 2).equals(StickerPackModel.categoryOrder(false, false, 3)),
+            "without a sticker manifest the original order stays");
+        check(StickerPackModel.defaultCategory(true, true, emojiCategories) == stickerCategory
+            && StickerPackModel.defaultCategory(true, false, emojiCategories) == stickerCategory,
+            "the sticker pack is selected when the panel opens");
+        check(StickerPackModel.defaultCategory(false, true, emojiCategories) == recents
+            && StickerPackModel.defaultCategory(false, false, emojiCategories) == 0,
+            "without stickers the panel opens on recents, or the first emoji category");
+        check(StickerPackModel.swipeCategory(stickerCategory, 1, true, true, emojiCategories) == recents
+            && StickerPackModel.swipeCategory(recents, 1, true, true, emojiCategories) == 0
+            && StickerPackModel.swipeCategory(0, -1, true, true, emojiCategories) == recents
+            && StickerPackModel.swipeCategory(recents, -1, true, true, emojiCategories) == stickerCategory,
+            "swiping walks stickers, recents and the emoji categories in tab order");
+        check(StickerPackModel.swipeCategory(stickerCategory, 1, true, false, emojiCategories) == 0
+            && StickerPackModel.swipeCategory(0, -1, true, false, emojiCategories) == stickerCategory,
+            "without recents the stickers sit next to the first emoji category");
+        check(StickerPackModel.swipeCategory(stickerCategory, -1, true, true, emojiCategories) == none
+            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, true, true, emojiCategories) == none,
+            "swiping does not wrap at either end");
+        check(StickerPackModel.swipeCategory(0, -1, false, false, emojiCategories) == none
+            && StickerPackModel.swipeCategory(0, -1, false, true, emojiCategories) == recents
+            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, false, true, emojiCategories) == none,
+            "without stickers the original swipe bounds stay");
+        check(StickerPackModel.swipeCategory(recents, 1, true, false, emojiCategories) == none
+            && StickerPackModel.swipeCategory(stickerCategory, 1, false, true, emojiCategories) == none
+            && StickerPackModel.swipeCategory(none, 1, true, true, emojiCategories) == none,
+            "a category missing from the tab bar does not swipe");
         check(StickerPackModel.thumbnailEdge(270, 12) == 246, "cell minus padding on both sides");
         check(StickerPackModel.thumbnailEdge(10, 12) == 1 && StickerPackModel.thumbnailEdge(10, -3) == 10,
             "thumbnail edge stays positive and ignores negative padding");
@@ -101,8 +141,8 @@ public final class StickerPackModelSmoke {
         check("水杉娘 开心".equals(StickerPackModel.description(pack, happy)), "cell description names pack and meaning");
         check("已复制水杉娘「开心」，长按输入框粘贴发送".equals(StickerPackModel.copiedNotice(pack, happy)),
             "clipboard fallback notice");
-        check(StickerPackModel.gridDescription(4).startsWith("表情网格；")
-            && StickerPackModel.gridDescription(4).contains("4"), "grid description shares the emoji grid prefix");
+        check(StickerPackModel.gridDescription(5).startsWith("表情网格；")
+            && StickerPackModel.gridDescription(5).contains("5"), "grid description shares the emoji grid prefix");
         check("水杉娘 · 2 张表情".equals(StickerPackModel.status(pack)), "status counts stickers");
         check("水杉娘表情包".equals(StickerPackModel.TAB_DESCRIPTION), "tab description");
 

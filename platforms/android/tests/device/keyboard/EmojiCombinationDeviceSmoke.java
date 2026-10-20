@@ -35,6 +35,9 @@ public final class EmojiCombinationDeviceSmoke extends DeviceSmoke {
         stage = "recent combinations survive restart";
         openEditor();
         physicalTap("表情");
+        // 面板默认打开水杉娘表情包，「最近」排在它后面。
+        await(described("水杉娘表情包").and(AccessibilityNodeInfo::isSelected));
+        physicalTap("表情分类 最近");
         await(described("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
         await(described("按键 表情 " + LONG));
         physicalTap("按键 表情 " + SHORT);

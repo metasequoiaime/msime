@@ -8,10 +8,13 @@ import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** 表情面板的分类布局、真实滑动、分页和上屏设备验收。 */
+/** 表情面板的分类布局、默认的水杉娘表情包、真实滑动、分页和上屏设备验收。 */
 public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
+    /** 表情包分类签的无障碍描述（StickerPackModel.TAB_DESCRIPTION）；APK 总是带着表情包，所以它一定在。 */
+    private static final String STICKER_TAB = "水杉娘表情包";
+
     @Override protected String successDescription() {
-        return "category width, horizontal gestures, vertical pages, insertion, deletion, recents and restart";
+        return "category width, sticker pack first and default, horizontal gestures, vertical pages, insertion, deletion, recents and restart";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -44,6 +47,14 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         if (categoryBounds.width() < panelBounds.width() - chromeWidth)
             throw new AssertionError("Emoji categories did not receive the freed return-key width");
 
+        stage = "sticker pack is the first and default category";
+        AccessibilityNodeInfo firstTab = await(description("表情分类")).getChild(0);
+        if (firstTab == null || !equalsText(STICKER_TAB, firstTab.getContentDescription()))
+            throw new AssertionError("The sticker pack was not the first emoji category");
+        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
+        // Pixel 6 竖屏：一行五格。
+        await(description("表情网格；" + STICKER_TAB + "，每行 5 个"));
+
         stage = "emoji category navigation";
         tap(description("表情分类 笑脸"));
         await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
@@ -71,12 +82,16 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(emojiCount(value -> value > 0));
         assertEditorText(beforeSwipe);
         stage = "first category and recents boundary";
+        // 往右划依次经过「最近」（有记录时）到第一个分类表情包，再划不回绕，也不发出表情包。
         boolean hasRecents = find(await(description("表情面板")), description("表情分类 最近")) != null;
-        String firstCategory = hasRecents ? "最近" : "笑脸";
+        if (hasRecents) {
+            swipe(1, false);
+            await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
+        }
         swipe(1, false);
-        await(description("表情分类 " + firstCategory).and(AccessibilityNodeInfo::isSelected));
+        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
         swipe(1, false);
-        await(description("表情分类 " + firstCategory).and(AccessibilityNodeInfo::isSelected));
+        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
         assertEditorText(beforeSwipe);
         tap(description("表情分类 笑脸"));
         stage = "cancelled horizontal gesture keeps category";
@@ -132,14 +147,14 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
 
         stage = "emoji recent entry";
         tap(description("表情"));
-        await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
+        openRecents();
         stage = "emoji deletion";
         tap(description("删除"));
         tap(description("返回键盘"));
         await(field("msime-test-plain").and(node -> equalsText(finishedPrefix, node.getText())));
         stage = "emoji recent insertion";
         tap(description("表情"));
-        await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
+        openRecents();
         tap(description("按键 表情 😀"));
         tap(description("返回键盘"));
         await(field("msime-test-plain").and(node -> equalsText(committedWithEmoji, node.getText())));
@@ -148,10 +163,17 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         restartIme();
         openEditor();
         tap(description("表情"));
-        await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
+        openRecents();
         await(description("按键 表情 😀").and(AccessibilityNodeInfo::isClickable));
         tap(description("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+    }
+
+    /** 有最近记录时面板仍默认打开表情包，「最近」排在它后面，要点一下才切过去。 */
+    private void openRecents() throws Exception {
+        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
+        tap(description("表情分类 最近"));
+        await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
     }
 
     private void assertEditorText(String expected) throws Exception {
