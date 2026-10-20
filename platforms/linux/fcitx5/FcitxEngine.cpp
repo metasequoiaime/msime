@@ -44,6 +44,7 @@
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
 #include "../src/candidates/NativeCanvasX11.h"
 #include "../src/candidates/ReduceMotion.h"
+#include "../../../shared/candidate/CandidateExpandedGrid.h"
 #endif
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
