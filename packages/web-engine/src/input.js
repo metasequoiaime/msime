@@ -53,7 +53,9 @@ export function attachInput(el, engine, options = {}) {
           skin: options.skin,
           layout: options.layout ?? "horizontal",
           dark: options.dark ?? "auto",
-          onPick: (slot) => pick(slot),
+          onPick: (slot, revision, text, pageStart) => send(() => engine.pick(slot, revision, text, pageStart)),
+          onPickAny: typeof engine.pickAny === "function" ? (index, revision, text) => send(() => engine.pickAny(index, revision, text)) : undefined,
+          onExpand: typeof engine.setCandidateExpansion === "function" ? (open, revision) => send(() => engine.setCandidateExpansion(open, revision)) : undefined,
           container: options.container ?? topLayerContainer(el),
         });
   let composing = false;
@@ -79,15 +81,13 @@ export function attachInput(el, engine, options = {}) {
   const send = (run) => {
     const gen = generation;
     pending += 1;
-    run()
+    return run()
       .then((frame) => apply(gen, frame))
       .catch(() => {})
       .finally(() => {
         pending -= 1;
       });
   };
-
-  const pick = (slot) => send(() => engine.pick(slot));
 
   // 光标被挪走或者文本框失焦时，丢掉正在组的字，避免上屏到别处。
   const abandon = () => {

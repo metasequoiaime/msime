@@ -158,6 +158,7 @@ def screenshot():
 
 
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
+TRANSLATION_BELOW = os.environ.get("MSIME_TEST_TRANSLATION_BELOW") == "1"
 ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
 COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
@@ -621,6 +622,46 @@ def fallback_visible(theme):
     return screenshot()[1][rgb] >= 100
 
 
+def accept_translation_below(preferences, publish, entry, control, daemon):
+    """在真实 classicui 像素中检查新增译文行与该行的鼠标命中。"""
+    assert not NATIVE and not WAYLAND and native_window() is None
+    selected, foreground = bytes((7, 91, 173)), bytes((255, 255, 255))
+
+    def selected_area():
+        image, _ = screenshot()
+        data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+        points = [(x, y) for y in range(image.get_height()) for x in range(image.get_width())
+                  if data[y * stride + x * channels:y * stride + x * channels + 3] == selected]
+        if not points:
+            return None
+        left, right = min(x for x, _ in points), max(x for x, _ in points) + 1
+        top, bottom = min(y for _, y in points), max(y for _, y in points) + 1
+        glyphs = [(x, y) for y in range(top, bottom) for x in range(left, right)
+                  if data[y * stride + x * channels:y * stride + x * channels + 3] == foreground]
+        return left, top, right, bottom, glyphs
+
+    wait(lambda: selected_area() is not None)
+    before = selected_area()
+    assert before[4], "未看到候选正文像素"
+    preferences["candidate_translations"] = True
+    publish()
+    wait(lambda: (area := selected_area()) is not None and area[3] - area[1] > before[3] - before[1] + 10)
+    after = selected_area()
+    old_top = min(y for _, y in before[4]) - before[1]
+    new_top = min(y for _, y in after[4]) - after[1]
+    assert abs(old_top - new_top) <= 1, "译文刷新移动了正文的行内位置"
+    assert any(y - after[1] >= before[3] - before[1] for _, y in after[4]), "正文下方没有译文字形"
+    save_image("translation-below")
+    assert entry.get_text() == "", "译文刷新提前上屏"
+    # 点击新增的译文行底部，命中应仍属于原候选，不落到下一项。
+    subprocess.run(["xdotool", "mousemove", str((after[0] + after[2]) // 2), str(after[3] - 3),
+                    "click", "1"], check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你好")
+    control.Exit()
+    assert daemon.wait(timeout=10) == 0
+    print("真实 classicui 译文位于正文下方，行高与译文区域点击上屏通过")
+
+
 def main():
     resources, library, addon = map(Path, sys.argv[1:4])
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -667,6 +708,10 @@ def main():
             f"[candidate_window.border_image]\nsource = '{panel_file}'\nlight_source = '{light_file}'\n"
             "slice_dip = [20]\nwidth_dip = [8]\n[candidate.light]\ntext = '#010203'\n"
             "[candidate.dark]\ntext = '#FDFCFB'\n")
+        if TRANSLATION_BELOW:
+            manifest = skin / "skin.toml"
+            # 普通基底由 classicui 绘制；canvas 基底在 X11 会被产品自身的原生窗口接管。
+            manifest.write_text(manifest.read_text().replace("base = 'canvas'", "base = 'system'"))
         if NATIVE:
             assert not WAYLAND, "原生 X11 验收不能在 Wayland 冒充通过"
             widget_name = f"widget.{FORMAT}" if ANIMATION else "widget.png"
@@ -687,6 +732,10 @@ def main():
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
+        if TRANSLATION_BELOW:
+            preferences.update(candidate_translations=False, candidate_english_gloss=False, candidate_font_size=20)
+            options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)
+            (root / "translation.txt").write_text("MMMMMMMMMMMM")
         if NATIVE:
             preferences["navigation"]["mouse_wheel"] = True
             # 固定合成字号，避免默认偏好借用桌面字体后，改字号再恢复变成首次显式设置。
@@ -694,6 +743,8 @@ def main():
             options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)
         preferences["custom_theme"].update(base="system", candidate_skin="canvas-fixture",
                                            candidate_skin_dark="canvas-fixture")
+        if TRANSLATION_BELOW:
+            preferences["custom_theme"]["candidate_colors"] = {"selected": "#075BAD", "text": "#010203"}
 
         def publish():
             store = options["preferences_directory"].encode()
@@ -788,9 +839,13 @@ def main():
                 else:
                     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni" if NATIVE else "nihao"],
                                    check=True, timeout=5)
-                wait(lambda: palette_visible(LIGHT))
+                if not TRANSLATION_BELOW:
+                    wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
                 assert focused(), "候选窗口抢走焦点"
+                if TRANSLATION_BELOW:
+                    accept_translation_below(preferences, publish, entry, control, daemon)
+                    return
                 if ANIMATION:
                     assert NATIVE and not WAYLAND
                     accept_animation(skin, entry, control, daemon)

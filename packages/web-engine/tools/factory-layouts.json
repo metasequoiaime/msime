@@ -1,0 +1,1088 @@
+{
+  "autumn_osmanthus": {
+    "borderWidthDip": 0.0,
+    "cornerRadiusDip": 10.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 6.0,
+    "pageArrows": false,
+    "vertical": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "canvas": {
+    "borderWidthDip": 0.0,
+    "cornerRadiusDip": 0.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 4.0,
+    "pageArrows": false,
+    "shadow": "none",
+    "vertical": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "fluent": {
+    "borderWidthDip": 1.5,
+    "cornerRadiusDip": 6.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 4.0,
+    "pageArrows": false,
+    "vertical": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "graphite": {
+    "borderWidthDip": 1.0,
+    "cornerRadiusDip": 3.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 2.0,
+    "pageArrows": false,
+    "vertical": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "microsoft": {
+    "borderWidthDip": 1.0,
+    "cornerRadiusDip": 8.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": true,
+        "value": 0.24
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": true,
+        "value": 0.3
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": true,
+        "value": 0.2
+      },
+      "numberInset": {
+        "em": true,
+        "value": 0.4
+      },
+      "numberScale": 1.0,
+      "padding": {
+        "em": true,
+        "value": 0.3
+      },
+      "pageArrowStyle": "triangle",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.9,
+      "selectedBarInside": true,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": true
+    },
+    "horizontal": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": true,
+        "value": 0.24
+      },
+      "itemGap": {
+        "em": true,
+        "value": 0.15
+      },
+      "itemMinWidth": {
+        "em": true,
+        "value": 3.5
+      },
+      "itemPaddingRight": {
+        "em": true,
+        "value": 0.3
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": true,
+        "value": 0.2
+      },
+      "numberInset": {
+        "em": true,
+        "value": 0.4
+      },
+      "numberScale": 1.0,
+      "padding": {
+        "em": true,
+        "value": 0.3
+      },
+      "pageArrowStyle": "triangle",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.9,
+      "selectedBarInside": true,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": true
+    },
+    "itemCornerRadiusDip": 4.0,
+    "pageArrows": true,
+    "vertical": {
+      "itemCornersFollowCard": false,
+      "itemExtraHeight": {
+        "em": true,
+        "value": 0.24
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": true,
+        "value": 0.3
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": true,
+        "value": 0.2
+      },
+      "numberInset": {
+        "em": true,
+        "value": 0.4
+      },
+      "numberScale": 1.0,
+      "padding": {
+        "em": true,
+        "value": 0.3
+      },
+      "pageArrowStyle": "triangle",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.9,
+      "selectedBarInside": true,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": true
+    }
+  },
+  "wechat": {
+    "borderWidthDip": 1.0,
+    "cornerRadiusDip": 5.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 2.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 2.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 4.0,
+    "pageArrows": false,
+    "vertical": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 2.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "wechat_scroll": {
+    "borderWidthDip": 1.0,
+    "cornerRadiusDip": 10.0,
+    "expandPanel": true,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 6.0,
+    "pageArrows": false,
+    "shadow": "soft",
+    "vertical": {
+      "itemExtraHeight": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 2.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": false,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 5.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 5.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  },
+  "willow_green": {
+    "borderWidthDip": 0.0,
+    "cornerRadiusDip": 9.0,
+    "expandPanel": false,
+    "expandRows": 4,
+    "fitContent": false,
+    "geometry": {
+      "itemCornersFollowCard": true,
+      "itemGap": {
+        "em": false,
+        "value": 0.0
+      },
+      "justifyRows": true,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 0.0
+      },
+      "pageArrowStyle": "chevron",
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "horizontal": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 10.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 0.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 10.0
+      },
+      "justifyRows": true,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 11.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 0.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 1.0,
+        "left": 3.0,
+        "right": 5.0,
+        "top": 6.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    },
+    "itemCornerRadiusDip": 0.0,
+    "pageArrows": false,
+    "vertical": {
+      "itemCornersFollowCard": true,
+      "itemExtraHeight": {
+        "em": false,
+        "value": 8.0
+      },
+      "itemGap": {
+        "em": false,
+        "value": 0.0
+      },
+      "itemPaddingRight": {
+        "em": false,
+        "value": 14.0
+      },
+      "justifyRows": true,
+      "numberGap": {
+        "em": false,
+        "value": 1.5
+      },
+      "numberInset": {
+        "em": false,
+        "value": 14.0
+      },
+      "numberScale": 0.8,
+      "padding": {
+        "em": false,
+        "value": 0.0
+      },
+      "pageArrowStyle": "chevron",
+      "preeditMarginDip": {
+        "bottom": 2.0,
+        "left": 3.0,
+        "right": 7.0,
+        "top": 6.0
+      },
+      "selectedBarHeightEm": 0.85,
+      "selectedBarInside": false,
+      "selectedBarWidth": {
+        "em": false,
+        "value": 3.0
+      },
+      "trimHiddenPreeditGap": false
+    }
+  }
+}

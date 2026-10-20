@@ -17,13 +17,21 @@ const { createMsimeEngine } = await import(pathToFileURL(join(fixture, "index.js
 // 此用例只核对真实 Worker 的消息编号；引擎替身不执行词库、排序或按键算法。
 writeFileSync(join(fixture, "msime_engine.js"), `
   export default async function init({ module_or_path }) { await module_or_path.arrayBuffer(); return {}; }
-  export class WebEngine { free() {} }
+  export const selectionCalls = [];
+  export class WebEngine {
+    free() {}
+    keys() { return { out: [] }; }
+    pick(slot) { selectionCalls.push(["pick", slot]); return { out: [] }; }
+    pick_at(...args) { selectionCalls.push(["pick_at", ...args]); return { out: [] }; }
+    set_candidate_expansion(...args) { selectionCalls.push(["expansion", ...args]); return { out: [] }; }
+  }
   export const build_info = () => "synthetic";
   export const import_database = () => {};
   export const import_japanese_dictionary = () => {};
   export const last_panic = () => "";
 `);
 const { createWorkerHandler } = await import(pathToFileURL(join(fixture, "worker.js")).href);
+const { selectionCalls } = await import(pathToFileURL(join(fixture, "msime_engine.js")).href);
 
 class ControlledWorker extends EventTarget {
   messages = [];
@@ -52,6 +60,45 @@ async function setup(t) {
   t.after(() => engine.dispose());
   return { worker, engine };
 }
+
+test("the SDK carries candidate identity and displayed text across every selection path", async (t) => {
+  const { worker, engine } = await setup(t);
+  const calls = [engine.pick(2, "synthetic:7", "示例甲", 9), engine.pickAny(19, "synthetic:7", "示例乙"), engine.setCandidateExpansion(true, "synthetic:7")];
+  const messages = worker.messages.filter((message) => message.type !== "init");
+  assert.deepEqual(messages.map(({ seq, ...message }) => message), [
+    { type: "pick", slot: 2, revision: "synthetic:7", text: "示例甲", pageStart: 9 },
+    { type: "pickAny", index: 19, revision: "synthetic:7", text: "示例乙" },
+    { type: "expansion", open: true, revision: "synthetic:7" },
+  ]);
+  for (const message of messages) worker.reply({ type: "frame", seq: message.seq, frame: { out: [] } });
+  await Promise.all(calls);
+});
+
+test("the production Worker guards global and current-page selections before WASM conversion", async () => {
+  const replies = [];
+  const handle = createWorkerHandler((message) => replies.push(message), () => assert.fail("unexpected worker failure"));
+  await handle({ type: "init", scheme: "quanpin", assets: { wasm: { url: "data:application/octet-stream,synthetic", size: 9 } } });
+  selectionCalls.length = 0;
+  await handle({ type: "expansion", seq: 1, open: true, revision: "synthetic:4" });
+  await handle({ type: "pickAny", seq: 2, index: 24, revision: "synthetic:5", text: "示例甲" });
+  await handle({ type: "pick", seq: 3, slot: 2, revision: "synthetic:5", text: "示例乙", pageStart: 9 });
+  await handle({ type: "pick", seq: 4, slot: 1 });
+  for (const index of [-1, 1.5, NaN, 0x100000000]) {
+    await handle({ type: "pickAny", seq: 5, index, revision: "synthetic:5", text: "示例甲" });
+    await handle({ type: "pick", seq: 6, slot: index, revision: "synthetic:5", text: "示例甲", pageStart: 0 });
+    await handle({ type: "pick", seq: 7, slot: index });
+  }
+  for (const revision of [null, 4, {}]) {
+    await handle({ type: "pick", seq: 8, slot: 0, revision, text: "示例甲", pageStart: 0 });
+  }
+  assert.deepEqual(selectionCalls, [
+    ["expansion", true, "synthetic:4"],
+    ["pick_at", 24, "synthetic:5", "示例甲", true],
+    ["pick_at", 2, "synthetic:5", "示例乙", false, 9],
+    ["pick", 1],
+  ]);
+  assert.equal(replies.filter((reply) => reply.type === "frame").length, 19);
+});
 
 test("concurrent scheme switches each wait for their own ready reply", async (t) => {
   const { worker, engine } = await setup(t);

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { AiAssistantPreferences } from "./ai-assistant-preferences";
 import type { SettingsClient } from "../core/settings-client";
 import type { useProviderCredentials } from "./use-provider-credentials";
-import { AI_PROVIDER_OPTIONS, aiProviderOption } from "./ai-provider-options";
+import { aiProviderOption, aiProviderOptionsFor, aiProviderUsesToken } from "./ai-provider-options";
 import { aiProviderUpdate } from "./ai-provider-update";
 import {
   aiCredentialTestDisabled,
@@ -129,7 +129,10 @@ export function AiSettingsContent({
             : "为拼音联想提供共享配置"
       }
       provider={ai.provider}
-      providerOptions={AI_PROVIDER_OPTIONS}
+      providerOptions={aiProviderOptionsFor(
+        Boolean(windowsPlatform || macosPlatform || linuxPlatform),
+        ai.provider,
+      )}
       model={ai.model}
       presetModels={aiProviderOption(ai.provider)?.models ?? []}
       endpoint={ai.endpoint}
@@ -142,8 +145,9 @@ export function AiSettingsContent({
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
       onModelChange={(model) => updateAi({ model })}
       onEndpointChange={(endpoint) => updateAi({ endpoint })}
+      // 不鉴权的服务（Ollama）没有 Token 可填，整块不显示；Linux 的 provider 直接用页面上的地址和模型。
       credentialSection={
-        linuxPlatform && client.providerCredentials ? (
+        !aiProviderUsesToken(ai.provider) ? null : linuxPlatform && client.providerCredentials ? (
           <AiCredentialSection
             endpoint={ai.endpoint}
             model={ai.model}

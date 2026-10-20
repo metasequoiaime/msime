@@ -4068,7 +4068,7 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
        msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 3 ? "  🤖" : "") +
       (!hanjaGloss.empty() || !annotations || candidate.value("annotation", std::string()).empty() ? "" :
        "  " + candidate.at("annotation").get<std::string>()));
-  // A Hanja row's 훈음 takes the translation's place after the candidate whatever the translation settings say, and the classic UI sets it in italics, so it reads as the row's secondary gloss rather than as part of the Hanja; a Fcitx5 panel has no second line for it. It is display text only, which DontCommit states as well: the row is chosen by index.
+  // 训音不受翻译开关影响，紧跟汉字并以斜体标作次要释义；它只供显示，选词仍按候选身份。
   if (!hanjaGloss.empty())
     row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
                                                          fcitx::TextFormatFlag::DontCommit});
@@ -4076,7 +4076,8 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
   if (candidate.contains("translation") && candidate.at("translation").is_string()) {
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
-    row.append("  " + display.translation);
+    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。
+    if (!display.translation.empty()) row.append("\n" + display.translation);
   }
   // 脚本插件的注释排在整行最后，单独一段：不受辅助码设置影响，不做繁体转换（那是插件自己写的文字），只供显示，所以和训音一样标 DontCommit。
   const auto scriptAnnotation = msime::linux_host::candidate_script_annotation(candidate);

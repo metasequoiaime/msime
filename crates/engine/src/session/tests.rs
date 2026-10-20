@@ -314,6 +314,46 @@ fn index_of(session: &Session, word: &str) -> usize {
         .unwrap_or_else(|| panic!("{word} is not a candidate of {:?}", words(session)))
 }
 
+#[test]
+fn quanpin_retroflex_selection_consumes_raw_letters_and_learns_canonical_reading() {
+    for (input, word, rest, canonical, caret) in [
+        ("shdx", "上海大学", "", "shang'hai'da'xue", None),
+        ("zhg", "中国", "", "zhong'guo", None),
+        ("shdxni", "上海大学", "ni", "shang'hai'da'xue", None),
+        ("shdxni", "上海大学", "ni", "shang'hai'da'xue", Some(4)),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_4_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_4_s VALUES('shang''hai''da''xue','shdx','上海大雪',11000),('shang''hai''da''xue','shdx','上海大学',10000);\
+CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_z VALUES('zhong''guo','zg','忠国',11000),('zhong''guo','zg','中国',9000);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
+        );
+        let mut session = fixture.session_with(|options| {
+            options.helpcode = false;
+            options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        });
+        type_text(&mut session, input);
+        if let Some(caret) = caret {
+            session.set_caret(Some(caret));
+        }
+        let index = index_of(&session, word);
+        assert!(index > 0, "调频回归需要明确选择非首选词");
+        let row = &session.snapshot().candidates[index];
+        assert_eq!(row.canonical_pinyin, canonical);
+        assert_eq!(row.pinyin.replace('\'', "").len(), input.len() - rest.len());
+        assert_eq!(session.select(index).commit.as_deref(), Some(word));
+        assert_eq!(session.snapshot().editing_text, rest);
+        let journal = Connection::open(fixture.journal()).unwrap();
+        let learned: i64 = journal.query_row(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key=?1 AND value=?2 AND operation<>'delete'",
+            [canonical, word], |row| row.get(0),
+        ).unwrap();
+        assert!(learned > 0, "简拼选择未按标准读音学习");
+    }
+}
+
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
     let index = index_of(session, word);
     session.select(index)

@@ -365,6 +365,20 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 .candidate-body { display: flex; position: relative; z-index: 1; }
 .candidate-body > .candidate-items { flex: 1; min-width: 0; }
 .candidate-body > .paging-row { flex: none; align-items: flex-end; }
+.expand-toggle {
+  flex: none; align-self: stretch; width: 20px; border: 0; padding: 0;
+  background: transparent; color: var(--cand-num); font: inherit; cursor: pointer;
+}
+.expand-toggle:hover { color: var(--cand-text); }
+.candidate[data-expanded] .container { width: min(50vw, var(--msime-max-width)); }
+.expanded-viewport {
+  position: relative; z-index: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  margin-top: var(--msime-skin-horizontal-gap, 0px);
+  scrollbar-width: thin; scrollbar-color: var(--cand-num) transparent;
+}
+.expanded-grid { display: grid; grid-template-columns: repeat(var(--msime-expand-columns, 1), minmax(0, 1fr)); }
+.expanded-grid .expanded-candidate { box-sizing: border-box; min-width: 0; margin: 0; overflow: hidden; }
+.expanded-grid .cand-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- 候选 ---- */
 .row-wrapper {
@@ -598,9 +612,9 @@ function nineSlice(imageWidth, imageHeight, width, height, border) {
 function px(node, key, value) { node.style.setProperty(key, `${value}px`); }
 
 /**
- * 创建一个候选栏。skin 是内置皮肤 id、皮肤对象或 undefined（默认皮肤），见 skin.js 的 resolveSkin；layout 为 "horizontal" 或 "vertical"；dark 为 "auto"（跟随 prefers-color-scheme）、true 或 false；点击第 i 个候选时调用 onPick(i)；helpcode 为 true 时在候选后显示编码；帧里有辅助码提示（page[i].hint）时总是显示提示。皮肤 id 未知时抛 TypeError。
+ * 创建一个候选栏。skin 是内置皮肤 id、皮肤对象或 undefined（默认皮肤），见 skin.js 的 resolveSkin；layout 为 "horizontal" 或 "vertical"；dark 为 "auto"（跟随 prefers-color-scheme）、true 或 false。当前页点击调用 onPick(i, revision, text, pageStart)，展开网格点击调用 onPickAny(i, revision, text)；onExpand 接收开关与列表身份，随后用引擎返回的帧重画。helpcode 为 true 时在候选后显示编码；帧里的辅助码提示总是显示。皮肤 id 未知时抛 TypeError。
  */
-export function createCandidateBar({ skin, layout = "horizontal", dark = "auto", onPick, container = document.body, helpcode = false } = {}) {
+export function createCandidateBar({ skin, layout = "horizontal", dark = "auto", onPick, onPickAny, onExpand, container = document.body, helpcode = false } = {}) {
   const doc = container.ownerDocument ?? document;
   const view = doc.defaultView ?? globalThis;
   const sheet = sheetFor(doc);
@@ -621,6 +635,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   let hideTimer = null;
   // 上一帧高亮的格位，隐藏时清空：每帧都重建候选行，只有高亮换了格才给新高亮那一行挂选中动效，打字不会重放。
   let shownHighlight = null;
+  let gridIdentity = null;
+  let gridLimit = 300;
+  let gridNodes = [];
+  let expansionRequest = null;
 
   const isDark = (value) => (value === "auto" ? Boolean(media?.matches) : value);
   let resolved = resolveSkin(skinArg, { dark: isDark(darkArg), layout: layoutArg });
@@ -664,14 +682,54 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.dataset.hover = "";
   };
   const onClick = (e) => {
+    const toggle = e.target instanceof view.Element ? e.target.closest(".expand-toggle") : null;
+    if (toggle && root.contains(toggle) && !toggle.disabled) {
+      const request = {};
+      const open = !Array.isArray(frame?.allCandidates);
+      const revision = frame?.candidateRevision;
+      expansionRequest = request;
+      toggle.disabled = true;
+      Promise.resolve().then(() => {
+        if (!destroyed && expansionRequest === request) return onExpand?.(open, revision);
+      })
+        .catch(() => {})
+        .finally(() => {
+          if (expansionRequest !== request) return;
+          expansionRequest = null;
+          const current = root.querySelector(".expand-toggle");
+          if (current) current.disabled = false;
+        });
+      return;
+    }
     const cand = e.target instanceof view.Element ? e.target.closest(".cand") : null;
     if (!cand || !root.contains(cand)) return;
     const index = Number(cand.dataset.index);
-    if (Number.isInteger(index)) onPick?.(index);
+    if (!Number.isInteger(index)) return;
+    const callback = cand.hasAttribute("data-global") ? onPickAny : onPick;
+    if (cand.hasAttribute("data-global")) callback?.(index, cand.dataset.revision, cand.dataset.text);
+    else callback?.(index, cand.dataset.revision, cand.dataset.text, Number(cand.dataset.pageStart));
   };
   root.addEventListener("mousedown", onMouseDown);
   root.addEventListener("pointermove", onPointerMove);
   root.addEventListener("click", onClick);
+  const onScroll = (e) => {
+    const viewport = e.target;
+    if (!viewport.classList?.contains("expanded-viewport") || !frame) return;
+    const remaining = frame.allCandidates?.length - (frame.pageStart + frame.page.length);
+    if (gridLimit < remaining && viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 40) {
+      gridLimit += 300;
+      draw();
+    }
+  };
+  const onWheel = (e) => {
+    const viewport = card.querySelector(".expanded-viewport");
+    if (!viewport || e.ctrlKey || !e.deltaY) return;
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? viewport.clientHeight : 1;
+    viewport.scrollTop += e.deltaY * unit;
+  };
+  root.addEventListener("scroll", onScroll, true);
+  root.addEventListener("wheel", onWheel, { passive: false });
 
   const reduced = () => Boolean(motionMedia?.matches);
   const setPalette = (active) => {
@@ -772,7 +830,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.toggleAttribute("data-font-family", Boolean(resolved.geometry.fontFamily));
     root.toggleAttribute("data-fit-content", geometry?.fitContent === true);
     root.toggleAttribute("data-justify-rows", geometry?.justifyRows === true);
-    if (geometry?.shadow != null) root.dataset.shadow = geometry.shadow;
+    if (geometry) root.dataset.shadow = geometry.shadow ?? "default";
     else delete root.dataset.shadow;
     if (resolved.geometry.layout) root.style.setProperty("--msime-skin-number-column", "9px");
     else root.style.removeProperty("--msime-skin-number-column");
@@ -817,6 +875,15 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
 
     const pinyin = element(doc, "div", "row pinyin", PARTS.preedit);
     const geometry = resolved.geometry.layout;
+    const expandable = resolved.layout === "horizontal" && geometry?.expandPanel === true
+      && typeof onExpand === "function" && typeof onPickAny === "function" && typeof frame.candidateRevision === "string";
+    const expanded = expandable && Array.isArray(frame.allCandidates);
+    root.toggleAttribute("data-expanded", expanded);
+    const identity = expanded ? `${frame.candidateRevision}:${frame.pageStart}` : null;
+    const oldScroll = identity === gridIdentity ? card.querySelector(".expanded-viewport")?.scrollTop ?? 0 : 0;
+    if (identity !== gridIdentity) gridLimit = 300;
+    gridIdentity = identity;
+    gridNodes = [];
     const preeditHidden = Boolean(geometry) && !String(frame.preedit ?? "");
     pinyin.hidden = preeditHidden;
     root.toggleAttribute("data-trim-preedit", preeditHidden && (geometry.trimHiddenPreeditGap === true || geometry.itemCornersFollowCard === true));
@@ -824,7 +891,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     reading.append(String(frame.preedit ?? ""), element(doc, "span", "cursor", PARTS.caret));
     pinyin.append(reading);
     let pager = null;
-    if ((frame.hasPrev || frame.hasNext) && geometry?.pageArrows !== false) {
+    if (!expandable && (frame.hasPrev || frame.hasNext) && geometry?.pageArrows !== false) {
       const paging = element(doc, "div", "paging", PARTS.paging);
       paging.setAttribute("aria-hidden", "true");
       const prev = element(doc, "span", "page-prev");
@@ -850,6 +917,9 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       wrapper.style.setProperty("--msime-candidate-row-index", String(index));
       const cand = element(doc, "div", highlighted ? "row cand first" : "row cand", highlighted ? `${PARTS.candidate} ${PARTS.highlight}` : PARTS.candidate);
       cand.dataset.index = String(index);
+      if (typeof frame.candidateRevision === "string") cand.dataset.revision = frame.candidateRevision;
+      cand.dataset.text = String(item?.text ?? "");
+      cand.dataset.pageStart = String(frame.pageStart ?? 0);
       if (highlighted && shownHighlight !== null && shownHighlight !== index) cand.dataset.selecting = "";
       cand.setAttribute("role", "option");
       cand.setAttribute("aria-selected", String(highlighted));
@@ -871,19 +941,92 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       if (items) items.append(wrapper);
       else rows.push(wrapper);
     });
-    if (items && pager && !vertical) {
+    if (items && (pager || expandable) && !vertical) {
       // 横排为箭头保留右侧窄列；竖排仍在列表下方另起一行。
       const body = element(doc, "div", "candidate-body");
-      body.append(items, pager);
+      body.append(items);
+      if (pager) body.append(pager);
+      if (expandable) {
+        const toggle = element(doc, "button", "expand-toggle");
+        toggle.type = "button";
+        toggle.setAttribute("aria-label", expanded ? "收起候选" : "展开候选");
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.disabled = expansionRequest !== null;
+        toggle.textContent = expanded ? "∧" : "∨";
+        body.append(toggle);
+      }
       rows.push(body);
     } else {
       if (items) rows.push(items);
       if (pager) rows.push(pager);
     }
+    if (expanded) {
+      const viewport = element(doc, "div", "expanded-viewport");
+      const grid = element(doc, "div", "expanded-grid");
+      viewport.setAttribute("aria-label", "更多候选");
+      const start = frame.pageStart + page.length;
+      const all = frame.allCandidates;
+      for (let index = start; index < Math.min(all.length, start + gridLimit); index += 1) {
+        const item = all[index];
+        const cand = element(doc, "div", "row cand expanded-candidate", PARTS.candidate);
+        cand.dataset.global = "";
+        cand.dataset.index = String(index);
+        cand.dataset.revision = frame.candidateRevision;
+        cand.dataset.text = String(item?.text ?? "");
+        cand.setAttribute("role", "option");
+        cand.setAttribute("aria-selected", "false");
+        const text = element(doc, "div", "text");
+        const content = element(doc, "span", "cand-content", PARTS.text);
+        content.textContent = cand.dataset.text;
+        const note = item?.hint ? String(item.hint) : helpcode && item?.code ? `(${item.code})` : "";
+        if (note) {
+          const code = element(doc, "span", "cand-helpcode", PARTS.code);
+          code.textContent = note;
+          content.append(code);
+        }
+        text.append(content);
+        cand.append(text);
+        grid.append(cand);
+        gridNodes.push(cand);
+      }
+      viewport.append(grid);
+      rows.push(viewport);
+    }
     card.replaceChildren(...rows);
     shownHighlight = Number.isInteger(frame.highlight) && frame.highlight >= 0 && frame.highlight < page.length ? frame.highlight : null;
     root.hidden = false;
     place();
+    const viewport = card.querySelector(".expanded-viewport");
+    if (viewport) viewport.scrollTop = oldScroll;
+  };
+
+  const layoutExpanded = (viewportHeight) => {
+    const viewport = card.querySelector(".expanded-viewport");
+    if (!viewport) return;
+    const first = card.querySelector(".candidate-items .cand");
+    const style = view.getComputedStyle(first ?? card);
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const rowHeight = first?.getBoundingClientRect().height || 1.35 * fontSize;
+    const header = card.querySelector(".candidate-body");
+    const preedit = card.querySelector(".pinyin");
+    const cardStyle = view.getComputedStyle(card);
+    const overhead = (header?.offsetHeight ?? 0) + (preedit?.offsetHeight ?? 0)
+      + parseFloat(cardStyle.paddingTop) + parseFloat(cardStyle.paddingBottom) + 2 * MARGIN + 4;
+    px(viewport, "max-height", Math.max(0, Math.min(rowHeight * (resolved.geometry.layout.expandRows ?? 4), viewportHeight - overhead)));
+    const columns = Math.max(1, Math.min(frame.pageSize || frame.page.length || 1, Math.floor(viewport.clientWidth / (2.6 * fontSize))));
+    root.style.setProperty("--msime-expand-columns", String(columns));
+    const measure = doc.createElement("canvas").getContext("2d");
+    if (measure) measure.font = style.font;
+    const content = first?.querySelector(".cand-content");
+    const inset = content ? content.getBoundingClientRect().left - first.getBoundingClientRect().left : 0;
+    const cell = viewport.clientWidth / columns;
+    for (const node of gridNodes) {
+      const text = node.querySelector(".text");
+      px(text, "padding-left", inset);
+      const width = (measure?.measureText(node.textContent).width ?? fontSize * node.textContent.length) + inset + 4;
+      node.style.setProperty("grid-column", `span ${Math.max(1, Math.min(columns, Math.ceil(width / cell)))}`);
+      px(node, "min-height", rowHeight);
+    }
   };
 
   // 与 macOS 候选窗（CandidatePanel.mm）一致：整个候选栏（含装饰带）放在锚点正下方，下面放不下时翻到锚点上方，再夹在视口里。纵排时用这次组字里最高的一页决定上下，翻页时不会因为某页变高而跳到另一侧。
@@ -895,6 +1038,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.style.setProperty("--msime-max-width", `${Math.max(0, vw - 2 * MARGIN - (outer?.left ?? 0) - (outer?.right ?? 0))}px`);
     root.style.setProperty("left", "0px");
     root.style.setProperty("top", "0px");
+    layoutExpanded(vh);
     layoutCanvas();
     const { width, height } = root.getBoundingClientRect();
     const items = card.querySelector(".candidate-items");
@@ -938,6 +1082,14 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     const nextLayout = "layout" in next ? checkLayout(next.layout) : layoutArg;
     const nextDark = "dark" in next ? checkDark(next.dark) : darkArg;
     resolved = resolveSkin(nextSkin, { dark: isDark(nextDark), layout: nextLayout });
+    if (frame?.allCandidates && (resolved.layout !== "horizontal" || resolved.geometry.layout?.expandPanel !== true)) {
+      const revision = frame.candidateRevision;
+      Promise.resolve().then(() => {
+        if (!destroyed && frame?.allCandidates && (resolved.layout !== "horizontal" || resolved.geometry.layout?.expandPanel !== true)) {
+          return onExpand?.(false, revision);
+        }
+      }).catch(() => {});
+    }
     skinArg = nextSkin;
     layoutArg = nextLayout;
     darkArg = nextDark;
@@ -969,6 +1121,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     frame = null;
     anchor = null;
     shownHighlight = null;
+    gridIdentity = null;
+    gridNodes = [];
+    expansionRequest = null;
+    delete root.dataset.expanded;
     root.hidden = true;
     delete root.dataset.exiting;
     delete root.dataset.entering;
@@ -1022,6 +1178,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       root.removeEventListener("mousedown", onMouseDown);
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("click", onClick);
+      root.removeEventListener("scroll", onScroll, true);
+      root.removeEventListener("wheel", onWheel);
       decoration.removeEventListener("error", onImageError);
       background.removeEventListener("error", onImageError);
       host.remove();

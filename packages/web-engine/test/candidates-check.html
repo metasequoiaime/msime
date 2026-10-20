@@ -17,6 +17,7 @@
       import { attachInput } from "../src/input.js";
       import { KeyKind, packKey } from "../src/keys.js";
       import { resolveSkin } from "../src/skin.js";
+      import { factoryLayouts } from "../src/theme-catalog.js";
 
       const log = document.getElementById("log");
       const failures = [];
@@ -316,7 +317,8 @@
         equal(getComputedStyle(root.querySelector(".pinyin .text")).color, rgb("#FFC4DC"), "preedit colour slot");
         equal(card.dataset.background, undefined, "panel takes priority over the legacy background image");
         equal(getComputedStyle(card).paddingLeft, "20px", "content insets from the panel edge");
-        equal(getComputedStyle(root.querySelector(".pinyin")).marginBottom, "6px", "line gap");
+        check(Math.abs(root.querySelector(".candidate-items").getBoundingClientRect().top
+          - root.querySelector(".pinyin").getBoundingClientRect().bottom - 6) < 1, "canvas final line gap remains six pixels with factory layout");
         const box = card.getBoundingClientRect();
         const all = root.getBoundingClientRect();
         equal(box.left - all.left, 16, "outer left inset affects the popup bounds");
@@ -540,10 +542,188 @@
         }
       }
 
+      async function expandedCandidates() {
+        current = "expanded candidate panel";
+        const all = Array.from({ length: 640 }, (_, i) => ({ text: i === 10 ? "合成长候选需要跨越几个格子" : `示例${i}`, code: "", hint: "" }));
+        const anchor = { left: 20, top: 20, bottom: 40 };
+        const initial = { ...composingFrame("n", all.slice(0, 9).map((r) => r.text)), candidateRevision: "synthetic:1", pageStart: 0, pageSize: 9, allCandidates: null };
+        const opened = { ...initial, candidateRevision: "synthetic:2", allCandidates: all };
+        const picks = [], pagePicks = [], expansions = [];
+        const skin = { resolvedLayout: { expandPanel: true, expandRows: 2, pageArrows: true, horizontal: { itemExtraHeight: { value: 8, em: false } } } };
+        let bar;
+        bar = createCandidateBar({ skin, onPick: (...args) => pagePicks.push(args), onPickAny: (...args) => picks.push(args),
+          onExpand: (open, revision) => {
+            expansions.push([open, revision]);
+            bar.render(open ? opened : { ...opened, allCandidates: null }, anchor);
+          } });
+        bar.render(initial, anchor);
+        const root = parts(bar.element).root;
+        check(root.querySelector(".expand-toggle"), "horizontal expansion has a toggle");
+        check(!root.querySelector(".paging"), "expansion replaces page arrows on the first row");
+        root.querySelector(".expand-toggle").click();
+        await tick();
+        equal(JSON.stringify(expansions[0]), JSON.stringify([true, "synthetic:1"]), "toggle carries the displayed identity");
+        equal(root.querySelector(".expand-toggle").getAttribute("aria-expanded"), "true", "toggle reflects the returned frame");
+        let viewport = root.querySelector(".expanded-viewport");
+        equal(root.querySelectorAll(".expanded-candidate").length, 300, "first render is bounded to one batch");
+        equal(root.querySelector(".expanded-candidate").dataset.index, "9", "grid starts after the current page");
+        equal(root.querySelector(".expanded-candidate .num"), null, "expanded rows do not repeat page numbers");
+        check(parseInt(root.querySelector('[data-global][data-index="10"]').style.gridColumn.split(" ").pop(), 10) > 1, "long text spans multiple cells");
+        const height = root.querySelector(".candidate-items .cand").getBoundingClientRect().height;
+        check(Math.abs(root.querySelector(".expanded-candidate").getBoundingClientRect().height - height) < 1, "grid rows count extra height only once");
+        check(Math.abs(viewport.clientHeight - 2 * height) < 2, "expandRows controls visible grid height");
+        check(viewport.scrollHeight > viewport.clientHeight, "the complete list really scrolls");
+        viewport.scrollTop = viewport.scrollHeight;
+        viewport.dispatchEvent(new Event("scroll"));
+        viewport = root.querySelector(".expanded-viewport");
+        equal(root.querySelectorAll(".expanded-candidate").length, 600, "scrolling loads a second batch");
+        check(viewport.scrollTop > 0, "batch append keeps the scroll position");
+        viewport.scrollTop = viewport.scrollHeight;
+        viewport.dispatchEvent(new Event("scroll"));
+        equal(root.querySelectorAll(".expanded-candidate").length, 631, "scrolling can reach the real final row");
+        equal(root.querySelector('[data-global][data-index="639"]').dataset.text, "示例639", "the last node keeps its actual global seat");
+        root.querySelector('[data-global][data-index="20"]').click();
+        equal(JSON.stringify(picks[0]), JSON.stringify([20, "synthetic:2", "示例20"]), "grid selection carries global seat, identity and original text");
+        root.querySelector('.candidate-items [data-index="1"]').click();
+        equal(JSON.stringify(pagePicks[0]), JSON.stringify([1, "synthetic:2", "示例1", 0]), "first row retains page-local selection");
+        bar.render({ ...opened, candidateRevision: "synthetic:3" }, anchor);
+        equal(root.querySelector(".expanded-viewport").scrollTop, 0, "new identity resets scroll position");
+        equal(root.querySelectorAll(".expanded-candidate").length, 300, "new identity resets the batch");
+        const wheel = new WheelEvent("wheel", { deltaY: 24, bubbles: true, cancelable: true });
+        root.dispatchEvent(wheel);
+        check(wheel.defaultPrevented && root.querySelector(".expanded-viewport").scrollTop > 0, "wheel over the first row scrolls the panel without scrolling the page");
+        const beforeLayoutSwitch = expansions.length;
+        bar.setLayout("vertical");
+        bar.setLayout("horizontal");
+        await tick();
+        equal(expansions.length, beforeLayoutSwitch, "a superseded layout update does not close the restored panel");
+        bar.setLayout("vertical");
+        await tick();
+        check(!root.querySelector(".expand-toggle") && !root.querySelector(".expanded-viewport"), "vertical layout never draws the panel");
+        equal(JSON.stringify(expansions.at(-1)), JSON.stringify([false, "synthetic:3"]), "changing to vertical releases the engine expansion");
+        bar.setLayout("horizontal");
+        bar.render(opened, anchor);
+        root.querySelector(".expand-toggle").click();
+        await tick();
+        check(!root.querySelector(".expanded-viewport"), "collapse removes the grid");
+        bar.destroy();
+        const legacy = createCandidateBar({ skin });
+        legacy.render(initial, anchor);
+        check(!parts(legacy.element).root.querySelector(".expand-toggle"), "a custom host without expansion hooks gets no dead toggle");
+        legacy.destroy();
+
+        current = "factory expansion entry points";
+        for (const [name, factorySkin, count, enabled] of [
+          ["builtin", "wechat_scroll", 4, true],
+          ["raw", { base: "wechat_scroll" }, 4, true],
+          ["catalog", { base: "wechat_scroll", expandPanel: false, resolvedLayout: { ...factoryLayouts.wechat_scroll, expandRows: 3 } }, 3, true],
+          ["raw override", { base: "wechat_scroll", expandRows: 2 }, 2, true],
+          ["invalid override", { base: "wechat_scroll", expandRows: 9 }, 4, true],
+          ["explicit false", { base: "wechat_scroll", expandPanel: false, expandRows: 8 }, 8, false],
+        ]) {
+          let factoryBar;
+          factoryBar = createCandidateBar({ skin: factorySkin, onPickAny: () => {},
+            onExpand: (open) => factoryBar.render(open ? opened : initial, anchor) });
+          factoryBar.render(initial, anchor);
+          const factoryRoot = parts(factoryBar.element).root;
+          const toggle = factoryRoot.querySelector(".expand-toggle");
+          equal(Boolean(toggle), enabled, `${name}: factory expansion switch reaches the button`);
+          if (toggle) {
+            toggle.click();
+            await tick();
+            const grid = factoryRoot.querySelector(".expanded-viewport");
+            const firstHeight = factoryRoot.querySelector(".candidate-items .cand").getBoundingClientRect().height;
+            check(grid && Math.abs(grid.clientHeight - firstHeight * count) < 2, `${name}: resolved expandRows reaches actual grid height`);
+            equal(factoryRoot.querySelector(".expanded-candidate").dataset.index, "9", `${name}: expansion keeps the global seat`);
+          }
+          factoryBar.destroy();
+        }
+
+        current = "attached expansion and late reply";
+        const field = document.getElementById("field");
+        field.value = "";
+        field.focus();
+        const engine = fakeEngine();
+        let deliver;
+        engine.setCandidateExpansion = (open, revision) => {
+          equal(open, true, "attachInput forwards expansion");
+          equal(revision, "synthetic:1", "attachInput forwards the displayed version");
+          return new Promise((done) => { deliver = done; });
+        };
+        engine.pickAny = (...args) => { picks.push(args); return Promise.resolve(commitFrame("示例20")); };
+        engine.replies.push(initial);
+        const detach = attachInput(field, engine, { skin });
+        press(field, "n", "KeyN");
+        await tick();
+        barHost().shadowRoot.querySelector(".expand-toggle").click();
+        await tick();
+        field.dispatchEvent(new FocusEvent("blur"));
+        deliver(opened);
+        await tick();
+        check(!visible(barHost()), "a late expansion reply after blur stays hidden");
+        equal(field.value, "", "late expansion never inserts text");
+        engine.setCandidateExpansion = () => Promise.resolve(opened);
+        engine.replies.push(initial);
+        field.focus();
+        press(field, "n", "KeyN");
+        await tick();
+        barHost().shadowRoot.querySelector(".expand-toggle").click();
+        await tick();
+        barHost().shadowRoot.querySelector('[data-global][data-index="20"]').click();
+        await tick();
+        equal(field.value, "示例20", "attachInput commits a global grid selection through the engine");
+        equal(JSON.stringify(picks.at(-1)), JSON.stringify([20, "synthetic:2", "示例20"]), "attachInput preserves global selection identity");
+        engine.replies.push(initial);
+        press(field, "n", "KeyN");
+        await tick();
+        engine.setCandidateExpansion = () => { check(false, "a destroyed bar must not start a deferred expansion"); return Promise.resolve(opened); };
+        barHost().shadowRoot.querySelector(".expand-toggle").click();
+        detach();
+        await tick();
+        field.value = "";
+      }
+
+      async function builtinFactoryLayout() {
+        current = "built-in factory layout";
+        const bar = createCandidateBar({ skin: "microsoft", dark: false });
+        const shown = composingFrame("ni", ["甲", "乙"]);
+        bar.render(shown, { left: 20, top: 20, bottom: 40 });
+        const root = parts(bar.element).root;
+        const card = root.querySelector(".container");
+        const font = parseFloat(getComputedStyle(root).fontSize);
+        equal(getComputedStyle(card).minWidth, "160px", "Windows factory card floor is independent of font size");
+        check(Math.abs(parseFloat(getComputedStyle(card).paddingLeft) - font * .3) < 1, "Microsoft factory padding reaches the card without a catalog");
+        check(root.querySelector(".cand").getBoundingClientRect().width >= font * 3.5 - 1, "Microsoft horizontal factory candidate width is applied");
+        equal(root.querySelector(".page-next").textContent, "▶", "Microsoft factory arrows use triangles");
+        check(getComputedStyle(card).boxShadow.includes("0.18"), "unspecified Windows shadow uses the normal two-pass recipe");
+        root.style.setProperty("--cand-font-size", "20px");
+        window.dispatchEvent(new Event("resize"));
+        check(root.querySelector(".cand").getBoundingClientRect().width >= 69, "factory em lengths follow the candidate font at runtime");
+        bar.setSkin("willow_green");
+        equal(getComputedStyle(card).paddingLeft, "0px", "Willow factory zero padding replaces Microsoft padding");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "5px", "horizontal factory margins are applied");
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "5px", "horizontal factory extra height is applied once");
+        bar.setLayout("vertical");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "7px", "direction switch replaces factory margins");
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "4px", "vertical factory extra height remains distinct");
+        bar.setSkin({ base: "willow_green", fitContent: true, shadow: "none", geometry: { padding: { value: 0, em: false },
+          itemExtraHeight: { value: 0, em: false }, preeditMarginDip: { top: 0, right: 0, bottom: 0, left: 0 } } });
+        equal(getComputedStyle(root.querySelector(".cand")).paddingTop, "0px", "raw common zero overrides factory direction defaults");
+        equal(getComputedStyle(root.querySelector(".pinyin")).marginRight, "0px", "raw zero margins override factory margins");
+        equal(getComputedStyle(card).boxShadow, "none", "raw shadow switch reaches painting");
+        equal(getComputedStyle(card).minWidth, "0px", "raw fit-content removes the factory floor");
+        bar.setSkin("system");
+        check(!root.hasAttribute("data-layout"), "global theme restores native layout");
+        equal(getComputedStyle(card).paddingLeft, "2px", "global theme restores native vertical padding");
+        bar.destroy();
+      }
+
       try {
         await candidateBar();
+        await expandedCandidates();
         await factoryGeometry();
         await layoutControls();
+        await builtinFactoryLayout();
         await motionReplay();
         await canvasSkin();
         await attached();

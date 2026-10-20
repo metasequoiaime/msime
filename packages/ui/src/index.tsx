@@ -1877,6 +1877,8 @@ export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
 export {
   AI_PROVIDER_OPTIONS,
   aiProviderOption,
+  aiProviderOptionsFor,
+  aiProviderUsesToken,
   type AiProviderOption,
   type AiProviderCatalogEntry,
 } from "./settings/ai-provider-options";

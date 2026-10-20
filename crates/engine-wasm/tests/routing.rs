@@ -124,6 +124,137 @@ fn a_mouse_pick_commits_the_slot_on_the_current_page() {
 }
 
 #[test]
+fn expanded_candidates_release_the_tail_and_select_its_real_global_seat() {
+    let mut fixture = quanpin();
+    let first = type_text(&mut fixture.host, "a");
+    assert!(first.all_candidates.is_none());
+    let expanded = fixture
+        .host
+        .set_candidate_expansion(true, first.candidate_revision);
+    let all = expanded.all_candidates.as_ref().expect("expanded list");
+    assert!(all.len() > 24, "the engine must release the withheld tail");
+    let index = all.len() - 1;
+    let text = all[index].text.clone();
+    let selected = fixture
+        .host
+        .pick_candidate(index, expanded.candidate_revision, &text, true);
+    assert_eq!(
+        selected.out,
+        vec![commit(&text, i32::try_from(index).unwrap())]
+    );
+    assert!(selected.all_candidates.is_none());
+}
+
+#[test]
+fn expanded_pick_rejects_old_identity_wrong_text_and_closed_panel() {
+    let mut fixture = quanpin();
+    let first = type_text(&mut fixture.host, "a");
+    let expanded = fixture
+        .host
+        .set_candidate_expansion(true, first.candidate_revision);
+    let row = &expanded.all_candidates.as_ref().unwrap()[10];
+    let revision = expanded.candidate_revision;
+    let text = row.text.clone();
+    assert!(fixture
+        .host
+        .pick_candidate(10, revision, "合成错误文字", true)
+        .out
+        .is_empty());
+    assert!(fixture
+        .host
+        .pick_candidate(usize::MAX, revision, &text, true)
+        .out
+        .is_empty());
+    fixture.host.set_candidate_expansion(false, revision);
+    assert!(fixture
+        .host
+        .pick_candidate(10, revision, &text, true)
+        .out
+        .is_empty());
+    fixture.host.set_candidate_expansion(true, revision);
+    let changed = type_text(&mut fixture.host, "i");
+    assert!(changed.candidate_revision > revision);
+    assert!(fixture
+        .host
+        .pick_candidate(10, revision, &text, true)
+        .out
+        .is_empty());
+}
+
+#[test]
+fn paging_keeps_list_identity_and_reset_rejects_a_same_code_click() {
+    let mut fixture = quanpin();
+    let first = type_text(&mut fixture.host, "a");
+    let expanded = fixture
+        .host
+        .set_candidate_expansion(true, first.candidate_revision);
+    let next = fixture.host.keys(&[Key::PageNext { punct: None }]);
+    assert_eq!(expanded.candidate_revision, next.candidate_revision);
+    assert_eq!(next.page_start, 9);
+    let text = next.page[0].text.clone();
+    assert!(fixture
+        .host
+        .pick_page_candidate(0, next.candidate_revision, &text, 0)
+        .out
+        .is_empty());
+    let selected = fixture
+        .host
+        .pick_candidate(0, next.candidate_revision, &text, false);
+    assert_eq!(selected.out, vec![commit(&text, 9)]);
+    let old = type_text(&mut fixture.host, "nihao");
+    fixture.host.reset();
+    let current = type_text(&mut fixture.host, "nihao");
+    assert!(current.candidate_revision > old.candidate_revision);
+    assert!(fixture
+        .host
+        .pick_candidate(0, old.candidate_revision, &old.page[0].text, false)
+        .out
+        .is_empty());
+}
+
+#[test]
+fn expansion_refreshes_on_typing_and_closes_on_cancel_then_same_batch_retyping() {
+    let mut fixture = quanpin();
+    let first = type_text(&mut fixture.host, "n");
+    fixture
+        .host
+        .set_candidate_expansion(true, first.candidate_revision);
+    let changed = type_text(&mut fixture.host, "i");
+    let all = changed.all_candidates.as_ref().expect("refreshed list");
+    assert_eq!(all.first(), changed.page.first());
+    assert!(fixture
+        .host
+        .set_candidate_expansion(false, first.candidate_revision)
+        .all_candidates
+        .is_none());
+    fixture
+        .host
+        .set_candidate_expansion(true, changed.candidate_revision);
+    let old = changed.candidate_revision;
+    let retyped = fixture
+        .host
+        .keys(&[Key::Escape, Key::Letter(b'n'), Key::Letter(b'i')]);
+    assert!(retyped.all_candidates.is_none());
+    assert!(retyped.candidate_revision > old);
+    assert!(fixture
+        .host
+        .set_candidate_expansion(true, old)
+        .all_candidates
+        .is_none());
+    let first = fixture.host.reset();
+    assert!(first.all_candidates.is_none());
+    let first = type_text(&mut fixture.host, "n");
+    fixture
+        .host
+        .set_candidate_expansion(true, first.candidate_revision);
+    let retyped = fixture
+        .host
+        .keys(&[Key::Backspace { word: false }, Key::Letter(b'n')]);
+    assert!(retyped.composing);
+    assert!(retyped.all_candidates.is_none());
+}
+
+#[test]
 fn enter_commits_the_letters() {
     let mut fixture = quanpin();
     type_text(&mut fixture.host, "nihao");

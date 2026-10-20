@@ -5,6 +5,7 @@ import { deepEqual } from "../core/deep-equal";
 import { aiCredentialOrigin } from "./credential-utils";
 import { aiEndpointHint } from "./ai-endpoint-policy";
 import { aiPolishTestPrompt } from "./ai-assistant-defaults";
+import { aiProviderUsesToken } from "./ai-provider-options";
 import { useAsyncGeneration } from "./use-async-generation";
 import type { AiAssistantPreferences } from "./ai-assistant-preferences";
 import type { AiAssistantClient } from "../core/ai-assistant-client";
@@ -50,7 +51,9 @@ export function useAiAssistant({
   const testActionBusy = useRef(false);
   const testActionOwner = useAsyncGeneration();
   const origin = aiCredentialOrigin(ai.endpoint);
-  const token = origin ? (ai.tokens?.[origin] ?? "") : "";
+  // 不鉴权的服务（Ollama）不读这个地址下存过的 Token，请求带空 Token，宿主据此不发 Authorization。
+  const usesToken = aiProviderUsesToken(ai.provider);
+  const token = origin && usesToken ? (ai.tokens?.[origin] ?? "") : "";
 
   const runAction = async (
     busyRef: { current: boolean },
@@ -151,7 +154,7 @@ export function useAiAssistant({
       setModelsStatus(aiEndpointHint(ai.endpoint));
       return;
     }
-    if (!providerCredentialAvailable && !token.trim()) {
+    if (usesToken && !providerCredentialAvailable && !token.trim()) {
       setModelsStatus("请先填写 API Token，或使用已保存的密钥。");
       return;
     }
@@ -188,7 +191,7 @@ export function useAiAssistant({
       setTestStatus(aiEndpointHint(ai.endpoint));
       return;
     }
-    if (!providerCredentialAvailable && !token.trim()) {
+    if (usesToken && !providerCredentialAvailable && !token.trim()) {
       setTestStatus("请先填写 API Token。");
       return;
     }

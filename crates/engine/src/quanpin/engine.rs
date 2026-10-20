@@ -178,7 +178,11 @@ mod tests {
     fn request_with_helpcode(text: &str, enabled: bool) -> QueryRequest {
         let mut scheme = QuanpinScheme::new();
         for byte in text.bytes() {
-            scheme.handle_key(SchemeKey::Letter(byte));
+            scheme.handle_key(if byte == b'\'' {
+                SchemeKey::Apostrophe
+            } else {
+                SchemeKey::Letter(byte)
+            });
         }
         let mut request = QueryRequest {
             enable_quanpin_helpcode: enabled,
@@ -213,6 +217,78 @@ mod tests {
             .insert("ni'hao", "你好", 10_000)
             .insert("ni'hao", "拟好", 30);
         fixture
+    }
+
+    #[test]
+    fn quanpin_retroflex_abbreviations_keep_both_initial_readings() {
+        let fixture = Fixture::new();
+        fixture
+            .insert("zhong'hua'ren'min'gong'he'guo", "中华人民共和国", 10_000)
+            .insert("shang'hai'da'xue", "上海大学", 9_000)
+            .insert("shang'hao", "上好", 8_500)
+            .insert("zhi'shi", "知识", 8_000)
+            .insert("zhong'hua'shi", "中华市", 7_500)
+            .insert("zhi'shi'hai", "知识海", 7_500)
+            .insert("cheng'shi", "城市", 7_000)
+            .insert("zhong'guo", "中国", 6_000)
+            .insert("ni'hao", "你好", 5_000)
+            .insert("wei'shen'me", "为什么", 4_000)
+            .insert("zhi", "知", 3_000)
+            .insert("chi", "吃", 3_000)
+            .insert("shi", "是", 3_000);
+        let mut engine = QuanpinEngine::new(&fixture.paths);
+        for (input, expected) in [
+            ("zhrmghg", "中华人民共和国"),
+            ("z'hrmghg", "中华人民共和国"),
+            ("shdx", "上海大学"),
+            ("s'hdx", "上海大学"),
+            ("zhsh", "知识"),
+            ("chsh", "城市"),
+            ("zhg", "中国"),
+            ("zh'g", "中国"),
+            ("nh", "你好"),
+            ("wsm", "为什么"),
+            ("zhongguo", "中国"),
+            ("zhi", "知"),
+            ("chi", "吃"),
+            ("shi", "是"),
+        ] {
+            let mut request = request_with_helpcode(input, false);
+            request.enable_quanpin_autocorrect_transposition = false;
+            request.enable_quanpin_autocorrect_neighbor = false;
+            let candidates = engine.query(&request, None);
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.word == expected);
+            assert!(
+                candidate.is_some(),
+                "{input} 缺少 {expected}: {candidates:?}"
+            );
+            let candidate = candidate.unwrap();
+            assert_eq!(candidate.pinyin.replace('\'', ""), input.replace('\'', ""));
+            assert!(candidate.corrected_from.is_empty());
+            if matches!(input, "zhongguo" | "zhi" | "chi" | "shi") {
+                assert_eq!(candidates[0].word, expected, "完整全拼必须优先");
+            }
+        }
+        let mixed = engine.query(&request_with_helpcode("zhsh", false), None);
+        assert!(words(&mixed).contains(&"中华市"));
+        assert!(words(&mixed).contains(&"知识海"));
+        let manual = engine.query(&request_with_helpcode("zh'sh", false), None);
+        assert!(words(&manual).contains(&"知识"));
+        assert!(!words(&manual).contains(&"中华市"));
+        assert!(!words(&manual).contains(&"知识海"));
+        for input in ["shnaghao", "sahnghao"] {
+            let mut request = request_with_helpcode(input, false);
+            request.enable_quanpin_autocorrect_transposition = false;
+            request.enable_quanpin_autocorrect_neighbor = false;
+            QuanpinScheme::apply_literal_segmentation(&mut request);
+            let candidates = engine.query(&request, None);
+            assert!(
+                !words(&candidates).contains(&"上好"),
+                "{input}: {candidates:?}"
+            );
+        }
     }
 
     #[test]
