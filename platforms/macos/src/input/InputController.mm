@@ -1314,6 +1314,9 @@ static NSImage *MSIMECandidateLogoImage() {
     // 单按 Caps Lock 切换中英文：大写锁定打开的那一刻布防，轮询到松开时认定是轻点还是长按。
     msime::input::CapsLockTap _capsLockTap;
     NSTimer *_capsLockTapTimer;
+    // IOKit 撤回锁定后，窗口服务器可能还会把旧的 Caps Lock 修饰位带进一两个事件；
+    // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
+    BOOL _capsLockTapReleased;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
@@ -3672,6 +3675,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         [self adoptCapsLockState:YES];
         return;
     }
+    _capsLockTapReleased = YES;
+    [self adoptCapsLockState:NO];
     [self toggleInputModeFromModifierTap];
 }
 // 单按 Shift、Control 或 Caps Lock 切换中英文。
@@ -6019,8 +6024,20 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
-    const BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
-    if (![self observeCapsLockTap:event capsLock:capsLock sender:sender]) [self adoptCapsLockState:capsLock];
+    BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
+    if (_capsLockTapReleased && !capsLock) _capsLockTapReleased = NO;
+    BOOL staleCapsLock = NO;
+    if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
+        // A real new press is still held at this point; an event arriving after the synthetic
+        // release is only a delayed copy of the old lock state.
+        if (MSIMECapsLockPhysicallyHeld()) _capsLockTapReleased = NO;
+        else { capsLock = NO; staleCapsLock = YES; }
+    }
+    if (_capsLockTapReleased && event.type == NSEventTypeKeyDown && event.keyCode != 0x39 && capsLock) {
+        capsLock = NO;
+        staleCapsLock = YES;
+    }
+    if (!staleCapsLock && ![self observeCapsLockTap:event capsLock:capsLock sender:sender]) [self adoptCapsLockState:capsLock];
     if (!sender) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];
@@ -6219,7 +6236,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             const BOOL keypad = (event.modifierFlags & NSEventModifierFlagNumericPad) != 0 || event.keyCode == 65;
             const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
                 ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
-            const unichar character = [event.characters characterAtIndex:0];
+            unichar character = [event.characters characterAtIndex:0];
+            if (_capsLockTapReleased && character >= 'A' && character <= 'Z') character = (unichar)(character + ('a' - 'A'));
             const std::string output = msime::input::english_mode_output(
                 character, keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation,
                 MSIMEViewPunctuationMarks(_view));
