@@ -257,20 +257,8 @@ function Set-CandidateMore($window, [bool]$expanded) {
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
     # 折叠区的标题行是一个整行按钮（照 macOS 的 MoreOptions），没有 ExpandCollapse 模式。主流程的行一直在，折叠区里的行只在展开时出现在 UIA 树里，所以按里面那行在不在判断状态，不对时点按一次标题行。
-    # 这个宿主里，Invoke 对滚出视口的按钮不起作用（IsOffscreen 为真、BoundingRectangle 为空，Click 不触发；云剪贴板的保存按钮同样先滚到底），所以点按前先一档一档往下滚，直到标题行进入视口。用户用鼠标点时它本来就在屏幕上。
     $content = Find-ById $window 'settings-content'
     if ([bool](Find-ByName $content '行内预编辑') -ne $expanded) {
-        $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
-        if ($scroll.Current.VerticallyScrollable) {
-            foreach ($percent in 0..10) {
-                $fold = Find-ById $window 'candidate-more'
-                if ($fold -and -not $fold.Current.IsOffscreen) { break }
-                $scroll.SetScrollPercent(-1, $percent * 10)
-                Start-Sleep -Milliseconds 200
-            }
-        }
-        $fold = Find-ById $window 'candidate-more'
-        if (-not $fold -or $fold.Current.IsOffscreen) { throw 'Candidate 更多选项 fold could not be scrolled into view' }
         $fold.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     }
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -279,31 +267,7 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $content = Find-ById $window 'settings-content'
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
-    if ([bool]$inside -ne $expanded) {
-        if (-not ('SettingsMouse' -as [type])) {
-            Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class SettingsMouse {
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
-    public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
-}
-'@
-        }
-        $fold = Find-ById $window 'candidate-more'
-        $rect = $fold.Current.BoundingRectangle
-        $bottom = $window.Current.BoundingRectangle.Bottom - 6
-        $x = [int]($rect.Left + 40)
-        $y = [int][Math]::Min($rect.Top + $rect.Height / 2, $bottom)
-        Write-Host "diag: after invoke help='$($fold.Current.HelpText)' status='$($fold.Current.ItemStatus)' offscreen=$($fold.Current.IsOffscreen) rect=$rect click=($x,$y)"
-        [SettingsMouse]::Click($x, $y)
-        Start-Sleep -Milliseconds 1500
-        $content = Find-ById $window 'settings-content'
-        Write-Host "diag: after mouse help='$((Find-ById $window 'candidate-more').Current.HelpText)' status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' inside=$([bool](Find-ByName $content '行内预编辑'))"
-        Save-Window $window 'diag-after-mouse.png'
-        throw "Candidate 更多选项 did not change to expanded=$expanded"
-    }
+    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
     # 读屏从 ItemStatus 得知展开与否。
     $wanted = if ($expanded) { '已展开' } else { '已收起' }
     $status = (Find-ById $window 'candidate-more').Current.ItemStatus
