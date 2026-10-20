@@ -241,6 +241,7 @@ std::optional<ResolvedSkinLayout> ResolvedLayoutFromJSON(id raw)
     layout.cornerRadiusDip = NumberField(object, @"cornerRadiusDip");
     layout.borderWidthDip = NumberField(object, @"borderWidthDip");
     layout.itemCornerRadiusDip = NumberField(object, @"itemCornerRadiusDip");
+    if ([object[@"shadow"] isKindOfClass:NSString.class]) layout.shadow = StringField(object, @"shadow");
     layout.pageArrows = [object[@"pageArrows"] isKindOfClass:NSNumber.class] && [object[@"pageArrows"] boolValue];
     layout.fitContent = [object[@"fitContent"] isKindOfClass:NSNumber.class] && [object[@"fitContent"] boolValue];
     layout.expandPanel = [object[@"expandPanel"] isKindOfClass:NSNumber.class] && [object[@"expandPanel"] boolValue];
@@ -342,6 +343,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
     }
     package.resolvedLayout = ResolvedLayoutFromJSON(object[@"resolvedLayout"]);
+    if ([object[@"shadow"] isKindOfClass:NSString.class]) package.shadow = StringField(object, @"shadow");
     package.canvas = CanvasFromJSON(object);
     package.animation = AnimationFromJSON(object[@"animation"]);
     NSDictionary *license = object[@"license"];
@@ -801,6 +803,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
             {
                 resolved.canvas = package->canvas;
+                resolved.shadow = package->shadow;
                 if (resolved.canvas) {
                     const auto absolute = [&](const std::string &path) { return path.empty() ? path : (skinsRoot / package->id / path).string(); };
                     if (resolved.canvas->border) {
@@ -833,6 +836,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                     resolved.layout = direction;
                     resolved.fitContent = layoutResult.fitContent;
                     resolved.expandRows = std::clamp(layoutResult.expandRows, 2u, 8u);
+                    resolved.shadow = layoutResult.shadow.value_or("normal");
                     resolved.tokens.radius = static_cast<float>(layoutResult.cornerRadiusDip);
                     resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);

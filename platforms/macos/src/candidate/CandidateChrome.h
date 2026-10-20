@@ -4,6 +4,7 @@
 #import "CandidateTextMetrics.h"
 #include "CandidateItemLayout.h"
 #include "CandidateSkin.h"
+#include "CandidateShadow.h"
 #import "CandidatePronunciation.h"
 #import "CandidateMotion.h"
 #import "CandidateCanvas.h"
@@ -434,7 +435,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 @end
 
-@interface MSIMECandidateChromeView : NSView
+@interface MSIMECandidateChromeView : NSView <MSIMECandidateWindowShadowHost>
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
@@ -455,6 +456,8 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 @property(nonatomic, readonly) BOOL liquidGlassActive;
 @property(nonatomic, strong, readonly) NSView *candidateContentView;
 @property(nonatomic) msime::mac::SkinInsets canvasOuterInsets;
+@property(nonatomic) msime::mac::SkinInsets shadowOuterInsets;
+@property(nonatomic) msime::mac::CandidateShadow candidateShadow;
 @property(nonatomic) BOOL canvasPanelLoaded;
 @property(nonatomic, strong, readonly) MSIMECandidateCanvasAssets *canvasAssets;
 - (void)drawCandidateCard;
@@ -496,6 +499,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (NSView *)candidateContentView { return _candidateContentView; }
 - (BOOL)liquidGlassActive { return _glassBackground != nil; }
+- (BOOL)nativeWindowShadowEnabled { return self.candidateShadow.nativeWindow; }
 - (void)dealloc
 {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -507,7 +511,10 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (NSRect)cardBounds
 {
-    const auto outer = self.canvasOuterInsets;
+    auto outer = self.canvasOuterInsets;
+    const auto shadow = self.shadowOuterInsets;
+    outer.top += shadow.top; outer.right += shadow.right;
+    outer.bottom += shadow.bottom; outer.left += shadow.left;
     return NSMakeRect(NSMinX(self.bounds) + outer.left, NSMinY(self.bounds) + outer.bottom,
                      MAX(0.0, NSWidth(self.bounds) - outer.left - outer.right),
                      MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset) - outer.top - outer.bottom));
@@ -607,13 +614,31 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (void)drawCandidateCard
 {
+    const NSRect shadowBounds = self.cardBounds;
+    NSBezierPath *shadowPath = [NSBezierPath bezierPathWithRoundedRect:shadowBounds
+        xRadius:self.cornerRadius yRadius:self.cornerRadius];
+    // 阴影只落在卡片外，半透明底色不会被阴影压暗；不透明遮罩与底色透明度无关。
+    for (const auto &pass : self.candidateShadow.passes) {
+        if (pass.alpha <= 0) continue;
+        [NSGraphicsContext saveGraphicsState];
+        NSBezierPath *clip = [NSBezierPath bezierPathWithRect:self.bounds];
+        [clip appendBezierPath:shadowPath];
+        clip.windingRule = NSWindingRuleEvenOdd;
+        [clip addClip];
+        NSShadow *shadow = [NSShadow new];
+        shadow.shadowOffset = NSMakeSize(pass.x, -pass.y);
+        shadow.shadowBlurRadius = pass.blur;
+        shadow.shadowColor = [NSColor colorWithWhite:0 alpha:pass.alpha];
+        [shadow set];
+        [NSColor.blackColor setFill];
+        [shadowPath fill];
+        [NSGraphicsContext restoreGraphicsState];
+    }
     // 原生玻璃提供底色和边缘高光，不再叠一层不透明填色把材质盖住。
     if (_glassBackground || self.canvasPanelLoaded) return;
     // 坐标未翻转：装饰带在顶部，卡片只占下面的部分。
-    const NSRect bounds = self.cardBounds;
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds
-                                                         xRadius:self.cornerRadius
-                                                         yRadius:self.cornerRadius];
+    const NSRect bounds = shadowBounds;
+    NSBezierPath *path = shadowPath;
     [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
     [path fill];
     NSImage *background = self.backgroundImage;

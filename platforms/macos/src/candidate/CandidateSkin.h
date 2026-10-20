@@ -158,6 +158,7 @@ struct ResolvedSkinLayout
     double cornerRadiusDip = 0.0;
     double borderWidthDip = 0.0;
     double itemCornerRadiusDip = 0.0;
+    std::optional<std::string> shadow;
     bool pageArrows = false;
     bool fitContent = false;
     bool expandPanel = false;
@@ -421,6 +422,7 @@ struct SkinPackage
     std::optional<SkinBackground> background;
     std::optional<SkinCanvas> canvas;
     SkinToolbar toolbar;
+    std::optional<std::string> shadow;
     std::optional<ResolvedSkinLayout> resolvedLayout;
     SkinAnimation animation;
     std::optional<SkinLicense> license;
@@ -506,6 +508,8 @@ struct ResolvedSkin
     bool fitContent = false;
     // 共享皮肤声明的首行之后的卷轴行数；原生主题保留宿主默认。
     std::optional<unsigned> expandRows;
+    // 空值保留宿主阴影；共享版式未声明档位时使用来源的普通双层阴影。
+    std::optional<std::string> shadow;
     bool canvasPanelDrawn = false;
 };
 

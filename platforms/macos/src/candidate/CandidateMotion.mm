@@ -651,7 +651,9 @@ bool StaggersRows(SkinAnimationPreset preset)
     NSWindow *shadowPanel = _shadowPanel;
     if (shadowPanel != nil)
     {
-        shadowPanel.hasShadow = YES;
+        id content = shadowPanel.contentView;
+        shadowPanel.hasShadow = [content conformsToProtocol:@protocol(MSIMECandidateWindowShadowHost)]
+            ? [(id<MSIMECandidateWindowShadowHost>)content nativeWindowShadowEnabled] : YES;
         [shadowPanel invalidateShadow];
     }
     _shadowPanel = nil;

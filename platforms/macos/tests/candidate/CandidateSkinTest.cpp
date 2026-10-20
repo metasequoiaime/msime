@@ -1,4 +1,5 @@
 #include "../../src/candidate/CandidateSkin.h"
+#include "../../src/candidate/CandidateShadow.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -41,6 +42,27 @@ static bool SameTokens(const msime::mac::SkinTokens &left, const msime::mac::Ski
            left.showSelectedBar == right.showSelectedBar;
 }
 int main() {
+    for (const bool dark : {false, true}) for (const double scale : {1.0, 1.5}) {
+        for (const auto &style : {"none", "soft", "normal", "strong"}) {
+            const auto shadow = msime::mac::ResolveCandidateShadow(std::string(style), dark, false, false, scale);
+            assert(!shadow.nativeWindow);
+            if (std::string(style) == "none") {
+                assert(shadow.passes[0].alpha == 0 && shadow.outer.left == 0);
+                continue;
+            }
+            const double alpha = std::string(style) == "soft" ? 0.5 : std::string(style) == "strong" ? 1.6 : 1;
+            assert(std::abs(shadow.passes[0].alpha - (dark ? 0.34 : 0.18) * alpha) < 0.00001);
+            assert(std::abs(shadow.passes[1].alpha - (dark ? 0.22 : 0.10) * alpha) < 0.00001);
+            assert(shadow.passes[0].x == 8 * scale && shadow.passes[0].y == 10 * scale && shadow.passes[0].blur == 24 * scale);
+            assert(shadow.passes[1].x == 2 * scale && shadow.passes[1].y == 3 * scale && shadow.passes[1].blur == 8 * scale);
+            const auto suppressed = msime::mac::ResolveCandidateShadow(std::string(style), dark, true, true, scale);
+            assert(!suppressed.nativeWindow && suppressed.passes[0].alpha == 0 && suppressed.outer.left == 0);
+            const auto outer = msime::mac::CandidateShadowExtraInsets(shadow, {6 * scale, 50 * scale, 8 * scale, 4 * scale}, 12 * scale);
+            assert(outer.top == 2 * scale && outer.right == 0 && outer.bottom == 32 * scale && outer.left == 28 * scale);
+        }
+    }
+    assert(msime::mac::ResolveCandidateShadow(std::nullopt, false, false, false, 1).nativeWindow);
+    assert(!msime::mac::ResolveCandidateShadow(std::nullopt, false, true, false, 1).nativeWindow);
     // 选中行的释义色：不透明的选中底色上按底色挑白或近黑、0.82 不透明度，和底色的对比度至少 3:1（释义和读音同色，读音不再减淡）；半透明底色上就是皮肤的释义色；皮肤没有释义色时没有它，指定了就不推导。
     {
         struct Case { unsigned selected, translation, text; bool unreadable; };

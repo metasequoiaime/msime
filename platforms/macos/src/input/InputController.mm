@@ -7260,10 +7260,17 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (skin.layout && skin.layout->padding)
             skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
         const CGFloat inset = msime::mac::CandidateInset(skin.tokens);
+        NSRect rowVisible = screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900);
+        const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
+        const auto shadowInsets = msime::mac::CandidateShadowExtraInsets([self candidateShadowForSkin:skin dark:dark],
+            skin.canvas ? skin.canvas->outer : msime::mac::SkinInsets{},
+            [_appearance decorationImageForDark:dark] ? skin.decorationTopDip : 0);
+        const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
+        rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra - 2 * (shadowInsets.left + shadowInsets.right));
         const MSIMECandidatePageGeometry geometry =
             [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:_skinShowsSelectedBar inset:inset
                                  paging:pageCount > 1 && _appearance.showsCandidatePageNumber
-                                visible:screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900) preeditWidth:0 minimumWidth:0];
+                                visible:rowVisible preeditWidth:0 minimumWidth:0];
         clearance = MAX(clearance, geometry.rowsHeight + 2 * inset);
     }
     if ([_view[@"candidates"] count]) {
@@ -7422,7 +7429,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 - (CGFloat)candidateCardTopInset {
     if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return 0;
     MSIMECandidateChromeView *content = (id)_panel.contentView;
-    return content.cardTopInset + content.canvasOuterInsets.top;
+    return content.cardTopInset + content.canvasOuterInsets.top + content.shadowOuterInsets.top;
 }
 
 // The reading in the card's top row, with the caret where the composition has it.
@@ -7517,11 +7524,20 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return button;
 }
 
-// 原有行度量保留字体与释义的排版规则，canvas 在最后一步将统一边距换成四边边距。
+- (msime::mac::CandidateShadow)candidateShadowForSkin:(const msime::mac::ResolvedSkin &)skin dark:(BOOL)dark {
+    return msime::mac::ResolveCandidateShadow(skin.shadow, dark, skin.canvas.has_value(),
+        skin.canvas && [_appearance canvasAssetsForDark:dark].panelLoaded, MSIMECandidateScale(_appearance));
+}
+
+// 原有行度量保留字体与释义的排版规则，最后补入 canvas 四边边距与卡片外的阴影留白。
 - (void)configureCanvasForContent:(MSIMECandidateChromeView *)content skin:(const msime::mac::ResolvedSkin &)skin
                             dark:(BOOL)dark inset:(CGFloat)inset preeditVisible:(BOOL)preeditVisible {
-    if (!skin.canvas) return;
-    const auto &canvas = *skin.canvas;
+    const msime::mac::SkinCanvas canvas = skin.canvas.value_or(msime::mac::SkinCanvas{});
+    MSIMECandidateCanvasAssets *assets = skin.canvas ? [_appearance canvasAssetsForDark:dark] : nil;
+    const auto shadow = [self candidateShadowForSkin:skin dark:dark];
+    const auto extra = msime::mac::CandidateShadowExtraInsets(shadow, canvas.outer, content.cardTopInset);
+    content.candidateShadow = shadow;
+    content.shadowOuterInsets = extra;
     const auto padding = msime::mac::CanvasContentInsets(canvas, inset);
     const CGFloat gap = preeditVisible ? canvas.lineGap.value_or(0) : 0;
     const CGFloat deltaWidth = padding.left + padding.right - 2 * inset;
@@ -7536,19 +7552,19 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     // 旧装饰带仍相对卡片顶部；自由挂件则相对新的卡片矩形定位。
     for (NSView *child in content.subviews) if ([child isKindOfClass:MSIMECandidateDecorationView.class]) {
         NSRect frame = child.frame;
-        frame.origin.x += canvas.outer.left + deltaWidth / 2;
-        frame.origin.y += canvas.outer.bottom + deltaHeight;
+        frame.origin.x += canvas.outer.left + extra.left + deltaWidth / 2;
+        frame.origin.y += canvas.outer.bottom + extra.bottom + deltaHeight;
         child.frame = frame;
     }
     content.candidateRowsRect = NSOffsetRect(content.candidateRowsRect, padding.left - inset, padding.bottom - inset);
     content.canvasOuterInsets = canvas.outer;
     NSSize size = content.frame.size;
-    size.width += deltaWidth + canvas.outer.left + canvas.outer.right;
-    size.height += deltaHeight + canvas.outer.top + canvas.outer.bottom;
+    size.width += deltaWidth + canvas.outer.left + canvas.outer.right + extra.left + extra.right;
+    size.height += deltaHeight + canvas.outer.top + canvas.outer.bottom + extra.top + extra.bottom;
     content.frame = NSMakeRect(0, 0, size.width, size.height);
     [_panel setContentSize:size];
     [content layoutSubtreeIfNeeded];
-    [content configureCanvas:canvas assets:[_appearance canvasAssetsForDark:dark]];
+    if (skin.canvas) [content configureCanvas:canvas assets:assets];
 }
 
 // 画展开的候选网格，见「展开的候选网格」一节。皮肤、字体、首行和装饰与普通候选窗一致，每一行按普通候选窗排一页的方式排（candidatePageGeometry:），行与行上下叠起来。光标位置无效、找不到屏幕时返回 NO，由调用方收起网格。
@@ -7644,7 +7660,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 
     NSRect rowVisible = visible;
     const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
-    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
+    const auto shadowInsets = msime::mac::CandidateShadowExtraInsets([self candidateShadowForSkin:skin dark:skinDark],
+        skin.canvas ? skin.canvas->outer : msime::mac::SkinInsets{}, decorationImage ? skin.decorationTopDip : 0);
+    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra - 2 * (shadowInsets.left + shadowInsets.right));
     auto geometryForRow = [&](NSUInteger row) {
         const NSUInteger start = row * columns;
         NSArray<NSDictionary *> *slice = [_expandedCandidates subarrayWithRange:NSMakeRange(start, MIN(columns, count - start))];
@@ -7776,7 +7794,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const NSSize panelSize = _panel.frame.size;
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, false, _panel.isVisible);
     const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, 0, [self candidateCardTopInset],
-                                                content.canvasOuterInsets.left, content.canvasOuterInsets.bottom);
+                                                content.canvasOuterInsets.left + content.shadowOuterInsets.left,
+                                                content.canvasOuterInsets.bottom + content.shadowOuterInsets.bottom);
     [_panel setFrameOrigin:origin];
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
@@ -7887,7 +7906,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
     NSRect rowVisible = visible;
     const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
-    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra);
+    const auto shadowInsets = msime::mac::CandidateShadowExtraInsets([self candidateShadowForSkin:skin dark:skinDark],
+        skin.canvas ? skin.canvas->outer : msime::mac::SkinInsets{}, decorationImage ? skin.decorationTopDip : 0);
+    rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra - 2 * (shadowInsets.left + shadowInsets.right));
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
     // 普通横排同次组字只变宽不变窄；fitContent 则允许缩回实际内容宽度。历史宽度含首行右端的展开键，当前页带它时先扣掉。
     const CGFloat steadyWidth = vertical || skin.fitContent || !_panel.isVisible ? 0.0 : MAX(0.0, _widestHorizontalCandidateWidth - (compactExpand ? arrowWidth : 0));
@@ -7910,12 +7931,14 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat decorationHeight = decorationImage ? MAX(0.0, skin.decorationTopDip) : 0.0;
     const CGFloat height = pageGeometry.rowsHeight + 2 * inset + decorationHeight + headerHeight + bodyRowGap;
     const CGFloat headerBottom = height - inset - decorationHeight - headerHeight;
-    // Gloss replies keep the candidate IDs and all panel structure stable. Repaint those rows in
-    // place when their geometry is unchanged; a page or layout change still takes the full rebuild
-    // below, which deliberately detaches every old button.
+    // 释义回复不改变候选身份与窗口结构；尺寸一致时原地重绘，翻页或布局变化仍完整重建并撤下旧按钮。
+    const auto previousShadow = [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]
+        ? ((MSIMECandidateChromeView *)_panel.contentView).shadowOuterInsets : msime::mac::SkinInsets{};
+    const NSSize previousContentSize = NSMakeSize(_panel.frame.size.width - previousShadow.left - previousShadow.right,
+        _panel.frame.size.height - previousShadow.top - previousShadow.bottom);
     if (!skin.canvas && MSIMEOnlyCandidateTranslationsChanged(previousRenderedView, _view) &&
         [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class] &&
-        NSEqualSizes(_panel.frame.size, NSMakeSize(width, height))) {
+        NSEqualSizes(previousContentSize, NSMakeSize(width, height))) {
         MSIMECandidateChromeView *content = (id)_panel.contentView;
         BOOL reusable = YES;
         for (NSUInteger index = 0; index < candidates.count && reusable; ++index) {
@@ -7974,7 +7997,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             const NSSize panelSize = _panel.frame.size;
             _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
             [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0,
-                [self candidateCardTopInset], content.canvasOuterInsets.left, content.canvasOuterInsets.bottom)];
+                [self candidateCardTopInset], content.canvasOuterInsets.left + content.shadowOuterInsets.left,
+                content.canvasOuterInsets.bottom + content.shadowOuterInsets.bottom)];
             [self claimCandidatePanel];
             [self showCandidatePanel];
             return;
@@ -8068,7 +8092,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     // Every hide path orders the panel out, so a panel that is not on screen yet starts a fresh flip memory.
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
     const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0,
-        [self candidateCardTopInset], content.canvasOuterInsets.left, content.canvasOuterInsets.bottom);
+        [self candidateCardTopInset], content.canvasOuterInsets.left + content.shadowOuterInsets.left,
+        content.canvasOuterInsets.bottom + content.shadowOuterInsets.bottom);
     [_panel setFrameOrigin:origin];
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
@@ -8105,9 +8130,16 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL dark = [match isEqual:NSAppearanceNameDarkAqua];
     const auto skin = [_appearance candidateWindowSkinForDark:dark];
     auto tokens = skin.tokens;
+    const auto shadow = [self candidateShadowForSkin:skin dark:dark];
+    const auto extra = msime::mac::CandidateShadowExtraInsets(shadow,
+        skin.canvas ? skin.canvas->outer : msime::mac::SkinInsets{}, content.cardTopInset);
+    const auto previousExtra = content.shadowOuterInsets;
+    const BOOL shadowGeometryChanged = extra.top != previousExtra.top || extra.right != previousExtra.right ||
+        extra.bottom != previousExtra.bottom || extra.left != previousExtra.left;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
     // 明暗切换后画的是另一个槽位的包（或者这种明暗不画包）：装饰、最小宽度和圆角都跟着变，只换颜色不够，整页重排一次。重排结束时还会回到这里，那时包已经对上，不会再重排。面板没在屏幕上时不重排：重排会把它重新显示出来，下一次显示候选时本来就按当时的明暗排版。
-    if (skin.candidateSkin != _renderedCandidateSkin && _panel.isVisible && !_rerenderingForCandidateSkin) {
+    if ((skin.candidateSkin != _renderedCandidateSkin || shadowGeometryChanged) &&
+        _panel.isVisible && !_rerenderingForCandidateSkin) {
         _rerenderingForCandidateSkin = YES;
         // 换了一个皮肤包，最小宽度和内边距都可能不同，记住的宽度从这次重排重新算。
         _widestHorizontalCandidateWidth = 0;
@@ -8115,6 +8147,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         _rerenderingForCandidateSkin = NO;
         return;
     }
+    content.candidateShadow = shadow;
     // 同一个包的明暗模式也可能使用不同贴图；保留布局和候选身份，只替换缓存的绘制层。
     if (skin.canvas && content.canvasAssets != [_appearance canvasAssetsForDark:dark]) {
         [content configureCanvas:*skin.canvas assets:[_appearance canvasAssetsForDark:dark]];
@@ -8132,8 +8165,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     content.backgroundOpacity = skin.backgroundOpacity;
     // 普通候选和展开网格都经这里刷新；只有未覆盖皮肤的系统主题使用原生材质。
     content.liquidGlassEnabled = skin.id == "system" && skin.candidateSkin.empty();
-    // canvas 的外观包含在贴图里，不额外给透明留白和挂件叠加系统窗口阴影。
-    _panel.hasShadow = !skin.canvas.has_value();
+    // 九宫格与共享档位由内容绘制，不再叠系统窗口阴影；原生主题保留原有窗口阴影。
+    _panel.hasShadow = content.nativeWindowShadowEnabled;
     if (content.liquidGlassActive) msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.candidateContentView.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
