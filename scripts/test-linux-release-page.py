@@ -222,6 +222,22 @@ class DownloadGuideTest(unittest.TestCase):
         half = [name for name in installer_names(VERSION) if not name.endswith("_arm64.deb") or "legacy" not in name]
         self.assertNotEqual(self.guide(half).returncode, 0, "legacy packages for only one architecture")
 
+    def test_each_format_names_the_systems_it_installs_on(self):
+        # deb 与 tar.gz 是同一棵 bookworm 构建树（glibc 2.35、libstdc++ 12），rpm 只在 Fedora 44 上构建和验证，tar.gz 是 Debian 多架构布局，不是通用包。
+        result = self.guide(installer_names(VERSION))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        formats = {line.split("：")[0]: line for line in result.stdout.splitlines() if line.startswith("- ")}
+        deb = next(line for line in formats.values() if "：`.deb`" in line)
+        rpm = next(line for line in formats.values() if "：`.rpm`" in line)
+        tarball = next(line for line in formats.values() if line.startswith("- `.tar.gz`"))
+        self.assertIn("Debian 12、Ubuntu 22.04", deb)
+        self.assertTrue(rpm.startswith("- Fedora 44："), rpm)
+        self.assertIn("Debian 12、Ubuntu 22.04", tarball)
+        self.assertIn("Arch、Fedora 上的 Fcitx5 找不到它的插件", tarball)
+        self.assertNotIn("通用", tarball)
+        legacy = next(line for line in formats.values() if "legacy `.deb`" in line)
+        self.assertIn("glibc 2.28 到 2.34", legacy)
+
     def test_a_missing_installer_fails_rather_than_linking_nothing(self):
         for missing in (f"msime-linux-wubi-{VERSION}-1.aarch64.rpm", f"msime-linux_{VERSION}_amd64.deb", f"msime-linux-tibetan-{VERSION}-linux-x86_64.tar.gz"):
             names = [name for name in installer_names(VERSION) if name != missing]

@@ -372,7 +372,7 @@ def download_guide(version: str, download_base: str, names: set[str], repositori
             f"它只有{full_name}（完整版）的 IBus 输入法，没有设置窗口和 Fcitx5 插件，先 `sudo apt install ibus` 再装。"
         )
     lines += [
-        "- `.tar.gz` 只给不经 apt 安装的 Debian 系，文件和 `.deb` 相同但没有依赖声明和卸载入口，用 `sudo tar -xzf <文件名> --strip-components=1 -C /` 解开。它按 Debian 的库目录布局，Arch、Fedora 上的 Fcitx5 找不到它的插件。",
+        "- `.tar.gz` 只给不经 apt 安装的 Debian 系，系统要求和 `.deb` 一样是 Debian 12、Ubuntu 22.04 或更新的版本，文件和 `.deb` 相同但没有依赖声明和卸载入口，用 `sudo tar -xzf <文件名> --strip-components=1 -C /` 解开。它按 Debian 的库目录布局，Arch、Fedora 上的 Fcitx5 找不到它的插件。",
     ]
     if repositories:
         lines.append(f"- Arch、openSUSE、Gentoo、NixOS，或者想让输入法随系统一起更新：用 COPR、Launchpad PPA、openSUSE OBS、AUR 等软件源，不用下载这里的文件，见[包管理器]({PACKAGE_MANAGERS_URL})。")
