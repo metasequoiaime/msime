@@ -10,7 +10,8 @@ namespace msime::windows {
 struct FloatingToolbarSettings {
   unsigned scale_percent = 100;
   unsigned font_size = 24;
-  std::array<bool, 6> items{true, true, true, true, false, true};
+  // 按 character_set、punctuation、fullwidth、emoji、screen_keyboard、settings 排列。表情和屏幕键盘缺省关：偏好里缺这两个键时不画它们，与 macOS 和 client-core 的 FloatingToolbarPreferences::default() 一致。
+  std::array<bool, 6> items{true, true, true, false, false, true};
   // The shared `english_mode` item. The reference always shows its 中/英 button, so this stays on unless the preference turns it off.
   bool language = true;
   // 共享偏好里另外三个可选按钮，默认值与 client-core 的 FloatingToolbarPreferences 一致：切换输入方案默认开，手写和语音默认关。它们不进 `items`，因为 `items` 的六项也是 PreviewConfig 的 floating_toolbar_items 契约，那里要求正好六个键。
@@ -62,7 +63,7 @@ floating_toolbar_settings(const nlohmann::json &preferences) {
   }
 }
 
-// 工具栏按顺序画的按钮：0 中/英，11 切换输入方案，1 全角，2 标点，3 简繁，4 表情，7 手写，5 屏幕键盘，8 语音，6 设置。`items` 按偏好的顺序排列：character_set、punctuation、fullwidth、emoji、screen_keyboard、settings。`handwriting_offered` 是这个版本有没有手写：不提供手写的版本（日文、越南文和藏文版）不画手写按钮，从别处同步来的开关也不算，与 macOS 一致。
+// 工具栏按顺序画的按钮，与 macOS 工具栏的按钮栈相同：0 中/英，11 切换输入方案，2 标点，1 全角，3 简繁，4 表情，7 手写，5 屏幕键盘，8 语音，6 设置。`items` 按偏好的顺序排列：character_set、punctuation、fullwidth、emoji、screen_keyboard、settings。`handwriting_offered` 是这个版本有没有手写：不提供手写的版本（日文、越南文和藏文版）不画手写按钮，从别处同步来的开关也不算，与 macOS 一致。
 inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &settings,
                                                bool handwriting_offered = true) {
   const auto &items = settings.items;
@@ -70,8 +71,8 @@ inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &se
   result.reserve(10);
   if (settings.language) result.push_back(0);
   if (settings.input_scheme) result.push_back(11);
-  if (items[2]) result.push_back(1);
   if (items[1]) result.push_back(2);
+  if (items[2]) result.push_back(1);
   if (items[0]) result.push_back(3);
   if (items[3]) result.push_back(4);
   if (settings.handwriting && handwriting_offered) result.push_back(7);

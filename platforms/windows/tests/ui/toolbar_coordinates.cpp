@@ -17,21 +17,43 @@ int main() {
             for (double x : {box.left + 0.01, (box.left + box.right) / 2, box.right - 0.01}) {
               const double y = (box.top + box.bottom) / 2 * unit;
               assert(toolbar_button_at_pixel(x * unit, y, dpi, scale, count, metrics) == i);
-              assert(!toolbar_drag_at_pixel(x * unit, y, dpi, scale, metrics));
+              assert(!toolbar_drag_at_pixel(x * unit, y, dpi, scale, count, metrics));
               assert(!toolbar_button_at_pixel(x * unit, 0, dpi, scale, count, metrics));
               assert(!toolbar_button_at_pixel(x * unit, (metrics.shadow.top + metrics.height) * unit,
                                               dpi, scale, count, metrics));
+              // 按钮上下的留白不是按钮，按下去拖动工具栏，与 macOS 一样。
+              const double above = (metrics.shadow.top + metrics.icon_top / 2) * unit;
+              const double below = (metrics.shadow.top + (metrics.icon_bottom + metrics.height) / 2) * unit;
+              assert(!toolbar_button_at_pixel(x * unit, above, dpi, scale, count, metrics));
+              assert(toolbar_drag_at_pixel(x * unit, above, dpi, scale, count, metrics));
+              assert(toolbar_drag_at_pixel(x * unit, below, dpi, scale, count, metrics));
+            }
+            // 两个按钮之间的 2 DIP 也拖动。
+            if (i + 1 < count) {
+              const double gap = (box.right + 1.0) * unit;
+              const double y = (box.top + box.bottom) / 2 * unit;
+              assert(!toolbar_button_at_pixel(gap, y, dpi, scale, count, metrics));
+              assert(toolbar_drag_at_pixel(gap, y, dpi, scale, count, metrics));
             }
           }
-          const double x = (metrics.shadow.left + metrics.handle / 2) * unit;
+          const auto card = toolbar_card(count, metrics);
           const double y = (metrics.shadow.top + metrics.height / 2) * unit;
-          assert(toolbar_drag_at_pixel(x, y, dpi, scale, metrics));
-          assert(!toolbar_drag_at_pixel(x, 0, dpi, scale, metrics));
-          assert(!toolbar_button_at_pixel(x, y, dpi, scale, count, metrics));
+          // logo、分隔线一带和最后一个按钮之后都拖动，logo 那一段还显示移动光标；阴影边距不拖。
+          for (double x : {metrics.shadow.left + metrics.logo / 2, toolbar_divider(metrics).left + 0.5,
+                           card.right - 1.0}) {
+            assert(toolbar_drag_at_pixel(x * unit, y, dpi, scale, count, metrics));
+            assert(!toolbar_drag_at_pixel(x * unit, 0, dpi, scale, count, metrics));
+            assert(!toolbar_button_at_pixel(x * unit, y, dpi, scale, count, metrics));
+          }
+          assert(toolbar_logo_at_pixel((metrics.shadow.left + metrics.logo / 2) * unit, y, dpi, scale, metrics));
+          assert(!toolbar_logo_at_pixel((card.right - 1.0) * unit, y, dpi, scale, metrics));
+          assert(!toolbar_logo_at_pixel((metrics.shadow.left + metrics.logo / 2) * unit, 0, dpi, scale, metrics));
+          assert(!toolbar_drag_at_pixel((card.right + 1.0) * unit, y, dpi, scale, count, metrics));
+          assert(!toolbar_drag_at_pixel((card.left - 1.0) * unit, y, dpi, scale, count, metrics));
         }
       }
   assert(!toolbar_button_at_pixel(std::numeric_limits<double>::infinity(), 30, 96, 1, 11, toolbar_metrics(24)));
-  // 右键菜单只在卡片上打开：logo、拖动条和按钮都算，四周的阴影边距和最后一个按钮之后不算。
+  // 右键菜单只在卡片上打开：logo、分隔线一带和按钮都算，四周的阴影边距和最后一个按钮之后不算。
   for (unsigned dpi : {96u, 144u})
     for (double scale : {1.0, 1.5})
       for (bool logo : {true, false}) {

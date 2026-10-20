@@ -240,7 +240,8 @@ int main() {
             toolbar.selected == base.selected &&
             toolbar.selected_text == base.selected_text &&
             toolbar.accent == base.accent);
-    require(toolbar.radius == 8.0f && toolbar.border_width > 0.0f);
+    // macOS's toolbar card: radius 10, a 1 DIP hairline.
+    require(toolbar.radius == 10.0f && toolbar.border_width == 1.0f);
   }
 
   // The tray menu draws the menu slots of the same palette.

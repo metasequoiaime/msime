@@ -605,7 +605,7 @@ inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &cat
   if (animation.duration_ms == 0) animation.duration_ms = 180;
   return animation;
 }
-// The toolbar palette with a package's own toolbar colours and radius drawn over what the theme derives: background is the bar surface, handle the drag strip (the accent there), divider the separator, icon the glyphs, hover the hovered button.
+// The toolbar palette with a package's own toolbar colours and radius drawn over what the theme derives: background is the bar surface, divider the separator, icon the glyphs, hover the hovered and pressed button. A package's `handle` colour is read but has no target, as on macOS (ToolbarSkinTokens): the bar has no accent drag strip, the logo or the grip is the drag handle.
 inline CandidatePalette apply_toolbar_skin(CandidatePalette palette,
                                            const CandidateSkinToolbar &toolbar,
                                            bool dark) {
@@ -616,7 +616,6 @@ inline CandidatePalette apply_toolbar_skin(CandidatePalette palette,
   };
   apply(colors.background, palette.surface);
   apply(colors.border, palette.border);
-  apply(colors.handle, palette.accent);
   apply(colors.icon, palette.text);
   apply(colors.hover, palette.hover);
   if (colors.divider && !colors.divider->empty())

@@ -260,11 +260,10 @@ candidate_palette(const CandidatePaletteOverrides &overrides,
     palette.show_selected_bar = *overrides.show_selected_bar;
   return palette;
 }
-// The floating toolbar derives from the candidate palette (surface, text, hover, border, and the selected fill with the selected text for a pressed button), so it follows the global theme. Its geometry stays the toolbar's own.
+// The floating toolbar derives from the candidate palette (surface, text, hover, border; a pressed button is drawn with the hover fill, as on macOS), so it follows the global theme. Its geometry is the toolbar's own, macOS's: a 10 DIP card radius (NativeCandidateTokens' radius, which macOS uses whatever the theme's card radius is, until a package's `[toolbar]` radius replaces it) and a 1 DIP hairline. The hover fill's corner follows the button size (toolbar_button_radius in ToolbarLayout.h), so it is not set here.
 inline CandidatePalette toolbar_palette(CandidatePalette palette) {
-  palette.radius = 8.0f;
-  palette.border_width = 1.4f;
-  palette.item_radius = 6.5f;
+  palette.radius = 10.0f;
+  palette.border_width = 1.0f;
   return palette;
 }
 // The tray menu is drawn like the candidate flyout: the menu slots of the candidate palette, the accent for a switch that is on and the secondary colour for a row whose capability is missing.

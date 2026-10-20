@@ -11321,7 +11321,7 @@ private:
     int button;
   };
 
-  // 顺序和原生 floating_toolbar_slots 一致，预览与复选框使用同一张表。
+  // 复选框按这张表的顺序排，与共享设置页 floating-toolbar-options.ts 相同；预览用同一张表，但按原生 floating_toolbar_slots 的顺序画（标点在全/半角之前，与 macOS 工具栏一样），见 update_toolbar_preview。
   static constexpr std::array<ToolbarComponent, 10> toolbar_components_{{
       {L"english_mode", L"中英文切换", true, msime::windows::kToolbarLanguage},
       {L"input_scheme", L"切换输入方案", true,
@@ -11392,6 +11392,15 @@ private:
                             item.fallback))
         components.push_back(item);
     }
+    // 工具栏上标点排在全/半角之前（floating_toolbar_slots），表里两项相邻、顺序相反，两项都在时对调。
+    const auto fullwidth = std::find_if(components.begin(), components.end(), [](ToolbarComponent const &item) {
+      return item.button == msime::windows::kToolbarFullwidth;
+    });
+    const auto punctuation = std::find_if(components.begin(), components.end(), [](ToolbarComponent const &item) {
+      return item.button == msime::windows::kToolbarPunctuation;
+    });
+    if (fullwidth != components.end() && punctuation != components.end() && fullwidth < punctuation)
+      std::iter_swap(fullwidth, punctuation);
     const double width =
         msime::windows::toolbar_content_width(components.size(), metrics) *
         scale;
@@ -11415,14 +11424,17 @@ private:
       Canvas::SetTop(grip, (metrics.height - 16) * scale / 2);
       canvas.Children().Append(grip);
     }
-    Border handle;
-    handle.Width(2 * scale);
-    handle.Height(height * 0.462);
-    handle.CornerRadius(CornerRadius{scale, scale, scale, scale});
-    handle.Background(brush(to_color(colors.accent)));
-    Canvas::SetLeft(handle, (metrics.logo + 3) * scale);
-    Canvas::SetTop(handle, height * 0.269);
-    canvas.Children().Append(handle);
+    // logo 和按钮之间的分隔线，与原生工具栏一样宽 1.2、和按钮一样高；没有强调色的拖动条。没有按钮时不画。
+    if (!components.empty()) {
+      const auto line = msime::windows::toolbar_divider(metrics);
+      Border divider;
+      divider.Width((line.right - line.left) * scale);
+      divider.Height((line.bottom - line.top) * scale);
+      divider.Background(brush(to_color(colors.divider.value_or(colors.border))));
+      Canvas::SetLeft(divider, line.left * scale);
+      Canvas::SetTop(divider, line.top * scale);
+      canvas.Children().Append(divider);
+    }
     msime::windows::ToolbarLanguageState language;
     language.scheme = msime::windows::scheme::scheme_from_name(utf8(
         hstring(document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W))));
@@ -11451,13 +11463,16 @@ private:
               : true;
       const auto icon =
           msime::windows::toolbar_icon(component.button, state, language);
-      FrameworkElement glyph =
-          icon.codepoint ? make_icon(icon.codepoint, metrics.icon * scale,
-                                     to_color(colors.text))
-                               .as<FrameworkElement>()
-                         : make_text(icon.fallback, metrics.icon * scale,
-                                     to_color(colors.text))
-                               .as<FrameworkElement>();
+      // 模式按钮是文字，用工具栏的中文界面字体、字号的 0.95 画，与原生工具栏相同；其余按钮是图标字体的字形。
+      FrameworkElement glyph{nullptr};
+      if (icon.codepoint) {
+        glyph = make_icon(icon.codepoint, metrics.icon * scale, to_color(colors.text));
+      } else {
+        auto label = make_text(icon.fallback, metrics.icon * msime::windows::toolbar_glyph_scale * scale,
+                               to_color(colors.text));
+        label.FontFamily(Media::FontFamily(icon.family ? icon.family : msime::windows::toolbar_text_font));
+        glyph = label;
+      }
       glyph.HorizontalAlignment(HorizontalAlignment::Center);
       glyph.VerticalAlignment(VerticalAlignment::Center);
       cell.Child(glyph);

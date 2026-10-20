@@ -164,7 +164,8 @@ int main() {
   require(toolbar.light.background == std::string("#F4F8FF") && !toolbar.light.handle);
   const auto base = candidate_native_palette(true);
   const auto dark = apply_toolbar_skin(base, toolbar, true);
-  require(dark.surface == candidate_rgb(0x141B33) && dark.accent == candidate_rgb(0x5B9BFF));
+  // `handle` has no target: the bar has no accent drag strip, so the theme's accent stays.
+  require(dark.surface == candidate_rgb(0x141B33) && dark.accent == base.accent);
   require(dark.text == candidate_rgb(0xE3EAFF) && dark.hover == base.hover);
   require(dark.divider && *dark.divider == candidate_rgb(0x5B9BFF, 0x47 / 255.0f));
   require(dark.radius == 6.0f && dark.border == base.border);
