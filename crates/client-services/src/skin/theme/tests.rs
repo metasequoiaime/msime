@@ -1258,6 +1258,7 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
             preedit_text: Some("#123".into()),
             preedit_background: Some("rgba(1, 2, 3, 0.5)".into()),
             preedit_divider: Some("transparent".into()),
+            page_arrow_divider: Some("rgba(17, 34, 51, 0.5)".into()),
             preedit_caret: Some("#456".into()),
             selected_bar: Some("#789".into()),
             translation: Some("#abc".into()),
@@ -1282,6 +1283,11 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
     assert_eq!(result.preedit_text.as_deref(), Some("#112233"));
     assert_eq!(result.preedit_background.as_deref(), Some("#01020380"));
     assert_eq!(result.preedit_divider.as_deref(), Some("#00000000"));
+    assert_eq!(result.page_arrow_divider.as_deref(), Some("#11223380"));
+    assert_eq!(
+        serde_json::to_value(&result).unwrap()["page_arrow_divider"],
+        "#11223380"
+    );
     assert_eq!(result.preedit_caret.as_deref(), Some("#445566"));
     assert_eq!(result.selected_bar.as_deref(), Some("#778899"));
     assert_eq!(result.translation.as_deref(), Some("#AABBCC"));

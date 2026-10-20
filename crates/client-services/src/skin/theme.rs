@@ -198,6 +198,8 @@ pub struct CandidateDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preedit_divider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_arrow_divider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub menu_surface: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menu_border: Option<String>,
@@ -349,6 +351,7 @@ pub fn resolve(
             selected_bar: color(&palette.selected_bar),
             preedit_background: color(&palette.preedit_background),
             preedit_divider: color(&palette.preedit_divider),
+            page_arrow_divider: color(&palette.page_arrow_divider),
             menu_surface: palette
                 .menu
                 .as_ref()
