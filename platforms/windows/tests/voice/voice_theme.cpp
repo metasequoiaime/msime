@@ -23,7 +23,7 @@ int main() {
   assert(surface_theme_is_light(SurfaceThemeMode::System, false));
   assert(!surface_theme_is_light(SurfaceThemeMode::System, true));
 
-  // The overlay draws the theme palette of its mode rather than colours of its own: surface, border, accent for the waveform and text for the transcript and glyphs, with the action discs a faint wash of the text.
+  // The overlay draws the theme palette of its mode rather than colours of its own: surface and border, and text for the waveform, the transcript and the glyphs alike (macOS draws its bars and text in one foreground), with the action discs a faint wash of the text.
   using msime::windows::candidate_native_palette;
   using msime::windows::candidate_palette;
   using msime::windows::candidate_rgb;
@@ -32,14 +32,15 @@ int main() {
     const auto palette = candidate_native_palette(dark);
     const auto colors = voice_overlay_colors(palette);
     assert(colors.surface == palette.surface && colors.border == palette.border &&
-           colors.wave == palette.accent && colors.text == palette.text);
+           colors.wave == palette.text && colors.text == palette.text);
+    assert(colors.wave != palette.accent);
     assert(colors.action.r == palette.text.r && colors.action.g == palette.text.g &&
            colors.action.b == palette.text.b &&
            colors.action.a == palette.text.a * 0.12f);
   }
   assert(voice_overlay_colors(candidate_native_palette(false)) !=
          voice_overlay_colors(candidate_native_palette(true)));
-  // A theme's slots reach the overlay, so a skin that recolours the card recolours it too.
+  // A theme's slots reach the overlay, so a skin that recolours the card recolours it too; its accent does not tint the waveform.
   msime::windows::CandidatePaletteOverrides themed;
   themed.surface = "#102030";
   themed.accent = "#ff8800";
@@ -47,7 +48,7 @@ int main() {
   themed.border = "#405060";
   const auto colors = voice_overlay_colors(candidate_palette(themed));
   assert(colors.surface == candidate_rgb(0x102030) &&
-         colors.wave == candidate_rgb(0xFF8800) &&
+         colors.wave == candidate_rgb(0xFAFAFA) &&
          colors.text == candidate_rgb(0xFAFAFA) &&
          colors.border == candidate_rgb(0x405060));
 }
