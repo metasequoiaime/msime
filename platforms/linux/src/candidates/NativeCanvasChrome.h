@@ -348,6 +348,47 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   return layout;
 }
 
+// 卡片投影：macOS 给非 canvas 皮肤的候选窗留着系统投影（refreshCandidateSkin 的 hasShadow），X11 上没有窗口管理器替 override-redirect 窗口画，所以有合成器时原生画布自己画，取 classicui 主题那一层（FcitxPanelGeometry：向下 4px、sigma 5、22% 黑）。窗口四周按这些边距放大，装饰带比上边距高时上边不再多留。没有合成器时窗口只有二值透明，不画投影，边距都是 0。单位是逻辑像素，不随 candidate_scale_percent 缩放（与 classicui 相同）。
+struct NativeCanvasShadowInsets {
+  double left = 0, top = 0, right = 0, bottom = 0;
+};
+
+inline NativeCanvasShadowInsets native_canvas_shadow_insets(const NativeCanvasLayout &layout, bool composited) {
+  using G = FcitxPanelGeometry;
+  if (!composited || !layout.chrome) return {};
+  return {static_cast<double>(G::shadow_left), std::max(0.0, G::shadow_top - layout.panel.y),
+          static_cast<double>(G::shadow_right), static_cast<double>(G::shadow_bottom)};
+}
+
+// 投影画成 width×height 设备像素的图，`card` 是卡片在窗口里的位置（逻辑像素），`scale` 是显示倍率；窗口尺寸和卡片位置不变时调用方缓存它。卡片底下的投影按圆角覆盖率擦掉，半透明的卡片底下透出桌面而不是投影，与 classicui 的 fcitx_clear_rounded 相同。
+inline NativeCanvasImage native_canvas_card_shadow(int width, int height, const NativeCanvasRect &card, double radius,
+                                                   double scale) {
+  using G = FcitxPanelGeometry;
+  if (width <= 0 || height <= 0 || !(scale > 0)) return {};
+  NativeCanvasImage image(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height), cairo_surface_destroy);
+  if (cairo_surface_status(image.get()) != CAIRO_STATUS_SUCCESS) return {};
+  cairo_surface_flush(image.get());
+  auto *data = cairo_image_surface_get_data(image.get());
+  const int stride = cairo_image_surface_get_stride(image.get());
+  const FcitxRect body{card.x, card.y, card.x + card.width, card.y + card.height};
+  const FcitxRect cast{body.left, body.top + G::shadow_offset, body.right, body.bottom + G::shadow_offset};
+  const double spread = G::shadow_sigma * std::sqrt(2.0), unit = 1 / scale;
+  for (int y = 0; y < height; ++y)
+    for (int x = 0; x < width; ++x) {
+      const double px = (x + 0.5) * unit, py = (y + 0.5) * unit;
+      const double keep = 1.0 - fcitx_coverage(fcitx_rounded_rect_distance(px, py, body, radius), unit);
+      const double distance = fcitx_rounded_rect_distance(px, py, cast, radius);
+      // erfc(4) 已小于 1e-7，再远的像素没有可见的投影。
+      if (keep <= 0 || distance > 4 * spread) continue;
+      const double alpha = G::shadow_alpha * 0.5 * std::erfc(distance / spread) * keep;
+      // 预乘的黑色只有 alpha 通道。
+      const std::uint32_t pixel = static_cast<std::uint32_t>(std::lround(std::clamp(alpha, 0.0, 1.0) * 255)) << 24;
+      std::memcpy(data + y * stride + x * 4, &pixel, 4);
+    }
+  cairo_surface_mark_dirty(image.get());
+  return image;
+}
+
 inline int native_canvas_hit_chrome(const NativeCanvasContent &content, const NativeCanvasLayout &layout,
                                     double x, double y) {
   for (std::size_t at = 0; at < layout.items.size(); ++at)
@@ -477,6 +518,26 @@ inline void paint_native_canvas_chrome(cairo_t *cr, const NativeCanvasAssets &as
   native_canvas_set_color(cr, color("surface", 0xf8f8f8), card_alpha);
   native_canvas_round_rect(cr, panel, {radius, radius, radius, radius});
   cairo_fill(cr);
+  // 皮肤背景图：cover 等比铺满后居中裁切，contain 等比完整放进并居中，stretch 两个方向各自拉伸（macOS 的 BackgroundRects），裁在卡片圆角里。
+  if (auto *image = assets.background.image.get(); image && panel.width > 0 && panel.height > 0) {
+    const double width = cairo_image_surface_get_width(image), height = cairo_image_surface_get_height(image);
+    double scale_x = panel.width / width, scale_y = panel.height / height;
+    if (assets.background.fit == CandidateSkinBackgroundFit::cover) scale_x = scale_y = std::max(scale_x, scale_y);
+    else if (assets.background.fit == CandidateSkinBackgroundFit::contain) scale_x = scale_y = std::min(scale_x, scale_y);
+    cairo_save(cr);
+    native_canvas_round_rect(cr, panel, {radius, radius, radius, radius});
+    cairo_clip(cr);
+    cairo_translate(cr, panel.x + (panel.width - width * scale_x) / 2, panel.y + (panel.height - height * scale_y) / 2);
+    cairo_scale(cr, scale_x, scale_y);
+    // 只画图片本身的范围（contain 时两边留出底色）；PAD 让放大时边缘像素不被插值成半透明。
+    cairo_rectangle(cr, 0, 0, width, height);
+    cairo_clip(cr);
+    cairo_set_source_surface(cr, image, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+    cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);
+    cairo_paint_with_alpha(cr, std::clamp(assets.background.opacity, 0.0, 1.0) * card_alpha);
+    cairo_restore(cr);
+  }
   if (assets.border_width > 0) {
     if (const auto border = optional_color("border")) {
       native_canvas_set_color(cr, *border, card_alpha);

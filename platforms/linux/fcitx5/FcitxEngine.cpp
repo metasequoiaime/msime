@@ -3647,6 +3647,8 @@ public:
   size_t expandedColumns() const {
     return std::max<size_t>(1, msime::linux_host::strict_json_value(view_, "page_size", size_t{1}));
   }
+  // 一次看得见几行：皮肤包的共享版式写了 expand_rows（2–8，只数首行之后的网格）时是它加上当前页这一行，与 macOS 的 windowRows 相同；没有时是 kExpandedGridVisibleRows。
+  size_t expandedVisibleRows(size_t rows) const;
   bool expandAllowed() const;
   bool expandOffered() const;
   std::vector<Json> expandedEntries();
@@ -6281,10 +6283,12 @@ public:
         }
       }
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-      // X11 上原生画布是所有主题的默认画法：没有 canvas 包时按主题配色、用户样式和皮肤包的版式合成 macOS 结构的卡片。逃生口 MSIME_FCITX5_CANDIDATE_RENDERER=classicui 让整套退回 classicui；Wayland 和 kimpanel 本来就不走这里（renderNativeCanvas 只认 X11 上的 classicui）。
+      // X11 会话里原生画布是所有主题的默认画法：没有 canvas 包时按主题配色、用户样式和皮肤包的版式合成 macOS 结构的卡片。逃生口 MSIME_FCITX5_CANDIDATE_RENDERER=classicui 让整套退回 classicui；kimpanel 和 Wayland 原生客户端本来就不走这里（renderNativeCanvas 只认 X11 上的 classicui）。Wayland 会话里走 XWayland 的程序也不合成这张卡片，照旧由 classicui 画水杉主题，与 candidate-panel.json 报告的能力一致（publishCandidatePanelStatus 用同一个会话判断）；canvas 皮肤包在那里照旧由原生画布画。
       const bool native_renderer = host::native_canvas_renderer_enabled(std::getenv("MSIME_FCITX5_CANDIDATE_RENDERER"));
+      const bool chrome_session =
+          host::candidate_session_is_x11(std::getenv("XDG_SESSION_TYPE"), std::getenv("DISPLAY"), std::getenv("WAYLAND_DISPLAY"));
       if (!native_renderer) native_canvas_assets_.reset();
-      if (native_renderer && !native_canvas_assets_ && !canvas_package) {
+      if (native_renderer && chrome_session && !native_canvas_assets_ && !canvas_package) {
         try {
           const auto query = host::candidate_theme_request(preferences, resolved.dark, catalog).dump();
           const auto document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
@@ -6308,6 +6312,7 @@ public:
           chrome.show_selected_bar = native_canvas_palette_.value("show_selected_bar", false);
           chrome.min_width = drawn_package.value("minWidthDip", 0.0) * metrics.scale;
           chrome.decoration = decoration;
+          chrome.background = background;
           native_canvas_assets_ = host::native_canvas_theme_assets(chrome, drawn_package);
           if (decoration) native_canvas_sources_.push_back(decoration->image);
           if (show_logo) native_canvas_logo_ = host::load_native_canvas_logo(MSIME_ICON_DIR);
@@ -7608,6 +7613,12 @@ std::vector<Json> FcitxState::expandedEntries() {
   return entries;
 }
 
+size_t FcitxState::expandedVisibleRows(size_t rows) const {
+  const auto &assets = engine_ ? engine_->native_canvas_assets_ : nullptr;
+  const size_t limit = assets && assets->expand_rows ? 1 + *assets->expand_rows : msime::candidate::kExpandedGridVisibleRows;
+  return std::min(rows, limit);
+}
+
 // 打开网格，高亮停在普通候选窗正高亮的那一个上；没有更多候选时返回 false，调用方照旧处理这个键。
 bool FcitxState::openExpanded() {
   if (!expanded_.empty() || !expandOffered()) return false;
@@ -7675,7 +7686,7 @@ void FcitxState::scrollExpanded(bool backwards) {
   if (expanded_.empty() || !expandedStillApplies()) { closeExpanded(); return; }
   const auto columns = expandedColumns();
   const auto rows = msime::candidate::ExpandedGridRows(expanded_.size(), columns);
-  const auto visible = std::min(rows, msime::candidate::kExpandedGridVisibleRows);
+  const auto visible = expandedVisibleRows(rows);
   if (rows <= visible) return;
   if (backwards && expanded_first_row_ > 0) --expanded_first_row_;
   else if (!backwards && expanded_first_row_ + visible < rows) ++expanded_first_row_;
@@ -7738,12 +7749,18 @@ bool FcitxState::expandedKey(fcitx::KeyEvent &event) {
       closeExpanded();
       return true;
     default: {
-      // 字符翻页键（- =、[ ]、, .）按「翻页方式」里打开的那几组；它们是拼写输入时不算翻页。
-      const char *binding = sym == FcitxKey_minus || sym == FcitxKey_equal ? "minus_equal"
-                          : sym == FcitxKey_bracketleft || sym == FcitxKey_bracketright ? "brackets"
+      // 字符翻页键（- =、[ ]、, .）按「翻页方式」里打开的那几组，缺省与普通候选窗的翻页相同（- = 和 , . 开、[ ] 关）。它们是拼写输入时不算翻页；日语（方案或临时日文）的 - = 是长音和等号，以词定字占着的那一组也不翻页（macOS 的 IsJapaneseMinusEqualKey、wordCharacterClaimsEvent）。
+      const bool minus_equal = sym == FcitxKey_minus || sym == FcitxKey_equal;
+      const bool brackets = sym == FcitxKey_bracketleft || sym == FcitxKey_bracketright;
+      const char *binding = minus_equal ? "minus_equal" : brackets ? "brackets"
                           : sym == FcitxKey_comma || sym == FcitxKey_period ? "comma_period" : nullptr;
+      const bool japanese = msime::linux_host::strict_json_value(view_, "scheme", 0u) == 3 ||
+          view_.value("local_mode", std::string("none")) == "temporary_japanese";
+      const bool word_character = word_character_enabled_ && msime::linux_host::strict_json_value(view_, "scheme", 0u) != 3 &&
+          (word_character_minus_equal_ ? minus_equal : brackets);
       const auto spelled = static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym));
-      if (binding && navigation_.value(binding, false) && !msime::linux_host::engine_spelling(view_, spelled))
+      if (binding && navigation_.value(binding, !brackets) && !(minus_equal && japanese) && !word_character &&
+          !msime::linux_host::engine_spelling(view_, spelled))
         move = sym == FcitxKey_minus || sym == FcitxKey_bracketleft || sym == FcitxKey_comma ? Move::PageUp : Move::PageDown;
       break;
     }
@@ -7758,7 +7775,7 @@ bool FcitxState::expandedKey(fcitx::KeyEvent &event) {
     return false;
   }
   const auto rows = msime::candidate::ExpandedGridRows(count, columns);
-  const auto visible = std::max<size_t>(1, std::min(rows, msime::candidate::kExpandedGridVisibleRows));
+  const auto visible = std::max<size_t>(1, expandedVisibleRows(rows));
   const auto step = msime::candidate::StepExpandedGrid(expanded_cursor_, count, columns, visible, *move);
   if (step.close) {
     closeExpanded();
@@ -7777,8 +7794,9 @@ bool FcitxState::renderNativeCanvas() {
       engine_->instance_->currentUI() == "classicui" && ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
       !ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel);
   if (!drawable || !list || list->size() == 0) {
-    // 只有普通收起（上屏、取消后没了候选）播退场；失焦、换界面、换到 Wayland 一律立即收起，不在屏幕上留旧候选文字。
-    if (native_canvas_) native_canvas_->hide(drawable);
+    // 只有普通收起（上屏、取消后没了候选）播退场；失焦、换界面、换到 Wayland 一律立即收起，不在屏幕上留旧候选文字。同一个输入上下文换进密码、数字或敏感字段（Chromium、Electron 复用一个 IC）时也立即收起，不让上一个字段的候选在退场里多留一会儿；只带 NoSpellCheck 的普通字段照常播退场。
+    const bool animate = drawable && !restricted() && !ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive);
+    if (native_canvas_) native_canvas_->hide(animate);
     if (!drawable) discardExpanded();
     return false;
   }
@@ -7814,10 +7832,17 @@ bool FcitxState::renderNativeCanvas() {
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
     content.preedit_size = (preedit_size != preferences_.end() && preedit_size->is_number_integer() &&
                             *preedit_size >= 12 && *preedit_size <= 32 ? preedit_size->get<int>() : 15) * scale;
-    // 横排为还没到的释义预留高度：开了译文且有译文服务、开了离线英文释义，或者韩文汉字列表（训音一行）。
+    // 横排为还没到的释义预留高度：开了译文且有译文服务、开了离线英文释义时按配置的目标语言预留一到两行（macOS 的 reservedGlossHeightForFont），韩文汉字列表再加训音一行。
     const bool glosses = preferences_.value("candidate_english_gloss", false) ||
         (preferences_.value("candidate_translations", true) && !translation_socket_.empty());
-    content.reserved_gloss_lines = (glosses ? 1 : 0) + (host::korean_hanja_list_open(view_) ? 1 : 0);
+    const auto language = [this](const char *key, const char *fallback) {
+      const auto at = preferences_.find(key);
+      return at != preferences_.end() && at->is_string() ? at->get<std::string>() : std::string(fallback);
+    };
+    const auto translation_lines = glosses
+        ? host::translation_reserved_lines(language("translation_target_language", "en"), language("translation_secondary_language", ""))
+        : 0;
+    content.reserved_gloss_lines = static_cast<int>(translation_lines) + (host::korean_hanja_list_open(view_) ? 1 : 0);
     content.selection_context = view_.value("editing_text", std::string{}) + "\n" +
         std::to_string(host::strict_json_value(view_, "page", size_t{}));
   } else {
@@ -7844,7 +7869,7 @@ bool FcitxState::renderNativeCanvas() {
     const auto columns = expandedColumns();
     const auto count = expanded_.size();
     const auto rows = msime::candidate::ExpandedGridRows(count, columns);
-    const auto visible = std::min(rows, msime::candidate::kExpandedGridVisibleRows);
+    const auto visible = expandedVisibleRows(rows);
     expanded_cursor_ = std::min(expanded_cursor_, count - 1);
     const auto cursor_row = expanded_cursor_ / columns;
     expanded_first_row_ = msime::candidate::ExpandedGridFirstRow(expanded_first_row_, cursor_row, rows, visible);
@@ -8164,8 +8189,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                                                              fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                                              fcitx::KeyState::Mod5}) &&
       !event.rawKey().states().test(fcitx::KeyState::Shift) &&
-      (sym == FcitxKey_Down || sym == FcitxKey_KP_Down ||
-       ((sym == FcitxKey_Tab || sym == FcitxKey_KP_Tab) && navigation_.value("tab", true))) &&
+      (sym == FcitxKey_Down || sym == FcitxKey_KP_Down || sym == FcitxKey_Tab || sym == FcitxKey_KP_Tab) &&
       openExpanded())
     return true;
 #endif

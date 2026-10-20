@@ -387,6 +387,14 @@ if(BUILD_TESTING)
                   "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
                   "$<TARGET_FILE:msime-fcitx5>")
               set_tests_properties(fcitx5-native-canvas-${canvas_layout}-composited PROPERTIES TIMEOUT 90)
+              # 有合成器时 macOS 结构的卡片自己画投影：窗口四周多出投影边距，按钮、悬停与点选仍落在卡片上。
+              add_test(NAME fcitx5-native-chrome-${canvas_layout}-composited
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout} MSIME_TEST_COMPOSITED=1
+                  "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_chrome.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-native-chrome-${canvas_layout}-composited PROPERTIES TIMEOUT 90)
             endif()
           endif()
           foreach(canvas_format gif webp)

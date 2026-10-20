@@ -29,6 +29,10 @@ int main() {
   assert(candidate_session_is_x11(nullptr, ":0", nullptr));
   assert(!candidate_session_is_x11(nullptr, ":0", "wayland-0"));
   assert(!candidate_session_is_x11("", nullptr, nullptr));
+  // 控制台登录后 startx：pam_systemd 给的是 tty，按 DISPLAY 判断。
+  assert(candidate_session_is_x11("tty", ":0", nullptr));
+  assert(!candidate_session_is_x11("tty", nullptr, nullptr));
+  assert(!candidate_session_is_x11("tty", ":0", "wayland-0"));
 
   assert(candidate_desktop_is_gnome_shell("GNOME"));
   assert(candidate_desktop_is_gnome_shell("ubuntu:GNOME"));

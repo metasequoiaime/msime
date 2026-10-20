@@ -56,9 +56,11 @@ inline std::string candidate_panel_status_document(std::string_view host, Candid
          (native_canvas ? ",\"renderer\":\"native_canvas\"" : "") + "}\n";
 }
 
-// Fcitx5 的候选窗这次会话里是不是原生画布画的：会话是 X11（XDG_SESSION_TYPE，没有时看有没有 DISPLAY 而没有 WAYLAND_DISPLAY）。Wayland 会话里只有走 XWayland 的程序能用它，所以不算。
+// Fcitx5 的候选窗这次会话里是不是原生画布画的：会话是 X11。XDG_SESSION_TYPE 是 x11 或 wayland 时照它；是别的值（控制台登录后 startx 时为 tty）或没设时看有没有 DISPLAY 而没有 WAYLAND_DISPLAY。Wayland 会话里走 XWayland 的程序也不用原生画布画水杉主题（FcitxEngine 用同一个判断），所以不算。
 inline bool candidate_session_is_x11(const char *session_type, const char *display, const char *wayland_display) {
-  if (session_type && session_type[0]) return std::string_view(session_type) == "x11";
+  const std::string_view type = session_type ? session_type : "";
+  if (type == "x11") return true;
+  if (type == "wayland") return false;
   return display && display[0] && !(wayland_display && wayland_display[0]);
 }
 

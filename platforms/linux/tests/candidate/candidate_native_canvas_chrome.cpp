@@ -240,6 +240,83 @@ void band() {
   cairo_destroy(cr);
 }
 
+// 皮肤背景图：画在卡片底色之上、候选之下，裁在圆角里；cover 铺满，contain 两边留底色，不透明度再乘候选窗不透明度。读不出的图片只少背景。
+void background() {
+  const auto target = image(1200, 800, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  auto content = page(false);
+  content.preedit.clear();
+  assets->background = {image(10, 400, 0xff00ff), host::CandidateSkinBackgroundFit::cover, 1};
+  const auto layout = host::measure_native_canvas(cr, *assets, content, 1600);
+  const auto &panel = layout.panel;
+  const int left = static_cast<int>(panel.x + 2), middle = static_cast<int>(panel.y + panel.height / 2);
+  host::paint_native_canvas(cr, *assets, content, layout, kPalette);
+  assert((pixel(target.get(), left, middle) & 0xffffff) == 0xff00ff);
+  assert((pixel(target.get(), static_cast<int>(panel.x), static_cast<int>(panel.y)) & 0xffffff) != 0xff00ff);
+  // 选中行画在背景之上。
+  assert(colors(target.get(), layout.items[0])[0x0000ff] > 50);
+  // contain：又窄又高的图等比放进卡片后居中，左边留出底色。
+  assets->background.fit = host::CandidateSkinBackgroundFit::contain;
+  host::paint_native_canvas(cr, *assets, content, layout, kPalette);
+  assert((pixel(target.get(), left, middle) & 0xffffff) == 0x000000);
+  assert((pixel(target.get(), static_cast<int>(panel.x + panel.width / 2), static_cast<int>(panel.y + 1)) & 0xffffff) == 0xff00ff);
+  // 背景不透明度 0.5、候选窗不透明度 0.5：合到黑底上约 25%。
+  assets->background.fit = host::CandidateSkinBackgroundFit::stretch;
+  assets->background.opacity = 0.5;
+  assets->opacity = 0.5;
+  const auto clear = image(1200, 800, 0, 0);
+  auto *transparent = cairo_create(clear.get());
+  host::paint_native_canvas(transparent, *assets, content, layout, kPalette);
+  const auto red = (pixel(clear.get(), left, middle) >> 16) & 0xff;
+  assert(red >= 0x38 && red <= 0x48);
+  cairo_destroy(transparent);
+  cairo_destroy(cr);
+  host::NativeCanvasThemeStyle missing;
+  missing.background = host::CandidateSkinBackground{"/nonexistent/msime-background.png"};
+  assert(!host::native_canvas_theme_assets(missing, Json::object())->background.image);
+}
+
+// 卡片投影：只有合成器在时、只给 macOS 结构的卡片留边距；装饰带够高时上边不多留。投影在卡片下方最重，卡片底下擦掉，离开边距就没有。
+void shadow() {
+  const auto target = image(10, 10, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets();
+  const auto content = page(false);
+  const auto layout = host::measure_native_canvas(cr, *assets, content, 1600);
+  const auto none = host::native_canvas_shadow_insets(layout, false);
+  assert(none.left == 0 && none.top == 0 && none.right == 0 && none.bottom == 0);
+  const auto inset = host::native_canvas_shadow_insets(layout, true);
+  assert(inset.left == 12 && inset.top == 8 && inset.right == 12 && inset.bottom == 16);
+  host::NativeCanvasAssets skin;
+  assert(host::native_canvas_shadow_insets(host::measure_native_canvas(cr, skin, content), true).bottom == 0);
+  auto animation = std::make_shared<host::NativeCanvasAnimation>();
+  animation->frames = {image(40, 20, 0x00ffff)};
+  animation->delays_ms = {0};
+  assets->band.image = animation;
+  assets->band.top = 30;
+  assets->band.width = 80;
+  assert(host::native_canvas_shadow_insets(host::measure_native_canvas(cr, *assets, content, 1600), true).top == 0);
+  cairo_destroy(cr);
+  for (const double scale : {1.0, 2.0}) {
+    const host::NativeCanvasRect card{12, 8, 200, 100};
+    const int width = static_cast<int>((12 + 200 + 12) * scale), height = static_cast<int>((8 + 100 + 16) * scale);
+    const auto shade = host::native_canvas_card_shadow(width, height, card, 10, scale);
+    assert(shade && cairo_image_surface_get_width(shade.get()) == width);
+    const auto alpha = [&](double x, double y) {
+      return pixel(shade.get(), static_cast<int>(x * scale), static_cast<int>(y * scale)) >> 24;
+    };
+    // 卡片正下方 4px 处最重，上方较轻（向下偏 4px），卡片里面为 0，左右对称。
+    const auto below = alpha(112, 112), above = alpha(112, 4);
+    assert(below > 0x10 && below < 0x38 && above > 0 && above < below);
+    assert(alpha(112, 58) == 0);
+    const int side = static_cast<int>(5 * scale), middle = static_cast<int>(58 * scale);
+    const auto left = pixel(shade.get(), side, middle) >> 24, right = pixel(shade.get(), width - 1 - side, middle) >> 24;
+    assert(left + 1 >= right && right + 1 >= left && left > 0);
+    assert(alpha(0, 0) < 0x04);
+  }
+}
+
 // 主题调色板：system 主题没有候选配色，铺 Adwaita；主题给了的槽位盖过它，半透明的保留 alpha。
 void palette() {
   const auto light = host::native_canvas_theme_palette(Json::object(), false);
@@ -249,6 +326,20 @@ void palette() {
       {"candidate_details", {{"preedit_text", "#445566"}, {"show_selected_bar", true}}}}, false);
   assert(themed.at("selected") == "#11223380" && themed.at("text") == light.at("text"));
   assert(themed.at("preedit_text") == "#445566" && themed.at("show_selected_bar") == true);
+  // 选中竖条：system 是 Adwaita 蓝；主题给了 accent 没给竖条色时跟随 accent；两个都给时用竖条色。
+  assert(light.at("selected_bar") == "#3584E4" && themed.at("selected_bar") == "#3584E4");
+  const auto green = host::native_canvas_theme_palette({{"candidate", {{"accent", "#07C160"}}},
+      {"candidate_details", {{"selected_bar", nullptr}, {"show_selected_bar", true}}}}, false);
+  assert(green.at("selected_bar") == "#07C160");
+  const auto both = host::native_canvas_theme_palette({{"candidate", {{"accent", "#07C160"}}},
+      {"candidate_details", {{"selected_bar", "#FF0000"}}}}, false);
+  assert(both.at("selected_bar") == "#FF0000");
+  // 共享版式的 expandRows 夹在 2–8；没有共享版式时为空，网格用 kExpandedGridVisibleRows。
+  const auto rows = [](Json layout) {
+    return host::native_canvas_theme_assets(host::NativeCanvasThemeStyle{}, {{"resolvedLayout", std::move(layout)}})->expand_rows;
+  };
+  assert(rows({{"expandRows", 3}}) == 3u && rows({{"expandRows", 20}}) == 8u && rows({{"expandRows", 0}}) == 2u);
+  assert(!rows(Json::object()) && !host::native_canvas_theme_assets(host::NativeCanvasThemeStyle{}, Json::object())->expand_rows);
   assert(!host::native_canvas_renderer_enabled("classicui") && host::native_canvas_renderer_enabled(nullptr) &&
          host::native_canvas_renderer_enabled("native"));
 }
@@ -346,9 +437,11 @@ int main() {
   pointer_and_grid();
   scaled();
   band();
+  background();
+  shadow();
   palette();
   placement();
   motion();
   selection_motion();
-  std::cout << "原生画布的 macOS 结构：首行、行与释义、悬停、网格、缩放、装饰带、调色板、定位与动效通过\n";
+  std::cout << "原生画布的 macOS 结构：首行、行与释义、悬停、网格、缩放、装饰带、背景图、投影、调色板、定位与动效通过\n";
 }

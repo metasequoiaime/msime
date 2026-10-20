@@ -42,6 +42,10 @@ struct NativeCanvasX11::Impl {
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
   // 这次显示以来竖排最高的一页（决定翻不翻到光标上方）和横排最宽的一张卡片（卡片只变宽不变窄），隐藏后从头记。
   double tallest = 0, widest = 0;
+  // 有合成器时 macOS 结构的卡片四周留出的投影边距（逻辑像素），卡片和它的命中、形状、定位都按 inset.left、inset.top 平移；投影图按窗口尺寸缓存。
+  NativeCanvasShadowInsets inset;
+  NativeCanvasImage shadow;
+  std::array<double, 8> shadow_key{};
   bool reduce_motion = false;
   // 动效时钟（CLOCK_MONOTONIC 微秒）：进场、退场、选中各自的起点，装饰图待机动效的相位起点和上一次收起的时刻。
   bool entering = false, exiting = false, selecting = false;
@@ -114,7 +118,7 @@ struct NativeCanvasX11::Impl {
     return true;
   }
   int hit(int x, int y) const {
-    return native_canvas_hit(content, layout, x / scale, y / scale);
+    return native_canvas_hit(content, layout, x / scale - inset.left, y / scale - inset.top);
   }
   void pointer(int at) {
     const bool actionable = at >= 0 || at == kNativeCanvasHitPrevious || at == kNativeCanvasHitNext || at == kNativeCanvasHitExpand;
@@ -204,7 +208,8 @@ struct NativeCanvasX11::Impl {
     // 外留白和挂件也占窗口宽度；收紧面板后重新排字，不能在提交窗口时裁切。记住的最宽卡片在换到更窄的屏幕后放不下时先放弃它。
     for (int attempt = 0; attempt < 8; ++attempt) {
       layout = measure_native_canvas(cr, *assets, content, limit);
-      const double wanted = std::ceil(layout.width * scale);
+      inset = native_canvas_shadow_insets(layout, composited);
+      const double wanted = std::ceil((layout.width + inset.left + inset.right) * scale);
       if (wanted <= std::min(work.width, 8192)) break;
       if (content.minimum_width > 0) { content.minimum_width = 0; continue; }
       if (wanted >= previous_width) break;
@@ -213,11 +218,18 @@ struct NativeCanvasX11::Impl {
       if (limit <= 0) break;
     }
     cairo_destroy(cr); cairo_surface_destroy(surface);
-    const double wanted_width = std::ceil(layout.width * scale), wanted_height = std::ceil(layout.height * scale);
+    const double wanted_width = std::ceil((layout.width + inset.left + inset.right) * scale);
+    const double wanted_height = std::ceil((layout.height + inset.top + inset.bottom) * scale);
     if (wanted_width <= 0 || wanted_height <= 0 || wanted_width > work.width ||
         wanted_height > work.height || wanted_width > 8192 || wanted_height > 8192) return false;
     width = static_cast<int>(wanted_width); height = static_cast<int>(wanted_height);
     measured_work_width = work.width; measured_work_height = work.height;
+    const NativeCanvasRect card{inset.left + layout.panel.x, inset.top + layout.panel.y, layout.panel.width, layout.panel.height};
+    const std::array<double, 8> key{static_cast<double>(width), static_cast<double>(height), card.x, card.y, card.width,
+                                    card.height, layout.metrics.card_radius, scale};
+    if (inset.bottom <= 0) shadow.reset();
+    else if (!shadow || key != shadow_key) shadow = native_canvas_card_shadow(width, height, card, layout.metrics.card_radius, scale);
+    shadow_key = key;
     if (steady) widest = shared::WidestCandidateWidth(widest, layout.width, false, visible);
     return true;
   }
@@ -338,13 +350,24 @@ struct NativeCanvasX11::Impl {
     cairo_scale(cr, scale, scale);
     const bool transformed = card.opacity < 1 || card.scale != 1 || card.lift != 0;
     if (transformed) cairo_push_group(cr);
+    // 投影图是设备像素，随卡片一起淡入、缩放；卡片按逻辑像素画在投影边距里面。
+    if (shadow) {
+      cairo_save(cr);
+      cairo_identity_matrix(cr);
+      cairo_set_source_surface(cr, shadow.get(), 0, 0);
+      cairo_paint(cr);
+      cairo_restore(cr);
+    }
+    cairo_save(cr);
+    cairo_translate(cr, inset.left, inset.top);
     paint_native_canvas(cr, *assets, content, layout, palette, elapsed_ms,
                         exiting ? NativeCanvasPointer{} : NativeCanvasPointer{hovered, pressed}, motion);
+    cairo_restore(cr);
     if (transformed) {
       // 卡片动效以卡片中心为轴缩放、在屏幕方向上抬起（Linux 的 y 朝下，抬起是负方向），整张淡入淡出。
       auto *group = cairo_pop_group(cr);
       const auto &panel = layout.panel;
-      const double cx = panel.x + panel.width / 2, cy = panel.y + panel.height / 2;
+      const double cx = inset.left + panel.x + panel.width / 2, cy = inset.top + panel.y + panel.height / 2;
       cairo_save(cr);
       cairo_translate(cr, cx, cy - card.lift);
       cairo_scale(cr, card.scale, card.scale);
@@ -388,7 +411,8 @@ struct NativeCanvasX11::Impl {
     const auto region = XCreateRegion();
     const auto add = [&](const NativeCanvasRect &box) {
       if (box.width <= 0 || box.height <= 0) return;
-      XRectangle rectangle{static_cast<short>(std::floor(box.x * scale)), static_cast<short>(std::floor(box.y * scale)),
+      XRectangle rectangle{static_cast<short>(std::floor((inset.left + box.x) * scale)),
+          static_cast<short>(std::floor((inset.top + box.y) * scale)),
           static_cast<unsigned short>(std::ceil(box.width * scale)), static_cast<unsigned short>(std::ceil(box.height * scale))};
       XUnionRectWithRegion(&rectangle, region, region);
     };
@@ -405,9 +429,9 @@ struct NativeCanvasX11::Impl {
   void place() {
     if (!display || !window || !assets) return;
     const auto work = workArea();
-    // 卡片外的留白：顶上是装饰带或外留白，左、下是 canvas 的外留白；翻不翻到光标上方按记住的最高一页定。
-    const double card_top = layout.panel.y, card_left = layout.panel.x;
-    const double card_bottom = std::max(0.0, layout.height - layout.panel.y - layout.panel.height);
+    // 卡片外的留白：顶上是装饰带或外留白，左、下是 canvas 的外留白，再加上投影边距；翻不翻到光标上方按记住的最高一页定。
+    const double card_top = inset.top + layout.panel.y, card_left = inset.left + layout.panel.x;
+    const double card_bottom = std::max(0.0, layout.height + inset.bottom - layout.panel.y - layout.panel.height);
     const auto [x, y] = native_canvas_window_origin(scale, cursor_x, cursor_y, cursor_height, width, height,
         work.x, work.y, work.width, work.height, content.horizontal ? 0 : tallest / scale, card_top, card_left, card_bottom);
     XMoveResizeWindow(display, window, x, y, static_cast<unsigned>(width), static_cast<unsigned>(height));

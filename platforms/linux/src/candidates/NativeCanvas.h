@@ -42,6 +42,8 @@ struct NativeCanvasAssets {
   double min_width = 0;
   bool explicit_content = false, explicit_line_gap = false, fit_content = false;
   bool page_arrows = false, expand_panel = false;
+  // 共享版式（resolvedLayout）的 expandRows，夹在 2–8：展开网格一次看得见首行之后的几行（macOS 的 CandidateSkin::expandRows）。没有共享版式时为空，网格用 kExpandedGridVisibleRows。
+  std::optional<std::size_t> expand_rows;
   double card_radius = 0, item_radius = 0, border_width = 0;
   bool user_radius = false;
   // candidate_opacity_percent：照 macOS 只淡化面板贴图、底色和描边，文字、序号和选中高亮不变；没有合成器时窗口不透明，半透明像素合到主题底色上，这个值不起作用。
@@ -60,6 +62,12 @@ struct NativeCanvasAssets {
     msime::candidate::DecorationMotionKind motion = msime::candidate::DecorationMotionKind::none;
     double period_ms = 0;
   } band;
+  // 非 canvas 皮肤包的背景图（清单的 `[candidate_window.background]`），照 macOS 的 drawCandidateCard 画在卡片底色之上、描边与候选之下，裁在圆角里；动图取第一帧。`opacity` 是清单的不透明度，画的时候再乘候选窗不透明度。
+  struct Background {
+    NativeCanvasImage image;
+    CandidateSkinBackgroundFit fit = CandidateSkinBackgroundFit::cover;
+    double opacity = 1;
+  } background;
   // 清单 `[animation]` 显式写了的进场、退场、选中预设（没写的是 none，与 macOS 只播放写了的预设相同），时长和错峰毫秒数。
   msime::candidate::MotionPreset enter = msime::candidate::MotionPreset::none;
   msime::candidate::MotionPreset exit = msime::candidate::MotionPreset::none;
@@ -951,6 +959,9 @@ inline nlohmann::json native_canvas_theme_palette(const nlohmann::json &document
     const auto themed = native_canvas_palette(document);
     for (const auto &[key, value] : themed.items())
       if (theme_color(value) || value.is_boolean()) palette[key] = value;
+    // 选中竖条与 macOS 一样没设时跟随主题的 accent（selectedBar ?? accent）；只有主题自己没给 accent 时才用 Adwaita 的蓝。
+    if (!theme_color(themed.value("selected_bar", nlohmann::json{})) && theme_color(themed.value("accent", nlohmann::json{})))
+      palette["selected_bar"] = themed.at("accent");
   }
   return palette;
 }
@@ -979,6 +990,7 @@ struct NativeCanvasThemeStyle {
   bool user_radius = false, show_selected_bar = false;
   double min_width = 0;
   std::optional<CandidateSkinDecoration> decoration;
+  std::optional<CandidateSkinBackground> background;
 };
 
 // 水杉自己的主题（system、内置主题、自定义主题的取色器）和非 canvas 皮肤包：没有九宫格贴图，按主题配色画 macOS 结构的卡片。`package` 是 msime_client_skin_package 给出的那个包（没画包时为空对象）：取它的共享版式（resolvedLayout）、字体、`[animation]` 和装饰图待机动效；装饰图本身按宿主目录给出的绝对路径读，并解出 APNG、GIF、WebP 的各帧。装饰图读不出时只少装饰，卡片照画。
@@ -1001,6 +1013,8 @@ inline std::shared_ptr<NativeCanvasAssets> native_canvas_theme_assets(const Nati
       result->horizontal = layout->value("horizontal", nlohmann::json::object());
       result->vertical = layout->value("vertical", nlohmann::json::object());
       result->fit_content = layout->value("fitContent", false);
+      if (const auto rows = layout->find("expandRows"); rows != layout->end() && rows->is_number_unsigned())
+        result->expand_rows = std::clamp<std::size_t>(rows->get<std::size_t>(), 2, 8);
     }
     result->font_family = package.value("fontFamily", std::string{});
     read_native_canvas_animation(*result, package);
@@ -1022,6 +1036,14 @@ inline std::shared_ptr<NativeCanvasAssets> native_canvas_theme_assets(const Nati
       // 装饰图比卡片宽时卡片跟着变宽（macOS 把 decorationWidthDip 算进最小宽度）。
       result->min_width = std::max(result->min_width, result->band.width);
     }
+  }
+  // 背景图读不出或解不开时只少背景，卡片照画；不透明度为 0 时不读。
+  if (style.background && style.background->opacity > 0) {
+    const auto bytes = read_fcitx_canvas_image(style.background->image);
+    NativeCanvasImage image(bytes ? decode_fcitx_canvas_image(*bytes) : nullptr, cairo_surface_destroy);
+    if (image && cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS && cairo_image_surface_get_width(image.get()) > 0 &&
+        cairo_image_surface_get_height(image.get()) > 0)
+      result->background = {std::move(image), style.background->fit, style.background->opacity};
   }
   return result;
 }
