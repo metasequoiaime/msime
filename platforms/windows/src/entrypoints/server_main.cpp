@@ -1081,7 +1081,7 @@ int wmain(int argc, wchar_t **argv) {
     auto candidate_style = std::make_shared<CandidateWindowStyleMailbox>();
     auto toolbar_settings = std::make_shared<FloatingToolbarMailbox>();
     auto candidate_theme = std::make_shared<CandidateThemeMailbox>();
-    // logo 开关和释义预留行数从启动时的偏好取，第一次发布之前候选卡片就按它们排版。预留行数还要看装了哪些离线释义词典，启动时查一次。
+    // logo 开关、页码开关和释义预留行数从启动时的偏好取，第一次发布之前候选卡片就按它们排版。预留行数还要看装了哪些离线释义词典，启动时查一次。
     const auto offline_gloss_languages = installed_offline_gloss_languages(config.resources);
     const auto stored_candidate_layout =
         candidate_layout_settings(prepared.at("value").at("preferences"), offline_gloss_languages)
@@ -1090,7 +1090,8 @@ int wmain(int argc, wchar_t **argv) {
         CandidateLayoutSettings{
             config.horizontal_candidates, config.candidate_show_preedit, true,
             stored_candidate_layout.show_app_logo,
-            stored_candidate_layout.reserved_gloss_lines}
+            stored_candidate_layout.reserved_gloss_lines,
+            stored_candidate_layout.show_page_number}
             .encode());
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.

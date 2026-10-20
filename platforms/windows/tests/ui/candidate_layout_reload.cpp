@@ -27,6 +27,17 @@ int main() {
   assert(CandidateLayoutSettings::decode(logo_on->encode()).show_app_logo);
   assert(!CandidateLayoutSettings::decode(defaults->encode()).show_app_logo);
   assert(!candidate_layout_settings({{"show_app_logo", "yes"}}));
+  // 共享的 `show_candidate_page_number` 缺值或为 null 时按开处理；关掉后要经得起原子量编码，也不能被别的开关的位带回来。
+  assert(defaults->show_page_number);
+  assert(CandidateLayoutSettings::decode(defaults->encode()).show_page_number);
+  assert(candidate_layout_settings({{"show_candidate_page_number", nullptr}})->show_page_number);
+  const auto pages_off = candidate_layout_settings(
+      {{"show_candidate_page_number", false}, {"show_app_logo", true}, {"candidate_english_gloss", true}});
+  assert(pages_off && !pages_off->show_page_number);
+  const auto pages_decoded = CandidateLayoutSettings::decode(pages_off->encode());
+  assert(!pages_decoded.show_page_number && pages_decoded.show_app_logo &&
+         pages_decoded.reserved_gloss_lines == 1);
+  assert(!candidate_layout_settings({{"show_candidate_page_number", "no"}}));
   // 释义预留行数：翻译和离线英文释义都关时为 0；打开任一个时按有释义来源的目标语言算，第二种语言为空或与第一种相同时只算一行。
   assert(defaults->reserved_gloss_lines == 0);
   assert(candidate_reserved_gloss_lines({{"candidate_english_gloss", true},

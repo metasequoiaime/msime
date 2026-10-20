@@ -10887,16 +10887,17 @@ private:
       start = end == std::wstring::npos ? end
                                         : preview_sample_.find_first_not_of(whitespace, end);
     }
+    // 行距、序号、释义字号跟着候选窗的缺省版式（CandidateCardSize.h，和 macOS 一样）：行挨着行，序号 0.8 倍字号、从行左缘 8 DIP 起，候选文字紧跟在序号后 1.5 DIP，行高是文字上下各 6 DIP，释义固定 12。
     StackPanel list;
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
-    list.Spacing(4 * scale);
+    list.Spacing(0);
     for (int i = 0; i < count; ++i) {
       const auto &[default_word, gloss] = preview_words[static_cast<size_t>(i)];
       const std::wstring word = samples.empty() ? default_word
                                                 : samples[static_cast<size_t>(i) % samples.size()];
       const bool highlighted = i == 0;
       Grid item;
-      item.Padding(Thickness{6 * scale, 4 * scale, 10 * scale, 4 * scale});
+      item.Padding(Thickness{8 * scale, 6 * scale, 8 * scale, 6 * scale});
       item.CornerRadius(CornerRadius{row_radius, row_radius, row_radius, row_radius});
       if (highlighted)
         item.Background(brush(to_color(theme.selected)));
@@ -10909,12 +10910,12 @@ private:
         bar.Background(brush(to_color(theme.accent)));
         bar.HorizontalAlignment(HorizontalAlignment::Left);
         bar.VerticalAlignment(VerticalAlignment::Center);
-        bar.Margin(Thickness{-6 * scale, 0, 0, 0});
+        bar.Margin(Thickness{-8 * scale, 0, 0, 0});
         item.Children().Append(bar);
       }
       StackPanel cell;
       cell.Orientation(Orientation::Horizontal);
-      cell.Spacing(8 * scale);
+      cell.Spacing(1.5 * scale);
       // Alpha 0 in the selected slots means "keep the unselected colour", as the renderer reads it. The translation draws in the package's translation colour, or else the number colour, as the renderer draws it.
       const auto number_color =
           msime::windows::candidate_row_number_color(theme, highlighted);
@@ -10923,7 +10924,7 @@ private:
       const auto row_color = msime::windows::candidate_row_text_color(
           theme, theme.text, highlighted, false);
       auto number =
-          make_text(std::to_wstring(i + 1), 13 * scale, to_color(number_color));
+          make_text(std::to_wstring(i + 1), font * 0.8 * scale, to_color(number_color));
       number.VerticalAlignment(VerticalAlignment::Center);
       cell.Children().Append(number);
       StackPanel words;
@@ -10933,7 +10934,7 @@ private:
       candidate.FontFamily(preview_font);
       words.Children().Append(candidate);
       if (translations && samples.empty()) {
-        auto translation = make_text(gloss, 13 * scale, to_color(translation_color));
+        auto translation = make_text(gloss, 12 * scale, to_color(translation_color));
         translation.FontFamily(preview_font);
         words.Children().Append(translation);
       }

@@ -202,17 +202,17 @@ int main() {
   // 内容内边距：写了 content_insets 时每边不小于边宽，减去宿主自己的内边距；没写时就是边宽；不是 canvas 时为 0。
   const auto metrics = candidate_card_metrics(16.0, 16.0, true);
   const auto base = candidate_canvas_base_padding(metrics);
-  require(same(base, 6.0, 6.0, 6.0, 6.0));
+  require(same(base, 4.0, 4.0, 4.0, 4.0));
   CandidateSkinCanvas insets = manifest;
   insets.content_insets = CandidateCanvasEdges{10.0, 14.0, 4.0, 3.0};
-  require(same(candidate_canvas_content_offset(insets, base), 4.0, 8.0, 2.0, 2.0));
+  require(same(candidate_canvas_content_offset(insets, base), 6.0, 10.0, 4.0, 4.0));
   require(same(candidate_canvas_content_offset(manifest, base), 8.0, 8.0, 8.0, 8.0));
   CandidateSkinCanvas bare;
   bare.active = true;
   require(same(candidate_canvas_content_offset(bare, base), 0.0, 0.0, 0.0, 0.0));
   // 只写了内边距、没有面板：可以比宿主的内边距小，内容往外挪。
   bare.content_insets = CandidateCanvasEdges{2.0, 2.0, 2.0, 2.0};
-  require(same(candidate_canvas_content_offset(bare, base), -4.0, -4.0, -4.0, -4.0));
+  require(same(candidate_canvas_content_offset(bare, base), -2.0, -2.0, -2.0, -2.0));
   require(same(candidate_canvas_content_offset(CandidateSkinCanvas{}, base), 0.0, 0.0, 0.0, 0.0));
   // 皮肤的 padding 改了宿主的内边距，基准跟着变。
   CandidateSkinMetrics padded;
@@ -348,11 +348,11 @@ int main() {
   narrow.items = {{20.0}};
   narrow.preedit_width = 10.0;
   const auto plain = candidate_card_size(narrow);
-  require(near(plain.width, 160.0));
+  require(near(plain.width, 16.0 * 7.0));
   narrow.canvas_extra_width = 16.0;
-  require(near(candidate_card_size(narrow).width, 144.0));
+  require(near(candidate_card_size(narrow).width, 96.0));
   narrow.canvas_extra_width = -8.0;
-  require(near(candidate_card_size(narrow).width, 168.0));
+  require(near(candidate_card_size(narrow).width, 120.0));
   // 内容比最小宽度宽时不受影响。
   CandidateCardInput wide;
   wide.items = {{300.0}};

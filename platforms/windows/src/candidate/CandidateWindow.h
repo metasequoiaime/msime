@@ -158,8 +158,10 @@ private:
   // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
   std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
-  // 这一页最宽的序号（1 到 count）按序号字号量出的宽度。只有皮肤的版式用得上它（number_inset、fit_content、竖排的列表翻页箭头），其他时候不量、返回 0，没有皮肤时排版和以前一样。
+  // 这一页最宽的序号（1 到 count）按序号字号量出的宽度：候选文字从它之后开始（CandidateCardInput::number_width）。
   double number_label_width(size_t count, const CandidateSkinMetrics &skin);
+  // 这一页候选字一行的高度：主字体的一行，和每个候选的文字、注释用回退字体画出来的那一行，取最高的，和 macOS 按每个候选量 MSIMECandidateTextHeight 一样。card_bounds 和 paint 都读它，量出来的行高和画出来的一致。
+  double candidate_line_height(const CandidatePresentation &value);
   // 横排候选为还没到的释义预留几行：偏好算出的有释义来源的目标语言行数（这一页不请求释义时为 0），韩文汉字列表再加 훈음 那一行。card_bounds 和 paint 都读它，量出来的尺寸和画出来的行才一致。
   size_t reserved_secondary_lines(const CandidatePresentation &value) const;
   // 预留的 lines 行释义用释义字体量出的高度（lines 行占位文字，和 wrap_measure 量多行释义同一种格式），交给 candidate_reserved_row_height。不到两行时为 0：一行释义按固定行高算，不用量。
@@ -291,6 +293,8 @@ private:
   bool show_app_logo_ = false;
   // 偏好算出的释义预留行数（0 到 2），经 set_layout 即时生效。
   unsigned reserved_gloss_lines_ = 0;
+  // 共享偏好 `show_candidate_page_number`，经 set_layout 即时生效；关掉时首行不画页码和翻页箭头。
+  bool show_page_number_ = true;
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;

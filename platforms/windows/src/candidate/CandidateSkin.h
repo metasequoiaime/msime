@@ -246,6 +246,7 @@ inline CandidateSkinLayout candidate_skin_layout(const nlohmann::json &catalog,
   if (!package)
     return layout;
   const auto &resolved = detail::candidate_skin_render_layout(*package);
+  layout.shared = &resolved != package;
   for (const auto &[key, target] :
        {std::pair{"geometry", &layout.geometry},
         std::pair{"horizontal", &layout.horizontal},

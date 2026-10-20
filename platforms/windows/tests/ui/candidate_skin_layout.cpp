@@ -52,10 +52,13 @@ int main() {
     require(layout.shadow == CandidateSkinShadow::none && layout.page_arrows == true);
     require(layout.backdrop == CandidateSkinBackdrop::mica && layout.panel_image);
     require(candidate_skin_corner_radius(catalog, "factory") == 0);
+    // 带着共享层合并好的版式：最小宽度和 macOS 一样用 160 DIP。
+    require(layout.shared && horizontal.shared_layout && vertical.shared_layout);
     // 旧 catalog 与损坏的可选扩展仍使用既有声明路径。
     skin["resolvedLayout"] = nullptr;
     const auto legacy = candidate_skin_layout(Json{{"packages", Json::array({skin})}}, "factory");
     require(candidate_skin_metrics(legacy, true, 24).padding == 19);
+    require(!legacy.shared && !candidate_skin_metrics(legacy, true, 24).shared_layout);
   }
   // 一个键都没写的包解析出空的版式，候选窗用宿主自己的值。
   {

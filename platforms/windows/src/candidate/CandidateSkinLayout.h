@@ -43,6 +43,8 @@ struct CandidateSkinLayout {
   // 包有九宫格面板（`border_image`，只在 `base = "canvas"` 时有）。面板盖住整张卡片，msime-windows 这时不垫系统材质（CandidateBackdrop.h）。
   bool panel_image = false;
   std::optional<bool> page_arrows, fit_content;
+  // 包带着共享层合并好的版式（catalog 的 `resolvedLayout`：Windows 外观基底和 canvas 的出厂清单叠上包自己的声明）。和 macOS 一样，带着它的卡片用 msime-windows 固定的 160 DIP 最小宽度，没有它的原生主题用 7em。
+  bool shared = false;
   // `expand_panel`（横排的卷轴展开）与 `expand_rows`（展开后一屏的网格行数，2-8），见 CandidateExpandPanel.h。
   std::optional<bool> expand_panel;
   std::optional<int> expand_rows;
@@ -81,6 +83,8 @@ struct CandidateSkinMetrics {
       selected_bar_width, selected_bar_height;
   bool selected_bar_inside = false, corners_follow_card = false,
        justify_rows = false, page_arrows = false, fit_content = false;
+  // CandidateSkinLayout::shared：版式来自共享层合并好的出厂清单，最小宽度用 160 DIP。
+  bool shared_layout = false;
   // 卷轴展开只在横排生效（msime-windows 的 ResolveExpandPanel 只在横排时问）；打开时 page_arrows 被忽略。expand_rows 没写时是 4。
   bool expand_panel = false;
   int expand_rows = 4;
@@ -117,6 +121,7 @@ inline CandidateSkinMetrics candidate_skin_metrics(const CandidateSkinLayout &la
   metrics.preedit_margin = geometry.preedit_margin.value_or(CandidateSkinInsets{});
   metrics.page_arrows = layout.page_arrows.value_or(false);
   metrics.fit_content = layout.fit_content.value_or(false);
+  metrics.shared_layout = layout.shared;
   metrics.expand_panel = horizontal && layout.expand_panel.value_or(false);
   metrics.expand_rows = std::clamp(layout.expand_rows.value_or(4), 2, 8);
   if (metrics.expand_panel)
