@@ -85,8 +85,8 @@ pub(crate) fn manage(
             Arc::clone(&session),
         )),
     });
-    // 社区词包与回复模板目前只在 Windows 的设置应用里提供；macOS 由输入法自己的账号窗口提供，Linux 还没有接入。
-    #[cfg(target_os = "windows")]
+    // 社区词包与回复模板在 Windows 和 Linux 的设置应用里提供；macOS 由输入法自己的账号窗口提供。
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     app.manage(crate::platform::community_resources::CommunityResourceState::new(&session)?);
     app.manage(AccountState {
         session,

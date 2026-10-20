@@ -21,7 +21,13 @@ test("cloud dictionary snapshots distinguish mobile queue and macOS native paths
     snapshotNative: false,
     snapshotAppliesInPanel: true,
   });
+  // Linux 的设置应用同样经账号会话做快照，入列后也由面板当场应用。
   expect(cloudDictionaryCapabilities("linux")).toEqual({
+    snapshot: true,
+    snapshotNative: false,
+    snapshotAppliesInPanel: true,
+  });
+  expect(cloudDictionaryCapabilities("harmony")).toEqual({
     snapshot: false,
     snapshotNative: false,
   });

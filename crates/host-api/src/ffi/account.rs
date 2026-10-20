@@ -1,4 +1,4 @@
-//! 原生设置窗口的账号操作：与 Tauri 桌面端的十四个账号命令（`desktop_account.rs`）和 Windows 的四个设置同步命令（`windows_settings_sync.rs`）一一对应，用同一个 [`BackendAccountSession`] 和同一份本用户会话文件（[`FileAccountSessionStorage`]，`account-session.json`），返回的也是同样的脱敏形状（[`msime_client_services::account::page`]）。令牌只在本进程里，不出现在响应中。
+//! 原生设置窗口的账号操作：与 Tauri 桌面端的十四个账号命令（`desktop_account.rs`）和 Windows 与 Linux 共用的四个设置同步命令（`desktop_settings_sync.rs`）一一对应，用同一个 [`BackendAccountSession`] 和同一份本用户会话文件（[`FileAccountSessionStorage`]，`account-session.json`），返回的也是同样的脱敏形状（[`msime_client_services::account::page`]）。令牌只在本进程里，不出现在响应中。
 //!
 //! 每个会话目录（和宿主自报的 `client_agent`）在进程里只有一个会话对象，这样进行中的 Google 登录可以被另一次调用里的 `google_cancel` 结束；会话文件本身每次访问都重新读，共享应用、输入法和这里同时登录、刷新或退出时以文件为准，刷新时共用 `account-refresh.lock`。
 //!

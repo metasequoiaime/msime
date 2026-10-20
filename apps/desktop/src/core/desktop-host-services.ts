@@ -112,7 +112,7 @@ export function createDesktopPluginCommunity(invoke: Invoke): CommunityPluginCli
 }
 
 /**
- * 社区词包与回复模板，接在 Windows 设置应用的账号会话上，命令与移动端同名。
+ * 社区词包与回复模板，接在 Windows 和 Linux 设置应用的账号会话上，命令与移动端同名。
  *
  * 桌面没有「高情商回复」键盘，所以不提供 storeReply / removeReply：回复模板只能收藏、评分、举报和发布，词包导入本机词库或账号云端词库。
  */
@@ -121,14 +121,14 @@ export function createDesktopCommunityResources(invoke: Invoke): CommunityResour
 }
 
 /**
- * 设置同步卡片的四个命令，与移动端同名。Windows 只上传、应用各平台共有的输入设置（方案、繁简、双拼和五笔版本、学习、调频和标点）。
+ * 设置同步卡片的四个命令，与移动端同名。Windows 和 Linux 只上传、应用各平台共有的输入设置（方案、繁简、双拼和五笔版本、学习、调频和标点）。
  */
 export function createDesktopSettingsSync(invoke: Invoke): SettingsSyncClient {
   return {
     ...createSettingsSyncClient(invoke),
     description:
       "同步输入方案、繁体输出、双拼和五笔版本、词库学习、调频和标点。凭据、联网授权及输入内容不会随设置上传。",
-    // 设置存进共享偏好后 Server 当场读到，没有要重新打开的键盘。
+    // 设置存进共享偏好后 Windows 的 Server、Linux 的 IBus 和 Fcitx5 宿主当场读到，没有要重新打开的键盘。
     appliedMessage: "已应用云端设置。",
   };
 }
