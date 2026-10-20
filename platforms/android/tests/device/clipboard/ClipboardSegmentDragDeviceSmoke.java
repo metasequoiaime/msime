@@ -55,9 +55,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             stage = "long clipboard card scrolls without insertion";
             byte[] seededHistory = Files.readAllBytes(history.toPath());
             previewCard(card);
+            stage = "preview, swipe and dismiss leave editor and history untouched";
             if (!java.util.Arrays.equals(seededHistory, Files.readAllBytes(history.toPath())))
                 throw new AssertionError("Preview rewrote history");
-            await(field("msime-test-plain").and(node -> node.getText() == null || node.getText().length() == 0));
+            // 空编辑器的节点文字是提示语 Plain editor，不是空串；和其他套件一样按 isShowingHintText 判空。
+            await(field("msime-test-plain").and(node -> node.isShowingHintText()
+                || node.getText() == null || node.getText().length() == 0));
             card = await(node -> node.isLongClickable() && node.getText() != null
                 && node.getText().toString().startsWith(word(0)));
             stage = "long press remains available after preview";
