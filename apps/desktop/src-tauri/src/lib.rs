@@ -5494,6 +5494,17 @@ pub fn run() {
                 #[cfg(not(any(target_os = "linux", target_os = "android")))]
                 document: Arc::new(host_document.clone()),
             });
+            // 每天一次的后台更新检查（只提醒，不在应用里安装），见 `update_check` 里 Linux 后台检查一节。开发构建不联网检查。
+            #[cfg(target_os = "linux")]
+            {
+                app.manage(update_check::BackgroundUpdateState::default());
+                if !tauri::is_dev() {
+                    update_check::start_linux_background_update_check(
+                        app.handle().clone(),
+                        directory.clone(),
+                    );
+                }
+            }
             // 与 macOS 的首次安装窗口一样：还没配置（或宿主报告词库过期）时设置窗口先以居中的小窗口打开首次配置页。面板启动不碰主窗口。
             #[cfg(target_os = "linux")]
             if requested_surface_route()
@@ -5578,6 +5589,7 @@ pub fn run() {
             update_check::update_check,
             update_check::application_update_supported,
             update_check::application_update_check,
+            update_check::pending_update_check,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,

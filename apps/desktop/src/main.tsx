@@ -631,6 +631,13 @@ function DesktopSettings() {
                   checkForApplicationUpdate: () => invoke<void>("application_update_check"),
                 }
               : {}),
+            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本。
+            ...(host.platform === "linux"
+              ? {
+                  pendingUpdateCheck: () =>
+                    invoke<UpdateCheckResult | null>("pending_update_check"),
+                }
+              : {}),
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
             ...(!isMobileHost(host.platform) && client.cloudDictionary
               ? {
