@@ -759,8 +759,8 @@ static void TestFactoryCornerRadii(RowLayoutClient *client)
     std::filesystem::remove_all(root);
 }
 
-// 隐藏预编辑后的 2 DIP 行距按皮肤收紧；检查实际行顶边，包含翻页首行与 canvas 的独立行距。
-static void TestHiddenPreeditGap(RowLayoutClient *client)
+// 实际行间矩形检查基础行距、隐藏收紧和 canvas 显式行距的优先级，包含翻页首行。
+static void TestSkinPreeditGap(RowLayoutClient *client)
 {
     char temporary[] = "/tmp/msime-hidden-preedit-gap-XXXXXX";
     assert(mkdtemp(temporary));
@@ -792,6 +792,7 @@ static void TestHiddenPreeditGap(RowLayoutClient *client)
         appearance.showsCandidateExpandButton = NO;
         appearance.showsCandidatePreedit = NO;
         appearance.candidateTranslations = NO;
+        appearance.preeditFontSize = 24;
         appearance.themeMode = @"light";
         MSIMEInputController *controller = [[MSIMEInputController alloc] init];
         RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
@@ -803,11 +804,12 @@ static void TestHiddenPreeditGap(RowLayoutClient *client)
         [controller setValue:@{@"focused": @YES, @"editing_text": @"synthetic", @"page": @0, @"page_count": @3,
             @"candidates": candidates} forKey:@"view"];
         for (NSUInteger scaling = 0; scaling < 2; ++scaling) for (NSUInteger vertical = 0; vertical < 2; ++vertical)
-            for (NSUInteger expanded = 0; expanded < (vertical ? 1 : 2); ++expanded) for (BOOL controls : {NO, YES}) {
+            for (NSUInteger expanded = 0; expanded < (vertical ? 1 : 2); ++expanded) for (BOOL controls : {NO, YES}) for (BOOL shown : {NO, YES}) {
                 appearance.candidateScalePercent = scaling ? 150 : 100;
                 appearance.vertical = vertical;
                 appearance.showsAppLogo = NO;
                 appearance.showsCandidatePageNumber = controls;
+                appearance.showsCandidatePreedit = shown;
                 const CGFloat scale = scaling ? 1.5 : 1.0;
                 [controller setValue:expanded ? candidates : nil forKey:@"expandedCandidates"];
                 if (expanded) assert([controller renderExpandedCandidates]);
@@ -819,16 +821,22 @@ static void TestHiddenPreeditGap(RowLayoutClient *client)
                 const bool trimmed = follow || (tight && !(name == "override" && vertical));
                 const CGFloat expectedGap = (trimmed ? 0 : 2) * scale;
                 const CGFloat header = controls ? MSIMECandidateHeaderHeight * scale : 0;
-                const CGFloat actualGap = NSMaxY(chrome.cardBounds) - padding - NSMaxY(first.frame) - header;
+                NSTextField *preedit = nil;
+                for (NSView *child in chrome.candidateContentView.subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) preedit = (id)child;
+                assert((preedit != nil) == shown);
+                const CGFloat actualGap = shown ? NSMinY(preedit.frame) - NSMaxY(first.frame) - (canvas ? 0 : 13 * scale)
+                    : NSMaxY(chrome.cardBounds) - padding - NSMaxY(first.frame) - header;
+                const CGFloat expected = shown ? (canvas ? 19 : 2) * scale : expectedGap;
                 const CGFloat tolerance = 1.0 / panel.backingScaleFactor + 0.01;
-                if (fabs(actualGap - expectedGap) > tolerance)
-                    fprintf(stderr, "hidden preedit gap: skin=%s scale=%.1f vertical=%lu expanded=%lu controls=%d actual=%.2f expected=%.2f\n",
-                        identifier, scale, (unsigned long)vertical, (unsigned long)expanded, controls, actualGap, expectedGap);
-                assert(fabs(actualGap - expectedGap) <= tolerance);
-                assert(chrome.candidateRowsTouchTop == (!controls && trimmed));
+                if (fabs(actualGap - expected) > tolerance)
+                    fprintf(stderr, "preedit row gap: skin=%s scale=%.1f vertical=%lu expanded=%lu controls=%d shown=%d actual=%.2f expected=%.2f\n",
+                        identifier, scale, (unsigned long)vertical, (unsigned long)expanded, controls, shown, actualGap, expected);
+                assert(fabs(actualGap - expected) <= tolerance);
+                assert(chrome.candidateRowsTouchTop == (!shown && !controls && trimmed));
                 // 透明空隙不属于候选按钮的命中区域。
                 const NSPoint top = NSMakePoint(NSMidX(first.frame), NSMaxY(first.frame) + expectedGap / 2);
-                if (expectedGap > 0) {
+                if (!shown && expectedGap > 0) {
                     NSView *hit = [chrome.candidateContentView hitTest:[chrome.candidateContentView convertPoint:top toView:chrome.candidateContentView.superview]];
                     assert(hit != first && ![hit isDescendantOf:first]);
                 }
@@ -915,7 +923,7 @@ static void TestFactoryPreeditMargins(RowLayoutClient *client)
                     fprintf(stderr, "preedit margin: skin=%s scale=%.1f vertical=%lu expanded=%lu top=%.2f baseline=%.2f expected=%.2f\n",
                         identifier, scale, (unsigned long)vertical, (unsigned long)expanded, top, before.top, marginTop * scale);
                 assert(fabs(top - before.top - marginTop * scale) <= edgeTolerance);
-                assert(fabs(bottom - before.bottom - marginBottom * scale) < 0.1);
+                assert(fabs(bottom - before.bottom - marginBottom * scale + (canvas ? 2 * scale : 0)) < 0.1);
                 assert(NSWidth(label.frame) + 0.1 >= [preedit sizeWithAttributes:@{NSFontAttributeName:label.font}].width);
             }
         if (!plain && !canvas) {
@@ -1266,11 +1274,11 @@ int main(int argc, char **argv)
     @autoreleasepool
     {
         [NSApplication sharedApplication];
-        if (argc == 2 && std::string(argv[1]) == "--hidden-preedit-gap") {
+        if (argc == 2 && std::string(argv[1]) == "--skin-preedit-gap") {
             RowLayoutClient *client = [RowLayoutClient new];
             const NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
-            TestHiddenPreeditGap(client);
+            TestSkinPreeditGap(client);
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--glass-host-visual") { TestHostAppearance(YES); return 0; }
@@ -1720,7 +1728,7 @@ int main(int argc, char **argv)
         TestSelectedGlossColour(client);
         TestFactoryFitAndJustify(client);
         TestFactoryPreeditMargins(client);
-        TestHiddenPreeditGap(client);
+        TestSkinPreeditGap(client);
         TestFactoryCornerRadii(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
