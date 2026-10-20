@@ -3,6 +3,8 @@ import { useLatestRef } from "../core/use-latest-ref";
 import { subscribeToWindowResume } from "../core/window-focus";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
+import { SkinImageToolbarPreview } from "./skin-image-toolbar-preview";
+import type { SkinToolbarImage } from "./toolbar-image-layout";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
 import { useSelectedBarPalette } from "./skin-palette";
@@ -75,6 +77,7 @@ export type ExternalSkin = {
   decorationFrames?: number;
   background?: SkinBackground | null;
   toolbar?: { cornerRadiusDip: number | null; dark: ToolbarPalette; light: ToolbarPalette };
+  toolbarImage?: SkinToolbarImage;
   toolbarStylesheet: string | null;
   preview: string | null;
   candidate: { dark: Palette; light: Palette };
@@ -358,7 +361,17 @@ export function ExternalSkinCard({
         </div>
         {toolbarPreview && (
           <SkinPreviewStage>
-            <SkinToolbarPreview />
+            {skin.toolbarImage ? (
+              <SkinImageToolbarPreview
+                skin={skin.toolbarImage}
+                id={skin.id}
+                readImage={readImage}
+                revision={revision}
+                theme={theme}
+              />
+            ) : (
+              <SkinToolbarPreview />
+            )}
           </SkinPreviewStage>
         )}
       </SkinPreviewSurface>
