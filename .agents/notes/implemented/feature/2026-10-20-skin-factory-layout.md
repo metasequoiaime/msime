@@ -8,13 +8,13 @@ Status: implemented
 
 ## Decision
 
-固定 `msime-windows` 默认分支 `develop@a60e2948dbba29f32bec58ee4bf44d68ce953a0b`，内嵌八份出厂清单，由共享解析器生成可选的 `resolvedLayout`。只对 Windows 外观基底与 `canvas` 提供，保留其余主题的宿主默认。每种排列依次叠加出厂公共、出厂排列、皮肤公共、皮肤排列；em 留到宿主按实际字号换算，显式零值与 `false` 照常覆盖。原始字段继续服务编辑器，绘制路径选用解析结果。Windows 与 Linux 的 catalog 消费者直接接入该结果；Android、iOS 和 HarmonyOS 通过共享主题响应的可选 `candidate_layout` 接入，网页 SDK 接受 catalog 原样携带的 `resolvedLayout`。只有实际绘制当前排列与明暗的包才输出该字段，旧主题响应不增加空字段，用户配置保持现有优先级。
+固定 `msime-windows` 默认分支 `develop@a60e2948dbba29f32bec58ee4bf44d68ce953a0b`，内嵌八份出厂清单，由共享解析器生成可选的 `resolvedLayout`。只对 Windows 外观基底与 `canvas` 提供，保留其余主题的宿主默认。每种排列依次叠加出厂公共、出厂排列、皮肤公共、皮肤排列；em 留到宿主按实际字号换算，显式零值与 `false` 照常覆盖。原始字段继续服务编辑器，绘制路径选用解析结果。Windows 与 Linux 的 catalog 消费者直接接入该结果；Android、iOS 和 HarmonyOS 通过共享主题响应的可选 `candidate_layout` 接入，网页 SDK 优先使用 catalog 原样携带的 `resolvedLayout`；没有宿主桥时从同一共享解析器的出厂镜像取得版式，再叠加包的原始声明。只有实际绘制当前排列与明暗的包才输出该字段，旧主题响应不增加空字段，用户配置保持现有优先级。
 
 macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra height、number scale/inset/gap、横排最小格宽、选中条尺寸，测量与绘制使用同一份几何；旧包没有结果时继续使用既有 macOS 默认。
 
 ## 宿主映射
 
-`ThemePackage` 从扫描结果与 host catalog 保留 `ResolvedSkinLayout`，主题解析负责确认实际绘制的包，各宿主只在原生长度单位与实际候选字号之间换算。移动端沿用固定横排、键盘高度和触控入口；桌面窗口的布局开关不用于删除手机的展开入口。网页端没有桌面卷轴展开面板，内置皮肤 ID 继续使用原有默认几何，调用方传共享 catalog 时才消费合并版式。
+`ThemePackage` 从扫描结果与 host catalog 保留 `ResolvedSkinLayout`，主题解析负责确认实际绘制的包，各宿主只在原生长度单位与实际候选字号之间换算。移动端沿用固定横排、键盘高度和触控入口；桌面窗口的布局开关不用于删除手机的展开入口。网页端尚无桌面卷轴展开面板；Windows 内置外观 ID、对应基底的直接皮肤对象和 catalog 三条入口共用出厂版式。没有声明版式的全局主题保留宿主默认，不能只因旧圆角字段存在就套上 Windows 布局。SDK 的 `fluent` 入口单独选择 Windows 出厂几何，与保留宿主布局的 `system` 区分；两者使用相同的平台调色板。
 
 | 消费者 | 本次接入的绘制字段 | 平台适配 |
 | --- | --- | --- |
@@ -25,6 +25,8 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 | 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距 | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
 该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费；网页仍缺少卷轴展开面板及其 `expandPanel`、`expandRows`。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，完整安装与真实编辑器入口仍需验收；Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。
+
+网页的 `tools/factory-layouts.json` 由共享 Rust 解析器生成并逐字段核对，构建时随现有 `theme-catalog.js` 一同装入 SDK。它包含八种基底的公共、横排和竖排默认，不引入运行时宿主调用或 TOML 解析器。未提供 `resolvedLayout` 时，出厂当前排列、包公共 `geometry`、包当前排列依次覆盖；若提供完整解析结果，不再重叠原始声明。镜像更新用 `MSIME_WRITE_FACTORY_LAYOUTS=1 cargo test -p msime-client-services web_factory_layout_copy_matches_shared_resolution`，无写入开关的同一测试验证提交中的文件。长度边界沿用共享扫描器的 DIP / em 上限。Windows 版式使用来源的固定 160 DIP 卡片下限，收紧时取消；未声明阴影档位时仍画来源的普通双层阴影。
 
 网页字体沿用共享扫描器的单字体名称和 64 个 UTF-8 字节上限，经固定引号包裹后放在宿主字体链前；不把任意 CSS 字体串或包内字体资源当成字体名。翻页标记横排占候选右侧窄列，竖排另起下方一行，与来源场景的结构一致。网页阴影沿用固定来源 `candidate_skin_scene.cpp` 的两层配方：偏移与模糊为 `8/10/24`、`2/3/8`，浅色透明度 `0.18/0.10`、深色 `0.34/0.22`，`soft` 乘 `0.5`、`strong` 乘 `1.6`，`none` 和成功加载的九宫格面板关闭阴影。外角按浏览器实际换行后的矩形判定；预编辑隐藏时才启用顶角，卡片零圆角仍覆盖普通候选圆角。空预编辑留下来源的 2px 间距，贴角或显式 trim 时去掉；canvas 的 `lineGapDip` 继续优先于预编辑下边距。序号 inset 从候选边缘量起，不再叠加旧宿主的固定左留白；额外行高只加在 `1.35em` 行高之上一次。
 
@@ -40,6 +42,7 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 ## Alternatives considered
 
 - 所有平台原样照搬桌面尺寸与结构开关：最容易逐字段一致，但会改变触屏固定键盘高度、隐藏必需的展开入口；按平台映射适用几何，未消费字段明确列出，未来增加桌面形态时重新评估。
+- 网页构建直接读取八份 TOML：少一份提交中的镜像，但需要额外解析依赖，并在 JavaScript 中重写共享布局解析；使用 Rust 生成、测试锁定的 JSON 镜像，代价是更新来源后多跑一次生成命令。
 - 各宿主各补一张默认表：接入工作小，也不用扩展共享 JSON；但外观与排列默认在六个宿主间继续漂移，因此共用固定清单。
 - 直接填满原始字段：旧宿主无需改动就能继承；但编辑器会把基底默认误作皮肤声明，且无法表达四层覆盖顺序，因此单独提供绘制结果。
 - 只提取几何片段：更省字节，但升级时需要人工重制清单；保留来源原文件使固定提交逐字核对成为可能。暂不使用其中的颜色和工具栏字段，避免改变现有颜色回退契约。
@@ -53,7 +56,8 @@ macOS 原生候选窗消费 `resolvedLayout` 的 padding、item gap、extra heig
 ## Testing
 
 - `cargo test -p msime-client-services --locked`：1254 项单测通过、1 项忽略，另有 4 项集成测试通过；clippy 通过。新增测试覆盖只给实际绘制的包输出布局、em、零值、false 与 host catalog 往返。
-- `node --test packages/web-engine/test/*.test.mjs` 和 `candidates.browser.mjs`：40 项单测及 Chrome 浏览器检查通过，包括字体名称的 UTF-8 字节上限与注入边界、实际字体栈、computed style、方向切换、清除旧变量、深浅阴影档位、显式关闭翻页、三角标记、预编辑四边距、贴角及零圆角、横排行对齐、隐藏预编辑间距和收紧宽度。序号边缘偏移、实际行高、预编辑到候选的最终距离以及换行后缩放时的外角重算另以 DOM 矩形核对。横排翻页标记的 DOM 矩形断言先复现错误的下方槽位，改成右侧窄列后通过。Canvas 阴影像素检查先复现外侧阴影被裁掉，再在修正后通过；同一截图确认越界挂件仍被裁掉。
+- `node --test packages/web-engine/test/*.test.mjs` 和 `candidates.browser.mjs`：43 项单测及 Chrome 浏览器检查通过，包括八种出厂基底、原始公共值覆盖出厂排列、包排列最后覆盖、现有解析结果优先、无效声明回退和全局主题默认；另有字体名称的 UTF-8 字节上限与注入边界、实际字体栈、computed style、方向切换、清除旧变量、深浅阴影档位、显式关闭翻页、三角标记、预编辑四边距、贴角及零圆角、横排行对齐、隐藏预编辑间距和收紧宽度。序号边缘偏移、实际行高、预编辑到候选的最终距离以及换行后缩放时的外角重算另以 DOM 矩形核对。横排翻页标记的 DOM 矩形断言先复现错误的下方槽位，改成右侧窄列后通过。Canvas 阴影像素检查先复现外侧阴影被裁掉，再在修正后通过；同一截图确认越界挂件仍被裁掉。
+- 共享出厂布局的 7 项 Rust 测试通过，包括重新生成网页镜像后的逐字段比对；无写入开关时对提交文件的校验也通过。正常校验在编译时内嵌镜像，设备单测不读取构建机的源码路径，只有显式生成开关才写回源码。浏览器核对无 catalog 时的微软 em 几何、160px 卡片下限、普通阴影、杨柳青横竖排差异及原始零值热切换。Canvas 行距检查直接量预编辑与候选组间的最终距离，避免把 margin 的中间实现值误作对外版式。
 - iOS 专用模拟器运行 `CandidatePaletteTests` 与 `CandidateCanvasTests`：32 项中 31 项通过、1 项因未暂存固定上游皮肤跳过；使用 ad-hoc 签名，覆盖真实控制器的既有 canvas 回归与新增长度解析。
 - Android API 28 与 API 35 专用模拟器：`CandidateCanvasDeviceSmoke`、`CandidateSkinDeviceSmoke` 通过；新布局字段通过本分支 JNI 与实际解码路径，现有皮肤用例检查真实候选绘制及点击。
 - HarmonyOS 纯逻辑套件、原生 release 库和 ArkTS HAP 构建通过；独立合成测试包同时断言原生共享主题返回的 em 与零值。模拟器浅色、深色、浅色坏图、深色坏图四阶段均通过，检查真实输入、面板和挂件动画/回退、候选点击上屏、隐藏再显示。触屏路径新增的最小宽度、间距与零圆角的真实几何断言也在四阶段通过。首次验收暴露的编辑连接时序由测试在输入前明确收起再聚焦并等待连接日志解决，不以字母节点出现代替连接就绪。

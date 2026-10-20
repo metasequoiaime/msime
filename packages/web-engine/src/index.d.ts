@@ -187,7 +187,7 @@ export declare function createShiftTap(): {
   up(e: KeyboardEvent): boolean;
 };
 
-/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的六个内置外观。 */
+/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的七个内置外观。 */
 export type MsimeSkinId =
   | "system"
   | "shuishan"
@@ -200,9 +200,10 @@ export type MsimeSkinId =
   | "graphite"
   | "willow_green"
   | "autumn_osmanthus"
-  | "microsoft";
+  | "microsoft"
+  | "fluent";
 
-/** SDK 接受的内置皮肤 ID，顺序同设置页。 */
+/** SDK 接受的内置皮肤 ID：全局主题在前，Windows 外观在后。 */
 export declare const SKINS: readonly MsimeSkinId[];
 /** 不传皮肤时用的皮肤，即 `"shuishan"`。 */
 export declare const DEFAULT_SKIN: "shuishan";
@@ -353,7 +354,8 @@ export interface MsimeResolvedLayout {
 }
 
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
-export interface MsimeSkin {
+export interface MsimeSkin extends MsimeResolvedLayout {
+  /** 共享层已完成四层合并的绘制结果；提供时优先于包的原始 geometry、horizontal、vertical 与开关字段。 */
   resolvedLayout?: MsimeResolvedLayout | null;
   id?: string;
   /** 外部清单的 schema_version；写 2 时对任何 base 都启用动画，未提供 animation 也采用漂亮的安全默认动画。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
