@@ -10,7 +10,7 @@ Status: implemented
 
 macOS 切换提示独立使用 18pt 字号和 32pt 高度，保持原主题和位置策略。标志遵循已有「显示水杉图标」设置 `show_app_logo`，默认不显示；显示标志时使用 16pt 图，不改变高度。悬浮工具栏字号和缩放不再影响这个提示。
 
-历史检索：[Windows 中英文模式对齐](../../implemented/feature/2026-10-10-windows-input-mode-parity.md)部分重叠，补充 macOS 尺寸边界并互链，Windows 决定保留；菜单栏状态项和候选窗口层级记录是其它反馈与定位机制，保持不变。
+历史检索：[Windows 中英文模式对齐](../../implemented/feature/2026-10-10-windows-input-mode-parity.md)部分重叠，补充 macOS 尺寸边界并互链；Windows 随后也改用同样的紧凑尺寸和淡出，见[工具栏、提示与托盘对齐 macOS](../feature/2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)；菜单栏状态项和候选窗口层级记录是其它反馈与定位机制，保持不变。
 
 ## Alternatives considered
 

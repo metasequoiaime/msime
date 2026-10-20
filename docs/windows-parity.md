@@ -236,7 +236,7 @@
 **刻意与 macOS 不同的地方。**
 
 - Shift+空格不切中英文：Windows 上它历来是全半角键，Excel 用它选整行、浏览器用它向上翻页，跟着默认开的 `switch_language_shift` 一起开会误伤；留给产品决定。
-- 徽标到时直接隐藏，不做 0.18 秒淡出；藏文在工具栏和语言栏画「藏」而不是「ཀ」。
+- 藏文在任务栏语言栏图标上画「藏」而不是「ཀ」；悬浮工具栏和 macOS 一样画「ཀ」（[工具栏、提示与托盘对齐 macOS](../.agents/notes/implemented/feature/2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)）。
 - 英文候选模式在 TIP 英文状态下不可用；托盘切方案要先翻到「输入方案」页，比 macOS 多点一次。
 - 回复模板只能收藏、评分、举报、发布，不能用于输入：桌面没有「高情商回复」键盘。
 - 外部语音识别服务接入点（`voice_provider_socket`）不移植：Windows Server 自己录音、识别、持有凭据，没有 IBus/Fcitx 那样的需要。

@@ -8,7 +8,7 @@ macOS 输入菜单有「英文候选模式」（⌃⇧E）、「繁体输出」�
 
 ## Decision
 
-卡片的行由 `tray_menu_items(capabilities, state, page)` 决定，分三页（`TrayMenuPage`）。主页依次是：中文、英文、英文候选模式；繁体输出、全角字符、中文标点、显示译文；输入方案、主题两个翻页行（右侧写当前选择，画向右箭头）；工具条；云剪贴板…、词库…、设置…、关于。方案页是返回行加 `tray_menu_scheme_items`（与悬浮工具栏的方案菜单同一组行），主题页是返回行、主题目录的各行（行的 `value` 是主题 id）和「主题设置…」。翻页只在 `TrayMenuWindow` 里处理，按上次的锚点重新摆放卡片，从不交给 Server；每次打开都从主页开始。
+卡片的行由 `tray_menu_items(capabilities, state, page)` 决定，分三页（`TrayMenuPage`）。主页依次是：中文输入、英文输入、英文候选模式；繁体输出、全角字符、中文标点、显示译文；输入方案、主题两个翻页行（右侧写当前选择，画向右箭头）；工具条；云剪贴板…、云词库…；词库…、水杉输入法设置…、关于水杉输入法…（文案、工具条顺序和云词库见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)）。方案页是返回行加 `tray_menu_scheme_items`（与悬浮工具栏的方案菜单同一组行），主题页是返回行、主题目录的各行（行的 `value` 是主题 id）和「主题设置…」。翻页只在 `TrayMenuWindow` 里处理，按上次的锚点重新摆放卡片，从不交给 Server；每次打开都从主页开始。
 
 - **英文候选模式**：可用与否由 `tray_menu_dedicated_english_action` 判定，规则与 TIP 的 Ctrl+Shift+E 相同——TIP 报告中文、方案不是在 TIP 宿主会话里组字的韩文/注音/越南文/藏文。点击后 Server 用新的单槽工作线程调用 `SessionController::set_dedicated_english(lease, enabled)`（经 `InputState`、`FocusedSession` 到 `ServerSession::set_dedicated_english`），成功后立刻发布到 `DedicatedEnglishMailbox`，下一轮循环按原有路径用 DedicatedEnglishChanged 推给 TIP。托盘点击只发一次、没有重试，所以 `set_dedicated_english` 不像别的外部请求那样拿不到事务锁就放弃，而是等锁（每 5 毫秒试一次，Server 停止时放弃），等锁和等输入队列共用 2 秒；250 毫秒一次的英文模式读取、按键、候选点击都会短暂占着这把锁，放弃会让开关偶尔点了没反应。焦点会话正在组字或列着候选时不切换，因为托盘点击不经过 TIP，Engine 丢掉组字而 TIP 的组字还留在编辑器里会让两边对不上。
 - **繁体输出**：提交给工具栏简繁按钮和 Ctrl+Shift+F 共用的 `character_set_clicks`，勾来自同一个 `traditional_output`；`toggle_character_set_ctrl_shift_f` 开着时旁边写出 Ctrl + Shift + F。

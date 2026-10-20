@@ -18,7 +18,7 @@ macOS 的打字特效面板（`platforms/macos/src/input/TypingEffectPanel.mm`�
 
 浮层排在候选窗下面（`SetWindowPos` 插在候选窗之后），火花不挡候选。所有数值照搬 macOS，写在纯头文件 `src/candidate/TypingEffectOverlayPolicy.h`：火花寿命 0.45±0.15 秒，初速 120±60（Power Mode 170±60），向上 ±36° 喷出，受 320 的重力，透明度每秒降 1.8，大小 16×(0.45±0.2)，每秒缩 0.6。迸发时长按键 60 毫秒、上屏 100 毫秒。没有特效包时颗数按 macOS 的发射率 220×强度×倍数每秒算，强度 50 时一键 9 颗，Power Mode 和上屏各加倍；特效包给了 `particles` 就每键这么多颗，上屏加倍，0 不画火花。收起时间：徽标在时 1.2 秒，否则取 0.7 秒和闪光长度里大的那个。
 
-**候选窗仍是 `TypingEffectSignal` 唯一的消费者。** 它取到特效后自己画卡片闪光和 Power Mode 的抖动。抖动用渲染变换做：整张卡片横向按 0、+a、-a、+a/2、0 位移 0.12 秒，a 随强度从 0.5 到 2 个设备无关像素，落在阴影的透明边距里，窗口不挪，点击区域不变。其余部分组成 `TypingEffectPresentation` 交给 `set_typing_effect_presenter` 注入的浮层，内容有：特效、设置、特效包颜色、卡片的屏幕矩形、最近一次组字的锚点（前台没换时才给）、主题强调色、「显示动画」和节电模式。浮层可用时卡片不再在拼音行里画连击数，火花样式也不再闪卡片（`typing_effect_card_flashes`），和 macOS 一样，只有闪光和 Power Mode 闪卡片。浮层建不出来或失败后，卡片退回从前的画法：每种样式都闪，连击数画在拼音行里。
+**候选窗仍是 `TypingEffectSignal` 唯一的消费者。** 它取到特效后自己画卡片闪光和 Power Mode 的抖动。抖动用渲染变换做：整张卡片横向按 0、+a、-a、+a/2、0 位移 0.12 秒，a 随强度从 0.5 到 2 个设备无关像素，落在阴影的透明边距里，窗口不挪，点击区域不变。其余部分组成 `TypingEffectPresentation` 交给 `set_typing_effect_presenter` 注入的浮层，内容有：特效、设置、特效包颜色、卡片的屏幕矩形、最近一次组字的锚点（前台没换时才给）、强调色（后来改成系统强调色，见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)）、「显示动画」和节电模式。浮层可用时卡片不再在拼音行里画连击数，火花样式也不再闪卡片（`typing_effect_card_flashes`），和 macOS 一样，只有闪光和 Power Mode 闪卡片。浮层建不出来或失败后，卡片退回从前的画法：每种样式都闪，连击数画在拼音行里。
 
 **特效包的整套参数随按键发布。** `ServerSession::refresh_typing_effect_settings` 在读设置时多读出全部颜色（最多 4 个）和 `particles`，存成 `TypingEffectPalette`。`TypingEffectSignal::publish_palette` 把它打成两个 64 位字，和原来的设置字一样不加锁、只留最新。上屏的答案由宿主打上 `typing_effect_commit_mark`（第 24 位），界面线程据此画加倍的火花和 250 毫秒的闪光。这一位和新档位一样，在界面线程取走之前会带到下一个值上，上屏后紧跟的一个键不会吞掉上屏的那一下，和 macOS 合并未画特效的做法一致。
 
