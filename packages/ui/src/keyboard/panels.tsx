@@ -1810,7 +1810,8 @@ export function EmojiPanel({
       </p>
       {toast && (
         <div className={panelToast} role="status" data-panel-toast="">
-          <span className="overflow-hidden text-ellipsis">{toast}</span>
+          {/* whitespace-pre 保留「已复制」后面的两个空格，与 macOS 原生提示一致；nowrap 会把它们并成一个。 */}
+          <span className="overflow-hidden text-ellipsis whitespace-pre">{toast}</span>
         </div>
       )}
     </main>

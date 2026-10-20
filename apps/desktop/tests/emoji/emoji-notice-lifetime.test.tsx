@@ -38,6 +38,8 @@ test("表情重复复制从最后一次成功重新计时", async () => {
     fireEvent.click(item);
   });
   expect(toast()).toBe("已复制  ★");
+  // 胶囊外层是 nowrap，会把连续空格并成一个；文字所在的元素要用 pre 保留两个空格。
+  expect(document.querySelector("[data-panel-toast] span")?.className).toContain("whitespace-pre");
   act(() => vi.advanceTimersByTime(1000));
   await act(async () => {
     fireEvent.click(item);

@@ -32,22 +32,35 @@ export interface EmojiClipboardEntriesProps {
 /** 悬停或键盘聚焦停留这么久才显示长文本预览，划过列表时不闪出一串气泡。 */
 const PREVIEW_DELAY_MS = 350;
 
-type Preview = { text: string; left: number; top: number; width: number; above: boolean };
+type Preview = {
+  text: string;
+  left: number;
+  width: number;
+  rowTop: number;
+  rowBottom: number;
+  above: boolean;
+};
+
+/** 气泡与行之间的间距。 */
+const PREVIEW_GAP = 8;
 type Menu = { text: string; left: number; top: number; keyboard: boolean };
 
-/** 预览气泡的位置：优先放在行的上方，放不下才放到下方，与 macOS 原生剪贴板的悬停预览一致。 */
+/** 预览气泡先按放在行上方渲染，量出实际高度后再定上下（见组件里的 layout effect）。 */
 function previewFor(row: HTMLElement, text: string): Preview {
   const rect = row.getBoundingClientRect();
-  const viewport = row.ownerDocument.defaultView?.innerHeight ?? 0;
-  // 12 行 13px 文字加上下内边距约 230px；行上方的空间不够时翻到下方。
-  const above = rect.top >= Math.min(230, viewport / 2);
   return {
     text: clipboardTooltip(text),
     left: rect.left,
-    top: above ? rect.top - 8 : rect.bottom + 8,
     width: rect.width,
-    above,
+    rowTop: rect.top,
+    rowBottom: rect.bottom,
+    above: true,
   };
+}
+
+/** 预览气泡的位置：行上方放得下就放在上方，放不下才放到下方，与 macOS 原生剪贴板的悬停预览一致。按气泡量出的高度判断，一两行的短预览在窗口顶部附近也放在上方，不去盖住下面的行。 */
+function previewFitsAbove(rowTop: number, bubbleHeight: number) {
+  return rowTop - PREVIEW_GAP >= bubbleHeight;
 }
 
 /** 剪贴板记录的受控视图，导航标记和原始键盘事件交给面板状态处理。 */
@@ -65,7 +78,10 @@ export function EmojiClipboardEntries({
   const [menu, setMenu] = useState<Menu | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pointerFocus = useRef(false);
+  // 行上刚按下菜单键或 Shift+F10。浏览器随后派发的 contextmenu 带的是这一行的坐标（WebKit、Chromium 都取聚焦元素的左下角），不能凭坐标判断它来自键盘。
+  const keyboardMenu = useRef(false);
   const menuItem = useRef<HTMLButtonElement>(null);
+  const bubble = useRef<HTMLDivElement>(null);
 
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
@@ -93,6 +109,13 @@ export function EmojiClipboardEntries({
   useLayoutEffect(() => {
     if (menu?.keyboard) menuItem.current?.focus({ preventScroll: true });
   }, [menu]);
+  // 在绘制之前量出气泡的高度定上下，不会先在上方闪一下再跳到下方。
+  useLayoutEffect(() => {
+    const height = bubble.current?.getBoundingClientRect().height;
+    if (!preview || height === undefined) return;
+    const above = previewFitsAbove(preview.rowTop, height);
+    if (above !== preview.above) setPreview({ ...preview, above });
+  }, [preview]);
   // 列表内容变化（删除、刷新、搜索）后旧的预览和菜单指向的行可能已经不在了。按内容比较：面板每次轮询都会给出一个新的数组，内容没变时不能把正在显示的预览和菜单收掉。
   const itemsKey = items.join("\u0000");
   useEffect(() => {
@@ -116,8 +139,9 @@ export function EmojiClipboardEntries({
     event.preventDefault();
     hidePreview();
     const rect = event.currentTarget.getBoundingClientRect();
-    // 键盘（菜单键、Shift+F10）触发的 contextmenu 没有指针坐标，菜单挂在行的左下角。
-    const keyboard = event.clientX === 0 && event.clientY === 0;
+    // 键盘打开的菜单挂在行的左下角并把焦点移进去；鼠标打开的放在指针处，焦点留在行上。
+    const keyboard = keyboardMenu.current;
+    keyboardMenu.current = false;
     setMenu({
       text,
       left: keyboard ? rect.left + 12 : event.clientX,
@@ -154,6 +178,8 @@ export function EmojiClipboardEntries({
               aria-haspopup={onSendToCloud ? "menu" : undefined}
               onKeyDown={(event) => {
                 hidePreview();
+                keyboardMenu.current =
+                  event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
                 onItemKeyDown(event, item);
               }}
               onPointerEnter={(event) => {
@@ -162,6 +188,7 @@ export function EmojiClipboardEntries({
               onPointerLeave={hidePreview}
               onPointerDown={() => {
                 pointerFocus.current = true;
+                keyboardMenu.current = false;
                 hidePreview();
               }}
               onFocus={(event) => {
@@ -204,12 +231,13 @@ export function EmojiClipboardEntries({
       ))}
       {preview && (
         <div
+          ref={bubble}
           className={clipboardPreviewBubble}
           aria-hidden="true"
           data-clipboard-preview=""
           style={{
             left: preview.left,
-            top: preview.top,
+            top: preview.above ? preview.rowTop - PREVIEW_GAP : preview.rowBottom + PREVIEW_GAP,
             maxWidth: preview.width,
             transform: preview.above ? "translateY(-100%)" : undefined,
           }}

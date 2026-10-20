@@ -80,6 +80,31 @@ test("触屏和点击聚焦不弹预览，键盘移来的焦点才弹", () => {
   expect(bubble()?.textContent).toBe("合成  记录\n下一行");
 });
 
+test.each([
+  // 窗口顶部附近的第一行：一行的短预览在上方放得下，不盖住下面的行。
+  { rowTop: 120, height: 40, above: true, top: "112px" },
+  // 12 行的长预览在上方放不下，翻到行的下方。
+  { rowTop: 120, height: 230, above: false, top: "160px" },
+  { rowTop: 300, height: 230, above: true, top: "292px" },
+])("预览气泡量出高度后定上下：行顶 $rowTop、气泡高 $height", ({ rowTop, height, above, top }) => {
+  vi.useFakeTimers();
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const box = this.hasAttribute("data-clipboard-preview")
+        ? { top: 0, bottom: height, height }
+        : { top: rowTop, bottom: rowTop + 32, height: 32 };
+      return { ...box, left: 10, right: 330, width: 320, x: 10, y: box.top } as DOMRect;
+    });
+  const view = render(<EmojiClipboardEntries items={[raw]} busy={false} canCopy {...actions()} />);
+  fireEvent.pointerEnter(screen.getAllByRole("button")[0], { pointerType: "mouse" });
+  act(() => vi.advanceTimersByTime(400));
+  const bubble = view.container.querySelector<HTMLElement>("[data-clipboard-preview]")!;
+  expect(bubble.style.top).toBe(top);
+  expect(bubble.style.transform).toBe(above ? "translateY(-100%)" : "");
+  rect.mockRestore();
+});
+
 test("右键菜单把这一条发到云剪贴板，Esc 关闭菜单而不交给面板", () => {
   const callbacks = actions();
   const onSendToCloud = vi.fn();
@@ -101,14 +126,24 @@ test("右键菜单把这一条发到云剪贴板，Esc 关闭菜单而不交给�
   fireEvent.click(screen.getByRole("menuitem", { name: "发到云剪贴板" }));
   expect(onSendToCloud.mock.calls).toEqual([["合成第二条"]]);
   expect(screen.queryByRole("menu")).toBeNull();
-  // 菜单键或 Shift+F10 打开时焦点进菜单，Esc 关闭并回到那一行。
-  fireEvent.contextMenu(second);
-  const item = screen.getByRole("menuitem", { name: "发到云剪贴板" });
-  expect(document.activeElement).toBe(item);
-  fireEvent.keyDown(item, { key: "Escape" });
+  // 鼠标右键打开时焦点留在行上。
+  second.focus();
+  fireEvent.contextMenu(second, { clientX: 40, clientY: 50 });
+  expect(document.activeElement).toBe(second);
+  fireEvent.keyDown(second, { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
   expect(onKeyDown).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(second);
+  // 菜单键或 Shift+F10 打开时焦点进菜单，Esc 关闭并回到那一行。浏览器给键盘触发的 contextmenu 带上行的坐标，不是 0,0。
+  for (const key of [{ key: "ContextMenu" }, { key: "F10", shiftKey: true }]) {
+    fireEvent.keyDown(second, key);
+    fireEvent.contextMenu(second, { clientX: 12, clientY: 64 });
+    const item = screen.getByRole("menuitem", { name: "发到云剪贴板" });
+    expect(document.activeElement).toBe(item);
+    fireEvent.keyDown(item, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(second);
+  }
+  expect(onKeyDown.mock.calls.map(([event]) => event.key)).toEqual(["ContextMenu", "F10"]);
   expect(onSendToCloud).toHaveBeenCalledTimes(1);
   expect(callbacks.onCopy).not.toHaveBeenCalled();
 });
