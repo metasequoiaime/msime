@@ -1249,10 +1249,22 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     appearance.fontSize = 32;
     appearance.vertical = YES;
     appearance.showsCandidatePreedit = NO;
-    [controller updateKeymapPanel];
     NSFont *clearanceFont = [appearance candidateFontOfSize:32];
     CGFloat measuredHeight = ceil([@"合成" sizeWithAttributes:@{NSFontAttributeName:clearanceFont}].height);
-    assert(panel.clearance >= measuredHeight + 12 + 24);
+    HiddenCandidatePanel *candidatePanel = [[HiddenCandidatePanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:candidatePanel forKey:@"panel"];
+    NSNumber *savedPadding = appearance.candidatePadding;
+    // 让开的距离覆盖真实卡片，既检查后备字形高度，也覆盖皮肤默认、零边距和大边距。
+    for (id padding in @[NSNull.null, @0, @24]) {
+        appearance.candidatePadding = padding == NSNull.null ? nil : padding;
+        [controller updateKeymapPanel];
+        [controller renderCandidates];
+        assert(candidatePanel.requestedVisible);
+        assert(candidatePanel.frame.size.height >= measuredHeight);
+        assert(panel.clearance >= candidatePanel.frame.size.height);
+    }
+    appearance.candidatePadding = savedPadding;
     appearance.fontSize = savedFontSize;
     appearance.fontFamily = savedFamily;
     appearance.vertical = savedVertical;
