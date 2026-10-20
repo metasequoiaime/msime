@@ -178,6 +178,12 @@ fn capabilities_describe_each_host() {
     assert!(linux.floating_toolbar);
     assert!(!linux.floating_toolbar_appearance);
     assert!(linux.floating_toolbar_components);
+    // Linux 的「工具栏」子菜单与 macOS 工具栏一样列出切换输入方案、手写和语音三项，设置页给它们开关。
+    assert!(
+        linux.floating_toolbar_handwriting
+            && linux.floating_toolbar_voice
+            && linux.floating_toolbar_input_scheme
+    );
     assert!(linux.panel_shortcuts);
     assert!(linux.number_row_selection);
     assert!(linux.voice_capture_devices);

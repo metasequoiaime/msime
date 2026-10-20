@@ -195,7 +195,7 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
     pub floating_toolbar_voice: bool,
-    /// 工具栏带切换输入方案的按钮。macOS 和 Windows 的工具栏画它，其它宿主不提供这个开关。
+    /// 工具栏带切换输入方案的按钮。macOS 和 Windows 的工具栏画它，Linux 的「工具栏」子菜单列出同样内容的方案子菜单，其它宿主不提供这个开关。
     pub floating_toolbar_input_scheme: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
@@ -562,15 +562,18 @@ impl HostCapabilities {
             // emoji and screen-keyboard buttons open the same surfaces its
             // phone keyboard reaches from a key face.
             floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // macOS 和 Windows 的工具栏画这三个按钮；手写还要随版本收窄（narrow_to_edition）。
+            // macOS 和 Windows 的工具栏画这三个按钮，Linux 的 IBus 与 Fcitx5「工具栏」子菜单列出对应的三项；手写还要随版本收窄（narrow_to_edition）。
             floating_toolbar_handwriting: matches!(
                 platform,
-                HostPlatform::Macos | HostPlatform::Windows
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
             ),
-            floating_toolbar_voice: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
+            floating_toolbar_voice: matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
+            ),
             floating_toolbar_input_scheme: matches!(
                 platform,
-                HostPlatform::Macos | HostPlatform::Windows
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
             ),
             // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
