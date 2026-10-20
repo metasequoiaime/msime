@@ -14,6 +14,14 @@ Status: implemented
 
 旧皮肤缺省字段保持原有主题和布局行为，未知或越界资源继续拒绝；Windows 不执行皮肤提供的脚本或任意动画，只接受共享层声明的固定动画预设。`canvas` 包由共享 catalog 按 msime-windows 的 `canvas` 出厂外观补色（不透明 `#202020` / `#FFFFFF`）；带九宫格面板时，包为面板贴图挑的候选颜色整套换成该外观，只保留强调色和右键菜单。Windows 宿主与其他宿主一样直接用这份结果，不再另走一条不带皮肤包的配色路径。`author`、`description` 写成空串时与 msime-windows 的 `ReadString(..., required = false)` 一样当作没写，共享用例表 `client_dialect.json` 的 `empty author` 改为接受，并新增 `empty description`。
 
+## 装饰图候选词叠加契约
+
+共享解析器参考 `msime-windows` 固定提交 `0978b5c28b2a1806e7ef3acdbc3a1c87e4784823` 的 `ReadDecorationCandidate`，读取 `[candidate_window.decoration]` 下的 `candidate_overlay_*`，v1 与 v2 均可用。`candidate_overlay` 缺省或为 `false` 时完全忽略其余键；启用时必须有可用的装饰图片与正尺寸，保留本仓原有的预览图回退。
+
+`SkinSummary.decorationCandidate` 只在启用时输出，字段使用 camelCase。`index` 默认 1、允许整数 0–100，0 跟随高亮，其余按当前页 1 起编号，越界时不显示。初始／最小字号默认 16／8、范围 `(0,200]`；解析不夹紧两者，绘制时以较小者作为最小字号。最大宽默认 0、范围 0–2000，0 使用装饰框宽；最小字号仍放不下时允许超框且不换行。水平／垂直默认居中，偏移为有限数 ±2000，`stripBadge` 默认 `true`。颜色保留来源的 80 字节 ASCII 白名单声明，同时输出参考来源 `ParseCandidateCssColor` 的八位 `resolvedColor`，统一无 `#` 的十六进制、浮点 RGB 与白色回退，原始 `color` 保留给编辑和导出；不能以现有更窄的 `normalized_color` 拒绝来源接受的清单。
+
+MCP 列表在装饰对象的可选 `candidate_overlay` 中返回同一声明，使用独立 DTO 提供输出 schema，不向共享服务层增加 MCP 的 schema 依赖。旧 `host_candidate_catalog` 条目不增加字段，严格的 `ThemePackage::from_host_catalog_entry` 继续可读；原生新能力应读完整的 `SkinSummary`。本节的共享解析与 MCP 列表支持不代表宿主已经绘制叠加文字，也不代表六平台设备验收。最新来源还新增图片工具栏、按钮状态贴图与自动排列，它们保持为独立绘制缺口，不能因八份出厂 TOML 没变化就报告上游无变化。
+
 ## Web 贴图绘制与按能力回退
 
 Web 候选栏接入 canvas 的九宫格面板、自由挂件、内容内边距、外留白和预编辑行间距。切片按源像素、边宽按 CSS px 解释；`stretchDip` 优先于 `sliceDip`，一、二、四值按 CSS 四边展开，`fill = false` 不画中心。挂件相对卡片的九个锚点定位，按 `zIndex` 稳定排序，小于 1 在面板下，其余在文字上，且一律不接收指针。留白参与视口夹紧，挂件不挤占候选文字布局。
@@ -23,6 +31,22 @@ Web 候选栏接入 canvas 的九宫格面板、自由挂件、内容内边距�
 Web 面板使用宿主生成的固定 `border-image` 属性，挂件使用 `<img>`，保持浏览器的 APNG/GIF/WebP 帧播放和 `img-src` 限制。URL 和切片数值先校验，再通过 `style.setProperty` 设置；不执行包内 CSS、脚本或跨域抓取。裁切九张完整 `<img>` 也能复用浏览器动画，但切片放大时插值会采到相邻切片的颜色，像素验收发现中心混色，因此改用浏览器自己的九宫格采样。减弱动态效果时改画 canvas 首帧，系统选项变化时立即切换；跨域图片允许画进 canvas，但不读回像素、不导出图片，避免额外要求 CORS。挂件和面板加载使用当前皮肤的节点，换肤和销毁时撤销监听，异步结果不能重排已销毁的候选栏。
 
 这一步只证明 Web 绘制能力；原生宿主和社区服务的缺口保持分别记录，不把 Web 浏览器验收外推为全平台完成。
+
+## Web 装饰词绘制
+
+网页候选栏按 `decorationCandidate` 从当前页取词，以独立的 `badge` 字段追加可选标注，绝不通过正则删掉原文的括号或后缀。文字通过 `textContent` 绘制，不接收点击，也不重复向辅助技术朗读；用声明的装饰宽和高对齐与偏移，不以图片透明像素或等比缩小后的图像尺寸代替框。初始字号实测超宽后按比例缩小，最小字号仍超宽时保留完整单行。网页尚不播放装饰待机变换；叠加文字与图片都跟随候选栏本身的显隐动效，不宣称新增了待机动画能力。
+
+每次帧更新、换肤、布局和明暗切换重取当前词，隐藏、越界与图片失败立即清理旧词，图片迟到加载只对当前帧重新布局。解析器对网页直接传入的皮肤对象再次检查类型、范围与安全颜色声明，支持来源的无 `#` 十六进制和浮点 RGB 通道，未知安全值回退白色。代价是网页直接对象的颜色校验保留一份独立实现，来源变化时须与 Rust 用例同步。
+
+## macOS 与共享编辑器的装饰词绘制
+
+macOS 从完整 `SkinSummary` 读取声明和 `resolvedColor`，用 `shared/contracts/candidate_decoration_overlay.h` 的有界样式、选词与几何计算绘制原生文字。文字作为既有装饰图视图的子视图，跟随待机和帧动画所在的父变换，不拦截点击、不重复向辅助技术朗读；装饰图视图显式关闭边界裁切，最小字号仍过宽时保留完整单行。图片等比缩小后，文字仍按声明框定位，候选缩放同时作用于字号、宽度和偏移。
+
+普通候选窗、释义更新复用路径和展开网格均刷新文字；与固定来源的 `SetDecorationCandidates` 一样，展开时仍取普通当前页的候选及高亮，不把后续网格光标当作当前页序号。原文与云／AI 标注分别取值，`stripBadge` 只控制独立标注，不删除原文中的括号或后缀。候选的简繁输出与日文例外继续生效。测试用的独立 `CandidatePanel` 只有已格式化文本，因此原样绘制，不通过正则猜测标注边界。
+
+共享设置页的皮肤卡片和编辑器预览使用固定样例绘制同一声明；导入、暂存、复制和 TOML 导出保留字段与原始颜色，导出不写派生的 `resolvedColor`。旧草稿缺少派生色值时按共享解析器的颜色语义补齐。测量在图片加载和字体变化后重做，错误、越界和换肤会清理文字。带叠加词的图片和文字放进同一个装饰组，编辑器的四种待机动画只作用于该组；减弱动态效果同时禁用整组动画。
+
+这些实现覆盖共享协议、MCP、网页 SDK、共享设置页预览和 macOS 原生候选窗；Windows、Linux、iOS、Android、HarmonyOS 原生候选区域的装饰词绘制仍需分别接入和验证，不能以共享层新增字段或预览可见代替六平台完成。
 
 ## Alternatives considered
 
@@ -42,6 +66,10 @@ Linux X11 的字体与候选布局消费见[原生画布布局](2026-10-20-linux
 验证结果（本笔记更新时实际运行）：`cargo fmt --all -- --check` 通过；`rbuild cargo test --locked -p msime-client-services skin::` 通过（262 项，含非 canvas v2 保留动效并忽略 canvas 专属字段、v1 + canvas 拒绝、空 `author` / `description` 打包拒绝和共享用例表）；`rbuild cargo test --locked -p msime-mcp-server` 通过（单测 69 项、stdio 11 项；最后一次修改描述后重跑，stdio 有一次因 Studio 上写入锁文件失败（`cannot record the write`）挂掉，单独重跑通过）；`rbuild cargo test --locked -p msime-host-api` 通过（847 项单测加各集成测试）；`rbuild cargo test --locked -p msime-desktop skin` 通过（17 项，需先在 Studio 上建空的 `target/macos/EngineResources` 与 `水杉输入法.app` 占位目录）；`rbuild cargo clippy --locked -p msime-client-services -p msime-mcp-server -p msime-host-api --all-targets -- -D warnings` 无警告；Windows 的 `candidate_skin`、`candidate_palette`、`candidate_skin_reload`、`candidate_theme_reload` 四个可移植单测在 Studio 上用 `c++ -std=c++17 -Wall -Wextra -Werror` 编译并通过；`node --test 'packages/web-engine/test/*.test.mjs'` 通过（34 项，含 `#RGBA`）；`apps/desktop` 的 vitest `custom-theme-parity`、`external-skins`、`community-candidate-skins` 通过（132 项）；`platforms/harmony/tests/run.sh` 通过（`keyboard-logic` 4395 条断言）；`pnpm run verify-notes` 与 `git diff --check` 通过。用 msime-windows `c0a9d371` 的 `skins/` 实测共享 catalog：13 个外部皮肤全部接受（`green_leaf`、`sakura-night` 为 v2 canvas，带宿主绘制能力提示），8 个内置外观以原 ID 放进皮肤目录按保留 ID 拒绝，改名并补上外部皮肤必需的 `version`、`base`、`supports` 后全部接受。没有运行：`platforms/windows/build-cross.sh x64`（Studio 没有 MinGW，交给 PR 上的 Windows CI）、macOS `candidate-panel` 与 `candidate-row-layout`；也未在真实 Windows 编辑器中目测所有新绘制原语。
 
 Web 绘制切片的后续验证：本机 `node --test 'packages/web-engine/test/*.test.mjs'` 36 项通过；`CHROME_BIN=... node packages/web-engine/test/candidates.browser.mjs` 通过，截图像素断言覆盖九宫格四角/边缘/中心、挂件前后层级、裁切、点击穿透、留白定位、图片失败与过期回调，以及 APNG/GIF 面板和挂件的真实帧变化。减弱动态效果时首帧保持不变，实时切换系统偏好和无 CORS 响应头的跨域图片同样通过。固定上游 `c0a9d371` 的 `green_leaf` 与 `sakura-night` 实际图片在浅/深色与横/竖排的八种组合中显示正常；这些源资源只用于本机验收，没有复制进本仓库。类型声明检查、`cargo fmt --all -- --check`、本机 services 皮肤测试 262 项、MCP 单测 69 项与 stdio 11 项、services/MCP 的 `clippy --all-targets -- -D warnings` 均通过。以上只覆盖 Web 贴图绘制与共享回退契约，不代表其余原生宿主具备完整贴图能力。
+
+装饰词切片的验证：共享服务皮肤测试 333 项、MCP 单测 94 项与 stdio 集成 12 项通过，services/MCP 的 clippy 无警告；网页引擎单测 47 项、真实 Chromium 候选栏回归和 TypeScript 声明检查通过。stdio 合成夹具同时准备独立的 `msime-wubi.db`，避免 macOS 按词库文件判定五笔可用时将夹具的输入方案回退；产品的资源判定不变。共享 React 的真实浏览器验证使用合成图片与固定样例，54 种横竖／图像对齐／文字对齐组合、四种整组待机动画、越界、换肤、图片失败、超框与减弱动态效果均通过；这是组件绘制证据，不是原生宿主系统入口或设备验收。
+
+最终共享设置测试 94 项、类型检查与生产构建通过；macOS `candidate-skin`、`candidate-panel`、`candidate-row-layout`、`candidate-decoration-overlay` 四组测试通过，新增专项覆盖当前页取词、释义更新复用、150% 缩放、展开网格、换肤关闭和越界清理。`scripts/verify-local.sh --quick` 通过，含 Windows 可移植测试 171 项、Linux 原生测试 94 项及共享 Rust、Android、WASM、Java、macOS 和 Apple bridge 编译；完整 Windows／pipe 构建因没有 MinGW 跳过，HarmonyOS HAP 另走配套 DevEco 工具链，不把 quick 的前置不足跳过当作 HAP 验证。
 
 选中条、逐角高亮、悬停与预编辑配色由[原生画布外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)补充，保留本篇其余范围与生命周期规则。
 

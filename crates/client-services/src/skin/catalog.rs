@@ -12,12 +12,14 @@ use std::io::Cursor;
 use std::path::Path;
 use toml::Value;
 
+mod decoration_candidate;
 mod factory_layout;
 mod windows_looks;
 /// 定义在 `crate::text`（偏好校验要用），从这里导回。
 pub(crate) use crate::text::safe_id;
 /// 定义在 `crate::theme`（偏好校验要用），从这里导回，原来的路径照常可用。
 pub use crate::theme::is_selectable_id;
+pub use decoration_candidate::{DecorationVerticalAlign, SkinDecorationCandidate};
 pub use factory_layout::ResolvedSkinLayout;
 pub use windows_looks::{
     is_windows_look, WINDOWS_BUILTIN_IDS, WINDOWS_DEFAULTS_FOLDER, WINDOWS_LOOK_IDS,
@@ -241,6 +243,9 @@ pub struct SkinSummary {
     pub decoration_image: Option<String>,
     /// Where the decoration sits along the card's top edge.
     pub decoration_align: DecorationAlign,
+    /// 装饰图上叠加的当前页候选词；旧包和显式关闭时省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decoration_candidate: Option<SkinDecorationCandidate>,
     /// 候选窗在屏幕上时整张装饰图的待机动效（`decoration.motion`，只在 schema 2 里可写），缺省 `none`。与 `[animation]` 的显隐动效无关。
     pub decoration_motion: DecorationMotion,
     /// 待机动效一个周期的毫秒数（`decoration.motion_period_ms`），限制在 [`DECORATION_MOTION_PERIOD_MS`] 内，缺省 [`DEFAULT_DECORATION_MOTION_PERIOD_MS`]。
@@ -933,6 +938,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     };
     let (decoration_motion, decoration_motion_period_ms) =
         read_decoration_motion(decoration, decorated, schema_version)?;
+    let decoration_candidate = decoration_candidate::read(decoration)?;
     let background = match window.get("background") {
         None => None,
         Some(value) => Some(read_background(
@@ -989,6 +995,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .clone()
             .filter(|preview| decorated && is_image(preview))
     });
+    if decoration_candidate.is_some() && (!decorated || decoration_image.is_none()) {
+        return Err("candidate overlay requires a decoration image and dimensions".into());
+    }
     let mut summary = SkinSummary {
         schema_version: schema_version as u8,
         id,
@@ -1019,6 +1028,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         decoration_width_dip: width,
         decoration_image,
         decoration_align,
+        decoration_candidate,
         decoration_motion,
         decoration_motion_period_ms,
         decoration_frames: 0,
