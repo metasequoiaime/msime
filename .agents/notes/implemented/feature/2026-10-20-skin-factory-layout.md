@@ -32,13 +32,19 @@ macOS 的 `itemCornersFollowCard` 依据实际候选矩形与列表区域逐角�
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
 | 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距；`expandPanel`、`expandRows` | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
-该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的 `shadow`、`pageArrows`、`pageArrowStyle`、`expandPanel` 和 `trimHiddenPreeditGap` 仍未完整控制原生候选窗，Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。Linux X11 的 `expandPanel` 当前仅影响分页标记，尚未绘制卷轴网格，不能据此声称 Linux 卷轴已兼容。
+该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的 `shadow`、`pageArrows`、`pageArrowStyle`、`expandPanel` 仍未完整控制原生候选窗，Linux Wayland/IBus 的完整布局消费也不在本次验证范围内。Linux X11 的 `expandPanel` 当前仅影响分页标记，尚未绘制卷轴网格，不能据此声称 Linux 卷轴已兼容。
 
 网页的 `tools/factory-layouts.json` 由共享 Rust 解析器生成并逐字段核对，构建时随现有 `theme-catalog.js` 一同装入 SDK。它包含八种基底的公共、横排和竖排默认，不引入运行时宿主调用或 TOML 解析器。未提供 `resolvedLayout` 时，出厂当前排列、包公共 `geometry`、包当前排列依次覆盖；若提供完整解析结果，不再重叠原始声明。镜像更新用 `MSIME_WRITE_FACTORY_LAYOUTS=1 cargo test -p msime-client-services web_factory_layout_copy_matches_shared_resolution`，无写入开关的同一测试验证提交中的文件。长度边界沿用共享扫描器的 DIP / em 上限。Windows 版式使用来源的固定 160 DIP 卡片下限，收紧时取消；未声明阴影档位时仍画来源的普通双层阴影。
 
 网页字体沿用共享扫描器的单字体名称和 64 个 UTF-8 字节上限，经固定引号包裹后放在宿主字体链前；不把任意 CSS 字体串或包内字体资源当成字体名。翻页标记横排占候选右侧窄列，竖排另起下方一行，与来源场景的结构一致。网页阴影沿用固定来源 `candidate_skin_scene.cpp` 的两层配方：偏移与模糊为 `8/10/24`、`2/3/8`，浅色透明度 `0.18/0.10`、深色 `0.34/0.22`，`soft` 乘 `0.5`、`strong` 乘 `1.6`，`none` 和成功加载的九宫格面板关闭阴影。外角按浏览器实际换行后的矩形判定；预编辑隐藏时才启用顶角，卡片零圆角仍覆盖普通候选圆角。空预编辑留下来源的 2px 间距，贴角或显式 trim 时去掉；canvas 的 `lineGapDip` 继续优先于预编辑下边距。序号 inset 从候选边缘量起，不再叠加旧宿主的固定左留白；额外行高只加在 `1.35em` 行高之上一次。
 
 预编辑与候选组用纵向 flex 排列，避免浏览器相邻外边距折叠吞掉来源的 2px 行距。Canvas 的 `lineGapDip` 已是最终距离，需要抵消这 2px，不与预编辑下边距叠加。Canvas 启用皮肤阴影时，卡片阴影允许延伸到弹窗外；挂件改在图片图层裁到预留弹窗范围，避免为了放出阴影连带放出越界挂件。
+
+### macOS 隐藏预编辑行距
+
+macOS 普通页与展开网格消费共享布局的 `trimHiddenPreeditGap`：隐藏预编辑时默认保留来源 body 的 2 DIP 行距，显式收紧或 `itemCornersFollowCard` 去掉它；零圆角贴角同样收紧。行距随候选缩放，位置与候选命中矩形分别计算，不能通过拉高候选行制造空白。没有共享布局的旧原生主题保留原行为。logo 或翻页控件仍有自己的首行；收紧只消除预编辑留下的间距。
+
+canvas 的 `lineGap` 只在预编辑文字实际显示时生效，不因 logo 让首行有高度就继续加入。键位图避让使用相同的显隐规则和隐藏行距。固定来源更新核对到 `msime-windows@b0bcb6ff5bef797d72e6b38930be8a6b9dccfb2f`，相对原固定提交 `a60e2948` 没有皮肤定义变化；语义来自 `candidate_skin_scene.cpp` 的隐藏预编辑 margin 与 `candidate_skin_tokens.cpp` 的零圆角贴角开关。
 
 ## 历史审计
 
@@ -48,6 +54,8 @@ macOS 的 `itemCornersFollowCard` 依据实际候选矩形与列表区域逐角�
 - [Linux 外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)：部分重叠，继续持有高亮、竖条和细分颜色。
 
 ## Alternatives considered
+
+macOS 隐藏预编辑后始终不留行距能维持此前原生卡片的紧凑外观，也省去一份显隐状态；但这样会让 `trim_hidden_preedit_gap = false` 与 `true` 画成同一结果，canvas 的默认外观也偏离来源，因此仅没有共享布局的旧原生主题沿用零间距。
 
 - 所有平台原样照搬桌面尺寸与结构开关：最容易逐字段一致，但会改变触屏固定键盘高度、隐藏必需的展开入口；按平台映射适用几何，未消费字段明确列出，未来增加桌面形态时重新评估。
 - 网页构建直接读取八份 TOML：少一份提交中的镜像，但需要额外解析依赖，并在 JavaScript 中重写共享布局解析；使用 Rust 生成、测试锁定的 JSON 镜像，代价是更新来源后多跑一次生成命令。
@@ -92,3 +100,7 @@ macOS 的 `fitContent` 与 `justifyRows` 专项测试先在未修复控制器上
 贴角最终源码的远端 run `20261020-202701` 通过 quick 与 17 项候选、皮肤、快捷键和设置玻璃回归；`settings-glass` 未再出现旧 CI 的深色断言失败。原排版 PR 合并后，贴角改动转到最新 `develop` 的独立分支，保留上游已合入的网页卷轴笔记。
 
 迁入 `develop@f194735294` 后的 run `20261020-203307`：quick 与 16 项候选、皮肤、快捷键回归通过，额外加入的 `settings-glass` 在文档外观同步断言处失败。它不引用候选绘制代码，不能将这一轮说成 17 项全通过；外观同步问题另行复现和修复。
+
+隐藏预编辑行距专项先在旧控制器上复现关闭收紧时 `0 DIP` 而非 `2 DIP`（远端 run `20261020-235001`）。新增真实控制器矩阵检查收紧开关、排列覆盖、贴角与零圆角、横竖排、100%/150%、普通页与展开网格、保留翻页首行时的间距以及 canvas 预编辑专用行距；原画布与预编辑外边距夹具的隐藏状态改为检查来源默认的 2 DIP，外边距与显示状态断言保留。
+
+最终远端 run `20261020-235332`：隐藏预编辑专项矩阵与完整 `candidate-row-layout` 通过；quick 通过仓库契约、笔记、Rust 工作区、macOS 原生全目标和 Apple 桥接，其余平台按改动范围跳过。17 项候选／皮肤／快捷键／设置玻璃回归全部执行通过，无跳过，共 88.17 秒。验证使用合成偏好和原生控制器，不等同于已安装输入法的物理键盘或其他平台设备验收。

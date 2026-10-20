@@ -759,6 +759,87 @@ static void TestFactoryCornerRadii(RowLayoutClient *client)
     std::filesystem::remove_all(root);
 }
 
+// 隐藏预编辑后的 2 DIP 行距按皮肤收紧；检查实际行顶边，包含翻页首行与 canvas 的独立行距。
+static void TestHiddenPreeditGap(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-hidden-preedit-gap-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    for (const char *identifier : {"loose", "tight", "override", "follow", "square", "canvas-loose", "canvas-tight"}) {
+        const std::string name(identifier);
+        const bool canvas = name.find("canvas-") == 0;
+        const bool follow = name == "follow" || name == "square";
+        const bool tight = name == "tight" || name == "canvas-tight" || name == "override";
+        std::filesystem::create_directory(root / identifier);
+        {
+            std::ofstream manifest(root / identifier / "skin.toml");
+            manifest << "schema_version = 2\nid = \"" << identifier << "\"\nname = \"Synthetic Hidden Gap\"\nversion = \"1\"\nbase = \""
+                     << (canvas ? "canvas" : "microsoft") << "\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n"
+                     << "[candidate_window]\ncorner_radius_dip = " << (name == "square" ? 0 : 16)
+                     << "\npadding = 8\npreedit_margin_dip = [7, 11, 13, 17]\nitem_corners_follow_card = " << (follow ? "true" : "false")
+                     << "\ntrim_hidden_preedit_gap = " << (tight ? "true" : "false") << "\n";
+            if (canvas) manifest << "line_gap_dip = 19\ncontent_insets_dip = { top = 5, right = 9, bottom = 13, left = 17 }\n";
+            if (name == "override") manifest << "[candidate_window.vertical]\ntrim_hidden_preedit_gap = false\n";
+            assert(manifest.good());
+        }
+        NSString *suite = [@"app.msime.test.hidden-preedit-gap." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [defaults setObject:@(identifier) forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+            skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        appearance.showsCandidatePageNumber = NO;
+        appearance.showsCandidateExpandButton = NO;
+        appearance.showsCandidatePreedit = NO;
+        appearance.candidateTranslations = NO;
+        appearance.themeMode = @"light";
+        MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+        RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
+            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        NSArray *candidates = @[@{@"text": @"甲", @"highlighted": @YES}, @{@"text": @"乙"}];
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"synthetic", @"page": @0, @"page_count": @3,
+            @"candidates": candidates} forKey:@"view"];
+        for (NSUInteger scaling = 0; scaling < 2; ++scaling) for (NSUInteger vertical = 0; vertical < 2; ++vertical)
+            for (NSUInteger expanded = 0; expanded < (vertical ? 1 : 2); ++expanded) for (BOOL controls : {NO, YES}) {
+                appearance.candidateScalePercent = scaling ? 150 : 100;
+                appearance.vertical = vertical;
+                appearance.showsAppLogo = NO;
+                appearance.showsCandidatePageNumber = controls;
+                const CGFloat scale = scaling ? 1.5 : 1.0;
+                [controller setValue:expanded ? candidates : nil forKey:@"expandedCandidates"];
+                if (expanded) assert([controller renderExpandedCandidates]);
+                else [controller renderCandidates];
+                MSIMECandidateChromeView *chrome = (id)panel.contentView;
+                MSIMECandidateButton *first = CandidateButton(chrome, 0);
+                assert(first && first.hasSkinLayout);
+                const CGFloat padding = (canvas ? 5 : 8) * scale;
+                const bool trimmed = follow || (tight && !(name == "override" && vertical));
+                const CGFloat expectedGap = (trimmed ? 0 : 2) * scale;
+                const CGFloat header = controls ? MSIMECandidateHeaderHeight * scale : 0;
+                const CGFloat actualGap = NSMaxY(chrome.cardBounds) - padding - NSMaxY(first.frame) - header;
+                const CGFloat tolerance = 1.0 / panel.backingScaleFactor + 0.01;
+                if (fabs(actualGap - expectedGap) > tolerance)
+                    fprintf(stderr, "hidden preedit gap: skin=%s scale=%.1f vertical=%lu expanded=%lu controls=%d actual=%.2f expected=%.2f\n",
+                        identifier, scale, (unsigned long)vertical, (unsigned long)expanded, controls, actualGap, expectedGap);
+                assert(fabs(actualGap - expectedGap) <= tolerance);
+                assert(chrome.candidateRowsTouchTop == (!controls && trimmed));
+                // 透明空隙不属于候选按钮的命中区域。
+                const NSPoint top = NSMakePoint(NSMidX(first.frame), NSMaxY(first.frame) + expectedGap / 2);
+                if (expectedGap > 0) {
+                    NSView *hit = [chrome.candidateContentView hitTest:[chrome.candidateContentView convertPoint:top toView:chrome.candidateContentView.superview]];
+                    assert(hit != first && ![hit isDescendantOf:first]);
+                }
+            }
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [panel orderOut:nil];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    std::filesystem::remove_all(root);
+}
+
 // 对真实视图矩形检查预编辑外边距，避免只改窗口高度而文字仍挤在原位。
 static void TestFactoryPreeditMargins(RowLayoutClient *client)
 {
@@ -856,12 +937,13 @@ static void TestFactoryPreeditMargins(RowLayoutClient *client)
             }
             appearance.showsCandidatePageNumber = NO;
         }
-        // 隐藏预编辑时不残留其外边距，原生布局原本就不产生隐藏行间隙。
+        // 隐藏预编辑时不残留其外边距；canvas 的出厂未收紧行距仍保留 2 DIP。
         appearance.showsCandidatePreedit = NO;
         [controller setValue:nil forKey:@"expandedCandidates"];
         [controller renderCandidates];
         MSIMECandidateButton *first = CandidateButton(panel.contentView, 0);
-        assert(fabs(NSHeight(panel.contentView.bounds) - NSMinX(first.frame) - NSMaxY(first.frame)) < 0.1);
+        assert(fabs(NSHeight(panel.contentView.bounds) - NSMinX(first.frame) - NSMaxY(first.frame)
+            - (canvas ? 2.0 * appearance.candidateScalePercent / 100.0 : 0.0)) < 0.1);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     std::filesystem::remove_all(root);
@@ -1103,7 +1185,8 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
         // 底部挂件留白较大时，整窗夹紧会把卡片向上推，不能用未夹紧的光标位置作期望。
         const CGFloat cardBottom = MAX(NSMaxY(client.caret) + 4, NSMinY(screen) + NSMinY(chrome.cardBounds));
         assert(std::abs(NSMinY(panel.frame) + NSMinY(chrome.cardBounds) - cardBottom) <= 1.0 / panel.backingScaleFactor + 0.01);
-        assert(std::abs(NSMaxY(CandidateButton(chrome, 0).frame) - NSHeight(chrome.cardBounds) + skin.canvas->content->top) < 0.01);
+        assert(std::abs(NSMaxY(CandidateButton(chrome, 0).frame) - NSHeight(chrome.cardBounds)
+            + skin.canvas->content->top + 2.0 * appearance.candidateScalePercent / 100.0) < 0.01);
     }
     [controller hideCandidatePanel:"empty"];
     [controller setValue:nil forKey:@"activeClient"];
@@ -1183,6 +1266,13 @@ int main(int argc, char **argv)
     @autoreleasepool
     {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--hidden-preedit-gap") {
+            RowLayoutClient *client = [RowLayoutClient new];
+            const NSRect screen = NSScreen.mainScreen.visibleFrame;
+            client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+            TestHiddenPreeditGap(client);
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--glass-host-visual") { TestHostAppearance(YES); return 0; }
         if (argc == 4 && std::string(argv[1]) == "--canvas-upstream") {
             NSString *output = @(argv[3]);
@@ -1630,6 +1720,7 @@ int main(int argc, char **argv)
         TestSelectedGlossColour(client);
         TestFactoryFitAndJustify(client);
         TestFactoryPreeditMargins(client);
+        TestHiddenPreeditGap(client);
         TestFactoryCornerRadii(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
