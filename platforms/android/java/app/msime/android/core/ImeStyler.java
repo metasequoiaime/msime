@@ -390,6 +390,8 @@ final class ImeStyler {
             || (description != null && description.toString().startsWith("候选 "));
         if (node instanceof KeyboardSkinCard) {
             // 皮肤面板的瓷砖自己画缩略图、描边和名字，配色由 ImePanels.styleSkinPicker 经 setTileColors 传入。当普通按钮上色会给每格铺一层卡片底，选中格更被整块填成强调色，盖住名字和缩略图。
+        } else if (node == s.diagnosticView) {
+            // 提示行由 ImeDebugOverlay.updateDiagnosticView 自己上色：提示是黑底白字，调试行是强调色。render() 先更新它、最后才走这一遍；按普通文字改成按键前景色的话，浅色皮肤下提示变成黑底深色字，看不见。
         } else if (node instanceof Button) {
             boolean key = description != null && (description.toString().startsWith("按键 ")
                 || description.toString().startsWith("候选 ")
