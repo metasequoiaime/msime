@@ -242,7 +242,7 @@ impl Computer {
     fn new(signed_in: bool, api: FakeApi) -> Self {
         let state = tempfile::tempdir().unwrap();
         let account = tempfile::tempdir().unwrap();
-        skins::create(state.path(), &skin_request(PACKAGE, "")).unwrap();
+        skins::create(state.path(), None, &skin_request(PACKAGE, "")).unwrap();
         if signed_in {
             // 设置应用登录后写下的会话文件。
             FileAccountSessionStorage::new(account.path(), AccountSessionFileLayout::Native)
@@ -437,6 +437,7 @@ fn a_license_the_manifest_already_declares_is_kept() {
     let computer = Computer::new(true, FakeApi::default());
     skins::create(
         computer.state.path(),
+        None,
         &skin_request(PACKAGE, "[license]\nassets = 'CC0-1.0'\n"),
     )
     .unwrap();

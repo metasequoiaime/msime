@@ -17,7 +17,7 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 官方提供的共享方式是「共享沙箱」：签名 Profile 和键盘扩展 `module.json5` 的 `dataGroupIds` 登记同一个 data-group-id，两个进程用 `context.getGroupDir(id)` 拿到同一个目录；基础访问模式下键盘对它只读，完整体验模式下可读写。本宿主的 ID 是 AppGallery Connect 签发的 `group.1516753898738609107`（代码里在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`）。签名 Profile 必须在 AGC 网页端「证书、APP ID和Profile › Profile › 新增」手动新建，DevEco 自动签名不会写入这项授权；新建后用 `strings <profile>.p7b | grep data-group-ids` 确认带着这个 ID。模拟器不做这项授权校验，只能在真机上验证。
 
-两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
+两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 

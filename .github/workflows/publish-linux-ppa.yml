@@ -62,14 +62,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ steps.check.outputs.skip == 'false' }}
         with: {ref: "linux-v${{ inputs.version }}", path: tag, persist-credentials: false}
+      # 源码包下载脚本取自触发这次运行的提交，不是发布的那个提交：linux-vX.Y.Z 可能早于它出现。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        with: {path: tools, sparse-checkout: platforms/linux/packaging, persist-credentials: false}
       - name: Download and verify the release's source tarballs
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
-        run: |
-          set -euo pipefail
-          mkdir -p work && cd work
-          gh release download "linux-v$VERSION" --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz"
-          grep -E " (msime-$VERSION\.tar\.xz|msime-$VERSION-vendor\.tar\.xz)$" SHA256SUMS | sha256sum -c -
+        # linux-sources 上有这个版本就从那里取，否则（linux-sources 出现之前的版本）从它自己的发布页取，都对着同处的校验文件核对。
+        run: bash tools/platforms/linux/packaging/download-sources.sh "$VERSION" work
       - name: Build and upload a signed source package per Ubuntu series
         if: ${{ steps.check.outputs.skip == 'false' }}
         working-directory: work

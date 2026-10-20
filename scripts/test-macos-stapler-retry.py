@@ -68,7 +68,7 @@ sys.exit(reply["status"])
             )
             tool.chmod(0o755)
 
-    def run_helper(self, replies):
+    def run_helper(self, replies, action="staple"):
         self.plan.write_text(json.dumps(replies), encoding="utf-8")
         environment = os.environ.copy()
         environment.update(
@@ -77,7 +77,7 @@ sys.exit(reply["status"])
             MSIME_TEST_STAPLER_PLAN=str(self.plan),
         )
         result = subprocess.run(
-            ["bash", str(HELPER), str(self.dmg)],
+            ["bash", str(HELPER)] + (["--validate"] if action == "validate" else []) + [str(self.dmg)],
             env=environment,
             capture_output=True,
             text=True,
@@ -85,7 +85,7 @@ sys.exit(reply["status"])
         )
         state = json.loads(self.state.read_text())
         self.assertTrue(
-            all(call == ["stapler", "staple", str(self.dmg)] for call in state["calls"])
+            all(call == ["stapler", action, str(self.dmg)] for call in state["calls"])
         )
         return result, state
 
@@ -135,6 +135,33 @@ sys.exit(reply["status"])
     def test_other_exit_status_is_preserved(self):
         result, state = self.run_helper([{"status": 65, "message": DISCONNECT}])
         self.assertEqual(result.returncode, 65)
+        self.assertEqual(len(state["calls"]), 1)
+        self.assertEqual(state["delays"], [])
+
+    def test_validate_success_does_not_retry(self):
+        result, state = self.run_helper([{"status": 0, "message": "synthetic valid"}], action="validate")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(state["calls"]), 1)
+        self.assertEqual(state["delays"], [])
+
+    def test_validate_disconnection_retries_with_the_same_window(self):
+        result, state = self.run_helper(
+            [{"status": 68, "message": DISCONNECT + "\n" + CLOUDKIT}] + [{"status": 0, "message": "synthetic valid"}],
+            action="validate",
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(state["calls"]), 2)
+        self.assertEqual(state["delays"], [["15"]])
+
+    def test_validate_exhausted_disconnections_report_a_temporary_failure(self):
+        result, state = self.run_helper([{"status": 68, "message": CLOUDKIT}] * 6, action="validate")
+        self.assertEqual(result.returncode, 75)
+        self.assertEqual(len(state["calls"]), 6)
+        self.assertEqual(state["delays"], DELAYS)
+
+    def test_validate_missing_ticket_keeps_its_status(self):
+        result, state = self.run_helper([{"status": 68, "message": "synthetic does not have a ticket stapled"}], action="validate")
+        self.assertEqual(result.returncode, 68)
         self.assertEqual(len(state["calls"]), 1)
         self.assertEqual(state["delays"], [])
 

@@ -379,7 +379,7 @@ impl MsimeServer {
             let _guard = guard;
             let _shared = claim_shared_write(&config)?;
             let state_dir = config.state_dir(&config.read_options()?)?;
-            skins::create(&state_dir, &request).map(Json)
+            skins::create(&state_dir, config.linux_host_options(), &request).map(Json)
         })
         .await;
         eprintln!(
@@ -414,7 +414,13 @@ impl MsimeServer {
             let _shared = claim_shared_write(&config)?;
             let document = config.read_options()?;
             let state_dir = config.state_dir(&document)?;
-            skins::delete(&state_dir, config.edition(&document)?, &request).map(Json)
+            skins::delete(
+                &state_dir,
+                config.linux_host_options(),
+                config.edition(&document)?,
+                &request,
+            )
+            .map(Json)
         })
         .await;
         eprintln!(

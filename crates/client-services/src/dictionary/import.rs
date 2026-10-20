@@ -69,19 +69,48 @@ pub enum ImportFormat {
     Standard,
     Windows,
     Rime,
+    Gboard,
 }
 
 impl ImportFormat {
-    /// The same layout with the two columns exchanged, or `None` for a format that has only one.
-    ///
-    /// Rime files are word-first by definition - the code is the second column of a `dict.yaml`
-    /// row - so there is no other order to try.
+    /// 标准 TSV 与 Windows TSV 可以互换列序；Rime 和 Gboard 的列序由格式确定。
     fn flipped(self) -> Option<Self> {
         match self {
             ImportFormat::Standard => Some(ImportFormat::Windows),
             ImportFormat::Windows => Some(ImportFormat::Standard),
-            ImportFormat::Rime => None,
+            ImportFormat::Rime | ImportFormat::Gboard => None,
         }
+    }
+
+    /// 在整份文本上识别 Gboard v1，不计为列序翻转；分批调用者必须固定识别结果。
+    pub fn for_text(self, text: &str) -> Self {
+        if !matches!(self, Self::Standard | Self::Windows) {
+            return self;
+        }
+        for line in text.strip_prefix('\u{feff}').unwrap_or(text).lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line.starts_with('#') {
+                let header = line.to_ascii_lowercase();
+                if let Some(version) = header.strip_prefix("# gboard dictionary version:") {
+                    return if version.trim() == "1" {
+                        Self::Gboard
+                    } else {
+                        self
+                    };
+                }
+                continue;
+            }
+            let columns: Vec<_> = line.splitn(4, '\t').collect();
+            return if columns.len() == 3 && gboard_language_hint(columns[2].trim()) {
+                Self::Gboard
+            } else {
+                self
+            };
+        }
+        self
     }
 
     pub fn parse(value: &str) -> Option<Self> {
@@ -89,9 +118,24 @@ impl ImportFormat {
             "standard" => Some(ImportFormat::Standard),
             "windows" => Some(ImportFormat::Windows),
             "rime" => Some(ImportFormat::Rime),
+            "gboard" => Some(ImportFormat::Gboard),
             _ => None,
         }
     }
+}
+
+// 无头文件需要足够明确的语言标签；不把 `bad`、`NaN` 等坏词频猜成语言。
+fn gboard_language_hint(value: &str) -> bool {
+    let mut tags = value.split('-');
+    let language = tags.next().unwrap_or_default();
+    if !(2..=3).contains(&language.len()) || !language.bytes().all(|b| b.is_ascii_lowercase()) {
+        return false;
+    }
+    let has_subtag = value.contains('-');
+    (language.len() == 2 || has_subtag)
+        && tags.all(|tag| {
+            !tag.is_empty() && tag.len() <= 8 && tag.bytes().all(|b| b.is_ascii_alphanumeric())
+        })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -225,6 +269,7 @@ pub fn parse(
         return Err(ImportError::ControlCharacters);
     }
 
+    let format = format.for_text(text);
     let report = parse_rows(kind, format, text);
     if !report.entries.is_empty() {
         return Ok(report);
@@ -305,17 +350,24 @@ fn parse_row(
 ) -> Result<ImportEntry, ImportIssue> {
     let mut columns = Vec::with_capacity(3);
     columns.extend(line.splitn(4, '\t'));
-    if !(2..=3).contains(&columns.len()) {
+    let valid_columns = if format == ImportFormat::Gboard {
+        columns.len() == 3
+    } else {
+        (2..=3).contains(&columns.len())
+    };
+    if !valid_columns {
         return Err(ImportIssue::ColumnCount);
     }
-    // Windows exports put the code first; the other formats put the word first.
-    let (word, key) = if format == ImportFormat::Windows {
+    // Windows 和 Gboard 都是编码在前，其他格式是词在前。
+    let (word, key) = if matches!(format, ImportFormat::Windows | ImportFormat::Gboard) {
         (columns[1].trim(), columns[0].trim())
     } else {
         (columns[0].trim(), columns[1].trim())
     };
     let key = key.to_ascii_lowercase();
     let weight = match columns.get(2).map(|value| value.trim()) {
+        // Gboard 第三列是语言，不含词频，也不按目标词库过滤语言。
+        _ if format == ImportFormat::Gboard => DEFAULT_WEIGHT,
         None | Some("") => DEFAULT_WEIGHT,
         // Rime 第三列的 `c=3` 等元数据沿用缺省权重。
         Some(value) if format == ImportFormat::Rime && value.contains('=') => DEFAULT_WEIGHT,
@@ -374,6 +426,93 @@ mod tests {
 
     fn parse_ok(kind: ImportKind, format: &str, text: &str) -> ImportReport {
         parse(kind, format, text, LIMIT).expect("envelope is usable")
+    }
+
+    #[test]
+    fn gboard_v1_text_is_detected_before_interpreting_language_as_weight() {
+        for format in ["standard", "windows", "gboard"] {
+            for text in [
+                "hecheng\t合成\tzh-CN\n",
+                "\u{feff}# Gboard Dictionary Version:1\r\nhecheng\t合成\t\r\nceshi\t测试\ten\r\n",
+            ] {
+                let report = parse_ok(ImportKind::Pinyin, format, text);
+                assert_eq!(report.failed, 0);
+                assert!(!report.swapped);
+                assert_eq!(report.entries[0].key, "hecheng");
+                assert_eq!(report.entries[0].value, "合成");
+                assert_eq!(report.entries[0].weight, DEFAULT_WEIGHT);
+            }
+        }
+    }
+
+    #[test]
+    fn gboard_keeps_row_failures_bounds_and_original_line_numbers() {
+        let text = "# Gboard Dictionary version:1\nhecheng\t合成\tzh-CN\n坏行\n\t测试\tzh-CN\nceshi\t测试\tzh-CN\textra\n";
+        let report = parse_ok(ImportKind::Pinyin, "standard", text);
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].line, 2);
+        assert_eq!(report.failed, 3);
+        assert_eq!(
+            report
+                .first_failures
+                .iter()
+                .map(|f| f.line)
+                .collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
+        assert_eq!(report.first_failures[1].issue, ImportIssue::EmptyKey);
+        assert_eq!(report.first_failures[2].issue, ImportIssue::ColumnCount);
+        assert_eq!(
+            parse(
+                ImportKind::Pinyin,
+                "standard",
+                "hecheng\t合成\tzh-CN\u{7}",
+                LIMIT
+            ),
+            Err(ImportError::ControlCharacters)
+        );
+        let report = parse_rows(ImportKind::Wubi, ImportFormat::Gboard, "abcde\t合成\tzh-CN");
+        assert_eq!(report.first_failures[0].issue, ImportIssue::KeyTooLong);
+        let text = format!(
+            "# Gboard Dictionary version:1\n{}",
+            "hecheng\t合成\tzh-CN\n".repeat(MAX_ENTRIES + 1)
+        );
+        let report = parse_ok(ImportKind::Pinyin, "standard", &text);
+        assert_eq!(report.entries.len(), MAX_ENTRIES);
+        assert!(report.truncated);
+    }
+
+    #[test]
+    fn gboard_detection_does_not_relax_other_formats_or_guess_unknown_versions() {
+        for format in ["standard", "windows", "rime"] {
+            for weight in ["bad", "NaN", "-1", "100%"] {
+                if format == "rime" && weight == "100%" {
+                    continue;
+                }
+                let text = if format == "windows" {
+                    format!("hecheng\t合成\t{weight}\n")
+                } else {
+                    format!("合成\thecheng\t{weight}\n")
+                };
+                assert_eq!(
+                    parse(ImportKind::Pinyin, format, &text, LIMIT),
+                    Err(ImportError::NoUsableRows)
+                );
+            }
+        }
+        assert_eq!(
+            parse(
+                ImportKind::Pinyin,
+                "standard",
+                "# Gboard Dictionary version:2\nhecheng\t合成\tzh-CN\n",
+                LIMIT
+            ),
+            Err(ImportError::NoUsableRows)
+        );
+        assert_eq!(
+            parse(ImportKind::Pinyin, "rime", "hecheng\t合成\tzh-CN\n", LIMIT),
+            Err(ImportError::NoUsableRows)
+        );
     }
 
     #[test]

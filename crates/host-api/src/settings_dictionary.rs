@@ -77,7 +77,14 @@ pub(crate) fn send_dictionary_action(
                 (format, _) => format,
             };
             let parsed = ImportFormat::parse(format)
-                .ok_or_else(|| ImportError::UnsupportedFormat.to_string())?;
+                .ok_or_else(|| ImportError::UnsupportedFormat.to_string())?
+                .for_text(request.text);
+            // 后续批次没有文件头，也可能只有空语言行，保持整份文件识别出的 Gboard 语义。
+            let format = if parsed == ImportFormat::Gboard {
+                "gboard"
+            } else {
+                format
+            };
             template["format"] = Value::String(format.to_owned());
             Some((kind, parsed))
         }

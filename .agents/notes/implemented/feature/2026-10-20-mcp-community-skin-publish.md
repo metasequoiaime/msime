@@ -53,7 +53,7 @@ MCP 服务器（`crates/mcp-server`）能做、改、选用和删除本机的候
 - **收益**：「做一款皮肤、换上、分享出去」可以全程由助手完成；打包规则、去重和错误码与设置应用完全一致，没有第二套发布逻辑。
 - **代价**：MCP 不再是纯本机工具。只读的 `list_community_skins` 在没有 `--allow-write` 时也提供，会用设置应用的会话访问账号服务器；刷新令牌时也会写回会话文件。设置页「连接 AI 助手」和 Windows 原生设置窗口的说明从「不联网」改成「除了把皮肤发布到社区之外不联网」。
 - **代价**：发布持有 MCP 的跨进程写锁直到请求结束，最长约 90 秒，期间其他 MCP 写操作要等。
-- **已知上限**：Linux 上 `add_license` 改了清单后，IBus 和 Fcitx5 读的 `candidate_skin_catalog` 要等设置页下次重扫才更新，与 `create_candidate_skin` 相同；授权不影响绘制，所以没有可见差异。
+- **已知上限**：Linux 上 `add_license` 改了清单后不重新发布 IBus 和 Fcitx5 读的 `candidate_skin_catalog`（`create_candidate_skin` 会发布，见 [Linux 上 MCP 写入皮肤后重新发布皮肤目录](../bug-fix/2026-10-20-linux-mcp-skin-catalog-republish.md)）：授权不在目录条目里，宿主没有可更新的东西。
 
 ## Testing
 

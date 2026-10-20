@@ -771,6 +771,44 @@ fn collections_import_rime_percentage_weights_reach_the_personal_dictionary() {
 }
 
 #[test]
+fn collections_txt_imports_gboard_through_the_existing_personal_queue() {
+    let mut fixture = Fixture::new();
+    let text = "\u{feff}# Gboard Dictionary version:1\nhecheng\t合成\tzh-CN\n坏行\nceshi\t测试\tzh-CN\nhecheng\t合成\tzh-CN\n";
+    let view = import(&fixture, PersonalWordKind::Pinyin, "txt", text).unwrap();
+    let report = view.import.unwrap();
+    assert_eq!(
+        (report.imported, report.duplicates, report.failed),
+        (2, 1, 1)
+    );
+    assert_eq!(report.first_failures[0].line, 3);
+    assert!(!report.swapped);
+    assert_eq!(
+        view.collections[0].source,
+        CollectionSource::Import {
+            format: "standard".into()
+        }
+    );
+    fixture.drain();
+    for (key, value) in [("hecheng", "合成"), ("ceshi", "测试")] {
+        let word = PersonalWord {
+            kind: PersonalWordKind::Pinyin,
+            key: key.into(),
+            value: value.into(),
+            weight: 10000,
+        };
+        assert_eq!(fixture.dictionary.get(&word.identity()), Some(&10000));
+    }
+    let view = import(
+        &fixture,
+        PersonalWordKind::Pinyin,
+        "txt",
+        "yangben\t样本\tzh-CN\n",
+    )
+    .unwrap();
+    assert_eq!(view.import.unwrap().imported, 1);
+}
+
+#[test]
 fn collections_import_reads_text_formats_and_refuses_scel_text() {
     let fixture = Fixture::new();
     let view = import(

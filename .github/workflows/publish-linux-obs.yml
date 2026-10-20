@@ -2,7 +2,7 @@ name: Publish Linux to OBS
 
 # 把已发布的 linux-vX.Y.Z 提交到 openSUSE OBS（项目 home:<OBS_USER>），由 OBS 按发行版构建、签名并托管 apt、dnf 与 zypper 软件源，用户添加源之后就能 apt/dnf/zypper install msime（见 platforms/linux/README.md「包管理器」）。Release Linux 发布成功后调用它；提交失败时也可以单独手动触发，重新提交同一个版本，不用重新发版。
 #
-# 包定义取自 linux-vX.Y.Z 那个提交，由 render-definitions.sh 现场渲染，两个源码 tarball 从发布页下载并对着 SHA256SUMS 核对；上传和项目配置在 platforms/linux/packaging/obs/publish.sh。
+# 包定义取自 linux-vX.Y.Z 那个提交，由 render-definitions.sh 现场渲染，两个源码 tarball 由 packaging/download-sources.sh 从滚动的 linux-sources release 下载并核对（linux-sources 出现之前的版本从它自己的发布页下载），msime-bin 用的 .rpm 与 SHA256SUMS 从版本发布页下载；上传和项目配置在 platforms/linux/packaging/obs/publish.sh。
 # 凭据是组织 secret OBS_USER 与 OBS_PASSWORD；没有配置时只留一条警告，不让发版失败。
 on:
   workflow_call:
@@ -36,10 +36,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ steps.check.outputs.skip == 'false' }}
         with: {ref: "linux-v${{ inputs.version }}", persist-credentials: false}
-      # 发布脚本和 OBS 配置取自触发这次运行的提交，不是发布的那个提交：linux-vX.Y.Z 可能早于这些文件出现。
+      # 发布脚本、源码包下载脚本和 OBS 配置取自触发这次运行的提交，不是发布的那个提交：linux-vX.Y.Z 可能早于这些文件出现。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ steps.check.outputs.skip == 'false' }}
-        with: {path: tools, sparse-checkout: platforms/linux/packaging/obs, persist-credentials: false}
+        with: {path: tools, sparse-checkout: platforms/linux/packaging, persist-credentials: false}
       - name: Install osc
         if: ${{ steps.check.outputs.skip == 'false' }}
         run: pipx install osc==1.27.3
@@ -53,11 +53,14 @@ jobs:
           umask 077
           printf '[general]\napiurl = https://api.opensuse.org\n\n[https://api.opensuse.org]\nuser = %s\npass = %s\ncredentials_mgr_class = osc.credentials.PlaintextConfigFileCredentialsManager\n' "$OBS_USER" "$OBS_PASSWORD" > "$config"
           echo "OSC_CONFIG=$config" >> "$GITHUB_ENV"
-      # 渲染脚本对着 SHA256SUMS 核对 MSIME_RELEASE_DIR 里的文件，上传用的就是核对过的这两个 tarball。两个架构的 .rpm 给 Arch 仓库：OBS 的 Arch 配方会跑 makepkg --allsource，PKGBUILD 列出的每个架构的 source 都要在包里（见 publish.sh）。0.11.0 之前的发布没有 aarch64 的 .rpm，匹配不到的模式 gh 不报错。
+      # 两个 tarball 下载时已经核对过，渲染脚本对着校验文件再核一次，上传用的就是核对过的这两个。两个架构的 .rpm 给 Arch 仓库：OBS 的 Arch 配方会跑 makepkg --allsource，PKGBUILD 列出的每个架构的 source 都要在包里（见 publish.sh）。0.11.0 之前的发布没有 aarch64 的 .rpm，匹配不到的模式 gh 不报错。
       - name: Download the release's source tarballs
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
-        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz" --pattern "msime-linux-$VERSION-1.x86_64.rpm" --pattern "msime-linux-$VERSION-1.aarch64.rpm"
+        run: |
+          set -euo pipefail
+          gh release download "linux-v$VERSION" --dir target/release --clobber --pattern SHA256SUMS --pattern "msime-linux-$VERSION-1.x86_64.rpm" --pattern "msime-linux-$VERSION-1.aarch64.rpm"
+          bash tools/platforms/linux/packaging/download-sources.sh "$VERSION" target/release
       - name: Render the RPM, Debian and Arch definitions
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: "rpm,debian,arch", MSIME_RELEASE_DIR: target/release}

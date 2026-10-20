@@ -13,7 +13,7 @@ Status: implemented
 `release-macos.yml` 的签名与公证跟着 secrets 走，不再看 `publish`：
 
 - job 级环境变量 `MACOS_CERTIFICATE_P12_BASE64`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY` 直接取对应的 `MACOS_DEVELOPER_ID_*` secret；「Import Developer ID certificate」只判断证书是否配置。
-- 「Build macOS package」的 `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 直接取 `MACOS_NOTARY_*` secret。三项齐全且有签名身份时，`platforms/macos/package-release.sh` 提交 `notarytool --wait` 并 staple；它以 `set -Eeuo pipefail` 运行，公证或 staple 失败就让构建失败，不会发出一个半公证的包。
+- 「Build macOS package」的 `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 直接取 `MACOS_NOTARY_*` secret。三项齐全且有签名身份时，`platforms/macos/package-release.sh` 公证并 staple 每个 DMG（各版本先全部提交、再统一取结果和按顺序装订，见[发布打包提速](2026-10-20-macos-release-faster-packaging.md)）；它以 `set -Eeuo pipefail` 运行，任何一个版本公证或 staple 失败就让构建失败，不会发出一个半公证的包。
 - 对外的动作仍各有门控，不随签名放开：发布 `macos-v` release 的步骤 `if: inputs.publish`；更新 Homebrew tap 的步骤 `if: inputs.publish && !inputs.prerelease && github.ref_name == 'main'`，并另外用 `stapler validate` 核对。nightly 的 DMG 只进它自己的滚动 `nightly` prerelease。
 - `scripts/package-nightly.py` 写进 `README.txt` 的 macOS 说明改为「DMG 已用 Developer ID 签名并公证，打开后把应用拖进「应用程序」，再打开一次即可安装输入法」。
 
@@ -22,6 +22,8 @@ Status: implemented
 `notarytool` 获批后，票据装订交给 `platforms/macos/scripts/staple-ticket.sh`：仅当 `stapler` 返回 68 且同时报告 `NSURLErrorDomain Code=-1005` 连接中断或 `CloudKit's response is inconsistent`（stapler 原文拼作 expections）时，依次在 15、30、60、90、120 秒后重试同一个 DMG，最多 6 次、合计约 5 分钟。Nightly `38806414451` 已出现这一下载断线，先前单次装订会丢弃已经完成构建和公证的整轮产物。重试不重复提交公证；其他错误及最终失败保留原退出码，打包仍然失败。
 
 窗口最初是 15、30 秒后共三次。Release macOS 0.54.0（run `39267138324` 第 1 次尝试）的五笔版在 15:22:41 公证获批，15:22:49、15:23:11、15:23:48 三次装订都向 `api.apple-cloudkit.com` 的 `com.apple.gk.ticket-delivery` 查询时断线（`NSURLErrorDomain Code=-1005`，随后 `CloudKit's response is inconsistent with expections: (null)`，`Error 68`），一分钟内用完重试，已经编好、公证过的整轮产物作废，job 在 1 小时 7 分后失败，只能整个重跑。断线持续的时间比原窗口长，所以把窗口放宽到分钟级；只在这一组合上等待，签名或票据本身的错误仍立即失败。
+
+`staple-ticket.sh --validate` 用同一个窗口执行 `stapler validate`，`release-macos.yml` 更新 Homebrew cask 之前用它核对每个 DMG。0.54.0 第 2 次尝试里，这一步直接调用的 `stapler validate` 对 full 版同样报 `NSURLErrorDomain Code=-1005` 和 `Error 68`，被当成未公证，msime cask 停在 0.53.0，而 job 照样成功，维护者事后手工更新了 tap。现在断线重试用完返回 75，workflow 提示「连不上票据服务、需手工更新」，与真正没有公证（stapler 的原退出码，cask 照旧跳过）分开。
 
 ## Alternatives considered
 

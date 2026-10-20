@@ -55,7 +55,7 @@ MCP 服务器（`crates/mcp-server`）原来只能 `create_candidate_skin`（图
 
 - **收益**：代理能完整地做「做一款皮肤、换上、不满意就换回、改了重装、删掉」，图片不再经过模型转写；每一步都沿用设置页和同步已有的规则，没有另立一套。
 - **代价**：`image_files` 让 MCP 能读本机任何当前用户能读的普通文件，但读进来的字节必须完整解码成清单所写格式的图片才会被装进皮肤目录，不是图片的内容只得到「读不出来」或「解码失败」，不会出现在结果里；装进去的图只有在用户主动同步时才离开这台机器。
-- **已知上限**：Linux 的 IBus 和 Fcitx5 宿主从运行时选项里的 `candidate_skin_catalog` 读皮肤，而这份目录只在设置页重扫皮肤时由设置应用发布（`publish_candidate_skin_catalog`）。所以在 Linux 上，经 MCP 新装或改过的皮肤要等设置页下次重扫才画得出来，选用也一样；macOS、Windows 等直接扫皮肤目录的宿主不受影响。这在本次之前对 `create_candidate_skin` 就成立，要补需要把设置应用发布目录的那段（含 16 KiB 预算内的裁剪）挪进共享层给 MCP 复用。
+- **Linux 宿主的皮肤目录**：Linux 的 IBus 和 Fcitx5 宿主从运行时选项里的 `candidate_skin_catalog` 读皮肤。`create_candidate_skin`、`delete_candidate_skin` 写成功后和 `update_preferences` 保存时都重新发布这份目录，规则与设置应用的重扫和保存共用 `skin::linux_runtime_options`，见 [Linux 上 MCP 写入皮肤后重新发布皮肤目录](../bug-fix/2026-10-20-linux-mcp-skin-catalog-republish.md)；macOS、Windows 等直接扫皮肤目录的宿主不经这份目录。
 
 ## Testing
 

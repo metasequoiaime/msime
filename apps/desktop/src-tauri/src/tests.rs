@@ -1525,6 +1525,9 @@ fn diagnostic_log_target_resolves_from_the_host_directory() {
 
 #[cfg(target_os = "linux")]
 use super::*;
+// 宿主读的上限挪进了共享层，与 MCP 服务共用。
+#[cfg(target_os = "linux")]
+use msime_client_services::skin::linux_runtime_options::LINUX_RUNTIME_OPTIONS_LIMIT;
 // The panel helpers these cover live in `panel_input` since the delivery code
 // moved out of the crate root; `use super::*` no longer reaches them.
 #[cfg(target_os = "linux")]
@@ -1957,50 +1960,6 @@ fn runtime_options_sync_publishes_the_installed_skin_catalog() {
         &msime_client_services::skin::catalog::SkinCatalog::default(),
     )
     .unwrap();
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    let skins = directory.path().join("skins");
-    for index in 0..40 {
-        write_candidate_skin(
-            &skins,
-            &format!("skin{index:02}"),
-            &format!("皮肤 {index:02}"),
-        );
-    }
-    let catalog = msime_client_services::skin::catalog::scan(&skins);
-    let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
-    // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
-    preferences["custom_theme"]["candidate_skin"] = "skin39".into();
-    // 深色槽位的皮肤同样在上限之外，同样要留下。
-    preferences["custom_theme"]["candidate_skin_dark"] = "skin38".into();
-    let mut document = serde_json::json!({"api_version": 1, "preferences": preferences});
-    let bytes = runtime_options_with_skin_catalog(&mut document, &skins, &catalog).unwrap();
-    assert!(
-        bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET,
-        "{}",
-        bytes.len()
-    );
-    let packages = document["candidate_skin_catalog"]["packages"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(
-        !packages.is_empty() && packages.len() < 32,
-        "{}",
-        packages.len()
-    );
-    assert!(packages.iter().any(|package| package["id"] == "skin39"));
-    assert!(packages.iter().any(|package| package["id"] == "skin38"));
-    assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), document);
-
-    // A document already too large for the hosts is not made larger by the catalog.
-    let mut crowded = serde_json::json!({"preferences": {}, "padding": "x".repeat(LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET)});
-    runtime_options_with_skin_catalog(&mut crowded, &skins, &catalog).unwrap();
-    assert!(crowded.get("candidate_skin_catalog").is_none());
 }
 
 /// About 440 KiB once decoded: a PNG signature followed by zeros, which the preference validation accepts as a screen-keyboard photo.

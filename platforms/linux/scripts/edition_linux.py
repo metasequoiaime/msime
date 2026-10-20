@@ -18,6 +18,7 @@
     edition_linux.py marker --edition ID --output edition.json  # 前缀 bin 目录里的版本声明；full 不写，已有的删掉
     edition_linux.py render --edition ID --input FILE --output FILE  # 按版本改写一个脚本或数据文件；full 原样复制
     edition_linux.py check                                      # 按每个版本改写全部文件，确认规则全部命中且没有留下 full 的名字
+    edition_linux.py download-guide --version V --download-base URL --dist DIR [--repositories]  # 发布说明开头的下载指引，链接 DIR 里实际要发布的安装包
 """
 
 from __future__ import annotations
@@ -315,6 +316,98 @@ def field(entry: dict, key: str) -> str:
     raise SystemExit(f"unknown field {key}")
 
 
+# 发布页上的架构：（uname -m 的输出，dpkg 的架构名）。rpm 与 tar.gz 用前者，deb 用后者。
+RELEASE_ARCHES = [("x86_64", "amd64"), ("aarch64", "arm64")]
+PACKAGE_MANAGERS_URL = "https://github.com/metasequoiaime/msime/blob/main/platforms/linux/README.md#包管理器"
+
+
+def release_installers(package: str, version: str, names: set[str]) -> dict[str, dict[str, str]]:
+    """一个包在发布页上的安装包，按架构和格式（deb、rpm、tar.gz）。文件名的形状与 release-linux.yml 核对的相同：deb 是 `<包名>_<版本>_<dpkg 架构>.deb`，rpm 是 `<包名>-<版本>-<发布号>.<架构>.rpm`，tar.gz 是 `<包名>-<版本>-linux-<架构>.tar.gz`；包名后面紧跟版本号，所以 `msime-linux` 不会认领 `msime-linux-wubi` 的文件。少一个就失败，指引里不能有指向不存在文件的链接。"""
+    found: dict[str, dict[str, str]] = {}
+    for arch, deb_arch in RELEASE_ARCHES:
+        rpm = sorted(name for name in names if re.fullmatch(rf"{re.escape(package)}-{re.escape(version)}-\d+\.{arch}\.rpm", name))
+        formats = {"deb": [f"{package}_{version}_{deb_arch}.deb"], "rpm": rpm, "tar.gz": [f"{package}-{version}-linux-{arch}.tar.gz"]}
+        found[arch] = {}
+        for kind, candidates in formats.items():
+            present = [name for name in candidates if name in names]
+            if len(present) != 1:
+                raise SystemExit(f"download guide: expected one {kind} of {package} {version} for {arch}, found {present or 'none'}")
+            found[arch][kind] = present[0]
+    return found
+
+
+def download_guide(version: str, download_base: str, names: set[str], repositories: bool) -> str:
+    """Linux 发布说明开头的下载指引。发布页上每个版本、每个架构各有 deb、rpm 和 tar.gz，加上旧系统用的 legacy deb，不说明的话来下载的人不知道该选哪个，所以先按系统选格式、再按 `uname -m` 选架构，最后是每个版本一行的表，完整版排第一、标为推荐。版本名和包名取自版本表，文件名取自这次实际要发布的文件；legacy 包只在这次构建了它时出现。"""
+    table = load_table()
+    editions = linux_editions(table)
+    if not editions or editions[0]["id"] != FULL:
+        raise SystemExit("the download guide recommends the full edition, which must come first in the edition table")
+    full = editions[0]
+    full_package = full["platforms"]["linux"]["package"]
+    full_name = full["display_name"]["zh-Hans"]
+    legacy = {deb_arch: f"msime-linux-legacy_{version}_{deb_arch}.deb" for _, deb_arch in RELEASE_ARCHES}
+    with_legacy = [name for name in legacy.values() if name in names]
+    if with_legacy and len(with_legacy) != len(legacy):
+        raise SystemExit(f"download guide: legacy packages for only some architectures: {with_legacy}")
+    example = editions[1]["platforms"]["linux"]["package"] if len(editions) > 1 else full_package
+
+    def link(name: str, label: str) -> str:
+        return f"[{label}]({download_base}{name})"
+
+    lines = [
+        # 首尾的注释在 GitHub 上不显示，标出这一段是生成的下载指引，读发布说明做更新日志的地方（官网下载页的更新记录）可以按它跳过。
+        "<!-- msime-download-guide -->",
+        "## 下载",
+        "",
+        f"大多数人下载第一行的**{full_name}**就行：它是完整版，包含全部输入方案。其他版本只带其中一部分方案，可以和完整版同时安装。",
+        "",
+        "**先按系统选格式：**",
+        "",
+        "- Debian 12、Ubuntu 22.04 和更新的版本，以及基于它们的发行版：`.deb`，用 `sudo apt install ./<文件名>` 安装，依赖由 apt 一并装好。",
+        "- Fedora 44：`.rpm`，用 `sudo dnf install ./<文件名>` 安装。",
+    ]
+    if with_legacy:
+        lines.append(
+            "- glibc 2.28 到 2.34 的 Debian 系（Debian 10、Debian 11、Ubuntu 20.04、UOS 20 专业版这一类，`ldd --version` 的第一行是 glibc 版本）：装不上上面的 `.deb`，用表格最后一行的 legacy `.deb`。"
+            f"它只有{full_name}（完整版）的 IBus 输入法，没有设置窗口和 Fcitx5 插件，先 `sudo apt install ibus` 再装。"
+        )
+    lines += [
+        "- `.tar.gz` 只给不经 apt 安装的 Debian 系，系统要求和 `.deb` 一样是 Debian 12、Ubuntu 22.04 或更新的版本，文件和 `.deb` 相同但没有依赖声明和卸载入口，用 `sudo tar -xzf <文件名> --strip-components=1 -C /` 解开。它按 Debian 的库目录布局，Arch、Fedora 上的 Fcitx5 找不到它的插件。",
+    ]
+    if repositories:
+        lines.append(f"- Arch、openSUSE、Gentoo、NixOS，或者想让输入法随系统一起更新：用 COPR、Launchpad PPA、openSUSE OBS、AUR 等软件源，不用下载这里的文件，见[包管理器]({PACKAGE_MANAGERS_URL})。")
+    lines += [
+        "",
+        "**再按架构选列：** `uname -m` 输出 `x86_64` 选 x86_64 一列（deb 文件名里写作 amd64），输出 `aarch64` 选 aarch64 一列（写作 arm64）。",
+        "",
+        "| 版本 | x86_64 | aarch64 |",
+        "| --- | --- | --- |",
+    ]
+    for entry in editions:
+        package = entry["platforms"]["linux"]["package"]
+        installers = release_installers(package, version, names)
+        name = entry["display_name"]["zh-Hans"]
+        label = f"**{name}**（完整版，推荐）" if entry["id"] == FULL else name
+        cells = [" · ".join(link(installers[arch][kind], kind) for kind in ("deb", "rpm", "tar.gz")) for arch, _ in RELEASE_ARCHES]
+        lines.append(f"| {label} | {' | '.join(cells)} |")
+    if with_legacy:
+        cells = [link(legacy[deb_arch], "legacy deb") for _, deb_arch in RELEASE_ARCHES]
+        lines.append(f"| {full_name}旧系统包（glibc 2.28 到 2.34） | {' | '.join(cells)} |")
+    legacy_ibus = "（legacy 包要 IBus 1.5.19 以上）" if with_legacy else ""
+    legacy_setup = "（legacy 包没有设置窗口，只能用终端）" if with_legacy else ""
+    lines += [
+        "",
+        f"输入法框架要 IBus 1.5.20 或 Fcitx5 5.0.20 以上{legacy_ibus}；只有 fcitx 4 的系统（UOS 20、麒麟 V10 默认如此）先改用 IBus。"
+        f"装好后打开应用列表里的「{full_name}」完成首次配置{legacy_setup}，或者在终端运行 `{full_package}-setup --download`（其他版本是各自的 `<包名>-setup`，例如 `{example}-setup --download`）。",
+        "",
+        "`SHA256SUMS` 是这些安装包的 SHA-256 校验值，下载后用 `sha256sum -c SHA256SUMS --ignore-missing` 核对。",
+    ]
+    if not repositories:
+        lines += ["", "这是预览版，软件源只提供正式版。"]
+    lines.append("<!-- /msime-download-guide -->")
+    return "\n".join(lines) + "\n"
+
+
 def marker(edition_id: str) -> str | None:
     """前缀 bin 目录里 `edition.json` 的内容（`Edition::PACKAGE_MARKER_FILE`）。full 不带这个文件，所以 full 的包与引入版本之前相同。"""
     edition_entry(edition_id)
@@ -328,6 +421,11 @@ def main() -> int:
     generate.add_argument("--check", action="store_true")
     commands.add_parser("editions")
     commands.add_parser("check")
+    guide = commands.add_parser("download-guide")
+    guide.add_argument("--version", required=True)
+    guide.add_argument("--download-base", required=True)
+    guide.add_argument("--dist", type=pathlib.Path, required=True)
+    guide.add_argument("--repositories", action="store_true")
     for name in ["field", "marker", "render"]:
         command = commands.add_parser(name)
         command.add_argument("--edition", required=True)
@@ -343,6 +441,10 @@ def main() -> int:
         return gen(args.check)
     if args.command == "check":
         return check_all()
+    if args.command == "download-guide":
+        names = {path.name for path in args.dist.iterdir() if path.is_file()}
+        sys.stdout.write(download_guide(args.version, args.download_base, names, args.repositories))
+        return 0
     if args.command == "editions":
         print(",".join(entry["id"] for entry in linux_editions()))
         return 0

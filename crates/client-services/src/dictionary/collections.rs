@@ -1743,6 +1743,11 @@ fn parse_import(
         "rime" => ImportFormat::Rime,
         _ => return Err(DictionaryCollectionsError::UnsupportedFormat),
     };
+    let requested = if format == SCEL_FORMAT {
+        requested
+    } else {
+        requested.for_text(text)
+    };
     // 读出了词条、全是已有的词或者集合已满，都说明列的顺序是对的。
     let usable = |parsed: &(Vec<PersonalWord>, CollectionImportReport)| {
         !parsed.0.is_empty() || parsed.1.duplicates > 0 || parsed.1.truncated
@@ -1756,7 +1761,7 @@ fn parse_import(
         _ if format == SCEL_FORMAT => None,
         ImportFormat::Standard => Some(ImportFormat::Windows),
         ImportFormat::Windows => Some(ImportFormat::Standard),
-        ImportFormat::Rime => None,
+        ImportFormat::Rime | ImportFormat::Gboard => None,
     };
     if let Some(other) = flipped {
         let mut retry = parse_rows(kind, other, text, existing, room);
