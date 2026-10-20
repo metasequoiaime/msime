@@ -7540,10 +7540,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.deleteOwnBackward()
       },
       onClose: { [weak self] in self?.closeKeyboardPicker() },
-      onABC: { [weak self] in self?.closeKeyboardPicker() })
+      onABC: { [weak self] in self?.closeKeyboardPicker() },
+      onSticker: { [weak self] sticker in self?.copySticker(sticker) })
     applyEmojiPickerAppearance(picker)
     emojiPicker = picker
     installPanel(picker)
+  }
+
+  /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
+  private func copySticker(_ sticker: KeyboardStickerCatalog.Sticker) {
+    playInputClick()
+    guard hasFullAccess else {
+      showDiagnostic(KeyboardStickerCatalog.needsFullAccessMessage)
+      renderCandidateStrip()
+      return
+    }
+    DispatchQueue.global(qos: .userInitiated).async {
+      let png = KeyboardStickerCatalog.pngData(sticker)
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        if let png {
+          UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
+          showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+        } else {
+          showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
+        }
+        renderCandidateStrip()
+      }
+    }
   }
 
   /// 按键区里的表情面板与键盘明暗一致时透出键盘背景；表情面板单独设成另一种明暗时铺上自己的皮肤底色，否则按键和颜文字会按面板的明暗着色、却画在键盘明暗的背景上。
