@@ -3081,6 +3081,51 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// 设置宿主看不到输入法实际加载了哪份词库：建会话时把资源目录记进词库更新目录，从没装过更新时不建这个目录。
+#[test]
+fn creating_a_session_records_the_resources_it_loaded_for_dictionary_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    let state = path("state");
+    let fixture = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_n VALUES('ni','n','你',100);
+                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                   CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                   CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(fixture)
+            .unwrap();
+    }
+    let create = || {
+        let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences_directory": state, "preferences": chinese_preferences() }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        read(msime_client_destroy(
+            created["value"]["session"].as_u64().unwrap(),
+        ));
+    };
+    let updates = state.join("dictionary-updates");
+    create();
+    assert!(!updates.exists());
+
+    std::fs::create_dir(&updates).unwrap();
+    create();
+    let loaded: Value =
+        serde_json::from_slice(&std::fs::read(updates.join("loaded.json")).unwrap()).unwrap();
+    assert_eq!(
+        Path::new(loaded["resources"].as_str().unwrap()),
+        std::fs::canonicalize(&resources).unwrap()
+    );
+}
+
 /// 三端宿主都开着 `phrase_preedit`。14 键里选了只覆盖前一段的词，退格到只剩一个组码再退格，收回这次选词：组码要回到 14 键网格里，而不是变成全拼 26 键的 `bu`，之后的 14 键照样能打。
 #[test]
 fn retreating_a_fourteen_key_selection_keeps_composing_on_the_grid() {

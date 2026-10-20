@@ -67,6 +67,29 @@ struct Installed {
     previous: Option<Selection>,
 }
 
+const LOADED: &str = "loaded.json";
+
+/// 输入宿主最近一次建会话时用的资源目录（规范化路径）。设置宿主和输入宿主常是两个进程，`status` 靠它判断已选中的代次是否还要重新打开输入法才生效。
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Loaded {
+    resources: PathBuf,
+}
+
+/// 输入宿主建会话时调用。从没装过更新时不建目录也不写；内容没变时不重写，避免每次弹出键盘都写一次盘。
+pub fn record_loaded(state: &Path, resources: &Path) -> Result<(), UpdateError> {
+    let folder = root(state);
+    if !folder.is_dir() {
+        return Ok(());
+    }
+    let resources = std::fs::canonicalize(resources)?;
+    let path = folder.join(LOADED);
+    if read::<Loaded>(&path).is_ok_and(|loaded| loaded.resources == resources) {
+        return Ok(());
+    }
+    write(&path, &Loaded { resources })
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -302,14 +325,21 @@ pub fn status(context: &UpdateContext) -> UpdateStatus {
         .as_ref()
         .map(|s| s.version.clone())
         .unwrap_or_else(|| baseline_version(&context.baseline));
+    // 设置宿主传入的是自己的随包资源，不是输入法正在用的那份；输入宿主建会话时记下的目录才说明新代次是否已经生效。没有记录时（还没建过会话、写不进状态目录）退回比较调用方自己的资源。
+    let recorded = read::<Loaded>(&root(&context.state_root).join(LOADED))
+        .ok()
+        .map(|loaded| loaded.resources);
+    let loaded = recorded.as_deref().unwrap_or(&context.resources);
+    let downloaded = std::fs::canonicalize(&context.state_root)
+        .map(|state| {
+            loaded.starts_with(root(&state)) || loaded.starts_with(root(&context.state_root))
+        })
+        .unwrap_or(false);
     status.pending_restart = active
         .as_ref()
         .and_then(|s| directory(&context.state_root, &s.desktop).ok())
-        .map(|p| p != context.resources)
-        .unwrap_or(
-            status.phase == "rolled_back"
-                && context.resources.starts_with(root(&context.state_root)),
-        );
+        .map(|p| p != loaded)
+        .unwrap_or((recorded.is_some() || status.phase == "rolled_back") && downloaded);
     status.can_rollback = active.is_some();
     status
 }
