@@ -171,6 +171,7 @@ test("a Linux host takes typed program names, never offers the picker and says w
   selectSettingsTab("中英文");
   const table = await screen.findByRole("group", { name: "应用例外" });
   expect(table.textContent).toContain("Fcitx5");
+  expect(table.textContent).toContain("GNOME Wayland");
   expect(screen.queryByRole("button", { name: "添加应用…" })).toBeNull();
   const input = screen.getByLabelText("程序名");
   expect((input as HTMLInputElement).placeholder).toBe("例如 firefox");

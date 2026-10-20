@@ -39,7 +39,7 @@ export function AppInputModeRulesSection({
       <SettingsGroupNote>
         切到这些应用时从指定的中文或英文开始，优先于上面的默认状态和记忆，「全局统一」下也生效；在应用里手动切换后，到下次切回这个应用之前不再套用。
         {linux &&
-          " 按输入法框架报告的程序名匹配：Fcitx5 下 GTK 和 Qt 程序都会报告；IBus 下只有 GTK 程序报告（IBus 1.5.27 起），Qt、XIM 程序不受应用例外影响。"}
+          " 按输入法框架报告的程序名匹配：Fcitx5 下经它的 GTK、Qt 输入法模块输入的程序会报告；IBus 1.5.27 起只有经 IBus 的 GTK 输入法模块输入的程序报告，通常是 X11 会话或设置了 GTK_IM_MODULE=ibus 的程序。GNOME Wayland 下的程序经 GNOME Shell 接入 IBus，和 Qt、XIM 程序一样没有程序名，不受应用例外影响。"}
         {entries.length === 0 && " 还没有应用例外，所有应用都按上面的设置走。"}
       </SettingsGroupNote>
       {entries.map(([id, mode]) => {

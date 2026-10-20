@@ -23,16 +23,17 @@ Status: implemented
 - `windows_settings_sync.rs` 原样搬到 `platform/desktop/desktop_settings_sync.rs`，在 Windows 和 Linux 上注册四个 `account_preferences_*` 命令。只同步 `input.*`：账号文档里没有 Linux 自己的键，桌面专属设置（候选窗口、快捷键、皮肤）不随设置同步，和 Windows 一样。应用经 `save_preferences_impl` 写进共享偏好并同步 `runtime-options.json`，两个宿主当场读到，所以沿用 Windows 的「已应用云端设置。」。
 - `community_resources` 的命令和 `CommunityResourceState` 加上 Linux，`main.tsx` 在 Linux 上注入 `settingsSync` 和 `communityResources`。
 
-**快捷短语候选和大写锁定标点只在宿主侧接线，规则仍在共享层。**
+**快捷短语候选和大写锁定标点在宿主侧接线，规则仍在共享层；host-api 补上一处漏传。**
 
 - 两个宿主建会话时和 `phrase_preedit` 一起请求 `quick_phrase_candidates`；`HostCapabilities::quick_phrase_candidates` 对 Linux 为真，设置页的快捷短语说明随之改成「直接输入编码即可调用」。
+- host-api 一直解析 `HostOptions.quick_phrase_candidates`，却在 `into_engine_options` 里把 `EngineOptions.quick_phrase_candidates` 写死成 `false`，所以 macOS 从 [macOS 快捷短语候选](2026-10-17-macos-quick-phrase-candidates.md) 起请求的这项能力在会话里从未生效，只有 Engine 自己的单测覆盖了它。现在按请求转交（缺省仍是关），偏好变更重建 Engine 时沿用会话保存的这份选项；macOS 随之真正生效。`requested_quick_phrase_candidates_join_regular_composition` 经 C ABI 建会话，断言请求后普通组字带出数据库和短语表里的快捷短语、重建后仍在，没请求的会话不带。
 - 两个宿主把每个按键事件带的锁定状态（与「⇪」指示同一来源）报告给会话：IBus 的 `sync_caps_lock` 在建会话时和每个键分发前比较会话上次收到的值，Fcitx5 的 `syncSessionCapsLock` 在 `ensure()` 之后、按键分发前做同样的比较；`HostCapabilities::caps_lock_punctuation` 对 Linux 为真。
 
 **应用例外按程序名执行，规则和「停留」放在共享头文件里。**
 
-- `src/core/AppInputModeRules.h` 读规则表、按 ASCII 不分大小写匹配程序名，并用 `AppInputModeRuleStay` 记住「这次停留」：进入另一个程序才算新的一次，用户在一次停留里手动切换后规则让位，和 macOS、Windows（`ModeAuthority.h`）同样的语义。没有程序名的焦点不结束停留。
-- Fcitx5 取 `InputContext::program()`。任何上下文获得焦点（不论用哪个输入法）都更新停留；新会话恢复模式时（`restoreInputMode` 和首次按 `default_ime_mode` 的分支）规则排在作用域和记忆前面；`toggleInputMode` 让位；全局作用域下规则定下的模式不写进全局状态。
-- IBus 只能尽力而为：1.5.27 起 `focus_in_id` 的客户端名只有 GTK 输入法模块带程序名（`gtk3-im:<g_get_prgname()>`，见 ibus 的 `client/gtk2/ibusimcontext.c`），`ibus_app_rule_program` 只认这种格式。`app_rule_active` 让全局作用域的 `open()`、偏好重载和 `sync_global_input_mode` 不拿全局状态盖过规则；`toggle_input_mode` 和属性菜单的中英文切换让位。身份协商时名字带来了另一个模式，`focus_in` 会照切换中英文时那样重新聚焦会话并刷新属性。
+- `src/core/AppInputModeRules.h` 读规则表、按 ASCII 不分大小写匹配程序名，并用 `AppInputModeRuleStay` 记住「这次停留」：进入另一个程序才算新的一次，用户在一次停留里手动切换后规则让位，和 macOS、Windows（`ModeAuthority.h`）同样的语义。没有程序名的焦点由宿主判断：确定是另一个客户端时调 `leave()` 结束停留，认不出时调 `enter("")` 保持停留。
+- Fcitx5 取 `InputContext::program()`。任何上下文获得焦点（不论用哪个输入法）都更新停留；Fcitx5 的上下文建起来时就带着程序名，没有先匿名、后补名的协商，所以空程序名的上下文获得焦点一律结束停留；新会话恢复模式时（`restoreInputMode` 和首次按 `default_ime_mode` 的分支）规则排在作用域和记忆前面；`toggleInputMode` 让位；全局作用域下规则定下的模式不写进全局状态，失焦时的 `rememberInputMode` 和状态栏切到「全局统一」的 `cycleModeScope` 都是（后者改为按新作用域调用 `rememberInputMode`，此前会直接把规则的模式写进全局状态）。
+- IBus 只能尽力而为：1.5.27 起 `focus_in_id` 的客户端名只有 GTK 输入法模块带程序名（`gtk3-im:<g_get_prgname()>`，见 ibus 的 `client/gtk2/ibusimcontext.c`），`ibus_app_rule_program` 只认这种格式。有客户端名却认不出程序名的焦点（`QIBusInputContext`、`xim`、GNOME Wayland 下的 `gnome-shell`）结束停留；空客户端名是身份协商还没完成的那次聚焦，`fake` 是 IBus 在没有输入框时给的上下文，两者都认不出离没离开当前程序，停留保持不变。GNOME Wayland（Ubuntu、Fedora 的默认桌面）上没设 `GTK_IM_MODULE` 的 GTK 程序走合成器的 text-input，IBus 只看到客户端名为 `gnome-shell` 的一个上下文（gnome-shell 的 `js/misc/inputMethod.js`），规则在那里只对设了 `GTK_IM_MODULE=ibus` 的程序生效，设置页和 README 照实写明。`app_rule_active` 让全局作用域的 `open()`、偏好重载和 `sync_global_input_mode` 不拿全局状态盖过规则；`toggle_input_mode` 和属性菜单的中英文切换让位。身份协商时名字带来了另一个模式，`focus_in` 会照切换中英文时那样重新聚焦会话并刷新属性。
 - `HostCapabilities::app_input_mode_rules` 改为三个桌面平台都为真。Linux 没有选应用的对话框，设置页手填程序名（粘贴路径时只取文件名），不调 `pick_application`、`application_names`（这两个命令在 Linux 上没有注册），并在说明里写明哪些程序会报告程序名。
 
 ## Alternatives considered
@@ -41,6 +42,7 @@ Status: implemented
 - **完整备份的导出在 Linux 上沿用下载链接。** 少一个参数。但 WebKitGTK 没有注册下载处理器时下载去向不可靠，设置页的其他导出早已为 Linux 改走 `save_export`，面板单独走下载链接会让同一个应用里两种导出表现不同。
 - **设置同步给 Linux 加自己的 `platform.linux.*` 键，同步候选窗口和快捷键。** 那需要服务端字段表收录这些键，并让 Linux 宿主和 macOS 原生偏好的映射互不冲突；这次只追平 Windows 已有的范围，不在一个对齐 PR 里扩大账号文档契约。
 - **应用例外只在 Fcitx5 上提供，按 `input_method_framework` 收窄能力位。** 能力位就能如实描述「IBus 下大多不生效」。但 GTK 程序在 IBus 上确实能报告程序名，规则对它们生效；能力位是平台级的，按框架收窄要让设置应用每次启动读宿主状态文件，框架换了还要失效。设置页的说明写清两个框架的差别，比整组藏起来更有用。
+- **没有程序名的焦点一律不结束停留。** 实现最简单，也不会在 IBus 身份协商时误判。但 IBus 下大多数非 GTK 客户端、Fcitx5 下部分 Wayland 客户端都是匿名的，用户在有规则的程序里手动切换后切到它们再回来，规则不会重新生效，和设置页写的「到下次切回这个应用之前不再套用」以及 macOS、Windows 的语义不符。只对认得出是另一个客户端的匿名焦点结束停留，协商中的空客户端名和 `fake` 照旧。
 - **IBus 下用 `_NET_WM_PID` 反查焦点窗口的进程。** 能覆盖 X11 上的 Qt 和 XIM 程序。但 Wayland 下没有对应的查询，引擎进程还得自己连 X 服务器、跟踪焦点窗口，和输入上下文的焦点并不总是同一个窗口；对一个尽力而为的路径来说代价过大。
 - **Linux 设置页加一个选应用的对话框（选 `.desktop` 文件或可执行文件）。** 用户不用记程序名。但 Fcitx5 的 `program()` 和 IBus 的程序名来自 `g_get_prgname()` 或可执行文件名，不总等于 `.desktop` 的 `Exec`，选出来的名字可能根本不命中；解析 `.desktop` 也要再引一层库或手写解析。手填加上「粘贴路径只取文件名」更可预期。
 
@@ -51,7 +53,8 @@ Status: implemented
   - 「应用到本机」激活期间两个宿主的输入会暂停；面板关着时没人处理队列，下次打开云词库面板才继续。在真实 Linux 桌面上的大词库准备耗时和激活期间 IBus、Fcitx5 是否都按时放开词库，还没有在真机上量过。
   - `save_export` 单个文件上限 64 MiB，超过的完整备份在 Linux（和 macOS 设置页）上导出失败。
   - 设置同步只覆盖 `input.*`。
-  - 应用例外在 IBus 上只对 GTK 程序生效；Qt、XIM 和 IBus 1.5.27 以前都匿名。Fcitx5 下也取决于前端是否报告程序名，部分 Wayland text-input 客户端没有程序名。没有程序名的焦点不结束停留，所以在有规则的程序和匿名程序之间来回切，规则不会重新生效。
+  - 应用例外在 IBus 上只对经 IBus GTK 输入法模块输入的程序生效；Qt、XIM、GNOME Wayland 下经 GNOME Shell 转发的程序和 IBus 1.5.27 以前都匿名，所以在最常见的 IBus 桌面 GNOME Wayland 上，规则对没设 `GTK_IM_MODULE=ibus` 的程序都不生效。Fcitx5 下也取决于前端是否报告程序名，部分 Wayland text-input 客户端没有程序名。设置页不按会话判断规则是否可用，只在说明里写清这些情况。
+  - IBus 的 `fake` 上下文（焦点在没有输入框的窗口上）不结束停留：从有规则的程序点到这种窗口再点回来，规则不会重新生效，而 macOS 换了前台应用就会。
   - IBus 身份协商时，如果名字带来的规则模式和协商前不同，模式会在协商完成的那一刻切换，协商期间已经打出的组字按切换中英文的规则处理。
 
 ## Verification

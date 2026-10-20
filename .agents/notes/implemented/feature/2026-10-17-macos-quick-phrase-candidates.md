@@ -38,4 +38,6 @@ macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组�
 
 ## Consequences
 
+这一版的 host-api 解析了 `HostOptions.quick_phrase_candidates`，却在 `into_engine_options` 里把它写死成 `false`，所以 macOS 会话里实际没有生效；[Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md) 改为按请求转交，并加了经 C ABI 建会话的测试。
+
 macOS 会话通过临时 `HostOptions` 能力开启快捷短语候选，运行时配置文件和其他宿主的默认行为不变。普通候选仍先保持原顺序，快捷短语追加在末尾并按文本去重；`Shift+K` 独立入口继续可用。设置页会针对 macOS 说明两种入口。普通候选和快捷短语共用候选上限时，追加项可能排在首屏之后，这是保持既有普通候选排序的取舍。
