@@ -523,8 +523,11 @@ void NativeCanvasX11::hide(bool animate) {
     state.paint();
     return;
   }
+  // 已经收起时再普通地收一次（上屏后又一个没有候选的键）不打断正在播的退场；失焦这类立即收起要把退场中的窗口一起撤下。
+  if (animate && !was_visible && state.exiting) return;
+  const bool was_exiting = state.exiting;
   state.exiting = false;
-  if (was_visible && state.display && state.window) {
+  if ((was_visible || was_exiting) && state.display && state.window) {
     XUnmapWindow(state.display, state.window);
     XFlush(state.display);
   }
@@ -535,9 +538,11 @@ void NativeCanvasX11::setReduceMotion(bool reduce) {
   auto &state = *impl_;
   if (state.reduce_motion == reduce) return;
   state.reduce_motion = reduce;
-  if (reduce) state.entering = state.exiting = state.selecting = false;
+  if (reduce) {
+    state.entering = state.selecting = false;
+    if (state.exiting) state.finishExit();
+  }
   if (state.visible) state.paint();
-  else if (!state.exiting && state.animation_timer) state.animation_timer->setEnabled(false);
 }
 
 } // msime::linux_host 命名空间
