@@ -3,6 +3,7 @@
 #include <cmath>
 #include <filesystem>
 #include "CandidateCanvas.h"
+#include "../../../../shared/contracts/candidate_decoration_overlay.h"
 #include "CandidatePalette.h"
 #include "CandidateSkinLayout.h"
 #include <nlohmann/json.hpp>
@@ -27,6 +28,8 @@ struct CandidateSkinDecoration {
   double width_dip = 0.0;
   // Where along the card's top edge the artwork sits; right is where every host drew it before a manifest could say otherwise.
   CandidateSkinAlign align = CandidateSkinAlign::right;
+  // 只读取完整共享 catalog 的声明；没有装饰图时不提供孤立文字。
+  std::optional<msime::candidate::DecorationCandidate> candidate;
 };
 enum class CandidateSkinFit { cover, contain, stretch };
 // An image drawn over the card surface and under the candidates, clipped to the card outline. Empty image means none.
@@ -116,6 +119,39 @@ inline std::optional<float> candidate_skin_radius(const nlohmann::json &object,
   return static_cast<float>(value);
 }
 } // namespace detail
+// 宿主复核共享扫描器输出的数值、类型与规范色，不重新解释原始清单颜色。
+inline std::optional<msime::candidate::DecorationCandidate>
+candidate_skin_decoration_candidate(const nlohmann::json &package) {
+  const auto at = package.find("decorationCandidate");
+  if (at == package.end() || !at->is_object()) return std::nullopt;
+  const auto &object = *at;
+  msime::candidate::DecorationCandidate result;
+  const auto number = [&](const char *key, double &destination) {
+    const auto field = object.find(key);
+    if (field == object.end() || !field->is_number()) return false;
+    destination = field->get<double>();
+    return std::isfinite(destination);
+  };
+  double index = -1;
+  if (!number("index", index) || index < 0 || index > 100 || std::floor(index) != index ||
+      !number("fontSizeDip", result.fontSizeDip) || !number("minFontSizeDip", result.minFontSizeDip) ||
+      !number("maxWidthDip", result.maxWidthDip) || !number("offsetXDip", result.offsetXDip) ||
+      !number("offsetYDip", result.offsetYDip)) return std::nullopt;
+  result.index = static_cast<int>(index);
+  for (const auto &[key, destination] : {
+      std::pair<const char *, std::string *>{"alignH", &result.alignH},
+      {"alignV", &result.alignV}, {"resolvedColor", &result.color}}) {
+    const auto field = object.find(key);
+    if (field == object.end() || !field->is_string()) return std::nullopt;
+    *destination = field->get<std::string>();
+  }
+  const auto badge = object.find("stripBadge");
+  if (badge == object.end() || !badge->is_boolean()) return std::nullopt;
+  result.stripBadge = badge->get<bool>();
+  if (!result.valid() || result.color.size() != 9 || result.color.front() != '#' ||
+      !try_parse_css_color(result.color)) return std::nullopt;
+  return result;
+}
 inline CandidateSkinDecoration
 candidate_skin_decoration(const nlohmann::json &catalog, const std::string &id,
                           const std::filesystem::path &root) {
@@ -136,6 +172,7 @@ candidate_skin_decoration(const nlohmann::json &catalog, const std::string &id,
   decoration.image = std::move(image);
   decoration.top_dip = top;
   decoration.width_dip = width;
+  decoration.candidate = candidate_skin_decoration_candidate(*package);
   const auto align = package->value("decorationAlign", std::string("right"));
   decoration.align = align == "left"     ? CandidateSkinAlign::left
                      : align == "center" ? CandidateSkinAlign::center
