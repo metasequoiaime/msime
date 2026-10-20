@@ -279,7 +279,31 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $content = Find-ById $window 'settings-content'
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
-    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
+    if ([bool]$inside -ne $expanded) {
+        if (-not ('SettingsMouse' -as [type])) {
+            Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class SettingsMouse {
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
+}
+'@
+        }
+        $fold = Find-ById $window 'candidate-more'
+        $rect = $fold.Current.BoundingRectangle
+        $bottom = $window.Current.BoundingRectangle.Bottom - 6
+        $x = [int]($rect.Left + 40)
+        $y = [int][Math]::Min($rect.Top + $rect.Height / 2, $bottom)
+        Write-Host "diag: after invoke status='$($fold.Current.ItemStatus)' offscreen=$($fold.Current.IsOffscreen) rect=$rect click=($x,$y)"
+        [SettingsMouse]::Click($x, $y)
+        Start-Sleep -Milliseconds 1500
+        $content = Find-ById $window 'settings-content'
+        Write-Host "diag: after mouse status='$((Find-ById $window 'candidate-more').Current.ItemStatus)' inside=$([bool](Find-ByName $content '行内预编辑'))"
+        Save-Window $window 'diag-after-mouse.png'
+        throw "Candidate 更多选项 did not change to expanded=$expanded"
+    }
     # 读屏从 ItemStatus 得知展开与否。
     $wanted = if ($expanded) { '已展开' } else { '已收起' }
     $status = (Find-ById $window 'candidate-more').Current.ItemStatus
