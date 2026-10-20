@@ -1,5 +1,6 @@
 #include "../../src/candidate/CandidateSkin.h"
 #include "../../src/candidate/CandidateShadow.h"
+#include "../../src/candidate/CandidatePager.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -63,6 +64,15 @@ int main() {
     }
     assert(msime::mac::ResolveCandidateShadow(std::nullopt, false, false, false, 1).nativeWindow);
     assert(!msime::mac::ResolveCandidateShadow(std::nullopt, false, true, false, 1).nativeWindow);
+    const auto chevron = msime::mac::CandidatePager(16, 1, 24, true, false);
+    assert(chevron.buttonWidth == 12 && chevron.buttonHeight == 14 && chevron.column == 28 && chevron.marginBottom == 5);
+    const auto triangle = msime::mac::CandidatePager(16, 1, 24, true, true);
+    assert(triangle.buttonWidth == 15 && triangle.buttonHeight == 24 && triangle.column == 38 && triangle.dividerWidth == 1);
+    const auto verticalChevron = msime::mac::CandidatePager(16, 1, 24, false, false);
+    const auto verticalTriangle = msime::mac::CandidatePager(16, 1, 24, false, true);
+    assert(verticalChevron.column == 0 && verticalChevron.row == 16);
+    assert(verticalTriangle.buttonWidth == 13 && verticalTriangle.row == 21);
+
     // 选中行的释义色：不透明的选中底色上按底色挑白或近黑、0.82 不透明度，和底色的对比度至少 3:1（释义和读音同色，读音不再减淡）；半透明底色上就是皮肤的释义色；皮肤没有释义色时没有它，指定了就不推导。
     {
         struct Case { unsigned selected, translation, text; bool unreadable; };

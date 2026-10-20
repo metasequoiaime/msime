@@ -49,6 +49,8 @@ struct SkinTokens
     std::optional<Rgba> selectedTranslation;
     // The floating toolbar's separator, set only by a package's `[toolbar]` colours; none draws it in the border colour. The candidate window does not read it.
     std::optional<Rgba> divider;
+    // 列表内三角翻页标记前的分隔线。
+    std::optional<Rgba> pageArrowDivider;
 };
 
 // 选中与悬停使用各自的行 token，首尾位置不借用整个卡片的圆角。
@@ -510,6 +512,8 @@ struct ResolvedSkin
     std::optional<unsigned> expandRows;
     // 空值保留宿主阴影；共享版式未声明档位时使用来源的普通双层阴影。
     std::optional<std::string> shadow;
+    // 空值保留原生首行；共享版式显式控制列表内翻页与横排卷轴。
+    std::optional<bool> pageArrows, expandPanel;
     bool canvasPanelDrawn = false;
 };
 

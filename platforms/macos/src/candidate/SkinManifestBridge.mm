@@ -792,6 +792,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             resolved.tokens.preeditText = ParseCssColor(StringField(details, @"preedit_text"));
             resolved.tokens.preeditCaret = ParseCssColor(StringField(details, @"preedit_caret"));
             resolved.tokens.selectedBar = ParseCssColor(StringField(details, @"selected_bar"));
+            resolved.tokens.pageArrowDivider = ParseCssColor(StringField(details, @"page_arrow_divider"));
             if (auto selectedTranslation = ParseCssColor(StringField(details, @"selected_translation")))
                 resolved.tokens.selectedTranslation = selectedTranslation;
         }
@@ -837,6 +838,8 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                     resolved.fitContent = layoutResult.fitContent;
                     resolved.expandRows = std::clamp(layoutResult.expandRows, 2u, 8u);
                     resolved.shadow = layoutResult.shadow.value_or("normal");
+                    resolved.pageArrows = layoutResult.pageArrows;
+                    resolved.expandPanel = layoutResult.expandPanel;
                     resolved.tokens.radius = static_cast<float>(layoutResult.cornerRadiusDip);
                     resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);
