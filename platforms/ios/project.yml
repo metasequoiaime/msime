@@ -253,6 +253,11 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # Staged by stage-resources.sh beside EngineResources: the settings app reads 背单词's bundled wordbooks from the wordbooks/ sibling of the EngineResources it finds in the keyboard extension. Empty when none were built.
+      - path: ../../target/ios/wordbooks
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       # 表情面板的水杉娘表情包：66 张 320px 透明 WebP 和清单，三个手机键盘共用仓库里的同一份。
@@ -295,6 +300,11 @@ targets:
         optional: true
       # Staged by stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
       - path: ../../target/ios/language-dictionaries
+        buildPhase: resources
+        type: folder
+        optional: true
+      # Staged by stage-resources.sh beside EngineResources: the settings app reads 背单词's bundled wordbooks from the wordbooks/ sibling of the EngineResources it finds in the keyboard extension. Empty when none were built.
+      - path: ../../target/ios/wordbooks
         buildPhase: resources
         type: folder
         optional: true
