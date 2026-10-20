@@ -217,6 +217,8 @@ struct CandidatePresentation {
   // Ctrl+Enter 释义页的编号（view 的 translation_page，ReplyComposer::translation_page），Engine 自己的候选为 0。释义页沿用 Engine 列表的 session 和 generation，点击要带上它，Server 才分得清点的是哪一张表。
   uint64_t translation_page = 0;
   bool visible = false;
+  // visible 为 false 时：是不是组字正常结束（上屏、取消，或切到英文）。只有这种收起候选窗才播皮肤的退场；失焦、UILess、宿主接管、断开这些涉及隐私和输入目标的收起都立即消失，不把旧候选留在新的前台上淡出，和 macOS 的 allowExit 只认 "empty"、"english_mode" 一样。
+  bool composition_ended = false;
   int x = 0;
   int y = 0;
   std::string preedit;
@@ -338,8 +340,10 @@ candidate_presentation_from_view(const FocusLease &lease,
   output.x = x;
   output.y = y;
   if (!view.at("focused").get<bool>() ||
-      view.at("editing_text").get<std::string>().empty())
+      view.at("editing_text").get<std::string>().empty()) {
+    output.composition_ended = view.at("focused").get<bool>();
     return output;
+  }
   const auto text = view.at("preedit").get<std::string>();
   if (prefix.size() > 4096 ||
       text.size() > 4096 - prefix.size() || view.at("candidates").size() > 9)
@@ -424,8 +428,11 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
   if (!view.at("focused").get<bool>() ||
       (packet.modifiers_down & FanyImePipeFlags::UiLess) ||
-      view.at("editing_text").get<std::string>().empty())
+      view.at("editing_text").get<std::string>().empty()) {
+    output.composition_ended = view.at("focused").get<bool>() &&
+                               (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0;
     return output;
+  }
   const auto text = view.at("preedit").get<std::string>();
   if (reply.next_prefix.size() > 4096 ||
       text.size() > 4096 - reply.next_prefix.size() ||

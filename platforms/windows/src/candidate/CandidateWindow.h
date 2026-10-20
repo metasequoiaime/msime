@@ -174,10 +174,13 @@ private:
   // Repaint for the next flash frame, and stop the timer once the flash has faded.
   void typing_effect_tick(UINT_PTR timer);
   void skin_animation_tick();
-  void begin_skin_animation(CandidateSkinAnimationPreset preset);
+  // rows 是这一页的候选行数，逐行浮现的进场按它算总时长；选中动效不错峰，传 0。
+  void begin_skin_animation(CandidateSkinAnimationPreset preset, size_t rows = 0);
   void finish_skin_animation();
   void hide_now();
   void hide_immediately();
+  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起。
+  void hide_for(const std::optional<CandidatePresentation> &value);
   bool skin_motion_enabled() const;
   float skin_motion_progress() const;
   // Device pixels per DIP for a window DPI, including the user's scale. Layout, rendering, the logo and hit testing all read this one factor.
@@ -313,6 +316,10 @@ private:
   CandidateSkinAnimation animation_;
   CandidateSkinAnimationPreset active_animation_ = CandidateSkinAnimationPreset::none;
   uint64_t animation_started_ = 0;
+  // 这次动效一共播多久（毫秒）：卡片的时长，逐行浮现的进场再加上最后一行的延迟。
+  uint64_t animation_total_ms_ = 0;
+  // 卡片上一次开始收起的时刻（GetTickCount64），从没收起过时为空。离它不到 candidate_typing_burst_ms 又出现时不播进场。
+  std::optional<uint64_t> last_hidden_at_;
   bool animation_active_ = false;
   bool finishing_animation_ = false;
   // The running animation is the selection preset: it moves only the highlighted row, never the whole card.

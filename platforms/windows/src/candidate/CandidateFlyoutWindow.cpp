@@ -126,7 +126,8 @@ void CandidateFlyoutWindow::close_submenu() noexcept {
 
 bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
                                  size_t code_points, bool actions_available,
-                                 int fixed_position) noexcept {
+                                 int fixed_position,
+                                 std::optional<size_t> slot) noexcept {
   try {
     if (failed_)
       return false;
@@ -140,7 +141,7 @@ bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
       throw std::runtime_error("Candidate menu monitor unavailable");
     actions_available_ = actions_available;
     fixed_position_ = fixed_position;
-    auto items = candidate_menu_items(code_points, actions_available_);
+    auto items = candidate_menu_items(code_points, actions_available_, slot);
     menu_.dpi = GetDpiForWindow(menu_.window);
     const auto &work = monitor.rcWork;
     const auto bounds = candidate_menu_bounds(
@@ -273,7 +274,12 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
       L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
       DWRITE_WORD_WRAPPING_NO_WRAP);
-  if (!label_format || !chevron_format)
+  // 快捷键提示：右对齐在行尾，比菜单项小一号。
+  auto *shortcut_format = panel.device.GetTextFormat(
+      L"Segoe UI", static_cast<float>(metrics_.shortcut_font), DWRITE_FONT_WEIGHT_NORMAL,
+      DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+      DWRITE_WORD_WRAPPING_NO_WRAP);
+  if (!label_format || !chevron_format || !shortcut_format)
     throw std::runtime_error("Candidate menu text format unavailable");
   // 按窗口客户区定外框，不按渲染目标：合成交换链按 64 像素分档，比窗口大（DeviceResources::GetClientSize）。
   const auto size = panel.device.GetClientSize();
@@ -318,6 +324,19 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
                                      static_cast<float>(metrics_.label_inset),
                                  rect.top, rect.right, rect.bottom},
                      row_brush);
+    // 快捷键提示用次要色（正文色的 60%，和托盘菜单的快捷键提示一样），不可用的行跟着变淡。
+    if (!panel.items[index].shortcut.empty()) {
+      const auto shortcut = wide(panel.items[index].shortcut);
+      auto hint_color = tray_menu_secondary_color(palette_);
+      if (!panel.items[index].available)
+        hint_color.a *= 0.5f;
+      target->DrawText(shortcut.c_str(), static_cast<UINT32>(shortcut.size()), shortcut_format,
+                       D2D1_RECT_F{rect.right - static_cast<float>(metrics_.shortcut_column),
+                                   rect.top,
+                                   rect.right - static_cast<float>(metrics_.label_inset),
+                                   rect.bottom},
+                       brush(hint_color));
+    }
     // The chevron says the row opens a list rather than doing something.
     if (panel.items[index].submenu)
       target->DrawText(L"›", 1, chevron_format,

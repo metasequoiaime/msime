@@ -23,7 +23,7 @@ macOS 候选窗里，候选字后面的注释有两种画法。五笔编码提�
 
 - 收益：辅助码、五笔编码提示和其他注释在同一个候选窗里写法一致，一眼能分出哪部分是候选字。注释紧贴候选字，带注释的候选比原来窄 4pt。
 - 代价：没有注释的候选不受影响；带注释的候选多了一对括号的宽度。原来就带括号的注释（测试里的「(aB)」）显示不变。
-- Windows 的候选窗（`candidate_annotation_run`）仍是原来的画法，待跟进。
+- Windows 的候选窗（`candidate_annotation_run`）按同一规则加括号、间隔为 0，见 [Windows 候选窗的缺省几何、动效时机与细节对齐 macOS](2026-10-20-windows-candidate-mac-default-geometry.md)。
 
 ## Verification
 

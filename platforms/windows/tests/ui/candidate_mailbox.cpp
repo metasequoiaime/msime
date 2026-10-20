@@ -70,8 +70,9 @@ void candidate_mailbox_tests() {
     require(gate.acknowledge(change->pending, [] { return true; }));
     return change->pending;
   };
+  // ended：上屏或取消之后的那一键，Engine 的 view 里组字已经结束（editing_text 为空）。
   auto publish = [&](const FocusLease &lease, uint64_t generation,
-                     bool uiless = false, uint32_t metadata = 0) {
+                     bool uiless = false, uint32_t metadata = 0, bool ended = false) {
     FanyImeNamedpipeData packet{};
     packet.client_id = lease.transport.client;
     packet.request_id = generation;
@@ -85,8 +86,8 @@ void candidate_mailbox_tests() {
                                 {{"session", 1},
                                  {"generation", generation},
                                  {"focused", true},
-                                 {"editing_text", "U4"},
-                                 {"preedit", "U4"},
+                                 {"editing_text", ended ? "" : "U4"},
+                                 {"preedit", ended ? "" : "U4"},
                                  {"candidates", nlohmann::json::array()}}}};
     return gate.with_active(lease,
                             [&] { mailbox.delivered(lease, reply, packet); });
@@ -190,9 +191,19 @@ void candidate_mailbox_tests() {
     std::this_thread::sleep_for(std::chrono::milliseconds(30));
     return mailbox.snapshot(gate);
   };
+  // 组字正常结束（上屏、取消）的快照带着可以播退场的原因，随后跟来的隐藏只是确认，不改它。
+  require(publish(first, 1, false, 0, true));
+  const auto ended = mailbox.snapshot(gate);
+  require(ended && !ended->visible && ended->composition_ended);
+  require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
+  require(mailbox.snapshot(gate) && mailbox.snapshot(gate)->composition_ended);
+  require(publish(first, 1));
+  require(mailbox.snapshot(gate)->visible && !mailbox.snapshot(gate)->composition_ended);
+  // 组字还开着时宿主发来的隐藏（焦点变化之类）要立即收起，不播退场。
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
   const auto immediate = mailbox.snapshot(gate);
-  require(immediate && !immediate->visible && immediate->preedit.empty());
+  require(immediate && !immediate->visible && immediate->preedit.empty() &&
+          !immediate->composition_ended);
   require(publish(first, 1));
   require(
       visual_event(first, FanyImePipeEventType::HideCandidateWnd, 0, 0, true));
@@ -248,7 +259,9 @@ void candidate_mailbox_tests() {
     require(mailbox.snapshot(gate)->visible);
     require(visual_event(first, mode_event));
     const auto hidden_now = mailbox.snapshot(gate);
-    require(hidden_now && !hidden_now->visible && hidden_now->preedit.empty());
+    // 切到英文和上屏一样算正常结束，可以播退场。
+    require(hidden_now && !hidden_now->visible && hidden_now->preedit.empty() &&
+            hidden_now->composition_ended);
     require(visual_event(first, mode_event, 0, 1));
     require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
     require(!mailbox.snapshot(gate)->visible);
@@ -270,7 +283,8 @@ void candidate_mailbox_tests() {
   require(publish(next, 4, true));
   mailbox.disconnected(b);
   const auto hidden = mailbox.snapshot(gate);
-  require(hidden && !hidden->visible && hidden->preedit.empty());
+  // 宿主接管绘制（UILess）的快照立即收起。
+  require(hidden && !hidden->visible && hidden->preedit.empty() && !hidden->composition_ended);
   require(visual_event(next, FanyImePipeEventType::ShowCandidateWnd));
   require(!mailbox.snapshot(gate)->visible);
   auto reader = std::async(std::launch::async, [&] {

@@ -56,7 +56,7 @@ Linux 的开关只去掉辅助文本里的当前页/总页数，那里没有箭�
   - 同一个 `show_candidate_page_number` 在 Linux 和 macOS 上管的范围不同（macOS 多了箭头），靠两个平台各自的行名说明。
   - 关掉页码和翻页按钮后鼠标只能用滚轮翻页，而滚轮翻页默认关，用户要按说明自己打开它。
   - `candidate_padding` 是新顶层字段，`Preferences` 带 `deny_unknown_fields`，早于它的设置应用或 `msime-mcp` 会拒读设过内边距的文档；没设过时字段不写入，不受影响。正式发布里输入法和设置应用同包，版本一致。
-  - Windows 候选窗首行也画「1 / 3」和 ‹ ›（[Windows 候选窗](2026-10-10-windows-candidate-window-mac-parity.md) 的 `pager_visible`），但没有声明 `candidate_page_number`；内边距同样只有 macOS 读。要做时给对应的 `HostCapabilities` 字段加 Windows，并让 `candidate_card_metrics` 读这两个偏好。
+  - Windows 候选窗首行也画「1 / 3」和 ‹ ›（[Windows 候选窗](2026-10-10-windows-candidate-window-mac-parity.md) 的 `pager_visible`），已经读 `show_candidate_page_number`（[Windows 缺省几何对齐 macOS](2026-10-20-windows-candidate-mac-default-geometry.md)），但还没有声明 `candidate_page_number`，原生设置窗口也还没有这一行；内边距同样只有 macOS 读。
 
 ## Verification
 

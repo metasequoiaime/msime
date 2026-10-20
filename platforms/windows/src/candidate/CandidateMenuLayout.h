@@ -36,6 +36,8 @@ struct CandidateMenuItem {
   bool available = true;
   // 1-5 for FixAtPosition, otherwise 0.
   unsigned position = 0;
+  // 行右侧用次要色画的快捷键提示，空时不画。「删除」行提示能直接删掉这个候选的维护快捷键，和 macOS 菜单里「删除」的 ⌃⌥⇧N 一样。
+  std::string shortcut{};
 };
 
 // The top-level rows for one candidate.
@@ -43,15 +45,19 @@ struct CandidateMenuItem {
 // 删除 is offered only for multi-character words. Removing a single character
 // from the dictionary would leave the user unable to type it at all, which is
 // why the shipped menu hides the row rather than disabling it.
+//
+// `slot` 是这个候选在本页的位置（从 0 数）。前 8 个候选的「删除」行带上 Ctrl+Shift+Alt+1..8 的提示：这组维护快捷键（MaintenanceHotkeys.h）直接删掉本页第 N 个候选，和 macOS 菜单里「删除」的 ⌃⌥⇧N 对应。
 inline std::vector<CandidateMenuItem>
-candidate_menu_items(size_t code_points, bool actionable = true) {
+candidate_menu_items(size_t code_points, bool actionable = true,
+                     std::optional<size_t> slot = std::nullopt) {
   std::vector<CandidateMenuItem> items;
   items.reserve(3);
   items.push_back({CandidateMenuCommand::PinToTop, "置顶", false, false, actionable});
   items.push_back({CandidateMenuCommand::FixPosition, "固定排位", true, false, actionable});
   if (code_points != 1)
-    items.push_back({CandidateMenuCommand::Remove, "删除", false, false,
-                     actionable});
+    items.push_back({CandidateMenuCommand::Remove, "删除", false, false, actionable, 0,
+                     slot && *slot < 8 ? "Ctrl+Shift+Alt+" + std::to_string(*slot + 1)
+                                       : std::string{}});
   return items;
 }
 
@@ -128,6 +134,9 @@ struct CandidateMenuMetrics {
   double label_inset = 10.0;
   // The chevron drawn on a submenu row, at the trailing edge.
   double chevron_column = 16.0;
+  // 有快捷键提示的菜单在右侧多留这么宽一栏，提示右对齐画在里面（12 DIP 的「Ctrl+Shift+Alt+8」约 90 DIP 宽）。
+  double shortcut_column = 104.0;
+  double shortcut_font = 12.0;
 };
 
 struct CandidateMenuSize {
@@ -140,9 +149,12 @@ candidate_menu_size(const std::vector<CandidateMenuItem> &items,
       metrics.row_height <= 0.0 || metrics.padding < 0.0)
     throw std::invalid_argument("Invalid candidate menu metrics");
   double height = metrics.padding * 2.0;
-  for (const auto &item : items)
+  bool shortcut = false;
+  for (const auto &item : items) {
     height += item.separator ? metrics.separator_height : metrics.row_height;
-  return {metrics.width, height};
+    shortcut = shortcut || !item.shortcut.empty();
+  }
+  return {metrics.width + (shortcut ? metrics.shortcut_column : 0.0), height};
 }
 
 struct CandidateMenuRow {

@@ -247,6 +247,8 @@ public:
         latest_->lease.token != lease.token ||
         !same_ticket(latest_->lease.transport, lease.transport))
       return;
+    // 切到英文的通知结束组字，和上屏、取消一样算正常收起，候选窗可以播退场；别的隐藏（组字还开着时被宿主或焦点变化收掉）立即消失，见 CandidatePresentation::composition_ended。
+    bool english_mode = false;
     switch (packet.event_type) {
     case FanyImePipeEventType::ClientActivated:
       if (packet.keycode != 0)
@@ -260,6 +262,7 @@ public:
       // the old projection. A mode request alone is not a notification.
       if (packet.keycode != 0)
         break;
+      english_mode = true;
       [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
       if ((packet.modifiers_down & internal_continuation_hide) != 0) {
@@ -275,6 +278,9 @@ public:
       } else {
         pending_hide_.reset();
         suppressed_ = true;
+        // 上屏、取消之后跟来的这个隐藏只是确认组字已经结束，保留投递时记下的原因。
+        if (latest_->visible)
+          latest_->composition_ended = english_mode;
         latest_->visible = false;
         latest_->preedit.clear();
         latest_->candidates.clear();

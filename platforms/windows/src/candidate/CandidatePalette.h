@@ -148,14 +148,16 @@ struct CandidatePalette {
   float item_radius = 6.0f;
   bool show_selected_bar = false;
 };
-// Resolve the candidate label as one row. The selected text wins for every highlighted entry; the fixed-position accent is only an unselected-row treatment.
+// 固定排位候选未高亮时的正文色：和 macOS 候选窗一样是固定的 #379AD3（sRGB 55,154,211），不跟主题的强调色走。
+inline constexpr uint32_t candidate_fixed_position_rgb = 0x379AD3;
+// Resolve the candidate label as one row. The selected text wins for every highlighted entry; the fixed-position colour is only an unselected-row treatment.
 inline CandidateColor candidate_row_text_color(const CandidatePalette &palette,
                                                CandidateColor normal,
                                                bool highlighted,
                                                bool fixed_position) {
   if (highlighted)
     return palette.selected_text.a > 0.0f ? palette.selected_text : normal;
-  return fixed_position ? palette.accent : normal;
+  return fixed_position ? candidate_rgb(candidate_fixed_position_rgb) : normal;
 }
 // Resolve the row's index number colour: number, or selected_number on the selected row; alpha 0 in selected_number keeps number.
 inline CandidateColor candidate_row_number_color(const CandidatePalette &palette,
@@ -164,13 +166,17 @@ inline CandidateColor candidate_row_number_color(const CandidatePalette &palette
              ? palette.selected_number
              : palette.number;
 }
-// Resolve the translation line. The theme's `secondary` follows `number` unless a package sets its own translation colour, which is then drawn on every row; otherwise the translation draws like the numbers.
+// Resolve the translation line. The theme's `secondary` follows `number` unless a package sets its own translation colour, which is then drawn on every row; otherwise the translation draws like the numbers. 没有皮肤释义色时，未高亮的固定排位候选的释义是它正文色的 0.62 倍透明度，和 macOS 一样（释义是候选文字的一部分，跟着它的固定排位色）。
 inline CandidateColor candidate_row_translation_color(const CandidatePalette &palette,
-                                                      bool highlighted) {
+                                                      bool highlighted,
+                                                      bool fixed_position = false) {
   if (highlighted && palette.selected_translation)
     return *palette.selected_translation;
-  return palette.translation ? *palette.translation
-                             : candidate_row_number_color(palette, highlighted);
+  if (palette.translation)
+    return *palette.translation;
+  if (fixed_position && !highlighted)
+    return candidate_rgb(candidate_fixed_position_rgb, 0.62f);
+  return candidate_row_number_color(palette, highlighted);
 }
 // 浅色模式与 macOS 使用相同的候选配色，几何与深色模式相同。
 inline CandidatePalette candidate_light_palette() {

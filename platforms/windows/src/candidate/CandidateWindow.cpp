@@ -4,6 +4,7 @@
 #include "CandidateAccessibility.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateFontFormat.h"
+#include "CandidateMotion.h"
 #include "CandidateWheel.h"
 #include "CursorResource.h"
 #include "GameCandidateAnchor.h"
@@ -499,7 +500,7 @@ float CandidateWindow::skin_motion_progress() const {
          static_cast<float>(animation_.duration_ms);
 }
 
-void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) {
+void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset, size_t rows) {
   // 新的显示或选中变化会打断旧的退出帧，退出快照不能覆盖新会话。
   finishing_animation_ = false;
   selection_animation_ = false;
@@ -509,6 +510,9 @@ void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) 
     return;
   }
   active_animation_ = preset;
+  // 逐行浮现的进场要等最后一行也播完才算结束。
+  animation_total_ms_ =
+      candidate_enter_total_ms(preset, animation_.duration_ms, animation_.stagger_ms, rows);
   animation_started_ = GetTickCount64();
   animation_active_ = true;
   SetTimer(window_, skin_animation_timer, 16, nullptr);
@@ -527,7 +531,8 @@ void CandidateWindow::skin_animation_tick() {
     KillTimer(window_, skin_animation_timer);
     return;
   }
-  if (!skin_motion_enabled() || skin_motion_progress() >= 1.0f) {
+  if (!skin_motion_enabled() ||
+      GetTickCount64() - animation_started_ >= animation_total_ms_) {
     const bool finishing = finishing_animation_;
     finishing_animation_ = false;
     finish_skin_animation();
@@ -702,13 +707,26 @@ void CandidateWindow::hide_now() {
 }
 
 void CandidateWindow::hide_immediately() {
+  // 正在退场时，收起的时刻已经在 hide() 开始退场时记下了。
+  if (!finishing_animation_ && window_ && IsWindowVisible(window_))
+    last_hidden_at_ = GetTickCount64();
   finishing_animation_ = false;
   hide_now();
+}
+
+void CandidateWindow::hide_for(const std::optional<CandidatePresentation> &value) {
+  if (value && value->composition_ended)
+    hide();
+  else
+    hide_immediately();
 }
 
 void CandidateWindow::hide() {
   if (finishing_animation_)
     return;
+  // 连续输入的判断（candidate_enter_allowed）从卡片开始收起时算起，和 macOS 的 _lastHide 一样，不等退场播完。
+  if (window_ && IsWindowVisible(window_))
+    last_hidden_at_ = GetTickCount64();
   BOOL animations = TRUE;
   if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0))
     animations = TRUE;
@@ -719,6 +737,7 @@ void CandidateWindow::hide() {
     finishing_animation_ = true;
     selection_animation_ = false;
     active_animation_ = animation_.exit;
+    animation_total_ms_ = animation_.duration_ms;
     animation_started_ = GetTickCount64();
     animation_active_ = true;
     SetTimer(window_, skin_animation_timer, 16, nullptr);
@@ -861,7 +880,7 @@ void CandidateWindow::keep_on_top() {
 void CandidateWindow::reposition() {
   auto value = reader_();
   if (!value || !value->visible) {
-    hide();
+    hide_for(value);
     return;
   }
   // Server 那边已经收起（候选窗关闭过）、焦点换到了别的客户端、改成了竖排，或这一页不能展开（释义页、只能用键盘选的列表）时收起；继续输入时保持展开。
@@ -988,7 +1007,8 @@ void CandidateWindow::reposition() {
   // Move a hidden one-pixel window onto the target monitor first. Its own DPI,
   // rather than process-global or previous-monitor DPI, determines the layout.
   if (MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST) != target) {
-    hide();
+    // 换显示器是马上要在别处重新出现，不播退场：退场的计时会在新位置把刚出现的卡片收掉。
+    hide_immediately();
     if (!SetWindowPos(window_, nullptr, work.left, work.top, 1, 1,
                       SWP_NOACTIVATE | SWP_NOZORDER))
       throw std::runtime_error("Candidate monitor move failed");
@@ -1030,7 +1050,11 @@ void CandidateWindow::reposition() {
   shown_ = value;
   shown_dpi_ = dpi;
   if (!was_visible) {
-    begin_skin_animation(animation_.enter);
+    // 刚收起不到 400ms 又出现，算同一段连续输入（上屏后接着打下一个词），不播进场，和 macOS 的 kTypingBurstInterval 一样。
+    begin_skin_animation(candidate_enter_allowed(GetTickCount64(), last_hidden_at_)
+                             ? animation_.enter
+                             : CandidateSkinAnimationPreset::none,
+                         value->candidates.size());
   } else if (previous_highlight != next_highlight &&
              (!animation_active_ || selection_animation_)) {
     // A highlight move while the card is still entering lets the entrance finish rather than restarting the card.
@@ -1073,11 +1097,13 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   if (horizontal_)
     input.reserved_secondary_height =
         reserved_secondary_height(input.reserved_secondary_lines);
+  // 拼音里画插入点时，光标两边的字各让开一点（candidate_preedit_caret），宽度先留出来。
   if (show_preedit_)
-    input.preedit_width = measured_width(
-        device_, wide(value.preedit), font_family_,
-        static_cast<float>(preedit_font_size_), font_fallback_.Get(),
-        DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    input.preedit_width =
+        measured_width(device_, wide(value.preedit), font_family_,
+                       static_cast<float>(preedit_font_size_), font_fallback_.Get(),
+                       DWRITE_FONT_WEIGHT_SEMI_BOLD) +
+        (value.preedit_caret != std::string::npos ? candidate_preedit_caret_slot : 0.0);
   // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。卷轴展开的皮肤不画翻页，`show_candidate_page_number` 关掉时也不画。
   input.page_width = input.skin.expand_panel
                          ? 0.0
@@ -1371,7 +1397,7 @@ void CandidateWindow::paint() {
   if ((!value || !value->visible) && finishing_animation_ && exit_value_)
     value = exit_value_;
   if (!value || !value->visible) {
-    hide();
+    hide_for(value);
     return;
   }
   if (value->candidates.size() > 9)
@@ -1424,7 +1450,9 @@ void CandidateWindow::paint() {
           static_cast<float>(shadow_insets_.top + shadow_insets_.bottom),
       decoration_offset_, shadow_insets_);
   const float motion_progress = skin_motion_progress();
-  const float eased = motion_progress * motion_progress * (3.0f - 2.0f * motion_progress);
+  // 进场和选中用 ease-out，退场用 ease-in，和 macOS 的 SettleCurve 与退场曲线一样。
+  const float eased = finishing_animation_ ? candidate_ease_in(motion_progress)
+                                           : candidate_ease_out(motion_progress);
   // The selection preset animates the highlighted row below; only the enter and exit presets move the whole card.
   const bool selection_motion = animation_active_ && selection_animation_;
   const bool motion_entering = animation_active_ && !selection_animation_ &&
@@ -1456,11 +1484,19 @@ void CandidateWindow::paint() {
     if (active_animation_ == CandidateSkinAnimationPreset::slide_up)
       motion_offset_y = finishing_animation_ ? -8.0f * eased : 8.0f * (1.0f - eased);
   }
+  // 逐行浮现（fade_scale、slide_up 的进场）：每一行在卡片之外再按自己的进度淡入、从下方 3 DIP 升到原位，第 i 行晚 min(i × stagger_ms, 80ms) 开始，见 CandidateMotion.h。
+  const bool row_reveal = motion_entering && !finishing_animation_ &&
+                          candidate_motion_staggers_rows(active_animation_) &&
+                          skin_motion_enabled();
+  const uint64_t motion_elapsed = GetTickCount64() - animation_started_;
+  const float card_alpha = motion_alpha;
   // brush() caches one brush per colour and the cache never shrinks, so the per-frame opacity takes the typing flash's finite steps.
   motion_alpha = typing_effect_quantized_alpha(motion_alpha);
+  // 画刷当下乘的透明度：卡片的进出场，候选行逐行浮现时再乘上那一行的进度。
+  float paint_alpha = motion_alpha;
   auto brush = [&](const CandidateColor &color) {
     auto faded = color;
-    faded.a *= motion_alpha;
+    faded.a *= paint_alpha;
     auto *value = device_.GetSolidColorBrush(D2D1::ColorF(faded.r, faded.g, faded.b, faded.a));
     if (!value)
       throw std::runtime_error("Candidate brush unavailable");
@@ -1735,30 +1771,44 @@ void CandidateWindow::paint() {
                       rect.bottom},
           brush(*palette_.preedit_divider));
     const auto text = wide(value->preedit);
+    auto *preedit_format = format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, false,
+                                  false, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    auto *preedit_brush = brush(palette_.preedit_text.value_or(palette_.accent));
+    const bool caret = value->preedit_caret != std::string::npos &&
+                       value->preedit_caret <= value->preedit.size();
     // Same clamp, same reason as the candidate rows below: a long enough reading would otherwise be drawn past the card, or under the pager.
-    if (rect.right > rect.left)
-      target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
-                        format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING,
-                               false, false, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-                        rect, brush(palette_.preedit_text.value_or(palette_.accent)),
-                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The insertion point. Without it, moving left or right inside a long pinyin string gave no indication of where the next key would land - and the settings preview drew a caret the real window never did.
-    if (value->preedit_caret != std::string::npos &&
-        value->preedit_caret <= value->preedit.size()) {
-      const auto before =
-          wide(value->preedit.substr(0, value->preedit_caret));
-      const auto offset = measured_width(
-          device_, before, font_family_,
-          static_cast<float>(preedit_font_size_), font_fallback_.Get(),
-          DWRITE_FONT_WEIGHT_SEMI_BOLD);
-      const float x = rect.left + static_cast<float>(offset);
+    if (rect.right > rect.left && !caret) {
+      target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), preedit_format, rect,
+                       preedit_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    } else if (rect.right > rect.left) {
+      // The insertion point. Without it, moving left or right inside a long pinyin string gave no indication of where the next key would land. 和 macOS 一样，光标在拼音中间时两边的字让开，不压字；拼音长过这一段时整行左移，插入点总在看得见的地方（candidate_preedit_caret）。
+      const auto before = wide(value->preedit.substr(0, value->preedit_caret));
+      const auto after = text.substr((std::min)(before.size(), text.size()));
+      const auto place = candidate_preedit_caret(
+          measured_width(device_, before, font_family_, static_cast<float>(preedit_font_size_),
+                         font_fallback_.Get(), DWRITE_FONT_WEIGHT_SEMI_BOLD),
+          !after.empty(), static_cast<double>(rect.right - rect.left));
+      const float scroll = static_cast<float>(place.scroll);
+      target->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_ALIASED);
+      if (!before.empty())
+        target->DrawText(before.c_str(), static_cast<UINT32>(before.size()), preedit_format,
+                         D2D1_RECT_F{rect.left - scroll, rect.top, rect.right, rect.bottom},
+                         preedit_brush);
+      if (!after.empty())
+        target->DrawText(after.c_str(), static_cast<UINT32>(after.size()), preedit_format,
+                         D2D1_RECT_F{rect.left + static_cast<float>(place.after), rect.top,
+                                     (std::max)(rect.right, rect.left + static_cast<float>(place.after)),
+                                     rect.bottom},
+                         preedit_brush);
       // A hairline rather than a filled block, so it does not obscure the character it sits before.
       const float inset_y = static_cast<float>(band.height) * 0.15f;
-      // A caret past the clipped preedit is not drawn, so it cannot land on the pager.
-      if (x <= rect.right)
-        target->FillRectangle(
-            D2D1_RECT_F{x, rect.top + inset_y, x + 1.5f, rect.bottom - inset_y},
-            brush(palette_.preedit_caret.value_or(palette_.accent)));
+      const float x = rect.left + static_cast<float>(place.caret);
+      target->FillRectangle(
+          D2D1_RECT_F{x, rect.top + inset_y,
+                      x + static_cast<float>(candidate_preedit_caret_width),
+                      rect.bottom - inset_y},
+          brush(palette_.preedit_caret.value_or(palette_.accent)));
+      target->PopAxisAlignedClip();
     }
   }
   // The selection number keeps its own column so candidates start on one
@@ -1808,6 +1858,16 @@ void CandidateWindow::paint() {
   for (size_t i = 0; i < count; ++i) {
     const auto &row = rows[i].bounds;
     const auto &item = rows[i].item;
+    // 逐行浮现：这一行的透明度和位移只作用在画上，行的位置和点击区域不动。
+    if (row_reveal) {
+      const float reveal = candidate_ease_out(candidate_row_reveal_progress(
+          motion_elapsed, i, animation_.stagger_ms, animation_.duration_ms));
+      paint_alpha = typing_effect_quantized_alpha(card_alpha * reveal);
+      target->SetTransform(
+          D2D1::Matrix3x2F::Translation(
+              0.0f, static_cast<float>(candidate_row_reveal_distance) * (1.0f - reveal)) *
+          transform);
+    }
     // Rows are laid out in card coordinates; the decoration strip sits above
     // the card, so every row moves down with it. Without this the rows would
     // be drawn over the artwork and the hit test below would disagree.
@@ -1899,11 +1959,11 @@ void CandidateWindow::paint() {
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
                     rect.top + static_cast<float>(item.text_height)},
         brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row).
+    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
     const auto annotation_color =
         candidate_row_text_color(palette_, text_color, selected, false);
-    const auto translation_color =
-        candidate_row_translation_color(palette_, selected);
+    const auto translation_color = candidate_row_translation_color(
+        palette_, selected, value->candidates[i].fixed_position != 0);
     // Runs extend to the row's right edge rather than their measured width, so rounding cannot wrap or clip a run that was laid out as fitting.
     auto draw_run = [&](const std::string &run, const CandidateRunBox &box,
                         double size, const CandidateColor &color) {
@@ -1976,6 +2036,11 @@ void CandidateWindow::paint() {
     }
     if (!styled)
       draw_run(secondary, item.translation, metrics.translation_font, translation_color);
+  }
+  // 逐行浮现改过的透明度和位移只属于候选行，后面的网格、箭头照卡片本身画。
+  if (row_reveal) {
+    paint_alpha = motion_alpha;
+    target->SetTransform(transform);
   }
   if (expand_layout) {
     // 网格：没有序号、没有选中态，文字和首行的候选文字对齐；悬停和按下都铺 hover 底色（msime-windows 的网格沿用首行的外观，selectable 关掉）。只画看得见的那几行。
@@ -2459,8 +2524,10 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
     throw std::runtime_error("Candidate context menu position unavailable");
+  // 本页第几个候选：「删除」行据此提示 Ctrl+Shift+Alt+N。
+  const auto slot = static_cast<size_t>(candidate - painted_->candidates.begin());
   flyout_->open(screen.x, screen.y, code_points, candidate->actions_available,
-                candidate->fixed_position);
+                candidate->fixed_position, slot);
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
