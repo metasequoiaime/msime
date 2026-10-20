@@ -21,7 +21,7 @@ enum class ModeIcon
     Stroke,
 };
 
-// `open` 是键盘开关 compartment（中文为开），`disabled` 是按钮被禁用（没有焦点上下文），`capsLock` 是 Caps Lock，`mode` 是 Server 上次在 InputModeChanged 里给的模式。Caps Lock 只要按钮可用就排在最前，与以前的 cap 图标一样：它改变每个字母键的作用，不论哪个模式。藏文显示 藏 而不是 macOS 的 ཀ，和 Windows 托盘、悬浮工具栏的语言按钮一致。
+// `open` 是键盘开关 compartment（中文为开），`disabled` 是按钮被禁用（没有焦点上下文），`capsLock` 是 Caps Lock，`mode` 是 Server 上次在 InputModeChanged 里给的模式。Caps Lock 只要按钮可用就排在最前，与以前的 cap 图标一样：它改变每个字母键的作用，不论哪个模式。藏文在任务栏语言栏上有意显示 藏 而不是 macOS 的 ཀ，悬浮工具栏的语言按钮则与 macOS 一样画 ཀ。
 constexpr ModeIcon mode_icon(bool open, bool disabled, bool capsLock, msime::windows::scheme::InputMode mode)
 {
     using msime::windows::scheme::InputMode;
