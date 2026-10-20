@@ -584,6 +584,7 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
             manifest << "schema_version = 1\nid = \"" << identifier << "\"\nname = \"Synthetic Layout\"\nversion = \"1\"\nbase = \"microsoft\"\n"
                      << "[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n"
                      << "[candidate_window]\nmin_width_dip = " << (justified ? 260 : 0)
+                     << "\nexpand_rows = " << (compact ? 2 : justified ? 8 : 4)
                      << "\nfit_content = " << (compact ? "true" : "false")
                      << "\n[candidate_window.horizontal]\nitem_gap = 11\njustify_rows = " << (justified ? "true" : "false") << "\n";
             assert(manifest.good());
@@ -637,6 +638,23 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
             MSIMECandidateButton *second = CandidateButton(panel.contentView, 1);
             assert(first && second && fabs(NSMinX(second.frame) - NSMaxX(first.frame) - (compact ? 11 : 17)) < 0.1);
         }
+        // 可见行数来自同一份共享皮肤；末行仍能滚入视口，点击按钮只为可见行创建。
+        appearance.pageSize = 3;
+        NSMutableArray *expanded = [NSMutableArray array];
+        for (NSUInteger index = 0; index < 30; ++index)
+            [expanded addObject:@{@"text": @"合成", @"highlighted": @(index == 0)}];
+        [controller setValue:expanded forKey:@"expandedCandidates"];
+        [controller setValue:@0 forKey:@"expandedCursor"];
+        [controller setValue:@0 forKey:@"expandedFirstRow"];
+        const NSUInteger expectedRows = 1 + (compact ? 2 : justified ? 8 : 4);
+        assert([controller renderExpandedCandidates]);
+        assert([[controller valueForKey:@"expandedVisibleRows"] unsignedIntegerValue] == expectedRows);
+        assert(CandidateButton(panel.contentView, expectedRows * 3 - 1));
+        assert(!CandidateButton(panel.contentView, expectedRows * 3));
+        [controller setValue:@29 forKey:@"expandedCursor"];
+        assert([controller renderExpandedCandidates]);
+        assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 10 - expectedRows);
+        assert(CandidateButton(panel.contentView, 29) && !panel.hasNextPage && panel.hasPreviousPage);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     std::filesystem::remove_all(root);

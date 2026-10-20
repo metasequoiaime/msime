@@ -7594,7 +7594,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     [_keymapPanel orderOut:nil];
     _expandedCursor = MIN(_expandedCursor, count - 1);
     const NSUInteger cursorRow = _expandedCursor / columns;
-    const NSUInteger windowRows = MIN(rows, msime::mac::kExpandedGridVisibleRows);
+    // 来源的 expand_rows 只数首行之后的网格；原生网格把当前页也计入视口。
+    const NSUInteger windowRows = MIN(rows, skin.expandRows ? 1 + *skin.expandRows : msime::mac::kExpandedGridVisibleRows);
     if (_expandedPendingScrollDelta == 0 && _expandedScrollOffset == 0)
         _expandedFirstRow = msime::mac::ExpandedGridFirstRow(_expandedFirstRow, cursorRow, rows, windowRows);
 
