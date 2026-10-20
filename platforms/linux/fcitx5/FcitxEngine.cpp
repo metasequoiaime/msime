@@ -3358,7 +3358,7 @@ public:
       const auto length = fcitx::utf8::lengthValidated(text);
       if (length != fcitx::utf8::INVALID_LENGTH) {
         surroundingLength = length;
-        if (surrounding.cursor() <= length)
+        if (surrounding.cursor() > 0 && surrounding.cursor() <= length)
           preceding = fcitx::utf8::getChar(
               fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
       }
