@@ -28,7 +28,9 @@ Status: implemented
 - 全拼和九键都能通过输入框组字内部点击及「编辑拼写」进入放大编辑，插入、退格不丢后缀。
 - 偏移手柄可拖到长拼写的开头和末尾，靠边仍可触摸；直接点放大拼写可定位。
 - 自己的选择回声不触发编辑；选区跨出组字、丢失标记、方案不支持时仍沿用原规则。
-- `CompositionCaretPolicySmoke` 覆盖组字边界、前缀、分隔符、范围选择、丢失标记和截短。JVM 冒烟已通过；`CompositionRestartDeviceSmoke` 的 `-e magnifier true` 专项覆盖全拼与九键，设备与 quick 验证待执行。
+- `CompositionCaretPolicySmoke` 覆盖组字边界、前缀、分隔符、范围选择、丢失标记和截短；JVM 冒烟、远端 quick、原生 full APK 与 ABI 检查通过。
+- Android API 28：`CompositionRestartDeviceSmoke -e magnifier true` 与默认套件、`CompositionBatchDeviceSmoke`、基础 `DeviceSmoke` 通过；实际放大条和右侧手柄已截图检查。旧 APK 在 Android API 35 的同一放大编辑专项失败。
+- Android API 35 新版专项待专用模拟器空闲，不能把 API 28 的结果视为该版本验收。
 
 ## Consequences
 
