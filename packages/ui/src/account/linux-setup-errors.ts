@@ -7,5 +7,5 @@ export function linuxSetupFailureMessage(error: unknown): string {
   if (code === "setup_directory_exists") return "配置目录已存在但不完整。请先移走它，再重新配置。";
   if (code === "setup_running") return "配置已在进行中。";
   if (code === "setup_timeout") return "配置超时，请检查网络后重试。";
-  return "配置未完成，请查看上面的输出。";
+  return "配置未完成，请展开下面的「显示详细输出」查看原因。";
 }

@@ -294,6 +294,12 @@ def fetch_missing(lock: dict, resources: Path, in_use: Path | None = None) -> li
     return verify_directory(resources, lock)
 
 
+def report(kind: str, value: object) -> None:
+    """设置应用的首次配置页经环境变量 MSIME_LINUX_SETUP_REPORT=1 运行本脚本，这时额外打印一行机读的阶段（kind 为 stage）或结果（kind 为 result），驱动页面的进度条和结果卡片（apps/desktop 的 linux_setup.rs 解析，不进页面的输出区）。在终端里运行时不打印。"""
+    if os.environ.get("MSIME_LINUX_SETUP_REPORT") == "1":
+        print(f"msime-setup-{kind}: {json.dumps(value, ensure_ascii=False)}", flush=True)
+
+
 def print_problems(heading: str, problems: list[str]) -> None:
     print(heading, file=sys.stderr)
     for problem in problems[:5]:
@@ -480,6 +486,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             file=sys.stderr,
         )
         return 1
+    report("stage", "verify")
     problems = verify_directory(resources, lock)
     if problems and not download:
         print_problems(f"词库与当前版本不符：{resources}", problems)
@@ -487,6 +494,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
         return 1
     target = resources
     if problems:
+        report("stage", "download")
         try:
             target = staged_resources(resources, lock)
         except OSError as error:
@@ -496,6 +504,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             print_problems("下载后仍不完整：", remaining)
             return 1
     print(f"词库已校验：{target}")
+    report("stage", "update")
     try:
         with hosts_held_off(user_data):
             install_helpcodes(prefix, target)
@@ -1434,6 +1443,7 @@ def main() -> int:
             data_home() / "msime-client/resources",
         )
 
+    report("stage", "verify")
     problems = verify_directory(resources, lock)
     if problems and not arguments.download:
         print_problems(f"词库目录不可用：{resources}", problems)
@@ -1444,23 +1454,29 @@ def main() -> int:
         )
         return 1
     if problems:
+        report("stage", "download")
         remaining = fetch_missing(lock, resources)
         if remaining:
             print_problems("下载后仍不完整：", remaining)
             return 1
 
     print(f"词库已校验：{resources}")
+    report("stage", "prepare")
     try:
         install_helpcodes(prefix, resources)
     except OSError as error:
         raise SystemExit(f"准备辅助码失败：{error}") from error
     prepare_state(prefix, resources, state, arguments.cloud_candidates)
     ensure_anonymous_account(prefix)
+    report("stage", "services")
     enable_services(service_units(state, config_home() / "msime-client"))
     link_omarchy_theme_hook(prefix, options_file)
     link_omarchy_plugin(prefix)
+    report("stage", "register")
     host = active_host()
-    next_steps(state, host, None if arguments.no_register else register_input_method(host))
+    registered = None if arguments.no_register else register_input_method(host)
+    next_steps(state, host, registered)
+    report("result", {"host": host, "registered": registered is not None})
     return 0
 
 

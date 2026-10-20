@@ -216,6 +216,15 @@ def check_setup(harness: Harness) -> None:
     assert options(state)["dictionaries"] == str(state / "user/dictionaries/next"), options(state)
     assert leftovers(state) == [], leftovers(state)
     assert "已切换到新版本的词库" in result.stdout and str(resources) in result.stdout, result.stdout
+    # 在终端里运行时不打印给设置应用看的机读行。
+    assert "msime-setup-" not in result.stdout, result.stdout
+
+    # 设置应用的「立即更新」经 MSIME_LINUX_SETUP_REPORT=1 运行：按顺序报告校验、下载、切换三个阶段，驱动页面的进度条。
+    reported = harness.installed("state-reported")
+    result = harness.run("--update", "--download", "--state", str(reported), MSIME_LINUX_SETUP_REPORT="1")
+    assert result.returncode == 0, result
+    stages = [json.loads(line.split(": ", 1)[1]) for line in result.stdout.splitlines() if line.startswith("msime-setup-stage: ")]
+    assert stages == ["verify", "download", "update"], result.stdout
 
     # 镜像拒绝 Python 默认客户端标识时，安装器仍以项目身份下载并校验，不应回退原地址。
     state_with_agent = harness.installed("state-download-user-agent")

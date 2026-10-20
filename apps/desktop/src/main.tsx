@@ -58,6 +58,7 @@ import {
   type LinuxSetupClient,
   type MacosInstallClient,
   type LinuxSetupLine,
+  type LinuxSetupStage,
   type LinuxSetupStatus,
   type McpClientId,
   type McpFlag,
@@ -158,17 +159,40 @@ const mobileDictionary: DictionaryClient = {
     invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
 
+/** 在配置脚本运行期间转发它的输出和阶段事件，结束后取消订阅。 */
+async function withLinuxSetupEvents(
+  onLine: (line: LinuxSetupLine) => void,
+  onStage: ((stage: LinuxSetupStage) => void) | undefined,
+  command: () => Promise<LinuxSetupStatus>,
+): Promise<LinuxSetupStatus> {
+  const unlistenOutput = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
+    onLine(event.payload),
+  );
+  const unlistenStage = await listen<LinuxSetupStage>("linux-setup-stage", (event) =>
+    onStage?.(event.payload),
+  ).catch((error: unknown) => {
+    unlistenOutput();
+    throw error;
+  });
+  try {
+    return await command();
+  } finally {
+    unlistenOutput();
+    unlistenStage();
+  }
+}
 const linuxSetupClient: LinuxSetupClient = {
-  run: async ({ download, cloudCandidates }, onLine) => {
-    const unlisten = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
-      onLine(event.payload),
-    );
-    try {
-      return await invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates });
-    } finally {
-      unlisten();
-    }
-  },
+  run: ({ download, cloudCandidates }, onLine, onStage) =>
+    withLinuxSetupEvents(onLine, onStage, () =>
+      invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates }),
+    ),
+  update: (onLine, onStage) =>
+    withLinuxSetupEvents(onLine, onStage, () =>
+      invoke<LinuxSetupStatus>("run_linux_dictionary_update"),
+    ),
+  close: () => getCurrentWindow().close(),
+  openFcitx5Config: () => invoke<void>("open_fcitx5_configtool"),
+  copyText: (text) => invoke<void>("copy_text", { text }),
 };
 // The host resolves the plugins directory and the built-in sound packs, and shows its own picker for an import; the page never names a path.
 const plugins: PluginClient = {
@@ -587,7 +611,11 @@ function DesktopSettings() {
           ? await invoke<boolean>("application_update_supported").catch(() => false)
           : false;
       if (!active) return;
-      if (linuxSetupStatus && !linuxSetupStatus.prepared) setLinuxSetup(linuxSetupStatus);
+      // 还没配置，或宿主报告词库过期时先打开首次配置（更新）页；宿主已在启动时把窗口变成它的小窗口。其余情况把窗口换回设置的大小（宿主没变过窗口时这一步什么也不做）。
+      if (linuxSetupStatus && (!linuxSetupStatus.prepared || linuxSetupStatus.dictionaryOutdated))
+        setLinuxSetup(linuxSetupStatus);
+      else if (host?.platform === "linux")
+        void invoke("leave_linux_setup_window").catch(() => undefined);
       setMacosInstall(macosInstallPending);
       setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
@@ -911,7 +939,11 @@ function DesktopSettings() {
       <LinuxSetupPage
         status={linuxSetup}
         client={linuxSetupClient}
-        onComplete={() => setLinuxSetup(null)}
+        onComplete={() => {
+          void invoke("leave_linux_setup_window")
+            .catch(() => undefined)
+            .then(() => setLinuxSetup(null));
+        }}
       />
     );
   if (macosInstall)

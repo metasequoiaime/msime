@@ -709,7 +709,7 @@ async fn open_directory(root: PathBuf) -> Result<(), CommandError> {
         .map_err(|code| CommandError { code })
 }
 
-/// What the settings page's diagnostic-log action should show: the log file itself where the platform can select a file in its file manager and the file exists, otherwise the directory that will hold it.
+/// 设置页的诊断日志动作要显示什么：平台的文件管理器能选中文件且文件已存在时是日志文件本身，否则是将来存放它的目录。
 #[derive(Debug, PartialEq, Eq)]
 enum DiagnosticLogTarget {
     #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
@@ -775,9 +775,9 @@ fn reveal_file_in_file_manager(file: &std::path::Path) -> Result<(), &'static st
     skin_directory::open(file.parent().ok_or("storage")?)
 }
 
-/// Reveal the input method's diagnostic log so it can be sent after a reproduction.
+/// 显示输入法的诊断日志，方便复现问题后发送。
 ///
-/// MSIME-Windows writes its log to the Desktop to make it easy to find; on macOS the file stays in the preferences directory under Application Support and this action selects it in Finder instead. Linux 上同样选中数据目录里的 diagnostic.log（见 `reveal_file_in_file_manager`）。The host picks the location - the webview cannot name one.
+/// MSIME-Windows 把日志写到桌面上便于找到；macOS 上文件留在应用支持目录下的偏好目录里，这个动作在访达中选中它；Linux 上同样在文件管理器里选中数据目录中的 diagnostic.log（见 `reveal_file_in_file_manager`）。位置由宿主决定，网页不能指定。
 #[tauri::command]
 async fn open_diagnostic_log_directory(
     state: tauri::State<'_, DiagnosticLogState>,
@@ -5494,6 +5494,17 @@ pub fn run() {
                 #[cfg(not(any(target_os = "linux", target_os = "android")))]
                 document: Arc::new(host_document.clone()),
             });
+            // 与 macOS 的首次安装窗口一样：还没配置（或宿主报告词库过期）时设置窗口先以居中的小窗口打开首次配置页。面板启动不碰主窗口。
+            #[cfg(target_os = "linux")]
+            if requested_surface_route()
+                .and_then(|route| route.panel_for(host_platform()))
+                .is_none()
+                && linux_setup::setup_window_pending(runtime_path.as_deref())
+            {
+                if let Some(main) = app.get_webview_window("main") {
+                    linux_setup::shape_setup_window(&main);
+                }
+            }
             app.manage(RuntimeOptionsState {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
@@ -5770,6 +5781,12 @@ pub fn run() {
             linux_setup::linux_setup_status,
             #[cfg(target_os = "linux")]
             linux_setup::run_linux_setup,
+            #[cfg(target_os = "linux")]
+            linux_setup::run_linux_dictionary_update,
+            #[cfg(target_os = "linux")]
+            linux_setup::leave_linux_setup_window,
+            #[cfg(target_os = "linux")]
+            linux_setup::open_fcitx5_configtool,
             #[cfg(target_os = "android")]
             android_account::android_open_input_method_settings,
             #[cfg(target_os = "android")]
