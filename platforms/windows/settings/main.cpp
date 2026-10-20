@@ -914,17 +914,19 @@ Color rgba(int red, int green, int blue, double alpha) {
 
 Color transparent_color() { return Color{0, 0, 0, 0}; }
 
-// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。
+// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。`window_bg` 是侧栏（窗口底色），`content_bg` 是正文和它上方的标题栏那一列，`edge` 是侧栏右侧的边线，`title_edge` 是标题栏内容列底部的细线，`hover` 是侧栏导航项悬停、按下和选中共用的中性底色，数值取自共享设置 UI 的 macOS 外壳（`settings-style.ts` 的 `sidebar`、`content`、`macosToolbar` 和 `platform-tokens.ts` 的 `hover`）。`accent` 只用于开关、复选框、滑块这类不带文字的填充；底上是白字的填充（主按钮、提示条按钮、头像、社区资源图块）用 `accent_strong`，深浅两种外观都是浅色模式的品牌绿，与共享页的 `--accent-strong` 一样保证白字可读。
 struct Palette {
   bool dark = false;
   Color text, sub, faint, subtle, subtle2, card, stroke, stroke2, divider,
-      accent, on_accent, seg_well, preview_bg, window_bg, content_bg, edge;
+      accent, accent_strong, on_accent, seg_well, preview_bg, window_bg, content_bg, edge,
+      title_edge, hover;
 };
 
 Palette make_palette(bool dark) {
   Palette p;
   p.dark = dark;
   p.accent = dark ? rgba(0x5F, 0xBF, 0x84, 1) : rgba(0x2C, 0x7A, 0x4B, 1);
+  p.accent_strong = rgba(0x2C, 0x7A, 0x4B, 1);
   p.on_accent = rgba(255, 255, 255, 1);
   if (dark) {
     p.text = rgba(0xF5, 0xF5, 0xF7, 1);
@@ -932,15 +934,18 @@ Palette make_palette(bool dark) {
     p.faint = rgba(255, 255, 255, .6);
     p.subtle = rgba(255, 255, 255, .0605);
     p.subtle2 = rgba(255, 255, 255, .0837);
-    p.card = rgba(0x35, 0x35, 0x35, 1);
+    // macOS 的深色分组底是 #1F1F21 正文上叠 4.5% 白（rgba(255,255,255,.045)），这里取合成后的不透明色。
+    p.card = rgba(0x29, 0x29, 0x2B, 1);
     p.stroke = rgba(255, 255, 255, .07);
     p.stroke2 = rgba(255, 255, 255, .093);
     p.divider = rgba(255, 255, 255, .0837);
     p.seg_well = rgba(0, 0, 0, .12);
     p.preview_bg = rgba(0x2C, 0x2C, 0x2C, 1);
-    p.window_bg = rgba(0x2A, 0x2A, 0x2A, 1);
-    p.content_bg = rgba(0x1E, 0x1E, 0x1E, 1);
-    p.edge = rgba(0, 0, 0, .1);
+    p.window_bg = rgba(0x2E, 0x2E, 0x30, 1);
+    p.content_bg = rgba(0x1F, 0x1F, 0x21, 1);
+    p.edge = rgba(0, 0, 0, .5);
+    p.title_edge = rgba(255, 255, 255, .08);
+    p.hover = rgba(255, 255, 255, .1);
   } else {
     p.text = rgba(0x1D, 0x1D, 0x1F, 1);
     p.sub = rgba(0x6E, 0x6E, 0x73, 1);
@@ -953,9 +958,11 @@ Palette make_palette(bool dark) {
     p.divider = rgba(0, 0, 0, .0803);
     p.seg_well = rgba(0, 0, 0, .04);
     p.preview_bg = rgba(255, 255, 255, 1);
-    p.window_bg = rgba(0xF6, 0xF6, 0xF6, 1);
-    p.content_bg = rgba(0xF6, 0xF6, 0xF6, 1);
-    p.edge = rgba(0, 0, 0, .06);
+    p.window_bg = rgba(0xE8, 0xE8, 0xEA, 1);
+    p.content_bg = rgba(0xF2, 0xF2, 0xF4, 1);
+    p.edge = rgba(0, 0, 0, .08);
+    p.title_edge = rgba(0, 0, 0, .07);
+    p.hover = rgba(0, 0, 0, .06);
   }
   return p;
 }
@@ -1028,10 +1035,6 @@ constexpr std::array<PageLabel, 16> page_labels{{
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
-
-// 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
-constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
-    {L"打字", L"输入方式", L"外观", L"工具", L"数据", L"支持"}};
 
 // 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {
@@ -3136,20 +3139,20 @@ struct MainWindow : WindowT<MainWindow> {
   explicit MainWindow(std::string page)
       : current_page_(nav::offered_page_for_route(page, MSIME_EDITION_HANDWRITING != 0)) {
     ai_mcp_view_ = page == "mcp";
-    // 窗口标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
-    Title(MSIME_EDITION_DISPLAY_NAME L"设置");
+    // 窗口标题与 macOS 设置窗口相同，写作「水杉输入法 · 设置」（任务栏和 Alt+Tab 里看得到）；标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
+    Title(MSIME_EDITION_DISPLAY_NAME L" · 设置");
     ExtendsContentIntoTitleBar(true);
     reload_document();
     load_catalog();
     system_dark_ = system_dark();
     input_method_ = input_method_state();
     palette_ = make_palette(resolve_dark());
-    // 初始尺寸按系统缩放换算，正文保留 macOS 的紧凑密度。
+    // 初始尺寸与 macOS 设置窗口相同（`tauri.macos.conf.json` 的 1000 × 780），按系统缩放换算。
     const double scale = static_cast<double>(GetDpiForSystem()) / 96.0;
     AppWindow().Resize(
         {static_cast<int32_t>(std::lround(1000 * scale)),
-         static_cast<int32_t>(std::lround(760 * scale))});
-    // 参照 macOS 的最小窗口尺寸，避免侧栏把设置正文挤到无法操作。
+         static_cast<int32_t>(std::lround(780 * scale))});
+    // 最小尺寸不跟 macOS 的 360 × 540：macOS 窄于 601 时收起侧栏，这个窗口没有窄窗口布局，侧栏常驻，800 × 560 以下正文会被挤到无法操作。
     if (const auto presenter = AppWindow().Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
       presenter.PreferredMinimumWidth(
           box_value(static_cast<int32_t>(std::lround(800 * scale)))
@@ -3598,11 +3601,15 @@ private:
     bar.ButtonPressedForegroundColor(palette_.text);
   }
 
+  // 侧栏宽度，与 macOS 设置侧栏（`settings-style.ts` 的 `mac:w-[260px]`）相同。
+  static constexpr double sidebar_width = 260;
+
   Grid make_titlebar() {
     Grid bar;
     bar.Height(48);
+    // 侧栏列与 `make_navigation` 的 OpenPaneLength 同宽（macOS 侧栏的 260），两处要一起改，否则品牌行和侧栏对不齐。
     ColumnDefinition sidebar;
-    sidebar.Width(GridLength{224, GridUnitType::Pixel});
+    sidebar.Width(GridLength{sidebar_width, GridUnitType::Pixel});
     ColumnDefinition content;
     content.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition caption;
@@ -3611,17 +3618,31 @@ private:
     bar.ColumnDefinitions().Append(content);
     bar.ColumnDefinitions().Append(caption);
 
+    // 与 macOS 的页面工具栏一样，标题栏里正文上方那一列（连同窗口按钮）用正文底色，底部一条细线；左边那条 1 DIP 边线接着下面侧栏右侧的边线。侧栏那一列留给窗口底色，和侧栏连成一片。只是着色，整条标题栏仍是 SetTitleBar 的拖动区。
+    Border content_fill;
+    content_fill.Background(brush(palette_.content_bg));
+    content_fill.BorderBrush(brush(palette_.edge));
+    content_fill.BorderThickness(Thickness{1, 0, 0, 0});
+    Border content_rule;
+    content_rule.BorderBrush(brush(palette_.title_edge));
+    content_rule.BorderThickness(Thickness{0, 0, 0, 1});
+    content_fill.Child(content_rule);
+    Grid::SetColumn(content_fill, 1);
+    Grid::SetColumnSpan(content_fill, 2);
+    bar.Children().Append(content_fill);
+
+    // 品牌行照 macOS 侧栏顶部：24 DIP 图标、8 DIP 间距、15 DIP 半粗体产品名，左缘取导航项的 12 DIP 外边距加 10 DIP 内边距，与下面各项的图标列对齐。图标不另裁圆角：msime.ico 的四角本来就是透明的。
     StackPanel identity;
     identity.Orientation(Orientation::Horizontal);
-    identity.Spacing(10);
-    identity.Margin(Thickness{18, 0, 12, 0});
+    identity.Spacing(8);
+    identity.Margin(Thickness{22, 0, 12, 0});
     identity.VerticalAlignment(VerticalAlignment::Center);
     Image logo;
     logo.Width(24);
     logo.Height(24);
     show_logo(logo, 48);
     identity.Children().Append(logo);
-    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 13, palette_.text);
+    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 15, palette_.text);
     product.FontWeight(Windows::UI::Text::FontWeight{600});
     product.VerticalAlignment(VerticalAlignment::Center);
     identity.Children().Append(product);
@@ -3719,7 +3740,7 @@ private:
   NavigationView make_navigation() {
     NavigationView view;
     view.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
-    view.OpenPaneLength(224);
+    view.OpenPaneLength(sidebar_width);
     view.CompactModeThresholdWidth(0);
     view.ExpandedModeThresholdWidth(0);
     view.IsPaneToggleButtonVisible(false);
@@ -3734,53 +3755,53 @@ private:
       resources.Insert(box_value(hstring(key)), brush(color));
     };
     put(L"NavigationViewContentBackground", palette_.content_bg);
+    // 侧栏右侧的 1 DIP 边线由正文格的左边框画出，正文格不再有 Windows 11 那个带上边框的左上圆角：上方是标题栏底部的细线，与 macOS 的侧栏和工具栏一致。
     put(L"NavigationViewContentGridBorderBrush", palette_.edge);
+    resources.Insert(box_value(L"NavigationViewContentGridBorderThickness"),
+                     box_value(Thickness{1, 0, 0, 0}));
+    resources.Insert(box_value(L"NavigationViewContentGridCornerRadius"),
+                     box_value(CornerRadius{0, 0, 0, 0}));
     put(L"NavigationViewExpandedPaneBackground", transparent_color());
     put(L"NavigationViewDefaultPaneBackground", transparent_color());
     put(L"NavigationViewSelectionIndicatorForeground", transparent_color());
-    put(L"NavigationViewItemBackgroundSelected", palette_.accent);
-    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.accent);
-    put(L"NavigationViewItemBackgroundPointerOver", palette_.subtle);
-    put(L"NavigationViewItemForegroundSelected", palette_.on_accent);
-    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.on_accent);
-    put(L"NavigationViewItemForegroundSelectedPressed", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelected", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.on_accent);
-    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.accent);
-    // 行高 28 包含模板上下各 2 DIP 的边距；内部仍用默认 36 会裁掉文字。
-    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(24.0));
-    // 分组标题的模板把文字放进写死 40 DIP 高的 InnerHeaderGrid 里垂直居中，标题本身压到 24 就从中间截断，下半截不见（「工具」看着像「丁目」）。上下各 -8 DIP 把那 40 收进 24 里，文字整个落在其中；左右保持模板默认的 16。
-    resources.Insert(box_value(L"NavigationViewItemInnerHeaderMargin"),
-                     box_value(Thickness{16, -8, 16, -8}));
+    // 选中项与 macOS 一样只铺一层中性底色，文字和图标仍是正文色，没有强调色胶囊；悬停和按下用同一层底色（macOS 的 `--p-hover`）。模板里图标的前景也取 NavigationViewItemForeground* 这组键。
+    put(L"NavigationViewItemBackgroundSelected", palette_.hover);
+    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.hover);
+    put(L"NavigationViewItemBackgroundPointerOver", palette_.hover);
+    put(L"NavigationViewItemBackgroundPressed", palette_.hover);
+    put(L"NavigationViewItemForegroundPressed", palette_.text);
+    put(L"NavigationViewItemForegroundSelected", palette_.text);
+    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.text);
+    put(L"NavigationViewItemForegroundSelectedPressed", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelected", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.text);
+    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.hover);
+    // 导航项照 macOS 侧栏：可见的底色块高 36 DIP，项与项之间 2 DIP。模板在底色块外留 NavigationViewItemButtonMargin（默认左右 4、上下 2），这里收成上下各 1，左右的间距改由导航项自己的 12 DIP 外边距给出，与侧栏搜索框的左右边距一致；所以导航项本身高 38。
+    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(36.0));
+    resources.Insert(box_value(L"NavigationViewItemButtonMargin"),
+                     box_value(Thickness{0, 1, 0, 1}));
+    // 模板把图标装进这个高度的 Viewbox 里缩放（默认 16），macOS 侧栏的图标是 15。
+    resources.Insert(box_value(L"NavigationViewItemOnLeftIconBoxHeight"), box_value(15.0));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     view.PaneHeader(make_search_field());
 
-    // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
-    std::optional<std::size_t> group;
+    // 与 macOS 侧栏一样平铺 16 个页面，不插分组标题；顺序取自 `SettingsNavigation.h`（按共享设置 UI 的 `settingsNavGroups` 排列）。
     for (const auto &page : nav::pages) {
-      if (page.group != group) {
-        group = page.group;
-        NavigationViewItemHeader header;
-        header.Content(box_value(hstring(group_titles[page.group])));
-        // 这里设不了字号和左右边距：模板里 HeaderText 的 NavigationViewItemHeaderTextStyle 是 StaticResource，在 generic.xaml 内就解析完了，页面资源覆盖不到，字号固定 14 DIP；模板根也不读 Padding，水平边距走上面那条 NavigationViewItemInnerHeaderMargin。Foreground 是本控件上的本地值，优先于模板样式，照常生效。
-        header.MinHeight(24);
-        header.Height(24);
-        header.Foreground(brush(palette_.sub));
-        view.MenuItems().Append(header);
-      }
       const auto &label = page_label(page.id);
       NavigationViewItem item;
       item.Content(box_value(hstring(label.title)));
-      auto icon = make_icon(label.glyph, 14, palette_.text);
+      auto icon = make_icon(label.glyph, 15, palette_.text);
       icon.ClearValue(IconElement::ForegroundProperty());
       item.Icon(icon);
-      item.FontSize(13);
-      item.MinHeight(28);
-      item.Height(28);
-      item.Margin(Thickness{6, 0, 6, 0});
-      item.Padding(Thickness{8, 0, 8, 0});
+      item.FontSize(14);
+      item.MinHeight(38);
+      item.Height(38);
+      // 圆角经模板的 TemplateBinding 落到底色块上；不能改 ControlCornerRadius，那会连正文里的控件一起改掉。
+      item.CornerRadius(CornerRadius{8, 8, 8, 8});
+      item.Margin(Thickness{12, 0, 12, 0});
+      item.Padding(Thickness{10, 0, 10, 0});
       item.VerticalContentAlignment(VerticalAlignment::Center);
       item.Tag(box_value(text(page.id)));
       A11y::SetAutomationId(item, text(page.id));
@@ -4183,7 +4204,7 @@ private:
     Grid::SetColumn(text_block, 1);
     row.Children().Append(text_block);
 
-    // The fixed accent fill of the design, kept through hover and press rather than the system accent the default button styles use.
+    // The fixed accent fill of the design, kept through hover and press rather than the system accent the default button styles use. It carries white text, so it is the strong accent in both appearances.
     Button action;
     action.Content(box_value(hstring(action_label)));
     action.FontSize(13);
@@ -4195,7 +4216,7 @@ private:
     auto put = [&resources](const wchar_t *key, Color const &color) {
       resources.Insert(box_value(hstring(key)), brush(color));
     };
-    const auto accent = palette_.accent;
+    const auto accent = palette_.accent_strong;
     auto faded = [accent](double alpha) {
       return Color{static_cast<uint8_t>(std::lround(alpha * 255)), accent.R,
                    accent.G, accent.B};
@@ -4273,9 +4294,12 @@ private:
     return rows;
   }
 
+  // 分组卡片照 macOS 的 `--p-group-*`：10 DIP 圆角，外围一圈 1 DIP 描边（浅色 rgba(0,0,0,.06)、深色 rgba(255,255,255,.07)，即 `palette_.stroke`）。
   Border make_card() {
     Border card;
     card.Background(brush(palette_.card));
+    card.BorderBrush(brush(palette_.stroke));
+    card.BorderThickness(Thickness{1, 1, 1, 1});
     card.CornerRadius(CornerRadius{10, 10, 10, 10});
     return card;
   }
@@ -5665,13 +5689,13 @@ private:
     redraw_account();
   }
 
-  // 圆形头像（AccountAvatar）：取到的图片，或强调色底上名字的第一个字。`name` 是代替图片的那个名字。
+  // 圆形头像（AccountAvatar）：取到的图片，或强调色底上名字的第一个字。`name` 是代替图片的那个名字。底上是白字，与共享页的 `bg-accent-strong` 一样用 `accent_strong`。
   FrameworkElement make_account_avatar(double size, double font_size, std::wstring const &name) {
     Grid avatar;
     avatar.Width(size);
     avatar.Height(size);
     Shapes::Ellipse circle;
-    circle.Fill(brush(palette_.accent));
+    circle.Fill(brush(palette_.accent_strong));
     avatar.Children().Append(circle);
     const bool image = account_user_ && account_avatar_ && !account_user_->avatar_url.empty() &&
                        account_user_->avatar_url == account_avatar_url_;
@@ -6649,7 +6673,7 @@ private:
       tile.Width(32);
       tile.Height(32);
       tile.CornerRadius(CornerRadius{6, 6, 6, 6});
-      tile.Background(brush(palette_.accent));
+      tile.Background(brush(palette_.accent_strong));
       auto glyph = make_text(cm::resource_card_glyph(item.kind), 15, palette_.on_accent);
       glyph.HorizontalAlignment(HorizontalAlignment::Center);
       glyph.VerticalAlignment(VerticalAlignment::Center);
@@ -16375,13 +16399,13 @@ private:
     queue_refresh();
   }
 
-  // 「保存名单」是主按钮：设计里固定的强调色填充，悬停和按下时也不换成系统强调色。
+  // 「保存名单」是主按钮：设计里固定的强调色填充，悬停和按下时也不换成系统强调色。底上是白字，所以深浅两种外观都用 `accent_strong`（共享页 `primary` 的 `--accent-strong`）。
   void make_primary(Button const &button) {
     auto resources = button.Resources();
     auto put = [&resources](const wchar_t *key, Color const &color) {
       resources.Insert(box_value(hstring(key)), brush(color));
     };
-    const auto accent = palette_.accent;
+    const auto accent = palette_.accent_strong;
     auto faded = [accent](double alpha) {
       return Color{static_cast<uint8_t>(std::lround(alpha * 255)), accent.R, accent.G, accent.B};
     };

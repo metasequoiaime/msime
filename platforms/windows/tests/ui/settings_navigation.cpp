@@ -36,7 +36,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
+    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。侧栏平铺、不显示组名，组只决定顺序。
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;

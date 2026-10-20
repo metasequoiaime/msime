@@ -14,6 +14,8 @@ Status: implemented
 
 ## Decision
 
+侧栏后来改成平铺、不再有分组标题（见[外壳配色与侧栏对齐 macOS](../feature/2026-10-20-windows-settings-mac-shell.md)），下面第一条只剩历史意义；关于哪些模板值能覆盖的结论照旧成立。
+
 分组标题覆盖 `NavigationViewItemInnerHeaderMargin` 为 `{16,-8,16,-8}`，把模板写死的 40 DIP 收进 24 DIP 的行高里，文字整个落在其中；不在 header 实例上设 `FontSize` 和 `Padding`，原处留注释说明模板不读它们。
 
 `AcceptsReturn` 在 `Text` 之前设；配置框给 `MinHeight(188)`／`MaxHeight(280)` 和两个方向的滚动条，长片段在框内滚动。

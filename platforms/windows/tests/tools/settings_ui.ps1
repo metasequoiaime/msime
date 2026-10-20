@@ -399,8 +399,10 @@ try {
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
+        # 窗口标题与 macOS 设置窗口相同，写作「<产品名> · 设置」。
+        if (-not $window.Current.Name.EndsWith(' · 设置')) { throw "Unexpected settings window title: $($window.Current.Name)" }
         foreach ($width in @(1000, 800)) {
-            if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 760, 0x0040)) { throw 'Window resize failed' }
+            if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Window resize failed' }
             foreach ($page in $pages) {
                 if ($process.HasExited) { throw "Settings exited on $page" }
                 # 复用导航等待，既验证正文身份，也处理侧栏虚拟化。
