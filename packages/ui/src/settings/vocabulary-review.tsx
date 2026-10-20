@@ -73,13 +73,13 @@ export type VocabularyReviewSettings = {
 export type VocabularyReviewStatus = {
   wordbooks: VocabularyWordbook[];
   settings: VocabularyReviewSettings;
-  /** 今日待复习: cards already waiting, counted before the new-card allowance is added. */
+  /** 今日待复习：今天还在等的卡片，包括今天会话要出的新卡。 */
   due: number;
   /** 已完成: answers recorded today, counting a card failed and answered again as two. */
   answeredToday: number;
-  /** New cards this session will introduce. */
+  /** `due` 里的新卡数。 */
   introducing: number;
-  /** Words in the book that are neither due nor being introduced today. */
+  /** 未开始：从没出过、今天也不会出的词。 */
   remaining: number;
   /** The session queue in the order it should be shown. Empty when there is nothing to review. */
   queue: VocabularyCard[];

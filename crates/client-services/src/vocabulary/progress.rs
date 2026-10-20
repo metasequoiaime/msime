@@ -214,12 +214,11 @@ impl VocabularyProgress {
 pub struct ReviewQueue {
     /// The words to show, due cards before new ones.
     pub words: Vec<String>,
-    /// Cards already waiting, before the new-card allowance is added. This is 待复习 on the
-    /// progress row.
+    /// 已经在等的卡片，不含新卡额度。会话上限把其中一部分挤出 `words` 时，这里仍按全数报告。
     pub due: usize,
     /// New cards this session will introduce.
     pub introducing: usize,
-    /// Words in the book that are neither due nor being introduced today.
+    /// 用户从没见过、今天的会话也不会出的词，即进度行上的「未开始」。排到以后某天的卡已经学过，不算在内。
     pub remaining: usize,
 }
 
@@ -246,11 +245,10 @@ pub fn build_queue(
     let entry_count = book.entries.len();
     let mut due: Vec<(&str, &CardState)> = Vec::with_capacity(entry_count);
     let mut fresh: Vec<&str> = Vec::with_capacity(entry_count);
-    let mut remaining = 0;
     for word in book.words() {
         match states.and_then(|words| words.get(word)) {
             Some(state) if state.is_due(today) => due.push((word, state)),
-            Some(_) => remaining += 1,
+            Some(_) => {}
             None => fresh.push(word),
         }
     }
@@ -289,7 +287,7 @@ pub fn build_queue(
         words,
         due: due_count,
         introducing,
-        remaining: remaining + fresh.len() - introducing,
+        remaining: fresh.len() - introducing,
     })
 }
 
@@ -1019,7 +1017,46 @@ mod tests {
         let queue = build_queue(&progress, &book, TODAY, 20, DEFAULT_SESSION_LIMIT).unwrap();
         assert_eq!(queue.due, 0);
         assert_eq!(queue.words, vec!["beta"]);
-        assert_eq!(queue.remaining, 1);
+        assert_eq!(
+            queue.remaining, 0,
+            "a card waiting for a later day has been started, so it is not 未开始"
+        );
+    }
+
+    #[test]
+    fn answering_cards_does_not_grow_the_words_not_started() {
+        // 今天新出了两张：一张答「认识」排到以后，一张答「不认识」今天还要再出。当天额度还能再出一个新词，之后只剩一个从没出过。
+        let book = book_of(&["alpha", "beta", "gamma", "delta"]);
+        let progress = VocabularyProgress {
+            cards: BTreeMap::from([(
+                "cet-4".to_owned(),
+                BTreeMap::from([
+                    (
+                        "alpha".to_owned(),
+                        CardState {
+                            due: "2026-12-31".to_owned(),
+                            reviews: 1,
+                            ..CardState::new(TODAY)
+                        },
+                    ),
+                    ("beta".to_owned(), CardState::new(TODAY)),
+                ]),
+            )]),
+            daily: BTreeMap::from([(
+                TODAY.to_owned(),
+                DailyReviewCounts {
+                    answered: 2,
+                    introduced: 2,
+                },
+            )]),
+            settings: VocabularyReviewSettings::default(),
+        };
+
+        let queue = build_queue(&progress, &book, TODAY, 3, DEFAULT_SESSION_LIMIT).unwrap();
+        assert_eq!(queue.due, 1);
+        assert_eq!(queue.introducing, 1);
+        assert_eq!(queue.words, vec!["beta", "gamma"]);
+        assert_eq!(queue.remaining, 1, "only delta has never been shown");
     }
 
     #[test]
