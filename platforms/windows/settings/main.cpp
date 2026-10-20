@@ -49,6 +49,7 @@
 #include "FeedbackReport.h"
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
+#include "HistoryPagination.h"
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
@@ -1668,6 +1669,8 @@ struct SearchEntry {
   std::wstring title;
   std::wstring detail;
   std::string page;
+  // 条目所在的页内标签（`page_tab_bar`），不在标签里时为空；选中这条结果时先切到这个标签。
+  std::wstring tab;
   std::wstring display;
 };
 
@@ -3159,7 +3162,11 @@ Canvas chart_overlay(std::function<void(Canvas const &, double, double)> draw) {
 struct MainWindow : WindowT<MainWindow> {
   explicit MainWindow(std::string page)
       : current_page_(nav::offered_page_for_route(page, MSIME_EDITION_HANDWRITING != 0)) {
-    ai_mcp_view_ = page == "mcp";
+    // 两条路由直接落到页内的某个标签：`mcp` 是 AI 页的「连接助手」，`handwriting` 是「键盘与手写」页的「手写」（不提供手写的版本没有这个标签，这条路由打开默认页）。
+    if (page == "mcp")
+      page_tabs_["ai"] = L"connection";
+    if (page == "handwriting" && MSIME_EDITION_HANDWRITING != 0)
+      page_tabs_["osk"] = L"handwriting";
     // 窗口标题与 macOS 设置窗口相同，写作「水杉输入法 · 设置」（任务栏和 Alt+Tab 里看得到）；标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
     Title(MSIME_EDITION_DISPLAY_NAME L" · 设置");
     ExtendsContentIntoTitleBar(true);
@@ -3873,10 +3880,12 @@ private:
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
       current_page_ = std::string(page.id);
+      tab_index_.clear();
       StackPanel scratch;
       build_page(page.id, scratch);
     }
     current_page_ = saved_page;
+    tab_index_.clear();
     indexing_ = false;
     index_revision_ = document_.revision();
     index_valid_ = true;
@@ -3891,6 +3900,7 @@ private:
     entry.title = title;
     entry.detail = detail;
     entry.page = current_page_;
+    entry.tab = tab_index_;
     entry.display = title + L" · " + page_label(current_page_).title;
     search_index_.push_back(std::move(entry));
   }
@@ -3957,6 +3967,8 @@ private:
       return;
     focus_row_ = target->title;
     const auto page = target->page;
+    if (!target->tab.empty())
+      page_tabs_[page] = target->tab;
     if (page == current_page_) {
       render_page(true);
       return;
@@ -4072,7 +4084,7 @@ private:
       intro_row_ = intro;
       intro_text_ = description;
       intro_mascot_ = mascot;
-      show_page_intro_tab({});
+      show_page_intro_tab(utf8(hstring(page_tab(current_page_))));
       update_intro_size();
     }
     RowDefinition heading_row;
@@ -4132,7 +4144,7 @@ private:
     return row;
   }
 
-  // 把页首引导换成这一页 `tab` 标签的说明和插画，不重画整页；`tab` 为空时是打开页面时的那个标签。页内标签切换时调用（Windows 上「语音输入」「键盘与手写」「剪贴板」还没有标签，现在只有 `make_page_header` 用空标签调用）。这一页没有引导时什么也不做。
+  // 把页首引导换成这一页 `tab` 标签的说明和插画，不重画整页；`tab` 为空或这一页没有这个标签时是第一个标签的那句。`make_page_header` 用这一页现在的标签（`page_tabs_`）调用，切标签时整页重画，引导随之换掉。这一页没有引导时什么也不做。
   void show_page_intro_tab(std::string_view tab) {
     if (!intro_text_ || !intro_mascot_)
       return;
@@ -4656,39 +4668,47 @@ private:
     return combo;
   }
 
-  // 分段控件用浮起的选中底；默认超过三项用下拉框，紧凑页内标签可显式允许四项。
+  // 分段控件用浮起的选中底；默认超过三项用下拉框，紧凑页内标签可显式允许四项。`full_width` 是页内顶部标签的样式（macOS 的 `candidateTabs`，见 `page_tab_bar`）：铺满正文宽度、各段等宽，段高 36、14 DIP 字，选中与否都用正文色，外框圆角 6、段圆角 5；这种样式不按 `maximum_segments` 退成下拉框。
   FrameworkElement segmented_control(std::wstring const &name,
                                      std::vector<Option> const &options,
                                      std::wstring const &current,
                                      std::function<void(std::wstring const &)> apply,
                                      bool enabled = true, bool document = true,
                                      size_t maximum_segments = 3,
-                                     std::wstring const &automation_prefix = L"") {
-    if (options.size() > maximum_segments)
+                                     std::wstring const &automation_prefix = L"",
+                                     bool full_width = false) {
+    if (!full_width && options.size() > maximum_segments)
       return select_control(name, options, current, std::move(apply), enabled, document);
     Border well;
     well.Background(brush(palette_.seg_well));
     well.BorderBrush(brush(palette_.stroke));
     well.BorderThickness(Thickness{1, 1, 1, 1});
-    well.CornerRadius(CornerRadius{5, 5, 5, 5});
+    well.CornerRadius(full_width ? CornerRadius{6, 6, 6, 6} : CornerRadius{5, 5, 5, 5});
     well.Padding(Thickness{2, 2, 2, 2});
+    // 紧凑样式横排、按内容定宽；整宽样式每段一个等宽的 * 列。
     StackPanel items;
     items.Orientation(Orientation::Horizontal);
     items.Spacing(2);
+    Grid columns;
+    columns.ColumnSpacing(2);
+    if (full_width)
+      well.HorizontalAlignment(HorizontalAlignment::Stretch);
+    int32_t column = 0;
     for (const auto &option : options) {
       const bool on = option.value == current;
       Button button;
-      button.Height(26);
+      button.Height(full_width ? 36 : 26);
       button.MinWidth(0);
-      button.Padding(Thickness{10, 0, 10, 0});
-      button.CornerRadius(CornerRadius{4, 4, 4, 4});
+      button.Padding(full_width ? Thickness{8, 0, 8, 0} : Thickness{10, 0, 10, 0});
+      button.CornerRadius(full_width ? CornerRadius{5, 5, 5, 5} : CornerRadius{4, 4, 4, 4});
       button.BorderThickness(Thickness{1, 1, 1, 1});
       button.Background(brush(on ? (palette_.dark ? rgba(0x5A, 0x5A, 0x5E, 1) : rgba(255, 255, 255, 1)) : transparent_color()));
       button.BorderBrush(brush(on ? palette_.stroke : transparent_color()));
       button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
       button.VerticalContentAlignment(VerticalAlignment::Stretch);
       Grid content;
-      auto label = make_text(option.label, 13, on ? palette_.text : palette_.sub);
+      auto label = make_text(option.label, full_width ? 14 : 13,
+                             (on || full_width) ? palette_.text : palette_.sub);
       label.TextWrapping(TextWrapping::NoWrap);
       label.HorizontalAlignment(HorizontalAlignment::Center);
       label.VerticalAlignment(VerticalAlignment::Center);
@@ -4705,11 +4725,63 @@ private:
         if (!on)
           apply(value);
       });
-      items.Children().Append(button);
+      if (full_width) {
+        ColumnDefinition segment;
+        segment.Width(GridLength{1, GridUnitType::Star});
+        columns.ColumnDefinitions().Append(segment);
+        button.HorizontalAlignment(HorizontalAlignment::Stretch);
+        Grid::SetColumn(button, column++);
+        columns.Children().Append(button);
+      } else {
+        items.Children().Append(button);
+      }
     }
     A11y::SetName(well, hstring(name));
-    well.Child(items);
+    if (full_width)
+      well.Child(columns);
+    else
+      well.Child(items);
     return well;
+  }
+
+  // ---- 页内标签 ----
+
+  // 页内顶部标签，照共享设置 UI 的 `useSettingsTabs`（桌面用 `candidateTabs` 样式，即 segmented_control 的 `full_width`）：一页的内容分成几块，一次只画选中的那一块。选中哪个标签记在窗口成员 `page_tabs_` 里，按页面 id 存，跨页面保留、不写偏好（与 macOS 的 `useSettingsIntroTabs` 相同）；还没选过、或记下的标签这一页没有时，落到第一个。切标签时整页重画，页首引导随之换成这个标签的说明和插画（`SettingsMascotIntro.h`）。用法是先 `const auto tab = page_tab_bar(page, 名称, 标签, 自动化前缀);`，再把每块内容包在 `if (in_tab(tab, L"<标签 id>"))` 里。标签按钮的自动化 ID 是 `<自动化前缀>-<标签 id>`。建搜索索引时不画标签条、返回空，`in_tab` 对每块都返回真，并把之后 record 的条目记在那个标签下（`tab_index_`）；选中搜索结果时 open_search_result 先把它所在的标签设成当前标签，再画页面，结果因此总在画出来的那块里。
+  std::wstring page_tab_bar(StackPanel const &page, std::wstring const &name,
+                            std::vector<Option> const &tabs,
+                            std::wstring const &automation_prefix) {
+    if (indexing_ || tabs.empty())
+      return {};
+    auto current = page_tab(current_page_);
+    if (std::none_of(tabs.begin(), tabs.end(),
+                     [&current](Option const &tab) { return tab.value == current; }))
+      current = tabs.front().value;
+    auto bar = segmented_control(
+        name, tabs, current,
+        [this, id = current_page_](std::wstring const &value) {
+          page_tabs_[id] = value;
+          queue_refresh();
+        },
+        true, false, tabs.size(), automation_prefix, true);
+    // 与页首引导、下面的第一组都相隔 24（页面的 Spacing 4 加这里的 20，组自己的上边距 20 加 Spacing 4）。
+    bar.Margin(Thickness{0, 20, 0, 0});
+    page.Children().Append(bar);
+    return current;
+  }
+
+  // 标签 `tab` 那一块现在画不画：平时只画选中的（`current` 是 page_tab_bar 的返回值），建索引时每块都画，并把之后的条目记在这个标签下。
+  bool in_tab(std::wstring const &current, std::wstring const &tab) {
+    if (indexing_) {
+      tab_index_ = tab;
+      return true;
+    }
+    return current == tab;
+  }
+
+  // 某一页记下的标签，没选过时为空。
+  std::wstring page_tab(std::string const &page) const {
+    const auto found = page_tabs_.find(page);
+    return found == page_tabs_.end() ? std::wstring() : found->second;
   }
 
   FrameworkElement slider_control(std::wstring const &name, double minimum,
@@ -14400,6 +14472,7 @@ private:
     }
   }
 
+  // 共享页 `ClipboardHistorySection` 的桌面分标签版（`tabbed`）：顶上是「剪贴管理分类」两个页内标签（page_tab_bar）。「设置」是「剪贴板」组（历史开关、历史记录上限）和「云剪贴板」组；「历史记录」一直进得去，最上面是一行管理：左边有历史时的「清空历史」（点两次才清空，第二次是「确认清空」），右边超过一页时的翻页器（上一页、「第 N / M 页 · 共 X 条」、下一页，每页 20 条，HistoryPagination.h），下面是这一页的记录；历史关着时只写「请先在「剪贴板」中开启剪贴板历史」，开着但没有记录时写「暂无历史记录」。翻页只改显示，不重读历史；删除后页码收进有效范围；历史关掉时回到第一页。
   void build_clip_page(StackPanel const &page) {
     synchronize_cloud_clipboard_configuration();
     const bool enabled = clipboard_history_enabled();
@@ -14407,6 +14480,7 @@ private:
     if (!enabled) {
       clip_entries_.clear();
       clip_clear_armed_ = false;
+      clip_offset_ = 0;
     }
     if (!indexing_ && enabled) {
       if (!clip_busy_ && (clip_stale_ || clip_read_revision_ != document_.revision()))
@@ -14415,15 +14489,65 @@ private:
         check_cloud_clipboard();
     }
 
-    auto group = add_group(page, L"剪贴板");
-    // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。只剩有历史时的「清空历史」，没有历史时开关下面不留空行。
-    FrameworkElement actions_row{nullptr};
-    if (!clip_entries_.empty()) {
-      StackPanel actions;
-      actions.Orientation(Orientation::Horizontal);
-      actions.Spacing(8);
-      actions.Margin(Thickness{0, 0, 0, 16});
-      actions.Children().Append(button_control(
+    const auto tab = page_tab_bar(page, L"剪贴管理分类",
+                                  {{L"clipboard", L"设置"}, {L"history", L"历史记录"}}, L"clip-tab");
+    if (in_tab(tab, L"clipboard")) {
+      auto group = add_group(page, L"剪贴板");
+      // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。「清空历史」在「历史记录」标签的列表上面。
+      add_row(group, 0xE81C, L"剪贴板历史",
+              L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
+              toggle_control(L"剪贴板历史", enabled,
+                             [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_));
+      const auto history_limit = clipboard_history_limit();
+      std::vector<Option> limit_options;
+      for (const auto limit : {50, 100, 200, 500, 1000})
+        limit_options.push_back({std::to_wstring(limit), std::to_wstring(limit) + L" 条", true});
+      add_row(group, 0xE8AB, L"历史记录上限",
+              L"达到上限后，最旧的未固定记录会被新记录替换。",
+              select_control(L"历史记录上限", std::move(limit_options),
+                             std::to_wstring(history_limit), [this](std::wstring const &value) {
+                               try {
+                                 const auto limit = std::stoul(value);
+                                 change([limit](PreferencesDocument &doc) {
+                                   doc.SetNumber(L"clipboard_history_limit", static_cast<double>(limit));
+                                 }, true);
+                               } catch (...) {
+                                 show_notice(L"历史记录上限无效");
+                               }
+                             }, true));
+
+      // 设备批准和列表管理继续使用共享云剪贴板面板。
+      auto cloud = add_group(page, L"云剪贴板");
+      build_cloud_clipboard_relay_settings(cloud);
+      shell_row(cloud, 0xE753, L"云剪贴板", L"", L"打开云剪贴板", nav::shell_links::cloud_clipboard);
+    }
+    if (in_tab(tab, L"history"))
+      build_clip_history(page, enabled);
+  }
+
+  // 「历史记录」标签：管理行和这一页的记录，见 build_clip_page。
+  void build_clip_history(StackPanel const &page, bool enabled) {
+    auto history = add_group(page, L"历史记录");
+    if (const auto note = cloud_clipboard_note(); !note.empty())
+      history.Children().Append(group_note(note));
+    const auto paging = nav::history_page(clip_entries_.size(), clip_offset_);
+    if (!indexing_)
+      clip_offset_ = paging.offset;
+    const bool managed = enabled && !clip_entries_.empty();
+    if (managed) {
+      Grid actions;
+      actions.Padding(Thickness{0, 10, 0, 10});
+      actions.ColumnSpacing(12);
+      ColumnDefinition clear_column;
+      clear_column.Width(GridLength{1, GridUnitType::Auto});
+      ColumnDefinition gap_column;
+      gap_column.Width(GridLength{1, GridUnitType::Star});
+      ColumnDefinition pager_column;
+      pager_column.Width(GridLength{1, GridUnitType::Auto});
+      actions.ColumnDefinitions().Append(clear_column);
+      actions.ColumnDefinitions().Append(gap_column);
+      actions.ColumnDefinitions().Append(pager_column);
+      auto clear = button_control(
           clip_clear_armed_ ? L"确认清空" : L"清空历史",
           [this] {
             if (!clip_clear_armed_) {
@@ -14434,136 +14558,191 @@ private:
             change_clipboard_history(clipboard_action(L"clear"),
                                      L"无法清空剪贴板历史，请稍后重试。");
           },
-          enabled && !clip_busy_));
-      actions_row = actions;
-    }
-    add_row(group, 0xE81C, L"剪贴板历史",
-            L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
-            toggle_control(L"剪贴板历史", enabled,
-                           [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_),
-            actions_row);
-    const auto history_limit = clipboard_history_limit();
-    std::vector<Option> limit_options;
-    for (const auto limit : {50, 100, 200, 500, 1000})
-      limit_options.push_back({std::to_wstring(limit), std::to_wstring(limit) + L" 条", true});
-    add_row(group, 0xE8AB, L"历史记录上限",
-            L"达到上限后，最旧的未固定记录会被新记录替换。",
-            select_control(L"历史记录上限", std::move(limit_options),
-                           std::to_wstring(history_limit), [this](std::wstring const &value) {
-                             try {
-                               const auto limit = std::stoul(value);
-                               change([limit](PreferencesDocument &doc) {
-                                 doc.SetNumber(L"clipboard_history_limit", static_cast<double>(limit));
-                               }, true);
-                             } catch (...) {
-                               show_notice(L"历史记录上限无效");
-                             }
-                           }, true));
-
-    if (enabled) {
-      auto history = add_group(page, L"历史记录");
-      if (const auto note = cloud_clipboard_note(); !note.empty())
-        history.Children().Append(group_note(note));
-      StackPanel list;
-      if (clip_entries_.empty()) {
-        auto empty = make_text(L"暂无历史记录", 12, palette_.sub);
-        empty.HorizontalAlignment(HorizontalAlignment::Center);
-        empty.Margin(Thickness{16, 24, 16, 24});
-        list.Children().Append(empty);
+          !clip_busy_);
+      A11y::SetAutomationId(clear, L"clipboard-clear");
+      actions.Children().Append(clear);
+      if (paging.paged()) {
+        // 共享页的 DictionaryPagination：上一页、状态、下一页，12 DIP 次要色，状态变化时读屏播报。
+        StackPanel pager;
+        pager.Orientation(Orientation::Horizontal);
+        pager.Spacing(8);
+        pager.VerticalAlignment(VerticalAlignment::Center);
+        auto previous = button_control(
+            L"上一页", [this, target = paging.previous_offset()] { show_clip_page(target); },
+            !clip_busy_ && paging.has_previous());
+        A11y::SetAutomationId(previous, L"clipboard-page-previous");
+        pager.Children().Append(previous);
+        auto status = make_text(nav::history_page_status(paging), 12, palette_.sub);
+        status.VerticalAlignment(VerticalAlignment::Center);
+        status.TextWrapping(TextWrapping::NoWrap);
+        A11y::SetAutomationId(status, L"clipboard-page-status");
+        A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
+        pager.Children().Append(status);
+        auto next = button_control(
+            L"下一页", [this, target = paging.next_offset()] { show_clip_page(target); },
+            !clip_busy_ && paging.has_next());
+        A11y::SetAutomationId(next, L"clipboard-page-next");
+        pager.Children().Append(next);
+        Grid::SetColumn(pager, 2);
+        actions.Children().Append(pager);
       }
-      bool first = true;
-      size_t entry_index = 0;
-      for (auto const &entry : clip_entries_) {
-        Border divider;
-        divider.BorderThickness(Thickness{0, first ? 0.0 : 1.0, 0, 0});
-        divider.BorderBrush(brush(palette_.divider));
-        first = false;
-        Grid row;
-        row.MinHeight(62);
-        row.Padding(Thickness{0, 8, 0, 8});
-        row.ColumnSpacing(12);
-        const auto entry_id = L"clipboard-entry-" + std::to_wstring(entry_index++);
-        ColumnDefinition text_column;
-        text_column.Width(GridLength{1, GridUnitType::Star});
-        ColumnDefinition actions_column;
-        actions_column.Width(GridLength{1, GridUnitType::Auto});
-        row.ColumnDefinitions().Append(text_column);
-        row.ColumnDefinitions().Append(actions_column);
-
-        StackPanel texts;
-        texts.Spacing(2);
-        texts.VerticalAlignment(VerticalAlignment::Center);
-        auto line = make_text(single_line(entry.text), 13, palette_.text);
-        A11y::SetAutomationId(line, hstring(entry_id + L"-preview"));
-        line.TextWrapping(TextWrapping::NoWrap);
-        line.TextTrimming(TextTrimming::CharacterEllipsis);
-        line.MaxLines(1);
-        ToolTipService::SetToolTip(line, box_value(hstring(entry.text)));
-        texts.Children().Append(line);
-        std::wstring meta = entry.pinned ? L"已固定 · " : L"";
-        meta += entry.timestamp_ms > 1'000'000'000'000ULL ? local_date_time(entry.timestamp_ms)
-                                                           : std::wstring(L"旧记录");
-        texts.Children().Append(make_text(meta, 11, palette_.sub));
-        Grid::SetColumn(texts, 0);
-        row.Children().Append(texts);
-
-        StackPanel buttons;
-        buttons.Orientation(Orientation::Horizontal);
-        buttons.Spacing(6);
-        buttons.VerticalAlignment(VerticalAlignment::Center);
-        buttons.Children().Append(button_control(
-            L"重新复制", [this, value = entry.text] { recopy_clipboard_entry(value); }));
-        // 次要操作放进菜单，给窄窗口中的记录正文留出空间。
-        MenuFlyout menu;
-        MenuFlyoutItem cloud;
-        cloud.Text(L"发到云剪贴板");
-        cloud.IsEnabled(cloud_state_ == CloudClipboardState::ready && !cloud_sending_);
-        cloud.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
-          send_to_cloud_clipboard(value);
-        });
-        menu.Items().Append(cloud);
-        MenuFlyoutItem pin;
-        pin.Text(entry.pinned ? L"取消固定" : L"固定");
-        pin.Click([this, value = entry.text, pinned = !entry.pinned](
-                      Inspectable const &, RoutedEventArgs const &) {
-          set_clipboard_entry_pinned(value, pinned);
-        });
-        A11y::SetName(pin, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
-        A11y::SetAutomationId(pin, L"clipboard-entry-pin");
-        menu.Items().Append(pin);
-        menu.Items().Append(MenuFlyoutSeparator());
-        MenuFlyoutItem remove;
-        remove.Text(L"删除");
-        remove.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
-          remove_clipboard_entry(value);
-        });
-        A11y::SetName(remove, L"删除剪贴板记录");
-        menu.Items().Append(remove);
-        Button more;
-        more.Width(32);
-        more.Height(32);
-        more.Padding(Thickness{0, 0, 0, 0});
-        more.Content(make_icon(0xE712, 14, palette_.sub));
-        more.IsEnabled(!clip_busy_);
-        more.Flyout(menu);
-        A11y::SetName(more, L"剪贴板记录的更多操作");
-        A11y::SetAutomationId(more, hstring(entry_id + L"-actions"));
-        ToolTipService::SetToolTip(more, box_value(L"更多操作"));
-        buttons.Children().Append(more);
-        Grid::SetColumn(buttons, 1);
-        row.Children().Append(buttons);
-
-        divider.Child(row);
-        list.Children().Append(divider);
-      }
-      A11y::SetName(list, L"剪贴板历史");
-      history.Children().Append(list);
+      history.Children().Append(actions);
     }
 
-    // 设备批准和列表管理继续使用共享云剪贴板面板。
-    auto cloud = add_group(page, L"云剪贴板");
-    build_cloud_clipboard_relay_settings(cloud);
-    shell_row(cloud, 0xE753, L"云剪贴板", L"", L"打开云剪贴板", nav::shell_links::cloud_clipboard);
+    StackPanel list;
+    if (!enabled || clip_entries_.empty()) {
+      auto empty = make_text(enabled ? L"暂无历史记录" : L"请先在「剪贴板」中开启剪贴板历史", 12,
+                             palette_.sub);
+      empty.HorizontalAlignment(HorizontalAlignment::Center);
+      empty.TextAlignment(TextAlignment::Center);
+      empty.Margin(Thickness{16, 24, 16, 24});
+      A11y::SetAutomationId(empty, L"clipboard-history-empty");
+      list.Children().Append(empty);
+    }
+    // 管理行和第一条之间也有分隔线，与共享页组内各块之间一样。
+    bool first = !managed;
+    for (size_t index = paging.offset; index < paging.offset + paging.count; ++index) {
+      auto const &entry = clip_entries_[index];
+      Border divider;
+      divider.BorderThickness(Thickness{0, first ? 0.0 : 1.0, 0, 0});
+      divider.BorderBrush(brush(palette_.divider));
+      first = false;
+      divider.Child(make_clip_entry_row(entry, index - paging.offset));
+      list.Children().Append(divider);
+    }
+    A11y::SetName(list, L"剪贴板历史");
+    history.Children().Append(list);
+  }
+
+  // 翻到从 `offset` 起的那一页：只改显示，不重读历史。
+  void show_clip_page(size_t offset) {
+    clip_offset_ = offset;
+    redraw_clip();
+  }
+
+  // 历史里的一条：左边单行正文（悬停看全文）和「已固定 · 」加本地时间，右边照共享页直接排出「重新复制」「发到云剪贴板」「固定 / 取消固定」「删除」。行窄到正文不足 180 DIP 时，后三个收进「更多操作」菜单（与共享页一样的名字），只留「重新复制」；按行宽在 SizeChanged 里切换，宽度够了再排回来。`position` 是这条在当前页里的序号，自动化 ID 是 `clipboard-entry-<序号>-…`。
+  Grid make_clip_entry_row(ClipboardEntry const &entry, size_t position) {
+    Grid row;
+    row.MinHeight(62);
+    row.Padding(Thickness{0, 8, 0, 8});
+    row.ColumnSpacing(12);
+    const auto entry_id = L"clipboard-entry-" + std::to_wstring(position);
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition actions_column;
+    actions_column.Width(GridLength{1, GridUnitType::Auto});
+    row.ColumnDefinitions().Append(text_column);
+    row.ColumnDefinitions().Append(actions_column);
+
+    StackPanel texts;
+    texts.Spacing(2);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    auto line = make_text(single_line(entry.text), 13, palette_.text);
+    A11y::SetAutomationId(line, hstring(entry_id + L"-preview"));
+    line.TextWrapping(TextWrapping::NoWrap);
+    line.TextTrimming(TextTrimming::CharacterEllipsis);
+    line.MaxLines(1);
+    ToolTipService::SetToolTip(line, box_value(hstring(entry.text)));
+    texts.Children().Append(line);
+    std::wstring meta = entry.pinned ? L"已固定 · " : L"";
+    meta += entry.timestamp_ms > 1'000'000'000'000ULL ? local_date_time(entry.timestamp_ms)
+                                                       : std::wstring(L"旧记录");
+    texts.Children().Append(make_text(meta, 11, palette_.sub));
+    Grid::SetColumn(texts, 0);
+    row.Children().Append(texts);
+
+    StackPanel buttons;
+    buttons.Orientation(Orientation::Horizontal);
+    buttons.Spacing(6);
+    buttons.VerticalAlignment(VerticalAlignment::Center);
+    const bool cloud_ready = cloud_state_ == CloudClipboardState::ready && !cloud_sending_;
+    auto recopy = button_control(
+        L"重新复制", [this, value = entry.text] { recopy_clipboard_entry(value); });
+    A11y::SetAutomationId(recopy, hstring(entry_id + L"-copy"));
+    buttons.Children().Append(recopy);
+    auto cloud = button_control(
+        L"发到云剪贴板", [this, value = entry.text] { send_to_cloud_clipboard(value); }, cloud_ready);
+    A11y::SetAutomationId(cloud, hstring(entry_id + L"-cloud"));
+    buttons.Children().Append(cloud);
+    auto pin = button_control(
+        entry.pinned ? L"取消固定" : L"固定",
+        [this, value = entry.text, pinned = !entry.pinned] { set_clipboard_entry_pinned(value, pinned); },
+        !clip_busy_);
+    A11y::SetName(pin, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
+    A11y::SetAutomationId(pin, hstring(entry_id + L"-pin"));
+    buttons.Children().Append(pin);
+    auto remove_button = button_control(
+        L"删除", [this, value = entry.text] { remove_clipboard_entry(value); }, !clip_busy_);
+    A11y::SetName(remove_button, L"删除剪贴板记录");
+    A11y::SetAutomationId(remove_button, hstring(entry_id + L"-remove"));
+    buttons.Children().Append(remove_button);
+
+    // 窄行的菜单：与直接排出的三个按钮同名、同样可用。
+    MenuFlyout menu;
+    MenuFlyoutItem cloud_item;
+    cloud_item.Text(L"发到云剪贴板");
+    cloud_item.IsEnabled(cloud_ready);
+    cloud_item.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+      send_to_cloud_clipboard(value);
+    });
+    menu.Items().Append(cloud_item);
+    MenuFlyoutItem pin_item;
+    pin_item.Text(entry.pinned ? L"取消固定" : L"固定");
+    pin_item.Click([this, value = entry.text, pinned = !entry.pinned](
+                       Inspectable const &, RoutedEventArgs const &) {
+      set_clipboard_entry_pinned(value, pinned);
+    });
+    A11y::SetName(pin_item, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
+    A11y::SetAutomationId(pin_item, L"clipboard-entry-pin");
+    menu.Items().Append(pin_item);
+    menu.Items().Append(MenuFlyoutSeparator());
+    MenuFlyoutItem remove_item;
+    remove_item.Text(L"删除");
+    remove_item.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+      remove_clipboard_entry(value);
+    });
+    A11y::SetName(remove_item, L"删除剪贴板记录");
+    menu.Items().Append(remove_item);
+    Button more;
+    more.Width(32);
+    more.Height(32);
+    more.Padding(Thickness{0, 0, 0, 0});
+    more.Content(make_icon(0xE712, 14, palette_.sub));
+    more.IsEnabled(!clip_busy_);
+    more.Flyout(menu);
+    more.Visibility(Visibility::Collapsed);
+    A11y::SetName(more, L"剪贴板记录的更多操作");
+    A11y::SetAutomationId(more, hstring(entry_id + L"-actions"));
+    ToolTipService::SetToolTip(more, box_value(L"更多操作"));
+    buttons.Children().Append(more);
+    Grid::SetColumn(buttons, 1);
+    row.Children().Append(buttons);
+
+    // 三个按钮排开时量下它们连同「重新复制」要多宽（收起后量不到，沿用上次量到的），行宽不够这么宽加正文的 180 和列距 12 时收进菜单。
+    auto inline_width = std::make_shared<double>(0);
+    row.SizeChanged([weak_buttons = make_weak(buttons), weak_more = make_weak(more), inline_width](
+                        Inspectable const &sender, SizeChangedEventArgs const &) {
+      const auto self = sender.as<Grid>();
+      const auto panel = weak_buttons.get();
+      const auto menu_button = weak_more.get();
+      if (!panel || !menu_button)
+        return;
+      const auto children = panel.Children();
+      const bool spread = menu_button.Visibility() == Visibility::Collapsed;
+      if (spread) {
+        double width = 0;
+        for (uint32_t index = 0; index + 1 < children.Size(); ++index)
+          width += children.GetAt(index).DesiredSize().Width;
+        *inline_width = width + panel.Spacing() * (children.Size() - 2);
+      }
+      const bool wide = self.ActualWidth() >= *inline_width + 12 + 180;
+      if (wide == spread)
+        return;
+      for (uint32_t index = 1; index + 1 < children.Size(); ++index)
+        children.GetAt(index).Visibility(wide ? Visibility::Visible : Visibility::Collapsed);
+      menu_button.Visibility(wide ? Visibility::Collapsed : Visibility::Visible);
+    });
+    return row;
   }
 
   void build_cloud_clipboard_relay_settings(StackPanel const &group) {
@@ -17796,7 +17975,7 @@ private:
 
   // ---- 屏幕键盘、语音、手写 ----
 
-  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」；提供手写的版本在「工具栏」和「外观」之间多一组「手写识别板」，即并进来的「手写输入」页（build_hand_page），与共享页 `handwritingOnScreenKeyboardPage` 的顺序相同。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
+  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」。提供手写的版本与共享页 `handwritingOnScreenKeyboardPage` 一样分成「键盘」「手写」两个页内标签（page_tab_bar，「键盘手写分类」）：四组都在「键盘」，「手写」只有并进来的「手写输入」页（build_hand_page）；`handwriting` 路由和搜索到手写那一组的行时打开「手写」。不提供手写的版本没有标签，只画这四组。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
   void build_osk_page(StackPanel const &page) {
     if (!indexing_) {
       osk_drag_.reset();
@@ -17805,6 +17984,20 @@ private:
       osk_row_slider_ = nullptr;
     }
 
+    if constexpr (MSIME_EDITION_HANDWRITING != 0) {
+      const auto tab = page_tab_bar(page, L"键盘手写分类",
+                                    {{L"keyboard", L"键盘"}, {L"handwriting", L"手写"}}, L"osk-tab");
+      if (in_tab(tab, L"keyboard"))
+        build_osk_keyboard(page);
+      if (in_tab(tab, L"handwriting"))
+        build_hand_page(page);
+    } else {
+      build_osk_keyboard(page);
+    }
+  }
+
+  // 「键盘与手写」页「键盘」标签的四组；不提供手写的版本整页就是这四组。
+  void build_osk_keyboard(StackPanel const &page) {
     auto keyboard = add_group(page, L"屏幕键盘");
     add_row(keyboard, 0xE92E, L"打开屏幕键盘", L"使用鼠标或触控方式输入文字与快捷按键",
             button_control(L"打开", [this] { open_shell(nav::shell_links::keyboard_panel); }));
@@ -17841,16 +18034,15 @@ private:
       osk_row_slider_ = row_slider.Children().GetAt(0).as<Slider>();
     }
     // 恢复默认也管下面「工具栏」组的顶部语音入口，所以和共享页一样放在它重置的第一组末尾；说明只列这一页看得到的几项，与共享页的 `touchKeyboardResetSubjects` 给 Windows 的相同。
+    // 与共享页的 `danger-text` 一样用危险色的字。
     auto reset = button_control(L"恢复默认", [this] { reset_screen_keyboard(); }, loaded_);
+    reset.as<Button>().Foreground(brush(danger_color()));
     A11y::SetName(reset, L"恢复屏幕键盘默认设置");
     add_row(size, 0xE777, L"恢复默认", L"高度、间距和顶部语音入口回到默认", reset);
 
     auto toolbar = add_group(page, L"工具栏");
     bool_row(toolbar, 0xE720, L"顶部语音入口", L"在键盘顶部显示一个语音按钮，点按开始语音输入",
              L"touch_voice_shortcut", false);
-
-    if constexpr (MSIME_EDITION_HANDWRITING != 0)
-      build_hand_page(page);
 
     // 屏幕键盘跟随「主题」页的颜色模式和主题，没有自己的明暗（共享页在跟随颜色模式的宿主上同样这样说），按钮落到「颜色模式」那一行。
     auto look = add_group(page, L"外观");
@@ -19692,11 +19884,75 @@ private:
     return files;
   }
 
-  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。它不再单独成页，由 build_osk_page 画在「屏幕键盘与手写」页的「外观」之前。
+  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），文案与 handwriting-settings-section.tsx 的桌面分支相同。它不再单独成页，由 build_osk_page 画在「键盘与手写」页的「手写」标签里。
   void build_hand_page(StackPanel const &page) {
     auto group = add_group(page, L"手写识别板");
     shell_row(group, 0xE929, L"打开手写识别板", L"使用鼠标或触控方式手写输入，自动识别候选汉字",
               L"打开", nav::shell_links::handwriting_panel);
+    if (!indexing_)
+      group.Children().Append(make_handwriting_preview_card());
+  }
+
+  // 「手写识别板」组的预览，照共享页的 SettingsPreviewBlock 和 panel-surface-style.ts 的手写板示意（`mock`）：与屏幕键盘预览一样的卡片和「预览」小字，下面是最宽 560、居中的示意，一块至少 230 高、12 圆角、虚线描边的画布，中间一个 110 DIP、向左倾 7° 的楷体「水」当作笔迹，再下面相隔 10 是一排四个等宽候选「水 永 木 未」（6 圆角、细描边、8 内边距、相隔 8）。颜色取设置窗口当前的明暗，与共享页取自身的配色相同。示意里的字与共享页一样留在无障碍树里，笔迹那个字带 `handwriting-preview-stroke`，界面验收靠它确认预览画出来了。
+  FrameworkElement make_handwriting_preview_card() {
+    StackPanel block;
+    block.Spacing(8);
+    block.Padding(Thickness{25, 14, 25, 18});
+    block.Children().Append(make_text(L"预览", 12, palette_.sub));
+
+    StackPanel mock;
+    mock.MaxWidth(560);
+    mock.HorizontalAlignment(HorizontalAlignment::Stretch);
+    mock.Spacing(10);
+    Grid canvas;
+    canvas.MinHeight(230);
+    Shapes::Rectangle frame;
+    frame.RadiusX(12);
+    frame.RadiusY(12);
+    frame.Fill(brush(palette_.card));
+    frame.Stroke(brush(palette_.stroke2));
+    frame.StrokeThickness(1);
+    DoubleCollection dash;
+    dash.Append(4);
+    dash.Append(3);
+    frame.StrokeDashArray(dash);
+    canvas.Children().Append(frame);
+    auto stroke = make_text(L"水", 110, palette_.sub);
+    stroke.FontFamily(Media::FontFamily(L"KaiTi, STKaiti"));
+    stroke.LineHeight(110);
+    stroke.HorizontalAlignment(HorizontalAlignment::Center);
+    stroke.VerticalAlignment(VerticalAlignment::Center);
+    stroke.RenderTransformOrigin(Windows::Foundation::Point{0.5f, 0.5f});
+    RotateTransform tilt;
+    tilt.Angle(-7);
+    stroke.RenderTransform(tilt);
+    A11y::SetAutomationId(stroke, L"handwriting-preview-stroke");
+    canvas.Children().Append(stroke);
+    mock.Children().Append(canvas);
+
+    Grid candidates;
+    candidates.ColumnSpacing(8);
+    int32_t column = 0;
+    for (const auto *candidate : {L"水", L"永", L"木", L"未"}) {
+      ColumnDefinition cell;
+      cell.Width(GridLength{1, GridUnitType::Star});
+      candidates.ColumnDefinitions().Append(cell);
+      Border chip;
+      chip.CornerRadius(CornerRadius{6, 6, 6, 6});
+      chip.BorderBrush(brush(palette_.stroke2));
+      chip.BorderThickness(Thickness{1, 1, 1, 1});
+      chip.Padding(Thickness{8, 8, 8, 8});
+      chip.Child(make_text(candidate, 14, palette_.text));
+      Grid::SetColumn(chip, column++);
+      candidates.Children().Append(chip);
+    }
+    mock.Children().Append(candidates);
+    block.Children().Append(mock);
+
+    auto card = make_card();
+    card.Child(block);
+    A11y::SetName(card, L"手写识别板预览");
+    return card;
   }
 
   // ---- AI 辅助 ----
@@ -19794,23 +20050,12 @@ private:
 
   // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、「更多选项」里的接口地址、获取模型列表和当前槽位的自定义提示词，末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
-    if (!indexing_ && !focus_row_.empty())
-      ai_mcp_view_ = focus_row_ == L"连接 AI 助手";
-    if (!indexing_) {
-      auto tabs = segmented_control(
-          L"AI 设置分类", {{L"assistance", L"输入辅助"}, {L"connection", L"连接助手"}},
-          ai_mcp_view_ ? L"connection" : L"assistance",
-          [this](std::wstring const &value) {
-            ai_mcp_view_ = value == L"connection";
-            queue_refresh();
-          }, true, false, 3, L"ai-settings");
-      tabs.HorizontalAlignment(HorizontalAlignment::Left);
-      tabs.Margin(Thickness{0, 0, 0, 12});
-      page.Children().Append(tabs);
-    }
-    if (indexing_ || !ai_mcp_view_)
+    const auto tab = page_tab_bar(page, L"AI 设置分类",
+                                  {{L"assistance", L"输入辅助"}, {L"connection", L"连接助手"}},
+                                  L"ai-settings");
+    if (in_tab(tab, L"assistance"))
       build_ai_assistance_page(page);
-    if (indexing_ || ai_mcp_view_)
+    if (in_tab(tab, L"connection"))
       build_mcp_page(page);
   }
 
@@ -20615,7 +20860,7 @@ private:
       mcp_result_ = mcp_failure(response_error(response), name);
     }
     mcp_busy_ = false;
-    if (!closed_ && current_page_ == "ai" && ai_mcp_view_)
+    if (!closed_ && current_page_ == "ai" && page_tab("ai") == L"connection")
       render_page(true);
   }
 
@@ -20643,6 +20888,9 @@ private:
   // 正在索引的折叠区（「候选窗口」页的「更多选项」、「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
   std::wstring fold_index_;
   std::map<std::wstring, std::wstring> search_folds_;
+  // 每页选中的页内标签（页面 id → 标签 id），跨页面保留、不写偏好；以及建索引时正在画的标签。见 page_tab_bar。
+  std::map<std::string, std::wstring> page_tabs_;
+  std::wstring tab_index_;
   // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
   bool candidate_more_open_ = false;
   bool custom_colors_open_ = false;
@@ -20661,7 +20909,6 @@ private:
 
   std::wstring mcp_result_;
   bool mcp_busy_ = false;
-  bool ai_mcp_view_ = false;
 
   // 「标点与翻译」页三个「测试配置」的结果，按服务记，跨页面重建保留（共享页 useProviderCredentials 的 credentialTests）；signature 是测试时的配置。刷新函数属于当前页面上的那一组按钮，测试结束时用它就地更新，不重画整页，免得输入框丢掉焦点和没能写入的内容。
   struct CredentialTest {
@@ -20832,6 +21079,8 @@ private:
 
   // 「剪贴板」页：读到的历史、「确认清空」是否待确认、写入是否在进行，跨页面重建保留。clip_generation_ 在开关变化时递增，作废进行中的读写；clip_read_ 在写入完成时递增，作废更早发出的读取。
   std::vector<ClipboardEntry> clip_entries_;
+  // 「历史记录」标签当前页第一条的下标（HistoryPagination.h），只管显示；历史关着时回到 0。
+  size_t clip_offset_ = 0;
   bool clip_clear_armed_ = false;
   bool clip_busy_ = false;
   bool clip_stale_ = true;

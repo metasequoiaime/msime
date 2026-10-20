@@ -11,9 +11,9 @@ macOS 设置在常用页面的正文顶部放一行页首引导：左边一句 1
 ### 页首引导
 
 - 文案与插画场景放在 `platforms/windows/settings/SettingsMascotIntro.h`，逐字取自 `packages/ui/src/settings/settings-mascot-intro.tsx` 的 `introductions` 和 `tabIntroductions`，页面 id 换成本窗口的。头文件不依赖 Windows，`tests/ui/settings_navigation.cpp` 直接核对。
-- `mascot_intro(page, tab)` 按页面和页内标签取引导；`tab` 为空或这一页没有这个标签时取这一页的第一条，「关于」和不认识的页面没有引导。「语音输入」「键盘与手写」「剪贴板」在共享 UI 里按标签各有一句（输入 / 录音、键盘 / 手写、剪贴板 / 历史记录），Windows 上这几页还没有页内标签，现在显示第一个标签那句。
+- `mascot_intro(page, tab)` 按页面和页内标签取引导；`tab` 为空或这一页没有这个标签时取这一页的第一条，「关于」和不认识的页面没有引导。「语音输入」「键盘与手写」「剪贴板」在共享 UI 里按标签各有一句（输入 / 录音、键盘 / 手写、剪贴板 / 历史记录）。「键盘与手写」「剪贴板」接上[页内标签框架](2026-10-20-windows-settings-page-tabs.md)后显示当前标签那句；「语音输入」在 Windows 上还没有页内标签，显示第一个标签那句。
 - `main.cpp` 的 `make_page_header` 画这一行：说明 13 DIP、1.625 倍行高、次要色，插画 80 DIP，两者竖直居中、相隔 20，整行左右各留 4（macOS 的 `px-1`、`gap-5`）。`update_intro_size` 在窗口内容区矮于 700 DIP 时把插画缩到 56、间隔收成 12，`build_shell` 给根元素挂 SizeChanged 跟着改。插画对 UIA 是 Raw 视图，与共享 UI 的 `aria-hidden` 相同。
-- `show_page_intro_tab(tab)` 只换说明文字和插画、不重画整页，是给后续页内标签框架调用的入口；现在只有 `make_page_header` 用空标签调用它。
+- `show_page_intro_tab(tab)` 只换说明文字和插画、不重画整页；`make_page_header` 用这一页在 `page_tabs_` 里记下的标签调用它，切标签时整页重画，引导随之换掉。
 - 说明仍带 `settings-page-<页面 id>` 的自动化 ID；「关于」没有引导，这个 ID 落在品牌卡的产品名上，`settings_ui.ps1` 的切页等待因此不用分支。
 - `PageLabel` 去掉 `summary` 字段：它唯一的用处就是原来那行说明。
 
@@ -42,10 +42,10 @@ macOS 设置在常用页面的正文顶部放一行页首引导：左边一句 1
 
 ## Consequences
 
-- **收益**：Windows 设置的页首和侧栏图标与 macOS 一致，文案只有一份来源（共享 UI），漂移会被 `test-windows-settings-art.py` 和 `settings_navigation.cpp` 拦下。标签框架接上以后只需在切标签时调用 `show_page_intro_tab`。
+- **收益**：Windows 设置的页首和侧栏图标与 macOS 一致，文案只有一份来源（共享 UI），漂移会被 `test-windows-settings-art.py` 和 `settings_navigation.cpp` 拦下。页内标签框架已经把当前标签交给 `show_page_intro_tab`。
 - **代价**：`msime-client-settings.exe` 多约 0.9 MB 的 PNG 资源。侧栏图标的路径数据是转换产物，共享 UI 改了某张 SVG 的画面（文件名不变）时，检查脚本看不出来，要人工按头文件注释重新生成。PNG 是否由当前 WebP 逐像素转来，检查只核对尺寸。
 - **重访信号**：`settings-mascot-intro.tsx` 增删页面或标签；共享 UI 换图标；Windows App SDK 升级后导航项模板不再用 Viewbox 装图标，或 `PathIcon` 不再按几何的 Transform 绘制。
-- 「语音输入」「键盘与手写」「剪贴板」的说明随标签切换，要等页内标签框架落地才完整；在那之前它们固定显示第一个标签的那句。
+- 「键盘与手写」「剪贴板」的说明已随标签切换；「语音输入」要等它在 Windows 上分出标签才完整，在那之前固定显示第一个标签的那句。
 
 ## Verification
 
