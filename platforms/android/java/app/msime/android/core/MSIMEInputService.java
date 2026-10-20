@@ -152,6 +152,7 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
+    final java.util.List<CandidateCanvasAssets.Word> candidateDecorationWords = new java.util.ArrayList<>();
     /**
      * 候选条上有手指按着，这一帧的候选内容推迟到松开之后再画。
      *
@@ -7799,6 +7800,12 @@ public final class MSIMEInputService extends InputMethodService {
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         String displayedText = ContactCandidatePolicy.displayText(source, text);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
+        CandidateCanvasAssets canvas = candidateAppearance.canvas();
+        if (canvas != null && canvas.banner != null && canvas.banner.candidate() != null) {
+            // 来源标注独立于原文，不包含固定图钉，也不猜测原文中的括号后缀。
+            String badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+            candidateDecorationWords.add(new CandidateCanvasAssets.Word(displayedText, badge, highlighted));
+        }
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
@@ -8383,6 +8390,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         deactivateHandwriting();
         candidateButtons.clear();
+        candidateDecorationWords.clear();
         englishSuggestionButtons.clear();
         nineKeySpellingButtons.clear();
         nineKeySpellingIndices = java.util.List.of();
@@ -9882,6 +9890,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         candidateRenderDeferred = false;
+        candidateDecorationWords.clear();
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (expandCandidates != null) ViewPolicy.hide(expandCandidates);

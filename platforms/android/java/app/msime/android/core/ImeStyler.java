@@ -433,10 +433,16 @@ final class ImeStyler {
         boolean canvasActive = canvas != null && ViewPolicy.isVisible(s.candidateViewport);
         s.imeFrame.setKeysCovered(canvas != null && ViewPolicy.isVisible(s.expandedCandidateScroll));
         int candidateSurface = s.candidateAppearance.surface();
-        if (s.candidateCanvasRegion != null)
+        Typeface decorationFont = canvas != null && canvas.banner != null && canvas.banner.candidate() != null
+            ? candidateTypeface() : Typeface.DEFAULT;
+        if (s.candidateCanvasRegion != null) {
             s.candidateCanvasRegion.apply(canvas, canvasActive, candidateSurface);
-        if (s.expandedCandidateCanvas != null)
+            s.candidateCanvasRegion.decorationWords(s.candidateDecorationWords, decorationFont);
+        }
+        if (s.expandedCandidateCanvas != null) {
             s.expandedCandidateCanvas.apply(canvas, ViewPolicy.isVisible(s.expandedCandidateScroll), candidateSurface);
+            s.expandedCandidateCanvas.decorationWords(s.candidateDecorationWords, decorationFont);
+        }
         if (s.candidateViewport != null)
             ViewPolicy.setBackgroundColor(s.candidateViewport, canvasActive ? Color.TRANSPARENT : candidateSurface);
         if (s.expandedCandidates != null)

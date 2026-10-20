@@ -412,3 +412,7 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
+
+### 装饰图中的候选词
+
+原生候选列与展开候选支持传统装饰图的 `candidate_overlay_*`，普通当前页的真实高亮用于索引 0，其余索引从 1 开始。图片、字号和偏移使用 DIP，文字按声明框对齐，缩到最小字号后保留完整单行；云／AI 来源标记独立于原文。资源在偏好线程解码，逐键复用，隐藏停止图片动画。装饰带参与 Android 既有候选容器的留白测量，未接入桌面装饰待机变换。设备回归入口为 `CandidateCanvasDeviceSmoke`，需在 API 28 与 35 的专用 AVD 上运行，Java 编译通过不代替设备绘制验收。

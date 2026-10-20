@@ -27,6 +27,7 @@ import org.json.JSONObject;
 /** 偏好线程准备的画布；绘制路径不读取文件，也不重新解码。 */
 public final class CandidateCanvasAssets {
     final Image panel;
+    final Banner banner;
     final Tiles panelTiles;
     final double[] slices;
     final double[] widths;
@@ -38,21 +39,23 @@ public final class CandidateCanvasAssets {
     final java.util.List<Widget> widgets;
     final String key;
 
-    private CandidateCanvasAssets(JSONObject manifest, Image panel, java.util.List<Widget> widgets,
+    private CandidateCanvasAssets(JSONObject manifest, boolean canvas, Image panel, Banner banner, java.util.List<Widget> widgets,
             String key) {
         this.panel = panel;
+        this.banner = banner;
         this.widgets = java.util.List.copyOf(widgets);
         this.key = key;
-        JSONObject border = manifest.optJSONObject("borderImage");
+        JSONObject border = canvas ? manifest.optJSONObject("borderImage") : null;
         slices = border == null ? new double[4] : sides(border.optJSONArray("stretchDip"),
             sides(border.optJSONArray("sliceDip"), new double[4]));
         widths = border == null ? new double[4] : sides(border.optJSONArray("widthDip"), slices);
         panelTiles = panel == null ? null : panel.tiles(slices);
         fill = border == null || border.optBoolean("fill", true);
-        content = insets(manifest.optJSONObject("contentInsetsDip"));
+        content = canvas ? insets(manifest.optJSONObject("contentInsetsDip")) : new double[4];
         if (panel != null) for (int i = 0; i < 4; i++) content[i] = Math.max(content[i], widths[i]);
-        outer = insets(manifest.optJSONObject("outerInsetsDip"));
-        lineGap = manifest.optDouble("lineGapDip", -1);
+        outer = canvas ? insets(manifest.optJSONObject("outerInsetsDip")) : new double[4];
+        if (banner != null) outer[0] = Math.max(outer[0], banner.height());
+        lineGap = canvas ? manifest.optDouble("lineGapDip", -1) : -1;
         itemRadius = manifest.has("itemCornerRadiusDip") ? manifest.optDouble("itemCornerRadiusDip") : null;
     }
 
@@ -64,7 +67,8 @@ public final class CandidateCanvasAssets {
             Map<String, Image> cache, Map<String, Image> previous) throws JSONException, IOException {
         JSONObject query = new JSONObject().put("directory", directory).put("id", id);
         JSONObject manifest = value(NativeClient.skinPackage(query.toString()));
-        if (manifest == null || !manifest.optBoolean("canvas")) return null;
+        if (manifest == null) return null;
+        boolean canvas = JsonPolicy.strictTrue(manifest.opt("canvas"));
         StringBuilder fingerprint = new StringBuilder(manifest.toString()).append(dark);
         Map<String, Image> loaded = new HashMap<>();
         java.util.function.Function<String, Image> image = relative -> {
@@ -93,14 +97,14 @@ public final class CandidateCanvasAssets {
         };
         JSONObject border = manifest.optJSONObject("borderImage");
         Image panel = null;
-        if (border != null) {
+        if (canvas && border != null) {
             String source = border.optString("source");
             if (!dark && !border.optString("lightSource").isEmpty()) source = border.optString("lightSource");
             panel = image.apply(source);
         }
         ArrayList<Widget> widgets = new ArrayList<>();
         JSONArray decorations = manifest.optJSONArray("decorations");
-        if (decorations != null) {
+        if (canvas && decorations != null) {
             for (int i = 0; i < Math.min(32, decorations.length()); i++) {
                 JSONObject item = decorations.getJSONObject(i);
                 Image bitmap = image.apply(item.optString("image"));
@@ -110,7 +114,15 @@ public final class CandidateCanvasAssets {
             }
         }
         widgets.sort(Comparator.comparingInt(Widget::z));
-        return new CandidateCanvasAssets(manifest, panel, widgets,
+        Banner banner = null;
+        double width = manifest.optDouble("decorationWidthDip", 0), height = manifest.optDouble("decorationTopDip", 0);
+        if (width > 0 && height > 0) {
+            Image bitmap = image.apply(manifest.optString("decorationImage"));
+            if (bitmap != null) banner = new Banner(bitmap, width, height,
+                manifest.optString("decorationAlign", "right"), CandidateOverlay.from(manifest.optJSONObject("decorationCandidate")));
+        }
+        if (panel == null && widgets.isEmpty() && banner == null) return null;
+        return new CandidateCanvasAssets(manifest, canvas, panel, banner, widgets,
             digest(fingerprint.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 
@@ -139,6 +151,45 @@ public final class CandidateCanvasAssets {
         double a = values.optDouble(0), b = values.optDouble(values.length() == 1 ? 0 : 1);
         return new double[] {a, b, values.optDouble(values.length() == 4 ? 2 : 0),
             values.optDouble(values.length() == 4 ? 3 : values.length() == 2 ? 1 : 0)};
+    }
+
+    public record Word(String text, String badge, boolean highlighted) {}
+    record Banner(Image image, double width, double height, String align, CandidateOverlay candidate) {}
+
+    /** 消费共享扫描器的有界快照；颜色采用共享 RGBA 顺序。 */
+    record CandidateOverlay(int index, double fontSize, double minimum, double maxWidth, double x, double y,
+            String horizontal, String vertical, boolean stripBadge, int color) {
+        static CandidateOverlay from(JSONObject value) {
+            if (value == null) return null;
+            int index = NumberPolicy.strictInt(value.opt("index"), -1);
+            double font = number(value, "fontSizeDip", 0, 200), minimum = number(value, "minFontSizeDip", 0, 200);
+            double width = number(value, "maxWidthDip", 0, 2000);
+            double x = number(value, "offsetXDip", -2000, 2000), y = number(value, "offsetYDip", -2000, 2000);
+            String h = JsonPolicy.strictString(value.opt("alignH")), v = JsonPolicy.strictString(value.opt("alignV"));
+            Boolean strip = JsonPolicy.strictBoolean(value.opt("stripBadge"));
+            String rgba = JsonPolicy.strictString(value.opt("resolvedColor"));
+            Integer color = rgba != null && rgba.length() == 9 ? ColorPolicy.contractArgb(rgba) : null;
+            if (index < 0 || index > 100 || !(font > 0) || !(minimum > 0) || !Double.isFinite(width)
+                    || !Double.isFinite(x) || !Double.isFinite(y) || strip == null || color == null
+                    || !("left".equals(h) || "center".equals(h) || "right".equals(h))
+                    || !("top".equals(v) || "center".equals(v) || "bottom".equals(v))) return null;
+            return new CandidateOverlay(index, font, minimum, width, x, y, h, v, strip, color);
+        }
+
+        private static double number(JSONObject value, String key, double minimum, double maximum) {
+            double result = NumberPolicy.strictDouble(value.opt(key), Double.NaN);
+            return result >= minimum && result <= maximum ? result : Double.NaN;
+        }
+
+        String word(java.util.List<Word> words) {
+            int seat = index - 1;
+            if (index == 0) {
+                for (int i = 0; i < words.size(); i++) if (words.get(i).highlighted()) { seat = i; break; }
+            }
+            if (seat < 0 || seat >= words.size()) return "";
+            Word word = words.get(seat);
+            return word.text() + (stripBadge ? "" : word.badge());
+        }
     }
 
     record Widget(Image image, String anchor, double width, double height, double x, double y, int z) {}
