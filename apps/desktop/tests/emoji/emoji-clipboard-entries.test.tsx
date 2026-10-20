@@ -203,3 +203,22 @@ test("空列表仅呈现原列表容器，状态文案由面板提供", () => {
   expect(view.container.childElementCount).toBe(1);
   expect(view.container.firstElementChild?.childElementCount).toBe(0);
 });
+
+test("面板轮询给出内容相同的新数组时，正在显示的预览和菜单不收起；内容变了才收起", () => {
+  vi.useFakeTimers();
+  const callbacks = actions();
+  const onSendToCloud = vi.fn();
+  const props = { busy: false, canCopy: true, ...callbacks, onSendToCloud };
+  const view = render(<EmojiClipboardEntries items={[...items]} {...props} />);
+  const entry = view.container.querySelectorAll<HTMLButtonElement>("[data-clipboard-item]")[1];
+  fireEvent.pointerEnter(entry, { pointerType: "mouse" });
+  act(() => vi.advanceTimersByTime(400));
+  view.rerender(<EmojiClipboardEntries items={[...items]} {...props} />);
+  expect(view.container.querySelector("[data-clipboard-preview]")).not.toBeNull();
+  fireEvent.contextMenu(entry, { clientX: 10, clientY: 10 });
+  view.rerender(<EmojiClipboardEntries items={[...items]} {...props} />);
+  expect(screen.getByRole("menu")).toBeTruthy();
+  view.rerender(<EmojiClipboardEntries items={[items[1]]} {...props} />);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(view.container.querySelector("[data-clipboard-preview]")).toBeNull();
+});

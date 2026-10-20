@@ -71,25 +71,35 @@ export function EmojiClipboardEntries({
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    // 用鼠标打开时焦点还在行上，Esc 先在捕获阶段关掉菜单，不让它落到面板的 Esc（返回首页或关窗）上。
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu(true);
+    };
     const view = menuItem.current?.ownerDocument.defaultView;
     view?.addEventListener("pointerdown", close);
     view?.addEventListener("blur", close);
     view?.addEventListener("scroll", close, true);
+    view?.addEventListener("keydown", escape, true);
     return () => {
       view?.removeEventListener("pointerdown", close);
       view?.removeEventListener("blur", close);
       view?.removeEventListener("scroll", close, true);
+      view?.removeEventListener("keydown", escape, true);
     };
   }, [menu]);
   useLayoutEffect(() => {
     if (menu?.keyboard) menuItem.current?.focus({ preventScroll: true });
   }, [menu]);
-  // 列表变化（删除、刷新、搜索）后旧的预览和菜单指向的行可能已经不在了。
+  // 列表内容变化（删除、刷新、搜索）后旧的预览和菜单指向的行可能已经不在了。按内容比较：面板每次轮询都会给出一个新的数组，内容没变时不能把正在显示的预览和菜单收掉。
+  const itemsKey = items.join("\u0000");
   useEffect(() => {
     clearTimeout(timer.current);
     setPreview(null);
     setMenu(null);
-  }, [items]);
+  }, [itemsKey]);
 
   function schedulePreview(row: HTMLElement, text: string) {
     clearTimeout(timer.current);
@@ -215,7 +225,8 @@ export function EmojiClipboardEntries({
           style={{ left: menu.left, top: menu.top }}
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
-            if (event.key !== "Escape" && event.key !== "Tab") return;
+            // Esc 由上面捕获阶段的监听处理；Tab 离开菜单时同样关掉它并回到那一行。
+            if (event.key !== "Tab") return;
             event.preventDefault();
             event.stopPropagation();
             closeMenu(true);

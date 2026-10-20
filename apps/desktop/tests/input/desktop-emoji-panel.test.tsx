@@ -279,3 +279,24 @@ test.each(["windows", undefined])(
     expect(invoke).not.toHaveBeenCalledWith("close_panel", expect.anything());
   },
 );
+
+test("独立剪贴板窗口里 Esc 关闭鼠标打开的菜单，再按一次关闭窗口而不是回到表情首页", async () => {
+  linuxHost("monitoring");
+  const client = panelClient();
+  render(
+    <DesktopEmojiPanel client={client} theme="dark" initialPage="clipboard" hostPlatform="linux" />,
+  );
+  const entry = await screen.findByRole("button", { name: "合成剪贴板历史" });
+  entry.focus();
+  fireEvent.contextMenu(entry, { clientX: 30, clientY: 30 });
+  expect(screen.getByRole("menu")).toBeTruthy();
+  fireEvent.keyDown(entry, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(invoke).not.toHaveBeenCalledWith("close_panel", expect.anything());
+  expect(screen.getByRole("main", { name: "剪贴板" })).toBeTruthy();
+  fireEvent.keyDown(entry, { key: "Escape" });
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("close_panel", { label: "clipboard-panel" }),
+  );
+  expect(screen.queryByRole("heading", { name: "Emoji" })).toBeNull();
+});

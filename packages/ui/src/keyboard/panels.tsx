@@ -1358,13 +1358,14 @@ export function EmojiPanel({
     showMore,
     previousItemPage,
     nextItemPage,
-  } = useEmojiPanel(client, initialPage);
+  } = useEmojiPanel(client, initialPage, standaloneClipboard);
   const selectCatalogItem = (item: EmojiCatalogItem) => copy(item.text, false, item.keywords);
   const standalone = standaloneClipboard && page === "clipboard";
   return (
     <main
       {...navigation}
-      className={`native-panel group relative flex min-h-screen flex-col overflow-hidden ${page === "symbols" ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText}`}
+      // `panelSurface` 的浅色变体是 `group-data`，只作用于子元素；根元素自己就是这个 group，浅色底色要直接按自身的 `data-panel-theme` 给，否则浅色主题下空白处仍是深色。
+      className={`native-panel group relative flex min-h-screen flex-col overflow-hidden ${page === "symbols" ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText} data-[panel-theme=light]:bg-[#f7f8fa] data-[panel-theme=light]:text-[#202124]`}
       data-panel-theme={theme}
       aria-label={standalone ? "剪贴板" : "表情与符号"}
     >

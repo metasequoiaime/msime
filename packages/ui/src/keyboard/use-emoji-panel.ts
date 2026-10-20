@@ -46,6 +46,8 @@ export function emojiToastPreview(text: string): string {
 export function useEmojiPanel(
   client: EmojiPanelClient,
   initialPage: "home" | "clipboard" = "home",
+  /** 独立的本地剪贴板窗口没有表情首页可回，Esc 直接关闭窗口。 */
+  standaloneClipboard = false,
 ) {
   const [page, setPage] = useState<EmojiPage>(initialPage);
   const [itemPage, setItemPage] = useState(0);
@@ -568,7 +570,7 @@ export function useEmojiPanel(
   }
   const navigation = useEmojiNavigation(
     () => {
-      if (page !== "home") {
+      if (page !== "home" && !(standaloneClipboard && page === "clipboard")) {
         selectPage("home");
         navigation.ref.current
           ?.querySelector<HTMLInputElement>("input[data-panel-search]")
