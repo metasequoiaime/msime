@@ -1886,7 +1886,7 @@ final class ImePanels {
     private LinearLayout clipboardCardRow;
 
     /**
-     * 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
+     * 剪贴板卡片：键帽色圆角卡，最多显示三行，长文本可在卡片内滚动预览。正文后是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
      *
      * <p>`index`/`count` 决定它排在哪：单列时一条一行；双列（本地设置 `platform.android.clipboard_columns`，#5642）时两条一行等宽，最后一行只有一条时右边留空，不把它拉满整行。`selected` 的卡片（长按打开了操作行的那条）画成选中样式，元信息不再用次要色，免得压在强调色上看不清。
      */
@@ -1899,7 +1899,7 @@ final class ImePanels {
 
     /** 只造卡片，不放进面板；本机历史要先把它包进左滑容器（{@link #clipboardSwipeCell}）再放。 */
     private Button newClipboardCard(String text, String meta, boolean selected, Runnable action) {
-        KeyboardPressButton card = ViewPolicy.newPressButton(s);
+        KeyboardPressButton card = new ClipboardPreviewButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
         if (!meta.isEmpty()) {
@@ -1915,7 +1915,7 @@ final class ImePanels {
         ViewPolicy.setSelected(card, selected);
         card.setText(label);
         ViewPolicy.setStartCenteredTextSizeSp(card, 15);
-        ViewPolicy.setMaxLinesEllipsized(card, 3);
+        card.setGravity(Gravity.START | Gravity.TOP);
         LayoutPolicy.setSymmetricPaddingDp(card, s, 12, 8);
         ViewPolicy.clearMinimumHeight(card);
         ViewPolicy.clearStateListAnimator(card);

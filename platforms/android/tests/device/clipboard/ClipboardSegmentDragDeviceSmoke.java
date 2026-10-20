@@ -20,7 +20,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
-        return "segment taps, multiline range selection, reversal, cancellation and edge scrolling";
+        return "card preview without insertion, preserved swipe and long press, segment taps, multiline range selection, reversal, cancellation and edge scrolling";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -52,6 +52,15 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             tap(described("剪贴板"));
             AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
                 && node.getText().toString().startsWith(word(0)));
+            stage = "long clipboard card scrolls without insertion";
+            byte[] seededHistory = Files.readAllBytes(history.toPath());
+            previewCard(card);
+            if (!java.util.Arrays.equals(seededHistory, Files.readAllBytes(history.toPath())))
+                throw new AssertionError("Preview rewrote history");
+            await(field("msime-test-plain").and(node -> node.getText() == null || node.getText().length() == 0));
+            card = await(node -> node.isLongClickable() && node.getText() != null
+                && node.getText().toString().startsWith(word(0)));
+            stage = "long press remains available after preview";
             if (!card.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) throw new AssertionError("Long press refused");
             tap(node -> equalsText("分词", node.getText()) && node.getParent() != null
             && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
@@ -103,6 +112,39 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             }
             restartIme();
         }
+    }
+
+    private void previewCard(AccessibilityNodeInfo card) throws Exception {
+        if (!card.isScrollable()) throw new AssertionError("Long card was not scrollable");
+        Rect bounds = new Rect();
+        card.getBoundsInScreen(bounds);
+        Rect from = new Rect(bounds.centerX(), bounds.bottom - 8, bounds.centerX() + 1, bounds.bottom - 7);
+        Rect to = new Rect(bounds.centerX(), bounds.top + 8, bounds.centerX() + 1, bounds.top + 9);
+        drag(from, to, false);
+        SystemClock.sleep(200);
+        card.refresh();
+        Rect after = new Rect();
+        card.getBoundsInScreen(after);
+        if (!bounds.equals(after)) throw new AssertionError("Preview scrolled the outer list");
+        // 读屏也能翻页到全文末尾，再回到开头，滚动动作不能触发插入。
+        int pages = 0;
+        while (card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+            if (++pages > 40) throw new AssertionError("Preview did not reach the end");
+            card.refresh();
+        }
+        if (pages == 0) throw new AssertionError("Preview fixture did not span multiple pages");
+        while (card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+            if (--pages < -2) throw new AssertionError("Preview did not return to the start");
+            card.refresh();
+        }
+        stage = "horizontal delete still works after vertical preview";
+        Rect swipeFrom = new Rect(bounds.right - 8, bounds.centerY(), bounds.right - 7, bounds.centerY() + 1);
+        Rect swipeTo = new Rect(bounds.left + 8, bounds.centerY(), bounds.left + 9, bounds.centerY() + 1);
+        drag(swipeFrom, swipeTo, false);
+        await(described("删除这条剪贴板记录").and(AccessibilityNodeInfo::isVisibleToUser));
+        // 已打开的卡片第一次点按只收回删除区，下一步再检查长按管理。
+        tap(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(word(0)));
     }
 
     private Rect rect(int i) {
