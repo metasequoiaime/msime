@@ -3604,7 +3604,7 @@ int main(int argc, char **argv) {
       state->wave_overlay_surface_ = std::move(nativeSurface);
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
-    // The drawn surfaces report a click from inside their own update(), which the 16 ms frame timer calls, so Cancel tears that timer down while its callback is still running; Confirm while recognition is pending only takes the bar down and sends the provider no second stop.
+    // The drawn surfaces report a click from inside their own update(), so Cancel tears the frame timer and the display watch down before update() returns (the frame timer's own callback reads nothing through its capture afterwards, which fcitx5_contract.py pins); Confirm while recognition is pending only takes the bar down and sends the provider no second stop. The loop is not run here: once exited, an sd-event loop takes no new sources.
     {
       using Action = msime::linux_host::WaveOverlayModel::Action;
       struct ActingSurface final : msime::linux_host::WaveOverlaySurface {
@@ -3616,7 +3616,6 @@ int main(int argc, char **argv) {
           const auto action = *pending;
           pending.reset();
           state.handleVoiceOverlayAction(action);
-          state.loop_->exit();
         }
         void hide() override { ++hides; }
         bool animates() const override { return true; }
@@ -3632,7 +3631,6 @@ int main(int argc, char **argv) {
       state->wave_overlay_failed_ = false;
       state->wave_overlay_visible_ = false;
       state->wave_overlay_dismissed_ = false;
-      // No worker and no mailbox, so the 250 ms poll that may run inside the loop below leaves the recording alone.
       state->voice_job_ = {};
       state->voice_mailbox_.reset();
       state->voice_loading_ = true;
@@ -3644,18 +3642,11 @@ int main(int argc, char **argv) {
       require(state->wave_overlay_visible_ && state->wave_overlay_frame_timer_,
               "a drawn recording runs the wave's frame timer");
       surface->pending = Action::Cancel;
-      // The loop runs until the frame that delivers the click, or two seconds at most.
-      auto deadline = state->loop_->addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 2000000, 0,
-                                                 [state](fcitx::EventSourceTime *, uint64_t) {
-                                                   state->loop_->exit();
-                                                   return true;
-                                                 });
-      state->loop_->exec();
-      deadline.reset();
-      require(!surface->pending && surface->updates >= 1, "the frame timer delivered the click through update()");
+      state->updateVoiceOverlay();
+      require(!surface->pending && surface->updates >= 1, "the click was delivered from inside update()");
       require(!state->voice_loading_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
                   !state->wave_overlay_frame_timer_ && !state->wave_overlay_io_,
-              "Cancel from inside a frame ends the recording and stops the overlay's sources");
+              "Cancel from inside update() ends the recording and stops the overlay's sources");
       // Recognition pending: the bar shows its label without a frame timer, and Confirm only dismisses it.
       state->voice_loading_ = true;
       state->voice_socket_ = "/nonexistent/msime-voice-provider.sock";

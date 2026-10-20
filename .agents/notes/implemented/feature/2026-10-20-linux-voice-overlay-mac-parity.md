@@ -40,6 +40,6 @@ X11 与 Wayland 共用 `WaveOverlayPainter.h`（Cairo + Pango）。画家按逻�
 
 - `platforms/linux/tests/runtime/wave_overlay_model.cpp`：布局优先级与尺寸、圆角、按钮规则与命中、波形在静音时为点、说话时中间高于两边且有界、停止后回落、转写窗口与“…”、NUL 等控制字符被丢掉、辅助文字的电平格、锁定提示与失败文案。
 - `platforms/linux/tests/runtime/wave_overlay_painter.cpp`（`linux-wave-overlay-painter` 测试，需 pangocairo）：用真实 Pango 量出的四种呈现尺寸、失败胶囊加宽、最新三行与组合字符不被切开、圆角外全透明、面板 0.90 不透明、无 alpha 时不透明、皮肤配色且波形用文字色、带 NUL 的转写照常截断绘制；设置 `MSIME_TEST_CANVAS_ARTIFACTS` 时把每种呈现存成 PNG。
-- `platforms/linux/fcitx5/tests/native.cpp`：开始录音不显示按钮、辅助文字与 IBus 同文、锁定提示、失败提示无按钮且 Esc 可收起；一个在 `update()` 里报告点击的假浮层经真实事件循环的帧定时器点取消，录音结束、帧定时器和监听都撤掉；识别中再次 `stopVoice` 不发请求也不取消，点完成只收起浮层。
+- `platforms/linux/fcitx5/tests/native.cpp`：开始录音不显示按钮、辅助文字与 IBus 同文、锁定提示、失败提示无按钮且 Esc 可收起；一个在 `update()` 里报告点击的假浮层点取消，`update()` 返回前录音结束、帧定时器和监听都撤掉（测试不跑事件循环：sd-event 的循环退出后不再接受新的事件源，帧回调本身由合约测试钉住）；识别中再次 `stopVoice` 不发请求也不取消，点完成只收起浮层。
 - `platforms/linux/tests/core/fcitx5_contract.py` 钉住 Fcitx5 的帧定时器、fd 监听、收起与统一文字，并禁止宿主再写 `actions_visible = true`；还钉住帧回调在 `update()` 之后只经栈上的 `self` 访问状态、IBus 的 `render()` 保留浮层上的失败提示、`X11_SURFACE` 不含 cairo 与 pango。
 - 运行：`bash platforms/linux/build-container.sh`。
