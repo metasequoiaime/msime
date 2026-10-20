@@ -38,3 +38,21 @@ test("requires a token for remote AI credential tests", () => {
   expect(aiServiceCredentialTestDisabled(ai, "openai.example.test", "synthetic-token")).toBe(false);
   expect(aiServiceCredentialTestDisabled(ai, "openai.example.test", " ")).toBe(true);
 });
+
+test("Ollama is tested without a token, and never sends a stored one", () => {
+  const ollama = {
+    ...ai,
+    provider: "ollama",
+    endpoint: "http://localhost:11434/v1/chat/completions",
+  };
+  expect(aiServiceCredentialTestDisabled(ollama, "http://localhost:11434", "")).toBe(false);
+  expect(
+    aiServiceCredentialTestDisabled({ ...ollama, model: "" }, "http://localhost:11434", ""),
+  ).toBe(true);
+  expect(aiServiceCredentialTestConfig(ollama, "stale-token")).toEqual({
+    provider: "ollama",
+    endpoint: ollama.endpoint,
+    model: ai.model,
+    token: "",
+  });
+});

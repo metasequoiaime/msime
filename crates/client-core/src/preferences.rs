@@ -2814,7 +2814,7 @@ pub const ASR_PROVIDERS: [&str; 9] = [
 /// OpenAI-compatible AI services exposed by the Apple settings surface and
 /// shared by every host. Providers that need special request fields are still
 /// handled in `ai.rs`; the rest use the common Chat Completions shape.
-pub const AI_PROVIDERS: [&str; 12] = [
+pub const AI_PROVIDERS: [&str; 13] = [
     "everyapi",
     "openai",
     "anthropic",
@@ -2826,6 +2826,7 @@ pub const AI_PROVIDERS: [&str; 12] = [
     "siliconflow",
     "groq",
     "openrouter",
+    "ollama",
     "custom",
 ];
 /// Polishing additionally supports DeepSeek, which offers no recognition.

@@ -58,13 +58,24 @@ pub fn validate_endpoint(value: &str) -> Result<Url, AiSettingsError> {
     endpoint::validate(value).map_err(|_| AiSettingsError::Invalid)
 }
 
-/// Token 不能为空，不能带控制字符或空白控制符，最多 16 KiB。
+/// Token 不能带控制字符或空白控制符，最多 16 KiB。空 Token 表示这个服务不鉴权（Ollama，见 [`super::provider_uses_token`]），请求不带 `Authorization`；其他服务要不要 Token 由设置页把关。
 pub fn validate_token(token: &str) -> Result<(), AiSettingsError> {
-    if token.is_empty() || !crate::text::is_bounded_text_with_options(token, MAX_TEXT_BYTES, false)
-    {
+    if !crate::text::is_bounded_text_with_options(token, MAX_TEXT_BYTES, false) {
         return Err(AiSettingsError::Invalid);
     }
     Ok(())
+}
+
+/// 有 Token 才带 Bearer。
+fn authorize(
+    request: reqwest::blocking::RequestBuilder,
+    token: &str,
+) -> reqwest::blocking::RequestBuilder {
+    if token.is_empty() {
+        request
+    } else {
+        request.bearer_auth(token)
+    }
 }
 
 /// 提示词和待润色文字可以换行和带制表符，最多 16 KiB；`allow_empty` 为假时不能为空。
@@ -95,14 +106,12 @@ fn client(url: &Url) -> Option<reqwest::blocking::Client> {
         .ok()
 }
 
-/// 「获取模型」：GET 接口旁边的 `/models`（[`endpoint::models_url`]，去掉查询参数），带 Bearer Token。返回服务列出的模型 id，按服务给的顺序，跳过空的和不合规的，最多 [`MAX_MODELS`] 个；一个也没有时算 [`AiSettingsError::ModelsInvalid`]。会联网，最长约 15 秒，不要在界面线程上调用。
+/// 「获取模型」：GET 接口旁边的 `/models`（[`endpoint::models_url`]，去掉查询参数），有 Token 时带 Bearer Token。返回服务列出的模型 id，按服务给的顺序，跳过空的和不合规的，最多 [`MAX_MODELS`] 个；一个也没有时算 [`AiSettingsError::ModelsInvalid`]。会联网，最长约 15 秒，不要在界面线程上调用。
 pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, AiSettingsError> {
     let endpoint = validate_endpoint(endpoint)?;
     validate_token(token)?;
     let client = client(&endpoint).ok_or(AiSettingsError::ModelsUnavailable)?;
-    let response = client
-        .get(endpoint::models_url(endpoint, true))
-        .bearer_auth(token)
+    let response = authorize(client.get(endpoint::models_url(endpoint, true)), token)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
         .map_err(|_| AiSettingsError::ModelsUnavailable)?;
@@ -165,9 +174,7 @@ pub fn test_polish(
         return Err(AiSettingsError::Invalid);
     }
     let client = client(&endpoint).ok_or(AiSettingsError::TestUnavailable)?;
-    let response = client
-        .post(endpoint)
-        .bearer_auth(token)
+    let response = authorize(client.post(endpoint), token)
         .json(&test_body(model, prompt, text))
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
@@ -225,7 +232,8 @@ mod tests {
     #[test]
     fn credentials_and_text_reject_empty_or_unsafe_values() {
         assert!(validate_token("fixture-token").is_ok());
-        assert!(validate_token("").is_err());
+        // 空 Token 是不鉴权的服务（Ollama），请求不带 Authorization。
+        assert!(validate_token("").is_ok());
         assert!(validate_token("fixture\n-token").is_err());
         assert!(validate_token(&"x".repeat(MAX_TEXT_BYTES + 1)).is_err());
         assert!(text_is_valid("多行\nfixture text\t", false));
@@ -259,11 +267,11 @@ mod tests {
             AiSettingsError::Invalid
         );
         assert_eq!(
-            fetch_models(endpoint, "").unwrap_err(),
+            fetch_models(endpoint, "fixture\n-token").unwrap_err(),
             AiSettingsError::Invalid
         );
         for (model, prompt, token, text) in [
-            ("m", "p", "", "t"),
+            ("m", "p", "fixture\n-token", "t"),
             ("", "p", "token", "t"),
             ("m\n", "p", "token", "t"),
             ("m", "p", "token", ""),

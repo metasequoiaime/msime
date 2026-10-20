@@ -53,7 +53,7 @@ class AiServiceContract(unittest.TestCase):
         self.addCleanup(setattr, online, "fetch", self.original_fetch)
 
     def respond(self, document):
-        def fetch(url, timeout, body=None, token=None, extra_headers=None):
+        def fetch(url, timeout, body=None, token=None, extra_headers=None, **kwargs):
             self.requests.append({"url": url, "body": body, "token": token})
             return document
 
@@ -297,6 +297,110 @@ class AiServiceContract(unittest.TestCase):
         literal = re.search(r'pub const DEFAULT_CANDIDATE_PROMPT: &str = ("(?:[^"\\]|\\.)*");', source)
         self.assertIsNotNone(literal)
         self.assertEqual(online.DEFAULT_AI_PROMPT, json.loads(literal.group(1)))
+
+
+    def ollama_query(self, **overrides):
+        options = {
+            "enabled": True,
+            "provider": "ollama",
+            "model": "qwen3:8b",
+            "endpoint": "http://localhost:11434/v1/chat/completions",
+            "candidate_limit": 3,
+            "prompt_id": "custom_1",
+            "prompt_custom_1": "",
+            "prompt_custom_2": "",
+            "prompt_custom_3": "",
+            **overrides,
+        }
+        return {"ai_eligible": True, "ai_assistant": options,
+                "pinyin_segments": ["shu", "ru", "fa"], "ai_context": ""}
+
+    def test_ollama_uses_the_page_endpoint_and_model_without_a_token(self):
+        # Ollama 不鉴权，设置页不显示 Token，私有文件里没有它的条目：地址和模型取自设置页，请求不带 Authorization。
+        answer = {"candidates": [{"text": "输入法", "type": "chinese", "confidence": 0.9}]}
+        self.respond({"choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]})
+        query = self.ollama_query()
+        cache, lock = {}, online.threading.Lock()
+        for path in (None, self.server.ai_config_path):
+            self.requests.clear()
+            rows = online.configured_ai(query, path, cache if path else None, lock)
+            self.assertEqual([row["text"] for row in rows], ["输入法"])
+            self.assertEqual(self.requests[0]["url"], "http://localhost:11434/v1/chat/completions")
+            self.assertEqual(self.requests[0]["body"]["model"], "qwen3:8b")
+            self.assertIsNone(self.requests[0]["token"])
+        # 没有凭据也能进缓存，下一次命中不再发请求。
+        self.assertEqual(len(cache), 1)
+        self.requests.clear()
+        self.assertEqual([row["text"] for row in online.configured_ai(query, self.server.ai_config_path, cache, lock)],
+                         ["输入法"])
+        self.assertEqual(self.requests, [])
+
+        self.respond({"choices": [{"message": {"content": json.dumps({"translation": "input method"})}}]})
+        self.assertEqual(online.ai_translation("输入法", "en", query["ai_assistant"], None), "input method")
+        self.assertIsNone(self.requests[-1]["token"])
+
+        page = {"provider": "ollama", "endpoint": query["ai_assistant"]["endpoint"], "model": ""}
+        self.respond({"data": [{"id": "qwen3:8b"}]})
+        no_private_file = SimpleNamespace(ai_config_path=None)
+        self.assertEqual(online.ai_models(page, no_private_file), {"models": ["qwen3:8b"]})
+        self.assertEqual(self.requests[-1]["url"], "http://localhost:11434/v1/models")
+        self.assertIsNone(self.requests[-1]["token"])
+
+        self.respond({"choices": [{"message": {"content": "OK"}}]})
+        self.assertTrue(online.ai_credential_test({**page, "model": "qwen3:8b"}, None))
+        self.assertIsNone(self.requests[-1]["token"])
+        # 润色测试必须有模型。
+        self.requests.clear()
+        self.assertEqual(online.ai_polish_test({**page, "prompt": "", "text": "hi"}, no_private_file), {"text": ""})
+        self.assertEqual(self.requests, [])
+
+    def test_a_request_without_a_token_carries_no_authorization_header(self):
+        sent = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, size):
+                return b"{}"
+
+        class Opener:
+            def open(self, request, timeout):
+                sent.append(dict(request.header_items()))
+                return Response()
+
+        with unittest.mock.patch.object(online, "request_opener", lambda url, connect_timeout=None: Opener()):
+            online.fetch_direct("http://localhost:11434/v1/models", 1.0, None, None)
+            online.fetch_direct("https://service.example.invalid/v1/models", 1.0, None, "synthetic-token")
+        self.assertNotIn("Authorization", sent[0])
+        self.assertEqual(sent[1]["Authorization"], "Bearer synthetic-token")
+
+    def test_ollama_refuses_a_public_http_endpoint_and_bad_page_values(self):
+        self.respond({"data": [{"id": "never"}]})
+        public = "http://service.example.invalid/v1/chat/completions"
+        self.assertIsNone(online.configured_ai(self.ollama_query(endpoint=public), None))
+        self.assertIsNone(online.ai_translation("输入法", "en", self.ollama_query(endpoint=public)["ai_assistant"], None))
+        self.assertEqual(online.ai_models({"provider": "ollama", "endpoint": public}, self.server), {"models": []})
+        self.assertFalse(online.ai_credential_test({"provider": "ollama", "endpoint": public, "model": "m"}, None))
+        for bad in ({"model": ""}, {"model": "bad\nmodel"}, {"endpoint": ""}, {"endpoint": 7}):
+            self.assertIsNone(online.configured_ai(self.ollama_query(**bad), None))
+        self.assertEqual(self.requests, [])
+
+    def test_other_providers_still_need_the_private_file(self):
+        # 只有 Ollama 免 Token：别的服务没有私有条目时什么都不发，也不会拿设置页给的地址去请求。
+        self.respond({"choices": [{"message": {"content": "{}"}}]})
+        for provider in ("synthetic-other", "custom", "openai"):
+            query = self.ollama_query(provider=provider, endpoint="https://service.example.invalid/v1/chat/completions")
+            self.assertIsNone(online.configured_ai(query, self.server.ai_config_path))
+            self.assertIsNone(online.configured_ai(query, None))
+            self.assertIsNone(online.ai_translation("输入法", "en", query["ai_assistant"], None))
+            page = {"provider": provider, "endpoint": query["ai_assistant"]["endpoint"], "model": "m"}
+            self.assertEqual(online.ai_models(page, SimpleNamespace(ai_config_path=None)), {"models": []})
+            self.assertFalse(online.ai_credential_test(page, None))
+        self.assertEqual(self.requests, [])
 
 
 if __name__ == "__main__":

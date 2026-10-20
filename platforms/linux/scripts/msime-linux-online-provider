@@ -466,6 +466,31 @@ def ai_config_matches(options, config):
         for key in ("provider", "endpoint", "model"))
 
 
+OLLAMA_PROVIDER = "ollama"
+
+
+def ollama_config(options, require_model=True):
+    """Ollama 不鉴权：设置页不显示 Token，私有文件里也就没有它的条目。接口地址和模型直接取设置页传来的值，请求不带 Authorization（token 为 None）。
+
+    地址和模型按 load_ai_config 的规则检查：非空字符串、不含控制字符，http 仍只认本机或局域网。值原样使用、不去空白，ai_config_matches 拿设置页的值核对时才对得上。列模型时还没有选模型，`require_model` 为假时模型可以空着。
+    """
+    if not isinstance(options, dict) or options.get("provider") != OLLAMA_PROVIDER:
+        return None
+    entry = {"provider": OLLAMA_PROVIDER, "token": None}
+    for key in ("endpoint", "model"):
+        value = options.get(key, "")
+        if not isinstance(value, str) or len(value.encode()) > 4096:
+            return None
+        if not value.strip() and (key == "endpoint" or require_model):
+            return None
+        if any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value):
+            return None
+        entry[key] = value
+    if ai_endpoint_check(entry["endpoint"]) != "allowed":
+        return None
+    return entry
+
+
 def credential_cache_fingerprint(value):
     # API 凭据作为 HMAC 密钥，对本进程的随机挑战签名，不创建密码验证器。
     # 长度前缀区分 HMAC 补零后可能相同的密钥，例如空串和一个 NUL。
@@ -485,11 +510,13 @@ def ai_cache_key(query, config):
         if not isinstance(value, str):
             return None
         identity[key] = value
-    token = config.get("token") if isinstance(config, dict) else None
-    if not isinstance(token, str):
-        return None
-    # 凭据轮换后不能复用旧答案；内存缓存键只保留本进程的凭据指纹。
-    identity["credential_hmac"] = credential_cache_fingerprint(token.encode("utf-8")).hex()
+    # Ollama 没有凭据，缓存只按接口、模型和请求内容区分。
+    if identity["provider"] != OLLAMA_PROVIDER:
+        token = config.get("token") if isinstance(config, dict) else None
+        if not isinstance(token, str):
+            return None
+        # 凭据轮换后不能复用旧答案；内存缓存键只保留本进程的凭据指纹。
+        identity["credential_hmac"] = credential_cache_fingerprint(token.encode("utf-8")).hex()
     configured_limit = options.get("candidate_limit", 3)
     identity["candidate_limit"] = (configured_limit
                                     if type(configured_limit) is int and 1 <= configured_limit <= 10
@@ -516,11 +543,14 @@ def ai_cache_key(query, config):
 def configured_ai(query, path, cache=None, cache_lock=None):
     # Do not touch the private file when this query cannot request AI.
     options = query.get("ai_assistant")
-    if not path or not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
+    if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
         return None
-    config = load_ai_config(path)
-    selected = select_ai_config(config, query)
-    options = query.get("ai_assistant")
+    if options.get("provider") == OLLAMA_PROVIDER:
+        selected = ollama_config(options)
+    elif path:
+        selected = select_ai_config(load_ai_config(path), query)
+    else:
+        return None
     if not ai_config_matches(options, selected):
         return None
     key = ai_cache_key(query, selected)
@@ -642,7 +672,9 @@ def ai_translation(text, target, options, path):
     if direction is None or not isinstance(options, dict) or not options.get("enabled"):
         return None
     config = None
-    if path:
+    if options.get("provider") == OLLAMA_PROVIDER:
+        config = ollama_config(options)
+    elif path:
         loaded = load_ai_config(path)
         provider = options.get("provider")
         config = loaded if loaded.get("provider") == provider else loaded.get("profiles", {}).get(provider)
@@ -970,13 +1002,16 @@ def translations(query, server):
 
 
 def ai_credential_test(config, path):
-    if not path or not isinstance(config, dict):
+    if not isinstance(config, dict):
         return False
-    private = load_ai_config(path)
     provider = config.get("provider")
-    if not isinstance(provider, str):
+    if provider == OLLAMA_PROVIDER:
+        selected = ollama_config(config)
+    elif path and isinstance(provider, str):
+        private = load_ai_config(path)
+        selected = private if private.get("provider") == provider else private.get("profiles", {}).get(provider)
+    else:
         return False
-    selected = private if private.get("provider") == provider else private.get("profiles", {}).get(provider)
     if (not isinstance(selected, dict) or
             any(config.get(key) != selected.get(key) for key in ("provider", "endpoint", "model"))):
         return False
@@ -1003,12 +1038,15 @@ def select_ai_profile(config, path):
     models available at an endpoint is how a user finds out what to put in that
     field.
     """
-    if not path or not isinstance(config, dict):
+    if not isinstance(config, dict):
+        return None
+    provider = config.get("provider")
+    if provider == OLLAMA_PROVIDER:
+        # 没有私有条目，地址和模型就是设置页的值；列模型时模型可以还没选。
+        return ollama_config(config, require_model=False)
+    if not path or not isinstance(provider, str):
         return None
     private = load_ai_config(path)
-    provider = config.get("provider")
-    if not isinstance(provider, str):
-        return None
     selected = private if private.get("provider") == provider else private.get("profiles", {}).get(provider)
     if (not isinstance(selected, dict) or
             any(config.get(key) != selected.get(key) for key in ("provider", "endpoint"))):
@@ -1070,7 +1108,7 @@ def ai_polish_test(query, server):
     selected = select_ai_profile(query, server.ai_config_path)
     prompt = query.get("prompt", "")
     text = query.get("text")
-    if (not selected or selected.get("model") != query.get("model") or
+    if (not selected or not selected.get("model") or selected.get("model") != query.get("model") or
             not isinstance(prompt, str) or len(prompt.encode()) > 8192 or
             not isinstance(text, str) or not text.strip() or len(text.encode()) > 8192):
         return {"text": ""}

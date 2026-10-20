@@ -17,7 +17,7 @@ import restoreIcon from "../../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../../src-tauri/capabilities/keyboard.json";
 import {
-  AI_PROVIDER_OPTIONS,
+  aiProviderOptionsFor,
   CloudCandidatesPanel,
   CloudClipboardPanel,
   CloudDictionaryApplyPanel,
@@ -1419,7 +1419,8 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
 });
 
 test("mobile AI settings expose the Apple provider catalog and preserve custom edits", async () => {
-  expect(AI_PROVIDER_OPTIONS.map((option) => option.id)).toEqual([
+  // 手机上不提供只在桌面接入的 Ollama。
+  expect(aiProviderOptionsFor(false, "deepseek").map((option) => option.id)).toEqual([
     "everyapi",
     "openai",
     "anthropic",

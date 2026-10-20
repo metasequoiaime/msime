@@ -19645,6 +19645,13 @@ private:
                            : std::wstring();
   }
 
+  // 请求要带的 Token：不鉴权的服务（Ollama）不读存下的 Token，总是空。
+  std::wstring ai_request_token(AiEndpoint const &endpoint) const {
+    return ais::provider_uses_token(document_.String(L"ai_assistant.provider", L"deepseek"))
+               ? ai_token(endpoint)
+               : std::wstring();
+  }
+
   // 共享页 updateAi 除写设置以外做的事：作废进行中的获取模型；改了服务商或接口地址时，已获取的模型列表和它的提示也清掉。
   void ai_edited(bool models) {
     ++ai_generation_;
@@ -19755,7 +19762,9 @@ private:
         });
     provider_combo.Width(200);
     add_row(service, 0xE753, L"服务提供商", L"", provider_combo);
-    build_ai_token_row(service, endpoint);
+    // 换服务商会重画整页，所以选了 Ollama 时这一行直接不画。
+    if (ais::provider_uses_token(provider))
+      build_ai_token_row(service, endpoint);
 
     const auto *preset = ais::find_provider(provider);
     std::vector<std::wstring> known_models;
@@ -19871,7 +19880,7 @@ private:
           config.SetNamedValue(L"provider", string(document_.String(L"ai_assistant.provider", L"deepseek")));
           config.SetNamedValue(L"endpoint", string(document_.String(L"ai_assistant.endpoint", L"")));
           config.SetNamedValue(L"model", string(document_.String(L"ai_assistant.model", L"")));
-          config.SetNamedValue(L"token", string(ai_token(ai_endpoint())));
+          config.SetNamedValue(L"token", string(ai_request_token(ai_endpoint())));
           return config;
         },
         [this] {
@@ -19879,7 +19888,8 @@ private:
           return ais::credential_test_disabled(document_.Boolean(L"ai_assistant.enabled", false),
                                                current.origin.has_value(),
                                                document_.String(L"ai_assistant.model", L""),
-                                               ai_token(current));
+                                               ai_token(current),
+                                               document_.String(L"ai_assistant.provider", L"deepseek"));
         });
   }
 
@@ -19959,8 +19969,9 @@ private:
       refresh_ai_models();
       return;
     }
-    const auto token = ai_token(endpoint);
-    if (nav::js_trim(token).empty()) {
+    const auto token = ai_request_token(endpoint);
+    if (ais::provider_uses_token(document_.String(L"ai_assistant.provider", L"deepseek")) &&
+        nav::js_trim(token).empty()) {
       ai_models_status_ = L"请先填写 API Token，或使用已保存的密钥。";
       refresh_ai_models();
       return;
