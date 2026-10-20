@@ -79,7 +79,7 @@ export function ThemeSettingsSection({
         value={preferences.candidate_theme}
         onChange={(value) => onChange("candidate_theme", value)}
       />
-      {/* The Linux toolbar is the same desktop-drawn IBus property menu and Fcitx5 status menu, so no Linux host reads toolbar_theme. */}
+      {/* Linux 宿主都不读 toolbar_theme：X11 上的悬浮工具栏跟随颜色模式，与切换徽章相同；「工具栏」子菜单由桌面面板按它自己的主题画。 */}
       {floatingToolbar && !linux && (
         <SurfaceThemeRow
           title="悬浮工具栏主题"

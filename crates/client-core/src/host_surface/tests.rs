@@ -173,10 +173,9 @@ fn capabilities_describe_each_host() {
     // 共享设置页经 Tauri 装入编辑好的候选窗皮肤。
     assert!(linux.candidate_skin_editor);
     assert!(linux.mode_switch_shortcuts);
-    // Linux stands the toolbar up as an IBus property menu: the switch and
-    // component visibility work, but scale and icon size have no surface.
+    // Linux 在 X11 上画悬浮工具栏，缩放和字号与 macOS 一样生效；画不出来的会话只剩「工具栏」子菜单。
     assert!(linux.floating_toolbar);
-    assert!(!linux.floating_toolbar_appearance);
+    assert!(linux.floating_toolbar_appearance);
     assert!(linux.floating_toolbar_components);
     // Linux 的「工具栏」子菜单与 macOS 工具栏一样列出切换输入方案、手写和语音三项，设置页给它们开关。
     assert!(
@@ -556,11 +555,11 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
     // 候选窗的预编辑行和 TIP 的行内组字都取 Engine 的 preedit，原始按键与展开拼音的差别在 Windows 上看得见。
     assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
-    // 双拼键位图只有 macOS 和 Windows 画。
+    // 双拼键位图由 macOS、Windows 和 Linux（X11 客户端）画。
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_keymap_hint);
     assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_keymap_hint);
+    assert!(HostCapabilities::for_platform(HostPlatform::Linux).shuangpin_keymap_hint);
     for platform in [
-        HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,

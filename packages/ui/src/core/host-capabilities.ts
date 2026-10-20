@@ -88,7 +88,7 @@ export interface HostCapabilities {
   /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
   touch_keyboard_spacing?: boolean;
   shuangpin_preedit: boolean;
-  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
+  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS、Windows 和 Linux 的 X11 客户端）。 */
   shuangpin_keymap_hint?: boolean;
   /** 宿主响应 Ctrl+Shift+Alt 维护快捷键。 */
   maintenance_shortcuts: boolean;

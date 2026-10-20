@@ -3,7 +3,10 @@ import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, LinkRow } from "../../core/platform-controls";
-import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
+import {
+  FloatingToolbarLinuxWindowNotice,
+  FloatingToolbarPlatformNotice,
+} from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
@@ -37,8 +40,8 @@ export function FloatingToolbarSettingsPage() {
   const { onChange: onToolbarChange } = createFloatingToolbarSettingsActions({
     setDraft,
   });
-  // Linux 两个前端都不画悬浮窗，工具栏是输入法菜单里的子菜单（IBus 面板属性菜单、Fcitx5 托盘状态区菜单）。页面按这个呈现：页首放说明而不是悬浮条预览，开关和按钮的文案说菜单，尺寸组整组不出现。其他宿主照旧。
-  const menuToolbar = linuxPlatform;
+  // Linux 宿主在 X11（以及有 Xwayland 的 Wayland 会话）上画与 macOS 相同的悬浮工具栏，报告 `floating_toolbar_appearance`；页面与 macOS 一样，另在预览下说明画不出来时退回「工具栏」子菜单。没有这项能力的 Linux 宿主只有输入法菜单里的子菜单（IBus 面板属性菜单、Fcitx5 托盘状态区菜单）：页首放说明而不是悬浮条预览，开关和按钮的文案说菜单，尺寸组整组不出现。其他宿主照旧。
+  const menuToolbar = linuxPlatform && !showToolbarAppearance;
   // GNOME Shell 下 IBus 只发布输入模式和设置两项，没有「工具栏」子菜单（ClientEngine.cpp 的 publish_mode）。判据和页首说明同一个，开关与按钮组的描述不能再指向那个不存在的子菜单。
   const gnomeShell = menuToolbar && host?.candidate_panel_limit === "gnome_shell";
   // 缩放和图标尺寸单独调过、凑不成任何一档时显示「自定义」，打开页面不改写存下的值。
@@ -77,6 +80,7 @@ export function FloatingToolbarSettingsPage() {
               <SkinToolbarPreview preferences={floatingToolbar} />
             </SkinPreviewSurface>
           </SettingsPreviewBlock>
+          {linuxPlatform && <FloatingToolbarLinuxWindowNotice />}
         </GroupList>
       )}
       <GroupList title="显示">
@@ -139,7 +143,7 @@ export function FloatingToolbarSettingsPage() {
               ))}
             </SelectRow>
           )}
-          {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows 和 HarmonyOS 2in1）也没有工具栏一行，工具栏跟随「主题」页的颜色模式和主题，链接照样指向「主题」页，描述照实说。 */}
+          {/* 只剩菜单的 Linux 宿主没有可调颜色的悬浮条，这条链接和整个「尺寸」组一起不出现。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，macOS、Windows、Linux 和 HarmonyOS 2in1）没有工具栏一行，工具栏跟随「主题」页的颜色模式和主题，链接照样指向「主题」页，描述照实说。 */}
           <LinkRow
             title="颜色与明暗"
             description={
