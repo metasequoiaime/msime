@@ -9,6 +9,7 @@ mod config;
 mod diagnostics;
 mod preferences;
 mod prompts;
+mod runtime_options;
 mod server;
 mod skins;
 mod statistics;

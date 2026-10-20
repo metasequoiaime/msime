@@ -14,7 +14,6 @@ use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -786,7 +785,7 @@ pub fn load(state_dir: &Path, edition: &'static Edition) -> Result<PreferencesVi
     Ok(PreferencesView::from(&snapshot))
 }
 
-/// Save `change` with compare-and-swap, and on Linux publish the result into the runtime-options document the IBus and Fcitx5 hosts read their preferences from, as the settings page does.
+/// 按修订号比较后保存 `change`。在 Linux 上像设置页保存时一样，把结果连同重新扫描的皮肤目录发布进 IBus 和 Fcitx5 宿主读偏好的运行时选项文档：宿主只画目录里列出的皮肤，目录放不下全部皮肤时优先留下选中的那款，所以换了选择就要按新选择重新裁剪。
 ///
 /// `edition` 是运行时选项记录的版本：本版本不提供的方案被拒绝，例如五笔版只能选五笔。
 pub fn update(
@@ -845,7 +844,10 @@ pub fn update(
         .save(change.expected_revision, preferences)
         .map_err(|error| error.to_string())?;
     if cfg!(target_os = "linux") {
-        if let Err(error) = publish_to_runtime_options(options, &snapshot.preferences) {
+        let skins = state_dir.join(crate::skins::SKIN_DIRECTORY);
+        if let Err(error) =
+            crate::runtime_options::publish_preferences(options, &skins, &snapshot.preferences)
+        {
             // A document the hosts could not read is refused along with the save that produced it, so the store and the hosts do not disagree. A concurrent writer wins over the rollback.
             let _ = store.save(snapshot.revision, previous.preferences);
             return Err(error);
@@ -879,54 +881,6 @@ fn check_skin(state_dir: &Path, slot: &str, id: &str, dark: bool) -> Result<(), 
         )),
         _ => Ok(()),
     }
-}
-
-/// The most runtime-options.json may hold on Linux: the IBus launcher, the Fcitx5 addon and the upgrade refresh all read at most 16 KiB (`LINUX_RUNTIME_OPTIONS_LIMIT` in the desktop app).
-const LINUX_RUNTIME_OPTIONS_LIMIT: usize = 16384;
-const TOO_LARGE: &str = "the runtime options would be too large for the input method to read";
-
-/// Replace the preferences in the runtime-options document, the way `sync_runtime_options` in the desktop app does. Everything else in the document, the skin catalog included, is kept as it is.
-fn publish_to_runtime_options(path: &Path, preferences: &Preferences) -> Result<(), String> {
-    let parent = path.parent().ok_or("cannot read the runtime options")?;
-    let name = path.file_name().ok_or("cannot read the runtime options")?;
-    let directory = msime_client_core::file_lock::open_private_directory(parent)
-        .map_err(|_| "cannot read the runtime options")?;
-    publish_to_runtime_options_at(&directory, name, preferences)
-}
-
-fn publish_to_runtime_options_at(
-    directory: &msime_client_core::file_lock::PrivateDirectory,
-    name: &OsStr,
-    preferences: &Preferences,
-) -> Result<(), String> {
-    let file = msime_client_core::file_lock::open_private_file_at(directory, name)
-        .map_err(|_| "cannot read the runtime options")?;
-    let bytes = crate::bounded::read(file, LINUX_RUNTIME_OPTIONS_LIMIT as u64).map_err(
-        |error| match error {
-            crate::bounded::ReadError::TooLarge => TOO_LARGE,
-            crate::bounded::ReadError::Io => "cannot read the runtime options",
-        },
-    )?;
-    let mut document: Value =
-        serde_json::from_slice(&bytes).map_err(|_| "cannot parse the runtime options")?;
-    if !document.is_object() {
-        return Err("cannot parse the runtime options".into());
-    }
-    let mut host = serde_json::to_value(preferences).map_err(|error| error.to_string())?;
-    // The IBus and Fcitx5 hosts never draw the screen keyboard, so its photo stays out of their copy.
-    if let Some(design) = host
-        .pointer_mut("/custom_theme/keyboard")
-        .and_then(Value::as_object_mut)
-    {
-        design.remove("photo");
-    }
-    document["preferences"] = host;
-    let bytes = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
-    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
-        return Err(TOO_LARGE.into());
-    }
-    msime_client_core::file_lock::write_private_file_at(directory, name, &bytes)
-        .map_err(|_| "cannot write the runtime options".into())
 }
 
 #[cfg(test)]
@@ -1301,11 +1255,7 @@ mod tests {
     fn an_update_changes_only_what_it_names_and_refuses_a_stale_revision() {
         let directory = tempfile::tempdir().unwrap();
         let options = directory.path().join("runtime-options.json");
-        std::fs::write(
-            &options,
-            br#"{"api_version":1,"candidate_skin_catalog":[{"id":"kept"}]}"#,
-        )
-        .unwrap();
+        std::fs::write(&options, br#"{"api_version":1,"resources":"/resources"}"#).unwrap();
         let before = load(directory.path(), Edition::full()).unwrap();
         let untouched = PreferencesStore::new(directory.path()).load().unwrap();
 
@@ -1382,71 +1332,16 @@ mod tests {
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
         assert_eq!(load(directory.path(), Edition::full()).unwrap(), updated);
 
-        // Linux hosts read their preferences from the runtime options; the rest of that document is kept.
+        // Linux 宿主从运行时选项读偏好和皮肤目录，两样随保存一起发布；文档里其余的键保留。
         let document: Value = serde_json::from_slice(&std::fs::read(&options).unwrap()).unwrap();
         if cfg!(target_os = "linux") {
             assert_eq!(document["preferences"]["candidate_page_size"], 7);
+            assert_eq!(document["candidate_skin_catalog"], json!({"packages": []}));
         } else {
             assert!(document.get("preferences").is_none());
+            assert!(document.get("candidate_skin_catalog").is_none());
         }
-        assert_eq!(document["candidate_skin_catalog"][0]["id"], "kept");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn publishing_runtime_options_stays_in_an_open_parent_after_replacement() {
-        use std::ffi::OsStr;
-        use std::os::unix::fs::symlink;
-
-        let root = tempfile::tempdir().unwrap();
-        let original = root.path().join("state");
-        let outside = root.path().join("outside");
-        std::fs::create_dir(&original).unwrap();
-        std::fs::create_dir(&outside).unwrap();
-        let options = original.join("runtime-options.json");
-        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
-        let directory = msime_client_core::file_lock::open_private_directory(&original).unwrap();
-
-        let moved = root.path().join("moved");
-        std::fs::rename(&original, &moved).unwrap();
-        symlink(&outside, &original).unwrap();
-
-        publish_to_runtime_options_at(
-            &directory,
-            OsStr::new("runtime-options.json"),
-            &Preferences::default(),
-        )
-        .unwrap();
-
-        let written: Value =
-            serde_json::from_slice(&std::fs::read(moved.join("runtime-options.json")).unwrap())
-                .unwrap();
-        assert!(written.get("preferences").is_some());
-        assert!(!outside.join("runtime-options.json").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn publishing_runtime_options_rejects_a_symlinked_parent() {
-        use std::os::unix::fs::symlink;
-
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let linked = root.path().join("linked");
-        symlink(outside.path(), &linked).unwrap();
-        let outside_options = outside.path().join("runtime-options.json");
-        std::fs::write(&outside_options, br#"{"api_version":1}"#).unwrap();
-
-        let result = publish_to_runtime_options(
-            &linked.join("runtime-options.json"),
-            &Preferences::default(),
-        );
-
-        assert!(result.is_err());
-        assert_eq!(
-            std::fs::read(&outside_options).unwrap(),
-            br#"{"api_version":1}"#
-        );
+        assert_eq!(document["resources"], "/resources");
     }
 
     /// 五笔版只能选五笔：别的方案被拒绝，偏好不动；还没有偏好文件时读到的是五笔版的默认值。
@@ -1765,49 +1660,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_published_document_keeps_the_photo_out_and_refuses_to_outgrow_the_hosts() {
-        let directory = tempfile::tempdir().unwrap();
-        let options = directory.path().join("runtime-options.json");
-        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
-        let mut preferences = Preferences::default();
-        preferences.custom_theme.keyboard = Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
-            photo: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".into()),
-            ..Default::default()
-        });
-        preferences.validate().unwrap();
-        publish_to_runtime_options(&options, &preferences).unwrap();
-        let document: Value = serde_json::from_slice(&std::fs::read(&options).unwrap()).unwrap();
-        assert_eq!(document["api_version"], 1);
-        assert!(document["preferences"]["custom_theme"]["keyboard"].is_object());
-        assert!(document["preferences"]["custom_theme"]["keyboard"]
-            .get("photo")
-            .is_none());
-
-        std::fs::write(
-            &options,
-            serde_json::to_vec(&json!({ "padding": "x".repeat(LINUX_RUNTIME_OPTIONS_LIMIT) }))
-                .unwrap(),
-        )
-        .unwrap();
-        preferences.candidate_page_size = 5;
-        assert_eq!(
-            publish_to_runtime_options(&options, &preferences).unwrap_err(),
-            TOO_LARGE
-        );
-    }
-
-    #[test]
-    fn an_oversized_source_is_rejected_before_json_decoding() {
-        let directory = tempfile::tempdir().unwrap();
-        let options = directory.path().join("runtime-options.json");
-        std::fs::write(&options, vec![b'x'; LINUX_RUNTIME_OPTIONS_LIMIT + 1]).unwrap();
-        assert_eq!(
-            publish_to_runtime_options(&options, &Preferences::default()).unwrap_err(),
-            TOO_LARGE
-        );
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn an_unreadable_runtime_options_document_does_not_leave_preferences_saved() {
@@ -1823,22 +1675,15 @@ mod tests {
             update(directory.path(), directory.path(), Edition::full(), &change).unwrap_err(),
             "cannot read the runtime options"
         );
-        assert_eq!(load(directory.path(), Edition::full()).unwrap(), before);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn publishing_rejects_a_symlinked_runtime_document() {
-        use std::os::unix::fs::symlink;
-
-        let directory = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let target = outside.path().join("runtime-options.json");
-        std::fs::write(&target, br#"{"api_version":1}"#).unwrap();
-        let linked = directory.path().join("runtime-options.json");
-        symlink(&target, &linked).unwrap();
-
-        assert!(publish_to_runtime_options(&linked, &Preferences::default()).is_err());
-        assert_eq!(std::fs::read(&target).unwrap(), br#"{"api_version":1}"#);
+        // 回滚本身也是一次按修订号的保存，revision 照常往前走（并发的写入因此能胜过它）；内容回到修改之前。
+        let after = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(after.revision, before.revision + 2);
+        assert_eq!(
+            PreferencesView {
+                revision: before.revision,
+                ..after
+            },
+            before
+        );
     }
 }

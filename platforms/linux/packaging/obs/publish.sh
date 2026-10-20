@@ -3,7 +3,7 @@
 #
 # 用法：platforms/linux/packaging/obs/publish.sh VERSION DEFS RELEASE
 #   DEFS 是 render-definitions.sh 的输出目录（MSIME_DEFINITIONS=rpm,debian,arch），里面要有 rpm/、debian/ 与 arch/msime-bin/。
-#   RELEASE 是放发布资产的目录，里面要有 msime-VERSION.tar.xz、msime-VERSION-vendor.tar.xz 与 msime-linux-VERSION-1.x86_64.rpm，msime-bin 的 PKGBUILD 列了 aarch64 的 source 时还要 msime-linux-VERSION-1.aarch64.rpm；把它作为 MSIME_RELEASE_DIR 交给 render-definitions.sh，它会先对着同目录的 SHA256SUMS 核对，这里不再重复核对。
+#   RELEASE 是放发布资产的目录，里面要有 msime-VERSION.tar.xz、msime-VERSION-vendor.tar.xz（packaging/download-sources.sh 从 linux-sources 取来并核对）与版本发布页的 SHA256SUMS、msime-linux-VERSION-1.x86_64.rpm，msime-bin 的 PKGBUILD 列了 aarch64 的 source 时还要 msime-linux-VERSION-1.aarch64.rpm；把它作为 MSIME_RELEASE_DIR 交给 render-definitions.sh，它会先对着同目录的校验文件核对，这里不再重复核对。
 #   需要已经登录的 osc（~/.config/osc/oscrc，或 OSC_CONFIG 指向的配置）。
 #
 # 环境变量：

@@ -224,7 +224,12 @@ pub fn list(state_dir: &Path) -> SkinList {
     }
 }
 
-pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSkin, String> {
+/// 装一款皮肤。`linux_host_options` 是 Linux 宿主读皮肤目录的运行时选项文档（[`crate::config::Config::linux_host_options`]），装好后把新目录发布进去。
+pub fn create(
+    state_dir: &Path,
+    linux_host_options: Option<&Path>,
+    request: &CreateSkinRequest,
+) -> Result<CreatedSkin, String> {
     let root = root(state_dir);
     let replaced =
         request.replace && std::fs::symlink_metadata(root.join(&request.package_id)).is_ok();
@@ -246,7 +251,10 @@ pub fn create(state_dir: &Path, request: &CreateSkinRequest) -> Result<CreatedSk
         &local_files,
         request.replace,
     ) {
-        Ok(id) => Ok(CreatedSkin { id, replaced }),
+        Ok(id) => {
+            republish(linux_host_options, &root);
+            Ok(CreatedSkin { id, replaced })
+        }
         Err("candidate_skin_package") => Err(manifest_problem(request)),
         Err("candidate_skin_file_unreadable") => Err(local_file_problem(&request.image_files)),
         Err(code) => Err(explain(code).to_owned()),
@@ -292,8 +300,11 @@ pub fn get(state_dir: &Path, request: &SkinRequest) -> Result<SkinFiles, String>
 }
 
 /// 删掉一款用户装的皮肤。偏好里选着它（浅色或深色槽位，无论当前主题是不是 custom）时拒绝，不顺手改偏好：改偏好要走 update_preferences 的修订号比较，删除不该绕开它。同步状态由共享的 `candidate_sync::delete_installed` 保留，见那里的说明。
+///
+/// `linux_host_options` 同 [`create`]：删掉后把新目录发布给 Linux 宿主。
 pub fn delete(
     state_dir: &Path,
+    linux_host_options: Option<&Path>,
     edition: &'static Edition,
     request: &SkinRequest,
 ) -> Result<DeletedSkin, String> {
@@ -319,15 +330,30 @@ pub fn delete(
     }
     let root = root(state_dir);
     match candidate_sync::delete_installed(&root, &state_dir.join(candidate_sync::STATE_FILE), id) {
-        Ok(synced) => Ok(DeletedSkin {
-            id: id.to_owned(),
-            synced,
-        }),
+        Ok(synced) => {
+            republish(linux_host_options, &root);
+            Ok(DeletedSkin {
+                id: id.to_owned(),
+                synced,
+            })
+        }
         Err("candidate_skin_not_installed") => Err(format!(
             "no skin {id} is installed; list_candidate_skins shows the installed skins"
         )),
         Err("candidate_skin_package") => Err(format!("{id} in the skin directory is not a folder (it is a file or a symbolic link), which this tool does not remove")),
         Err(_) => Err("the skin folder could not be removed".into()),
+    }
+}
+
+/// 皮肤目录写过之后，把重新扫描的结果发布给从运行时选项读皮肤的 Linux 宿主，与设置应用装好、删掉皮肤后的重扫（`rescan_skin_catalog`）相同。同名替换也要发布：宿主画的配色、装饰带尺寸和圆角都在目录条目里，条目不变它们就一直画旧包。
+///
+/// 和设置应用一样尽力而为：皮肤已经写好了，发布不成不让这次调用失败（重试只会再装一遍），只在 stderr 记一行，设置页下一次重扫时补上。
+fn republish(linux_host_options: Option<&Path>, root: &Path) {
+    let Some(options) = linux_host_options else {
+        return;
+    };
+    if let Err(error) = crate::runtime_options::republish_skin_catalog(options, root) {
+        eprintln!("msime-mcp: the skin catalog was not republished: {error}");
     }
 }
 
@@ -432,7 +458,7 @@ mod tests {
     #[test]
     fn every_field_the_output_schema_requires_is_in_the_listing() {
         let state = tempfile::tempdir().unwrap();
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
         let listed = serde_json::to_value(list(state.path())).unwrap();
         let skin = &listed["skins"][0];
         let schema = serde_json::to_value(rmcp::schemars::schema_for!(SkinView)).unwrap();
@@ -453,7 +479,7 @@ mod tests {
     fn a_created_skin_is_listed_as_the_catalog_reads_it() {
         let state = tempfile::tempdir().unwrap();
         assert_eq!(
-            create(state.path(), &request("sunset", "Sunset", false)).unwrap(),
+            create(state.path(), None, &request("sunset", "Sunset", false)).unwrap(),
             CreatedSkin {
                 id: "sunset".into(),
                 replaced: false
@@ -504,6 +530,7 @@ mod tests {
             );
             create(
                 state.path(),
+                None,
                 &CreateSkinRequest {
                     package_id: id.into(),
                     manifest,
@@ -559,6 +586,7 @@ mod tests {
             );
             create(
                 state.path(),
+                None,
                 &CreateSkinRequest {
                     package_id: id.into(),
                     manifest,
@@ -617,6 +645,7 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         create(
             state.path(),
+            None,
             &CreateSkinRequest {
                 package_id: "panel".into(),
                 manifest: v2_manifest("panel", "canvas", CANVAS_TABLES),
@@ -657,7 +686,7 @@ mod tests {
             image_files: BTreeMap::new(),
             replace: false,
         };
-        assert_eq!(create(state.path(), &crowded).unwrap().id, "crowded");
+        assert_eq!(create(state.path(), None, &crowded).unwrap().id, "crowded");
     }
 
     #[test]
@@ -666,6 +695,7 @@ mod tests {
         // msime-windows ignores the canvas-only tables under any other base, so their images are neither required nor accepted; [animation] and decoration motion stay version 2 features of every base.
         create(
             state.path(),
+            None,
             &CreateSkinRequest {
                 package_id: "lively".into(),
                 manifest: v2_manifest(
@@ -698,7 +728,7 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let mut scroll = request("scroll", "Scroll", false);
         scroll.manifest = scroll.manifest.replace("'night'", "'wechat_scroll'");
-        create(state.path(), &scroll).unwrap();
+        create(state.path(), None, &scroll).unwrap();
         let listed = list(state.path());
         assert_eq!(listed.skins[0].id, "scroll");
         assert!(!listed.skins[0].canvas);
@@ -707,12 +737,12 @@ mod tests {
     #[test]
     fn an_existing_skin_is_replaced_only_when_asked() {
         let state = tempfile::tempdir().unwrap();
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
-        let refused = create(state.path(), &request("sunset", "Dusk", false)).unwrap_err();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
+        let refused = create(state.path(), None, &request("sunset", "Dusk", false)).unwrap_err();
         assert!(refused.contains("replace: true"), "{refused}");
         assert_eq!(list(state.path()).skins[0].name, "Sunset");
         assert!(
-            create(state.path(), &request("sunset", "Dusk", true))
+            create(state.path(), None, &request("sunset", "Dusk", true))
                 .unwrap()
                 .replaced
         );
@@ -724,51 +754,54 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let mut mismatched = request("sunset", "Sunset", false);
         mismatched.package_id = "dusk".into();
-        assert!(create(state.path(), &mismatched)
+        assert!(create(state.path(), None, &mismatched)
             .unwrap_err()
             .contains("must equal package_id"));
 
         let mut unsupported = request("sunset", "Sunset", false);
         unsupported.manifest = unsupported.manifest.replace("'night'", "'custom'");
-        assert_eq!(create(state.path(), &unsupported).unwrap_err(), BASE_RULES);
+        assert_eq!(
+            create(state.path(), None, &unsupported).unwrap_err(),
+            BASE_RULES
+        );
 
         // msime-windows 的规则：canvas 只用于版本 2。
         let mut static_canvas = request("sunset", "Sunset", false);
         static_canvas.manifest = static_canvas.manifest.replace("'night'", "'canvas'");
         assert_eq!(
-            create(state.path(), &static_canvas).unwrap_err(),
+            create(state.path(), None, &static_canvas).unwrap_err(),
             "skin.toml: base = canvas requires schema_version 2"
         );
 
         let mut no_preview = request("sunset", "Sunset", false);
         no_preview.manifest = no_preview.manifest.replace("preview = 'preview.png'\n", "");
-        assert!(create(state.path(), &no_preview)
+        assert!(create(state.path(), None, &no_preview)
             .unwrap_err()
             .contains("must set `preview`"));
 
         let mut reserved = request("night", "Night", false);
         reserved.manifest = manifest("night", "Night");
-        assert!(create(state.path(), &reserved)
+        assert!(create(state.path(), None, &reserved)
             .unwrap_err()
             .contains("reserved id"));
         for id in ["canvas", "wechat_scroll", "default"] {
             let mut reserved = request(id, "Reserved", false);
             reserved.manifest = manifest(id, "Reserved");
-            let refused = create(state.path(), &reserved).unwrap_err();
+            let refused = create(state.path(), None, &reserved).unwrap_err();
             assert!(refused.contains("reserved id"), "{id}: {refused}");
             assert!(refused.contains("canvas or default"), "{id}: {refused}");
         }
 
         let mut not_png = request("sunset", "Sunset", false);
         not_png.images = BTreeMap::from([("preview.png".into(), "bm90IGEgcG5n".into())]);
-        assert!(create(state.path(), &not_png)
+        assert!(create(state.path(), None, &not_png)
             .unwrap_err()
             .contains("cannot be decoded"));
 
         // 签名和 IHDR 完好、像素数据和 IEND 都缺失：只看签名的检查会把它当成 PNG 装进去。
         let mut truncated = request("sunset", "Sunset", false);
         truncated.images = BTreeMap::from([("preview.png".into(), PNG[..44].into())]);
-        assert!(create(state.path(), &truncated)
+        assert!(create(state.path(), None, &truncated)
             .unwrap_err()
             .contains("cannot be decoded using the format"));
 
@@ -794,7 +827,7 @@ mod tests {
         let file = files.path().join("preview.png");
         std::fs::write(&file, PNG_BYTES).unwrap();
         assert_eq!(
-            create(state.path(), &from_file("sunset", &file)).unwrap(),
+            create(state.path(), None, &from_file("sunset", &file)).unwrap(),
             CreatedSkin {
                 id: "sunset".into(),
                 replaced: false
@@ -815,14 +848,15 @@ mod tests {
         }))
         .unwrap();
         assert!(request.images.is_empty());
-        assert_eq!(create(state.path(), &request).unwrap().id, "dusk");
+        assert_eq!(create(state.path(), None, &request).unwrap().id, "dusk");
     }
 
     #[test]
     fn an_unreadable_image_file_is_named_with_what_is_wrong() {
         let state = tempfile::tempdir().unwrap();
         let files = tempfile::tempdir().unwrap();
-        let refused = |file: &Path| create(state.path(), &from_file("sunset", file)).unwrap_err();
+        let refused =
+            |file: &Path| create(state.path(), None, &from_file("sunset", file)).unwrap_err();
         let error = refused(Path::new("preview.png"));
         assert!(error.contains("is not an absolute path"), "{error}");
         let error = refused(&files.path().join("missing.png"));
@@ -855,11 +889,11 @@ mod tests {
         std::fs::write(&file, PNG_BYTES).unwrap();
         let mut both = from_file("sunset", &file);
         both.images = BTreeMap::from([("preview.png".into(), PNG.into())]);
-        let error = create(state.path(), &both).unwrap_err();
+        let error = create(state.path(), None, &both).unwrap_err();
         assert!(error.contains("given in only one of the two"), "{error}");
         // 坏图与 base64 一样完整解码后拒绝，并建议写成文件重来。
         std::fs::write(&file, &PNG_BYTES[..40]).unwrap();
-        let error = create(state.path(), &from_file("sunset", &file)).unwrap_err();
+        let error = create(state.path(), None, &from_file("sunset", &file)).unwrap_err();
         assert!(error.contains("pass its path in image_files"), "{error}");
         assert!(list(state.path()).skins.is_empty());
     }
@@ -872,14 +906,15 @@ mod tests {
         let delete = |id: &str| {
             delete(
                 state.path(),
+                None,
                 edition,
                 &SkinRequest {
                     package_id: id.into(),
                 },
             )
         };
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
-        create(state.path(), &request("dusk", "Dusk", false)).unwrap();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), None, &request("dusk", "Dusk", false)).unwrap();
 
         // 偏好里选着它时拒绝，哪怕当前主题不是 custom。
         let store = PreferencesStore::new(state.path());
@@ -922,7 +957,7 @@ mod tests {
     #[test]
     fn deleting_a_synced_skin_says_so_and_keeps_the_sync_state() {
         let state = tempfile::tempdir().unwrap();
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
         let sync_state = state.path().join(candidate_sync::STATE_FILE);
         std::fs::write(
             &sync_state,
@@ -936,6 +971,7 @@ mod tests {
         let before = std::fs::read(&sync_state).unwrap();
         let deleted = delete(
             state.path(),
+            None,
             Edition::full(),
             &SkinRequest {
                 package_id: "sunset".into(),
@@ -951,7 +987,7 @@ mod tests {
     #[test]
     fn an_installed_skin_is_read_back_and_recreated_from_its_own_files() {
         let state = tempfile::tempdir().unwrap();
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
         let get = |id: &str| {
             get(
                 state.path(),
@@ -993,7 +1029,7 @@ mod tests {
             .iter()
             .map(|image| (image.path.clone(), image.file.clone()))
             .collect();
-        assert!(create(state.path(), &edited).unwrap().replaced);
+        assert!(create(state.path(), None, &edited).unwrap().replaced);
         assert_eq!(list(state.path()).skins[0].name, "Afterglow");
         assert_eq!(std::fs::read(&preview).unwrap(), PNG_BYTES);
 
@@ -1012,7 +1048,7 @@ mod tests {
     #[test]
     fn a_synced_skin_is_marked() {
         let state = tempfile::tempdir().unwrap();
-        create(state.path(), &request("sunset", "Sunset", false)).unwrap();
+        create(state.path(), None, &request("sunset", "Sunset", false)).unwrap();
         std::fs::write(
             state.path().join(candidate_sync::STATE_FILE),
             serde_json::to_vec(&serde_json::json!({
@@ -1023,5 +1059,74 @@ mod tests {
         )
         .unwrap();
         assert!(list(state.path()).skins[0].synced);
+    }
+
+    /// Linux 的 IBus 和 Fcitx5 宿主只从运行时选项里的皮肤目录知道装了什么、画什么颜色：每次装、同名替换和删除都要重新发布它，被拒绝的写入不碰文档。
+    #[test]
+    fn every_skin_write_republishes_the_catalog_the_linux_hosts_read() {
+        let state = tempfile::tempdir().unwrap();
+        let options = state.path().join("runtime-options.json");
+        std::fs::write(
+            &options,
+            br#"{"api_version":1,"resources":"/resources","preferences":{}}"#,
+        )
+        .unwrap();
+        let document = || -> serde_json::Value {
+            serde_json::from_slice(&std::fs::read(&options).unwrap()).unwrap()
+        };
+        let accent = |id: &str| {
+            document()["candidate_skin_catalog"]["packages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|package| package["id"] == id)
+                .map(|package| package["candidate"]["dark"]["accent"].clone())
+        };
+
+        create(
+            state.path(),
+            Some(&options),
+            &request("sunset", "Sunset", false),
+        )
+        .unwrap();
+        assert_eq!(accent("sunset"), Some("#FF8800".into()));
+
+        // 同名替换成别的配色：id 和选择都没变，宿主要靠目录条目变了才画新包。
+        let mut recoloured = request("sunset", "Sunset", true);
+        recoloured.manifest = recoloured.manifest.replace("#ff8800", "#00aaff");
+        assert!(
+            create(state.path(), Some(&options), &recoloured)
+                .unwrap()
+                .replaced
+        );
+        assert_eq!(accent("sunset"), Some("#00AAFF".into()));
+
+        // 被拒绝的写入不碰文档。
+        let before = std::fs::read(&options).unwrap();
+        create(
+            state.path(),
+            Some(&options),
+            &request("sunset", "Dusk", false),
+        )
+        .unwrap_err();
+        assert_eq!(std::fs::read(&options).unwrap(), before);
+
+        // 不给文档（macOS、Windows）时什么都不发布。
+        create(state.path(), None, &request("dusk", "Dusk", false)).unwrap();
+        assert_eq!(std::fs::read(&options).unwrap(), before);
+
+        delete(
+            state.path(),
+            Some(&options),
+            Edition::full(),
+            &SkinRequest {
+                package_id: "sunset".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(accent("sunset"), None);
+        assert_eq!(accent("dusk"), Some("#FF8800".into()));
+        // 文档里别的键原样保留。
+        assert_eq!(document()["resources"], "/resources");
     }
 }

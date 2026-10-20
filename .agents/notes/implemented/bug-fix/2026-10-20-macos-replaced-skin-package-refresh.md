@@ -38,9 +38,9 @@ Status: implemented
 - Android 每秒轮询时 `CandidateSkinResolver.read()` 都重新解析，约 1 秒内生效。
 - iOS 的解析缓存键含 `skin.toml` 的修改时间和大小，但只在键盘下一次出现（`viewWillAppear`）时重算；键盘显示期间替换不生效。
 - HarmonyOS 与 macOS 同样过时：`KeyboardSession.applyAppearance` 只在会话启动、自身保存之后和偏好 revision 变化时运行，`syncSharedState` 把新的 `skins` 目录镜像过来后也不重画。已按同一做法修复，见下一节。
-- Linux 两个前端读设置应用发布在运行时选项文件里的皮肤目录，MCP 服务从不重新发布它（`platforms/linux/README.md` 写明命令行新装的皮肤要等设置页重扫），所以 MCP 替换后 IBus 的配色和 Fcitx5 非 canvas 包的配色、尺寸都过时；Fcitx5 的装饰图和 canvas 包按文件戳刷新。
+- Linux 两个前端读发布在运行时选项文件里的皮肤目录。MCP 服务原先从不重新发布它，替换后 IBus 的配色和 Fcitx5 非 canvas 包的配色、尺寸都过时；现在 MCP 写皮肤后也重新发布，见 [Linux 上 MCP 写入皮肤后重新发布皮肤目录](2026-10-20-linux-mcp-skin-catalog-republish.md)。Fcitx5 的装饰图和 canvas 包按文件戳刷新。
 
-这些都不是同一处共享代码，先修了 macOS 和共享的图库预览，HarmonyOS 随后按同一做法修复（下一节），iOS 和 Linux 列为后续。
+这些都不是同一处共享代码，先修了 macOS 和共享的图库预览，HarmonyOS 随后按同一做法修复（下一节），Linux 的 MCP 路径另见上面链接的笔记，iOS 列为后续。
 
 ## HarmonyOS
 
@@ -65,7 +65,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：经 MCP、皮肤编辑器、图库重装或文件夹导入替换正在用的皮肤后，下一次出现的候选窗就画新包，候选窗正显示时一秒内重画，不必重启输入法；悬浮工具栏同时换上新调色板。图库里作者替换过的作品在下一次列表或详情读取后显示新预览。
-- **代价与已知上限**：只看目录、`skin.toml` 和装饰图、背景图。手工原地改写 canvas 素材或工具栏样式表而不动这几个文件时不会被发现，要等下一次 `-reloadSkins`（打开设置窗口等）。替换发生在两次轮询之间、候选窗又一直开着时，最多晚一秒。iOS 和 Linux 的 MCP 路径仍然过时，见「其他平台」。HarmonyOS 上替换要等键盘下一次获得焦点才生效：设置应用发布有 300 ms 合并，键盘在两次 `attach` 之间不导入；镜像的目录指纹按秒级修改时间和大小算，同一秒内大小不变的改写不会被发布，下一次变化时一起带过去。
+- **代价与已知上限**：只看目录、`skin.toml` 和装饰图、背景图。手工原地改写 canvas 素材或工具栏样式表而不动这几个文件时不会被发现，要等下一次 `-reloadSkins`（打开设置窗口等）。替换发生在两次轮询之间、候选窗又一直开着时，最多晚一秒。iOS 仍然过时，见「其他平台」。HarmonyOS 上替换要等键盘下一次获得焦点才生效：设置应用发布有 300 ms 合并，键盘在两次 `attach` 之间不导入；镜像的目录指纹按秒级修改时间和大小算，同一秒内大小不变的改写不会被发布，下一次变化时一起带过去。
 
 ## Verification
 
