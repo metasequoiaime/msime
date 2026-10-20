@@ -85,7 +85,7 @@ int main() {
           TrayMenuCommand::SelectQuanpin, TrayMenuCommand::SelectShuangpin,
           TrayMenuCommand::SelectWubi, TrayMenuCommand::SelectJapanese,
           TrayMenuCommand::SelectKorean, TrayMenuCommand::OpenTheme,
-          TrayMenuCommand::OpenDictionary}) {
+          TrayMenuCommand::OpenDictionary, TrayMenuCommand::OpenCloudDictionary}) {
       assert(!tray(command, true, true, true, false).known);
       assert(!tray_menu_mode_row(command));
     }

@@ -54,11 +54,11 @@ int main() {
           {TrayMenuCommand::SelectQuanpin, "全拼"},
           {TrayMenuCommand::SelectShuangpin, "双拼（自然码）"},
           {TrayMenuCommand::SelectWubi, "五笔 98"},
-          {TrayMenuCommand::SelectJapanese, "日文"},
-          {TrayMenuCommand::SelectKorean, "韩文"},
+          {TrayMenuCommand::SelectJapanese, "日语"},
+          {TrayMenuCommand::SelectKorean, "韩语"},
           {TrayMenuCommand::SelectCantonese, "粤拼"},
           {TrayMenuCommand::SelectZhuyin, "注音"},
-          {TrayMenuCommand::SelectVietnamese, "越南文"},
+          {TrayMenuCommand::SelectVietnamese, "越南语"},
           {TrayMenuCommand::SelectTibetan, "藏文"},
           {TrayMenuCommand::SelectStroke, "笔画"}};
       require(schemes.size() == expected.size());
@@ -72,11 +72,16 @@ int main() {
         require(tray_menu_closes_after(row.command));
       }
       require(tray_menu_geometry(schemes, TrayMenuMetrics{}).rows.size() == schemes.size());
-      // 缺词典的方案显示为不可用，而不是让它打出拼音。
+      // 缺词典的方案在托盘的方案页显示为不可用，而不是让它打出拼音；工具栏的方案菜单像 macOS 一样干脆不列出它，其余的行不变。
       auto missing = all;
       missing.zhuyin = false;
       const auto without_zhuyin = tray_menu_scheme_items(missing, state);
       require(!without_zhuyin[find(without_zhuyin, TrayMenuCommand::SelectZhuyin)].available);
+      const auto popup = tray_menu_scheme_items(missing, state, true);
+      require(popup.size() == expected.size() - 1);
+      for (const auto &row : popup)
+        require(row.command != TrayMenuCommand::SelectZhuyin && row.available);
+      require(tray_menu_scheme_items(all, state, true).size() == expected.size());
       // 只提供部分方案的版本只列出它提供的。
       auto pinyin = all;
       pinyin.schemes = scheme::OfferedSchemes{};

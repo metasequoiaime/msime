@@ -1723,6 +1723,7 @@ int wmain(int argc, wchar_t **argv) {
     menu_capabilities.voice_input = true;
     menu_capabilities.settings = settings_shell.has_value();
     menu_capabilities.cloud_clipboard = preview_shell.has_value();
+    menu_capabilities.cloud_dictionary = preview_shell.has_value();
     menu_capabilities.cantonese = language_dictionaries.cantonese;
     menu_capabilities.zhuyin = language_dictionaries.zhuyin;
     menu_capabilities.stroke = language_dictionaries.stroke;
@@ -1876,9 +1877,9 @@ int wmain(int argc, wchar_t **argv) {
           [&](const TrayMenuTheme &row) { return row.id == theme; });
       return listed && store_global_theme(config.state_root, theme);
     });
-    // 悬浮工具栏的两个弹出菜单，画法与托盘卡片相同。方案菜单只放「输入方案」那一组行，右键菜单是 macOS 设置按钮的实用菜单。
+    // 悬浮工具栏的两个弹出菜单，画法与托盘卡片相同。方案菜单只放「输入方案」那一组行，缺词典跑不起来的方案不列出，与 macOS 工具栏的方案菜单一样；右键菜单是 macOS 设置按钮的实用菜单。
     TrayMenuWindow scheme_menu(
-        [&] { return tray_menu_scheme_items(menu_capabilities, tray_state()); },
+        [&] { return tray_menu_scheme_items(menu_capabilities, tray_state(), true); },
         tray_command);
     TrayMenuWindow utility_menu(
         [&] { return toolbar_utility_menu_items(menu_capabilities); }, tray_command);

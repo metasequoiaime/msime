@@ -53,6 +53,9 @@ shell_surface_request(TrayMenuCommand command) {
   // 共享应用按 cloud-clipboard 路由打开面板，打开前记下前台的编辑器（panel_input.rs 的 remember_opening_panel_target），所以条目能直接输入回原来的编辑器。托盘卡片不抢焦点，点这一行时前台仍是那个编辑器。
   case TrayMenuCommand::OpenCloudClipboard:
     return ShellSurfaceRequest{"cloud-clipboard", {}};
+  // 「云词库…」打开共享应用的云词库面板，路由与 macOS 的 MSIMEOpenDesktopCloudDictionary 相同（client-core 的 SurfaceRoute::CloudDictionary）。
+  case TrayMenuCommand::OpenCloudDictionary:
+    return ShellSurfaceRequest{"cloud-dictionary", {}};
   // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。
   case TrayMenuCommand::OpenSystemEmoji:
   case TrayMenuCommand::OpenWebsite:

@@ -64,6 +64,14 @@ int main() {
     require(shell_executable_names(*cloud) == std::vector<std::wstring>{L"MSIME.exe"});
     require(entries(shell_environment_block(L"\0", *cloud))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-clipboard");
+    // 「云词库…」按 cloud-dictionary 路由打开共享应用的云词库面板，与 macOS 输入菜单的同名一行相同。
+    const auto cloud_dictionary = shell_surface_request(TrayMenuCommand::OpenCloudDictionary);
+    require(cloud_dictionary && cloud_dictionary->panel == "cloud-dictionary" &&
+            cloud_dictionary->page.empty());
+    require(shell_route_argument(*cloud_dictionary) == L"cloud-dictionary");
+    require(shell_executable_names(*cloud_dictionary) == std::vector<std::wstring>{L"MSIME.exe"});
+    require(entries(shell_environment_block(L"\0", *cloud_dictionary))[0] ==
+            L"MSIME_CLIENT_ROUTE=cloud-dictionary");
     // 卡片自己的翻页、主题行、繁体输出和英文候选模式都不经过外壳。
     for (auto command :
          {TrayMenuCommand::ShowSchemes, TrayMenuCommand::ShowThemes,

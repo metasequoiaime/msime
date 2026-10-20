@@ -44,6 +44,8 @@ enum class TrayMenuCommand {
   HideFloatingToolbar,
   // 托盘卡片的「云剪贴板…」：共享应用的云剪贴板面板，焦点在密码框里时拒绝打开。
   OpenCloudClipboard,
+  // 托盘卡片的「云词库…」：共享应用的云词库面板，与 macOS 输入菜单的同名一行打开同一个面板（cloud-dictionary 路由）。
+  OpenCloudDictionary,
   // 主题页的一行，写存储的 global_theme；行的 value 是主题 id。
   SelectTheme,
   // 托盘卡片自己的翻页：输入方案页、主题页和返回主页。只在卡片里处理，从不交给 Server。
