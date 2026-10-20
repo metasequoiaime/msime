@@ -138,6 +138,7 @@ export function CandidateSkinModePreview({
             orientation={orientation}
             decorated={decorated}
             image={decoration ? draftImageUrl(decoration.image) : undefined}
+            decorationCandidate={decoration?.candidate}
             background={
               background
                 ? {

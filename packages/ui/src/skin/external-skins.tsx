@@ -73,6 +73,8 @@ export type ExternalSkin = {
   decorationMotionPeriodMs?: number;
   /** 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。 */
   decorationFrames?: number;
+  /** 装饰图内的候选词叠加声明，v1、v2 均可用。 */
+  decorationCandidate?: import("./decoration-candidate").DecorationCandidate | null;
   background?: SkinBackground | null;
   toolbar?: { cornerRadiusDip: number | null; dark: ToolbarPalette; light: ToolbarPalette };
   toolbarStylesheet: string | null;
@@ -341,6 +343,7 @@ export function ExternalSkinCard({
               decorated={decorated}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
+              decorationCandidate={skin.decorationCandidate}
               background={drawnBackground}
               onBackgroundError={background.onError}
             />
@@ -351,6 +354,7 @@ export function ExternalSkinCard({
               decorated={decorated}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
+              decorationCandidate={skin.decorationCandidate}
               background={drawnBackground}
               onBackgroundError={background.onError}
             />
