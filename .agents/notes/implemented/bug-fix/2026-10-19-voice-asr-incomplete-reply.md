@@ -6,9 +6,13 @@ Status: implemented
 
 macOS 与 Windows 共用的 `parse_transcription` 按 `text`、`transcription`、`result.text`、聊天候选依次返回非空文字，却没有检查 HTTP 200 回复里的顶层 `error` 或首候选的 `finish_reason`。明确报错、截断或过滤的正文因此仍能成为识别成功结果，进入润色和文字投递。
 
+Linux 用户会话语音服务的独立 `transcript` 入口存在同一缺口；四种文字别名都能绕过回复的失败状态。
+
 ## Decision
 
-在共享 C++ 解析入口提取任何文字之前，拒绝非 `null` 顶层错误，以及首候选 `length`、`content_filter`。抛出固定 `VoiceError`，沿用 `recognize_cloud_asr` 的 `CloudAsrError` 和宿主现有识别失败处理，不透传服务端错误正文。缺省、`null` 与正常结束保持兼容；转写字段顺序、请求、重试和空文字契约保持原样。本批只覆盖 macOS、Windows 共用入口，其他独立宿主分批处理。
+在共享 C++ 解析入口提取任何文字之前，拒绝非 `null` 顶层错误，以及首候选 `length`、`content_filter`。抛出固定 `VoiceError`，沿用 `recognize_cloud_asr` 的 `CloudAsrError` 和宿主现有识别失败处理，不透传服务端错误正文。缺省、`null` 与正常结束保持兼容；转写字段顺序、请求、重试和空文字契约保持原样。
+
+Linux `transcript` 在提取任何别名前应用同一规则，抛出固定、不可重试的 `VoiceRequestError()`。`Handler.handle` 沿用原有异常分支发送空正文的 `ok: false`，不会进入部分文字发送、润色或最终文字投递；SiliconFlow 不把这类协议失败当网络故障重试。通用 HTTP worker、凭据探测和既有 4096 字节文字边界保持原样。
 
 ## 历史笔记审计
 
@@ -29,13 +33,17 @@ macOS `http-voice-request` 增加顶层错误、聊天截断和带文字别名�
 
 macOS 原生宿主与全部 CMake 目标构建通过。独立代码与安全审查未发现阻塞问题，审查者复跑两项 HTTP ctest 和 `git diff --check` 通过。
 
-本地 `bash scripts/verify-local.sh --quick` 通过，包含 Rust workspace、Android 与 WASM 目标检查、Android 宿主 Java、Linux 桌面外壳与原生 IBus/Fcitx5 构建及 90 项测试、Windows 157 项可移植测试、macOS 构建和共享 Apple 桥接层。Windows 完整构建因缺少 MinGW 跳过；HarmonyOS 真打包因本工作区未暂存依赖跳过。笔记与差异门禁通过。
+共享 C++ 修复批次的本地 `bash scripts/verify-local.sh --quick` 曾通过，包含 Rust workspace、Android 与 WASM 目标检查、Android 宿主 Java、Linux 桌面外壳与原生 IBus/Fcitx5 构建及 90 项测试、Windows 157 项可移植测试、macOS 构建和共享 Apple 桥接层。Windows 完整构建因缺少 MinGW 跳过；HarmonyOS 真打包因该工作区未暂存依赖跳过。
+
+Linux 的 `scripts/test-linux-voice-asr-reply.py` 经真实 HTTP worker 和回环服务覆盖四种文字形状各 12 种状态，另含 SiliconFlow 的不可重试错误，共 49 种回复。旧实现误接受 33 种明确失败回复，修复后全部通过；成功对照确保请求确实到达服务，失败回复只抛固定错误且每条请求一次。原有 6 项请求格式测试与 12 种润色回复回归通过。测试只使用合成录音与凭据。
+
+本批再次运行 `bash scripts/verify-local.sh --quick` 时，Rust workspace 因缺少既有的 `target/macos/水杉输入法.app` 资源而失败；Linux Docker 桌面与原生宿主阶段因本机没有 Docker 跳过。笔记校验、差异检查及上述 Linux 回归通过。
 
 ## Consequences
 
 - 明确失败的转写不会进入润色或投递，宿主沿用现有失败提示；不增加日志或服务端错误正文透传。
 - 省略结束状态的服务依然不能证明结果完整，未知结束原因沿用现有兼容行为。明确失败时舍弃服务已经生成的部分文字。
-- 本批仅覆盖共享 C++ 的 macOS 与 Windows 转写入口，不覆盖其他平台的独立解析路径、流式识别或凭据探测。
+- 覆盖共享 C++ 的 macOS、Windows 转写入口及 Linux 用户会话服务的批量转写，不覆盖 Android、iOS、HarmonyOS 的独立解析路径、流式识别或凭据探测。
 - 本机缺少 Windows 完整交叉工具链，共享测试不能替代 Windows 产品构建与系统输入法验收；也未验证外部 HTTPS、麦克风录音或完整语音交互。
 
 ## Sources
