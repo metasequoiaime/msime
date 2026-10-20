@@ -79,7 +79,7 @@ public final class SymbolPanelView extends LinearLayout {
     private boolean catalogLoading;
     private long catalogGeneration;
 
-    /** 每次打开时，有使用记录先显示「常用」，否则显示「中文」。 */
+    /** 每次打开都显示「常用」，没有使用记录时显示空态提示。 */
     public void resetForPresentation(List<String> recents) {
         resetForPresentation(recents, categoryOrder);
     }

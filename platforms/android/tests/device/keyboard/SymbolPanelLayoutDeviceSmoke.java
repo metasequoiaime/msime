@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ScrollView;
+import android.widget.TextView;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -61,12 +62,22 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         });
         View panel = (View) type.getConstructor(Context.class, factoryType, listenerType)
             .newInstance(context, factory, listener);
+        type.getMethod("resetForPresentation", List.class).invoke(panel, List.of());
+        layout(panel, 1000);
+        assertEmptyCommon(panel);
         type.getMethod("resetForPresentation", List.class).invoke(panel, List.of("，", "@protonmail.com"));
         for (int width : new int[] {1000, 720, 1000}) {
             panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(700, View.MeasureSpec.EXACTLY));
             panel.layout(0, 0, width, 700);
             assertGeometry((ViewGroup) panel);
+            ScrollView recentGrid = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
+            ViewGroup recentCells = (ViewGroup) recentGrid.getChildAt(0);
+            int symbolCount = 0;
+            for (int index = 0; index < recentCells.getChildCount(); index++)
+                if (recentCells.getChildAt(index) instanceof Button) symbolCount++;
+            if (symbolCount != 2)
+                throw new AssertionError("常用不应追加没有使用过的默认符号");
             for (String symbol : List.of("，", "@protonmail.com")) {
                 Button button = findButton(panel, symbol);
                 if (button == null || button.getWidth() <= 0 || button.getHeight() <= 0)
@@ -93,6 +104,19 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         if (!findButton(panel, "中文").isSelected() || scroll.getScrollY() <= 0)
             throw new AssertionError("Vertical swipe changed category or did not scroll");
         if (insertions[0] != 6) throw new AssertionError("Swiping inserted a symbol");
+        type.getMethod("resetForPresentation", List.class).invoke(panel, List.of());
+        layout(panel, 1000);
+        assertEmptyCommon(panel);
+    }
+
+    private static void assertEmptyCommon(View panel) {
+        if (!findButton(panel, "常用").isSelected())
+            throw new AssertionError("没有记录时应默认打开常用");
+        ScrollView scroll = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
+        ViewGroup grid = (ViewGroup) scroll.getChildAt(0);
+        if (grid.getChildCount() != 1 || !(grid.getChildAt(0) instanceof TextView hint)
+                || hint instanceof Button || !"点过的符号会出现在这里".contentEquals(hint.getText()))
+            throw new AssertionError("空常用应仅显示提示，不应填充默认符号");
     }
 
     private static void layout(View panel, int width) {
