@@ -2087,6 +2087,29 @@ pub fn host_candidate_catalog(
             if let Some(radius) = package.corner_radius_dip {
                 entry["corner_radius_dip"] = radius.into();
             }
+            // 行圆角、背景图和工具栏配色只给能画它们的宿主：Linux 的 Fcitx5 经典界面主题按行圆角画选中高亮，把背景图画在卡片里，把工具栏配色用到它画的菜单上（Linux 的悬浮工具栏就是输入法菜单）。
+            if let Some(radius) = package.item_corner_radius_dip {
+                entry["item_corner_radius_dip"] = radius.into();
+            }
+            if let Some((image, background)) = host_background_image(root, package) {
+                entry["background_image"] = image.into();
+                entry["background_fit"] =
+                    serde_json::to_value(background.fit).expect("an enum serializes");
+                entry["background_opacity"] = background.opacity.into();
+            }
+            let mut toolbar = serde_json::Map::new();
+            for (theme, palette) in [
+                ("light", &package.toolbar.light),
+                ("dark", &package.toolbar.dark),
+            ] {
+                let colors = host_toolbar_palette(palette);
+                if package.supports_theme(theme) && !colors.is_empty() {
+                    toolbar.insert(theme.to_owned(), serde_json::Value::Object(colors));
+                }
+            }
+            if !toolbar.is_empty() {
+                entry["toolbar"] = serde_json::Value::Object(toolbar);
+            }
             entry
         }));
     let mut published = serde_json::json!({ "packages": packages });
@@ -2107,6 +2130,37 @@ fn host_decoration_image(root: &Path, package: &SkinSummary) -> Option<String> {
         return None;
     }
     path.to_str().map(str::to_owned)
+}
+
+/// 包的背景图（`candidate_window.background`）的绝对路径，和装饰图同样的规则：`scan` 已把它限制在包目录里并确认是图片，拼不出绝对的 UTF-8 路径时不发布，因为宿主打不开它。
+fn host_background_image<'a>(
+    root: &Path,
+    package: &'a SkinSummary,
+) -> Option<(String, &'a SkinBackground)> {
+    let background = package.background.as_ref()?;
+    let path = root.join(&package.id).join(&background.image);
+    if !path.is_absolute() {
+        return None;
+    }
+    Some((path.to_str()?.to_owned(), background))
+}
+
+/// 一个模式的工具栏配色，只留宿主读得懂的 `#RRGGBB` 或 `#RRGGBBAA`，与候选配色同样处理。
+fn host_toolbar_palette(palette: &ToolbarPalette) -> serde_json::Map<String, serde_json::Value> {
+    let mut colors = serde_json::Map::new();
+    for (key, value) in [
+        ("background", &palette.background),
+        ("border", &palette.border),
+        ("handle", &palette.handle),
+        ("divider", &palette.divider),
+        ("icon", &palette.icon),
+        ("hover", &palette.hover),
+    ] {
+        if let Some(value) = value.as_deref().and_then(super::theme::normalized_color) {
+            colors.insert(key.to_owned(), value.into());
+        }
+    }
+    colors
 }
 
 fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_json::Value> {
