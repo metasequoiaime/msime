@@ -31,11 +31,12 @@ ShuangpinKeymapX11Surface::~ShuangpinKeymapX11Surface() { close(); }
 bool ShuangpinKeymapX11Surface::visible() const { return window_ && window_->visible(); }
 
 bool ShuangpinKeymapX11Surface::open(const std::string &display) {
-  if (display_ && display == display_name_) return true;
+  // 连接断了（X 服务器退出或重启）就关掉重连；键位图只在宿主的按键路径上画，不在这条连接的回调里，这里关是安全的。
+  if (display_ && display == display_name_ && !lost_) return true;
   close();
   const char *name = display.empty() ? std::getenv("DISPLAY") : display.c_str();
   if (!name || !*name) return false;
-  display_ = XOpenDisplay(name);
+  display_ = open_overlay_display(name, &lost_);
   if (!display_) return false;
   display_name_ = display;
   randr_monitors_ = x11_overlay_randr_monitors(display_);
@@ -52,6 +53,7 @@ void ShuangpinKeymapX11Surface::close() {
   window_.reset();
   if (display_) XCloseDisplay(display_);
   display_ = nullptr;
+  lost_ = false;
   display_name_.clear();
 }
 
@@ -87,7 +89,8 @@ bool ShuangpinKeymapX11Surface::show(const std::string &display, const Shuangpin
   const auto monitor = x11_overlay_monitor(display_, randr_monitors_, caret_center);
   const auto plate = shuangpin_keymap_position(
       anchor.caret_x, anchor.caret_y, anchor.caret_height, plate_width, plate_height,
-      static_cast<int>(std::lround(anchor.clearance * scale)), monitor.work,
+      anchor.measured_clearance ? *anchor.measured_clearance : static_cast<int>(std::lround(anchor.clearance * scale)),
+      monitor.work,
       static_cast<int>(std::lround(ShuangpinKeymapGeometry::candidate_gap * scale)),
       static_cast<int>(std::lround(ShuangpinKeymapGeometry::screen_margin * scale)));
   window_->place(plate.x - margin, plate.y - margin, width, height);

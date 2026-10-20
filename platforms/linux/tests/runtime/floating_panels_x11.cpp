@@ -1,10 +1,13 @@
 #include "../src/overlay/FloatingToolbar.h"
 #include "../src/overlay/FloatingToolbarPainter.h"
+#include "../src/overlay/OverlayX11Window.h"
 #include "../src/overlay/ShuangpinKeymapX11Surface.h"
 
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <cairo/cairo-xlib.h>
@@ -87,6 +90,19 @@ struct Placed {
   ::Window id = 0;
   int x = 0, y = 0, width = 0, height = 0;
 };
+
+// 根窗口的子窗口里 window 排在第几（越大越靠上）；不在里面时是 -1。
+int stacking_index(Display *display, ::Window window) {
+  ::Window root = 0, parent = 0;
+  ::Window *children = nullptr;
+  unsigned count = 0;
+  int found = -1;
+  if (XQueryTree(display, DefaultRootWindow(display), &root, &parent, &children, &count))
+    for (unsigned index = 0; index < count; ++index)
+      if (children[index] == window) found = static_cast<int>(index);
+  if (children) XFree(children);
+  return found;
+}
 
 // 根窗口下正在显示、WM_CLASS 是 resource_class 的那块 override-redirect 窗口。
 std::optional<Placed> visible(Display *display, const char *resource_class) {
@@ -255,12 +271,85 @@ void toolbar(Display *display) {
   require(saved && saved->x == moved->x && saved->y == moved->y, "拖动后的位置没有记下来");
   require(actions.size() == 2, "拖动不该触发按钮");
 
+  // 有的窗口管理器用 XRaiseWindow 抬起被点中的窗口，把它压到工具栏上面；前台窗口一换，工具栏重新抬到最上面。
+  const auto screen_root = DefaultRootWindow(display);
+  const ::Window front = XCreateSimpleWindow(display, screen_root, moved->x - 20, moved->y - 20, 400, 120, 0, 0, 0);
+  XMapRaised(display, front);
+  XSync(display, False);
+  require(stacking_index(display, front) > stacking_index(display, moved->id), "测试窗口没有盖住工具栏");
+  const unsigned long active = front;
+  XChangeProperty(display, screen_root, XInternAtom(display, "_NET_ACTIVE_WINDOW", False), XA_WINDOW, 32,
+                  PropModeReplace, reinterpret_cast<const unsigned char *>(&active), 1);
+  XFlush(display);
+  loop.run_for(100);
+  require(stacking_index(display, moved->id) > stacking_index(display, front), "前台窗口换了以后工具栏没有回到最上面");
+  XDestroyWindow(display, front);
+  XDeleteProperty(display, screen_root, XInternAtom(display, "_NET_ACTIVE_WINDOW", False));
+  XSync(display, False);
+  loop.run_for(60);
+
+#ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
+  // 工具栏的连接断了（X 服务器或 Xwayland 退出）：进程不退出，下一轮主循环关掉这条连接，再有输入时连上新的连接重新显示。这里只关掉本端的读方向，Xlib 下一次读就读到文件尾，与服务器消失时一样。
+  for (const auto &source : loop.sources)
+    if (source->alive && source->fd >= 0) shutdown(source->fd, SHUT_RD);
+  loop.run_for(100);
+  require(!visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后旧的工具栏窗口还在");
+  toolbar->note_input(&owner);
+  loop.run_for(100);
+  require(visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后有输入时工具栏没有重新连上并显示");
+#endif
+
   // 换了输入法：收起。
   toolbar->deactivate(&owner);
   loop.run_for(60);
   require(!visible(display, "MSIMEFloatingToolbar").has_value(), "放开属主后工具栏还在");
   toolbar.reset();
   std::filesystem::remove_all(directory);
+}
+
+// IBus 宿主的切换类动作只对有焦点的引擎生效：属主失焦后工具栏留着，但要输入框的按钮画成淡色、点了不做事，打开设置这样的按钮照样能用。
+void unfocused_toolbar(Display *display) {
+  PollLoop loop;
+  std::vector<host::FloatingToolbarAction> actions;
+  host::FloatingToolbar::Options options;
+  options.display_name = "水杉输入法";
+  options.actions_need_focus = true;
+  auto overlay = loop.loop();
+  auto toolbar = host::FloatingToolbar::create(
+      overlay, [&](const void *, host::FloatingToolbarAction action, const std::string &) { actions.push_back(action); },
+      options, host::FloatingToolbar::default_surfaces(overlay));
+  require(toolbar != nullptr, "有 DISPLAY 时应当建出 X11 工具栏");
+  const auto config = host::floating_toolbar_config(Json::object(), true, true);
+  toolbar->configure(config, host::floating_toolbar_colors(host::CandidateTheme{}));
+  host::FloatingToolbarState state;
+  state.scheme_title = "全拼";
+  const int owner = 1;
+  toolbar->activate(&owner, state);
+  toolbar->focus_out(&owner);
+  loop.run_for(100);
+  const auto bar = visible(display, "MSIMEFloatingToolbar");
+  require(bar.has_value(), "属主失焦后工具栏应当留着");
+  save(display, *bar, "floating-toolbar-unfocused-x11.png");
+  const auto layout = host::floating_toolbar_layout(config, false);
+  const auto center = [&](std::size_t index) {
+    const auto &cell = layout.buttons[index];
+    return std::pair{static_cast<int>(cell.x + cell.width / 2), static_cast<int>(cell.y + cell.height / 2)};
+  };
+  auto [mode_x, mode_y] = center(0);
+  click(display, loop, *bar, Button1, mode_x, mode_y);
+  require(actions.empty(), "属主失焦时点中/英按钮不该有动作");
+  auto [scheme_x, scheme_y] = center(1);
+  click(display, loop, *bar, Button1, scheme_x, scheme_y);
+  require(!visible(display, "MSIMEFloatingToolbarMenu").has_value(), "属主失焦时不该弹出方案菜单");
+  auto [settings_x, settings_y] = center(layout.buttons.size() - 1);
+  click(display, loop, *bar, Button1, settings_x, settings_y);
+  require(actions.size() == 1 && actions[0] == host::FloatingToolbarAction::OpenSettings, "属主失焦时设置按钮应当照样能用");
+  // 重新获得焦点：中/英按钮又能用了。
+  toolbar->activate(&owner, state);
+  loop.run_for(60);
+  click(display, loop, *bar, Button1, mode_x, mode_y);
+  require(actions.size() == 2 && actions[1] == host::FloatingToolbarAction::ToggleInputMode, "获得焦点后中/英按钮应当能用");
+  toolbar.reset();
 }
 
 void keymap(Display *display) {
@@ -294,6 +383,7 @@ int main() {
     Display *display = XOpenDisplay(nullptr);
     require(display != nullptr, "连不上 Xvfb");
     toolbar(display);
+    unfocused_toolbar(display);
     keymap(display);
     XCloseDisplay(display);
     std::cout << "floating panels on X11 passed\n";

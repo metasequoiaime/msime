@@ -206,13 +206,20 @@ inline double shuangpin_keymap_footer_top() {
   return shuangpin_keymap_row_top(2) + G::key_height + G::footer_gap;
 }
 
-// 候选窗估计占的高度（逻辑像素，乘过候选缩放），键位图要让开它。Linux 的候选窗由桌面面板（IBus 面板、Fcitx5 经典界面）画，宿主拿不到它的矩形，所以与 macOS 在算出精确几何之前的基线一样按字号估计：横排一行是字号加 42，竖排每行字号加 10、再加 24 的上下边。面板画拼音行时再加一行 22 的标题。
+// 候选窗估计占的高度（逻辑像素，乘过候选缩放），键位图要让开它。候选窗由桌面面板（IBus 面板、Fcitx5 经典界面）画时宿主拿不到它的矩形，所以与 macOS 在算出精确几何之前的基线一样按字号估计：横排一行是字号加 42，竖排每行字号加 10、再加 24 的上下边。面板画拼音行时再加一行 22 的标题。Fcitx5 的经典界面用的字体由插件按同一个候选字号偏好写进去，所以估计用的字号与它画的一致；Fcitx5 自己画候选窗（原生画布）时改用 shuangpin_keymap_measured_clearance。
 inline double shuangpin_keymap_candidate_clearance(double font_size, double scale, bool horizontal,
                                                    std::size_t candidates, bool preedit_row) {
   const double rows = static_cast<double>(std::max<std::size_t>(candidates, 1));
   double clearance = horizontal ? font_size + 42.0 : (font_size + 10.0) * rows + 24.0;
   if (preedit_row) clearance += 22.0;
   return clearance * scale;
+}
+
+// 宿主自己画的候选窗（Fcitx5 的原生画布）在根窗口里的真实矩形换成要让开的高度（设备像素）：候选窗在光标下方时是它的底边离光标底边多远，翻到光标上方时是它的顶边离光标顶边多远，对应 macOS 用 candidatePageGeometry 算出的精确高度。
+inline int shuangpin_keymap_measured_clearance(int caret_y, int caret_height, int window_y, int window_height) {
+  const int caret_bottom = caret_y + caret_height;
+  if (window_y >= caret_bottom) return window_y + window_height - caret_bottom;
+  return std::max(0, caret_y - window_y);
 }
 
 // 键位图本体（不含阴影边）左上角的根窗口坐标，照搬 macOS 的 MSIMEShuangpinKeymapPanelFrame，只是换成 y 轴向下：左边与光标对齐，放在光标下方、让开候选窗再隔 gap；下面放不下就翻到光标上方同样的距离；最后夹在工作区四边各 margin 以内。所有长度都是设备像素。
@@ -231,7 +238,7 @@ inline WaveOverlayPosition shuangpin_keymap_position(int caret_x, int caret_y, i
   return {clamp(caret_x, minimum_x, maximum_x), clamp(preferred, minimum_y, maximum_y)};
 }
 
-// 键位图要画的颜色，全部不透明（0xRRGGBB），取自候选窗解析出的主题：卡片是主题底色，键帽在底色上叠一层很淡的文字色（对应 macOS 的 controlBackgroundColor），描边是主题的分隔线，高亮键是选中行的底色和字色，与候选窗的选中项同一种颜色。系统主题因此是 Adwaita 的蓝色，皮肤画自己的颜色。
+// 键位图要画的颜色，全部不透明（0xRRGGBB），取自候选窗解析出的主题：卡片是主题底色，键帽在底色上叠一层很淡的文字色（对应 macOS 的 controlBackgroundColor），描边是主题的分隔线，高亮键填主题的强调色、字是白色，与 macOS 的 MSIMEKeymapAccent（皮肤 tokens.accent）相同。系统主题因此是 Adwaita 的蓝色，皮肤画自己的强调色。
 struct ShuangpinKeymapColors {
   std::uint32_t surface = 0xFFFFFF;
   std::uint32_t text = 0x2E2E2E;

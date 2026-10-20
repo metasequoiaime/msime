@@ -3,6 +3,7 @@
 
 #include <cairo/cairo.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -118,6 +119,44 @@ void toolbar(bool logo, bool shadow, const char *name) {
   cairo_surface_destroy(surface);
 }
 
+// 属主失焦、要输入框的按钮不能用时（IBus）：悬停也不垫底，字画成淡色；菜单里不能用的项点不中。
+void disabled_controls() {
+  const auto config = host::floating_toolbar_config(nlohmann::json::object(), true, true);
+  const auto layout = host::floating_toolbar_layout(config, false);
+  const auto colors = host::floating_toolbar_colors(host::CandidateTheme{});
+  host::FloatingToolbarState state;
+  host::FloatingToolbarFrame frame;
+  for (const auto button : config.buttons) {
+    frame.faces.push_back(host::floating_toolbar_face(button, state, "水杉输入法"));
+    frame.faces.back().enabled = !host::floating_toolbar_button_needs_focus(button);
+  }
+  frame.hovered = 0;
+  auto *surface = canvas(layout.width, layout.height);
+  auto *cairo = cairo_create(surface);
+  host::paint_floating_toolbar(cairo, layout, frame, colors);
+  cairo_destroy(cairo);
+  save(surface, "floating-toolbar-unfocused.png");
+  const auto &cell = layout.buttons[0];
+  assert(pixel_at(surface, static_cast<int>(cell.x + 3), static_cast<int>(cell.y + cell.height / 2)).rgb == colors.surface);
+  // 淡色比正常的字浅：按钮里最深的像素也比文字色亮。
+  int darkest = 255;
+  for (int y = static_cast<int>(cell.y); y < static_cast<int>(cell.y + cell.height); ++y)
+    for (int x = static_cast<int>(cell.x); x < static_cast<int>(cell.x + cell.width); ++x)
+      darkest = std::min(darkest, static_cast<int>(pixel_at(surface, x, y).rgb & 0xFF));
+  assert(darkest > static_cast<int>(colors.text & 0xFF) + 40);
+  cairo_surface_destroy(surface);
+
+  auto utility = host::floating_toolbar_utility_menu("水杉输入法");
+  for (auto &item : utility)
+    item.disabled = !item.separator && host::floating_toolbar_action_needs_focus(item.action);
+  const auto menu = host::floating_toolbar_menu_layout(utility, 1.0, false);
+  const auto &promotion = menu.rows[3];
+  assert(utility[3].action == host::FloatingToolbarAction::Promotion);
+  assert(!host::floating_toolbar_menu_hit(menu, utility, promotion.x + 2, promotion.y + 2));
+  const auto &settings = menu.rows[1];
+  assert(host::floating_toolbar_menu_hit(menu, utility, settings.x + 2, settings.y + 2) == 1u);
+}
+
 void menu_and_tooltip() {
   host::CandidateTheme theme;
   theme.dark = true;
@@ -166,6 +205,7 @@ int main() {
   keymap(true, true, "shuangpin-keymap-dark-shadow.png");
   toolbar(false, false, "floating-toolbar-grip.png");
   toolbar(true, true, "floating-toolbar-logo-shadow.png");
+  disabled_controls();
   menu_and_tooltip();
   return 0;
 }

@@ -27,6 +27,8 @@ struct NativeCanvasX11::Impl {
   nlohmann::json palette;
   double scale = 1;
   int width = 1, height = 1;
+  // move 最后一次把窗口放到的位置。
+  int window_x = 0, window_y = 0;
   int measured_work_width = 0, measured_work_height = 0;
   int pressed = -1, hovered = -1;
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
@@ -279,6 +281,8 @@ struct NativeCanvasX11::Impl {
     x = std::clamp(x, work.x, std::max(work.x, work.x + work.width - width));
     y = std::clamp(y, work.y, std::max(work.y, work.y + work.height - height));
     XMoveResizeWindow(display, window, x, y, static_cast<unsigned>(width), static_cast<unsigned>(height));
+    window_x = x;
+    window_y = y;
     XFlush(display);
   }
 };
@@ -318,6 +322,11 @@ bool NativeCanvasX11::move(int x, int y, int height) {
   state.move(x, y, height);
   if (resized) state.paint();
   return true;
+}
+std::optional<NativeCanvasFrame> NativeCanvasX11::frame() const {
+  const auto &state = *impl_;
+  if (!state.visible || !state.display || !state.window) return std::nullopt;
+  return NativeCanvasFrame{state.window_x, state.window_y, state.width, state.height};
 }
 void NativeCanvasX11::hide() {
   auto &state = *impl_;

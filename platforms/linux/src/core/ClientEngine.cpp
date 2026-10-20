@@ -6489,7 +6489,7 @@ msime::linux_host::OverlayLoop glib_overlay_loop() {
   };
   return loop;
 }
-// 工具栏上的按钮和菜单项，照「工具栏」子菜单里同一项的路径去做（property_activate 的 Toolbar/ 分支）。切换类的动作和宣传语要往有焦点的输入框里写，属主失焦时那条路径自己会拒绝；打开面板、官网和隐藏工具栏不需要输入框，直接做。
+// 工具栏上的按钮和菜单项，照「工具栏」子菜单里同一项的路径去做（property_activate 的 Toolbar/ 分支）。切换类的动作和宣传语要往有焦点的输入框里写，属主失焦时那条路径自己会拒绝，工具栏这时把它们画成不能用（Options::actions_need_focus）；打开面板、官网和隐藏工具栏不需要输入框，直接做。
 void floating_toolbar_action(IBusEngine *engine, msime::linux_host::FloatingToolbarAction action,
                              const std::string &argument) {
   using Action = msime::linux_host::FloatingToolbarAction;
@@ -6502,7 +6502,13 @@ void floating_toolbar_action(IBusEngine *engine, msime::linux_host::FloatingTool
       if (!launch_desktop_panel(panel)) g_warning("Cannot start MSIME desktop panel launcher");
     };
     switch (action) {
-    case Action::ToggleInputMode: toggle("InputMode", s.input_enabled); break;
+    case Action::ToggleInputMode:
+      // 「En」时回到中文：退出英文候选模式，而不是关掉中文输入，与 macOS 相同。
+      if (msime::linux_host::floating_toolbar_input_mode_leaves_english_candidates(floating_toolbar_state(s)))
+        property_activate(engine, "EnglishMode", PROP_STATE_UNCHECKED);
+      else
+        toggle("InputMode", s.input_enabled);
+      break;
     case Action::SelectScheme:
       if (scheme_offered(argument)) property_activate(engine, scheme_property_key(argument), PROP_STATE_CHECKED);
       break;
@@ -6552,6 +6558,7 @@ msime::linux_host::FloatingToolbar *floating_toolbar(bool create) {
       options.position_file = *file;
     const char *wayland = std::getenv("WAYLAND_DISPLAY");
     options.hide_on_focus_out = wayland && *wayland;
+    options.actions_need_focus = true;
     auto loop = glib_overlay_loop();
     shared.toolbar = msime::linux_host::FloatingToolbar::create(
         loop,

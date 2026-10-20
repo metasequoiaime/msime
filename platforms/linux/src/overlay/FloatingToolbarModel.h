@@ -159,6 +159,8 @@ struct FloatingToolbarFace {
   FloatingToolbarIcon icon = FloatingToolbarIcon::Glyph;
   // 按钮提示，也是 macOS 的辅助功能标签。
   std::string tooltip;
+  // 按钮此刻能不能用：不能用时画成淡色、点了不做事，提示照旧出（见 floating_toolbar_button_needs_focus）。
+  bool enabled = true;
 };
 
 // 一个按钮在当前状态下的样子，字和提示与 macOS 相同。display_name 是这一版的产品名（「水杉输入法」），写进设置按钮的提示。
@@ -213,6 +215,34 @@ inline std::optional<FloatingToolbarAction> floating_toolbar_button_action(Float
   return std::nullopt;
 }
 
+// 中/英按钮在英文候选模式（显示「En」）下回到中文：退出英文候选模式，而不是关掉中文输入去「英」，与 macOS 的 floatingToolbarDidRequestToggleInputMode: 相同（中文输入开着且 dedicated_english 时 setDedicatedEnglishInputMode:NO，其余切换中英文）。宿主据此在 ToggleInputMode 时选英文候选模式的开关还是中文输入的开关。
+inline bool floating_toolbar_input_mode_leaves_english_candidates(const FloatingToolbarState &state) {
+  return state.input_enabled && state.english_candidates;
+}
+
+// 这个动作是否要往有焦点的输入框里写或改它的输入状态。IBus 宿主的这些路径只对获得焦点的引擎生效（与属性菜单相同），属主失焦后它们什么也不做，工具栏就把对应的按钮画成不能用（FloatingToolbar::Options::actions_need_focus）；打开面板、官网、帮助和隐藏工具栏不需要输入框。
+inline bool floating_toolbar_action_needs_focus(FloatingToolbarAction action) {
+  switch (action) {
+  case FloatingToolbarAction::ToggleInputMode:
+  case FloatingToolbarAction::SelectScheme:
+  case FloatingToolbarAction::TogglePunctuation:
+  case FloatingToolbarAction::ToggleFullwidth:
+  case FloatingToolbarAction::ToggleCharacterSet:
+  case FloatingToolbarAction::ToggleVoice:
+  case FloatingToolbarAction::Promotion:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// 按钮版本：切换输入方案按钮本身不做事，它弹出的菜单每一项都是 SelectScheme。
+inline bool floating_toolbar_button_needs_focus(FloatingToolbarButton button) {
+  if (button == FloatingToolbarButton::InputScheme) return true;
+  const auto action = floating_toolbar_button_action(button);
+  return action && floating_toolbar_action_needs_focus(*action);
+}
+
 // 弹出菜单的一项：分隔线、可勾选的方案或一个动作。
 struct FloatingToolbarMenuItem {
   std::string label;
@@ -220,6 +250,8 @@ struct FloatingToolbarMenuItem {
   std::string argument;
   bool checked = false;
   bool separator = false;
+  // 此刻不能用的项画成淡色、点了不做事（与按钮的 enabled 同一条规则）。
+  bool disabled = false;
 };
 
 // 切换输入方案按钮弹出的菜单：可用的方案，正在用的那个打勾，与输入法菜单的「输入方案」子菜单同一份。
@@ -388,7 +420,7 @@ inline std::string serialize_floating_toolbar_position(WaveOverlayPosition posit
   return nlohmann::json{{"x", position.x}, {"y", position.y}}.dump();
 }
 
-// 显示规则与 macOS 的 MetasequoiaFloatingToolbarShouldShow 相同：开关开着、输入法处于激活状态、前台不是全屏应用。
+// 显示规则的形状照 macOS 的 MetasequoiaFloatingToolbarShouldShow：开关开着、输入法处于激活状态、前台不是全屏应用。macOS 现在总是传「不是全屏」（面板带 FullScreenAuxiliary，盖在全屏应用上面）；Linux 与 Windows 一样在前台窗口全屏时收起，见 README「输入细节与平台差异」和 .agents/notes 里 2026-10-21 的决定。
 constexpr bool floating_toolbar_should_show(bool enabled, bool active, bool fullscreen) {
   return enabled && active && !fullscreen;
 }

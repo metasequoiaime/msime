@@ -33,6 +33,8 @@ class FloatingToolbarX11Surface final : public FloatingToolbarSurface {
  private:
   FloatingToolbarX11Surface(OverlayLoop loop, Callbacks callbacks);
   bool open();
+  // 关掉连接和它上面的三块窗口，回到还没连过的状态。
+  void close_connection();
   void dispatch();
   // 公开方法做过往返请求后，Xlib 可能已把事件读进自己的队列，连接上却不再可读；排一次空闲分发，免得它们等到下一次指针移动。
   void drain_later();
@@ -54,9 +56,12 @@ class FloatingToolbarX11Surface final : public FloatingToolbarSurface {
   OverlayLoop loop_;
   Callbacks callbacks_;
   Display *display_ = nullptr;
+  // 这条连接断了（见 open_overlay_display）；之后的 Xlib 调用都是空操作，等关掉重连。
+  bool lost_ = false;
   bool randr_monitors_ = false;
   OverlayLoop::Token watch_;
   OverlayLoop::Token drain_;
+  OverlayLoop::Token reconnect_;
   bool dispatching_ = false;
   OverlayLoop::Token tooltip_timer_;
   std::unique_ptr<OverlayX11Window> toolbar_;

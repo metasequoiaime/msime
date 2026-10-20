@@ -32,9 +32,12 @@ class FloatingToolbarSurface {
     FloatingToolbarState state;
     std::string icon_path;
     std::string display_name;
+    // 要输入框的按钮和菜单项（floating_toolbar_button_needs_focus）此刻能不能用；为假时它们画成淡色、点了不做事。
+    bool focus_actions = true;
     bool operator==(const Content &other) const {
       return config == other.config && colors == other.colors && state == other.state &&
-             icon_path == other.icon_path && display_name == other.display_name;
+             icon_path == other.icon_path && display_name == other.display_name &&
+             focus_actions == other.focus_actions;
     }
   };
 
@@ -43,7 +46,7 @@ class FloatingToolbarSurface {
   virtual void present(const Content &content, std::optional<WaveOverlayPosition> saved) = 0;
   virtual void hide() = 0;
   virtual bool visible() const = 0;
-  // 前台窗口是否全屏（macOS 在全屏应用前隐藏工具栏）。查不到时回答 false。
+  // 前台窗口是否全屏（Linux 与 Windows 一样在全屏应用前收起工具栏）。查不到时回答 false。
   virtual bool foreground_fullscreen() = 0;
 };
 

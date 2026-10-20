@@ -92,6 +92,10 @@ void keymap_rules() {
   assert(host::shuangpin_keymap_candidate_clearance(18, 1.0, true, 5, false) == 60.0);
   assert(host::shuangpin_keymap_candidate_clearance(18, 1.0, false, 5, false) == 164.0);
   assert(host::shuangpin_keymap_candidate_clearance(18, 2.0, true, 5, true) == 164.0);
+  // 宿主自己画的候选窗量出来的高度：在光标下方是底边离光标底边多远，翻到上方是顶边离光标顶边多远。
+  assert(host::shuangpin_keymap_measured_clearance(200, 20, 220, 150) == 150);
+  assert(host::shuangpin_keymap_measured_clearance(200, 20, 230, 150) == 160);
+  assert(host::shuangpin_keymap_measured_clearance(900, 20, 760, 140) == 140);
 }
 
 void toolbar_config() {
@@ -155,6 +159,21 @@ void toolbar_faces() {
   // 切换方案按钮不直接做事，弹出方案菜单。
   assert(!host::floating_toolbar_button_action(B::InputScheme));
   assert(host::floating_toolbar_button_action(B::Settings) == host::FloatingToolbarAction::OpenSettings);
+  // 中/英按钮只在「En」（中文输入开着、英文候选模式）时退出英文候选模式，其余切换中文输入，与 macOS 相同。
+  host::FloatingToolbarState mode;
+  assert(!host::floating_toolbar_input_mode_leaves_english_candidates(mode));
+  mode.english_candidates = true;
+  assert(host::floating_toolbar_input_mode_leaves_english_candidates(mode));
+  mode.input_enabled = false;
+  assert(!host::floating_toolbar_input_mode_leaves_english_candidates(mode));
+  // 要输入框的按钮：切换类、方案菜单、语音和宣传语；打开面板、设置、官网和隐藏不要。
+  for (const auto button : {B::InputMode, B::InputScheme, B::Punctuation, B::Fullwidth, B::CharacterSet, B::Voice})
+    assert(host::floating_toolbar_button_needs_focus(button));
+  for (const auto button : {B::Emoji, B::Handwriting, B::ScreenKeyboard, B::Settings})
+    assert(!host::floating_toolbar_button_needs_focus(button));
+  assert(host::floating_toolbar_action_needs_focus(host::FloatingToolbarAction::Promotion));
+  assert(!host::floating_toolbar_action_needs_focus(host::FloatingToolbarAction::Hide));
+  assert(!host::floating_toolbar_action_needs_focus(host::FloatingToolbarAction::Website));
 
   plain.scheme = "wubi";
   plain.schemes = {{"quanpin", "全拼"}, {"wubi", "五笔 86"}};
@@ -223,14 +242,23 @@ void colors() {
   const auto keymap = host::shuangpin_keymap_colors(light);
   assert(keymap.surface == 0xFFFFFF && keymap.accent == host::kLinuxAccent && keymap.accent_text == 0xFFFFFF);
   assert(keymap.key != keymap.surface);
-  // 皮肤给了自己的悬停色时用它。
+  // 系统主题解析出的强调色是 Adwaita 写在卡片上的强调字色（深色下是浅蓝），高亮键照样填 GNOME 的强调底色。
+  for (const bool dark : {false, true}) {
+    host::CandidateTheme system;
+    system.dark = dark;
+    system.colors.accent = host::candidate_native_palette(dark).accent;
+    assert(host::shuangpin_keymap_colors(system).accent == host::kLinuxAccent);
+  }
+  // 皮肤给了自己的悬停色时用它；高亮键与 macOS 一样填皮肤的强调色、白字，不是选中行的底色。
   host::CandidateTheme skin;
   skin.colors.background = 0x102030;
   skin.colors.text = 0xF0F0F0;
   skin.colors.menu.hover = host::ThemeColor{0x405060, 0xFF};
-  skin.colors.selected = 0x00A080;
+  skin.colors.selected = 0xD8F5E4;
+  skin.colors.accent = 0x07C160;
   assert(host::floating_toolbar_colors(skin).hover == 0x405060);
-  assert(host::shuangpin_keymap_colors(skin).accent == 0x00A080);
+  const auto skin_keymap = host::shuangpin_keymap_colors(skin);
+  assert(skin_keymap.accent == 0x07C160 && skin_keymap.accent_text == 0xFFFFFF);
 }
 
 // 测试用的事件循环：记下定时器，由测试决定什么时候让它们到期。
@@ -372,6 +400,27 @@ void controller() {
   reloaded->configure(host::floating_toolbar_config(Json::object(), true, true), host::FloatingToolbarColors{});
   reloaded->activate(&first, state);
   assert(reloaded_surface->last_saved && reloaded_surface->last_saved->y == 400);
+
+  // 切换类的动作只对有焦点的属主生效的宿主（IBus）：属主失焦后工具栏留着，但交给后端的内容说这些按钮不能用；获得焦点后恢复。不设这一项的宿主（Fcitx5）失焦后照样能用。
+  assert(surface->last.focus_actions);
+  toolbar->focus_out(&first);
+  assert(surface->shown && surface->last.focus_actions);
+  FakeSurface *gated_surface = nullptr;
+  auto gated_options = options;
+  gated_options.actions_need_focus = true;
+  gated_options.position_file.reset();
+  auto gated = host::FloatingToolbar::create(loop.loop(), {}, gated_options, [&](host::FloatingToolbarSurface::Callbacks callbacks) {
+    auto created = std::make_unique<FakeSurface>(std::move(callbacks));
+    gated_surface = created.get();
+    return created;
+  });
+  gated->configure(host::floating_toolbar_config(Json::object(), true, true), host::FloatingToolbarColors{});
+  gated->activate(&first, state);
+  assert(gated_surface->shown && gated_surface->last.focus_actions);
+  gated->focus_out(&first);
+  assert(gated_surface->shown && !gated_surface->last.focus_actions);
+  gated->activate(&first, state);
+  assert(gated_surface->last.focus_actions);
 
   // Wayland 会话里失焦就收起，获得焦点再回来。
   FakeSurface *wayland_surface = nullptr;

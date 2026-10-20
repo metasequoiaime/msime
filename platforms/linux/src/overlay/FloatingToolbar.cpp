@@ -98,7 +98,7 @@ void FloatingToolbar::note_input(Owner owner) {
 void FloatingToolbar::focus_out(Owner owner) {
   if (!owner || owner != owner_) return;
   focused_ = false;
-  if (options_.hide_on_focus_out) refresh();
+  if (options_.hide_on_focus_out || options_.actions_need_focus) refresh();
 }
 
 void FloatingToolbar::deactivate(Owner owner) {
@@ -144,7 +144,8 @@ void FloatingToolbar::refresh() {
     presented_.reset();
     return;
   }
-  FloatingToolbarSurface::Content content{config_, colors_, state_, options_.icon_path, options_.display_name};
+  FloatingToolbarSurface::Content content{config_, colors_, state_, options_.icon_path, options_.display_name,
+                                          focused_ || !options_.actions_need_focus};
   if (surface_->visible() && presented_ && *presented_ == content) return;
   surface_->present(content, saved_);
   presented_ = std::move(content);

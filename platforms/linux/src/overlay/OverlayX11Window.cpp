@@ -10,6 +10,18 @@
 
 namespace msime::linux_host {
 
+Display *open_overlay_display(const char *name, bool *lost) {
+  *lost = false;
+  Display *display = XOpenDisplay(name);
+#ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
+  // 只装在这条连接上：Xlib 进程级的 I/O 错误处理照旧只打印一行，退出由每条连接的退出处理决定，这里换成记下断开并返回。
+  if (display)
+    XSetIOErrorExitHandler(
+        display, [](Display *, void *flag) { *static_cast<bool *>(flag) = true; }, lost);
+#endif
+  return display;
+}
+
 OverlayX11Window::OverlayX11Window(Display *display, const char *res_name, const char *res_class,
                                    const char *window_type, bool accepts_input)
     : display_(display), accepts_input_(accepts_input) {
@@ -104,6 +116,12 @@ void OverlayX11Window::show() {
   if (!window_) return;
   XMapRaised(display_, window_);
   visible_ = true;
+  XFlush(display_);
+}
+
+void OverlayX11Window::raise() {
+  if (!window_ || !visible_) return;
+  XRaiseWindow(display_, window_);
   XFlush(display_);
 }
 

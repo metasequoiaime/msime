@@ -6378,7 +6378,13 @@ public:
     using Action = msime::linux_host::FloatingToolbarAction;
     fcitx::Action *target = nullptr;
     switch (action) {
-    case Action::ToggleInputMode: target = &input_mode_action_; break;
+    case Action::ToggleInputMode:
+      // 「En」时回到中文：退出英文候选模式，而不是关掉中文输入，与 macOS 相同。
+      target = msime::linux_host::floating_toolbar_input_mode_leaves_english_candidates(
+                   ic->propertyFor(&factory_)->floatingToolbarState())
+                   ? static_cast<fcitx::Action *>(&english_action_)
+                   : &input_mode_action_;
+      break;
     case Action::SelectScheme:
       for (const auto &[id, item] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
                {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
@@ -6855,7 +6861,13 @@ public:
         fcitx::EventType::InputContextFocusIn,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
           // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
-          releaseMenuContext(static_cast<fcitx::InputContextEvent &>(event).inputContext());
+          auto *focused = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          releaseMenuContext(focused);
+#ifdef MSIME_LINUX_FLOATING_PANELS
+          // Fcitx5 默认每个上下文各记各的输入法：焦点移到用别的输入法的上下文时本插件只收到旧上下文的失焦，收不到切换输入法。这时收起悬浮工具栏并放开属主，与 macOS 的 deactivateForInputSourceSwitch 相同；不收起的话它会显示旧上下文的状态，而旧上下文刚刚交出了菜单，按钮点了也没有反应。用本输入法的上下文随后由 activate 接手。
+          if (floating_toolbar_ && floating_toolbar_->owner() && instance_->inputMethodEngine(focused) != this)
+            floating_toolbar_->deactivate(floating_toolbar_->owner());
+#endif
           ++panel_input_generation_;
           listenPanelInput();
         });
@@ -7891,12 +7903,20 @@ void FcitxState::renderShuangpinKeymap() {
   const auto candidates = view_.value("candidates", Json::array());
   const bool preedit_row = preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin" &&
                            !view_.value("preedit", std::string{}).empty();
-  const msime::linux_host::ShuangpinKeymapAnchor anchor{
+  msime::linux_host::ShuangpinKeymapAnchor anchor{
       rect.left(), rect.top(), rect.width(), rect.height(),
       msime::linux_host::shuangpin_keymap_candidate_clearance(
           msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences_)), 1.0,
           preferences_.value("candidate_layout", std::string("vertical")) == "horizontal",
-          candidates.is_array() ? candidates.size() : 0, preedit_row)};
+          candidates.is_array() ? candidates.size() : 0, preedit_row),
+      std::nullopt};
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  // 候选窗是插件自己的原生画布时（render 先画它再画键位图）用它真实的矩形，与 macOS 按候选窗几何让开相同；经典界面画的候选窗只能按字号估计。
+  if (native_canvas_)
+    if (const auto frame = native_canvas_->frame())
+      anchor.measured_clearance =
+          msime::linux_host::shuangpin_keymap_measured_clearance(rect.top(), rect.height(), frame->y, frame->height);
+#endif
   engine_->shuangpinKeymap().show(ic_.display().substr(4), *hint, keymap_colors_.keymap, anchor);
 #endif
 }

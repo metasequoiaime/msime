@@ -111,6 +111,10 @@ if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
         ../src/overlay/FloatingToolbar.cpp ../src/overlay/FloatingToolbarFactory.cpp
         ../src/overlay/FloatingToolbarX11Surface.cpp)
     target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_FLOATING_PANELS)
+    # libX11 1.7 起每条连接可以装自己的退出处理：工具栏和键位图的连接断开（Xwayland 崩溃或重启）时不再让 fcitx5 守护进程退出（见 OverlayX11Window.h）。
+    if(MSIME_BADGE_X11_x11_VERSION VERSION_GREATER_EQUAL 1.7.0)
+      target_compile_definitions(msime-fcitx5 PRIVATE MSIME_X11_IO_ERROR_EXIT_HANDLER)
+    endif()
   endif()
 endif()
 set(MSIME_FCITX5_WAVE_SOURCES)

@@ -45,7 +45,7 @@ inline FloatingToolbarColors floating_toolbar_colors(const CandidateTheme &theme
   return result;
 }
 
-// 键位图的颜色：卡片和字跟候选窗，键帽是底色上一层很淡的文字色（对应 macOS 的 controlBackgroundColor），键帽描边是 macOS separatorColor 那样的淡线，副标题、零声母和键帽上的声韵母用候选编号色（候选窗的次要文字），高亮键是选中行的底色和字色。
+// 键位图的颜色：卡片和字跟候选窗，键帽是底色上一层很淡的文字色（对应 macOS 的 controlBackgroundColor），键帽描边是 macOS separatorColor 那样的淡线，副标题、零声母和键帽上的声韵母用候选编号色（候选窗的次要文字）。高亮键与 macOS 一样填主题的强调色（`accent` 槽位）、字用白色；主题没给强调色时 candidate_theme_colors 填的是 Adwaita 写在卡片上的强调字色（native.accent，深色下是 #78AEED 这种浅蓝，不适合当底），这时用 GNOME 的强调底色 #3584E4。
 inline ShuangpinKeymapColors shuangpin_keymap_colors(const CandidateTheme &theme) {
   const auto native = candidate_native_palette(theme.dark);
   const auto &colors = theme.colors;
@@ -55,8 +55,8 @@ inline ShuangpinKeymapColors shuangpin_keymap_colors(const CandidateTheme &theme
   result.secondary = colors.number.value_or(native.number);
   result.key = composite_color(result.text, theme.dark ? 0x14 : 0x0A, result.surface);
   result.key_border = composite_color(result.text, theme.dark ? 0x26 : 0x24, result.surface);
-  result.accent = colors.selected.value_or(native.selected);
-  result.accent_text = colors.selected_text.value_or(native.selected_text);
+  result.accent = colors.accent && *colors.accent != native.accent ? *colors.accent : kLinuxAccent;
+  result.accent_text = 0xFFFFFF;
   result.border = colors.border && colors.border_width > 0 ? colors.border : std::nullopt;
   return result;
 }

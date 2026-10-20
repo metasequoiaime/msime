@@ -141,6 +141,11 @@ inline void floating_toolbar_paint_fallback_mark(cairo_t *cairo, double x, doubl
   cairo_stroke(cairo);
 }
 
+// 不能用的按钮和菜单项的字色：文字色在底色上约 35% 的一层，与 macOS 停用控件的淡色相近。
+inline std::uint32_t floating_toolbar_disabled_ink(const FloatingToolbarColors &colors) {
+  return composite_color(colors.text, 0x59, colors.surface);
+}
+
 // 一帧工具栏要画的东西。hovered / pressed 是按钮下标。
 struct FloatingToolbarFrame {
   std::vector<FloatingToolbarFace> faces;
@@ -200,20 +205,22 @@ inline void paint_floating_toolbar(cairo_t *cairo, const FloatingToolbarLayout &
   for (std::size_t index = 0; index < layout.buttons.size() && index < frame.faces.size(); ++index) {
     const auto &cell = layout.buttons[index];
     const auto &face = frame.faces[index];
-    if (frame.hovered == index || frame.pressed == index) {
+    // 不能用的按钮不垫悬停底，字和图标是文字色在底色上的一层淡色，与 macOS 停用的 NSButton 一样淡下去。
+    if (face.enabled && (frame.hovered == index || frame.pressed == index)) {
       mode_badge_rounded_rect(cairo, cell.x, cell.y, cell.width, cell.height, std::max(2.0, cell.height * 0.25));
       mode_badge_set_rgb(cairo, colors.hover);
       cairo_fill(cairo);
     }
+    const auto ink = face.enabled ? colors.text : floating_toolbar_disabled_ink(colors);
     if (face.icon != FloatingToolbarIcon::Glyph) {
       const double side = std::min(layout.icon_size, cell.height);
       floating_toolbar_paint_icon(cairo, face.icon, cell.x + (cell.width - side) / 2.0, cell.y + (cell.height - side) / 2.0,
-                                  side, colors.text);
+                                  side, ink);
       continue;
     }
     auto *text = overlay_text_layout(cairo, face.glyph, layout.glyph_size);
     const auto size = overlay_text_size(text);
-    mode_badge_set_rgb(cairo, colors.text);
+    mode_badge_set_rgb(cairo, ink);
     cairo_move_to(cairo, cell.x + (cell.width - size.width) / 2.0, cell.y + (cell.height - size.height) / 2.0);
     pango_cairo_show_layout(cairo, text);
     // show_layout 不清掉 move_to 留下的当前点，接着画的路径会从这里拉出一条线。
@@ -261,12 +268,12 @@ inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<
   return layout;
 }
 
-// 指针下的那一项，分隔线不算。
+// 指针下的那一项，分隔线和不能用的项不算。
 inline std::optional<std::size_t> floating_toolbar_menu_hit(const FloatingToolbarMenuLayout &layout,
                                                             const std::vector<FloatingToolbarMenuItem> &items, double x,
                                                             double y) {
   for (std::size_t index = 0; index < layout.rows.size() && index < items.size(); ++index)
-    if (!items[index].separator && layout.rows[index].contains(x, y)) return index;
+    if (!items[index].separator && !items[index].disabled && layout.rows[index].contains(x, y)) return index;
   return std::nullopt;
 }
 
@@ -295,7 +302,7 @@ inline void paint_floating_toolbar_menu(cairo_t *cairo, const FloatingToolbarMen
     }
     auto *text = overlay_text_layout(cairo, item.label, layout.font_size);
     const auto size = overlay_text_size(text);
-    mode_badge_set_rgb(cairo, colors.text);
+    mode_badge_set_rgb(cairo, item.disabled ? floating_toolbar_disabled_ink(colors) : colors.text);
     cairo_move_to(cairo, plate.x + layout.check_column, row.y + (row.height - size.height) / 2.0);
     pango_cairo_show_layout(cairo, text);
     cairo_new_path(cairo);

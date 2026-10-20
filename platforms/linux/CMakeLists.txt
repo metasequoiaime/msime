@@ -169,6 +169,11 @@ if(MODE_BADGE_X11_FOUND)
                  src/overlay/FloatingToolbar.cpp src/overlay/FloatingToolbarFactory.cpp
                  src/overlay/FloatingToolbarX11Surface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_FLOATING_PANELS)
+  # libX11 1.7 起每条连接可以装自己的退出处理（XSetIOErrorExitHandler）：工具栏和键位图的连接断开时不再让整个引擎退出（见 OverlayX11Window.h 的 open_overlay_display）。legacy 包的 Debian 10 只有 1.6.7，那里照旧。
+  if(MODE_BADGE_X11_x11_VERSION VERSION_GREATER_EQUAL 1.7.0)
+    set(MSIME_X11_IO_ERROR_EXIT_HANDLER ON)
+    target_compile_definitions(msime-ibus-host PRIVATE MSIME_X11_IO_ERROR_EXIT_HANDLER)
+  endif()
 endif()
 if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML AND WAYLAND_TEXT_FOUND)
   target_sources(msime-ibus-host PRIVATE src/overlay/ModeBadgeWaylandSurface.cpp)
@@ -1184,6 +1189,9 @@ if(BUILD_TESTING)
       target_include_directories(linux-floating-panels-x11-test PRIVATE src ../../crates/host-api/include)
       target_link_libraries(linux-floating-panels-x11-test PRIVATE PkgConfig::MODE_BADGE_X11 nlohmann_json::nlohmann_json
         "${MSIME_HOST_LIBRARY}")
+      if(MSIME_X11_IO_ERROR_EXIT_HANDLER)
+        target_compile_definitions(linux-floating-panels-x11-test PRIVATE MSIME_X11_IO_ERROR_EXIT_HANDLER)
+      endif()
       add_test(NAME linux-floating-panels-x11
         COMMAND "${MSIME_XVFB_RUN}" -a $<TARGET_FILE:linux-floating-panels-x11-test>)
       set_tests_properties(linux-floating-panels-x11 PROPERTIES TIMEOUT 60)

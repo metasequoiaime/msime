@@ -2,9 +2,15 @@
 
 #include "NativeCanvas.h"
 #include <memory>
+#include <optional>
 
 namespace fcitx { class EventLoop; }
 namespace msime::linux_host {
+
+// 画布窗口在根窗口里的矩形，设备像素。
+struct NativeCanvasFrame {
+  int x = 0, y = 0, width = 0, height = 0;
+};
 
 class NativeCanvasX11 {
 public:
@@ -18,6 +24,8 @@ public:
   // 工作区变化时重排；返回 false 时宿主需要恢复桌面候选。
   bool move(int cursor_x, int cursor_y, int cursor_height);
   void hide();
+  // 画布正在屏幕上时它的窗口矩形；双拼键位图据此让开候选窗，不用按字号估计。
+  std::optional<NativeCanvasFrame> frame() const;
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

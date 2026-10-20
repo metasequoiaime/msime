@@ -39,20 +39,18 @@ FloatingToolbarX11Surface::FloatingToolbarX11Surface(OverlayLoop loop, Callbacks
     : loop_(std::move(loop)), callbacks_(std::move(callbacks)) {}
 
 FloatingToolbarX11Surface::~FloatingToolbarX11Surface() {
-  watch_.reset();
-  drain_.reset();
-  tooltip_timer_.reset();
-  if (display_ && pointer_grabbed_) XUngrabPointer(display_, CurrentTime);
-  if (display_ && move_cursor_ != None) XFreeCursor(display_, move_cursor_);
-  tooltip_.reset();
-  menu_.reset();
-  toolbar_.reset();
-  if (display_) XCloseDisplay(display_);
+  reconnect_.reset();
+  close_connection();
 }
 
 bool FloatingToolbarX11Surface::open() {
+  // 连接断了（X 服务器或 Xwayland 退出、重启）：不在分发事件的调用栈里时关掉它，下面重新连；分发中先什么也不画，由 dispatch 排的收尾关掉。
+  if (display_ && lost_) {
+    if (dispatching_) return false;
+    close_connection();
+  }
   if (display_) return true;
-  display_ = XOpenDisplay(nullptr);
+  display_ = open_overlay_display(nullptr, &lost_);
   if (!display_) return false;
   randr_monitors_ = x11_overlay_randr_monitors(display_);
   toolbar_ = std::make_unique<OverlayX11Window>(display_, "msime-floating-toolbar", "MSIMEFloatingToolbar",
@@ -61,6 +59,7 @@ bool FloatingToolbarX11Surface::open() {
     toolbar_.reset();
     XCloseDisplay(display_);
     display_ = nullptr;
+    lost_ = false;
     return false;
   }
   // 前台窗口换了就重查是否全屏：根窗口的 _NET_ACTIVE_WINDOW 一变就有 PropertyNotify。
@@ -75,12 +74,37 @@ bool FloatingToolbarX11Surface::visible() const { return toolbar_ && toolbar_->v
 
 void FloatingToolbarX11Surface::dispatch() {
   dispatching_ = true;
-  while (display_ && XPending(display_)) {
+  while (display_ && !lost_ && XPending(display_)) {
     XEvent event{};
     XNextEvent(display_, &event);
     handle(event);
   }
   dispatching_ = false;
+  // 连接断了：读到文件尾的套接字一直可读，不能留着这个监视；在下一轮主循环里（不在这个监视自己的回调里）关掉连接，工具栏下一次要显示时重新连。
+  if (display_ && lost_) reconnect_ = loop_.timer(0, [this] { close_connection(); });
+}
+
+void FloatingToolbarX11Surface::close_connection() {
+  watch_.reset();
+  drain_.reset();
+  tooltip_timer_.reset();
+  if (display_ && pointer_grabbed_) XUngrabPointer(display_, CurrentTime);
+  pointer_grabbed_ = false;
+  if (display_ && move_cursor_ != None) XFreeCursor(display_, move_cursor_);
+  move_cursor_ = None;
+  cursor_on_handle_ = false;
+  tooltip_.reset();
+  menu_.reset();
+  toolbar_.reset();
+  hovered_.reset();
+  pressed_.reset();
+  menu_hovered_.reset();
+  menu_opened_by_press_ = false;
+  dragging_ = false;
+  dragged_ = false;
+  if (display_) XCloseDisplay(display_);
+  display_ = nullptr;
+  lost_ = false;
 }
 
 void FloatingToolbarX11Surface::drain_later() {
@@ -92,8 +116,9 @@ void FloatingToolbarX11Surface::drain_later() {
 void FloatingToolbarX11Surface::handle(const XEvent &event) {
   if (event.type == PropertyNotify && event.xproperty.window == DefaultRootWindow(display_)) {
     if (event.xproperty.atom == active_window_atom_) {
-      // 换了前台窗口：开着的菜单收起（它是给上一个窗口的），再让控制器重查全屏。
+      // 换了前台窗口：开着的菜单收起（它是给上一个窗口的），再让控制器重查全屏。有的窗口管理器用 XRaiseWindow 抬起被点中的窗口框，那会把它压到包括 override-redirect 窗口在内的所有兄弟之上；这里把还在屏幕上的工具栏重新抬到最上面，与 macOS 的 NSFloatingWindowLevel 一样总在普通窗口之上。
       if (menu_ && menu_->visible()) close_menu();
+      if (toolbar_ && toolbar_->visible()) toolbar_->raise();
       if (callbacks_.focus_changed) callbacks_.focus_changed();
     }
     return;
@@ -156,15 +181,17 @@ void FloatingToolbarX11Surface::handle_toolbar(const XEvent &event) {
         drag_pointer_y_ = event.xbutton.y_root;
         drag_window_x_ = toolbar_->x();
         drag_window_y_ = toolbar_->y();
-      } else if (hit.button) {
+      } else if (hit.button && *hit.button < faces_.size() && faces_[*hit.button].enabled) {
         pressed_ = hit.button;
         paint_toolbar();
       }
     } else if (event.xbutton.button == Button3 && hit.button &&
                content_.config.buttons[*hit.button] == FloatingToolbarButton::Settings) {
       // 设置按钮的右键是工具菜单，与 macOS 的 NSButton.menu（右键或 Control 点按）相同；左键照旧直接打开设置。
-      open_menu(floating_toolbar_utility_menu(content_.display_name), std::nullopt, event.xbutton.x_root,
-                event.xbutton.y_root);
+      auto items = floating_toolbar_utility_menu(content_.display_name);
+      for (auto &item : items)
+        item.disabled = !item.separator && !content_.focus_actions && floating_toolbar_action_needs_focus(item.action);
+      open_menu(std::move(items), std::nullopt, event.xbutton.x_root, event.xbutton.y_root);
       menu_opened_by_press_ = true;
     }
     break;
@@ -260,8 +287,10 @@ void FloatingToolbarX11Surface::present(const Content &content, std::optional<Wa
   const WaveOverlayPosition old_plate{toolbar_->x() + old_margin, toolbar_->y() + old_margin};
   content_ = content;
   faces_.clear();
-  for (const auto button : content_.config.buttons)
+  for (const auto button : content_.config.buttons) {
     faces_.push_back(floating_toolbar_face(button, content_.state, content_.display_name));
+    faces_.back().enabled = content_.focus_actions || !floating_toolbar_button_needs_focus(button);
+  }
   // 缩放、合成器和显示器在两次显示之间都可能变，每次都重读。
   scale_ = x11_overlay_scale(display_);
   shadow_ = toolbar_->composited();
