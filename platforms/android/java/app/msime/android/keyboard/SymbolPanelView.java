@@ -128,7 +128,7 @@ public final class SymbolPanelView extends LinearLayout {
         LinearLayout title = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(title);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
-        Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
+        Button back = buttons.create("返回", "关闭符号面板", listener::close, true);
         styleHeaderButton(back);
         back.setLayoutParams(LayoutPolicy.linearParams(getContext(), 44, 44));
         title.addView(back);
@@ -182,11 +182,11 @@ public final class SymbolPanelView extends LinearLayout {
         }
     }
 
-    /** 返回用无键帽图标，底栏只保留固定删除与可滚动分类。 */
+    /** 返回文字不画键帽，底栏只保留固定删除与可滚动分类。 */
     private void styleHeaderButton(Button button) {
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         ViewPolicy.clearPadding(button);
-        ViewPolicy.setCenteredKeyTextSizeSp(button, 20);
+        ViewPolicy.setCenteredKeyTextSizeSp(button, 15);
         if (button instanceof KeyboardPressButton key) key.setKeyboardRole(KeyboardKeyRole.GLYPH);
         listener.restyle(button);
     }

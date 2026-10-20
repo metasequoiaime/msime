@@ -106,13 +106,13 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         Rect gridBounds = bounds(panel, grid);
         Rect category = bounds(panel, findButton(panel, "常用"));
         Rect delete = bounds(panel, findButton(panel, "⌫"));
-        Rect back = bounds(panel, findButton(panel, "‹"));
+        Rect back = bounds(panel, findButton(panel, "返回"));
         if (gridBounds.width() < panel.getWidth() - panel.getPaddingLeft() - panel.getPaddingRight() - 1)
             throw new AssertionError("Symbol grid is not full width");
         if (category.top < gridBounds.bottom || delete.top < gridBounds.bottom
                 || category.centerY() != delete.centerY() || back.bottom > gridBounds.top)
             throw new AssertionError("Categories and delete are not below the grid");
-        if (findButton(panel, "锁定") != null || findButton(panel, "返回") != null)
+        if (findButton(panel, "锁定") != null)
             throw new AssertionError("Removed footer controls are still present");
     }
 
