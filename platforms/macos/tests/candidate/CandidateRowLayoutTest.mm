@@ -660,6 +660,114 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
     std::filesystem::remove_all(root);
 }
 
+// 对真实视图矩形检查预编辑外边距，避免只改窗口高度而文字仍挤在原位。
+static void TestFactoryPreeditMargins(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-preedit-margin-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    struct Gaps { CGFloat top = 0, bottom = 0; } baseline[2][2][2];
+    for (const char *identifier : {"plain", "margin", "canvas-margin", "canvas-zero"}) {
+        const bool plain = std::string(identifier) == "plain";
+        const bool zeroGap = std::string(identifier) == "canvas-zero";
+        const bool canvas = zeroGap || std::string(identifier) == "canvas-margin";
+        std::filesystem::create_directory(root / identifier);
+        {
+            std::ofstream manifest(root / identifier / "skin.toml");
+            manifest << "schema_version = 2\nid = \"" << identifier << "\"\nname = \"Synthetic Margin\"\nversion = \"1\"\nbase = \""
+                     << (canvas ? "canvas" : "microsoft") << "\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n"
+                     << "[candidate_window]\npreedit_margin_dip = " << (plain ? "[0]" : "[7, 11, 13, 17]") << "\n";
+            if (canvas) manifest << "line_gap_dip = " << (zeroGap ? 0 : 6) << "\n";
+            manifest << "[candidate_window.vertical]\npreedit_margin_dip = " << (plain ? "[0]" : "[3, 5, 7, 9]") << "\n";
+            assert(manifest.good());
+        }
+        NSString *suite = [@"app.msime.test.preedit-margin." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [defaults setObject:@(identifier) forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+            skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        appearance.showsAppLogo = NO;
+        appearance.showsCandidatePageNumber = NO;
+        appearance.showsCandidateExpandButton = NO;
+        appearance.showsCandidatePreedit = YES;
+        appearance.candidateTranslations = NO;
+        appearance.fontSize = 16;
+        appearance.preeditFontSize = 12;
+        appearance.themeMode = @"light";
+        MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+        RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
+            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        NSString *preedit = @"synthetic012345678901234567890";
+        NSArray *candidates = @[@{@"text": @"甲", @"highlighted": @YES}, @{@"text": @"乙"}];
+        [controller setValue:@{@"focused": @YES, @"editing_text": preedit, @"page": @0, @"page_count": @1,
+            @"candidates": candidates} forKey:@"view"];
+        for (NSUInteger scaling = 0; scaling < 2; ++scaling) for (NSUInteger vertical = 0; vertical < 2; ++vertical)
+            for (NSUInteger expanded = 0; expanded < (vertical ? 1 : 2); ++expanded) {
+                appearance.candidateScalePercent = scaling ? 150 : 100;
+                appearance.vertical = vertical;
+                const CGFloat scale = scaling ? 1.5 : 1.0;
+                [controller setValue:expanded ? candidates : nil forKey:@"expandedCandidates"];
+                if (expanded) assert([controller renderExpandedCandidates]);
+                else [controller renderCandidates];
+                MSIMECandidateButton *first = CandidateButton(panel.contentView, 0);
+                NSTextField *label = nil;
+                for (NSView *child in MSIMECandidateControlsView(panel.contentView).subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) label = (id)child;
+                assert(first && first.hasSkinLayout && label);
+                const CGFloat inset = NSMinX(first.frame);
+                const CGFloat top = NSHeight(panel.contentView.bounds) - inset - NSMaxY(label.frame);
+                const CGFloat bottom = NSMinY(label.frame) - NSMaxY(first.frame);
+                if (plain) baseline[scaling][vertical][expanded] = {top, bottom};
+                const auto before = baseline[scaling][vertical][expanded];
+                const CGFloat marginTop = plain ? 0 : vertical ? 3 : 7;
+                const CGFloat marginRight = plain ? 0 : vertical ? 5 : 11;
+                const CGFloat marginBottom = canvas ? (zeroGap ? 0 : 6) : plain ? 0 : vertical ? 7 : 13;
+                const CGFloat marginLeft = plain ? 0 : vertical ? 9 : 17;
+                assert(fabs(NSMinX(label.frame) - inset - marginLeft * scale) < 0.1);
+                assert(fabs(NSWidth(panel.contentView.bounds) - inset - NSMaxX(label.frame) - marginRight * scale) < 0.1);
+                // 画布调整窗口后按背板像素对齐，顶部允许一像素的取整差；子视图之间仍精确比较。
+                const CGFloat edgeTolerance = 1.0 / panel.backingScaleFactor + 0.01;
+                if (fabs(top - before.top - marginTop * scale) > edgeTolerance)
+                    fprintf(stderr, "preedit margin: skin=%s scale=%.1f vertical=%lu expanded=%lu top=%.2f baseline=%.2f expected=%.2f\n",
+                        identifier, scale, (unsigned long)vertical, (unsigned long)expanded, top, before.top, marginTop * scale);
+                assert(fabs(top - before.top - marginTop * scale) <= edgeTolerance);
+                assert(fabs(bottom - before.bottom - marginBottom * scale) < 0.1);
+                assert(NSWidth(label.frame) + 0.1 >= [preedit sizeWithAttributes:@{NSFontAttributeName:label.font}].width);
+            }
+        if (!plain && !canvas) {
+            // 首行翻页和展开收起控件在外边距以内居中，不跟着总高度再次偏移。
+            appearance.candidateScalePercent = 100;
+            appearance.vertical = NO;
+            appearance.showsCandidatePageNumber = YES;
+            [controller setValue:@{@"focused": @YES, @"editing_text": preedit, @"page": @0, @"page_count": @3,
+                @"candidates": candidates} forKey:@"view"];
+            for (BOOL expanded : {NO, YES}) {
+                [controller setValue:expanded ? candidates : nil forKey:@"expandedCandidates"];
+                if (expanded) assert([controller renderExpandedCandidates]);
+                else [controller renderCandidates];
+                NSView *label = nil;
+                for (NSView *child in MSIMECandidateControlsView(panel.contentView).subviews)
+                    if ([child.identifier isEqual:@"candidate-preedit"]) label = child;
+                MSIMECandidateButton *control = CandidateButton(panel.contentView, expanded ? -3 : -1);
+                assert(label && control && fabs(NSMidY(label.frame) - NSMidY(control.frame)) < 0.6);
+            }
+            appearance.showsCandidatePageNumber = NO;
+        }
+        // 隐藏预编辑时不残留其外边距，原生布局原本就不产生隐藏行间隙。
+        appearance.showsCandidatePreedit = NO;
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [controller renderCandidates];
+        MSIMECandidateButton *first = CandidateButton(panel.contentView, 0);
+        assert(fabs(NSHeight(panel.contentView.bounds) - NSMinX(first.frame) - NSMaxY(first.frame)) < 0.1);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    std::filesystem::remove_all(root);
+}
+
 // 真正经过普通候选与展开渲染，验证明暗来自客户端颜色且没有增加跨进程读取。
 static void TestHostAppearance(BOOL visual)
 {
@@ -1422,6 +1530,7 @@ int main(int argc, char **argv)
         TestPronunciationLine(controller, panel, appearance);
         TestSelectedGlossColour(client);
         TestFactoryFitAndJustify(client);
+        TestFactoryPreeditMargins(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
