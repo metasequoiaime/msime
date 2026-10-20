@@ -37,7 +37,7 @@ APNG 按帧控制块重建 PNG 子帧，并用 Android 位图完成混合与处�
 
 API 28 与 API 35 专用 AVD 上的 `CandidateCanvasDeviceSmoke` 均通过，覆盖九宫格像素、挂件层级、四边留白、明暗换图、APNG/GIF/WebP 帧、有限循环、减弱动态效果、资源失效与候选点击路径。`CandidateSkinDeviceSmoke` 与 API 28 `smoke.sh --core` 通过；两个 API 的四个共享客户端 crate 设备单测通过。`check-host.sh` 的 247 项 JVM 冒烟和 186 项设备源编译通过，`verify-local.sh --quick` 通过。完整上游验收修复后，重新构建完整原生 APK，在 API 28 与 API 35 上重跑 `CandidateCanvasDeviceSmoke`、`CandidateSkinDeviceSmoke`、`CandidatePanelDeviceSmoke`，六组均通过；设备测试源与默认测试 APK 也重新编译通过。
 
-本轮装饰词验证：`check-host.sh` 的 250 项 JVM 冒烟、196 项设备套件源编译及 JNI 语法检查通过。API 28、35 上最新 `CandidateCanvasDeviceSmoke` 均通过，覆盖真实 JNI 解析的无配色 `system` 包、普通与展开容器像素、高亮、页替换、独立标注、九种对齐、缩字下限、坏图与重置。两个 API 各自的四个共享客户端 crate 设备测试通过：base 36、core 429、providers 230、services 1216，预期 ignored 不计通过。包含词库与词书的原生 APK 在 API 28 的完整 `smoke.sh --core` 通过；API 35 的完整回归结果另行补记。
+本轮装饰词验证：`check-host.sh` 的 250 项 JVM 冒烟、196 项设备套件源编译及 JNI 语法检查通过。API 28、35 上最新 `CandidateCanvasDeviceSmoke` 均通过，覆盖真实 JNI 解析的无配色 `system` 包、普通与展开容器像素、高亮、页替换、独立标注、九种对齐、缩字下限、坏图与重置。两个 API 各自的四个共享客户端 crate 设备测试通过：base 36、core 429、providers 230、services 1216，预期 ignored 不计通过。包含词库与词书的原生 APK 在 API 28 的完整 `smoke.sh --core` 通过。API 35 的完整脚本曾在数字网格过渡坐标和文件夹授权处失败；文件夹导出两阶段独立复跑通过，数字网格修正缓存稳定性检查后，最终测试 APK 上七组方案通过，随后未排除套件地续跑默认脚本剩余用例及剪贴板保存生命周期，退出码为 0。此前通过的前半段、文件夹导出复跑、最终数字网格专项与后续套件共同构成逐项分段验收，不报告为单次完整 API 35 脚本全绿。最终 `verify-local.sh --quick`、笔记门禁与差异格式检查通过；两个本任务专用 AVD 已停止并移除，未做物理设备验收。
 
 ## Consequences
 
