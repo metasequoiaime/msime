@@ -115,12 +115,14 @@ gh run watch <id> --exit-status --interval 30        # Android 六个版本并�
 ```
 
 - 版本号默认读 `platforms/<os>/version.txt`，publish 默认开，一般不用传 `-f`。
-- tag 后缀由触发分支决定：`main` 无后缀、正式版；`develop` 加 `-beta`，`release/*` 等其他分支加 `-alpha`，带后缀的一律是 prerelease，应用内更新检查不会提供。**用户要 beta 就 `--ref develop`**，不需要改版本号也不需要 release PR。
+- tag 后缀由触发分支决定：`main` 无后缀、正式版；`develop` 加 `-beta`，`release/*` 等其他分支加 `-alpha`，带后缀的一律是 prerelease，应用内更新检查不会提供。**用户要 beta 就 `--ref develop`**，不需要 release PR。只有一种情况要先改版本号：develop 上的 `version.txt` 还等于刚发出的正式版，这时直接发会得到排在正式版后面、版本号却相同的 `<os>-vX.Y.Z-beta`，先照第 2 步把修订号加一（macOS 0.54.0 之后的测试版就是这样发成 `macos-v0.54.1-beta` 的），再从 develop 触发。
 - Android 按 `editions.json` 打六个版本（full、wubi、pinyin、japanese、vietnamese、tibetan），任何一个失败整个发布不会发出去（`fail-fast: true`）。签名密钥只在 GitHub 托管 runner 上解码，不要把这个 job 挪到自托管或 Depot。
 - iOS 默认还会上传 TestFlight 并提交外部测试审核（`testflight`、`testflight_external` 两个输入），不想送审就 `-f testflight_external=false`。
 - 网页引擎（`release-web-engine.yml`）不同：版本号不读 `version.txt`，publish 默认关，打开时会发 npm 的 `latest`，只能从 main 跑。
 
 ## 5. 核对发布
+
+**发布页的标准，所有平台一样：** 版本发布页上只放用户该下载的安装包（DMG、APK、deb/rpm、安装程序等）和一份只列这些安装包的 `SHA256SUMS`，发布说明开头是从 `shared/contracts/editions.json` 生成的「下载哪个」指引。应用内更新包、调试符号、给发行版打包用的源码包这类用户不会手动下载的文件，放到各自的滚动 release（例如 macOS 的 `macos-appcast`、`macos-symbols`），不挂在版本发布页上，免得用户看着一长串附件不知道选哪个。macOS 从 0.54.1 起按这个标准发，维护者确认过这就是以后的样子；其他平台的发布页还没跟上的，核对时把多出来的附件当作要修的问题报告出来。
 
 ```sh
 gh release view <os>-vX.Y.Z --json tagName,isPrerelease,targetCommitish,assets --jq '.tagName, .isPrerelease, .targetCommitish, (.assets[]|"\(.name) \(.size)")'
