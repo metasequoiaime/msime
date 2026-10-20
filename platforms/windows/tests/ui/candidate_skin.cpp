@@ -205,8 +205,8 @@ int main() {
   // The v2 motion contract holds on any base: a system, a fixed-mode or a canvas base all keep the declared presets.
   animated["packages"][0]["schemaVersion"] = 2;
   animated["packages"][0]["animation"]["durationMs"] = 240;
-  for (const char *base : {"system", "night", "canvas"}) {
-    animated["packages"][0]["base"] = base;
+  for (const char *base_id : {"system", "night", "canvas"}) {
+    animated["packages"][0]["base"] = base_id;
     const auto based = candidate_skin_animation(animated, "mascot");
     require(based.enter == CandidateSkinAnimationPreset::spring && based.duration_ms == 240);
   }

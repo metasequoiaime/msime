@@ -15,9 +15,9 @@ void check(bool condition, const char *what) {
 } // namespace
 
 int main() {
-  // 共享页的十二个服务商，顺序相同，最后是没有默认值的「自定义」；id 不重复，与偏好库的 AI_PROVIDERS 相同。
+  // 共享页的十三个服务商，顺序相同，最后是没有默认值的「自定义」；id 不重复，与偏好库的 AI_PROVIDERS 相同。
   auto const &table = providers();
-  check(table.size() == 12 && table.front().id == L"everyapi" && table[4].id == L"deepseek" &&
+  check(table.size() == 13 && table.front().id == L"everyapi" && table[4].id == L"deepseek" &&
             table.back().id == L"custom" && table.back().endpoint.empty() &&
             table.back().model.empty() && table.back().models.empty() &&
             table.back().documentation.empty(),
@@ -27,10 +27,11 @@ int main() {
     ids.insert(entry.id);
   const std::set<std::wstring_view> store{L"everyapi", L"openai",     L"anthropic", L"gemini",
                                           L"deepseek", L"qwen",       L"kimi",      L"zhipu",
-                                          L"siliconflow", L"groq",    L"openrouter", L"custom"};
+                                          L"siliconflow", L"groq",    L"openrouter", L"ollama",
+                                          L"custom"};
   check(ids == store, "provider ids match the preferences store");
   for (auto const &entry : table)
-    if (entry.id != L"custom")
+    if (entry.id != L"custom" && entry.id != L"ollama")
       check(!entry.endpoint.empty() && !entry.model.empty() && !entry.models.empty() &&
                 entry.models.front() == entry.model && !entry.documentation.empty(),
             "every catalog provider has defaults, its default model first, and documentation");
@@ -38,6 +39,14 @@ int main() {
         "deepseek endpoint");
   check(find_provider(L"qwen")->title == L"通义千问 · 阿里云百炼", "qwen title");
   check(find_provider(L"unknown") == nullptr, "an unknown provider has no option");
+  // Ollama 的模型是用户自己拉下来的，没有默认模型，靠「获取模型列表」；也不要 Token。
+  check(find_provider(L"ollama")->endpoint == L"http://localhost:11434/v1/chat/completions" &&
+            find_provider(L"ollama")->model.empty() && find_provider(L"ollama")->models.empty() &&
+            !find_provider(L"ollama")->documentation.empty(),
+        "ollama has a local endpoint and no default model");
+  check(!provider_uses_token(L"ollama") && provider_uses_token(L"custom") &&
+            provider_uses_token(L"deepseek"),
+        "only ollama goes without a token");
 
   // aiProviderUpdate：默认值跟着换，用户填的保留。
   auto update = provider_update(L"openai", {L"deepseek", L"https://api.deepseek.com/chat/completions",
@@ -77,11 +86,13 @@ int main() {
         "padded defaults are kept");
 
   // aiServiceCredentialTestDisabled。
-  check(!credential_test_disabled(true, true, L"m", L"t"), "complete settings can be tested");
-  check(credential_test_disabled(false, true, L"m", L"t"), "disabled assistant");
-  check(credential_test_disabled(true, false, L"m", L"t"), "unusable endpoint");
-  check(credential_test_disabled(true, true, L" \t", L"t"), "blank model");
-  check(credential_test_disabled(true, true, L"m", L"　"), "blank token");
+  check(!credential_test_disabled(true, true, L"m", L"t", L"openai"), "complete settings can be tested");
+  check(credential_test_disabled(false, true, L"m", L"t", L"openai"), "disabled assistant");
+  check(credential_test_disabled(true, false, L"m", L"t", L"openai"), "unusable endpoint");
+  check(credential_test_disabled(true, true, L" \t", L"t", L"openai"), "blank model");
+  check(credential_test_disabled(true, true, L"m", L"　", L"openai"), "blank token");
+  check(!credential_test_disabled(true, true, L"m", L"", L"ollama"), "ollama needs no token");
+  check(credential_test_disabled(true, true, L"", L"", L"ollama"), "ollama still needs a model");
 
   // 提示词槽位：只编辑 prompt_id 选中的那一个。
   check(prompt_slot(L"").id == L"custom_1" && prompt_slot(L"default").id == L"custom_1" &&

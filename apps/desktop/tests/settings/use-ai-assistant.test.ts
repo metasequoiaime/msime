@@ -90,3 +90,38 @@ test.each(
   );
   expect(action === "models" ? result.current.modelsBusy : result.current.testBusy).toBe(false);
 });
+
+test("Ollama fetches models and tests without reading a stored token", async () => {
+  const fetchModels = vi.fn().mockResolvedValue(["qwen3:8b"]);
+  const testRequest = vi.fn().mockResolvedValue("ok");
+  const ollama: UseAiAssistantOptions["ai"] = {
+    ...preferences,
+    provider: "ollama",
+    endpoint: "http://localhost:11434/v1/chat/completions",
+    tokens: { "http://localhost:11434": "stale-token" },
+  };
+  const { result } = renderHook(() =>
+    useAiAssistant({
+      client: { fetchModels, test: testRequest },
+      ai: ollama,
+      providerCredentialAvailable: false,
+      onChange: vi.fn(),
+    }),
+  );
+  expect(result.current.token).toBe("");
+  await act(async () => {
+    await result.current.fetchModels();
+  });
+  expect(fetchModels).toHaveBeenCalledWith({
+    endpoint: ollama.endpoint,
+    token: "",
+    provider: "ollama",
+  });
+  act(() => result.current.setTestInput("synthetic text"));
+  await act(async () => {
+    await result.current.test();
+  });
+  expect(testRequest).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: "ollama", token: "" }),
+  );
+});

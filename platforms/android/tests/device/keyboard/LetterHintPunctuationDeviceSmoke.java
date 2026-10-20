@@ -120,22 +120,25 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     }
 
     private void holdLetter(String value) throws Exception {
-        Rect bounds = bounds(await(key(value)));
+        Rect bounds = bounds(awaitStableBounds(key(value)));
         long started = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN,
             bounds.centerX(), bounds.centerY(), 0);
         try { down.setSource(InputDevice.SOURCE_TOUCHSCREEN); automation.injectInputEvent(down, true); }
         finally { down.recycle(); }
-        SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 180);
+        // 像真人一样按住到选择条出现再松手：固定睡到长按时长之后就松开，输入法主线程一忙，长按回调会排在松手之后，这一下就成了点按。
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout());
+        String choice = "输入 " + value.toUpperCase(java.util.Locale.ROOT);
+        await(described(choice));
         MotionEvent up = MotionEvent.obtain(started, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP,
             bounds.centerX(), bounds.centerY(), 0);
         try { up.setSource(InputDevice.SOURCE_TOUCHSCREEN); automation.injectInputEvent(up, true); }
         finally { up.recycle(); }
-        await(described("输入 " + value.toUpperCase(java.util.Locale.ROOT)));
+        await(described(choice));
     }
 
     private void swipeUpLetter(String value) throws Exception {
-        Rect bounds = bounds(await(key(value)));
+        Rect bounds = bounds(awaitStableBounds(key(value)));
         float x = bounds.centerX();
         float startY = bounds.centerY();
         float endY = startY - SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
