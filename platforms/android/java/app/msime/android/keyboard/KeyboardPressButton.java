@@ -10,6 +10,7 @@ public class KeyboardPressButton extends Button {
     private KeyboardKeyRole role;
     private boolean dispatchingTouch;
     private boolean staleRelease;
+    private Runnable pressReleaseListener;
     private KeyboardSkin faceSkin;
     private KeyboardKeyRole faceRole;
     private boolean faceSelected;
@@ -78,6 +79,11 @@ public class KeyboardPressButton extends Button {
         return super.onTouchEvent(event);
     }
 
+    /** 按下状态真正清除后通知调用方；迟到且被忽略的松开不通知。 */
+    public void setPressReleaseListener(Runnable listener) {
+        pressReleaseListener = listener;
+    }
+
     @Override public void setPressed(boolean pressed) {
         if (!pressed && staleRelease && !dispatchingTouch) {
             staleRelease = false;
@@ -85,7 +91,10 @@ public class KeyboardPressButton extends Button {
         }
         boolean changed = pressed != isPressed();
         super.setPressed(pressed);
-        if (changed) updatePressFeedback();
+        if (changed) {
+            updatePressFeedback();
+            if (!pressed && pressReleaseListener != null) pressReleaseListener.run();
+        }
     }
 
     @Override public void setEnabled(boolean enabled) {

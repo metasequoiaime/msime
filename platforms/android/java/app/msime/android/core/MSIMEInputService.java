@@ -155,7 +155,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 候选条上有手指按着，这一帧的候选内容推迟到松开之后再画。
      *
-     * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
+     * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。按钮通过 {@link #bindCandidateRenderRelease} 在按下状态真正清除后补一次 render，避免 ACTION_UP 早于点击和延迟松开时漏掉补帧。
      */
     boolean candidateRenderDeferred;
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
@@ -3111,7 +3111,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button makeEnglishSuggestionButton(int slot) {
-        Button button = new KeyboardPressButton(this);
+        KeyboardPressButton button = new KeyboardPressButton(this);
         bindCandidateRenderRelease(button);
         ViewPolicy.setAllCapsFalse(button);
         button.setOnClickListener(ignored -> {
@@ -5179,15 +5179,16 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    Button keyboardKey(String label, String description, Runnable action) {
-        Button button = new KeyboardPressButton(this);
+    KeyboardPressButton keyboardKey(String label, String description, Runnable action) {
+        KeyboardPressButton button = new KeyboardPressButton(this);
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
-        return bindCountedAction(button, action);
+        bindCountedAction(button, action);
+        return button;
     }
 
     /** 九键、注音、笔画、手写和日语九键的 ⌫：和 {@link #keyboardKey} 一样的键，只是画 26 键那个 22 dp 的删除图标，不再用排版字号的「⌫」字符，那样比 26 键的小一圈。 */
@@ -9957,18 +9958,12 @@ public final class MSIMEInputService extends InputMethodService {
         return false;
     }
 
-    /** 候选视图结束按压后补上被延后的那一帧；监听返回 false，不改变按钮自身的点击、长按和滚动语义。 */
-    void bindCandidateRenderRelease(View button) {
-        button.setOnTouchListener((view, event) -> {
-            int action = event.getActionMasked();
-            if ((action == android.view.MotionEvent.ACTION_UP
-                    || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && candidateRenderDeferred) {
-                candidateRenderDeferred = false;
-                view.post(this::render);
-            }
-            return false;
-        });
+    /** 框架真正清除按下状态后再补帧，避免 ACTION_UP 的监听早于点击和延迟松开。 */
+    void bindCandidateRenderRelease(KeyboardPressButton button) {
+        button.setPressReleaseListener(() -> main.post(() -> {
+            // 点击可能在松开通知之后才置标记，所以到执行时再检查；其他手指仍按着时由最后一次松开补帧。
+            if (candidateRenderDeferred) render();
+        }));
     }
 
     /**
@@ -10010,7 +10005,7 @@ public final class MSIMEInputService extends InputMethodService {
         for (int index = 0; index < handwritingResults.size(); index++) {
             String candidate = handwritingResults.get(index);
             HandwritingRequestTracker.Token token = handwritingCandidateToken;
-            Button choice = keyboardKey(chineseOutput(candidate, view),
+            KeyboardPressButton choice = keyboardKey(chineseOutput(candidate, view),
                 "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
             bindCandidateRenderRelease(choice);
             KeyboardTypographyPolicy.setKeyTextSize(choice, candidateFontSize);
