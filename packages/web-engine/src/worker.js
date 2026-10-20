@@ -250,7 +250,21 @@ export function createWorkerHandler(post, close) {
         answer(msg.seq, (e) => e.keys(Uint32Array.from(msg.keys)));
         return;
       case "pick":
-        answer(msg.seq, (e) => e.pick(msg.slot));
+        answer(msg.seq, (e) => {
+          if (!Number.isInteger(msg.slot) || msg.slot < 0 || msg.slot > 0xffffffff) return e.keys(new Uint32Array());
+          if (msg.revision === undefined) return e.pick(msg.slot);
+          return typeof msg.revision === "string" && typeof msg.text === "string"
+            && Number.isInteger(msg.pageStart) && msg.pageStart >= 0 && msg.pageStart <= 0xffffffff
+            ? e.pick_at(msg.slot, msg.revision, msg.text, false, msg.pageStart) : e.keys(new Uint32Array());
+        });
+        return;
+      case "pickAny":
+        answer(msg.seq, (e) => Number.isInteger(msg.index) && msg.index >= 0 && msg.index <= 0xffffffff
+          && typeof msg.revision === "string" && typeof msg.text === "string"
+          ? e.pick_at(msg.index, msg.revision, msg.text, true) : e.keys(new Uint32Array()));
+        return;
+      case "expansion":
+        answer(msg.seq, (e) => e.set_candidate_expansion(Boolean(msg.open), String(msg.revision ?? "")));
         return;
       case "reset":
         answer(msg.seq, (e) => e.reset());

@@ -273,6 +273,7 @@ function resolvedLayout(skin, layout) {
     pageArrows: typeof raw.pageArrows === "boolean" ? raw.pageArrows : null,
     fitContent: typeof raw.fitContent === "boolean" ? raw.fitContent : null,
     expandPanel: typeof raw.expandPanel === "boolean" ? raw.expandPanel : null,
+    expandRows: Number.isInteger(raw.expandRows) && raw.expandRows >= 2 && raw.expandRows <= 8 ? raw.expandRows : 4,
     shadow: ["none", "soft", "strong"].includes(raw.shadow) ? raw.shadow : null,
     itemCornersFollowCard: typeof source.itemCornersFollowCard === "boolean" ? source.itemCornersFollowCard : null,
     justifyRows: typeof source.justifyRows === "boolean" ? source.justifyRows : null,

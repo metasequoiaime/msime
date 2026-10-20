@@ -115,6 +115,9 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 - `keys(key | key[])`：发送打包按键，返回处理后的帧 `MsimeFrame`。
 - `pick(slot)`：点选当前页第 `slot` 个候选。
+- `pick(slot, revision, text, pageStart)`：核对画面里的列表身份、候选文字和页起点后点选，过期点击只返回当前帧。
+- `setCandidateExpansion(open, revision)`：按画面里的列表身份展开或收起；展开帧的 `allCandidates` 是完整排序列表，收起后为 `null`。
+- `pickAny(index, revision, text)`：按完整列表的全局座位点选，同时核对身份和文字；面板收起后拒绝旧网格点击。
 - `reset()`：取消组字、清空上下文。
 - `setScheme(scheme)`：在全拼和四种双拼之间切换，不重新下载，辅助码设置保留。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
 - `setHelpcode(helpcode)`：打开（传方案名）或关闭（传 `null`）辅助码，不用重建引擎；第一次用到的表这时下载。下载失败时 reject（`code: "network"`），引擎照常可用、设置不变；五笔、日语、韩文引擎上什么也不做。`helpcode` 属性是当前的方案，关闭时为 `null`。
@@ -228,7 +231,9 @@ attachInput(textarea, engine, {
 
 `fontFamily` 可指定皮肤优先字体，沿用共享层的单字体名称及 64 个 UTF-8 字节上限，宿主默认字体链保留作回退。`resolvedLayout.shadow` 的 `none`、`soft`、`strong` 使用 Windows 的双层阴影配方；成功加载九宫格面板后不画阴影。`pageArrows` 控制翻页标记，`pageArrowStyle` 选择尖括号或三角；预编辑边距、`justifyRows`、`itemCornersFollowCard` 和 `trimHiddenPreeditGap` 也参与实际布局。贴角以实际换行结果判定，预编辑隐藏时才启用上角，零卡片圆角仍覆盖普通候选圆角。`fitContent` 去掉旧的 7em 最小卡宽，并使右内边距与序号左留白对称。
 
-网页候选栏仍没有桌面卷轴展开面板，`expandPanel`、`expandRows` 尚未消费；翻页标记不新增点击接口，页切换继续走引擎按键。携带 catalog 不代表已经实现全部桌面交互。
+横排的 `expandPanel: true` 在首行右侧显示展开按钮，下面的滚动网格显示当前页之后的真实候选，`expandRows` 控制可见行数（2–8，默认 4）。首行保留页内序号与数字键语义，展开时隐藏翻页标记。网格按 2.6 倍字号分等宽格，长候选跨格，每批最多增加 300 个节点；输入继续时更新列表，上屏、取消、重置或失焦时收起。`attachInput` 自动接好引擎接口；自画编辑器要同时提供 `onExpand` 和 `onPickAny`，否则不显示无效入口。竖排保持列表布局；普通翻页标记仍由引擎按键控制。
+
+`candidateRevision` 是不透明的列表身份，不能改写或跨引擎复用。`pageStart` 与 `pageSize` 指明当前页的位置和页大小；完整列表中的数组下标是排序后的全局座位。展开可能放出引擎首次查询截留的尾部并改变身份，首行和网格必须一起使用返回的新帧。只在展开期间传完整列表，普通帧不增加整表复制。
 
 ### `resolveSkin(skin?, { dark, layout }?)`
 
@@ -255,7 +260,12 @@ for (const [name, value] of Object.entries(variables)) myBar.style.setProperty(n
 
 ```js
 import { createCandidateBar } from "@msime/web-engine";
-const bar = createCandidateBar({ skin: "night", layout: "horizontal", dark: "auto", onPick: (i) => engine.pick(i).then(update) });
+const bar = createCandidateBar({
+  skin: "night", layout: "horizontal", dark: "auto",
+  onPick: (i, revision, text, pageStart) => engine.pick(i, revision, text, pageStart).then(update),
+  onPickAny: (i, revision, text) => engine.pickAny(i, revision, text).then(update),
+  onExpand: (open, revision) => engine.setCandidateExpansion(open, revision).then(update),
+});
 bar.render(frame, caretRect);   // frame.composing 为 false 时隐藏；画在 caretRect 下方，放不下时翻到上方，并保持在视口内
 bar.setSkin("ink"); bar.setLayout("vertical"); bar.setDark(true);
 bar.hide(); bar.destroy();

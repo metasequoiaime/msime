@@ -56,6 +56,12 @@ export interface MsimeFrame {
   caret: number;
   /** 当前页的候选，最多 pageSize 行。 */
   page: MsimeRow[];
+  /** 不透明的实例与列表身份；翻页、高亮移动不改变它。 */
+  candidateRevision?: string;
+  pageStart?: number;
+  pageSize?: number;
+  /** 仅展开期间包含完整排序列表；数组下标就是全局座位。 */
+  allCandidates?: MsimeRow[] | null;
   pageIndex: number;
   hasPrev: boolean;
   /** 本页之后还有候选。 */
@@ -138,8 +144,12 @@ export interface MsimeEngine {
   readonly helpcode: MsimeHelpcode | null;
   /** 发送一个或一批打包按键（keyFromEvent 的结果，null 会被忽略），返回处理完后的帧。 */
   keys(keys: number | null | ReadonlyArray<number | null>): Promise<MsimeFrame>;
-  /** 鼠标点选当前页第 slot 个候选。 */
-  pick(slot: number): Promise<MsimeFrame>;
+  /** 鼠标点选当前页第 slot 个候选；版本化路径同时传 revision、text 与 pageStart，旧单参数路径保持兼容。 */
+  pick(slot: number, revision?: string, text?: string, pageStart?: number): Promise<MsimeFrame>;
+  /** 点选展开列表的全局座位，同时核对画出来的身份与文字。 */
+  pickAny(index: number, revision: string, text: string): Promise<MsimeFrame>;
+  /** 返回包含展开后当前页与完整候选的同一帧；收起后不再传完整列表。 */
+  setCandidateExpansion(open: boolean, revision: string): Promise<MsimeFrame>;
   /** 取消组字、清空上下文。 */
   reset(): Promise<MsimeFrame>;
   /** 在 quanpin 和四种双拼之间切换，辅助码设置保留；和 wubi86、japanese、korean 互换需要新建引擎。 */
@@ -347,6 +357,7 @@ export interface MsimeResolvedLayout {
   pageArrows?: boolean;
   fitContent?: boolean;
   expandPanel?: boolean;
+  expandRows?: number;
   geometry?: MsimeSkinGeometry;
   horizontal?: MsimeSkinGeometry;
   vertical?: MsimeSkinGeometry;
@@ -453,6 +464,7 @@ export interface ResolvedSkin {
       pageArrows: boolean | null;
       fitContent: boolean | null;
       expandPanel: boolean | null;
+      expandRows: number;
       shadow: "none" | "soft" | "strong" | null;
       itemCornersFollowCard: boolean | null;
       justifyRows: boolean | null;
@@ -532,7 +544,10 @@ export interface CandidateBarOptions {
   /** "auto"（默认）跟随 `prefers-color-scheme` 并在它变化时重画；true、false 强制深色或浅色。只对 `system`、Windows 外观和不固定明暗的皮肤对象起作用。 */
   dark?: boolean | "auto";
   /** 点击当前页第 index 个候选。 */
-  onPick?: (index: number) => void;
+  onPick?: (index: number, revision?: string, text?: string, pageStart?: number) => void;
+  onPickAny?: (index: number, revision: string, text: string) => void;
+  /** 展开与收起交给引擎，随后用返回的帧重新 render。未接入时不显示展开入口。 */
+  onExpand?: (open: boolean, revision: string) => void | Promise<unknown>;
   /** 宿主元素放在哪里，默认 document.body。 */
   container?: Element;
   /** 在候选后显示编码（`page[i].code`），默认 false。帧里有辅助码提示（`page[i].hint`）时，不论这个选项都显示提示。 */

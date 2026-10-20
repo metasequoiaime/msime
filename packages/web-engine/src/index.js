@@ -194,8 +194,14 @@ export function createMsimeEngine(options = {}) {
       const list = (Array.isArray(keys) ? keys : [keys]).filter((k) => typeof k === "number");
       return request({ type: "keys", keys: list });
     },
-    pick(slot) {
-      return request({ type: "pick", slot });
+    pick(slot, revision, text, pageStart) {
+      return request({ type: "pick", slot, revision, text, pageStart });
+    },
+    pickAny(index, revision, text) {
+      return request({ type: "pickAny", index, revision, text });
+    },
+    setCandidateExpansion(open, revision) {
+      return request({ type: "expansion", open: Boolean(open), revision });
     },
     reset() {
       return request({ type: "reset" });
