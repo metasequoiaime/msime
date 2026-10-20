@@ -318,6 +318,7 @@ fn package(base: GlobalTheme, light: bool, dark: bool) -> ThemePackage {
         layouts: vec![CandidateLayout::Vertical],
         light: light.then(|| palette("#fff0f5")),
         dark: dark.then(|| palette("#102030")),
+        resolved_layout: None,
     }
 }
 
@@ -1166,6 +1167,7 @@ fn web_custom_theme_mirror_cases_match_resolve() {
             layouts: vec![CandidateLayout::Vertical],
             light: declares("light").then(|| palette(&case["package"]["candidate"]["light"])),
             dark: declares("dark").then(|| palette(&case["package"]["candidate"]["dark"])),
+            resolved_layout: None,
         });
         let custom = CustomTheme {
             base,
@@ -1219,6 +1221,7 @@ fn a_package_translation_colour_is_the_secondary_text() {
             ..Default::default()
         }),
         dark: None,
+        resolved_layout: None,
     };
     let secondary = |package: &ThemePackage| {
         resolve(
@@ -1276,6 +1279,7 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
             ..Default::default()
         }),
         dark: None,
+        resolved_layout: None,
     };
     let details = |custom: &CustomTheme, dark, layout| {
         resolve(GlobalTheme::Custom, custom, dark, layout, Some(&package)).candidate_details
@@ -1329,4 +1333,65 @@ fn canvas_details_are_normalized_and_follow_text_picker_and_drawn_mode() {
         Some(readable.as_str())
     );
     assert_eq!(picked.translation_pos.as_deref(), Some("#11223344"));
+}
+
+#[test]
+fn resolved_layout_reaches_theme_only_when_the_package_is_drawn() {
+    use crate::skin::catalog;
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("synthetic-layout");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(
+        dir.join("skin.toml"),
+        r#"
+schema_version = 2
+id = 'synthetic-layout'
+name = '合成布局'
+version = '1'
+base = 'canvas'
+[supports]
+layouts = ['horizontal']
+themes = ['light']
+[candidate_window]
+item_gap = '0.5em'
+number_scale = 0
+expand_panel = false
+[candidate_window.horizontal]
+padding = 0
+"#,
+    )
+    .unwrap();
+    let summary = catalog::load_package(root.path(), "synthetic-layout").unwrap();
+    let package = ThemePackage::from(&summary);
+    let expected = package.resolved_layout.as_ref().unwrap();
+    assert_eq!(expected.horizontal.number_scale, Some(0.0));
+    assert_eq!(expected.horizontal.padding.unwrap().value, 0.0);
+    assert!(expected.horizontal.item_gap.unwrap().em);
+    assert!(!expected.expand_panel);
+    let custom = CustomTheme {
+        candidate_skin: Some(package.id.clone()),
+        ..Default::default()
+    };
+    for (dark, layout, drawn) in [
+        (false, CandidateLayout::Horizontal, true),
+        (true, CandidateLayout::Horizontal, false),
+        (false, CandidateLayout::Vertical, false),
+    ] {
+        let resolved = resolve(GlobalTheme::Custom, &custom, dark, layout, Some(&package));
+        assert_eq!(
+            resolved.candidate_layout.as_ref(),
+            drawn.then_some(expected)
+        );
+        let json = serde_json::to_value(&resolved).unwrap();
+        assert_eq!(json.get("candidate_layout").is_some(), drawn);
+    }
+    let catalog = catalog::host_candidate_catalog(&catalog::scan(root.path()), root.path(), &[]);
+    let entry = catalog["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == package.id)
+        .unwrap();
+    let published = ThemePackage::from_host_catalog_entry(entry.clone()).unwrap();
+    assert_eq!(published.resolved_layout, package.resolved_layout);
 }

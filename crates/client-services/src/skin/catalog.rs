@@ -456,14 +456,14 @@ pub struct SkinToolbar {
 }
 
 /// 候选窗清单中的长度：可以是固定 DIP，也可以是按候选字号缩放的 em。
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinLength {
     pub value: f64,
     pub em: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinInsets {
     pub top: f64,
@@ -472,7 +472,7 @@ pub struct SkinInsets {
     pub left: f64,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinGeometry {
     #[serde(skip_serializing_if = "Option::is_none")]

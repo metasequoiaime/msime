@@ -219,9 +219,13 @@ final class CandidateCanvasView: UIView {
 /// 高亮候选的竖条属于皮肤，不截获候选按钮的点击。
 final class CandidateSelectionBarView: UIView {
   private let color: UIColor
+  private let layout: CandidateSkinLayout?
+  private let fontSize: CGFloat
 
-  init(color: UIColor) {
+  init(color: UIColor, layout: CandidateSkinLayout? = nil, fontSize: CGFloat = 18) {
     self.color = color
+    self.layout = layout
+    self.fontSize = fontSize
     super.init(frame: .zero)
     backgroundColor = .clear
     isUserInteractionEnabled = false
@@ -233,6 +237,14 @@ final class CandidateSelectionBarView: UIView {
 
   override func draw(_ rect: CGRect) {
     color.setFill()
-    UIBezierPath(roundedRect: CGRect(x: 1, y: 6, width: 3, height: max(0, bounds.height - 12)), cornerRadius: 1.5).fill()
+    let bar = Self.barRect(bounds: bounds, layout: layout, fontSize: fontSize)
+    UIBezierPath(roundedRect: bar, cornerRadius: bar.width / 2).fill()
+  }
+
+  static func barRect(bounds: CGRect, layout: CandidateSkinLayout?, fontSize: CGFloat) -> CGRect {
+    guard let layout else { return CGRect(x: 1, y: 6, width: 3, height: max(0, bounds.height - 12)) }
+    let width = max(3, layout.selectedBarWidth?.dip(fontSize: fontSize) ?? 3)
+    let height = min(bounds.height, max(width * 2, (layout.selectedBarHeightEm ?? 0.8) * fontSize))
+    return CGRect(x: layout.selectedBarInside == true ? 1 : 0, y: (bounds.height - height) / 2, width: width, height: height)
   }
 }

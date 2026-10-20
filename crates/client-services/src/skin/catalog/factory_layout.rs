@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use toml::Value;
 
 /// 所有支持布局的宿主共用的绘制输入。横竖排已分别合并，em 仍按实际候选字号换算。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedSkinLayout {
     pub corner_radius_dip: f64,

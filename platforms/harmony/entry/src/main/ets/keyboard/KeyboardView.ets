@@ -49,7 +49,7 @@ import { CandidateDecorationLayout, CandidateDecorationRect } from './candidate/
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
 import { CandidateTranslationStyle } from './candidate/CandidateTranslationStyle';
-import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
+import { CandidateLayoutPolicy, CandidateSkinGeometry, CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import {
@@ -3108,17 +3108,19 @@ struct KeyboardView {
       return '100%';
     }
     const padding: number = KeyboardMetrics.CANDIDATE_PADDING_VP;
-    // A desktop chip also carries its ordinal and its suffix, and the window is sized from the same estimate (CandidateWidthPolicy.rowWidthVp); counting the word alone made each chip narrower than what it draws.
+    // 桌面候选宽度与窗口估算保持一致，包含序号及其最小保留栏。
     const word: number = KeyboardFormFactor.isDesktop()
       ? CandidateWidthPolicy.chipContentVp(candidate, index, this.settings.candidateFontSize,
-        CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
+        this.candidateNumberSize()) + (this.settings.candidateSkinLayout == null ? 0
+          : Math.max(0, 9 - (this.candidateNumberSize() > 0
+            ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, this.candidateNumberSize()) : -CandidateWidthPolicy.ORDINAL_GAP_VP)))
       : TextPolicy.characters(candidate.text).length * this.settings.candidateFontSize;
     if (!KeyboardSession.shared.glossesExpected()) {
-      return CandidateChipWidth.chip(word, false, 0, padding);
+      return CandidateLayoutPolicy.chipWidth(this.candidateGeometry(), this.settings.candidateFontSize, word, padding);
     }
     const column: number = CandidateChipWidth.column(this.availableWidth, 0, padding);
     if (column <= 0) {
-      return CandidateChipWidth.chip(word, false, 0, padding);
+      return CandidateLayoutPolicy.chipWidth(this.candidateGeometry(), this.settings.candidateFontSize, word, padding);
     }
     return CandidateChipWidth.chip(word, true, column, padding);
   }
@@ -3276,11 +3278,12 @@ struct KeyboardView {
     return this.settings.candidateCornerRadiusVp ?? KeyboardMetrics.CANDIDATE_CARD_CORNER_VP;
   }
 
-  /** A 2in1 row's radius: never rounder than a card radius the user chose; a package's radius leaves the rows as they were drawn before the setting existed. */
+  /** 优先使用皮肤行圆角；用户设置卡片圆角时，行圆角不超过卡片。 */
   private candidateItemRadius(): number {
+    const radius: number = this.settings.candidateSkinLayout?.itemRadius ?? KeyboardMetrics.CANDIDATE_ITEM_CORNER_VP;
     return this.settings.candidateCornerRadiusUser
-      ? Math.min(KeyboardMetrics.CANDIDATE_ITEM_CORNER_VP, this.candidateCardRadius())
-      : KeyboardMetrics.CANDIDATE_ITEM_CORNER_VP;
+      ? Math.min(radius, this.candidateCardRadius())
+      : radius;
   }
 
   /** A card fill or border with the user's window opacity applied; the touch strip is part of the keyboard and stays as it is. */
@@ -3305,6 +3308,35 @@ struct KeyboardView {
 
   private candidateSelectedTextColor(): string {
     return this.candidateColors().selectedText;
+  }
+
+  private candidateGeometry(): CandidateSkinGeometry | null {
+    const layout = this.settings.candidateSkinLayout;
+    if (layout === null || layout === undefined) return null;
+    return KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical' ? layout.vertical : layout.horizontal;
+  }
+
+  private candidateNumberSize(): number {
+    return CandidateLayoutPolicy.numberSize(this.candidateGeometry(), this.settings.candidateFontSize,
+      CandidateNumberFontPolicy.size(this.settings.candidateFontSize));
+  }
+
+  private candidateGap(vertical: boolean): number {
+    return CandidateLayoutPolicy.gap(this.settings.candidateSkinLayout, vertical, this.settings.candidateFontSize);
+  }
+
+  private candidateRightPadding(): number {
+    return CandidateLayoutPolicy.dip(this.candidateGeometry()?.itemPaddingRight,
+      this.settings.candidateFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP);
+  }
+
+  private candidateBarWidth(): number {
+    return Math.max(3, CandidateLayoutPolicy.dip(this.candidateGeometry()?.selectedBarWidth, this.settings.candidateFontSize, 3));
+  }
+
+  private candidateBarHeight(): number {
+    const height: number = this.candidateGeometry()?.selectedBarHeightEm ?? 0.55;
+    return Math.max(2 * this.candidateBarWidth(), height * this.settings.candidateFontSize);
   }
 
   private candidateNumberColor(highlighted: boolean): string {
@@ -3555,7 +3587,7 @@ struct KeyboardView {
       .borderRadius(KeyboardFormFactor.isDesktop()
         ? this.candidateCardRadius()
         : KeyboardMetrics.STRIP_CORNER_VP)
-      .borderWidth(KeyboardFormFactor.isDesktop() && this.settings.candidateCanvas === null ? 1 : 0)
+      .borderWidth(KeyboardFormFactor.isDesktop() && this.settings.candidateCanvas === null ? this.settings.candidateSkinLayout?.borderWidth ?? 1 : 0)
       .borderColor(this.candidateCardColor(this.candidateColors().border))
       .onAreaChange((_old: Area, now: Area): void => {
         if (this.settings.candidateCanvas === null) this.availableWidth = Number(now.width);
@@ -3700,7 +3732,7 @@ struct KeyboardView {
   @Builder
   candidateRow() {
     if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
-      Column() {
+      Column({ space: this.candidateGap(true) }) {
         ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
           this.candidateCell(candidate, index)
         }, (candidate: CandidateEntry, index: number) =>
@@ -3710,7 +3742,8 @@ struct KeyboardView {
       // One row per candidate here and exactly one there. The two used to share a ternary applied to
       // the if/else as a whole, which ArkUI cannot do: modifiers belong to a component, and a branch
       // is not one. Each branch states its own height, and the condition already decided which.
-      .height(this.candidateRowHeight() * KeyboardMetrics.visibleCandidateRows(this.candidates.length))
+      .height(this.candidateRowHeight() * KeyboardMetrics.visibleCandidateRows(this.candidates.length)
+        + this.candidateGap(true) * Math.max(0, KeyboardMetrics.visibleCandidateRows(this.candidates.length) - 1))
       .onAxisEvent((event?: AxisEvent): void => {
         if (!this.settings.navigation.mouseWheel || event === undefined) {
           return;
@@ -3725,7 +3758,7 @@ struct KeyboardView {
     } else {
       Row() {
       Scroll() {
-        Row() {
+        Row({ space: this.candidateGap(false) }) {
           ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
             this.candidateCell(candidate, index)
           }, (candidate: CandidateEntry, index: number) =>
@@ -3834,11 +3867,12 @@ struct KeyboardView {
   candidateCell(candidate: CandidateEntry, index: number) {
     Row() {
       if (candidate.highlighted && this.settings.candidateSelectedBar) {
-        Blank().width(3).height(this.candidateLineHeight() * 0.55)
+        Blank().width(this.candidateBarWidth()).height(this.candidateBarHeight())
           .backgroundColor(this.candidateColors().accent).borderRadius(2)
       }
       if (CandidateNumberFontPolicy.visible(KeyboardFormFactor.isDesktop())) {
-        Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
+        Text(this.candidateNumberSize() === 0 ? '' : `${index + 1}`).fontSize(Math.max(1, this.candidateNumberSize()))
+          .constraintSize({ minWidth: this.settings.candidateSkinLayout == null ? 0 : 9 })
           .fontColor(this.candidateNumberColor(candidate.highlighted)).padding({ right: 4 })
       }
       if (this.candidateUsesGlossLine()) {
@@ -3860,11 +3894,11 @@ struct KeyboardView {
       }
     }.alignItems(VerticalAlign.Center)
       .accessibilityText(this.candidateLabel(candidate, index))
-      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: this.candidateRightPadding() })
       .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate, index))
       .backgroundColor(index === this.hoveredCandidate ? this.candidateColors().hover
         : candidate.highlighted ? this.candidateColors().selected : TRANSPARENT)
-      .borderRadius(KeyboardFormFactor.isDesktop() ? this.candidateItemRadius() : 0)
+      .borderRadius(KeyboardFormFactor.isDesktop() ? this.candidateItemRadius() : this.settings.candidateSkinLayout?.itemRadius ?? 0)
       .onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
       .gesture(LongPressGesture().onAction(() => this.openTouchCandidateMenu(index)))
@@ -4140,7 +4174,7 @@ struct KeyboardView {
           this.chipLane(2)
         } else if (this.candidates.length > 0) {
           Scroll() {
-            Row() {
+            Row({ space: CandidateLayoutPolicy.gap(this.settings.candidateSkinLayout, false, this.chipFontSize()) }) {
               ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
                 this.candidateChip(candidate, index)
               }, (candidate: CandidateEntry, index: number) =>
@@ -4206,8 +4240,9 @@ struct KeyboardView {
   /** 胶囊的最小宽度：设计稿的 30vp；预期有注释时为整个注释列宽，这样注释到来时不会撑宽胶囊、把后面的胶囊挤开。 */
   private chipMinWidth(): number {
     const column: number = this.chipGlossColumn();
-    return column > 0 ? Math.max(CHIP_MIN_WIDTH_VP, Math.ceil(column + CHIP_PADDING_VP * 2))
-      : CHIP_MIN_WIDTH_VP;
+    const minimum: number = Math.max(CHIP_MIN_WIDTH_VP,
+      CandidateLayoutPolicy.dip(this.settings.candidateSkinLayout?.horizontal.itemMinWidth, this.chipFontSize(), 0));
+    return column > 0 ? Math.max(minimum, Math.ceil(column + CHIP_PADDING_VP * 2)) : minimum;
   }
 
   /** 注释最多能画多宽：它的列宽，或上方的词更宽时取词宽。 */
@@ -4275,9 +4310,10 @@ struct KeyboardView {
     }
     .constraintSize({ minWidth: this.chipMinWidth() })
     .height(CHIP_HEIGHT_VP)
-    .padding({ left: CHIP_PADDING_VP, right: CHIP_PADDING_VP })
+    .padding({ left: CHIP_PADDING_VP, right: CandidateLayoutPolicy.dip(
+      this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
     .justifyContent(FlexAlign.Center)
-    .borderRadius(CHIP_RADIUS_VP)
+    .borderRadius(this.settings.candidateSkinLayout?.itemRadius ?? CHIP_RADIUS_VP)
     .backgroundColor(candidate.highlighted ? this.skin.keyBackground : TRANSPARENT)
     .stateStyles({
       normal: {

@@ -1,3 +1,4 @@
+import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
 import inputMethodEngine from '@ohos.inputMethodEngine';
@@ -984,6 +985,7 @@ export interface KeyboardPreferences {
   readonly candidateBackgroundImage: string | null;
   /** 共享扫描器校验后的 canvas 快照；逐键只消费，不访问文件。 */
   readonly candidateCanvas: CandidateCanvasScene | null;
+  readonly candidateSkinLayout?: CandidateResolvedLayout | null;
   readonly candidateBackgroundFit: CandidateSkinFit;
   readonly candidateBackgroundOpacity: number;
   /** The bounded native motion presets from the selected candidate package. */
@@ -1613,7 +1615,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       typeof userRadius === 'number' && Number.isFinite(userRadius) && userRadius >= 0 && userRadius <= 32;
     const candidateRadius: number | null = userRadiusValid
       ? userRadius as number
-      : packageId === null ? null : CandidateSkinCatalogPolicy.cornerRadiusVp(skinPackages, packageId);
+      : candidateTheme?.candidate_layout?.cornerRadius ?? (packageId === null ? null : CandidateSkinCatalogPolicy.cornerRadiusVp(skinPackages, packageId));
     const opacityPercent: number | undefined = preferences.candidate_opacity_percent;
     const windowOpacity: number = typeof opacityPercent === 'number' && Number.isFinite(opacityPercent)
       ? Math.max(50, Math.min(100, opacityPercent)) / 100 : 1;
@@ -1633,6 +1635,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateCornerRadiusUser: userRadiusValid,
       candidateBackgroundImage: backgroundImage.image,
       candidateCanvas: this.readCandidateCanvas(skinPackages, packageId, candidateDark),
+      candidateSkinLayout: candidateTheme?.candidate_layout ?? null,
       candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
       candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
       candidateAnimation: candidateAnimation,
@@ -4528,12 +4531,31 @@ export class KeyboardSession implements HardwareKeyTarget {
         CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp)
       : CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
         settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
+    // 横排窗口和候选格使用同一份版式，序号缩为零时仍预留 9vp。
+    let layoutExtra: number = 0;
+    if (settings.candidateLayout !== 'vertical' && settings.candidateSkinLayout !== null
+      && settings.candidateSkinLayout !== undefined) {
+      const geometry = settings.candidateSkinLayout.horizontal;
+      const numberSize: number = CandidateLayoutPolicy.numberSize(geometry, settings.candidateFontSize,
+        CandidateNumberFontPolicy.size(settings.candidateFontSize));
+      entries.forEach((entry: CandidateEntry, index: number): void => {
+        const oldContent: number = CandidateWidthPolicy.chipContentVp(entry, index, settings.candidateFontSize,
+          CandidateNumberFontPolicy.size(settings.candidateFontSize));
+        const content: number = CandidateWidthPolicy.chipContentVp(entry, index, settings.candidateFontSize, numberSize)
+          + Math.max(0, 9 - (numberSize > 0 ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, numberSize) : -CandidateWidthPolicy.ORDINAL_GAP_VP));
+        layoutExtra += CandidateLayoutPolicy.chipWidth(geometry, settings.candidateFontSize, content,
+          KeyboardMetrics.CANDIDATE_PADDING_VP) - oldContent - 2 * KeyboardMetrics.CANDIDATE_PADDING_VP;
+      });
+      layoutExtra += CandidateLayoutPolicy.gap(settings.candidateSkinLayout, false, settings.candidateFontSize)
+        * Math.max(0, entries.length - 1);
+    }
     const width: number = settings.candidateShowPreedit
       ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount,
         CandidateWidthPolicy.MAX_WIDTH_VP, CandidateLogoPolicy.slotWidthVp(
           CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), settings.candidateShowPreedit)))
       : base;
-    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, width + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
+    return Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, Math.max(settings.candidateMinWidthVp, width + layoutExtra)
+      + CandidateCanvasPolicy.extraWidth(settings.candidateCanvas));
   }
 
   private publishTranslationPage(): void {
