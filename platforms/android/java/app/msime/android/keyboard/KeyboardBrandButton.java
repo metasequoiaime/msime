@@ -9,9 +9,9 @@ import android.graphics.RectF;
 import java.util.function.IntSupplier;
 
 /**
- * 绘制随主题配色的水杉品牌标记。
+ * 绘制随键盘皮肤配色的透明水杉品牌标记。
  *
- * <p>新设计里品牌键是 34 dp 的 logoCirc 圆盘托着 28 dp 的 logoBg 标记，功能面板或任何面板打开时整个 40 dp 按钮垫一块圆角 12 dp 的 accentSoft。调用 {@link #setLogoColors} 之后按新设计画；没调用时保持原来只画一枚 accent 标记的样子，旧调用点不受影响。节点 text（如「更多」）照常保留给无障碍，不绘制。
+ * <p>品牌键只画 28 dp 的线条标记，面板打开时垫一块圆角背景。调用 {@link #setLogoColor} 后跟随工具栏图标配色；节点 text（如「更多」）照常保留给无障碍，不绘制。
  */
 public final class KeyboardBrandButton extends KeyboardPressButton {
     /**
@@ -21,9 +21,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
      * its own 110-unit box; the two read at the same weight in the flat toolbar.
      */
     private static final float MARK_SCALE = 0.72f;
-    private static final float DISC_DP = 34f;
     /** 品牌标记与旁边的工具栏图标同为 28 dp，使放大后的九键界面比例协调。 */
-    private static final float DISC_MARK_DP = 28f;
+    private static final float MARK_DP = 28f;
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
     private static final float ACTIVE_INSET_DP = 4f;
@@ -33,7 +32,6 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF bounds = new RectF();
     private boolean designed;
-    private int discColor = Color.TRANSPARENT;
     private int markColor = Color.TRANSPARENT;
     private boolean panelOpen;
     private int panelOpenFill = Color.TRANSPARENT;
@@ -45,12 +43,11 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         setContentDescription("更多快捷设置");
     }
 
-    /** 新设计的配色：圆盘 logoCirc、logo 方框 logoBg（调用方从应用主题的季节色取，与设计一致，不随键盘皮肤变）。 */
-    public void setLogoColors(int disc, int markFill) {
-        if (designed && discColor == disc && markColor == markFill) return;
+    /** 与相邻工具栏图标使用同一种皮肤颜色，不垫固定的季节色圆盘或方框。 */
+    public void setLogoColor(int color) {
+        if (designed && markColor == color) return;
         designed = true;
-        discColor = disc;
-        markColor = markFill;
+        markColor = color;
         invalidate();
     }
 
@@ -98,11 +95,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
                 DimensionPolicy.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
-        float disc = BoundsPolicy.atMost(shorter,
-            DimensionPolicy.floatPixels(getContext(), DISC_DP));
-        fill.setColor(discColor);
-        canvas.drawCircle(centerX, centerY, disc / 2f, fill);
-        float markSize = disc * (DISC_MARK_DP / DISC_DP);
+        float markSize = BoundsPolicy.atMost(shorter,
+            DimensionPolicy.floatPixels(getContext(), MARK_DP));
         drawOfficialLogo(canvas, centerX, centerY, markSize);
     }
 
@@ -124,23 +118,19 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     }
 
     /**
-     * 画官方 logo，不再自己画一枚近似的标：logoBg 填满 msime_frame.svg 的方框（M5.84314 5.8335H109.843V125.833H5.84314Z，与 packages/ui 一样去掉笔刷纹理），上面是 9 宽、圆头的白色官方笔画；按 116:132 等比放进 {@code size} 见方的区域中央。
+     * 官方笔画按 116:132 等比居中，以皮肤图标色绘制，不填充 logo 方框。
      */
     private void drawOfficialLogo(Canvas canvas, float centerX, float centerY, float size) {
         float scale = size / LOGO_HEIGHT;
         int saved = canvas.save();
         canvas.translate(centerX - LOGO_WIDTH * scale / 2f, centerY - LOGO_HEIGHT * scale / 2f);
         canvas.scale(scale, scale);
-        fill.setColor(markColor);
-        fill.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), Color.alpha(markColor), 96));
-        canvas.drawRect(5.84314f, 5.8335f, 109.843f, 125.833f, fill);
-        fill.setAlpha(255);
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeWidth(9f);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setColor(Color.WHITE);
-        stroke.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
+        stroke.setColor(markColor);
+        stroke.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), Color.alpha(markColor), 96));
         canvas.drawPath(logoStroke, stroke);
         canvas.restoreToCount(saved);
     }
