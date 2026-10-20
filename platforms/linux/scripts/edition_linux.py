@@ -393,10 +393,12 @@ def download_guide(version: str, download_base: str, names: set[str], repositori
     if with_legacy:
         cells = [link(legacy[deb_arch], "legacy deb") for _, deb_arch in RELEASE_ARCHES]
         lines.append(f"| {full_name}旧系统包（glibc 2.28 到 2.34） | {' | '.join(cells)} |")
+    legacy_ibus = "（legacy 包要 IBus 1.5.19 以上）" if with_legacy else ""
+    legacy_setup = "（legacy 包没有设置窗口，只能用终端）" if with_legacy else ""
     lines += [
         "",
-        "输入法框架要 IBus 1.5.20 或 Fcitx5 5.0.20 以上（legacy 包要 IBus 1.5.19 以上）；只有 fcitx 4 的系统（UOS 20、麒麟 V10 默认如此）先改用 IBus。"
-        f"装好后打开应用列表里的「{full_name}」完成首次配置（legacy 包没有设置窗口，只能用终端），或者在终端运行 `{full_package}-setup --download`（其他版本是各自的 `<包名>-setup`，例如 `{example}-setup --download`）。",
+        f"输入法框架要 IBus 1.5.20 或 Fcitx5 5.0.20 以上{legacy_ibus}；只有 fcitx 4 的系统（UOS 20、麒麟 V10 默认如此）先改用 IBus。"
+        f"装好后打开应用列表里的「{full_name}」完成首次配置{legacy_setup}，或者在终端运行 `{full_package}-setup --download`（其他版本是各自的 `<包名>-setup`，例如 `{example}-setup --download`）。",
         "",
         "`SHA256SUMS` 是这些安装包的 SHA-256 校验值，下载后用 `sha256sum -c SHA256SUMS --ignore-missing` 核对。",
     ]

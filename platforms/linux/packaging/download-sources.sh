@@ -35,4 +35,4 @@ for name in "${tarballs[@]}"; do
   [[ -n "$line" ]] || { echo "download-sources.sh: $tag 的 $sums 没有列出 $name" >&2; exit 1; }
   (cd "$dir" && sha256sum -c --quiet - <<<"$line")
 done
-echo "${tarballs[*]} 来自 $tag，已对着 $sums 核对"
+echo "${tarballs[*]} 来自 ${tag}，已对着 ${sums} 核对"
