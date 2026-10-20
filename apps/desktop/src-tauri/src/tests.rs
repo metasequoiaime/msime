@@ -15,6 +15,22 @@ fn emoji_group_page_capacity_reserves_the_first_page_size() {
     assert!(positions.capacity() >= 7);
 }
 
+/// 背单词内置词书的资源根是 HostOptions 里 `resources` 的上一级（Linux 的 `share/<client>`），词书装在它下面的 `wordbooks/`；没有 `resources`、或者它是相对路径时不猜，调用方退回到没有词书的目录。
+#[test]
+fn wordbooks_sit_beside_the_host_options_resources() {
+    let client = std::env::temp_dir().join("share").join("msime-client");
+    let resources = client.join("resources");
+    let document = serde_json::json!({ "resources": resources.to_string_lossy() });
+    assert_eq!(super::resources_parent(&document), Some(client));
+    assert_eq!(super::resources_parent(&serde_json::json!({})), None);
+    assert_eq!(
+        super::resources_parent(
+            &serde_json::json!({ "resources": "share/msime-client/resources" })
+        ),
+        None
+    );
+}
+
 /// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；每组带包 id，组的关键词放在组上，各项的关键词仍是符号本身。
 #[test]
 fn plugin_symbol_groups_follow_the_built_in_catalog() {
