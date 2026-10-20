@@ -255,6 +255,10 @@ targets:
         optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
+      # 表情面板的水杉娘表情包：66 张 320px 透明 WebP 和清单，三个手机键盘共用仓库里的同一份。
+      - path: ../../resources/stickers
+        buildPhase: resources
+        type: folder
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

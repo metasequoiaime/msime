@@ -17,7 +17,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - `.github/workflows/android-device.yml` 是可复用 workflow，在 GitHub 托管的 ubuntu-24.04（有 KVM）上按 API 28（minSdk）和 35（targetSdk）各起一台 x86_64 模拟器，依次：
   - `build-core-test.sh` 交叉编译 client-base、client-core、client-providers 和 client-services 的单测，`run-core-test.sh` 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它在设备上整套运行（拆分见 [按职责把 client-core 拆成四个 crate](../architecture/2026-10-15-client-core-split.md)）；
   - 用开发密钥打 x86_64 APK，`smoke.sh` 装包，走首次启动、词库准备和输入验收。API 28 用 `--core`，只到 DeviceSmoke 的打字主路径。
-  - API 35 的完整套件包含注音九键，打包前用 `fetch_language_dictionaries.py` 取回锁定词库，并设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`；缺失就拒绝打包。API 28 的核心验收不需要这些词库。nightly 首次运行中，未准备词库的 API 35 APK 正常回退到拼音，导致 `LanguageNumberKeySwapDeviceSmoke` 等不到注音键面；这是测试输入缺失，不应靠跳过套件解决。
+  - 两个 API 级别的设备套件都运行 `NumberPadDeviceSmoke` 的笔画和注音分支，打包前统一用 `fetch_language_dictionaries.py` 取回锁定词库，并设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`；缺失就拒绝打包。nightly 首次运行中，未准备词库的 APK 正常回退到拼音，导致依赖这些方案的键面断言等不到目标键面；这是测试输入缺失，不应靠跳过套件解决。
 - `ci-platforms.yml` 在 `android == 'true'`（动到 Android 或共享代码）的 PR 上调用它。这一条已被 [PR 上只编译和测试，打包挪到合进 develop 之后](../process/2026-10-09-no-packaging-on-pull-requests.md) 取代：现在只在推到 develop、main 时调用，PR 上不跑。
 - `release-android.yml` 的 `publish` 依赖新的 `device` job，用同一个提交跑同一套，失败就不发。这个 job 不接触发版密钥。
 - 设备脚本：`start-emulator.sh` 接受 API 级别，按主机架构选 arm64-v8a 或 x86_64 镜像，每个级别一台独立 AVD、固定端口（`5580 - 2 × (35 - API)`）；`run-core-test.sh` 用 `MSIME_ANDROID_TEST_SERIAL` 选设备；新增 `build-core-test.sh`。

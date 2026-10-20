@@ -911,6 +911,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.useVoiceContext(this.context);
       // 在该上下文的目录中读取内置音效包并写入变调音符。
       KeyboardSession.shared.useSoundContext(this.context);
+      // 随包的水杉娘表情包也解压在 resourceDir 下。
+      KeyboardSession.shared.mascotStickers.use(this.context.resourceDir);
       const started: boolean = KeyboardSession.shared.start(resources, state, systemDark);
       if (!started) {
         // 没有会话就不创建面板，避免系统显示无法响应的键盘。

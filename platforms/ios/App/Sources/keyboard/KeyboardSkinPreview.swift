@@ -162,17 +162,18 @@ struct KeyboardSkinPreview: View {
     if nineKey {
       HStack(spacing: 6) {
         VStack(spacing: 5) {
-          ForEach(["，", "。", "？", "！"], id: \.self) { value in key(value) }
+          ForEach(["，", "。", "？"], id: \.self) { value in key(value) }
         }.frame(width: nineKeySidebarWidth)
+        // Same frame as the keyboard's pinyin grid: key 1 opens symbols, the right column holds ⌫, the syllable separator and the closing mark.
         VStack(spacing: layout.rowSpacing) {
-          row(["分词", "ABC", "DEF"])
+          row(["@#", "ABC", "DEF"])
           row(["GHI", "JKL", "MNO"])
           row(["PQRS", "TUV", "WXYZ"])
         }
         VStack(spacing: layout.rowSpacing) {
           key("⌫", function: true)
-          key(".")
-          key("0")
+          key("分词", function: true)
+          key("！", function: true)
         }.frame(width: nineKeySidebarWidth)
       }.frame(maxHeight: .infinity)
     } else if fourteenKey {

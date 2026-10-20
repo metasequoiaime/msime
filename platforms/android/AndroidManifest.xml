@@ -56,7 +56,7 @@
             android:authorities="${applicationId}.mlkit-ime-init"
             android:exported="false"
             android:process=":ime" />
-        <!-- 把缓存里的诊断包、更新安装包、导出文件和键盘发送的剪贴板图片副本以 content:// 交给别的应用，可分享的目录见 res/xml/msime_file_paths.xml。 -->
+        <!-- 把缓存里的诊断包、更新安装包、导出文件、键盘发送的剪贴板图片副本和表情包贴纸以 content:// 交给别的应用，可分享的目录见 res/xml/msime_file_paths.xml。 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

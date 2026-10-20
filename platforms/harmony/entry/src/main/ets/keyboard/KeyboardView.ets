@@ -85,6 +85,8 @@ import {
   EmojiPanelKey, EmojiPanelKeyAction, EmojiPanelKeyDecision, EmojiPanelKeyPolicy
 } from './emoji/EmojiPanelKeyPolicy';
 import { EMOJI_TOOLTIP_DELAY_MS, CLIPBOARD_TOOLTIP_MAX_LINES, EmojiPanelTooltipPolicy } from './emoji/EmojiPanelTooltipPolicy';
+import { MASCOT_STICKER_INSET_VP, MascotSticker, MascotStickerPolicy } from './emoji/MascotStickerPolicy';
+import { MascotStickerSource } from './emoji/MascotStickerStore';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
@@ -402,6 +404,10 @@ const SYMBOL_MIN_FONT_SIZE: number = 8;
 const EMOJI_PANEL: string = 'emoji';
 const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
+// 随包的水杉娘表情包，排在「颜文字」「符号」之后；手机底栏上画第一张的缩略图而不是标题。
+const STICKER_PANEL: string = 'mascot-stickers';
+/** 底栏「水杉娘」页签缩略图四周的留白，让图不贴着选中态的圆角底色。 */
+const STICKER_TAB_INSET_VP: number = 2;
 // The Windows emoji panel's last page (`EmojiPanel::Page::Clipboard`). Only a 2in1 draws it as a tab: the phone reaches clipboard history from its own tools face.
 const CLIPBOARD_PANEL: string = 'clipboard';
 // The clipboard surface's two sections: this device's history, and the account's cloud clipboard.
@@ -438,7 +444,8 @@ interface EmojiPanelTab {
 const EMOJI_PANEL_TABS: EmojiPanelTab[] = [
   { id: EMOJI_PANEL, title: '表情' },
   { id: KAOMOJI_PANEL, title: '颜文字' },
-  { id: SYMBOLS_PANEL, title: '符号' }
+  { id: SYMBOLS_PANEL, title: '符号' },
+  { id: STICKER_PANEL, title: '水杉娘' }
 ];
 
 const DESKTOP_EMOJI_PANEL_TABS: EmojiPanelTab[] = EMOJI_PANEL_TABS.concat([
@@ -534,6 +541,12 @@ struct KeyboardView {
   @State emojiQuery: string = '';
   @State emojiSelected: number = 0;
   @State emojiResults: string[] = [];
+  /** 随包的水杉娘表情包，第一次打开表情面板时读入；包里没有时为空，也就没有这个页签。 */
+  @State mascotStickers: MascotSticker[] = [];
+  /** 贴纸网格扣掉左右内边距后的宽度，决定列数和格子边长；还没量出来时为 0。 */
+  @State mascotStickerGridWidth: number = 0;
+  // 贴纸网格的懒加载数据源，与 `mascotStickers` 同时设定一次，之后不再替换。
+  private mascotStickerSource: MascotStickerSource = new MascotStickerSource([]);
   private emojiGridScroller: Scroller = new Scroller();
   private symbolGridScroller: Scroller = new Scroller();
   private clipListScroller: Scroller = new Scroller();
@@ -834,6 +847,8 @@ struct KeyboardView {
       if (surface === DesktopSurface.EMOJI) {
         // A search is for one visit to the panel, as it is on Windows, where the box starts empty each time the panel is shown.
         this.resetEmojiSearch();
+        // 标签行要知道有没有「水杉娘」这一页。
+        this.loadMascotStickers();
         if (this.emojiItems.length === 0) {
           this.loadEmoji(this.emojiGroup);
         }
@@ -1983,27 +1998,34 @@ struct KeyboardView {
   /** A hardware key offered to the open 2in1 panel; false leaves it to the editor. */
   private panelKey(key: EmojiPanelKey): boolean {
     const clipboard: boolean = this.emojiPanel === CLIPBOARD_PANEL;
+    const stickers: boolean = this.emojiPanel === STICKER_PANEL;
     const cloud: boolean = clipboard && this.cloudTabActive();
     const clips: string[] = !clipboard ? []
       : cloud ? this.visibleCloudClips().map((entry: CloudClipboardItem): string => entry.text)
         : this.visibleClips().map((entry: ClipboardHistoryItem): string => entry.text);
-    const items: string[] = clipboard ? [] : this.visibleEmojiItems();
+    const items: string[] = clipboard || stickers ? [] : this.visibleEmojiItems();
     const decision: EmojiPanelKeyDecision = EmojiPanelKeyPolicy.decide(key,
-      clipboard ? clips.length : items.length, clipboard ? 1 : EMOJI_COLUMNS, this.emojiSelected,
-      this.emojiQuery);
+      clipboard ? clips.length : stickers ? this.mascotStickers.length : items.length,
+      clipboard ? 1 : stickers ? MascotStickerPolicy.columns(this.mascotStickerGridWidth) : EMOJI_COLUMNS,
+      this.emojiSelected, this.emojiQuery);
     if (decision.action === EmojiPanelKeyAction.NONE) {
       return false;
     }
     if (decision.action === EmojiPanelKeyAction.CLOSE) {
       this.leaveSurface(DesktopSurface.EMOJI);
     } else if (decision.action === EmojiPanelKeyAction.SEARCH) {
-      this.searchEmoji(decision.query);
-      this.revealEmojiSelection(clipboard);
+      // 表情包不做搜索；键照样由面板收下，不落到面板后面的输入框里。
+      if (!stickers) {
+        this.searchEmoji(decision.query);
+        this.revealEmojiSelection(clipboard);
+      }
     } else if (decision.action === EmojiPanelKeyAction.ACTIVATE) {
       if (cloud) {
         this.insertCloudClip(clips[decision.index]);
       } else if (clipboard) {
         KeyboardSession.shared.insert(clips[decision.index]);
+      } else if (stickers) {
+        this.sendMascotSticker(this.mascotStickers[decision.index]);
       } else {
         this.selectEmoji(items[decision.index]);
       }
@@ -2024,8 +2046,18 @@ struct KeyboardView {
   }
 
   private showEmojiPanel(panel: string): void {
+    // 底栏和标签行都要知道有没有「水杉娘」这一页，所以无论打开哪一页都先读一次（读过就用缓存）。
+    this.loadMascotStickers();
+    if (panel === STICKER_PANEL && this.mascotStickers.length === 0) {
+      // 没跑 stage-resources.sh 打出的包里没有表情包，上次停在这一页时回到表情页。
+      this.showEmojiPanel(EMOJI_PANEL);
+      return;
+    }
     this.emojiPanel = panel;
     this.resetEmojiSearch();
+    if (panel === STICKER_PANEL) {
+      return;
+    }
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
       this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
@@ -2066,6 +2098,31 @@ struct KeyboardView {
     if (this.emojiShowingRecents) {
       this.emojiItems = this.emojiRecents.slice();
     }
+  }
+
+  /** 读入随包的水杉娘表情包。`MascotStickerStore` 缓存读到的结果，读不到时缓存的是空表，所以每次打开面板调用它都不会重读文件。 */
+  private loadMascotStickers(): void {
+    if (this.mascotStickers.length > 0) {
+      return;
+    }
+    const stickers: MascotSticker[] = KeyboardSession.shared.mascotStickers.list();
+    if (stickers.length > 0) {
+      this.mascotStickerSource = new MascotStickerSource(stickers);
+      this.mascotStickers = stickers;
+    }
+  }
+
+  /**
+   * 点一张水杉娘：先按原样上屏正在拼写的内容（与打开表情面板时的 `commitRaw` 相同），再把这张图复制进系统剪贴板，并在候选栏提示怎么粘贴，或者为什么没复制成。输入法框架没有把图片交给输入框的接口，见 `MascotStickerStore`。不记入表情的最近使用。
+   */
+  private sendMascotSticker(sticker: MascotSticker): void {
+    if (KeyboardSession.shared.composing()) {
+      KeyboardSession.shared.commitRaw();
+    }
+    KeyboardSession.shared.mascotStickers.copy(sticker).then((notice: string): void => {
+      this.diagnostic = notice;
+      this.clearDiagnosticLater();
+    });
   }
 
   private clearEmojiRecents(): void {
@@ -8571,7 +8628,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏表情面板，与设计稿和 Android 的 `buildEmojiPanel` 一致：没有标题栏，八列网格，底行是 ABC、分类标签和 ⌫。标签依次是有最近使用时的 🕘、每个 Unicode 分类一个图标，然后是「颜文字」和「符号」；后两页放的是文字，各有自己的网格，并在网格上方一行列出分组名。
+   * 触屏表情面板，与设计稿和 Android 的 `buildEmojiPanel` 一致：没有标题栏，八列网格，底行是 ABC、分类标签和 ⌫。标签依次是有最近使用时的 🕘、每个 Unicode 分类一个图标，然后是「颜文字」「符号」和画成缩略图的「水杉娘」；「颜文字」「符号」两页放的是文字，各有自己的网格，并在网格上方一行列出分组名；「水杉娘」是贴纸网格，见 `mascotStickerGrid`。
    */
   @Builder
   touchEmojiFace() {
@@ -8613,6 +8670,8 @@ struct KeyboardView {
         .columnsTemplate('1fr '.repeat(EMOJI_COLUMNS).trim())
         .width('100%')
         .layoutWeight(1)
+      } else if (this.emojiPanel === STICKER_PANEL) {
+        this.mascotStickerGrid()
       } else {
         Grid(this.emojiGridScroller) {
           ForEach(this.visibleEmojiItems(), (item: string, index: number) => {
@@ -8694,19 +8753,35 @@ struct KeyboardView {
                 .onClick(() => this.loadEmoji(category.group))
             }, (category: EmojiCategory) =>
               `${category.group}:${this.emojiCategoryActive(category.group)}`)
-            ForEach(EMOJI_PANEL_TABS.filter((panel: EmojiPanelTab): boolean => panel.id !== EMOJI_PANEL),
+            ForEach(this.emojiPageTabs(EMOJI_PANEL_TABS).filter((panel: EmojiPanelTab): boolean => panel.id !== EMOJI_PANEL),
               (panel: EmojiPanelTab) => {
-              Text(panel.title)
-                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-                .fontColor(this.emojiPanel === panel.id ? this.emojiSkin.keyForeground : this.emojiSkin.secondary)
-                .textAlign(TextAlign.Center)
-                .constraintSize({ minWidth: EMOJI_TAB_VP })
-                .height(EMOJI_TAB_VP)
-                .padding({ left: EMOJI_PAGE_TAB_PADDING_VP, right: EMOJI_PAGE_TAB_PADDING_VP })
-                .borderRadius(EMOJI_TAB_RADIUS_VP)
-                .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
-                .accessibilityText(this.emojiPanel === panel.id ? `${panel.title}，已选中` : panel.title)
-                .onClick(() => this.showEmojiPanel(panel.id))
+              if (panel.id === STICKER_PANEL) {
+                // 「水杉娘」画清单第一张的缩略图，大小、圆角和选中态底色与分类图标一样。
+                Image(KeyboardSession.shared.mascotStickers.uri(this.mascotStickers[0]))
+                  .width(EMOJI_TAB_VP)
+                  .height(EMOJI_TAB_VP)
+                  .padding(STICKER_TAB_INSET_VP)
+                  .objectFit(ImageFit.Contain)
+                  .sourceSize({ width: EMOJI_TAB_VP, height: EMOJI_TAB_VP })
+                  .draggable(false)
+                  .borderRadius(EMOJI_TAB_RADIUS_VP)
+                  .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
+                  .opacity(this.emojiPanel === panel.id ? 1 : EMOJI_TAB_IDLE_OPACITY)
+                  .accessibilityText(MascotStickerPolicy.tabAccessibilityText(this.emojiPanel === panel.id))
+                  .onClick(() => this.showEmojiPanel(panel.id))
+              } else {
+                Text(panel.title)
+                  .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                  .fontColor(this.emojiPanel === panel.id ? this.emojiSkin.keyForeground : this.emojiSkin.secondary)
+                  .textAlign(TextAlign.Center)
+                  .constraintSize({ minWidth: EMOJI_TAB_VP })
+                  .height(EMOJI_TAB_VP)
+                  .padding({ left: EMOJI_PAGE_TAB_PADDING_VP, right: EMOJI_PAGE_TAB_PADDING_VP })
+                  .borderRadius(EMOJI_TAB_RADIUS_VP)
+                  .backgroundColor(this.emojiPanel === panel.id ? this.emojiSkin.keyBackground : Color.Transparent)
+                  .accessibilityText(this.emojiPanel === panel.id ? `${panel.title}，已选中` : panel.title)
+                  .onClick(() => this.showEmojiPanel(panel.id))
+              }
             }, (panel: EmojiPanelTab) => `${panel.id}:${this.emojiPanel === panel.id}`)
           }
           .constraintSize({ minWidth: '100%' })
@@ -8753,7 +8828,67 @@ struct KeyboardView {
     .backgroundColor(this.emojiSkin.background)
   }
 
-  /** 2in1 表情面板，参照 Windows 版：「表情」「颜文字」「符号」「剪贴板」标签、分组行、搜索行和网格。 */
+  /** 要画的页签：包里没有水杉娘表情包时不画「水杉娘」。 */
+  private emojiPageTabs(tabs: EmojiPanelTab[]): EmojiPanelTab[] {
+    return tabs.filter((panel: EmojiPanelTab): boolean =>
+      panel.id !== STICKER_PANEL || this.mascotStickers.length > 0);
+  }
+
+  /** 贴纸格子的边长，按量出来的网格宽度和列数算。 */
+  private mascotStickerSide(): number {
+    return MascotStickerPolicy.cellSideVp(this.mascotStickerGridWidth,
+      MascotStickerPolicy.columns(this.mascotStickerGridWidth), EMOJI_GRID_GAP_VP);
+  }
+
+  /**
+   * 水杉娘表情包的网格，触屏与 2in1 共用：竖屏手机四列正方形格子，更宽时按每格约 88vp 加列（`MascotStickerPolicy.columns`）。每格等比缩放居中、四周留白，按显示大小下采样解码；按下时与表情格一样放大。宽度量出来之前不放格子，免得先按 1vp 解码一遍。
+   */
+  @Builder
+  mascotStickerGrid() {
+    Grid(this.emojiGridScroller) {
+      if (this.mascotStickerGridWidth > 0) {
+        LazyForEach(this.mascotStickerSource, (sticker: MascotSticker, index: number) => {
+          GridItem() {
+            Image(KeyboardSession.shared.mascotStickers.uri(sticker))
+              .width('100%')
+              .height('100%')
+              .padding(MASCOT_STICKER_INSET_VP)
+              .objectFit(ImageFit.Contain)
+              .sourceSize({
+                width: MascotStickerPolicy.decodeSideVp(this.mascotStickerSide()),
+                height: MascotStickerPolicy.decodeSideVp(this.mascotStickerSide())
+              })
+              .draggable(false)
+              .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+              .backgroundColor(this.panelKeySelected(index) ? this.emojiSkin.keyBackground : Color.Transparent)
+              .accessibilityText(MascotStickerPolicy.accessibilityText(sticker))
+              .stateStyles({
+                normal: {
+                  .scale({ x: 1, y: 1 })
+                },
+                pressed: {
+                  .scale({ x: EMOJI_PRESSED_SCALE, y: EMOJI_PRESSED_SCALE })
+                }
+              })
+              .animation({ duration: EMOJI_PRESS_MS })
+              .onClick(() => this.sendMascotSticker(sticker))
+          }
+          .height(this.mascotStickerSide())
+        }, (sticker: MascotSticker) => sticker.file)
+      }
+    }
+    .columnsTemplate('1fr '.repeat(MascotStickerPolicy.columns(this.mascotStickerGridWidth)).trim())
+    .columnsGap(EMOJI_GRID_GAP_VP)
+    .rowsGap(EMOJI_GRID_GAP_VP)
+    .padding({ left: EMOJI_GRID_GAP_VP, right: EMOJI_GRID_GAP_VP })
+    .width('100%')
+    .layoutWeight(1)
+    .onAreaChange((_old: Area, now: Area): void => {
+      this.mascotStickerGridWidth = Math.max(0, Number(now.width) - EMOJI_GRID_GAP_VP * 2);
+    })
+  }
+
+  /** 2in1 表情面板，参照 Windows 版：「表情」「颜文字」「符号」「水杉娘」「剪贴板」标签、分组行、搜索行和网格。 */
   @Builder
   desktopEmojiFace() {
     Column() {
@@ -8789,7 +8924,7 @@ struct KeyboardView {
 
       Scroll() {
         Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach(KeyboardFormFactor.isDesktop() ? DESKTOP_EMOJI_PANEL_TABS : EMOJI_PANEL_TABS,
+          ForEach(this.emojiPageTabs(KeyboardFormFactor.isDesktop() ? DESKTOP_EMOJI_PANEL_TABS : EMOJI_PANEL_TABS),
             (panel: EmojiPanelTab) => {
             Text(panel.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
@@ -8860,7 +8995,8 @@ struct KeyboardView {
                 .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
                 .onClick(() => this.clearClipboard())
             }
-          } else {
+          } else if (this.emojiPanel === SYMBOLS_PANEL) {
+            // 符号页列出分组；「水杉娘」只有一组，不进任何分支，这一行留空。
             ForEach(this.emojiSymbolTabs, (tab: EmojiPanelGroupTab) => {
               Text(tab.title)
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
@@ -8881,7 +9017,8 @@ struct KeyboardView {
       .align(Alignment.Start)
 
       // The Windows panel's search box. Not a text field: that would ask the system for an input method inside the input method. The physical keys the panel receives spell it instead (EmojiPanelKeyPolicy), so only a 2in1, which routes them here, draws it.
-      if (KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI) {
+      // 表情包不做搜索，没有搜索行。
+      if (KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI && this.emojiPanel !== STICKER_PANEL) {
         Row() {
           Text(this.emojiQuery.length > 0 ? this.emojiQuery : this.emojiSearchPlaceholder())
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
@@ -8906,6 +9043,8 @@ struct KeyboardView {
 
       if (this.emojiPanel === CLIPBOARD_PANEL) {
         this.clipboardEntries()
+      } else if (this.emojiPanel === STICKER_PANEL) {
+        this.mascotStickerGrid()
       } else if (this.emojiQuery.length > 0 && this.emojiResults.length === 0) {
         Text('没有匹配的结果')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)

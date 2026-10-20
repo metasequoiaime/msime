@@ -87,12 +87,7 @@ struct NativeCanvasX11::Impl {
     return true;
   }
   int hit(int x, int y) const {
-    const double px = x / scale, py = y / scale;
-    for (std::size_t at = 0; at < layout.items.size(); ++at)
-      if (layout.items[at].contains(px, py)) return static_cast<int>(at);
-    if (content.previous && layout.previous.contains(px, py)) return -2;
-    if (content.next && layout.next.contains(px, py)) return -3;
-    return -1;
+    return native_canvas_hit(content, layout, x / scale, y / scale);
   }
   void events() {
     while (display && XPending(display)) {
@@ -256,8 +251,8 @@ struct NativeCanvasX11::Impl {
       XUnionRectWithRegion(&rectangle, region, region);
     };
     for (const auto &box : layout.items) add(box);
-    if (content.previous) add(layout.previous);
-    if (content.next) add(layout.next);
+    // 禁用箭头仍占输入区域，点击不应穿透到编辑器或下面的窗口。
+    if (layout.pager.visible) { add(layout.previous); add(layout.next); }
     // 挂件和留白不吞鼠标；候选与箭头才接收点击。
     XShapeCombineRegion(display, window, ShapeInput, 0, 0, region, ShapeSet);
     XDestroyRegion(region);

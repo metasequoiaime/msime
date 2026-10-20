@@ -109,6 +109,10 @@ for pack_dir in resources/sound-packs/*/; do
   cp -R "${pack_dir%/}" "$assets/sound-packs/$pack"
 done
 [ -f "$assets/sound-packs/default/plugin.toml" ] || { echo "the default key sound pack was not packaged" >&2; exit 1; }
+# 水杉娘表情包：resources/stickers/shuishan 整个目录（manifest.json 和各张 WebP）原样打进 assets/stickers/shuishan，键盘表情面板直接从 assets 读（ImeStickers），不解包到 filesDir。
+mkdir -p "$assets/stickers"
+cp -R resources/stickers/shuishan "$assets/stickers/shuishan"
+[ -f "$assets/stickers/shuishan/manifest.json" ] || { echo "the shuishan sticker pack was not packaged" >&2; exit 1; }
 # Optional non-English candidate glosses (scripts/build_offline_glosses.py). Bootstrap extracts them beside the resources, where the Engine looks for one zh-<lang>.db per target language; without them only English is glossed offline.
 glosses_source=${MSIME_OFFLINE_GLOSSES:-$repo_root/target/offline-glosses}
 rm -rf "$assets/offline-glosses"
@@ -196,6 +200,10 @@ for name in emoji-combinations.txt emoji-combinations-NOTICE.txt; do
   }
 done
 apk_entries=$(unzip -Z1 "$output")
+# 表情包目录里的每个文件都要进最终包：少一张图，网格里就是一个空格子，点了也发不出去。
+for sticker in resources/stickers/shuishan/*; do
+  grep -qxF "assets/stickers/shuishan/$(basename "$sticker")" <<< "$apk_entries" || { echo "$output has no assets/stickers/shuishan/$(basename "$sticker")" >&2; exit 1; }
+done
 for pair in $language_pairs; do
   [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue
   for entry in "${pair%%:*}" "${pair#*:}"; do
