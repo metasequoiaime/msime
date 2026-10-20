@@ -75,8 +75,9 @@ void autocorrectMarker() {
   require(corrected.text() == "你好", "marker stays out of the selected text");
   require(shown(row(Json{{"text", "你好"}, {"corrected", false}})) == "你好", "uncorrected candidate has no marker");
   require(shown(row(Json{{"text", "你好"}})) == "你好", "a view without the field has no marker");
-  require(shown(row(Json{{"text", "在线"}, {"corrected", true}, {"source", 2}})) == "在线*  ☁️",
-          "marker comes before the cloud badge");
+  require(shown(row(Json{{"text", "在线"}, {"corrected", true}, {"source", 2}})) == "在线* ☁️",
+          "marker comes before the cloud badge, one space before it as macOS draws it");
+  require(shown(row(Json{{"text", "智能"}, {"source", 3}})) == "智能 🤖", "the AI badge is one space after the word");
   require(shown(row(Json{{"text", "汉语"}, {"corrected", true}}, true)) == "漢語*",
           "marker follows the traditional-converted word");
   // 候选行按会话的繁体变体转换；繁体关着时变体不起作用。
@@ -119,7 +120,12 @@ void koreanHanjaGlossRow() {
   require(glossed.display().body == "韓  나라 이름 한, 한나라 한" && glossed.display().translation == "Korea",
           "原生画布和 classicui 保留同一训音与释义，候选正文不含释义");
   const auto helpcode = word(Json{{"text", "你"}, {"annotation", "ab"}}, true, std::string());
-  require(shown(helpcode).toString() == "你  ab" && shown(helpcode).size() == 1, "a helpcode stays plain row text");
+  require(shown(helpcode).toString() == "你(ab)" && shown(helpcode).size() == 1,
+          "a helpcode stays plain row text, parenthesized right after the word as macOS draws it");
+  require(shown(word(Json{{"text", "你"}, {"annotation", " (ab) "}}, true, std::string())).toString() == "你(ab)",
+          "an annotation already in parentheses is not wrapped twice");
+  require(shown(word(Json{{"text", "云"}, {"annotation", "ab"}, {"source", 2}}, true, std::string())).toString() == "云(ab) ☁️",
+          "the badge follows the annotation");
   require(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string()).text() == "你" &&
               shown(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string())).toString() == "你",
           "annotations off still hide a helpcode");
@@ -141,9 +147,9 @@ void scriptAnnotationRow() {
   require(off.text() == "你", "the script annotation stays out of the selected text");
   const auto both = word(Json{{"text", "你"}, {"annotation", "ab"}, {"script_annotation", "常用"},
                               {"translation", "you"}}, true);
-  require(shown(both).toString() == "你  ab\nyou  〔常用〕",
+  require(shown(both).toString() == "你(ab)\nyou  〔常用〕",
           "the engine annotation and the translation stay, the script annotation comes last");
-  require(both.display().body == "你  ab" && both.display().translation == "you" &&
+  require(both.display().body == "你(ab)" && both.display().translation == "you" &&
               both.display().suffix == "  〔常用〕" && both.text() == "你",
           "原生画布独立保留正文、释义与插件后缀，上屏文字不变");
   const Json runs = Json::array({Json{{"start", 0}, {"length", 2}, {"role", "pos"}}});
@@ -166,7 +172,7 @@ void scriptAnnotationRow() {
           "a script annotation that would break the row is not drawn");
   require(shown(word(Json{{"text", "你"}, {"script_annotation", std::string(33, 'a')}}, true)).toString() == "你",
           "an over-long script annotation is not drawn");
-  require(shown(word(Json{{"text", "你"}, {"annotation", "ab"}}, true)).toString() == "你  ab",
+  require(shown(word(Json{{"text", "你"}, {"annotation", "ab"}}, true)).toString() == "你(ab)",
           "a row without a script annotation is unchanged");
 }
 // An installed skin's decoration reaches the classic UI as the msime theme's overlay, with the image copied beside theme.conf; a built-in skin, or a switch back to one, leaves no image behind. This composes the theme exactly as applyCandidatePanelTheme does, against the shared layer's built-in catalogue, but writes it without the classic UI addon, which the fixture instance does not load. Runs before the resource fixture.
@@ -213,10 +219,10 @@ void candidateThemeDecoration() {
   const auto copy = decorated.substr(named + 9, decorated.find('\n', named + 1) - named - 9);
   require(copies() == std::vector<std::string>{copy}, "overlay image staged beside theme.conf");
   require(std::filesystem::file_size(themeDirectory / copy) == std::filesystem::file_size(image), "overlay is the skin's image");
-  require(decorated.find("Gravity=Top Right\nOverlayOffsetX=19\nOverlayOffsetY=28\nHideOverlayIfOversize=False\n") !=
+  require(decorated.find("Gravity=Top Right\nOverlayOffsetX=16\nOverlayOffsetY=25\nHideOverlayIfOversize=False\n") !=
               std::string::npos,
-          "overlay pinned top right, its bottom one padding below the card top (8 + 25 + 7 - 12)");
-  require(decorated.find("[InputPanel/ContentMargin]\nLeft=19\nRight=19\nTop=40\n") != std::string::npos,
+          "overlay pinned top right, its bottom one padding below the card top (8 + 25 + 4 - 12)");
+  require(decorated.find("[InputPanel/ContentMargin]\nLeft=16\nRight=16\nTop=37\n") != std::string::npos,
           "band reserved above the candidates");
   require(decorated.find("[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=33\n") != std::string::npos,
           "band counted in the shadow margin, so X11 places the card at the cursor");
@@ -632,6 +638,19 @@ int candidateThemePriority() {
     require(theme_text().find("Color=#ffffff\n") != std::string::npos, "跟随系统的浅色候选底色");
     engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, true, Json(), false);
     require(theme_text().find("Color=#303030\n") != std::string::npos, "跟随系统的深色候选底色");
+    // logo 按 show_app_logo 画：缺这个键的旧偏好文档照旧画，内容左边距让出 logo 和间距（16 + 16 + 6）；关掉后内容回到卡片内边距处，切换开关本身就让主题重画。
+    require(theme_text().find("[InputPanel/ContentMargin]\nLeft=38\n") != std::string::npos,
+            "旧偏好文档缺 show_app_logo 时照旧画 logo");
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}, {"show_app_logo", false}}, true, Json(), false);
+    require(theme_text().find("[InputPanel/ContentMargin]\nLeft=16\n") != std::string::npos,
+            "关掉 show_app_logo 后主题不画 logo");
+    // 页码开关和整体大小也是主题输入：关掉页码不画 ‹ ›，150% 时内容边距随之放大（18 + 6）。
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}, {"show_app_logo", false},
+                                         {"show_candidate_page_number", false}, {"candidate_scale_percent", 150}},
+                                    true, Json(), false);
+    require(theme_text().find("PrevPage") == std::string::npos &&
+                theme_text().find("[InputPanel/ContentMargin]\nLeft=24\n") != std::string::npos,
+            "页码开关和整体大小写进主题");
     require(option("Theme") == "msime", "系统明暗变化保留水杉样式");
     pick_third_party(false);
     // 启动与焦点同步只是重读同一份偏好：不碰用户已经选的第三方主题。
@@ -2106,6 +2125,15 @@ int main(int argc, char **argv) {
     require(engine.fix1_action_.shortText(&ic) == "固定到第 1 位" &&
                 engine.fix5_action_.shortText(&ic) == "固定到第 5 位",
             "fix actions name the target position");
+    require(engine.clear_action_.shortText(&ic) == "取消固定" && engine.remove_action_.shortText(&ic) == "删除",
+            "clear and remove use the macOS candidate menu wording");
+    {
+      // 状态区的候选维护菜单与候选右键操作同一顺序：置顶、固定到第 1–5 位、取消固定、删除。
+      const auto ordered = engine.maintenance_menu_.actions();
+      require(ordered.size() == 8 && ordered.front() == &engine.pin_action_ && ordered[1] == &engine.fix1_action_ &&
+                  ordered[5] == &engine.fix5_action_ && ordered[6] == &engine.clear_action_ && ordered.back() == &engine.remove_action_,
+              "maintenance menu follows the macOS candidate menu order");
+    }
     require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
             "candidate layout action reflects reloaded preference");
     engine.candidate_layout_action_.activate(&ic);
@@ -3899,6 +3927,38 @@ int main(int argc, char **argv) {
       require(state->showCandidateAnnotations(),
               "a wubi command row keeps its title with the wubi code hint off");
       state->view_ = savedView;
+      state->close();
+      state->clearPanel();
+    }
+    // 正在组词时内嵌预编辑分成两个子句，对应 macOS 的细、粗两种下划线：已选的一段只加下划线，还在输入的读音加下划线并加粗；没有已选段时整段只是一条下划线。
+    {
+      require(state->ensure(), "session for the phrase preedit check");
+      const auto savedView = state->view_;
+      const auto savedPreferences = state->preferences_;
+      state->preferences_["tsf_preedit_style"] = "raw";
+      state->view_["phrase_prefix"] = "你好";
+      state->view_["editing_text"] = "shi";
+      state->view_["preedit"] = "shi";
+      state->view_["reading"] = "";
+      state->view_["caret_position"] = 3;
+      state->view_["local_mode"] = "none";
+      state->view_["candidates"] = Json::array();
+      state->render();
+      const fcitx::TextFormatFlags reading{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold};
+      const auto segmented = ic.inputPanel().clientPreedit();
+      require(segmented.toString() == "你好shi" && segmented.size() == 2 && segmented.stringAt(0) == "你好" &&
+                  segmented.formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::Underline) &&
+                  segmented.stringAt(1) == "shi" && segmented.formatAt(1) == reading &&
+                  segmented.cursor() == static_cast<int>(std::string("你好shi").size()),
+              "a phrase in progress draws the chosen piece and the reading as two clauses");
+      state->view_["phrase_prefix"] = "";
+      state->render();
+      const auto plain = ic.inputPanel().clientPreedit();
+      require(plain.toString() == "shi" && plain.size() == 1 &&
+                  plain.formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::Underline),
+              "without a chosen piece the composition keeps one underline");
+      state->view_ = savedView;
+      state->preferences_ = savedPreferences;
       state->close();
       state->clearPanel();
     }

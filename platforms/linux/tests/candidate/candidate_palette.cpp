@@ -223,4 +223,28 @@ int main() {
          "ni'hao");
   assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 9) ==
          "nihao");
+
+  // 皮肤包 [toolbar] 的配色按菜单槽位读：background、icon、hover、border、divider；只取所画明暗的那一组，读不出的颜色留空。
+  {
+    const Json catalog{{"packages", Json::array({Json{{"id", "bigfish"},
+                                                      {"toolbar", {{"dark", {{"background", "#141B33"},
+                                                                             {"icon", "#E3EAFF"},
+                                                                             {"divider", "#5B9BFF47"},
+                                                                             {"handle", "#5B9BFF"},
+                                                                             {"hover", "not a colour"}}},
+                                                                   {"light", {{"background", "#F4F8FF"}}}}}}})}};
+    const auto dark_toolbar = host::candidate_skin_toolbar_menu(catalog, "bigfish", true);
+    assert(dark_toolbar.surface && dark_toolbar.surface->rgb == 0x141B33u && dark_toolbar.text->rgb == 0xE3EAFFu);
+    assert(dark_toolbar.divider && dark_toolbar.divider->rgb == 0x5B9BFFu && dark_toolbar.divider->alpha == 0x47);
+    assert(!dark_toolbar.hover && !dark_toolbar.border);
+    const auto light_toolbar = host::candidate_skin_toolbar_menu(catalog, "bigfish", false);
+    assert(light_toolbar.surface->rgb == 0xF4F8FFu && !light_toolbar.text && !light_toolbar.divider);
+    assert(!host::candidate_skin_toolbar_menu(catalog, "absent", true).surface);
+    // 工具栏写了的槽位盖过候选配色推出的槽位，没写的照旧。
+    host::CandidateMenuSlots candidate;
+    candidate.surface = host::ThemeColor{0x000000u, 0xFF};
+    candidate.hover = host::ThemeColor{0x111111u, 0xFF};
+    const auto merged = host::overlay_menu_slots(candidate, dark_toolbar);
+    assert(merged.surface->rgb == 0x141B33u && merged.hover->rgb == 0x111111u && merged.text->rgb == 0xE3EAFFu);
+  }
 }

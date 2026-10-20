@@ -49,4 +49,7 @@ int main() {
   assert(std::string(msime::linux_host::candidate_pin_label) == "置顶");
   assert(msime::linux_host::candidate_fix_label(1) == "固定到第 1 位");
   assert(msime::linux_host::candidate_fix_label(5) == "固定到第 5 位");
+  // macOS 候选操作菜单的另外两项。
+  assert(std::string(msime::linux_host::candidate_clear_fix_label) == "取消固定");
+  assert(std::string(msime::linux_host::candidate_remove_label) == "删除");
 }

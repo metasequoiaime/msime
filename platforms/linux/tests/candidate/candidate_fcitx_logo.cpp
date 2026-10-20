@@ -27,6 +27,16 @@ int main(int argc, char **argv) {
     assert(opaque);
   }
 
+  // 候选窗缩放到 150% 时，logo 也按 24 和 48 像素从更大的图标缩放出来，仍不是空白；缩小到 50% 时是 8 和 16 像素。
+  for (const auto &[scale, side] : {std::pair{1.5, 24}, std::pair{0.5, 8}}) {
+    const auto scaled = host::load_fcitx_theme_logo(icons, scale);
+    assert(scaled && scaled->one.width == side && scaled->one.height == side);
+    assert(scaled->two.width == 2 * side && scaled->two.height == 2 * side);
+    bool visible = false;
+    for (std::size_t at = 3; at < scaled->two.rgba.size(); at += 4) visible = visible || scaled->two.rgba[at] > 0.5f;
+    assert(visible);
+  }
+
   // A missing size, a file that is not a PNG, or an icon of the wrong size leaves the theme without a mark.
   const auto root = std::filesystem::temp_directory_path() / ("msime-fcitx-logo-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);

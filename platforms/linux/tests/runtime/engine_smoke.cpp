@@ -581,7 +581,7 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       phrase();
       const auto has_old_candidate = [&] {
-        return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") !=
+        return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试 ☁️") !=
                seen.candidates.end();
       };
       require(wait_until(has_old_candidate), "Synthetic online candidate did not appear");
@@ -1651,12 +1651,12 @@ int main(int argc, char **argv) {
                std::to_string(provider.online_requests))
                   .c_str());
       require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
-                          [](const std::string &text) { return text == "云端测试  云"; }),
+                          [](const std::string &text) { return text == "云端测试 ☁️"; }),
               "Cloud reply lost Engine identity when AI was disabled");
       online["online_provider_socket"] = (root / "missing-online.sock").string();
       msime_ibus_configure(online.dump());
       require(wait_until([&] {
-                return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") ==
+                return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试 ☁️") ==
                        seen.candidates.end();
               }), "Changing the online socket left the previous provider's cloud candidate visible");
       require(seen.preedit == "nihao", "Changing the online socket ended the active composition");

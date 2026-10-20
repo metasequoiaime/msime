@@ -34,6 +34,7 @@
 #include "../src/candidates/CandidateLocalModeLabels.h"
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
+#include "../src/candidates/CandidateRowText.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
@@ -4066,10 +4067,11 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
                                : candidate.at("text").get<std::string>()) +
       // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
       (candidate.value("corrected", false) ? "*" : "") +
-      (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 2 ? "  ☁️" :
-       msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 3 ? "  🤖" : "") +
-      (!hanjaGloss.empty() || !annotations || candidate.value("annotation", std::string()).empty() ? "" :
-       "  " + candidate.at("annotation").get<std::string>()));
+      // 注释括起来紧贴候选字，角标隔一个空格跟在后面，与 macOS 候选窗的写法相同（CandidateRowText.h）。
+      (!hanjaGloss.empty() || !annotations ? std::string() :
+       msime::linux_host::candidate_annotation_text(candidate.value("annotation", std::string()))) +
+      std::string(msime::linux_host::candidate_source_badge(
+          msime::linux_host::strict_json_value(candidate, "source", uint64_t{}))));
   // 训音不受翻译开关影响，紧跟汉字并以斜体标作次要释义；它只供显示，选词仍按候选身份。
   if (!hanjaGloss.empty())
     row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
@@ -4140,12 +4142,13 @@ std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state,
       msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != item.generation()) return actions;
   const auto scheme = msime::linux_host::strict_json_value(state.view_, "scheme", 0u);
   if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) return actions;
+  // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
   actions.emplace_back(1, msime::linux_host::candidate_pin_label);
-  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
-    actions.emplace_back(2, "删除候选");
   for (int slot = 1; slot <= 5; ++slot)
     actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
-  if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");
+  if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
+  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
+    actions.emplace_back(2, msime::linux_host::candidate_remove_label);
   return actions;
 }
 void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, int action) {
@@ -4197,8 +4200,8 @@ public:
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_));
-      // 序号与选它的数字键一致：第十个由 0 键选，标 0。
-      labels_.emplace_back((words_.size() == 10 ? std::string("0") : std::to_string(words_.size())) + ". ");
+      // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
+      labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
   }
   const fcitx::Text &label(int index) const override { return labels_.at(index); }
@@ -6079,6 +6082,17 @@ public:
     const auto corner_radius = host::candidate_corner_radius(preferences, catalog, resolved.candidate_skin);
     // Only the user's own radius pulls the highlight's corners in with the card.
     const bool user_radius = host::candidate_corner_radius_preference(preferences).has_value();
+    // 用户的候选窗样式（缩放、内边距、不透明度、翻页箭头）与皮肤包的行圆角，照 macOS 的 StyledCandidateSkin 生成进主题。
+    auto style = host::read_fcitx_candidate_style(preferences);
+    style.item_radius = host::candidate_skin_item_radius(catalog, resolved.candidate_skin);
+    // logo 只在 show_app_logo 打开时画，与 macOS、Windows 相同；已存的偏好文档缺这个键时按共享层的读法当作打开。
+    const bool show_logo = [&] {
+      if (!preferences.is_object()) return true;
+      const auto value = preferences.find("show_app_logo");
+      return value == preferences.end() || !value->is_boolean() || value->get<bool>();
+    }();
+    // 皮肤包的背景图；它的戳和装饰图一样代替图片本身进输入，图片换了才重画。
+    const auto background = host::candidate_skin_background(catalog, resolved.candidate_skin);
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
     const auto canvas_directory = host::fcitx_canvas_directory(catalog);
     const auto theme_inputs = [&] {
@@ -6094,6 +6108,11 @@ public:
         {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
         {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
         {"user_radius", user_radius},
+        {"style", Json{{"scale", style.scale}, {"padding", style.padding ? Json(*style.padding) : Json(nullptr)},
+                       {"opacity", style.opacity}, {"page_arrows", style.page_arrows},
+                       {"item_radius", style.item_radius ? Json(*style.item_radius) : Json(nullptr)}}},
+        {"logo", show_logo},
+        {"background", background ? host::fcitx_canvas_file_stamp(background->image) : std::string()},
         {"overlay", host::fcitx_overlay_stamp(decoration)},
         {"canvas", std::move(canvas_stamps)}}.dump();
     };
@@ -6145,8 +6164,6 @@ public:
     // 用户刚在主题菜单里选了水杉主题时（chosen）即使当前是第三方主题也接管；焦点进入、偏好同步、系统明暗变化都只是重读同一份偏好，绝不把用户选的主题换回来。
     if (!chosen && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return false;
     const bool replace_dark = selected_dark && (chosen || host::fcitx_theme_replaceable(*selected_dark));
-    // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
-    static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
     // 同一份输入已经写过主题文件，就不必为一次重新接管再栅格化一遍；所有权与 classicui 配置仍照常处理。
     if (inputs != candidate_theme_applied_) {
       std::optional<host::FcitxCanvasPanel> canvas_panel;
@@ -6186,6 +6203,7 @@ public:
               native_canvas_assets_->card_radius = *corner_radius;
               native_canvas_assets_->user_radius = user_radius;
             }
+            if (native_canvas_assets_) native_canvas_assets_->opacity = style.opacity;
 #endif
             const auto panel_theme = host::candidate_theme_colors(panel_document, resolved.dark);
             if (panel_theme.candidate_skin == resolved.candidate_skin) colors = panel_theme.colors;
@@ -6206,8 +6224,14 @@ public:
         }
       }
       const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
+      // 图标只随安装包变化，这里只在主题输入变了、要重画主题时才按当前缩放读一次。
+      const auto logo = show_logo ? host::load_fcitx_theme_logo(MSIME_ICON_DIR, style.scale) : std::nullopt;
+      // 皮肤包的 [toolbar] 配色画到 classicui 的菜单上：Linux 的工具栏功能都在输入法菜单里。
+      colors.menu = host::overlay_menu_slots(colors.menu,
+                                             host::candidate_skin_toolbar_menu(catalog, resolved.candidate_skin, resolved.dark));
       if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
-                                                      host::scale_fcitx_overlay_png, canvas_panel)) {
+                                                      host::scale_fcitx_overlay_png, canvas_panel, style, background,
+                                                      host::render_fcitx_background)) {
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
         return false;
       }
@@ -6584,14 +6608,15 @@ public:
     emoji_menu_.addAction(&emoji_previous_action_);
     emoji_menu_.addAction(&emoji_next_action_);
     maintenance_action_.setMenu(&maintenance_menu_);
+    // 与候选右键操作同一顺序：置顶、固定排位、取消固定、删除。
     maintenance_menu_.addAction(&pin_action_);
-    maintenance_menu_.addAction(&remove_action_);
     maintenance_menu_.addAction(&fix1_action_);
     maintenance_menu_.addAction(&fix2_action_);
     maintenance_menu_.addAction(&fix3_action_);
     maintenance_menu_.addAction(&fix4_action_);
     maintenance_menu_.addAction(&fix5_action_);
     maintenance_menu_.addAction(&clear_action_);
+    maintenance_menu_.addAction(&remove_action_);
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     native_canvas_cursor_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
@@ -7196,13 +7221,13 @@ public:
   FcitxCloudClipboardItemAction cloud_clipboard_item4_{&factory_, 3};
   FcitxCloudClipboardItemAction cloud_clipboard_item5_{&factory_, 4};
   FcitxMaintenanceAction pin_action_{&factory_, 1, msime::linux_host::candidate_pin_label};
-  FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
+  FcitxMaintenanceAction remove_action_{&factory_, 2, msime::linux_host::candidate_remove_label};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, msime::linux_host::candidate_fix_label(1).c_str()};
   FcitxMaintenanceAction fix2_action_{&factory_, 12, msime::linux_host::candidate_fix_label(2).c_str()};
   FcitxMaintenanceAction fix3_action_{&factory_, 13, msime::linux_host::candidate_fix_label(3).c_str()};
   FcitxMaintenanceAction fix4_action_{&factory_, 14, msime::linux_host::candidate_fix_label(4).c_str()};
   FcitxMaintenanceAction fix5_action_{&factory_, 15, msime::linux_host::candidate_fix_label(5).c_str()};
-  FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
+  FcitxMaintenanceAction clear_action_{&factory_, 20, msime::linux_host::candidate_clear_fix_label};
   fcitx::Menu desktop_tools_menu_;
   FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", "手写识别板"};
   FcitxDesktopPanelAction keyboard_action_{&factory_, "keyboard", "屏幕键盘"};
@@ -7401,7 +7426,15 @@ void FcitxState::render() {
     const auto composed = msime::linux_host::compose_phrase_preedit(
         view_.value("phrase_prefix", std::string{}), reading,
         msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
-    fcitx::Text preedit(composed.text, fcitx::TextFormatFlag::Underline);
+    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音下划线加粗，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm）。没有已选段时整段照旧单下划线。
+    const auto prefix_bytes = composed.text.size() - reading.size();
+    fcitx::Text preedit;
+    if (prefix_bytes > 0 && !reading.empty()) {
+      preedit.append(composed.text.substr(0, prefix_bytes), fcitx::TextFormatFlag::Underline);
+      preedit.append(reading, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold});
+    } else {
+      preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
+    }
     if (reading == editing)
       preedit.setCursor(static_cast<int>(composed.caret_bytes));
     // The caret always follows an inline composition; the runtime keeps no caret inside it.
@@ -7454,6 +7487,7 @@ bool FcitxState::renderNativeCanvas() {
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
   content.selected = list->cursorIndex();
   content.wheel_paging = msime::linux_host::read_candidate_wheel_paging(preferences_);
+  content.page_arrows = preferences_.value("show_candidate_page_number", true);
   for (int at = 0; at < list->size(); ++at) {
     if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at))) {
       const auto &display = candidate->display();

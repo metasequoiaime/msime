@@ -197,9 +197,17 @@ def body(text, signature):
     raise AssertionError(signature)
 
 
-# 原生画布与框架菜单共用操作列表；只有已固定的候选才提供取消固定。
+# 原生画布与框架菜单共用操作列表；只有已固定的候选才提供取消固定。顺序照 macOS 的「候选操作」菜单：置顶、固定排位、取消固定、删除。
 menu_actions = body(source, "std::vector<std::pair<int, std::string>> candidateMenuActions(")
-assert 'if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");' in menu_actions
+assert "if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);" in menu_actions
+assert (
+    menu_actions.index("candidate_pin_label")
+    < menu_actions.index("candidate_fix_label(slot)")
+    < menu_actions.index("candidate_clear_fix_label")
+    < menu_actions.index("candidate_remove_label")
+)
+# 关掉页码时主题不生成 ‹ ›：两节只在 page_arrows 为真时写出。
+assert "if (style.page_arrows)" in candidate_theme
 framework_actions = body(source, "candidateActions(const fcitx::CandidateWord &candidate) const override")
 native_canvas = body(source, "bool FcitxState::renderNativeCanvas()")
 assert "candidateMenuActions(state_, *item)" in framework_actions
@@ -334,10 +342,15 @@ assert (
     'DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")'
     in cmake
 )
-# The IBus candidate property menu uses the shared Windows wording (置顶, 固定到第 N 位, 取消固定) and takes the slot from the CandidateFixN action name.
+# IBus 候选属性菜单用共享文案（置顶、固定到第 N 位、取消固定、删除），按 macOS「候选操作」菜单的顺序排列，并从 CandidateFixN 动作名取格位。
 assert "msime::linux_host::candidate_pin_label" in ibus_source
 assert "candidate_fix_label(fix[12] - '0')" in ibus_source
-assert 'ibus_text_new_from_static_string("取消固定")' in ibus_source
+assert "ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)" in ibus_source
+assert (
+    ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)")
+    < ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label)")
+)
+assert '"删除候选"' not in ibus_source
 assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source

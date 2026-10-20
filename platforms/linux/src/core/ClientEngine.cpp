@@ -45,6 +45,7 @@
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
+#include "../candidates/CandidateRowText.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
@@ -2747,10 +2748,8 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
     std::vector<std::pair<const char *, std::string>> candidate_commands;
     candidate_commands.reserve(7);
+    // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
     candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
-    if (msime::linux_host::candidate_dictionary_removal_available(
-            scheme, source, candidate_text))
-      candidate_commands.emplace_back("CandidateRemove", "删除候选");
     for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
                             "CandidateFix4", "CandidateFix5"})
       candidate_commands.emplace_back(
@@ -2770,10 +2769,19 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_static_string("取消固定"), "",
+        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
+    if (msime::linux_host::candidate_dictionary_removal_available(
+            scheme, source, candidate_text)) {
+      const auto remove_name = candidate_action_name("CandidateRemove", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          remove_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label), "",
+          ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
+          PROP_STATE_UNCHECKED, nullptr));
+    }
   }
   const auto page = s.rendered_view.is_object()
                         ? s.rendered_view.value("page", size_t{0})
@@ -3908,14 +3916,22 @@ void render(IBusEngine *engine, const Json &view) {
     // being committed into the document a fragment at a time. It is prepended after the check above,
     // which is about the reading the Engine produced: the piece is Han text and asking it to be
     // printable ASCII would reject every phrase.
-    const auto composed = msime::linux_host::compose_phrase_preedit(
-        view.value("phrase_prefix", std::string{}), text, caret);
+    const auto phrase_prefix = view.value("phrase_prefix", std::string{});
+    const auto composed = msime::linux_host::compose_phrase_preedit(phrase_prefix, text, caret);
     text = composed.text;
     // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
     auto preedit_text = ibus_text_new_from_string(text.c_str());
-    if (style != "empty" || always_inline)
-      underline_preedit(preedit_text, static_cast<guint>(
-                                          msime::linux_host::utf8_scalar_count(text)));
+    const auto preedit_length = static_cast<guint>(msime::linux_host::utf8_scalar_count(text));
+    const auto prefix_length = static_cast<guint>(msime::linux_host::utf8_scalar_count(phrase_prefix));
+    // 正在组词时，已选的那一段单下划线，还在输入的读音双下划线，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm），和上面整句改字的焦点子句同一种画法。没有已选段时整段照旧单下划线。
+    if ((style != "empty" || always_inline) && prefix_length > 0 && prefix_length < preedit_length) {
+      ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_SINGLE, 0,
+                                 static_cast<gint>(prefix_length));
+      ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_DOUBLE,
+                                 static_cast<gint>(prefix_length), static_cast<gint>(preedit_length));
+    } else if (style != "empty" || always_inline) {
+      underline_preedit(preedit_text, preedit_length);
+    }
     ibus_engine_update_preedit_text_with_mode(
         engine, preedit_text,
         static_cast<guint>(style == "raw" && !always_inline
@@ -3979,12 +3995,8 @@ void render(IBusEngine *engine, const Json &view) {
     // Engine 候选来源 12 是 AI 占位行，来源 15 是云候选占位行，下面都画成次要色。
     const auto source = candidate.value("source", 0);
     const bool online_placeholder = source == 12 || source == 15;
-    switch (candidate.value("source", 0)) {
-    case 2: tail += "  云"; break;
-    case 3: tail += "  AI"; break;
-    default: break;
-    }
     const auto fixed_position = candidate.value("fixed_position", 0);
+    // macOS 只用 #379AD3 的字色标出固定排位的行。GNOME Shell 等面板不认 IBus 的颜色属性，所以行尾仍留「固定 N」文字，颜色画不出来时也看得出这一行被固定了。
     if (fixed_position >= 1 && fixed_position <= 5)
       tail += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
@@ -3995,12 +4007,12 @@ void render(IBusEngine *engine, const Json &view) {
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
+    // 注释括起来紧贴候选字，云和 AI 角标隔一个空格跟在后面，与 macOS 候选窗和 Fcitx5 宿主的写法相同（CandidateRowText.h）。
     if (!annotation.empty() && hanja_gloss.empty() &&
         (local_mode_annotation ||
-         (state(engine).show_helpcode_in_candidate_window && wubi_annotation))) {
-      tail += "  ";
-      tail += annotation;
-    }
+         (state(engine).show_helpcode_in_candidate_window && wubi_annotation)))
+      value += msime::linux_host::candidate_annotation_text(annotation);
+    value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
     value = traditional_display(state(engine), view, std::move(value));
     const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
@@ -4020,15 +4032,14 @@ void render(IBusEngine *engine, const Json &view) {
         highlighted && state(engine).candidate_selected_text_color
             ? state(engine).candidate_selected_text_color
             : state(engine).candidate_text_color;
-    // Windows lets the selected-row text colour win for every candidate;
-    // fixed entries use the accent only while they are not highlighted.
+    // 选中行的文字色对所有候选都生效；固定排位的行只在未选中时画 macOS 和 Windows 的 #379AD3（CandidateRowText.h 说明了选中行为什么不画）。
     if (highlighted && row_text_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
-    else if (fixed_position > 0 && state(engine).candidate_accent_color)
+    else if (fixed_position > 0)
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
-          *state(engine).candidate_accent_color, 0, G_MAXUINT);
+          msime::linux_host::kCandidateFixedPositionColor, 0, G_MAXUINT);
     else if (row_text_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
@@ -4059,7 +4070,7 @@ void render(IBusEngine *engine, const Json &view) {
           text, IBUS_ATTR_TYPE_BACKGROUND, *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     // 序号与选它的数字键一致：第十个由 0 键选，标 0。
-    auto label = index == 9 ? std::string("0") : std::to_string(index + 1);
+    auto label = msime::linux_host::candidate_index_label(index);
     auto label_text = ibus_text_new_from_string(label.c_str());
     if (row_number_color)
       ibus_text_append_attribute(label_text, IBUS_ATTR_TYPE_FOREGROUND,

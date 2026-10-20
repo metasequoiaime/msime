@@ -147,6 +147,54 @@ inline std::optional<double> candidate_skin_corner_radius(const nlohmann::json &
   return radius;
 }
 
+// 皮肤包画在卡片底色之上、候选之下的背景图（清单的 `[candidate_window.background]`）：共享目录给出包内图片的绝对路径、`fit`（cover 铺满裁切、contain 完整放进卡片、stretch 两个方向各自拉伸）和 0–1 的不透明度。与装饰图同样按不可信输入再查一遍，任何一项不合规就当作没有背景图。只有 Fcitx5 画它；IBus 的面板画不了图片。
+enum class CandidateSkinBackgroundFit { cover, contain, stretch };
+struct CandidateSkinBackground {
+  std::string image;
+  CandidateSkinBackgroundFit fit = CandidateSkinBackgroundFit::cover;
+  double opacity = 1.0;
+};
+
+inline std::optional<CandidateSkinBackground> candidate_skin_background(const nlohmann::json &catalog,
+                                                                        std::string_view drawn) {
+  const auto *package = candidate_skin_package(catalog, drawn);
+  if (!package) return std::nullopt;
+  const auto image = package->find("background_image");
+  if (image == package->end() || !image->is_string()) return std::nullopt;
+  auto path = image->get<std::string>();
+  if (path.empty() || path.size() > 4096 || path.front() != '/' || path.find('\0') != std::string::npos)
+    return std::nullopt;
+  CandidateSkinBackground background{std::move(path)};
+  if (const auto fit = package->find("background_fit"); fit != package->end()) {
+    if (*fit == "contain") background.fit = CandidateSkinBackgroundFit::contain;
+    else if (*fit == "stretch") background.fit = CandidateSkinBackgroundFit::stretch;
+    else if (*fit != "cover") return std::nullopt;
+  }
+  if (const auto opacity = package->find("background_opacity"); opacity != package->end()) {
+    if (!opacity->is_number()) return std::nullopt;
+    background.opacity = opacity->get<double>();
+    if (!std::isfinite(background.opacity) || background.opacity < 0 || background.opacity > 1) return std::nullopt;
+  }
+  return background;
+}
+
+// 所画皮肤包的行圆角（清单的 `item_corner_radius_dip`，0–16），没有时交给宿主自己的 6 px。共享目录对声明了它的包直接给出这个键；Windows 外观和 canvas 底的包还在 `resolvedLayout.itemCornerRadiusDip` 里带着按出厂外观继承后的值，前者没有时取后者。文档按不可信输入再查一遍范围。macOS 同样按包的行圆角画（SkinManifestBridge.mm）。
+inline std::optional<double> candidate_skin_item_radius(const nlohmann::json &catalog, std::string_view drawn) {
+  const auto *package = candidate_skin_package(catalog, drawn);
+  if (!package) return std::nullopt;
+  const auto read = [](const nlohmann::json &object, const char *key) -> std::optional<double> {
+    if (!object.is_object()) return std::nullopt;
+    const auto value = object.find(key);
+    if (value == object.end() || !value->is_number()) return std::nullopt;
+    const auto radius = value->get<double>();
+    if (!std::isfinite(radius) || radius < 0 || radius > 16) return std::nullopt;
+    return radius;
+  };
+  if (const auto radius = read(*package, "item_corner_radius_dip")) return radius;
+  const auto layout = package->find("resolvedLayout");
+  return layout != package->end() ? read(*layout, "itemCornerRadiusDip") : std::nullopt;
+}
+
 // The card radius the user set in the settings (`candidate_corner_radius`, 0-32), or none to leave it to the skin and the host. The shared layer omits the key when it is unset and rejects values out of range; anything else in the file is ignored here rather than trusted.
 inline std::optional<double> candidate_corner_radius_preference(const nlohmann::json &preferences) {
   if (!preferences.is_object()) return std::nullopt;

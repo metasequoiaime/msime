@@ -24,6 +24,8 @@ struct CandidateMenuSlots {
   std::optional<ThemeColor> text;
   std::optional<ThemeColor> hover;
   std::optional<ThemeColor> border;
+  // 菜单里的分隔线；只有皮肤包的 [toolbar] 配色给出（divider），候选配色没有这个槽位，没有时分隔线跟随 border。
+  std::optional<ThemeColor> divider;
 };
 
 // The candidate colours both Linux frontends draw with, mapped from one resolved global theme in one place: IBus turns them into text attributes and Fcitx5 into a classic UI theme, so the two cannot disagree about what a theme, a package or a custom colour means.
@@ -73,6 +75,34 @@ inline std::optional<ThemeColor> theme_color(const nlohmann::json &value) {
   const auto alpha = palette_color(nlohmann::json("#0000" + text.substr(7)));
   if (!rgb || !alpha) return std::nullopt;
   return ThemeColor{*rgb, static_cast<std::uint8_t>(*alpha)};
+}
+
+// 所画皮肤包 [toolbar] 在这个明暗下的配色，按菜单的槽位读：background 是菜单底色，icon 是菜单文字，hover 是悬停项，border 是外框，divider 是分隔线（handle 是拖动把手，菜单没有）。Linux 不画悬浮工具栏，工具栏的功能都在输入法菜单里，所以 Fcitx5 把它画的菜单当作工具栏的落点，与 macOS 把这些颜色用到悬浮工具栏上（CandidateSkin.cpp 的 ToolbarSkinTokens）对应。共享目录只发布读得懂的 #RRGGBB / #RRGGBBAA，这里再按同样的读法取一次，读不出的槽位留空。
+inline CandidateMenuSlots candidate_skin_toolbar_menu(const nlohmann::json &catalog, std::string_view drawn, bool dark) {
+  CandidateMenuSlots slots;
+  const auto *package = candidate_skin_package(catalog, drawn);
+  if (!package) return slots;
+  const auto toolbar = package->find("toolbar");
+  if (toolbar == package->end() || !toolbar->is_object()) return slots;
+  const auto mode = toolbar->find(dark ? "dark" : "light");
+  if (mode == toolbar->end() || !mode->is_object()) return slots;
+  const auto slot = [&](const char *key) { return theme_color(mode->value(key, nlohmann::json(nullptr))); };
+  slots.surface = slot("background");
+  slots.text = slot("icon");
+  slots.hover = slot("hover");
+  slots.border = slot("border");
+  slots.divider = slot("divider");
+  return slots;
+}
+
+// 皮肤包写了的工具栏配色盖过候选配色推出来的菜单槽位，没写的槽位照旧。
+inline CandidateMenuSlots overlay_menu_slots(CandidateMenuSlots base, const CandidateMenuSlots &toolbar) {
+  if (toolbar.surface) base.surface = toolbar.surface;
+  if (toolbar.text) base.text = toolbar.text;
+  if (toolbar.hover) base.hover = toolbar.hover;
+  if (toolbar.border) base.border = toolbar.border;
+  if (toolbar.divider) base.divider = toolbar.divider;
+  return base;
 }
 
 inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_t> background) {
@@ -196,7 +226,7 @@ inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, boo
     return std::nullopt;
   };
   auto &colors = theme.colors;
-  colors.menu = CandidateMenuSlots{surface_slot, slot("text"), slot("hover"), slot("border")};
+  colors.menu = CandidateMenuSlots{surface_slot, slot("text"), slot("hover"), slot("border"), std::nullopt};
   colors.background = surface;
   colors.text = over_surface("text").value_or(native.text);
   colors.number = over_surface("number").value_or(native.number);
