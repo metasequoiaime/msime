@@ -1,5 +1,6 @@
 #include "../../src/candidate/ToolbarLayout.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 
@@ -17,7 +18,7 @@ void shipped_size_matches_the_struct_defaults() {
   assert(near(metrics.cell, 34.0));
   assert(near(metrics.height, 44.0));
   assert(near(metrics.icon_top, 6.0) && near(metrics.icon_bottom, 38.0));
-  assert(near(metrics.logo, 36.0));
+  assert(near(metrics.logo, 34.0));
   assert(near(metrics.trailing, 6.0) && near(metrics.divider, 1.2));
   assert(near(metrics.icon, fallback.icon));
   assert(near(metrics.button, fallback.button));
@@ -26,28 +27,36 @@ void shipped_size_matches_the_struct_defaults() {
   assert(near(metrics.icon_top, fallback.icon_top));
   assert(near(metrics.icon_bottom, fallback.icon_bottom));
   assert(near(metrics.logo, fallback.logo));
-  // The leading run is the logo slot, 4 + 3 DIP, the 1.2 DIP divider and 4 more, as on macOS.
-  assert(near(toolbar_leading_width(metrics), 36.0 + 12.2));
+  // The leading run is the 34 DIP logo slot, 4 + 3 DIP, the 1.2 DIP divider and 4 more, as on macOS.
+  assert(near(toolbar_leading_width(metrics), 34.0 + 12.2));
   // n buttons of 32 with 2 between them, then the 6 DIP trailing inset.
-  assert(near(toolbar_content_width(8, metrics), 48.2 + 8 * 34.0 - 2.0 + 6.0));
-  assert(near(toolbar_content_width(3, metrics), 48.2 + 3 * 34.0 - 2.0 + 6.0));
-  assert(near(toolbar_content_width(0, metrics), 48.2 + 6.0));
+  assert(near(toolbar_content_width(8, metrics), 46.2 + 8 * 34.0 - 2.0 + 6.0));
+  assert(near(toolbar_content_width(3, metrics), 46.2 + 3 * 34.0 - 2.0 + 6.0));
+  assert(near(toolbar_content_width(0, metrics), 46.2 + 6.0));
 }
 
-// The bar against macOS's ToolbarPreferredWidth and kToolbarHeight: as tall as the macOS bar at every icon size, and with the grip (show_app_logo off, the default on both) exactly as wide at the shipped size, where the macOS grip is 10.
+// The bar against macOS's ToolbarPreferredWidth and kToolbarHeight: as tall and as wide as the macOS bar at every icon size, with the logo (34) or the grip (10, show_app_logo off, the default on both) in front, and with macOS's 22 DIP mark.
 void the_bar_matches_macos() {
   for (double size : {16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0}) {
-    const auto metrics = toolbar_metrics(size, false, false);
-    assert(near(metrics.height, size + 20.0));
-    assert(near(metrics.button, size + 8.0));
+    for (bool logo : {true, false}) {
+      const auto metrics = toolbar_metrics(size, false, logo);
+      assert(near(metrics.height, size + 20.0));
+      assert(near(metrics.button, size + 8.0));
+      for (size_t count : {1u, 6u, 10u}) {
+        // count * (font + 8) + (count - 1) * 2 + trailing 6 + (logo 34 or grip 10) + 4 + 3 + 1.2 + 4.
+        const double mac = static_cast<double>(count) * (size + 8.0) +
+                           static_cast<double>(count - 1) * 2.0 + 6.0 +
+                           (logo ? 34.0 : 10.0) + 12.2;
+        assert(near(toolbar_content_width(count, metrics), mac));
+      }
+      if (logo) {
+        const auto mark = toolbar_logo(metrics);
+        assert(near(mark.right - mark.left, 22.0) && near(mark.bottom - mark.top, 22.0));
+      }
+    }
   }
-  const auto shipped = toolbar_metrics(24.0, false, false);
-  for (size_t count : {1u, 6u, 10u}) {
-    // count * (font + 8) + (count - 1) * 2 + trailing 6 + grip 10 + 4 + 3 + 1.2 + 4.
-    const double mac = static_cast<double>(count) * 32.0 +
-                       static_cast<double>(count - 1) * 2.0 + 6.0 + 22.2;
-    assert(near(toolbar_content_width(count, shipped), mac));
-  }
+  // macOS's kToolbarWidth: six buttons at the shipped size with the logo.
+  assert(near(toolbar_content_width(6, toolbar_metrics(24.0, false, true)), 254.2));
 }
 
 // What the user sees between two glyphs is the cell minus the glyph: 10 DIP at every icon size, the macOS toolbar's 4 pt a side plus its 2 pt between buttons. The hover fill covers the whole button, so neighbouring fills never touch: 2 DIP stay between them.
@@ -86,9 +95,11 @@ void the_logo_sits_at_the_left_end_of_the_bar() {
       const auto metrics = toolbar_metrics(size, shadow);
       const auto mark = toolbar_logo(metrics);
       const auto card = toolbar_card(6, metrics);
-      // Square, and never scaled past the button it sits beside.
+      // Square, macOS's 22 DIP mark, with at least 2 DIP either side inside the slot and the bar.
       assert(near(mark.right - mark.left, mark.bottom - mark.top));
-      assert(mark.right - mark.left <= metrics.button);
+      assert(mark.right - mark.left <= 22.0 + 1e-9);
+      assert(mark.right - mark.left <=
+             std::min(metrics.logo + metrics.logo_gap, metrics.height) - 4.0 + 1e-9);
       // Inside the bar, with a gutter either side, centred in the slot and the gap that belongs to it as on macOS.
       assert(mark.left > card.left);
       assert(mark.top > card.top);
@@ -265,7 +276,7 @@ void the_grip_replaces_the_logo_when_it_is_off() {
     const auto grip = toolbar_metrics(size, true, false);
     const auto plain = toolbar_metrics(size, true);
     assert(near(with_logo.logo, plain.logo));
-    assert(grip.logo < with_logo.logo && grip.logo >= 8.0);
+    assert(grip.logo < with_logo.logo && near(grip.logo, 10.0));
     assert(near(grip.cell, with_logo.cell) && near(grip.height, with_logo.height));
     assert(near(toolbar_content_width(7, with_logo) - toolbar_content_width(7, grip),
                 with_logo.logo - grip.logo));
@@ -273,8 +284,6 @@ void the_grip_replaces_the_logo_when_it_is_off() {
     assert(!toolbar_is_logo_slot(grip.shadow.left + toolbar_leading_width(grip), grip));
     assert(toolbar_button_at(toolbar_cell(0, grip).left + 0.01, 7, grip) == std::optional<size_t>(0));
   }
-  // 图标 24 时与 macOS 的握把同宽。
-  assert(near(toolbar_metrics(24.0, false, false).logo, 10.0));
 }
 } // namespace
 

@@ -45,8 +45,8 @@ struct ToolbarMetrics {
   double cell = 34.0;
   // The bar itself, excluding the shadow margin: font + 20, macOS's kToolbarHeight at the shipped size.
   double height = 44.0;
-  // The product mark at the far left. It is decoration, not a button: it says which IME the bar belongs to, and it is the obvious place to grab the bar.
-  double logo = 36.0;
+  // The product mark at the far left. It is decoration, not a button: it says which IME the bar belongs to, and it is the obvious place to grab the bar. 34 DIP whatever the icon size, macOS's kToolbarLogoWidth; like the rest of the chrome it only follows the user's scale.
+  double logo = 34.0;
   // The leading run after the logo slot, macOS's values: 4 DIP that still belong to the logo (kToolbarLogoGap), 3 more (kToolbarLogoDividerGap), the 1.2 DIP divider (kToolbarDividerWidth), and 4 before the first button (kToolbarDividerButtonGap). There is no accent drag bar: the logo, or the grip in its place, is the only drag cue, as on macOS.
   double logo_gap = 4.0;
   double divider_gap = 3.0;
@@ -62,7 +62,7 @@ struct ToolbarMetrics {
 
 // Derived from the configured icon size, with the macOS toolbar's geometry (FloatingToolbarPanel.mm applySizingPreferences:).
 //
-// A button is the glyph plus 8 DIP, square, and the next one starts 2 DIP after it, so the pitch is the glyph plus 10. The padding does not grow with the icon, as on macOS: larger glyphs are what make a larger bar, not wider gaps. The bar is the glyph plus 20, which leaves 6 DIP above and below the buttons. The chrome around the buttons - the gaps either side of the divider, the divider itself and the trailing inset - is fixed and only follows the user's scale, which the caller applies.
+// A button is the glyph plus 8 DIP, square, and the next one starts 2 DIP after it, so the pitch is the glyph plus 10. The padding does not grow with the icon, as on macOS: larger glyphs are what make a larger bar, not wider gaps. The bar is the glyph plus 20, which leaves 6 DIP above and below the buttons. The chrome around the buttons - the logo slot (or the grip in its place), the gaps either side of the divider, the divider itself and the trailing inset - is fixed and only follows the user's scale, which the caller applies.
 inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow = true) {
   ToolbarMetrics metrics;
   metrics.shadow = toolbar_shadow(shadow);
@@ -72,18 +72,17 @@ inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow = true) {
   metrics.button = font_size + 8.0;
   metrics.cell = metrics.button + 2.0;
   metrics.height = font_size + 20.0;
-  // The mark is drawn at the icon size, in a slot half again as wide, so it has a gutter either side and is not jammed into the bar's rounded corner.
-  metrics.logo = font_size * 1.5;
   metrics.icon_top = (metrics.height - metrics.button) / 2.0;
   metrics.icon_bottom = metrics.icon_top + metrics.button;
   return metrics;
 }
 
-// 偏好 `show_app_logo` 关掉时 logo 槽收窄成一条握把：画两列三行小圆点，仍是拖动区的一部分。宽度与 macOS 的 kToolbarGripWidth 同比例（图标 24 时 10），再小也留 8，免得握把细到按不准。
+// 偏好 `show_app_logo` 关掉时 logo 槽收窄成一条握把：画两列三行小圆点，仍是拖动区的一部分。宽度是 macOS 的 kToolbarGripWidth，固定 10，与 logo 槽一样不随图标大小变。
+inline constexpr double toolbar_grip_width = 10.0;
 inline ToolbarMetrics toolbar_metrics(double font_size, bool shadow, bool logo) {
   auto metrics = toolbar_metrics(font_size, shadow);
   if (!logo)
-    metrics.logo = (std::max)(8.0, metrics.icon * 10.0 / 24.0);
+    metrics.logo = toolbar_grip_width;
   return metrics;
 }
 
@@ -123,9 +122,14 @@ inline ToolbarRect toolbar_card(size_t buttons, const ToolbarMetrics &metrics) {
           metrics.shadow.top + metrics.height};
 }
 
-// Where the product mark is drawn: a square the size of an icon, centred in the logo slot and the gap that belongs to it, as macOS centres the mark in its logo view. Square rather than the slot itself because the mark is an app icon, and stretching one to fill a wider box is the one thing that makes it look wrong at a glance. The grip's dots are centred on the same point.
+// Where the product mark is drawn: a 22 DIP square (macOS's kToolbarLogoMarkSide), centred in the logo slot and the gap that belongs to it, as macOS centres the mark in its logo view. Like macOS it leaves at least 2 DIP either side of the mark inside that view and the bar, so it shrinks only when the slot or the bar is smaller than the mark. Square rather than the slot itself because the mark is an app icon, and stretching one to fill a wider box is the one thing that makes it look wrong at a glance. The grip's dots are centred on the same point.
+inline constexpr double toolbar_logo_mark = 22.0;
 inline ToolbarRect toolbar_logo(const ToolbarMetrics &metrics) {
-  const double side = std::min({metrics.icon, metrics.logo, metrics.button});
+  const double side =
+      (std::max)(0.0, (std::min)((std::min)(metrics.logo + metrics.logo_gap,
+                                            metrics.height) -
+                                     4.0,
+                                 toolbar_logo_mark));
   const double middle_x =
       metrics.shadow.left + (metrics.logo + metrics.logo_gap) / 2.0;
   const double middle_y = metrics.shadow.top + metrics.height / 2.0;
