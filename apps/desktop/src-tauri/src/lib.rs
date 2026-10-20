@@ -1894,10 +1894,12 @@ fn sync_runtime_options(
         current["preferences"] = host_preferences;
         #[cfg(target_os = "linux")]
         let bytes = match &catalog {
-            Some((root, catalog)) => {
-                runtime_options_with_skin_catalog(&mut current, root, catalog)?
-            }
-            None => linux_runtime_options_bytes(&current)?,
+            Some((root, catalog)) => linux_runtime_options::runtime_options_with_skin_catalog(
+                &mut current,
+                root,
+                catalog,
+            )?,
+            None => linux_runtime_options::runtime_options_bytes(&current)?,
         };
         #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
@@ -1912,74 +1914,15 @@ fn sync_runtime_options(
     Ok(())
 }
 
-/// The most runtime-options.json may hold. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer.
+// 宿主读的上限、皮肤目录的裁剪和「没变就不写」与 MCP 服务共用 `skin::linux_runtime_options`，这里只做文件读写。
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_LIMIT: usize = 16384;
+use msime_client_services::skin::linux_runtime_options;
 
-/// How large the skin catalog may let runtime-options.json grow: the last 1 KiB of `LINUX_RUNTIME_OPTIONS_LIMIT` is left for the upgrade refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = LINUX_RUNTIME_OPTIONS_LIMIT - 1024;
-
-/// Serialize `document` as the Linux hosts will read it, refusing one longer than they read so that a save never replaces a working file with one that stops both hosts.
-#[cfg(target_os = "linux")]
-fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptionsError> {
-    let bytes = serde_json::to_vec_pretty(document)
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
-    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
-        return Err(RuntimeOptionsError::TooLarge);
+impl From<linux_runtime_options::TooLarge> for RuntimeOptionsError {
+    fn from(_: linux_runtime_options::TooLarge) -> Self {
+        Self::TooLarge
     }
-    Ok(bytes)
-}
-
-/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
-///
-/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
-#[cfg(target_os = "linux")]
-fn runtime_options_with_skin_catalog(
-    document: &mut Value,
-    root: &std::path::Path,
-    catalog: &msime_client_services::skin::catalog::SkinCatalog,
-) -> Result<Vec<u8>, RuntimeOptionsError> {
-    let serialize = |document: &Value| {
-        serde_json::to_vec_pretty(document)
-            .map_err(|error| std::io::Error::other(error.to_string()))
-    };
-    let custom_theme = &document["preferences"]["custom_theme"];
-    let selected: Vec<String> = ["candidate_skin", "candidate_skin_dark"]
-        .into_iter()
-        .filter_map(|slot| custom_theme[slot].as_str())
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
-        .collect();
-    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
-    let mut published =
-        msime_client_services::skin::catalog::host_candidate_catalog(catalog, root, &selected);
-    loop {
-        document["candidate_skin_catalog"] = published.clone();
-        let bytes = serialize(document)?;
-        if bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET {
-            return Ok(bytes);
-        }
-        let Some(packages) = published["packages"].as_array_mut() else {
-            break;
-        };
-        if packages.is_empty() {
-            break;
-        }
-        let dropped = packages
-            .iter()
-            .rposition(|package| {
-                !package["id"]
-                    .as_str()
-                    .is_some_and(|id| selected.contains(&id))
-            })
-            .unwrap_or(packages.len() - 1);
-        packages.remove(dropped);
-    }
-    if let Some(object) = document.as_object_mut() {
-        object.remove("candidate_skin_catalog");
-    }
-    linux_runtime_options_bytes(document)
 }
 
 /// Write a freshly scanned catalog into the runtime options the Linux hosts read, leaving every other key as it is on disk. Before setup there is no document to publish into, which is not an error.
@@ -2000,10 +1943,9 @@ fn publish_candidate_skin_catalog(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    let unchanged = current.get("candidate_skin_catalog").cloned();
-    let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
     // A rescan that finds what was already published leaves the file alone, so the hosts watching it do not reload for nothing.
-    if current.get("candidate_skin_catalog") != unchanged.as_ref() {
+    if let Some(bytes) = linux_runtime_options::republish_skin_catalog(&mut current, root, catalog)?
+    {
         shared::atomic_file::write(path, &bytes)?;
     }
     *document = current;
