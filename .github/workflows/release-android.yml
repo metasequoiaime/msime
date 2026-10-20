@@ -60,6 +60,9 @@ jobs:
           packs=(japanese offline-glosses voice-runtime)
           if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries); fi
           cargo run --quiet -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，build-apk.sh 打进 assets/wordbooks。词书不是按需资源包，每个版本（包括瘦包）都带；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 APK 打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
       # build-native.sh 只认固定的 NDK 28.2.13676358。此前一直靠 ubuntu-24.04 镜像碰巧预装它，镜像 20261002 起不再带这个版本，Android 0.2.1 第一次发布就因此失败。缺了就用 runner 自带的 sdkmanager 装上，装完再核对一次版本。
       - name: Install the pinned Android NDK
@@ -74,6 +77,7 @@ jobs:
         env:
           MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
           MSIME_EDITION: "${{ matrix.edition }}"
+          MSIME_REQUIRE_WORDBOOKS: '1'
           PUBLISH: "${{ inputs.publish }}"
           RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
           MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"

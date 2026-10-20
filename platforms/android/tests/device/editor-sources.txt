@@ -179,6 +179,7 @@ platforms/android/tests/device/settings/SessionStoreDeviceSmoke.java
 platforms/android/tests/device/settings/VoiceProviderCatalogDeviceSmoke.java
 platforms/android/tests/device/settings/VoiceProviderSettingsDeviceSmoke.java
 platforms/android/tests/device/settings/VoiceEndpointSettingsDeviceSmoke.java
+platforms/android/tests/device/settings/VocabularyReviewDeviceSmoke.java
 
 platforms/android/tests/device/core/BatchEditorActivity.java
 platforms/android/tests/device/keyboard/BatchCompositionDeviceSmoke.java
