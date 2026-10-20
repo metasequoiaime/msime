@@ -100,8 +100,13 @@ void InputModeHudWindow::set_palette(CandidatePalette palette) {
   if (window_ && IsWindowVisible(window_))
     InvalidateRect(window_, nullptr, FALSE);
 }
-void InputModeHudWindow::set_settings(const FloatingToolbarSettings &settings) {
-  show_logo_ = settings.show_logo;
+void InputModeHudWindow::set_show_logo(bool show) {
+  if (show_logo_ == show)
+    return;
+  show_logo_ = show;
+  // 窗口按旧宽度摆好了，换宽度重画会裁掉或留空，直接收起。
+  if (window_ && IsWindowVisible(window_))
+    hide();
 }
 ID2D1Bitmap *InputModeHudWindow::logo_bitmap(int pixels) {
   if (pixels <= 0)

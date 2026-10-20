@@ -1,7 +1,6 @@
 #pragma once
 #include "CandidatePalette.h"
 #include "ComponentFailure.h"
-#include "FloatingToolbarSettings.h"
 #include "InputModeHudLayout.h"
 #include <optional>
 // 先包含 windows.h：它的 DrawText 宏要在 Direct2D 的声明之前生效。
@@ -18,8 +17,8 @@ public:
   InputModeHudWindow &operator=(const InputModeHudWindow &) = delete;
   // 与悬浮工具栏同一份调色板，主题和皮肤换了跟着换。
   void set_palette(CandidatePalette palette);
-  // 只取偏好 `show_app_logo`（FloatingToolbarSettings::show_logo）：开着且取得到图标时画 logo。工具栏的字号和缩放不影响徽标。
-  void set_settings(const FloatingToolbarSettings &settings);
+  // 偏好 `show_app_logo`（hud_show_app_logo 读出）：开着且取得到图标时画 logo。单独传进来，不经 FloatingToolbarSettings：工具栏的字号或缩放超出范围时那份设置整个作废，徽标的 logo 不该跟着丢。值变了而徽标正显示着就先收起，下次切换按新宽度摆放。
+  void set_show_logo(bool show);
   // 在光标旁显示 `chinese` 对应的字。`caret` 是光标所在行的屏幕矩形（物理像素），没有时用 `foreground` 所在显示器的居中位置。
   void show(bool chinese, std::optional<HudRect> caret, HWND foreground);
   void hide();

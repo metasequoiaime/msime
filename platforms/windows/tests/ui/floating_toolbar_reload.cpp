@@ -54,6 +54,12 @@ int main() {
   auto bad_logo = everything;
   bad_logo["show_app_logo"] = 1;
   assert(!floating_toolbar_settings(bad_logo));
+  // 中英文切换提示的 logo 只认布尔 true，与 macOS 相同；工具栏尺寸越界让工具栏设置作废时，提示照样画 logo。
+  assert(hud_show_app_logo(everything) && !hud_show_app_logo(bad_logo));
+  assert(!hud_show_app_logo(nlohmann::json::object()) && !hud_show_app_logo(nullptr));
+  auto oversized = everything;
+  oversized["floating_toolbar"]["scale_percent"] = 151;
+  assert(!floating_toolbar_settings(oversized) && hud_show_app_logo(oversized));
   english_off["floating_toolbar"]["english_mode"] = "false";
   assert(!floating_toolbar_settings(english_off));
   for (const auto &invalid : {nlohmann::json(-1), nlohmann::json(74),

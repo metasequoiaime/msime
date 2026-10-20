@@ -63,6 +63,13 @@ floating_toolbar_settings(const nlohmann::json &preferences) {
   }
 }
 
+// 中英文切换提示读的 `show_app_logo`：只认真正的布尔 true，缺键或类型不对都当作关，与 macOS InputModeHUDPanel 的 applySizingPreferences: 相同。和 floating_toolbar_settings 分开读：那里工具栏尺寸越界时整份设置作废，徽标的 logo 不受工具栏尺寸影响。
+inline bool hud_show_app_logo(const nlohmann::json &preferences) {
+  if (!preferences.is_object()) return false;
+  const auto found = preferences.find("show_app_logo");
+  return found != preferences.end() && found->is_boolean() && found->get<bool>();
+}
+
 // 工具栏按顺序画的按钮，与 macOS 工具栏的按钮栈相同：0 中/英，11 切换输入方案，2 标点，1 全角，3 简繁，4 表情，7 手写，5 屏幕键盘，8 语音，6 设置。`items` 按偏好的顺序排列：character_set、punctuation、fullwidth、emoji、screen_keyboard、settings。`handwriting_offered` 是这个版本有没有手写：不提供手写的版本（日文、越南文和藏文版）不画手写按钮，从别处同步来的开关也不算，与 macOS 一致。
 inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &settings,
                                                bool handwriting_offered = true) {
