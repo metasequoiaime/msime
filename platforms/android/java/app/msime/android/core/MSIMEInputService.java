@@ -4577,8 +4577,6 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (dedicatedEnglish) command(3); else command(2);
             if (session == 0) return;
-            int previousLayout = displayedTouchLayout(view);
-            boolean previousUppercase = letterCase.usesUppercase();
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
             if (rememberMode && inputModeStore != null) {
@@ -4587,9 +4585,8 @@ public final class MSIMEInputService extends InputMethodService {
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();
-            // 布局变了时 refreshLetterCase 自己会整组重建；只是大写回到小写时就地改键面。
-            if (previousLayout != displayedTouchLayout(view) || previousUppercase)
-                imeLetterRows.refreshLetterCase();
+            // 同为小写状态时，中文固定大写键帽与英文小写键帽也不同；布局是否需要重建交给 refreshLetterCase 判断。
+            imeLetterRows.refreshLetterCase();
             updateAutomaticCapitalization(shouldRender);
             if (directEnglishActive()) refreshEnglishSuggestions();
             else {
