@@ -177,9 +177,10 @@ int main(int argc, char **argv) {
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
+      // 描述和图标与组件文件（data/msime-linux.xml.in）相同：描述是产品名，图标是装上的应用图标。
       ibus_engine_desc_new(MSIME_EDITION_IBUS_ENGINE, MSIME_EDITION_IBUS_LONGNAME,
-                           "Shared MSIME Linux input runtime", MSIME_EDITION_IBUS_LANGUAGE,
-                           "GPL-3.0-only", "MSIME contributors", "", "us"));
+                           MSIME_EDITION_DISPLAY_NAME, MSIME_EDITION_IBUS_LANGUAGE,
+                           "GPL-3.0-only", "MSIME contributors", MSIME_EDITION_ICON, "us"));
   if (!ibus_bus_register_component(bus, component)) {
     g_object_unref(component);
     g_object_unref(factory);

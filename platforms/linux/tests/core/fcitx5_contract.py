@@ -101,7 +101,7 @@ assert activate.index("state->render();") < activate.index("state->showInputMode
 assert "tsf_preedit_style" in source
 assert "candidate_preedit_style" in source
 assert "FcitxSchemeBooleanAction" in source
-assert "英文输入模式" in source
+assert "menu_label::kEnglishCandidateMode" in source
 assert "msime-shuangpin-preedit" in source
 assert "msime-wubi-code-hint" in source
 # 四码唯一自动上屏与剩余编码同属五笔方案组，两处断言守住它的入口和偏好键名。
@@ -109,9 +109,11 @@ assert "msime-wubi-auto-commit-unique" in source
 assert "wubi_auto_commit_unique" in source
 assert "msime-shuangpin-profile" in source
 assert "cycleShuangpinProfile" in source
-# 五笔在输入方案菜单和状态文字里都按共享偏好 `wubi_profile` 标出 86 或 98。
-assert source.count("wubi_scheme_label(") >= 2
-assert source.count('value("wubi_profile", std::string("wubi86"))') >= 2
+# 五笔在输入方案子菜单和「输入方案（…）」一行里都按共享偏好 `wubi_profile` 标出 86 或 98：两处都经 schemeMenuTitle 取 MenuLabels.h 的 scheme_menu_title，它对五笔调 wubi_scheme_label。
+menu_labels = (root / "src/core/MenuLabels.h").read_text()
+assert source.count("schemeMenuTitle(") >= 3
+assert 'value("wubi_profile", std::string("wubi86"))' in source
+assert 'if (scheme == "wubi") return wubi_scheme_label(wubi_profile);' in menu_labels
 assert '"输入方案：五笔"' not in source
 assert "cycleFrequencyMode" in source
 assert "msime-frequency" in source
@@ -374,8 +376,8 @@ assert (
 assert "const auto generation = clipboard_generation_" in source
 assert "cloud_clipboard_generation_" in source
 assert "cloud_clipboard_enabled_" in source
-assert 'help_action_{&factory_, "help", "帮助"}' in source
-assert 'feedback_action_{&factory_, "feedback", "反馈"}' in source
+assert 'help_action_{&factory_, "help", msime::linux_host::menu_label::kHelp}' in source
+assert 'feedback_action_{&factory_, "feedback", msime::linux_host::menu_label::kFeedback}' in source
 assert '(std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)' in source
 assert "if (!state || state->restricted() ||" in source
 assert (
@@ -630,13 +632,17 @@ assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_
 # them for this platform, so each switch is pinned to the entry it governs.
 assert "msime-toolbar" in source
 assert "rebuildToolbarMenu" in source and "refreshToolbar" in source
+# 默认值与共享的 FloatingToolbarPreferences::default（preferences.rs）一致：表情、手写、屏幕键盘和语音默认关。
 for key, default in (
     ("english_mode", "true"),
+    ("input_scheme", "true"),
     ("fullwidth", "true"),
     ("punctuation", "true"),
     ("character_set", "true"),
-    ("emoji", "true"),
+    ("emoji", "false"),
+    ("handwriting", "false"),
     ("screen_keyboard", "false"),
+    ("voice", "false"),
     ("settings", "true"),
 ):
     assert f'toolbar.value("{key}", {default})' in source, key
@@ -646,12 +652,17 @@ for key, default in (
 for action in (
     "input_mode_action_",
     "english_action_",
+    "scheme_action_",
     "width_action_",
     "chinese_punctuation_action_",
     "traditional_action_",
     "desktop_emoji_action_",
+    "handwriting_action_",
     "keyboard_action_",
+    "voice_action_",
     "settings_action_",
+    "promotion_action_",
+    "website_action_",
 ):
     assert f"append(" in source and action in source, action
 # A rebuild removes exactly what it added; the menu is shared across contexts.
@@ -732,7 +743,7 @@ assert ibus_return.index("if (opened_list) {") < ibus_return.index(
 # 两个宿主都提供藏文（Engine 方案 8），面板符号为「藏」。藏文和越南文一样离开组字时写出组字内容：IBus 的导航键必须发 MSIME_FINISH_COMPOSITION，若发 MSIME_COMMIT_CANDIDATE，Engine 会把它当作空格，多上屏一个音节点。
 assert '{&scheme_tibetan_action_, "msime-scheme-tibetan"}' in source
 assert 'FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};' in source
-assert 'case 8: return "输入方案：藏文";' in source
+assert 'if (scheme == "tibetan") return "藏文";' in menu_labels
 assert 'case msime::linux_host::InputModeIndicator::Tibetan: return "藏";' in source
 assert '"Scheme/Tibetan"' in ibus_source
 assert (
@@ -744,12 +755,12 @@ assert (
     in ibus_key
 )
 
-# 两个宿主的菜单都只在有 msime-stroke.db 时提供笔画（Engine 方案 9）：Fcitx5 注册它的动作，单独出现 msime-stroke.db 时也重建菜单；IBus 列出 Scheme/Stroke，让 PropertyActivate 放行它并映射到 "stroke" id。IBus 缺任何一半，选笔画都会悄无声息地什么也不做。状态区的方案动作也要标出「输入方案：笔画」，否则会落到默认的全拼。
+# 两个宿主的菜单都只在有 msime-stroke.db 时提供笔画（Engine 方案 9）：Fcitx5 注册它的动作，单独出现 msime-stroke.db 时也重建菜单；IBus 列出 Scheme/Stroke，让 PropertyActivate 放行它并映射到 "stroke" id。IBus 缺任何一半，选笔画都会悄无声息地什么也不做。状态区的方案动作也要标出「输入方案（笔画）」，否则会落到默认的全拼。
 assert '{&scheme_stroke_action_, "msime-scheme-stroke"}' in source
 assert 'FcitxSchemeItemAction scheme_stroke_action_{&factory_, 9, "笔画"};' in source
-assert 'case 9: return "输入方案：笔画";' in source
+assert 'if (scheme == "stroke") return "笔画";' in menu_labels
 assert 'schemeAvailable("stroke")' in source
-assert 'std::tuple{"stroke", "Scheme/Stroke", "笔画"}' in ibus_source
+assert 'if (scheme == "stroke") return "Scheme/Stroke";' in ibus_source
 assert 'property_name != "Scheme/Stroke"' in ibus_source
 assert 'property_name == "Scheme/Stroke" ? std::string("stroke")' in ibus_source
 

@@ -2,6 +2,8 @@
 Type=Application
 Name=MSIME
 Name[zh_CN]=水杉输入法
+Name[zh_TW]=水杉输入法
+Name[zh_HK]=水杉输入法
 GenericName=Chinese Input Method Settings
 GenericName[zh_CN]=中文输入法设置
 Comment=Configure the MSIME Linux desktop host
@@ -16,17 +18,17 @@ Actions=Handwriting;Keyboard;Emoji;Clipboard;Dictionary;Voice;CloudDictionary;Cl
 
 [Desktop Action Handwriting]
 Name=Handwriting
-Name[zh_CN]=手写识别板
+Name[zh_CN]=手写输入
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel handwriting
 
 [Desktop Action Keyboard]
 Name=Screen Keyboard
-Name[zh_CN]=屏幕键盘
+Name[zh_CN]=水杉屏幕键盘
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel keyboard
 
 [Desktop Action Emoji]
 Name=Emoji and Symbols
-Name[zh_CN]=表情与符号
+Name[zh_CN]=水杉表情面板
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel emoji
 
 [Desktop Action Voice]

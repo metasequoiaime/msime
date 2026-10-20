@@ -59,6 +59,7 @@
 #include "../src/core/FirstRunGuidance.h"
 #include "../src/core/InputModeIndicator.h"
 #include "../src/core/InputStatus.h"
+#include "../src/core/MenuLabels.h"
 #include "../src/core/ReplacedProgram.h"
 #include "../src/overlay/ModeBadgePlacement.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
@@ -698,6 +699,11 @@ public:
     ic_.updatePreedit();
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     refreshModeIndicator();
+  }
+  // 方案在菜单里的名字（MenuLabels.h）：双拼带当前键位方案，五笔带码表版本，与 macOS 一致。
+  std::string schemeMenuTitle(std::string_view scheme) const {
+    return msime::linux_host::scheme_menu_title(scheme, preferences_.value("shuangpin_profile", std::string("xiaohe")),
+                                                preferences_.value("wubi_profile", std::string("wubi86")));
   }
   // The label Fcitx5 shows for the input method in its tray and panel (FcitxEngine::subModeLabelImpl), in the same words as the mode HUD.
   std::string modeIndicatorLabel() const {
@@ -2515,6 +2521,11 @@ public:
     if (typingStatistics) recordTypingStatistics(text, source.value_or(typingSource()));
     rememberSmartPunctuationCommit(text);
   }
+  // 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（MenuLabels.h 的 kPromotionText），与 IBus 宿主相同。Ctrl+Shift+P 和工具栏菜单项共用。
+  void commitPromotion() {
+    if (session_ && !view_.value("editing_text", std::string{}).empty()) command(MSIME_FINISH_COMPOSITION);
+    commitText(msime::linux_host::kPromotionText, msime::linux_host::TypingSource::Local);
+  }
   // surrounding text 不可用时，只用本会话由输入法自己上屏的末尾文本判断智能标点；交给应用的按键或光标编辑会使它失效。
   void rememberSmartPunctuationCommit(const std::string &text) {
     if (!ic_.hasFocus() || restricted() || privateInput()) {
@@ -4285,13 +4296,15 @@ private:
 
 // Status actions are shared by the addon, but their values belong to the
 // supplied context. Never cache one application's checked state globally.
+// 图标：macOS 的菜单项没有图标。直接挂在状态区的动作保留图标，因为 kimpanel 把它们画成独立按钮，没有图标就只剩文字；只出现在子菜单里的动作返回空图标，托盘菜单（SNI/dbusmenu）不再每行都画同一个键盘图标。
 class FcitxModeAction : public fcitx::Action {
 public:
   enum class Mode { EnglishCandidates, Fullwidth };
   FcitxModeAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
       : factory_(factory), mode_(mode) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return mode_ == Mode::EnglishCandidates ? "英文输入模式" : "全角字符";
+    return mode_ == Mode::EnglishCandidates ? msime::linux_host::menu_label::kEnglishCandidateMode
+                                            : msime::linux_host::menu_label::kFullwidth;
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
@@ -4328,7 +4341,7 @@ public:
   explicit FcitxInputModeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
-  std::string shortText(fcitx::InputContext *) const override { return "中文"; }
+  std::string shortText(fcitx::InputContext *) const override { return msime::linux_host::menu_label::kChineseInput; }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     return ic && ic->propertyFor(factory_)->session_ && ic->propertyFor(factory_)->input_enabled_;
@@ -4347,26 +4360,14 @@ private:
 class FcitxSchemeAction : public fcitx::SimpleAction {
 public:
   explicit FcitxSchemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  // 这一行带上正在用的方案的名字，与 macOS 的「输入方案（双拼（小鹤））」相同（MenuLabels.h）。
   std::string shortText(fcitx::InputContext *ic) const override {
-    if (!ic) return "输入方案";
+    if (!ic) return msime::linux_host::menu_label::kScheme;
     const auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
-    switch (scheme) {
-    case 1: return "输入方案：双拼";
-    // 五笔标出当前码表版本（86 或 98），与设置页和托盘一致。
-    case 2:
-      return std::string("输入方案：") +
-             msime::linux_host::wubi_scheme_label(
-                 state->preferences_.value("wubi_profile", std::string("wubi86")));
-    case 3: return "输入方案：日文";
-    case 4: return "输入方案：韩文";
-    case 5: return "输入方案：粤拼";
-    case 6: return "输入方案：注音";
-    case 7: return "输入方案：越南文";
-    case 8: return "输入方案：藏文";
-    case 9: return "输入方案：笔画";
-    default: return "输入方案：全拼";
-    }
+    return msime::linux_host::menu_heading(
+        msime::linux_host::menu_label::kScheme,
+        state->schemeMenuTitle(FcitxState::kSchemes[scheme < FcitxState::kSchemes.size() ? scheme : 0]));
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
@@ -4392,11 +4393,9 @@ public:
       : factory_(factory), index_(index), label_(label) {
     setCheckable(true);
   }
+  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」或「五笔 98」。
   std::string shortText(fcitx::InputContext *ic) const override {
-    // 五笔一项跟随存储的码表版本显示「86 五笔」或「98 五笔」。
-    if (ic && std::string_view(FcitxState::kSchemes[index_]) == "wubi")
-      return msime::linux_host::wubi_scheme_label(
-          ic->propertyFor(factory_)->preferences_.value("wubi_profile", std::string("wubi86")));
+    if (ic) return ic->propertyFor(factory_)->schemeMenuTitle(FcitxState::kSchemes[index_]);
     return label_;
   }
   std::string icon(fcitx::InputContext *) const override { return ""; }
@@ -4434,7 +4433,7 @@ public:
       if (current == profile.value) return std::string("双拼方案：") + profile.label;
     return "双拼方案";
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
@@ -4509,7 +4508,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "辅助码"; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4547,7 +4546,7 @@ public:
     }
     return {};
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   /// 本项所属的方案，以及它在共享偏好文档里的键；三项都属于某个方案，只有该方案生效时才列出和切换。
   bool appliesTo(unsigned scheme) const {
     switch (kind_) {
@@ -4599,7 +4598,7 @@ public:
     // 选了辅助码表包时写明插件在生效，而不是那个只作回退的内置方案。
     return msime::linux_host::helpcode_status_label(state->preferences_, scheme == 1 ? "shuangpin" : "quanpin");
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   // Front ends open the schema menu instead of activating an action that has one; stepping stays for a caller that activates it directly.
   void activate(fcitx::InputContext *ic) override {
@@ -4660,7 +4659,7 @@ public:
   std::string shortText(fcitx::InputContext *) const override {
     return mode_ == Mode::Transposition ? "拼音错位纠错" : "拼音邻键纠错";
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4690,8 +4689,8 @@ public:
   explicit FcitxMixedEnglishAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
-  std::string shortText(fcitx::InputContext *) const override { return "混合英文"; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string shortText(fcitx::InputContext *) const override { return msime::linux_host::menu_label::kMixedEnglish; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4719,7 +4718,7 @@ public:
                             const char *label)
       : factory_(factory), key_(key), label_(label) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override { return label_; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4749,7 +4748,7 @@ public:
                        const char *label)
       : factory_(factory), key_(key), label_(label) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override { return label_; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4778,7 +4777,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "英文释义"; }
-  std::string icon(fcitx::InputContext *) const override { return "accessories-dictionary"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4805,7 +4804,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "以词定字"; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4833,7 +4832,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "数字选词"; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4860,7 +4859,7 @@ public:
   FcitxPunctuationAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
       : factory_(factory), mode_(mode) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return mode_ == Mode::Chinese ? "中文标点" : "成对标点";
+    return mode_ == Mode::Chinese ? msime::linux_host::menu_label::kChinesePunctuation : "成对标点";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
@@ -4904,7 +4903,7 @@ public:
   std::string shortText(fcitx::InputContext *) const override {
     return mode_ == Mode::Smart ? "智能标点" : "重复标点回切中文";
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -4963,7 +4962,7 @@ public:
     const auto theme = ic->propertyFor(factory_)->preferences_.value("candidate_theme", std::string("follow"));
     return theme == "light" ? "候选明暗：浅色" : theme == "dark" ? "候选明暗：深色" : "候选明暗：跟随颜色模式";
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
@@ -5012,11 +5011,12 @@ public:
     setLongText("选择候选窗口、菜单与工具栏的主题");
   }
   std::string shortText(fcitx::InputContext *ic) const override {
-    if (!ic) return "主题";
+    if (!ic) return msime::linux_host::menu_label::kTheme;
     const auto *state = ic->propertyFor(factory_);
     const auto choices = state->themeChoices();
     const auto *current = msime::linux_host::find_theme_choice(choices, state->currentThemeChoice());
-    return current ? "主题：" + current->title : "主题";
+    // 写法与 macOS 的「主题（水杉）」相同。
+    return msime::linux_host::menu_heading(msime::linux_host::menu_label::kTheme, current ? current->title : std::string());
   }
   std::string icon(fcitx::InputContext *) const override { return "preferences-desktop-theme"; }
   void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
@@ -5062,7 +5062,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "学习用户词频"; }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -5104,7 +5104,7 @@ public:
         mode == "halve" ? "减半" : mode == "linear" ? "线性" : "提升";
     return std::string("词频：") + label;
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
@@ -5129,7 +5129,7 @@ public:
         .value("frequency", Json::object()).value(key_, 1u) : 1u;
     return std::string(label_) + "：" + std::to_string(value);
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
@@ -5280,7 +5280,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "云联想"; }
-  std::string icon(fcitx::InputContext *) const override { return "network-wireless"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -5310,7 +5310,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "AI 联想"; }
-  std::string icon(fcitx::InputContext *) const override { return "applications-science"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -5392,6 +5392,30 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// 工具栏子菜单里 macOS 齿轮菜单（FloatingToolbarPanel.mm）的两项：在光标处插入产品介绍，在浏览器里打开官网。
+class FcitxUtilityAction : public fcitx::SimpleAction {
+public:
+  enum class Kind { Promotion, Website };
+  FcitxUtilityAction(fcitx::FactoryFor<FcitxState> *factory, Kind kind) : factory_(factory), kind_(kind) {
+    setShortText(kind == Kind::Promotion ? msime::linux_host::menu_label::kPromotion
+                                         : msime::linux_host::menu_label::kWebsite);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (kind_ == Kind::Website) {
+      fcitx::startProcess({"xdg-open", msime::linux_host::kWebsiteUrl});
+      return;
+    }
+    // 介绍要写进有焦点的输入框，密码框里不写。
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (state->restricted()) return;
+    try { state->commitPromotion(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  Kind kind_;
+};
+
 // The shared `floating_toolbar` preference and its eight component switches.
 //
 // Windows draws a floating window; the IBus host maps the same switches onto a
@@ -5417,7 +5441,7 @@ class FcitxToolbarEnabledAction : public fcitx::Action {
 public:
   explicit FcitxToolbarEnabledAction(fcitx::FactoryFor<FcitxState> *factory)
       : factory_(factory) { setCheckable(true); }
-  std::string shortText(fcitx::InputContext *) const override { return "工具栏"; }
+  std::string shortText(fcitx::InputContext *) const override { return msime::linux_host::menu_label::kToolbarEnabled; }
   std::string icon(fcitx::InputContext *) const override { return "view-restore"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
@@ -5441,7 +5465,7 @@ public:
   explicit FcitxVoiceEnabledAction(fcitx::FactoryFor<FcitxState> *factory)
       : factory_(factory) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override { return "启用语音输入"; }
-  std::string icon(fcitx::InputContext *) const override { return "audio-input-microphone"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -5529,7 +5553,7 @@ public:
     setCheckable(true);
   }
   std::string shortText(fcitx::InputContext *) const override { return "剪贴板历史"; }
-  std::string icon(fcitx::InputContext *) const override { return "edit-paste"; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
@@ -5767,7 +5791,7 @@ private:
 class FcitxVoiceAction : public fcitx::SimpleAction {
 public:
   explicit FcitxVoiceAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
-    setShortText("语音");
+    setShortText(msime::linux_host::menu_label::kVoice);
     setLongText("开始或停止流式语音识别");
   }
   void activate(fcitx::InputContext *ic) override {
@@ -5804,7 +5828,7 @@ public:
   explicit FcitxTraditionalAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
-  std::string shortText(fcitx::InputContext *) const override { return "繁体"; }
+  std::string shortText(fcitx::InputContext *) const override { return msime::linux_host::menu_label::kTraditionalOutput; }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
@@ -6501,18 +6525,12 @@ public:
     cloud_clipboard_menu_.addAction(&cloud_clipboard_item5_);
     toolbar_action_.setMenu(&toolbar_menu_);
     desktop_tools_action_.setMenu(&desktop_tools_menu_);
-    // 手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）菜单里没有它。
-    if (MSIME_EDITION_HANDWRITING != 0) desktop_tools_menu_.addAction(&handwriting_action_);
-    desktop_tools_menu_.addAction(&keyboard_action_);
-    desktop_tools_menu_.addAction(&desktop_emoji_action_);
+    // 手写、屏幕键盘、表情面板、云词库、云剪贴板和「显示工具栏」与 macOS 一样挂在状态区顶层（arrangeStatusArea）；这里只剩 macOS 菜单里没有的入口。手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）不列它，见 arrangeStatusArea。
     desktop_tools_menu_.addAction(&desktop_clipboard_action_);
     desktop_tools_menu_.addAction(&desktop_voice_action_);
-    desktop_tools_menu_.addAction(&cloud_dictionary_action_);
-    desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&reload_service_action_);
-    desktop_tools_menu_.addAction(&toolbar_enabled_action_);
     desktop_tools_menu_.addAction(&voice_enabled_action_);
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
     // The D-Bus menus (StatusNotifierItem, kimpanel) address entries by their registered name and skip an unregistered one, so every entry of the menus below is registered, separators included.
@@ -6530,6 +6548,9 @@ public:
              {&toolbar_enabled_action_, MSIME_EDITION_FCITX5_ADDON "-toolbar-enabled"},
              {&voice_enabled_action_, MSIME_EDITION_FCITX5_ADDON "-voice-enabled"},
              {&preference_save_retry_action_, MSIME_EDITION_FCITX5_ADDON "-preference-save-retry"},
+             {&promotion_action_, MSIME_EDITION_FCITX5_ADDON "-promotion"},
+             {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
+             {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
@@ -6553,11 +6574,11 @@ public:
     // 输入方案 lists the schemes rather than stepping through them on each click. Cantonese, Zhuyin and Stroke join it once a context has read runtime options naming their dictionaries (rebuildSchemeMenu).
     scheme_action_.setMenu(&scheme_menu_);
     rebuildSchemeMenu(nullptr, false, false, false);
-    // The design menu keeps 中文/英文, 全角/标点/译文, 输入方案 and 主题/词库…/设置…/关于 at the top; every other switch the status area listed moves, as the same action, into one of three groups.
+    // 状态区顶层只放 macOS 菜单里的那些项（arrangeStatusArea），其余开关作为同一个动作收进三个子菜单。
     input_group_action_.setMenu(&input_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
-             &shuangpin_profile_action_, &helpcode_action_, &helpcode_schema_action_, &traditional_action_,
-             &mixed_english_action_, &english_action_, &mixed_symbol_action_, &mixed_emoji_action_, &mixed_kaomoji_action_, &english_gloss_action_,
+             &shuangpin_profile_action_, &helpcode_action_, &helpcode_schema_action_,
+             &mixed_english_action_, &mixed_symbol_action_, &mixed_emoji_action_, &mixed_kaomoji_action_, &english_gloss_action_,
              &cloud_candidates_action_, &ai_candidates_action_, &number_row_action_, &word_character_action_,
              &mode_scope_action_, &clipboard_history_action_, &input_group_separator_, &local_unicode_action_,
              &local_date_time_action_, &local_quick_phrase_action_, &local_emoji_action_, &local_kaomoji_action_,
@@ -6871,20 +6892,7 @@ public:
     // 获得焦点时 panel_focus_watch_ 已经交出；换到本输入法不经过它。
     releaseMenuContext(event.inputContext());
     auto *state = event.inputContext()->propertyFor(&factory_);
-    auto &status = event.inputContext()->statusArea();
-    // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于. 中文/英文 is the input-mode toggle Shift flips; the Engine's dedicated English mode is a different feature and sits in 输入选项. kimpanel lists status actions as they are, separators included, so the parts are not divided by rules here.
-    for (auto *action : std::initializer_list<fcitx::Action *>{
-             &input_mode_action_, &width_action_, &chinese_punctuation_action_,
-             &candidate_translation_action_, &scheme_action_, &global_theme_action_, &dictionary_action_,
-             &settings_action_, &about_action_})
-      status.addAction(fcitx::StatusGroup::InputMethod, action);
-    // Tools that depend on the moment: an active recording, the highlighted candidate, nine-key spellings, clipboard and emoji pickers.
-    for (auto *action : std::initializer_list<fcitx::Action *>{
-             &voice_cancel_action_, &maintenance_action_, &nine_key_action_, &clipboard_action_,
-             &cloud_clipboard_action_, &emoji_action_, &emoji_search_action_, &emoji_category_action_,
-             &emoji_group_action_, &input_group_action_, &punctuation_group_action_, &candidate_group_action_})
-      status.addAction(fcitx::StatusGroup::InputMethod, action);
-    status.addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
+    arrangeStatusArea(event.inputContext());
     try {
       if (state->ensure()) {
         state->render();
@@ -6922,14 +6930,42 @@ public:
   void holdMenuContext(fcitx::InputContext *ic) {
     if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
     menu_context_ic_ = ic->watch();
-    for (auto *action : focusOnlyActions()) ic->statusArea().removeAction(action);
-    // 语音项由它自己按焦点决定，顺带刷新状态区。
-    ic->propertyFor(&factory_)->syncVoiceAction();
+    // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项）随之拿掉，顺带刷新状态区。
+    arrangeStatusArea(ic);
   }
-  // activate 第二组里只往有焦点的输入框里写的那几项（语音项见 syncVoiceAction）；托盘留着失焦的上下文时拿掉它们。
+  // 只往有焦点的输入框里写的那几项；托盘留着失焦的上下文时不列它们。语音项另按会话和语音开关决定，见 arrangeStatusArea。
   std::array<fcitx::Action *, 8> focusOnlyActions() {
     return {&voice_cancel_action_, &maintenance_action_, &clipboard_action_, &cloud_clipboard_action_,
             &emoji_action_, &emoji_search_action_, &emoji_category_action_, &emoji_group_action_};
+  }
+  // 按 macOS 输入法菜单的顺序排状态区（InputController.mm 的 `menu`）：中文输入、英文候选模式；繁体输出、全角字符、中文标点、显示译文；输入方案、主题；显示工具栏（与紧跟的「工具栏」子菜单）、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于。macOS 的「中文输入」「英文输入」是一对单选，这里仍是一个开关（勾选即中文），它就是 Shift 切换的那个状态。macOS 菜单之后才是 Linux 独有的入口：词库…、随会话变化的候选操作、九键拼音、剪贴板和表情选择，再是三个选项子菜单和「桌面工具」。kimpanel 把状态动作原样列出，分隔线在那里只会是空白项，所以这里不放分隔线。
+  //
+  // 每一项都按顺序重新 addAction 一遍：已在状态区里的动作会被移到末尾，所以按这个顺序加完，状态区就是这个顺序；不该出现的移除。工具栏和语音两项要看会话，建好会话后 refreshToolbar、syncVoiceAction 会再排一次。
+  void arrangeStatusArea(fcitx::InputContext *ic) {
+    auto *state = ic->propertyFor(&factory_);
+    auto &status = ic->statusArea();
+    const bool focused = ic->hasFocus();
+    const std::pair<fcitx::Action *, bool> order[] = {
+        {&input_mode_action_, true}, {&english_action_, true},
+        {&traditional_action_, true}, {&width_action_, true}, {&chinese_punctuation_action_, true},
+        {&candidate_translation_action_, true},
+        {&scheme_action_, true}, {&global_theme_action_, true},
+        {&toolbar_enabled_action_, true}, {&toolbar_action_, toolbarEnabled(ic)},
+        {&desktop_emoji_action_, true}, {&desktop_cloud_clipboard_action_, true}, {&cloud_dictionary_action_, true},
+        {&keyboard_action_, true}, {&handwriting_action_, MSIME_EDITION_HANDWRITING != 0},
+        // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
+        {&voice_action_, state->session_ && state->voice_enabled_ && focused}, {&voice_cancel_action_, focused},
+        {&settings_action_, true}, {&about_action_, true},
+        {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
+        {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
+        {&emoji_search_action_, focused}, {&emoji_category_action_, focused}, {&emoji_group_action_, focused},
+        {&input_group_action_, true}, {&punctuation_group_action_, true}, {&candidate_group_action_, true},
+        {&desktop_tools_action_, true}};
+    for (const auto &[action, present] : order) {
+      if (present) status.addAction(fcitx::StatusGroup::InputMethod, action);
+      else status.removeAction(action);
+    }
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
   }
   // 留给托盘的上下文真正关掉会话。获得焦点的不是它时，连它的状态动作一起拿掉，托盘从此列新聚焦的那个。
   void releaseMenuContext(fcitx::InputContext *focused) {
@@ -7087,11 +7123,11 @@ public:
   FcitxSchemeItemAction scheme_quanpin_action_{&factory_, 0, "全拼"};
   FcitxSchemeItemAction scheme_shuangpin_action_{&factory_, 1, "双拼"};
   FcitxSchemeItemAction scheme_wubi_action_{&factory_, 2, "五笔"};
-  FcitxSchemeItemAction scheme_japanese_action_{&factory_, 3, "日文"};
-  FcitxSchemeItemAction scheme_korean_action_{&factory_, 4, "韩文"};
+  FcitxSchemeItemAction scheme_japanese_action_{&factory_, 3, "日语"};
+  FcitxSchemeItemAction scheme_korean_action_{&factory_, 4, "韩语"};
   FcitxSchemeItemAction scheme_cantonese_action_{&factory_, 5, "粤拼"};
   FcitxSchemeItemAction scheme_zhuyin_action_{&factory_, 6, "注音"};
-  FcitxSchemeItemAction scheme_vietnamese_action_{&factory_, 7, "越南文"};
+  FcitxSchemeItemAction scheme_vietnamese_action_{&factory_, 7, "越南语"};
   FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};
   FcitxSchemeItemAction scheme_stroke_action_{&factory_, 9, "笔画"};
   // The entries scheme_menu_ holds, in menu order, and whether Cantonese, Zhuyin and Stroke were among them when it was last built.
@@ -7216,25 +7252,28 @@ public:
   FcitxMaintenanceAction fix5_action_{&factory_, 15, msime::linux_host::candidate_fix_label(5).c_str()};
   FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
   fcitx::Menu desktop_tools_menu_;
-  FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", "手写识别板"};
-  FcitxDesktopPanelAction keyboard_action_{&factory_, "keyboard", "屏幕键盘"};
-  FcitxDesktopPanelAction desktop_emoji_action_{&factory_, "emoji", "表情与符号"};
-  FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", "本地剪贴板"};
-  FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", "语音面板"};
-  FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词库"};
-  FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
-  FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", "词库…"};
-  FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置…"};
+  FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", msime::linux_host::menu_label::kHandwriting};
+  FcitxDesktopPanelAction keyboard_action_{&factory_, "keyboard", msime::linux_host::menu_label::kScreenKeyboard};
+  FcitxDesktopPanelAction desktop_emoji_action_{&factory_, "emoji", msime::linux_host::menu_label::kEmojiPanel};
+  FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", msime::linux_host::menu_label::kLocalClipboard};
+  FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", msime::linux_host::menu_label::kVoicePanel};
+  FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary};
+  FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
+  FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+  FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;
   fcitx::Menu toolbar_menu_;
   // What is currently in the submenu, so a rebuild removes exactly what it added.
   std::vector<fcitx::Action *> toolbar_entries_;
   bool toolbarEnabled(fcitx::InputContext *ic);
   void rebuildToolbarMenu(fcitx::InputContext *ic);
-  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于" MSIME_EDITION_DISPLAY_NAME};
-  FcitxDesktopPanelAction help_action_{&factory_, "help", "帮助"};
-  FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", "反馈"};
+  FcitxDesktopPanelAction about_action_{&factory_, "about", msime::linux_host::menu_label::kAbout};
+  FcitxDesktopPanelAction help_action_{&factory_, "help", msime::linux_host::menu_label::kHelp};
+  FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", msime::linux_host::menu_label::kFeedback};
   FcitxToolbarEnabledAction toolbar_enabled_action_{&factory_};
+  FcitxUtilityAction promotion_action_{&factory_, FcitxUtilityAction::Kind::Promotion};
+  FcitxUtilityAction website_action_{&factory_, FcitxUtilityAction::Kind::Website};
+  FcitxMenuSeparatorAction toolbar_separator_;
   FcitxVoiceEnabledAction voice_enabled_action_{&factory_};
   FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
   fcitx::Menu input_group_menu_;
@@ -7263,12 +7302,8 @@ bool FcitxState::menuTarget() const {
 // Defined here rather than in the class body because FcitxEngine is only forward-declared there, and the voice action it owns cannot be named until the definition above.
 void FcitxState::syncVoiceAction() {
   if (!engine_) return;
-  // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
-  if (session_ && voice_enabled_ && ic_.hasFocus())
-    ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
-  else
-    ic_.statusArea().removeAction(&engine_->voice_action_);
-  ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+  // 语音项的有无与位置都由 arrangeStatusArea 决定。
+  engine_->arrangeStatusArea(&ic_);
 }
 
 // 快捷键和状态区动作都在进程内重置，见 FcitxEngine::resetSessions。只有菜单作用得到的（有焦点，或失焦后托盘仍指向的）、非受限、非隐私的上下文能发起。
@@ -7332,11 +7367,8 @@ void FcitxState::refreshSchemeMenu() {
 void FcitxState::refreshToolbar() {
   if (!engine_) return;
   engine_->rebuildToolbarMenu(&ic_);
-  if (engine_->toolbarEnabled(&ic_))
-    ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->toolbar_action_);
-  else
-    ic_.statusArea().removeAction(&engine_->toolbar_action_);
-  ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+  // 「工具栏」子菜单紧跟在「显示工具栏」之后，有无与位置由 arrangeStatusArea 决定。
+  engine_->arrangeStatusArea(&ic_);
 }
 
 // The aux line below a candidate page: the page number, the local mode, the reading when the candidate preedit shows it, and the typing combo while there is one.
@@ -7635,9 +7667,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
-  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j 同理。
+  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j、P 和 p 同理（Ctrl+Shift+P 同样只插入一次）。
   if (toggle_chord_held_ != FcitxKey_None &&
-      (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym) == toggle_chord_held_) {
+      (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym == FcitxKey_P ? FcitxKey_p : sym) ==
+          toggle_chord_held_) {
     if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
     return true;
   }
@@ -7795,6 +7828,16 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Hyper}) &&
       ic_.hasFocus() && !restricted() && !privateInput() && ensure())
     return launchDesktopPanel("keyboard");
+  // Ctrl+Shift+P 插入固定的产品介绍，与 IBus 宿主和工具栏菜单的「宣传水杉输入法」相同；中英文模式下都有效，不改动用户常用语。
+  if ((sym == FcitxKey_p || sym == FcitxKey_P) && !event.isRelease() &&
+      states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super, fcitx::KeyState::Hyper,
+                                       fcitx::KeyState::Meta}) &&
+      ic_.hasFocus() && !restricted()) {
+    commitPromotion();
+    toggle_chord_held_ = FcitxKey_p;
+    return true;
+  }
   if (voice_hotkey_rctrl_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       (rightControlKey || rightAltKey) &&
       states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}) &&
@@ -8408,12 +8451,13 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   scheme_menu_entries_.clear();
   scheme_menu_entries_.reserve(10);
   // 只列本版本提供的方案（版本表的 input_schemes）：不提供的方案选了也会被 selectScheme 拒绝。粤拼、注音与笔画另外要有词库，cantonese、zhuyin 与 stroke 已经算上了版本。
+  // 顺序与 macOS 的子菜单和 Engine 的方案编号相同（MenuLabels.h 的 kSchemeMenuOrder）：全拼、双拼、五笔、日语、韩语、粤拼、注音、越南语、藏文、笔画。
   for (const auto &[id, action] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
            {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
-           {"wubi", &scheme_wubi_action_}, {"cantonese", &scheme_cantonese_action_},
-           {"zhuyin", &scheme_zhuyin_action_}, {"stroke", &scheme_stroke_action_},
-           {"japanese", &scheme_japanese_action_}, {"korean", &scheme_korean_action_},
-           {"vietnamese", &scheme_vietnamese_action_}, {"tibetan", &scheme_tibetan_action_}}) {
+           {"wubi", &scheme_wubi_action_}, {"japanese", &scheme_japanese_action_},
+           {"korean", &scheme_korean_action_}, {"cantonese", &scheme_cantonese_action_},
+           {"zhuyin", &scheme_zhuyin_action_}, {"vietnamese", &scheme_vietnamese_action_},
+           {"tibetan", &scheme_tibetan_action_}, {"stroke", &scheme_stroke_action_}}) {
     const bool offered = id == "cantonese" ? cantonese
                          : id == "zhuyin"  ? zhuyin
                          : id == "stroke"  ? stroke
@@ -8429,15 +8473,13 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   for (auto *action : toolbar_entries_)
     toolbar_menu_.removeAction(action);
   toolbar_entries_.clear();
-  toolbar_entries_.reserve(8);
+  toolbar_entries_.reserve(17);
   if (!ic) return;
   const auto *state = ic->propertyFor(&factory_);
   if (!state->session_) return;
   const auto toolbar = state->preferences_.value("floating_toolbar", Json::object());
   if (!toolbar.value("enabled", true)) return;
-  // The mode entry is always present, as it is on Windows and on the IBus host;
-  // the rest follow their own switch. The defaults match those two hosts, which is
-  // why the screen keyboard is the one that starts hidden.
+  // 按钮的顺序和默认开关与 macOS 悬浮工具栏相同（FloatingToolbarPanel.mm；默认值见 preferences.rs 的 FloatingToolbarPreferences）：中英文一项总在，表情、手写、屏幕键盘和语音默认关。之后是 macOS 齿轮菜单里的宣传、官网、帮助、关于与反馈。条目就是状态区里的同一个动作，不是副本。
   const auto append = [&](bool present, fcitx::Action *action) {
     if (!present) return;
     toolbar_menu_.addAction(action);
@@ -8445,12 +8487,21 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   };
   append(true, &input_mode_action_);
   append(toolbar.value("english_mode", true), &english_action_);
-  append(toolbar.value("fullwidth", true), &width_action_);
+  append(toolbar.value("input_scheme", true), &scheme_action_);
   append(toolbar.value("punctuation", true), &chinese_punctuation_action_);
+  append(toolbar.value("fullwidth", true), &width_action_);
   append(toolbar.value("character_set", true), &traditional_action_);
-  append(toolbar.value("emoji", true), &desktop_emoji_action_);
+  append(toolbar.value("emoji", false), &desktop_emoji_action_);
+  append(MSIME_EDITION_HANDWRITING != 0 && toolbar.value("handwriting", false), &handwriting_action_);
   append(toolbar.value("screen_keyboard", false), &keyboard_action_);
+  append(toolbar.value("voice", false) && state->voice_enabled_, &voice_action_);
   append(toolbar.value("settings", true), &settings_action_);
+  append(true, &toolbar_separator_);
+  append(true, &promotion_action_);
+  append(true, &website_action_);
+  append(true, &help_action_);
+  append(true, &about_action_);
+  append(true, &feedback_action_);
 }
 
 class FcitxFactory : public fcitx::AddonFactory {

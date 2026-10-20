@@ -2336,18 +2336,17 @@ int main(int argc, char **argv) {
     seen = Observation{};
     invoke("FocusIn");
     {
-      // The top of the menu follows the design order: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
+      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。
       const std::vector<std::string> design{
-          "InputMode", "Separator/Mode", "CharacterMode", "Punctuation",
-          "CandidateTranslations", "Separator/Switches", "Scheme", "Separator/Scheme", "GlobalTheme",
-          "DesktopTools/Dictionary", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design"};
+          "InputMode", "EnglishMode", "Separator/Mode", "TraditionalOutput", "CharacterMode", "Punctuation",
+          "CandidateTranslations", "Separator/Switches", "Scheme", "GlobalTheme", "Separator/Scheme",
+          "DesktopTools/ToolbarEnabled", "LinuxToolbar", "DesktopTools/Emoji", "DesktopTools/CloudClipboard",
+          "DesktopTools/CloudDictionary", "DesktopTools/Keyboard", "DesktopTools/Handwriting", "VoiceInput",
+          "VoiceCancel", "Separator/Tools", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design",
+          "DesktopTools/Dictionary"};
       require(seen.registered_keys.size() > design.size() &&
                   std::equal(design.begin(), design.end(), seen.registered_keys.begin()),
-              "IBus properties were not registered in the design menu order");
-      // 中文/英文 is the Shift toggle alone; the Engine's dedicated English mode is nested in 输入选项.
-      require(std::find(seen.registered_keys.begin(), seen.registered_keys.end(), "EnglishMode") ==
-                  seen.registered_keys.end(),
-              "Dedicated English mode was registered beside the design menu's 中文/英文");
+              "IBus properties were not registered in the macOS menu order");
     }
     {
       const auto panel_marker = root / "panel-launches.log";

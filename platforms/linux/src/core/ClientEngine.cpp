@@ -21,6 +21,7 @@
 #include "GlobalTheme.h"
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
+#include "MenuLabels.h"
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
@@ -1244,6 +1245,17 @@ std::string effective_scheme(const State &s) {
       s.scheme_override.value_or(preferences.value("scheme", std::string("quanpin"))),
       preferences.value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
 }
+// 本版本提供、这台机器上也能运行的方案（粤拼、注音、笔画要有词库）。菜单和工具栏只列这些。
+bool scheme_offered(std::string_view scheme) {
+  return msime::linux_host::input_scheme_available(scheme, configured_dictionaries);
+}
+// 方案在菜单里的名字：双拼带当前键位方案，五笔带码表版本，与 macOS 一致（MenuLabels.h）。
+std::string scheme_title(const State &s, std::string_view scheme) {
+  const auto &preferences = configured.at("preferences");
+  return msime::linux_host::scheme_menu_title(
+      scheme, s.shuangpin_profile_override.value_or(preferences.value("shuangpin_profile", std::string("xiaohe"))),
+      preferences.value("wubi_profile", std::string("wubi86")));
+}
 // 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
   return context.is_object() &&
@@ -1523,26 +1535,28 @@ bool restart_ibus_service() {
   return started != FALSE;
 }
 
+// 一个面板入口在菜单里的位置。Top 是 macOS 输入法菜单中间那组工具（表情、云剪贴板、云词库、屏幕键盘、手写），Footer 是菜单末尾的设置和关于，Extra 是 macOS 菜单里没有、Linux 放在顶层 macOS 那部分之后的入口（词库…），Tools 收在「桌面工具」子菜单里。键不随位置变，激活与按键更新都不受影响。
+enum class DesktopPanelSlot { Top, Footer, Extra, Tools };
 struct DesktopPanelAction {
   const char *property;
   const char *panel;
   const char *label;
-  // Drawn at the top level of the design menu (主题 / 词库… / 设置… / 关于) instead of inside 桌面工具; the key is the same either way, so activation does not depend on where the entry sits.
-  bool design_menu;
+  DesktopPanelSlot slot;
 };
+// 同一位置内按 macOS 菜单的顺序排列。
 constexpr DesktopPanelAction desktop_panel_actions[] = {
-    {"DesktopTools/Handwriting", "handwriting", "手写识别板", false},
-    {"DesktopTools/Keyboard", "keyboard", "屏幕键盘", false},
-    {"DesktopTools/Emoji", "emoji", "表情与符号", false},
-    {"DesktopTools/Clipboard", "clipboard", "本地剪贴板", false},
-    {"DesktopTools/Voice", "voice", "语音面板", false},
-    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词库", false},
-    {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板", false},
-    {"DesktopTools/Dictionary", "dictionary", "词库…", true},
-    {"DesktopTools/Settings", "settings", "设置…", true},
-    {"DesktopTools/About", "about", "关于" MSIME_EDITION_DISPLAY_NAME, true},
-    {"DesktopTools/Help", "help", "帮助", false},
-    {"DesktopTools/Feedback", "feedback", "反馈", false},
+    {"DesktopTools/Emoji", "emoji", msime::linux_host::menu_label::kEmojiPanel, DesktopPanelSlot::Top},
+    {"DesktopTools/CloudClipboard", "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard, DesktopPanelSlot::Top},
+    {"DesktopTools/CloudDictionary", "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary, DesktopPanelSlot::Top},
+    {"DesktopTools/Keyboard", "keyboard", msime::linux_host::menu_label::kScreenKeyboard, DesktopPanelSlot::Top},
+    {"DesktopTools/Handwriting", "handwriting", msime::linux_host::menu_label::kHandwriting, DesktopPanelSlot::Top},
+    {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
+    {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
+    {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
+    {"DesktopTools/Clipboard", "clipboard", msime::linux_host::menu_label::kLocalClipboard, DesktopPanelSlot::Tools},
+    {"DesktopTools/Voice", "voice", msime::linux_host::menu_label::kVoicePanel, DesktopPanelSlot::Tools},
+    {"DesktopTools/Help", "help", msime::linux_host::menu_label::kHelp, DesktopPanelSlot::Tools},
+    {"DesktopTools/Feedback", "feedback", msime::linux_host::menu_label::kFeedback, DesktopPanelSlot::Tools},
 };
 
 // 本版本是否提供这个面板。手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0，它们的安装包里也没有手写模型）既不在菜单里列出，也不打开手写识别板。
@@ -1566,10 +1580,14 @@ IBusProperty *menu_group(const char *key, const char *label, const char *tooltip
 }
 
 // Update a menu whose children are fixed, children first: IBus panels apply an update to the property with the same key and never to its sub-properties, so a radio chosen from outside the menu would otherwise stay unmarked until the next registration.
+// 子菜单里还有子菜单（工具栏里的「切换输入方案」）时同样先更新它的条目。
 void update_menu_property(IBusEngine *engine, IBusProperty *menu) {
   if (auto *items = ibus_property_get_sub_props(menu))
-    for (guint index = 0; auto *item = ibus_prop_list_get(items, index); ++index)
-      if (ibus_property_get_prop_type(item) != PROP_TYPE_SEPARATOR) ibus_engine_update_property(engine, item);
+    for (guint index = 0; auto *item = ibus_prop_list_get(items, index); ++index) {
+      if (ibus_property_get_prop_type(item) == PROP_TYPE_SEPARATOR) continue;
+      if (ibus_property_get_prop_type(item) == PROP_TYPE_MENU) update_menu_property(engine, item);
+      else ibus_engine_update_property(engine, item);
+    }
   ibus_engine_update_property(engine, menu);
 }
 
@@ -1597,17 +1615,8 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("重新读取最新设置并重试上次菜单修改"),
       can_retry && !menu_save_pending && s.focused && !s.blocked,
       menu_save_pending || can_retry, PROP_STATE_UNCHECKED, nullptr));
-  const bool toolbar_enabled = configured.at("preferences")
-      .value("floating_toolbar", Json::object()).value("enabled", true);
-  ibus_prop_list_append(items, ibus_property_new(
-      "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("工具栏"), "",
-      ibus_text_new_from_static_string("保存工具栏显示开关"),
-      s.focused && !s.blocked && !menu_save_pending &&
-          !directory.empty() && directory.front() == '/',
-      TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   for (const auto &action : desktop_panel_actions)
-    if (!action.design_menu && desktop_panel_offered(action))
+    if (action.slot == DesktopPanelSlot::Tools && desktop_panel_offered(action))
       ibus_prop_list_append(items, desktop_panel_property(engine, action));
   ibus_prop_list_append(items, ibus_property_new(
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
@@ -1623,6 +1632,36 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, items);
 }
 
+// 「显示工具栏」开关，对应 macOS 输入法菜单的「悬浮工具栏」，放在顶层工具那组的开头。键仍是 DesktopTools/ToolbarEnabled，激活走原来的保存路径。
+IBusProperty *toolbar_enabled_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const auto directory = configured.value("preferences_directory", std::string{});
+  const bool toolbar_enabled = configured.at("preferences")
+      .value("floating_toolbar", Json::object()).value("enabled", true);
+  return ibus_property_new(
+      "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kToolbarEnabled), "",
+      ibus_text_new_from_static_string("在这个菜单里显示或隐藏「工具栏」子菜单"),
+      s.focused && !s.blocked && !menu_save_pending &&
+          !directory.empty() && directory.front() == '/',
+      TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+}
+
+// 输入方案在菜单里的属性键，菜单与工具栏的方案子菜单都映射到它。
+const char *scheme_property_key(std::string_view scheme) {
+  if (scheme == "shuangpin") return "Scheme/Shuangpin";
+  if (scheme == "wubi") return "Scheme/Wubi";
+  if (scheme == "japanese") return "Scheme/Japanese";
+  if (scheme == "korean") return "Scheme/Korean";
+  if (scheme == "cantonese") return "Scheme/Cantonese";
+  if (scheme == "zhuyin") return "Scheme/Zhuyin";
+  if (scheme == "vietnamese") return "Scheme/Vietnamese";
+  if (scheme == "tibetan") return "Scheme/Tibetan";
+  if (scheme == "stroke") return "Scheme/Stroke";
+  return "Scheme/Quanpin";
+}
+
+// 工具栏子菜单，对应 macOS 悬浮工具栏：按钮的顺序和默认开关与 macOS 相同（FloatingToolbarPanel.mm，默认值见 preferences.rs 的 FloatingToolbarPreferences），其后是 macOS 工具栏齿轮菜单里的宣传、官网、帮助、关于与反馈。
 IBusProperty *toolbar_property(IBusEngine *engine) {
   const auto &s = state(engine);
   const auto toolbar = configured.at("preferences").value(
@@ -1651,23 +1690,56 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
   };
   append_toggle("Toolbar/InputMode", "中英文模式", "切换中文输入与直接输入",
                 available, s.input_enabled);
-  append_toggle("Toolbar/EnglishMode", "英文输入模式",
-                "切换 Engine 的独立英文输入模式",
+  append_toggle("Toolbar/EnglishMode", "英文候选模式",
+                "切换 Engine 的独立英文候选模式",
                 available && toolbar.value("english_mode", true) &&
                     s.input_enabled && s.session,
                 s.english_mode);
-  append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
-                available && toolbar.value("fullwidth", true), s.fullwidth);
+  // 切换输入方案：macOS 的按钮弹出与输入法菜单同一份方案菜单，这里是同样内容的子菜单；条目的键与菜单里的不同（IBus 按键找属性，键不能重复），激活时转给菜单里对应的方案。
+  if (available && toolbar.value("input_scheme", true)) {
+    auto schemes = ibus_prop_list_new();
+    const auto active = effective_scheme(s);
+    for (const char *scheme : msime::linux_host::kSchemeMenuOrder) {
+      if (!scheme_offered(scheme)) continue;
+      const auto title = scheme_title(s, scheme);
+      ibus_prop_list_append(schemes, ibus_property_new(
+          (std::string("Toolbar/InputScheme/") + scheme).c_str(), PROP_TYPE_RADIO,
+          ibus_text_new_from_string(title.c_str()), "",
+          ibus_text_new_from_static_string("切换输入方案"), !menu_save_pending, TRUE,
+          active == scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+    }
+    ibus_prop_list_append(items, ibus_property_new(
+        "Toolbar/InputScheme", PROP_TYPE_MENU,
+        ibus_text_new_from_static_string("切换输入方案"), "",
+        ibus_text_new_from_static_string("选择输入方案"), TRUE, TRUE, PROP_STATE_UNCHECKED, schemes));
+  }
   append_toggle("Toolbar/Punctuation", "中文标点", "切换中文或英文标点",
                 available && toolbar.value("punctuation", true), s.chinese_punctuation);
+  append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
+                available && toolbar.value("fullwidth", true), s.fullwidth);
   append_toggle("Toolbar/CharacterSet", "繁体输出", "切换简体或繁体输出",
                 available && toolbar.value("character_set", true), s.traditional_output);
-  append_action("Toolbar/Emoji", "表情与符号", "打开 Emoji、颜文字和符号面板",
-                available && toolbar.value("emoji", true));
-  append_action("Toolbar/ScreenKeyboard", "屏幕键盘", "打开屏幕键盘面板",
+  // 表情、手写、屏幕键盘和语音四个按钮默认关，与共享默认值（preferences.rs）一致。
+  append_action("Toolbar/Emoji", msime::linux_host::menu_label::kEmojiPanel, "打开 Emoji、颜文字和符号面板",
+                available && toolbar.value("emoji", false));
+  append_action("Toolbar/Handwriting", msime::linux_host::menu_label::kHandwriting, "打开手写识别板",
+                available && MSIME_EDITION_HANDWRITING != 0 && toolbar.value("handwriting", false));
+  append_action("Toolbar/ScreenKeyboard", msime::linux_host::menu_label::kScreenKeyboard, "打开屏幕键盘面板",
                 available && toolbar.value("screen_keyboard", false));
-  append_action("Toolbar/Settings", "设置", "打开" MSIME_EDITION_DISPLAY_NAME "设置",
+  append_toggle("Toolbar/Voice", msime::linux_host::menu_label::kVoice, "开始录音，再点一次结束录音并上屏",
+                available && toolbar.value("voice", false) && s.voice_enabled &&
+                    !s.voice_provider_socket.empty(),
+                s.voice_active);
+  append_action("Toolbar/Settings", "打开设置…", "打开" MSIME_EDITION_DISPLAY_NAME "设置",
                 available && toolbar.value("settings", true));
+  if (available) {
+    ibus_prop_list_append(items, menu_separator("Toolbar/Separator"));
+    append_action("Toolbar/Promotion", msime::linux_host::menu_label::kPromotion, "在光标处插入一段水杉输入法介绍", true);
+    append_action("Toolbar/Website", msime::linux_host::menu_label::kWebsite, "在浏览器中打开水杉输入法官网", true);
+    append_action("Toolbar/Help", msime::linux_host::menu_label::kHelp, "打开设置里的帮助", true);
+    append_action("Toolbar/About", msime::linux_host::menu_label::kAbout, "打开设置里的关于页", true);
+    append_action("Toolbar/Feedback", msime::linux_host::menu_label::kFeedback, "打开设置里的问题反馈", true);
+  }
   return ibus_property_new(
       "LinuxToolbar", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("工具栏"), "",
@@ -2857,7 +2929,7 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   const auto scheme = effective_scheme(s);
   auto *property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("中文"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kChineseInput), "",
       ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
                                                        : "直接输入（不转换）"),
       s.focused && !s.blocked, TRUE,
@@ -2889,7 +2961,7 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
   // Linux settings launcher, which hosts the shared settings surface.
   return ibus_property_new(
       "DesktopTools/Settings", PROP_TYPE_NORMAL,
-      ibus_text_new_from_static_string("设置"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kSettings), "",
       ibus_text_new_from_static_string("打开" MSIME_EDITION_DISPLAY_NAME "设置"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
@@ -2973,7 +3045,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
              ? std::string("录音已锁定") : s.voice_phase)
-      : std::string("语音输入");
+      : std::string(msime::linux_host::menu_label::kVoice);
   auto voice = ibus_property_new(
       "VoiceInput", PROP_TYPE_TOGGLE,
       ibus_text_new_from_string(voice_label.c_str()), "",
@@ -3038,7 +3110,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(translation_language, translation_language_menu);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kChinesePunctuation), "",
       ibus_text_new_from_static_string("切换中文或英文标点"),
       s.focused && !s.blocked && s.input_enabled && s.session && !menu_save_pending, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
@@ -3085,7 +3157,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(punctuation_lock, punctuation_lock_menu);
   auto character_mode = ibus_property_new(
       "CharacterMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kFullwidth), "",
       ibus_text_new_from_static_string("切换 ASCII 全角或半角输出"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
@@ -3099,14 +3171,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       nullptr);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("英文候选"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kMixedEnglish), "",
       ibus_text_new_from_static_string("在中文方案中补充英文候选"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       english_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto english_mode = ibus_property_new(
       "EnglishMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("英文输入模式"), "",
-      ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kEnglishCandidateMode), "",
+      ibus_text_new_from_static_string("切换 Engine 的独立英文候选模式"),
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
@@ -3471,11 +3543,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(theme_menu, item);
   }
   ibus_property_set_sub_props(theme_property, theme_menu);
-  // Named after the entry drawn, as the Fcitx5 主题 action is and as the design's 主题 shows the current theme beside it.
+  // 这一行带上当前主题的名字，写法与 macOS 的「主题（水杉）」相同。
   const auto *current_theme = msime::linux_host::find_theme_choice(themes, global_theme);
   auto global_theme_property = ibus_property_new(
       "GlobalTheme", PROP_TYPE_MENU,
-      ibus_text_new_from_string(current_theme ? ("主题：" + current_theme->title).c_str() : "主题"), "",
+      ibus_text_new_from_string(msime::linux_host::menu_heading(
+          msime::linux_host::menu_label::kTheme, current_theme ? current_theme->title : std::string()).c_str()), "",
       ibus_text_new_from_static_string("选择候选窗口、菜单与工具栏的主题"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto global_theme_menu = ibus_prop_list_new();
@@ -3487,19 +3560,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
         !menu_save_pending, TRUE,
         global_theme == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   ibus_property_set_sub_props(global_theme_property, global_theme_menu);
-  // 输入语言（日文、韩文、越南文、藏文）只列本版本提供的；一个都没有时（五笔版、拼音版）也不列「中文」和分隔线，菜单里只剩中文方案。
-  const std::tuple<const char *, const char *, const char *, const char *, bool> scheme_languages[] = {
-      {"japanese", "Scheme/Japanese", "日文", "使用日语罗马字方案", japanese_scheme},
-      {"korean", "Scheme/Korean", "韩文", "使用韩语两套式方案", korean_scheme},
-      {"vietnamese", "Scheme/Vietnamese", "越南文", "使用越南语输入方案", vietnamese_scheme},
-      {"tibetan", "Scheme/Tibetan", "藏文", "使用藏文威利转写方案", tibetan_scheme}};
+  // 输入语言（日语、韩语、越南语、藏文）只列本版本提供的；一个都没有时（五笔版、拼音版）也不列「中文」和分隔线，菜单里只剩中文方案。名字与 macOS 子菜单相同（MenuLabels.h），两组内部都按 Engine 的方案顺序排。macOS 是一个不分组的单选列表；这里保留「中文」一行（回到上次用的中文方案）和两组单选，去掉它要先定产品行为。
+  const std::tuple<const char *, const char *, const char *, bool> scheme_languages[] = {
+      {"japanese", "Scheme/Japanese", "使用日语罗马字方案", japanese_scheme},
+      {"korean", "Scheme/Korean", "使用韩语两套式方案", korean_scheme},
+      {"vietnamese", "Scheme/Vietnamese", "使用越南语输入方案", vietnamese_scheme},
+      {"tibetan", "Scheme/Tibetan", "使用藏文威利转写方案", tibetan_scheme}};
   bool scheme_languages_offered = false;
   for (const auto &language : scheme_languages)
     scheme_languages_offered = scheme_languages_offered || msime::linux_host::edition_offers_scheme(std::get<0>(language));
+  // 这一行带上正在用的方案的名字，与 macOS 的「输入方案（双拼（小鹤））」相同。
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("输入方案"), "",
-      ibus_text_new_from_static_string(scheme_languages_offered ? "选择中文、日文、韩文、越南文或藏文输入方案"
+      ibus_text_new_from_string(msime::linux_host::menu_heading(
+          msime::linux_host::menu_label::kScheme, scheme_title(s, active_scheme)).c_str()), "",
+      ibus_text_new_from_static_string(scheme_languages_offered ? "选择中文、日语、韩语、越南语或藏文输入方案"
                                                                 : "选择中文输入方案"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto scheme_menu = ibus_prop_list_new();
@@ -3509,11 +3584,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
         ibus_text_new_from_static_string("中文"), "",
         ibus_text_new_from_static_string("使用当前中文方案"), !menu_save_pending, TRUE,
         chinese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
-    for (const auto &[value, name, label, tooltip, checked] : scheme_languages) {
+    for (const auto &[value, name, tooltip, checked] : scheme_languages) {
       if (!msime::linux_host::edition_offers_scheme(value)) continue;
       ibus_prop_list_append(scheme_menu, ibus_property_new(
           name, PROP_TYPE_RADIO,
-          ibus_text_new_from_static_string(label), "",
+          ibus_text_new_from_string(scheme_title(s, value).c_str()), "",
           ibus_text_new_from_static_string(tooltip), !menu_save_pending, TRUE,
           checked ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
     }
@@ -3521,19 +3596,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
   }
   // Cantonese, Zhuyin and Stroke are offered only when their dictionary is installed: host-api would fall back from each of them without it.
-  // 五笔一项跟随存储的码表版本显示「86 五笔」或「98 五笔」。
-  const char *wubi_label = msime::linux_host::wubi_scheme_label(
-      configured.at("preferences").value("wubi_profile", std::string("wubi86")));
-  for (const auto &[value, name, label] : {std::tuple{"quanpin", "Scheme/Quanpin", "全拼"},
-                                           std::tuple{"shuangpin", "Scheme/Shuangpin", "双拼"},
-                                           std::tuple{"wubi", "Scheme/Wubi", wubi_label},
-                                           std::tuple{"cantonese", "Scheme/Cantonese", "粤拼"},
-                                           std::tuple{"zhuyin", "Scheme/Zhuyin", "注音"},
-                                           std::tuple{"stroke", "Scheme/Stroke", "笔画"}}) {
-    if (!msime::linux_host::input_scheme_available(value, configured_dictionaries)) continue;
+  for (const char *value : msime::linux_host::kSchemeMenuOrder) {
+    if (!msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(value)) || !scheme_offered(value)) continue;
     auto item = ibus_property_new(
-        name, PROP_TYPE_RADIO,
-        ibus_text_new_from_static_string(label), "",
+        scheme_property_key(value), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(scheme_title(s, value).c_str()), "",
         ibus_text_new_from_static_string("直接选择中文输入方案"), !menu_save_pending, TRUE,
         chinese_scheme && active_scheme == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
@@ -3560,32 +3627,43 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(profile_menu, item);
   }
   ibus_property_set_sub_props(profile, profile_menu);
-  // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于, then the tools that depend on the moment (voice, candidate actions, nine-key spellings, clipboard history) and the three option groups holding every other switch. 中文/英文 is the one InputMode toggle Shift flips, labelled 中文 and checked while letters compose; the Engine's dedicated English mode (EnglishMode, Ctrl+Shift+E) is a different feature and sits in 输入选项 beside 英文候选. Nesting keeps each key, so activation and the by-key updates below do not change.
-  std::vector<IBusProperty *> design_panel_actions;
-  design_panel_actions.reserve(3);
-  for (const auto &action : desktop_panel_actions)
-    if (action.design_menu) design_panel_actions.push_back(desktop_panel_property(engine, action));
+  // 顶层按 macOS 输入法菜单的顺序排（InputController.mm 的 `menu`）：中文输入、英文候选模式；繁体输出、全角字符、中文标点、显示译文；输入方案、主题；显示工具栏（与紧跟的「工具栏」子菜单）、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于。各组之间用分隔线隔开。macOS 的「中文输入」「英文输入」是一对单选，这里仍是一个 InputMode 开关（勾选即中文）：它同时是面板显示 中/英 的那个属性，激活协议也被面板和测试依赖。macOS 菜单之后才是 Linux 独有的入口：词库…、随会话变化的候选操作、九键拼音和剪贴板，再是三个选项子菜单和「桌面工具」。嵌套不改变键，激活与下面按键更新都不受影响。
+  std::vector<IBusProperty *> top_panel_actions, footer_panel_actions, extra_panel_actions;
+  for (const auto &action : desktop_panel_actions) {
+    if (!desktop_panel_offered(action)) continue;
+    if (action.slot == DesktopPanelSlot::Top) top_panel_actions.push_back(desktop_panel_property(engine, action));
+    else if (action.slot == DesktopPanelSlot::Footer) footer_panel_actions.push_back(desktop_panel_property(engine, action));
+    else if (action.slot == DesktopPanelSlot::Extra) extra_panel_actions.push_back(desktop_panel_property(engine, action));
+  }
+  auto toolbar_enabled = toolbar_enabled_property(engine);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
+    ibus_prop_list_append(properties, english_mode);
     ibus_prop_list_append(properties, menu_separator("Separator/Mode"));
+    ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, translations);
     ibus_prop_list_append(properties, menu_separator("Separator/Switches"));
     ibus_prop_list_append(properties, scheme);
-    ibus_prop_list_append(properties, menu_separator("Separator/Scheme"));
     ibus_prop_list_append(properties, global_theme_property);
-    for (auto *action : design_panel_actions) ibus_prop_list_append(properties, action);
-    ibus_prop_list_append(properties, menu_separator("Separator/Design"));
+    ibus_prop_list_append(properties, menu_separator("Separator/Scheme"));
+    ibus_prop_list_append(properties, toolbar_enabled);
+    ibus_prop_list_append(properties, toolbar);
+    for (auto *action : top_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, voice_cancel_property);
+    ibus_prop_list_append(properties, menu_separator("Separator/Tools"));
+    for (auto *action : footer_panel_actions) ibus_prop_list_append(properties, action);
+    ibus_prop_list_append(properties, menu_separator("Separator/Design"));
+    for (auto *action : extra_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, nine_key_spellings_property);
     ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, menu_group(
         "Group/Input", "输入选项", "方案细节、混合候选与按键选项",
-        {profile, helpcode_property, helpcode_schema, traditional, english, english_mode, symbol_candidates_property, emoji, kaomoji, cloud,
+        {profile, helpcode_property, helpcode_schema, english, symbol_candidates_property, emoji, kaomoji, cloud,
          nine_key_property, number_row_property, word_character_property, local_modes_property}));
     ibus_prop_list_append(properties, menu_group(
         "Group/Punctuation", "标点与翻译", "标点细节与候选翻译",
@@ -3597,7 +3675,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
          wubi_code_hint_property, wubi_auto_commit_unique_property,
          menu_separator("Group/Candidate/Separator"), learning_property,
          frequency_property, frequency_trigger_property, frequency_step_property}));
-    ibus_prop_list_append(properties, toolbar);
     ibus_prop_list_append(properties, desktop_tools_property(engine));
     ibus_engine_register_properties(engine, properties);
   } else {
@@ -3608,7 +3685,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, translations);
     update_menu_property(engine, scheme);
     update_menu_property(engine, global_theme_property);
-    for (auto *action : design_panel_actions) ibus_engine_update_property(engine, action);
+    ibus_engine_update_property(engine, toolbar_enabled);
+    for (auto *list : {&top_panel_actions, &footer_panel_actions, &extra_panel_actions})
+      for (auto *action : *list) ibus_engine_update_property(engine, action);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, voice_cancel_property);
     ibus_engine_update_property(engine, candidate_actions(engine));
@@ -3644,7 +3723,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, frequency_trigger_property);
     ibus_engine_update_property(engine, frequency_step_property);
-    ibus_engine_update_property(engine, toolbar);
+    update_menu_property(engine, toolbar);
     ibus_engine_update_property(engine, desktop_tools_property(engine));
   }
 }
@@ -4961,6 +5040,13 @@ void focus_out(IBusEngine *engine) {
     publish_mode(engine);
   });
 }
+// 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（kPromotionText），不改动用户常用语。Ctrl+Shift+P 和工具栏菜单项共用。
+void commit_promotion(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.session && !s.view.at("editing_text").get<std::string>().empty())
+    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+  commit_text(engine, msime::linux_host::kPromotionText, msime::linux_host::TypingSource::Local);
+}
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   const std::string candidate_name = name ? name : "";
   if (candidate_name == "InputEnabled" || candidate_name == "ChinesePunctuation" ||
@@ -5111,16 +5197,33 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name.rfind("Toolbar/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
-    if (property_name == "Toolbar/Emoji") {
-      launch_desktop_panel("emoji");
+    for (const auto &[key, panel] : {std::pair{"Toolbar/Emoji", "emoji"}, std::pair{"Toolbar/ScreenKeyboard", "keyboard"},
+                                     std::pair{"Toolbar/Handwriting", "handwriting"}, std::pair{"Toolbar/Settings", "settings"},
+                                     std::pair{"Toolbar/Help", "help"}, std::pair{"Toolbar/About", "about"},
+                                     std::pair{"Toolbar/Feedback", "feedback"}}) {
+      if (property_name != key) continue;
+      if (std::string_view(panel) == "handwriting" && MSIME_EDITION_HANDWRITING == 0) return;
+      if (!launch_desktop_panel(panel))
+        g_warning("Cannot start MSIME desktop panel launcher");
       return;
     }
-    if (property_name == "Toolbar/ScreenKeyboard") {
-      launch_desktop_panel("keyboard");
+    if (property_name == "Toolbar/Promotion") {
+      guarded(engine, "toolbar_promotion", [&] { commit_promotion(engine); });
       return;
     }
-    if (property_name == "Toolbar/Settings") {
-      launch_desktop_panel("settings");
+    if (property_name == "Toolbar/Website") {
+      GError *error = nullptr;
+      if (!g_app_info_launch_default_for_uri(msime::linux_host::kWebsiteUrl, nullptr, &error))
+        g_warning("Cannot open %s", msime::linux_host::kWebsiteUrl);
+      if (error) g_error_free(error);
+      return;
+    }
+    // 工具栏的方案子菜单转给菜单里同一个方案的属性，走同一条保存路径。
+    if (property_name.rfind("Toolbar/InputScheme/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED) return;
+      const auto scheme = property_name.substr(std::string("Toolbar/InputScheme/").size());
+      if (!scheme_offered(scheme)) return;
+      property_activate(engine, scheme_property_key(scheme), PROP_STATE_CHECKED);
       return;
     }
     const char *target =
@@ -5129,6 +5232,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         : property_name == "Toolbar/Fullwidth" ? "CharacterMode"
         : property_name == "Toolbar/Punctuation" ? "Punctuation"
         : property_name == "Toolbar/CharacterSet" ? "TraditionalOutput"
+        : property_name == "Toolbar/Voice" ? "VoiceInput"
         : nullptr;
     if (target && (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED))
       property_activate(engine, target, value);
@@ -6466,11 +6570,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const guint promotion_stroke = keycode != 0 ? keycode : 0x80000000u | static_cast<guint>('p');
   if (promotion_shortcut) {
     s.host_shortcut_strokes.insert(promotion_stroke);
-    guarded(engine, "process_key", [&] {
-      if (s.session && !s.view.at("editing_text").get<std::string>().empty())
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      commit_text(engine, "水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime", msime::linux_host::TypingSource::Local);
-    });
+    guarded(engine, "process_key", [&] { commit_promotion(engine); });
     return TRUE;
   }
 

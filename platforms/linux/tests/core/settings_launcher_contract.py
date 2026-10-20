@@ -13,7 +13,7 @@ root = Path(__file__).resolve().parents[2]
 launcher = (root / "data/msime-linux-settings.in").read_text()
 desktop = (root / "data/msime-linux.desktop.in").read_text()
 engine = (root / "src/core/ClientEngine.cpp").read_text()
-assert "about|help|feedback|dictionary) route=settings:$2" in launcher
+assert "account|about|help|feedback|dictionary) route=settings:$2" in launcher
 assert "Desktop Action Dictionary" in desktop
 assert "--panel dictionary" in desktop
 # The route travels only as the desktop shell's --route argument. A settings section must travel as "settings:<category>": the bare section name is not a route head, so the shared parser would reject it and the desktop shell would fall back to its default page.
@@ -97,7 +97,8 @@ with tempfile.TemporaryDirectory() as scratch:
             text=True,
         ).stdout
 
-    for page in ("about", "help", "feedback", "dictionary"):
+    # account 与 macOS 的账号入口一样打开设置里的账号页。
+    for page in ("account", "about", "help", "feedback", "dictionary"):
         assert launched_panel(page) == f"--route=settings:{page}", page
     assert launched_panel("handwriting") == "--route=handwriting"
     # A host's own --route argument reaches the shell untouched.
