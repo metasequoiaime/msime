@@ -29,7 +29,11 @@ const music: PluginPackage = {
   builtin: false,
   tracks: ["合成曲目"],
 };
-function mount(packages = [sound, music], overrides: Partial<PluginClient> = {}) {
+function mount(
+  packages = [sound, music],
+  overrides: Partial<PluginClient> = {},
+  platform: "macos" | "linux" | "windows" = "macos",
+) {
   const client: PluginClient = {
     catalog: vi.fn(async () => ({ packages, issues: [] })),
     importPack: vi.fn(async () => null),
@@ -40,7 +44,7 @@ function mount(packages = [sound, music], overrides: Partial<PluginClient> = {})
   };
   const view = render(
     <PluginsSection
-      platform="macos"
+      platform={platform}
       client={client}
       preferences={{
         ...defaultPluginPreferences,
@@ -136,4 +140,15 @@ test("删除当前分类最后一个插件后回到全部，焦点仍留在可�
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "声音与效果" })),
   );
+});
+
+test("Linux 与 macOS 一样用可筛选的插件库，Windows 仍是按类型分组的列表", async () => {
+  const linux = mount([sound, music], {}, "linux");
+  await screen.findByRole("button", { name: sound.name });
+  expect(screen.getByRole("group", { name: "已安装插件类型" })).toBeTruthy();
+  expect(screen.getByRole("searchbox", { name: "搜索已安装插件" })).toBeTruthy();
+  linux.unmount();
+  mount([sound, music], {}, "windows");
+  await screen.findByRole("button", { name: new RegExp(sound.name) });
+  expect(screen.queryByRole("searchbox", { name: "搜索已安装插件" })).toBeNull();
 });

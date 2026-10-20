@@ -547,8 +547,11 @@ export function PluginsSection({
     }
     return (
       <PluginListView
+        // macOS 和 Linux 都用可筛选的卡片插件库；Linux 的配色由 GNOME 平台 token 决定。
         library={
-          platform === "macos" ? { filter: libraryFilter, onFilter: setLibraryFilter } : undefined
+          platform === "macos" || platform === "linux"
+            ? { filter: libraryFilter, onFilter: setLibraryFilter }
+            : undefined
         }
         hasClient={Boolean(client)}
         catalog={catalog}

@@ -151,3 +151,35 @@ test("语音等待按键完成，打开时不再发送，关闭失败后恢复�
   expect(sendKey).toHaveBeenCalledTimes(2);
   expect(result.current.notice).toBe("已发送：b");
 });
+
+test("Linux 键盘与 macOS 一样先给出操作说明，Win 键叫 Super，失败说明按宿主错误码给出", async () => {
+  const sendKey = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "unavailable" })
+    .mockRejectedValueOnce({ code: "invalid_key" })
+    .mockResolvedValue(undefined);
+  const client = { close: async () => {}, sendKey };
+  const { result } = renderHook(() => useKeyboardPanel({ client, platform: "linux" }));
+  expect(result.current.notice).toBe("先点击目标应用的输入框，再点击这里的按键");
+  const labels = result.current.rows.flat().map((key) => key.label);
+  expect(labels).toContain("Super");
+  expect(labels).not.toContain("Win");
+  await act(async () => result.current.pressKey(a));
+  expect(result.current.notice).toContain("找不到可接收按键的输入位置");
+  await act(async () => result.current.pressKey(a));
+  expect(result.current.notice).toBe("这个按键无法在当前桌面上发送，后续排队按键已取消");
+  const superKey = result.current.rows.flat().find((key) => key.label === "Super")!;
+  act(() => result.current.pressKey(superKey));
+  await act(async () => result.current.pressKey(a));
+  expect(sendKey).toHaveBeenLastCalledWith(
+    expect.objectContaining({ modifiers: expect.objectContaining({ win: true }) }),
+  );
+  expect(result.current.notice).toBe("已发送：Super+a");
+});
+
+test("Windows 键盘仍叫 Win，标题栏保持原来的占位", () => {
+  const client = { close: async () => {} };
+  const { result } = renderHook(() => useKeyboardPanel({ client, platform: "windows" }));
+  expect(result.current.notice).toBe("Touch keyboard");
+  expect(result.current.rows.flat().map((key) => key.label)).toContain("Win");
+});

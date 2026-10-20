@@ -66,6 +66,7 @@ export function SettingsPreferencesForm({
     error,
     mobilePlatform,
     macosPlatform,
+    linuxPlatform,
     iosPlatform,
     androidPlatform,
     handwritingOnScreenKeyboardPage,
@@ -133,6 +134,7 @@ export function SettingsPreferencesForm({
             busy={busy}
             hidden={page !== "help"}
             macos={macosPlatform}
+            linux={linuxPlatform}
             mobile={mobilePlatform}
             ios={iosPlatform}
             android={androidPlatform}

@@ -11,5 +11,11 @@ export function keyboardDeliveryNotice(error: unknown, platform?: string): strin
     if (code === "input_target_changed")
       return "输入位置已变化，本次按键未发送：请点击目标输入框后重新输入";
   }
+  if (platform === "linux") {
+    // Linux 宿主只报这两种：找不到能接收按键的输入位置（没有 xdotool、wtype、ydotool，也没有正在运行的水杉输入法），或这个键在当前桌面上发不出去。
+    if (code === "unavailable")
+      return "找不到可接收按键的输入位置：请先点击目标应用的输入框；X11 需要 xdotool，Wayland 需要 wtype、ydotool 或正在使用的水杉输入法";
+    if (code === "invalid_key") return "这个按键无法在当前桌面上发送，后续排队按键已取消";
+  }
   return "按键发送失败，后续排队按键已取消，请确认输入位置后继续";
 }

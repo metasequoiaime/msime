@@ -68,3 +68,20 @@ test("hides the page when requested", () => {
   const { container } = render(<HelpSettingsPage {...common} hidden />);
   expect(container.querySelector("fieldset")?.getAttribute("hidden")).not.toBeNull();
 });
+
+test("Linux 也用术语卡片，键名和排查步骤是 Linux 的，并提供打开官网", () => {
+  const onOpenDocumentation = vi.fn();
+  render(<HelpSettingsPage {...common} linux onOpenDocumentation={onOpenDocumentation} />);
+
+  const start = screen.getByRole("group", { name: "开始输入" });
+  expect(start.textContent).toContain("Ctrl+Shift+F");
+  expect(start.textContent).not.toContain("Option");
+  const problems = screen.getByRole("group", { name: "遇到问题" });
+  expect(problems.textContent).toContain("fcitx5-configtool");
+  expect(problems.textContent).toContain("ibus restart");
+  expect(problems.textContent).toContain("Ctrl+Shift+Alt+R");
+  // 散文版的「快速上手」不再出现，macOS 那一行「打开官网」也给 Linux。
+  expect(screen.queryByText("快速开始")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开官网" }));
+  expect(onOpenDocumentation).toHaveBeenCalledOnce();
+});
