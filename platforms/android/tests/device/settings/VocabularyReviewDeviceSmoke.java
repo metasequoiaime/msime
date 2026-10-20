@@ -63,7 +63,7 @@ public final class VocabularyReviewDeviceSmoke extends Instrumentation {
             require(!rawCall(state, resources, new JSONObject().put("operation", "remove").put("wordbook", "cet4"))
                 .optBoolean("ok", true), "内置词书被删掉了");
 
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: bundled wordbooks extracted, listed through JNI and answered\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
             result.putString("stream", "MSIME_VOCABULARY_REVIEW_FAILED at " + stage + ": "
