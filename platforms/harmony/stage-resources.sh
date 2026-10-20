@@ -52,6 +52,13 @@ mkdir -p "$sound_packs_staged"
 cp -R resources/sound-packs/. "$sound_packs_staged/"
 echo "Sound packs staged for the HAP: $sound_packs_staged"
 
+# 表情面板里的水杉娘表情包（66 张透明 WebP 加 manifest.json），iOS 与 Android 打包的是同一份。与音效包一样放在 engine 目录旁边，resfile 会把它解压到 context.resourceDir/stickers/shuishan，键盘的 MascotStickerStore 从那里读清单，ArkUI Image 直接按沙箱路径加载图片。
+stickers_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/stickers/shuishan"
+rm -rf "$stickers_staged"
+mkdir -p "$stickers_staged"
+cp -R resources/stickers/shuishan/. "$stickers_staged/"
+echo "Mascot stickers staged for the HAP: $stickers_staged"
+
 # Optional non-English candidate glosses built by scripts/build_offline_glosses.py. They sit beside the engine directory rather than in it, which the lock check above would reject; the keyboard copies them next to its copy of the resources, where the Engine looks for one zh-<lang>.db per target language. Without them only English is glossed offline.
 glosses_source=${2:-$repo_root/target/offline-glosses}
 glosses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/offline-glosses"

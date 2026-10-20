@@ -51,6 +51,7 @@ import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { HardwareKeyTarget } from './HardwareKeyDispatch';
 import { EmojiPanelKey } from './emoji/EmojiPanelKeyPolicy';
+import { MascotStickerStore } from './emoji/MascotStickerStore';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
@@ -1213,6 +1214,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Key, melody, commit and achievement sounds. Configured off on a phone, which keeps its own key feedback.
   private readonly soundPlayer: KeySoundPlayer = new KeySoundPlayer();
   private readonly musicPlayer: MusicPlayer = new MusicPlayer();
+  /** 表情面板里随包的水杉娘表情包；扩展在创建时用自己的 `resourceDir` 配置它，见 `MascotStickerStore.use`。 */
+  readonly mascotStickers: MascotStickerStore = new MascotStickerStore();
   /** The typing effect and combo settings the preferences ask for; off on a phone, as the sounds are. */
   private typingEffectPreferences: TypingEffectSettings = TYPING_EFFECTS_OFF;
   /** `typingEffectPreferences` with the selected effect pack resolved by host-api: what is drawn. */
