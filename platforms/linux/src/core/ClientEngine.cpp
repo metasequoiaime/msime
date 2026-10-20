@@ -8519,11 +8519,13 @@ void key_down(IBusEngine *engine, guint key, guint flags) {
     guarded(engine, "key_down", [&] { s.open(); });
   if (!s.session || !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
+  // 自动重复的按下不交给生命周期核心：不出按键音、不画特效、不开新的一轮，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同。按住退格或空格时只在第一次按下响一声。
+  if (s.key_repeat.press(key))
+    return;
   s.report_field_traits();
   // Linux 只显示打字特效里的连击数，在候选辅助行的末尾。
   s.typing_combo = msime::linux_host::typing_effect_combo(msime_client_key(
-      s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key),
-                                                  s.key_repeat.press(key))));
+      s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key), false)));
 }
 // 引擎处理完这个键之后：焦点、录音这些状态已经定下来，同步背景音乐。连击数变了就用面板手里的那一页单独重画辅助行，这个键交给了应用、没有经过 render 时也一样。
 void key_settled(IBusEngine *engine, uint32_t combo_before) {

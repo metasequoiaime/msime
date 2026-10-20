@@ -231,8 +231,10 @@ assert ibus_key_event.index("process_key(engine, key, keycode, flags)") < ibus_k
 for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")):
     traits = "syncFieldTraits();" if "syncFieldTraits" in key_down else "s.report_field_traits();"
     assert key_down.index(traits) < key_down.index("msime_client_key(")
-    # 自动重复照旧出声（设计待决问题 Q3），只是带上 MSIME_KEY_REPEAT。
+    # 自动重复与 macOS 一样不交给生命周期核心：认出重复就返回，排在报告字段属性和 msime_client_key 之前。
     assert "lifecycle_key(msime::linux_host::key_sound_class(" in key_down
+    repeat = "key_repeat_.press(sym)" if "key_repeat_" in key_down else "s.key_repeat.press(key)"
+    assert key_down.index(repeat) < key_down.index(traits) < key_down.index("msime_client_key(")
     assert "key_press_sounds(" in key_down
     # 隐私字段不由宿主拦着：核心按字段属性决定静音，这样只带 NoSpellCheck 的字段才能照常出声。
     assert "privateInput()" not in key_down and "private_input" not in key_down
