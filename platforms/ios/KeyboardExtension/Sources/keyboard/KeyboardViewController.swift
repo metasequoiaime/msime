@@ -4004,6 +4004,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.image = separator ? nil : (letterCaseState == .capsLock ? Self.capsLockIcon : Self.shiftIcon)
       configuration.title = separator ? "分词" : nil
       configuration.titleTextAttributesTransformer = Self.functionLabelTransformer
+      // 默认内边距让 44pt 宽的键只剩十几点给标题，「分词」会折成两行；与 14 键的分词键一样不留内边距，图标本来就居中。
+      configuration.contentInsets = .zero
       configuration.background.backgroundColor = on ? skin.keyBackground : skin.functionKeyBackground
       configuration.baseForegroundColor = on ? skin.accent : skin.keyForeground
       button.configuration = configuration
