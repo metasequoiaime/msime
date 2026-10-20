@@ -20,6 +20,7 @@
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
 #   MSIME_REQUIRE_OFFICIAL_PLUGINS 1 refuses to package without the official plugin packs in target/plugin-packs (scripts/build-official-plugins.sh builds them; release-macos.yml sets it); otherwise the bundle carries them when they are there
+#   MSIME_REQUIRE_WORDBOOKS       1 时 target/wordbooks 里没有锁文件 resources/wordbook.lock.json 列出的全部内置词书和 wordbooks-NOTICE.txt 就不打包（python3 scripts/fetch_wordbooks.py 生成它们；release-macos.yml 和 ci-macos-package.yml 设它）；不设时有就带上，没有时背单词只列用户导入的词表
 #   CARGO_TARGET_DIR              defaults to target/ in the repository
 #   MSIME_MACOS_BUILD_DIR         CMake build tree; defaults to target/macos-release
 #   MACOS_SIGNING_IDENTITY        a "Developer ID Application: ... (TEAMID)" identity in the keychain. Without it everything is signed ad-hoc: the package builds and the settings app runs, but macOS will not register the embedded input method as an input source (see scripts/install.sh)
@@ -306,6 +307,15 @@ fi
 # 已随 host 库编好（见上面的 cargo_universal）。
 strip_executable "$universal_dir/msime-mcp"
 
+# 背单词的内置词书：要求带上时在编译之前就查，缺了不白编一遍。stage-resources.sh 把它们暂存到 target/macos/wordbooks，下面拷进设置应用的 Contents/Resources/wordbooks，即 EngineResources 的同级，设置应用按 resource_dir 读这里。
+wordbook_ids="$(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' resources/wordbook.lock.json)"
+if [ "${MSIME_REQUIRE_WORDBOOKS:-}" = 1 ]; then
+  for id in $wordbook_ids; do
+    test -f "target/wordbooks/$id.json" || { echo "MSIME_REQUIRE_WORDBOOKS is set but target/wordbooks/$id.json is missing; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
+  done
+  test -f target/wordbooks/wordbooks-NOTICE.txt || { echo "MSIME_REQUIRE_WORDBOOKS is set but target/wordbooks/wordbooks-NOTICE.txt is missing; run python3 scripts/fetch_wordbooks.py first" >&2; exit 1; }
+fi
+
 # tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.
 MSIME_EDITION=full MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
 mkdir -p target/macos
@@ -461,6 +471,11 @@ words="$repo_root/target/macos/word-glosses"
 if [ -d "$words" ]; then
   ditto "$words" "$app/Contents/Resources/word-glosses"
 fi
+# 背单词的内置词书（scripts/fetch_wordbooks.py），设置应用在 EngineResources 的同级读 wordbooks/。
+wordbooks="$repo_root/target/macos/wordbooks"
+if [ -d "$wordbooks" ]; then
+  ditto "$wordbooks" "$app/Contents/Resources/wordbooks"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -516,6 +531,12 @@ check_app() {
   fi
   if [ -d "$characters" ]; then
     test -f "$resources_dir/character-glosses/character-glosses-NOTICE.txt"
+  fi
+  if [ "${MSIME_REQUIRE_WORDBOOKS:-}" = 1 ] || [ -d "$wordbooks" ]; then
+    for id in $wordbook_ids; do
+      test -f "$resources_dir/wordbooks/$id.json"
+    done
+    test -f "$resources_dir/wordbooks/wordbooks-NOTICE.txt"
   fi
   if [ -d "$words" ]; then
     test -f "$resources_dir/word-glosses/word-glosses-NOTICE.txt"
