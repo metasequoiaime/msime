@@ -23,5 +23,8 @@ int main() {
   assert(host::candidate_index_label(0) == "1" && host::candidate_index_label(8) == "9");
   assert(host::candidate_index_label(9) == "0");
   assert(host::kCandidateFixedPositionColor == 0x379AD3u);
+  // 画不出单行颜色的面板用「  固定N」代替固定色，只认 1–5 位。
+  assert(host::candidate_fixed_position_marker(1) == "  固定1" && host::candidate_fixed_position_marker(5) == "  固定5");
+  assert(host::candidate_fixed_position_marker(0).empty() && host::candidate_fixed_position_marker(6).empty());
   return 0;
 }

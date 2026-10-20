@@ -34,6 +34,12 @@ inline std::string_view candidate_source_badge(std::uint64_t source) {
 // 固定了排位的候选行的文字颜色，macOS 与 Windows 都画 #379AD3（不随主题变）。Linux 只在未选中的行上画它：Adwaita 的选中底色是 #3584E4，同色系的字压在上面读不出来，选中行照旧用选中文字色。
 inline constexpr std::uint32_t kCandidateFixedPositionColor = 0x379AD3u;
 
+// 固定排位的文字标记「  固定N」（N 为 1–5，其他值不画）。macOS 只靠 #379AD3 的字色标出固定行；画不出单行颜色的面板（Fcitx5 classicui 的候选文字没有颜色属性，GNOME Shell 不认 IBus 的颜色属性）用这段文字代替，能画颜色的原生画布不加它。
+inline std::string candidate_fixed_position_marker(std::uint64_t fixed_position) {
+  if (fixed_position < 1 || fixed_position > 5) return {};
+  return "  \xE5\x9B\xBA\xE5\xAE\x9A" + std::to_string(fixed_position);
+}
+
 // 第 `slot` 个候选（从 0 起）的序号，与选它的数字键一致：前九个是 1–9，第十个由 0 键选，标 0。
 inline std::string candidate_index_label(std::size_t slot) {
   return slot == 9 ? std::string("0") : std::to_string(slot + 1);

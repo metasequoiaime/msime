@@ -448,15 +448,15 @@ int main() {
     // 缺省样式画出的主题与不传样式时完全相同。
     assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false, {}) == theme);
   }
-  // 缩放乘到每一个长度上：圆角、阴影、内边距、行的文字边距和翻页按钮（150% 时 10 → 15、12 → 18、4 → 6、8 → 12、6 → 9、16 → 24）。
+  // 缩放乘到阴影以外的每一个长度上：圆角、内边距、行的文字边距和翻页按钮（150% 时 10 → 15、4 → 6、8 → 12、6 → 9、16 → 24）。阴影边距保持 12/12/8/16：Wayland 上 classicui 不读 ShadowMargin，阴影边就是候选窗离光标的偏移，不能随缩放变大。
   {
     host::FcitxCandidateStyle large;
     large.scale = 1.5;
     const auto scaled = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false,
                                                           std::nullopt, large);
-    assert(contains(scaled.conf, "[InputPanel/Background/Margin]\nLeft=33\nRight=33\nTop=33\nBottom=39\n\n"
-                                 "[InputPanel/ShadowMargin]\nLeft=18\nRight=18\nTop=12\nBottom=24\n\n"
-                                 "[InputPanel/ContentMargin]\nLeft=24\nRight=24\nTop=18\nBottom=30\n\n"
+    assert(contains(scaled.conf, "[InputPanel/Background/Margin]\nLeft=27\nRight=27\nTop=27\nBottom=31\n\n"
+                                 "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n\n"
+                                 "[InputPanel/ContentMargin]\nLeft=18\nRight=18\nTop=14\nBottom=22\n\n"
                                  "[InputPanel/TextMargin]\nLeft=12\nRight=12\nTop=9\nBottom=9\n\n"));
     for (const auto &image : scaled.images)
       if (image.file == image_in(scaled.conf, "InputPanel/PrevPage")) {
@@ -465,7 +465,7 @@ int main() {
       }
     // 自己的卡片圆角同样按缩放后的长度推导行圆角。
     assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0, std::nullopt, true, large),
-                    "[InputPanel/Background/Margin]\nLeft=42\nRight=42\nTop=42\nBottom=48\n"));
+                    "[InputPanel/Background/Margin]\nLeft=36\nRight=36\nTop=36\nBottom=40\n"));
   }
   // 用户的内边距代替 4 px，描边仍在里面：0 px 时内容离卡片外沿只剩 1 px 发丝线。
   {
@@ -649,6 +649,23 @@ int main() {
   assert(highlight_at(8.0) != highlight_at(10.0) && highlight_at(4.0) != highlight_at(8.0) && highlight_at(0.0) == highlight_at(4.0));
   // A skin package's tight radius leaves the highlight at the 6 px it was drawn with before the setting existed.
   assert(highlight_at(0.0, false) == highlight_at(16.0) && highlight_at(3.0, false) == highlight_at(16.0));
+  // 行圆角被 6 px 的文字边距截短时，内边距加大到选中高亮的角不伸出卡片圆角：对角线上高亮圆弧的最外点（pad + r(1 − 1/√2)）不越过卡片圆弧（描边半宽处起量）。用户设 32 的卡片圆角时内边距从 4 加到 8，ContentMargin 跟着变；默认的 10 px 卡片不受影响。
+  {
+    const double arc = 1.0 - 1.0 / std::sqrt(2.0);
+    for (const bool user : {true, false})
+      for (int radius = 0; radius <= 32; ++radius) {
+        const auto inset = host::fcitx_card_inset(wechat_dark, {}, static_cast<double>(radius), user);
+        assert(inset.pad >= 4 && inset.item_radius <= 6);
+        assert(inset.pad + inset.item_radius * arc + 1e-9 >= 0.5 + (inset.radius - 0.5) * arc);
+      }
+    const auto round = host::fcitx_card_inset(wechat_dark, {}, 32.0, true);
+    assert(round.radius == 32 && round.item_radius == 6 && round.pad == 8);
+    assert(host::fcitx_card_inset(wechat_dark, {}, 24.0, false).pad == 6);
+    assert(host::fcitx_card_inset(wechat_dark).pad == 4 && host::fcitx_card_inset(wechat_dark, {}, 16.0, false).pad == 4);
+    assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 32.0, std::nullopt, true),
+                    "[InputPanel/ContentMargin]\nLeft=20\nRight=20\nTop=16\nBottom=24\n"));
+    assert(host::fcitx_card_padding(wechat_dark, {}, 32.0, true) == 8);
+  }
   // 皮肤包自己的行圆角（item_corner_radius_dip）代替 6 px；再圆也画不出比文字边距更圆的角。
   {
     host::FcitxCandidateStyle package_rows;

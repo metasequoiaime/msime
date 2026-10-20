@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CandidateRowText.h"
 #include "NativeCanvasAnimation.h"
 #include <pango/pangocairo.h>
 #include <functional>
@@ -128,6 +129,8 @@ struct NativeCanvasItem {
   std::string label, text;
   std::string translation = {}, suffix = {};
   nlohmann::json translation_runs = nlohmann::json::array();
+  // 固定了排位的候选：未选中时正文画 macOS 的固定色 #379AD3（kCandidateFixedPositionColor），选中时照旧用选中文字色。
+  bool fixed = false;
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -747,7 +750,11 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
         metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
     auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed, text_width);
-    native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
+    if (item.fixed && !content.menu && !selected && !pressed)
+      cairo_set_source_rgb(cr, ((kCandidateFixedPositionColor >> 16) & 255) / 255.0,
+          ((kCandidateFixedPositionColor >> 8) & 255) / 255.0, (kCandidateFixedPositionColor & 255) / 255.0);
+    else
+      native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
     g_object_unref(line);

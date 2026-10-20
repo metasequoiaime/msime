@@ -72,7 +72,7 @@ pub fn runtime_options_with_skin_catalog(
 
 /// 只换掉 `document` 里的皮肤目录，其余键原样保留。返回要写回的字节；新目录与文档里已有的一样时返回 `None`，调用方不写文件，监视这个文件的宿主也就不会白白重载一次。
 ///
-/// 同名替换一款皮肤（MCP 的 `create_candidate_skin` 带 `replace`、皮肤编辑器、图库重装）时，宿主比较的就是这份条目：它含配色、装饰带尺寸和装饰图路径、卡片圆角，正是非 canvas 包在 Linux 上画的全部内容。条目变了文件就变，IBus 按文档内容、Fcitx5 按主题请求（含所画包的条目）发现它；条目没变说明宿主从它画的东西都没变，装饰图本身和 canvas 包的文件由 Fcitx5 按文件戳另行发现。
+/// 同名替换一款皮肤（MCP 的 `create_candidate_skin` 带 `replace`、皮肤编辑器、图库重装）时，宿主比较的就是这份条目：它含配色、装饰带尺寸和装饰图路径、卡片圆角和行圆角，选中的包还有背景图路径与铺排、工具栏配色，正是非 canvas 包在 Linux 上画的全部内容。条目变了文件就变，IBus 按文档内容、Fcitx5 按主题请求（含所画包的条目）发现它；条目没变说明宿主从它画的东西都没变，装饰图本身和 canvas 包的文件由 Fcitx5 按文件戳另行发现。
 pub fn republish_skin_catalog(
     document: &mut Value,
     root: &Path,

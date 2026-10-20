@@ -1,5 +1,5 @@
 use super::*;
-use crate::skin::catalog::scan;
+use crate::skin::catalog::{scan, HOST_CATALOG_MAX_PACKAGES};
 use serde_json::json;
 
 fn write_skin(root: &Path, id: &str, name: &str, surface: &str) {
@@ -75,6 +75,87 @@ fn a_republish_writes_only_when_what_the_hosts_draw_changed() {
         .unwrap()
         .expect("a deleted skin is unpublished");
     assert_eq!(document["candidate_skin_catalog"], json!({"packages": []}));
+}
+
+/// 带行圆角的包；`styled` 时另带背景图和整套工具栏配色。宿主只画选中的那一款，没选中的包不该因为背景图和工具栏配色多占文档预算。
+fn write_rounded_skin(root: &Path, id: &str, styled: bool) {
+    write_skin(root, id, &format!("{id} 名字"), "#fff0f5");
+    let package = root.join(id);
+    let manifest = std::fs::read_to_string(package.join("skin.toml")).unwrap();
+    if !styled {
+        let manifest = manifest.replace(
+            "[candidate_window.decoration]\n",
+            "item_corner_radius_dip = 4\n[candidate_window.decoration]\n",
+        );
+        std::fs::write(package.join("skin.toml"), manifest).unwrap();
+        return;
+    }
+    std::fs::write(package.join("background.png"), b"png").unwrap();
+    let manifest = manifest.replace(
+        "[candidate_window.decoration]\n",
+        "item_corner_radius_dip = 4\n[candidate_window.background]\nimage = 'background.png'\nfit = 'cover'\nopacity = 0.5\n[candidate_window.decoration]\n",
+    );
+    let toolbar = ["light", "dark"]
+        .map(|mode| format!("[toolbar.{mode}]\nbackground = '#141B33'\nborder = '#5B9BFF61'\nhandle = '#5B9BFF'\ndivider = '#5B9BFF47'\nicon = '#E3EAFF'\nhover = '#5B9BFF33'\n"))
+        .concat();
+    std::fs::write(package.join("skin.toml"), manifest + &toolbar).unwrap();
+}
+
+#[test]
+fn styled_skins_cost_the_catalog_only_where_they_are_drawn() {
+    let directory = tempfile::tempdir().unwrap();
+    let plain = directory.path().join("plain");
+    let styled = directory.path().join("styled");
+    for index in 0..HOST_CATALOG_MAX_PACKAGES {
+        let id = format!("skin{index:02}");
+        write_rounded_skin(&plain, &id, false);
+        write_rounded_skin(&styled, &id, true);
+    }
+    let styled_catalog = scan(&styled);
+    assert!(styled_catalog.issues.is_empty(), "{styled_catalog:?}");
+    assert!(styled_catalog
+        .packages
+        .iter()
+        .all(|package| package.background.is_some()));
+    let preferences =
+        json!({"api_version": 1, "preferences": {"custom_theme": {"candidate_skin": "skin31"}}});
+    let published = |root: &Path| {
+        let mut document = preferences.clone();
+        let bytes = runtime_options_with_skin_catalog(&mut document, root, &scan(root)).unwrap();
+        assert!(
+            bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET,
+            "{}",
+            bytes.len()
+        );
+        document["candidate_skin_catalog"]["packages"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let plain_packages = published(&plain);
+    let styled_packages = published(&styled);
+    // 背景图和工具栏配色只在选中的包上：它们最多挤掉一个包（选中那一款多出的几百字节），而不是每个包都多出几百字节、让菜单里的皮肤少掉一大半。
+    assert!(
+        styled_packages.len() + 1 >= plain_packages.len(),
+        "{} < {}",
+        styled_packages.len(),
+        plain_packages.len()
+    );
+    for package in &styled_packages {
+        let drawn = package["id"] == "skin31";
+        assert_eq!(
+            package.get("background_image").is_some(),
+            drawn,
+            "{package}"
+        );
+        assert_eq!(package.get("toolbar").is_some(), drawn, "{package}");
+        assert_eq!(package["item_corner_radius_dip"], 4.0);
+    }
+    let drawn = styled_packages
+        .iter()
+        .find(|package| package["id"] == "skin31")
+        .unwrap();
+    assert!(drawn["toolbar"]["light"].get("handle").is_none());
 }
 
 #[test]

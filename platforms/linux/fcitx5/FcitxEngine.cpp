@@ -4051,6 +4051,8 @@ struct FcitxCandidateDisplay {
   fcitx::Text classic;
   std::string body, translation, suffix;
   Json translation_runs = Json::array();
+  // 固定了排位（1–5）：原生画布照 macOS 用 #379AD3 画正文，classicui 画不出单行颜色，改在正文后加「  固定N」。
+  bool fixed = false;
 };
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
@@ -4077,6 +4079,10 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
     row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
                                                          fcitx::TextFormatFlag::DontCommit});
   display.body = row.toString();
+  const auto fixedMarker = msime::linux_host::candidate_fixed_position_marker(
+      msime::linux_host::strict_json_value(candidate, "fixed_position", uint64_t{}));
+  display.fixed = !fixedMarker.empty();
+  if (display.fixed) row.append(fixedMarker, fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
   if (candidate.contains("translation") && candidate.at("translation").is_string()) {
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
@@ -7426,12 +7432,12 @@ void FcitxState::render() {
     const auto composed = msime::linux_host::compose_phrase_preedit(
         view_.value("phrase_prefix", std::string{}), reading,
         msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
-    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音下划线加粗，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm）。没有已选段时整段照旧单下划线。
-    const auto prefix_bytes = composed.text.size() - reading.size();
+    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音下划线加粗（phrase_preedit_has_clauses）。没有已选段时整段照旧单下划线。
     fcitx::Text preedit;
-    if (prefix_bytes > 0 && !reading.empty()) {
-      preedit.append(composed.text.substr(0, prefix_bytes), fcitx::TextFormatFlag::Underline);
-      preedit.append(reading, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold});
+    if (msime::linux_host::phrase_preedit_has_clauses(composed)) {
+      preedit.append(composed.text.substr(0, composed.prefix_bytes), fcitx::TextFormatFlag::Underline);
+      preedit.append(composed.text.substr(composed.prefix_bytes),
+                     fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold});
     } else {
       preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
     }
@@ -7492,7 +7498,7 @@ bool FcitxState::renderNativeCanvas() {
     if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at))) {
       const auto &display = candidate->display();
       content.items.push_back({list->label(at).toString(), display.body, display.translation,
-          display.suffix, display.translation_runs});
+          display.suffix, display.translation_runs, display.fixed});
     } else {
       content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
     }

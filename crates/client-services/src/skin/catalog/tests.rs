@@ -2171,7 +2171,7 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
     let skin = styled_package(root.path());
     let catalog = scan(root.path());
     let published = host_candidate_catalog(&catalog, root.path(), &["bigfish"]);
-    // Fcitx5 的经典界面主题画背景图，把工具栏配色用到它的菜单上，所以两者都发布：背景图是绝对路径，工具栏配色按模式、只留读得懂的颜色。
+    // Fcitx5 的经典界面主题画背景图，把工具栏配色用到它的菜单上，所以选中的包两者都发布：背景图是绝对路径，工具栏配色按模式、只留读得懂的颜色，菜单没有的拖动把手不发布。
     assert_eq!(
         published,
         serde_json::json!({"packages": [{
@@ -2195,7 +2195,6 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
                 "dark": {
                     "background": "#141B33",
                     "border": "#5B9BFF61",
-                    "handle": "#5B9BFF",
                     "divider": "#5B9BFF47",
                     "icon": "#E3EAFF",
                 },
@@ -2219,7 +2218,7 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
     .unwrap();
     let catalog = scan(root.path());
     assert!(catalog.issues.is_empty(), "{catalog:?}");
-    let relative = host_candidate_catalog(&catalog, Path::new("skins"), &[]);
+    let relative = host_candidate_catalog(&catalog, Path::new("skins"), &["bigfish"]);
     let entry = |id: &str| {
         relative["packages"]
             .as_array()
@@ -2234,6 +2233,18 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
     assert!(entry("bigfish").get("toolbar").is_some());
     // 没写工具栏配色的包没有这个键。
     assert!(entry("rows").get("toolbar").is_none());
+    // 没选中的包只带行圆角：宿主不画它，背景图和工具栏配色只会占文档预算。
+    let unselected = host_candidate_catalog(&catalog, root.path(), &["rows"]);
+    let bigfish = unselected["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["id"] == "bigfish")
+        .unwrap();
+    assert!(bigfish.get("background_image").is_none());
+    assert!(bigfish.get("background_fit").is_none());
+    assert!(bigfish.get("toolbar").is_none());
+    assert_eq!(bigfish["corner_radius_dip"], 12.0);
 }
 
 /// `client_dialect.json` 是皮肤清单规则的共享用例表，各个实现都按它校验：这里的 `load`、msime-cloud 的 Go 移植（`internal/skins/client.go`）与种子脚本，以及 msime-windows 的 `CandidateSkinCatalog::Load`。它们各自保存一份副本，由各自仓库的同步脚本按本文件刷新，所以改规则先改这里。

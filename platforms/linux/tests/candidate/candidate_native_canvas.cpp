@@ -238,6 +238,35 @@ void skin_appearance() {
   cairo_destroy(cr);
 }
 
+// 固定了排位的行未选中时正文画 macOS 的固定色 #379AD3，选中时照旧用选中文字色。
+void fixed_position_appearance() {
+  host::NativeCanvasAssets assets;
+  host::NativeCanvasContent content;
+  content.font = "Sans 30px";
+  content.items = {{"", "MMMM"}};
+  content.items[0].fixed = true;
+  const Json palette = {{"surface", "#000000"}, {"selected", "#000000"}, {"hover", "#000000"},
+      {"text", "#FFFFFF"}, {"selected_text", "#FFFFFF"}};
+  const auto ink = [&](int selected) {
+    content.selected = selected;
+    auto target = image(600, 200, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    std::map<std::uint32_t, int> colors;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) ++colors[pixel(target.get(), x, y) & 0xffffff];
+    cairo_destroy(cr);
+    return colors;
+  };
+  auto normal = ink(-1);
+  assert(normal[host::kCandidateFixedPositionColor] > 100 && normal[0xffffff] == 0);
+  auto selected = ink(0);
+  assert(selected[0xffffff] > 100 && selected[host::kCandidateFixedPositionColor] == 0);
+  content.items[0].fixed = false;
+  auto plain = ink(-1);
+  assert(plain[0xffffff] > 100 && plain[host::kCandidateFixedPositionColor] == 0);
+}
+
 void translation_appearance() {
   host::NativeCanvasAssets assets;
   host::NativeCanvasContent content;
@@ -542,6 +571,7 @@ int main() {
   pager_layout();
   skin_layout();
   skin_appearance();
+  fixed_position_appearance();
   translation_appearance();
   constrained_text_layout();
   // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。

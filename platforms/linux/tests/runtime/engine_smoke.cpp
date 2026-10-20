@@ -3209,6 +3209,13 @@ int main(int argc, char **argv) {
             "Candidate position action did not fix the highlighted candidate");
     require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
+    // 固定排位的行未选中时画 macOS 的固定色 #379AD3（不随主题变），选中时照旧用选中文字色。
+    require(key(IBUS_Down) && wait_until([&] { return seen.cursor == 1; }) &&
+                seen.first_candidate_color == 0x379AD3,
+            "Unselected fixed candidate was not drawn in the fixed-position colour");
+    require(key(IBUS_Up) && wait_until([&] { return seen.cursor == 0; }) &&
+                seen.first_candidate_color == 0xffffff,
+            "Highlighting the fixed candidate again did not restore the selected-row text colour");
     // Candidate actions are named by the generation they act on, and fixing advanced it, so the clear action is the one the republished menu carries; the one read before the fix is stale and refused.
     seen.first_candidate_clear_name.clear();
     require(wait_until([&] { return !seen.first_candidate_clear_name.empty(); }),

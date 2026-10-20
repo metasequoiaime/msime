@@ -2022,7 +2022,7 @@ pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 /// 配色由 `theme::normalized_color` 规范化；把条目作为 `package` 传给 `msime_client_resolve_theme`，
 /// 与从皮肤根目录加载同一个包的解析结果一致。`root` 必须对应扫描 `catalog` 的目录。
 ///
-/// 严格条目不携带背景、工具栏、其他路径或样式表；`resolvedLayout` 只含已校验的数字和开关，以兼容旧宿主并控制整份文档的大小。
+/// 所有条目都带可选的行圆角 `item_corner_radius_dip`；只有 `selected` 里的包另带背景图（`background_image` 绝对路径、`background_fit`、`background_opacity`）和按模式的工具栏配色 `toolbar`（不含菜单用不到的 `handle`），因为宿主只画选中的那一款，其余包带上它们只会占用 16 KiB 的文档预算、把装了的皮肤挤出菜单。条目不携带其他路径或样式表；`resolvedLayout` 只含已校验的数字和开关。
 /// 没有装饰的包不写装饰键；不可解析的颜色省略，只保留清单声明主题的配色。
 /// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
@@ -2087,9 +2087,12 @@ pub fn host_candidate_catalog(
             if let Some(radius) = package.corner_radius_dip {
                 entry["corner_radius_dip"] = radius.into();
             }
-            // 行圆角、背景图和工具栏配色只给能画它们的宿主：Linux 的 Fcitx5 经典界面主题按行圆角画选中高亮，把背景图画在卡片里，把工具栏配色用到它画的菜单上（Linux 的悬浮工具栏就是输入法菜单）。
+            // 行圆角、背景图和工具栏配色只给能画它们的宿主：Linux 的 Fcitx5 经典界面主题按行圆角画选中高亮，把背景图画在卡片里，把工具栏配色用到它画的菜单上（Linux 的悬浮工具栏就是输入法菜单）。宿主只画自定义主题选中的那一款（`theme::resolve` 只认槽位里的包），背景图和工具栏配色因此只给选中的包，免得每个条目多出几百字节、把其他皮肤挤出文档预算。
             if let Some(radius) = package.item_corner_radius_dip {
                 entry["item_corner_radius_dip"] = radius.into();
+            }
+            if !is_selected(package) {
+                return entry;
             }
             if let Some((image, background)) = host_background_image(root, package) {
                 entry["background_image"] = image.into();
@@ -2145,13 +2148,12 @@ fn host_background_image<'a>(
     Some((path.to_str()?.to_owned(), background))
 }
 
-/// 一个模式的工具栏配色，只留宿主读得懂的 `#RRGGBB` 或 `#RRGGBBAA`，与候选配色同样处理。
+/// 一个模式的工具栏配色，只留宿主读得懂的 `#RRGGBB` 或 `#RRGGBBAA`，与候选配色同样处理。拖动把手 `handle` 不发布：Linux 把工具栏配色用在输入法菜单上，菜单没有把手。
 fn host_toolbar_palette(palette: &ToolbarPalette) -> serde_json::Map<String, serde_json::Value> {
     let mut colors = serde_json::Map::new();
     for (key, value) in [
         ("background", &palette.background),
         ("border", &palette.border),
-        ("handle", &palette.handle),
         ("divider", &palette.divider),
         ("icon", &palette.icon),
         ("hover", &palette.hover),

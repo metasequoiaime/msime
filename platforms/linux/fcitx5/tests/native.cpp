@@ -129,6 +129,19 @@ void koreanHanjaGlossRow() {
   require(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string()).text() == "你" &&
               shown(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string())).toString() == "你",
           "annotations off still hide a helpcode");
+  // 固定了排位的行：classicui 画不出单行颜色，正文后加只供显示的「  固定N」；原生画布拿到不带它的正文和 fixed 标记，自己画 #379AD3。
+  const auto fixed = word(Json{{"text", "你"}, {"annotation", "ab"}, {"fixed_position", 2}, {"translation", "you"}},
+                          true, std::string());
+  require(shown(fixed).toString() == "你(ab)  固定2\nyou" && shown(fixed).size() == 3 &&
+              shown(fixed).stringAt(1) == "  固定2" &&
+              shown(fixed).formatAt(1) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::DontCommit),
+          "a fixed row carries a display-only position marker before its translation");
+  require(fixed.display().body == "你(ab)" && fixed.display().fixed && fixed.text() == "你",
+          "the native canvas gets the row without the marker, and selection keeps the Engine text");
+  for (const int position : {0, 6}) {
+    const auto unfixed = word(Json{{"text", "你"}, {"fixed_position", position}}, true, std::string());
+    require(shown(unfixed).toString() == "你" && !unfixed.display().fixed, "only positions 1-5 are marked");
+  }
 }
 // 脚本插件的注释（`script_annotation`）在行尾单独一段，括在六角括号里、标 DontCommit：辅助码设置关着也画，不替换引擎注释，也不进训音；选中用的文本不变，占位行和不合规的文本不画。和上面两个一样不需要资源 fixture。
 void scriptAnnotationRow() {
@@ -644,12 +657,13 @@ int candidateThemePriority() {
     engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}, {"show_app_logo", false}}, true, Json(), false);
     require(theme_text().find("[InputPanel/ContentMargin]\nLeft=16\n") != std::string::npos,
             "关掉 show_app_logo 后主题不画 logo");
-    // 页码开关和整体大小也是主题输入：关掉页码不画 ‹ ›，150% 时内容边距随之放大（18 + 6）。
+    // 页码开关和整体大小也是主题输入：关掉页码不画 ‹ ›，150% 时内边距随之放大（12 + 6；阴影边距不缩放，Wayland 上候选窗离光标的偏移不变）。
     engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}, {"show_app_logo", false},
                                          {"show_candidate_page_number", false}, {"candidate_scale_percent", 150}},
                                     true, Json(), false);
     require(theme_text().find("PrevPage") == std::string::npos &&
-                theme_text().find("[InputPanel/ContentMargin]\nLeft=24\n") != std::string::npos,
+                theme_text().find("[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n") != std::string::npos &&
+                theme_text().find("[InputPanel/ContentMargin]\nLeft=18\n") != std::string::npos,
             "页码开关和整体大小写进主题");
     require(option("Theme") == "msime", "系统明暗变化保留水杉样式");
     pick_third_party(false);

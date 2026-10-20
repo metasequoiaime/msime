@@ -3921,10 +3921,10 @@ void render(IBusEngine *engine, const Json &view) {
     text = composed.text;
     // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
     auto preedit_text = ibus_text_new_from_string(text.c_str());
-    const auto preedit_length = static_cast<guint>(msime::linux_host::utf8_scalar_count(text));
-    const auto prefix_length = static_cast<guint>(msime::linux_host::utf8_scalar_count(phrase_prefix));
-    // 正在组词时，已选的那一段单下划线，还在输入的读音双下划线，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm），和上面整句改字的焦点子句同一种画法。没有已选段时整段照旧单下划线。
-    if ((style != "empty" || always_inline) && prefix_length > 0 && prefix_length < preedit_length) {
+    const auto preedit_length = static_cast<guint>(composed.scalars);
+    const auto prefix_length = static_cast<guint>(composed.prefix_scalars);
+    // 正在组词时，已选的那一段单下划线，还在输入的读音双下划线（phrase_preedit_has_clauses），和上面整句改字的焦点子句同一种画法。没有已选段时整段照旧单下划线。
+    if ((style != "empty" || always_inline) && msime::linux_host::phrase_preedit_has_clauses(composed)) {
       ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_SINGLE, 0,
                                  static_cast<gint>(prefix_length));
       ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_DOUBLE,
@@ -3997,8 +3997,8 @@ void render(IBusEngine *engine, const Json &view) {
     const bool online_placeholder = source == 12 || source == 15;
     const auto fixed_position = candidate.value("fixed_position", 0);
     // macOS 只用 #379AD3 的字色标出固定排位的行。GNOME Shell 等面板不认 IBus 的颜色属性，所以行尾仍留「固定 N」文字，颜色画不出来时也看得出这一行被固定了。
-    if (fixed_position >= 1 && fixed_position <= 5)
-      tail += "  固定" + std::to_string(fixed_position);
+    tail += msime::linux_host::candidate_fixed_position_marker(
+        static_cast<std::uint64_t>(std::max(0, fixed_position)));
     const auto annotation = candidate.value("annotation", std::string{});
     // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
     const auto local_mode = view.value("local_mode", std::string("none"));

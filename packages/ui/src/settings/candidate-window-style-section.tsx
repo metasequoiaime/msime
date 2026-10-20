@@ -125,14 +125,14 @@ export interface CandidateWindowStyleSectionProps {
   children?: ReactNode;
 }
 
-/** 卡片跟随皮肤和宿主时滑块显示的圆角，即那时预览画的卡片圆角：macOS 是原生候选窗的 10pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-card-radius`），其他平台的预览还没有自己的默认值块，仍是 6。 */
+/** 卡片跟随皮肤和宿主时滑块显示的圆角：macOS 是原生候选窗的 10pt，即那时预览画的卡片圆角（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-card-radius`）；Linux 是 Fcitx5 经典界面主题画的 10px 卡片圆角（`CandidateFcitxTheme.h` 的 `FcitxPanelGeometry::radius`），滑块从这里往上拖卡片才会变圆；其他平台仍是 6。 */
 function followedCornerRadius(platform: HostPlatform | undefined): number {
-  return platform === "macos" ? 10 : 6;
+  return platform === "macos" || platform === "linux" ? 10 : 6;
 }
 
-/** 卡片跟随皮肤和宿主时滑块显示的内边距：macOS 原生候选窗的 4pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-pad`）。只有 macOS 声明这一行，其他平台的值只是为了滑块有个落点。 */
+/** 卡片跟随皮肤和宿主时滑块显示的内边距：macOS 原生候选窗的 4pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-pad`），Linux Fcitx5 卡片照 macOS 也是 4px（`FcitxPanelGeometry::padding`）。只有这两个平台声明这一行，其他平台的值只是为了滑块有个落点。 */
 function followedCardPadding(platform: HostPlatform | undefined): number {
-  return platform === "macos" ? 4 : 2;
+  return platform === "macos" || platform === "linux" ? 4 : 2;
 }
 
 /** 「窗口样式」组：窗口的不透明度、圆角和内边距，HarmonyOS 手机的「候选栏」页在宿主声明支持时用它。颜色和明暗只在「主题」页编辑。 */

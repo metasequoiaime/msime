@@ -194,7 +194,6 @@ const macosNativeRadius = String(Number(/float radius = ([\d.]+)f;/.exec(candida
 test.each([
   ["macos", macosNativeRadius],
   ["windows", "6"],
-  ["linux", "6"],
 ] as const)(
   "following the skin, the %s radius slider shows the radius the preview draws",
   (platform, value) => {
@@ -204,6 +203,16 @@ test.each([
     );
   },
 );
+
+// Linux 的滑块停在 Fcitx5 卡片自己的 10px 圆角和 4px 内边距上（`CandidateFcitxTheme.h` 的 `FcitxPanelGeometry`）：从这里往上拖，卡片跟着变圆、变宽松，而不是先跳到更小的值。
+test("following the skin on Linux, the sliders rest on the Fcitx5 card's own radius and padding", () => {
+  const following = renderSection({ platform: "linux", showPadding: true });
+  expect((screen.getByRole("slider", { name: "圆角大小" }) as HTMLInputElement).value).toBe("10");
+  const padding = screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement;
+  expect(padding.value).toBe("4");
+  fireEvent.change(padding, { target: { value: "5" } });
+  expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 5 });
+});
 
 test.each([
   ["macos", macosNativeRadius],
