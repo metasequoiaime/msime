@@ -39,11 +39,14 @@ class WaveOverlay
     void set_input_level(float level);
     // The theme palette in the overlay's own light/dark mode; see voice_overlay_colors.
     void set_palette(const msime::windows::CandidatePalette &palette);
+    // Ignored while a failure is shown, as macOS setTranscript is: a late partial from the failed recording must not replace the failure's detail.
     void set_transcript(const std::wstring &text);
     // When false, the overlay stays compact and never paints live ASR text.
     void set_show_transcript(bool show);
     void set_compact_status(CompactStatus status);
     void set_actions_visible(bool visible);
+    // 失败提示，对应 macOS VoiceWaveOverlay 的 showFailure:detail:。`headline` 是分类标题，14pt 居中画在顶行，不画波形；`detail` 为空时浮层是 40 高的药丸，不为空时按转写排版画在标题下面。宽度不小于标题宽加两边各 14。空 `headline` 收起失败态并清空详情。
+    void set_failure(const std::wstring &headline, const std::wstring &detail);
     HWND handle() const { return hwnd_; }
 
   private:
@@ -62,6 +65,10 @@ class WaveOverlay
     void update_dpi_scale();
     void update_window_bounds();
     bool hit_test_action(float x, float y, Action &action) const;
+    // The headline's width in DIPs at the status size, for sizing the failure overlay.
+    float headline_width(const std::wstring &headline) const;
+    // Pointer input reaches the overlay only while the round actions are shown; see the definition.
+    void update_click_through();
 
   private:
     static constexpr int kLevelCount = 12;
@@ -82,6 +89,8 @@ class WaveOverlay
     std::function<void(Action)> action_handler_;
     std::mutex transcript_mutex_;
     std::wstring transcript_;
+    // Non-empty while a failure is shown; guarded by transcript_mutex_ like the detail in transcript_.
+    std::wstring failure_headline_;
     float levels_[kLevelCount] = {};
     float amplitudes_[kLevelCount] = {};
     float phases_[kLevelCount] = {};

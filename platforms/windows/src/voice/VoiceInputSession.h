@@ -2,6 +2,7 @@
 #include "VoiceReviewResult.h"
 #include "VoiceCaptureSelection.h"
 #include "VoiceSessionEpoch.h"
+#include "VoiceSessionPolicy.h"
 
 #include "FocusGate.h"
 #include "SessionController.h"
@@ -126,10 +127,10 @@ private:
                               const std::shared_ptr<std::atomic_bool> &cancelled);
   // Control-thread only, from maintain(). Hands a model left idle for long enough to a worker to unload; see local_model_used_.
   void release_idle_local_model();
-  // 控制线程在录音中调用：当前这次录音的本机识别器（系统识别或本地模型）已经出错停下时，返回给人看的那句话。
-  std::optional<std::string> local_stream_failure();
-  // Shows `message` on the overlay for a few seconds without blocking the caller. Callable from any thread; `session` is the epoch the message belongs to, and a later session takes the overlay over.
-  void report_failure(std::string_view message, uint64_t session);
+  // 控制线程在录音中调用：当前这次录音的本机识别器（系统识别或本地模型）已经出错停下时，返回浮层上的失败提示。
+  std::optional<VoiceFailureNotice> local_stream_failure();
+  // Shows `failure` (its headline, and its detail below it) on the overlay for a few seconds without blocking the caller. Callable from any thread; `session` is the epoch the failure belongs to, and a later session takes the overlay over.
+  void report_failure(const VoiceFailureNotice &failure, uint64_t session);
 
   WaveOverlay &overlay_;
   LeaseProvider lease_provider_;

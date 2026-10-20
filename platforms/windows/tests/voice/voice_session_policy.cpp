@@ -89,6 +89,19 @@ int main() {
             voice_missing_local_model_message);
     // Disabled still wins, silently.
     REQUIRE(voice_start_verdict({false, false, "", "", "", "", true, ""}).check == VoiceStartCheck::Disabled);
+    // 缺 Token、缺本地模型各是一类，标题本身就是完整说明，浮层上只有一行；其余配置问题归到识别服务设置，具体那句作为详情。
+    REQUIRE(no_token.failure == VoiceFailure::MissingToken);
+    REQUIRE(voice_start_failure(no_token) ==
+            (VoiceFailureNotice{std::string(voice_missing_token_message), ""}));
+    REQUIRE(local_missing.failure == VoiceFailure::MissingLocalModel);
+    REQUIRE(voice_start_failure(local_missing) ==
+            (VoiceFailureNotice{std::string(voice_missing_local_model_message), ""}));
+    const auto doubao_incomplete = voice_start_verdict({true, true, "t", "", "", "r"});
+    REQUIRE(doubao_incomplete.failure == VoiceFailure::Provider);
+    REQUIRE(voice_start_failure(doubao_incomplete) ==
+            (VoiceFailureNotice{"识别失败，请检查语音服务设置", std::string(voice_doubao_start_message)}));
+    REQUIRE(voice_start_failure(voice_start_verdict({true, false, "t", "https://synthetic", "", ""})) ==
+            (VoiceFailureNotice{"识别失败，请检查语音服务设置", std::string(voice_missing_model_message)}));
     // Windows 系统识别不需要 Token、接口地址、模型名或本地模型；关掉语音时照样静默。
     const auto system_ready = voice_start_verdict({true, false, "", "", "", "", false, "", true});
     REQUIRE(system_ready.check == VoiceStartCheck::Ready);
@@ -99,37 +112,57 @@ int main() {
     REQUIRE(voice_start_verdict({true, false, "", "https://synthetic", "m", "", false, "C:\\model"}).message ==
             voice_missing_token_message);
 
-    // A failed on-device recognition names what the person can fix: the runtime first, then the model.
-    REQUIRE(voice_local_failure(false, true) == voice_local_runtime_message);
-    REQUIRE(voice_local_failure(false, false) == voice_local_runtime_message);
-    REQUIRE(voice_local_failure(true, false) == voice_local_model_unusable_message);
-    REQUIRE(voice_local_failure(true, true) == voice_recognition_failed_message);
-    REQUIRE(voice_missing_local_model_message.find("本地模型") != std::string_view::npos);
+    // A failed on-device recognition names what the person can fix below the recognition headline: the runtime first, then the model; with neither at fault there is no detail.
+    REQUIRE(voice_local_failure(false, true).detail == voice_local_runtime_message);
+    REQUIRE(voice_local_failure(false, false).detail == voice_local_runtime_message);
+    REQUIRE(voice_local_failure(true, false).detail == voice_local_model_unusable_message);
+    REQUIRE(voice_local_failure(true, true) ==
+            (VoiceFailureNotice{"识别失败，请检查语音服务设置", ""}));
+    REQUIRE(voice_local_failure(false, true).headline == "识别失败，请检查语音服务设置");
+    // 缺本地模型的提示与 macOS 同一句。
+    REQUIRE(voice_missing_local_model_message == "请先在设置的“语音输入”分区下载或选择本地语音模型。");
 
     REQUIRE(voice_missing_token_message.find("API Token") != std::string_view::npos);
-    REQUIRE(voice_microphone_start_message == "无法启动麦克风。");
     REQUIRE(voice_capture_interrupted_message == "录音中断，请重试。");
     // The settings page, not a config file, is where these fields are edited here.
     REQUIRE(voice_doubao_start_message.find("config.toml") == std::string_view::npos);
 
-    // A failed batch recognition shows the provider's sentence, not a generic line.
+    // A failed batch recognition shows the macOS recognition headline with the provider's sentence as the detail line, and the headline alone when the provider said nothing.
     const CloudAsrError status("Voice HTTP status 401", "语音识别失败：synthetic key rejected（code 401）");
-    REQUIRE(voice_recognition_failure(status) == "语音识别失败：synthetic key rejected（code 401）");
+    REQUIRE(voice_recognition_failure(status) ==
+            (VoiceFailureNotice{"识别失败，请检查语音服务设置", "语音识别失败：synthetic key rejected（code 401）"}));
     const CloudAsrError blank("Voice HTTP status 500", "");
-    REQUIRE(voice_recognition_failure(blank) == std::string(voice_recognition_failed_message));
+    REQUIRE(voice_recognition_failure(blank) == (VoiceFailureNotice{"识别失败，请检查语音服务设置", ""}));
     const std::runtime_error other("synthetic");
-    REQUIRE(voice_recognition_failure(other) == std::string(voice_recognition_failed_message));
+    REQUIRE(voice_recognition_failure(other) == (VoiceFailureNotice{"识别失败，请检查语音服务设置", ""}));
 
-    // 麦克风启动失败按原因给出能照着改的提示：权限被拒指向 Windows 隐私设置，设备不可用请人重选设备，其余用通用的一句。
-    REQUIRE(voice_capture_start_message(AudioCaptureFailure::AccessDenied) ==
-            voice_microphone_permission_message);
+    // 各类失败的标题与 macOS VoiceWaveOverlay 的措辞相同；麦克风权限一类写出 Windows 设置的路径。
+    REQUIRE(voice_failure_headline(VoiceFailure::Capture) == "录音失败，请检查麦克风设置");
+    REQUIRE(voice_failure_headline(VoiceFailure::Provider) == "识别失败，请检查语音服务设置");
+    REQUIRE(voice_failure_headline(VoiceFailure::NoSpeech) == "未识别到语音，请重试");
+    REQUIRE(voice_failure_headline(VoiceFailure::MissingToken) ==
+            "请先在设置的“语音输入”分区填写当前 ASR 提供商的 API Token。");
+    REQUIRE(voice_failure_headline(VoiceFailure::MissingLocalModel) == voice_missing_local_model_message);
+    REQUIRE(voice_failure_headline(VoiceFailure::MicrophonePermission) == voice_microphone_permission_message);
+    // 供应商、豆包或系统识别给的具体原因作为第二行；只是笼统的「语音识别失败」，或与标题相同时，只留标题。
+    REQUIRE(voice_failure_notice(VoiceFailure::Provider, "豆包语音识别握手失败。") ==
+            (VoiceFailureNotice{"识别失败，请检查语音服务设置", "豆包语音识别握手失败。"}));
+    REQUIRE(voice_failure_notice(VoiceFailure::Provider, voice_recognition_failed_message).detail.empty());
+    REQUIRE(voice_failure_notice(VoiceFailure::NoSpeech, voice_no_speech_message) ==
+            (VoiceFailureNotice{std::string(voice_no_speech_message), ""}));
+    REQUIRE(voice_failure_notice(VoiceFailure::Capture, voice_capture_interrupted_message).detail ==
+            voice_capture_interrupted_message);
+
+    // 麦克风启动失败按原因给出能照着改的提示：权限被拒时标题就是 Windows 隐私设置的路径，设备不可用时在录音失败的标题下请人重选设备，其余只有录音失败的标题。
+    REQUIRE(voice_capture_start_failure(AudioCaptureFailure::AccessDenied) ==
+            (VoiceFailureNotice{std::string(voice_microphone_permission_message), ""}));
     REQUIRE(voice_microphone_permission_message.find("隐私和安全性") != std::string_view::npos);
-    REQUIRE(voice_capture_start_message(AudioCaptureFailure::DeviceUnavailable) ==
-            voice_microphone_device_message);
-    REQUIRE(voice_capture_start_message(AudioCaptureFailure::Failed) ==
-            voice_microphone_start_message);
-    REQUIRE(voice_capture_start_message(AudioCaptureFailure::None) ==
-            voice_microphone_start_message);
+    REQUIRE(voice_capture_start_failure(AudioCaptureFailure::DeviceUnavailable) ==
+            (VoiceFailureNotice{"录音失败，请检查麦克风设置", std::string(voice_microphone_device_message)}));
+    REQUIRE(voice_capture_start_failure(AudioCaptureFailure::Failed) ==
+            (VoiceFailureNotice{"录音失败，请检查麦克风设置", ""}));
+    REQUIRE(voice_capture_start_failure(AudioCaptureFailure::None) ==
+            (VoiceFailureNotice{"录音失败，请检查麦克风设置", ""}));
     // 所选麦克风不可用的提示与 macOS VoiceCaptureDevice.h 同一句。
     REQUIRE(voice_microphone_device_message == "所选麦克风不可用，请重新选择录音设备");
     // 没识别出文字时的提示与 macOS 同一句。
