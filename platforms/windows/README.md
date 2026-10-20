@@ -492,6 +492,8 @@ WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中
 
 固定上游 TSF 的 _HandleCompositionDoubleSingleByte 在编辑会话内转换并上屏全角字符，Server 不重复转换。Server 拥有一个非激活的 Win32 悬浮工具栏，显示中英、标点、全半角状态，并把这三个按钮通过当前焦点 lease 路由回 TSF；位置按当前工作区定位，客户区支持拖动；拖动后的位置生产 Server 记在状态目录的 `floating_toolbar_position.json`，隔离预览实例写回启动配置，重启后都回到原处。`floating_toolbar_enabled` 控制显示，缺省开启；简繁输出、图标菜单和缩放通过共享设置与 `FloatingToolbarSettings` 下发。按钮组与 macOS 一致：中英、切换输入方案（弹出与托盘「输入方案」同一组行）、全角、标点、简繁、表情、手写（按版本提供）、屏幕键盘、语音（与托盘和语音快捷键切换同一个会话）、设置，各自受 `floating_toolbar.*` 开关控制；语言按钮在双拼、五笔下显示「双」「五」，每个按钮都有悬停提示。卡片上点右键弹出实用菜单：表情与符号（系统 Win+. 面板）、打开设置、检查更新、访问 msime.app、使用帮助、关于、问题反馈、隐藏悬浮状态栏（写回 `floating_toolbar.enabled`）。没有共享应用时表情和屏幕键盘退回系统表情面板和 osk.exe。`show_app_logo` 关着时左端画两列三行圆点的握把代替 logo。连续 10 秒没有键盘输入工具栏自动隐藏，下一次按键时回来；在工具栏上点按、拖动或开着它的菜单都会重新计时。工具栏本身不注册也不修改本机输入源，那归安装器。
 
+切换中英文时光标旁的「中」「英」提示（`InputModeHudWindow`，偏好 `input_mode_hud`）用工具栏的配色，尺寸照 macOS 固定：18 号常规字、高 32、两侧各留 8，`show_app_logo` 开着时左边加 16 的 logo、与字相隔 4，圆角 8、描边 1；只随显示器 DPI 缩放，不跟工具栏的字号和缩放。完全显示 0.6 秒后用 0.18 秒淡出（按 16 毫秒一帧重画、整张放进带不透明度的图层），途中换了显示器设置就直接收起。
+
 ### 编辑键与 TSF 预编辑回复
 
 InputState::basic_key(lease, packet, style, local_text) 统一基础分发：复用 edit 的预编辑规则，按 Engine 模式识别空格/数字选词，处理 Shift/Esc 本地清理及忽略的修饰键，并将 Enter 交给 LocalCommit 前置校验。原生配置相关优先路径必须先处理；返回空表示尚未处理的快捷键、标点或导航，不清空组合，生产 `configured_key()` 会继续候选标点与导航分支，不能把空结果直接当作最终处理结果。Enter 的 local_text 必须来自宿主实际完成观察，不能从 Engine 返回结果拼造。生产与隔离预览两个 KeyHandler 使用同一套编排。

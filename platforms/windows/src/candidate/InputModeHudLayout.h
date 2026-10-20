@@ -5,7 +5,7 @@
 #include <optional>
 
 namespace msime::windows {
-// 中英文切换提示（输入模式 HUD）的几何与摆放，和 macOS 的 MSIMEInputModeHUDPanel 同一套规则：徽标的高度、logo 和字号都取悬浮工具栏的（floating_toolbar.font_size 与 scale_percent），显示 0.6 秒；有光标位置时水平居中在光标下方，下面放不下就放到上方，没有光标时放在屏幕水平居中、下方三分之一处。纯计算，不依赖 Windows 头文件，主机上的单测直接包含。
+// 中英文切换提示（输入模式 HUD）的几何与摆放，和 macOS 的 MSIMEInputModeHUDPanel 同一套规则：固定的紧凑尺寸，不随悬浮工具栏的字号和缩放变化，只随显示器 DPI 缩放；logo 只在 `show_app_logo` 开着时画；完全显示 0.6 秒，再用 0.18 秒淡出；有光标位置时水平居中在光标下方，下面放不下就放到上方，没有光标时放在屏幕水平居中、下方三分之一处。纯计算，不依赖 Windows 头文件，主机上的单测直接包含。
 
 // 「英」是英文模式，「中」是中文模式，与 macOS 的 MSIMEInputModeHUDText 相同。
 inline const wchar_t *input_mode_hud_text(bool chinese) { return chinese ? L"中" : L"英"; }
@@ -15,15 +15,27 @@ inline const wchar_t *input_mode_hud_announcement(bool chinese) { return chinese
 
 // 完全显示的时长，与 macOS 的 kVisibleDuration 相同。
 inline constexpr unsigned input_mode_hud_visible_ms = 600;
+// 之后淡出的时长，与 macOS 的 kFadeDuration 相同；淡出按大约每 16 毫秒一帧重画。
+inline constexpr unsigned input_mode_hud_fade_ms = 180;
+inline constexpr unsigned input_mode_hud_fade_frame_ms = 16;
+// 淡出开始 `elapsed` 毫秒后的不透明度：从 1 线性降到 0，到 0 时收起窗口。
+inline float input_mode_hud_fade_opacity(unsigned long long elapsed) {
+  if (elapsed >= input_mode_hud_fade_ms)
+    return 0.0f;
+  return 1.0f - static_cast<float>(elapsed) / static_cast<float>(input_mode_hud_fade_ms);
+}
 
-// 徽标在设备无关像素里的尺寸。卡片和工具栏一样高，左边是工具栏的 logo，右边一个字，两侧留半个字宽：24 号字时宽 78、高 52，和 macOS 用工具栏 24pt 算出的比例一致。
+// 徽标在设备无关像素里的尺寸，取 macOS 的固定紧凑尺寸（InputModeHUDPanel.mm 的 kFontSize 等常量）：18 号常规字、高 32、logo 16、左右各留 8、logo 和字之间 4、圆角 8、描边 1。它和悬浮工具栏的字号、缩放无关：放大工具栏是为了好点，鼠标穿透、只显示 0.6 秒的提示不需要跟着放大。
 struct InputModeHudMetrics {
-  double font = 24.0;
-  double height = 52.0;
-  double inset = 12.0;
-  double logo = 24.0;
-  double spacing = 6.0;
-  double glyph = 24.0;
+  double font = 18.0;
+  double height = 32.0;
+  double inset = 8.0;
+  double logo = 16.0;
+  double spacing = 4.0;
+  // 字的宽度：「中」「英」取较宽者，切换时宽度不变。两个都是全角汉字，宽度就是字号。
+  double glyph = 18.0;
+  double radius = 8.0;
+  double border = 1.0;
   ToolbarShadow shadow;
   double card_width() const {
     return inset * 2.0 + (logo > 0.0 ? logo + spacing : 0.0) + glyph;
@@ -32,17 +44,12 @@ struct InputModeHudMetrics {
   double window_height() const { return shadow.top + height + shadow.bottom; }
 };
 
-// `show_logo` 为假时不给 logo 留位置：和 macOS 一样，只有可执行文件里取不到图标时才不画（单测链接的程序就没有图标资源）。超出工具栏范围的字号退回工具栏的出厂几何。
-inline InputModeHudMetrics input_mode_hud_metrics(double font_size, bool show_logo) {
-  const auto toolbar = toolbar_metrics(font_size);
+// `show_logo` 是偏好 `show_app_logo` 开着、而且可执行文件里取得到图标（单测链接的程序没有图标资源）：为假时不给 logo 留位置，和 macOS 一样。
+inline InputModeHudMetrics input_mode_hud_metrics(bool show_logo) {
   InputModeHudMetrics metrics;
-  metrics.font = toolbar.icon;
-  metrics.height = toolbar.height;
-  metrics.inset = toolbar.icon / 2.0;
-  metrics.logo = show_logo ? std::min(toolbar.icon, toolbar.icon_bottom - toolbar.icon_top) : 0.0;
-  metrics.spacing = toolbar.icon / 4.0;
-  metrics.glyph = toolbar.icon;
-  metrics.shadow = toolbar.shadow;
+  if (!show_logo)
+    metrics.logo = 0.0;
+  metrics.shadow = toolbar_shadow(true);
   return metrics;
 }
 
