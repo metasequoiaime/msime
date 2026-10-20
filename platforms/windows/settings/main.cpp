@@ -1240,14 +1240,10 @@ std::vector<uint8_t> const &logo_png() {
   return bytes;
 }
 
-// Decodes PNG bytes into `image`. The bytes must outlive the decode: callers pass the static logo copy or a resource, which stays mapped as long as the process runs. `pixels` is the decode width, 0 for the picture's own.
-fire_and_forget show_png(Image image, uint8_t const *data, size_t size, int32_t pixels) {
+// Decodes PNG bytes into `bitmap`. The bytes must outlive the decode: callers pass the static logo copy or a resource, which stays mapped as long as the process runs. Must start on the UI thread; awaiting a WinRT operation resumes on this apartment.
+fire_and_forget load_png(Imaging::BitmapImage bitmap, uint8_t const *data, size_t size) {
   if (size == 0)
     co_return;
-  // Created on the UI thread before the first suspension; awaiting a WinRT operation resumes on this apartment.
-  Imaging::BitmapImage bitmap;
-  if (pixels > 0)
-    bitmap.DecodePixelWidth(pixels);
   try {
     Windows::Storage::Streams::InMemoryRandomAccessStream stream;
     Windows::Storage::Streams::DataWriter writer(stream);
@@ -1256,10 +1252,20 @@ fire_and_forget show_png(Image image, uint8_t const *data, size_t size, int32_t 
     writer.DetachStream();
     stream.Seek(0);
     co_await bitmap.SetSourceAsync(stream);
-    image.Source(bitmap);
   } catch (hresult_error const &) {
     // A picture that cannot be decoded leaves the space empty; nothing else depends on it.
   }
+}
+
+// Shows PNG bytes in `image`; the picture appears once `load_png` has decoded it. `pixels` is the decode width, 0 for the picture's own.
+void show_png(Image image, uint8_t const *data, size_t size, int32_t pixels) {
+  if (size == 0)
+    return;
+  Imaging::BitmapImage bitmap;
+  if (pixels > 0)
+    bitmap.DecodePixelWidth(pixels);
+  image.Source(bitmap);
+  load_png(bitmap, data, size);
 }
 
 void show_logo(Image image, int32_t pixels) {
@@ -1267,20 +1273,22 @@ void show_logo(Image image, int32_t pixels) {
   show_png(image, bytes.data(), bytes.size(), pixels);
 }
 
-// 页首的水杉娘插画：Settings.rc 里那张 PNG（RCDATA）。资源缺失时留空，页首只剩说明文字。
-void show_mascot(Image image, nav::MascotScene scene) {
+// 页首的水杉娘插画：Settings.rc 里那张 PNG（RCDATA）解码成的位图。位图立刻返回，解码完自己显示出来；调用方按场景缓存它（`mascot_bitmaps_`），再画页首时直接复用，插画不会因为重新解码而闪一下。资源缺失时返回空，页首只剩说明文字。
+Imaging::BitmapImage load_mascot(nav::MascotScene scene) {
   const HMODULE instance = GetModuleHandleW(nullptr);
   const HRSRC resource =
       FindResourceW(instance, MAKEINTRESOURCEW(nav::mascot_resource(scene)),
                     MAKEINTRESOURCEW(10) /* RT_RCDATA */);
   if (!resource)
-    return;
+    return nullptr;
   const HGLOBAL handle = LoadResource(instance, resource);
   const auto *data =
       handle ? static_cast<const uint8_t *>(LockResource(handle)) : nullptr;
   if (!data)
-    return;
-  show_png(image, data, SizeofResource(instance, resource), 0);
+    return nullptr;
+  Imaging::BitmapImage bitmap;
+  load_png(bitmap, data, SizeofResource(instance, resource));
+  return bitmap;
 }
 
 struct Option {
@@ -3710,7 +3718,7 @@ private:
   FrameworkElement make_search_field() {
     Grid field;
     field.Height(32);
-    field.Margin(Thickness{12, 4, 12, 12});
+    field.Margin(Thickness{12, 4, 12, 8});
     field.HorizontalAlignment(HorizontalAlignment::Stretch);
     field.VerticalAlignment(VerticalAlignment::Center);
 
@@ -4166,14 +4174,14 @@ private:
     }
   }
 
-  // PaneCustomContent 所在的模板行按内容定高，结果多了会伸出侧栏，所以给列表定一个最高值：从搜索框底下（加上搜索框外框的 12 DIP 下边距）到侧栏底部，再留 16。搜索框还没进可视树时（换明暗重建外壳后写回查询）先不算，导航视图第一次排版的 SizeChanged 会再算。
+  // PaneCustomContent 所在的模板行按内容定高，结果多了会伸出侧栏，所以给列表定一个最高值：从搜索框底下（加上搜索框外框的 8 DIP 下边距）到侧栏底部，再留 16。搜索框还没进可视树时（换明暗重建外壳后写回查询）先不算，导航视图第一次排版的 SizeChanged 会再算。
   void fit_search_results() {
     if (!search_scroll_ || !navigation_ || !search_ || !search_.IsLoaded())
       return;
     const auto bottom = search_.TransformToVisual(navigation_)
                             .TransformPoint(point_at(0, search_.ActualHeight()))
                             .Y;
-    search_scroll_.MaxHeight(std::max(0.0, navigation_.ActualHeight() - bottom - 12 - 16));
+    search_scroll_.MaxHeight(std::max(0.0, navigation_.ActualHeight() - bottom - 8 - 16));
   }
 
   // 打开一条结果，照 macOS 的 `openResult`：先清空查询、换回页面列表，整页结果只切到那一页；设置行切到它所在的页和标签，画好后滚到那一行，是控件时把焦点交给它（`render_page_at`），所在的折叠区由 `fold_holds_focus` 展开。
@@ -4376,7 +4384,10 @@ private:
     if (!intro)
       return;
     intro_text_.Text(hstring(intro->description));
-    show_mascot(intro_mascot_, intro->scene);
+    auto bitmap = mascot_bitmaps_.find(intro->scene);
+    if (bitmap == mascot_bitmaps_.end())
+      bitmap = mascot_bitmaps_.emplace(intro->scene, load_mascot(intro->scene)).first;
+    intro_mascot_.Source(bitmap->second);
   }
 
   // macOS 的引导行在视口矮于 700 时把插画缩到 56、间隔收成 12（`[@media(max-height:700px)]`）。这里按窗口内容区的高度判断，窗口拉高拉矮时由 `build_shell` 里根元素的 SizeChanged 跟着改。
@@ -21446,6 +21457,8 @@ private:
   Grid intro_row_{nullptr};
   TextBlock intro_text_{nullptr};
   Image intro_mascot_{nullptr};
+  // 页首插画按场景解码一次后留着，每次重画页首（切标签、改设置后的刷新）直接挂上，不重新解码。
+  std::map<nav::MascotScene, Imaging::BitmapImage> mascot_bitmaps_;
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};

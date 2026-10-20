@@ -8,7 +8,7 @@ macOS 设置（共享设置 UI 的桌面分支）的侧栏搜索是一个没有�
 
 ## Decision
 
-- 搜索框换成普通的 `TextBox`，外面一层 32 DIP 高的 Grid，左边 10 DIP 处叠一个 15 DIP 的次要色放大镜（照 macOS 的 16 × 16 SVG 用椭圆和圆头线画，不接收指针），输入框左内边距 33 给它让位。圆角 8、`BorderThickness` 0，底色浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.07)，悬停不变，13 DIP 字，占位文字「搜索」。这些都经 `TextControl*` 模板资源覆盖：背景、前景、占位文字的普通 / PointerOver / Focused 三态，边框色在聚焦时是强调色，`TextControlBorderThemeThicknessFocused` 改成四边 2 DIP，即 macOS 聚焦时的强调色外框。自动化 ID 仍是 `settings-search`，读屏名仍是「搜索设置」。
+- 搜索框换成普通的 `TextBox`，外面一层 32 DIP 高的 Grid（下边距 8，即 `sidebarSearch` 的 `mb-2`），左边 10 DIP 处叠一个 15 DIP 的次要色放大镜（照 macOS 的 16 × 16 SVG 用椭圆和圆头线画，不接收指针），输入框左内边距 33 给它让位。圆角 8、`BorderThickness` 0，底色浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.07)，悬停不变，13 DIP 字，占位文字「搜索」。这些都经 `TextControl*` 模板资源覆盖：背景、前景、占位文字的普通 / PointerOver / Focused 三态，边框色在聚焦时是强调色，`TextControlBorderThemeThicknessFocused` 改成四边 2 DIP，即 macOS 聚焦时的强调色外框。自动化 ID 仍是 `settings-search`，读屏名仍是「搜索设置」。
 - 结果列表是 `NavigationView.PaneCustomContent` 里的一个 ScrollViewer（`settings-search-results`），模板里排在页面列表之上；有查询时各 `NavigationViewItem` 收起、列表显示，查询清空时反过来。这一行的模板高度按内容定，所以 `fit_search_results` 按搜索框底部到导航视图底部的距离给列表定 `MaxHeight`（再留 16），导航视图 SizeChanged 时重算，列表自己滚动。
 - 匹配照 `use-settings-shell-navigation.tsx`：查询 trim 后转小写；页面按侧栏名字匹配，也认共享 UI 的注册名（`page_search_names`：「屏幕键盘」对「键盘与手写」，「AI 辅助」「AI 助手」对 AI 页）；设置行只按 `record` 的标题匹配，说明不再进索引（`record` 的说明参数保留，调用处不动）。页面结果按侧栏顺序排在前面，设置行按索引顺序排在后面，不设上限；同一页同一位置的同名行只列一次。
 - 位置：建索引时 `page_tab_bar` 记下这一页的标签名（`index_tabs_`），`in_tab` 换块时清空分组，`add_group` 记下组名（`group_index_`），`record` 拼成「页 › 标签 › 分组」写进 `SearchEntry::path`，缺哪一段就省掉。fold 的名字不进位置，折叠区仍由 `fold_holds_focus` 展开。

@@ -20,7 +20,7 @@ macOS 设置在常用页面的正文顶部放一行页首引导：左边一句 1
 ### 插画资源
 
 - `packages/ui/src/assets/mascot/*.webp` 的十个场景用 `dwebp` 转成 PNG，放在 `platforms/windows/settings/assets/mascot/`，由 `Settings.rc` 打成 RCDATA 110–119，资源号是 110 加上 `MascotScene` 的序号。十张一起打包（合计约 0.9 MB），不只打页首用到的六张：词库页的空状态等后续迁移要用 `empty`、`offline`、`updated`。
-- `show_mascot` 用 `FindResourceW` 取资源字节，和品牌图标共用新的 `show_png` 解码；资源缺失或解不开时插画位置留空，说明照常显示。
+- `load_mascot` 用 `FindResourceW` 取资源字节，和品牌图标共用 `load_png` 解码；资源缺失或解不开时插画位置留空，说明照常显示。解出的位图按场景缓存在 `mascot_bitmaps_` 里：切标签、改设置后的刷新都会重画页首、新建 `Image`，每次重新解码的话插画要空一两帧才出来，看起来在闪；缓存命中时同步挂上，只有每个场景第一次出现时异步解码。macOS 的 `<img>` 由 WebView 的图片缓存兜住，没有这个问题。
 - `Settings.rc` 的注释保持 ASCII：`rc.exe` 按构建机的 ANSI 代码页读这个文件。
 
 ### 侧栏图标
