@@ -58,6 +58,9 @@ struct Fixture {
 
   Fixture() {
     g_unsetenv("XDG_CURRENT_DESKTOP");
+    // 这里验证的是辅助文本那条路：没有显示服务器时宿主拿不到自绘徽章，只能用辅助文本提示。
+    g_unsetenv("DISPLAY");
+    g_unsetenv("WAYLAND_DISPLAY");
     g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
     msime_ibus_configure(
         R"({"preferences":{"default_ime_mode":"english","input_mode_hud":true,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":false}}})");
@@ -156,7 +159,7 @@ int main(int argc, char **argv) {
       fixture.destroy_engine();
     }
 
-    // 哨兵比 1.2 秒提示定时器晚到，证明回调确实获得执行机会。
+    // 哨兵比 0.6 秒提示定时器晚到，证明回调确实获得执行机会。
     bool elapsed = false;
     const auto timeout = g_timeout_add(
         1500,

@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "ModeBadgeSurface.h"
@@ -36,9 +37,12 @@ class ModeBadgeWaylandSurface final : public ModeBadgeSurface {
   // 回退到面板自己的文字提示。
   static std::unique_ptr<ModeBadgeWaylandSurface> create();
 
-  // 画出徽章并立即提交。icon_path 为空或读不到时只画文字，不报错。
-  bool show(const std::string &text, const std::string &icon_path, const ModeBadgeStyle &style) override;
+  // 画出徽章并立即提交。icon_path 为空或读不到时只画文字，不报错。layer-shell 拿不到光标的屏幕坐标，caret 一律忽略，徽章固定在右下角。
+  bool show(const std::string &text, const std::string &icon_path, const ModeBadgeStyle &style,
+            std::optional<ModeBadgeCaret> caret) override;
+  bool set_opacity(double alpha) override;
   void hide() override;
+  bool follows_caret() const override { return false; }
 
  private:
   ModeBadgeWaylandSurface() = default;
@@ -46,6 +50,7 @@ class ModeBadgeWaylandSurface final : public ModeBadgeSurface {
   void resize(int width, int height);
   void release_buffer();
   void destroy_surface();
+  bool paint(double alpha);
 
   static void registry_global(void *data, wl_registry *registry, uint32_t name,
                               const char *interface, uint32_t version);
@@ -63,9 +68,14 @@ class ModeBadgeWaylandSurface final : public ModeBadgeSurface {
   zwlr_layer_surface_v1 *layer_surface_ = nullptr;
   wl_buffer *buffer_ = nullptr;
   void *pixels_ = nullptr;
-  // The badge's size in surface pixels, measured by each show() from the preferences and the font; the buffer is reallocated when it changes. The initial value is the default badge (24 px at 100 % with the logo) so the first configure already asks for roughly the right size.
-  int width_ = 74;
-  int height_ = 44;
+  // 徽章在表面像素里的尺寸，每次 show() 按字体测量；变了就重新分配缓冲。初值是默认徽章（不带标志、带阴影边）的大致尺寸，第一次 configure 就能要到差不多的大小。
+  int width_ = 50;
+  int height_ = 48;
+  // 上一次 show 画的内容，set_opacity 按它重画。
+  std::string text_;
+  std::string icon_path_;
+  FloatingSurfaceColors colors_;
+  ModeBadgeLayout layout_;
   std::size_t buffer_bytes_ = 0;
   bool configured_ = false;
   bool closed_ = false;

@@ -60,6 +60,7 @@
 #include "../src/core/InputModeIndicator.h"
 #include "../src/core/InputStatus.h"
 #include "../src/core/ReplacedProgram.h"
+#include "../src/overlay/ModeBadgePlacement.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -1138,18 +1139,26 @@ public:
   void syncCandidatePanelTheme(bool chosen);
   bool candidateThemeSelectionChanged(const Json &preferences);
   void syncVoiceAction();
-  // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
-  // FcitxEngine 之后，它需要那个类型完整。
+  // 中英文切换后在光标附近短暂显示「中」或「英」：能放到光标旁时是自绘徽章，否则是 Fcitx5 面板的文字提示（见 ModeBadgePlacement.h 的 mode_badge_hint）；定义在 FcitxEngine 之后，它需要那个类型完整。
   void showInputModeHud();
 #ifdef MSIME_FCITX5_MODE_BADGE
-  // 徽章显示约 1 秒后自行消失。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条
-  // 线程上，Wayland 连接不是线程安全的。
+  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。
   void scheduleModeBadgeHide() {
     if (!loop_) return;
+    using Timing = msime::linux_host::ModeBadgeTiming;
+    mode_badge_fade_step_ = 0;
     mode_badge_timer_ = loop_->addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000, 0,
-        [this](fcitx::EventSourceTime *, uint64_t) {
-          if (mode_badge_) mode_badge_->hide();
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + Timing::visible_ms * 1000ULL, 0,
+        [this](fcitx::EventSourceTime *timer, uint64_t) {
+          if (!mode_badge_) return true;
+          ++mode_badge_fade_step_;
+          const double alpha = msime::linux_host::mode_badge_fade_alpha(mode_badge_fade_step_);
+          if (alpha > 0.0 && mode_badge_->set_opacity(alpha)) {
+            timer->setNextInterval(Timing::fade_ms * 1000ULL / Timing::fade_steps);
+            timer->setOneShot();
+            return true;
+          }
+          mode_badge_->hide();
           return true;
         });
   }
@@ -4016,6 +4025,7 @@ public:
   std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge_;
   bool mode_badge_unavailable_ = false;
   std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
+  int mode_badge_fade_step_ = 0;
 #endif
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
@@ -7530,28 +7540,41 @@ msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences
 
 void FcitxState::showInputModeHud() {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
-  // 共享偏好 input_mode_hud 控制，默认开启。不自己画窗口——Fcitx5 的面板本来就提供这个
-  // 弹出物，而且它明说是给「输入法内部开关」用的：由面板负责定位、不抢焦点、到时自动
-  // 消失，正是这个提示需要的三件事。
+  // 共享偏好 input_mode_hud 控制，默认开启。
   if (!preferences_.value("input_mode_hud", true)) return;
   if (restricted() || privateInput() || !ic_.hasFocus()) return;
   const std::string label = input_enabled_ ? "中" : "英";
+  auto hint = msime::linux_host::ModeBadgeHint::PanelText;
 #ifdef MSIME_FCITX5_MODE_BADGE
-  // 自绘徽章带产品 logo，面板那个提示只能显示文字。连不上合成器或没有 layer-shell 时
-  // 记下来不再重试，回退到文字提示——提示少一张图，好过没有提示。
+  // 连不上合成器或 X 服务器时记下来不再重试，只用面板的文字提示。
   if (!mode_badge_ && !mode_badge_unavailable_) {
     mode_badge_ = msime::linux_host::ModeBadgeSurface::create();
     mode_badge_unavailable_ = !mode_badge_;
   }
-  // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
-  // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
-  // A fixed size of its own (the toolbar size is not offered on Linux) and the resolved theme's colours, read at every switch so a theme change shows at the next one.
-  const msime::linux_host::ModeBadgeStyle style{
-      msime::linux_host::ModeBadgeMetrics{},
-      msime::linux_host::floating_surface_colors(
-          fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
-  if (mode_badge_ && mode_badge_->show(label, MSIME_MODE_BADGE_ICON, style)) scheduleModeBadgeHide();
+  // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。只有 X11 客户端报的光标矩形是根窗口坐标；Wayland 客户端的是它自己表面里的局部坐标，拿来放徽章会放错地方。
+  const bool show_logo = preferences_.value("show_app_logo", false);
+  const bool x11_client = ic_.display().rfind("x11:", 0) == 0;
+  hint = msime::linux_host::mode_badge_hint(mode_badge_ != nullptr, mode_badge_ && mode_badge_->follows_caret(),
+                                            x11_client, show_logo);
+  if (hint != msime::linux_host::ModeBadgeHint::PanelText) {
+    const msime::linux_host::ModeBadgeStyle style{
+        msime::linux_host::ModeBadgeMetrics{},
+        msime::linux_host::floating_surface_colors(
+            fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
+    std::optional<msime::linux_host::ModeBadgeCaret> caret;
+    if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) {
+      const auto &rect = ic_.cursorRect();
+      caret = msime::linux_host::ModeBadgeCaret{rect.left(), rect.top(), rect.width(), rect.height()};
+    }
+    if (mode_badge_->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
+      scheduleModeBadgeHide();
+    } else {
+      hint = msime::linux_host::ModeBadgeHint::PanelText;
+    }
+  }
 #endif
+  // 徽章已经放在光标旁时不再发面板提示：macOS 只显示一处。
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) return;
   if (auto *instance = engine_->instance()) {
 #ifdef MSIME_FCITX5_HINT_FONT
     instance->showCustomInputMethodInformation(&ic_, engine_->modeHintLabel(ic_.display(), label));

@@ -37,6 +37,10 @@
 #include "../overlay/WaveOverlayModel.h"
 #include "../overlay/WaveOverlayIbusSurface.h"
 #include "../overlay/WaveOverlaySurfaceFactory.h"
+#include "../overlay/ModeBadgePlacement.h"
+#ifdef MSIME_IBUS_MODE_BADGE
+#include "../overlay/ModeBadgeSurface.h"
+#endif
 #include "../candidates/CandidateColors.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
@@ -563,6 +567,15 @@ struct State {
   // 中英文切换提示：辅助区域短暂显示「中」或「英」。代次用于丢弃过期的隐藏回调，
   // 与语音失败提示同一套做法。
   uint64_t mode_hint_id = 0;
+  // 切换徽章的颜色，与语音浮层一样取解析出的主题，明暗跟随颜色模式。
+  msime::linux_host::FloatingSurfaceColors mode_badge_colors;
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 自绘的切换徽章（见 show_input_mode_hint）。拿不到后端时记下来，不在每次切换时重试。代次丢弃过期的淡出回调。
+  std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge;
+  bool mode_badge_unavailable = false;
+  uint64_t mode_badge_id = 0;
+  int mode_badge_fade_step = 0;
+#endif
   // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
@@ -1101,6 +1114,9 @@ struct State {
         display_preferences, !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark));
     wave_overlay.light_theme = !voice_theme.dark;
     wave_overlay.palette = msime::linux_host::floating_surface_colors(voice_theme);
+    // 切换徽章与 Fcitx5 的一样跟随颜色模式（surface_dark_theme），不看候选窗的明暗设置。
+    mode_badge_colors = msime::linux_host::floating_surface_colors(
+        theme_in_mode(display_preferences, msime::linux_host::surface_dark_theme(preferences, system_dark)));
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
@@ -6217,15 +6233,45 @@ struct ModeHintNotice {
   std::shared_ptr<std::atomic_bool> alive;
   uint64_t id;
 };
-// 中英文切换后在辅助区域短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
+#ifdef MSIME_IBUS_MODE_BADGE
+// IBus 引擎拿不到每个客户端的显示类型；只有纯 X11 会话（没有 WAYLAND_DISPLAY）里，客户端经 set_cursor_location 报的光标位置才一定是根窗口坐标。Wayland 会话里 Xwayland 客户端也是根坐标，但同一个引擎还服务 Wayland 原生客户端，分不出来就不冒险。
+bool mode_badge_x11_session() {
+  const char *wayland = std::getenv("WAYLAND_DISPLAY");
+  const char *x11 = std::getenv("DISPLAY");
+  return (!wayland || !*wayland) && x11 && *x11;
+}
+// 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出（ModeBadgeTiming），与 macOS 相同；后端做不到半透明时直接隐藏。
+void schedule_mode_badge_fade(IBusEngine *engine, guint interval) {
+  auto &s = state(engine);
+  auto *notice = new ModeHintNotice{engine, s.alive, s.mode_badge_id};
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, interval,
+      +[](gpointer data) -> gboolean {
+        std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
+        if (!notice->alive->load())
+          return G_SOURCE_REMOVE;
+        auto &s = state(notice->engine);
+        if (s.mode_badge_id != notice->id || !s.mode_badge)
+          return G_SOURCE_REMOVE;
+        using Timing = msime::linux_host::ModeBadgeTiming;
+        ++s.mode_badge_fade_step;
+        const double alpha = msime::linux_host::mode_badge_fade_alpha(s.mode_badge_fade_step);
+        if (alpha > 0.0 && s.mode_badge->set_opacity(alpha))
+          schedule_mode_badge_fade(notice->engine, Timing::fade_ms / Timing::fade_steps);
+        else
+          s.mode_badge->hide();
+        return G_SOURCE_REMOVE;
+      },
+      notice, nullptr);
+}
+#endif
+// 中英文切换后短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
 //
-// IBus 没有 Fcitx5 那种由面板绘制的信息弹窗，辅助文本是这个宿主唯一能表达的位置：它由
-// panel 按当前输入上下文摆放，因此也跟着输入点走。不自己画窗口——那条边界在这个宿主上
-// 仍然成立（Fcitx5 那侧的徽章是所有者要求的例外，且带 logo 是它存在的理由）。
+// macOS 只在光标旁显示一块徽章。这里能做到时也一样：X11 会话里自绘徽章按 macOS 的规则放到光标下方，不再发辅助文本。做不到时（Wayland 会话、没有可用的后端）用辅助文本：它由 panel 按当前输入上下文摆放，因此也跟着输入点走；用户打开「显示水杉图标」时另在屏幕角上显示带标志的徽章，因为辅助文本带不了图。规则与 Fcitx5 宿主相同，见 ModeBadgePlacement.h 的 mode_badge_hint。
 //
-// 隐藏时先确认辅助区域还属于这条提示：用户可能在这 1.2 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
+// 隐藏辅助文本时先确认辅助区域还属于这条提示：用户可能在这 0.6 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
 //
-// 这 1.2 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
+// 这 0.6 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
 void show_input_mode_hint(IBusEngine *engine) {
   auto &s = state(engine);
   if (!configured.contains("preferences") ||
@@ -6234,14 +6280,41 @@ void show_input_mode_hint(IBusEngine *engine) {
   // IBus 自己的 "fake" 上下文也不显示：全局引擎下没有输入框获得焦点时，守护进程让它获得焦点，这时没有可以显示模式的输入框。面板把这样的提示画进 X11 候选窗，Hyprland 会把它映射成一个抢焦点的独立窗口。
   if (!s.focused || s.blocked || s.focused_client == "fake")
     return;
+  const char *label = s.input_enabled ? "中" : "英";
+  auto hint = msime::linux_host::ModeBadgeHint::PanelText;
+#ifdef MSIME_IBUS_MODE_BADGE
+  if (!s.mode_badge && !s.mode_badge_unavailable) {
+    s.mode_badge = msime::linux_host::ModeBadgeSurface::create();
+    s.mode_badge_unavailable = !s.mode_badge;
+  }
+  // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。
+  const bool show_logo = configured.at("preferences").value("show_app_logo", false);
+  hint = msime::linux_host::mode_badge_hint(s.mode_badge != nullptr, s.mode_badge && s.mode_badge->follows_caret(),
+                                            mode_badge_x11_session(), show_logo);
+  if (hint != msime::linux_host::ModeBadgeHint::PanelText) {
+    std::optional<msime::linux_host::ModeBadgeCaret> caret;
+    if (hint == msime::linux_host::ModeBadgeHint::CaretBadge)
+      caret = msime::linux_host::ModeBadgeCaret{engine->cursor_area.x, engine->cursor_area.y,
+                                                engine->cursor_area.width, engine->cursor_area.height};
+    const msime::linux_host::ModeBadgeStyle style{msime::linux_host::ModeBadgeMetrics{}, s.mode_badge_colors};
+    if (s.mode_badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
+      ++s.mode_badge_id;
+      s.mode_badge_fade_step = 0;
+      schedule_mode_badge_fade(engine, msime::linux_host::ModeBadgeTiming::visible_ms);
+    } else {
+      hint = msime::linux_host::ModeBadgeHint::PanelText;
+    }
+  }
+#endif
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge)
+    return;
   ++s.mode_hint_id;
   if (s.mode_hint_id == 0)
     ++s.mode_hint_id;
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_string(s.input_enabled ? "中" : "英"), TRUE);
+  ibus_engine_update_auxiliary_text(engine, ibus_text_new_from_string(label), TRUE);
   auto *notice = new ModeHintNotice{engine, s.alive, s.mode_hint_id};
   g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 1200,
+      G_PRIORITY_DEFAULT, msime::linux_host::ModeBadgeTiming::visible_ms,
       +[](gpointer data) -> gboolean {
         std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
         if (!notice->alive->load())

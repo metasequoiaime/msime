@@ -20,6 +20,8 @@ namespace msime::linux_host {
 namespace {
 
 constexpr int kEdgeMargin = 24;
+// 合成器总在场，Wayland 徽章总带阴影边；锚点边距扣掉这圈透明边，本体离屏幕边缘仍是 kEdgeMargin。
+constexpr int kAnchorMargin = kEdgeMargin - static_cast<int>(ModeBadgeGeometry::shadow_margin);
 
 int shared_fd() {
 #ifdef SYS_memfd_create
@@ -100,7 +102,7 @@ bool ModeBadgeWaylandSurface::ensure_surface() {
     zwlr_layer_surface_v1_set_anchor(layer_surface_,
                                      ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
                                          ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_margin(layer_surface_, 0, kEdgeMargin, kEdgeMargin, 0);
+    zwlr_layer_surface_v1_set_margin(layer_surface_, 0, kAnchorMargin, kAnchorMargin, 0);
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(
         layer_surface_, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
@@ -164,15 +166,25 @@ void ModeBadgeWaylandSurface::release_buffer() {
 }
 
 bool ModeBadgeWaylandSurface::show(const std::string &text, const std::string &icon_path,
-                                   const ModeBadgeStyle &style) {
-  // The Wayland badge is drawn one buffer pixel per surface pixel, as before: the layout's logical size is the surface size, and the compositor scales it on a HiDPI output.
-  const auto layout = measure_mode_badge(style.metrics, icon_path);
+                                   const ModeBadgeStyle &style, std::optional<ModeBadgeCaret>) {
+  // Wayland 徽章一个缓冲像素对应一个表面像素：layout 的逻辑尺寸就是表面尺寸，HiDPI 输出由合成器缩放。
+  auto metrics = style.metrics;
+  metrics.shadow = true;
+  const auto layout = measure_mode_badge(metrics, icon_path);
   resize(layout.width, layout.height);
   if (!ensure_surface()) return false;
+  text_ = text;
+  icon_path_ = icon_path;
+  colors_ = style.colors;
+  layout_ = layout;
+  return paint(1.0);
+}
+
+bool ModeBadgeWaylandSurface::paint(double alpha) {
   auto *image = cairo_image_surface_create_for_data(static_cast<unsigned char *>(pixels_), CAIRO_FORMAT_ARGB32,
                                                     width_, height_, width_ * 4);
   auto *cairo = cairo_create(image);
-  paint_mode_badge(cairo, layout, text, icon_path, style.colors);
+  paint_mode_badge(cairo, layout_, text_, icon_path_, colors_, alpha);
   cairo_destroy(cairo);
   cairo_surface_destroy(image);
   wl_surface_attach(surface_, buffer_, 0, 0);
@@ -183,6 +195,11 @@ bool ModeBadgeWaylandSurface::show(const std::string &text, const std::string &i
   // 好的，据此判失败会让提交永远发不出去。roundtrip 负责把队列写完并等一次同步，只有
   // 真正的连接错误才返回负值。
   return wl_display_roundtrip(display_) >= 0;
+}
+
+bool ModeBadgeWaylandSurface::set_opacity(double alpha) {
+  if (!visible_ || !surface_ || !buffer_ || closed_) return false;
+  return paint(alpha);
 }
 
 void ModeBadgeWaylandSurface::hide() {
