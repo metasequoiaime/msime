@@ -135,9 +135,10 @@ test("the sliders write the window style, leaving the defaults out of the docume
   expect(edited.onChange).toHaveBeenLastCalledWith({ candidate_opacity_percent: undefined });
 });
 
-test("Linux explains that overall size scales the panel font", () => {
+// Linux 的 Fcitx5 主题也按整体大小缩放卡片几何（IBus 面板只缩放字号，由面板限制说明交代），所以和其他宿主同一句说明。
+test("Linux describes overall size like the other hosts", () => {
   renderSection({ platform: "linux" });
-  expect(screen.getByText("100%，候选字号跟随缩放")).toBeTruthy();
+  expect(screen.getByText("100%，字号与窗口尺寸一起缩放")).toBeTruthy();
 });
 
 test("the corner radius follows the skin until set, and returns to it", () => {
@@ -251,7 +252,7 @@ test("the rows a host cannot draw are hidden", () => {
 test.each([
   ["windows", { scale: true, opacity: true, radius: true, padding: false }],
   ["macos", { scale: true, opacity: true, radius: true, padding: true }],
-  ["linux", { scale: true, opacity: false, radius: true, padding: false }],
+  ["linux", { scale: true, opacity: true, radius: true, padding: true }],
   ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
   ["ios", { scale: false, opacity: false, radius: false, padding: false }],
   ["android", { scale: false, opacity: false, radius: false, padding: false }],

@@ -8158,6 +8158,7 @@ test("on macOS the page number switch names the page arrows and saves show_candi
   );
 });
 
+// 没声明 app_logo 的宿主（如鸿蒙）照常画 logo，不提供这个开关；Linux 的 Fcitx5 主题现在按它画（host_surface.rs），这里显式关掉能力位。
 test("the app logo row needs a host that hides the logo", async () => {
   render(
     <SettingsPage
@@ -8165,7 +8166,7 @@ test("the app logo row needs a host that hides the logo", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "linux", candidate_font_controls: true }),
+        host: testHost({ platform: "linux", candidate_font_controls: true, app_logo: false }),
       }}
     />,
   );

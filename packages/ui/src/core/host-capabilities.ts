@@ -37,7 +37,7 @@ export interface HostCapabilities {
   candidate_font_controls: boolean;
   candidate_preedit_font: boolean;
   candidate_page_number: boolean;
-  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
+  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS、Windows 和 Linux 的 Fcitx5）。 */
   app_logo?: boolean;
   /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
   traditional_chinese_variants?: boolean;
@@ -57,7 +57,7 @@ export interface HostCapabilities {
   candidate_window_opacity: boolean;
   /** 宿主按 `candidate_corner_radius` 设置候选卡片圆角，优先于皮肤包里的半径。 */
   candidate_corner_radius: boolean;
-  /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前只有 macOS。 */
+  /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前是 macOS 和 Linux 的 Fcitx5。 */
   candidate_padding: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
@@ -120,7 +120,7 @@ export interface HostCapabilities {
   input_method_framework?: string;
   /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
   device_model?: string;
-  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角和皮肤的装饰图，也不描边（Linux 本来就不给边框色取色器）。 */
+  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、内边距、不透明度、水杉 logo 和皮肤的装饰图，也不描边（Linux 本来就不给边框色取色器）。 */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
   /** 宿主播放 `plugins` 中的音效包：按键音、旋律、上屏音和成就提示音。 */
   key_sound: boolean;

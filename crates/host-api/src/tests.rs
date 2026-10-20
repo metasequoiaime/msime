@@ -774,10 +774,12 @@ fn host_capability_boundary_describes_each_platform() {
     // Every host reads capabilities through this boundary; the Fcitx5 border follows the theme, so the Linux page gets no border picker.
     assert_eq!(linux["value"]["candidate_border_color"], false);
     assert_eq!(linux["value"]["candidate_selection_appearance"], false);
-    // Fcitx5 主题支持圆角和候选字号缩放，桌面面板仍不提供半透明填充。
+    // Fcitx5 主题照 macOS 应用圆角、整体缩放、半透明卡片、内边距和 logo 开关；IBus 面板做不到的由 candidate_panel_limit 说明。
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
     assert_eq!(linux["value"]["candidate_window_scale"], true);
-    assert_eq!(linux["value"]["candidate_window_opacity"], false);
+    assert_eq!(linux["value"]["candidate_window_opacity"], true);
+    assert_eq!(linux["value"]["candidate_padding"], true);
+    assert_eq!(linux["value"]["app_logo"], true);
     // 菜单栏状态项是 macOS 独有的：Linux 由 Fcitx5/IBus 面板显示模式。
     assert_eq!(linux["value"]["input_mode_status_item"], false);
 

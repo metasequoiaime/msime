@@ -447,7 +447,7 @@ test.each([
   ],
   [
     "ibus_panel",
-    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角和皮肤的装饰图在 IBus 下不会生效。",
+    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：整体大小只缩放字号，这里的圆角、内边距、不透明度、水杉 logo 和皮肤的装饰图在 IBus 下不会生效。",
   ],
 ] as const)(
   "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",

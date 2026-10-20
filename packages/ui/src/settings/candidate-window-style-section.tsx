@@ -94,13 +94,13 @@ export interface CandidateScaleRowProps {
   onChange: (patch: Partial<Preferences>) => void;
 }
 
-/** 「整体大小」滑块；自绘候选窗连同窗口缩放，Linux 面板只缩放它能控制的候选字号。 */
-export function CandidateScaleRow({ preferences, platform, onChange }: CandidateScaleRowProps) {
+/** 「整体大小」滑块；自绘候选窗和 Linux 的 Fcitx5 主题连同窗口一起缩放，IBus 面板只缩放候选字号（见 `candidatePanelLimitNotes.ibus_panel`）。 */
+export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
   return (
     <SliderRow
       title="整体大小"
-      description={`${scale}%，${platform === "linux" ? "候选字号跟随缩放" : "字号与窗口尺寸一起缩放"}`}
+      description={`${scale}%，字号与窗口尺寸一起缩放`}
       {...candidateScaleSlider}
       value={scale}
       valueText={`${scale}%`}
@@ -118,7 +118,7 @@ export interface CandidateWindowStyleSectionProps {
   platform?: HostPlatform;
   showOpacity: boolean;
   showCornerRadius: boolean;
-  /** 宿主声明了 `candidate_padding` 时显示「内边距」行（目前只有 macOS）。 */
+  /** 宿主声明了 `candidate_padding` 时显示「内边距」行（目前是 macOS 和 Linux 的 Fcitx5）。 */
   showPadding?: boolean;
   onChange: (patch: Partial<Preferences>) => void;
   /** 排在窗口自身样式之后的行，例如链接到颜色和明暗设置处的那一行。 */
