@@ -570,6 +570,6 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 ### 打字特效
 
-`msime_client_typing_effect` 的答案由输入线程经 `TypingEffectSignal` 交给界面线程，特效包的颜色和每键火花数随它一起发布（`TypingEffectPalette`）。候选窗取到之后自己画卡片闪光（闪光和 Power Mode）和 Power Mode 的横向抖动，其余交给 `src/candidate/TypingEffectOverlay.cpp`：一个 `WS_EX_LAYERED | WS_EX_TRANSPARENT`、不激活的置顶分层窗口，排在候选窗下面，用 `UpdateLayeredWindow` 贴出光标处的火花、候选窗不在时（上屏之后、交给应用的键）光标所在行的闪光，以及「连击 ×N」徽标（有卡片时在卡片右上角上方，没有时在光标右上方），升档和 Power Mode 时徽标弹一下。数值照搬 macOS 的 `TypingEffectPanel.mm`，都在 `TypingEffectOverlayPolicy.h` 里。光标位置先取前台线程的系统光标，没有时用最近一次组字的锚点往上估一行。「显示动画」关掉时不闪、不动，只留徽标；节电模式下火花和 Power Mode 退回闪光；全屏应用在前台时浮层什么都不画。浮层每帧只用一把自己的画刷，播完就停计时器、收起窗口；建不出来时候选卡片照旧自己画闪光和连击数。
+`msime_client_typing_effect` 的答案由输入线程经 `TypingEffectSignal` 交给界面线程，特效包的颜色和每键火花数随它一起发布（`TypingEffectPalette`）。候选窗取到之后自己画卡片闪光（闪光和 Power Mode）和 Power Mode 的横向抖动，其余交给 `src/candidate/TypingEffectOverlay.cpp`：一个 `WS_EX_LAYERED | WS_EX_TRANSPARENT`、不激活的置顶分层窗口，排在候选窗下面，用 `UpdateLayeredWindow` 贴出光标处的火花、候选窗不在时（上屏之后、交给应用的键）光标所在行的闪光，以及「连击 ×N」徽标（有卡片时在卡片右上角上方，没有时在光标右上方），升档和 Power Mode 时徽标弹一下。数值照搬 macOS 的 `TypingEffectPanel.mm`，都在 `TypingEffectOverlayPolicy.h` 里。特效包没给颜色时，火花、闪光和连击徽标用系统强调色（`src/system/SystemAccent.h` 经 `UISettings.GetColorValue(Accent)` 取，与 macOS 的 `controlAccentColor` 对应），取不到时退回主题的强调色。光标位置先取前台线程的系统光标，没有时用最近一次组字的锚点往上估一行。「显示动画」关掉时不闪、不动，只留徽标；节电模式下火花和 Power Mode 退回闪光；全屏应用在前台时浮层什么都不画。浮层每帧只用一把自己的画刷，播完就停计时器、收起窗口；建不出来时候选卡片照旧自己画闪光和连击数。
 
 未在真机核实：浮层的点击穿透、在候选窗下面的层级、火花的观感和帧率，以及没有系统光标的应用里按锚点估出的光标行，只在 macOS 上用 MinGW 语法检查和本机运行的纯策略测试验证过。

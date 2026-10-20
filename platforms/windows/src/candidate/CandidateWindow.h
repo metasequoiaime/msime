@@ -16,6 +16,7 @@
 #include "CandidateWindowStyle.h"
 #include "ComponentFailure.h"
 #include "FullscreenForeground.h"
+#include "SystemAccent.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -356,6 +357,9 @@ private:
   bool effect_shaking_ = false;
   // 浮层在画连击徽标，卡片不画计数。
   bool effect_badge_elsewhere_ = false;
+  // 这次特效的强调色：特效包没给颜色时火花、闪光和连击数用它。取系统强调色，与 macOS 的 controlAccentColor 一样；取不到时是主题的强调色。随特效一起取，闪光淡出期间不变。
+  SystemAccent system_accent_;
+  CandidateColor effect_accent_{};
   TypingEffectPresenter typing_effect_presenter_;
   // 最近一次显示候选时 TSF 给的光标锚点，以及当时的前台窗口：上屏之后候选窗收起了，浮层还要知道光标在哪；前台换了就不再用它。
   std::optional<POINT> typing_anchor_;

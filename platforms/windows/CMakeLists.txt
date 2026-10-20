@@ -1623,7 +1623,7 @@ if(WIN32)
   # 候选窗、悬浮状态栏和托盘卡片共用的 UI Automation 提供者（读屏）；UiaReturnRawElementProvider 等在 uiautomationcore，BSTR 与 SAFEARRAY 在 oleaut32。
   target_sources(msime-windows-server PRIVATE src/candidate/AccessibleWindow.cpp)
   target_link_libraries(msime-windows-server PUBLIC uiautomationcore oleaut32)
-  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp
+  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp
                  src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
                  src/voice/SystemAsrStream.cpp

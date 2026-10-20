@@ -1237,6 +1237,11 @@ void CandidateWindow::take_typing_effect() {
     effect_settings_ = *settings;
   else
     effect_settings_ = resolve_typing_effect_settings(typing_effect_default_intensity, std::nullopt, std::nullopt);
+  // 特效的强调色是系统强调色（设置 › 个性化 › 颜色），与 macOS 用 controlAccentColor 一样，不随主题；取不到时退回主题的强调色。
+  if (const auto accent = system_accent_.rgb())
+    effect_accent_ = candidate_rgb(*accent);
+  else
+    effect_accent_ = palette_.accent;
   // Windows' "Show animations" switch is its reduced motion setting: with it off the card does not flash, and the combo count still shows.
   BOOL animations = TRUE;
   if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0))
@@ -1257,7 +1262,7 @@ void CandidateWindow::take_typing_effect() {
     const auto channel = [](float value) {
       return static_cast<uint32_t>(std::lround((std::min)(1.0f, (std::max)(0.0f, value)) * 255.0f));
     };
-    presentation.accent = (channel(palette_.accent.r) << 16) | (channel(palette_.accent.g) << 8) | channel(palette_.accent.b);
+    presentation.accent = (channel(effect_accent_.r) << 16) | (channel(effect_accent_.g) << 8) | channel(effect_accent_.b);
     presentation.animations = animations != FALSE;
     presentation.power_saver = power_saver;
     effect_badge_elsewhere_ = typing_effect_presenter_(presentation);
@@ -1586,9 +1591,9 @@ void CandidateWindow::paint() {
   if (border_width > 0.0f && !panel_bitmap)
     target->DrawRoundedRectangle(card, brush(candidate_faded(palette_.border, style_)),
                                  border_width);
-  // The typing flash: a faint accent wash over the surface, under the text, and an accent outline that grows with the style. Both fade with the flash. An effect pack's first colour takes the accent's place.
+  // The typing flash: a faint accent wash over the surface, under the text, and an accent outline that grows with the style. Both fade with the flash. The accent is the system's, as on macOS; an effect pack's first colour takes its place.
   if (flash > 0.0f) {
-    const auto flash_color = effect_settings_.color ? candidate_rgb(*effect_settings_.color) : palette_.accent;
+    const auto flash_color = effect_settings_.color ? candidate_rgb(*effect_settings_.color) : effect_accent_;
     // 不透明度量化成有限的几档：brush() 按颜色缓存画刷，每帧一个新的透明度会让缓存一直变大。
     auto wash = flash_color;
     wash.a = typing_effect_quantized_alpha(flash * 0.12f);
@@ -1681,7 +1686,7 @@ void CandidateWindow::paint() {
       target->DrawText(combo.c_str(), static_cast<UINT32>(combo.size()),
                         format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING, false,
                                false, DWRITE_FONT_WEIGHT_SEMI_BOLD),
-                        preedit_rect, brush(flash > 0.0f && effect_.tier_up ? palette_.accent : palette_.number),
+                        preedit_rect, brush(flash > 0.0f && effect_.tier_up ? effect_accent_ : palette_.number),
                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
   }
   if (show_preedit_) {
