@@ -187,6 +187,8 @@ public final class MSIMEInputService extends InputMethodService {
     JSONObject candidatePanelSnapshot;
     PopupWindow nineKeyHoldPopup;
     ScrollView clipboardScroll;
+    FrameLayout clipboardSurface;
+    LinearLayout clipboardHeader;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -2298,7 +2300,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
     private boolean toolbarExitNeeded() {
         if (!anyToolbarPanelOpen()) return false;
-        return !(ViewPolicy.isVisible(clipboardScroll) && imeBottomBar.shown());
+        return !(ViewPolicy.isVisible(clipboardSurface) && imeBottomBar.shown());
     }
 
     /** `touch_toolbar` 的按钮开关，以及功能面板直接切换的模糊音、单手、隐私三项；缺键时按 Android 的默认值读。 */
@@ -5557,7 +5559,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeClipboardHistory() {
-        if (clipboardScroll != null) ViewPolicy.hide(clipboardScroll);
+        if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
         cloudClipboardAccountId = "";
@@ -8631,16 +8633,23 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(expandedCandidateCanvas);
         keyboardSurface.addView(expandedCandidateCanvas, LayoutPolicy.frameMatchParentParams());
         keyboardSurface.addView(imeNineKeyPanel.build(), LayoutPolicy.frameMatchParentParams());
+        clipboardSurface = new FrameLayout(this);
+        ViewPolicy.setBackgroundColor(clipboardSurface, Color.parseColor(skin.background()));
+        clipboardSurface.setContentDescription("剪贴板历史");
+        clipboardHeader = LayoutPolicy.column(this);
         clipboardPanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         ViewPolicy.setBackgroundColor(clipboardPanel, Color.parseColor(skin.background()));
-        clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
         // 和候选、方案面板一样撑满整个键区：原先内容少时滚动视图本身是透明的，下面的键从空白处露出来。
         clipboardScroll.setFillViewport(true);
         clipboardScroll.addView(clipboardPanel, LayoutPolicy.scrollMatchParentParams());
-        ViewPolicy.hide(clipboardScroll);
-        keyboardSurface.addView(clipboardScroll, LayoutPolicy.frameMatchParentParams());
+        FrameLayout.LayoutParams clipboardScrollParams = LayoutPolicy.frameMatchParentParams();
+        clipboardScrollParams.topMargin = pixels(32);
+        clipboardSurface.addView(clipboardScroll, clipboardScrollParams);
+        clipboardSurface.addView(clipboardHeader, LayoutPolicy.frameMatchWidthWrapParams());
+        ViewPolicy.hide(clipboardSurface);
+        keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
         schemePanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
         ViewPolicy.setBackgroundColor(schemePanel, Color.parseColor(skin.background()));
@@ -8809,7 +8818,7 @@ public final class MSIMEInputService extends InputMethodService {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
         for (View overlay : new View[] {moreToolsScroll, expandedCandidateCanvas, imeNineKeyPanel.root(),
-                phraseScroll, emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll,
+                phraseScroll, emojiPanel, symbolPanel, clipboardSurface, skinScroll, schemeScroll,
                 aiPolishContainer, textEditPanel}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
@@ -8823,7 +8832,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean anyToolbarPanelOpen() {
         return ViewPolicy.isVisible(moreToolsScroll) || ViewPolicy.isVisible(emojiPanel)
             || ViewPolicy.isVisible(phraseScroll)
-            || ViewPolicy.isVisible(clipboardScroll) || ViewPolicy.isVisible(skinScroll)
+            || ViewPolicy.isVisible(clipboardSurface) || ViewPolicy.isVisible(skinScroll)
             || ViewPolicy.isVisible(schemeScroll) || ViewPolicy.isVisible(symbolPanel)
             || ViewPolicy.isVisible(aiPolishContainer) || ViewPolicy.isVisible(voiceResultScroll)
             || ViewPolicy.isVisible(layoutSettingsScroll) || ViewPolicy.isVisible(layoutAdjustView)

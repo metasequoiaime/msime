@@ -447,6 +447,8 @@ final class ImeStyler {
             ViewPolicy.setPadding(s.candidateHeader, s.candidateHeader.getPaddingLeft(),
                 s.candidateHeader.getPaddingTop(), s.candidateHeader.getPaddingRight(), gap);
         }
+        if (s.clipboardSurface != null)
+            applySkinBackground(s.clipboardSurface);
         if (s.clipboardPanel != null)
             applySkinBackground(s.clipboardPanel);
         if (s.schemePanel != null)
