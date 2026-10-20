@@ -42,8 +42,10 @@ public final class CustomSkinLibrarySmoke {
             Path file = directory.resolve("library.json");
             Files.createSymbolicLink(file, externalFile);
             fails(() -> CustomSkinLibrary.read(preferences));
+            fails(() -> CustomSkinLibrary.remove(preferences, "synthetic"));
             check(java.util.Arrays.equals(original, Files.readAllBytes(externalFile)));
             Files.delete(file);
+            Files.deleteIfExists(directory.resolve("library.json.lock"));
 
             Path externalDirectory = outside.resolve("CustomSkins");
             Files.createDirectories(externalDirectory);

@@ -7,10 +7,22 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 自定义皮肤设计参数的 JSON 往返与按 id 合并。要真实的 org.json（check-host 只有 android.jar 里抛 `Stub!` 的桩），所以类名不以 Smoke 结尾：check-host 只编译它，运行用 `java -cp <classes>:<json.jar> CustomSkinDesignExchangeCheck`。
+ * 自定义皮肤设计参数的 JSON 往返、按 id 合并与删除。要真实的 org.json（check-host 只有 android.jar 里抛 `Stub!` 的桩），所以类名不以 Smoke 结尾：check-host 只编译它，运行用 `java -cp <classes>:<json.jar> CustomSkinDesignExchangeCheck`。
  */
 public final class CustomSkinDesignExchangeCheck {
     public static void main(String[] args) throws Exception {
+        Path root = Files.createTempDirectory("msime-skin-exchange-");
+        try {
+            run(root);
+        } finally {
+            try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+                for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList())
+                    Files.deleteIfExists(path);
+            }
+        }
+    }
+
+    private static void run(Path root) throws Exception {
         JSONObject design = new JSONObject().put("background", 0x151022).put("accent", 0xD4BBFF)
             .put("cornerRadius", 12).put("keyShape", "pebble").put("soundPack", "msime-bubble")
             .put("pressAnimation", "glow");
@@ -22,12 +34,11 @@ public final class CustomSkinDesignExchangeCheck {
         check("default".equals(CustomKeyboardSkin.from(new JSONObject()).soundPack()),
             "missing sound pack reads as default");
 
-        Path root = Files.createTempDirectory("msime-skin-exchange-");
         Path preferences = root.resolve("preferences");
         Path hardlinkPreferences = root.resolve("hardlink-preferences");
         Path customSkins = hardlinkPreferences.resolve("CustomSkins");
         Files.createDirectories(customSkins);
-        Path outside = Files.createTempFile("msime-skin-hardlink-", ".json");
+        Path outside = root.resolve("outside.json");
         byte[] protectedBytes = "outside-sentinel".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         Files.write(outside, protectedBytes);
         Files.createLink(customSkins.resolve("library.json.pending"), outside);
@@ -62,8 +73,31 @@ public final class CustomSkinDesignExchangeCheck {
             && items.get(0).updatedAt() == 300, "a replaced");
         check("夜航".equals(items.get(1).name()) && items.get(1).updatedAt() == 200, "b kept");
         check("c".equals(items.get(2).id()), "c appended");
+        Path library = preferences.resolve("CustomSkins/library.json");
+        byte[] beforeMissing = Files.readAllBytes(library);
+        check(!CustomSkinLibrary.remove(preferences, "missing"), "missing skin is ignored");
+        check(java.util.Arrays.equals(beforeMissing, Files.readAllBytes(library)),
+            "missing skin does not rewrite the library");
+        check(CustomSkinLibrary.remove(preferences, "b"), "b is removed");
+        items = CustomSkinLibrary.read(preferences);
+        check(items.size() == 2 && "a".equals(items.get(0).id()) && "c".equals(items.get(1).id()),
+            "remove keeps the other designs in order");
+        check(items.get(0).updatedAt() == 300 && items.get(1).updatedAt() == 10
+            && CustomKeyboardSkin.from(items.get(0).design()).key().equals(
+                CustomKeyboardSkin.from(incoming.getJSONObject(0).getJSONObject("design")).key()),
+            "remove preserves remaining designs and timestamps");
+        check(!CustomSkinLibrary.remove(preferences, "b"), "removed skin stays absent");
+        check(CustomSkinLibrary.remove(preferences, "a") && CustomSkinLibrary.remove(preferences, "c")
+            && CustomSkinLibrary.read(preferences).isEmpty(), "last skin can be removed");
+        for (int index = 0; index < 12; index++)
+            check(CustomSkinLibrary.add(preferences, "full-" + index, "合成皮肤" + index, design, 400),
+                "fill library");
+        check(!CustomSkinLibrary.add(preferences, "extra", "额外皮肤", design, 500), "full library refuses add");
+        check(CustomSkinLibrary.remove(preferences, "full-5")
+            && CustomSkinLibrary.add(preferences, "extra", "额外皮肤", design, 500),
+            "deleting a skin frees a library slot");
         check(CustomSkinLibrary.importDesigns(preferences, "not json") == 0, "junk is ignored");
-        System.out.println("Android custom skin exchange: JSON round trip and id merge passed");
+        System.out.println("Android custom skin exchange: JSON round trip, id merge and removal passed");
     }
 
     private static void check(boolean condition, String message) {
