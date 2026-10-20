@@ -1074,8 +1074,8 @@ final class ImeLetterRows {
         return key;
     }
 
-    /** 123 / #+= 层的叹号：上滑输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
-    private void bindSuperscriptShortcut(Button key, String text) {
+    /** 九键主键面与 123 / #+= 层的叹号：上滑输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    void bindSuperscriptShortcut(Button key, String text) {
         if (!SuperscriptShortcutPolicy.applies(text)) return;
         key.setContentDescription(text + "；上滑输入 0；长按选择上标 ⁰ 或下标 ₀");
         key.setOnLongClickListener(ignored -> {

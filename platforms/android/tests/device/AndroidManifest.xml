@@ -35,7 +35,7 @@
     <instrumentation android:name="app.msime.android.test.PairedPunctuationDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.NineKeySidebarPairDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.LetterHintPunctuationDeviceSmoke" android:targetPackage="app.msime.android.test" />
-    <instrumentation android:name="app.msime.android.test.SuperscriptShortcutDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.SuperscriptShortcutDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.HandwritingDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.PreferencesDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ThemeModeDeviceSmoke" android:targetPackage="app.msime.android" />
