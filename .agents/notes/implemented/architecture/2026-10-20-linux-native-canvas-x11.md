@@ -49,3 +49,5 @@ GTK 3 移动整个窗口后，在下一次光标更新时上报新的根坐标�
 完整 quick 门禁通过（构建机 run `20261020-040313`）：Linux 原生 93/93、full/wubi 构建及安装隔离、Linux 设置应用、Rust 工作区、Android target 和 Java 宿主、WebAssembly、macOS 与共享 Apple 桥接均通过。该构建副本缺少 HarmonyOS 打包前置及设置依赖，Windows 原生／交叉构建与 pipe 编译也因工具链缺失跳过；Windows 可在当前宿主执行的策略测试为 171 项通过、2 项宿主差异排除、62 项需要 Windows 构建。参考仓库对比、无缓存的词库再生成和部分可选工具检查仍按原脚本跳过，不将其报告成完整跨平台设备验收。
 
 选中条、逐角高亮、悬停与预编辑配色由[原生画布外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)补充，保留本篇其余范围与生命周期规则。
+
+原先只接管 canvas 的范围由[装饰候选词窗口](2026-10-21-linux-decoration-overlay-window.md)部分取代：有效传统装饰图且启用图内文字时也使用同一 X11 窗口，其他所有权与回退围栏保持。

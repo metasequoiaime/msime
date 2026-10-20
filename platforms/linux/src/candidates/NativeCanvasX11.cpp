@@ -200,6 +200,7 @@ struct NativeCanvasX11::Impl {
     };
     if (!content.menu) {
       inspect(assets->panel_animation);
+      if (assets->banner) inspect(assets->banner->animation);
       for (const auto &decoration : assets->decorations) inspect(decoration.animation);
     }
     if (!next) {

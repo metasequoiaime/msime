@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeCanvasAnimation.h"
+#include "../../../../shared/contracts/candidate_decoration_overlay.h"
 #include <pango/pangocairo.h>
 #include <functional>
 #include <limits>
@@ -22,8 +23,47 @@ struct NativeCanvasDecoration {
   int z = 2;
   std::shared_ptr<const NativeCanvasAnimation> animation = {};
 };
+struct NativeCanvasBanner {
+  NativeCanvasImage image;
+  std::shared_ptr<const NativeCanvasAnimation> animation;
+  double width = 0, height = 0;
+  std::string align = "right";
+  std::optional<msime::candidate::DecorationCandidate> candidate;
+};
+
+// 只消费共享扫描器的完整快照，不解释原始 TOML 颜色。
+inline std::optional<msime::candidate::DecorationCandidate>
+native_canvas_overlay(const nlohmann::json &object) {
+  if (!object.is_object()) return {};
+  msime::candidate::DecorationCandidate result;
+  const auto number = [&](const char *key, double &destination) {
+    const auto at = object.find(key);
+    if (at == object.end() || !at->is_number()) return false;
+    destination = at->get<double>();
+    return std::isfinite(destination);
+  };
+  double index = -1;
+  if (!number("index", index) || index < 0 || index > 100 || std::floor(index) != index ||
+      !number("fontSizeDip", result.fontSizeDip) || !number("minFontSizeDip", result.minFontSizeDip) ||
+      !number("maxWidthDip", result.maxWidthDip) || !number("offsetXDip", result.offsetXDip) ||
+      !number("offsetYDip", result.offsetYDip)) return {};
+  result.index = static_cast<int>(index);
+  for (const auto &[key, destination] : {
+      std::pair<const char *, std::string *>{"alignH", &result.alignH},
+      {"alignV", &result.alignV}, {"resolvedColor", &result.color}}) {
+    const auto at = object.find(key);
+    if (at == object.end() || !at->is_string()) return {};
+    *destination = at->get<std::string>();
+  }
+  const auto strip = object.find("stripBadge");
+  if (strip == object.end() || !strip->is_boolean()) return {};
+  result.stripBadge = strip->get<bool>();
+  if (!result.valid() || result.color.size() != 9 || result.color.front() != '#' || !theme_color(result.color)) return {};
+  return result;
+}
 struct NativeCanvasAssets {
   NativeCanvasImage panel;
+  std::optional<NativeCanvasBanner> banner;
   std::array<double, 4> slice{}, width{}, content{12, 12, 12, 12}, outer{};
   bool fill = true;
   double line_gap = 0;
@@ -56,7 +96,11 @@ inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoratio
 inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::json &package,
                                                             const std::filesystem::path &directory,
                                                             const std::string &id, bool dark) {
-  if (!package.is_object() || package.value("id", std::string{}) != id || !package.value("canvas", false)) return {};
+  if (!package.is_object() || package.value("id", std::string{}) != id) return {};
+  const bool canvas = package.value("canvas", false);
+  const auto overlay = native_canvas_overlay(package.value("decorationCandidate", nlohmann::json{}));
+  // 普通装饰图继续交给 classicui；只有动态图内候选词才需要原生绘制。
+  if (!canvas && !overlay) return {};
   auto result = std::make_shared<NativeCanvasAssets>();
   // 解析结果已按出厂公共、出厂排列、包公共、包排列合并，不再叠加原始公共表。
   const auto resolved = package.find("resolvedLayout");
@@ -73,8 +117,8 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->item_radius = number("itemCornerRadiusDip");
   result->border_width = number("borderWidthDip");
   result->min_width = package.value("minWidthDip", 0.0);
-  result->explicit_content = package.contains("contentInsetsDip");
-  result->explicit_line_gap = package.contains("lineGapDip");
+  result->explicit_content = canvas && package.contains("contentInsetsDip");
+  result->explicit_line_gap = canvas && package.contains("lineGapDip");
   result->fit_content = layout.value("fitContent", false);
   result->page_arrows = layout.value("pageArrows", false);
   result->expand_panel = layout.value("expandPanel", false);
@@ -90,7 +134,7 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
     cache.emplace(key, image);
     return image;
   };
-  if (const auto border = package.find("borderImage"); border != package.end() && border->is_object()) {
+  if (const auto border = package.find("borderImage"); canvas && border != package.end() && border->is_object()) {
     result->panel_animation = load(border->at(!dark && border->contains("lightSource") ? "lightSource" : "source"));
     if (!result->panel_animation) return {};
     result->panel = result->panel_animation->frames.front();
@@ -99,18 +143,18 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
     result->fill = border->value("fill", true);
   }
   for (std::size_t at = 0; at < 4; ++at) result->content[at] += result->width[at];
-  if (package.contains("contentInsetsDip")) {
+  if (result->explicit_content) {
     const auto &insets = package.at("contentInsetsDip");
     constexpr const char *keys[] = {"top", "right", "bottom", "left"};
     for (std::size_t at = 0; at < 4; ++at)
       result->content[at] = std::max(result->width[at], insets.at(keys[at]).get<double>());
   }
-  if (package.contains("outerInsetsDip")) {
+  if (canvas && package.contains("outerInsetsDip")) {
     const auto &insets = package.at("outerInsetsDip");
     result->outer = {insets.at("top"), insets.at("right"), insets.at("bottom"), insets.at("left")};
   }
-  result->line_gap = package.value("lineGapDip", 0.0);
-  for (const auto &item : package.value("decorations", nlohmann::json::array())) {
+  result->line_gap = canvas ? package.value("lineGapDip", 0.0) : 0;
+  for (const auto &item : canvas ? package.value("decorations", nlohmann::json::array()) : nlohmann::json::array()) {
     auto image = load(item.at("image"));
     if (!image) return {};
     result->decorations.push_back({image->frames.front(), item.value("anchor", std::string("right")),
@@ -119,6 +163,13 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   }
   std::stable_sort(result->decorations.begin(), result->decorations.end(),
       [](const auto &left, const auto &right) { return left.z < right.z; });
+  const double width = package.value("decorationWidthDip", 0.0), height = package.value("decorationTopDip", 0.0);
+  if (width > 0 && height > 0 && package.contains("decorationImage")) {
+    auto animation = load(package.at("decorationImage"));
+    if (animation) result->banner = NativeCanvasBanner{animation->frames.front(), animation, width, height,
+        package.value("decorationAlign", std::string("right")), overlay};
+  }
+  if (!canvas && !result->banner) return {};
   return result;
 }
 
@@ -126,6 +177,9 @@ struct NativeCanvasItem {
   std::string label, text;
   std::string translation = {}, suffix = {};
   nlohmann::json translation_runs = nlohmann::json::array();
+  // 只有真实引擎候选携带装饰词；来源标注不混入原文。
+  std::optional<std::string> decoration_text = {};
+  std::string decoration_badge = {};
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -146,9 +200,16 @@ struct NativeCanvasContent {
 struct NativeCanvasPointer { int hovered = -1, pressed = -1; };
 
 // 只消费共享层规范化后的颜色，保留用户取色器与可读选中文字的优先级。
-inline nlohmann::json native_canvas_palette(const nlohmann::json &document) {
+inline nlohmann::json native_canvas_palette(const nlohmann::json &document, bool dark = false) {
   auto palette = document.value("candidate", nlohmann::json{});
   if (!palette.is_object()) palette = nlohmann::json::object();
+  const auto colors = candidate_theme_colors(document, dark).colors;
+  for (const auto &[key, color] : {
+      std::pair<const char *, std::optional<std::uint32_t>>{"surface", colors.background},
+      {"text", colors.text}, {"number", colors.number}, {"secondary", colors.number}, {"accent", colors.accent},
+      {"selected", colors.selected}, {"selected_text", colors.selected_text},
+      {"selected_number", colors.selected_number}, {"border", colors.border}})
+    if (color && !theme_color(palette.value(key, nlohmann::json{}))) palette[key] = fcitx_theme_color(*color);
   if (const auto details = document.find("candidate_details"); details != document.end() && details->is_object())
     for (const auto &[key, value] : details->items()) if (!value.is_null()) palette[key] = value;
   return palette;
@@ -283,6 +344,12 @@ struct NativeCanvasLayout {
   std::vector<double> item_text_widths;
   double preedit_width = -1, auxiliary_width = -1;
   double width = 0, height = 0;
+  struct Overlay {
+    std::string text;
+    double font_size = 0;
+    NativeCanvasRect box, ink;
+  };
+  std::optional<Overlay> overlay;
 };
 
 inline PangoLayout *native_canvas_text_layout(cairo_t *cr, const std::string &font,
@@ -308,6 +375,53 @@ inline std::pair<double, double> native_canvas_text_size(cairo_t *cr, const std:
   pango_layout_get_pixel_size(layout, &width, &height);
   g_object_unref(layout);
   return {static_cast<double>(width), static_cast<double>(height)};
+}
+
+inline NativeCanvasRect native_canvas_banner_box(const NativeCanvasBanner &banner, const NativeCanvasRect &panel) {
+  const double align = banner.align == "left" ? 0 : banner.align == "center" ? 0.5 : 1;
+  return {panel.x + (panel.width - banner.width) * align, panel.y - banner.height, banner.width, banner.height};
+}
+
+inline PangoLayout *native_canvas_overlay_line(cairo_t *cr, const std::string &font,
+    const std::string &text, double size) {
+  auto *line = native_canvas_text_layout(cr, font, text, -1, size);
+  pango_layout_set_single_paragraph_mode(line, true);
+  return line;
+}
+
+inline std::optional<NativeCanvasLayout::Overlay> native_canvas_overlay_layout(cairo_t *cr,
+    const NativeCanvasAssets &assets, const NativeCanvasContent &content, const NativeCanvasLayout &layout) {
+  if (content.menu || !assets.banner || !assets.banner->candidate) return {};
+  const auto &style = *assets.banner->candidate;
+  std::vector<const NativeCanvasItem *> words;
+  int highlight = -1;
+  for (std::size_t at = 0; at < content.items.size(); ++at) {
+    const auto &item = content.items[at];
+    if (!item.decoration_text) continue;
+    if (static_cast<int>(at) == content.selected) highlight = static_cast<int>(words.size());
+    words.push_back(&item);
+  }
+  const auto seat = style.seat(words.size(), highlight);
+  if (!seat) return {};
+  const auto &item = *words[*seat];
+  const auto text = *item.decoration_text + (style.stripBadge ? "" : item.decoration_badge);
+  if (text.empty()) return {};
+  const auto box = native_canvas_banner_box(*assets.banner, layout.panel);
+  auto *line = native_canvas_overlay_line(cr, layout.metrics.font, text, style.fontSizeDip);
+  int width = 0, height = 0;
+  pango_layout_get_pixel_size(line, &width, &height);
+  const double size = style.fittedFont(width, box.width);
+  if (size != style.fontSizeDip) {
+    g_object_unref(line);
+    line = native_canvas_overlay_line(cr, layout.metrics.font, text, size);
+    pango_layout_get_pixel_size(line, &width, &height);
+  }
+  PangoRectangle ink{};
+  pango_layout_get_pixel_extents(line, &ink, nullptr);
+  g_object_unref(line);
+  const double x = box.x + style.left(box.width, width), y = box.y + style.top(box.height, height);
+  return NativeCanvasLayout::Overlay{text, size, {x, y, static_cast<double>(width), static_cast<double>(height)},
+      {x + ink.x, y + ink.y, static_cast<double>(ink.width), static_cast<double>(ink.height)}};
 }
 
 // 释义范围按原串字节解释；只给共享层识别的区段加属性，不在宿主重做词性识别。
@@ -517,9 +631,23 @@ inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasA
     reach[3] = std::max(reach[3], -box.x);
   }
   for (auto &edge : reach) edge = std::clamp(edge, 0.0, 500.0);
+  if (assets.banner && !content.menu) {
+    reach[0] = std::max(reach[0], assets.banner->height);
+    layout.overlay = native_canvas_overlay_layout(cr, assets, content, layout);
+    if (layout.overlay) {
+      // 最小字号之后仍保留完整单行；字形外伸也计入窗口，交由既有工作区上限回退。
+      for (const auto &box : {layout.overlay->box, layout.overlay->ink}) {
+        reach[0] = std::max(reach[0], -box.y);
+        reach[1] = std::max(reach[1], box.x + box.width - layout.panel.width);
+        reach[2] = std::max(reach[2], box.y + box.height - layout.panel.height);
+        reach[3] = std::max(reach[3], -box.x);
+      }
+    }
+  }
   auto shift = [&](NativeCanvasRect &rect) { rect.x += reach[3]; rect.y += reach[0]; };
   shift(layout.panel); shift(layout.preedit); shift(layout.auxiliary);
   shift(layout.previous); shift(layout.next); shift(layout.page_divider);
+  if (layout.overlay) { shift(layout.overlay->box); shift(layout.overlay->ink); }
   for (auto &item : layout.items) {
     if (!content.horizontal) item.width = width;
     shift(item);
@@ -804,6 +932,23 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     }
   }
   widgets(true);
+  if (assets.banner && !content.menu) {
+    const auto &banner = *assets.banner;
+    auto *image = frame(banner.image, banner.animation);
+    const double width = cairo_image_surface_get_width(image), height = cairo_image_surface_get_height(image);
+    const double scale = std::min({banner.width / width, banner.height / height, panel.width / width});
+    const double align = banner.align == "left" ? 0 : banner.align == "center" ? 0.5 : 1;
+    native_canvas_image(cr, image, {0, 0, width, height},
+        {panel.x + (panel.width - width * scale) * align, panel.y - height * scale, width * scale, height * scale});
+    if (layout.overlay && banner.candidate) {
+      const auto &overlay = *layout.overlay;
+      auto *line = native_canvas_overlay_line(cr, layout.metrics.font, overlay.text, overlay.font_size);
+      native_canvas_color(cr, {{"text", banner.candidate->color}}, "text", "#FFFFFFFF");
+      cairo_move_to(cr, overlay.box.x, overlay.box.y);
+      pango_cairo_show_layout(cr, line);
+      g_object_unref(line);
+    }
+  }
 }
 
 } // msime::linux_host 命名空间

@@ -22,6 +22,8 @@ Status: implemented
 
 MCP 列表在装饰对象的可选 `candidate_overlay` 中返回同一声明，使用独立 DTO 提供输出 schema，不向共享服务层增加 MCP 的 schema 依赖。旧 `host_candidate_catalog` 条目不增加字段，严格的 `ThemePackage::from_host_catalog_entry` 继续可读；原生新能力应读完整的 `SkinSummary`。本节的共享解析与 MCP 列表支持不代表宿主已经绘制叠加文字，也不代表六平台设备验收。最新来源还新增图片工具栏、按钮状态贴图与自动排列，它们保持为独立绘制缺口，不能因八份出厂 TOML 没变化就报告上游无变化。
 
+2026-10-21 再次核对远端 `develop@3aa15daf73a029243bbf6ec143c2089c2ccfe544`：相对本篇装饰词协议来源只有安装器修复和布朗熊演示皮肤两次提交，没有变更装饰词解析或绘制协议。新演示使用既有图片工具栏、按钮背景和自动排列，仍属于明确保留的兼容缺口；本地仅审计清单，不把授权未核实的演示图片并入产物。
+
 ## Web 贴图绘制与按能力回退
 
 Web 候选栏接入 canvas 的九宫格面板、自由挂件、内容内边距、外留白和预编辑行间距。切片按源像素、边宽按 CSS px 解释；`stretchDip` 优先于 `sliceDip`，一、二、四值按 CSS 四边展开，`fill = false` 不画中心。挂件相对卡片的九个锚点定位，按 `zIndex` 稳定排序，小于 1 在面板下，其余在文字上，且一律不接收指针。留白参与视口夹紧，挂件不挤占候选文字布局。
@@ -54,7 +56,7 @@ iOS 的不可变资源快照同时携带传统装饰带与可选装饰词，不�
 
 iOS 快照严格读取每一行的引擎高亮状态，过滤移动端不显示的云占位行时同步映射；没有高亮时不假定第一项高亮。日语本地转换显式选择时使用实际转换项，展开网格继续取普通当前页，简繁输出及日文例外沿用候选显示转换。独立的云／AI 标注按 `stripBadge` 控制，不包含图钉或候选原文后缀。字体沿用候选的回退链，实测缩字，最小字号仍超框时绘制完整单行；节点不截获触摸、不重复朗读。换肤、隐藏、越界、无高亮与资源失败清掉旧词，设置页原生预览用固定样例绘制同一快照。此接入没有新增 iOS 尚未实现的装饰待机变换。
 
-这些实现覆盖共享协议、MCP、网页 SDK、共享设置页预览、macOS、Windows、iOS 原生候选区域与 HarmonyOS 2in1 的装饰词绘制；Linux、Android 原生候选区域仍需分别接入和验证，HarmonyOS 触屏也不能因为 2in1 接入而声称已绘制该原语，不能以共享层新增字段或预览可见代替六平台完成。
+这些实现覆盖共享协议、MCP、网页 SDK、共享设置页预览、macOS、Windows、iOS 原生候选区域与 HarmonyOS 2in1 的装饰词绘制；Android 的普通／展开候选区域已接入并通过 API 28／35 原生绘制专项，完整设备回归以 Android 笔记为准；Linux X11 接入与验收见对应笔记，Wayland 和 HarmonyOS 触屏仍不能据此声称已绘制该原语，不能以共享层新增字段或预览可见代替六平台完成。
 
 ## Alternatives considered
 
@@ -100,3 +102,5 @@ Windows 后续 CI 在提交 `02796f55f6` 上实际通过：Native Platform CI ru
 iOS 装饰词切片的最终验证：构建机 run `20261021-032219` 在 Xcode 27 的 iPhone 18 Pro 模拟器上运行 78 项专项测试，1 项依赖上游图片的用例跳过、0 失败；覆盖真实 UIKit 像素、高亮切换、候选更新、独立标注、九种对齐、缩字下限、固定高度统一缩放、隐藏、零宽、资源失败与生产键盘控制器的普通／展开候选同步。已导出并检查控制器截图。原生 `MSIMEApp` 与内嵌键盘扩展的 Debug simulator 构建通过，iOS Rust simulator 静态库也已真实编译。以上是模拟器中的生产控制器与原生绘制证据，未在系统编辑器启用第三方键盘，也没有真机安装与输入验收。
 
 iOS 同轮 quick 门禁也通过：构建机 run `20261021-032219` 包含 Windows 可移植测试、Linux 原生 94 项、Linux 设置壳、共享 Rust、Android target 与 Java、WASM、macOS 原生及 Apple bridge 编译。没有完整 MinGW 和 pipe 工具链，HarmonyOS HAP 前置未暂存，这些阶段明确跳过；HarmonyOS 独立 HAP 与设备结果以上述专项为准。随后在同一专用 iOS 模拟器安装并成功启动原生 `MSIMEApp`。
+
+Android 装饰词的接入、无显式配色 system 包保留、设备证据与回归边界见[Android 原生画布](2026-10-19-android-candidate-canvas.md)；Linux X11 的动态装饰词与资源戳时序修复见[X11 装饰候选词进入原生候选窗口](../architecture/2026-10-21-linux-decoration-overlay-window.md)。
