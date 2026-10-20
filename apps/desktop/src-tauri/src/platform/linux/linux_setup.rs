@@ -106,7 +106,10 @@ fn report_line(line: &SetupLine) -> ReportLine {
 }
 
 /// 引导脚本放标记的目录，与 `msime-linux-first-run-guide` 的 `guide_dir` 同一条规则：有绝对的 `XDG_RUNTIME_DIR` 时在它下面（随登录会话清空），否则在缓存目录下。两处都查，因为写标记时的环境不一定与设置应用相同。
+///
+/// 子目录名随本安装包所属的版本：`edition_linux.py` 把各版本引导脚本里的 `msime-client` 改写成该版本的目录（如 `msime-client-wubi`），这里必须读同一个，否则五笔版看不到自己的标记，并排安装时还会删掉 full 的标记。
 fn dictionary_outdated_markers(
+    client_directory: &str,
     runtime: Option<&OsStr>,
     cache: Option<&OsStr>,
     home: Option<&OsStr>,
@@ -125,7 +128,7 @@ fn dictionary_outdated_markers(
         .chain(cache)
         .map(|directory| {
             directory
-                .join("msime-client")
+                .join(client_directory)
                 .join(DICTIONARY_OUTDATED_MARKER)
         })
         .collect()
@@ -133,6 +136,7 @@ fn dictionary_outdated_markers(
 
 fn session_dictionary_outdated_markers() -> Vec<PathBuf> {
     dictionary_outdated_markers(
+        &msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory,
         std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
         std::env::var_os("XDG_CACHE_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
@@ -758,6 +762,7 @@ mod tests {
     fn dictionary_outdated_follows_the_guide_marker_once_prepared() {
         let root = scratch("outdated");
         let markers = dictionary_outdated_markers(
+            "msime-client",
             Some(root.join("runtime").as_os_str()),
             None,
             Some(root.join("home").as_os_str()),
@@ -769,8 +774,30 @@ mod tests {
                 root.join("home/.cache/msime-client/dictionary-outdated"),
             ]
         );
+        // 引导脚本按版本改写成写到该版本自己的目录（edition_linux.py 的 CLIENT_DIRECTORY 规则），这里读的是同一个；并排安装的两个版本各看各的标记，更新成功后也只删自己的那个。
+        let mut edition_markers: Vec<PathBuf> = msime_client_core::edition::Edition::all()
+            .iter()
+            .filter_map(|edition| edition.linux())
+            .flat_map(|linux| {
+                dictionary_outdated_markers(
+                    &linux.client_directory,
+                    Some(root.join("runtime").as_os_str()),
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        let count = edition_markers.len();
+        assert!(count > 1);
+        assert!(edition_markers
+            .iter()
+            .all(|marker| marker.ends_with("dictionary-outdated")));
+        edition_markers.sort();
+        edition_markers.dedup();
+        assert_eq!(edition_markers.len(), count);
         // 相对路径不算数，与引导脚本一致。
         assert!(dictionary_outdated_markers(
+            "msime-client",
             Some(OsStr::new("relative")),
             Some(OsStr::new("relative")),
             None
