@@ -172,6 +172,14 @@ export function HelpSettingsPage({
             </SettingsGroupBlock>
           </GroupList>
         ))}
+      {linux && !macos && (
+        // macOS 的卡片只讲候选释义的联网；Linux 还有云候选、语音和 AI 的用户级服务与本机凭据文件，这段说明照旧保留。
+        <GroupList title="联网与凭据">
+          <SettingsGroupBlock className={doc.page}>
+            <p>{platformNetworkDescription}</p>
+          </SettingsGroupBlock>
+        </GroupList>
+      )}
       {helpCards && onOpenDocumentation && (
         <GroupList>
           <SettingsRowStack role="group" aria-label="更多">

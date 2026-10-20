@@ -80,6 +80,8 @@ test("Linux 也用术语卡片，键名和排查步骤是 Linux 的，并提供�
   expect(problems.textContent).toContain("fcitx5-configtool");
   expect(problems.textContent).toContain("ibus restart");
   expect(problems.textContent).toContain("Ctrl+Shift+Alt+R");
+  // 云候选、语音和 AI 走用户级服务、凭据存在本机文件里，这段联网说明留在 Linux 的帮助页上。
+  expect(screen.getByText("网络说明")).toBeTruthy();
   // 散文版的「快速上手」不再出现，macOS 那一行「打开官网」也给 Linux。
   expect(screen.queryByText("快速开始")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "打开官网" }));

@@ -6580,12 +6580,11 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   selectSettingsTab("帮助与反馈");
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
-  expect(intro.textContent).toContain("Fcitx5");
-  expect(intro.textContent).toContain("IBus");
-  const quickStart = screen.getByText(/fcitx5-configtool/);
-  // First-run setup adds the input method on its own; the manual steps are the fallback.
-  expect(quickStart.textContent).toContain("自动加入正在运行的 Fcitx5 或 IBus 的输入法列表");
+  // Linux 与 macOS 一样用术语卡片回答「输入法列表里没有」，两种框架的手动步骤都在那一行里。
+  const problems = await screen.findByRole("group", { name: "遇到问题" });
+  const quickStart = within(problems).getByText(/fcitx5-configtool/);
+  // First-run setup adds the input method on its own; the manual steps are the fallback, and --register adds it back.
+  expect(quickStart.textContent).toContain("msime-linux-setup --register");
   expect(quickStart.textContent).toContain(
     "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
   );

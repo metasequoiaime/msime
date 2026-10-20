@@ -52,6 +52,8 @@ const modalExemptions: Record<string, { count: number; reason: string }> = {
 
 // 弹出列表与菜单。它们不用正文卡片的底色，或者不浮在页面上，各自写明理由；新增一个就要重新判断。
 const popupExemptions: Record<string, string> = {
+  "keyboard/emoji-clipboard-entries.tsx":
+    "剪贴板记录的右键菜单在表情面板自己的窗口里，用面板配色，不在设置页的玻璃外壳里",
   "candidate/font-family-input.tsx":
     "`.font-family-menu` 使用近乎不透明的 `--dropdown-menu-bg`，玻璃外壳不改它",
   "settings/ai-provider-select.tsx":
