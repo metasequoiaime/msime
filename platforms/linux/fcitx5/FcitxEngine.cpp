@@ -6398,7 +6398,8 @@ public:
     const auto limit = host::fcitx_candidate_panel_limit(ui, replaceable);
     bool native = false;
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-    native = limit == host::CandidatePanelLimit::None && ui == "classicui" && native_canvas_assets_ &&
+    // X11 的头文件把 None 定义成宏，这里按「没有限制名」判断。
+    native = !host::candidate_panel_limit_name(limit) && ui == "classicui" && native_canvas_assets_ &&
         native_canvas_assets_->chrome &&
         host::candidate_session_is_x11(std::getenv("XDG_SESSION_TYPE"), std::getenv("DISPLAY"), std::getenv("WAYLAND_DISPLAY"));
 #endif
