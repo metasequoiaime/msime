@@ -119,18 +119,20 @@ void fills() {
   require(light.key == (CandidateColor{1.0f, 1.0f, 1.0f, 1.0f}));
   require(brightness(light.key) > brightness(light.card));
   require(light.card.a == light_palette.surface.a);
-  // 深色主题：卡面就是表面色，键帽是比它亮一层的不透明实色，不再是半透明的悬停色。
+  // 深色主题：卡面就是表面色，键帽是比它暗一层的不透明实色，与 macOS 深色下约 #1E1E1E 的 controlBackgroundColor 一样陷在卡面里，不再是半透明的悬停色。
   const auto dark_palette = candidate_native_palette(true);
   const auto dark = shuangpin_keymap_fills(dark_palette);
   require(dark.card == dark_palette.surface);
-  require(dark.key.a == 1.0f && brightness(dark.key) > brightness(dark.card));
+  require(dark.key.a == 1.0f && brightness(dark.key) < brightness(dark.card));
+  require(std::fabs(dark.key.r - 0x1E / 255.0f) < 0.01f && std::fabs(dark.key.g - 0x1E / 255.0f) < 0.01f &&
+          std::fabs(dark.key.b - 0x1F / 255.0f) < 0.01f);
   require(dark.key != dark_palette.hover);
-  // 换了主题的表面色时两层跟着变，键帽仍然亮于卡面。
+  // 换了主题的表面色时两层跟着变，深色卡面上的键帽仍然暗于卡面。
   CandidatePaletteOverrides themed;
   themed.surface = "#203040";
   const auto custom = shuangpin_keymap_fills(candidate_palette(themed));
   require(custom.card == candidate_rgb(0x203040));
-  require(custom.key.a == 1.0f && brightness(custom.key) > brightness(custom.card));
+  require(custom.key.a == 1.0f && brightness(custom.key) < brightness(custom.card));
 }
 
 void accent_text() {

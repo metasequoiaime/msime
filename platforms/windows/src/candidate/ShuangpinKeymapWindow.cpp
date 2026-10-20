@@ -216,7 +216,7 @@ void ShuangpinKeymapWindow::paint() {
 
   auto *key_format = format(L"Consolas", 11.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING);
   auto *codes_format = format(L"Segoe UI", 9.0f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
-  // 未高亮的键帽是比卡面亮一层的不透明实色（macOS 的 controlBackgroundColor），描一圈正文色的细边；高亮键填强调色，字按强调色的明暗取黑或白。
+  // 未高亮的键帽是不透明实色（macOS 的 controlBackgroundColor）：浅色下比卡面亮一层，深色下比卡面暗一层，描一圈正文色的细边；高亮键填强调色，字按强调色的明暗取黑或白。
   const auto key_fill = fills.key;
   auto key_border = palette_.text;
   key_border.a = 0.16f;
