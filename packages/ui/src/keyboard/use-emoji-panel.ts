@@ -205,7 +205,8 @@ export function useEmojiPanel(
             setClipboardLoadFailed(false);
           }
         })
-        .then(() => client.clipboard?.captureStatus?.())
+        // 采集状态只是状态行上的一句说明，读不到时不显示它，不能连带把已经读到的列表当成读取失败。
+        .then(() => client.clipboard?.captureStatus?.().catch(() => null))
         .then((status) => {
           if (isCurrent() && request === clipboardGeneration.current)
             setCaptureStatus(status ?? null);

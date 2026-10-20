@@ -300,3 +300,20 @@ test("独立剪贴板窗口里 Esc 关闭鼠标打开的菜单，再按一次关
   );
   expect(screen.queryByRole("heading", { name: "Emoji" })).toBeNull();
 });
+
+test("读不到采集状态时只是不显示状态行，列表照常显示", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockImplementation(async (command: string) => {
+    if (command === "supports_clipboard_paste") return true;
+    if (command === "clipboard_capture_status") throw { code: "unavailable" };
+    return undefined;
+  });
+  const client = panelClient();
+  const view = render(
+    <DesktopEmojiPanel client={client} theme="dark" initialPage="clipboard" hostPlatform="linux" />,
+  );
+  expect(await screen.findByRole("button", { name: "合成剪贴板历史" })).toBeTruthy();
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("clipboard_capture_status"));
+  expect(view.container.querySelector("[data-clipboard-capture]")).toBeNull();
+  expect(screen.queryByText("无法读取剪贴板历史，请点击“刷新列表”重试")).toBeNull();
+});
