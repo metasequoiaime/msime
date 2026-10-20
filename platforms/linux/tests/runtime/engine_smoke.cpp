@@ -93,6 +93,7 @@ struct Observation {
   bool character_width = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
+  bool smart_punctuation_enabled = false;
   bool clipboard_toggle_sensitive = false;
   bool clipboard_clear_sensitive = false;
   bool punctuation_enabled = false;
@@ -207,8 +208,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.learning_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.learning_sensitive = ibus_property_get_sensitive(property);
     }
-    if (key == "SmartPunctuation")
+    if (key == "SmartPunctuation") {
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
+      seen.smart_punctuation_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    }
     if (key == "ClipboardHistory/Enabled")
       seen.clipboard_toggle_sensitive = ibus_property_get_sensitive(property);
     if (key.rfind("ClipboardHistory/Clear/", 0) == 0) {
@@ -874,6 +877,14 @@ int main(int argc, char **argv) {
               }),
               "Disabling Caps Lock switching did not hot-reload");
       // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      // 上面探测热重载时，关掉之前的每次轻点都切换了一次中英文，停在哪个模式取决于重载前轻点了几次；下面的标点用例要从中文开始。
+      if (!seen.input_enabled) {
+        key(IBUS_Control_L, IBUS_CONTROL_MASK);
+        key(IBUS_Control_L, IBUS_RELEASE_MASK);
+      }
+      require(wait_until([&] { return seen.input_enabled; }),
+              "the Caps Lock punctuation case did not start in Chinese");
+      require(seen.smart_punctuation_enabled, "the Caps Lock fixture did not start with smart punctuation on");
       {
         nlohmann::json snapshot;
         std::ifstream(root / "preferences.json") >> snapshot;
@@ -883,15 +894,18 @@ int main(int argc, char **argv) {
         std::ofstream(root / "next.json") << snapshot.dump();
         std::filesystem::rename(root / "next.json", root / "preferences.json");
       }
-      // 宿主每秒读一次偏好存储；不按键，等过两次读取，免得读到之前按下的逗号被智能标点的连按规则改写。
-      for (const auto settle = g_get_monotonic_time() + 2500 * 1000; g_get_monotonic_time() < settle;) {
-        while (g_main_context_iteration(nullptr, FALSE)) {}
-        g_usleep(1000);
-      }
+      // 宿主每秒读一次偏好存储，读到后在同一次处理里更新会话并重新发布属性。不按键，等「智能标点」属性变成关，确认这份偏好已经生效，不按固定时长等。
+      require(wait_until([&] { return !seen.smart_punctuation_enabled; }),
+              "Caps Lock punctuation preferences did not hot-reload");
       {
         const auto before = seen.committed;
-        require(key(',') && seen.committed == before + "，",
-                "a comma without Caps Lock did not commit Chinese punctuation");
+        const bool consumed = key(',');
+        require(consumed && seen.committed == before + "，",
+                ("a comma without Caps Lock did not commit Chinese punctuation: consumed=" +
+                 std::to_string(consumed) + " committed=[" + seen.committed.substr(std::min(before.size(), seen.committed.size())) +
+                 "] input_enabled=" + std::to_string(seen.input_enabled) + " preedit=[" + seen.preedit + "] lookup=" +
+                 std::to_string(seen.lookup_visible) + " punctuation=" + std::to_string(seen.punctuation_enabled))
+                    .c_str());
         require(!key(',', IBUS_LOCK_MASK) && seen.committed == before + "，",
                 "a comma under Caps Lock was not left to the application as English punctuation");
         require(key(',') && seen.committed == before + "，，",
