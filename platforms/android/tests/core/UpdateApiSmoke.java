@@ -56,11 +56,24 @@ public final class UpdateApiSmoke {
         UpdateApi.Update update = UpdateApi.update(releases.get(0), "full");
         check(update.apkUrl().equals("https://github.com/metasequoiaime/msime/releases/download/android-v1.1.0/msime-android.apk"), "apk url");
         check(update.checksumUrl().equals(update.apkUrl() + ".sha256"), "checksum url");
+        check(update.sumsUrl().equals("https://github.com/metasequoiaime/msime/releases/download/android-v1.1.0/SHA256SUMS"), "SHA256SUMS url");
         check(UpdateApi.update(new UpdateApi.Release("../../x", "9", false), "full") == null, "tags are validated");
 
         String digest = "ab".repeat(32);
         check(digest.equals(UpdateApi.parseChecksum(digest.toUpperCase(Locale.ROOT) + "  msime-android.apk\n")), "sha256sum format");
         check(UpdateApi.parseChecksum("not-a-digest") == null, "malformed checksum");
+        String other = "cd".repeat(32);
+        String sums = other + "  msime-android-wubi.apk\n" + digest.toUpperCase(Locale.ROOT) + "  msime-android.apk\n";
+        check(digest.equals(UpdateApi.parseSums(sums, "msime-android.apk")), "SHA256SUMS line for the APK");
+        check(other.equals(UpdateApi.parseSums(sums, "msime-android-wubi.apk")), "SHA256SUMS line for another edition");
+        check(digest.equals(UpdateApi.parseSums("garbage\r\n" + digest + " *msime-android.apk\r\n", "msime-android.apk")),
+            "binary-mode marker, CRLF and unrelated malformed lines");
+        check(UpdateApi.parseSums(other + "  msime-android-wubi.apk\n", "msime-android.apk") == null, "APK not listed");
+        check(UpdateApi.parseSums(digest + "  msime-android.apk.old\n" + digest + "  x/msime-android.apk\n", "msime-android.apk") == null,
+            "only the exact file name matches");
+        check(UpdateApi.parseSums(digest + "  msime-android.apk\n" + other + "  msime-android.apk\n", "msime-android.apk") == null,
+            "conflicting lines for the same APK");
+        check(UpdateApi.parseSums("zz".repeat(32) + "  msime-android.apk\n", "msime-android.apk") == null, "non-hex digest");
         check("v9.0.0".equals(JsonPolicy.strictString("v9.0.0")),
             "release metadata accepts JSON strings");
         check(JsonPolicy.strictString(7) == null,
@@ -88,6 +101,52 @@ public final class UpdateApiSmoke {
                 && seen.indexOf(update.checksumUrl()) > seen.indexOf(UpdateApi.MIRROR_PREFIX + update.checksumUrl())
                 && seen.indexOf(update.apkUrl()) > seen.indexOf(update.checksumUrl()),
             "the mirror checksum is tried first, then the GitHub checksum and APK");
+        check(seen.indexOf(UpdateApi.MIRROR_PREFIX + update.sumsUrl()) >= 0
+                && seen.indexOf(UpdateApi.MIRROR_PREFIX + update.sumsUrl()) < seen.indexOf(UpdateApi.MIRROR_PREFIX + update.checksumUrl())
+                && seen.indexOf(update.sumsUrl()) >= 0 && seen.indexOf(update.sumsUrl()) < seen.indexOf(update.checksumUrl()),
+            "a release without SHA256SUMS falls back to <apk>.sha256 on each source");
+
+        // 新发布：只靠 SHA256SUMS 就能核对，`<apk>.sha256` 不再被读取。
+        List<String> sumsSeen = new ArrayList<>();
+        UpdateApi sumsOnly = new UpdateApi(url -> {
+            sumsSeen.add(url);
+            if (url.equals(update.sumsUrl())) return body(other + "  msime-android-wubi.apk\n" + good + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File sumsCache = Files.createTempDirectory("update-smoke-sums").toFile();
+        check(good.equals(DigestPolicy.sha256Hex(sumsOnly.download(update, sumsCache, null))), "SHA256SUMS alone verifies the APK");
+        check(!sumsSeen.contains(update.checksumUrl()), "<apk>.sha256 is not read when SHA256SUMS lists the APK");
+
+        // SHA256SUMS 在，但没有列这个 APK：退回 `<apk>.sha256`。
+        List<String> unlistedSeen = new ArrayList<>();
+        UpdateApi unlisted = new UpdateApi(url -> {
+            unlistedSeen.add(url);
+            if (url.equals(update.sumsUrl())) return body(other + "  msime-android-wubi.apk\n");
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File unlistedCache = Files.createTempDirectory("update-smoke-sums-unlisted").toFile();
+        check(good.equals(DigestPolicy.sha256Hex(unlisted.download(update, unlistedCache, null))),
+            "a SHA256SUMS without the APK falls back to <apk>.sha256");
+        check(unlistedSeen.indexOf(update.sumsUrl()) >= 0 && unlistedSeen.indexOf(update.checksumUrl()) > unlistedSeen.indexOf(update.sumsUrl()),
+            "SHA256SUMS is read before <apk>.sha256");
+
+        // SHA256SUMS 列了这个 APK 就以它为准：摘要对不上时不改用 `<apk>.sha256` 放行。
+        UpdateApi sumsMismatch = new UpdateApi(url -> {
+            if (url.equals(update.sumsUrl())) return body(other + "  msime-android.apk\n");
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File sumsMismatchCache = Files.createTempDirectory("update-smoke-sums-mismatch").toFile();
+        try {
+            sumsMismatch.download(update, sumsMismatchCache, null);
+            throw new AssertionError("a SHA256SUMS mismatch must fail");
+        } catch (UpdateApi.Failure expected) {
+            check(!new File(sumsMismatchCache, "updates/msime-android.apk").exists(), "the mismatched APK is not kept");
+        }
 
         // 镜像能用时完全不碰 GitHub。
         List<String> mirrorSeen = new ArrayList<>();
