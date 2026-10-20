@@ -32,7 +32,12 @@ def main() -> int:
         and gloss_calls.count("annotationIsTranslation") == 3,
         "pre-arrival row decision": "CandidateGlossLayoutPolicy.rows" in session
         and "glossRows(): number" in session,
-        "word-sized unglossed chips": "CandidateChipWidth.chip(word, false, 0, padding)" in view,
+        "word-sized unglossed chips": re.search(
+            r"if\s*\(!KeyboardSession\.shared\.glossesExpected\(\)\)\s*\{\s*"
+            r"return CandidateLayoutPolicy\.chipWidth\(this\.candidateGeometry\(\),\s*"
+            r"this\.settings\.candidateFontSize,\s*word,\s*padding\);",
+            view,
+        ) is not None,
         "dedicated horizontal gloss line": "candidateUsesGlossLine()" in view
         and "this.candidateGlossLine(candidate)" in view
         and "CandidateGlossPolicy.glossLine(candidate.hunEum" in view,
