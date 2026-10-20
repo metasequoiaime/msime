@@ -19,7 +19,7 @@ gi.require_version("GdkX11", "3.0")
 from gi.repository import Gdk, GdkX11, GLib, Gtk
 
 from daemon import daemon_environment, wait
-from canvas_editor import color_bounds, native_window, palette_visible, screenshot, window_geometry
+from canvas_editor import color_bounds, native_window, palette_visible, png, screenshot, window_geometry
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 from host_api import ResponseDecoder
@@ -199,6 +199,39 @@ def main():
                 selected = color_bounds(SELECTED)
                 subprocess.run(["xdotool", "mousemove", str((selected[0] + selected[2]) // 2),
                                 str((selected[1] + selected[3]) // 2), "click", "1"], check=True, timeout=5)
+                wait(lambda: entry.get_text() == "你")
+                wait(lambda: native_window() is None)
+                # 非 canvas 皮肤包的顶带装饰：画在卡片上方的透明带里，窗口比卡片高出这条带；装饰图有待机动效时照样能选词。
+                band = (255, 0, 171)
+                skins = root / "skins"
+                skin = skins / "band-fixture"
+                skin.mkdir(parents=True)
+                (skin / "band.png").write_bytes(png((band,) * 9))
+                (skin / "skin.toml").write_text(
+                    "schema_version = 2\nid = 'band-fixture'\nname = 'Band fixture'\nversion = '1'\nbase = 'system'\n"
+                    "[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['light', 'dark']\n"
+                    "[candidate_window.decoration]\nimage = 'band.png'\ntop_inset_dip = 24\nwidth_dip = 30\nmotion = 'float'\n")
+                options["candidate_skin_catalog"] = {"directory": str(skins), "packages": [{
+                    "id": "band-fixture", "title": "Band fixture", "base": "system", "layouts": ["horizontal", "vertical"],
+                    "candidate": {"light": {}, "dark": {}}, "decoration_top_dip": 24, "decoration_width_dip": 30,
+                    "decoration_image": str(skin / "band.png")}]}
+                preferences["global_theme"] = "custom"
+                preferences["custom_theme"].update(base="system", candidate_skin="band-fixture", candidate_skin_dark="band-fixture")
+                publish()
+                entry.set_text("")
+                subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni"], check=True, timeout=5)
+                wait(native_window)
+                wait(lambda: palette_visible((band, SELECTED)))
+                settle()
+                save_image("band")
+                window_bounds = window_geometry(native_window())
+                band_box = color_bounds(band)
+                selected_box = color_bounds(SELECTED)
+                # 装饰图在窗口顶部的带里（浮动时上下不超过留出的 4pt 余量），压在卡片顶边上；选中行在它下面。
+                assert band_box[1] >= int(window_bounds["Y"]), "装饰图伸出了窗口"
+                assert band_box[3] <= selected_box[1], "装饰图压到了候选行上"
+                subprocess.run(["xdotool", "mousemove", str((selected_box[0] + selected_box[2]) // 2),
+                                str((selected_box[1] + selected_box[3]) // 2), "click", "1"], check=True, timeout=5)
                 wait(lambda: entry.get_text() == "你")
                 wait(lambda: native_window() is None)
                 control.Exit()
