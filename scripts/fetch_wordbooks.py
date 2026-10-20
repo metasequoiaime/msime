@@ -36,6 +36,8 @@ import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/wordbook.lock.json"
+# 随词书一起进包的许可证声明。宿主只按 `<id>.json` 读书（`builtin.rs`），这个文件放在同一目录里不会被当成一本书。
+NOTICE = "wordbooks-NOTICE.txt"
 
 # A card shows one line. ECDICT packs several senses and a "[网络]" section into ``translation``
 # separated by newlines; the first line is the dictionary sense and the rest is noise on a card.
@@ -154,8 +156,19 @@ def main() -> int:
 
     lock = read_lock()
     out = Path(arguments.out)
-    source = fetch(lock["artifact"], Path(arguments.out).parent / "wordbook-source")
+    cache = Path(arguments.out).parent / "wordbook-source"
+    source = fetch(lock["artifact"], cache)
     build(source, lock["books"], out)
+    # MIT 要求版权和许可声明随数据一起分发，所以逐字复制锁定提交的 LICENSE，不做转述；内容不变时不重写。
+    license_text = fetch(lock["license_file"], cache).read_text(encoding="utf-8")
+    notice = (
+        f"The wordbooks in this directory are derived from ECDICT ({lock['source']}), commit {lock['source_commit']}.\n"
+        "Each book keeps the words ECDICT tags for that syllabus, with the phonetic and the first dictionary sense.\n\n"
+        + license_text
+    )
+    notice_path = out / NOTICE
+    if not notice_path.is_file() or notice_path.read_text(encoding="utf-8") != notice:
+        notice_path.write_text(notice, encoding="utf-8")
     print(f"wordbooks built from ECDICT {lock['source_commit'][:12]} ({lock['license']}): {out}")
     return 0
 
