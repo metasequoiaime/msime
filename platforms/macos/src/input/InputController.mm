@@ -362,6 +362,15 @@ static NSString *MSIMEParenthesizedAnnotation(id value) {
     return [NSString stringWithFormat:@"(%@)", annotation];
 }
 
+static NSString *CandidateSourceBadge(NSDictionary *candidate) {
+    id source = candidate[@"source"];
+    if (![source isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)source) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)source)) return @"";
+    if ([source isEqual:@2]) return @" ☁️";
+    if ([source isEqual:@3]) return @" 🤖";
+    return @"";
+}
+
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = MSIMEParenthesizedAnnotation(candidate[@"annotation"]);
     NSString *text = candidate[@"text"];
@@ -374,13 +383,8 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
                                !CFNumberIsFloatType((__bridge CFNumberRef)source);
     // Engine CandidateSource MixedJapanese=13：日文混输行是日文，不做简转繁（学校不能显示成學校）；上屏时 input-runtime 也为它关掉 script_conversion。
     if (!(integerSource && [source isEqual:@13])) text = MSIMEChineseOutputString(text, traditional);
-    // Engine CandidateSource: CloudSuggestion=2, AiSuggestion=3. These badges
-    // are presentation-only, matching the Windows candidate-view suffixes.
-    if (integerSource) {
-        if ([source isEqual:@2]) return [text stringByAppendingString:@" ☁️"];
-        if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
-    }
-    return text;
+    // 来源标注仅用于显示，装饰词可以独立决定是否附带它。
+    return [text stringByAppendingString:CandidateSourceBadge(candidate)];
 }
 
 static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
@@ -7504,6 +7508,32 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return button;
 }
 
+- (void)configureDecorationWord:(MSIMECandidateDecorationView *)decoration
+                           skin:(const msime::mac::ResolvedSkin &)skin font:(NSFont *)font {
+    NSString *word = @"";
+    if (skin.decorationCandidate) {
+        NSArray *page = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        int highlight = -1;
+        for (NSUInteger index = 0; index < page.count; ++index)
+            if ([page[index] isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(page[index][@"highlighted"])) {
+                highlight = static_cast<int>(index); break;
+            }
+        if (const auto seat = skin.decorationCandidate->seat(page.count, highlight)) {
+            NSDictionary *candidate = page[*seat];
+            if ([candidate isKindOfClass:NSDictionary.class]) {
+                NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
+                NSString *badge = skin.decorationCandidate->stripBadge ? @"" : CandidateSourceBadge(candidate);
+                word = MSIMEChineseOutputString([text stringByAppendingString:badge],
+                    _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view) &&
+                    ![candidate[@"source"] isEqual:@13]);
+            }
+        }
+    }
+    [decoration setCandidateWord:word style:skin.decorationCandidate
+                        boxSize:NSMakeSize(skin.decorationWidthDip, skin.decorationTopDip)
+                      alignment:skin.decorationAlign font:font];
+}
+
 // 原有行度量保留字体与释义的排版规则，canvas 在最后一步将统一边距换成四边边距。
 - (void)configureCanvasForContent:(MSIMECandidateChromeView *)content skin:(const msime::mac::ResolvedSkin &)skin
                             dark:(BOOL)dark inset:(CGFloat)inset headerHeight:(CGFloat)headerHeight {
@@ -7748,6 +7778,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
+        [self configureDecorationWord:decoration skin:skin font:font];
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset headerHeight:headerHeight];
@@ -7947,6 +7978,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.needsDisplay = YES;
         }
         if (reusable) {
+            for (NSView *subview in content.subviews)
+                if ([subview isKindOfClass:MSIMECandidateDecorationView.class])
+                    [self configureDecorationWord:(MSIMECandidateDecorationView *)subview skin:skin font:font];
             for (NSView *subview in content.candidateContentView.subviews)
                 if ([subview isKindOfClass:MSIMECandidateButton.class] && (subview.tag == -1 || subview.tag == -2)) {
                     MSIMECandidateButton *button = (id)subview;
@@ -8036,11 +8070,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (const auto placed = msime::mac::DecorationPlacement(skin.decorationAlign, width, inset, decorationHeight, skin.decorationWidthDip,
                                                             decorationSize.width, decorationSize.height,
                                                             MSIMEDecorationMotionMargin(skin))) {
-        // Added last so it sits over the card's top edge and the top row, which is what the overlap is for. It takes no clicks.
+        // 最后加入，装饰图压在卡片顶边和首行上；不接收点击。
         MSIMECandidateDecorationView *decoration = [[MSIMECandidateDecorationView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
+        [self configureDecorationWord:decoration skin:skin font:font];
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset headerHeight:headerHeight];
