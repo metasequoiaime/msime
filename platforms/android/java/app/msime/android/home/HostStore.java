@@ -211,6 +211,11 @@ public final class HostStore {
         return statistics(context, action("reset"));
     }
 
+    /** 背单词的进度和导入的词表放在哪里：与打字统计同一个共享状态目录（{@link #statisticsDirectory}），也是 Tauri 合包里背单词页用的 `files/bootstrap/state`。 */
+    public static String sharedStateDirectory(Context context) {
+        return statisticsDirectory(context);
+    }
+
     @Nullable private static TypingStatisticsModel statistics(Context context, JSONObject action) {
         return TypingStatisticsDocument.from(statisticsValue(context, action));
     }

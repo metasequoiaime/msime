@@ -12,9 +12,9 @@ UI = HOME / "Ui.java"
 CALLERS = {
     "AboutPage.java": ('ManagementUi.available()', 'ManagementUi.settingsPage(requireContext(), "about")'),
     "AccountFragment.java": ('ManagementUi.available()', 'ManagementUi.settingsPage(requireContext(), "account")'),
+    # 背单词是原生页（VocabularyReviewPage），不再经管理界面；只有云词库还走合包。
     "LexiconPage.java": (
         'ManagementUi.available()',
-        'ManagementUi.settingsPage(requireContext(), "vocabulary")',
         'ManagementUi.mobilePanel(requireContext(), "cloud-dictionary")',
     ),
 }
