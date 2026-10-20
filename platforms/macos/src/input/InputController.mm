@@ -6248,6 +6248,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                             msime::mac::TypingSource::English);
                 return YES;
             }
+            if (_capsLockTapReleased && character >= 'a' && character <= 'z') {
+                NSString *text = [NSString stringWithCharacters:&character length:1];
+                [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
+                                            msime::mac::TypingSource::English);
+                return YES;
+            }
         }
         return NO;
     }
