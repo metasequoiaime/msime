@@ -790,19 +790,35 @@ bool StaggersRows(SkinAnimationPreset preset)
     CALayer *parent = rowLayer.superlayer;
     if (rowLayer == nil || parent == nil || parent != row.superview.layer) return;
     const CFTimeInterval duration = MotionSeconds(animation.durationMs);
-    CALayer *layer = [CALayer layer];
+    CGPathRef path = [row respondsToSelector:@selector(createSelectionFillPath)] ? [row createSelectionFillPath] : nullptr;
+    CAShapeLayer *shape = path ? [CAShapeLayer layer] : nil;
+    CALayer *layer = shape ?: [CALayer layer];
     layer.name = kSelectionKey;
     NSColor *ring = accent ?: fill;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    // 与行自己画底色的位置一致：行边界内缩 1 点的圆角矩形。
-    layer.frame = CGRectInset(rowLayer.frame, 1.0, 1.0);
-    layer.cornerRadius = MAX(0.0, cornerRadius);
-    layer.backgroundColor = fill.CGColor;
+    // 自定义四角沿用行自己的路径与坐标方向，原生主题继续内缩 1 点画统一圆角。
+    if (shape) {
+        layer.frame = rowLayer.frame;
+        layer.bounds = rowLayer.bounds;
+        layer.geometryFlipped = rowLayer.geometryFlipped;
+        shape.path = path;
+        shape.fillColor = fill.CGColor;
+        CGPathRelease(path);
+    } else {
+        layer.frame = CGRectInset(rowLayer.frame, 1.0, 1.0);
+        layer.cornerRadius = MAX(0.0, cornerRadius);
+        layer.backgroundColor = fill.CGColor;
+    }
     if (animation.selection == SkinAnimationPreset::glow)
     {
-        layer.borderWidth = 2.0;
-        layer.borderColor = [ring colorWithAlphaComponent:0.0].CGColor;
+        if (shape) {
+            shape.lineWidth = 2.0;
+            shape.strokeColor = [ring colorWithAlphaComponent:0.0].CGColor;
+        } else {
+            layer.borderWidth = 2.0;
+            layer.borderColor = [ring colorWithAlphaComponent:0.0].CGColor;
+        }
     }
     [parent insertSublayer:layer below:rowLayer];
     [CATransaction commit];
@@ -823,7 +839,7 @@ bool StaggersRows(SkinAnimationPreset preset)
         break;
     case SkinAnimationPreset::glow:
         // 底色照常，外加一圈强调色描边从 0.65 淡到 0，与 Windows 相同。
-        decoration = Basic(@"borderColor", (__bridge id)[ring colorWithAlphaComponent:ring.alphaComponent * 0.65].CGColor,
+        decoration = Basic(shape ? @"strokeColor" : @"borderColor", (__bridge id)[ring colorWithAlphaComponent:ring.alphaComponent * 0.65].CGColor,
                            (__bridge id)[ring colorWithAlphaComponent:0.0].CGColor, duration, Curve(kCAMediaTimingFunctionEaseOut));
         break;
     }

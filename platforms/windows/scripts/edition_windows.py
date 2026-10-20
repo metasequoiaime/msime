@@ -18,6 +18,8 @@ full 和其他版本一样有自己的一组 Windows 身份：名字后缀是 `.
     edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明，每个版本（包括 full）都写
     edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64]
                                                      # 按 DLL 的导出表写出改名用的模块定义文件，交给 lib.exe /DEF 或 dlltool 生成同名导入库；--arm64 用 ARM64 宿主的名字（见 arm64_host_dll）
+    edition_windows.py download-guide --editions full,wubi,... --version X.Y.Z --download-base URL/ [--prerelease]
+                                                     # 发布说明开头的下载指引（release-windows.yml 的 publish 步骤）
 """
 
 from __future__ import annotations
@@ -364,12 +366,57 @@ def host_def(edition_id: str, dll: pathlib.Path, arm64: bool = False) -> str:
     return f"LIBRARY {name}\nEXPORTS\n" + "".join(f"    {export}\n" for export in exports)
 
 
+def installer_name(entry: dict, version: str) -> str:
+    """该版本的 Windows 安装程序名，与 release-windows.yml 的 package 任务、更新检查认的名字相同。"""
+    return f"{entry['platforms']['windows']['installer_base_name']}_v{version}.exe"
+
+
+def download_guide(edition_ids: list[str], version: str, download_base: str, prerelease: bool) -> str:
+    """Windows 发布说明开头的下载指引：每个版本一行，写明中文名和安装程序，完整版排第一、标为推荐。版本发布页上有六个安装程序，不说明的话来下载的人不知道该选哪个。名字和安装程序名都取自版本表，加一个版本不用改文案。"""
+    table = load_table()
+    if FULL not in edition_ids:
+        raise SystemExit("the download guide recommends the full edition, which is not in --editions")
+    ordered = [FULL] + [edition for edition in edition_ids if edition != FULL]
+    entries = [edition_entry(edition_id, table) for edition_id in ordered]
+    full = entries[0]
+    # 首尾的注释在 GitHub 上不显示，标出这一段是生成的下载指引，读发布说明做更新日志的地方（官网下载页的更新记录）可以按它跳过；与其他平台的 download-guide 用同一对标记。
+    lines = [
+        "<!-- msime-download-guide -->",
+        "## 下载",
+        "",
+        f"大多数人下载第一行的**{full['display_name']['zh-Hans']}**（`{installer_name(full, version)}`）就行：它是完整版，包含全部输入方案。"
+        "其他版本只带其中一部分方案，可以和完整版装在同一台电脑上。每个安装程序都同时支持 x64 和 ARM64 的 Windows。",
+        "",
+        "| 版本 | 安装程序 |",
+        "| --- | --- |",
+    ]
+    for entry in entries:
+        installer = installer_name(entry, version)
+        name = entry["display_name"]["zh-Hans"]
+        label = f"**{name}**（完整版，推荐）" if entry["id"] == FULL else name
+        lines.append(f"| {label} | [{installer}]({download_base}{installer}) |")
+    lines += [
+        "",
+        "下载后运行安装程序；输入法还不在键盘列表里时，它的设置窗口顶部会提示「去添加」。"
+        "`SHA256SUMS` 是这些安装程序的 SHA-256 校验值；每个安装程序旁边的 `.exe.sha256` 是包管理器清单和设置页的校验提示要用的，一般不用下载。",
+    ]
+    if prerelease:
+        lines += ["", "这是预览版：设置里的「检查更新」只提供正式版，不会提示它。"]
+    lines.append("<!-- /msime-download-guide -->")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser("gen")
     generate.add_argument("--check", action="store_true")
     commands.add_parser("editions")
+    guide = commands.add_parser("download-guide")
+    guide.add_argument("--editions", required=True)
+    guide.add_argument("--version", required=True)
+    guide.add_argument("--download-base", required=True)
+    guide.add_argument("--prerelease", action="store_true")
     for name in ["field", "marker", "host-def"]:
         command = commands.add_parser(name)
         command.add_argument("--edition", required=True)
@@ -386,6 +433,9 @@ def main() -> int:
         return gen(args.check)
     if args.command == "editions":
         print(",".join(entry["id"] for entry in windows_editions()))
+        return 0
+    if args.command == "download-guide":
+        sys.stdout.write(download_guide(args.editions.split(","), args.version, args.download_base, args.prerelease))
         return 0
     if args.command == "field":
         print(field(edition_entry(args.edition), args.key))

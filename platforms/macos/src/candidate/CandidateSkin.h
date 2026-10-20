@@ -338,6 +338,18 @@ struct SkinRect
     double height = 0.0;
 };
 
+// 四角顺序为左上、右上、右下、左下；短行末端不借用卡片的右角。
+inline std::array<double, 4> CandidateRowCornerRadii(SkinRect row, SkinRect area, bool topEdge,
+                                                   double inner, double outer, double tolerance = 0.5)
+{
+    const bool top = topEdge && row.y <= area.y + tolerance;
+    const bool bottom = row.y + row.height >= area.y + area.height - tolerance;
+    const bool left = row.x <= area.x + tolerance;
+    const bool right = row.x + row.width >= area.x + area.width - tolerance;
+    return {top && left ? outer : inner, top && right ? outer : inner,
+            bottom && right ? outer : inner, bottom && left ? outer : inner};
+}
+
 // Where a background image of natural size `imageWidth` x `imageHeight` is drawn in `card`, and which part of the image: cover crops the centred overflow to fill the card, contain letterboxes the whole image centred inside it, stretch scales each axis to the card. Both rectangles are symmetric about the centre, so they hold for flipped and unflipped coordinates alike. None for an empty card or image.
 struct SkinBackgroundRects
 {

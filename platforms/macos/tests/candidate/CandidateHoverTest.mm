@@ -39,6 +39,14 @@ int main()
         [cursorButton resetCursorRects];
         assert(cursorButton.capturedCursor == nil);
         assert(NSEqualRects(cursorButton.capturedRect, NSZeroRect));
+        // 四角路径保持视觉上的上、下顺序，翻转坐标不交换圆角语义。
+        for (BOOL flipped : {NO, YES}) {
+            CGPathRef path = MSIMECreateCandidateCornerPath(NSMakeRect(1, 1, 98, 38), {16, 2, 2, 2}, flipped);
+            assert(!CGPathContainsPoint(path, nullptr, CGPointMake(2, flipped ? 2 : 38), false));
+            assert(CGPathContainsPoint(path, nullptr, CGPointMake(98, flipped ? 2 : 38), false));
+            assert(CGPathContainsPoint(path, nullptr, CGPointMake(2, flipped ? 38 : 2), false));
+            CGPathRelease(path);
+        }
         // 材质承载真实按钮并避开装饰带，切换回退时保留同一按钮及其鼠标命中。
         MSIMECandidateChromeView *chrome = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, 240, 110)];
         chrome.cardTopInset = 30;

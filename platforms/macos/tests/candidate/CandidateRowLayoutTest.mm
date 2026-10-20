@@ -660,6 +660,105 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
     std::filesystem::remove_all(root);
 }
 
+// 从真实候选视图检查四角及动效轮廓，不用读取清单字段代替绘制验收。
+static void TestFactoryCornerRadii(RowLayoutClient *client)
+{
+    char temporary[] = "/tmp/msime-candidate-corners-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    for (const char *identifier : {"follow", "plain", "square", "canvas-corners"}) {
+        const bool canvas = std::string(identifier) == "canvas-corners";
+        const bool square = std::string(identifier) == "square";
+        const bool follow = std::string(identifier) != "plain";
+        std::filesystem::create_directory(root / identifier);
+        {
+            std::ofstream manifest(root / identifier / "skin.toml");
+            manifest << "schema_version = 2\nid = \"" << identifier << "\"\nname = \"Synthetic Corners\"\nversion = \"1\"\nbase = \""
+                     << (canvas ? "canvas" : "microsoft") << "\"\n[supports]\nlayouts = [\"horizontal\", \"vertical\"]\nthemes = [\"light\", \"dark\"]\n"
+                     << "[candidate_window]\ncorner_radius_dip = " << (square ? 0 : 16)
+                     << "\nitem_corner_radius_dip = 2\nborder_width_dip = 0\npadding = 0\nitem_gap = 2\npreedit_margin_dip = [0]\n"
+                     << "item_corners_follow_card = " << (follow ? "true" : "false") << "\n";
+            if (canvas) manifest << "content_insets_dip = { top = 5, right = 9, bottom = 7, left = 11 }\n";
+            assert(manifest.good());
+        }
+        NSString *suite = [@"app.msime.test.candidate-corners." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        [defaults setObject:@"custom" forKey:@"MSIMEClientGlobalTheme"];
+        [defaults setObject:@(identifier) forKey:@"MSIMEClientCustomCandidateSkin"];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+            skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+        appearance.showsAppLogo = NO;
+        appearance.showsCandidatePageNumber = NO;
+        appearance.showsCandidateExpandButton = NO;
+        appearance.candidateTranslations = NO;
+        appearance.fontSize = 16;
+        appearance.themeMode = @"light";
+        MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+        MSIMECandidatePanel *panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect
+            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        NSArray *candidates = @[@{@"text": @"合成", @"highlighted": @YES},
+            @{@"text": [@"长候选" stringByPaddingToLength:1024 withString:@"长候选" startingAtIndex:0]}, @{@"text": @"末"}];
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"synthetic", @"page": @0, @"page_count": @1,
+            @"candidates": candidates} forKey:@"view"];
+        for (NSNumber *scaling in @[@100, @150]) for (NSNumber *vertical in @[@NO, @YES]) for (NSNumber *preedit in @[@NO, @YES])
+            for (NSNumber *expanded in vertical.boolValue ? @[@NO] : @[@NO, @YES]) {
+            appearance.candidateScalePercent = scaling.integerValue;
+            appearance.vertical = vertical.boolValue;
+            appearance.showsCandidatePreedit = preedit.boolValue;
+            [controller setValue:expanded.boolValue ? candidates : nil forKey:@"expandedCandidates"];
+            if (expanded.boolValue) assert([controller renderExpandedCandidates]);
+            else [controller renderCandidates];
+            auto skin = [appearance candidateWindowSkinForDark:NO];
+            const double scale = scaling.doubleValue / 100.0;
+            const double outer = MAX(0.01, skin.tokens.radius);
+            MSIMECandidateChromeView *chrome = (id)panel.contentView;
+            MSIMECandidateButton *first = CandidateButton(chrome, 0), *last = CandidateButton(chrome, 2);
+            assert(first && last && first.hasCornerRadii == follow && last.hasCornerRadii == follow);
+            CGPathRef path = [first createSelectionFillPath];
+            if (!follow) { assert(path == nullptr); continue; }
+            assert(path && CGRectEqualToRect(CGPathGetBoundingBox(path), NSInsetRect(first.bounds, 1, 1)));
+            assert(fabs(first.cornerRadii[0] - (preedit.boolValue ? first.cornerRadius : outer)) < 0.01);
+            if (fabs(last.cornerRadii[3] - outer) >= 0.01)
+                fprintf(stderr, "corner geometry skin=%s scale=%.1f vertical=%d preedit=%d expanded=%d area=%s first=%s last=%s radius=%.2f expected=%.2f\n",
+                    identifier, scale, vertical.boolValue, preedit.boolValue, expanded.boolValue, NSStringFromRect(chrome.candidateRowsRect).UTF8String,
+                    NSStringFromRect(first.frame).UTF8String, NSStringFromRect(last.frame).UTF8String, last.cornerRadii[3], outer);
+            assert(fabs(last.cornerRadii[3] - outer) < 0.01);
+            if (vertical.boolValue) {
+                assert(fabs(first.cornerRadii[1] - (preedit.boolValue ? first.cornerRadius : outer)) < 0.01);
+                assert(fabs(last.cornerRadii[2] - outer) < 0.01);
+            } else {
+                // 末行只有一项，右缘没有贴满卡片，不能凭“末候选”借右下角。
+                assert(NSMaxX(last.frame) + scale < NSMaxX(chrome.candidateRowsRect));
+                assert(fabs(last.cornerRadii[2] - last.cornerRadius) < 0.01);
+            }
+            // 动效必须拿到同一路径，glow 也沿路径描边，不能退回统一 CALayer 圆角。
+            MSIMECandidateMotion *motion = [MSIMECandidateMotion new];
+            motion.reduceMotion = NO;
+            msime::mac::SkinAnimation animation;
+            animation.selection = msime::mac::SkinAnimationPreset::glow;
+            animation.durationMs = 100;
+            [motion decorateSelectionOfRow:first fill:NSColor.redColor cornerRadius:first.cornerRadius accent:NSColor.blueColor animation:animation];
+            assert([motion.selectionLayer isKindOfClass:CAShapeLayer.class]);
+            CAShapeLayer *shape = (id)motion.selectionLayer;
+            assert(CGPathEqualToPath(shape.path, path));
+            assert(CGRectEqualToRect(shape.frame, first.layer.frame));
+            CABasicAnimation *glow = (id)[shape animationForKey:@"msime-candidate-selection"];
+            assert([glow.keyPath isEqual:@"strokeColor"] && shape.lineWidth == 2);
+            assert(first.selectionFillDetached);
+            [motion endSelection];
+            assert(!first.selectionFillDetached);
+            CGPathRelease(path);
+        }
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [panel orderOut:nil];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    std::filesystem::remove_all(root);
+}
+
 // 对真实视图矩形检查预编辑外边距，避免只改窗口高度而文字仍挤在原位。
 static void TestFactoryPreeditMargins(RowLayoutClient *client)
 {
@@ -1531,6 +1630,7 @@ int main(int argc, char **argv)
         TestSelectedGlossColour(client);
         TestFactoryFitAndJustify(client);
         TestFactoryPreeditMargins(client);
+        TestFactoryCornerRadii(client);
         TestDeclaredMotion(client);
         TestDecorationMotion(client);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
