@@ -43,8 +43,11 @@ jobs:
       # The HAP carries the engine resources only if stage-resources.sh put them in resfile/ (without them the keyboard logs "no packaged resources at /engine"). It takes the directory install_resources verified and unpacked, and stages target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences); a release must carry all three, so it fails rather than staging fewer.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
+      # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 放进 resfile/wordbooks；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 HAP 打不出来。
+      - name: Build the bundled wordbooks
+        run: python3 scripts/fetch_wordbooks.py
       - name: Stage the HarmonyOS engine resources
-        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
+        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1", MSIME_REQUIRE_WORDBOOKS: "1"}
         run: |
           set -euo pipefail
           mkdir -p target/resources
