@@ -3947,7 +3947,9 @@ void render(IBusEngine *engine, const Json &view) {
       present_wave_overlay(engine);
     return;
   }
-  if (state(engine).wave_overlay_visible)
+  // A failure notice the overlay draws stays up while the user types on, as on macOS and in the Fcitx5 host; Esc, a focus change, the next recording or its six seconds take it down. Shown on the auxiliary line instead, it gives the line back to the candidates.
+  if (auto &s = state(engine); s.wave_overlay_visible &&
+      !(s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()))
     hide_wave_overlay(engine);
   // 临时译文页只在它自己画出的那一页上有效（render_translation_candidates 给它的视图带上 translation_page）。别的视图画上来，例如菜单改每页候选数、异步到达的译文或云候选、偏好更新换掉了 s.view，译文页就已经不在面板上了：丢掉它的状态，也不恢复保存的视图，之后的点选、数字键和 Esc 才作用于面板上真正显示的候选，而不是按一页已经不在的译文去选，或者把一份过时的视图恢复回来。
   if (state(engine).translation_candidates_active && !view.contains("translation_page")) {
@@ -4430,7 +4432,7 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_static_string(message), TRUE);
   auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
-  // The macOS overlay keeps a failure up for six seconds; Esc, a focus change, the next keystroke or the next recording take it down sooner.
+  // The macOS overlay keeps a failure up for six seconds; Esc, a focus change or the next recording take it down sooner, and typing on leaves a drawn notice in place (see render).
   g_timeout_add_full(
       G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFailureMilliseconds,
       +[](gpointer data) -> gboolean {

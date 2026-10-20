@@ -3604,6 +3604,82 @@ int main(int argc, char **argv) {
       state->wave_overlay_surface_ = std::move(nativeSurface);
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
+    // The drawn surfaces report a click from inside their own update(), which the 16 ms frame timer calls, so Cancel tears that timer down while its callback is still running; Confirm while recognition is pending only takes the bar down and sends the provider no second stop.
+    {
+      using Action = msime::linux_host::WaveOverlayModel::Action;
+      struct ActingSurface final : msime::linux_host::WaveOverlaySurface {
+        explicit ActingSurface(FcitxState &owner) : state(owner) {}
+        bool show(const msime::linux_host::WaveOverlayModel &) override { return true; }
+        void update(const msime::linux_host::WaveOverlayModel &) override {
+          ++updates;
+          if (!pending) return;
+          const auto action = *pending;
+          pending.reset();
+          state.handleVoiceOverlayAction(action);
+          state.loop_->exit();
+        }
+        void hide() override { ++hides; }
+        bool animates() const override { return true; }
+        FcitxState &state;
+        std::optional<Action> pending;
+        int updates = 0;
+        int hides = 0;
+      };
+      auto nativeSurface = std::move(state->wave_overlay_surface_);
+      auto acting = std::make_unique<ActingSurface>(*state);
+      auto *surface = acting.get();
+      state->wave_overlay_surface_ = std::move(acting);
+      state->wave_overlay_failed_ = false;
+      state->wave_overlay_visible_ = false;
+      state->wave_overlay_dismissed_ = false;
+      // No worker and no mailbox, so the 250 ms poll that may run inside the loop below leaves the recording alone.
+      state->voice_job_ = {};
+      state->voice_mailbox_.reset();
+      state->voice_loading_ = true;
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
+      state->wave_overlay_.reset();
+      state->updateVoiceOverlay();
+      require(state->wave_overlay_visible_ && state->wave_overlay_frame_timer_,
+              "a drawn recording runs the wave's frame timer");
+      surface->pending = Action::Cancel;
+      // The loop runs until the frame that delivers the click, or two seconds at most.
+      auto deadline = state->loop_->addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 2000000, 0,
+                                                 [state](fcitx::EventSourceTime *, uint64_t) {
+                                                   state->loop_->exit();
+                                                   return true;
+                                                 });
+      state->loop_->exec();
+      deadline.reset();
+      require(!surface->pending && surface->updates >= 1, "the frame timer delivered the click through update()");
+      require(!state->voice_loading_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
+                  !state->wave_overlay_frame_timer_ && !state->wave_overlay_io_,
+              "Cancel from inside a frame ends the recording and stops the overlay's sources");
+      // Recognition pending: the bar shows its label without a frame timer, and Confirm only dismisses it.
+      state->voice_loading_ = true;
+      state->voice_socket_ = "/nonexistent/msime-voice-provider.sock";
+      state->voice_generation_ = 7;
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecognizing;
+      state->wave_overlay_.reset();
+      state->wave_overlay_.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
+      state->updateVoiceOverlay();
+      require(state->wave_overlay_visible_ && !state->wave_overlay_frame_timer_ &&
+                  state->wave_overlay_.actions_visible(),
+              "pending recognition shows its actions and needs no frame timer");
+      require(state->stopVoice() && state->voice_loading_ && !state->wave_overlay_.failure,
+              "a second stop while recognition is pending sends the provider nothing and cancels nothing");
+      state->handleVoiceOverlayAction(Action::Confirm);
+      require(state->wave_overlay_dismissed_ && !state->wave_overlay_visible_ && state->voice_loading_,
+              "Confirm while recognition is pending only takes the bar down");
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      require(state->cancelVoice(), "the pending recognition is cancelled for the next case");
+      state->wave_overlay_dismissed_ = false;
+      state->wave_overlay_.reset();
+      state->wave_overlay_surface_ = std::move(nativeSurface);
+      ic.inputPanel().setAuxUp(fcitx::Text());
+    }
     // A provider that gives no result is a provider failure, as in the IBus host, and a named missing dependency says what to install; neither may read as 未识别到文字, which recording again cannot fix.
     for (const auto &[providerError, notice] : std::vector<std::pair<std::string, std::string>>{
              {"voice_dependency_missing:websockets", "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets"},

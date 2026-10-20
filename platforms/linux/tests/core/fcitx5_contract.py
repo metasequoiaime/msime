@@ -628,6 +628,16 @@ for marker in (
     assert marker in source, marker
 # The overlay decides when the round actions show (a Space-locked recording or pending recognition, as on macOS); the host no longer arms them at the start of every recording.
 assert "actions_visible = true" not in source
+# A click handled inside the surface's update() can reset the frame timer whose callback is running, destroying the closure; the callback reads nothing through its capture after update().
+frame_timer = source[source.index("wave_overlay_frame_timer_ = loop_->addTimeEvent("):source.index("} else if (!animate && wave_overlay_frame_timer_) {")]
+after_update = frame_timer[frame_timer.index("self->wave_overlay_surface_->update(self->wave_overlay_);"):]
+assert "auto *const self = this;" in frame_timer
+assert "self->wave_overlay_frame_timer_.get() == timer" in after_update
+assert "\n            if (wave_overlay_" not in after_update
+# A failure notice the overlay draws outlives typing on IBus too, as on macOS and in the Fcitx5 host, whose render() never hides it.
+assert "s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {")
+# The overlay's Cairo and Pango requirements stay out of X11_SURFACE, which also gates the X11 Caps Lock release.
+assert "pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)\n" in (root / "CMakeLists.txt").read_text()
 assert "WaveOverlayX11Surface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 

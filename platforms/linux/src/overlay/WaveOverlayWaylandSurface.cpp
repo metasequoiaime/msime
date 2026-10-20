@@ -308,8 +308,9 @@ bool WaveOverlayWaylandSurface::configure_size(bool map) {
   wl_surface_commit(surface_);
   if (wl_display_roundtrip(display_) < 0)
     closed_ = true;
+  // The roundtrip also runs the pointer handlers, so an action may have hidden (unmapped) the bar meanwhile; that surface needs the full map handshake at the next show(), whatever configure arrived during the roundtrip.
   if (!map && !closed_)
-    configured_ = true;
+    configured_ = visible_;
   return configured_ && !closed_;
 }
 

@@ -91,7 +91,7 @@
 #include "../src/overlay/WaveOverlayFeedback.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
 #include "../src/overlay/WaveOverlayX11Surface.h"
 #endif
 #ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
@@ -313,7 +313,7 @@ create_fcitx_wave_overlay_surface(
 #else
   (void)wayland_requested;
 #endif
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
   if (!force_auxiliary && (x11_requested || std::getenv("DISPLAY")))
     return std::make_unique<msime::linux_host::WaveOverlayX11Surface>(
         std::move(handler));
@@ -519,17 +519,7 @@ public:
   FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop, bool system_dark)
       : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark) {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
-        [this](msime::linux_host::WaveOverlayModel::Action action) {
-          if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
-            cancelVoice();
-          } else if (voice_loading_ && wave_overlay_.processing()) {
-            // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
-            wave_overlay_dismissed_ = true;
-            hideVoiceOverlay();
-          } else {
-            stopVoice();
-          }
-        });
+        [this](msime::linux_host::WaveOverlayModel::Action action) { handleVoiceOverlayAction(action); });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshDictionaryQuiesce();
@@ -2886,6 +2876,18 @@ public:
     emoji_previous_offsets_.clear();
     return requestEmojiPage({});
   }
+  // A click on the overlay's round actions. The surface reports it from inside its own update() or dispatch_events(), so this may run within the frame timer's or the display watch's callback and tear that source down.
+  void handleVoiceOverlayAction(msime::linux_host::WaveOverlayModel::Action action) {
+    if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
+      cancelVoice();
+    } else if (voice_loading_ && wave_overlay_.processing()) {
+      // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
+      wave_overlay_dismissed_ = true;
+      hideVoiceOverlay();
+    } else {
+      stopVoice();
+    }
+  }
   void hideVoiceOverlay() {
     if (wave_overlay_surface_ && wave_overlay_visible_)
       wave_overlay_surface_->hide();
@@ -2902,17 +2904,18 @@ public:
       wave_overlay_frame_timer_ = loop_->addTimeEvent(
           CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + interval, 1000,
           [this](fcitx::EventSourceTime *timer, uint64_t now) {
-            if (wave_overlay_surface_ && wave_overlay_visible_ && wave_overlay_.animates()) {
+            // update() also reads the pointer and expose events Xlib or libwayland already queued, and an action handled there may reset wave_overlay_frame_timer_, which destroys this closure and the `this` it captured while the call is still running. Everything after update() therefore goes through this copy on the stack and never through the capture.
+            auto *const self = this;
+            if (self->wave_overlay_surface_ && self->wave_overlay_visible_ && self->wave_overlay_.animates()) {
               // The provider's level arrives on its own thread; the frame reads the newest one rather than waiting for the 250 ms poll.
-              if (const auto mailbox = voice_mailbox_) {
+              if (const auto mailbox = self->voice_mailbox_) {
                 std::lock_guard lock(mailbox->mutex);
-                if (mailbox->level_seen) wave_overlay_.set_input_level(static_cast<float>(mailbox->level) / 10.0f);
+                if (mailbox->level_seen) self->wave_overlay_.set_input_level(static_cast<float>(mailbox->level) / 10.0f);
               }
-              wave_overlay_.advance(static_cast<double>(now) / 1e6);
-              // update() also reads the pointer and expose events Xlib or libwayland already queued, and an action may stop this timer meanwhile.
-              wave_overlay_surface_->update(wave_overlay_);
+              self->wave_overlay_.advance(static_cast<double>(now) / 1e6);
+              self->wave_overlay_surface_->update(self->wave_overlay_);
             }
-            if (wave_overlay_frame_timer_.get() == timer) {
+            if (self->wave_overlay_frame_timer_.get() == timer) {
               timer->setNextInterval(interval);
               timer->setOneShot();
             }
@@ -2930,6 +2933,7 @@ public:
       if (fd >= 0 && loop_)
         wave_overlay_io_ = loop_->addIOEvent(fd, fcitx::IOEventFlag::In,
             [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+              // An action handled in dispatch_events() may hide the overlay and so reset wave_overlay_io_, destroying this closure; nothing after the call may read the capture.
               if (wave_overlay_surface_ && wave_overlay_visible_) wave_overlay_surface_->dispatch_events();
               return true;
             });

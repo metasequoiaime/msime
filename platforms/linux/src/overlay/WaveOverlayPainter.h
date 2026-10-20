@@ -110,7 +110,8 @@ class WaveOverlayPainter {
       g_object_unref(layout);
     } else {
       const auto wave = wave_overlay_wave(model.levels, w, h, frame.actions, transcript);
-      set_color(cairo, colors.accent, 1.0);
+      // The bars take the text colour, as macOS fills them with its foreground.
+      set_color(cairo, colors.text, 1.0);
       for (const auto &bar : wave.bars) {
         if (bar.dot) {
           cairo_new_sub_path(cairo);
@@ -194,7 +195,7 @@ class WaveOverlayPainter {
     double alpha = 1.0;
   };
   struct Colors {
-    Rgb surface, text, accent;
+    Rgb surface, text;
     std::optional<Border> border;
   };
 
@@ -217,19 +218,17 @@ class WaveOverlayPainter {
     cairo_close_path(cairo);
   }
 
-  // The resolved theme's surface, text and accent, with its outline when it draws one. Without a theme palette the built-in light or dark colours apply, outlined by a faint hairline of the text colour as macOS outlines its panel.
+  // The resolved theme's surface and text, with its outline when it draws one. Without a theme palette the built-in light or dark colours apply, outlined by a faint hairline of the text colour as macOS outlines its panel.
   static Colors palette(const WaveOverlayModel &model) {
     Colors colors;
     if (model.palette) {
       colors.surface = rgb(model.palette->surface);
       colors.text = rgb(model.palette->text);
-      colors.accent = rgb(model.palette->accent);
       if (model.palette->border) colors.border = Border{rgb(*model.palette->border), 1.0};
       return colors;
     }
     colors.surface = rgb(model.light_theme ? 0xF5F7FAu : 0x202124u);
     colors.text = rgb(model.light_theme ? 0x202124u : 0xF5F7FAu);
-    colors.accent = rgb(model.light_theme ? 0x3367D6u : 0x73A7FFu);
     colors.border = Border{colors.text, model.light_theme ? 0.22 : 0.20};
     return colors;
   }
@@ -278,7 +277,9 @@ class WaveOverlayPainter {
         width == cached_width_)
       return cached_visible_;
     const auto &text = model.transcript;
-    const auto characters = g_utf8_strlen(text.c_str(), static_cast<gssize>(text.size()));
+    // pango_get_log_attrs writes one entry per character over the whole byte length, so the characters are counted the same way, by their lead bytes; g_utf8_strlen would stop at a NUL and leave the array short.
+    const auto characters = static_cast<glong>(
+        std::count_if(text.begin(), text.end(), [](char byte) { return (static_cast<unsigned char>(byte) & 0xc0) != 0x80; }));
     std::vector<PangoLogAttr> attributes(static_cast<std::size_t>(characters) + 1);
     pango_get_log_attrs(text.c_str(), static_cast<int>(text.size()), -1, pango_language_get_default(),
                         attributes.data(), static_cast<int>(attributes.size()));

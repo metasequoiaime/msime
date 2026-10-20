@@ -130,6 +130,9 @@ void check_transcript_window() {
   assert(model.transcript == "ok((尾" && !model.transcript_truncated);
   model.set_transcript("\xed\xa0\x80\xf4\x90\x80\x80valid");
   assert(model.transcript == "valid");
+  // A NUL or another C0 control from a provider is dropped, so no C string reader stops short of the byte length Pango is given; line breaks and tabs stay.
+  model.set_transcript(std::string("\0\x01你好\r\n\tok\x1b", 14));
+  assert(model.transcript == "你好\n\tok");
 
   // The newest text that fits: here a line holds four bytes.
   const std::string text = "abcdefghij";

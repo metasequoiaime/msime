@@ -122,6 +122,30 @@ int main() {
     const auto image = paint(painter, skinned, 1, false, "skin");
     const auto panel = image.pixel(39, 4);
     assert(((panel >> 16) & 0xff) == 0x33 && ((panel >> 8) & 0xff) == 0x66 && (panel & 0xff) == 0x99);
+    // The bars take the text colour, as macOS fills them with its foreground, never the accent.
+    const auto bars = paint(painter, skinned, 2, false, "skin-2x");
+    bool text_seen = false;
+    for (int y = 0; y < 64; ++y)
+      for (int x = 0; x < 156; ++x) {
+        const auto pixel = bars.pixel(x, y);
+        const int r = (pixel >> 16) & 0xff, g = (pixel >> 8) & 0xff, b = pixel & 0xff;
+        assert(!(r > 0xe0 && g > 0xb0 && g < 0xe0 && b < 0x40));
+        text_seen = text_seen || (r > 0xf0 && g > 0xf0 && b > 0xf0);
+      }
+    assert(text_seen);
+  }
+
+  // A provider's NUL never reaches Pango: the model drops it, and the newest lines of a long transcript are still cut and drawn.
+  {
+    WaveOverlayModel nul;
+    nul.listening = true;
+    std::string text(1, '\0');
+    for (int i = 0; i < 200; ++i) text += "你";
+    nul.set_transcript(text);
+    assert(nul.transcript.find('\0') == std::string::npos && nul.transcript.size() == 600);
+    WaveOverlayFrame frame;
+    paint(painter, nul, 1, true, "transcript-nul", &frame);
+    assert(frame.layout == WaveOverlayLayout::Transcript && frame.transcript.find('\0') == std::string::npos);
   }
 
   // A cut never splits a base letter from its combining mark.

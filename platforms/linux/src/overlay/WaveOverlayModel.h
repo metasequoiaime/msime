@@ -75,6 +75,9 @@ struct WaveOverlayModel {
           if ((static_cast<std::uint8_t>(value[offset + index]) & 0xc0) != 0x80)
             sequence_valid = false;
       }
+      // C0 controls other than a line break or a tab are dropped too: a NUL would end the text early for every C string API that later reads it (GLib, IBus, Pango's validation) while the byte length still counts past it.
+      if (sequence_valid && width == 1 && first < 0x20 && first != '\n' && first != '\t')
+        sequence_valid = false;
       if (!sequence_valid) {
         ++offset;
         continue;

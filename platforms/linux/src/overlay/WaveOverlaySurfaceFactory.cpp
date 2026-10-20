@@ -2,7 +2,7 @@
 
 #include "WaveOverlayIbusSurface.h"
 
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
 #include "WaveOverlayX11Surface.h"
 #endif
 #ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
@@ -88,7 +88,7 @@ std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(
 #else
   (void)wayland_requested;
 #endif
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
   if (!force_ibus &&
       (x11_requested || g_getenv("DISPLAY"))) {
     return std::make_unique<FallbackSurface>(
