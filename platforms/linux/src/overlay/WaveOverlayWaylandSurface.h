@@ -71,7 +71,7 @@ class WaveOverlayWaylandSurface final : public WaveOverlaySurface {
   static void layer_closed(void *, zwlr_layer_surface_v1 *);
   static void buffer_release(void *, wl_buffer *);
   bool ensure_surface();
-  bool configure_size();
+  bool configure_size(bool map);
   bool ensure_buffers(int width, int height);
   void destroy_buffers();
   int buffer_scale() const;

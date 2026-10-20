@@ -253,7 +253,7 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
   if (closed_)
     destroy_surface();
   if (display_ && surface_ && !closed_)
-    return configured_ || configure_size();
+    return configured_ || configure_size(true);
   if (!display_) {
     const auto *socket = std::getenv("WAYLAND_DISPLAY");
     if (!socket || !*socket)
@@ -290,7 +290,7 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, 0);
     zwlr_layer_surface_v1_set_keyboard_interactivity(
         layer_surface_, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
-    if (!configure_size()) {
+    if (!configure_size(true)) {
       destroy_surface();
       return false;
     }
@@ -298,8 +298,8 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
   return true;
 }
 
-// Ask for the current layout's size with a buffer-less commit and wait for the compositor's configure, as layer-shell requires before the first buffer and again after the surface was unmapped. A layout change while mapped asks the same way, so the new buffer always follows an acknowledged size.
-bool WaveOverlayWaylandSurface::configure_size() {
+// Ask for the current layout's size with a buffer-less commit and wait for the compositor's configure, as layer-shell requires before the first buffer and again after the surface was unmapped (`map`). A layout change while mapped asks the same way, so the new buffer normally follows an acknowledged size; a compositor that answers a resize with no configure keeps the surface mapped under the last one, so drawing goes on.
+bool WaveOverlayWaylandSurface::configure_size(bool map) {
   configured_ = false;
   requested_width_ = frame_.width;
   requested_height_ = frame_.height;
@@ -308,6 +308,8 @@ bool WaveOverlayWaylandSurface::configure_size() {
   wl_surface_commit(surface_);
   if (wl_display_roundtrip(display_) < 0)
     closed_ = true;
+  if (!map && !closed_)
+    configured_ = true;
   return configured_ && !closed_;
 }
 
@@ -453,7 +455,7 @@ void WaveOverlayWaylandSurface::draw() {
     return;
   if (frame_.width != requested_width_ || frame_.height != requested_height_) {
     // The roundtrip dispatches pointer events too, and an action may hide the bar meanwhile.
-    if (!configure_size() || !visible_)
+    if (!configure_size(false) || !visible_)
       return;
   }
   const int scale = buffer_scale();

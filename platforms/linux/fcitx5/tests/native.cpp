@@ -3576,7 +3576,8 @@ int main(int argc, char **argv) {
       state->wave_overlay_visible_ = false;
       state->voice_loading_ = true;
       state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
-      state->wave_overlay_.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
+      // A fresh recording's model; Xlib's None macro rules out naming CompactStatus::None here.
+      state->wave_overlay_.reset();
       const auto voiceAux = [&] { return ic.inputPanel().auxUp().toString(); };
       state->updateVoiceOverlay();
       require(shows == 1 && state->wave_overlay_failed_ && !state->wave_overlay_visible_,
