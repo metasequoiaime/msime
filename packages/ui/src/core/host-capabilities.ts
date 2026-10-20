@@ -41,7 +41,7 @@ export interface HostCapabilities {
   app_logo?: boolean;
   /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
   traditional_chinese_variants?: boolean;
-  /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（目前只有 macOS）。 */
+  /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（macOS，以及 X11 上用原生画布画候选窗的 Linux Fcitx5）。 */
   expand_candidates?: boolean;
   /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（macOS、Windows、Linux 和 HarmonyOS；Android 和 iOS 不是）。 */
   surface_themes_follow?: boolean;
