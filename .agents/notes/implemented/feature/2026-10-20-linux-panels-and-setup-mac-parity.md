@@ -10,7 +10,7 @@ Linux 的设置应用和共享面板（Tauri/React）在行为、结构和内容
 
 - 插入后关闭：`EmojiPanelClient.closeAfterInsert` 由 `DesktopEmojiPanel` 只在 Linux 的独立窗口上打开。「输入到原应用」或「粘贴」成功后由页面先把最近使用写进存储，再请宿主关窗；复制不关闭。不放在 Rust 的 `send_text`/`paste_clipboard_text` 里关窗，因为窗口在命令返回前就没了，页面收不到成功回调，最近使用会丢。
 - 落点：`panel_input::linux_panel_placement` 让屏幕键盘贴工作区底部居中、表情和本地剪贴板居中，其余面板仍在输入窗口下方。X11 用目标窗口找显示器（`panel_anchor` 返回窗口中线上的锚点，`visible_panel_position` 换算到那块显示器的工作区），Sway 直接用 workspace 矩形；拿不到目标矩形时居中类面板按窗口当前或主显示器摆放。GNOME/KDE Wayland 不让客户端定位，交给合成器。
-- 剪贴板面板：右键（菜单键、Shift+F10）菜单「发到云剪贴板」，经 `cloud_clipboard_request` 的 `add`，只在 Linux 和 macOS 的 React 面板提供；`clipboard_capture_status` 报告设置应用里采集线程最近一轮的状态（macOS 原生状态行的四种，加 Linux 的「读不到系统剪贴板」），变化时发 `clipboard-history-changed`；悬停或键盘聚焦片刻显示最多 12 行的预览气泡（触屏和点击聚焦不弹）；× 删除按钮只在悬停或聚焦这一行时出现，没有悬停的设备上常显；删除提示改为「已删除历史记录（不会清空系统剪贴板）」；临时消息改为浮在内容上方的胶囊提示「已复制  X」，与 macOS 原生表情面板的尺寸、配色和 24 个 UTF-16 单元截断一致。独立的本地剪贴板窗口（`standaloneClipboard`）页头叫「剪贴板」，不显示分类导航。
+- 剪贴板面板：右键（菜单键、Shift+F10）菜单「发到云剪贴板」，经 `cloud_clipboard_request` 的 `add`，只在 Linux 和 macOS 的 React 面板提供；`clipboard_capture_status` 报告设置应用里采集线程最近一轮的状态（macOS 原生状态行的四种，加 Linux 的「读不到系统剪贴板」），变化时发 `clipboard-history-changed`；悬停或键盘聚焦片刻显示最多 12 行的预览气泡（触屏和点击聚焦不弹）；× 删除按钮只在悬停或聚焦这一行时出现，没有悬停的设备上常显；删除提示改为「已删除历史记录（不会清空系统剪贴板）」；临时消息改为浮在内容上方的胶囊提示「已复制  X」，与 macOS 原生表情面板的尺寸、配色和 24 个 UTF-16 单元截断一致。独立的本地剪贴板窗口（`standaloneClipboard`）页头叫「剪贴板」，不显示分类导航，Esc 直接关窗（没有表情首页可回）。预览气泡和右键菜单只在列表内容变化时收起：面板每 400 毫秒轮询一次，每次都给出新数组，按引用比较会让它们一出现就消失。顺带修了表情面板根元素在浅色主题下仍是深色底的问题（`panelSurface` 的浅色变体是 `group-data`，只作用于子元素）。
 - 首次配置：页面结构照 macOS 安装窗口（小窗口、logo 卡片、主按钮、百分比进度条、结果卡片），配色用 GNOME token，自带可拖动标题栏和关闭按钮。`msime-linux-setup` 在 `MSIME_LINUX_SETUP_REPORT=1` 时额外打印 `msime-setup-stage:` 和 `msime-setup-result:` 两种机读行，`linux_setup.rs` 把阶段转成 `linux-setup-stage` 事件、把结果放进 `LinuxSetupStatus.registration`，不显示成输出。结果卡片 `LinuxInputMethodNotice` 对应 macOS 的 `InputSourceStartupNotice`。窗口由宿主在启动时变成 500×640（`shape_setup_window`），离开时 `leave_linux_setup_window` 只在确实变过时才换回。
 - 词库过期：`msime-linux-first-run-guide --reason dictionary-outdated` 在引导目录留下 `dictionary-outdated` 标记，通知指向设置里的「立即更新」（支持动作时点通知即打开设置）；设置窗口看到标记就以同一个页面的更新模式打开，「立即更新」运行 `msime-linux-setup --update --download`，成功后删标记。
 - 后台更新检查：设置应用启动时若距上次检查满一天，就在后台线程用同一个 `check_for_update` 问一次，记录写在状态目录的 `update-check.json`；新版本只提醒一次，通知的「查看」打开关于页，`pending_update_check` 让关于页直接显示找到的版本。只提醒、不安装，检查不在 Fcitx5 插件或 IBus 宿主里做，开发构建不做。
@@ -37,4 +37,5 @@ Linux 的设置应用和共享面板（Tauri/React）在行为、结构和内容
 - Rust：落点、锚点、采集状态、FileManager1 参数、诊断日志目标、配置机读行、过期标记、更新参数和后台检查的单测在 Debian 桌面检查容器（`Dockerfile.desktop-check`）里随 `cargo check -p msime-desktop --all-targets` 与 `cargo test -p msime-desktop --lib` 运行。
 - Python：`first_run_guide.py` 覆盖新的通知文字和标记，`setup_update.py` 覆盖 `MSIME_LINUX_SETUP_REPORT=1` 时的阶段顺序。
 - React：表情面板、剪贴板记录、云剪贴板历史、首次配置页、帮助页、插件库、屏幕键盘、诊断日志和关于页预填的 vitest 用例。
+- 在 Playwright 的 Chromium 里用合成数据截过首次配置（就绪、进行中、三种结果）、词库更新页和独立剪贴板窗口（悬停预览、右键菜单、胶囊提示）的深浅两套图；WebKitGTK 与它的排版可能有细微差别。
 - 没有在真实 GNOME/KDE Wayland 或 X11 桌面上看过落点、通知动作和 portal 深色跟随。
