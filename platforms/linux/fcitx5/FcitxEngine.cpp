@@ -3772,11 +3772,12 @@ public:
         fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
     if (!msime::linux_host::key_press_sounds(event.isRelease(), event.key().isModifier(), shortcut))
       return;
+    // 自动重复的按下不交给生命周期核心：不出按键音、不画特效、不开新的一轮，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同。按住退格或空格时只在第一次按下响一声。
+    if (key_repeat_.press(sym)) return;
     syncFieldTraits();
     // Linux 只显示打字特效里的连击数，在候选下方的辅助行（setAuxDown；setAuxUp 归语音、表情搜索和配置提示）。
     typing_combo_ = msime::linux_host::typing_effect_combo(msime_client_key(
-        session_, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(sym),
-                                                   key_repeat_.press(sym))));
+        session_, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(sym), false)));
   }
   // key() 处理完这个键之后：焦点、录音这些状态已经定下来，同步背景音乐。连击数变了就单独重画辅助行，这个键交给了应用、没有经过 render() 时也一样。
   void keySettled(std::uint32_t comboBefore) {
@@ -3791,7 +3792,7 @@ public:
   msime::linux_host::MusicActivity music_;
   // 生命周期核心现在知道的字段属性，变了才重新报告，见 syncFieldTraits。
   msime::linux_host::FieldTraitsReport field_traits_;
-  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键，自动重复照画但不计连击。
+  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复不交给核心，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
   // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
