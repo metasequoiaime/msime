@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use super::dictionary::ShuangpinDictionary;
 use super::query::{
-    detect_active_double_helpcode_length, raw_length_for_effective_prefix,
+    detect_active_double_helpcode_length, fuzzy_initial_spellings, raw_length_for_effective_prefix,
     remove_manual_delimiters, segment_input, to_quanpin_segmentation,
     trim_trailing_letters_preserve_delimiters,
 };
@@ -250,6 +250,76 @@ impl ShuangpinEngine {
 
     /// :122-167.
     pub fn query(
+        &mut self,
+        request: &QueryRequest,
+        keymap: Option<&HelpcodeKeymap>,
+    ) -> Vec<WordItem> {
+        let mut candidates = self.query_standard(request, keymap);
+        if !request.valid {
+            return candidates;
+        }
+        let alternatives =
+            fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
+        if alternatives.is_empty() {
+            return candidates;
+        }
+        let mut single_helpcode = None;
+        for spelling in alternatives {
+            let mut alternate = request.clone();
+            // 替代的声母保持原位置的大小写，辅助码与手动分隔符仍交给原查询识别。
+            alternate.raw_input_with_cases = spelling
+                .bytes()
+                .zip(request.raw_input_with_cases.bytes())
+                .map(|(new, old)| {
+                    char::from(if old.is_ascii_uppercase() {
+                        new.to_ascii_uppercase()
+                    } else {
+                        new
+                    })
+                })
+                .collect();
+            alternate.raw_input = spelling;
+            // 原编码非法时识别不到末尾辅助码，采用合法替代读法识别出的同一末码。
+            if single_helpcode.is_none() {
+                single_helpcode = active_helpcode_query(&alternate, self.profile)
+                    .map(|query| query.help_codes)
+                    .filter(|code| code.len() == 1);
+            }
+            let mut rows = self.query_standard(&alternate, keymap);
+            rows.retain_mut(|row| {
+                let mut original = request.raw_input.bytes().filter(|&byte| byte != b'\'');
+                let code: Option<String> = row
+                    .pinyin
+                    .bytes()
+                    .map(|byte| {
+                        if byte == b'\'' {
+                            Some('\'')
+                        } else {
+                            original.next().map(char::from)
+                        }
+                    })
+                    .collect();
+                let Some(code) = code else {
+                    return false;
+                };
+                row.pinyin = code;
+                row.fuzzy = true;
+                true
+            });
+            append_fuzzy_rows(&mut candidates, rows);
+        }
+        sort_by_coverage(&mut candidates);
+        // 不同替代路径的词库行共用权重，随后恢复辅助码匹配优先级。
+        sort_dictionary_weights(&mut candidates);
+        if let (Some(helpcode), Some(keymap)) = (single_helpcode, keymap) {
+            candidates = reorder_candidates_with_single_helpcode(candidates, &helpcode, keymap);
+            sort_by_coverage(&mut candidates);
+        }
+        keep_typo_sentence_off_first_seat(&mut candidates);
+        candidates
+    }
+
+    fn query_standard(
         &mut self,
         request: &QueryRequest,
         keymap: Option<&HelpcodeKeymap>,

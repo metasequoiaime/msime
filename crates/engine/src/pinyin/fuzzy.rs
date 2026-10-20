@@ -24,6 +24,26 @@ const FINAL_PAIRS: [(&str, &str, u32); 5] = [
     ("uan", "uang", fuzzy_rule::UAN_UANG),
 ];
 
+/// 返回已启用规则中与声母互为模糊读法的伙伴，不包含声母自身。
+pub(crate) fn fuzzy_initial_partners(
+    initial: &str,
+    options: FuzzyPinyinOptions,
+) -> impl Iterator<Item = &'static str> + '_ {
+    INITIAL_PAIRS
+        .iter()
+        .filter_map(move |&(left, right, rule)| {
+            if !options.enabled(rule) {
+                None
+            } else if initial == left {
+                Some(right)
+            } else if initial == right {
+                Some(left)
+            } else {
+                None
+            }
+        })
+}
+
 /// The partners of `part` under every enabled pair, `part` itself first.
 fn with_partners<'a, const N: usize>(
     part: &'a str,

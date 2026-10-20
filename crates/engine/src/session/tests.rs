@@ -354,6 +354,46 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
     }
 }
 
+#[test]
+fn invalid_shuangpin_fuzzy_initial_selection_keeps_raw_coverage_and_learning() {
+    for (input, rest, caret) in [
+        ("slrf", "", None),
+        ("slrfni", "ni", None),
+        ("slrfni", "ni", Some(4)),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shuang''ren','sr','双刃',11000),('shuang''ren','sr','双人',10000);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
+        );
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = false;
+            options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::S_SH;
+            options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        });
+        type_text(&mut session, input);
+        if let Some(caret) = caret {
+            session.set_caret(Some(caret));
+        }
+        let index = index_of(&session, "双人");
+        assert!(index > 0, "调频夹具明确选择非首选词");
+        let row = &session.snapshot().candidates[index];
+        assert_eq!(row.pinyin.replace('\'', ""), "slrf");
+        assert_eq!(row.canonical_pinyin, "shuang'ren");
+        assert!(row.fuzzy);
+        assert_eq!(session.select(index).commit.as_deref(), Some("双人"));
+        assert_eq!(session.snapshot().editing_text, rest);
+        let journal = Connection::open(fixture.journal()).unwrap();
+        let learned: i64 = journal.query_row(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key='shuang''ren' AND value='双人' AND operation<>'delete'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(learned > 0, "模糊两键选择必须按标准读音学习");
+    }
+}
+
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
     let index = index_of(session, word);
     session.select(index)
