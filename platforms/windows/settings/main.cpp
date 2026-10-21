@@ -1971,17 +1971,17 @@ fire_and_forget show_keyboard_photo(Imaging::BitmapImage bitmap, std::wstring ba
   }
 }
 
-// The sample the candidate preview draws. It illustrates the layout, page size and font size; it is not a dictionary.
+// 候选窗口预览的固定样例，与共享设置的 `previewSamples`（`packages/ui/src/skin/skin-candidate-preview.tsx`）相同：拼音 ni'mf 的候选和各自的辅助码。它只示意排列、每页数量和字号，不是词库。
 constexpr std::array<std::pair<const wchar_t *, const wchar_t *>, 9>
-    preview_words{{{L"候选项", L"candidate"},
-                   {L"后选项", L"choice"},
-                   {L"侯选项", L"option"},
-                   {L"候選項", L"candidate"},
-                   {L"厚选项", L"item"},
-                   {L"候选", L"candidate"},
-                   {L"后选", L"choose"},
-                   {L"候", L"wait"},
-                   {L"后", L"after"}}};
+    preview_words{{{L"你们", L"rR"},
+                   {L"你", L"rX"},
+                   {L"尼", L"uV"},
+                   {L"妮", L"nV"},
+                   {L"泥", L"dV"},
+                   {L"逆", L"zQ"},
+                   {L"拟", L"fR"},
+                   {L"腻", L"oD"},
+                   {L"拧", L"nG"}}};
 
 // ---- 外部皮肤 ----
 
@@ -3517,8 +3517,9 @@ private:
     }
     // A skin package may have been edited in the shared app; its colours are read again on the next preview.
     resolved_theme_.reset();
-    // 与共享页一样，「主题」页显示时窗口重新获得焦点就重扫皮肤目录（用户可能刚把皮肤文件夹拷进去）；扫到的与上次相同时不重画。
-    if (root_ && current_page_ == "themes")
+    // 与共享页一样，「主题」页显示时窗口重新获得焦点就重扫皮肤目录（用户可能刚把皮肤文件夹拷进去）；扫到的与上次相同时不重画。「候选窗口」页的预览用着皮肤包时也重扫，包里的图可能刚改过。
+    if (root_ && (current_page_ == "themes" ||
+                  (current_page_ == "candidate" && preview_visible_ && preview_wants_skins())))
       scan_skins(false);
     if (!changed || !root_)
       return;
@@ -4072,8 +4073,8 @@ private:
     // 帮助视图是「关于」里的子页：与 macOS 一样，从别的页回到「关于」时回到标签页。
     if (id == "about" && id != current_page_)
       about_help_open_ = false;
-    // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样。
-    if (id == "themes" && id != current_page_)
+    // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样；「候选窗口」页的预览用着皮肤包时也一样（共享页的 `ExternalAppearancePreview` 挂上时扫描）。
+    if ((id == "themes" || id == "candidate") && id != current_page_)
       skins_stale_ = true;
     // 进入「语音输入」页时停在「录音行为」标签上，也要重读录音设备：共享页的「麦克风」下拉每次变为可见时都读一次（标签之间切换见 build_voice_page）。
     if (id == "voice" && id != current_page_)
@@ -4338,6 +4339,7 @@ private:
     // 背单词子页与 macOS 的 `vocabulary` 子页一样，标题栏写它自己的「背单词」。
     toolbar_title_.Text(vocabulary_subpage() ? L"背单词" : page_label(current_page_).title);
     preview_host_ = nullptr;
+    preview_frame_ = nullptr;
     toolbar_preview_host_ = nullptr;
     toolbar_preview_size_ = nullptr;
     font_preset_host_ = nullptr;
@@ -8287,9 +8289,14 @@ private:
   // ---- 皮肤包 ----
 
   void redraw_themes() {
+    if (closed_)
+      return;
     // 取色器打开时不重画：重画会拿掉它所在的页面。它关上时整页重画一次。
-    if (!closed_ && current_page_ == "themes" && !color_picker_open_)
+    if (current_page_ == "themes" && !color_picker_open_)
       queue_refresh();
+    // 「候选窗口」页的预览画着用着的皮肤包的图：扫描落地、图片解码完成或失败时只重画预览，不拆掉页面上的控件。
+    else if (current_page_ == "candidate")
+      update_preview();
   }
 
   // Runs `call` on a worker and hands its result to `done` on the UI thread, unless the window has closed by then.
@@ -11332,7 +11339,7 @@ private:
 
   // ---- 候选字体 ----
 
-  // 共享设置「候选窗口」页的字体各行，按 Windows 宿主的样子：「布局与字体」组里是「候选字体」预设（末尾是「自定义…」）和按需出现的主字体，「更多选项」里是英文字体（candidate_english_font_row）。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。返回主字体框画没画出来：读取字体列表的状态和「刷新」按钮跟着当前第一个可见的字体框走，主字体框不在时由英文字体框带着。
+  // 共享设置「候选窗口」页的字体各行，按 Windows 宿主的样子：「字体与大小」组开头是「候选字体」预设（末尾是「自定义…」）和按需出现的主字体，字号之后是英文字体（candidate_english_font_row）。规则在 CandidateFontPresets.h。与共享页一样没有回退字体列表的编辑器：预设和主字体会写它。返回主字体框画没画出来：读取字体列表的状态和「刷新」按钮跟着当前第一个可见的字体框走，主字体框不在时由英文字体框带着。
   bool candidate_font_rows(StackPanel const &group) {
     StackPanel preset_host;
     group.Children().Append(preset_host);
@@ -11372,7 +11379,7 @@ private:
     return true;
   }
 
-  // 「更多选项」里的英文字体。`catalog` 为真（主字体框收起）时由它带着字体列表的读取状态和「刷新」按钮，读取失败后的重试和装了新字体后的刷新仍然找得到。
+  // 「字体与大小」组里的英文字体。`catalog` 为真（主字体框收起）时由它带着字体列表的读取状态和「刷新」按钮，读取失败后的重试和装了新字体后的刷新仍然找得到。
   void candidate_english_font_row(StackPanel const &group, bool catalog) {
     auto input = font_input(L"英文字体",
                             document_.String(L"candidate_english_font",
@@ -11416,7 +11423,7 @@ private:
     return {field, status};
   }
 
-  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。末尾的「自定义…」只亮出主字体框、不改字体（共享页的 onCustomChange）；字体不是任何预设时选中的就是它。
+  // 「候选字体」预设一行。它画在自己的容器里，主字体每输入一个字就在原处重画这一行，不必重建整页而丢掉输入框的焦点。末尾的「自定义…」只亮出主字体框、不改字体（共享页的 onCustomChange）；字体不是任何预设时选中的就是它。六项照共享页的 SegmentedRow 画成分段控件，不按三段退成下拉框；Windows 没有自带圆体，那一段按不下去。
   void candidate_font_preset_row(StackPanel const &host) {
     const auto family =
         document_.String(L"candidate_font_family", nav::candidate_default_font_family);
@@ -11447,7 +11454,8 @@ private:
                                   doc.SetOrderedStrings(L"candidate_fallback_fonts",
                                                         patch.fallback);
                                 }, true);
-                              }));
+                              },
+                              true, true, options.size()));
   }
 
   void refresh_font_preset_row() {
@@ -11631,21 +11639,27 @@ private:
 
   // ---- 界面预览 ----
 
+  // 候选窗口预览，照共享页的 `AppearanceCandidatePreview`：顶上一行 12 DIP 次要色的说明，隔 18 DIP 是预览面。下面的示例文字框、预览明暗下拉和提示是 Windows 自己的比较工具，有意保留。
   FrameworkElement make_preview() {
     StackPanel holder;
     holder.Spacing(8);
     holder.Margin(Thickness{0, 8, 0, 12});
-    auto label = make_text(L"实时预览", 13, palette_.text);
-    label.FontWeight(Windows::UI::Text::FontWeight{600});
+    auto label = make_text(L"预览：固定样例随当前设置草稿变化，不代表实际输入候选。", 12, palette_.sub);
+    // 与预览面相隔 18（面板的 Spacing 8 加这里的 10），即共享页 `panelPreviewLabel` 的 mb-[18px]。
+    label.Margin(Thickness{0, 0, 0, 10});
     holder.Children().Append(label);
+    // 卡片外面套一层 Grid：皮肤包的装饰图画在卡片上方的装饰带里，压住卡片顶边，与卡片同在这一格。
+    preview_frame_ = Grid();
+    preview_frame_.HorizontalAlignment(HorizontalAlignment::Center);
     preview_host_ = Border();
-    preview_host_.HorizontalAlignment(HorizontalAlignment::Center);
+    preview_host_.VerticalAlignment(VerticalAlignment::Top);
+    preview_frame_.Children().Append(preview_host_);
     ScrollViewer viewport;
     viewport.MaxHeight(current_page_ == "candidate" ? 160 : 248);
     viewport.HorizontalScrollBarVisibility(ScrollBarVisibility::Auto);
     viewport.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
     viewport.HorizontalContentAlignment(HorizontalAlignment::Center);
-    viewport.Content(preview_host_);
+    viewport.Content(preview_frame_);
     Border stage;
     stage.Background(brush(palette_.seg_well));
     stage.CornerRadius(CornerRadius{10, 10, 10, 10});
@@ -11693,8 +11707,36 @@ private:
     return holder;
   }
 
+  // 预览要画的皮肤包，照共享页 `ExternalAppearancePreview`：选着自定义主题时取预览明暗那个槽位（`candidate_skin_for`）的包，包得在目录里、能在这种明暗下画（`skin_draws_in`），并支持当前排列方式和明暗（与卡片的 `card_compatible` 同一条）。画布皮肤整个窗口由画布描述画出，这里不画它的图，只画 `resolve()` 给的配色。没有时为空，预览只画配色。
+  SkinPackage const *preview_skin(bool dark, bool vertical) const {
+    if (document_.String(L"global_theme", L"system") != L"custom")
+      return nullptr;
+    const auto id = sk::candidate_skin_for(custom_skins(document_), dark);
+    if (id.empty())
+      return nullptr;
+    for (const auto &skin : skin_packages_) {
+      if (skin.id != id)
+        continue;
+      const auto slot = theme_slot(skin.base);
+      if (skin.canvas.active || !sk::skin_draws_in(slot, dark) ||
+          !sk::card_compatible(slot, skin.layouts, skin.themes,
+                               vertical ? L"vertical" : L"horizontal", dark))
+        return nullptr;
+      return &skin;
+    }
+    return nullptr;
+  }
+
+  // 自定义主题的槽位里设了皮肤包，预览可能要画它的图，需要皮肤目录的扫描结果。
+  bool preview_wants_skins() const {
+    if (document_.String(L"global_theme", L"system") != L"custom")
+      return false;
+    const auto custom = custom_skins(document_);
+    return !custom.light.empty() || !custom.dark.empty();
+  }
+
   void update_preview() {
-    if (!preview_host_)
+    if (!preview_host_ || !preview_frame_)
       return;
     // 使用候选窗自身的调色板；预览可独立比较浅深色，不改变输入法的主题。
     const auto theme = candidate_theme(document_.String(L"global_theme", L"system"),
@@ -11708,8 +11750,15 @@ private:
                                    12.0, 32.0);
     const bool preedit =
         document_.String(L"candidate_preedit_style", L"pinyin") != L"empty";
-    const bool translations = document_.Boolean(L"candidate_translations", false) ||
-                              document_.Boolean(L"candidate_english_gloss", false);
+    // 首行的水杉 logo 随 `show_app_logo`（缺值读成关，与「布局」里那一行相同）。
+    const bool brand = document_.Boolean(L"show_app_logo", false);
+    // 辅助码照共享页：方案是全拼或双拼、这一族的辅助码打开且「在候选窗口中显示」时，样例候选后面带上它的辅助码。缺值取 client-core 的出厂值，与「输入」页的 helpcode_rows 相同（全拼不显示、双拼显示）。
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+    const bool shuangpin = scheme == L"shuangpin";
+    const std::wstring helpcode_key = shuangpin ? L"shuangpin_helpcode" : L"quanpin_helpcode";
+    const bool helpcode = (shuangpin || scheme == L"quanpin") &&
+                          document_.Boolean(helpcode_key + L".enabled", true) &&
+                          document_.Boolean(helpcode_key + L".show_in_candidate_window", shuangpin);
     auto main_family = document_.String(L"candidate_font_family", nav::candidate_default_font_family);
     if (main_family.empty())
       main_family = std::wstring(nav::candidate_default_font_family);
@@ -11722,45 +11771,97 @@ private:
       if (!family.empty())
         family_chain += L"," + family;
     const auto preview_font = FontFamily(hstring(family_chain));
-    // Scale, opacity and radius through the rules the card itself uses (CandidateWindowStyle.h). The package's own radius is not known here, so an unset radius previews the theme's.
+    // Scale, opacity and radius through the rules the card itself uses (CandidateWindowStyle.h): the user's radius, else the drawn package's, else the theme's.
     const auto style = candidate_window_style();
     const double scale = style.scale();
+    const auto *skin = preview_skin(preview_dark_.value_or(candidate_dark()), vertical);
+    std::optional<float> skin_radius;
+    if (skin && skin->corner_radius)
+      skin_radius = static_cast<float>(*skin->corner_radius);
     const double radius = msime::windows::candidate_card_radius(
-        style, std::nullopt, theme.radius);
+        style, skin_radius, theme.radius);
     const double row_radius =
         msime::windows::candidate_row_radius(style, theme.item_radius,
                                              static_cast<float>(radius));
+    // 卡片的内边距，装饰图按它对齐卡片的边、压进卡片顶边。
+    const double pad_x = 12 * scale, pad_y = 8 * scale;
+    // 装饰带的高度：包带装饰图时卡片下移这么多，与候选窗一样随整体大小缩放（CandidateWindow 的 decoration_top_ * scale）。图还在解码或解码失败时装饰带照留，卡片不跟着跳。
+    const bool decorated =
+        skin && skin->decoration_top > 0 && !skin->decoration_image.empty();
+    const double band = decorated ? skin->decoration_top * scale : 0.0;
+    const ImageSource decoration =
+        decorated ? skin_image_source(skin->id, skin->decoration_image) : ImageSource{nullptr};
 
     preview_host_.Background(
         brush(to_color(msime::windows::candidate_faded(theme.surface, style))));
     preview_host_.BorderBrush(
         brush(to_color(msime::windows::candidate_faded(theme.border, style))));
-    preview_host_.BorderThickness(Thickness{1, 1, 1, 1});
+    constexpr double edge = 1;
+    preview_host_.BorderThickness(Thickness{edge, edge, edge, edge});
     preview_host_.CornerRadius(CornerRadius{radius, radius, radius, radius});
-    preview_host_.Padding(
-        Thickness{12 * scale, 8 * scale, 12 * scale, 10 * scale});
+    preview_host_.Padding(Thickness{0, 0, 0, 0});
+    preview_host_.Margin(Thickness{0, band, 0, 0});
+    preview_host_.MinWidth(skin ? skin->min_width * scale : 0.0);
     A11y::SetName(preview_host_, L"候选窗口预览");
 
-    StackPanel body;
-    body.Spacing(6 * scale);
-    StackPanel head;
-    head.Orientation(Orientation::Horizontal);
-    head.Spacing(12 * scale);
-    head.Padding(Thickness{4 * scale, 0, 4 * scale, 0});
-    auto mode = make_text(L"中", 13 * scale, to_color(theme.accent));
-    mode.FontWeight(Windows::UI::Text::FontWeight{600});
-    head.Children().Append(mode);
-    // The candidate window draws the preedit in the accent colour at semibold.
-    if (preedit) {
-      auto pre = make_text(L"hou’xuan’xiang",
-                           std::clamp(document_.Number(L"candidate_preedit_font_size", 15),
-                                      12.0, 32.0) * scale,
-                           to_color(theme.accent));
-      pre.FontFamily(preview_font);
-      pre.FontWeight(Windows::UI::Text::FontWeight{600});
-      head.Children().Append(pre);
+    // 卡片里分两层：包的背景图铺满卡片、按卡片内圈的圆角裁切，样例画在它上面。
+    Grid layers;
+    if (skin) {
+      if (const auto source = skin_image_source(skin->id, skin->background_image)) {
+        Border fill;
+        const double inner = std::max(0.0, radius - edge);
+        fill.CornerRadius(CornerRadius{inner, inner, inner, inner});
+        ImageBrush image;
+        image.ImageSource(source);
+        image.Stretch(skin->background_fit == L"contain"   ? Stretch::Uniform
+                      : skin->background_fit == L"stretch" ? Stretch::Fill
+                                                           : Stretch::UniformToFill);
+        // 窗口不透明度连同背景图一起淡化，与 candidate_faded 对表面和边框的处理相同。
+        image.Opacity(skin->background_opacity * style.opacity());
+        watch_skin_image(image, skin_image_key(skin->id, skin->background_image));
+        fill.Background(image);
+        layers.Children().Append(fill);
+      }
     }
-    body.Children().Append(head);
+
+    StackPanel body;
+    body.Margin(Thickness{pad_x, pad_y, pad_x, 10 * scale});
+    body.Spacing(6 * scale);
+    // 首行照共享页的样例：打头是水杉 logo（候选窗的 16 DIP 见方、隔 6 DIP，CandidateCardSize.h 的 logo_side、logo_gap），再是拼音 ni'mf 和光标；拼音隐藏时首行只剩 logo，logo 也不画时整行不画，与候选窗一致。
+    if (brand || preedit) {
+      StackPanel head;
+      head.Orientation(Orientation::Horizontal);
+      head.Spacing(6 * scale);
+      head.Padding(Thickness{4 * scale, 0, 4 * scale, 0});
+      if (brand) {
+        Image logo;
+        logo.Width(16 * scale);
+        logo.Height(16 * scale);
+        logo.VerticalAlignment(VerticalAlignment::Center);
+        show_logo(logo, static_cast<int32_t>(std::ceil(16 * scale * 2)));
+        head.Children().Append(logo);
+      }
+      // The candidate window draws the preedit in the accent colour at semibold; the caret after it is the shared sample's 1.5 DIP bar, 1.2 em high.
+      if (preedit) {
+        const double preedit_size =
+            std::clamp(document_.Number(L"candidate_preedit_font_size", 15), 12.0, 32.0) *
+            scale;
+        auto pre = make_text(L"ni'mf", preedit_size, to_color(theme.accent));
+        pre.FontFamily(preview_font);
+        pre.FontWeight(Windows::UI::Text::FontWeight{600});
+        pre.VerticalAlignment(VerticalAlignment::Center);
+        head.Children().Append(pre);
+        Border caret;
+        caret.Width(1.5 * scale);
+        caret.Height(preedit_size * 1.2);
+        // 首行各项相隔 6，光标只离拼音 1（共享页 `.cursor` 的 margin-left）。
+        caret.Margin(Thickness{-5 * scale, 0, 0, 0});
+        caret.VerticalAlignment(VerticalAlignment::Center);
+        caret.Background(brush(to_color(theme.accent)));
+        head.Children().Append(caret);
+      }
+      body.Children().Append(head);
+    }
 
     // 短示例循环填满设定的每页数量；清空或只输入空白时恢复内置示例。
     std::vector<std::wstring> samples;
@@ -11779,7 +11880,7 @@ private:
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
     list.Spacing(0);
     for (int i = 0; i < count; ++i) {
-      const auto &[default_word, gloss] = preview_words[static_cast<size_t>(i)];
+      const auto &[default_word, code] = preview_words[static_cast<size_t>(i)];
       const std::wstring word = samples.empty() ? default_word
                                                 : samples[static_cast<size_t>(i) % samples.size()];
       const bool highlighted = i == 0;
@@ -11803,85 +11904,134 @@ private:
       StackPanel cell;
       cell.Orientation(Orientation::Horizontal);
       cell.Spacing(1.5 * scale);
-      // Alpha 0 in the selected slots means "keep the unselected colour", as the renderer reads it. The translation draws in the package's translation colour, or else the number colour, as the renderer draws it.
+      // Alpha 0 in the selected slots means "keep the unselected colour", as the renderer reads it.
       const auto number_color =
           msime::windows::candidate_row_number_color(theme, highlighted);
-      const auto translation_color =
-          msime::windows::candidate_row_translation_color(theme, highlighted);
       const auto row_color = msime::windows::candidate_row_text_color(
           theme, theme.text, highlighted, false);
       auto number =
           make_text(std::to_wstring(i + 1), font * 0.8 * scale, to_color(number_color));
       number.VerticalAlignment(VerticalAlignment::Center);
       cell.Children().Append(number);
+      // 辅助码紧跟在候选后面、同字号同色，写成「你们(rR)」，与共享页的样例相同；自己输入的示例文字没有辅助码。
       StackPanel words;
+      words.Orientation(Orientation::Horizontal);
       auto candidate = make_text(word, font * scale, to_color(row_color));
       A11y::SetAutomationId(candidate, hstring(L"candidate-preview-word-" + std::to_wstring(i)));
       candidate.TextWrapping(TextWrapping::NoWrap);
       candidate.FontFamily(preview_font);
       words.Children().Append(candidate);
-      if (translations && samples.empty()) {
-        auto translation = make_text(gloss, 12 * scale, to_color(translation_color));
-        translation.FontFamily(preview_font);
-        words.Children().Append(translation);
+      if (helpcode && samples.empty()) {
+        auto suffix = make_text(std::wstring(L"(") + code + L")", font * scale,
+                                to_color(row_color));
+        suffix.TextWrapping(TextWrapping::NoWrap);
+        suffix.FontFamily(preview_font);
+        words.Children().Append(suffix);
       }
       cell.Children().Append(words);
       item.Children().Append(cell);
       list.Children().Append(item);
     }
     body.Children().Append(list);
-    preview_host_.Child(body);
+    layers.Children().Append(body);
+    preview_host_.Child(layers);
+
+    // 装饰图照候选窗的 candidate_decoration_rect：宽是清单的装饰宽度（随整体大小缩放），按图片自己的比例；底边在卡片顶边下 pad_y，压在卡片上；比装饰带加 pad_y 高的图等比缩小。左对齐离卡片左边 pad_x，右对齐（默认）离右边 pad_x，居中对齐卡片。
+    while (preview_frame_.Children().Size() > 1)
+      preview_frame_.Children().RemoveAtEnd();
+    if (decoration) {
+      Grid overlay;
+      overlay.Height(band + pad_y);
+      overlay.VerticalAlignment(VerticalAlignment::Top);
+      overlay.IsHitTestVisible(false);
+      Image image;
+      image.Source(decoration);
+      image.Stretch(Stretch::Uniform);
+      image.MaxWidth(skin->decoration_width * scale);
+      image.MaxHeight(band + pad_y);
+      image.VerticalAlignment(VerticalAlignment::Bottom);
+      const bool left = skin->decoration_align == L"left";
+      const bool center = skin->decoration_align == L"center";
+      image.HorizontalAlignment(left     ? HorizontalAlignment::Left
+                                : center ? HorizontalAlignment::Center
+                                         : HorizontalAlignment::Right);
+      image.Margin(Thickness{left ? pad_x : 0.0, 0, left || center ? 0.0 : pad_x, 0});
+      watch_skin_image(image, skin_image_key(skin->id, skin->decoration_image));
+      overlay.Children().Append(image);
+      preview_frame_.Children().Append(overlay);
+    }
   }
 
   // ---- 候选窗口 ----
 
-  // 共享设置「候选窗口」页的一列布局（appearance-page.tsx）：预览，「布局与字体」组的主流程只有排列方式、每页数量、候选字体（及按需出现的主字体）和字号，其余各行按共享页的顺序收进同一个「更多选项」。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是功能开关而不是外观，放在折叠区之后照常展开。
+  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
   void build_candidate_page(StackPanel const &page) {
-    if (preview_visible_ && !indexing_)
-      page.Children().Append(make_preview());
+    const auto tab = page_tab_bar(page, L"候选窗口设置",
+                                  {{L"layout", L"布局"},
+                                   {L"font", L"字体与大小"},
+                                   {L"style", L"窗口样式"},
+                                   {L"preedit", L"预编辑"}},
+                                  L"candidate-tab");
+    if (preview_visible_ && !indexing_) {
+      // 用着皮肤包时先扫描皮肤目录，包和它的图落地后预览经 redraw_themes 重画。
+      if (skins_stale_ && preview_wants_skins())
+        scan_skins(false);
+      auto card = add_group(page, L"");
+      auto preview = make_preview();
+      // 共享页 `groupPreview` 的内边距：左右 24（卡片行面板的 16 加这里的 8）、上 20、下 30。
+      preview.Margin(Thickness{8, 20, 8, 30});
+      card.Children().Append(preview);
+    }
 
-    auto layout = add_group(page, L"布局与字体");
-    segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
-                {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
-                L"vertical");
-    slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
-               L"candidate_page_size", 1, 9, 6);
-    const bool main_font = candidate_font_rows(layout);
-    slider_row(layout, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
-               L"candidate_font_size", 12, 32, 18);
+    if (in_tab(tab, L"layout")) {
+      auto layout = add_group(page, L"布局");
+      segment_row(layout, 0xE8FD, L"候选项排列方式", L"", L"candidate_layout",
+                  {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
+                  L"vertical");
+      candidate_page_size_row(layout);
+      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
+      bool_row(layout, 0xE790, L"显示水杉 logo",
+               L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
+               false);
+      bool_row(layout, 0xE718, L"跟随光标",
+               L"关闭后保持首次出现的位置，直到候选窗口消失。",
+               L"candidate_follow_cursor", true);
+    }
 
-    // 搜索命中折叠区里的某一行时展开它（fold_holds_focus）。
-    auto rows = add_fold(
-        layout, L"更多选项", candidate_more_open_ || fold_holds_focus(L"candidate-more"),
-        [this](bool expanded) { candidate_more_open_ = expanded; }, L"candidate-more");
-    fold_index_ = L"candidate-more";
-    // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
-    bool_row(rows, 0xE790, L"显示水杉 logo",
-             L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
-             false);
-    bool_row(rows, 0xE718, L"候选窗口跟随光标",
-             L"关闭后保持首次出现的位置，直到候选窗口消失。",
-             L"candidate_follow_cursor", true);
-    candidate_english_font_row(rows, !main_font);
-    slider_row(rows, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
-               L"candidate_preedit_font_size", 12, 32, 15);
-    slider_row(rows, 0xE740, L"整体大小",
-               L"候选窗口连同文字一起缩放（75–150%）",
-               L"candidate_scale_percent", 75, 150, 100, 5, L"%");
-    slider_row(rows, 0xE7B3, L"不透明度",
-               L"只淡化候选框的底色和边框，文字保持清晰（50–100%）",
-               L"candidate_opacity_percent", 50, 100, 100, 5, L"%");
-    corner_radius_row(rows);
-    select_row(
-        rows, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
-        {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
-    select_row(rows, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
-               {{L"raw", L"原始按键"},
-                {L"pinyin", L"拼音分词"},
-                {L"empty", L"不显示"}},
-               L"raw");
-    fold_index_.clear();
+    if (in_tab(tab, L"font")) {
+      auto font = add_group(page, L"字体与大小");
+      const bool main_font = candidate_font_rows(font);
+      number_select_row(font, 0xE8E9, L"字号", L"", L"candidate_font_size",
+                        candidate_font_sizes(), 18, L"");
+      candidate_english_font_row(font, !main_font);
+      candidate_percent_row(font, L"整体大小", L"candidate_scale_percent", 75, 150,
+                            L"字号与窗口尺寸一起缩放");
+    }
 
+    if (in_tab(tab, L"style")) {
+      auto style = add_group(page, L"窗口样式");
+      candidate_percent_row(style, L"不透明度", L"candidate_opacity_percent", 50, 100,
+                            L"文字和焦点高亮保持不透明");
+      corner_radius_row(style);
+    }
+
+    if (in_tab(tab, L"preedit")) {
+      auto preedit = add_group(page, L"预编辑");
+      number_select_row(preedit, 0xE8E9, L"预编辑字号", L"",
+                        L"candidate_preedit_font_size", candidate_font_sizes(), 15, L"");
+      select_row(
+          preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
+          {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
+      select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
+                 {{L"raw", L"原始按键"},
+                  {L"pinyin", L"拼音分词"},
+                  {L"empty", L"不显示"}},
+                 L"raw");
+    }
+
+    // 「游戏」组不在任何标签里：建索引时之后的条目不再记在最后一个标签下，搜索结果的位置只写「候选窗口 › 游戏」，打开它时也不切标签。
+    if (indexing_)
+      tab_index_.clear();
     auto games = add_group(page, L"游戏");
     bool_row(
         games, 0xE7FC, L"在游戏中显示候选窗口",
@@ -11912,32 +12062,98 @@ private:
         L"game_compatibility.excluded_processes");
   }
 
-  // 圆角大小. A value overrides the skin package's radius; 默认 clears it, so the card follows the package again, else the theme. An unset radius shows the theme's on the slider.
+  // 「字号」「预编辑字号」下拉的选项：共享页的 `candidateFontSizes`，12 到 32。
+  static std::vector<int> candidate_font_sizes() {
+    std::vector<int> sizes;
+    for (int size = 12; size <= 32; ++size)
+      sizes.push_back(size);
+    return sizes;
+  }
+
+  // 「每页候选项数量」照共享页的 CandidatePageSizeSection：带刻度的滑块，数值在右边，没有说明。范围是 3 到 Windows 的上限 9（client-core 的 max_candidate_page_size）；存着的值不在这个范围里时把范围放宽到它，而不是改写它（`offeredCandidatePageSizes`）。
+  void candidate_page_size_row(StackPanel const &group) {
+    const auto current =
+        static_cast<int>(std::lround(document_.Number(L"candidate_page_size", 6)));
+    auto control = slider_control(
+        L"每页候选项数量", std::min(current, 3), std::max(current, 9), current,
+        [this](double value) {
+          document_.SetNumber(L"candidate_page_size", value);
+          schedule_save();
+          update_preview();
+        });
+    // 每一档一个刻度，画在轨道上，与共享页 `platform-slider-ticks` 相同。
+    auto slider = control.as<Grid>().Children().GetAt(0).as<Slider>();
+    slider.TickFrequency(1);
+    slider.TickPlacement(Primitives::TickPlacement::Inline);
+    add_row(group, 0xE8CB, L"每页候选项数量", L"", control);
+  }
+
+  // 「整体大小」「不透明度」两个百分比滑块（共享页的 CandidateScaleRow 和 CandidateWindowStyleRows）：每档 5%，说明随数值写成「N%，<detail>」，拖动时就地改写说明，不重画整页。共享页这两行只传 valueText、不传 displayValue，滑块旁不画数值（valueText 只是读屏用的 aria-valuetext），所以这里收起滑块旁的数值文字，数值只写在说明里。
+  void candidate_percent_row(StackPanel const &group, std::wstring const &title,
+                             std::wstring const &key, double minimum, double maximum,
+                             std::wstring const &detail) {
+    const double value = std::clamp(document_.Number(key, 100), minimum, maximum);
+    auto line = std::make_shared<weak_ref<TextBlock>>();
+    auto control = slider_control(title, minimum, maximum, value,
+                                  [this, key, detail, line](double next) {
+                                    document_.SetNumber(key, next);
+                                    schedule_save();
+                                    update_preview();
+                                    if (auto block = line->get())
+                                      block.Text(hstring(number_text(next) + L"%，" + detail));
+                                  },
+                                  true, 5, L"%");
+    control.as<Grid>().Children().GetAt(1).Visibility(Visibility::Collapsed);
+    auto row = add_row(group, 0xE740, title, number_text(value) + L"%，" + detail, control);
+    *line = make_weak(row_subtitle(row));
+  }
+
+  // 「圆角大小」照共享页 CandidateWindowStyleRows：滑块写的值覆盖皮肤包的圆角；旁边的「跟随皮肤」清掉它，卡片又跟随皮肤包、没有包时跟随主题。跟随时这个按钮是按下的（选中的 ToggleButton，与「自定义配色」里的「跟随主题」相同），再点一次不起作用。说明随数值变化：跟随时是「跟随皮肤；设置后覆盖皮肤自带的圆角」，覆盖时是「Npt，覆盖皮肤自带的圆角」；拖动时就地改写说明、抬起按钮，不重画整页。共享页的圆角滑块只传 valueText（读屏用的 aria-valuetext）、不传 displayValue，滑块旁不画数值，所以这里收起滑块旁的数值文字，跟随与否只看说明和按钮。没设圆角时滑块停在主题的圆角上。
   void corner_radius_row(StackPanel const &group) {
     const auto stored = document_.Value(L"candidate_corner_radius");
     const bool overridden = stored && stored.ValueType() == JsonValueType::Number;
     const double fallback =
         msime::windows::candidate_native_palette(candidate_dark()).radius;
+    Primitives::ToggleButton follow;
+    follow.Content(box_value(L"跟随皮肤"));
+    follow.Height(32);
+    follow.IsChecked(!overridden);
+    follow.IsEnabled(loaded_);
+    A11y::SetName(follow, L"跟随皮肤");
+    // 按文档里现在的值判断：拖过滑块以后页面没有重画，画出来时的状态已经过时。
+    follow.Click([this](Inspectable const &sender, RoutedEventArgs const &) {
+      const auto current = document_.Value(L"candidate_corner_radius");
+      if (current && current.ValueType() == JsonValueType::Number)
+        change([](PreferencesDocument &doc) {
+          doc.SetValue(L"candidate_corner_radius", JsonValue::CreateNullValue());
+        }, true);
+      else
+        sender.as<Primitives::ToggleButton>().IsChecked(true);
+    });
+    auto line = std::make_shared<weak_ref<TextBlock>>();
     StackPanel box;
     box.Orientation(Orientation::Horizontal);
     box.Spacing(8);
-    box.Children().Append(slider_control(
+    auto slider = formatted_slider_control(
         L"圆角大小", 0, 16, overridden ? stored.GetNumber() : fallback,
-        [this](double value) {
+        [this, line, weak_follow = make_weak(follow)](double value) {
           document_.SetNumber(L"candidate_corner_radius", value);
           schedule_save();
           update_preview();
+          if (auto block = line->get())
+            block.Text(hstring(number_text(value) + L"pt，覆盖皮肤自带的圆角"));
+          if (auto button = weak_follow.get())
+            button.IsChecked(false);
         },
-        true, 1, L"pt"));
-    box.Children().Append(button_control(L"默认", [this] {
-      change([](PreferencesDocument &doc) {
-        doc.SetValue(L"candidate_corner_radius", JsonValue::CreateNullValue());
-      }, true);
-    }, loaded_));
-    add_row(group, 0xE739, L"圆角大小",
-            overridden ? L"已覆盖皮肤包的圆角，点“默认”恢复跟随皮肤"
-                : L"跟随皮肤；设定后会覆盖皮肤包的圆角（0–16pt）",
-            box);
+        [](double shown) { return number_text(shown) + L"pt"; });
+    slider.Children().GetAt(1).Visibility(Visibility::Collapsed);
+    box.Children().Append(slider);
+    box.Children().Append(follow);
+    auto row = add_row(group, 0xE739, L"圆角大小",
+                       overridden ? number_text(stored.GetNumber()) + L"pt，覆盖皮肤自带的圆角"
+                                  : std::wstring(L"跟随皮肤；设置后覆盖皮肤自带的圆角"),
+                       box);
+    *line = make_weak(row_subtitle(row));
   }
 
   static const wchar_t *app_input_mode_rule_problem(nav::AppInputModeRuleError error) {
@@ -23229,7 +23445,7 @@ private:
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
-  // 正在索引的折叠区（「候选窗口」页的「更多选项」、「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
+  // 正在索引的折叠区（「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
   std::wstring fold_index_;
   std::map<std::wstring, std::wstring> search_folds_;
   // 每页选中的页内标签（页面 id → 标签 id），跨页面保留、不写偏好；以及建索引时正在画的标签。见 page_tab_bar。
@@ -23238,8 +23454,7 @@ private:
   // 建索引时这一页的标签（取标签名）和正在画的分组标题，写进搜索结果的位置，见 record。
   std::vector<Option> index_tabs_;
   std::wstring group_index_;
-  // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
-  bool candidate_more_open_ = false;
+  // 「自定义配色」折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
   bool custom_colors_open_ = false;
   bool candidate_font_custom_ = false;
   std::wstring notice_;
@@ -23552,7 +23767,7 @@ private:
   std::optional<pg::ScriptGrants> plugin_scripts_;
   ScriptGrantDialog plugin_grant_;
 
-  // 「主题」页的皮肤目录：上次扫描到的包、被忽略的目录和皮肤目录，跨页面重建保留。skins_pending_ 是在途的扫描，skins_busy_ 是显示「正在读取」的那种（第一次和「刷新皮肤」）；skins_signature_ 是上次落地的目录回答，自动重扫据此判断有没有变化。skins_revision_ 在每次落地时递增，作废还在解码的旧图片。skin_preview_overrides_ 是卡片上选的预览明暗，连同选它时的当前明暗。color_picker_open_ 是有取色器开着，这时不重画页面。
+  // 「主题」页和「候选窗口」页预览用的皮肤目录：上次扫描到的包、被忽略的目录和皮肤目录，跨页面重建保留。skins_pending_ 是在途的扫描，skins_busy_ 是显示「正在读取」的那种（第一次和「刷新皮肤」）；skins_signature_ 是上次落地的目录回答，自动重扫据此判断有没有变化。skins_revision_ 在每次落地时递增，作废还在解码的旧图片。skin_preview_overrides_ 是卡片上选的预览明暗，连同选它时的当前明暗。color_picker_open_ 是有取色器开着，这时不重画页面。
   std::vector<SkinPackage> skin_packages_;
   std::vector<SkinIssue> skin_issues_;
   std::wstring skins_directory_;
@@ -23624,6 +23839,7 @@ private:
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};
+  Grid preview_frame_{nullptr};
   Border toolbar_preview_host_{nullptr};
   TextBlock toolbar_preview_size_{nullptr};
   std::optional<JsonObject> dictionary_update_status_;

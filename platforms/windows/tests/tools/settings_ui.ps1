@@ -248,33 +248,6 @@ function Assert-WubiCandidateSelection($window) {
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
     Write-Host 'Wubi shortcut toggle, atomic swap, reload and retained keys passed'
 }
-function Set-CandidateMore($window, [bool]$expanded) {
-    # 候选窗口页是一列，进阶各行收在「更多选项」里。页面重绘后 UIA 树可能稍晚恢复；等待目标而非固定延时。
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        $fold = Find-ById $window 'candidate-more'
-        if ($fold -and $fold.Current.IsEnabled) { break }
-        Start-Sleep -Milliseconds 200
-    } while ([DateTime]::UtcNow -lt $deadline)
-    if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
-    # 折叠区的标题行是一个整行按钮（照 macOS 的 MoreOptions），没有 ExpandCollapse 模式。主流程的行一直在，折叠区里的行只在展开时出现在 UIA 树里，所以按里面那行在不在判断状态，不对时点按一次标题行。
-    $content = Find-ById $window 'settings-content'
-    if ([bool](Find-ByName $content '行内预编辑') -ne $expanded) {
-        $fold.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    }
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        Start-Sleep -Milliseconds 200
-        $content = Find-ById $window 'settings-content'
-        $inside = Find-ByName $content '行内预编辑'
-    } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
-    if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
-    # 读屏从 ItemStatus 得知展开与否。
-    $wanted = if ($expanded) { '已展开' } else { '已收起' }
-    $status = (Find-ById $window 'candidate-more').Current.ItemStatus
-    if ($status -ne $wanted) { throw "Candidate 更多选项 reports ItemStatus '$status' instead of '$wanted'" }
-    if (-not (Find-ByName $content '候选项排列方式')) { throw 'Candidate main rows are missing' }
-}
 function Select-ComboChoice($window, [string]$id, [string]$label) {
     $combo = Find-ById $window $id
     if (-not $combo) { throw "Missing combo: $id" }
@@ -518,6 +491,17 @@ try {
                         if (-not (Find-ByName $content $name)) { throw "Maintenance page is missing: $name" }
                     }
                 }
+                if ($page -eq 'candidate') {
+                    # 照 macOS 分「布局」「字体与大小」「窗口样式」「预编辑」四个标签，打开时是「布局」；预览在无标题卡片里，「游戏」组不属于哪个标签、一直在。
+                    Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($name in @('预览：固定样例随当前设置草稿变化，不代表实际输入候选。', '每页候选项数量', '跟随光标', '在游戏中显示候选窗口')) {
+                        if (-not (Find-ByName $content $name)) { throw "Candidate layout tab is missing: $name" }
+                    }
+                    foreach ($name in @('字号', '行内预编辑', '更多选项')) {
+                        if (Find-ByName $content $name) { throw "Candidate layout tab still shows $name" }
+                    }
+                }
                 if ($page -eq 'toolbar') {
                     # 缩放和图标尺寸合成一个「工具栏大小」。
                     if (-not (Find-ByName $content '工具栏大小')) { throw 'Toolbar size select is missing' }
@@ -727,11 +711,33 @@ try {
                     if (Find-ByName $content '更多选项') { throw 'AI service group still folds rows into 更多选项' }
                 }
                 if ($page -eq 'candidate') {
-                    # 整页截过一张收起的，再展开「更多选项」截一张，然后收起，下一个宽度照样从收起开始。
-                    Set-CandidateMore $window $true
-                    Start-Sleep -Milliseconds 350
-                    Save-Window $window "$theme-$width-candidate-more.png"
-                    Set-CandidateMore $window $false
+                    # 「布局」已随整页截过，其余三个标签各截一张，「游戏」组在每个标签下都在；最后回到「布局」，下一个宽度照样从它开始。
+                    foreach ($tab in @(@('font', '字号'), @('style', '圆角大小'), @('preedit', '行内预编辑'))) {
+                        Select-PageTab $window "candidate-tab-$($tab[0])" $tab[1]
+                        if (-not (Find-ByName (Find-ById $window 'settings-content') '在游戏中显示候选窗口')) { throw "Candidate $($tab[0]) tab lost the 游戏 group" }
+                        if ($tab[0] -eq 'style') {
+                            # 合成偏好没设圆角，照 macOS「跟随皮肤」按钮是按下的，说明写「跟随皮肤；设置后覆盖皮肤自带的圆角」。共享页的圆角和不透明度滑块只有读屏用的 valueText，滑块旁不画数值：圆角滑块后面紧跟的不能是数值文字，也不能有写着「100%」的不透明度数值。
+                            $styleContent = Find-ById $window 'settings-content'
+                            $followName = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '跟随皮肤')
+                            $toggleable = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
+                            $followCondition = New-Object System.Windows.Automation.AndCondition($followName, $toggleable)
+                            $follow = $styleContent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $followCondition)
+                            if (-not $follow -or $follow.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw 'Candidate 跟随皮肤 is not pressed while the radius follows the skin' }
+                            $radiusName = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '圆角大小')
+                            $sliderType = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
+                            $radiusCondition = New-Object System.Windows.Automation.AndCondition($radiusName, $sliderType)
+                            $radius = $styleContent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $radiusCondition)
+                            $radiusValue = if ($radius) { [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetNextSibling($radius) } else { $null }
+                            if ($radiusValue -and $radiusValue.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text) { throw "Candidate 圆角大小 draws a visible value next to the slider: $($radiusValue.Current.Name)" }
+                            if (-not (Find-ByName $styleContent '跟随皮肤；设置后覆盖皮肤自带的圆角')) { throw 'Candidate 圆角大小 description does not read 跟随皮肤 while the radius follows the skin' }
+                            $percentName = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '100%')
+                            $textType = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+                            if ($styleContent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($percentName, $textType)))) { throw 'Candidate 不透明度 draws a visible value next to the slider' }
+                        }
+                        Start-Sleep -Milliseconds 350
+                        Save-Window $window "$theme-$width-candidate-$($tab[0]).png"
+                    }
+                    Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
                 }
             }
         }
@@ -845,9 +851,30 @@ try {
         if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) { throw 'Search did not open the input tab and fold holding its target' }
         $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
         Select-PageTab $window 'input-tab-scheme' '中文方案'
-        # 搜索必须让目标可见：主字体在预设下本来收起，搜索落到它时要画出来；折叠区里的行要把「更多选项」展开。
+        # 搜索落到折叠区里的行时要展开那个折叠区：「候选悬停色」收在「主题」页默认收起的「自定义配色」里，收起时它不在 UIA 树里。
+        Open-Page $window 'themes'
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $fold = Find-ByName (Find-ById $window 'settings-content') '自定义配色'
+        } while (-not $fold -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $fold) { throw 'Missing 自定义配色 fold on the themes page' }
+        if ($fold.Current.ItemStatus -ne '已收起' -or (Find-ByName (Find-ById $window 'settings-content') '候选悬停色')) { throw '自定义配色 is not collapsed before the search' }
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('候选悬停色')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $content = Find-ById $window 'settings-content'
+            $fold = if ($content) { Find-ByName $content '自定义配色' } else { $null }
+            $hover = if ($content) { Find-ByName $content '候选悬停色' } else { $null }
+        } while ((-not $fold -or $fold.Current.ItemStatus -ne '已展开' -or -not $hover) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $fold -or $fold.Current.ItemStatus -ne '已展开' -or -not $hover) { throw 'Search did not open the 自定义配色 fold holding its target' }
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+        # 搜索必须让目标可见：候选窗口页的行在哪个标签就切到哪个标签；主字体在预设下本来收起，搜索落到它时还要画出来。
         Open-Page $window 'candidate'
-        Set-CandidateMore $window $false
+        Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
         $search = Find-ById $window 'settings-search'
         if (-not $search) { throw 'Settings search is missing' }
         $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
@@ -860,9 +887,10 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
+            $tab = Find-ById $window 'candidate-tab-font'
             $font = Find-ByName (Find-ById $window 'settings-content') '主字体'
-        } while (-not $font -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $font) { throw 'Font search target is missing' }
+        } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $font) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $font) { throw 'Font search did not switch to 字体与大小 and show its target' }
         Start-Sleep -Milliseconds 350
         Save-Window $window "$theme-search-candidate-font.png"
         $input.SetFocus()
@@ -871,10 +899,12 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
+            $tab = Find-ById $window 'candidate-tab-preedit'
             $inline = Find-ByName (Find-ById $window 'settings-content') '行内预编辑'
-        } while (-not $inline -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $inline) { throw 'Search did not open the 更多选项 fold holding its target' }
-        Set-CandidateMore $window $false
+        } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $inline) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $inline) { throw 'Search did not switch to the 预编辑 tab holding its target' }
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+        Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
         # 与 macOS 一样，示例与预览明暗在离开再回到本页后保留，但不写入真实设置。
         $preferencesBeforePreview = [IO.File]::ReadAllText((Join-Path $state 'preferences.json'))
         $sample = Find-ById $window 'candidate-preview-sample'
@@ -908,8 +938,8 @@ try {
         do {
             Start-Sleep -Milliseconds 200
             $first = Find-ById $window 'candidate-preview-word-0'
-        } while ((-not $first -or $first.Current.Name -ne '候选项') -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $first -or $first.Current.Name -ne '候选项') { throw 'Whitespace did not restore the default preview' }
+        } while ((-not $first -or $first.Current.Name -ne '你们') -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $first -or $first.Current.Name -ne '你们') { throw 'Whitespace did not restore the default preview' }
         if ([IO.File]::ReadAllText((Join-Path $state 'preferences.json')) -ne $preferencesBeforePreview) { throw 'Preview-only controls changed saved preferences' }
         # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。
         Open-Page $window 'toolbar'
