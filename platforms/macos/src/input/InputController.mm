@@ -386,6 +386,16 @@ static NSString *MSIMECandidateBadgeString(const std::string &badge) {
     return [[NSString alloc] initWithBytes:badge.data() length:badge.size() encoding:NSUTF8StringEncoding] ?: @"";
 }
 
+// 装饰词与普通候选共用来源徽标；固定排位仍由普通候选另外追加。
+static NSString *CandidateSourceBadge(NSDictionary *candidate, NSString *aiBadge) {
+    id source = candidate[@"source"];
+    if (![source isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)source) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)source)) return @"";
+    if ([source isEqual:@2]) return @" ☁️";
+    if ([source isEqual:@3]) return aiBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot"));
+    return @"";
+}
+
 // 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
 // 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
 static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
@@ -403,13 +413,8 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
                                !CFNumberIsFloatType((__bridge CFNumberRef)source);
     // Engine CandidateSource MixedJapanese=13：日文混输行是日文，不做简转繁（学校不能显示成學校）；上屏时 input-runtime 也为它关掉 script_conversion。
     if (!(integerSource && [source isEqual:@13])) text = MSIMEChineseOutputString(text, traditional);
-    // Engine CandidateSource: CloudSuggestion=2, AiSuggestion=3. These badges
-    // are presentation-only, matching the Windows candidate-view suffixes.
-    NSString *badge = @"";
-    if (integerSource) {
-        if ([source isEqual:@2]) badge = @" ☁️";
-        else if ([source isEqual:@3]) badge = aiBadge;
-    }
+    // 来源与固定排位角标只参与显示，不改变候选身份或上屏内容。
+    NSString *badge = CandidateSourceBadge(candidate, aiBadge);
     if (fixedBadge.length && MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]))
         badge = [badge stringByAppendingString:fixedBadge];
     return [text stringByAppendingString:badge];
@@ -7969,6 +7974,32 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return button;
 }
 
+- (void)configureDecorationWord:(MSIMECandidateDecorationView *)decoration
+                           skin:(const msime::mac::ResolvedSkin &)skin font:(NSFont *)font {
+    NSString *word = @"";
+    if (skin.decorationCandidate) {
+        NSArray *page = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        int highlight = -1;
+        for (NSUInteger index = 0; index < page.count; ++index)
+            if ([page[index] isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(page[index][@"highlighted"])) {
+                highlight = static_cast<int>(index); break;
+            }
+        if (const auto seat = skin.decorationCandidate->seat(page.count, highlight)) {
+            NSDictionary *candidate = page[*seat];
+            if ([candidate isKindOfClass:NSDictionary.class]) {
+                NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
+                NSString *badge = skin.decorationCandidate->stripBadge ? @"" : CandidateSourceBadge(candidate, _aiBadgeString);
+                word = MSIMEChineseOutputString([text stringByAppendingString:badge],
+                    _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view) &&
+                    ![candidate[@"source"] isEqual:@13]);
+            }
+        }
+    }
+    [decoration setCandidateWord:word style:skin.decorationCandidate
+                        boxSize:NSMakeSize(skin.decorationWidthDip, skin.decorationTopDip)
+                      alignment:skin.decorationAlign font:font];
+}
+
 - (msime::mac::CandidateShadow)candidateShadowForSkin:(const msime::mac::ResolvedSkin &)skin dark:(BOOL)dark {
     return msime::mac::ResolveCandidateShadow(skin.shadow, dark, skin.canvas.has_value(),
         skin.canvas && [_appearance canvasAssetsForDark:dark].panelLoaded, MSIMECandidateScale(_appearance));
@@ -8228,6 +8259,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
+        [self configureDecorationWord:decoration skin:skin font:font];
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset preeditVisible:preedit.length > 0];
@@ -8438,6 +8470,9 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             button.needsDisplay = YES;
         }
         if (reusable) {
+            for (NSView *subview in content.subviews)
+                if ([subview isKindOfClass:MSIMECandidateDecorationView.class])
+                    [self configureDecorationWord:(MSIMECandidateDecorationView *)subview skin:skin font:font];
             for (NSView *subview in content.candidateContentView.subviews)
                 if ([subview isKindOfClass:MSIMECandidateButton.class] && (subview.tag == -1 || subview.tag == -2)) {
                     MSIMECandidateButton *button = (id)subview;
@@ -8555,11 +8590,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if (const auto placed = msime::mac::DecorationPlacement(skin.decorationAlign, width, inset, decorationHeight, skin.decorationWidthDip,
                                                             decorationSize.width, decorationSize.height,
                                                             MSIMEDecorationMotionMargin(skin))) {
-        // Added last so it sits over the card's top edge and the top row, which is what the overlap is for. It takes no clicks.
+        // 最后加入，装饰图压在卡片顶边和首行上；不接收点击。
         MSIMECandidateDecorationView *decoration = [[MSIMECandidateDecorationView alloc] initWithFrame:NSMakeRect(placed->x, height - placed->top - placed->height, placed->width, placed->height)];
         decoration.identifier = @"candidate-decoration";
         decoration.image = decorationImage;
         decoration.frames = [self decorationFramesForImage:decorationImage path:skin.decorationPath];
+        [self configureDecorationWord:decoration skin:skin font:font];
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset preeditVisible:preedit.length > 0];

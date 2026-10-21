@@ -17,6 +17,7 @@ import {
   type ThemeAppearance,
 } from "../theme/global-theme";
 import type { ExternalSkin, SkinCatalog, ToolbarPalette } from "./external-skins";
+import { decorationCandidate, type DecorationCandidate } from "./decoration-candidate";
 
 export type DraftMode = ThemeAppearance;
 export type DraftLayout = "horizontal" | "vertical";
@@ -118,6 +119,7 @@ export type DraftDecoration = {
   align: DecorationAlign;
   motion: DecorationMotion;
   motionPeriodMs: number;
+  candidate?: DecorationCandidate;
 };
 export type DraftAnimation = {
   /** 打开时写 schema 2 的 `[animation]`，三个预设都显式写出（macOS 只播放写出来的预设）。 */
@@ -393,6 +395,7 @@ export function draftFromSkin(
     };
   }
   if (images.decoration && skin.decorationTopDip > 0 && skin.decorationWidthDip > 0) {
+    const candidate = decorationCandidate(skin.decorationCandidate);
     draft.decoration = {
       image: images.decoration,
       topInset: finite(skin.decorationTopDip, 24, 1, 500),
@@ -400,6 +403,7 @@ export function draftFromSkin(
       align: skin.decorationAlign ?? "right",
       motion: skin.decorationMotion ?? "none",
       motionPeriodMs: finite(skin.decorationMotionPeriodMs ?? 3000, 3000, 1200, 8000),
+      ...(candidate ? { candidate } : {}),
     };
   }
   if (skin.schemaVersion === 2 && skin.animation) {
@@ -475,6 +479,7 @@ export function normalizeCandidateSkinDraft(input: unknown): CandidateSkinDraft 
   const backgroundImage = image(rawBackground?.image);
   const rawDecoration = value.decoration as Partial<DraftDecoration> | null | undefined;
   const decorationImage = image(rawDecoration?.image);
+  const overlay = decorationCandidate(rawDecoration?.candidate);
   const rawAnimation = (value.animation ?? {}) as Partial<DraftAnimation>;
   const preset = (raw: unknown, fallback: AnimationPreset): AnimationPreset =>
     animationPresets.some((option) => option.value === raw) ? (raw as AnimationPreset) : fallback;
@@ -520,6 +525,7 @@ export function normalizeCandidateSkinDraft(input: unknown): CandidateSkinDraft 
           motionPeriodMs: Math.round(
             finite(rawDecoration?.motionPeriodMs as number, 3000, 1200, 8000),
           ),
+          ...(overlay ? { candidate: overlay } : {}),
         }
       : null,
     animation: {
@@ -843,6 +849,22 @@ export function draftManifest(draft: CandidateSkinDraft, preview: string): strin
         `motion = ${tomlString(decoration.motion)}`,
         `motion_period_ms = ${Math.round(decoration.motionPeriodMs)}`,
       );
+    if (decoration.candidate) {
+      const candidate = decoration.candidate;
+      lines.push(
+        "candidate_overlay = true",
+        `candidate_overlay_index = ${candidate.index}`,
+        `candidate_overlay_font_size_dip = ${tomlNumber(candidate.fontSizeDip)}`,
+        `candidate_overlay_min_font_size_dip = ${tomlNumber(candidate.minFontSizeDip)}`,
+        `candidate_overlay_max_width_dip = ${tomlNumber(candidate.maxWidthDip)}`,
+        `candidate_overlay_color = ${tomlString(candidate.color)}`,
+        `candidate_overlay_align_h = ${tomlString(candidate.alignH)}`,
+        `candidate_overlay_align_v = ${tomlString(candidate.alignV)}`,
+        `candidate_overlay_offset_x_dip = ${tomlNumber(candidate.offsetXDip)}`,
+        `candidate_overlay_offset_y_dip = ${tomlNumber(candidate.offsetYDip)}`,
+        `candidate_overlay_strip_badge = ${candidate.stripBadge}`,
+      );
+    }
   }
   if (draft.background) {
     lines.push(
@@ -972,6 +994,7 @@ export function draftSkin(draft: CandidateSkinDraft): ExternalSkin {
     decorationAlign: draft.decoration?.align ?? "right",
     decorationMotion: draft.decoration?.motion ?? "none",
     decorationMotionPeriodMs: draft.decoration?.motionPeriodMs ?? 3000,
+    ...(draft.decoration?.candidate ? { decorationCandidate: draft.decoration.candidate } : {}),
     background: draft.background
       ? {
           image: images.get(draft.background.image) ?? "",

@@ -354,6 +354,7 @@ struct NativeCanvasX11::Impl {
     // 减弱动态效果时帧动画停在首帧；屏幕熄灭时整个画布不再唤醒，下一次重画（按键、换肤）接着播。
     if (!content.menu && !reduce_motion) {
       inspect(assets->panel_animation);
+      if (assets->banner) inspect(assets->banner->animation);
       for (const auto &decoration : assets->decorations) inspect(decoration.animation);
       inspect(assets->band.image);
     }

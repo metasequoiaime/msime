@@ -69,11 +69,11 @@ public final class CandidateSkinResolver {
             else canvas = null;
         }
         JSONObject palette = value.optJSONObject("candidate");
-        if (palette == null) return null;
+        // 仅含图片的 system 基底包没有显式候选配色，仍保留已确认生效的包与宿主安全配色。
         Map<String, String> colours = new HashMap<>();
         for (String name : new String[] {"surface", "border", "text", "number", "secondary",
                 "accent", "selected", "selected_text", "selected_number", "hover"}) {
-            String colour = JsonPolicy.strictString(palette.opt(name));
+            String colour = palette == null ? null : JsonPolicy.strictString(palette.opt(name));
             if (colour != null) colours.put(name, colour);
         }
         JSONObject details = value.optJSONObject("candidate_details");

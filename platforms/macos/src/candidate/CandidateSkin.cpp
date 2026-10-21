@@ -170,6 +170,7 @@ ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &
     }
     skin.decorationTopDip *= scale;
     skin.decorationWidthDip *= scale;
+    if (skin.decorationCandidate) skin.decorationCandidate = skin.decorationCandidate->scaled(scale);
     skin.minWidthDip *= scale;
     if (skin.canvas) {
         skin.canvas->panelOpacity *= opacity;

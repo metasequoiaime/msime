@@ -325,6 +325,23 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     if (period >= 1200.0 && period <= 8000.0) package.decorationMotionPeriodMs = period;
     const double frames = NumberField(object, @"decorationFrames");
     package.decorationFrames = frames >= 0.0 && frames <= 1000.0 ? static_cast<unsigned>(frames) : 0;
+    NSDictionary *overlay = object[@"decorationCandidate"];
+    if ([overlay isKindOfClass:NSDictionary.class]) {
+        msime::candidate::DecorationCandidate parsed;
+        const double index = NumberField(overlay, @"index");
+        parsed.index = std::isfinite(index) && index >= 0 && index <= 100 && std::floor(index) == index
+            ? static_cast<int>(index) : -1;
+        parsed.fontSizeDip = NumberField(overlay, @"fontSizeDip");
+        parsed.minFontSizeDip = NumberField(overlay, @"minFontSizeDip");
+        parsed.maxWidthDip = NumberField(overlay, @"maxWidthDip");
+        parsed.color = StringField(overlay, @"resolvedColor");
+        parsed.alignH = StringField(overlay, @"alignH");
+        parsed.alignV = StringField(overlay, @"alignV");
+        parsed.offsetXDip = NumberField(overlay, @"offsetXDip");
+        parsed.offsetYDip = NumberField(overlay, @"offsetYDip");
+        parsed.stripBadge = ![overlay[@"stripBadge"] isEqual:@NO];
+        if (parsed.valid()) package.decorationCandidate = std::move(parsed);
+    }
     NSDictionary *background = object[@"background"];
     if ([background isKindOfClass:NSDictionary.class] && !StringField(background, @"image").empty())
     {
@@ -828,6 +845,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 resolved.decorationAlign = package->decorationAlign;
                 resolved.decorationMotion = package->decorationMotion;
                 resolved.decorationMotionPeriodMs = package->decorationMotionPeriodMs;
+                resolved.decorationCandidate = package->decorationCandidate;
                 resolved.minWidthDip = package->minWidthDip;
                 if (package->cornerRadiusDip)
                 {

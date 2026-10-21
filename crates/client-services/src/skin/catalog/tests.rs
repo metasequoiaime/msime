@@ -135,6 +135,206 @@ fn decorated_package(root: &Path, decoration: &[u8], motion: &str) {
 }
 
 #[test]
+fn decoration_candidate_overlay_reaches_catalog_with_source_defaults() {
+    let root = tempdir().unwrap();
+    decorated_package(
+        root.path(),
+        &encoded_png(6, 4),
+        "candidate_overlay = true\n",
+    );
+    let package = load(root.path(), "whale").unwrap();
+    let json = serde_json::to_value(&package).unwrap();
+    assert_eq!(
+        json["decorationCandidate"],
+        serde_json::json!({
+            "index": 1, "fontSizeDip": 16.0, "minFontSizeDip": 8.0, "maxWidthDip": 0.0,
+            "color": "", "resolvedColor": "#FFFFFFFF", "alignH": "center", "alignV": "center", "offsetXDip": 0.0,
+            "offsetYDip": 0.0, "stripBadge": true,
+        })
+    );
+}
+
+#[test]
+fn decoration_candidate_overlay_preserves_explicit_values_and_disabled_keys() {
+    let root = tempdir().unwrap();
+    let declared = "candidate_overlay = true\ncandidate_overlay_index = 0\ncandidate_overlay_font_size_dip = 12\ncandidate_overlay_min_font_size_dip = 30\ncandidate_overlay_max_width_dip = 80\ncandidate_overlay_color = '#1234'\ncandidate_overlay_align_h = 'right'\ncandidate_overlay_align_v = 'bottom'\ncandidate_overlay_offset_x_dip = -2000\ncandidate_overlay_offset_y_dip = 2000\ncandidate_overlay_strip_badge = false\n";
+    decorated_package(root.path(), &encoded_png(6, 4), declared);
+    let json = serde_json::to_value(load(root.path(), "whale").unwrap()).unwrap();
+    assert_eq!(
+        json["decorationCandidate"],
+        serde_json::json!({
+            "index": 0, "fontSizeDip": 12.0, "minFontSizeDip": 30.0, "maxWidthDip": 80.0,
+            "color": "#1234", "resolvedColor": "#11223344", "alignH": "right", "alignV": "bottom", "offsetXDip": -2000.0,
+            "offsetYDip": 2000.0, "stripBadge": false,
+        })
+    );
+    // 关闭时不读取其余配置；旧包也不增加空字段。
+    for flag in ["", "candidate_overlay = false\n"] {
+        decorated_package(root.path(), &encoded_png(6, 4), &format!("{flag}candidate_overlay_font_size_dip = 'ignored'\ncandidate_overlay_color = '; ignored'\n"));
+        let json = serde_json::to_value(load(root.path(), "whale").unwrap()).unwrap();
+        assert!(json.get("decorationCandidate").is_none());
+    }
+}
+
+#[test]
+fn decoration_candidate_overlay_rejects_invalid_source_fields() {
+    let root = tempdir().unwrap();
+    for invalid in [
+        "candidate_overlay = 'true'",
+        "candidate_overlay_index = -1",
+        "candidate_overlay_index = 101",
+        "candidate_overlay_index = 1.0",
+        "candidate_overlay_font_size_dip = 0",
+        "candidate_overlay_font_size_dip = 200.1",
+        "candidate_overlay_min_font_size_dip = -1",
+        "candidate_overlay_min_font_size_dip = nan",
+        "candidate_overlay_max_width_dip = 2001",
+        "candidate_overlay_color = '#123;display:none'",
+        "candidate_overlay_color = 12",
+        "candidate_overlay_align_h = 'top'",
+        "candidate_overlay_align_v = 'left'",
+        "candidate_overlay_offset_x_dip = -2001",
+        "candidate_overlay_offset_y_dip = inf",
+        "candidate_overlay_strip_badge = 1",
+    ] {
+        let flag = if invalid.starts_with("candidate_overlay =") {
+            ""
+        } else {
+            "candidate_overlay = true\n"
+        };
+        decorated_package(
+            root.path(),
+            &encoded_png(6, 4),
+            &format!("{flag}{invalid}\n"),
+        );
+        assert!(load(root.path(), "whale").is_err(), "accepted {invalid}");
+    }
+}
+
+#[test]
+fn decoration_candidate_overlay_keeps_v1_and_legacy_host_contracts() {
+    let root = tempdir().unwrap();
+    decorated_package(
+        root.path(),
+        &encoded_png(6, 4),
+        "candidate_overlay = true\n",
+    );
+    let path = root.path().join("whale/skin.toml");
+    let manifest = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        manifest.replace("schema_version = 2", "schema_version = 1"),
+    )
+    .unwrap();
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
+    assert!(catalog.packages[0].decoration_candidate.is_some());
+    let legacy = host_candidate_catalog(&catalog, root.path(), &["whale"]);
+    assert!(legacy["packages"][0].get("decorationCandidate").is_none());
+    assert!(super::super::theme::ThemePackage::from_host_catalog_entry(
+        legacy["packages"][0].clone()
+    )
+    .is_ok());
+}
+
+#[test]
+fn host_catalog_exposes_package_directory_for_non_canvas_decoration_candidates() {
+    let root = tempdir().unwrap();
+    for enabled in [true, false] {
+        decorated_package(
+            root.path(),
+            &encoded_png(6, 4),
+            &format!("candidate_overlay = {enabled}\n"),
+        );
+        let catalog = scan(root.path());
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        assert!(!catalog.packages[0].canvas);
+        let published = host_candidate_catalog(&catalog, root.path(), &["whale"]);
+        assert_eq!(
+            published
+                .get("directory")
+                .and_then(serde_json::Value::as_str),
+            enabled.then(|| root.path().to_str().unwrap())
+        );
+        let entry = &published["packages"][0];
+        assert_eq!(entry["decoration_top_dip"], 40.0);
+        assert_eq!(entry["decoration_width_dip"], 60.0);
+        assert_eq!(
+            entry["decoration_image"],
+            root.path().join("whale/whale.png").to_str().unwrap()
+        );
+        // 完整包经 directory 单独读取，严格的旧主题条目仍不携带 UI 字段。
+        assert!(entry.get("decorationCandidate").is_none());
+        assert!(super::super::theme::ThemePackage::from_host_catalog_entry(entry.clone()).is_ok());
+        let relative = host_candidate_catalog(&catalog, Path::new("skins"), &["whale"]);
+        assert!(relative.get("directory").is_none());
+        assert!(relative["packages"][0].get("decoration_image").is_none());
+    }
+}
+
+#[test]
+fn decoration_candidate_overlay_requires_drawable_decoration() {
+    let root = tempdir().unwrap();
+    decorated_package(
+        root.path(),
+        &encoded_png(6, 4),
+        "candidate_overlay = true\n",
+    );
+    let path = root.path().join("whale/skin.toml");
+    let manifest = fs::read_to_string(&path).unwrap();
+    for invalid in [
+        manifest.replace("image = 'whale.png'\n", ""),
+        manifest
+            .replace("image = 'whale.png'\n", "")
+            .replace("width_dip = 60", "width_dip = 0")
+            .replace("top_inset_dip = 40", "top_inset_dip = 0"),
+    ] {
+        fs::write(&path, &invalid).unwrap();
+        assert!(load(root.path(), "whale").is_err());
+        fs::write(
+            &path,
+            invalid.replace("candidate_overlay = true", "candidate_overlay = false"),
+        )
+        .unwrap();
+        assert!(load(root.path(), "whale").is_ok());
+    }
+    // 兼容现有预览图回退，但必须有实际可用的图片。
+    let fallback = manifest
+        .replace("image = 'whale.png'\n", "")
+        .replace("base = 'system'", "base = 'system'\npreview = 'whale.png'");
+    fs::write(&path, fallback).unwrap();
+    assert!(load(root.path(), "whale")
+        .unwrap()
+        .decoration_candidate
+        .is_some());
+}
+
+#[test]
+fn decoration_candidate_overlay_accepts_source_boundaries_and_safe_colors() {
+    let root = tempdir().unwrap();
+    for color in [
+        "",
+        "abc",
+        "rgba(10.5 20 30 0.5)",
+        "unknown-safe-color",
+        "transparent",
+    ] {
+        decorated_package(root.path(), &encoded_png(6, 4), &format!(
+            "candidate_overlay = true\ncandidate_overlay_index = 100\ncandidate_overlay_font_size_dip = 200\ncandidate_overlay_min_font_size_dip = 200\ncandidate_overlay_max_width_dip = 2000\ncandidate_overlay_color = '{color}'\n"
+        ));
+        let overlay = load(root.path(), "whale")
+            .unwrap()
+            .decoration_candidate
+            .unwrap();
+        assert_eq!(overlay.index, 100);
+        assert_eq!(overlay.color, color);
+        assert_eq!(overlay.font_size_dip, 200.0);
+        assert_eq!(overlay.min_font_size_dip, 200.0);
+        assert_eq!(overlay.max_width_dip, 2000.0);
+    }
+}
+
+#[test]
 fn decoration_motion_and_frames_reach_the_hosts() {
     let root = tempdir().unwrap();
     decorated_package(
@@ -1049,6 +1249,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             decoration_width_dip: 0.0,
             decoration_image: None,
             decoration_align: DecorationAlign::Right,
+            decoration_candidate: None,
             decoration_motion: DecorationMotion::None,
             decoration_motion_period_ms: DEFAULT_DECORATION_MOTION_PERIOD_MS,
             decoration_frames: 0,

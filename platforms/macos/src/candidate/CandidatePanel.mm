@@ -272,6 +272,7 @@
                                           _panelType == kIMKSingleColumnScrollingCandidatePanel);
     _decorationImage = nil;
     _decorationFrames = nil;
+    [_decorationView setCandidateWord:@"" style:std::nullopt boxSize:NSZeroSize alignment:_skin.decorationAlign font:_font];
     if (_skin.decorationTopDip > 0.0 && !_skin.decorationPath.empty())
     {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_skin.decorationPath.c_str())];
@@ -403,6 +404,7 @@
         _decorationView.image = _decorationImage;
         _decorationView.frames = _decorationFrames;
         _decorationView.frame = NSMakeRect(placed->x, size.height - placed->top - placed->height, placed->width, placed->height);
+        [self updateDecorationWord];
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;
@@ -555,12 +557,26 @@
 {
     return (NSInteger)[_data indexOfObjectIdenticalTo:candidate];
 }
+- (void)updateDecorationWord
+{
+    NSString *word = @"";
+    if (_skin.decorationCandidate) {
+        const auto seat = _skin.decorationCandidate->seat(_data.count,
+            _selected == NSNotFound ? -1 : static_cast<int>(_selected));
+        if (seat) word = _data[*seat].string;
+    }
+    [_decorationView setCandidateWord:word style:_skin.decorationCandidate
+                             boxSize:NSMakeSize(_skin.decorationWidthDip, _skin.decorationTopDip)
+                           alignment:_skin.decorationAlign font:_font];
+}
+
 - (BOOL)selectCandidateWithIdentifier:(NSInteger)identifier
 {
     if ([self candidateIdentifierAtLineNumber:identifier] == NSNotFound)
         return NO;
     const BOOL changed = _selected != identifier;
     _selected = identifier;
+    [self updateDecorationWord];
     MetasequoiaCandidateButton *highlighted = nil;
     for (NSView *view in _chrome.subviews)
         if ([view isKindOfClass:MetasequoiaCandidateButton.class])

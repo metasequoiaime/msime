@@ -1050,6 +1050,10 @@ target_compile_options(voice-provider-settings-validation-test PRIVATE -fobjc-ar
 target_link_libraries(voice-provider-settings-validation-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-validation COMMAND voice-provider-settings-validation-test)
+add_executable(voice-polish-presets-test tests/voice/VoicePolishPresetsTest.mm)
+target_compile_options(voice-polish-presets-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-polish-presets-test PRIVATE "-framework AppKit")
+add_test(NAME voice-polish-presets COMMAND voice-polish-presets-test)
 add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm src/voice/HTTPVoiceRequest.mm)
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
@@ -1098,6 +1102,12 @@ add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
+# 装饰词的真实控制器绘制独立运行，避免大布局矩阵与动效计时互相影响。
+add_executable(candidate-decoration-overlay-test tests/candidate/CandidateDecorationOverlayTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm)
+target_link_libraries(candidate-decoration-overlay-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_compile_options(candidate-decoration-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME candidate-decoration-overlay COMMAND candidate-decoration-overlay-test)
+set_tests_properties(candidate-decoration-overlay PROPERTIES TIMEOUT 30)
 # Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
 add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

@@ -260,6 +260,12 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
     }
 
+    // 稳定性检查必须读取当前节点；连续命中同一份过渡坐标缓存不能证明布局已经稳定。
+    @Override protected AccessibilityNodeInfo await(Predicate<AccessibilityNodeInfo> match) {
+        dropStaleNodes();
+        return super.await(match);
+    }
+
     // API 28 没有 clearCache，布局切换后逐节点刷新，避免查询已经拆掉的键面。
     @Override protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
         if (node != null && Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;

@@ -10,6 +10,8 @@ Status: implemented
 
 `MSIMEInputService` 画候选条时，每一帧都先 `candidates.removeAllViews()` 再把 `candidateButtons` 里缓存的按钮逐个挂回去。按钮对象是复用的，但摘下来的那一刻，框架会把正在进行的按压转成 `ACTION_CANCEL`，`OnClickListener` 不再触发——这一次点击就丢了。而候选内容几乎每帧都在变（组字时 Engine 的异步回包、译文角标、页码），render 的触发者也很多（每次按键、每次回包、工具栏状态），所以按下到抬起之间撞上一次 render 并不罕见，表现就是「偶尔点不上」。
 
+#8983 还暴露了补帧时机的遗漏：`ACTION_UP` 的触摸监听先于框架自己的点击处理，点击更新候选后 `View` 仍可能处于按下状态，`render` 再次被延后；随后的 `UnsetPressedState` 才真正松开按钮，此时没有触摸事件唤醒补帧，于是选词已上屏，候选区却要等另一次操作才更新。只在 UP 时 `post(render)` 也可能排在框架点击和松开之前，不能保证解决。
+
 ## Decision
 
 `render` 在重画候选条和展开面板之前递归检查候选视图树里有没有尚未结束的触摸或排队点击（`candidateTreeHeld`）。所有候选按钮和展开面板动作按钮共用服务里的触摸监听，以弱引用映射记录 `ACTION_DOWN` 的独立标记，在 `ACTION_UP` / `ACTION_CANCEL` 后排队清除；监听返回 `false`，不影响点击、长按和滚动取消。有触摸时这一帧整体跳过，并置 `candidateRenderDeferred`，手势和点击结束后补一次 `render`。顶部候选条、完整候选网格和全拼九键三栏面板都走同一条保护路径。
@@ -18,9 +20,13 @@ Status: implemented
 
 跳过的是整个候选区那一帧的收尾（页码、展开键、`applySkin`、`styleTopRow`），由松开后补的那次 render 一起补上；延后绘制标记在正常重画开头清掉。手势被滚动或窗口打断时，`ACTION_CANCEL` 与正常抬起共用释放和补帧路径。
 
+候选按钮还通过 `bindCandidateRenderRelease(KeyboardPressButton)` 观察实际松开，在 `staleRelease` 未忽略且按压确实解除后提交补帧。该通知补充触摸代次映射，不把 `isPressed()` 重新作为触摸保护条件；旧手势释放不能撤销新手势保护。普通键不订阅松开通知，点击、取消和连按语义继续沿用框架。
+
 字母键滑动符号的判定和三平台默认值都不改。iOS 的 `SwipeHintPolicy.threshold` 与 Android 的 `SwipeHintPolicy.THRESHOLD_DP` 同为 14、默认都是开着、方向都是向下，这条规则本身没有 Android 独有的偏差；把默认值改成关闭会破坏 iOS、鸿蒙注释里写明的三平台一致，用户要关可以在设置里自己关。
 
 ## Alternatives considered
+
+- **在 UP 后固定延迟再绘制，或一直轮询按下状态**：改动集中在服务内，也容易覆盖一次触摸；但框架队列和按压反馈时长并不固定，固定延迟仍有竞态，轮询又引入无必要的唤醒和生命周期管理。直接观察实际松开不需要猜时长。
 
 - **把候选行调高**：直接但错。Android 已经是 42 dp，比 iOS 的 38 dp 更高，继续加高只会把键盘顶上去，也解释不了「点得准也没反应」。
 - **加宽候选 chip**：chip 尺寸已经和 iOS 一致（30 dp 最小宽、11 dp 内边距），再宽会挤掉一行里能看到的候选数，收益小于代价。
@@ -40,3 +46,7 @@ Status: implemented
 2026-10-21 在 API 28 专用模拟器确认选词后停在展开页的回归：`CandidatePanelDeviceSmoke` 改为通过真实触摸选择第十个候选，再直接触摸字母键继续输入。旧包选词成功上屏，但后续输入断言失败，截图仍显示原展开列表。修复包通过同一回归，无需隐藏、重新打开输入法。`NineKeyPanelDeviceSmoke` 继续覆盖拼音锁定、退格、筛选和重输，并新增真实触摸选词后收起三栏面板、直接按九键继续输入的检查，也通过。
 
 验证包重新编译当前 Java 和资源，复用模拟器原安装包的原生库及词库；没有重新构建 Rust/原生库，没有在 API 35 或真机重复本轮验收。`check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease`、远端 `scripts/verify-local.sh --quick`、本地 `pnpm run verify-notes` 和 `git diff --check` 通过。
+
+## 实际松开通知的原始专项证据
+
+原 PR 在 API 28、35 上用真实 DOWN/UP 覆盖 26 键和九键顶部、完整列表第十项选词、迟到松开、滑出与取消；验证包复用固定版本原生库，不代表本次合 develop 后整包。整合测试同时要求选词后不用隐藏键盘就能继续按键；最新整包与 quick 结果需另补。
