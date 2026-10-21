@@ -226,7 +226,7 @@ final class ImeToolbar {
         s.exitLocalModeButton.setContentDescription("退出本地模式");
         ViewPolicy.clearPadding(s.exitLocalModeButton);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
-        bindToolbarAction(s.exitLocalModeButton, () -> s.command(3));
+        bindToolbarAction(s.exitLocalModeButton, s::clearCurrentInput);
         ViewPolicy.clearMinimumHeight(s.exitLocalModeButton);
         candidateHeader.addView(s.exitLocalModeButton, new LinearLayout.LayoutParams(
             s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));

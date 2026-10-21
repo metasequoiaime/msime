@@ -273,6 +273,9 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateOfflineGlossGeneration = -1;
     private java.util.List<String> englishSuggestions = java.util.List.of();
     private String englishSuggestionPrefix = "";
+    private String clearableEnglishWord = "";
+    private int clearableEnglishCursor = -1;
+    private InputConnection clearableEnglishConnection;
     private long englishSuggestionEpoch;
     private long englishSuggestionRequestedEpoch = -1;
     private String englishSuggestionRequestedPrefix = "";
@@ -3053,6 +3056,42 @@ public final class MSIMEInputService extends InputMethodService {
         return EnglishSuggestionPolicy.currentWord(before);
     }
 
+    /** 只清除完整的当前英文词，不跨选区、词中光标或被截断的前文。 */
+    private String clearableEnglishWord() {
+        if (!directEnglishActive() || EditorPolicy.password(editorInputType)
+                || !EditorPolicy.useEngine(editorInputType) || quickDeleteCursor(connection) < 0) return "";
+        String word = englishWordBeforeCursor();
+        if (word.isEmpty() || word.length() >= CAPITALIZATION_CONTEXT_LIMIT) return "";
+        CharSequence after = InputConnectionGuard.textAfterCursor(connection, 1);
+        if (after == null || !EnglishSuggestionPolicy.currentWord(after).isEmpty()) return "";
+        return word;
+    }
+
+    /** 复用本地模式的取消入口；英文直输必须核对编辑器，再删当前词。 */
+    void clearCurrentInput() {
+        if (!directEnglishActive()) {
+            command(3);
+            return;
+        }
+        String word = clearableEnglishWord;
+        if (word.isEmpty() || connection != clearableEnglishConnection
+                || clearableEnglishCursor != quickDeleteCursor(connection)
+                || !word.equals(clearableEnglishWord())) {
+            render();
+            return;
+        }
+        clearEnglishSuggestions();
+        deleteBeforeCursor(word.length());
+        render();
+    }
+
+    private void refreshEnglishClearButton() {
+        String word = clearableEnglishWord();
+        if (!clearableEnglishWord.equals(word) || (!word.isEmpty()
+                && (clearableEnglishCursor != quickDeleteCursor(connection)
+                    || clearableEnglishConnection != connection))) render();
+    }
+
     private void refreshEnglishSuggestions() {
         if (!englishSuggestionsActive() || candidateGlossResources.isEmpty()) {
             if (!englishSuggestions.isEmpty() || !englishSuggestionPrefix.isEmpty()) {
@@ -4141,7 +4180,10 @@ public final class MSIMEInputService extends InputMethodService {
                 && commitEnglishBoundary((char) value)) return;
         if (englishNineKeyActive() && session != 0) command(2);
         commitText(fullWidthOutput(String.valueOf((char) value)));
-        if (directEnglishActive()) refreshEnglishSuggestions();
+        if (directEnglishActive()) {
+            refreshEnglishSuggestions();
+            refreshEnglishClearButton();
+        }
     }
 
     private boolean commitEnglishBoundary(char boundary) {
@@ -4648,8 +4690,10 @@ public final class MSIMEInputService extends InputMethodService {
             // 同为小写状态时，中文固定大写键帽与英文小写键帽也不同；布局是否需要重建交给 refreshLetterCase 判断。
             imeLetterRows.refreshLetterCase();
             updateAutomaticCapitalization(shouldRender);
-            if (directEnglishActive()) refreshEnglishSuggestions();
-            else {
+            if (directEnglishActive()) {
+                refreshEnglishSuggestions();
+                refreshEnglishClearButton();
+            } else {
                 clearEnglishSuggestions();
                 if (shouldRender) render();
             }
@@ -5178,7 +5222,10 @@ public final class MSIMEInputService extends InputMethodService {
             render();
         }
         updateAutomaticCapitalization();
-        if (directEnglishActive()) refreshEnglishSuggestions();
+        if (directEnglishActive()) {
+            refreshEnglishSuggestions();
+            refreshEnglishClearButton();
+        }
         // 数字键面上打完算式（或光标挪到算式后面）时，工具栏给出计算结果。
         imeCalculator.refresh();
         // 除密码框外的输入框里打到 `xxx@` 时，候选栏给出邮箱后缀（#6147）。
@@ -9663,6 +9710,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (status != null) status.setText(statusText.startsWith(" · ") ? statusText.substring(3) : statusText);
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
+        clearableEnglishWord = clearableEnglishWord();
+        clearableEnglishCursor = clearableEnglishWord.isEmpty() ? -1 : quickDeleteCursor(connection);
+        clearableEnglishConnection = clearableEnglishWord.isEmpty() ? null : connection;
+        boolean hasEnglishWord = !clearableEnglishWord.isEmpty();
         boolean hasEnglishSuggestions = englishSuggestionsActive() && !englishSuggestions.isEmpty();
         boolean handwriting = handwritingActive();
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
@@ -9673,6 +9724,7 @@ public final class MSIMEInputService extends InputMethodService {
             && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
+            && !hasEnglishWord
             && !hasEmailSuffixes
             && !hasNineKeyPunctuation
             && !hasHandwritingResults);
@@ -9746,10 +9798,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (exitLocalModeButton != null) {
             boolean localModeActive = view != null
                 && !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"));
-            ViewPolicy.setVisible(exitLocalModeButton, localModeActive);
-            ViewPolicy.setEnabled(exitLocalModeButton, localModeActive && session != 0);
-            exitLocalModeButton.setContentDescription("退出本地模式");
-            // The final applySkin() traversal styles this attached button once.
+            ViewPolicy.setVisible(exitLocalModeButton, localModeActive || hasEnglishWord);
+            ViewPolicy.setEnabled(exitLocalModeButton, hasEnglishWord || (localModeActive && session != 0));
+            exitLocalModeButton.setText(hasEnglishWord ? "清除" : "×");
+            exitLocalModeButton.setContentDescription(hasEnglishWord ? "清除当前英文单词" : "退出本地模式");
+            // render 末尾的 applySkin() 遍历统一设置这个按钮的样式。
         }
         if (hanjaButton != null) {
             boolean offersHanja = session != 0 && koreanConvertsHanja();
