@@ -10,6 +10,8 @@
 #include <thread>
 #include <chrono>
 #include <limits>
+#include <map>
+#include <tuple>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -375,6 +377,8 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   };
   const auto savedDataHome = saved("XDG_DATA_HOME");
   const auto savedStateHome = saved("XDG_STATE_HOME");
+  const auto savedAutogenerate = saved("MSIME_FCITX5_THEME_AUTOGENERATE");
+  unsetenv("MSIME_FCITX5_THEME_AUTOGENERATE");
   setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
   setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
   const auto *configHome = std::getenv("XDG_CONFIG_HOME");
@@ -469,6 +473,51 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   tick(partial, ink, false);
   require(!engine.native_canvas_owned_, "第三方主题热更新立即退出原生画布所有权");
 #endif
+  // 先确认原生画布实际持有主题，再验证关闭开关会主动交还绘制。
+  engine.applyCandidatePanelTheme(&classicui, ink, false, Json(), true);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  require(engine.native_canvas_owned_, "关闭生成前原生画布已经接管主题");
+#endif
+  // 关闭自动生成后，配色变化和主动选择均不覆盖人工主题、图片或经典界面的选择。
+  const auto customImage = themeFile.parent_path() / "shape-customized.png";
+  std::ofstream(themeFile) << "[Metadata]\nName=Synthetic customized theme\n";
+  std::ofstream(customImage) << "synthetic image";
+  const auto snapshot = [&] {
+    std::map<std::string, std::tuple<std::string, ino_t, std::filesystem::file_time_type>> files;
+    for (const auto &entry : std::filesystem::directory_iterator(themeFile.parent_path())) {
+      if (!entry.is_regular_file()) continue;
+      std::ifstream in(entry.path(), std::ios::binary);
+      struct stat info {};
+      require(::stat(entry.path().c_str(), &info) == 0, "读取合成主题文件状态");
+      files.emplace(entry.path().filename().string(),
+                    std::make_tuple(std::string(std::istreambuf_iterator<char>(in), {}), info.st_ino,
+                                    std::filesystem::last_write_time(entry.path())));
+    }
+    return files;
+  };
+  const auto customized = snapshot();
+  const auto customInode = inode();
+  const auto customWritten = std::filesystem::last_write_time(themeFile);
+  const int scans = classicui.scans, writes = classicui.writes;
+  setenv("MSIME_FCITX5_THEME_AUTOGENERATE", "0", 1);
+  tick(classicui, ink, true);
+  engine.applyCandidatePanelTheme(&classicui, paper, false, Json(), true);
+  require(snapshot() == customized && inode() == customInode &&
+              std::filesystem::last_write_time(themeFile) == customWritten,
+          "关闭生成后主题及图片的内容和时间戳不变，不删除用户图片");
+  require(classicui.scans == scans && classicui.writes == writes, "关闭生成后不扫描或改写经典界面配置");
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  require(!engine.native_canvas_owned_ && !engine.native_canvas_assets_, "关闭生成后由经典界面绘制人工主题");
+#endif
+  setenv("XDG_DATA_HOME", (root / "generation-disabled").c_str(), 1);
+  engine.applyCandidatePanelTheme(&classicui, ink, true, Json(), true);
+  require(!std::filesystem::exists(root / "generation-disabled"), "关闭生成后不创建缺失的主题目录");
+  setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
+  setenv("MSIME_FCITX5_THEME_AUTOGENERATE", "1", 1);
+  engine.applyCandidatePanelTheme(&classicui, ink, true, Json(), true);
+  require(snapshot() != customized, "重新允许自动生成后可按偏好恢复主题");
+  if (savedAutogenerate) setenv("MSIME_FCITX5_THEME_AUTOGENERATE", savedAutogenerate->c_str(), 1);
+  else unsetenv("MSIME_FCITX5_THEME_AUTOGENERATE");
   if (savedDataHome) setenv("XDG_DATA_HOME", savedDataHome->c_str(), 1);
   else unsetenv("XDG_DATA_HOME");
   if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);

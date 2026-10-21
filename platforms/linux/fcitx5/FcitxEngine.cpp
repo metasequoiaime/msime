@@ -6302,6 +6302,24 @@ public:
   bool applyCandidatePanelTheme(fcitx::AddonInstance *classicui, const Json &preferences, bool system_dark,
                                 const Json &catalog, bool chosen) {
     namespace host = msime::linux_host;
+    // 用户维护 classicui 主题时完全退出生成与接管，不写文件、不清旧图片，也不以原生画布盖住人工主题。
+    const auto *autogenerate = std::getenv("MSIME_FCITX5_THEME_AUTOGENERATE");
+    if (autogenerate && std::string_view(autogenerate) == "0") {
+      const bool was_applied = !candidate_theme_applied_.empty();
+      candidate_theme_applied_.clear();
+      candidate_theme_attempt_.clear();
+      candidate_canvas_source_.clear();
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+      native_canvas_assets_.reset();
+      native_canvas_sources_.clear();
+      native_canvas_logo_.reset();
+      native_canvas_owned_ = false;
+#endif
+      candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
+      hint_text_width_ = 0;
+      hint_inputs_ = FcitxHintInputs{};
+      return was_applied;
+    }
     const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
     // 无覆盖自定义主题或解析失败才退出；有效系统主题仍绘制水杉样式，只跟随原生配色。
     // 只恢复仍是水杉自己写的项，用户在 fcitx5-configtool 选的主题不动。

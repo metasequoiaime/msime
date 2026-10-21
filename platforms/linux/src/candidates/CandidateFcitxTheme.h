@@ -379,12 +379,15 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   const int content_left = metrics.shadow_left + pad;
   const int logo_top = shadow_top + pad + metrics.item_vertical;
   const int lead = logo ? metrics.logo_side + metrics.logo_gap : 0;
-  // 固定切片必须容下整条描边，否则边框色会进入可拉伸的中心，被拉成整片卡片；左上切片在有关标志时还要容下标志。
+  // 固定切片容下描边和标志后再留纯色安全带，避免分数缩放把标志边缘采进可拉伸条带。
+  // 四边向上对齐到 4 px，使 1.25／1.5 倍显示缩放下的切线仍落在完整设备像素上。
   const int edge = std::max(radius, border_width);
-  const int slice_left = std::max(metrics.shadow_left + edge, logo ? content_left + metrics.logo_side : 0);
-  const int slice_right = metrics.shadow_right + edge;
-  const int slice_top = std::max(shadow_top + metrics.shadow_offset + edge, logo ? logo_top + metrics.logo_side : 0);
-  const int slice_bottom = metrics.shadow_bottom + edge;
+  const auto aligned_slice = [](int value) { return (value + 3) / 4 * 4; };
+  const int logo_guard = std::max(2, static_cast<int>(std::ceil(2 * metrics.scale)));
+  const int slice_left = aligned_slice(std::max(metrics.shadow_left + edge, logo ? content_left + metrics.logo_side + logo_guard : 0));
+  const int slice_right = aligned_slice(metrics.shadow_right + edge);
+  const int slice_top = aligned_slice(std::max(shadow_top + metrics.shadow_offset + edge, logo ? logo_top + metrics.logo_side + logo_guard : 0));
+  const int slice_bottom = aligned_slice(metrics.shadow_bottom + edge);
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
   const FcitxRect card{static_cast<double>(metrics.shadow_left), static_cast<double>(shadow_top),
