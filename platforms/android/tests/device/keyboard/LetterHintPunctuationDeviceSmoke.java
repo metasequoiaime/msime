@@ -1,5 +1,6 @@
 package app.msime.android.test;
 
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.InputDevice;
