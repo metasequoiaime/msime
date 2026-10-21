@@ -1,5 +1,5 @@
 use super::*;
-use crate::skin::catalog::{scan, HOST_CATALOG_MAX_PACKAGES};
+use crate::skin::catalog::{scan, HOST_CATALOG_DRAWN_EXTRAS, HOST_CATALOG_MAX_PACKAGES};
 use serde_json::json;
 
 fn write_skin(root: &Path, id: &str, name: &str, surface: &str) {
@@ -77,7 +77,7 @@ fn a_republish_writes_only_when_what_the_hosts_draw_changed() {
     assert_eq!(document["candidate_skin_catalog"], json!({"packages": []}));
 }
 
-/// 带行圆角的包；`styled` 时另带背景图和整套工具栏配色。宿主只画选中的那一款，没选中的包不该因为背景图和工具栏配色多占文档预算。
+/// 带行圆角的包；`styled` 时另带背景图和整套工具栏配色。
 fn write_rounded_skin(root: &Path, id: &str, styled: bool) {
     write_skin(root, id, &format!("{id} 名字"), "#fff0f5");
     let package = root.join(id);
@@ -101,24 +101,20 @@ fn write_rounded_skin(root: &Path, id: &str, styled: bool) {
     std::fs::write(package.join("skin.toml"), manifest + &toolbar).unwrap();
 }
 
+fn has_drawn_extras(package: &Value) -> bool {
+    HOST_CATALOG_DRAWN_EXTRAS
+        .iter()
+        .any(|key| package.get(*key).is_some())
+}
+
+/// Fcitx5 的「主题」菜单换皮肤时不重写运行时选项，所以每个包都发布背景图和工具栏配色；放不下时先从末尾去掉没选中的包的这几样，再整包丢弃，菜单里的皮肤不会因为它们少掉。
 #[test]
-fn styled_skins_cost_the_catalog_only_where_they_are_drawn() {
+fn drawn_extras_are_trimmed_before_any_skin_is_dropped() {
     let directory = tempfile::tempdir().unwrap();
     let plain = directory.path().join("plain");
     let styled = directory.path().join("styled");
-    for index in 0..HOST_CATALOG_MAX_PACKAGES {
-        let id = format!("skin{index:02}");
-        write_rounded_skin(&plain, &id, false);
-        write_rounded_skin(&styled, &id, true);
-    }
-    let styled_catalog = scan(&styled);
-    assert!(styled_catalog.issues.is_empty(), "{styled_catalog:?}");
-    assert!(styled_catalog
-        .packages
-        .iter()
-        .all(|package| package.background.is_some()));
     let preferences =
-        json!({"api_version": 1, "preferences": {"custom_theme": {"candidate_skin": "skin31"}}});
+        json!({"api_version": 1, "preferences": {"custom_theme": {"candidate_skin": "skin00"}}});
     let published = |root: &Path| {
         let mut document = preferences.clone();
         let bytes = runtime_options_with_skin_catalog(&mut document, root, &scan(root)).unwrap();
@@ -132,30 +128,53 @@ fn styled_skins_cost_the_catalog_only_where_they_are_drawn() {
             .unwrap()
             .clone()
     };
-    let plain_packages = published(&plain);
-    let styled_packages = published(&styled);
-    // 背景图和工具栏配色只在选中的包上：它们最多挤掉一个包（选中那一款多出的几百字节），而不是每个包都多出几百字节、让菜单里的皮肤少掉一大半。
-    assert!(
-        styled_packages.len() + 1 >= plain_packages.len(),
-        "{} < {}",
-        styled_packages.len(),
-        plain_packages.len()
-    );
-    for package in &styled_packages {
-        let drawn = package["id"] == "skin31";
-        assert_eq!(
-            package.get("background_image").is_some(),
-            drawn,
-            "{package}"
+    let mut trimmed_without_dropping = false;
+    for index in 0..HOST_CATALOG_MAX_PACKAGES {
+        let id = format!("skin{index:02}");
+        write_rounded_skin(&plain, &id, false);
+        write_rounded_skin(&styled, &id, true);
+        let installed = index + 1;
+        let plain_packages = published(&plain);
+        let styled_packages = published(&styled);
+        let selected = styled_packages
+            .iter()
+            .find(|package| package["id"] == "skin00")
+            .unwrap();
+        // 选中的那一款始终完整：屏幕上画的就是它。
+        assert!(selected.get("background_image").is_some(), "{selected}");
+        assert_eq!(selected["background_fit"], "cover");
+        assert!(selected["toolbar"]["light"].get("handle").is_none());
+        let others: Vec<bool> = styled_packages
+            .iter()
+            .filter(|package| package["id"] != "skin00")
+            .map(has_drawn_extras)
+            .collect();
+        // 从末尾去掉：还带着这几样的包排在已经去掉的包前面。
+        assert!(
+            others.windows(2).all(|pair| pair[0] || !pair[1]),
+            "{installed}: {others:?}"
         );
-        assert_eq!(package.get("toolbar").is_some(), drawn, "{package}");
-        assert_eq!(package["item_corner_radius_dip"], 4.0);
+        if styled_packages.len() < installed {
+            // 丢了整包，说明没选中的包的这几样已经全部去掉了。
+            assert!(others.iter().all(|kept| !kept), "{installed}: {others:?}");
+        } else if others.iter().any(|kept| !kept) {
+            trimmed_without_dropping = true;
+        }
+        // 去掉之后，带背景图和工具栏配色的目录最多比不带的少一个包（选中那一款多出的几百字节）。
+        assert!(
+            styled_packages.len() + 1 >= plain_packages.len(),
+            "{installed}: {} < {}",
+            styled_packages.len(),
+            plain_packages.len()
+        );
+        if installed <= 3 {
+            assert!(others.iter().all(|kept| *kept), "{installed}: {others:?}");
+        }
+        for package in &styled_packages {
+            assert_eq!(package["item_corner_radius_dip"], 4.0, "{package}");
+        }
     }
-    let drawn = styled_packages
-        .iter()
-        .find(|package| package["id"] == "skin31")
-        .unwrap();
-    assert!(drawn["toolbar"]["light"].get("handle").is_none());
+    assert!(trimmed_without_dropping);
 }
 
 #[test]

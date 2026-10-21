@@ -3944,7 +3944,7 @@ int main(int argc, char **argv) {
       state->close();
       state->clearPanel();
     }
-    // 正在组词时内嵌预编辑分成两个子句，对应 macOS 的细、粗两种下划线：已选的一段只加下划线，还在输入的读音加下划线并加粗；没有已选段时整段只是一条下划线。
+    // 正在组词时内嵌预编辑分成两个子句，对应 macOS 的细、粗两种下划线：已选的一段只加下划线，还在输入的读音加下划线并高亮（Fcitx5 没有粗下划线，`Bold` 是字形加粗）；没有已选段时整段只是一条下划线。
     {
       require(state->ensure(), "session for the phrase preedit check");
       const auto savedView = state->view_;
@@ -3958,7 +3958,7 @@ int main(int argc, char **argv) {
       state->view_["local_mode"] = "none";
       state->view_["candidates"] = Json::array();
       state->render();
-      const fcitx::TextFormatFlags reading{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold};
+      const fcitx::TextFormatFlags reading{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::HighLight};
       const auto segmented = ic.inputPanel().clientPreedit();
       require(segmented.toString() == "你好shi" && segmented.size() == 2 && segmented.stringAt(0) == "你好" &&
                   segmented.formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::Underline) &&

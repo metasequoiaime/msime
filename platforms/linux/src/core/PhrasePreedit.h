@@ -74,7 +74,7 @@ inline PhrasePreedit compose_phrase_preedit(std::string_view prefix, std::string
     return composed;
 }
 
-// 正在组词时（已选了一段、还有读音在输入）预编辑分成两个子句：已选的那一段画细下划线，还在输入的读音画粗下划线，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm）。IBus 用单、双下划线，Fcitx5 用下划线和下划线加粗。只有其中一段时整段照旧一条细下划线。
+// 正在组词时（已选了一段、还有读音在输入）预编辑分成两个子句：已选的那一段画细下划线，还在输入的读音画粗下划线，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm）。IBus 用单、双下划线；Fcitx5 没有粗下划线这种格式（`Bold` 在前端里是字形加粗），读音用下划线加高亮，和整句改字的焦点子句一样。只有其中一段时整段照旧一条细下划线。
 inline bool phrase_preedit_has_clauses(const PhrasePreedit &composed)
 {
     return composed.prefix_bytes > 0 && composed.prefix_bytes < composed.text.size();

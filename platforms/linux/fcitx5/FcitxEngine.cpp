@@ -7432,12 +7432,12 @@ void FcitxState::render() {
     const auto composed = msime::linux_host::compose_phrase_preedit(
         view_.value("phrase_prefix", std::string{}), reading,
         msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
-    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音下划线加粗（phrase_preedit_has_clauses）。没有已选段时整段照旧单下划线。
+    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音加下划线并高亮，和上面整句改字的焦点子句同一种画法（phrase_preedit_has_clauses）。Fcitx5 没有粗下划线这种格式，`Bold` 在前端里是字形加粗，会把读音的字母画粗画宽，不是 macOS 那条加粗的下划线。没有已选段时整段照旧单下划线。
     fcitx::Text preedit;
     if (msime::linux_host::phrase_preedit_has_clauses(composed)) {
       preedit.append(composed.text.substr(0, composed.prefix_bytes), fcitx::TextFormatFlag::Underline);
       preedit.append(composed.text.substr(composed.prefix_bytes),
-                     fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold});
+                     fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::HighLight});
     } else {
       preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
     }
