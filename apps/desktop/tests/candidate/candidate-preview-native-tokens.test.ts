@@ -164,8 +164,12 @@ test("the macOS preview selects with a solid accent, white text and no bar, in t
   expect(tokenField("selectedRadius")).toBe(tokenField("candidateRadius"));
   expect(/bool showSelectedBar = (\w+);/.exec(candidateSkinHeader)![1]).toBe("false");
   // 行内边距的数值在 shared/candidate 里，macOS 的 MSIMECandidateRowPadding 只是引用它。
-  expect(candidateChrome).toContain("MSIMECandidateRowPadding = msime::candidate::kCandidateRowPadding;");
-  const rowPadding = Number(/constexpr double kCandidateRowPadding = ([\d.]+);/.exec(candidateChromeMetrics)![1]);
+  expect(candidateChrome).toContain(
+    "MSIMECandidateRowPadding = msime::candidate::kCandidateRowPadding;",
+  );
+  const rowPadding = Number(
+    /constexpr double kCandidateRowPadding = ([\d.]+);/.exec(candidateChromeMetrics)![1],
+  );
   expect(declarations(`${mac}[data-preview-theme]`)).toEqual({
     "--cand-selected": "var(--cand-accent)",
     "--cand-selected-text": `var(--cand-mac-selected-text,${native.selectedText})`,

@@ -87,7 +87,8 @@ export function CandidateColorsSection({
 }: CandidateColorsSectionProps) {
   const light = previewTheme === "light";
   // Linux 上只有原生画布给出选中外观；没有它时候选窗由 classicui 或 IBus 面板画，编号和强调色只有 IBus 读。
-  const classicColorNote = linux && !showSelectionAppearance ? linuxFcitxClassicColorNote : undefined;
+  const classicColorNote =
+    linux && !showSelectionAppearance ? linuxFcitxClassicColorNote : undefined;
   return (
     <>
       {/* 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态，最后是边框。 */}
