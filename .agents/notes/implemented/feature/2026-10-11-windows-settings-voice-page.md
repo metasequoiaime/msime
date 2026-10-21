@@ -11,7 +11,7 @@ Status: implemented
 ## Decision
 
 - 页面照共享页的顺序重排：页首一组（本地识别、Windows 系统语音的说明，或「语音面板」打开语音面板的一行）、「识别」、「识别服务配置」（系统识别时不画）、语音快捷键、录音行为、「识别结果」（流式预编辑和原来在第一组的结果提交策略）、「文本润色」、「录音设备」。文案、读屏名、显示条件按 Windows 宿主的能力取（`voice_provider_settings`、`voice_stream_preedit`、`voice_commit_mode`、`voice_capture_devices` 都为真，`localVoiceModels` 带导入，`pickVoiceModelPath` 存在）。共享页不因总开关关着而禁用快捷键和录音开关，原生页也去掉了这层禁用。
-- 服务目录统一在 `client-providers::voice::provider_catalog`，识别与润色的运行时默认值也查询该目录；原生页通过纯函数 `msime_client_voice_provider_catalog` 取得按既有顺序排列的服务、地址、默认与建议模型、文档和名称，复制进持有字符串的快照后释放 JSON。Windows 在识别目录末尾追加系统识别与本地模型，空地址和模型保留原先的清空规则。换服务的字段补丁由 `client-providers::voice::provider_settings::provider_update` 统一计算，经 `msime_client_voice_provider_update` 提供给原生页：令牌按服务分槽保存和恢复，空令牌删除旧槽，地址和模型为空或任一服务的出厂默认值时替换，否则补丁省略该字段以保留原值。系统识别和本地识别清空默认地址、默认模型和自身凭据槽。豆包流式接口也从同一 JSON 的 `doubao_stream_endpoints` 读取，按目录的顺序、标识、标题和地址绘制及保存；空地址依据共享识别目录中豆包的默认地址匹配选项，不固定为某个标识或下标。接口快照持有字符串，选择「自定义地址」和手填地址仍保留原有临时状态，绘制与同步不改写偏好。其余原生展示规则写成只有头文件的 `VoiceSettings.h`：豆包流式接口匹配，令牌标签，两个测试何时可用，识别语言建议，四个内置润色提示词（逐字照搬，另用脚本与 `polish-presets.ts` 比对过），录音后端选项，以及 `local-model-helpers.ts` 的大小、语言、进度、阶段和错误文案。由 `tests/ui/voice_settings.cpp` 核对，加进 CMake 测试。 `field_policy` 缺省为 `fill_defaults`，Windows 沿用该行为；Android 的识别与润色页经同一接口显式请求 `clear`，仅换服务时清空地址与模型，凭据换槽实现共用。
+- 服务目录统一在 `client-providers::voice::provider_catalog`，识别与润色的运行时默认值也查询该目录；原生页通过纯函数 `msime_client_voice_provider_catalog` 取得按既有顺序排列的服务、地址、默认与建议模型、文档和名称，复制进持有字符串的快照后释放 JSON。Windows 在识别目录末尾追加系统识别与本地模型，空地址和模型保留原先的清空规则。换服务的字段补丁由 `client-providers::voice::provider_settings::provider_update` 统一计算，经 `msime_client_voice_provider_update` 提供给原生页：令牌按服务分槽保存和恢复，空令牌删除旧槽，地址和模型为空或任一服务的出厂默认值时替换，否则补丁省略该字段以保留原值。系统识别和本地识别清空默认地址、默认模型和自身凭据槽。豆包流式接口也从同一 JSON 的 `doubao_stream_endpoints` 读取，按目录的顺序、标识、标题和地址绘制及保存；空地址依据共享识别目录中豆包的默认地址匹配选项，不固定为某个标识或下标。接口快照持有字符串，选择「自定义地址」和手填地址仍保留原有临时状态，绘制与同步不改写偏好。其余原生展示规则写成只有头文件的 `VoiceSettings.h`：豆包流式接口匹配，令牌标签，两个测试何时可用，识别语言建议，四个内置润色提示词（名称和正文引用[共享 Rust 目录的宽字符串静态导出](../simplification/2026-10-21-shared-polish-prompt-catalog.md)），录音后端选项，以及 `local-model-helpers.ts` 的大小、语言、进度、阶段和错误文案。由 `tests/ui/voice_settings.cpp` 核对，加进 CMake 测试。 `field_policy` 缺省为 `fill_defaults`，Windows 沿用该行为；Android 的识别与润色页经同一接口显式请求 `clear`，仅换服务时清空地址与模型，凭据换槽实现共用。
 - 换服务接口仅接收当前服务、地址、模型、令牌及对应分槽，不传整个偏好文档。请求最多 1 MiB，标准 JSON 响应里的 `value` 是 `{provider,token,tokens,endpoint?,model?}`，省略与空串分别表示保留和清空。接口不做文件或网络访问，不记录请求、返回或解析失败详情；Windows 解析失败时只提示固定错误，不写设置。换服务时把整张 `asr_tokens`、`polish_tokens` 写回，与共享页更新草稿的方式相同；选系统识别时把「自动识别」换成 `zh-CN`。换到或换走本地模型时，模型列表的状态清空、进行中请求的结果作废，对应共享页模型管理器的卸载和重新挂载。
 - host-api 新增纯函数 `msime_client_voice_model_setting_check`：`{asr_model_mirror?, asr_model_path?}` → 每个字段偏好库收不收。判断就是 `Preferences::validate` 用的那两条，模型目录那条提成 `preferences::valid_model_path`，`validate` 改为调用它。镜像和目录输入框只写入它认可的值，不认可时标红。
 - 版本表生成器给 `msime_edition.h` 加上 `MSIME_EDITION_TAURI_IDENTIFIER`，原生页的模型根目录是 `%APPDATA%\<identifier>\voice-models`，各版本与自己的 Tauri 应用管同一批模型。
@@ -34,7 +34,7 @@ Status: implemented
 
 - 原生窗口不再为语音设置拉起共享应用；语音面板本身仍由 `MSIME.exe` 显示。
 - Windows 不再维护独立服务目录；修改共享 Rust 目录同时影响原生设置和语音运行时。目录不访问偏好、文件、网络或设备，原生页首次使用时同步读一次；JSON 字段由快照持有，控件只在快照存活期间使用字符串视图。后端兼容的 EveryAPI、Mistral 润色仍可解析旧配置，但不新增到原生页原有的四个选项。
-- `packages/ui` 和 Android 的目录及换服务规则迁移仍待后续切片；共享页的润色提示词、模型文案或测试条件改了，仍要同步 `VoiceSettings.h` 和 `main.cpp`。
+- `packages/ui` 和 Android 的目录及换服务规则迁移仍待后续切片；共享页的模型文案或测试条件改了，仍要同步 `VoiceSettings.h` 和 `main.cpp`。
 - 共享页的语音页已改成主页面加「服务配置」子视图，按住录音的三个开关合成一个选择、流式接口和接口地址合成一个控件（见[精简语音输入设置页](../simplification/2026-10-16-macos-voice-settings-prune.md)）。本页随后跟进了这些合并和组的先后，起初没有子视图控件，仍是一整页（那篇的「各平台跟进」）；现在已分成两个页内标签加「服务配置」子视图，见 [Windows 设置的语音页标签与服务配置子视图](2026-10-20-windows-settings-voice-ai-mac-parity.md)。
 - 原生窗口和 Tauri 应用各在自己的进程里登记安装，互不知道；两边同时装同一个模型会怎样没有验证过。
 - 共享页的本地模型管理器在页面隐藏时仍挂载，原生页的状态则保存在窗口上，效果相同：离开页面再回来时进度和说明还在。
@@ -65,4 +65,4 @@ Status: implemented
 - 下拉选项、选中后保存和偏好同步均读取同一份共享快照；显式选择自定义和手填地址的状态处理保持原有逻辑。本机没有 Windows 运行环境，尚未验收运行中的 WinUI 窗口。
 - 本片 `bash scripts/verify-local.sh --quick` 通过，包含 176 项 Windows 可移植测试、仓库契约检查、Rust workspace 与共享 Apple bridge 编译。MinGW 与运行中的 Windows 宿主未在本机验证，完整设置工程由 PR CI 构建。
 
-语音请求实际发送的 C++ 共享正文已由[共享 Rust 润色目录](../simplification/2026-10-21-shared-polish-prompt-catalog.md)静态导出；本篇的 Windows 原生设置页仍有用于展示的宽字符串副本，后续再迁移。
+语音请求正文与本篇 Windows 设置页的展示正文、名称和顺序均由[共享 Rust 润色目录](../simplification/2026-10-21-shared-polish-prompt-catalog.md)静态导出；自定义槽位、选中规则与页面接线仍归原生页。
