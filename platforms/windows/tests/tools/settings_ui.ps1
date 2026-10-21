@@ -159,7 +159,9 @@ function Find-ById($parent, [string]$id) {
 }
 function Assert-NativeInput($window, [IntPtr]$handle) {
     if (-not [SettingsWindowProbe]::PerMonitorV2($handle)) { throw 'Settings window is not PerMonitorV2 DPI aware' }
-    Open-Page $window 'typing'
+    # 固定为最小窗口与内容较长的工具栏页，避免默认输入页的短标签页没有滚动范围。
+    if (-not [SettingsWindowProbe]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, 800, 560, 0x0040)) { throw 'Wheel fixture resize failed' }
+    Open-Page $window 'toolbar'
     $routing = [SettingsWindowProbe]::WheelRouting()
     $cursor = New-Object SettingsWindowProbe+Point
     if (-not [SettingsWindowProbe]::GetCursorPos([ref]$cursor)) { throw 'Could not save cursor position' }
@@ -168,9 +170,28 @@ function Assert-NativeInput($window, [IntPtr]$handle) {
             # 同时覆盖关闭和开启「悬停时滚动非活动窗口」；不持久化系统设置，退出时恢复。
             [SettingsWindowProbe]::WheelRouting($mode)
             [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
-            $content = Find-ById $window 'settings-content'
-            $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
-            if (-not $scroll.Current.VerticallyScrollable) { throw 'Wheel fixture page does not overflow' }
+            # 导航和窗口缩放都会异步提交布局；每次重取 UIA 节点，直到真实正文出现滚动范围。
+            $scroll = $null
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                $content = Find-ById $window 'settings-content'
+                if ($content) {
+                    try {
+                        [object]$pattern = $null
+                        if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern) -and $pattern.Current.VerticallyScrollable) {
+                            $scroll = $pattern
+                            break
+                        }
+                    } catch [System.Windows.Automation.ElementNotAvailableException] {
+                        # 页面重建时重新查询，不能把失效节点当成已完成布局。
+                    }
+                }
+                Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if (-not $scroll) {
+                Save-Window $window "wheel-fixture-routing-$mode.png"
+                throw 'Wheel fixture page does not overflow after layout'
+            }
             $scroll.SetScrollPercent(-1, 0)
             Start-Sleep -Milliseconds 250
             $bounds = $content.Current.BoundingRectangle

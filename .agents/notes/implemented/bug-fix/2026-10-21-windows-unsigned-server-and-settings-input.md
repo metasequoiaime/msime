@@ -14,7 +14,7 @@ Status: implemented
 
 Windows 的基线链接产物经 `mt.exe` 提取后没有 `dpiAware` 或 `dpiAwareness` 节点。设置工程以 `Manifest` 项目项合并 `app.manifest`，声明 PerMonitorV2 与 PerMonitor 回退，保留 SDK 注入的 WinRT 激活清单。
 
-设置工程从 Windows App SDK 1.7.3（`1.7.250606001`）更新到同一系列维护版 1.7.9（`1.7.260224002`）。微软 [1.7.5 发行说明](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-notes/windows-app-sdk-1-7#version-175-17251014001) 确认修复关闭「悬停时滚动非活动窗口」后滚轮无效的问题。本仓没有另写滚轮转发或改变用户系统设置；原生 UI 验收测试临时切两种路由、发送鼠标滚轮并确认正文位置改变，最后恢复设置与指针位置。
+设置工程从 Windows App SDK 1.7.3（`1.7.250606001`）更新到同一系列维护版 1.7.9（`1.7.260224002`）。微软 [1.7.5 发行说明](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-notes/windows-app-sdk-1-7#version-175-17251014001) 确认修复关闭「悬停时滚动非活动窗口」后滚轮无效的问题。本仓没有另写滚轮转发或改变用户系统设置；原生 UI 验收测试先把窗口固定为 800×560 并打开内容较长的工具栏页，等待实际布局提供滚动范围，再临时切两种路由、发送鼠标滚轮并确认正文位置改变，最后恢复设置与指针位置。输入页默认标签页可能没有溢出，不能用它作为必然可滚动的夹具。
 
 ## 历史决策审计
 
