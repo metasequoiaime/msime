@@ -3606,6 +3606,7 @@ private:
     flush_pending();
     edit(document_);
     if (commit()) {
+      forget_stale_card_previews();
       update_preview();
       update_toolbar_preview();
       if (redraw)
@@ -4076,6 +4077,11 @@ private:
     // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样；「候选窗口」页的预览用着皮肤包时也一样（共享页的 `ExternalAppearancePreview` 挂上时扫描）。
     if ((id == "themes" || id == "candidate") && id != current_page_)
       skins_stale_ = true;
+    // 主题轮播停在哪张卡片，与共享外壳一样：去别的设置页时共享的设置表单只是隐藏「主题」页，回来仍停在原来那张；「打字统计」「账号与同步」不挂设置表单（settings-page-visibility.ts 的 formExcludedPages），去这两页时轮播随表单卸下，回到「主题」页时从在用的那张卡片开始；皮肤包卡片上选的预览明暗是 ExternalSkinCard 自己的状态，也随之作废（内置卡片的 skinPreviewThemes 在表单外面，保留）。
+    if ((id == "stats" || id == "account") && id != current_page_) {
+      theme_carousel_key_.clear();
+      skin_preview_overrides_.clear();
+    }
     // 进入「语音输入」页时停在「录音行为」标签上，也要重读录音设备：共享页的「麦克风」下拉每次变为可见时都读一次（标签之间切换见 build_voice_page）。
     if (id == "voice" && id != current_page_)
       capture_stale_ = true;
@@ -4139,7 +4145,7 @@ private:
     return found != search_folds_.end() && found->second == fold;
   }
 
-  // The element a search result lands on: the first one drawn under the chosen title. Every element that records a search entry marks itself here, so a check box, a theme card or a section is scrolled to and focused like a settings card.
+  // The element a search result lands on: the first one drawn under the chosen title. Every element that records a search entry marks itself here, so a check box, a theme card or a section is scrolled to like a settings card; one that is a Control (a check box) is focused as well.
   void mark_search_target(std::wstring const &title,
                           FrameworkElement const &element) {
     if (!indexing_ && !focus_row_.empty() && title == focus_row_ &&
@@ -4338,10 +4344,13 @@ private:
       return;
     // 背单词子页与 macOS 的 `vocabulary` 子页一样，标题栏写它自己的「背单词」。
     toolbar_title_.Text(vocabulary_subpage() ? L"背单词" : page_label(current_page_).title);
+    forget_stale_card_previews();
     preview_host_ = nullptr;
     preview_frame_ = nullptr;
     toolbar_preview_host_ = nullptr;
-    toolbar_preview_size_ = nullptr;
+    custom_theme_stages_ = nullptr;
+    theme_carousel_view_ = nullptr;
+    toolbar_preview_label_ = nullptr;
     font_preset_host_ = nullptr;
     font_catalog_text_ = nullptr;
     font_catalog_button_ = nullptr;
@@ -4376,7 +4385,7 @@ private:
       if (focus) {
         if (auto target = weak_target.get()) {
           target.StartBringIntoView();
-          // A control (a check box, a theme card) also takes keyboard focus, so its focus rectangle shows which one the result named; a card is only scrolled to.
+          // A control (a check box) also takes keyboard focus, so its focus rectangle shows which one the result named; a card, including a theme card, is only scrolled to.
           if (const auto control = target.try_as<Control>())
             control.Focus(FocusState::Keyboard);
         }
@@ -4398,7 +4407,7 @@ private:
   // 「词库」页正开着背单词子页（macOS 上是单独的 `vocabulary` 子页）。
   bool vocabulary_subpage() const { return current_page_ == "lexicon" && vocabulary_view_; }
 
-  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部照 macOS 的页首引导（`settings-mascot-intro.tsx` 的 `SettingsMascotIntro`）：左边一句 13 DIP、1.625 倍行高的次要色说明，右边一张 80 DIP 的水杉娘插画，两者竖直居中、相隔 20，整行左右各留 4；窗口矮于 700 DIP 时插画缩到 56、间隔收成 12（`update_intro_size`）。说明和插画按页面与当前标签取自 `SettingsMascotIntro.h`，「关于」和背单词子页没有这一行。「候选窗口」「主题」两页在它下面右侧放 Windows 自己的预览工具。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页；「关于」页由品牌卡上的产品名带这个 ID。
+  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部照 macOS 的页首引导（`settings-mascot-intro.tsx` 的 `SettingsMascotIntro`）：左边一句 13 DIP、1.625 倍行高的次要色说明，右边一张 80 DIP 的水杉娘插画，两者竖直居中、相隔 20，整行左右各留 4；窗口矮于 700 DIP 时插画缩到 56、间隔收成 12（`update_intro_size`）。说明和插画按页面与当前标签取自 `SettingsMascotIntro.h`，「关于」和背单词子页没有这一行。「候选窗口」页在它下面右侧放 Windows 自己的预览工具（「界面预览」开关和「编辑主题」）；「主题」页的卡片本身就是预览，没有这一行。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页；「关于」页由品牌卡上的产品名带这个 ID。
   FrameworkElement make_page_header() {
     Grid row;
     ColumnDefinition title_column;
@@ -4471,24 +4480,22 @@ private:
       });
       switcher.Children().Append(toggle);
       tools.Children().Append(switcher);
-      if (current_page_ != "themes") {
-        Button edit;
-        edit.Height(32);
-        edit.Padding(Thickness{11, 0, 11, 0});
-        edit.Background(brush(transparent_color()));
-        edit.BorderThickness(Thickness{0, 0, 0, 0});
-        StackPanel label;
-        label.Orientation(Orientation::Horizontal);
-        label.Spacing(8);
-        label.Children().Append(make_icon(0xE790, 14, palette_.text));
-        label.Children().Append(make_text(L"编辑主题", 14, palette_.text));
-        edit.Content(label);
-        A11y::SetName(edit, L"编辑主题");
-        edit.Click([this](Inspectable const &, RoutedEventArgs const &) {
-          navigate("themes");
-        });
-        tools.Children().Append(edit);
-      }
+      Button edit;
+      edit.Height(32);
+      edit.Padding(Thickness{11, 0, 11, 0});
+      edit.Background(brush(transparent_color()));
+      edit.BorderThickness(Thickness{0, 0, 0, 0});
+      StackPanel label;
+      label.Orientation(Orientation::Horizontal);
+      label.Spacing(8);
+      label.Children().Append(make_icon(0xE790, 14, palette_.text));
+      label.Children().Append(make_text(L"编辑主题", 14, palette_.text));
+      edit.Content(label);
+      A11y::SetName(edit, L"编辑主题");
+      edit.Click([this](Inspectable const &, RoutedEventArgs const &) {
+        navigate("themes");
+      });
+      tools.Children().Append(edit);
       Grid::SetRow(tools, 1);
       Grid::SetColumnSpan(tools, 2);
       tools.HorizontalAlignment(HorizontalAlignment::Right);
@@ -4525,7 +4532,7 @@ private:
   }
 
   static bool has_preview(std::string_view page) {
-    return page == "candidate" || page == "themes";
+    return page == "candidate";
   }
 
   FrameworkElement make_load_failure() {
@@ -5286,14 +5293,16 @@ private:
     return grid;
   }
 
+  // 一组复选框，按 `item_width` 排成等宽的列；`maximum_columns` 为 1 时排成纵向一列（悬浮工具栏页的「按钮」）。`text_size` 是复选框文字的字号。
   FrameworkElement checks_panel(std::vector<Check> checks,
-                                double item_width = 174) {
-    auto grid = responsive_grid(item_width, 8);
+                                double item_width = 174, int maximum_columns = 0,
+                                double text_size = 12) {
+    auto grid = responsive_grid(item_width, 8, maximum_columns);
     grid.Margin(Thickness{0, 4, 0, 8});
     for (auto &check : checks) {
       record(check.label, L"");
       CheckBox box;
-      box.Content(make_text(check.label, 12, palette_.text));
+      box.Content(make_text(check.label, text_size, palette_.text));
       box.IsChecked(check.on);
       box.MinWidth(0);
       box.MinHeight(28);
@@ -8073,103 +8082,384 @@ private:
 
   // ---- 主题 ----
 
-  ThemePreview preview_for(std::wstring const &id) {
-    auto builtin = [this](std::wstring const &theme) -> std::optional<ThemePreview> {
-      for (const auto &entry : themes_)
-        if (entry.id == theme)
-          return entry.preview;
-      return std::nullopt;
-    };
-    // 跟随系统 is drawn in the window's own colours; the catalog gives it no fixed palette.
-    if (id == L"system")
-      return ThemePreview{palette_.window_bg, palette_.preview_bg,
-                          palette_.accent, palette_.text};
-    // The custom card is what the custom theme is made of besides a skin package, as on the shared page: the candidate card as the shared layer resolves its base and candidate_colors, over the base theme's backdrop. Each package has its own card after the built-in ones. The catalog's own entry for it only shows the default custom colours.
-    if (id == L"custom") {
-      const auto candidate = candidate_theme(id, false);
-      const auto base = builtin(document_.String(L"custom_theme.base", L"system"));
-      return ThemePreview{base ? base->background : palette_.window_bg,
-                          to_color(candidate.surface), to_color(candidate.accent),
-                          to_color(candidate.text)};
-    }
-    if (auto preview = builtin(id))
-      return *preview;
-    return ThemePreview{palette_.window_bg, palette_.preview_bg, palette_.accent,
-                        palette_.text};
+  // 卡片画的明暗不跟随颜色模式的内置主题（共享页 builtinCards 的 fixedAppearance）：固定明暗的主题就是那种，「自定义」看它的底；跟随系统和以跟随系统为底的自定义主题为空，这样的卡片才有「预览浅色 / 预览深色」。
+  std::optional<bool> theme_card_appearance(ThemeEntry const &theme) const {
+    if (theme.id != L"custom")
+      return theme.dark;
+    const auto base = document_.String(L"custom_theme.base", L"system");
+    for (const auto &entry : themes_)
+      if (entry.id == base)
+        return entry.dark;
+    return std::nullopt;
   }
 
-  FrameworkElement make_theme_card(ThemeEntry const &theme, bool on) {
-    const auto preview = preview_for(theme.id);
-    const auto candidate = candidate_theme(theme.id, false);
-    Button card;
-    card.HorizontalAlignment(HorizontalAlignment::Stretch);
-    card.Padding(Thickness{10, 10, 10, 10});
-    card.CornerRadius(CornerRadius{10, 10, 10, 10});
-    card.Background(brush(palette_.card));
-    card.BorderBrush(brush(on ? palette_.accent : palette_.stroke));
-    card.BorderThickness(on ? Thickness{2, 2, 2, 2} : Thickness{1, 1, 1, 1});
-    card.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+  // 卡片预览面的底色，即共享页的 `--skin-preview-stage-bg`：浅色 rgba(0,0,0,.03)，深色 rgba(18,18,18,.13)。按设置窗口的明暗取，不按卡片画的明暗。
+  Color skin_stage_color() const {
+    return palette_.dark ? rgba(0x12, 0x12, 0x12, .13) : rgba(0, 0, 0, .03);
+  }
 
-    StackPanel body;
-    body.Spacing(8);
-    Border surface;
-    surface.Height(84);
-    surface.CornerRadius(CornerRadius{8, 8, 8, 8});
-    surface.Background(brush(preview.background));
-    Border panel;
-    panel.CornerRadius(CornerRadius{8, 8, 8, 8});
-    panel.Padding(Thickness{4, 4, 4, 4});
-    panel.Background(brush(to_color(candidate.surface)));
-    panel.HorizontalAlignment(HorizontalAlignment::Center);
-    panel.VerticalAlignment(VerticalAlignment::Center);
-    StackPanel words;
-    words.Spacing(2);
-    Border selected;
-    selected.Background(brush(to_color(candidate.selected)));
-    selected.CornerRadius(CornerRadius{6, 6, 6, 6});
-    selected.Padding(Thickness{8, 4, 8, 4});
-    selected.Child(make_text(L"1  水杉输入法", 12, to_color(candidate.selected_text)));
-    words.Children().Append(selected);
-    auto alternate = make_text(L"2  水杉", 12, to_color(candidate.text));
-    alternate.Margin(Thickness{8, 2, 8, 2});
-    words.Children().Append(alternate);
-    panel.Child(words);
-    surface.Child(panel);
-    body.Children().Append(surface);
+  // 卡片预览面里的一块（共享页的 SkinPreviewStage）：左右 24、上下 9 内边距，内容靠上。
+  Border skin_stage(UIElement const &content) {
+    Border stage;
+    stage.Padding(Thickness{24, 9, 24, 9});
+    stage.VerticalAlignment(VerticalAlignment::Top);
+    stage.Child(content);
+    return stage;
+  }
 
-    StackPanel footer;
-    footer.Spacing(2);
-    footer.Margin(Thickness{2, 0, 2, 0});
-    footer.Children().Append(make_text(theme.title, 13, palette_.text));
-    const auto detail = on ? L"使用中" : theme.id == L"custom" ? L"自定义候选配色"
-                                    : theme.dark ? (*theme.dark ? L"深色主题" : L"浅色主题")
-                                                 : L"跟随颜色模式";
-    footer.Children().Append(make_text(detail, 11, on ? palette_.accent : palette_.sub));
-    body.Children().Append(footer);
-    card.Content(body);
-    A11y::SetName(card, hstring(L"主题 " + theme.title));
-    if (on)
-      A11y::SetItemStatus(card, L"使用中");
-    card.IsEnabled(loaded_);
-    card.Click([this, id = theme.id, on](Inspectable const &,
-                                         RoutedEventArgs const &) {
-      // 选中的「自定义」卡片槽位里仍可能有目录里没有的包（删掉了或还没扫描到）；共享页点它照样清掉两个槽位，其他选中的卡片再点不起作用。
-      if (on && (id != L"custom" || sk::skins_in_use(true, custom_skins(document_)).empty()))
-        return;
-      change([&](PreferencesDocument &doc) {
-        doc.SetString(L"global_theme", id);
-        // 选「自定义」卡片本身会去掉两个槽位的皮肤包，保留自定义主题的其余部分，画在它自己的底上。
-        if (id == L"custom") {
-          doc.SetValue(L"custom_theme.candidate_skin", JsonValue::CreateNullValue());
-          doc.SetValue(L"custom_theme.candidate_skin_dark", JsonValue::CreateNullValue());
-        }
-      }, true);
+  // 卡片头右侧的小按钮（共享页的 `skinPreviewSwitch`）：24 高、6 圆角、细描边、透明底、11 DIP 的次要色字，悬停和按下铺中性底色、字换正文色。底色、字色和描边走模板资源，模板的视觉状态才不会把它盖回系统色。
+  Button card_action(std::wstring const &label, std::function<void()> click) {
+    Button button;
+    button.Content(box_value(hstring(label)));
+    button.Height(24);
+    button.MinWidth(0);
+    button.Padding(Thickness{10, 0, 10, 0});
+    button.FontSize(11);
+    button.CornerRadius(CornerRadius{6, 6, 6, 6});
+    button.BorderThickness(Thickness{1, 1, 1, 1});
+    button.BorderBrush(brush(palette_.stroke2));
+    button.Background(brush(transparent_color()));
+    button.Foreground(brush(palette_.sub));
+    button.HorizontalAlignment(HorizontalAlignment::Right);
+    auto resources = button.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", palette_.hover);
+    put(L"ButtonBackgroundPressed", palette_.hover);
+    put(L"ButtonForeground", palette_.sub);
+    put(L"ButtonForegroundPointerOver", palette_.text);
+    put(L"ButtonForegroundPressed", palette_.text);
+    put(L"ButtonBorderBrush", palette_.stroke2);
+    put(L"ButtonBorderBrushPointerOver", palette_.stroke2);
+    put(L"ButtonBorderBrushPressed", palette_.stroke2);
+    button.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
+      on_click();
     });
+    return button;
+  }
+
+  // 一张主题或皮肤包卡片的外框和卡头（共享页 `settings-style.ts` 的 skinCard 和 `skin-card-header.tsx` 的 SkinCardHeader）：卡片 10 圆角，选中时 2 DIP 强调色描边。卡头左右 24、上下 20 内边距，左边是 15 DIP 半粗体的「名称（浅色 / 深色）」和强调色的「使用中」、13 DIP 的说明和 `details`，右边一列右对齐、相隔 8 的 `actions`。卡头下面是整宽的预览面（`stages` 画在 `--skin-preview-stage-bg` 上，上下 9 内边距），再下面是 `notes`（图片加载失败这类说明）。
+  Border make_skin_card_frame(std::wstring const &name, bool dark, bool selected,
+                              std::wstring const &description, StackPanel const &details,
+                              StackPanel const &actions, UIElement const &stages,
+                              StackPanel const &notes) {
+    Border card;
+    card.Background(brush(palette_.card));
+    card.BorderBrush(brush(selected ? palette_.accent : palette_.stroke));
+    card.BorderThickness(selected ? Thickness{2, 2, 2, 2} : Thickness{1, 1, 1, 1});
+    card.CornerRadius(CornerRadius{10, 10, 10, 10});
+    card.VerticalAlignment(VerticalAlignment::Top);
+    StackPanel body;
+
+    Grid header;
+    header.Padding(Thickness{24, 20, 24, 20});
+    header.ColumnSpacing(16);
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition action_column;
+    action_column.Width(GridLength{1, GridUnitType::Auto});
+    header.ColumnDefinitions().Append(text_column);
+    header.ColumnDefinitions().Append(action_column);
+    StackPanel texts;
+    texts.Spacing(5);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    StackPanel title;
+    title.Orientation(Orientation::Horizontal);
+    title.Spacing(8);
+    auto heading = make_text(name + (dark ? L"（深色）" : L"（浅色）"), 15, palette_.text);
+    heading.FontWeight(Windows::UI::Text::FontWeight{600});
+    title.Children().Append(heading);
+    if (selected) {
+      auto badge = make_text(L"使用中", 12, palette_.accent);
+      badge.VerticalAlignment(VerticalAlignment::Center);
+      title.Children().Append(badge);
+    }
+    texts.Children().Append(title);
+    texts.Children().Append(make_text(description, 13, palette_.sub));
+    if (details.Children().Size() > 0)
+      texts.Children().Append(details);
+    header.Children().Append(texts);
+    actions.Spacing(8);
+    actions.HorizontalAlignment(HorizontalAlignment::Right);
+    actions.VerticalAlignment(VerticalAlignment::Center);
+    Grid::SetColumn(actions, 1);
+    header.Children().Append(actions);
+    body.Children().Append(header);
+
+    // 卡片的圆角不裁切子元素：预览面是最后一块时自己按卡片的内圆角收住下面两个角。
+    Border surface;
+    surface.Background(brush(skin_stage_color()));
+    surface.Padding(Thickness{0, 9, 0, 9});
+    const bool last = notes.Children().Size() == 0;
+    const double inner = selected ? 8 : 9;
+    surface.CornerRadius(last ? CornerRadius{0, 0, inner, inner} : CornerRadius{0, 0, 0, 0});
+    surface.Child(stages);
+    body.Children().Append(surface);
+    if (!last) {
+      notes.Spacing(4);
+      notes.Padding(Thickness{24, 8, 24, 12});
+      body.Children().Append(notes);
+    }
+    card.Child(body);
+    A11y::SetName(card, hstring(name));
+    if (selected)
+      A11y::SetItemStatus(card, L"使用中");
     return card;
   }
 
+  // 一张内置主题卡片（共享页 skin-page.tsx 的 builtinCards）：卡头是名称、「使用中」和 globalThemeDescription 的说明，右边是开关和跟随明暗的主题才有的「预览浅色 / 预览深色」（只改这张卡片画的明暗，不改设置）；预览面画横排、竖排两个候选窗口和一条悬浮工具栏。配色是这个主题在卡片明暗下解析出的候选配色（「自定义」不带皮肤包，见 candidate_theme），候选窗口套用「候选窗口」页设的圆角和不透明度，工具栏用同一份配色的工具栏版本（toolbar_palette），与 Server 给工具栏的配色同源。
+  FrameworkElement make_theme_card(ThemeEntry const &theme, bool on) {
+    const auto fixed = theme_card_appearance(theme);
+    const bool dark = theme_card_dark(theme);
+
+    StackPanel actions;
+    auto toggle = toggle_control(theme.title, on,
+                                 [this, id = theme.id, on](bool) { choose_theme(id, on); });
+    toggle.HorizontalAlignment(HorizontalAlignment::Right);
+    actions.Children().Append(toggle);
+    if (!fixed)
+      actions.Children().Append(card_action(dark ? L"预览浅色" : L"预览深色",
+                                            [this, id = theme.id, dark] {
+                                              theme_preview_overrides_[id] = !dark;
+                                              redraw_themes();
+                                            }));
+
+    StackPanel stages;
+    fill_theme_stages(stages, candidate_theme(theme.id, false, dark));
+    if (theme.id == L"custom")
+      custom_theme_stages_ = make_weak(stages);
+    return make_skin_card_frame(theme.title, dark, on, sk::theme_description(theme.id, theme.dark),
+                                StackPanel(), actions, stages, StackPanel());
+  }
+
+  // 内置主题卡片画的明暗：固定明暗的按 theme_card_appearance，其余按卡片上选的预览明暗，没选过的跟随当前明暗。
+  bool theme_card_dark(ThemeEntry const &theme) const {
+    if (const auto fixed = theme_card_appearance(theme))
+      return *fixed;
+    if (const auto found = theme_preview_overrides_.find(theme.id);
+        found != theme_preview_overrides_.end())
+      return found->second;
+    return candidate_dark();
+  }
+
+  // 候选窗口的明暗（candidate_dark）变了时，卡片上选的预览明暗全部作废，内置主题卡片和皮肤包卡片都是：共享页在 candidatePreviewTheme 变了时清空 skinPreviewThemes（use-settings-theme-previews.ts），ExternalSkinCard 在 activeTheme 变了时清掉自己的覆盖。每次画页面和每次改设置后都查一次，所以在别的页面改过去再改回来也作废，不会让旧的选择复活。
+  void forget_stale_card_previews() {
+    const bool dark = candidate_dark();
+    if (dark == card_previews_dark_)
+      return;
+    card_previews_dark_ = dark;
+    theme_preview_overrides_.clear();
+    skin_preview_overrides_.clear();
+  }
+
+  // 内置主题卡片的预览面：横排、竖排两个候选窗口和一条悬浮工具栏，都用 `candidate` 这份配色。
+  void fill_theme_stages(StackPanel const &stages, msime::windows::CandidatePalette const &candidate) {
+    // 内置主题没有皮肤包的几何、背景图和装饰图，样例只画配色。
+    const SkinPackage plain{};
+    StackPanel samples;
+    samples.Orientation(Orientation::Horizontal);
+    samples.Children().Append(skin_stage(make_skin_sample(plain, candidate, false)));
+    samples.Children().Append(skin_stage(make_skin_sample(plain, candidate, true)));
+    stages.Children().Clear();
+    stages.Children().Append(samples);
+    stages.Children().Append(
+        skin_stage(make_toolbar_sample(msime::windows::toolbar_palette(candidate), false)));
+  }
+
+  // 取色器拖动时重画「自定义」卡片的预览面（共享页每次 onCandidateColorChange 都按草稿重画卡片）：取色器开着时不能整页重画，只换这张卡片的样例；写颜色后在用的是「自定义」卡片本身（自定义主题、没有显示在目录里的皮肤包，同 sk::shown_package）时，轮播跟到这张卡片，与关上取色器后整页重画停的位置一致。卡头的「使用中」和开关等关上时整页重画再更新。
+  void update_custom_theme_card() {
+    if (closed_ || current_page_ != "themes")
+      return;
+    auto stages = custom_theme_stages_.get();
+    if (!stages)
+      return;
+    const auto entry = std::find_if(themes_.begin(), themes_.end(),
+                                    [](ThemeEntry const &theme) { return theme.id == L"custom"; });
+    if (entry == themes_.end())
+      return;
+    fill_theme_stages(stages, candidate_theme(L"custom", false, theme_card_dark(*entry)));
+    auto flip = theme_carousel_view_.get();
+    if (!flip || theme_carousel_custom_at_ < 0 ||
+        document_.String(L"global_theme", L"system") != L"custom" ||
+        sk::shown_package(true, custom_skins(document_), candidate_dark(), listed_skins()))
+      return;
+    if (flip.SelectedIndex() != theme_carousel_custom_at_)
+      flip.SelectedIndex(theme_carousel_custom_at_);
+  }
+
+  // 内置主题卡片的开关：打开即选用这个主题。选中的卡片再点不改设置，重画让开关回到打开；选中的「自定义」卡片槽位里仍有目录里没有的包（删掉了或还没扫描到）时，与共享页一样照样清掉两个槽位。选「自定义」卡片本身会去掉两个槽位的皮肤包，保留自定义主题的其余部分，画在它自己的底上。
+  void choose_theme(std::wstring const &id, bool on) {
+    if (on && (id != L"custom" || sk::skins_in_use(true, custom_skins(document_)).empty())) {
+      redraw_themes();
+      return;
+    }
+    change([&](PreferencesDocument &doc) {
+      doc.SetString(L"global_theme", id);
+      if (id == L"custom") {
+        doc.SetValue(L"custom_theme.candidate_skin", JsonValue::CreateNullValue());
+        doc.SetValue(L"custom_theme.candidate_skin_dark", JsonValue::CreateNullValue());
+      }
+    }, true);
+  }
+
+  // 主题轮播（共享页 theme-carousel.tsx 的 ThemeCarousel）：内置主题和皮肤包的卡片放进一个 FlipView，一次显示一张整宽卡片，触控板横滑、FlipView 获得焦点时的左右方向键和它自带的悬停箭头都能切换；下面一行是 28 DIP 的圆形「‹」、PipsPager 圆点（最多 9 个，超过时跟着当前卡片滚动，当前的用强调色）、12 DIP 的「n / N」和「›」，到头时箭头变灰不可用。FlipView 的高度不会跟随当前项，选中项换了或宽度变了时按当前卡片在这个宽度下的自然高度设高度。停在哪张卡片按 `sk::carousel_index` 和成员 `theme_carousel_*`：选中的主题换了时跟过去，否则重画页面（切换卡片的预览明暗、重扫皮肤目录）后留在原来那张；搜索落到某款主题或皮肤时停在那张（`focused`）。指针停在卡片上时，竖向滚轮交给页面滚动，免得滚轮翻卡片；横向滚轮照常翻。
+  void add_theme_carousel(StackPanel const &page, std::vector<std::wstring> keys,
+                          std::vector<FrameworkElement> const &cards, size_t selected,
+                          std::optional<size_t> focused) {
+    if (keys.empty() || cards.size() != keys.size())
+      return;
+    const auto index =
+        focused && *focused < keys.size()
+            ? *focused
+            : sk::carousel_index(keys, selected, theme_carousel_selected_, theme_carousel_key_,
+                                 theme_carousel_at_);
+    theme_carousel_selected_ = keys[std::min(selected, keys.size() - 1)];
+    theme_carousel_key_ = keys[index];
+    theme_carousel_at_ = index;
+    const auto count = static_cast<int32_t>(keys.size());
+
+    StackPanel section;
+    section.Spacing(8);
+    section.Margin(Thickness{0, 20, 0, 0});
+    FlipView flip;
+    flip.Background(brush(transparent_color()));
+    flip.HorizontalAlignment(HorizontalAlignment::Stretch);
+    A11y::SetName(flip, L"主题列表");
+    A11y::SetAutomationId(flip, L"theme-carousel");
+    for (const auto &card : cards) {
+      card.PointerWheelChanged([this](Inspectable const &,
+                                      Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const &args) {
+        const auto properties = args.GetCurrentPoint(nullptr).Properties();
+        if (properties.IsHorizontalMouseWheel() || !scroll_)
+          return;
+        args.Handled(true);
+        scroll_.ChangeView(nullptr, scroll_.VerticalOffset() - properties.MouseWheelDelta(),
+                           nullptr);
+      });
+      flip.Items().Append(card);
+    }
+    flip.SelectedIndex(static_cast<int32_t>(index));
+    theme_carousel_view_ = make_weak(flip);
+    const auto custom_at = std::find(keys.begin(), keys.end(), L"theme:custom");
+    theme_carousel_custom_at_ =
+        custom_at == keys.end() ? -1 : static_cast<int32_t>(custom_at - keys.begin());
+    mark_search_target(L"全局主题", flip);
+    section.Children().Append(flip);
+
+    auto arrow = [this](wchar_t const *glyph, wchar_t const *name) {
+      Button button;
+      auto label = make_text(glyph, 18, palette_.sub);
+      label.TextWrapping(TextWrapping::NoWrap);
+      button.Content(label);
+      button.Width(28);
+      button.Height(28);
+      button.MinWidth(0);
+      button.Padding(Thickness{0, 0, 0, 2});
+      button.CornerRadius(CornerRadius{14, 14, 14, 14});
+      button.BorderThickness(Thickness{1, 1, 1, 1});
+      button.BorderBrush(brush(palette_.stroke2));
+      button.Background(brush(palette_.card));
+      button.HorizontalContentAlignment(HorizontalAlignment::Center);
+      button.VerticalContentAlignment(VerticalAlignment::Center);
+      auto resources = button.Resources();
+      for (const auto *key : {L"ButtonBackground", L"ButtonBackgroundPointerOver",
+                              L"ButtonBackgroundPressed", L"ButtonBackgroundDisabled"})
+        resources.Insert(box_value(hstring(key)), brush(palette_.card));
+      for (const auto *key : {L"ButtonBorderBrush", L"ButtonBorderBrushPointerOver",
+                              L"ButtonBorderBrushPressed", L"ButtonBorderBrushDisabled"})
+        resources.Insert(box_value(hstring(key)), brush(palette_.stroke2));
+      A11y::SetName(button, name);
+      return button;
+    };
+    auto previous = arrow(L"‹", L"上一个主题");
+    auto next = arrow(L"›", L"下一个主题");
+    PipsPager pips;
+    pips.NumberOfPages(count);
+    pips.MaxVisiblePips(9);
+    pips.SelectedPageIndex(static_cast<int32_t>(index));
+    pips.VerticalAlignment(VerticalAlignment::Center);
+    pips.Resources().Insert(box_value(hstring(L"PipsPagerSelectionIndicatorForegroundSelected")),
+                            brush(palette_.accent));
+    A11y::SetName(pips, L"选择主题");
+    auto counter = make_text(L"", 12, palette_.sub);
+    counter.MinWidth(40);
+    counter.TextAlignment(TextAlignment::Center);
+    counter.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAutomationId(counter, L"theme-carousel-count");
+    StackPanel pager_row;
+    pager_row.Orientation(Orientation::Horizontal);
+    pager_row.Spacing(12);
+    pager_row.HorizontalAlignment(HorizontalAlignment::Center);
+    pager_row.Children().Append(previous);
+    pager_row.Children().Append(pips);
+    pager_row.Children().Append(counter);
+    pager_row.Children().Append(next);
+    section.Children().Append(pager_row);
+
+    // 第一次布局前 FlipView 还没有宽度，先按正文的宽度估一次高度，免得先画成默认高度再跳。
+    const double estimate =
+        scroll_ ? std::max(0.0, scroll_.ActualWidth() - 2 * content_padding(scroll_.ActualWidth()).Left)
+                : 0.0;
+    auto sync = [this, weak_flip = make_weak(flip), weak_pips = make_weak(pips),
+                 weak_counter = make_weak(counter), weak_previous = make_weak(previous),
+                 weak_next = make_weak(next), keys = std::move(keys), count, estimate] {
+      auto view = weak_flip.get();
+      if (!view)
+        return;
+      const auto at = view.SelectedIndex();
+      if (at < 0 || at >= count)
+        return;
+      theme_carousel_key_ = keys[static_cast<size_t>(at)];
+      theme_carousel_at_ = static_cast<size_t>(at);
+      if (auto pager = weak_pips.get())
+        pager.SelectedPageIndex(at);
+      if (auto text = weak_counter.get())
+        text.Text(hstring(std::to_wstring(at + 1) + L" / " + std::to_wstring(count)));
+      if (auto button = weak_previous.get()) {
+        button.IsEnabled(at > 0);
+        button.Opacity(at > 0 ? 1.0 : 0.4);
+      }
+      if (auto button = weak_next.get()) {
+        button.IsEnabled(at < count - 1);
+        button.Opacity(at < count - 1 ? 1.0 : 0.4);
+      }
+      const double width = view.ActualWidth() > 0 ? view.ActualWidth() : estimate;
+      if (width <= 0)
+        return;
+      const auto card = view.Items().GetAt(static_cast<uint32_t>(at)).as<FrameworkElement>();
+      card.Measure(Windows::Foundation::Size{static_cast<float>(width),
+                                             static_cast<float>(INFINITY)});
+      view.Height(card.DesiredSize().Height);
+    };
+    flip.SelectionChanged(
+        [sync](Inspectable const &, SelectionChangedEventArgs const &) { sync(); });
+    flip.SizeChanged([sync, width = std::make_shared<double>(0.0)](
+                         Inspectable const &, SizeChangedEventArgs const &args) {
+      if (args.NewSize().Width == *width)
+        return;
+      *width = args.NewSize().Width;
+      sync();
+    });
+    pips.SelectedIndexChanged([weak_flip = make_weak(flip)](auto const &sender, auto const &) {
+      if (auto view = weak_flip.get(); view && view.SelectedIndex() != sender.SelectedPageIndex())
+        view.SelectedIndex(sender.SelectedPageIndex());
+    });
+    previous.Click([weak_flip = make_weak(flip)](Inspectable const &, RoutedEventArgs const &) {
+      if (auto view = weak_flip.get(); view && view.SelectedIndex() > 0)
+        view.SelectedIndex(view.SelectedIndex() - 1);
+    });
+    next.Click([weak_flip = make_weak(flip), count](Inspectable const &, RoutedEventArgs const &) {
+      if (auto view = weak_flip.get(); view && view.SelectedIndex() < count - 1)
+        view.SelectedIndex(view.SelectedIndex() + 1);
+    });
+    sync();
+    page.Children().Append(section);
+  }
+
   // 皮肤页提供内置主题、外部皮肤包、自定义配色和社区图库；字体在「候选窗口」页管理。
-  // 搜索「社区皮肤」时进入图库，其他本页条目回到「我的皮肤」；图库不画完整实时预览。
+  // 搜索「社区皮肤」时进入图库，其他本页条目回到「本地皮肤」。
   void follow_skin_search() {
     if (indexing_ || focus_row_.empty())
       return;
@@ -8185,7 +8475,7 @@ private:
 
   void build_themes_page(StackPanel const &page) {
     const bool community = skin_community_view_ && !indexing_;
-    community_tabs(page, L"皮肤来源", L"我的皮肤", L"社区皮肤",
+    community_tabs(page, L"皮肤来源", L"本地皮肤", L"社区皮肤",
                    L"浏览、安装和发布候选窗口皮肤", community,
                    [this](bool shown) { set_skin_view(shown); });
     if (community) {
@@ -8201,52 +8491,70 @@ private:
     const auto listed = listed_skins();
     const auto shown = sk::shown_package(custom_selected, custom, active_dark, listed);
 
-    // 主题选择在前，当前设置的完整预览在卡片之后，避免预览占满首屏。
-    auto intro = make_text(
-        L"选择候选窗口和悬浮工具栏使用的主题。卡片展示每款主题的候选配色。", 11,
-        palette_.sub);
-    intro.Margin(Thickness{4, 0, 4, 12});
-    page.Children().Append(intro);
+    // 页首两段说明，照共享页在桌面上的 PageIntro 和 SkinPlatformNotice：12 DIP 次要色，左右缩进与组名相同。
+    for (const auto *line : {L"选择皮肤与配色；候选窗口的布局、字体和显示方式在「候选窗口」中设置。",
+                             L"选择候选窗口和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}) {
+      auto intro = make_text(line, 12, palette_.sub);
+      intro.LineHeight(12 * 1.625);
+      intro.Margin(Thickness{8, 0, 8, 0});
+      page.Children().Append(intro);
+    }
 
+    // 「明暗」组在卡片之前，与共享页一样：颜色模式决定卡片默认画哪种明暗。设置窗口、工具栏、菜单和各面板一律跟随颜色模式（HostCapabilities::surface_themes_follow），只剩候选窗口还能单独设明暗，放在颜色模式下面（共享页「明暗」组里的 CandidateThemeRow）。
+    auto look = add_group(page, L"明暗");
+    segment_row(look, 0xE706, L"颜色模式", L"设置窗口和各界面的明暗模式；候选窗口可在下面单独设置",
+                L"theme",
+                {{L"system", L"跟随系统"}, {L"light", L"浅色"}, {L"dark", L"深色"}},
+                L"system");
+    select_row(look, 0xE8FD, L"候选窗口主题", L"覆盖颜色模式，只影响候选窗口",
+               L"candidate_theme", surface_theme_options(), L"follow", true);
+
+    // 内置主题和皮肤包放进同一个轮播，一次一张卡片（共享页的 ThemeCarousel）。选中的是在用的那张：自定义主题用着目录里的皮肤包时是那款包的卡片，「自定义」卡片代表不带皮肤包的自定义主题。
     if (themes_.empty()) {
       auto group = add_group(page, L"");
       add_row(group, 0xE790, L"全局主题", L"无法读取主题列表。请重新安装输入法后再试。",
               nullptr);
     } else {
+      // 轮播不在任何组里，搜索结果的位置只写到页。
+      group_index_.clear();
       record(L"全局主题", L"候选窗口、悬浮工具栏、菜单和屏幕键盘的配色");
-      auto cards = responsive_grid(174, 10);
-      mark_search_target(L"全局主题", cards);
-      for (const auto &theme : themes_) {
-        record(theme.title, L"主题");
-        if (!indexing_) {
-          // 自定义主题用着目录里的皮肤包时，选中的是那款包的卡片，「自定义」卡片代表不带皮肤包的自定义主题。
-          const bool on = theme.id == current && (theme.id != L"custom" || !shown);
-          const auto card = make_theme_card(theme, on);
-          mark_search_target(theme.title, card);
-          cards.Children().Append(card);
-        }
-      }
-      page.Children().Append(cards);
-    }
-
-    if (preview_visible_ && !indexing_)
-      page.Children().Append(make_preview());
-
-    if (!skin_packages_.empty()) {
-      StackPanel list;
-      list.Spacing(8);
-      list.Margin(Thickness{0, 4, 0, 0});
       const std::wstring layout =
           document_.String(L"candidate_layout", L"vertical") == L"horizontal" ? L"horizontal"
                                                                                : L"vertical";
-      for (const auto &skin : skin_packages_) {
-        record(skin.name, L"皮肤");
-        if (!indexing_)
-          list.Children().Append(make_skin_card(
-              skin, sk::skin_in_use(custom_selected, custom, skin.id), active_dark, layout));
+      std::vector<std::wstring> keys;
+      std::vector<FrameworkElement> cards;
+      size_t selected = 0;
+      std::optional<size_t> focused;
+      for (const auto &theme : themes_) {
+        record(theme.title, L"主题");
+        const bool on = theme.id == current && (theme.id != L"custom" || !shown);
+        if (theme.id == current)
+          selected = keys.size();
+        if (!focused && !focus_row_.empty() && focus_row_ == theme.title)
+          focused = keys.size();
+        keys.push_back(L"theme:" + theme.id);
+        if (!indexing_) {
+          const auto card = make_theme_card(theme, on);
+          mark_search_target(theme.title, card);
+          cards.push_back(card);
+        }
       }
-      page.Children().Append(list);
+      for (size_t index = 0; index < skin_packages_.size(); ++index) {
+        const auto &skin = skin_packages_[index];
+        record(skin.name, L"皮肤");
+        if (shown && *shown == index)
+          selected = keys.size();
+        if (!focused && !focus_row_.empty() && focus_row_ == skin.name)
+          focused = keys.size();
+        keys.push_back(L"package:" + skin.id);
+        if (!indexing_)
+          cards.push_back(make_skin_card(skin, sk::skin_in_use(custom_selected, custom, skin.id),
+                                         active_dark, layout));
+      }
+      if (!indexing_)
+        add_theme_carousel(page, std::move(keys), cards, selected, focused);
     }
+
     if (const auto summary = sk::slot_summary(custom_selected, custom, listed);
         !summary.empty()) {
       auto note = make_text(summary, 12, palette_.sub);
@@ -8261,16 +8569,7 @@ private:
       page.Children().Append(note);
     }
 
-    // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式（HostCapabilities::surface_themes_follow），只剩候选窗口还能单独设明暗，放在颜色模式下面（共享页「明暗」组里的 CandidateThemeRow）。
-    auto look = add_group(page, L"外观");
-    segment_row(look, 0xE706, L"颜色模式", L"设置窗口和各界面的明暗模式；候选窗口可在下面单独设置",
-                L"theme",
-                {{L"system", L"跟随系统"}, {L"light", L"浅色"}, {L"dark", L"深色"}},
-                L"system");
-    select_row(look, 0xE8FD, L"候选窗口主题", L"覆盖颜色模式，只影响候选窗口",
-               L"candidate_theme", surface_theme_options(), L"follow", true);
-
-    auto more = add_group(page, L"更多皮肤");
+    auto more = add_group(page, L"本地皮肤");
     external_skins_row(more);
 
     // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
@@ -8421,8 +8720,10 @@ private:
         ++skins_revision_;
         skin_images_.clear();
         skin_image_failures_.clear();
-        // 用着的包可能改过或删掉了：顶部预览重新解析。
+        // 用着的包可能改过或删掉了：「候选窗口」和「悬浮工具栏」页的预览重新解析。
         resolved_theme_.reset();
+        // 皮肤名进搜索索引：目录变了，下次搜索时重建，新装的皮肤才搜得到。
+        index_valid_ = false;
         for (auto &image : scan.images) {
           if (image.bytes.empty())
             skin_image_failures_.insert(image.key);
@@ -8499,7 +8800,7 @@ private:
     });
   }
 
-  // 一张皮肤包卡片（ExternalSkinCard）：标题带上卡片画的明暗和「使用中」，说明、槽位、id · 版本 · 作者，开关、「预览浅色 / 预览深色」和「发布到社区」，以及按 resolve() 给这款包的配色画的横排、竖排两个候选窗口，带上包的圆角、最小宽度、背景图和装饰图。悬浮工具栏的预览要用包的 CSS 画，这里不画，与内置主题的卡片一致。
+  // 一张皮肤包卡片（ExternalSkinCard），与内置主题卡片同一个外框（make_skin_card_frame）：标题带上卡片画的明暗和「使用中」，说明、槽位、id · 版本 · 作者，右边是开关、`system` 底的包才有的「预览浅色 / 预览深色」和「发布到社区」；预览面是按 resolve() 给这款包的配色画的横排、竖排两个候选窗口（带上包的圆角、最小宽度、背景图和装饰图，再套用「候选窗口」页设的圆角和不透明度）和一条悬浮工具栏。工具栏按同一份配色的工具栏版本画，包清单里的工具栏颜色和圆角、以及只有 macOS 读的工具栏样式表不画。图片解不出来时卡片下面说明。
   FrameworkElement make_skin_card(SkinPackage const &skin, bool selected, bool active_dark,
                                   std::wstring const &layout) {
     const auto slot = theme_slot(skin.base);
@@ -8512,104 +8813,52 @@ private:
     const bool compatible =
         sk::card_compatible(slot, skin.layouts, skin.themes, layout, active_dark);
 
-    Border card;
-    card.Background(brush(palette_.card));
-    card.BorderBrush(brush(selected ? palette_.accent : palette_.stroke));
-    card.BorderThickness(selected ? Thickness{2, 2, 2, 2} : Thickness{1, 1, 1, 1});
-    card.CornerRadius(CornerRadius{6, 6, 6, 6});
-    card.Padding(Thickness{12, 12, 16, 12});
-    Grid body;
-    body.ColumnSpacing(16);
-    ColumnDefinition preview_column;
-    preview_column.Width(GridLength{1, GridUnitType::Auto});
-    ColumnDefinition text_column;
-    text_column.Width(GridLength{1, GridUnitType::Star});
-    body.ColumnDefinitions().Append(preview_column);
-    body.ColumnDefinitions().Append(text_column);
-
-    auto preview = make_skin_preview(skin, dark);
-    Grid::SetColumn(preview, 0);
-    body.Children().Append(preview);
-
-    StackPanel texts;
-    texts.Spacing(4);
-    texts.VerticalAlignment(VerticalAlignment::Center);
-    StackPanel title;
-    title.Orientation(Orientation::Horizontal);
-    title.Spacing(8);
-    title.Children().Append(
-        make_text(skin.name + (dark ? L"（深色）" : L"（浅色）"), 14, palette_.text));
-    if (selected) {
-      auto badge = make_text(L"使用中", 12, palette_.accent);
-      badge.VerticalAlignment(VerticalAlignment::Center);
-      title.Children().Append(badge);
-    }
-    texts.Children().Append(title);
-    texts.Children().Append(make_text(
-        sk::card_description(compatible, skin.description, theme_title(skin.base), skin.layouts,
-                             skin.themes),
-        13, palette_.sub));
-    texts.Children().Append(make_text(sk::slot_label(slot), 12, palette_.faint));
+    StackPanel details;
+    details.Spacing(4);
+    details.Children().Append(make_text(sk::slot_label(slot), 12, palette_.faint));
     if (const auto meta = sk::card_meta(skin.id, skin.version, skin.author); !meta.empty())
-      texts.Children().Append(make_text(meta, 12, palette_.faint));
+      details.Children().Append(make_text(meta, 12, palette_.faint));
 
     StackPanel actions;
-    actions.Orientation(Orientation::Horizontal);
-    actions.Spacing(16);
-    actions.Margin(Thickness{0, 6, 0, 0});
     // 已在使用的包总能关掉，哪怕布局变了以后它不再能选。
-    actions.Children().Append(toggle_control(
+    auto toggle = toggle_control(
         skin.name, selected,
         [this, id = skin.id, base = skin.base, selected](bool) { use_skin(id, base, !selected); },
-        compatible || selected));
-    if (slot == sk::Slot::either) {
-      auto toggle = button_control(dark ? L"预览浅色" : L"预览深色",
-                                   [this, id = skin.id, active_dark, dark] {
-                                     skin_preview_overrides_[id] = {active_dark, !dark};
-                                     redraw_themes();
-                                   });
-      toggle.VerticalAlignment(VerticalAlignment::Center);
-      actions.Children().Append(toggle);
-    }
+        compatible || selected);
+    toggle.HorizontalAlignment(HorizontalAlignment::Right);
+    actions.Children().Append(toggle);
+    if (slot == sk::Slot::either)
+      actions.Children().Append(card_action(dark ? L"预览浅色" : L"预览深色",
+                                            [this, id = skin.id, active_dark, dark] {
+                                              skin_preview_overrides_[id] = {active_dark, !dark};
+                                              redraw_themes();
+                                            }));
     // 「发布到社区」：打开发布对话框，先选中这一款。
-    auto publish = button_control(L"发布到社区", [this, id = skin.id] { open_skin_publish(id, true); });
-    publish.VerticalAlignment(VerticalAlignment::Center);
-    actions.Children().Append(publish);
-    texts.Children().Append(actions);
+    actions.Children().Append(
+        card_action(L"发布到社区", [this, id = skin.id] { open_skin_publish(id, true); }));
+
+    StackPanel notes;
     if (skin_image_failed(skin.id, skin.decoration_image) ||
         skin_image_failed(skin.id, skin.background_image)) {
       auto failed = make_text(L"皮肤图片加载失败，保留基础预览。可刷新皮肤重试。", 12,
                               palette_.sub);
       A11y::SetLiveSetting(failed, Automation::Peers::AutomationLiveSetting::Polite);
-      texts.Children().Append(failed);
+      notes.Children().Append(failed);
     }
-    Grid::SetColumn(texts, 1);
-    body.Children().Append(texts);
-    card.Child(body);
-    A11y::SetName(card, hstring(skin.name));
+    auto card = make_skin_card_frame(
+        skin.name, dark, selected,
+        sk::card_description(compatible, skin.description, theme_title(skin.base), skin.layouts,
+                             skin.themes),
+        details, actions, make_skin_preview(skin, dark), notes);
     mark_search_target(skin.name, card);
     return card;
   }
 
-  // 卡片左边的预览：底的背景色上，横排和竖排两个候选窗口，配色是 resolve() 给这款包在这种明暗下的配色（包画在它的 base 之上）。
-  FrameworkElement make_skin_preview(SkinPackage const &skin, bool dark) {
+  // 皮肤包卡片的预览面：横排和竖排两个候选窗口并排，配色是 resolve() 给这款包在这种明暗下的配色（包画在它的 base 之上）；canvas 包画离屏绘制好的样例，只画包支持的排列。下面一条按同一份配色画的悬浮工具栏。
+  StackPanel make_skin_preview(SkinPackage const &skin, bool dark) {
     const auto &theme = dark ? skin.dark : skin.light;
-    Border stage;
-    stage.Width(260);
-    stage.MinHeight(132);
-    stage.CornerRadius(CornerRadius{4, 4, 4, 4});
-    stage.Padding(Thickness{10, 10, 10, 10});
-    std::optional<Color> backdrop;
-    for (const auto &entry : themes_)
-      if (entry.id == skin.base && entry.preview)
-        backdrop = entry.preview->background;
-    stage.Background(brush(backdrop.value_or(dark ? rgba(0x20, 0x20, 0x20, 1)
-                                                  : rgba(0xF3, 0xF3, 0xF3, 1))));
     StackPanel samples;
     samples.Orientation(Orientation::Horizontal);
-    samples.Spacing(10);
-    samples.HorizontalAlignment(HorizontalAlignment::Center);
-    samples.VerticalAlignment(VerticalAlignment::Center);
     if (skin.canvas.active) {
       for (const bool vertical : {false, true}) {
         if (std::find(skin.layouts.begin(), skin.layouts.end(),
@@ -8628,24 +8877,33 @@ private:
         A11y::SetAutomationId(image, hstring(L"canvas-preview-" + skin.id +
                                              (vertical ? L"-vertical" : L"-horizontal")));
         A11y::SetName(image, hstring(skin.name + (vertical ? L"竖排候选预览" : L"横排候选预览")));
-        samples.Children().Append(image);
+        samples.Children().Append(skin_stage(image));
       }
       if (samples.Children().Size() == 0)
-        samples.Children().Append(make_text(L"皮肤预览暂不可用", 12, palette_.sub));
+        samples.Children().Append(skin_stage(make_text(L"皮肤预览暂不可用", 12, palette_.sub)));
     } else {
-      samples.Children().Append(make_skin_sample(skin, theme, false));
-      samples.Children().Append(make_skin_sample(skin, theme, true));
+      samples.Children().Append(skin_stage(make_skin_sample(skin, theme, false)));
+      samples.Children().Append(skin_stage(make_skin_sample(skin, theme, true)));
     }
-    stage.Child(samples);
-    return stage;
+    StackPanel stages;
+    stages.Children().Append(samples);
+    stages.Children().Append(
+        skin_stage(make_toolbar_sample(msime::windows::toolbar_palette(theme), false)));
+    return stages;
   }
 
-  // 一个缩小的候选窗口：拼音行和三个候选，首个选中。装饰带按清单的高度和宽度画在卡片上方，按 decorationAlign 对齐；背景图画在表面之上、候选之下，按卡片的圆角裁切。
+  // 一个缩小的候选窗口：拼音行和三个候选，首个选中。装饰带按清单的高度和宽度画在卡片上方，按 decorationAlign 对齐；背景图画在表面之上、候选之下，按卡片的圆角裁切。套用「候选窗口」页设的圆角和不透明度（CandidateWindowStyle.h 的规则，与真窗口和共享页的 candidateWindowStyle 相同）：用户设的圆角压过包和主题的圆角，表面、描边和背景图随不透明度淡化，文字和选中底不淡化。内置主题卡片传一个空的包，只画配色。
   FrameworkElement make_skin_sample(SkinPackage const &skin,
                                     msime::windows::CandidatePalette const &theme,
                                     bool vertical) {
     constexpr double scale = 0.7;
-    const double radius = (skin.corner_radius ? *skin.corner_radius : theme.radius) * scale;
+    const auto style = candidate_window_style();
+    const float card_radius = msime::windows::candidate_card_radius(
+        style,
+        skin.corner_radius ? std::optional<float>(static_cast<float>(*skin.corner_radius))
+                           : std::nullopt,
+        theme.radius);
+    const double radius = card_radius * scale;
     StackPanel column;
     column.VerticalAlignment(VerticalAlignment::Center);
     if (skin.decoration_top > 0) {
@@ -8666,8 +8924,8 @@ private:
     }
 
     Border box;
-    box.Background(brush(to_color(theme.surface)));
-    box.BorderBrush(brush(to_color(theme.border)));
+    box.Background(brush(to_color(msime::windows::candidate_faded(theme.surface, style))));
+    box.BorderBrush(brush(to_color(msime::windows::candidate_faded(theme.border, style))));
     const double edge = theme.border_width;
     box.BorderThickness(Thickness{edge, edge, edge, edge});
     box.CornerRadius(CornerRadius{radius, radius, radius, radius});
@@ -8682,7 +8940,7 @@ private:
       image.Stretch(skin.background_fit == L"contain"   ? Stretch::Uniform
                     : skin.background_fit == L"stretch" ? Stretch::Fill
                                                         : Stretch::UniformToFill);
-      image.Opacity(skin.background_opacity);
+      image.Opacity(skin.background_opacity * style.opacity());
       watch_skin_image(image, skin_image_key(skin.id, skin.background_image));
       fill.Background(image);
       layers.Children().Append(fill);
@@ -8697,7 +8955,8 @@ private:
     StackPanel list;
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
     list.Spacing(2);
-    const double row_radius = theme.item_radius * scale;
+    const double row_radius =
+        msime::windows::candidate_row_radius(style, theme.item_radius, card_radius) * scale;
     constexpr std::array<const wchar_t *, 3> words{L"你们", L"你", L"尼"};
     for (size_t i = 0; i < words.size(); ++i) {
       const bool highlighted = i == 0;
@@ -8827,7 +9086,7 @@ private:
 
   // ---- 社区皮肤与社区插件 ----
 
-  // 共享外壳在桌面上给「主题」和「插件」两页顶上各放一对标签（index.tsx 的「皮肤来源」「插件来源」）：「我的皮肤」「我的插件」是本页的设置，「社区皮肤」「社区插件」换成社区图库（community-candidate-skins.tsx 的 CommunityCandidateSkinsPage、community-plugins.tsx 的 CommunityPluginsPage）。图库挂上时读第一页，候选窗皮肤还和账号的皮肤库同步一次（candidate-skin-sync.tsx）；离开页面或切回本页设置就卸下，下次从头读起。浏览、详情、安装、评分、举报、作者改公开范围和分类、下架都在页面里；发布是对话框（candidate-skin-publish-dialog.tsx、CommunityPluginPublishDialog），皮肤还能从「我的皮肤」里各自的卡片发布。所有社区操作经 msime_client_community，用「账号与同步」页同一个账号会话，都在工作线程上；文案和规则在 CommunityPageModel.h。
+  // 共享外壳在桌面上给「主题」和「插件」两页顶上各放一对标签（index.tsx 的「皮肤来源」「插件来源」）：「本地皮肤」「我的插件」是本页的设置，「社区皮肤」「社区插件」换成社区图库（community-candidate-skins.tsx 的 CommunityCandidateSkinsPage、community-plugins.tsx 的 CommunityPluginsPage）。图库挂上时读第一页，候选窗皮肤还和账号的皮肤库同步一次（candidate-skin-sync.tsx）；离开页面或切回本页设置就卸下，下次从头读起。浏览、详情、安装、评分、举报、作者改公开范围和分类、下架都在页面里；发布是对话框（candidate-skin-publish-dialog.tsx、CommunityPluginPublishDialog），皮肤还能从「本地皮肤」里各自的卡片发布。所有社区操作经 msime_client_community，用「账号与同步」页同一个账号会话，都在工作线程上；文案和规则在 CommunityPageModel.h。
 
   // 一个图库的状态（共享页 useCommunityGallery 和 useCommunityInstallState 的组件状态）。owner 在挂上和卸下时递增，作废在途的回答；list_request、detail_request 作废同一种更早的请求。
   template <typename Item> struct Gallery {
@@ -9262,7 +9521,7 @@ private:
 
   // ---- 皮肤图库的操作 ----
 
-  // useCandidateSkinSync：本机皮肤目录与账号的皮肤库同步一次；进行中又要同步时，这次结束后再来一次。下载或删除了本机的皮肤时「我的皮肤」重扫目录。未登录时 Rust 在读会话这一步就结束，不发请求；失败不说明。
+  // useCandidateSkinSync：本机皮肤目录与账号的皮肤库同步一次；进行中又要同步时，这次结束后再来一次。下载或删除了本机的皮肤时「本地皮肤」重扫目录。未登录时 Rust 在读会话这一步就结束，不发请求；失败不说明。
   void run_skin_sync() {
     if (skin_sync_running_) {
       skin_sync_queued_ = true;
@@ -9279,7 +9538,7 @@ private:
                  if (!named_strings(report, L"downloaded").empty() ||
                      !named_strings(report, L"deleted_local").empty()) {
                    skins_stale_ = true;
-                   // 已经切回「我的皮肤」时现在就重扫。
+                   // 已经切回「本地皮肤」时现在就重扫。
                    if (!skin_community_view_)
                      redraw_themes();
                  }
@@ -9290,7 +9549,7 @@ private:
              });
   }
 
-  // 一键安装：先看本机有没有同名的皮肤，有就先问（省下一次约 3 MB 的下载）；看不了时由安装自己的 candidate_skin_exists 拦住覆盖。装好后「我的皮肤」重扫，再同步一次皮肤库。
+  // 一键安装：先看本机有没有同名的皮肤，有就先问（省下一次约 3 MB 的下载）；看不了时由安装自己的 candidate_skin_exists 拦住覆盖。装好后「本地皮肤」重扫，再同步一次皮肤库。
   void install_community_skin(bool replace) {
     auto &gallery = skin_gallery_;
     if (!gallery.selected)
@@ -9321,7 +9580,7 @@ private:
           return outcome;
         },
         [this, owner](Outcome &outcome) {
-          // 皮肤已经写进目录时，即使图库已经换了，「我的皮肤」也该重扫。
+          // 皮肤已经写进目录时，即使图库已经换了，「本地皮肤」也该重扫。
           if (outcome.response.ok)
             skins_stale_ = true;
           if (owner != skin_gallery_.owner)
@@ -10046,7 +10305,7 @@ private:
     community_preview_views_.clear();
     community_search<CommunitySkinItem>(page, L"搜索候选窗口皮肤");
     community_heading<CommunitySkinItem>(
-        page, L"社区皮肤", L"为输入候选窗口换一身新装，安装后在「我的皮肤」中启用",
+        page, L"社区皮肤", L"为输入候选窗口换一身新装，安装后在「本地皮肤」中启用",
         L"候选窗口皮肤范围", L"全部", L"发布我的皮肤", [this] { open_skin_publish(L"", false); });
     std::vector<std::pair<std::optional<std::wstring>, std::wstring>> categories{
         {std::nullopt, L"全部"}};
@@ -10418,7 +10677,7 @@ private:
     weak_ref<ContentDialog> dialog;
   };
 
-  // 打开「发布候选窗口皮肤」。从「我的皮肤」的卡片打开时先选中那一款；从图库打开时选第一款。
+  // 打开「发布候选窗口皮肤」。从「本地皮肤」的卡片打开时先选中那一款；从图库打开时选第一款。
   fire_and_forget open_skin_publish(std::wstring initial, bool from_card) {
     if (dialog_open_ || skin_publish_.refresh)
       co_return;
@@ -10695,7 +10954,7 @@ private:
             current.packages = std::move(drawn.scan.packages);
             current.images = std::move(drawn.scan.images);
           }
-          // 预览图已经写进皮肤目录：「我的皮肤」下次显示时重扫。
+          // 预览图已经写进皮肤目录：「本地皮肤」下次显示时重扫。
           skins_stale_ = true;
           load_skin_pack();
         });
@@ -10778,7 +11037,7 @@ private:
       state.refresh();
   }
 
-  // 发布成功：关上对话框。从卡片发布的在「我的皮肤」的卡片下说明；从图库发布的在图库里说明并从第一页重读。
+  // 发布成功：关上对话框。从卡片发布的在「本地皮肤」的卡片下说明；从图库发布的在图库里说明并从第一页重读。
   void skin_published(CommunitySkinItem const &published, bool from_card) {
     const auto message = published.visibility == L"private" ? L"已保存到你的皮肤库，仅自己可见。"
                                                             : L"已发布到社区。";
@@ -11252,7 +11511,7 @@ private:
     }
   }
 
-  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并刷新顶部的预览，停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
+  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并重画轮播里「自定义」卡片的样例（update_custom_theme_card），停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
   FrameworkElement candidate_color_control(sk::ColorSlot const &slot, std::wstring const &key,
                                            bool set, std::wstring const &shown) {
     const std::wstring title(slot.title);
@@ -11292,7 +11551,7 @@ private:
         target.Background(brush(args.NewColor()));
       write_candidate_color(document_, key, value);
       schedule_save();
-      update_preview();
+      update_custom_theme_card();
     });
     Flyout flyout;
     flyout.Content(picker);
@@ -12431,55 +12690,67 @@ private:
       {L"settings", L"设置", true, msime::windows::kToolbarSettings},
   }};
 
+  // 「悬浮工具栏」页首的预览，照共享页的 SettingsPreviewBlock（放在无标题的组里）：12 DIP 次要色的「预览」小字，下面是与主题卡片预览面同样底色的一块，工具栏靠左，太宽时横向滚动。没有尺寸和状态那一行；工具栏画出来的 DIP 尺寸写在「预览」小字的帮助文本里（自动化 ID `toolbar-preview-label`，读屏名「悬浮工具栏预览」，与共享页的 aria-label 相同），界面验收靠它确认调整按钮后预览跟着变。
   FrameworkElement make_toolbar_preview() {
-    StackPanel holder;
-    holder.Spacing(8);
-    holder.Margin(Thickness{0, 8, 0, 12});
-    auto title = make_text(L"效果预览", 13, palette_.text);
-    title.FontWeight(Windows::UI::Text::FontWeight{600});
-    holder.Children().Append(title);
+    StackPanel block;
+    block.Spacing(8);
+    block.Padding(Thickness{25, 14, 25, 18});
+    toolbar_preview_label_ = make_text(L"预览", 12, palette_.sub);
+    A11y::SetName(toolbar_preview_label_, L"悬浮工具栏预览");
+    A11y::SetAutomationId(toolbar_preview_label_, L"toolbar-preview-label");
+    block.Children().Append(toolbar_preview_label_);
     toolbar_preview_host_ = Border();
-    toolbar_preview_host_.HorizontalAlignment(HorizontalAlignment::Center);
+    toolbar_preview_host_.HorizontalAlignment(HorizontalAlignment::Left);
     A11y::SetAutomationId(toolbar_preview_host_, L"toolbar-preview");
     ScrollViewer viewport;
     viewport.HorizontalScrollBarVisibility(ScrollBarVisibility::Auto);
     viewport.VerticalScrollBarVisibility(ScrollBarVisibility::Disabled);
-    viewport.HorizontalContentAlignment(HorizontalAlignment::Center);
     viewport.Content(toolbar_preview_host_);
     Border stage;
-    stage.Background(brush(palette_.seg_well));
-    stage.CornerRadius(CornerRadius{10, 10, 10, 10});
-    stage.Padding(Thickness{16, 20, 16, 20});
+    stage.Background(brush(skin_stage_color()));
+    stage.Padding(Thickness{24, 18, 24, 18});
     stage.Child(viewport);
-    holder.Children().Append(stage);
-    toolbar_preview_size_ = make_text(L"", 11, palette_.sub);
-    A11y::SetAutomationId(toolbar_preview_size_, L"toolbar-preview-size");
-    holder.Children().Append(toolbar_preview_size_);
+    block.Children().Append(stage);
     update_toolbar_preview();
-    return holder;
+    return block;
   }
 
   void update_toolbar_preview() {
     if (!toolbar_preview_host_)
       return;
-    const double scale =
-        document_.Number(L"floating_toolbar.scale_percent", 100) / 100.0;
-    const double font_size =
-        document_.Number(L"floating_toolbar.font_size", 24);
-    const bool logo = document_.Boolean(L"show_app_logo", false);
-    const auto metrics =
-        msime::windows::toolbar_metrics(font_size, false, logo);
     // 工具栏跟随颜色模式（Server 不读 toolbar_theme），预览也只看 `theme`。
     const auto common_mode = document_.String(L"theme", L"system");
     const bool dark = common_mode == L"dark" || (common_mode == L"system" && system_dark_);
-    const auto colors = msime::windows::toolbar_palette(candidate_theme(
-        document_.String(L"global_theme", L"system"), true, dark));
+    const auto sample = make_toolbar_sample(msime::windows::toolbar_palette(candidate_theme(
+        document_.String(L"global_theme", L"system"), true, dark)), true);
+    toolbar_preview_host_.Child(sample);
+    if (toolbar_preview_label_)
+      A11y::SetHelpText(toolbar_preview_label_,
+                        hstring(number_text(sample.Width()) + L" × " +
+                                number_text(sample.Height()) + L" DIP"));
+  }
+
+  // 一条悬浮工具栏，照原生工具栏的度量（toolbar_metrics、toolbar_cell）和 `colors` 画，按钮状态按默认输入状态。`current_settings` 为真时（「悬浮工具栏」页的预览，共享页传 `preferences={floatingToolbar}`）按钮、大小和 logo 取当前设置；为假时（「主题」页每张卡片，共享页的 `<SkinToolbarPreview />` 不带设置）画全部按钮、100% 缩放、默认图标尺寸、不画 logo。返回的块定了宽高，就是工具栏画出来的 DIP 尺寸。
+  Border make_toolbar_sample(msime::windows::CandidatePalette const &colors,
+                             bool current_settings) {
+    const double scale =
+        current_settings
+            ? document_.Number(L"floating_toolbar.scale_percent", 100) / 100.0
+            : 1.0;
+    const double font_size =
+        current_settings ? document_.Number(L"floating_toolbar.font_size", 24)
+                         : 24.0;
+    const bool logo =
+        current_settings && document_.Boolean(L"show_app_logo", false);
+    const auto metrics =
+        msime::windows::toolbar_metrics(font_size, false, logo);
     std::vector<ToolbarComponent> components;
     for (const auto &item : toolbar_components_) {
       if (item.button == msime::windows::kToolbarHandwriting &&
           MSIME_EDITION_HANDWRITING == 0)
         continue;
-      if (document_.Boolean(L"floating_toolbar." + std::wstring(item.id),
+      if (!current_settings ||
+          document_.Boolean(L"floating_toolbar." + std::wstring(item.id),
                             item.fallback))
         components.push_back(item);
     }
@@ -12571,11 +12842,13 @@ private:
       ToolTipService::SetToolTip(cell, box_value(hstring(component.label)));
       canvas.Children().Append(cell);
     }
-    toolbar_preview_host_.Background(brush(to_color(colors.surface)));
+    Border sample;
+    sample.Width(width);
+    sample.Height(height);
+    sample.Background(brush(to_color(colors.surface)));
     const double border = colors.border_width * scale;
     const double radius = colors.radius * scale;
-    toolbar_preview_host_.CornerRadius(
-        CornerRadius{radius, radius, radius, radius});
+    sample.CornerRadius(CornerRadius{radius, radius, radius, radius});
     // 边框叠在固定尺寸的内容内，避免 XAML Border 把外观撑大并移动图标。
     Grid content;
     content.Width(width);
@@ -12587,28 +12860,20 @@ private:
     outline.CornerRadius(CornerRadius{radius, radius, radius, radius});
     outline.IsHitTestVisible(false);
     content.Children().Append(outline);
-    toolbar_preview_host_.Child(content);
-    const auto status = document_.Boolean(L"floating_toolbar.enabled", true)
-                            ? L"按默认输入状态预览，调整按钮和尺寸会同步变化。"
-                            : L"工具栏已隐藏，按默认输入状态预览开启后的外观。";
-    toolbar_preview_size_.Text(hstring(number_text(width) + L" × " +
-                                       number_text(height) + L" DIP · " +
-                                       status));
+    sample.Child(content);
+    return sample;
   }
 
+  // 照共享页 floating-toolbar-page.tsx 在 Windows 上的样子：页首是无标题组里的预览，然后是「显示」「按钮」「尺寸」三组，「颜色与明暗」是「尺寸」组末尾的跳转行。
   void build_toolbar_page(StackPanel const &page) {
-    if (!indexing_)
-      page.Children().Append(make_toolbar_preview());
-    auto general = add_group(page, L"显示与组件");
-    bool_row(general, 0xE7F4, L"在桌面显示悬浮工具栏",
+    if (!indexing_) {
+      auto preview = add_group(page, L"");
+      preview.Children().Append(make_toolbar_preview());
+    }
+    auto display = add_group(page, L"显示");
+    bool_row(display, 0xE7F4, L"在桌面显示悬浮工具栏",
              L"快速访问输入法状态与常用功能", L"floating_toolbar.enabled",
              true);
-    // 工具栏跟随「主题」页的颜色模式和主题，没有自己的明暗；这一行只是指向那里（共享页 floating-toolbar-page.tsx 的「颜色与明暗」）。
-    add_row(general, 0xE790, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题",
-            button_control(L"前往", [this] {
-              focus_row_ = L"颜色模式";
-              navigate("themes");
-            }));
     std::vector<Check> checks;
     for (const auto &component : toolbar_components_) {
       if (component.button == msime::windows::kToolbarHandwriting &&
@@ -12623,12 +12888,19 @@ private:
                     false);
            }});
     }
-    add_row(general, 0xE71D, L"工具栏按钮", L"按工具栏中的顺序选择要显示的功能",
-            nullptr, checks_panel(std::move(checks)));
+    // 共享页的 Checks：说明之下一列纵向排开的复选框，14 DIP 字、相隔 8，顺序与工具栏上的相同。
+    auto buttons = add_group(page, L"按钮");
+    add_row(buttons, 0xE71D, L"按钮", L"勾选要显示在悬浮工具栏上的按钮",
+            nullptr, checks_panel(std::move(checks), 174, 1, 14));
     // 缩放和图标尺寸相乘才是工具栏的大小，和共享页一样只给一个「工具栏大小」，选一档同时写两个值（见 FloatingToolbarSizeModel.h）。
-    auto appearance = add_group(page, L"尺寸");
-    add_row(appearance, 0xE740, L"工具栏大小", L"按钮和图标一起放大或缩小，不改变系统显示缩放",
+    auto size = add_group(page, L"尺寸");
+    add_row(size, 0xE740, L"工具栏大小", L"按钮和图标一起放大或缩小，不改变系统显示缩放",
             toolbar_size_control());
+    // 工具栏跟随「主题」页的颜色模式和主题，没有自己的明暗；这一行只是指向那里（共享页 floating-toolbar-page.tsx「尺寸」组末尾的 LinkRow「颜色与明暗」），落到「主题」页的「颜色模式」。
+    link_row(size, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题", false, [this] {
+      focus_row_ = L"颜色模式";
+      navigate("themes");
+    });
   }
 
   // 「工具栏大小」的下拉框，照共享页 floating-toolbar-page.tsx 的 SelectRow：存下的两个值凑不成任何一档时（以前分开调过），最前面多一项灰着的「自定义（缩放 X%，图标 Y）」并选着它，不改写存储；选一档后重画页面，这一项随之消失。
@@ -23785,7 +24057,18 @@ private:
   std::set<std::wstring> skin_image_failures_;
   std::map<std::wstring, std::pair<bool, bool>> skin_preview_overrides_;
   bool color_picker_open_ = false;
-  // 从「我的皮肤」的卡片发布后，卡片下面的那一句。
+  // 内置主题卡片上选的预览明暗，按主题 id，只对跟随明暗的卡片有效（共享页的 skinPreviewThemes）；跨页面重建保留，不写偏好，候选窗口的明暗变了时清空（forget_stale_card_previews）。card_previews_dark_ 是上次查时候选窗口的明暗。
+  std::map<std::wstring, bool> theme_preview_overrides_;
+  bool card_previews_dark_ = false;
+  // 主题轮播：正在显示的卡片的 key（`theme:<id>` 或 `package:<id>`）和序号，以及上次画页面时选中的卡片的 key，见 add_theme_carousel。
+  std::wstring theme_carousel_key_;
+  size_t theme_carousel_at_ = 0;
+  std::wstring theme_carousel_selected_;
+  // 取色器拖动时要重画的东西（update_custom_theme_card）：「自定义」卡片的预览面、轮播本身和「自定义」卡片在轮播里的序号（没有时为 -1），每次画页面时重设。
+  weak_ref<StackPanel> custom_theme_stages_;
+  weak_ref<FlipView> theme_carousel_view_;
+  int32_t theme_carousel_custom_at_ = -1;
+  // 从「本地皮肤」的卡片发布后，卡片下面的那一句。
   std::wstring skin_published_notice_;
 
   // 「社区皮肤」「社区插件」两个标签：停在哪一边（跨页面保留，与共享外壳的 skinView、pluginView 一样）、两个图库、皮肤的分类筛选（正在请求的、上次成功列出的、按钮上显示的）和插件的类型筛选、预览图的缓存和正在显示它们的卡片、皮肤库同步是否在进行或排着下一次，以及两个发布对话框的状态。
@@ -23841,7 +24124,7 @@ private:
   Border preview_host_{nullptr};
   Grid preview_frame_{nullptr};
   Border toolbar_preview_host_{nullptr};
-  TextBlock toolbar_preview_size_{nullptr};
+  TextBlock toolbar_preview_label_{nullptr};
   std::optional<JsonObject> dictionary_update_status_;
   std::wstring dictionary_update_message_;
   bool dictionary_update_busy_ = false;

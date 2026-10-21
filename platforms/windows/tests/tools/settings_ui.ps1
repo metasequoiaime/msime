@@ -71,20 +71,25 @@ function New-CanvasPreviewFixture {
 }
 function Assert-CanvasPreview($window, [string]$mode) {
     Open-Page $window 'themes'
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    do {
-        $image = Find-ById $window 'canvas-preview-verify-canvas-horizontal'
-        if ($image) { break }
-        Start-Sleep -Milliseconds 200
-    } while ([DateTime]::UtcNow -lt $deadline)
-    if (-not $image) { throw 'Canvas image did not load in the native settings card' }
     $search = Find-ById $window 'settings-search'
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
     $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
     if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
     if (-not $input) { throw 'Settings search input is missing' }
+    # 主题页照 macOS 是一次一张卡片的轮播，合成皮肤的卡片不在打开页面时显示的那张上：经搜索结果打开它，轮播停在那张。皮肤目录扫描完以前索引里还没有它，清空再输入，直到结果列表里出现。
+    $hit = $null
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $input.SetFocus()
+        $value = $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        $value.SetValue('')
+        $value.SetValue('合成画布')
+        Start-Sleep -Milliseconds 300
+        $results = Find-ById $window 'settings-search-results'
+        $hit = if ($results) { Find-ByName $results '合成画布' } else { $null }
+    } while (-not $hit -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $hit) { throw 'Canvas skin did not reach the settings search' }
     $input.SetFocus()
-    $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('合成画布')
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     foreach ($layout in @('horizontal', 'vertical')) {
         $expected = if ($mode -eq 'light') { 0x00ffff } else { 0x56789a }
@@ -941,11 +946,12 @@ try {
         } while ((-not $first -or $first.Current.Name -ne '你们') -and [DateTime]::UtcNow -lt $deadline)
         if (-not $first -or $first.Current.Name -ne '你们') { throw 'Whitespace did not restore the default preview' }
         if ([IO.File]::ReadAllText((Join-Path $state 'preferences.json')) -ne $preferencesBeforePreview) { throw 'Preview-only controls changed saved preferences' }
-        # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。
+        # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。预览下面照 macOS 不再写尺寸，画出来的 DIP 尺寸在「预览」小字的帮助文本里。
         Open-Page $window 'toolbar'
-        $size = Find-ById $window 'toolbar-preview-size'
-        if (-not $size) { throw 'Toolbar preview size is missing' }
-        $original = $size.Current.Name
+        $size = Find-ById $window 'toolbar-preview-label'
+        if (-not $size) { throw 'Toolbar preview label is missing' }
+        $original = $size.Current.HelpText
+        if (-not $original) { throw 'Toolbar preview size is missing' }
         foreach ($enabled in @($true, $false)) {
             $voice = Find-CheckBox (Find-ById $window 'settings-content') '语音输入'
             if (-not $voice) { throw 'Toolbar voice component is missing' }
@@ -954,12 +960,13 @@ try {
             do {
                 Start-Sleep -Milliseconds 200
                 $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
-                $size = Find-ById $window 'toolbar-preview-size'
-                $changed = $size -and ($size.Current.Name -ne $original)
+                $size = Find-ById $window 'toolbar-preview-label'
+                $changed = $size -and ($size.Current.HelpText -ne $original)
             } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
             if ($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) { throw 'Toolbar component did not update preferences and preview together' }
             Start-Sleep -Milliseconds 350
-            if ($enabled) { Assert-SelectedAccent (Find-CheckBox (Find-ById $window 'settings-content') '语音输入') }
+            # 按钮照 macOS 排成纵向一列后，「语音输入」在 800 × 780 的窗口里落在视口下面，而勾选它写入偏好后整页重画、回到原来的滚动位置，滚进视口也留不住。同一组的复选框共用一个样式，所以核对一直在视口里、默认勾选的「中英文切换」的强调色。
+            if ($enabled) { Assert-SelectedAccent (Find-CheckBox (Find-ById $window 'settings-content') '中英文切换') }
             Save-Window $window "$theme-toolbar-voice-$enabled.png"
         }
         # 固定操作仍要写入真实历史存储，只操作上方构造的合成记录。此时窗口是 800 宽，行窄，固定在「更多操作」菜单里；宽行直接点排出来的「固定」。
