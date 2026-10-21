@@ -3683,10 +3683,12 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         _capsLockTap.press(MSIMECapsLockNow(), true, false, (event.modifierFlags & others) != 0);
         if (!_capsLockTap.armed()) return NO;
         __weak MSIMEInputController *weakSelf = self;
-        _capsLockTapTimer = [NSTimer scheduledTimerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
+        _capsLockTapTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
             (void)timer;
             [weakSelf pollCapsLockTap];
         }];
+        // 事件跟踪与模态面板期间也要轮询，否则轻点会等默认运行模式恢复后才被当作长按。
+        [NSRunLoop.mainRunLoop addTimer:_capsLockTapTimer forMode:NSRunLoopCommonModes];
         return YES;
     }
     // 按着 Caps Lock 又按了别的键，是在用大写锁定打字：不再算轻点，大写锁定由调用方照常报告。

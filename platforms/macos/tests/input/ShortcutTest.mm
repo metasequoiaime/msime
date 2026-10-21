@@ -5807,6 +5807,33 @@ static void TestCapsLockTap() {
     [controller pollCapsLockTap];
     assert(prefs.englishMode && gCapsReleases == 4);
 
+    // 真正推进运行循环：直接调用 pollCapsLockTap 看不出默认模式的定时器会在事件跟踪或模态面板期间停住。
+    prefs.capsLockTapShortcut = YES;
+    for (NSRunLoopMode mode in @[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode, NSModalPanelRunLoopMode]) {
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), (__bridge CFStringRef)mode);
+        assert(![controller handleEvent:capsOff(10.0) client:client]);
+        prefs.englishMode = NO;
+        const NSUInteger releasesBefore = gCapsReleases;
+        gCapsNow = 10000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(10.0) client:client]);
+        gCapsNow = 10050; gCapsHeld = false;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (gCapsReleases == releasesBefore && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
+
+        // 同一运行模式下超过阈值仍保留大写锁定，不能为了让轻点响应而把长按也切换掉。
+        assert(![controller handleEvent:capsOff(10.1) client:client]);
+        gCapsNow = 11000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(11.0) client:client]);
+        gCapsNow = 11301;
+        deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (!session.capsLock && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(session.capsLock && prefs.englishMode && gCapsReleases == releasesBefore + 1);
+        gCapsHeld = false;
+    }
+
     MSIMECapsLockRelease = realRelease;
     MSIMECapsLockKeyHeld = realHeld;
     MSIMECapsLockNow = realNow;
@@ -10477,6 +10504,10 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
+            TestCapsLockTap();
+            return 0;
+        }
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
         if (argc == 2 && std::string(argv[1]) == "--shift-corner-quotes") {
             TestShiftCornerQuotesThroughRealSession();
