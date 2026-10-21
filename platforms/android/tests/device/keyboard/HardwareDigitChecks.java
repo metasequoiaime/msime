@@ -26,6 +26,8 @@ final class HardwareDigitChecks {
             .put("touch_keyboard_layout", "twenty_six_key").put("learning", false)
             .put("cloud_candidates", false).put("number_row_selection", true)
             .put("character_width", "halfwidth");
+        options.getJSONObject("preferences").getJSONObject("local_modes")
+            .put("emoji", true).put("shift_letter_entry", true);
         Throwable[] failure = new Throwable[1];
         smoke.runOnMainSync(() -> {
             Object service = null;
@@ -117,6 +119,28 @@ final class HardwareDigitChecks {
                     key(onKey, service, KeyEvent.KEYCODE_2);
                     check(view(type, service).getString("editing_text").contains("42"), "local-mode digit input");
                     command.invoke(service, 3);
+                    smoke.stage = "emoji mode keeps raw fallback, grid " + grid;
+                    field(type, "numberRowSelection").setBoolean(service, false);
+                    committed.setLength(0);
+                    character.invoke(service, (int) 'E', true);
+                    character.invoke(service, (int) 'j', false);
+                    character.invoke(service, (int) 'i', false);
+                    check(view(type, service).getString("local_mode").equals("emoji"), "emoji mode fixture");
+                    check(view(type, service).getJSONArray("candidates").length() > 0, "emoji candidate fixture");
+                    // 模式不接数字时按原文结束；合成系统编辑器接住宿主交还的数字。
+                    if (!key(onKey, service, KeyEvent.KEYCODE_2)) committed.append('2');
+                    check(committed.toString().equals("Eji2"), "unclaimed local-mode digit must keep raw text");
+                    check(view(type, service).getString("editing_text").isEmpty(), "emoji mode exits on digit");
+                    command.invoke(service, 3);
+                    smoke.stage = "emoji mode keeps number selection, grid " + grid;
+                    field(type, "numberRowSelection").setBoolean(service, true);
+                    committed.setLength(0);
+                    character.invoke(service, (int) 'E', true);
+                    character.invoke(service, (int) 'j', false);
+                    character.invoke(service, (int) 'i', false);
+                    String emoji = view(type, service).getJSONArray("candidates").getJSONObject(0).getString("text");
+                    key(onKey, service, KeyEvent.KEYCODE_1);
+                    check(committed.toString().equals(emoji), "local-mode number selection stays available");
                 }
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
