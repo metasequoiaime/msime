@@ -856,6 +856,78 @@
     object-position: center bottom;
     background-position: center bottom;
   }
+
+  /* canvas 卡片沿用候选标记：九宫格使用 border-image；内容内边距不小于边宽，
+   * 外留白与装饰带叠加，line_gap_dip 替换拼音行下间距；自由挂件按 z_index 分成上下两层。 */
+  & .candidate[data-canvas] .containerParent {
+    position: relative;
+    box-sizing: border-box;
+    width: fit-content;
+    max-width: 100%;
+    padding: calc(var(--msime-canvas-outer-top, 0px) + var(--msime-skin-decoration-top, 0px))
+      var(--msime-canvas-outer-right, 0px) var(--msime-canvas-outer-bottom, 0px)
+      var(--msime-canvas-outer-left, 0px);
+  }
+
+  & .candidate[data-canvas] .container {
+    position: relative;
+    z-index: 1;
+    padding: var(--msime-canvas-content-top, 0px) var(--msime-canvas-content-right, 0px)
+      var(--msime-canvas-content-bottom, 0px) var(--msime-canvas-content-left, 0px);
+  }
+
+  & .candidate[data-canvas][data-canvas-line-gap] .pinyin {
+    margin-bottom: var(--msime-canvas-line-gap);
+  }
+
+  /* 面板成功解码后才替换实色卡片；加载或解码失败时保留可读底色、边框与圆角。 */
+  & .candidate[data-canvas] .container[data-panel] {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  & .skin-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border: 0 solid transparent;
+    pointer-events: none;
+  }
+
+  & .candidate[data-canvas] .container[data-panel] > :not(.skin-panel) {
+    position: relative;
+    z-index: 1;
+  }
+
+  & .skin-layer {
+    position: absolute;
+    top: calc(var(--msime-canvas-outer-top, 0px) + var(--msime-skin-decoration-top, 0px));
+    right: var(--msime-canvas-outer-right, 0px);
+    bottom: var(--msime-canvas-outer-bottom, 0px);
+    left: var(--msime-canvas-outer-left, 0px);
+    pointer-events: none;
+  }
+
+  & .skin-layer-below {
+    z-index: 0;
+  }
+
+  & .skin-layer-above {
+    z-index: 2;
+  }
+
+  & .skin-picture {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  & .skin-picture > img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 }
 
 @utility skin-card-preview {

@@ -26,6 +26,8 @@ pub struct CustomTranslations {
 
 /// 行数上限接在末尾写成字面量：`LIMIT ?` 会让 SQLite 每次执行都重新解析和规划整条语句，九键一键要查几十个前缀（见 `pinyin` 里的同一说明）。
 const PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display LIMIT ";
+// 分组键盘在限额前匹配完整查询键；排序与九键的最终排序一致，展示按 UTF-8 字节计长。
+const KEYPAD_PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY CASE WHEN length(CAST(display AS BLOB))=?4 AND weight>0 THEN 0 ELSE 1 END,weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
 const EN_ZH_SQL: &str = "SELECT chinese_gloss FROM en_zh_glosses WHERE english=?1";
 const ZH_EN_SQL: &str = "SELECT english_gloss FROM zh_en_glosses WHERE chinese=?1";
 const ENGLISH_WORDS_DDL: &str = "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;";
@@ -115,8 +117,6 @@ impl EnglishDictionary {
 
     /// 向已有候选缓冲写入结果；热查询复用候选行和其中的字符串容量。
     pub fn query_prefix_into(&self, prefix: &str, limit: usize, candidates: &mut Vec<WordItem>) {
-        let reusable = candidates.len();
-        let mut count = 0;
         let Some(connection) = &self.connection else {
             candidates.clear();
             return;
@@ -134,64 +134,39 @@ impl EnglishDictionary {
             candidates.clear();
             return;
         };
-        loop {
-            match rows.next() {
-                Ok(Some(row)) => {
-                    // A NULL word or display is skipped rather than shown blank (english_dictionary.cpp:64-69).
-                    let is_null = |index| matches!(row.get_ref(index), Ok(ValueRef::Null));
-                    if is_null(0) || is_null(1) {
-                        continue;
-                    }
-                    let (Ok(word), Ok(display), Ok(weight)) = (
-                        column_text_ref(row, 0),
-                        column_text_ref(row, 1),
-                        column_i64(row, 2),
-                    ) else {
-                        candidates.clear();
-                        return;
-                    };
-                    if count < limit {
-                        if count < reusable {
-                            let candidate = &mut candidates[count];
-                            candidate.pinyin.clear();
-                            candidate.pinyin.push_str(&word);
-                            candidate.canonical_pinyin.clear();
-                            candidate.word.clear();
-                            candidate.word.push_str(&display);
-                            candidate.weight = weight;
-                            candidate.source = CandidateSource::EnglishDictionary;
-                            candidate.scheme = Default::default();
-                            candidate.fixed_position = 0;
-                            candidate.fuzzy = false;
-                            candidate.corrected_from.clear();
-                            candidate.sentence_association = false;
-                            candidate.sentence_words.clear();
-                        } else {
-                            if count == candidates.capacity() {
-                                candidates.reserve_exact(limit - count);
-                            }
-                            candidates.push(WordItem::new(
-                                word.as_ref(),
-                                display.as_ref(),
-                                weight,
-                                CandidateSource::EnglishDictionary,
-                                "",
-                            ));
-                        }
-                        count += 1;
-                    }
-                }
-                Ok(None) => {
-                    candidates.truncate(count);
-                    return;
-                }
-                // A step that ends in anything but DONE discards the partial page (english_dictionary.cpp:75-79).
-                Err(_) => {
-                    candidates.clear();
-                    return;
-                }
-            }
+        read_prefix_rows(&mut rows, limit, candidates);
+    }
+
+    /// 按索引前缀与完整分组键码共同筛选，匹配行才占用候选限额。
+    pub(crate) fn query_keypad_prefix(
+        &self,
+        prefix: &str,
+        pattern: &str,
+        typed: usize,
+        limit: usize,
+    ) -> Vec<WordItem> {
+        let mut candidates = Vec::new();
+        let Some(connection) = &self.connection else {
+            return candidates;
+        };
+        if !is_lower_ascii_word(prefix) || pattern.is_empty() || limit == 0 {
+            return candidates;
         }
+        let upper_bound = prefix_upper_bound(prefix);
+        let sql = format!("{KEYPAD_PREFIX_SQL}{}", sql_limit(limit));
+        let Ok(mut statement) = connection.prepare_cached(&sql) else {
+            return candidates;
+        };
+        let Ok(mut rows) = statement.query(rusqlite::params![
+            prefix,
+            upper_bound,
+            pattern,
+            sql_limit(typed)
+        ]) else {
+            return candidates;
+        };
+        read_prefix_rows(&mut rows, limit, &mut candidates);
+        candidates
     }
 
     /// Custom sidecar, then `en_zh_glosses`, then the learned store; exact key, English not lowercased. Empty when none has it.
@@ -240,6 +215,70 @@ impl EnglishDictionary {
                 // A store that cannot answer is closed so the next lookup opens it afresh (english_dictionary.cpp:374-384).
                 *cache = None;
                 String::new()
+            }
+        }
+    }
+}
+
+/// 普通前缀与完整组码查询共用行解码、空页延迟预留及失败时整页丢弃的约定。
+fn read_prefix_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mut Vec<WordItem>) {
+    let reusable = candidates.len();
+    let mut count = 0;
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                // 跳过空查询键或空展示，不产生空白候选。
+                let is_null = |index| matches!(row.get_ref(index), Ok(ValueRef::Null));
+                if is_null(0) || is_null(1) {
+                    continue;
+                }
+                let (Ok(word), Ok(display), Ok(weight)) = (
+                    column_text_ref(row, 0),
+                    column_text_ref(row, 1),
+                    column_i64(row, 2),
+                ) else {
+                    candidates.clear();
+                    return;
+                };
+                if count < limit {
+                    if count < reusable {
+                        let candidate = &mut candidates[count];
+                        candidate.pinyin.clear();
+                        candidate.pinyin.push_str(&word);
+                        candidate.canonical_pinyin.clear();
+                        candidate.word.clear();
+                        candidate.word.push_str(&display);
+                        candidate.weight = weight;
+                        candidate.source = CandidateSource::EnglishDictionary;
+                        candidate.scheme = Default::default();
+                        candidate.fixed_position = 0;
+                        candidate.fuzzy = false;
+                        candidate.corrected_from.clear();
+                        candidate.sentence_association = false;
+                        candidate.sentence_words.clear();
+                    } else {
+                        if count == candidates.capacity() {
+                            candidates.reserve_exact(limit - count);
+                        }
+                        candidates.push(WordItem::new(
+                            word.as_ref(),
+                            display.as_ref(),
+                            weight,
+                            CandidateSource::EnglishDictionary,
+                            "",
+                        ));
+                    }
+                    count += 1;
+                }
+            }
+            Ok(None) => {
+                candidates.truncate(count);
+                return;
+            }
+            // SQLite 未正常完成时丢弃整页，避免展示不完整结果。
+            Err(_) => {
+                candidates.clear();
+                return;
             }
         }
     }

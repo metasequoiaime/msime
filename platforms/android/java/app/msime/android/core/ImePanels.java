@@ -36,6 +36,7 @@ final class ImePanels {
     private static final String SYMBOL_RECENTS_PREFERENCES = "android-symbol-recents";
     private static final String SYMBOL_RECENTS_KEY = "items";
     private final MSIMEInputService s;
+    private final ClipboardTextPreview clipboardPreview;
     private SharedPreferences symbolPreferences;
     // 只在主线程上用（打开符号面板、点符号记进「常用」时）；`emojiGlyphPaint` 归 `emojiWorker`，Paint 不能跨线程共用。
     private final Paint symbolRecentsGlyphPaint = new Paint();
@@ -44,6 +45,11 @@ final class ImePanels {
 
     ImePanels(MSIMEInputService s) {
         this.s = s;
+        clipboardPreview = new ClipboardTextPreview(s);
+    }
+
+    void dismissClipboardPreview() {
+        clipboardPreview.dismiss();
     }
 
     void invalidateReplyTemplateReads() {
@@ -91,7 +97,7 @@ final class ImePanels {
     void renderEmojiTabs() {
         if (s.emojiTabs == null) return;
         s.emojiTabs.removeAllViews();
-        // 顺序和横划切换共用一份：表情包在时排第一，之后是「最近」和各 Emoji 分类。
+        // 顺序和横划切换共用一份：常用始终排第一，水杉娘可用时排第二。
         for (int category : s.imeStickers.categoryOrder()) {
             if (category == s.imeStickers.category()) addStickerTab();
             else if (category == StickerPackModel.RECENTS_CATEGORY)
@@ -100,7 +106,7 @@ final class ImePanels {
         }
     }
 
-    /** 第一个分类签「水杉娘」：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
+    /** 「水杉娘」分类签：画清单第一张的缩略图，大小、选中底色和其他分类签一样。 */
     private void addStickerTab() {
         ImeStickers.StickerButton tab = emojiButton(new ImeStickers.StickerButton(s, s.pixels(2),
             s.pixels(StickerPackModel.TAB_ICON_DP)), KeyboardKeyRole.PLAIN, false,
@@ -168,6 +174,10 @@ final class ImePanels {
         if (width <= 0) width = s.getResources().getDisplayMetrics().widthPixels - s.pixels(12);
         int rowHeight = visible > 0
             ? BoundsPolicy.atLeast(s.pixels(40), visible / 3) : s.pixels(48);
+        if (s.emojiSelectedCategory == StickerPackModel.RECENTS_CATEGORY && s.emojiItems.isEmpty()) {
+            TextView hint = ViewPolicy.centeredText(s, "点过的表情会出现在这里", 13);
+            s.emojiGrid.addView(hint, LayoutPolicy.matchWidthHeightPx(rowHeight));
+        }
         LinearLayout row = null;
         int used = 0;
         for (EmojiCatalogModel.Item item : s.emojiItems) {
@@ -280,8 +290,8 @@ final class ImePanels {
         s.emojiRecents = s.loadEmojiRecents();
         ViewPolicy.show(s.emojiPanel);
         s.emojiPanel.requestFocus();
-        // 表情包在时默认选中它，直接显示表情包网格；读不到清单时沿用「有最近就最近，否则第一个分类」。
-        s.selectEmojiCategory(s.imeStickers.defaultCategory());
+        // 有无使用记录都默认打开常用，异步加载贴纸不改变当前分类。
+        s.selectEmojiCategory(StickerPackModel.RECENTS_CATEGORY);
     }
 
     void showSymbolPanel() {
@@ -1453,6 +1463,7 @@ final class ImePanels {
     private final java.util.Set<String> clipboardSelectedTexts = new java.util.LinkedHashSet<>();
 
     void renderClipboardHistory() {
+        dismissClipboardPreview();
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
         clipboardCardRow = null;
@@ -1556,7 +1567,8 @@ final class ImePanels {
                 renderClipboardHistory();
             });
             if (s.hasClipboardUndo()) {
-                Button undo = clipboardAction(header, "撤销", s::undoClipboardItems);
+                // 撤销是删除后的限时恢复入口，使用完整键帽底色和边框，避免在顶行右侧被看成普通文字。
+                Button undo = clipboardAction(header, "撤销", s::undoClipboardItems, KeyboardKeyRole.KEY);
                 undo.setContentDescription("撤销刚才删除的剪贴板记录");
             }
         }
@@ -1602,7 +1614,7 @@ final class ImePanels {
                     }
                     s.insertClipboardText(item.text());
                 });
-                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按管理");
+                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按预览全文和管理");
                 if (clipboardSelectionMode) {
                     card.setContentDescription((clipboardSelectedTexts.contains(item.text()) ? "已选择；" : "")
                         + "点按选择剪贴板记录");
@@ -1614,6 +1626,7 @@ final class ImePanels {
                     clipboardClearPending = false;
                     clipboardSwipedText = null;
                     renderClipboardHistory();
+                    clipboardPreview.show(item.text());
                     return true;
                 });
                 placeClipboardCell(index, items.size(), clipboardSwipeCell(card, item, swiped, reveal));
@@ -1922,7 +1935,12 @@ final class ImePanels {
     }
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
-        Button button = MSIMEInputService.role(s.button(header, label, action), KeyboardKeyRole.GLYPH);
+        return clipboardAction(header, label, action, KeyboardKeyRole.GLYPH);
+    }
+
+    private Button clipboardAction(LinearLayout header, String label, Runnable action,
+            KeyboardKeyRole role) {
+        Button button = MSIMEInputService.role(s.button(header, label, action), role);
         ViewPolicy.setTextSizeSp(button, 13);
         compactReplyControl(button, s.pixels(10));
         button.setLayoutParams(LayoutPolicy.wrapMatchParentParams());
@@ -2418,6 +2436,7 @@ final class ImePanels {
 
                 @Override public void restyle(View view) { s.imeStyler.applySkinToView(view); }
             });
+        s.symbolPanel.setHeaderMascot(s.imeStickers.tabIcon());
         symbolPreferences = s.getSharedPreferences(SYMBOL_RECENTS_PREFERENCES, Context.MODE_PRIVATE);
         ViewPolicy.hide(s.symbolPanel);
         s.keyboardSurface.addView(s.symbolPanel, LayoutPolicy.frameMatchParentParams());
@@ -2596,7 +2615,7 @@ final class ImePanels {
                 horizontal = false;
                 if (action == MotionEvent.ACTION_UP && !multiplePointers &&
                         Math.abs(dx) >= s.pixels(48) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    // 按底栏分类签的顺序切换（表情包在时是第一个），到两端不回绕。
+                    // 按底栏分类签的顺序切换，常用在最左，两端不回绕。
                     int category = s.imeStickers.swipeCategory(dx < 0 ? 1 : -1);
                     if (category != StickerPackModel.NO_CATEGORY) s.selectEmojiCategory(category);
                 }

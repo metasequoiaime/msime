@@ -90,6 +90,12 @@ int main() {
 
   // Fcitx5 的经典界面要磅：像素乘 3/4，总是 0.25 的整数倍，照原样写出；超出范围同样退回默认的 18 像素。
   using msime::linux_host::CandidateFontUnit;
+  using msime::linux_host::fcitx_candidate_font_unit;
+  for (const auto *version : {"5.0.21", "5.1.0", "5.1.17", "", "5.1", "invalid", "5.-1.18", "5.1.999999999999999999999"})
+    assert(fcitx_candidate_font_unit(version) == CandidateFontUnit::Pixels);
+  for (const auto *version : {"5.1.18", "5.1.23", "5.1.23-git", "5.2.0", "6.0.0"})
+    assert(fcitx_candidate_font_unit(version) == CandidateFontUnit::Points);
+
   assert(candidate_pango_font({"MiSans", {"Noto Sans SC", "Microsoft YaHei"}, 14}, CandidateFontUnit::Points) ==
          "MiSans, Noto Sans SC, Microsoft YaHei, 10.5");
   assert(candidate_pango_font({"Sans", {}, 12}, CandidateFontUnit::Points) == "Sans, 9");

@@ -520,12 +520,15 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
 
     if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
     {
+        // Home 键分两段（MSIME_FIRST_CANDIDATE_OR_HOME）：高亮不在首选时回到首选，已在首选时把光标移到输入串开头。宿主会话没接时照旧交给下面的旧候选列表。
+        HRESULT home = S_OK;
+        if (keyFunction == FUNCTION_MOVE_PAGE_TOP && _HandleHostHomeKey(ec, pContext, requestId, &home))
+            return home;
         uint32_t command = UINT32_MAX;
         switch (keyFunction)
         {
         case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
         case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
-        case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE; break;
         case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE; break;
         case FUNCTION_MOVE_UP: command = MSIME_PREVIOUS_CANDIDATE; break;
         case FUNCTION_MOVE_DOWN: command = MSIME_NEXT_CANDIDATE; break;

@@ -187,3 +187,33 @@ test("browser initialization does not register a native listener", async () => {
   expect(bridge.listen).not.toHaveBeenCalled();
   expect(bridge.invoke).not.toHaveBeenCalled();
 });
+
+test("Linux 设置进程被叫到前台时重看词库是否过期，点过「稍后」后不再打断", async () => {
+  let outdated = false;
+  bridge.invoke.mockImplementation(async (command) => {
+    if (command === "host_capabilities") return testHost({ platform: "linux" });
+    if (command === "initial_settings_page") return null;
+    if (command === "supports_font_catalog") return false;
+    if (command === "linux_setup_status")
+      return {
+        prepared: true,
+        stateDirectory: "/home/synthetic/.config/msime-client",
+        directoryOccupied: false,
+        setupAvailable: true,
+        dictionaryOutdated: outdated,
+      };
+    return undefined;
+  });
+  mount();
+  await screen.findByTestId("settings");
+  const emit = bridge.listen.mock.calls[0][1];
+  // 进程已在运行时宿主才留下过期标记；点通知的「打开设置」只是把窗口叫到前台（空路由）。
+  outdated = true;
+  await act(async () => emit({ payload: "" }));
+  expect(await screen.findByRole("heading", { name: "词库需要更新" })).toBeTruthy();
+  await act(async () => screen.getByRole("button", { name: "稍后" }).click());
+  await screen.findByTestId("settings");
+  await act(async () => emit({ payload: "" }));
+  expect(screen.queryByRole("heading", { name: "词库需要更新" })).toBeNull();
+  expect(screen.getByTestId("settings")).toBeTruthy();
+});

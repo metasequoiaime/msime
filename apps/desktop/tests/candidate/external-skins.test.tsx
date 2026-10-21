@@ -40,7 +40,10 @@ import desktopConfig from "../../src-tauri/tauri.conf.json";
 import * as fontPreparation from "../../../../packages/ui/src/skin/toolbar-fonts";
 import { useSelectedBarPalette } from "../../../../packages/ui/src/skin/skin-palette";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 // jsdom parses CSS rules but does not implement adopted stylesheet rendering.
 // Real CSP/computed-style coverage lives in scripts/test-skin-palette-csp.py.
 beforeEach(() =>
@@ -1442,4 +1445,152 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
   expect(screen.queryByRole("dialog", { name: "发布候选窗口皮肤" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
+});
+
+// 一个全贴图（canvas）包：九宫格面板、内容与外留白、拼音行距和一个自由挂件。
+const canvasCatalog: SkinCatalog = {
+  directory: "/synthetic/state/skins",
+  issues: [],
+  packages: [
+    {
+      ...sample,
+      id: "paneled",
+      name: "Paneled skin",
+      canvas: true,
+      borderImage: {
+        source: "images/panel.png",
+        lightSource: "images/panel-light.png",
+        sliceDip: [2],
+        stretchDip: [8],
+        widthDip: [10, 6, 14, 7],
+        fill: true,
+      },
+      contentInsetsDip: { top: 4, right: 30, bottom: 20, left: 2 },
+      outerInsetsDip: { top: 4, right: 5, bottom: 6, left: 7 },
+      lineGapDip: 9,
+      decorations: [
+        {
+          image: "images/petal.png",
+          anchor: "top-left",
+          offsetXDip: 3,
+          offsetYDip: 4,
+          widthDip: 24,
+          heightDip: 18,
+          zIndex: 3,
+        },
+      ],
+    },
+  ],
+};
+
+// jsdom 不解码图片；显式派发浏览器成功/失败事件，并保留每代请求便于验证过期回调。
+function controlledCanvasImages() {
+  const images: HTMLImageElement[] = [];
+  vi.stubGlobal("Image", function () {
+    const image = document.createElement("img");
+    images.push(image);
+    return image;
+  });
+  return images;
+}
+const canvasImageData: SkinImage = {
+  contentType: "image/png",
+  bytes: Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==",
+    ),
+    (value) => value.charCodeAt(0),
+  ),
+};
+
+test("canvas card draws the nine-slice panel, its insets and the line gap instead of a placeholder", async () => {
+  const images = controlledCanvasImages();
+  const readImage = vi.fn().mockResolvedValue(canvasImageData);
+  render(packageCard(canvasCatalog.packages[0], { readImage }));
+  const card = screen.getByRole("article", { name: "Paneled skin" });
+  const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
+  // 内容内边距每边不小于九宫格边宽，外留白照清单；两者都写在预览表面上，候选标记按继承读它们。
+  expect(preview.style.getPropertyValue("--msime-canvas-content-top")).toBe("10px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-right")).toBe("30px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-bottom")).toBe("20px");
+  expect(preview.style.getPropertyValue("--msime-canvas-content-left")).toBe("7px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-top")).toBe("4px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-right")).toBe("5px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-bottom")).toBe("6px");
+  expect(preview.style.getPropertyValue("--msime-canvas-outer-left")).toBe("7px");
+  expect(preview.style.getPropertyValue("--msime-canvas-line-gap")).toBe("9px");
+  const candidate = card.querySelector<HTMLElement>(".candidate")!;
+  expect(candidate.hasAttribute("data-canvas")).toBe(true);
+  expect(candidate.hasAttribute("data-canvas-line-gap")).toBe(true);
+  // 九宫格面板真的画出来：图片经宿主读取器解码，切片与边宽取自清单。
+  await waitFor(() => expect(images).toHaveLength(1));
+  expect(card.querySelector(".skin-panel")).toBeNull();
+  act(() => fireEvent.load(images[0]));
+  await waitFor(() => expect(card.querySelector(".skin-panel")).not.toBeNull());
+  const panel = card.querySelector<HTMLElement>(".skin-panel")!;
+  expect(panel.style.getPropertyValue("border-image-source")).toBe(
+    `url("${skinImageUrl(canvasImageData)}")`,
+  );
+  expect(panel.style.getPropertyValue("border-image-slice")).toBe("8 8 8 8 fill");
+  expect(panel.style.getPropertyValue("border-image-width")).toBe("10px 6px 14px 7px");
+  expect(card.querySelector(".container")?.hasAttribute("data-panel")).toBe(true);
+  // 自由挂件按锚点与偏移画在卡片左上角。
+  await waitFor(() => expect(card.querySelector(".skin-layer-above .skin-picture")).not.toBeNull());
+  const petal = card.querySelector<HTMLElement>(".skin-layer-above .skin-picture")!;
+  expect(petal.style.getPropertyValue("width")).toBe("24px");
+  expect(petal.style.getPropertyValue("height")).toBe("18px");
+  expect(petal.style.getPropertyValue("left")).toBe("3px");
+  expect(petal.style.getPropertyValue("top")).toBe("4px");
+  expect(petal.querySelector("img")?.getAttribute("src")).toBe(skinImageUrl(canvasImageData));
+});
+
+test.each(["dark", "light"] as const)(
+  "canvas 面板解码成功才切换 %s 贴图配色",
+  async (activeTheme) => {
+    const images = controlledCanvasImages();
+    const skin = {
+      ...canvasCatalog.packages[0],
+      panelCandidate: {
+        dark: { text: "#FFEEDD", surface: "#111111" },
+        light: { text: "#112233", surface: "#EEEEEE" },
+      },
+    };
+    const readImage = vi.fn().mockResolvedValue(canvasImageData);
+    render(packageCard(skin, { readImage, activeTheme }));
+    const card = screen.getByRole("article");
+    await waitFor(() => expect(images).toHaveLength(1));
+    expect(card.querySelector("[data-panel]")).toBeNull();
+    expect(drawn(card, "--cand-bg")).toBe(activeTheme === "dark" ? "#123456" : "#ABCDEF");
+    act(() => fireEvent.load(images[0]));
+    expect(card.querySelectorAll("[data-panel]")).toHaveLength(2);
+    expect(drawn(card, "--cand-text")).toBe(activeTheme === "dark" ? "#FFEEDD" : "#112233");
+  },
+);
+
+test("canvas 损坏图片保留可读底色，重扫不沿用上一代的解码结果", async () => {
+  const images = controlledCanvasImages();
+  const readImage = vi.fn().mockResolvedValue(canvasImageData);
+  const skin = {
+    ...canvasCatalog.packages[0],
+    panelCandidate: { dark: { surface: "#111111" }, light: {} },
+  };
+  const { rerender } = render(packageCard(skin, { readImage, revision: 1 }));
+  const card = screen.getByRole("article");
+  await waitFor(() => expect(images).toHaveLength(1));
+  act(() => fireEvent.error(images[0]));
+  expect(card.querySelector("[data-panel]")).toBeNull();
+  expect(drawn(card, "--cand-bg")).toBe("#123456");
+  rerender(packageCard(skin, { readImage, revision: 2 }));
+  await waitFor(() => expect(images).toHaveLength(2));
+  const staleLoad = images[1].onload!;
+  act(() => fireEvent.load(images[1]));
+  expect(drawn(card, "--cand-bg")).toBe("#111111");
+  rerender(packageCard(skin, { readImage, revision: 3 }));
+  expect(card.querySelector("[data-panel]")).toBeNull();
+  expect(drawn(card, "--cand-bg")).toBe("#123456");
+  await waitFor(() => expect(images).toHaveLength(3));
+  act(() => fireEvent.load(images[2]));
+  act(() => staleLoad.call(images[1], new Event("load")));
+  expect(card.querySelectorAll("[data-panel]")).toHaveLength(2);
+  expect(drawn(card, "--cand-bg")).toBe("#111111");
 });

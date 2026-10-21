@@ -1,5 +1,6 @@
 package app.msime.android.test;
 
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -10,7 +11,7 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Device acceptance for Engine-owned English candidates entered through the real nine-key grid. */
+/** 经真实九键和 InputConnection 验证引擎英文候选与完整词上屏。 */
 public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return "nine-key English candidate discovery and exact InputConnection commit";
@@ -44,6 +45,26 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));
+
+            // 全局模式可能继承前一套测试；先通过真实语言键恢复中文九键。
+            if (await(key("中").or(key("英"))).getText().toString().equals("英")) tap(key("英"));
+            for (String[] example : new String[][] {
+                {"448482", "GitHub"}, {"7738439", "preview"},
+                {"266648", "commit"}, {"25274", "clash"}}) {
+                stage = "完整九键英文候选 " + example[1];
+                for (char digit : example[0].toCharArray()) {
+                    String label = new String[] {"", "", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"}[digit - '0'];
+                    tap(key(label));
+                }
+                tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
+                tap(candidate(example[1]));
+                await(field("msime-test-plain").and(node -> equalsText(example[1], node.getText())));
+                Bundle clear = new Bundle();
+                clear.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
+                if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clear))
+                    throw new AssertionError("合成编辑器清空失败");
+                dropStaleNodes();
+            }
 
             stage = "real nine-key digit entry";
             tap(key("MNO"));

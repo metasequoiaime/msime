@@ -134,6 +134,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceEndpointIs
         return msime_client_voice_endpoint_issue(bytes, length, websocket == JNI_TRUE);
     });
 }
+
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceWebSocketEndpointRaw(JNIEnv *env, jclass, jbyteArray endpoint) {
+    return bounded_request(env, endpoint, kVoiceEndpointRequestLimit, [](const uint8_t *bytes, size_t length) {
+        return msime_client_voice_websocket_endpoint(bytes, length);
+    });
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVoiceProviderRequestLimit, msime_client_voice_provider_update);
 }

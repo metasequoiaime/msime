@@ -61,6 +61,8 @@ export interface AiSettingsPageSectionProps {
   onPromptCustom3Change: (value: string) => void;
   /** 「AI 润色测试」：只有用这份配置润色的宿主（iOS、Android、HarmonyOS 手机与 2-in-1）传入，macOS、Windows、Linux 上它测的润色提示词和用户实际用到的联想无关。 */
   testTools: ReactNode;
+  /** 「网络」一组，放在测试工具之前：代理设置对云候选、翻译、AI、语音和下载都生效。 */
+  networkSection?: ReactNode;
   /** 最后一组之后的内容：设置页在这里放进入「AI 对话」的入口。 */
   trailing: ReactNode;
 }
@@ -97,6 +99,7 @@ export function AiSettingsPageSection({
   onPromptCustom2Change,
   onPromptCustom3Change,
   testTools,
+  networkSection,
   trailing,
 }: AiSettingsPageSectionProps) {
   const promptSlot = promptId || "custom_1";
@@ -197,6 +200,7 @@ export function AiSettingsPageSection({
           />
         </GroupList>
       )}
+      {networkSection}
       {testTools}
       {trailing}
     </SettingsPageFieldset>

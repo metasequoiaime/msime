@@ -177,12 +177,34 @@ int main() {
         gShuangpinModeEnabled = YES;
         gWubiModeEnabled = YES;
 
+        // 恢复到目标模式时先校准记录，通用同步不再重复请求；外部输入源和未知状态不触发自动选择。
+        MSIMESystemInputModeState restored;
+        InputModeRecordingClient *restoredClient = [InputModeRecordingClient new];
+        require(!MSIMERecordRestoredSystemInputMode(restored, @"com.apple.keylayout.US") &&
+                    !MSIMERecordRestoredSystemInputMode(restored, nil) && restored.current == nil,
+                "尚未恢复到本输入法时不能记录或选择目标模式。");
+        require(MSIMERecordRestoredSystemInputMode(restored, MSIMEChineseInputModeID) &&
+                    !MSIMESelectSystemInputMode(restored, MSIMEChineseInputModeID, restoredClient, Available) &&
+                    restoredClient.selected.count == 0,
+                "系统已恢复到中文时不应重复请求选择中文。");
+        require(MSIMESelectSystemInputMode(restored, MSIMEEnglishInputModeID, restoredClient, Available) &&
+                    restoredClient.selected.count == 1,
+                "校准恢复状态后仍应允许显式切换英文。");
+        require(MSIMERecordRestoredSystemInputMode(restored, MSIMEChineseInputModeID) &&
+                    MSIMESelectSystemInputMode(restored, MSIMEEnglishInputModeID, restoredClient, Available) &&
+                    restoredClient.selected.count == 2,
+                "实际恢复的模式与当前应用目标不同时仍应按规则切换。");
+        restored.selecting = true;
+        require(!MSIMERecordRestoredSystemInputMode(restored, MSIMEChineseInputModeID) &&
+                    [restored.current isEqualToString:MSIMEEnglishInputModeID],
+                "同步选择中的回调不能覆盖当前记录。");
+
         MSIMESystemInputModeState state;
         InputModeRecordingClient *client = [InputModeRecordingClient new];
         client.state = &state;
         client.echoes = YES;
 
-        // Activation with nothing recorded selects the stored state, and the system's synchronous echo is not a new choice.
+        // 通用同步在没有记录时选择目标；同步回报不能当成用户的新选择。
         require(MSIMESelectSystemInputMode(state, MSIMEChineseInputModeID, client, Available) && [client.selected isEqualToArray:@[MSIMEChineseInputModeID]],
                 "The first alignment did not select the Chinese mode.");
         require(!client.echoAdopted && !state.selecting, "The echo of the controller's own selection was adopted.");

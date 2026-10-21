@@ -19,6 +19,7 @@ import type {
 import type { AppInputModeRule } from "../settings/app-input-mode-rules";
 import type { CloudClipboardRelayPreferences } from "../settings/cloud-clipboard-relay-preferences";
 import type { VoiceInputPreferences } from "../settings/voice-input-preferences";
+import type { NetworkProxyPreferences } from "../settings/network-proxy-preferences";
 import type { TouchKeyboardSchemePreferences } from "../settings/touch-keyboard-scheme-helpers";
 import type { CustomTheme, GlobalTheme } from "../theme/global-theme";
 import type { PluginPreferences } from "../settings/plugin-preferences";
@@ -61,6 +62,8 @@ export type Preferences = PunctuationPreferences &
     cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     cloud_candidates?: boolean;
     cloud_candidate_provider?: CloudCandidateProviderPreferences;
+    /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；本机与局域网目标一律直连。 */
+    network?: NetworkProxyPreferences;
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;

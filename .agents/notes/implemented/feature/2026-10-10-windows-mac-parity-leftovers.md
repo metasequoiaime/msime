@@ -10,7 +10,7 @@ Status: implemented
 
 **快捷键和工具栏、托盘走同一条路。** `server_main.cpp` 的 `MaintenanceAction::OpenScreenKeyboard` 调已有的 `open_screen_keyboard`：先找共享应用，起不来时 `open_system_screen_keyboard()` 打开 `osk.exe`。三个入口的行为因此一致。
 
-**任务栏图标按方案画一个字。** 语言栏的模式按钮由 `tsf/LanguageBar/ModeIconPolicy.h` 的 `mode_icon(open, disabled, capsLock, mode)` 选图标，顺序是：按钮禁用时画「英」，Caps Lock 开着时画大写图标，键盘关着时画「英」，其余按模式画中、双、五、日、한、粤、注、越、藏、笔。藏文画「藏」，与 Windows 托盘和悬浮工具栏一致，不用 macOS 的「ཀ」。全角、标点两个按钮仍按开关两张图选。
+**任务栏图标按方案画一个字。** 语言栏的模式按钮由 `tsf/LanguageBar/ModeIconPolicy.h` 的 `mode_icon(open, disabled, capsLock, mode)` 选图标，顺序是：按钮禁用时画「英」，Caps Lock 开着时画大写图标，键盘关着时画「英」，其余按模式画中、双、五、日、한、粤、注、越、藏、笔。藏文画「藏」，不用 macOS 的「ཀ」；当时悬浮工具栏也画「藏」，后来改按 macOS 画「ཀ」，只有语言栏有意保留「藏」（见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)）。全角、标点两个按钮仍按开关两张图选。
 
 TIP 原本分不出双拼和五笔：`InputModeChanged` 帧给全拼、双拼、五笔发同一个码 `'0'`。`common/InputSchemeTraits.h` 给它们各加一个码，`InputMode::Shuangpin` 是 `'8'`，`InputMode::Wubi` 是 `'9'`，Server 用 `input_mode(scheme)` 照常算出并发送。`mode_scheme` 把这两个码仍映射成 `Quanpin`，所以 TIP 的键入不变（`Global::InputModeScheme` 照旧）；码只存进新的 `Global::InputModeIndicator`，只有 `CLangBarItemButton::GetIcon` 读它。TIP 激活时先按偏好里正在运行的方案填一次，Server 的帧到了再覆盖。悬浮工具栏的 `toolbar_icon` 也认这两个码，直接画「双」「五」。
 

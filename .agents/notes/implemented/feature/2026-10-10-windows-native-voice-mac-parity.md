@@ -1,4 +1,4 @@
-# Agent Note: Windows 原生语音对齐 macOS：失焦取消、投递前核对前台、剪贴板排除标记与几处反馈
+# Agent Note: Windows 原生语音对齐 macOS：失焦取消、投递前核对前台、剪贴板排除标记、浮层失败态与几处反馈
 
 Status: implemented
 
@@ -12,6 +12,7 @@ Windows Server 的原生语音（热键或托盘启动，`platforms/windows/src/
 - 打字统计：macOS 把语音上屏记作 `TypingSource::Voice`，Windows 原生语音什么也不记（`TypingSource::Voice` 只有定义）。
 - 反馈：识别结果为空时 Windows 的浮层一声不响地消失，macOS 提示「未识别到语音，请重试」；麦克风权限被拒、所选设备不在时 Windows 一律说「无法启动麦克风。」；识别或润色中浮层的 ✓ 按钮可见却没有反应，macOS 是收起浮层、结果照常上屏；提示音文件缺失时 Windows 不出声，macOS 退回系统声音。
 - 静音系统音频：macOS 录音中跟随默认输出设备的变化，Windows 只在开始时取一次默认设备。
+- 浮层：macOS 的失败提示是一行分类标题加一行供应商详情，没有详情时缩成药丸，停留 6 秒；Windows 把整句失败塞进转写区，顶行照画波形点，总是 420×112，停留 4 秒，云端出错时直接用供应商原话代替通用句。macOS 的波形和文字同色，Windows 的波形是主题强调色（默认绿色）。macOS 只有显示取消、确认圆钮时才接收鼠标，Windows 浮层在任何状态都吞掉点击。
 
 ## Decision
 
@@ -39,11 +40,18 @@ Windows Server 的原生语音（热键或托盘启动，`platforms/windows/src/
 - 共享 C++ 转写入口拒绝明确错误、截断与过滤回复，沿用宿主识别失败回调，不把部分正文继续润色或投递，见[转写完整性](../bug-fix/2026-10-19-voice-asr-incomplete-reply.md)。空转写分类保持不变。
 - 润色整体超时 `voice_polish_timeout_ms = 30000`，与 macOS `HTTPVoiceRequest.mm` 相同。共享解析器拒绝明确截断、过滤或带错误信封的回复，保留完整转写，见[响应完整性检查](../bug-fix/2026-10-19-voice-polish-incomplete-reply.md)。
 - 识别正常结束却没有文字时提示 `voice_no_speech_message`（「未识别到语音，请重试」）；不足 0.25 秒的短录音照旧静默，取消或新会话接手时不提示。
-- `AudioCapture` 记下最近一次启动失败的原因（`AudioCaptureFailure`）：miniaudio 的 `MA_ACCESS_DENIED`（WASAPI `E_ACCESSDENIED`，Windows 隐私设置关掉了桌面应用的麦克风）提示到「设置 › 隐私和安全性 › 麦克风」，设置里选定的设备 id 格式不对、找不到或有歧义，以及别的平台写下的设备选择，提示「所选麦克风不可用，请重新选择录音设备」（与 macOS 同一句），其余仍是「无法启动麦克风。」。
+- `AudioCapture` 记下最近一次启动失败的原因（`AudioCaptureFailure`）：miniaudio 的 `MA_ACCESS_DENIED`（WASAPI `E_ACCESSDENIED`，Windows 隐私设置关掉了桌面应用的麦克风）的标题指到「设置 › 隐私和安全性 › 麦克风」，设置里选定的设备 id 格式不对、找不到或有歧义，以及别的平台写下的设备选择，在「录音失败，请检查麦克风设置」下面提示「所选麦克风不可用，请重新选择录音设备」（与 macOS VoiceCaptureDevice.h 同一句），其余只有录音失败的标题。
 - 识别或润色中点浮层的 ✓ 调 `dismiss_processing()`：收起浮层并记下代次，`finish()` 不再为润色弹出它，结果照常上屏，失败提示照常显示。
 - `CuePlayer` 的提示音文件缺失、解码失败或音频引擎起不来时，开始退回 `MessageBeep(MB_ICONASTERISK)`，结束退回 `MessageBeep(MB_OK)`。开始提示音在静音其他声音之前放；`MessageBeep` 走系统声音会话，会被「静音其他声音」一起静掉，所以退回系统声音时静音推迟约 1 秒，由 `maintain()` 到点补上（`MessageBeep` 不报告何时放完），对应 macOS 等开始提示音放完再静音的 `deferredMute`。停止或取消时清掉推迟中的静音。
 - 繁体输出：`traditional_chinese_output` 打开、正在运行的方案做简繁转换（`scheme::ScriptConversionApplies`，与候选的 `traditional_projection` 同一规则）时，`finish()` 在投递前用共享 OpenCC 转换（`simplified_to_traditional`）把识别和润色后的文字转成繁体，三条路线都上屏繁体、统计也记繁体，对应 macOS `applyVoiceResult` 和 TSF 路线经 `displayTransition` 的转换。开关在投递时经 `config_provider_()` 读最新值（Server 发布偏好时把它算进 `VoiceInputConfig::traditional_output`）。识别中的中间结果和面板的审阅录音不转换。
 - `SystemAudioMuter` 静音期间注册 `IMMNotificationClient`，回调只在 `eRender` / `eMultimedia` 的默认设备变化时置一个原子标记；控制线程在 `maintain()` 里调 `follow_default_system_audio_output()`，把新的默认设备也静音并监听它的新会话。之前设备上已静音的会话留在记录里，恢复时一并取消静音；崩溃后的恢复改为在所有活动输出设备上找记录过的会话。
+
+### 浮层失败态、配色与点击穿透
+
+- **两段式失败提示**：分类和文案集中在 `VoiceSessionPolicy.h`。`VoiceFailure` 对应 macOS `MSIMEVoiceFailure` 中 Windows 有路径的六类（麦克风权限、录音、识别服务、未识别到语音、缺 Token、缺本地模型），`voice_failure_headline` 给出 macOS 的标题原句，麦克风权限一类用 Windows 设置路径代替「请在系统设置允许麦克风访问」，缺本地模型的句子改成 macOS 的「请先在设置的“语音输入”分区下载或选择本地语音模型。」。更具体的原因作为详情 `VoiceFailureNotice::detail`：供应商的 `user_message`、豆包 `LastError()`、系统识别的 `SystemAsrError`、缺语言的提示、本地运行时或模型不可用、录音中断、所选麦克风不可用，以及接口地址、模型名、豆包配置不全这几句启动前的拒绝。详情与标题相同，或者只是笼统的「语音识别失败」时丢掉，只显示标题。`VoiceStartVerdict` 多带一个 `failure`，`voice_start_failure` 把它和原来那句合成提示。
+- **浮层呈现**：`WaveOverlay::set_failure(headline, detail)` 进入失败态，照 macOS `layoutPresentation` 和 `drawRect:`：不画波形，标题用 14pt 状态字体居中画在顶行；没有详情时是 40 高、半高圆角的药丸，宽度取 112 和标题宽加 28 的较大者；有详情时是 420×112、圆角 16 的卡片，详情按转写排版（三行、保留最新部分、前加省略号）画在下面，标题中心在 18，宽度同样随标题加宽。失败态里 `set_transcript` 不生效，同一次录音晚到的中间结果盖不掉详情。新录音开始和 `clear_overlay` 时先 `set_failure(L"", L"")` 收起失败态。停留时间 `kFailureDisplayMs` 是 6000，与 macOS `failureDisplayDuration` 相同。
+- **配色**：`voice_overlay_colors` 的波形改用正文色，与 macOS 波形和文字共用一个前景色一致；底、边框和操作圆底仍随主题，不照搬 macOS 那组固定的深色和浅紫。
+- **点击穿透**：窗口创建时带 `WS_EX_TRANSPARENT`，每次状态变化（`kTranscriptChangedMessage`）由 `update_click_through` 按 `actions_visible_` 去掉或加上，只有显示取消、确认圆钮时接收鼠标，对应 macOS 的 `ignoresMouseEvents = !actions`。
 
 ## Alternatives considered
 
@@ -52,19 +60,26 @@ Windows Server 的原生语音（热键或托盘启动，`platforms/windows/src/
 - **TSF 被拒时一律丢弃，删掉 `SendInput` 退路** — 规则最简单，绝不会打错窗口；但事务锁忙只是一瞬间的争用，丢掉整段录音代价太大。按 `Rejected` 区分焦点失效和一时失败，后者再核对前台，既不丢录音也不打错窗口。
 - **TIP 失焦时经 IPC 主动通知 Server 取消** — 反应更快；但焦点闸门已经是失焦的权威来源（tip 的文档焦点变化、断开都会让租约失效），控制循环每轮核对一次就够，不必新增消息类型。tip 的线程焦点回调刻意不当作会话边界（菜单、辅助 UI 都会触发），从托盘菜单开始录音也因此不会被误取消。
 - **润色失败时在浮层提示** — 让人知道拿到的是未润色的文本；macOS 也不提示，这次只把超时对齐，提示留给两端一起做。
-- **云端识别返回空文本也提示「未识别到语音」** — 共享层对空转写抛 `Missing transcription text`，显示的是通用的「语音识别失败」。macOS 对同一情况也报通用失败，改它要动共享层的错误类型，这次不做。
+- **云端识别返回空文本也提示「未识别到语音」** — 共享层对空转写抛 `Missing transcription text`，它不是 `CloudAsrError`，浮层只显示识别失败的标题「识别失败，请检查语音服务设置」，没有详情行。macOS 对同一情况也报通用失败，改它要动共享层的错误类型，这次不做。
 - **默认输出设备变化时把旧设备立即交还原状** — 与 macOS 逐个交还最像；但录音中被拔掉的设备已经无法取消静音，交还需要另记一份欠账。旧设备不再是输出，保持静音到录音结束对人没有影响，恢复时统一处理。
 - **外部语音识别服务接入点（`voice_provider_socket`）** — macOS 和 Linux 把录音和识别交给外部 Unix socket 服务，是因为 IBus/Fcitx 进程不持有凭据和音频。Windows Server 进程自己录音、识别、持有凭据，共享语音面板也已经经 `FanyImeVoiceControlNamedPipe` 由 Server 供数，这里没有对应的需要，不做。
 
+- **失败提示沿用一句话，只换措辞** — 改动最小；但 macOS 的标题告诉人该去哪一类设置，供应商原话才说明具体原因，两者挤成一句时要么丢掉原话，要么标题被长句淹没，而且短提示仍是 420 宽的卡片。
+- **按句子内容反推分类**（在 `report_failure` 里比对已有的 Windows 文案字符串） — 不用改各个调用点；但分类变成隐式的字符串约定，新加一句失败文案就会悄悄落到默认类。每个调用点显式给出 `VoiceFailure`，测试也能逐类断言。
+- **浮层底色也换成 macOS 的固定颜色** — 像素级一致；但 Windows 的工具条、托盘菜单和浮层一直按主题配色，README 写明是有意设计，浮层单独不随主题会和旁边的工具条不协调。按用户决定只把波形改成正文色。
+- **只处理 `WM_NCHITTEST` 返回 `HTTRANSPARENT`** — 不用改窗口样式；但它只把点击交给同一线程的窗口，浮层下面是别的进程的应用时点击照样被吞掉。
+
 ## Consequences
 
-- **收益**：识别文字只会进入开始录音时的那个输入框所在的进程；焦点一离开，录音和进行中的识别、润色都取消。`ctrl_v` 的识别文本不进任何剪贴板历史。润色在 30 秒内返回都能生效。原生语音计入打字统计。没听到说话、麦克风权限、设备不可用都有能照着做的提示；✓ 在识别中也有作用；提示音文件坏了仍有声音；录音中换输出设备也保持安静。
+- **收益**：失败提示和 macOS 一样先给出分类、再给出原因，短提示不再占一整张卡片；浮层除了两个圆钮不再挡住下面窗口的点击。识别文字只会进入开始录音时的那个输入框所在的进程；焦点一离开，录音和进行中的识别、润色都取消。`ctrl_v` 的识别文本不进任何剪贴板历史。润色在 30 秒内返回都能生效。原生语音计入打字统计。没听到说话、麦克风权限、设备不可用都有能照着做的提示；✓ 在识别中也有作用；提示音文件坏了仍有声音；录音中换输出设备也保持安静。
 - **代价与已知上限**：`maintain()` 在语音进行中每轮拿一次焦点闸门的锁，与 `VoiceControllerDispatch` 相同的代价。焦点租约有效、但人切到一个没有水杉 tip 的应用时，TSF 路线仍把文字提交进原来的文档（那正是录音的目标，不会写进别的窗口），录音不会因此取消，这与 macOS 失焦即取消不完全相同。`ctrl_v` 写入剪贴板后前台才换走时，文字留在已标记的剪贴板里而不粘贴。权限判断依赖 miniaudio 把 `E_ACCESSDENIED` 译成 `MA_ACCESS_DENIED`，以及 Windows 在隐私开关关闭时确实返回它；`GetMessageExtraInfo()` 在 tip 里取得到 `SendInput` 的 `dwExtraInfo`，以及默认设备通知的到达时机，都没有在真机上验证。
 
 ## Verification
 
 - `platforms/windows/tests/voice/voice_commit_policy.cpp`（`windows-voice-commit-policy`）：提交路线、前台目标核对（含目标为 0 或 Server 自己，以及前台窗口仍是录音开始时那一个但属于别的进程）、投递时租约失效即不投、TSF 被拒后只在非焦点失效且目标仍有效时退回、管道写失败时租约已被 Server 作废也照样按前台退回、失焦取消只针对进行中的原生语音、剪贴板标记的格式名和值。
 - `crates/host-windows/tests/clipboard_privacy_policy.rs`：面板语音的标记名单与 `VoiceCommitPolicy.h` 的 `voice_clipboard_markers` 逐项相同且值都是 0。
-- `platforms/windows/tests/voice/voice_session_policy.cpp`：启动失败原因到文案的映射、无语音文案、润色超时。
+- `platforms/windows/tests/voice/voice_session_policy.cpp`（`windows-voice-session-policy`）：各类失败的 macOS 标题、启动拒绝和麦克风启动失败到标题与详情的映射、供应商原话降为详情、详情与标题重复或只是笼统一句时丢掉、无语音文案、润色超时。主机上用 clang++ 连同 `shared/voice` 编译运行通过。
+- `platforms/windows/tests/voice/voice_theme.cpp`：波形与正文同色，主题的强调色不再染波形。
+- `platforms/windows/tests/runtime/server_smoke.cpp`（`windows-server`，只在 Windows CI 上跑）：浮层默认带 `WS_EX_TRANSPARENT`，显示圆钮时去掉、收起时加回；失败态无详情时比有详情时矮且窄，标题更宽时加宽，收起失败态回到更窄的紧凑态。
 - `platforms/windows/tests/voice/audio_capture.cpp`：格式不对的设备 id 报 `DeviceUnavailable`，没有回调报 `Failed`。
-- `VoiceInputSession.cpp`、`AudioCapture.cpp`、`SystemAudioMuter.cpp`、`CuePlayer.cpp` 用 `x86_64-w64-mingw32-g++ -fsyntax-only` 检查过；真机上的权限提示、焦点切换、默认设备切换和剪贴板历史行为未验证。
+- `VoiceInputSession.cpp`、`WaveOverlay.cpp`、`AudioCapture.cpp`、`SystemAudioMuter.cpp`、`CuePlayer.cpp` 用 `x86_64-w64-mingw32-g++ -fsyntax-only` 检查过；真机上的权限提示、焦点切换、默认设备切换、剪贴板历史行为，以及失败态的观感和跨进程点击穿透未验证。

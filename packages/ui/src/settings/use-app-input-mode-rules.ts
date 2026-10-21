@@ -17,6 +17,8 @@ export interface UseAppInputModeRulesOptions {
   value?: Record<string, AppInputModeRule>;
   /** Windows 使用进程基名，macOS 使用 Bundle ID；决定规范化与提示。 */
   windows: boolean;
+  /** Linux 使用输入法框架报告的程序名（Fcitx5 的 `program()`、IBus 里 GTK 程序的客户端名）；决定规范化与提示。 */
+  linux?: boolean;
   /** 宿主的选择对话框；取消时返回 null，缺省时由调用方提供手填输入。 */
   pickApplication?: () => Promise<PickedApplication | null>;
   /** 按规则标识查询本机应用名称；缺失或失败时缓存标识回退。 */
@@ -40,7 +42,7 @@ export interface AppInputModeRulesState {
 
 /** 受控规则表的草稿、名称查询及编辑动作，异步选择完成时合并当前规则。 */
 export function useAppInputModeRules(options: UseAppInputModeRulesOptions): AppInputModeRulesState {
-  const { value, windows, pickApplication, applicationNames } = options;
+  const { value, windows, linux = false, pickApplication, applicationNames } = options;
   const latest = useLatestRef(options);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export function useAppInputModeRules(options: UseAppInputModeRulesOptions): AppI
 
   useEffect(() => {
     setWarning(null);
-  }, [pickApplication, windows]);
+  }, [pickApplication, windows, linux]);
 
   useEffect(() => {
     if (!applicationNames || unnamedKey === "") return;
@@ -85,9 +87,9 @@ export function useAppInputModeRules(options: UseAppInputModeRulesOptions): AppI
   const addRule = (raw: string): boolean => {
     const current = latest.current;
     const rules = current.value ?? {};
-    const id = normalizeAppInputModeRuleId(raw, current.windows);
+    const id = normalizeAppInputModeRuleId(raw, current.windows, current.linux);
     const problem = appInputModeRuleProblem(id, rules, current.windows);
-    setWarning(problem && appInputModeRuleProblemText(problem, current.windows));
+    setWarning(problem && appInputModeRuleProblemText(problem, current.windows, current.linux));
     if (problem) return false;
     current.onChange({ ...rules, [id]: "chinese" });
     return true;
@@ -103,7 +105,11 @@ export function useAppInputModeRules(options: UseAppInputModeRulesOptions): AppI
         async (isCurrent) => {
           const picked = await pickApplication();
           if (!isCurrent() || !picked) return;
-          const id = normalizeAppInputModeRuleId(picked.id, latest.current.windows);
+          const id = normalizeAppInputModeRuleId(
+            picked.id,
+            latest.current.windows,
+            latest.current.linux,
+          );
           if (addRule(picked.id)) setNames((known) => ({ ...known, [id]: picked.name || id }));
         },
         {

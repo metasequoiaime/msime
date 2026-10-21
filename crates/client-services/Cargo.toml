@@ -30,7 +30,7 @@ base64 = "0.23"
 uuid = { workspace = true, features = ["serde", "v4"] }
 # `formatting` for the strftime placeholders a command-table pack's templates are checked against, the same the Engine expands them with. `parsing` 用来按 RFC 3339 读服务端和崩溃记录里的时间：诊断上传把崩溃记录的 `at` 解析后重新格式化成服务端认的形状，「我的设备」和 AI 皮肤任务的时间也按它校验。不引入新的 crate。
 time = { workspace = true, features = ["formatting", "parsing"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls", "system-proxy"] }
 # Plugin packs picked as a .zip archive. Only the flate2 deflate backend: stored and deflated members are what every archiver writes, and flate2 is already here.
 zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 # Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.

@@ -205,8 +205,18 @@ min_width_dip = 240
                 hoverButton = (NSButton *)view;
         Require(hoverButton != nil && [[hoverButton valueForKey:@"hoverColor"] alphaComponent] > 0.01,
                 "Candidate rows did not receive the skin hover color.");
+        NSEvent *hoverMove = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
+            location:[hoverButton convertPoint:NSMakePoint(10, 10) toView:nil] modifierFlags:0
+            timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:panel.window.windowNumber
+            context:nil eventNumber:0 clickCount:0 pressure:0];
         [(id)hoverButton performSelector:@selector(mouseEntered:) withObject:[NSObject new]];
-        Require([[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not activate.");
+        Require(![[hoverButton valueForKey:@"candidateHovered"] boolValue], "进入消息不能激活静止指针的悬停。");
+        [hoverButton mouseMoved:hoverMove];
+        Require([[hoverButton valueForKey:@"candidateHovered"] boolValue], "移动指针后应显示候选悬停。");
+        [hoverButton updateTrackingAreas];
+        Require(![[hoverButton valueForKey:@"candidateHovered"] boolValue], "重建跟踪区域应清除旧悬停。");
+        [hoverButton mouseMoved:hoverMove];
+        Require([[hoverButton valueForKey:@"candidateHovered"] boolValue], "重建后移动指针应恢复悬停。");
         [(id)hoverButton performSelector:@selector(mouseExited:) withObject:[NSObject new]];
         Require(![[hoverButton valueForKey:@"candidateHovered"] boolValue], "Candidate hover state did not clear.");
         NSColor *selectedHover = [hoverButton valueForKey:@"selectedHoverColor"];

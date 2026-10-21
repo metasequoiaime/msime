@@ -25,6 +25,9 @@ int main() {
     const auto good = PreviewConfig::parse(document.dump());
     require(good.style == TsfPreeditStyle::Pinyin);
     require(good.floating_toolbar_enabled);
+    // 缺省按钮与 FloatingToolbarSettings 相同：字符集、标点、全半角和设置开，表情和屏幕键盘关。
+    require(good.floating_toolbar_items ==
+            (std::array<bool, 6>{true, true, true, false, false, true}));
     require(!good.navigation.minus_equal && !good.navigation.comma_period &&
             !good.navigation.brackets && !good.navigation.tab &&
             !good.navigation.page_up_down && !good.navigation.arrows &&

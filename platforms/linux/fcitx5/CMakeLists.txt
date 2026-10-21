@@ -106,15 +106,28 @@ if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
   if(MSIME_BADGE_X11_SOURCES)
     target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_X11)
     target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_X11)
+    # 悬浮工具栏和双拼键位图与徽章用同一套 X11、cairo 和 pango：没有它们时只有状态区的「工具栏」子菜单，也不画键位图。
+    target_sources(msime-fcitx5 PRIVATE ../src/overlay/OverlayX11Window.cpp ../src/overlay/ShuangpinKeymapX11Surface.cpp
+        ../src/overlay/FloatingToolbar.cpp ../src/overlay/FloatingToolbarFactory.cpp
+        ../src/overlay/FloatingToolbarX11Surface.cpp)
+    target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_FLOATING_PANELS)
+    # libX11 1.7 起每条连接可以装自己的退出处理：工具栏和键位图的连接断开（Xwayland 崩溃或重启）时不再让 fcitx5 守护进程退出（见 OverlayX11Window.h）。
+    if(MSIME_BADGE_X11_x11_VERSION VERSION_GREATER_EQUAL 1.7.0)
+      target_compile_definitions(msime-fcitx5 PRIVATE MSIME_X11_IO_ERROR_EXIT_HANDLER)
+    endif()
   endif()
 endif()
 set(MSIME_FCITX5_WAVE_SOURCES)
 if(X11_SURFACE_FOUND)
-  list(APPEND MSIME_FCITX5_WAVE_SOURCES ../src/overlay/WaveOverlayX11Surface.cpp)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::X11_SURFACE)
 endif()
-if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
+if(MSIME_WAVE_X11_SURFACE)
+  list(APPEND MSIME_FCITX5_WAVE_SOURCES ../src/overlay/WaveOverlayX11Surface.cpp)
+  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_HAS_X11_OVERLAY)
+  target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::X11_OVERLAY_DRAW)
+endif()
+if(MSIME_WAVE_WAYLAND_SURFACE)
   list(APPEND MSIME_FCITX5_WAVE_SOURCES ../src/overlay/WaveOverlayWaylandSurface.cpp)
   # The badge's Wayland backend already compiles the same layer-shell and xdg-shell protocol code into this module; a second copy is a multiple-definition link error. It only shows where pangocairo is installed (any desktop with GTK development files), which the build-gate image does not have.
   if(NOT MSIME_BADGE_WAYLAND_SOURCES)
@@ -122,11 +135,7 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
   endif()
   target_include_directories(msime-fcitx5 PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
-  target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::WAYLAND_CLIENT)
-  if(WAYLAND_TEXT_FOUND)
-    target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_WAYLAND_TEXT)
-    target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::WAYLAND_TEXT)
-  endif()
+  target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::WAYLAND_CLIENT PkgConfig::WAYLAND_TEXT)
 endif()
 if(MSIME_FCITX5_WAVE_SOURCES)
   target_sources(msime-fcitx5 PRIVATE ${MSIME_FCITX5_WAVE_SOURCES})
@@ -149,10 +158,6 @@ endif()
 # 修饰状态回读自 5.1.22 才公开，旧发行版保留按下一次无 Shift 按键回移的兼容路径。
 if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
-endif()
-# classicui 从 5.1.18 起单独按磅设置候选序号的字号，候选字体要写成磅序号才与候选一样大；更早的版本照写像素（见 CandidateFontUnit）。
-if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
-  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_LABEL_POINTS)
 endif()
 # Usage reporting, through the same wrapper as the IBus host and with the same version: the parent project's MSIME_LINUX_VERSION, or platforms/linux/version.txt when this directory is configured on its own. Only the addon reports; the native test builds the engine without it.
 if(NOT MSIME_LINUX_VERSION)
@@ -204,21 +209,24 @@ if(BUILD_TESTING)
   add_test(NAME fcitx5-preceding-characters COMMAND fcitx5-preceding-characters-test)
   add_executable(fcitx5-native-test tests/native.cpp SystemTheme.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp ../src/system/CapsLockRelease.cpp)
   if(X11_SURFACE_FOUND)
-    target_sources(fcitx5-native-test PRIVATE ../src/overlay/WaveOverlayX11Surface.cpp)
     target_compile_definitions(fcitx5-native-test PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
     target_link_libraries(fcitx5-native-test PRIVATE PkgConfig::X11_SURFACE)
   endif()
-  if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
+  if(MSIME_WAVE_X11_SURFACE)
+    target_sources(fcitx5-native-test PRIVATE ../src/overlay/WaveOverlayX11Surface.cpp)
+    target_compile_definitions(fcitx5-native-test PRIVATE MSIME_LINUX_HAS_X11_OVERLAY)
+    target_link_libraries(fcitx5-native-test PRIVATE PkgConfig::X11_OVERLAY_DRAW)
+  endif()
+  if(MSIME_WAVE_WAYLAND_SURFACE)
     target_sources(fcitx5-native-test PRIVATE ../src/overlay/WaveOverlayWaylandSurface.cpp
       "${MSIME_LAYER_SHELL_CODE}" "${MSIME_XDG_SHELL_CODE}")
     target_include_directories(fcitx5-native-test PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
     target_compile_definitions(fcitx5-native-test PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
-    target_link_libraries(fcitx5-native-test PRIVATE PkgConfig::WAYLAND_CLIENT)
-    if(WAYLAND_TEXT_FOUND)
-      target_compile_definitions(fcitx5-native-test PRIVATE MSIME_LINUX_WAYLAND_TEXT)
-      target_link_libraries(fcitx5-native-test PRIVATE PkgConfig::WAYLAND_TEXT)
-    endif()
+    target_link_libraries(fcitx5-native-test PRIVATE PkgConfig::WAYLAND_CLIENT PkgConfig::WAYLAND_TEXT)
   endif()
+  # 真实宿主回归注入运行库版本，覆盖旧开发库构建后部署到新版 Fcitx5 的情形。
+  target_link_options(fcitx5-native-test PRIVATE -Wl,--wrap=_ZN5fcitx8Instance7versionEv)
+  add_test(NAME fcitx5-candidate-font-runtime COMMAND fcitx5-native-test --font-runtime)
   target_compile_features(fcitx5-native-test PRIVATE cxx_std_20)
   target_compile_options(fcitx5-native-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(fcitx5-native-test PRIVATE ../../../crates/host-api/include)
@@ -231,9 +239,6 @@ if(BUILD_TESTING)
   endif()
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
     target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
-  endif()
-  if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
-    target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_LABEL_POINTS)
   endif()
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE
@@ -289,6 +294,8 @@ if(BUILD_TESTING)
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --local-modes)
     add_test(NAME fcitx5-caps-lock-tap
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --caps-lock)
+    add_test(NAME fcitx5-app-input-mode-rules
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --app-rules)
     add_test(NAME fcitx5-japanese-toggle
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --japanese-toggle)
     find_package(Python3 COMPONENTS Interpreter)
@@ -326,9 +333,10 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
         foreach(canvas_layout horizontal vertical)
+          # 这一项验收 X11 上的 classicui 主题本身，所以用逃生口关掉默认的原生画布。
           add_test(NAME fcitx5-translation-below-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
-              MSIME_TEST_TRANSLATION_BELOW=1
+              MSIME_TEST_TRANSLATION_BELOW=1 MSIME_FCITX5_CANDIDATE_RENDERER=classicui
               "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
               "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
               "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
@@ -357,6 +365,14 @@ if(BUILD_TESTING)
                 "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
                 "$<TARGET_FILE:msime-fcitx5>")
             set_tests_properties(fcitx5-native-canvas-${canvas_layout}-scale2 PROPERTIES TIMEOUT 90)
+            # system 主题也由原生画布按 macOS 结构画：首行翻页、悬停、展开网格和点选上屏。
+            add_test(NAME fcitx5-native-chrome-${canvas_layout}
+              COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_chrome.py"
+                "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                "$<TARGET_FILE:msime-fcitx5>")
+            set_tests_properties(fcitx5-native-chrome-${canvas_layout} PROPERTIES TIMEOUT 90)
             foreach(animation_format apng gif webp)
               add_test(NAME fcitx5-native-canvas-${canvas_layout}-animation-${animation_format}
                 COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
@@ -378,6 +394,14 @@ if(BUILD_TESTING)
                   "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
                   "$<TARGET_FILE:msime-fcitx5>")
               set_tests_properties(fcitx5-native-canvas-${canvas_layout}-composited PROPERTIES TIMEOUT 90)
+              # 有合成器时 macOS 结构的卡片自己画投影：窗口四周多出投影边距，按钮、悬停与点选仍落在卡片上。
+              add_test(NAME fcitx5-native-chrome-${canvas_layout}-composited
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout} MSIME_TEST_COMPOSITED=1
+                  "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_chrome.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-native-chrome-${canvas_layout}-composited PROPERTIES TIMEOUT 90)
             endif()
           endif()
           foreach(canvas_format gif webp)
@@ -430,6 +454,13 @@ if(MSIME_BADGE_X11_FOUND)
     target_include_directories(linux-candidate-native-canvas-test PRIVATE ../../../crates/host-api/include)
     target_link_libraries(linux-candidate-native-canvas-test PRIVATE PkgConfig::MSIME_BADGE_X11 nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
     add_test(NAME linux-candidate-native-canvas COMMAND linux-candidate-native-canvas-test)
+    # macOS 结构的默认画法（NativeCanvasChrome.h）与它和 macOS 共用的 shared/candidate 规则。
+    add_executable(linux-candidate-native-canvas-chrome-test ../tests/candidate/candidate_native_canvas_chrome.cpp)
+    target_compile_features(linux-candidate-native-canvas-chrome-test PRIVATE cxx_std_20)
+    target_compile_options(linux-candidate-native-canvas-chrome-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_include_directories(linux-candidate-native-canvas-chrome-test PRIVATE ../../../crates/host-api/include)
+    target_link_libraries(linux-candidate-native-canvas-chrome-test PRIVATE PkgConfig::MSIME_BADGE_X11 nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+    add_test(NAME linux-candidate-native-canvas-chrome COMMAND linux-candidate-native-canvas-chrome-test)
   endif()
   foreach(canvas_target msime-fcitx5 fcitx5-native-test)
     if(TARGET ${canvas_target})
