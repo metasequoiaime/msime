@@ -9,7 +9,6 @@ import { AiSettingsContent } from "../ai-settings-content";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { AiReplyTemplates } from "../ai-reply-templates";
-import { createSettingsDraftActions } from "../settings-draft-actions";
 
 /** AI 辅助内容保留原有表单与草稿，切换标签不卸载。 */
 function AiAssistanceContent() {
@@ -50,8 +49,6 @@ function AiAssistanceContent() {
     providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
-    draft,
-    setDraft,
   } = useSettingsForm();
 
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
