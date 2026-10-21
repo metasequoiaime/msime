@@ -6544,6 +6544,58 @@ fn settled_rerank_without_movement_omits_the_unused_view() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+#[test]
+fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let result = read(msime_client_start_settled_rerank(handle));
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["value"]["status"], "done");
+    assert_eq!(result["value"]["moved"], false);
+    assert_eq!(result["value"]["current"], true);
+    assert!(result["value"].get("view").is_none());
+
+    let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
+    assert_eq!(missing["value"]["status"], "done");
+    assert_eq!(missing["value"]["moved"], false);
+    assert_eq!(missing["value"]["current"], false);
+    let unknown = read(msime_client_poll_settled_rerank(handle, 9, true));
+    assert_eq!(unknown["value"]["status"], "done");
+    assert_eq!(unknown["value"]["current"], false);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
+fn destroying_a_session_drops_its_unfinished_settled_job() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    let other_directory = tempfile::tempdir().unwrap();
+    let other = test_host(other_directory.path());
+    let before = ffi::settled::test_settled_job_count();
+    let token = ffi::settled::test_hold_settled_job(handle);
+    assert_eq!(ffi::settled::test_settled_job_count(), before + 1);
+
+    let pending = read(msime_client_poll_settled_rerank(handle, token, true));
+    assert_eq!(pending["value"]["status"], "pending");
+    assert_eq!(pending["value"]["token"], token);
+    let again = read(msime_client_start_settled_rerank(handle));
+    assert_eq!(again["value"]["status"], "pending");
+    assert_eq!(again["value"]["token"], token);
+
+    let stolen = read(msime_client_poll_settled_rerank(other, token, true));
+    assert_eq!(stolen["value"]["status"], "done");
+    assert_eq!(stolen["value"]["current"], false);
+    assert_eq!(
+        read(msime_client_poll_settled_rerank(handle, token, true))["value"]["status"],
+        "pending"
+    );
+
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert_eq!(ffi::settled::test_settled_job_count(), before);
+    assert_eq!(read(msime_client_destroy(other))["ok"], true);
+}
+
 /// The desktop model preference switches the runtime's settled rerank, at creation and on a later update, and the keyboard model switch reaches the rebuilt Engine the same way.
 #[test]
 fn sentence_model_switches_follow_the_preferences() {
@@ -13699,6 +13751,26 @@ fn voice_number_normalization_follows_the_model_kind() {
 }
 
 #[test]
+fn voice_number_normalization_preserves_approximate_percentages() {
+    for kind in ["online_transducer", "offline_transducer"] {
+        let request = json!({
+            "text": "约百分之二十点几，精确值百分之三点五，末尾百分之三点",
+            "kind": kind,
+        })
+        .to_string();
+        let response =
+            read(unsafe { msime_client_voice_normalize_numbers(request.as_ptr(), request.len()) });
+        assert_eq!(
+            response,
+            json!({"ok": true, "value": {
+                "text": "约百分之二十点几，精确值3.5%，末尾百分之三点"
+            }}),
+            "{kind}",
+        );
+    }
+}
+
+#[test]
 fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
     let request = json!({
         "text": "名天和铭天",
@@ -18180,4 +18252,52 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
     let result = read(unsafe { msime_client_voice_provider_update(b"x".as_ptr(), 1_048_577) });
     assert_eq!(result["ok"], false);
     assert_eq!(result["error"], "invalid voice request buffer");
+}
+
+#[test]
+fn language_cycle_abi_publishes_the_shared_state_machine() {
+    // `response` 把结果包成 {ok, value}；非法输入是 {ok:false, error}。
+    let value = |pointer: *mut c_char| {
+        let envelope = read(pointer);
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        envelope["value"].clone()
+    };
+    // 关闭：不接管，返回 null，宿主照旧走二态切换。
+    assert_eq!(
+        value(msime_client_language_cycle(false, 0, 0, 2, false)),
+        Value::Null
+    );
+    // 中 → 日：换到日语方案，没组字时不上屏。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 0, 0, 2, false)),
+        json!({"mode": 1, "scheme": 3, "commit_raw": false})
+    );
+    // 有组字时先上屏原始字母。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 0, 0, 2, true)),
+        json!({"mode": 1, "scheme": 3, "commit_raw": true})
+    );
+    // 日 → 英：只换中英模式，不换方案。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 1, 3, 2, false)),
+        json!({"mode": 2, "scheme": null, "commit_raw": false})
+    );
+    // 英 → 中：回到记下的中文方案。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 2, 3, 1, false)),
+        json!({"mode": 0, "scheme": 1, "commit_raw": false})
+    );
+    // 还没记下中文方案（-1）：当前日语也要回到中文全拼。
+    assert_eq!(
+        value(msime_client_language_cycle(true, 2, 3, -1, false)),
+        json!({"mode": 0, "scheme": 0, "commit_raw": false})
+    );
+    // 非法编号被拒，不让宿主静默按错误的模式转。
+    for invalid in [
+        read(msime_client_language_cycle(true, 3, 0, 2, false)),
+        read(msime_client_language_cycle(true, 0, 99, 2, false)),
+        read(msime_client_language_cycle(true, 0, 0, 4, false)),
+    ] {
+        assert_eq!(invalid["ok"], false, "{invalid}");
+    }
 }

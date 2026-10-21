@@ -193,6 +193,14 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)rerankSettledWithError:(NSError **)error {
     (void)error; ++self.settledRerankCalls; return @{@"moved":@NO};
 }
+// 停顿计时器调用这两个入口；回答已完成且顺序未变，避免计时器在其他用例中触发时重排候选。
+- (NSDictionary *)startSettledRerankWithError:(NSError **)error {
+    (void)error; ++self.settledRerankCalls; return @{@"status":@"done", @"moved":@NO, @"current":@YES};
+}
+- (NSDictionary *)pollSettledRerank:(uint64_t)token accept:(BOOL)accept error:(NSError **)error {
+    (void)token; (void)accept; (void)error;
+    return @{@"status":@"done", @"moved":@NO, @"current":@YES};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
@@ -6144,6 +6152,105 @@ static void TestTemporaryJapaneseLongVowelThroughRealSession(BOOL paging) {
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     }
+}
+
+// 只注入一次命令失败，其余按键、快照、偏好保存和方案切换均走真实引擎。
+@interface CycleFailureSession : MSIMEClientSession
+@property(nonatomic) BOOL failRaw;
+@end
+@implementation CycleFailureSession
+- (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
+    if (self.failRaw && command == MSIME_COMMIT_RAW) return nil;
+    return [super command:command error:error];
+}
+@end
+
+static void TestRealTrilingualCycle() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSString *directory = [root stringByAppendingPathComponent:@"preferences"];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+    preferences[@"scheme"] = @"japanese";
+    preferences[@"last_chinese_scheme"] = NSNull.null;
+    preferences[@"learning"] = @NO;
+    preferences[@"candidate_translations"] = @NO;
+    preferences[@"cloud_candidates"] = @NO;
+    NSMutableDictionary *keys = [preferences[@"keybindings"] mutableCopy];
+    keys[@"trilingual_cycle"] = @YES;
+    preferences[@"keybindings"] = keys;
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory
+        expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":preferences} error:&error];
+    assert(saved && !error);
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences_directory":directory} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    CycleFailureSession *session = [[CycleFailureSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    NSString *suite = [@"msime.real-cycle." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+    [prefs applySharedInputPreferences:saved[@"preferences"]];
+    prefs.inputModeHUD = NO;
+    prefs.controlOptionSpaceShortcut = YES;
+    prefs.englishMode = YES;
+    assert([prefs.lastChineseScheme isEqual:@"quanpin"]);
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    client.caret = NSMakeRect(100, 100, 1, 16);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:directory forKey:@"preferencesDirectory"];
+    [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+    [controller setValue:[session setFocused:YES error:&error][@"view"] forKey:@"view"];
+    assert(!error);
+    auto scheme = [&]() { return ((NSDictionary *)[controller valueForKey:@"view"])[@"scheme"]; };
+    auto toggle = [&]() {
+        assert([controller handleEvent:ModeKey(49, NSEventModifierFlagControl | NSEventModifierFlagOption, NO) client:client]);
+    };
+    auto compose = [&]() {
+        assert([controller handleEvent:KeypadKey(32, @"U", NSEventModifierFlagShift, NO) client:client]);
+        for (NSArray *stroke in @[@[@21, @"4"], @[@14, @"e"], @[@19, @"2"], @[@2, @"d"]])
+            assert([controller handleEvent:KeypadKey([stroke[0] unsignedShortValue], stroke[1], 0, NO) client:client]);
+        assert([client.marked isEqual:@"U4e2d"]);
+    };
+
+    // 从未选过中文方案的日语用户，也能从英文回到真实的中文方案。
+    toggle();
+    assert(!prefs.englishMode && [prefs.inputScheme isEqual:@"quanpin"] && [scheme() isEqual:@0]);
+    compose();
+    session.failRaw = YES;
+    toggle();
+    assert(!prefs.englishMode && [scheme() isEqual:@0] && [client.marked isEqual:@"U4e2d"] && client.insertions.count == 0);
+    session.failRaw = NO;
+    toggle();
+    assert(!prefs.englishMode && [scheme() isEqual:@3]);
+    assert(client.marked.length == 0 && client.insertions.count == 1 && [client.insertions[0] isEqual:@"U4e2d"]);
+    toggle();
+    assert(prefs.englishMode && [scheme() isEqual:@3]);
+    toggle();
+    assert(!prefs.englishMode && [scheme() isEqual:@0]);
+
+    // 关闭循环后，组合键仍取消组字；轻点修饰键仍提交原文。
+    prefs.trilingualCycle = NO;
+    compose();
+    toggle();
+    assert(prefs.englishMode && client.marked.length == 0 && client.insertions.count == 1);
+    toggle();
+    compose();
+    [controller toggleInputModeFromModifierTap];
+    assert(prefs.englishMode && client.marked.length == 0 && client.insertions.count == 2);
+    assert([client.insertions[1] isEqual:@"U4e2d"]);
+    assert([session closeWithError:&error] && !error);
+    [defaults removePersistentDomainForName:suite];
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
 // 按键从 handleEvent: 进入真实引擎，再把组字和提交写回合成编辑器，覆盖桩会话测不到的接缝。
@@ -12417,6 +12524,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
+        @autoreleasepool { TestRealTrilingualCycle(); }
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestInputModeStatusItem(); }

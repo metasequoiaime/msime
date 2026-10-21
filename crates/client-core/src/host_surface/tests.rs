@@ -341,6 +341,17 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
     }
+    // 中日英循环目前只有 macOS 接上：Windows 的 TIP 和 Server 之间还要新开一条协议，Linux 的两个引擎各自处理切换。
+    assert!(HostCapabilities::for_platform(HostPlatform::Macos).trilingual_cycle);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).trilingual_cycle);
+    }
     // 能在光标旁放徽标的宿主才声明它：触屏键盘在键面上就显示了模式。Windows 的 Server 自己画，Linux 交给 Fcitx5 面板。
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);

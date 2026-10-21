@@ -2208,6 +2208,9 @@ pub struct KeybindingPreferences {
     /// Ctrl+Shift+J 在中文和日语之间切换：中文状态下，当前是中文方案时切到日语方案，并把这个中文方案记进 `last_chinese_scheme`；当前是日语或其他非中文方案时回到 `last_chinese_scheme`。英文模式下组合键交给应用。默认关，因为浏览器把它当作打开开发者工具或下载页；只有声明 `HostCapabilities::japanese_toggle_shortcut` 的宿主读它。
     #[serde(default)]
     pub toggle_japanese_ctrl_shift_j: bool,
+    /// 中日英循环切换：打开后，「切换中英文」那一组快捷键按 中 → 日 → 英 → 中 依次切换，有组字时先把正在组的原始字母上屏；英文模式下再按切换键回到中文。默认关，对齐旧版 Windows 正式版的出厂值（`installer/default_config/config.default.toml`）。没打开时这一组快捷键仍是二态切换，行为与加这个开关之前完全一样。只有声明 `HostCapabilities::trilingual_cycle` 的宿主读它；状态机在 `crate::language_cycle`。
+    #[serde(default)]
+    pub trilingual_cycle: bool,
 }
 
 impl Default for KeybindingPreferences {
@@ -2221,6 +2224,7 @@ impl Default for KeybindingPreferences {
             toggle_fullwidth_option_shift_h: true,
             switch_language_caps_lock: false,
             toggle_japanese_ctrl_shift_j: false,
+            trilingual_cycle: false,
         }
     }
 }

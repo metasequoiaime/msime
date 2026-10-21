@@ -756,6 +756,12 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
+/* 中日英循环切换的状态机（`crates/client-core/src/language_cycle.rs`），一个键在 中 → 日 → 英 → 中 之间转圈。顺序来自旧版 Windows 正式版 `engine/contracts/trilingual_input.h` 的 `Next()`：中文 → 日文 → 英文 → 中文；参与循环的是「切换中英文」那一组快捷键，不是 Ctrl+Shift+J。
+ * 参数：enabled 是 keybindings.trilingual_cycle；mode 是按下循环键那一刻的模式，0 中文、1 日文、2 英文；scheme 是实际在跑的方案，编号同 View.scheme；last_chinese_scheme 是要回去的中文方案（0/1/2/5/6/9），-1 表示还没记下；has_composition 是宿主会话里还有组字（已选词段或未上屏的拼音）。
+ * Value 是 {mode, scheme, commit_raw}：mode 同上编号；scheme 是进入中文时要切到的方案，null 表示只换中英模式；commit_raw 为真时先原样上屏正在组的内容（已选词段保留，剩下没选的拼音串照原样出去），再换模式。value 为 null 表示这一键不循环（开关关着，这一组快捷键仍是二态切换），宿主照旧自己处理这个键。非法编号返回错误。
+ * 有组字时上的屏是原始拼音串，不是高亮的候选：旧版在改名或缩写时按住循环键是为了保住已经打出来的字母，而不是替用户选一个他没要的词。 */
+char *msime_client_language_cycle(bool enabled, uint8_t mode, uint8_t scheme, int8_t last_chinese_scheme,
+                                  bool has_composition);
 /* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
 char *msime_client_set_caps_lock(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
@@ -816,6 +822,18 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
+/* 宿主等待输入停顿后，在后台启动模型评分。
+ * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
+ * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
+ * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
+ * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+char *msime_client_start_settled_rerank(uint64_t session);
+/* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
+ * 完成后返回 {"status":"done","moved":...,"current":...}。
+ * current 为真表示当前组字及配置已评分；按键、开关或模型改变，或 accept=false 时为假。
+ * 未知令牌返回 {"status":"done","moved":false,"current":false}。
+ * 宿主已离开原组字时传 accept=false，只归还仍适用的模型。必须在会话线程调用。 */
+char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact

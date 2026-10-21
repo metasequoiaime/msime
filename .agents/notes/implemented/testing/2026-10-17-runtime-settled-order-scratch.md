@@ -28,6 +28,8 @@ Status: implemented
 
 候选变换测试 25 项通过，包含重复候选、隐藏行、锁定席位、整句改字旁路重放和落定重排只整理隐藏行的行为回归。完整 `msime-input-runtime` 319 项、`msime-engine` 2321 项、golden 31 项通过；两 crate 全目标 Clippy（`-D warnings`）、Rustfmt、`verify-notes` 和 `git diff --check` 通过。Android `aarch64-linux-android` 宿主检查也通过且无新增 warning。`bash scripts/verify-local.sh --quick` 的编译、契约和绝大多数平台阶段通过，唯一失败是已知 macOS 主机差异 `platforms/windows/tests/input/candidate_translation_commit.cpp`，脚本报告“disabling AI candidates left the displayed row”，与基线相同。
 
+异步任务的所有权和配置失效规则另见[异步停顿重排](../bug-fix/2026-10-21-async-settled-rerank.md)，本篇继续约定插件座位比较缓冲的复用。
+
 ## Consequences
 
 有插件操作的重复落定重排复用一份最多候选数的 `usize` 缓冲，减少两次临时向量申请和释放；首次使用仍按候选数量扩容一次。没有插件操作、移动端无插件变换和模型评分路径的行为与存储保持原样。
