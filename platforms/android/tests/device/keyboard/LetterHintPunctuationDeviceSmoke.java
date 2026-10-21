@@ -1,6 +1,5 @@
 package app.msime.android.test;
 
-import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -324,8 +323,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     private void runEnglishHoldChecks() throws Exception {
         shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         restartIme();
-        startActivitySync(new Intent(getTargetContext(), EditorActivity.class)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        openSyntheticEditor();
         tap(field(PLAIN));
         await(key("q"));
         if (findAcrossWindows(described("切换到英文输入")) != null)
