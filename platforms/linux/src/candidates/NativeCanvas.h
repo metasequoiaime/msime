@@ -4,6 +4,7 @@
 #include "NativeCanvasAnimation.h"
 #include "../../../../shared/candidate/CandidateChromeMetrics.h"
 #include "../../../../shared/candidate/CandidateDecoration.h"
+#include "../../../../shared/candidate/CandidateExpandedGrid.h"
 #include "../../../../shared/candidate/CandidateItemLayout.h"
 #include "../../../../shared/candidate/CandidateMotionRules.h"
 #include "../../../../shared/candidate/CandidatePlacement.h"
@@ -42,7 +43,7 @@ struct NativeCanvasAssets {
   double min_width = 0;
   bool explicit_content = false, explicit_line_gap = false, fit_content = false;
   bool page_arrows = false, expand_panel = false;
-  // 共享版式（resolvedLayout）的 expandRows，夹在 2–8：展开网格一次看得见首行之后的几行（macOS 的 CandidateSkin::expandRows）。没有共享版式时为空，网格用 kExpandedGridVisibleRows。
+  // 共享版式（resolvedLayout）的 expandRows，夹在 2–8：展开后一次看得见首行之后的几行（macOS 的 CandidateSkin::expandRows）。chrome 的网格和 canvas 包的卷轴都读它（native_canvas_expand_rows）；没写时为空，两种画法都按 kExpandedGridVisibleRows - 1 行。
   std::optional<std::size_t> expand_rows;
   double card_radius = 0, item_radius = 0, border_width = 0;
   bool user_radius = false;
@@ -109,6 +110,13 @@ inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoratio
   return {x + decoration.x, y + decoration.y, decoration.width, decoration.height};
 }
 
+// 版式的 expandRows：整数才认，夹在 2–8；没写或类型不对时为空。canvas 包（load_native_canvas）和 chrome（native_canvas_theme_assets）共用。
+inline std::optional<std::size_t> native_canvas_expand_rows(const nlohmann::json &layout) {
+  const auto rows = layout.find("expandRows");
+  if (rows == layout.end() || !rows->is_number_integer()) return std::nullopt;
+  return static_cast<std::size_t>(std::clamp<std::int64_t>(rows->get<std::int64_t>(), 2, 8));
+}
+
 // 包已经经过共享 API 校验；这里仍复核相对路径，且每次换肤只解码一次。
 inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::json &package,
                                                             const std::filesystem::path &directory,
@@ -135,6 +143,7 @@ inline std::shared_ptr<NativeCanvasAssets> load_native_canvas(const nlohmann::js
   result->fit_content = layout.value("fitContent", false);
   result->page_arrows = layout.value("pageArrows", false);
   result->expand_panel = layout.value("expandPanel", false);
+  result->expand_rows = native_canvas_expand_rows(layout);
   std::map<std::string, std::shared_ptr<const NativeCanvasAnimation>> cache;
   std::uint64_t remaining_pixels = 8000000;
   auto load = [&](const nlohmann::json &name) -> std::shared_ptr<const NativeCanvasAnimation> {
@@ -208,13 +217,13 @@ struct NativeCanvasContent {
   std::function<void(int)> select;
   std::function<void(bool)> page;
   std::function<std::vector<NativeCanvasAction>(int)> actions;
+  // 展开候选，两种画法共用：expandable 表示提供展开／收起键，expand(true) 展开、expand(false) 收起；expanded 表示已经展开（chrome 的网格或 canvas 包的卷轴）。展开时滚轮滚动内容而不翻页，不看「滚轮翻页」开关。宿主那边是同一份展开状态（FcitxEngine 的 expanded_），完整候选、按全局身份选词和代次核对都在那里。
+  bool expandable = false, expanded = false;
+  std::function<void(bool)> expand;
   // 以下只有 chrome 用。拼音的字号（已乘缩放的 candidate_preedit_font_size，0 跟随候选字号）；首行打头的 logo；当前页和总页数（「1 / 3」）。
   double preedit_size = 0;
   NativeCanvasImage logo = {};
   int page_index = 0, page_count = 0;
-  // 展开键（`expand_candidates` 打开、横排、不止一页）；expand(true) 展开网格，expand(false) 收起。
-  bool expandable = false;
-  std::function<void(bool)> expand;
   // 横排为还没到的释义预留几行（macOS 的 reservedGlossHeightForFont），释义到达时卡片不在用户眼前变高。
   int reserved_gloss_lines = 0;
   // 横排卡片这次显示以来最宽的一次（WidestCandidateWidth），卡片只变宽不变窄。
@@ -224,6 +233,11 @@ struct NativeCanvasContent {
   std::function<void(bool)> grid_scroll;
   // 这一页属于哪一段组字（编辑文字加页码）：高亮只在同一段组字、同一页里换行时才播选中动效。
   std::string selection_context;
+  // 以下只有 canvas 包的卷轴用（Windows 的 expandPanel）：items 仍是当前页，grid_items 是完整列表里当前页之后的候选，命中下标接在 items 后面，select 一并处理。revision 相同的重画保留滚动位置，换代、翻页或简繁投影变化时回到顶部；grid_limit 是已经排版的网格项数，滚到接近底部时再加一批。
+  std::string revision;
+  std::size_t page_size = 9, grid_limit = 300;
+  double scroll_offset = 0;
+  std::vector<NativeCanvasItem> grid_items;
 };
 struct NativeCanvasPointer { int hovered = -1, pressed = -1; };
 
@@ -231,6 +245,8 @@ struct NativeCanvasPointer { int hovered = -1, pressed = -1; };
 constexpr int kNativeCanvasHitPrevious = -2;
 constexpr int kNativeCanvasHitNext = -3;
 constexpr int kNativeCanvasHitExpand = -4;
+// canvas 包卷轴的滚动条（轨道和滑块）。
+constexpr int kNativeCanvasHitScrollbar = -5;
 
 // 只消费共享层规范化后的颜色，保留用户取色器与可读选中文字的优先级。
 inline nlohmann::json native_canvas_palette(const nlohmann::json &document) {
@@ -332,7 +348,8 @@ struct NativeCanvasPager {
 inline NativeCanvasPager native_canvas_pager(const NativeCanvasAssets &assets,
     const NativeCanvasContent &content, const NativeCanvasMetrics &metrics, double item_height) {
   NativeCanvasPager pager;
-  pager.visible = assets.page_arrows && content.page_arrows && !(content.horizontal && assets.expand_panel) &&
+  // 横排提供展开键时它代替翻页标记；释义页这类不提供展开的横排仍画翻页。
+  pager.visible = assets.page_arrows && content.page_arrows && !(content.horizontal && assets.expand_panel && content.expandable) &&
       !content.menu && !content.items.empty();
   if (!pager.visible) return pager;
   pager.triangle = metrics.triangle_pager;
@@ -370,9 +387,17 @@ struct NativeCanvasLayout {
   std::vector<double> item_text_widths;
   double preedit_width = -1, auxiliary_width = -1;
   double width = 0, height = 0;
+  // 展开／收起键：chrome 在首行或第一行候选的右端，canvas 包固定在横排右侧；命中、绘制和 X11 输入形状共用它。
+  NativeCanvasRect expand;
+  // 以下只有 canvas 包的卷轴填写：首行和网格一起在 viewport 里滚动，滚出去的部分既不画也不命中；scrollbar 是轨道，thumb 是滑块。
+  NativeCanvasRect viewport, scrollbar, thumb;
+  std::vector<NativeCanvasRect> grid;
+  std::vector<double> grid_text_widths;
+  double scroll_offset = 0, max_scroll = 0, scroll_step = 0;
+  double grid_label_width = 0;
   // 以下只有 chrome 布局填写（NativeCanvasChrome.h）。
   bool chrome = false;
-  NativeCanvasRect logo, indicator, expand, band;
+  NativeCanvasRect logo, indicator, band;
   std::string indicator_text;
   bool page_controls = false;
   std::string gloss_font, preedit_font, indicator_font, symbol_font;
@@ -490,7 +515,7 @@ inline std::pair<double, double> native_canvas_item_size(cairo_t *cr, const Nati
 }
 
 inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCanvasAssets &assets,
-    const NativeCanvasContent &content, double panel_width_limit = -1) {
+    const NativeCanvasContent &content, double panel_width_limit = -1, double panel_height_limit = -1) {
   NativeCanvasLayout layout;
   layout.metrics = native_canvas_metrics(cr, assets, content);
   const auto &metrics = layout.metrics;
@@ -520,9 +545,14 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
   width = std::max(width, std::min(available, std::max(0.0, assets.min_width - padding[3] - padding[1])));
   layout.pager = native_canvas_pager(assets, content, metrics, metrics.font_size * 1.35 + metrics.extra_height);
   const auto &pager = layout.pager;
+  // 卷轴：清单打开 expandPanel、横排、宿主提供展开键时，右侧固定一个展开／收起键；展开后首行之下排完整列表的后续候选。
+  const bool expand = assets.expand_panel && content.horizontal && !content.menu &&
+      !content.items.empty() && content.expandable;
+  const bool grid = expand && content.expanded && !content.grid_items.empty();
+  const double button = std::round(metrics.font_size * 1.1), toggle_extent = expand ? button + 3 : 0;
   // 横排翻页独占右侧一列，候选只在其左侧折行。
-  const double list_available = pager.visible && content.horizontal ?
-      std::max(1.0, available - pager.extent()) : available;
+  const double reserved = pager.visible && content.horizontal ? pager.extent() : toggle_extent;
+  const double list_available = std::max(1.0, available - reserved - (grid ? 10 : 0));
   std::vector<double> natural_widths, text_offsets;
   double vertical_width = width;
   for (const auto &item : content.items) {
@@ -574,6 +604,63 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
   }
   if (!content.horizontal && !layout.items.empty()) y -= metrics.gap;
   const double list_bottom = y;
+  if (expand) {
+    width = std::max(width, list_width + toggle_extent + (grid ? 10 : 0));
+    if (grid && std::isfinite(available)) width = std::max(width, available);
+    const double right = padding[3] + width - toggle_extent;
+    layout.expand = {right + 2, row_y + std::max(0.0, (row_height - button) / 2), button, button};
+    y = std::max(y, layout.expand.y + button);
+    const double first_height = y - row_y;
+    layout.scroll_step = base_height + metrics.gap;
+    if (grid) {
+      layout.grid_label_width = text_offsets.empty() ? metrics.number_min_width + metrics.number_gap :
+          text_offsets.front() - metrics.number_inset;
+      const double grid_width = std::max(1.0, width - toggle_extent - 10);
+      const auto columns = static_cast<std::size_t>(std::clamp(std::floor(
+          (grid_width + metrics.gap) / (metrics.font_size * 2.6 + metrics.gap)),
+          1.0, static_cast<double>(std::max(std::size_t{1}, content.page_size))));
+      const double cell = std::max(1.0, (grid_width - (columns - 1) * metrics.gap) / columns);
+      double gx = 0, gy = y + metrics.gap, gh = base_height;
+      std::size_t begin = 0;
+      const auto finish = [&] {
+        for (std::size_t at = begin; at < layout.grid.size(); ++at) layout.grid[at].height = gh;
+      };
+      for (std::size_t at = 0; at < std::min(content.grid_limit, content.grid_items.size()); ++at) {
+        const auto &item = content.grid_items[at];
+        const auto natural = native_canvas_item_size(cr, metrics, item, true);
+        const double fixed = metrics.number_inset + layout.grid_label_width + metrics.right;
+        const double span = std::clamp(std::ceil((natural.first + fixed + metrics.gap) /
+            (cell + metrics.gap) - 0.001), 1.0, static_cast<double>(columns));
+        const double cell_width = std::min(grid_width, span * cell + (span - 1) * metrics.gap);
+        if (gx > 0 && gx + cell_width > grid_width + 0.5) {
+          finish(); gy += gh + metrics.gap; gx = 0; gh = base_height; begin = layout.grid.size();
+        }
+        const double text_width = std::max(1.0, cell_width - fixed);
+        const auto size = native_canvas_item_size(cr, metrics, item, true, text_width);
+        gh = std::max(gh, size.second + (metrics.custom_height ? 0 : metrics.extra_height));
+        layout.grid.push_back({padding[3] + gx, gy, cell_width, gh});
+        layout.grid_text_widths.push_back(text_width);
+        gx += cell_width + metrics.gap;
+      }
+      finish();
+      const double bottom = gy + gh;
+      const auto extra_rows = static_cast<double>(assets.expand_rows.value_or(msime::candidate::kExpandedGridVisibleRows - 1));
+      double viewport = std::min(bottom - row_y, first_height + extra_rows * layout.scroll_step);
+      if (panel_height_limit > 0) viewport = std::min(viewport, std::max(first_height,
+          panel_height_limit - row_y - padding[2] - (content.auxiliary.empty() ? 0 : auxiliary.second + 4)));
+      layout.viewport = {padding[3], row_y, width - toggle_extent, viewport};
+      layout.max_scroll = std::max(0.0, bottom - row_y - viewport);
+      layout.scroll_offset = std::clamp(content.scroll_offset, 0.0, layout.max_scroll);
+      if (layout.max_scroll > 0) {
+        layout.scrollbar = {right - 10, row_y, 10, viewport};
+        const double height = std::min(viewport, std::max(20.0, viewport * viewport / (bottom - row_y)));
+        layout.thumb = {right - 6, row_y + (viewport - height) * layout.scroll_offset / layout.max_scroll, 4, height};
+      }
+      for (auto &box : layout.items) box.y -= layout.scroll_offset;
+      for (auto &box : layout.grid) box.y -= layout.scroll_offset;
+      y = row_y + viewport;
+    }
+  }
   if (pager.visible) {
     if (content.horizontal) {
       width = std::max(width, list_width + pager.extent());
@@ -594,7 +681,7 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
   }
   if (metrics.justify) for (const auto &[begin, end] : rows) {
     const double used = layout.items[end - 1].x + layout.items[end - 1].width - padding[3];
-    const double extra = std::max(0.0, width - (pager.visible ? pager.extent() : 0) - used) / (end - begin);
+    const double extra = std::max(0.0, width - reserved - (grid ? 10 : 0) - used) / (end - begin);
     for (std::size_t at = begin; at < end; ++at) {
       layout.items[at].x += (at - begin) * extra;
       layout.items[at].width += extra;
@@ -622,6 +709,8 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
   auto shift = [&](NativeCanvasRect &rect) { rect.x += reach[3]; rect.y += reach[0]; };
   shift(layout.panel); shift(layout.preedit); shift(layout.auxiliary);
   shift(layout.previous); shift(layout.next); shift(layout.page_divider);
+  shift(layout.expand); shift(layout.viewport); shift(layout.scrollbar); shift(layout.thumb);
+  for (auto &item : layout.grid) shift(item);
   for (auto &item : layout.items) {
     if (!content.horizontal) item.width = width;
     shift(item);
@@ -633,10 +722,15 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
 
 inline int native_canvas_hit_skin(const NativeCanvasContent &content, const NativeCanvasLayout &layout,
                              double x, double y) {
+  if (layout.expand.width > 0 && layout.expand.contains(x, y)) return kNativeCanvasHitExpand;
+  if (layout.scrollbar.width > 0 && layout.scrollbar.contains(x, y)) return kNativeCanvasHitScrollbar;
+  if (layout.viewport.height > 0 && !layout.viewport.contains(x, y)) return -1;
   for (std::size_t at = 0; at < layout.items.size(); ++at)
     if (layout.items[at].contains(x, y)) return static_cast<int>(at);
-  if (layout.pager.visible && content.previous && layout.previous.contains(x, y)) return -2;
-  if (layout.pager.visible && content.next && layout.next.contains(x, y)) return -3;
+  for (std::size_t at = 0; at < layout.grid.size(); ++at)
+    if (layout.grid[at].contains(x, y)) return static_cast<int>(content.items.size() + at);
+  if (layout.pager.visible && content.previous && layout.previous.contains(x, y)) return kNativeCanvasHitPrevious;
+  if (layout.pager.visible && content.next && layout.next.contains(x, y)) return kNativeCanvasHitNext;
   return -1;
 }
 
@@ -671,7 +765,7 @@ inline std::array<double, 4> native_canvas_item_corners(const NativeCanvasConten
   double bottom = first.y;
   for (const auto &box : layout.items) bottom = std::max(bottom, box.y + box.height);
   const bool top = content.preedit.empty() && item.y <= first.y + 0.5;
-  const bool last = item.y + item.height >= bottom - 0.5;
+  const bool last = layout.grid.empty() && item.y + item.height >= bottom - 0.5;
   const bool left = item.x <= first.x + 0.5;
   const bool end = item.x + item.width >= layout.panel.x + layout.panel.width - metrics.content[1] - 0.5;
   if (top && left) radii[0] = metrics.card_radius;
@@ -812,16 +906,15 @@ inline void paint_native_canvas_skin(cairo_t *cr, const NativeCanvasAssets &asse
   }
   const auto show_bar = colors.find("show_selected_bar");
   const bool selection_bar = show_bar != colors.end() && show_bar->is_boolean() && show_bar->get<bool>();
-  for (std::size_t at = 0; at < content.items.size(); ++at) {
-    auto rect = layout.items[at];
-    const bool selected = static_cast<int>(at) == content.selected;
+  const auto paint_item = [&](const NativeCanvasItem &item, NativeCanvasRect rect, double text_width,
+                              int at, bool selected, std::array<double, 4> corners) {
     const bool pressed = static_cast<int>(at) == pointer.pressed;
     const bool hovered = static_cast<int>(at) == pointer.hovered;
     if (selected || pressed || hovered) {
       native_canvas_color(cr, colors, (selected || pressed) && !content.menu ? "selected" : "hover",
           selected || pressed ? "#dceaff" : "#00000010");
-      native_canvas_round_rect(cr, rect, native_canvas_item_corners(content, layout, at)); cairo_fill(cr);
-      if (!content.menu && (selected || pressed) && selection_bar) {
+      native_canvas_round_rect(cr, rect, corners); cairo_fill(cr);
+      if (!content.menu && at < static_cast<int>(content.items.size()) && (selected || pressed) && selection_bar) {
         native_canvas_color(cr, colors, "selected_bar", "#3584e4");
         const double width = metrics.bar_width, height = metrics.bar_height, radius = width / 2;
         native_canvas_round_rect(cr, {rect.x - (metrics.bar_inside ? 0 : width / 2),
@@ -829,8 +922,6 @@ inline void paint_native_canvas_skin(cairo_t *cr, const NativeCanvasAssets &asse
             {radius, radius, radius, radius}); cairo_fill(cr);
       }
     }
-    const auto &item = content.items[at];
-    const auto text_width = layout.item_text_widths[at];
     const auto text_height = native_canvas_item_size(cr, metrics, item, content.horizontal, text_width).second;
     const auto label_size = native_canvas_text_size(cr, metrics.number_font, item.label);
     const double top = rect.y;
@@ -841,7 +932,8 @@ inline void paint_native_canvas_skin(cairo_t *cr, const NativeCanvasAssets &asse
       text(item.label, rect, metrics.number_font, selected || pressed ? "selected_number" : "number", "#555555");
     }
     // 序号字号为 0 时不画字形，但来源仍保留最小 9 DIP 序号栏与间距。
-    if (!item.label.empty()) rect.x += std::max(metrics.number_min_width,
+    if (at >= static_cast<int>(content.items.size())) rect.x += layout.grid_label_width;
+    else if (!item.label.empty()) rect.x += std::max(metrics.number_min_width,
         metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
     auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed, text_width);
@@ -853,6 +945,44 @@ inline void paint_native_canvas_skin(cairo_t *cr, const NativeCanvasAssets &asse
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
     g_object_unref(line);
+  };
+  cairo_save(cr);
+  if (layout.viewport.height > 0) {
+    cairo_rectangle(cr, layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height);
+    cairo_clip(cr);
+  }
+  for (std::size_t at = 0; at < content.items.size(); ++at)
+    paint_item(content.items[at], layout.items[at], layout.item_text_widths[at], static_cast<int>(at),
+        static_cast<int>(at) == content.selected, native_canvas_item_corners(content, layout, at));
+  for (std::size_t at = 0; at < layout.grid.size(); ++at) {
+    const auto &box = layout.grid[at];
+    if (box.y + box.height <= layout.viewport.y || box.y >= layout.viewport.y + layout.viewport.height) continue;
+    const double radius = metrics.item_radius;
+    paint_item(content.grid_items[at], box, layout.grid_text_widths[at],
+        static_cast<int>(content.items.size() + at), false, {radius, radius, radius, radius});
+  }
+  cairo_restore(cr);
+  if (layout.expand.width > 0) {
+    const auto &box = layout.expand;
+    if (pointer.hovered == kNativeCanvasHitExpand || pointer.pressed == kNativeCanvasHitExpand) {
+      native_canvas_color(cr, colors, pointer.pressed == kNativeCanvasHitExpand ? "selected" : "hover", "#00000010");
+      const double radius = metrics.item_radius;
+      native_canvas_round_rect(cr, box, {radius, radius, radius, radius}); cairo_fill(cr);
+    }
+    native_canvas_color(cr, colors, "number", "#555555");
+    const double cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const double half = metrics.font_size * 0.2, direction = content.expanded ? -1 : 1;
+    cairo_move_to(cr, cx - half, cy - direction * half / 2);
+    cairo_line_to(cr, cx, cy + direction * half / 2);
+    cairo_line_to(cr, cx + half, cy - direction * half / 2);
+    cairo_set_line_width(cr, std::max(1.2, metrics.font_size / 13)); cairo_stroke(cr);
+  }
+  if (layout.thumb.width > 0) {
+    native_canvas_color(cr, colors, "number", "#555555");
+    cairo_push_group(cr);
+    native_canvas_round_rect(cr, layout.thumb, {2, 2, 2, 2}); cairo_fill(cr);
+    cairo_pop_group_to_source(cr);
+    cairo_paint_with_alpha(cr, pointer.hovered == kNativeCanvasHitScrollbar || pointer.pressed == kNativeCanvasHitScrollbar ? 0.85 : 0.45);
   }
   text(content.auxiliary, layout.auxiliary, metrics.font, "secondary", "#555555", layout.auxiliary_width);
   if (layout.pager.visible) {
@@ -1013,8 +1143,7 @@ inline std::shared_ptr<NativeCanvasAssets> native_canvas_theme_assets(const Nati
       result->horizontal = layout->value("horizontal", nlohmann::json::object());
       result->vertical = layout->value("vertical", nlohmann::json::object());
       result->fit_content = layout->value("fitContent", false);
-      if (const auto rows = layout->find("expandRows"); rows != layout->end() && rows->is_number_integer())
-        result->expand_rows = static_cast<std::size_t>(std::clamp<std::int64_t>(rows->get<std::int64_t>(), 2, 8));
+      result->expand_rows = native_canvas_expand_rows(*layout);
     }
     result->font_family = package.value("fontFamily", std::string{});
     read_native_canvas_animation(*result, package);

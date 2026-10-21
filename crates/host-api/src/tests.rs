@@ -1611,6 +1611,8 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
+    // 左右键只在横排候选窗里选词；缺省是竖排。
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Horizontal;
     let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
     read(msime_client_focus(handle, true));
     type_letters(handle, b"nihao");
@@ -1651,6 +1653,18 @@ fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
         "{closed}"
     );
     assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
+
+    // 重新打开、但候选窗改成竖排：左右键与候选方向垂直，同一个键仍是普通光标命令。
+    preferences.navigation.left_right = true;
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Vertical;
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    let vertical = read(msime_client_command(handle, 5));
+    assert_eq!(
+        highlighted(&vertical["value"]["view"]),
+        default_highlighted,
+        "{vertical}"
+    );
+    assert_eq!(vertical["value"]["view"]["caret_position"], 5, "{vertical}");
 
     read(msime_client_destroy(handle));
 }

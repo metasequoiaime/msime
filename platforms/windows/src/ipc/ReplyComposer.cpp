@@ -1202,6 +1202,17 @@ std::optional<PendingReply> ReplyComposer::configured_key(
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
   if (!composing)
     return std::nullopt;
+  // Home 和 End（不带修饰键，或者只带 Shift：TIP 对 Shift+Home、Shift+End 的分类和不带修饰键时一样）。候选窗显示时 TIP 给自己的宿主会话发命令：Home 是 MSIME_FIRST_CANDIDATE_OR_HOME（高亮不在首选时回到首选，已在首选时把光标移到输入串开头），End 是 MSIME_LAST_CANDIDATE（跳到末选，没有两段式）。这边的会话经 translate_key 发同一条命令，两边才一致；没有候选时 TIP 不动组字（Home 见 tsf/HostComposition.h 的 HostHomeCommand，End 的 MSIME_LAST_CANDIDATE 在没有候选时什么也不做），这里也只应答，不动会话。以前这两个键在这里没有路由，返回空让 SessionPump 当作派发失败。TIP 重画组字时按请求号读回复（UI-less 读候选页，拼音预编辑样式读预编辑），所以回复和编辑键的规则相同：UI-less 或非 Local 样式回 Composition，否则不回包。
+  if ((packet.keycode == 0x24 || packet.keycode == 0x23) &&
+      (PipeMetadata::key_modifiers(packet.modifiers_down) & ~1u) == 0) {
+    const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
+    const auto path = uiless || style != TsfPreeditStyle::Local ? ReplyPath::Composition : ReplyPath::NoReply;
+    if (!current.at("candidates").empty())
+      return dispatch(session, packet, epoch, path, uiless);
+    return stage({client_, epoch_, packet.request_id, true,
+                  {{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}}},
+                 path, uiless);
+  }
   return navigate(session, packet, epoch, bindings);
 }
 } // namespace msime::windows

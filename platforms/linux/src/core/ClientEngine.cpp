@@ -7669,31 +7669,26 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
-    // Match the Windows composition editor for the three Ctrl-only segment
-    // edits. The shared runtime owns the segment boundaries (and falls back
-    // to one raw character for local modes), so the Linux host only has to
-    // preserve the editor's modifier boundary and route the action. With no
-    // active composition these remain ordinary application shortcuts.
+    // 分段编辑与 Fcitx5、Windows 组字编辑器和 macOS 保持一致：组字时 Shift+左右和 Ctrl+左右（只按这一个修饰键）在所有方案里都按音节移动拼音光标，全拼和双拼也一样；Ctrl+退格删除一段，Shift+退格不在此列。共享运行时在横排候选窗里会把字母光标命令换成移动候选，但从不换分段命令，所以高亮停在哪个候选上，这两个组合键都编辑拼音。分段边界归共享运行时（局部模式下退回一个原始字符），宿主只守住修饰键的边界并转发命令。没有组字时这些组合键仍是应用的快捷键。
     const bool ctrl_only = modifiers == IBUS_CONTROL_MASK &&
                            !(flags & IBUS_RELEASE_MASK);
-    const bool segment_edit_key = key == IBUS_BackSpace ||
-                                  key == IBUS_Left || key == IBUS_KP_Left ||
-                                  key == IBUS_Right || key == IBUS_KP_Right;
+    const bool shift_only = modifiers == IBUS_SHIFT_MASK &&
+                            !(flags & IBUS_RELEASE_MASK);
+    const bool left = key == IBUS_Left || key == IBUS_KP_Left;
+    const bool right = key == IBUS_Right || key == IBUS_KP_Right;
+    const bool segment_edit_key =
+        (ctrl_only && (key == IBUS_BackSpace || left || right)) ||
+        (shift_only && (left || right));
     const auto active_editing = s.view.value("editing_text", std::string{});
     const auto active_candidates = s.view.value("candidates", Json::array());
-    // 韩文音节、注音转换、越南文单词和藏文音节串都没有分段：Ctrl 组合键在下面结束它，并仍然作为应用的快捷键。
-    if (!locks_caret && ctrl_only && segment_edit_key &&
+    // 韩文音节、注音转换、越南文单词和藏文音节串都没有分段：这些组合键在下面照旧结束它，并仍然作为应用的快捷键。
+    if (!locks_caret && segment_edit_key &&
         (!active_editing.empty() ||
          (active_candidates.is_array() && !active_candidates.empty()))) {
-      // 全拼和双拼的左右键是整句改字，Ctrl+左右就是一个字母一个字母地编辑拼音。
-      const bool sentence = msime::linux_host::edits_sentence(s.view);
-      const bool left = key == IBUS_Left || key == IBUS_KP_Left;
       const uint32_t segment_command =
           key == IBUS_BackSpace
               ? MSIME_BACKSPACE_SEGMENT
-              : (sentence ? (left ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT)
-                          : (left ? MSIME_MOVE_LEFT_SEGMENT
-                                  : MSIME_MOVE_RIGHT_SEGMENT));
+              : (left ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT);
       handled = apply(engine,
                       msime_client_command(s.session, segment_command));
       return;
@@ -8080,8 +8075,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.view.at("candidates").empty() &&
         (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
          key == IBUS_KP_End)) {
+      // Home 分两段：高亮不在首选时回到首选，已在首选时把拼音光标移到开头（msime_client.h 的 MSIME_FIRST_CANDIDATE_OR_HOME）。End 仍只跳到末选。
       const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
-                               ? MSIME_FIRST_CANDIDATE
+                               ? MSIME_FIRST_CANDIDATE_OR_HOME
                                : MSIME_LAST_CANDIDATE;
       handled = apply(engine, msime_client_command(s.session, command));
       return;

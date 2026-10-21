@@ -857,19 +857,43 @@ assert "candidate_theme_applied_.clear();" in reset and "candidate_theme_attempt
 assert "syncCandidatePanelTheme(false);" in body(source, "  void refreshProviderSockets() {", "\n  }\n")
 assert 'fcitx::readAsIni(config, "conf/classicui.conf");' in source
 
-# 整句改字：两个入口都按 core/InputSchemes.h 的同一条 edits_sentence 决定方向键。全拼和双拼的左右键发改字命令（引擎进不了改字时自己退回字母光标），Ctrl+左右一个字母一个字母地编辑拼音，其他方案照旧按分段；改字时行内画 conversion_preedit 给出的整句并显式放光标。
+# 整句改字：两个入口都按 core/InputSchemes.h 的同一条 edits_sentence 决定不带修饰键的左右键。全拼和双拼的左右键发改字命令（引擎进不了改字时自己退回字母光标）；改字时行内画 conversion_preedit 给出的整句并显式放光标。
 assert "edits_sentence(view_) ? MSIME_CONVERSION_LEFT : MSIME_MOVE_LEFT" in source
 assert "edits_sentence(view_) ? MSIME_CONVERSION_RIGHT : MSIME_MOVE_RIGHT" in source
-assert "sentence ? MSIME_MOVE_LEFT : MSIME_MOVE_LEFT_SEGMENT" in source
-assert "sentence ? MSIME_MOVE_RIGHT : MSIME_MOVE_RIGHT_SEGMENT" in source
 conversion_render = body(source, "  } else if (const auto conversion = msime::linux_host::conversion_preedit(view_); conversion.active) {", "  } else if (")
 assert "preedit.setCursor(static_cast<int>(conversion.caret_bytes));" in conversion_render
 assert "fcitx::TextFormatFlag::HighLight" in conversion_render
 ibus = (root / "src/core/ClientEngine.cpp").read_text()
 assert "edits_sentence(s.view) ? MSIME_CONVERSION_LEFT : MSIME_MOVE_LEFT" in ibus
 assert "edits_sentence(s.view) ? MSIME_CONVERSION_RIGHT : MSIME_MOVE_RIGHT" in ibus
-assert "(sentence ? (left ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT)" in ibus
 assert "msime::linux_host::conversion_preedit(view)" in ibus
+# Shift+左右和 Ctrl+左右（只按这一个修饰键）在组字时按音节移动拼音光标，所有方案都一样，全拼、双拼和五笔不再分开：共享运行时在横排候选窗里会把字母光标命令（MSIME_MOVE_LEFT/RIGHT）换成移动候选，分段命令从不被换，所以这两个组合键不能再按 edits_sentence 退回字母光标。锁光标的方案（韩文、注音、越南文、藏文）和没有组字时照旧；Ctrl+退格不变，Shift+退格不进分段分支。
+segment = body(source, "  if (composing && !commitsOnBlur()) {\n", "\n  }\n")
+assert "edits_sentence" not in segment and "MSIME_MOVE_LEFT)" not in segment and "MSIME_MOVE_RIGHT)" not in segment
+assert "if (ctrl && !alt && !shift && sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);" in segment
+assert "ctrl != shift && !alt &&" in segment
+assert "fcitx::KeyState::Super, fcitx::KeyState::Hyper,\n                                         fcitx::KeyState::Meta, fcitx::KeyState::Mod5" in segment
+assert "if (segmentChord && (sym == FcitxKey_Left || sym == FcitxKey_KP_Left))\n      return command(MSIME_MOVE_LEFT_SEGMENT);" in segment
+assert "if (segmentChord && (sym == FcitxKey_Right || sym == FcitxKey_KP_Right))\n      return command(MSIME_MOVE_RIGHT_SEGMENT);" in segment
+# 裸 Shift 在松开时才切换中英文。Shift+方向键被上面的分段分支提前返回之前，Shift 必须已经记成「用在组合键里」并撤销布防，否则松开 Shift 会把这次组合当成手势。
+fcitx_key = source[source.index("bool FcitxState::key(fcitx::KeyEvent &event) {"):]
+fcitx_segment_at = fcitx_key.index("  if (composing && !commitsOnBlur()) {\n")
+assert fcitx_key.index("if (raw.test(fcitx::KeyState::Shift)) shift_in_combination_ = true;") < fcitx_segment_at
+assert fcitx_key.index("\n  pure_shift_candidate_ = false;\n  pure_ctrl_candidate_ = false;\n") < fcitx_segment_at
+ibus_segment = body(ibus, "    const bool shift_only = modifiers == IBUS_SHIFT_MASK &&\n", "\n      return;\n    }\n")
+assert "edits_sentence" not in ibus_segment and "MSIME_MOVE_LEFT :" not in ibus_segment
+assert "(ctrl_only && (key == IBUS_BackSpace || left || right))" in ibus_segment
+assert "(shift_only && (left || right))" in ibus_segment
+assert "if (!locks_caret && segment_edit_key &&" in ibus_segment
+assert "(left ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT)" in ibus_segment
+ibus_process = ibus[ibus.index("gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {"):]
+assert ibus_process.index("\n  s.pure_shift_candidate = false;\n  s.pure_ctrl_candidate = false;\n") < ibus_process.index('\n  guarded(engine, "process_key", [&] {\n') < ibus_process.index("    const bool shift_only = modifiers == IBUS_SHIFT_MASK &&\n")
+# 候选窗显示时 Home 发 MSIME_FIRST_CANDIDATE_OR_HOME：高亮不在首选时回到首选，已在首选时把拼音光标移到开头；End 不变。日文转换用空格循环回首选是无条件的，仍发 MSIME_FIRST_CANDIDATE。
+assert "case FcitxKey_Home: case FcitxKey_KP_Home:\n      return command(MSIME_FIRST_CANDIDATE_OR_HOME);\n    case FcitxKey_End: case FcitxKey_KP_End:\n      return command(MSIME_LAST_CANDIDATE);" in source
+assert "return command(MSIME_FIRST_CANDIDATE);" not in source
+assert "command(action == Action::StepFirst ? MSIME_FIRST_CANDIDATE\n" in source
+assert "? MSIME_FIRST_CANDIDATE_OR_HOME\n                               : MSIME_LAST_CANDIDATE;" in ibus
+assert "action == Action::StepFirst ? MSIME_FIRST_CANDIDATE\n" in ibus
 # 候选列表打开（韩文汉字列表、注音列表）时，两个入口都与 Windows 的 korean_hanja_key 一样让四个方向键移高亮：←↑ 上一个、→↓ 下一个，不看导航开关。
 list_arrows = body(source, "  if (composing && openedList &&\n", "\n  }\n")
 assert "case FcitxKey_Left: case FcitxKey_KP_Left: case FcitxKey_Up: case FcitxKey_KP_Up:\n      return command(MSIME_PREVIOUS_CANDIDATE);" in list_arrows

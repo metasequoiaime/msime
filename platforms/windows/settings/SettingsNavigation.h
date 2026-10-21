@@ -46,7 +46,7 @@ inline constexpr std::array<Page, 16> pages{{
 
 inline constexpr std::string_view default_page = "typing";
 
-// 原生页面自己不绘制、需要跳转到共享应用的界面，都是输入工具的面板而不是设置：云词库和云剪贴板面板，以及屏幕键盘、语音输入和手写面板本身。社区皮肤和社区插件是「主题」「插件」页自己的标签，社区词库与回复模板由「账号与同步」页「我的内容」在本窗口里打开，都不在这里。
+// 原生页面自己不绘制、需要跳转到共享应用的界面，都是输入工具的面板而不是设置：云词库、云剪贴板和背单词面板，以及屏幕键盘、语音输入和手写面板本身。社区皮肤和社区插件是「主题」「插件」页自己的标签，社区词库与回复模板由「账号与同步」页「我的内容」在本窗口里打开，都不在这里。
 namespace shell_links {
 // The cloud dictionary is a panel of the shared app on every desktop, opened from the lexicon page.
 inline constexpr ShellTarget cloud_dictionary{"cloud-dictionary", ""};
@@ -56,8 +56,10 @@ inline constexpr ShellTarget cloud_clipboard{"cloud-clipboard", ""};
 inline constexpr ShellTarget voice_panel{"voice", ""};
 inline constexpr ShellTarget keyboard_panel{"keyboard", ""};
 inline constexpr ShellTarget handwriting_panel{"handwriting", ""};
-inline constexpr std::array<ShellTarget, 5> all{{voice_panel, keyboard_panel, handwriting_panel,
-                                                 cloud_dictionary, cloud_clipboard}};
+// 背单词面板，词库页背单词子页的「开始复习」打开它；复习在面板里进行，设置里只管理词书。
+inline constexpr ShellTarget vocabulary_panel{"vocabulary", ""};
+inline constexpr std::array<ShellTarget, 6> all{{voice_panel, keyboard_panel, handwriting_panel,
+                                                 cloud_dictionary, cloud_clipboard, vocabulary_panel}};
 } // namespace shell_links
 
 struct RouteAlias {

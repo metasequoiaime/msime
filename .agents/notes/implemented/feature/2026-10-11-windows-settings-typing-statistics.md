@@ -12,6 +12,7 @@ Status: implemented
 - 派生数字照搬成 C++ 头文件 `platforms/windows/settings/TypingStatisticsModel.h`，不依赖 Windows 头文件，由 `tests/ui/typing_statistics_model.cpp` 核对；数字格式照 `toLocaleString("zh-CN")`、`toFixed`（按 double 的精确十进制值、正好一半取较大者）和 `Math.round`。只给手机外观的 `typing-summary.ts` 不移植，Windows 不画它。
 - 文件写入状态放进 client-core：`TypingStatisticsStore::status` 返回 `TypingStatisticsStatus { statistics, availability, lastWrittenMs }`，Tauri 的 `typing_statistics_status` 改为调用它；host-api 的请求加顶层 `status: true`，`load`、`set_enabled`、`set_retention`、`reset` 时回答这个状态，用于别的操作时整个请求被拒。不带它时回答与以前一样。
 - 图表用 WinUI 形状画：柱和热力图格子是可点的按钮（带提示、读屏名和选中状态），折线、参照虚线和圆点画在随尺寸重画的 `Canvas` 上，环形图用 `PathGeometry` 的弧段按共享页的 SVG 几何画。所有读写都在工作线程上，JSON 也在工作线程上读。
+- 概览六格例外，照 macOS 画（Windows 设置以 macOS 为准迁移，见 [Windows 设置窗口的外壳配色与侧栏对齐 macOS](2026-10-20-windows-settings-mac-shell.md)）：附注挂在各格下面，11 DIP、次要色，今日输入写单日最多、累计写日均和记录天数、今日活跃写累计活跃时长、今日速度写单日最快、连续天数写最长，平均速度没有附注（`overview_metrics`）；网格下面没有两行概况，只有细线隔开的一条 11 DIP 脚注「速度统计汉字与字母；两次上屏间隔超过 10 秒视为休息，不计入活跃时长。」。`overview_details` 仍按 `statisticsOverviewDetails` 算两句，`summary` 给累计那一格用。
 - 偏好没读到时，打字统计页的开关、保留期下拉框和标签照常可用：`toggle_control`、`select_control`、`segmented_control` 加了 `document` 参数，这几处不写偏好。
 
 ## Alternatives considered

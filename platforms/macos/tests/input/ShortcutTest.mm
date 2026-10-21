@@ -3179,9 +3179,9 @@ static void TestPinyinArrowCandidateNavigation() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"panel"];
-    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO) {
+    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO, NSUInteger page = 0) {
         [controller setValue:@{@"focused": @YES, @"scheme": @(scheme), @"editing_text": @"ceshi", @"caret_position": @(caret),
-                              @"candidate_list_open": @(list), @"candidates": @[
+                              @"page": @(page), @"candidate_list_open": @(list), @"candidates": @[
                                   @{@"text": @"甲", @"highlighted": @(selected == 0)},
                                   @{@"text": @"乙", @"highlighted": @(selected == 1)}]} forKey:@"view"];
         panel.visible = YES;
@@ -3191,19 +3191,23 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    // 默认交给 runtime；关闭后继续覆盖宿主旧有的端点与高亮分工。
+    // 默认交给 runtime；关闭后横排由宿主按同一条规则分工：首选上 ← 编辑、→ 先回到末尾，其余候选上左右键只移动候选。竖排时左右键与候选方向垂直，只编辑光标。
     for (NSNumber *leftRight in @[@YES, @NO]) {
         [prefs applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
         for (BOOL vertical : {NO, YES}) {
             prefs.vertical = vertical;
+            const BOOL host = !leftRight.boolValue && !vertical;
             for (BOOL expand : {NO, YES}) {
                 prefs.expandCandidates = expand;
                 check(0, 5, 0, 123, MSIME_MOVE_LEFT);
-                check(0, 5, 1, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE);
+                check(0, 5, 1, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT);
                 check(0, 2, 0, 124, MSIME_MOVE_RIGHT);
-                check(0, 2, 1, 124, MSIME_MOVE_RIGHT);
-                check(0, 5, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
-                check(0, 5, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                check(0, 2, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
+                // 第二页的第一个不是首选，左右键都移动候选。
+                check(0, 5, 0, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT, NO, 1);
+                check(0, 2, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT, NO, 1);
+                check(0, 5, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
+                check(0, 5, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
             }
         }
     }
@@ -3578,15 +3582,26 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
                                  @"candidates": @[@{@"text": @"你好"}] };
     [controller setValue:composing forKey:@"view"];
 
-    // 全拼（视图不带方案时按全拼读）的左右键是整句改字，Ctrl+左右一个字母一个字母地编辑拼音。
-    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT)],
-                             @[@124, @(MSIME_MOVE_RIGHT)]]) {
+    // 全拼（视图不带方案时按全拼读）里 Ctrl+左右和 Shift+左右都按音节移动拼音光标，发分段命令：逐个字母的光标命令在横排候选窗里会被共享 runtime 换成移动候选。
+    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT_SEGMENT)],
+                             @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
         const unsigned short code = [entry[0] unsignedShortValue];
         session.lastCommand = UINT32_MAX;
         assert([controller handleEvent:ModeKey(code, NSEventModifierFlagControl, NO) client:client]);
         assert(session.lastCommand == [entry[1] unsignedIntValue]);
         [controller setValue:composing forKey:@"view"];
     }
+    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], NSEventModifierFlagShift, NO) client:client]);
+        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        [controller setValue:composing forKey:@"view"];
+    }
+    // Shift+Backspace 不是分段编辑，仍是普通退格。
+    session.lastCommand = UINT32_MAX;
+    [controller handleEvent:ModeKey(51, NSEventModifierFlagShift, NO) client:client];
+    assert(session.lastCommand == MSIME_BACKSPACE);
+    [controller setValue:composing forKey:@"view"];
     // 默认左右键交给 runtime，关闭该偏好时保留宿主按音节移动的旧路径。
     NSMutableDictionary *shuangpin = [composing mutableCopy];
     shuangpin[@"scheme"] = @1;
@@ -3603,14 +3618,16 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
         }
     }
     [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": @(savedLeftRight)}}];
-    // 没有整句改字的方案（五笔）里 Ctrl+左右照旧按分段移动。
+    // 五笔里 Ctrl+左右和 Shift+左右同样按分段移动。
     NSMutableDictionary *wubi = [composing mutableCopy];
     wubi[@"scheme"] = @2;
-    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
-        [controller setValue:wubi forKey:@"view"];
-        session.lastCommand = UINT32_MAX;
-        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], NSEventModifierFlagControl, NO) client:client]);
-        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+    for (NSNumber *chord in @[@(NSEventModifierFlagControl), @(NSEventModifierFlagShift)]) {
+        for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+            [controller setValue:wubi forKey:@"view"];
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], chord.unsignedIntegerValue, NO) client:client]);
+            assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        }
     }
     [controller setValue:composing forKey:@"view"];
 
@@ -3631,6 +3648,11 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client]);
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+    // Shift+左右也一样：没有组字时是应用里的选择文字，不发分段命令。
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    [controller handleEvent:ModeKey(123, NSEventModifierFlagShift, NO) client:client];
+    assert(session.lastCommand != MSIME_MOVE_LEFT_SEGMENT);
 
     // A candidate page with no editing text still counts as a composition: the pinyin has been
     // consumed by earlier selections and the page is what is left to edit.
@@ -3638,7 +3660,7 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
                   forKey:@"view"];
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(123, NSEventModifierFlagControl, NO) client:client]);
-    assert(session.lastCommand == MSIME_MOVE_LEFT);
+    assert(session.lastCommand == MSIME_MOVE_LEFT_SEGMENT);
 
     // A Ctrl+Backspace that emptied the reading of a half-chosen phrase leaves only the chosen piece, as the reference's `keep_creating_word_after_empty_raw` does. That is still a composition: the next Ctrl+Backspace deletes the piece instead of going to the application.
     NSDictionary *heldOnly = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"phrase_prefix": @"海滩" };
@@ -5806,6 +5828,33 @@ static void TestCapsLockTap() {
     gCapsHeld = false;
     [controller pollCapsLockTap];
     assert(prefs.englishMode && gCapsReleases == 4);
+
+    // 真正推进运行循环：直接调用 pollCapsLockTap 看不出默认模式的定时器会在事件跟踪或模态面板期间停住。
+    prefs.capsLockTapShortcut = YES;
+    for (NSRunLoopMode mode in @[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode, NSModalPanelRunLoopMode]) {
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), (__bridge CFStringRef)mode);
+        assert(![controller handleEvent:capsOff(10.0) client:client]);
+        prefs.englishMode = NO;
+        const NSUInteger releasesBefore = gCapsReleases;
+        gCapsNow = 10000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(10.0) client:client]);
+        gCapsNow = 10050; gCapsHeld = false;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (gCapsReleases == releasesBefore && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
+
+        // 同一运行模式下超过阈值仍保留大写锁定，不能为了让轻点响应而把长按也切换掉。
+        assert(![controller handleEvent:capsOff(10.1) client:client]);
+        gCapsNow = 11000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(11.0) client:client]);
+        gCapsNow = 11301;
+        deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (!session.capsLock && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(session.capsLock && prefs.englishMode && gCapsReleases == releasesBefore + 1);
+        gCapsHeld = false;
+    }
 
     MSIMECapsLockRelease = realRelease;
     MSIMECapsLockKeyHeld = realHeld;
@@ -10477,6 +10526,10 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
+            TestCapsLockTap();
+            return 0;
+        }
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
         if (argc == 2 && std::string(argv[1]) == "--shift-corner-quotes") {
             TestShiftCornerQuotesThroughRealSession();
@@ -10753,7 +10806,7 @@ int main(int argc, char **argv) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
             panel.visible = YES;
             assert([controller handleEvent:event client:client]);
-            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE : MSIME_LAST_CANDIDATE));
+            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE_OR_HOME : MSIME_LAST_CANDIDATE));
             panel.visible = NO;
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_MOVE_HOME : MSIME_MOVE_END));

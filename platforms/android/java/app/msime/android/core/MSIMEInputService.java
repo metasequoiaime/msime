@@ -160,6 +160,8 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
      */
     boolean candidateRenderDeferred;
+    /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
+    private final java.util.Map<View, Object> candidateTouches = new java.util.WeakHashMap<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
@@ -9968,10 +9970,10 @@ public final class MSIMEInputService extends InputMethodService {
         imeToolbar.styleTopRow();
     }
 
-    /** 在候选条或展开面板里是否有一个视图正被手指按着。 */
-    private static boolean candidateTreeHeld(View view) {
+    /** 在候选条或展开面板里是否有尚未结束的触摸或排队点击。 */
+    private boolean candidateTreeHeld(View view) {
         if (view == null || view.getVisibility() != View.VISIBLE) return false;
-        if (view.isPressed()) return true;
+        if (candidateTouches.containsKey(view)) return true;
         if (!(view instanceof android.view.ViewGroup group)) return false;
         for (int index = 0; index < group.getChildCount(); index++)
             if (candidateTreeHeld(group.getChildAt(index))) return true;
@@ -9982,11 +9984,16 @@ public final class MSIMEInputService extends InputMethodService {
     void bindCandidateRenderRelease(View button) {
         button.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
-            if ((action == android.view.MotionEvent.ACTION_UP
-                    || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && candidateRenderDeferred) {
-                candidateRenderDeferred = false;
-                view.post(this::render);
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                candidateTouches.put(view, new Object());
+            } else if (action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL) {
+                Object gesture = candidateTouches.get(view);
+                // 触摸监听先于框架的点击入队；再排一次队，既不能提前摘掉按钮，也不能漏掉点击触发的延后绘制。
+                main.post(() -> main.post(() -> {
+                    if (candidateTouches.get(view) == gesture) candidateTouches.remove(view);
+                    if (candidateRenderDeferred) render();
+                }));
             }
             return false;
         });

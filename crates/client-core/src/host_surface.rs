@@ -1022,6 +1022,8 @@ pub enum SurfaceRoute {
     Clipboard,
     CloudClipboard,
     CloudDictionary,
+    /// 背单词面板。`settings:vocabulary` 仍是设置里管理词书的那一页，这条路由打开复习用的面板。
+    Vocabulary,
 }
 
 /// Where a panel window opens on the work area, for hosts that place panels themselves.
@@ -1058,6 +1060,7 @@ impl SurfaceRoute {
             SurfaceRoute::Clipboard => "clipboard".to_string(),
             SurfaceRoute::CloudClipboard => "cloud-clipboard".to_string(),
             SurfaceRoute::CloudDictionary => "cloud-dictionary".to_string(),
+            SurfaceRoute::Vocabulary => "vocabulary".to_string(),
         }
     }
 
@@ -1092,6 +1095,7 @@ impl SurfaceRoute {
             "clipboard" => Ok(SurfaceRoute::Clipboard),
             "cloud-clipboard" => Ok(SurfaceRoute::CloudClipboard),
             "cloud-dictionary" => Ok(SurfaceRoute::CloudDictionary),
+            "vocabulary" => Ok(SurfaceRoute::Vocabulary),
             _ => Err(RouteError::Unknown),
         }
     }
@@ -1166,6 +1170,14 @@ impl SurfaceRoute {
                 height: 700,
                 placement: PanelPlacement::BottomCenter,
             }),
+            SurfaceRoute::Vocabulary => Some(PanelSurface {
+                label: "vocabulary-panel",
+                query: "vocabulary",
+                title: "水杉背单词",
+                width: 560,
+                height: 680,
+                placement: PanelPlacement::BottomCenter,
+            }),
         }
     }
 
@@ -1190,7 +1202,7 @@ impl SurfaceRoute {
         })
     }
 
-    pub const ALL: [SurfaceRoute; 8] = [
+    pub const ALL: [SurfaceRoute; 9] = [
         SurfaceRoute::Settings(None),
         SurfaceRoute::Emoji,
         SurfaceRoute::Keyboard,
@@ -1199,6 +1211,7 @@ impl SurfaceRoute {
         SurfaceRoute::Clipboard,
         SurfaceRoute::CloudClipboard,
         SurfaceRoute::CloudDictionary,
+        SurfaceRoute::Vocabulary,
     ];
 }
 

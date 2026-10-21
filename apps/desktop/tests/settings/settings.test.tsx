@@ -2110,8 +2110,15 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
-  // Home/End 跨整个候选列表移动，而非仅在当前页内移动。
-  expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
+  // Home/End 跨整个候选列表移动，而非仅在当前页内移动；桌面的 Home 在首项上再按一次移到输入串开头。
+  expect(
+    screen.getByText(
+      "移动到候选列表首项 / 末项（页码随之切换；已在首项时 Home 把光标移到输入串开头）",
+    ),
+  ).toBeDefined();
+  // 组字时 Shift+左右按音节移动输入串光标，停在哪个候选上都一样。
+  expect(screen.getByText("按音节移动输入串光标")).toBeDefined();
+  expect(screen.getByText("Shift + ← / →")).toBeDefined();
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
 });
 

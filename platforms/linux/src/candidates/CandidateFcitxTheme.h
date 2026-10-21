@@ -44,6 +44,11 @@ inline bool fcitx_candidate_theme_drawn(std::string_view theme, const std::strin
   return fcitx_theme_replaceable(theme) && (!dark_theme || fcitx_theme_replaceable(*dark_theme));
 }
 
+// `MSIME_FCITX5_THEME_AUTOGENERATE=0` 让 Fcitx5 宿主退出主题生成与接管，用户自己维护 classicui 主题；没设、`1` 和其他值都保留自动生成。只从 Fcitx5 进程环境读取。
+inline bool fcitx_theme_autogenerate_enabled(const char *setting) {
+  return !setting || std::string_view(setting) != "0";
+}
+
 inline std::string fcitx_theme_color(std::uint32_t rgb, bool transparent = false) {
   char buffer[10];
   std::snprintf(buffer, sizeof buffer, transparent ? "#%06x00" : "#%06x", rgb & 0xffffffu);
@@ -379,11 +384,13 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   const int content_left = metrics.shadow_left + pad;
   const int logo_top = shadow_top + pad + metrics.item_vertical;
   const int lead = logo ? metrics.logo_side + metrics.logo_gap : 0;
-  // 固定切片必须容下整条描边，否则边框色会进入可拉伸的中心，被拉成整片卡片；左上切片在有关标志时还要容下标志。
+  // 固定切片容下描边和标志后再留纯色安全带，避免分数缩放把标志边缘采进可拉伸条带。左、上切线从面板原点量起，向上对齐到 4 px 后在 1.25／1.5 倍显示缩放下落在完整设备像素上；右、下切线由 classicui 从按内容决定的面板宽高往回量，对齐它们并不能让切线落在整像素上，只会抬高面板的最小尺寸，所以保持原值。
   const int edge = std::max(radius, border_width);
-  const int slice_left = std::max(metrics.shadow_left + edge, logo ? content_left + metrics.logo_side : 0);
+  const auto aligned_slice = [](int value) { return (value + 3) / 4 * 4; };
+  const int logo_guard = std::max(2, static_cast<int>(std::ceil(2 * metrics.scale)));
+  const int slice_left = aligned_slice(std::max(metrics.shadow_left + edge, logo ? content_left + metrics.logo_side + logo_guard : 0));
   const int slice_right = metrics.shadow_right + edge;
-  const int slice_top = std::max(shadow_top + metrics.shadow_offset + edge, logo ? logo_top + metrics.logo_side : 0);
+  const int slice_top = aligned_slice(std::max(shadow_top + metrics.shadow_offset + edge, logo ? logo_top + metrics.logo_side + logo_guard : 0));
   const int slice_bottom = metrics.shadow_bottom + edge;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;

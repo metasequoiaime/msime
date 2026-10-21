@@ -58,3 +58,5 @@ macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截
 第二轮审查修复工具栏语言预览忽略方案和默认英文状态的问题，以及 XAML 外边框使实际外观大于标注尺寸的问题。原生 UI Automation 在双拼、五笔切换并保存后打开工具栏页，等待并检查实际可见的「双」「五」，再回到输入页继续切换；工具栏图标策略用例以 `clang++ -std=c++20 -Wall -Wextra -Werror -DMSIME_EDITION_FULL=1` 独立编译执行通过；本地 quick（149 项宿主测试、391 项 x86 语法检查、Windows x64 交叉构建及共享宿主与 pipe 检查）通过，笔记与 diff 检查通过。本机无法执行新增 Windows UI Automation 用例或编译 WinUI 宿主，尚无本轮运行截图。
 
 云词库修复 #8585 的 Windows 原生验收在完成全拼切换后，`Open-Page` 滚动导航并立即重新查找，取得空节点后调用 `SelectionItemPattern` 失败。滚动后的选择现在在十秒内重新查找并取得选择模式，节点在查找与选择之间失效时也重试；超时仍失败，选中后仍等待真实正文页面标识，不能把等待变成跳过验收。检索命中本篇与云剪贴板、五笔快捷键及设置裁剪笔记，本次属于本篇已有导航虚拟化验收规则的补全，其余功能笔记不改变。macOS 本机无法执行 UI Automation，实际运行由 PR 的 Windows native settings 门禁验证。
+
+主题页的小卡片网格、「主题选择在前，完整实时预览在后」和工具栏预览下面显示 DIP 尺寸的那一行，后来由[主题页整宽卡片轮播与悬浮工具栏页对齐 macOS](2026-10-20-windows-settings-theme-toolbar-pages.md)取代；工具栏预览的原生几何、`toolbar_palette`、边框叠在固定尺寸画布上和语言按钮按方案画的约定保留。

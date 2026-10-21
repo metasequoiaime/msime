@@ -62,6 +62,8 @@ pub enum Action {
     PreviousCandidate,
     FirstCandidate,
     LastCandidate,
+    /// Home 键（命令 106）：高亮不在首选时回到首选，已经在首选、输入串可以编辑（没有打开的候选列表、不在整句改字）时把光标移到开头。由 [`Runtime::home_key_action`] 换成 [`Action::FirstCandidate`] 或 `MoveHome`，不会走到别处。
+    FirstCandidateOrHome,
 }
 
 /// What one selection of a phrase-in-progress can be taken back to.
@@ -118,8 +120,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 横排候选窗里，左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
+    /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
+    pub(crate) vertical_candidates: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -621,6 +625,11 @@ impl<E: InputEngine> Runtime<E> {
         self.left_right_navigation = enabled;
     }
 
+    /// 候选窗是否竖排：和 `set_left_right_navigation` 一样只影响左右键这一次怎么解释。
+    pub fn set_vertical_candidates(&mut self, vertical: bool) {
+        self.vertical_candidates = vertical;
+    }
+
     /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
     pub fn set_wubi_candidate_selection(
         &mut self,
@@ -670,19 +679,18 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// 左右键的候选回退（`navigation.left_right`）：不带修饰键的左右键在宿主那里先是编辑输入串的光标命令，
-    /// 光标已经停在要移动的那一端、引擎动不了它的时候，这一次按键换成移动候选高亮，与 ↑/↓ 落在同一段代码上
-    /// （[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
+    /// 左右键的候选导航（`navigation.left_right`）：不带修饰键的左右键在宿主那里是编辑输入串的光标命令，这里按高亮决定这一次按键是编辑还是移动候选，移动候选与 ↑/↓ 落在同一段代码上（[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
     ///
-    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，
-    /// 于是仍被吞掉，不会作为应用的按键落进文档。
+    /// 只在候选横排时接管：方向键沿着候选的排列方向移动高亮，竖排时由 ↑/↓ 移高亮，左右键只编辑输入串。
     ///
-    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里
-    /// （`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，
-    /// 各宿主也先一步把四个方向键都归给高亮。本地模式的光标起点在前缀字母之后，这里按 0 判左端：
-    /// 那一个位置上左右键仍然什么都不做。
+    /// 高亮在首选（全部候选里的第一个，不是当前页的第一个）时，← 编辑输入串；→ 在光标没到末尾时把光标往末尾送，到了末尾才选下一个。高亮不在首选时，左右键只移动候选，不再编辑输入串：离开首选的那一下光标就在末尾，用 ↓ 离开首选时光标可能停在中间，那时 → 也照样选下一个。
+    ///
+    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，于是仍被吞掉，不会作为应用的按键落进文档。
+    ///
+    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里（`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，各宿主也先一步把四个方向键都归给高亮。
     fn caret_edge_candidate_shortcut(&self, action: Action) -> Action {
         if !self.left_right_navigation
+            || self.vertical_candidates
             || !self.snapshot_valid
             || self.visible_len() == 0
             || self.cached.candidate_list_open
@@ -695,19 +703,34 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(Command::MoveRight | Command::ConversionRight) => false,
             _ => return action,
         };
-        let caret = self.cached.caret_position;
-        let at_edge = if backwards {
-            caret == 0
-        } else {
-            caret >= self.cached.editing_text.len()
-        };
-        if !at_edge {
+        let edits = self.highlighted == 0
+            && (backwards || self.cached.caret_position < self.cached.editing_text.len());
+        if edits {
             return action;
         }
         if backwards {
             Action::PreviousCandidate
         } else {
             Action::NextCandidate
+        }
+    }
+
+    /// Home 键分两段：高亮不在首选时第一下回到首选，已经在首选时才把输入串的光标移到开头。打开的候选列表（韩文汉字、注音）里没有可编辑的光标，那里一直是回到首选。整句改字时也一直是回到首选：改字的光标不在输入串里，`MoveHome` 会让引擎退出改字、丢掉已经钉住的段，而刚进改字时高亮就在首选，按一下 Home 就会把改好的句子扔掉；End 在改字里同样只跳到末选。
+    ///
+    /// 宿主只在 Home 键上发这条命令；日文转换用 [`Action::FirstCandidate`] 循环回首选，不能因为高亮已在首选就去动读音的光标。
+    fn home_key_action(&self, action: Action) -> Action {
+        if !matches!(action, Action::FirstCandidateOrHome) {
+            return action;
+        }
+        let caret_home = self.snapshot_valid
+            && self.highlighted == 0
+            && !self.cached.candidate_list_open
+            && self.cached.conversion.is_empty()
+            && !self.cached.editing_text.is_empty();
+        if caret_home {
+            Action::Command(Command::MoveHome)
+        } else {
+            Action::FirstCandidate
         }
     }
 
@@ -805,6 +828,7 @@ impl<E: InputEngine> Runtime<E> {
             phrase_preedit: false,
             backspace_reverts_selection: true,
             left_right_navigation: false,
+            vertical_candidates: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
@@ -2405,8 +2429,9 @@ impl<E: InputEngine> Runtime<E> {
         }
         // 只在当前页有目标候选时接管；否则继续原标点路径，不能像越界数字键那样吞掉。
         let action = self.candidate_shortcut(action);
-        // 左右键先编辑输入串，光标已经停在这一端时这一次按键才是移动候选（偏好 `navigation.left_right`）。
+        // 横排候选里，首选上左右键编辑输入串（→ 到末尾为止），其余候选上左右键移动候选（偏好 `navigation.left_right`）；竖排时左右键只编辑。
         let action = self.caret_edge_candidate_shortcut(action);
+        let action = self.home_key_action(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation

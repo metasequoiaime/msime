@@ -3266,7 +3266,8 @@ int main(int argc, char **argv) {
     invoke("Reset");
     for (guint delete_key : {IBUS_Delete, IBUS_KP_Delete}) {
       phrase();
-      require(key(IBUS_Left, IBUS_CONTROL_MASK) && key(delete_key) && seen.preedit == "niha" &&
+      // Ctrl+左把光标移到 ni|hao，Delete 删掉光标后的 h。
+      require(key(IBUS_Left, IBUS_CONTROL_MASK) && key(delete_key) && seen.preedit == "niao" &&
                   seen.preedit_visible && seen.committed.empty(),
               "Forward delete cancelled incremental composition instead of editing at caret");
       invoke("Reset");
@@ -3284,16 +3285,38 @@ int main(int argc, char **argv) {
                   .c_str());
       seen.committed.clear();
     }
-    // 全拼的 Ctrl+左右移动一个字母，Ctrl+退格仍删除左侧拼音段；普通左右键用于整句改字。
+    // 全拼里 Ctrl+左右和 Shift+左右都按音节移动拼音光标（分段命令，运行时不会把它换成移动候选），Ctrl+退格删除左侧拼音段；不带修饰键的左右键用于整句改字。
     phrase();
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 4,
-            "Ctrl+Left did not move to the preceding pinyin letter");
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 2,
+            "Ctrl+Left did not move to the preceding pinyin segment");
     require(key(IBUS_Right, IBUS_CONTROL_MASK) && seen.preedit_cursor == 5,
-            "Ctrl+Right did not move to the following pinyin letter");
+            "Ctrl+Right did not move to the following pinyin segment");
     require(key(IBUS_BackSpace, IBUS_CONTROL_MASK) && seen.preedit == "ni" &&
                 seen.preedit_cursor == 2,
             "Ctrl+Backspace did not remove one pinyin segment");
     invoke("Reset");
+    // 按住 Shift 再按方向键是组合键：光标按音节移动，松开 Shift 不切换中英文，组字原样保留。
+    phrase();
+    require(!key(IBUS_Shift_L) && key(IBUS_Left, IBUS_SHIFT_MASK) && seen.preedit_cursor == 2,
+            "Shift+Left did not move to the preceding pinyin segment");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK) && seen.input_enabled &&
+                seen.preedit == "nihao" && seen.committed.empty(),
+            "Releasing Shift after Shift+Left toggled the input mode or changed the composition");
+    require(!key(IBUS_Shift_L) && key(IBUS_Right, IBUS_SHIFT_MASK) && seen.preedit_cursor == 5,
+            "Shift+Right did not move to the following pinyin segment");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK) && seen.input_enabled,
+            "Releasing Shift after Shift+Right toggled the input mode");
+    // 候选窗显示时的 Home：高亮不在首选时先回到首选，拼音光标不动；已在首选时把拼音光标移到开头。
+    require(key(IBUS_Down) && key(IBUS_Home) && seen.preedit_cursor == 5,
+            "Home off the first candidate moved the pinyin caret instead of the highlight");
+    require(key(IBUS_Home) && seen.preedit_cursor == 0 && seen.preedit == "nihao",
+            "Home on the first candidate did not move the pinyin caret to the start");
+    invoke("Reset");
+    // 没有组字时 Shift+左右和 Ctrl+左右仍是应用的按键。
+    require(!key(IBUS_Left, IBUS_SHIFT_MASK) && !key(IBUS_Right, IBUS_SHIFT_MASK) &&
+                !key(IBUS_Left, IBUS_CONTROL_MASK) && !key(IBUS_Right, IBUS_CONTROL_MASK) &&
+                seen.committed.empty(),
+            "Idle Shift or Ctrl arrow was intercepted");
     for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
                            IBUS_Return, IBUS_KP_Enter})
       require(!key(idle_key) && seen.committed.empty(),
@@ -3351,7 +3374,7 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("niha|o") != std::string::npos,
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("ni|hao") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");

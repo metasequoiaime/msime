@@ -2241,6 +2241,8 @@ struct PhraseEngine {
     words: Vec<String>,
     /// Published with nothing composed, as the Engine publishes `/` and `@` when their modes are on.
     idle_symbols: String,
+    /// 非空时快照报告正在整句改字（`View::conversion`）；`MoveHome` 像真引擎一样先退出改字，把它清空。
+    conversion: String,
 }
 
 impl PhraseEngine {
@@ -2251,6 +2253,7 @@ impl PhraseEngine {
             consumes,
             words: vec!["海滩".into(), "跑步".into()],
             idle_symbols: String::new(),
+            conversion: String::new(),
         }
     }
 }
@@ -2288,6 +2291,7 @@ impl InputEngine for PhraseEngine {
             editing_text: self.reading.clone(),
             caret_position: self.caret.min(self.reading.len()),
             segment_raw_boundaries: Vec::new(),
+            conversion: self.conversion.clone(),
             candidates: if self.reading.is_empty() {
                 Vec::new()
             } else {
@@ -2306,7 +2310,10 @@ impl InputEngine for PhraseEngine {
             // 与真引擎的字母光标一致：每次移一个字符，到两端就停住（这里没有本地模式的前缀字母）。
             Command::MoveLeft => self.caret = self.caret.saturating_sub(1),
             Command::MoveRight => self.caret = (self.caret + 1).min(self.reading.len()),
-            Command::MoveHome => self.caret = 0,
+            Command::MoveHome => {
+                self.conversion.clear();
+                self.caret = 0;
+            }
             Command::MoveEnd => self.caret = self.reading.len(),
             Command::Backspace => {
                 if self.caret > 0 {
@@ -2418,53 +2425,167 @@ fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> 
     runtime
 }
 
-/// `navigation.left_right`：左右键先编辑输入串，光标已经停在要移动的那一端时，这一次按键才换成移动
-/// 候选高亮，与 ↑/↓ 走同一段代码。关着时两个键都还是普通光标命令。
+/// `navigation.left_right`：首选上 ← 编辑输入串，→ 先把光标送回输入串末尾、到了末尾才选下一个；高亮不在首选时左右键只移动候选，与 ↑/↓ 走同一段代码。关着时两个键都还是普通光标命令。
 #[test]
-fn left_right_edits_the_input_string_before_it_moves_the_highlight() {
+fn left_right_edits_only_on_the_first_candidate() {
+    let highlighted = |view: &View| {
+        view.candidates
+            .iter()
+            .find(|candidate| candidate.highlighted)
+            .map(|candidate| candidate.text.clone())
+    };
+    // 每页两个，第三个候选是第二页的第一个，但不是首选。
+    let mut engine = PhraseEngine::new(Vec::new());
+    engine.words = vec!["你好吗".into(), "你好".into(), "妮好吗".into()];
+    let mut runtime = Runtime::new(engine, 2).unwrap();
+    runtime.focus(true).unwrap();
+    for value in *b"nihaoma" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let mut press = |action: Action| runtime.dispatch(action).unwrap().view;
+
+    // 关着时右键在输入串末尾什么也不做，高亮留在首选。
+    let closed = press(Action::Command(Command::MoveRight));
+    assert_eq!(closed.caret_position, 7);
+    assert_eq!(highlighted(&closed).as_deref(), Some("你好吗"));
+
+    runtime.set_left_right_navigation(true);
+    let mut press = |action: Action| runtime.dispatch(action).unwrap().view;
+
+    // 首选、光标在末尾：← 是修改输入串。
+    let edited = press(Action::Command(Command::MoveLeft));
+    assert_eq!(edited.caret_position, 6);
+    assert_eq!(highlighted(&edited).as_deref(), Some("你好吗"));
+
+    // 首选、光标不在末尾：→ 先把光标送回末尾，不选候选。
+    let restored = press(Action::Command(Command::MoveRight));
+    assert_eq!(restored.caret_position, 7);
+    assert_eq!(highlighted(&restored).as_deref(), Some("你好吗"));
+
+    // 首选、光标在末尾：→ 选下一个。
+    let next = press(Action::Command(Command::MoveRight));
+    assert_eq!(next.caret_position, 7);
+    assert_eq!(highlighted(&next).as_deref(), Some("你好"));
+    assert_eq!(next.editing_text, "nihaoma");
+
+    // 不在首选：← 回到上一个候选，不动输入串。
+    let back = press(Action::Command(Command::MoveLeft));
+    assert_eq!(back.caret_position, 7);
+    assert_eq!(highlighted(&back).as_deref(), Some("你好吗"));
+
+    // 光标不在末尾时用 ↓ 离开首选，左右键也只移动候选。
+    press(Action::Command(Command::MoveLeft));
+    let down = press(Action::NextCandidate);
+    assert_eq!(down.caret_position, 6);
+    assert_eq!(highlighted(&down).as_deref(), Some("你好"));
+    let right = press(Action::Command(Command::MoveRight));
+    assert_eq!(right.caret_position, 6);
+    assert_eq!(highlighted(&right).as_deref(), Some("妮好吗"));
+
+    // 第二页的第一个不是首选：← 翻回上一页的最后一个，而不是编辑输入串。
+    let left = press(Action::Command(Command::MoveLeft));
+    assert_eq!(left.caret_position, 6);
+    assert_eq!(highlighted(&left).as_deref(), Some("你好"));
+    let first = press(Action::Command(Command::MoveLeft));
+    assert_eq!(first.caret_position, 6);
+    assert_eq!(highlighted(&first).as_deref(), Some("你好吗"));
+
+    // 回到首选后 ← 又是编辑输入串，到了开头就停住，不再移高亮。
+    press(Action::Command(Command::MoveHome));
+    let home = press(Action::Command(Command::MoveLeft));
+    assert_eq!(home.caret_position, 0);
+    assert_eq!(highlighted(&home).as_deref(), Some("你好吗"));
+}
+
+/// 竖排候选窗里左右键与候选的排列方向垂直：`navigation.left_right` 开着也只编辑输入串，高亮交给 ↑/↓。
+#[test]
+fn vertical_candidates_leave_left_right_to_the_input_string() {
     let highlighted = |view: &View| {
         view.candidates
             .iter()
             .position(|candidate| candidate.highlighted)
     };
     let mut runtime = phrase_runtime("nihaoma", Vec::new());
-
-    // 关着时右键在输入串末尾什么也不做，高亮留在首选。
-    let closed = runtime
-        .dispatch(Action::Command(Command::MoveRight))
-        .unwrap()
-        .view;
-    assert_eq!(closed.caret_position, 7);
-    assert_eq!(highlighted(&closed), Some(0));
-
-    // 打开后同一个键移到下一个候选：光标已经没有可编辑的位置了。
     runtime.set_left_right_navigation(true);
-    let next = runtime
+    runtime.set_vertical_candidates(true);
+
+    // 首选、光标在末尾：→ 不选下一个。
+    let right = runtime
         .dispatch(Action::Command(Command::MoveRight))
         .unwrap()
         .view;
-    assert_eq!(highlighted(&next), Some(1));
-    assert_eq!(next.caret_position, 7);
-    assert_eq!(next.editing_text, "nihaoma");
+    assert_eq!(right.caret_position, 7);
+    assert_eq!(highlighted(&right), Some(0));
 
-    // 左键还有可编辑的位置，仍然是编辑输入串，高亮不动。
-    let edited = runtime
+    // 不在首选：← 仍是编辑输入串，高亮不动。
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let left = runtime
         .dispatch(Action::Command(Command::MoveLeft))
         .unwrap()
         .view;
-    assert_eq!(edited.caret_position, 6);
-    assert_eq!(highlighted(&edited), Some(1));
+    assert_eq!(left.caret_position, 6);
+    assert_eq!(highlighted(&left), Some(1));
 
-    // 光标回到起点以后左键才移高亮。
-    runtime
-        .dispatch(Action::Command(Command::MoveHome))
-        .unwrap();
-    let previous = runtime
+    // 换回横排，同一个位置上 ← 回到上一个候选，光标不动。
+    runtime.set_vertical_candidates(false);
+    let horizontal = runtime
         .dispatch(Action::Command(Command::MoveLeft))
         .unwrap()
         .view;
-    assert_eq!(highlighted(&previous), Some(0));
-    assert_eq!(previous.caret_position, 0);
+    assert_eq!(horizontal.caret_position, 6);
+    assert_eq!(highlighted(&horizontal), Some(0));
+}
+
+/// Home 键分两段：高亮不在首选时先回到首选，光标不动；已经在首选时才把光标移到输入串开头。
+#[test]
+fn home_key_returns_to_the_first_candidate_before_it_moves_the_caret() {
+    let highlighted = |view: &View| {
+        view.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted)
+    };
+    let mut runtime = phrase_runtime("nihaoma", Vec::new());
+    runtime.dispatch(Action::NextCandidate).unwrap();
+
+    let first = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(highlighted(&first), Some(0));
+    assert_eq!(first.caret_position, 7);
+
+    let home = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(highlighted(&home), Some(0));
+    assert_eq!(home.caret_position, 0);
+
+    // 日文转换用的 FirstCandidate 不分段：高亮已在首选时光标也不动。
+    runtime.dispatch(Action::Command(Command::MoveEnd)).unwrap();
+    let plain = runtime.dispatch(Action::FirstCandidate).unwrap().view;
+    assert_eq!(plain.caret_position, 7);
+}
+
+/// 整句改字时 Home 只回到首选：刚进改字时高亮就在首选，发 `MoveHome` 会让引擎退出改字、丢掉钉住的段。
+#[test]
+fn home_key_keeps_sentence_conversion() {
+    let mut engine = PhraseEngine::new(Vec::new());
+    engine.conversion = "你好吗".into();
+    let mut runtime = Runtime::new(engine, 5).unwrap();
+    runtime.focus(true).unwrap();
+    for value in *b"nihaoma" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+
+    let home = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(home.conversion, "你好吗");
+    assert_eq!(home.caret_position, 7);
+    assert!(home.candidates[0].highlighted);
 }
 
 #[test]

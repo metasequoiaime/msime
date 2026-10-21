@@ -263,13 +263,20 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
         [self removeTrackingArea:_candidateTrackingArea];
     _candidateTrackingArea = [[NSTrackingArea alloc]
         initWithRect:NSZeroRect
-             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect
                owner:self
             userInfo:nil];
     [self addTrackingArea:_candidateTrackingArea];
+    self.candidateHovered = NO;
+    self.needsDisplay = YES;
     [super updateTrackingAreas];
 }
 - (void)mouseEntered:(NSEvent *)event
+{
+    // 候选窗也会出现在静止、隐藏的指针下；收到区域内的移动消息后才显示悬停。
+    [self mouseExited:event];
+}
+- (void)mouseMoved:(NSEvent *)event
 {
     (void)event;
     self.candidateHovered = YES;

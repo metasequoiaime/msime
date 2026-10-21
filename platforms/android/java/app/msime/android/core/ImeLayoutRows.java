@@ -511,9 +511,8 @@ final class ImeLayoutRows {
             key = s.nineKeyGridKey(digitText, NineKeyShuangpinKeypad.description(face),
                 () -> s.character(digit));
             String hint = NineKeyShuangpinKeypad.compactHint(face);
-            twoLineFace(key, digitText + (hint.isEmpty() ? "" : "\n" + hint));
             KeyboardTypographyPolicy.setKeyTextSize(key, 22);
-            key.setLineSpacing(0f, 0.9f);
+            key.setHintText(hint);
         } else {
             key = s.nineKeyGridKey(digitText, "数字 " + digit,
                 digit == '0' ? () -> commitNineKeyLiteral("0") : () -> {});

@@ -28,6 +28,7 @@ class FloatingToolbarX11Surface final : public FloatingToolbarSurface {
   void present(const Content &content, std::optional<WaveOverlayPosition> saved) override;
   void hide() override;
   bool visible() const override;
+  bool connected() const override { return display_ && !lost_; }
   bool foreground_fullscreen() override;
 
  private:
@@ -62,12 +63,15 @@ class FloatingToolbarX11Surface final : public FloatingToolbarSurface {
   OverlayLoop::Token watch_;
   OverlayLoop::Token drain_;
   OverlayLoop::Token reconnect_;
+  OverlayLoop::Token foreground_refresh_;
   bool dispatching_ = false;
   OverlayLoop::Token tooltip_timer_;
   std::unique_ptr<OverlayX11Window> toolbar_;
   std::unique_ptr<OverlayX11Window> menu_;
   std::unique_ptr<OverlayX11Window> tooltip_;
   Atom active_window_atom_ = None;
+  Atom window_state_atom_ = None;
+  Window active_window_ = None;
   Cursor move_cursor_ = None;
   bool cursor_on_handle_ = false;
 

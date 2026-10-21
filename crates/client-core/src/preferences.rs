@@ -2142,7 +2142,7 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键：光标已经停在输入串的这一端、编辑器动不了它时，改成移动候选高亮（左是上一个、右是下一个）；光标还能移动时照旧编辑输入串。与 `arrows` 各自独立，默认开启。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
     #[serde(default = "enabled_by_default")]
