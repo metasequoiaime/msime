@@ -146,6 +146,7 @@ struct CloudDictionaryView: View {
       CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
         try await save(value, for: edit)
       }
+      .designCompactSheet()
     }
     .alert("删除云端词条？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
       Button("取消", role: .cancel) { deleting = nil }

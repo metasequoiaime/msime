@@ -497,6 +497,7 @@ struct ServiceSettingsView: View {
         if kind == .ai, let provider = AIProviderPreset(rawValue: id) { selectProvider(provider) }
         if kind == .voice, let provider = VoiceProviderPreset(rawValue: id) { selectVoiceProvider(provider) }
       }
+      .designCompactSheet()
     }
     .onChange(of: configuration.endpoint) { fetchedModels = nil; modelStatus = "" }
     .onChange(of: voiceSettings) {

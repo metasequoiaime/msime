@@ -64,8 +64,10 @@ struct ProviderPickerView: View {
           .buttonStyle(.plain)
           .accessibilityLabel(option.title)
           .accessibilityValue(selected == option.id ? "已选择" : "")
+          .designRow()
         }
       }
+      .designPage()
       .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索服务商")
       .navigationTitle("选择服务商")
       .navigationBarTitleDisplayMode(.inline)

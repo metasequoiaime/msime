@@ -1035,4 +1035,10 @@ extension View {
     listRowBackground(MetasequoiaTheme.surface)
       .listRowSeparatorTint(MetasequoiaTheme.hair)
   }
+
+  /// 内容只有几行的底部弹窗（添加一条常用语、编辑一个词条、选服务商、举报）：从半屏弹起，需要时可以拉到整屏，不再默认占满整屏、下面空一大片。内容本来就多的弹窗（发布、导入、登录）不用它。加在 `.sheet` 的内容上。
+  func designCompactSheet() -> some View {
+    presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
+  }
 }
