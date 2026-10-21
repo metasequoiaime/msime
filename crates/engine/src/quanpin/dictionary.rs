@@ -31,7 +31,7 @@ use crate::pinyin::fuzzy::{fuzzy_segmentations, FUZZY_SEGMENTATION_LIMIT};
 use crate::pinyin::graph::{
     build_syllable_graph, enumerate_complete_segmentations, SYLLABLE_GRAPH_PATH_LIMIT,
 };
-use crate::pinyin::jianpin::QuerySource;
+use crate::pinyin::jianpin::{split_initial_token_paths, QuerySource};
 use crate::pinyin::segment::{
     cut_pinyin_by_mode, is_complete_pinyin_input, join_segments, split_segments, CutMode,
 };
@@ -919,9 +919,13 @@ impl QuanpinDictionary {
             let partial = &segments[..count];
             if count < segments.len() {
                 self.append_single_path(&mut result, raw, partial_segmentation, partial);
+                self.append_initial_split_rows(&mut result, raw, partial);
                 continue;
             }
             let mut rows = self.query_single_path(raw, partial_segmentation, partial);
+            if self.append_initial_split_rows(&mut rows, raw, partial) {
+                rows.sort_by_key(|item| std::cmp::Reverse(item.weight));
+            }
             if count == segments.len() {
                 // 同长度表里常常只剩冷僻同音词：ping'guo 只有 苹果 1143881、评过 1180、平果 169、平锅 1，而 苹果电脑 21495、苹果公司 19725 在 tbl_4_p，同长度查询看不到，第二位就落到冷僻同音词上。所以更长的补全词按权重并入这一组，权重出自同一语料，跨表可比。`pinyin` 仍是键入的切分（上屏只消耗已键入的音节），`canonical_pinyin` 保留完整读音供持久化。
                 // 但首位只留给读音和键入完全一致的同长度行里最重的那一行：补全词上屏会多出用户没打的字，权重再高也不能抢首选（#7345：dacuozi 的首选曾是 打错字了，doumeiren 的首选曾是 都没人管理）。补全词只和其余同长度行竞争第二位起的位置，苹果电脑 仍排在 平锅 前面。同长度查询没有精确键时会退到前缀区间（zhi'liang'jian 只查到 zhi'liang'jiang 的 质量奖），那一行的读音并不是键入的读音，不钉首位，和补全词一起按权重排；同长度查询一行都没有时同样按权重排，整句块随后由 `whole_sentence_insert_position` 插到首位。
@@ -963,6 +967,26 @@ impl QuanpinDictionary {
             }
         }
         result
+    }
+
+    /// 自动切分里的双字母声母另试单字母读法；手动边界不改，完整音节不拆。
+    fn append_initial_split_rows(
+        &mut self,
+        result: &mut Vec<WordItem>,
+        raw: &str,
+        segments: &[String],
+    ) -> bool {
+        // 单独的声母前缀仍只查单字，避免把错误拼写开头的 sh 扩成「上好」并遮住纠错关闭的边界。
+        if segments.len() < 2 || raw.contains('\'') {
+            return false;
+        }
+        let before = result.len();
+        for path in split_initial_token_paths(segments, SYLLABLE_GRAPH_PATH_LIMIT) {
+            let code = join_segments(&path);
+            let rows = self.query_single_path(raw, &code, &path);
+            append_unique_words(result, rows);
+        }
+        result.len() != before
     }
 
     /// The lattice sentence block and the typo sentence (QD:644-721, overlays.md §1.6.2). Both rank below a dictionary row that already answers the whole key, which is what `whole_sentence_insert_position` computes; inserting at index 0 once turned 百依百顺 into 白一百顺 and 颁布实施 into 版不是是.

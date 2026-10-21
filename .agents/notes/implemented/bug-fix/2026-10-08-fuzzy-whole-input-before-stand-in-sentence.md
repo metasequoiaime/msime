@@ -23,7 +23,7 @@ Status: implemented
 
 这和 `whole_sentence_insert_position` 的既有约定是同一条规则在模糊音下的延伸：整句是对词库没有整词时的补位，按用户选择的模糊读法覆盖整个输入的词条也是整词，整句不该压在它前面。九宫格 `rank_key` 的「同一覆盖范围内词库行先于整句、精确先于模糊」也是同一个方向，见 [九宫格切分路径排序](2026-10-08-nine-key-path-ranking.md)。
 
-不开模糊音时 `query` 不经过这段代码。双拼的 `append_fuzzy` 不变。
+不开模糊音时 `query` 不经过这段代码。本决定只改变全拼；双拼随后由[实际按键覆盖排序](2026-10-20-shuangpin-fuzzy-coverage-learning.md)消除分隔符的虚假长度，并显式保留模糊整词优先于替补整句的规则。
 
 ## Alternatives considered
 

@@ -1,7 +1,8 @@
-// 生成 SDK 的内置皮肤表 `theme-catalog.js`，供 src/skin.js 导入。SDK 没有自己的配色副本，两张表都在构建时从唯一来源读出：
+// 生成 SDK 的内置皮肤表 `theme-catalog.js`，供 src/skin.js 导入。配色与出厂版式均在构建时从共享来源读出：
 //
 // - 五个全局主题（以及没有配色的 `system`、`custom`）来自 `packages/ui/src/theme/theme-catalog.json`，即 `crates/client-services/src/skin/theme.rs` 的 `catalog()` 序列化出的网页副本，Rust 测试 `web_catalog_copy_matches_the_catalog` 保证两者一致。
 // - msime-windows 的内置外观（`wechat`、`graphite` 等）没有网页副本，只在 `crates/client-services/src/skin/catalog/windows_looks.rs` 的 `WINDOWS_LOOKS` 常量里，这里直接解析那张表。解析很严格：外观数、每个外观的字段、每个颜色都要对得上，`WINDOWS_LOOK_IDS` 里除没有配色的 `fluent` 外都要有表，否则直接报错，构建失败，不会悄悄生成一张缺了东西的表。
+// - 八种基底的出厂版式来自 tools/factory-layouts.json，由共享 Rust 解析器生成并以测试核对；SDK 运行时不需要 TOML 解析器或宿主桥。
 //
 // 用法：`node packages/web-engine/tools/theme-catalog.mjs [输出文件]`，默认写到 `packages/web-engine/src/theme-catalog.js`（已被 packages/web-engine/.gitignore 忽略，直接对源码跑的测试和示例用它）。scripts/build-web-engine.sh 把它写进 npm 包；test/skin.test.mjs 每次运行前重新生成，所以测试读到的永远是当前的来源。
 import { readFileSync, writeFileSync } from "node:fs";
@@ -14,6 +15,7 @@ export const defaultOutput = resolve(here, "../src/theme-catalog.js");
 
 const CATALOG = "packages/ui/src/theme/theme-catalog.json";
 const WINDOWS_LOOKS = "crates/client-services/src/skin/catalog/windows_looks.rs";
+const FACTORY_LAYOUTS = "packages/web-engine/tools/factory-layouts.json";
 const COLOR = /^#[0-9A-F]{6}([0-9A-F]{2})?$/;
 const PALETTE_SLOTS = ["surface", "border", "text", "number", "secondary", "accent", "selected", "selected_text", "selected_number", "hover"];
 const LOOK_SLOTS = ["surface", "border", "text", "number", "accent", "selected", "hover"];
@@ -96,19 +98,26 @@ function readWindowsLooks(root) {
   return { looks, plain, canvasLook };
 }
 
-/** 生成的模块源码。输出只取决于两份来源文件，同一提交生成的内容逐字节相同。 */
+/** 生成的模块源码。输出只取决于共享来源文件，同一提交生成的内容逐字节相同。 */
 export function themeCatalogModule(root = repoRoot) {
   const themes = readThemes(root);
   const { looks, plain, canvasLook } = readWindowsLooks(root);
+  const factoryLayouts = JSON.parse(readFileSync(resolve(root, FACTORY_LAYOUTS), "utf8"));
+  const factoryIds = [...looks.map((look) => look.id), ...plain, "canvas"].sort();
+  if (JSON.stringify(Object.keys(factoryLayouts).sort()) !== JSON.stringify(factoryIds)) fail(`${FACTORY_LAYOUTS}: factory IDs do not match Windows bases`);
+  for (const id of factoryIds) {
+    if (!["geometry", "horizontal", "vertical"].every((key) => factoryLayouts[id]?.[key] && typeof factoryLayouts[id][key] === "object")) fail(`${id}: missing factory geometry`);
+  }
   for (const look of [...looks.map((look) => look.id), ...plain]) {
     if (themes.some((theme) => theme.id === look)) fail(`${look} is both a global theme and a Windows look`);
   }
   return [
-    `// 由 packages/web-engine/tools/theme-catalog.mjs 从 ${CATALOG} 和 ${WINDOWS_LOOKS} 生成，不要手改。`,
+    `// 由 packages/web-engine/tools/theme-catalog.mjs 从 ${CATALOG}、${WINDOWS_LOOKS} 和 ${FACTORY_LAYOUTS} 生成，不要手改。`,
     `export const themes = ${JSON.stringify(themes)};`,
     `export const windowsLooks = ${JSON.stringify(looks)};`,
     `export const canvasLook = ${JSON.stringify(canvasLook)};`,
     `export const plainWindowsLooks = ${JSON.stringify(plain)};`,
+    `export const factoryLayouts = ${JSON.stringify(factoryLayouts)};`,
     "",
   ].join("\n");
 }

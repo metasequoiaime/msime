@@ -18,6 +18,8 @@ final class AppNavigation: ObservableObject {
   @Published var settingsRoot = UUID()
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.
   @Published var recordsVoice = false
+  /// 键盘长按空格时还没有语音会话，发来 msime://voice-session：在这里打开按住说话的后台会话（`VoiceSessionService`），用户再回到原应用说话。
+  @Published var opensVoiceSession = false
   /// iPad 设置侧栏显示的页面。放在这里而不放在侧栏视图里，是为了在 app 因换主题或换季（`paletteVersion`）重建内容时保住它。
   @Published var tabletSettingsSelection: TabletSettingsView.Destination? = .page(.input)
 

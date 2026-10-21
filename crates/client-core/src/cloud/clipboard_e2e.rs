@@ -654,7 +654,9 @@ pub fn resume(mut state: DriverState, response: HttpResponse) -> Result<Step, Ra
             }
         }
         Phase::Add => {
-            if response.status == 409 {
+            if response.status == 409
+                && DriverError::from_response(&response).code == "clipboard_key_conflict"
+            {
                 // 上传期间密钥换了：重新取状态，拿到新密钥后再传一次。
                 return Ok(fetch_keys(state));
             }

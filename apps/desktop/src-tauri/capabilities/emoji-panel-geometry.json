@@ -1,0 +1,6 @@
+{
+  "identifier": "emoji-panel-geometry",
+  "description": "允许移动和调整表情与符号窗口的大小",
+  "windows": ["emoji-panel"],
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-start-resize-dragging"]
+}

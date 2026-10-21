@@ -108,7 +108,7 @@ pub fn chat_completion_http_request(
     if endpoint::validate(endpoint).is_err() || request.candidate_limit != config.candidate_limit {
         return Err(AiError::InvalidConfiguration);
     }
-    let token = credential_for_endpoint(config).ok_or(AiError::InvalidConfiguration)?;
+    let headers = request_headers(config)?;
     let prompt = match config.prompt_id.as_str() {
         "custom_2" => &config.prompt_custom_2,
         "custom_3" => &config.prompt_custom_3,
@@ -128,7 +128,7 @@ pub fn chat_completion_http_request(
         return Err(AiError::InvalidConfiguration);
     }
     Ok(Some(serde_json::json!({"url":endpoint,"method":"POST",
-        "headers":{"Content-Type":"application/json","Authorization":format!("Bearer {token}")},
+        "headers":headers,
         "body":body,"timeout_ms":8000,"connect_timeout_ms":2500,"max_response_bytes":1048576})))
 }
 
@@ -148,7 +148,7 @@ pub fn chat_translation_http_request(
     {
         return Err(AiError::InvalidConfiguration);
     }
-    let token = credential_for_endpoint(config).ok_or(AiError::InvalidConfiguration)?;
+    let headers = request_headers(config)?;
     let user = serde_json::json!({
         "source_language": request.source_language,
         "target_language": request.target_language,
@@ -179,7 +179,7 @@ pub fn chat_translation_http_request(
     Ok(Some(serde_json::json!({
         "url": config.endpoint,
         "method": "POST",
-        "headers": {"Content-Type": "application/json", "Authorization": format!("Bearer {token}")},
+        "headers": headers,
         "body": body,
         "timeout_ms": 8000,
         "connect_timeout_ms": 2500,
@@ -240,6 +240,28 @@ pub fn chat_translation_response_failed(body: &[u8]) -> bool {
     };
     let text = text.trim();
     text.chars().count() > 4096 || text.chars().any(char::is_control)
+}
+
+/// Ollama 跑在用户自己的机器或局域网里，不做鉴权：设置页选它时不显示 Token，请求不读存下的 Token，也不带 `Authorization`。其他服务都要 Token。
+pub fn provider_uses_token(provider: &str) -> bool {
+    provider != "ollama"
+}
+
+/// 发出请求的条件里和凭据有关的那一条：不用 Token 的服务总是满足，其余要有这个接口地址可用的 Token。
+pub fn has_request_credential(config: &crate::preferences::AiAssistantPreferences) -> bool {
+    !provider_uses_token(&config.provider) || credential_for_endpoint(config).is_some()
+}
+
+/// 候选与翻译请求共用的请求头。Contains the bearer token when the provider uses one: never log it.
+fn request_headers(
+    config: &crate::preferences::AiAssistantPreferences,
+) -> Result<serde_json::Value, AiError> {
+    let mut headers = serde_json::json!({"Content-Type": "application/json"});
+    if provider_uses_token(&config.provider) {
+        let token = credential_for_endpoint(config).ok_or(AiError::InvalidConfiguration)?;
+        headers["Authorization"] = serde_json::Value::String(format!("Bearer {token}"));
+    }
+    Ok(headers)
 }
 
 /// Resolve a secret only for the configured endpoint's origin. Never log the result.
@@ -879,6 +901,69 @@ mod tests {
         assert_eq!(
             chat_completion_http_request(&config, &request).unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn ollama_requests_never_read_or_send_a_token() {
+        let mut config = crate::preferences::AiAssistantPreferences {
+            enabled: true,
+            provider: "ollama".into(),
+            endpoint: "http://localhost:11434/v1/chat/completions".into(),
+            model: "synthetic-model".into(),
+            ..Default::default()
+        };
+        // 以前在这个地址上存过的 Token 也不读。
+        config
+            .tokens
+            .insert("http://localhost:11434".into(), "synthetic-stale".into());
+        let request = AiSuggestionRequest {
+            segmented_pinyin: vec!["ni".into()],
+            context: String::new(),
+            candidate_limit: config.candidate_limit,
+        };
+        let descriptor = chat_completion_http_request(&config, &request)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            descriptor["headers"],
+            serde_json::json!({"Content-Type": "application/json"})
+        );
+        assert_eq!(
+            descriptor["url"],
+            "http://localhost:11434/v1/chat/completions"
+        );
+        let translation = chat_translation_http_request(
+            &config,
+            &AiTranslationRequest {
+                text: "你好".into(),
+                source_language: "zh".into(),
+                target_language: "en".into(),
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            translation["headers"],
+            serde_json::json!({"Content-Type": "application/json"})
+        );
+        config.tokens.clear();
+        assert!(has_request_credential(&config));
+
+        // 公网的 http 地址照样拒绝，不鉴权不等于放宽地址规则。
+        config.endpoint = "http://8.8.8.8/v1/chat/completions".into();
+        assert_eq!(
+            chat_completion_http_request(&config, &request),
+            Err(AiError::InvalidConfiguration)
+        );
+
+        // 其他服务没有 Token 仍然不发请求。
+        config.provider = "custom".into();
+        config.endpoint = "http://localhost:11434/v1/chat/completions".into();
+        assert!(!has_request_credential(&config));
+        assert_eq!(
+            chat_completion_http_request(&config, &request),
+            Err(AiError::InvalidConfiguration)
         );
     }
 

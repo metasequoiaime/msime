@@ -30,7 +30,7 @@ Status: implemented
 以下回调读过或可能读到视图，逐个确认不会对 null 视图抛异常，没有改动：
 
 - 候选隐藏（24 ms，`apply_candidate_hide`）、候选操作属性（400 ms）：只读 `rendered_view` / `rendered_candidates`，且已带 `is_object()` / `is_array()` 判断；两者都在 `close()` 里取消。
-- 语音失败提示（1.2 秒）：只动波形浮层，不读视图。
+- 语音失败提示（6 秒，见 [Linux 语音浮层对齐 macOS](../feature/2026-10-20-linux-voice-overlay-mac-parity.md)）：只动波形浮层，不读视图。另有浮层显示期间的 16 ms 波形帧和显示连接的 fd 监听，同样只动浮层，并在引擎销毁时随 `State` 析构移除。
 - 语音进度、电平、转写、结果的 idle 回调：先过 `voice_result_current()`（要求 `voice_active`），`render()` 在 `voice_active` 时提前返回、不碰视图；`render_after_voice()` 只在 `session` 非零时读视图。
 - 云候选、AI、翻译延时（500/650/500 ms）和稳定重排定时器：由 `invalidate_providers()` 在 `close()` 里取消，而 `view` 置 null 只发生在 `close()`；重排回调读取前先查 `session` 且包在 `try` 里。
 - 升级重启 idle 回调：已经用 `is_object()` + `find()`。

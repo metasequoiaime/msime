@@ -425,9 +425,9 @@ final class ImeStyler {
         s.handwritingSkin = themed(s.handwritingSkin);
         // 浮动（以及候选栏跟随光标）时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
         boolean floating = s.overlayDrawn();
-        int rootColor = floating ? Color.TRANSPARENT : color(s.skin.background());
+        int rootColor = floating || s.clipboardPreviewExpanded ? Color.TRANSPARENT : color(s.skin.background());
         ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
-        s.imeFrame.applyNavigationBar(rootColor, s.skin.dark());
+        s.imeFrame.applyNavigationBar(floating ? Color.TRANSPARENT : color(s.skin.background()), s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
         boolean canvasActive = canvas != null && ViewPolicy.isVisible(s.candidateViewport);
@@ -544,7 +544,8 @@ final class ImeStyler {
             configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
-            width, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            width, s.clipboardPreviewExpanded ? s.clipboardPreviewKeyboardHeight : FrameLayout.LayoutParams.MATCH_PARENT,
+            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.keyboardSurface.setLayoutParams(params);
         ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(10));
     }

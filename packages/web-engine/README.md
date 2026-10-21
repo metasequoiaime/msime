@@ -115,6 +115,9 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 - `keys(key | key[])`：发送打包按键，返回处理后的帧 `MsimeFrame`。
 - `pick(slot)`：点选当前页第 `slot` 个候选。
+- `pick(slot, revision, text, pageStart)`：核对画面里的列表身份、候选文字和页起点后点选，过期点击只返回当前帧。
+- `setCandidateExpansion(open, revision)`：按画面里的列表身份展开或收起；展开帧的 `allCandidates` 是完整排序列表，收起后为 `null`。
+- `pickAny(index, revision, text)`：按完整列表的全局座位点选，同时核对身份和文字；面板收起后拒绝旧网格点击。
 - `reset()`：取消组字、清空上下文。
 - `setScheme(scheme)`：在全拼和四种双拼之间切换，不重新下载，辅助码设置保留。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
 - `setHelpcode(helpcode)`：打开（传方案名）或关闭（传 `null`）辅助码，不用重建引擎；第一次用到的表这时下载。下载失败时 reject（`code: "network"`），引擎照常可用、设置不变；五笔、日语、韩文引擎上什么也不做。`helpcode` 属性是当前的方案，关闭时为 `null`。
@@ -189,8 +192,9 @@ await engine.setHelpcode("lantian");  // 换一套，首次下载这张表
 | `willow_green` | 杨柳青 | 跟随 `dark` |
 | `autumn_osmanthus` | 秋桂 | 跟随 `dark` |
 | `microsoft` | 微软 | 跟随 `dark` |
+| `fluent` | Windows Fluent | 跟随 `dark`，使用平台配色与 Windows 出厂版式 |
 
-五个全局主题自带明暗，和桌面端一样不受 `dark` 影响；后六个是 Windows 版的内置外观，深浅两套配色都有。网页候选栏不画 Windows 版 `wechat_scroll` 的卷轴展开面板，只取它的配色和圆角。`SKINS` 导出全部 ID。
+五个全局主题自带明暗，和桌面端一样不受 `dark` 影响；后七个是 Windows 版的内置外观，深浅两套配色都有。`fluent` 的配色与 `system` 相同，布局使用 Windows 出厂值；`system` 保留网页宿主默认。`wechat_scroll` 在横排默认提供卷轴展开面板，并继承同一出厂版式。`SKINS` 导出全部 ID。
 
 Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：`wechat`、`wechat_scroll`、`willow_green` 是绿底白字，`graphite` 没有选中底色，只靠更深（深色下更亮）的字色标出高亮。桌面端的 `theme::resolve` 没有这个槽位，`base` 是这些外观的皮肤包在桌面上画普通文字色；皮肤对象自己写了 `selected` 时也画普通文字色。
 
@@ -224,11 +228,15 @@ attachInput(textarea, engine, {
 - 皮肤不支持当前的布局或明暗时，和桌面端一样只画 `base`。`base` 是全局主题时，皮肤固定画在那个主题的明暗下。
 - `base` 是 `system`（或不写）时，皮肤没写的颜色用上面 `system` 那一行说的平台默认配色补；高亮候选的文字和序号同桌面端画普通的 `text`、`number`。
 
-共享扫描器返回的 `resolvedLayout` 可以随 `SkinSummary` 原样传入。候选栏按当前 `horizontal` / `vertical` 版式使用圆角、描边、padding、候选最小宽度、间距、序号与选中条尺寸；`{ value, em }` 保留单位，em 随候选字号缩放，显式 `0` 与 `false` 保留覆盖语义。`itemMinWidth` 只影响一个候选，整张卡片的最小宽度仍由 `minWidthDip` 控制。换布局或换皮肤时会重新应用几何。旧对象和内置皮肤 ID 继续使用原有默认值。
+共享扫描器返回的 `resolvedLayout` 可以随 `SkinSummary` 原样传入，并优先于包的原始声明。没有该字段时，Windows 内置外观 ID 或对应 `base` 从共享 Rust 解析器核对的出厂镜像取得默认版式，再叠加包的 `geometry` 和当前 `horizontal` / `vertical` 声明；包公共值能覆盖出厂排列默认，显式 `0` 与 `false` 保留覆盖语义。未声明布局的全局主题保留原有宿主默认。
 
-`fontFamily` 可指定皮肤优先字体，沿用共享层的单字体名称及 64 个 UTF-8 字节上限，宿主默认字体链保留作回退。`resolvedLayout.shadow` 的 `none`、`soft`、`strong` 使用 Windows 的双层阴影配方；成功加载九宫格面板后不画阴影。`pageArrows` 控制翻页标记，`pageArrowStyle` 选择尖括号或三角；预编辑边距、`justifyRows`、`itemCornersFollowCard` 和 `trimHiddenPreeditGap` 也参与实际布局。贴角以实际换行结果判定，预编辑隐藏时才启用上角，零卡片圆角仍覆盖普通候选圆角。`fitContent` 去掉旧的 7em 最小卡宽，并使右内边距与序号左留白对称。
+候选栏按当前排列使用圆角、描边、padding、候选最小宽度、间距、序号与选中条尺寸；`{ value, em }` 保留单位，em 随候选字号缩放。`itemMinWidth` 只影响一个候选，Windows 版式卡片默认至少 160px，`minWidthDip` 可继续增大卡片，`fitContent` 可取消默认下限。换布局或换皮肤时会重新应用几何。出厂镜像在构建时装入 `theme-catalog.js`，运行时无需 Rust、TOML 解析器或宿主桥；共享清单变更后用 `MSIME_WRITE_FACTORY_LAYOUTS=1 cargo test -p msime-client-services web_factory_layout_copy_matches_shared_resolution` 更新镜像。
 
-网页候选栏仍没有桌面卷轴展开面板，`expandPanel`、`expandRows` 尚未消费；翻页标记不新增点击接口，页切换继续走引擎按键。携带 catalog 不代表已经实现全部桌面交互。
+`fontFamily` 可指定皮肤优先字体，沿用共享层的单字体名称及 64 个 UTF-8 字节上限，宿主默认字体链保留作回退。Windows 版式使用双层阴影配方，`shadow` 的 `none`、`soft`、`strong` 控制档位；成功加载九宫格面板后不画阴影。`pageArrows` 控制翻页标记，`pageArrowStyle` 选择尖括号或三角；预编辑边距、`justifyRows`、`itemCornersFollowCard` 和 `trimHiddenPreeditGap` 也参与实际布局。贴角以实际换行结果判定，预编辑隐藏时才启用上角，零卡片圆角仍覆盖普通候选圆角。`fitContent` 取消默认最小卡宽，并使右内边距与序号左留白对称。
+
+横排的 `expandPanel: true` 在首行右侧显示展开按钮，下面的滚动网格显示当前页之后的真实候选，`expandRows` 控制可见行数（2–8，默认 4）。首行保留页内序号与数字键语义，展开时隐藏翻页标记。网格按 2.6 倍字号分等宽格，长候选跨格，每批最多增加 300 个节点；输入继续时更新列表，上屏、取消、重置或失焦时收起。`attachInput` 自动接好引擎接口；自画编辑器要同时提供 `onExpand` 和 `onPickAny`，否则不显示无效入口。竖排保持列表布局；普通翻页标记仍由引擎按键控制。
+
+`candidateRevision` 是不透明的列表身份，不能改写或跨引擎复用。`pageStart` 与 `pageSize` 指明当前页的位置和页大小；完整列表中的数组下标是排序后的全局座位。展开可能放出引擎首次查询截留的尾部并改变身份，首行和网格必须一起使用返回的新帧。只在展开期间传完整列表，普通帧不增加整表复制。
 
 ### `resolveSkin(skin?, { dark, layout }?)`
 
@@ -255,7 +263,12 @@ for (const [name, value] of Object.entries(variables)) myBar.style.setProperty(n
 
 ```js
 import { createCandidateBar } from "@msime/web-engine";
-const bar = createCandidateBar({ skin: "night", layout: "horizontal", dark: "auto", onPick: (i) => engine.pick(i).then(update) });
+const bar = createCandidateBar({
+  skin: "night", layout: "horizontal", dark: "auto",
+  onPick: (i, revision, text, pageStart) => engine.pick(i, revision, text, pageStart).then(update),
+  onPickAny: (i, revision, text) => engine.pickAny(i, revision, text).then(update),
+  onExpand: (open, revision) => engine.setCandidateExpansion(open, revision).then(update),
+});
 bar.render(frame, caretRect);   // frame.composing 为 false 时隐藏；画在 caretRect 下方，放不下时翻到上方，并保持在视口内
 bar.setSkin("ink"); bar.setLayout("vertical"); bar.setDark(true);
 bar.hide(); bar.destroy();

@@ -48,7 +48,7 @@ export function settingsCapabilities({
   const showEnglishSuggestions = host ? host.english_suggestions : false;
   const showHelpcodeShiftEntry = host ? host.helpcode_shift_entry : false;
   const showShuangpinPreedit = host ? host.shuangpin_preedit : false;
-  // 只有画双拼键位图的宿主（macOS、Windows）给出「输入时显示双拼键位提示」。
+  // 只有画双拼键位图的宿主（macOS、Windows 和 Linux 的 X11 客户端）给出「输入时显示双拼键位提示」。
   const showShuangpinKeymapHint = host ? host.shuangpin_keymap_hint === true : false;
   const showCharacterWidth = host ? host.character_width : true;
   const aiProviderCredentials = host ? host.ai_provider_credentials : false;
@@ -70,7 +70,7 @@ export function settingsCapabilities({
   const showCandidateWindowScale = host ? host.candidate_window_scale : true;
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity : true;
   const showCandidateCornerRadius = host ? host.candidate_corner_radius : true;
-  // 卡片内边距目前只有 macOS 候选窗读；没有宿主时（网页预览）照样给出，与圆角一致。
+  // 卡片内边距目前只有 macOS 候选窗和 Linux 的 Fcitx5 主题读；没有宿主时（网页预览）照样给出，与圆角一致。
   const showCandidatePadding = host ? host.candidate_padding : true;
   const showInputModeHUD = host ? host.input_mode_hud : false;
   const showInputModeStatusItem = host ? host.input_mode_status_item : false;

@@ -27,11 +27,11 @@ macOS 普通拼音候选的方向键分工及展开末页显示由[拼音与候�
 - 网格不认的键（字母、退格、带修饰键的组合等）先收起网格再照常处理，免得被一个用户忘了的模式吞掉，和释义页（`handleGlossSenseEvent:client:`）是同一个约定。
 - 鼠标点网格里的候选选它（先 `reportPointerToLifecycle`）；首行右端的收起按钮收起；滚轮在网格上一次滚一行，与「滚轮翻页」开关无关，高亮跟着留在可见范围里。
 
-光标怎么走、可见的是哪几行是纯下标计算，放在 `platforms/macos/src/candidate/CandidateExpandedGrid.h`（`StepExpandedGrid`、`ExpandedGridFirstRow`，一次最多画 `kExpandedGridVisibleRows` 行），不碰 AppKit。
+光标怎么走、可见的是哪几行是纯下标计算，放在 `shared/candidate/CandidateExpandedGrid.h`（`StepExpandedGrid`、`ExpandedGridFirstRow`，一次最多画 `kExpandedGridVisibleRows` 行），不碰 AppKit；Linux 原生画布的网格用同一份（[X11 原生画布默认](../architecture/2026-10-21-linux-x11-native-candidate-default.md)）。
 
 **数据与代次。** 网格不经 View 的分页：打开时经 `msime_client_all_candidates` 复制一次当前这一代的全部候选（`MSIMEClientSession allCandidatesWithError:`），只认当前视图这个会话、这一代、身份合法的条目，每一行里按本机置顶词重排，和普通候选窗画那一页时一样；记下这一代和打开时的组字（`editing_text`、`preedit`、`caret_position`、`phrase_prefix`）。选择用 `msime_client_select_any_candidate` 带着复制时的一代（`selectAnyCandidateGeneration:index:error:`），控制器先用 `MSIMECurrentCandidateIdentity` 对照当前视图，Engine 再拒绝过期的一代。每次重画前对照一次当前视图（`expandedCandidatesStillApply`）：视图对象没变就直接画；变了而组字不变（云候选、AI 回答、整句重排到达，或同一代补上释义）就按新的一代重载，高亮留在原来那个词上、找不到时夹在范围内；组字变了、偏好关掉、改成竖排、切到英文、候选列表或释义页打开、失焦，就收起。ABI 没有改动，两个函数在 `crates/host-api/include/msime_client.h` 里早已存在，Android 和 iOS 的展开面板用的就是它们。
 
-**画法。** `renderExpandedCandidates` 和普通候选窗共用皮肤、字体、首行（logo、拼音）和装饰：每一行按普通候选窗排一页的方式排（`candidatePageGeometry:`，即 `CandidateItemLayout.h`），行与行上下叠起来，卡片宽度取最宽的一行；网格的行不为还没到的释义预留高度（`reservesGloss:NO`），普通候选窗为防止释义到达时卡片变高才预留，而网格里只有 Engine 当前那一页会请求释义，其余行一直空着那一行会把网格撑得很稀；候选按钮由两条路径共用的 `candidateButtonFor:geometry:slot:number:...` 建，`MSIMECandidateButton`、`MSIMECandidateChromeView` 和 `refreshCandidateSkin` 原样复用。网格按钮的标签是它在网格里的位置，高亮跟网格的光标走；首行右端是高亮所在的行「2 / 7」和收起按钮（标签 -3，模板符号图，按皮肤次要色着色）。网格里的候选不挂右键菜单：置顶、删除、固定排位的 Engine 调用只认当前这一页。双拼键位图按普通候选窗一页的高度让开候选窗，网格开着时先收起它。画网格时清掉 `_renderedCandidateView`，收起后第一次重画走完整重建，而不是在网格的按钮上原地改释义。
+**画法。** `renderExpandedCandidates` 和普通候选窗共用皮肤、字体、首行（logo、拼音）和装饰：每一行按普通候选窗排一页的方式排（`candidatePageGeometry:`，即 `shared/candidate/CandidateItemLayout.h`），行与行上下叠起来，卡片宽度取最宽的一行；网格的行不为还没到的释义预留高度（`reservesGloss:NO`），普通候选窗为防止释义到达时卡片变高才预留，而网格里只有 Engine 当前那一页会请求释义，其余行一直空着那一行会把网格撑得很稀；候选按钮由两条路径共用的 `candidateButtonFor:geometry:slot:number:...` 建，`MSIMECandidateButton`、`MSIMECandidateChromeView` 和 `refreshCandidateSkin` 原样复用。网格按钮的标签是它在网格里的位置，高亮跟网格的光标走；首行右端是高亮所在的行「2 / 7」和收起按钮（标签 -3，模板符号图，按皮肤次要色着色）。网格里的候选不挂右键菜单：置顶、删除、固定排位的 Engine 调用只认当前这一页。双拼键位图按普通候选窗一页的高度让开候选窗，网格开着时先收起它。画网格时清掉 `_renderedCandidateView`，收起后第一次重画走完整重建，而不是在网格的按钮上原地改释义。
 
 ## Alternatives considered
 

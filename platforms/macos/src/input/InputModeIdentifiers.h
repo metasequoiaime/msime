@@ -273,6 +273,13 @@ static inline BOOL MSIMEAdoptReportedInputMode(MSIMESystemInputModeState &state,
 // Whether the system offers a mode for selection. A mode the user removed in System Settings, or one an install from before the mode existed has not registered yet, cannot be selected, and asking for it would leave `current` naming a mode the menu bar does not show - the next report of the real one would then flip the controller's state back.
 using MSIMEInputModeAvailability = BOOL (*)(NSString *identifier);
 
+// 激活回调先于系统恢复输入源时，不能把空记录当成需要切换。只用此刻实际选中的本 bundle 模式校准记录。
+static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState &state, NSString *selected) {
+    if (state.selecting || !MSIMEIsInputModeID(selected)) return NO;
+    state.current = [selected copy];
+    return YES;
+}
+
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available) {

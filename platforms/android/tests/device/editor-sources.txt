@@ -26,8 +26,10 @@ platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmailSuffixDeviceSmoke.java
 platforms/android/tests/device/keyboard/LongSymbolCellDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberRowDeviceSmoke.java
+platforms/android/tests/device/keyboard/AutomaticNumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/CaretCandidatesDeviceSmoke.java
 platforms/android/tests/device/keyboard/HardwareTranslationDeviceSmoke.java
+platforms/android/tests/device/keyboard/HardwareDigitChecks.java
 platforms/android/tests/device/voice/HandwritingDeviceSmoke.java
 platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
 platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java
@@ -43,6 +45,7 @@ platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
 platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
+platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
 platforms/android/tests/device/settings/SkinDeleteDeviceCheck.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java
@@ -61,6 +64,7 @@ platforms/android/java/app/msime/android/AiProviderHeaders.java
 platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
 platforms/android/java/app/msime/android/voice/AiPolishConfiguration.java
 platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java
+platforms/android/java/app/msime/android/voice/HttpAsrResponsePolicy.java
 platforms/android/java/app/msime/android/voice/VoicePolisher.java
 platforms/android/tests/device/voice/VoicePolishReplyDeviceSmoke.java
 platforms/android/java/app/msime/android/JsonPolicy.java
@@ -192,6 +196,7 @@ platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java
 platforms/android/tests/device/keyboard/RestartingEditorActivity.java
 platforms/android/tests/device/keyboard/NumberLayerRestartDeviceSmoke.java
 platforms/android/tests/device/keyboard/CompositionRestartDeviceSmoke.java
+platforms/android/tests/device/keyboard/CompositionMagnifierChecks.java
 platforms/android/tests/device/keyboard/ChineseShiftReturnDeviceSmoke.java
 platforms/android/java/app/msime/android/NativeHandlePolicy.java
 platforms/android/java/app/msime/android/policy/SmartPunctuationContext.java
@@ -204,3 +209,5 @@ platforms/android/java/app/msime/android/keyboard/StrokeKeyboardLayout.java
 platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
 
 platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java
+
+platforms/android/tests/device/voice/VoiceAutoInsertDeviceCases.java

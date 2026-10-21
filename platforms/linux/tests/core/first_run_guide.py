@@ -23,7 +23,8 @@ def stub(path: Path, log: Path, name: str) -> None:
 def calls(log: Path, name: str) -> list:
     if not log.exists():
         return []
-    return [line for line in log.read_text().splitlines() if line.startswith(name + " ")]
+    # 引导脚本先用 `notify-send --help` 探测是否支持动作，这次探测不是一条通知。
+    return [line for line in log.read_text().splitlines() if line.startswith(name + " ") and line != "notify --help"]
 
 
 def wait_for(predicate, message: str) -> None:
@@ -209,7 +210,7 @@ def main() -> int:
         settle()
         assert len(calls(log, "settings")) == 6, log.read_text()
 
-        # 升级后下载的词库落后于当前版本：宿主以 --reason dictionary-outdated 调用，只发通知、不开设置窗口，通知里给出取回新词库的命令。
+        # 升级后下载的词库落后于当前版本：宿主以 --reason dictionary-outdated 调用，只发通知、不开设置窗口；通知指向设置里的「立即更新」，并留下设置应用读的标记。
         outdated = [str(bin_dir / "msime-linux-first-run-guide"), "--reason", "dictionary-outdated"]
         outdated_stamp = runtime / "msime-client/dictionary-outdated.stamp"
         first_run_stamp = runtime / "msime-client/first-run-guide.stamp"
@@ -225,9 +226,10 @@ def main() -> int:
         assert subprocess.run(outdated, env=graphical, timeout=10).returncode == 0
         wait_for(lambda: len(calls(log, "notify")) == notified + 1, "outdated dictionary notification missing")
         message = calls(log, "notify")[-1]
-        assert "词库需要更新" in message and "msime-linux-setup --update --download" in message, message
-        assert "尚未完成首次配置" not in message, message
+        assert "词库需要更新" in message and "「立即更新」" in message, message
+        assert "终端" not in message and "尚未完成首次配置" not in message, message
         assert outdated_stamp.exists()
+        assert (runtime / "msime-client/dictionary-outdated").exists()
         settle()
         assert len(calls(log, "settings")) == 6, log.read_text()
 
@@ -240,7 +242,7 @@ def main() -> int:
             assert subprocess.run(arguments, env=graphical, timeout=10).returncode == 0, arguments
             wait_for(lambda: len(calls(log, "notify")) == count + 1, f"outdated dictionary notification missing for {arguments}")
             message = calls(log, "notify")[-1]
-            assert "msime-linux-setup --update --download" in message and "尚未完成首次配置" not in message, message
+            assert "「立即更新」" in message and "尚未完成首次配置" not in message, message
         notified += len(orders)
         settle()
         assert len(calls(log, "settings")) == 6, log.read_text()
@@ -265,6 +267,38 @@ def main() -> int:
         assert result.returncode == 2, result
         settle()
         assert len(calls(log, "notify")) == notified + 2 and not outdated_stamp.exists() and not first_run_stamp.exists()
+
+        # 升级之后：IBus 宿主换成新版本后说新版本已经生效；Fcitx5 插件不能热重载，通知给出重启命令并带「立即重启 Fcitx5」按钮。这个原因不写标记，同一会话里再升级一次照样通知。桩 notify-send 不回答按钮，所以不会真的重启。
+        upgraded = [outdated[0], "--reason", "upgraded"]
+        for round_ in range(2):
+            count = len(calls(log, "notify"))
+            assert subprocess.run([*upgraded, "--host", "ibus"], env=graphical, timeout=10).returncode == 0
+            wait_for(lambda: len(calls(log, "notify")) == count + 1, "IBus upgrade notification missing")
+            assert "水杉输入法已更新" in calls(log, "notify")[-1], calls(log, "notify")
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--restart-unit", "omarchy-fcitx5.service"],
+                              env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification missing")
+        message = calls(log, "notify")[-1]
+        assert "--action=restart=立即重启 Fcitx5" in message and "systemctl --user restart omarchy-fcitx5.service" in message, message
+        # 两个宿主的通知标题相同。
+        assert "水杉输入法已更新" in message, message
+        # KWin 作为虚拟键盘启动的 Fcitx5：别处起来的 fcitx5 -r 拿不到输入法协议的连接，所以不给命令也不带按钮。
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--launched-by", "kwin"], env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "KWin upgrade notification missing")
+        message = calls(log, "notify")[-1]
+        assert "虚拟键盘" in message and "--action" not in message and "fcitx5 -r" not in message and "systemctl" not in message, message
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--restart-unit", ""], env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification without a unit missing")
+        assert "执行 fcitx5 -r 或注销后重新登录" in calls(log, "notify")[-1], calls(log, "notify")
+        assert not (runtime / "msime-client/upgraded.stamp").exists()
+        # 没有图形会话时同样不通知。
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "ibus"], env=base, timeout=10).returncode == 0
+        settle()
+        assert len(calls(log, "notify")) == count, log.read_text()
 
     # 引导脚本本身不发起任何下载：msime-linux-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
     guide = (SCRIPTS / "msime-linux-first-run-guide").read_text()

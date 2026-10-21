@@ -1,7 +1,7 @@
 // 候选框皮肤的模型：把内置皮肤 ID 或皮肤对象解析成候选条要画的颜色、几何和 CSS 自定义属性。这是 `crates/client-services/src/skin/theme.rs` 的 `resolve()` 在网页上的移植，逐条照着设置页的镜像 `packages/ui/src/theme/global-theme.ts`（`normalizedColor`、`customCandidatePalette`、`candidatePaletteStyle`）和 `packages/ui/src/skin/external-skins.tsx`（`dimension`、`decorationImage`、`skinGeometryStyle`、`drawnPackagePalette`）写成；`apps/desktop/tests/candidate/custom-theme-parity.json` 由 Rust 测试写出，test/skin.test.mjs 用它核对这里的结果与 `resolve()` 一致。
 //
-// 内置配色表 `./theme-catalog.js` 不是手写的副本：它由 `packages/web-engine/tools/theme-catalog.mjs` 从 `packages/ui/src/theme/theme-catalog.json`（Rust 主题表的网页副本）和 `crates/client-services/src/skin/catalog/windows_looks.rs`（msime-windows 内置外观，没有网页副本）生成。scripts/build-web-engine.sh 构建 npm 包时生成一份放在本文件旁边；在仓库里直接对 src/ 运行时，先跑 `node packages/web-engine/tools/theme-catalog.mjs` 生成 `src/theme-catalog.js`（被 git 忽略），test/skin.test.mjs 每次运行前会自动重新生成。
-import { canvasLook, plainWindowsLooks, themes, windowsLooks } from "./theme-catalog.js";
+// 内置表 `./theme-catalog.js` 由 `packages/web-engine/tools/theme-catalog.mjs` 从共享主题表、Windows 外观表及共享 Rust 解析器核对的出厂版式镜像生成。scripts/build-web-engine.sh 构建 npm 包时生成一份放在本文件旁边；在仓库里直接对 src/ 运行时，先跑 `node packages/web-engine/tools/theme-catalog.mjs` 生成 `src/theme-catalog.js`（被 git 忽略），test/skin.test.mjs 每次运行前会自动重新生成。
+import { canvasLook, factoryLayouts, plainWindowsLooks, themes, windowsLooks } from "./theme-catalog.js";
 
 const LAYOUTS = ["horizontal", "vertical"];
 const MODES = ["dark", "light"];
@@ -29,11 +29,12 @@ const builtinThemes = themes.filter((entry) => entry.candidate !== null);
 if (!systemEntry) throw new Error("theme catalog: no system entry");
 
 /**
- * SDK 接受的内置皮肤 ID，顺序同主题表：`system`（含义见上）、五个全局主题，再加 msime-windows 的六个内置外观。外观在桌面上只能作为皮肤包的 `base`，这里把它们当作一个两种布局、深浅两种模式都支持、没写任何颜色的皮肤包，按 `windows_looks::fill_from_look` 补齐配色和圆角后画在 `system` 之上，与 Windows 上同名外观一致。`fluent` 就是 Windows 原生配色、等同 `system`，不单列；`custom` 是桌面设置里的自定义主题，不是皮肤。
+ * SDK 接受的内置皮肤 ID，顺序同主题表：`system`（含义见上）、五个全局主题，再加 msime-windows 的七个内置外观。外观当作两种布局、深浅两种模式都支持的皮肤包，补齐配色和出厂版式后画在 `system` 之上。`fluent` 使用平台配色和 Windows 出厂几何，`system` 保留网页宿主默认；`custom` 是设置里的自定义主题，不是皮肤。
  */
 export const SKINS = Object.freeze([
   ...themes.filter((entry) => entry.id === "system" || entry.candidate !== null).map((entry) => entry.id),
   ...windowsLooks.map((look) => look.id),
+  ...plainWindowsLooks,
 ]);
 
 /** `theme::normalized_color`：颜色写成大写的 `#RRGGBB` 或 `#RRGGBBAA`，接受 `#RGB`、`#RGBA`（透明度在最后，与 `#RRGGBBAA` 相同）、通道 0-255 且透明度 0-1 的 `rgb()`/`rgba()` 和 `transparent`；其他一律 `null`。 */
@@ -236,6 +237,7 @@ function readPackage(skin) {
     selectedText: { dark: lookSelectedText(candidate.dark, look?.dark), light: lookSelectedText(candidate.light, look?.light) },
     animation: packageAnimation(skin),
     canvas,
+    factoryBase: canvas ? "canvas" : rawBase,
     cornerRadius,
     skin,
   };
@@ -253,26 +255,23 @@ function insets(value, maximum, topBottomMaximum = maximum) {
   return Object.fromEntries(["top", "right", "bottom", "left"].map((side) => [side, dimension(value[side] ?? 0, side === "top" || side === "bottom" ? topBottomMaximum : maximum)]));
 }
 
-/** 共享 catalog 发布的 Windows 出厂版式；旧网页结果没有该字段时保持旧默认。 */
-function resolvedLayout(skin, layout) {
-  const raw = skin?.resolvedLayout;
-  if (raw === null || typeof raw !== "object") return null;
-  const source = raw[layout] !== null && typeof raw[layout] === "object" ? raw[layout] : raw.geometry;
-  if (source === null || typeof source !== "object") return null;
-  const length = (value) => value !== null && typeof value === "object" && Number.isFinite(value.value)
-    && value.value >= 0 && value.value <= 500 && typeof value.em === "boolean"
+/** 把已合并版式或一层声明读为有界字段；无效长度与枚举留空，不能覆盖下一层合法默认。 */
+function layoutLayer(raw, source) {
+  const length = (value, maximum = 64, emMaximum = 4) => value !== null && typeof value === "object" && Number.isFinite(value.value)
+    && value.value >= 0 && value.value <= (value.em ? emMaximum : maximum) && typeof value.em === "boolean"
     ? { value: value.value, em: value.em } : null;
   const number = (object, key, max = 500) => typeof object?.[key] === "number" && Number.isFinite(object[key])
     && object[key] >= 0 && object[key] <= max ? object[key] : null;
   return {
     padding: length(source.padding), itemGap: length(source.itemGap), itemExtraHeight: length(source.itemExtraHeight),
     numberInset: length(source.numberInset), numberGap: length(source.numberGap), itemPaddingRight: length(source.itemPaddingRight),
-    itemMinWidth: length(source.itemMinWidth), numberScale: number(source, "numberScale", 2), selectedBarWidth: length(source.selectedBarWidth),
-    selectedBarHeightEm: number(source, "selectedBarHeightEm", 10), selectedBarInside: typeof source.selectedBarInside === "boolean" ? source.selectedBarInside : null,
+    itemMinWidth: length(source.itemMinWidth, 500, 40), numberScale: number(source, "numberScale", 2), selectedBarWidth: length(source.selectedBarWidth, 16, 1),
+    selectedBarHeightEm: number(source, "selectedBarHeightEm", 2), selectedBarInside: typeof source.selectedBarInside === "boolean" ? source.selectedBarInside : null,
     itemRadius: number(raw, "itemCornerRadiusDip", 32), radius: number(raw, "cornerRadiusDip", 32), borderWidth: number(raw, "borderWidthDip", 10),
     pageArrows: typeof raw.pageArrows === "boolean" ? raw.pageArrows : null,
     fitContent: typeof raw.fitContent === "boolean" ? raw.fitContent : null,
     expandPanel: typeof raw.expandPanel === "boolean" ? raw.expandPanel : null,
+    expandRows: Number.isInteger(raw.expandRows) && raw.expandRows >= 2 && raw.expandRows <= 8 ? raw.expandRows : null,
     shadow: ["none", "soft", "strong"].includes(raw.shadow) ? raw.shadow : null,
     itemCornersFollowCard: typeof source.itemCornersFollowCard === "boolean" ? source.itemCornersFollowCard : null,
     justifyRows: typeof source.justifyRows === "boolean" ? source.justifyRows : null,
@@ -280,6 +279,22 @@ function resolvedLayout(skin, layout) {
     preeditMargin: insets(source.preeditMarginDip, 500),
     pageArrowStyle: ["chevron", "triangle"].includes(source.pageArrowStyle) ? source.pageArrowStyle : null,
   };
+}
+
+/** 共享解析结果优先；无宿主桥时使用同一出厂镜像，顺序为出厂排列、包公共、包排列。 */
+function resolvedLayout(skin, layout, base) {
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const supplied = object(skin.resolvedLayout);
+  const source = object(supplied?.[layout]) ?? object(supplied?.geometry);
+  const complete = (layer) => ({ ...layer, expandRows: layer.expandRows ?? 4 });
+  if (source) return complete(layoutLayer(supplied, source));
+  const defined = (layer) => Object.fromEntries(Object.entries(layer).filter(([, value]) => value !== null));
+  const factory = factoryLayouts[base];
+  const common = defined(layoutLayer(skin, object(skin.geometry) ?? {}));
+  const direction = defined(layoutLayer({}, object(skin[layout]) ?? {}));
+  // 只有旧版圆角字段的普通主题仍走旧绘制，不能因此套上 Windows 的默认布局。
+  if (!factory && Object.keys(common).every((key) => key === "radius") && Object.keys(direction).length === 0) return null;
+  return complete({ ...layoutLayer(factory ?? {}, factory?.[layout] ?? {}), ...common, ...direction });
 }
 
 /** Canvas 字段只接受共享 catalog 的有界数据；图片地址继续走与旧装饰图相同的校验。 */
@@ -311,7 +326,7 @@ function canvasGeometry(skin, mode) {
 /** 画出来的皮肤包的几何：最小宽度、圆角、装饰带和背景图，取值规则同 `skinGeometryStyle` 和 `usePreviewBackground`。装饰带没有可用的图片时不画（网页上空着的装饰带只会在候选条上方留一块透明区域）。 */
 function packageGeometry(pkg, mode, layout = "horizontal") {
   const { skin } = pkg;
-  const layoutGeometry = resolvedLayout(skin, layout);
+  const layoutGeometry = resolvedLayout(skin, layout, pkg.factoryBase);
   const top = dimension(skin.decorationTopDip, 500);
   const width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
@@ -418,7 +433,7 @@ function cssVariables(palette, geometry) {
     if (layout.borderWidth !== null) variables["--msime-skin-border-width"] = `${layout.borderWidth}px`;
     if (layout.selectedBarHeightEm !== null) variables["--msime-skin-selected-bar-height"] = `${layout.selectedBarHeightEm}em`;
     if (layout.selectedBarInside !== null) variables["--msime-skin-selected-bar-left"] = layout.selectedBarInside ? "1px" : "0px";
-    if (layout.fitContent) variables["--msime-skin-card-floor"] = "0px";
+    variables["--msime-skin-card-floor"] = layout.fitContent ? "0px" : "160px";
     if (layout.preeditMargin) {
       for (const [side, value] of Object.entries(layout.preeditMargin)) variables[`--msime-skin-preedit-margin-${side}`] = `${value}px`;
     }

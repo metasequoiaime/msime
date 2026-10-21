@@ -56,6 +56,12 @@ export interface MsimeFrame {
   caret: number;
   /** 当前页的候选，最多 pageSize 行。 */
   page: MsimeRow[];
+  /** 不透明的实例与列表身份；翻页、高亮移动不改变它。 */
+  candidateRevision?: string;
+  pageStart?: number;
+  pageSize?: number;
+  /** 仅展开期间包含完整排序列表；数组下标就是全局座位。 */
+  allCandidates?: MsimeRow[] | null;
   pageIndex: number;
   hasPrev: boolean;
   /** 本页之后还有候选。 */
@@ -138,8 +144,12 @@ export interface MsimeEngine {
   readonly helpcode: MsimeHelpcode | null;
   /** 发送一个或一批打包按键（keyFromEvent 的结果，null 会被忽略），返回处理完后的帧。 */
   keys(keys: number | null | ReadonlyArray<number | null>): Promise<MsimeFrame>;
-  /** 鼠标点选当前页第 slot 个候选。 */
-  pick(slot: number): Promise<MsimeFrame>;
+  /** 鼠标点选当前页第 slot 个候选；版本化路径同时传 revision、text 与 pageStart，旧单参数路径保持兼容。 */
+  pick(slot: number, revision?: string, text?: string, pageStart?: number): Promise<MsimeFrame>;
+  /** 点选展开列表的全局座位，同时核对画出来的身份与文字。 */
+  pickAny(index: number, revision: string, text: string): Promise<MsimeFrame>;
+  /** 返回包含展开后当前页与完整候选的同一帧；收起后不再传完整列表。 */
+  setCandidateExpansion(open: boolean, revision: string): Promise<MsimeFrame>;
   /** 取消组字、清空上下文。 */
   reset(): Promise<MsimeFrame>;
   /** 在 quanpin 和四种双拼之间切换，辅助码设置保留；和 wubi86、japanese、korean 互换需要新建引擎。 */
@@ -187,7 +197,7 @@ export declare function createShiftTap(): {
   up(e: KeyboardEvent): boolean;
 };
 
-/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的六个内置外观。 */
+/** 内置皮肤 ID：`system`（网页上画桌面端设置页预览的平台默认配色，跟随明暗）、五个全局主题，以及 msime-windows 的七个内置外观。 */
 export type MsimeSkinId =
   | "system"
   | "shuishan"
@@ -200,9 +210,10 @@ export type MsimeSkinId =
   | "graphite"
   | "willow_green"
   | "autumn_osmanthus"
-  | "microsoft";
+  | "microsoft"
+  | "fluent";
 
-/** SDK 接受的内置皮肤 ID，顺序同设置页。 */
+/** SDK 接受的内置皮肤 ID：全局主题在前，Windows 外观在后。 */
 export declare const SKINS: readonly MsimeSkinId[];
 /** 不传皮肤时用的皮肤，即 `"shuishan"`。 */
 export declare const DEFAULT_SKIN: "shuishan";
@@ -347,13 +358,15 @@ export interface MsimeResolvedLayout {
   pageArrows?: boolean;
   fitContent?: boolean;
   expandPanel?: boolean;
+  expandRows?: number;
   geometry?: MsimeSkinGeometry;
   horizontal?: MsimeSkinGeometry;
   vertical?: MsimeSkinGeometry;
 }
 
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
-export interface MsimeSkin {
+export interface MsimeSkin extends MsimeResolvedLayout {
+  /** 共享层已完成四层合并的绘制结果；提供时优先于包的原始 geometry、horizontal、vertical 与开关字段。 */
   resolvedLayout?: MsimeResolvedLayout | null;
   id?: string;
   /** 外部清单的 schema_version；写 2 时对任何 base 都启用动画，未提供 animation 也采用漂亮的安全默认动画。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
@@ -453,6 +466,7 @@ export interface ResolvedSkin {
       pageArrows: boolean | null;
       fitContent: boolean | null;
       expandPanel: boolean | null;
+      expandRows: number;
       shadow: "none" | "soft" | "strong" | null;
       itemCornersFollowCard: boolean | null;
       justifyRows: boolean | null;
@@ -532,7 +546,10 @@ export interface CandidateBarOptions {
   /** "auto"（默认）跟随 `prefers-color-scheme` 并在它变化时重画；true、false 强制深色或浅色。只对 `system`、Windows 外观和不固定明暗的皮肤对象起作用。 */
   dark?: boolean | "auto";
   /** 点击当前页第 index 个候选。 */
-  onPick?: (index: number) => void;
+  onPick?: (index: number, revision?: string, text?: string, pageStart?: number) => void;
+  onPickAny?: (index: number, revision: string, text: string) => void;
+  /** 展开与收起交给引擎，随后用返回的帧重新 render。未接入时不显示展开入口。 */
+  onExpand?: (open: boolean, revision: string) => void | Promise<unknown>;
   /** 宿主元素放在哪里，默认 document.body。 */
   container?: Element;
   /** 在候选后显示编码（`page[i].code`），默认 false。帧里有辅助码提示（`page[i].hint`）时，不论这个选项都显示提示。 */

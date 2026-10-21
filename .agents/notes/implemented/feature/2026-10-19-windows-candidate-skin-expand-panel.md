@@ -38,6 +38,8 @@ msime-windows `c0a9d371` 的皮肤可以写 `[candidate_window] expand_panel = t
 
 点网格里的候选若没有上屏文字、组字接着往下走（`ui_continued_selection`，网址、顶级域名补全这类候选会排进网格），TIP 要在自己的会话里重放这次选择（`tsf/HostCandidateContinuation.h` 的 `ContinueHostCandidate`）。它原来只在本会话的当前页上按文字找，网格里的候选不在那一页上，找不到时这个连接被标脏重置，组字丢掉。现在当前页上没有时，TIP 到本会话这一代的完整候选列表里按文字找唯一的一个，按全局下标选（`EngineSessionAdapter::all_candidates` / `select_any`，就是 `msime_client_all_candidates` 与 `msime_client_select_any_candidate`；TIP 本来就直接持有这个会话的句柄）；取列表时引擎可能放出尾部、代次前进，所以用列表自己的代次。页上有的照旧按页上的选，页上重复、列表里重复或找不到时照旧拒绝，前后组字状态的核对不变。
 
+网页 SDK 的同类实现见[网页卷轴展开与版本化点选](2026-10-20-web-candidate-expand-panel.md)，它在 Worker 内发布完整排序列表，不改变这里的 Windows 进程边界。
+
 ## Alternatives considered
 
 - **照 msime-windows 的 `MoveToExpandedCandidate`，点网格时先翻到那一页再按页内序号选** —— 最强的理由是只用 `msime_client_select` 一种选择接口，Engine 的当前页也停在被选的候选上。不采用：要先发若干次 `MSIME_NEXT_PAGE`，每次都推进代次、进生命周期和脚本插件的钩子，而 `msime_client_select_any_candidate` 就是为这种「不在当前页上的候选」准备的，按同一代的身份选，过期的一代由运行时拒绝。

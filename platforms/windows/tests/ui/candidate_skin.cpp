@@ -164,7 +164,8 @@ int main() {
   require(toolbar.light.background == std::string("#F4F8FF") && !toolbar.light.handle);
   const auto base = candidate_native_palette(true);
   const auto dark = apply_toolbar_skin(base, toolbar, true);
-  require(dark.surface == candidate_rgb(0x141B33) && dark.accent == candidate_rgb(0x5B9BFF));
+  // `handle` has no target: the bar has no accent drag strip, so the theme's accent stays.
+  require(dark.surface == candidate_rgb(0x141B33) && dark.accent == base.accent);
   require(dark.text == candidate_rgb(0xE3EAFF) && dark.hover == base.hover);
   require(dark.divider && *dark.divider == candidate_rgb(0x5B9BFF, 0x47 / 255.0f));
   require(dark.radius == 6.0f && dark.border == base.border);
@@ -205,8 +206,8 @@ int main() {
   // The v2 motion contract holds on any base: a system, a fixed-mode or a canvas base all keep the declared presets.
   animated["packages"][0]["schemaVersion"] = 2;
   animated["packages"][0]["animation"]["durationMs"] = 240;
-  for (const char *base : {"system", "night", "canvas"}) {
-    animated["packages"][0]["base"] = base;
+  for (const char *base_id : {"system", "night", "canvas"}) {
+    animated["packages"][0]["base"] = base_id;
     const auto based = candidate_skin_animation(animated, "mascot");
     require(based.enter == CandidateSkinAnimationPreset::spring && based.duration_ms == 240);
   }

@@ -82,6 +82,15 @@ export function SentenceAssociationSection({
       {!mobile && state.neuralChecked && resourcePacks && (
         <ResourcePackRow packs={resourcePacks} id="settled-model" note="桌面神经联想需要它" />
       )}
+      {/* 只作用于模型重排过的整句，所以和神经联想同组；触屏宿主的「整句联想」级别里没有这一项，不显示。 */}
+      {!mobile && (
+        <SwitchRow
+          title="去重后补充次选"
+          description="某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果。"
+          checked={value?.show_next_on_duplicate ?? false}
+          onChange={(checked) => onChange({ ...value, show_next_on_duplicate: checked })}
+        />
+      )}
     </>
   );
 }

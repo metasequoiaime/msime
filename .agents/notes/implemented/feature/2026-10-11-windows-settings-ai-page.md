@@ -9,7 +9,7 @@ Status: implemented
 ## Decision
 
 - `SettingsNavigation.h` 里 `ai` 改为 `PageHost::Native`，`shell_page_description` 去掉 `ai`，`build_page` 调新的 `build_ai_page`。导航测试改为核对 AI 页是原生页，共享应用只剩账号与同步。`shell_links` 不变（AI 页没有用过其中任何一项）。
-- 规则写成只有头文件的 `AiSettings.h`：十二个服务商的标题、默认地址和模型、已知模型、文档（逐项照抄 `ai-provider-options.ts`），`aiProviderUpdate`（空或原服务商默认值才换，比较不去空白，与 TS 一样），`aiServiceCredentialTestDisabled`，三个提示词槽位和未知 `prompt_id` 退回 `custom_1`，候选数量的取值，润色测试指令，获取模型后的提示和换模型规则，两句兜底失败文字。由 `tests/ui/ai_settings.cpp` 核对，加进 CMake 测试；测试也核对服务商 id 与偏好库 `AI_PROVIDERS` 相同。
+- 规则写成只有头文件的 `AiSettings.h`：十三个服务商的标题、默认地址和模型、已知模型、文档（逐项照抄 `ai-provider-options.ts`），`aiProviderUpdate`（空或原服务商默认值才换，比较不去空白，与 TS 一样），`aiServiceCredentialTestDisabled`，三个提示词槽位和未知 `prompt_id` 退回 `custom_1`，候选数量的取值，润色测试指令，获取模型后的提示和换模型规则，两句兜底失败文字。由 `tests/ui/ai_settings.cpp` 核对，加进 CMake 测试；测试也核对服务商 id 与偏好库 `AI_PROVIDERS` 相同。
 - 接口地址的来源键和说明每次都问 `msime_client_ai_endpoint_check`（纯函数），不在 C++ 里再写一份地址规则。Token 用 `PreferencesDocument::SetEntry` 写 `ai_assistant.tokens[来源键]`（键原样保存，含点和冒号），同时把旧的 `ai_assistant.token` 清空，与共享页 `updateToken` 相同；地址不能用时 Token 框不可用。
 - 输入框（模型、接口地址、Token、提示词）沿用 `credential_input` 和 `write_credential`：边输入边写、停下后保存，不重建页面。跟着变的控件由 `ai_sync_` 就地更新：Token 行的说明、可用状态和框里的值（改地址时换成新来源下存的 Token；这次赋值与存的值相同，不算编辑），地址说明，预置模型的选中项，「测试 AI 辅助配置」，测试工具；获取模型那一块在当前事件处理完后整块重画，按钮不在自己的 Click 里被拆掉。开关和下拉框改动保存后重画整页。预置模型一行和语音页共用 `add_provider_preset`，改成接受模型表、文档、同步列表和写入函数。
 - 共享页 `updateAi` 的副作用集中在 `ai_edited`：每次改 AI 设置都让 `ai_generation_` 加一、清掉测试结果和两个忙碌状态；改服务商或接口地址时再清掉已获取的模型。获取模型（`msime_client_ai_models`）和润色测试（`msime_client_ai_test`）用 `run_host` 在工作线程上调用，回来时代数或请求序号变了就丢弃。失败时只显示共享页的兜底句子，因为 Tauri 拒绝的是错误码字符串，共享页的 `formatError` 不会显示它。获取到的列表不含当前模型时换成第一个并重画。

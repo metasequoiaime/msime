@@ -101,9 +101,9 @@ int main() {
         break;
       text += unit;
     }
-    const auto parsed = FanyImeUiLessPage::Parse(text);
-    require(parsed.hasPage && parsed.preedit == L"好ni" &&
-            parsed.page == L"你,拟" && parsed.generation == 21);
+    const auto changed = FanyImeUiLessPage::Parse(text);
+    require(changed.hasPage && changed.preedit == L"好ni" &&
+            changed.page == L"你,拟" && changed.generation == 21);
     require(!sync.updated(lease, view));
     view["generation"] = 22;
     view["candidates"][0]["text"] = std::string(199, 'a');

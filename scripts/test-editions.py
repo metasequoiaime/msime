@@ -121,7 +121,7 @@ FULL_WINDOWS = {
 WINDOWS_UNIQUE_NAMES = ["app_name", "text_service_description", "install_dir", "registry_key", "state_directory", "user_data_directory", "data_dir_environment_variable", "name_suffix", "watchdog_task", "host_dll", "tauri_identifier", "installer_base_name"]
 # 落在 %LOCALAPPDATA% 下的目录名：安装器的默认数据目录（install_dir）、没有 DataDir 时的状态目录和按用户的账号与统计目录。任意两个版本的任意两个撞名，一个版本就会读写、卸载时删掉另一个版本的数据。
 WINDOWS_LOCAL_APP_DATA_NAMES = ["install_dir", "state_directory", "user_data_directory"]
-# full 今天的 Linux 标识：包名写在 platforms/linux/cmake/packaging.cmake，IBus 组件和引擎名在 data/msime-linux.xml.in，Fcitx5 插件和输入法条目是 fcitx5/msime.conf 与 fcitx5/msime-inputmethod.conf（装成 inputmethod/msime.conf），状态目录 ~/.config/msime-client 写在 msime-linux-setup 和各宿主里，identifier 在 tauri.linux.conf.json。改了其中任何一个，已经装着的 msime-linux 就会被当成另一个产品：包升级不上来，输入法列表里的条目、用户服务和状态目录都对不上。
+# full 今天的 Linux 标识：包名写在 platforms/linux/cmake/packaging.cmake，IBus 引擎名在 data/msime-linux.xml.in，组件总线名由 identifier 加 .IBus 推出；Fcitx5 插件和输入法条目是 fcitx5/msime.conf 与 fcitx5/msime-inputmethod.conf（装成 inputmethod/msime.conf），状态目录 ~/.config/msime-client 写在 msime-linux-setup 和各宿主里，identifier 在 tauri.linux.conf.json。包名、引擎名、用户服务和状态目录保持升级兼容。
 FULL_LINUX = {
     "package": "msime-linux",
     "install_prefix": "/usr",
@@ -632,8 +632,11 @@ def check_linux(errors: list[str], editions: list[dict]) -> None:
     if 'set(CPACK_PACKAGE_NAME "${MSIME_EDITION_PACKAGE}")' not in packaging:
         errors.append("platforms/linux/cmake/packaging.cmake must take CPACK_PACKAGE_NAME from the edition table (MSIME_EDITION_PACKAGE)")
     component = (LINUX_ROOT / "data/msime-linux.xml.in").read_text(encoding="utf-8")
-    if component.count(f"<name>{full['ibus_engine']}</name>") != 2:
-        errors.append("edition full: platforms.linux.ibus_engine must be the component and engine <name> in platforms/linux/data/msime-linux.xml.in")
+    component_xml = ElementTree.fromstring(component)
+    if component_xml.findtext("engines/engine/name") != full["ibus_engine"]:
+        errors.append("edition full: platforms.linux.ibus_engine must remain the engine <name> in platforms/linux/data/msime-linux.xml.in")
+    if component_xml.findtext("name") != "@MSIME_EDITION_TAURI_IDENTIFIER@.IBus":
+        errors.append("IBus component name must derive from the edition identifier with the .IBus suffix")
     if f"/{full['client_directory']}/runtime-options.json" not in component:
         errors.append("edition full: platforms.linux.client_directory must be the /etc directory platforms/linux/data/msime-linux.xml.in passes to the launcher")
     setup = (LINUX_ROOT / "scripts/msime-linux-setup").read_text(encoding="utf-8")

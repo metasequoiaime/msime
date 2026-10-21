@@ -143,6 +143,17 @@ struct VoicePolishService: Equatable {
   }
 
   /// The configuration and key a polish request goes out with: the saved separate service, or 「AI 设置」.
+  /// 识别之后的润色：用单独保存的润色服务，或「AI 设置」里的服务。语音页和按住说话的后台会话共用。
+  static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
+    var (configuration, token) = try resolved()
+    configuration.prompt = settings.systemPrompt
+    let polished = try await CustomServiceClient.request(
+      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript), token: token)
+    let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { throw ServiceFailure(message: "服务未返回可用文字。") }
+    return trimmed
+  }
+
   static func resolved(defaults: UserDefaults = .standard,
                        readToken: (String, URL) throws -> String = { try ServiceTokenStore.read(scope: $0, url: $1) })
     throws -> (configuration: CustomServiceConfiguration, token: String) {

@@ -1,4 +1,4 @@
-//! Abbreviation predicates for the dictionary cascade (quanpin.md §5.1). Shuangpin shares them; the only difference is that it treats `zh`/`ch`/`sh` as initial tokens.
+//! 词典级联查询的简拼谓词（quanpin.md §5.1）。全拼与双拼都接受双字母声母，双拼仍严格区分平翘舌的单字母。
 
 use super::syllables::is_intact;
 
@@ -8,7 +8,7 @@ pub enum QuerySource {
     Shuangpin,
 }
 
-fn is_shuangpin_initial_token(segment: &str) -> bool {
+fn is_initial_token(segment: &str) -> bool {
     matches!(segment, "zh" | "ch" | "sh")
 }
 
@@ -17,22 +17,21 @@ pub fn is_pure_jianpin(segments: &[String]) -> bool {
     segments.iter().all(|segment| segment.len() == 1)
 }
 
-/// More than one segment and some non-last segment is a single letter, or under shuangpin `zh`/`ch`/`sh` (QQ:292-306).
-pub fn needs_mixed_jianpin_query(segments: &[String], source: QuerySource) -> bool {
+/// 至少两个音节，且非末尾音节含单字母或 `zh/ch/sh` 声母。
+pub fn needs_mixed_jianpin_query(segments: &[String], _source: QuerySource) -> bool {
     let Some((_, leading)) = segments.split_last() else {
         return false;
     };
     !leading.is_empty()
-        && leading.iter().any(|segment| {
-            segment.len() == 1
-                || (source == QuerySource::Shuangpin && is_shuangpin_initial_token(segment))
-        })
+        && leading
+            .iter()
+            .any(|segment| segment.len() == 1 || is_initial_token(segment))
 }
 
 /// `zh`/`ch`/`sh` when present, else the first letter (QQ:308-319).
 pub fn extract_initial_token(syllable: &str) -> &str {
     if let Some(prefix) = syllable.get(..2) {
-        if is_shuangpin_initial_token(prefix) {
+        if is_initial_token(prefix) {
             return prefix;
         }
     }
@@ -49,9 +48,9 @@ pub fn matches_mixed_segments(key: &str, segments: &[String], source: QuerySourc
         if expected.is_empty() || actual.is_empty() {
             return false;
         }
-        let strict_initial =
-            source == QuerySource::Shuangpin && is_shuangpin_initial_token(expected);
-        if expected.len() == 1 || strict_initial {
+        if is_initial_token(expected) {
+            extract_initial_token(actual) == expected
+        } else if expected.len() == 1 {
             match source {
                 QuerySource::Shuangpin => extract_initial_token(actual) == expected,
                 QuerySource::Quanpin => actual.as_bytes()[0] == expected.as_bytes()[0],
@@ -60,6 +59,55 @@ pub fn matches_mixed_segments(key: &str, segments: &[String], source: QuerySourc
             actual == expected
         }
     }) && actual_segments.next().is_none()
+}
+
+/// 为全拼补充双字母声母拆成两个单字母的路径；不改完整音节，最多返回 `limit` 条。
+pub fn split_initial_token_paths(segments: &[String], limit: usize) -> Vec<Vec<String>> {
+    if limit == 0 || !segments.iter().any(|segment| is_initial_token(segment)) {
+        return Vec::new();
+    }
+    let mut fully_split = Vec::with_capacity(segments.len() * 2);
+    for segment in segments {
+        if is_initial_token(segment) {
+            fully_split.extend(segment.bytes().map(|byte| char::from(byte).to_string()));
+        } else {
+            fully_split.push(segment.clone());
+        }
+    }
+    // 保留全拆路径，避免多个声母的组合达到上限时把长词的纯简拼截掉。
+    let mut result = vec![fully_split];
+    if limit == 1 {
+        return result;
+    }
+    let mut paths = vec![Vec::new()];
+    for segment in segments {
+        let mut next = Vec::new();
+        for mut path in paths {
+            let mut unchanged = path.clone();
+            unchanged.push(segment.clone());
+            next.push(unchanged);
+            if next.len() == limit {
+                break;
+            }
+            if is_initial_token(segment) {
+                path.extend(segment.bytes().map(|byte| char::from(byte).to_string()));
+                next.push(path);
+                if next.len() == limit {
+                    break;
+                }
+            }
+        }
+        paths = next;
+    }
+    for path in paths {
+        if path != segments && path != result[0] {
+            result.push(path);
+            if result.len() == limit {
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// `max(limit * 16, 128)`, saturating (QQ:366-373).
@@ -127,7 +175,7 @@ mod tests {
             &segments(&["n"]),
             QuerySource::Quanpin
         ));
-        assert!(!needs_mixed_jianpin_query(
+        assert!(needs_mixed_jianpin_query(
             &segments(&["zh", "guo"]),
             QuerySource::Quanpin
         ));
@@ -146,6 +194,29 @@ mod tests {
         assert_eq!(extract_initial_token("zong"), "z");
         assert_eq!(extract_initial_token("a"), "a");
         assert_eq!(extract_initial_token(""), "");
+    }
+
+    #[test]
+    fn initial_split_paths_keep_mixed_and_fully_split_readings() {
+        let typed = segments(&["zh", "sh", "da", "x"]);
+        let paths = split_initial_token_paths(&typed, 32);
+        assert_eq!(paths.len(), 3);
+        for expected in [
+            segments(&["z", "h", "s", "h", "da", "x"]),
+            segments(&["zh", "s", "h", "da", "x"]),
+            segments(&["z", "h", "sh", "da", "x"]),
+        ] {
+            assert!(paths.contains(&expected));
+        }
+        assert!(split_initial_token_paths(&segments(&["zhi", "chi", "shi"]), 32).is_empty());
+        assert!(split_initial_token_paths(&typed, 0).is_empty());
+        let long = vec!["zh".to_owned(); 64];
+        for limit in [1, 2, 7, 32] {
+            let paths = split_initial_token_paths(&long, limit);
+            assert!(paths.len() <= limit);
+            assert_eq!(paths[0], ["z", "h"].repeat(64));
+            assert!(paths.iter().all(|path| path.concat() == "zh".repeat(64)));
+        }
     }
 
     #[test]
@@ -172,6 +243,11 @@ mod tests {
             &typed,
             QuerySource::Quanpin
         ));
+        assert!(matches_mixed_segments(
+            "zong'guo",
+            &typed,
+            QuerySource::Quanpin
+        ));
         // Under shuangpin a lone `z` is the flat initial and must not match `zh`.
         assert!(!matches_mixed_segments(
             "zhong'guo",
@@ -184,6 +260,11 @@ mod tests {
             QuerySource::Shuangpin
         ));
         let typed = segments(&["zh", "guo"]);
+        assert!(!matches_mixed_segments(
+            "zong'guo",
+            &typed,
+            QuerySource::Quanpin
+        ));
         assert!(matches_mixed_segments(
             "zhong'guo",
             &typed,
@@ -194,7 +275,7 @@ mod tests {
             &typed,
             QuerySource::Shuangpin
         ));
-        assert!(!matches_mixed_segments(
+        assert!(matches_mixed_segments(
             "zhong'guo",
             &typed,
             QuerySource::Quanpin

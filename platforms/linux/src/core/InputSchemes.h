@@ -70,7 +70,7 @@ inline bool opened_candidate_list(const nlohmann::json &view) {
   return candidates != view.end() && candidates->is_array() && !candidates->empty();
 }
 
-// 左右键是整句改字的光标键：全拼和双拼的普通组字（不在专用英文和本地模式里）。引擎进不了改字时自己退回字母光标，所以宿主不必看首选是不是整句。IBus 和 Fcitx5 都按这一条决定左右键和 Ctrl+左右发什么命令。
+// 左右键是整句改字的光标键：全拼和双拼的普通组字（不在专用英文和本地模式里）。引擎进不了改字时自己退回字母光标，所以宿主不必看首选是不是整句。IBus 和 Fcitx5 都按这一条决定不带修饰键的左右键发什么命令；Shift+左右和 Ctrl+左右不看它，在所有方案里都发分段命令。
 inline bool edits_sentence(const nlohmann::json &view) {
   const int scheme = scheme_rules(view);
   return scheme >= 0 && scheme::EditsSentence(scheme);

@@ -140,7 +140,7 @@ macOS 只播放皮肤清单 `[animation]` 表里显式写出的预设。显示�
 - **退场窗口的副作用**：
   - 退场窗没有阴影。
   - 打字特效的上屏闪光如果正好插在卡片里，会跟着进入退场窗。
-- **新增预设或改映射**：要同时改 `CandidateMotion.mm`、本笔记的映射表和 `candidate-panel` 测试。
+- **新增预设或改映射**：要同时改 `CandidateMotion.mm`、`shared/candidate/CandidateMotionRules.h`（Linux 原生画布按它逐帧采样，时长与幅度常量两边共用）、本笔记的映射表和 `candidate-panel` 测试。
 
 测试：
 

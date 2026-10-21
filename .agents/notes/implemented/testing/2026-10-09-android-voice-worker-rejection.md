@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-工作线程提交被拒绝时统一走现有 `cancel()` 生命周期路径。它会使当前代失效、取消本地或流式识别器、清空引用、释放系统识别器并恢复键区，然后让调用方继续原有的窗口回退。
+工作线程提交被拒绝时统一走现有 `cancel()` 生命周期路径。它会使当前代失效、取消本地或流式识别器、清空引用、释放系统识别器、取消当前润色器并恢复键区，然后让调用方继续原有的窗口回退。
 
 ## Alternatives considered
 
@@ -19,6 +19,10 @@ Status: implemented
 ## Verification
 
 新增 Android voice project contract，先在旧实现上确认失败，再在修复后通过；随后运行 Android host checks、`scripts/verify-local.sh --quick`、笔记检查、格式与差异检查。
+
+## Related decisions
+
+[键盘润色取消](../bug-fix/2026-10-21-android-keyboard-voice-polish-cancellation.md)补足 `cancel()` 对润色连接的管理；当前任务捕获旧实例，取消后新任务使用新实例。
 
 ## Consequences
 

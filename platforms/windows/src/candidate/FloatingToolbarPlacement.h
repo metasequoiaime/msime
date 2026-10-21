@@ -40,7 +40,7 @@ floating_toolbar_placement(const FloatingToolbarPlacementInput &input) {
   y = (std::clamp)(y, input.work_top, max_y);
   return {x, y};
 }
-// 一次移动循环（WM_ENTERSIZEMOVE 到 WM_EXITSIZEMOVE）结束后要记住的位置。窗口真的动了就是松手时的左上角，不管之前有没有记过位置，所以第一次拖动也会记下来；只在拖动条上按了一下没动时保留原来记的位置，没记过就仍然没有，工具栏照旧跟着焦点窗口的显示器、贴在角上。
+// 一次移动循环（WM_ENTERSIZEMOVE 到 WM_EXITSIZEMOVE）结束后要记住的位置。窗口真的动了就是松手时的左上角，不管之前有没有记过位置，所以第一次拖动也会记下来；只在 logo、握把或工具栏上别的非按钮区域按了一下没动时保留原来记的位置，没记过就仍然没有，工具栏照旧跟着焦点窗口的显示器、贴在角上。
 inline std::optional<FloatingToolbarPlacement>
 floating_toolbar_drag_end(std::optional<FloatingToolbarPlacement> stored,
                           FloatingToolbarPlacement start, FloatingToolbarPlacement end) {

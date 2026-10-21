@@ -1,11 +1,12 @@
 import Foundation
 
-/// A small glyph drawn after a candidate: where it came from, and whether the user pinned it.
+/// A small glyph drawn after a candidate (where it came from), or a spoken-only note that the user pinned it.
 ///
-/// The Windows candidate window appends ☁️ to a cloud candidate and 🤖 to an AI one (`event_listener.cpp`), and draws a pinned word in its accent colour. iOS asks the user to opt in before either network source runs, so a suggestion that came back from Google or a language model should not look like a dictionary word. Symbols stand in for the emoji so the glyph takes the skin's colour, and each one carries a spoken form because a colour or icon alone says nothing to VoiceOver.
+/// The Windows candidate window appends ☁️ to a cloud candidate and 🤖 to an AI one (`event_listener.cpp`), and draws a pinned word in its accent colour. iOS asks the user to opt in before either network source runs, so a suggestion that came back from Google or a language model should not look like a dictionary word. Symbols stand in for the emoji so the glyph takes the skin's colour, and each one carries a spoken form because a colour or icon alone says nothing to VoiceOver. A pinned word is shown by the accent colour alone, as on Windows and HarmonyOS: a pin glyph after the word read as stray clutter on the keyboard. An empty symbol draws nothing.
 struct CandidateMarker: Equatable {
   let symbol: String
   let spoken: String
+  var pinned = false
 
   /// Engine `CandidateSource` values, shared by every host through the runtime's view.
   static let cloudSource = 2
@@ -42,7 +43,7 @@ struct CandidateMarker: Equatable {
     }
     if source == aiSource { markers.append(CandidateMarker(symbol: "sparkles", spoken: "AI 候选")) }
     if fixedPosition > 0 {
-      markers.append(CandidateMarker(symbol: "pin.fill", spoken: "已固定第 \(fixedPosition) 位"))
+      markers.append(CandidateMarker(symbol: "", spoken: "已固定第 \(fixedPosition) 位", pinned: true))
     }
     return markers
   }

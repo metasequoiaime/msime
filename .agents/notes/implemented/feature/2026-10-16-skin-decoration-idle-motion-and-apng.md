@@ -133,7 +133,7 @@ MCP 的 `create_candidate_skin` 说明和 `make_skin` prompt 写明 `motion`、`
 - APNG 的每一帧都计入像素合计，同样尺寸的图，帧数越多，背景图和预览能用的像素越少。
 - 社区服务端发布时会重新编码图片（`MAX_PACKAGE_FILE_BYTES` 的注释），而 Go 的 `image/png` 解码时跳过 `acTL`、`fcTL`、`fdAT` 这些辅助块。按推断，重新编码后只剩默认图，所以从社区下载的皮肤目前没有帧动画，本地安装和 MCP 创建的有。服务端的代码不在本仓库，这一点没有核实。
 - 网页引擎和共享 React 设置页的 APNG 由浏览器播放，不理减弱动态效果；它们也不播待机动效。
-- 新增或调整一种待机动效，要同时改 `catalog.rs` 的枚举和用例表、`SkinManifestBridge.mm` 的映射、`CandidateMotion.mm` 的 `DecorationMotionAnimation`、MCP 文案和本笔记。
+- 新增或调整一种待机动效，要同时改 `catalog.rs` 的枚举和用例表、`SkinManifestBridge.mm` 的映射、`CandidateMotion.mm` 的 `DecorationMotionAnimation`、`shared/candidate/CandidateMotionRules.h` 的 `DecorationMotionAt`（Linux 原生画布逐帧采样用它，幅度常量两边共用）、MCP 文案和本笔记。
 
 ### 后续
 

@@ -78,7 +78,8 @@ pub fn fetch_account_avatar(url: &str) -> Result<AccountAvatarImage, AccountErro
     if !account_avatar_url_allowed(url) {
         return Err(AccountError::Invalid);
     }
-    let client = Client::builder()
+    // 头像地址只可能是 https 公网主机（见 `account_avatar_url_allowed`）；按用户的网络代理设置走。
+    let client = crate::proxy::configure_blocking(Client::builder())
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()

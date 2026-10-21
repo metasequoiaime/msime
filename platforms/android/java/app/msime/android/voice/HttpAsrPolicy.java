@@ -36,6 +36,11 @@ public final class HttpAsrPolicy {
         return AiProviderResponse.boundedText(value, MAX_TRANSCRIPT);
     }
 
+    /** 只接受没有远端错误且未被截断或过滤的首候选。 */
+    static boolean responseAllowed(boolean hasError, String finishReason) {
+        return !hasError && !"length".equals(finishReason) && !"content_filter".equals(finishReason);
+    }
+
     /**
      * Whether this host can run the request as given.
      *

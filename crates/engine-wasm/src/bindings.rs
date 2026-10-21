@@ -1,6 +1,6 @@
 //! 浏览器边界（仅 wasm32-unknown-unknown）：wasm-bindgen 导出的几个函数和 `WebEngine`。
 //!
-//! 输出用 `js_sys::Object`/`Reflect` 拼成普通对象，键名是驼峰，和 TapTapGo 的 `MsimeFrame`（schema `msime-frame-v1`）逐字段对应；按键是打包的 u32 数组（`Key::unpack`）。这里不依赖 serde，也不依赖 web-sys。上下文只能由 Rust 自己写入，这里没有任何设置上下文的出口（D18）。
+//! 输出用 `js_sys::Object`/`Reflect` 拼成普通对象，键名是驼峰，保留 TapTapGo 的 `MsimeFrame`（schema `msime-frame-v1`）基础字段，并增加可忽略的列表身份与展开字段；按键是打包的 u32 数组（`Key::unpack`）。这里不依赖 serde，也不依赖 web-sys。上下文只能由 Rust 自己写入，这里没有任何设置上下文的出口（D18）。
 
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
@@ -9,7 +9,7 @@ use js_sys::{Array, Object, Reflect};
 use msime_engine::time::{set_host_clock, HostClock};
 use wasm_bindgen::prelude::*;
 
-use crate::host::{Frame, Key, Out, Scheme, WebHost, JAPANESE_DICTIONARY_PATH};
+use crate::host::{Frame, Key, Out, Row, Scheme, WebHost, JAPANESE_DICTIONARY_PATH};
 
 #[wasm_bindgen]
 extern "C" {
@@ -21,6 +21,8 @@ extern "C" {
 
 /// 最近一次 panic 的信息；wasm-release 是 panic=abort，实例随之失效，Worker 在捕获到 trap 后读它上报。
 static LAST_PANIC: Mutex<String> = Mutex::new(String::new());
+// 同一个 Worker 换方案会重建宿主，实例编号防止新列表复用旧身份。
+static NEXT_INSTANCE: Mutex<u64> = Mutex::new(0);
 
 /// `HostClock` 要的是普通函数指针，wasm-bindgen 的 extern 包一层。
 fn steady_ms() -> f64 {
@@ -87,6 +89,15 @@ pub fn last_panic() -> String {
 #[wasm_bindgen]
 pub struct WebEngine {
     host: WebHost,
+    instance: u64,
+}
+
+impl WebEngine {
+    fn revision(&self, token: &str) -> Option<u64> {
+        let (instance, revision) = token.split_once(':')?;
+        (instance.parse::<u64>().ok()? == self.instance).then_some(())?;
+        revision.parse().ok()
+    }
 }
 
 #[wasm_bindgen]
@@ -104,19 +115,57 @@ impl WebEngine {
             usize::try_from(page_size).map_err(|error| JsError::new(&error.to_string()))?;
         let host = WebHost::new(scheme, page_size, model.as_deref())
             .map_err(|error| JsError::new(&error))?;
-        Ok(WebEngine { host })
+        let mut next = NEXT_INSTANCE.lock().unwrap_or_else(PoisonError::into_inner);
+        *next = next.checked_add(1).expect("web instance exhausted");
+        Ok(WebEngine {
+            host,
+            instance: *next,
+        })
     }
 
     /// 处理一批打包的按键，返回 `MsimeFrame`。
     pub fn keys(&mut self, packed: &[u32]) -> JsValue {
         let keys: Vec<Key> = packed.iter().copied().filter_map(Key::unpack).collect();
-        frame_to_js(&self.host.keys(&keys))
+        frame_to_js(&self.host.keys(&keys), self.instance)
     }
 
     /// 鼠标点击当前页第 `slot` 个候选，返回 `MsimeFrame`。
     pub fn pick(&mut self, slot: u32) -> JsValue {
         let slot = usize::try_from(slot).unwrap_or(usize::MAX);
-        frame_to_js(&self.host.pick(slot))
+        frame_to_js(&self.host.pick(slot), self.instance)
+    }
+
+    /// 校验实例、列表版本、位置和画出来的文字，兼容当前页及完整列表点选。
+    pub fn pick_at(
+        &mut self,
+        index: u32,
+        token: &str,
+        text: &str,
+        global: bool,
+        page_start: Option<u32>,
+    ) -> JsValue {
+        let frame = if let Some(revision) = self.revision(token) {
+            let index = usize::try_from(index).unwrap_or(usize::MAX);
+            if global {
+                self.host.pick_candidate(index, revision, text, true)
+            } else if let Some(start) = page_start.and_then(|value| usize::try_from(value).ok()) {
+                self.host.pick_page_candidate(index, revision, text, start)
+            } else {
+                self.host.keys(&[])
+            }
+        } else {
+            self.host.keys(&[])
+        };
+        frame_to_js(&frame, self.instance)
+    }
+
+    pub fn set_candidate_expansion(&mut self, open: bool, token: &str) -> JsValue {
+        let frame = if let Some(revision) = self.revision(token) {
+            self.host.set_candidate_expansion(open, revision)
+        } else {
+            self.host.keys(&[])
+        };
+        frame_to_js(&frame, self.instance)
     }
 
     pub fn set_model_enabled(&mut self, enabled: bool) {
@@ -137,7 +186,7 @@ impl WebEngine {
 
     /// 新回合：取消组字、清空上下文、重建会话，返回 `MsimeFrame`。
     pub fn reset(&mut self) -> JsValue {
-        frame_to_js(&self.host.reset())
+        frame_to_js(&self.host.reset(), self.instance)
     }
 }
 
@@ -146,7 +195,19 @@ fn set(target: &Object, key: &str, value: &JsValue) {
     let _ = Reflect::set(target, &JsValue::from_str(key), value);
 }
 
-fn frame_to_js(frame: &Frame) -> JsValue {
+fn rows_to_js(rows: &[Row]) -> Array {
+    let array = Array::new();
+    for row in rows {
+        let entry = Object::new();
+        set(&entry, "text", &JsValue::from_str(&row.text));
+        set(&entry, "code", &JsValue::from_str(&row.code));
+        set(&entry, "hint", &JsValue::from_str(&row.hint));
+        array.push(&entry);
+    }
+    array
+}
+
+fn frame_to_js(frame: &Frame, instance: u64) -> JsValue {
     let object = Object::new();
     let out = Array::new();
     for item in &frame.out {
@@ -156,15 +217,27 @@ fn frame_to_js(frame: &Frame) -> JsValue {
     set(&object, "composing", &JsValue::from_bool(frame.composing));
     set(&object, "preedit", &JsValue::from_str(&frame.preedit));
     set(&object, "caret", &JsValue::from_f64(f64::from(frame.caret)));
-    let page = Array::new();
-    for row in &frame.page {
-        let entry = Object::new();
-        set(&entry, "text", &JsValue::from_str(&row.text));
-        set(&entry, "code", &JsValue::from_str(&row.code));
-        set(&entry, "hint", &JsValue::from_str(&row.hint));
-        page.push(&entry);
-    }
-    set(&object, "page", &page);
+    set(&object, "page", &rows_to_js(&frame.page));
+    set(
+        &object,
+        "candidateRevision",
+        &JsValue::from_str(&format!("{instance}:{}", frame.candidate_revision)),
+    );
+    set(
+        &object,
+        "pageStart",
+        &JsValue::from_f64(f64::from(frame.page_start)),
+    );
+    set(
+        &object,
+        "pageSize",
+        &JsValue::from_f64(f64::from(frame.page_size)),
+    );
+    let all = frame
+        .all_candidates
+        .as_ref()
+        .map_or(JsValue::NULL, |rows| rows_to_js(rows).into());
+    set(&object, "allCandidates", &all);
     set(
         &object,
         "pageIndex",

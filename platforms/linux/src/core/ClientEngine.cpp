@@ -21,6 +21,7 @@
 #include "GlobalTheme.h"
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
+#include "MenuLabels.h"
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
@@ -37,6 +38,17 @@
 #include "../overlay/WaveOverlayModel.h"
 #include "../overlay/WaveOverlayIbusSurface.h"
 #include "../overlay/WaveOverlaySurfaceFactory.h"
+#include "../overlay/ModeBadgePlacement.h"
+#ifdef MSIME_IBUS_MODE_BADGE
+#include "../overlay/ModeBadgeSurface.h"
+#endif
+#include "../overlay/FloatingPanelColors.h"
+#include "../overlay/FloatingToolbarModel.h"
+#include "../overlay/ShuangpinKeymapModel.h"
+#ifdef MSIME_LINUX_FLOATING_PANELS
+#include "../overlay/FloatingToolbar.h"
+#include "../overlay/ShuangpinKeymapX11Surface.h"
+#endif
 #include "../candidates/CandidateColors.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
@@ -45,11 +57,13 @@
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
+#include "../candidates/CandidateRowText.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
 #include "../candidates/WubiProfileNames.h"
 #include "ClientInputModeMemory.h"
+#include "AppInputModeRules.h"
 #include "../system/DiagnosticLog.h"
 #include "../system/KeySound.h"
 #include "../system/LifecycleFeedback.h"
@@ -183,6 +197,8 @@ void apply_candidate_panel_font(const Json &preferences) {
 bool system_dark = false;
 msime::linux_host::CandidateTheme candidate_theme(const Json &preferences);
 std::optional<bool> global_input_enabled;
+// 应用例外的停留在进程范围：IBus 可能给每个上下文一个引擎实例，同一个程序的几个上下文属于同一次停留（AppInputModeRules.h）。
+msime::linux_host::AppInputModeRuleStay app_rule_stay;
 // The shared preference defaults, read once from the Host API rather than
 // restated here. A nested preference object is optional as a whole but requires
 // every one of its members, so patching a single key into an object the
@@ -375,6 +391,8 @@ struct State {
   std::optional<bool> session_chinese_punctuation;
   // The width the session was last told. update_preferences never touches the runtime's width, so a preference or menu change reaches the session only when the host re-states it.
   std::optional<bool> session_fullwidth;
+  // The Caps Lock state the session was last told; see sync_caps_lock(). A new session starts unlocked.
+  bool session_caps_lock = false;
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
@@ -550,6 +568,8 @@ struct State {
   bool voice_hotkey_ctrl_f9 = true;
   // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
   bool caps_lock = false;
+  // 当前模式来自这次聚焦的应用例外，用户还没有手动切换：全局作用域不拿全局状态覆盖它。
+  bool app_rule_active = false;
   // Key ownership lasts until release, independently of provider completion.
   std::set<guint> voice_consumed_keys;
   guint voice_hold_key = 0;
@@ -563,15 +583,31 @@ struct State {
   // 中英文切换提示：辅助区域短暂显示「中」或「英」。代次用于丢弃过期的隐藏回调，
   // 与语音失败提示同一套做法。
   uint64_t mode_hint_id = 0;
+  // 切换徽章的颜色，与语音浮层一样取解析出的主题，明暗跟随颜色模式。
+  msime::linux_host::FloatingSurfaceColors mode_badge_colors{};
+  // 悬浮工具栏的颜色，与切换徽章取同一个主题（明暗跟随颜色模式）；双拼键位图在候选窗旁打开，与 macOS 一样按候选窗的明暗和配色画。
+  msime::linux_host::FloatingToolbarColors floating_toolbar_colors{};
+  msime::linux_host::ShuangpinKeymapColors keymap_colors{};
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 获得焦点时的光标徽章正在等客户端报光标（见 show_input_mode_hint）；代次丢弃过期的等待超时。徽章表面本身整个进程共用一块（process_mode_badge）。
+  bool mode_hint_after_focus = false;
+  uint64_t mode_hint_focus_id = 0;
+#endif
   // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
-  std::string voice_phase = "正在录音…";
+  std::string voice_phase = msime::linux_host::kVoiceStatusRecording;
   std::optional<unsigned> voice_level;
   msime::linux_host::WaveOverlayModel wave_overlay;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface;
   bool wave_overlay_visible = false;
+  // 16 ms 的波形动画和浮层显示连接的监听；两者只在画出来的浮层显示时运行（`sync_wave_overlay_sources`）。
+  guint wave_overlay_timer = 0;
+  guint wave_overlay_watch = 0;
+  int wave_overlay_watch_fd = -1;
+  // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
+  bool wave_overlay_dismissed = false;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -589,6 +625,13 @@ struct State {
       g_clear_object(&clipboard_monitor);
     }
     g_clear_object(&clipboard_watch_file);
+  }
+  // 把大写锁定报告给会话（msime_client_set_caps_lock），「大写锁定时使用英文标点」才在这个宿主上生效。会话不从别处得知它、新会话从关开始，所以建会话时和每个键分发之前比较会话上次收到的值，变了才报告。
+  void sync_caps_lock() {
+    if (!session || session_caps_lock == caps_lock)
+      return;
+    response(msime_client_set_caps_lock(session, caps_lock));
+    session_caps_lock = caps_lock;
   }
   void remember_app_input_mode() {
     if (!mode_scope_global)
@@ -608,6 +651,25 @@ struct State {
     const auto fallback = configured.value("preferences", Json::object())
                               .value("default_ime_mode", "chinese") != "english";
     input_enabled = app_input_modes.restore(focused_client, fallback);
+  }
+  // 应用例外（`app_input_mode_rules`）排在作用域和记忆前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是，全局状态不动；用户在这次停留里手动切换后让位（`yield_app_input_mode_rule`），离开再回来重新生效。程序名只有 GTK 输入法模块经 IBus 1.5.27 起的客户端名给出（`ibus_app_rule_program`），Qt、XIM、GNOME Wayland 下经 GNOME Shell 转发的程序和更早的 IBus 是匿名的，规则对它们不生效。
+  void apply_app_input_mode_rule() {
+    const auto program = msime::linux_host::ibus_app_rule_program(focused_client);
+    // 有客户端名却没有程序名（Qt 插件的 `QIBusInputContext`、`xim`、GNOME Wayland 下所有程序共用的 `gnome-shell`）是确实换了客户端，这次停留结束；空客户端名是 IBus 还没协商出身份的那次聚焦，`fake` 是没有输入框的窗口，都认不出离没离开当前程序，停留保持不变。
+    if (program.empty() && !focused_client.empty() && focused_client != "fake")
+      app_rule_stay.leave();
+    else
+      app_rule_stay.enter(program);
+    const auto rule = msime::linux_host::app_input_mode_rule_start(
+        configured.value("preferences", Json::object()), program, app_rule_stay);
+    app_rule_active = rule.has_value();
+    if (rule)
+      input_enabled = *rule;
+  }
+  // 用户手动切换了中英文：规则在这次停留里让位，此后照常按作用域走。
+  void yield_app_input_mode_rule() {
+    app_rule_stay.yield(msime::linux_host::ibus_app_rule_program(focused_client));
+    app_rule_active = false;
   }
   void configure_clipboard(std::string path, bool enabled) {
     if (!path.empty() && path.front() != '/')
@@ -674,9 +736,23 @@ struct State {
     alive->store(false);
     close();
   }
+  // 收起语音浮层并停掉它的帧动画和显示连接监听，与 `hide_wave_overlay` 相同，只是不需要 `IBusEngine`。会话的每条出口都经过 `close()`：`guarded()` 兜底和词典维护释放会话之后不再走 `render()`，浮层如果留着，重置过的模型会让 16 ms 的帧定时器一直重画一排圆点。
+  void release_wave_overlay() {
+    if (wave_overlay_surface && wave_overlay_visible)
+      wave_overlay_surface->hide();
+    wave_overlay_visible = false;
+    if (wave_overlay_timer)
+      g_source_remove(wave_overlay_timer);
+    wave_overlay_timer = 0;
+    if (wave_overlay_watch)
+      g_source_remove(wave_overlay_watch);
+    wave_overlay_watch = 0;
+    wave_overlay_watch_fd = -1;
+  }
   void close() {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
+    session_caps_lock = false;
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -709,6 +785,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
+    release_wave_overlay();
     wave_overlay.reset();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
@@ -771,7 +848,7 @@ struct State {
       if (!global_input_enabled)
         global_input_enabled =
             base_preferences.value("default_ime_mode", "chinese") != "english";
-      if (!session)
+      if (!session && !app_rule_active)
         input_enabled = *global_input_enabled;
     }
     if (session || blocked || !focused || !input_enabled)
@@ -892,6 +969,8 @@ struct State {
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["quick_phrase_candidates"] = true;
     auto encoded = options.dump();
     auto bindings =
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
@@ -913,6 +992,7 @@ struct State {
     // CN/EN passthrough defaults are independent of the English candidate mode.
     english_mode = dedicated_english_override.value_or(false);
     view = response(msime_client_set_english_mode(session, english_mode));
+    sync_caps_lock();
     if (active_scheme == "quanpin" && nine_key_override)
       view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
     chinese_punctuation = punctuation_override.value_or(
@@ -983,7 +1063,7 @@ struct State {
       if (!global_input_enabled)
         global_input_enabled =
             preferences.value("default_ime_mode", "chinese") != "english";
-      if (!session)
+      if (!session && !app_rule_active)
         input_enabled = *global_input_enabled;
     }
     navigation = msime::linux_host::NavigationBindings::read(preferences);
@@ -1059,7 +1139,8 @@ struct State {
       display_preferences["candidate_theme"] = *theme_override;
     if (theme_choice_override)
       msime::linux_host::apply_theme_choice(display_preferences, *theme_choice_override);
-    const auto colors = candidate_theme(display_preferences).colors;
+    const auto resolved_candidate_theme = candidate_theme(display_preferences);
+    const auto &colors = resolved_candidate_theme.colors;
     candidate_text_color = colors.text;
     candidate_number_color = colors.number;
     candidate_translation_color = colors.translation;
@@ -1101,6 +1182,12 @@ struct State {
         display_preferences, !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark));
     wave_overlay.light_theme = !voice_theme.dark;
     wave_overlay.palette = msime::linux_host::floating_surface_colors(voice_theme);
+    // 切换徽章与 Fcitx5 的一样跟随颜色模式（surface_dark_theme），不看候选窗的明暗设置。
+    const auto surface_theme =
+        theme_in_mode(display_preferences, msime::linux_host::surface_dark_theme(preferences, system_dark));
+    mode_badge_colors = msime::linux_host::floating_surface_colors(surface_theme);
+    floating_toolbar_colors = msime::linux_host::floating_toolbar_colors(surface_theme);
+    keymap_colors = msime::linux_host::shuangpin_keymap_colors(resolved_candidate_theme);
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
@@ -1227,6 +1314,17 @@ std::string effective_scheme(const State &s) {
   return msime::linux_host::effective_input_scheme(
       s.scheme_override.value_or(preferences.value("scheme", std::string("quanpin"))),
       preferences.value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
+}
+// 本版本提供、这台机器上也能运行的方案（粤拼、注音、笔画要有词库）。菜单和工具栏只列这些。
+bool scheme_offered(std::string_view scheme) {
+  return msime::linux_host::input_scheme_available(scheme, configured_dictionaries);
+}
+// 方案在菜单里的名字：双拼带当前键位方案，五笔带码表版本，与 macOS 一致（MenuLabels.h）。
+std::string scheme_title(const State &s, std::string_view scheme) {
+  const auto &preferences = configured.at("preferences");
+  return msime::linux_host::scheme_menu_title(
+      scheme, s.shuangpin_profile_override.value_or(preferences.value("shuangpin_profile", std::string("xiaohe"))),
+      preferences.value("wubi_profile", std::string("wubi86")));
 }
 // 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
@@ -1472,7 +1570,12 @@ void sync_music(IBusEngine *engine) {
 }
 void publish_mode(IBusEngine *engine, bool registration = false);
 void sync_global_input_mode(IBusEngine *engine);
-void show_input_mode_hint(IBusEngine *engine);
+// 切换提示的来由：真正的切换，获得焦点（#2589），以及获得焦点后等到光标位置（或等满时间）的那一次。
+enum class ModeHintTrigger { Switch, FocusEntered, FocusSettled };
+void show_input_mode_hint(IBusEngine *engine, ModeHintTrigger trigger = ModeHintTrigger::Switch);
+#ifdef MSIME_IBUS_MODE_BADGE
+void dismiss_mode_badge(const IBusEngine *engine);
+#endif
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -1507,26 +1610,28 @@ bool restart_ibus_service() {
   return started != FALSE;
 }
 
+// 一个面板入口在菜单里的位置。Top 是 macOS 输入法菜单中间那组工具（表情、云剪贴板、云词库、屏幕键盘、手写），Footer 是菜单末尾的设置和关于，Extra 是 macOS 菜单里没有、Linux 放在顶层 macOS 那部分之后的入口（词库…），Tools 收在「桌面工具」子菜单里。键不随位置变，激活与按键更新都不受影响。
+enum class DesktopPanelSlot { Top, Footer, Extra, Tools };
 struct DesktopPanelAction {
   const char *property;
   const char *panel;
   const char *label;
-  // Drawn at the top level of the design menu (主题 / 词库… / 设置… / 关于) instead of inside 桌面工具; the key is the same either way, so activation does not depend on where the entry sits.
-  bool design_menu;
+  DesktopPanelSlot slot;
 };
+// 同一位置内按 macOS 菜单的顺序排列。
 constexpr DesktopPanelAction desktop_panel_actions[] = {
-    {"DesktopTools/Handwriting", "handwriting", "手写识别板", false},
-    {"DesktopTools/Keyboard", "keyboard", "屏幕键盘", false},
-    {"DesktopTools/Emoji", "emoji", "表情与符号", false},
-    {"DesktopTools/Clipboard", "clipboard", "本地剪贴板", false},
-    {"DesktopTools/Voice", "voice", "语音面板", false},
-    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词库", false},
-    {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板", false},
-    {"DesktopTools/Dictionary", "dictionary", "词库…", true},
-    {"DesktopTools/Settings", "settings", "设置…", true},
-    {"DesktopTools/About", "about", "关于" MSIME_EDITION_DISPLAY_NAME, true},
-    {"DesktopTools/Help", "help", "帮助", false},
-    {"DesktopTools/Feedback", "feedback", "反馈", false},
+    {"DesktopTools/Emoji", "emoji", msime::linux_host::menu_label::kEmojiPanel, DesktopPanelSlot::Top},
+    {"DesktopTools/CloudClipboard", "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard, DesktopPanelSlot::Top},
+    {"DesktopTools/CloudDictionary", "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary, DesktopPanelSlot::Top},
+    {"DesktopTools/Keyboard", "keyboard", msime::linux_host::menu_label::kScreenKeyboard, DesktopPanelSlot::Top},
+    {"DesktopTools/Handwriting", "handwriting", msime::linux_host::menu_label::kHandwriting, DesktopPanelSlot::Top},
+    {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
+    {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
+    {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
+    {"DesktopTools/Clipboard", "clipboard", msime::linux_host::menu_label::kLocalClipboard, DesktopPanelSlot::Tools},
+    {"DesktopTools/Voice", "voice", msime::linux_host::menu_label::kVoicePanel, DesktopPanelSlot::Tools},
+    {"DesktopTools/Help", "help", msime::linux_host::menu_label::kHelp, DesktopPanelSlot::Tools},
+    {"DesktopTools/Feedback", "feedback", msime::linux_host::menu_label::kFeedback, DesktopPanelSlot::Tools},
 };
 
 // 本版本是否提供这个面板。手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0，它们的安装包里也没有手写模型）既不在菜单里列出，也不打开手写识别板。
@@ -1550,10 +1655,14 @@ IBusProperty *menu_group(const char *key, const char *label, const char *tooltip
 }
 
 // Update a menu whose children are fixed, children first: IBus panels apply an update to the property with the same key and never to its sub-properties, so a radio chosen from outside the menu would otherwise stay unmarked until the next registration.
+// 子菜单里还有子菜单（工具栏里的「切换输入方案」）时同样先更新它的条目。
 void update_menu_property(IBusEngine *engine, IBusProperty *menu) {
   if (auto *items = ibus_property_get_sub_props(menu))
-    for (guint index = 0; auto *item = ibus_prop_list_get(items, index); ++index)
-      if (ibus_property_get_prop_type(item) != PROP_TYPE_SEPARATOR) ibus_engine_update_property(engine, item);
+    for (guint index = 0; auto *item = ibus_prop_list_get(items, index); ++index) {
+      if (ibus_property_get_prop_type(item) == PROP_TYPE_SEPARATOR) continue;
+      if (ibus_property_get_prop_type(item) == PROP_TYPE_MENU) update_menu_property(engine, item);
+      else ibus_engine_update_property(engine, item);
+    }
   ibus_engine_update_property(engine, menu);
 }
 
@@ -1581,17 +1690,8 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("重新读取最新设置并重试上次菜单修改"),
       can_retry && !menu_save_pending && s.focused && !s.blocked,
       menu_save_pending || can_retry, PROP_STATE_UNCHECKED, nullptr));
-  const bool toolbar_enabled = configured.at("preferences")
-      .value("floating_toolbar", Json::object()).value("enabled", true);
-  ibus_prop_list_append(items, ibus_property_new(
-      "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("工具栏"), "",
-      ibus_text_new_from_static_string("保存工具栏显示开关"),
-      s.focused && !s.blocked && !menu_save_pending &&
-          !directory.empty() && directory.front() == '/',
-      TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   for (const auto &action : desktop_panel_actions)
-    if (!action.design_menu && desktop_panel_offered(action))
+    if (action.slot == DesktopPanelSlot::Tools && desktop_panel_offered(action))
       ibus_prop_list_append(items, desktop_panel_property(engine, action));
   ibus_prop_list_append(items, ibus_property_new(
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
@@ -1607,6 +1707,36 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, items);
 }
 
+// 「显示工具栏」开关，对应 macOS 输入法菜单的「悬浮工具栏」，放在顶层工具那组的开头：它同时开关悬浮工具栏和下面的「工具栏」子菜单。键仍是 DesktopTools/ToolbarEnabled，激活走原来的保存路径。
+IBusProperty *toolbar_enabled_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const auto directory = configured.value("preferences_directory", std::string{});
+  const bool toolbar_enabled = configured.at("preferences")
+      .value("floating_toolbar", Json::object()).value("enabled", true);
+  return ibus_property_new(
+      "DesktopTools/ToolbarEnabled", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kToolbarEnabled), "",
+      ibus_text_new_from_static_string("显示或隐藏悬浮工具栏和这个菜单里的「工具栏」子菜单"),
+      s.focused && !s.blocked && !menu_save_pending &&
+          !directory.empty() && directory.front() == '/',
+      TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+}
+
+// 输入方案在菜单里的属性键，菜单与工具栏的方案子菜单都映射到它。
+const char *scheme_property_key(std::string_view scheme) {
+  if (scheme == "shuangpin") return "Scheme/Shuangpin";
+  if (scheme == "wubi") return "Scheme/Wubi";
+  if (scheme == "japanese") return "Scheme/Japanese";
+  if (scheme == "korean") return "Scheme/Korean";
+  if (scheme == "cantonese") return "Scheme/Cantonese";
+  if (scheme == "zhuyin") return "Scheme/Zhuyin";
+  if (scheme == "vietnamese") return "Scheme/Vietnamese";
+  if (scheme == "tibetan") return "Scheme/Tibetan";
+  if (scheme == "stroke") return "Scheme/Stroke";
+  return "Scheme/Quanpin";
+}
+
+// 工具栏子菜单，对应 macOS 悬浮工具栏：按钮的顺序和默认开关与 macOS 相同（FloatingToolbarPanel.mm，默认值见 preferences.rs 的 FloatingToolbarPreferences），其后是 macOS 工具栏齿轮菜单里的宣传、官网、帮助、关于与反馈。english_mode 管的是中英文那一项（macOS 的 _inputModeButton），macOS 工具栏没有「英文候选模式」，它只在菜单顶层。文案与菜单顶层和 Fcitx5 的「工具栏」子菜单相同，取自 MenuLabels.h。
 IBusProperty *toolbar_property(IBusEngine *engine) {
   const auto &s = state(engine);
   const auto toolbar = configured.at("preferences").value(
@@ -1633,25 +1763,54 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
                    "", ibus_text_new_from_static_string(hint), TRUE, TRUE,
                    PROP_STATE_UNCHECKED, nullptr));
   };
-  append_toggle("Toolbar/InputMode", "中英文模式", "切换中文输入与直接输入",
-                available, s.input_enabled);
-  append_toggle("Toolbar/EnglishMode", "英文输入模式",
-                "切换 Engine 的独立英文输入模式",
-                available && toolbar.value("english_mode", true) &&
-                    s.input_enabled && s.session,
-                s.english_mode);
-  append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
-                available && toolbar.value("fullwidth", true), s.fullwidth);
-  append_toggle("Toolbar/Punctuation", "中文标点", "切换中文或英文标点",
+  append_toggle("Toolbar/InputMode", msime::linux_host::menu_label::kChineseInput, "切换中文输入与直接输入",
+                available && toolbar.value("english_mode", true), s.input_enabled);
+  // 切换输入方案：macOS 的按钮弹出与输入法菜单同一份方案菜单，这里是同样内容的子菜单；条目的键与菜单里的不同（IBus 按键找属性，键不能重复），激活时转给菜单里对应的方案。
+  if (available && toolbar.value("input_scheme", true)) {
+    auto schemes = ibus_prop_list_new();
+    const auto active = effective_scheme(s);
+    for (const char *scheme : msime::linux_host::kSchemeMenuOrder) {
+      if (!scheme_offered(scheme)) continue;
+      const auto title = scheme_title(s, scheme);
+      ibus_prop_list_append(schemes, ibus_property_new(
+          (std::string("Toolbar/InputScheme/") + scheme).c_str(), PROP_TYPE_RADIO,
+          ibus_text_new_from_string(title.c_str()), "",
+          ibus_text_new_from_static_string("切换输入方案"), !menu_save_pending, TRUE,
+          active == scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+    }
+    ibus_prop_list_append(items, ibus_property_new(
+        "Toolbar/InputScheme", PROP_TYPE_MENU,
+        ibus_text_new_from_string(msime::linux_host::menu_heading(
+            msime::linux_host::menu_label::kScheme, scheme_title(s, active)).c_str()), "",
+        ibus_text_new_from_static_string("选择输入方案"), TRUE, TRUE, PROP_STATE_UNCHECKED, schemes));
+  }
+  append_toggle("Toolbar/Punctuation", msime::linux_host::menu_label::kChinesePunctuation, "切换中文或英文标点",
                 available && toolbar.value("punctuation", true), s.chinese_punctuation);
-  append_toggle("Toolbar/CharacterSet", "繁体输出", "切换简体或繁体输出",
+  append_toggle("Toolbar/Fullwidth", msime::linux_host::menu_label::kFullwidth, "切换 ASCII 全角或半角输出",
+                available && toolbar.value("fullwidth", true), s.fullwidth);
+  append_toggle("Toolbar/CharacterSet", msime::linux_host::menu_label::kTraditionalOutput, "切换简体或繁体输出",
                 available && toolbar.value("character_set", true), s.traditional_output);
-  append_action("Toolbar/Emoji", "表情与符号", "打开 Emoji、颜文字和符号面板",
-                available && toolbar.value("emoji", true));
-  append_action("Toolbar/ScreenKeyboard", "屏幕键盘", "打开屏幕键盘面板",
+  // 表情、手写、屏幕键盘和语音四个按钮默认关，与共享默认值（preferences.rs）一致。
+  append_action("Toolbar/Emoji", msime::linux_host::menu_label::kEmojiPanel, "打开 Emoji、颜文字和符号面板",
+                available && toolbar.value("emoji", false));
+  append_action("Toolbar/Handwriting", msime::linux_host::menu_label::kHandwriting, "打开手写识别板",
+                available && MSIME_EDITION_HANDWRITING != 0 && toolbar.value("handwriting", false));
+  append_action("Toolbar/ScreenKeyboard", msime::linux_host::menu_label::kScreenKeyboard, "打开屏幕键盘面板",
                 available && toolbar.value("screen_keyboard", false));
-  append_action("Toolbar/Settings", "设置", "打开" MSIME_EDITION_DISPLAY_NAME "设置",
+  append_toggle("Toolbar/Voice", msime::linux_host::menu_label::kVoice, "开始录音，再点一次结束录音并上屏",
+                available && toolbar.value("voice", false) && s.voice_enabled &&
+                    !s.voice_provider_socket.empty(),
+                s.voice_active);
+  append_action("Toolbar/Settings", msime::linux_host::menu_label::kSettings, "打开" MSIME_EDITION_DISPLAY_NAME "设置",
                 available && toolbar.value("settings", true));
+  if (available) {
+    ibus_prop_list_append(items, menu_separator("Toolbar/Separator"));
+    append_action("Toolbar/Promotion", msime::linux_host::menu_label::kPromotion, "在光标处插入一段水杉输入法介绍", true);
+    append_action("Toolbar/Website", msime::linux_host::menu_label::kWebsite, "在浏览器中打开水杉输入法官网", true);
+    append_action("Toolbar/Help", msime::linux_host::menu_label::kHelp, "打开设置里的帮助", true);
+    append_action("Toolbar/About", msime::linux_host::menu_label::kAbout, "打开设置里的关于页", true);
+    append_action("Toolbar/Feedback", msime::linux_host::menu_label::kFeedback, "打开设置里的问题反馈", true);
+  }
   return ibus_property_new(
       "LinuxToolbar", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("工具栏"), "",
@@ -2020,6 +2179,14 @@ void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
 void render_translation_candidates(IBusEngine *engine);
 void apply_live_preferences(IBusEngine *engine, Json snapshot);
+// 悬浮工具栏和双拼键位图，定义在切换徽章之后；没有 X11 绘制的构建里都是空操作。
+void sync_floating_toolbar(IBusEngine *engine, bool focus_entered = false);
+void floating_toolbar_focus_in(IBusEngine *engine);
+void floating_toolbar_focus_out(IBusEngine *engine);
+void floating_toolbar_release(IBusEngine *engine);
+void floating_toolbar_note_input(IBusEngine *engine);
+void sync_shuangpin_keymap(IBusEngine *engine, const Json &view);
+void hide_shuangpin_keymap();
 void sync_session_preferences(IBusEngine *engine) {
   auto &s = state(engine);
   apply_live_preferences(engine, Json{
@@ -2747,10 +2914,8 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
     std::vector<std::pair<const char *, std::string>> candidate_commands;
     candidate_commands.reserve(7);
+    // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
     candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
-    if (msime::linux_host::candidate_dictionary_removal_available(
-            scheme, source, candidate_text))
-      candidate_commands.emplace_back("CandidateRemove", "删除候选");
     for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
                             "CandidateFix4", "CandidateFix5"})
       candidate_commands.emplace_back(
@@ -2770,10 +2935,19 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_static_string("取消固定"), "",
+        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
+    if (msime::linux_host::candidate_dictionary_removal_available(
+            scheme, source, candidate_text)) {
+      const auto remove_name = candidate_action_name("CandidateRemove", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          remove_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label), "",
+          ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
+          PROP_STATE_UNCHECKED, nullptr));
+    }
   }
   const auto page = s.rendered_view.is_object()
                         ? s.rendered_view.value("page", size_t{0})
@@ -2841,14 +3015,17 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   const auto scheme = effective_scheme(s);
   auto *property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("中文"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kChineseInput), "",
       ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
                                                        : "直接输入（不转换）"),
       s.focused && !s.blocked, TRUE,
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  const char *symbol = "文";
+  // 与 Fcitx5 的状态文字和 macOS 的输入模式图标同一套字：中、双、五……英。
+  const char *symbol = "中";
   switch (msime::linux_host::input_mode_indicator(s.input_enabled, scheme, s.caps_lock)) {
-  case msime::linux_host::InputModeIndicator::Chinese: symbol = "文"; break;
+  case msime::linux_host::InputModeIndicator::Chinese: symbol = "中"; break;
+  case msime::linux_host::InputModeIndicator::Shuangpin: symbol = "双"; break;
+  case msime::linux_host::InputModeIndicator::Wubi: symbol = "五"; break;
   case msime::linux_host::InputModeIndicator::Japanese: symbol = "日"; break;
   case msime::linux_host::InputModeIndicator::Korean: symbol = "한"; break;
   case msime::linux_host::InputModeIndicator::Cantonese: symbol = "粤"; break;
@@ -2856,7 +3033,7 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   case msime::linux_host::InputModeIndicator::Stroke: symbol = "笔"; break;
   case msime::linux_host::InputModeIndicator::Vietnamese: symbol = "越"; break;
   case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;
-  case msime::linux_host::InputModeIndicator::English: symbol = "A"; break;
+  case msime::linux_host::InputModeIndicator::English: symbol = "英"; break;
   case msime::linux_host::InputModeIndicator::CapsLock: symbol = "⇪"; break;
   }
   ibus_property_set_symbol(property, ibus_text_new_from_static_string(symbol));
@@ -2870,12 +3047,14 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
   // Linux settings launcher, which hosts the shared settings surface.
   return ibus_property_new(
       "DesktopTools/Settings", PROP_TYPE_NORMAL,
-      ibus_text_new_from_static_string("设置"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kSettings), "",
       ibus_text_new_from_static_string("打开" MSIME_EDITION_DISPLAY_NAME "设置"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
+  // 模式、开关或偏好变了的地方都会走到这里；悬浮工具栏跟着刷新（只有属主的状态会画出来）。
+  sync_floating_toolbar(engine);
   // GNOME Shell renders IBus properties inside its own input-source menu.
   // Repeatedly replacing this host's large nested property tree made Shell
   // rebuild actors and collect them until the whole desktop froze.
@@ -2954,7 +3133,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
              ? std::string("录音已锁定") : s.voice_phase)
-      : std::string("语音输入");
+      : std::string(msime::linux_host::menu_label::kVoice);
   auto voice = ibus_property_new(
       "VoiceInput", PROP_TYPE_TOGGLE,
       ibus_text_new_from_string(voice_label.c_str()), "",
@@ -3019,7 +3198,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(translation_language, translation_language_menu);
   auto punctuation = ibus_property_new(
       "Punctuation", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("中文标点"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kChinesePunctuation), "",
       ibus_text_new_from_static_string("切换中文或英文标点"),
       s.focused && !s.blocked && s.input_enabled && s.session && !menu_save_pending, TRUE,
       s.chinese_punctuation ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
@@ -3066,7 +3245,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(punctuation_lock, punctuation_lock_menu);
   auto character_mode = ibus_property_new(
       "CharacterMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("全角字符"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kFullwidth), "",
       ibus_text_new_from_static_string("切换 ASCII 全角或半角输出"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
@@ -3080,14 +3259,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       nullptr);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("英文候选"), "",
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kMixedEnglish), "",
       ibus_text_new_from_static_string("在中文方案中补充英文候选"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       english_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto english_mode = ibus_property_new(
       "EnglishMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("英文输入模式"), "",
-      ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
+      ibus_text_new_from_static_string(msime::linux_host::menu_label::kEnglishCandidateMode), "",
+      ibus_text_new_from_static_string("切换 Engine 的独立英文候选模式"),
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
@@ -3452,11 +3631,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(theme_menu, item);
   }
   ibus_property_set_sub_props(theme_property, theme_menu);
-  // Named after the entry drawn, as the Fcitx5 主题 action is and as the design's 主题 shows the current theme beside it.
+  // 这一行带上当前主题的名字，写法与 macOS 的「主题（水杉）」相同。
   const auto *current_theme = msime::linux_host::find_theme_choice(themes, global_theme);
   auto global_theme_property = ibus_property_new(
       "GlobalTheme", PROP_TYPE_MENU,
-      ibus_text_new_from_string(current_theme ? ("主题：" + current_theme->title).c_str() : "主题"), "",
+      ibus_text_new_from_string(msime::linux_host::menu_heading(
+          msime::linux_host::menu_label::kTheme, current_theme ? current_theme->title : std::string()).c_str()), "",
       ibus_text_new_from_static_string("选择候选窗口、菜单与工具栏的主题"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto global_theme_menu = ibus_prop_list_new();
@@ -3468,19 +3648,21 @@ void publish_mode(IBusEngine *engine, bool registration) {
         !menu_save_pending, TRUE,
         global_theme == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   ibus_property_set_sub_props(global_theme_property, global_theme_menu);
-  // 输入语言（日文、韩文、越南文、藏文）只列本版本提供的；一个都没有时（五笔版、拼音版）也不列「中文」和分隔线，菜单里只剩中文方案。
-  const std::tuple<const char *, const char *, const char *, const char *, bool> scheme_languages[] = {
-      {"japanese", "Scheme/Japanese", "日文", "使用日语罗马字方案", japanese_scheme},
-      {"korean", "Scheme/Korean", "韩文", "使用韩语两套式方案", korean_scheme},
-      {"vietnamese", "Scheme/Vietnamese", "越南文", "使用越南语输入方案", vietnamese_scheme},
-      {"tibetan", "Scheme/Tibetan", "藏文", "使用藏文威利转写方案", tibetan_scheme}};
+  // 输入语言（日语、韩语、越南语、藏文）只列本版本提供的；一个都没有时（五笔版、拼音版）也不列「中文」和分隔线，菜单里只剩中文方案。名字与 macOS 子菜单相同（MenuLabels.h），两组内部都按 Engine 的方案顺序排。macOS 是一个不分组的单选列表；这里保留「中文」一行（回到上次用的中文方案）和两组单选，去掉它要先定产品行为。
+  const std::tuple<const char *, const char *, const char *, bool> scheme_languages[] = {
+      {"japanese", "Scheme/Japanese", "使用日语罗马字方案", japanese_scheme},
+      {"korean", "Scheme/Korean", "使用韩语两套式方案", korean_scheme},
+      {"vietnamese", "Scheme/Vietnamese", "使用越南语输入方案", vietnamese_scheme},
+      {"tibetan", "Scheme/Tibetan", "使用藏文威利转写方案", tibetan_scheme}};
   bool scheme_languages_offered = false;
   for (const auto &language : scheme_languages)
     scheme_languages_offered = scheme_languages_offered || msime::linux_host::edition_offers_scheme(std::get<0>(language));
+  // 这一行带上正在用的方案的名字，与 macOS 的「输入方案（双拼（小鹤））」相同。
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("输入方案"), "",
-      ibus_text_new_from_static_string(scheme_languages_offered ? "选择中文、日文、韩文、越南文或藏文输入方案"
+      ibus_text_new_from_string(msime::linux_host::menu_heading(
+          msime::linux_host::menu_label::kScheme, scheme_title(s, active_scheme)).c_str()), "",
+      ibus_text_new_from_static_string(scheme_languages_offered ? "选择中文、日语、韩语、越南语或藏文输入方案"
                                                                 : "选择中文输入方案"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto scheme_menu = ibus_prop_list_new();
@@ -3490,11 +3672,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
         ibus_text_new_from_static_string("中文"), "",
         ibus_text_new_from_static_string("使用当前中文方案"), !menu_save_pending, TRUE,
         chinese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
-    for (const auto &[value, name, label, tooltip, checked] : scheme_languages) {
+    for (const auto &[value, name, tooltip, checked] : scheme_languages) {
       if (!msime::linux_host::edition_offers_scheme(value)) continue;
       ibus_prop_list_append(scheme_menu, ibus_property_new(
           name, PROP_TYPE_RADIO,
-          ibus_text_new_from_static_string(label), "",
+          ibus_text_new_from_string(scheme_title(s, value).c_str()), "",
           ibus_text_new_from_static_string(tooltip), !menu_save_pending, TRUE,
           checked ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
     }
@@ -3502,19 +3684,11 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
   }
   // Cantonese, Zhuyin and Stroke are offered only when their dictionary is installed: host-api would fall back from each of them without it.
-  // 五笔一项跟随存储的码表版本显示「86 五笔」或「98 五笔」。
-  const char *wubi_label = msime::linux_host::wubi_scheme_label(
-      configured.at("preferences").value("wubi_profile", std::string("wubi86")));
-  for (const auto &[value, name, label] : {std::tuple{"quanpin", "Scheme/Quanpin", "全拼"},
-                                           std::tuple{"shuangpin", "Scheme/Shuangpin", "双拼"},
-                                           std::tuple{"wubi", "Scheme/Wubi", wubi_label},
-                                           std::tuple{"cantonese", "Scheme/Cantonese", "粤拼"},
-                                           std::tuple{"zhuyin", "Scheme/Zhuyin", "注音"},
-                                           std::tuple{"stroke", "Scheme/Stroke", "笔画"}}) {
-    if (!msime::linux_host::input_scheme_available(value, configured_dictionaries)) continue;
+  for (const char *value : msime::linux_host::kSchemeMenuOrder) {
+    if (!msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(value)) || !scheme_offered(value)) continue;
     auto item = ibus_property_new(
-        name, PROP_TYPE_RADIO,
-        ibus_text_new_from_static_string(label), "",
+        scheme_property_key(value), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(scheme_title(s, value).c_str()), "",
         ibus_text_new_from_static_string("直接选择中文输入方案"), !menu_save_pending, TRUE,
         chinese_scheme && active_scheme == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
         nullptr);
@@ -3541,32 +3715,43 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(profile_menu, item);
   }
   ibus_property_set_sub_props(profile, profile_menu);
-  // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于, then the tools that depend on the moment (voice, candidate actions, nine-key spellings, clipboard history) and the three option groups holding every other switch. 中文/英文 is the one InputMode toggle Shift flips, labelled 中文 and checked while letters compose; the Engine's dedicated English mode (EnglishMode, Ctrl+Shift+E) is a different feature and sits in 输入选项 beside 英文候选. Nesting keeps each key, so activation and the by-key updates below do not change.
-  std::vector<IBusProperty *> design_panel_actions;
-  design_panel_actions.reserve(3);
-  for (const auto &action : desktop_panel_actions)
-    if (action.design_menu) design_panel_actions.push_back(desktop_panel_property(engine, action));
+  // 顶层按 macOS 输入法菜单的顺序排（InputController.mm 的 `menu`）：中文输入、英文候选模式；繁体输出、全角字符、中文标点、显示译文；输入方案、主题；显示工具栏（与紧跟的「工具栏」子菜单）、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于。各组之间用分隔线隔开。macOS 的「中文输入」「英文输入」是一对单选，这里仍是一个 InputMode 开关（勾选即中文）：它同时是面板显示 中/英 的那个属性，激活协议也被面板和测试依赖。macOS 菜单之后才是 Linux 独有的入口：词库…、随会话变化的候选操作、九键拼音和剪贴板，再是三个选项子菜单和「桌面工具」。嵌套不改变键，激活与下面按键更新都不受影响。
+  std::vector<IBusProperty *> top_panel_actions, footer_panel_actions, extra_panel_actions;
+  for (const auto &action : desktop_panel_actions) {
+    if (!desktop_panel_offered(action)) continue;
+    if (action.slot == DesktopPanelSlot::Top) top_panel_actions.push_back(desktop_panel_property(engine, action));
+    else if (action.slot == DesktopPanelSlot::Footer) footer_panel_actions.push_back(desktop_panel_property(engine, action));
+    else if (action.slot == DesktopPanelSlot::Extra) extra_panel_actions.push_back(desktop_panel_property(engine, action));
+  }
+  auto toolbar_enabled = toolbar_enabled_property(engine);
   if (registration) {
     auto properties = ibus_prop_list_new();
     ibus_prop_list_append(properties, property);
+    ibus_prop_list_append(properties, english_mode);
     ibus_prop_list_append(properties, menu_separator("Separator/Mode"));
+    ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, character_mode);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, translations);
     ibus_prop_list_append(properties, menu_separator("Separator/Switches"));
     ibus_prop_list_append(properties, scheme);
-    ibus_prop_list_append(properties, menu_separator("Separator/Scheme"));
     ibus_prop_list_append(properties, global_theme_property);
-    for (auto *action : design_panel_actions) ibus_prop_list_append(properties, action);
-    ibus_prop_list_append(properties, menu_separator("Separator/Design"));
+    ibus_prop_list_append(properties, menu_separator("Separator/Scheme"));
+    ibus_prop_list_append(properties, toolbar_enabled);
+    ibus_prop_list_append(properties, toolbar);
+    for (auto *action : top_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, voice_cancel_property);
+    ibus_prop_list_append(properties, menu_separator("Separator/Tools"));
+    for (auto *action : footer_panel_actions) ibus_prop_list_append(properties, action);
+    ibus_prop_list_append(properties, menu_separator("Separator/Design"));
+    for (auto *action : extra_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, nine_key_spellings_property);
     ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, menu_group(
         "Group/Input", "输入选项", "方案细节、混合候选与按键选项",
-        {profile, helpcode_property, helpcode_schema, traditional, english, english_mode, symbol_candidates_property, emoji, kaomoji, cloud,
+        {profile, helpcode_property, helpcode_schema, english, symbol_candidates_property, emoji, kaomoji, cloud,
          nine_key_property, number_row_property, word_character_property, local_modes_property}));
     ibus_prop_list_append(properties, menu_group(
         "Group/Punctuation", "标点与翻译", "标点细节与候选翻译",
@@ -3578,7 +3763,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
          wubi_code_hint_property, wubi_auto_commit_unique_property,
          menu_separator("Group/Candidate/Separator"), learning_property,
          frequency_property, frequency_trigger_property, frequency_step_property}));
-    ibus_prop_list_append(properties, toolbar);
     ibus_prop_list_append(properties, desktop_tools_property(engine));
     ibus_engine_register_properties(engine, properties);
   } else {
@@ -3589,7 +3773,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, translations);
     update_menu_property(engine, scheme);
     update_menu_property(engine, global_theme_property);
-    for (auto *action : design_panel_actions) ibus_engine_update_property(engine, action);
+    ibus_engine_update_property(engine, toolbar_enabled);
+    for (auto *list : {&top_panel_actions, &footer_panel_actions, &extra_panel_actions})
+      for (auto *action : *list) ibus_engine_update_property(engine, action);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, voice_cancel_property);
     ibus_engine_update_property(engine, candidate_actions(engine));
@@ -3625,7 +3811,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, frequency_property);
     ibus_engine_update_property(engine, frequency_trigger_property);
     ibus_engine_update_property(engine, frequency_step_property);
-    ibus_engine_update_property(engine, toolbar);
+    update_menu_property(engine, toolbar);
     ibus_engine_update_property(engine, desktop_tools_property(engine));
   }
 }
@@ -3682,6 +3868,7 @@ void schedule_candidate_hide(IBusEngine *engine) {
 
 void clear(IBusEngine *engine) {
   cancel_candidate_hide(engine);
+  hide_shuangpin_keymap();
   auto &s = state(engine);
   if (s.translation_candidates_active && s.translation_saved_view.is_object())
     s.view = std::move(s.translation_saved_view);
@@ -3718,7 +3905,7 @@ void resync_punctuation_for_mode(IBusEngine *engine) {
 }
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.mode_scope_global || !global_input_enabled ||
+  if (!s.mode_scope_global || !global_input_enabled || s.app_rule_active ||
       s.input_enabled == *global_input_enabled)
     return;
   if (!*global_input_enabled && s.voice_active)
@@ -3795,8 +3982,8 @@ void underline_preedit(IBusText *text, guint length) {
 }
 // The aux line above a candidate page: the page number, the reading when the candidate preedit shows it, the local mode, and the typing combo while there is one.
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
-  auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
-                std::to_string(view.at("page_count").get<size_t>());
+  auto paging = msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
+                                                            view.at("page_count").get<size_t>());
   if (!state(engine).show_candidate_page_number) paging.clear();
   if (state(engine).candidate_preedit_style == "pinyin") {
     const auto candidate_preedit = view.value("preedit", std::string{});
@@ -3820,7 +4007,92 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   }
   return paging;
 }
+// 语音浮层事件源所属的引擎及其存活标记：比引擎活得久的事件源看到标记已清除，就移除自己，不碰已释放的状态。
+struct WaveOverlaySource {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+};
+void delete_wave_overlay_source(gpointer data) { delete static_cast<WaveOverlaySource *>(data); }
+void sync_wave_overlay_sources(IBusEngine *engine);
+// 波形的一帧（16 ms）：波形条向最新的麦克风音量移动，浮层重画。
+gboolean wave_overlay_frame(gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface || !s.wave_overlay_surface->animates() ||
+      !s.wave_overlay.animates()) {
+    s.wave_overlay_timer = 0;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay.advance(static_cast<double>(g_get_monotonic_time()) / G_USEC_PER_SEC);
+  // `update()` 还会读取 Xlib 或 libwayland 已经排进队列的指针和 expose 事件。
+  s.wave_overlay_surface->update(s.wave_overlay);
+  return G_SOURCE_CONTINUE;
+}
+// 浮层的显示连接可读了：操作按钮上的点击或 expose 现在就处理，不等下一次重画。
+gboolean wave_overlay_events(gint, GIOCondition condition, gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface ||
+      (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))) {
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = -1;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay_surface->dispatch_events();
+  return G_SOURCE_CONTINUE;
+}
+// 按屏幕上的实际情况启停波形动画和事件监听：画出来的浮层显示波形时跑动画，只要画出来的浮层在显示就监听。辅助文本回退两者都不需要。
+void sync_wave_overlay_sources(IBusEngine *engine) {
+  auto &s = state(engine);
+  auto *surface = s.wave_overlay_surface.get();
+  const bool shown = surface && s.wave_overlay_visible;
+  const bool animate = shown && surface->animates() && s.wave_overlay.animates();
+  if (animate && !s.wave_overlay_timer) {
+    s.wave_overlay_timer = g_timeout_add_full(
+        G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFrameMilliseconds, wave_overlay_frame,
+        new WaveOverlaySource{engine, s.alive}, delete_wave_overlay_source);
+  } else if (!animate && s.wave_overlay_timer) {
+    g_source_remove(s.wave_overlay_timer);
+    s.wave_overlay_timer = 0;
+    // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
+    s.wave_overlay.levels.fill(0.0f);
+  }
+  const int fd = shown ? surface->event_fd() : -1;
+  if (fd != s.wave_overlay_watch_fd) {
+    if (s.wave_overlay_watch)
+      g_source_remove(s.wave_overlay_watch);
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = fd;
+    if (fd >= 0)
+      s.wave_overlay_watch = g_unix_fd_add_full(G_PRIORITY_DEFAULT, fd, G_IO_IN, wave_overlay_events,
+                                                new WaveOverlaySource{engine, s.alive},
+                                                delete_wave_overlay_source);
+  }
+}
+// 按 `s.wave_overlay` 显示或重画语音浮层。
+void present_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.wave_overlay_surface)
+    return;
+  if (s.wave_overlay_visible)
+    s.wave_overlay_surface->update(s.wave_overlay);
+  else
+    s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
+  sync_wave_overlay_sources(engine);
+}
+void hide_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.wave_overlay_surface && s.wave_overlay_visible)
+    s.wave_overlay_surface->hide();
+  s.wave_overlay_visible = false;
+  sync_wave_overlay_sources(engine);
+}
 void render(IBusEngine *engine, const Json &view) {
+  sync_shuangpin_keymap(engine, view);
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -3846,19 +4118,17 @@ void render(IBusEngine *engine, const Json &view) {
     publish_candidate_properties(engine);
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
-    s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
-    if (s.wave_overlay_surface) {
-      if (s.wave_overlay_visible)
-        s.wave_overlay_surface->update(s.wave_overlay);
-      else
-        s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-    }
+    s.wave_overlay.listening = !s.voice_stopping;
+    if (s.wave_overlay_dismissed)
+      hide_wave_overlay(engine);
+    else
+      present_wave_overlay(engine);
     return;
   }
-  if (state(engine).wave_overlay_surface && state(engine).wave_overlay_visible) {
-    state(engine).wave_overlay_surface->hide();
-    state(engine).wave_overlay_visible = false;
-  }
+  // 浮层画出的失败提示在用户继续打字时保持不动，与 macOS 和 Fcitx5 宿主一样；Esc、焦点变化、下一次录音或六秒到期会收起它。如果提示显示在辅助行上，就把这一行让回给候选。
+  if (auto &s = state(engine); s.wave_overlay_visible &&
+      !(s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()))
+    hide_wave_overlay(engine);
   // 临时译文页只在它自己画出的那一页上有效（render_translation_candidates 给它的视图带上 translation_page）。别的视图画上来，例如菜单改每页候选数、异步到达的译文或云候选、偏好更新换掉了 s.view，译文页就已经不在面板上了：丢掉它的状态，也不恢复保存的视图，之后的点选、数字键和 Esc 才作用于面板上真正显示的候选，而不是按一页已经不在的译文去选，或者把一份过时的视图恢复回来。
   if (state(engine).translation_candidates_active && !view.contains("translation_page")) {
     auto &s = state(engine);
@@ -3908,14 +4178,22 @@ void render(IBusEngine *engine, const Json &view) {
     // being committed into the document a fragment at a time. It is prepended after the check above,
     // which is about the reading the Engine produced: the piece is Han text and asking it to be
     // printable ASCII would reject every phrase.
-    const auto composed = msime::linux_host::compose_phrase_preedit(
-        view.value("phrase_prefix", std::string{}), text, caret);
+    const auto phrase_prefix = view.value("phrase_prefix", std::string{});
+    const auto composed = msime::linux_host::compose_phrase_preedit(phrase_prefix, text, caret);
     text = composed.text;
     // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
     auto preedit_text = ibus_text_new_from_string(text.c_str());
-    if (style != "empty" || always_inline)
-      underline_preedit(preedit_text, static_cast<guint>(
-                                          msime::linux_host::utf8_scalar_count(text)));
+    const auto preedit_length = static_cast<guint>(composed.scalars);
+    const auto prefix_length = static_cast<guint>(composed.prefix_scalars);
+    // 正在组词时，已选的那一段单下划线，还在输入的读音双下划线（phrase_preedit_has_clauses），和上面整句改字的焦点子句同一种画法。没有已选段时整段照旧单下划线。
+    if ((style != "empty" || always_inline) && msime::linux_host::phrase_preedit_has_clauses(composed)) {
+      ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_SINGLE, 0,
+                                 static_cast<gint>(prefix_length));
+      ibus_text_append_attribute(preedit_text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_DOUBLE,
+                                 static_cast<gint>(prefix_length), static_cast<gint>(preedit_length));
+    } else if (style != "empty" || always_inline) {
+      underline_preedit(preedit_text, preedit_length);
+    }
     ibus_engine_update_preedit_text_with_mode(
         engine, preedit_text,
         static_cast<guint>(style == "raw" && !always_inline
@@ -3979,14 +4257,10 @@ void render(IBusEngine *engine, const Json &view) {
     // Engine 候选来源 12 是 AI 占位行，来源 15 是云候选占位行，下面都画成次要色。
     const auto source = candidate.value("source", 0);
     const bool online_placeholder = source == 12 || source == 15;
-    switch (candidate.value("source", 0)) {
-    case 2: tail += "  云"; break;
-    case 3: tail += "  AI"; break;
-    default: break;
-    }
     const auto fixed_position = candidate.value("fixed_position", 0);
-    if (fixed_position >= 1 && fixed_position <= 5)
-      tail += "  固定" + std::to_string(fixed_position);
+    // macOS 只用 #379AD3 的字色标出固定排位的行。GNOME Shell 等面板不认 IBus 的颜色属性，所以行尾仍留「固定 N」文字，颜色画不出来时也看得出这一行被固定了。
+    tail += msime::linux_host::candidate_fixed_position_marker(
+        static_cast<std::uint64_t>(std::max(0, fixed_position)));
     const auto annotation = candidate.value("annotation", std::string{});
     // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
     const auto local_mode = view.value("local_mode", std::string("none"));
@@ -3995,12 +4269,12 @@ void render(IBusEngine *engine, const Json &view) {
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
+    // 注释括起来紧贴候选字，云和 AI 角标隔一个空格跟在后面，与 macOS 候选窗和 Fcitx5 宿主的写法相同（CandidateRowText.h）。
     if (!annotation.empty() && hanja_gloss.empty() &&
         (local_mode_annotation ||
-         (state(engine).show_helpcode_in_candidate_window && wubi_annotation))) {
-      tail += "  ";
-      tail += annotation;
-    }
+         (state(engine).show_helpcode_in_candidate_window && wubi_annotation)))
+      value += msime::linux_host::candidate_annotation_text(annotation);
+    value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
     value = traditional_display(state(engine), view, std::move(value));
     const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
@@ -4020,15 +4294,14 @@ void render(IBusEngine *engine, const Json &view) {
         highlighted && state(engine).candidate_selected_text_color
             ? state(engine).candidate_selected_text_color
             : state(engine).candidate_text_color;
-    // Windows lets the selected-row text colour win for every candidate;
-    // fixed entries use the accent only while they are not highlighted.
+    // 选中行的文字色对所有候选都生效；固定排位的行只在未选中时画 macOS 和 Windows 的 #379AD3（CandidateRowText.h 说明了选中行为什么不画）。
     if (highlighted && row_text_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
-    else if (fixed_position > 0 && state(engine).candidate_accent_color)
+    else if (fixed_position > 0)
       ibus_text_append_attribute(
           text, IBUS_ATTR_TYPE_FOREGROUND,
-          *state(engine).candidate_accent_color, 0, G_MAXUINT);
+          msime::linux_host::kCandidateFixedPositionColor, 0, G_MAXUINT);
     else if (row_text_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
@@ -4059,7 +4332,7 @@ void render(IBusEngine *engine, const Json &view) {
           text, IBUS_ATTR_TYPE_BACKGROUND, *row_background, 0, G_MAXUINT);
     ibus_lookup_table_append_candidate(table, text);
     // 序号与选它的数字键一致：第十个由 0 键选，标 0。
-    auto label = index == 9 ? std::string("0") : std::to_string(index + 1);
+    auto label = msime::linux_host::candidate_index_label(index);
     auto label_text = ibus_text_new_from_string(label.c_str());
     if (row_number_color)
       ibus_text_append_attribute(label_text, IBUS_ATTR_TYPE_FOREGROUND,
@@ -4288,10 +4561,7 @@ void render_after_voice(IBusEngine *engine) {
     render(engine, s.view);
     return;
   }
-  if (s.wave_overlay_surface && s.wave_overlay_visible) {
-    s.wave_overlay_surface->hide();
-    s.wave_overlay_visible = false;
-  }
+  hide_wave_overlay(engine);
   s.wave_overlay.reset();
   clear(engine);
 }
@@ -4313,13 +4583,10 @@ void voice_cancel(IBusEngine *engine) {
     msime::host_api::discard_string(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_stopping = false;
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
-  s.wave_overlay.actions_visible = false;
-  if (s.wave_overlay_surface && s.wave_overlay_visible)
-    s.wave_overlay_surface->hide();
-  s.wave_overlay_visible = false;
+  hide_wave_overlay(engine);
   s.voice_generation = 0;
 
   s.voice_preedit.clear();
@@ -4339,19 +4606,15 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   s.wave_overlay.reset();
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
-  s.wave_overlay.actions_visible = false;
+  s.wave_overlay.failure = true;
   s.wave_overlay.listening = false;
-  if (s.wave_overlay_surface) {
-    if (s.wave_overlay_visible)
-      s.wave_overlay_surface->update(s.wave_overlay);
-    else
-      s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-  }
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_static_string(message), TRUE);
+  s.wave_overlay_dismissed = false;
+  // 提示只由浮层承载，与 macOS 一样：画得出浮层时就是那块浮层，画不出时 `FallbackSurface` 退到 `WaveOverlayIbusSurface`，把同一条消息写上辅助行。这里不再另写一份辅助行，否则浮层收起之后那份副本还留在候选窗里；`hide_wave_overlay` 收起浮层时，两种情况都一并收掉。
+  present_wave_overlay(engine);
   auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
+  // macOS 的浮层把失败提示保留六秒；Esc、焦点变化或下一次录音会提前收起它，继续打字时画出来的提示保持不动（见 `render`）。
   g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 1200,
+      G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFailureMilliseconds,
       +[](gpointer data) -> gboolean {
         std::unique_ptr<VoiceFailureNotice> notice(
             static_cast<VoiceFailureNotice *>(data));
@@ -4359,12 +4622,9 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
         if (!s.voice_active &&
-            s.voice_failure_id == notice->id) {
-          if (s.wave_overlay_visible && s.wave_overlay_surface) {
-            s.wave_overlay_surface->hide();
-            s.wave_overlay_visible = false;
-            s.wave_overlay.reset();
-          }
+            s.voice_failure_id == notice->id && s.wave_overlay_visible) {
+          hide_wave_overlay(notice->engine);
+          s.wave_overlay.reset();
         }
         return G_SOURCE_REMOVE;
       },
@@ -4393,7 +4653,8 @@ void voice_stop(IBusEngine *engine) {
         engine, "结束录音失败，本次语音已取消，请检查语音服务后重试");
   } else {
     s.voice_stopping = true;
-    s.voice_phase = "正在识别…";
+    s.voice_phase = msime::linux_host::kVoiceStatusRecognizing;
+    s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
     render(engine, s.view);
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -4430,12 +4691,11 @@ void voice_start_impl(IBusEngine *engine) {
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
   sync_music(engine);
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
   s.wave_overlay.listening = true;
-  s.wave_overlay.actions_visible = true;
-  s.wave_overlay_visible = false;
+  s.wave_overlay_dismissed = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
@@ -4458,7 +4718,9 @@ void voice_start_impl(IBusEngine *engine) {
         const auto query = msime::linux_host::voice_query(language, generation, provider_options, hotword_options).dump();
         VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
-          const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
+          const char *labels[] = {msime::linux_host::kVoiceStatusRecording,
+                                  msime::linux_host::kVoiceStatusRecognizing,
+                                  msime::linux_host::kVoiceStatusProcessing};
           auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, labels[phase], false};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
@@ -4467,15 +4729,16 @@ void voice_start_impl(IBusEngine *engine) {
             if (!voice_result_current(s, result->generation, result->session,
                                       result->focus_epoch))
               return G_SOURCE_REMOVE;
-            if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
+            const bool recording = result->text == msime::linux_host::kVoiceStatusRecording;
+            if (s.voice_stopping && recording) return G_SOURCE_REMOVE;
             s.voice_phase = std::move(result->text);
-            if (s.voice_phase == "正在录音…")
+            if (recording)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
-            else if (s.voice_phase.find("识别") != std::string::npos)
+            else if (s.voice_phase == msime::linux_host::kVoiceStatusRecognizing)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
             else
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Processing;
-            if (s.voice_phase != "正在录音…") s.voice_stopping = true;
+            if (!recording) s.voice_stopping = true;
             render(result->engine, s.view);
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
@@ -4494,9 +4757,10 @@ void voice_start_impl(IBusEngine *engine) {
               return G_SOURCE_REMOVE;
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
-              s.wave_overlay.listening = true;
               s.wave_overlay.set_input_level(result->level / 10.0f);
-              render(result->engine, s.view);
+              // 画出来的波形在下一帧取用音量；只有文本回退的音量条需要重画。
+              if (!s.wave_overlay_surface || !s.wave_overlay_surface->animates())
+                render(result->engine, s.view);
             }
             return G_SOURCE_REMOVE;
           }, result, nullptr);
@@ -4854,6 +5118,7 @@ void focus_in(IBusEngine *engine) {
       s.refresh_provider_sockets(engine);
     const bool mode_before_restore = s.input_enabled;
     s.restore_app_input_mode();
+    s.apply_app_input_mode_rule();
     s.open();
     // Windows re-resolves punctuation on every OPENCLOSE change, including one the focus brings, so a Ctrl+. choice or override from the previous app does not outlive the switch.
     if (s.input_enabled != mode_before_restore)
@@ -4866,21 +5131,24 @@ void focus_in(IBusEngine *engine) {
     sync_global_input_mode(engine);
     // IBus may replay focus after negotiating client identity. Re-focusing
     // the same runtime would cancel input already typed during negotiation.
-    if (s.session && (!already_focused || s.session != previous_session))
+    // 例外是名字带来了另一个模式（应用例外）：会话要照切换中英文时那样按新模式聚焦。
+    const bool mode_changed = s.input_enabled != mode_before_restore;
+    if (s.session && (!already_focused || s.session != previous_session || mode_changed))
       apply(engine, s.focus_session(s.input_enabled));
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
       s.properties_registered = true;
     } else if (s.properties_registered &&
-               (!already_focused || s.session != previous_session)) {
+               (!already_focused || s.session != previous_session || mode_changed)) {
       // FocusOut disabled the existing menu. Refresh its state on activation
       // without re-registering it or disturbing repeated focus negotiation.
       publish_mode(engine);
     }
     // Moving into another text field shows the current 中/英 as a switch does (#2589). Only a new focus: the replay IBus sends while it negotiates the client's identity is the same focus, and showing it again would put the hint back over input the user has started. show_input_mode_hint keeps to the input_mode_hud preference and stays quiet in blocked fields.
     if (!already_focused)
-      show_input_mode_hint(engine);
+      show_input_mode_hint(engine, ModeHintTrigger::FocusEntered);
+    floating_toolbar_focus_in(engine);
     sync_music(engine);
     schedule_upgrade_restart(engine);
   });
@@ -4901,6 +5169,10 @@ void focus_out(IBusEngine *engine) {
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
     s.focused = false;
+#ifdef MSIME_IBUS_MODE_BADGE
+    s.mode_hint_after_focus = false;
+    dismiss_mode_badge(engine);
+#endif
     if (panel_input_engine == engine) panel_input_engine = nullptr;
     ++s.focus_epoch;
     s.focused_context.clear();
@@ -4940,7 +5212,15 @@ void focus_out(IBusEngine *engine) {
       apply(engine, s.focus_session(false));
     clear(engine);
     publish_mode(engine);
+    floating_toolbar_focus_out(engine);
   });
+}
+// 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（kPromotionText），不改动用户常用语。Ctrl+Shift+P 和工具栏菜单项共用。
+void commit_promotion(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.session && !s.view.at("editing_text").get<std::string>().empty())
+    apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+  commit_text(engine, msime::linux_host::kPromotionText, msime::linux_host::TypingSource::Local);
 }
 void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   const std::string candidate_name = name ? name : "";
@@ -5092,24 +5372,41 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name.rfind("Toolbar/", 0) == 0) {
     if (!s.focused || s.blocked)
       return;
-    if (property_name == "Toolbar/Emoji") {
-      launch_desktop_panel("emoji");
+    for (const auto &[key, panel] : {std::pair{"Toolbar/Emoji", "emoji"}, std::pair{"Toolbar/ScreenKeyboard", "keyboard"},
+                                     std::pair{"Toolbar/Handwriting", "handwriting"}, std::pair{"Toolbar/Settings", "settings"},
+                                     std::pair{"Toolbar/Help", "help"}, std::pair{"Toolbar/About", "about"},
+                                     std::pair{"Toolbar/Feedback", "feedback"}}) {
+      if (property_name != key) continue;
+      if (std::string_view(panel) == "handwriting" && MSIME_EDITION_HANDWRITING == 0) return;
+      if (!launch_desktop_panel(panel))
+        g_warning("Cannot start MSIME desktop panel launcher");
       return;
     }
-    if (property_name == "Toolbar/ScreenKeyboard") {
-      launch_desktop_panel("keyboard");
+    if (property_name == "Toolbar/Promotion") {
+      guarded(engine, "toolbar_promotion", [&] { commit_promotion(engine); });
       return;
     }
-    if (property_name == "Toolbar/Settings") {
-      launch_desktop_panel("settings");
+    if (property_name == "Toolbar/Website") {
+      GError *error = nullptr;
+      if (!g_app_info_launch_default_for_uri(msime::linux_host::kWebsiteUrl, nullptr, &error))
+        g_warning("Cannot open %s", msime::linux_host::kWebsiteUrl);
+      if (error) g_error_free(error);
+      return;
+    }
+    // 工具栏的方案子菜单转给菜单里同一个方案的属性，走同一条保存路径。
+    if (property_name.rfind("Toolbar/InputScheme/", 0) == 0) {
+      if (value != PROP_STATE_CHECKED) return;
+      const auto scheme = property_name.substr(std::string("Toolbar/InputScheme/").size());
+      if (!scheme_offered(scheme)) return;
+      property_activate(engine, scheme_property_key(scheme), PROP_STATE_CHECKED);
       return;
     }
     const char *target =
         property_name == "Toolbar/InputMode" ? "InputMode"
-        : property_name == "Toolbar/EnglishMode" ? "EnglishMode"
         : property_name == "Toolbar/Fullwidth" ? "CharacterMode"
         : property_name == "Toolbar/Punctuation" ? "Punctuation"
         : property_name == "Toolbar/CharacterSet" ? "TraditionalOutput"
+        : property_name == "Toolbar/Voice" ? "VoiceInput"
         : nullptr;
     if (target && (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED))
       property_activate(engine, target, value);
@@ -6037,6 +6334,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.mode_scope_global)
         global_input_enabled = enabled;
       s.input_enabled = enabled;
+      s.yield_app_input_mode_rule();
       s.open();
       resync_punctuation_for_mode(engine);
       if (s.session)
@@ -6217,31 +6515,367 @@ struct ModeHintNotice {
   std::shared_ptr<std::atomic_bool> alive;
   uint64_t id;
 };
-// 中英文切换后在辅助区域短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
-//
-// IBus 没有 Fcitx5 那种由面板绘制的信息弹窗，辅助文本是这个宿主唯一能表达的位置：它由
-// panel 按当前输入上下文摆放，因此也跟着输入点走。不自己画窗口——那条边界在这个宿主上
-// 仍然成立（Fcitx5 那侧的徽章是所有者要求的例外，且带 logo 是它存在的理由）。
-//
-// 隐藏时先确认辅助区域还属于这条提示：用户可能在这 1.2 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
-//
-// 这 1.2 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
-void show_input_mode_hint(IBusEngine *engine) {
+#ifdef MSIME_IBUS_MODE_BADGE
+// IBus 引擎拿不到每个客户端的显示类型；只有纯 X11 会话（没有 WAYLAND_DISPLAY）里，客户端经 set_cursor_location 报的光标位置才一定是根窗口坐标。Wayland 会话里 Xwayland 客户端也是根坐标，但同一个引擎还服务 Wayland 原生客户端，分不出来就不冒险。
+bool mode_badge_x11_session() {
+  const char *wayland = std::getenv("WAYLAND_DISPLAY");
+  const char *x11 = std::getenv("DISPLAY");
+  return (!wayland || !*wayland) && x11 && *x11;
+}
+// 整个引擎进程只有一块切换徽章，与 macOS 只有一个提示面板相同。IBus 为每个输入上下文建一个引擎对象，徽章若跟着引擎走，每个获得过焦点的输入框都会各占一条 X 或 Wayland 连接直到它销毁，快速切换输入框时还会在几个光标下同时留着几块徽章；共用一块时新的提示替换屏幕上那块。第一次真要画时才建（见 mode_badge_surface_wanted），拿不到后端时记下来不再重试。代次丢弃过期的淡出回调。
+struct ProcessModeBadge {
+  std::unique_ptr<msime::linux_host::ModeBadgeSurface> surface;
+  bool unavailable = false;
+  uint64_t id = 0;
+  int fade_step = 0;
+  // 屏幕上那块是为哪个引擎显示的，只拿来比较、从不解引用，见 dismiss_mode_badge。
+  const IBusEngine *owner = nullptr;
+};
+ProcessModeBadge &process_mode_badge() {
+  static ProcessModeBadge badge;
+  return badge;
+}
+msime::linux_host::ModeBadgeSurface *mode_badge_surface() {
+  auto &badge = process_mode_badge();
+  if (!badge.surface && !badge.unavailable) {
+    badge.surface = msime::linux_host::ModeBadgeSurface::create();
+    badge.unavailable = !badge.surface;
+  }
+  return badge.surface.get();
+}
+// 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出（ModeBadgeTiming），与 macOS 相同；后端做不到半透明时直接隐藏。徽章不属于哪个引擎，回调只认代次。
+void schedule_mode_badge_fade(guint interval) {
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, interval,
+      +[](gpointer data) -> gboolean {
+        auto &badge = process_mode_badge();
+        if (badge.id != *static_cast<uint64_t *>(data) || !badge.surface)
+          return G_SOURCE_REMOVE;
+        using Timing = msime::linux_host::ModeBadgeTiming;
+        ++badge.fade_step;
+        const double alpha = msime::linux_host::mode_badge_fade_alpha(badge.fade_step);
+        if (alpha > 0.0 && badge.surface->set_opacity(alpha))
+          schedule_mode_badge_fade(Timing::fade_ms / Timing::fade_steps);
+        else
+          badge.surface->hide();
+        return G_SOURCE_REMOVE;
+      },
+      new uint64_t(process_mode_badge().id), +[](gpointer data) { delete static_cast<uint64_t *>(data); });
+}
+// 离开输入框时立刻收起徽章并作废它的淡出回调，与 macOS 在 deactivateServer: 里 orderOut 提示面板相同。只收这个引擎自己的那条提示：新输入框先获得焦点、旧的后失焦时，屏幕上那块已经属于新输入框。
+void dismiss_mode_badge(const IBusEngine *engine) {
+  auto &badge = process_mode_badge();
+  if (!badge.surface || badge.owner != engine)
+    return;
+  badge.owner = nullptr;
+  ++badge.id;
+  badge.surface->hide();
+}
+// 获得焦点后等到了光标位置，或等满 ModeBadgeTiming::focus_caret_wait_ms：放那条一直在等的提示，只放一次。
+void settle_focus_mode_hint(IBusEngine *engine) {
   auto &s = state(engine);
+  if (!s.mode_hint_after_focus)
+    return;
+  s.mode_hint_after_focus = false;
+  show_input_mode_hint(engine, ModeHintTrigger::FocusSettled);
+}
+#endif
+#ifdef MSIME_LINUX_FLOATING_PANELS
+// 悬浮工具栏的状态，取自这个上下文：中英文、英文候选模式、大写锁定、方案、标点、全半角、简繁，以及方案菜单（只列本版本提供、这台机器上也能运行的方案，与菜单相同）。
+msime::linux_host::FloatingToolbarState floating_toolbar_state(const State &s) {
+  msime::linux_host::FloatingToolbarState toolbar;
+  toolbar.input_enabled = s.input_enabled;
+  toolbar.english_candidates = s.english_mode;
+  toolbar.caps_lock = s.caps_lock;
+  toolbar.scheme = effective_scheme(s);
+  toolbar.scheme_title = scheme_title(s, toolbar.scheme);
+  toolbar.chinese_punctuation = s.chinese_punctuation;
+  toolbar.fullwidth = s.fullwidth;
+  toolbar.traditional = s.traditional_output;
+  for (const char *scheme : msime::linux_host::kSchemeMenuOrder)
+    if (scheme_offered(scheme)) toolbar.schemes.push_back({scheme, scheme_title(s, scheme)});
+  return toolbar;
+}
+msime::linux_host::FloatingToolbarConfig floating_toolbar_config(const State &s) {
+  return msime::linux_host::floating_toolbar_config(configured.at("preferences"), MSIME_EDITION_HANDWRITING != 0,
+                                                    s.voice_enabled && !s.voice_provider_socket.empty());
+}
+// GLib 主循环上的 OverlayLoop（见 OverlayLoop.h）。令牌析构时撤掉源；定时器触发前先清掉源的编号，回调里换掉自己的令牌也不会重复撤销。
+struct GlibOverlaySource {
+  guint id = 0;
+  std::function<void()> callback;
+  ~GlibOverlaySource() {
+    if (id) g_source_remove(id);
+  }
+};
+using GlibOverlayWeak = std::weak_ptr<GlibOverlaySource>;
+void delete_glib_overlay_weak(gpointer data) { delete static_cast<GlibOverlayWeak *>(data); }
+msime::linux_host::OverlayLoop glib_overlay_loop() {
+  msime::linux_host::OverlayLoop loop;
+  loop.watch = [](int fd, std::function<void()> ready) -> msime::linux_host::OverlayLoop::Token {
+    auto source = std::make_shared<GlibOverlaySource>();
+    source->callback = std::move(ready);
+    source->id = g_unix_fd_add_full(
+        G_PRIORITY_DEFAULT, fd, G_IO_IN,
+        +[](gint, GIOCondition, gpointer data) -> gboolean {
+          auto source = static_cast<GlibOverlayWeak *>(data)->lock();
+          if (!source) return G_SOURCE_REMOVE;
+          auto callback = source->callback;
+          source.reset();
+          callback();
+          return G_SOURCE_CONTINUE;
+        },
+        new GlibOverlayWeak(source), delete_glib_overlay_weak);
+    return source;
+  };
+  loop.timer = [](int milliseconds, std::function<void()> fire) -> msime::linux_host::OverlayLoop::Token {
+    auto source = std::make_shared<GlibOverlaySource>();
+    source->callback = std::move(fire);
+    source->id = g_timeout_add_full(
+        G_PRIORITY_DEFAULT, static_cast<guint>(std::max(0, milliseconds)),
+        +[](gpointer data) -> gboolean {
+          auto source = static_cast<GlibOverlayWeak *>(data)->lock();
+          if (!source) return G_SOURCE_REMOVE;
+          source->id = 0;
+          auto callback = std::move(source->callback);
+          source.reset();
+          callback();
+          return G_SOURCE_REMOVE;
+        },
+        new GlibOverlayWeak(source), delete_glib_overlay_weak);
+    return source;
+  };
+  return loop;
+}
+// 工具栏上的按钮和菜单项，照「工具栏」子菜单里同一项的路径去做（property_activate 的 Toolbar/ 分支）。切换类的动作和宣传语要往有焦点的输入框里写，属主失焦时那条路径自己会拒绝，工具栏这时把它们画成不能用（Options::actions_need_focus）；打开面板、官网和隐藏工具栏不需要输入框，直接做。
+void floating_toolbar_action(IBusEngine *engine, msime::linux_host::FloatingToolbarAction action,
+                             const std::string &argument) {
+  using Action = msime::linux_host::FloatingToolbarAction;
+  guarded(engine, "floating_toolbar", [&] {
+    auto &s = state(engine);
+    const auto toggle = [&](const char *property, bool current) {
+      property_activate(engine, property, current ? PROP_STATE_UNCHECKED : PROP_STATE_CHECKED);
+    };
+    const auto launch = [](const char *panel) {
+      if (!launch_desktop_panel(panel)) g_warning("Cannot start MSIME desktop panel launcher");
+    };
+    switch (action) {
+    case Action::ToggleInputMode:
+      // 「En」时回到中文：退出英文候选模式，而不是关掉中文输入，与 macOS 相同。
+      if (msime::linux_host::floating_toolbar_input_mode_leaves_english_candidates(floating_toolbar_state(s)))
+        property_activate(engine, "EnglishMode", PROP_STATE_UNCHECKED);
+      else
+        toggle("InputMode", s.input_enabled);
+      break;
+    case Action::SelectScheme:
+      if (scheme_offered(argument)) property_activate(engine, scheme_property_key(argument), PROP_STATE_CHECKED);
+      break;
+    case Action::TogglePunctuation: toggle("Punctuation", s.chinese_punctuation); break;
+    case Action::ToggleFullwidth: toggle("CharacterMode", s.fullwidth); break;
+    case Action::ToggleCharacterSet: toggle("TraditionalOutput", s.traditional_output); break;
+    case Action::ToggleVoice: toggle("VoiceInput", s.voice_active); break;
+    case Action::Promotion: property_activate(engine, "Toolbar/Promotion", PROP_STATE_UNCHECKED); break;
+    case Action::OpenEmoji: launch("emoji"); break;
+    case Action::OpenHandwriting:
+      if (MSIME_EDITION_HANDWRITING != 0) launch("handwriting");
+      break;
+    case Action::OpenScreenKeyboard: launch("keyboard"); break;
+    case Action::OpenSettings: launch("settings"); break;
+    case Action::Help: launch("help"); break;
+    case Action::About: launch("about"); break;
+    case Action::Feedback: launch("feedback"); break;
+    case Action::Website: {
+      GError *error = nullptr;
+      if (!g_app_info_launch_default_for_uri(msime::linux_host::kWebsiteUrl, nullptr, &error))
+        g_warning("Cannot open %s", msime::linux_host::kWebsiteUrl);
+      if (error) g_error_free(error);
+      break;
+    }
+    // 「隐藏悬浮状态栏」写共享偏好 floating_toolbar.enabled，与菜单里取消「显示工具栏」同一条保存路径；保存完成后的 publish_mode 收起工具栏。
+    case Action::Hide: save_menu_preference(engine, MenuPreference::Toolbar, false); break;
+    }
+  });
+}
+// 整个引擎进程只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同：IBus 为每个输入上下文建一个引擎对象，工具栏跟着当前属主（获得焦点的那个引擎）走。只在开关开着时才建，建不出来（没有 X 服务器）时记下来不再重试，之后只有菜单里的「工具栏」子菜单。
+struct ProcessFloatingToolbar {
+  std::unique_ptr<msime::linux_host::FloatingToolbar> toolbar;
+  bool unavailable = false;
+};
+ProcessFloatingToolbar &process_floating_toolbar() {
+  static ProcessFloatingToolbar toolbar;
+  return toolbar;
+}
+msime::linux_host::FloatingToolbar *floating_toolbar(bool create) {
+  auto &shared = process_floating_toolbar();
+  if (!shared.toolbar && create && !shared.unavailable) {
+    msime::linux_host::FloatingToolbar::Options options;
+    options.icon_path = MSIME_MODE_BADGE_ICON;
+    options.display_name = MSIME_EDITION_DISPLAY_NAME;
+    if (auto file = msime::linux_host::floating_toolbar_position_path(
+            std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY))
+      options.position_file = *file;
+    const char *wayland = std::getenv("WAYLAND_DISPLAY");
+    options.hide_on_focus_out = wayland && *wayland;
+    options.actions_need_focus = true;
+    auto loop = glib_overlay_loop();
+    shared.toolbar = msime::linux_host::FloatingToolbar::create(
+        loop,
+        [](msime::linux_host::FloatingToolbar::Owner owner, msime::linux_host::FloatingToolbarAction action,
+           const std::string &argument) {
+          floating_toolbar_action(IBUS_ENGINE(const_cast<void *>(owner)), action, argument);
+        },
+        std::move(options), msime::linux_host::FloatingToolbar::default_surfaces(loop));
+    shared.unavailable = !shared.toolbar;
+  }
+  return shared.toolbar.get();
+}
+// 整个进程只有一块双拼键位图，与切换徽章一样，新的一帧替换屏幕上那块。
+std::unique_ptr<msime::linux_host::ShuangpinKeymapX11Surface> &process_shuangpin_keymap() {
+  static std::unique_ptr<msime::linux_host::ShuangpinKeymapX11Surface> keymap;
+  return keymap;
+}
+#endif
+// 偏好、主题或模式变了：把开关、外观和这个上下文的状态交给工具栏，只有属主的状态会画出来。获得焦点的上下文在工具栏还没有属主时接手（例如刚在设置里打开工具栏），IBus 自己的 "fake" 上下文（没有输入框获得焦点）不接手。
+void sync_floating_toolbar([[maybe_unused]] IBusEngine *engine, [[maybe_unused]] bool focus_entered) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  auto &s = state(engine);
+  if (!configured.contains("preferences")) return;
+  const bool can_own = s.focused && s.focused_client != "fake";
+  const auto config = floating_toolbar_config(s);
+  // 只在开关开着、有上下文能接手时才建：失焦的上下文刷新菜单时不为它连 X 服务器。
+  auto *toolbar = floating_toolbar(config.enabled && can_own);
+  if (!toolbar) return;
+  toolbar->configure(config, s.floating_toolbar_colors);
+  if (can_own && (focus_entered || !toolbar->owner()))
+    toolbar->activate(engine, floating_toolbar_state(s));
+  else
+    toolbar->update(engine, floating_toolbar_state(s));
+#endif
+}
+// 获得焦点：工具栏的属主交给这个上下文，与 macOS 的 activateServer: 相同。
+void floating_toolbar_focus_in(IBusEngine *engine) { sync_floating_toolbar(engine, true); }
+void floating_toolbar_focus_out([[maybe_unused]] IBusEngine *engine) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (auto *toolbar = floating_toolbar(false)) toolbar->focus_out(engine);
+#endif
+}
+// 换到别的输入法或引擎销毁：工具栏收起并放开属主，与 macOS 的 deactivateForInputSourceSwitch 相同。
+void floating_toolbar_release([[maybe_unused]] IBusEngine *engine) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (auto *toolbar = floating_toolbar(false)) toolbar->deactivate(engine);
+#endif
+}
+void floating_toolbar_note_input([[maybe_unused]] IBusEngine *engine) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (auto *toolbar = floating_toolbar(false)) toolbar->note_input(engine);
+#endif
+}
+// 双拼键位图，条件与 macOS 的 updateKeymapPanel 相同：中文输入开着、偏好打开、双拼组字中（shuangpin_keymap_hint）。只在纯 X11 会话里画：IBus 引擎分不出客户端的显示类型，只有那里 set_cursor_location 报的一定是根窗口坐标（见 mode_badge_x11_session）。光标矩形不可用时不画。
+void sync_shuangpin_keymap([[maybe_unused]] IBusEngine *engine, [[maybe_unused]] const Json &view) {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  auto &s = state(engine);
+  auto &keymap = process_shuangpin_keymap();
+  std::optional<msime::linux_host::ShuangpinKeymapHint> hint;
+  if (configured.contains("preferences") && s.focused && !s.blocked && s.input_enabled && !s.voice_active &&
+      mode_badge_x11_session() && msime::linux_host::shuangpin_keymap_preference(configured.at("preferences")))
+    hint = msime::linux_host::shuangpin_keymap_hint(view);
+  if (!hint) {
+    if (keymap) keymap->hide();
+    return;
+  }
+  if (!keymap) keymap = std::make_unique<msime::linux_host::ShuangpinKeymapX11Surface>();
+  const auto &preferences = configured.at("preferences");
+  const auto candidates = view.value("candidates", Json::array());
+  const bool preedit_row = s.candidate_preedit_style == "pinyin" && !view.value("preedit", std::string{}).empty();
+  msime::linux_host::ShuangpinKeymapAnchor anchor{
+      engine->cursor_area.x, engine->cursor_area.y, engine->cursor_area.width, engine->cursor_area.height,
+      msime::linux_host::shuangpin_keymap_candidate_clearance(
+          msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences)), 1.0,
+          s.candidate_orientation == IBUS_ORIENTATION_HORIZONTAL, candidates.is_array() ? candidates.size() : 0,
+          preedit_row),
+      // IBus 的候选窗由桌面面板画，宿主拿不到它的矩形，只能按字号估计。
+      std::nullopt};
+  keymap->show("", *hint, s.keymap_colors, anchor);
+#endif
+}
+void hide_shuangpin_keymap() {
+#ifdef MSIME_LINUX_FLOATING_PANELS
+  if (auto &keymap = process_shuangpin_keymap()) keymap->hide();
+#endif
+}
+// 中英文切换后短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
+//
+// macOS 只在光标旁显示一块徽章。这里能做到时也一样：X11 会话里自绘徽章按 macOS 的规则放到光标下方，不再发辅助文本。做不到时（Wayland 会话、没有可用的后端）用辅助文本：它由 panel 按当前输入上下文摆放，因此也跟着输入点走；用户打开「显示水杉图标」时另在屏幕角上显示带标志的徽章，因为辅助文本带不了图。规则与 Fcitx5 宿主相同，见 ModeBadgePlacement.h 的 mode_badge_hint。
+//
+// 隐藏辅助文本时先确认辅助区域还属于这条提示：用户可能在这 0.6 秒内已经开始打字，那时辅助文本是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
+//
+// 这 0.6 秒里会话可能已经被关掉（换到密码框、用途不同的输入框，偏好保存触发重建，或 `guarded()` 兜底），`s.view` 于是回到 null。回调外面没有 `guarded()`，这里抛出的异常会直接让宿主 abort（#6675），所以组合状态只能经 `view_is_composing()` 读，它对 null 视图回答「没有组字」。
+void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger trigger) {
+  auto &s = state(engine);
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 新的提示取代还在等光标的那条获得焦点提示。
+  if (trigger != ModeHintTrigger::FocusSettled)
+    s.mode_hint_after_focus = false;
+#endif
   if (!configured.contains("preferences") ||
       !configured.at("preferences").value("input_mode_hud", true))
     return;
   // IBus 自己的 "fake" 上下文也不显示：全局引擎下没有输入框获得焦点时，守护进程让它获得焦点，这时没有可以显示模式的输入框。面板把这样的提示画进 X11 候选窗，Hyprland 会把它映射成一个抢焦点的独立窗口。
   if (!s.focused || s.blocked || s.focused_client == "fake")
     return;
+  const char *label = s.input_enabled ? "中" : "英";
+  auto hint = msime::linux_host::ModeBadgeHint::PanelText;
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。
+  const bool show_logo = configured.at("preferences").value("show_app_logo", false);
+  const bool x11_session = mode_badge_x11_session();
+  auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_session, show_logo) ? mode_badge_surface() : nullptr;
+  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_session, show_logo);
+  // 获得焦点时客户端还没报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报 set_cursor_location，这时的 cursor_area 还是上一个位置或全 0。先等它报来（set_cursor_location 里放），最多等 focus_caret_wait_ms。
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHintTrigger::FocusEntered) {
+    s.mode_hint_after_focus = true;
+    ++s.mode_hint_focus_id;
+    g_timeout_add_full(
+        G_PRIORITY_DEFAULT, msime::linux_host::ModeBadgeTiming::focus_caret_wait_ms,
+        +[](gpointer data) -> gboolean {
+          std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
+          if (!notice->alive->load() || state(notice->engine).mode_hint_focus_id != notice->id)
+            return G_SOURCE_REMOVE;
+          guarded(notice->engine, "mode_hint_focus_wait", [&] { settle_focus_mode_hint(notice->engine); });
+          return G_SOURCE_REMOVE;
+        },
+        new ModeHintNotice{engine, s.alive, s.mode_hint_focus_id}, nullptr);
+    return;
+  }
+  const msime::linux_host::ModeBadgeCaret caret_area{engine->cursor_area.x, engine->cursor_area.y,
+                                                     engine->cursor_area.width, engine->cursor_area.height};
+  if (trigger == ModeHintTrigger::FocusSettled)
+    hint = msime::linux_host::mode_badge_focus_hint(hint, caret_area);
+  if (hint != msime::linux_host::ModeBadgeHint::PanelText) {
+    std::optional<msime::linux_host::ModeBadgeCaret> caret;
+    if (hint == msime::linux_host::ModeBadgeHint::CaretBadge)
+      caret = caret_area;
+    const msime::linux_host::ModeBadgeStyle style{msime::linux_host::ModeBadgeMetrics{}, s.mode_badge_colors};
+    if (badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
+      auto &shared = process_mode_badge();
+      ++shared.id;
+      shared.fade_step = 0;
+      shared.owner = engine;
+      schedule_mode_badge_fade(msime::linux_host::ModeBadgeTiming::visible_ms);
+    } else {
+      hint = msime::linux_host::ModeBadgeHint::PanelText;
+    }
+  }
+#endif
+  if (hint == msime::linux_host::ModeBadgeHint::CaretBadge)
+    return;
   ++s.mode_hint_id;
   if (s.mode_hint_id == 0)
     ++s.mode_hint_id;
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_string(s.input_enabled ? "中" : "英"), TRUE);
+  ibus_engine_update_auxiliary_text(engine, ibus_text_new_from_string(label), TRUE);
   auto *notice = new ModeHintNotice{engine, s.alive, s.mode_hint_id};
   g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 1200,
+      G_PRIORITY_DEFAULT, msime::linux_host::ModeBadgeTiming::visible_ms,
       +[](gpointer data) -> gboolean {
         std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
         if (!notice->alive->load())
@@ -6264,6 +6898,7 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.input_enabled && s.session)
     apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = !s.input_enabled;
+  s.yield_app_input_mode_rule();
   s.remember_app_input_mode();
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
@@ -6318,6 +6953,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
+  if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
+      s.wave_overlay_visible) {
+    hide_wave_overlay(engine);
+    s.wave_overlay.reset();
+  }
   if (!release &&
       (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
        key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
@@ -6332,6 +6973,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     s.caps_lock = caps_lock;
     publish_mode(engine);
   }
+  guarded(engine, "process_key", [&] { s.sync_caps_lock(); });
   // 单按 Caps Lock 切换中英文。认的是 Caps_Lock 这个符号：被 xkb 选项改成 Control 或 Escape 的 Caps Lock 键不算，被改成 Caps_Lock 的 Shift 键（evdev 键码 42、54）也不算。按下时布防（按下事件带的是按下前的锁定状态），别的键按下取消，松开时认定为轻点就先撤回大写锁定、成功后切换；松开本身照常交给应用，和裸 Shift 一样。
   const bool caps_lock_key = key == IBUS_Caps_Lock && keycode != 42 && keycode != 54;
   if (!caps_lock_key) {
@@ -6390,11 +7032,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const guint promotion_stroke = keycode != 0 ? keycode : 0x80000000u | static_cast<guint>('p');
   if (promotion_shortcut) {
     s.host_shortcut_strokes.insert(promotion_stroke);
-    guarded(engine, "process_key", [&] {
-      if (s.session && !s.view.at("editing_text").get<std::string>().empty())
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      commit_text(engine, "水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime", msime::linux_host::TypingSource::Local);
-    });
+    guarded(engine, "process_key", [&] { commit_promotion(engine); });
     return TRUE;
   }
 
@@ -7031,31 +7669,26 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
-    // Match the Windows composition editor for the three Ctrl-only segment
-    // edits. The shared runtime owns the segment boundaries (and falls back
-    // to one raw character for local modes), so the Linux host only has to
-    // preserve the editor's modifier boundary and route the action. With no
-    // active composition these remain ordinary application shortcuts.
+    // 分段编辑与 Fcitx5、Windows 组字编辑器和 macOS 保持一致：组字时 Shift+左右和 Ctrl+左右（只按这一个修饰键）在所有方案里都按音节移动拼音光标，全拼和双拼也一样；Ctrl+退格删除一段，Shift+退格不在此列。共享运行时在横排候选窗里会把字母光标命令换成移动候选，但从不换分段命令，所以高亮停在哪个候选上，这两个组合键都编辑拼音。分段边界归共享运行时（局部模式下退回一个原始字符），宿主只守住修饰键的边界并转发命令。没有组字时这些组合键仍是应用的快捷键。
     const bool ctrl_only = modifiers == IBUS_CONTROL_MASK &&
                            !(flags & IBUS_RELEASE_MASK);
-    const bool segment_edit_key = key == IBUS_BackSpace ||
-                                  key == IBUS_Left || key == IBUS_KP_Left ||
-                                  key == IBUS_Right || key == IBUS_KP_Right;
+    const bool shift_only = modifiers == IBUS_SHIFT_MASK &&
+                            !(flags & IBUS_RELEASE_MASK);
+    const bool left = key == IBUS_Left || key == IBUS_KP_Left;
+    const bool right = key == IBUS_Right || key == IBUS_KP_Right;
+    const bool segment_edit_key =
+        (ctrl_only && (key == IBUS_BackSpace || left || right)) ||
+        (shift_only && (left || right));
     const auto active_editing = s.view.value("editing_text", std::string{});
     const auto active_candidates = s.view.value("candidates", Json::array());
-    // 韩文音节、注音转换、越南文单词和藏文音节串都没有分段：Ctrl 组合键在下面结束它，并仍然作为应用的快捷键。
-    if (!locks_caret && ctrl_only && segment_edit_key &&
+    // 韩文音节、注音转换、越南文单词和藏文音节串都没有分段：这些组合键在下面照旧结束它，并仍然作为应用的快捷键。
+    if (!locks_caret && segment_edit_key &&
         (!active_editing.empty() ||
          (active_candidates.is_array() && !active_candidates.empty()))) {
-      // 全拼和双拼的左右键是整句改字，Ctrl+左右就是一个字母一个字母地编辑拼音。
-      const bool sentence = msime::linux_host::edits_sentence(s.view);
-      const bool left = key == IBUS_Left || key == IBUS_KP_Left;
       const uint32_t segment_command =
           key == IBUS_BackSpace
               ? MSIME_BACKSPACE_SEGMENT
-              : (sentence ? (left ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT)
-                          : (left ? MSIME_MOVE_LEFT_SEGMENT
-                                  : MSIME_MOVE_RIGHT_SEGMENT));
+              : (left ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT);
       handled = apply(engine,
                       msime_client_command(s.session, segment_command));
       return;
@@ -7442,8 +8075,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.view.at("candidates").empty() &&
         (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
          key == IBUS_KP_End)) {
+      // Home 分两段：高亮不在首选时回到首选，已在首选时把拼音光标移到开头（msime_client.h 的 MSIME_FIRST_CANDIDATE_OR_HOME）。End 仍只跳到末选。
       const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
-                               ? MSIME_FIRST_CANDIDATE
+                               ? MSIME_FIRST_CANDIDATE_OR_HOME
                                : MSIME_LAST_CANDIDATE;
       handled = apply(engine, msime_client_command(s.session, command));
       return;
@@ -8316,6 +8950,8 @@ void register_properties(IBusEngine *engine) {
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimeIbusEngine *>(object);
   if (panel_input_engine == IBUS_ENGINE(object)) panel_input_engine = nullptr;
+  // 工具栏的属主是引擎对象本身，销毁前先放开，按钮之后不会再指向它。
+  floating_toolbar_release(IBUS_ENGINE(object));
   if (self->state && self->state->preferences_timer)
     g_source_remove(self->state->preferences_timer);
   if (self->state) {
@@ -8327,11 +8963,12 @@ void destroy(IBusObject *object) {
   IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
 // 一次按下交给生命周期核心：每个打字键，只要中文输入开着、没有在录音，不论之后是引擎还是应用拿走这个键。先比较并报告字段属性，再调 msime_client_key，都在引擎处理这个键之前，这是顺序契约（msime_client.h），按键音因此排在这个键带来的上屏音前面；隐私字段里核心不出声也不画。松开、单独的修饰键和快捷键不算打字（key_press_sounds），不开新的一轮。录音中按 Esc 取消录音的那个键也不出声：这里读到的是引擎处理前的状态，录音还在。打字特效的连击数现在就记下，引擎处理时画出的候选辅助行用的就是它。
-void key_down(IBusEngine *engine, guint key, guint flags) {
+void key_down(IBusEngine *engine, guint key, guint keycode, guint flags) {
   auto &s = state(engine);
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // 按硬件键码认自动重复：修饰键先松开时松开事件的 keyval 和按下时不同（见 KeyRepeat）。
   if (release)
-    s.key_repeat.release(key);
+    s.key_repeat.release(keycode);
   const bool shortcut =
       (flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                 IBUS_META_MASK | IBUS_HYPER_MASK)) != 0;
@@ -8343,11 +8980,16 @@ void key_down(IBusEngine *engine, guint key, guint flags) {
     guarded(engine, "key_down", [&] { s.open(); });
   if (!s.session || !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
+  const bool repeat = s.key_repeat.press(keycode);
   s.report_field_traits();
+  // 自动重复的按下不出按键音、不画特效、不动连击，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同，按住退格或空格时只在第一次按下响一声；但仍开新的一轮，否则按住期间的每次派发共用第一次按下那一轮的脚本 fuel（见 lifecycle_silent_turn）。
+  if (repeat) {
+    msime_client_key(s.session, msime::linux_host::lifecycle_silent_turn());
+    return;
+  }
   // Linux 只显示打字特效里的连击数，在候选辅助行的末尾。
   s.typing_combo = msime::linux_host::typing_effect_combo(msime_client_key(
-      s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key),
-                                                  s.key_repeat.press(key))));
+      s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key), false)));
 }
 // 引擎处理完这个键之后：焦点、录音这些状态已经定下来，同步背景音乐。连击数变了就用面板手里的那一页单独重画辅助行，这个键交给了应用、没有经过 render 时也一样。
 void key_settled(IBusEngine *engine, uint32_t combo_before) {
@@ -8365,9 +9007,17 @@ void key_settled(IBusEngine *engine, uint32_t combo_before) {
 // Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
 gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,
                                guint flags) {
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 开始打字就撤掉还在等光标的获得焦点提示：候选窗马上出现在光标下方，徽章这时再放上去会盖住它。
+  if ((flags & IBUS_RELEASE_MASK) == 0)
+    state(engine).mode_hint_after_focus = false;
+#endif
   count_key_press(engine, keycode, flags);
+  // 每一次按下都让空闲隐藏的工具栏回来并重新计时，与 macOS 的 wakeForInputDelegate: 相同。
+  if (!(flags & IBUS_RELEASE_MASK))
+    floating_toolbar_note_input(engine);
   const auto combo_before = state(engine).typing_combo;
-  key_down(engine, key, flags);
+  key_down(engine, key, keycode, flags);
   const gboolean handled = process_key(engine, key, keycode, flags);
   key_settled(engine, combo_before);
   if (handled || (flags & IBUS_RELEASE_MASK) || !typing_statistics_switch.enabled())
@@ -8399,10 +9049,17 @@ static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
   engine->state->wave_overlay_surface =
       msime::linux_host::create_wave_overlay_surface(
           IBUS_ENGINE(engine), [engine](msime::linux_host::WaveOverlayModel::Action action) {
-            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
-              voice_cancel(IBUS_ENGINE(engine));
-            else
-              voice_stop(IBUS_ENGINE(engine));
+            auto *ibus_engine = IBUS_ENGINE(engine);
+            auto &s = state(ibus_engine);
+            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
+              voice_cancel(ibus_engine);
+            } else if (s.voice_active && s.voice_stopping) {
+              // 识别或润色进行中点确认只收起浮条，与 macOS 的 `dismissProcessing` 一样；结果到达后照常上屏。
+              s.wave_overlay_dismissed = true;
+              hide_wave_overlay(ibus_engine);
+            } else {
+              voice_stop(ibus_engine);
+            }
           });
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.
@@ -8422,6 +9079,16 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   };
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 获得焦点后在等光标的切换徽章，客户端一报光标就放（见 show_input_mode_hint）。先交给 IBusEngine 自己的处理，cursor_area 由它维护。报来的若是全 0 的矩形（还没有光标，见 mode_badge_caret_usable），接着等下一次报告或等满时间。
+  engine->set_cursor_location = [](IBusEngine *engine, gint x, gint y, gint w, gint h) {
+    if (auto *parent = IBUS_ENGINE_CLASS(msime_ibus_engine_parent_class)->set_cursor_location)
+      parent(engine, x, y, w, h);
+    if (!msime::linux_host::mode_badge_caret_usable({x, y, w, h}))
+      return;
+    guarded(engine, "set_cursor_location", [&] { settle_focus_mode_hint(engine); });
+  };
+#endif
 #if IBUS_CHECK_VERSION(1, 5, 27)
   engine->focus_in_id = [](IBusEngine *engine, const gchar *context, const gchar *client) {
     auto &s = state(engine);
@@ -8454,10 +9121,13 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
 #endif
   engine->disable = [](IBusEngine *engine) {
     focus_out(engine);
+    floating_toolbar_release(engine);
     guarded(engine, "disable", [&] {
       // IBus disables the old engine when changing input sources. Unlike a
       // focus transfer, reactivation must start from the configured CN/EN mode.
       global_input_enabled.reset();
+      app_rule_stay = {};
+      state(engine).app_rule_active = false;
       // The daemon clears properties on disable; register them on reactivation.
       state(engine).properties_registered = false;
       state(engine).app_input_modes.clear();

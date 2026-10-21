@@ -64,6 +64,10 @@ public:
   // External/UI thread, value copy only. Empty means hide. Re-read on paint;
   // selection still requires an independently validated candidate command.
   std::optional<CandidatePresentation> candidate_view();
+  // Non-blocking, any thread: is `lease` still the focus on file. candidate_view() returns nothing for contention as well, so the candidate window asks this to tell a busy read from a focus that moved on (another client, another app) before it lets an exit animation keep drawing the old candidates.
+  bool candidate_lease_current(const FocusLease &lease) const {
+    return !stopping_ && focus_.still_current(lease);
+  }
   void wait_candidate_render_for_key(const FocusLease &lease,
                                      const FanyImeNamedpipeData &packet);
   // Called after the native candidate window has successfully presented a
