@@ -1,25 +1,12 @@
 package app.msime.android.test;
 
-import android.app.Activity;
-import android.app.Instrumentation;
-import android.os.Bundle;
 import java.lang.reflect.Method;
 
 /** 经真实的 libmsime_android.so 核对 AI 接口地址的检查：AiEndpointPolicy 把地址交给 Rust 的 msime_client_ai_endpoint_check，结论和来源键原样读回。JVM 冒烟加载不了 JNI，只能在这里验。 */
-public final class AiEndpointCheckDeviceSmoke extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
-
-    @Override public void onStart() {
-        Bundle result = new Bundle();
-        try {
-            runCases();
-            result.putString("stream", "MSIME_AI_ENDPOINT_CHECK_PASSED\n");
-            finish(Activity.RESULT_OK, result);
-        } catch (Throwable error) {
-            result.putString("stream", "MSIME_AI_ENDPOINT_CHECK_FAILED: " + error.getClass().getSimpleName()
-                + ": " + error.getMessage() + "\n");
-            finish(Activity.RESULT_CANCELED, result);
-        }
+public final class AiEndpointCheckDeviceSmoke extends AiSettingsDeviceChecks {
+    @Override protected void runChecks() throws Exception {
+        runCases();
+        super.runChecks();
     }
 
     private void runCases() throws ReflectiveOperationException {

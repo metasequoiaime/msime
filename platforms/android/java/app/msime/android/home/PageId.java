@@ -30,7 +30,7 @@ public enum PageId {
     TOOLBAR_EDITOR("ToolbarEditorPage", "编辑工具栏", HostDeepLink.TAB_SETTINGS, "编辑工具栏"),
     CHAT("ChatFragment", "AI 对话", HostDeepLink.TAB_SETTINGS),
     AI_SETTINGS("AiSettingsPage", "AI 润色与回复", HostDeepLink.TAB_SETTINGS,
-        "启用 AI 入口", "端点 URL", "模型", "凭据", "润色提示词", "AI 对话", "社区回复模板", "浏览更多回复模板"),
+        "启用 AI 入口", "服务商", "端点 URL", "模型", "获取模型列表", "AI 接入说明与 API Key", "凭据", "润色提示词", "AI 对话", "社区回复模板", "浏览更多回复模板"),
     TYPING("TypingPage", "输入", HostDeepLink.TAB_SETTINGS,
         "语言与方案", "普通话", "粤语", "英语", "日语", "韩语", "越南语", "藏语", "添加语言", "中文", "中文字符集", "简体", "繁体", "中英文之间加空格",
         "拼音纠错", "模糊音", "只出单字", "云候选", "云候选服务", "来源", "接口地址", "请求方法", "请求头（JSON）", "请求体模板（JSON）", "响应格式", "JSON 路径", "超时（毫秒）", "缓存云候选", "辅助码", "启用辅助码", "辅助码方案", "辅助码模式", "在候选栏中显示双拼辅助码", "在候选栏中显示全拼辅助码", "翻译", "候选词翻译",
