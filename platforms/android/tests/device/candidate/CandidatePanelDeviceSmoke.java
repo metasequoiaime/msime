@@ -90,34 +90,41 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 && node.getContentDescription().toString().startsWith("切换到");
             AccessibilityNodeInfo mode = await(key("中").or(key("英")).and(language));
             if (equalsText("英", mode.getText())) tap(key("英").and(language));
-            // 小鹤 ni/hao 两轮，独立合成输入不使用报告人的原文。
-            for (char letter : "nihcnihc".toCharArray()) tap(key(String.valueOf(letter)));
+            // 小鹤 ni/hao/shi/yao，独立合成输入不使用报告人的原文。
+            int typed = 0;
+            for (char letter : "nihcuiyc".toCharArray()) {
+                stage = "compose synthetic Xiaohe prefix " + (++typed);
+                tap(key(String.valueOf(letter)));
+                await(field("msime-test-plain").and(node -> node.getText() != null
+                    && node.getText().length() > 0 && !node.isShowingHintText()));
+            }
             stage = "synthetic long phrase and partial candidate are present";
-            AccessibilityNodeInfo first = await(stripCandidate(1, "你好你好"));
+            AccessibilityNodeInfo first = await(stripCandidate(1, "你好是要"));
             AccessibilityNodeInfo scroller = first.getParent();
             while (scroller != null && !equalsText("android.widget.HorizontalScrollView", scroller.getClassName()))
                 scroller = scroller.getParent();
             if (scroller == null) throw new AssertionError("Synthetic candidate strip is not horizontal");
             Rect viewport = new Rect();
             scroller.getBoundsInScreen(viewport);
+            if (viewport.width() < 100 || viewport.height() < 20)
+                throw new AssertionError("Synthetic candidate viewport bounds are unavailable");
             stage = "swipe the horizontal candidate strip before selection";
             int start = viewport.right - 12;
             shellDiscard("input swipe " + start + " " + viewport.centerY() + " "
                 + (start - viewport.width() / 8) + " " + viewport.centerY() + " 500");
-            stage = "touch the synthetic partial phrase";
+            stage = "touch the synthetic partial phrase " + viewport.toShortString();
             touch(stripCandidate(0, "你好"));
             stage = "partial selection preserves the remaining composition";
-            await(field("msime-test-plain").and(node -> node.getText() != null
-                && node.getText().toString().startsWith("你好") && node.getText().length() > 2));
+            await(field("msime-test-plain").and(node -> equalsText("你好uiyc", node.getText())));
             stage = "remaining strip candidates refresh without another gesture";
-            await(stripCandidate(1, "你好"));
+            await(stripCandidate(1, "是要"));
             dropStaleNodes();
             for (AccessibilityWindowInfo window : automation.getWindows())
-                if (find(window.getRoot(), stripCandidate(0, "你好你好")) != null)
+                if (find(window.getRoot(), stripCandidate(0, "你好是要")) != null)
                     throw new AssertionError("Synthetic old phrase remained after partial selection");
             stage = "finish the refreshed synthetic composition";
-            touch(stripCandidate(1, "你好"));
-            await(field("msime-test-plain").and(node -> equalsText("你好你好", node.getText())));
+            touch(stripCandidate(1, "是要"));
+            await(field("msime-test-plain").and(node -> equalsText("你好是要", node.getText())));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -133,14 +140,13 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
         return node -> {
             if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
-                    || !node.isVisibleToUser()) return false;
-            if (node.getText() != null && value.equals(node.getText().toString())) return true;
-            if (node.getContentDescription() == null) return false;
+                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
             String description = node.getContentDescription().toString();
+            String prefix = index == 0 ? "候选 " : "候选 " + index + "：";
             int delimiter = description.indexOf('：');
-            if (!description.startsWith("候选 ") || delimiter < 0) return false;
+            if (!description.startsWith(prefix) || delimiter < 0) return false;
             String text = description.substring(delimiter + 1);
-            return value.equals(text.contains("；") ? text.substring(0, text.indexOf('；')) : text);
+            return text.equals(value) || text.startsWith(value + "，") || text.startsWith(value + "；");
         };
     }
 
