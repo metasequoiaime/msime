@@ -136,8 +136,11 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
     for (std::size_t at = begin; at < end; ++at) {
       const auto &item = content.items[at];
       glosses.push_back(native_canvas_gloss(item).text);
-      if (number_scale > 0 && !item.label.empty())
-        number_width = std::max(number_width, native_canvas_text_size(cr, metrics.number_font, item.label).first);
+      // 网格里只有高亮所在的行画序号，其余行的 label 是空的；序号列仍按这一行该有的「1」…「n」量（macOS 不论画不画都量），高亮换行时各行文字才不左右跳。
+      const auto label = !item.label.empty() ? item.label
+          : content.grid_columns > 0 ? candidate_index_label(at - begin) : std::string{};
+      if (number_scale > 0 && !label.empty())
+        number_width = std::max(number_width, native_canvas_text_size(cr, metrics.number_font, label).first);
       // 回退字体的字形可能比主字体高，单行的行高取这一页里最高的。
       candidate_row = std::max(candidate_row, native_canvas_line_height(cr, metrics.font, item.text) + row_padding);
     }
@@ -373,9 +376,21 @@ inline NativeCanvasImage native_canvas_card_shadow(int width, int height, const 
   const FcitxRect body{card.x, card.y, card.x + card.width, card.y + card.height};
   const FcitxRect cast{body.left, body.top + G::shadow_offset, body.right, body.bottom + G::shadow_offset};
   const double spread = G::shadow_sigma * std::sqrt(2.0), unit = 1 / scale;
-  for (int y = 0; y < height; ++y)
+  // 卡片里离圆角和边缘都至少一个设备像素的部分整块被擦掉（到卡片的距离不大于 -unit，覆盖率为 1），不必逐像素算两次距离和 erfc；横排、竖排换页时卡片尺寸常变，投影要重算，这一块占了窗口的大部分。
+  const double corner = std::clamp(radius, 0.0, std::min(card.width, card.height) / 2) + unit;
+  const FcitxRect interior{body.left + corner, body.top + corner, body.right - corner, body.bottom - corner};
+  // 内部在每一行里覆盖的设备像素列 [skip_from, skip_to]：像素中心 (x + 0.5) * unit 严格落在 interior 的左右边之间。
+  const int skip_from = static_cast<int>(std::floor(interior.left * scale - 0.5)) + 1;
+  const int skip_to = static_cast<int>(std::ceil(interior.right * scale - 0.5)) - 1;
+  for (int y = 0; y < height; ++y) {
+    const double py = (y + 0.5) * unit;
+    const bool interior_row = py > interior.top && py < interior.bottom && skip_from <= skip_to;
     for (int x = 0; x < width; ++x) {
-      const double px = (x + 0.5) * unit, py = (y + 0.5) * unit;
+      if (interior_row && x == skip_from) {
+        x = skip_to;
+        continue;
+      }
+      const double px = (x + 0.5) * unit;
       const double keep = 1.0 - fcitx_coverage(fcitx_rounded_rect_distance(px, py, body, radius), unit);
       const double distance = fcitx_rounded_rect_distance(px, py, cast, radius);
       // erfc(4) 已小于 1e-7，再远的像素没有可见的投影。
@@ -385,6 +400,7 @@ inline NativeCanvasImage native_canvas_card_shadow(int width, int height, const 
       const std::uint32_t pixel = static_cast<std::uint32_t>(std::lround(std::clamp(alpha, 0.0, 1.0) * 255)) << 24;
       std::memcpy(data + y * stride + x * 4, &pixel, 4);
     }
+  }
   cairo_surface_mark_dirty(image.get());
   return image;
 }

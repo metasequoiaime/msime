@@ -5905,6 +5905,13 @@ ClassicUiThemeSelection read_classicui_theme_selection() {
   if (const auto *dark = config.valueByPath("DarkTheme")) selection.dark_theme = *dark;
   return selection;
 }
+// 经典界面落盘的 `WheelForPaging`，原生画布的滚轮翻页照它，X11 上换成原生画布后滚轮与原先 classicui 画的候选窗一样：水杉的「鼠标滚轮」开关动过之后会写进这一项（applyCandidateWheelPaging），没动过时就是桌面原有的值。等于缺省值的项 fcitx 写成注释，解析后缺失即缺省的开，只有写成 `False` 才是关。
+bool read_classicui_wheel_for_paging() {
+  fcitx::RawConfig config;
+  fcitx::readAsIni(config, "conf/classicui.conf");
+  const auto *value = config.valueByPath("WheelForPaging");
+  return !value || *value != "False";
+}
 // 无候选覆盖时，只恢复仍由水杉持有的 classicui 主题项：有记录用原值，否则用自带主题；直接写 addon，不经接管记录接口，避免污染原值。
 void restore_classicui_theme(fcitx::AddonInstance &classicui) {
   // 没有候选覆盖是每一拍都会走到的状态（全局主题为「系统」是默认值），所以先按落盘的 classicui.conf 看有没有仍是水杉写的项：
@@ -6173,6 +6180,8 @@ public:
     // 缓存只决定「同一份输入已经接管写好」这一件事：一拍不调 `getConfig()`，也不重写主题（#5988）；一次新的主动选择（chosen）仍然往下走，重新判断所有权。
     // classicui 落盘的活动主题、跟随深色、字体与 Wayland 字体 DPI 变了时刷新提示（见 read_classicui_hint_stamp）。
     const auto hint_stamp = read_classicui_hint_stamp();
+    // 用户可能在 fcitx5-configtool 里改了滚轮翻页，原生画布每一拍跟上经典界面落盘的值。
+    classicui_wheel_paging_ = read_classicui_wheel_for_paging();
     if (inputs == candidate_theme_applied_ && !chosen && hint_stamp == classicui_hint_stamp_) return false;
     auto attempt = Json{{"inputs", inputs}, {"chosen", chosen}, {"classicui", classicui != nullptr}, {"hint", hint_stamp}};
     if (classicui) {
@@ -6484,6 +6493,7 @@ public:
     config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
     set_classicui_config(*classicui, config);
     candidate_wheel_paging_sync_.mark_applied(*enabled);
+    classicui_wheel_paging_ = *enabled;
   }
   bool candidateWheelPagingPending() const { return candidate_wheel_paging_sync_.pending(); }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
@@ -7184,6 +7194,8 @@ public:
   std::array<std::string, 2> hint_labels_;
 #endif
   msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
+  // 经典界面现在的 WheelForPaging（见 read_classicui_wheel_for_paging），原生画布按它决定滚轮翻不翻页；Fcitx5 的缺省是开。
+  bool classicui_wheel_paging_ = true;
   // Last appearance the addon-wide probe reported; see stepSystemTheme.
   bool system_dark_ = false;
   std::shared_future<Json> system_theme_job_;
@@ -7818,7 +7830,8 @@ bool FcitxState::renderNativeCanvas() {
   content.font = engine_->hint_inputs_.font.empty() ? "sans 16" : engine_->hint_inputs_.font;
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
   content.selected = list->cursorIndex();
-  content.wheel_paging = host::read_candidate_wheel_paging(preferences_);
+  // 与 classicui 画候选窗时相同：水杉的开关经 WheelForPaging 生效，从没动过时沿用桌面原有设置（Fcitx5 缺省为开）。
+  content.wheel_paging = engine_->classicui_wheel_paging_;
   content.page_arrows = preferences_.value("show_candidate_page_number", true);
   if (chrome) {
     // macOS 结构：页码进首行（「1 / 3」），拼音在首行左边；底部一行只剩本地模式和打字连击，macOS 候选窗没有这一行，Linux 留着它们。

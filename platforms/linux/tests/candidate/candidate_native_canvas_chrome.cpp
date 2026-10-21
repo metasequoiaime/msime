@@ -195,7 +195,8 @@ void pointer_and_grid() {
   layout = host::measure_native_canvas(cr, *assets, content, 1600);
   assert(layout.indicator_text == "2 / 4" && layout.expand.width > 0 && layout.previous.width == 0);
   assert(layout.items[3].y > layout.items[0].y && near(layout.items[3].x, layout.items[0].x));
-  assert(layout.content_lefts[3] > layout.content_lefts[0]);
+  // 序号列每行都按「1」…「n」量，没画序号的行与高亮行的文字对齐，高亮换行时不左右跳（与 macOS 相同）。
+  assert(near(layout.content_lefts[3], layout.content_lefts[0]) && near(layout.items[0].width, layout.items[3].width, 1));
   host::paint_native_canvas(cr, *assets, content, layout, kPalette);
   assert(colors(target.get(), layout.items[4])[0x0000ff] > 50);
   cairo_destroy(cr);
@@ -314,6 +315,20 @@ void shadow() {
     const auto left = pixel(shade.get(), side, middle) >> 24, right = pixel(shade.get(), width - 1 - side, middle) >> 24;
     assert(left + 1 >= right && right + 1 >= left && left > 0);
     assert(alpha(0, 0) < 0x04);
+    // 跳过卡片内部只省计算，不改像素：逐像素按完整公式重算一遍，结果完全相同。
+    using G = host::FcitxPanelGeometry;
+    const host::FcitxRect body{card.x, card.y, card.x + card.width, card.y + card.height};
+    const host::FcitxRect cast{body.left, body.top + G::shadow_offset, body.right, body.bottom + G::shadow_offset};
+    const double spread = G::shadow_sigma * std::sqrt(2.0), unit = 1 / scale;
+    for (int y = 0; y < height; ++y)
+      for (int x = 0; x < width; ++x) {
+        const double px = (x + 0.5) * unit, py = (y + 0.5) * unit;
+        const double keep = 1.0 - host::fcitx_coverage(host::fcitx_rounded_rect_distance(px, py, body, 10), unit);
+        const double distance = host::fcitx_rounded_rect_distance(px, py, cast, 10);
+        const std::uint32_t expected = keep <= 0 || distance > 4 * spread ? 0
+            : static_cast<std::uint32_t>(std::lround(std::clamp(G::shadow_alpha * 0.5 * std::erfc(distance / spread) * keep, 0.0, 1.0) * 255));
+        assert((pixel(shade.get(), x, y) >> 24) == expected);
+      }
   }
 }
 

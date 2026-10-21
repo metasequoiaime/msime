@@ -432,6 +432,22 @@ test("a Linux host that reads the border and number colours says which panel dra
   expect(captions[1].parentElement?.textContent).toContain("候选强调色");
 });
 
+// Fcitx5 在 X11 上用原生画布画候选窗时（宿主报告 `renderer: native_canvas`，`apply_linux_native_canvas` 打开选中外观），编号、强调色和固定候选都由它自己画，「仅对 IBus 生效」的说明不再成立。
+test("a Linux host drawing with the native canvas does not say the accent reaches IBus only", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_row_colors: true,
+      candidate_selection_appearance: true,
+      candidate_number_color: true,
+    }),
+  });
+  await settingsFormReady();
+  expect(screen.getByLabelText("候选强调色")).toBeTruthy();
+  expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
+  expect(screen.queryByText(/此项仅对 IBus 生效/)).toBeNull();
+});
+
 test.each([
   [
     "gnome_shell",
