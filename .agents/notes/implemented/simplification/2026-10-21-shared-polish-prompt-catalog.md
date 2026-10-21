@@ -8,9 +8,11 @@ Status: implemented
 
 ## Decision
 
-在 `client-providers::voice::polish_catalog` 持有内置方案的 id、名称和原始正文。Cargo example 一次导出共享 C++ 窄字符串目录头、Windows 设置用的宽字符串目录头、React JSON、React 的字面量 id 元组、Linux Python 字符串模块和 iOS 内置方案的 Swift 名称/id 表。生成物随源码提交；Linux 设置应用 CI 在既有依赖构建后运行 `--check`，JSON 做语义比较，其余文件逐字比较。
+在 `client-providers::voice::polish_catalog` 持有内置方案的 id、名称和原始正文。Cargo example 一次导出共享 C++ 窄字符串目录头、Windows 设置用的宽字符串目录头、React JSON、React 的字面量 id 元组、Linux Python 字符串模块、iOS 内置方案的 Swift 名称/id 表和 Android 内置方案的 Java 名称/id 表。生成物随源码提交；Linux 设置应用 CI 在既有依赖构建后运行 `--check`，JSON 做语义比较，其余文件逐字比较。
 
 C++ 请求头按共享目录查正文，已有自定义槽位与未知 id 的 cleanup 回退保持。Windows 设置页的 `PolishPreset` 与 `polish_presets` 引用宽字符串生成表，`LR` 字面量保持 `wstring_view` 的静态生命周期、编译期常量和原有同步访问；名称、顺序和正文随 Rust 目录生成，不在页面内手写。iOS 的 `VoicePolishSettings.presets` 先引用生成的 `VoicePolishPresetCatalog.builtIns`，再追加原有三个自定义槽位；App 的目录源文件与服务测试 target 都编译同一生成物。React 的公开 id 元组及其联合类型保持，名称和正文从 JSON 投影。Linux 仅导入生成的 `PROMPTS`，不增运行时 JSON 读取；CMake 把模块装到原有脚本目录。运行时不引入网络、偏好或新的解析失败。
+
+Android 的 `VoicePolishSettingsPolicy` 读取包内生成的 `VoicePolishPresetCatalog.ids()` 和 `titles()`，再追加原有三个自定义槽位；生成方法每次返回独立数组，不暴露共享可变表。原有公开 `PROMPTS` 数组接口和各自定义槽位适配保持。Java 源码的自动发现把新生成物同时编入 APK 和 JVM 冒烟，不新增运行时 JNI 初始化、文件读取或解析失败。
 
 ## Alternatives considered
 
@@ -18,11 +20,12 @@ C++ 请求头按共享目录查正文，已有自定义槽位与未知 id 的 cl
 - 用 JSON 做唯一源、各宿主运行时解析：导出链最短，但 C++ 需要新增解析/分配与失败路径，Python 还需要定位安装的数据文件。静态生成保持现有宿主的同步常量读取。
 - 让 Windows 设置页运行时把 UTF-8 目录转成宽字符串：少一份生成物，但要增加分配、字符串持有和首次访问初始化，改变现有编译期常量表；宽字符串静态投影沿用既有导出命令，不新增产品运行时的失败路径。
 - iOS 通过 C ABI 动态取名称目录：可以沿用现有的 Swift/Rust 桥，但读取失败会让原本同步可靠的选择表新增初始化与错误处理；名称与 id 不需要运行时变化，沿用静态导出更适合本片。
+- Android 沿用服务目录的 JNI 动态快照：可以复用现有服务桥，但读取名称会新增 native 库加载和解析依赖，原来无需桥的选择表也无法直接由纯 JVM 冒烟覆盖。内置 id 和名称随版本固定，静态导出与其他宿主一致；生成方法只返回调用方独有的数组，避免额外引入可修改的共享目录。
 - 同时把提示词选择策略全部迁入新 C ABI：能减少更多宿主规则，但要重接六个平台的调用、边界检查、分配与释放；本片先统一正文和名称，已有槽位规则继续由现有回归保护。
 
 ## Consequences
 
-本片迁移的 C++ 请求正文、React 与 Linux Python 消费路径读取同一个 Rust 目录。Windows 原生设置页和 iOS 内置方案选择表同样读取共享导出；Android、macOS 回退页的方案名称及鸿蒙独立的简版正文尚未迁移，它们继续需要同步，后续逐片处理。维护六份生成物与一个导出命令，跨语言发布时必须带齐；真实导出检查、跨语言契约和 Linux 安装接线承担这项维护成本。没有把提示词选择规则移到 Rust，宿主仍保留已有自定义槽位适配，后续可在统一 C ABI 时继续收敛。
+本片迁移的 C++ 请求正文、React 与 Linux Python 消费路径读取同一个 Rust 目录。Windows 原生设置页、iOS 与 Android 内置方案选择表同样读取共享导出；macOS 回退页的方案名称及鸿蒙独立的简版正文尚未迁移，它们继续需要同步，后续逐片处理。维护七份生成物与一个导出命令，跨语言发布时必须带齐；真实导出检查、跨语言契约和 Linux 安装接线承担这项维护成本。没有把提示词选择规则移到 Rust，宿主仍保留已有自定义槽位适配，后续可在统一 C ABI 时继续收敛。
 
 检索活跃笔记中的 `PolishPrompt`、`polish-presets` 和「润色提示词」后分类：
 
@@ -54,3 +57,10 @@ C++ 请求头按共享目录查正文，已有自定义槽位与未知 id 的 cl
 - 抽取改动前后真实 Swift `presets` 声明并编译执行，七项 id、名称和顺序逐字一致。临时把生成名称改成合成值，导出检查和 Swift 编译消费契约同时失败；恢复后通过。Rust 格式、exporter 严格 clippy 与 25 项 iOS 项目配置测试通过；本机 XcodeGen 校验因未暂存 `target/ios/EngineResources` 被资源前置阻止。
 - 独立审查通过：另行编译七项选择表对照 base，验证 Rust Debug 字符串经 Swift 编译往返，覆盖引号、反斜杠、控制字符、Unicode 与插值形状；核对 App 与服务测试的源包含、真实选择器消费和原有槽位/回退。
 - 本片完整 `bash scripts/verify-local.sh --quick` 通过：176 项 Windows 可移植测试、仓库契约、Rust workspace、Android 交叉检查及宿主测试、Wasm、Linux 设置外壳、Linux 原生 108 项测试及版本安装检查、macOS 原生构建和共享 Apple bridge。缺少 MinGW 的原生 Windows 构建与缺少 staged 输入的鸿蒙包按门禁明确跳过。
+
+### Android 内置方案目录验证
+
+- 新增 Java 消费契约先在缺少生成文件时编译失败；接入后编译真实 `VoicePolishSettingsPolicy` 并执行，七项 id、名称和顺序与共享 JSON 加三个自定义槽位一致。生成数组被调用方改写后再次读取保持原值，没有 JDK 17 的环境明确跳过这一部分。
+- 改动前后的真实设置策略分别以 `javac --release 17 -Xlint:all -Werror` 编译，并运行同一份完整七项回归；null/空选择、未知 id 原样显示、自定义字段与状态提示均保持。临时改写 Java 生成名称为合成值，Rust `--check` 与实际 Java 消费契约均非零退出并指出不一致，恢复后通过。
+- 独立审查通过：另行编译 base 与当前策略，七项 id、名称和顺序逐字一致；真实 `serde_json` 字面量经 `javac --release 17` 往返核对全部 ASCII 控制字符、中文、补充平面字符、U+2028/U+2029 和反斜杠加 Unicode 转义形状。APK 的 Gradle Java 源根与 JVM 冒烟的源码发现均包含新类。
+- 完整 `bash scripts/verify-local.sh --quick` 通过：176 项 Windows 可移植测试、仓库契约、Rust workspace、Android 交叉与 JVM 检查、Wasm、Linux 设置外壳、Linux 原生 108 项测试、macOS 原生构建及共享 Apple bridge。缺少 MinGW 的 Windows 原生交叉构建与缺少 staged 输入的鸿蒙包按门禁明确跳过；本片只更换静态目录来源，没有新增运行时文件访问或 Android 资源，未做设备界面验收。Rust 格式、exporter 严格 clippy 和笔记校验通过。

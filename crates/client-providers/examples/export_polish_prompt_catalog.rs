@@ -27,6 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     let typescript = format!("export const POLISH_PRESET_IDS = [{ids}] as const;\n");
+    let titles = POLISH_PROMPT_PRESETS
+        .iter()
+        .map(|preset| serde_json::to_string(preset.title))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let java = format!(
+        "package app.msime.android;\n\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nfinal class VoicePolishPresetCatalog {{\n    private VoicePolishPresetCatalog() {{}}\n\n    static String[] ids() {{\n        return new String[] {{{ids}}};\n    }}\n\n    static String[] titles() {{\n        return new String[] {{{titles}}};\n    }}\n}}\n"
+    );
     let mut swift = String::from(
         "// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nenum VoicePolishPresetCatalog {\n  static let builtIns: [(id: String, title: String)] = [\n",
     );
@@ -79,6 +87,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             "platforms/ios/App/Services/VoicePolishPresetCatalog.swift",
             swift,
+            false,
+        ),
+        (
+            "platforms/android/java/app/msime/android/voice/VoicePolishPresetCatalog.java",
+            java,
             false,
         ),
         ("shared/voice/PolishPromptCatalog.h", header, false),
