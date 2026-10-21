@@ -1,10 +1,10 @@
 # Agent Note: Windows 设置正文空白区域参与滚轮命中
 
-Status: proposed
+Status: rejected — 未改生产实现的真实滚轮回归全部通过，缺少支持透明背景修复本例的失败证据。
 
 ## Problem
 
-#9161 在真实 WinUI 设置窗口中对照确认：卡片内部可上下滚动，同页卡片间隙不能滚动，且没有位于滚动边界。页面 StackPanel 和外层 ScrollViewer 的背景均未显式设置，空白位置不能沿预期元素树传递指针事件。
+#9161 在真实 WinUI 设置窗口中对照确认：卡片内部可上下滚动，同页卡片间隙不能滚动，且没有位于滚动边界。页面 StackPanel 和外层 ScrollViewer 的背景均未显式设置，因此曾怀疑空白位置没有进入预期的滚轮路由；这只是待验证的推断。
 
 ## Proposal
 
@@ -18,6 +18,16 @@ Status: proposed
 - [Windows 原生设置归属](../../implemented/architecture/2026-10-15-settings-ui-ownership-by-platform.md)继续要求使用原生宿主验收。
 - 未合并 PR #9083 的滚轮修复处理 Windows App SDK 的非活动窗口路由，与此处卡片内外差异不同。本篇不更新 SDK 或复制其未提交内容。
 - 微软的 [Panel.Background](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.panel.background?view=windows-app-sdk-1.7) 和 [PointerWheelChanged](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.uielement.pointerwheelchanged?view=windows-app-sdk-1.7)文档说明默认空画刷及路由事件的命中边界；具体修复仍由真实输入对照证明。
+
+## 首轮实验
+
+未改生产代码的提交 `8a173390bf` 在 Windows CI run `39602562674` 中完成 56 项真实滚轮检查，全部通过。浅深色与 1000/800 两种宽度下，卡片间隙、组前空白及四周内边距均可滚动，上下边界与下拉框检查也通过。因此当前实验没有支持「空背景导致失效」的因果判断，透明背景方案仍未落地。
+
+报告使用窗口定向滚轮，首轮测试使用 `SendInput`。新增顶层窗口与指针下子窗口的 `WM_MOUSEWHEEL` 诊断，以相同卡片内部/间隙位置记录结果。定向消息绕过系统输入路由，其结果不计入真实滚轮断言，更不因某条消息未处理就修改生产实现。参考 [WM_MOUSEWHEEL](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel) 的焦点窗口与父链语义；[WinUI 命中检测说明](https://learn.microsoft.com/en-us/windows/apps/develop/platform/xaml/events-and-routed-events-overview#hit-testing-and-input-events)仅支持透明画刷的通用规则，不能替代本例复现。
+
+## 结论
+
+当前不落实透明背景方案，保留报告开放。真实滚轮回归及定向消息诊断由[设置滚轮回归](../../implemented/testing/2026-10-21-windows-settings-wheel-regression.md)持有。若后续在 Windows 11 25H2 的实体输入中复现，再用同一失败用例检验背景方案，不能将通用命中规则当成本例的因果证明。
 
 ## Alternatives considered
 

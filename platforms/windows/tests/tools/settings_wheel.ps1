@@ -20,6 +20,22 @@ public static class SettingsWheelHitProbe {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SendMessageTimeoutW(IntPtr window, uint message, UIntPtr wparam, IntPtr lparam, uint flags, uint timeout, out UIntPtr result);
+    // 定向消息只作诊断；它绕过系统输入路由，不能代替真实滚轮的通过条件。
+    public static string DirectedWheel(IntPtr owner, int x, int y, int delta, bool child) {
+        if (!SetCursorPos(x, y)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        System.Threading.Thread.Sleep(50);
+        var target = child ? WindowFromPoint(new Point { X = x, Y = y }) : owner;
+        if (target == IntPtr.Zero || GetAncestor(target, 2) != owner)
+            throw new InvalidOperationException("Directed wheel target is outside the synthetic settings window");
+        uint coordinates = unchecked((uint)((x & 0xffff) | ((y & 0xffff) << 16)));
+        UIntPtr result;
+        if (SendMessageTimeoutW(target, 0x020A, new UIntPtr(unchecked((uint)delta << 16)), new IntPtr((long)coordinates), 3, 2000, out result) == IntPtr.Zero)
+            throw new InvalidOperationException("Directed wheel delivery failed or timed out");
+        return target.ToInt64().ToString("X");
+    }
     public static void Wheel(int x, int y, int delta) {
         if (!SetCursorPos(x, y)) throw new Win32Exception(Marshal.GetLastWin32Error());
         System.Threading.Thread.Sleep(50);
@@ -109,6 +125,22 @@ function Assert-SettingsWheelHitRegions($window, [IntPtr]$handle, [string]$label
         Send-PageWheel 'inter-card-down' $middle ($title.Top - 10 * $scale) -120 $true
         $title = (Find-ByName $content '逐个模式').Current.BoundingRectangle
         Send-PageWheel 'inter-card-up' $middle ($title.Top - 10 * $scale) 120 $true
+
+        # 对照报告中的窗口定向输入：分别投递给顶层窗口与指针下的子窗口，仅记录，不把它算作原生滚轮验收。
+        if ($label -eq 'light-1000') {
+            foreach ($route in @('root', 'child')) {
+                foreach ($area in @('card', 'gap')) {
+                    Set-WheelOffset 0
+                    $title = (Find-ByName $content $(if ($area -eq 'card') { '快捷模式' } else { '逐个模式' })).Current.BoundingRectangle
+                    $y = if ($area -eq 'card') { $title.Bottom + 32 * $scale } else { $title.Top - 10 * $scale }
+                    $before = Read-WheelOffset
+                    $target = [SettingsWheelHitProbe]::DirectedWheel($handle, [int]$middle, [int]$y, -120, ($route -eq 'child'))
+                    $after = Read-WheelOffset
+                    $results.Add([pscustomobject]@{region = "diagnostic-directed-$route-$area"; delta = -120; before = $before; after = $after; target = $target})
+                    Write-Host "Directed wheel diagnostic $route $area`: $before -> $after (target=$target)"
+                }
+            }
+        }
 
         Open-Page $window 'shortcuts'
         Select-PageTab $window 'shortcuts-tab-settings' 'Ctrl+Space（由 Windows 管理）'
