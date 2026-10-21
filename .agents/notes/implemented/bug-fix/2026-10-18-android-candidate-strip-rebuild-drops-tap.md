@@ -41,4 +41,6 @@ Status: implemented
 
 验证包重新编译当前 Java 和资源，复用模拟器原安装包的原生库及词库；没有重新构建 Rust/原生库，没有在 API 35 或真机重复本轮验收。`check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease`、远端 `scripts/verify-local.sh --quick`、本地 `pnpm run verify-notes` 和 `git diff --check` 通过。
 
-#9197 补横向候选条的小鹤双拼部分选词设备回归：输入合成的「你好是要」，先真实滑动候选条，再触摸短候选「你好」。不发送额外按键、滑动或展开操作，直接要求编辑器保留前缀与剩余组字、首候选变为「是要」且旧长候选消失，随后选完剩余词。不能只检查「你好」仍存在，因为它在旧列表里也存在。复用 `CandidatePanelDeviceSmoke -e strip-partial-selection true`，清单入口改为产品目标以读取和恢复隔离偏好；原完整候选测试改用 shell 启动独立编辑器，避免跨进程 `startActivitySync`。设备对照与既有套件验证待执行。
+#9197 补横向候选条的小鹤双拼部分选词设备回归：输入合成的「你好是要」，先真实滑动候选条，再触摸短候选「你好」。不发送额外按键、滑动或展开操作，直接要求编辑器保留前缀与剩余组字、首候选变为「是要」且旧长候选消失，随后选完剩余词。不能只检查「你好」仍存在，因为它在旧列表里也存在。复用 `CandidatePanelDeviceSmoke -e strip-partial-selection true`，清单入口改为产品目标以读取和恢复隔离偏好；原完整候选测试改用 shell 启动独立编辑器，避免跨进程 `startActivitySync`。2026-10-22 对照复用固定原生 full 包与词库，只撤销 #9107 的服务触摸修复。API 28 旧逻辑在编辑器精确保留「你好uiyc」之后，失败于 `remaining strip candidates refresh without another gesture`；当前包在 API 28、35 均通过同一严格专项，两个系统也通过改为产品目标后的原完整候选面板用例。测试早期的错误双拼码、候选提示后缀定位与夹具编译失败均不计为产品红例；最终合成输入先通过独立原生会话确认短词位于首屏候选。未在报告人的手机和精确 nightly build 验收，本次只补回归，不重复改生产源码。
+
+本次设备夹具编译、远端最终 `scripts/verify-local.sh --quick`（3 分 55 秒）、本地 `pnpm run verify-notes`、shell 语法与 diff 检查通过。产品包与对照包的 SHA-256、独立合成候选查询、失败与成功日志留在工作区的忽略产物目录，不将 APK 或原始报告截图写入版本库。
