@@ -20,9 +20,9 @@ Status: implemented
 
 `SkinSummary.decorationCandidate` 只在启用时输出，字段使用 camelCase。`index` 默认 1、允许整数 0–100，0 跟随高亮，其余按当前页 1 起编号，越界时不显示。初始／最小字号默认 16／8、范围 `(0,200]`；解析不夹紧两者，绘制时以较小者作为最小字号。最大宽默认 0、范围 0–2000，0 使用装饰框宽；最小字号仍放不下时允许超框且不换行。水平／垂直默认居中，偏移为有限数 ±2000，`stripBadge` 默认 `true`。颜色保留来源的 80 字节 ASCII 白名单声明，同时输出参考来源 `ParseCandidateCssColor` 的八位 `resolvedColor`，统一无 `#` 的十六进制、浮点 RGB 与白色回退，原始 `color` 保留给编辑和导出；不能以现有更窄的 `normalized_color` 拒绝来源接受的清单。
 
-MCP 列表在装饰对象的可选 `candidate_overlay` 中返回同一声明，使用独立 DTO 提供输出 schema，不向共享服务层增加 MCP 的 schema 依赖。旧 `host_candidate_catalog` 条目不增加字段，严格的 `ThemePackage::from_host_catalog_entry` 继续可读；原生新能力应读完整的 `SkinSummary`。本节的共享解析与 MCP 列表支持不代表宿主已经绘制叠加文字，也不代表六平台设备验收。最新来源还新增图片工具栏、按钮状态贴图与自动排列，它们保持为独立绘制缺口，不能因八份出厂 TOML 没变化就报告上游无变化。
+MCP 列表在装饰对象的可选 `candidate_overlay` 中返回同一声明，使用独立 DTO 提供输出 schema，不向共享服务层增加 MCP 的 schema 依赖。旧 `host_candidate_catalog` 条目不增加字段，严格的 `ThemePackage::from_host_catalog_entry` 继续可读；原生新能力应读完整的 `SkinSummary`。本节的共享解析与 MCP 列表支持不代表宿主已经绘制叠加文字，也不代表六平台设备验收。最新来源还新增图片工具栏、按钮状态贴图与自动排列，各原生宿主仍需分别核对绘制缺口，共享预览的支持范围见[canvas 预览](2026-10-21-canvas-skin-card-preview.md)。不能因八份出厂 TOML 没变化就报告上游无变化。
 
-2026-10-21 再次核对远端 `develop@3aa15daf73a029243bbf6ec143c2089c2ccfe544`：相对本篇装饰词协议来源只有安装器修复和布朗熊演示皮肤两次提交，没有变更装饰词解析或绘制协议。新演示使用既有图片工具栏、按钮背景和自动排列，仍属于明确保留的兼容缺口；本地仅审计清单，不把授权未核实的演示图片并入产物。
+2026-10-21 再次核对远端 `develop@3aa15daf73a029243bbf6ec143c2089c2ccfe544`：相对本篇装饰词协议来源只有安装器修复和布朗熊演示皮肤两次提交，没有变更装饰词解析或绘制协议。新演示使用既有图片工具栏、按钮背景和自动排列，其原生宿主兼容性与共享预览实现分别报告；本地仅审计清单，不把授权未核实的演示图片并入产物。
 
 ## Web 贴图绘制与按能力回退
 
