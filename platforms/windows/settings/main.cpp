@@ -14860,8 +14860,9 @@ private:
           const bool back = turned_from == L"clipboard-page-previous";
           const bool usable = back ? paging.has_previous() : paging.has_next();
           auto const &keep = back == usable ? previous : next;
+          // Programmatic 只在上一次输入来自键盘时画焦点框，鼠标点翻页不会留下键盘焦点框。
           keep.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
-            sender.as<Control>().Focus(FocusState::Keyboard);
+            sender.as<Control>().Focus(FocusState::Programmatic);
           });
           status.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
             if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(
