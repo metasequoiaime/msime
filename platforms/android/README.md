@@ -267,7 +267,9 @@ Android 账号设置中的云词库现通过同一认证会话访问 HTTPS API�
 
 个人词库设置同时提供 Apple 对齐的 `msime-personal-dictionary` JSON 导入：文件最多 1 MiB、每次 1–128 条，支持拼音、五笔、快捷短语和英文，页面先在本地校验格式、编码、重复项和长度并展示预览，用户确认后才加入 Android 与 `:ime` 进程共享的逐条同步队列。导入文件不上传；同步失败的条目沿用现有重试/移除记录机制，Engine 仍负责最终规范化和应用。
 
-配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备。
+原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。首次启用键盘而配置尚不存在时，服务会在后台准备资源，在原输入框继续创建会话；设置应用也使用相同的幂等准备入口。已有但损坏的配置保持失败，不自动覆盖。
+
+拼音版的首次键盘入口用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/pinyin-startup.sh <专用AVD序列号> <原生拼音APK路径> --fresh` 验收。`--fresh` 明确清除专用设备上拼音包的数据；不带它则检查已安装状态。流程只从系统启用键盘，不打开设置应用，在同一输入框等待会话、两次输入 `nihao` 并核对真实组字标记和「你好」上屏，结束后恢复原默认输入法。再加 `--hide-resume` 会先收起并重开首次显示的键盘；该检查不保证收起时后台准备尚未完成。它复用 `DeviceSmoke -e pinyin-startup true` 入口，不增加已达 100 项的 instrumentation 清单。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0，以及 `rg`（缺它会让脚本里所有 `if rg` 守卫静默通过，因此脚本直接拒绝运行）。脚本先逐条比对 Android 侧与 `crates/host-api/src/ffi/input.rs` 的共享命令契约，再用 `javac --release 17 -Xlint:all -Werror` 编译不依赖 Android 框架的那部分宿主 Java（排除 `java/app/msime/android/home/` 与任何 import AndroidX/Material 的文件——那些是 AAR，只有 Gradle 能解析），执行 99 个不依赖 Android 运行时的策略冒烟，并用 `aapt2 compile` 校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
 
