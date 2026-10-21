@@ -16,6 +16,7 @@ export interface AppInputModeRulesSectionProps extends UseAppInputModeRulesOptio
 export function AppInputModeRulesSection({
   value,
   windows,
+  linux = false,
   pickApplication,
   applicationNames,
   onChange,
@@ -32,11 +33,13 @@ export function AppInputModeRulesSection({
     pick,
     changeMode,
     remove,
-  } = useAppInputModeRules({ value, windows, pickApplication, applicationNames, onChange });
+  } = useAppInputModeRules({ value, windows, linux, pickApplication, applicationNames, onChange });
   return (
     <SettingsRowStack role="group" aria-label="应用例外">
       <SettingsGroupNote>
         切到这些应用时从指定的中文或英文开始，优先于上面的默认状态和记忆，「全局统一」下也生效；在应用里手动切换后，到下次切回这个应用之前不再套用。
+        {linux &&
+          " 按输入法框架报告的程序名匹配：Fcitx5 下经它的 GTK、Qt 输入法模块输入的程序会报告；IBus 1.5.27 起只有经 IBus 的 GTK 输入法模块输入的程序报告，通常是 X11 会话或设置了 GTK_IM_MODULE=ibus 的程序。GNOME Wayland 下的程序经 GNOME Shell 接入 IBus，和 Qt、XIM 程序一样没有程序名，不受应用例外影响。"}
         {entries.length === 0 && " 还没有应用例外，所有应用都按上面的设置走。"}
       </SettingsGroupNote>
       {entries.map(([id, mode]) => {
@@ -73,9 +76,11 @@ export function AppInputModeRulesSection({
       ) : (
         <Row title="添加应用例外">
           <input
-            aria-label={windows ? "程序文件名" : "应用 Bundle ID"}
+            aria-label={windows ? "程序文件名" : linux ? "程序名" : "应用 Bundle ID"}
             value={draft}
-            placeholder={windows ? "例如 code.exe" : "例如 com.apple.Terminal"}
+            placeholder={
+              windows ? "例如 code.exe" : linux ? "例如 firefox" : "例如 com.apple.Terminal"
+            }
             autoCapitalize="off"
             spellCheck={false}
             onChange={(event) => edit(event.target.value)}

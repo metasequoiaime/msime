@@ -18,11 +18,15 @@ Fcitx5 现在也消费共享 `keybindings` 的五个模式快捷键与 `default_
 
 同一组里的「单按 Caps Lock 切换中英文」（`keybindings.switch_language_caps_lock`，缺省关）与下拉框互不排斥。两个宿主按 `Caps_Lock` 符号认键（被 xkb 选项改成 Control、Escape 的 Caps Lock 不算，被 `shift:both_capslock` 一类选项改成 `Caps_Lock` 的 Shift 也不算）：按下前大写锁定是关的、没有和修饰键一起按、按着期间没有按别的键、300 毫秒内松开，就先用 `XkbLockModifiers` 撤回大写锁定，撤回成功再像裸 Shift 一样切换（组字中先上屏原文），松开事件照常交给应用。撤回只在 X11 会话里做得到（`src/system/CapsLockRelease.cpp`，构建时找到 libX11 才编进来）；`WAYLAND_DISPLAY` 有值或 `XDG_SESSION_TYPE=wayland` 时锁定状态归合成器，宿主不布防，轻点照常是大写锁定。
 
+两个宿主还把大写锁定状态报告给会话（`msime_client_set_caps_lock`，IBus 的 `sync_caps_lock`、Fcitx5 的 `syncSessionCapsLock`），所以「表达」页的「大写锁定时使用英文标点」（`caps_lock_ascii_punctuation`）在 Linux 上也有效：打开后，大写锁定期间没有组字时按下的标点交给应用，即英文标点；组字中照旧由 Engine 决定，标点锁定为「始终中文标点」时仍是中文标点。锁定状态取自每个按键事件带的修饰键（与「⇪」指示同一来源），每个键分发前比较会话上次收到的值，变了才报告；新会话从关开始，IBus 在建会话时、Fcitx5 在打开会话的那个键分发之前报告。X11 与 Wayland 都一样，因为状态来自按键事件而不是撤回锁定的 XKB 调用。专项验收在 `ibus-engine-smoke <已验证词库目录> --caps-lock` 与 `fcitx5-native-test <已验证词库目录> --caps-lock` 的末尾。
+
 同一组里还有「Ctrl+Shift+J 在中文和日语之间切换」（`keybindings.toggle_japanese_ctrl_shift_j`，缺省关，只在同时提供日语和中文方案的 full 版里出现）。中文状态下按它，当前跑的是中文方案就切到日语，并把这个中文方案写进 `last_chinese_scheme`；跑的是日语、韩语、越南语或藏语就回到 `last_chinese_scheme`，它跑不起来时按 `effective_input_scheme` 的规则退回（`src/core/InputSchemes.h` 的 `japanese_toggle_target`）。英文模式和 Engine 自己的英文模式（Ctrl+Shift+E）里组合键交给应用；浏览器里它是开发者工具的快捷键，所以缺省关。Fcitx5 走状态区换方案的同一条路，组字中先上屏再切换；IBus 和属性菜单一样经 `save_menu_preference` 写偏好库，正在组的字由宿主库等这次组字结束后才换方案。状态区和属性菜单换方案只在目标是中文方案时记 `last_chinese_scheme`，快捷键离开中文时自己补记。一次按下只切换一次，按住的自动重复和松开都归这次按下。专项验收：`ibus-engine-smoke <已验证词库目录> --japanese-toggle` 与 `fcitx5-native-test <已验证词库目录> --japanese-toggle`。
 
 Fcitx5 状态栏切换输入方案、双拼方案和辅助码方案时，除了写共享偏好库，还给当前输入上下文留一个 override：会话按 `runtime-options.json` 建立，而这份文件只有设置页会同步。override 只在与偏好库一致时保留；设置页或别的窗口改过偏好库后，偏好热重载和新建会话都会丢掉它、改用偏好库的值，所以与 Windows 一样，设置页改方案所有窗口都跟着变。新建会话时这几项一律取偏好库的值，不取 `runtime-options.json` 里可能已过时的值，状态栏选辅助码方案时一并清掉的辅助码表插件也一样；状态栏切输入方案时与 IBus 一样清掉辅助码方案 override，全拼下选的辅助码不会带进双拼。保存失败的选择不回滚：与 IBus 的 `failed_menu_save` 一样，待重试的保存跨焦点保留，只在保存成功或偏好目录变更时清掉，「未落盘」标记记在各个 override 自己身上，偏好库真正存下这个值之前菜单不会跳回去。
 
 Fcitx5 的 `ime_mode_scope` 也真正决定中英文状态的记忆范围：`app` 按输入上下文报告的程序名保存有界的应用级状态，`global` 在当前 Fcitx5 进程内共享一个状态；失焦时先记录（会话留给托盘菜单，到有输入上下文获得焦点时才关闭，见「状态区」的说明；托盘上的中英文切换会更新这份记录），重新聚焦并重建会话时恢复，而不是重新套用 `default_ime_mode`。匿名或缺失程序名使用共享的匿名槽位，不把状态写入偏好文件。
+
+应用例外（共享偏好 `app_input_mode_rules`，设置页「中英文」组里的规则表）在两个宿主上按程序名执行，语义与 macOS、Windows 相同：焦点从别的程序进入有规则的程序时从规则里的中文或英文开始，优先于作用域、记忆和 `default_ime_mode`，「全局统一」下也生效且不改全局状态；在这个程序里手动切换中英文（快捷键、单按 Caps Lock、托盘或属性菜单）后，规则让位到焦点进入另一个程序为止，同一程序的其他窗口和输入框算同一次停留。程序名不分 ASCII 大小写比较（`src/core/AppInputModeRules.h`）。Fcitx5 取 `InputContext::program()`：经 Fcitx5 的 GTK、Qt 输入法模块或 D-Bus 前端接入的程序在 X11 和 Wayland 下都报告；没有程序名的前端（例如部分 Wayland text-input 客户端）不受规则影响，但它们获得焦点算换了程序，回到有规则的程序时规则重新生效，因为 Fcitx5 的上下文建起来时就带着程序名，空程序名一定是另一个客户端。IBus 只能尽力而为：1.5.27 起 `focus_in_id` 的客户端名只有 IBus 的 GTK 输入法模块带程序名（`gtk3-im:<g_get_prgname()>`，GTK 2、4 同理），Qt 插件（`QIBusInputContext`）、XIM 和更早的 IBus 都是匿名的，规则对它们不生效。GNOME Wayland（Ubuntu、Fedora 的默认桌面）下没有设置 `GTK_IM_MODULE` 的 GTK 程序走合成器的 text-input 协议，IBus 只看到 GNOME Shell 一个客户端（客户端名 `gnome-shell`），所以规则在那里只对设置了 `GTK_IM_MODULE=ibus` 的程序和 XWayland 里经 IBus GTK 模块输入的程序生效。有客户端名却没有程序名的焦点（`QIBusInputContext`、`xim`、`gnome-shell`）算换了程序；空客户端名（IBus 还在协商身份）和 IBus 自己的 `fake` 上下文认不出离没离开，停留保持不变。Linux 没有选应用的对话框，设置页手填程序名（粘贴 `/usr/bin/firefox` 这样的路径时只取文件名），并说明哪些程序会报告程序名。专项验收：`fcitx5-native-test <已验证词库目录> --app-rules` 与 `ibus-engine-smoke <已验证词库目录> --app-rules`（IBus 1.5.27 以前返回 77 跳过），两者都覆盖应用作用域、全局作用域和匿名客户端。
 
 Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 status action（旧版本兼容入口）提供置顶、固定到第 N 位、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 IBus 兼容前端或 Windows 原生窗口。
 
@@ -534,11 +538,15 @@ Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI
 
 该入口也支持本地词库批量迁移：`import` 接受不超过 64 KiB、最多 1000 行的 UTF-8 文本，`standard` 格式为 `词条<TAB>编码<TAB>权重`，`windows` 格式为 `编码<TAB>词条<TAB>权重`，`rime` 格式兼容 `userdb.txt/dict.yaml` 的 `词条<TAB>编码[<TAB>权重]`、YAML 头和 `c=… d=…` 元数据；拼音词库的 `hans` 格式则每行接受纯汉字词条，由 Engine 从已验证主词典解析最高权重的规范拼音并以 10000 导入。省略权重时使用 10000。空行和 `#` 注释会跳过。调用方提供请求 ID 前缀，入口为每行生成稳定回执，重复提交同一请求安全。`export` 按页返回相同两种格式的文本和 `has_more`；设置窗口把拼好的文件交给 Tauri `save_export` 写进用户的「下载」文件夹（重名时另起 `name (2).txt`），并在页面上提示写入的完整路径。这一入口契约不变；桌面设置页导入不超过 32 MB 的文件时（更大的文件在读取前就被拒绝，提示拆分后分别导入），会在行边界把它拆成若干满足上述限制的请求（请求 ID 为 `<ID>-<序号>`，Rime YAML 头以空行代替），按整份文件的列顺序逐批导入，并把各批结果合并成一份报告，失败行号按整份文件计算；整份文件因控制字符、没有可用行等原因会被入口拒绝时，设置页在写入任何一批之前就拒绝。导入取得独占维护锁。活动 IBus / Fcitx5 会话持有共享锁时，设置窗口会在用户数据目录写入带过期时间的 `.msime-dictionary-quiesce` 租约（最长 30 秒）：两个宿主在偏好轮询时（Fcitx5 每 250 ms、IBus 每秒）上屏当前组合、关闭会话，租约存在期间不再打开新会话；设置窗口在约 2.5 秒内重试获取锁，分批导入时租约在各批之间保持并在每批前续期，整次操作结束后立即删除租约，仍取不到锁才返回 busy。导出使用共享锁，不会中断用户组合。
 
-账号云词库使用独立的 `msime-linux-cloud-dictionary /absolute/provider.sock` 入口。它验证 `list`、`changes`、`add`、`update`、`delete`、`import` 和 `export` 请求后，经用户管理的 Unix socket 转发一行 `{"version":1,"kind":"cloud_dictionary","request":...}`；provider 负责登录态、凭据、网络和冲突同步，入口只输出有界 JSON 响应，不保存账号信息。Tauri 设置页通过 `cloud_dictionary_provider_socket` 或 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 接入同一 provider，提供词库选择、搜索分页、词条 CRUD，以及标准 TSV、Windows TSV 和拼音汉字自动注音导入。
+设置窗口的云词库面板（设置页「云词库」分类、IBus 菜单和 Fcitx5 状态栏打开的独立面板、`--panel cloud-dictionary`）默认经设置应用登录的水杉账号完成请求，与 Windows 和没有原生会话的 macOS 设置进程同一条路（`apps/desktop/src-tauri/src/platform/desktop/desktop_cloud_dictionary.rs`）：列表、目录、增删改、导入导出、候选调频和固定排位，以及完整云词库备份（导出、选文件预览、恢复到云端）和「应用到本机」。完整快照的下载预览和中转文件放在设置应用自己的本地数据目录（`$XDG_DATA_HOME/<identifier>/dictionary-snapshots`）；「应用到本机」把校验过的快照放进状态目录下的持久队列 `dictionary-snapshots`，挂上 IBus 和 Fcitx5 都认的词库维护租约让输入会话放开词库，在设置进程里准备并激活新的一代词库（暂存在 `dictionary-snapshot-staging`），再交还会话。两个宿主都不自己处理这个队列，所以和 Windows 一样由面板当场应用、开着时每分钟重试，面板不说「输入法空闲时应用」。导出和完整备份经宿主写进「下载」目录（`save_export`，单个文件上限 64 MiB），因为 WebKitGTK 和 macOS 的 WKWebView 一样没有下载处理器；恢复用页面自己的文件选择。配置了 provider socket（下文）或在默认位置发现 `cloud-dictionary.sock` 时仍先走 provider，provider 失败时直接报错，不改走账号。
+
+账号云词库也可以使用独立的 `msime-linux-cloud-dictionary /absolute/provider.sock` 入口。它验证 `list`、`changes`、`add`、`update`、`delete`、`import` 和 `export` 请求后，经用户管理的 Unix socket 转发一行 `{"version":1,"kind":"cloud_dictionary","request":...}`；provider 负责登录态、凭据、网络和冲突同步，入口只输出有界 JSON 响应，不保存账号信息。Tauri 设置页通过 `cloud_dictionary_provider_socket` 或 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 接入同一 provider，提供词库选择、搜索分页、词条 CRUD，以及标准 TSV、Windows TSV 和拼音汉字自动注音导入。
 
 ### 账号
 
 Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（`account_status`、`account_providers`、`account_request_code`、`account_login`、`account_profile`、`account_rename`、`account_logout`、`account_delete`、`account_forget`），共享设置页的账号分类因此在 Linux 上可用。此前这些命令只为 Windows、macOS、Android、iOS 注册，`main.tsx` 也只在前两者注入 `account` 客户端，Linux 上整个账号界面没有宿主可调。
+
+登录后，账号页还有和 Windows 相同的「设置同步」卡片（四个 `account_preferences_*` 命令，`platform/desktop/desktop_settings_sync.rs` 与 Windows 共用）：上传、应用的只有各平台共有的 `input.*` 键（输入方案、繁简、双拼和五笔版本、词库学习、调频和标点），应用走与设置页保存相同的路径，同步进 `runtime-options.json` 后两个宿主当场读到。账号文档里没有 Linux 自己的键，候选窗口、快捷键和皮肤这些桌面设置不随设置同步。社区页的「词包与回复模板」也与 Windows 一样接在这个会话上（`community_resource_*` 命令）：浏览、收藏、评分、举报和发布，词包可以导入本机个人词库或账号云词库；桌面没有「高情商回复」键盘，回复模板不能存进本机。
 
 命令本体与 Windows 完全一致，差别只在会话文件所在的目录：Linux 没有一个所有目标桌面都保证在跑的密钥服务，因此会话保存在共享状态目录下的 `account-session.json`，以 0600 创建、按临时文件加原子重命名发布，读取前核对是普通文件（不跟随符号链接）、属主是当前用户、其他用户无任何权限、且大小不超过 64 KiB；不满足时报告存储错误而不是伪装成「未登录」。这与 Linux provider 私有配置文件一直声明的规则相同，也沿用 `msime-linux-prepare` 建立的 0700 状态目录。**它不加密静态数据**；macOS 与 Windows 桌面端现在用的是同一个文件存储（`crates/client-services/src/account/file_storage.rs`），不再用 Keychain 或凭据管理器。令牌只在桌面宿主进程内，交给 WebView 的仍是与其他平台相同的脱敏 DTO。
 
@@ -694,6 +702,8 @@ IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS
 九键输入：IBus 属性菜单中的“九键输入”只在全拼方案下可用。开启后数字键交给 Engine 组成九键拼音，候选视图中的数字选词自动让位；切换会先结束当前组合并重建会话，九键拼音候选和代次由 Engine 返回。关闭后恢复普通数字选词，设置只作用于当前 IBus 输入上下文。
 
 九键歧义拼音：Engine 返回 `nine_key_spellings` 时，IBus 属性菜单显示当前代次的拼音选项（如 `ni`、`mi`）。选择菜单项通过 Host API 携带会话和 generation 调用 `choose_nine_key_spelling`；组合已变化或失焦后，旧菜单项会被忽略，不会改写新组合。
+
+快捷短语编码也和 macOS 一样直接参与普通候选：两个宿主建会话时请求 `quick_phrase_candidates`（与 `phrase_preedit` 一样是宿主能力，不写进偏好），中文模式下直接打快捷短语的编码，展开就排在普通候选后面；仍可按 Shift+K 进入 K 模式只查快捷短语。设置页「快捷模式」里快捷短语一行的说明据 `HostCapabilities.quick_phrase_candidates` 写成「直接输入编码即可调用」。
 
 快捷模式：属性菜单中的“快捷模式”提供 Unicode、日期时间、快捷短语、Emoji、颜文字、超级简拼、临时英文/日文、拆字（C），以及计算与数字（V）、指令（/）和名单（@）模式的会话级开关。后三个默认关闭，偏好文件在它们关闭时不写这几个键；拆字在桌面默认关闭，偏好文件只在用户动过开关后才有这个键。两个宿主的菜单因此把这四个的缺省读作关闭，其余模式缺省读作开启。切换会结束当前组合并重建 Engine 会话，开关只覆盖当前输入上下文；共享 Preferences 和设置页中的持久化开关仍作为新会话默认值。
 
