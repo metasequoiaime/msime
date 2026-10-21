@@ -379,6 +379,102 @@ fn incompatible_data_and_untrusted_asset_urls_are_rejected_before_download() {
 }
 
 #[test]
+fn automatic_check_keeps_daily_boundaries_and_disabled_protection() {
+    let checked_at = 1_800_000_000;
+    let mut status = UpdateStatus {
+        enabled: true,
+        checked_at,
+        ..UpdateStatus::default()
+    };
+    for (now, expected) in [
+        (checked_at - 1, true),
+        (checked_at, false),
+        (checked_at + INTERVAL - 1, false),
+        (checked_at + INTERVAL, true),
+        (checked_at + INTERVAL + 1, true),
+    ] {
+        assert_eq!(automatic_check_due(&status, now), expected, "now={now}");
+        status.enabled = false;
+        assert!(!automatic_check_due(&status, now));
+        status.enabled = true;
+    }
+}
+
+#[test]
+fn failed_automatic_check_after_clock_correction_restarts_daily_throttle() {
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    let future = now() + 7 * INTERVAL;
+    write(
+        &root(&fixture.context.state_root).join("status.json"),
+        &UpdateStatus {
+            checked_at: future,
+            ..UpdateStatus::default()
+        },
+    )
+    .unwrap();
+
+    assert!(matches!(
+        check_with(&fixture.context, true, &fixture),
+        Err(UpdateError::Network)
+    ));
+    assert!(status(&fixture.context).checked_at < future);
+    assert!(!due(&fixture.context));
+    fixture.requests.borrow_mut().clear();
+    check_with(&fixture.context, true, &fixture).unwrap();
+    assert!(fixture.requests.borrow().is_empty());
+}
+
+#[test]
+fn automatic_due_recovers_from_a_future_check_timestamp() {
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    let future = now() + 7 * INTERVAL;
+    write(
+        &root(&fixture.context.state_root).join("status.json"),
+        &UpdateStatus {
+            checked_at: future,
+            ..UpdateStatus::default()
+        },
+    )
+    .unwrap();
+
+    assert!(due(&fixture.context), "时钟回拨后自动检查应恢复到期");
+    configure(&fixture.context, false).unwrap();
+    assert!(!due(&fixture.context));
+}
+
+#[test]
+fn automatic_check_recovers_from_a_future_check_timestamp() {
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    let future = now() + 7 * INTERVAL;
+    write(
+        &root(&fixture.context.state_root).join("status.json"),
+        &UpdateStatus {
+            checked_at: future,
+            ..UpdateStatus::default()
+        },
+    )
+    .unwrap();
+    fixture.release(
+        "dict-v2.0.10",
+        b"synthetic dictionary after clock correction",
+        1,
+    );
+
+    let updated = check_with(&fixture.context, true, &fixture).unwrap();
+    assert_eq!(updated.phase, "ready", "时钟回拨后后台任务应执行检查");
+    assert!(updated.checked_at < future);
+    assert_eq!(updated.version, "dict-v2.0.10");
+    assert!(fixture.requests.borrow().iter().any(|url| url == API));
+    fixture.requests.borrow_mut().clear();
+    assert!(!due(&fixture.context));
+    check_with(&fixture.context, true, &fixture).unwrap();
+    assert!(fixture.requests.borrow().is_empty());
+}
+
+#[test]
 fn disabled_and_daily_checks_do_not_access_the_network_but_manual_checks_do() {
     let fixture = Fixture::new();
     configure(&fixture.context, false).unwrap();
