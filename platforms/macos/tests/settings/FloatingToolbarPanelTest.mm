@@ -694,8 +694,24 @@ int main() {
         [panel deactivateForDelegate:newDelegate];
 
         // Selecting another input source is the reference's WM_IMEDEACTIVATE: the toolbar hides and lets go of whichever controller owned it, so that controller can no longer show it again. Whether the first show actually puts the panel on screen depends on the frontmost app being fullscreen, so the reactivation is compared against it rather than against a fixed value.
+        // 自动隐藏出厂关（对齐 Windows v0.11.1），这一节测的是自动隐藏本身，所以先打开它；关着时下面
+        // 单独断言根本排不出计时器。
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"auto_hide": @YES}}];
         FloatingToolbarTestDelegate *residentOwner = [FloatingToolbarTestDelegate new];
         [panel activateForDelegate:residentOwner visible:YES];
+        // 关掉自动隐藏时不再排计时器：出厂就是这个状态，工具栏不该自己消失。测完把自动隐藏打开、
+        // 把工具栏交还给 residentOwner，后面几条断言仍按原意读它。
+        {
+            FloatingToolbarTestDelegate *offOwner = [FloatingToolbarTestDelegate new];
+            [panel activateForDelegate:offOwner visible:YES];
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"auto_hide": @NO}}];
+            [panel noteInputForDelegate:offOwner];
+            assert([panel valueForKey:@"idleTimer"] == nil);
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"auto_hide": @YES}}];
+            [panel setVisible:NO forDelegate:offOwner];
+            [panel activateForDelegate:residentOwner visible:YES];
+            [panel noteInputForDelegate:residentOwner];
+        }
         const BOOL shownWhenActive = panel.visible;
         assert(panel.toolbarDelegate == residentOwner);
         NSTimer *idle = [panel valueForKey:@"idleTimer"];

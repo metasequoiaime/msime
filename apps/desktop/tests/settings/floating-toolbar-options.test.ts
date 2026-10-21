@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { floatingToolbarButtonOptions, floatingToolbarSize, floatingToolbarSizes } from "@msime/ui";
+import {
+  floatingToolbarAutoHideDelay,
+  floatingToolbarAutoHideDelayRange,
+  floatingToolbarButtonOptions,
+  floatingToolbarSize,
+  floatingToolbarSizes,
+} from "@msime/ui";
 import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
 
 test("悬浮工具栏按钮按显示顺序过滤宿主能力，中英文切换也能关", () => {
@@ -61,4 +67,18 @@ test("存下的缩放和图标尺寸凑成一档时认出那一档，单独调�
   expect(floatingToolbarSize({ scale_percent: 150, font_size: 28 })?.percent).toBe(175);
   expect(floatingToolbarSize({ scale_percent: 125, font_size: 24 })?.percent).toBe(125);
   expect(floatingToolbarSize({ scale_percent: 100, font_size: 20 })).toBeUndefined();
+});
+
+test("自动隐藏延时落在滑块能表示的 1–60 秒，坏值取出厂 5 秒", () => {
+  expect(floatingToolbarAutoHideDelayRange).toEqual({ min: 1, max: 60, default: 5 });
+  expect(floatingToolbarAutoHideDelay(defaultFloatingToolbar)).toBe(5);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: 1 })).toBe(1);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: 60 })).toBe(60);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: 33 })).toBe(33);
+  // 越界、缺值和非有限值都回退到 5，不夹到最近边界，与 macOS 的解析一致。
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: 0 })).toBe(5);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: 61 })).toBe(5);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: -3 })).toBe(5);
+  expect(floatingToolbarAutoHideDelay({ auto_hide_delay: Number.NaN })).toBe(5);
+  expect(floatingToolbarAutoHideDelay({})).toBe(5);
 });

@@ -2,7 +2,9 @@
 
 The production Server includes `ServerManifest.cmake`. This minimal target uses the same wiring without starting the Server or registering a TSF component, so a manifest change can be checked without a full platform build.
 
-`MSIME_SERVER_UIACCESS` defaults to OFF, which is what a development build wants; `Build-Client.ps1` turns it on for the x64 installation build only. The manifest matches MSIME-Windows commit `342e2b6b2cb265ddc56d9d35cae642a4b696d73b` (`server/MetasequoiaImeServer.manifest`): `asInvoker`, `uiAccess="true"`. UIAccess takes effect only for a trusted-signed binary in a secure installation location — that is what the signed installer produces. The option neither elevates Tauri nor bypasses Windows trust requirements.
+`MSIME_SERVER_UIACCESS` 默认关闭。`Build-Client.ps1 -ServerUiAccess` 仅供随后可信签名的安装构建开启，其他构建显式传 OFF，覆盖旧 CMake 缓存。UIAccess 清单保持 `asInvoker`、`uiAccess="true"`，需要受信任签名和安全安装目录；未签名和 SignPath 测试证书包使用普通权限。
+
+在 Windows 上运行 `pwsh -File platforms/windows/tests/server-manifest/verify.ps1`：同一构建目录依次 OFF → ON → OFF，直接读生成 PE 的资源 1，核对实际清单，并实际启动两次未签名普通权限程序。CI 的 Windows 脚本作业运行同一检查。安装冒烟另以 `MetasequoiaImeServer.exe --help` 核对完整产品的加载与启动。
 
 Local cross-link verification, run from the repository root:
 

@@ -40,7 +40,7 @@
      12,
      16
     ],
-    "candidate_count": 5,
+    "candidate_count": 22,
     "candidates": [
      {
       "word": "__four_syllable_alternative__",
@@ -68,6 +68,242 @@
       "answers_key": true
      },
      {
+      "word": "__primary_xian_1____primary_xian_1____primary_xian_1____alternative_xi_an__",
+      "pinyin": "xian'xian'xian'xi'an",
+      "canonical_pinyin": "xian'xian'xian'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": -723,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__primary_xian_1__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____primary_xian_1____alternative_xi_an____primary_xian_1__",
+      "pinyin": "xian'xian'xi'an'xian",
+      "canonical_pinyin": "xian'xian'xi'an'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": -723,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____primary_xian_1____alternative_xi_an____alternative_xi_an__",
+      "pinyin": "xian'xian'xi'an'xi'an",
+      "canonical_pinyin": "xian'xian'xi'an'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 26184,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____three_syllable_alternative__",
+      "pinyin": "xian'xi'an'xian'xian",
+      "canonical_pinyin": "xian'xi'an'xian'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 57697,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__three_syllable_alternative__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____alternative_xi_an____primary_xian_1____alternative_xi_an__",
+      "pinyin": "xian'xi'an'xian'xi'an",
+      "canonical_pinyin": "xian'xi'an'xian'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 26184,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____alternative_xi_an____alternative_xi_an____primary_xian_1__",
+      "pinyin": "xian'xi'an'xi'an'xian",
+      "canonical_pinyin": "xian'xi'an'xi'an'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 26184,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__primary_xian_1____alternative_xi_an____alternative_xi_an____alternative_xi_an__",
+      "pinyin": "xian'xi'an'xi'an'xi'an",
+      "canonical_pinyin": "xian'xi'an'xi'an'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 53092,
+      "sentence_association": true,
+      "sentence_words": [
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__five_syllable_alternative__",
+      "pinyin": "xi'an'xian'xian'xian",
+      "canonical_pinyin": "xi'an'xian'xian'xian'xian",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": true
+     },
+     {
+      "word": "__three_syllable_alternative____alternative_xi_an__",
+      "pinyin": "xi'an'xian'xian'xi'an",
+      "canonical_pinyin": "xi'an'xian'xian'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 84605,
+      "sentence_association": true,
+      "sentence_words": [
+       "__three_syllable_alternative__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____primary_xian_1____alternative_xi_an____primary_xian_1__",
+      "pinyin": "xi'an'xian'xi'an'xian",
+      "canonical_pinyin": "xi'an'xian'xi'an'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 26184,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____primary_xian_1____alternative_xi_an____alternative_xi_an__",
+      "pinyin": "xi'an'xian'xi'an'xi'an",
+      "canonical_pinyin": "xi'an'xian'xi'an'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 53092,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____three_syllable_alternative__",
+      "pinyin": "xi'an'xi'an'xian'xian",
+      "canonical_pinyin": "xi'an'xi'an'xian'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 84605,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__three_syllable_alternative__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____alternative_xi_an____primary_xian_1____alternative_xi_an__",
+      "pinyin": "xi'an'xi'an'xian'xi'an",
+      "canonical_pinyin": "xi'an'xi'an'xian'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 53092,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____alternative_xi_an____alternative_xi_an____primary_xian_1__",
+      "pinyin": "xi'an'xi'an'xi'an'xian",
+      "canonical_pinyin": "xi'an'xi'an'xi'an'xian",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 53092,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__primary_xian_1__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__alternative_xi_an____alternative_xi_an____alternative_xi_an____alternative_xi_an__",
+      "pinyin": "xi'an'xi'an'xi'an'xi'an",
+      "canonical_pinyin": "xi'an'xi'an'xi'an'xi'an",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 80000,
+      "sentence_association": true,
+      "sentence_words": [
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__",
+       "__alternative_xi_an__"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "__three_syllable_alternative__",
+      "pinyin": "xi'an'xian'xian",
+      "canonical_pinyin": "xi'an'xian'xian",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
+     },
+     {
       "word": "__primary_xian_1__",
       "pinyin": "xian",
       "canonical_pinyin": "xian",
@@ -92,6 +328,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 800,
+      "answers_key": false
+     },
+     {
+      "word": "__alternative_xi_an__",
+      "pinyin": "xi'an",
+      "canonical_pinyin": "xi'an",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1,
       "answers_key": false
      }
     ],

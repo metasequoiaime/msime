@@ -1,3 +1,6 @@
+import { GroupList } from "../../core/platform-controls";
+import { SwitchRow } from "../switch-row";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 import { aiTabs } from "../ai-tabs";
 import { useSettingsTabs } from "../use-settings-tabs";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
@@ -6,12 +9,14 @@ import { AiSettingsContent } from "../ai-settings-content";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { AiReplyTemplates } from "../ai-reply-templates";
-import { createSettingsDraftActions } from "../settings-draft-actions";
 
 /** AI 辅助内容保留原有表单与草稿，切换标签不卸载。 */
 function AiAssistanceContent() {
   const {
     client,
+    host,
+    draft,
+    setDraft,
     linuxPlatform,
     androidPlatform,
     iosPlatform,
@@ -44,9 +49,9 @@ function AiAssistanceContent() {
     providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
-    draft,
-    setDraft,
   } = useSettingsForm();
+
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
 
   return (
     <AiSettingsContent
@@ -92,6 +97,19 @@ function AiAssistanceContent() {
       }
       trailing={
         <>
+          {host?.english_online_candidates && (
+            <GroupList title="英文补全与纠错">
+              <SwitchRow
+                title="英文模式也请求 AI / 云候选"
+                description="开启后，英文模式和临时英文会在停顿时把当前字母串与前文发送给已启用的 AI 或自定义云候选服务。默认关闭；内置 Google 拼音服务不支持英文。"
+                checked={draft.english_online_candidates ?? false}
+                disabled={busy}
+                onChange={(english_online_candidates) =>
+                  onPreferencesChange({ english_online_candidates })
+                }
+              />
+            </GroupList>
+          )}
           <AiReplyTemplates />
           <SubPageEntries
             title="AI 对话"

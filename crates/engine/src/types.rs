@@ -1111,6 +1111,8 @@ pub enum LocalInputMode {
     Url,
     /// `C`：拆字反查，按部件的拼音找字（`huohuohuo` 得 焱）。
     Chaizi,
+    /// `S`：符号模式，按分组码（`xl`、`sx`、`szq`、`jt`）或符号名（`alpha`、`infinity`）查符号。
+    Symbol,
 }
 
 impl LocalInputMode {
@@ -1131,6 +1133,7 @@ impl LocalInputMode {
             Self::Mention => "mention",
             Self::Url => "url",
             Self::Chaizi => "chaizi",
+            Self::Symbol => "symbol",
         }
     }
 
@@ -1151,6 +1154,7 @@ impl LocalInputMode {
             Self::Mention,
             Self::Url,
             Self::Chaizi,
+            Self::Symbol,
         ]
         .into_iter()
         .find(|mode| mode.name() == name)
@@ -1242,7 +1246,7 @@ impl Default for FrequencyAdjustmentOptions {
     }
 }
 
-/// Which local modes may be entered. The Shift+letter modes of the reference are on by default; expression (`V`), command (`/`), mention (`@`) and 拆字 (`C`) are off, because entering them takes a key that used to reach the host as text. 拆字的默认值由宿主按形态决定：host-api 在触屏宿主上打开它，桌面宿主等用户在设置里打开。
+/// Which local modes may be entered. The Shift+letter modes of the reference are on by default, symbol mode (`S`) among them, as the reference's factory configuration ships it on; expression (`V`), command (`/`), mention (`@`) and 拆字 (`C`) are off, because entering them takes a key that used to reach the host as text. 拆字的默认值由宿主按形态决定：host-api 在触屏宿主上打开它，桌面宿主等用户在设置里打开。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalModeOptions {
     pub unicode: bool,
@@ -1258,7 +1262,9 @@ pub struct LocalModeOptions {
     pub mention: bool,
     /// `C`：拆字反查。
     pub chaizi: bool,
-    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V/C）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
+    /// `S`：符号模式。
+    pub symbol: bool,
+    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V/C/S）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
     pub shift_letter_entry: bool,
 }
 
@@ -1277,6 +1283,7 @@ impl Default for LocalModeOptions {
             command: false,
             mention: false,
             chaizi: false,
+            symbol: true,
             shift_letter_entry: true,
         }
     }
@@ -1359,9 +1366,25 @@ pub struct WubiInputOptions {
     pub z_wildcard: bool,
 }
 
-/// The request a host sends to its cloud or AI provider, and must hand back unchanged with the answer. The engine revalidates every field against the live composition before inserting anything.
+/// 在线请求的输入语义；缺省沿用原有的拼音及方案转换路径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnlineInputMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
+impl OnlineInputMode {
+    pub fn is_pinyin(&self) -> bool {
+        *self == Self::Pinyin
+    }
+}
+
+/// 宿主交给云或 AI 服务的查询，回包必须原样带回；引擎在插入候选前核对当前组字的每个字段。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuery {
+    pub mode: OnlineInputMode,
     pub scheme: SchemeType,
     pub generation: u64,
     pub identity: String,
@@ -1701,7 +1724,8 @@ mod tests {
                 LocalInputMode::Command => LocalInputMode::Mention,
                 LocalInputMode::Mention => LocalInputMode::Url,
                 LocalInputMode::Url => LocalInputMode::Chaizi,
-                LocalInputMode::Chaizi => return None,
+                LocalInputMode::Chaizi => LocalInputMode::Symbol,
+                LocalInputMode::Symbol => return None,
             })
         }
         let mut names = Vec::new();
@@ -1715,9 +1739,10 @@ mod tests {
             names.push(current.name());
             mode = next(current);
         }
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 15);
         assert!(names.contains(&"url"));
         assert!(names.contains(&"chaizi"));
+        assert!(names.contains(&"symbol"));
         assert_eq!(LocalInputMode::from_name("unknown"), None);
     }
 

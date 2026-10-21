@@ -254,22 +254,37 @@ fn percent(text: &Text, start: usize) -> Option<Match> {
     if run_end == number_start {
         return None;
     }
-    // 整段必须读得通，不能只改写「百分之三四十」开头的合法前缀。
-    let value = cardinal_value(text.slice(number_start, run_end))?;
+    // 保留时也消耗整段，防止后续整数规则再改写约数里的「二十」。
+    let original = |end| {
+        Some(Match {
+            end,
+            written: text.slice(start, end).iter().collect(),
+        })
+    };
     let mut end = run_end;
-    let mut written = value.to_string();
-    if text.at(end) == Some('点') {
-        let fraction_end = text.digit_end(end + 1);
-        if let Some(fraction) =
+    let fraction = if text.at(end) == Some('点') {
+        let fraction_end = text.numeral_end(end + 1);
+        let Some(fraction) =
             digit_string(text.slice(end + 1, fraction_end)).filter(|f| !f.is_empty())
-        {
-            written = format!("{written}.{fraction}");
-            end = fraction_end;
-        }
+        else {
+            return original(fraction_end);
+        };
+        end = fraction_end;
+        Some(fraction)
+    } else {
+        None
+    };
+    if matches!(text.at(end), Some('几' | '多' | '来')) {
+        return original(end + 1);
     }
-    if matches!(text.at(end), Some('几' | '多')) {
-        return None;
-    }
+    // 整段必须读得通，不能只改写「百分之三四十」开头的合法前缀。
+    let Some(value) = cardinal_value(text.slice(number_start, run_end)) else {
+        return original(end);
+    };
+    let written = fraction.map_or_else(
+        || value.to_string(),
+        |fraction| format!("{value}.{fraction}"),
+    );
     Some(Match {
         end,
         written: format!("{written}%"),
@@ -643,6 +658,45 @@ mod tests {
         stays("百分之百确定");
         stays("百分之二十几");
         stays("百分之三四十");
+    }
+
+    #[test]
+    fn approximate_percentages_keep_their_whole_expression() {
+        for said in [
+            "利率百分之三点几",
+            "利率百分之二十点几",
+            "涨幅百分之三点多",
+            "涨幅百分之三点五多",
+            "涨幅百分之二十多",
+            "涨幅百分之二十来",
+            "涨幅百分之一二三点几",
+        ] {
+            stays(said);
+        }
+        becomes(
+            "约百分之三点几，精确值百分之三点五",
+            "约百分之三点几，精确值3.5%",
+        );
+    }
+
+    #[test]
+    fn a_percentage_requires_a_complete_decimal_fraction() {
+        for said in [
+            "百分之三点",
+            "百分之二十点",
+            "百分之零点",
+            "百分之三点五十",
+            "百分之二十点五百",
+        ] {
+            stays(said);
+        }
+    }
+
+    #[test]
+    fn an_invalid_percentage_is_not_partly_normalized() {
+        for said in ["百分之一二三", "百分之一二三点五"] {
+            stays(said);
+        }
     }
 
     #[test]

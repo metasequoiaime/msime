@@ -37,7 +37,7 @@
      0,
      4
     ],
-    "candidate_count": 2,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "先",
@@ -56,6 +56,24 @@
       "scheme": "quanpin",
       "weight": 55003,
       "answers_key": true
+     },
+     {
+      "word": "些",
+      "pinyin": "xi",
+      "canonical_pinyin": "xie",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 3752167,
+      "answers_key": false
+     },
+     {
+      "word": "写",
+      "pinyin": "xi",
+      "canonical_pinyin": "xie",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 605147,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -110,7 +128,7 @@
      0,
      3
     ],
-    "candidate_count": 3,
+    "candidate_count": 4,
     "candidates": [
      {
       "word": "些",
@@ -138,6 +156,15 @@
       "scheme": "quanpin",
       "weight": 6,
       "answers_key": true
+     },
+     {
+      "word": "先",
+      "pinyin": "xi",
+      "canonical_pinyin": "xian",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 1662684,
+      "answers_key": false
      }
     ],
     "online_query": {
