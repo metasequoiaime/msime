@@ -209,7 +209,7 @@ int main() {
   assert(contains(theme, "[InputPanel/Highlight]\nImage=shape-"));
   assert(contains(theme, ".png\nColor=#07c160\n"));
   // The corner slices hold the 10 px corners and the shadow, which the classic UI leaves out when it places the panel on X11; the content sits macOS's 4 px inside the card's outer edge (the 1 px hairline within it), and the items take macOS's 8 px sides and 6 px above and below.
-  assert(contains(theme, "[InputPanel/Background/Margin]\nLeft=24\nRight=24\nTop=24\nBottom=28\n\n"
+  assert(contains(theme, "[InputPanel/Background/Margin]\nLeft=24\nRight=22\nTop=24\nBottom=26\n\n"
                          "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n\n"
                          "[InputPanel/ContentMargin]\nLeft=16\nRight=16\nTop=12\nBottom=20\n\n"
                          "[InputPanel/TextMargin]\nLeft=8\nRight=8\nTop=6\nBottom=6\n\n"));
@@ -234,7 +234,7 @@ int main() {
   auto wide = wechat_dark;
   wide.border_width = 3;
   const auto wide_theme = host::fcitx_candidate_theme(wide, true);
-  assert(contains(wide_theme, "BorderWidth=3\n\n[InputPanel/Background/Margin]\nLeft=24\nRight=24\nTop=24\nBottom=28\n"));
+  assert(contains(wide_theme, "BorderWidth=3\n\n[InputPanel/Background/Margin]\nLeft=24\nRight=22\nTop=24\nBottom=26\n"));
   assert(contains(wide_theme, "[InputPanel/ContentMargin]\nLeft=16\nRight=16\nTop=12\nBottom=20\n"));
   auto wider = wechat_dark;
   wider.border_width = 6;
@@ -304,15 +304,15 @@ int main() {
   };
   const auto panel_name = image_in(theme, "InputPanel/Background");
   const auto panel = image_of(panel_name);
-  assert(panel.width == 50 && panel.height == 54);
+  assert(panel.width == 48 && panel.height == 52);
   assert(panel.alpha(0, 0) == 0 && panel.alpha(12, 8) < 16);
   assert(panel.alpha(23, 25) == 255 && panel.rgb(23, 25) == 0x151515u);
   assert(panel.alpha(23, 8) == 255 && panel.rgb(23, 8) == 0x292929u);
   // The shadow falls below the card more than above it, and fades out before the image's edge.
-  assert(panel.alpha(23, 36) > panel.alpha(23, 6) && panel.alpha(23, 6) > 0);
-  assert(panel.alpha(23, 53) <= 1 && panel.alpha(0, 25) <= 1);
+  assert(panel.alpha(23, 38) > panel.alpha(23, 6) && panel.alpha(23, 6) > 0);
+  assert(panel.alpha(23, 51) <= 1 && panel.alpha(0, 25) <= 1);
   const auto doubled = image_of(panel_name.substr(0, panel_name.size() - 4) + "@2x.png");
-  assert(doubled.width == 100 && doubled.height == 108 && doubled.rgb(46, 50) == 0x151515u);
+  assert(doubled.width == 96 && doubled.height == 104 && doubled.rgb(46, 50) == 0x151515u);
   // 九宫格的固定切片必须容下整条描边：描边比圆角宽时（用户选的直角卡片、宽边框），边框色不能落进被拉伸的中心，否则整块卡片都会铺上边框色。直角卡片的角还要照常画满。
   {
     const auto stretched_center = [&](const host::CandidateColors &palette, int corner) {
@@ -338,7 +338,7 @@ int main() {
     stretched_center(wide, 3);
     stretched_center(wechat_dark, 0);
   }
-  // 装饰带顶端保持透明，卡片顶边随带下移；切片对齐可能额外补齐 0–3 px，内容与阴影的偏移不变。
+  // 装饰带顶端保持透明，卡片顶边随带下移；上切片对齐可能额外补齐 0–3 px，内容与阴影的偏移不变。
   {
     const auto banded = host::fcitx_candidate_theme_files(wechat_dark, true, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15});
     const auto banded_name = image_in(banded.conf, "InputPanel/Background");
@@ -349,19 +349,24 @@ int main() {
       return Decoded{};
     };
     const auto card = banded_image(banded_name);
-    assert(card.width == 50 && card.height == 78);
+    assert(card.width == 48 && card.height == 76);
     for (std::uint32_t y = 0; y < 25; ++y)
       for (std::uint32_t x = 0; x < card.width; ++x) assert(card.alpha(x, y) == 0);
-    // 顶部按装饰高度比较，底部按补齐后的图高比较；中间多出的纯色行不参与逐像素平移。
+    // 两张图都不拉伸的行逐像素比较：顶部固定切片按装饰带高度平移，底部固定切片按图高差平移；上切片对齐补出的纯色行不参与比较。
+    const auto slice = [](const std::string &conf, const char *key) {
+      return static_cast<std::uint32_t>(margin_in(conf, "InputPanel/Background/Margin", key));
+    };
+    const auto top_rows = std::min(slice(theme, "Top"), slice(banded.conf, "Top") - 25);
+    const auto bottom_rows = std::min(slice(theme, "Bottom"), slice(banded.conf, "Bottom"));
     for (std::uint32_t y = 0; y < panel.height; ++y) {
-      if (y >= 22 && y < panel.height - 22) continue;
-      const auto shifted = y < 22 ? y + 25 : y + card.height - panel.height;
+      if (y >= top_rows && y < panel.height - bottom_rows) continue;
+      const auto shifted = y < top_rows ? y + 25 : y + card.height - panel.height;
       for (std::uint32_t x = 0; x < card.width; ++x)
         assert(card.alpha(x, shifted) == panel.alpha(x, y) &&
                (panel.alpha(x, y) == 0 || card.rgb(x, shifted) == panel.rgb(x, y)));
     }
     const auto card2x = banded_image(banded_name.substr(0, banded_name.size() - 4) + "@2x.png");
-    assert(card2x.width == 100 && card2x.height == 156);
+    assert(card2x.width == 96 && card2x.height == 152);
     for (std::uint32_t y = 0; y < 50; ++y)
       for (std::uint32_t x = 0; x < card2x.width; ++x) assert(card2x.alpha(x, y) == 0);
     assert(card2x.alpha(46, 66) == 255 && card2x.rgb(46, 66) == 0x292929u);
@@ -375,7 +380,7 @@ int main() {
     };
     const host::FcitxThemeLogo logo{square(16, 1.0f, 0.0f, 0.0f), square(32, 0.0f, 0.0f, 1.0f)};
     const auto marked = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, logo);
-    assert(contains(marked.conf, "[InputPanel/Background/Margin]\nLeft=36\nRight=24\nTop=36\nBottom=28\n\n"
+    assert(contains(marked.conf, "[InputPanel/Background/Margin]\nLeft=36\nRight=22\nTop=36\nBottom=26\n\n"
                                  "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n\n"
                                  "[InputPanel/ContentMargin]\nLeft=38\nRight=16\nTop=12\nBottom=20\n\n"));
     assert(marked.images.size() == files.images.size());
@@ -388,7 +393,7 @@ int main() {
       return Decoded{};
     };
     const auto card = marked_image(marked_name);
-    assert(card.width == 62 && card.height == 66);
+    assert(card.width == 60 && card.height == 64);
     for (std::uint32_t y = 18; y < 34; ++y)
       for (std::uint32_t x = 16; x < 32; ++x) assert(card.alpha(x, y) == 255 && card.rgb(x, y) == 0xFF0000u);
     // Around the mark is the card's own fill; the outline and the shadow are where they are without it.
@@ -396,7 +401,7 @@ int main() {
     assert(card.alpha(23, 8) == 255 && card.rgb(23, 8) == 0x292929u && card.alpha(0, 0) == 0);
     // The 2x image takes the 2x mark, at twice the position.
     const auto card2x = marked_image(marked_name.substr(0, marked_name.size() - 4) + "@2x.png");
-    assert(card2x.width == 124 && card2x.height == 132);
+    assert(card2x.width == 120 && card2x.height == 128);
     assert(card2x.rgb(32, 36) == 0x0000FFu && card2x.rgb(63, 67) == 0x0000FFu && card2x.rgb(64, 36) == 0x151515u);
     // A mark that is not opaque is composited over the card.
     auto faint = logo;
@@ -418,12 +423,12 @@ int main() {
       }
     // A decoration's band moves the mark down with the card.
     const auto both = host::fcitx_candidate_theme_files(wechat_dark, true, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15}, std::nullopt, logo);
-    assert(contains(both.conf, "[InputPanel/Background/Margin]\nLeft=36\nRight=24\nTop=64\nBottom=28\n\n"));
+    assert(contains(both.conf, "[InputPanel/Background/Margin]\nLeft=36\nRight=22\nTop=64\nBottom=26\n\n"));
     assert(contains(both.conf, "[InputPanel/ContentMargin]\nLeft=38\nRight=16\nTop=37\nBottom=20\n\n"));
     // Without a mark the theme is the one drawn before there was one.
     assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt) == theme);
   }
-  // 切线要落在标识外至少两像素的底色中，四边按 4 对齐，避免 1.25／1.5 倍缩放时切到半像素。
+  // 切线要落在标识外至少两像素的底色中；左、上切线从面板原点量起，按 4 对齐，避免 1.25／1.5 倍缩放时切到半像素；右、下切线从内容决定的宽高往回量，对齐无用，保持容下阴影和圆角的原值。
   for (double scale : {0.75, 1.0, 1.25, 1.5, 2.0}) {
     for (double padding : {0.0, 4.0, 16.0}) {
       for (double corner : {0.0, 10.0, 32.0}) {
@@ -440,8 +445,10 @@ int main() {
         const auto generated = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, corner, logo,
                                                                 true, std::nullopt, style);
         const auto margin = [&](const char *key) { return margin_in(generated.conf, "InputPanel/Background/Margin", key); };
-        for (const char *key : {"Left", "Right", "Top", "Bottom"}) assert(margin(key) % 4 == 0);
+        assert(margin("Left") % 4 == 0 && margin("Top") % 4 == 0);
         const auto inset = host::fcitx_card_inset(wechat_dark, style, corner, true);
+        const int edge = std::max(inset.radius, wechat_dark.border_width);
+        assert(margin("Right") == metrics.shadow_right + edge && margin("Bottom") == metrics.shadow_bottom + edge);
         const int logo_right = metrics.shadow_left + inset.pad + metrics.logo_side;
         const int logo_bottom = metrics.shadow_top + inset.pad + metrics.item_vertical + metrics.logo_side;
         assert(margin("Left") >= logo_right + 2 && margin("Top") >= logo_bottom + 2);
@@ -503,7 +510,7 @@ int main() {
     large.scale = 1.5;
     const auto scaled = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false,
                                                           std::nullopt, large);
-    assert(contains(scaled.conf, "[InputPanel/Background/Margin]\nLeft=28\nRight=28\nTop=28\nBottom=32\n\n"
+    assert(contains(scaled.conf, "[InputPanel/Background/Margin]\nLeft=28\nRight=27\nTop=28\nBottom=31\n\n"
                                  "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n\n"
                                  "[InputPanel/ContentMargin]\nLeft=18\nRight=18\nTop=14\nBottom=22\n\n"
                                  "[InputPanel/TextMargin]\nLeft=12\nRight=12\nTop=9\nBottom=9\n\n"));
@@ -555,14 +562,14 @@ int main() {
       return Decoded{};
     };
     const auto card = decoded(image_in(translucent.conf, "InputPanel/Background"));
-    assert(card.width == 50 && card.height == 54);
+    assert(card.width == 48 && card.height == 52);
     // 卡片中心是 80% 的底色，靠近底边、阴影本来最浓的地方也一样，没有被阴影压暗。
     assert(card.alpha(23, 25) == 204 && card.rgb(23, 25) == 0x151515u);
     assert(card.alpha(23, 32) == 204 && card.rgb(23, 32) == 0x151515u);
     // 描边也按 80% 画在同样半透明的底色上，两者叠起来比底色稍不透明。
     assert(card.alpha(23, 8) > 204 && card.alpha(23, 8) < 255);
     // 卡片外的阴影照旧。
-    assert(card.alpha(23, 40) > 0 && card.alpha(23, 40) == panel.alpha(23, 40));
+    assert(card.alpha(23, 38) > 0 && card.alpha(23, 38) == panel.alpha(23, 38));
     const auto mask_line = translucent.conf.find("BlurMask=");
     const auto mask_name = translucent.conf.substr(mask_line + 9, translucent.conf.find('\n', mask_line) - mask_line - 9);
     const auto mask = decoded(mask_name);
@@ -610,6 +617,10 @@ int main() {
   assert(host::fcitx_candidate_theme_drawn("default", &stock_dark));
   assert(!host::fcitx_candidate_theme_drawn("default", &user_dark));
   assert(!host::fcitx_candidate_theme_drawn("Nord-Dark", &stock_dark));
+  // 只有显式的 0 关闭主题自动生成；没设、1、空串和其他值都照常生成。
+  assert(host::fcitx_theme_autogenerate_enabled(nullptr) && host::fcitx_theme_autogenerate_enabled("1") &&
+         host::fcitx_theme_autogenerate_enabled("") && host::fcitx_theme_autogenerate_enabled("false") &&
+         host::fcitx_theme_autogenerate_enabled("00") && !host::fcitx_theme_autogenerate_enabled("0"));
 
   assert(host::fcitx_theme_file("/data", "/home/u") == std::filesystem::path("/data/fcitx5/themes/msime/theme.conf"));
   assert(host::fcitx_theme_file("relative", "/home/u") ==
@@ -657,7 +668,7 @@ int main() {
                              "Overlay=decoration-ab.png\nGravity=Top Right\nOverlayOffsetX=16\nOverlayOffsetY=22\n"
                              "HideOverlayIfOversize=False\n\n"
                              "[InputPanel/Background/OverlayClipMargin]\nLeft=13\nRight=13\nTop=8\nBottom=17\n\n"
-                             "[InputPanel/Background/Margin]\nLeft=24\nRight=24\nTop=48\nBottom=28\n\n"
+                             "[InputPanel/Background/Margin]\nLeft=24\nRight=22\nTop=48\nBottom=26\n\n"
                              "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=33\nBottom=16\n\n"
                              "[InputPanel/ContentMargin]\nLeft=16\nRight=16\nTop=37\nBottom=20\n\n"));
   // An image exactly the band plus the padding tall starts at the band's top; a taller one keeps its bottom where it is and is cut at the band's top by the clip margin; of unknown height it starts at the band's top.
@@ -683,9 +694,9 @@ int main() {
   // A skin's corner radius replaces the design's 10 px in the card's corner slices; none keeps it.
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0),
                   "[InputPanel/Background/Margin]\nLeft=28\nRight=28\nTop=28\nBottom=32\n"));
-  // 直角卡片的固定切片容下 1 px 描边后仍按 4 对齐，描边不能被拉伸进卡片中心。
+  // 直角卡片的固定切片容下 1 px 描边，左、上切片再按 4 对齐，描边不能被拉伸进卡片中心。
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 0.0),
-                  "[InputPanel/Background/Margin]\nLeft=16\nRight=16\nTop=16\nBottom=20\n"));
+                  "[InputPanel/Background/Margin]\nLeft=16\nRight=13\nTop=16\nBottom=17\n"));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt) ==
          host::fcitx_candidate_theme(wechat_dark, true));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0) != host::fcitx_candidate_theme(wechat_dark, true));

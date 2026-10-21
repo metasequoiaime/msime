@@ -62,6 +62,11 @@ FCITX5_CLASSICUI_URI = "fcitx://config/addon/classicui"
 FCITX5_THEME = "msime"
 # Fcitx5's stock themes, the only ones the hosts take over (src/candidates/CandidateFcitxTheme.h), for the options that name a theme.
 FCITX5_STOCK_THEMES = {"Theme": "default", "DarkTheme": "default-dark"}
+# 宿主生成的主题才由卸载删除：theme.conf 的 [Metadata] 带这行说明，目录里只有生成器写的文件（src/candidates/CandidateFcitxTheme.h 的 write_fcitx_candidate_theme：theme.conf 与这些前缀的图片；原子写入中断时留下的临时文件以目标文件名开头）。
+FCITX5_THEME_MARKER = "Description=Generated from the MSIME candidate settings"
+FCITX5_THEME_PREFIXES = ("shape-", "decoration-", "background-", "canvas-", "theme.conf.tmp-")
+# 生成的 theme.conf 只有几 KiB，超过这个大小的不会是宿主写的。
+FCITX5_THEME_CONF_LIMIT = 256 * 1024
 IBUS_PANEL = "org.freedesktop.ibus.panel"
 # 安装包注册匿名账号时留下的文件：身份、会话和 Rust 刷新令牌用的锁文件。与 msime-linux-prepare 的 installer_account_state、设置应用 linux_setup.rs 的同名清单一致。
 ANONYMOUS_ACCOUNT_FILES = {"anonymous-account.json", "anonymous-session.json", "account-refresh.lock"}
@@ -994,33 +999,61 @@ def kept_note(kept: list[str]) -> str:
     return f"；{'、'.join(kept)} 在水杉写入之后已被改动，保持不变" if kept else ""
 
 
-def restore_fcitx5_panel(entries: dict) -> str | None:
-    """Put back the classicui options MSIME replaced. A running Fcitx5 takes them over D-Bus, the way fcitx5-configtool writes them, so it applies and saves them itself; otherwise classicui.conf is edited, since a file edited under a running Fcitx5 is overwritten by its next save."""
+def generated_fcitx5_theme(directory: Path) -> bool:
+    """Whether the theme directory is still the one the host generates: theme.conf carries the generator's description and every entry is a regular file the generator writes. A theme the user maintains by hand (MSIME_FCITX5_THEME_AUTOGENERATE=0, a changed description, an image under another name) is not, and neither is a symlink or anything unreadable, so uninstalling and swapping packages leave it alone."""
+    try:
+        if directory.is_symlink() or not directory.is_dir():
+            return False
+        conf = read_bounded_text(directory / "theme.conf", FCITX5_THEME_CONF_LIMIT)
+        entries = list(directory.iterdir())
+    except (OSError, ValueError):
+        return False
+    if not any(line.strip().startswith(FCITX5_THEME_MARKER) for line in conf.splitlines()):
+        return False
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_file():
+            return False
+        if entry.name != "theme.conf" and not entry.name.startswith(FCITX5_THEME_PREFIXES):
+            return False
+    return True
+
+
+def restore_fcitx5_panel(entries: dict, keep_theme: bool = False) -> str | None:
+    """Put back the classicui options MSIME replaced. A running Fcitx5 takes them over D-Bus, the way fcitx5-configtool writes them, so it applies and saves them itself; otherwise classicui.conf is edited, since a file edited under a running Fcitx5 is overwritten by its next save.
+
+    `keep_theme` 表示主题目录是用户维护的、卸载时保留：此时仍指向它的 Theme／DarkTheme 不动，否则换包后重新注册也找不回用户选的主题。"""
     path = classicui_file()
     current = classicui_options(path)
     restore, kept = restorable(entries, current.get)
     # A value never read from the addon cannot be put back.
     restore = {key: value for key, value in restore.items() if isinstance(value, str)}
-    # MSIME's theme is removed after this, so a theme option left naming it goes back to the stock theme: one set by a build that kept no record, or recorded by it as the value it replaced.
+    kept_theme = []
     for key, stock in FCITX5_STOCK_THEMES.items():
-        if restore.get(key, current.get(key)) == FCITX5_THEME:
+        if keep_theme and current.get(key) == FCITX5_THEME:
+            restore.pop(key, None)
+            if key in kept:
+                kept.remove(key)
+            kept_theme.append(key)
+        # MSIME's generated theme is removed after this, so a theme option left naming it goes back to the stock theme: one set by a build that kept no record, or recorded by it as the value it replaced.
+        elif restore.get(key, current.get(key)) == FCITX5_THEME:
             restore[key] = stock
             if key in kept:
                 kept.remove(key)
+    theme_note = f"；{'、'.join(kept_theme)} 指向保留的人工主题 {FCITX5_THEME}，保持不变" if kept_theme else ""
     if not restore:
-        return "Fcitx5 候选面板设置无需恢复" + kept_note(kept) + "。" if entries else None
+        return "Fcitx5 候选面板设置无需恢复" + kept_note(kept) + theme_note + "。" if entries or kept_theme else None
     names = "、".join(restore)
     try:
         if fcitx5_on_bus():
             fcitx5_call("SetConfig", gvariant_text(FCITX5_CLASSICUI_URI), fcitx5_config_variant(restore))
-            return f"已恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+            return f"已恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + theme_note + "。"
     except RegistrationFailed as error:
         print(f"未能经 D-Bus 恢复 Fcitx5 候选面板设置：{error}，改为直接编辑 {path}", file=sys.stderr)
     try:
         edit_classicui(path, restore)
     except OSError as error:
         raise RegistrationFailed(f"无法写入 {path}：{error.strerror}") from error
-    return f"已在 {path} 恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+    return f"已在 {path} 恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + theme_note + "。"
 
 
 def restore_ibus_panel(entries: dict) -> str | None:
@@ -1067,7 +1100,7 @@ def read_bounded_text(path: Path, limit: int) -> str:
 
 
 def restore_panel_settings() -> None:
-    """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5. The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
+    """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5 when it is still as generated (generated_fcitx5_theme). The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
 
     The hosts replace the record atomically, so it is read without the lock. The lock is not held while restoring either: a running Fcitx5 applies the options on the thread its host would be waiting on the lock from. Instead the record is removed under the lock only if it is still the one read, so a change a host still running recorded meanwhile is kept for a later --unregister."""
     record_file = xdg_base("XDG_STATE_HOME", ".local/state") / PANEL_RESTORE_FILE
@@ -1081,7 +1114,12 @@ def restore_panel_settings() -> None:
         print(f"无法读取候选面板设置的恢复记录 {record_file}：{error}", file=sys.stderr)
         record = None
     complete = record is not None
-    for host, restore in (("fcitx5", restore_fcitx5_panel), ("ibus", restore_ibus_panel)):
+    theme = xdg_base("XDG_DATA_HOME", ".local/share") / "fcitx5/themes" / FCITX5_THEME
+    # 卸载脚本在用户的 systemd 管理器里运行，看不到 Fcitx5 进程的 MSIME_FCITX5_THEME_AUTOGENERATE，只能按目录内容判断主题归谁。
+    generated = generated_fcitx5_theme(theme)
+    keep_theme = (theme.is_dir() or theme.is_symlink()) and not generated
+    restorers = (("fcitx5", lambda entries: restore_fcitx5_panel(entries, keep_theme)), ("ibus", restore_ibus_panel))
+    for host, restore in restorers:
         entries = record.get(host) if isinstance(record, dict) else None
         try:
             # The Fcitx5 theme options are looked at even without a record: builds before it set MSIME's theme without one.
@@ -1092,13 +1130,14 @@ def restore_panel_settings() -> None:
         else:
             if message:
                 print(message)
-    theme = xdg_base("XDG_DATA_HOME", ".local/share") / "fcitx5/themes" / FCITX5_THEME
-    if theme.is_dir():
+    if generated:
         try:
             shutil.rmtree(theme)
             print(f"已删除水杉生成的 Fcitx5 主题 {theme}。")
         except OSError as error:
             print(f"未能删除水杉生成的 Fcitx5 主题 {theme}：{error.strerror}", file=sys.stderr)
+    elif keep_theme:
+        print(f"Fcitx5 主题 {theme} 不是水杉生成的原样文件，保留不删。")
     if text is None:
         return
     if complete:
