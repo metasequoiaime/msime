@@ -2996,6 +2996,10 @@ public final class MSIMEInputService extends InputMethodService {
         int nextViewScheme = InputViewValuePolicy.scheme(next, -1);
         boolean nextDedicatedEnglish = InputViewValuePolicy.booleanValue(
             next, "dedicated_english", dedicatedEnglish);
+        // 这些搜索框逐次监听所有文字变化，先写拼音再删除也会触发搜索；确认前只在键盘保留组字。
+        if (CandidatePreeditStylePolicy.keepsPinyinOnKeyboard(
+                currentEditorPackage, nextViewScheme, nextDedicatedEnglish)
+                && "none".equals(InputViewValuePolicy.textOr(next, "local_mode", "none"))) return "";
         String reading = InputViewValuePolicy.textOr(next, "reading", "");
         String phrasePrefix = InputViewValuePolicy.textOr(next, "phrase_prefix", "");
         String preedit = InputViewValuePolicy.textOr(next, "preedit", "");
@@ -9731,7 +9735,7 @@ public final class MSIMEInputService extends InputMethodService {
                     break;
                 }
             }
-            // 拼写写在输入框里时候选栏不再重复画它（CandidatePreeditStylePolicy）；14 键不写输入框，编辑器截短了组字时整段组字只留在键盘上，这两种照常画。
+            // 拼写写在输入框里时候选栏不再重复画它（CandidatePreeditStylePolicy）；14 键、应用兼容豁免和编辑器截短时，组字留在键盘上，照常画。
             boolean spellingInEditor = view != null && connection != null && !editorCompositionSuppressed
                 && !composingText(view, editingText, true).isEmpty();
             localModeTitle = CandidatePreeditStylePolicy.composedText(CandidatePreeditStylePolicy.style(

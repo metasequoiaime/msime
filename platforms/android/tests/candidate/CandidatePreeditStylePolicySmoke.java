@@ -12,6 +12,24 @@ public final class CandidatePreeditStylePolicySmoke {
         String pinyin = CandidatePreeditStylePolicy.PINYIN;
         String empty = CandidatePreeditStylePolicy.EMPTY;
 
+        // 兼容例外只匹配应用完整包名和中文拼音，不影响其他应用、英文与其他语言。
+        for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN}) {
+            check(CandidatePreeditStylePolicy.keepsPinyinOnKeyboard("com.shengjingbank.mobile.cust", scheme, false),
+                "the incompatible search app keeps pinyin outside its editor");
+            for (String app : new String[] {null, "", "app.msime.android.test",
+                    "com.shengjingbank.mobile.cust.extra", "com.shengjingbank.enterprisebank"}) {
+                check(!CandidatePreeditStylePolicy.keepsPinyinOnKeyboard(app, scheme, false),
+                    "a different package keeps inline composition");
+            }
+            check(!CandidatePreeditStylePolicy.keepsPinyinOnKeyboard("com.shengjingbank.mobile.cust", scheme, true),
+                "dedicated English keeps its normal composition");
+        }
+        for (int scheme : new int[] {InputSchemeTraits.WUBI, InputSchemeTraits.CANTONESE,
+                InputSchemeTraits.JAPANESE, InputSchemeTraits.KOREAN, InputSchemeTraits.ZHUYIN, -1}) {
+            check(!CandidatePreeditStylePolicy.keepsPinyinOnKeyboard("com.shengjingbank.mobile.cust", scheme, false),
+                "the pinyin exception does not change other languages");
+        }
+
         // 拼写类方案的拼写写在输入框里时候选栏不画；没写进去（14 键、编辑器截短）时照常画。
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN,
                 InputSchemeTraits.WUBI, InputSchemeTraits.CANTONESE}) {

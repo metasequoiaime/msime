@@ -31,6 +31,10 @@ bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/first-frame-editor.apk
+# 同包名搜索夹具只在专用兼容验收时安装，不进入默认设备测试。
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  "$adb" -s "$serial" install --no-incremental -r target/android/composition-search-editor.apk
+fi
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"
 dump() {
@@ -95,6 +99,11 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e app-composition true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "App composition compatibility acceptance failed" >&2; exit 1; }
+fi
 # Compose 可在批量结束时才执行写入，核心验收覆盖延迟组字和中英往返。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
 printf '%s\n' "$result"
