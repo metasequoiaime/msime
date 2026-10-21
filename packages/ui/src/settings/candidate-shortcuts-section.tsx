@@ -145,9 +145,9 @@ export function CandidateShortcutReference({
         <ShortcutRow title={mobile ? "候选栏翻页" : "候选窗口翻页"} chord="鼠标滚轮" />
       )}
       {effectiveNavigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
-      {/* 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮，所以两行标题都要写清是什么时候发生的。 */}
+      {/* 打开左右键移动候选时，首选上左右键仍编辑输入串（→ 到末尾为止），离开首选后才移高亮，所以两行标题都要写清是什么时候发生的。 */}
       {effectiveNavigation.left_right && (
-        <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />
+        <ShortcutRow title="移动候选项（首选上先编辑输入串）" chord="← / →" />
       )}
       {wordCharacter?.enabled && (
         <ShortcutRow

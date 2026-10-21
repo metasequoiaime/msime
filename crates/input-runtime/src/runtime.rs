@@ -118,7 +118,7 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
@@ -670,17 +670,13 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// 左右键的候选回退（`navigation.left_right`）：不带修饰键的左右键在宿主那里先是编辑输入串的光标命令，
-    /// 光标已经停在要移动的那一端、引擎动不了它的时候，这一次按键换成移动候选高亮，与 ↑/↓ 落在同一段代码上
-    /// （[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
+    /// 左右键的候选导航（`navigation.left_right`）：不带修饰键的左右键在宿主那里是编辑输入串的光标命令，这里按高亮决定这一次按键是编辑还是移动候选，移动候选与 ↑/↓ 落在同一段代码上（[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
     ///
-    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，
-    /// 于是仍被吞掉，不会作为应用的按键落进文档。
+    /// 高亮在首选（全部候选里的第一个，不是当前页的第一个）时，← 编辑输入串；→ 在光标没到末尾时把光标往末尾送，到了末尾才选下一个。高亮不在首选时，左右键只移动候选，不再编辑输入串：离开首选的那一下光标就在末尾，用 ↓ 离开首选时光标可能停在中间，那时 → 也照样选下一个。
     ///
-    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里
-    /// （`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，
-    /// 各宿主也先一步把四个方向键都归给高亮。本地模式的光标起点在前缀字母之后，这里按 0 判左端：
-    /// 那一个位置上左右键仍然什么都不做。
+    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，于是仍被吞掉，不会作为应用的按键落进文档。
+    ///
+    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里（`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，各宿主也先一步把四个方向键都归给高亮。
     fn caret_edge_candidate_shortcut(&self, action: Action) -> Action {
         if !self.left_right_navigation
             || !self.snapshot_valid
@@ -695,13 +691,9 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(Command::MoveRight | Command::ConversionRight) => false,
             _ => return action,
         };
-        let caret = self.cached.caret_position;
-        let at_edge = if backwards {
-            caret == 0
-        } else {
-            caret >= self.cached.editing_text.len()
-        };
-        if !at_edge {
+        let edits = self.highlighted == 0
+            && (backwards || self.cached.caret_position < self.cached.editing_text.len());
+        if edits {
             return action;
         }
         if backwards {
@@ -2405,7 +2397,7 @@ impl<E: InputEngine> Runtime<E> {
         }
         // 只在当前页有目标候选时接管；否则继续原标点路径，不能像越界数字键那样吞掉。
         let action = self.candidate_shortcut(action);
-        // 左右键先编辑输入串，光标已经停在这一端时这一次按键才是移动候选（偏好 `navigation.left_right`）。
+        // 首选上左右键编辑输入串（→ 到末尾为止），其余候选上左右键移动候选（偏好 `navigation.left_right`）。
         let action = self.caret_edge_candidate_shortcut(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session

@@ -3179,9 +3179,9 @@ static void TestPinyinArrowCandidateNavigation() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"panel"];
-    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO) {
+    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO, NSUInteger page = 0) {
         [controller setValue:@{@"focused": @YES, @"scheme": @(scheme), @"editing_text": @"ceshi", @"caret_position": @(caret),
-                              @"candidate_list_open": @(list), @"candidates": @[
+                              @"page": @(page), @"candidate_list_open": @(list), @"candidates": @[
                                   @{@"text": @"甲", @"highlighted": @(selected == 0)},
                                   @{@"text": @"乙", @"highlighted": @(selected == 1)}]} forKey:@"view"];
         panel.visible = YES;
@@ -3191,7 +3191,7 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    // 默认交给 runtime；关闭后继续覆盖宿主旧有的端点与高亮分工。
+    // 默认交给 runtime；关闭后由宿主按同一条规则分工：首选上 ← 编辑、→ 先回到末尾，其余候选上左右键只移动候选。
     for (NSNumber *leftRight in @[@YES, @NO]) {
         [prefs applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
         for (BOOL vertical : {NO, YES}) {
@@ -3201,7 +3201,10 @@ static void TestPinyinArrowCandidateNavigation() {
                 check(0, 5, 0, 123, MSIME_MOVE_LEFT);
                 check(0, 5, 1, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE);
                 check(0, 2, 0, 124, MSIME_MOVE_RIGHT);
-                check(0, 2, 1, 124, MSIME_MOVE_RIGHT);
+                check(0, 2, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                // 第二页的第一个不是首选，左右键都移动候选。
+                check(0, 5, 0, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE, NO, 1);
+                check(0, 2, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE, NO, 1);
                 check(0, 5, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
                 check(0, 5, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
             }
