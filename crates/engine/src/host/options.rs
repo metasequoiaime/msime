@@ -82,6 +82,8 @@ pub struct EngineOptions {
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     pub helpcode_schema: String,
+    /// 辅助码前导标点；None 保留现有 Shift 加字母。
+    pub helpcode_trigger_key: Option<u8>,
     /// 宿主给的辅助码表（已安装的辅助码表插件）；有它时 Engine 直接用它，`helpcode_schema` 只用来校验和作为回退。
     pub helpcode_table: Option<SharedKeymap>,
     /// 主资源缺少内置辅助码表时，从宿主指定的随包资源根目录读取；自定义表不回退。
@@ -209,6 +211,7 @@ pub fn prepare_options_for(
         helpcode: true,
         show_helpcode: true,
         helpcode_schema: "ziranma".to_owned(),
+        helpcode_trigger_key: None,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         chinese_punctuation: true,
@@ -332,6 +335,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         },
     };
     session.helpcode = options.helpcode;
+    session.helpcode_trigger_key = options.helpcode_trigger_key;
     session.helpcode_schema = options.helpcode_schema.clone();
     session.helpcode_table = options.helpcode_table.clone();
     session.helpcode_fallback_resources = options

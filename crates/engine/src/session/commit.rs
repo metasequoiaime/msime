@@ -160,6 +160,7 @@ impl InputSession {
 
     /// input_session.cpp:828-956.
     pub(super) fn commit(&mut self, index: usize) -> KeyResult {
+        self.helpcode_entry = None;
         if let Some(result) = self.commit_literal_candidate(index) {
             return result;
         }

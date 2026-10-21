@@ -720,6 +720,7 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
+        options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
         let plugin_root = self.plugin_roots.installed.as_deref();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_root,
@@ -1902,6 +1903,7 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
+            helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
                 self.preferences.chinese_punctuation,
                 punctuation_lock_code(self.preferences.punctuation_lock),

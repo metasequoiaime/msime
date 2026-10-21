@@ -262,6 +262,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         helpcode: false,
         show_helpcode: false,
         helpcode_schema: "ziranma".into(),
+        helpcode_trigger_key: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -3938,11 +3939,13 @@ fn helpcode_settings_switch_independently_after_composition() {
     let before = read(msime_client_view(handle))["value"].clone();
     let mut preferences = Preferences {
         quanpin_helpcode: HelpcodePreferences {
+            trigger_key: ";".into(),
             enabled: false,
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
         },
         shuangpin_helpcode: HelpcodePreferences {
+            trigger_key: "/".into(),
             enabled: true,
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
@@ -3957,12 +3960,20 @@ fn helpcode_settings_switch_independently_after_composition() {
         assert!(!sessions.borrow()[&handle].options.helpcode);
         assert_eq!(sessions.borrow()[&handle].options.helpcode_schema, "xiaohe");
         assert!(!sessions.borrow()[&handle].options.show_helpcode);
+        assert_eq!(
+            sessions.borrow()[&handle].options.helpcode_trigger_key,
+            Some(b';')
+        );
     });
     preferences.scheme = InputScheme::Shuangpin;
     assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         assert!(sessions.borrow()[&handle].options.helpcode);
         assert!(sessions.borrow()[&handle].options.show_helpcode);
+        assert_eq!(
+            sessions.borrow()[&handle].options.helpcode_trigger_key,
+            Some(b'/')
+        );
         assert_eq!(
             sessions.borrow()[&handle].options.helpcode_schema,
             "shouyou2_0"

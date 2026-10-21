@@ -48,6 +48,7 @@ export function settingsCapabilities({
     showCandidateFontControls && (host ? host.candidate_preedit_font : true);
   const showCandidateEnglishFont = host ? host.candidate_english_font : false;
   const showEnglishSuggestions = host ? host.english_suggestions : false;
+  const showHelpcodeTriggerKey = host?.helpcode_trigger_key === true;
   const showHelpcodeShiftEntry = host ? host.helpcode_shift_entry : false;
   const showShuangpinPreedit = host ? host.shuangpin_preedit : false;
   // 只有画双拼键位图的宿主（macOS、Windows 和 Linux 的 X11 客户端）给出「输入时显示双拼键位提示」。
@@ -127,6 +128,7 @@ export function settingsCapabilities({
     showCandidateEnglishFont,
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
+    showHelpcodeTriggerKey,
     showShuangpinPreedit,
     showShuangpinKeymapHint,
     showCharacterWidth,

@@ -176,3 +176,49 @@ test("没有导入能力的宿主不显示空操作入口", () => {
   render(<HelpcodeSettingsPage value={{}} mobile showShiftEntry={false} onChange={vi.fn()} />);
   expect(screen.queryByText("导入辅助码表")).toBeNull();
 });
+
+test("辅助码前导键按全拼和双拼独立保存，并保留当前方案", () => {
+  const onChange = vi.fn();
+  render(
+    <HelpcodeSettingsPage
+      value={{
+        quanpin_helpcode: { enabled: true, schema: "xiaohe", trigger_key: ";" },
+        shuangpin_helpcode: { enabled: true, schema: "lantian", trigger_key: "/" },
+      }}
+      mobile={false}
+      showShiftEntry={false}
+      showTriggerKey
+      onChange={onChange}
+    />,
+  );
+  const quanpin = screen.getByRole("combobox", { name: "全拼辅助码触发键" }) as HTMLSelectElement;
+  const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码触发键" }) as HTMLSelectElement;
+  expect(quanpin.value).toBe(";");
+  expect(shuangpin.value).toBe("/");
+  fireEvent.change(quanpin, { target: { value: "`" } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    quanpin_helpcode: {
+      enabled: true,
+      schema: "xiaohe",
+      trigger_key: "`",
+      show_in_candidate_window: false,
+    },
+  });
+  fireEvent.change(shuangpin, { target: { value: "" } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    shuangpin_helpcode: {
+      enabled: true,
+      schema: "lantian",
+      trigger_key: "",
+      show_in_candidate_window: true,
+    },
+  });
+});
+
+test("未报告前导键能力的宿主不显示配置", () => {
+  render(
+    <HelpcodeSettingsPage value={{}} mobile={false} showShiftEntry={false} onChange={vi.fn()} />,
+  );
+  expect(screen.queryByRole("combobox", { name: "全拼辅助码触发键" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "双拼辅助码触发键" })).toBeNull();
+});

@@ -1174,3 +1174,20 @@ fn english_online_capability_only_names_a_host_with_the_input_path() {
         );
     }
 }
+
+#[test]
+fn custom_helpcode_trigger_is_only_offered_by_linux() {
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).helpcode_trigger_key,
+            platform == HostPlatform::Linux
+        );
+    }
+}

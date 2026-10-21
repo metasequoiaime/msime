@@ -39,6 +39,8 @@ pub struct SessionOptions {
     /// `msime-japanese.dat` 的位置；为空时读资源目录里的那份。文件缺失时日文只给假名行。
     pub japanese_dictionary: PathBuf,
     pub helpcode_schema: String,
+    /// 辅助码前导标点；None 保留现有 Shift 加字母。
+    pub helpcode_trigger_key: Option<u8>,
     /// 宿主给的辅助码表；有它时直接装上它，不再按 `helpcode_schema` 读表（名字仍然要合法）。`Session::set_helpcode_table` 可以实时替换。
     pub helpcode_table: Option<SharedKeymap>,
     /// 内置辅助码表缺失时使用的随包资源根目录。
@@ -105,6 +107,7 @@ impl SessionOptions {
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
             helpcode_schema: "lantian".to_owned(),
+            helpcode_trigger_key: None,
             helpcode_table: None,
             helpcode_fallback_resources: None,
             autocorrect_types: 0,

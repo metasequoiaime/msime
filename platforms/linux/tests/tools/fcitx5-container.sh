@@ -9,7 +9,7 @@ cmake -S platforms/linux -B /build/fcitx5 -G Ninja \
 cmake --build /build/fcitx5 --target msime-fcitx5 fcitx5-native-test linux-candidate-fcitx-canvas-test linux-candidate-native-canvas-test linux-candidate-native-canvas-chrome-test
 # 用例名逐个列出、只用一组括号：CMake 的正则最多容纳 10 组括号，原先按前缀嵌套的写法超出上限，ctest 报「Too many parentheses」后一个用例也不跑。
 names=(linux-candidate-fcitx-canvas linux-candidate-native-canvas linux-candidate-native-canvas-chrome
-  fcitx5-candidate-rows fcitx5-native-context fcitx5-native-ai fcitx5-native-smart-abc fcitx5-daemon-frontend
+  fcitx5-helpcode-trigger fcitx5-candidate-rows fcitx5-native-context fcitx5-native-ai fcitx5-native-smart-abc fcitx5-daemon-frontend
   fcitx5-gtk-editor fcitx5-ibus-gtk-editor)
 for layout in horizontal vertical; do
   names+=("fcitx5-candidate-font-pixels-$layout")

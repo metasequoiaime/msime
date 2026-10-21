@@ -357,7 +357,8 @@ GVariant *call(GDBusConnection *connection, const char *destination,
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 2 && !(argc == 3 && (std::string(argv[2]) == "--page-number" ||
+  if (argc != 2 && !(argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
+                                  std::string(argv[2]) == "--page-number" ||
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
                                   std::string(argv[2]) == "--caps-lock" ||
@@ -408,6 +409,15 @@ int main(int argc, char **argv) {
     VoiceProviderFixture voice_provider(voice_socket);
     options["voice_provider_socket"] = voice_socket;
     options["preferences"]["learning"] = false;
+    if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
+      options["helpcode_fallback_resources"] = MSIME_HELPCODE_FIXTURE_RESOURCES;
+      options["preferences"]["shuangpin_profile"] = "microsoft";
+      options["preferences"]["cloud_candidates"] = false;
+      options["preferences"]["ai_assistant"]["enabled"] = false;
+      for (const auto *family : {"quanpin_helpcode", "shuangpin_helpcode"})
+        options["preferences"][family] = {{"enabled", true}, {"schema", "xiaohe"},
+            {"show_in_candidate_window", false}, {"trigger_key", std::string(family) == "quanpin_helpcode" ? "/" : ";"}};
+    }
     options["preferences"]["candidate_translations"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
@@ -567,6 +577,34 @@ int main(int argc, char **argv) {
       g_test_dbus_down(bus);
       g_object_unref(bus);
     };
+    if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
+      for (const auto *scheme : {"Scheme/Quanpin", "Scheme/Shuangpin"}) {
+        invoke("PropertyActivate", g_variant_new("(su)", scheme, PROP_STATE_CHECKED));
+        const char trigger = std::string(scheme) == "Scheme/Quanpin" ? '/' : ';';
+        require(key('n') && key('i') && key(trigger), "辅助码前导键未被 IBus 接收");
+        require(seen.preedit == "ni" && seen.committed.empty(), "前导键不应上屏或写入拼音");
+        require(key('f') && key('r'), "辅助码字母未被 IBus 接收");
+        require(seen.preedit == (trigger == ';' ? "nifR" : "niFR") && seen.lookup_visible && !seen.candidates.empty() && seen.candidates.front() == "拟",
+                "IBus 的前导键没有触发双辅助码筛选");
+        const bool committed = key(IBUS_space);
+        require(committed && seen.committed == "拟",
+                ("IBus 辅助码候选没有正确上屏：" + nlohmann::json{{"preedit", seen.preedit},
+                    {"committed", seen.committed}, {"candidates", seen.candidates}, {"scheme", scheme}}.dump()).c_str());
+        seen.committed.clear();
+        require(key('n') && key('i') && seen.preedit == "ni", "选词后前导状态未结束");
+        require(key(trigger) && key(IBUS_BackSpace) && seen.preedit == "ni",
+                "没有输入码时退格不应删除拼音");
+        key(IBUS_Escape);
+        if (trigger == ';') {
+          require(key('n') && key(';') && seen.preedit == "n;" && seen.committed.empty(),
+                  "微软双拼半音节的分号韵母被前导键抢走");
+          key(IBUS_Escape);
+        }
+      }
+      finish();
+      std::cout << "IBus 全拼、双拼辅助码前导键、筛选、上屏和退格通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--online-socket-switch") {
       const auto socket = (root / "online.sock").string();
       TranslationProviderFixture provider(socket);

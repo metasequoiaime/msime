@@ -47,6 +47,7 @@ export interface HelpcodeSettingsPageProps {
   value: HelpcodeSettings;
   mobile: boolean;
   showShiftEntry: boolean;
+  showTriggerKey?: boolean;
   disabled?: boolean;
   hidden?: boolean;
   /** Custom tables discovered by the host. They are optional for hosts without resource scanning. */
@@ -86,6 +87,7 @@ export function HelpcodeSettingsGroup({
   value: draft,
   mobile,
   showShiftEntry,
+  showTriggerKey = false,
   customSchemas = [],
   packs = [],
   activeFamily,
@@ -175,6 +177,34 @@ export function HelpcodeSettingsGroup({
     );
   };
 
+  const triggerRow = (key: HelpcodeKey, label: string) => {
+    if (!showTriggerKey) return null;
+    const current = currentOf(key);
+    return (
+      <SelectRow
+        title={`${label}辅助码触发键`}
+        description="组字末尾按所选标点，再输入一到两个辅助码字母。Shift 加字母仍可使用；微软双拼的分号优先补全韵母。"
+        disabled={!current.enabled}
+        value={current.trigger_key ?? ""}
+        onChange={(event) =>
+          onChange({
+            [key]: {
+              ...current,
+              trigger_key: event.target.value as HelpcodePreferences["trigger_key"],
+            },
+          })
+        }
+      >
+        <option value="">Shift + 字母</option>
+        {[";", "/", "\\", "`", "="].map((key) => (
+          <option key={key} value={key}>
+            {key}
+          </option>
+        ))}
+      </SelectRow>
+    );
+  };
+
   const importRow = (key: HelpcodeKey, label: string) =>
     onImport && (
       <ActionRow
@@ -224,6 +254,7 @@ export function HelpcodeSettingsGroup({
         {schemaRow(activeFamily, activeLabel, `${activeLabel}辅助码方案`)}
         {importRow(activeFamily, activeLabel)}
         {importNote}
+        {triggerRow(activeFamily, activeLabel)}
         {displayRow(activeFamily, activeLabel)}
         <MoreOptions>
           {families
@@ -233,6 +264,7 @@ export function HelpcodeSettingsGroup({
                 {enabledRow(key, label)}
                 {schemaRow(key, label, `${label}辅助码方案`)}
                 {importRow(key, label)}
+                {triggerRow(key, label)}
                 {displayRow(key, label)}
               </Fragment>
             ))}
@@ -254,6 +286,7 @@ export function HelpcodeSettingsGroup({
             <Fragment key={key}>
               {enabledRow(key, label)}
               {key !== activeFamily && schemaRow(key, label, `${label}辅助码方案`)}
+              {triggerRow(key, label)}
               {displayRow(key, label)}
             </Fragment>
           ))}
@@ -272,6 +305,7 @@ export function HelpcodeSettingsGroup({
           {enabledRow(key, label)}
           {schemaRow(key, label, `${label}辅助码方案`)}
           {importRow(key, label)}
+          {triggerRow(key, label)}
           {displayRow(key, label)}
         </Fragment>
       ))}

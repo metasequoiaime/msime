@@ -10,6 +10,7 @@ mod composition;
 mod conversion;
 mod editing;
 mod glide;
+mod helpcode_entry;
 mod input;
 mod learning;
 mod literal;
@@ -143,6 +144,7 @@ impl Session {
 
     /// 换触屏的组码网格，先丢掉网格里的组字，所以在换键盘布局、没有组字时调用。英文九键和注音九键只在九键下打开（注音组字会被丢掉）：14 键的英文模式画全键盘，注音没有 14 键。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) {
+        self.input.helpcode_entry = None;
         self.nine_key.command(Command::Cancel);
         if let Some(grid) = grid {
             self.nine_key.set_grid(grid);

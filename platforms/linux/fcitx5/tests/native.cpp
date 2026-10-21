@@ -1375,7 +1375,8 @@ int main(int argc, char **argv) {
     classicuiTakeoverRecord();
     translationPreferenceChangesIncludeAccount();
     emojiGroupResultFencing();
-    require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
+    require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
+                                       std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
                                        std::string(argv[2]) == "--app-rules" ||
@@ -1383,7 +1384,7 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1395,6 +1396,13 @@ int main(int argc, char **argv) {
     auto options = response(msime_client_prepare_host(
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     options["preferences"]["learning"] = false;
+    if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
+      options["helpcode_fallback_resources"] = MSIME_HELPCODE_FIXTURE_RESOURCES;
+      options["preferences"]["shuangpin_profile"] = "microsoft";
+      for (const auto *family : {"quanpin_helpcode", "shuangpin_helpcode"})
+        options["preferences"][family] = {{"enabled", true}, {"schema", "xiaohe"},
+            {"show_in_candidate_window", false}, {"trigger_key", std::string(family) == "quanpin_helpcode" ? "/" : ";"}};
+    }
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["clipboard_history"] = true;
     // 存着关掉的空格锁定：宿主不再读它，下面检查锁定照旧打开。
@@ -1405,7 +1413,7 @@ int main(int argc, char **argv) {
                                "clipboard_history.json";
     std::ofstream(clipboardPath) << Json::array({"剪贴板合成测试", "第二条"}).dump();
     options["clipboard_history_path"] = clipboardPath.string();
-    options["preferences"]["cloud_candidates"] = !ai;
+    options["preferences"]["cloud_candidates"] = !ai && !(argc == 3 && std::string(argv[2]) == "--helpcode-trigger");
     options["preferences"]["ai_assistant"]["enabled"] = ai;
     options["preferences"]["ai_assistant"]["candidate_limit"] = 1;
     options["preferences"]["ai_assistant"]["endpoint"] = "https://synthetic.invalid/v1/chat/completions";
@@ -1692,6 +1700,48 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--helpcode-trigger") {
+      const auto press = [&](fcitx::KeySym sym) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym));
+        engine.keyEvent(entry, event);
+        fcitx::KeyEvent release(&ic, fcitx::Key(sym), true);
+        engine.keyEvent(entry, release);
+        return event.filtered() && event.accepted();
+      };
+      for (const bool shuangpin : {false, true}) {
+        if (shuangpin) engine.scheme_shuangpin_action_.activate(&ic);
+        else engine.scheme_quanpin_action_.activate(&ic);
+        const auto trigger = shuangpin ? FcitxKey_semicolon : FcitxKey_slash;
+        require(press(FcitxKey_n) && press(FcitxKey_i) && press(trigger), "Fcitx5 未接收辅助码前导键");
+        require(state->view_.value("editing_text", std::string{}) == "ni" && ic.committed.empty(),
+                "前导键不应上屏或写入拼音");
+        require(press(FcitxKey_f) && press(FcitxKey_r), "Fcitx5 未接收辅助码字母");
+        const auto rows = state->view_.value("candidates", Json::array());
+        require(state->view_.value("editing_text", std::string{}) == (shuangpin ? "nifR" : "niFR") &&
+                    !rows.empty() && rows[0].value("text", std::string{}) == "拟",
+                ("Fcitx5 前导键未触发双辅助码筛选：" + Json{{"editing_text", state->view_.value("editing_text", std::string{})},
+                    {"candidates", rows}, {"committed", ic.committed},
+                    {"scheme", state->view_.value("scheme", 99)},
+                    {"helpcode", state->preferences_.value(shuangpin ? "shuangpin_helpcode" : "quanpin_helpcode", Json{})}}.dump()).c_str());
+        require(press(FcitxKey_space) && ic.committed == "拟", "Fcitx5 辅助码候选未正确上屏");
+        ic.committed.clear();
+        require(press(FcitxKey_n) && press(FcitxKey_i) &&
+                    state->view_.value("editing_text", std::string{}) == "ni", "选词后前导状态未结束");
+        require(press(trigger) && press(FcitxKey_BackSpace) &&
+                    state->view_.value("editing_text", std::string{}) == "ni", "退格不应删除拼音");
+        press(FcitxKey_Escape);
+        if (shuangpin) {
+          require(press(FcitxKey_n) && press(FcitxKey_semicolon) &&
+                      state->view_.value("editing_text", std::string{}) == "n;" && ic.committed.empty(),
+                  "微软双拼半音节的分号韵母被前导键抢走");
+          press(FcitxKey_Escape);
+        }
+      }
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 全拼、双拼辅助码前导键、筛选、上屏和退格通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--punctuation-context") {
       engine.scheme_shuangpin_action_.activate(&ic);
       state->navigation_["comma_period"] = false;

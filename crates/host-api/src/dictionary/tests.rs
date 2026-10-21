@@ -28,6 +28,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),
+        helpcode_trigger_key: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,

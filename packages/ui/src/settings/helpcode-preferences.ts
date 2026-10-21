@@ -22,6 +22,7 @@ export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
   show_in_candidate_window?: boolean;
+  trigger_key?: "" | ";" | "/" | "\\" | "`" | "=";
 };
 
 export type HelpcodeKey = "quanpin_helpcode" | "shuangpin_helpcode";

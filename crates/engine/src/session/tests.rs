@@ -11250,3 +11250,175 @@ fn literal_symbol_keeps_mode_content_and_sentence_punctuation_boundaries() {
     type_text(&mut session, "nihao");
     assert_eq!(session.punctuation(b'.').commit.as_deref(), Some("你好。"));
 }
+
+#[test]
+fn custom_helpcode_trigger_filters_both_pinyin_schemes_like_shift() {
+    let fixture = isolation_root("你", "甲");
+    std::fs::write(
+        fixture.path().join("helpcodes/helpcode.txt"),
+        "你=rx\n拟=fr\n",
+    )
+    .unwrap();
+    for (scheme, profile) in [
+        (SchemeType::Quanpin, ShuangpinProfileKind::Xiaohe),
+        (SchemeType::Shuangpin, ShuangpinProfileKind::Xiaohe),
+        (SchemeType::Shuangpin, ShuangpinProfileKind::Ziranma),
+        (SchemeType::Shuangpin, ShuangpinProfileKind::Shoudao),
+        (SchemeType::Shuangpin, ShuangpinProfileKind::Microsoft),
+        (SchemeType::Shuangpin, ShuangpinProfileKind::SmartAbc),
+    ] {
+        for trigger in b";/\\`=" {
+            let mut custom = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.shuangpin_profile = profile;
+                options.helpcode_trigger_key = Some(*trigger);
+            });
+            let mut shifted = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.shuangpin_profile = profile;
+            });
+            type_text(&mut custom, "ni");
+            type_text(&mut shifted, "ni");
+            assert!(custom
+                .snapshot()
+                .spelling_symbols
+                .contains(*trigger as char));
+            assert!(custom.character(*trigger, false).handled);
+            assert_eq!(custom.snapshot().editing_text, "ni");
+            for (lower, upper) in [(b'f', b'F'), (b'r', b'R')] {
+                assert!(custom.character(lower, false).handled);
+                if scheme == SchemeType::Shuangpin && lower == b'r' {
+                    // 双拼的顺序双码是小写首码加大写次码。
+                    shifted.command(Command::Backspace);
+                    shifted.character(b'f', false);
+                }
+                assert!(shifted.character(upper, true).handled);
+                assert_eq!(
+                    custom.snapshot().editing_text,
+                    shifted.snapshot().editing_text
+                );
+                assert_eq!(words(&custom), words(&shifted));
+                assert_eq!(words(&custom)[0], "拟");
+            }
+            assert!(!words(&custom).contains(&"你".to_owned()));
+            assert_eq!(custom.select(0).commit.as_deref(), Some("拟"));
+            type_text(&mut custom, "ni");
+            assert_eq!(custom.snapshot().editing_text, "ni");
+            // 尚未输入码时选词也必须结束前导状态。
+            assert!(custom.character(*trigger, false).handled);
+            assert_eq!(
+                custom.select(index_of(&custom, "你")).commit.as_deref(),
+                Some("你")
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_helpcode_trigger_backspace_and_exit_boundaries() {
+    let fixture = isolation_root("你", "甲");
+    std::fs::write(
+        fixture.path().join("helpcodes/helpcode.txt"),
+        "你=rx\n拟=fr\n",
+    )
+    .unwrap();
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.helpcode_trigger_key = Some(b';');
+        });
+        type_text(&mut session, "ni;");
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "ni");
+        assert!(session.input.helpcode_entry.is_none());
+        type_text(&mut session, ";fr");
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "niF");
+        assert_eq!(words(&session)[0], "拟");
+        session.character(b'r', false);
+        assert_eq!(words(&session)[0], "拟");
+        assert_eq!(
+            session.snapshot().editing_text,
+            if scheme == SchemeType::Shuangpin {
+                "nifR"
+            } else {
+                "niFR"
+            }
+        );
+        session.command(Command::Backspace);
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "ni");
+        assert!(session.input.helpcode_entry.is_some());
+        session.command(Command::Backspace);
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "n");
+        session.command(Command::Cancel);
+        for command in [
+            Command::MoveLeft,
+            Command::MoveHome,
+            Command::CommitRaw,
+            Command::Cancel,
+        ] {
+            type_text(&mut session, "ni;");
+            session.command(command);
+            assert!(session.input.helpcode_entry.is_none(), "{command:?}");
+            session.command(Command::Cancel);
+        }
+        type_text(&mut session, "ni;");
+        session.set_caret(None);
+        session.character(b'c', false);
+        assert_eq!(session.snapshot().editing_text, "nic");
+        session.command(Command::Cancel);
+        type_text(&mut session, "ni;");
+        session.reset_context();
+        session.character(b'c', false);
+        assert_eq!(session.snapshot().editing_text, "nic");
+        session.command(Command::Cancel);
+        type_text(&mut session, "ni;");
+        session.set_helpcode_enabled(false);
+        assert!(session.input.helpcode_entry.is_none());
+        assert!(!session.snapshot().spelling_symbols.contains(';'));
+        session.character(b'c', false);
+        assert_eq!(session.snapshot().editing_text, "nic");
+    }
+}
+
+#[test]
+fn custom_helpcode_trigger_preserves_microsoft_final_and_other_input_modes() {
+    let fixture = isolation_root("你", "甲");
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.local_modes.command = true;
+        options.helpcode_trigger_key = Some(b';');
+    });
+    type_text(&mut session, "n;");
+    assert_eq!(session.snapshot().editing_text, "n;");
+    assert!(session.input.helpcode_entry.is_none());
+    session.character(b';', false);
+    assert!(session.input.helpcode_entry.is_some());
+    session.command(Command::Cancel);
+    type_text(&mut session, "ni'n;");
+    assert!(session.input.helpcode_entry.is_none());
+    session.command(Command::Cancel);
+    session.switch_scheme(SchemeType::Quanpin).unwrap();
+    assert!(!session.character(b';', false).handled);
+    type_text(&mut session, "ni");
+    assert!(session.snapshot().spelling_symbols.contains('@'));
+    session.command(Command::MoveLeft);
+    assert!(!session.snapshot().spelling_symbols.contains(';'));
+    session.command(Command::Cancel);
+    type_text(&mut session, "ni;");
+    session.switch_scheme(SchemeType::Shuangpin).unwrap();
+    type_text(&mut session, "ni");
+    assert_eq!(session.snapshot().editing_text, "ni");
+    session.command(Command::Cancel);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "ni;");
+    assert_eq!(session.snapshot().editing_text, "ni");
+    assert!(session.input.helpcode_entry.is_none());
+    session.set_dedicated_english(false);
+    type_text(&mut session, "/");
+    session.character(b';', false);
+    assert!(session.input.helpcode_entry.is_none());
+}

@@ -311,9 +311,13 @@ if(BUILD_TESTING)
   target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host Threads::Threads)
   # 注音和笔画用例把测试词库安装到独立目录，锁定资源中没有这些词库。
   target_compile_definitions(ibus-engine-smoke PRIVATE
+    MSIME_HELPCODE_FIXTURE_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/../../resources"
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-helpcode-trigger
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --helpcode-trigger)
+    set_tests_properties(ibus-helpcode-trigger PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-page-number-visibility
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --page-number)
     set_tests_properties(ibus-page-number-visibility PROPERTIES TIMEOUT 60)

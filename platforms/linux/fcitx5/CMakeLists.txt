@@ -242,6 +242,7 @@ if(BUILD_TESTING)
   endif()
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE
+    MSIME_HELPCODE_FIXTURE_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/../../../resources"
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
     MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin"
     MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor"
@@ -282,6 +283,9 @@ if(BUILD_TESTING)
   add_test(NAME fcitx5-cloud-clipboard COMMAND fcitx5-native-test --cloud-clipboard)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
+    add_test(NAME fcitx5-helpcode-trigger
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --helpcode-trigger)
+    set_tests_properties(fcitx5-helpcode-trigger PROPERTIES TIMEOUT 60)
     add_test(NAME fcitx5-native-context
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
     add_test(NAME fcitx5-native-smart-abc

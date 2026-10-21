@@ -318,6 +318,8 @@ pub struct HostCapabilities {
     /// them this way are the ones running the ported ChineseHelpcodePolicy, and
     /// the settings page explains the gesture only where it applies.
     pub helpcode_shift_entry: bool,
+    /// 宿主通过拼写符号优先路由接通可配置的辅助码前导键。
+    pub helpcode_trigger_key: bool,
     /// A skin arrives by being picked rather than by being dropped into a
     /// folder. The source opens its skin folder so the user can put one there;
     /// a host whose folder is inside an application sandbox has nothing to
@@ -783,7 +785,8 @@ impl HostCapabilities {
             ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             english_online_candidates: platform == HostPlatform::Macos,
-            // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
+            helpcode_trigger_key: platform == HostPlatform::Linux,
+            // Android、HarmonyOS 和 iOS 键盘在组字时用 Shift 标记辅助码；桌面默认直接追加编码。
             helpcode_shift_entry: matches!(
                 platform,
                 HostPlatform::Android | HostPlatform::Harmony | HostPlatform::Ios

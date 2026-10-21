@@ -70,6 +70,9 @@ pub(super) struct InputSession {
     pub autocorrect_types: u32,
     pub quanpin_helpcode_enabled: bool,
     pub shuangpin_helpcode_enabled: bool,
+    pub helpcode_trigger_key: Option<u8>,
+    /// 前导键之后、辅助码之前的原文长度。
+    pub helpcode_entry: Option<usize>,
     pub helpcode_keymap: Option<SharedKeymap>,
     pub helpcode_fallback_resources: Option<PathBuf>,
     pub chinese_punctuation_enabled: bool,
@@ -123,6 +126,12 @@ pub(super) struct InputSession {
 impl InputSession {
     /// Everything `Session::new` applies, in the reference order.
     pub fn new(options: &SessionOptions) -> Result<Self> {
+        if options
+            .helpcode_trigger_key
+            .is_some_and(|key| !b";/\\`=".contains(&key))
+        {
+            return Err(EngineError::invalid(diagnostics::INVALID_SESSION_OPTIONS));
+        }
         let paths = options.paths.clone();
         let journal = paths.user(assets::USER_JOURNAL);
         let profile = session_profile(
@@ -160,6 +169,8 @@ impl InputSession {
             autocorrect_types: 0,
             quanpin_helpcode_enabled: true,
             shuangpin_helpcode_enabled: true,
+            helpcode_trigger_key: options.helpcode_trigger_key,
+            helpcode_entry: None,
             helpcode_keymap: None,
             helpcode_fallback_resources: options.helpcode_fallback_resources.clone(),
             chinese_punctuation_enabled: true,
@@ -272,7 +283,9 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
-        let result = self.dispatch_character(value, shift_only);
+        let result = self
+            .helpcode_character(value)
+            .unwrap_or_else(|| self.dispatch_character(value, shift_only));
         // #7616：交还给宿主的大写字母让这一串开了头，直到下一枚不是大写字母的键为止。
         self.uppercase_passthrough = value.is_ascii_uppercase() && !result.handled;
         result
@@ -283,7 +296,7 @@ impl InputSession {
         self.uppercase_passthrough = false;
     }
 
-    fn dispatch_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+    pub(super) fn dispatch_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
         // 改字时能写进组字的键先退出改字再照常键入；数字和空格等留给候选选择，宿主或 runtime 再按选择处理。
         if self.conversion.is_some() {
             if !(value.is_ascii_alphabetic() || value == b'\'' || value == b';') {
@@ -831,6 +844,9 @@ impl InputSession {
 
     /// input_session.cpp:294-406.
     pub fn handle_command(&mut self, command: Command) -> KeyResult {
+        if let Some(result) = self.helpcode_command(command) {
+            return result;
+        }
         self.end_uppercase_run();
         if !self.has_composition() {
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
@@ -962,6 +978,7 @@ impl InputSession {
 
     /// `Session::conversion_left_from`。
     pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        self.helpcode_entry = None;
         if self.conversion.is_none() && self.has_composition() {
             if let Some(result) = self.move_conversion_from(Command::ConversionLeft, index) {
                 return result;
@@ -1037,6 +1054,9 @@ impl InputSession {
 
     /// 组字接收的符号先回到字符入口；`/` 和 `@` 仅经字符入口开启模式，避免 runtime 结束组字后的空状态被误当成空闲输入。
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
+        if let Some(result) = self.helpcode_character(value) {
+            return result;
+        }
         self.end_uppercase_run();
         if self.takes_literal_symbol(value) {
             return self.handle_character(value, false);
@@ -1265,7 +1285,11 @@ impl InputSession {
             };
         }
         // 组字原文是网址触发词时发布触发键，原文能做邮箱的本地部分时发布 `@`，runtime 才会把它当作字符送进来，而不是先结束组字。发布的键必须正是 `url_entry` 接受的键。
-        if let Some(keys) = self.url_entry_keys() {
+        let mut keys = self.url_entry_keys().unwrap_or_default();
+        if self.helpcode_trigger_available() {
+            keys.push(self.helpcode_trigger_key.unwrap() as char);
+        }
+        if !keys.is_empty() {
             return keys;
         }
         if self.has_composition() || !self.scheme().opens_table_modes() {
@@ -1421,6 +1445,7 @@ impl InputSession {
     }
 
     pub fn set_helpcode_enabled(&mut self, enabled: bool) {
+        self.helpcode_entry = None;
         self.set_quanpin_helpcode_enabled(enabled);
         self.set_shuangpin_helpcode_enabled(enabled);
     }
@@ -1478,6 +1503,7 @@ impl InputSession {
 
     /// Clears caret, phrase progress, pending sequence, local mode, dedicated preedit and caches; returns from temporary Japanese.
     pub fn reset_composition(&mut self) {
+        self.helpcode_entry = None;
         self.caret = None;
         self.conversion = None;
         self.prefix_candidates.clear();
@@ -1509,6 +1535,7 @@ impl InputSession {
 
     /// Resets the chain and recomputes when the list was personally reranked.
     pub fn reset_commit_context(&mut self) {
+        self.helpcode_entry = None;
         self.end_uppercase_run();
         self.chain.reset();
         // A list reordered for the forgotten context must not stay on screen.

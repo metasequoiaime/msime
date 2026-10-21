@@ -242,6 +242,9 @@ fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
             ..KeybindingPreferences::default()
         }
     );
+}
+
+#[test]
 fn toggle_hotkeys_use_the_legacy_factory_defaults() {
     let keybindings = Preferences::default().keybindings;
     assert_eq!(keybindings.toggle_english_candidates, "Ctrl+Shift+KeyE");
@@ -3576,6 +3579,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
     {
         let preferences = Preferences {
             quanpin_helpcode: HelpcodePreferences {
+                trigger_key: String::new(),
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
@@ -5861,6 +5865,9 @@ const NOT_CREDENTIALS: &[&str] = &[
     "custom_theme.keyboard.keyShape",
     "floating_toolbar.screen_keyboard",
     "keybindings",
+    // 辅助码按键是普通键位偏好，不是服务凭据。
+    "quanpin_helpcode.trigger_key",
+    "shuangpin_helpcode.trigger_key",
     "screen_keyboard_theme",
     "second_third_candidate.keys",
     "sentence_association.neural_keyboard",
@@ -6358,4 +6365,41 @@ fn network_proxy_server_is_validated_and_restored_with_the_services() {
         configured.restored_to_defaults().network,
         configured.network
     );
+}
+
+#[test]
+fn helpcode_trigger_keys_roundtrip_independently_and_validate() {
+    let old = serde_json::json!({"enabled": true, "schema": "ziranma"});
+    let old: HelpcodePreferences = serde_json::from_value(old).unwrap();
+    assert!(old.trigger_key.is_empty());
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    for (revision, key) in ["", ";", "/", "\\", "`", "="].into_iter().enumerate() {
+        let mut preferences = Preferences::default();
+        preferences.quanpin_helpcode.trigger_key = key.into();
+        preferences.shuangpin_helpcode.trigger_key = "/".into();
+        preferences.validate().unwrap();
+        store.save(revision as u64, preferences).unwrap();
+        let loaded = PreferencesStore::new(directory.path())
+            .load()
+            .unwrap()
+            .preferences;
+        assert_eq!(loaded.quanpin_helpcode.trigger_key, key);
+        assert_eq!(loaded.shuangpin_helpcode.trigger_key, "/");
+    }
+    for key in ["a", "1", " ", "'", "Shift", "Ctrl+;", ";;", "；"] {
+        for shuangpin in [false, true] {
+            let mut preferences = Preferences::default();
+            let family = if shuangpin {
+                &mut preferences.shuangpin_helpcode
+            } else {
+                &mut preferences.quanpin_helpcode
+            };
+            family.trigger_key = key.into();
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidHelpcodeTriggerKey)
+            ));
+        }
+    }
 }

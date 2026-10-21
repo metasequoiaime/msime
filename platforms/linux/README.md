@@ -92,6 +92,12 @@ Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MOD
 
 使用 Fcitx5 后仍然失败，请附上 `fcitx5 --version`、相关 daemon 的进程信息、宿主与玲珑应用内 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、预装拼音在同一应用里是否可用，以及焦点在该应用时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的结果。请延迟采样并在等待时切回失败应用，避免将执行命令的终端误当成目标上下文。仅保留复现用的合成编辑器上下文，不附真实输入、私人应用名或凭据。当前隔离验收已覆盖 Fcitx5 IBus 兼容前端和 GTK IBus 模块的中文上屏，但尚未证明 Deepin 玲珑场景的问题已解决，#8009 保持打开。
 
+## 辅助码触发键
+
+设置应用的「输入 → 辅助码」可分别选择全拼、双拼的触发键：Shift 加字母（默认），或分号、斜杠、反斜杠、反引号、等号。选择标点后，在拼音组字末尾按该键，再输入一到两个辅助码字母即可筛选；Shift 加字母仍然可用。未输入码时按退格只退出辅助码输入，保留已有拼音。没有组字、编辑中间的拼音、英文及快捷模式仍保留这些标点原本的作用。微软双拼未完成的半音节优先接收分号作为韵母。
+
+IBus 与 Fcitx5 的专项验收分别是 `ibus-engine-smoke <已验证词库目录> --helpcode-trigger` 和 `fcitx5-native-test <已验证词库目录> --helpcode-trigger`，覆盖两族独立设置、双辅助码筛选、上屏、退格及微软分号韵母。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：

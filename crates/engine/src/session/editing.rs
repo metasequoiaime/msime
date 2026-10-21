@@ -326,6 +326,7 @@ impl InputSession {
 
     /// 将光标限制在可编辑范围内并重算前缀候选；禁止内部光标的方案仍留在末尾。
     pub(super) fn set_caret(&mut self, caret: Option<usize>) {
+        self.helpcode_entry = None;
         // 宿主直接放字母光标，就是回到拼音编辑。
         self.leave_conversion();
         if self.engine.current_scheme_type().locks_caret()
