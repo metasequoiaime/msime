@@ -11,6 +11,8 @@ Status: implemented
 ## Decision
 
 > 默认关闭的历史决定已由 [2026-10-20-issue-8847-left-right-default.md](../bug-fix/2026-10-20-issue-8847-left-right-default.md) 取代；下面记录的是开关初次引入时的实现边界。
+>
+> 下面的「编辑优先」语义已由[方向键按候选窗朝向和首选分工](../bug-fix/2026-10-21-left-right-by-orientation-and-first-candidate.md)部分取代：横排里首选上编辑、其余候选上左右键只移动候选，竖排时左右键只编辑；判断位置和不接管的边界仍以本篇为准。
 
 新偏好 `navigation.left_right`（`NavigationPreferences`），默认关闭、可选字段：`#[serde(default, skip_serializing_if = "is_false")]`，与 `mouse_wheel` 一样不在设置页的默认对象里补写，旧文档里没有这个键就是关闭。
 

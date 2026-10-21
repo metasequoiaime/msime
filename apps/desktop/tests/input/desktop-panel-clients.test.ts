@@ -6,11 +6,17 @@ import type { ClipboardHistoryClient, Snapshot } from "@msime/ui";
 import { createDesktopPanelClients } from "../../src/input/desktop-panel-clients";
 import { createDesktopClipboardClient } from "../../src/input/desktop-clipboard-client";
 
-const bridge = vi.hoisted(() => ({ drag: vi.fn(async () => {}) }));
+const bridge = vi.hoisted(() => ({
+  drag: vi.fn(async () => {}),
+  resize: vi.fn(async (_edge: string) => {}),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({ startDragging: bridge.drag })),
+  getCurrentWindow: vi.fn(() => ({
+    startDragging: bridge.drag,
+    startResizeDragging: bridge.resize,
+  })),
 }));
 
 beforeEach(() => {
@@ -112,6 +118,26 @@ test("键盘与手写保持窗口拖动和各自的输入命令", async () => {
     ["submit_handwriting_candidate", { candidate: "合成候选" }],
     ["copy_text", { text: "合成候选" }],
   ]);
+});
+
+test("表情面板提供标题拖动和八方向原生缩放，不改输入目标", async () => {
+  const { emoji } = setup().clients;
+  await emoji.beginWindowDrag!();
+  expect(bridge.drag).toHaveBeenCalledOnce();
+  for (const edge of ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const) {
+    await emoji.resizeWindow!(edge);
+  }
+  expect(bridge.resize.mock.calls.map(([edge]) => edge)).toEqual([
+    "North",
+    "South",
+    "East",
+    "West",
+    "NorthEast",
+    "NorthWest",
+    "SouthEast",
+    "SouthWest",
+  ]);
+  expect(invoke).not.toHaveBeenCalled();
 });
 
 test("语音桥解包事件并继续按活跃请求过滤", async () => {

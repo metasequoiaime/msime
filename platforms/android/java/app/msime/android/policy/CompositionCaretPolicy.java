@@ -85,6 +85,22 @@ public final class CompositionCaretPolicy {
         return -1;
     }
 
+    /** 放大条包含末尾光标；原读音行仍只在离开末尾后画光标。 */
+    public static int displayOffset(String display, String editing, int caret) {
+        if (display == null || editing == null || alignment(display, editing) == null) return -1;
+        return caret == editing.length() ? display.length() : markIndex(display, editing, caret);
+    }
+
+    /** 只接住完整组字区内的单点选择，读音分隔符和已选词前缀走同一份映射。 */
+    public static int editorTapTarget(String composing, String editing, int prefixLength,
+            int start, int end, int selectionStart, int selectionEnd) {
+        if (composing == null || start < 0 || end - start != composing.length()
+                || selectionStart != selectionEnd || selectionStart < start || selectionStart > end
+                || prefixLength < 0 || prefixLength > composing.length()) return -1;
+        return tapTarget(prefixLength, composing.substring(prefixLength), editing, -1,
+            selectionStart - start);
+    }
+
     /** 在 {@code markIndex} 处插入光标符后的读音；不画光标时原样返回。 */
     public static String withMark(String display, int markIndex) {
         if (display == null) return "";

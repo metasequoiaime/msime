@@ -31,6 +31,7 @@ fn options(root: &Path) -> EngineOptions {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,

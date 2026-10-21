@@ -7,6 +7,8 @@
 #include <cmath>
 #include <vector>
 
+#include "../../../../shared/candidate/CandidateMotionRules.h"
+
 #if !__has_feature(objc_arc)
 #error "CandidateMotion.mm must be compiled with -fobjc-arc"
 #endif
@@ -17,13 +19,11 @@ using msime::mac::SkinAnimationPreset;
 
 namespace
 {
-// 收起后这么短时间内再次显示，算同一段连续输入，不播进场。连续打字的平均击键间隔约 240ms（Dhakal 等，CHI 2018，1.36 亿次击键），上屏键到下一个声母之间再多一点停顿；超过 400ms 才算停下来看，候选窗那时重新出现可以有进场。
-constexpr CFTimeInterval kTypingBurstInterval = 0.4;
-// 错峰的总延迟上限：再长的一页，最后一行也只比第一行晚这么久开始。
-constexpr CFTimeInterval kStaggerCap = 0.08;
-// 卡片的位移只用于从下方升起和向下退出；窗口正好是卡片大小，位移越大，起止几帧被窗口边缘裁掉的越多。
-constexpr CGFloat kSlideDistance = 8.0;
-constexpr CGFloat kRowRevealDistance = 3.0;
+// 时长和幅度与 Linux 的 X11 原生画布共用 shared/candidate/CandidateMotionRules.h，含义见那里。
+constexpr CFTimeInterval kTypingBurstInterval = msime::candidate::kMotionTypingBurstSeconds;
+constexpr CFTimeInterval kStaggerCap = msime::candidate::kMotionStaggerCapSeconds;
+constexpr CGFloat kSlideDistance = msime::candidate::kMotionSlideDistance;
+constexpr CGFloat kRowRevealDistance = msime::candidate::kMotionRowRevealDistance;
 
 NSString *const kEnterOpacityKey = @"msime-candidate-enter-opacity";
 NSString *const kEnterTransformKey = @"msime-candidate-enter-transform";
@@ -34,18 +34,17 @@ NSString *const kSelectionKey = @"msime-candidate-selection";
 NSString *const kDecorationMotionKey = @"msime-decoration-motion";
 NSString *const kDecorationFramesKey = @"msime-decoration-frames";
 
-// 装饰图待机动效的幅度上限。实际幅度还按图片大小收小，保证最大位移不超过 kDecorationMotionMargin，见 DecorationMotionAnimation。
-constexpr CGFloat kFloatDistance = 3.0;
-constexpr CGFloat kSwayRadians = 3.0 * M_PI / 180.0;
-constexpr CGFloat kBreatheScale = 1.03;
-constexpr CGFloat kBounceHeight = 3.5;
+constexpr CGFloat kFloatDistance = msime::candidate::kMotionFloatDistance;
+constexpr CGFloat kSwayRadians = msime::candidate::kMotionSwayRadians;
+constexpr CGFloat kBreatheScale = msime::candidate::kMotionBreatheScale;
+constexpr CGFloat kBounceHeight = msime::candidate::kMotionBounceHeight;
 // 与共享加载器的 MAX_ANIMATION_FRAMES 一致；加载器已经拒绝了更多帧的包，这里只是不信任文件。
 constexpr size_t kMaxDecorationFrames = 120;
 
 // 与共享契约一致的 40–600ms。
 CFTimeInterval MotionSeconds(double milliseconds)
 {
-    return std::clamp(milliseconds / 1000.0, 0.04, 0.6);
+    return msime::candidate::MotionSeconds(milliseconds);
 }
 
 CAMediaTimingFunction *Curve(NSString *name)

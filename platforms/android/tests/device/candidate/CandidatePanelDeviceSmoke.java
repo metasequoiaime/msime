@@ -1,13 +1,14 @@
 package app.msime.android.test;
 
 import android.content.Intent;
+import android.graphics.Rect;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** Device-only acceptance for the complete, non-paged candidate panel. */
+/** 完整候选面板的设备验收：真实触摸选词后直接回到键盘继续输入。 */
 public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "complete candidate panel and out-of-page InputConnection commit";
+        return "完整候选面板、触摸选择页外候选后上屏并直接继续输入";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -33,10 +34,22 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 || !later.isLongClickable())
             throw new AssertionError("Expanded candidate chip contract mismatch");
         stage = "candidate panel out-of-page selection";
-        tap(candidateTen());
+        touch(candidateTen());
         stage = "candidate panel commit";
         await(field("msime-test-plain").and(node -> node.getText() != null
             && node.getText().length() > 0 && !equalsText("ni", node.getText())));
+        String committed = await(field("msime-test-plain")).getText().toString();
+        stage = "candidate panel returns to keyboard after touch selection";
+        touch(key("n"));
+        await(field("msime-test-plain").and(node -> equalsText(committed + "n", node.getText())));
+    }
+
+    /** 走真实按下、抬起与框架排队点击，不能用无障碍点击跳过按钮按压状态。 */
+    private void touch(Predicate<AccessibilityNodeInfo> match) throws Exception {
+        AccessibilityNodeInfo target = await(match.and(AccessibilityNodeInfo::isVisibleToUser));
+        Rect bounds = new Rect();
+        target.getBoundsInScreen(bounds);
+        shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
     }
 
     /** The expanded grid draws no title; its description carries the composition and the complete count, as 完整候选列表；ni；N 个候选. */

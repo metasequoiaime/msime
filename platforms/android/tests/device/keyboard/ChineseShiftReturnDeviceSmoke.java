@@ -12,10 +12,13 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import org.json.JSONObject;
 
-/** 从安装后的原生服务验证临时大写返回中文，不读取或修改实际编辑器内容。 */
+/** 从安装后的原生服务验证中英键帽与临时大写返回中文，不读取或修改实际编辑器内容。 */
 public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
     private String stage = "prepare synthetic shoudao session";
 
@@ -49,6 +52,8 @@ public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
                 field(type, "touchLayoutHint").setInt(service, 0);
                 field(type, "selectedScheme").set(service,
                     loader.loadClass("app.msime.android.KeyboardScheme").getField("SHOUDAO").get(null));
+                field(type, "localSettings").set(service,
+                    loader.loadClass("app.msime.android.AndroidLocalSettings").getMethod("defaults").invoke(null));
                 StringBuilder committed = new StringBuilder();
                 InputConnection connection = (InputConnection) Proxy.newProxyInstance(
                     InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
@@ -72,6 +77,25 @@ public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
                 Button shift = (Button) field(type, "shiftButton").get(service);
                 Method typeLetter = method(type, "type", char.class);
                 Method toggleLanguage = method(type, "toggleInputLanguage");
+                stage = "Chinese letter faces before language switch";
+                Object rows = field(type, "imeLetterRows").get(service);
+                method(rows.getClass(), "rebuildKeyRows").invoke(rows);
+                method(type, "render").invoke(service);
+                List<?> originalKeys = new ArrayList<>((List<?>) field(type, "shuangpinKeyButtons").get(service));
+                checkLetterFaces(type, service, true, originalKeys);
+                for (int cycle = 0; cycle < 3; cycle++) {
+                    stage = "English lowercase faces after language switch";
+                    toggleLanguage.invoke(service);
+                    checkLetterFaces(type, service, false, originalKeys);
+                    Button letter = (Button) originalKeys.get(0);
+                    letter.performClick();
+                    check(committed.toString().equals("q".repeat(cycle + 1)), "英文键面与实际小写上屏一致");
+                    stage = "Chinese uppercase faces after language switch";
+                    toggleLanguage.invoke(service);
+                    checkLetterFaces(type, service, true, originalKeys);
+                }
+                committed.setLength(0);
+                modeWrites[0] = 0;
                 stage = "one-shot uppercase returns to Chinese";
                 shift.performClick();
                 stage = "one-shot enters temporary English";
@@ -150,12 +174,32 @@ public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         result.putString("stream", failure[0] == null
             ? "MSIME_DEVICE_SMOKE_PASSED: temporary Chinese Shift, caps lock, explicit language and session stop\n"
-            : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")\n");
+            : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")"
+                + (failure[0] instanceof AssertionError ? " " + failure[0].getMessage() : "") + "\n");
         finish(failure[0] == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }
 
     private static boolean english(Class<?> type, Object service) throws Exception {
         return field(type, "dedicatedEnglish").getBoolean(service);
+    }
+    private static void checkLetterFaces(Class<?> type, Object service, boolean uppercase,
+            List<?> originalKeys) throws Exception {
+        List<?> keys = (List<?>) field(type, "shuangpinKeyButtons").get(service);
+        List<?> inputs = (List<?>) field(type, "shuangpinKeyInputs").get(service);
+        check(keys.equals(originalKeys), "中英 26 键切换应保留原来的按键对象");
+        int letterCount = 0;
+        for (int index = 0; index < keys.size(); index++) {
+            Button key = (Button) keys.get(index);
+            String input = (String) inputs.get(index);
+            // 首道双拼还有分词键，只检查 a-z 的大小写。
+            if (input.length() != 1 || input.charAt(0) < 'a' || input.charAt(0) > 'z') continue;
+            letterCount++;
+            String expected = uppercase ? input.toUpperCase(Locale.ROOT) : input.toLowerCase(Locale.ROOT);
+            check(expected.contentEquals(key.getText()), "键帽大小写应与当前语言状态一致");
+            check(key.getContentDescription().toString().startsWith("字母 " + input.toUpperCase(Locale.ROOT)),
+                "普通中英字母键的无障碍描述不应残留大写状态");
+        }
+        check(letterCount == 26, "完整的 26 个字母键夹具");
     }
     private static Field field(Class<?> type, String name) throws Exception {
         Field field = type.getDeclaredField(name); field.setAccessible(true); return field;

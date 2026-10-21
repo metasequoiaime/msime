@@ -5,6 +5,7 @@
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "WindowPresentationLog.h"
+#import "ToolbarImageCanvas.h"
 #import <CoreGraphics/CoreGraphics.h>
 
 #include <algorithm>
@@ -531,6 +532,15 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     BOOL _recentInput;
     BOOL _applyingSkin;
     NSTimer *_idleTimer;
+    MSIMEToolbarImageCanvas *_imageCanvas;
+    msime::mac::SkinToolbarImage _lightToolbarImage;
+    msime::mac::SkinToolbarImage _darkToolbarImage;
+    NSTimer *_imageTimer;
+    NSString *_imageStatus;
+    NSString *_imageFullWidth;
+    NSString *_imagePunctuation;
+    NSString *_imageCharacterSet;
+    NSSize _barPreferredSize;
 }
 
 + (instancetype)sharedPanel
@@ -686,6 +696,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)dealloc
 {
     [_idleTimer invalidate];
+    [_imageTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:self];
 }
@@ -779,6 +790,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _trailingInset.constant = -kToolbarTrailingChrome * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
     _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale, showsLogo), std::ceil((fontSize + 20.0) * scale));
+    _barPreferredSize = _preferredSize;
     // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
     // change, hidden or not, and the window carries a frame autosave name - so resizing a hidden toolbar
     // wrote a saved frame for a window the user has never placed, pinned to the restored-margin corner.
@@ -830,6 +842,46 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     [self applySkin];
 }
 
+- (void)applyLightToolbarImage:(const msime::mac::SkinToolbarImage &)light darkSkin:(const msime::mac::SkinToolbarImage &)dark {
+    if (_lightToolbarImage.json == light.json && _lightToolbarImage.directory == light.directory &&
+        _darkToolbarImage.json == dark.json && _darkToolbarImage.directory == dark.directory) return;
+    _lightToolbarImage = light;
+    _darkToolbarImage = dark;
+    [self reloadToolbarImages];
+}
+
+- (void)reloadToolbarImages {
+    [_imageCanvas removeFromSuperview];
+    _imageCanvas = nil;
+    [self applySkin];
+}
+
+- (void)updateImagePointer {
+    if (!_imageCanvas || !self.visible) return;
+    // AppKit 的 view hit-test 不能单独保证跨窗口穿透；用全局鼠标坐标更新窗口级命中。
+    if ((NSEvent.pressedMouseButtons & 1) == 0) {
+        const NSPoint point = [_imageCanvas convertPoint:[self convertPointFromScreen:NSEvent.mouseLocation] fromView:nil];
+        self.ignoresMouseEvents = ![_imageCanvas containsInteractivePoint:point];
+    }
+    [_imageCanvas advanceAnimation];
+}
+
+- (void)startImageTimer {
+    if (!_imageCanvas || _imageTimer || !self.visible) return;
+    __weak MetasequoiaFloatingToolbarPanel *weakSelf = self;
+    _imageTimer = [NSTimer timerWithTimeInterval:1.0 / 30.0 repeats:YES block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf updateImagePointer];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_imageTimer forMode:NSRunLoopCommonModes];
+    [self updateImagePointer];
+}
+
+- (void)orderFrontRegardless {
+    [super orderFrontRegardless];
+    [self startImageTimer];
+}
+
 - (void)applySkin
 {
     if (_applyingSkin || _inputModeButton == nil || _settingsButton == nil)
@@ -868,6 +920,47 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         }
     }
     _chrome.needsDisplay = YES;
+    const auto &image = dark ? _darkToolbarImage : _lightToolbarImage;
+    const BOOL imageMode = !image.json.empty();
+    _chrome.hidden = imageMode;
+    _chrome.glassBackground.hidden = imageMode;
+    self.hasShadow = !imageMode;
+    if (imageMode) {
+        if (!_imageCanvas) {
+            _imageCanvas = [[MSIMEToolbarImageCanvas alloc] initWithFrame:self.contentView.bounds];
+            _imageCanvas.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            _imageCanvas.accessibilityIdentifier = @"MSIMEImageToolbarCanvas";
+            [self.contentView addSubview:_imageCanvas];
+        }
+        NSArray<NSString *> *keys = @[@"status", @"fullwidth", @"punctuation", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+        NSArray<NSNumber *> *indices = @[@0, @3, @2, @4, @5, @7, @9];
+        NSArray<NSString *> *states = @[_imageStatus ?: @"cn", _imageFullWidth ?: @"half", _imagePunctuation ?: @"cn", _imageCharacterSet ?: @"simplified", @"", @"", @""];
+        NSArray<NSButton *> *sources = @[_inputModeButton, _fullWidthButton, _punctuationButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
+        NSMutableArray *shown = [NSMutableArray array];
+        NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
+        for (NSUInteger at = 0; at < keys.count; ++at) {
+            if ((_appliedComponentMask & (1u << indices[at].unsignedIntegerValue)) == 0) continue;
+            [shown addObject:@[keys[at], states[at]]];
+            buttons[keys[at]] = sources[at];
+        }
+        [_imageCanvas applySkin:image shown:shown buttons:buttons scale:(_appliedScale > 0 ? _appliedScale : 1) color:text];
+        _preferredSize = _imageCanvas.preferredSize;
+        [self startImageTimer];
+    } else {
+        [_imageCanvas removeFromSuperview];
+        _imageCanvas = nil;
+        [_imageTimer invalidate];
+        _imageTimer = nil;
+        self.ignoresMouseEvents = NO;
+        if (_barPreferredSize.width > 0) _preferredSize = _barPreferredSize;
+    }
+    if (self.visible && _preferredSize.width > 0 && _preferredSize.height > 0 && !NSEqualSizes(self.frame.size, _preferredSize)) {
+        NSRect frame = self.frame;
+        frame.size = _preferredSize;
+        NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
+        if (screen) frame = SizedToolbarFrame(frame, screen.visibleFrame, YES, _preferredSize);
+        [self setFrame:frame display:YES];
+    }
     _applyingSkin = NO;
 }
 
@@ -879,6 +972,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)orderOut:(id)sender
 {
     [super orderOut:sender];
+    [_imageTimer invalidate];
+    _imageTimer = nil;
     if (_applyingSkin || _inputModeButton == nil || _settingsButton == nil) return;
     // A hidden window gets no mouseExited:, so a button hovered at the moment the toolbar hides would come back highlighted.
     for (MetasequoiaFloatingToolbarButton *button in
@@ -946,6 +1041,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _punctuationButton.toolTip = _punctuationButton.accessibilityLabel;
     _fullWidthButton.toolTip = _fullWidthButton.accessibilityLabel;
     _traditionalOutputButton.toolTip = _traditionalOutputButton.accessibilityLabel;
+    _imageStatus = capsLock ? @"caps" : englishInputMode ? @"en" : englishCandidateMode ? @"en-candidate" : [scheme isEqual:@"japanese"] ? @"ja" : @"cn";
+    _imageFullWidth = fullWidthEnabled ? @"full" : @"half";
+    _imagePunctuation = chinesePunctuationEnabled ? @"cn" : @"en";
+    _imageCharacterSet = traditionalChineseOutputEnabled ? @"traditional" : @"simplified";
     [self applySkin];
 }
 

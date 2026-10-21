@@ -106,7 +106,7 @@ struct CandidateOptionsSettingsView: View {
           DesignDivider()
           stepperRow("触发字母数", value: "\(minimumPrefix)", binding: stored("mixed_input", "minimum_prefix", $minimumPrefix),
                      in: 1...8, identifier: "mixedEnglishMinimumPrefix") {
-            detail("字母达到这个长度才出现英文候选")
+            detail("达到此长度后补全英文；26 键中更短的完整词仍可选")
           }
           .disabled(!english)
           .opacity(english ? 1 : 0.45)

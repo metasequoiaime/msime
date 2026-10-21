@@ -97,7 +97,7 @@ inline std::string system_asr_missing_language_message(std::string_view language
          " 的 Windows 语音识别，请在 Windows 设置 › 时间和语言 › 语言和区域 中为该语言安装“语音识别”，或改用其他识别服务。";
 }
 
-// 系统识别失败时给人看的那句话：识别器自己说明了原因就用它，其余情况用通用的一句（与其他识别服务的「语音识别失败」相同）。
+// 系统识别失败时给人看的那句话：识别器自己说明了原因就用它，其余情况用笼统的「语音识别失败」，`voice_failure_notice` 会把它丢掉，浮层只显示识别失败的标题（与其他识别服务拿不到供应商原话时相同）。
 inline std::string system_asr_failure(const std::exception &error) {
   if (const auto *system = dynamic_cast<const SystemAsrError *>(&error))
     return system->what();

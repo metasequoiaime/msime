@@ -93,6 +93,7 @@ struct Observation {
   bool character_width = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
+  bool smart_punctuation_enabled = false;
   bool clipboard_toggle_sensitive = false;
   bool clipboard_clear_sensitive = false;
   bool punctuation_enabled = false;
@@ -207,8 +208,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.learning_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.learning_sensitive = ibus_property_get_sensitive(property);
     }
-    if (key == "SmartPunctuation")
+    if (key == "SmartPunctuation") {
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
+      seen.smart_punctuation_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    }
     if (key == "ClipboardHistory/Enabled")
       seen.clipboard_toggle_sensitive = ibus_property_get_sensitive(property);
     if (key.rfind("ClipboardHistory/Clear/", 0) == 0) {
@@ -358,6 +361,7 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
                                   std::string(argv[2]) == "--caps-lock" ||
+                                  std::string(argv[2]) == "--app-rules" ||
                                   std::string(argv[2]) == "--japanese-toggle" ||
                                   std::string(argv[2]) == "--chaizi" ||
                                   std::string(argv[2]) == "--online-socket-switch" ||
@@ -581,7 +585,7 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       phrase();
       const auto has_old_candidate = [&] {
-        return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") !=
+        return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试 ☁️") !=
                seen.candidates.end();
       };
       require(wait_until(has_old_candidate), "Synthetic online candidate did not appear");
@@ -872,11 +876,134 @@ int main(int argc, char **argv) {
                 return ignored;
               }),
               "Disabling Caps Lock switching did not hot-reload");
+      // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      // 上面探测热重载时，关掉之前的每次轻点都切换了一次中英文，停在哪个模式取决于重载前轻点了几次；下面的标点用例要从中文开始。
+      if (!seen.input_enabled) {
+        key(IBUS_Control_L, IBUS_CONTROL_MASK);
+        key(IBUS_Control_L, IBUS_RELEASE_MASK);
+      }
+      require(wait_until([&] { return seen.input_enabled; }),
+              "the Caps Lock punctuation case did not start in Chinese");
+      require(seen.smart_punctuation_enabled, "the Caps Lock fixture did not start with smart punctuation on");
+      {
+        nlohmann::json snapshot;
+        std::ifstream(root / "preferences.json") >> snapshot;
+        snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+        snapshot["preferences"]["caps_lock_ascii_punctuation"] = true;
+        snapshot["preferences"]["smart_punctuation"] = false;
+        std::ofstream(root / "next.json") << snapshot.dump();
+        std::filesystem::rename(root / "next.json", root / "preferences.json");
+      }
+      // 宿主每秒读一次偏好存储，读到后在同一次处理里更新会话并重新发布属性。不按键，等「智能标点」属性变成关，确认这份偏好已经生效，不按固定时长等。
+      require(wait_until([&] { return !seen.smart_punctuation_enabled; }),
+              "Caps Lock punctuation preferences did not hot-reload");
+      {
+        const auto before = seen.committed;
+        const bool consumed = key(',');
+        require(consumed && seen.committed == before + "，",
+                ("a comma without Caps Lock did not commit Chinese punctuation: consumed=" +
+                 std::to_string(consumed) + " committed=[" + seen.committed.substr(std::min(before.size(), seen.committed.size())) +
+                 "] input_enabled=" + std::to_string(seen.input_enabled) + " preedit=[" + seen.preedit + "] lookup=" +
+                 std::to_string(seen.lookup_visible) + " punctuation=" + std::to_string(seen.punctuation_enabled))
+                    .c_str());
+        require(!key(',', IBUS_LOCK_MASK) && seen.committed == before + "，",
+                "a comma under Caps Lock was not left to the application as English punctuation");
+        require(key(',') && seen.committed == before + "，，",
+                "releasing Caps Lock did not bring Chinese punctuation back");
+      }
       invoke("Disable");
       finish();
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
-      std::cout << "IBus Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      std::cout << "IBus Caps Lock tap, long press, chords, failed release, hot-reload and Caps Lock punctuation passed\n";
       return 0;
+    }
+    // 应用例外单独成一个入口，不排在默认流程后面，免得前面的用例失败时它跑不到。
+    if (argc == 3 && std::string(argv[2]) == "--app-rules") {
+#if IBUS_CHECK_VERSION(1, 5, 27)
+      // 应用例外：GTK 输入法模块在客户端名里带程序名（gtk3-im:<程序名>）。焦点进入有规则的程序从规则的模式开始；手动切换后同一程序的另一个上下文仍是手动选的模式；换到别的程序再回来，规则重新生效；匿名客户端不套用。
+      {
+        auto ruled = options;
+        ruled.erase("preferences_directory");
+        ruled["preferences"]["ime_mode_scope"] = "app";
+        ruled["preferences"]["default_ime_mode"] = "chinese";
+        ruled["preferences"]["keybindings"]["switch_language_shift"] = true;
+        ruled["preferences"]["app_input_mode_rules"] = {{"Synthetic-Ruled", "english"}};
+        msime_ibus_configure(ruled.dump());
+        invoke("FocusOut");
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        engine = create_engine();
+        seen = Observation{};
+        // 停用清掉宿主的应用记忆、全局模式和应用例外的停留，从 default_ime_mode 开始。
+        invoke("Disable");
+        const auto composes = [&] {
+          const bool consumed = key('n');
+          if (consumed) {
+            key(IBUS_Escape);
+            key(IBUS_Escape, IBUS_RELEASE_MASK);
+          }
+          key('n', IBUS_RELEASE_MASK);
+          return consumed;
+        };
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes(), "a ruled program did not start in its rule's English mode");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled-2", "gtk3-im:synthetic-ruled"));
+        require(composes(), "another context of the same program put the rule back over the user's switch");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes(), "an unruled program did not start in the default Chinese mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "coming back from another program did not apply the rule again");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/qt", "QIBusInputContext"));
+        require(composes(), "an anonymous Qt client took a rule");
+        // 有客户端名、没有程序名的客户端是另一个程序，经过它再回来，手动切换过的程序重新套用规则；IBus 的 fake 上下文认不出离没离开，停留保持不变。
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese again");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/fake", "fake"));
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(composes(), "IBus's fake context ended the stay");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/qt", "QIBusInputContext"));
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "an anonymous Qt client did not end the stay");
+        invoke("FocusOut");
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        // 全局作用域：规则定下的模式不改全局状态，离开有规则的程序后别的程序仍是全局的中文；在有规则的程序里手动切换才改全局状态。
+        auto global = ruled;
+        global["preferences"]["ime_mode_scope"] = "global";
+        msime_ibus_configure(global.dump());
+        engine = create_engine();
+        seen = Observation{};
+        // 同样先停用，全局模式不受前面应用作用域那段的影响。
+        invoke("Disable");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes(), "an unruled program did not start in the global Chinese mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes() && !seen.input_enabled, "a ruled program did not start in its rule's mode under global scope");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(composes() && seen.input_enabled, "a ruled program changed the global mode");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/ruled", "gtk3-im:synthetic-ruled"));
+        require(!composes(), "re-entering a ruled program under global scope did not apply the rule");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+                "Shift did not switch the ruled program to Chinese under global scope");
+        require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+                "Shift did not switch the ruled program back to English under global scope");
+        invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/other", "gtk3-im:synthetic-other"));
+        require(!composes() && !seen.input_enabled,
+                "a manual switch in a ruled program did not reach the global mode");
+        invoke("FocusOut");
+      }
+      invoke("Disable");
+      finish();
+      std::cout << "IBus app input mode rules: start mode, manual switch yield, re-entry, anonymous clients and global scope passed\n";
+      return 0;
+#else
+      // 1.5.27 以前的 IBus 没有 focus_in_id，宿主拿不到客户端名，规则在这里本来就不生效。
+      finish();
+      return 77;
+#endif
     }
     // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 process_key 驱动：缺省关时交给应用；打开后中文方案去日语并把这个中文方案写进 last_chinese_scheme，再按回到它；一次按下只切换一次；英文模式和 Engine 的英文模式里交给应用。
     if (argc == 3 && std::string(argv[2]) == "--japanese-toggle") {
@@ -1080,7 +1207,7 @@ int main(int argc, char **argv) {
         phrase();
       };
       compose();
-      require(seen.auxiliary.rfind("1/", 0) == 0 && seen.auxiliary_visible,
+      require(seen.auxiliary.rfind("1 / ", 0) == 0 && seen.auxiliary_visible,
               "Legacy page indicator missing");
       visibility["preferences"]["show_candidate_page_number"] = false;
       msime_ibus_configure(visibility.dump());
@@ -1096,7 +1223,7 @@ int main(int argc, char **argv) {
               "Hidden indicator broke selection");
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
-      require(seen.auxiliary.rfind("1/", 0) == 0, "Re-enabled page indicator missing");
+      require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
       visibility["preferences"]["show_candidate_page_number"] = false;
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();
@@ -1651,12 +1778,12 @@ int main(int argc, char **argv) {
                std::to_string(provider.online_requests))
                   .c_str());
       require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
-                          [](const std::string &text) { return text == "云端测试  云"; }),
+                          [](const std::string &text) { return text == "云端测试 ☁️"; }),
               "Cloud reply lost Engine identity when AI was disabled");
       online["online_provider_socket"] = (root / "missing-online.sock").string();
       msime_ibus_configure(online.dump());
       require(wait_until([&] {
-                return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") ==
+                return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试 ☁️") ==
                        seen.candidates.end();
               }), "Changing the online socket left the previous provider's cloud candidate visible");
       require(seen.preedit == "nihao", "Changing the online socket ended the active composition");
@@ -2336,18 +2463,17 @@ int main(int argc, char **argv) {
     seen = Observation{};
     invoke("FocusIn");
     {
-      // The top of the menu follows the design order: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
+      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。
       const std::vector<std::string> design{
-          "InputMode", "Separator/Mode", "CharacterMode", "Punctuation",
-          "CandidateTranslations", "Separator/Switches", "Scheme", "Separator/Scheme", "GlobalTheme",
-          "DesktopTools/Dictionary", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design"};
+          "InputMode", "EnglishMode", "Separator/Mode", "TraditionalOutput", "CharacterMode", "Punctuation",
+          "CandidateTranslations", "Separator/Switches", "Scheme", "GlobalTheme", "Separator/Scheme",
+          "DesktopTools/ToolbarEnabled", "LinuxToolbar", "DesktopTools/Emoji", "DesktopTools/CloudClipboard",
+          "DesktopTools/CloudDictionary", "DesktopTools/Keyboard", "DesktopTools/Handwriting", "VoiceInput",
+          "VoiceCancel", "Separator/Tools", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design",
+          "DesktopTools/Dictionary"};
       require(seen.registered_keys.size() > design.size() &&
                   std::equal(design.begin(), design.end(), seen.registered_keys.begin()),
-              "IBus properties were not registered in the design menu order");
-      // 中文/英文 is the Shift toggle alone; the Engine's dedicated English mode is nested in 输入选项.
-      require(std::find(seen.registered_keys.begin(), seen.registered_keys.end(), "EnglishMode") ==
-                  seen.registered_keys.end(),
-              "Dedicated English mode was registered beside the design menu's 中文/英文");
+              "IBus properties were not registered in the macOS menu order");
     }
     {
       const auto panel_marker = root / "panel-launches.log";
@@ -3140,7 +3266,8 @@ int main(int argc, char **argv) {
     invoke("Reset");
     for (guint delete_key : {IBUS_Delete, IBUS_KP_Delete}) {
       phrase();
-      require(key(IBUS_Left, IBUS_CONTROL_MASK) && key(delete_key) && seen.preedit == "niha" &&
+      // Ctrl+左把光标移到 ni|hao，Delete 删掉光标后的 h。
+      require(key(IBUS_Left, IBUS_CONTROL_MASK) && key(delete_key) && seen.preedit == "niao" &&
                   seen.preedit_visible && seen.committed.empty(),
               "Forward delete cancelled incremental composition instead of editing at caret");
       invoke("Reset");
@@ -3158,16 +3285,38 @@ int main(int argc, char **argv) {
                   .c_str());
       seen.committed.clear();
     }
-    // 全拼的 Ctrl+左右移动一个字母，Ctrl+退格仍删除左侧拼音段；普通左右键用于整句改字。
+    // 全拼里 Ctrl+左右和 Shift+左右都按音节移动拼音光标（分段命令，运行时不会把它换成移动候选），Ctrl+退格删除左侧拼音段；不带修饰键的左右键用于整句改字。
     phrase();
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 4,
-            "Ctrl+Left did not move to the preceding pinyin letter");
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 2,
+            "Ctrl+Left did not move to the preceding pinyin segment");
     require(key(IBUS_Right, IBUS_CONTROL_MASK) && seen.preedit_cursor == 5,
-            "Ctrl+Right did not move to the following pinyin letter");
+            "Ctrl+Right did not move to the following pinyin segment");
     require(key(IBUS_BackSpace, IBUS_CONTROL_MASK) && seen.preedit == "ni" &&
                 seen.preedit_cursor == 2,
             "Ctrl+Backspace did not remove one pinyin segment");
     invoke("Reset");
+    // 按住 Shift 再按方向键是组合键：光标按音节移动，松开 Shift 不切换中英文，组字原样保留。
+    phrase();
+    require(!key(IBUS_Shift_L) && key(IBUS_Left, IBUS_SHIFT_MASK) && seen.preedit_cursor == 2,
+            "Shift+Left did not move to the preceding pinyin segment");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK) && seen.input_enabled &&
+                seen.preedit == "nihao" && seen.committed.empty(),
+            "Releasing Shift after Shift+Left toggled the input mode or changed the composition");
+    require(!key(IBUS_Shift_L) && key(IBUS_Right, IBUS_SHIFT_MASK) && seen.preedit_cursor == 5,
+            "Shift+Right did not move to the following pinyin segment");
+    require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK) && seen.input_enabled,
+            "Releasing Shift after Shift+Right toggled the input mode");
+    // 候选窗显示时的 Home：高亮不在首选时先回到首选，拼音光标不动；已在首选时把拼音光标移到开头。
+    require(key(IBUS_Down) && key(IBUS_Home) && seen.preedit_cursor == 5,
+            "Home off the first candidate moved the pinyin caret instead of the highlight");
+    require(key(IBUS_Home) && seen.preedit_cursor == 0 && seen.preedit == "nihao",
+            "Home on the first candidate did not move the pinyin caret to the start");
+    invoke("Reset");
+    // 没有组字时 Shift+左右和 Ctrl+左右仍是应用的按键。
+    require(!key(IBUS_Left, IBUS_SHIFT_MASK) && !key(IBUS_Right, IBUS_SHIFT_MASK) &&
+                !key(IBUS_Left, IBUS_CONTROL_MASK) && !key(IBUS_Right, IBUS_CONTROL_MASK) &&
+                seen.committed.empty(),
+            "Idle Shift or Ctrl arrow was intercepted");
     for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
                            IBUS_Return, IBUS_KP_Enter})
       require(!key(idle_key) && seen.committed.empty(),
@@ -3209,6 +3358,13 @@ int main(int argc, char **argv) {
             "Candidate position action did not fix the highlighted candidate");
     require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
+    // 固定排位的行未选中时画 macOS 的固定色 #379AD3（不随主题变），选中时照旧用选中文字色。
+    require(key(IBUS_Down) && wait_until([&] { return seen.cursor == 1; }) &&
+                seen.first_candidate_color == 0x379AD3,
+            "Unselected fixed candidate was not drawn in the fixed-position colour");
+    require(key(IBUS_Up) && wait_until([&] { return seen.cursor == 0; }) &&
+                seen.first_candidate_color == 0xffffff,
+            "Highlighting the fixed candidate again did not restore the selected-row text colour");
     // Candidate actions are named by the generation they act on, and fixing advanced it, so the clear action is the one the republished menu carries; the one read before the fix is stale and refused.
     seen.first_candidate_clear_name.clear();
     require(wait_until([&] { return !seen.first_candidate_clear_name.empty(); }),
@@ -3218,7 +3374,7 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("niha|o") != std::string::npos,
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("ni|hao") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");

@@ -401,13 +401,13 @@ pub struct PreferencesView {
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
     pub candidate_font_size: u8,
-    /// Overall size of the floating candidate window in percent, 50 to 200; the font size and the window's geometry are both multiplied by it (Windows and macOS).
+    /// Overall size of the floating candidate window in percent, 50 to 200; the font size and the window's geometry are both multiplied by it (Windows, macOS and the Linux Fcitx5 candidate window; the Linux IBus panel scales only the font).
     pub candidate_scale_percent: u16,
-    /// Opacity of the candidate window's background, border and skin image in percent, 50 to 100; the text stays opaque.
+    /// Opacity of the candidate window's background, border and skin image in percent, 50 to 100; the text stays opaque. The Linux Fcitx5 candidate window honours it, the Linux IBus panel does not.
     pub candidate_opacity_percent: u8,
     /// Corner radius of the candidate window in points, 0 to 32. Null means the skin's or the platform's own radius.
     pub candidate_corner_radius: Option<u8>,
-    /// Space between the candidate window's edge and its candidates in points, 0 to 16, before the overall size scales it (macOS only). Null means the skin's or the platform's own padding.
+    /// Space between the candidate window's edge and its candidates in points, 0 to 16, before the overall size scales it (macOS and the Linux Fcitx5 candidate window; the Linux IBus panel ignores it). Null means the skin's or the platform's own padding.
     pub candidate_padding: Option<u8>,
     pub candidate_layout: Layout,
     pub candidate_follow_cursor: bool,
@@ -415,9 +415,9 @@ pub struct PreferencesView {
     pub number_row_selection: bool,
     /// 切换中英文时显示「中」或「英」的提示（macOS、Windows、Linux 和 HarmonyOS）。
     pub input_mode_hud: bool,
-    /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS 和 Windows；其他宿主始终显示，没有这个开关）。
+    /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS、Windows 和 Linux 的 Fcitx5 候选窗；Linux 的 IBus 面板不画 logo，其他宿主始终显示，没有这个开关）。
     pub show_app_logo: bool,
-    /// 候选窗显示页码（Linux 是辅助文本里的当前页/总页数，macOS 是首行的「1 / 3」和 ‹ › 翻页按钮）。这个开关不改变键盘和滚轮翻页；滚轮翻页由 `navigation.mouse_wheel` 另外控制，默认关闭，所以 macOS 上关掉它又没开滚轮时，鼠标就不能翻页了。
+    /// 候选窗显示页码（Linux 是辅助文本里的当前页/总页数，Fcitx5 候选窗连同 ‹ › 翻页按钮一起隐藏，IBus 面板自带的翻页箭头不受影响；macOS 是首行的「1 / 3」和 ‹ › 翻页按钮）。这个开关不改变键盘和滚轮翻页；滚轮翻页由 `navigation.mouse_wheel` 另外控制，默认关闭，所以 macOS 上关掉它又没开滚轮时，鼠标就不能翻页了。
     pub show_candidate_page_number: bool,
     pub fuzzy_pinyin: bool,
     /// The mode a newly focused text field starts in.
@@ -442,6 +442,10 @@ pub struct PreferencesView {
     pub shuangpin_keymap_hint: Option<bool>,
     /// 五笔里，完整四码且只有一个候选时在第四键提交。
     pub wubi_auto_commit_unique: bool,
+    /// 五笔里 `z` 匹配码表该位置的任意一个字母（含首位）。
+    pub wubi_z_wildcard: bool,
+    /// 五笔里完整四码后再敲字母时上屏首选，并把该字母留作下一组开头。
+    pub wubi_fifth_code_top_commit: bool,
     /// Whether the input method writes its diagnostic log: focus changes, slow requests, candidate window and dictionary events and failures, never what is typed.
     pub diagnostic_log_server: bool,
     /// Windows only: whether the TIP adds its composition and key-latency records to the diagnostic log.
@@ -502,6 +506,8 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             wubi_code_hint: preferences.wubi_code_hint,
             shuangpin_keymap_hint: preferences.shuangpin_keymap_hint,
             wubi_auto_commit_unique: preferences.wubi_auto_commit_unique,
+            wubi_z_wildcard: preferences.wubi_z_wildcard,
+            wubi_fifth_code_top_commit: preferences.wubi_fifth_code_top_commit,
             diagnostic_log_server: preferences.diagnostic_log.server,
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
             game_candidate_overlay: preferences.game_compatibility.candidate_overlay,
@@ -566,6 +572,8 @@ pub struct PreferencesChange {
     #[serde(default, deserialize_with = "present")]
     pub shuangpin_keymap_hint: Option<Option<bool>>,
     pub wubi_auto_commit_unique: Option<bool>,
+    pub wubi_z_wildcard: Option<bool>,
+    pub wubi_fifth_code_top_commit: Option<bool>,
     /// Turn on to look into a problem the user reports, and off again once it is understood.
     pub diagnostic_log_server: Option<bool>,
     /// Windows only; the other platforms keep it for the Windows settings to find.
@@ -615,6 +623,8 @@ impl PreferencesChange {
             && self.wubi_code_hint.is_none()
             && self.shuangpin_keymap_hint.is_none()
             && self.wubi_auto_commit_unique.is_none()
+            && self.wubi_z_wildcard.is_none()
+            && self.wubi_fifth_code_top_commit.is_none()
             && self.diagnostic_log_server.is_none()
             && self.diagnostic_log_tsf.is_none()
             && self.game_candidate_overlay.is_none()
@@ -734,6 +744,12 @@ impl PreferencesChange {
         }
         if let Some(value) = self.wubi_auto_commit_unique {
             preferences.wubi_auto_commit_unique = value;
+        }
+        if let Some(value) = self.wubi_z_wildcard {
+            preferences.wubi_z_wildcard = value;
+        }
+        if let Some(value) = self.wubi_fifth_code_top_commit {
+            preferences.wubi_fifth_code_top_commit = value;
         }
         if let Some(value) = self.diagnostic_log_server {
             preferences.diagnostic_log.server = value;
@@ -1282,6 +1298,8 @@ mod tests {
                 traditional_chinese_output: Some(true),
                 wubi_code_hint: Some(false),
                 wubi_auto_commit_unique: Some(false),
+                wubi_z_wildcard: Some(true),
+                wubi_fifth_code_top_commit: Some(false),
                 diagnostic_log_server: Some(true),
                 ..change(before.revision)
             },
@@ -1295,6 +1313,8 @@ mod tests {
         assert!(updated.traditional_chinese_output);
         assert!(!updated.wubi_code_hint);
         assert!(!updated.wubi_auto_commit_unique);
+        assert!(updated.wubi_z_wildcard);
+        assert!(!updated.wubi_fifth_code_top_commit);
         assert!(updated.diagnostic_log_server && !updated.diagnostic_log_tsf);
         assert_eq!(updated.revision, before.revision + 1);
 
@@ -1315,6 +1335,8 @@ mod tests {
         expected.traditional_chinese_output = true;
         expected.wubi_code_hint = false;
         expected.wubi_auto_commit_unique = false;
+        expected.wubi_z_wildcard = true;
+        expected.wubi_fifth_code_top_commit = false;
         expected.diagnostic_log.server = true;
         expected.fuzzy_pinyin = stored.preferences.fuzzy_pinyin.clone();
         assert_eq!(json!(stored.preferences), json!(expected));

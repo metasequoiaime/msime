@@ -33,6 +33,36 @@ pub unsafe extern "C" fn msime_client_voice_endpoint_issue(
     })
 }
 
+/// 生成 Android 流式 WebSocket 使用的规范化传输描述；不返回原始地址或凭据。
+///
+/// # Safety
+/// `endpoint` 必须指向本次调用期间可读的 `length` 个字节；空引用或超限会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_websocket_endpoint(
+    endpoint: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            endpoint,
+            length,
+            65_536,
+            "invalid voice websocket endpoint",
+            |bytes| {
+                let endpoint = std::str::from_utf8(bytes)
+                    .map_err(|_| "invalid voice websocket endpoint".to_owned())?;
+                let descriptor =
+                    msime_client_providers::voice::provider::websocket_endpoint_descriptor(
+                        endpoint,
+                    )
+                    .ok_or_else(|| "invalid voice websocket endpoint".to_owned())?;
+                serde_json::to_value(descriptor)
+                    .map_err(|_| "invalid voice websocket endpoint".to_owned())
+            },
+        )
+    })
+}
+
 /// 语音设置的公开服务目录；纯函数，不访问偏好或设备。返回值用标准 JSON 信封封装。
 #[no_mangle]
 pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {

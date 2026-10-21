@@ -36,6 +36,8 @@ import java.util.concurrent.Executors;
  * <p>Either way this activity persists only the bounded text result for the isolated IME process.
  */
 public final class VoiceRecognitionActivity extends Activity {
+    static final String EXTRA_RESULT_RECEIVER = "app.msime.android.voice.RESULT_RECEIVER";
+    static final String RESULT_ID = "result_id";
     private static final String EXTRA_DIAGNOSTICS = "app.msime.android.voice.DIAGNOSTICS";
     private static final int REQUEST_RECORD_AUDIO = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.android.voice.LANGUAGE";
@@ -145,8 +147,19 @@ public final class VoiceRecognitionActivity extends Activity {
                               String provider, String requestFormat, String endpoint, String model,
                               String token, Streaming streaming, Polish polish, String localModel,
                               String[] localHotwordTexts, String[] localHotwordPinyin, ResultReceiver diagnostics) {
+        launch(context, requestId, language, provider, requestFormat, endpoint, model, token,
+            streaming, polish, localModel, localHotwordTexts, localHotwordPinyin, diagnostics, null);
+    }
+
+    /** 键盘发起的窗口识别只回传已保存结果的编号，文字仍由同一存储一次性领取。 */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String requestFormat, String endpoint, String model,
+                              String token, Streaming streaming, Polish polish, String localModel,
+                              String[] localHotwordTexts, String[] localHotwordPinyin,
+                              ResultReceiver diagnostics, ResultReceiver resultReceiver) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
+        if (resultReceiver != null) intent.putExtra(EXTRA_RESULT_RECEIVER, resultReceiver);
         if (diagnostics != null) intent.putExtra(EXTRA_DIAGNOSTICS, diagnostics);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(EXTRA_REQUEST_ID, requestId);
@@ -676,6 +689,7 @@ public final class VoiceRecognitionActivity extends Activity {
         return polished == null ? text : polished;
     }
 
+    @SuppressWarnings("deprecation")
     private void saveResult(String text) {
         diagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         File files = getFilesDir();
@@ -684,9 +698,16 @@ public final class VoiceRecognitionActivity extends Activity {
             return;
         }
         try {
-            new VoiceResultStore(files.toPath().resolve("voice-handoff"))
+            VoiceResultStore.Entry entry = new VoiceResultStore(files.toPath().resolve("voice-handoff"))
                 .save(text, System.currentTimeMillis());
-            Toast.makeText(this, "语音结果已发送到键盘，10 分钟内可插入", Toast.LENGTH_LONG).show();
+            ResultReceiver receiver = getIntent().getParcelableExtra(EXTRA_RESULT_RECEIVER);
+            if (receiver == null) {
+                Toast.makeText(this, "语音结果已发送到键盘，10 分钟内可插入", Toast.LENGTH_LONG).show();
+            } else {
+                Bundle payload = new Bundle();
+                payload.putString(RESULT_ID, entry.id().toString());
+                receiver.send(Activity.RESULT_OK, payload);
+            }
         } catch (VoiceResultStore.Failure error) {
             String message = error.reason() == VoiceResultStore.Reason.BUSY
                 ? "语音结果正在更新，请稍后重试" : "语音结果无法保存";

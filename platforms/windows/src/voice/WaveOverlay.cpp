@@ -119,21 +119,22 @@ bool WaveOverlay::init(HINSTANCE instance, std::function<void(Action)> action_ha
     // sizes computed from the monitor DPI below are taken literally instead of
     // being stretched by the compositor, and so WM_DPICHANGED is delivered at
     // all - a DPI-unaware window never receives it.
+    // It starts click-through: the round actions that take the pointer are not shown yet (update_click_through).
     HWND created = nullptr;
     {
         const msime::windows::WaveOverlayDpiScope dpi_scope;
-        created = CreateWindowExW(                                               //
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE, //
-            kClassName,                                                          //
-            L"",                                                                 //
-            WS_POPUP,                                                            //
-            120,                                                                 //
-            120,                                                                 //
-            kCompactWidth,                                                       //
-            kCompactHeight,                                                      //
-            nullptr,                                                             //
-            nullptr,                                                             //
-            instance_,                                                           //
+        created = CreateWindowExW(                                                                   //
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT, //
+            kClassName,                                                                              //
+            L"",                                                                                     //
+            WS_POPUP,                                                                                //
+            120,                                                                                     //
+            120,                                                                                     //
+            kCompactWidth,                                                                           //
+            kCompactHeight,                                                                          //
+            nullptr,                                                                                 //
+            nullptr,                                                                                 //
+            instance_,                                                                               //
             this);
     }
     hwnd_ = created;
@@ -206,11 +207,26 @@ void WaveOverlay::set_transcript(const std::wstring &text)
 {
     {
         std::lock_guard<std::mutex> lock(transcript_mutex_);
-        if (transcript_ == text)
+        if (!failure_headline_.empty() || transcript_ == text)
             return;
         transcript_ = text;
     }
     if (hwnd_ && show_transcript_.load())
+        PostMessageW(hwnd_, kTranscriptChangedMessage, 0, 0);
+}
+
+void WaveOverlay::set_failure(const std::wstring &headline, const std::wstring &detail)
+{
+    {
+        std::lock_guard<std::mutex> lock(transcript_mutex_);
+        // 收起失败态时详情一起清掉，转写区不留上一次失败的原因。
+        std::wstring shown = headline.empty() ? std::wstring() : detail;
+        if (failure_headline_ == headline && transcript_ == shown)
+            return;
+        failure_headline_ = headline;
+        transcript_ = std::move(shown);
+    }
+    if (hwnd_)
         PostMessageW(hwnd_, kTranscriptChangedMessage, 0, 0);
 }
 
@@ -369,6 +385,7 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
     case kTranscriptChangedMessage:
         if (!actions_visible_.load())
             action_pressed_ = false;
+        update_click_through();
         release_text_layout();
         update_window_bounds();
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -571,19 +588,28 @@ void WaveOverlay::update_window_bounds()
         return;
     apply_dpi(metrics.dpi);
     bool has_transcript = false;
-    if (show_transcript_.load())
+    std::wstring failure_headline;
     {
         std::lock_guard<std::mutex> lock(transcript_mutex_);
-        has_transcript = !transcript_.empty();
+        has_transcript = show_transcript_.load() && !transcript_.empty();
+        failure_headline = failure_headline_;
     }
     const bool has_compact_status = compact_status_.load() != CompactStatus::None;
     const bool has_actions = actions_visible_.load();
-    const int logical_width =
+    int logical_width =
         has_actions ? kActionWidth
                     : (has_compact_status ? kProcessingWidth : (has_transcript ? kTranscriptWidth : kCompactWidth));
-    const int logical_height =
+    int logical_height =
         has_actions ? kActionHeight
                     : (has_compact_status ? kProcessingHeight : (has_transcript ? kTranscriptHeight : kCompactHeight));
+    if (!failure_headline.empty())
+    {
+        // 失败态与 macOS layoutPresentation 相同：有详情时是转写卡片，没有时是处理中那样的药丸；标题加两边各 14 放不下时按标题加宽。
+        const int headline_box =
+            static_cast<int>(std::ceil(headline_width(failure_headline))) + 2 * static_cast<int>(kTranscriptHorizontalPadding);
+        logical_width = (std::max)(has_transcript ? kTranscriptWidth : kProcessingWidth, headline_box);
+        logical_height = has_transcript ? kTranscriptHeight : kProcessingHeight;
+    }
     const int width = static_cast<int>(std::lround(logical_width * scale_x_));
     const int height = static_cast<int>(std::lround(logical_height * scale_y_));
     // Keep the bar horizontally centered on the physical monitor even when a
@@ -592,6 +618,32 @@ void WaveOverlay::update_window_bounds()
     const int x = (metrics.monitor.right + metrics.monitor.left) / 2 - width / 2;
     const int y = metrics.work.bottom - height - 10;
     SetWindowPos(hwnd_, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE);
+}
+
+float WaveOverlay::headline_width(const std::wstring &headline) const
+{
+    if (!write_factory_ || !processing_text_format_ || headline.empty())
+        return 0.0f;
+    IDWriteTextLayout *layout = nullptr;
+    if (FAILED(write_factory_->CreateTextLayout(headline.c_str(), static_cast<UINT32>(headline.size()),
+                                                processing_text_format_, 4096.0f, 4096.0f, &layout)))
+        return 0.0f;
+    DWRITE_TEXT_METRICS metrics{};
+    const bool measured = SUCCEEDED(layout->GetMetrics(&metrics));
+    layout->Release();
+    return measured ? metrics.widthIncludingTrailingWhitespace : 0.0f;
+}
+
+// 只有显示取消、确认两个圆钮时浮层才接收鼠标，和 macOS 的 ignoresMouseEvents = !actions 相同；紧凑态、转写、识别中和失败提示上的点击都穿过浮层，落到下面的窗口。WM_NCHITTEST 返回 HTTRANSPARENT 只把点击交给同一线程的窗口，下面是别的进程的窗口时要靠分层窗口的 WS_EX_TRANSPARENT，所以按状态加上或去掉这个样式。
+void WaveOverlay::update_click_through()
+{
+    if (!hwnd_)
+        return;
+    const LONG_PTR style = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    const LONG_PTR wanted = actions_visible_.load() ? (style & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT))
+                                                    : (style | static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+    if (wanted != style)
+        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, wanted);
 }
 
 bool WaveOverlay::hit_test_action(float x, float y, Action &action) const
@@ -672,12 +724,15 @@ void WaveOverlay::draw()
     const float w = static_cast<float>(rc.right - rc.left) / scale_x_;
     const float h = static_cast<float>(rc.bottom - rc.top) / scale_y_;
     std::wstring transcript;
+    std::wstring failure_headline;
     const bool show_transcript = show_transcript_.load();
-    if (show_transcript)
     {
         std::lock_guard<std::mutex> lock(transcript_mutex_);
-        transcript = transcript_;
+        if (show_transcript)
+            transcript = transcript_;
+        failure_headline = failure_headline_;
     }
+    const bool failure = !failure_headline.empty();
     const CompactStatus compact_status = compact_status_.load();
     const bool has_compact_status = compact_status != CompactStatus::None;
     const bool has_actions = actions_visible_.load();
@@ -703,12 +758,20 @@ void WaveOverlay::draw()
     render_target_->SetTransform(D2D1::Matrix3x2F::Identity());
     render_target_->Clear(D2D1::ColorF(0, 0, 0, 0));
 
-    const float corner = (has_compact_status || has_actions) ? h * 0.5f : (has_transcript ? 16.0f : 10.0f);
+    const float corner =
+        (has_compact_status || has_actions || (failure && !has_transcript)) ? h * 0.5f : (has_transcript ? 16.0f : 10.0f);
     const D2D1_ROUNDED_RECT panel = D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, w - 0.5f, h - 0.5f), corner, corner);
     render_target_->FillRoundedRectangle(panel, bg_brush_);
     render_target_->DrawRoundedRectangle(panel, border_brush_, 1.0f);
 
-    if (has_compact_status)
+    if (failure)
+    {
+        // 失败态不画波形：分类标题 14pt 居中画在波形那一行，有详情时中心在 18（详情排在下面的转写区），没有详情时在药丸里竖直居中。
+        render_target_->DrawTextW(failure_headline.c_str(), static_cast<UINT32>(failure_headline.size()),
+                                  processing_text_format_, D2D1::RectF(content_left, 0.0f, content_right, 2.0f * center_y),
+                                  text_brush_);
+    }
+    else if (has_compact_status)
     {
         const wchar_t *label = compact_status == CompactStatus::Recognizing ? L"识别中..." : L"处理中...";
         render_target_->DrawTextW(label, static_cast<UINT32>(wcslen(label)), processing_text_format_,

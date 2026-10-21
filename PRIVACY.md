@@ -44,13 +44,13 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 ### 候选翻译（默认不联网）
 
-`candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-providers/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
+`candidate_translations` 新装默认 `false`，已有文档缺少此字段时保留开启行为；支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-providers/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
 
 Android 也支持这三种服务（含按主机名识别的 DeepL），在「设置 → 输入 → 翻译 → 翻译服务」里选择和填写凭据。选了它们之后，键盘把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，候选词按该服务自己的数据政策处理：每页最多 10 个词，每个不超过 40 字，跳过表情和颜文字候选；腾讯每批最多 9 个词，小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次。离线释义查得到的语言仍然先用离线释义，但请求不因此省掉。自定义端点在 Android 上只接受 https，或指向本机（`localhost`、`127.0.0.1`、`[::1]`）的 http，局域网 http 不接受。同一设置下已经回答过的词（包括回答「没有译文」的）不会重复请求；失败时同一个词 30 秒内不再请求，整个服务连不上时 30 秒内不再发任何请求。凭据只保存在本机的设置文件里，不随设置同步上传，也不写进日志。代码在 `platforms/android/java/app/msime/android/candidate/UserTranslationClient.java` 和 `TranslationHttpTransport.java`。
 
 macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_account`）：选择它后，会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用安装后首次启动时注册的本机匿名账号（见[账号与同步](#账号与同步需要登录)）。所有平台新装和「恢复默认设置」都不选它，只有你显式选择才发送；已有配置文件里存着选择的，升级沿用，缺这个字段的按未选择处理。不想发送，在设置的翻译服务里改选别的服务或「不使用在线翻译」，或关掉候选翻译。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），各宿主只在它为真时发请求。Windows、HarmonyOS 没有这条路径。没有选择任何服务时不发出候选翻译请求。
 
-macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号，新装就是这个状态），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
+macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号，手动开启候选翻译后就是这个状态），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
 ### 语音输入（默认凭据为空）
 
@@ -125,7 +125,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 ### 资源与更新下载
 
-首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本和架构筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。
+首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本和架构筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。Linux 的设置应用另外在打开设置窗口时（启动或被叫到前台时；只为表情、剪贴板、屏幕键盘等面板启动时不请求）在后台发同一个请求，成功后一天内不再请求，失败后六小时内不再请求，发现新版本时只发一条桌面通知，不下载也不安装；上次检查的时间和找到的版本记在状态目录的 `update-check.json`。Fcitx5 插件和 IBus 宿主本身不发这个请求。构建时或运行时设置环境变量 `MSIME_DISABLE_UPDATE_CHECK=1` 可关掉这项后台检查，「检查更新」按钮照常可用；开发构建不做后台检查。
 
 六个平台的「自动更新词库」默认开启。设置应用启动、回到前台或运行期间按每天一次的节流，通过 `https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100` 查询公开版本，并从该仓库的 HTTPS Release 附件地址下载兼容的词库、清单与许可文本；GitHub 可能重定向到自己的文件存储域名。请求使用固定 User-Agent `msime-dictionary-updater`，不携带账号、设备标识、输入内容或个人词条。摘要先取自 GitHub API，再与清单交叉校验。可在「词库更新」关闭自动更新，关闭后仍可手动检查。该更新入口直接访问官方 GitHub，不使用模型资源包的镜像设置。
 

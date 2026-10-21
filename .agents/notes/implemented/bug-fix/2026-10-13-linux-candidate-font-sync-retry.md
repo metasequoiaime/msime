@@ -10,6 +10,8 @@ IBus 和 Fcitx5 的候选字体同步器在宿主真正写入面板前就把待�
 
 `CandidateFontSync::next` 只产生待写描述，新增 `mark_applied` 在宿主确认写入后提交缓存；未确认的描述保留并在下一次同步再次返回。IBus 用 `g_settings_set_string` 和 `g_settings_set_boolean` 的结果确认，Fcitx5 在 classicui 存在并完成 `setConfig` 调用后确认。两个宿主都保留定时刷新重试路径。
 
+字号单位按[运行版本](2026-10-21-fcitx-runtime-font-unit.md)选择；本篇的写入失败后的重试与去重规则继续保留。
+
 ## Alternatives considered
 
 - **只在设置页再次保存时重试**：不能覆盖 schema 或插件稍后出现的正常启动路径，且用户会误以为字号没有效果。

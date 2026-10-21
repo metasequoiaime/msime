@@ -1,15 +1,16 @@
 #pragma once
 
 #import <AppKit/AppKit.h>
+#include "../../../../shared/candidate/CandidateChromeMetrics.h"
 
 // Windows candidate rendering uses a label font at 80% of the candidate font.
 // Keep the scale in one place while letting AppKit retain the selected font's
 // family and variation axes.
-static const CGFloat MSIMECandidateNumberScale = 0.8;
-static const CGFloat MSIMECandidateNumberGap = 1.5;
+static const CGFloat MSIMECandidateNumberScale = msime::candidate::kCandidateNumberScale;
+static const CGFloat MSIMECandidateNumberGap = msime::candidate::kCandidateNumberGap;
 // The brand mark at the start of the top row, and the room between it and the reading.
-static const CGFloat MSIMECandidateLogoSide = 16.0;
-static const CGFloat MSIMECandidateLogoGap = 6.0;
+static const CGFloat MSIMECandidateLogoSide = msime::candidate::kCandidateLogoSide;
+static const CGFloat MSIMECandidateLogoGap = msime::candidate::kCandidateLogoGap;
 
 static inline NSFont *MSIMECandidateNumberFont(NSFont *font, CGFloat numberScale = MSIMECandidateNumberScale)
 {

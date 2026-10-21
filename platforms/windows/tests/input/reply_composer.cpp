@@ -1,5 +1,8 @@
 #include "ReplyComposer.h"
 #include "CandidateTranslationPolicy.h"
+#include "../core/TestHostOptions.h"
+#include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
@@ -46,6 +49,83 @@ std::u16string payload(const PendingReply &reply) {
 void confirm(ReplyComposer &composer) {
   composer.confirm_delivery(42, 7, composer.pending().source.request_id);
 }
+// Home 和 End 走 Server 的按键路由（configured_key），在真实 Engine 会话上：候选窗显示时发和 TIP 相同的命令（Home 两段式，End 跳到末选），没有候选时只应答、不动会话，从不返回空（空回复会让 SessionPump 当作派发失败）。不带修饰键和只带 Shift 一样，TIP 对它们的分类相同。日期时间模式不需要词库就有好几行候选；Unicode 模式只打了 U 时在组字，却没有候选。Local 样式不回包，UI-less 回候选页。
+void home_end_route_tests() {
+  const auto root = std::filesystem::temp_directory_path() /
+                    ("msime-reply-composer-home-end-" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(root);
+  struct Cleanup {
+    std::filesystem::path root;
+    ~Cleanup() {
+      std::error_code ec;
+      std::filesystem::remove_all(root, ec);
+    }
+  } cleanup{root};
+  ServerSession session(42, test_host_options(root).dump());
+  session.activate(1);
+  ReplyComposer composer(42, 1);
+  uint64_t request = 0;
+  const auto bindings = preference_navigation(Json::object());
+  const auto press = [&](uint32_t code, char16_t text, uint32_t modifiers = 0) {
+    FanyImeNamedpipeData packet{};
+    packet.client_id = 42;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = ++request;
+    packet.keycode = code;
+    packet.wch = text;
+    packet.modifiers_down = modifiers;
+    auto reply = composer.configured_key(session, packet, 1, TsfPreeditStyle::Local, bindings);
+    if (reply)
+      composer.confirm_delivery(42, 1, packet.request_id);
+    return reply;
+  };
+  const auto uiless_page = [](const std::optional<PendingReply> &reply) {
+    return reply && reply->encoded && *reply->encoded &&
+           reply->encoded->packet.msg_type == FanyImeReplyType::UiLessComposition;
+  };
+  press('T', u'T', 1);
+  press('R', u'r');
+  press('Q', u'q');
+  auto view = session.view();
+  require(view.at("local_mode") == "date_time" && view.at("candidates").size() >= 3);
+  const auto editing = view.at("editing_text");
+  const auto at_last = [&] {
+    const auto current = session.view();
+    return current.at("candidates").back().at("highlighted") == true &&
+           current.at("page").get<size_t>() + 1 == current.at("page_count").get<size_t>() &&
+           current.at("editing_text") == editing;
+  };
+  const auto at_first = [&] {
+    const auto current = session.view();
+    return current.at("candidates").front().at("highlighted") == true && current.at("page") == 0 &&
+           current.at("editing_text") == editing;
+  };
+  for (const uint32_t modifiers : {0u, 1u}) {
+    const auto end = press(0x23, 0, modifiers);
+    require(end && !end->encoded && at_last());
+    // 高亮不在首选时 Home 只回到首选，不动光标。
+    const auto home = press(0x24, 0, modifiers);
+    require(home && !home->encoded && at_first());
+  }
+  require(uiless_page(press(0x23, 0, FanyImePipeFlags::UiLess)) && at_last());
+  require(uiless_page(press(0x24, 0, FanyImePipeFlags::UiLess)) && at_first());
+  // Ctrl/Alt+End 不是这条路由的键。
+  require(!press(0x23, 0, 2) && at_first());
+
+  session.cancel_composition(1);
+  press('U', u'U', 1);
+  view = session.view();
+  require(view.at("local_mode") == "unicode" && !view.at("editing_text").get<std::string>().empty() &&
+          view.at("candidates").empty());
+  for (const uint32_t code : {0x23u, 0x24u})
+    for (const uint32_t modifiers : {0u, 1u}) {
+      const auto reply = press(code, 0, modifiers);
+      require(reply && !reply->encoded && session.view() == view);
+    }
+  for (const uint32_t code : {0x23u, 0x24u})
+    require(uiless_page(press(code, 0, FanyImePipeFlags::UiLess)) && session.view() == view);
+}
 } // namespace
 int main() {
   try {
@@ -87,13 +167,46 @@ int main() {
     segment.modifiers_down = 2;
     require(translate_key(segment).kind == KeyKind::Command &&
             translate_key(segment).value == MSIME_MOVE_LEFT_SEGMENT);
-    segment.modifiers_down = 1;
-    require(translate_key(segment).value != MSIME_MOVE_LEFT_SEGMENT);
+    // Shift+左右和 Ctrl+左右一样发分段命令。ServerSession::key 经 sentence_edit_command 送出，整句改字的方案（全拼、双拼）和五笔都原样发分段命令，Ctrl+左右不再换成逐个字母的光标命令；不带修饰键的左右键在全拼、双拼里仍是改字命令。
+    for (const uint32_t modifiers : {1u, 2u}) {
+      segment.modifiers_down = modifiers;
+      for (const uint32_t keycode : {0x25u, 0x27u}) {
+        segment.keycode = keycode;
+        const auto expected = keycode == 0x25 ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT;
+        const auto action = translate_key(segment);
+        require(action.kind == KeyKind::Command && action.value == static_cast<uint32_t>(expected));
+        require(sentence_edit_command(action.value, true) == static_cast<uint32_t>(expected));
+        require(sentence_edit_command(action.value, false) == static_cast<uint32_t>(expected));
+      }
+    }
+    segment.keycode = 0x25;
+    segment.modifiers_down = 0;
+    require(sentence_edit_command(translate_key(segment).value, true) == MSIME_CONVERSION_LEFT);
+    require(sentence_edit_command(translate_key(segment).value, false) == MSIME_MOVE_LEFT);
     segment.modifiers_down = 2;
     require(translate_key(segment).kind == KeyKind::Command &&
             translate_key(segment).value == MSIME_MOVE_LEFT_SEGMENT);
     segment.modifiers_down = 3;
     require(translate_key(segment).kind == KeyKind::CancelAndForward);
+    segment.modifiers_down = 5;
+    require(translate_key(segment).kind == KeyKind::CancelAndForward);
+    // Shift+退格不是分段删除。
+    segment.keycode = 0x08;
+    segment.modifiers_down = 1;
+    require(translate_key(segment).kind == KeyKind::Command && translate_key(segment).value == MSIME_BACKSPACE);
+    // 候选窗显示时的 Home 分两段，和 TIP 自己的宿主会话发同一条命令。
+    FanyImeNamedpipeData home{};
+    home.event_type = FanyImePipeEventType::KeyEvent;
+    home.keycode = 0x24;
+    require(translate_key(home).kind == KeyKind::Command &&
+            translate_key(home).value == MSIME_FIRST_CANDIDATE_OR_HOME);
+    // End 和 TIP 一样跳到末选，没有两段式。
+    FanyImeNamedpipeData end{};
+    end.event_type = FanyImePipeEventType::KeyEvent;
+    end.keycode = 0x23;
+    require(translate_key(end).kind == KeyKind::Command && translate_key(end).value == MSIME_LAST_CANDIDATE);
+    end.modifiers_down = 1;
+    require(translate_key(end).kind == KeyKind::Command && translate_key(end).value == MSIME_LAST_CANDIDATE);
     FanyImeNamedpipeData enter{};
     enter.event_type = FanyImePipeEventType::KeyEvent;
     enter.keycode = 0x0D;
@@ -328,6 +441,7 @@ int main() {
     require(composer.pending().source.transition.at("commit") == "raw");
     rejected([&] { confirm(composer); });
     composer.cancel();
+    home_end_route_tests();
     std::cout << "Windows reply composer: segmented prefix, confirmation and "
                  "failure retention passed\n";
   } catch (const std::exception &error) {

@@ -344,6 +344,10 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     }
     package.resolvedLayout = ResolvedLayoutFromJSON(object[@"resolvedLayout"]);
     if ([object[@"shadow"] isKindOfClass:NSString.class]) package.shadow = StringField(object, @"shadow");
+    if ([object[@"toolbarImage"] isKindOfClass:NSDictionary.class]) {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:object[@"toolbarImage"] options:0 error:nil];
+        if (data) package.toolbarImage.json.assign(static_cast<const char *>(data.bytes), data.length);
+    }
     package.canvas = CanvasFromJSON(object);
     package.animation = AnimationFromJSON(object[@"animation"]);
     NSDictionary *license = object[@"license"];
@@ -803,6 +807,8 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             // The decoration, background, card radius and minimum width still come from the package itself; the theme only says whether it is drawn.
             if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
             {
+                resolved.toolbarImage = package->toolbarImage;
+                resolved.toolbarImage.directory = skinsRoot / package->id;
                 resolved.canvas = package->canvas;
                 resolved.shadow = package->shadow;
                 if (resolved.canvas) {

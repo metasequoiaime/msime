@@ -4,75 +4,56 @@
 #include "WaveOverlayX11Placement.h"
 
 #include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <X11/Xresource.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xfixes.h>
-#include <X11/extensions/Xrandr.h>
 #include <X11/extensions/shape.h>
+#include <cairo/cairo-xlib.h>
 
 #include <algorithm>
-#include <array>
-#include <cstdint>
-#include <cstdio>
+#include <cmath>
 #include <cstdlib>
-#include <locale>
-#include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 
 namespace msime::linux_host {
 namespace {
 
-// Logical geometry at a scale of 1; every length is multiplied by the current scale before it reaches the X server.
-constexpr int kLogicalWidth = 420;
-constexpr int kLogicalHeight = 132;
-constexpr int kBarCount = 12;
-constexpr int kActionCenterInset = 24;
-constexpr int kActionCenterY = 66;
-constexpr int kActionRadius = 14;
-constexpr int kFontPixelSize = 14;
-// Matches the Windows voice bar, which sits 10 px above the bottom of the work area.
-constexpr int kBottomMargin = 10;
-// update() runs for every input-level change, so the monitor, work area and scale are re-read at most this often while visible; show() always re-reads them.
+// 每次音量变化和每帧动画都会运行 `update()`，所以尺寸不变时最多按这个频率重读显示器、工作区和缩放；`show()` 和布局变化总会重读。
 constexpr auto kPlacementRefreshInterval = std::chrono::milliseconds(500);
 
-unsigned long color(Display *display, int screen, const char *value,
-                    unsigned long fallback) {
-  XColor exact{};
-  XColor allocated{};
-  const auto colormap = DefaultColormap(display, screen);
-  if (!XParseColor(display, colormap, value, &exact) ||
-      !XAllocColor(display, colormap, &exact))
-    return fallback;
-  allocated = exact;
-  return allocated.pixel;
-}
-
-std::string one_line(std::string text) {
-  for (auto &character : text)
-    if (character == '\r' || character == '\n' || character == '\t')
-      character = ' ';
-  return text;
-}
-
-std::string utf8_prefix(const std::string &text, std::size_t characters) {
-  std::size_t count = 0;
-  std::size_t end = 0;
-  while (end < text.size() && count < characters) {
-    if ((static_cast<unsigned char>(text[end]) & 0xc0) != 0x80)
-      ++count;
-    ++end;
+// 把圆角面板拆成一条条水平带，供没有合成管理器、无法显示半透明圆角时的 Shape 扩展使用。
+std::vector<XRectangle> rounded_bands(int width, int height, double radius) {
+  std::vector<XRectangle> bands;
+  radius = std::clamp(radius, 0.0, std::min(width, height) / 2.0);
+  int start = 0;
+  int current = -1;
+  const auto inset_at = [height, radius](int y) {
+    double dy = 0;
+    if (y < radius)
+      dy = radius - (y + 0.5);
+    else if (y >= height - radius)
+      dy = (y + 0.5) - (height - radius);
+    if (dy <= 0) return 0;
+    return static_cast<int>(std::lround(radius - std::sqrt(std::max(0.0, radius * radius - dy * dy))));
+  };
+  for (int y = 0; y <= height; ++y) {
+    const int inset = y < height ? inset_at(y) : -1;
+    if (inset == current) continue;
+    if (current >= 0 && width - 2 * current > 0)
+      bands.push_back({static_cast<short>(current), static_cast<short>(start),
+                       static_cast<unsigned short>(width - 2 * current),
+                       static_cast<unsigned short>(y - start)});
+    start = y;
+    current = inset;
   }
-  return text.substr(0, end);
+  return bands;
 }
 
 }  // namespace
 
-WaveOverlayX11Surface::~WaveOverlayX11Surface() { destroy_window(); }
+WaveOverlayX11Surface::~WaveOverlayX11Surface() { close_display(); }
 
-bool WaveOverlayX11Surface::ensure_window() {
+bool WaveOverlayX11Surface::ensure_display() {
   if (display_)
     return true;
   const auto *display_name = std::getenv("DISPLAY");
@@ -81,7 +62,6 @@ bool WaveOverlayX11Surface::ensure_window() {
   display_ = XOpenDisplay(display_name);
   if (!display_)
     return false;
-  const auto screen = DefaultScreen(display_);
   int fixes_event = 0;
   int fixes_error = 0;
   if (!XFixesQueryExtension(display_, &fixes_event, &fixes_error)) {
@@ -90,173 +70,209 @@ bool WaveOverlayX11Surface::ensure_window() {
     return false;
   }
   randr_monitors_ = x11_overlay_randr_monitors(display_);
-  const auto root = RootWindow(display_, screen);
-  XSetWindowAttributes attributes{};
-  attributes.override_redirect = True;
-  attributes.background_pixel = color(display_, screen, "#202124", BlackPixel(display_, screen));
-  attributes.border_pixel = color(display_, screen, "#4a4d52", WhitePixel(display_, screen));
-  window_ = XCreateWindow(display_, root, 0, 0, kLogicalWidth, kLogicalHeight, 1,
-                           CopyFromParent, InputOutput, CopyFromParent,
-                           CWOverrideRedirect | CWBackPixel | CWBorderPixel,
-                           &attributes);
-  if (!window_) {
-    XCloseDisplay(display_);
-    display_ = nullptr;
-    return false;
-  }
-  gc_ = XCreateGC(display_, window_, 0, nullptr);
-  background_ = attributes.background_pixel;
-  foreground_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
-  accent_ = color(display_, screen, "#73a7ff", WhitePixel(display_, screen));
-  light_background_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
-  light_foreground_ = color(display_, screen, "#202124", BlackPixel(display_, screen));
-  light_accent_ = color(display_, screen, "#3367d6", BlackPixel(display_, screen));
-  border_ = attributes.border_pixel;
-  current_border_ = border_;
-  palette_pixels_.clear();
-  // Zero size makes the first place() apply the scale, resize the window and load the font set.
-  scale_ = 1.0;
-  width_ = 0;
-  height_ = 0;
-  XSelectInput(display_, window_, ExposureMask | ButtonPressMask |
-                                       ButtonReleaseMask);
-  set_input_region(false);
   return true;
 }
 
-int WaveOverlayX11Surface::scaled(int logical) const {
-  return wave_overlay_scaled(logical, scale_);
+bool WaveOverlayX11Surface::compositor_running() const {
+  const auto selection = "_NET_WM_CM_S" + std::to_string(DefaultScreen(display_));
+  const auto atom = XInternAtom(display_, selection.c_str(), False);
+  return atom != None && XGetSelectionOwner(display_, atom) != None;
 }
 
-void WaveOverlayX11Surface::load_font_set() {
-  if (font_set_) {
-    XFreeFontSet(display_, font_set_);
-    font_set_ = nullptr;
+// 窗口按当时的合成状态创建：32 位 visual 只有经过合成管理器才显示得出 alpha，没有合成管理器时透明的圆角会变黑。两次录音之间合成管理器启动或停止，下一次 `show()` 会换一个新窗口。
+bool WaveOverlayX11Surface::ensure_window() {
+  const bool composited = compositor_running();
+  if (window_ && composited == made_composited_)
+    return true;
+  destroy_window();
+  const auto screen = DefaultScreen(display_);
+  const auto root = RootWindow(display_, screen);
+  Visual *visual = DefaultVisual(display_, screen);
+  int depth = DefaultDepth(display_, screen);
+  XSetWindowAttributes attributes{};
+  attributes.override_redirect = True;
+  attributes.background_pixel = 0;
+  attributes.border_pixel = 0;
+  unsigned long mask = CWOverrideRedirect | CWBackPixel | CWBorderPixel;
+  bool argb = false;
+  if (composited) {
+    XVisualInfo visual_template{};
+    visual_template.screen = screen;
+    visual_template.depth = 32;
+    visual_template.c_class = TrueColor;
+    int visual_count = 0;
+    XVisualInfo *visuals = XGetVisualInfo(display_, VisualScreenMask | VisualDepthMask | VisualClassMask,
+                                          &visual_template, &visual_count);
+    if (visuals && visual_count > 0) {
+      visual = visuals[0].visual;
+      depth = visuals[0].depth;
+      colormap_ = XCreateColormap(display_, root, visual, AllocNone);
+      attributes.colormap = colormap_;
+      mask |= CWColormap;
+      argb = true;
+    }
+    if (visuals)
+      XFree(visuals);
   }
-  const auto create = [this](int pixel_size, int &missing_count) {
-    const auto pattern = "-misc-fixed-*-*-*-*-" + std::to_string(pixel_size) +
-                         "-*-*-*-*-*-*-*";
-    char **missing = nullptr;
-    char *default_string = nullptr;
-    missing_count = 0;
-    const auto font_set = XCreateFontSet(display_, pattern.c_str(), &missing,
-                                         &missing_count, &default_string);
-    if (missing)
-      XFreeStringList(missing);
-    return font_set;
-  };
-  // The bitmap fixed fonts only come in a few sizes. When the scaled size is missing, or covers fewer charsets (CJK above all), the 1x size stays: small text beats unreadable text.
-  int scaled_missing = 0;
-  const auto pixel_size = scaled(kFontPixelSize);
-  font_set_ = create(pixel_size, scaled_missing);
-  if (pixel_size == kFontPixelSize || (font_set_ && scaled_missing == 0))
+  // 位置和尺寸由 `place()` 设置，它知道目标显示器、缩放和布局。
+  window_ = XCreateWindow(display_, root, 0, 0, 1, 1, 0, depth, InputOutput, visual, mask, &attributes);
+  if (!window_) {
+    if (colormap_)
+      XFreeColormap(display_, colormap_);
+    colormap_ = 0;
+    return false;
+  }
+  visual_ = visual;
+  // 记下窗口创建时对应的合成状态，即使没找到 ARGB visual 也记，下一次 `show()` 就不会白白重建。
+  made_composited_ = composited;
+  translucent_ = argb;
+  cairo_surface_ = cairo_xlib_surface_create(display_, window_, visual_, 1, 1);
+  XSelectInput(display_, window_, ExposureMask | ButtonPressMask | ButtonReleaseMask);
+  // 尺寸置零，第一次 `place()` 就会设定窗口尺寸，第一次绘制就会切出形状。
+  width_ = 0;
+  height_ = 0;
+  logical_width_ = 0;
+  logical_height_ = 0;
+  shaped_ = false;
+  return true;
+}
+
+void WaveOverlayX11Surface::destroy_window() {
+  if (!display_)
     return;
-  int base_missing = 0;
-  const auto base = create(kFontPixelSize, base_missing);
-  if (base && (!font_set_ || base_missing < scaled_missing)) {
-    if (font_set_)
-      XFreeFontSet(display_, font_set_);
-    font_set_ = base;
-  } else if (base) {
-    XFreeFontSet(display_, base);
-  }
+  if (action_pressed_)
+    XUngrabPointer(display_, CurrentTime);
+  action_pressed_ = false;
+  if (cairo_surface_)
+    cairo_surface_destroy(cairo_surface_);
+  cairo_surface_ = nullptr;
+  if (window_)
+    XDestroyWindow(display_, window_);
+  window_ = 0;
+  if (colormap_)
+    XFreeColormap(display_, colormap_);
+  colormap_ = 0;
+  visual_ = nullptr;
+  visible_ = false;
 }
 
-// Mirrors the Windows voice bar's update_window_bounds: the scale and the target monitor are re-read, the window resized when the scale changed, and the bar centred on the monitor holding the focused window, just above its work-area bottom.
+void WaveOverlayX11Surface::close_display() {
+  if (!display_)
+    return;
+  destroy_window();
+  XCloseDisplay(display_);
+  display_ = nullptr;
+}
+
+// 与 macOS 和 Windows 的定位一致：重读缩放和目标显示器，按当前布局设定窗口尺寸，把浮条居中放在有焦点窗口所在的显示器上，离工作区底边 10 px。
 void WaveOverlayX11Surface::place(bool force) {
   if (!display_ || !window_)
     return;
   const auto now = std::chrono::steady_clock::now();
-  if (!force && width_ != 0 && now - placed_at_ < kPlacementRefreshInterval)
+  const bool layout_changed = frame_.width != logical_width_ || frame_.height != logical_height_;
+  if (!force && !layout_changed && width_ != 0 && now - placed_at_ < kPlacementRefreshInterval)
     return;
   placed_at_ = now;
   const auto scale = x11_overlay_scale(display_);
-  const auto width =
-      static_cast<unsigned>(wave_overlay_scaled(kLogicalWidth, scale));
-  const auto height =
-      static_cast<unsigned>(wave_overlay_scaled(kLogicalHeight, scale));
-  if (width != width_ || height != height_ || scale != scale_) {
+  const auto width = static_cast<unsigned>(std::max(1, wave_overlay_scaled(frame_.width, scale)));
+  const auto height = static_cast<unsigned>(std::max(1, wave_overlay_scaled(frame_.height, scale)));
+  if (width != width_ || height != height_ || scale != scale_ || layout_changed) {
     scale_ = scale;
     width_ = width;
     height_ = height;
-    XResizeWindow(display_, window_, width_, height_);
-    const auto line_width = scaled(1);
-    XSetLineAttributes(display_, gc_, line_width > 1 ? line_width : 0,
-                       LineSolid, CapRound, JoinRound);
-    load_font_set();
+    logical_width_ = frame_.width;
+    logical_height_ = frame_.height;
+    cairo_xlib_surface_set_size(cairo_surface_, static_cast<int>(width_), static_cast<int>(height_));
+    shaped_ = false;
   }
-
   const auto target = x11_overlay_monitor(display_, randr_monitors_);
   const auto position = wave_overlay_monitor_bottom_center(
       target, static_cast<int>(width_), static_cast<int>(height_),
-      scaled(kBottomMargin));
-  XMoveWindow(display_, window_, position.x, position.y);
+      wave_overlay_scaled(kWaveOverlayWorkAreaGap, scale_));
+  XMoveResizeWindow(display_, window_, position.x, position.y, width_, height_);
 }
 
-void WaveOverlayX11Surface::set_input_region(bool actions_visible) {
-  if (!display_ || !window_)
+// 只有两个圆形操作按钮接收指针，没有合成管理器时窗口切成圆角面板的形状。尺寸或操作按钮变化时两者都重做；圆角只由尺寸决定，因为每种布局的尺寸各不相同。
+void WaveOverlayX11Surface::apply_shapes() {
+  if (shaped_ && shaped_actions_ == frame_.actions)
     return;
-  const auto radius = scaled(kActionRadius);
-  const auto top = scaled(kActionCenterY) - radius;
-  const auto left_center = scaled(kActionCenterInset);
-  const auto right_center = static_cast<int>(width_) - left_center;
+  shaped_ = true;
+  shaped_actions_ = frame_.actions;
+  const double unit = static_cast<double>(width_) / std::max(1, frame_.width);
+  const auto radius = static_cast<int>(std::ceil(kWaveOverlayActionRadius * unit));
+  const auto center_y = static_cast<int>(std::lround(wave_overlay_action_center_y(frame_.height) * unit));
+  const auto left_x = static_cast<int>(std::lround(wave_overlay_cancel_center_x() * unit));
+  const auto right_x = static_cast<int>(std::lround(wave_overlay_confirm_center_x(frame_.width) * unit));
   XRectangle buttons[2] = {
-      {static_cast<short>(left_center - radius), static_cast<short>(top),
-       static_cast<unsigned short>(2 * radius),
-       static_cast<unsigned short>(2 * radius)},
-      {static_cast<short>(right_center - radius), static_cast<short>(top),
-       static_cast<unsigned short>(2 * radius),
-       static_cast<unsigned short>(2 * radius)}};
-  XserverRegion region = XFixesCreateRegion(
-      display_, actions_visible ? buttons : nullptr, actions_visible ? 2 : 0);
-  if (region) {
-    XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0, region);
-    XFixesDestroyRegion(display_, region);
+      {static_cast<short>(left_x - radius), static_cast<short>(center_y - radius),
+       static_cast<unsigned short>(2 * radius), static_cast<unsigned short>(2 * radius)},
+      {static_cast<short>(right_x - radius), static_cast<short>(center_y - radius),
+       static_cast<unsigned short>(2 * radius), static_cast<unsigned short>(2 * radius)}};
+  XserverRegion input = XFixesCreateRegion(display_, frame_.actions ? buttons : nullptr, frame_.actions ? 2 : 0);
+  if (input) {
+    XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0, input);
+    XFixesDestroyRegion(display_, input);
+  }
+  if (!translucent_) {
+    const double logical_radius =
+        wave_overlay_corner_radius(frame_.height, frame_.actions, frame_.label, !frame_.transcript.empty());
+    auto bands = rounded_bands(static_cast<int>(width_), static_cast<int>(height_), logical_radius * unit);
+    XserverRegion bounding = XFixesCreateRegion(display_, bands.data(), static_cast<int>(bands.size()));
+    if (bounding) {
+      XFixesSetWindowShapeRegion(display_, window_, ShapeBounding, 0, 0, bounding);
+      XFixesDestroyRegion(display_, bounding);
+    }
   }
 }
 
-bool WaveOverlayX11Surface::hit_test_action(
-    int x, int y, WaveOverlayModel::Action &action) const {
-  if (!actions_visible_)
-    return false;
-  const auto radius = scaled(kActionRadius);
-  const auto center_y = scaled(kActionCenterY);
-  const auto left_center = scaled(kActionCenterInset);
-  const auto inside = [x, y, radius, center_y](int center_x) {
-    const int dx = x - center_x;
-    const int dy = y - center_y;
-    return dx * dx + dy * dy <= radius * radius;
-  };
-  if (inside(left_center)) {
-    action = WaveOverlayModel::Action::Cancel;
-    return true;
+void WaveOverlayX11Surface::draw() {
+  if (!display_ || !window_ || !cairo_surface_ || !visible_)
+    return;
+  place(false);
+  if (!frame_.actions && action_pressed_) {
+    XUngrabPointer(display_, CurrentTime);
+    action_pressed_ = false;
   }
-  if (inside(static_cast<int>(width_) - left_center)) {
-    action = WaveOverlayModel::Action::Confirm;
-    return true;
-  }
-  return false;
+  apply_shapes();
+  auto *cairo = cairo_create(cairo_surface_);
+  // 先在屏幕外画好，再一次复制上去，16 ms 的一帧因此不会显示画了一半的面板。
+  cairo_push_group(cairo);
+  cairo_scale(cairo, static_cast<double>(width_) / std::max(1, frame_.width),
+              static_cast<double>(height_) / std::max(1, frame_.height));
+  painter_.paint(cairo, frame_, model_, translucent_);
+  cairo_pop_group_to_source(cairo);
+  cairo_set_operator(cairo, CAIRO_OPERATOR_SOURCE);
+  cairo_paint(cairo);
+  cairo_destroy(cairo);
+  cairo_surface_flush(cairo_surface_);
+  XFlush(display_);
 }
 
 void WaveOverlayX11Surface::pump_events() {
   if (!display_ || !visible_)
     return;
-  while (XPending(display_)) {
+  while (visible_ && XPending(display_)) {
     XEvent event{};
     XNextEvent(display_, &event);
+    if (event.type == Expose && event.xexpose.window == window_ && event.xexpose.count == 0) {
+      // override-redirect 窗口自己不保留后备存储；被遮住的部分按上一次的模型重画。
+      draw();
+      continue;
+    }
+    const double unit = static_cast<double>(std::max(1, frame_.width)) / std::max(1u, width_);
     if (event.type == ButtonPress && event.xbutton.button == Button1) {
       WaveOverlayModel::Action action;
-      if (hit_test_action(event.xbutton.x, event.xbutton.y, action)) {
+      if (wave_overlay_hit_action(model_, event.xbutton.x * unit, event.xbutton.y * unit, frame_.width,
+                                  frame_.height, action)) {
         pressed_action_ = action;
         action_pressed_ = true;
-        XGrabPointer(display_, window_, False, ButtonReleaseMask,
-                     GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+        XGrabPointer(display_, window_, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None,
+                     CurrentTime);
       }
-    } else if (event.type == ButtonRelease && event.xbutton.button == Button1 &&
-               action_pressed_) {
+    } else if (event.type == ButtonRelease && event.xbutton.button == Button1 && action_pressed_) {
       WaveOverlayModel::Action action;
-      const bool activated = hit_test_action(event.xbutton.x, event.xbutton.y,
-                                             action) &&
+      const bool activated = wave_overlay_hit_action(model_, event.xbutton.x * unit, event.xbutton.y * unit,
+                                                     frame_.width, frame_.height, action) &&
                              action == pressed_action_;
       action_pressed_ = false;
       XUngrabPointer(display_, CurrentTime);
@@ -266,134 +282,27 @@ void WaveOverlayX11Surface::pump_events() {
   }
 }
 
-void WaveOverlayX11Surface::destroy_window() {
-  if (!display_)
-    return;
-  if (action_pressed_)
-    XUngrabPointer(display_, CurrentTime);
-  if (font_set_)
-    XFreeFontSet(display_, font_set_);
-  if (gc_)
-    XFreeGC(display_, gc_);
-  if (window_)
-    XDestroyWindow(display_, window_);
-  XCloseDisplay(display_);
-  display_ = nullptr;
-  window_ = 0;
-  gc_ = 0;
-  font_set_ = 0;
-  visible_ = false;
-}
-
-unsigned long WaveOverlayX11Surface::palette_pixel(std::uint32_t rgb, unsigned long fallback) {
-  for (const auto &[cached, pixel] : palette_pixels_)
-    if (cached == rgb) return pixel;
-  char value[8];
-  std::snprintf(value, sizeof(value), "#%06x", rgb & 0xffffffu);
-  const auto pixel = color(display_, DefaultScreen(display_), value, fallback);
-  // A theme switch brings new colours; a bounded cache keeps a long session from growing it, and TrueColor visuals allocate nothing to free.
-  if (palette_pixels_.size() >= 16) palette_pixels_.clear();
-  palette_pixels_.emplace_back(rgb, pixel);
-  return pixel;
-}
-
-void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
-  if (!display_ || !window_ || !gc_)
-    return;
-  place(false);
-  set_input_region(model.actions_visible);
-  if (!model.actions_visible)
-    action_pressed_ = false;
-  auto background = model.light_theme ? light_background_ : background_;
-  auto foreground = model.light_theme ? light_foreground_ : foreground_;
-  auto accent = model.light_theme ? light_accent_ : accent_;
-  auto border = border_;
-  // The resolved theme's palette when the frontend gave one: its surface, text and accent, and its outline (the surface itself when the theme draws none, so the 1 px border disappears).
-  if (model.palette) {
-    background = palette_pixel(model.palette->surface, background);
-    foreground = palette_pixel(model.palette->text, foreground);
-    accent = palette_pixel(model.palette->accent, accent);
-    border = model.palette->border ? palette_pixel(*model.palette->border, border_) : background;
-  }
-  if (border != current_border_) {
-    XSetWindowBorder(display_, window_, border);
-    current_border_ = border;
-  }
-  XSetForeground(display_, gc_, background);
-  XFillRectangle(display_, window_, gc_, 0, 0, width_, height_);
-  XSetForeground(display_, gc_, accent);
-  const auto inset = scaled(16);
-  const auto bar_step = (static_cast<int>(width_) - 2 * inset) / kBarCount;
-  const auto bar_width = std::max(2, bar_step - scaled(3));
-  const auto bar_center = scaled(56);
-  for (int index = 0; index < kBarCount; ++index) {
-    const auto slot = static_cast<std::size_t>(index);
-    const auto level = slot < model.levels.size() ? model.levels[slot] : 0.0f;
-    const auto height =
-        std::max(scaled(4), static_cast<int>(level * 38.0 * scale_));
-    XFillRectangle(display_, window_, gc_, inset + index * bar_step,
-                   bar_center - height / 2, static_cast<unsigned>(bar_width),
-                   static_cast<unsigned>(height));
-  }
-  if (font_set_) {
-    const auto font = font_set_;
-    XSetForeground(display_, gc_, foreground);
-    std::string status = model.locked
-                             ? "录音已锁定 · 再按快捷键或点击语音菜单结束 · Esc 取消"
-                             : one_line(model.status);
-    if (status.empty())
-      status = "正在录音…";
-    Xutf8DrawString(display_, window_, font, gc_, inset, scaled(104),
-                    status.c_str(), static_cast<int>(status.size()));
-    if (model.show_transcript && !model.transcript.empty()) {
-      auto transcript = utf8_prefix(one_line(model.transcript), 72);
-      Xutf8DrawString(display_, window_, font, gc_, inset, scaled(124),
-                      transcript.c_str(), static_cast<int>(transcript.size()));
-    }
-  }
-  if (model.actions_visible) {
-    const auto radius = scaled(kActionRadius);
-    const auto center_y = scaled(kActionCenterY);
-    const auto cancel_x = scaled(kActionCenterInset);
-    const auto confirm_x = static_cast<int>(width_) - cancel_x;
-    const auto diameter = static_cast<unsigned>(2 * radius);
-    XSetForeground(display_, gc_, accent);
-    XFillArc(display_, window_, gc_, cancel_x - radius, center_y - radius,
-             diameter, diameter, 0, 360 * 64);
-    XFillArc(display_, window_, gc_, confirm_x - radius, center_y - radius,
-             diameter, diameter, 0, 360 * 64);
-    XSetForeground(display_, gc_, background);
-    XDrawLine(display_, window_, gc_, cancel_x - scaled(5),
-              center_y - scaled(5), cancel_x + scaled(5), center_y + scaled(5));
-    XDrawLine(display_, window_, gc_, cancel_x + scaled(5),
-              center_y - scaled(5), cancel_x - scaled(5), center_y + scaled(5));
-    XDrawLine(display_, window_, gc_, confirm_x - scaled(5), center_y,
-              confirm_x - scaled(1), center_y + scaled(4));
-    XDrawLine(display_, window_, gc_, confirm_x - scaled(1),
-              center_y + scaled(4), confirm_x + scaled(6), center_y - scaled(5));
-  }
-  XFlush(display_);
-}
-
 bool WaveOverlayX11Surface::show(const WaveOverlayModel &model) {
-  if (!ensure_window())
+  if (!ensure_display() || !ensure_window())
     return false;
+  model_ = model;
+  frame_ = painter_.frame(model_);
   visible_ = true;
-  actions_visible_ = model.actions_visible;
   // Placed before mapping so the bar never flashes at its previous monitor or size.
   place(true);
   XMapRaised(display_, window_);
-  draw(model);
+  draw();
   pump_events();
   return true;
 }
 
 void WaveOverlayX11Surface::update(const WaveOverlayModel &model) {
-  if (visible_) {
-    actions_visible_ = model.actions_visible;
-    pump_events();
-    draw(model);
-  }
+  if (!visible_)
+    return;
+  model_ = model;
+  frame_ = painter_.frame(model_);
+  pump_events();
+  draw();
 }
 
 void WaveOverlayX11Surface::hide() {
@@ -406,5 +315,11 @@ void WaveOverlayX11Surface::hide() {
   visible_ = false;
   action_pressed_ = false;
 }
+
+int WaveOverlayX11Surface::event_fd() const {
+  return display_ && visible_ ? ConnectionNumber(display_) : -1;
+}
+
+void WaveOverlayX11Surface::dispatch_events() { pump_events(); }
 
 }  // namespace msime::linux_host

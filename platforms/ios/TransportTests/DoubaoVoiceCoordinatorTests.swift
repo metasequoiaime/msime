@@ -22,18 +22,17 @@ final class DoubaoVoiceCoordinatorTests: XCTestCase {
   }
 
   func testTransportCanStartAgainAfterRemoteClose() async throws {
+    let first = try await makeLoopbackServer()
+    let next = try await makeLoopbackServer()
     let transport = DoubaoWebSocketTransport()
-    let session = URLSession(configuration: .ephemeral)
-    let task = session.webSocketTask(with: URL(string: "ws://127.0.0.1:1")!)
-    transport.urlSession(session, webSocketTask: task, didOpenWithProtocol: nil)
-    transport.urlSession(session, webSocketTask: task, didCloseWith: .goingAway, reason: nil)
-
-    do {
-      try await transport.start(endpoint: URL(string: "ws://127.0.0.1:1")!)
-      XCTFail("a new connection should be attempted after the old socket closes")
-    } catch {
-      XCTAssertFalse(transport.isConnected)
-    }
+    defer { transport.finish(); first.stop(); next.stop() }
+    try await connect(transport, to: first)
+    await closeRemotely(transport, server: first, code: .protocolCode(.goingAway))
+    try await connect(transport, to: next)
+    let frame = Data("retry after close".utf8)
+    try await transport.send(binary: frame)
+    let reply = try await transport.receive()
+    XCTAssertEqual(reply, frame)
   }
 
   func testCodecRunSendsWindowsSizedAudioAndAppliesFinalTextGeneration() async throws {

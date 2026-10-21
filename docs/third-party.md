@@ -407,6 +407,8 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 
 `platforms/linux/src/candidates/NativeCanvas.h` 的翻页尺寸、布局规则与圆角三角路径参考 msime-windows 固定提交 `dd018f79858314ed542a47c528608752b13bd261` 的 `server/src/window/candidate_skin_scene.cpp` 和 `ui/src/PagerArrows.cpp`，以 Cairo 路径和 Pango 字号重写；按 GPL-3.0 分发，完整许可见仓库根目录的 [LICENSE](../LICENSE)。本段与来源提交信息随源代码保留，二进制分发沿用本项目 GPL 许可和对应源代码提供要求。
 
+同一文件的横排卷轴、等宽跨格、2–8 附加行和滚动条语义参考固定提交 `c0a9d371f00b7b309c07e78bc0fd27d3a0d4f5b1` 的 `server/src/window/candidate_presenter.cpp`、`candidate_skin_scene.cpp` 与 `ui/src/CandidateList.cpp`，按 Linux 的 Pango 测量和 X11 事件重新实现，沿用上述 GPL-3.0 许可和源码提供要求。
+
 ## Windows 皮肤出厂布局
 
 macOS 的 `platforms/macos/src/candidate/CandidateShadow.h` 对照 msime-windows 固定提交 `a60e2948dbba29f32bec58ee4bf44d68ce953a0b` 的 `server/src/window/candidate_skin_scene.cpp` 与 `candidate_presenter.cpp`，使用 AppKit 重写双层阴影、档位透明度和透明边带。按 GPL-3.0 与本仓一同分发，完整许可见仓库根目录 [LICENSE](../LICENSE)，二进制分发沿用对应源代码提供要求。

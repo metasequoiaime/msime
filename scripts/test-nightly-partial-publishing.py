@@ -101,14 +101,14 @@ class PartialPublishingTests(unittest.TestCase):
             self.addCleanup(capture.__exit__, None, None, None)
         self.client = FakeGitHub()
 
-    def publish(self, successful, *, build_id="10.1", sha=NEW_SHA, downloads=None):
+    def publish(self, successful, *, build_id="10.1", sha=NEW_SHA, downloads=None, ios_group="external"):
         results = {platform: "success" if platform in successful else "failure"
                    for platform in PUBLISHING.PLATFORMS}
         downloads = downloads if downloads is not None else {
             platform: {"outcome": "success"} for platform in successful if platform != "ios"}
         return PUBLISHING.publish(self.client, self.source, self.root / build_id,
                                   results, downloads, sha, build_id,
-                                  f"https://github.com/synthetic/ime/actions/runs/{build_id.split('.')[0]}")
+                                  f"https://github.com/synthetic/ime/actions/runs/{build_id.split('.')[0]}", ios_group)
 
     def state(self):
         return PUBLISHING.previous_state(self.client.release(), self.client.assets(self.client.release()))
@@ -257,7 +257,14 @@ class PartialPublishingTests(unittest.TestCase):
         self.assertEqual(set(state["platforms"]), {"ios"})
         self.assertEqual(state["platforms"]["ios"]["files"], [])
         self.assertEqual(self.client.files, {})
-        self.assertIn("TestFlight", self.client.current["body"])
+        self.assertIn("已提交 TestFlight，待 Apple 审核", self.client.current["body"])
+
+    def test_unreleased_ios_version_is_reported_as_internal_only(self):
+        self.client = FakeGitHub(legacy=False)
+        self.publish({"ios"}, ios_group="internal")
+        body = self.client.current["body"]
+        self.assertIn("仅上传 TestFlight 内部组：这个版本号尚未发布", body)
+        self.assertNotIn("已提交 TestFlight，待 Apple 审核", body)
 
     def test_unknown_previous_body_prevents_mutations(self):
         self.client.current["body"] = "unknown layout"
@@ -286,7 +293,8 @@ class PartialPublishingTests(unittest.TestCase):
     def test_workflow_environment_reaches_the_incremental_publisher(self):
         import json
         env = {"NEEDS_RESULTS": json.dumps({
-                   platform: {"result": "success" if platform == "windows" else "failure"}
+                   platform: {"result": "success" if platform in ("windows", "ios") else "failure",
+                              "outputs": {"testflight_group": "internal"} if platform == "ios" else {}}
                    for platform in PUBLISHING.PLATFORMS}),
                "DOWNLOAD_RESULTS": json.dumps({"windows": {"outcome": "success"}}),
                "GITHUB_REPOSITORY": "synthetic/ime", "SOURCE_SHA": NEW_SHA,
@@ -298,6 +306,7 @@ class PartialPublishingTests(unittest.TestCase):
         self.assertEqual(self.state()["platforms"]["windows"]["source"], NEW_SHA)
         self.assertIn("new-windows-nightly.12.2.exe", self.client.files)
         self.assertEqual(self.state()["platforms"]["android"]["source"], OLD_SHA)
+        self.assertIn("仅上传 TestFlight 内部组", self.client.current["body"])
 
 
 class GitHubClientTests(unittest.TestCase):

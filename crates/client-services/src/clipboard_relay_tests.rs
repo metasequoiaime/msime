@@ -275,3 +275,83 @@ fn finished_relay_scope_releases_an_inherited_lock() {
         &root.path().join(RELAY_LOCK_FILE),
     );
 }
+
+#[test]
+fn loopback_relay_bypasses_the_system_proxy() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    const CHILD_ORIGIN: &str = "MSIME_RELAY_PROXY_TEST_ORIGIN";
+    if let Ok(origin) = std::env::var(CHILD_ORIGIN) {
+        let response = RelayTransport::new(config(&origin))
+            .unwrap()
+            .send("GET", "/v1/users/me/clipboard", None)
+            .unwrap();
+        assert_eq!(response.status, 200);
+        return;
+    }
+    // 环境代理只传给独立测试进程，避免与其他并行用例争用进程环境。
+    let origin = TcpListener::bind("127.0.0.1:0").unwrap();
+    let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin_url = format!("http://{}", origin.local_addr().unwrap());
+    let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+    origin.set_nonblocking(true).unwrap();
+    proxy.set_nonblocking(true).unwrap();
+    let server = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            for (is_origin, listener) in [(true, &origin), (false, &proxy)] {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(1)))
+                            .unwrap();
+                        let mut bytes = [0; 4096];
+                        let mut length = 0;
+                        while !bytes[..length].ends_with(b"\r\n\r\n") {
+                            let read = stream.read(&mut bytes[length..]).unwrap();
+                            assert!(read > 0 && length + read < bytes.len());
+                            length += read;
+                        }
+                        let request = String::from_utf8_lossy(&bytes[..length]);
+                        let authenticated = request.contains(TOKEN);
+                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+                        return (is_origin, authenticated);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => panic!("合成中继监听失败: {error}"),
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        (false, false)
+    });
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "clipboard_relay::tests::loopback_relay_bypasses_the_system_proxy",
+        ])
+        .env(CHILD_ORIGIN, origin_url);
+    for name in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ] {
+        command.env(name, &proxy_url);
+    }
+    for name in ["NO_PROXY", "no_proxy"] {
+        command.env(name, "");
+    }
+    let status = command.status().unwrap();
+    let (is_origin, authenticated) = server.join().unwrap();
+    assert!(status.success());
+    assert!(
+        is_origin && authenticated,
+        "合成令牌只能发往回环中继，不能进入系统代理"
+    );
+}

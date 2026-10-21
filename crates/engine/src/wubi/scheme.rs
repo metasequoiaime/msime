@@ -1,4 +1,4 @@
-//! 五笔按键处理（`R/schemes/wubi_scheme.*`）：字母 `a..=y`，`z` 只在允许混输拼音时收；最多四个字母，混输的拼音回退正在延长组字时最多 32 个。混输关闭时，组字开头的 `z` 打开临时拼音反查：之后的字母都是拼音，最多 32 个。
+//! 五笔按键处理（`R/schemes/wubi_scheme.*`）：字母 `a..=y`，`z` 在允许混输拼音或打开通配时收；最多四个字母，混输的拼音回退正在延长组字时最多 32 个。混输关闭且通配关掉时，组字开头的 `z` 打开临时拼音反查：之后的字母都是拼音，最多 32 个。
 
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
@@ -15,13 +15,15 @@ pub struct WubiScheme {
     extended_length_allowed: bool,
     /// 混输关闭时由会话打开：组字以 `z` 开头就是临时拼音反查。五笔码不用 `z`，混输关闭时这个键原本被拒绝、交回宿主，所以占用它不会挡住任何五笔码。混输打开时 `z` 已经是拼音字母，会话会把这里关掉。
     pinyin_lookup_allowed: bool,
+    /// `z` 通配：`z` 是未知码位，匹配码表该位置的任意一个字母。与混输无关，两条路都能让 `z` 进码；打开通配时会话关掉临时拼音反查，两条路不能同时占用这个键。
+    z_wildcard: bool,
 }
 
 /// 临时拼音反查的引导键。
 pub const PINYIN_LOOKUP_PREFIX: u8 = b'z';
 
-fn is_wubi_letter(lower: u8, mixed_pinyin_allowed: bool) -> bool {
-    (b'a'..=b'y').contains(&lower) || (mixed_pinyin_allowed && lower == b'z')
+fn is_wubi_letter(lower: u8, mixed_pinyin_allowed: bool, z_wildcard: bool) -> bool {
+    (b'a'..=b'y').contains(&lower) || (lower == b'z' && (mixed_pinyin_allowed || z_wildcard))
 }
 
 impl WubiScheme {
@@ -47,7 +49,7 @@ impl WubiScheme {
                 // 反查里的字母是拼音，`z` 和其余字母一样收下。
                 let accepted = opens_lookup
                     || self.in_pinyin_lookup()
-                    || is_wubi_letter(lower, self.mixed_pinyin_allowed);
+                    || is_wubi_letter(lower, self.mixed_pinyin_allowed, self.z_wildcard);
                 if accepted && self.raw.len() < self.max_code_length() {
                     self.raw.push(char::from(lower));
                     true
@@ -80,6 +82,8 @@ impl WubiScheme {
         request.raw_segmentation.clone_from(&self.raw);
         request.normalized_segmentation.clone_from(&self.raw);
         request.segmentation.clone_from(&self.raw);
+        // 通配只在码里真有 `z` 时改走模式匹配；混输单独打开时永远走前缀范围扫描。
+        request.wubi_z_wildcard = self.z_wildcard && self.raw.contains('z');
         request.valid = !self.raw.is_empty();
     }
 
@@ -101,6 +105,7 @@ impl WubiScheme {
             MAX_CODE_LENGTH
         };
         let mixed_pinyin_allowed = self.mixed_pinyin_allowed;
+        let z_wildcard = self.z_wildcard;
         self.raw.clear();
         self.raw.reserve(limit.min(raw.len()));
         self.raw.extend(
@@ -110,7 +115,7 @@ impl WubiScheme {
                     if lookup {
                         lower.is_ascii_lowercase()
                     } else {
-                        is_wubi_letter(lower, mixed_pinyin_allowed)
+                        is_wubi_letter(lower, mixed_pinyin_allowed, z_wildcard)
                     }
                 })
                 .take(limit)
@@ -125,6 +130,11 @@ impl WubiScheme {
 
     pub fn set_mixed_pinyin_allowed(&mut self, allowed: bool) {
         self.mixed_pinyin_allowed = allowed;
+    }
+
+    /// 打开或关闭 `z` 通配。只影响下一次按键与宿主编辑，已在组字里的文本不变。
+    pub fn set_z_wildcard(&mut self, enabled: bool) {
+        self.z_wildcard = enabled;
     }
 
     /// 打开或关闭 `z` 临时拼音反查。只决定下一次组字能否以 `z` 开头，已在组字中的文本不变。

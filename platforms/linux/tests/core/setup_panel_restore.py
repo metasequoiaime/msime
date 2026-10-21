@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-linux-setup --unregister puts back the desktop candidate panel settings the hosts took over, the Linux side of the Windows uninstaller removing everything MSIME left: Fcitx5 classicui's Theme, DarkTheme, Font and WheelForPaging, and the IBus panel's custom-font and use-custom-font. A setting is restored only while it still holds what MSIME wrote; one the user changed since is kept. The theme MSIME generated for Fcitx5 is removed.
+"""msime-linux-setup --unregister puts back the desktop candidate panel settings the hosts took over, the Linux side of the Windows uninstaller removing everything MSIME left: Fcitx5 classicui's Theme, DarkTheme, Font and WheelForPaging, and the IBus panel's custom-font and use-custom-font. A setting is restored only while it still holds what MSIME wrote; one the user changed since is kept. The theme MSIME generated for Fcitx5 is removed; one the user maintains by hand is kept, together with the theme options naming it.
 
 A stub stands in for gdbus and gsettings: it logs each call and keeps Fcitx5's bus state and the IBus panel keys in a JSON file. Each case runs against a scratch HOME holding a classicui.conf and a restore record, with the record written in the shape the hosts write it (src/candidates/PanelRestoreRecord.h).
 """
@@ -8,6 +8,7 @@ import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -95,6 +96,14 @@ UseDarkTheme=False
 Theme=kept
 """
 
+# 宿主写的 theme.conf 开头（src/candidates/CandidateFcitxTheme.h）与它写的各类文件。
+GENERATED_THEME = (
+    "[Metadata]\nName=MSIME\nVersion=1\nAuthor=MSIME\n"
+    "Description=Generated from the MSIME candidate settings; edits are replaced when they change\nScaleWithDPI=True\n"
+)
+GENERATED_FILES = ("decoration-0123.png", "shape-4567.png", "shape-4567@2x.png", "background-89ab.png", "canvas-cdef.png",
+                   "theme.conf.tmp-Ab12Cd")
+
 RECORD = {
     "fcitx5": {
         "Theme": {"prior": "default", "written": "msime"},
@@ -136,7 +145,12 @@ class Harness:
         self.record = self.home / ".local/state/msime-client/panel-restore.json"
         self.theme = self.home / ".local/share/fcitx5/themes/msime"
 
-    def world(self, record=RECORD, classicui=CLASSICUI, fcitx5_running=False, panel_user=None, **extra) -> None:
+    def world(self, record=RECORD, classicui=CLASSICUI, fcitx5_running=False, panel_user=None, theme=GENERATED_THEME,
+              theme_files=GENERATED_FILES, **extra) -> None:
+        if self.theme.is_symlink():
+            self.theme.unlink()
+        elif self.theme.exists():
+            shutil.rmtree(self.theme)
         for path in (self.classicui, self.record, self.theme / "theme.conf"):
             path.parent.mkdir(parents=True, exist_ok=True)
         self.classicui.write_text(classicui)
@@ -147,8 +161,9 @@ class Harness:
                 pass
         else:
             self.record.write_text(json.dumps(record))
-        (self.theme / "theme.conf").write_text("[Metadata]\nName=MSIME\n")
-        (self.theme / "decoration-0123.png").write_bytes(b"\x89PNG")
+        (self.theme / "theme.conf").write_text(theme)
+        for file in theme_files:
+            (self.theme / file).write_bytes(b"\x89PNG")
         self.state_file.write_text(json.dumps({
             "fcitx5_running": fcitx5_running,
             "set_config": [],
@@ -349,6 +364,55 @@ def main() -> int:
         assert harness.record.is_symlink() and outside.read_text() == json.dumps(RECORD)
         assert harness.state()["panel"]["user"]["custom-font"] == "Noto Sans SC 18px"
         harness.record.unlink()
+
+        # 判断依据与生成器一致：说明行和文件前缀都取自宿主写主题的代码，任何一边改名这里都会失败。
+        header = (ROOT / "src/candidates/CandidateFcitxTheme.h").read_text()
+        assert _setup_module.FCITX5_THEME_MARKER in GENERATED_THEME and _setup_module.FCITX5_THEME_MARKER in header
+        for prefix in ("shape-", "decoration-", "background-", "canvas-"):
+            assert prefix in _setup_module.FCITX5_THEME_PREFIXES and f'= "{prefix}";' in header, prefix
+
+        # 用户维护的主题（MSIME_FCITX5_THEME_AUTOGENERATE=0 只在 Fcitx5 进程里可见，卸载和换包时看不到）：说明行被改掉，目录、图片和指向它的 Theme／DarkTheme 都保留，其余设置照常恢复，记录照常删除。
+        hand = GENERATED_THEME.replace("Generated from the MSIME candidate settings; edits are replaced when they change", "My theme")
+        for running in (False, True):
+            harness.world(theme=hand, fcitx5_running=running)
+            result = harness.unregister()
+            assert (harness.theme / "theme.conf").read_text() == hand
+            assert sorted(entry.name for entry in harness.theme.iterdir()) == sorted(("theme.conf", *GENERATED_FILES))
+            assert "Theme、DarkTheme 指向保留的人工主题 msime，保持不变" in result.stdout, result.stdout
+            assert "不是水杉生成的原样文件，保留不删" in result.stdout, result.stdout
+            # Fcitx5 在运行时替身不实现输入法列表的调用，那一步的报错与这里无关。
+            assert not harness.record.exists() and (running or result.stderr == ""), result.stderr
+            if running:
+                assert harness.state()["set_config"] == [["fcitx://config/addon/classicui", {"Font": "Sans 10"}]], harness.state()["set_config"]
+                assert harness.classicui.read_text() == CLASSICUI
+            else:
+                assert harness.classicui.read_text() == restored_file(Font='"Sans 10"'), harness.classicui.read_text()
+        # 没有恢复记录（记录之前的版本写的主题）时同样保留。
+        harness.world(theme=hand, record=None, panel_user={})
+        result = harness.unregister()
+        assert harness.classicui.read_text() == CLASSICUI and (harness.theme / "theme.conf").read_text() == hand
+        assert "Fcitx5 候选面板设置无需恢复；Theme、DarkTheme 指向保留的人工主题 msime" in result.stdout, result.stdout
+        # 说明行没动，但目录里放了生成器不会写的文件或子目录：仍算用户的主题。
+        for extra in ("my-background.png", "images/"):
+            harness.world()
+            if extra.endswith("/"):
+                (harness.theme / extra).mkdir()
+            else:
+                (harness.theme / extra).write_bytes(b"\x89PNG")
+            harness.unregister()
+            assert (harness.theme / extra).exists() and (harness.theme / "theme.conf").read_text() == GENERATED_THEME, extra
+            assert harness.classicui.read_text() == restored_file(Font='"Sans 10"'), harness.classicui.read_text()
+        # 主题目录是指向别处的链接：链接和它指向的文件都不动。
+        harness.world()
+        linked_theme = Path(name) / "linked-theme"
+        if linked_theme.exists():
+            shutil.rmtree(linked_theme)
+        harness.theme.rename(linked_theme)
+        harness.theme.symlink_to(linked_theme)
+        harness.unregister()
+        assert harness.theme.is_symlink() and (linked_theme / "theme.conf").read_text() == GENERATED_THEME
+        assert harness.classicui.read_text() == restored_file(Font='"Sans 10"'), harness.classicui.read_text()
+        harness.theme.unlink()
 
         # XDG_STATE_HOME, XDG_CONFIG_HOME and XDG_DATA_HOME are honoured when absolute, as the hosts resolve them.
         harness.world()
