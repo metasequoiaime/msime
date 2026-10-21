@@ -14280,6 +14280,81 @@ fn phrase_tables_reach_the_quick_phrase_mode_from_the_plugins_directory() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 宿主选项里的 `quick_phrase_candidates`（macOS 和 Linux 的宿主会请求）让普通组字也带出快捷短语，不必先按 K；没请求的宿主保持原样。偏好变更重建 Engine 后仍然生效。
+#[test]
+fn requested_quick_phrase_candidates_join_regular_composition() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["resources", "dictionaries"] {
+        let directory = dir.path().join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO quick_parases VALUES('dh','电话',10);",
+            )
+            .unwrap();
+    }
+    install_phrase_table(dir.path(), "office", &[("dh", "办公室电话")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["office".into()];
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let create = |preferences: &Preferences, requested: Option<bool>| {
+        let mut options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "preferences_directory": path("state") });
+        if let Some(requested) = requested {
+            options["quick_phrase_candidates"] = json!(requested);
+        }
+        let options = options.to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        handle
+    };
+
+    let handle = create(&preferences, Some(true));
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(
+        rows.contains(&"电话".to_owned()) && rows.contains(&"办公室电话".to_owned()),
+        "{rows:?}"
+    );
+    preferences.local_modes.unicode = !preferences.local_modes.unicode;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.quick_phrase_candidates);
+    });
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(rows.contains(&"办公室电话".to_owned()), "{rows:?}");
+    // 设置页「快捷短语」开关关掉后，请求了这项能力的会话也不再把短语放进普通候选。
+    preferences.local_modes.quick_phrase = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(
+        !rows
+            .iter()
+            .any(|row| ["电话", "办公室电话"].contains(&row.as_str())),
+        "{rows:?}"
+    );
+    preferences.local_modes.quick_phrase = true;
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    for requested in [None, Some(false)] {
+        let handle = create(&preferences, requested);
+        let rows = local_mode_candidates(handle, b"dh");
+        assert!(
+            !rows
+                .iter()
+                .any(|row| ["电话", "办公室电话"].contains(&row.as_str())),
+            "{requested:?}: {rows:?}"
+        );
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
 /// 官方短语表（随桌面安装包分发的 latex-symbols）从内置目录读：宿主选项给了 `plugin_packs` 时读那里，没给时读内置音效包旁边的 `plugin-packs`（macOS 的 bundle、Linux 的安装就是这样放的）。不在 `phrase_tables` 里就不进 K 模式；插件目录里同 id 的旧副本不顶替它。
 #[test]
 fn an_official_phrase_table_comes_from_the_bundle_and_only_once_enabled() {

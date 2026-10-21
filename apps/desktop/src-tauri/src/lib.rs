@@ -40,10 +40,17 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 
 #[cfg(target_os = "android")]
 use platform::android::android_account;
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "linux"
+))]
 use platform::community_resources;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use platform::desktop::desktop_cloud_dictionary;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use platform::desktop::desktop_settings_sync;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_report,
@@ -67,7 +74,7 @@ use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_community;
 #[cfg(windows)]
-use platform::windows::{windows_account, windows_settings_sync, windows_voice};
+use platform::windows::{windows_account, windows_voice};
 
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
@@ -2403,22 +2410,11 @@ async fn cloud_dictionary_request(
             return Ok(result);
         }
     }
-    // macOS 的设置进程没有原生会话时，复用输入法也读写的账号文件与刷新锁；已有 provider 的失败不重发。
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        let document = options.snapshot()?;
-        let account = app.state::<desktop_account::AccountState>();
-        let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
-        desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request)
-            .await
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = request;
-        Err(CommandError {
-            code: "unavailable",
-        })
-    }
+    // macOS 的设置进程没有原生会话时、Linux 没有配置或发现 provider socket 时，复用输入法也读写的账号文件与刷新锁；已有 provider 的失败不重发。
+    let document = options.snapshot()?;
+    let account = app.state::<desktop_account::AccountState>();
+    let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
+    desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request).await
 }
 
 #[cfg(target_os = "ios")]
@@ -5860,14 +5856,14 @@ pub fn run() {
             android_account::account_forget,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_forget,
-            #[cfg(target_os = "windows")]
-            windows_settings_sync::account_preferences_schema,
-            #[cfg(target_os = "windows")]
-            windows_settings_sync::account_preferences_load,
-            #[cfg(target_os = "windows")]
-            windows_settings_sync::account_preferences_upload,
-            #[cfg(target_os = "windows")]
-            windows_settings_sync::account_preferences_apply,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            desktop_settings_sync::account_preferences_schema,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            desktop_settings_sync::account_preferences_load,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            desktop_settings_sync::account_preferences_upload,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            desktop_settings_sync::account_preferences_apply,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_list,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -6002,19 +5998,54 @@ pub fn run() {
             mobile_community::ai_skin_generate,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::ai_skin_cancel,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_list,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_detail,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_publish,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_apply,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_save,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_rate,
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "linux"
+            ))]
             community_resources::community_resource_unpublish,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_resource_store_reply,

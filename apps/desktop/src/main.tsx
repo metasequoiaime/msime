@@ -223,6 +223,9 @@ const cloudDictionaryClient: CloudDictionaryPanelClient = {
   close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
   request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
 };
+// 宿主把云词库导出写进「下载」，见 `createDesktopCloudDictionaryClient`；只有 Linux 的面板用它。
+const saveCloudDictionaryExport = (name: string, contents: string) =>
+  invoke<string>("save_export", { name, contents });
 // 「绑定 QQ 群助手」：Rust 侧回的是服务端的 snake_case，这里换成页面的写法。
 type QqLinkDto = { id: string; created_at: string };
 const qqLink = (link: QqLinkDto): AccountQqLink => ({ id: link.id, createdAt: link.created_at });
@@ -659,6 +662,7 @@ function DesktopSettings() {
                       client.cloudDictionary,
                       host.platform,
                       mobileDictionary,
+                      saveCloudDictionaryExport,
                     ),
                     ...(host.platform === "macos"
                       ? {
@@ -872,15 +876,15 @@ function DesktopSettings() {
                     chooseAvatar: () => invoke<AccountProfile | null>("account_choose_avatar"),
                     removeAvatar: () => invoke<AccountProfile>("account_remove_avatar"),
                     qqLinks,
-                    // 设置同步只在 Windows 接到账号会话上；macOS 由输入法自己的账号窗口同步它的原生设置，Linux 还没有接入。
-                    ...(host.platform === "windows"
+                    // 设置同步接在 Windows 和 Linux 的账号会话上；macOS 由输入法自己的账号窗口同步它的原生设置。
+                    ...(host.platform === "windows" || host.platform === "linux"
                       ? { settingsSync: createDesktopSettingsSync(invoke) }
                       : {}),
                   } satisfies AccountClient,
                   communityCandidateSkins: createDesktopCandidateSkinCommunity(invoke),
                   communityPlugins: createDesktopPluginCommunity(invoke),
-                  // 社区词包与回复模板同理，只在 Windows 的设置应用里提供。
-                  ...(host.platform === "windows"
+                  // 社区词包与回复模板同理，在 Windows 和 Linux 的设置应用里提供。
+                  ...(host.platform === "windows" || host.platform === "linux"
                     ? { communityResources: createDesktopCommunityResources(invoke) }
                     : {}),
                 }
@@ -1009,6 +1013,7 @@ function DesktopSettings() {
     panelClients.cloudDictionary,
     settingsClient.host?.platform,
     mobileDictionary,
+    saveCloudDictionaryExport,
   );
   if (mobilePanel === "voice") {
     return <VoicePanel client={mobileVoiceClient} theme="light" />;
@@ -1122,6 +1127,7 @@ function DesktopCloudDictionarySurface() {
     panelClients.cloudDictionary,
     host?.platform,
     mobileDictionary,
+    saveCloudDictionaryExport,
   );
   return <DesktopCloudDictionary client={cloudDictionary} />;
 }

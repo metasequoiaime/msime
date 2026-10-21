@@ -8511,6 +8511,73 @@ INSERT INTO quick_parases VALUES('dh','电话',20);",
     assert_eq!(session.select(phrase).commit.as_deref(), Some("电话"));
 }
 
+/// 普通组字只认整个编码：K 模式按前缀列表，普通候选若也按前缀，单个字母就会带出以它开头的所有短语。数据库行和宿主短语表都一样。
+#[test]
+fn regular_composition_matches_quick_phrase_keys_exactly() {
+    let fixture = Fixture::new(
+        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('dh','电话',20);\
+INSERT INTO quick_parases VALUES('dhx','电话线',30);",
+    );
+    let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+    };
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_table = vec![phrase("d", "地址"), phrase("dhh", "电话号码")];
+    });
+    type_text(&mut session, "dh");
+    let regular = words(&session);
+    assert!(regular.contains(&"电话".to_owned()), "{regular:?}");
+    for prefixed in ["电话线", "电话号码", "地址"] {
+        assert!(!regular.contains(&prefixed.to_owned()), "{regular:?}");
+    }
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "d");
+    let single = words(&session);
+    assert!(single.contains(&"地址".to_owned()), "{single:?}");
+    assert!(!single.contains(&"电话".to_owned()), "{single:?}");
+}
+
+/// 设置页的「快捷短语」开关同时管两种入口：关掉后普通候选里也不出现短语。
+#[test]
+fn the_quick_phrase_switch_also_keeps_phrases_out_of_regular_candidates() {
+    let fixture = Fixture::new(
+        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('dh','电话',20);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.local_modes.quick_phrase = false;
+    });
+    type_text(&mut session, "dh");
+    assert!(!words(&session).contains(&"电话".to_owned()));
+}
+
+/// 五笔四码唯一时，同编码的快捷短语追加在后面也不妨碍自动上屏，提交的仍是五笔那一行。
+#[test]
+fn a_quick_phrase_with_the_same_key_keeps_the_wubi_unique_four_code() {
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('addr','莽原',100);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('addr','示例路1号',10);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = false;
+        options.quick_phrase_candidates = true;
+    });
+    type_text(&mut session, "addr");
+    assert_eq!(
+        words(&session),
+        vec!["莽原".to_owned(), "示例路1号".to_owned()]
+    );
+    assert!(session.snapshot().wubi_unique_four_code);
+}
+
 /// 宿主给的辅助码表替换 schema 对应的表，也可以在会话中途换掉。
 #[test]
 fn a_host_helpcode_table_replaces_the_schema_table() {

@@ -136,7 +136,7 @@ export function InputSettingsPage() {
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   // 不带键盘神经模型的版本（host-api 也始终把它关掉）在触屏宿主上不列出神经联想开关。
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
-  // 应用例外只在认得前台应用的宿主上提供（macOS 按 bundle id，Windows 按进程基名）。
+  // 应用例外只在认得前台应用的宿主上提供（macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名）。
   const showAppInputModeRules = host?.app_input_mode_rules === true;
   // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译 直接可见，其余都放进末尾的 更多 折叠区。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
@@ -369,9 +369,13 @@ export function InputSettingsPage() {
             <AppInputModeRulesSection
               value={draft.app_input_mode_rules}
               windows={host?.platform === "windows"}
-              pickApplication={client.pickApplication}
-              // Windows 的规则就是程序文件名，名称没有更多信息，宿主也不提供查询。
-              applicationNames={host?.platform === "windows" ? undefined : client.applicationNames}
+              linux={linuxPlatform}
+              // Linux 没有选应用的对话框，程序名手填。
+              pickApplication={linuxPlatform ? undefined : client.pickApplication}
+              // Windows 和 Linux 的规则就是程序名，名称没有更多信息，宿主也不提供查询。
+              applicationNames={
+                host?.platform === "windows" || linuxPlatform ? undefined : client.applicationNames
+              }
               onChange={(app_input_mode_rules) => onPreferencesChange({ app_input_mode_rules })}
             />
           )

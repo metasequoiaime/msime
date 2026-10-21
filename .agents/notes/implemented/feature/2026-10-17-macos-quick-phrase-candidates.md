@@ -8,7 +8,7 @@ macOS 的快捷短语目前只能在按下 `Shift+K` 后进入 K 模式。快捷
 
 ## Decision
 
-macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组字查询在保留原有候选顺序的基础上追加编码匹配的快捷短语；其他平台和普通会话保持现状。快捷短语行继续使用 `CandidateSource::QuickPhrase`，选中后直接提交文本。`Shift+K` 手动模式保留，供需要独立查看短语表的用户使用。
+macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组字查询在保留原有候选顺序的基础上追加编码匹配的快捷短语；其他平台和普通会话保持现状。Linux 的两个宿主后来也请求这项能力，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)。快捷短语行继续使用 `CandidateSource::QuickPhrase`，选中后直接提交文本。`Shift+K` 手动模式保留，供需要独立查看短语表的用户使用。
 
 ## Alternatives considered
 
@@ -37,5 +37,7 @@ macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组�
 - `cargo check -p msime-host-api --locked` 和 `cargo fmt --all -- --check` 通过。
 
 ## Consequences
+
+这一版的 host-api 解析了 `HostOptions.quick_phrase_candidates`，却在 `into_engine_options` 里把它写死成 `false`，所以 macOS 会话里实际没有生效；[Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md) 改为按请求转交，并加了经 C ABI 建会话的测试。同一篇里还把普通组字改成只认整个编码、受设置页「快捷短语」开关控制，并让五笔四码唯一不计入追加的短语。
 
 macOS 会话通过临时 `HostOptions` 能力开启快捷短语候选，运行时配置文件和其他宿主的默认行为不变。普通候选仍先保持原顺序，快捷短语追加在末尾并按文本去重；`Shift+K` 独立入口继续可用。设置页会针对 macOS 说明两种入口。普通候选和快捷短语共用候选上限时，追加项可能排在首屏之后，这是保持既有普通候选排序的取舍。

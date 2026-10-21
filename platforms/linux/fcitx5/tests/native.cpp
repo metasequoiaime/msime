@@ -30,7 +30,8 @@ extern "C" PangoFontMap *__wrap_pango_cairo_font_map_new() {
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
 public:
-  explicit FixtureContext(fcitx::InputContextManager &manager) : InputContext(manager, "msime-test") { created(); }
+  explicit FixtureContext(fcitx::InputContextManager &manager, const std::string &program = "msime-test")
+      : InputContext(manager, program) { created(); }
   ~FixtureContext() override { destroy(); }
   const char *frontend() const override { return "msime-test"; }
   void commitStringImpl(const std::string &text) override {
@@ -1255,11 +1256,12 @@ int main(int argc, char **argv) {
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
+                                       std::string(argv[2]) == "--app-rules" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1615,6 +1617,114 @@ int main(int argc, char **argv) {
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
       return 0;
     }
+    // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。排在快捷模式那一段之前，免得那里的失败让它跑不到。
+    if (argc == 3 && std::string(argv[2]) == "--app-rules") {
+      const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+      // 前面的状态栏开关在后台保存偏好；等它落盘再读修订号，免得这次保存撞上它。
+      state->waitForPreferenceSave();
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["app_input_mode_rules"] = Json{{"Synthetic-Ruled", "english"}};
+        snapshot["preferences"]["default_ime_mode"] = "chinese";
+        snapshot["preferences"]["ime_mode_scope"] = "app";
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+      }
+      const auto focusContext = [&](FixtureContext &context) {
+        context.focusIn();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusIn);
+        engine.activate(entry, event);
+      };
+      const auto blurContext = [&](FixtureContext &context) {
+        context.focusOut();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusOut);
+        engine.deactivate(entry, event);
+      };
+      const bool unruledMode = state->input_enabled_;
+      blur();
+      FixtureContext ruled(instance.inputContextManager(), "synthetic-ruled");
+      ruled.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+      auto *ruledState = ruled.propertyFor(&engine.factory_);
+      focusContext(ruled);
+      require(ruledState->session_ != 0 && !ruledState->input_enabled_,
+              "a ruled program did not start in its rule's English mode");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese");
+      blurContext(ruled);
+      focusContext(ruled);
+      require(ruledState->input_enabled_,
+              "refocusing the same program put the rule back over the user's own switch");
+      {
+        FixtureContext sameProgram(instance.inputContextManager(), "synthetic-ruled");
+        sameProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        blurContext(ruled);
+        focusContext(sameProgram);
+        require(sameProgram.propertyFor(&engine.factory_)->input_enabled_,
+                "another window of the same program is not the same stay");
+        blurContext(sameProgram);
+      }
+      focusContext(ic);
+      require(state->input_enabled_ == unruledMode, "an unruled program took the ruled program's mode");
+      blurContext(ic);
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "coming back from another program did not apply the rule again");
+      // 没有程序名的上下文（不报告程序名的 Wayland text-input、XIM 前端）也是另一个客户端：经过它再回来，手动切换过的程序重新套用规则。
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese again");
+      blurContext(ruled);
+      {
+        FixtureContext anonymous(instance.inputContextManager(), "");
+        anonymous.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(anonymous);
+        blurContext(anonymous);
+        anonymous.propertyFor(&engine.factory_)->close();
+      }
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a context without a program name did not end the stay");
+      // 全局作用域：规则定下的模式不写进全局状态，从状态栏切到全局时、离开这个程序时都是；用户在这个程序里手动切换过才写进去。
+      fcitx_global_input_mode = true;
+      engine.mode_scope_action_.activate(&ruled);
+      ruledState->waitForPreferenceSave();
+      require(ruledState->preferences_.value("ime_mode_scope", std::string{}) == "global",
+              "the mode scope action did not switch to global scope");
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "switching to global scope wrote the rule's English mode into the global state");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "leaving a ruled program wrote the rule's mode into the global state");
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope");
+      engine.input_mode_action_.activate(&ruled);
+      engine.input_mode_action_.activate(&ruled);
+      require(!ruledState->input_enabled_, "switching twice did not come back to English");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(false),
+              "a manual switch in a ruled program did not reach the global state");
+      // 不同焦点组之间 Fcitx5 不保证先失焦再聚焦（例如 XWayland 程序和原生 Wayland 程序）：别的程序先获得焦点、把停留换走，有规则的程序随后才失焦，用户在它里面的手动切换照样写进全局状态。
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope again");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese under global scope");
+      {
+        FixtureContext otherProgram(instance.inputContextManager(), "synthetic-other");
+        otherProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(otherProgram);
+        blurContext(ruled);
+        require(fcitx_global_input_mode == std::optional<bool>(true),
+                "a manual switch was lost when another program gained focus before the ruled one lost it");
+        blurContext(otherProgram);
+        otherProgram.propertyFor(&engine.factory_)->close();
+      }
+      ruledState->close();
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield, re-entry, anonymous contexts and global scope passed\n";
+      return 0;
+    }
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {
       const auto press = [&](fcitx::KeySym sym) {
@@ -1904,10 +2014,50 @@ int main(int argc, char **argv) {
       setBinding(false);
       tap();
       require(state->input_enabled_ && releases == 5, "a disabled Caps Lock switched or released the lock");
+      // 会话建立时就请求了把快捷短语编码排进普通候选，和 macOS 一样。
+      require(state->voice_host_options_.value("quick_phrase_candidates", false),
+              "the session was not asked for quick phrase candidates");
+      // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      state->waitForPreferenceSave();
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["caps_lock_ascii_punctuation"] = true;
+        snapshot["preferences"]["smart_punctuation"] = false;
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+          state->refreshPreferences();
+          if (state->preferences_.value("caps_lock_ascii_punctuation", false) &&
+              !state->preferences_.value("smart_punctuation", true))
+            break;
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+        require(state->preferences_.value("caps_lock_ascii_punctuation", false),
+                "Caps Lock punctuation preference did not hot-reload");
+      }
+      const auto comma = [&](fcitx::KeyStates states) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_comma, states));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      {
+        const auto before = ic.committed;
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，",
+                "a comma without Caps Lock did not commit Chinese punctuation");
+        require(!comma(lock) && ic.committed == before + "，",
+                "a comma under Caps Lock was not left to the application as English punctuation");
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，，",
+                "releasing Caps Lock did not bring Chinese punctuation back");
+      }
       state->close();
       removeFixtureTree(directory);
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
-      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release, hot-reload, Caps Lock punctuation and quick phrase candidates passed\n";
       return 0;
     }
     // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 keyEvent 驱动：缺省关时交给应用；打开后中文方案去日语并记下这个中文方案，再按回到它；一次按下只切换一次；组字中先上屏；英文模式和 Engine 的英文模式里交给应用。
