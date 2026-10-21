@@ -524,13 +524,11 @@ struct ServiceSettingsView: View {
       return
     }
     let onDevice = recognizesOnDevice
-    if onDevice && configuration.voiceProvider == .local && localModels.selectedDirectory == nil {
-      status = "请先在“本地模型”中下载并选用一个模型。"
-      return
-    }
     let live = streamsLive || onDevice
     if live { guard save() else { return } }
     guard request.isVisible else { return }
+    // 这一页要自己用麦克风；按住说话的后台会话开着时先关掉它，两边不会争同一个音频会话。
+    VoiceSessionService.shared.deactivate()
     let recordingID = request.begin()
     operation = Task {
       // 录音会压低系统声音，所以开始提示音结束后才能打开录音会话。
@@ -994,7 +992,7 @@ struct ServiceSettingsView: View {
       output = result
       status = "识别完成，正在润色…"
       do {
-        let polished = try await Self.polish(result, settings: polish)
+        let polished = try await VoicePolishService.polish(result, settings: polish)
         try request.checkCurrent(id)
         output = polished
         status = "已完成"
@@ -1105,8 +1103,7 @@ struct ServiceSettingsView: View {
       }
       do {
         let result: String
-        if provider == .local {
-          guard let model else { throw ServiceFailure(message: "请先在“本地模型”中下载并选用一个模型。") }
+        if provider == .local, let model {
           let stateRoot = URL(fileURLWithPath: MetasequoiaInputSessionBridge.sharedStateDirectory, isDirectory: true)
           let resources = PersonalDictionaryBridge.packagedResources
           // The user's own words, read while the first audio is already buffering.
@@ -1116,6 +1113,7 @@ struct ServiceSettingsView: View {
           result = try await LocalSpeechRecognizer.transcribe(pcm: pcm, modelDirectory: model, language: language,
                                                              hotwords: hotwords, partial: partial)
         } else {
+          // 选了本地模型却还没有下载时改用系统语音识别，不让第一次录音卡在下载这一步；结果出来后在状态里说明。
           result = try await SystemSpeechRecognizer.transcribe(pcm: pcm, language: language, partial: partial)
         }
         try request.checkCurrent(id)
@@ -1126,6 +1124,9 @@ struct ServiceSettingsView: View {
         recorder.discard()
         busy = true
         try await deliver(result, polish: polish, id: id)
+        if provider == .local && model == nil && request.isCurrent(id) {
+          status = "还没有下载本地模型，这次用系统语音识别完成。可以在语音设置的“本地模型”里下载。"
+        }
       } catch is CancellationError {
         if request.isCurrent(id) { status = "已取消" }
       } catch {
@@ -1135,17 +1136,6 @@ struct ServiceSettingsView: View {
         }
       }
     }
-  }
-
-  /// The polish pass after recognition, on its own saved service or the one under 「AI 设置」.
-  private static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
-    var (configuration, token) = try VoicePolishService.resolved()
-    configuration.prompt = settings.systemPrompt
-    let polished = try await CustomServiceClient.request(
-      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript), token: token)
-    let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { throw ServiceFailure(message: "服务未返回可用文字。") }
-    return trimmed
   }
 
   @MainActor private func cancelRequest() {

@@ -99,14 +99,53 @@ int main() {
             prompt_slot(L"custom_3").name == L"三" && prompt_slot(L"custom_2").name == L"二",
         "prompt slots");
   // 说明讲清楚是整个替换、要求只输出 JSON；不是第一个槽位时说出是哪一个，与共享页相同。
-  const std::wstring base =
-      L"留空时使用内置的联想提示词。填写后会整个替换内置提示词，不是追加；内置提示词规定了只输出 JSON 格式的候选，自定义时也要这样要求，否则联想可能不出结果。";
+  const std::wstring base = L"留空使用内置提示词；填写后完整替换，请要求只输出 JSON 格式的候选。";
   check(prompt_description(L"") == base && prompt_description(L"custom_1") == base &&
             prompt_description(L"default") == base,
         "the first slot names no slot");
-  check(prompt_description(L"custom_2") == base + L"当前使用的是槽位二。" &&
-            prompt_description(L"custom_3") == base + L"当前使用的是槽位三。",
+  check(prompt_description(L"custom_2") == base + L"当前使用槽位二。" &&
+            prompt_description(L"custom_3") == base + L"当前使用槽位三。",
         "another slot is named");
+
+  // API Token 说明里的服务地址（aiEndpointServiceAddress）：省略默认端口和请求动作，保留接口前缀，不带查询参数。
+  check(service_address(L"https://api.deepseek.com/chat/completions", L"https://api.deepseek.com:443") ==
+            L"https://api.deepseek.com",
+        "the action and the default port go");
+  check(service_address(L"https://api.openai.com/v1/chat/completions", L"https://api.openai.com:443") ==
+            L"https://api.openai.com/v1",
+        "the api prefix stays");
+  check(service_address(L"http://localhost:11434/v1/chat/completions", L"http://localhost:11434") ==
+            L"http://localhost:11434/v1",
+        "a non-default port stays");
+  check(service_address(L"http://192.168.1.2:80/api/messages/", L"http://192.168.1.2:80") ==
+            L"http://192.168.1.2/api",
+        "a trailing slash after the action goes with it");
+  check(service_address(L"  https://Example.COM/v1/responses?key=1  ", L"https://example.com:443") ==
+            L"https://example.com/v1",
+        "the query and surrounding spaces go, the host comes from the origin");
+  check(service_address(L"https://example.com", L"https://example.com:443") == L"https://example.com" &&
+            service_address(L"https://example.com/?a=1", L"https://example.com:443") ==
+                L"https://example.com" &&
+            service_address(L"https://example.com?a=1", L"https://example.com:443") ==
+                L"https://example.com",
+        "no path");
+  check(service_address(L"https://example.com/proxy/", L"https://example.com:8443") ==
+            L"https://example.com:8443/proxy",
+        "one trailing slash goes");
+  check(service_address(L"https://example.com/v1/completions", L"https://example.com:443") ==
+            L"https://example.com/v1/completions",
+        "other endpoints keep their path");
+
+  // 服务商下拉的图标：除「自定义」外每个服务商都有，资源号从 150 起按表的顺序，Kimi 和 OpenRouter 用深色底板。
+  for (auto const &entry : table)
+    check((provider_icon_resource(entry.id) != 0) == (entry.id != L"custom"),
+          "every catalog provider but custom has an icon");
+  check(provider_icon_resource(L"everyapi") == 150 && provider_icon_resource(L"ollama") == 161 &&
+            provider_icon_resource(L"unknown") == 0,
+        "icon resource ids");
+  check(provider_icon_dark_tile(L"kimi") && provider_icon_dark_tile(L"openrouter") &&
+            !provider_icon_dark_tile(L"openai") && !provider_icon_dark_tile(L"custom"),
+        "dark tiles");
 
   // 获取模型后的提示和要换上的模型。
   check(models_status(3) == L"已获取 3 个可用模型。", "models status");

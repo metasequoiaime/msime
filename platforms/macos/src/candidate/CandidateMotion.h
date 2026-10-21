@@ -10,6 +10,9 @@
 // 选中预设接管高亮底色的候选行：动画期间底色画在动效自己的图层上，行只画文字和选中条。
 @protocol MSIMECandidateSelectionFillHost <NSObject>
 @property(nonatomic) BOOL selectionFillDetached;
+@optional
+// 返回行局部坐标的底色轮廓，由调用方释放；空值使用统一圆角。
+- (CGPathRef)createSelectionFillPath CF_RETURNS_RETAINED;
 @end
 
 // APNG 装饰图解码好的各帧，供 Core Animation 逐帧播放。帧时长和循环次数取自文件（ImageIO 的 APNG 属性）。

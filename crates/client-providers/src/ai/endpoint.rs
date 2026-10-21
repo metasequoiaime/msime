@@ -7,7 +7,6 @@
 //! 这里是这条规则的权威实现。各平台宿主在自己的语言里另有一份同样的判断（设置页要在本地决定能不能填 Token，发请求前还要再拦一次），它们都要跑 `shared/contracts/ai-endpoint/cases.json` 里的同一组用例；改规则时先改这里和那份用例，再改各宿主。
 
 use reqwest::Url;
-use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// 接口地址能接受的最大字节数，与各宿主和设置页一致。
 pub const MAX_ENDPOINT_BYTES: usize = 2048;
@@ -105,44 +104,23 @@ pub fn models_url(mut url: Url, clear_query: bool) -> Url {
 }
 
 /// 发往 AI 接口的 HTTP 客户端的公共设置，`url` 必须已经通过 [`validate`]。不跟随重定向，免得 Token 被转发到别的主机；https 地址只走 https；http 地址（只会是本机或局域网）直连、不经过系统或环境变量里配置的代理，否则代理会收到明文的 Token，而代理本身可能在公网上。
+///
+/// https 地址按用户的网络代理设置（`network.proxy_mode` / `proxy_server`）决定走不走代理：`system` 跟随系统，
+/// `none` 直连，`custom` 走用户填的 HTTP 代理。判据见 `msime_client_core::network::should_use_proxy`，
+/// 本机或局域网目标在三种模式下都直连。
 pub fn blocking_client_builder(url: &Url) -> reqwest::blocking::ClientBuilder {
     let builder = reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
-    if url.scheme() == "https" {
-        builder.https_only(true)
+    let builder = if url.scheme() == "https" {
+        crate::proxy::configure_blocking_for(builder, url).https_only(true)
     } else {
         builder.no_proxy()
-    }
+    };
+    builder
 }
 
-/// 主机是否属于本机或局域网，见模块说明。`host` 是 `Url::host_str` 的结果：IPv4 已规范成点分十进制，IPv6 带方括号。IP 字面量按地址段判断，域名只认 `localhost` 和 `.local`。
+/// 主机是否属于本机或局域网，见模块说明。`host` 是 `Url::host_str` 的结果：IPv4 已规范成点分十进制，IPv6 带方括号。判断在 `msime_client_core::network::is_local_host`，与代理判据共用一份。
 pub fn is_local_network_host(host: &str) -> bool {
-    if let Some(address) = host
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-    {
-        return address.parse().is_ok_and(is_local_ipv6);
-    }
-    if let Ok(address) = host.parse() {
-        return is_local_ipv4(address);
-    }
-    let domain = host.to_ascii_lowercase();
-    domain == "localhost"
-        || domain
-            .strip_suffix(".local")
-            .is_some_and(|label| !label.is_empty() && !label.ends_with('.'))
-}
-
-fn is_local_ipv4(address: Ipv4Addr) -> bool {
-    let [first, second, ..] = address.octets();
-    address.is_loopback()
-        || address.is_private()
-        || address.is_link_local()
-        // 100.64.0.0/10：运营商级 NAT 与 Tailscale 的地址段，`Ipv4Addr::is_shared` 还没有稳定。
-        || (first == 100 && second & 0b1100_0000 == 0b0100_0000)
-}
-
-fn is_local_ipv6(address: Ipv6Addr) -> bool {
-    address.is_loopback() || address.is_unicast_link_local() || address.is_unique_local()
+    msime_client_core::network::is_local_host(host)
 }
 
 #[cfg(test)]

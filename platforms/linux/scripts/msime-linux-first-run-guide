@@ -3,23 +3,29 @@
 #
 # Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-linux-setup refuses to prepare a directory that already exists.
 #
-# The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
+# 同样这两个宿主在启动时刷新运行配置、发现用户自行下载的词库早于已安装的版本时，以 --reason dictionary-outdated 调用它。安装包升级只换词库锁、不换下载的词库，所以宿主继续用上一代。这里留下一个标记给设置应用（它据此先打开「词库需要更新」页，「立即更新」做的就是 msime-linux-setup --update --download），并发一条指向设置的通知；notify-send 支持动作时，点通知即打开设置窗口。它自己不开窗口。这个原因有自己的 stamp，词库过期的通知和首次配置的引导互不占用。标记每次调用都写（即使 stamp 压下了通知），设置应用更新成功后删掉它。
 #
-# Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
+# 升级之后两个宿主还以 --reason upgraded 调用它，对应 macOS 设置应用的「水杉输入法已更新到 X」。IBus 宿主由启动器换成新版本后调用，通知说新版本已经生效；Fcitx5 插件不能自己热重载，调用时还带 --restart-unit（插件所在的 systemd 用户服务，没有时为空），通知给出重启命令和一个「立即重启 Fcitx5」按钮。KWin 在 Wayland 会话里把 Fcitx5 作为虚拟键盘自己启动、并把输入法协议的连接交给它，插件这时改带 --launched-by kwin：别处起来的 fcitx5 -r 拿不到那条连接，Wayland 原生应用会打不了字，所以通知不给命令也不带按钮，只让用户注销或在系统设置里重新选一次虚拟键盘。升级本来就少，宿主自己只通知一次，所以这个原因不写标记。
+#
+# Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated|upgraded] [--restart-unit UNIT] [--launched-by kwin]. The host only selects the recovery step named in the first-run notification.
 set -u
 
 host=
 reason=first-run
+restart_unit=
+launched_by=
 while [ $# -ge 2 ]; do
   case "$1" in
     --host) host=$2 ;;
     --reason) reason=$2 ;;
+    --restart-unit) restart_unit=$2 ;;
+    --launched-by) launched_by=$2 ;;
     *) break ;;
   esac
   shift 2
 done
 case "$reason" in
-  first-run|dictionary-outdated) ;;
+  first-run|dictionary-outdated|upgraded) ;;
   *) exit 2 ;;
 esac
 
@@ -28,6 +34,45 @@ cooldown_seconds=300
 
 # Without a graphical session there is no window to open and nobody to notify; the caller's stderr line is all there is.
 if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  exit 0
+fi
+
+# Detach from the caller: the IBus launcher exits right after this, and neither ibus-daemon nor Fcitx5 should end up owning the settings window or a notify-send stuck waiting on D-Bus.
+detach() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "$@" </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+if [ "$reason" = upgraded ]; then
+  command -v notify-send >/dev/null 2>&1 || exit 0
+  if [ "$host" != fcitx5 ]; then
+    detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法已更新" "新版本已经生效，可以继续输入。"
+    exit 0
+  fi
+  title="水杉输入法已更新"
+  if [ "$launched_by" = kwin ]; then
+    detach notify-send -a "水杉输入法" -i msime-linux "$title" "注销后重新登录，或在系统设置的「虚拟键盘」里重新选择 Fcitx 5，即可使用新版本。"
+    exit 0
+  fi
+  restart="fcitx5 -r"
+  [ -n "$restart_unit" ] && restart="systemctl --user restart $restart_unit"
+  body="执行 $restart 或注销后重新登录即可使用新版本。"
+  # 带按钮的通知要等用户点击，所以整段放到后台。notify-send 0.7.10 起才有 --action，更早的版本不认这个选项、立即出错，这时退回不带按钮的通知。点了按钮才重启：systemd 管着 Fcitx5 时重启那个服务，否则用 fcitx5 -r -d 换掉正在运行的实例。
+  (
+    choice=$(notify-send -a "水杉输入法" -i msime-linux --action=restart=立即重启\ Fcitx5 "$title" "$body" 2>/dev/null) || {
+      notify-send -a "水杉输入法" -i msime-linux "$title" "$body"
+      exit 0
+    }
+    [ "$choice" = restart ] || exit 0
+    if [ -n "$restart_unit" ]; then
+      systemctl --user restart "$restart_unit"
+    else
+      fcitx5 -r -d
+    fi
+  ) </dev/null >/dev/null 2>&1 &
   exit 0
 fi
 
@@ -46,6 +91,7 @@ case "$guide_dir" in
 esac
 umask 077
 mkdir -p "$guide_dir" 2>/dev/null || exit 0
+[ "$reason" = dictionary-outdated ] && : >"$guide_dir/dictionary-outdated" 2>/dev/null
 stamp=$guide_dir/first-run-guide.stamp
 [ "$reason" = dictionary-outdated ] && stamp=$guide_dir/dictionary-outdated.stamp
 
@@ -72,23 +118,6 @@ else
   [ "$(cat "$stamp" 2>/dev/null)" = "$token" ] || exit 0
 fi
 
-# Detach from the caller: the IBus launcher exits right after this, and neither ibus-daemon nor Fcitx5 should end up owning the settings window or a notify-send stuck waiting on D-Bus.
-detach() {
-  if command -v setsid >/dev/null 2>&1; then
-    setsid "$@" </dev/null >/dev/null 2>&1 &
-  else
-    nohup "$@" </dev/null >/dev/null 2>&1 &
-  fi
-}
-
-if [ "$reason" = dictionary-outdated ]; then
-  if command -v notify-send >/dev/null 2>&1; then
-    detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" \
-      "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
-  fi
-  exit 0
-fi
-
 # Same override the IBus and Fcitx5 hosts honour; otherwise prefer the settings launcher installed beside this script, then PATH.
 settings=${MSIME_CLIENT_SETTINGS_COMMAND:-}
 if [ -z "$settings" ]; then
@@ -112,6 +141,25 @@ fi
 # A stale explicit override must not make the guide claim that a settings window opened.
 if [ -n "$settings" ] && [ ! -x "$settings" ]; then
   settings=
+fi
+
+if [ "$reason" = dictionary-outdated ]; then
+  if command -v notify-send >/dev/null 2>&1; then
+    if [ -n "$settings" ]; then
+      body="已安装的词库早于当前版本，输入法暂时继续使用旧词库。打开「水杉输入法」设置，点「立即更新」取回新词库并切换，用户词库会一并迁移。"
+      # notify-send 支持动作（libnotify 0.7.9 起的 --action）时，点通知上的「打开设置」直接打开设置窗口；它会等到通知被点掉或关闭才退出，所以整段放进后台。
+      if notify-send --help 2>/dev/null | grep -q -- '--action'; then
+        detach sh -c '[ "$(notify-send -a "水杉输入法" -i msime-linux --action=open=打开设置 "$1" "$2")" = open ] && exec env -u MSIME_CLIENT_ROUTE "$0"' \
+          "$settings" "水杉输入法词库需要更新" "$body"
+      else
+        detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" "$body"
+      fi
+    else
+      detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" \
+        "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
+    fi
+  fi
+  exit 0
 fi
 
 # What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine. The launcher's crash supervisor does not help here: without a readable configuration the launcher exits before it starts supervising, and a restart could not read the configuration either.

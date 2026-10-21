@@ -39,6 +39,7 @@ Status: implemented
 
 - 收益：Windows 用户能在原生设置应用里导入、授权、撤销、排序脚本插件，看到输入法停用了哪个和原因，残余风险写在分组、详情和授权对话框三处；Windows 的 release 构建和 macOS、Linux 一样运行脚本插件。Android 和 HarmonyOS 的 `msime_client_plugins` 请求不带新字段，回答不变。
 - 代价：Windows 上同一用户下的程序能伪造授权，让脚本插件读取或改写输入的文字；这与 macOS、Linux 相同，由授权页写明，提权窗口里不运行脚本是 Windows 额外的一道。`PluginPageModel.h` 又多了一份共享页规则的移植，`plugin-script-view.tsx` 改了要跟着改，头文件开头列了它。
+- 「我的插件」列表后来换成 macOS 的插件库，见 [Windows 设置的「我的插件」改成 macOS 的插件库](../feature/2026-10-20-windows-settings-plugin-library.md)：「脚本插件（实验）」一组成了最后一个卡片分节，授权状态和第几位从行尾移到卡片里的强调色标记；「导入插件」一组和「从文件导入」一行去掉，区分数据插件和脚本插件的那句说明放进折叠的「插件导入说明」。详情、授权对话框和宿主调用仍按本篇。
 - `msime_client_plugins` 的契约多了 `script_page` 和 `user_data`；以后再有宿主要授权页，带上 `script_page` 即可，不必再加接口。
 - 设置应用的界面没有在本机编译和运行：它要 Windows App SDK 和 MSVC，PR 的 CI 也不编它（只有 Release Windows 工作流用 `Build-Client.ps1` 编），所以 `main.cpp` 的改动要到发版构建或真机才验证。
 

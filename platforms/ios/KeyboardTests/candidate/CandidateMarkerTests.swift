@@ -52,7 +52,10 @@ final class CandidateMarkerTests: XCTestCase {
       "云候选加载中")
     XCTAssertEqual(CandidateMarker.markers(source: 3, fixedPosition: 0).map(\.spoken), ["AI 候选"])
     XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 3).map(\.spoken), ["已固定第 3 位"])
-    for marker in CandidateMarker.markers(source: 2, fixedPosition: 0) + CandidateMarker.markers(source: 3, fixedPosition: 1) {
+    XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 3).map(\.pinned), [true])
+    XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 3).first?.symbol, "", "a pinned word is marked by colour, not by a glyph")
+    XCTAssertEqual(CandidateMarker.markers(source: 3, fixedPosition: 1).map(\.pinned), [false, true])
+    for marker in CandidateMarker.markers(source: 2, fixedPosition: 0) + CandidateMarker.markers(source: 3, fixedPosition: 0) {
       XCTAssertNotNil(UIImage(systemName: marker.symbol), marker.symbol)
     }
   }

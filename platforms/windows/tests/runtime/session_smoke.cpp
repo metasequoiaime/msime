@@ -1372,6 +1372,27 @@ int main(int argc, char **argv) {
         composer.confirm_delivery(42, epoch, packet.request_id);
         return copy;
       };
+      // 走 Server 的按键路由（configured_key），和 TIP 送来的键一样，Local 预编辑样式；路由不接这个键时返回空。
+      auto press = [&](uint32_t vk, uint32_t modifiers, bool uiless) {
+        FanyImeNamedpipeData packet{};
+        packet.event_type = FanyImePipeEventType::KeyEvent;
+        packet.client_id = 42;
+        packet.request_id = request++;
+        packet.keycode = vk;
+        packet.modifiers_down = modifiers | (uiless ? FanyImePipeFlags::UiLess : 0);
+        auto reply = composer.configured_key(session, packet, epoch, msime::windows::TsfPreeditStyle::Local, {});
+        if (reply)
+          composer.confirm_delivery(42, epoch, packet.request_id);
+        return reply;
+      };
+      // 没有组字时 Shift+左右和 Ctrl+左右属于应用（选择文字、按词跳）：Server 的路由不接，会话不变。
+      {
+        const auto idle = session.view();
+        for (const uint32_t vk : {0x25u, 0x27u})
+          for (const uint32_t modifiers : {1u, 2u})
+            require(!press(vk, modifiers, false), "A caret chord was claimed with nothing composing");
+        require(session.view() == idle, "A caret chord with nothing composing changed the session");
+      }
       for (char c : std::string("nihao"))
         send(c - 'a' + 'A', c, msime::windows::ReplyPath::Composition);
       {
@@ -1480,6 +1501,45 @@ int main(int argc, char **argv) {
                  FanyImeReplyType::MoveSelectionPrevious);
         require(session.view().at("candidates").at(0).at("highlighted") == true,
                 "Previous navigation did not restore shared highlight");
+      }
+      // Home 分两段（MSIME_FIRST_CANDIDATE_OR_HOME），和 TIP 自己的宿主会话发同一条命令：高亮不在首选时第一下回到首选、光标不动，已在首选时第二下把光标移到输入串开头。Shift/Ctrl+左右在全拼里也发分段命令，按音节（ni'hao）移动拼音光标，高亮在哪个候选上都一样。Local 样式不回包，UI-less 回候选页。
+      for (bool uiless : {false, true}) {
+        using namespace msime::windows;
+        const auto replied = [&](const std::optional<PendingReply> &reply) {
+          return reply && (uiless ? reply->encoded && *reply->encoded &&
+                                        reply->encoded->packet.msg_type == FanyImeReplyType::UiLessComposition
+                                  : !reply->encoded);
+        };
+        const auto caret = [&] { return session.view().at("caret_position").get<size_t>(); };
+        const auto highlighted = [&](size_t slot) {
+          return session.view().at("candidates").at(slot).at("highlighted") == true;
+        };
+        send(0x28, 0, ReplyPath::NextCandidate, uiless);
+        require(highlighted(1) && caret() == 5, "Down did not leave the highlight on the second candidate");
+        require(replied(press(0x24, 0, uiless)) && highlighted(0) && caret() == 5,
+                "The first Home did not return to the first candidate");
+        require(replied(press(0x24, 0, uiless)) && highlighted(0) && caret() == 0 &&
+                    session.view().at("editing_text") == "nihao",
+                "The second Home did not move the caret to the start");
+        require(replied(press(0x27, 1, uiless)) && caret() == 2, "Shift+Right did not move one syllable");
+        require(replied(press(0x27, 2, uiless)) && caret() == 5, "Ctrl+Right did not move one syllable");
+        // End 跳到末选（整张列表的最后一个，页跟着翻过去），光标不动，和 TIP 发的 MSIME_LAST_CANDIDATE 一样；之后 Home 第一下回到首选。
+        require(replied(press(0x23, 0, uiless)) && caret() == 5 &&
+                    session.view().at("candidates").back().at("highlighted") == true &&
+                    session.view().at("page").get<size_t>() + 1 == session.view().at("page_count").get<size_t>(),
+                "End did not jump to the last candidate");
+        require(replied(press(0x24, 0, uiless)) && highlighted(0) && session.view().at("page") == 0 && caret() == 5,
+                "Home after End did not return to the first candidate");
+        send(0x28, 0, ReplyPath::NextCandidate, uiless);
+        require(replied(press(0x25, 1, uiless)) && caret() == 2,
+                "Shift+Left off the first candidate did not move one syllable");
+        require(replied(press(0x25, 2, uiless)) && caret() == 0, "Ctrl+Left did not move one syllable");
+        require(replied(press(0x27, 1, uiless)) && replied(press(0x27, 1, uiless)) && caret() == 5 &&
+                    session.view().at("editing_text") == "nihao",
+                "Shift+Right did not bring the caret back to the end");
+        // 下一轮从首选开始；光标已在末尾，Home 这时只回到首选。
+        if (!highlighted(0))
+          press(0x24, 0, uiless);
       }
       bool found = false;
       size_t slot = 0;

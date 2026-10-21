@@ -9,5 +9,6 @@ use msime_client_core::{endpoint, preferences, resources, translation};
 pub mod ai;
 pub mod credential;
 pub mod dictionary_updates;
+pub mod proxy;
 pub mod resource_packs;
 pub mod voice;

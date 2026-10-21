@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { subscribeToInterval } from "../core/use-interval";
 import { useAsyncGeneration } from "../settings/use-async-generation";
@@ -48,11 +48,14 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
     isCurrent,
   } = usePanelAction(setNotice, cloudDictionaryErrorMessage);
   const lifecycleRevision = useAsyncGeneration(client);
+  const statusRead = useRef<number | null>(null);
 
   async function refreshStatus() {
-    if (busyRef.current) return;
+    if (busyRef.current || statusRead.current !== null) return;
     const lifecycle = lifecycleRevision.current;
     const revision = ++statusRevision.current;
+    // 读取可能比轮询间隔慢，等待它结束，避免每次 tick 都作废即将到达的回答。
+    statusRead.current = revision;
     try {
       const result = await client.request({ operation: "snapshot_status" });
       if (lifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
@@ -67,6 +70,8 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
     } catch {
       if (lifecycle === lifecycleRevision.current && isCurrent(revision))
         setNotice("无法读取本机词库状态，请确认键盘已启用");
+    } finally {
+      if (statusRead.current === revision) statusRead.current = null;
     }
   }
 
@@ -139,6 +144,7 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
 
   useEffect(() => {
     invalidate();
+    statusRead.current = null;
     setPreview(null);
     setPreviewToken(null);
     void refreshStatus();
@@ -147,6 +153,7 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
     }, 2000);
     return () => {
       invalidate();
+      statusRead.current = null;
       stopPoll();
     };
   }, [client, invalidate]);

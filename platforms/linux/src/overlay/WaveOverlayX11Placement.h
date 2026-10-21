@@ -208,8 +208,10 @@ inline double x11_overlay_scale(Display *display) {
 }
 
 // The monitor an overlay belongs on: the one holding the focused window's centre, else the one under the pointer, else the primary, with its work area. Without RandR 1.5 the whole EWMH work area, or the root window, stands in for the monitor, which keeps its multi-head negative coordinates.
+// 给了 anchor（例如模式徽章的光标中心）时，用它代替焦点窗口的中心去挑显示器。
 inline WaveOverlayMonitor x11_overlay_monitor(Display *display,
-                                              bool randr_monitors) {
+                                              bool randr_monitors,
+                                              std::optional<WaveOverlayPosition> anchor = std::nullopt) {
   const auto screen = DefaultScreen(display);
   const auto root = RootWindow(display, screen);
   const auto work_areas = x11_placement::desktop_work_areas(display, root);
@@ -239,7 +241,7 @@ inline WaveOverlayMonitor x11_overlay_monitor(Display *display,
   std::optional<WaveOverlayPosition> pointer;
   // A single monitor needs no focus or pointer round-trips. With several, the pointer is read even when there is an active window, because that window's centre can lie outside every monitor (dragged partly off-screen, or in the dead zone beside a shorter monitor) and the pick then falls through to the pointer.
   if (monitors.size() > 1) {
-    focus = x11_placement::active_window_center(display, root);
+    focus = anchor ? anchor : x11_placement::active_window_center(display, root);
     pointer = x11_placement::pointer_position(display, root);
   }
   if (const auto index =

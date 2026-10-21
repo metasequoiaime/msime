@@ -12,9 +12,11 @@ Status: implemented
 
 ## Decision
 
-`render` 在重画候选条和展开面板之前递归检查候选视图树里有没有按下的视图（`candidateTreeHeld`，逐个子视图 `isPressed()`）。有的话这一帧整体跳过，并置 `candidateRenderDeferred`；所有候选按钮和展开面板动作按钮共用服务里的触摸监听（返回 `false`，不影响点击、长按和滚动取消），在 `ACTION_UP` / `ACTION_CANCEL` 时看到这个标记就补一次 `render`，画面只晚这一下按压。顶部候选条、完整候选网格和全拼九键三栏面板都走同一条保护路径。
+`render` 在重画候选条和展开面板之前递归检查候选视图树里有没有尚未结束的触摸或排队点击（`candidateTreeHeld`）。所有候选按钮和展开面板动作按钮共用服务里的触摸监听，以弱引用映射记录 `ACTION_DOWN` 的独立标记，在 `ACTION_UP` / `ACTION_CANCEL` 后排队清除；监听返回 `false`，不影响点击、长按和滚动取消。有触摸时这一帧整体跳过，并置 `candidateRenderDeferred`，手势和点击结束后补一次 `render`。顶部候选条、完整候选网格和全拼九键三栏面板都走同一条保护路径。
 
-跳过的是整个候选区那一帧的收尾（页码、展开键、`applySkin`、`styleTopRow`），由松开后补的那次 render 一起补上；标记也在每次正常重画开头清掉，所以触摸被窗口带走、监听没等到抬起时不会一直卡住。
+触摸保护不能使用 `View.isPressed()`：Android 在抬起后先排队点击，再清除按压外观，点击回调调用 `apply` 时按钮仍可能是 pressed。若把它误认成未结束的触摸，就会推迟选词后的收起，而唯一的抬起通知已过去，展开页一直留下来。触摸监听先排一层队，再把保护释放和重画排到点击后面，既避免在点击执行前摘掉按钮，也能补上点击中新产生的延后绘制。独立标记保证旧手势的排队释放不会清掉同一按钮上已经开始的新手势。
+
+跳过的是整个候选区那一帧的收尾（页码、展开键、`applySkin`、`styleTopRow`），由松开后补的那次 render 一起补上；延后绘制标记在正常重画开头清掉。手势被滚动或窗口打断时，`ACTION_CANCEL` 与正常抬起共用释放和补帧路径。
 
 字母键滑动符号的判定和三平台默认值都不改。iOS 的 `SwipeHintPolicy.threshold` 与 Android 的 `SwipeHintPolicy.THRESHOLD_DP` 同为 14、默认都是开着、方向都是向下，这条规则本身没有 Android 独有的偏差；把默认值改成关闭会破坏 iOS、鸿蒙注释里写明的三平台一致，用户要关可以在设置里自己关。
 
@@ -32,3 +34,9 @@ Status: implemented
 - **收益**：候选条和展开候选面板上的按压不再被 render 打断，点击不再随机丢失；候选内容最多晚一帧更新，用户看不出来。
 - **代价**：按下候选的那一小段时间里，候选区和工具栏的收尾绘制推迟到松手之后。若这次按压以滚动取消结束，期间到达的新候选会在下一次 render 时出现，不会漏内容。
 - **验证**：`check-host.sh` 的 `AndroidLocalSettingsSmoke` 与候选相关 JVM 冒烟；顶部、完整候选网格和九键三栏按下期间的重画路径要真机或模拟器才碰得到，按 `platforms/android/tests/device` 的 `smoke.sh` 在 API 35 上验收。
+
+## Verification
+
+2026-10-21 在 API 28 专用模拟器确认选词后停在展开页的回归：`CandidatePanelDeviceSmoke` 改为通过真实触摸选择第十个候选，再直接触摸字母键继续输入。旧包选词成功上屏，但后续输入断言失败，截图仍显示原展开列表。修复包通过同一回归，无需隐藏、重新打开输入法。`NineKeyPanelDeviceSmoke` 继续覆盖拼音锁定、退格、筛选和重输，并新增真实触摸选词后收起三栏面板、直接按九键继续输入的检查，也通过。
+
+验证包重新编译当前 Java 和资源，复用模拟器原安装包的原生库及词库；没有重新构建 Rust/原生库，没有在 API 35 或真机重复本轮验收。`check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease`、远端 `scripts/verify-local.sh --quick`、本地 `pnpm run verify-notes` 和 `git diff --check` 通过。

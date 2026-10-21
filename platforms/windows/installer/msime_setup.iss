@@ -98,7 +98,7 @@ Source: "{#MySourceRoot}\LICENSE.txt"; \
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
 ; 64 位 TIP（Windows on Arm 上是 Arm64X 那一份）连同它从同目录加载的宿主 DLL 和运行时 DLL 装进 System32\IME\<install_dir>\<版本目录>，不装进 Program Files：CS2 的 Trusted Mode 拒绝加载系统目录以外的外来 DLL，只放行系统目录里带有效 Authenticode 签名的模块，装在 Program Files 时水杉在 CS2 里根本进不去（见 .agents/notes/implemented/feature/2026-10-08-windows-cs2-trusted-mode-system32-deployment.md）。用自己的子目录而不是直接放在 System32 下：各版本的 TIP 同名，运行时 DLL 也是 vcpkg 的通用名字，放在一起会互相覆盖，也会和别的软件撞名。CS2 只有 64 位，32 位 TIP 留在 Program Files。被占用的系统副本在卸载时排到重启后删除（uninsrestartdelete），所以 GetVersionDir 也要避开系统目录里已有的版本目录。
-; PDB 不随安装包分发：Collect-Symbols.ps1（release-windows.yml 和 Package-SimplySign.ps1 都调用它）把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip 发布，分析崩溃时让调试器指向解压出的目录。
+; PDB 不随安装包分发：Collect-Symbols.ps1（release-windows.yml 和 Package-SimplySign.ps1 都调用它）把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip，发布在滚动的 windows-symbols release 上，分析崩溃时让调试器指向解压出的目录。
 ; Install Host API and ordinary dependencies before registering the TIP.
 Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \

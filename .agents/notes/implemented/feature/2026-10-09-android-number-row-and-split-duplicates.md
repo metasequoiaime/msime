@@ -52,3 +52,7 @@ Android 的字母层只有 `KeyboardLayout` 的三行字母，`ImeLetterRows.reb
 
 - `ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh`：`KeyboardLayoutSmoke`（数字行内容、只在 26 键和韩文的字母层画、关着时不画、手机横屏的窗口高度不画、窗口高度未知时照画）、`SplitKeyboardPolicySmoke`（哪几行重复、扣掉一个键宽后的空隙份额与整行总份额、第二三行两段等宽、重复的是字母不是缩进或 ⇧、微软双拼十键行和韩文九键行）、`DeclinedKeyPolicySmoke`（组字中被拒的数字先结束组合，字母不算）、`AndroidLocalSettingsSmoke`（数字行默认关、不同步）、`SettingsSearchIndexSmoke`（「数字行」进了键盘页的搜索关键词）。
 - Gradle `compileFullReleaseJavaWithJavac` 编译 `ImeLetterRows`、`KeyboardOptionsPage` 的改动。
+
+## 上下文自动开启
+
+[密码与 SSH 工具自动数字行](../../implemented/feature/2026-10-21-issue-8972-automatic-number-row.md) 补充临时开启状态，与手动开关取或；本篇的键面、高度和数字输入规则继续适用。

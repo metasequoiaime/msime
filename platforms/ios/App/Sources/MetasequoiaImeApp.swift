@@ -295,13 +295,17 @@ private struct MainTabView: View {
     .environmentObject(navigation)
     .environmentObject(router)
     .tint(MetasequoiaTheme.accent)
-    // 键盘发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）：settings[/页面]、feedback、about、voice。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘面板点过来的,落点应该是对应的页面；认不出的链接落在设置。
+    // 键盘发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）：settings[/页面]、feedback、about、voice、voice-session。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘面板点过来的,落点应该是对应的页面；认不出的链接落在设置。
     .onOpenURL { url in
       #if canImport(GoogleSignIn)
       // Google 登录的回调（scheme 是倒序的 iOS client ID）交还给 GoogleSignIn；它不认的链接返回 false。
       if GIDSignIn.sharedInstance.handle(url) { return }
       #endif
       guard url.scheme == MSIMEAppEdition.urlScheme else { return }
+      if url.host == "voice-session" {
+        openVoiceSession()
+        return
+      }
       // 链接指名了设置页时先把设置栈重建回根页面：切走标签页时那条栈原样保留，同一页面已经开着时写入相同的值不会触发导航，用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。
       if SettingsRouter.settingsPage(in: url) != nil {
         navigation.settingsRoot = UUID()
@@ -317,6 +321,24 @@ private struct MainTabView: View {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
           }
       }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+    }
+    // 全屏而不是 sheet：左上角要留给指向系统「◀︎ 返回」的气泡，页面自己带「完成」。
+    .fullScreenCover(isPresented: $navigation.opensVoiceSession) { VoiceSessionView() }
+  }
+
+  /// 键盘长按空格时还没有语音会话。从别的应用跳过来时盖上语音会话页，告诉用户回去说话；用户正在水杉 App 自己的输入框里打字时（App 本来就在前台）不用离开，也不切标签页，直接开好会话，只有失败时才盖上页面说明原因。
+  private func openVoiceSession() {
+    guard UIApplication.shared.applicationState == .active else {
+      navigation.opensVoiceSession = true
+      return
+    }
+    Task { @MainActor in
+      await VoiceSessionService.shared.activate()
+      if VoiceSessionService.shared.status == .ready {
+        ToastCenter.shared.show("语音已开启，按住空格说话")
+      } else {
+        navigation.opensVoiceSession = true
+      }
     }
   }
 

@@ -68,7 +68,11 @@ import {
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
-import { StatisticsMetric, statisticsOverviewMetrics } from "./typing-statistics-overview";
+import {
+  StatisticsMetric,
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+} from "./typing-statistics-overview";
 export {
   addDays,
   currentStreak,
@@ -1600,6 +1604,10 @@ export function TypingStatisticsPage({
             <StatisticsMetric key={metric.ariaLabel} metric={metric} />
           ))}
         </div>
+        {/* Windows 的概览在六格下面并排画「日均…」和「最多…·最快…」两行；共享页把日均放进了「累计输入」的说明，最好成绩这行一直没画。这里按 Windows 的措辞补上，靠右对齐。 */}
+        <p className="mt-3.5 mb-0 text-right text-[11px] leading-relaxed [color:var(--p-sub)]">
+          {statisticsOverviewDetails(activity).best}
+        </p>
         <p className="mt-4 mb-0 border-t border-edge pt-3 text-[11px] leading-relaxed [color:var(--p-sub)]">
           {activity.hasActivity
             ? "速度统计汉字与字母；两次上屏间隔超过 10 秒视为休息，不计入活跃时长。"

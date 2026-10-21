@@ -18,6 +18,8 @@ add_test(NAME voice-provider-socket COMMAND voice-provider-socket-test)
 add_executable(input-mode-hud-panel-test tests/input/InputModeHUDPanelTest.mm src/input/InputModeHUDPanel.mm)
 target_compile_options(input-mode-hud-panel-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(input-mode-hud-panel-test PRIVATE "-framework AppKit")
+# InputModeHUDPanel.mm 经 CandidatePlacement.h 引入 shared/candidate（嵌套命名空间、std::optional），这个目标定义在下面统一设置 C++17 之前，所以单独指定。
+set_target_properties(input-mode-hud-panel-test PROPERTIES OBJCXX_STANDARD 17)
 add_test(NAME input-mode-hud-panel COMMAND input-mode-hud-panel-test)
 # The selected input mode (中, 英, 日 or 한) follows the controller's state; this checks the mapping to the plist's mode identifiers and that a switch made by either side is not echoed back by the other.
 add_executable(input-mode-identifiers-test tests/input/InputModeIdentifiersTest.mm)
@@ -90,7 +92,8 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # drawn as two clauses, and NSUnderlineStyle* and the marked clause attribute live there. The iOS
 # build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
 # CoreAudio and AudioToolbox for host-api's microphone capture (cpal), which every consumer of the archive links whether or not it records.
-set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox")
+# reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
+set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
@@ -451,7 +454,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-stor
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
     ${MSIME_BACKEND_RUST_STORE_SOURCES} "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++
-    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit
+    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
     -o "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
   DEPENDS ${MSIME_BACKEND_RUST_STORE_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/MSIMERustClient.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/module.modulemap" "${MSIME_HOST_LIBRARY}" VERBATIM)
@@ -525,7 +528,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
-    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit
+    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
     -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   DEPENDS ${MSIME_EMOJI_SWIFT_HOST_SOURCES} apple-client "${MSIME_HOST_LIBRARY}" VERBATIM)
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
@@ -779,6 +782,16 @@ add_executable(local-mode-preferences-test tests/settings/LocalModePreferencesTe
 target_compile_options(local-mode-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-mode-preferences-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME local-mode-preferences COMMAND local-mode-preferences-test)
+# 候选窗外观的出厂回退值（只读 getter，不建窗口）。回退漂移过一次 `Segoe UI`／字号 16。
+add_executable(candidate-appearance-defaults-test tests/settings/CandidateAppearanceDefaultsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
+target_compile_options(candidate-appearance-defaults-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-appearance-defaults-test PRIVATE apple-client "-framework AppKit")
+add_test(NAME candidate-appearance-defaults COMMAND candidate-appearance-defaults-test)
+# 语音按住录音组合键的出厂回退值（只读 getter，不建窗口）。`hotkey_ralt` 与共享默认漂移过。
+add_executable(voice-hold-defaults-test tests/settings/VoiceHoldDefaultsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
+target_compile_options(voice-hold-defaults-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-hold-defaults-test PRIVATE apple-client "-framework AppKit")
+add_test(NAME voice-hold-defaults COMMAND voice-hold-defaults-test)
 add_executable(skin-package-replace-test tests/candidate/SkinPackageReplaceTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
 target_compile_options(skin-package-replace-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(skin-package-replace-test PRIVATE apple-client "-framework AppKit")
@@ -1110,10 +1123,10 @@ target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werro
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
 add_executable(skin-settings-test tests/candidate/SkinSettingsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm src/core/ChineseTextConversion.mm)
-foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
+foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test candidate-appearance-defaults-test voice-hold-defaults-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${translation_settings_consumer} PRIVATE src/cloud/TranslationSettingsWindow.mm)
 endforeach()
-foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
+foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test candidate-appearance-defaults-test voice-hold-defaults-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${ai_settings_consumer} PRIVATE src/core/AISettingsWindow.mm)
 endforeach()
 foreach(translation_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test skin-preview-test skin-settings-test)
@@ -1328,6 +1341,16 @@ foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
   endif()
   target_sources(${msime_target} PRIVATE src/candidate/CandidateCanvas.mm)
   target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore" "-framework ImageIO")
+endforeach()
+
+# 编译悬浮工具栏的所有目标都需要图片画布与共享解码桥。
+get_property(MSIME_TOOLBAR_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_TOOLBAR_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(msime_target_sources AND "src/core/FloatingToolbarPanel.mm" IN_LIST msime_target_sources)
+    target_sources(${msime_target} PRIVATE src/core/ToolbarImageCanvas.mm)
+    target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore")
+  endif()
 endforeach()
 
 # VoiceInputService.mm passes the system recogniser's text through shared/voice's tidy_local_transcript, so every target compiling it links the library that defines it. Found by source rather than listed, for the same reason as the loops above.

@@ -17,7 +17,7 @@ Status: implemented
 - **PNG 尺寸集中解析**：`fcitx_png_size(bytes)`（`CandidateFcitxTheme.h`）校验 8 字节签名、偏移 12 的 `IHDR`、宽高各在 `1..kFcitxOverlayMaxSide`（=2048，对应共享层 `skin::catalog::MAX_IMAGE_SIDE`）；`fcitx_png_width`/`fcitx_png_height` 是它的薄包装。超限即返回 `nullopt`，因此声明超限的图根本不进 cairo，不会为小文件分配巨量像素。
 - **可用高度缩放**：`FcitxOverlayScaler` 从 `(png, width)` 扩为 `(png, width, room)`；`scale_fcitx_overlay_png` 先按 `width` 求比例，再与 `room / source_height` 取小（`room <= 0` 不限制高度）。`stage_fcitx_overlay` 用 `room = ceil(top_dip) + padding`，@2x 传 `2 * room`，因此 @2x 正好是 1x 的两倍。几何依据：`OverlayClipMargin.Top = shadow_top`、`OverlayOffsetY = shadow_top + pad - height`，整图可见即 `height <= band + pad`。
 - **共享内边距**：`fcitx_card_padding(colors) = max(1, border ? max(0, border_width) : 0) + FcitxPanelGeometry::padding`，放置（`content_left`/`logo_top`/`OverlayOffsetY`/`OverlayOffsetX`）与缩放可用高度共用同一个值。
-- **九宫格容下整条描边**：`edge = max(radius, border_width)`，`slice_left/right/top/bottom` 由它决定（左上切片在有关标志时仍取标志边界）。直角卡片拉伸中心只剩填充色。
+- **九宫格容下整条描边**：`edge = max(radius, border_width)`，`slice_left/right/top/bottom` 由它决定（左上切片含标志后的安全带，左上对齐见[切片与定制](2026-10-21-fcitx-theme-slice-customization.md)）。直角卡片拉伸中心只剩填充色。
 - **回退**：非 PNG、读不出尺寸、声明尺寸超限、1x 或 2x 任一缩放失败都退回原图，装饰不丢；退回的图读得出高度时按底边定位，读不出时从带顶按原尺寸画。
 
 ## Alternatives considered

@@ -3,7 +3,7 @@
     把本次构建的调试符号打成 msime-windows-<edition>-<version>-symbols.zip。
 
 .DESCRIPTION
-    安装包不带 PDB（msime_setup.iss），用户机器上的崩溃转储只能用同一次构建的符号解析，所以符号作为单独的发布资产随安装包发布。release-windows.yml 和 Package-SimplySign.ps1 都调用这里，两边的文件名和目录布局因此一致。
+    安装包不带 PDB（msime_setup.iss），用户机器上的崩溃转储只能用同一次构建的符号解析，所以符号打成单独的符号包，长期保留在滚动的 windows-symbols release 上（release-windows.yml 经 platforms/windows/scripts/publish-symbols.sh 上传），不放在版本发布页上。release-windows.yml 和 Package-SimplySign.ps1 都调用这里，两边的文件名和目录布局因此一致。
     Server、设置、MCP 和 TSF 的 PDB 取自 Prepare-PackageFiles.ps1 的暂存目录（它拒绝没有 PDB 的 Server 可执行文件）；宿主 DLL 的 PDB 不进暂存目录，取自 Build-Client.ps1 在拿走宿主 DLL 的那一刻复制到各架构 bin 目录里的那一份，因为同一 target 目录里后续的 cargo 构建可能重建 host-api、覆盖 cargo 输出里的 PDB。各架构的 PDB 同名，所以分放在不同文件夹。
 #>
 [CmdletBinding()]

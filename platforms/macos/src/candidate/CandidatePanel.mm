@@ -68,12 +68,19 @@
         [self removeTrackingArea:area];
     [self addTrackingArea:[[NSTrackingArea alloc]
                               initWithRect:NSZeroRect
-                                   options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
+                                   options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways |
                                            NSTrackingInVisibleRect
                                      owner:self
                                   userInfo:nil]];
+    self.candidateHovered = NO;
+    self.needsDisplay = YES;
 }
 - (void)mouseEntered:(NSEvent *)event
+{
+    // 跟产品按钮一致，窗口出现或跟踪区域改变不激活悬停。
+    [self mouseExited:event];
+}
+- (void)mouseMoved:(NSEvent *)event
 {
     (void)event;
     self.candidateHovered = YES;

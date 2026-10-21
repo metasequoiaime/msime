@@ -1,10 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cctype>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -75,8 +78,26 @@ inline std::string trimmed_font_family(const std::string &value) {
 // 像素字号因此被当成同样数值的磅，序号比候选大三分之一。5.1.22 起它在 X11 上按 DPI 整窗缩放、字体 DPI 固定
 // 为 96，Wayland 上除非用户设了 ForceWaylandDPI 也是 96，像素乘 3/4 就是同样大小的磅。5.1.18 到 5.1.21 的
 // X11 把 Xft.dpi（没有时取不低于 96 的屏幕 DPI）作为字体 DPI，磅数随它放大，大小与 5.1.22 起整窗缩放后的
-// 相同。更早的版本序号与候选用同一个描述，本来就一样大，照写像素（见 CMakeLists 的 MSIME_FCITX5_LABEL_POINTS）。
+// 相同。更早的版本序号与候选用同一个描述，本来就一样大，照写像素；单位按实际运行版本选择，不能用开发库版本。
 enum class CandidateFontUnit { Pixels, Points };
+
+// 动态链接允许旧开发库构建的插件运行在新 Fcitx5 上；前三段数字决定实际 classicui 的字号规则。
+inline CandidateFontUnit fcitx_candidate_font_unit(std::string_view runtime_version) {
+  if (runtime_version.empty()) return CandidateFontUnit::Pixels;
+  std::array<unsigned, 3> version{};
+  const char *cursor = runtime_version.data();
+  const char *end = cursor + runtime_version.size();
+  for (std::size_t index = 0; index < version.size(); ++index) {
+    const auto parsed = std::from_chars(cursor, end, version[index]);
+    if (parsed.ec != std::errc{}) return CandidateFontUnit::Pixels;
+    cursor = parsed.ptr;
+    if (index + 1 < version.size()) {
+      if (cursor == end || *cursor != '.') return CandidateFontUnit::Pixels;
+      ++cursor;
+    }
+  }
+  return version >= std::array<unsigned, 3>{5, 1, 18} ? CandidateFontUnit::Points : CandidateFontUnit::Pixels;
+}
 
 // 像素换成磅是乘 3/4，偏好的字号是整数，所以磅数总是 0.25 的整数倍，照原样写出，不经浮点格式化。
 inline std::string candidate_font_size_text(int size_px, CandidateFontUnit unit) {

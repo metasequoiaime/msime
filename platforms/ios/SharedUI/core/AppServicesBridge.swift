@@ -58,6 +58,15 @@ enum AppServicesBridge {
     }
     if voice {
       // multipart 接口的文字在 `text`，chat_audio 接口的在 `choices[0].message.content`。
+      // 明确失败约束整条回复，文字别名不能绕过聊天候选的完成状态。
+      if let error = object["error"], !(error is NSNull) {
+        throw ServiceFailure(message: "服务未返回可用文字。")
+      }
+      if let first = (object["choices"] as? [[String: Any]])?.first,
+         let reason = first["finish_reason"] as? String,
+         reason == "length" || reason == "content_filter" {
+        throw ServiceFailure(message: "服务未返回可用文字。")
+      }
       let chat = ((object["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"]
       guard let text = (object["text"] ?? chat) as? String,
             text.count <= maximumVoiceTextCharacters else {

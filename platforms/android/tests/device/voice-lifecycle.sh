@@ -64,6 +64,7 @@ run_case() {
   printf '%s\n' "$result"
   [[ "$result" == *"MSIME_VOICE_LIFECYCLE_PASSED: $scenario"* ]]
 }
+run_case result
 run_case ready-error
 run_case stop-before-resume
 if (( api < 31 )); then

@@ -288,9 +288,14 @@ def request_body(pcm, config, language):
 
 def transcript(result):
     """回答里的文字：multipart 接口在 `text` 等字段，chat_audio 接口在 `choices[0].message.content`。"""
+    choices = result.get("choices")
+    choice = choices[0] if isinstance(choices, list) and choices else None
+    # 明确失败约束整个回复，文字别名不能绕过聊天候选的完成状态。
+    if (result.get("error") is not None or
+            (isinstance(choice, dict) and choice.get("finish_reason") in ("length", "content_filter"))):
+        raise VoiceRequestError()
     text = result.get("text") or result.get("transcription") or (result.get("result") or {}).get("text")
-    if text is None and isinstance(result.get("choices"), list) and result["choices"]:
-        choice = result["choices"][0]
+    if text is None:
         message = choice.get("message") if isinstance(choice, dict) else None
         text = message.get("content") if isinstance(message, dict) else None
     return bounded_text(text)

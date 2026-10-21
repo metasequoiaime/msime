@@ -384,6 +384,51 @@ int main() {
         UpdateWindow(overlay.handle());
         require(IsWindowVisible(overlay.handle()));
       }
+      // The setters post to the overlay's window; handle what they queued before looking at the window.
+      const auto pump = [&] {
+        MSG queued{};
+        for (size_t i = 0; i < 64 && PeekMessageW(&queued, overlay.handle(), 0, 0, PM_REMOVE); ++i) {
+          TranslateMessage(&queued);
+          DispatchMessageW(&queued);
+        }
+      };
+      const auto click_through = [&] {
+        return (GetWindowLongPtrW(overlay.handle(), GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
+      };
+      const auto bounds = [&] {
+        RECT rect{};
+        require(GetWindowRect(overlay.handle(), &rect));
+        return rect;
+      };
+      // Only the round cancel and confirm actions take the pointer; every other state lets clicks through to the window below.
+      require(click_through());
+      overlay.set_actions_visible(true);
+      pump();
+      require(!click_through());
+      overlay.set_actions_visible(false);
+      pump();
+      require(click_through());
+      // A failure without a detail is a pill, one with a detail the taller transcript card, and a headline wider than the card widens it.
+      overlay.set_failure(L"Synthetic failure", L"");
+      pump();
+      const RECT pill = bounds();
+      require(click_through());
+      overlay.set_failure(L"Synthetic failure", L"Synthetic provider detail");
+      pump();
+      const RECT card = bounds();
+      require(card.bottom - card.top > pill.bottom - pill.top);
+      require(card.right - card.left > pill.right - pill.left);
+      overlay.set_failure(L"A synthetic failure headline that is clearly wider than the four hundred and twenty point card",
+                          L"Synthetic provider detail");
+      pump();
+      const RECT wide = bounds();
+      require(wide.right - wide.left > card.right - card.left);
+      require(wide.bottom - wide.top == card.bottom - card.top);
+      // Clearing the failure returns the overlay to the compact wave, narrower than the pill.
+      overlay.set_failure(L"", L"");
+      pump();
+      const RECT compact = bounds();
+      require(compact.right - compact.left < pill.right - pill.left);
     }
     {
       CandidateFlyoutWindow flyout([](const CandidateMenuChoice &) {});

@@ -2,7 +2,7 @@
 set -eu
 
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: msime-linux-settings [--panel settings|about|help|feedback|dictionary|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
+  echo "Usage: msime-linux-settings [--panel settings|account|about|help|feedback|dictionary|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
   echo "       msime-linux-settings --sync-omarchy-theme   (write the Omarchy candidate skin from the current Omarchy theme, without opening a window)"
   exit 0
 fi
@@ -10,7 +10,7 @@ fi
 route=
 if [ "${1:-}" = "--panel" ]; then
   case "${2:-}" in
-    about|help|feedback|dictionary) route=settings:$2 ;;
+    account|about|help|feedback|dictionary) route=settings:$2 ;;
     settings|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard) route=$2 ;;
     *) echo "MSIME panel name is missing or unsupported" >&2; exit 2 ;;
   esac
