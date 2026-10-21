@@ -514,6 +514,13 @@ try {
                         if (Find-ByName $content $name) { throw "Toolbar page still offers $name apart" }
                     }
                 }
+                if ($page -eq 'plugins') {
+                    # 「我的插件」照 macOS 的插件库：两张快捷卡片、搜索框和底部折叠的导入说明，导入按钮在「已安装」标题旁，不再有「导入插件」组的「从文件导入」一行。
+                    foreach ($name in @('声音与效果', '@ 名单', '搜索已安装插件', '导入文件夹', '插件导入说明')) {
+                        if (-not (Find-ByName $content $name)) { throw "Plugin library is missing $name" }
+                    }
+                    if (Find-ByName $content '从文件导入') { throw 'Plugin page still has the old import row' }
+                }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
                 if ($page -eq 'clip') {

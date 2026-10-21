@@ -4,13 +4,14 @@
 #include <charconv>
 #include <cstddef>
 #include <cwchar>
+#include <cwctype>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
 #include <vector>
 
-// 「插件」页「我的插件」的规则和文案，照共享设置在 Windows 上的样子逐条移植：`plugin-preferences.ts`（选用和删除后的偏好）、`plugin-catalog-helpers.ts`（类型名、标记、缺失的选择、出错说明）、`plugin-list-view.tsx` 的行说明、`plugin-sound-effects-view.tsx` 的包名、`plugin-detail-view.tsx` 的按钮与说明，`plugin-mentions-view.tsx` 的名单校验，以及 `plugin-script-view.tsx` 的脚本插件授权页。Windows 宿主的能力（`host_surface.rs`）全部为真：播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集；特效不是只闪光的那种（那是 HarmonyOS）。只有辅助码随版本：调用方传入。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「插件」页「我的插件」的规则和文案，照共享设置在 Windows 上的样子逐条移植：`plugin-preferences.ts`（选用和删除后的偏好）、`plugin-catalog-helpers.ts`（类型名、标记、缺失的选择、出错说明）、`plugin-library-view.tsx`（macOS 的插件库）的卡片说明、搜索与类型筛选、`plugin-sound-effects-view.tsx` 的包名、`plugin-detail-view.tsx` 的按钮与说明，`plugin-mentions-view.tsx` 的名单校验，以及 `plugin-script-view.tsx` 的脚本插件授权页。Windows 宿主的能力（`host_surface.rs`）全部为真：播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集；特效不是只闪光的那种（那是 HarmonyOS）。只有辅助码随版本：调用方传入。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::plugins {
 
 // ---- 包 ----
@@ -413,15 +414,14 @@ inline std::wstring pack_marker(Package const &pack, Preferences const &preferen
   return {};
 }
 
-// 列表里一个包的说明：内置包只留能把它们区分开的内容，其余是版本、旋律和作者，用「 · 」连起来。
+// 插件库卡片上一个包的元信息（macOS 的 `PluginLibraryView` 卡片说明）：内置包写「内置」，其余写版本，再接「按键旋律」和非内置包的作者，用「 · 」连起来，空的项略去。脚本插件也用这一句。
 inline std::wstring pack_row_description(Package const &pack) {
   std::vector<std::wstring> parts;
-  if (!pack.builtin)
-    parts.push_back(pack.version);
+  parts.push_back(pack.builtin ? std::wstring(L"内置") : pack.version);
   if (pack.kind == L"sound" && pack.mode == L"sequence")
     parts.push_back(L"按键旋律");
-  if (!pack.builtin && !pack.author.empty())
-    parts.push_back(L"作者 " + pack.author);
+  if (!pack.builtin)
+    parts.push_back(pack.author);
   std::wstring description;
   for (auto const &part : parts) {
     if (part.empty())
@@ -718,7 +718,7 @@ inline std::wstring imported_notice(Package const &pack) {
 
 // ---- 脚本插件（实验） ----
 
-// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-view.tsx` 和 `plugin-list-view.tsx` 的脚本分组移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
+// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-view.tsx` 和 `plugin-library-view.tsx` 的「脚本插件（实验）」节移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
 
 // 脚本插件的能力，按 `msime_script_runtime::Capability::ALL` 的顺序（`SCRIPT_CAPABILITIES`）。
 inline constexpr std::array<std::wstring_view, 8> script_capabilities{
@@ -979,7 +979,7 @@ inline std::wstring script_marker(Package const &pack, ScriptGrants const *grant
                       : L"已启用 · 第 " + std::to_wstring(position + 1) + L" 位";
 }
 
-// 列表里一个脚本插件的说明：版本和作者，用「 · 」连起来。
+// 一个脚本插件的说明：版本和作者，用「 · 」连起来。设置页的插件库卡片改用 pack_row_description，不再调用这个函数；它留在这里，由单测覆盖。
 inline std::wstring script_row_description(Package const &pack) {
   std::vector<std::wstring> parts;
   if (!pack.version.empty())
@@ -1043,7 +1043,7 @@ inline std::wstring script_group_note() {
          std::wstring(script_residual_risk);
 }
 
-// 「导入插件」一行的说明：有脚本插件分组时说清两种插件的区别。
+// 插件库底部折叠的「插件导入说明」：Windows 运行脚本插件，所以说清两种插件的区别。
 inline constexpr std::wstring_view import_description =
     L"数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证";
 
@@ -1254,6 +1254,118 @@ inline std::wstring mentions_description(bool dirty, std::size_t saved, bool sch
     return L"有未保存的修改";
   const std::wstring gap = !scheme_opens ? L"；当前方案打不开 @ 模式" : mention_mode ? L"" : L"；@ 模式未开";
   return std::to_wstring(saved) + L" 条，只保存在本机" + gap;
+}
+
+// ---- 插件库 ----
+
+// 「我的插件」照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：已安装计数、搜索、带计数的类型筛选和按类型分节的卡片。Windows 宿主路由 / 指令（`triggers` 为真）也运行脚本插件，所以指令表一类总在，脚本插件排在最后。
+
+// 插件库给类型排的顺序：`kindOrder` 后面接脚本插件。
+inline constexpr std::array<std::wstring_view, 9> library_kind_order{
+    L"sound", L"effect", L"music", L"command_table", L"phrase_table",
+    L"helpcode", L"wordbook", L"symbol_set", L"script"};
+
+// 筛选「全部」的值。
+inline constexpr std::wstring_view library_all = L"all";
+
+// 搜索框的查询：按 JavaScript 的 trim 去掉两头空白再转小写（`filter.query.trim().toLocaleLowerCase()`）；为空表示没在搜索。
+inline std::wstring library_query(std::wstring_view query) {
+  auto result = js_trim(query);
+  for (auto &c : result)
+    c = static_cast<wchar_t>(std::towlower(c));
+  return result;
+}
+
+inline bool library_text_has(std::wstring_view text, std::wstring const &query) {
+  return library_query(text).find(query) != std::wstring::npos;
+}
+
+// 一个已安装的包是否匹配查询：名称、id、作者、描述或类型名里含有它（`matches`）。`query` 是 `library_query` 的结果。
+inline bool library_matches(Package const &pack, std::wstring const &query) {
+  if (query.empty())
+    return true;
+  for (auto const *text : {&pack.name, &pack.id, &pack.author, &pack.description})
+    if (library_text_has(*text, query))
+      return true;
+  return library_text_has(kind_label(pack.kind), query);
+}
+
+// 缺失的选择是否匹配查询：标题加 id 里含有它。
+inline bool library_missing_matches(MissingSelection const &entry, std::wstring const &query) {
+  return query.empty() || library_text_has(missing_title(entry) + L" " + entry.id, query);
+}
+
+// 某一类已安装的包有几个；`kind` 为 `library_all` 时是全部已安装的包（筛选按钮上的计数，与查询无关）。
+inline std::size_t library_count(std::vector<Package> const &packages, std::wstring_view kind) {
+  if (kind == library_all)
+    return packages.size();
+  return static_cast<std::size_t>(std::count_if(packages.begin(), packages.end(),
+                                                [kind](Package const &pack) { return pack.kind == kind; }));
+}
+
+// 筛选按钮和分节用到的类型（`categories`）：有已安装的包或缺失的选择的类型，加上总在的指令表，按 `library_kind_order` 排。
+inline std::vector<std::wstring> library_categories(std::vector<Package> const &packages,
+                                                    std::vector<MissingSelection> const &missing) {
+  std::vector<std::wstring> categories;
+  for (auto const kind : library_kind_order) {
+    const bool present =
+        kind == L"command_table" ||
+        std::any_of(packages.begin(), packages.end(), [kind](Package const &pack) { return pack.kind == kind; }) ||
+        std::any_of(missing.begin(), missing.end(),
+                    [kind](MissingSelection const &entry) { return entry.kind == kind; });
+    if (present)
+      categories.emplace_back(kind);
+  }
+  return categories;
+}
+
+// 实际生效的筛选：选中的类型在目录变化后消失了就回到「全部」，不留下没有按钮可取消的筛选（`selectedKind`）。
+inline std::wstring library_selected_kind(std::wstring const &kind, std::vector<std::wstring> const &categories) {
+  return contains(categories, kind) ? kind : std::wstring(library_all);
+}
+
+struct LibraryGroup {
+  std::wstring kind;
+  std::vector<Package const *> packs;
+  std::vector<MissingSelection const *> gone;
+};
+
+// 按筛选和查询列出的分节（`groups`）：选中的类型或全部类型里，匹配查询的包和缺失的选择；空的分节略去，只有指令表在没在搜索时仍然列出（它带着 / 指令的说明）。
+inline std::vector<LibraryGroup> library_groups(std::vector<Package> const &packages,
+                                                std::vector<MissingSelection> const &missing,
+                                                std::vector<std::wstring> const &categories,
+                                                std::wstring const &selected, std::wstring const &query) {
+  std::vector<LibraryGroup> groups;
+  for (auto const &kind : categories) {
+    if (selected != library_all && selected != kind)
+      continue;
+    LibraryGroup group{kind, {}, {}};
+    for (auto const &pack : packages)
+      if (pack.kind == kind && library_matches(pack, query))
+        group.packs.push_back(&pack);
+    for (auto const &entry : missing)
+      if (entry.kind == kind && library_missing_matches(entry, query))
+        group.gone.push_back(&entry);
+    if (!group.packs.empty() || !group.gone.empty() || (kind == L"command_table" && query.empty()))
+      groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+// 分节标题：脚本插件写「脚本插件（实验）」，其余是类型名。
+inline std::wstring library_section_title(std::wstring_view kind) {
+  return kind == L"script" ? std::wstring(L"脚本插件（实验）") : kind_label(kind);
+}
+
+// 读到目录却没有可列的分节时的一句：在搜索时请用户换个关键词。
+inline std::wstring library_empty_message(std::wstring const &query) {
+  return query.empty() ? L"没有插件" : L"没有匹配的插件，试试其他关键词。";
+}
+
+// 指令表分节的说明（/ 指令怎么用、启用顺序和上限）。
+inline std::wstring command_table_note() {
+  return L"在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 " +
+         std::to_wstring(max_command_tables) + L" 个。";
 }
 
 } // namespace msime::settings::plugins

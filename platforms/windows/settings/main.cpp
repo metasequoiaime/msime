@@ -17375,7 +17375,7 @@ private:
     return color;
   }
 
-  // 标签行上方的六格和两行概况。
+  // 标签行上方的六格，照 macOS（`typing-statistics-overview.tsx` 的 `StatisticsMetric` 和 `typing-statistics.tsx` 的概览）：每格是 12 DIP 的标签、22 DIP 强调色的数字和单位，有附注时下面再隔 4 是一行 11 DIP 的次要色附注（单日最多、日均与记录天数、累计活跃、单日最快、最长连续）。网格下面没有单独的概况行，只有一条脚注：相隔 16 一条细线，线下 12 是 11 DIP 的次要色文字。
   void stats_overview(StackPanel const &page, typing::Statistics const &statistics,
                       std::string const &today, std::wstring const &scope_title, double scope_total,
                       typing::Activity const &activity) {
@@ -17406,31 +17406,24 @@ private:
         line.Children().Append(unit);
       }
       cell.Children().Append(line);
-      if (!metric.note.empty())
-        cell.Children().Append(make_text(metric.note, 12, palette_.sub));
+      if (!metric.note.empty()) {
+        auto note = make_text(metric.note, 11, palette_.sub);
+        note.Margin(Thickness{0, 4, 0, 0});
+        cell.Children().Append(note);
+      }
       grid.Children().Append(cell);
     }
     body.Children().Append(grid);
-    const auto details = typing::overview_details(activity);
-    Grid lines;
-    lines.Margin(Thickness{0, 7, 0, 0});
-    lines.ColumnSpacing(16);
-    for (int column = 0; column < 2; ++column) {
-      ColumnDefinition definition;
-      definition.Width(GridLength{1, GridUnitType::Star});
-      lines.ColumnDefinitions().Append(definition);
-    }
-    auto summary = make_text(details.summary, 12, palette_.faint);
-    lines.Children().Append(summary);
-    auto best = make_text(details.best, 12, palette_.faint);
-    best.TextAlignment(TextAlignment::Right);
-    Grid::SetColumn(best, 1);
-    lines.Children().Append(best);
-    body.Children().Append(lines);
-    body.Children().Append(stats_footer(
-        activity.has_activity
-            ? L"速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与字母，数字和标点不参与。"
-            : L"还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"));
+    Border footnote;
+    footnote.Margin(Thickness{0, 16, 0, 0});
+    footnote.Padding(Thickness{0, 12, 0, 0});
+    footnote.BorderBrush(brush(palette_.divider));
+    footnote.BorderThickness(Thickness{0, 1, 0, 0});
+    footnote.Child(make_text(activity.has_activity
+                                 ? L"速度统计汉字与字母；两次上屏间隔超过 10 秒视为休息，不计入活跃时长。"
+                                 : L"还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。",
+                             11, palette_.sub));
+    body.Children().Append(footnote);
   }
 
   // 「每日趋势」：近 30 天每天一根柱，点按选中那一天，虚线是有记录的日子的日均。
@@ -18421,7 +18414,7 @@ private:
 
   // ---- 插件 ----
 
-  // 共享的「插件」页（packages/ui/src/settings/pages/plugins-page.tsx 和 plugins-section.tsx）在 Windows 上的「我的插件」：列表（plugin-list-view.tsx）先是「声音与效果」和「@ 名单」两个入口，再是按八类分组的已安装插件和缺失的选择、「脚本插件（实验）」，然后是「导入插件」和「无法载入的插件」；点一行在原处打开它的视图（plugin-sound-effects-view.tsx、plugin-mentions-view.tsx、plugin-detail-view.tsx、plugin-script-view.tsx），视图头上的「我的插件」回到列表。Windows 宿主的能力全为真（播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集），辅助码表随版本（与「输入」页的辅助码组同一个条件）。插件目录、导入、删除和名单都经 msime_client_plugins，与 Tauri 的 desktop_plugins.rs 同一份 client-services 规则；内置声音包取 Server 状态目录下的 sound-packs。规则和文案在 PluginPageModel.h。所有读写都在工作线程上。页首的「社区插件」标签见「社区皮肤与社区插件」一节。
+  // 共享的「插件」页（packages/ui/src/settings/pages/plugins-page.tsx 和 plugins-section.tsx）在 Windows 上的「我的插件」：列表照 macOS 的插件库（plugin-library-view.tsx），先是「声音与效果」和「@ 名单」两张快捷卡片，再是「已安装 N 个插件」和导入按钮、搜索框、带计数的类型筛选、按类型分节的卡片（已安装插件、缺失的选择和「脚本插件（实验）」）、「无法载入的插件」和折叠的「插件导入说明」；点一张卡片在原处打开它的视图（plugin-sound-effects-view.tsx、plugin-mentions-view.tsx、plugin-detail-view.tsx、plugin-script-view.tsx），视图头上的「我的插件」回到列表。Windows 宿主的能力全为真（播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集），辅助码表随版本（与「输入」页的辅助码组同一个条件）。插件目录、导入、删除和名单都经 msime_client_plugins，与 Tauri 的 desktop_plugins.rs 同一份 client-services 规则；内置声音包取 Server 状态目录下的 sound-packs。规则和文案在 PluginPageModel.h。所有读写都在工作线程上。页首的「社区插件」标签见「社区皮肤与社区插件」一节。
 
   enum class PluginView { list, pack, missing, sound_effects, mentions };
   enum class PluginCatalogState { loading, loaded, failed };
@@ -19006,13 +18999,305 @@ private:
     group.Children().Append(card);
   }
 
-  // 共享页的 SettingsEmptyMessage：列表还没读到、没读成功或空的时候的一句。
-  TextBlock plugin_empty_message(std::wstring_view value) {
+  // 插件库的读取中、读取失败和空状态（macOS 插件库的 `empty`）：12 圆角的虚线细框，框里居中一句 13 DIP 的次要色文字，上下 32、左右 20 的内边距。WinUI 的 Border 画不出虚线，框是叠在文字下面的圆角矩形。
+  FrameworkElement plugin_empty_message(std::wstring_view value) {
+    Grid box;
+    Shapes::Rectangle frame;
+    frame.RadiusX(12);
+    frame.RadiusY(12);
+    frame.Stroke(brush(plugin_hair()));
+    frame.StrokeThickness(1);
+    DoubleCollection dash;
+    dash.Append(4);
+    dash.Append(3);
+    frame.StrokeDashArray(dash);
+    box.Children().Append(frame);
     auto message = make_text(value, 13, palette_.sub);
     message.HorizontalAlignment(HorizontalAlignment::Center);
     message.TextAlignment(TextAlignment::Center);
-    message.Margin(Thickness{16, 20, 16, 12});
-    return message;
+    message.Margin(Thickness{20, 32, 20, 32});
+    box.Children().Append(message);
+    return box;
+  }
+
+  // 插件库用到的三种 macOS 平台色（`styles.css` 的 macOS 一节）：卡片、搜索框和虚线框的细描边 `--p-hair`（浅色 rgba(0,0,0,.09)、深色 rgba(255,255,255,.1)），悬停的卡片和选中的筛选按钮铺的 `--accent-soft`（品牌绿，浅色 12%、深色 22%）和描的 `--accent-soft-border`（浅色 22%、深色 25%）。
+  Color plugin_hair() const { return palette_.dark ? rgba(255, 255, 255, .1) : rgba(0, 0, 0, .09); }
+
+  Color plugin_accent_soft(bool border) const {
+    auto color = palette_.accent;
+    const double alpha = border ? (palette_.dark ? .25 : .22) : (palette_.dark ? .22 : .12);
+    color.A = static_cast<uint8_t>(std::lround(alpha * 255));
+    return color;
+  }
+
+  // 插件库卡片的类型图标：macOS 插件库 `kindIcons` 的 Fluent 图标在 Segoe Fluent Icons 里最接近的字形。声音和音乐是扬声器，特效是调色板（与「声音与效果」里「特效包」一行相同），指令表和脚本插件是代码，短语表是文档，辅助码表是键盘，单词本是词典，符号集是字体。
+  static wchar_t plugin_kind_glyph(std::wstring_view kind) {
+    if (kind == L"sound" || kind == L"music")
+      return 0xE767;
+    if (kind == L"effect")
+      return 0xE790;
+    if (kind == L"command_table" || kind == L"script")
+      return 0xE943;
+    if (kind == L"phrase_table")
+      return 0xE8A5;
+    if (kind == L"helpcode")
+      return 0xE765;
+    if (kind == L"wordbook")
+      return 0xE82D;
+    if (kind == L"symbol_set")
+      return 0xE8D2;
+    return page_label("plugins").glyph;
+  }
+
+  // 插件库的一张卡片（macOS 插件库的 `LibraryCard`）：整张是一个按钮，读屏读到标题，说明和标记作为帮助文本。左边 40 DIP 的图标块，中间是半粗体标题、次要色说明和强调色标记，右边淡出的「›」；12 圆角、1 DIP 细描边、分组卡片的底色，悬停和按下时底色和描边换成淡强调色。`shortcut` 是顶部的快捷卡片（「声音与效果」「@ 名单」）：至少 80 DIP 高、16 内边距、图标与文字相隔 14、14 DIP 标题和 12 DIP 说明，图标块 12 圆角、铺淡强调色、图标用强调色；插件卡片至少 76 DIP 高、14 内边距、相隔 12、13 DIP 标题（放不下时截断，悬停提示全名）和 11 DIP 说明，图标块 10 圆角、中性底、次要色图标，悬停和按下时图标换成强调色。
+  Button plugin_library_card(wchar_t glyph, std::wstring const &title, std::wstring const &description,
+                             std::wstring const &marker, bool shortcut, std::function<void()> open) {
+    record(title, description);
+    Grid content;
+    content.ColumnSpacing(shortcut ? 14 : 12);
+    for (auto width : {GridLength{40, GridUnitType::Pixel}, GridLength{1, GridUnitType::Star},
+                       GridLength{1, GridUnitType::Auto}}) {
+      ColumnDefinition column;
+      column.Width(width);
+      content.ColumnDefinitions().Append(column);
+    }
+    Border tile;
+    tile.Width(40);
+    tile.Height(40);
+    const double tile_radius = shortcut ? 12 : 10;
+    tile.CornerRadius(CornerRadius{tile_radius, tile_radius, tile_radius, tile_radius});
+    tile.Background(brush(shortcut ? plugin_accent_soft(false) : palette_.hover));
+    tile.VerticalAlignment(VerticalAlignment::Center);
+    auto icon = make_icon(glyph, 22, shortcut ? palette_.accent : palette_.sub);
+    // 插件卡片的图标不写死颜色，继承按钮前景：前景走下面的模板资源，平时次要色，悬停和按下换成强调色（macOS `packIcon` 的 `group-hover:text-accent`）。标题、说明、标记和「›」各自写了颜色，不受影响。
+    if (!shortcut)
+      icon.ClearValue(IconElement::ForegroundProperty());
+    icon.HorizontalAlignment(HorizontalAlignment::Center);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    tile.Child(icon);
+    A11y::SetAccessibilityView(tile, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    content.Children().Append(tile);
+
+    StackPanel texts;
+    texts.Spacing(shortcut ? 4 : 6);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    auto heading = make_text(title, shortcut ? 14 : 13, palette_.text);
+    heading.FontWeight(Windows::UI::Text::FontWeight{600});
+    if (!shortcut) {
+      heading.TextWrapping(TextWrapping::NoWrap);
+      heading.TextTrimming(TextTrimming::CharacterEllipsis);
+      ToolTipService::SetToolTip(heading, box_value(hstring(title)));
+    }
+    texts.Children().Append(heading);
+    if (!description.empty())
+      texts.Children().Append(make_text(description, shortcut ? 12 : 11, palette_.sub));
+    if (!marker.empty())
+      texts.Children().Append(make_text(marker, 11, palette_.accent));
+    Grid::SetColumn(texts, 1);
+    content.Children().Append(texts);
+    auto chevron = make_icon(0xE76C, 12, palette_.sub);
+    chevron.Opacity(.6);
+    chevron.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAccessibilityView(chevron, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    Grid::SetColumn(chevron, 2);
+    content.Children().Append(chevron);
+
+    Button card;
+    card.Content(content);
+    card.HorizontalAlignment(HorizontalAlignment::Stretch);
+    card.VerticalAlignment(VerticalAlignment::Stretch);
+    card.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    card.VerticalContentAlignment(VerticalAlignment::Center);
+    card.MinHeight(shortcut ? 80 : 76);
+    const double pad = shortcut ? 16 : 14;
+    card.Padding(Thickness{pad, pad, pad, pad});
+    card.CornerRadius(CornerRadius{12, 12, 12, 12});
+    card.BorderThickness(Thickness{1, 1, 1, 1});
+    card.Background(brush(palette_.card));
+    card.BorderBrush(brush(plugin_hair()));
+    card.Foreground(brush(shortcut ? palette_.text : palette_.sub));
+    // 底色、描边和前景走模板资源，模板的视觉状态才不会把它们换回系统色。
+    auto resources = card.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", palette_.card);
+    put(L"ButtonBackgroundPointerOver", plugin_accent_soft(false));
+    put(L"ButtonBackgroundPressed", plugin_accent_soft(false));
+    put(L"ButtonBorderBrush", plugin_hair());
+    put(L"ButtonBorderBrushPointerOver", plugin_accent_soft(true));
+    put(L"ButtonBorderBrushPressed", plugin_accent_soft(true));
+    put(L"ButtonForeground", shortcut ? palette_.text : palette_.sub);
+    put(L"ButtonForegroundPointerOver", shortcut ? palette_.text : palette_.accent);
+    put(L"ButtonForegroundPressed", shortcut ? palette_.text : palette_.accent);
+    A11y::SetName(card, hstring(title));
+    std::wstring help = description;
+    if (!marker.empty())
+      help += (help.empty() ? L"" : L"，") + marker;
+    if (!help.empty())
+      A11y::SetHelpText(card, hstring(help));
+    card.Click([open = std::move(open)](Inspectable const &, RoutedEventArgs const &) { open(); });
+    mark_search_target(title, card);
+    return card;
+  }
+
+  // 插件库的一个类型筛选按钮（macOS 插件库的 `filter`）：至少 28 DIP 高、6 圆角，12 DIP 的类型名相隔 6 接已安装的数量。按下的那个铺淡强调色、描淡强调色边、用强调色字（`aria-pressed`），读屏的 ItemStatus 是「已选择」；其余透明、次要色字，悬停铺中性底色。
+  Button plugin_library_chip(std::wstring const &label, std::size_t count, bool pressed,
+                             std::function<void()> choose) {
+    const auto color = pressed ? palette_.accent : palette_.sub;
+    StackPanel content;
+    content.Orientation(Orientation::Horizontal);
+    content.Spacing(6);
+    content.Children().Append(make_text(label, 12, color));
+    content.Children().Append(make_text(std::to_wstring(count), 12, color));
+    Button chip;
+    chip.Content(content);
+    chip.MinWidth(0);
+    chip.MinHeight(28);
+    chip.Padding(Thickness{10, 4, 10, 4});
+    chip.CornerRadius(CornerRadius{6, 6, 6, 6});
+    chip.BorderThickness(Thickness{1, 1, 1, 1});
+    const auto fill = pressed ? plugin_accent_soft(false) : transparent_color();
+    const auto edge = pressed ? plugin_accent_soft(true) : transparent_color();
+    chip.Background(brush(fill));
+    chip.BorderBrush(brush(edge));
+    auto resources = chip.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &value) {
+      resources.Insert(box_value(hstring(key)), brush(value));
+    };
+    put(L"ButtonBackground", fill);
+    put(L"ButtonBackgroundPointerOver", pressed ? fill : palette_.hover);
+    put(L"ButtonBackgroundPressed", pressed ? fill : palette_.hover);
+    put(L"ButtonBorderBrush", edge);
+    put(L"ButtonBorderBrushPointerOver", edge);
+    put(L"ButtonBorderBrushPressed", edge);
+    A11y::SetName(chip, hstring(label + L" " + std::to_wstring(count)));
+    if (pressed)
+      A11y::SetItemStatus(chip, L"已选择");
+    chip.Click([choose = std::move(choose)](Inspectable const &, RoutedEventArgs const &) { choose(); });
+    return chip;
+  }
+
+  // 插件库的搜索框（macOS 插件库的 `search`）：8 圆角、1 DIP 细描边、分组卡片的底色，左边 12 DIP 处一个 16 DIP 的次要色放大镜，相隔 8 是 13 DIP 的文字，占位文字「搜索名称、作者或功能」，读屏名「搜索已安装插件」；聚焦时边框换成 2 DIP 的强调色。WinUI 的 `TextBox` 没有左侧图标，放大镜叠在输入框上、不接收指针。打字时只重画 `sections` 里的分节，不重建页面，焦点留在框里。
+  FrameworkElement plugin_library_search(StackPanel const &sections) {
+    Grid field;
+    TextBox input;
+    input.PlaceholderText(L"搜索名称、作者或功能");
+    input.FontSize(13);
+    input.MinHeight(36);
+    input.Padding(Thickness{36, 8, 12, 8});
+    input.CornerRadius(CornerRadius{8, 8, 8, 8});
+    input.BorderThickness(Thickness{1, 1, 1, 1});
+    input.HorizontalAlignment(HorizontalAlignment::Stretch);
+    input.Text(hstring(plugin_library_query_));
+    auto resources = input.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    for (const auto *suffix : {L"", L"PointerOver", L"Focused"}) {
+      put((std::wstring(L"TextControlBackground") + suffix).c_str(), palette_.card);
+      put((std::wstring(L"TextControlForeground") + suffix).c_str(), palette_.text);
+      put((std::wstring(L"TextControlPlaceholderForeground") + suffix).c_str(), palette_.sub);
+    }
+    put(L"TextControlBorderBrush", plugin_hair());
+    put(L"TextControlBorderBrushPointerOver", plugin_hair());
+    put(L"TextControlBorderBrushFocused", palette_.accent);
+    resources.Insert(box_value(L"TextControlBorderThemeThicknessFocused"),
+                     box_value(Thickness{2, 2, 2, 2}));
+    A11y::SetName(input, L"搜索已安装插件");
+    // TextChanged 是异步的，画页面时填回的文字也会晚一步报上来；文字没变就不是用户改的，不重画。
+    input.TextChanged([this, weak_sections = make_weak(sections)](Inspectable const &sender,
+                                                                  TextChangedEventArgs const &) {
+      std::wstring typed(sender.as<TextBox>().Text().c_str());
+      if (typed == plugin_library_query_)
+        return;
+      plugin_library_query_ = std::move(typed);
+      if (auto panel = weak_sections.get()) {
+        panel.Children().Clear();
+        std::vector<std::pair<std::wstring, Button>> rows;
+        fill_plugin_sections(panel, rows);
+      }
+    });
+    field.Children().Append(input);
+
+    // 放大镜照 macOS 的 16 × 16 图形：圆心 (7, 7)、半径 5 的圆和从 (11, 11) 到 (14.5, 14.5) 的柄，1.5 粗、圆头。XAML 的椭圆把描边画在宽高之内，所以外径是 10 加一个线宽。
+    Canvas glyph;
+    glyph.Width(16);
+    glyph.Height(16);
+    glyph.Margin(Thickness{12, 0, 0, 0});
+    glyph.HorizontalAlignment(HorizontalAlignment::Left);
+    glyph.VerticalAlignment(VerticalAlignment::Center);
+    glyph.IsHitTestVisible(false);
+    Shapes::Ellipse lens;
+    lens.Width(11.5);
+    lens.Height(11.5);
+    lens.Stroke(brush(palette_.sub));
+    lens.StrokeThickness(1.5);
+    Canvas::SetLeft(lens, 1.25);
+    Canvas::SetTop(lens, 1.25);
+    glyph.Children().Append(lens);
+    Shapes::Line handle;
+    handle.X1(11);
+    handle.Y1(11);
+    handle.X2(14.5);
+    handle.Y2(14.5);
+    handle.Stroke(brush(palette_.sub));
+    handle.StrokeThickness(1.5);
+    handle.StrokeStartLineCap(PenLineCap::Round);
+    handle.StrokeEndLineCap(PenLineCap::Round);
+    glyph.Children().Append(handle);
+    field.Children().Append(glyph);
+    return field;
+  }
+
+  // 插件库底部折叠的「插件导入说明」（macOS 插件库的 `footer`，一个 <details>，summary 没有改样式）：上面一条细线，相隔 12 是 12 DIP 次要色的「▸」和标题（WebKit 给 summary 画的展开三角在文字前面），展开时「▸」转 90° 朝下（系统关掉动画效果时直接转过去），说明紧贴在标题下面、同样字号（预检把 <p> 的外边距清零了）。展开与否记在 plugin_import_help_open_，跨页面重建保留；读屏从 ItemStatus 读到「已展开」或「已收起」。
+  FrameworkElement plugin_import_help() {
+    const bool open = plugin_import_help_open_;
+    StackPanel label;
+    label.Orientation(Orientation::Horizontal);
+    label.Spacing(4);
+    auto marker = make_text(L"\u25B8", 12, palette_.sub);
+    marker.RenderTransformOrigin(Windows::Foundation::Point{0.5f, 0.5f});
+    RotateTransform turn;
+    turn.Angle(open ? 90 : 0);
+    marker.RenderTransform(turn);
+    A11y::SetAccessibilityView(marker, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    label.Children().Append(marker);
+    label.Children().Append(make_text(L"插件导入说明", 12, palette_.sub));
+
+    Button summary;
+    summary.Content(label);
+    summary.MinWidth(0);
+    summary.MinHeight(0);
+    summary.Padding(Thickness{0, 0, 0, 0});
+    summary.BorderThickness(Thickness{0, 0, 0, 0});
+    summary.Background(brush(transparent_color()));
+    auto resources = summary.Resources();
+    for (const auto *key : {L"ButtonBackground", L"ButtonBackgroundPointerOver", L"ButtonBackgroundPressed"})
+      resources.Insert(box_value(hstring(key)), brush(transparent_color()));
+    A11y::SetName(summary, L"插件导入说明");
+    A11y::SetItemStatus(summary, open ? L"已展开" : L"已收起");
+
+    auto text = make_text(pg::import_description, 12, palette_.sub);
+    text.Visibility(open ? Visibility::Visible : Visibility::Collapsed);
+    // 说明和「▸」的旋转按值捕获，与 add_fold 相同：折叠区标题对兄弟元素取的弱引用在 CI 上点按时解析为空。两者都不引用 summary，不成环。
+    summary.Click([this, text, turn](Inspectable const &sender, RoutedEventArgs const &) {
+      plugin_import_help_open_ = !plugin_import_help_open_;
+      const bool expanded = plugin_import_help_open_;
+      text.Visibility(expanded ? Visibility::Visible : Visibility::Collapsed);
+      A11y::SetItemStatus(sender.as<Button>(), expanded ? L"已展开" : L"已收起");
+      turn_fold_marker(turn, expanded);
+    });
+
+    StackPanel body;
+    body.Children().Append(summary);
+    body.Children().Append(text);
+    Border frame;
+    frame.BorderBrush(brush(plugin_hair()));
+    frame.BorderThickness(Thickness{0, 1, 0, 0});
+    frame.Padding(Thickness{0, 12, 0, 0});
+    frame.Child(body);
+    return frame;
   }
 
   void build_plugins_page(StackPanel const &page) {
@@ -19055,6 +19340,9 @@ private:
       plugin_view_ = sound ? PluginView::sound_effects : PluginView::list;
       plugin_opened_from_ = sound ? L"sound-effects" : L"";
       plugin_pending_focus_.clear();
+      // 搜索结果可能是被筛选或搜索藏起来的那张卡片：清掉插件库的筛选和搜索，它才一定画得出来。
+      plugin_library_kind_ = pg::library_all;
+      plugin_library_query_.clear();
     }
     if (plugin_view_ == PluginView::pack) {
       for (auto const &pack : plugin_catalog_.packages)
@@ -19089,134 +19377,139 @@ private:
     build_plugin_list(page);
   }
 
-  // 我的插件：先是不属于任何一个包的两个入口，再是按类型分组的已安装插件和缺失的选择，然后是导入（少见的操作，放在后面）和无法载入的文件夹。
+  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
   void build_plugin_list(StackPanel const &page) {
-    const auto preferences = plugin_preferences();
-    const auto kinds = pg::acted_kinds(helpcode_offered());
     const auto modes = plugin_table_modes();
     const bool loaded = plugin_catalog_state_ == PluginCatalogState::loaded;
-    const auto missing = loaded ? pg::missing_selections(preferences, plugin_catalog_.packages, kinds)
+    const auto missing = loaded ? pg::missing_selections(plugin_preferences(), plugin_catalog_.packages,
+                                                         pg::acted_kinds(helpcode_offered()))
                                 : std::vector<pg::MissingSelection>{};
+    const auto categories = pg::library_categories(plugin_catalog_.packages, missing);
+    const auto selected = pg::library_selected_kind(plugin_library_kind_, categories);
     std::vector<std::pair<std::wstring, Button>> rows;
 
-    auto entries = add_group(page, L"");
-    rows.emplace_back(L"sound-effects",
-                      plugin_nav_row(entries, 0xE767, L"声音与效果", pg::sound_effects_description(), L"",
-                                     [this] {
-                                       open_plugin_view(PluginView::sound_effects, L"", L"",
-                                                        L"sound-effects");
-                                     }));
-    rows.emplace_back(
-        L"mentions",
-        plugin_nav_row(entries, 0xE716, L"@ 名单",
-                       pg::mentions_description(plugin_mentions_dirty(), plugin_saved_mentions_.size(),
-                                                modes.scheme_opens,
-                                                document_.Boolean(L"local_modes.mention", false)),
-                       L"", [this] { open_plugin_view(PluginView::mentions, L"", L"", L"mentions"); }));
+    StackPanel library;
+    library.Spacing(20);
+    // 与来源标签相隔 24（标签的下边距 12、页面的 Spacing 4 加这里的 8），同组与组的间距。
+    library.Margin(Thickness{0, 8, 0, 0});
+    // 快捷卡片和标题旁的按钮不在任何分节里，搜索结果只写到页名。
+    if (indexing_)
+      group_index_.clear();
 
-    // 指令表这一组带着 / 模式的说明，所以空着也显示。
-    struct KindGroup {
-      std::wstring kind;
-      std::vector<pg::Package const *> packs;
-      std::vector<pg::MissingSelection const *> gone;
-    };
-    std::vector<KindGroup> groups;
-    for (auto const kind : pg::kind_order) {
-      KindGroup group{std::wstring(kind), {}, {}};
-      for (auto const &pack : plugin_catalog_.packages)
-        if (pack.kind == kind)
-          group.packs.push_back(&pack);
-      for (auto const &entry : missing)
-        if (entry.kind == kind)
-          group.gone.push_back(&entry);
-      if (!group.packs.empty() || !group.gone.empty() || kind == L"command_table")
-        groups.push_back(std::move(group));
-    }
-    if (plugin_catalog_state_ == PluginCatalogState::loading && !indexing_)
-      page.Children().Append(plugin_empty_message(L"正在读取插件…"));
-    if (plugin_catalog_state_ == PluginCatalogState::failed)
-      page.Children().Append(
-          plugin_empty_message(L"插件列表没有读取成功，重新打开这个页面会再试一次。"));
-    std::vector<pg::Package const *> scripts;
-    for (auto const &pack : plugin_catalog_.packages)
-      if (pack.kind == L"script")
-        scripts.push_back(&pack);
-    if (loaded && groups.empty() && scripts.empty())
-      page.Children().Append(plugin_empty_message(L"没有插件"));
-    for (auto const &[kind, packs, gone] : groups) {
-      auto group = add_group(page, pg::kind_label(kind));
-      if (kind == L"command_table") {
-        group.Children().Append(group_note(
-            L"在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 " +
-            std::to_wstring(pg::max_command_tables) + L" 个。"));
-        if (packs.empty() && gone.empty() && loaded)
-          group.Children().Append(group_note(L"还没有导入指令表。"));
-      }
-      for (auto const *pack : packs) {
-        const auto key = L"pack/" + pack->kind + L"/" + pack->id;
-        rows.emplace_back(key, plugin_nav_row(group, page_label("plugins").glyph, pack->name,
-                                              pg::pack_row_description(*pack),
-                                              pg::pack_marker(*pack, preferences, kinds, modes),
-                                              [this, kind = pack->kind, id = pack->id, key] {
-                                                open_plugin_view(PluginView::pack, kind, id, key);
-                                              }));
-      }
-      for (auto const *entry : gone) {
-        const auto key = L"missing/" + entry->kind + L"/" + entry->id;
-        rows.emplace_back(key, plugin_nav_row(group, 0xE7BA, pg::missing_title(*entry),
-                                              pg::missing_description(*entry), L"",
-                                              [this, kind = entry->kind, id = entry->id, key] {
-                                                open_plugin_view(PluginView::missing, kind, id, key);
-                                              }));
-      }
-    }
+    auto shortcuts = responsive_grid(184, 12, 2);
+    auto sound = plugin_library_card(0xE767, L"声音与效果", pg::sound_effects_description(), L"", true, [this] {
+      open_plugin_view(PluginView::sound_effects, L"", L"", L"sound-effects");
+    });
+    shortcuts.Children().Append(sound);
+    rows.emplace_back(L"sound-effects", sound);
+    auto mentions = plugin_library_card(
+        0xE77B, L"@ 名单",
+        pg::mentions_description(plugin_mentions_dirty(), plugin_saved_mentions_.size(), modes.scheme_opens,
+                                 document_.Boolean(L"local_modes.mention", false)),
+        L"", true, [this] { open_plugin_view(PluginView::mentions, L"", L"", L"mentions"); });
+    shortcuts.Children().Append(mentions);
+    rows.emplace_back(L"mentions", mentions);
+    library.Children().Append(shortcuts);
 
-    // 脚本插件（共享页的「脚本插件（实验）」分组）：说明和同一用户下的程序能伪造授权的残余风险写在分组开头，行尾是授权状态和执行顺序。
-    if (!scripts.empty()) {
-      const auto running = plugin_running_scripts();
-      auto group = add_group(page, L"脚本插件（实验）");
-      group.Children().Append(group_note(pg::script_group_note()));
-      for (auto const *pack : scripts) {
-        const auto key = L"pack/script/" + pack->id;
-        rows.emplace_back(key, plugin_nav_row(group, 0xE943, pack->name, pg::script_row_description(*pack),
-                                              pg::script_marker(*pack, plugin_grants(), running),
-                                              [this, id = pack->id, key] {
-                                                open_plugin_view(PluginView::pack, L"script", id, key);
-                                              }));
-      }
+    StackPanel toolbar;
+    toolbar.Spacing(12);
+    Grid heading;
+    heading.ColumnSpacing(12);
+    for (auto width : {GridLength{1, GridUnitType::Star}, GridLength{1, GridUnitType::Auto}}) {
+      ColumnDefinition column;
+      column.Width(width);
+      heading.ColumnDefinitions().Append(column);
     }
-
-    auto import = add_group(page, L"导入插件");
-    StackPanel buttons;
-    buttons.Orientation(Orientation::Horizontal);
-    buttons.Spacing(8);
-    buttons.Children().Append(
-        button_control(L"导入文件夹", [this] { import_plugin_pack(true); }, !plugins_busy_));
-    buttons.Children().Append(
-        button_control(L"导入 .zip", [this] { import_plugin_pack(false); }, !plugins_busy_));
-    add_row(import, 0xE8B5, L"从文件导入", std::wstring(pg::import_description), buttons);
+    // 「已安装」17 DIP 半粗体，后面隔开一点是 12 DIP 次要色的「N 个插件」（读到目录之后才有），两段在同一条基线上。
+    TextBlock title;
+    title.VerticalAlignment(VerticalAlignment::Center);
+    Documents::Run installed;
+    installed.Text(L"已安装");
+    installed.FontSize(17);
+    installed.FontWeight(Windows::UI::Text::FontWeight{600});
+    installed.Foreground(brush(palette_.text));
+    title.Inlines().Append(installed);
+    if (loaded) {
+      Documents::Run count;
+      count.Text(hstring(L"\u2002" + std::to_wstring(pg::library_count(plugin_catalog_.packages, pg::library_all)) +
+                         L" 个插件"));
+      count.FontSize(12);
+      count.Foreground(brush(palette_.sub));
+      title.Inlines().Append(count);
+    }
+    heading.Children().Append(title);
+    StackPanel imports;
+    imports.Orientation(Orientation::Horizontal);
+    imports.Spacing(8);
+    imports.VerticalAlignment(VerticalAlignment::Center);
+    for (bool folder : {true, false}) {
+      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip";
+      record(label, L"");
+      auto button = button_control(label, [this, folder] { import_plugin_pack(folder); }, !plugins_busy_);
+      mark_search_target(label, button);
+      imports.Children().Append(button);
+    }
+    Grid::SetColumn(imports, 1);
+    heading.Children().Append(imports);
+    toolbar.Children().Append(heading);
     if (!plugins_notice_.empty()) {
-      auto notice = group_note(plugins_notice_);
-      notice.Margin(Thickness{0, 4, 0, 10});
+      auto notice = make_text(plugins_notice_, 12, palette_.sub);
       A11y::SetLiveSetting(notice, Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
-      import.Children().Append(notice);
+      toolbar.Children().Append(notice);
     }
+
+    StackPanel sections;
+    sections.Spacing(20);
+    A11y::SetName(sections, L"已安装的插件");
+    toolbar.Children().Append(plugin_library_search(sections));
+
+    // 筛选按钮放在定宽的格子里换行（WinUI 没有按内容宽度换行的面板），按钮铺满格子；格子之间相隔 6，最后一行和最右一列多出的 6 用负边距收回。选中一个类型时整页重画，焦点回到刚点的那个按钮。
+    VariableSizedWrapGrid chips;
+    chips.Orientation(Orientation::Horizontal);
+    chips.ItemWidth(100);
+    chips.ItemHeight(34);
+    chips.Margin(Thickness{0, 0, -6, -6});
+    A11y::SetName(chips, L"已安装插件类型");
+    auto add_chip = [&](std::wstring const &kind, std::wstring const &label) {
+      auto chip = plugin_library_chip(label, pg::library_count(plugin_catalog_.packages, kind), selected == kind,
+                                      [this, kind] {
+                                        plugin_library_kind_ = kind;
+                                        plugin_pending_focus_ = L"filter/" + kind;
+                                        queue_refresh();
+                                      });
+      chip.HorizontalAlignment(HorizontalAlignment::Stretch);
+      chip.Margin(Thickness{0, 0, 6, 6});
+      if (!indexing_ && plugin_pending_focus_ == L"filter/" + kind) {
+        plugin_pending_focus_.clear();
+        focus_target_ = chip;
+      }
+      chips.Children().Append(chip);
+    };
+    add_chip(std::wstring(pg::library_all), L"全部");
+    for (auto const &kind : categories)
+      add_chip(kind, pg::kind_label(kind));
+    toolbar.Children().Append(chips);
+    library.Children().Append(toolbar);
+
+    fill_plugin_sections(sections, rows);
+    library.Children().Append(sections);
 
     if (!plugin_catalog_.issues.empty()) {
-      auto issues = add_group(page, L"无法载入的插件");
-      StackPanel list;
-      list.Spacing(6);
-      list.Padding(Thickness{25, 14, 25, 14});
+      StackPanel issues;
+      issues.Spacing(4);
+      A11y::SetName(issues, L"无法载入的插件");
+      auto issues_title = make_text(L"无法载入的插件", 12, palette_.sub);
+      issues_title.FontWeight(Windows::UI::Text::FontWeight{600});
+      issues.Children().Append(issues_title);
       for (auto const &issue : plugin_catalog_.issues)
-        list.Children().Append(make_text(pg::kind_label(issue.kind) + L" " +
-                                             (issue.folder.empty() ? std::wstring(L"目录") : issue.folder) +
-                                             L" 无法载入：" + issue.reason,
-                                         13, palette_.sub));
-      auto card = make_inner_card();
-      A11y::SetName(card, L"无法载入的插件");
-      card.Child(list);
-      issues.Children().Append(card);
+        issues.Children().Append(make_text(pg::kind_label(issue.kind) + L" " +
+                                               (issue.folder.empty() ? std::wstring(L"目录") : issue.folder) +
+                                               L" 无法载入：" + issue.reason,
+                                           12, palette_.sub));
+      library.Children().Append(issues);
     }
+    library.Children().Append(plugin_import_help());
+    page.Children().Append(library);
 
     // 关上视图后焦点回到打开它的那一行；那一行没了（包已删除、缺失的选择已去掉）就落到同一类的第一行，再没有就是列表的第一行。
     if (!indexing_ && !plugin_pending_focus_.empty() && !rows.empty()) {
@@ -19243,6 +19536,85 @@ private:
             break;
           }
       focus_target_ = chosen ? chosen : rows.front().second;
+    }
+  }
+
+  // 插件库的分节（macOS 插件库的 `sections`）：读取中、读取失败和没有可列的分节时是虚线框里的一句，然后按筛选和搜索列出各类。每节是 12 DIP 半粗体次要色的类型名和右边的数量，相隔 10 是说明（指令表、脚本插件）和卡片；卡片在可用宽度够 500 时排成两列，相隔 10。建搜索索引时不看筛选和搜索，每个包都记下，搜索结果写成「插件 › 类型」。`rows` 收下每张卡片和它的键，关上视图后焦点据此回到原来那张。
+  void fill_plugin_sections(StackPanel const &sections, std::vector<std::pair<std::wstring, Button>> &rows) {
+    const auto preferences = plugin_preferences();
+    const auto kinds = pg::acted_kinds(helpcode_offered());
+    const auto modes = plugin_table_modes();
+    const bool loaded = plugin_catalog_state_ == PluginCatalogState::loaded;
+    const auto missing = loaded ? pg::missing_selections(preferences, plugin_catalog_.packages, kinds)
+                                : std::vector<pg::MissingSelection>{};
+    const auto categories = pg::library_categories(plugin_catalog_.packages, missing);
+    const auto selected =
+        indexing_ ? std::wstring(pg::library_all) : pg::library_selected_kind(plugin_library_kind_, categories);
+    const auto query = indexing_ ? std::wstring() : pg::library_query(plugin_library_query_);
+    const auto groups = pg::library_groups(plugin_catalog_.packages, missing, categories, selected, query);
+    if (plugin_catalog_state_ == PluginCatalogState::loading && !indexing_)
+      sections.Children().Append(plugin_empty_message(L"正在读取插件…"));
+    if (plugin_catalog_state_ == PluginCatalogState::failed)
+      sections.Children().Append(plugin_empty_message(L"插件列表没有读取成功，重新打开这个页面会再试一次。"));
+    if (loaded && groups.empty())
+      sections.Children().Append(plugin_empty_message(pg::library_empty_message(query)));
+    const auto running = plugin_running_scripts();
+    for (auto const &group : groups) {
+      const auto title = pg::library_section_title(group.kind);
+      if (indexing_)
+        group_index_ = title;
+      StackPanel section;
+      A11y::SetName(section, hstring(title));
+      Grid heading;
+      heading.Margin(Thickness{0, 0, 0, 10});
+      heading.ColumnSpacing(8);
+      for (auto width : {GridLength{1, GridUnitType::Star}, GridLength{1, GridUnitType::Auto}}) {
+        ColumnDefinition column;
+        column.Width(width);
+        heading.ColumnDefinitions().Append(column);
+      }
+      auto name = make_text(title, 12, palette_.sub);
+      name.FontWeight(Windows::UI::Text::FontWeight{600});
+      heading.Children().Append(name);
+      auto count = make_text(std::to_wstring(group.packs.size() + group.gone.size()), 12, palette_.sub);
+      Grid::SetColumn(count, 1);
+      heading.Children().Append(count);
+      section.Children().Append(heading);
+      auto note = [this, &section](std::wstring_view value) {
+        auto text = make_text(value, 12, palette_.sub);
+        text.Margin(Thickness{0, 0, 0, 12});
+        section.Children().Append(text);
+      };
+      if (group.kind == L"command_table")
+        note(pg::command_table_note());
+      if (group.kind == L"script")
+        note(pg::script_group_note());
+      if (group.packs.empty() && group.gone.empty() && loaded)
+        note(L"还没有导入指令表。");
+      auto grid = responsive_grid(245, 10, 2);
+      for (auto const *pack : group.packs) {
+        const auto key = L"pack/" + pack->kind + L"/" + pack->id;
+        const auto marker = pack->kind == L"script" ? pg::script_marker(*pack, plugin_grants(), running)
+                                                    : pg::pack_marker(*pack, preferences, kinds, modes);
+        auto card = plugin_library_card(plugin_kind_glyph(pack->kind), pack->name, pg::pack_row_description(*pack),
+                                        marker, false, [this, kind = pack->kind, id = pack->id, key] {
+                                          open_plugin_view(PluginView::pack, kind, id, key);
+                                        });
+        grid.Children().Append(card);
+        rows.emplace_back(key, card);
+      }
+      for (auto const *entry : group.gone) {
+        const auto key = L"missing/" + entry->kind + L"/" + entry->id;
+        auto card = plugin_library_card(0xE946, pg::missing_title(*entry), pg::missing_description(*entry), L"",
+                                        false, [this, kind = entry->kind, id = entry->id, key] {
+                                          open_plugin_view(PluginView::missing, kind, id, key);
+                                        });
+        grid.Children().Append(card);
+        rows.emplace_back(key, card);
+      }
+      if (grid.Children().Size() > 0)
+        section.Children().Append(grid);
+      sections.Children().Append(section);
     }
   }
 
@@ -19745,7 +20117,7 @@ private:
 
   // ---- 脚本插件（实验） ----
 
-  // 共享页 plugin-script-view.tsx 在 Windows 上的样子：列表里的「脚本插件（实验）」分组见 build_plugin_list，这里是详情和授权对话框。授权、撤销和排序都经 msime_client_plugins 的 set_script_grant 和 reorder_scripts，规则在 client-services 的 script_grants，与 Tauri 的同名命令相同；页面的勾选联动、标记和文案在 PluginPageModel.h。
+  // 共享页 plugin-script-view.tsx 在 Windows 上的样子：插件库里的「脚本插件（实验）」节（`plugin-library-view.tsx` 的同名节，一节卡片）见 fill_plugin_sections，这里是详情和授权对话框。授权、撤销和排序都经 msime_client_plugins 的 set_script_grant 和 reorder_scripts，规则在 client-services 的 script_grants，与 Tauri 的同名命令相同；页面的勾选联动、标记和文案在 PluginPageModel.h。
 
   pg::ScriptGrants const *plugin_grants() const { return plugin_scripts_ ? &*plugin_scripts_ : nullptr; }
 
@@ -24038,6 +24410,10 @@ private:
   // 脚本插件的授权和输入法记下的停用（`script_grants` 的回答），还没读到时为空，跨页面重建保留。plugin_grant_ 是开着的授权对话框。
   std::optional<pg::ScriptGrants> plugin_scripts_;
   ScriptGrantDialog plugin_grant_;
+  // 插件库的类型筛选和搜索框里的文字（macOS 的 `libraryFilter`），打开详情再回来、离开页面再回来都保留；搜索结果落到插件页时清掉。底部「插件导入说明」是否展开，跨页面重建保留。
+  std::wstring plugin_library_kind_{pg::library_all};
+  std::wstring plugin_library_query_;
+  bool plugin_import_help_open_ = false;
 
   // 「主题」页和「候选窗口」页预览用的皮肤目录：上次扫描到的包、被忽略的目录和皮肤目录，跨页面重建保留。skins_pending_ 是在途的扫描，skins_busy_ 是显示「正在读取」的那种（第一次和「刷新皮肤」）；skins_signature_ 是上次落地的目录回答，自动重扫据此判断有没有变化。skins_revision_ 在每次落地时递增，作废还在解码的旧图片。skin_preview_overrides_ 是卡片上选的预览明暗，连同选它时的当前明暗。color_picker_open_ 是有取色器开着，这时不重画页面。
   std::vector<SkinPackage> skin_packages_;
