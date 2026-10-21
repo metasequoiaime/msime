@@ -158,6 +158,7 @@ public final class HttpAsrRecognizer {
             try (InputStream input = opened.getInputStream()) {
                 String response = TextPolicy.utf8(
                     HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES));
+                if (!responseAllowed(response)) throw new Refused(Failure.EMPTY);
                 text = chat ? chatText(response) : text(response);
             }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
@@ -183,6 +184,11 @@ public final class HttpAsrRecognizer {
         }
     }
 
+    /** 明确失败或未完成的 JSON 回复不能作为转写正文。 */
+    private static boolean responseAllowed(String response) {
+        return HttpAsrResponsePolicy.responseAllowed(response);
+    }
+
     /** The one field these APIs agree on. Anything else in the response is ignored. */
     private static String text(String response) {
         try {
@@ -191,4 +197,5 @@ public final class HttpAsrRecognizer {
             return "";
         }
     }
+
 }

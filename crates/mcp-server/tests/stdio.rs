@@ -9,7 +9,7 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 
-/// A data root the Engine opens: the smallest dictionary it accepts, as the host-api tests build it, with one bundled wubi word, and a runtime-options document pointing at it.
+/// 合成词库与运行时选项；独立五笔库对应宿主判定五笔资源可用的实际文件。
 fn fixture(root: &Path) -> std::path::PathBuf {
     let tables = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                   CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -25,6 +25,10 @@ fn fixture(root: &Path) -> std::path::PathBuf {
             .execute_batch(tables)
             .unwrap();
     }
+    rusqlite::Connection::open(root.join("resources/msime-wubi.db"))
+        .unwrap()
+        .execute_batch(tables)
+        .unwrap();
     std::fs::create_dir(root.join("user")).unwrap();
     let text = root.to_str().unwrap();
     let options = root.join("runtime-options.json");

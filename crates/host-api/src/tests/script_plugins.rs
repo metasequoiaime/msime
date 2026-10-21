@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::lifecycle::{
-    LifecycleEvent, COMMIT_OBSERVE_ONLY, HOST_HOLDS_PIECES, KEY_PASSTHROUGH, TRAIT_ELEVATED,
-    TRAIT_KNOWN, TRAIT_PRIVATE, TRAIT_SECURE,
+    LifecycleEvent, COMMIT_OBSERVE_ONLY, HOST_HOLDS_PIECES, KEY_PASSTHROUGH, KEY_POINTER,
+    TRAIT_ELEVATED, TRAIT_KNOWN, TRAIT_PRIVATE, TRAIT_SECURE,
 };
 use crate::scripts::{
     insert_ready, TEST_COMPILE_PANIC_ID, TEST_PANIC, TEST_PANICKED, TEST_SCRIPT_LOG, TEST_SLOW,
@@ -712,6 +712,26 @@ fn fuel_is_given_per_turn_and_a_new_key_refills_it() {
         read(msime_client_reset_cache(fixture.handle));
     }
     assert!(take_log().len() < 50);
+    assert_eq!(process_health(&fixture, "burner", &hashes[0]), (0, None));
+}
+
+#[test]
+fn a_silent_turn_per_repeat_keeps_the_plugin_running() {
+    let fixture = fixture();
+    let hashes = install(
+        &fixture,
+        &[Script::new("burner", burner(1000), &[Hook::Input])],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // Linux 宿主按住一个键时：第一次按下是打字键，之后每次自动重复不出声、不画，只用 MSIME_KEY_POINTER 开新的一轮再派发。同样 50 次派发若共用一轮会被配额截断（见上一个测试），每次开一轮就全部投递。
+    msime_client_key(fixture.handle, 3);
+    read(msime_client_reset_cache(fixture.handle));
+    for _ in 0..50 {
+        assert_eq!(msime_client_key(fixture.handle, KEY_POINTER), 0);
+        read(msime_client_reset_cache(fixture.handle));
+    }
+    assert_eq!(take_log().len(), 51);
     assert_eq!(process_health(&fixture, "burner", &hashes[0]), (0, None));
 }
 

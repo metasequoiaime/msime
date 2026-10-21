@@ -401,13 +401,13 @@ pub struct PreferencesView {
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
     pub candidate_font_size: u8,
-    /// Overall size of the floating candidate window in percent, 50 to 200; the font size and the window's geometry are both multiplied by it (Windows and macOS).
+    /// Overall size of the floating candidate window in percent, 50 to 200; the font size and the window's geometry are both multiplied by it (Windows, macOS and the Linux Fcitx5 candidate window; the Linux IBus panel scales only the font).
     pub candidate_scale_percent: u16,
-    /// Opacity of the candidate window's background, border and skin image in percent, 50 to 100; the text stays opaque.
+    /// Opacity of the candidate window's background, border and skin image in percent, 50 to 100; the text stays opaque. The Linux Fcitx5 candidate window honours it, the Linux IBus panel does not.
     pub candidate_opacity_percent: u8,
     /// Corner radius of the candidate window in points, 0 to 32. Null means the skin's or the platform's own radius.
     pub candidate_corner_radius: Option<u8>,
-    /// Space between the candidate window's edge and its candidates in points, 0 to 16, before the overall size scales it (macOS only). Null means the skin's or the platform's own padding.
+    /// Space between the candidate window's edge and its candidates in points, 0 to 16, before the overall size scales it (macOS and the Linux Fcitx5 candidate window; the Linux IBus panel ignores it). Null means the skin's or the platform's own padding.
     pub candidate_padding: Option<u8>,
     pub candidate_layout: Layout,
     pub candidate_follow_cursor: bool,
@@ -415,9 +415,9 @@ pub struct PreferencesView {
     pub number_row_selection: bool,
     /// 切换中英文时显示「中」或「英」的提示（macOS、Windows、Linux 和 HarmonyOS）。
     pub input_mode_hud: bool,
-    /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS 和 Windows；其他宿主始终显示，没有这个开关）。
+    /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS、Windows 和 Linux 的 Fcitx5 候选窗；Linux 的 IBus 面板不画 logo，其他宿主始终显示，没有这个开关）。
     pub show_app_logo: bool,
-    /// 候选窗显示页码（Linux 是辅助文本里的当前页/总页数，macOS 是首行的「1 / 3」和 ‹ › 翻页按钮）。这个开关不改变键盘和滚轮翻页；滚轮翻页由 `navigation.mouse_wheel` 另外控制，默认关闭，所以 macOS 上关掉它又没开滚轮时，鼠标就不能翻页了。
+    /// 候选窗显示页码（Linux 是辅助文本里的当前页/总页数，Fcitx5 候选窗连同 ‹ › 翻页按钮一起隐藏，IBus 面板自带的翻页箭头不受影响；macOS 是首行的「1 / 3」和 ‹ › 翻页按钮）。这个开关不改变键盘和滚轮翻页；滚轮翻页由 `navigation.mouse_wheel` 另外控制，默认关闭，所以 macOS 上关掉它又没开滚轮时，鼠标就不能翻页了。
     pub show_candidate_page_number: bool,
     pub fuzzy_pinyin: bool,
     /// The mode a newly focused text field starts in.

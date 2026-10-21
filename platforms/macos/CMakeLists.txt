@@ -1330,6 +1330,16 @@ foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
   target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore" "-framework ImageIO")
 endforeach()
 
+# 编译悬浮工具栏的所有目标都需要图片画布与共享解码桥。
+get_property(MSIME_TOOLBAR_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_TOOLBAR_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(msime_target_sources AND "src/core/FloatingToolbarPanel.mm" IN_LIST msime_target_sources)
+    target_sources(${msime_target} PRIVATE src/core/ToolbarImageCanvas.mm)
+    target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore")
+  endif()
+endforeach()
+
 # VoiceInputService.mm passes the system recogniser's text through shared/voice's tidy_local_transcript, so every target compiling it links the library that defines it. Found by source rather than listed, for the same reason as the loops above.
 get_property(MSIME_VOICE_SERVICE_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_VOICE_SERVICE_TARGETS)

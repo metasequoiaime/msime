@@ -4,13 +4,15 @@
 //! caret the host reported. The keyboard panel is the one window that must never
 //! take focus, because taking it would end the text client's composition.
 
-#[cfg(target_os = "linux")]
-use crate::panel_input::panel_position;
 #[cfg(target_os = "windows")]
 use crate::panel_input::windows_panel_position;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::panel_input::{
     forget_cloud_clipboard_input_target, remember_opening_panel_target, CLOUD_CLIPBOARD_PANEL,
+};
+#[cfg(target_os = "linux")]
+use crate::panel_input::{
+    linux_panel_placement, panel_position, place_in_work_area, LinuxPanelPlacement,
 };
 #[cfg(target_os = "macos")]
 use crate::platform::macos::macos_keyboard;
@@ -56,6 +58,7 @@ pub(crate) fn visible_panel_position(
     position: tauri::Position,
     width: f64,
     height: f64,
+    placement: LinuxPanelPlacement,
 ) -> tauri::Position {
     // X11 geometry is physical. Do not reinterpret Sway's logical coordinates
     // using a monitor scale factor from a different coordinate space.
@@ -89,16 +92,90 @@ pub(crate) fn visible_panel_position(
     if !scale.is_finite() || scale <= 0.0 {
         return position;
     }
-    let x = center_x - width * scale / 2.0;
     let area = monitor.work_area();
     let left = f64::from(area.position.x);
     let top = f64::from(area.position.y);
+    // 居中和底部居中的面板只借锚点找到输入窗口所在的显示器，位置由那块显示器的工作区决定。
+    if placement != LinuxPanelPlacement::BelowTarget {
+        let (x, y) = place_in_work_area(
+            (
+                left,
+                top,
+                f64::from(area.size.width),
+                f64::from(area.size.height),
+            ),
+            width * scale,
+            height * scale,
+            placement,
+        );
+        return tauri::Position::Physical(tauri::PhysicalPosition::new(
+            x.round() as i32,
+            y.round() as i32,
+        ));
+    }
+    let x = center_x - width * scale / 2.0;
     let right = left + (f64::from(area.size.width) - width * scale).max(0.0);
     let bottom = top + (f64::from(area.size.height) - height * scale).max(0.0);
     tauri::Position::Physical(tauri::PhysicalPosition::new(
         x.clamp(left, right).round() as i32,
         y.clamp(top, bottom).round() as i32,
     ))
+}
+
+/// 读不到输入窗口矩形时（从设置窗口打开、GNOME/KDE Wayland 只有输入法通道、没有 xdotool 等），居中和底部居中的面板仍按窗口当前所在（或主）显示器的工作区摆放，屏幕键盘不会落在窗口管理器随手给的位置。Wayland 下 GTK 忽略客户端设的位置，由合成器决定，这里不需要另行区分。
+#[cfg(target_os = "linux")]
+fn work_area_position(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    placement: LinuxPanelPlacement,
+) -> Option<tauri::Position> {
+    if placement == LinuxPanelPlacement::BelowTarget {
+        return None;
+    }
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    if !scale.is_finite() || scale <= 0.0 || area.size.width == 0 || area.size.height == 0 {
+        return None;
+    }
+    let (x, y) = place_in_work_area(
+        (
+            f64::from(area.position.x),
+            f64::from(area.position.y),
+            f64::from(area.size.width),
+            f64::from(area.size.height),
+        ),
+        width * scale,
+        height * scale,
+        placement,
+    );
+    Some(tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x.round() as i32,
+        y.round() as i32,
+    )))
+}
+
+/// 面板在 Linux 上最终设的位置：有输入窗口锚点时按落点换算到它所在的显示器，没有时居中类面板退回当前显示器的工作区。
+#[cfg(target_os = "linux")]
+fn linux_panel_position(
+    window: &tauri::WebviewWindow,
+    label: &str,
+    position: Option<tauri::Position>,
+    width: f64,
+    height: f64,
+) -> Option<tauri::Position> {
+    let placement = linux_panel_placement(label);
+    match position {
+        Some(position) => Some(visible_panel_position(
+            window, position, width, height, placement,
+        )),
+        None => work_area_position(window, width, height, placement),
+    }
 }
 
 pub(crate) fn open_panel_window(
@@ -134,10 +211,10 @@ pub(crate) fn open_panel_window(
                 let _ = window.set_min_size(Some(size));
                 let _ = window.set_size(size);
             }
+            #[cfg(target_os = "linux")]
+            let position = linux_panel_position(&window, label, position, width, height);
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some(position) = position {
-                #[cfg(target_os = "linux")]
-                let position = visible_panel_position(&window, position, width, height);
                 let _ = window.set_position(position);
             }
             window
@@ -181,9 +258,9 @@ pub(crate) fn open_panel_window(
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+        #[cfg(target_os = "linux")]
+        let position = linux_panel_position(&window, label, position, width, height);
         if let Some(position) = position {
-            #[cfg(target_os = "linux")]
-            let position = visible_panel_position(&window, position, width, height);
             let _ = window.set_position(position);
         }
         #[cfg(target_os = "macos")]

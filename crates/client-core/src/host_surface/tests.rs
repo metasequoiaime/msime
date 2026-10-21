@@ -281,18 +281,19 @@ fn capabilities_describe_each_host() {
     assert!(macos.panel_shortcuts);
     assert!(macos.app_logo);
     assert!(windows.app_logo);
-    assert!(!linux.app_logo);
-    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS。
+    assert!(linux.app_logo);
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语编码进普通候选也是这两个。
     for platform in [
         HostPlatform::Windows,
-        HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
-        assert!(!HostCapabilities::for_platform(platform).caps_lock_punctuation);
+        let host = HostCapabilities::for_platform(platform);
+        assert!(!host.caps_lock_punctuation && !host.quick_phrase_candidates);
     }
-    assert!(macos.caps_lock_punctuation);
+    assert!(macos.caps_lock_punctuation && macos.quick_phrase_candidates);
+    assert!(linux.caps_lock_punctuation && linux.quick_phrase_candidates);
     // 「单按 Caps Lock 切换中英文」和「Shift+字母进入快捷模式」总开关只在三个桌面宿主上提供。
     for platform in [
         HostPlatform::Windows,
@@ -326,10 +327,10 @@ fn capabilities_describe_each_host() {
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);
     assert!(linux.input_mode_hud);
-    // 应用例外只在认得前台应用、并按规则定起始模式的两个桌面宿主上提供。
+    // 应用例外只在认得前台应用、并按规则定起始模式的三个桌面宿主上提供。
     assert!(macos.app_input_mode_rules);
     assert!(windows.app_input_mode_rules);
-    assert!(!linux.app_input_mode_rules);
+    assert!(linux.app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
@@ -831,7 +832,7 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
     );
 }
 
-/// The candidate window style controls follow the surface each host draws: both desktop windows take all three, the Fcitx5 theme only a radius, the HarmonyOS 2in1 card a radius and a fill alpha, and the keyboard strips none.
+/// The candidate window style controls follow the surface each host draws: both desktop windows and the Fcitx5 theme take all three, the HarmonyOS 2in1 card a radius and a fill alpha, and the keyboard strips none.
 #[test]
 fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     let flags = |platform| {
@@ -844,7 +845,7 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     };
     assert_eq!(flags(HostPlatform::Windows), (true, true, true));
     assert_eq!(flags(HostPlatform::Macos), (true, true, true));
-    assert_eq!(flags(HostPlatform::Linux), (true, false, true));
+    assert_eq!(flags(HostPlatform::Linux), (true, true, true));
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
@@ -880,9 +881,9 @@ fn hosts_fix_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
     );
 }
 
-/// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。
+/// 卡片内边距目前只有 macOS 候选窗和 Linux 的 Fcitx5 主题读，其他宿主不显示这个滑块（#7316）。
 #[test]
-fn only_macos_offers_the_candidate_padding() {
+fn only_macos_and_linux_offer_the_candidate_padding() {
     for platform in [
         HostPlatform::Windows,
         HostPlatform::Macos,
@@ -893,7 +894,7 @@ fn only_macos_offers_the_candidate_padding() {
     ] {
         assert_eq!(
             HostCapabilities::for_platform(platform).candidate_padding,
-            platform == HostPlatform::Macos,
+            matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             "{platform:?}"
         );
     }

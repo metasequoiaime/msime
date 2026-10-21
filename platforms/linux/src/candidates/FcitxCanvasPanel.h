@@ -173,8 +173,10 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
   FcitxCanvasPanel panel;
   std::array<int, 4> edge{};
   for (std::size_t at = 0; at < edge.size(); ++at) edge[at] = static_cast<int>(std::ceil((*widths)[at]));
+  // 没写 content_insets_dip 的 canvas 包仍在贴图边宽内留 7 px（原先 Linux 卡片的 1 px 发丝线加 6 px 内边距）：贴图是包自己的外观，不跟着原生卡片改成 macOS 的 4 px。
+  constexpr int kCanvasContentPadding = 7;
   for (std::size_t at = 0; at < edge.size(); ++at)
-    panel.content[at] = edge[at] + FcitxPanelGeometry::padding + 1;
+    panel.content[at] = edge[at] + kCanvasContentPadding;
   if (summary.contains("contentInsetsDip")) {
     const auto insets = fcitx_canvas_insets(summary["contentInsetsDip"]);
     if (!insets) return std::nullopt;
@@ -233,6 +235,46 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
   panel.file = std::string(kFcitxCanvasPrefix) + fcitx_content_hash(rendered[0] + rendered[1]) + ".png";
   panel.images = {{panel.file, std::move(rendered[0])}, {fcitx_overlay_2x_name(panel.file), std::move(rendered[1])}};
   return panel;
+}
+
+// 皮肤背景图画成主题的叠图（见 CandidateFcitxTheme.h 的 FcitxBackgroundRenderer）：用共享层的解码器读包里的图片（PNG、JPEG、GIF、WebP 都行，动图取第一帧），按 fit 放进 width×height 的框里，cover 铺满后居中裁切、contain 完整放进并居中、stretch 两个方向各自拉伸，再乘上不透明度，各画一张 1x 和 2x 的 PNG。读不出、解不开或画不出时返回 `nullopt`，主题就不带背景图。
+inline std::optional<std::pair<std::string, std::string>> render_fcitx_background(const CandidateSkinBackground &background,
+                                                                                 int width, int height, double opacity) {
+  if (width <= 0 || height <= 0 || width > 2048 || height > 2048) return std::nullopt;
+  const auto bytes = read_fcitx_canvas_image(background.image);
+  if (!bytes) return std::nullopt;
+  using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
+  Surface image(decode_fcitx_canvas_image(*bytes), cairo_surface_destroy);
+  if (!image || cairo_surface_status(image.get()) != CAIRO_STATUS_SUCCESS) return std::nullopt;
+  const double source_width = cairo_image_surface_get_width(image.get());
+  const double source_height = cairo_image_surface_get_height(image.get());
+  if (source_width <= 0 || source_height <= 0) return std::nullopt;
+  double scale_x = width / source_width;
+  double scale_y = height / source_height;
+  if (background.fit == CandidateSkinBackgroundFit::cover) scale_x = scale_y = std::max(scale_x, scale_y);
+  else if (background.fit == CandidateSkinBackgroundFit::contain) scale_x = scale_y = std::min(scale_x, scale_y);
+  std::array<std::string, 2> rendered;
+  for (int scale = 1; scale <= 2; ++scale) {
+    Surface target(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width * scale, height * scale), cairo_surface_destroy);
+    std::unique_ptr<cairo_t, decltype(&cairo_destroy)> cr(cairo_create(target.get()), cairo_destroy);
+    cairo_scale(cr.get(), scale, scale);
+    cairo_translate(cr.get(), (width - source_width * scale_x) / 2, (height - source_height * scale_y) / 2);
+    cairo_scale(cr.get(), scale_x, scale_y);
+    // 只画图片本身的范围；PAD 让放大时边缘像素一直延伸到范围边上，边缘不会被插值成半透明。
+    cairo_rectangle(cr.get(), 0, 0, source_width, source_height);
+    cairo_clip(cr.get());
+    cairo_set_source_surface(cr.get(), image.get(), 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr.get()), CAIRO_FILTER_GOOD);
+    cairo_pattern_set_extend(cairo_get_source(cr.get()), CAIRO_EXTEND_PAD);
+    cairo_paint_with_alpha(cr.get(), std::clamp(opacity, 0.0, 1.0));
+    if (cairo_status(cr.get()) != CAIRO_STATUS_SUCCESS || cairo_surface_status(target.get()) != CAIRO_STATUS_SUCCESS)
+      return std::nullopt;
+    if (cairo_surface_write_to_png_stream(target.get(), [](void *closure, const unsigned char *data, unsigned int length) {
+      static_cast<std::string *>(closure)->append(reinterpret_cast<const char *>(data), length);
+      return CAIRO_STATUS_SUCCESS;
+    }, &rendered[scale - 1]) != CAIRO_STATUS_SUCCESS) return std::nullopt;
+  }
+  return std::pair{std::move(rendered[0]), std::move(rendered[1])};
 }
 
 } // namespace msime::linux_host

@@ -99,7 +99,18 @@ assert activate.index("state->render();") < activate.index(focus_hint)
 # 获得焦点时的光标徽章要等输入框补报光标（GTK、Qt 在获得焦点之后的空闲回调里才报），整个插件只用一块徽章表面，新的提示替换屏幕上那块。
 assert "InputContextCursorRectChanged" in source and "settleFocusInputModeHud();" in source
 assert "mode_badge_focus_hint(hint, caret_rect)" in source
-assert "engine_->modeBadge()" in source and "engine_->scheduleModeBadgeHide();" in source
+assert "engine_->modeBadge()" in source and "engine_->scheduleModeBadgeHide(ic_);" in source
+# 全 0 的光标报告不算（还没有光标），接着等；宽高为 0 的点状光标（XIM 客户端）是真实位置。
+cursor_watch = source[source.index("mode_hud_cursor_watch_ = instance->watchEvent(") :]
+cursor_watch = cursor_watch[: cursor_watch.index("});")]
+assert cursor_watch.index("mode_badge_caret_usable(") < cursor_watch.index("settleFocusInputModeHud();")
+# 失焦或换输入法时立刻收起这个上下文的徽章（macOS 的 deactivateServer:），开始打字就作废还在等光标的获得焦点提示。
+deactivate = source[source.index("void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override") :]
+deactivate = deactivate[: deactivate.index("void holdMenuContext(")]
+assert "state->cancelFocusInputModeHud();" in deactivate and "dismissModeBadge(event.inputContext());" in deactivate
+key_event_body = source[source.index("void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override") :]
+key_event_body = key_event_body[: key_event_body.index("std::string subModeLabelImpl(")]
+assert key_event_body.index("if (!event.isRelease()) state->cancelFocusInputModeHud();") < key_event_body.index("state->keyDown(event);")
 # Linux 应用普遍把 Ctrl+Shift+P 用作命令面板或隐私窗口；Fcitx5 只从工具栏菜单插入宣传文字，与 macOS 相同。
 assert "FcitxKey_P ? FcitxKey_p" not in source
 assert "toggle_chord_held_ = FcitxKey_p" not in source
@@ -204,9 +215,17 @@ def body(text, signature):
     raise AssertionError(signature)
 
 
-# 原生画布与框架菜单共用操作列表；只有已固定的候选才提供取消固定。
+# 原生画布与框架菜单共用操作列表；只有已固定的候选才提供取消固定。顺序照 macOS 的「候选操作」菜单：置顶、固定排位、取消固定、删除。
 menu_actions = body(source, "std::vector<std::pair<int, std::string>> candidateMenuActions(")
-assert 'if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");' in menu_actions
+assert "if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);" in menu_actions
+assert (
+    menu_actions.index("candidate_pin_label")
+    < menu_actions.index("candidate_fix_label(slot)")
+    < menu_actions.index("candidate_clear_fix_label")
+    < menu_actions.index("candidate_remove_label")
+)
+# 关掉页码时主题不生成 ‹ ›：两节只在 page_arrows 为真时写出。
+assert "if (style.page_arrows)" in candidate_theme
 framework_actions = body(source, "candidateActions(const fcitx::CandidateWord &candidate) const override")
 native_canvas = body(source, "bool FcitxState::renderNativeCanvas()")
 assert "candidateMenuActions(state_, *item)" in framework_actions
@@ -227,19 +246,22 @@ assert key_event.index("state->countKeyPress(event);") < key_event.index("state-
 assert key_event.index("state->keyDown(event);") < key_event.index("state->key(event)")
 assert key_event.index("state->key(event)") < key_event.index("state->keySettled(comboBefore);")
 ibus_key_event = body(ibus_source, "gboolean process_key_and_count(")
-assert ibus_key_event.index("key_down(engine, key, flags);") < ibus_key_event.index(
+assert ibus_key_event.index("key_down(engine, key, keycode, flags);") < ibus_key_event.index(
     "process_key(engine, key, keycode, flags)"
 )
 assert ibus_key_event.index("process_key(engine, key, keycode, flags)") < ibus_key_event.index(
     "key_settled(engine, combo_before);"
 )
-for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")):
+for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint keycode, guint flags)")):
     traits = "syncFieldTraits();" if "syncFieldTraits" in key_down else "s.report_field_traits();"
     assert key_down.index(traits) < key_down.index("msime_client_key(")
-    # 自动重复与 macOS 一样不交给生命周期核心：认出重复就返回，排在报告字段属性和 msime_client_key 之前。
+    # 自动重复与 macOS 一样不出声、不画：按硬件键码认出重复，报告字段属性之后只用 lifecycle_silent_turn 开新的一轮就返回，脚本 fuel 因此仍按每次按下给。
     assert "lifecycle_key(msime::linux_host::key_sound_class(" in key_down
-    repeat = "key_repeat_.press(sym)" if "key_repeat_" in key_down else "s.key_repeat.press(key)"
-    assert key_down.index(repeat) < key_down.index(traits) < key_down.index("msime_client_key(")
+    repeat = "key_repeat_.press(keycode)" if "key_repeat_" in key_down else "s.key_repeat.press(keycode)"
+    release = "key_repeat_.release(keycode)" if "key_repeat_" in key_down else "s.key_repeat.release(keycode)"
+    assert release in key_down
+    silent = key_down.index("lifecycle_silent_turn()")
+    assert key_down.index(repeat) < key_down.index(traits) < silent < key_down.index("return;", silent) < key_down.index("lifecycle_key(")
     assert "key_press_sounds(" in key_down
     # 隐私字段不由宿主拦着：核心按字段属性决定静音，这样只带 NoSpellCheck 的字段才能照常出声。
     assert "privateInput()" not in key_down and "private_input" not in key_down
@@ -272,7 +294,7 @@ unchanged = ibus_content_type.index("if (blocked == s.blocked && private_input =
 assert unchanged < ibus_content_type.index("s.report_field_traits();", unchanged) < ibus_content_type.index("return;", unchanged) < ibus_content_type.index("s.close();")
 assert "state->syncFieldTraits();" in source[source.index("InputContextCapabilityChanged") :]
 # IBus 的会话由 process_key 惰性创建：key_down 在判断会话之前先打开它（同 Fcitx5 在 keyDown 之前跑的 ensure()），词库维护或出错关掉会话后的第一个键才有按键音，它的派发也才属于它自己这一轮。
-ibus_key_down = body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")
+ibus_key_down = body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint keycode, guint flags)")
 assert ibus_key_down.index("key_press_sounds(") < ibus_key_down.index("s.open();") < ibus_key_down.index("if (!s.session ||") < ibus_key_down.index("msime_client_key(")
 # 设置里的声音（plugins）变了而本会话正激活着时，两个宿主都再声明一次激活：set_active 对选择加入的会话总是返回 true，MusicActivity 不会重试，不重新声明的话刚打开的背景音乐要等下一次换焦点才响。
 ibus_live = body(ibus_source, "void apply_live_preferences(IBusEngine *engine, Json snapshot) {")
@@ -343,10 +365,15 @@ assert (
     'DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")'
     in cmake
 )
-# The IBus candidate property menu uses the shared Windows wording (置顶, 固定到第 N 位, 取消固定) and takes the slot from the CandidateFixN action name.
+# IBus 候选属性菜单用共享文案（置顶、固定到第 N 位、取消固定、删除），按 macOS「候选操作」菜单的顺序排列，并从 CandidateFixN 动作名取格位。
 assert "msime::linux_host::candidate_pin_label" in ibus_source
 assert "candidate_fix_label(fix[12] - '0')" in ibus_source
-assert 'ibus_text_new_from_static_string("取消固定")' in ibus_source
+assert "ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)" in ibus_source
+assert (
+    ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)")
+    < ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label)")
+)
+assert '"删除候选"' not in ibus_source
 assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source
@@ -628,9 +655,31 @@ for marker in (
     "updateVoiceOverlay",
     "hideVoiceOverlay",
     "wave_overlay_.set_input_level",
-    "wave_overlay_.actions_visible = true",
+    "syncVoiceOverlaySources",
+    "wave_overlay_dismissed_",
+    "dismissVoiceFailure",
+    "msime::linux_host::wave_overlay_feedback_text(wave_overlay_)",
+    "msime::linux_host::kWaveOverlayFailureMilliseconds",
 ):
     assert marker in source, marker
+# 圆形操作按钮何时显示由浮层决定（空格锁定的录音或正在识别时，与 macOS 一样）；宿主不再在每次录音开始时打开它们。
+assert "actions_visible = true" not in source
+# 在浮层 `update()` 里处理的点击可能重置正在运行回调的帧定时器，销毁闭包；回调在 `update()` 之后不经捕获读取任何东西。
+frame_timer = source[source.index("wave_overlay_frame_timer_ = loop_->addTimeEvent("):source.index("} else if (!animate && wave_overlay_frame_timer_) {")]
+after_update = frame_timer[frame_timer.index("self->wave_overlay_surface_->update(self->wave_overlay_);"):]
+assert "auto *const self = this;" in frame_timer
+assert "self->wave_overlay_frame_timer_.get() == timer" in after_update
+assert "\n            if (wave_overlay_" not in after_update
+# 在 IBus 上浮层画出的失败提示同样不因继续打字而消失，与 macOS 和 Fcitx5 宿主一样，后者的 `render()` 从不收起它。
+assert "s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {")
+# 失败提示只由浮层承载，与 macOS 一样：IBus 不再往辅助行另写一份（画不出浮层时 `FallbackSurface` 退到辅助文字），Fcitx5 只在画不出浮层时写辅助行；否则浮层收起后那份副本一直留在候选窗里。
+assert "ibus_engine_update_auxiliary_text" not in body(ibus_source, "void show_voice_failure(IBusEngine *engine, const char *message) {")
+assert "if (!(wave_overlay_visible_ && wave_overlay_surface_->animates())) {" in body(source, "void showVoiceFailure(const char *message) {")
+# IBus 会话的每条出口都收起浮层并撤掉帧定时器和 fd 监听：`guarded()` 兜底和词典维护释放会话之后不再经过 `render()`。
+assert "release_wave_overlay();" in body(ibus_source, "\n  void close() {")
+assert "g_source_remove(wave_overlay_timer);" in body(ibus_source, "void release_wave_overlay() {")
+# 浮层对 Cairo 和 Pango 的依赖不放进 `X11_SURFACE`，因为后者还决定是否构建 X11 的 Caps Lock 释放。
+assert "pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)\n" in (root / "CMakeLists.txt").read_text()
 assert "WaveOverlayX11Surface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 
@@ -674,6 +723,23 @@ for action in (
     assert f"append(" in source and action in source, action
 # A rebuild removes exactly what it added; the menu is shared across contexts.
 assert "toolbar_entries_" in source
+# english_mode 管的是中英文那一项（macOS 的 _inputModeButton），工具栏里没有「英文候选模式」；托盘留着失焦的上下文时不列语音和宣传，失焦时重建子菜单。
+toolbar_menu = source[source.index("void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {") :]
+toolbar_menu = toolbar_menu[: toolbar_menu.index("class FcitxFactory")]
+assert 'append(toolbar.value("english_mode", true), &input_mode_action_);' in toolbar_menu
+assert "&english_action_" not in toolbar_menu
+assert "&& focused, &voice_action_);" in toolbar_menu and "append(focused, &promotion_action_);" in toolbar_menu
+hold = source[source.index("void holdMenuContext(fcitx::InputContext *ic) {") :]
+hold = hold[: hold.index("\n  }\n")]
+assert hold.index("rebuildToolbarMenu(ic);") < hold.index("arrangeStatusArea(ic);")
+# IBus 的工具栏子菜单用同一套菜单文案（MenuLabels.h），同一个开关管同一项。
+ibus_toolbar = ibus_source[ibus_source.index("IBusProperty *toolbar_property(IBusEngine *engine) {") :]
+ibus_toolbar = ibus_toolbar[: ibus_toolbar.index("\n}\n")]
+assert "Toolbar/EnglishMode" not in ibus_source
+assert 'append_toggle("Toolbar/InputMode", msime::linux_host::menu_label::kChineseInput,' in ibus_toolbar
+assert 'available && toolbar.value("english_mode", true), s.input_enabled);' in ibus_toolbar
+for label in ("kChinesePunctuation", "kFullwidth", "kTraditionalOutput", "kSettings", "kScheme"):
+    assert f"msime::linux_host::menu_label::{label}" in ibus_toolbar, label
 
 # 还没做首次配置时，激活和按键两条路径都要给出具体提示，而不是笼统的「请检查运行配置」；但只有激活会打开设置窗口，打字途中弹出的窗口可能抢走键盘焦点。引导走与 IBus 启动器同一个脚本，每个登录会话只弹一次的限制因此两边共用。
 assert (

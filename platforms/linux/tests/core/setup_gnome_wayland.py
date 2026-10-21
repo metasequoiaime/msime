@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """msime-linux-setup 在 GNOME 的 Wayland 会话里提示不要为 GTK 设 GTK_IM_MODULE=fcitx：那样 GTK 程序的候选窗由 fcitx5-gtk 的客户端面板绘制，会不停闪烁、不用水杉主题。只在注册进 Fcitx5、会话是 GNOME Wayland、本进程或用户级 systemd 的 GTK_IM_MODULE 是 fcitx 时提示。纯函数，不碰真实的会话。
 """
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
+import json
+import os
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
@@ -45,6 +50,18 @@ def main() -> int:
     # 注册进 IBus 或没有在运行的框架：不提示。
     assert note("ibus", {**gnome_wayland, "GTK_IM_MODULE": "fcitx"}, {}) is None
     assert note(None, {**gnome_wayland, "GTK_IM_MODULE": "fcitx"}, {}) is None
+
+    # 设置应用的首次配置页（MSIME_LINUX_SETUP_REPORT=1）把这条提示和 Fcitx5 的托盘说明各作为一行机读的 note 收进结果卡片，配置成功时不必展开详细输出也看得到；终端里只打印给人看的文字。
+    def run_next_steps(report: bool) -> str:
+        environment = {**gnome_wayland, "GTK_IM_MODULE": "fcitx", "MSIME_LINUX_SETUP_REPORT": "1" if report else ""}
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(output):
+            setup.next_steps(Path("/state"), "fcitx5", "已把「水杉输入法」加入 Fcitx5 当前输入法组「默认」。")
+        return output.getvalue()
+
+    reported = [json.loads(line.split(": ", 1)[1]) for line in run_next_steps(True).splitlines() if line.startswith("msime-setup-note: ")]
+    assert reported == [setup.FCITX5_TRAY_NOTE, message], reported
+    assert "msime-setup-" not in run_next_steps(False)
     print("setup GNOME Wayland note: ok")
     return 0
 

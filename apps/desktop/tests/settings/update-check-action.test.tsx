@@ -155,3 +155,32 @@ test("a release the page cannot show safely is reported as a failed check", asyn
   expect(result.current.available).toBeNull();
   expect(result.current.status).toBe("检查失败，请稍后重试");
 });
+
+test("后台检查已经找到的新版本在页面打开时直接显示，没有新版本时不改状态", async () => {
+  const checkUpdate = vi.fn();
+  const pendingUpdateCheck = vi.fn().mockResolvedValue(available("9.9.9"));
+  const { result } = renderHook(() =>
+    useUpdateCheck({
+      checkUpdate,
+      pendingUpdateCheck,
+      platform: "linux",
+      currentAppVersion: "1.0.0",
+    }),
+  );
+  await waitFor(() => expect(result.current.available?.version.display).toBe("9.9.9"));
+  expect(result.current.status).toBe("发现新版本 v9.9.9");
+  expect(checkUpdate).not.toHaveBeenCalled();
+
+  const nothing = vi.fn().mockResolvedValue(null);
+  const quiet = renderHook(() =>
+    useUpdateCheck({
+      checkUpdate,
+      pendingUpdateCheck: nothing,
+      platform: "linux",
+      currentAppVersion: "1.0.0",
+    }),
+  );
+  await waitFor(() => expect(nothing).toHaveBeenCalled());
+  expect(quiet.result.current.available).toBeNull();
+  expect(quiet.result.current.status).toBe("");
+});

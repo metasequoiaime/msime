@@ -35,7 +35,7 @@ export function testHost(
     candidate_font_controls: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
-    app_logo: macos || platform === "windows",
+    app_logo: macos || platform === "windows" || linux,
     expand_candidates: macos,
     // 桌面宿主（macOS、Windows、Linux、HarmonyOS）的各界面一律跟随颜色模式，只有候选窗口仍能单独设明暗（host_surface.rs）。
     surface_themes_follow: !android && platform !== "ios",

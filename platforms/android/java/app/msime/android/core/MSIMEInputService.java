@@ -10,6 +10,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
+import android.database.ContentObserver;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -416,6 +418,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
+    private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -748,6 +751,19 @@ public final class MSIMEInputService extends InputMethodService {
     boolean emojiLoading;
     private long emojiLoadGeneration;
     final Handler main = new Handler(Looper.getMainLooper());
+    private final ContentObserver inputMethodWatcher = new ContentObserver(main) {
+        @Override public void onChange(boolean selfChange) {
+            automaticNumberRow.inputMethodChanged();
+            // 回调异步到达：切回本输入法后仍在密码/终端中时，按当前编辑器重新开启。
+            String selected;
+            try { selected = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD); }
+            catch (SecurityException unavailable) { selected = null; }
+            EditorInfo info = getCurrentInputEditorInfo();
+            if (selected != null && selected.startsWith(getPackageName() + "/") && isInputViewShown() && info != null)
+                automaticNumberRow.enterEditor(info.inputType, info.packageName);
+            if (keyboardRoot != null) render();
+        }
+    };
     Runnable backspaceRepeatTask;
     Button backspaceRepeatButton;
     boolean backspaceRepeated;
@@ -1490,6 +1506,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
@@ -1631,6 +1648,8 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        getContentResolver().registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
         LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
@@ -1654,6 +1673,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -1847,6 +1867,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        getContentResolver().unregisterContentObserver(inputMethodWatcher);
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -4278,15 +4299,15 @@ public final class MSIMEInputService extends InputMethodService {
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
     }
 
-    /** 现在字母上方要不要画数字行（#6022）：开关打开、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
+    /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
     boolean numberRowDrawn() {
-        return KeyboardLayout.drawsNumberRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsNumberRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 
     /** 数字、符号页保留源字母数字行占用的一排。 */
     boolean symbolExtraRowDrawn() {
-        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsSymbolExtraRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 

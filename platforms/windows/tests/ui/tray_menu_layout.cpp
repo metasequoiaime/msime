@@ -45,6 +45,7 @@ int main() {
   state.themes = {{"system", "跟随系统"}, {"shuishan", "水杉"}, {"night", "夜青"}};
   state.language_hint = tray_menu_language_hint(true, false, true);
   all.cloud_clipboard = true;
+  all.cloud_dictionary = true;
   const auto items = tray_menu_items(all, state);
   // 输入方案页：返回行、分隔线和方案的单选行。
   auto schemes_of = [&](const TrayMenuCapabilities &capabilities,
@@ -52,7 +53,7 @@ int main() {
     return tray_menu_items(capabilities, value, TrayMenuPage::Schemes);
   };
 
-  // 主页的顺序：标题、输入语言和英文候选模式、几个开关、输入方案和主题两个翻页行、宿主工具条，然后是云剪贴板和设置应用的页面。
+  // 主页的顺序：标题、输入语言和英文候选模式、几个开关、输入方案和主题两个翻页行、宿主工具条（与 macOS 同序：工具栏、表情、键盘、手写、语音），然后是云剪贴板、云词库和设置应用的页面。
   {
     using K = TrayMenuRowKind;
     using C = TrayMenuCommand;
@@ -73,11 +74,12 @@ int main() {
         {K::Separator, C::OpenSettings},
         {K::Tool, C::ToggleFloatingToolbar},
         {K::Tool, C::OpenEmojiPanel},
-        {K::Tool, C::OpenHandwritingPanel},
         {K::Tool, C::OpenKeyboardPanel},
+        {K::Tool, C::OpenHandwritingPanel},
         {K::Tool, C::ToggleVoiceInput},
         {K::Separator, C::OpenSettings},
         {K::Item, C::OpenCloudClipboard},
+        {K::Item, C::OpenCloudDictionary},
         {K::Item, C::OpenDictionary},
         {K::Item, C::OpenSettings},
         {K::Item, C::OpenAbout},
@@ -89,7 +91,8 @@ int main() {
         require(items[index].command == expected[index].second);
     }
     require(items[0].label == "水杉输入法");
-    require(items[2].label == "中文" && items[3].label == "英文" &&
+    // 与 macOS 输入菜单相同的文案。
+    require(items[2].label == "中文输入" && items[3].label == "英文输入" &&
             items[4].label == "英文候选模式");
     require(items[6].label == "繁体输出" && items[7].label == "全角字符" &&
             items[8].label == "中文标点" && items[9].label == "显示译文");
@@ -97,8 +100,9 @@ int main() {
             items[11].submenu);
     require(items[12].label == "主题" && items[12].hint == "水杉" &&
             items[12].submenu);
-    require(items[20].label == "云剪贴板…" && items[21].label == "词库…" &&
-            items[22].label == "设置…" && items[23].label == "关于水杉输入法");
+    require(items[20].label == "云剪贴板…" && items[21].label == "云词库…" &&
+            items[22].label == "词库…" && items[23].label == "水杉输入法设置…" &&
+            items[24].label == "关于水杉输入法…");
     for (const auto &row : items)
       require(!row.back && (row.submenu == (row.command == C::ShowSchemes ||
                                             row.command == C::ShowThemes) ||
@@ -159,6 +163,7 @@ int main() {
     require(!tray_menu_closes_after(command));
   require(tray_menu_closes_after(TrayMenuCommand::SelectTheme) &&
           tray_menu_closes_after(TrayMenuCommand::OpenCloudClipboard) &&
+          tray_menu_closes_after(TrayMenuCommand::OpenCloudDictionary) &&
           tray_menu_closes_after(TrayMenuCommand::ToggleTraditionalOutput) &&
           tray_menu_closes_after(TrayMenuCommand::ToggleDedicatedEnglish));
 
@@ -173,7 +178,8 @@ int main() {
     wubi_state.scheme = "wubi";
     const auto main = tray_menu_items(wubi, wubi_state);
     require(main.size() == items.size());
-    require(main[0].label == "水杉五笔" && main.back().label == "关于水杉五笔");
+    require(main[0].label == "水杉五笔" && main.back().label == "关于水杉五笔…");
+    require(main[find(main, TrayMenuCommand::OpenSettings)].label == "水杉五笔设置…");
     require(main[find(main, TrayMenuCommand::ShowSchemes)].hint == "五笔 86");
     const auto rows = schemes_of(wubi, wubi_state);
     require(rows.size() == 3);
@@ -315,7 +321,7 @@ int main() {
     auto japanese = state;
     japanese.scheme = "japanese";
     const auto rows = tray_menu_items(all, japanese);
-    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "日文");
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "日语输入");
     require(checked(schemes_of(all, japanese), TrayMenuCommand::SelectJapanese));
   }
   {
@@ -323,7 +329,7 @@ int main() {
     auto korean = state;
     korean.scheme = "korean";
     const auto rows = tray_menu_items(all, korean);
-    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "韩文");
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "韩语输入");
     require(checked(schemes_of(all, korean), TrayMenuCommand::SelectKorean));
   }
   {
@@ -331,19 +337,19 @@ int main() {
     auto vietnamese = state;
     vietnamese.scheme = "vietnamese";
     auto rows = tray_menu_items(all, vietnamese);
-    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "越南文");
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "越南语输入");
     require(checked(schemes_of(all, vietnamese), TrayMenuCommand::SelectVietnamese));
-    // 藏文同样是独立的语言，语言行显示「藏文」。
+    // 藏文同样是独立的语言，语言行显示「藏文输入」。
     auto tibetan = state;
     tibetan.scheme = "tibetan";
     rows = tray_menu_items(all, tibetan);
-    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "藏文");
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "藏文输入");
     require(checked(schemes_of(all, tibetan), TrayMenuCommand::SelectTibetan));
     for (const char *chinese : {"cantonese", "zhuyin", "stroke"}) {
       auto next = state;
       next.scheme = chinese;
       rows = tray_menu_items(all, next);
-      require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "中文");
+      require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "中文输入");
     }
   }
   // The shuangpin row names the stored layout, and falls back to the plain name.
@@ -429,7 +435,8 @@ int main() {
   for (auto command :
        {TrayMenuCommand::OpenEmojiPanel, TrayMenuCommand::OpenHandwritingPanel,
         TrayMenuCommand::OpenKeyboardPanel, TrayMenuCommand::ToggleVoiceInput,
-        TrayMenuCommand::OpenCloudClipboard, TrayMenuCommand::OpenDictionary,
+        TrayMenuCommand::OpenCloudClipboard, TrayMenuCommand::OpenCloudDictionary,
+        TrayMenuCommand::OpenDictionary,
         TrayMenuCommand::OpenSettings, TrayMenuCommand::OpenAbout})
     require(!available(limited, command));
   // 主题页的主题行只写偏好，不需要外壳；「主题设置…」要设置窗口。
@@ -482,7 +489,7 @@ int main() {
   require(near(geometry.size.width, 260.0));
   const double expected_height =
       metrics.padding * 2.0 + metrics.header_height +
-      metrics.separator_height * 5.0 + metrics.row_height * 13.0 +
+      metrics.separator_height * 5.0 + metrics.row_height * 14.0 +
       metrics.tool_height;
   require(near(geometry.size.height, expected_height));
   require(near(tray_menu_size(items, metrics).height, expected_height));
@@ -496,6 +503,7 @@ int main() {
     require(tray_menu_geometry(tray_menu_items(all, state, TrayMenuPage::Themes),
                                metrics)
                 .size.height <= work);
+    // 200% 缩放的 1080p 工作区（约 500 DIP）：比设计高度矮，压到最小行高放得下，最后一行不被裁掉。
     const double short_work = 500.0;
     const auto fitted = tray_menu_fitted_metrics(items, metrics, short_work);
     require(fitted.row_height < metrics.row_height &&

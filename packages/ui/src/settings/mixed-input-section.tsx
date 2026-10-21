@@ -41,7 +41,7 @@ export function MixedInputSection({
         {showMinimumPrefix && (
           <SelectRow
             title="触发字符数"
-            description="预编辑字母达到该长度后才出现英文候选项"
+            description="达到该长度后补全英文；26 键中更短的完整词仍可选"
             disabled={state.minimumPrefixDisabled}
             value={preferences.minimum_prefix}
             onChange={(event) =>

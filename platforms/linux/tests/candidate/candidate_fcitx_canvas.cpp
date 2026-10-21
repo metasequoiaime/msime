@@ -115,6 +115,40 @@ int main() {
   assert(!host::prepare_fcitx_canvas_panel(summary, root, "fixture", true));
   assert(!host::fcitx_canvas_directory(Json{{"directory", "relative"}}));
   assert(host::fcitx_canvas_directory(Json{{"directory", root.string()}}) == root);
+
+  // 皮肤背景图按 fit 画进框里：一张 4x2 的图，左半红、右半蓝，放进 20x20 的框。
+  {
+    host::FcitxCanvas photo(4, 2, 1);
+    for (int y = 0; y < 2; ++y) for (int x = 0; x < 4; ++x) photo.blend(x, y, x < 2 ? 0xff0000 : 0x0000ff, 1);
+    const auto source = skin / "background.png";
+    std::ofstream(source, std::ios::binary) << host::fcitx_png_encode(photo);
+    const auto rendered = [&](host::CandidateSkinBackgroundFit fit, double opacity) {
+      const auto result = host::render_fcitx_background({source.string(), fit, 1.0}, 20, 20, opacity);
+      assert(result);
+      const auto one = root / "background-1x.png";
+      const auto two = root / "background-2x.png";
+      std::ofstream(one, std::ios::binary) << result->first;
+      std::ofstream(two, std::ios::binary) << result->second;
+      auto *doubled = cairo_image_surface_create_from_png(two.c_str());
+      assert(cairo_image_surface_get_width(doubled) == 40 && cairo_image_surface_get_height(doubled) == 40);
+      cairo_surface_destroy(doubled);
+      return one;
+    };
+    // cover 铺满整个框，两边裁掉：左上角是红色，右上角是蓝色，四角都不透明。
+    const auto cover = rendered(host::CandidateSkinBackgroundFit::cover, 1.0);
+    assert(pixel(cover, 1, 1) == 0xffff0000u && pixel(cover, 18, 1) == 0xff0000ffu && pixel(cover, 1, 18) >> 24 == 0xff);
+    // contain 完整放进框里，上下留空：顶上一行透明，中间一行是图。
+    const auto contain = rendered(host::CandidateSkinBackgroundFit::contain, 1.0);
+    assert(pixel(contain, 10, 1) == 0 && pixel(contain, 1, 10) == 0xffff0000u && pixel(contain, 18, 10) == 0xff0000ffu);
+    // stretch 两个方向各自拉满；不透明度乘进 alpha。
+    const auto stretch = rendered(host::CandidateSkinBackgroundFit::stretch, 0.5);
+    assert(pixel(stretch, 1, 1) >> 24 >= 0x7f && pixel(stretch, 1, 1) >> 24 <= 0x80 && pixel(stretch, 1, 18) >> 24 >= 0x7f);
+    // 读不到或解不开的图不画。
+    assert(!host::render_fcitx_background({(skin / "missing.png").string()}, 20, 20, 1.0));
+    std::ofstream(skin / "broken.png", std::ios::binary) << "not an image";
+    assert(!host::render_fcitx_background({(skin / "broken.png").string()}, 20, 20, 1.0));
+    assert(!host::render_fcitx_background({source.string()}, 0, 20, 1.0));
+  }
   std::filesystem::remove_all(root);
   std::cout << "canvas 九宫格像素、明暗、留白、更新与资源边界通过\n";
 }

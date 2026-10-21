@@ -162,6 +162,21 @@ void skin_appearance() {
       {"accent", "#0000FF"}, {"selected_bar", "#00000000"}, {"show_selected_bar", true}};
   layout = host::measure_native_canvas(cr, assets, content);
   assert(layout.metrics.bar_width == 3 && layout.metrics.bar_height == 6);
+  // 候选窗不透明度只淡化卡片底色：选中高亮仍不透明，卡片其余部分的 alpha 按比例降低。
+  {
+    const auto translucent = image(500, 300, 0);
+    cairo_t *faded = cairo_create(translucent.get());
+    cairo_set_operator(faded, CAIRO_OPERATOR_CLEAR);
+    cairo_paint(faded);
+    cairo_set_operator(faded, CAIRO_OPERATOR_OVER);
+    auto see_through = assets;
+    see_through.opacity = 0.5;
+    host::paint_native_canvas(faded, see_through, content, layout, palette);
+    assert(pixel(translucent.get(), rect.x + 2, rect.y + rect.height / 2) >> 24 == 0xff);
+    const auto card = pixel(translucent.get(), layout.items[1].x + 15, layout.items[1].y + layout.items[1].height / 2) >> 24;
+    assert(card >= 0x7f && card <= 0x80);
+    cairo_destroy(faded);
+  }
   host::paint_native_canvas(cr, assets, content, layout, palette);
   assert((pixel(target.get(), rect.x, rect.y) & 0xffffff) == 0xff0000);
   assert((pixel(target.get(), rect.x + rect.width - 1, rect.y) & 0xffffff) == 0);
@@ -221,6 +236,35 @@ void skin_appearance() {
   assert((pixel(target.get(), layout.panel.width - 20, layout.preedit.y + 5) & 0xffffff) == 0x123456);
   assert((pixel(target.get(), layout.items[1].x + 15, layout.items[1].y + 15) & 0xffffff) == 0x654321);
   cairo_destroy(cr);
+}
+
+// 固定了排位的行未选中时正文画 macOS 的固定色 #379AD3，选中时照旧用选中文字色。
+void fixed_position_appearance() {
+  host::NativeCanvasAssets assets;
+  host::NativeCanvasContent content;
+  content.font = "Sans 30px";
+  content.items = {{"", "MMMM"}};
+  content.items[0].fixed = true;
+  const Json palette = {{"surface", "#000000"}, {"selected", "#000000"}, {"hover", "#000000"},
+      {"text", "#FFFFFF"}, {"selected_text", "#FFFFFF"}};
+  const auto ink = [&](int selected) {
+    content.selected = selected;
+    auto target = image(600, 200, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    std::map<std::uint32_t, int> colors;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) ++colors[pixel(target.get(), x, y) & 0xffffff];
+    cairo_destroy(cr);
+    return colors;
+  };
+  auto normal = ink(-1);
+  assert(normal[host::kCandidateFixedPositionColor] > 100 && normal[0xffffff] == 0);
+  auto selected = ink(0);
+  assert(selected[0xffffff] > 100 && selected[host::kCandidateFixedPositionColor] == 0);
+  content.items[0].fixed = false;
+  auto plain = ink(-1);
+  assert(plain[0xffffff] > 100 && plain[host::kCandidateFixedPositionColor] == 0);
 }
 
 void translation_appearance() {
@@ -423,6 +467,12 @@ void constrained_text_layout() {
   assert(paged.pager.visible && paged.width <= 320);
   assert(paged.items.back().y > paged.items.front().y);
   for (const auto &box : paged.items) assert(box.x + box.width < paged.previous.x);
+  // 关掉 show_candidate_page_number 时皮肤要的翻页箭头也不画，候选拿回那一列，点不到翻页。
+  content.page_arrows = false;
+  const auto unpaged = host::measure_native_canvas(cr, assets, content, 320);
+  assert(!unpaged.pager.visible);
+  assert(host::native_canvas_hit(content, unpaged, paged.next.x + paged.next.width / 2,
+                                 paged.next.y + paged.next.height / 2) != -3);
   cairo_destroy(cr);
 }
 
@@ -521,6 +571,7 @@ int main() {
   pager_layout();
   skin_layout();
   skin_appearance();
+  fixed_position_appearance();
   translation_appearance();
   constrained_text_layout();
   // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。

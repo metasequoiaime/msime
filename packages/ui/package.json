@@ -8,7 +8,7 @@
     "./styles.css": "./src/styles.css"
   },
   "dependencies": {
-    "markdown-it": "^15.0.2",
+    "markdown-it": "^15.0.3",
     "postcss": "8.5.28"
   },
   "devDependencies": {

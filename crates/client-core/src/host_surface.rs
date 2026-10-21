@@ -167,7 +167,7 @@ pub struct HostCapabilities {
     pub panel_windows: bool,
     /// The host keeps per-application versus global Chinese/English mode state.
     pub ime_mode_scope: bool,
-    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名。
+    /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名（Fcitx5 的 `InputContext::program()`；IBus 只有经 IBus GTK 输入法模块输入的程序经 1.5.27 起的客户端名报告，GNOME Wayland 下经 GNOME Shell 转发的程序是匿名的）。
     pub app_input_mode_rules: bool,
     /// The host records typing statistics.
     pub typing_statistics: bool,
@@ -208,7 +208,7 @@ pub struct HostCapabilities {
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
     pub candidate_preedit_font: bool,
-    /// The host can hide the candidate panel's page indicator without changing pagination. On macOS that also hides the ‹ › arrows sharing the card's top row.
+    /// The host can hide the candidate panel's page indicator without changing pagination. On macOS and in the Linux Fcitx5 theme that also hides the ‹ › arrows sharing the card's top row.
     pub candidate_page_number: bool,
     /// 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo。
     pub app_logo: bool,
@@ -374,7 +374,7 @@ pub struct HostCapabilities {
     pub caps_lock_language_switch: bool,
     /// 宿主的快捷模式只从实体键盘的 Shift+字母进入，所以「Shift+字母进入快捷模式」总开关（`LocalModePreferences::shift_letter_entry`）在这里有意义。触屏键盘从菜单打开快捷模式，走的也是 Engine 的同一个入口，不提供这个开关，以免关掉后菜单失灵。
     pub shift_letter_entry_switch: bool,
-    /// 宿主把快捷短语编码追加到普通候选。当前只有 macOS 提供，其他宿主仍从 K 模式进入。
+    /// 宿主把快捷短语编码追加到普通候选。macOS 和 Linux 提供，其他宿主仍从 K 模式进入。
     pub quick_phrase_candidates: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
@@ -520,7 +520,7 @@ impl HostCapabilities {
                     | HostPlatform::Harmony
             ),
             // macOS 的输入控制器在每次切换客户端时按 bundle id 查规则；Windows 由 Server 按焦点客户端的进程基名查规则，TIP 激活时也按它定起始模式。其余宿主不认规则，设置页不显示规则表。
-            app_input_mode_rules: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
+            app_input_mode_rules: platform.is_desktop(),
             typing_statistics: true,
             // Every input host consumes the shared fuzzy-pinyin options. The
             // iOS Tauri settings surface writes the same PreferencesStore that
@@ -612,10 +612,13 @@ impl HostCapabilities {
             // candidate size into the panel's font: the IBus panel settings or
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
-            // Linux 的开关只去掉辅助文本里的「当前页/总页数」；macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。键盘和滚轮翻页两边都不受影响。
+            // macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。Linux 去掉辅助文本里的「当前页/总页数」，Fcitx5 的经典界面主题和原生画布也一起不画 ‹ ›；IBus 面板的翻页箭头属于面板，管不到。键盘和滚轮翻页都不受影响。
             candidate_page_number: matches!(platform, HostPlatform::Linux | HostPlatform::Macos),
-            // macOS 和 Windows 按这个开关画 logo；Linux 和鸿蒙的候选窗照常显示 logo，不提供这个开关。
-            app_logo: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
+            // macOS、Windows 和 Linux 按这个开关画 logo（Linux 是 Fcitx5 经典界面主题里的那个，IBus 面板本来就画不了 logo，见 `CandidatePanelLimit::IbusPanel`）；鸿蒙的候选窗照常显示 logo，不提供这个开关。
+            app_logo: matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
+            ),
             // 目前只有 Linux 的 IBus 与 Fcitx5 宿主把变体交给 `msime_client_convert_to_traditional`。
             traditional_chinese_variants: matches!(platform, HostPlatform::Linux),
             // The iOS strip scales its composition line by `candidate_preedit_font_size`.
@@ -650,14 +653,18 @@ impl HostCapabilities {
             candidate_border_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 桌面宿主的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；只有 Android 和 iOS 照旧读。
             candidate_number_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
-            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的桌面面板拥有卡片几何，但可以缩放唯一的 Pango 字体描述，这正是高 DPI 面板需要的部分。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
+            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的 Fcitx5 经典界面主题同样按它缩放圆角、内边距、行边距、阴影、翻页按钮和 logo，IBus 面板只能缩放唯一的 Pango 字体描述。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
             candidate_window_scale: matches!(
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
             ),
+            // Linux 的 Fcitx5 经典界面主题把不透明度写进卡片图片的 alpha（需要合成器，KWin 下还会模糊卡片后面的内容）；IBus 面板做不到，运行中的 IBus 宿主经 `candidate_panel_limit` 让设置页说明这一点。
             candidate_window_opacity: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Linux
             ),
             // Linux 上只有 Fcitx5 的 classicui 主题画圆角；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。
             candidate_corner_radius: matches!(
@@ -667,8 +674,8 @@ impl HostCapabilities {
                     | HostPlatform::Linux
                     | HostPlatform::Harmony
             ),
-            // 只有 macOS 候选窗按 `candidate_padding` 改卡片内边距（#7316）。Windows 的卡片内边距写在 `candidate_card_metrics` 里，Fcitx5 主题和鸿蒙卡片各有自己的边距，接上之前不声明，免得设置页出现一个改了没反应的滑块。
-            candidate_padding: matches!(platform, HostPlatform::Macos),
+            // macOS 候选窗和 Linux 的 Fcitx5 经典界面主题按 `candidate_padding` 改卡片内边距（#7316；IBus 面板做不到，同样经 `candidate_panel_limit` 说明）。Windows 的卡片内边距写在 `candidate_card_metrics` 里，鸿蒙卡片有自己的边距，接上之前不声明，免得设置页出现一个改了没反应的滑块。
+            candidate_padding: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(
@@ -791,12 +798,13 @@ impl HostCapabilities {
             music: platform.is_desktop(),
             // macOS 画火花、卡片闪光和连击徽标（TypingEffectPanel.mm）；Windows 画同样的东西，火花在候选窗旁的光标浮层里（TypingEffectOverlay.cpp），卡片闪光和 Power Mode 的抖动在 CandidateWindow.cpp；两个 Linux 宿主在候选栏的辅助行里显示连击数（KeySound.h）；HarmonyOS 在 KeyboardView 上画闪光和连击徽标。Linux 不画任何样式，只显示计数，设置页自己在那里藏起样式控件（`showTypingEffectStyles`）。HarmonyOS 仍在自己的设置投影里按设备形态收窄；Android 和 iOS 都没有接入。
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // 目前只有 macOS 报告大写锁定（`InputController.mm` 的 `syncCapsLock`）。Windows、Linux 的宿主和带实体键盘的移动端接上同一个调用后在这里加上自己。
-            caps_lock_punctuation: platform == HostPlatform::Macos,
+            // macOS（`InputController.mm` 的 `syncCapsLock`）和 Linux 的两个宿主（IBus 的 `sync_caps_lock`、Fcitx5 的 `syncSessionCapsLock`，都从按键事件带的锁定状态读）报告大写锁定。Windows 的宿主和带实体键盘的移动端接上同一个调用后在这里加上自己。
+            caps_lock_punctuation: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // 三个桌面宿主都在自己的按键路径上分辨 Caps Lock 的轻点和长按：macOS 用 IOKit 撤回大写锁定，Windows 用 SendInput 再按一次，Linux 在 X11 会话里用 XKB 撤回（Wayland 会话里由合成器持有锁定状态，宿主撤不回，那里轻点照常是大写锁定）。
             caps_lock_language_switch: platform.is_desktop(),
             shift_letter_entry_switch: platform.is_desktop(),
-            quick_phrase_candidates: platform == HostPlatform::Macos,
+            // macOS 和 Linux 的两个宿主建会话时都请求 `quick_phrase_candidates`。
+            quick_phrase_candidates: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // Windows 和 Linux 只注册了一个中文输入法，没有别的键盘快捷键能换到日语方案。macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要它。Android 实体键盘和 HarmonyOS 2in1 实体键盘也读共享快捷键，但还没有接上这个组合键，接上的那次改动再在这里加上自己。
             japanese_toggle_shortcut: matches!(
                 platform,

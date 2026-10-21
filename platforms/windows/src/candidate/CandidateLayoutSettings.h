@@ -17,14 +17,17 @@ struct CandidateLayoutSettings {
   bool show_app_logo = false;
   // 横排候选为释义预留几行（0 到 2）：按有释义来源的目标语言预留，最多两行，见 candidate_reserved_gloss_lines；行高的算法和 macOS 的 reservedGlossHeightForFont 一样。
   unsigned reserved_gloss_lines = 0;
+  // 共享偏好 `show_candidate_page_number`：首行画不画「1 / 3」和 ‹ › 两个翻页箭头，文档里没有这个键时按开处理。关掉时两者一起不画，首行也不为它们留高度；键盘和滚轮照常翻页，和 macOS 一致。
+  bool show_page_number = true;
   // The switches travel in one atomic value between monitor and UI threads.
   constexpr unsigned encode() const {
     return (horizontal ? 1u : 0u) | (show_preedit ? 2u : 0u) | (wubi_code_hint ? 4u : 0u) |
-           (show_app_logo ? 8u : 0u) | ((reserved_gloss_lines > 2u ? 2u : reserved_gloss_lines) << 4);
+           (show_app_logo ? 8u : 0u) | ((reserved_gloss_lines > 2u ? 2u : reserved_gloss_lines) << 4) |
+           (show_page_number ? 64u : 0u);
   }
   static constexpr CandidateLayoutSettings decode(unsigned value) {
     return {(value & 1u) != 0, (value & 2u) != 0, (value & 4u) != 0, (value & 8u) != 0,
-            (value >> 4) & 3u};
+            (value >> 4) & 3u, (value & 64u) != 0};
   }
 };
 
@@ -142,10 +145,15 @@ candidate_layout_settings(const nlohmann::json &preferences,
     const auto logo = preferences.find("show_app_logo");
     if (logo != preferences.end() && !logo->is_boolean() && !logo->is_null())
       return std::nullopt;
+    const auto page_number = preferences.find("show_candidate_page_number");
+    if (page_number != preferences.end() && !page_number->is_boolean() && !page_number->is_null())
+      return std::nullopt;
     return CandidateLayoutSettings{layout == "horizontal", preedit != "empty",
                                    hint == preferences.end() || hint->is_null() || hint->get<bool>(),
                                    logo != preferences.end() && logo->is_boolean() && logo->get<bool>(),
-                                   candidate_reserved_gloss_lines(preferences, offline_languages)};
+                                   candidate_reserved_gloss_lines(preferences, offline_languages),
+                                   page_number == preferences.end() || page_number->is_null() ||
+                                       page_number->get<bool>()};
   } catch (...) {
     return std::nullopt;
   }

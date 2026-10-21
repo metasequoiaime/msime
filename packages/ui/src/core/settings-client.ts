@@ -124,6 +124,8 @@ export interface SettingsClient {
   checkForApplicationUpdate?: () => Promise<void>;
   /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
+  /** 宿主在后台已经找到的新版本（Linux 设置应用每天一次的后台检查），关于页打开时直接显示；没有时为 `null`。 */
+  pendingUpdateCheck?: () => Promise<UpdateCheckResult | null>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** 控制台应用通知；宿主读取并缓存通知，记住已关闭的条目。未提供时不显示。 */
   notices?: NoticesClient;

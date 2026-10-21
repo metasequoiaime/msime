@@ -34,6 +34,7 @@
 #include "../src/candidates/CandidateLocalModeLabels.h"
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
+#include "../src/candidates/CandidateRowText.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
@@ -86,6 +87,7 @@
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/ClientInputModeMemory.h"
+#include "../src/core/AppInputModeRules.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/core/KoreanHanja.h"
 #include "../src/core/InputSchemes.h"
@@ -97,9 +99,10 @@
 #include "../src/voice/VoiceAction.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
+#include "../src/overlay/WaveOverlayFeedback.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
 #include "../src/overlay/WaveOverlayX11Surface.h"
 #endif
 #ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
@@ -321,7 +324,7 @@ create_fcitx_wave_overlay_surface(
 #else
   (void)wayland_requested;
 #endif
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
   if (!force_auxiliary && (x11_requested || std::getenv("DISPLAY")))
     return std::make_unique<msime::linux_host::WaveOverlayX11Surface>(
         std::move(handler));
@@ -394,6 +397,15 @@ using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
 // policy bounds this table and provides an anonymous fallback.
 msime::linux_host::ClientInputModeMemory fcitx_app_input_modes;
 std::optional<bool> fcitx_global_input_mode;
+// 应用例外的停留也在插件范围：同一个程序的几个输入上下文属于同一次停留（AppInputModeRules.h）。
+msime::linux_host::AppInputModeRuleStay fcitx_app_rule_stay;
+// 焦点进入 `program` 的上下文。Fcitx5 的上下文建起来时就带着前端报告的程序名，没有 IBus 那种先匿名、稍后补名的协商，所以程序名为空的上下文（不报告程序名的前端，例如部分 Wayland text-input 客户端）获得焦点就是换了客户端，和 macOS、Windows 切到别的程序一样结束这次停留。
+void enterAppRuleStay(const std::string &program) {
+  if (program.empty())
+    fcitx_app_rule_stay.leave();
+  else
+    fcitx_app_rule_stay.enter(program);
+}
 // Addon scope too: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch fcitx_typing_statistics{msime_client_typing_statistics_enabled};
 // Key press writes still running on their own threads, which ~FcitxEngine waits for so the addon library is not unloaded, nor the process ended, under them.
@@ -527,12 +539,7 @@ public:
   FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop, bool system_dark)
       : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark) {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
-        [this](msime::linux_host::WaveOverlayModel::Action action) {
-          if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
-            cancelVoice();
-          else
-            stopVoice();
-        });
+        [this](msime::linux_host::WaveOverlayModel::Action action) { handleVoiceOverlayAction(action); });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshDictionaryQuiesce();
@@ -752,6 +759,12 @@ public:
   void noteCapsLock(bool caps_lock) {
     caps_lock_ = caps_lock;
     refreshModeIndicator();
+  }
+  // 把大写锁定报告给会话（msime_client_set_caps_lock），「大写锁定时使用英文标点」才在这个宿主上生效。会话不从别处得知它、新会话从关开始，所以每个键分发之前比较会话上次收到的值，变了才报告；打开新会话的那个键也在分发之前报告。
+  void syncSessionCapsLock() {
+    if (!session_ || session_caps_lock_ == caps_lock_) return;
+    response(msime_client_set_caps_lock(session_, caps_lock_));
+    session_caps_lock_ = caps_lock_;
   }
   bool restricted() const {
     return ic_.capabilityFlags().testAny(fcitx::CapabilityFlags{
@@ -1174,6 +1187,11 @@ public:
     if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
     showInputModeHud(ModeHudTrigger::FocusSettled);
   }
+  // 撤掉还在等光标的获得焦点提示：用户已经开始打字（候选窗马上出现在光标下方，徽章这时再放上去会盖住它），或者已经离开这个输入框。
+  void cancelFocusInputModeHud() {
+    mode_hud_after_focus_ = false;
+    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
+  }
 #endif
   // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
   void resyncPunctuationForMode() {
@@ -1187,6 +1205,9 @@ public:
     if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
+    // 用户手动切换：这个程序的应用例外在这次停留里让位。
+    fcitx_app_rule_stay.yield(ic_.program());
+    app_rule_active_ = false;
     // 从托盘切换时上下文已经失焦，失焦那一刻记下的是切换前的模式；回到这个应用时按记下的恢复，所以这里重记一次。
     if (!ic_.hasFocus()) rememberInputMode();
     if (!input_enabled_) {
@@ -1509,8 +1530,8 @@ public:
     applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("ime_mode_scope", next);
-    if (next == "global") fcitx_global_input_mode = input_enabled_;
-    else fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
+    // 按新作用域记下当前模式；应用例外定下、还没被手动切换过的模式不写进全局状态，和失焦时一样。
+    rememberInputMode();
     render();
     return true;
   }
@@ -1551,10 +1572,12 @@ public:
   void maintenance(int operation);
   bool reloadService();
   void rememberInputMode() {
-    if (preferences_.value("ime_mode_scope", std::string("app")) == "global")
-      fcitx_global_input_mode = input_enabled_;
-    else
+    if (preferences_.value("ime_mode_scope", std::string("app")) == "global") {
+      // 应用例外定下的模式不改全局状态，和 macOS、Windows 一样；用户在这个程序里手动切换过才算全局的选择。看的是这个上下文自己的 `app_rule_active_`，不是插件范围的停留：失焦时停留可能已经被别的焦点组里先获得焦点的程序换走，再按停留判断就会把用户在这里的手动切换当成规则的模式丢掉。
+      if (!app_rule_active_) fcitx_global_input_mode = input_enabled_;
+    } else {
       fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
+    }
   }
   void restoreInputMode() {
     const auto fallback = preferences_.value("default_ime_mode", "chinese") != "english";
@@ -1562,8 +1585,17 @@ public:
       input_enabled_ = fcitx_global_input_mode.value_or(fallback);
     else
       input_enabled_ = fcitx_app_input_modes.restore(ic_.program(), fallback);
+    applyAppInputModeRule();
     ime_mode_chosen_ = true;
     mode_restore_pending_ = false;
+  }
+  // 应用例外（`app_input_mode_rules`）排在作用域、记忆和 `default_ime_mode` 前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是；用户在这次停留里手动切换后让位，离开再回来重新生效。程序名是 Fcitx5 前端报告的 `program()`，报告不了的前端（空程序名）照旧。
+  void applyAppInputModeRule() {
+    enterAppRuleStay(ic_.program());
+    const auto rule =
+        msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay);
+    app_rule_active_ = rule.has_value();
+    if (rule) input_enabled_ = *rule;
   }
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
@@ -1863,6 +1895,7 @@ public:
         restore_changed_mode = input_enabled_ != before;
       } else {
         input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
+        applyAppInputModeRule();
         ime_mode_chosen_ = true;
       }
     }
@@ -1926,6 +1959,8 @@ public:
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // 和 macOS 一样让快捷短语编码参与普通候选：中文模式下直接打编码，展开就排在普通候选后面，仍可按 Shift+K 进入 K 模式。这是宿主能力，不写进偏好；设置页据 `HostCapabilities.quick_phrase_candidates` 说明这一点。
+    options["quick_phrase_candidates"] = true;
     // The built-in sound packs of this installation, unless the runtime options name others. The Host API's own fallback looks beside the configured resource directory, which is no longer the installed one once the user has downloaded a newer dictionary into their own data directory.
     if (std::error_code error; !options.contains("sound_packs") &&
                                std::filesystem::is_directory(MSIME_SOUND_PACKS, error))
@@ -1938,6 +1973,7 @@ public:
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session_, MSIME_LIFECYCLE_FEEDBACK);
     syncFieldTraits();
+    session_caps_lock_ = false;
     applied_preferences_revision_ = 0;
     msime_linux_diagnostic_write("focus_in");
     session_chinese_punctuation_ =
@@ -2906,10 +2942,68 @@ public:
     emoji_previous_offsets_.clear();
     return requestEmojiPage({});
   }
+  // 浮层上圆形操作按钮的一次点击。浮层在自己的 `update()` 或 `dispatch_events()` 里报告它，所以这里可能运行在帧定时器或显示连接监听的回调之内，并把那个事件源拆掉。
+  void handleVoiceOverlayAction(msime::linux_host::WaveOverlayModel::Action action) {
+    if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
+      cancelVoice();
+    } else if (voice_loading_ && wave_overlay_.processing()) {
+      // 识别或润色进行中点确认只收起浮条，与 macOS 的 `dismissProcessing` 一样；结果到达后照常上屏。
+      wave_overlay_dismissed_ = true;
+      hideVoiceOverlay();
+    } else {
+      stopVoice();
+    }
+  }
   void hideVoiceOverlay() {
     if (wave_overlay_surface_ && wave_overlay_visible_)
       wave_overlay_surface_->hide();
     wave_overlay_visible_ = false;
+    syncVoiceOverlaySources();
+  }
+  // 按屏幕上的实际情况启停 16 ms 的波形动画和浮层显示连接的监听：画出来的浮层显示波形时跑动画，只要画出来的浮层在显示就监听。辅助文本回退两者都不需要。
+  void syncVoiceOverlaySources() {
+    auto *surface = wave_overlay_surface_.get();
+    const bool shown = surface && wave_overlay_visible_ && !wave_overlay_failed_;
+    const bool animate = shown && surface->animates() && wave_overlay_.animates();
+    if (animate && !wave_overlay_frame_timer_ && loop_) {
+      constexpr uint64_t interval = msime::linux_host::kWaveOverlayFrameMilliseconds * 1000;
+      wave_overlay_frame_timer_ = loop_->addTimeEvent(
+          CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + interval, 1000,
+          [this](fcitx::EventSourceTime *timer, uint64_t now) {
+            // `update()` 还会读取 Xlib 或 libwayland 已经排进队列的指针和 expose 事件，在那里处理的操作可能重置 `wave_overlay_frame_timer_`，在调用尚未返回时就销毁这个闭包和它捕获的 `this`。因此 `update()` 之后的一切都经过栈上的这份副本，绝不经过捕获。
+            auto *const self = this;
+            if (self->wave_overlay_surface_ && self->wave_overlay_visible_ && self->wave_overlay_.animates()) {
+              // 提供商的音量在它自己的线程上到达；每一帧读取最新的值，不等 250 ms 的轮询。
+              if (const auto mailbox = self->voice_mailbox_) {
+                std::lock_guard lock(mailbox->mutex);
+                if (mailbox->level_seen) self->wave_overlay_.set_input_level(static_cast<float>(mailbox->level) / 10.0f);
+              }
+              self->wave_overlay_.advance(static_cast<double>(now) / 1e6);
+              self->wave_overlay_surface_->update(self->wave_overlay_);
+            }
+            if (self->wave_overlay_frame_timer_.get() == timer) {
+              timer->setNextInterval(interval);
+              timer->setOneShot();
+            }
+            return true;
+          });
+    } else if (!animate && wave_overlay_frame_timer_) {
+      wave_overlay_frame_timer_.reset();
+      // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
+      wave_overlay_.levels.fill(0.0f);
+    }
+    const int fd = shown ? surface->event_fd() : -1;
+    if (fd != wave_overlay_io_fd_) {
+      wave_overlay_io_.reset();
+      wave_overlay_io_fd_ = fd;
+      if (fd >= 0 && loop_)
+        wave_overlay_io_ = loop_->addIOEvent(fd, fcitx::IOEventFlag::In,
+            [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+              // 在 `dispatch_events()` 里处理的操作可能收起浮层，从而重置 `wave_overlay_io_` 并销毁这个闭包；调用之后不得再读取捕获。
+              if (wave_overlay_surface_ && wave_overlay_visible_) wave_overlay_surface_->dispatch_events();
+              return true;
+            });
+    }
   }
   // Release the session, and with it the shared dictionary lock, when the settings window asks for maintenance (core/DictionaryQuiesceLease.h). The composition is finished first, so nothing typed is lost; ensure() opens a new session once the lease is gone.
   void refreshDictionaryQuiesce() {
@@ -2936,59 +3030,73 @@ public:
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
+    wave_overlay_.listening = voice_loading_ && !wave_overlay_.processing();
     wave_overlay_.locked = voice_space_locked_ && wave_overlay_.listening;
     wave_overlay_.set_transcript(voice_transcript_);
     wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
+    if (wave_overlay_dismissed_) {
+      hideVoiceOverlay();
+      return;
+    }
     if (wave_overlay_surface_ && !wave_overlay_failed_) {
       if (wave_overlay_visible_) {
         wave_overlay_surface_->update(wave_overlay_);
+        syncVoiceOverlaySources();
         return;
       }
       wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      syncVoiceOverlaySources();
       if (wave_overlay_visible_) return;
       // No surface on this display (GNOME Wayland has no layer-shell): the rest of this recording uses the auxiliary text, as the IBus host's FallbackSurface does. The next recording tries the surface again.
       wave_overlay_failed_ = true;
     }
     if (voice_loading_) {
-      std::string status = voice_phase_;
-      if (voice_level_ != 0) status += " " + std::string(voice_level_, '#');
-      if (!voice_transcript_.empty()) status += "：" + voice_transcript_;
-      ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
+      // 与 IBus 宿主回退显示的文字相同：状态或锁定提示、麦克风音量条、最新的转写文字。
+      ic_.inputPanel().setAuxUp(fcitx::Text(msime::linux_host::wave_overlay_feedback_text(wave_overlay_)));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
   }
-  // Tell the user why nothing was typed, as the Windows service does with a message box and the IBus host with show_voice_failure: the overlay (or the auxiliary text when there is no overlay surface) carries a fixed message for 1.2 seconds. The messages are fixed on purpose, since provider errors can carry private values.
+  // 告诉用户为什么什么也没输入，就像 Windows 服务用消息框、macOS 用浮层、IBus 宿主用 `show_voice_failure` 做的那样：浮层（没有浮层时就是辅助文本）显示一条固定消息六秒，或者直到按 Esc、开始下一次录音。消息刻意固定，因为提供商的错误可能带有隐私内容。
   void showVoiceFailure(const char *message) {
     if (++voice_failure_id_ == 0) ++voice_failure_id_;
     const auto id = voice_failure_id_;
-    const std::string aux = std::string("语音：") + message;
+    voice_failure_message_ = message;
     voice_failure_visible_ = true;
+    wave_overlay_dismissed_ = false;
     wave_overlay_.reset();
     wave_overlay_.status = message;
     wave_overlay_.show_transcript = false;
-    wave_overlay_.actions_visible = false;
+    wave_overlay_.failure = true;
     wave_overlay_.listening = false;
     if (wave_overlay_surface_) {
       if (wave_overlay_visible_)
         wave_overlay_surface_->update(wave_overlay_);
       else
         wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      syncVoiceOverlaySources();
     }
-    ic_.inputPanel().setAuxUp(fcitx::Text(aux));
-    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    // 画得出浮层时提示只在浮层上，与 macOS 和 IBus 宿主一样；画不出时才写辅助行，`dismissVoiceFailure` 按内容认领后收掉它。
+    if (!(wave_overlay_visible_ && wave_overlay_surface_->animates())) {
+      ic_.inputPanel().setAuxUp(fcitx::Text(voice_failure_message_));
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
     voice_failure_timer_ = loop_->addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000, 0,
-        [this, id, aux](fcitx::EventSourceTime *, uint64_t) {
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + uint64_t{msime::linux_host::kWaveOverlayFailureMilliseconds} * 1000, 0,
+        [this, id](fcitx::EventSourceTime *, uint64_t) {
           if (voice_loading_ || voice_failure_id_ != id) return true;
-          voice_failure_visible_ = false;
-          hideVoiceOverlay();
-          wave_overlay_.reset();
-          if (ic_.inputPanel().auxUp().toString() == aux) {
-            ic_.inputPanel().setAuxUp(fcitx::Text());
-            ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-          }
+          dismissVoiceFailure();
           return true;
         });
+  }
+  void dismissVoiceFailure() {
+    if (!voice_failure_visible_) return;
+    voice_failure_visible_ = false;
+    hideVoiceOverlay();
+    wave_overlay_.reset();
+    if (ic_.inputPanel().auxUp().toString() == voice_failure_message_) {
+      ic_.inputPanel().setAuxUp(fcitx::Text());
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
   }
   bool refreshVoice() {
     try {
@@ -3024,7 +3132,9 @@ public:
             }
             render();
           }
-          const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
+          const char *phaseLabel[] = {msime::linux_host::kVoiceStatusRecording,
+                                      msime::linux_host::kVoiceStatusRecognizing,
+                                      msime::linux_host::kVoiceStatusProcessing};
           if (phaseSeen) {
             voice_phase_ = phaseLabel[std::min<size_t>(phase, 2)];
             if (phase >= 2)
@@ -3148,14 +3258,14 @@ public:
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
     voice_transcript_.clear();
-    voice_phase_ = "录音中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecording;
     voice_level_ = 0;
     voice_failure_visible_ = false;
     wave_overlay_failed_ = false;
+    wave_overlay_dismissed_ = false;
     wave_overlay_.reset();
     wave_overlay_.listening = true;
     wave_overlay_.show_transcript = true;
-    wave_overlay_.actions_visible = true;
     updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
     voice_job_ = detachedJob([socket, generation, language, options, host_options, mailbox] {
@@ -3180,6 +3290,8 @@ public:
   }
   bool stopVoice() {
     if (!voice_loading_ || voice_socket_.empty() || voice_generation_ == 0) return false;
+    // 已经停止录音、正在等识别：再次确认、按快捷键或点菜单都不能再向提供商发送停止，否则它的拒绝会取消这次录音。
+    if (wave_overlay_.processing()) return true;
     const auto socket = voice_socket_;
     bool stopped = false;
     try {
@@ -3194,7 +3306,7 @@ public:
       showVoiceFailure("结束录音失败，本次语音已取消，请检查语音服务后重试");
       return true;
     }
-    voice_phase_ = "识别中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecognizing;
     wave_overlay_.listening = false;
     wave_overlay_.compact_status =
         msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
@@ -3223,7 +3335,7 @@ public:
     voice_level_seen_ = false;
     voice_preedit_.clear();
     voice_transcript_.clear();
-    voice_phase_ = "录音中";
+    voice_phase_ = msime::linux_host::kVoiceStatusRecording;
     voice_level_ = 0;
     hideVoiceOverlay();
     render();
@@ -3768,7 +3880,9 @@ public:
   // 一次按下交给生命周期核心：每个打字键，只要中文输入开着、没有在录音，不论之后是引擎还是应用拿走这个键。先比较并报告字段属性，再调 msime_client_key，都在 key() 处理这个键之前，这是顺序契约（msime_client.h），按键音因此排在这个键带来的上屏音前面；Sensitive 字段里核心不出声也不画。松开、单独的修饰键和快捷键不算打字（key_press_sounds），不开新的一轮。录音中按 Esc 取消录音的那个键也不出声：这里读到的是 key() 处理前的状态，录音还在。这里跑在 fcitx5 守护进程里，所以只投递请求：Host API 在发现某个声音打开之前不开音频设备、不起线程，音频出错时只在 stderr 写一行并在本进程关掉声音，不会落到插件里。打字特效的连击数现在就记下，key() 里画出的辅助行用的就是它。
   void keyDown(const fcitx::KeyEvent &event) {
     const auto sym = static_cast<std::uint32_t>(event.key().sym());
-    if (event.isRelease()) key_repeat_.release(sym);
+    // 按硬件键码认自动重复：修饰键先松开时松开事件的 keysym 和按下时不同（见 KeyRepeat）。
+    const auto keycode = static_cast<std::uint32_t>(event.rawKey().code());
+    if (event.isRelease()) key_repeat_.release(keycode);
     if (!session_ || !input_enabled_ || !ic_.hasFocus() || restricted() || voice_loading_)
       return;
     const bool shortcut = event.rawKey().states().testAny(fcitx::KeyStates{
@@ -3776,9 +3890,13 @@ public:
         fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
     if (!msime::linux_host::key_press_sounds(event.isRelease(), event.key().isModifier(), shortcut))
       return;
-    // 自动重复的按下不交给生命周期核心：不出按键音、不画特效、不开新的一轮，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同。按住退格或空格时只在第一次按下响一声。
-    if (key_repeat_.press(sym)) return;
+    const bool repeat = key_repeat_.press(keycode);
     syncFieldTraits();
+    // 自动重复的按下不出按键音、不画特效、不动连击，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同，按住退格或空格时只在第一次按下响一声；但仍开新的一轮，否则按住期间的每次派发共用第一次按下那一轮的脚本 fuel（见 lifecycle_silent_turn）。
+    if (repeat) {
+      msime_client_key(session_, msime::linux_host::lifecycle_silent_turn());
+      return;
+    }
     // Linux 只显示打字特效里的连击数，在候选下方的辅助行（setAuxDown；setAuxUp 归语音、表情搜索和配置提示）。
     typing_combo_ = msime::linux_host::typing_effect_combo(msime_client_key(
         session_, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(sym), false)));
@@ -3796,7 +3914,7 @@ public:
   msime::linux_host::MusicActivity music_;
   // 生命周期核心现在知道的字段属性，变了才重新报告，见 syncFieldTraits。
   msime::linux_host::FieldTraitsReport field_traits_;
-  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复不交给核心，见 keyDown。
+  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复只开新的一轮、不出声不画，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
   // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
@@ -3865,6 +3983,8 @@ public:
   // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese, Zhuyin and Stroke can run (noteSchemeOptions).
   msime::linux_host::LanguageDictionaryAvailability scheme_dictionaries_;
   bool caps_lock_ = false;
+  // The lock the session was last told; see syncSessionCapsLock(). A new session starts unlocked.
+  bool session_caps_lock_ = false;
   std::string mode_indicator_label_;
   // 悬浮工具栏和键位图的颜色，连同算它们时的偏好、系统明暗和皮肤目录；输入没变就不重新解析主题（解析要经 host-api，按键时不做）。
   struct ResolvedPanelColors {
@@ -4031,6 +4151,7 @@ public:
   uint64_t voice_failure_id_ = 0;
   bool voice_options_valid_ = true;
   bool voice_failure_visible_ = false;
+  std::string voice_failure_message_;
   std::unique_ptr<fcitx::EventSourceTime> voice_failure_timer_;
   // Which context starts in Chinese, and which of the four configurable mode
   // chords this host answers. Fcitx5 had the CN/EN toggle on its status area
@@ -4038,6 +4159,8 @@ public:
   // of them did anything here, and a user who chose to start in English got
   // Chinese anyway.
   bool input_enabled_ = true;
+  // 当前模式来自这次聚焦的应用例外，用户还没有手动切换：全局作用域下不把它写进全局状态（和 IBus 宿主的 `app_rule_active` 一样按上下文记）。
+  bool app_rule_active_ = false;
   bool mode_shift_enabled_ = true;
   bool mode_ctrl_enabled_ = false;
   bool mode_ctrl_space_enabled_ = true;
@@ -4076,12 +4199,18 @@ public:
   bool voice_level_seen_ = false;
   bool voice_loading_ = false;
   bool voice_cancelled_ = false;
-  std::string voice_phase_ = "录音中";
+  std::string voice_phase_ = msime::linux_host::kVoiceStatusRecording;
   uint8_t voice_level_ = 0;
   msime::linux_host::WaveOverlayModel wave_overlay_;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
   bool wave_overlay_failed_ = false;
+  // 识别进行中点了确认：这次录音余下的时间里浮条一直收着。
+  bool wave_overlay_dismissed_ = false;
+  // 声明在浮层之后，这样它们会在浮层关闭显示连接之前销毁。
+  std::unique_ptr<fcitx::EventSourceTime> wave_overlay_frame_timer_;
+  std::unique_ptr<fcitx::EventSourceIO> wave_overlay_io_;
+  int wave_overlay_io_fd_ = -1;
   bool system_dark_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
@@ -4097,6 +4226,8 @@ struct FcitxCandidateDisplay {
   fcitx::Text classic;
   std::string body, translation, suffix;
   Json translation_runs = Json::array();
+  // 固定了排位（1–5）：原生画布照 macOS 用 #379AD3 画正文，classicui 画不出单行颜色，改在正文后加「  固定N」。
+  bool fixed = false;
 };
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
@@ -4113,15 +4244,20 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
                                : candidate.at("text").get<std::string>()) +
       // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
       (candidate.value("corrected", false) ? "*" : "") +
-      (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 2 ? "  ☁️" :
-       msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 3 ? "  🤖" : "") +
-      (!hanjaGloss.empty() || !annotations || candidate.value("annotation", std::string()).empty() ? "" :
-       "  " + candidate.at("annotation").get<std::string>()));
+      // 注释括起来紧贴候选字，角标隔一个空格跟在后面，与 macOS 候选窗的写法相同（CandidateRowText.h）。
+      (!hanjaGloss.empty() || !annotations ? std::string() :
+       msime::linux_host::candidate_annotation_text(candidate.value("annotation", std::string()))) +
+      std::string(msime::linux_host::candidate_source_badge(
+          msime::linux_host::strict_json_value(candidate, "source", uint64_t{}))));
   // 训音不受翻译开关影响，紧跟汉字并以斜体标作次要释义；它只供显示，选词仍按候选身份。
   if (!hanjaGloss.empty())
     row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
                                                          fcitx::TextFormatFlag::DontCommit});
   display.body = row.toString();
+  const auto fixedMarker = msime::linux_host::candidate_fixed_position_marker(
+      msime::linux_host::strict_json_value(candidate, "fixed_position", uint64_t{}));
+  display.fixed = !fixedMarker.empty();
+  if (display.fixed) row.append(fixedMarker, fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
   if (candidate.contains("translation") && candidate.at("translation").is_string()) {
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
@@ -4187,12 +4323,13 @@ std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state,
       msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != item.generation()) return actions;
   const auto scheme = msime::linux_host::strict_json_value(state.view_, "scheme", 0u);
   if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) return actions;
+  // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
   actions.emplace_back(1, msime::linux_host::candidate_pin_label);
-  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
-    actions.emplace_back(2, "删除候选");
   for (int slot = 1; slot <= 5; ++slot)
     actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
-  if (item.fixedPosition() > 0) actions.emplace_back(20, "取消固定");
+  if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
+  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
+    actions.emplace_back(2, msime::linux_host::candidate_remove_label);
   return actions;
 }
 void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, int action) {
@@ -4244,8 +4381,8 @@ public:
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_));
-      // 序号与选它的数字键一致：第十个由 0 键选，标 0。
-      labels_.emplace_back((words_.size() == 10 ? std::string("0") : std::to_string(words_.size())) + ". ");
+      // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
+      labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
   }
   const fcitx::Text &label(int index) const override { return labels_.at(index); }
@@ -6139,6 +6276,17 @@ public:
     const auto corner_radius = host::candidate_corner_radius(preferences, catalog, resolved.candidate_skin);
     // Only the user's own radius pulls the highlight's corners in with the card.
     const bool user_radius = host::candidate_corner_radius_preference(preferences).has_value();
+    // 用户的候选窗样式（缩放、内边距、不透明度、翻页箭头）与皮肤包的行圆角，照 macOS 的 StyledCandidateSkin 生成进主题。
+    auto style = host::read_fcitx_candidate_style(preferences);
+    style.item_radius = host::candidate_skin_item_radius(catalog, resolved.candidate_skin);
+    // logo 只在 show_app_logo 打开时画，与 macOS、Windows 相同；已存的偏好文档缺这个键时按共享层的读法当作打开。
+    const bool show_logo = [&] {
+      if (!preferences.is_object()) return true;
+      const auto value = preferences.find("show_app_logo");
+      return value == preferences.end() || !value->is_boolean() || value->get<bool>();
+    }();
+    // 皮肤包的背景图；它的戳和装饰图一样代替图片本身进输入，图片换了才重画。
+    const auto background = host::candidate_skin_background(catalog, resolved.candidate_skin);
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
     const auto canvas_directory = host::fcitx_canvas_directory(catalog);
     const auto theme_inputs = [&] {
@@ -6154,6 +6302,11 @@ public:
         {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
         {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
         {"user_radius", user_radius},
+        {"style", Json{{"scale", style.scale}, {"padding", style.padding ? Json(*style.padding) : Json(nullptr)},
+                       {"opacity", style.opacity}, {"page_arrows", style.page_arrows},
+                       {"item_radius", style.item_radius ? Json(*style.item_radius) : Json(nullptr)}}},
+        {"logo", show_logo},
+        {"background", background ? host::fcitx_canvas_file_stamp(background->image) : std::string()},
         {"overlay", host::fcitx_overlay_stamp(decoration)},
         {"canvas", std::move(canvas_stamps)}}.dump();
     };
@@ -6205,8 +6358,6 @@ public:
     // 用户刚在主题菜单里选了水杉主题时（chosen）即使当前是第三方主题也接管；焦点进入、偏好同步、系统明暗变化都只是重读同一份偏好，绝不把用户选的主题换回来。
     if (!chosen && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return false;
     const bool replace_dark = selected_dark && (chosen || host::fcitx_theme_replaceable(*selected_dark));
-    // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
-    static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
     // 同一份输入已经写过主题文件，就不必为一次重新接管再栅格化一遍；所有权与 classicui 配置仍照常处理。
     if (inputs != candidate_theme_applied_) {
       std::optional<host::FcitxCanvasPanel> canvas_panel;
@@ -6246,6 +6397,7 @@ public:
               native_canvas_assets_->card_radius = *corner_radius;
               native_canvas_assets_->user_radius = user_radius;
             }
+            if (native_canvas_assets_) native_canvas_assets_->opacity = style.opacity;
 #endif
             const auto panel_theme = host::candidate_theme_colors(panel_document, resolved.dark);
             if (panel_theme.candidate_skin == resolved.candidate_skin) colors = panel_theme.colors;
@@ -6266,8 +6418,14 @@ public:
         }
       }
       const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
+      // 图标只随安装包变化，这里只在主题输入变了、要重画主题时才按当前缩放读一次。
+      const auto logo = show_logo ? host::load_fcitx_theme_logo(MSIME_ICON_DIR, style.scale) : std::nullopt;
+      // 皮肤包的 [toolbar] 配色画到 classicui 的菜单上：Linux 的工具栏功能都在输入法菜单里。
+      colors.menu = host::overlay_menu_slots(colors.menu,
+                                             host::candidate_skin_toolbar_menu(catalog, resolved.candidate_skin, resolved.dark));
       if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
-                                                      host::scale_fcitx_overlay_png, canvas_panel)) {
+                                                      host::scale_fcitx_overlay_png, canvas_panel, style, background,
+                                                      host::render_fcitx_background)) {
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
         return false;
       }
@@ -6305,9 +6463,10 @@ public:
     }
     return mode_badge_.get();
   }
-  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。新的提示重新计时。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。
-  void scheduleModeBadgeHide() {
+  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。新的提示重新计时。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。`owner` 是这次提示所属的输入上下文，见 dismissModeBadge。
+  void scheduleModeBadgeHide(fcitx::InputContext &owner) {
     using Timing = msime::linux_host::ModeBadgeTiming;
+    mode_badge_owner_ = owner.watch();
     mode_badge_fade_step_ = 0;
     mode_badge_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + Timing::visible_ms * 1000ULL, 0,
@@ -6323,6 +6482,13 @@ public:
           mode_badge_->hide();
           return true;
         });
+  }
+  // 离开输入框或换到别的输入法时立刻收起徽章并停掉淡出，与 macOS 在 deactivateServer: 里 orderOut 提示面板相同。只收这个上下文自己的那条提示：Fcitx5 先让新输入框获得焦点、再让旧的失焦时，屏幕上那块已经属于新输入框。
+  void dismissModeBadge(fcitx::InputContext *ic) {
+    if (!mode_badge_ || mode_badge_owner_.get() != ic) return;
+    mode_badge_owner_.unwatch();
+    mode_badge_timer_.reset();
+    mode_badge_->hide();
   }
 #endif
 #ifdef MSIME_LINUX_FLOATING_PANELS
@@ -6770,14 +6936,15 @@ public:
     emoji_menu_.addAction(&emoji_previous_action_);
     emoji_menu_.addAction(&emoji_next_action_);
     maintenance_action_.setMenu(&maintenance_menu_);
+    // 与候选右键操作同一顺序：置顶、固定排位、取消固定、删除。
     maintenance_menu_.addAction(&pin_action_);
-    maintenance_menu_.addAction(&remove_action_);
     maintenance_menu_.addAction(&fix1_action_);
     maintenance_menu_.addAction(&fix2_action_);
     maintenance_menu_.addAction(&fix3_action_);
     maintenance_menu_.addAction(&fix4_action_);
     maintenance_menu_.addAction(&fix5_action_);
     maintenance_menu_.addAction(&clear_action_);
+    maintenance_menu_.addAction(&remove_action_);
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     native_canvas_cursor_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
@@ -6803,11 +6970,14 @@ public:
         });
 #endif
 #ifdef MSIME_FCITX5_MODE_BADGE
-    // 获得焦点后在等光标矩形的徽章，等到输入框报来新矩形就放（见 FcitxState::settleFocusInputModeHud）。
+    // 获得焦点后在等光标矩形的徽章，等到输入框报来新矩形就放（见 FcitxState::settleFocusInputModeHud）。报来的若仍是全 0 的矩形（还没有光标，见 mode_badge_caret_usable），接着等下一次报告或等满时间。
     mode_hud_cursor_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) {
           auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          const auto &rect = ic->cursorRect();
+          if (!msime::linux_host::mode_badge_caret_usable({rect.left(), rect.top(), rect.width(), rect.height()}))
+            return;
           ic->propertyFor(&factory_)->settleFocusInputModeHud();
         });
 #endif
@@ -6860,8 +7030,10 @@ public:
     panel_focus_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextFocusIn,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
-          // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
           auto *focused = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          // 任何上下文获得焦点都可能是换了程序，不论它用哪个输入法：离开有规则的程序再回来，规则要重新生效。
+          enterAppRuleStay(focused->program());
+          // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
           releaseMenuContext(focused);
 #ifdef MSIME_LINUX_FLOATING_PANELS
           // Fcitx5 默认每个上下文各记各的输入法：焦点移到用别的输入法的上下文时本插件只收到旧上下文的失焦，收不到切换输入法。这时收起悬浮工具栏并放开属主，与 macOS 的 deactivateForInputSourceSwitch 相同；不收起的话它会显示旧上下文的状态，而旧上下文刚刚交出了菜单，按钮点了也没有反应。用本输入法的上下文随后由 activate 接手。
@@ -7087,6 +7259,10 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+#ifdef MSIME_FCITX5_MODE_BADGE
+    state->cancelFocusInputModeHud();
+    dismissModeBadge(event.inputContext());
+#endif
     // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
@@ -7114,7 +7290,8 @@ public:
   void holdMenuContext(fcitx::InputContext *ic) {
     if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
     menu_context_ic_ = ic->watch();
-    // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项）随之拿掉，顺带刷新状态区。
+    // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项，以及「工具栏」子菜单里的语音和宣传）随之拿掉，顺带刷新状态区。
+    rebuildToolbarMenu(ic);
     arrangeStatusArea(ic);
   }
   // 只往有焦点的输入框里写的那几项；托盘留着失焦的上下文时不列它们。语音项另按会话和语音开关决定，见 arrangeStatusArea。
@@ -7190,6 +7367,10 @@ public:
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try {
       if (state->ensure()) {
+#ifdef MSIME_FCITX5_MODE_BADGE
+        if (!event.isRelease()) state->cancelFocusInputModeHud();
+#endif
+        state->syncSessionCapsLock();
         state->countKeyPress(event);
         const auto comboBefore = state->typing_combo_;
         state->keyDown(event);
@@ -7223,17 +7404,23 @@ public:
     if (current == ProgramFileState::Current || current == shown) return;
     shown = current;
     msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
+    // KWin 启动的 Fcitx5 没有重启命令（见 ReplacedProgram.h 的 kwin_launched），只能注销或在系统设置里重新选一次虚拟键盘。
     const auto restart = msime::linux_host::fcitx5_restart_command();
+    const std::string how = restart ? "执行 " + *restart + " 或注销后重新登录" : "注销后重新登录";
     state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
-        ? MSIME_EDITION_DISPLAY_NAME "已升级：执行 " + restart + " 或注销后重新登录即可使用新版本"
-        : MSIME_EDITION_DISPLAY_NAME "已卸载：执行 " + restart + " 或注销后重新登录即可完成卸载"));
+        ? MSIME_EDITION_DISPLAY_NAME "已升级：" + how + "即可使用新版本"
+        : MSIME_EDITION_DISPLAY_NAME "已卸载：" + how + "即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-    // 升级时另发一条桌面通知，带「立即重启 Fcitx5」按钮，用户不必自己去敲命令（见 msime-linux-first-run-guide 的 upgraded）。卸载时脚本可能已经不在，只留辅助行。
+    // 升级时另发一条桌面通知，有重启命令时带「立即重启 Fcitx5」按钮，用户不必自己去敲命令（见 msime-linux-first-run-guide 的 upgraded）。卸载时脚本可能已经不在，只留辅助行。
     if (current == ProgramFileState::Replaced) {
       const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
-      if (access(guide.c_str(), X_OK) == 0)
-        fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--restart-unit",
-                             msime::linux_host::current_user_service_unit().value_or(std::string())});
+      if (access(guide.c_str(), X_OK) == 0) {
+        if (restart)
+          fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--restart-unit",
+                               msime::linux_host::current_user_service_unit().value_or(std::string())});
+        else
+          fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--launched-by", "kwin"});
+      }
     }
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
@@ -7311,6 +7498,8 @@ public:
   bool mode_badge_unavailable_ = false;
   std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
   int mode_badge_fade_step_ = 0;
+  // 屏幕上那块徽章是为哪个输入上下文显示的，见 dismissModeBadge。
+  fcitx::TrackableObjectReference<fcitx::InputContext> mode_badge_owner_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> mode_hud_cursor_watch_;
 #endif
 #ifdef MSIME_LINUX_FLOATING_PANELS
@@ -7456,13 +7645,13 @@ public:
   FcitxCloudClipboardItemAction cloud_clipboard_item4_{&factory_, 3};
   FcitxCloudClipboardItemAction cloud_clipboard_item5_{&factory_, 4};
   FcitxMaintenanceAction pin_action_{&factory_, 1, msime::linux_host::candidate_pin_label};
-  FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
+  FcitxMaintenanceAction remove_action_{&factory_, 2, msime::linux_host::candidate_remove_label};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, msime::linux_host::candidate_fix_label(1).c_str()};
   FcitxMaintenanceAction fix2_action_{&factory_, 12, msime::linux_host::candidate_fix_label(2).c_str()};
   FcitxMaintenanceAction fix3_action_{&factory_, 13, msime::linux_host::candidate_fix_label(3).c_str()};
   FcitxMaintenanceAction fix4_action_{&factory_, 14, msime::linux_host::candidate_fix_label(4).c_str()};
   FcitxMaintenanceAction fix5_action_{&factory_, 15, msime::linux_host::candidate_fix_label(5).c_str()};
-  FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
+  FcitxMaintenanceAction clear_action_{&factory_, 20, msime::linux_host::candidate_clear_fix_label};
   fcitx::Menu desktop_tools_menu_;
   FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", msime::linux_host::menu_label::kHandwriting};
   FcitxDesktopPanelAction keyboard_action_{&factory_, "keyboard", msime::linux_host::menu_label::kScreenKeyboard};
@@ -7657,7 +7846,15 @@ void FcitxState::render() {
     const auto composed = msime::linux_host::compose_phrase_preedit(
         view_.value("phrase_prefix", std::string{}), reading,
         msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
-    fcitx::Text preedit(composed.text, fcitx::TextFormatFlag::Underline);
+    // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音加下划线并高亮，和上面整句改字的焦点子句同一种画法（phrase_preedit_has_clauses）。Fcitx5 没有粗下划线这种格式，`Bold` 在前端里是字形加粗，会把读音的字母画粗画宽，不是 macOS 那条加粗的下划线。没有已选段时整段照旧单下划线。
+    fcitx::Text preedit;
+    if (msime::linux_host::phrase_preedit_has_clauses(composed)) {
+      preedit.append(composed.text.substr(0, composed.prefix_bytes), fcitx::TextFormatFlag::Underline);
+      preedit.append(composed.text.substr(composed.prefix_bytes),
+                     fcitx::TextFormatFlags{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::HighLight});
+    } else {
+      preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
+    }
     if (reading == editing)
       preedit.setCursor(static_cast<int>(composed.caret_bytes));
     // The caret always follows an inline composition; the runtime keeps no caret inside it.
@@ -7711,11 +7908,12 @@ bool FcitxState::renderNativeCanvas() {
   content.horizontal = list->layoutHint() == fcitx::CandidateLayoutHint::Horizontal;
   content.selected = list->cursorIndex();
   content.wheel_paging = msime::linux_host::read_candidate_wheel_paging(preferences_);
+  content.page_arrows = preferences_.value("show_candidate_page_number", true);
   for (int at = 0; at < list->size(); ++at) {
     if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at))) {
       const auto &display = candidate->display();
       content.items.push_back({list->label(at).toString(), display.body, display.translation,
-          display.suffix, display.translation_runs});
+          display.suffix, display.translation_runs, display.fixed});
     } else {
       content.items.push_back({list->label(at).toString(), list->candidate(at).text().toString()});
     }
@@ -7789,10 +7987,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 新的提示取代还在等光标的那条获得焦点提示。
-  if (trigger != ModeHudTrigger::FocusSettled && mode_hud_after_focus_) {
-    mode_hud_after_focus_ = false;
-    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
-  }
+  if (trigger != ModeHudTrigger::FocusSettled) cancelFocusInputModeHud();
 #endif
   // 共享偏好 input_mode_hud 控制，默认开启。
   if (!preferences_.value("input_mode_hud", true)) return;
@@ -7826,7 +8021,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
     std::optional<msime::linux_host::ModeBadgeCaret> caret;
     if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) caret = caret_rect;
     if (badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
-      engine_->scheduleModeBadgeHide();
+      engine_->scheduleModeBadgeHide(ic_);
     } else {
       hint = msime::linux_host::ModeBadgeHint::PanelText;
     }
@@ -7950,6 +8145,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
        sym == FcitxKey_Home || sym == FcitxKey_End || sym == FcitxKey_Page_Up ||
        sym == FcitxKey_Page_Down))
     forgetSmartPunctuationShadow();
+  // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
+  if (!event.isRelease() && sym == FcitxKey_Escape && !voice_loading_) dismissVoiceFailure();
   // 和裸 Shift 一样，切换之后松开事件照常交给应用；布防了的按下也只交给应用。
   if (observeCapsLockTap(event)) return false;
   // 规范化后的符号可能已丢掉 Shift 位，光标转发必须按原始事件判断。
@@ -8180,7 +8377,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       (voice_ralt_held_ || voice_ctrl_win_held_ || voice_rctrl_ralt_held_);
   if (sym == FcitxKey_space && holdVoice) {
     voice_space_consumed_ = true;
-    voice_space_locked_ = true;
+    if (!voice_space_locked_) {
+      voice_space_locked_ = true;
+      // 锁定后的样子（圆形操作按钮，或文本回退里的锁定提示）立即显示，不等下一次 250 ms 的轮询。
+      updateVoiceOverlay();
+    }
     return true;
   }
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&
@@ -8771,20 +8972,20 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   for (auto *action : toolbar_entries_)
     toolbar_menu_.removeAction(action);
   toolbar_entries_.clear();
-  toolbar_entries_.reserve(17);
+  toolbar_entries_.reserve(16);
   if (!ic) return;
   const auto *state = ic->propertyFor(&factory_);
   if (!state->session_) return;
   const auto toolbar = state->preferences_.value("floating_toolbar", Json::object());
   if (!toolbar.value("enabled", true)) return;
-  // 按钮的顺序和默认开关与 macOS 悬浮工具栏相同（FloatingToolbarPanel.mm；默认值见 preferences.rs 的 FloatingToolbarPreferences）：中英文一项总在，表情、手写、屏幕键盘和语音默认关。之后是 macOS 齿轮菜单里的宣传、官网、帮助、关于与反馈。条目就是状态区里的同一个动作，不是副本。
+  // 按钮的顺序和默认开关与 macOS 悬浮工具栏相同（FloatingToolbarPanel.mm；默认值见 preferences.rs 的 FloatingToolbarPreferences）：english_mode 管的是中英文那一项（macOS 的 _inputModeButton），macOS 工具栏没有「英文候选模式」，它只在状态区顶层；表情、手写、屏幕键盘和语音默认关。之后是 macOS 齿轮菜单里的宣传、官网、帮助、关于与反馈。条目就是状态区里的同一个动作，不是副本。托盘留着失焦的上下文时，语音和宣传这两项要往有焦点的输入框里写，点了没有地方落，不列（与 arrangeStatusArea 对 focusOnlyActions 的处理相同）。
+  const bool focused = ic->hasFocus();
   const auto append = [&](bool present, fcitx::Action *action) {
     if (!present) return;
     toolbar_menu_.addAction(action);
     toolbar_entries_.push_back(action);
   };
-  append(true, &input_mode_action_);
-  append(toolbar.value("english_mode", true), &english_action_);
+  append(toolbar.value("english_mode", true), &input_mode_action_);
   append(toolbar.value("input_scheme", true), &scheme_action_);
   append(toolbar.value("punctuation", true), &chinese_punctuation_action_);
   append(toolbar.value("fullwidth", true), &width_action_);
@@ -8792,10 +8993,10 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   append(toolbar.value("emoji", false), &desktop_emoji_action_);
   append(MSIME_EDITION_HANDWRITING != 0 && toolbar.value("handwriting", false), &handwriting_action_);
   append(toolbar.value("screen_keyboard", false), &keyboard_action_);
-  append(toolbar.value("voice", false) && state->voice_enabled_, &voice_action_);
+  append(toolbar.value("voice", false) && state->voice_enabled_ && focused, &voice_action_);
   append(toolbar.value("settings", true), &settings_action_);
   append(true, &toolbar_separator_);
-  append(true, &promotion_action_);
+  append(focused, &promotion_action_);
   append(true, &website_action_);
   append(true, &help_action_);
   append(true, &about_action_);

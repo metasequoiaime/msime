@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CandidateRowText.h"
 #include "NativeCanvasAnimation.h"
 #include <pango/pangocairo.h>
 #include <functional>
@@ -38,6 +39,8 @@ struct NativeCanvasAssets {
   bool page_arrows = false, expand_panel = false;
   double card_radius = 0, item_radius = 0, border_width = 0;
   bool user_radius = false;
+  // candidate_opacity_percent：照 macOS 只淡化面板贴图、底色和描边，文字、序号和选中高亮不变；没有合成器时窗口不透明，半透明像素合到主题底色上，这个值不起作用。
+  double opacity = 1;
 };
 
 inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoration &decoration,
@@ -126,6 +129,8 @@ struct NativeCanvasItem {
   std::string label, text;
   std::string translation = {}, suffix = {};
   nlohmann::json translation_runs = nlohmann::json::array();
+  // 固定了排位的候选：未选中时正文画 macOS 的固定色 #379AD3（kCandidateFixedPositionColor），选中时照旧用选中文字色。
+  bool fixed = false;
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -137,6 +142,8 @@ struct NativeCanvasContent {
   int preedit_cursor = -1;
   bool menu = false;
   bool previous = false, next = false, wheel_paging = false;
+  // show_candidate_page_number：关掉时不画 ‹ ›，与 macOS 一起隐藏页码和箭头相同；滚轮和翻页键照常。
+  bool page_arrows = true;
   std::vector<NativeCanvasItem> items;
   // 回调持有原 CandidateList 快照；身份围栏仍由 CandidateWord 与运行时复核。
   std::function<void(int)> select;
@@ -245,7 +252,7 @@ struct NativeCanvasPager {
 inline NativeCanvasPager native_canvas_pager(const NativeCanvasAssets &assets,
     const NativeCanvasContent &content, const NativeCanvasMetrics &metrics, double item_height) {
   NativeCanvasPager pager;
-  pager.visible = assets.page_arrows && !(content.horizontal && assets.expand_panel) &&
+  pager.visible = assets.page_arrows && content.page_arrows && !(content.horizontal && assets.expand_panel) &&
       !content.menu && !content.items.empty();
   if (!pager.visible) return pager;
   pager.triangle = metrics.triangle_pager;
@@ -580,14 +587,14 @@ inline std::array<double, 4> native_canvas_item_corners(const NativeCanvasConten
 }
 
 inline void native_canvas_color(cairo_t *cr, const nlohmann::json &palette, const char *key,
-                                const char *fallback) {
+                                const char *fallback, double alpha_scale = 1) {
   const auto color = theme_color(palette.value(key, nlohmann::json(fallback))).value_or(*theme_color(fallback));
   cairo_set_source_rgba(cr, ((color.rgb >> 16) & 255) / 255.0, ((color.rgb >> 8) & 255) / 255.0,
-                       (color.rgb & 255) / 255.0, color.alpha / 255.0);
+                       (color.rgb & 255) / 255.0, color.alpha / 255.0 * alpha_scale);
 }
 
 inline void native_canvas_image(cairo_t *cr, cairo_surface_t *image, const NativeCanvasRect &source,
-                                const NativeCanvasRect &destination) {
+                                const NativeCanvasRect &destination, double alpha = 1) {
   if (!image || source.width <= 0 || source.height <= 0 || destination.width <= 0 || destination.height <= 0) return;
   // 为每一块建立独立源表面，PAD 只延伸该块边缘，避免九宫格相邻块串色。
   auto *tile = cairo_surface_create_for_rectangle(image, source.x, source.y, source.width, source.height);
@@ -598,7 +605,7 @@ inline void native_canvas_image(cairo_t *cr, cairo_surface_t *image, const Nativ
   cairo_scale(cr, destination.width / source.width, destination.height / source.height);
   cairo_set_source_surface(cr, tile, 0, 0);
   cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);
-  cairo_paint(cr);
+  cairo_paint_with_alpha(cr, std::clamp(alpha, 0.0, 1.0));
   cairo_restore(cr);
   cairo_surface_destroy(tile);
 }
@@ -640,6 +647,8 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
   }
   widgets(false);
   const auto &panel = layout.panel;
+  // 菜单不是卡片，不随候选窗不透明度变淡。
+  const double card_alpha = content.menu ? 1 : std::clamp(assets.opacity, 0.0, 1.0);
   if (assets.panel && !content.menu) {
     auto *image = frame(assets.panel, assets.panel_animation);
     const auto axis = [](double length, double before, double after) {
@@ -657,10 +666,10 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
     for (int row = 0; row < 3; ++row) for (int col = 0; col < 3; ++col) {
       if (!assets.fill && row == 1 && col == 1) continue;
       native_canvas_image(cr, image, {sx[col], sy[row], sx[col + 1] - sx[col], sy[row + 1] - sy[row]},
-          {dx[col], dy[row], dx[col + 1] - dx[col], dy[row + 1] - dy[row]});
+          {dx[col], dy[row], dx[col + 1] - dx[col], dy[row + 1] - dy[row]}, card_alpha);
     }
   } else {
-    native_canvas_color(cr, colors, "surface", "#f8f8f8");
+    native_canvas_color(cr, colors, "surface", "#f8f8f8", card_alpha);
     const double radius = layout.metrics.card_radius;
     native_canvas_round_rect(cr, panel, {radius, radius, radius, radius});
     cairo_fill(cr);
@@ -668,7 +677,7 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
   const auto &metrics = layout.metrics;
   const double border_width = content.menu ? 1 : assets.border_width;
   if ((!assets.panel || content.menu) && border_width > 0) {
-    native_canvas_color(cr, colors, "border", "#00000000");
+    native_canvas_color(cr, colors, "border", "#00000000", card_alpha);
     const double half = border_width / 2, radius = std::max(0.0, metrics.card_radius - half);
     native_canvas_round_rect(cr, {panel.x + half, panel.y + half, std::max(0.0, panel.width - 2 * half),
         std::max(0.0, panel.height - 2 * half)}, {radius, radius, radius, radius});
@@ -741,7 +750,11 @@ inline void paint_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets, c
         metrics.number_scale == 0 ? 0 : label_size.first) + metrics.number_gap;
     rect.y = top + (centered ? (rect.height - text_height) / 2 : 4);
     auto *line = native_canvas_item_layout(cr, metrics, item, content.horizontal, colors, selected || pressed, text_width);
-    native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
+    if (item.fixed && !content.menu && !selected && !pressed)
+      cairo_set_source_rgb(cr, ((kCandidateFixedPositionColor >> 16) & 255) / 255.0,
+          ((kCandidateFixedPositionColor >> 8) & 255) / 255.0, (kCandidateFixedPositionColor & 255) / 255.0);
+    else
+      native_canvas_color(cr, colors, selected || pressed ? "selected_text" : "text", "#202020");
     cairo_move_to(cr, rect.x, rect.y);
     pango_cairo_show_layout(cr, line);
     g_object_unref(line);

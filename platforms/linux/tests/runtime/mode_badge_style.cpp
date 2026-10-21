@@ -57,11 +57,16 @@ int main() {
     // 贴着左右边缘时夹回工作区以内。
     assert(at(host::ModeBadgeCaret{0, 300, 2, 20}).x == 8);
     assert(at(host::ModeBadgeCaret{1919, 300, 2, 20}).x == 1920 - 8 - 34);
-    // 输入框没报光标（或报了高度为 0 的矩形）时，放在水平居中、下沿离底边四分之一高的位置。
+    // 输入框没报光标（全 0 的矩形）时，放在水平居中、下沿离底边四分之一高的位置。
     position = at(std::nullopt);
     assert(position.x == (1920 - 34) / 2 && position.y == 1032 - 1032 / 4 - 32);
     const auto unusable = at(host::ModeBadgeCaret{0, 0, 0, 0});
     assert(unusable.x == position.x && unusable.y == position.y);
+    // XIM 客户端报的是一个点（宽高为 0）：那是真实的光标位置，徽章放在它下方 gap 处，不走回退位置。
+    assert(host::mode_badge_caret_usable(host::ModeBadgeCaret{500, 300, 0, 0}));
+    assert(!host::mode_badge_caret_usable(host::ModeBadgeCaret{}));
+    position = at(host::ModeBadgeCaret{500, 300, 0, 0});
+    assert(position.x == 500 - 17 && position.y == 310);
     // 光标在根窗口负坐标上的显示器里时照样放在它下面。
     const host::WaveOverlayWorkArea left{-2560, 0, 2496, 1440};
     position = host::mode_badge_caret_position(host::ModeBadgeCaret{-1000, 200, 1, 18}, 34, 32, left, 10, 8);
@@ -90,8 +95,10 @@ int main() {
            host::ModeBadgeTiming::focus_caret_wait_ms < host::ModeBadgeTiming::visible_ms);
     const host::ModeBadgeCaret none{};
     const host::ModeBadgeCaret caret{400, 300, 1, 18};
+    const host::ModeBadgeCaret point{400, 300, 0, 0};
     assert(host::mode_badge_focus_hint(ModeBadgeHint::CaretBadge, none) == ModeBadgeHint::PanelText);
     assert(host::mode_badge_focus_hint(ModeBadgeHint::CaretBadge, caret) == ModeBadgeHint::CaretBadge);
+    assert(host::mode_badge_focus_hint(ModeBadgeHint::CaretBadge, point) == ModeBadgeHint::CaretBadge);
     assert(host::mode_badge_focus_hint(ModeBadgeHint::PanelTextAndCornerBadge, none) ==
            ModeBadgeHint::PanelTextAndCornerBadge);
     assert(host::mode_badge_focus_hint(ModeBadgeHint::PanelText, caret) == ModeBadgeHint::PanelText);

@@ -671,7 +671,7 @@ pub enum AppInputModeRule {
 pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
 pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
 
-/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
 fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> bool {
     let mut seen = BTreeSet::new();
     rules.len() <= MAX_APP_INPUT_MODE_RULES
@@ -849,7 +849,7 @@ pub struct Preferences {
     pub default_ime_mode: DefaultImeMode,
     #[serde(default)]
     pub ime_mode_scope: ImeModeScope,
-    /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
+    /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名、Linux 按输入法框架报告的程序名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
     #[serde(default)]
@@ -1915,7 +1915,7 @@ pub struct AchievementPreferences {
     pub enabled: bool,
 }
 
-/// 中英混输的默认触发字符数：拼写达到这个长度才补英文候选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
+/// 中英混输默认的补全与英文领先门槛；26 键中更短的完整词仍可选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
 pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

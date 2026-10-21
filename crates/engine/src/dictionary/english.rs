@@ -98,6 +98,21 @@ impl EnglishDictionary {
         candidates
     }
 
+    /// 短英文混输只取完整拼写中权重最高的显示形式，避免扫描和排序整个前缀范围。
+    pub(crate) fn query_exact(&self, word: &str) -> Option<WordItem> {
+        if !is_lower_ascii_word(word) {
+            return None;
+        }
+        self.connection
+            .as_ref()?
+            .prepare_cached("SELECT display,weight FROM english_words WHERE word=?1 AND display IS NOT NULL ORDER BY weight DESC,display LIMIT 1")
+            .ok()?
+            .query_row([word], |row| {
+                Ok(WordItem::new(word, column_text(row, 0)?, column_i64(row, 1)?, CandidateSource::EnglishDictionary, ""))
+            })
+            .ok()
+    }
+
     /// 向已有候选缓冲写入结果；热查询复用候选行和其中的字符串容量。
     pub fn query_prefix_into(&self, prefix: &str, limit: usize, candidates: &mut Vec<WordItem>) {
         let reusable = candidates.len();
