@@ -136,6 +136,8 @@ void FloatingToolbar::moved(WaveOverlayPosition position) {
 }
 
 void FloatingToolbar::refresh() {
+  // 隐藏于全屏期间也可能断线，丢弃旧判断，让下一次刷新有机会重连并重新读取前台状态。
+  if (!surface_->connected()) fullscreen_ = false;
   const bool focused = focused_ || !options_.hide_on_focus_out;
   const bool show = configured_ && owner_ &&
                     floating_toolbar_should_show(config_.enabled && !idle_hidden_ && focused, active_, fullscreen_);

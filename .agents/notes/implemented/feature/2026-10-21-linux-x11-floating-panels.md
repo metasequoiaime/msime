@@ -23,10 +23,12 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 ### 悬浮工具栏
 
 - 一个宿主进程一条，跟着当前属主走：IBus 的属主是引擎对象（每个输入上下文一个），Fcitx5 的属主是输入上下文。获得焦点或切换到本输入法时接手（IBus 自己的 `fake` 上下文不接手），失焦不收起，换输入法（IBus 的 `disable`、Fcitx5 的 `deactivate` 非失焦事件）或属主销毁时收起并放开。
-- 显示条件的形状是 macOS 的 `MetasequoiaFloatingToolbarShouldShow`：开关开着、有属主、前台窗口不是全屏（`_NET_ACTIVE_WINDOW` 的 `_NET_WM_STATE_FULLSCREEN`，根窗口的 `_NET_ACTIVE_WINDOW` 一变就重查）。全屏这一条是有意与 macOS 不同、跟 Windows 走：macOS 现在总是传「不是全屏」，面板带 FullScreenAuxiliary 盖在全屏应用上；X11 的 override-redirect 窗口会盖住全屏的视频和游戏，所以 Linux 收起。`_NET_ACTIVE_WINDOW` 一变还把还在屏幕上的工具栏 `XRaiseWindow` 一次：有的窗口管理器用 XRaiseWindow 抬起被点中的窗口框，会把它压到 override-redirect 窗口之上。10 秒没有按键也没有点它就隐藏，下一次按键或点击回来；同一个属主换输入框不唤醒，新的激活或换属主才唤醒，与 `activateForDelegate:visible:` 相同。
+- 显示条件的形状是 macOS 的 `MetasequoiaFloatingToolbarShouldShow`：开关开着、有属主、前台窗口不是全屏（`_NET_ACTIVE_WINDOW` 的 `_NET_WM_STATE_FULLSCREEN`，根窗口的 `_NET_ACTIVE_WINDOW` 或前台窗口自己的 `_NET_WM_STATE` 一变就重查）。全屏这一条是有意与 macOS 不同、跟 Windows 走：macOS 现在总是传「不是全屏」，面板带 FullScreenAuxiliary 盖在全屏应用上；X11 的 override-redirect 窗口会盖住全屏的视频和游戏，所以 Linux 收起。`_NET_ACTIVE_WINDOW` 一变还把还在屏幕上的工具栏 `XRaiseWindow` 一次：有的窗口管理器用 XRaiseWindow 抬起被点中的窗口框，会把它压到 override-redirect 窗口之上。10 秒没有按键也没有点它就隐藏，下一次按键或点击回来；同一个属主换输入框不唤醒，新的激活或换属主才唤醒，与 `activateForDelegate:visible:` 相同。
 - 几何照搬 macOS 的常量（按钮字号加 8、间距 2、标志 34 或握把 10 加 4、分隔线 1.2、高字号加 20、圆角 10），按 `scale_percent` 和 `font_size` 缩放，再乘桌面缩放；默认一行 255 × 44，与 `kToolbarWidth`、`kToolbarHeight` 相同。
 - 按钮动作走「工具栏」子菜单里同一项的路径：IBus 调 `property_activate` 的对应属性，Fcitx5 激活状态区里的同一个 `fcitx::Action`。中/英按钮在「En」（中文输入开着、英文候选模式）时退出英文候选模式回到中文，其余时候切换中文输入，与 macOS 的 `floatingToolbarDidRequestToggleInputMode:` 相同（`floating_toolbar_input_mode_leaves_english_candidates`）。打开面板、官网和「隐藏悬浮状态栏」不需要输入框，IBus 直接做。IBus 的属性路径只认获得焦点的引擎，所以属主失焦后要输入框的按钮和「宣传」画成淡色、点了不做事（`Options::actions_need_focus`），回到输入框恢复；Fcitx5 把失焦的上下文留给状态区菜单，按钮照样生效。设置按钮右键是 macOS 齿轮菜单的内容，去掉 Linux 没有的「检查更新」，「表情与符号」换成水杉表情面板。
 - 位置记在 `$XDG_STATE_HOME/<客户端目录>/floating-toolbar-position.json`，原子替换写入，与 Windows 的 `floating_toolbar_position.json` 一样只属于这台机器，不进同步的共享偏好；恢复时收进工作区四边 12 以内，没记过时放在焦点窗口所在显示器工作区右下角、离边 20。
+- 全屏监听跟随当前前台窗口：读取 `_NET_ACTIVE_WINDOW` 后，撤销旧窗口的属性订阅，在新窗口订阅 `PropertyChangeMask`，再读取 `_NET_WM_STATE`。先订阅后读取，避免漏掉中间的全屏切换；旧窗口或新窗口可能已经销毁，订阅、撤销和查询共同置于现有的 Xlib 错误保护内。没有前台窗口时撤销订阅，根窗口不作为应用窗口订阅；断线重连时清空记住的窗口编号。状态通知复用控制器现有的显示判断，不重置空闲计时。后端以 `connected()` 报告连接是否有效，断线时控制器丢弃旧全屏判断，避免隐藏中的工具栏无法进入重连路径；成功重连后先在一次零延迟回调里重查全屏、恢复订阅，再决定显示，在这之前不绘制。回调异步执行，避免 `create()` 尚未交还后端时访问控制器，以及在 `present()` 内同步递归；关闭连接时撤销这次回调。Xlib 的订阅按连接独立，不改应用自身的事件掩码，见 [XSelectInput](https://www.x.org/releases/current/doc/man/man3/XSelectInput.3.xhtml)；窗口管理器维护的全屏状态见 [EWMH `_NET_WM_STATE`](https://specifications.freedesktop.org/wm/latest/ar01s05.html)。
+
 - 后端只有 X11。Wayland 会话有 `DISPLAY`（Xwayland）时也用它：工具栏不跟随光标，只要一个屏幕位置，Xwayland 的根坐标在 GNOME、KDE、wlroots 上都对得上桌面布局。那里看不到 Wayland 原生窗口是否全屏，所以 `hide_on_focus_out`：失焦就收起，获得焦点再出现。没有 X 服务器或构建缺 x11/xext/xrandr/cairo-xlib/pangocairo 时没有窗口，「工具栏」子菜单照旧。
 - Fcitx5 默认每个上下文各记各的输入法，焦点移到用别的输入法的上下文时插件只收到旧上下文的失焦；`panel_focus_watch_` 在任何上下文获得焦点时看它的输入法，不是本输入法就收起工具栏并放开属主，等同 macOS 的 `deactivateForInputSourceSwitch`。
 - 工具栏和键位图的 X 连接经 `open_overlay_display` 打开，装上这条连接自己的 `XSetIOErrorExitHandler`（libX11 1.7+，CMake 按 pkg-config 的 x11 版本定义 `MSIME_X11_IO_ERROR_EXIT_HANDLER`），再加一个进程级的 I/O 错误处理，只对这些连接打印一行并返回、别的连接照旧交给之前的处理（Xlib 默认的 I/O 错误处理自己就 `exit(1)`，走不到每条连接的退出处理，Xvfb 测试里先这样失败过）：Xwayland 崩溃或重启时不再让整个 IBus 引擎或 fcitx5 守护进程退出，只记下断开，在下一轮主循环里关掉连接，下一次要显示时重新连。legacy 包的 libX11 1.6.7 没有这个接口，那里照旧。
@@ -49,6 +51,7 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 - **Wayland 上也用 layer-shell 画键位图** — 原生客户端也有提示。没有做：layer-shell 拿不到光标的屏幕坐标，键位图只能放在屏幕边上，离正在输入的那一行很远，而 macOS 的键位图是贴着候选窗的；不画比画在错的地方好。
 - **工具栏跟着每个引擎对象（IBus）或每个输入上下文各建一条** — 不需要属主交接。没有采用：理由与切换徽章的进程级表面相同，每个获得过焦点的输入框各占一条 X 连接，快速换输入框还会同时留着几条工具栏；macOS 也只有一个 `sharedPanel`。
 - **按钮动作在浮窗里另写一份（直接改偏好、直接调 host-api）** — 不依赖菜单那条路径的焦点检查。没有采用：同一个开关两份实现迟早行为不同，「工具栏」子菜单已经走好了保存、会话同步和失败重试。
+- **只监听根窗口的前台窗口切换** — 只需要一次根窗口订阅，不必管理应用窗口的生命周期。没有采用：F11 或视频播放器在同一窗口进出全屏时不必改变 `_NET_ACTIVE_WINDOW`，工具栏会继续盖在全屏内容上，或退出全屏后一直不恢复。直接监听状态属性，避免为这一项定时轮询 X 服务器。
 - **全屏时照 macOS 留着工具栏** — 与 macOS 完全一致。没有采用：macOS 的全屏应用在自己的桌面空间里，工具栏是辅助面板；X11 的 override-redirect 窗口直接盖在全屏视频和游戏上，Windows 也在全屏时收起。
 - **IBus 失焦后绕过焦点检查直接改状态** — 按钮在失焦后照 macOS 生效。没有采用：中文输入的切换会对会话调用 `focus_session(true)`，失焦的引擎改输入状态会让会话以为自己有焦点，其余几项要在失焦的引擎上重画；画成不能用是照实，回到输入框就恢复。
 - **读皮肤包的 `[toolbar]` 段（ToolbarSkinTokens）** — 皮肤在工具栏上也画自己单独的配色和圆角。这次没有做：共享层发给宿主的皮肤目录（`host_candidate_catalog`）为控制文档大小不带工具栏段，要改那份跨宿主的契约；Linux 的工具栏先用候选配色和固定的 10 圆角，与 macOS 在带 `[toolbar]` 段的皮肤下颜色会有差别。
@@ -65,7 +68,6 @@ macOS 有两块 Linux 没有的屏幕浮窗：
   - 工具栏默认开着（共享默认值），所以升级后 X11 用户第一次会在屏幕右下角看到它；不想要可以在菜单里取消「显示工具栏」或点「隐藏悬浮状态栏」。GNOME Shell 下 IBus 的输入源菜单没有「工具栏」子菜单，也没有「显示工具栏」开关：那里只能在设置的「悬浮工具栏」页关掉，或用设置按钮右键菜单里的「隐藏悬浮状态栏」；重新打开只能回设置页，设置页的说明照这个写。
   - Wayland 原生客户端没有键位图；Wayland 会话里的工具栏经 Xwayland，失焦就收起，KDE 分数缩放下 Xwayland 窗口可能发虚。没有 Xwayland 的 Wayland 会话只有「工具栏」子菜单。
   - IBus 面板和 Fcitx5 经典界面画的候选窗，键位图让开它靠估计，主题加了大装饰或者面板字体被另行改大时可能被盖住一点；Fcitx5 原生画布用卡片的真实矩形。
-  - 全屏只在前台窗口变化时重查，应用在同一个窗口里按 F11 进入全屏时，要到下一次换窗口才收起。
   - 菜单和提示不响应键盘（菜单抓指针，不抢键盘焦点），Escape 不会收起菜单；点到外面或换窗口才收起。
   - IBus 上属主失焦后切换类按钮画成不能用，要回到输入框才能用；macOS 上它们失焦后仍然生效。打开面板、官网、设置和隐藏照常。
   - 带 `[toolbar]` 段的皮肤（工厂皮肤里有 wechat、fluent、microsoft、graphite、canvas、autumn_osmanthus、willow_green、wechat_scroll）在 Linux 上工具栏用候选配色，与 macOS 不同。
@@ -74,6 +76,8 @@ macOS 有两块 Linux 没有的屏幕浮窗：
   - 键位图的规则与 Windows 的 `ShuangpinKeymapLayout.h` 是两份，改其中一份时要对照另一份，直到合并。
 
 ## Verification
+
+全屏回归保持 `_NET_ACTIVE_WINDOW` 不变，只设置或删除当前窗口的 `_NET_WM_STATE_FULLSCREEN`，通过事件循环和实际窗口可见状态等待，验证进入时隐藏、退出时恢复。旧实现先在此处因「同一前台窗口进入全屏后工具栏仍然显示」失败，修改监听后通过；窗口销毁后原测试继续清空前台窗口，覆盖撤销已销毁窗口的订阅。断线测试保留同一前台窗口：在断线期间进入全屏，恢复连接后继续隐藏，退出全屏后恢复；还覆盖隐藏于全屏期间断线、断线期间退出全屏后用下一次输入恢复。只有属性订阅的中间实现先因「重连后工具栏盖在全屏窗口上」失败，补上重连后的状态刷新再通过。
 
 键位图 Xvfb 测试通过独立连接观察窗口，按目标几何或不可见状态轮询，达到条件立即继续，2 秒仍不满足才失败。浮窗自己的 `XFlush` 只保证请求发出，观察连接上的 `XSync` 不能确认另一条连接的请求已被服务端执行；立即断言隐藏会在同一构建上交替通过和失败。测试等待实际状态，生产浮窗维持异步绘制与隐藏。
 

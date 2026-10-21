@@ -21,7 +21,7 @@ class FloatingToolbarSurface {
     std::function<void()> interacted;
     // 拖完松手，工具栏本体左上角的新位置（根窗口的设备像素）。
     std::function<void(WaveOverlayPosition)> moved;
-    // 前台窗口换了，是否全屏可能随之变化。
+    // 前台窗口或它的状态变了，是否全屏需要重新判断。
     std::function<void()> focus_changed;
   };
 
@@ -46,6 +46,8 @@ class FloatingToolbarSurface {
   virtual void present(const Content &content, std::optional<WaveOverlayPosition> saved) = 0;
   virtual void hide() = 0;
   virtual bool visible() const = 0;
+  // 断线时旧的全屏判断不再有效；默认后端没有可断开的连接。
+  virtual bool connected() const { return true; }
   // 前台窗口是否全屏（Linux 与 Windows 一样在全屏应用前收起工具栏）。查不到时回答 false。
   virtual bool foreground_fullscreen() = 0;
 };

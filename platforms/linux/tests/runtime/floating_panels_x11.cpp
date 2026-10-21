@@ -303,11 +303,22 @@ void toolbar(Display *display) {
   XFlush(display);
   loop.run_for(100);
   require(stacking_index(display, moved->id) > stacking_index(display, front), "前台窗口换了以后工具栏没有回到最上面");
-  XDestroyWindow(display, front);
-  XDeleteProperty(display, screen_root, XInternAtom(display, "_NET_ACTIVE_WINDOW", False));
-  XSync(display, False);
-  loop.run_for(60);
-
+  // 同一个前台窗口进出全屏时不会改 _NET_ACTIVE_WINDOW，仍应当立即收起和恢复工具栏。
+  const auto state_atom = XInternAtom(display, "_NET_WM_STATE", False);
+  const unsigned long fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+  XChangeProperty(display, front, state_atom, XA_ATOM, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char *>(&fullscreen), 1);
+  XFlush(display);
+  wait_until([&] {
+    loop.run_for(10);
+    return !visible(display, "MSIMEFloatingToolbar").has_value();
+  }, "同一前台窗口进入全屏后工具栏仍然显示");
+  XDeleteProperty(display, front, state_atom);
+  XFlush(display);
+  wait_until([&] {
+    loop.run_for(10);
+    return visible(display, "MSIMEFloatingToolbar").has_value();
+  }, "同一前台窗口退出全屏后工具栏没有恢复");
 #ifdef MSIME_X11_IO_ERROR_EXIT_HANDLER
   // 工具栏的连接断了（X 服务器或 Xwayland 退出）：进程不退出，下一轮主循环关掉这条连接，再有输入时连上新的连接重新显示。这里只关掉本端的读方向，Xlib 下一次读就读到文件尾，与服务器消失时一样。
   for (const auto &source : loop.sources)
@@ -316,10 +327,46 @@ void toolbar(Display *display) {
   require(!visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后旧的工具栏窗口还在");
   require(loop.watches() == 0, "连接断开后还在监视读到文件尾的连接");
   require(!toolbar->visible(), "连接断开后工具栏仍报告自己在屏幕上");
+  // 前台窗口跨过断线保持不变；断线期间进入全屏，重连必须先重查状态并恢复它的属性订阅。
+  XChangeProperty(display, front, state_atom, XA_ATOM, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char *>(&fullscreen), 1);
+  XSync(display, False);
   toolbar->note_input(&owner);
   loop.run_for(100);
-  require(visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后有输入时工具栏没有重新连上并显示");
+  require(!visible(display, "MSIMEFloatingToolbar").has_value(), "重连后工具栏盖在全屏窗口上");
+  XDeleteProperty(display, front, state_atom);
+  XFlush(display);
+  wait_until([&] {
+    loop.run_for(10);
+    return visible(display, "MSIMEFloatingToolbar").has_value();
+  }, "重连后当前窗口退出全屏时工具栏没有恢复");
+  // 工具栏因全屏而隐藏期间断线，旧的全屏判断也不能阻止下一次输入恢复连接。
+  XChangeProperty(display, front, state_atom, XA_ATOM, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char *>(&fullscreen), 1);
+  XFlush(display);
+  wait_until([&] {
+    loop.run_for(10);
+    return !visible(display, "MSIMEFloatingToolbar").has_value();
+  }, "重连后当前窗口再次进入全屏时工具栏仍然显示");
+  for (const auto &source : loop.sources)
+    if (source->alive && source->fd >= 0) shutdown(source->fd, SHUT_RD);
+  wait_until([&] {
+    loop.run_for(10);
+    return loop.watches() == 0;
+  }, "全屏隐藏期间断线后仍在监视旧连接");
+  XDeleteProperty(display, front, state_atom);
+  XSync(display, False);
+  toolbar->note_input(&owner);
+  wait_until([&] {
+    loop.run_for(10);
+    return visible(display, "MSIMEFloatingToolbar").has_value();
+  }, "全屏隐藏期间断线后工具栏无法随输入恢复");
 #endif
+
+  XDestroyWindow(display, front);
+  XDeleteProperty(display, screen_root, XInternAtom(display, "_NET_ACTIVE_WINDOW", False));
+  XSync(display, False);
+  loop.run_for(60);
 
   // 换了输入法：收起。
   toolbar->deactivate(&owner);

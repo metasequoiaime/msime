@@ -62,8 +62,9 @@ bool FloatingToolbarX11Surface::open() {
     lost_ = false;
     return false;
   }
-  // 前台窗口换了就重查是否全屏：根窗口的 _NET_ACTIVE_WINDOW 一变就有 PropertyNotify。
+  // 前台窗口切换和它自己的全屏状态变化分别监听，F11 不一定会改变 _NET_ACTIVE_WINDOW。
   active_window_atom_ = XInternAtom(display_, "_NET_ACTIVE_WINDOW", False);
+  window_state_atom_ = XInternAtom(display_, "_NET_WM_STATE", False);
   XSelectInput(display_, DefaultRootWindow(display_), PropertyChangeMask);
   watch_ = loop_.watch(ConnectionNumber(display_), [this] { dispatch(); });
   XFlush(display_);
@@ -92,6 +93,7 @@ void FloatingToolbarX11Surface::close_connection() {
   // open 先于排好的收尾关掉连接时把收尾一起撤掉，免得它稍后关掉新连上的连接；收尾自己调到这里时撤掉的是已经触发过的令牌。
   reconnect_.reset();
   watch_.reset();
+  foreground_refresh_.reset();
   drain_.reset();
   tooltip_timer_.reset();
   if (display_ && pointer_grabbed_) XUngrabPointer(display_, CurrentTime);
@@ -111,6 +113,7 @@ void FloatingToolbarX11Surface::close_connection() {
   close_overlay_display(display_);
   display_ = nullptr;
   lost_ = false;
+  active_window_ = None;
 }
 
 void FloatingToolbarX11Surface::drain_later() {
@@ -120,6 +123,11 @@ void FloatingToolbarX11Surface::drain_later() {
 }
 
 void FloatingToolbarX11Surface::handle(const XEvent &event) {
+  if (event.type == PropertyNotify && event.xproperty.window == active_window_ &&
+      event.xproperty.atom == window_state_atom_) {
+    if (callbacks_.focus_changed) callbacks_.focus_changed();
+    return;
+  }
   if (event.type == PropertyNotify && event.xproperty.window == DefaultRootWindow(display_)) {
     if (event.xproperty.atom == active_window_atom_) {
       // 换了前台窗口：开着的菜单收起（它是给上一个窗口的），再让控制器重查全屏。有的窗口管理器用 XRaiseWindow 抬起被点中的窗口框，那会把它压到包括 override-redirect 窗口在内的所有兄弟之上；这里把还在屏幕上的工具栏重新抬到最上面，与 macOS 的 NSFloatingWindowLevel 一样总在普通窗口之上。
@@ -287,7 +295,16 @@ WaveOverlayWorkArea FloatingToolbarX11Surface::work_area_for(int x, int y) {
 }
 
 void FloatingToolbarX11Surface::present(const Content &content, std::optional<WaveOverlayPosition> saved) {
+  const bool reconnecting = !connected();
   if (!open()) return;
+  if (callbacks_.focus_changed && (reconnecting || foreground_refresh_)) {
+    // 重连先让控制器读取全屏状态、恢复当前窗口订阅，再决定是否显示。异步回调避开 present 的调用栈，也不在 create 尚未交还后端时回调控制器。
+    if (!foreground_refresh_) foreground_refresh_ = loop_.timer(0, [this] {
+      foreground_refresh_.reset();
+      callbacks_.focus_changed();
+    });
+    return;
+  }
   const bool was_visible = toolbar_->visible();
   const int old_margin = device(layout_.margin, scale_);
   const WaveOverlayPosition old_plate{toolbar_->x() + old_margin, toolbar_->y() + old_margin};
@@ -477,13 +494,19 @@ bool FloatingToolbarX11Surface::foreground_fullscreen() {
   if (!display_) return false;
   const auto root = DefaultRootWindow(display_);
   const auto active = x11_placement::cardinal_property(display_, root, active_window_atom_, XA_WINDOW);
-  if (active.empty() || active.front() == None) return false;
-  const auto state_atom = XInternAtom(display_, "_NET_WM_STATE", False);
+  const Window window = active.empty() || active.front() == root ? None : static_cast<Window>(active.front());
   const auto fullscreen_atom = XInternAtom(display_, "_NET_WM_STATE_FULLSCREEN", False);
-  // 前台窗口可能在读到它和查询它之间被销毁，Xlib 默认的错误处理会让进程退出，所以查询期间换成忽略错误的处理。
+  // 新旧前台窗口都可能已销毁，订阅、撤销订阅和读取状态一起容忍 BadWindow。先订阅再读，避免漏掉两者之间的全屏切换。
   XSync(display_, False);
   const auto previous = XSetErrorHandler(x11_placement::ignore_x_error);
-  const auto states = x11_placement::cardinal_property(display_, static_cast<Window>(active.front()), state_atom, XA_ATOM);
+  if (active_window_ != window) {
+    if (active_window_ != None) XSelectInput(display_, active_window_, NoEventMask);
+    active_window_ = window;
+    if (active_window_ != None) XSelectInput(display_, active_window_, PropertyChangeMask);
+  }
+  const auto states = active_window_ == None
+                          ? std::vector<std::uint32_t>{}
+                          : x11_placement::cardinal_property(display_, active_window_, window_state_atom_, XA_ATOM);
   XSync(display_, False);
   XSetErrorHandler(previous);
   drain_later();
