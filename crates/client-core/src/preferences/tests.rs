@@ -707,6 +707,34 @@ fn candidate_translations_keep_legacy_and_explicit_choices() {
 }
 
 #[test]
+fn voice_language_default_uses_the_bcp47_region_form() {
+    // 共享设置页（React 的 `defaultVoiceInput`）和 macOS 原生回退窗口都写 `zh-CN`。共享默认以前是
+    // 小写的 `zh-cn`，同一份文档因此可能带着两种写法，界面和读盘比较只能靠不区分大小写兜住。
+    // 统一成区域形式后，宿主和页面显示的是同一个码。
+    let defaults = Preferences::default();
+    assert_eq!(defaults.voice_input.language, "zh-CN");
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["voice_input"]["language"], "zh-CN");
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-CN"
+    );
+    // 只改出厂值：用户或旧版本写下的短形式原样保留，不在这里做迁移改写。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy["voice_input"]["language"] = "zh-cn".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-cn"
+    );
+}
+
+#[test]
 fn translation_account_is_an_explicit_choice_on_every_platform() {
     let defaults = Preferences::default();
     assert!(!defaults.translation_account);
@@ -818,6 +846,59 @@ fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
             .wubi_auto_commit_unique
+    );
+}
+
+#[test]
+fn wubi_z_wildcard_defaults_off_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_z_mode = "off"`：新键的缺省必须跟它一致。
+    assert!(!defaults.wubi_z_wildcard);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy.as_object_mut().unwrap().remove("wubi_z_wildcard");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_z_wildcard
+    );
+
+    let enabled = Preferences {
+        wubi_z_wildcard: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+            .unwrap()
+            .wubi_z_wildcard
+    );
+}
+
+#[test]
+fn wubi_fifth_code_top_commit_defaults_on_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_fifth_code_top_commit = true`，也是接入开关之前唯一可能的行为。
+    assert!(defaults.wubi_fifth_code_top_commit);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("wubi_fifth_code_top_commit");
+    assert!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_fifth_code_top_commit
+    );
+
+    let disabled = Preferences {
+        wubi_fifth_code_top_commit: false,
+        ..defaults
+    };
+    assert!(
+        !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+            .unwrap()
+            .wubi_fifth_code_top_commit
     );
 }
 
@@ -5949,5 +6030,71 @@ fn finished_scope_releases_inherited_lock() {
         held,
         inherited,
         &root.path().join("preferences.lock"),
+    );
+}
+
+/// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。
+#[test]
+fn network_proxy_defaults_match_the_windows_release_and_stay_out_of_the_document() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.network.proxy_mode,
+        crate::network::ProxyMode::System
+    );
+    assert!(defaults.network.proxy_server.is_empty());
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("network").is_none());
+
+    // 没有这个键的旧文档按 system 读出来。
+    let restored: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(
+        restored.network,
+        crate::network::NetworkPreferences::default()
+    );
+
+    // custom 模式里留空服务器时文档里写 `custom`，生效模式回退 system。
+    let mut empty_custom = Preferences::default();
+    empty_custom.network.proxy_mode = crate::network::ProxyMode::Custom;
+    let document = serde_json::to_value(&empty_custom).unwrap();
+    assert_eq!(document["network"]["proxy_mode"], "custom");
+    assert_eq!(
+        empty_custom.network.effective_mode(),
+        crate::network::ProxyMode::System
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, empty_custom.clone()).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(saved.preferences.network, empty_custom.network);
+}
+
+#[test]
+fn network_proxy_server_is_validated_and_restored_with_the_services() {
+    let valid = |server: &str| {
+        let mut preferences = Preferences::default();
+        preferences.network.proxy_mode = crate::network::ProxyMode::Custom;
+        preferences.network.proxy_server = server.into();
+        preferences.validate()
+    };
+    assert!(valid("127.0.0.1:7890").is_ok());
+    assert!(valid("http://127.0.0.1:7890").is_ok());
+    assert!(valid("").is_ok());
+    assert!(matches!(
+        valid("127.0.0.1"),
+        Err(PreferencesError::InvalidNetwork)
+    ));
+    assert!(matches!(
+        valid("http://user:secret@127.0.0.1:7890"),
+        Err(PreferencesError::InvalidNetwork)
+    ));
+
+    // 恢复默认设置留下代理地址：服务凭据还在，出口跟着一起留下，否则全部断掉。
+    let mut configured = Preferences::default();
+    configured.network.proxy_mode = crate::network::ProxyMode::Custom;
+    configured.network.proxy_server = "127.0.0.1:7890".into();
+    assert_eq!(
+        configured.restored_to_defaults().network,
+        configured.network
     );
 }

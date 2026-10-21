@@ -3,6 +3,8 @@
 #include "../../../../shared/input/GlossSenses.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -49,6 +51,17 @@ inline void prefer_online_glosses(
 // Whether a translation query is the `/fy` command's rather than a candidate gloss request: the command mode's query is one sentence, the English after the trigger, and its answer becomes the command's first row instead of a gloss. It goes to the translation service the user chose whatever the gloss switches say, never to an offline dictionary and never to another service, and its target language is the one the query names.
 inline bool command_translation_query(std::string_view local_mode, bool sentence) {
   return local_mode == "command" && sentence;
+}
+
+// 横排候选窗为还没到的译文预留几行，与 macOS 的 reservedGlossHeightForFont 相同：数配置的目标语言（主语言，以及与它不同的第二语言，只认受支持的七种），至少一行、至多两行。
+inline std::size_t translation_reserved_lines(std::string_view primary, std::string_view secondary) {
+  constexpr std::array<std::string_view, 7> supported{"en", "fr", "ja", "es", "ru", "de", "ko"};
+  const auto known = [&](std::string_view language) {
+    return std::find(supported.begin(), supported.end(), language) != supported.end();
+  };
+  std::size_t count = known(primary) ? 1 : 0;
+  if (known(secondary) && secondary != primary) ++count;
+  return std::clamp<std::size_t>(count, 1, 2);
 }
 
 // 在线服务请求失败或没有返回任何译文时，当前查询仍应允许下一次刷新重试。

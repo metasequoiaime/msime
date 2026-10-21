@@ -19,7 +19,7 @@ public final class ShuangpinKeyHintPolicySmoke {
             "English mode hides hints");
         check(ShuangpinKeyHintPolicy.hint(xiaohe, "U", false, 1, "emoji", true).isEmpty(),
             "Local mode hides hints");
-        // 用户在设置里关掉 `touch_shuangpin_key_hints` 后双拼也不画提示；空串会让 KeyHintButton 收回 11dp 的下边距，读屏也不再念「双拼提示」。
+        // 用户在设置里关掉 `touch_shuangpin_key_hints` 后双拼也不画提示；空串会让 KeyHintButton 收回提示的内边距，读屏也不再念「双拼提示」。
         check(ShuangpinKeyHintPolicy.hint(xiaohe, "U", false, 1, "none", false).isEmpty(),
             "The user's switch hides hints");
         check(!ShuangpinKeyHintPolicy.visible(false, 1, "none", false), "The switch overrides shuangpin");

@@ -334,6 +334,8 @@ pub struct NineKeySession {
     /// 每个音节及其前缀的单字频度，`SyllablePrior::from_dictionary` 在第一次查词前建好，给切分路径排序用。
     prior: Option<SyllablePrior<'static>>,
     english: Option<EnglishDictionary>,
+    /// 完整分组码的 SQLite GLOB 模式；热刷新复用容量。
+    english_pattern: String,
     /// 和 `locked` 一一对应：撤销那次锁定要用的东西。部分上屏之后锁定的数字位置变了，记录随之作废成 `None`。
     lock_undo: Vec<Option<LockUndo>>,
     /// 从左列末尾选的字母：第一个未锁定的音节必须以它开头。
@@ -437,6 +439,7 @@ impl NineKeySession {
             dictionary: None,
             prior: None,
             english: None,
+            english_pattern: String::new(),
             lock_undo: Vec::new(),
             initial: None,
             single_character: false,
@@ -1949,7 +1952,7 @@ impl NineKeySession {
             return;
         }
         if front.source == CandidateSource::EnglishDictionary && self.grid == KeyGrid::FourteenKey {
-            // 英文行的 `pinyin` 是小写的查询键（`word_matches_digits` 保证全是字母）；九键不给英文读音，与按数字判断时相同。
+            // 英文行的 `pinyin` 是小写的查询键（完整组码查询保证全是字母）；九键不给英文读音，与按数字判断时相同。
             let typed = front.pinyin.len().min(self.digits.len());
             for byte in front.pinyin[..typed].bytes() {
                 reading.push(char::from(byte.to_ascii_lowercase()));
@@ -2054,17 +2057,31 @@ impl NineKeySession {
             return Vec::new();
         };
         let digits = self.digits.as_str();
+        self.english_pattern.clear();
+        for digit in digits.bytes() {
+            let letters = grid.letters(digit);
+            if letters.is_empty() {
+                return Vec::new();
+            }
+            self.english_pattern.push('[');
+            self.english_pattern.push_str(letters);
+            for letter in letters.bytes() {
+                self.english_pattern
+                    .push(char::from(letter.to_ascii_uppercase()));
+            }
+            self.english_pattern.push(']');
+        }
+        self.english_pattern.push('*');
         let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::new();
         for prefix in prefixes {
-            for word in english.query_prefix(&prefix, ENGLISH_LIMIT) {
-                // 词条必须覆盖全部输入数字，防止展开前缀后面的字母读出不匹配的词。
-                // 对照 `pinyin` 中的小写查询键；`word` 是展示形式，可以带标点或空格，
-                // 例如查询键 `dont` 可以显示为 `don't`。
-                if !word_matches_digits(grid, &word.pinyin, digits) {
-                    continue;
-                }
+            for word in english.query_keypad_prefix(
+                &prefix,
+                &self.english_pattern,
+                digits.len(),
+                ENGLISH_LIMIT,
+            ) {
                 if words.capacity() == 0 {
                     words.reserve_exact(capacity);
                 }
@@ -3060,6 +3077,7 @@ fn digits_for_word(word: &str) -> String {
     KeyGrid::NineKey.encode(&lowered)
 }
 
+#[cfg(test)]
 fn word_matches_digits(grid: KeyGrid, word: &str, digits: &str) -> bool {
     let Some(keypad) = grid.keypad() else {
         return false;
@@ -5008,6 +5026,109 @@ mod tests {
             allocations <= plain_allocations,
             "九键选择带切分的音节分配多于无切分路径：{allocations} > {plain_allocations}"
         );
+    }
+
+    #[test]
+    fn english_keypad_filters_full_code_before_prefix_limit() {
+        for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+            for english_only in [false, true] {
+                let fixture = fixture();
+                Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
+                    .unwrap()
+                    .execute_batch("INSERT INTO english_words VALUES('previewing','previewing',1),('previewsa','previewsa',100),('previewsb','previewsb',100),('previewsc','previewsc',100),('previewsd','previewsd',100),('previewse','previewse',100);")
+                    .unwrap();
+                let mut session = open(&fixture.paths, false, mixed());
+                session.set_grid(grid);
+                session.set_english_only(english_only);
+                type_digits(&mut session, &grid.encode("previewing"));
+                assert!(
+                    words(&session).iter().any(|word| word == "previewing"),
+                    "完整组码不能被不匹配的高权重前缀词挤掉：{grid:?}，专用英文={english_only}"
+                );
+                let result = session.select(index_of(&session, "previewing"));
+                assert_eq!(result.commit.as_deref(), Some("previewing"));
+            }
+        }
+    }
+
+    #[test]
+    fn english_keypad_prefix_limit_uses_final_ranking() {
+        let fixture = fixture();
+        Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
+            .unwrap()
+            .execute_batch("INSERT INTO english_words VALUES('commit','COMMIT',1),('commita','commita',100),('commitb','commitb',100),('commitc','commitc',100),('commitd','commitd',100),('commite','commite',100);")
+            .unwrap();
+        let mut session = open(&fixture.paths, false, mixed());
+        session.set_english_only(true);
+        type_digits(&mut session, "266648");
+        assert_eq!(words(&session).first().map(String::as_str), Some("COMMIT"));
+        assert_eq!(words(&session).len(), ENGLISH_LIMIT);
+    }
+
+    #[test]
+    fn english_keypad_invalid_rows_do_not_consume_prefix_limit() {
+        let fixture = fixture();
+        let db = Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY)).unwrap();
+        for lookup in [
+            "commit!",
+            "commit ",
+            "commit9",
+            "commit-é",
+            "commit\0suffix",
+            "commit",
+        ] {
+            let display = (lookup != "commit").then_some("合成无效词");
+            db.execute(
+                "INSERT INTO english_words VALUES(?1,?2,1000)",
+                rusqlite::params![lookup, display],
+            )
+            .unwrap();
+        }
+        db.execute_batch("INSERT INTO english_words VALUES('commiT','don''t',1);")
+            .unwrap();
+        let mut session = open(&fixture.paths, false, mixed());
+        session.set_english_only(true);
+        type_digits(&mut session, "266648");
+        assert_eq!(words(&session), ["don't"]);
+    }
+
+    #[test]
+    #[ignore = "需要通过 MSIME_TEST_ENGLISH_DICTIONARY 指定已校验的发布英文词库"]
+    fn english_keypad_shipped_dictionary_reported_words() {
+        let database =
+            std::env::var_os("MSIME_TEST_ENGLISH_DICTIONARY").expect("指定已校验的发布英文词库");
+        let fixture = fixture();
+        std::fs::copy(
+            database,
+            fixture.paths.dictionary(assets::ENGLISH_DICTIONARY),
+        )
+        .unwrap();
+        for grid in [KeyGrid::NineKey, KeyGrid::FourteenKey] {
+            for english_only in [false, true] {
+                for (lookup, display) in [
+                    ("github", "GitHub"),
+                    ("preview", "preview"),
+                    ("commit", "commit"),
+                    ("clash", "clash"),
+                ] {
+                    let mut session = open(&fixture.paths, false, mixed());
+                    session.set_grid(grid);
+                    session.set_english_only(english_only);
+                    type_digits(&mut session, &grid.encode(lookup));
+                    assert!(
+                        words(&session).iter().any(|word| word == display),
+                        "发布词库缺少候选：{display}，{grid:?}，专用英文={english_only}"
+                    );
+                    assert_eq!(
+                        session
+                            .select(index_of(&session, display))
+                            .commit
+                            .as_deref(),
+                        Some(display)
+                    );
+                }
+            }
+        }
     }
 
     #[test]

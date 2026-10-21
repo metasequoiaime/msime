@@ -96,6 +96,10 @@ while :; do
   fi
   if [ "$status" -eq "$upgraded_status" ]; then
     echo "msime-linux-ibus was replaced by an upgrade; starting the new build" >&2
+    # 告诉用户新版本已经生效，对应 macOS 设置应用升级后的那条提示；引导脚本自己脱离这个进程，不拖慢重启。
+    if [ -x "$launcher_dir/msime-linux-first-run-guide" ]; then
+      "$launcher_dir/msime-linux-first-run-guide" --host ibus --reason upgraded || :
+    fi
   else
     if [ $(($(date +%s) - started)) -ge "$healthy_seconds" ]; then
       delay=$min_delay

@@ -7,7 +7,7 @@ export interface CandidateExpandSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** 「展开候选」开关，供按 `expand_candidates` 画多行候选网格的宿主使用（`HostCapabilities::expand_candidates`，目前只有 macOS）：「候选窗口」页「更多选项」里的一行。默认关闭，所以缺值读成关。 */
+/** 「展开候选」开关，供按 `expand_candidates` 画多行候选网格的宿主使用（`HostCapabilities::expand_candidates`：macOS，以及 X11 上用原生画布画候选窗的 Linux Fcitx5）：「候选窗口」页「更多选项」里的一行。默认关闭，所以缺值读成关。 */
 export function CandidateExpandSection({
   value,
   onChange,

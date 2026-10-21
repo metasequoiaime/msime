@@ -10,6 +10,7 @@ Status: implemented
 
 - 本地设置 `platform.android.clipboard_columns`（`AndroidLocalSettings.CLIPBOARD_COLUMNS`），取值 `one` / `two`，默认 `one`，只在本机、不随账号同步：同步字段表（`crates/client-services/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`）里没有它，加进去要改 Rust 和服务端字段表。
 - 设置入口在「键盘」页新增的「剪贴板」一节：「排列」→ 单列 / 双列。键盘在 `applyLocalSettings` 里读成 `clipboardColumns`，和其他本地设置一样，下次弹出键盘时生效。
+- #9004：列数保存成功后重新读取并绘制设置页，让「排列」的文字和再次打开选择面板时的勾选跟随已保存值；保存失败也重新读取，不把未保存的选择显示成成功。
 - `ImePanels.clipboardCard` 按列数排：双列时两条一行、等宽同高，最后一行只有一条时右边留空；本机和云端两个分段都这样排。列数与行号的换算在 `ClipboardLayoutPolicy`。
 - 双列时长按一条打开的操作行跨在那一行下方，被长按的那条画成选中样式，看得出操作对着哪一条；单列时也一样标出。
 
@@ -26,3 +27,5 @@ Status: implemented
 ## Verification
 
 `platforms/android/tests/clipboard/ClipboardLayoutPolicySmoke.java` 验证取值、默认值、只在本机和行号换算；`bash platforms/android/check-host.sh` 编译面板代码并运行它。设置页（`home/KeyboardOptionsPage.java`）只在 Gradle 构建里编译。双列在真机上的观感没有在设备上验证。
+
+#9004 在 API 28 专用模拟器的原生拼音版中复现：保存值已经是 `two`，页面仍显示单列。安装本分支编译的 Rust/JNI 与原生 APK 后，在同一页面连续单列→双列→单列，保存值与页面文字均一致；截图复核再次打开面板后的勾选分别落在单列、双列。退出恢复原本的本地设置和引导状态。`scripts/verify-local.sh --quick` 通过，包含 Android Java/JVM/NDK 与 Rust 编译；未在 vivo 真机验收。

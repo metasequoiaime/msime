@@ -175,13 +175,12 @@ public final class KeyboardActionRow {
         return designEntries(touchLayout, globe, swapLanguageNumber, false);
     }
 
-    /** 九键数字层底行保留符号入口，0 位于原空格处；常驻空格键移到右列，手势保持。 */
+    /** 九键数字层保留符号和层键的位置，0 位于原空格处；常驻空格键移到右列，手势保持。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits) {
         List<DesignEntry> entries = designEntries(touchLayout, globe);
         if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
             List<DesignEntry> numeric = new ArrayList<>(entries);
-            java.util.Collections.swap(numeric, 0, 1);
             for (int index = 0; index < numeric.size(); index++) {
                 if (numeric.get(index).slot() == DesignSlot.SPACE)
                     numeric.set(index, new DesignEntry(DesignSlot.ZERO, DESIGN_SPACE_WEIGHT));

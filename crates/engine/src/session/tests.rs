@@ -354,6 +354,46 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
     }
 }
 
+#[test]
+fn invalid_shuangpin_fuzzy_initial_selection_keeps_raw_coverage_and_learning() {
+    for (input, rest, caret) in [
+        ("slrf", "", None),
+        ("slrfni", "ni", None),
+        ("slrfni", "ni", Some(4)),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shuang''ren','sr','双刃',11000),('shuang''ren','sr','双人',10000);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
+        );
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = false;
+            options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::S_SH;
+            options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        });
+        type_text(&mut session, input);
+        if let Some(caret) = caret {
+            session.set_caret(Some(caret));
+        }
+        let index = index_of(&session, "双人");
+        assert!(index > 0, "调频夹具明确选择非首选词");
+        let row = &session.snapshot().candidates[index];
+        assert_eq!(row.pinyin.replace('\'', ""), "slrf");
+        assert_eq!(row.canonical_pinyin, "shuang'ren");
+        assert!(row.fuzzy);
+        assert_eq!(session.select(index).commit.as_deref(), Some("双人"));
+        assert_eq!(session.snapshot().editing_text, rest);
+        let journal = Connection::open(fixture.journal()).unwrap();
+        let learned: i64 = journal.query_row(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key='shuang''ren' AND value='双人' AND operation<>'delete'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(learned > 0, "模糊两键选择必须按标准读音学习");
+    }
+}
+
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
     let index = index_of(session, word);
     session.select(index)
@@ -730,6 +770,35 @@ fn candidate_sources(session: &Session) -> Vec<CandidateSource> {
         .into_iter()
         .map(|item| item.source)
         .collect()
+}
+
+#[test]
+fn short_exact_mixed_english_keeps_chinese_first_and_commits_without_a_mode_switch() {
+    let fixture = Fixture::new(HELLO_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('he','HE',100),('hello','Hello',1000);");
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.english.mixed_candidates = true;
+            options.english.minimum_prefix = 5;
+            options.helpcode = false;
+        });
+        for _ in 0..2 {
+            type_text(&mut session, "he");
+            assert_eq!(&words(&session)[..2], ["和", "HE"]);
+            assert!(!words(&session).contains(&"Hello".to_owned()));
+            assert_eq!(session.select(1).commit.as_deref(), Some("HE"));
+            assert!(session.snapshot().preedit.is_empty());
+        }
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.english.mixed_candidates = false;
+            options.english.minimum_prefix = 5;
+            options.helpcode = false;
+        });
+        type_text(&mut session, "he");
+        assert!(!words(&session).contains(&"HE".to_owned()));
+    }
 }
 
 /// 拼音拆不开、英文完全匹配整段输入时英文占首位，空格上屏英文；结束组字的标点也整段上屏这个英文词。能切成完整音节的 `he` 照旧是中文首选。
@@ -2993,6 +3062,101 @@ fn bianyi_continues_after_the_bian_wubi_code() {
     );
 }
 
+const WUBI_WILDCARD_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('wqiy','你',100);\
+INSERT INTO wubi86 VALUES('wqiy','伱',10);\
+INSERT INTO wubi86 VALUES('abcd','合成',200);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',100);";
+
+/// 通配打开时的端到端行为：`z` 进码、查询走模式匹配、四码唯一与顶字都不会对带 `z` 的猜码动手。
+#[test]
+fn the_wubi_wildcard_matches_any_letter_and_keeps_guessing_codes_open() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut session, "wqzy");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "wqzy");
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .map(|item| item.word.as_str())
+            .collect::<Vec<_>>(),
+        ["你", "伱"]
+    );
+    // 此快照只验证带 `z` 的猜码不算四码唯一；第五键的顶字边界由真实 runtime 用例验证。
+    assert!(!snapshot.wubi_unique_four_code);
+    assert!(!snapshot.answered_by_pinyin_fallback);
+}
+
+/// 带 `z` 的码即使是码表唯一命中也不算「四码唯一」：它是猜码，后台那个唯一候选与好几个码只差一个字母。
+#[test]
+fn a_wildcard_code_never_counts_as_a_unique_four_code() {
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('wqzy','唯一',100);\
+INSERT INTO wubi86 VALUES('abcd','合成',200);",
+    );
+    let mut wildcard = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut wildcard, "wqzy");
+    assert_eq!(words(&wildcard), ["唯一"]);
+    assert!(!wildcard.snapshot().wubi_unique_four_code);
+
+    // 同一个码表里不含 `z` 的四码仍然是四码唯一：守卫只针对 `z`。
+    let mut plain = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+    });
+    type_text(&mut plain, "abcd");
+    assert_eq!(words(&plain), ["合成"]);
+    assert!(plain.snapshot().wubi_unique_four_code);
+}
+
+/// 通配打开时 `z` 是未知码位，临时拼音反查让位：组字开头的 `z` 进码，反查不打开。
+#[test]
+fn the_wubi_wildcard_takes_z_from_the_pinyin_lookup() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut session, "zqiy");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "zqiy");
+    // 反查不打开：候选来自五笔码表的通配匹配，不是全拼。
+    assert!(!snapshot.answered_by_pinyin_fallback);
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .map(|item| item.word.as_str())
+            .collect::<Vec<_>>(),
+        ["你", "伱"]
+    );
+}
+
+/// 通配关闭时 `z` 照旧不进码，组字开头的 `z` 照旧打开临时拼音反查——升级用户零变化。
+#[test]
+fn turning_the_wubi_wildcard_off_keeps_z_out_of_the_code() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = false;
+    });
+    type_text(&mut session, "zni");
+    let snapshot = session.snapshot();
+    // 反查打开：组字是 `zni`，候选来自全拼。
+    assert_eq!(snapshot.preedit, "zni");
+    assert!(snapshot.answered_by_pinyin_fallback);
+    assert!(snapshot.candidates.iter().any(|item| item.word == "你"));
+}
+
 #[test]
 fn xuqiu_continues_after_a_four_letter_wubi_code() {
     let fixture = Fixture::new(WUBI_XUQIU_FIXTURE);
@@ -4118,6 +4282,64 @@ fn chinese_caret_editing_does_not_claim_the_japanese_long_vowel_key() {
         assert!(!result.handled, "{scheme:?}");
         assert!(result.commit.is_none(), "{scheme:?}");
         assert_eq!(session.snapshot(), before, "{scheme:?}");
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowels_preserve_composition_and_commit_katakana() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for punctuation_route in [false, true] {
+            let mut session = fixture.session_with(|options| options.scheme = scheme);
+            assert!(session.character(b'R', true).handled);
+            for byte in b"ko-hi-" {
+                let result = if punctuation_route && *byte == b'-' {
+                    session.punctuation(*byte)
+                } else {
+                    session.character(*byte, false)
+                };
+                assert!(result.handled, "{scheme:?}, {punctuation_route}, {byte}");
+                assert!(result.commit.is_none(), "{result:?}");
+            }
+            let snapshot = session.snapshot();
+            assert_eq!(snapshot.editing_text, "Rko-hi-");
+            assert_eq!(snapshot.scheme, scheme);
+            assert_eq!(snapshot.local_mode, LocalInputMode::TemporaryJapanese);
+            let index = snapshot
+                .candidates
+                .iter()
+                .position(|row| row.word == "コーヒー")
+                .unwrap();
+            assert_eq!(session.select(index).commit.as_deref(), Some("コーヒー"));
+            assert_eq!(session.snapshot().scheme, scheme);
+            assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+            assert!(!session.snapshot().spelling_symbols.contains('-'));
+        }
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowel_can_be_inserted_and_erased_inside_romaji() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        session.character(b'R', true);
+        type_text(&mut session, "kohi");
+        session.set_caret(Some(3));
+        let result = session.character(b'-', false);
+        assert!(result.handled);
+        assert!(result.commit.is_none());
+        assert_eq!(session.snapshot().editing_text, "Rko-hi");
+        assert_eq!(session.snapshot().caret_position, 4);
+        assert!(words(&session).contains(&"コーヒ".to_owned()));
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "Rkohi");
+        assert_eq!(session.snapshot().caret_position, 3);
+        assert_eq!(
+            session.snapshot().local_mode,
+            LocalInputMode::TemporaryJapanese
+        );
+        assert_eq!(session.snapshot().scheme, scheme);
     }
 }
 
@@ -8440,6 +8662,73 @@ INSERT INTO quick_parases VALUES('dh','电话',20);",
         .position(|item| item.word == "电话")
         .expect("quick phrase candidate");
     assert_eq!(session.select(phrase).commit.as_deref(), Some("电话"));
+}
+
+/// 普通组字只认整个编码：K 模式按前缀列表，普通候选若也按前缀，单个字母就会带出以它开头的所有短语。数据库行和宿主短语表都一样。
+#[test]
+fn regular_composition_matches_quick_phrase_keys_exactly() {
+    let fixture = Fixture::new(
+        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('dh','电话',20);\
+INSERT INTO quick_parases VALUES('dhx','电话线',30);",
+    );
+    let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+    };
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_table = vec![phrase("d", "地址"), phrase("dhh", "电话号码")];
+    });
+    type_text(&mut session, "dh");
+    let regular = words(&session);
+    assert!(regular.contains(&"电话".to_owned()), "{regular:?}");
+    for prefixed in ["电话线", "电话号码", "地址"] {
+        assert!(!regular.contains(&prefixed.to_owned()), "{regular:?}");
+    }
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "d");
+    let single = words(&session);
+    assert!(single.contains(&"地址".to_owned()), "{single:?}");
+    assert!(!single.contains(&"电话".to_owned()), "{single:?}");
+}
+
+/// 设置页的「快捷短语」开关同时管两种入口：关掉后普通候选里也不出现短语。
+#[test]
+fn the_quick_phrase_switch_also_keeps_phrases_out_of_regular_candidates() {
+    let fixture = Fixture::new(
+        "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('dh','电话',20);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.local_modes.quick_phrase = false;
+    });
+    type_text(&mut session, "dh");
+    assert!(!words(&session).contains(&"电话".to_owned()));
+}
+
+/// 五笔四码唯一时，同编码的快捷短语追加在后面也不妨碍自动上屏，提交的仍是五笔那一行。
+#[test]
+fn a_quick_phrase_with_the_same_key_keeps_the_wubi_unique_four_code() {
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('addr','莽原',100);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('addr','示例路1号',10);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = false;
+        options.quick_phrase_candidates = true;
+    });
+    type_text(&mut session, "addr");
+    assert_eq!(
+        words(&session),
+        vec!["莽原".to_owned(), "示例路1号".to_owned()]
+    );
+    assert!(session.snapshot().wubi_unique_four_code);
 }
 
 /// 宿主给的辅助码表替换 schema 对应的表，也可以在会话中途换掉。

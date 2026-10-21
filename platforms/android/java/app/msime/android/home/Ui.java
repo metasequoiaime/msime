@@ -116,7 +116,7 @@ public final class Ui {
     public static final int SLIDER_THUMB_WIDTH = 4;
     public static final int SLIDER_THUMB_HEIGHT = 28;
     public static final int SLIDER_TOUCH_HEIGHT = 30;
-    /** 滑块右边数值标签的宽度。 */
+    /** 滑块右边数值标签的最小宽度；较长数值按当前字体测量后扩宽。 */
     public static final int SLIDER_LABEL_WIDTH = 46;
     /** 选择面板每个选项的高度。 */
     public static final int SHEET_OPTION_HEIGHT = 56;

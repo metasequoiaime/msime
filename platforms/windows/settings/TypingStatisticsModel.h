@@ -585,28 +585,12 @@ struct Metric {
   std::wstring note;
 };
 
-// `statisticsOverviewMetrics`：标签行上方的六格。
-inline std::vector<Metric> overview_metrics(Statistics const &statistics, std::string const &today,
-                                            std::wstring const &scope_title, double scope_total,
-                                            Activity const &activity) {
-  std::vector<Metric> metrics;
-  metrics.push_back({L"今日输入", L"", zh_number(value_of(statistics.days, today)), L"字符", L"今日输入字符数", L""});
-  metrics.push_back({scope_title, L"", zh_number(scope_total), L"字符", L"当前范围输入字符数", L""});
-  metrics.push_back({L"今日活跃", L"连续打字的时间", active_time(activity.today_active_ms), L"", L"今日活跃时长", L""});
-  metrics.push_back({L"今日速度", L"", zh_number(js_round(activity.today_speed)), L"字 / 分钟", L"今日输入速度", L""});
-  metrics.push_back({L"平均速度", L"", zh_number(js_round(activity.average_speed)), L"字 / 分钟", L"平均输入速度",
-                     activity.has_activity ? L"共 " + active_time(activity.total_active_ms) : L""});
-  metrics.push_back({L"连续天数", L"", zh_number(activity.current_streak), L"天", L"连续输入天数",
-                     L"最长 " + zh_number(activity.longest_streak) + L" 天"});
-  return metrics;
-}
-
 struct OverviewDetails {
   std::wstring summary;
   std::wstring best;
 };
 
-// `statisticsOverviewDetails`：六格下面的两行。
+// `statisticsOverviewDetails`：`summary` 是累计那一格的附注，`best` 是共享页导出的另一行（最多和最快的一天），macOS 的概览不画它。
 inline OverviewDetails overview_details(Activity const &activity) {
   OverviewDetails details;
   details.summary = L"日均 " + zh_number(js_round(activity.average_per_day)) + L" 字符 · " +
@@ -618,6 +602,29 @@ inline OverviewDetails overview_details(Activity const &activity) {
     details.best += L" · 最快 " + day_label(*activity.fastest_day) + L"，" +
                     zh_number(js_round(activity.fastest_speed)) + L" 字 / 分钟";
   return details;
+}
+
+// `statisticsOverviewMetrics`：标签行上方的六格，每格的附注照 macOS 分布：今日输入写单日最多（有记录的一天时），累计写日均和记录天数，今日活跃写累计活跃时长（测到过活跃时长时），今日速度写单日最快（有够一分钟的一天时），平均速度不加附注，连续天数写最长。
+inline std::vector<Metric> overview_metrics(Statistics const &statistics, std::string const &today,
+                                            std::wstring const &scope_title, double scope_total,
+                                            Activity const &activity) {
+  std::vector<Metric> metrics;
+  metrics.push_back({L"今日输入", L"", zh_number(value_of(statistics.days, today)), L"字符", L"今日输入字符数",
+                     activity.best_day ? L"单日最多 " + zh_number(activity.best_day_characters) + L" 字符 · " +
+                                             day_label(*activity.best_day)
+                                       : L""});
+  metrics.push_back({scope_title, L"", zh_number(scope_total), L"字符", L"当前范围输入字符数",
+                     overview_details(activity).summary});
+  metrics.push_back({L"今日活跃", L"连续打字的时间", active_time(activity.today_active_ms), L"", L"今日活跃时长",
+                     activity.has_activity ? L"累计 " + active_time(activity.total_active_ms) : L""});
+  metrics.push_back({L"今日速度", L"", zh_number(js_round(activity.today_speed)), L"字 / 分钟", L"今日输入速度",
+                     activity.fastest_day ? L"单日最快 " + zh_number(js_round(activity.fastest_speed)) +
+                                                L" 字 / 分钟 · " + day_label(*activity.fastest_day)
+                                          : L""});
+  metrics.push_back({L"平均速度", L"", zh_number(js_round(activity.average_speed)), L"字 / 分钟", L"平均输入速度", L""});
+  metrics.push_back({L"连续天数", L"", zh_number(activity.current_streak), L"天", L"连续输入天数",
+                     L"最长 " + zh_number(activity.longest_streak) + L" 天"});
+  return metrics;
 }
 
 // `availabilityNotice` 在 Windows（不是 iOS）上的文字；`written` 是最后写入时间的本地写法，没有时为空。

@@ -115,6 +115,10 @@ public abstract class DetailPage extends HomeTabFragment {
             if (column != null && column.getParent() == parent && column.getChildCount() > 0) labels.add(title);
         }
         if (!labels.isEmpty() && !labels.contains(section)) section = labels.get(0);
+        // 只有一类内容时没有可切换的目标，隐藏整条导航并收回占位。
+        View navigation = (View) sectionTabs.getParent();
+        ViewPolicy.setVisible(navigation, labels.size() > 1);
+        updateNavigationInset(navigation);
         if (labels.equals(visibleSections) && section.equals(shownSection)) {
             for (Map.Entry<String, LinearLayout> entry : sections.entrySet())
                 ViewPolicy.setVisible(entry.getValue(), entry.getKey().equals(section));
@@ -129,6 +133,18 @@ public abstract class DetailPage extends HomeTabFragment {
         for (Map.Entry<String, LinearLayout> entry : sections.entrySet()) {
             ViewPolicy.setVisible(entry.getValue(), entry.getKey().equals(section));
         }
+    }
+
+    private void updateNavigationInset(View navigation) {
+        View root = getView();
+        if (root == null) return;
+        int margin = ((FrameLayout.LayoutParams) navigation.getLayoutParams()).topMargin
+            + (navigation.getVisibility() == View.VISIBLE ? navigation.getHeight() : 0);
+        NestedScrollView scroll = root.findViewById(R.id.ms_detail_scroll);
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
+        if (params.topMargin == margin) return;
+        params.topMargin = margin;
+        scroll.setLayoutParams(params);
     }
 
     /** 往内容列里加这一页的设置。视图每次重建都会再调一次，所以这里不要保留跨视图的状态。 */
@@ -211,13 +227,8 @@ public abstract class DetailPage extends HomeTabFragment {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             navParams.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT);
             ((FrameLayout) view).addView(navigation, navParams);
-            navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                int margin = navParams.topMargin + target.getHeight();
-                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
-                if (params.topMargin == margin) return;
-                params.topMargin = margin;
-                scroll.setLayoutParams(params);
-            });
+            navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
+                -> updateNavigationInset(target));
         }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)

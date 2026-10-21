@@ -108,7 +108,8 @@ impl InputSession {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
             self.queries
                 .append_contact_candidates(self.engine.request().raw_input.as_str(), &mut decoded);
-            if self.quick_phrase_candidates {
+            // 宿主请求了这项能力还不够：设置页「快捷短语」开关的说明写的是两种入口都由它管，关掉它时普通候选里也不再出现短语。
+            if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
                     &mut decoded,

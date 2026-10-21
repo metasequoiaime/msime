@@ -148,6 +148,34 @@ int main() {
   check(card_meta(L"sample", L"", L"作者") == L"sample · 作者", "an empty version is left out");
   check(slot_label(Slot::either) == L"跟随明暗，浅色、深色模式都能用", "the system slot label");
 
+  // 内置主题卡片的说明（globalThemeDescription）
+  check(theme_description(L"system", std::nullopt) == L"候选窗口、悬浮工具栏与键盘使用平台自带配色",
+        "the system theme uses the platform colours");
+  check(theme_description(L"custom", std::nullopt) == L"外部皮肤、候选颜色与自定义键盘",
+        "the custom theme names skins and colours");
+  check(theme_description(L"night", true) == L"深色候选窗口、悬浮工具栏与键盘", "a dark theme");
+  check(theme_description(L"paper", false) == L"浅色候选窗口、悬浮工具栏与键盘", "a light theme");
+  check(theme_description(L"other", std::nullopt) == L"浅色候选窗口、悬浮工具栏与键盘",
+        "a theme without an appearance reads as light");
+
+  // 轮播停在哪张卡片
+  const std::vector<std::wstring> cards{L"theme:system", L"theme:night", L"package:auto"};
+  check(carousel_index(cards, 1, L"", L"", 0) == 1, "the first draw shows the selected card");
+  check(carousel_index(cards, 1, L"theme:night", L"package:auto", 2) == 2,
+        "a redraw keeps the card being looked at");
+  check(carousel_index(cards, 0, L"theme:night", L"package:auto", 2) == 0,
+        "choosing another theme follows it");
+  const std::vector<std::wstring> inserted{L"theme:system", L"theme:night", L"package:new",
+                                           L"package:auto"};
+  check(carousel_index(inserted, 1, L"theme:night", L"package:auto", 2) == 3,
+        "a package inserted before the shown card keeps the same card");
+  const std::vector<std::wstring> removed{L"theme:system", L"theme:night"};
+  check(carousel_index(removed, 1, L"theme:night", L"package:auto", 2) == 1,
+        "a removed card falls back to the last one");
+  check(carousel_index(cards, 1, L"theme:night", L"package:gone", 0) == 0,
+        "a removed card keeps its position");
+  check(carousel_index({}, 0, L"", L"", 0) == 0, "no cards");
+
   // 候选颜色
   check(candidate_text_color(L"#A1b2C3") == std::wstring(L"#a1b2c3"), "a colour is read in lowercase");
   check(!candidate_text_color(L"#abc"), "a short colour is not a colour");

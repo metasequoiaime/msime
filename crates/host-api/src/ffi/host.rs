@@ -1216,6 +1216,48 @@ struct SkinResourceRequest {
     kind: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkinToolbarImageLayoutRequest {
+    toolbar: msime_client_services::skin::catalog::SkinToolbarImage,
+    shown: Vec<[String; 2]>,
+}
+
+/// 根据扫描缓存里的 `toolbarImage` 与当前显示的 `[按钮键, 状态]` 计算图片工具栏。
+/// 不读文件；状态切换时不应重新加载或解码整个皮肤。返回窗口尺寸及按钮矩形、底图和状态图。
+/// # Safety
+/// `request` 指向 `length` 字节可读 UTF-8 JSON，结果由 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_toolbar_image_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid toolbar image layout request".into());
+        }
+        // 安全性：调用方保证请求缓冲可读，上面已限制长度。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinToolbarImageLayoutRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid toolbar image layout request")?;
+        if request.shown.len() > msime_client_services::skin::catalog::TOOLBAR_BUTTON_KEYS.len()
+            || request
+                .shown
+                .iter()
+                .any(|[key, state]| key.len() > 32 || state.len() > 32)
+        {
+            return Err("invalid toolbar image button request".into());
+        }
+        let layout = request.toolbar.checked_layout(
+            request
+                .shown
+                .iter()
+                .map(|[key, state]| (key.as_str(), state.as_str())),
+        )?;
+        serde_json::to_value(layout).map_err(|error| error.to_string())
+    })
+}
+
 #[derive(Debug, Deserialize)]
 struct SkinStylesheetRequest {
     directory: String,
