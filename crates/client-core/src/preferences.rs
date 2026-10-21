@@ -1157,6 +1157,9 @@ pub struct Preferences {
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
     pub english_suggestions: bool,
+    /// 额外授权：允许英文组字和前文发送给已启用的 AI 或自定义云候选服务。
+    #[serde(default)]
+    pub english_online_candidates: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
     /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
@@ -2475,6 +2478,7 @@ impl Default for Preferences {
             candidate_english_gloss: false,
             candidate_pronunciation: false,
             english_suggestions: true,
+            english_online_candidates: false,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
             translation_account: false,

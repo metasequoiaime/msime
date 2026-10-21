@@ -5323,6 +5323,159 @@ fn dedicated_english_offers_the_typed_word_when_unknown() {
 }
 
 #[test]
+fn english_online_requires_opt_in_and_answers_enter_the_visible_list() {
+    for dedicated in [true, false] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+        let mut session = generated_modes_session(&fixture);
+        if dedicated {
+            session.set_dedicated_english(true);
+        } else {
+            session.character(b'Y', true);
+        }
+        type_text(&mut session, "accessability");
+        assert!(session.online_query().is_none());
+        let local = words(&session);
+        session.set_english_online_candidates_enabled(true);
+        let query = session.online_query().unwrap();
+        assert_eq!(query.mode, crate::OnlineInputMode::English);
+        assert_eq!(query.query_text, "accessability");
+        assert_eq!(query.cache_key, "english:accessability");
+        assert!(query.pinyin_segments.is_empty());
+        assert!(query.ai_eligible && query.cloud_eligible);
+        assert!(session.apply_online_candidates(
+            &query,
+            &[
+                "accessibility".into(),
+                "accessibility".into(),
+                "accessible".into()
+            ],
+            CandidateSource::AiSuggestion,
+        ));
+        assert_eq!(&words(&session)[..local.len()], local);
+        assert_eq!(
+            &words(&session)[local.len()..],
+            ["accessibility", "accessible"]
+        );
+        let chosen = session.select(local.len());
+        assert_eq!(chosen.commit.as_deref(), Some("accessibility"));
+        assert!(!session.apply_online_candidate(
+            &query,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        assert!(session.online_query().is_none());
+    }
+}
+
+#[test]
+fn english_online_edits_revocation_and_mode_changes_reject_old_answers() {
+    for dedicated in [true, false] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+        let mut session = generated_modes_session(&fixture);
+        session.set_english_online_candidates_enabled(true);
+        if dedicated {
+            session.set_dedicated_english(true);
+        } else {
+            session.character(b'Y', true);
+        }
+        type_text(&mut session, "accessability");
+        let old = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &old,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        session.character(b'x', false);
+        assert!(!words(&session).contains(&"accessibility".to_owned()));
+        session.command(Command::Backspace);
+        assert!(!session.apply_online_candidate(
+            &old,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &current,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        session.command(Command::MoveHome);
+        session.command(Command::DeleteForward);
+        assert!(!words(&session).contains(&"accessibility".to_owned()));
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        session.set_english_online_candidates_enabled(false);
+        assert!(session.online_query().is_none());
+        assert!(!words(&session).contains(&"accessible".to_owned()));
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        session.set_english_online_candidates_enabled(true);
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        session.set_dedicated_english(!dedicated);
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+    }
+}
+
+#[test]
+fn english_online_batches_replace_sources_and_validate_query_mode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_english_online_candidates_enabled(true);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "HE");
+    let query = session.online_query().unwrap();
+    let mut wrong_mode = query.clone();
+    wrong_mode.mode = crate::OnlineInputMode::Pinyin;
+    assert!(!session.apply_online_candidate(&wrong_mode, "Helper", CandidateSource::AiSuggestion));
+    assert!(session.apply_online_candidates(
+        &query,
+        &["Helper".into()],
+        CandidateSource::AiSuggestion
+    ));
+    assert!(session.apply_online_candidate(&query, "Hero", CandidateSource::CloudSuggestion));
+    assert!(!session.apply_online_candidates(&query, &[], CandidateSource::AiSuggestion));
+    assert!(words(&session).contains(&"Helper".to_owned()));
+    // 同源批次即使只重复本地词，也必须撤回旧在线行。
+    assert!(session.apply_online_candidates(
+        &query,
+        &["Hello".into()],
+        CandidateSource::AiSuggestion
+    ));
+    assert!(!words(&session).contains(&"Helper".to_owned()));
+    assert_eq!(
+        words(&session)
+            .iter()
+            .filter(|word| *word == "Hello")
+            .count(),
+        1
+    );
+    session.clear_online_candidates(CandidateSource::CloudSuggestion);
+    assert!(!words(&session).contains(&"Hero".to_owned()));
+    assert!(!session.apply_online_candidate(&query, "Hero", CandidateSource::CloudSuggestion));
+}
+
+#[test]
 fn dedicated_english_refresh_reuses_candidate_row_storage() {
     let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
     let mut old_style = fixture.session();

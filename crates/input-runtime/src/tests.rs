@@ -2836,6 +2836,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
 #[test]
 fn online_provider_worker_is_bounded_and_filters_invalid_results() {
     let query = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 4,
         identity: "identity".into(),
@@ -2885,6 +2886,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
     })
     .unwrap();
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: "identity".into(),
@@ -2934,6 +2936,7 @@ fn online_provider_worker_debounces_from_the_latest_submission() {
         })
         .unwrap();
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: text.into(),
@@ -2979,6 +2982,7 @@ fn cloud_request_requires_eligible_query() {
         std::time::Duration::from_millis(500)
     );
     let mut query = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: "x".into(),
@@ -3002,6 +3006,7 @@ fn cloud_request_requires_eligible_query() {
     let response = serde_json::json!(["SUCCESS", [["ni", ["你"]]]]).to_string();
     // Korean never goes to a cloud provider, even with a query claiming eligibility.
     let korean = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: KOREAN_SCHEME,
         ..query.clone()
     };
@@ -6875,6 +6880,7 @@ fn a_blur_commit_survives_a_failed_refresh() {
 #[test]
 fn a_busy_provider_keeps_only_the_newest_completed_result() {
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: text.into(),
@@ -6988,6 +6994,7 @@ fn scheme_predicates_reproduce_the_ordinal_rules_they_replace() {
 
     // The cloud gate reads the predicate: a Wubi query claiming eligibility is refused like a Korean one, and so is a query naming no scheme.
     let query = |scheme: u8| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme,
         generation: 1,
         identity: "x".into(),
@@ -9126,4 +9133,90 @@ fn cloud_switch_does_not_change_engine_after_generation_exhaustion() {
     assert_eq!(runtime.engine.snapshot().unwrap(), before);
     runtime.set_cloud_candidates_enabled(false).unwrap();
     assert_eq!(runtime.engine.snapshot().unwrap(), before);
+}
+
+#[test]
+fn english_online_runtime_keeps_local_order_places_ai_and_commits_the_answer() {
+    for dedicated in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let options = real_engine_options(directory.path());
+        let english = std::path::Path::new(&options.dictionaries).join("msime-english.db");
+        msime_engine::ensure_english_schema(&english).unwrap();
+        let connection = rusqlite::Connection::open(english).unwrap();
+        for (index, word) in ["Hello", "Help", "Helmet", "Hero", "Heron", "Hedge", "Herd"]
+            .iter()
+            .enumerate()
+        {
+            connection
+                .execute(
+                    "INSERT INTO english_words VALUES(?1,?2,?3)",
+                    rusqlite::params![word.to_lowercase(), word, 100 - index as i64],
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        if dedicated {
+            runtime.set_dedicated_english(true).unwrap();
+        } else {
+            runtime
+                .dispatch(Action::Character {
+                    value: b'Y',
+                    shift: true,
+                })
+                .unwrap();
+        }
+        type_characters(&mut runtime, "he");
+        assert!(runtime.online_query().unwrap().is_none());
+        let local = texts(&runtime.view());
+        assert!(local.len() >= 5, "dedicated={dedicated}: {local:?}");
+        runtime.seed_context("Synthetic preceding sentence.");
+        runtime.set_english_online_candidates_enabled(true).unwrap();
+        let mut query = runtime.online_query().unwrap().unwrap();
+        assert_eq!(query.mode, msime_engine::OnlineInputMode::English);
+        assert_eq!(query.ai_context, "Synthetic preceding sentence.");
+        query.ai_assistant =
+            Some(serde_json::from_value(json!({"enabled": true, "candidate_limit": 2})).unwrap());
+        assert!(runtime
+            .apply_online_candidates(&query, &["Helpful".into(), "Health".into()], 1)
+            .unwrap());
+        let page = texts(&runtime.view());
+        assert_eq!(&page[..4], &local[..4]);
+        assert_eq!(page[4], "Helpful");
+        let chosen = runtime.view().candidates[4].id;
+        let transition = runtime.dispatch(Action::Select(chosen)).unwrap();
+        assert_eq!(transition.commit.as_deref(), Some("Helpful"));
+        assert!(!runtime.apply_online_candidate(&query, "Health", 1).unwrap());
+    }
+}
+
+#[test]
+fn english_online_runtime_revocation_and_blur_reject_pending_answers() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_dedicated_english(true).unwrap();
+    runtime.set_english_online_candidates_enabled(true).unwrap();
+    type_characters(&mut runtime, "accessability");
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
+    runtime
+        .set_english_online_candidates_enabled(false)
+        .unwrap();
+    assert!(runtime.online_query().unwrap().is_none());
+    assert!(!texts(&runtime.view()).contains(&"accessibility".into()));
+    runtime.set_english_online_candidates_enabled(true).unwrap();
+    assert!(!runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
+    let query = runtime.online_query().unwrap().unwrap();
+    runtime.focus(false).unwrap();
+    assert!(!runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
 }

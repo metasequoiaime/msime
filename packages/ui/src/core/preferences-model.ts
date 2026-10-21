@@ -65,6 +65,7 @@ export type Preferences = PunctuationPreferences &
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;
     english_suggestions?: boolean;
+    english_online_candidates?: boolean;
     translation_target_language?: TranslationLanguage;
     /** 可选的第二种候选翻译语言；null 或缺省表示只显示一行释义。 */
     translation_secondary_language?: TranslationLanguage | null;

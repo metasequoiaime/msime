@@ -1352,9 +1352,25 @@ pub struct WubiInputOptions {
     pub profile: WubiProfileKind,
 }
 
-/// The request a host sends to its cloud or AI provider, and must hand back unchanged with the answer. The engine revalidates every field against the live composition before inserting anything.
+/// 在线请求的输入语义；缺省沿用原有的拼音及方案转换路径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnlineInputMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
+impl OnlineInputMode {
+    pub fn is_pinyin(&self) -> bool {
+        *self == Self::Pinyin
+    }
+}
+
+/// 宿主交给云或 AI 服务的查询，回包必须原样带回；引擎在插入候选前核对当前组字的每个字段。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuery {
+    pub mode: OnlineInputMode,
     pub scheme: SchemeType,
     pub generation: u64,
     pub identity: String,

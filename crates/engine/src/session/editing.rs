@@ -264,7 +264,7 @@ impl InputSession {
         self.caret = Some(caret);
         // The edit may have moved the caret into or out of a complete prefix.
         self.update_mixed_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         self.discard_abandoned_phrase_progress();
         KeyResult::handled().with_diagnostic(diagnostic)
     }

@@ -226,11 +226,17 @@ static void MSIMERecordKeyPresses(NSString *directory, msime::mac::KeyPressFlush
 
 static NSString *MSIMETranslationProviderScope(NSString *service, NSDictionary *configuration);
 
+static BOOL MSIMEOnlineHasAIInput(NSDictionary *online) {
+    if ([online[@"mode"] isEqual:@"english"])
+        return MSIMEStrictBoolean(online[@"ai_eligible"]) && [online[@"query_text"] isKindOfClass:NSString.class] && [online[@"query_text"] length];
+    return [online[@"pinyin_segments"] isKindOfClass:NSArray.class] && [online[@"pinyin_segments"] count];
+}
+
 static NSString *MSIMEAICacheKey(NSDictionary *online, NSDictionary *descriptor) {
     NSDictionary *config = online[@"ai_assistant"];
-    NSArray *segments = online[@"pinyin_segments"];
+    NSArray *segments = [online[@"pinyin_segments"] isKindOfClass:NSArray.class] ? online[@"pinyin_segments"] : @[];
     if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"]) ||
-        ![segments isKindOfClass:NSArray.class] || !segments.count ||
+        !MSIMEOnlineHasAIInput(online) ||
         ![descriptor isKindOfClass:NSDictionary.class] ||
         ![NSJSONSerialization isValidJSONObject:segments]) return nil;
     NSString *descriptorScope = MSIMETranslationProviderScope(@"ai", descriptor);
@@ -251,7 +257,9 @@ static NSString *MSIMEAICacheKey(NSDictionary *online, NSDictionary *descriptor)
         @"prompt_custom_3": [config[@"prompt_custom_3"] isKindOfClass:NSString.class] ? config[@"prompt_custom_3"] : @"",
         @"descriptor_scope": descriptorScope,
         @"ai_context_sha256": contextHash,
-        @"pinyin_segments": segments };
+        @"mode": online[@"mode"] ?: @"pinyin",
+        @"input": online[@"query_text"] ?: @"",
+        @"pinyin_segments": segments ?: @[] };
     NSData *data = [NSJSONSerialization dataWithJSONObject:identity options:0 error:nil];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
 }
@@ -1287,6 +1295,10 @@ static NSImage *MSIMECandidateLogoImage() {
     NSUInteger _glossSenseCursor;
     // 展开的候选网格（共享偏好 `expand_candidates`，#7307）。打开时经 msime_client_all_candidates 复制当前这一代的全部候选，记下这一代和打开时的组字；选择时按复制时的一代调 msime_client_select_any_candidate。_expandedCandidates 非 nil 就是网格开着，它按显示顺序排（每一行里按本机置顶词重排，和普通候选窗那一页一致），_expandedCursor 是其中高亮的那一个，_expandedFirstRow 是可见的第一行。_expandedSourceView 是网格上一次对照过的视图：视图换了（异步结果、释义到达）就重新对照一次，组字没变时按新的一代重载，变了就收起。
     NSArray<NSDictionary *> *_expandedCandidates;
+    // 普通英文只有显式授权后才借用引擎的英文组字；与菜单的专用英文状态分开。
+    BOOL _englishOnlineCandidatesEnabled;
+    BOOL _englishOnlinePreferenceLoaded;
+    BOOL _managedEnglishComposition;
     NSNumber *_expandedSession;
     NSNumber *_expandedGeneration;
     NSArray *_expandedComposition;
@@ -2299,14 +2311,11 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 
 - (void)synchronizeAITranslations {
     // AI suggestions are gated by the AI assistant switch alone, like the source's ai_eligible / UpdateAiInput. The gloss switch (candidate_translations) only governs glosses and translations, so it is deliberately not checked here.
-    if (!_activeClient || !_session || _focusPending || _appearance.englishMode) { [self cancelAITranslations]; return; }
+    if (!_activeClient || !_session || _focusPending || (_appearance.englishMode && !_managedEnglishComposition) || [self secureEventInputActive]) { [self cancelAITranslations]; return; }
     NSDictionary *online = [_session onlineQueryWithError:nil];
     NSDictionary *config = online[@"ai_assistant"];
-    // OnlineQuery serializes Engine's segmentation as pinyin_segments. Keep the
-    // provider request field name (segmented_pinyin) at the HTTP boundary only.
-    NSArray *segments = online[@"pinyin_segments"];
     if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"]) ||
-        ![segments isKindOfClass:NSArray.class] || !segments.count) { [self cancelAITranslations]; return; }
+        !MSIMEOnlineHasAIInput(online)) { [self cancelAITranslations]; return; }
     if (!_aiCandidateCache) _aiCandidateCache = [NSMutableDictionary dictionary];
     NSDictionary *query = @{ @"online": online, @"config": config };
     if ([_aiQuery isEqual:query]) return;
@@ -2345,11 +2354,16 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     __weak MSIMEInputController *weakSelf = self;
     _aiTimer = [NSTimer timerWithTimeInterval:0.65 repeats:NO block:^(NSTimer *timer) {
         MSIMEInputController *owner = weakSelf;
-        if (!owner || owner->_aiEpoch != epoch || owner->_aiTimer != timer || owner->_session != session || owner->_activeClient != client) return;
+        if (!owner || owner->_aiEpoch != epoch || owner->_aiTimer != timer || owner->_session != session || owner->_activeClient != client ||
+            owner->_focusPending || [owner secureEventInputActive] ||
+            (owner->_appearance.englishMode && !owner->_managedEnglishComposition) ||
+            ![[session onlineQueryWithError:nil] isEqual:online]) return;
         owner->_aiTimer = nil;
         owner->_aiBatch = [owner aiBatchForItems:items completion:^(NSArray *results) {
             MSIMEInputController *current = weakSelf;
-            if (!current || current->_aiEpoch != epoch || current->_session != session || current->_activeClient != client || ![current->_aiQuery isEqual:query]) return;
+            if (!current || current->_aiEpoch != epoch || current->_session != session || current->_activeClient != client || ![current->_aiQuery isEqual:query] ||
+                current->_focusPending || [current secureEventInputActive] ||
+                (current->_appearance.englishMode && !current->_managedEnglishComposition)) return;
             current->_aiBatch = nil;
             NSMutableArray *texts = [NSMutableArray array];
             for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
@@ -3362,7 +3376,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 
 - (void)synchronizeCloudCandidates {
-    NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
+    NSDictionary *query = _activeClient && _session && !_focusPending && (!_appearance.englishMode || _managedEnglishComposition) && ![self secureEventInputActive] &&
         (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
     if (!MSIMEStrictBoolean(query[@"cloud_candidates"]) || !MSIMEStrictBoolean(query[@"cloud_eligible"])) {
         [self cancelCloudCandidates];
@@ -3382,14 +3396,16 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         (void)timer;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
-            controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
+            controller->_activeClient != client || controller->_focusPending || [controller secureEventInputActive] ||
+            (controller->_appearance.englishMode && !controller->_managedEnglishComposition) ||
             (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
         void (^completion)(NSData *) = ^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
-                current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
+                current->_activeClient != client || current->_focusPending || [current secureEventInputActive] ||
+                (current->_appearance.englishMode && !current->_managedEnglishComposition) ||
                 (current->_appearance && !current->_appearance.cloudCandidatesEnabled) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
@@ -3534,7 +3550,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             if (cleared[@"view"]) _view = cleared[@"view"];
         }
     }
-    if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+    if (_appearance.englishMode && !_managedEnglishComposition && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
@@ -4108,9 +4124,35 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     (void)sender;
     MSIMEOpenDesktopRoute(@"keyboard", NSWorkspace.sharedWorkspace, ^{ [[MSIMEScreenKeyboardPanel sharedPanel] showKeyboard]; });
 }
+// 普通英文在未选词就离开输入框或撤销授权时保留原始字母，不自动采用补全。
+- (BOOL)commitManagedEnglishRaw {
+    if (!_managedEnglishComposition || ![_view[@"editing_text"] length]) return YES;
+    NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
+    if (!raw) return NO;
+    [self apply:raw];
+    return YES;
+}
+
+// 撤回普通英文的托管组字时先上屏原始字母，不能选中补全词或隐藏 marked text。
+- (BOOL)setManagedEnglishEnabled:(BOOL)enabled {
+    if (!_session) { _managedEnglishComposition = NO; return YES; }
+    if (_managedEnglishComposition == enabled && (!enabled || MSIMEStrictBoolean([_session viewWithError:nil][@"dedicated_english"]))) return YES;
+    if (!enabled && ![self commitManagedEnglishRaw]) return NO;
+    NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:nil];
+    if (!view) return NO;
+    _managedEnglishComposition = enabled;
+    [self apply:@{@"view": view}];
+    return YES;
+}
+
+- (BOOL)synchronizeManagedEnglishMode {
+    return [self setManagedEnglishEnabled:_appearance.englishMode && _englishOnlineCandidatesEnabled];
+}
+
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
     const BOOL changed = _appearance.englishMode != enabled;
+    if (changed && _managedEnglishComposition && ![self setManagedEnglishEnabled:NO]) return;
     // Read before the cancel below, whose reply need not repeat the flag.
     const BOOL leaveEnglishCandidates = enabled && MSIMEStrictBoolean(_view[@"dedicated_english"]);
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
@@ -4145,6 +4187,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         else [_appearance resetRuntimePunctuationForActiveApplication];
     }
     _appearance.englishMode = enabled;
+    if (enabled && _englishOnlineCandidatesEnabled && !_session && _activeClient) [self prepareSession];
+    [self synchronizeManagedEnglishMode];
     [self resetCandidateAnchor];
     [self hideCandidatePanel:"mode_switch"];
     [_keymapPanel orderOut:nil];
@@ -4169,17 +4213,25 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 // 共享偏好文档是方案的权威来源：设置页、`msime config set`、云端同步和本输入法自己都写它，NSUserDefaults 里的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置在载入文档之前退回那份本地值，而文档平时在激活之后才于后台载入，所以输入法进程重新启动后（重新登录、重启、更新），控制器会先按本输入法上次写下的旧方案把菜单栏选到它的模式、把它记为已同步，期间的任何一次保存还会把它写回文档。用户在设置页选了全拼，下次再用又回到双拼，就是这样来的（#4288）。因此在本进程第一次按外观设置行事之前——客户端获得焦点、或者系统先报告了模式——同步载入一次文档；之后的改动照旧由每秒一次的轮询带来。读不到文档时什么也不做，交给那次后台载入。
 - (void)applySharedInputPreferencesBeforeFirstUse {
-    if (!_appearance || _appearance.sharedInputPreferencesApplied) return;
+    if (!_appearance || (_appearance.sharedInputPreferencesApplied && _englishOnlinePreferenceLoaded)) return;
     NSString *directory = _preferencesDirectory;
     if (!directory) {
         id configured = [self runtimeOptions][@"preferences_directory"];
         if ([configured isKindOfClass:NSString.class] && [configured isAbsolutePath]) directory = configured;
     }
-    if (!directory) return;
+    if (!directory) {
+        _englishOnlineCandidatesEnabled = MSIMEStrictBoolean([self runtimeOptions][@"preferences"][@"english_online_candidates"]);
+        _englishOnlinePreferenceLoaded = YES;
+        return;
+    }
     // 与 applyPreferencesToSessionNow 一样在主线程直接读：只在本进程第一次用到时读这一次，不经过后台轮询的读取入口。
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
-    if ([preferences isKindOfClass:NSDictionary.class]) [_appearance applySharedInputPreferences:preferences];
+    if ([preferences isKindOfClass:NSDictionary.class]) {
+        _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
+        _englishOnlinePreferenceLoaded = YES;
+        if (!_appearance.sharedInputPreferencesApplied) [_appearance applySharedInputPreferences:preferences];
+    }
 }
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
@@ -4254,7 +4306,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;
-    if (MSIMEStrictBoolean(_view[@"dedicated_english"])) [self setDedicatedEnglishInputMode:NO];
+    if (_managedEnglishComposition) [self setEnglishInputMode:NO];
+    else if (MSIMEStrictBoolean(_view[@"dedicated_english"])) [self setDedicatedEnglishInputMode:NO];
     else [self setEnglishInputMode:NO];
 }
 - (void)setDedicatedEnglishInputMode:(BOOL)enabled {
@@ -4271,6 +4324,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSError *error = nil;
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
     if (!view) { if (error) NSBeep(); return; }
+    _managedEnglishComposition = NO;
     _appearance.englishMode = NO;
     [self syncSystemInputModeForClient:_activeClient];
     [self apply:@{@"view":view}];
@@ -4925,6 +4979,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (void)prepareDictionary:(id)sender {
     (void)sender;
     if (_session && _activeClient) {
+        if (![self commitManagedEnglishRaw]) return;
         // 会话随后就关掉，和词库维护一样按失焦上屏处理，不出声不画。
         NSDictionary *finished = [_session command:MSIME_FINISH_ON_FOCUS_LOSS error:nil];
         if (!finished) return;
@@ -4992,6 +5047,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self abandonCapsLockTap];
     _preferenceLoadState.reset();
     if (_activeClient) {
+        if (![self commitManagedEnglishRaw]) return;
         // 会话即将为词库维护关闭，不是用户结束组字：按失焦上屏处理，不出声不画。
         NSDictionary *finished = [_session command:MSIME_FINISH_ON_FOCUS_LOSS error:nil];
         if (finished) [self apply:finished];
@@ -4999,7 +5055,9 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     }
     [self discardGlossSensePage];
     [self discardExpandedCandidates];
-    _resumeDedicatedEnglish = MSIMEStrictBoolean(_view[@"dedicated_english"]);
+    // 普通英文借用的状态由最新授权决定，不能作为用户主动选中的专用英文恢复。
+    _resumeDedicatedEnglish = !_managedEnglishComposition && MSIMEStrictBoolean(_view[@"dedicated_english"]);
+    _managedEnglishComposition = NO;
     [_session setFocused:NO error:nil];
     [_session closeWithError:nil];
     _session = nil;
@@ -5010,6 +5068,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 
 - (void)activateServer:(id)sender {
+    if (_activeClient && _activeClient != sender && ![self commitManagedEnglishRaw]) return;
     // A newly activated IME session may target a different document/client.
     // Never carry host-owned closings across that boundary - including one this host still owed
     // the previous document, which cannot be written into this one.
@@ -5054,7 +5113,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self refreshFloatingToolbarState];
     [self ensureAppearance];
     _focusPending = _appearance.englishMode;
-    if (!_appearance.englishMode) [self prepareSession];
+    if (!_appearance.englishMode || _englishOnlineCandidatesEnabled) [self prepareSession];
     else [self startPreferencesMonitoring];
     [self claimBackgroundMusic];
     NSNotificationCenter *workspaceCenter = NSWorkspace.sharedWorkspace.notificationCenter;
@@ -5342,6 +5401,8 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     }
     [self syncPageSize];
     if (_session) {
+        _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(MSIMEStatisticsHostOptions(_session)[@"preferences"][@"english_online_candidates"]);
+        [self synchronizeManagedEnglishMode];
         [self syncPunctuation];
         [self syncCharacterWidth];
         [self syncCapsLock];
@@ -5514,6 +5575,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
         msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
+        _englishOnlinePreferenceLoaded = YES;
+        const BOOL englishOnlineChanged = _englishOnlineCandidatesEnabled != MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
+        _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
+        if (englishOnlineChanged) {
+            [self cancelAITranslations];
+            [self cancelCloudCandidates];
+        }
+        [self synchronizeManagedEnglishMode];
         id wubiCodeHint = preferences[@"wubi_code_hint"];
         if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
             CFGetTypeID((__bridge CFTypeRef)wubiCodeHint) == CFBooleanGetTypeID())
@@ -5644,6 +5713,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self flushKeyPresses];
     // 上一个客户端迟到的回调不能拆掉当前客户端的组字、面板、监视和尚未松开的修饰键。成对标点也一样：activateServer: 已丢掉上一个客户端欠着的闭合符，此刻待补的闭合符和跳过记录都属于当前客户端，替它补上会把这一对提前合上、把组字中的 marked text 整段替换掉，所以迟到判断必须先于补闭合符。
     if (!sender || sender != _activeClient) return;
+    if (![self commitManagedEnglishRaw]) return;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
     _backspaceHoldArmed = NO;
@@ -6094,6 +6164,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     [self ensureAppearance];
     if (sender != _activeClient) {
+        if (![self commitManagedEnglishRaw]) return YES;
         [_voiceOverlay dismissFailure];
         _voicePermissionToken = nil;
         _voiceHoldShortcut.reset();
@@ -6125,7 +6196,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self syncCharacterWidth];
         [self refreshFloatingToolbarState];
         _focusPending = _appearance.englishMode;
-        if (!_appearance.englishMode) {
+        if (!_appearance.englishMode || _englishOnlineCandidatesEnabled) {
+            [self synchronizeManagedEnglishMode];
             [self confirmFieldTraitsBeforeFocus];
             [self apply:[_session setFocused:YES error:nil]];
             [self refreshTypingEffectSettings];
@@ -6268,10 +6340,29 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         }
         return YES;
     }
+    if (_appearance.englishMode && _englishOnlineCandidatesEnabled && !_session) [self prepareSession];
+    if (_appearance.englishMode && ![self synchronizeManagedEnglishMode]) return YES;
+    BOOL managedLiteralKey = NO;
+    if (_managedEnglishComposition) {
+        const NSEventModifierFlags shortcuts = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand;
+        const BOOL shortcut = (event.modifierFlags & shortcuts) != 0;
+        const unichar character = event.characters.length == 1 ? [event.characters characterAtIndex:0] : 0;
+        const BOOL candidateDigit = _panel.isVisible && character >= '1' && character <= '9' &&
+            (NSUInteger)(character - '1') < [_view[@"candidates"] count];
+        const BOOL printableOther = !candidateDigit && character >= 0x20 && character < 0x7f &&
+            !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'));
+        managedLiteralKey = shortcut || printableOther || event.keyCode == 36 || event.keyCode == 76;
+        if (managedLiteralKey && [_view[@"editing_text"] length]) {
+            // 空格明确选择高亮补全，其他结束键保留原始拼写；当前键继续按英文规则交给应用。
+            NSDictionary *finished = [_session command:event.keyCode == 49 && !shortcut ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW error:nil];
+            if (!finished) return YES;
+            [self apply:finished];
+        }
+    }
     // English mode normally leaves keys to the application, but the Chinese
     // punctuation lock and full-width setting still belong to the IME. This
     // mirrors the closed-IME path used by the other native hosts.
-    if (_appearance.englishMode) {
+    if (_appearance.englishMode && (!_managedEnglishComposition || managedLiteralKey)) {
         const NSEventModifierFlags competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
                                                 NSEventModifierFlagCommand;
         if (!(event.modifierFlags & competing) && event.characters.length == 1) {
@@ -6795,8 +6886,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self resetSmartPunctuationState];
     [self clearSmartPunctuationSpaceConversion];
     [self clearSmartPunctuationSpaceRevert];
-    // IMK 在用户点进文档或焦点移走时要求结束组字，这是 macOS 失焦上屏最常走的一条路。用 MSIME_FINISH_ON_FOCUS_LOSS：对会话同 MSIME_FINISH_COMPOSITION，生命周期按失焦上屏处理，不出提交音、不画上屏特效。
-    [self apply:[_session command:MSIME_FINISH_ON_FOCUS_LOSS error:nil]];
+    // IMK 要求结束组字时，普通英文原样上屏；其他模式沿用失焦选词与反馈规则。
+    if (_managedEnglishComposition) [self commitManagedEnglishRaw];
+    else [self apply:[_session command:MSIME_FINISH_ON_FOCUS_LOSS error:nil]];
     // 光标即将离开刚上屏的文字。
     [self invalidateSmartPunctuationShadow];
 }
@@ -7835,7 +7927,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         if ([self expandedCandidatesStillApply] && [self renderExpandedCandidates]) return;
         [self discardExpandedCandidates];
     }
-    if (_appearance.englishMode) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
+    if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;

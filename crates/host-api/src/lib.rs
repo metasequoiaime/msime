@@ -454,8 +454,37 @@ impl HostSession {
         self.ai_provider_cache.as_ref()
     }
     fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
-        self.ai_provider_config()
-            .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+        self.english_query_allowed(query)
+            && self
+                .ai_provider_config()
+                .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+    }
+    fn english_query_allowed(&self, query: &OnlineQuery) -> bool {
+        if query.mode != msime_engine::OnlineInputMode::English {
+            return true;
+        }
+        let enabled = self
+            .requested
+            .as_ref()
+            .map_or(self.applied.english_online_candidates, |snapshot| {
+                snapshot.preferences.english_online_candidates
+            });
+        enabled
+            && self.runtime.online_query().is_ok_and(|live| {
+                live.is_some_and(|live| {
+                    live.mode == query.mode
+                        && live.scheme == query.scheme
+                        && live.session_id == query.session_id
+                        && live.generation == query.generation
+                        && live.identity == query.identity
+                        && live.query_text == query.query_text
+                        && live.cache_key == query.cache_key
+                        && live.pinyin_segments == query.pinyin_segments
+                        && live.ai_context == query.ai_context
+                        && live.cloud_eligible == query.cloud_eligible
+                        && live.ai_eligible == query.ai_eligible
+                })
+            })
     }
     fn set_ai_provider_cache(&mut self, preferences: &Preferences) {
         let ai = &preferences.ai_assistant;
@@ -477,9 +506,13 @@ impl HostSession {
             .requested
             .as_ref()
             .map_or(&self.applied, |snapshot| &snapshot.preferences);
-        self.cloud_candidates_enabled()
+        self.english_query_allowed(query)
+            && self.cloud_candidates_enabled()
             && query.cloud_request.as_ref().map_or_else(
-                || preferences.cloud_candidate_provider == Default::default(),
+                || {
+                    query.mode != msime_engine::OnlineInputMode::English
+                        && preferences.cloud_candidate_provider == Default::default()
+                },
                 |request| request.provider_id == preferences.cloud_candidate_provider.identity(),
             )
     }
@@ -710,6 +743,7 @@ impl HostSession {
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);
+        engine.set_english_online_candidates_enabled(preferences.english_online_candidates);
         if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
                 .set_chinese_punctuation_enabled(engine_chinese_punctuation(
@@ -1021,6 +1055,9 @@ impl HostSession {
             .preferences
             .clone();
         self.set_ai_provider_cache(&requested_preferences);
+        self.runtime
+            .set_english_online_candidates_enabled(requested_preferences.english_online_candidates)
+            .map_err(|e| e.to_string())?;
         self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
             .map_err(|e| e.to_string())?;

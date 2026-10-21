@@ -5951,3 +5951,30 @@ fn finished_scope_releases_inherited_lock() {
         &root.path().join("preferences.lock"),
     );
 }
+
+#[test]
+fn english_online_is_an_explicit_local_opt_in() {
+    let defaults = Preferences::default();
+    assert!(!defaults.english_online_candidates);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("english_online_candidates");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .english_online_candidates
+    );
+    let enabled = Preferences {
+        english_online_candidates: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_value::<Preferences>(serde_json::to_value(&enabled).unwrap())
+            .unwrap()
+            .english_online_candidates
+    );
+    let exported = crate::settings_document::export_document(&enabled).unwrap();
+    assert!(!exported.contains("english_online_candidates"));
+}

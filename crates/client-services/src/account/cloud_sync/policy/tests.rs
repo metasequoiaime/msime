@@ -107,6 +107,10 @@ fn local_only_settings_are_dropped() {
         ("developer_options.x", AccountPreferenceValue::Integer(3)),
         ("diagnostic_log", AccountPreferenceValue::Boolean(true)),
         (
+            "platform.macos.english_online_candidates",
+            AccountPreferenceValue::Boolean(true),
+        ),
+        (
             "voice.contribute_audio",
             AccountPreferenceValue::Boolean(true),
         ),
