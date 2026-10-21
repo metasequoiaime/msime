@@ -60,7 +60,7 @@ macOS 这一批合入前，用户要求鸿蒙、Windows、Linux 也跟进。逐�
   - 三个标志都为 false。Server（`server_main.cpp`）不再读 `hotkey_hold_space_lock`、`start_sound`、`end_sound`，`VoiceInputConfig` 里这三项保持默认的 true：空格只在按住录音组合键期间被拦下（`VoiceHotkeyPolicy.h`），与 macOS 同理。
   - 外来录音后端：`voice_capture_selection` 把 `pulse`、`macos` 这类后端连同设备当作没选，用系统默认设备录音，不再在 `VoiceInputSession.cpp` 里拒绝；后端名不分大小写，与设置页一致。空、`auto`、`windows` 在 Windows 上效果相同，所以和 macOS 一样只给「麦克风」下拉；选中的设备拔掉后 WASAPI 录音失败，「拔掉后无法录音」这句在 Windows 上也对。
   - 豆包资源 ID 为空时 Server 原来直接拒绝（`voice_doubao_start_message`）。存储里没有这个键时原生页「测试」按 seedasr 通过，是 macOS 那个 bug 的另一种样子；用户清空输入框存下 `""` 时，「测试」原样发出空值，client-providers 的 `credential/doubao.rs` 也报配置无效，两边碰巧一致。现在读配置时经 `doubao_resource_id` 回退到 `volc.seedasr.sauc.duration`，原生页的「测试」经 `doubao_test_resource_id` 同样回退，缺键和空值都按 seedasr 检查。
-  - 原生 WinUI 页没有页内子视图或下钻控件，不另造一个，所以仍是一整页，但按共享页的先后排：「识别」（开关、服务、识别语言、豆包的自动添加标点、边说边显示），语音快捷键，录音行为，然后是子视图里的识别服务配置、识别结果、文本润色、录音设备；没有子视图可开，不画「服务配置」那一行。本地识别的说明照旧写「在下方」，原生页上模型管理器确实在下面。
+  - 原生 WinUI 页当时没有页内子视图或下钻控件，不另造一个，所以仍是一整页，按共享页的先后排，不画「服务配置」那一行。后来设置窗口有了页内标签框架，这一页改成「识别与输入」「录音行为」两个标签加「服务配置」子视图，与共享页相同，见 [Windows 设置的语音页标签与服务配置子视图](../feature/2026-10-20-windows-settings-voice-ai-mac-parity.md)。
   - 合并照共享页：「长按录音」下拉（含「不使用」，多开的配置显示第一个、不改写，换一项三个键一起写），空格锁定不给开关；Ctrl+F9 收进「更多选项」（沿用本地模型那个 `Expander`）。macOS 收起 Ctrl+F9 的理由（F9 是媒体键、要「输入监控」授权）在 Windows 上不成立，收起是因为共享页在 Windows 上已经这样排，原生页的约定是照着共享页的桌面分支画。录音行为只剩语音提示音和静音。识别服务配置的接口地址、识别模型、资源 ID 和豆包选项收进「更多选项」，改过地址或资源 ID 时一打开就展开；豆包的「流式接口」和地址合成一个下拉，空地址显示双向流式（`doubao_stream_endpoint_id` 以前把空地址当成自定义）。选豆包时不画识别模型和识别语言（`DoubaoAsrClient` 两个都不发）。
 - **Linux**：
   - `voice_space_lock_switch`、`voice_cue_switches` 为 false：IBus（`ClientEngine.cpp`）和 Fcitx5（`FcitxEngine.cpp`）不再读 `hotkey_hold_space_lock`；两个输入法宿主（`VoiceProviderOptions.h`）和桌面语音面板（`voice.rs`）不再把 `start_sound`、`end_sound` 交给语音服务，服务没收到时按缺省都播放。服务照旧接受这两项，留给自行接入的客户端。
@@ -101,7 +101,7 @@ macOS 这一批合入前，用户要求鸿蒙、Windows、Linux 也跟进。逐�
   - 单独关掉开始或结束提示音、或关掉空格锁定的 macOS、Windows、Linux、HarmonyOS 用户，升级后会重新听到提示音、重新可以用空格锁定，且无处改回。
   - 同时开着几个按住组合键的配置，用户在页面上改一次就只剩一个，共享页和 Windows 原生页都一样。
   - 密钥、润色、录音设备都要多点一下「服务配置」。
-  - Windows 原生语音页没有子视图，仍是一整页；组的先后和合并与共享页一致，但密钥、润色、录音设备不用多点一下，要往下翻。
+  - Windows 原生语音页当时没有子视图，是一整页，密钥、润色、录音设备要往下翻。后来改成「识别与输入」「录音行为」两个标签加「服务配置」子视图，与共享页相同，密钥、润色、录音设备同样要多点一下「服务配置」，见 [Windows 设置的语音页标签与服务配置子视图](../feature/2026-10-20-windows-settings-voice-ai-mac-parity.md)。
   - `platforms/macos/tests/input/ShortcutTest.mm` 以前在 Control+Option+Space 和主快捷键测试前后把 `MSIMEClientVoiceHotkeyHoldSpace` 设为 NO 来隔离语音快捷键。这个值不再读了，那样设置不再隔离任何东西，所以改成在同一段里关掉三个按住录音的组合键（`MSIMEDisableVoiceHoldKeys` / `MSIMERestoreVoiceHoldKeys`）。
   - [桌面输入、标点与翻译、语音标签页](../feature/2026-10-13-desktop-input-expression-voice-tabs.md)里「语音分为识别服务、录音与结果、润色、快捷键、录音设备」那一句被本篇取代。那篇原文保留，加了一行指向本篇；输入页和标点与翻译页的标签不受影响。
 

@@ -190,6 +190,8 @@ int main() {
     require(mascot_intro("voice", "recording")->description ==
             L"调整录音提示音与录音期间的静音行为。");
     require(mascot_intro("voice", "recording")->scene == MascotScene::settings);
+    // 「服务配置」子视图记作 `service`，页首仍是「识别与输入」那句。
+    require(mascot_intro("voice", "service")->description == L"配置语音识别、服务与输入快捷键。");
     require(mascot_intro("osk")->description == L"调整屏幕键盘布局与外观。");
     require(mascot_intro("osk", "handwriting")->description == L"设置手写识别与输入方式。");
     require(mascot_intro("clip")->scene == MascotScene::sync);

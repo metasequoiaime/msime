@@ -52,6 +52,7 @@
 #include "HistoryPagination.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
+#include "McpConnect.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
 #include "PunctuationSettings.h"
@@ -126,6 +127,7 @@ namespace ps = msime::settings::punctuation;
 namespace ism = msime::settings::input;
 namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
+namespace mc = msime::settings::mcp;
 
 struct Response {
   std::string text;
@@ -636,6 +638,28 @@ std::wstring mcp_failure(std::wstring const &code, std::wstring const &name) {
   if (code == L"mcp_options_missing")
     return L"输入法尚未完成初始化，请先完成设置向导。";
   return L"无法写入 " + name + L" 的配置文件。";
+}
+
+// 「连接 AI 助手」两个权限开关上次的选择，存在当前用户本版本的注册表键（`MSIME_EDITION_REGISTRY_KEY`）的 `McpFlags` 值里，每项一位（McpConnect.h 的 flag_bits）。与共享页存在 localStorage 的 `msime.mcp.flags` 一样只属于这台电脑上的这个设置窗口，不进偏好、不上云。没存过或读不出时两项都开。
+mc::Flags saved_mcp_flags() {
+  DWORD bits = 0;
+  DWORD size = static_cast<DWORD>(sizeof(bits));
+  if (RegGetValueW(HKEY_CURRENT_USER, MSIME_EDITION_REGISTRY_KEY, L"McpFlags", RRF_RT_REG_DWORD,
+                   nullptr, &bits, &size) != ERROR_SUCCESS)
+    return mc::flags_from_bits(mc::all_flag_bits);
+  return mc::flags_from_bits(bits);
+}
+
+// 记下这次的选择；写不进去时只是下次打开回到两项都开，不打扰用户。
+void save_mcp_flags(mc::Flags const &flags) {
+  HKEY key = nullptr;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, MSIME_EDITION_REGISTRY_KEY, 0, nullptr, 0, KEY_SET_VALUE,
+                      nullptr, &key, nullptr) != ERROR_SUCCESS)
+    return;
+  const DWORD bits = mc::flag_bits(flags);
+  RegSetValueExW(key, L"McpFlags", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&bits),
+                 static_cast<DWORD>(sizeof(bits)));
+  RegCloseKey(key);
 }
 
 // PreferencePath.h walks preference paths over this: WinRT JSON objects share by reference, so a nested object found on the way is edited in place.
@@ -1272,6 +1296,26 @@ Imaging::BitmapImage load_mascot(nav::MascotScene scene) {
   const HRSRC resource =
       FindResourceW(instance, MAKEINTRESOURCEW(nav::mascot_resource(scene)),
                     MAKEINTRESOURCEW(10) /* RT_RCDATA */);
+  if (!resource)
+    return nullptr;
+  const HGLOBAL handle = LoadResource(instance, resource);
+  const auto *data =
+      handle ? static_cast<const uint8_t *>(LockResource(handle)) : nullptr;
+  if (!data)
+    return nullptr;
+  Imaging::BitmapImage bitmap;
+  load_png(bitmap, data, SizeofResource(instance, resource));
+  return bitmap;
+}
+
+// AI 服务商下拉的品牌图标：Settings.rc 里那张 80 × 80 的 PNG（资源号见 AiSettings.h 的 provider_icons）解码成的位图，做法同 load_mascot，调用方按服务商缓存（`provider_icon_bitmaps_`）。没有图标或资源缺失时返回空。
+Imaging::BitmapImage load_provider_icon(std::wstring_view provider) {
+  const int id = msime::settings::ai::provider_icon_resource(provider);
+  if (id == 0)
+    return nullptr;
+  const HMODULE instance = GetModuleHandleW(nullptr);
+  const HRSRC resource =
+      FindResourceW(instance, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10) /* RT_RCDATA */);
   if (!resource)
     return nullptr;
   const HGLOBAL handle = LoadResource(instance, resource);
@@ -3994,9 +4038,12 @@ private:
     // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样。
     if (id == "themes" && id != current_page_)
       skins_stale_ = true;
-    // 每次进入「语音输入」页都读一次录音设备，与共享页的「麦克风」下拉变为可见时一样。
+    // 进入「语音输入」页时停在「录音行为」标签上，也要重读录音设备：共享页的「麦克风」下拉每次变为可见时都读一次（标签之间切换见 build_voice_page）。
     if (id == "voice" && id != current_page_)
       capture_stale_ = true;
+    // 离开语音页时「服务配置」子视图随之关上（共享页隐藏时的 resetServiceSubview），回来时在「识别与输入」。
+    if (current_page_ == "voice" && id != current_page_ && page_tab("voice") == voice_service_tab)
+      page_tabs_["voice"] = L"input";
     current_page_ = id;
     select_navigation_item();
     render_page(false);
@@ -4664,10 +4711,10 @@ private:
     return button;
   }
 
-  // 跳转行，对应共享页的 LinkRow：没有单独的按钮，整行就是按钮，行尾是 12 DIP 的灰色「↗」（`external`，打开网页、文件这类窗口外的东西）或「›」（本窗口的另一页）。按钮以标题命名、以说明描述，箭头不进无障碍树。
+  // 跳转行，对应共享页的 LinkRow：没有单独的按钮，整行就是按钮，行尾是 12 DIP 的灰色「↗」（`external`，打开网页、文件这类窗口外的东西）或「›」（本窗口的另一页）。`value` 是 LinkRow 的 value：箭头左边 6 DIP 处一段同样 12 DIP 灰字的状态（语音页「服务配置」的「已填写」）。按钮以标题命名、以状态和说明描述，箭头不进无障碍树。
   Button link_row(StackPanel const &group, std::wstring const &title,
                   std::wstring const &subtitle, bool external,
-                  std::function<void()> click) {
+                  std::function<void()> click, std::wstring const &value = L"") {
     record(title, subtitle);
     Grid content;
     content.ColumnSpacing(12);
@@ -4687,14 +4734,29 @@ private:
     auto arrow = make_text(external ? L"\u2197" : L"\u203A", 12, palette_.sub);
     arrow.VerticalAlignment(VerticalAlignment::Center);
     A11y::SetAccessibilityView(arrow, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
-    Grid::SetColumn(arrow, 1);
-    content.Children().Append(arrow);
+    StackPanel trailing;
+    trailing.Orientation(Orientation::Horizontal);
+    trailing.Spacing(6);
+    trailing.VerticalAlignment(VerticalAlignment::Center);
+    if (!value.empty()) {
+      auto state = make_text(value, 12, palette_.sub);
+      state.TextWrapping(TextWrapping::NoWrap);
+      state.VerticalAlignment(VerticalAlignment::Center);
+      trailing.Children().Append(state);
+    }
+    trailing.Children().Append(arrow);
+    Grid::SetColumn(trailing, 1);
+    content.Children().Append(trailing);
 
     auto button = make_row_button(!subtitle.empty());
     button.Content(content);
     A11y::SetName(button, hstring(title));
+    // 与 LinkRow 的 aria-describedby 同序：先状态，再说明。
+    std::wstring help = value;
     if (!subtitle.empty())
-      A11y::SetHelpText(button, hstring(subtitle));
+      help += (help.empty() ? L"" : L"，") + subtitle;
+    if (!help.empty())
+      A11y::SetHelpText(button, hstring(help));
     button.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
       on_click();
     });
@@ -19920,7 +19982,7 @@ private:
     std::wstring backend, id, label;
   };
 
-  // 对齐共享桌面页的内容归属：识别与结果提交、快捷键、录音行为与设备、识别服务接入、文本润色。原生页继续使用直列，逐项搜索仍由现有索引负责。输入框就地更新以保留焦点，服务切换后重画页面。
+  // 照共享页桌面主页面（`voice-settings-content.tsx` 的 `voiceTabs`）分两个页内标签：「识别与输入」是页首一组、「识别」、「识别结果」和语音快捷键，「录音行为」是录音行为和录音设备。服务的接入（识别服务和文本润色）收进页内的「服务配置」子视图，从「识别」组的「服务配置 ›」一行打开，见 build_voice_service_view。子视图在 `page_tabs_` 里记作这一页的第三个标签 `service`，标签条上不画它：建索引时子视图里的行记在它名下，搜索选中它们时 open_search_result 照常先切到所在的标签，子视图就打开了。输入框就地更新以保留焦点，服务切换后重画页面。
   void build_voice_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
@@ -19935,6 +19997,88 @@ private:
     const std::wstring auth_mode(
         vs::doubao_auth_mode(document_.String(L"voice_input.doubao_auth_mode", L"")));
 
+    if (!indexing_ && page_tab(current_page_) == voice_service_tab) {
+      // 「录音设备」这次没画，下次切回「录音行为」时重读列表，与共享页的「麦克风」下拉每次变为可见时一样。
+      capture_stale_ = true;
+      build_voice_service_view(page, provider, system_voice, local_voice, service_voice, doubao,
+                               auth_mode);
+      return;
+    }
+    const auto tab = page_tab_bar(page, L"语音输入设置分类",
+                                  {{L"input", L"识别与输入"}, {L"recording", L"录音行为"}},
+                                  L"voice-tab");
+    if (!indexing_ && tab != L"recording")
+      capture_stale_ = true;
+    if (in_tab(tab, L"input"))
+      build_voice_input_tab(page, provider, system_voice, local_voice, service_voice, doubao,
+                            auth_mode);
+    if (in_tab(tab, L"recording")) {
+      build_voice_recording_group(page);
+      build_capture_device_group(page);
+    }
+    // 子视图只在建索引时跟着画一遍，结果的位置写成「语音输入 › 服务配置 › 分组」。
+    if (indexing_) {
+      index_tabs_.push_back({std::wstring(voice_service_tab), L"服务配置"});
+      in_tab(tab, std::wstring(voice_service_tab));
+      build_voice_service_groups(page, provider, system_voice, local_voice, service_voice, doubao,
+                                 auth_mode);
+    }
+  }
+
+  // 「服务配置」子视图在 `page_tabs_` 里的标签 id。
+  static constexpr std::wstring_view voice_service_tab = L"service";
+
+  // 打开或关上「服务配置」子视图，照共享页的 `openPhoneService` 和 `closePhoneService`：关上时回到「识别与输入」。打开后焦点落在返回按钮上，关上后落回「服务配置 ›」那一行。
+  void open_voice_service(bool open) {
+    page_tabs_["voice"] = open ? std::wstring(voice_service_tab) : std::wstring(L"input");
+    voice_service_focus_ = open ? L"back" : L"row";
+    queue_refresh();
+  }
+
+  // 「服务配置」子视图：带返回按钮的标题（共享页 level 2 的 SettingsPageHeader：40 DIP 的圆形返回按钮，22 DIP 的左箭头，按钮向左伸出 10、向标题靠 6，标题 26 DIP 粗体、与按钮相隔 10），下面是「识别服务」和「文本润色」两组。页首引导仍是「识别与输入」那一句。
+  void build_voice_service_view(StackPanel const &page, std::wstring const &provider,
+                                bool system_voice, bool local_voice, bool service_voice,
+                                bool doubao, std::wstring const &auth_mode) {
+    StackPanel header;
+    header.Orientation(Orientation::Horizontal);
+    header.Spacing(10);
+    header.Margin(Thickness{0, 20, 0, 0});
+    Button back;
+    back.Width(40);
+    back.Height(40);
+    back.Padding(Thickness{0, 0, 0, 0});
+    back.Margin(Thickness{-10, 0, -6, 0});
+    back.CornerRadius(CornerRadius{20, 20, 20, 20});
+    back.BorderThickness(Thickness{0, 0, 0, 0});
+    back.Background(brush(transparent_color()));
+    auto resources = back.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", palette_.hover);
+    put(L"ButtonBackgroundPressed", palette_.hover);
+    back.Content(make_icon(0xE72B, 22, palette_.text));
+    A11y::SetName(back, L"返回");
+    A11y::SetAutomationId(back, L"voice-service-back");
+    back.Click([this](Inspectable const &, RoutedEventArgs const &) { open_voice_service(false); });
+    header.Children().Append(back);
+    auto title = make_text(L"服务配置", 26, palette_.text);
+    title.FontWeight(Windows::UI::Text::FontWeight{700});
+    title.VerticalAlignment(VerticalAlignment::Center);
+    header.Children().Append(title);
+    page.Children().Append(header);
+    if (focus_row_.empty() && voice_service_focus_ == L"back")
+      focus_target_ = back;
+    voice_service_focus_.clear();
+    build_voice_service_groups(page, provider, system_voice, local_voice, service_voice, doubao,
+                               auth_mode);
+  }
+
+  // 「识别与输入」标签：页首一组、「识别」（开关、服务、「服务配置 ›」、识别语言、豆包的自动添加标点、边说边显示）、「识别结果」和语音快捷键。
+  void build_voice_input_tab(StackPanel const &page, std::wstring const &provider,
+                             bool system_voice, bool local_voice, bool service_voice,
+                             bool doubao, std::wstring const &auth_mode) {
     // 页首一组（VoiceInputIntroSection）：本地识别和 Windows 系统识别各是一段说明，其余服务是打开语音面板的一行，面板仍由 MSIME.exe 显示。
     if (local_voice || indexing_) {
       auto intro = add_group(page, L"本地识别");
@@ -19969,6 +20113,20 @@ private:
         [this](std::wstring const &value) { select_asr_provider(value); });
     provider_combo.Width(200);
     add_row(recognition, 0xE753, L"识别服务", L"", provider_combo);
+    // 「服务配置 ›」紧跟识别服务（共享页的 serviceRow）。Windows 总有「文本润色」一组，所以选系统识别时也画这一行，只是没有状态。
+    const auto status = vs::service_status(
+        provider, service_voice, local_voice, document_.String(L"voice_input.asr_model_path", L""),
+        document_.String(L"voice_input.asr_token", L""),
+        document_.Entry(L"voice_input.asr_tokens", provider, L""),
+        document_.String(L"voice_input.asr_app_key", L""), auth_mode);
+    auto service_row = link_row(recognition, L"服务配置", L"", false,
+                                [this] { open_voice_service(true); }, std::wstring(status));
+    A11y::SetAutomationId(service_row, L"voice-service");
+    if (!indexing_) {
+      if (focus_row_.empty() && voice_service_focus_ == L"row")
+        focus_target_ = service_row;
+      voice_service_focus_.clear();
+    }
     if (!doubao || indexing_)
       add_row(recognition, 0xE8C1, L"识别语言",
               system_voice ? L"选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : L"",
@@ -19987,7 +20145,10 @@ private:
 
 
     build_voice_hotkey_group(page);
+  }
 
+  // 「录音行为」标签的第一组。
+  void build_voice_recording_group(StackPanel const &page) {
     // 「录音行为」只剩提示音总开关和静音：宿主不再分别读开始、结束提示音（`voice_cue_switches` 为 false）。
     auto recording = add_group(page, L"录音行为");
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 2> sounds{{
@@ -20007,12 +20168,14 @@ private:
     }
     add_row(recording, 0xE767, L"录音行为", L"录音期间的提示音与静音由输入法在本机处理",
             nullptr, checks_panel(std::move(sound_checks), 200));
+  }
 
-    build_capture_device_group(page);
-
-    // 「识别服务配置」只负责服务接入与测试；共享页在「服务配置」下钻显示，原生页接在录音设备后面。
+  // 「服务配置」子视图里的两组：「识别服务」（系统识别时不画）只负责服务接入与测试，「文本润色」是可选的另一项服务。
+  void build_voice_service_groups(StackPanel const &page, std::wstring const &provider,
+                                  bool system_voice, bool local_voice, bool service_voice,
+                                  bool doubao, std::wstring const &auth_mode) {
     if (!system_voice || indexing_) {
-      auto config = add_group(page, L"识别服务配置");
+      auto config = add_group(page, L"识别服务");
       if (service_voice || indexing_)
         build_asr_service_rows(config, provider, doubao, auth_mode);
       if (local_voice || indexing_)
@@ -20037,7 +20200,6 @@ private:
                             });
       }
     }
-
 
     build_polish_group(page);
   }
@@ -20593,7 +20755,7 @@ private:
     return normalized;
   }
 
-  // 「录音设备」（VoiceCaptureDevicesSection 只有一种录音后端时的那一支，VoiceMicrophonePicker）：Windows 只经 WASAPI 录音，空、auto、windows 效果相同，所以只有一个「麦克风」下拉，第一项是系统默认设备，下面是读到的设备。每次进入语音页自动读一次列表，不再有录音后端、「刷新设备」和手填的设备标识。选中的设备拔掉后显示「已选的麦克风（未连接）」，录音会失败，改回系统默认设备即可。存着别的平台的后端时宿主不理会它和它的设备、用系统默认设备录音，这里单列一项标出，选「系统默认设备」才是一次真正的改动，把它清掉。打开页面时不改写存储。
+  // 「录音设备」（VoiceCaptureDevicesSection 只有一种录音后端时的那一支，VoiceMicrophonePicker）：Windows 只经 WASAPI 录音，空、auto、windows 效果相同，所以只有一个「麦克风」下拉，第一项是系统默认设备，下面是读到的设备。每次切到「录音行为」标签（包括停在这个标签上进入语音页）自动读一次列表，不再有录音后端、「刷新设备」和手填的设备标识。选中的设备拔掉后显示「已选的麦克风（未连接）」，录音会失败，改回系统默认设备即可。存着别的平台的后端时宿主不理会它和它的设备、用系统默认设备录音，这里单列一项标出，选「系统默认设备」才是一次真正的改动，把它清掉。打开页面时不改写存储。
   void build_capture_device_group(StackPanel const &page) {
     if (!indexing_ && capture_stale_) {
       capture_stale_ = false;
@@ -21391,7 +21553,7 @@ private:
     line.Visibility(value.empty() ? Visibility::Collapsed : Visibility::Visible);
   }
 
-  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、「更多选项」里的接口地址、获取模型列表和当前槽位的自定义提示词，末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
+  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、带品牌图标的服务提供商、接口地址、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、服务模型（获取模型列表）、折叠的「自定义提示词」（当前槽位），末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
     const auto tab = page_tab_bar(page, L"AI 设置分类",
                                   {{L"assistance", L"输入辅助"}, {L"connection", L"连接助手"}},
@@ -21410,10 +21572,8 @@ private:
     }
     const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
     const auto endpoint = ai_endpoint();
-    if (!indexing_ && !ai_more_open_)
-      // MoreOptions 的 defaultOpen：第一次显示时地址不能用就展开，之后由用户自己展开收起。
-      ai_more_open_ = !endpoint.origin;
 
+    // 接口地址是 Token 和模型目录的前提，紧跟服务提供商，常驻显示（ai-settings-page-section.tsx）。
     auto service = add_group(page, L"服务");
     add_row(service, 0xE99A, L"启用 AI 辅助", L"为拼音联想提供共享配置",
             toggle_control(L"启用 AI 辅助", document_.Boolean(L"ai_assistant.enabled", false),
@@ -21422,26 +21582,33 @@ private:
                                doc.SetBoolean(L"ai_assistant.enabled", on);
                              }, false);
                            }));
-    std::vector<Option> providers;
-    for (auto const &entry : ais::providers())
-      providers.push_back({std::wstring(entry.id), std::wstring(entry.title)});
-    auto provider_combo = select_control(
-        L"AI 服务提供商", std::move(providers), provider, [this](std::wstring const &value) {
-          const ais::ProviderFields current{
-              document_.String(L"ai_assistant.provider", L"deepseek"),
-              document_.String(L"ai_assistant.endpoint", L""),
-              document_.String(L"ai_assistant.model", L"")};
-          if (value == current.provider)
-            return;
-          const auto update = ais::provider_update(value, current);
-          ai_change([&](PreferencesDocument &doc) {
-            doc.SetString(L"ai_assistant.provider", update.provider);
-            doc.SetString(L"ai_assistant.endpoint", update.endpoint);
-            doc.SetString(L"ai_assistant.model", update.model);
-          }, true);
+    add_row(service, 0xE753, L"服务提供商", L"", ai_provider_select(provider));
+    // TextInputRow「接口地址」：地址为空时说明写要填什么，不能用时是地址的问题（hint），输入框标红（aria-invalid）；能用时没有说明。输入照样写进设置，与共享页一样只标红、不拒收。
+    const auto endpoint_text = document_.String(L"ai_assistant.endpoint", L"");
+    auto endpoint_description = [](std::wstring const &value, AiEndpoint const &current) {
+      return value.empty() ? std::wstring(L"请填写服务提供商给出的完整接口地址") : current.hint;
+    };
+    auto endpoint_input = credential_input(
+        L"AI 接口地址", endpoint_text, false, L"https://example.com/v1/chat/completions", true,
+        [this](std::wstring const &value) {
+          write_credential(L"ai_assistant.endpoint", value);
+          ai_edited(true);
+          sync_ai();
+          return value.empty() || ai_endpoint(value).origin.has_value();
         });
-    provider_combo.Width(200);
-    add_row(service, 0xE753, L"服务提供商", L"", provider_combo);
+    endpoint_input.Width(320);
+    if (!endpoint_text.empty() && !endpoint.origin)
+      endpoint_input.as<Control>().BorderBrush(brush(danger_color()));
+    auto endpoint_card = add_row(service, 0xE71B, L"接口地址",
+                                 endpoint_description(endpoint_text, endpoint), endpoint_input);
+    if (!indexing_)
+      ai_sync_.push_back([this, endpoint_description,
+                          weak = make_weak(row_subtitle(endpoint_card))] {
+        if (auto line = weak.get()) {
+          const auto value = document_.String(L"ai_assistant.endpoint", L"");
+          set_subtitle(line, endpoint_description(value, ai_endpoint(value)));
+        }
+      });
     // 换服务商会重画整页，所以选了 Ollama 时这一行直接不画。
     if (ais::provider_uses_token(provider))
       build_ai_token_row(service, endpoint);
@@ -21471,54 +21638,32 @@ private:
                                     return true;
                                   });
         });
-    // 搜索落到收在里面的行时展开。
-    auto rows = add_fold(
-        service, L"更多选项",
-        ai_more_open_.value_or(false) || focus_row_ == L"接口地址" || focus_row_ == L"服务模型" ||
-            focus_row_ == L"自定义提示词",
-        [this](bool expanded) { ai_more_open_ = expanded; });
-    const auto endpoint_text = document_.String(L"ai_assistant.endpoint", L"");
-    auto endpoint_input = credential_input(
-        L"AI 接口地址", endpoint_text, false, L"", true, [this](std::wstring const &value) {
-          write_credential(L"ai_assistant.endpoint", value);
-          ai_edited(true);
-          sync_ai();
-          return true;
-        });
-    endpoint_input.Width(320);
-    auto endpoint_card = add_row(rows, 0xE71B, L"接口地址",
-                                 endpoint_text.empty() ? std::wstring() : endpoint.hint,
-                                 endpoint_input);
-    if (!indexing_)
-      ai_sync_.push_back([this, weak = make_weak(row_subtitle(endpoint_card))] {
-        if (auto line = weak.get()) {
-          const auto value = document_.String(L"ai_assistant.endpoint", L"");
-          set_subtitle(line, value.empty() ? std::wstring() : ai_endpoint(value).hint);
-        }
-      });
-    // 获取模型列表和自定义提示词也是接自定义服务或代理的同一批用户才用，和接口地址一起收在这里。
+    // 「服务模型」一行（获取模型列表）和获取的结果紧跟模型下拉，常驻显示。
     StackPanel models;
     models.Spacing(4);
-    rows.Children().Append(models);
+    service.Children().Append(models);
     if (!indexing_)
       ai_models_host_ = models;
     fill_ai_models(models);
 
-    // 只编辑当前槽位（prompt_id）的提示词，存着的槽位和 prompt_id 都不动；填了就整个替换内置提示词，说明见 ais::prompt_description。
+    // 「自定义提示词」单独一个折叠区（MoreOptions title="自定义提示词"），里面只有当前槽位（prompt_id）的「提示词内容」，存着的槽位和 prompt_id 都不动；填了就整个替换内置提示词，说明见 ais::prompt_description。搜索落到它时展开。
     const auto prompt_id = document_.String(L"ai_assistant.prompt_id", L"");
     auto const &slot = ais::prompt_slot(prompt_id);
     const std::wstring label = L"自定义提示词";
-    const std::wstring description = ais::prompt_description(prompt_id);
-    record(label, description);
+    record(label, L"");
+    auto prompt_rows = add_fold(service, label, ai_prompt_open_ || focus_row_ == label,
+                                [this](bool expanded) { ai_prompt_open_ = expanded; },
+                                L"ai-prompt-fold");
     StackPanel block;
     block.Spacing(6);
-    block.Padding(Thickness{25, 16, 25, 16});
-    block.Children().Append(make_text(label, 14, palette_.text));
-    block.Children().Append(make_text(description, 12, palette_.sub));
+    block.Padding(Thickness{0, 10, 0, 10});
+    block.Children().Append(make_text(L"提示词内容", 14, palette_.text));
+    block.Children().Append(make_text(ais::prompt_description(prompt_id), 12, palette_.sub));
     TextBox prompt;
     prompt.AcceptsReturn(true);
     prompt.TextWrapping(TextWrapping::Wrap);
-    prompt.MinHeight(120);
+    // 共享页是 4 行、至少 96 px 高的文本框。
+    prompt.MinHeight(96);
     prompt.MaxHeight(360);
     prompt.IsSpellCheckEnabled(false);
     const std::wstring prompt_key = L"ai_assistant.prompt_" + std::wstring(slot.id);
@@ -21534,10 +21679,8 @@ private:
       sync_ai();
     });
     block.Children().Append(prompt);
-    auto prompt_card = make_inner_card();
-    prompt_card.Child(block);
-    rows.Children().Append(prompt_card);
-    mark_search_target(label, prompt_card);
+    prompt_rows.Children().Append(block);
+    mark_search_target(label, block);
     add_credential_test(
         service, L"ai.assistant", L"测试 AI 辅助配置",
         [this] {
@@ -21562,13 +21705,101 @@ private:
         });
   }
 
-  // API Token（AiApiTokenSection）：带「显示」「隐藏」的密钥框，接口地址能用时才可填，说明写着 Token 只用于哪个来源；地址不能用时是地址的说明，或请先填写接口地址。改接口地址时就地换成新来源下存的 Token。
+  // 换服务商（aiProviderUpdate）：接口地址和模型为空或还是原服务商的默认值时换成新服务商的默认值，保存后重画整页。
+  void select_ai_provider(std::wstring const &value) {
+    const ais::ProviderFields current{document_.String(L"ai_assistant.provider", L"deepseek"),
+                                      document_.String(L"ai_assistant.endpoint", L""),
+                                      document_.String(L"ai_assistant.model", L"")};
+    if (value == current.provider)
+      return;
+    const auto update = ais::provider_update(value, current);
+    ai_change([&](PreferencesDocument &doc) {
+      doc.SetString(L"ai_assistant.provider", update.provider);
+      doc.SetString(L"ai_assistant.endpoint", update.endpoint);
+      doc.SetString(L"ai_assistant.model", update.model);
+    }, true);
+  }
+
+  // 服务提供商的下拉，照共享页的 IconProviderSelect：收起时和展开后的每一项都是品牌图标加服务商名。每项是内容为 StackPanel 的 ComboBoxItem，读屏名是服务商名；收起时 ComboBox 把选中项的内容挪进选择框显示。键盘、首字母查找和 Esc 由 ComboBox 自己处理。
+  FrameworkElement ai_provider_select(std::wstring const &provider) {
+    ComboBox combo;
+    combo.Width(240);
+    combo.MinHeight(28);
+    combo.FontSize(13);
+    auto const &table = ais::providers();
+    int32_t selected = -1;
+    for (size_t i = 0; i < table.size(); ++i) {
+      StackPanel content;
+      content.Orientation(Orientation::Horizontal);
+      content.Spacing(8);
+      content.Children().Append(ai_provider_icon(table[i].id));
+      auto name = make_text(table[i].title, 13, palette_.text);
+      name.TextWrapping(TextWrapping::NoWrap);
+      name.TextTrimming(TextTrimming::CharacterEllipsis);
+      name.VerticalAlignment(VerticalAlignment::Center);
+      content.Children().Append(name);
+      ComboBoxItem item;
+      item.Content(content);
+      A11y::SetName(item, hstring(table[i].title));
+      combo.Items().Append(item);
+      if (table[i].id == provider)
+        selected = static_cast<int32_t>(i);
+    }
+    combo.SelectedIndex(selected);
+    combo.IsEnabled(loaded_);
+    A11y::SetName(combo, L"AI 服务提供商");
+    A11y::SetAutomationId(combo, L"ai-provider");
+    combo.SelectionChanged([this](Inspectable const &sender, SelectionChangedEventArgs const &) {
+      const auto index = sender.as<ComboBox>().SelectedIndex();
+      auto const &providers = ais::providers();
+      if (index < 0 || static_cast<size_t>(index) >= providers.size())
+        return;
+      select_ai_provider(std::wstring(providers[static_cast<size_t>(index)].id));
+    });
+    return combo;
+  }
+
+  // 服务商图标（AiProviderIcon）：24 DIP、5 DIP 圆角的底板，白色或深色（#171719），带一圈 0.5 DIP 的淡描边，中间 20 DIP 的品牌 PNG；没有图标的服务商是 20 DIP 的 Fluent 链接图标，不画底板。位图按服务商缓存，重画页面时不重新解码。纯装饰，读屏不读。
+  FrameworkElement ai_provider_icon(std::wstring_view provider) {
+    Border tile;
+    tile.Width(24);
+    tile.Height(24);
+    tile.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAccessibilityView(tile, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    const std::wstring key(provider);
+    auto cached = provider_icon_bitmaps_.find(key);
+    if (cached == provider_icon_bitmaps_.end())
+      cached = provider_icon_bitmaps_.emplace(key, load_provider_icon(provider)).first;
+    if (!cached->second) {
+      auto link = make_icon(0xE71B, 20, palette_.text);
+      link.HorizontalAlignment(HorizontalAlignment::Center);
+      link.VerticalAlignment(VerticalAlignment::Center);
+      tile.Child(link);
+      return tile;
+    }
+    const bool dark = ais::provider_icon_dark_tile(provider);
+    tile.CornerRadius(CornerRadius{5, 5, 5, 5});
+    tile.Background(brush(dark ? rgba(0x17, 0x17, 0x19, 1) : rgba(255, 255, 255, 1)));
+    tile.BorderBrush(brush(dark ? rgba(255, 255, 255, .16) : rgba(0, 0, 0, .12)));
+    tile.BorderThickness(Thickness{0.5, 0.5, 0.5, 0.5});
+    Image icon;
+    icon.Width(20);
+    icon.Height(20);
+    icon.Stretch(Stretch::Uniform);
+    icon.HorizontalAlignment(HorizontalAlignment::Center);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    icon.Source(cached->second);
+    tile.Child(icon);
+    return tile;
+  }
+
+  // API Token（AiApiTokenSection）：带「显示」「隐藏」的密钥框，接口地址能用时才可填，说明写服务地址（ais::service_address，Token 仍按来源键存）；地址不能用时说请先填写有效的接口地址，地址的问题由上面「接口地址」一行自己说（桌面的共享页不给这一行传 endpointHint）。改接口地址时就地换成新来源下存的 Token。
   void build_ai_token_row(StackPanel const &group, AiEndpoint const &endpoint) {
-    auto description = [](AiEndpoint const &current) {
+    auto description = [this](AiEndpoint const &current) {
       if (current.origin)
-        return L"只用于 " + *current.origin;
-      return current.hint.empty() ? std::wstring(L"请先在「更多选项」中填写有效的接口地址")
-                                  : current.hint;
+        return L"服务地址：" +
+               ais::service_address(document_.String(L"ai_assistant.endpoint", L""), *current.origin);
+      return std::wstring(L"请先填写有效的接口地址");
     };
     auto input = credential_input(
         L"AI API Token", ai_token(endpoint), true, L"", endpoint.origin.has_value(),
@@ -21605,15 +21836,16 @@ private:
     });
   }
 
-  // 「服务模型」一行（获取模型列表）和获取的结果。按钮在接口地址能用时可按，获取中显示「获取中…」。整块随状态重画，见 refresh_ai_models；获取到的模型列在上面的模型下拉里，所以拿到列表后整页重画。
+  // 「服务模型」一行（获取模型列表）和获取的结果，紧跟模型下拉。按钮在接口地址能用时可按，获取中显示「获取中…」。整块随状态重画，见 refresh_ai_models；获取到的模型列在上面的模型下拉里，所以拿到列表后整页重画。这一块单独放在一个面板里，第一行自己画上分隔线。
   void fill_ai_models(StackPanel const &host) {
     host.Children().Clear();
     const auto endpoint = ai_endpoint();
-    add_row(host, 0xE895, L"服务模型",
-            L"从当前服务的模型目录读取，加进上面的模型列表；服务不支持时选「自定义…」自己填写。",
-            button_control(ai_models_busy_ ? L"获取中…" : L"获取模型列表",
-                           [this] { fetch_ai_models(); },
-                           loaded_ && !ai_models_busy_ && endpoint.origin.has_value()));
+    auto row = add_row(host, 0xE895, L"服务模型", L"可从服务获取模型，也可直接填写模型名称。",
+                       button_control(ai_models_busy_ ? L"获取中…" : L"获取模型列表",
+                                      [this] { fetch_ai_models(); },
+                                      loaded_ && !ai_models_busy_ && endpoint.origin.has_value()));
+    row.BorderBrush(brush(palette_.divider));
+    row.BorderThickness(Thickness{0, 1, 0, 0});
     if (!ai_models_status_.empty()) {
       auto status = group_note(ai_models_status_);
       A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
@@ -22041,24 +22273,6 @@ private:
 
   // ---- 连接 AI 助手 ----
 
-  void append_section(StackPanel const &panel, hstring heading,
-                      hstring description) {
-    auto heading_text = TextBlock();
-    heading_text.Text(heading);
-    // 与 `add_row` 的标签和说明同尺寸（14/12 DIP，README 的「14 DIP 标签和 12 DIP 说明」），卡片内外对得上。
-    heading_text.FontSize(14);
-    heading_text.FontWeight(Windows::UI::Text::FontWeight{600});
-    heading_text.Foreground(brush(palette_.text));
-    panel.Children().Append(heading_text);
-    auto description_text = TextBlock();
-    description_text.Text(description);
-    description_text.FontSize(12);
-    description_text.TextWrapping(TextWrapping::Wrap);
-    description_text.IsTextSelectionEnabled(true);
-    description_text.Foreground(brush(palette_.sub));
-    panel.Children().Append(description_text);
-  }
-
   void append_text(StackPanel const &panel, std::wstring const &value,
                    bool emphasis = false) {
     auto block = TextBlock();
@@ -22069,9 +22283,21 @@ private:
     panel.Children().Append(block);
   }
 
-  // 「连接 AI 助手」：展示助手运行的 `msime-mcp` 条目，可复制或写入 Claude Desktop、Cursor 的配置；通过 `msime_client_mcp_status` 和 `msime_client_mcp_install` 与共享设置页保持一致。
+  // 一个助手的配置文件和其中 `msime` 条目的状态（msime_client_mcp_status 的 `clients` 一项）。
+  struct McpClientView {
+    std::wstring id;
+    std::wstring name;
+    std::wstring path;
+    bool configured = false;
+    bool stale = false;
+    mc::Flags flags;
+  };
+
+  // 「连接 AI 助手」，照共享页的 McpConnectSection（`packages/ui/src/settings/mcp-connect.tsx`）：说明之后是一排「AI 助手」标签（Claude Code、Codex、命令行、可以一键写入的助手、其他），标签下是这个助手的接法，然后是写入结果、两个权限开关、信任提示和服务器程序的位置。命令、命令行用法和 MCP 配置都按打开的权限生成（McpConnect.h），按种类着色；复制按钮点后显示「已复制」，1.6 秒后复原。已连接的助手标签上，开关先显示它现有条目的权限，改过之后记在 `mcp_drafts_` 里直到写入，与现有的不同时提示更新；其余标签和复制的内容用本机记着的选择（`mcp_preferred_`，存在注册表里，见 saved_mcp_flags）。标签多于正文宽度时整排横向滚动。服务器状态通过 `msime_client_mcp_status` 读，写入通过 `msime_client_mcp_install`，与共享设置页保持一致。
   void append_mcp_section(StackPanel const &panel) {
-    append_text(panel, L"MCP（Model Context Protocol）让 AI 助手通过本机服务调用水杉输入法的功能，除了把皮肤发布到社区之外不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤，并用你在设置里登录的账号把皮肤发布到社区（助手自己不登录）；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。除开关诊断日志外，修改功能需要在下方明确开启对应权限。");
+    if (!indexing_)
+      mcp_copy_buttons_.clear();
+    append_text(panel, L"MCP（Model Context Protocol）让 AI 助手通过本机服务调用水杉输入法的功能，除了把皮肤发布到社区之外不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤，并用你在设置里登录的账号把皮肤发布到社区（助手自己不登录）；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。助手能否修改内容由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。");
     const auto response =
         call_mcp(msime_client_mcp_status, mcp_request(runtime_options_path()));
     JsonObject status{nullptr};
@@ -22086,11 +22312,8 @@ private:
       append_text(panel, L"无法读取 MCP 服务器的状态。", true);
       return;
     }
-    const bool installed = status.GetNamedBoolean(L"installed", false);
-    append_section(
-        panel, L"服务器程序",
-        hstring(std::wstring(status.GetNamedString(L"command", L"").c_str()) +
-                (installed ? L"" : L"（未找到，请重新安装输入法）")));
+    if (mcp_copy_failed_)
+      append_text(panel, L"复制失败，请重试。", true);
     const auto config =
         status.GetNamedValue(L"config", JsonValue::CreateNullValue());
     if (config.ValueType() != JsonValueType::String) {
@@ -22098,90 +22321,321 @@ private:
       append_mcp_result(panel);
       return;
     }
-    const auto snippet = config.GetString();
-    auto code = TextBox();
-    // AcceptsReturn 必须早于 Text：TextBox 默认是单行，单行状态下写入带换行的文本会被截到第一个换行符——`config_snippet` 的 pretty JSON 第一行正好只有「{」，于是框里就只剩这一个字符，之后再打开多行也找不回来。
-    code.AcceptsReturn(true);
-    code.Text(snippet);
-    code.IsReadOnly(true);
-    code.TextWrapping(TextWrapping::NoWrap);
-    code.FontFamily(Media::FontFamily(L"Consolas"));
-    code.Header(box_value(L"MCP 配置"));
-    // 多行 TextBox 的期望高度仍然只有一行，`AcceptsReturn` 不改变这一点：不给高度时整段配置只露出开头的「{」。给够常见片段的高度，更长的在框内滚动；不换行，所以横向也要滚动条。
-    code.MinHeight(188);
-    code.MaxHeight(280);
-    ScrollViewer::SetVerticalScrollBarVisibility(code, ScrollBarVisibility::Auto);
-    ScrollViewer::SetHorizontalScrollBarVisibility(code, ScrollBarVisibility::Auto);
-    panel.Children().Append(code);
-    append_text(panel,
-                L"要让助手修改快捷短语和设置、为你制作、切换和删除候选窗口皮肤、把皮肤发布到社区，在 args 中加入 "
-                L"--allow-write；要让它读取你的用户词库、查看编码的候选，加入 "
-                L"--allow-dictionary-"
-                L"read；两项都加才能增删、调整和导入词。这两项只应在你信任该助"
-                L"手时开启。");
-    auto copy = Button();
-    copy.Content(box_value(L"复制配置"));
-    // 与 `button_control` 的按钮同尺寸；这里不用它，因为点击后要拿 sender 改自己的文案。
-    copy.Height(32);
-    copy.Padding(Thickness{16, 0, 16, 0});
-    copy.HorizontalAlignment(HorizontalAlignment::Left);
-    copy.Click([snippet](Inspectable const &sender, RoutedEventArgs const &) {
-      Windows::ApplicationModel::DataTransfer::DataPackage package;
-      package.SetText(snippet);
-      Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
-      sender.as<Button>().Content(box_value(L"已复制"));
-    });
-    panel.Children().Append(copy);
-    if (installed) {
+    const std::wstring config_text(config.GetString().c_str());
+    const bool installed = status.GetNamedBoolean(L"installed", false);
+    const std::wstring command(status.GetNamedString(L"command", L"").c_str());
+    std::optional<std::wstring> options;
+    if (const auto value = status.GetNamedValue(L"options", JsonValue::CreateNullValue());
+        value.ValueType() == JsonValueType::String)
+      options = std::wstring(value.GetString().c_str());
+    // 只有找到了服务器程序，才给能一键写入的助手各一个标签。
+    std::vector<McpClientView> clients;
+    if (installed)
       for (auto const &value : status.GetNamedArray(L"clients", JsonArray())) {
-        const auto client = value.GetObject();
-        const std::wstring id(client.GetNamedString(L"id", L"").c_str());
-        const auto name = mcp_client_name(id);
-        const bool configured = client.GetNamedBoolean(L"configured", false);
-        // 每个助手一行，形状和本页其他组一样：左边名称与配置文件路径，右边写入按钮，窄窗口时按钮落到标签下面。原来是「小标题 + 路径 + 下面一个按钮」堆三遍，和同一页的行对不齐。
-        add_row(panel, 0, name,
-                std::wstring(client.GetNamedString(L"path", L"").c_str()) +
-                    (configured ? L"（已连接）" : L""),
-                button_control(
-                    L"写入 " + name, [this, id] { write_mcp_client(id); },
-                    !configured && !mcp_busy_));
+        const auto entry = value.GetObject();
+        McpClientView view;
+        view.id = entry.GetNamedString(L"id", L"").c_str();
+        view.name = mcp_client_name(view.id);
+        view.path = entry.GetNamedString(L"path", L"").c_str();
+        view.configured = entry.GetNamedBoolean(L"configured", false);
+        view.stale = entry.GetNamedBoolean(L"stale", false);
+        for (auto const &flag : entry.GetNamedArray(L"flags", JsonArray()))
+          if (flag.ValueType() == JsonValueType::String)
+            view.flags.emplace_back(flag.GetString().c_str());
+        view.flags = mc::canonical(view.flags);
+        clients.push_back(std::move(view));
       }
+    std::vector<Option> tabs{{L"claude_code", L"Claude Code"}, {L"codex", L"Codex"}, {L"terminal", L"命令行"}};
+    for (auto const &client : clients)
+      tabs.push_back({client.id, client.name});
+    tabs.push_back({L"json", L"其他"});
+    std::wstring shown = mcp_tab_;
+    if (std::none_of(tabs.begin(), tabs.end(),
+                     [&shown](Option const &tab) { return tab.value == shown; }))
+      shown = L"claude_code";
+    const McpClientView *client = nullptr;
+    for (auto const &candidate : clients)
+      if (candidate.id == shown)
+        client = &candidate;
+    if (!mcp_preferred_)
+      mcp_preferred_ = saved_mcp_flags();
+    mc::Flags flags = *mcp_preferred_;
+    if (client && client->configured) {
+      const auto draft = mcp_drafts_.find(client->id);
+      flags = draft != mcp_drafts_.end() ? draft->second : client->flags;
+    }
+    const bool outdated =
+        client && client->configured && (client->stale || !mc::same_flags(flags, client->flags));
+    const auto server = mcp_server_name();
+
+    auto bar = segmented_control(
+        L"AI 助手", tabs, shown,
+        [this](std::wstring const &value) {
+          mcp_tab_ = value;
+          mcp_result_.clear();
+          queue_refresh();
+        },
+        true, false, tabs.size(), L"mcp-tab");
+    bar.HorizontalAlignment(HorizontalAlignment::Left);
+    ScrollViewer strip;
+    strip.HorizontalScrollBarVisibility(ScrollBarVisibility::Auto);
+    strip.VerticalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    strip.HorizontalScrollMode(ScrollMode::Enabled);
+    strip.VerticalScrollMode(ScrollMode::Disabled);
+    strip.Content(bar);
+    panel.Children().Append(strip);
+
+    if (shown == L"claude_code" || shown == L"codex") {
+      const auto assistant = shown == L"codex" ? mc::Assistant::codex : mc::Assistant::claude_code;
+      const std::wstring name = shown == L"codex" ? L"Codex" : L"Claude Code";
+      append_text(panel, L"在终端运行下面的命令，然后重新启动 " + name + L"：");
+      const auto install = mc::install_command(assistant, server, command, options, flags);
+      panel.Children().Append(mcp_code_block(install, name + L" 安装命令", true));
+      mcp_copy_button(panel, shown, L"复制命令", install);
+      append_text(panel, L"之前添加过的，先运行这条：");
+      const auto remove = mc::remove_command(assistant, server);
+      panel.Children().Append(mcp_code_block(remove, name + L" 移除命令", true));
+      mcp_copy_button(panel, shown + L"-remove", L"复制移除命令", remove);
+    }
+    if (shown == L"terminal") {
+      append_text(panel, L"不注册 MCP 也可以：能在终端里运行命令的助手（Claude Code、Codex 等）直接调用同一组工具，权限开关相同，不用重启助手。把下面这段话告诉助手，或放进项目的 AGENTS.md / CLAUDE.md：");
+      const auto usage = mc::terminal_instructions(command, options, flags);
+      panel.Children().Append(mcp_code_block(usage, L"命令行用法", true));
+      mcp_copy_button(panel, L"terminal", L"复制说明", usage);
+    }
+    if (client) {
+      append_text(panel, L"写入 " + client->path + (client->configured ? L"（已连接）" : L"") +
+                             L"，重新启动 " + client->name + L" 后生效。");
+      if (outdated) {
+        InfoBar notice;
+        notice.IsOpen(true);
+        notice.IsClosable(false);
+        notice.Severity(InfoBarSeverity::Warning);
+        notice.Message(hstring(mc::outdated_notice(client->name, client->stale, command)));
+        panel.Children().Append(notice);
+      }
+      const bool writing = mcp_busy_ && mcp_busy_client_ == client->id;
+      auto write = button_control(
+          writing ? std::wstring(L"正在写入…")
+                  : (outdated ? L"更新 " : L"写入 ") + client->name,
+          [this, id = client->id, flags] { write_mcp_client(id, flags); },
+          !mcp_busy_ && !(client->configured && !outdated));
+      write.HorizontalAlignment(HorizontalAlignment::Left);
+      A11y::SetAutomationId(write, hstring(L"mcp-write-" + client->id));
+      panel.Children().Append(write);
+    }
+    if (shown == L"json") {
+      append_text(panel, L"粘贴到任意支持 MCP 的助手的配置中：");
+      const auto tokens = mc::config_tokens(config_text, flags);
+      panel.Children().Append(mcp_code_block(tokens, L"MCP 配置", false));
+      mcp_copy_button(panel, L"json", L"复制配置", tokens);
     }
     append_mcp_result(panel);
+    // 两个权限开关（SettingsServiceRow）：说明前写着参数名。已连接的助手标签上改动先记成这个助手的草稿；本机记着的选择也一起改，复制的内容和别的标签跟着变。
+    const std::wstring draft_client = client && client->configured ? client->id : std::wstring();
+    for (auto const &permission : mc::permissions) {
+      const std::wstring title(permission.title);
+      add_row(panel, 0, title, std::wstring(permission.flag) + L" " + std::wstring(permission.detail),
+              toggle_control(title, mc::has_flag(flags, permission.flag),
+                             [this, flag = std::wstring(permission.flag), flags,
+                              draft_client](bool on) {
+                               if (!draft_client.empty())
+                                 mcp_drafts_[draft_client] = mc::toggled(flags, flag, on);
+                               mcp_preferred_ = mc::toggled(
+                                   mcp_preferred_ ? *mcp_preferred_ : saved_mcp_flags(), flag, on);
+                               save_mcp_flags(*mcp_preferred_);
+                               queue_refresh();
+                             },
+                             true, false));
+    }
+    append_text(panel, L"只在你信任该助手时保留这两项权限，用不上就关掉。");
+    append_text(panel, L"服务器程序 " + command + (installed ? L"" : L"（未找到，请重新安装输入法）"));
   }
 
+  // 写入结果（StatusMessage），内容变化时读屏礼貌播报。
   void append_mcp_result(StackPanel const &panel) {
-    if (!mcp_result_.empty())
-      append_text(panel, mcp_result_, true);
+    if (mcp_result_.empty())
+      return;
+    auto block = make_text(mcp_result_, 14, palette_.text);
+    block.IsTextSelectionEnabled(true);
+    A11y::SetLiveSetting(block, Automation::Peers::AutomationLiveSetting::Polite);
+    panel.Children().Append(block);
   }
 
-  fire_and_forget write_mcp_client(std::wstring id) {
+  // 一段着色的命令或配置（共享页的 SyntaxBlock）：等宽 12 DIP，圆角 8、12 DIP 内边距、带描边的浅底，可以选中。命令照共享页的 whitespace-pre-wrap break-all 折行；MCP 配置不折行，太宽时横向滚动。颜色是共享页 `styles.css` 的 `--syntax-*`，按设置窗口的明暗取，标点是次要色，占位符是斜体。读屏名是这一段是什么。
+  FrameworkElement mcp_code_block(std::vector<mc::Token> const &tokens, std::wstring const &label,
+                                  bool wrap) {
+    TextBlock block;
+    block.FontFamily(Media::FontFamily(L"Consolas"));
+    block.FontSize(12);
+    block.LineHeight(12 * 1.625);
+    block.TextWrapping(wrap ? TextWrapping::Wrap : TextWrapping::NoWrap);
+    block.IsTextSelectionEnabled(true);
+    block.Foreground(brush(palette_.text));
+    for (auto const &token : tokens) {
+      std::wstring_view rest(token.text);
+      while (true) {
+        const auto line_end = rest.find(L'\n');
+        const auto piece = rest.substr(0, line_end);
+        if (!piece.empty()) {
+          Documents::Run run;
+          run.Text(hstring(piece));
+          if (token.kind != mc::Syntax::plain)
+            run.Foreground(brush(mcp_syntax_color(token.kind)));
+          if (token.kind == mc::Syntax::placeholder)
+            run.FontStyle(Windows::UI::Text::FontStyle::Italic);
+          block.Inlines().Append(run);
+        }
+        if (line_end == std::wstring_view::npos)
+          break;
+        block.Inlines().Append(Documents::LineBreak());
+        rest.remove_prefix(line_end + 1);
+      }
+    }
+    A11y::SetName(block, hstring(label));
+    Border frame;
+    frame.Background(brush(palette_.subtle));
+    frame.BorderBrush(brush(palette_.stroke));
+    frame.BorderThickness(Thickness{1, 1, 1, 1});
+    frame.CornerRadius(CornerRadius{8, 8, 8, 8});
+    frame.Padding(Thickness{12, 12, 12, 12});
+    if (wrap) {
+      frame.Child(block);
+      return frame;
+    }
+    ScrollViewer scroller;
+    scroller.HorizontalScrollBarVisibility(ScrollBarVisibility::Auto);
+    scroller.VerticalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    scroller.HorizontalScrollMode(ScrollMode::Enabled);
+    scroller.VerticalScrollMode(ScrollMode::Disabled);
+    scroller.Content(block);
+    frame.Child(scroller);
+    return frame;
+  }
+
+  // `styles.css` 的 `--syntax-program` 等：深色一套，浅色一套。
+  Color mcp_syntax_color(mc::Syntax kind) const {
+    const bool dark = palette_.dark;
+    switch (kind) {
+    case mc::Syntax::program:
+      return dark ? rgba(0xD2, 0xA8, 0xFF, 1) : rgba(0x82, 0x50, 0xDF, 1);
+    case mc::Syntax::flag:
+      return dark ? rgba(0x79, 0xC0, 0xFF, 1) : rgba(0x05, 0x50, 0xAE, 1);
+    case mc::Syntax::string:
+      return dark ? rgba(0xA5, 0xD6, 0xFF, 1) : rgba(0x0A, 0x30, 0x69, 1);
+    case mc::Syntax::placeholder:
+      return dark ? rgba(0xFF, 0xA6, 0x57, 1) : rgba(0x95, 0x38, 0x00, 1);
+    case mc::Syntax::key:
+      return dark ? rgba(0x7E, 0xE7, 0x87, 1) : rgba(0x11, 0x63, 0x29, 1);
+    case mc::Syntax::punctuation:
+      return palette_.sub;
+    case mc::Syntax::plain:
+      break;
+    }
+    return palette_.text;
+  }
+
+  // 一个复制按钮：复制 `tokens` 拼成的文字，成功后这个按钮显示「已复制」1.6 秒（copy_mcp_text）。按钮按 `key` 记下，计时结束时就地换回原来的字，不重画页面。
+  void mcp_copy_button(StackPanel const &panel, std::wstring const &key, std::wstring const &label,
+                       std::vector<mc::Token> const &tokens) {
+    auto button = button_control(mcp_copied_ == key ? std::wstring(L"已复制") : label,
+                                 [this, key, value = mc::tokens_text(tokens)] {
+                                   copy_mcp_text(key, value);
+                                 });
+    button.HorizontalAlignment(HorizontalAlignment::Left);
+    A11y::SetAutomationId(button, hstring(L"mcp-copy-" + key));
+    panel.Children().Append(button);
+    if (!indexing_)
+      mcp_copy_buttons_.push_back({key, label, make_weak(button.as<Button>())});
+  }
+
+  // 共享页的 copy：复制失败时页面顶上说一句，成功时只有这一个按钮显示「已复制」，再点别的按钮换成那一个，1.6 秒后复原。
+  void copy_mcp_text(std::wstring const &key, std::wstring const &value) {
+    if (!copy_text(value)) {
+      mcp_copied_.clear();
+      mcp_copy_failed_ = true;
+      queue_refresh();
+      return;
+    }
+    mcp_copied_ = key;
+    if (mcp_copy_failed_) {
+      mcp_copy_failed_ = false;
+      queue_refresh();
+    } else {
+      relabel_mcp_copy_buttons();
+    }
+    if (!mcp_copied_timer_) {
+      mcp_copied_timer_ = DispatcherQueue().CreateTimer();
+      mcp_copied_timer_.Interval(std::chrono::milliseconds(1600));
+      mcp_copied_timer_.IsRepeating(false);
+      mcp_copied_timer_.Tick([this](Microsoft::UI::Dispatching::DispatcherQueueTimer const &,
+                                    Inspectable const &) {
+        mcp_copied_.clear();
+        relabel_mcp_copy_buttons();
+      });
+    }
+    mcp_copied_timer_.Stop();
+    mcp_copied_timer_.Start();
+  }
+
+  void relabel_mcp_copy_buttons() {
+    for (auto const &entry : mcp_copy_buttons_)
+      if (auto button = entry.button.get())
+        button.Content(box_value(hstring(mcp_copied_ == entry.key ? std::wstring(L"已复制") : entry.label)));
+  }
+
+  // 共享页的 write：带权限写入前先问一次（「允许并写入」），已有另一个同名条目时再问要不要替换；写入的条目带上这个标签上的权限。写入期间按钮写「正在写入…」，所有写入按钮不可按。
+  fire_and_forget write_mcp_client(std::wstring id, mc::Flags flags) {
     if (mcp_busy_)
       co_return;
     auto strong = get_strong();
     const auto name = mcp_client_name(id);
     mcp_busy_ = true;
+    mcp_busy_client_ = id;
     mcp_result_.clear();
-    auto request = mcp_request(runtime_options_path());
-    request.SetNamedValue(L"client", JsonValue::CreateStringValue(id));
-    request.SetNamedValue(L"replace", JsonValue::CreateBooleanValue(false));
-    auto response = call_mcp(msime_client_mcp_install, request);
-    if (!response.ok && response_error(response) == L"mcp_entry_exists") {
+    queue_refresh();
+    auto finish = [this] {
+      mcp_busy_ = false;
+      mcp_busy_client_.clear();
+      if (!closed_ && current_page_ == "ai" && page_tab("ai") == L"connection")
+        render_page(true);
+    };
+    auto ask = [this](std::wstring const &title, std::wstring const &message,
+                      std::wstring const &confirm) {
       ContentDialog dialog;
-      const auto server = mcp_server_name();
-      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 " + server + L"？")));
-      dialog.Content(box_value(
-          hstring(name + L" 的配置里已有另一个名为 " + server +
-                  L" 的服务器。替换后，它原来的命令和参数（包括手动加上的"
-                  L" --allow-write）会被这里的设置覆盖。")));
-      dialog.PrimaryButtonText(L"替换");
+      dialog.Title(box_value(hstring(title)));
+      dialog.Content(box_value(hstring(message)));
+      dialog.PrimaryButtonText(hstring(confirm));
       dialog.CloseButtonText(L"取消");
       dialog.DefaultButton(ContentDialogButton::Close);
       dialog.XamlRoot(root_.XamlRoot());
-      dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark
-                                          : ElementTheme::Light);
-      if (co_await dialog.ShowAsync() != ContentDialogResult::Primary) {
-        mcp_busy_ = false;
+      dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+      return dialog;
+    };
+    if (!flags.empty()) {
+      auto grant = ask(mc::grant_title(name), mc::grant_message(name, flags), L"允许并写入");
+      if (co_await grant.ShowAsync() != ContentDialogResult::Primary) {
+        finish();
+        co_return;
+      }
+    }
+    auto request = mcp_request(runtime_options_path());
+    request.SetNamedValue(L"client", JsonValue::CreateStringValue(id));
+    JsonArray list;
+    for (auto const &flag : flags)
+      list.Append(JsonValue::CreateStringValue(flag));
+    request.SetNamedValue(L"flags", list);
+    request.SetNamedValue(L"replace", JsonValue::CreateBooleanValue(false));
+    auto response = call_mcp(msime_client_mcp_install, request);
+    if (!response.ok && response_error(response) == L"mcp_entry_exists") {
+      const auto server = mcp_server_name();
+      auto replace = ask(L"替换 " + name + L" 中的 " + server + L"？",
+                         name + L" 的配置里已有另一个名为 " + server +
+                             L" 的服务器。替换后，它原来的命令和参数（包括手动加上的"
+                             L" --allow-write）会被这里的设置覆盖。",
+                         L"替换");
+      if (co_await replace.ShowAsync() != ContentDialogResult::Primary) {
+        finish();
         co_return;
       }
       request.SetNamedValue(L"replace", JsonValue::CreateBooleanValue(true));
@@ -22195,16 +22649,12 @@ private:
                       .c_str();
       } catch (...) {
       }
-      mcp_result_ =
-          outcome == L"unchanged"
-              ? name + L" 已经连接，无需改动。"
-              : L"已写入 " + name + L" 的配置。重新启动 " + name + L" 后生效。";
+      mcp_result_ = mc::install_result(outcome, name);
+      mcp_drafts_.erase(id);
     } else {
       mcp_result_ = mcp_failure(response_error(response), name);
     }
-    mcp_busy_ = false;
-    if (!closed_ && current_page_ == "ai" && page_tab("ai") == L"connection")
-      render_page(true);
+    finish();
   }
 
   PreferencesDocument document_;
@@ -22257,8 +22707,22 @@ private:
   bool search_composing_ = false;
   FrameworkElement focus_target_{nullptr};
 
+  // 「连接 AI 助手」（共享页 McpConnectSection 的状态，跨页面重建保留）：写入结果，是否在写入、写的是哪个助手，选中的助手标签，本机记着的权限（第一次画时从注册表读），已连接助手上改过还没写入的权限，哪个复制按钮在显示「已复制」和它的计时器，复制是否失败；这一次绘制的复制按钮，计时结束时就地换回原来的字。
   std::wstring mcp_result_;
   bool mcp_busy_ = false;
+  std::wstring mcp_busy_client_;
+  std::wstring mcp_tab_ = L"claude_code";
+  std::optional<mc::Flags> mcp_preferred_;
+  std::map<std::wstring, mc::Flags> mcp_drafts_;
+  std::wstring mcp_copied_;
+  Microsoft::UI::Dispatching::DispatcherQueueTimer mcp_copied_timer_{nullptr};
+  bool mcp_copy_failed_ = false;
+  struct McpCopyButton {
+    std::wstring key;
+    std::wstring label;
+    weak_ref<Button> button;
+  };
+  std::vector<McpCopyButton> mcp_copy_buttons_;
 
   // 「标点与翻译」页三个「测试配置」的结果，按服务记，跨页面重建保留（共享页 useProviderCredentials 的 credentialTests）；signature 是测试时的配置。刷新函数属于当前页面上的那一组按钮，测试结束时用它就地更新，不重画整页，免得输入框丢掉焦点和没能写入的内容。
   struct CredentialTest {
@@ -22368,15 +22832,17 @@ private:
   // 「输入 › 候选与联想」云候选服务的草稿（共享页 CloudCandidatesSection 的组件状态）和它出自的那份文档配置（序列化后的文字）；文档里的配置变了草稿作废。
   std::optional<JsonObject> cloud_provider_draft_;
   std::wstring cloud_provider_base_;
-  // 「语音快捷键」的「更多选项」（Ctrl+F9）是否展开；「识别服务配置」的「更多选项」是否展开，没动过时按用户改没改过接口地址或资源 ID 决定（共享页 MoreOptions 的 defaultOpen）；豆包的「流式接口」选了「自定义地址」，地址输入框照旧显示。都跨页面重建保留。
+  // 「语音快捷键」的「更多选项」（Ctrl+F9）是否展开；「识别服务」的「更多选项」是否展开，没动过时按用户改没改过接口地址或资源 ID 决定（共享页 MoreOptions 的 defaultOpen）；豆包的「流式接口」选了「自定义地址」，地址输入框照旧显示。都跨页面重建保留。
   bool voice_hotkeys_more_open_ = false;
   std::optional<bool> voice_service_more_open_;
   bool voice_custom_endpoint_ = false;
-  // 每次进入语音页自动读一次录音设备列表（共享页 VoiceMicrophonePicker 变为可见时读取）；读完过一次（成功或失败）后，不在列表里的已选设备显示为未连接而不是读取中。
+  // 刚打开或关上「服务配置」子视图，下一次绘制把焦点交给哪里：`back` 是子视图的返回按钮，`row` 是「服务配置 ›」那一行。画过一次就清掉。
+  std::wstring voice_service_focus_;
+  // 「录音设备」组每次变为可见（切到「录音行为」标签，或停在这个标签上进入语音页）时自动读一次录音设备列表（共享页 VoiceMicrophonePicker 变为可见时读取），组没画的时候记成过期；读完过一次（成功或失败）后，不在列表里的已选设备显示为未连接而不是读取中。
   bool capture_stale_ = true;
   bool capture_read_ = false;
 
-  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，获取是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的获取；获取请求的序号作废更早的获取。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
+  // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，获取是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的获取；获取请求的序号作废更早的获取。「自定义提示词」折叠区是否展开，与共享页 MoreOptions 一样默认收起。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;
   std::wstring ai_models_status_;
   // 选了「自定义…」的模型下拉（add_model_picker）：模型的键对应选的时候列出的模型，跨页面重建保留，列表换了就不算数。
@@ -22384,7 +22850,7 @@ private:
   bool ai_models_busy_ = false;
   uint64_t ai_generation_ = 0;
   uint64_t ai_models_request_ = 0;
-  std::optional<bool> ai_more_open_;
+  bool ai_prompt_open_ = false;
   std::vector<std::function<void()>> ai_sync_;
   StackPanel ai_models_host_{nullptr};
 
@@ -22586,6 +23052,8 @@ private:
   Image intro_mascot_{nullptr};
   // 页首插画按场景解码一次后留着，每次重画页首（切标签、改设置后的刷新）直接挂上，不重新解码。
   std::map<nav::MascotScene, Imaging::BitmapImage> mascot_bitmaps_;
+  // AI 服务商下拉的品牌图标，按服务商 id 缓存解码好的位图（没有图标的服务商存空），见 ai_provider_icon。
+  std::map<std::wstring, Imaging::BitmapImage> provider_icon_bitmaps_;
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};

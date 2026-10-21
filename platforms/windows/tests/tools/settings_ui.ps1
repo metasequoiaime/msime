@@ -41,6 +41,7 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $state = Join-Path ([IO.Path]::GetTempPath()) ('msime-settings-ui-' + [Guid]::NewGuid())
 $oldState = $env:MSIME_CLIENT_STATE_DIR
+$oldHostOptions = $env:MSIME_CLIENT_HOST_OPTIONS
 $pages = @('typing', 'lexicon', 'shortcuts', 'expression', 'voice', 'osk', 'themes', 'candidate', 'toolbar', 'clip', 'ai', 'plugins', 'stats', 'account', 'dev', 'about')
 $process = $null
 # 用仓库许可明确的合成皮肤验证真实设置卡片；颜色块让缺图和旧模式都能被屏幕像素发现。
@@ -288,6 +289,19 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
     $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
 }
+function Start-SettingsWindow([string]$route) {
+    # 进程先记进脚本作用域的 $process，窗口没打开时 finally 也能把它收掉。
+    $script:process = Start-Process -FilePath $programPath -ArgumentList "--route=$route" -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        $script:process.Refresh()
+        if ($script:process.HasExited) { throw "Settings exited before opening: $($script:process.ExitCode)" }
+        if ($script:process.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($script:process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Settings window did not open in 60 seconds' }
+    return [System.Windows.Automation.AutomationElement]::FromHandle($script:process.MainWindowHandle)
+}
 function Select-PageTab($window, [string]$id, [string]$expected) {
     # 页内标签照 macOS 的 useSettingsTabs：按钮 ID 是 <前缀>-<标签 id>，选中的那个 ItemStatus 是「已选择」；切换后整页重画，等这块内容里的一个名字出现，而不是固定延时。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -413,16 +427,7 @@ try {
             @{text = 'Second synthetic clipboard entry'; timestampMs = 1792027700000; pinned = $false}
         )
         [IO.File]::WriteAllText((Join-Path $state 'clipboard_history.json'), ($entries | ConvertTo-Json -Depth 8))
-        $process = Start-Process -FilePath $programPath -ArgumentList '--route=settings:input' -PassThru
-        $deadline = [DateTime]::UtcNow.AddSeconds(60)
-        do {
-            $process.Refresh()
-            if ($process.HasExited) { throw "Settings exited before opening: $($process.ExitCode)" }
-            if ($process.MainWindowHandle -ne [IntPtr]::Zero) { break }
-            Start-Sleep -Milliseconds 200
-        } while ([DateTime]::UtcNow -lt $deadline)
-        if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Settings window did not open in 60 seconds' }
-        $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+        $window = Start-SettingsWindow 'settings:input'
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
@@ -455,6 +460,15 @@ try {
                     if (-not (Find-ById $content 'cloud-clipboard-source')) { throw 'Clipboard settings tab is missing the cloud clipboard group' }
                     if (Find-ById $content 'clipboard-entry-0-preview') { throw 'Clipboard history rendered inside the settings tab' }
                     Assert-PageIntro $window 'clip' '设置剪贴板历史的保存与云端同步。'
+                }
+                if ($page -eq 'voice') {
+                    # 照 macOS 分「识别与输入」「录音行为」两个标签，打开时是「识别与输入」：「识别」组里紧跟识别服务的是「服务配置 ›」一行，录音设备在另一个标签里，服务的接入收在子视图里。
+                    Select-PageTab $window 'voice-tab-input' '结果提交策略'
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ById $content 'voice-service')) { throw 'Voice input tab is missing the 服务配置 row' }
+                    if (Find-ByName $content '录音设备') { throw 'Capture devices rendered inside the voice input tab' }
+                    if (Find-ByName $content '文本润色') { throw 'Voice polish rendered outside the 服务配置 view' }
+                    Assert-PageIntro $window 'voice' '配置语音识别、服务与输入快捷键。'
                 }
                 if ($page -eq 'osk') {
                     # 完整版提供手写：照 macOS 分「键盘」「手写」两个标签，打开时是「键盘」；「恢复默认」的说明只提这一页看得到的几项，不再提工具栏按钮。
@@ -601,6 +615,29 @@ try {
                     Save-Window $window "$theme-$width-lexicon-cloud.png"
                     Select-PageTab $window 'lexicon-tab-lookup' '词条或编码'
                 }
+                if ($page -eq 'voice') {
+                    # 「服务配置 ›」在原处换成子视图：带返回按钮的「服务配置」标题和「文本润色」等组，标签条不在；返回回到「识别与输入」。
+                    (Find-ById $window 'voice-service').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        Start-Sleep -Milliseconds 200
+                        $back = Find-ById $window 'voice-service-back'
+                        $content = Find-ById $window 'settings-content'
+                        $polish = $content -and (Find-ByName $content '文本润色')
+                    } while ((-not $back -or -not $polish) -and [DateTime]::UtcNow -lt $deadline)
+                    if (-not $back -or -not $polish) { throw 'The 服务配置 row did not open its view' }
+                    if (Find-ById $window 'voice-tab-input') { throw 'Voice tabs are still shown inside the 服务配置 view' }
+                    Start-Sleep -Milliseconds 350
+                    Save-Window $window "$theme-$width-voice-service.png"
+                    $back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    Select-PageTab $window 'voice-tab-input' '结果提交策略'
+                    # 「录音行为」标签：录音行为和录音设备两组。
+                    Select-PageTab $window 'voice-tab-recording' '录音设备'
+                    Assert-PageIntro $window 'voice' '调整录音提示音与录音期间的静音行为。'
+                    if (Find-ById (Find-ById $window 'settings-content') 'voice-service') { throw 'The 服务配置 row rendered inside the recording tab' }
+                    Save-Window $window "$theme-$width-voice-recording.png"
+                    Select-PageTab $window 'voice-tab-input' '结果提交策略'
+                }
                 if ($page -eq 'osk') {
                     # 「手写」标签只有「手写识别板」一组：打开面板的一行和手写板示意。
                     Select-PageTab $window 'osk-tab-handwriting' '打开手写识别板'
@@ -621,7 +658,21 @@ try {
                         $expected = if ($tab -eq 'connection') { '连接 AI 助手' } else { '启用 AI 辅助' }
                         if (-not (Find-ByName $content $expected)) { throw "AI tab content is missing: $expected" }
                         Save-Window $window "$theme-$width-ai-$tab.png"
+                        if ($tab -eq 'connection') {
+                            # 合成状态目录里没有运行时选项，照 macOS 的 McpConnectSection 只说尚未完成初始化，不画助手标签；有运行时选项时的样子在主题循环之后另开一次窗口核对。
+                            if (-not (Find-ByName $content '输入法尚未完成初始化，完成设置向导后即可连接。')) { throw 'MCP connect without runtime options does not show the setup notice' }
+                            if (Find-ById $content 'mcp-tab-claude_code') { throw 'MCP connect shows assistant tabs without runtime options' }
+                        }
                     }
+                    # 照 macOS 的服务组：接口地址和「服务模型」常驻，自定义提示词单独一个默认收起的折叠区，没有「更多选项」。
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ById $content 'ai-provider')) { throw 'AI provider select is missing' }
+                    foreach ($name in @('AI 接口地址', '服务模型')) {
+                        if (-not (Find-ByName $content $name)) { throw "AI service group is missing $name outside a fold" }
+                    }
+                    $prompt = Find-ById $content 'ai-prompt-fold'
+                    if (-not $prompt -or $prompt.Current.ItemStatus -ne '已收起') { throw 'AI custom prompt is not a collapsed fold of its own' }
+                    if (Find-ByName $content '更多选项') { throw 'AI service group still folds rows into 更多选项' }
                 }
                 if ($page -eq 'candidate') {
                     # 整页截过一张收起的，再展开「更多选项」截一张，然后收起，下一个宽度照样从收起开始。
@@ -876,6 +927,50 @@ try {
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
         $process = $null
     }
+    # 连接助手要有运行时选项才画助手标签。另开一次窗口，经 MSIME_CLIENT_HOST_OPTIONS 交给它一份运行时选项，直接打开「连接助手」（mcp 路由）：照 macOS 的 McpConnectSection，打开时在 Claude Code，有安装和移除命令与两个权限开关，「其他」是 MCP 配置，复制按钮点后显示「已复制」、1.6 秒后就地换回原来的字。连接助手只用这份文件的路径和版本（没有 edition 键就是完整版，服务器名 msime），所以内容是空对象；文件不叫 runtime-options.json，不会被当成 Server 的配置改掉偏好目录。词库等页拿空对象发不出有效请求，这次只看连接助手。
+    $hostOptions = Join-Path $state 'mcp-host-options.json'
+    [IO.File]::WriteAllText($hostOptions, '{}')
+    $env:MSIME_CLIENT_HOST_OPTIONS = $hostOptions
+    try { $window = Start-SettingsWindow 'settings:mcp' } finally { $env:MSIME_CLIENT_HOST_OPTIONS = $oldHostOptions }
+    # 800 宽时六个助手标签放不下，整排在横向滚动里，截图看得到。
+    if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, 800, 780, 0x0040)) { throw 'Window resize failed' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        Start-Sleep -Milliseconds 200
+        $content = Find-ById $window 'settings-content'
+        $tab = if ($content) { Find-ById $content 'mcp-tab-claude_code' } else { $null }
+    } while (-not $tab -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $tab) { throw 'MCP connect with runtime options does not show the assistant tabs' }
+    if ($tab.Current.ItemStatus -ne '已选择') { throw 'MCP connect does not open on Claude Code' }
+    foreach ($name in @('Claude Code 安装命令', 'Claude Code 移除命令', '允许修改设置', '允许读取词库')) {
+        if (-not (Find-ByName $content $name)) { throw "MCP connect is missing $name" }
+    }
+    Start-Sleep -Milliseconds 350
+    Save-Window $window 'ai-connection-claude-code.png'
+    # 复制（会改写系统剪贴板）后只换这个按钮的字，不重画页面：按钮按弱引用记着，计时结束时取回来就地复原。等到「已复制」出现，再等它换回「复制命令」。
+    $copy = Find-ById $content 'mcp-copy-claude_code'
+    if (-not $copy -or $copy.Current.Name -ne '复制命令') { throw 'MCP connect is missing the Claude Code copy button' }
+    $copy.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(1.5)
+    do {
+        $copy = Find-ById $window 'mcp-copy-claude_code'
+        if ($copy -and $copy.Current.Name -eq '已复制') { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $copy -or $copy.Current.Name -ne '已复制') { throw 'MCP copy button did not show 已复制' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        Start-Sleep -Milliseconds 200
+        $copy = Find-ById $window 'mcp-copy-claude_code'
+    } while ((-not $copy -or $copy.Current.Name -ne '复制命令') -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $copy -or $copy.Current.Name -ne '复制命令') { throw 'MCP copy button did not return to 复制命令' }
+    Select-PageTab $window 'mcp-tab-json' 'MCP 配置'
+    Start-Sleep -Milliseconds 350
+    Save-Window $window 'ai-connection-json.png'
+    $process.CloseMainWindow() | Out-Null
+    if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
+    if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
+    $process = $null
 } catch {
     # 失败时保留合成窗口，便于区分产品布局问题与 UIA 时序问题。
     if ($process -and -not $process.HasExited) {
