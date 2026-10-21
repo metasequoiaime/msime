@@ -2408,6 +2408,106 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 }
 @end
 
+@interface RestoredInputModeController : ModeController
+@property(nonatomic, copy) NSString *selectedSource;
+@property(nonatomic) NSUInteger synchronizationCalls;
+@end
+@implementation RestoredInputModeController
+- (NSDictionary *)runtimeOptions { return @{}; }
+- (NSString *)selectedSystemInputModeID { return self.selectedSource; }
+- (void)syncSystemInputModeForClient:(id)client {
+    ++self.synchronizationCalls;
+    // 可用性由合成源决定，CI 不需要安装或启用真实输入源。
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), [self currentInputModeID], client,
+        +[](NSString *identifier) -> BOOL { return MSIMEIsInputModeID(identifier); });
+}
+@end
+
+static void DrainMainQueue();
+
+// 系统从 ASCII 恢复输入法时只校准已经选中的模式；排队期间换客户端、失焦和后续激活都不能留下旧请求。
+static void TestRestoredInputModeActivation() {
+    NSString *suite = [@"msime.source-restore." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.inputScheme = @"quanpin";
+    appearance.englishMode = NO;
+    appearance.inputModeStatusItem = NO;
+    auto makeController = [&](ModeSelectingClient *client) {
+        RestoredInputModeController *controller = [RestoredInputModeController alloc];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        controller.selectedSource = @"com.apple.keylayout.US";
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        MSIMEFocusedController = controller;
+        return controller;
+    };
+    ModeSelectingClient *client = [ModeSelectingClient new];
+    RestoredInputModeController *controller = makeController(client);
+    [controller scheduleSystemInputModeSyncForClient:client];
+    assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 0);
+    assert([MSIMESharedSystemInputModeState().current isEqual:MSIMEChineseInputModeID]);
+
+    for (id selected in @[@"com.apple.keylayout.US", NSNull.null]) {
+        controller = makeController(client);
+        controller.selectedSource = selected == NSNull.null ? nil : selected;
+        [controller scheduleSystemInputModeSyncForClient:client];
+        DrainMainQueue();
+        assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    }
+    // 当前已稳定在本输入法的另一模式时，仍按当前应用的状态同步。
+    controller = makeController(client);
+    controller.selectedSource = MSIMEEnglishInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 1);
+    assert([client.selectedModes.lastObject isEqual:MSIMEChineseInputModeID]);
+    [client.selectedModes removeAllObjects];
+
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 0);
+    for (NSUInteger change = 0; change < 2; ++change) {
+        controller = makeController(client);
+        controller.selectedSource = MSIMEChineseInputModeID;
+        [controller scheduleSystemInputModeSyncForClient:client];
+        if (change == 0) [controller setValue:[ModeSelectingClient new] forKey:@"activeClient"];
+        else MSIMEFocusedController = nil;
+        DrainMainQueue();
+        assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    }
+    // 排队后状态变化时读取最新目标，不使用激活时捕获的旧目标。
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    appearance.englishMode = YES;
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 1);
+    assert([client.selectedModes.lastObject isEqual:MSIMEEnglishInputModeID]);
+    [client.selectedModes removeAllObjects];
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    // 显式同步已选中英文，但 TIS 仍报告中文时，旧激活校准不能重复请求。
+    MSIMESharedSystemInputModeState().current = MSIMEEnglishInputModeID;
+    SEL selector = @selector(syncSystemInputModeForClient:);
+    auto synchronize = reinterpret_cast<void (*)(id, SEL, id)>(
+        method_getImplementation(class_getInstanceMethod(MSIMEInputController.class, selector)));
+    synchronize(controller, selector, client);
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    assert([MSIMESharedSystemInputModeState().current isEqual:MSIMEEnglishInputModeID]);
+    MSIMEFocusedController = nil;
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The selected input mode, 中, 英 or 日, follows the controller's state. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state and, for 中 and 日, the scheme, and is not selected back.
 static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
@@ -10478,6 +10578,10 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
+        if (argc == 2 && std::string(argv[1]) == "--input-source-restore") {
+            TestRestoredInputModeActivation();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--shift-corner-quotes") {
             TestShiftCornerQuotesThroughRealSession();
             return 0;
@@ -12261,6 +12365,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestOptInSchemeModes(); }
+        @autoreleasepool { TestRestoredInputModeActivation(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
         @autoreleasepool { TestKeymapPreeditMargins(); }
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
