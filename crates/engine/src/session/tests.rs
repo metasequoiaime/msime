@@ -1810,6 +1810,43 @@ INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
 // ---- shuangpin candidate assembly ----
 
 #[test]
+fn complete_shuangpin_and_ambiguous_direct_helpcodes_both_commit_the_whole_input() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shu','s','书',100),('shu','s','叔',90),\
+         ('shang','s','商',100),('su','s','苏',100);\
+         CREATE TABLE tbl_3_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_s VALUES('shu''ru''he','srh','书如和',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shu''shang','ss','叔商',10000),\
+         ('su''shang','ss','苏商',10000);",
+    );
+    for (typed, fuzzy, direct) in [
+        ("uuruhe", 0, "叔商"),
+        ("suruhe", crate::types::fuzzy_rule::S_SH, "苏商"),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.fuzzy_pinyin.rules = fuzzy;
+            options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+                [("叔", "ra"), ("苏", "ra"), ("商", "ea")]
+                    .map(|(word, code)| (word.to_owned(), code.to_owned()))
+                    .into_iter()
+                    .collect(),
+            )));
+        });
+        for expected in ["书如和", direct, "书如和"] {
+            type_text(&mut session, typed);
+            assert!(index_of(&session, "书如和") < index_of(&session, direct));
+            let selected = index_of(&session, expected);
+            assert_eq!(session.select(selected).commit.as_deref(), Some(expected));
+            assert!(session.snapshot().preedit.is_empty(), "{typed}: {expected}");
+        }
+    }
+}
+
+#[test]
 fn direct_shuangpin_helpcodes_commit_without_leaving_auxiliary_letters() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\

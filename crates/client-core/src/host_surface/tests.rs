@@ -201,6 +201,9 @@ fn capabilities_describe_each_host() {
             && linux.floating_toolbar_voice
             && linux.floating_toolbar_input_scheme
     );
+    // 自动隐藏、延时与阴影只有 macOS 的面板读：Linux 是输入法菜单，Windows 与
+    // HarmonyOS 的面板还没接，所以共享设置页在它们上面不列这三行。
+    assert!(!linux.floating_toolbar_idle_behavior);
     assert!(linux.panel_shortcuts);
     assert!(linux.number_row_selection);
     assert!(linux.voice_capture_devices);
@@ -255,6 +258,8 @@ fn capabilities_describe_each_host() {
             && windows.floating_toolbar_voice
             && windows.floating_toolbar_input_scheme
     );
+    // 自动隐藏、延时与阴影还没接进 Windows 的 FloatingToolbarWindow，设置页不列这三行。
+    assert!(!windows.floating_toolbar_idle_behavior);
     assert!(windows.candidate_font_controls);
     assert!(windows.candidate_preedit_font);
     assert!(windows.candidate_row_colors);
@@ -274,6 +279,8 @@ fn capabilities_describe_each_host() {
             && macos.floating_toolbar_appearance
             && macos.floating_toolbar_components
     );
+    // macOS 的面板按 FloatingToolbarBehavior.h 读自动隐藏、延时与阴影，所以只有它列这三行。
+    assert!(macos.floating_toolbar_idle_behavior);
     assert!(macos.fuzzy_pinyin);
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);

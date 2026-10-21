@@ -31,6 +31,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "#pragma once\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::windows {{\nstruct PolishPromptCatalogEntry {{\n  std::string_view id;\n  std::string_view prompt;\n}};\ninline constexpr std::array<PolishPromptCatalogEntry, {}> kPolishPromptPresets = {{{{\n",
         POLISH_PROMPT_PRESETS.len()
     );
+    let mut wide_header = format!(
+        "#pragma once\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::windows {{\nstruct PolishPromptWideCatalogEntry {{\n  std::wstring_view id;\n  std::wstring_view name;\n  std::wstring_view prompt;\n}};\ninline constexpr std::array<PolishPromptWideCatalogEntry, {}> kPolishPromptPresetsWide = {{{{\n",
+        POLISH_PROMPT_PRESETS.len()
+    );
     for preset in POLISH_PROMPT_PRESETS {
         if preset.prompt.contains(")MSIME_POLISH\"") {
             return Err("提示词包含 C++ raw string 分隔符".into());
@@ -40,8 +44,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_string(preset.id)?,
             preset.prompt
         ));
+        wide_header.push_str(&format!(
+            "  {{L{}, L{}, LR\"MSIME_POLISH({})MSIME_POLISH\"}},\n",
+            serde_json::to_string(preset.id)?,
+            serde_json::to_string(preset.title)?,
+            preset.prompt
+        ));
     }
     header.push_str("}};\n} // 命名空间 msime::windows\n");
+    wide_header.push_str("}};\n} // 命名空间 msime::windows\n");
     for (relative, generated, semantic) in [
         (
             "packages/ui/src/voice/polish-prompt-catalog.json",
@@ -59,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             false,
         ),
         ("shared/voice/PolishPromptCatalog.h", header, false),
+        ("shared/voice/PolishPromptWideCatalog.h", wide_header, false),
     ] {
         let path = root.join(relative);
         if write {

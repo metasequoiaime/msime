@@ -22,12 +22,14 @@ export interface HostCapabilities {
   floating_toolbar: boolean;
   floating_toolbar_appearance: boolean;
   floating_toolbar_components: boolean;
-  /** 工具栏带手写面板按钮，目前只有 macOS 工具栏提供。 */
+  /** 工具栏带手写面板按钮，macOS、Windows 和 Linux 的工具栏提供（手写还要随版本收窄）。 */
   floating_toolbar_handwriting: boolean;
-  /** 工具栏带语音输入按钮，目前只有 macOS 工具栏提供。 */
+  /** 工具栏带语音输入按钮，macOS、Windows 和 Linux 的工具栏提供。 */
   floating_toolbar_voice: boolean;
-  /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
+  /** 工具栏带切换输入方案的按钮（macOS、Windows 和 Linux）。 */
   floating_toolbar_input_scheme: boolean;
+  /** 宿主按 `floating_toolbar.auto_hide` / `auto_hide_delay` / `shadow` 控制悬浮条；目前只有 macOS 消费，其余宿主不列这三行。 */
+  floating_toolbar_idle_behavior?: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection: boolean;

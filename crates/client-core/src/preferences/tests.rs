@@ -4086,6 +4086,11 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         !defaults.emoji && !defaults.handwriting && !defaults.voice && !defaults.screen_keyboard
     );
+    // 自动隐藏按 Windows 旧正式版 v0.11.1 的出厂配置：关、延时 5 秒。macOS 旧行为是常开 10 秒。
+    assert!(!defaults.auto_hide);
+    assert_eq!(defaults.auto_hide_delay, 5);
+    // 阴影出厂为开，与 Windows v0.11.1 一致，也是 macOS 一直写死的行为。
+    assert!(defaults.shadow);
     let json = serde_json::to_string(&Preferences::default()).unwrap();
     let restored: Preferences = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.floating_toolbar, defaults);
@@ -4104,6 +4109,9 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.fullwidth);
     assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    assert!(!restored.preferences.floating_toolbar.auto_hide);
+    assert_eq!(restored.preferences.floating_toolbar.auto_hide_delay, 5);
+    assert!(restored.preferences.floating_toolbar.shadow);
 }
 
 #[test]

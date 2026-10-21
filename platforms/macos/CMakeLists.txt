@@ -431,6 +431,7 @@ add_test(NAME secure-file-reader COMMAND "${CMAKE_CURRENT_BINARY_DIR}/secure-fil
 set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
   src/backend/clipboard/BackendCloudClipboardProvider.swift
+  src/backend/clipboard/BackendCloudClipboardRoute.swift
   src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
@@ -687,6 +688,10 @@ add_test(NAME macos-diagnostic-log COMMAND macos-diagnostic-log-test)
 add_executable(system-path-alias-test tests/core/SystemPathAliasTest.cpp)
 target_compile_options(system-path-alias-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME system-path-alias COMMAND system-path-alias-test)
+# 纯逻辑：悬浮工具栏的自动隐藏与阴影判定不碰窗口，所以在没有图形会话的机器上也能跑。
+add_executable(floating-toolbar-behavior-test tests/core/FloatingToolbarBehaviorTest.cpp)
+target_compile_options(floating-toolbar-behavior-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME floating-toolbar-behavior COMMAND floating-toolbar-behavior-test)
 add_executable(shared-voice-preferences-test tests/voice/SharedVoicePreferencesTest.mm)
 target_compile_options(shared-voice-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shared-voice-preferences-test PRIVATE "-framework Foundation")
@@ -887,7 +892,7 @@ target_compile_options(external-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG
 add_test(NAME external-skin COMMAND external-skin-test)
 add_executable(text-client-test tests/core/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
+target_link_libraries(text-client-test PRIVATE apple-client)
 add_test(NAME text-client COMMAND text-client-test)
 add_executable(cloud-candidate-request-test tests/candidate/CloudCandidateRequestTest.mm src/cloud/CloudCandidateRequest.mm)
 target_compile_options(cloud-candidate-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

@@ -1554,6 +1554,21 @@ pub struct FloatingToolbarPreferences {
     pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
+    /// 显示一段时间无交互后把悬浮工具栏淡出隐藏。Windows 旧正式版 v0.11.1 的
+    /// `installer/default_config/config.default.toml` 里 `floating_toolbar_auto_hide = false`，这里对齐它。
+    /// macOS 此前把这个行为写死成常开 10 秒（`FloatingToolbarPanel.mm` 的 `_idleTimer`），新字段接管后
+    /// 默认不再自动隐藏；想保留旧行为的用户在共享设置页把这一项打开。
+    #[serde(default)]
+    pub auto_hide: bool,
+    /// 自动隐藏延时（秒）。Windows v0.11.1 的 `floating_toolbar_auto_hide_delay` 出厂为 5、可选 1–60，
+    /// 越界按 5 处理。macOS 面板用 `FloatingToolbarBehavior.h` 解析它来决定空闲计时器的间隔。
+    #[serde(default = "default_toolbar_auto_hide_delay")]
+    pub auto_hide_delay: u16,
+    /// 悬浮工具栏的柔和阴影，与候选窗一致。Windows 旧正式版 v0.11.1 的
+    /// `installer/default_config/config.default.toml` 里 `floating_toolbar_shadow = true`，这里对齐它；
+    /// macOS 此前写死 `self.hasShadow = YES`（`FloatingToolbarPanel.mm`）。
+    #[serde(default = "enabled_by_default")]
+    pub shadow: bool,
 }
 
 fn default_toolbar_scale() -> u16 {
@@ -1561,6 +1576,9 @@ fn default_toolbar_scale() -> u16 {
 }
 fn default_toolbar_font_size() -> u16 {
     24
+}
+fn default_toolbar_auto_hide_delay() -> u16 {
+    5
 }
 
 /// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
@@ -1640,6 +1658,9 @@ impl Default for FloatingToolbarPreferences {
             screen_keyboard: false,
             voice: false,
             settings: true,
+            auto_hide: false,
+            auto_hide_delay: default_toolbar_auto_hide_delay(),
+            shadow: true,
         }
     }
 }

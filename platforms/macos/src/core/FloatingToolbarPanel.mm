@@ -5,6 +5,7 @@
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "WindowPresentationLog.h"
+#import "FloatingToolbarBehavior.h"
 #import "ToolbarImageCanvas.h"
 #import <CoreGraphics/CoreGraphics.h>
 
@@ -541,6 +542,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     NSString *_imagePunctuation;
     NSString *_imageCharacterSet;
     NSSize _barPreferredSize;
+    // 由共享偏好解析出的空闲行为，`noteInputForDelegate:` 只读它。
+    msime::mac::FloatingToolbarBehavior _behavior;
+    // 上一次应用下去的行为，用来跳过没有变化的偏好快照。
+    msime::mac::FloatingToolbarBehavior _appliedBehavior;
 }
 
 + (instancetype)sharedPanel
@@ -569,6 +574,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _preferredSize = NSMakeSize(kToolbarWidth, kToolbarHeight);
     self.opaque = NO;
     self.backgroundColor = [NSColor clearColor];
+    // 出厂画阴影，与 Windows v0.11.1 的 `floating_toolbar_shadow = true` 一致；`applySizingPreferences:` 按偏好改写。
     self.hasShadow = YES;
     self.hidesOnDeactivate = NO;
     self.becomesKeyOnlyIfNeeded = YES;
@@ -756,11 +762,30 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // 共享文档总会写这个字段；读不到时按新装处理，不画 logo。
     id logoValue = preferences[@"show_app_logo"];
     const BOOL showsLogo = [logoValue isKindOfClass:NSNumber.class] && [logoValue boolValue];
-    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask && showsLogo == _appliedShowsLogo) return;
+    // 自动隐藏开关、延时和阴影按 Windows v0.11.1 的出厂配置解析（关、5 秒、阴影开；延时可选 1–60），缺键和越界都由纯函数兜底。
+    id autoHideValue = toolbar[@"auto_hide"];
+    id autoHideDelayValue = toolbar[@"auto_hide_delay"];
+    id shadowValue = toolbar[@"shadow"];
+    const BOOL hasAutoHide = [autoHideValue isKindOfClass:NSNumber.class];
+    const BOOL hasAutoHideDelay = [autoHideDelayValue isKindOfClass:NSNumber.class];
+    const BOOL hasShadow = [shadowValue isKindOfClass:NSNumber.class];
+    const msime::mac::FloatingToolbarBehavior behavior = msime::mac::ResolveFloatingToolbarBehavior(
+        hasAutoHide, hasAutoHide && [autoHideValue boolValue], hasAutoHideDelay,
+        hasAutoHideDelay ? [autoHideDelayValue doubleValue] : 0.0, hasShadow,
+        hasShadow && [shadowValue boolValue]);
+    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask && showsLogo == _appliedShowsLogo &&
+        behavior.autoHideEnabled == _appliedBehavior.autoHideEnabled &&
+        behavior.autoHideDelaySeconds == _appliedBehavior.autoHideDelaySeconds &&
+        behavior.drawsShadow == _appliedBehavior.drawsShadow)
+        return;
     _appliedScale = scale;
     _appliedFontSize = fontSize;
     _appliedComponentMask = mask;
     _appliedShowsLogo = showsLogo;
+    _appliedBehavior = behavior;
+    _behavior = behavior;
+    // 阴影是窗口属性，改偏好时立即生效；出厂（以及 macOS 一直以来的行为）是画。
+    self.hasShadow = behavior.drawsShadow;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
     for (NSButton *button in @[_inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
@@ -806,6 +831,18 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     }
     [_chrome layoutSubtreeIfNeeded];
     [self applySkin];
+    // 自动隐藏关掉后残留的计时器和已经隐藏的状态一并清掉，工具栏按当前可见性回来。
+    if (!_behavior.autoHideEnabled)
+    {
+        [_idleTimer invalidate];
+        _idleTimer = nil;
+        if (_idleHidden)
+        {
+            _idleHidden = NO;
+            _recentInput = YES;
+            [self refreshVisibility];
+        }
+    }
 }
 
 - (void)applyThemePreferences:(NSDictionary *)preferences
@@ -1093,14 +1130,20 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     if (!delegate || self.toolbarDelegate != delegate || !_imeActive || !_requestedVisible) return;
     _idleHidden = NO;
     _recentInput = YES;
-    if (_idleTimer) {
-        _idleTimer.fireDate = [NSDate dateWithTimeIntervalSinceNow:10.0];
+    // 自动隐藏关掉时不排计时器，工具栏一直留着；开着时用偏好里的秒数（出厂默认 5 秒，范围 1–60）。
+    if (!_behavior.autoHideEnabled) {
+        [_idleTimer invalidate];
+        _idleTimer = nil;
+    } else if (_idleTimer) {
+        _idleTimer.fireDate = [NSDate dateWithTimeIntervalSinceNow:_behavior.autoHideDelaySeconds];
     } else {
         __weak MetasequoiaFloatingToolbarPanel *weakSelf = self;
-        _idleTimer = [NSTimer timerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+        _idleTimer = [NSTimer timerWithTimeInterval:_behavior.autoHideDelaySeconds repeats:NO block:^(NSTimer *timer) {
             MetasequoiaFloatingToolbarPanel *panel = weakSelf;
             if (!panel || panel->_idleTimer != timer) return;
             panel->_idleTimer = nil;
+            // 关掉自动隐藏后残留的计时器仍会走到这里，所以在隐藏前再判一次。
+            if (!msime::mac::ShouldHideFloatingToolbarForIdle(panel->_behavior, panel->_imeActive, panel->_requestedVisible)) return;
             panel->_idleHidden = YES;
             panel->_recentInput = NO;
             [panel refreshVisibility];

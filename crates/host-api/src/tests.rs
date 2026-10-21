@@ -1197,6 +1197,39 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
         call(request(json!({ "operation": "clear" })))["error"],
         "relay_unavailable"
     );
+    // 同一份配置快照提供修订号；地址、令牌改变或切回账号后旧动作都停在联网之前。
+    let revision = source()["value"]["revision"].as_u64().unwrap();
+    assert_eq!(revision, 1);
+    let mut bound = request(json!({ "operation": "clear" }));
+    bound["expected_revision"] = json!(revision);
+    assert_eq!(call(bound.clone())["error"], "relay_unavailable");
+    for field in ["token", "url"] {
+        let snapshot = store.load().unwrap();
+        let mut changed = snapshot.preferences;
+        if field == "token" {
+            changed.cloud_clipboard_relay.token = "another-synthetic-token".into();
+        } else {
+            changed.cloud_clipboard_relay.url = "http://127.0.0.1:10".into();
+        }
+        store.save(snapshot.revision, changed).unwrap();
+        assert_eq!(call(bound.clone())["error"], "clipboard_source_changed");
+    }
+    let account_guarded = serde_json::to_vec(&json!({
+        "directory": keystore_path, "preferences_directory": preferences_path,
+        "action": { "operation": "clear" },
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe {
+            msime_client_account_cloud_clipboard(account_guarded.as_ptr(), account_guarded.len())
+        })["error"],
+        "clipboard_source_changed"
+    );
+    let snapshot = store.load().unwrap();
+    let mut changed = snapshot.preferences;
+    changed.cloud_clipboard_relay = Default::default();
+    store.save(snapshot.revision, changed).unwrap();
+    assert_eq!(call(bound)["error"], "clipboard_source_changed");
     // 账号入口也收这三个动作：这个目录里没有登录会话，停在会话上，不联网。
     let account = serde_json::to_vec(&json!({
         "directory": keystore_path,

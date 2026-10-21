@@ -205,6 +205,10 @@ pub struct HostCapabilities {
     pub floating_toolbar_voice: bool,
     /// 工具栏带切换输入方案的按钮。macOS、Windows 和 Linux 的悬浮工具栏画它，Linux 的「工具栏」子菜单另列出同样内容的方案子菜单，其它宿主不提供这个开关。
     pub floating_toolbar_input_scheme: bool,
+    /// 宿主按 `floating_toolbar.auto_hide` / `auto_hide_delay` / `shadow` 控制自己的悬浮条。
+    /// 目前只有 macOS 消费这三个值：Windows 与 HarmonyOS 的面板还没读，Linux 的工具栏是输入法菜单。
+    /// 为假时设置页不列这三行，免得改了没有效果。
+    pub floating_toolbar_idle_behavior: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -590,6 +594,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
             ),
+            // 只有 macOS 的面板读 auto_hide / auto_hide_delay / shadow（见 FloatingToolbarBehavior.h）。
+            floating_toolbar_idle_behavior: platform == HostPlatform::Macos,
             // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,
