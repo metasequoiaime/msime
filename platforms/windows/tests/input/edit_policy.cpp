@@ -67,6 +67,15 @@ int main() {
     REQUIRE(edit_kind(key(0x08, '\b', control), "none", true) == EditKind::Erase);
     REQUIRE(edit_kind(key(0x08, '\b', control), "none", false) == EditKind::None);
     REQUIRE(edit_kind(key(0x25, '\0', control | shift), "none", true) == EditKind::None);
+    // Shift+左右和 Ctrl+左右一样是组字时的分段光标键；没有组字时属于应用（选择文字）。Shift+退格不是分段删除，也不是编辑键。
+    REQUIRE(edit_kind(key(0x25, '\0', shift), "none", true) == EditKind::Caret);
+    REQUIRE(edit_kind(key(0x27, '\0', shift), "none", true) == EditKind::Caret);
+    REQUIRE(edit_kind(key(0x25, '\0', shift), "none", false) == EditKind::None);
+    REQUIRE(edit_kind(key(0x27, '\0', shift), "none", false) == EditKind::None);
+    REQUIRE(edit_kind(key(0x25, '\0', control), "none", false) == EditKind::None);
+    REQUIRE(edit_kind(key(0x08, '\b', shift), "none", true) == EditKind::None);
+    // Home 不是编辑键：候选窗显示时由 configured_key 的 Home 路由送进会话。
+    REQUIRE(edit_kind(key(0x24, '\0'), "none", true) == EditKind::None);
 
     // The apostrophe is the manual syllable separator, and only while composing
     // in the ordinary mode.

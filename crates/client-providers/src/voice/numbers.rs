@@ -206,8 +206,12 @@ fn cardinal_value(chars: &[char]) -> Option<u64> {
     }
     for (unit_char, unit) in [('亿', 100_000_000u64), ('万', 10_000u64)] {
         if let Some(split) = chars.iter().position(|c| *c == unit_char) {
-            let high = cardinal_value(&chars[..split])?;
             let rest = &chars[split + 1..];
+            // 低位再含同级单位时必然不小于当前单位，递归前拒绝；每条路径最多经过亿、万、节三层。
+            if rest.contains(&unit_char) {
+                return None;
+            }
+            let high = cardinal_value(&chars[..split])?;
             let low = match rest {
                 [] => 0,
                 // 两万五：位后只剩一个数字时，它是下一位。
@@ -237,13 +241,6 @@ fn cardinal_written(chars: &[char]) -> Option<String> {
     Some(value.to_string())
 }
 
-/// 从 `start` 起、不超过 `end` 的最长一段读得通的整数，返回它的值和结束位置。
-fn integer_at(text: &Text, start: usize, end: usize) -> Option<(u64, usize)> {
-    (start + 1..=end)
-        .rev()
-        .find_map(|stop| cardinal_value(text.slice(start, stop)).map(|value| (value, stop)))
-}
-
 /// 一个匹配：从当前位置到 `end` 的文字换成 `written`。
 struct Match {
     end: usize,
@@ -257,11 +254,9 @@ fn percent(text: &Text, start: usize) -> Option<Match> {
     if run_end == number_start {
         return None;
     }
-    let (value, mut end) = integer_at(text, number_start, run_end)?;
-    // 数字字没有读完就停下，说明后面还连着并列的数（百分之三四十），整段保留，不能只改写开头读得通的那一截。
-    if end != run_end {
-        return None;
-    }
+    // 整段必须读得通，不能只改写「百分之三四十」开头的合法前缀。
+    let value = cardinal_value(text.slice(number_start, run_end))?;
+    let mut end = run_end;
     let mut written = value.to_string();
     if text.at(end) == Some('点') {
         let fraction_end = text.digit_end(end + 1);
@@ -307,15 +302,15 @@ fn year(text: &Text, start: usize, run_end: usize) -> Option<Match> {
 
 /// 月和日都在的日期：十月一日、三月十五号。
 fn date(text: &Text, start: usize, run_end: usize) -> Option<Match> {
-    let (month, month_end) = integer_at(text, start, run_end)?;
-    if month_end != run_end || text.at(month_end) != Some('月') || !(1..=12).contains(&month) {
+    let month = cardinal_value(text.slice(start, run_end))?;
+    if text.at(run_end) != Some('月') || !(1..=12).contains(&month) {
         return None;
     }
-    let day_start = month_end + 1;
-    let day_run = text.numeral_end(day_start);
-    let (day, day_end) = integer_at(text, day_start, day_run)?;
+    let day_start = run_end + 1;
+    let day_end = text.numeral_end(day_start);
+    let day = cardinal_value(text.slice(day_start, day_end))?;
     let mark = text.at(day_end).filter(|c| matches!(c, '日' | '号'))?;
-    if day_end != day_run || !(1..=31).contains(&day) {
+    if !(1..=31).contains(&day) {
         return None;
     }
     Some(Match {
@@ -326,11 +321,11 @@ fn date(text: &Text, start: usize, run_end: usize) -> Option<Match> {
 
 /// 时刻：小时 + 点 + 分钟/半/整，或者时段词后的「X点」。
 fn clock(text: &Text, start: usize, run_end: usize) -> Option<Match> {
-    let (hour, hour_end) = integer_at(text, start, run_end)?;
-    if hour_end != run_end || text.at(hour_end) != Some('点') || hour > 24 {
+    let hour = cardinal_value(text.slice(start, run_end))?;
+    if text.at(run_end) != Some('点') || hour > 24 {
         return None;
     }
-    let after_point = hour_end + 1;
+    let after_point = run_end + 1;
     let after_time_of_day = text.ends_with_any(start, TIMES_OF_DAY);
     let minute_run = text.numeral_end(after_point);
     if minute_run > after_point {
@@ -370,13 +365,12 @@ fn clock(text: &Text, start: usize, run_end: usize) -> Option<Match> {
 
 /// 小数：整数 + 点 + 数字串，后面跟单位，或整数部分为零。
 fn decimal(text: &Text, start: usize, run_end: usize) -> Option<Match> {
-    let (whole, whole_end) = integer_at(text, start, run_end)?;
-    if whole_end != run_end || text.at(whole_end) != Some('点') {
+    let whole = cardinal_value(text.slice(start, run_end))?;
+    if text.at(run_end) != Some('点') {
         return None;
     }
-    let fraction_end = text.digit_end(whole_end + 1);
-    let fraction =
-        digit_string(text.slice(whole_end + 1, fraction_end)).filter(|f| !f.is_empty())?;
+    let fraction_end = text.digit_end(run_end + 1);
+    let fraction = digit_string(text.slice(run_end + 1, fraction_end)).filter(|f| !f.is_empty())?;
     // 「分之」属于百分数，不是单位「分」。
     let unit = text
         .has_any(fraction_end, DECIMAL_UNITS)
@@ -541,6 +535,68 @@ mod tests {
         ] {
             assert_eq!(value(nonsense), None, "{nonsense}");
         }
+    }
+
+    #[test]
+    fn repeated_large_units_fit_a_small_stack() {
+        const CHILD: &str = "MSIME_NUMBER_SMALL_STACK_CHILD";
+        const COMPLETE: &str = "MSIME_NUMBER_SMALL_STACK_COMPLETE";
+        let name = concat!(module_path!(), "::repeated_large_units_fit_a_small_stack")
+            .split_once("::")
+            .unwrap()
+            .1;
+        if let Some(target) = std::env::var_os(CHILD) {
+            assert_eq!(target, name);
+            std::thread::Builder::new()
+                .stack_size(1024 * 1024)
+                .spawn(|| {
+                    for unit in ["一万", "一亿"] {
+                        let said = unit.repeat(5_000);
+                        assert_eq!(convert(&said), said);
+                    }
+                    let digits = "一".repeat(10_000);
+                    assert_eq!(convert(&digits), "1".repeat(10_000));
+                    let invalid = "一千".repeat(5_000);
+                    assert_eq!(convert(&invalid), invalid);
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+            eprintln!("{COMPLETE}");
+            return;
+        }
+        // 栈溢出会直接终止进程，子进程隔离避免拖垮其余测试。
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env(CHILD, name)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "子进程失败：{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .any(|line| line == COMPLETE),
+            "子进程未完成目标测试"
+        );
+    }
+
+    #[test]
+    fn large_units_keep_valid_sections_and_reject_repetition() {
+        assert_eq!(value("一万亿"), Some(1_000_000_000_000));
+        assert_eq!(value("一万亿一万"), Some(1_000_000_010_000));
+        assert_eq!(value("一亿零三万零五"), Some(100_030_005));
+        for said in ["一万一万", "一亿一亿", "一亿零一亿", "一万零一万"] {
+            assert_eq!(value(said), None);
+            stays(said);
+        }
+        stays("一万一万月三号");
+        stays("一亿一亿点五元");
+        stays("百分之一万一万");
     }
 
     #[test]

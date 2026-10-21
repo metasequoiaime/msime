@@ -1836,29 +1836,23 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
                                  ? MSIME_BACKSPACE_SEGMENT
                                  : (keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? MSIME_MOVE_LEFT_SEGMENT
                                                                                : MSIME_MOVE_RIGHT_SEGMENT);
+    // 宿主会话没接分段命令时退回逐个字母移光标（`letterCaret`），不进整句改字：Shift/Ctrl+左右从不变成改字命令或移动候选。
     auto fallback = [&]() -> HRESULT {
         if (isBackspace)
             return _HandleCompositionBackspace(ec, pContext, requestId);
         return _HandleCompositionArrowKey(ec, pContext,
                                           keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? FUNCTION_MOVE_LEFT
                                                                                      : FUNCTION_MOVE_RIGHT,
-                                          requestId);
+                                          requestId, true);
     };
     if (!_IsComposing())
         return S_OK;
     auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter();
     if (!host || !host->valid())
         return fallback();
-    // 全拼和双拼的左右键是整句改字，Ctrl+左右就逐个字母地编辑拼音（Server 的 sentence_edit_command 同样换算）。
-    if (!isBackspace)
-    {
-        msime::tsf::EngineResult current;
-        if (msime::tsf::HostView(*host, &current) && msime::tsf::HostEditsSentence(current.view))
-            return _HandleCompositionArrowKey(ec, pContext,
-                                              keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? FUNCTION_MOVE_LEFT
-                                                                                         : FUNCTION_MOVE_RIGHT,
-                                              requestId, true);
-    }
+    // Shift/Ctrl+左右在所有方案里都发分段命令，全拼、双拼也是（Server 同样原样发出，见 sentence_edit_command）：偏好 `navigation.left_right` 打开时共享 runtime 只把不带修饰键的左右键换成移动候选，分段命令从不被换，所以高亮在哪个候选上它们都按音节编辑拼音。
+    msime::tsf::EngineResult before;
+    const bool viewed = !isBackspace && msime::tsf::HostView(*host, &before);
 
     std::string raw, error;
     msime::tsf::EngineResult result;
@@ -1872,9 +1866,23 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
         return _ApplyHostCompositionResult(ec, pContext, result);
     }
 
+    // 整句改字时分段命令先退出改字再移光标，预编辑从改好的句子换回拼音、候选也换了，要按引擎视图整个重画；高亮换了候选时同样重画（与左右键的 _HandleCompositionArrowKey 同一条件）。否则只有拼音光标动了，只移预编辑里的光标。
+    if ((viewed && msime::tsf::HostCompositionNeedsRedraw(before.view, result.view)) || !result.view.conversion.empty())
+        return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+    // 光标对不上已画的预编辑时按引擎视图整个重画，不能再走 fallback：分段命令已经在宿主会话里移过光标，fallback 会再发一次字母光标命令，光标多移一格，高亮不在首选时还会被共享 runtime 换成移动候选。
+    const HRESULT moved = _MoveCompositionCaretToHost(ec, pContext, result);
+    return moved == S_FALSE
+               ? _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID)
+               : moved;
+}
+
+HRESULT CMetasequoiaIME::_MoveCompositionCaretToHost(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                     const msime::tsf::EngineResult &result)
+{
+    // The runtime caret is a byte offset in ASCII editing_text, not a preedit prefix length. Map it against the text already rendered.
     for (unsigned char byte : result.view.editing_text)
         if (byte > 0x7f)
-            return fallback();
+            return S_FALSE;
     const std::wstring editing(result.view.editing_text.begin(), result.view.editing_text.end());
     const DWORD_PTR displayCaret = _pCompositionProcessorEngine->GetRenderedCaretPosition(editing, result.view.caret);
     if (_pComposition == nullptr)
@@ -1893,6 +1901,32 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
     const HRESULT hr = pContext->SetSelection(ec, 1, &selection);
     caretRange->Release();
     return SUCCEEDED(hr) ? S_OK : hr;
+}
+
+bool CMetasequoiaIME::_HandleHostHomeKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId,
+                                         _Out_ HRESULT *outcome)
+{
+    *outcome = S_OK;
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid() || !_IsComposing())
+        return false;
+    msime::tsf::EngineResult before;
+    if (!msime::tsf::HostView(*host, &before))
+        return false;
+    std::string raw, error;
+    msime::tsf::EngineResult result;
+    if (!host->command(msime::tsf::HostHomeCommand(before.view), &raw, &error) ||
+        !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) || !result.handled)
+        return false;
+    // 第一下高亮回到首选，候选窗要按引擎视图重画；已经在首选时第二下只把光标移到输入串开头，高亮和候选都不变，只移预编辑里的光标，和左右键一样。
+    if (!msime::tsf::HostCompositionNeedsRedraw(before.view, result.view) && before.view.caret != result.view.caret)
+    {
+        *outcome = _MoveCompositionCaretToHost(ec, pContext, result);
+        if (*outcome != S_FALSE)
+            return true;
+    }
+    *outcome = _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, requestId);
+    return true;
 }
 
 //+---------------------------------------------------------------------------
@@ -2005,13 +2039,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
             if (!host->command(command, &raw, &error) ||
                 !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
             if (!result.handled) return S_OK;
-            // 光标已经在输入串这一端、引擎动不了它时，共享 runtime 会把这次左右键换成移动候选高亮（偏好 `navigation.left_right`）。
-            // 那种情况下预编辑一个字都没变，只有高亮动了，所以这里也要重画候选窗；下面的 SetSelection 只移动预编辑里的光标。
-            const bool highlightMoved =
-                viewed &&
-                msime::tsf::HighlightedCandidateIndex(before.view) !=
-                    msime::tsf::HighlightedCandidateIndex(result.view);
-            if (highlightMoved || (viewed && !before.view.conversion.empty()) ||
+            // 横排候选窗里，高亮不在首选、或者首选上 → 已经到了输入串末尾时，共享 runtime 会把这次左右键换成移动候选高亮（偏好 `navigation.left_right`，竖排时不换）。那种情况下预编辑一个字都没变，只有高亮动了，所以这里也要重画候选窗；下面的 SetSelection 只移动预编辑里的光标。
+            if ((viewed && msime::tsf::HostCompositionNeedsRedraw(before.view, result.view)) ||
                 !result.view.conversion.empty())
                 return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
                                                      FANY_IME_NO_REQUEST_ID);
@@ -2065,13 +2094,19 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
             switch (keyFunction) {
             case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
             case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
-            case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE; break;
+            case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE_OR_HOME; break;
             case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE; break;
             }
             if (command)
             {
                 if (_pCandidateListUIPresenter)
                     _pCandidateListUIPresenter->_ConsumeUiLessCompositionReply(requestId);
+                // Home 键分两段，命令和重画由 _HandleHostHomeKey 决定。
+                if (command == MSIME_FIRST_CANDIDATE_OR_HOME)
+                {
+                    HRESULT home = S_OK;
+                    return _HandleHostHomeKey(ec, pContext, FANY_IME_NO_REQUEST_ID, &home) ? home : S_FALSE;
+                }
                 return _HandleHostCandidateNavigation(ec, pContext, command);
             }
         }

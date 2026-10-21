@@ -2110,8 +2110,15 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
-  // Home/End 跨整个候选列表移动，而非仅在当前页内移动。
-  expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
+  // Home/End 跨整个候选列表移动，而非仅在当前页内移动；桌面的 Home 在首项上再按一次移到输入串开头。
+  expect(
+    screen.getByText(
+      "移动到候选列表首项 / 末项（页码随之切换；已在首项时 Home 把光标移到输入串开头）",
+    ),
+  ).toBeDefined();
+  // 组字时 Shift+左右按音节移动输入串光标，停在哪个候选上都一样。
+  expect(screen.getByText("按音节移动输入串光标")).toBeDefined();
+  expect(screen.getByText("Shift + ← / →")).toBeDefined();
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
 });
 
@@ -9833,13 +9840,37 @@ test("a host that draws no shuangpin keymap does not offer the switch", async ()
       preferences: { ...initial.preferences, scheme: "shuangpin" },
     }),
     save: vi.fn(),
-    host: testHost({ platform: "linux" }),
+    host: testHost({ platform: "linux", shuangpin_keymap_hint: false }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("combobox", { name: "双拼方案" });
   expect(screen.queryByRole("switch", { name: "输入时显示双拼键位提示" })).toBeNull();
+});
+
+test("Linux offers the shuangpin keymap switch and says it only shows for X11 applications", async () => {
+  // Linux 宿主只给报根窗口坐标光标的 X11 客户端画键位图：Wayland 桌面上 IBus 不画，Fcitx5 只给经 Xwayland 运行的应用画，描述照实说。
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, scheme: "shuangpin" },
+    }),
+    save: vi.fn(),
+    host: testHost({ platform: "linux" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  const keymap = (await screen.findByRole("switch", {
+    name: "输入时显示双拼键位提示",
+  })) as HTMLInputElement;
+  expect(keymap.checked).toBe(false);
+  expect(
+    screen.getByText(
+      /Linux 只为 X11 应用显示：Wayland 桌面上 IBus 不显示，Fcitx5 只为经 Xwayland 运行的应用显示。/,
+    ),
+  ).toBeTruthy();
 });
 
 test("an edit made while a save is in flight is kept and saved after it", async () => {
@@ -10454,8 +10485,9 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组；
+  // 桌面宿主自己发请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
@@ -10489,7 +10521,7 @@ test.each(["macos", "windows", "linux", "harmony"])(
   },
 );
 
-test("the macOS AI page shows only the service group", async () => {
+test("the macOS AI page shows the service and network groups", async () => {
   render(
     <SettingsPage
       initialPage="ai"
@@ -10503,7 +10535,7 @@ test("the macOS AI page shows only the service group", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

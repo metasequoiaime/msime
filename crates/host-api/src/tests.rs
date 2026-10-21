@@ -1611,6 +1611,8 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
+    // 左右键只在横排候选窗里选词；缺省是竖排。
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Horizontal;
     let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
     read(msime_client_focus(handle, true));
     type_letters(handle, b"nihao");
@@ -1651,6 +1653,18 @@ fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
         "{closed}"
     );
     assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
+
+    // 重新打开、但候选窗改成竖排：左右键与候选方向垂直，同一个键仍是普通光标命令。
+    preferences.navigation.left_right = true;
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Vertical;
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    let vertical = read(msime_client_command(handle, 5));
+    assert_eq!(
+        highlighted(&vertical["value"]["view"]),
+        default_highlighted,
+        "{vertical}"
+    );
+    assert_eq!(vertical["value"]["view"]["caret_position"], 5, "{vertical}");
 
     read(msime_client_destroy(handle));
 }
@@ -18067,6 +18081,37 @@ fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
     });
     assert_eq!(result["ok"], true);
     assert_eq!(result["value"]["accepted"], false);
+}
+
+#[test]
+fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
+    let endpoint = "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=";
+    let result =
+        read(unsafe { msime_client_voice_websocket_endpoint(endpoint.as_ptr(), endpoint.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "socket_host":"xn--fsqu00a.invalid",
+            "port":8443,
+            "host_header":"xn--fsqu00a.invalid:8443",
+            "request_target":"/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+        }})
+    );
+    let invalid = "wss://fixture.invalid:65536/stream";
+    assert_eq!(
+        read(unsafe { msime_client_voice_websocket_endpoint(invalid.as_ptr(), invalid.len()) }),
+        serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+    );
+    for (pointer, length) in [
+        (std::ptr::null(), 1),
+        (b"\xff".as_ptr(), 1),
+        (endpoint.as_ptr(), 65_537),
+    ] {
+        assert_eq!(
+            read(unsafe { msime_client_voice_websocket_endpoint(pointer, length) }),
+            serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+        );
+    }
 }
 
 #[test]

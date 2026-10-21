@@ -53,6 +53,30 @@ test("能力查询结束前显示连接状态，随后透传初始页和主题",
   expect(screen.getByRole("button", { name: "粘贴此条记录到原应用" })).toBeTruthy();
 });
 
+test.each(["standalone", "embedded", "clipboard"] as const)(
+  "%s 只在独立表情窗口提供缩放入口",
+  async (mode) => {
+    tauri(false);
+    const client = {
+      ...panelClient(),
+      resizeWindow: vi.fn(async () => {}),
+      beginWindowDrag: vi.fn(async () => {}),
+    };
+    render(
+      <DesktopEmojiPanel
+        client={client}
+        theme="light"
+        initialPage={mode === "clipboard" ? "clipboard" : "home"}
+        close={mode === "embedded" ? async () => {} : undefined}
+      />,
+    );
+    await screen.findByRole("main", { name: "表情与符号" });
+    expect(Boolean(screen.queryByTitle("拖动边缘调整大小"))).toBe(mode === "standalone");
+    expect(client.resizeWindow).not.toHaveBeenCalled();
+    expect(client.beginWindowDrag).not.toHaveBeenCalled();
+  },
+);
+
 test("宿主粘贴与复制分别执行，原客户端不被修改", async () => {
   tauri(true);
   const client = panelClient();

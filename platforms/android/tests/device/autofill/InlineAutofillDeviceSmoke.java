@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.autofill.AutofillManager;
 import java.util.function.BooleanSupplier;
+import java.util.Objects;
 import java.io.File;
 import java.io.FileOutputStream;
 
@@ -27,7 +28,10 @@ public final class InlineAutofillDeviceSmoke extends DeviceSmoke {
         String previous = Settings.Secure.getString(getContext().getContentResolver(), "autofill_service");
         if (previous != null && !previous.matches("[A-Za-z0-9_./]*")) throw new AssertionError("Unexpected fixture service setting");
         try {
-            shellDiscard("settings put secure autofill_service app.msime.android.test/.SyntheticAutofillService");
+            stage = "service restoration states";
+            restoreAutofillService(null);
+            restoreAutofillService("");
+            restoreAutofillService("app.msime.android.test/.SyntheticAutofillService");
             restartIme();
             stage = "system fill request";
             SyntheticAutofillService.empty = false;
@@ -86,9 +90,18 @@ public final class InlineAutofillDeviceSmoke extends DeviceSmoke {
         } finally {
             if (editor != null) runOnMainSync(() -> editor.finish());
             SyntheticAutofillService.empty = false;
-            shellDiscard(previous == null ? "settings delete secure autofill_service"
-                : "settings put secure autofill_service '" + previous + "'");
+            restoreAutofillService(previous);
         }
+    }
+
+    private void restoreAutofillService(String value) {
+        // executeShellCommand 不解析 shell 引号；空字符串用提供方接口传递，不能写成两个引号。
+        shellDiscard(value == null ? "settings delete secure autofill_service"
+            : value.isEmpty() ? "content call --uri content://settings/secure --method PUT_secure"
+                + " --arg autofill_service --extra value:s:"
+            : "settings put secure autofill_service " + value);
+        String restored = Settings.Secure.getString(getContext().getContentResolver(), "autofill_service");
+        if (!Objects.equals(value, restored)) throw new AssertionError("Autofill service setting was not restored exactly");
     }
 
     private void openEditor() {

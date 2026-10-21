@@ -1355,6 +1355,8 @@ export function EmojiPanel({
     selectActivation,
     clearSymbolRecent,
     selectSymbolCategory,
+    drag,
+    resize,
     refreshClipboard,
     showMore,
     previousItemPage,
@@ -1365,8 +1367,9 @@ export function EmojiPanel({
   return (
     <main
       {...navigation}
+      onPointerDownCapture={resize}
       // `panelSurface` 的浅色变体是 `group-data`，只作用于子元素；根元素自己就是这个 group，浅色底色要直接按自身的 `data-panel-theme` 给，否则浅色主题下空白处仍是深色。
-      className={`native-panel group relative flex min-h-screen flex-col overflow-hidden ${page === "symbols" ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText} data-[panel-theme=light]:bg-[#f7f8fa] data-[panel-theme=light]:text-[#202124]`}
+      className={`native-panel group relative flex min-h-screen flex-col overflow-hidden ${page === "symbols" || client.resizeWindow ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText} data-[panel-theme=light]:bg-[#f7f8fa] data-[panel-theme=light]:text-[#202124]`}
       data-panel-theme={theme}
       aria-label={standalone ? "剪贴板" : "表情与符号"}
     >
@@ -1374,6 +1377,7 @@ export function EmojiPanel({
         title={standalone ? "剪贴板" : page === "symbols" ? "符号大全" : "Emoji and more"}
         className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${surface.panelSurface} ${surface.panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
         closeDisabled={clipboardBusy}
+        drag={drag}
         onClose={() => void closeEmoji()}
       />
       <div
@@ -1580,7 +1584,7 @@ export function EmojiPanel({
                   aria-pressed={activeCategory === tab.id}
                   onClick={() => selectSymbolCategory(tab.id)}
                 >
-                  {tab.id.startsWith("pack") ? tab.title : symbolCategoryTitle(tab.title)}
+                  {tab.title}
                 </button>
               ))}
             </nav>
@@ -1809,6 +1813,17 @@ export function EmojiPanel({
             ? "点击项目即可复制"
             : "点击项目即可输入到原应用")}
       </p>
+      {client.resizeWindow && (
+        <div
+          aria-hidden="true"
+          title="拖动边缘调整大小"
+          className="absolute right-0 bottom-0 size-2 cursor-se-resize"
+        >
+          <svg viewBox="0 0 8 8" fill="none" stroke="currentColor">
+            <path d="M1 7 7 1 M5 7 7 5" />
+          </svg>
+        </div>
+      )}
       {toast && (
         <div className={panelToast} role="status" data-panel-toast="">
           {/* whitespace-pre 保留「已复制」后面的两个空格，与 macOS 原生提示一致；nowrap 会把它们并成一个。 */}

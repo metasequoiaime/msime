@@ -9,6 +9,7 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 #ifdef MSIME_TEST_X11_BADGE
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #endif
 
 namespace {
@@ -74,6 +75,32 @@ std::optional<BadgeWindow> visible_badge() {
   XCloseDisplay(display);
   return found;
 }
+
+// 根窗口下正在显示、WM_CLASS 是 resource_class 的窗口，例如悬浮工具栏的 MSIMEFloatingToolbar。
+bool window_shown(const char *resource_class) {
+  Display *display = XOpenDisplay(nullptr);
+  require(display != nullptr, "连不上 Xvfb");
+  Window root = 0, parent = 0;
+  Window *children = nullptr;
+  unsigned count = 0;
+  bool found = false;
+  if (XQueryTree(display, DefaultRootWindow(display), &root, &parent, &children, &count)) {
+    for (unsigned index = 0; index < count; ++index) {
+      XWindowAttributes attributes{};
+      XClassHint klass{};
+      if (!XGetWindowAttributes(display, children[index], &attributes) || attributes.map_state != IsViewable ||
+          !XGetClassHint(display, children[index], &klass))
+        continue;
+      found = found || std::string(klass.res_class) == resource_class;
+      XFree(klass.res_name);
+      XFree(klass.res_class);
+    }
+  }
+  if (children)
+    XFree(children);
+  XCloseDisplay(display);
+  return found;
+}
 #endif
 
 struct Observation {
@@ -109,7 +136,7 @@ struct Fixture {
   guint subscription = 0;
   Observation seen;
 
-  explicit Fixture(bool x11) {
+  explicit Fixture(bool x11, bool toolbar = false) {
     g_unsetenv("XDG_CURRENT_DESKTOP");
     // 默认验证辅助文本那条路：没有显示服务器时宿主拿不到自绘徽章，只能用辅助文本提示。x11 场景由 xvfb-run 给出 DISPLAY，宿主把整个会话当成 X11，在光标下画徽章。
     if (!x11)
@@ -117,8 +144,11 @@ struct Fixture {
     g_unsetenv("WAYLAND_DISPLAY");
     const std::string display = x11 && g_getenv("DISPLAY") ? g_getenv("DISPLAY") : "";
     g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
+    // 悬浮工具栏默认关着：别的场景只看切换徽章，屏幕上不该多出一块窗口。
     msime_ibus_configure(
-        R"({"preferences":{"default_ime_mode":"english","input_mode_hud":true,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":false}}})");
+        toolbar
+            ? R"({"preferences":{"default_ime_mode":"english","input_mode_hud":false,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":true}}})"
+            : R"({"preferences":{"default_ime_mode":"english","input_mode_hud":true,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":false}}})");
     ibus_init();
     bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
@@ -190,7 +220,8 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   const std::string scenario = argv[1];
-  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret" || scenario == "x11-badge-point";
+  const bool toolbar = scenario == "x11-toolbar";
+  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret" || scenario == "x11-badge-point" || toolbar;
   if (scenario != "english" && scenario != "blocked" && scenario != "destroyed" &&
       scenario != "compose" && !x11)
     return 2;
@@ -215,10 +246,24 @@ int main(int argc, char **argv) {
         std::filesystem::remove_all(directory, error);
       }
     } compose_cleanup{compose_directory};
-    Fixture fixture(x11);
+    Fixture fixture(x11, toolbar);
     if (x11) {
 #ifdef MSIME_TEST_X11_BADGE
       IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_in(fixture.engine);
+      if (toolbar) {
+        // 获得焦点就显示悬浮工具栏；失焦照 macOS 留着（X11 会话）；换到别的输入法（disable）收起。
+        wait_until([] { return window_shown("MSIMEFloatingToolbar"); }, "获得焦点后没有显示悬浮工具栏");
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_out(fixture.engine);
+        run_for(100);
+        require(window_shown("MSIMEFloatingToolbar"), "失焦后悬浮工具栏不该收起");
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->disable(fixture.engine);
+        wait_until([] { return !window_shown("MSIMEFloatingToolbar"); }, "换输入法后悬浮工具栏没有收起");
+        // 引擎销毁时放开属主，之后再获得焦点的新引擎接手。
+        fixture.destroy_engine();
+        run_for(50);
+        std::cout << "IBus mode hint lifecycle: " << scenario << " passed\n";
+        return 0;
+      }
       if (scenario == "x11-badge") {
         // 获得焦点时先不画，等客户端报来光标再画在它下方，并且不发辅助文本：一次切换只出一处提示。
         run_for(20);

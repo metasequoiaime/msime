@@ -31,10 +31,11 @@ int main() {
         "a melody is labelled as one");
   auto melody = pack(L"sound", L"m", L"sequence");
   melody.author = L"甲";
-  check(pack_row_description(melody) == L"1.0.0 · 按键旋律 · 作者 甲", "row description");
+  check(pack_row_description(melody) == L"1.0.0 · 按键旋律 · 甲", "card description");
   melody.builtin = true;
-  check(pack_row_description(melody) == L"按键旋律" && pack_label(melody) == L"名m（内置）",
-        "a built-in pack shows only what tells it apart");
+  check(pack_row_description(melody) == L"内置 · 按键旋律" && pack_label(melody) == L"名m（内置）",
+        "a built-in pack says so and leaves out its author");
+  check(pack_row_description(pack(L"effect", L"e")) == L"1.0.0", "an empty author is left out");
   check(js_number(50) == L"50" && js_number(12.5) == L"12.5", "numbers as JavaScript writes them");
 
   // 选用和删除。
@@ -407,6 +408,59 @@ int main() {
           "otherwise the first music pack in the catalog");
     check(music_pack_to_select({pack(L"sound", L"s")}, true).empty(),
           "nothing to pick when the catalog lists no music pack");
+  }
+
+  // 插件库：分类、筛选、搜索和分节。
+  {
+    auto click = pack(L"sound", L"click", L"keys");
+    click.author = L"Alice";
+    click.description = L"清脆的机械键盘";
+    auto tune = pack(L"sound", L"tune", L"sequence");
+    tune.name = L"旋律";
+    auto dates = pack(L"command_table", L"dates");
+    auto runner = pack(L"script", L"runner");
+    const std::vector<Package> packages{click, tune, dates, runner};
+    const std::vector<MissingSelection> absent{{L"music", L"lofi", {L"当前音乐包"}, false}};
+    const auto categories = library_categories(packages, absent);
+    check((categories == std::vector<std::wstring>{L"sound", L"music", L"command_table", L"script"}),
+          "categories follow the library order, the command table always among them");
+    check((library_categories({}, {}) == std::vector<std::wstring>{L"command_table"}),
+          "an empty catalog still lists command tables");
+    check(library_count(packages, library_all) == 4 && library_count(packages, L"sound") == 2 &&
+              library_count(packages, L"music") == 0,
+          "chip counts are installed packs only");
+    check(library_selected_kind(L"sound", categories) == L"sound" &&
+              library_selected_kind(L"wordbook", categories) == L"all",
+          "a filter whose kind is gone falls back to all");
+    check(library_query(L"  ALice\u3000") == L"alice" && library_query(L" \t ").empty(), "queries are trimmed and folded");
+
+    auto every = library_groups(packages, absent, categories, L"all", L"");
+    check(every.size() == 4 && every[0].packs.size() == 2 && every[1].gone.size() == 1 && every[2].packs.size() == 1 &&
+              every[3].kind == L"script",
+          "every kind gets a section");
+    auto by_author = library_groups(packages, absent, categories, L"all", library_query(L"alice"));
+    check(by_author.size() == 1 && by_author[0].packs.size() == 1 && by_author[0].packs[0]->id == L"click",
+          "search matches the author, and the empty command table section steps aside");
+    check(library_groups(packages, absent, categories, L"all", library_query(L"机械")).size() == 1 &&
+              library_groups(packages, absent, categories, L"all", library_query(L"音效包")).front().packs.size() == 2,
+          "search matches description and kind label");
+    auto by_id = library_groups(packages, absent, categories, L"all", library_query(L"TUNE"));
+    check(by_id.size() == 1 && by_id[0].packs.size() == 1 && by_id[0].packs[0]->id == L"tune" && by_id[0].gone.empty(),
+          "search matches the id when the name does not contain it");
+    auto missing_hit = library_groups(packages, absent, categories, L"all", library_query(L"未找到"));
+    check(missing_hit.size() == 1 && missing_hit[0].kind == L"music" && missing_hit[0].gone.size() == 1,
+          "search matches a missing selection by its title");
+    auto sounds = library_groups(packages, absent, categories, L"sound", L"");
+    check(sounds.size() == 1 && sounds[0].kind == L"sound", "a kind filter keeps one section");
+    auto commands = library_groups({}, {}, library_categories({}, {}), L"all", L"");
+    check(commands.size() == 1 && commands[0].packs.empty(), "the command table section stays to explain / commands");
+    check(library_groups(packages, absent, categories, L"all", library_query(L"nothing")).empty() &&
+              library_empty_message(L"nothing") == L"没有匹配的插件，试试其他关键词。" &&
+              library_empty_message(L"") == L"没有插件",
+          "empty states");
+    check(library_section_title(L"script") == L"脚本插件（实验）" && library_section_title(L"music") == L"音乐包",
+          "section titles");
+    check(command_table_note().find(L"最多启用 16 个。") != std::wstring::npos, "command table note");
   }
 
   // 成就音效：统计关着时不能打开，已经打开的可以关掉；不知道统计开没开时按打开处理。

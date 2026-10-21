@@ -150,6 +150,19 @@ impl CandidatePanelLimit {
     }
 }
 
+/// 运行中的 Fcitx5 宿主在 X11 会话里用自己的原生画布画候选窗时，状态文件带 `"renderer": "native_canvas"`（platforms/linux 的 `candidate_panel_status_document`）。只有这条路径画得出展开的候选网格、拼音字号和选中外观；IBus 面板、classicui 主题和 Wayland 上的面板都画不出来，所以这几项不按平台给，由这份报告决定。
+pub fn linux_native_canvas_renderer(document: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(document)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("renderer")
+                .and_then(|renderer| renderer.as_str())
+                .map(|renderer| renderer == "native_canvas")
+        })
+        .unwrap_or(false)
+}
+
 /// What the surrounding host can actually do. The shared UI renders from this
 /// rather than guessing from `navigator.userAgent`, which previously hid working
 /// controls on Windows and macOS and left 打字统计 dead on every desktop.
@@ -177,16 +190,11 @@ pub struct HostCapabilities {
     pub system_fonts: bool,
     /// The shared UI draws its own titlebar and resize handles.
     pub window_chrome: bool,
-    /// The host presents a floating toolbar in some form. On Linux that is the
-    /// IBus property menu rather than a drawn window, so the enable switch and
-    /// component visibility are the meaningful controls there.
+    /// 宿主以某种形式提供悬浮工具栏。Linux 在 X11（以及有 Xwayland 的 Wayland 会话）上画一块与 macOS 相同的悬浮窗口，画不出来时只有 IBus 属性菜单和 Fcitx5 状态区里的「工具栏」子菜单。
     pub floating_toolbar: bool,
-    /// The toolbar surface honours scale and icon size. An IBus property menu
-    /// cannot express either value.
+    /// 工具栏按 scale_percent 和 font_size 缩放。Linux 的悬浮窗口读这两项；只剩「工具栏」子菜单的会话里它们不起作用。
     pub floating_toolbar_appearance: bool,
-    /// The host can independently show or hide toolbar components. Linux
-    /// expresses this through the IBus property menu even though it cannot
-    /// draw the Windows/macOS floating window.
+    /// 宿主能单独显示或隐藏工具栏的各个按钮。Linux 的悬浮窗口和「工具栏」子菜单都按这些开关排。
     pub floating_toolbar_components: bool,
     /// The toolbar carries a button that opens the handwriting panel. The
     /// reference's toolbar has six components and this is not one of them, so
@@ -195,7 +203,7 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
     pub floating_toolbar_voice: bool,
-    /// 工具栏带切换输入方案的按钮。macOS 和 Windows 的工具栏画它，Linux 的「工具栏」子菜单列出同样内容的方案子菜单，其它宿主不提供这个开关。
+    /// 工具栏带切换输入方案的按钮。macOS、Windows 和 Linux 的悬浮工具栏画它，Linux 的「工具栏」子菜单另列出同样内容的方案子菜单，其它宿主不提供这个开关。
     pub floating_toolbar_input_scheme: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
@@ -352,7 +360,7 @@ pub struct HostCapabilities {
     pub input_mode_hud: bool,
     /// 宿主在系统菜单栏放一个常驻的状态项，显示当前输入模式。只有 macOS 需要：系统的输入法菜单图标只在用户把对应模式（例如「英」）加成输入源后才会跟着变，而 Windows 有托盘语言栏，Linux 有 Fcitx5/IBus 面板，触屏键盘的键面本身就显示模式。
     pub input_mode_status_item: bool,
-    /// 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
+    /// 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格。macOS 实现；Linux 的 Fcitx5 在 X11 上用原生画布画候选窗时也实现，由宿主报告后经 `apply_linux_native_canvas` 打开。其他宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
     pub expand_candidates: bool,
     /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。桌面宿主（macOS、Windows、Linux、HarmonyOS）都是这样，Android 和 iOS 不是：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
     pub surface_themes_follow: bool,
@@ -494,6 +502,16 @@ pub fn offered_input_schemes(edition: &Edition) -> Vec<InputScheme> {
 }
 
 impl HostCapabilities {
+    /// Linux 的 Fcitx5 宿主报告它用原生画布画候选窗（[`linux_native_canvas_renderer`]）时，设置页也提供那条画法画得出来的几项：展开候选、拼音字号和选中外观。
+    pub fn apply_linux_native_canvas(&mut self) {
+        if self.platform != HostPlatform::Linux {
+            return;
+        }
+        self.expand_candidates = true;
+        self.candidate_preedit_font = true;
+        self.candidate_selection_appearance = true;
+    }
+
     /// Capabilities as they stand today for each shipped host. Slices that add a
     /// capability to a host flip its flag here, and every consumer follows.
     pub fn for_platform(platform: HostPlatform) -> Self {
@@ -547,22 +565,17 @@ impl HostCapabilities {
             // the window permissions a desktop floating window would. A HarmonyOS phone has no use
             // for one: the surfaces are on the keyboard's own key faces there.
             floating_toolbar: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // macOS FloatingToolbarPanel.mm and the Windows FloatingToolbarWindow
-            // both read scale_percent and font_size; the Linux host has no
-            // equivalent surface for those two values. The HarmonyOS panel
-            // scales its own frame by the former and draws its faces at the
-            // latter.
+            // macOS 的 FloatingToolbarPanel.mm、Windows 的 FloatingToolbarWindow 和 Linux 的 FloatingToolbarX11Surface 都读 scale_percent 和 font_size；HarmonyOS 的面板按前者缩放自己、按后者画按钮面。
             floating_toolbar_appearance: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Linux
             ),
-            // Linux maps the component switches to IBus menu entries; the
-            // native-window hosts apply them to their own toolbar buttons. The
-            // HarmonyOS panel hides the button and narrows itself, and its
-            // emoji and screen-keyboard buttons open the same surfaces its
-            // phone keyboard reaches from a key face.
+            // 自己画工具栏窗口的宿主（macOS、Windows，以及 Linux 在 X11 和 Xwayland 上的悬浮工具栏）按这些开关排自己的按钮；Linux 另把它们映射到 IBus 属性菜单和 Fcitx5 状态区的「工具栏」子菜单，画不出悬浮窗口的会话靠后者。HarmonyOS 的面板隐藏对应按钮并收窄自己，表情和屏幕键盘按钮打开手机键盘从键面进入的同一些面。
             floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
-            // macOS 和 Windows 的工具栏画这三个按钮，Linux 的 IBus 与 Fcitx5「工具栏」子菜单列出对应的三项；手写还要随版本收窄（narrow_to_edition）。
+            // macOS、Windows 和 Linux 的悬浮工具栏画这三个按钮，Linux 的 IBus 与 Fcitx5「工具栏」子菜单另列出对应的三项；手写还要随版本收窄（narrow_to_edition）。
             floating_toolbar_handwriting: matches!(
                 platform,
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
@@ -709,7 +722,7 @@ impl HostCapabilities {
             ),
             // macOS 的输入法进程自己建 NSStatusItem。Windows 的托盘语言栏（platforms/windows/tsf/LanguageBar）和 Linux 的 Fcitx5/IBus 面板已经常驻显示模式，iOS、Android 和 HarmonyOS 的键面也显示模式，都不提供这个开关。
             input_mode_status_item: matches!(platform, HostPlatform::Macos),
-            // 展开候选网格目前只有 macOS 的候选窗画（#7307）。Windows 和 Linux 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
+            // 展开候选网格由 macOS 的候选窗画（#7307）；Linux 的 Fcitx5 在 X11 上用原生画布画候选窗时也画，由运行中的宿主经候选面板状态报告（`apply_linux_native_canvas`），不按平台给。Windows 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
             expand_candidates: matches!(platform, HostPlatform::Macos),
             // 桌面宿主（macOS、Windows、Linux、HarmonyOS）让工具栏、菜单和各面板一律跟随颜色模式；Android 和 iOS 的键盘仍按各界面的单独明暗着色。
             surface_themes_follow: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
@@ -729,8 +742,11 @@ impl HostCapabilities {
                     | HostPlatform::Linux
                     | HostPlatform::Ios
             ),
-            // macOS 的 MSIMEShuangpinKeymapPanel 和 Windows Server 的 ShuangpinKeymapWindow 在候选窗旁画键位图；其他宿主没有这块浮窗，开关在那里什么也不做。
-            shuangpin_keymap_hint: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
+            // macOS 的 MSIMEShuangpinKeymapPanel、Windows Server 的 ShuangpinKeymapWindow 和 Linux 的 ShuangpinKeymapX11Surface 在候选窗旁画键位图（Linux 只给报根窗口坐标光标的 X11 客户端画）；其他宿主没有这块浮窗，开关在那里什么也不做。
+            shuangpin_keymap_hint: matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
+            ),
             // Every host calls `msime_client_set_character_width` when its session starts and
             // from its own width switch, so the preference always has something to act on.
             character_width: true,
@@ -1006,6 +1022,8 @@ pub enum SurfaceRoute {
     Clipboard,
     CloudClipboard,
     CloudDictionary,
+    /// 背单词面板。`settings:vocabulary` 仍是设置里管理词书的那一页，这条路由打开复习用的面板。
+    Vocabulary,
 }
 
 /// Where a panel window opens on the work area, for hosts that place panels themselves.
@@ -1042,6 +1060,7 @@ impl SurfaceRoute {
             SurfaceRoute::Clipboard => "clipboard".to_string(),
             SurfaceRoute::CloudClipboard => "cloud-clipboard".to_string(),
             SurfaceRoute::CloudDictionary => "cloud-dictionary".to_string(),
+            SurfaceRoute::Vocabulary => "vocabulary".to_string(),
         }
     }
 
@@ -1076,6 +1095,7 @@ impl SurfaceRoute {
             "clipboard" => Ok(SurfaceRoute::Clipboard),
             "cloud-clipboard" => Ok(SurfaceRoute::CloudClipboard),
             "cloud-dictionary" => Ok(SurfaceRoute::CloudDictionary),
+            "vocabulary" => Ok(SurfaceRoute::Vocabulary),
             _ => Err(RouteError::Unknown),
         }
     }
@@ -1150,6 +1170,14 @@ impl SurfaceRoute {
                 height: 700,
                 placement: PanelPlacement::BottomCenter,
             }),
+            SurfaceRoute::Vocabulary => Some(PanelSurface {
+                label: "vocabulary-panel",
+                query: "vocabulary",
+                title: "水杉背单词",
+                width: 560,
+                height: 680,
+                placement: PanelPlacement::BottomCenter,
+            }),
         }
     }
 
@@ -1174,7 +1202,7 @@ impl SurfaceRoute {
         })
     }
 
-    pub const ALL: [SurfaceRoute; 8] = [
+    pub const ALL: [SurfaceRoute; 9] = [
         SurfaceRoute::Settings(None),
         SurfaceRoute::Emoji,
         SurfaceRoute::Keyboard,
@@ -1183,6 +1211,7 @@ impl SurfaceRoute {
         SurfaceRoute::Clipboard,
         SurfaceRoute::CloudClipboard,
         SurfaceRoute::CloudDictionary,
+        SurfaceRoute::Vocabulary,
     ];
 }
 

@@ -127,6 +127,24 @@ int main() {
             qq_link_message(L"account_qq_link_limit").find(L"10 个") != std::wstring::npos &&
             qq_link_message(L"account_unauthorized") == error_message(L"account_unauthorized"),
         "bind messages");
+  // 有绑定时标题是「QQ 群助手」、说明换成已绑定那句，表单要点「绑定其他 QQ」才出现；绑定列表还没读到时不画表单。
+  check(qq_link_title(true) == L"QQ 群助手" && qq_link_title(false) == L"绑定 QQ 群助手", "bind card title");
+  check(qq_link_bound.substr(0, 4) == L"已绑定。" && qq_link_bound.find(L"上传到云端") != std::wstring_view::npos &&
+            qq_link_succeeded == L"绑定成功。",
+        "bind card copy");
+  check(!qq_link_form_shown(false, false, false) && qq_link_form_shown(true, false, false) &&
+            !qq_link_form_shown(true, true, false) && qq_link_form_shown(true, true, true),
+        "bind form visibility");
+
+  // 未登录的登录卡片：标题、说明和没有登录方式时的三种说法与共享页桌面那一支相同。
+  check(sign_in_welcome == L"欢迎来到水杉" &&
+            sign_in_description == L"登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤" &&
+            sign_in_code_description == L"我们会发送一个 6 位验证码完成登录",
+        "sign-in copy");
+  check(providers_unavailable(true, true) == L"当前没有可用的验证码登录方式，请稍后重试。" &&
+            providers_unavailable(false, true) == L"正在加载登录方式…" &&
+            providers_unavailable(false, false) == L"登录方式加载失败，请重试。",
+        "providers unavailable copy");
 
   if (failures == 0)
     std::puts("account_page_model: ok");

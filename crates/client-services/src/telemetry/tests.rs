@@ -369,6 +369,77 @@ fn a_retry_after_defers_every_flush_until_it_passes() {
     assert_eq!(later.ids().len(), 1);
 }
 
+#[test]
+fn a_retry_deadline_beyond_the_maximum_window_does_not_block_after_clock_rewind() {
+    let (_directory, store) = store();
+    let future = noon() + Duration::from_secs(7 * 24 * 60 * 60);
+    store.begin_session(&app(), future).unwrap();
+    let limited = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::from_secs(120)))]);
+    store.flush(&limited, future).unwrap();
+    let queued = store.queued().unwrap();
+
+    let reopened = TelemetryStore::new(store.directory());
+    let retry = ScriptedSender::new([Delivery::Accepted]);
+    let report = reopened.flush(&retry, noon()).unwrap();
+    assert!(!report.deferred, "回拨后的旧截止时间不能挡住队列");
+    assert_eq!(report.sent, queued.len());
+    assert_eq!(retry.ids().len(), queued.len());
+    assert_eq!(reopened.read_state().retry_after_unix_ms, 0);
+}
+
+#[test]
+fn a_clock_rewind_replaces_an_invalid_deadline_with_the_new_retry_after() {
+    let (_directory, store) = store();
+    let future = noon() + Duration::from_secs(7 * 24 * 60 * 60);
+    store.begin_session(&app(), future).unwrap();
+    let limited = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::from_secs(120)))]);
+    store.flush(&limited, future).unwrap();
+
+    let reopened = TelemetryStore::new(store.directory());
+    let limited_again = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::from_secs(120)))]);
+    let report = reopened.flush(&limited_again, noon()).unwrap();
+    assert!(!report.deferred, "失效的退避必须允许一次新请求");
+    assert_eq!(limited_again.ids().len(), 1);
+    let idle = ScriptedSender::new([]);
+    assert!(
+        reopened
+            .flush(&idle, noon() + Duration::from_secs(60))
+            .unwrap()
+            .deferred
+    );
+    assert!(idle.ids().is_empty());
+    let ready = ScriptedSender::new([Delivery::Accepted]);
+    assert_eq!(
+        reopened
+            .flush(&ready, noon() + Duration::from_secs(120))
+            .unwrap()
+            .sent,
+        1
+    );
+}
+
+#[test]
+fn a_retry_after_keeps_the_maximum_window_and_retries_at_its_boundary() {
+    let (_directory, store) = store();
+    store.begin_session(&app(), noon()).unwrap();
+    let limited = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::MAX))]);
+    store.flush(&limited, noon()).unwrap();
+    let idle = ScriptedSender::new([]);
+    assert!(store.flush(&idle, noon()).unwrap().deferred);
+    assert!(
+        store
+            .flush(&idle, noon() + MAX_RETRY_AFTER - Duration::from_millis(1))
+            .unwrap()
+            .deferred
+    );
+    assert!(idle.ids().is_empty());
+    let ready = ScriptedSender::new([Delivery::Accepted]);
+    assert_eq!(
+        store.flush(&ready, noon() + MAX_RETRY_AFTER).unwrap().sent,
+        1
+    );
+}
+
 struct PausingSender {
     entered: Arc<Barrier>,
     release: Arc<Barrier>,
@@ -415,6 +486,34 @@ fn a_concurrent_flush_does_not_clear_another_flush_retry_deadline() {
         deferred.deferred,
         "a concurrent success must not erase Retry-After"
     );
+    assert!(idle.ids().is_empty());
+}
+
+#[test]
+fn an_earlier_flush_preserves_a_later_maximum_retry_deadline() {
+    let (_directory, store) = store();
+    store.begin_session(&app(), noon()).unwrap();
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let first = store.clone();
+    let first_sender = PausingSender {
+        entered: entered.clone(),
+        release: release.clone(),
+        delivery: Delivery::Accepted,
+    };
+    let first_thread = std::thread::spawn(move || first.flush(&first_sender, noon()).unwrap());
+
+    entered.wait();
+    let later = noon() + Duration::from_secs(1);
+    let limited = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::MAX))]);
+    store.flush(&limited, later).unwrap();
+    let deadline = store.read_state().retry_after_unix_ms;
+    release.wait();
+    first_thread.join().unwrap();
+
+    assert_eq!(store.read_state().retry_after_unix_ms, deadline);
+    let idle = ScriptedSender::new([]);
+    assert!(store.flush(&idle, later).unwrap().deferred);
     assert!(idle.ids().is_empty());
 }
 

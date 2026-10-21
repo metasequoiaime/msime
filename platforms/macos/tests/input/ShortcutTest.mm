@@ -2408,6 +2408,106 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 }
 @end
 
+@interface RestoredInputModeController : ModeController
+@property(nonatomic, copy) NSString *selectedSource;
+@property(nonatomic) NSUInteger synchronizationCalls;
+@end
+@implementation RestoredInputModeController
+- (NSDictionary *)runtimeOptions { return @{}; }
+- (NSString *)selectedSystemInputModeID { return self.selectedSource; }
+- (void)syncSystemInputModeForClient:(id)client {
+    ++self.synchronizationCalls;
+    // 可用性由合成源决定，CI 不需要安装或启用真实输入源。
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), [self currentInputModeID], client,
+        +[](NSString *identifier) -> BOOL { return MSIMEIsInputModeID(identifier); });
+}
+@end
+
+static void DrainMainQueue();
+
+// 系统从 ASCII 恢复输入法时只校准已经选中的模式；排队期间换客户端、失焦和后续激活都不能留下旧请求。
+static void TestRestoredInputModeActivation() {
+    NSString *suite = [@"msime.source-restore." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.inputScheme = @"quanpin";
+    appearance.englishMode = NO;
+    appearance.inputModeStatusItem = NO;
+    auto makeController = [&](ModeSelectingClient *client) {
+        RestoredInputModeController *controller = [RestoredInputModeController alloc];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        controller.selectedSource = @"com.apple.keylayout.US";
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        MSIMEFocusedController = controller;
+        return controller;
+    };
+    ModeSelectingClient *client = [ModeSelectingClient new];
+    RestoredInputModeController *controller = makeController(client);
+    [controller scheduleSystemInputModeSyncForClient:client];
+    assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 0);
+    assert([MSIMESharedSystemInputModeState().current isEqual:MSIMEChineseInputModeID]);
+
+    for (id selected in @[@"com.apple.keylayout.US", NSNull.null]) {
+        controller = makeController(client);
+        controller.selectedSource = selected == NSNull.null ? nil : selected;
+        [controller scheduleSystemInputModeSyncForClient:client];
+        DrainMainQueue();
+        assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    }
+    // 当前已稳定在本输入法的另一模式时，仍按当前应用的状态同步。
+    controller = makeController(client);
+    controller.selectedSource = MSIMEEnglishInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 1);
+    assert([client.selectedModes.lastObject isEqual:MSIMEChineseInputModeID]);
+    [client.selectedModes removeAllObjects];
+
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 0);
+    for (NSUInteger change = 0; change < 2; ++change) {
+        controller = makeController(client);
+        controller.selectedSource = MSIMEChineseInputModeID;
+        [controller scheduleSystemInputModeSyncForClient:client];
+        if (change == 0) [controller setValue:[ModeSelectingClient new] forKey:@"activeClient"];
+        else MSIMEFocusedController = nil;
+        DrainMainQueue();
+        assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    }
+    // 排队后状态变化时读取最新目标，不使用激活时捕获的旧目标。
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    appearance.englishMode = YES;
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 1 && client.selectedModes.count == 1);
+    assert([client.selectedModes.lastObject isEqual:MSIMEEnglishInputModeID]);
+    [client.selectedModes removeAllObjects];
+    controller = makeController(client);
+    controller.selectedSource = MSIMEChineseInputModeID;
+    [controller scheduleSystemInputModeSyncForClient:client];
+    // 显式同步已选中英文，但 TIS 仍报告中文时，旧激活校准不能重复请求。
+    MSIMESharedSystemInputModeState().current = MSIMEEnglishInputModeID;
+    SEL selector = @selector(syncSystemInputModeForClient:);
+    auto synchronize = reinterpret_cast<void (*)(id, SEL, id)>(
+        method_getImplementation(class_getInstanceMethod(MSIMEInputController.class, selector)));
+    synchronize(controller, selector, client);
+    DrainMainQueue();
+    assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
+    assert([MSIMESharedSystemInputModeState().current isEqual:MSIMEEnglishInputModeID]);
+    MSIMEFocusedController = nil;
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The selected input mode, 中, 英 or 日, follows the controller's state. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state and, for 中 and 日, the scheme, and is not selected back.
 static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
@@ -3179,9 +3279,9 @@ static void TestPinyinArrowCandidateNavigation() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"panel"];
-    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO) {
+    auto check = [&](int scheme, NSUInteger caret, NSUInteger selected, unsigned short key, uint32_t expected, BOOL list = NO, NSUInteger page = 0) {
         [controller setValue:@{@"focused": @YES, @"scheme": @(scheme), @"editing_text": @"ceshi", @"caret_position": @(caret),
-                              @"candidate_list_open": @(list), @"candidates": @[
+                              @"page": @(page), @"candidate_list_open": @(list), @"candidates": @[
                                   @{@"text": @"甲", @"highlighted": @(selected == 0)},
                                   @{@"text": @"乙", @"highlighted": @(selected == 1)}]} forKey:@"view"];
         panel.visible = YES;
@@ -3191,19 +3291,23 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    // 默认交给 runtime；关闭后继续覆盖宿主旧有的端点与高亮分工。
+    // 默认交给 runtime；关闭后横排由宿主按同一条规则分工：首选上 ← 编辑、→ 先回到末尾，其余候选上左右键只移动候选。竖排时左右键与候选方向垂直，只编辑光标。
     for (NSNumber *leftRight in @[@YES, @NO]) {
         [prefs applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
         for (BOOL vertical : {NO, YES}) {
             prefs.vertical = vertical;
+            const BOOL host = !leftRight.boolValue && !vertical;
             for (BOOL expand : {NO, YES}) {
                 prefs.expandCandidates = expand;
                 check(0, 5, 0, 123, MSIME_MOVE_LEFT);
-                check(0, 5, 1, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE);
+                check(0, 5, 1, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT);
                 check(0, 2, 0, 124, MSIME_MOVE_RIGHT);
-                check(0, 2, 1, 124, MSIME_MOVE_RIGHT);
-                check(0, 5, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
-                check(0, 5, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                check(0, 2, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
+                // 第二页的第一个不是首选，左右键都移动候选。
+                check(0, 5, 0, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT, NO, 1);
+                check(0, 2, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT, NO, 1);
+                check(0, 5, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
+                check(0, 5, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
             }
         }
     }
@@ -3578,15 +3682,26 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
                                  @"candidates": @[@{@"text": @"你好"}] };
     [controller setValue:composing forKey:@"view"];
 
-    // 全拼（视图不带方案时按全拼读）的左右键是整句改字，Ctrl+左右一个字母一个字母地编辑拼音。
-    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT)],
-                             @[@124, @(MSIME_MOVE_RIGHT)]]) {
+    // 全拼（视图不带方案时按全拼读）里 Ctrl+左右和 Shift+左右都按音节移动拼音光标，发分段命令：逐个字母的光标命令在横排候选窗里会被共享 runtime 换成移动候选。
+    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT_SEGMENT)],
+                             @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
         const unsigned short code = [entry[0] unsignedShortValue];
         session.lastCommand = UINT32_MAX;
         assert([controller handleEvent:ModeKey(code, NSEventModifierFlagControl, NO) client:client]);
         assert(session.lastCommand == [entry[1] unsignedIntValue]);
         [controller setValue:composing forKey:@"view"];
     }
+    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], NSEventModifierFlagShift, NO) client:client]);
+        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        [controller setValue:composing forKey:@"view"];
+    }
+    // Shift+Backspace 不是分段编辑，仍是普通退格。
+    session.lastCommand = UINT32_MAX;
+    [controller handleEvent:ModeKey(51, NSEventModifierFlagShift, NO) client:client];
+    assert(session.lastCommand == MSIME_BACKSPACE);
+    [controller setValue:composing forKey:@"view"];
     // 默认左右键交给 runtime，关闭该偏好时保留宿主按音节移动的旧路径。
     NSMutableDictionary *shuangpin = [composing mutableCopy];
     shuangpin[@"scheme"] = @1;
@@ -3603,14 +3718,16 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
         }
     }
     [appearance applySharedCandidatePreferences:@{@"navigation": @{@"left_right": @(savedLeftRight)}}];
-    // 没有整句改字的方案（五笔）里 Ctrl+左右照旧按分段移动。
+    // 五笔里 Ctrl+左右和 Shift+左右同样按分段移动。
     NSMutableDictionary *wubi = [composing mutableCopy];
     wubi[@"scheme"] = @2;
-    for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
-        [controller setValue:wubi forKey:@"view"];
-        session.lastCommand = UINT32_MAX;
-        assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], NSEventModifierFlagControl, NO) client:client]);
-        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+    for (NSNumber *chord in @[@(NSEventModifierFlagControl), @(NSEventModifierFlagShift)]) {
+        for (NSArray *entry in @[@[@123, @(MSIME_MOVE_LEFT_SEGMENT)], @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+            [controller setValue:wubi forKey:@"view"];
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:ModeKey([entry[0] unsignedShortValue], chord.unsignedIntegerValue, NO) client:client]);
+            assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        }
     }
     [controller setValue:composing forKey:@"view"];
 
@@ -3631,6 +3748,11 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client]);
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+    // Shift+左右也一样：没有组字时是应用里的选择文字，不发分段命令。
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    [controller handleEvent:ModeKey(123, NSEventModifierFlagShift, NO) client:client];
+    assert(session.lastCommand != MSIME_MOVE_LEFT_SEGMENT);
 
     // A candidate page with no editing text still counts as a composition: the pinyin has been
     // consumed by earlier selections and the page is what is left to edit.
@@ -3638,7 +3760,7 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
                   forKey:@"view"];
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(123, NSEventModifierFlagControl, NO) client:client]);
-    assert(session.lastCommand == MSIME_MOVE_LEFT);
+    assert(session.lastCommand == MSIME_MOVE_LEFT_SEGMENT);
 
     // A Ctrl+Backspace that emptied the reading of a half-chosen phrase leaves only the chosen piece, as the reference's `keep_creating_word_after_empty_raw` does. That is still a composition: the next Ctrl+Backspace deletes the piece instead of going to the application.
     NSDictionary *heldOnly = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"phrase_prefix": @"海滩" };
@@ -5807,6 +5929,33 @@ static void TestCapsLockTap() {
     [controller pollCapsLockTap];
     assert(prefs.englishMode && gCapsReleases == 4);
 
+    // 真正推进运行循环：直接调用 pollCapsLockTap 看不出默认模式的定时器会在事件跟踪或模态面板期间停住。
+    prefs.capsLockTapShortcut = YES;
+    for (NSRunLoopMode mode in @[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode, NSModalPanelRunLoopMode]) {
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), (__bridge CFStringRef)mode);
+        assert(![controller handleEvent:capsOff(10.0) client:client]);
+        prefs.englishMode = NO;
+        const NSUInteger releasesBefore = gCapsReleases;
+        gCapsNow = 10000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(10.0) client:client]);
+        gCapsNow = 10050; gCapsHeld = false;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (gCapsReleases == releasesBefore && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
+
+        // 同一运行模式下超过阈值仍保留大写锁定，不能为了让轻点响应而把长按也切换掉。
+        assert(![controller handleEvent:capsOff(10.1) client:client]);
+        gCapsNow = 11000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(11.0) client:client]);
+        gCapsNow = 11301;
+        deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while (!session.capsLock && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:mode beforeDate:deadline];
+        assert(session.capsLock && prefs.englishMode && gCapsReleases == releasesBefore + 1);
+        gCapsHeld = false;
+    }
+
     MSIMECapsLockRelease = realRelease;
     MSIMECapsLockKeyHeld = realHeld;
     MSIMECapsLockNow = realNow;
@@ -5933,16 +6082,72 @@ static void TestSmartPunctuationVersionNumberThroughRealSession() {
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
-// What an editor receives, driven through the real engine.
-//
-// Every other controller test here hands the controller a stand-in session, and the tests that drive a real
-// session call it directly. Neither covers the path a typist exercises: a key event reaching handleEvent:,
-// the engine deciding what the composition now is, and the transition being applied to the text client. A
-// wrong preedit, a swallowed commit or punctuation in the wrong script would show up in that seam, and it
-// had nothing under it.
-//
-// IMK delivering the event is the only part left out - that needs the input source selected. From
-// handleEvent: down this is the real thing.
+// 使用真实 Rust 会话走原生按键入口，覆盖减号翻页开关的两种状态。
+static void TestTemporaryJapaneseLongVowelThroughRealSession(BOOL paging) {
+    // 复用引擎 golden 的微型模型，让真实 Host API 保持临时日文可用，不依赖本机安装的词库。
+    NSString *fixturePath = [[@(__FILE__).stringByDeletingLastPathComponent
+        stringByAppendingPathComponent:@"../../../../crates/engine/tests/golden/scenarios/ri_japanese_model_a.json"] stringByStandardizingPath];
+    NSData *fixtureData = [NSData dataWithContentsOfFile:fixturePath];
+    assert(fixtureData);
+    NSDictionary *fixture = [NSJSONSerialization JSONObjectWithData:fixtureData options:0 error:nil];
+    NSData *model = [fixture[@"fixture"][@"files"][@"msime-japanese.dat"] dataUsingEncoding:NSUTF8StringEncoding];
+    assert(model.length);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSDictionary *preferences = @{@"scheme":scheme, @"learning":@NO, @"cloud_candidates":@NO,
+            @"candidate_page_size":@6, @"default_ime_mode":@"chinese", @"chinese_punctuation":@YES};
+        NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":preferences} mutableCopy];
+        for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+            NSString *path = [root stringByAppendingPathComponent:name];
+            assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[name] = path;
+        }
+        assert([model writeToFile:[options[@"resources"] stringByAppendingPathComponent:@"msime-japanese.dat"] atomically:YES]);
+        NSError *error = nil;
+        MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(session && !error);
+        NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+        assert(view && !error);
+        NSString *suite = [@"msime.temporary-japanese." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+        [prefs applySharedInputPreferences:preferences];
+        [prefs applySharedCandidatePreferences:@{@"navigation":@{@"minus_equal":@(paging)},
+            @"word_character":@{@"enabled":@NO, @"keys":@"minus_equal"}}];
+        prefs.englishMode = NO;
+        ShortcutClient *client = [ShortcutClient new];
+        client.document = @"";
+        client.selection = NSMakeRange(0, 0);
+        client.caret = NSMakeRect(100, 100, 1, 16);
+        ModeController *controller = [ModeController alloc];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:view forKey:@"view"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        for (NSArray *stroke in @[@[@"R", @15], @[@"k", @40], @[@"o", @31], @[@"-", @27], @[@"h", @4], @[@"i", @34], @[@"-", @27]]) {
+            NSString *character = stroke[0];
+            NSEventModifierFlags flags = [character isEqual:@"R"] ? NSEventModifierFlagShift : 0;
+            assert([controller handleEvent:KeypadKey([stroke[1] unsignedShortValue], character, flags, NO) client:client]);
+            assert(client.insertions.count == 0);
+        }
+        NSDictionary *composed = [controller valueForKey:@"view"];
+        assert([composed[@"editing_text"] isEqual:@"Rko-hi-"]);
+        assert([composed[@"local_mode"] isEqual:@"temporary_japanese"]);
+        NSDictionary *katakana = nil;
+        for (NSDictionary *row in composed[@"candidates"]) if ([row[@"text"] isEqual:@"コーヒー"]) katakana = row;
+        assert(katakana);
+        [controller apply:[session selectGeneration:[composed[@"generation"] unsignedLongLongValue]
+            index:[katakana[@"id"][@"index"] unsignedIntegerValue] error:&error]];
+        assert(!error && [client.committed isEqual:@"コーヒー"]);
+        assert([session closeWithError:&error] && !error);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+    }
+}
+
+// 按键从 handleEvent: 进入真实引擎，再把组字和提交写回合成编辑器，覆盖桩会话测不到的接缝。
+// 尚未覆盖的只有系统 IMK 投递入口，那需要选中已安装的输入源。
 static void TestRealSessionComposition() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version": @1,
@@ -10477,9 +10682,22 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
+            TestCapsLockTap();
+            return 0;
+        }
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
+        if (argc == 2 && std::string(argv[1]) == "--input-source-restore") {
+            TestRestoredInputModeActivation();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--shift-corner-quotes") {
             TestShiftCornerQuotesThroughRealSession();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--temporary-japanese-long-vowel") {
+            @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
+            @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
@@ -10753,7 +10971,7 @@ int main(int argc, char **argv) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
             panel.visible = YES;
             assert([controller handleEvent:event client:client]);
-            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE : MSIME_LAST_CANDIDATE));
+            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE_OR_HOME : MSIME_LAST_CANDIDATE));
             panel.visible = NO;
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_MOVE_HOME : MSIME_MOVE_END));
@@ -12196,6 +12414,8 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
+        @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestModifierTaps(); }
@@ -12261,6 +12481,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestOptInSchemeModes(); }
+        @autoreleasepool { TestRestoredInputModeActivation(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
         @autoreleasepool { TestKeymapPreeditMargins(); }
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));

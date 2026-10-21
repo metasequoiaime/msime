@@ -106,6 +106,9 @@ int main() {
     require(msime::windows::shell_route_argument(request_for(shell_links::voice_panel)) == L"voice");
     require(msime::windows::shell_route_argument(
                 request_for(shell_links::cloud_dictionary)) == L"cloud-dictionary");
+    // 背单词子页的「开始复习」打开共享应用的背单词面板；设置类别 vocabulary 仍落到词库页。
+    require(msime::windows::shell_route_argument(
+                request_for(shell_links::vocabulary_panel)) == L"vocabulary");
 
     // Every settings category the shared routes know still opens a page here, and the ids the tray sends land where the features moved.
     const std::set<std::string_view> categories{
@@ -187,6 +190,8 @@ int main() {
     require(mascot_intro("voice", "recording")->description ==
             L"调整录音提示音与录音期间的静音行为。");
     require(mascot_intro("voice", "recording")->scene == MascotScene::settings);
+    // 「服务配置」子视图记作 `service`，页首仍是「识别与输入」那句。
+    require(mascot_intro("voice", "service")->description == L"配置语音识别、服务与输入快捷键。");
     require(mascot_intro("osk")->description == L"调整屏幕键盘布局与外观。");
     require(mascot_intro("osk", "handwriting")->description == L"设置手写识别与输入方式。");
     require(mascot_intro("clip")->scene == MascotScene::sync);

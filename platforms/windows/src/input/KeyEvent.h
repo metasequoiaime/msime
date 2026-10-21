@@ -43,9 +43,7 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   if (key == 0x11 || key == 0x12 || (key >= 0xA2 && key <= 0xA5) ||
       key == 0x5B || key == 0x5C)
     return {};
-  // TSF's wire modifier bits are Shift=1, Control=2, Alt=4. Segment
-  // editing is deliberately Ctrl-only; Shift+Backspace/Arrow belongs to the
-  // host and must not mutate the Engine composition.
+  // TSF 线上的修饰键位是 Shift=1、Control=2、Alt=4。分段光标键是只按 Ctrl 或只按 Shift 的左右键（is_segment_caret_key），分段删除只有 Ctrl+退格；Shift+退格属于应用，不能改动 Engine 的组字。没有组字时 ServerSession::key 对分段命令回答 handled=false，键仍属于应用。
   if (is_segment_backspace_key(key, modifiers) ||
       is_segment_caret_key(key, modifiers)) {
     // The conditional is not a constant expression, so MSVC rejects the enum-to-uint32_t conversion as narrowing inside braces; GCC and Clang accept it.
@@ -67,9 +65,11 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   case 0x22:
     return {KeyKind::Command, MSIME_NEXT_PAGE};
   case 0x23:
-    return {KeyKind::Command, MSIME_MOVE_END};
+    // 和 TIP 一样跳到末选（没有两段式）。只在候选窗显示时经 ReplyComposer::configured_key 送进会话。
+    return {KeyKind::Command, MSIME_LAST_CANDIDATE};
   case 0x24:
-    return {KeyKind::Command, MSIME_MOVE_HOME};
+    // 和 TIP 一样分两段：高亮不在首选时回到首选，已在首选时把光标移到输入串开头。只在候选窗显示时经 ReplyComposer::configured_key 送进会话。
+    return {KeyKind::Command, MSIME_FIRST_CANDIDATE_OR_HOME};
   case 0x25:
     return {KeyKind::Command, MSIME_MOVE_LEFT};
   case 0x26:

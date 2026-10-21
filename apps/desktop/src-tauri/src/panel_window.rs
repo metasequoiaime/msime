@@ -20,7 +20,7 @@ use crate::platform::macos::macos_keyboard;
 use crate::platform::macos::macos_panel_session;
 use crate::voice::cancel_voice;
 use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
-use msime_client_core::host_surface::{PanelPlacement, PanelSurface, SurfaceRoute};
+use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
 use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -243,14 +243,20 @@ pub(crate) fn open_panel_window(
         let theme = app
             .get_webview_window("main")
             .and_then(|window| window.theme().ok());
+        let resizable = label == "emoji-panel";
+        let (minimum_width, minimum_height) = if resizable {
+            (560.0, 480.0)
+        } else {
+            (width, height)
+        };
         let window = builder
             .background_color(crate::chrome_background(theme))
             .inner_size(width, height)
             .visible(false)
             .focused(false)
             .focusable(accepts_focus)
-            .min_inner_size(width, height)
-            .resizable(false)
+            .min_inner_size(minimum_width, minimum_height)
+            .resizable(resizable)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)
@@ -292,16 +298,6 @@ fn panel_surface(route: SurfaceRoute) -> Result<PanelSurface, HostActionError> {
             code: "unavailable",
         })
 }
-
-/// 背单词 has no launch route, so its geometry lives here rather than in the shared route table.
-pub(crate) const VOCABULARY_PANEL: PanelSurface = PanelSurface {
-    label: "vocabulary-panel",
-    query: "vocabulary",
-    title: "水杉背单词",
-    width: 560,
-    height: 680,
-    placement: PanelPlacement::BottomCenter,
-};
 
 /// Opens a panel route's window on this host. See [`open_surface_panel`].
 pub(crate) fn open_route_panel(
@@ -412,7 +408,7 @@ pub(crate) fn open_vocabulary_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    open_surface_panel(&app, &state, VOCABULARY_PANEL)
+    open_route_panel(&app, &state, SurfaceRoute::Vocabulary)
 }
 
 #[tauri::command]

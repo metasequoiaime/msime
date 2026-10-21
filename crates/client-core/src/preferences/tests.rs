@@ -5951,3 +5951,69 @@ fn finished_scope_releases_inherited_lock() {
         &root.path().join("preferences.lock"),
     );
 }
+
+/// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。
+#[test]
+fn network_proxy_defaults_match_the_windows_release_and_stay_out_of_the_document() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.network.proxy_mode,
+        crate::network::ProxyMode::System
+    );
+    assert!(defaults.network.proxy_server.is_empty());
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("network").is_none());
+
+    // 没有这个键的旧文档按 system 读出来。
+    let restored: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(
+        restored.network,
+        crate::network::NetworkPreferences::default()
+    );
+
+    // custom 模式里留空服务器时文档里写 `custom`，生效模式回退 system。
+    let mut empty_custom = Preferences::default();
+    empty_custom.network.proxy_mode = crate::network::ProxyMode::Custom;
+    let document = serde_json::to_value(&empty_custom).unwrap();
+    assert_eq!(document["network"]["proxy_mode"], "custom");
+    assert_eq!(
+        empty_custom.network.effective_mode(),
+        crate::network::ProxyMode::System
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, empty_custom.clone()).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(saved.preferences.network, empty_custom.network);
+}
+
+#[test]
+fn network_proxy_server_is_validated_and_restored_with_the_services() {
+    let valid = |server: &str| {
+        let mut preferences = Preferences::default();
+        preferences.network.proxy_mode = crate::network::ProxyMode::Custom;
+        preferences.network.proxy_server = server.into();
+        preferences.validate()
+    };
+    assert!(valid("127.0.0.1:7890").is_ok());
+    assert!(valid("http://127.0.0.1:7890").is_ok());
+    assert!(valid("").is_ok());
+    assert!(matches!(
+        valid("127.0.0.1"),
+        Err(PreferencesError::InvalidNetwork)
+    ));
+    assert!(matches!(
+        valid("http://user:secret@127.0.0.1:7890"),
+        Err(PreferencesError::InvalidNetwork)
+    ));
+
+    // 恢复默认设置留下代理地址：服务凭据还在，出口跟着一起留下，否则全部断掉。
+    let mut configured = Preferences::default();
+    configured.network.proxy_mode = crate::network::ProxyMode::Custom;
+    configured.network.proxy_server = "127.0.0.1:7890".into();
+    assert_eq!(
+        configured.restored_to_defaults().network,
+        configured.network
+    );
+}

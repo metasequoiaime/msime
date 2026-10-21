@@ -10,6 +10,8 @@
 #include <thread>
 #include <chrono>
 #include <limits>
+#include <map>
+#include <tuple>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -26,6 +28,13 @@ extern "C" PangoFontMap *__wrap_pango_cairo_font_map_new() {
   return __real_pango_cairo_font_map_new();
 }
 #endif
+
+// 只替换测试程序调用的版本入口，模拟旧开发库构建的插件在新运行库上启动。
+static const char *font_runtime_version = nullptr;
+extern "C" const char *__real__ZN5fcitx8Instance7versionEv();
+extern "C" const char *__wrap__ZN5fcitx8Instance7versionEv() {
+  return font_runtime_version ? font_runtime_version : __real__ZN5fcitx8Instance7versionEv();
+}
 
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
@@ -120,6 +129,8 @@ void koreanHanjaGlossRow() {
           "a translation follows the 훈음 and the annotation is not drawn twice");
   require(glossed.display().body == "韓  나라 이름 한, 한나라 한" && glossed.display().translation == "Korea",
           "原生画布和 classicui 保留同一训音与释义，候选正文不含释义");
+  require(glossed.display().word == "韓" && glossed.display().reading == "나라 이름 한, 한나라 한",
+          "原生画布的 macOS 结构把训音单独交给释义行的第一行，正文不带它");
   const auto helpcode = word(Json{{"text", "你"}, {"annotation", "ab"}}, true, std::string());
   require(shown(helpcode).toString() == "你(ab)" && shown(helpcode).size() == 1,
           "a helpcode stays plain row text, parenthesized right after the word as macOS draws it");
@@ -166,6 +177,8 @@ void scriptAnnotationRow() {
   require(both.display().body == "你(ab)" && both.display().translation == "you" &&
               both.display().suffix == "  〔常用〕" && both.text() == "你",
           "原生画布独立保留正文、释义与插件后缀，上屏文字不变");
+  require(both.display().word == "你(ab)" && both.display().script_annotation == "常用" && !both.display().pending,
+          "原生画布的 macOS 结构拿到收拾过的插件注释，画在释义行最后一行");
   const Json runs = Json::array({Json{{"start", 0}, {"length", 2}, {"role", "pos"}}});
   const auto segmented = word(Json{{"text", "你"}, {"translation", "n. synthetic"}, {"translation_runs", runs}}, false);
   require(segmented.display().translation_runs == runs && segmented.display().translation == "n. synthetic",
@@ -371,6 +384,8 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   };
   const auto savedDataHome = saved("XDG_DATA_HOME");
   const auto savedStateHome = saved("XDG_STATE_HOME");
+  const auto savedAutogenerate = saved("MSIME_FCITX5_THEME_AUTOGENERATE");
+  unsetenv("MSIME_FCITX5_THEME_AUTOGENERATE");
   setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
   setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
   const auto *configHome = std::getenv("XDG_CONFIG_HOME");
@@ -465,6 +480,51 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   tick(partial, ink, false);
   require(!engine.native_canvas_owned_, "第三方主题热更新立即退出原生画布所有权");
 #endif
+  // 先确认原生画布实际持有主题，再验证关闭开关会主动交还绘制。
+  engine.applyCandidatePanelTheme(&classicui, ink, false, Json(), true);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  require(engine.native_canvas_owned_, "关闭生成前原生画布已经接管主题");
+#endif
+  // 关闭自动生成后，配色变化和主动选择均不覆盖人工主题、图片或经典界面的选择。
+  const auto customImage = themeFile.parent_path() / "shape-customized.png";
+  std::ofstream(themeFile) << "[Metadata]\nName=Synthetic customized theme\n";
+  std::ofstream(customImage) << "synthetic image";
+  const auto snapshot = [&] {
+    std::map<std::string, std::tuple<std::string, ino_t, std::filesystem::file_time_type>> files;
+    for (const auto &entry : std::filesystem::directory_iterator(themeFile.parent_path())) {
+      if (!entry.is_regular_file()) continue;
+      std::ifstream in(entry.path(), std::ios::binary);
+      struct stat info {};
+      require(::stat(entry.path().c_str(), &info) == 0, "读取合成主题文件状态");
+      files.emplace(entry.path().filename().string(),
+                    std::make_tuple(std::string(std::istreambuf_iterator<char>(in), {}), info.st_ino,
+                                    std::filesystem::last_write_time(entry.path())));
+    }
+    return files;
+  };
+  const auto customized = snapshot();
+  const auto customInode = inode();
+  const auto customWritten = std::filesystem::last_write_time(themeFile);
+  const int scans = classicui.scans, writes = classicui.writes;
+  setenv("MSIME_FCITX5_THEME_AUTOGENERATE", "0", 1);
+  tick(classicui, ink, true);
+  engine.applyCandidatePanelTheme(&classicui, paper, false, Json(), true);
+  require(snapshot() == customized && inode() == customInode &&
+              std::filesystem::last_write_time(themeFile) == customWritten,
+          "关闭生成后主题及图片的内容和时间戳不变，不删除用户图片");
+  require(classicui.scans == scans && classicui.writes == writes, "关闭生成后不扫描或改写经典界面配置");
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+  require(!engine.native_canvas_owned_ && !engine.native_canvas_assets_, "关闭生成后由经典界面绘制人工主题");
+#endif
+  setenv("XDG_DATA_HOME", (root / "generation-disabled").c_str(), 1);
+  engine.applyCandidatePanelTheme(&classicui, ink, true, Json(), true);
+  require(!std::filesystem::exists(root / "generation-disabled"), "关闭生成后不创建缺失的主题目录");
+  setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
+  setenv("MSIME_FCITX5_THEME_AUTOGENERATE", "1", 1);
+  engine.applyCandidatePanelTheme(&classicui, ink, true, Json(), true);
+  require(snapshot() != customized, "重新允许自动生成后可按偏好恢复主题");
+  if (savedAutogenerate) setenv("MSIME_FCITX5_THEME_AUTOGENERATE", savedAutogenerate->c_str(), 1);
+  else unsetenv("MSIME_FCITX5_THEME_AUTOGENERATE");
   if (savedDataHome) setenv("XDG_DATA_HOME", savedDataHome->c_str(), 1);
   else unsetenv("XDG_DATA_HOME");
   if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
@@ -1252,8 +1312,37 @@ int cloudClipboardResultFencing() {
   return 0;
 }
 
+int candidateRuntimeFontUnits() {
+  char pattern[] = "/tmp/msime-font-runtime-XXXXXX";
+  const auto *directory = mkdtemp(pattern);
+  require(directory != nullptr, "创建合成字号测试目录");
+  const std::filesystem::path root(directory);
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  char program[] = "msime-font-runtime-test";
+  char disabled[] = "--disable=all";
+  char *args[] = {program, disabled, nullptr};
+  for (const auto &[version, expected] : std::array<std::pair<const char *, const char *>, 4>{{
+           {"5.0.21", "Synthetic Sans, 20px"}, {"5.1.17", "Synthetic Sans, 20px"},
+           {"5.1.18", "Synthetic Sans, 15"}, {"5.1.23", "Synthetic Sans, 15"}}}) {
+    font_runtime_version = version;
+    fcitx::Instance instance(2, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    FcitxEngine engine(&instance);
+    const auto description = engine.candidate_font_sync_.next({"Synthetic Sans", {}, 20});
+    require(description && *description == expected, "真实宿主按运行版本选择字号单位，不受编译版本限制");
+  }
+  font_runtime_version = nullptr;
+  std::filesystem::remove_all(root);
+  std::cout << "Fcitx5 runtime font units passed\n";
+  return 0;
+}
+
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--font-runtime") return candidateRuntimeFontUnits();
     if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
     if (argc == 2 && std::string(argv[1]) == "--theme-canvas") return candidateThemeCanvas();
@@ -3196,6 +3285,45 @@ int main(int argc, char **argv) {
       modifier(FcitxKey_Control_L, false);
       modifier(FcitxKey_Control_L, true, fcitx::KeyStates(fcitx::KeyState::Ctrl));
       require(state->input_enabled_, "a bare Ctrl does not switch while its binding is off");
+    }
+    // 组字时 Shift+左右和 Ctrl+左右在全拼里也按音节移动拼音光标：发的是分段命令，运行时不会把它换成移动候选，以前全拼的 Ctrl+左右发字母光标命令，高亮不在首选时就成了移动候选。按住 Shift 再按方向键是组合键，松开 Shift 不切换中英文。候选窗显示时 Home 先回首选，已在首选时才把拼音光标移到开头。没有组字时这些组合键仍是应用的按键。
+    {
+      const auto shiftHeld = fcitx::KeyStates(fcitx::KeyState::Shift);
+      const auto ctrlHeld = fcitx::KeyStates(fcitx::KeyState::Ctrl);
+      const auto shiftEdge = [&](bool release) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_Shift_L, release ? shiftHeld : fcitx::KeyStates()), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto caret = [&] { return state->view_.value("caret_position", size_t{99}); };
+      const auto highlighted = [&](size_t index) {
+        const auto candidates = state->view_.value("candidates", Json::array());
+        return index < candidates.size() && candidates[index].value("highlighted", false);
+      };
+      require(state->input_enabled_ && !state->composingOrCandidates(), "segment caret test starts idle in Chinese");
+      require(!keyWith(FcitxKey_Left, shiftHeld) && !keyWith(FcitxKey_Right, shiftHeld) &&
+                  !keyWith(FcitxKey_Left, ctrlHeld) && !keyWith(FcitxKey_Right, ctrlHeld),
+              "with nothing composing Shift and Ctrl arrows stay the application's keys");
+      require(key(FcitxKey_n) && key(FcitxKey_i) && key(FcitxKey_h) && key(FcitxKey_a) && key(FcitxKey_o) && caret() == 5,
+              "segment caret test composes nihao");
+      require(!shiftEdge(false) && keyWith(FcitxKey_Left, shiftHeld) && caret() == 2,
+              "Shift+Left moves the quanpin caret to the preceding syllable");
+      require(!shiftEdge(true) && state->input_enabled_ &&
+                  state->view_.value("editing_text", std::string{}) == "nihao",
+              "releasing Shift after Shift+Left neither switches to English nor touches the composition");
+      require(!shiftEdge(false) && keyWith(FcitxKey_Right, shiftHeld) && caret() == 5,
+              "Shift+Right moves the quanpin caret to the following syllable");
+      require(!shiftEdge(true) && state->input_enabled_, "releasing Shift after Shift+Right does not switch");
+      require(keyWith(FcitxKey_Left, ctrlHeld) && caret() == 2,
+              "Ctrl+Left moves the quanpin caret by a syllable, not by a letter");
+      require(keyWith(FcitxKey_Right, ctrlHeld) && caret() == 5,
+              "Ctrl+Right moves the quanpin caret by a syllable, not by a letter");
+      require(key(FcitxKey_Down) && highlighted(1), "the Home test moves the highlight off the first candidate");
+      require(key(FcitxKey_Home) && highlighted(0) && caret() == 5,
+              "Home off the first candidate returns the highlight to it and leaves the caret");
+      require(key(FcitxKey_Home) && caret() == 0 && state->view_.value("editing_text", std::string{}) == "nihao",
+              "Home on the first candidate moves the pinyin caret to the start");
+      require(key(FcitxKey_Escape) && !state->composingOrCandidates(), "the segment caret test cancels its composition");
     }
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition keys");
     require(ic.inputPanel().clientPreedit().toString() == "ni", "native preedit");

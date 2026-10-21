@@ -145,9 +145,9 @@ export function CandidateShortcutReference({
         <ShortcutRow title={mobile ? "候选栏翻页" : "候选窗口翻页"} chord="鼠标滚轮" />
       )}
       {effectiveNavigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
-      {/* 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮，所以两行标题都要写清是什么时候发生的。 */}
+      {/* 打开左右键移动候选时，只有横排候选窗里左右键移高亮，而且首选上仍编辑输入串（→ 到末尾为止），所以两行标题都要写清是什么时候发生的。竖排时左右键只编辑输入串。 */}
       {effectiveNavigation.left_right && (
-        <ShortcutRow title="移动候选项（输入串两端）" chord="← / →" />
+        <ShortcutRow title="移动候选项（横排候选，首选上先编辑输入串）" chord="← / →" />
       )}
       {wordCharacter?.enabled && (
         <ShortcutRow
@@ -155,8 +155,18 @@ export function CandidateShortcutReference({
           chord={wordCharacterKeys[wordCharacter.keys]}
         />
       )}
-      <ShortcutRow title="移动到候选列表首项 / 末项（页码随之切换）" chord="Home / End" />
+      {/* 桌面宿主的 Home 分两段：高亮已在首项时再按一次，把输入串的光标移到开头。触屏宿主的外接键盘没有第二段。 */}
+      <ShortcutRow
+        title={
+          mobile
+            ? "移动到候选列表首项 / 末项（页码随之切换）"
+            : "移动到候选列表首项 / 末项（页码随之切换；已在首项时 Home 把光标移到输入串开头）"
+        }
+        chord="Home / End"
+      />
       <ShortcutRow title="编辑输入串" chord="← / → / Backspace" />
+      {/* 桌面三个宿主组字时 Shift+左右按音节移动输入串的光标，高亮停在哪个候选上都一样；触屏宿主的外接键盘没有这个组合键。Windows 和 Linux 的 Ctrl+左右相同，macOS 的 Ctrl+左右默认被系统用来切换桌面，所以这里只列 Shift。 */}
+      {!mobile && <ShortcutRow title="按音节移动输入串光标" chord="Shift + ← / →" />}
       <ShortcutRow title="提交原始输入 / 取消输入" chord="Enter / Esc" />
     </>
   );

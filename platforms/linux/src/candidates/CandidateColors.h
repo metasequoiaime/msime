@@ -77,7 +77,7 @@ inline std::optional<ThemeColor> theme_color(const nlohmann::json &value) {
   return ThemeColor{*rgb, static_cast<std::uint8_t>(*alpha)};
 }
 
-// 所画皮肤包 [toolbar] 在这个明暗下的配色，按菜单的槽位读：background 是菜单底色，icon 是菜单文字，hover 是悬停项，border 是外框，divider 是分隔线（handle 是拖动把手，菜单没有）。Linux 不画悬浮工具栏，工具栏的功能都在输入法菜单里，所以 Fcitx5 把它画的菜单当作工具栏的落点，与 macOS 把这些颜色用到悬浮工具栏上（CandidateSkin.cpp 的 ToolbarSkinTokens）对应。共享目录只发布读得懂的 #RRGGBB / #RRGGBBAA，这里再按同样的读法取一次，读不出的槽位留空。
+// 所画皮肤包 [toolbar] 在这个明暗下的配色，按菜单的槽位读：background 是菜单底色，icon 是菜单文字，hover 是悬停项，border 是外框，divider 是分隔线（handle 是拖动把手，菜单没有）。工具栏的功能也都在输入法菜单里，所以 Fcitx5 把它画的菜单当作工具栏的落点（X11 上另画的悬浮工具栏用候选调色板，还不读这组颜色），与 macOS 把这些颜色用到悬浮工具栏上（CandidateSkin.cpp 的 ToolbarSkinTokens）对应。共享目录只发布读得懂的 #RRGGBB / #RRGGBBAA，这里再按同样的读法取一次，读不出的槽位留空。
 inline CandidateMenuSlots candidate_skin_toolbar_menu(const nlohmann::json &catalog, std::string_view drawn, bool dark) {
   CandidateMenuSlots slots;
   const auto *package = candidate_skin_package(catalog, drawn);

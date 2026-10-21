@@ -39,6 +39,8 @@ Android 11 起声明并实现系统内联填充接口，向填充服务提供最
 - API 28 专用模拟器的 `inline-autofill.sh emulator-5566` 通过：真实键盘正常启动，系统旧菜单显示合成建议，点击后用户名和密码同时填入，原填充服务恢复。新接口声明没有导致旧系统加载或验证错误。
 - `bash scripts/verify-local.sh --quick` 与本机 `pnpm run verify-notes` 均通过。quick 包含本次修改涉及的 Rust Android 编译、宿主 Java/JVM 及契约检查；无 Docker、MinGW 环境的跨平台门禁明确跳过，未把它们记为验证通过。
 
+测试自身通过 `settings` 恢复缺失值和非空白名单组件，通过 Settings 提供方的 `PUT_secure` 恢复空字符串；`UiAutomation.executeShellCommand` 不解析 shell 引号，不能给组件或空字符串套单引号。每次设备验收先覆盖三种状态并精确读回，结束时再次核对原值；外层脚本的 trap 仅作中断兜底，不能掩盖 instrumentation 的恢复错误。
+
 测试包已达系统允许的 100 项 instrumentation，专项用环境变量替换默认入口，不新增第 101 项。合成提供方同时提供旧菜单和公开 AndroidX V1 Slice 载荷，不读取真实账号；脚本和测试的退出路径都恢复原填充服务，并保留空字符串与缺失设置的区别。测试包使用开发密钥，未做发布签名安装验收，开发合包的 Gradle 配置评估和配置契约检查通过，受构建机系统盘余量限制未继续编译或安装完整合包，不作为产品设备验收。真机、真实第三方密码管理器及输入视图重建时的迟到装载未实测，代次边界由 JVM 回归覆盖。
 
 ## References

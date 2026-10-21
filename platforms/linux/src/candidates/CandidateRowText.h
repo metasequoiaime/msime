@@ -40,6 +40,11 @@ inline std::string candidate_fixed_position_marker(std::uint64_t fixed_position)
   return "  \xE5\x9B\xBA\xE5\xAE\x9A" + std::to_string(fixed_position);
 }
 
+// 页码照 macOS 首行的写法「1 / 3」（数字两边各一个空格）；`page` 从 0 起。IBus 的辅助文本、Fcitx5 classicui 的辅助行和原生画布的首行都用它。
+inline std::string candidate_page_indicator(std::size_t page, std::size_t count) {
+  return std::to_string(page + 1) + " / " + std::to_string(count);
+}
+
 // 第 `slot` 个候选（从 0 起）的序号，与选它的数字键一致：前九个是 1–9，第十个由 0 键选，标 0。
 inline std::string candidate_index_label(std::size_t slot) {
   return slot == 9 ? std::string("0") : std::to_string(slot + 1);

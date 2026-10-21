@@ -69,6 +69,8 @@ export interface InputSchemeDetailsSectionProps {
   touchKeyboardHasWubi?: boolean;
   /** 「输入时显示双拼键位提示」的当前值；宿主不画双拼键位图时不传，这一行不出现。 */
   shuangpinKeymapHint?: boolean;
+  /** Linux 宿主：键位图只画给报根窗口坐标光标的 X11 客户端（`platforms/linux/src/overlay/ShuangpinKeymapX11Surface.h`），描述照实说明在哪里不显示。 */
+  linux?: boolean;
   /** 「双拼预编辑」的当前样式（保留原始按键或显示拼音分词）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
   shuangpinPreedit?: "raw" | "pinyin";
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
@@ -91,6 +93,9 @@ const strokeDescription =
 const vietnameseDescription = "Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键";
 const tibetanDescription =
   "按 EWTS 威利转写输入，区分大小写；空格加音节点 ་ 上屏，/ 加垂符 ། 上屏，回车只上屏藏文，Esc 恢复原始按键";
+const keymapDescription = "双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。";
+// IBus 只在纯 X11 会话里画（Wayland 会话里分不出客户端是不是 Xwayland），Fcitx5 按输入上下文画给 X11 客户端，Wayland 原生应用的光标坐标不能用来摆放。
+const linuxKeymapDescription = `${keymapDescription}Linux 只为 X11 应用显示：Wayland 桌面上 IBus 不显示，Fcitx5 只为经 Xwayland 运行的应用显示。`;
 const toneStyleDescription = "新式把声调标在主元音上（hoà），旧式按传统位置标注（hòa）";
 
 /** Shared scheme-specific controls for desktop input settings. */
@@ -101,6 +106,7 @@ export function InputSchemeDetailsSection({
   hasTouchKeyboardSchemes,
   touchKeyboardHasWubi = false,
   shuangpinKeymapHint,
+  linux = false,
   shuangpinPreedit,
   onShuangpinProfileChange,
   onEditCustomShuangpin,
@@ -166,7 +172,7 @@ export function InputSchemeDetailsSection({
       {shuangpinKeymapHint !== undefined && (
         <SwitchRow
           title="输入时显示双拼键位提示"
-          description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
+          description={linux ? linuxKeymapDescription : keymapDescription}
           hidden={hideShuangpinRows}
           checked={shuangpinKeymapHint}
           onChange={onShuangpinKeymapHintChange ?? (() => {})}

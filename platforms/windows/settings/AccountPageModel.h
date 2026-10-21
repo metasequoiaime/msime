@@ -241,6 +241,19 @@ inline std::wstring zh_date(int year, int month, int day) {
   return std::to_wstring(year) + L"/" + std::to_wstring(month) + L"/" + std::to_wstring(day);
 }
 
+// 未登录时那张登录卡片的标题和说明（`account-page.tsx` 桌面那一支，宿主有 `settingsSync`）：没选验证码方式时是欢迎，选了以后标题换成「邮箱登录」或「手机号登录」，说明换成验证码那句。
+constexpr std::wstring_view sign_in_welcome = L"欢迎来到水杉";
+constexpr std::wstring_view sign_in_description =
+    L"登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤";
+constexpr std::wstring_view sign_in_code_description = L"我们会发送一个 6 位验证码完成登录";
+
+// 一种登录方式都没有时登录按钮列里的那句：登录方式读到了但一个都没开、正在重读、读失败。
+constexpr std::wstring_view providers_unavailable(bool loaded, bool busy) {
+  return loaded ? L"当前没有可用的验证码登录方式，请稍后重试。"
+         : busy ? L"正在加载登录方式…"
+                : L"登录方式加载失败，请重试。";
+}
+
 // Windows 的设置同步卡片（createDesktopSettingsSync）：同步的范围和应用后的提示；两种确认的文字与按钮（SettingsSyncCard 的桌面卡片）。
 constexpr std::wstring_view sync_description =
     L"同步输入方案、繁体输出、双拼和五笔版本、词库学习、调频和标点。凭据、联网授权及输入内容不会随设置上传。";
@@ -285,7 +298,21 @@ inline std::wstring qq_link_message(std::wstring_view code) {
 constexpr std::wstring_view qq_link_note =
     L"在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats "
     L"能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。";
-constexpr std::wstring_view qq_link_bound = L"已绑定。在 QQ 群里 @机器人 发 /stats 就能看到你的打字数据。";
+// 已有绑定时卡片标题下的说明（换掉 `qq_link_note`），和绑定成功后的那一句。
+constexpr std::wstring_view qq_link_bound =
+    L"已绑定。在 QQ 群里 @机器人 发 /stats "
+    L"就能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。";
+constexpr std::wstring_view qq_link_succeeded = L"绑定成功。";
 constexpr std::wstring_view qq_link_removed = L"已解绑。";
+
+// 卡片标题：有绑定时是「QQ 群助手」，没有时是「绑定 QQ 群助手」。
+constexpr std::wstring_view qq_link_title(bool has_links) {
+  return has_links ? L"QQ 群助手" : L"绑定 QQ 群助手";
+}
+
+// 共享卡片的 `showForm`：绑定列表读到之后，没有绑定、或点了「绑定其他 QQ」（`adding`）时才出现绑定码表单。
+constexpr bool qq_link_form_shown(bool loaded, bool has_links, bool adding) {
+  return loaded && (!has_links || adding);
+}
 
 } // namespace msime::settings::account

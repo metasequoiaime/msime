@@ -2112,7 +2112,7 @@ pub fn host_candidate_catalog(
             if let Some(radius) = package.corner_radius_dip {
                 entry["corner_radius_dip"] = radius.into();
             }
-            // 行圆角、背景图和工具栏配色只给能画它们的宿主：Linux 的 Fcitx5 经典界面主题按行圆角画选中高亮，把背景图画在卡片里，把工具栏配色用到它画的菜单上（Linux 的悬浮工具栏就是输入法菜单）。每个包都带上：Fcitx5 的「主题」菜单换皮肤时不重写运行时选项，换上的那一款只能从这里读到它们；文档预算不够时由运行时选项那一层先去掉没选中的包的这几样。
+            // 行圆角、背景图和工具栏配色只给能画它们的宿主：Linux 的 Fcitx5 经典界面主题按行圆角画选中高亮，把背景图画在卡片里，把工具栏配色用到它画的菜单上（工具栏的功能也都在输入法菜单里；X11 上另画的悬浮工具栏还不读这组颜色）。每个包都带上：Fcitx5 的「主题」菜单换皮肤时不重写运行时选项，换上的那一款只能从这里读到它们；文档预算不够时由运行时选项那一层先去掉没选中的包的这几样。
             if let Some(radius) = package.item_corner_radius_dip {
                 entry["item_corner_radius_dip"] = radius.into();
             }

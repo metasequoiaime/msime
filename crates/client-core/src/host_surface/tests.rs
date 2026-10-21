@@ -116,6 +116,24 @@ fn panel_routes_keep_the_labels_the_hosts_already_use() {
     let keyboard = SurfaceRoute::Keyboard.panel().expect("keyboard is a panel");
     assert_eq!(keyboard.label, "keyboard-panel");
     assert_eq!(keyboard.query, "keyboard");
+    // 背单词面板与设置里的背单词页是两条路由：原生设置窗口的「开始复习」打开面板，`settings:vocabulary` 仍打开设置页。
+    assert_eq!(
+        SurfaceRoute::parse("vocabulary"),
+        Ok(SurfaceRoute::Vocabulary)
+    );
+    let vocabulary = SurfaceRoute::Vocabulary
+        .panel()
+        .expect("vocabulary is a panel");
+    assert_eq!(
+        (vocabulary.label, vocabulary.width, vocabulary.height),
+        ("vocabulary-panel", 560, 680)
+    );
+    assert_eq!(
+        SurfaceRoute::parse("settings:vocabulary")
+            .unwrap()
+            .settings_category(),
+        Some(SettingsCategory::Vocabulary)
+    );
     for route in SurfaceRoute::ALL {
         let Some(panel) = route.panel() else { continue };
         // The window label is the query with the shared panel suffix.
@@ -173,10 +191,9 @@ fn capabilities_describe_each_host() {
     // 共享设置页经 Tauri 装入编辑好的候选窗皮肤。
     assert!(linux.candidate_skin_editor);
     assert!(linux.mode_switch_shortcuts);
-    // Linux stands the toolbar up as an IBus property menu: the switch and
-    // component visibility work, but scale and icon size have no surface.
+    // Linux 在 X11 上画悬浮工具栏，缩放和字号与 macOS 一样生效；画不出来的会话只剩「工具栏」子菜单。
     assert!(linux.floating_toolbar);
-    assert!(!linux.floating_toolbar_appearance);
+    assert!(linux.floating_toolbar_appearance);
     assert!(linux.floating_toolbar_components);
     // Linux 的「工具栏」子菜单与 macOS 工具栏一样列出切换输入方案、手写和语音三项，设置页给它们开关。
     assert!(
@@ -557,11 +574,11 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
     // 候选窗的预编辑行和 TIP 的行内组字都取 Engine 的 preedit，原始按键与展开拼音的差别在 Windows 上看得见。
     assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
-    // 双拼键位图只有 macOS 和 Windows 画。
+    // 双拼键位图由 macOS、Windows 和 Linux（X11 客户端）画。
     assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_keymap_hint);
     assert!(HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_keymap_hint);
+    assert!(HostCapabilities::for_platform(HostPlatform::Linux).shuangpin_keymap_hint);
     for platform in [
-        HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
@@ -653,6 +670,39 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     assert!(harmony.input_mode_hud);
     // Typing statistics are unconditional across every host.
     assert!(harmony.typing_statistics);
+}
+
+#[test]
+fn linux_native_canvas_renderer_reads_the_fcitx5_report() {
+    // platforms/linux 的 candidate_panel_status_document("fcitx5", None, true) 逐字节写出的就是这一行。
+    let native = "{\"host\":\"fcitx5\",\"limit\":null,\"renderer\":\"native_canvas\"}\n";
+    assert!(linux_native_canvas_renderer(native));
+    assert_eq!(CandidatePanelLimit::from_host_status(native), None);
+    for document in [
+        r#"{"host":"fcitx5","limit":null}"#,
+        r#"{"host":"fcitx5","limit":null,"renderer":"classicui"}"#,
+        r#"{"host":"ibus","limit":"ibus_panel","renderer":7}"#,
+        "not json",
+        "",
+    ] {
+        assert!(!linux_native_canvas_renderer(document), "{document}");
+    }
+    let mut linux = HostCapabilities::for_platform(HostPlatform::Linux);
+    assert!(
+        !linux.expand_candidates
+            && !linux.candidate_preedit_font
+            && !linux.candidate_selection_appearance
+    );
+    linux.apply_linux_native_canvas();
+    assert!(
+        linux.expand_candidates
+            && linux.candidate_preedit_font
+            && linux.candidate_selection_appearance
+    );
+    let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
+    let before = windows.clone();
+    windows.apply_linux_native_canvas();
+    assert_eq!(windows, before);
 }
 
 #[test]

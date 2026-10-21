@@ -31,7 +31,7 @@ class ServiceSettingsRequestLifecycleTests(unittest.TestCase):
         deliver = re.search(r"private func deliver\(.*?\n  \}", SERVICE, re.S)
         self.assertIsNotNone(deliver)
         self.assertRegex(deliver.group(0), re.compile(
-            r"let polished = try await Self\.polish\(result, settings: polish\).*?try request\.checkCurrent\(id\).*?output = polished.*?status = \"已完成\"",
+            r"let polished = try await VoicePolishService\.polish\(result, settings: polish\).*?try request\.checkCurrent\(id\).*?output = polished.*?status = \"已完成\"",
             re.S,
         ))
 
