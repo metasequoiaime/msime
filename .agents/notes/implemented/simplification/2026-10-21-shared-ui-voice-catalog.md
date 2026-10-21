@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-共享 React 设置页重复保存 Rust 语音目录已有的识别服务、润色服务和豆包流式接口元数据。默认地址、建议模型、文档链接和选择器标题因此需要分别维护。鸿蒙的润色器、HTTP 识别策略与初始语音配置还分别手写同一目录中的默认地址与模型，HTTP 识别另有一份服务到请求格式的映射，运行时与设置页可能漂移。
+共享 React 设置页重复保存 Rust 语音目录已有的识别服务、润色服务和豆包流式接口元数据。默认地址、建议模型、文档链接和选择器标题因此需要分别维护。鸿蒙的润色器、HTTP 识别策略与初始语音配置还分别手写同一目录中的默认地址与模型，HTTP 识别另有一份服务到请求格式的映射，运行时与设置页可能漂移。Linux 语音脚本也重复保存两类服务集合、默认地址与模型，以及整句上传格式。
 
 ## Decision
 
@@ -16,16 +16,19 @@ Status: implemented
 
 `VoiceProviderCatalog.httpAsrEndpoint`、`httpAsrModel` 和 `httpAsrRequestFormat` 同样使用静态 switch。导出器遍历 `ASR_PROVIDERS`，通过真实 `voice::provider::asr_request_format` 只保留 `multipart` 与 `chat_audio`；豆包流式、本地、系统和未知服务不进入 HTTP 路径。`HttpAsrConfigurationPolicy` 同步读取这三项，未知 id 的默认值仍为 `null`，每次返回新的默认对象，provider 的大小写与空白继续按原样匹配。自定义地址、模型的 trim 与优先级、凭据槽位、请求预检、语种和请求体继续由原策略负责。构建工具的五个方法共用同一个字符串转义与 switch 渲染函数。
 
+Linux 的生成模块 `msime_voice_provider_catalog.py` 同步导出 `ASR_PROVIDERS`、`POLISH_PROVIDERS`、`DEFAULT_ENDPOINTS`、`DEFAULT_MODELS` 与 `REQUEST_FORMATS`。两类服务集合由 Rust 目录的默认模型表取键，保持原有 Python set/dict 形状；HTTP 格式使用同一个真实 `asr_request_format` 筛选结果，豆包仍在识别目录、但不在 HTTP 格式表，本地识别仍由宿主单独追加。消费者直接导入原有五个名称，私有配置、profile 校验、凭据、trim、自定义值优先和请求构造继续由宿主负责。生成模块与润色提示词模块一同安装在各版本的可执行文件目录，不增加 JSON 文件初始化或新的网络访问。
+
 ## Alternatives considered
 
 - 直接从宿主异步读取 C ABI：可以免除生成物，但共享 UI 的预设和更新接口目前同步，ArkWeb 与 Tauri 又走不同桥，改动会扩展到加载生命周期和调用方。
 - 鸿蒙经已有 NAPI 动态读取目录：能复用真实 ABI，不用增加静态投影；但会让原来同步可靠的默认值读取依赖原生库加载和信封解析，纯键盘策略测试也不能直接消费。默认值随版本固定，沿用静态导出可以保持该路径的初始化与失败行为。
 - Rust 和 TypeScript 共同读取 JSON：无需生成，但 Rust 的常量切片需要改成运行时解析和分配，引入新的失败行为，超出静态目录迁移。
+- Linux 运行时读取共享 JSON：可以直接安装已有 JSON、免去 Python 投影；但会给原来只导入模块的初始化增加 JSON 路径、读取和解析失败，安装结构也要多维护一类数据文件。沿用已有润色提示词的普通模块导入和安装方式，可以保持配置与启动边界。
 - 文本脚本解析 Rust：无需编译，但会把 Rust 表达式与字符串语法的解释复制到脚本，不能可靠复用现有序列化。
 
 ## Consequences
 
-共享 UI 只维护模型到现有 API 的投影，端点、默认模型、建议模型、文档和标题随 Rust 目录更新。提交的 JSON 和鸿蒙 TypeScript 增加生成物维护成本，以同一真实 Rust 导出检查阻止漂移。鸿蒙的四项润色与六项 HTTP 识别服务地址、模型、HTTP 格式映射和初始配置不再各自保存一份字面量；配置选择仍按平台策略，凭据字段仍由宿主适配，新增服务需要同时接好对应槽位。兼容顺序只保存标识优先级，不复制端点、模型或标题；新增服务排在历史项之后，选择器仍遵循 Rust 顺序。若以后共享 UI 接入统一的异步目录桥，可重访静态生成方案。
+共享 UI 只维护模型到现有 API 的投影，端点、默认模型、建议模型、文档和标题随 Rust 目录更新。提交的 JSON 和鸿蒙 TypeScript 增加生成物维护成本，以同一真实 Rust 导出检查阻止漂移。鸿蒙的四项润色与六项 HTTP 识别服务地址、模型、HTTP 格式映射和初始配置不再各自保存一份字面量；Linux 的两类服务集合、地址、模型与 HTTP 格式也由同一导出器更新。Python 模块必须随语音服务安装，full 与各独立版本不能漏装；配置选择仍按平台策略，凭据字段仍由宿主适配，新增服务需要同时接好对应槽位。兼容顺序只保存标识优先级，不复制端点、模型或标题；新增服务排在历史项之后，选择器仍遵循 Rust 顺序。若以后共享 UI 接入统一的异步目录桥，可重访静态生成方案。
 
 检索活跃笔记中的 `provider_catalog`、`ASR_PROVIDER_DEFAULTS` 和语音服务目录。[iOS 目录读取](2026-10-21-ios-voice-provider-catalog.md)拥有 Swift C ABI 读取，[Windows 语音页](../feature/2026-10-11-windows-settings-voice-page.md)拥有共享目录与原生页绑定；本片新增的是 React 与鸿蒙默认值的静态投影，不改变那些决定。[预设公共模型](2026-10-16-provider-preset-model.md)仍持有 `ProviderDefaults` 字段契约，投影继续复用它。[百炼请求格式](../feature/2026-10-09-bailian-asr-request-format.md)部分重叠于 HTTP 格式契约；这里消除鸿蒙的映射副本，上传格式和非 HTTP 的边界不变。[EveryAPI 默认模型修复](../bug-fix/2026-10-12-everyapi-asr-default-model.md)保留原修复理由，鸿蒙目前从共享目录读取当时固定的模型。
 
@@ -45,3 +48,8 @@ Status: implemented
 - HTTP 生成物的 `--check` 在旧 TypeScript 上先失败，重新生成后通过；临时修改识别模型后也非零退出，恢复后通过。无参仍只输出与固定 base 语义一致的 JSON，原润色生成方法逐字相等；严格 TypeScript 编译与新 HTTP 回归、定向格式检查通过。
 - HTTP 迁移的 `platforms/harmony/tests/run.sh` 全套为 `0 failure(s)`，`cargo fmt --all -- --check`、exporter 的 `clippy -D warnings` 与笔记门禁通过。独立审查严格编译并运行新增 HTTP 和既有润色回归、104 组真实配置对照，未发现实质问题。最终 `hvigorw assembleHap --no-daemon` 通过真实 `CompileArkTS`，28 秒完成；HAP 内核实 `ets/modules.abc` 与三项 arm64 原生库。未安装鸿蒙设备或运行输入法 UI。
 - HTTP 迁移的完整 `bash scripts/verify-local.sh --quick` 通过：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 108 项测试与 full/五笔双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过；2 项由宿主差异排除、64 项需要 Windows 构建，未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。
+- Linux 迁移前固定七项识别和四项润色的真实公开目录，并用真实 `load_config` 记录 484 组合法/非法、自定义/默认及 profile 配置结果。注入合成模块的消费者探针在旧实现上以“识别服务集合仍是宿主副本”失败，确认测试能识别未接入生成数据的宿主。
+- Linux 消费者接入生成模块后，同一合成探针与两项持久回归通过：真实配置读取合成服务集合、默认地址/含中文与非 BMP 字符的模型、大小写 profile、本地 profile 与自定义值，实际请求按合成的 chat_audio 生成正文；移除的旧服务被真实校验拒绝。迁移前后 484 组配置解析逐字一致，原鸿蒙生成类逐字不变。
+- Linux 原生容器门禁通过：109 项 CTest 全部通过，full 与五笔版原生构建、两套安装路径隔离、辅助码、五笔宿主库链接和日文版登记检查完成。再用容器 Python `-I` 分别加载两套已安装的语音服务，两项目录与真实配置回归各自通过；新模块确实从各自安装目录导入。未启动真实 IBus/Fcitx5 输入会话。
+- Linux 独立审查未发现实质问题，另跑九项定向测试并核对原有五个公开表的名称、set/dict 类型和值、无参 JSON 语义和鸿蒙输出字节。导出器缺少新模块或模型被篡改时均拒绝，恢复后通过；定向 Python 共 14 项、格式与严格 clippy 通过。
+- Linux 迁移的完整 `bash scripts/verify-local.sh --quick` 以 `quick check passed` 结束：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 109 项测试与双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过，2 项由宿主差异排除、64 项需要 Windows 构建；未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。

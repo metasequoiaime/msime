@@ -6,6 +6,7 @@ use msime_client_providers::voice::provider::{
 use msime_client_providers::voice::provider_catalog::{
     ASR_PROVIDERS, DOUBAO_STREAM_ENDPOINTS, POLISH_PROVIDERS,
 };
+use std::collections::BTreeMap;
 use std::path::Path;
 
 fn harmony_method<'a>(
@@ -75,6 +76,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let harmony = format!(
         "// 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nexport class VoiceProviderCatalog {{\n{methods}}}\n"
     );
+    let models = serde_json::json!({
+        "asr": ASR_PROVIDERS.iter().map(|p| (p.id, p.model)).collect::<BTreeMap<_, _>>(),
+        "polish": POLISH_PROVIDERS.iter().map(|p| (p.id, p.model)).collect::<BTreeMap<_, _>>(),
+    });
+    let endpoints = serde_json::json!({
+        "asr": ASR_PROVIDERS.iter().map(|p| (p.id, p.endpoint)).collect::<BTreeMap<_, _>>(),
+        "polish": POLISH_PROVIDERS.iter().map(|p| (p.id, p.endpoint)).collect::<BTreeMap<_, _>>(),
+    });
+    let formats: BTreeMap<_, _> = http_asr.iter().map(|(p, format)| (p.id, *format)).collect();
+    let python = format!(
+        "# 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nDEFAULT_MODELS = {}\nDEFAULT_ENDPOINTS = {}\nREQUEST_FORMATS = {}\nASR_PROVIDERS = set(DEFAULT_MODELS[\"asr\"])\nPOLISH_PROVIDERS = set(DEFAULT_MODELS[\"polish\"])\n",
+        serde_json::to_string_pretty(&models)?,
+        serde_json::to_string_pretty(&endpoints)?,
+        serde_json::to_string_pretty(&formats)?
+    );
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (relative, content, semantic) in [
         (
@@ -85,6 +101,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             "platforms/harmony/entry/src/main/ets/keyboard/input/VoiceProviderCatalog.ts",
             harmony,
+            false,
+        ),
+        (
+            "platforms/linux/scripts/msime_voice_provider_catalog.py",
+            python,
             false,
         ),
     ] {
