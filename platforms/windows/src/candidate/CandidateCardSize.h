@@ -551,7 +551,7 @@ candidate_single_line_minimum_width(const std::vector<CandidateItemWidths> &item
   }
   return total;
 }
-// The columns of a horizontal page on a single line `line_width` wide, each including the column gap. Columns that fit keep their natural widths. Otherwise each column whose translation is wider than its candidate line gives up room, never below that line and in proportion to how much it could give, so the translations wrap under their text instead of the page starting a second line. None when the candidate lines alone do not fit. The macOS port is SingleLineColumns in platforms/macos/src/candidate/CandidateItemLayout.h.
+// The columns of a horizontal page on a single line `line_width` wide, each including the column gap. Columns that fit keep their natural widths. Otherwise each column whose translation is wider than its candidate line gives up room, never below that line and in proportion to how much it could give, so the translations wrap under their text instead of the page starting a second line. None when the candidate lines alone do not fit. The macOS and Linux port is SingleLineColumns in shared/candidate/CandidateItemLayout.h.
 inline std::optional<std::vector<double>>
 candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
                               double line_width,

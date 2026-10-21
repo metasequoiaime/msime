@@ -1207,7 +1207,7 @@ int main(int argc, char **argv) {
         phrase();
       };
       compose();
-      require(seen.auxiliary.rfind("1/", 0) == 0 && seen.auxiliary_visible,
+      require(seen.auxiliary.rfind("1 / ", 0) == 0 && seen.auxiliary_visible,
               "Legacy page indicator missing");
       visibility["preferences"]["show_candidate_page_number"] = false;
       msime_ibus_configure(visibility.dump());
@@ -1223,7 +1223,7 @@ int main(int argc, char **argv) {
               "Hidden indicator broke selection");
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
-      require(seen.auxiliary.rfind("1/", 0) == 0, "Re-enabled page indicator missing");
+      require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
       visibility["preferences"]["show_candidate_page_number"] = false;
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();

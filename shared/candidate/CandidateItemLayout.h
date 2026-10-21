@@ -7,7 +7,7 @@
 #include <optional>
 #include <vector>
 
-namespace msime::mac
+namespace msime::candidate
 {
 // Candidate item geometry ported from the Windows presenter: candidate_item_layout and candidate_page_layout in platforms/windows/src/candidate/CandidateCardSize.h, which are themselves ports of the shipped CandidateList::MeasureItem and CandidateList::Measure. Widths and heights arrive already measured in points, so this header only composes them and stays free of AppKit. Sizing, drawing and hit testing all read the one result: the candidate buttons take their frames from the rows and draw their runs into the boxes, so a wrapped line is always inside the area that answers the click.
 
@@ -322,4 +322,4 @@ inline double CandidatePageHeight(const std::vector<CandidateRowLayout> &rows)
         bottom = std::max(bottom, row.y + row.height);
     return bottom;
 }
-} // namespace msime::mac
+} // namespace msime::candidate

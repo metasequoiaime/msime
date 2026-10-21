@@ -246,6 +246,9 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     capabilities.os_version = macos_product_version();
     capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
+    if linux_native_canvas_renderer() {
+        capabilities.apply_linux_native_canvas();
+    }
     fill_linux_environment(&mut capabilities);
     let host_options = app
         .try_state::<DictionaryHostOptions>()
@@ -368,6 +371,19 @@ fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::Cand
     msime_client_core::host_surface::CandidatePanelLimit::from_host_status(
         &linux_candidate_panel_status_document()?,
     )
+}
+
+/// Fcitx5 宿主报告它在 X11 会话里用原生画布画候选窗（状态文件的 `"renderer": "native_canvas"`）；这时设置页也给展开候选、拼音字号和选中外观。
+#[cfg(target_os = "linux")]
+fn linux_native_canvas_renderer() -> bool {
+    linux_candidate_panel_status_document()
+        .as_deref()
+        .is_some_and(msime_client_core::host_surface::linux_native_canvas_renderer)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_native_canvas_renderer() -> bool {
+    false
 }
 
 /// 运行中的 Linux 宿主写的候选面板状态文件（`{"host": ..., "limit": ...}`）的内容；宿主没在运行或还没写过时为 `None`。

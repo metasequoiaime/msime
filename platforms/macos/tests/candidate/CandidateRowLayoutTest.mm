@@ -435,7 +435,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     NSFont *glossFont = read.translationFont;
     const CGFloat glossWidth = MSIMECandidateSingleLineWidth(@"Animation protagonist", glossFont);
     const CGFloat ipaWidth = MSIMECandidateSingleLineWidth(ipa, glossFont);
-    const msime::mac::CandidateRunBox &run = read.itemLayout.translation;
+    const msime::candidate::CandidateRunBox &run = read.itemLayout.translation;
     assert(run.below && fabs(run.y - plain.itemLayout.translation.y) < 0.5);
     assert(run.height > glossLine * 1.5 && run.height < glossLine * 2.5);
     // 每一行都放得下，不折行：格子按较宽的那一行量，不按「释义  读音」连在一起的宽度。

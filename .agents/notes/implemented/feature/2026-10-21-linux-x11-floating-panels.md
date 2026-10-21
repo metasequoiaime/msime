@@ -35,7 +35,7 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 
 - 条件与 macOS 的 `updateKeymapPanel` 相同：有焦点、中文输入开着、`shuangpin_keymap_hint` 打开、双拼方案、没有局部模式、不在英文候选模式、正在组字；自定义方案不画。键位表经 `msime_client_shuangpin_key_hints` / `msime_client_shuangpin_zero_initials` 读 Engine 自己的表，按方案缓存。
 - 只画给报根窗口坐标光标的客户端：Fcitx5 看输入上下文的 display 是否 `x11:`，IBus 看会话里没有 `WAYLAND_DISPLAY`，与切换徽章的判据相同。光标矩形高为 0 时不画（`MSIMEValidCaret`）。
-- 摆放照 `MSIMEShuangpinKeymapPanelFrame`：左边对齐光标，放在光标下方、让开候选窗再隔 8，下面放不下就翻到光标上方，收进工作区四边 16。Fcitx5 自己画候选窗（原生画布）时用画布窗口的真实矩形（`NativeCanvasX11::frame`、`shuangpin_keymap_measured_clearance`）；候选窗由 IBus 面板或 Fcitx5 经典界面画时宿主拿不到它的矩形，候选窗高度按候选字号、横竖排、条数和拼音行估计，与 macOS 在算精确几何之前的基线公式相同。经典界面的字体是插件按同一个候选字号偏好写进去的，所以估计用的字号与它画的一致。
+- 摆放照 `MSIMEShuangpinKeymapPanelFrame`：左边对齐光标，放在光标下方、让开候选窗再隔 8，下面放不下就翻到光标上方，收进工作区四边 16。Fcitx5 自己画候选窗（原生画布，[X11 上的默认候选窗](../architecture/2026-10-21-linux-x11-native-candidate-default.md)）时用画布里卡片的真实矩形（`NativeCanvasX11::frame`、`shuangpin_keymap_measured_clearance`）：画布窗口四周还有合成器下的投影边距、装饰图伸出的部分和外留白，按整个窗口算会让键位图离看得见的卡片远出一截，候选窗在光标下方而窗口顶边因投影或装饰带高过光标底边时还会误判成翻到了光标上方，所以 `frame` 按 `shape`、`place` 同一套平移报卡片（`layout.panel`）的矩形，退场动画中算已收起；候选窗由 IBus 面板或 Fcitx5 经典界面画时宿主拿不到它的矩形，候选窗高度按候选字号、横竖排、条数和拼音行估计，与 macOS 在算精确几何之前的基线公式相同。经典界面的字体是插件按同一个候选字号偏好写进去的，所以估计用的字号与它画的一致。
 - 卡片 620 × 203、13 圆角；macOS 的标题行没有固定高度，被约束撑到 33，这里直接写成 33。高亮键与 macOS 的 `MSIMEKeymapAccent` 一样填主题的强调色（`accent` 槽位）、白字；系统主题解析出的 `accent` 是 Adwaita 写在卡片上的强调字色（深色下是浅蓝），这时改用 GNOME 的强调底色 #3584E4（产品决定：系统主题在 Linux 上用 Adwaita 的配色）。
 
 ### 能力位与设置页
@@ -63,7 +63,7 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 - **代价与已知上限**：
   - 工具栏默认开着（共享默认值），所以升级后 X11 用户第一次会在屏幕右下角看到它；不想要可以在菜单里取消「显示工具栏」或点「隐藏悬浮状态栏」。GNOME Shell 下 IBus 的输入源菜单没有「工具栏」子菜单，也没有「显示工具栏」开关：那里只能在设置的「悬浮工具栏」页关掉，或用设置按钮右键菜单里的「隐藏悬浮状态栏」；重新打开只能回设置页，设置页的说明照这个写。
   - Wayland 原生客户端没有键位图；Wayland 会话里的工具栏经 Xwayland，失焦就收起，KDE 分数缩放下 Xwayland 窗口可能发虚。没有 Xwayland 的 Wayland 会话只有「工具栏」子菜单。
-  - IBus 面板和 Fcitx5 经典界面画的候选窗，键位图让开它靠估计，主题加了大装饰或者面板字体被另行改大时可能被盖住一点；Fcitx5 原生画布用真实矩形。
+  - IBus 面板和 Fcitx5 经典界面画的候选窗，键位图让开它靠估计，主题加了大装饰或者面板字体被另行改大时可能被盖住一点；Fcitx5 原生画布用卡片的真实矩形。
   - 全屏只在前台窗口变化时重查，应用在同一个窗口里按 F11 进入全屏时，要到下一次换窗口才收起。
   - 菜单和提示不响应键盘（菜单抓指针，不抢键盘焦点），Escape 不会收起菜单；点到外面或换窗口才收起。
   - IBus 上属主失焦后切换类按钮画成不能用，要回到输入框才能用；macOS 上它们失焦后仍然生效。打开面板、官网、设置和隐藏照常。

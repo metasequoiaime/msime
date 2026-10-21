@@ -3982,8 +3982,8 @@ void underline_preedit(IBusText *text, guint length) {
 }
 // The aux line above a candidate page: the page number, the reading when the candidate preedit shows it, the local mode, and the typing combo while there is one.
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
-  auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
-                std::to_string(view.at("page_count").get<size_t>());
+  auto paging = msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
+                                                            view.at("page_count").get<size_t>());
   if (!state(engine).show_candidate_page_number) paging.clear();
   if (state(engine).candidate_preedit_style == "pinyin") {
     const auto candidate_preedit = view.value("preedit", std::string{});

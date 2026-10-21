@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../../../../shared/candidate/CandidateDecoration.h"
+
 namespace msime::mac
 {
 struct Rgba
@@ -95,12 +97,8 @@ struct SkinColors
 };
 
 // Where the decoration sits along the card's top edge; right is where every host drew it before a manifest could say otherwise.
-enum class DecorationAlign
-{
-    left,
-    center,
-    right,
-};
+// 装饰图对齐、摆放和动效余量与 Linux 的 X11 原生画布共用 shared/candidate/CandidateDecoration.h。
+using msime::candidate::DecorationAlign;
 
 enum class BackgroundFit
 {
@@ -246,8 +244,7 @@ enum class DecorationMotion
     bounce,
 };
 
-// 有待机动效的装饰图在窗口顶边和左右两边至少留出的点数。各动效的最大位移都不超过它（见 CandidateMotion.mm），候选窗内容视图裁掉越界部分时装饰图不会被切掉。
-constexpr double kDecorationMotionMargin = 4.0;
+using msime::candidate::kDecorationMotionMargin;
 
 enum class SkinAnimationPreset
 {
@@ -277,65 +274,9 @@ struct SkinLicense
     std::string source;
 };
 
-// The x of a decoration `width` wide over a card `cardWidth` wide: `pad` in from the edge it is aligned to, or centred, never left of the card. The same rule as the Windows host's candidate_decoration_left.
-inline double DecorationLeft(DecorationAlign align, double cardWidth, double pad, double width)
-{
-    double left = cardWidth - pad - width;
-    switch (align)
-    {
-    case DecorationAlign::left:
-        left = pad;
-        break;
-    case DecorationAlign::center:
-        left = (cardWidth - width) / 2.0;
-        break;
-    case DecorationAlign::right:
-        break;
-    }
-    return left > 0.0 ? left : 0.0;
-}
-
-// Where the decoration is drawn, in top-down coordinates: x from the card's left edge, top from the window's top edge.
-struct DecorationRect
-{
-    double x = 0.0;
-    double top = 0.0;
-    double width = 0.0;
-    double height = 0.0;
-};
-
-// The decoration as every host draws it: the window is `band` taller than the card and that band is transparent; the image is `width` wide at its own aspect ratio, its bottom `pad` below the card's top edge so it sits over the edge, and it is drawn after the card. An image too tall for the band and the overlap is scaled down whole rather than squashed. None for an empty band, width or image.
-// `margin` 是待机动效要的余量（有动效时传 kDecorationMotionMargin）：图片顶边离窗口顶边、左右两边离窗口边缘都至少这么远，放不下就整张等比缩小，底边仍压在卡片顶边上的同一位置。
-inline std::optional<DecorationRect> DecorationPlacement(DecorationAlign align, double cardWidth, double pad, double band,
-                                                         double width, double imageWidth, double imageHeight,
-                                                         double margin = 0.0)
-{
-    if (!(band > 0.0) || !(width > 0.0) || !(imageWidth > 0.0) || !(imageHeight > 0.0))
-        return std::nullopt;
-    const double room = band + pad;
-    const bool moving = margin > 0.0;
-    const double tallest = moving ? room - margin : room;
-    const double widest = cardWidth - 2.0 * margin;
-    if (!(tallest > 0.0) || (moving && !(widest > 0.0)))
-        return std::nullopt;
-    double height = width * imageHeight / imageWidth;
-    if (height > tallest)
-    {
-        width *= tallest / height;
-        height = tallest;
-    }
-    if (moving && width > widest)
-    {
-        height *= widest / width;
-        width = widest;
-    }
-    double left = DecorationLeft(align, cardWidth, pad, width);
-    if (moving && left < margin)
-        left = margin;
-    if (moving && left + width > cardWidth - margin)
-        left = cardWidth - margin - width;
-    return DecorationRect{left, room - height, width, height};
-}
+using msime::candidate::DecorationLeft;
+using msime::candidate::DecorationPlacement;
+using msime::candidate::DecorationRect;
 
 struct SkinRect
 {

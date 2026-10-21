@@ -1,11 +1,11 @@
-#include "candidate/CandidateExpandedGrid.h"
+#include "../../../../shared/candidate/CandidateExpandedGrid.h"
 
 #include <cassert>
 
-using msime::mac::ExpandedGridFirstRow;
-using msime::mac::ExpandedGridMove;
-using msime::mac::ExpandedGridRows;
-using msime::mac::StepExpandedGrid;
+using msime::candidate::ExpandedGridFirstRow;
+using msime::candidate::ExpandedGridMove;
+using msime::candidate::ExpandedGridRows;
+using msime::candidate::StepExpandedGrid;
 
 int main()
 {

@@ -655,6 +655,39 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
 }
 
 #[test]
+fn linux_native_canvas_renderer_reads_the_fcitx5_report() {
+    // platforms/linux 的 candidate_panel_status_document("fcitx5", None, true) 逐字节写出的就是这一行。
+    let native = "{\"host\":\"fcitx5\",\"limit\":null,\"renderer\":\"native_canvas\"}\n";
+    assert!(linux_native_canvas_renderer(native));
+    assert_eq!(CandidatePanelLimit::from_host_status(native), None);
+    for document in [
+        r#"{"host":"fcitx5","limit":null}"#,
+        r#"{"host":"fcitx5","limit":null,"renderer":"classicui"}"#,
+        r#"{"host":"ibus","limit":"ibus_panel","renderer":7}"#,
+        "not json",
+        "",
+    ] {
+        assert!(!linux_native_canvas_renderer(document), "{document}");
+    }
+    let mut linux = HostCapabilities::for_platform(HostPlatform::Linux);
+    assert!(
+        !linux.expand_candidates
+            && !linux.candidate_preedit_font
+            && !linux.candidate_selection_appearance
+    );
+    linux.apply_linux_native_canvas();
+    assert!(
+        linux.expand_candidates
+            && linux.candidate_preedit_font
+            && linux.candidate_selection_appearance
+    );
+    let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
+    let before = windows.clone();
+    windows.apply_linux_native_canvas();
+    assert_eq!(windows, before);
+}
+
+#[test]
 fn candidate_panel_limit_reads_only_what_the_host_reported() {
     assert_eq!(
         CandidatePanelLimit::from_host_status(r#"{"host":"ibus","limit":"gnome_shell"}"#),

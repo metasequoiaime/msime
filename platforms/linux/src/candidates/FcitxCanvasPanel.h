@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <memory>
+#include <vector>
 #include <cstring>
 
 #include <cairo.h>
@@ -144,8 +146,29 @@ inline cairo_surface_t *decode_fcitx_canvas_image(const std::string &bytes) {
   return surface;
 }
 
+// canvas 包的自由挂件（`decorations[]`）在 classicui 面板图里的位置：按与原生画布相同的锚点规则（native_canvas_decoration_box）放在最小尺寸的面板图上，`card` 是面板图里卡片（九宫格内框）的矩形。classicui 会把面板图按九宫格拉伸，只有整个落在某个角的切片里（左或右边距列、上或下边距行）的挂件在拉伸后仍保持原样，其余的会被拉变形，所以不放进来，返回空。
+inline std::optional<std::array<double, 4>> fcitx_canvas_widget_box(const nlohmann::json &item, std::array<double, 4> card,
+                                                                     double width, double height, const std::array<int, 4> &margin) {
+  if (!item.is_object() || !item.contains("widthDip") || !item.contains("heightDip") ||
+      !item["widthDip"].is_number() || !item["heightDip"].is_number()) return std::nullopt;
+  const double w = item["widthDip"].get<double>(), h = item["heightDip"].get<double>();
+  if (!(w > 0) || !(h > 0)) return std::nullopt;
+  const auto anchor = item.value("anchor", std::string("right"));
+  const double x = anchor.find("left") != std::string::npos ? card[0]
+      : anchor.find("right") != std::string::npos ? card[0] + card[2] - w : card[0] + (card[2] - w) / 2;
+  const double y = anchor.find("top") != std::string::npos ? card[1]
+      : anchor.find("bottom") != std::string::npos ? card[1] + card[3] - h : card[1] + (card[3] - h) / 2;
+  const std::array<double, 4> box{x + item.value("offsetXDip", 0.0), y + item.value("offsetYDip", 0.0), w, h};
+  const bool left = box[0] >= 0 && box[0] + w <= margin[3];
+  const bool right = box[0] >= width - margin[1] && box[0] + w <= width;
+  const bool top = box[1] >= 0 && box[1] + h <= margin[0];
+  const bool bottom = box[1] >= height - margin[2] && box[1] + h <= height;
+  if (!(left || right) || !(top || bottom)) return std::nullopt;
+  return box;
+}
+
 // classicui 的源切片与显示边宽共用 Margin；先分别缩放九块，使两者不同的清单仍保留边框比例。
-// 这里只准备静态画布，动画能力不能由生成了贴图推断。
+// 这里只准备静态画布，动画能力不能由生成了贴图推断：动图（面板和挂件）都只取第一帧。Wayland 上输入法不能自己摆窗口，classicui 是唯一的画法，所以落在角上的自由挂件按 zIndex 画进面板图（z < 1 在面板下，其余在面板上），别处的挂件和帧动画只有 X11 的原生画布画得出来。
 inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann::json &summary,
                                                                 const std::filesystem::path &directory,
                                                                 std::string_view id, bool dark,
@@ -204,11 +227,44 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
                        static_cast<double>(width - panel.margin[1]), static_cast<double>(width - panel.outer[1])};
   const double dy[] = {static_cast<double>(panel.outer[0]), static_cast<double>(panel.margin[0]),
                        static_cast<double>(height - panel.margin[2]), static_cast<double>(height - panel.outer[2])};
+  // 落在角上的挂件，按 zIndex 排好；读不出或解不开的挂件只是少画，面板照样生成。
+  struct Widget { std::array<double, 4> box; int z; std::shared_ptr<cairo_surface_t> image; };
+  std::vector<Widget> widgets;
+  const std::array<double, 4> card{static_cast<double>(panel.outer[3]), static_cast<double>(panel.outer[0]),
+      static_cast<double>(width - panel.outer[3] - panel.outer[1]), static_cast<double>(height - panel.outer[0] - panel.outer[2])};
+  for (const auto &item : summary.value("decorations", nlohmann::json::array())) {
+    const auto box = fcitx_canvas_widget_box(item, card, width, height, panel.margin);
+    if (!box || !item.contains("image")) continue;
+    const auto widget_path = fcitx_canvas_resource(directory, id, item["image"]);
+    const auto widget_bytes = widget_path ? read_fcitx_canvas_image(*widget_path) : std::nullopt;
+    std::shared_ptr<cairo_surface_t> widget(widget_bytes ? decode_fcitx_canvas_image(*widget_bytes) : nullptr, cairo_surface_destroy);
+    if (!widget || cairo_surface_status(widget.get()) != CAIRO_STATUS_SUCCESS) continue;
+    widgets.push_back({*box, item.value("zIndex", 2), std::move(widget)});
+  }
+  std::stable_sort(widgets.begin(), widgets.end(), [](const auto &left, const auto &right) { return left.z < right.z; });
+  const auto paint_widgets = [&](cairo_t *cr, bool front) {
+    for (const auto &widget : widgets) {
+      if ((widget.z >= 1) != front) continue;
+      const double image_width = cairo_image_surface_get_width(widget.image.get());
+      const double image_height = cairo_image_surface_get_height(widget.image.get());
+      if (image_width <= 0 || image_height <= 0) continue;
+      // 与原生画布相同：等比放进挂件框并居中。
+      const double ratio = std::min(widget.box[2] / image_width, widget.box[3] / image_height);
+      cairo_save(cr);
+      cairo_translate(cr, widget.box[0] + (widget.box[2] - image_width * ratio) / 2, widget.box[1] + (widget.box[3] - image_height * ratio) / 2);
+      cairo_scale(cr, ratio, ratio);
+      cairo_set_source_surface(cr, widget.image.get(), 0, 0);
+      cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+      cairo_paint(cr);
+      cairo_restore(cr);
+    }
+  };
   std::array<std::string, 2> rendered;
   for (int scale = 1; scale <= 2; ++scale) {
     Surface target(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width * scale, height * scale), cairo_surface_destroy);
     std::unique_ptr<cairo_t, decltype(&cairo_destroy)> cr(cairo_create(target.get()), cairo_destroy);
     cairo_scale(cr.get(), scale, scale);
+    paint_widgets(cr.get(), false);
     for (int row = 0; row < 3; ++row) for (int col = 0; col < 3; ++col) {
       if (!fill && row == 1 && col == 1) continue;
       const double sw = x[col + 1] - x[col], sh = y[row + 1] - y[row];
@@ -225,6 +281,7 @@ inline std::optional<FcitxCanvasPanel> prepare_fcitx_canvas_panel(const nlohmann
       cairo_paint(cr.get());
       cairo_restore(cr.get());
     }
+    paint_widgets(cr.get(), true);
     if (cairo_status(cr.get()) != CAIRO_STATUS_SUCCESS || cairo_surface_status(target.get()) != CAIRO_STATUS_SUCCESS)
       return std::nullopt;
     if (cairo_surface_write_to_png_stream(target.get(), [](void *closure, const unsigned char *data, unsigned int length) {
