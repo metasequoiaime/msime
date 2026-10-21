@@ -37,7 +37,7 @@ struct NativeCanvasX11::Impl {
   nlohmann::json palette;
   double scale = 1;
   int width = 1, height = 1;
-  // move 最后一次把窗口放到的位置。
+  // place 最后一次把窗口放到的位置（窗口左上角，含投影边距和外留白）。
   int window_x = 0, window_y = 0;
   int measured_work_width = 0, measured_work_height = 0;
   int pressed = -1, hovered = -1;
