@@ -30,6 +30,7 @@ test('complete build pagination deduplicates builds and collects only aggregate 
       return parsed.searchParams.has('cursor') ? answer([build('a'), build('b')]) : answer([build('a')], `${url}&cursor=next`);
     }
     assert.ok(!url.includes('betaTester'));
+    assert.equal(parsed.searchParams.has('limit'), false, 'the live build usage API rejects limit; pagination follows Apple links');
     return answer(metrics([point(url.includes('/a/') ? 5 : 0)]));
   };
   assert.deepEqual(await collectStats('123', credentials, request, new Date('2026-10-21T10:00:00Z')), {

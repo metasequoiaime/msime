@@ -81,7 +81,7 @@ export async function collectStats(appId, credentials, request = fetch, now = ne
     check(build.type === 'builds' && typeof build.id === 'string' && /^[a-z0-9-]+$/i.test(build.id) && build.attributes?.processingState === 'VALID', 'Invalid Apple build response');
     if (ids.has(build.id)) continue;
     ids.add(build.id);
-    const stats = buildInstalls(await applePages(`/v1/builds/${build.id}/metrics/betaBuildUsages?limit=200`, credentials, request));
+    const stats = buildInstalls(await applePages(`/v1/builds/${build.id}/metrics/betaBuildUsages`, credentials, request));
     installs += stats.installs;
     check(Number.isSafeInteger(installs), 'Apple install count overflow');
     periodStart = periodStart === null || stats.periodStart < periodStart ? stats.periodStart : periodStart;
