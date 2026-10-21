@@ -31,6 +31,7 @@ Status: implemented
 ## Consequences
 
 - 原生设置窗口不再为任何设置页拉起共享应用；`PageHost::Shell` 还在类型里，但没有页面用它。还会打开共享应用的只有输入工具面板（屏幕键盘、语音、手写、云词库、云剪贴板）和社区作品库（社区皮肤、社区词包与回复模板）。
+- 页面的版式（未登录时的居中卡片、资料卡、编辑资料里的账号信息、「云端」「我的内容」的跳转行、QQ 群助手卡片的状态）由 [「账号与同步」页的版式对齐 macOS](2026-10-20-windows-settings-account-mac-layout.md) 接手，本篇的流程和状态管理照旧。
 - 有意与共享页不同的两处：改了号码以后重发倒计时照样走完（共享页 challenge 清空后不再更新 `now`，「N 秒后可重新发送」会停住，按钮一直不可用）；「我的内容」四行都落在社区首页，要在那里自己选列表。
 - 昵称现在在发送改名请求之前就拒绝 C1 控制字符；旧的 Windows 预检会放行，随后由 Rust 拒绝。后端接受范围不变。控件的输入上限改为容纳 64 个码点所需的 128 个 UTF-16 单元，超过 64 个码点的草稿可以继续编辑但不能提交，避免把合法的非 BMP 昵称截短。昵称计算增加一次同步 JSON/C ABI 转换，但不触及会话、文件或网络；ABI 失败时保留草稿，保存报服务不可用。
 - 共享账号页的展示文案、`account-errors.ts` 或 `createDesktopSettingsSync` 的规则改了，要同步 `AccountPageModel.h` 和 `main.cpp`。Windows 的昵称业务规则归共享 Rust，`packages/ui` 的 `account-labels.ts` 仍有自己的同步实现，后续迁移不能引入异步旧草稿覆盖。错误码的说法由共享用例 `shared/contracts/account-errors/cases.json` 约束，`accountMessage` 和 `error_message` 逐条跑同一份（[账号会话布局与账号错误码的共享用例](../testing/2026-10-19-account-shared-contract-cases.md)）。

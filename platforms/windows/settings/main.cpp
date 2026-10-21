@@ -5983,6 +5983,7 @@ private:
     qq_links_requested_ = false;
     qq_link_code_.clear();
     qq_link_busy_ = false;
+    qq_link_adding_ = false;
     qq_link_message_.clear();
   }
 
@@ -6000,10 +6001,11 @@ private:
     account_resend_at_ = {};
     account_google_waiting_ = false;
     account_session_unreadable_ = false;
-    // 登录方式每次进入本页重读：上一次读到的结果不能留下来，否则这次读失败时旧的 true 会藏起「暂无可用登录方式」和「刷新」。共享页每次重新挂载，状态本来就是新的。
+    // 登录方式每次进入本页重读：上一次读到的结果不能留下来，否则这次读失败时旧的 true 会藏起登录卡片里那句没有登录方式的说明和底部的「刷新登录方式」；account_providers_loaded_ 为同一个原因在这里放回 false。共享页每次重新挂载，状态本来就是新的。
     account_email_ = false;
     account_phone_ = false;
     account_google_ = false;
+    account_providers_loaded_ = false;
     account_avatar_requested_.clear();
     reset_settings_sync();
     reset_qq_links();
@@ -6092,6 +6094,7 @@ private:
     account_email_ = flag(L"email");
     account_phone_ = flag(L"phone");
     account_google_ = flag(L"google");
+    account_providers_loaded_ = true;
   }
 
   // 登录（验证码或 Google）之后：记下用户，读资料，成功时说「登录成功。」。
@@ -6219,6 +6222,10 @@ private:
   }
 
   void refresh_account_providers() {
+    if (account_busy_)
+      return;
+    // 与共享页的 refreshProviders 相同：重读前先当作没读到，请求期间说「正在加载登录方式…」，失败时说「登录方式加载失败，请重试。」，只有成功时 apply_account_providers 才把它置回 true。
+    account_providers_loaded_ = false;
     if (!account_begin())
       return;
     account_request(account_action(L"providers"), [this](Response const &response) {
@@ -6690,9 +6697,12 @@ private:
   // ---- 绑定 QQ 群助手 ----
   // 共享账号页的 QqLinkCard（`packages/ui/src/account/qq-link-card.tsx`）：输入机器人给的绑定码，列出已有的绑定，可以解绑。经 msime_client_account 的 qq_links、qq_link_redeem、qq_link_delete，只用登录账号；离开账号页或换了账号时 account_generation_ 变了，旧的回答作废。文案和错误说法在 AccountPageModel.h。
 
+  // 读绑定列表时卡片也算在忙（共享卡片的 perform），显示「正在处理…」，按钮不可点。
   void load_qq_links() {
     qq_links_requested_ = true;
+    qq_link_busy_ = true;
     account_request(account_action(L"qq_links"), [this](Response const &response) {
+      qq_link_busy_ = false;
       const auto value = account_value(response);
       if (response.ok && value.ValueType() == JsonValueType::Object) {
         std::vector<std::pair<std::wstring, std::wstring>> links;
@@ -6731,7 +6741,8 @@ private:
         return;
       }
       qq_link_code_.clear();
-      qq_link_message_ = std::wstring(am::qq_link_bound);
+      qq_link_adding_ = false;
+      qq_link_message_ = std::wstring(am::qq_link_succeeded);
       load_qq_links();
     });
     redraw_account();
@@ -6765,16 +6776,56 @@ private:
     return created_at;
   }
 
+  // 与共享卡片相同：已有绑定时标题是「QQ 群助手」、说明换成已绑定那句，绑定码表单收起，绑定列表下面是「绑定其他 QQ」，点了才展开表单，表单里多一个「取消」（qq_link_adding_）；没有绑定时标题是「绑定 QQ 群助手」，直接给表单。绑定列表还没读到时不画表单，读失败时给「重试」。
   void build_qq_link_card(StackPanel const &page) {
     if (!qq_links_requested_)
       load_qq_links();
-    auto group = add_group(page, L"绑定 QQ 群助手");
+    const bool has_links = qq_links_ && !qq_links_->empty();
+    const auto title = std::wstring(am::qq_link_title(has_links));
+    auto group = add_group(page, title);
     record(L"绑定 QQ 群助手", std::wstring(am::qq_link_note));
     StackPanel body;
     body.Spacing(12);
     body.Padding(Thickness{0, 8, 0, 8});
-    body.Children().Append(make_text(am::qq_link_note, 13, palette_.sub));
+    if (has_links)
+      body.Children().Append(make_text(am::qq_link_bound, 12, palette_.sub));
+    if (am::qq_link_form_shown(qq_links_.has_value(), has_links, qq_link_adding_))
+      build_qq_link_form(body, has_links);
 
+    if (qq_links_)
+      for (auto const &[id, created_at] : *qq_links_)
+        add_row(body, 0, L"绑定于 " + qq_link_time(created_at), L"",
+                button_control(L"解绑", [this, id = id] { remove_qq_link(id); }, !qq_link_busy_));
+    if (has_links && !qq_link_adding_) {
+      auto add = button_control(L"绑定其他 QQ", [this] {
+        qq_link_adding_ = true;
+        qq_link_message_.clear();
+        redraw_account();
+      }, !qq_link_busy_);
+      add.HorizontalAlignment(HorizontalAlignment::Left);
+      body.Children().Append(add);
+    }
+    if (!qq_links_ && !qq_link_busy_ && !qq_link_message_.empty()) {
+      auto retry = button_control(L"重试", [this] {
+        qq_link_message_.clear();
+        load_qq_links();
+        redraw_account();
+      });
+      retry.HorizontalAlignment(HorizontalAlignment::Left);
+      body.Children().Append(retry);
+    }
+    if (qq_link_busy_)
+      body.Children().Append(make_text(L"正在处理…", 12, palette_.sub));
+    if (!qq_link_message_.empty())
+      body.Children().Append(make_text(qq_link_message_, 12, palette_.text));
+    A11y::SetName(body, hstring(title));
+    group.Children().Append(body);
+    mark_search_target(L"绑定 QQ 群助手", body);
+  }
+
+  // 绑定码表单：说明、绑定码输入框和「绑定」；已有绑定时（点了「绑定其他 QQ」）旁边多一个「取消」，收起表单、清掉输入和说明。
+  void build_qq_link_form(StackPanel const &body, bool has_links) {
+    body.Children().Append(make_text(am::qq_link_note, 12, palette_.sub));
     TextBox code;
     code.Width(160);
     code.FontSize(13);
@@ -6810,19 +6861,14 @@ private:
     field.Spacing(8);
     field.Children().Append(code);
     field.Children().Append(bind);
+    if (has_links)
+      field.Children().Append(button_control(L"取消", [this] {
+        qq_link_adding_ = false;
+        qq_link_code_.clear();
+        qq_link_message_.clear();
+        redraw_account();
+      }, !qq_link_busy_));
     add_row(body, 0, L"绑定码", L"在 QQ 群里 @机器人 发 /bind 拿到，10 分钟内有效", field);
-
-    if (qq_links_)
-      for (auto const &[id, created_at] : *qq_links_)
-        add_row(body, 0, L"绑定于 " + qq_link_time(created_at), L"",
-                button_control(L"解绑", [this, id = id] { remove_qq_link(id); }, !qq_link_busy_));
-    if (qq_link_busy_)
-      body.Children().Append(make_text(L"正在处理…", 12, palette_.sub));
-    if (!qq_link_message_.empty())
-      body.Children().Append(make_text(qq_link_message_, 12, palette_.text));
-    A11y::SetName(body, L"绑定 QQ 群助手");
-    group.Children().Append(body);
-    mark_search_target(L"绑定 QQ 群助手", body);
   }
 
   // ---- 页面 ----
@@ -6837,17 +6883,58 @@ private:
     return bar;
   }
 
-  // 卡片底部的小链接（account.link）。
+  // 卡片里的小链接（account.link）：12 DIP 灰字，没有内边距，悬停时换成正文色并加下划线，按下时也是正文色，没有底色。颜色走模板资源，直接设 Foreground 会被悬停态换回强调色；下划线模板里没有对应资源，所以内容是一个 TextBlock，指针进出时切换它的 TextDecorations。
   HyperlinkButton account_link(std::wstring const &label, std::function<void()> click,
                                bool enabled = true) {
+    using Microsoft::UI::Xaml::Input::PointerRoutedEventArgs;
+    using Windows::UI::Text::TextDecorations;
     HyperlinkButton link;
-    link.Content(box_value(hstring(label)));
+    TextBlock text;
+    text.Text(hstring(label));
+    link.Content(text);
+    A11y::SetName(link, hstring(label));
     link.FontSize(12);
+    link.Padding(Thickness{0, 0, 0, 0});
     link.IsEnabled(enabled);
+    link.PointerEntered([text](Inspectable const &sender, PointerRoutedEventArgs const &) {
+      if (sender.as<HyperlinkButton>().IsEnabled())
+        text.TextDecorations(TextDecorations::Underline);
+    });
+    link.PointerExited([text](Inspectable const &, PointerRoutedEventArgs const &) {
+      text.TextDecorations(TextDecorations::None);
+    });
+    auto resources = link.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"HyperlinkButtonForeground", palette_.sub);
+    put(L"HyperlinkButtonForegroundPointerOver", palette_.text);
+    put(L"HyperlinkButtonForegroundPressed", palette_.text);
+    put(L"HyperlinkButtonBackgroundPointerOver", transparent_color());
+    put(L"HyperlinkButtonBackgroundPressed", transparent_color());
     link.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
       on_click();
     });
     return link;
+  }
+
+  // 登录卡片按钮列里的整宽按钮（account.provider 和 account.submit）：铺满整列、文字居中，8 DIP 圆角，14,10 的内边距，中等字重；`primary` 是强调色底白字的那种（「获取验证码」「登录」），其余是普通按钮的底色和描边。
+  Button account_wide_button(std::wstring const &label, std::function<void()> click,
+                             bool enabled, bool primary) {
+    Button button;
+    button.Content(box_value(hstring(label)));
+    button.HorizontalAlignment(HorizontalAlignment::Stretch);
+    button.HorizontalContentAlignment(HorizontalAlignment::Center);
+    button.Padding(Thickness{14, 10, 14, 10});
+    button.CornerRadius(CornerRadius{8, 8, 8, 8});
+    button.FontWeight(Windows::UI::Text::FontWeight{500});
+    button.IsEnabled(enabled);
+    if (primary)
+      make_primary(button);
+    button.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
+      on_click();
+    });
+    return button;
   }
 
   void build_account_page(StackPanel const &page) {
@@ -6896,90 +6983,114 @@ private:
     } else {
       build_account_sign_in(page);
     }
-    auto footnote = make_text(L"皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；"
-                              L"账号登录不会自动上传本地设计或输入记录。",
-                              12, palette_.faint);
-    footnote.Margin(Thickness{4, 24, 4, 0});
-    page.Children().Append(footnote);
   }
 
-  // 账号介绍与登录方式分别成组，沿用设置页的标签、说明和操作两列布局。
+  // 未登录时整页是一张居中的卡片（共享页的 account.signIn）：8 DIP 圆角，左右 24、上下 32 的内边距；上面是 84 DIP 的「杉」头像、17 DIP 半粗体标题和一行 12 DIP 灰色说明（account.signInHeader），下面是最宽 320、居中的一列整宽按钮（account.signInBody）；两个恢复动作是卡片底部居中的灰色小链接（account.signInFooter）。选了邮箱或手机号后标题换成这种方式、说明换成验证码那句，按钮列换成验证码表单。
   void build_account_sign_in(StackPanel const &page) {
-    auto identity = add_group(page, L"");
-    Grid intro;
-    intro.ColumnSpacing(14);
-    intro.Padding(Thickness{0, 8, 0, 8});
-    ColumnDefinition avatar_column;
-    avatar_column.Width(GridLength{1, GridUnitType::Auto});
-    ColumnDefinition text_column;
-    text_column.Width(GridLength{1, GridUnitType::Star});
-    intro.ColumnDefinitions().Append(avatar_column);
-    intro.ColumnDefinitions().Append(text_column);
-    intro.Children().Append(make_account_avatar(52, 22, L"杉"));
-    StackPanel texts;
-    texts.Spacing(3);
-    texts.VerticalAlignment(VerticalAlignment::Center);
-    auto heading = make_text(L"水杉账号", 17, palette_.text);
-    heading.FontWeight(Windows::UI::Text::FontWeight{600});
-    texts.Children().Append(heading);
-    texts.Children().Append(make_text(
-        L"在设备之间同步设置和词库，分享候选窗口皮肤。", 11, palette_.sub));
-    Grid::SetColumn(texts, 1);
-    intro.Children().Append(texts);
-    identity.Children().Append(intro);
+    auto card = make_card();
+    card.CornerRadius(CornerRadius{8, 8, 8, 8});
+    card.Padding(Thickness{24, 32, 24, 32});
+    card.Margin(Thickness{0, 20, 0, 0});
+    StackPanel content;
+    content.Spacing(20);
 
+    StackPanel header;
+    header.Spacing(12);
+    auto avatar = make_account_avatar(84, 32, L"杉");
+    avatar.HorizontalAlignment(HorizontalAlignment::Center);
+    // 纯装饰，与共享页头像的 aria-hidden 相同。
+    A11y::SetAccessibilityView(avatar, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    header.Children().Append(avatar);
     const bool email = account_channel_ == AccountChannel::email;
-    auto group = add_group(page, account_channel_ == AccountChannel::none
-                                    ? L"登录" : email ? L"邮箱登录" : L"手机号登录");
-    if (account_channel_ == AccountChannel::none) {
-      if (account_google_)
-        add_row(group, 0, L"Google",
-                account_google_waiting_ ? L"正在等待浏览器完成登录…" : L"使用已有的 Google 账号",
-                button_control(L"使用 Google 登录", [this] { sign_in_with_google(); },
-                               !account_busy_));
-      if (account_google_waiting_)
-        add_row(group, 0, L"取消浏览器登录", L"可以改用邮箱或手机号",
-                account_link(L"取消", [this] { cancel_account_google(); }));
-      // 选择验证码方式时仍结束等待中的 Google 登录。
-      if (account_email_)
-        add_row(group, 0, L"邮箱", L"通过邮箱接收 6 位验证码",
-                button_control(L"邮箱登录",
-                               [this] { choose_account_channel(AccountChannel::email); }));
-      if (account_phone_)
-        add_row(group, 0, L"手机号", L"通过短信接收 6 位验证码",
-                button_control(L"手机号登录",
-                               [this] { choose_account_channel(AccountChannel::phone); }));
-      if (!account_email_ && !account_phone_ && !account_google_)
-        add_row(group, 0, L"暂无可用登录方式", L"请稍后刷新重试。", nullptr);
-    } else {
-      build_account_code_form(group, email);
-    }
-    mark_search_target(L"使用 Google 登录", group);
-    mark_search_target(L"邮箱登录", group);
-    mark_search_target(L"手机号登录", group);
+    const bool chosen = account_channel_ != AccountChannel::none;
+    StackPanel texts;
+    texts.Spacing(6);
+    auto heading = make_text(!chosen ? am::sign_in_welcome
+                             : email ? std::wstring_view{L"邮箱登录"}
+                                     : std::wstring_view{L"手机号登录"},
+                             17, palette_.text);
+    heading.FontWeight(Windows::UI::Text::FontWeight{600});
+    heading.TextAlignment(TextAlignment::Center);
+    texts.Children().Append(heading);
+    auto description = make_text(chosen ? am::sign_in_code_description : am::sign_in_description, 12,
+                                 palette_.sub);
+    description.TextAlignment(TextAlignment::Center);
+    texts.Children().Append(description);
+    header.Children().Append(texts);
+    content.Children().Append(header);
 
-    // 两个恢复动作只在出了问题时出现，与共享页相同：登录方式只在进入本页时读一次，读失败或一个都没有时（上面那行「暂无可用登录方式」）才给「刷新」；读不出本机登录状态（status 失败）时才给「清除失效登录状态」。
+    // 按钮列在卡片里居中：拉伸对齐受 MaxWidth 限制时居中摆放。
+    StackPanel body;
+    body.Spacing(10);
+    body.MaxWidth(320);
+    body.HorizontalAlignment(HorizontalAlignment::Stretch);
+    content.Children().Append(body);
+    card.Child(content);
+    page.Children().Append(card);
+    mark_search_target(L"使用 Google 登录", card);
+    mark_search_target(L"邮箱登录", card);
+    mark_search_target(L"手机号登录", card);
+
+    if (chosen) {
+      build_account_code_form(body, email);
+      return;
+    }
+    if (account_google_)
+      body.Children().Append(account_wide_button(
+          account_google_waiting_ ? L"正在等待浏览器完成 Google 登录…" : L"使用 Google 登录",
+          [this] { sign_in_with_google(); }, !account_busy_, false));
+    // 等浏览器时 account_busy_ 为真，取消仍可点：只清掉内存里的等待。
+    if (account_google_waiting_) {
+      auto cancel = account_link(L"取消 Google 登录", [this] { cancel_account_google(); });
+      cancel.HorizontalAlignment(HorizontalAlignment::Center);
+      body.Children().Append(cancel);
+    }
+    // 选择验证码方式时仍结束等待中的 Google 登录。
+    if (account_email_)
+      body.Children().Append(account_wide_button(
+          L"邮箱登录", [this] { choose_account_channel(AccountChannel::email); }, true, false));
+    if (account_phone_)
+      body.Children().Append(account_wide_button(
+          L"手机号登录", [this] { choose_account_channel(AccountChannel::phone); }, true, false));
     const bool no_providers = !account_email_ && !account_phone_ && !account_google_;
-    if (account_channel_ == AccountChannel::none && (no_providers || account_session_unreadable_)) {
-      auto actions = add_group(page, L"登录状态");
+    if (no_providers) {
+      auto empty = make_text(am::providers_unavailable(account_providers_loaded_, account_busy_), 12,
+                             palette_.sub);
+      empty.TextAlignment(TextAlignment::Center);
+      body.Children().Append(empty);
+    }
+
+    // 两个恢复动作只在出了问题时出现，与共享页相同：登录方式只在进入本页时读一次，读失败或一个都没有时（上面那句说明）才给「刷新登录方式」；读不出本机登录状态（status 失败）时才给「清除失效登录状态」。
+    if (no_providers || account_session_unreadable_) {
+      StackPanel footer;
+      footer.Orientation(Orientation::Horizontal);
+      footer.Spacing(16);
+      footer.HorizontalAlignment(HorizontalAlignment::Center);
       if (no_providers)
-        add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
-                button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
+        footer.Children().Append(
+            account_link(L"刷新登录方式", [this] { refresh_account_providers(); }, !account_busy_));
       if (account_session_unreadable_)
-        add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
-                button_control(L"清除", [this] {
-                  end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
-                }, !account_busy_));
+        footer.Children().Append(account_link(L"清除失效登录状态", [this] {
+          end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
+        }, !account_busy_));
+      content.Children().Append(footer);
     }
   }
 
+  // 验证码表单（共享页 AccountVerificationForm 的 page 样式），排在登录卡片的按钮列里：号码框和验证码框上面是 12 DIP 的灰色标签、隔 7 DIP，框和按钮都铺满整列；没发过验证码时「获取验证码」是强调色主按钮，发过以后换成普通按钮、改号码丢掉验证码时再换回主按钮，「登录」是主按钮；然后是居中的一行提示和「取消」。
   void build_account_code_form(StackPanel const &body, bool email) {
-    StackPanel form;
-    form.Spacing(8);
-    form.Padding(Thickness{0, 6, 0, 6});
-    const auto label = email ? L"邮箱地址" : L"手机号（含国家区号）";
+    auto field = [this](std::wstring const &caption, TextBox const &box) {
+      StackPanel panel;
+      panel.Spacing(7);
+      panel.Children().Append(make_text(caption, 12, palette_.sub));
+      box.HorizontalAlignment(HorizontalAlignment::Stretch);
+      box.MinHeight(38);
+      box.CornerRadius(CornerRadius{8, 8, 8, 8});
+      panel.Children().Append(box);
+      return panel;
+    };
+    const std::wstring label = email ? L"邮箱地址" : L"手机号（含国家区号）";
     TextBox target;
-    target.Width(240);
     target.FontSize(13);
     target.MaxLength(320);
     target.Text(hstring(account_target_));
@@ -6999,29 +7110,36 @@ private:
       if (typed == account_target_)
         return;
       account_target_ = std::move(typed);
-      // 共享页改号码就丢掉已发的验证码：验证码一栏收起，不重画页面，输入框的焦点留着。
+      // 共享页改号码就丢掉已发的验证码：验证码一栏收起，「获取验证码」变回强调色主按钮（共享页 `challenge ? account.provider : account.submit`），不重画页面，输入框的焦点留着。按钮在原位换成一个新画的主按钮：make_primary 往已经显示的按钮上放的颜色资源要等下一次视觉状态变化才生效。
       if (account_challenge_) {
         account_challenge_.reset();
         account_code_.clear();
         if (account_code_panel_)
           account_code_panel_.Visibility(Visibility::Collapsed);
+        if (account_resend_button_) {
+          uint32_t index = 0;
+          if (auto column = account_resend_button_.Parent().try_as<StackPanel>();
+              column && column.Children().IndexOf(account_resend_button_, index)) {
+            auto primary = account_wide_button(
+                L"获取验证码", [this] { request_account_code(); }, true, true);
+            column.Children().SetAt(index, primary);
+            account_resend_button_ = primary;
+          }
+        }
       }
       update_account_code_controls();
     });
-    add_row(form, 0, label, L"我们会发送一个 6 位验证码完成登录", target);
+    body.Children().Append(field(label, target));
 
-    auto resend = button_control(L"获取验证码", [this] { request_account_code(); }).as<Button>();
-    resend.HorizontalAlignment(HorizontalAlignment::Right);
-    if (!account_challenge_)
-      make_primary(resend);
-    form.Children().Append(resend);
+    auto resend = account_wide_button(L"获取验证码", [this] { request_account_code(); }, true,
+                                      !account_challenge_);
+    body.Children().Append(resend);
     account_resend_button_ = resend;
 
     StackPanel code_panel;
     code_panel.Spacing(12);
     code_panel.Visibility(account_challenge_ ? Visibility::Visible : Visibility::Collapsed);
     TextBox code;
-    code.Width(160);
     code.FontSize(13);
     code.MaxLength(6);
     code.Text(hstring(account_code_));
@@ -7045,31 +7163,28 @@ private:
       }
       update_account_code_controls();
     });
-    add_row(code_panel, 0, L"验证码", L"输入本次收到的 6 位数字", code);
-    auto login = button_control(L"登录", [this] { sign_in_with_code(); }).as<Button>();
-    login.HorizontalAlignment(HorizontalAlignment::Right);
-    make_primary(login);
+    code_panel.Children().Append(field(L"6 位验证码", code));
+    auto login = account_wide_button(L"登录", [this] { sign_in_with_code(); }, true, true);
     code_panel.Children().Append(login);
-    form.Children().Append(code_panel);
+    body.Children().Append(code_panel);
     account_login_button_ = login;
     account_code_panel_ = code_panel;
 
     auto hint = make_text(L"验证码只用于本次登录，请勿向他人透露。", 12, palette_.sub);
-    hint.Margin(Thickness{0, 4, 0, 0});
-    form.Children().Append(hint);
+    hint.TextAlignment(TextAlignment::Center);
+    body.Children().Append(hint);
     auto cancel = account_link(L"取消", [this] {
       account_channel_ = AccountChannel::none;
       redraw_account();
     }, !account_busy_);
-    cancel.HorizontalAlignment(HorizontalAlignment::Left);
-    form.Children().Append(cancel);
-    body.Children().Append(form);
+    cancel.HorizontalAlignment(HorizontalAlignment::Center);
+    body.Children().Append(cancel);
     update_account_code_controls();
     if (account_challenge_ || account_resend_at_ > account_now_ms())
       start_account_timer();
   }
 
-  // 资料卡片：头像、名字和邮箱（没有时说已登录），点开「编辑资料」。
+  // 资料卡片（共享页的 profileCard）：整张卡片是一个按钮，左右 24、上下 20 的内边距；58 DIP 头像，名字 14 DIP 半粗体（rowHeading），下面隔 7 DIP 是 12 DIP 灰色的邮箱（没有时说已登录），行尾一个 24 DIP 的灰色「›」，相隔 16。点开「编辑资料」。
   void build_account_profile_card(StackPanel const &page) {
     auto group = add_group(page, L"");
     const auto &user = *account_user_;
@@ -7085,32 +7200,31 @@ private:
     content.ColumnDefinitions().Append(text_column);
     content.ColumnDefinitions().Append(chevron_column);
     const auto name = preferred_account_name(user.display_name, user.id);
-    auto avatar = make_account_avatar(52, 22, name);
+    auto avatar = make_account_avatar(58, 24, name);
     Grid::SetColumn(avatar, 0);
     content.Children().Append(avatar);
     StackPanel texts;
-    texts.Spacing(2);
+    texts.Spacing(7);
     texts.VerticalAlignment(VerticalAlignment::Center);
-    auto heading = make_text(name, 17, palette_.text);
+    auto heading = make_text(name, 14, palette_.text);
     heading.FontWeight(Windows::UI::Text::FontWeight{600});
     texts.Children().Append(heading);
     texts.Children().Append(
-        make_text(user.email.empty() ? L"水杉账号已登录" : user.email, 13, palette_.sub));
+        make_text(user.email.empty() ? L"水杉账号已登录" : user.email, 12, palette_.sub));
     Grid::SetColumn(texts, 1);
     content.Children().Append(texts);
-    auto chevron = make_icon(0xE76C, 14, palette_.sub);
+    auto chevron = make_text(L"\u203A", 24, palette_.sub);
     chevron.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAccessibilityView(chevron, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
     Grid::SetColumn(chevron, 2);
     content.Children().Append(chevron);
 
-    Button card;
+    // 按钮伸到分组卡片的边缘（卡片的行面板左右各缩进 row_inset），圆角比卡片的 10 小一圈描边，悬停底色贴着卡片内沿。
+    auto card = make_row_button(true);
     card.Content(content);
-    card.HorizontalAlignment(HorizontalAlignment::Stretch);
-    card.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    card.Padding(Thickness{0, 8, 0, 8});
-    card.Background(brush(transparent_color()));
-    card.BorderThickness(Thickness{0, 0, 0, 0});
-    card.CornerRadius(CornerRadius{6, 6, 6, 6});
+    card.Margin(Thickness{-row_inset, 0, -row_inset, 0});
+    card.Padding(Thickness{24, 20, 24, 20});
+    card.CornerRadius(CornerRadius{9, 9, 9, 9});
     card.IsEnabled(!account_busy_);
     A11y::SetName(card, L"编辑个人资料");
     card.Click([this](Inspectable const &, RoutedEventArgs const &) { edit_account_profile(); });
@@ -7172,43 +7286,50 @@ private:
     form.Children().Append(
         make_text(L"昵称会显示在社区作品中，已发布的作品也会同步更新。", 12, palette_.sub));
 
-    // AccountIdentityDetails：账号 ID（点按复制）、邮箱、登录方式和加入日期。
+    // AccountIdentityDetails（account.details）：账号 ID（点按复制）、邮箱、登录方式和加入日期，排成两列小卡片：8 DIP 圆角、浅灰底、12 DIP 内边距，上面是 12 DIP 灰色标签，下面隔 5 DIP 是值。没有邮箱时那一格不画，后面两格往前挪（account_dialog_refresh_ 里摆位置）。
     Grid details;
-    details.ColumnSpacing(24);
-    details.RowSpacing(6);
-    ColumnDefinition label_column;
-    label_column.Width(GridLength{1, GridUnitType::Auto});
-    ColumnDefinition value_column;
-    value_column.Width(GridLength{1, GridUnitType::Star});
-    details.ColumnDefinitions().Append(label_column);
-    details.ColumnDefinitions().Append(value_column);
-    int32_t row = 0;
-    auto add_detail = [&](wchar_t const *label, FrameworkElement const &value) -> TextBlock {
+    details.ColumnSpacing(12);
+    details.RowSpacing(12);
+    details.Padding(Thickness{0, 4, 0, 0});
+    for (int i = 0; i < 2; ++i) {
+      ColumnDefinition column;
+      column.Width(GridLength{1, GridUnitType::Star});
+      details.ColumnDefinitions().Append(column);
       RowDefinition definition;
       definition.Height(GridLength{1, GridUnitType::Auto});
       details.RowDefinitions().Append(definition);
-      auto title = make_text(label, 13, palette_.sub);
-      title.VerticalAlignment(VerticalAlignment::Center);
-      Grid::SetRow(title, row);
-      Grid::SetColumn(title, 0);
-      details.Children().Append(title);
-      value.VerticalAlignment(VerticalAlignment::Center);
-      Grid::SetRow(value, row);
-      Grid::SetColumn(value, 1);
-      details.Children().Append(value);
-      ++row;
-      return title;
+    }
+    auto add_detail = [&](wchar_t const *label, FrameworkElement const &value,
+                          int32_t index) -> Border {
+      Border cell;
+      cell.CornerRadius(CornerRadius{8, 8, 8, 8});
+      cell.Background(brush(palette_.subtle));
+      cell.Padding(Thickness{12, 12, 12, 12});
+      StackPanel stack;
+      stack.Spacing(5);
+      stack.Children().Append(make_text(label, 12, palette_.sub));
+      value.HorizontalAlignment(HorizontalAlignment::Left);
+      stack.Children().Append(value);
+      cell.Child(stack);
+      Grid::SetRow(cell, index / 2);
+      Grid::SetColumn(cell, index % 2);
+      details.Children().Append(cell);
+      return cell;
     };
-    auto copy = account_link(L"", [this] { copy_account_id(); });
+    // 账号 ID 是强调色的文字按钮（account.copyId），不是灰色的小链接。
+    HyperlinkButton copy;
+    copy.Padding(Thickness{0, 0, 0, 0});
+    copy.FontSize(13);
     copy.FontFamily(Media::FontFamily(L"Consolas"));
-    add_detail(L"账号 ID", copy);
+    copy.Click([this](Inspectable const &, RoutedEventArgs const &) { copy_account_id(); });
+    add_detail(L"账号 ID", copy, 0);
     auto email = make_text(L"", 13, palette_.text);
     email.IsTextSelectionEnabled(true);
-    auto email_label = add_detail(L"邮箱", email);
+    auto email_cell = add_detail(L"邮箱", email, 1);
     auto providers = make_text(L"", 13, palette_.text);
-    add_detail(L"登录方式", providers);
+    auto providers_cell = add_detail(L"登录方式", providers, 2);
     auto joined = make_text(L"", 13, palette_.text);
-    add_detail(L"加入水杉", joined);
+    auto joined_cell = add_detail(L"加入水杉", joined, 3);
     form.Children().Append(details);
 
     ContentDialog dialog;
@@ -7219,6 +7340,23 @@ private:
     dialog.DefaultButton(ContentDialogButton::Primary);
     dialog.XamlRoot(root_.XamlRoot());
     dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    // 「保存修改」是主按钮（account.primary）：与 make_primary 同一组颜色，强调色底白字，悬停和按下也不换成系统强调色。对话框给默认按钮套 AccentButtonStyle，资源放在对话框上，按钮模板从这里取。
+    {
+      auto resources = dialog.Resources();
+      auto put = [&resources](const wchar_t *key, Color const &color) {
+        resources.Insert(box_value(hstring(key)), brush(color));
+      };
+      const auto accent = palette_.accent_strong;
+      auto faded = [accent](double alpha) {
+        return Color{static_cast<uint8_t>(std::lround(alpha * 255)), accent.R, accent.G, accent.B};
+      };
+      put(L"AccentButtonBackground", accent);
+      put(L"AccentButtonBackgroundPointerOver", faded(.9));
+      put(L"AccentButtonBackgroundPressed", faded(.8));
+      put(L"AccentButtonForeground", palette_.on_accent);
+      put(L"AccentButtonForegroundPointerOver", palette_.on_accent);
+      put(L"AccentButtonForegroundPressed", palette_.on_accent);
+    }
     // 与共享对话框一样，忙的时候「取消」和 Esc 都关不上。
     dialog.Closing([this](ContentDialog const &, ContentDialogClosingEventArgs const &args) {
       if (account_busy_)
@@ -7229,9 +7367,11 @@ private:
                                weak_avatar = make_weak(avatar_button),
                                weak_name = make_weak(preview_name), weak_remove = make_weak(remove),
                                weak_nickname = make_weak(nickname), weak_copy = make_weak(copy),
-                               weak_email = make_weak(email), weak_email_label = make_weak(email_label),
+                               weak_email = make_weak(email), weak_email_cell = make_weak(email_cell),
                                weak_providers = make_weak(providers),
-                               weak_joined = make_weak(joined)] {
+                               weak_providers_cell = make_weak(providers_cell),
+                               weak_joined = make_weak(joined),
+                               weak_joined_cell = make_weak(joined_cell)] {
       if (!account_user_) {
         // 对话框开着时会话结束了（别处退出或会话失效），没有可编辑的资料。
         if (auto shown = weak_dialog.get())
@@ -7255,13 +7395,20 @@ private:
         box.IsEnabled(!account_busy_);
       if (auto link = weak_copy.get())
         link.Content(box_value(hstring(account_id_copied_ ? L"已复制" : am::id_label(user.id))));
-      const auto shown_email = user.email.empty() ? Visibility::Collapsed : Visibility::Visible;
-      if (auto value = weak_email.get()) {
+      if (auto value = weak_email.get())
         value.Text(hstring(user.email));
-        value.Visibility(shown_email);
+      if (auto cell = weak_email_cell.get())
+        cell.Visibility(user.email.empty() ? Visibility::Collapsed : Visibility::Visible);
+      // 邮箱那格在第二格；没有邮箱时登录方式和加入日期往前挪一格，不留空位。
+      const int32_t after_email = user.email.empty() ? 1 : 2;
+      if (auto cell = weak_providers_cell.get()) {
+        Grid::SetRow(cell, after_email / 2);
+        Grid::SetColumn(cell, after_email % 2);
       }
-      if (auto label = weak_email_label.get())
-        label.Visibility(shown_email);
+      if (auto cell = weak_joined_cell.get()) {
+        Grid::SetRow(cell, (after_email + 1) / 2);
+        Grid::SetColumn(cell, (after_email + 1) % 2);
+      }
       if (auto value = weak_providers.get()) {
         std::wstring names;
         for (auto const &provider : account_providers_linked_)
@@ -7288,23 +7435,21 @@ private:
   // 「云端」：云剪贴板是输入工具的面板，仍由共享应用打开（本窗口只剩这几处会拉起共享应用，另外是「词库」页的云词库和屏幕键盘、语音输入和手写的面板）。云词库与共享页一样只在「词库」页给入口。
   void build_account_cloud(StackPanel const &page) {
     auto group = add_group(page, L"云端");
-    add_row(group, 0xE77F, L"云剪贴板", L"",
-            button_control(L"打开云剪贴板",
-                           [this] { open_shell(nav::shell_links::cloud_clipboard); },
-                           !account_busy_));
+    // 共享页的 MeRow：整行是按钮，行尾「›」。
+    auto row = link_row(group, L"云剪贴板", L"", false,
+                        [this] { open_shell(nav::shell_links::cloud_clipboard); });
+    row.IsEnabled(!account_busy_);
   }
 
-  // 「我的内容」（共享页桌面版的 MeRow）：Windows 的社区只有词库与回复模板（没有皮肤画廊，「我发布的皮肤」不在这里）。每一行在本页打开社区词库与回复模板的图库，停在那一行的分类和范围上（communityDestinationView）。
+  // 「我的内容」（共享页桌面版的 MeRow，即 link_row：整行是按钮、没有图标，行尾「›」）：Windows 的社区只有词库与回复模板（没有皮肤画廊，「我发布的皮肤」不在这里）。每一行在本页打开社区词库与回复模板的图库，停在那一行的分类和范围上（communityDestinationView）。
   void build_account_content(StackPanel const &page) {
     auto group = add_group(page, L"我的内容");
-    constexpr std::array<wchar_t, 4> glyphs{0xE82D, 0xE8BD, 0xE734, 0xEB51};
-    for (size_t i = 0; i < cm::resource_destinations.size(); ++i) {
-      auto const &destination = cm::resource_destinations[i];
-      auto row = plugin_nav_row(group, glyphs[i], std::wstring(destination.title), L"", L"",
-                                [this, kind = std::wstring(destination.kind),
-                                 scope = std::wstring(destination.scope)] {
-                                  open_resource_community(kind, scope);
-                                });
+    for (auto const &destination : cm::resource_destinations) {
+      auto row = link_row(group, std::wstring(destination.title), L"", false,
+                          [this, kind = std::wstring(destination.kind),
+                           scope = std::wstring(destination.scope)] {
+                            open_resource_community(kind, scope);
+                          });
       row.IsEnabled(!account_busy_);
     }
   }
@@ -7920,6 +8065,8 @@ private:
                                                        : rgba(0xC4, 0x2B, 0x1C, 1)));
     add_row(group, 0xE74D, L"注销账号", L"删除账号及已发布的作品、评分等云端数据，无法撤销。",
             remove);
+    // 共享页没有这段；这句本机数据的说明是「账号」组的组注，不再是整页底部的脚注。
+    group.Children().Append(group_note(L"皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。"));
   }
 
   // ---- 主题 ----
@@ -23263,11 +23410,12 @@ private:
   bool account_loading_ = true;
   bool account_busy_ = false;
   uint64_t account_generation_ = 0;
-  // 「绑定 QQ 群助手」卡片：已有的绑定（还没读到时为空）、输入框里的绑定码、进行中的操作和操作后的说明，进入账号页时清掉；qq_links_requested_ 记下这次进入已经读过。
+  // 「绑定 QQ 群助手」卡片：已有的绑定（还没读到时为空）、输入框里的绑定码、进行中的操作（含读绑定列表）、已有绑定时是否点了「绑定其他 QQ」（共享卡片的 adding）和操作后的说明，进入账号页时清掉；qq_links_requested_ 记下这次进入已经读过。
   std::optional<std::vector<std::pair<std::wstring, std::wstring>>> qq_links_;
   bool qq_links_requested_ = false;
   std::wstring qq_link_code_;
   bool qq_link_busy_ = false;
+  bool qq_link_adding_ = false;
   std::wstring qq_link_message_;
   std::optional<Response> account_pending_status_;
   std::optional<Response> account_pending_providers_;
@@ -23276,6 +23424,8 @@ private:
   bool account_email_ = false;
   bool account_phone_ = false;
   bool account_google_ = false;
+  // 这次进入本页读到过登录方式（共享页的 providersLoaded）：一种都没有时，登录卡片据此说「当前没有可用的验证码登录方式」还是「登录方式加载失败」。
+  bool account_providers_loaded_ = false;
   bool account_google_waiting_ = false;
   // 读不出本机保存的登录状态（status 失败、不是取消）。只有这时才给「清除失效登录状态」；进入页面、读出状态、登录成功或清掉会话后复位。
   bool account_session_unreadable_ = false;
