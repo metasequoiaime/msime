@@ -7922,7 +7922,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (canvas != null && canvas.banner != null && canvas.banner.candidate() != null) {
             // 来源标注独立于原文，不包含固定图钉，也不猜测原文中的括号后缀。
             String badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
-            candidateDecorationWords.add(new CandidateCanvasAssets.Word(displayedText, badge, highlighted));
+            candidateDecorationWords.add(new CandidateCanvasAssets.Word(text, badge, highlighted));
         }
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
