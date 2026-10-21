@@ -21,6 +21,18 @@ int main() {
          "{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n");
   assert(candidate_panel_status_document("ibus", CandidatePanelLimit::None) ==
          "{\"host\":\"ibus\",\"limit\":null}\n");
+  // Fcitx5 在 X11 会话里用原生画布画候选窗时加报 renderer，client-core 按这个名字读。
+  assert(candidate_panel_status_document("fcitx5", CandidatePanelLimit::None, true) ==
+         "{\"host\":\"fcitx5\",\"limit\":null,\"renderer\":\"native_canvas\"}\n");
+  assert(candidate_session_is_x11("x11", nullptr, nullptr));
+  assert(!candidate_session_is_x11("wayland", ":0", nullptr));
+  assert(candidate_session_is_x11(nullptr, ":0", nullptr));
+  assert(!candidate_session_is_x11(nullptr, ":0", "wayland-0"));
+  assert(!candidate_session_is_x11("", nullptr, nullptr));
+  // 控制台登录后 startx：pam_systemd 给的是 tty，按 DISPLAY 判断。
+  assert(candidate_session_is_x11("tty", ":0", nullptr));
+  assert(!candidate_session_is_x11("tty", nullptr, nullptr));
+  assert(!candidate_session_is_x11("tty", ":0", "wayland-0"));
 
   assert(candidate_desktop_is_gnome_shell("GNOME"));
   assert(candidate_desktop_is_gnome_shell("ubuntu:GNOME"));

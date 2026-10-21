@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 键盘发来的深链接落到哪里。键盘会打开 `<scheme>://settings[/<page>]`、`<scheme>://feedback`、`<scheme>://about` 和 `<scheme>://voice`（scheme 为 `MSIMEAppEdition.urlScheme`）；各 tab 视图观察发布出来的路由并推入页面，所以应用已在运行时打开的链接和冷启动落到同一个页面。
+/// 键盘发来的深链接落到哪里。键盘会打开 `<scheme>://settings[/<page>]`、`<scheme>://feedback`、`<scheme>://about`、`<scheme>://voice` 和 `<scheme>://voice-session`（scheme 为 `MSIMEAppEdition.urlScheme`）；各 tab 视图观察发布出来的路由并推入页面，所以应用已在运行时打开的链接和冷启动落到同一个页面。
 final class SettingsRouter: ObservableObject {
   /// 我的 tab 从链接或键盘菜单推入的页面。
   enum AccountRoute: String, Hashable, Identifiable {
@@ -25,7 +25,7 @@ final class SettingsRouter: ObservableObject {
     return SettingsPage(rawValue: name) ?? settingsAliases[name]
   }
 
-  /// 路由一个链接并返回它所属的 tab；本应用不认识的 host 返回 nil。`voice` 返回设置 tab，调用方继续为它弹出录音面板。
+  /// 路由一个链接并返回它所属的 tab；本应用不认识的 host 返回 nil。`voice` 和 `voice-session` 返回设置 tab，调用方继续为它们弹出录音页或语音会话页。
   func handle(_ url: URL) -> AppNavigation.Tab? {
     switch url.host {
     case "settings":
@@ -37,7 +37,7 @@ final class SettingsRouter: ObservableObject {
     case "about":
       accountRoute = .about
       return .account
-    case "voice":
+    case "voice", "voice-session":
       return .settings
     default:
       return nil

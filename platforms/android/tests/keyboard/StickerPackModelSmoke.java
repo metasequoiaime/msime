@@ -79,44 +79,34 @@ public final class StickerPackModelSmoke {
         check(StickerPackModel.columns(432) == 6, "a wider panel adds a column per 72 dp");
         check(StickerPackModel.columns(704) == 9 && StickerPackModel.columns(800) == 11, "landscape and tablets add columns");
 
-        // 底栏分类顺序：表情包排第一（在「最近」之前），默认选中它；横划按同一顺序走，两端不回绕。
+        // 常用始终排第一，水杉娘可用时排第二；横划沿同一顺序，两端不回绕。
         int emojiCategories = 10;
         int stickerCategory = StickerPackModel.category(emojiCategories);
         int recents = StickerPackModel.RECENTS_CATEGORY;
         int none = StickerPackModel.NO_CATEGORY;
         check(stickerCategory == emojiCategories && stickerCategory >= 0,
             "the sticker category id follows the emoji categories");
-        check(List.of(StickerPackModel.category(3), recents, 0, 1, 2).equals(StickerPackModel.categoryOrder(true, true, 3)),
-            "stickers lead, then recents and the emoji categories");
-        check(List.of(StickerPackModel.category(3), 0, 1, 2).equals(StickerPackModel.categoryOrder(true, false, 3)),
-            "without recents the stickers are followed by the first emoji category");
-        check(List.of(recents, 0, 1, 2).equals(StickerPackModel.categoryOrder(false, true, 3))
-            && List.of(0, 1, 2).equals(StickerPackModel.categoryOrder(false, false, 3)),
-            "without a sticker manifest the original order stays");
-        check(StickerPackModel.defaultCategory(true, true, emojiCategories) == stickerCategory
-            && StickerPackModel.defaultCategory(true, false, emojiCategories) == stickerCategory,
-            "the sticker pack is selected when the panel opens");
-        check(StickerPackModel.defaultCategory(false, true, emojiCategories) == recents
-            && StickerPackModel.defaultCategory(false, false, emojiCategories) == 0,
-            "without stickers the panel opens on recents, or the first emoji category");
-        check(StickerPackModel.swipeCategory(stickerCategory, 1, true, true, emojiCategories) == recents
-            && StickerPackModel.swipeCategory(recents, 1, true, true, emojiCategories) == 0
-            && StickerPackModel.swipeCategory(0, -1, true, true, emojiCategories) == recents
-            && StickerPackModel.swipeCategory(recents, -1, true, true, emojiCategories) == stickerCategory,
-            "swiping walks stickers, recents and the emoji categories in tab order");
-        check(StickerPackModel.swipeCategory(stickerCategory, 1, true, false, emojiCategories) == 0
-            && StickerPackModel.swipeCategory(0, -1, true, false, emojiCategories) == stickerCategory,
-            "without recents the stickers sit next to the first emoji category");
-        check(StickerPackModel.swipeCategory(stickerCategory, -1, true, true, emojiCategories) == none
-            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, true, true, emojiCategories) == none,
-            "swiping does not wrap at either end");
-        check(StickerPackModel.swipeCategory(0, -1, false, false, emojiCategories) == none
-            && StickerPackModel.swipeCategory(0, -1, false, true, emojiCategories) == recents
-            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, false, true, emojiCategories) == none,
-            "without stickers the original swipe bounds stay");
-        check(StickerPackModel.swipeCategory(recents, 1, true, false, emojiCategories) == none
-            && StickerPackModel.swipeCategory(stickerCategory, 1, false, true, emojiCategories) == none
-            && StickerPackModel.swipeCategory(none, 1, true, true, emojiCategories) == none,
+        check(List.of(recents, StickerPackModel.category(3), 0, 1, 2).equals(StickerPackModel.categoryOrder(true, 3)),
+            "common emoji leads, followed by stickers and emoji categories");
+        check(List.of(recents, 0, 1, 2).equals(StickerPackModel.categoryOrder(false, 3)),
+            "common emoji remains first without a sticker manifest");
+        check(List.of(recents).equals(StickerPackModel.categoryOrder(false, 0)),
+            "common emoji remains available without a catalog or sticker manifest");
+        check(StickerPackModel.swipeCategory(recents, 1, true, emojiCategories) == stickerCategory
+            && StickerPackModel.swipeCategory(stickerCategory, 1, true, emojiCategories) == 0
+            && StickerPackModel.swipeCategory(0, -1, true, emojiCategories) == stickerCategory
+            && StickerPackModel.swipeCategory(stickerCategory, -1, true, emojiCategories) == recents,
+            "swiping follows common emoji, stickers and the emoji categories");
+        check(StickerPackModel.swipeCategory(recents, 1, false, emojiCategories) == 0
+            && StickerPackModel.swipeCategory(0, -1, false, emojiCategories) == recents,
+            "without stickers common emoji sits next to the first emoji category");
+        check(StickerPackModel.swipeCategory(recents, -1, true, emojiCategories) == none
+            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, true, emojiCategories) == none
+            && StickerPackModel.swipeCategory(recents, -1, false, emojiCategories) == none
+            && StickerPackModel.swipeCategory(emojiCategories - 1, 1, false, emojiCategories) == none,
+            "swiping does not wrap at either end, with or without stickers");
+        check(StickerPackModel.swipeCategory(stickerCategory, 1, false, emojiCategories) == none
+            && StickerPackModel.swipeCategory(none, 1, true, emojiCategories) == none,
             "a category missing from the tab bar does not swipe");
         check(StickerPackModel.thumbnailEdge(270, 12) == 246, "cell minus padding on both sides");
         check(StickerPackModel.thumbnailEdge(10, 12) == 1 && StickerPackModel.thumbnailEdge(10, -3) == 10,

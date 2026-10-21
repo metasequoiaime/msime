@@ -1,4 +1,4 @@
-//! 社区词包与回复模板：浏览、收藏、评分、发布、删除自己的发布，以及把词包导入账号云端词库。iOS、Android 与 Windows 共用这些命令。
+//! 社区词包与回复模板：浏览、收藏、评分、发布、删除自己的发布，以及把词包导入账号云端词库。iOS、Android、Windows 与 Linux 共用这些命令。
 //!
 //! 服务经本平台的账号会话认证，各平台建账号状态时一并登记 [`CommunityResourceState`]。把回复模板存进本机「高情商回复」键盘只有移动端有，那两个命令留在 `mobile_community`。
 
@@ -15,7 +15,7 @@ use tauri::State;
 /// 本平台账号会话的存储类型，与各平台 `AccountState` 持有的会话一致。
 #[cfg(any(target_os = "ios", target_os = "android"))]
 type Storage = super::mobile::MobileStorage;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 type Storage = super::desktop::desktop_account::Storage;
 
 type Service = BackendCommunityResourceService<BackendAccountClient, Storage>;

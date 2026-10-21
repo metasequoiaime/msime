@@ -148,11 +148,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return;
     }
     const session: KeyboardSession = KeyboardSession.shared;
-    const count: number = FloatingToolbarLayout.buttons(session.toolbarComponents()).length;
+    const size: number[] = session.toolbarSize();
     const scale: number = session.toolbarScale();
-    await panel.resize(
-      Math.round(FloatingToolbarLayout.widthVp(count) * scale * density),
-      Math.round(FloatingToolbarLayout.heightVp() * scale * density));
+    await panel.resize(Math.max(1, Math.round(size[0] * scale * density)),
+      Math.max(1, Math.round(size[1] * scale * density)));
   }
 
   /**
@@ -205,6 +204,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.toolbar = toolbar;
+      KeyboardSession.shared.onToolbarResize = async (): Promise<void> => {
+        await this.resizeToolbar(this.density, toolbar);
+      };
       KeyboardSession.shared.onToolbarDragStart = (): void => {
         this.beginToolbarDrag();
       };
@@ -222,11 +224,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       }
       KeyboardSession.shared.refreshToolbar();
       // Lower right by default, clear of the dock, where a status bar is looked for and where it is least likely to sit on top of what is being written. macOS picks the same corner.
-      const width: number = FloatingToolbarLayout.widthVp(
-        FloatingToolbarLayout.buttons(KeyboardSession.shared.toolbarComponents()).length)
-        * KeyboardSession.shared.toolbarScale() * this.density;
-      const height: number = FloatingToolbarLayout.heightVp()
-        * KeyboardSession.shared.toolbarScale() * this.density;
+      const size: number[] = KeyboardSession.shared.toolbarSize();
+      const width: number = size[0] * KeyboardSession.shared.toolbarScale() * this.density;
+      const height: number = size[1] * KeyboardSession.shared.toolbarScale() * this.density;
       const margin: number = TOOLBAR_MARGIN_VP * this.density;
       this.toolbarPosition = [Math.round(this.screenWidth - width - margin),
         Math.round(this.screenHeight - height - margin * 4)];
@@ -244,6 +244,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         && (generation === this.statusPanelGeneration || this.toolbar !== toolbar)) {
         if (this.toolbar === toolbar) {
           this.toolbar = undefined;
+          KeyboardSession.shared.onToolbarResize = undefined;
           KeyboardSession.shared.onToolbarDragStart = undefined;
           KeyboardSession.shared.onToolbarDrag = undefined;
         }
@@ -256,6 +257,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (this.toolbar === undefined) {
       return;
     }
+    KeyboardSession.shared.onToolbarResize = undefined;
     KeyboardSession.shared.onToolbarDragStart = undefined;
     KeyboardSession.shared.onToolbarDrag = undefined;
     engine.destroyPanel(this.toolbar);
@@ -338,10 +340,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return;
     }
     const session: KeyboardSession = KeyboardSession.shared;
-    const count: number = FloatingToolbarLayout.buttons(session.toolbarComponents()).length;
+    const size: number[] = session.toolbarSize();
     const scale: number = session.toolbarScale();
-    const width: number = FloatingToolbarLayout.widthVp(count) * scale * this.density;
-    const height: number = FloatingToolbarLayout.heightVp() * scale * this.density;
+    const width: number = size[0] * scale * this.density;
+    const height: number = size[1] * scale * this.density;
     const position: [number, number] = FloatingToolbarDragPolicy.position(
       this.toolbarDragOrigin, [offsetX, offsetY], this.density, this.screenWidth,
       this.screenHeight, width, height);

@@ -18,13 +18,35 @@ test("空列表显示原空态，更新条目后按顺序显示独立记录", ()
   view.rerender(<CloudClipboardHistory {...props} items={items} />);
   expect(screen.queryByText("暂无云端历史")).toBeNull();
   expect(screen.getAllByRole("article")).toHaveLength(2);
-  for (const article of screen.getAllByRole("article")) {
+  const metas = ["已置顶", "synthetic-device"];
+  screen.getAllByRole("article").forEach((article, index) => {
     expect(
       within(article)
         .getAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["合成记录", "复制", "删除"]);
-  }
+    ).toEqual([`合成记录${metas[index]}`, "复制", "删除"]);
+  });
+});
+
+test("条目下方按 macOS 的拼法显示「已置顶 · 设备」，按钮名称仍是条目文字", () => {
+  const props = { busy: false, copyAvailable: false, onChoose: vi.fn(), onRemove: vi.fn() };
+  render(
+    <CloudClipboardHistory
+      {...props}
+      items={[
+        { id: "synthetic-both", text: "合成甲", pinned: true, device: "合成笔记本" },
+        { id: "synthetic-none", text: "合成乙", pinned: false },
+      ]}
+    />,
+  );
+  const both = screen.getByRole("button", { name: "合成甲" });
+  expect(both.querySelector("small")?.textContent).toBe("已置顶 · 合成笔记本");
+  expect(document.getElementById(both.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+    "已置顶 · 合成笔记本",
+  );
+  const none = screen.getByRole("button", { name: "合成乙" });
+  expect(none.querySelector("small")).toBeNull();
+  expect(none.hasAttribute("aria-describedby")).toBe(false);
 });
 
 test("重复文本按条目转发选择与复制，删除只传对应 id", () => {

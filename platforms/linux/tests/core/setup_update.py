@@ -216,6 +216,33 @@ def check_setup(harness: Harness) -> None:
     assert options(state)["dictionaries"] == str(state / "user/dictionaries/next"), options(state)
     assert leftovers(state) == [], leftovers(state)
     assert "已切换到新版本的词库" in result.stdout and str(resources) in result.stdout, result.stdout
+    # 在终端里运行时不打印给设置应用看的机读行。
+    assert "msime-setup-" not in result.stdout, result.stdout
+
+    # 设置应用的「立即更新」经 MSIME_LINUX_SETUP_REPORT=1 运行：按顺序报告校验、下载、切换三个阶段，驱动页面的进度条。
+    reported = harness.installed("state-reported")
+    result = harness.run("--update", "--download", "--state", str(reported), MSIME_LINUX_SETUP_REPORT="1")
+    assert result.returncode == 0, result
+    stages = [json.loads(line.split(": ", 1)[1]) for line in result.stdout.splitlines() if line.startswith("msime-setup-stage: ")]
+    assert stages == ["verify", "download", "update"], result.stdout
+
+    # 宿主发现词库过期时引导脚本留下的标记（会话目录和缓存目录各一处）：更新失败时留着，更新成功后删掉，在终端里运行也一样，设置窗口不再以「词库需要更新」打开。
+    runtime_dir = harness.scratch / "runtime"
+    markers = [
+        runtime_dir / "msime-client/dictionary-outdated",
+        harness.scratch / "home/.cache/msime-client/dictionary-outdated",
+    ]
+    for marker in markers:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("")
+    failed = harness.installed("state-marker-failed")
+    result = harness.run("--update", "--download", "--state", str(failed), refresh_exit=1, XDG_RUNTIME_DIR=str(runtime_dir))
+    assert result.returncode == 1, result
+    assert all(marker.exists() for marker in markers), markers
+    marked = harness.installed("state-marker")
+    result = harness.run("--update", "--download", "--state", str(marked), XDG_RUNTIME_DIR=str(runtime_dir))
+    assert result.returncode == 0, result
+    assert not any(marker.exists() for marker in markers), markers
 
     # 镜像拒绝 Python 默认客户端标识时，安装器仍以项目身份下载并校验，不应回退原地址。
     state_with_agent = harness.installed("state-download-user-agent")

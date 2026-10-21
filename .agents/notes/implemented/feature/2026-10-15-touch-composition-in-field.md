@@ -40,3 +40,5 @@ iOS 把读音画在候选行最左边（[读音并入候选行](2026-10-13-ios-i
 ## Related notes
 
 [读音并入候选行](2026-10-13-ios-inline-reading-top-row.md) 被本篇部分取代（见上），双方互链；[组字光标点按](2026-10-08-composition-caret-tap.md) 的点读音移动光标现在只在光标已离开末尾、拼写画出来时可用；[全拼 14 键](2026-10-10-fourteen-key.md) 的读音行与拼音选择条不变；[预编辑偏好类型](../simplification/2026-10-15-preedit-preferences.md) 的字段与类型不变，只是触屏端不再显示其中两行。
+
+#9016 的临时放大编辑、输入框组字内点击与右侧偏移手柄由[Android 拼写放大编辑](2026-10-21-android-composition-magnifier.md)接手；引擎光标和触屏拼写入框规则继续保留。

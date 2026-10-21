@@ -146,6 +146,51 @@ test("a Windows host offers the input mode badge and the Alt+Shift+H switch", as
   expect(await screen.findByRole("switch", { name: "Alt+Shift+H 切换全半角" })).toBeTruthy();
 });
 
+test("Linux rule identifiers are program names, a pasted path keeps its file name", () => {
+  expect(normalizeAppInputModeRuleId("  /usr/bin/Firefox ", false, true)).toBe("Firefox");
+  expect(normalizeAppInputModeRuleId(" org.gnome.TextEditor ", false, true)).toBe(
+    "org.gnome.TextEditor",
+  );
+});
+
+test("a Linux host takes typed program names, never offers the picker and says which frameworks report them", async () => {
+  const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
+    ...initial,
+    revision: 4,
+    preferences,
+  }));
+  const pickApplication = vi.fn(async () => null);
+  const applicationNames = vi.fn(async () => ({}));
+  mount({
+    host: testHost({ platform: "linux", app_input_mode_rules: true }),
+    save,
+    pickApplication,
+    applicationNames,
+  });
+  await settingsFormReady();
+  selectSettingsTab("中英文");
+  const table = await screen.findByRole("group", { name: "应用例外" });
+  expect(table.textContent).toContain("Fcitx5");
+  expect(table.textContent).toContain("GNOME Wayland");
+  expect(screen.queryByRole("button", { name: "添加应用…" })).toBeNull();
+  const input = screen.getByLabelText("程序名");
+  expect((input as HTMLInputElement).placeholder).toBe("例如 firefox");
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("请填写程序名");
+  fireEvent.change(input, { target: { value: "/usr/bin/code" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  expect(await screen.findByLabelText("code 的输入模式")).toBeTruthy();
+  saveSettingsNow();
+  await vi.waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(3, {
+      ...initial.preferences,
+      app_input_mode_rules: { code: "chinese" },
+    }),
+  );
+  expect(pickApplication).not.toHaveBeenCalled();
+  expect(applicationNames).not.toHaveBeenCalled();
+});
+
 test("hosts that do not apply rules show no rule table", async () => {
   mount({ host: testHost({ platform: "linux", ime_mode_scope: true }) });
   await settingsFormReady();

@@ -35,9 +35,14 @@ use uuid::Uuid;
 
 /// 最多 37 张：预览、旧装饰、背景、两个九宫格来源与 32 个挂件。
 pub const MAX_PACKAGE_FILES: usize = 37;
+/// 本地整包另含图片工具栏的背景、默认底图、7 组按钮和 11 张状态图。
+/// 社区上传的数量限制与能力协商独立，不能随本地安装器一起放宽。
+pub const MAX_LOCAL_PACKAGE_FILES: usize = 64;
 const RESOURCES_QUERY: &str = "resources=canvas-v1";
 const RESOURCES_HEADER: &str = "X-MSIME-Candidate-Resources";
 const RESOURCES_VERSION: &str = "canvas-v1";
+const TOOLBAR_RESOURCES_HEADER: &str = "X-MSIME-Candidate-Toolbar";
+const TOOLBAR_RESOURCES_VERSION: &str = "image-v1";
 /// Largest single image, as uploaded and after the server re-encodes it.
 pub const MAX_PACKAGE_FILE_BYTES: usize = 1 << 20;
 /// Largest total of all images in one package; `skin.toml` is bounded separately.
@@ -307,6 +312,23 @@ impl BackendAccountClient {
         let declared = toml::from_str::<toml::Table>(manifest.trim_start_matches('\u{feff}'))
             .map_err(|_| AccountError::Invalid)?;
         let text = |key: &str| declared.get(key).and_then(toml::Value::as_str);
+        let image_toolbar = declared
+            .get("toolbar")
+            .and_then(toml::Value::as_table)
+            .and_then(|table| table.get("mode"))
+            .and_then(toml::Value::as_str)
+            == Some("image");
+        // 旧服务器可能忽略 toolbar 字段，随后只保存原有候选资源；必须明确支持才上传。
+        if image_toolbar
+            && !self.supports_response_header(
+                &format!("/v1/community/candidate-skins?{RESOURCES_QUERY}"),
+                Some(token),
+                TOOLBAR_RESOURCES_HEADER,
+                TOOLBAR_RESOURCES_VERSION,
+            )?
+        {
+            return Err(AccountError::Invalid);
+        }
         let required = files.len() > 3
             || files
                 .keys()
@@ -1116,27 +1138,8 @@ fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static
         paths.insert(path.to_owned());
         Ok(())
     };
-    for path in [
-        summary.decoration_image.as_deref(),
-        summary
-            .background
-            .as_ref()
-            .map(|background| background.image.as_str()),
-        summary.preview.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    for path in catalog::referenced_image_paths(summary) {
         add(path)?;
-    }
-    if let Some(border) = &summary.border_image {
-        add(&border.source)?;
-        if let Some(path) = border.light_source.as_deref() {
-            add(path)?;
-        }
-    }
-    for decoration in &summary.decorations {
-        add(&decoration.image)?;
     }
     let lowercase: HashSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
     if lowercase.len() != paths.len() {
@@ -1238,7 +1241,7 @@ pub fn pack_as(
         return Err(PACKAGE);
     }
     let referenced = referenced_images(&summary)?;
-    if referenced.len() > MAX_PACKAGE_FILES {
+    if referenced.len() > MAX_LOCAL_PACKAGE_FILES {
         return Err(TOO_LARGE);
     }
     let mut files = BTreeMap::new();
@@ -1542,7 +1545,7 @@ enum FileSource<'a> {
 fn load_files<'a>(
     files: &BTreeMap<&'a str, FileSource<'_>>,
 ) -> Result<Vec<(&'a str, Vec<u8>)>, &'static str> {
-    if files.is_empty() || files.len() > MAX_PACKAGE_FILES {
+    if files.is_empty() || files.len() > MAX_LOCAL_PACKAGE_FILES {
         return Err(FILE_PATH);
     }
     let mut lowercase = HashSet::with_capacity(files.len());

@@ -61,13 +61,7 @@ public final class SymbolPanelModel {
         public boolean remembers() { return !kaomoji(); }
     }
 
-    /** 「常用」用来补位的默认常用标点，与 iOS、鸿蒙「常用」的默认内容是同一份、同一顺序，正好六行。 */
-    static final List<String> DEFAULT_COMMON = List.of(
-        "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
-        "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
-        "～", "￥", "＆", "＃", "＠", "％", "＋", "－", "＝", "／");
-
-    // 「常用」是用户在面板里实际点过的符号（#5671），后面用 DEFAULT_COMMON 补满，所以这里只有固定的分类。中文标点和全角符号仍留在「中文」最前面。
+    // 「常用」只显示用户在面板里实际点过的符号，固定标点和全角符号留在「中文」最前面。
     private static final List<Category> FIXED_CATEGORIES = List.of(
         new Category("chinese", "中文", List.of(
             "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
@@ -175,19 +169,12 @@ public final class SymbolPanelModel {
         return List.copyOf(values);
     }
 
-    /**
-     * 「常用」的内容：最近点过的在前，后面用 {@link #DEFAULT_COMMON} 补到 {@link #RECENTS_LIMIT} 个，去掉重复。只放点过的符号时，刚开始用的人打开面板只看到一两个符号，一整屏几乎是空的。
-     */
+    /** 「常用」只显示实际使用记录，最近点过的在前，不追加默认符号。 */
     public static List<String> commonSymbols(List<String> recents) {
-        java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>(normalizeRecents(recents));
-        for (String symbol : DEFAULT_COMMON) {
-            if (values.size() >= RECENTS_LIMIT) break;
-            values.add(symbol);
-        }
-        return List.copyOf(values);
+        return normalizeRecents(recents);
     }
 
-    /** 打开面板时先显示哪一类：「常用」总是补满的，所以总是它。 */
+    /** 打开面板时总是显示「常用」，没有记录时显示空态提示。 */
     public static int initialCategory(List<String> recents) {
         return 0;
     }

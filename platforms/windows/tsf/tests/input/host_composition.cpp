@@ -232,6 +232,33 @@ int main() {
         view.scheme = scheme::Wubi;
         check(!msime::tsf::HostEditsSentence(view));
     }
+    // Home 键：候选窗显示时发两段式的 MSIME_FIRST_CANDIDATE_OR_HOME；没有候选时发 MSIME_FIRST_CANDIDATE，什么也不动，和 Server 只在有候选时接 Home 一致。
+    {
+        msime::tsf::EngineView view;
+        view.editing_text = "nihao";
+        check(msime::tsf::HostHomeCommand(view) == MSIME_FIRST_CANDIDATE);
+        view.candidates.resize(2);
+        check(msime::tsf::HostHomeCommand(view) == MSIME_FIRST_CANDIDATE_OR_HOME);
+    }
+    // 光标或候选命令之后：只有拼音光标动了时只移光标；高亮换了候选、或者整句改字在进行、刚开始、刚结束时整个重画。
+    {
+        msime::tsf::EngineView before;
+        before.candidates.resize(3);
+        for (std::size_t index = 0; index < before.candidates.size(); ++index)
+            before.candidates[index].index = index;
+        before.candidates[2].highlighted = true;
+        before.caret = 5;
+        auto after = before;
+        after.caret = 2;
+        check(!msime::tsf::HostCompositionNeedsRedraw(before, after));
+        after.candidates[2].highlighted = false;
+        after.candidates[0].highlighted = true;
+        check(msime::tsf::HostCompositionNeedsRedraw(before, after));
+        after = before;
+        after.conversion = "你好";
+        check(msime::tsf::HostCompositionNeedsRedraw(before, after));
+        check(msime::tsf::HostCompositionNeedsRedraw(after, before));
+    }
     // 光标位置按 Unicode 标量计，换成 UTF-8 字节偏移；扩展区汉字占四个字节，超出时取末尾。
     {
         const std::string text = "我\xF0\xA0\xAE\xB7去";

@@ -72,7 +72,7 @@ public enum PageId {
         "用户协议", "隐私政策", "项目主页", "开源许可", "给我们评分", "在管理界面中查看"),
     HELP("HelpPage", "使用帮助", HostDeepLink.TAB_ACCOUNT,
         "启用键盘", "打开系统键盘设置", "打字", "选择候选词", "换一种输入方案", "换皮肤与布局", "遇到问题",
-        "完整文档", "反馈问题与建议"),
+        "更新后仍有旧问题", "重装前先导出备份", "完整文档", "反馈问题与建议"),
     DOWNLOAD("DownloadPage", "其他平台下载", HostDeepLink.TAB_ACCOUNT,
         "在电脑上打开", "复制链接", "电脑", "发送链接", "Windows", "macOS", "Linux", "HarmonyOS", "手机和平板",
         "iOS", "iPadOS", "Android"),

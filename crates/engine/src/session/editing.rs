@@ -168,9 +168,12 @@ impl InputSession {
                         accepted = caret > 0;
                     }
                 }
-                LocalInputMode::Emoji
-                | LocalInputMode::Kaomoji
-                | LocalInputMode::TemporaryJapanese => accepted = accepted || value == b'\'',
+                LocalInputMode::Emoji | LocalInputMode::Kaomoji => {
+                    accepted = accepted || value == b'\'';
+                }
+                LocalInputMode::TemporaryJapanese => {
+                    accepted = accepted || matches!(value, b'\'' | b'-');
+                }
                 LocalInputMode::SuperJianpin | LocalInputMode::TemporaryEnglish => {}
                 LocalInputMode::Expression => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT

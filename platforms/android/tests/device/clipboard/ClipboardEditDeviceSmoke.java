@@ -90,6 +90,8 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
         } finally {
             // 恢复系统剪贴板时让本测试 UID 位于前台，不读取或输出原剪贴板文字。
             openEditor();
+            // 先停掉被测键盘，避免监听器把恢复的旧剪贴板写进合成历史，干扰后续元信息核验。
+            shellDiscard("am force-stop " + product);
             if (originalClip == null) clipboard.clearPrimaryClip(); else clipboard.setPrimaryClip(originalClip);
         }
     }

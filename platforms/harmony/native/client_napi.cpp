@@ -256,6 +256,7 @@ TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(NineKeyShuangpinLayout, msime_client_nine_key_shuangpin_layout)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
+TEXT_ENTRY(SkinToolbarImageLayout, msime_client_skin_toolbar_image_layout)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
@@ -1662,6 +1663,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("nineKeyShuangpinLayout", NineKeyShuangpinLayout),
         ENTRY("skinResource", SkinResource),
+        ENTRY("skinToolbarImageLayout", SkinToolbarImageLayout),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("skinImport", SkinImport),
         ENTRY("candidateSkinEditor", CandidateSkinEditor),

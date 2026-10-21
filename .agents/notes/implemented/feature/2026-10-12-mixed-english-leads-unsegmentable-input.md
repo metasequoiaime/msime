@@ -25,9 +25,11 @@ Status: implemented
 | `world` | wo'r'l'd，拆不开 | [world, ...] |
 | `change` | chang'e，完整 | 嫦娥 仍是首选，英文在优先位 |
 | `women`、`ni`、`nihao`、`danci` | 完整 | 不变 |
-| `home` | ho'me，拆不开 | 四个字母，产品默认前缀 5 时不查英文，不变 |
+| `home` | ho'me，拆不开 | 四个字母，默认门槛 5 时只提供完整匹配的非首选候选 |
 | 小鹤双拼 `hello` | 奇数长度，拆不开 | [hello, ...] |
 | 小鹤双拼 `home` | ho（huo）+ me，完整 | 不变 |
+
+短完整词的展示由[短英文完整匹配](../bug-fix/2026-10-20-short-exact-mixed-english.md)补充：26 键在低于 `minimum_prefix` 时仍可列出至少两个字母的完整词，有中文时保持非首选；本篇的领先门槛、音节判定和达到门槛后的补全规则继续适用。
 
 ### 下游配套
 
@@ -79,7 +81,7 @@ Status: implemented
 
 ## Verification
 
-- `cargo test -p msime-engine --lib ime::queries`：`an_exact_english_word_leads_input_pinyin_cannot_spell`（完全匹配领先，`None` 或只是补全时不领先）、`only_the_first_exact_english_row_leads`、`a_leading_english_word_keeps_the_first_seat_ahead_of_cloud_and_ai_rows`（AI 候选和占位行都算）、`a_deduplicated_exact_word_lets_no_completion_lead`、`quanpin_english_leads_only_input_that_is_not_whole_syllables`（`hello` 领先，`change`、`women` 不变，`english_may_lead` 为假时不领先，`home` 在前缀 5 时不查英文、前缀 4 时领先）、`shuangpin_english_leads_only_keys_that_are_not_whole_syllables`（小鹤 `hello` 领先，`home` 不领先）。
+- `cargo test -p msime-engine --lib ime::queries`：`an_exact_english_word_leads_input_pinyin_cannot_spell`（完全匹配领先，`None` 或只是补全时不领先）、`only_the_first_exact_english_row_leads`、`a_leading_english_word_keeps_the_first_seat_ahead_of_cloud_and_ai_rows`（AI 候选和占位行都算）、`a_deduplicated_exact_word_lets_no_completion_lead`、`quanpin_english_leads_only_input_that_is_not_whole_syllables`（`hello` 领先，`change`、`women` 不变，`english_may_lead` 为假时不领先，`home` 在门槛 5 时只列非首选完整词、门槛 4 时领先）、`shuangpin_english_leads_only_keys_that_are_not_whole_syllables`（小鹤 `hello` 领先，`home` 不领先）。
 - `cargo test -p msime-engine --lib session::tests`：`an_exact_english_word_leads_input_pinyin_cannot_spell`（会话里 `hello` 领先、标点整段上屏 `hello，`、`he` 仍是中文首选）、`helpcode_and_caret_prefix_keep_an_exact_english_word_behind_the_first_seat`（对照 `nic` 领先，`niC` 和光标前缀 `nic|nihao` 不领先；去掉任一道门槛它都会失败）、`picking_the_chinese_row_behind_a_leading_english_word_is_the_default_pick`（零分配、不建日志；去掉学习的改动它会失败）。
 - `cargo test -p msime-engine --lib host::tests::mixed_english_never_outranks_chinese_on_complete_pinyin`。
 - `cargo test -p msime-input-runtime`：`the_reranker_leaves_a_leading_english_word_in_place`（同一张表首行是整句时模型提 和，首行是英文时不动；去掉 `rerank_pick` 的判断它会失败）、`promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai`。

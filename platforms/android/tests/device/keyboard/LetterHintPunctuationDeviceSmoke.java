@@ -29,6 +29,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (arguments != null && "true".equals(arguments.getString("english-hold"))) {
+            runEnglishHoldChecks();
+            return;
+        }
         if (arguments != null && "true".equals(arguments.getString("letter-hold"))) {
             runLetterHoldChecks();
             return;
@@ -96,6 +100,86 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         await(described("符号面板"));
         tap(described("关闭符号面板"));
         await(key("v"));
+    }
+
+    /** 通过真实触屏长按覆盖三排英文键与多行弹窗，不用产品字符表生成期望值。 */
+    private void runEnglishHoldChecks() throws Exception {
+        shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        restartIme();
+        startActivitySync(new Intent(getTargetContext(), EditorActivity.class)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        tap(field(PLAIN));
+        await(key("q"));
+        if (findAcrossWindows(described("切换到英文输入")) != null)
+            tap(described("切换到英文输入"));
+        await(described("切换到所选输入方案"));
+        String[] letters = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p",
+            "a", "s", "d", "f", "g", "h", "j", "k", "l", "z", "x", "c", "v", "b", "n", "m"};
+        String[] values = {"Q", "²", "₃", "肆", "⁵", "₆", "ū", "ǐ", "ò", "零",
+            "ₐ", "ˢ", "ᵈ", "ᶠ", "ᵍ", "ₕ", "ⱼ", "ₖ", "ₗ", "ᶻ", "ₓ", "ᶜ", "ǚ", "ᵇ", "ň", "ḿ"};
+        StringBuilder expected = new StringBuilder();
+        for (int index = 0; index < letters.length; index++) {
+            stage = "English hold " + letters[index];
+            Rect anchor = bounds(await(key(letters[index])));
+            holdLetter(letters[index]);
+            Rect first = bounds(await(described("输入 " + letters[index].toUpperCase(java.util.Locale.ROOT))));
+            if (first.top > anchor.bottom)
+                throw new AssertionError("弹窗不应脱离按住的键而贴到键盘底部");
+            if (findAcrossWindows(described("输入 " + letters[index])) != null)
+                throw new AssertionError("长按不应重复小写");
+            AccessibilityNodeInfo option = await(described("输入 " + values[index]));
+            Rect rectangle = bounds(option);
+            Rect display = new Rect(0, 0, getTargetContext().getResources().getDisplayMetrics().widthPixels,
+                getTargetContext().getResources().getDisplayMetrics().heightPixels);
+            if (rectangle.isEmpty() || !display.contains(rectangle) || !option.isVisibleToUser())
+                throw new AssertionError("多行选项被屏幕裁剪");
+            touch(rectangle);
+            expected.append(values[index]);
+            await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
+            await(described("切换到所选输入方案"));
+        }
+        stage = "English hold tone on last row";
+        holdLetter("e");
+        touch(bounds(await(described("输入 è"))));
+        expected.append("è");
+        await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
+        stage = "English downward swipe remains literal";
+        swipeDown("w");
+        expected.append("2");
+        await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
+        stage = "O retains Chinese keyboard entry";
+        holdLetter("o");
+        touch(bounds(await(described("切换到拼音键盘"))));
+        await(described("切换到英文输入"));
+        // 回到中文后的候选提交仍留在中文，延续 O 键入口的既有规则。
+        for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
+        tap(key("空格"));
+        expected.append("你好");
+        await(field(PLAIN).and(node -> equalsText(expected.toString(), node.getText())));
+        await(described("切换到英文输入"));
+    }
+
+    private AccessibilityNodeInfo findAcrossWindows(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+            AccessibilityNodeInfo found = find(window.getRoot(), match);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** 点真实坐标，防止无障碍 ACTION_CLICK 让被窗口裁剪的选项假通过。 */
+    private void touch(Rect rectangle) {
+        long started = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN,
+            rectangle.centerX(), rectangle.centerY(), 0);
+        MotionEvent up = MotionEvent.obtain(started, started + 60, MotionEvent.ACTION_UP,
+            rectangle.centerX(), rectangle.centerY(), 0);
+        try {
+            for (MotionEvent event : new MotionEvent[] {down, up}) {
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                if (!automation.injectInputEvent(event, true)) throw new AssertionError("长按选项触摸失败");
+            }
+        } finally { down.recycle(); up.recycle(); }
     }
 
     private void runLetterHoldChecks() throws Exception {

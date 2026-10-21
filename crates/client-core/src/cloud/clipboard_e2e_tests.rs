@@ -804,6 +804,49 @@ fn a_key_change_during_upload_is_retried_with_the_new_key() {
 }
 
 #[test]
+fn upload_conflicts_other_than_a_key_change_fail_without_retrying() {
+    let mut server = FakeServer::new();
+    let mut device = Device::new("合成设备");
+    device.list(&mut server, "");
+    let step = start(
+        Operation::Add {
+            text: "合成上传".to_owned(),
+        },
+        device.keystore.as_deref(),
+        "合成设备",
+    )
+    .unwrap();
+    let Step::Request { request, state, .. } = step else {
+        panic!()
+    };
+    let Step::Request { request, state, .. } = resume(state, server.handle(&request)).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, API);
+
+    for (response, code) in [
+        (error(409, "clipboard_full"), "clipboard_full"),
+        (error(409, "synthetic_conflict"), "synthetic_conflict"),
+        (
+            HttpResponse {
+                status: 409,
+                body: "<html>synthetic conflict</html>".to_owned(),
+            },
+            "http_409",
+        ),
+    ] {
+        let Step::Failed { error, keystore } = resume(state.clone(), response).unwrap() else {
+            panic!("非换钥冲突必须立即失败，不能继续请求密钥或上传");
+        };
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, code);
+        assert!(Some(&keystore) == device.keystore.as_ref());
+    }
+}
+
+#[test]
 fn disabled_sync_is_reported_without_creating_anything() {
     let mut server = FakeServer::new();
     server.enabled = false;

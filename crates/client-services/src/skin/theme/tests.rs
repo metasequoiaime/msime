@@ -854,6 +854,7 @@ fn summary_packages_keep_only_declared_modes() {
         decoration_frames: 0,
         background: None,
         toolbar: Default::default(),
+        toolbar_image: None,
         toolbar_icon_corner_radius_dip: None,
         border_image: None,
         content_insets_dip: None,

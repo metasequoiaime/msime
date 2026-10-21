@@ -1,6 +1,7 @@
 package app.msime.android.test;
 
 import android.os.SystemClock;
+import android.graphics.Rect;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -121,6 +122,24 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo editor = await(field("msime-test-plain"));
             if (editor.getText() != null && editor.getText().length() > 0 && !editor.isShowingHintText())
                 throw new AssertionError("Cancelled nine-key composition reached the editor");
+
+            stage = "touch selection closes the nine-key panel";
+            tap(key("MNO"));
+            tap(key("GHI"));
+            tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            AccessibilityNodeInfo choice = await(inPanel(describedPrefix("候选 1：")));
+            Rect bounds = new Rect();
+            choice.getBoundsInScreen(bounds);
+            shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
+            awaitGone(described(PANEL));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().length() > 0 && !node.isShowingHintText()));
+            String committed = await(field("msime-test-plain")).getText().toString();
+            stage = "nine-key keyboard accepts input without hiding the IME";
+            await(key("MNO")).getBoundsInScreen(bounds);
+            shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().length() > committed.length()));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
