@@ -403,6 +403,15 @@ public final class NativeClient {
         return TextPolicy.utf8(voiceEndpointIssueRaw(payload, websocket));
     }
 
+    /** 生成流式 WebSocket 的共享传输描述；失败时返回标准错误信封，不回退本地 URI 解析。 */
+    public static String voiceWebSocketEndpoint(String endpoint) {
+        if (endpoint == null || endpoint.length() > 65_536 || !TextPolicy.validUnicode(endpoint))
+            throw new IllegalArgumentException("Invalid voice websocket endpoint");
+        byte[] payload = utf8(endpoint);
+        if (payload.length > 65_536) throw new IllegalArgumentException("Invalid voice websocket endpoint");
+        return TextPolicy.utf8(voiceWebSocketEndpointRaw(payload));
+    }
+
     /** 纯计算的换服务补丁，含凭据；不得记录请求或响应，与 C ABI 共用 1 MiB 的 UTF-8 上限。 */
     public static String voiceProviderUpdate(String request) {
         if (request == null || request.length() > 1_048_576)
@@ -961,6 +970,7 @@ public final class NativeClient {
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] voiceProviderCatalogRaw();
     private static native byte[] voiceEndpointIssueRaw(byte[] endpoint, boolean websocket);
+    private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);

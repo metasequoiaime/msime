@@ -537,10 +537,14 @@ export {
 } from "./settings/use-preferences-snapshot";
 export {
   LinuxSetupPage,
+  nextSetupProgress,
   type LinuxSetupClient,
   type LinuxSetupLine,
+  type LinuxSetupRegistration,
+  type LinuxSetupStage,
   type LinuxSetupStatus,
 } from "./account/linux-setup-page";
+export { LinuxInputMethodNotice } from "./account/linux-input-method-notice";
 export {
   MacosInstallPage,
   nextSimulatedProgress,
@@ -884,6 +888,10 @@ export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
+export {
+  NetworkProxySection,
+  type NetworkProxySectionProps,
+} from "./settings/network-proxy-section";
 export {
   TelemetryRow,
   TelemetrySection,
@@ -1748,6 +1756,7 @@ export type {
   CloudDictionarySnapshotRequest,
   CloudFixedPosition,
   CloudRankingMode,
+  ClipboardCaptureStatus,
   EmojiPanelClient,
   PanelClient,
   VoicePanelClient,

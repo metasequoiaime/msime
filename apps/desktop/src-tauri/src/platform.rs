@@ -13,15 +13,26 @@ pub(crate) mod cloud_clipboard;
     target_os = "ios",
     target_os = "android",
     target_os = "windows",
+    target_os = "linux",
     target_os = "macos",
     test
 ))]
 #[cfg_attr(
-    not(any(target_os = "ios", target_os = "android", target_os = "windows")),
+    not(any(
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "linux"
+    )),
     allow(dead_code)
 )]
 pub(crate) mod cloud_dictionary;
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "windows"))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "linux"
+))]
 pub(crate) mod community_resources;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 pub(crate) mod desktop;

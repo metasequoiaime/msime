@@ -6,6 +6,7 @@ import { AiSettingsContent } from "../ai-settings-content";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { AiReplyTemplates } from "../ai-reply-templates";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 
 /** AI 辅助内容保留原有表单与草稿，切换标签不卸载。 */
 function AiAssistanceContent() {
@@ -43,6 +44,8 @@ function AiAssistanceContent() {
     providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
+    draft,
+    setDraft,
   } = useSettingsForm();
 
   return (
@@ -80,6 +83,13 @@ function AiAssistanceContent() {
       providerCredentialMessages={providerCredentialMessages}
       runProviderCredential={runProviderCredential}
       credentialTestControl={credentialTestControl}
+      // 只有桌面宿主显示代理设置：设置页、账号与社区、更新检查、词库与模型下载都经 Rust 的 reqwest 发出，
+      // iOS、Android 和鸿蒙的这几条请求走平台自己的网络栈，没有出口读这份偏好，所以整组不显示。
+      showNetwork={macosPlatform || windowsPlatform || linuxPlatform}
+      network={draft.network}
+      onNetworkChange={(network) =>
+        createSettingsDraftActions({ setDraft }).onPreferencesChange({ network })
+      }
       trailing={
         <>
           <AiReplyTemplates />

@@ -10,7 +10,9 @@ Status: implemented
 
 提供 `useCloudDictionaryApplyPanel(client)` 与派生的 `CloudDictionaryApplyPanelState`。迁移现有状态、状态文案函数及动作，面板消费返回值并连接[公共应用内容视图](./2026-10-19-cloud-dictionary-apply-content.md)，由该受控组件持有 DOM、禁用条件与宿主提示；面板保留确认框、状态通知和窗口导航。
 
-保持原 hook 调用顺序、客户端 effect、先作废后读取、每 2000 ms 轮询及先作废再停止的 cleanup 顺序。`statusRevision` 与 `lifecycleRevision` 继续分别保护并发状态请求和客户端生命周期，确认仍在调用宿主前核对生命周期。丢弃预览的内联更新命名为 `discardPreview`，不增加守卫。
+保持原 hook 调用顺序、客户端 effect、先作废后读取、每 2000 ms 轮询及先作废再停止的 cleanup 顺序。`statusRevision` 与 `lifecycleRevision` 继续分别保护状态请求归属和客户端生命周期，确认仍在调用宿主前核对生命周期。丢弃预览的内联更新命名为 `discardPreview`，不增加守卫。
+
+慢状态读取的调度由[在途读取修复](../bug-fix/2026-10-21-cloud-snapshot-poll-single-request.md)收紧为每个客户端同时一个，避免固定轮询不断作废慢回答；抽取时保留的每次 tick 都启动读取的行为不再使用。
 
 ## Existing notes audit
 

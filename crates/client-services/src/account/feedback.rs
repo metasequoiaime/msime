@@ -201,7 +201,7 @@ impl BackendAccountClient {
             form = form.part("screenshots", part);
         }
         let response = self
-            .http()
+            .http()?
             .post(self.url(FEEDBACK_PATH)?)
             .header(reqwest::header::ACCEPT, "application/json")
             .bearer_auth(access_token)

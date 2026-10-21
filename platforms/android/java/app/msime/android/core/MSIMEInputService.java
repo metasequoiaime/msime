@@ -10,6 +10,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
+import android.database.ContentObserver;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -114,6 +116,7 @@ public final class MSIMEInputService extends InputMethodService {
     static final int CYCLE_KANA_VARIANT_COMMAND = 10;
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
     ImeToolbar imeToolbar;
+    ImeCompositionEditor imeCompositionEditor;
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
@@ -158,16 +161,12 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
      */
     boolean candidateRenderDeferred;
+    /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
+    private final java.util.Map<View, Object> candidateTouches = new java.util.WeakHashMap<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
-    /** 点读音行移组字光标用的那一份读音（#5613）：画出来的读音（不含已选的词和光标符）、它对应的 `editing_text`、光标符画在读音的哪个下标前（没画是 -1）、前面已选的词有多长、引擎光标现在在哪。读音行不可点时 `preeditCaretEditing` 为 null。 */
-    private String preeditCaretEditing;
-    private String preeditCaretSpelling = "";
-    private int preeditCaretMark = -1;
-    private int preeditCaretPrefix;
-    private int preeditCaretPosition;
     TextView candidatePage;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
@@ -365,8 +364,11 @@ public final class MSIMEInputService extends InputMethodService {
     private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
     /** 浮动面板顶部的拖动条，只在浮动时显示。 */
     FloatingKeyboardBar floatingBar;
-    /** 上一次套到窗口上的是不是浮动布局（浮动键盘或跟随光标的候选栏）；起初是系统默认的停靠布局。 */
+    /** 上一次窗口是否铺满透明区域（浮动键盘、跟随光标候选栏或全文预览）；起初是系统默认的停靠布局。 */
     private boolean floatingLayoutApplied;
+    /** 全文预览只临时扩展窗口，停靠键区沿用扩展前的像素高度。 */
+    boolean clipboardPreviewExpanded;
+    int clipboardPreviewKeyboardHeight;
     /** 上一次套上的浮动布局是不是跟随光标的候选栏：它和浮动键盘的外框宽度、拖动条不同，在两者之间切换也要重新套。 */
     private boolean caretLayoutApplied;
     /** 第一次浮动前窗口与系统 inputArea 原来的高度，停靠时原样恢复；{@link Integer#MIN_VALUE} 表示还没记下。 */
@@ -416,6 +418,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
+    private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -674,6 +677,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 不为 null 时语音面板画的是「语音输入还不能用」的引导（{@link #showVoiceSetup}），内容是原因。 */
     private String voiceSetupReason;
     private EditorContextSnapshot voiceTarget;
+    private long voiceActivityGeneration;
     private ScrollView aiPolishScroll;
     LinearLayout aiPolishContainer;
     LinearLayout aiPolishPanel;
@@ -748,6 +752,19 @@ public final class MSIMEInputService extends InputMethodService {
     boolean emojiLoading;
     private long emojiLoadGeneration;
     final Handler main = new Handler(Looper.getMainLooper());
+    private final ContentObserver inputMethodWatcher = new ContentObserver(main) {
+        @Override public void onChange(boolean selfChange) {
+            automaticNumberRow.inputMethodChanged();
+            // 回调异步到达：切回本输入法后仍在密码/终端中时，按当前编辑器重新开启。
+            String selected;
+            try { selected = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD); }
+            catch (SecurityException unavailable) { selected = null; }
+            EditorInfo info = getCurrentInputEditorInfo();
+            if (selected != null && selected.startsWith(getPackageName() + "/") && isInputViewShown() && info != null)
+                automaticNumberRow.enterEditor(info.inputType, info.packageName);
+            if (keyboardRoot != null) render();
+        }
+    };
     Runnable backspaceRepeatTask;
     Button backspaceRepeatButton;
     boolean backspaceRepeated;
@@ -1490,6 +1507,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
@@ -1602,6 +1620,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onCreate() {
         // 拆出去的构建与渲染类持有本服务；在 onCreate 里创建，构造期间不把 this 交出去。
         imeToolbar = new ImeToolbar(this);
+        imeCompositionEditor = new ImeCompositionEditor(this);
         imeCandidates = new ImeCandidates(this);
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
@@ -1631,6 +1650,8 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        getContentResolver().registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
         LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
@@ -1654,6 +1675,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -1728,6 +1750,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        imePanels.dismissClipboardPreview();
         flushKeyPresses();
         cancelInputViewRefresh();
         // 键盘收起时还在调整高度就照「完成」保存：用户拖到满意的高度后直接收起键盘或切到别的应用，是把这个高度留下来的意思，原来当作取消，下次弹出就回到设置页里的旧值。只有明确点「取消」才放弃预览。
@@ -1847,6 +1870,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        voiceActivityGeneration++;
+        getContentResolver().unregisterContentObserver(inputMethodWatcher);
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -1975,6 +2000,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
     private void stop(boolean finish, boolean keepMoreTools) {
+        imeCompositionEditor.close();
         pendingEngineStartup = -1;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
@@ -3849,21 +3875,53 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    /**
-     * 点在读音行 {@code offset} 处（`TextView.getOffsetForPosition` 的结果）：把组字光标移到点中的字母前，之后的退格、打字都作用在那里（#5613）。引擎只有逐格左右移和移到两头的命令，连发若干次；光标移动不改组字，只把最后一次的结果交给 apply 去画。
-     */
-    void movePreeditCaret(int offset) {
-        String editing = preeditCaretEditing;
-        if (session == 0 || editing == null) return;
-        int target = CompositionCaretPolicy.tapTarget(preeditCaretPrefix, preeditCaretSpelling,
-            editing, preeditCaretMark, offset);
-        int[] moves = CompositionCaretPolicy.moves(preeditCaretPosition, target, editing.length());
-        if (moves.length == 0) return;
+    boolean compositionEditable() {
+        return session != 0 && view != null && CompositionCaretPolicy.editable(
+            InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
+            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+    }
+
+    /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
+    void moveCompositionCaret(int target) {
+        if (!compositionEditable()) return;
+        String editing = InputViewValuePolicy.editingText(view);
+        if (target < 0 || target > editing.length()) return;
+        int current = InputViewValuePolicy.integer(view, "caret_position", editing.length());
+        int[] moves = CompositionCaretPolicy.moves(current, target, editing.length());
         try {
+            // 位置没变时也重写组字，把系统选区放回末尾，维持编辑器桥的读回契约。
+            if (moves.length == 0) {
+                if (!bridge.apply(sink(typingSource()), null, composingText(view, editing, true)))
+                    throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+                render();
+                return;
+            }
             String response = null;
             for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
             apply(response);
         } catch (JSONException | LinkageError error) { fail(error); }
+    }
+
+    /** 用户点击仍完整的组字时进入临时编辑；丢标记、选区或文本改写仍走原先的结束路径。 */
+    private boolean editCompositionSelection(int start, int end, int newStart, int newEnd) {
+        if (!compositionEditable() || connection == null || editorCompositionSuppressed) return false;
+        String editing = InputViewValuePolicy.editingText(view);
+        String composing = composingText(view, editing, true);
+        int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
+        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, prefix,
+            start, end, newStart, newEnd);
+        if (target < 0) return false;
+        int offset = newStart - start;
+        try {
+            CharSequence before = connection.getTextBeforeCursor(offset, 0);
+            CharSequence after = connection.getTextAfterCursor(composing.length() - offset, 0);
+            if (before == null || after == null
+                    || !before.toString().endsWith(composing.substring(0, offset))
+                    || !after.toString().startsWith(composing.substring(offset))) return false;
+        } catch (RuntimeException disconnected) { return false; }
+        moveCompositionCaret(target);
+        imeCompositionEditor.open();
+        return true;
     }
 
     void type(char key) {
@@ -4278,15 +4336,15 @@ public final class MSIMEInputService extends InputMethodService {
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
     }
 
-    /** 现在字母上方要不要画数字行（#6022）：开关打开、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
+    /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
     boolean numberRowDrawn() {
-        return KeyboardLayout.drawsNumberRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsNumberRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 
     /** 数字、符号页保留源字母数字行占用的一排。 */
     boolean symbolExtraRowDrawn() {
-        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsSymbolExtraRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 
@@ -4577,8 +4635,6 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (dedicatedEnglish) command(3); else command(2);
             if (session == 0) return;
-            int previousLayout = displayedTouchLayout(view);
-            boolean previousUppercase = letterCase.usesUppercase();
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
             if (rememberMode && inputModeStore != null) {
@@ -4587,9 +4643,8 @@ public final class MSIMEInputService extends InputMethodService {
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();
-            // 布局变了时 refreshLetterCase 自己会整组重建；只是大写回到小写时就地改键面。
-            if (previousLayout != displayedTouchLayout(view) || previousUppercase)
-                imeLetterRows.refreshLetterCase();
+            // 同为小写状态时，中文固定大写键帽与英文小写键帽也不同；布局是否需要重建交给 refreshLetterCase 判断。
+            imeLetterRows.refreshLetterCase();
             updateAutomaticCapitalization(shouldRender);
             if (directEnglishActive()) refreshEnglishSuggestions();
             else {
@@ -4993,6 +5048,15 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyCode == KeyEvent.KEYCODE_SPACE) return command(1) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_ENTER) { enter(); return true; }
         int unicode = event.getUnicodeChar();
+        // 普通组字里未被选词规则认领的硬件数字是字面输入；本地模式仍由引擎决定拼写、选词或原文回退。
+        if (unicode >= '0' && unicode <= '9'
+                && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
+                && (nineKeyShuangpinGrid(view)
+                || InputViewValuePolicy.booleanValue(view, "nine_key", false))) {
+            if (hasEngineComposition()) command(FINISH_COMPOSITION_COMMAND);
+            commitText(fullWidthOutput(String.valueOf((char) unicode)));
+            return true;
+        }
         if (dedicatedEnglish && unicode >= 32 && unicode <= 126 && !TextPolicy.isAsciiLetter(unicode)) {
             commitEnglishLiteral(unicode);
             return true;
@@ -5080,7 +5144,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
-        if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+        boolean editingComposition = !ownEcho && selectionChanged
+            && editCompositionSelection(composingStart, composingEnd, newStart, newEnd);
+        if (!ownEcho && !editingComposition && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
             // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
@@ -5557,6 +5623,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeClipboardHistory() {
+        imePanels.dismissClipboardPreview();
         if (clipboardScroll != null) ViewPolicy.hide(clipboardScroll);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
@@ -6209,6 +6276,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void startVoiceRecognition() {
+        voiceActivityGeneration++;
         if (!voiceInputEnabled) {
             showVoiceSetup("语音输入已关闭，在设置里打开后，长按空格就能说话。");
             return;
@@ -6220,7 +6288,7 @@ public final class MSIMEInputService extends InputMethodService {
         launchVoiceActivity();
     }
 
-    /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
+    /** 申请麦克风权限或系统服务需要前台恢复时，打开识别窗口并回传结果。 */
     void launchVoiceActivity() {
         imeDebugOverlay.recordEvent(DiagnosticEventKind.VOICE_ACTIVITY_LAUNCH);
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
@@ -6234,11 +6302,13 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeVoiceResult();
+        long operation = ++voiceActivityGeneration;
+        android.os.ResultReceiver resultReceiver = voiceActivityResultReceiver(operation);
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
                 configured.providerName(), configured.requestFormat(), configured.endpoint(),
                 configured.model(), configured.token(), configured.streaming(), configured.polish(),
-                configured.localModel(), null, null, voiceDiagnosticsReceiver());
+                configured.localModel(), null, null, voiceDiagnosticsReceiver(), resultReceiver);
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
             // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
@@ -6246,6 +6316,51 @@ public final class MSIMEInputService extends InputMethodService {
             imeDebugOverlay.recordEvent(VoiceDiagnostics.unexpected(error));
             ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
+        }
+    }
+
+    /** 独立保存目标快照，避免窗口收起键盘时关闭面板把它清掉。 */
+    private android.os.ResultReceiver voiceActivityResultReceiver(long operation) {
+        if (!voiceInsertionReady()) return null;
+        String before = editorContext(true);
+        String after = editorContext(false);
+        // 读不到上下文时无法确认原输入位置，保留原来的手动插入路径。
+        if (before == null || after == null) return null;
+        EditorContextSnapshot target = new EditorContextSnapshot(connection, editorContextRevision,
+            before, selectedEditorText(), after);
+        return new android.os.ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
+                if (operation != voiceActivityGeneration || code != android.app.Activity.RESULT_OK
+                        || payload == null) return;
+                final java.util.UUID id;
+                try { id = java.util.UUID.fromString(payload.getString(VoiceRecognitionActivity.RESULT_ID)); }
+                catch (IllegalArgumentException | NullPointerException error) { return; }
+                insertVoiceActivityResult(operation, target, id, 30);
+            }
+        };
+    }
+
+    /** 等前台窗口归还原编辑连接，再领取本次结果；不能把结果插进后来切换的输入框。 */
+    private void insertVoiceActivityResult(long operation, EditorContextSnapshot target,
+                                          java.util.UUID id, int attempts) {
+        if (operation != voiceActivityGeneration || voiceResultStore == null) return;
+        if (voiceInsertionReady() && target.matches(connection, editorContextRevision,
+                editorContext(true), selectedEditorText(), editorContext(false))) {
+            // 先使重复回传失效，再按编号领取，旧回调不能插入更新后的另一条结果。
+            voiceActivityGeneration++;
+            try {
+                String text = voiceResultStore.consume(id, System.currentTimeMillis());
+                if (!commitText(text, TypingSource.VOICE)) notice("编辑器拒绝插入；结果已安全清除");
+            } catch (VoiceResultStore.Failure error) {
+                notice("语音结果未能自动插入，可在语音结果中查看");
+            }
+            return;
+        }
+        if (attempts > 0) {
+            main.postDelayed(() -> insertVoiceActivityResult(operation, target, id, attempts - 1), 100);
+        } else {
+            voiceActivityGeneration++;
+            notice("输入位置已变化，结果已保留，可在语音结果中插入");
         }
     }
 
@@ -8380,6 +8495,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
         candidateButtons.clear();
@@ -8437,6 +8553,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateCanvasRegion = new CandidateCanvasColumn(this);
         LinearLayout candidateRegion = candidateCanvasRegion;
         imeToolbar.buildCandidateHeader(candidateRegion);
+        imeCompositionEditor.install(candidateRegion);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);
         KeyboardTypographyPolicy.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
@@ -9017,16 +9134,27 @@ public final class MSIMEInputService extends InputMethodService {
         return floatingDrawn() || caretCandidatesDrawn();
     }
 
+    /** 全文预览临时扩大透明窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
+    void setClipboardPreviewExpanded(boolean expanded) {
+        if (clipboardPreviewExpanded == expanded) return;
+        if (expanded) clipboardPreviewKeyboardHeight = keyboardSurface.getHeight();
+        clipboardPreviewExpanded = expanded;
+        applyFloatingLayout(true);
+        imeStyler.applySkin();
+    }
+
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
+     * 剪贴板全文预览同样临时铺满透明窗口，但停靠键区保留原高，应用仍只为键区让出空间。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        if (!force && floating == floatingLayoutApplied && caret == caretLayoutApplied) return;
-        floatingLayoutApplied = floating;
+        boolean fullWindow = floating || clipboardPreviewExpanded;
+        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
+        floatingLayoutApplied = fullWindow;
         caretLayoutApplied = caret;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
@@ -9034,15 +9162,15 @@ public final class MSIMEInputService extends InputMethodService {
             android.view.WindowManager.LayoutParams attributes = window.getAttributes();
             View inputArea = window.findViewById(android.R.id.inputArea);
             ViewGroup.LayoutParams areaParams = inputArea == null ? null : inputArea.getLayoutParams();
-            if (floating && dockedWindowHeight == Integer.MIN_VALUE) dockedWindowHeight = attributes.height;
-            if (floating && areaParams != null && dockedInputAreaHeight == Integer.MIN_VALUE)
+            if (fullWindow && dockedWindowHeight == Integer.MIN_VALUE) dockedWindowHeight = attributes.height;
+            if (fullWindow && areaParams != null && dockedInputAreaHeight == Integer.MIN_VALUE)
                 dockedInputAreaHeight = areaParams.height;
-            int windowHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedWindowHeight;
+            int windowHeight = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : dockedWindowHeight;
             if (windowHeight != Integer.MIN_VALUE && attributes.height != windowHeight) {
                 attributes.height = windowHeight;
                 window.setAttributes(attributes);
             }
-            int areaHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedInputAreaHeight;
+            int areaHeight = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : dockedInputAreaHeight;
             if (areaParams != null && areaHeight != Integer.MIN_VALUE && areaParams.height != areaHeight) {
                 areaParams.height = areaHeight;
                 // 铺满时 inputArea 仍贴着窗口底部，停靠后的包裹高度同样贴底，与系统默认一致。
@@ -9053,7 +9181,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (keyboardRoot != null && keyboardRoot.getLayoutParams() != null) {
             ViewGroup.LayoutParams params = keyboardRoot.getLayoutParams();
-            int height = floating ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            int height = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
             if (params.height != height) {
                 params.height = height;
                 keyboardRoot.setLayoutParams(params);
@@ -9079,11 +9207,12 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
+     * 全文预览的透明窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
-        if (!overlayDrawn() || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !clipboardPreviewExpanded) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -9091,6 +9220,10 @@ public final class MSIMEInputService extends InputMethodService {
         outInsets.contentTopInsets = height;
         outInsets.visibleTopInsets = height;
         keyboardSurface.getLocationInWindow(floatingLocation);
+        if (clipboardPreviewExpanded && !overlayDrawn()) {
+            outInsets.contentTopInsets = floatingLocation[1];
+            outInsets.visibleTopInsets = floatingLocation[1];
+        }
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
         if (keyboardSurface.getVisibility() != View.VISIBLE) {
             outInsets.touchableRegion.setEmpty();
@@ -9582,11 +9715,7 @@ public final class MSIMEInputService extends InputMethodService {
                 caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            preeditCaretEditing = caretEditable && spellingDrawn ? editingText : null;
-            preeditCaretSpelling = caretSpelling;
-            preeditCaretMark = caretMark;
-            preeditCaretPrefix = phrasePrefix.length();
-            preeditCaretPosition = caret;
+            imeCompositionEditor.render(caretSpelling, editingText, caret);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
@@ -9595,11 +9724,13 @@ public final class MSIMEInputService extends InputMethodService {
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
+            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty()) displayText = "编辑拼写";
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
-            preedit.setContentDescription(offersLocalModes ? "长按打开本地输入模式" : displayText);
+            preedit.setContentDescription(caretEditable ? "编辑拼写"
+                : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
-            ViewPolicy.setClickable(preedit, preeditCaretEditing != null);
+            ViewPolicy.setClickable(preedit, caretEditable);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
@@ -9947,10 +10078,10 @@ public final class MSIMEInputService extends InputMethodService {
         imeToolbar.styleTopRow();
     }
 
-    /** 在候选条或展开面板里是否有一个视图正被手指按着。 */
-    private static boolean candidateTreeHeld(View view) {
+    /** 在候选条或展开面板里是否有尚未结束的触摸或排队点击。 */
+    private boolean candidateTreeHeld(View view) {
         if (view == null || view.getVisibility() != View.VISIBLE) return false;
-        if (view.isPressed()) return true;
+        if (candidateTouches.containsKey(view)) return true;
         if (!(view instanceof android.view.ViewGroup group)) return false;
         for (int index = 0; index < group.getChildCount(); index++)
             if (candidateTreeHeld(group.getChildAt(index))) return true;
@@ -9961,11 +10092,16 @@ public final class MSIMEInputService extends InputMethodService {
     void bindCandidateRenderRelease(View button) {
         button.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
-            if ((action == android.view.MotionEvent.ACTION_UP
-                    || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && candidateRenderDeferred) {
-                candidateRenderDeferred = false;
-                view.post(this::render);
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                candidateTouches.put(view, new Object());
+            } else if (action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL) {
+                Object gesture = candidateTouches.get(view);
+                // 触摸监听先于框架的点击入队；再排一次队，既不能提前摘掉按钮，也不能漏掉点击触发的延后绘制。
+                main.post(() -> main.post(() -> {
+                    if (candidateTouches.get(view) == gesture) candidateTouches.remove(view);
+                    if (candidateRenderDeferred) render();
+                }));
             }
             return false;
         });

@@ -18,6 +18,8 @@ import { AiLinuxProviderSection } from "./ai-linux-provider-section";
 import { AiApiTokenSection } from "./ai-api-token-section";
 import { aiEndpointHint } from "./ai-endpoint-policy";
 import { AiTestToolsSection } from "./ai-test-tools-section";
+import { NetworkProxySection } from "./network-proxy-section";
+import type { NetworkProxyPreferences } from "./network-proxy-preferences";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import * as settings from "./settings-style";
 
@@ -58,6 +60,10 @@ export interface AiSettingsContentProps {
   >["providerCredentialMessages"];
   runProviderCredential: ReturnType<typeof useProviderCredentials>["runProviderCredential"];
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
+  /** 云候选、翻译、AI、语音、账号、更新检查和下载共用的代理设置；旧宿主不给时整组不显示。 */
+  network?: NetworkProxyPreferences;
+  onNetworkChange?: (value: NetworkProxyPreferences) => void;
+  showNetwork?: boolean;
   /** 最后一组之后的内容：设置页在这里放进入「AI 对话」的入口。 */
   trailing: ReactNode;
 }
@@ -97,6 +103,9 @@ export function AiSettingsContent({
   providerCredentialMessages,
   runProviderCredential,
   credentialTestControl,
+  network,
+  onNetworkChange,
+  showNetwork = false,
   trailing,
 }: AiSettingsContentProps) {
   const linuxCredentialTest = credentialTestControl(
@@ -208,6 +217,11 @@ export function AiSettingsContent({
       onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
       onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
       // 「AI 润色测试」用的是润色提示词。桌面上这份配置只给拼音联想用，测出来的结果和用户实际得到的没有关系，凭据和接口通不通已经由「测试 AI 辅助配置」回答，所以只在用它润色的 iOS、Android 和 HarmonyOS（手机与 2-in-1 的键盘都用它润色，见 `KeyboardSession.ets`）上保留。
+      networkSection={
+        showNetwork && onNetworkChange ? (
+          <NetworkProxySection value={network} disabled={disabled} onChange={onNetworkChange} />
+        ) : null
+      }
       testTools={
         client.aiAssistant && !(macosPlatform || windowsPlatform || linuxPlatform) ? (
           <AiTestToolsSection

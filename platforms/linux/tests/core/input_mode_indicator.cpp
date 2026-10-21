@@ -7,8 +7,12 @@ int main() {
   using Indicator = msime::linux_host::InputModeIndicator;
 
   assert(input_mode_indicator(true, "quanpin", false) == Indicator::Chinese);
-  assert(input_mode_indicator(true, "shuangpin", false) == Indicator::Chinese);
-  assert(input_mode_indicator(true, "wubi", false) == Indicator::Chinese);
+  // 双拼和五笔与 macOS 的输入模式一样各显示为自己（双、五），直接输入时照样是英文，CapsLock 照样优先。
+  assert(input_mode_indicator(true, "shuangpin", false) == Indicator::Shuangpin);
+  assert(input_mode_indicator(true, "wubi", false) == Indicator::Wubi);
+  assert(input_mode_indicator(false, "shuangpin", false) == Indicator::English);
+  assert(input_mode_indicator(false, "wubi", false) == Indicator::English);
+  assert(input_mode_indicator(true, "wubi", true) == Indicator::CapsLock);
   assert(input_mode_indicator(true, "japanese", false) == Indicator::Japanese);
   assert(input_mode_indicator(true, "korean", false) == Indicator::Korean);
   assert(input_mode_indicator(true, "cantonese", false) == Indicator::Cantonese);

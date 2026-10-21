@@ -37,3 +37,5 @@ Status: implemented
 - `cargo test -p msime-engine --lib nine_key`：`the_caret_edits_digits_in_the_middle`（中间改数字、两头停住、切分和退格、锁定拼写里改数字、选中候选后光标回到末尾、切在锁定边界上不解除锁定），`the_caret_meets_key_letters_and_taking_back_locks`（光标在中间时退格不撤首字母和锁定、首字母那一位前插入或删掉它、光标处编辑丢掉撤销记录、换选时光标的去处、左列数字上屏后光标回到末尾、取消一起复位），`commands_edit_commit_and_cancel_the_digits` 改为断言 `MoveLeft` 已处理。
 - `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api`，`cargo clippy -p msime-engine --all-targets -- -D warnings`。
 - `ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh`：`tests/core/CompositionCaretPolicySmoke.java`（可点的方案、全拼与九键的点击换算、光标符位置、竖条在带已选词的标题里正落在光标符上、点在竖条两侧光标不动、对不上时不动、引擎命令序列）。`CompositionCaretSpan` 继承 `ReplacementSpan`，check-host 的 android.jar 只有桩，画法没有 JVM 覆盖。
+
+#9016 的临时放大编辑、输入框组字内点击与右侧偏移手柄由[Android 拼写放大编辑](2026-10-21-android-composition-magnifier.md)接手；引擎光标和触屏拼写入框规则继续保留。

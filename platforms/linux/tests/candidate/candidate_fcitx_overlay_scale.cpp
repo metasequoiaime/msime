@@ -194,8 +194,8 @@ int main() {
     const auto banner_dir = root / "banner";
     std::filesystem::create_directories(banner_dir);
     const auto file = banner_dir / "theme.conf";
-    // 121 的预留加 7 的内边距（无边框时 1 px 发丝线加 6 px）：房间高 128，所以 64 宽的 64x512 原图缩放成 16x128，@2x 正好 32x256。
-    const host::CandidateSkinDecoration banner{banner_image.string(), 121, 64, host::CandidateSkinAlign::right};
+    // 124 的预留加 4 的内边距（macOS 的卡片内边距，无边框时也是 4 px）：房间高 128，所以 64 宽的 64x512 原图缩放成 16x128，@2x 正好 32x256。
+    const host::CandidateSkinDecoration banner{banner_image.string(), 124, 64, host::CandidateSkinAlign::right};
     assert(host::write_fcitx_candidate_theme(file, {}, true, banner, std::nullopt, std::nullopt, false,
                                              host::scale_fcitx_overlay_png));
     const auto banner_theme = read(file);

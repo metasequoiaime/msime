@@ -206,7 +206,7 @@ impl BackendAccountClient {
             .map_err(|_| AccountError::Invalid)?;
         let form = Form::new().part("payload", payload).part("audio", audio);
         let response = self
-            .http()
+            .http()?
             .post(self.url(VOICE_CONTRIBUTIONS_PATH)?)
             .header(reqwest::header::ACCEPT, "application/json")
             .bearer_auth(access_token)

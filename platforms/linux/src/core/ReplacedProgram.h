@@ -117,8 +117,8 @@ inline std::optional<std::string> user_service_unit(std::string_view cgroup) {
   return std::nullopt;
 }
 
-// The command that restarts the running fcitx5 so it loads the replaced addon.
-inline std::string fcitx5_restart_command() {
+// 本进程所在的 systemd 用户服务（读 /proc/self/cgroup），没有时为空。升级通知的「立即重启 Fcitx5」按钮按它决定重启服务还是 fcitx5 -r。
+inline std::optional<std::string> current_user_service_unit() {
   std::string cgroup;
   if (FILE *file = std::fopen("/proc/self/cgroup", "re")) {
     char buffer[4096];
@@ -127,9 +127,34 @@ inline std::string fcitx5_restart_command() {
       cgroup.append(buffer, length);
     std::fclose(file);
   }
-  if (const auto unit = user_service_unit(cgroup))
+  return user_service_unit(cgroup);
+}
+
+// KWin 的 Wayland 会话把 Fcitx5 当作虚拟键盘自己启动（父进程是 kwin_wayland），并把输入法协议的连接交给它。从别处起来的 `fcitx5 -r` 拿不到那条连接，Wayland 原生应用随之打不了字；这样的 Fcitx5 还继承了 KWin 的 cgroup，systemd 启动的 Plasma 里 user_service_unit 读出的是 plasma-kwin_wayland.service，重启它等于重启整个桌面。所以 KWin 启动的 Fcitx5 没有可以交给用户的重启命令，只能注销或在系统设置里重新选一次虚拟键盘。`parent_comm` 是 /proc/<父进程>/comm，最长 15 个字节，kwin_wayland_wrapper 会被截成 kwin_wayland_wr，所以按前缀认。
+inline bool kwin_launched(std::string_view parent_comm) {
+  constexpr std::string_view kwin = "kwin_wayland";
+  return parent_comm.substr(0, kwin.size()) == kwin;
+}
+
+// 本进程是不是 KWin 启动的（见 kwin_launched）。
+inline bool parent_is_kwin() {
+  std::string comm;
+  const auto path = "/proc/" + std::to_string(getppid()) + "/comm";
+  if (FILE *file = std::fopen(path.c_str(), "re")) {
+    char buffer[64];
+    if (std::fgets(buffer, sizeof buffer, file)) comm = buffer;
+    std::fclose(file);
+  }
+  while (!comm.empty() && comm.back() == '\n') comm.pop_back();
+  return kwin_launched(comm);
+}
+
+// 重启正在运行的 fcitx5、让它载入换过的插件的命令。KWin 启动的 Fcitx5 没有这样的命令（见 kwin_launched），返回空。
+inline std::optional<std::string> fcitx5_restart_command() {
+  if (parent_is_kwin()) return std::nullopt;
+  if (const auto unit = current_user_service_unit())
     return "systemctl --user restart " + *unit;
-  return "fcitx5 -r";
+  return std::string("fcitx5 -r");
 }
 
 }  // namespace msime::linux_host

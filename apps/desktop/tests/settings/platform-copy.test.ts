@@ -20,6 +20,14 @@ test("provides Android help and privacy copy", () => {
   expect(copy.aboutDescription).toBe("为 Android 触屏输入体验打造的开放中文输入法。");
 });
 
+test("Linux 的联网说明列出设置应用每天一次的更新检查", () => {
+  const copy = platformCopy(context({ linux: true }));
+
+  expect(copy.networkDescription).toContain("msime-linux-online-provider");
+  expect(copy.networkDescription).toContain("每天最多查询一次 GitHub");
+  expect(copy.networkDescription).toContain("不下载也不安装");
+});
+
 test("distinguishes HarmonyOS desktop and touch copy", () => {
   expect(platformCopy(context({ harmony: true, mobile: false })).aboutDescription).toBe(
     "为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。",

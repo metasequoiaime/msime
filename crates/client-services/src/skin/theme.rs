@@ -103,7 +103,7 @@ impl ThemePackage {
             .is_none_or(|appearance| (appearance == ThemeAppearance::Dark) == dark)
     }
 
-    /// Read one entry of the published `candidate_skin_catalog` (see `catalog::host_candidate_catalog`). That entry carries a palette for exactly the modes the package declares, so a missing mode reads as undeclared. Its `title`, decoration and corner radius keys are not theme colours and are ignored. The entry is read strictly: an unknown key anywhere, a missing `layouts`, a `base` that is not `system` or a built-in theme (as `catalog::scan` refuses the manifest) or an unsafe id is refused. In particular a `SkinSummary` from `msime_client_skin_catalog`, whose keys are camelCase (`showSelectedBar`, `minWidthDip`, `themes`), is not an entry and is refused rather than read with its selection bar and declared modes silently lost; hosts that scan the skin root pass `skins_directory` instead.
+    /// Read one entry of the published `candidate_skin_catalog` (see `catalog::host_candidate_catalog`). That entry carries a palette for exactly the modes the package declares, so a missing mode reads as undeclared. Its `title`, decoration, corner radius, row radius, background and toolbar keys are not candidate theme colours and are ignored. The entry is read strictly: an unknown key anywhere, a missing `layouts`, a `base` that is not `system` or a built-in theme (as `catalog::scan` refuses the manifest) or an unsafe id is refused. In particular a `SkinSummary` from `msime_client_skin_catalog`, whose keys are camelCase (`showSelectedBar`, `minWidthDip`, `themes`), is not an entry and is refused rather than read with its selection bar and declared modes silently lost; hosts that scan the skin root pass `skins_directory` instead.
     pub fn from_host_catalog_entry(entry: serde_json::Value) -> Result<Self, String> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -125,6 +125,16 @@ impl ThemePackage {
             _decoration_align: serde::de::IgnoredAny,
             #[serde(default, rename = "corner_radius_dip")]
             _corner_radius_dip: serde::de::IgnoredAny,
+            #[serde(default, rename = "item_corner_radius_dip")]
+            _item_corner_radius_dip: serde::de::IgnoredAny,
+            #[serde(default, rename = "background_image")]
+            _background_image: serde::de::IgnoredAny,
+            #[serde(default, rename = "background_fit")]
+            _background_fit: serde::de::IgnoredAny,
+            #[serde(default, rename = "background_opacity")]
+            _background_opacity: serde::de::IgnoredAny,
+            #[serde(default, rename = "toolbar")]
+            _toolbar: serde::de::IgnoredAny,
             #[serde(default, rename = "resolvedLayout")]
             resolved_layout: Option<ResolvedSkinLayout>,
         }

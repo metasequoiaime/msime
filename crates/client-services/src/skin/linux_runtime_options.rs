@@ -2,7 +2,7 @@
 //!
 //! 文件的读写留给调用方：设置应用和 MCP 服务各有自己的私有文件读写原语和错误类型，这里只处理文档本身。
 
-use super::catalog::{host_candidate_catalog, SkinCatalog};
+use super::catalog::{host_candidate_catalog, SkinCatalog, HOST_CATALOG_DRAWN_EXTRAS};
 use serde_json::Value;
 use std::path::Path;
 
@@ -25,9 +25,9 @@ pub fn runtime_options_bytes(document: &Value) -> Result<Vec<u8>, TooLarge> {
     Ok(bytes)
 }
 
-/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时从末尾逐个丢掉皮肤包，直到放得下。
+/// 把 `document` 连同从 `root` 扫描到的已安装皮肤一起序列化，皮肤目录写在 `candidate_skin_catalog` 里；放不进 `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET` 时先从末尾逐个去掉没选中的包的背景图和工具栏配色（`HOST_CATALOG_DRAWN_EXTRAS`），还放不下再从末尾逐个丢掉皮肤包，直到放得下。
 ///
-/// 自定义主题选中的皮肤（浅色、深色两个槽位）最后才丢，因为屏幕上画的是它们的颜色。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
+/// 背景图和工具栏配色只在宿主画这一款时用得上，丢掉它们只让从 Fcitx5「主题」菜单换上的皮肤少了背景图和工具栏配色，丢掉整包则让它从菜单里消失，所以先丢前者。自定义主题选中的皮肤（浅色、深色两个槽位）最后才动，因为屏幕上画的是它们。连空目录都放不下时整个键不写，免得宿主原本能读的文档因为皮肤目录读不了；去掉目录后仍超出宿主上限的文档直接拒绝。
 pub fn runtime_options_with_skin_catalog(
     document: &mut Value,
     root: &Path,
@@ -54,13 +54,31 @@ pub fn runtime_options_with_skin_catalog(
         if packages.is_empty() {
             break;
         }
+        let is_selected = |package: &Value| {
+            package["id"]
+                .as_str()
+                .is_some_and(|id| selected.contains(&id))
+        };
+        let styled = packages
+            .iter_mut()
+            .rev()
+            .filter(|package| !is_selected(package))
+            .find_map(|package| {
+                let entry = package.as_object_mut()?;
+                HOST_CATALOG_DRAWN_EXTRAS
+                    .iter()
+                    .any(|key| entry.contains_key(*key))
+                    .then_some(entry)
+            });
+        if let Some(styled) = styled {
+            for key in HOST_CATALOG_DRAWN_EXTRAS {
+                styled.remove(key);
+            }
+            continue;
+        }
         let dropped = packages
             .iter()
-            .rposition(|package| {
-                !package["id"]
-                    .as_str()
-                    .is_some_and(|id| selected.contains(&id))
-            })
+            .rposition(|package| !is_selected(package))
             .unwrap_or(packages.len() - 1);
         packages.remove(dropped);
     }
@@ -72,7 +90,7 @@ pub fn runtime_options_with_skin_catalog(
 
 /// 只换掉 `document` 里的皮肤目录，其余键原样保留。返回要写回的字节；新目录与文档里已有的一样时返回 `None`，调用方不写文件，监视这个文件的宿主也就不会白白重载一次。
 ///
-/// 同名替换一款皮肤（MCP 的 `create_candidate_skin` 带 `replace`、皮肤编辑器、图库重装）时，宿主比较的就是这份条目：它含配色、装饰带尺寸和装饰图路径、卡片圆角，正是非 canvas 包在 Linux 上画的全部内容。条目变了文件就变，IBus 按文档内容、Fcitx5 按主题请求（含所画包的条目）发现它；条目没变说明宿主从它画的东西都没变，装饰图本身和 canvas 包的文件由 Fcitx5 按文件戳另行发现。
+/// 同名替换一款皮肤（MCP 的 `create_candidate_skin` 带 `replace`、皮肤编辑器、图库重装）时，宿主比较的就是这份条目：它含配色、装饰带尺寸和装饰图路径、卡片圆角和行圆角、背景图路径与铺排、工具栏配色（放不下时没选中的包没有后两样），正是非 canvas 包在 Linux 上画的全部内容。条目变了文件就变，IBus 按文档内容、Fcitx5 按主题请求（含所画包的条目）发现它；条目没变说明宿主从它画的东西都没变，装饰图本身和 canvas 包的文件由 Fcitx5 按文件戳另行发现。
 pub fn republish_skin_catalog(
     document: &mut Value,
     root: &Path,

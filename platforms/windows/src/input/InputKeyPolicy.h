@@ -36,7 +36,7 @@ constexpr bool is_segment_backspace_key(uint32_t keycode, uint32_t modifiers) {
          (modifiers & kKeyModifierMask) == kModifierControl;
 }
 
-// 整句改字的方向键（msime_client.h）：`edits_sentence`（全拼、双拼，不在本地模式和专用英文里）时，不带修饰键的左右键换成改字命令，Ctrl+左右换成逐个字母的光标命令；其他命令和其他方案原样返回。数值与 msime_client.h 的 MsimeCommand 相同。
+// 整句改字的方向键（msime_client.h）：`edits_sentence`（全拼、双拼，不在本地模式和专用英文里）时，不带修饰键的左右键换成改字命令；其他命令和其他方案原样返回。分段命令（Shift/Ctrl+左右的 MSIME_MOVE_LEFT_SEGMENT / MSIME_MOVE_RIGHT_SEGMENT）在所有方案里都原样发出，按音节移动拼音光标：换成逐个字母的光标命令的话，偏好 `navigation.left_right` 打开时共享 runtime 会在高亮不在首选时把它们改成移动候选，而分段命令从不被改。数值与 msime_client.h 的 MsimeCommand 相同。
 inline constexpr uint32_t kCommandMoveLeft = 4;
 inline constexpr uint32_t kCommandMoveRight = 5;
 inline constexpr uint32_t kCommandMoveLeftSegment = 13;
@@ -51,18 +51,16 @@ constexpr uint32_t sentence_edit_command(uint32_t command, bool edits_sentence) 
     return kCommandConversionLeft;
   case kCommandMoveRight:
     return kCommandConversionRight;
-  case kCommandMoveLeftSegment:
-    return kCommandMoveLeft;
-  case kCommandMoveRightSegment:
-    return kCommandMoveRight;
   default:
     return command;
   }
 }
 
+// 分段光标键：只按 Ctrl 或只按 Shift（不带其他修饰键）的左右键，组字时按音节移动拼音光标，所有方案都一样（msime_client.h 的整句改字一段）。Shift+左右和主流做法一致（Rime 把 Shift+方向键当作 Ctrl+方向键），macOS 上 Ctrl+方向键被调度中心占用，各桌面宿主都认这两组。Shift+退格不是分段键，见 is_segment_backspace_key。没有组字时这些键属于应用（选择文字、按词跳），由调用方判断组字状态。
 constexpr bool is_segment_caret_key(uint32_t keycode, uint32_t modifiers) {
+  const auto chord = modifiers & kKeyModifierMask;
   return (keycode == kVirtualKeyLeft || keycode == kVirtualKeyRight) &&
-         (modifiers & kKeyModifierMask) == kModifierControl;
+         (chord == kModifierControl || chord == kModifierShift);
 }
 
 // Ctrl+Shift+E without Alt toggles the dedicated English mode, matching the reference Server's IsEnglishModeToggleKey. The TSF claims the chord while the IME is open and cancels its own composition locally.

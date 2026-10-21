@@ -132,6 +132,17 @@ void service_unit_detection() {
   assert(!user_service_unit(""));
 }
 
+// KWin 启动的 Fcitx5 没有重启命令：父进程的 comm 是 kwin_wayland，或被截到 15 个字节的 kwin_wayland_wrapper。
+void kwin_launch_detection() {
+  using msime::linux_host::kwin_launched;
+  assert(kwin_launched("kwin_wayland"));
+  assert(kwin_launched("kwin_wayland_wr"));
+  assert(!kwin_launched("kwin_x11"));
+  assert(!kwin_launched("systemd"));
+  assert(!kwin_launched("Hyprland"));
+  assert(!kwin_launched(""));
+}
+
 void mapped_file_replaced_and_removed() {
   char pattern[] = "/tmp/msime-replaced-mapping-XXXXXX";
   const char *created = mkdtemp(pattern);
@@ -199,6 +210,7 @@ int main(int argc, char **argv) {
   classification();
   maps_parsing();
   service_unit_detection();
+  kwin_launch_detection();
   mapped_file_replaced_and_removed();
   running_executable_replaced_and_removed();
   return 0;

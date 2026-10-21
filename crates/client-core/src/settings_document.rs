@@ -17,10 +17,10 @@ pub const MAX_DOCUMENT_BYTES: usize = 1 << 20;
 /// macOS 原生设置窗口「导出设置…」写出的格式名，内容是 Apple 云同步的键值，不是共享偏好。
 const MACOS_NATIVE_FORMAT: &str = "app.msime.client.settings";
 
-/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关，以及云剪贴板中继、云候选的整组配置（地址、请求头和模板可能含凭据，用户保存的设置文件里不该出现它）。导出时不写，导入时保留本机的值。
+/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关，以及云剪贴板中继、云候选的整组配置（地址、请求头和模板可能含凭据，用户保存的设置文件里不该出现它）和网络代理设置（代理地址常写内网主机和端口，只对这台机器的网络成立）。导出时不写，导入时保留本机的值。
 ///
 /// 剪贴板历史开关跟着本机走有两层原因：记不记录这台电脑复制过的内容是本机的隐私选择；它默认关闭，大多数文件里都是关的，如果跟着文件走，导入时会把本机开着的历史关掉，而关掉就会清空已存的历史，这些记录找不回来。
-pub const LOCAL_SECTIONS: [&str; 11] = [
+pub const LOCAL_SECTIONS: [&str; 12] = [
     "voice_input",
     "ai_assistant",
     "custom_translation",
@@ -32,6 +32,8 @@ pub const LOCAL_SECTIONS: [&str; 11] = [
     "clipboard_history_limit",
     "cloud_clipboard_relay",
     "cloud_candidate_provider",
+    // 代理地址常写内网主机和端口，只对这台机器的网络成立。
+    "network",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

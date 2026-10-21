@@ -27,7 +27,8 @@ struct WaveOverlayMonitor {
   WaveOverlayWorkArea work;
 };
 
-constexpr int kWaveOverlayBottomMargin = 24;
+// 离工作区底边的间距，与 macOS 和 Windows 语音条一样是 10 px（`WaveOverlayLayout.h` 里的 `kWaveOverlayWorkAreaGap`）。
+constexpr int kWaveOverlayBottomMargin = 10;
 
 constexpr WaveOverlayPosition
 wave_overlay_bottom_center(WaveOverlayWorkArea work_area, int overlay_width,

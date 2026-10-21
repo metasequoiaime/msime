@@ -16,6 +16,8 @@ Windows/Linux 的共享符号页和 macOS 的原生符号页都在现有「表�
 
 符号记录与表情记录分开，本机存储最多 28 项，重复使用移到最前，可清空。共享页使用 `msime.symbols.recent`，macOS 使用宿主偏好域的 `MSIMESymbolRecentItems`。不加入共享偏好与账号同步。
 
+叶分类的直接选择与共享桌面面板缩放由[子分类与缩放](2026-10-21-desktop-symbol-leaf-categories-and-resize.md)部分取代本篇的上级分类选择；其余资源、输入通道与最近使用规则保留。
+
 ## Alternatives considered
 
 - 启用 Windows 的原生 EmojiPanel 原型：它已有网格与原生文本输入接口，能减少 WebView。但该实现没有 `.cpp`，不参与产品构建，真正入口使用共享面板；只改原型用户无法看到，也覆盖不了 Linux 和本机 macOS。

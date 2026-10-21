@@ -1,0 +1,113 @@
+[
+  {
+    "manifest": "[toolbar]\nmode='image'\nimage='bar.png'\nimage_width_dip=168\nimage_height_dip=48\n[toolbar.button_defaults]\nwidth_dip=30\nheight_dip=20\nicon_size_dip=18\nbackground='default.png'\n[toolbar.button_flow]\nx_dip=5\ny_dip=7\ngap_dip=3\n[toolbar.buttons.status]\nx_dip=170\ny_dip=1\nwidth_dip=40\nimage='status.png'\n[toolbar.buttons.status.images]\ncn='cn.png'\n[toolbar.buttons.fullwidth]\nvisible=false\n[toolbar.buttons.punctuation]\nx_dip=99\nheight_dip=25\n",
+    "skin": {
+      "image": "bar.png",
+      "imageWidthDip": 168.0,
+      "imageHeightDip": 48.0,
+      "buttonDefaults": {
+        "widthDip": 30.0,
+        "heightDip": 20.0,
+        "iconSizeDip": 18.0,
+        "background": "default.png"
+      },
+      "buttonFlow": {
+        "xDip": 5.0,
+        "yDip": 7.0,
+        "direction": "horizontal",
+        "gapDip": 3.0
+      },
+      "buttons": {
+        "status": {
+          "visible": null,
+          "xDip": 170.0,
+          "yDip": 1.0,
+          "widthDip": 40.0,
+          "heightDip": null,
+          "iconSizeDip": null,
+          "background": null,
+          "image": "status.png",
+          "images": {
+            "cn": "cn.png"
+          }
+        },
+        "fullwidth": {
+          "visible": false,
+          "xDip": null,
+          "yDip": null,
+          "widthDip": null,
+          "heightDip": null,
+          "iconSizeDip": null,
+          "background": null,
+          "image": null,
+          "images": {}
+        },
+        "punctuation": {
+          "visible": null,
+          "xDip": 99.0,
+          "yDip": null,
+          "widthDip": null,
+          "heightDip": 25.0,
+          "iconSizeDip": null,
+          "background": null,
+          "image": null,
+          "images": {}
+        }
+      }
+    },
+    "shown": [
+      [
+        "status",
+        "cn"
+      ],
+      [
+        "fullwidth",
+        "full"
+      ],
+      [
+        "punctuation",
+        "cn"
+      ],
+      [
+        "settings",
+        ""
+      ]
+    ],
+    "expected": {
+      "widthDip": 210.0,
+      "heightDip": 48.0,
+      "buttons": [
+        {
+          "key": "status",
+          "xDip": 170.0,
+          "yDip": 1.0,
+          "widthDip": 40.0,
+          "heightDip": 20.0,
+          "iconSizeDip": 18.0,
+          "background": "default.png",
+          "image": "cn.png"
+        },
+        {
+          "key": "punctuation",
+          "xDip": 5.0,
+          "yDip": 7.0,
+          "widthDip": 30.0,
+          "heightDip": 25.0,
+          "iconSizeDip": 18.0,
+          "background": "default.png",
+          "image": null
+        },
+        {
+          "key": "settings",
+          "xDip": 38.0,
+          "yDip": 7.0,
+          "widthDip": 30.0,
+          "heightDip": 20.0,
+          "iconSizeDip": 18.0,
+          "background": "default.png",
+          "image": null
+        }
+      ]
+    }
+  }
+]

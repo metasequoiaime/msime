@@ -108,9 +108,17 @@ int main() {
   check(activity.today_hours && (*activity.today_hours)[21] == 600, "today's hours");
   const auto metrics = overview_metrics(statistics, "2026-10-11", L"累计输入", statistics.total, activity);
   check(metrics.size() == 6 && metrics[0].value == L"600" && metrics[1].value == L"1,300", "overview tiles");
-  check(metrics[2].value == L"30秒" && metrics[3].value == L"1,080" && metrics[4].note == L"共 2分",
-        "activity tiles");
-  check(metrics[5].note == L"最长 3 天", "streak tile");
+  check(metrics[2].value == L"30秒" && metrics[3].value == L"1,080", "activity tiles");
+  check(metrics[0].note == L"单日最多 600 字符 · 10月11日" && metrics[1].note == L"日均 433 字符 · 3 天有记录" &&
+            metrics[2].note == L"累计 2分" && metrics[3].note == L"单日最快 180 字 / 分钟 · 10月10日" &&
+            metrics[4].note.empty() && metrics[5].note == L"最长 3 天",
+        "tile notes are spread as on macOS");
+  {
+    const auto quiet = overview_metrics(Statistics{}, "2026-10-11", L"累计输入", 0, Activity{});
+    check(quiet[0].note.empty() && quiet[2].note.empty() && quiet[3].note.empty() &&
+              quiet[1].note == L"日均 0 字符 · 0 天有记录",
+          "no records leave the record notes out");
+  }
   const auto details = overview_details(activity);
   check(details.summary == L"日均 433 字符 · 3 天有记录", "overview summary");
   check(details.best == L"最多 10月11日，600 字符 · 最快 10月10日，180 字 / 分钟", "overview best");

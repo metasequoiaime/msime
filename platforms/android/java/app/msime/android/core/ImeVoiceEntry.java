@@ -15,6 +15,7 @@ import android.speech.SpeechRecognizer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.Button;
 import java.io.File;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -26,7 +27,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。OpenAI 兼容的上传、还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -41,7 +42,7 @@ final class ImeVoiceEntry {
     static final long SILENCE_STOP_MILLIS = 1500;
 
     /** 键盘里接手的识别方式。 */
-    enum Engine { LOCAL, STREAMING, PLATFORM }
+    enum Engine { LOCAL, STREAMING, UPLOAD, PLATFORM }
 
     private final MSIMEInputService s;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
@@ -51,10 +52,15 @@ final class ImeVoiceEntry {
     });
     private Runnable silenceStop;
     private VoiceListeningView listening;
+    private View listeningPanel;
+    private Button uploadDone;
+    /** 用户已经结束整句采集后，权限错误不能重新弹窗录音。 */
+    private boolean uploadStopped;
     private ViewGroup host;
     private final ArrayList<View> hidden = new ArrayList<>();
     private LocalAsrRecognizer local;
     private DoubaoRecognizer streaming;
+    private HttpAsrRecognizer upload;
     private SpeechRecognizer platform;
     private VoicePolisher polisher = new VoicePolisher();
     /** 系统识别服务已经报过 onReadyForSpeech：之后只为权限拒绝转交识别窗口。 */
@@ -74,7 +80,7 @@ final class ImeVoiceEntry {
     }
 
     /**
-     * 选键盘里的识别方式：已配置本机模型时用本机；豆包流式在线时用豆包，离线且允许回退、本机模型已装好时用本机；没有配置服务商且设备有系统识别服务时用系统识别服务；配置了上传式服务商，或者设备没有系统识别服务时返回 null 交给 Activity。离线回退对系统识别服务和上传式服务商同样适用。
+     * 选键盘里的识别方式：已配置本机模型时用本机；豆包流式在线时用豆包，离线且允许回退、本机模型已装好时用本机；没有配置服务商且设备有系统识别服务时用系统识别服务；配置了上传式服务商时在键区里采集并上传；设备没有可用服务时返回 null 交给 Activity。离线回退对系统识别服务和上传式服务商同样适用。
      */
     static Engine choose(boolean localConfigured, boolean streamingConfigured, boolean online,
                          boolean offlineFallback, boolean fallbackInstalled,
@@ -83,7 +89,8 @@ final class ImeVoiceEntry {
         boolean fallback = !online && offlineFallback && fallbackInstalled;
         if (streamingConfigured) return fallback ? Engine.LOCAL : Engine.STREAMING;
         if (fallback) return Engine.LOCAL;
-        return !uploadConfigured && platformAvailable ? Engine.PLATFORM : null;
+        if (uploadConfigured) return Engine.UPLOAD;
+        return platformAvailable ? Engine.PLATFORM : null;
     }
 
     private JSONObject voicePreferences() {
@@ -137,17 +144,19 @@ final class ImeVoiceEntry {
         recordDiagnostic(switch (engine) {
             case LOCAL -> DiagnosticEventKind.VOICE_ENGINE_LOCAL;
             case STREAMING -> DiagnosticEventKind.VOICE_ENGINE_STREAMING;
+            case UPLOAD -> DiagnosticEventKind.VOICE_ENGINE_HTTP;
             case PLATFORM -> DiagnosticEventKind.VOICE_ENGINE_PLATFORM;
         });
         String model = localConfigured ? configured.localModel() : fallbackModel;
-        String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : DoubaoAsrPolicy.PROVIDER;
+        String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : configured.provider();
         String rawLanguage = JsonPolicy.strictString(voice.opt("language"));
         final String language = rawLanguage == null ? "zh-CN" : rawLanguage;
         boolean contribute = s.localSettings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO) && s.imePrivacyGate.contributesVoice()
             && !EditorPolicy.password(s.editorInputType);
         // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
         s.captureVoiceTarget();
-        show(keyArea);
+        show(keyArea, engine == Engine.UPLOAD);
+        uploadStopped = false;
         long session = ++generation;
         long startedAt = SystemClock.uptimeMillis();
         recognizing = true;
@@ -166,12 +175,16 @@ final class ImeVoiceEntry {
             local = new LocalAsrRecognizer();
             local.diagnostics(kind -> diagnostic(session, kind));
             local.retainAudio(contribute);
+        } else if (engine == Engine.UPLOAD) {
+            upload = new HttpAsrRecognizer();
+            listening.setHint("说完点「完成」；按住空格说话时松开结束");
         } else {
             streaming = new DoubaoRecognizer();
             streaming.retainAudio(contribute);
         }
         LocalAsrRecognizer runningLocal = local;
         DoubaoRecognizer runningStream = streaming;
+        HttpAsrRecognizer runningUpload = upload;
         VoicePolisher runningPolisher = polisher;
         String options = HostOptionsPolicy.readRuntimeOptions(files);
         try {
@@ -195,6 +208,9 @@ final class ImeVoiceEntry {
                                 }
                             });
                         pcm = runningLocal.retainedAudio();
+                    } else if (runningUpload != null) {
+                        text = runningUpload.recognize(requestId, language, configured.requestFormat(),
+                            configured.endpoint(), configured.model(), configured.token());
                     } else if (runningStream != null && stream != null) {
                         text = runningStream.recognize(stream.endpoint(), stream.headers(), stream.itn(),
                             stream.punctuation(), stream.ddc(), stream.boostingTableId(),
@@ -205,6 +221,25 @@ final class ImeVoiceEntry {
                             failure = "语音识别服务未响应，请稍后重试";
                         }
                     }
+                } catch (HttpAsrRecognizer.Refused refused) {
+                    diagnostic(session, switch (refused.failure()) {
+                        case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
+                        case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
+                        case NETWORK -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
+                        case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
+                        case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
+                    });
+                    if (refused.failure() == HttpAsrRecognizer.Failure.PERMISSION) {
+                        s.main.post(() -> uploadPermissionFailed(session));
+                        return;
+                    }
+                    failure = switch (refused.failure()) {
+                        case PERMISSION -> "语音识别需要麦克风权限";
+                        case UNAVAILABLE -> "麦克风被其他应用占用";
+                        case NETWORK -> "语音服务未响应，请检查网络与密钥";
+                        case EMPTY -> "没有听到内容";
+                        case CANCELLED -> null;
+                    };
                 } catch (LocalAsrRecognizer.Refused refused) {
                     diagnostic(session, refused.diagnosticKind());
                     failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
@@ -212,7 +247,7 @@ final class ImeVoiceEntry {
                     // ZIP 只记固定异常类别，logcat 仅补异常类名，不写消息、路径或凭据。
                     diagnostic(session, VoiceDiagnostics.unexpected(error));
                     ImeLog.w("Voice engine failed: "
-                        + (runningLocal != null ? "local" : "streaming") + " "
+                        + (runningLocal != null ? "local" : runningUpload != null ? "http" : "streaming") + " "
                         + error.getClass().getName());
                     failure = "语音识别服务无法启动";
                 }
@@ -315,6 +350,11 @@ final class ImeVoiceEntry {
         }
         if (local != null) local.stop();
         if (streaming != null) streaming.stop();
+        if (upload != null) {
+            uploadStopped = true;
+            upload.stop();
+        }
+        if (uploadDone != null) ViewPolicy.setEnabled(uploadDone, false);
         if (platform != null) {
             platformStopped = true;
             platform.stopListening();
@@ -338,8 +378,10 @@ final class ImeVoiceEntry {
         polisher = new VoicePolisher();
         if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
+        if (upload != null) upload.cancel();
         local = null;
         streaming = null;
+        upload = null;
         releasePlatform();
         dismiss();
     }
@@ -462,6 +504,15 @@ final class ImeVoiceEntry {
         s.notice(PlatformSpeechPolicy.message(error));
     }
 
+    /** 键区采集被权限拒绝时让前台窗口恢复；旧回调和主动结束不能重新开始录音。 */
+    private void uploadPermissionFailed(long session) {
+        if (session != generation) return;
+        boolean retry = !uploadStopped;
+        cancel();
+        if (retry) s.launchVoiceActivity();
+        else s.notice("语音识别需要麦克风权限");
+    }
+
     private void releasePlatform() {
         SpeechRecognizer recognizer = platform;
         platform = null;
@@ -478,6 +529,7 @@ final class ImeVoiceEntry {
         recognizing = false;
         local = null;
         streaming = null;
+        upload = null;
         releasePlatform();
         if (text == null || text.isEmpty()) {
             if (failure != null) s.notice(failure);
@@ -576,7 +628,7 @@ final class ImeVoiceEntry {
     }
 
     /** 把键区的内容换成聆听面板；键区被重建（换布局、收起键盘）时自动取消。 */
-    private void show(ViewGroup keyArea) {
+    private void show(ViewGroup keyArea, boolean manualStop) {
         dismiss();
         host = keyArea;
         hidden.clear();
@@ -592,11 +644,31 @@ final class ImeVoiceEntry {
         view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
             Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
         ViewPolicy.bindClick(view, this::cancel);
-        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+        View panel = view;
+        if (manualStop) {
+            LinearLayout column = LayoutPolicy.column(s);
+            column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            LinearLayout actions = LayoutPolicy.row(s);
+            Button done = ViewPolicy.newPressButton(s);
+            done.setText("完成");
+            done.setContentDescription("结束聆听并识别");
+            ViewPolicy.bindClick(done, this::finishListening);
+            uploadDone = done;
+            actions.addView(done, LayoutPolicy.weightedWrapParams(1));
+            Button cancel = ViewPolicy.newPressButton(s);
+            cancel.setText("取消");
+            ViewPolicy.bindClick(cancel, this::cancel);
+            actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
+            column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+            panel = column;
+        }
+        listeningPanel = panel;
+        panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View attached) { }
 
             @Override public void onViewDetachedFromWindow(View detached) {
-                if (listening == detached) {
+                if (listeningPanel == detached) {
+                    listeningPanel = null;
                     listening = null;
                     host = null;
                     hidden.clear();
@@ -614,18 +686,20 @@ final class ImeVoiceEntry {
         if (params instanceof LinearLayout.LayoutParams linear && keyArea.getHeight() > 0) {
             linear.topMargin = -keyArea.getHeight();
         }
-        keyArea.addView(view, params);
+        keyArea.addView(panel, params);
     }
 
     private void dismiss() {
         if (silenceStop != null) s.main.removeCallbacks(silenceStop);
         silenceStop = null;
-        VoiceListeningView view = listening;
+        View panel = listeningPanel;
         ViewGroup parent = host;
+        listeningPanel = null;
+        uploadDone = null;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);
         hidden.clear();
-        if (view != null && parent != null && view.getParent() == parent) parent.removeView(view);
+        if (panel != null && parent != null && panel.getParent() == parent) parent.removeView(panel);
     }
 }

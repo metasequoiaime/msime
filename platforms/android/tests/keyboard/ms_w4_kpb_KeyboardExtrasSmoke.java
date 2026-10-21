@@ -68,8 +68,12 @@ public final class ms_w4_kpb_KeyboardExtrasSmoke {
             "the system recogniser listens in the keyboard");
         check(ImeVoiceEntry.choose(false, false, false, true, true, false, true) == ImeVoiceEntry.Engine.LOCAL,
             "offline fallback still wins over the system recogniser");
-        check(ImeVoiceEntry.choose(false, false, true, true, true, true, true) == null,
-            "an upload provider records in its activity");
+        check(ImeVoiceEntry.choose(false, false, true, true, true, true, true) == ImeVoiceEntry.Engine.UPLOAD,
+            "an upload provider transcribes in the keyboard and commits directly");
+        check(ImeVoiceEntry.choose(false, false, true, false, false, true, false) == ImeVoiceEntry.Engine.UPLOAD,
+            "upload does not need a system recognition service");
+        check(ImeVoiceEntry.choose(false, false, false, true, true, true, false) == ImeVoiceEntry.Engine.LOCAL,
+            "upload still uses the installed offline fallback");
         check(ImeVoiceEntry.choose(false, false, true, false, false, false, false) == null,
             "a device without a system recogniser goes to the activity, which explains the way out");
         check(ImeVoiceEntry.choose(false, false, false, true, false, false, false) == null,
