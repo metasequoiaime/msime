@@ -8,7 +8,7 @@ macOS 的中英文切换有三样 Windows 没有的东西。切换后光标旁�
 
 ## Decision
 
-macOS 的提示尺寸由[紧凑中英文提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)独立定义；本篇的工具栏字号与缩放决定继续作用于 Windows。
+macOS 的提示尺寸由[紧凑中英文提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)独立定义；Windows 的提示尺寸后来也改成同样的固定紧凑尺寸、尊重 `show_app_logo` 并加了淡出，见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)，本篇下文「尺寸取工具栏的 `font_size` 和 `scale_percent`」一句由它取代。
 
 **应用例外是共享偏好。** `Preferences::app_input_mode_rules`（`crates/client-core/src/preferences.rs`）是应用标识到 `chinese`/`english` 的表。macOS 用 bundle id 作键，Windows 用进程的可执行文件基名作键（设置页写入前转成小写），两种键放在同一张表里，彼此不会相撞。表为空时不写进文档（`skip_serializing_if`），没有这个键的旧版本照样能读。`validate` 要求最多 32 条；每个标识非空、不超过 64 字节、没有控制字符和 `\` `/`、两侧没有空白；整张表按 ASCII 不分大小写地不重复，否则拒绝并报 `InvalidAppInputModeRules`，Tauri 映射为 `app_input_mode_rules_invalid`。规则不参与云端同步，因为 bundle id 和进程名只对本机有意义。
 

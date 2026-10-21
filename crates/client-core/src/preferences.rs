@@ -1915,7 +1915,7 @@ pub struct AchievementPreferences {
     pub enabled: bool,
 }
 
-/// 中英混输的默认触发字符数：拼写达到这个长度才补英文候选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
+/// 中英混输默认的补全与英文领先门槛；26 键中更短的完整词仍可选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
 pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

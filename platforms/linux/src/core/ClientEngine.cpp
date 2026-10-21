@@ -568,11 +568,17 @@ struct State {
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
-  std::string voice_phase = "正在录音…";
+  std::string voice_phase = msime::linux_host::kVoiceStatusRecording;
   std::optional<unsigned> voice_level;
   msime::linux_host::WaveOverlayModel wave_overlay;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface;
   bool wave_overlay_visible = false;
+  // 16 ms 的波形动画和浮层显示连接的监听；两者只在画出来的浮层显示时运行（`sync_wave_overlay_sources`）。
+  guint wave_overlay_timer = 0;
+  guint wave_overlay_watch = 0;
+  int wave_overlay_watch_fd = -1;
+  // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
+  bool wave_overlay_dismissed = false;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -675,6 +681,19 @@ struct State {
     alive->store(false);
     close();
   }
+  // 收起语音浮层并停掉它的帧动画和显示连接监听，与 `hide_wave_overlay` 相同，只是不需要 `IBusEngine`。会话的每条出口都经过 `close()`：`guarded()` 兜底和词典维护释放会话之后不再走 `render()`，浮层如果留着，重置过的模型会让 16 ms 的帧定时器一直重画一排圆点。
+  void release_wave_overlay() {
+    if (wave_overlay_surface && wave_overlay_visible)
+      wave_overlay_surface->hide();
+    wave_overlay_visible = false;
+    if (wave_overlay_timer)
+      g_source_remove(wave_overlay_timer);
+    wave_overlay_timer = 0;
+    if (wave_overlay_watch)
+      g_source_remove(wave_overlay_watch);
+    wave_overlay_watch = 0;
+    wave_overlay_watch_fd = -1;
+  }
   void close() {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
@@ -710,6 +729,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
+    release_wave_overlay();
     wave_overlay.reset();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
@@ -3828,6 +3848,90 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   }
   return paging;
 }
+// 语音浮层事件源所属的引擎及其存活标记：比引擎活得久的事件源看到标记已清除，就移除自己，不碰已释放的状态。
+struct WaveOverlaySource {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+};
+void delete_wave_overlay_source(gpointer data) { delete static_cast<WaveOverlaySource *>(data); }
+void sync_wave_overlay_sources(IBusEngine *engine);
+// 波形的一帧（16 ms）：波形条向最新的麦克风音量移动，浮层重画。
+gboolean wave_overlay_frame(gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface || !s.wave_overlay_surface->animates() ||
+      !s.wave_overlay.animates()) {
+    s.wave_overlay_timer = 0;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay.advance(static_cast<double>(g_get_monotonic_time()) / G_USEC_PER_SEC);
+  // `update()` 还会读取 Xlib 或 libwayland 已经排进队列的指针和 expose 事件。
+  s.wave_overlay_surface->update(s.wave_overlay);
+  return G_SOURCE_CONTINUE;
+}
+// 浮层的显示连接可读了：操作按钮上的点击或 expose 现在就处理，不等下一次重画。
+gboolean wave_overlay_events(gint, GIOCondition condition, gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.wave_overlay_visible || !s.wave_overlay_surface ||
+      (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))) {
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = -1;
+    return G_SOURCE_REMOVE;
+  }
+  s.wave_overlay_surface->dispatch_events();
+  return G_SOURCE_CONTINUE;
+}
+// 按屏幕上的实际情况启停波形动画和事件监听：画出来的浮层显示波形时跑动画，只要画出来的浮层在显示就监听。辅助文本回退两者都不需要。
+void sync_wave_overlay_sources(IBusEngine *engine) {
+  auto &s = state(engine);
+  auto *surface = s.wave_overlay_surface.get();
+  const bool shown = surface && s.wave_overlay_visible;
+  const bool animate = shown && surface->animates() && s.wave_overlay.animates();
+  if (animate && !s.wave_overlay_timer) {
+    s.wave_overlay_timer = g_timeout_add_full(
+        G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFrameMilliseconds, wave_overlay_frame,
+        new WaveOverlaySource{engine, s.alive}, delete_wave_overlay_source);
+  } else if (!animate && s.wave_overlay_timer) {
+    g_source_remove(s.wave_overlay_timer);
+    s.wave_overlay_timer = 0;
+    // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
+    s.wave_overlay.levels.fill(0.0f);
+  }
+  const int fd = shown ? surface->event_fd() : -1;
+  if (fd != s.wave_overlay_watch_fd) {
+    if (s.wave_overlay_watch)
+      g_source_remove(s.wave_overlay_watch);
+    s.wave_overlay_watch = 0;
+    s.wave_overlay_watch_fd = fd;
+    if (fd >= 0)
+      s.wave_overlay_watch = g_unix_fd_add_full(G_PRIORITY_DEFAULT, fd, G_IO_IN, wave_overlay_events,
+                                                new WaveOverlaySource{engine, s.alive},
+                                                delete_wave_overlay_source);
+  }
+}
+// 按 `s.wave_overlay` 显示或重画语音浮层。
+void present_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.wave_overlay_surface)
+    return;
+  if (s.wave_overlay_visible)
+    s.wave_overlay_surface->update(s.wave_overlay);
+  else
+    s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
+  sync_wave_overlay_sources(engine);
+}
+void hide_wave_overlay(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.wave_overlay_surface && s.wave_overlay_visible)
+    s.wave_overlay_surface->hide();
+  s.wave_overlay_visible = false;
+  sync_wave_overlay_sources(engine);
+}
 void render(IBusEngine *engine, const Json &view) {
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
@@ -3854,19 +3958,17 @@ void render(IBusEngine *engine, const Json &view) {
     publish_candidate_properties(engine);
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
-    s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
-    if (s.wave_overlay_surface) {
-      if (s.wave_overlay_visible)
-        s.wave_overlay_surface->update(s.wave_overlay);
-      else
-        s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-    }
+    s.wave_overlay.listening = !s.voice_stopping;
+    if (s.wave_overlay_dismissed)
+      hide_wave_overlay(engine);
+    else
+      present_wave_overlay(engine);
     return;
   }
-  if (state(engine).wave_overlay_surface && state(engine).wave_overlay_visible) {
-    state(engine).wave_overlay_surface->hide();
-    state(engine).wave_overlay_visible = false;
-  }
+  // 浮层画出的失败提示在用户继续打字时保持不动，与 macOS 和 Fcitx5 宿主一样；Esc、焦点变化、下一次录音或六秒到期会收起它。如果提示显示在辅助行上，就把这一行让回给候选。
+  if (auto &s = state(engine); s.wave_overlay_visible &&
+      !(s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()))
+    hide_wave_overlay(engine);
   // 临时译文页只在它自己画出的那一页上有效（render_translation_candidates 给它的视图带上 translation_page）。别的视图画上来，例如菜单改每页候选数、异步到达的译文或云候选、偏好更新换掉了 s.view，译文页就已经不在面板上了：丢掉它的状态，也不恢复保存的视图，之后的点选、数字键和 Esc 才作用于面板上真正显示的候选，而不是按一页已经不在的译文去选，或者把一份过时的视图恢复回来。
   if (state(engine).translation_candidates_active && !view.contains("translation_page")) {
     auto &s = state(engine);
@@ -4299,10 +4401,7 @@ void render_after_voice(IBusEngine *engine) {
     render(engine, s.view);
     return;
   }
-  if (s.wave_overlay_surface && s.wave_overlay_visible) {
-    s.wave_overlay_surface->hide();
-    s.wave_overlay_visible = false;
-  }
+  hide_wave_overlay(engine);
   s.wave_overlay.reset();
   clear(engine);
 }
@@ -4324,13 +4423,10 @@ void voice_cancel(IBusEngine *engine) {
     msime::host_api::discard_string(msime_client_voice_cancel(s.session));
   s.voice_active = false;
   s.voice_stopping = false;
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
-  s.wave_overlay.actions_visible = false;
-  if (s.wave_overlay_surface && s.wave_overlay_visible)
-    s.wave_overlay_surface->hide();
-  s.wave_overlay_visible = false;
+  hide_wave_overlay(engine);
   s.voice_generation = 0;
 
   s.voice_preedit.clear();
@@ -4350,19 +4446,15 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   s.wave_overlay.reset();
   s.wave_overlay.status = message;
   s.wave_overlay.show_transcript = false;
-  s.wave_overlay.actions_visible = false;
+  s.wave_overlay.failure = true;
   s.wave_overlay.listening = false;
-  if (s.wave_overlay_surface) {
-    if (s.wave_overlay_visible)
-      s.wave_overlay_surface->update(s.wave_overlay);
-    else
-      s.wave_overlay_visible = s.wave_overlay_surface->show(s.wave_overlay);
-  }
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_static_string(message), TRUE);
+  s.wave_overlay_dismissed = false;
+  // 提示只由浮层承载，与 macOS 一样：画得出浮层时就是那块浮层，画不出时 `FallbackSurface` 退到 `WaveOverlayIbusSurface`，把同一条消息写上辅助行。这里不再另写一份辅助行，否则浮层收起之后那份副本还留在候选窗里；`hide_wave_overlay` 收起浮层时，两种情况都一并收掉。
+  present_wave_overlay(engine);
   auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
+  // macOS 的浮层把失败提示保留六秒；Esc、焦点变化或下一次录音会提前收起它，继续打字时画出来的提示保持不动（见 `render`）。
   g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 1200,
+      G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFailureMilliseconds,
       +[](gpointer data) -> gboolean {
         std::unique_ptr<VoiceFailureNotice> notice(
             static_cast<VoiceFailureNotice *>(data));
@@ -4370,12 +4462,9 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
           return G_SOURCE_REMOVE;
         auto &s = state(notice->engine);
         if (!s.voice_active &&
-            s.voice_failure_id == notice->id) {
-          if (s.wave_overlay_visible && s.wave_overlay_surface) {
-            s.wave_overlay_surface->hide();
-            s.wave_overlay_visible = false;
-            s.wave_overlay.reset();
-          }
+            s.voice_failure_id == notice->id && s.wave_overlay_visible) {
+          hide_wave_overlay(notice->engine);
+          s.wave_overlay.reset();
         }
         return G_SOURCE_REMOVE;
       },
@@ -4404,7 +4493,8 @@ void voice_stop(IBusEngine *engine) {
         engine, "结束录音失败，本次语音已取消，请检查语音服务后重试");
   } else {
     s.voice_stopping = true;
-    s.voice_phase = "正在识别…";
+    s.voice_phase = msime::linux_host::kVoiceStatusRecognizing;
+    s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
     render(engine, s.view);
     s.voice_space_locked = false;
     publish_mode(engine);
@@ -4441,12 +4531,11 @@ void voice_start_impl(IBusEngine *engine) {
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
   sync_music(engine);
-  s.voice_phase = "正在录音…";
+  s.voice_phase = msime::linux_host::kVoiceStatusRecording;
   s.voice_level.reset();
   s.wave_overlay.reset();
   s.wave_overlay.listening = true;
-  s.wave_overlay.actions_visible = true;
-  s.wave_overlay_visible = false;
+  s.wave_overlay_dismissed = false;
   s.voice_stopping = false;
   s.voice_generation = generation;
   s.voice_space_locked = false;
@@ -4469,7 +4558,9 @@ void voice_start_impl(IBusEngine *engine) {
         const auto query = msime::linux_host::voice_query(language, generation, provider_options, hotword_options).dump();
         VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
-          const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};
+          const char *labels[] = {msime::linux_host::kVoiceStatusRecording,
+                                  msime::linux_host::kVoiceStatusRecognizing,
+                                  msime::linux_host::kVoiceStatusProcessing};
           auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, labels[phase], false};
           g_idle_add_full(G_PRIORITY_DEFAULT, +[](gpointer data) -> gboolean {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
@@ -4478,15 +4569,16 @@ void voice_start_impl(IBusEngine *engine) {
             if (!voice_result_current(s, result->generation, result->session,
                                       result->focus_epoch))
               return G_SOURCE_REMOVE;
-            if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
+            const bool recording = result->text == msime::linux_host::kVoiceStatusRecording;
+            if (s.voice_stopping && recording) return G_SOURCE_REMOVE;
             s.voice_phase = std::move(result->text);
-            if (s.voice_phase == "正在录音…")
+            if (recording)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::None;
-            else if (s.voice_phase.find("识别") != std::string::npos)
+            else if (s.voice_phase == msime::linux_host::kVoiceStatusRecognizing)
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
             else
               s.wave_overlay.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Processing;
-            if (s.voice_phase != "正在录音…") s.voice_stopping = true;
+            if (!recording) s.voice_stopping = true;
             render(result->engine, s.view);
             publish_mode(result->engine);
             return G_SOURCE_REMOVE;
@@ -4505,9 +4597,10 @@ void voice_start_impl(IBusEngine *engine) {
               return G_SOURCE_REMOVE;
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
-              s.wave_overlay.listening = true;
               s.wave_overlay.set_input_level(result->level / 10.0f);
-              render(result->engine, s.view);
+              // 画出来的波形在下一帧取用音量；只有文本回退的音量条需要重画。
+              if (!s.wave_overlay_surface || !s.wave_overlay_surface->animates())
+                render(result->engine, s.view);
             }
             return G_SOURCE_REMOVE;
           }, result, nullptr);
@@ -6329,6 +6422,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
+  if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
+      s.wave_overlay_visible) {
+    hide_wave_overlay(engine);
+    s.wave_overlay.reset();
+  }
   if (!release &&
       (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
        key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
@@ -8410,10 +8509,17 @@ static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
   engine->state->wave_overlay_surface =
       msime::linux_host::create_wave_overlay_surface(
           IBUS_ENGINE(engine), [engine](msime::linux_host::WaveOverlayModel::Action action) {
-            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
-              voice_cancel(IBUS_ENGINE(engine));
-            else
-              voice_stop(IBUS_ENGINE(engine));
+            auto *ibus_engine = IBUS_ENGINE(engine);
+            auto &s = state(ibus_engine);
+            if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
+              voice_cancel(ibus_engine);
+            } else if (s.voice_active && s.voice_stopping) {
+              // 识别或润色进行中点确认只收起浮条，与 macOS 的 `dismissProcessing` 一样；结果到达后照常上屏。
+              s.wave_overlay_dismissed = true;
+              hide_wave_overlay(ibus_engine);
+            } else {
+              voice_stop(ibus_engine);
+            }
           });
   engine->state->client_token = next_client_token.fetch_add(1, std::memory_order_relaxed);
   // Seed once per host instance; refocus or session recreation keeps user choice.

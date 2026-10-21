@@ -272,8 +272,20 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   back?(): Promise<void>;
 }
 
+/** 宿主剪贴板采集最近一轮的结果，文案与 macOS 原生剪贴板页的状态行一致。`read_unavailable*` 是 Linux 读不到系统剪贴板、剪贴板服务也没在运行：`_x11` 装 xclip 或 xsel 能读，`_wayland` 装 wl-clipboard 能读，不带后缀的是这个会话里装什么都读不到。 */
+export type ClipboardCaptureStatus =
+  | "disabled"
+  | "monitoring"
+  | "unavailable"
+  | "read_unavailable"
+  | "read_unavailable_x11"
+  | "read_unavailable_wayland"
+  | "save_failed";
+
 export interface EmojiPanelClient extends PanelClient {
   copyText?(text: string): Promise<void>;
+  /** 「输入到原应用」或「粘贴」成功后关闭面板，与 macOS 的表情面板一样只插入一次（Linux 设置宿主）。复制不关闭。 */
+  closeAfterInsert?: boolean;
   clipboard?: {
     list?(): Promise<string[]>;
     isEnabled?(): Promise<boolean>;
@@ -284,6 +296,10 @@ export interface EmojiPanelClient extends PanelClient {
     clear?(): Promise<void>;
     copy?(text: string): Promise<void>;
     paste?(text: string): Promise<void>;
+    /** 把这一条本地记录发到云剪贴板（`cloud_clipboard_request` 的 `add`），与 macOS 原生剪贴板行的右键菜单同一个动作。 */
+    sendToCloud?(text: string): Promise<void>;
+    /** 采集状态；`null` 表示宿主还没有跑完第一轮。 */
+    captureStatus?(): Promise<ClipboardCaptureStatus | null>;
   };
   loadCatalog?(): Promise<{
     emoji: EmojiCatalogGroup[];

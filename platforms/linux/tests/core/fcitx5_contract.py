@@ -632,9 +632,31 @@ for marker in (
     "updateVoiceOverlay",
     "hideVoiceOverlay",
     "wave_overlay_.set_input_level",
-    "wave_overlay_.actions_visible = true",
+    "syncVoiceOverlaySources",
+    "wave_overlay_dismissed_",
+    "dismissVoiceFailure",
+    "msime::linux_host::wave_overlay_feedback_text(wave_overlay_)",
+    "msime::linux_host::kWaveOverlayFailureMilliseconds",
 ):
     assert marker in source, marker
+# 圆形操作按钮何时显示由浮层决定（空格锁定的录音或正在识别时，与 macOS 一样）；宿主不再在每次录音开始时打开它们。
+assert "actions_visible = true" not in source
+# 在浮层 `update()` 里处理的点击可能重置正在运行回调的帧定时器，销毁闭包；回调在 `update()` 之后不经捕获读取任何东西。
+frame_timer = source[source.index("wave_overlay_frame_timer_ = loop_->addTimeEvent("):source.index("} else if (!animate && wave_overlay_frame_timer_) {")]
+after_update = frame_timer[frame_timer.index("self->wave_overlay_surface_->update(self->wave_overlay_);"):]
+assert "auto *const self = this;" in frame_timer
+assert "self->wave_overlay_frame_timer_.get() == timer" in after_update
+assert "\n            if (wave_overlay_" not in after_update
+# 在 IBus 上浮层画出的失败提示同样不因继续打字而消失，与 macOS 和 Fcitx5 宿主一样，后者的 `render()` 从不收起它。
+assert "s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {")
+# 失败提示只由浮层承载，与 macOS 一样：IBus 不再往辅助行另写一份（画不出浮层时 `FallbackSurface` 退到辅助文字），Fcitx5 只在画不出浮层时写辅助行；否则浮层收起后那份副本一直留在候选窗里。
+assert "ibus_engine_update_auxiliary_text" not in body(ibus_source, "void show_voice_failure(IBusEngine *engine, const char *message) {")
+assert "if (!(wave_overlay_visible_ && wave_overlay_surface_->animates())) {" in body(source, "void showVoiceFailure(const char *message) {")
+# IBus 会话的每条出口都收起浮层并撤掉帧定时器和 fd 监听：`guarded()` 兜底和词典维护释放会话之后不再经过 `render()`。
+assert "release_wave_overlay();" in body(ibus_source, "\n  void close() {")
+assert "g_source_remove(wave_overlay_timer);" in body(ibus_source, "void release_wave_overlay() {")
+# 浮层对 Cairo 和 Pango 的依赖不放进 `X11_SURFACE`，因为后者还决定是否构建 X11 的 Caps Lock 释放。
+assert "pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)\n" in (root / "CMakeLists.txt").read_text()
 assert "WaveOverlayX11Surface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
 

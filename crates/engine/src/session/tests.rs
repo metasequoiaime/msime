@@ -354,6 +354,46 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
     }
 }
 
+#[test]
+fn invalid_shuangpin_fuzzy_initial_selection_keeps_raw_coverage_and_learning() {
+    for (input, rest, caret) in [
+        ("slrf", "", None),
+        ("slrfni", "ni", None),
+        ("slrfni", "ni", Some(4)),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shuang''ren','sr','双刃',11000),('shuang''ren','sr','双人',10000);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
+        );
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = false;
+            options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::S_SH;
+            options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        });
+        type_text(&mut session, input);
+        if let Some(caret) = caret {
+            session.set_caret(Some(caret));
+        }
+        let index = index_of(&session, "双人");
+        assert!(index > 0, "调频夹具明确选择非首选词");
+        let row = &session.snapshot().candidates[index];
+        assert_eq!(row.pinyin.replace('\'', ""), "slrf");
+        assert_eq!(row.canonical_pinyin, "shuang'ren");
+        assert!(row.fuzzy);
+        assert_eq!(session.select(index).commit.as_deref(), Some("双人"));
+        assert_eq!(session.snapshot().editing_text, rest);
+        let journal = Connection::open(fixture.journal()).unwrap();
+        let learned: i64 = journal.query_row(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key='shuang''ren' AND value='双人' AND operation<>'delete'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(learned > 0, "模糊两键选择必须按标准读音学习");
+    }
+}
+
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
     let index = index_of(session, word);
     session.select(index)
@@ -730,6 +770,35 @@ fn candidate_sources(session: &Session) -> Vec<CandidateSource> {
         .into_iter()
         .map(|item| item.source)
         .collect()
+}
+
+#[test]
+fn short_exact_mixed_english_keeps_chinese_first_and_commits_without_a_mode_switch() {
+    let fixture = Fixture::new(HELLO_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('he','HE',100),('hello','Hello',1000);");
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.english.mixed_candidates = true;
+            options.english.minimum_prefix = 5;
+            options.helpcode = false;
+        });
+        for _ in 0..2 {
+            type_text(&mut session, "he");
+            assert_eq!(&words(&session)[..2], ["和", "HE"]);
+            assert!(!words(&session).contains(&"Hello".to_owned()));
+            assert_eq!(session.select(1).commit.as_deref(), Some("HE"));
+            assert!(session.snapshot().preedit.is_empty());
+        }
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.english.mixed_candidates = false;
+            options.english.minimum_prefix = 5;
+            options.helpcode = false;
+        });
+        type_text(&mut session, "he");
+        assert!(!words(&session).contains(&"HE".to_owned()));
+    }
 }
 
 /// 拼音拆不开、英文完全匹配整段输入时英文占首位，空格上屏英文；结束组字的标点也整段上屏这个英文词。能切成完整音节的 `he` 照旧是中文首选。

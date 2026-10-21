@@ -3,7 +3,7 @@
 #
 # Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-linux-setup refuses to prepare a directory that already exists.
 #
-# The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
+# 同样这两个宿主在启动时刷新运行配置、发现用户自行下载的词库早于已安装的版本时，以 --reason dictionary-outdated 调用它。安装包升级只换词库锁、不换下载的词库，所以宿主继续用上一代。这里留下一个标记给设置应用（它据此先打开「词库需要更新」页，「立即更新」做的就是 msime-linux-setup --update --download），并发一条指向设置的通知；notify-send 支持动作时，点通知即打开设置窗口。它自己不开窗口。这个原因有自己的 stamp，词库过期的通知和首次配置的引导互不占用。标记每次调用都写（即使 stamp 压下了通知），设置应用更新成功后删掉它。
 #
 # Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
 set -u
@@ -46,6 +46,7 @@ case "$guide_dir" in
 esac
 umask 077
 mkdir -p "$guide_dir" 2>/dev/null || exit 0
+[ "$reason" = dictionary-outdated ] && : >"$guide_dir/dictionary-outdated" 2>/dev/null
 stamp=$guide_dir/first-run-guide.stamp
 [ "$reason" = dictionary-outdated ] && stamp=$guide_dir/dictionary-outdated.stamp
 
@@ -81,14 +82,6 @@ detach() {
   fi
 }
 
-if [ "$reason" = dictionary-outdated ]; then
-  if command -v notify-send >/dev/null 2>&1; then
-    detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" \
-      "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
-  fi
-  exit 0
-fi
-
 # Same override the IBus and Fcitx5 hosts honour; otherwise prefer the settings launcher installed beside this script, then PATH.
 settings=${MSIME_CLIENT_SETTINGS_COMMAND:-}
 if [ -z "$settings" ]; then
@@ -112,6 +105,25 @@ fi
 # A stale explicit override must not make the guide claim that a settings window opened.
 if [ -n "$settings" ] && [ ! -x "$settings" ]; then
   settings=
+fi
+
+if [ "$reason" = dictionary-outdated ]; then
+  if command -v notify-send >/dev/null 2>&1; then
+    if [ -n "$settings" ]; then
+      body="已安装的词库早于当前版本，输入法暂时继续使用旧词库。打开「水杉输入法」设置，点「立即更新」取回新词库并切换，用户词库会一并迁移。"
+      # notify-send 支持动作（libnotify 0.7.9 起的 --action）时，点通知上的「打开设置」直接打开设置窗口；它会等到通知被点掉或关闭才退出，所以整段放进后台。
+      if notify-send --help 2>/dev/null | grep -q -- '--action'; then
+        detach sh -c '[ "$(notify-send -a "水杉输入法" -i msime-linux --action=open=打开设置 "$1" "$2")" = open ] && exec env -u MSIME_CLIENT_ROUTE "$0"' \
+          "$settings" "水杉输入法词库需要更新" "$body"
+      else
+        detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" "$body"
+      fi
+    else
+      detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" \
+        "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
+    fi
+  fi
+  exit 0
 fi
 
 # What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine. The launcher's crash supervisor does not help here: without a readable configuration the launcher exits before it starts supervising, and a restart could not read the configuration either.

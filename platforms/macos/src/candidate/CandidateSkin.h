@@ -229,6 +229,13 @@ struct SkinToolbar
     SkinToolbarColors light;
 };
 
+struct SkinToolbarImage
+{
+    // 共享加载器规范化的缓存 JSON；状态变化通过无 I/O 布局桥处理。
+    std::string json;
+    std::filesystem::path directory;
+};
+
 // 装饰图的待机动效（清单 `decoration.motion`）：候选窗在屏幕上时整张装饰图的小幅循环动作，与显隐动效无关。`float` 是关键字，所以浮动叫 floating。
 enum class DecorationMotion
 {
@@ -421,6 +428,7 @@ struct SkinPackage
     std::optional<SkinBackground> background;
     std::optional<SkinCanvas> canvas;
     SkinToolbar toolbar;
+    SkinToolbarImage toolbarImage;
     std::optional<ResolvedSkinLayout> resolvedLayout;
     SkinAnimation animation;
     std::optional<SkinLicense> license;
@@ -507,6 +515,7 @@ struct ResolvedSkin
     // 共享皮肤声明的首行之后的卷轴行数；原生主题保留宿主默认。
     std::optional<unsigned> expandRows;
     bool canvasPanelDrawn = false;
+    SkinToolbarImage toolbarImage;
 };
 
 bool IsSafeSkinId(std::string_view id);

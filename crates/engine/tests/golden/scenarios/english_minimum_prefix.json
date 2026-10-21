@@ -1,6 +1,6 @@
 {
  "name": "english_minimum_prefix",
- "source": "tests/src/test_english_input_session.cpp:102-133; case :150-158",
+ "source": "tests/src/test_english_input_session.cpp:102-133; case :150-158; #8938：短完整词可选，门槛限制补全和领先",
  "covers": [
   "english"
  ],

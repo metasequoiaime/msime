@@ -5,7 +5,8 @@ using namespace msime::windows;
 int main() {
   const auto defaults = floating_toolbar_settings(nlohmann::json::object());
   assert(defaults && defaults->scale_percent == 100 && defaults->font_size == 24);
-  assert(!defaults->items[4]);
+  // 表情和屏幕键盘缺省关，偏好里缺这两个键时不画，与 macOS 和 client-core 一致。
+  assert(!defaults->items[3] && !defaults->items[4]);
   nlohmann::json preferences = {{"floating_toolbar", {
     {"scale_percent", 125}, {"font_size", 28}, {"character_set", false},
     {"punctuation", false}, {"fullwidth", false}, {"emoji", false},
@@ -18,7 +19,7 @@ int main() {
   // 切换输入方案默认开，手写和语音默认关，logo 默认不画，与 client-core 的默认值一致。
   assert(defaults->input_scheme && !defaults->handwriting && !defaults->voice && !defaults->show_logo);
   const auto default_slots = floating_toolbar_slots(*defaults);
-  assert((default_slots == std::vector<int>{0, 11, 1, 2, 3, 4, 6}));
+  assert((default_slots == std::vector<int>{0, 11, 2, 1, 3, 6}));
   assert(default_slots.capacity() >= 10);
   auto english_off = preferences;
   english_off["floating_toolbar"]["english_mode"] = false;
@@ -27,7 +28,7 @@ int main() {
   assert(without_language && !without_language->language && !without_language->input_scheme);
   const auto no_language_slots = floating_toolbar_slots(*without_language);
   assert((no_language_slots == std::vector<int>{5}));
-  // 十个按钮全开时的顺序：中/英、切换输入方案、全角、标点、简繁、表情、手写、屏幕键盘、语音、设置。
+  // 十个按钮全开时的顺序与 macOS 工具栏相同：中/英、切换输入方案、标点、全角、简繁、表情、手写、屏幕键盘、语音、设置。
   nlohmann::json everything = {{"show_app_logo", true}, {"floating_toolbar", {
     {"english_mode", true}, {"input_scheme", true}, {"character_set", true},
     {"punctuation", true}, {"fullwidth", true}, {"emoji", true},
@@ -35,9 +36,12 @@ int main() {
     {"settings", true}}}};
   const auto full = floating_toolbar_settings(everything);
   assert(full && full->handwriting && full->voice && full->show_logo);
-  assert((floating_toolbar_slots(*full) == std::vector<int>{0, 11, 1, 2, 3, 4, 7, 5, 8, 6}));
+  assert((floating_toolbar_slots(*full) == std::vector<int>{0, 11, 2, 1, 3, 4, 7, 5, 8, 6}));
   // 不提供手写的版本不画手写按钮，偏好里的开关也不算。
-  assert((floating_toolbar_slots(*full, false) == std::vector<int>{0, 11, 1, 2, 3, 4, 5, 8, 6}));
+  assert((floating_toolbar_slots(*full, false) == std::vector<int>{0, 11, 2, 1, 3, 4, 5, 8, 6}));
+  // 图片工具栏按共享键序请求按钮：全角在标点之前，没有图片键的切换输入方案、手写和语音不请求。
+  assert((floating_toolbar_image_slots(floating_toolbar_slots(*full)) == std::vector<int>{0, 1, 2, 3, 4, 5, 6}));
+  assert((floating_toolbar_image_slots(default_slots) == std::vector<int>{0, 1, 2, 3, 6}));
   // 设置不同，比较结果也不同，工具栏据此重新排版。
   auto without_voice = *full;
   without_voice.voice = false;
@@ -53,6 +57,12 @@ int main() {
   auto bad_logo = everything;
   bad_logo["show_app_logo"] = 1;
   assert(!floating_toolbar_settings(bad_logo));
+  // 中英文切换提示的 logo 只认布尔 true，与 macOS 相同；工具栏尺寸越界让工具栏设置作废时，提示照样画 logo。
+  assert(hud_show_app_logo(everything) && !hud_show_app_logo(bad_logo));
+  assert(!hud_show_app_logo(nlohmann::json::object()) && !hud_show_app_logo(nullptr));
+  auto oversized = everything;
+  oversized["floating_toolbar"]["scale_percent"] = 151;
+  assert(!floating_toolbar_settings(oversized) && hud_show_app_logo(oversized));
   english_off["floating_toolbar"]["english_mode"] = "false";
   assert(!floating_toolbar_settings(english_off));
   for (const auto &invalid : {nlohmann::json(-1), nlohmann::json(74),

@@ -9,6 +9,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** 临时消息以胶囊提示浮在内容上方，文案与 macOS 原生表情面板一致（「已复制」后两个空格）。 */
+function toast() {
+  return document.querySelector("[data-panel-toast]")?.textContent ?? null;
+}
+
 async function setup() {
   const copyText = vi.fn().mockResolvedValue(undefined);
   const client = {
@@ -32,15 +37,17 @@ test("表情重复复制从最后一次成功重新计时", async () => {
   await act(async () => {
     fireEvent.click(item);
   });
-  expect(screen.getByText("已复制：★")).toBeDefined();
+  expect(toast()).toBe("已复制  ★");
+  // 胶囊外层是 nowrap，会把连续空格并成一个；文字所在的元素要用 pre 保留两个空格。
+  expect(document.querySelector("[data-panel-toast] span")?.className).toContain("whitespace-pre");
   act(() => vi.advanceTimersByTime(1000));
   await act(async () => {
     fireEvent.click(item);
   });
   act(() => vi.advanceTimersByTime(600));
-  expect(screen.getByText("已复制：★")).toBeDefined();
+  expect(toast()).toBe("已复制  ★");
   act(() => vi.advanceTimersByTime(1000));
-  expect(screen.queryByText("已复制：★")).toBeNull();
+  expect(toast()).toBeNull();
   expect(screen.getByText("点击项目即可复制")).toBeDefined();
 });
 
@@ -68,7 +75,7 @@ test("表情提示在更换客户端和卸载时取消计时器", async () => {
   await act(async () => {
     rerender(<EmojiPanel client={{ ...client }} />);
   });
-  expect(screen.queryByText("已复制：★")).toBeNull();
+  expect(toast()).toBeNull();
   expect(vi.getTimerCount()).toBe(0);
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "★" }));

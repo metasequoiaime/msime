@@ -83,17 +83,22 @@ export function useKeyboardPanel({
               }))
           );
         })
-      : sourceRows;
+      : platform === "linux"
+        ? // Linux 把 Win 键叫 Super（打字统计的热力图也这样叫），键位和发送的按键不变。
+          sourceRows.map((row) =>
+            row.map((item) => (item.label === "Win" ? { ...item, label: "Super" } : item)),
+          )
+        : sourceRows;
   const [, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
-  const [notice, setNotice] = useState(
-    platform === "macos" ? MACOS_KEYBOARD_GUIDANCE : "Touch keyboard",
-  );
+  // macOS 和 Linux 的屏幕键盘都不抢焦点，按键发给用户刚点过的输入框，标题栏先告诉用户这一点。
+  const guided = platform === "macos" || platform === "linux";
+  const [notice, setNotice] = useState(guided ? MACOS_KEYBOARD_GUIDANCE : "Touch keyboard");
   const platformRef = useLatestRef(platform);
   useEffect(() => {
-    if (platform === "macos")
+    if (guided)
       setNotice((shown) => (shown === "Touch keyboard" ? MACOS_KEYBOARD_GUIDANCE : shown));
-  }, [platform]);
+  }, [guided]);
   const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
   const inputQueue = useRef<{
@@ -236,7 +241,10 @@ export function useKeyboardPanel({
       win: activeModifiers.has("Win"),
     };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
-    const prefix = modifierPrefix(activeModifiers);
+    const prefix =
+      platform === "linux"
+        ? modifierPrefix(activeModifiers).replace("Win", "Super")
+        : modifierPrefix(activeModifiers);
     const displayedLabel = keyboardKeyLabel(keyToPress, withShift);
     const description = `${prefix}${prefix ? "+" : ""}${displayedLabel}`;
     const request: KeyboardInputRequest = {
