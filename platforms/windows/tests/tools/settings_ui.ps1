@@ -481,6 +481,15 @@ try {
                     Select-PageTab $window 'expression-tab-punctuation' '引号样式'
                     if (Find-ByName (Find-ById $window 'settings-content') '中英混输') { throw 'Input habits still render on the punctuation page' }
                 }
+                if ($page -eq 'lexicon') {
+                    # 照 macOS 分「查找词库」「管理词库」「云端词库」三个标签，打开时是「查找词库」：进页面就列出词条（翻页器里有状态），搜索框叫「词条或编码」，没有「查询」按钮；导入导出不在这个标签里。
+                    Select-PageTab $window 'lexicon-tab-lookup' '词条或编码'
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ById $content 'lexicon-search')) { throw 'Lexicon lookup tab is missing the search box' }
+                    if (-not (Find-ById $content 'lexicon-page-status')) { throw 'Lexicon lookup tab is missing the pager status' }
+                    if (Find-ByName $content '查询') { throw 'Lexicon lookup still waits for a 查询 button' }
+                    if (Find-ById $content 'lexicon-export-all') { throw 'Import and export rendered inside the lookup tab' }
+                }
                 if ($page -eq 'about') {
                     # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
                     foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues')) {
@@ -550,6 +559,47 @@ try {
                     Select-PageTab $window 'expression-tab-providers' '候选词翻译服务'
                     Save-Window $window "$theme-$width-expression-providers.png"
                     Select-PageTab $window 'expression-tab-punctuation' '引号样式'
+                }
+                if ($page -eq 'lexicon') {
+                    # 「管理词库」：导入与导出（导入、导出当前类型、导出全部）、词库更新（单独一行词库版本）、进入背单词子页的一行和学习数据；「云端词库」只有打开云词库面板的一行。
+                    Select-PageTab $window 'lexicon-tab-manage' '导入与导出'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($id in @('lexicon-import', 'lexicon-export', 'lexicon-export-all', 'dictionary-update-status', 'lexicon-vocabulary')) {
+                        if (-not (Find-ById $content $id)) { throw "Lexicon manage tab is missing $id" }
+                    }
+                    if (-not (Find-ByName $content '词库版本')) { throw 'Dictionary updates do not show the version on its own row' }
+                    if (Find-ById $content 'lexicon-search') { throw 'Lookup rendered inside the manage tab' }
+                    Save-Window $window "$theme-$width-lexicon-manage.png"
+                    # 背单词是一行进入的子页，头上的「词库」回到「管理词库」。
+                    (Find-ById $content 'lexicon-vocabulary').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        Start-Sleep -Milliseconds 200
+                        $back = Find-ById $window 'vocabulary-back'
+                    } while (-not $back -and [DateTime]::UtcNow -lt $deadline)
+                    if (-not $back) { throw 'The 背单词 row did not open its sub-view' }
+                    if (Find-ById (Find-ById $window 'settings-content') 'lexicon-tab-manage') { throw 'The 背单词 sub-view still shows the lexicon tabs' }
+                    # 和 macOS 一样，设置里只管理词书，复习交给背单词面板：读到进度后有「开始复习」（读不出进度时只有「重试」），任何时候都没有复习卡片。
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        Start-Sleep -Milliseconds 200
+                        $start = Find-ById $window 'vocabulary-start'
+                        $retry = Find-ByName (Find-ById $window 'settings-content') '重试'
+                    } while (-not $start -and -not $retry -and [DateTime]::UtcNow -lt $deadline)
+                    if (-not $start -and -not $retry) { throw 'The 背单词 sub-view has no 开始复习 button' }
+                    if (Find-ById $window 'vocabulary-card') { throw 'The 背单词 sub-view still deals review cards in settings' }
+                    # 和 macOS 的 vocabulary 子页一样没有页首引导，正文从「‹ 词库」开始。
+                    if (Find-ById (Find-ById $window 'settings-content') 'settings-page-lexicon') { throw 'The 背单词 sub-view still shows the 词库 page intro' }
+                    Start-Sleep -Milliseconds 500
+                    Save-Window $window "$theme-$width-lexicon-vocabulary.png"
+                    # 读到进度后整页重画过，第一次找到的返回按钮已经不在树里，用之前重新找。
+                    $back = Find-ById $window 'vocabulary-back'
+                    if (-not $back) { throw 'The 背单词 sub-view lost its way back after loading' }
+                    $back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    Select-PageTab $window 'lexicon-tab-manage' '导入与导出'
+                    Select-PageTab $window 'lexicon-tab-cloud' '打开云词库'
+                    Save-Window $window "$theme-$width-lexicon-cloud.png"
+                    Select-PageTab $window 'lexicon-tab-lookup' '词条或编码'
                 }
                 if ($page -eq 'osk') {
                     # 「手写」标签只有「手写识别板」一组：打开面板的一行和手写板示意。
