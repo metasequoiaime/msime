@@ -172,7 +172,7 @@ void tray() {
         return index;
     throw std::runtime_error("Missing tray row " + label);
   };
-  const size_t chinese = find("中文");
+  const size_t chinese = find("中文输入");
   const auto tree = tray_menu_accessible_tree(items, geometry, 1.25, chinese);
   require(tree.container == AccessibleContainer::Menu);
   // 菜单以标题行的产品名为名。
@@ -184,14 +184,14 @@ void tray() {
   require(tree.elements[1].role == AccessibleRole::Separator && !tree.elements[1].enabled);
   // 勾上的行报告已勾选，键盘高亮的行报告焦点，区域按 DPI 缩放。
   const auto &row = tree.elements[chinese];
-  require(row.role == AccessibleRole::MenuItem && row.name == "中文");
+  require(row.role == AccessibleRole::MenuItem && row.name == "中文输入");
   require(row.checked == std::optional<bool>(true) && row.focused && row.invokable);
   require(row.bounds.top == geometry.rows[chinese].top * 1.25);
   require(row.bounds.right == geometry.rows[chinese].right * 1.25);
   require(accessible_focus(tree) == &row);
   // 没勾上的行不报告勾选状态，免得「打开设置」之类的行被读成「未勾选」。
-  require(!tree.elements[find("英文")].checked);
-  require(!tree.elements[find("设置…")].checked);
+  require(!tree.elements[find("英文输入")].checked);
+  require(!tree.elements[find("水杉输入法设置…")].checked);
   // 快捷键归 AcceleratorKey，翻页行右侧的当前选择归补充说明。
   require(tree.elements[find("中文标点")].accelerator == tray_menu_punctuation_hint);
   require(tree.elements[find("中文标点")].checked == std::optional<bool>(true));

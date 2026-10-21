@@ -89,10 +89,10 @@ public final class KeyboardActionRowSmoke {
                     KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, swap, true);
                 List<KeyboardActionRow.DesignSlot> slots = numeric.stream()
                     .map(KeyboardActionRow.DesignEntry::slot).toList();
-                check(slots.get(0) == (swap ? KeyboardActionRow.DesignSlot.LANGUAGE
-                        : KeyboardActionRow.DesignSlot.LAYER)
-                        && slots.get(1) == KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
-                    "数字底行以九键和符号入口起头，交换时语言键占九键位置");
+                check(slots.get(0) == KeyboardActionRow.DesignSlot.SYMBOL_PANEL
+                        && slots.get(1) == (swap ? KeyboardActionRow.DesignSlot.LANGUAGE
+                            : KeyboardActionRow.DesignSlot.LAYER),
+                    "数字底行以符号和九键入口起头，交换时语言键占九键位置");
                 check(slots.contains(KeyboardActionRow.DesignSlot.GLOBE) == globe
                         && slots.stream().filter(slot -> slot == KeyboardActionRow.DesignSlot.ZERO).count() == 1
                         && !slots.contains(KeyboardActionRow.DesignSlot.SPACE),

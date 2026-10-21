@@ -24,13 +24,16 @@ impl Transport for HttpTransport {
         model: &str,
         wav: Vec<u8>,
     ) -> Option<u16> {
-        let client = reqwest::blocking::Client::builder()
+        let mut builder = reqwest::blocking::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(15))
-            .build()
-            .ok()?;
+            .timeout(Duration::from_secs(15));
+        // 识别接口都是 https 公网地址；按用户的网络代理设置走。
+        if let Ok(url) = reqwest::Url::parse(endpoint) {
+            builder = crate::proxy::configure_blocking_for(builder, &url);
+        }
+        let client = builder.build().ok()?;
         let request = client.post(endpoint).bearer_auth(token);
         let request = if format == crate::voice::provider::ASR_REQUEST_CHAT_AUDIO {
             request.json(&crate::voice::provider::chat_audio_request_body(

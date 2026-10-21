@@ -106,6 +106,33 @@ void geometry() {
   require(bottom.top > shuangpin_keymap_key_rect(metrics, 1, 0, 9).bottom);
   require(bottom.bottom + 4.0 <= metrics.height - metrics.footer_bottom - metrics.footer_height);
   require(metrics.window_width() > metrics.width && metrics.window_height() > metrics.height);
+  // 卡片圆角固定 13，和 macOS 面板相同，不取候选窗主题的圆角（默认 10）。
+  require(metrics.card_radius == 13.0);
+  require(metrics.card_radius != static_cast<double>(CandidatePalette{}.radius));
+}
+
+void fills() {
+  const auto brightness = [](const CandidateColor &color) { return color.r + color.g + color.b; };
+  // 浅色主题：键帽是不透明的白色，卡面比它暗一层，键帽从卡面上浮出来，与 macOS popover 卡面上的 controlBackgroundColor 键帽一样。
+  const auto light_palette = candidate_native_palette(false);
+  const auto light = shuangpin_keymap_fills(light_palette);
+  require(light.key == (CandidateColor{1.0f, 1.0f, 1.0f, 1.0f}));
+  require(brightness(light.key) > brightness(light.card));
+  require(light.card.a == light_palette.surface.a);
+  // 深色主题：卡面就是表面色，键帽是比它暗一层的不透明实色，与 macOS 深色下约 #1E1E1E 的 controlBackgroundColor 一样陷在卡面里，不再是半透明的悬停色。
+  const auto dark_palette = candidate_native_palette(true);
+  const auto dark = shuangpin_keymap_fills(dark_palette);
+  require(dark.card == dark_palette.surface);
+  require(dark.key.a == 1.0f && brightness(dark.key) < brightness(dark.card));
+  require(std::fabs(dark.key.r - 0x1E / 255.0f) < 0.01f && std::fabs(dark.key.g - 0x1E / 255.0f) < 0.01f &&
+          std::fabs(dark.key.b - 0x1F / 255.0f) < 0.01f);
+  require(dark.key != dark_palette.hover);
+  // 换了主题的表面色时两层跟着变，深色卡面上的键帽仍然暗于卡面。
+  CandidatePaletteOverrides themed;
+  themed.surface = "#203040";
+  const auto custom = shuangpin_keymap_fills(candidate_palette(themed));
+  require(custom.card == candidate_rgb(0x203040));
+  require(custom.key.a == 1.0f && brightness(custom.key) < brightness(custom.card));
 }
 
 void accent_text() {
@@ -165,6 +192,7 @@ int main() {
     hint_follows_the_view();
     keys_and_texts();
     geometry();
+    fills();
     accent_text();
     placement();
   } catch (const std::exception &error) {

@@ -8,7 +8,7 @@ macOS 的中英文切换有三样 Windows 没有的东西。切换后光标旁�
 
 ## Decision
 
-macOS 的提示尺寸由[紧凑中英文提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)独立定义；本篇的工具栏字号与缩放决定继续作用于 Windows。
+macOS 的提示尺寸由[紧凑中英文提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)独立定义；Windows 的提示尺寸后来也改成同样的固定紧凑尺寸、尊重 `show_app_logo` 并加了淡出，见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)，本篇下文「尺寸取工具栏的 `font_size` 和 `scale_percent`」一句由它取代。
 
 **应用例外是共享偏好。** `Preferences::app_input_mode_rules`（`crates/client-core/src/preferences.rs`）是应用标识到 `chinese`/`english` 的表。macOS 用 bundle id 作键，Windows 用进程的可执行文件基名作键（设置页写入前转成小写），两种键放在同一张表里，彼此不会相撞。表为空时不写进文档（`skip_serializing_if`），没有这个键的旧版本照样能读。`validate` 要求最多 32 条；每个标识非空、不超过 64 字节、没有控制字符和 `\` `/`、两侧没有空白；整张表按 ASCII 不分大小写地不重复，否则拒绝并报 `InvalidAppInputModeRules`，Tauri 映射为 `app_input_mode_rules_invalid`。规则不参与云端同步，因为 bundle id 和进程名只对本机有意义。
 
@@ -35,7 +35,7 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 **Alt+Shift+H 在 Windows 上同样切换全半角。** `_MatchChordInputHotkey` 在中文模式下、`toggle_fullwidth_option_shift_h` 开着、不带 Ctrl（AltGr 也报成 Ctrl+Alt）和 Win 时，把 Alt+Shift+H 当作全半角热键（`tsf/Global/FullwidthChordPolicy.h`），英文模式下原样交给应用，和 macOS 一样。Ctrl+Shift+Space 不受这个开关影响，macOS 也是这样。能力位 `fullwidth_chord` 加上 Windows，共享快捷键页按平台显示「Alt+Shift+H 切换全半角」。WinUI 快捷键页加同一个开关，「恢复默认快捷键」本来就整体恢复 `keybindings`，也会把它恢复。
 
-**设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，显示应用名称、标识退到说明里，可以改模式、可以移除；末尾的「添加应用…」由宿主弹出系统的选应用对话框（`SettingsClient.pickApplication`，Tauri 命令 `pick_application`），新规则从中文开始。用户不知道也不该去查 Bundle ID 或进程名，所以标识从所选应用读出：macOS 的面板只接受应用程序包、默认打开 /Applications，Bundle ID 和名称由 `crates/host-macos/native/file_picker.mm` 读；Windows 选一个 `.exe`，取文件名。已有规则的名称在 macOS 上按 Bundle ID 向 LaunchServices 查（`applicationNames`，命令 `application_names`），没装的应用照旧显示标识。宿主不提供对话框时才退回手填标识，Windows 上粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
+**设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows，后来加上 Linux：按输入法框架报告的程序名，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，显示应用名称、标识退到说明里，可以改模式、可以移除；末尾的「添加应用…」由宿主弹出系统的选应用对话框（`SettingsClient.pickApplication`，Tauri 命令 `pick_application`），新规则从中文开始。用户不知道也不该去查 Bundle ID 或进程名，所以标识从所选应用读出：macOS 的面板只接受应用程序包、默认打开 /Applications，Bundle ID 和名称由 `crates/host-macos/native/file_picker.mm` 读；Windows 选一个 `.exe`，取文件名。已有规则的名称在 macOS 上按 Bundle ID 向 LaunchServices 查（`applicationNames`，命令 `application_names`），没装的应用照旧显示标识。宿主不提供对话框时才退回手填标识，Windows 上粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
 
 `app-input-mode-rules.ts` 持有 `AppInputModeRule` 与 `PickedApplication`，入口偏好、`SettingsClient.pickApplication` 和规则组件直接引用同一份模型，规则校验模块不再从总入口反向导入类型。包入口保留 `AppInputModeRule` 导出并公开 `PickedApplication`；规则组件保留旧的 `PickedApplication` 转导出。选择取消仍返回 null，名称回退、宿主命令和名称查询契约保持不变。
 

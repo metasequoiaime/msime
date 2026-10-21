@@ -1,6 +1,6 @@
 #pragma once
 
-namespace msime::mac
+namespace msime::candidate
 {
 enum class CandidateWheelAction
 {
@@ -59,4 +59,4 @@ constexpr int ConsumeCandidateWheelDelta(
     }
     return steps;
 }
-} // namespace msime::mac
+} // namespace msime::candidate

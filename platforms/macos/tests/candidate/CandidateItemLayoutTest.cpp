@@ -1,4 +1,4 @@
-#include "CandidateItemLayout.h"
+#include "../../../../shared/candidate/CandidateItemLayout.h"
 
 #include <cassert>
 #include <cmath>
@@ -11,9 +11,9 @@ bool Near(double value, double expected)
     return std::fabs(value - expected) < 0.001;
 }
 
-msime::mac::CandidateLayoutMetrics Metrics()
+msime::candidate::CandidateLayoutMetrics Metrics()
 {
-    msime::mac::CandidateLayoutMetrics metrics;
+    msime::candidate::CandidateLayoutMetrics metrics;
     metrics.candidateRow = 32.0;
     metrics.chrome = 30.0;
     metrics.annotationGap = 4.0;
@@ -26,7 +26,7 @@ msime::mac::CandidateLayoutMetrics Metrics()
 
 int main()
 {
-    using namespace msime::mac;
+    using namespace msime::candidate;
     const CandidateLayoutMetrics metrics = Metrics();
 
     // Text that fits keeps one row and nothing wraps; short runs share its line.

@@ -69,6 +69,22 @@ export function createDesktopPanelClients(
     cloudDictionary,
     emoji: {
       ...textPanelClient("emoji-panel"),
+      beginWindowDrag: () => getCurrentWindow().startDragging(),
+      resizeWindow: (edge) =>
+        getCurrentWindow().startResizeDragging(
+          (
+            {
+              n: "North",
+              s: "South",
+              e: "East",
+              w: "West",
+              ne: "NorthEast",
+              nw: "NorthWest",
+              se: "SouthEast",
+              sw: "SouthWest",
+            } as const
+          )[edge],
+        ),
       loadCatalog: () =>
         invoke<{
           emoji: EmojiCatalogGroup[];

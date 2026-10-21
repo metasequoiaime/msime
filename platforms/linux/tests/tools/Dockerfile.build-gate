@@ -17,8 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
   fcitx5-modules libpango1.0-dev \
-  dbus dbus-bin \
+  dbus dbus-bin xvfb xauth \
   && rm -rf /var/lib/apt/lists/*
+# xvfb 和 xauth 只给 ibus-mode-hint-x11-badge* 用：IBus 切换徽章的 X11 那条路要一个 X 服务器，xvfb-run 在单个测试里起停，镜像里不常驻任何服务。
 # 仓库工具链声明要求这两个组件，预装后临时容器不再逐次补装；保留上面的 apt 缓存层。
 RUN rustup component add rustfmt clippy
 WORKDIR /source

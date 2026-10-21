@@ -120,6 +120,59 @@ pub fn valid_mobile_voice_endpoint(endpoint: &str, websocket: bool) -> bool {
         .is_some_and(|url| crate::endpoint::valid_endpoint_shape(endpoint, &url, expected_scheme))
 }
 
+/// Android 流式 WebSocket 传输消费的唯一 URL 解释结果。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct VoiceWebSocketEndpoint {
+    /// 传给普通 socket 和 TLS 连接器的主机文本，不带 IPv6 方括号。
+    pub socket_host: String,
+    /// 地址中的端口；未写端口时为安全 WebSocket 默认端口 443。
+    pub port: u16,
+    /// Host 头的值，包含 IPv6 方括号和非默认端口。
+    pub host_header: String,
+    /// 已百分号编码的路径和查询串，保留显式空查询。
+    pub request_target: String,
+}
+
+/// 为所有原生传输层统一解析并序列化安全流式地址。
+pub fn websocket_endpoint_descriptor(endpoint: &str) -> Option<VoiceWebSocketEndpoint> {
+    if !valid_mobile_voice_endpoint(endpoint, true) {
+        return None;
+    }
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    let host = url.host_str()?.to_owned();
+    let socket_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(&host)
+        .to_owned();
+    if socket_host.is_empty() {
+        return None;
+    }
+    let port = url.port_or_known_default()?;
+    let host_header = if socket_host.contains(':') {
+        if port == 443 {
+            format!("[{socket_host}]")
+        } else {
+            format!("[{socket_host}]:{port}")
+        }
+    } else if port == 443 {
+        socket_host.clone()
+    } else {
+        format!("{socket_host}:{port}")
+    };
+    let mut request_target = url.path().to_owned();
+    if let Some(query) = url.query() {
+        request_target.push('?');
+        request_target.push_str(query);
+    }
+    Some(VoiceWebSocketEndpoint {
+        socket_host,
+        port,
+        host_header,
+        request_target,
+    })
+}
+
 fn bounded_resolved_voice_fields(fields: &ResolvedVoiceFields) -> bool {
     bounded_voice_fields(&fields.endpoint, &fields.model, &fields.token)
 }
@@ -614,6 +667,62 @@ mod tests {
             ("wss://fixture.invalid/path#fragment", true),
         ] {
             assert!(!valid_mobile_voice_endpoint(endpoint, websocket));
+        }
+    }
+
+    #[test]
+    fn websocket_endpoint_descriptor_uses_one_serialized_url_representation() {
+        let descriptor =
+            websocket_endpoint_descriptor("wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=")
+                .expect("valid websocket endpoint");
+        assert_eq!(descriptor.socket_host, "xn--fsqu00a.invalid");
+        assert_eq!(descriptor.port, 8443);
+        assert_eq!(descriptor.host_header, "xn--fsqu00a.invalid:8443");
+        assert_eq!(
+            descriptor.request_target,
+            "/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+        );
+    }
+
+    #[test]
+    fn websocket_endpoint_descriptor_formats_ipv6_and_default_port() {
+        let descriptor =
+            websocket_endpoint_descriptor("wss://[::1]/stream?").expect("valid websocket endpoint");
+        assert_eq!(descriptor.socket_host, "::1");
+        assert_eq!(descriptor.port, 443);
+        assert_eq!(descriptor.host_header, "[::1]");
+        assert_eq!(descriptor.request_target, "/stream?");
+    }
+
+    #[test]
+    fn websocket_endpoint_descriptor_matches_shared_validation_and_url_serialization() {
+        for endpoint in [
+            "wss://fixture.invalid:0/stream",
+            "wss://fixture.invalid/%zz?value=%",
+        ] {
+            assert!(valid_mobile_voice_endpoint(endpoint, true));
+            let url = reqwest::Url::parse(endpoint).unwrap();
+            let descriptor = websocket_endpoint_descriptor(endpoint).unwrap();
+            assert_eq!(descriptor.port, url.port_or_known_default().unwrap());
+            let expected = if let Some(query) = url.query() {
+                format!("{}?{query}", url.path())
+            } else {
+                url.path().to_owned()
+            };
+            assert_eq!(descriptor.request_target, expected);
+        }
+    }
+
+    #[test]
+    fn websocket_endpoint_descriptor_rejects_invalid_ports_and_controls() {
+        for endpoint in [
+            "wss://fixture.invalid:65536/stream",
+            "wss://fixture.invalid/stream\nX: y",
+        ] {
+            assert!(
+                websocket_endpoint_descriptor(endpoint).is_none(),
+                "{endpoint}"
+            );
         }
     }
 }

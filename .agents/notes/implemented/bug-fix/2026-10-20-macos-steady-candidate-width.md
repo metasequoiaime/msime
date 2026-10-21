@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`platforms/macos/src/candidate/CandidatePlacement.h` 新增 `MSIMEWidestCandidateWidth`，`InputController` 用 `_widestHorizontalCandidateWidth` 记住横排卡片这次显示以来最宽的一次：
+`shared/candidate/CandidatePlacement.h` 的 `WidestCandidateWidth`（macOS 经 `platforms/macos/src/candidate/CandidatePlacement.h` 的 `MSIMEWidestCandidateWidth` 调用，Linux 原生画布直接用），`InputController` 用 `_widestHorizontalCandidateWidth` 记住横排卡片这次显示以来最宽的一次：
 
 - 候选窗一直开着（`_panel.isVisible`）的这段时间里，记下的宽度作为最小宽度交给 `candidatePageGeometry:`，卡片只变宽不变窄。
 - 候选窗隐藏过（上屏、取消、清空、失焦，所有隐藏路径都会 `orderOut`）就从这一次的宽度重新记，和竖排高度的记忆同一个判据。

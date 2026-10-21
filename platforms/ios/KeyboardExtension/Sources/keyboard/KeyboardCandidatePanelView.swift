@@ -361,7 +361,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     }
     var configuration = UIButton.Configuration.plain()
     configuration.attributedTitle = title
-    configuration.baseForegroundColor = selected || marks.contains { $0.symbol == "pin.fill" }
+    configuration.baseForegroundColor = selected || marks.contains(where: \.pinned)
       ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
     let aiPlaceholder = aiPlaceholders.contains(index)
     if aiPlaceholder { configuration.baseForegroundColor = secondary }

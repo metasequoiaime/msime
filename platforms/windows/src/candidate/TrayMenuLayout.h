@@ -11,7 +11,7 @@
 namespace msime::windows {
 // Tray menu contents and geometry. This header decides what the menu offers and where each row sits; drawing and window placement stay with the renderer, so the rules are testable without a desktop.
 //
-// 卡片按共享设计排列：带标志和产品名的标题、输入语言、模式开关、输入方案和主题两个翻页行、宿主工具条，以及云剪贴板和设置应用的几个页面。行用勾选列而不是行首图标，只有工具条画成图标。
+// 卡片按共享设计排列：带标志和产品名的标题、输入语言、模式开关、输入方案和主题两个翻页行、宿主工具条、云剪贴板和云词库，以及设置应用的几个页面。行用勾选列而不是行首图标，只有工具条画成图标。
 enum class TrayMenuRowKind {
   // Logo and product name. Not a command.
   Header,
@@ -64,8 +64,9 @@ struct TrayMenuCapabilities {
   scheme::OfferedSchemes schemes = scheme::edition_schemes();
   // 卡片标题和「关于」行里的产品名（UTF-8），按版本取；full 是「水杉输入法」。
   std::string product_name = MSIME_EDITION_DISPLAY_NAME_UTF8;
-  // 共享应用 MSIME.exe 在场时「云剪贴板…」才打得开，否则这一行显示为不可用。
+  // 共享应用 MSIME.exe 在场时「云剪贴板…」「云词库…」才打得开，否则这两行显示为不可用。
   bool cloud_clipboard = false;
+  bool cloud_dictionary = false;
 };
 // 主题目录里的一项：写进 global_theme 的 id 和主题页上显示的标题。
 struct TrayMenuTheme {
@@ -180,16 +181,18 @@ inline const char *tray_menu_scheme(TrayMenuCommand command) {
     return "stroke";
   return nullptr;
 }
-// 「输入方案」那一组单选行，托盘卡片和悬浮工具栏的切换输入方案按钮共用这一份：两处列出的方案、名字、可用与否和勾选都一样，选中后都走 Server 同一条写偏好的路径。只列出本版本提供的方案；缺词典的粤拼、注音和笔画显示为不可用。
+// 「输入方案」那一组单选行，托盘卡片和悬浮工具栏的切换输入方案按钮共用这一份：两处列出的方案、名字和勾选都一样，选中后都走 Server 同一条写偏好的路径。名字与 macOS 的方案菜单相同（日语、韩语、越南语）。只列出本版本提供的方案。缺词典的粤拼、注音和笔画在托盘的方案页显示为不可用；`omit_unavailable` 为真时（悬浮工具栏的方案菜单）不列出，与 macOS 的方案菜单一样只给能运行的方案。
 inline std::vector<TrayMenuItem>
 tray_menu_scheme_items(const TrayMenuCapabilities &capabilities,
-                       const TrayMenuState &state) {
+                       const TrayMenuState &state,
+                       bool omit_unavailable = false) {
   std::vector<TrayMenuItem> items;
   items.reserve(10);
   auto scheme_row = [&](TrayMenuCommand command, std::string label,
                         bool available) {
     const char *name = tray_menu_scheme(command);
-    if (!capabilities.schemes.offers(scheme::scheme_from_name(name)))
+    if (!capabilities.schemes.offers(scheme::scheme_from_name(name)) ||
+        (omit_unavailable && !available))
       return;
     TrayMenuItem item;
     item.command = command;
@@ -203,11 +206,11 @@ tray_menu_scheme_items(const TrayMenuCapabilities &capabilities,
              tray_menu_shuangpin_label(state.shuangpin_profile), true);
   scheme_row(TrayMenuCommand::SelectWubi,
              tray_menu_wubi_label(state.wubi_profile), true);
-  scheme_row(TrayMenuCommand::SelectJapanese, "日文", true);
-  scheme_row(TrayMenuCommand::SelectKorean, "韩文", true);
+  scheme_row(TrayMenuCommand::SelectJapanese, "日语", true);
+  scheme_row(TrayMenuCommand::SelectKorean, "韩语", true);
   scheme_row(TrayMenuCommand::SelectCantonese, "粤拼", capabilities.cantonese);
   scheme_row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin);
-  scheme_row(TrayMenuCommand::SelectVietnamese, "越南文", true);
+  scheme_row(TrayMenuCommand::SelectVietnamese, "越南语", true);
   scheme_row(TrayMenuCommand::SelectTibetan, "藏文", true);
   scheme_row(TrayMenuCommand::SelectStroke, "笔画", capabilities.stroke);
   return items;
@@ -339,16 +342,16 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       language_known && (!*state.chinese || state.dedicated_english);
   header(capabilities.product_name);
   separator();
-  // 日文、韩文、越南文和藏文是各自方案的非英文语言，和工具栏的 日、한、越、藏 按钮一致。粤拼、注音和笔画写的是中文。
+  // 与 macOS 输入菜单一样是「中文输入」「英文输入」。日语、韩语、越南语和藏文方案里第一行打的不是中文，所以照方案写成「日语输入」等，名字与方案菜单相同；macOS 不改这一行，Windows 有只提供这几种语言的版本，写「中文输入」会说错。粤拼、注音和笔画写的是中文。
   row(TrayMenuCommand::SelectChinese,
-      japanese     ? "日文"
-      : korean     ? "韩文"
-      : vietnamese ? "越南文"
-      : tibetan    ? "藏文"
-                   : "中文",
+      japanese     ? "日语输入"
+      : korean     ? "韩语输入"
+      : vietnamese ? "越南语输入"
+      : tibetan    ? "藏文输入"
+                   : "中文输入",
       language_known, language_known && !english, state.language_hint);
-  row(TrayMenuCommand::SelectEnglish, "英文", language_known, english);
-  // Engine 的英文模式下「英文」一行照旧打勾（工具栏这时也显示英文），「英文候选模式」再标出是 Engine 的英文模式；TIP 在英文状态时它不勾，和 macOS 输入菜单一样。
+  row(TrayMenuCommand::SelectEnglish, "英文输入", language_known, english);
+  // Engine 的英文模式下「英文输入」一行照旧打勾（工具栏这时也显示英文），「英文候选模式」再标出是 Engine 的英文模式；TIP 在英文状态时它不勾，和 macOS 输入菜单一样。
   row(TrayMenuCommand::ToggleDedicatedEnglish, "英文候选模式",
       tray_menu_dedicated_english_action(state.chinese, state.dedicated_english,
                                          state.scheme) !=
@@ -380,24 +383,28 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       state.theme_title);
   items.back().submenu = true;
   separator();
-  // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.
+  // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area. 顺序与 macOS 输入菜单的同一组行相同：悬浮工具栏、表情、屏幕键盘、手写、语音。
   tool(TrayMenuCommand::ToggleFloatingToolbar, "工具栏", 0xE7C4, L"栏",
        capabilities.floating_toolbar, true, state.floating_toolbar);
   tool(TrayMenuCommand::OpenEmojiPanel, "表情", 0xE76E, L"表",
        capabilities.emoji_panel, false, false);
-  tool(TrayMenuCommand::OpenHandwritingPanel, "手写", 0xE70F, L"写",
-       capabilities.handwriting_panel, false, false);
   tool(TrayMenuCommand::OpenKeyboardPanel, "键盘", 0xE765, L"键",
        capabilities.keyboard_panel, false, false);
+  tool(TrayMenuCommand::OpenHandwritingPanel, "手写", 0xE70F, L"写",
+       capabilities.handwriting_panel, false, false);
   tool(TrayMenuCommand::ToggleVoiceInput, "语音", 0xE720, L"音",
        capabilities.voice_input, false, false);
   separator();
-  // 云剪贴板面板像表情面板的剪贴板页一样把条目输入编辑器，macOS 把它放在表情旁边；这里工具条放不下第六格，放在设置页入口之前。
+  // 云剪贴板和云词库紧接在表情所在的工具条之后，macOS 把它们排在表情面板之后、屏幕键盘之前；工具条放不下第六、七格，各占一行。云剪贴板面板像表情面板的剪贴板页一样把条目输入编辑器。
   row(TrayMenuCommand::OpenCloudClipboard, "云剪贴板…",
       capabilities.cloud_clipboard, false);
+  row(TrayMenuCommand::OpenCloudDictionary, "云词库…",
+      capabilities.cloud_dictionary, false);
+  // 设置应用的页面，与云剪贴板、云词库之间不另加分隔线：macOS 输入菜单这一组只在设置之前有一条分隔线，这里工具条之后已经有一条，再加一条只会让卡片在矮工作区里放不下。「水杉输入法设置…」「关于水杉输入法…」与 macOS 输入菜单的末两行相同，产品名按版本取。
   row(TrayMenuCommand::OpenDictionary, "词库…", capabilities.settings, false);
-  row(TrayMenuCommand::OpenSettings, "设置…", capabilities.settings, false);
-  row(TrayMenuCommand::OpenAbout, "关于" + capabilities.product_name,
+  row(TrayMenuCommand::OpenSettings, capabilities.product_name + "设置…",
+      capabilities.settings, false);
+  row(TrayMenuCommand::OpenAbout, "关于" + capabilities.product_name + "…",
       capabilities.settings, false);
   return items;
 }
@@ -507,8 +514,8 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   geometry.size.height = top + metrics.padding;
   return geometry;
 }
-// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。
-inline constexpr double tray_menu_compact_row_height = 28.0;
+// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 26 DIP 让主页压缩后约 499 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）。
+inline constexpr double tray_menu_compact_row_height = 26.0;
 inline TrayMenuMetrics tray_menu_fitted_metrics(
     const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
     double available_height) {

@@ -15,12 +15,15 @@ pub trait Transport {
 pub struct HttpTransport;
 impl Transport for HttpTransport {
     fn post(&self, request: &Request) -> Option<(u16, String)> {
-        let client = reqwest::blocking::Client::builder()
+        // 翻译接口都是 https 公网地址（自定义翻译只收 https）；按用户的网络代理设置走。
+        let mut builder = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(15))
-            .build()
-            .ok()?;
+            .timeout(Duration::from_secs(15));
+        if let Ok(url) = reqwest::Url::parse(&request.endpoint) {
+            builder = crate::proxy::configure_blocking_for(builder, &url);
+        }
+        let client = builder.build().ok()?;
         let mut post = client.post(&request.endpoint).body(request.body.clone());
         for (key, value) in &request.headers {
             post = post.header(key, value);

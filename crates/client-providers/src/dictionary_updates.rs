@@ -299,8 +299,15 @@ pub fn installed_file(state: &Path, baseline: &ResourceSet, name: &str) -> Optio
 }
 
 pub fn due(context: &UpdateContext) -> bool {
-    let status = status(context);
-    status.enabled && now().saturating_sub(status.checked_at) >= INTERVAL
+    automatic_check_due(&status(context), now())
+}
+
+fn automatic_check_due(status: &UpdateStatus, now: u64) -> bool {
+    // 墙上时钟回拨时旧节流失效，开始检查后会保存修正后的时间。
+    status.enabled
+        && now
+            .checked_sub(status.checked_at)
+            .is_none_or(|elapsed| elapsed >= INTERVAL)
 }
 
 pub fn status(context: &UpdateContext) -> UpdateStatus {
@@ -416,7 +423,8 @@ fn artifact(release: &Release, name: &str) -> Result<Artifact, UpdateError> {
 }
 
 fn client() -> Result<reqwest::blocking::Client, UpdateError> {
-    reqwest::blocking::Client::builder()
+    // GitHub 的版本接口和附件都是 https 公网地址；按用户的网络代理设置走。
+    crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
         .https_only(true)
         .user_agent("msime-dictionary-updater")
         .connect_timeout(Duration::from_secs(15))
@@ -685,11 +693,12 @@ fn check_with(
         return Ok(status(context));
     };
     let mut status = status(context);
-    if automatic && (!status.enabled || now().saturating_sub(status.checked_at) < INTERVAL) {
+    let checked_at = now();
+    if automatic && !automatic_check_due(&status, checked_at) {
         return Ok(status);
     }
     status.phase = "checking".into();
-    status.checked_at = now();
+    status.checked_at = checked_at;
     status.error = None;
     status.downloaded_bytes = 0;
     status.total_bytes = 0;

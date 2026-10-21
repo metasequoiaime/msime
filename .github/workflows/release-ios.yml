@@ -6,7 +6,7 @@ on:
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an ios-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
       testflight: {description: 签名归档并上传 App Store Connect（内部测试组自动拿到）, required: false, default: true, type: boolean}
-      testflight_external: {description: 上传后加入外部测试组并提交 TestFlight 审核, required: false, default: true, type: boolean}
+      testflight_external: {description: 上传后加入外部测试组并提交 TestFlight 审核（不发布时，这个版本号已有 ios-v release 才送外部组）, required: false, default: true, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
@@ -14,6 +14,8 @@ on:
       publish: {description: Publish the build, required: false, default: false, type: boolean}
       testflight: {description: Upload to TestFlight, required: false, default: false, type: boolean}
       testflight_external: {description: Submit external TestFlight review, required: false, default: false, type: boolean}
+    outputs:
+      testflight_group: {description: The TestFlight group the build went to (external or internal; empty without an upload), value: "${{ jobs.release.outputs.testflight_group }}"}
 permissions: {contents: write}
 concurrency: {group: release-ios, cancel-in-progress: false}
 jobs:
@@ -22,6 +24,8 @@ jobs:
     runs-on: macos-15
     # 模拟器包之外还要再编一次真机版并上传 App Store Connect。
     timeout-minutes: 120
+    outputs:
+      testflight_group: ${{ steps.testers.outputs.group }}
     # The same Xcode ci-ios.yml builds and tests with; the image default is older and is not what the project is verified against.
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -144,6 +148,7 @@ jobs:
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/build-app.sh "$resource_dir" testflight
       - name: Hand the build to its testers
+        id: testers
         if: ${{ inputs.testflight }}
         env:
           BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
@@ -154,8 +159,16 @@ jobs:
           IOS_INTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP }}
           IOS_EXTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
           EXTERNAL: ${{ inputs.testflight_external }}
+          PUBLISH: ${{ inputs.publish }}
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
+          # 外部测试者在 TestFlight 里看到的版本号，必须是官网和发布页上已经有的版本号：官网读最新的 ios-v release。不发布的构建（nightly）只有在这个版本号已经发布过时才送外部组，否则只留在内部组，等正式发版。0.52.0 曾由 nightly 送外部组一周多而没有 ios-v0.52.0，官网一直显示 0.51.5。
+          if [[ "$EXTERNAL" == true && "$PUBLISH" != true && -z "$(git tag --list "ios-v${VERSION}" "ios-v${VERSION}-*")" ]]; then
+            echo "::warning::ios-v${VERSION} has not been released; this build goes to the internal TestFlight group only"
+            EXTERNAL=false
+          fi
+          if [[ "$EXTERNAL" == true ]]; then echo group=external; else echo group=internal; fi >> "$GITHUB_OUTPUT"
           if [[ "$EXTERNAL" == true ]]; then group=$IOS_EXTERNAL_GROUP; review=--submit-review; else group=$IOS_INTERNAL_GROUP; review=; fi
           [[ -n "$IOS_APP_ID" && -n "$group" ]] || { echo 'IOS_APP_STORE_CONNECT_APP_ID and the TestFlight group variables must be set' >&2; exit 1; }
           # runner 的 Homebrew Python 是 externally-managed（PEP 668），不加 --break-system-packages 就拒绝安装。

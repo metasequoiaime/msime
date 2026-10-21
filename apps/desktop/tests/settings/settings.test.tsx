@@ -2110,8 +2110,15 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
-  // Home/End 跨整个候选列表移动，而非仅在当前页内移动。
-  expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
+  // Home/End 跨整个候选列表移动，而非仅在当前页内移动；桌面的 Home 在首项上再按一次移到输入串开头。
+  expect(
+    screen.getByText(
+      "移动到候选列表首项 / 末项（页码随之切换；已在首项时 Home 把光标移到输入串开头）",
+    ),
+  ).toBeDefined();
+  // 组字时 Shift+左右按音节移动输入串光标，停在哪个候选上都一样。
+  expect(screen.getByText("按音节移动输入串光标")).toBeDefined();
+  expect(screen.getByText("Shift + ← / →")).toBeDefined();
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
 });
 
@@ -3821,6 +3828,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   expect(await screen.findByLabelText("输入法日志")).toBeDefined();
   // Without the host callback, as on the phones, there is no button that would fail when pressed.
   expect(screen.queryByRole("button", { name: "在 Finder 中显示" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "在文件管理器中显示" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开日志目录" })).toBeNull();
   unmount();
 
@@ -3837,9 +3845,18 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
-  // Outside macOS the action opens the folder and says so.
-  fireEvent.click(await screen.findByRole("button", { name: "打开日志目录" }));
+  // Linux 也选中文件本身，按钮按文件管理器命名；说明提到选不中时退回打开目录。
+  const log = await screen.findByLabelText("输入法宿主日志");
+  const description =
+    document.getElementById(log.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  expect(description).toContain("在文件管理器中显示");
+  fireEvent.click(await screen.findByRole("button", { name: "在文件管理器中显示" }));
   expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
+  openDiagnosticLogDirectory.mockRejectedValueOnce(new Error("storage"));
+  fireEvent.click(screen.getByRole("button", { name: "在文件管理器中显示" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "无法在文件管理器中显示诊断日志，可能是文件管理器不可用。",
+  );
 });
 
 test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])(
@@ -6570,12 +6587,11 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   selectSettingsTab("帮助与反馈");
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
-  expect(intro.textContent).toContain("Fcitx5");
-  expect(intro.textContent).toContain("IBus");
-  const quickStart = screen.getByText(/fcitx5-configtool/);
-  // First-run setup adds the input method on its own; the manual steps are the fallback.
-  expect(quickStart.textContent).toContain("自动加入正在运行的 Fcitx5 或 IBus 的输入法列表");
+  // Linux 与 macOS 一样用术语卡片回答「输入法列表里没有」，两种框架的手动步骤都在那一行里。
+  const problems = await screen.findByRole("group", { name: "遇到问题" });
+  const quickStart = within(problems).getByText(/fcitx5-configtool/);
+  // First-run setup adds the input method on its own; the manual steps are the fallback, and --register adds it back.
+  expect(quickStart.textContent).toContain("msime-linux-setup --register");
   expect(quickStart.textContent).toContain(
     "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
   );
@@ -8158,6 +8174,7 @@ test("on macOS the page number switch names the page arrows and saves show_candi
   );
 });
 
+// 没声明 app_logo 的宿主（如鸿蒙）照常画 logo，不提供这个开关；Linux 的 Fcitx5 主题现在按它画（host_surface.rs），这里显式关掉能力位。
 test("the app logo row needs a host that hides the logo", async () => {
   render(
     <SettingsPage
@@ -8165,7 +8182,7 @@ test("the app logo row needs a host that hides the logo", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "linux", candidate_font_controls: true }),
+        host: testHost({ platform: "linux", candidate_font_controls: true, app_logo: false }),
       }}
     />,
   );
@@ -8928,7 +8945,7 @@ test("emoji panel searches, copies items, tracks recent use and reads clipboard 
   fireEvent.click(screen.getByRole("button", { name: "😀" }));
   fireEvent.click(screen.getByRole("button", { name: "😂" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("😂"));
-  expect(screen.getByRole("status").textContent).toContain("已复制：😂");
+  expect(document.querySelector("[data-panel-toast]")?.textContent).toBe("已复制  😂");
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "laugh" } });
   expect(screen.getByRole("button", { name: "😂" })).toBeDefined();
@@ -9823,13 +9840,37 @@ test("a host that draws no shuangpin keymap does not offer the switch", async ()
       preferences: { ...initial.preferences, scheme: "shuangpin" },
     }),
     save: vi.fn(),
-    host: testHost({ platform: "linux" }),
+    host: testHost({ platform: "linux", shuangpin_keymap_hint: false }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
   await screen.findByRole("combobox", { name: "双拼方案" });
   expect(screen.queryByRole("switch", { name: "输入时显示双拼键位提示" })).toBeNull();
+});
+
+test("Linux offers the shuangpin keymap switch and says it only shows for X11 applications", async () => {
+  // Linux 宿主只给报根窗口坐标光标的 X11 客户端画键位图：Wayland 桌面上 IBus 不画，Fcitx5 只给经 Xwayland 运行的应用画，描述照实说。
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, scheme: "shuangpin" },
+    }),
+    save: vi.fn(),
+    host: testHost({ platform: "linux" }),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  const keymap = (await screen.findByRole("switch", {
+    name: "输入时显示双拼键位提示",
+  })) as HTMLInputElement;
+  expect(keymap.checked).toBe(false);
+  expect(
+    screen.getByText(
+      /Linux 只为 X11 应用显示：Wayland 桌面上 IBus 不显示，Fcitx5 只为经 Xwayland 运行的应用显示。/,
+    ),
+  ).toBeTruthy();
 });
 
 test("an edit made while a save is in flight is kept and saved after it", async () => {
@@ -10444,8 +10485,9 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组；
+  // 桌面宿主自己发请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
@@ -10479,7 +10521,7 @@ test.each(["macos", "windows", "linux", "harmony"])(
   },
 );
 
-test("the macOS AI page shows only the service group", async () => {
+test("the macOS AI page shows the service and network groups", async () => {
   render(
     <SettingsPage
       initialPage="ai"
@@ -10493,7 +10535,7 @@ test("the macOS AI page shows only the service group", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

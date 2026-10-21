@@ -3,21 +3,23 @@
 #include <optional>
 
 namespace msime::windows {
-// A toolbar button's icon, as the shipped presenter defines it.
+// A toolbar button's icon.
 //
-// Every icon carries a text fallback on purpose. "Segoe Fluent Icons" ships
-// with Windows 11 only, and the Windows 10 build of "Segoe MDL2 Assets" may
-// predate some of these codepoints. DirectWrite substitutes a font silently
-// rather than failing, so a button whose glyph is missing renders as a blank
-// box unless something checks first and draws the text instead.
+// The four mode buttons - language, punctuation, full width and character set - are text, as on macOS, where they are the button titles 中/英/A/En/双/五/日/한/粤/注/越/ཀ/笔, 。or ., 全/半 and 简/繁 in the regular system font at 0.95 of the toolbar font size. They carry no codepoint and draw `fallback` in `toolbar_text_font` (or `family` when set) at `toolbar_glyph_scale`. The icon font's own 中/英/全/半/简/繁 glyphs are drawings of a different shape, not those characters, and Segoe Fluent Icons is missing on Windows 10 altogether.
+//
+// The utility buttons (input scheme, emoji, handwriting, keyboard, voice, settings) are glyphs of the installed icon font, the counterparts of macOS's SF Symbols, at the full font size. Each carries a text fallback on purpose: "Segoe Fluent Icons" ships with Windows 11 only, and the Windows 10 build of "Segoe MDL2 Assets" may predate some of these codepoints. DirectWrite substitutes a font silently rather than failing, so a button whose glyph is missing renders as a blank box unless something checks first and draws the text instead.
 struct ToolbarIcon {
   wchar_t codepoint = 0;
   const wchar_t *fallback = L"";
-  // Dedicated English draws an underlined "En" rather than a glyph. The line
-  // is what separates it from the temporary English toggle: both say the next
-  // letter is Latin, but only one survives the next commit.
-  bool underline = false;
+  // The face for the text, when it is not `toolbar_text_font`: the Tibetan badge needs a font that has Tibetan.
+  const wchar_t *family = nullptr;
 };
+// The face the text buttons are drawn in: the Chinese UI font, regular weight, the counterpart of the macOS system font that draws them. DirectWrite falls back per character for what it lacks (한).
+inline constexpr const wchar_t *toolbar_text_font = L"Microsoft YaHei UI";
+// The Tibetan badge's face. Microsoft Himalaya ships with Windows; where it is missing, DirectWrite's own fallback picks whatever covers Tibetan.
+inline constexpr const wchar_t *toolbar_tibetan_font = L"Microsoft Himalaya";
+// Text buttons are drawn at this fraction of the toolbar font size, as macOS's kToolbarGlyphScale.
+inline constexpr float toolbar_glyph_scale = 0.95f;
 // Button ids as the toolbar's slot order uses them.
 enum ToolbarButton {
   kToolbarLanguage = 0,
@@ -40,7 +42,7 @@ enum ToolbarButton {
 // rather than a guessed state, which would tell the user the wrong thing.
 // Extra state the language button reflects beyond Chinese/English.
 //
-// 出厂工具栏在这里显示这些不同的状态：Caps Lock 开着时是 'A'，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 藏，笔画是 笔，双拼是 双，五笔是 五，其余是 中/英。Caps Lock 开着时还显示 中，会让用户误判下一个字母键的作用。
+// 语言按钮显示的字与 macOS 相同：Caps Lock 开着时是 A，临时英文是 英，Engine 自己的英文模式是 En，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 ཀ，笔画是 笔，双拼是 双，五笔是 五，其余是 中。Caps Lock 开着时还显示 中，会让用户误判下一个字母键的作用。任务栏语言栏图标不走这里，藏文在那里仍是「藏」。
 struct ToolbarLanguageState {
   bool caps_lock = false;
   // The configured scheme's family, as the TIP is told it.
@@ -60,17 +62,17 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     // Caps Lock wins over everything: it changes what every letter key does,
     // whatever input mode is selected.
     if (language.caps_lock)
-      return {0xE7B5, L"A"};
+      return {0, L"A"};
     // The temporary toggle wins over the dedicated mode: it is what the next
     // key actually does, and it is the one the user just pressed.
     if (state && !*state)
-      return {0xE983, L"英"}; // 英
+      return {0, L"英"};
+    // The Engine's own English mode is a plain "En", as on macOS; it is told apart from the temporary toggle by the letters, not by an underline.
     if (language.dedicated_english)
-      return {0, L"En", true};
+      return {0, L"En"};
     switch (language.mode) {
     case scheme::InputMode::Japanese:
-      return {0xE7DE, L"日"};
-    // The icon font has no glyph for these, so the character itself is drawn.
+      return {0, L"日"};
     case scheme::InputMode::Korean:
       return {0, L"한"};
     case scheme::InputMode::Cantonese:
@@ -80,7 +82,7 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     case scheme::InputMode::Vietnamese:
       return {0, L"越"};
     case scheme::InputMode::Tibetan:
-      return {0, L"藏"};
+      return {0, L"ཀ", toolbar_tibetan_font};
     case scheme::InputMode::Stroke:
       return {0, L"笔"};
     case scheme::InputMode::Shuangpin:
@@ -88,7 +90,7 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     case scheme::InputMode::Wubi:
       return {0, L"五"};
     case scheme::InputMode::Chinese:
-      // 双拼和五笔同属中文模式，图标字体没有对应的字形，直接画字。
+      // 双拼和五笔同属中文模式，按运行中的方案画 双 或 五。
       if (language.scheme == scheme::Shuangpin)
         return {0, L"双"};
       if (language.scheme == scheme::Wubi)
@@ -97,23 +99,21 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
     }
     if (!state)
       return unknown;
-    return ToolbarIcon{0xE982, L"中"}; // 中
+    return {0, L"中"};
   case kToolbarFullwidth:
     if (!state)
       return unknown;
-    return *state ? ToolbarIcon{0xF138, L"全"}   // 全
-                  : ToolbarIcon{0xEC46, L"半"};  // 半
+    return *state ? ToolbarIcon{0, L"全"} : ToolbarIcon{0, L"半"};
   case kToolbarPunctuation:
     if (!state)
       return unknown;
-    return *state ? ToolbarIcon{0xF111, L"。"}   // 。
-                  : ToolbarIcon{0xF110, L","};
+    // Western punctuation is a full stop, as on macOS.
+    return *state ? ToolbarIcon{0, L"。"} : ToolbarIcon{0, L"."};
   case kToolbarCharacterSet:
     if (!state)
       return unknown;
     // state is "traditional output is on".
-    return *state ? ToolbarIcon{0xE88C, L"繁"}   // 繁
-                  : ToolbarIcon{0xE88D, L"简"};  // 简
+    return *state ? ToolbarIcon{0, L"繁"} : ToolbarIcon{0, L"简"};
   case kToolbarEmoji:
     return {0xE76E, L"表"}; // 表
   case kToolbarScreenKeyboard:

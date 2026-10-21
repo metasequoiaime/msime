@@ -44,7 +44,7 @@ constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese || sc
 // A choice from the list fixes one reading and keeps the conversion composing in the TIP's own host session, which a row picked or a page turned by the mouse in the Server's candidate window would leave behind, so the list is driven from the keyboard only. A Korean Hanja click ends the syllable on both sides and stays clickable.
 constexpr bool KeyboardOnlyCandidateList(int scheme) { return scheme == Zhuyin; }
 
-// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：不带修饰键的左右键交给引擎的改字命令，Ctrl+左右一个字母一个字母地编辑拼音（MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT），其他方案里 Ctrl+左右照旧按分段移动。引擎在进不了改字时把改字命令当作字母光标命令，所以宿主只按方案区分。
+// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：不带修饰键的左右键交给引擎的改字命令。Shift/Ctrl+左右在所有方案里（全拼、双拼也一样）都是分段命令（MSIME_MOVE_LEFT_SEGMENT / MSIME_MOVE_RIGHT_SEGMENT），按音节移动拼音光标。引擎在进不了改字时把改字命令当作字母光标命令，所以宿主只按方案区分。
 constexpr bool EditsSentence(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
 
 // Stroke's five stroke keys, the Engine's STROKES (crates/engine/src/stroke/mod.rs): h 横, s 竖, p 撇, n 点, z 折. Only they start a composition; the wildcard x only extends one.
@@ -84,7 +84,7 @@ constexpr bool CommitsOnBlur(int scheme)
     return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan;
 }
 
-// `locks_caret`: the caret stays at the end of the composition, so there are no segments for Ctrl+Backspace and Ctrl+Left/Right to edit.
+// `locks_caret`：光标停在组字末尾，Ctrl+退格、Ctrl+左右和 Shift+左右都没有可编辑的分段；TIP 在这些方案里不把 Shift+左右当作分段键，仍按宿主组字的按键规则处理。
 constexpr bool LocksCaret(int scheme)
 {
     return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan;

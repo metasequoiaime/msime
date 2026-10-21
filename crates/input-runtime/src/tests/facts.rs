@@ -34,6 +34,8 @@ struct FactEngine {
     character_commits: Option<String>,
     /// 设了以后，`expand_initial_candidates` 把这些候选接到列表末尾。
     withheld: Vec<String>,
+    /// 五笔拼音混输；顶字关掉时字母只有混输打开才有地方容纳。
+    mixed_pinyin: bool,
 }
 
 impl FactEngine {
@@ -48,6 +50,9 @@ impl FactEngine {
 }
 
 impl InputEngine for FactEngine {
+    fn wubi_mixed_pinyin(&self) -> bool {
+        self.mixed_pinyin
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
         let count = self.words.len();
@@ -320,6 +325,125 @@ fn a_letter_after_a_complete_wubi_code_is_a_top_commit() {
     // 下一个组字是新的一段，不算本次选择只用掉了一部分读音。
     assert_eq!(
         selection(&runtime),
+        Some(fact(
+            0,
+            0,
+            SelectionHow::WubiTop,
+            SelectionOutcome::Committed
+        ))
+    );
+}
+
+#[test]
+fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
+    let request = |top_commit_enabled,
+                   mixed_pinyin,
+                   four_code_is_complete,
+                   phrase_prefix_empty,
+                   pinyin_continues| {
+        WubiTopCommitRequest {
+            top_commit_enabled,
+            mixed_pinyin,
+            four_code_is_complete,
+            phrase_prefix_empty,
+            pinyin_continues,
+        }
+    };
+    // 开关开：四码完整、没有暂存词段、拼音不再续输时顶字，混输开不开都一样。
+    for mixed in [false, true] {
+        assert!(wubi_top_commit_on_next_key(&request(
+            true, mixed, true, true, false
+        )));
+    }
+    // 开关关 + 混输开：字母并进混输串，不顶字。
+    assert!(!wubi_top_commit_on_next_key(&request(
+        false, true, true, true, false
+    )));
+    // 开关关 + 混输关：字母无处容纳，仍按顶字上屏，一个键都不丢。
+    assert!(wubi_top_commit_on_next_key(&request(
+        false, false, true, true, false
+    )));
+    // 其余每一项都是必要条件：开关关+混输关这条兜底也守不住它们。
+    for request in [
+        request(false, false, false, true, false),
+        request(false, false, true, false, false),
+        request(true, false, true, true, true),
+        request(true, true, true, true, true),
+        request(false, true, false, true, false),
+    ] {
+        assert!(!wubi_top_commit_on_next_key(&request));
+    }
+}
+
+#[test]
+fn the_wubi_auto_commit_decision_needs_all_five_facts() {
+    let allowed = WubiAutoCommitRequest {
+        auto_commit_enabled: true,
+        character_action: true,
+        snapshot_valid: true,
+        unique_four_code: true,
+        phrase_prefix_empty: true,
+    };
+    assert!(wubi_auto_commit_on_fourth_key(&allowed));
+    for blocked in [
+        WubiAutoCommitRequest {
+            auto_commit_enabled: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            character_action: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            snapshot_valid: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            unique_four_code: false,
+            ..allowed
+        },
+        WubiAutoCommitRequest {
+            phrase_prefix_empty: false,
+            ..allowed
+        },
+    ] {
+        assert!(!wubi_auto_commit_on_fourth_key(&blocked));
+    }
+}
+
+#[test]
+fn turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow() {
+    // 混输打开、顶字关掉：第五个字母并进混输串，不上屏，也没有顶字那次选择。
+    let mut mixed = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        ..FactEngine::default()
+    });
+    mixed.set_wubi_fifth_code_top_commit(false);
+    type_keys(&mut mixed, b"wqab");
+    assert_eq!(selection(&mixed), None);
+    let grown = type_keys(&mut mixed, b"x");
+    assert!(grown.commit.is_none());
+    assert_eq!(grown.view.editing_text, "wqabx");
+    assert_eq!(selection(&mixed), None);
+}
+
+#[test]
+fn turning_off_the_wubi_top_commit_still_tops_with_mixed_input_off() {
+    // 混输关掉时第五个字母无处容纳：引擎会把码裁回四位，宿主必须顶字，否则这个键就丢了。
+    let mut plain = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        ..FactEngine::default()
+    });
+    plain.set_wubi_fifth_code_top_commit(false);
+    type_keys(&mut plain, b"wqab");
+    let topped = type_keys(&mut plain, b"x");
+    assert_eq!(topped.commit.as_deref(), Some("合成甲"));
+    assert_eq!(topped.view.editing_text, "x");
+    assert_eq!(
+        selection(&plain),
         Some(fact(
             0,
             0,

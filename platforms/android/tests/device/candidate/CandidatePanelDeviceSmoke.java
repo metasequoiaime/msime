@@ -82,6 +82,10 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 awaitGone(describedPrefix("完整候选列表；"));
                 awaitGone(described("九键候选面板"));
                 awaitGone(describedPrefix("候选 "));
+                stage = layout + " keyboard continues after panel selection";
+                touch(nineKey ? key("MNO") : described("字母 N"));
+                if (nineKey) await(candidate(1));
+                else await(field("msime-test-plain").and(node -> equalsText(expected + "n", node.getText())));
             }
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");

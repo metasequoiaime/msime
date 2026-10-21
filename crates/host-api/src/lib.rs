@@ -114,6 +114,12 @@ fn host_page_size(requested: u8) -> u8 {
     requested.min(ffi::host::compiled_platform().max_candidate_page_size())
 }
 
+/// 会话的候选窗是否竖排：桌面宿主按 `candidate_layout` 画候选窗，触屏宿主的候选栏总是横排，不读这一项（它的缺省是竖排，照读会让外接键盘的左右键不再选词）。
+fn host_vertical_candidates(layout: msime_client_core::preferences::CandidateLayout) -> bool {
+    ffi::host::compiled_platform().is_desktop()
+        && layout == msime_client_core::preferences::CandidateLayout::Vertical
+}
+
 /// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS、Windows 和 Linux 三个桌面宿主，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
 fn host_english_minimum_prefix(stored: u8) -> u8 {
     english_minimum_prefix_for(ffi::host::compiled_platform(), stored)
@@ -647,6 +653,7 @@ impl HostSession {
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
+        options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
@@ -1031,7 +1038,14 @@ impl HostSession {
         self.runtime
             .set_left_right_navigation(requested_preferences.navigation.left_right);
         self.runtime
+            .set_vertical_candidates(host_vertical_candidates(
+                requested_preferences.candidate_layout,
+            ));
+        self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        // 顶字同样是宿主状态：纯判定在 Engine 与 runtime 之间，改偏好不必等组字结束。
+        self.runtime
+            .set_wubi_fifth_code_top_commit(requested_preferences.wubi_fifth_code_top_commit);
         self.runtime
             .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
         self.sound.update(key_sound::SoundSettings::new(
@@ -1657,7 +1671,7 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
-    /// macOS 把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。
+    /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1795,6 +1809,7 @@ impl HostOptions {
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
+            wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
@@ -1825,7 +1840,7 @@ impl HostOptions {
             plugin_commands: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
-            quick_phrase_candidates: false,
+            quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false),
             helpcode_table: None,
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(

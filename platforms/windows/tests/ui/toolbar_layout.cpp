@@ -1,5 +1,6 @@
 #include "../../src/candidate/ToolbarLayout.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 
@@ -8,37 +9,80 @@ using namespace msime::windows;
 namespace {
 bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
 
-// The shipped geometry, pinned. The struct's defaults are what an
-// out-of-range icon size falls back to, so they have to agree with what the
-// shipped size actually produces or the fallback bar is a different shape
-// from the real one.
+// The shipped geometry, pinned. The struct's defaults are what an out-of-range icon size falls back to, so they have to agree with what the shipped size actually produces or the fallback bar is a different shape from the real one.
 void shipped_size_matches_the_struct_defaults() {
   const auto metrics = toolbar_metrics(24.0, false);
   const ToolbarMetrics fallback;
   assert(near(metrics.icon, 24.0));
+  assert(near(metrics.button, 32.0));
   assert(near(metrics.cell, 34.0));
-  assert(near(metrics.height, 52.0));
-  assert(near(metrics.handle, 8.0));
-  assert(near(metrics.logo, 36.0));
+  assert(near(metrics.height, 44.0));
+  assert(near(metrics.icon_top, 6.0) && near(metrics.icon_bottom, 38.0));
+  assert(near(metrics.logo, 34.0));
+  assert(near(metrics.trailing, 6.0) && near(metrics.divider, 1.2));
   assert(near(metrics.icon, fallback.icon));
+  assert(near(metrics.button, fallback.button));
   assert(near(metrics.cell, fallback.cell));
   assert(near(metrics.height, fallback.height));
+  assert(near(metrics.icon_top, fallback.icon_top));
+  assert(near(metrics.icon_bottom, fallback.icon_bottom));
   assert(near(metrics.logo, fallback.logo));
-  // Eight buttons - the shipped set - at 36 + 16 + 34 * n.
-  assert(near(toolbar_content_width(8, metrics), 324.0));
-  assert(near(toolbar_content_width(3, metrics), 154.0));
+  // The leading run is the 34 DIP logo slot, 4 + 3 DIP, the 1.2 DIP divider and 4 more, as on macOS.
+  assert(near(toolbar_leading_width(metrics), 34.0 + 12.2));
+  // n buttons of 32 with 2 between them, then the 6 DIP trailing inset.
+  assert(near(toolbar_content_width(8, metrics), 46.2 + 8 * 34.0 - 2.0 + 6.0));
+  assert(near(toolbar_content_width(3, metrics), 46.2 + 3 * 34.0 - 2.0 + 6.0));
+  assert(near(toolbar_content_width(0, metrics), 46.2 + 6.0));
 }
 
-// What the user sees as the gap between two buttons is the cell minus the
-// glyph in it: 10 DIP at every icon size, the macOS toolbar's 4 pt a side plus
-// its 2 pt between buttons. Twice the icon, as it was, left 24 DIP between two
-// shipped glyphs and the buttons read as scattered marks. The hover pill, inset
-// 2 DIP a side, must still leave a gap between neighbours.
+// The bar against macOS's ToolbarPreferredWidth and kToolbarHeight: as tall and as wide as the macOS bar at every icon size, with the logo (34) or the grip (10, show_app_logo off, the default on both) in front, and with macOS's 22 DIP mark.
+void the_bar_matches_macos() {
+  for (double size : {16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0}) {
+    for (bool logo : {true, false}) {
+      const auto metrics = toolbar_metrics(size, false, logo);
+      assert(near(metrics.height, size + 20.0));
+      assert(near(metrics.button, size + 8.0));
+      for (size_t count : {1u, 6u, 10u}) {
+        // count * (font + 8) + (count - 1) * 2 + trailing 6 + (logo 34 or grip 10) + 4 + 3 + 1.2 + 4.
+        const double mac = static_cast<double>(count) * (size + 8.0) +
+                           static_cast<double>(count - 1) * 2.0 + 6.0 +
+                           (logo ? 34.0 : 10.0) + 12.2;
+        assert(near(toolbar_content_width(count, metrics), mac));
+      }
+      if (logo) {
+        const auto mark = toolbar_logo(metrics);
+        assert(near(mark.right - mark.left, 22.0) && near(mark.bottom - mark.top, 22.0));
+      }
+    }
+  }
+  // macOS's kToolbarWidth: six buttons at the shipped size with the logo.
+  assert(near(toolbar_content_width(6, toolbar_metrics(24.0, false, true)), 254.2));
+}
+
+// What the user sees between two glyphs is the cell minus the glyph: 10 DIP at every icon size, the macOS toolbar's 4 pt a side plus its 2 pt between buttons. The hover fill covers the whole button, so neighbouring fills never touch: 2 DIP stay between them.
 void the_gap_between_icons_matches_macos() {
   for (double size : {12.0, 16.0, 24.0, 48.0, 64.0}) {
     const auto metrics = toolbar_metrics(size, false);
     assert(near(metrics.cell - size, 10.0)); // Both sides together.
-    assert(metrics.cell - 4.0 > size);       // The pill still clears the glyph.
+    assert(near(metrics.button - size, 8.0));
+    assert(near(metrics.cell - metrics.button, 2.0));
+    // Buttons are square and centred in the bar, 6 DIP from its top and bottom.
+    assert(near(metrics.icon_bottom - metrics.icon_top, metrics.button));
+    assert(near(metrics.icon_top, 6.0));
+    assert(near(metrics.height - metrics.icon_bottom, 6.0));
+  }
+}
+
+// The divider: as tall as a button, 1.2 DIP wide, 7 DIP after the logo slot and 4 before the first button.
+void the_divider_sits_between_the_logo_and_the_buttons() {
+  for (bool logo : {true, false}) {
+    const auto metrics = toolbar_metrics(24.0, true, logo);
+    const auto divider = toolbar_divider(metrics);
+    assert(near(divider.right - divider.left, 1.2));
+    assert(near(divider.bottom - divider.top, metrics.button));
+    assert(near(divider.left, metrics.shadow.left + metrics.logo + 7.0));
+    assert(near(toolbar_cell(0, metrics).left - divider.right, 4.0));
+    assert(near(divider.top, toolbar_cell(0, metrics).top));
   }
 }
 
@@ -51,23 +95,28 @@ void the_logo_sits_at_the_left_end_of_the_bar() {
       const auto metrics = toolbar_metrics(size, shadow);
       const auto mark = toolbar_logo(metrics);
       const auto card = toolbar_card(6, metrics);
-      // Square, and never scaled past the icon band it shares with the glyphs.
+      // Square, macOS's 22 DIP mark, with at least 2 DIP either side inside the slot and the bar.
       assert(near(mark.right - mark.left, mark.bottom - mark.top));
-      assert(mark.right - mark.left <= metrics.icon_bottom - metrics.icon_top);
-      // Inside the bar, with a gutter either side of the slot.
+      assert(mark.right - mark.left <= 22.0 + 1e-9);
+      assert(mark.right - mark.left <=
+             std::min(metrics.logo + metrics.logo_gap, metrics.height) - 4.0 + 1e-9);
+      // Inside the bar, with a gutter either side, centred in the slot and the gap that belongs to it as on macOS.
       assert(mark.left > card.left);
       assert(mark.top > card.top);
       assert(mark.bottom < card.bottom);
-      assert(mark.right < card.left + metrics.logo);
+      assert(mark.right < card.left + metrics.logo + metrics.logo_gap);
+      assert(near((mark.left + mark.right) / 2.0,
+                  card.left + (metrics.logo + metrics.logo_gap) / 2.0));
       // Vertically centred in the bar, not in the icon band.
       assert(near((mark.top + mark.bottom) / 2.0,
                   metrics.shadow.top + metrics.height / 2.0));
-      // Left of the first button, and of the drag strip's grip.
+      // Left of the divider and of the first button.
+      assert(mark.right <= toolbar_divider(metrics).left);
       assert(mark.right <= toolbar_cell(0, metrics).left);
-      // Nothing in the slot is a button, and all of it drags.
-      for (double x = card.left; x < card.left + metrics.logo; x += 0.5) {
+      // Nothing in the slot is a button, and all of it shows the move cursor.
+      for (double x = card.left; x < card.left + metrics.logo + metrics.logo_gap; x += 0.5) {
         assert(!toolbar_button_at(x, 6, metrics));
-        assert(toolbar_is_drag_strip(x, metrics));
+        assert(toolbar_is_logo_slot(x, metrics));
       }
     }
   }
@@ -114,10 +163,14 @@ void hit_testing_agrees_with_the_drawn_cells() {
         assert(hit && *hit == i);
       }
     }
-    // Cells tile without gaps or overlap.
-    for (size_t i = 1; i < buttons; ++i)
-      assert(near(toolbar_cell(i - 1, metrics).right,
-                  toolbar_cell(i, metrics).left));
+    // Buttons are 2 DIP apart, and that gap is no button.
+    for (size_t i = 1; i < buttons; ++i) {
+      const auto previous = toolbar_cell(i - 1, metrics);
+      const auto next = toolbar_cell(i, metrics);
+      assert(near(next.left - previous.right, 2.0));
+      assert(!toolbar_button_at(previous.right + 0.01, buttons, metrics));
+      assert(!toolbar_button_at(next.left - 0.01, buttons, metrics));
+    }
   };
   for (double size : {16.0, 24.0, 40.0}) {
     check(size, false);
@@ -125,19 +178,19 @@ void hit_testing_agrees_with_the_drawn_cells() {
   }
 }
 
-// The drag strip is not a button, and neither is the trailing margin; both
-// used to be guarded by open-coded bounds at each call site.
+// The logo, the leading run and the trailing margin are not buttons; they used to be guarded by open-coded bounds at each call site.
 void non_button_regions_select_nothing() {
   for (bool shadow : {false, true}) {
     const auto metrics = toolbar_metrics(24.0, shadow);
     const auto card = toolbar_card(6, metrics);
     assert(!toolbar_button_at(0.0, 6, metrics));
     assert(!toolbar_button_at(card.left, 6, metrics));
-    assert(!toolbar_button_at(card.left + metrics.handle - 0.01, 6, metrics));
+    assert(!toolbar_button_at(card.left + toolbar_leading_width(metrics) - 0.01, 6, metrics));
     assert(!toolbar_button_at(-50.0, 6, metrics));
-    // Past the last button, inside the bar's trailing margin.
+    // Past the last button, inside the bar's 6 DIP trailing margin.
     const auto past = toolbar_cell(5, metrics).right + 0.01;
     assert(past < card.right);
+    assert(near(card.right - toolbar_cell(5, metrics).right, 6.0));
     assert(!toolbar_button_at(past, 6, metrics));
     // An empty toolbar has nothing to hit anywhere.
     assert(!toolbar_button_at(100.0, 0, metrics));
@@ -178,20 +231,20 @@ void shadow_pads_the_window_without_resizing_the_bar() {
   assert(near(plain.shadow.scale, 0.0));
 }
 
-// The drag strip is the bar's left edge, not the window's - the shadow margin
-// outside it belongs to whatever is behind the toolbar.
-void drag_strip_excludes_the_shadow_margin() {
+// The logo slot is the bar's left edge, not the window's - the shadow margin outside it belongs to whatever is behind the toolbar.
+void logo_slot_excludes_the_shadow_margin() {
   const auto metrics = toolbar_metrics(24.0);
   const auto card = toolbar_card(6, metrics);
-  assert(!toolbar_is_drag_strip(0.0, metrics));
-  assert(!toolbar_is_drag_strip(card.left - 0.01, metrics));
-  assert(toolbar_is_drag_strip(card.left, metrics));
-  assert(toolbar_is_drag_strip(card.left + metrics.handle - 0.01, metrics));
-  // The first button is not a drag handle; dragging from it would eat clicks.
-  assert(!toolbar_is_drag_strip(toolbar_cell(0, metrics).left, metrics));
-  // Nothing is both a drag strip and a button.
+  assert(!toolbar_is_logo_slot(0.0, metrics));
+  assert(!toolbar_is_logo_slot(card.left - 0.01, metrics));
+  assert(toolbar_is_logo_slot(card.left, metrics));
+  assert(toolbar_is_logo_slot(card.left + metrics.logo + metrics.logo_gap - 0.01, metrics));
+  // The divider and the first button are past it.
+  assert(!toolbar_is_logo_slot(toolbar_divider(metrics).left, metrics));
+  assert(!toolbar_is_logo_slot(toolbar_cell(0, metrics).left, metrics));
+  // Nothing is both the logo slot and a button.
   for (double x = -20.0; x < 600.0; x += 0.5)
-    assert(!(toolbar_is_drag_strip(x, metrics) &&
+    assert(!(toolbar_is_logo_slot(x, metrics) &&
              toolbar_button_at(x, 6, metrics).has_value()));
 }
 
@@ -223,29 +276,29 @@ void the_grip_replaces_the_logo_when_it_is_off() {
     const auto grip = toolbar_metrics(size, true, false);
     const auto plain = toolbar_metrics(size, true);
     assert(near(with_logo.logo, plain.logo));
-    assert(grip.logo < with_logo.logo && grip.logo >= 8.0);
+    assert(grip.logo < with_logo.logo && near(grip.logo, 10.0));
     assert(near(grip.cell, with_logo.cell) && near(grip.height, with_logo.height));
     assert(near(toolbar_content_width(7, with_logo) - toolbar_content_width(7, grip),
                 with_logo.logo - grip.logo));
-    assert(toolbar_is_drag_strip(grip.shadow.left + grip.logo / 2.0, grip));
-    assert(!toolbar_is_drag_strip(grip.shadow.left + grip.logo + grip.handle, grip));
+    assert(toolbar_is_logo_slot(grip.shadow.left + grip.logo / 2.0, grip));
+    assert(!toolbar_is_logo_slot(grip.shadow.left + toolbar_leading_width(grip), grip));
     assert(toolbar_button_at(toolbar_cell(0, grip).left + 0.01, 7, grip) == std::optional<size_t>(0));
   }
-  // 图标 24 时与 macOS 的握把同宽。
-  assert(near(toolbar_metrics(24.0, false, false).logo, 10.0));
 }
 } // namespace
 
 int main() {
   shipped_size_matches_the_struct_defaults();
+  the_bar_matches_macos();
   the_gap_between_icons_matches_macos();
+  the_divider_sits_between_the_logo_and_the_buttons();
   the_logo_sits_at_the_left_end_of_the_bar();
   bar_follows_icon_size();
   out_of_range_size_keeps_shipped_geometry();
   hit_testing_agrees_with_the_drawn_cells();
   non_button_regions_select_nothing();
   shadow_pads_the_window_without_resizing_the_bar();
-  drag_strip_excludes_the_shadow_margin();
+  logo_slot_excludes_the_shadow_margin();
   buttons_fit_within_the_bar();
   the_grip_replaces_the_logo_when_it_is_off();
   return 0;

@@ -1,7 +1,7 @@
 //! First-run preparation from the settings window.
 //!
 //! The packaged `msime-linux-setup` script owns the whole preparation: it verifies the dictionary lock, optionally downloads what is missing, runs `msime-linux-prepare`, enables the user units and adds the input method to the running Fcitx5 or IBus input method list, falling back to printing the manual steps. This module only locates that script, runs it for the state directory this window already reads, and streams its output to the page, so the terminal and the graphical paths cannot drift apart.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
@@ -31,6 +31,27 @@ const ANONYMOUS_ACCOUNT_FILES: [&str; 3] = [
     "account-refresh.lock",
 ];
 pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
+/// 配置进行到哪一步，驱动首次配置页的进度条；载荷是 `msime-linux-setup` 报告的阶段名。
+pub const SETUP_STAGE_EVENT: &str = "linux-setup-stage";
+/// 设置应用运行脚本时设置这个环境变量，脚本据此额外打印机读的阶段行和结果行（脚本里的 `report`）；在终端里运行时不打印。
+const REPORT_ENV: &str = "MSIME_LINUX_SETUP_REPORT";
+const STAGE_PREFIX: &str = "msime-setup-stage: ";
+const RESULT_PREFIX: &str = "msime-setup-result: ";
+const NOTE_PREFIX: &str = "msime-setup-note: ";
+/// 结果卡片上最多放几条提示；脚本现在最多报告两条，多出来的仍在详细输出里。
+const MAX_NOTES: usize = 8;
+const STAGES: [&str; 6] = [
+    "verify", "download", "prepare", "services", "register", "update",
+];
+/// 宿主启动时发现自行下载的词库落后于当前版本，引导脚本（`msime-linux-first-run-guide --reason dictionary-outdated`）留下的标记；设置应用据此提供「立即更新」，更新成功后删掉它。
+const DICTIONARY_OUTDATED_MARKER: &str = "dictionary-outdated";
+/// 首次配置窗口的大小：与 macOS 的安装窗口一样是一个居中的小窗口，比 macOS 高一些，放得下下载和云候选两个选项。
+const SETUP_WINDOW_SIZE: (f64, f64) = (500.0, 640.0);
+/// 设置窗口的大小和最小尺寸，与 tauri.linux.conf.json 里 `main` 的声明一致。
+const SETTINGS_WINDOW_SIZE: (f64, f64) = (1000.0, 780.0);
+const SETTINGS_WINDOW_MIN_SIZE: (f64, f64) = (360.0, 540.0);
+/// 主窗口是否被 `shape_setup_window` 变成了首次配置窗口；只有这时 `leave_linux_setup_window` 才把它换回设置窗口的大小，用户自己调过大小的设置窗口不受影响。
+static SETUP_WINDOW_SHAPED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +61,106 @@ pub struct LinuxSetupStatus {
     /// 目录已存在、没有 runtime options，且不只有安装流程创建的匿名账号文件；脚本拒绝覆盖这样的目录。
     directory_occupied: bool,
     setup_available: bool,
+    /// 宿主报告过自行下载的词库落后于当前版本（见 `DICTIONARY_OUTDATED_MARKER`），设置应用要先提供更新。
+    dictionary_outdated: bool,
+    /// 这次配置把输入法加入输入法列表的结果；只有刚跑完的配置才有。
+    registration: Option<LinuxSetupRegistration>,
+    /// 刚跑完的配置要用户留意的提示（GNOME Wayland 的 GTK_IM_MODULE、玲珑与 IBus、Fcitx5 托盘），配置成功时也显示在结果卡片上。
+    notes: Vec<String>,
+}
+
+/// `msime-linux-setup` 最后报告的输入法列表情况：正在运行的框架（`fcitx5`、`ibus`，都没在运行时为空）以及水杉输入法是否已在它的列表里。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinuxSetupRegistration {
+    host: Option<String>,
+    registered: bool,
+}
+
+/// 脚本输出里的一行：机读的阶段、结果或提示，或者给人看的输出。
+#[derive(Debug, PartialEq, Eq)]
+enum ReportLine {
+    Stage(&'static str),
+    Result(LinuxSetupRegistration),
+    Note(String),
+    Output,
+}
+
+/// 脚本跑完后交给页面的机读结果。
+#[derive(Debug, Default)]
+struct SetupReport {
+    registration: Option<LinuxSetupRegistration>,
+    notes: Vec<String>,
+}
+
+/// 认出脚本的机读行。只认 stdout 上、阶段名在已知清单里、结果的框架是 `fcitx5` 或 `ibus`、提示是非空字符串的行；其余一律当作普通输出照常显示。提示行不进输出区：脚本已经另外打印了给人看的同一段文字。
+fn report_line(line: &SetupLine) -> ReportLine {
+    if line.error {
+        return ReportLine::Output;
+    }
+    if let Some(stage) = line.text.strip_prefix(STAGE_PREFIX) {
+        return serde_json::from_str::<String>(stage)
+            .ok()
+            .and_then(|stage| STAGES.into_iter().find(|known| *known == stage))
+            .map_or(ReportLine::Output, ReportLine::Stage);
+    }
+    if let Some(note) = line.text.strip_prefix(NOTE_PREFIX) {
+        return serde_json::from_str::<String>(note)
+            .ok()
+            .map(|note| note.trim().to_owned())
+            .filter(|note| !note.is_empty())
+            .map_or(ReportLine::Output, ReportLine::Note);
+    }
+    if let Some(result) = line.text.strip_prefix(RESULT_PREFIX) {
+        return serde_json::from_str::<LinuxSetupRegistration>(result)
+            .ok()
+            .filter(|result| {
+                result
+                    .host
+                    .as_deref()
+                    .is_none_or(|host| host == "fcitx5" || host == "ibus")
+            })
+            .map_or(ReportLine::Output, ReportLine::Result);
+    }
+    ReportLine::Output
+}
+
+/// 引导脚本放标记的目录，与 `msime-linux-first-run-guide` 的 `guide_dir` 同一条规则：有绝对的 `XDG_RUNTIME_DIR` 时在它下面（随登录会话清空），否则在缓存目录下。两处都查，因为写标记时的环境不一定与设置应用相同。
+///
+/// 子目录名随本安装包所属的版本：`edition_linux.py` 把各版本引导脚本里的 `msime-client` 改写成该版本的目录（如 `msime-client-wubi`），这里必须读同一个，否则五笔版看不到自己的标记，并排安装时还会删掉 full 的标记。
+fn dictionary_outdated_markers(
+    client_directory: &str,
+    runtime: Option<&OsStr>,
+    cache: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> Vec<PathBuf> {
+    let runtime = runtime.map(PathBuf::from).filter(|path| path.is_absolute());
+    let cache = cache
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            home.map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(".cache"))
+        });
+    runtime
+        .into_iter()
+        .chain(cache)
+        .map(|directory| {
+            directory
+                .join(client_directory)
+                .join(DICTIONARY_OUTDATED_MARKER)
+        })
+        .collect()
+}
+
+fn session_dictionary_outdated_markers() -> Vec<PathBuf> {
+    dictionary_outdated_markers(
+        &msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory,
+        std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
+        std::env::var_os("XDG_CACHE_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,7 +270,71 @@ fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatu
         directory_occupied: !prepared
             && directory.is_some_and(|path| path.exists() && !only_anonymous_account(path)),
         setup_available: program.is_some(),
+        dictionary_outdated: false,
+        registration: None,
+        notes: Vec::new(),
     }
+}
+
+/// 加上宿主是否报告过词库过期。只对已配置的状态有意义：还没配置时首次配置本来就会备齐当前版本的词库。
+fn with_dictionary_outdated(mut status: LinuxSetupStatus, markers: &[PathBuf]) -> LinuxSetupStatus {
+    status.dictionary_outdated = status.prepared
+        && markers.iter().any(|marker| {
+            fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.file_type().is_file())
+        });
+    status
+}
+
+/// 首次配置或词库更新要不要用小窗口：没有准备好的配置（首次配置页），或宿主报告了词库过期（更新页）。
+pub fn setup_window_pending(options: Option<&Path>) -> bool {
+    let status = with_dictionary_outdated(
+        status_for(options, setup_program().as_deref()),
+        &session_dictionary_outdated_markers(),
+    );
+    !status.prepared || status.dictionary_outdated
+}
+
+/// 把主窗口变成居中的首次配置窗口，与 macOS 的 `shape_first_install_window` 相同；离开时由 `leave_linux_setup_window` 换回设置窗口的大小。Wayland 下 `center` 可能不生效，窗口仍可用。
+pub fn shape_setup_window(window: &tauri::WebviewWindow) {
+    let (width, height) = SETUP_WINDOW_SIZE;
+    let _ = window.set_min_size(None::<tauri::LogicalSize<f64>>);
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let _ = window.set_resizable(false);
+    let _ = window.set_maximizable(false);
+    let _ = window.center();
+    SETUP_WINDOW_SHAPED.store(true, Ordering::Release);
+}
+
+/// 离开首次配置（或词库更新）页时把主窗口换回设置窗口的大小。
+#[tauri::command]
+pub fn leave_linux_setup_window(window: tauri::WebviewWindow) -> Result<(), LinuxSetupError> {
+    if !SETUP_WINDOW_SHAPED.swap(false, Ordering::AcqRel) {
+        return Ok(());
+    }
+    let (width, height) = SETTINGS_WINDOW_SIZE;
+    let (min_width, min_height) = SETTINGS_WINDOW_MIN_SIZE;
+    let unavailable = |_| LinuxSetupError::new("setup_unavailable");
+    window.set_resizable(true).map_err(unavailable)?;
+    window.set_maximizable(true).map_err(unavailable)?;
+    window
+        .set_min_size(Some(tauri::LogicalSize::new(min_width, min_height)))
+        .map_err(unavailable)?;
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(unavailable)?;
+    window.center().map_err(unavailable)
+}
+
+/// 首次配置没能自动加入 Fcitx5 输入法组时，结果卡片上的「打开 Fcitx5 配置」：启动 `fcitx5-configtool`，用户在里面把水杉输入法加入当前输入法组。
+#[tauri::command]
+pub async fn open_fcitx5_configtool() -> Result<(), LinuxSetupError> {
+    tauri::async_runtime::spawn_blocking(|| {
+        super::linux_process::launch("fcitx5-configtool", &[], Duration::from_millis(300))
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("configtool_unavailable"))?
+    .then_some(())
+    .ok_or(LinuxSetupError::new("configtool_unavailable"))
 }
 
 fn setup_arguments(
@@ -197,6 +382,7 @@ fn run_setup(
 ) -> Result<(), LinuxSetupError> {
     let mut child = Command::new(program)
         .args(arguments)
+        .env(REPORT_ENV, "1")
         // Keep the setup script and anything it launches in a private process
         // group so a child that inherits stdout/stderr cannot outlive the
         // setup request or hold the reader threads open.
@@ -262,7 +448,62 @@ fn run_setup(
 
 #[tauri::command]
 pub fn linux_setup_status(options: State<'_, RuntimeOptionsState>) -> LinuxSetupStatus {
-    status_for(options.path.as_deref(), setup_program().as_deref())
+    with_dictionary_outdated(
+        status_for(options.path.as_deref(), setup_program().as_deref()),
+        &session_dictionary_outdated_markers(),
+    )
+}
+
+/// 在阻塞线程里跑脚本：给人看的行发到页面，阶段行发成进度事件，结果行和提示行留下来随返回值交给页面。
+async fn run_reporting(
+    app: AppHandle,
+    running: &LinuxSetupState,
+    program: PathBuf,
+    arguments: Vec<OsString>,
+) -> Result<SetupReport, LinuxSetupError> {
+    if running.0.swap(true, Ordering::AcqRel) {
+        return Err(LinuxSetupError::new("setup_running"));
+    }
+    let flag = Arc::clone(&running.0);
+    let report = Arc::new(std::sync::Mutex::new(SetupReport::default()));
+    let reported = Arc::clone(&report);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let result = run_setup(
+            &program,
+            &arguments,
+            SETUP_TIMEOUT,
+            move |line| match report_line(&line) {
+                ReportLine::Stage(stage) => {
+                    let _ = app.emit(SETUP_STAGE_EVENT, stage);
+                }
+                ReportLine::Result(result) => {
+                    if let Ok(mut report) = reported.lock() {
+                        report.registration = Some(result);
+                    }
+                }
+                ReportLine::Note(note) => {
+                    if let Ok(mut report) = reported.lock() {
+                        if report.notes.len() < MAX_NOTES {
+                            report.notes.push(note);
+                        }
+                    }
+                }
+                ReportLine::Output => {
+                    let _ = app.emit(SETUP_OUTPUT_EVENT, line);
+                }
+            },
+        );
+        flag.store(false, Ordering::Release);
+        result
+    })
+    .await
+    .map_err(|_| LinuxSetupError::new("setup_failed"))?;
+    result?;
+    let report = report
+        .lock()
+        .map(|mut report| std::mem::take(&mut *report))
+        .unwrap_or_default();
+    Ok(report)
 }
 
 #[tauri::command]
@@ -289,23 +530,54 @@ pub async fn run_linux_setup(
         .parent()
         .ok_or(LinuxSetupError::new("setup_unavailable"))?
         .to_path_buf();
-    if running.0.swap(true, Ordering::AcqRel) {
-        return Err(LinuxSetupError::new("setup_running"));
-    }
-    let flag = Arc::clone(&running.0);
     let arguments = setup_arguments(&state_directory, download, cloud_candidates);
-    let emitter = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let result = run_setup(&program, &arguments, SETUP_TIMEOUT, move |line| {
-            let _ = emitter.emit(SETUP_OUTPUT_EVENT, line);
-        });
-        flag.store(false, Ordering::Release);
-        result
+    let report = run_reporting(app, &running, program, arguments).await?;
+    Ok(LinuxSetupStatus {
+        registration: report.registration,
+        notes: report.notes,
+        ..status_for(Some(&options_path), setup_program().as_deref())
     })
-    .await
-    .map_err(|_| LinuxSetupError::new("setup_failed"))?;
-    result?;
-    Ok(status_for(Some(&options_path), setup_program().as_deref()))
+}
+
+/// 设置应用里的「立即更新」词库：与终端里的 `msime-linux-setup --update --download` 相同，取回当前版本的词库、切换代次并回放用户词库。成功后脚本自己删掉宿主留下的过期标记（终端里运行也一样）；这里再删一次，旧版脚本没有这一步时页面也不会再报过期。
+#[tauri::command]
+pub async fn run_linux_dictionary_update(
+    app: AppHandle,
+    options: State<'_, RuntimeOptionsState>,
+    running: State<'_, LinuxSetupState>,
+) -> Result<LinuxSetupStatus, LinuxSetupError> {
+    let program = setup_program().ok_or(LinuxSetupError::new("setup_unavailable"))?;
+    let options_path = options
+        .path
+        .clone()
+        .ok_or(LinuxSetupError::new("setup_unavailable"))?;
+    if !status_for(Some(&options_path), Some(&program)).prepared {
+        return Err(LinuxSetupError::new("setup_unavailable"));
+    }
+    let state_directory = options_path
+        .parent()
+        .ok_or(LinuxSetupError::new("setup_unavailable"))?
+        .to_path_buf();
+    run_reporting(app, &running, program, update_arguments(&state_directory)).await?;
+    let markers = session_dictionary_outdated_markers();
+    for marker in &markers {
+        if fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.file_type().is_file()) {
+            let _ = fs::remove_file(marker);
+        }
+    }
+    Ok(with_dictionary_outdated(
+        status_for(Some(&options_path), setup_program().as_deref()),
+        &markers,
+    ))
+}
+
+fn update_arguments(state_directory: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--state"),
+        state_directory.into(),
+        "--update".into(),
+        "--download".into(),
+    ]
 }
 
 #[cfg(test)]
@@ -445,6 +717,159 @@ mod tests {
         assert_eq!(
             super::super::config_home(None, Some(OsStr::new("relative"))),
             None
+        );
+    }
+
+    fn line(text: &str, error: bool) -> SetupLine {
+        SetupLine {
+            text: text.to_owned(),
+            error,
+        }
+    }
+
+    #[test]
+    fn report_lines_are_recognised_only_in_their_exact_shape() {
+        assert_eq!(
+            report_line(&line("msime-setup-stage: \"prepare\"", false)),
+            ReportLine::Stage("prepare")
+        );
+        assert_eq!(
+            report_line(&line(
+                "msime-setup-result: {\"host\": \"fcitx5\", \"registered\": true}",
+                false
+            )),
+            ReportLine::Result(LinuxSetupRegistration {
+                host: Some("fcitx5".into()),
+                registered: true,
+            })
+        );
+        assert_eq!(
+            report_line(&line(
+                "msime-setup-result: {\"host\": null, \"registered\": false}",
+                false
+            )),
+            ReportLine::Result(LinuxSetupRegistration {
+                host: None,
+                registered: false,
+            })
+        );
+        assert_eq!(
+            report_line(&line(
+                "msime-setup-note: \"提示：当前是 GNOME 的 Wayland 会话\"",
+                false
+            )),
+            ReportLine::Note("提示：当前是 GNOME 的 Wayland 会话".into())
+        );
+        // 未知阶段、未知框架、空提示、不是字符串的提示、stderr 上的同样文字和普通输出都照常显示给用户。
+        for (text, error) in [
+            ("msime-setup-note: \"  \"", false),
+            ("msime-setup-note: [\"提示\"]", false),
+            ("msime-setup-note: \"提示\"", true),
+            ("msime-setup-stage: \"format-disk\"", false),
+            (
+                "msime-setup-result: {\"host\": \"kime\", \"registered\": true}",
+                false,
+            ),
+            ("msime-setup-result: not json", false),
+            ("msime-setup-stage: \"prepare\"", true),
+            ("词库已校验：/usr/share/msime-client/resources", false),
+        ] {
+            assert_eq!(
+                report_line(&line(text, error)),
+                ReportLine::Output,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn setup_reports_through_the_environment_and_keeps_report_lines_out_of_the_log() {
+        let (program, arguments) = shell(
+            "echo \"report=$MSIME_LINUX_SETUP_REPORT\"; echo 'msime-setup-stage: \"verify\"'",
+            &[],
+        );
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&lines);
+        run_setup(&program, &arguments, Duration::from_secs(10), move |line| {
+            sink.lock()
+                .unwrap()
+                .push(report_line(&line) == ReportLine::Output);
+        })
+        .unwrap();
+        let mut lines = lines.lock().unwrap().clone();
+        lines.sort();
+        assert_eq!(lines, [false, true]);
+    }
+
+    #[test]
+    fn dictionary_outdated_follows_the_guide_marker_once_prepared() {
+        let root = scratch("outdated");
+        let markers = dictionary_outdated_markers(
+            "msime-client",
+            Some(root.join("runtime").as_os_str()),
+            None,
+            Some(root.join("home").as_os_str()),
+        );
+        assert_eq!(
+            markers,
+            [
+                root.join("runtime/msime-client/dictionary-outdated"),
+                root.join("home/.cache/msime-client/dictionary-outdated"),
+            ]
+        );
+        // 引导脚本按版本改写成写到该版本自己的目录（edition_linux.py 的 CLIENT_DIRECTORY 规则），这里读的是同一个；并排安装的两个版本各看各的标记，更新成功后也只删自己的那个。
+        let mut edition_markers: Vec<PathBuf> = msime_client_core::edition::Edition::all()
+            .iter()
+            .filter_map(|edition| edition.linux())
+            .flat_map(|linux| {
+                dictionary_outdated_markers(
+                    &linux.client_directory,
+                    Some(root.join("runtime").as_os_str()),
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        let count = edition_markers.len();
+        assert!(count > 1);
+        assert!(edition_markers
+            .iter()
+            .all(|marker| marker.ends_with("dictionary-outdated")));
+        edition_markers.sort();
+        edition_markers.dedup();
+        assert_eq!(edition_markers.len(), count);
+        // 相对路径不算数，与引导脚本一致。
+        assert!(dictionary_outdated_markers(
+            "msime-client",
+            Some(OsStr::new("relative")),
+            Some(OsStr::new("relative")),
+            None
+        )
+        .is_empty());
+        let options = root.join("config/msime-client/runtime-options.json");
+        std::fs::create_dir_all(options.parent().unwrap()).unwrap();
+        std::fs::write(&options, "{}").unwrap();
+        let prepared = status_for(Some(&options), None);
+        assert!(!with_dictionary_outdated(prepared.clone(), &markers).dictionary_outdated);
+        std::fs::create_dir_all(markers[1].parent().unwrap()).unwrap();
+        std::fs::write(&markers[1], "").unwrap();
+        assert!(with_dictionary_outdated(prepared, &markers).dictionary_outdated);
+        // 还没配置时首次配置本来就会备齐当前版本的词库，不提示更新。
+        let missing = status_for(Some(&root.join("missing/runtime-options.json")), None);
+        assert!(!with_dictionary_outdated(missing, &markers).dictionary_outdated);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dictionary_update_runs_the_same_update_as_the_terminal_command() {
+        assert_eq!(
+            update_arguments(Path::new("/home/user/.config/msime-client")),
+            [
+                "--state",
+                "/home/user/.config/msime-client",
+                "--update",
+                "--download"
+            ]
         );
     }
 

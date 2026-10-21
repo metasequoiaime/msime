@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <mutex>
@@ -10,7 +11,8 @@ namespace msime::windows {
 struct FloatingToolbarSettings {
   unsigned scale_percent = 100;
   unsigned font_size = 24;
-  std::array<bool, 6> items{true, true, true, true, false, true};
+  // 按 character_set、punctuation、fullwidth、emoji、screen_keyboard、settings 排列。表情和屏幕键盘缺省关：偏好里缺这两个键时不画它们，与 macOS 和 client-core 的 FloatingToolbarPreferences::default() 一致。
+  std::array<bool, 6> items{true, true, true, false, false, true};
   // The shared `english_mode` item. The reference always shows its 中/英 button, so this stays on unless the preference turns it off.
   bool language = true;
   // 共享偏好里另外三个可选按钮，默认值与 client-core 的 FloatingToolbarPreferences 一致：切换输入方案默认开，手写和语音默认关。它们不进 `items`，因为 `items` 的六项也是 PreviewConfig 的 floating_toolbar_items 契约，那里要求正好六个键。
@@ -62,7 +64,14 @@ floating_toolbar_settings(const nlohmann::json &preferences) {
   }
 }
 
-// 工具栏按顺序画的按钮：0 中/英，11 切换输入方案，1 全角，2 标点，3 简繁，4 表情，7 手写，5 屏幕键盘，8 语音，6 设置。`items` 按偏好的顺序排列：character_set、punctuation、fullwidth、emoji、screen_keyboard、settings。`handwriting_offered` 是这个版本有没有手写：不提供手写的版本（日文、越南文和藏文版）不画手写按钮，从别处同步来的开关也不算，与 macOS 一致。
+// 中英文切换提示读的 `show_app_logo`：只认真正的布尔 true，缺键或类型不对都当作关，与 macOS InputModeHUDPanel 的 applySizingPreferences: 相同。和 floating_toolbar_settings 分开读：那里工具栏尺寸越界时整份设置作废，徽标的 logo 不受工具栏尺寸影响。
+inline bool hud_show_app_logo(const nlohmann::json &preferences) {
+  if (!preferences.is_object()) return false;
+  const auto found = preferences.find("show_app_logo");
+  return found != preferences.end() && found->is_boolean() && found->get<bool>();
+}
+
+// 工具栏按顺序画的按钮，与 macOS 工具栏的按钮栈相同：0 中/英，11 切换输入方案，2 标点，1 全角，3 简繁，4 表情，7 手写，5 屏幕键盘，8 语音，6 设置。`items` 按偏好的顺序排列：character_set、punctuation、fullwidth、emoji、screen_keyboard、settings。`handwriting_offered` 是这个版本有没有手写：不提供手写的版本（日文、越南文和藏文版）不画手写按钮，从别处同步来的开关也不算，与 macOS 一致。
 inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &settings,
                                                bool handwriting_offered = true) {
   const auto &items = settings.items;
@@ -70,14 +79,22 @@ inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &se
   result.reserve(10);
   if (settings.language) result.push_back(0);
   if (settings.input_scheme) result.push_back(11);
-  if (items[2]) result.push_back(1);
   if (items[1]) result.push_back(2);
+  if (items[2]) result.push_back(1);
   if (items[0]) result.push_back(3);
   if (items[3]) result.push_back(4);
   if (settings.handwriting && handwriting_offered) result.push_back(7);
   if (items[4]) result.push_back(5);
   if (settings.voice) result.push_back(8);
   if (items[5]) result.push_back(6);
+  return result;
+}
+
+// 图片工具栏向共享布局桥请求的按钮：只取有图片皮肤键的 0 到 6，按 status、fullwidth、punctuation、character_set、emoji、screen_keyboard、settings 的固定顺序，与 macOS FloatingToolbarPanel、设置页预览（toolbar-image-layout.ts）和共享的 TOOLBAR_BUTTON_KEYS 相同。普通条把标点排在全角之前，这里不跟它：布局桥按请求顺序排 buttonFlow 里的按钮，命中测试和读屏顺序也随这个顺序。
+inline std::vector<int> floating_toolbar_image_slots(const std::vector<int> &slots) {
+  std::vector<int> result;
+  for (int id = 0; id < 7; ++id)
+    if (std::find(slots.begin(), slots.end(), id) != slots.end()) result.push_back(id);
   return result;
 }
 

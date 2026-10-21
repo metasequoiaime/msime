@@ -162,7 +162,7 @@ impl BackendAccountClient {
         }
         crate::storage::reject_symlink(parent).map_err(|_| AccountError::Invalid)?;
         let mut response = self
-            .http()
+            .http()?
             .get(self.url(DATA_EXPORT_PATH)?)
             .header(reqwest::header::ACCEPT, "application/zip")
             .bearer_auth(access_token)

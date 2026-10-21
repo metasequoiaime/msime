@@ -455,7 +455,11 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("BackendPreparedSnapshot(copying: url)", bridge)
         self.assertIn('@_cdecl("msime_ios_dictionary_snapshot_request")', bridge)
         capabilities = (TAURI_ROOT.parent / "src/input/mobile-host-capabilities.ts").read_text()
-        self.assertIn("snapshot: isMobileHost(platform) || platform === \"macos\"", capabilities)
+        # prettier wraps the snapshot expression once it grows, so compare it with whitespace collapsed.
+        flat = re.sub(r"\s+", " ", capabilities)
+        snapshot = re.search(r"snapshot: (isMobileHost\(platform\) \|\|[^,]*),", flat)
+        self.assertIsNotNone(snapshot)
+        self.assertIn('platform === "macos"', snapshot.group(1))
         self.assertIn("snapshotNative: platform === \"macos\"", capabilities)
 
     def test_ios_community_services_use_shared_backend_and_tauri_ui(self):

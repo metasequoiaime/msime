@@ -17,7 +17,7 @@ Windows 的原生 WinUI 设置窗口用 C++ 写，用不了这段 TypeScript，�
 - 各宿主的接入：
   - Tauri 外壳（Windows、macOS、Linux 的设置应用）：命令 `update_check`，在阻塞线程池里调用 `check_for_update`。
   - 原生宿主：`msime_client_update_check`（`crates/host-api/src/ffi/reporting.rs`，请求 `{platform, current_version, edition?, arch?}`）。
-  - Windows 原生设置窗口：在工作线程调用它，结果直接写在「关于」页那一行下方，有新版本时按钮变成「前往下载」。
+  - Windows 原生设置窗口：在工作线程调用它。最初结果直接写在「关于」页那一行下方，有新版本时按钮变成「前往下载」；「关于」分标签以后按钮始终是「检查更新」，发现新版本时下面单列结果块，带未签名警告、SHA256 与核对命令、「国内镜像下载」和「前往下载」，都照共享页，见 [Windows 设置「关于」页分标签对齐 macOS](../feature/2026-10-20-windows-settings-about-tabs.md)。
   - 鸿蒙：NAPI `updateCheck` → `Settings.ets` 的桥接请求 `update_check`（平台由 ArkTS 固定为 `harmony`）→ 页面的 `checkUpdate`。
 - 共享设置页通过可选的 `SettingsClient.checkUpdate(request)` 拿结果，自己不再联网；页面只保留展示：`fromHostUpdate` 再校验一次发布页地址、安装包名和摘要的形状，`describeInstallerTrust` 写未签名提示和校验命令，`mirrorDownloadUrl` 给国内镜像。宿主没有提供 `checkUpdate`（没有宿主的浏览器预览）时，「关于」页不显示检查更新按钮。
 - 网页不再发出任何 HTTPS 请求，Tauri CSP 的 `connect-src` 只剩 `ipc:` 和 `http://ipc.localhost`。
@@ -37,7 +37,7 @@ Windows 的原生 WinUI 设置窗口用 C++ 写，用不了这段 TypeScript，�
   - 没有宿主的浏览器预览不再能检查更新，原来读 `https://msime.app/update.json` 的那条路径随之删除。
   - Android、iOS 和 macOS 输入法本体的检查更新仍是各自独立的实现（`UpdateApi.java`、App Store 查询、Sparkle），不走这里，见 [Android 更新过滤非法发布标签](../bug-fix/2026-10-09-android-update-invalid-tag-selection.md)；macOS 的 Sparkle 怎么接通见 [macOS 输入法本体经 Sparkle 自己更新](../feature/2026-10-15-macos-sparkle-input-method-updates.md)。哪天要统一它们，从这个模块扩展。
   - 网页原来的 10 秒 `AbortController` 超时改由 Rust 的请求超时承担；鸿蒙桥接自己还有 30 秒的兜底超时。
-  - 原生 Windows 窗口只显示文字提示和摘要，不像共享页面那样给可复制的 `Get-FileHash` 命令和国内镜像链接。
+  - 原生 Windows 窗口最初只显示文字提示和摘要，不像共享页面那样给可复制的 `Get-FileHash` 命令和国内镜像链接；这两样后来照共享页补上了，镜像地址仍由 C++ 照 `mirrorDownloadUrl` 拼，Rust 的回答没有加字段，见 [Windows 设置「关于」页分标签对齐 macOS](../feature/2026-10-20-windows-settings-about-tabs.md)。
   - Linux 的 Nix 包里为设置页 HTTPS 请求加的 `glib-networking`（`platforms/linux/nix/fcitx5.nix`）现在可能已经不需要了，这次没有改，需要在 Linux 上验证后再决定。
 
 ## Verification

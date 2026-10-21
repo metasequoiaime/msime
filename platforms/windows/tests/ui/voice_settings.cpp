@@ -69,16 +69,31 @@ int main() {
 
   // 换服务的补丁规则由共享 Rust 及 C ABI 测试验证。
 
-  // 豆包流式接口。
-  check(doubao_stream_endpoint_id(L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream") ==
-            L"nostream",
-        "whole-sentence streaming");
-  check(doubao_stream_endpoint_id(asr_default(L"doubao", true)) == L"async",
-        "the default is bidirectional");
-  check(doubao_stream_endpoint_id(L"wss://example.invalid") == L"custom", "anything else is custom");
-  // 地址为空时宿主用默认的双向流式地址，下拉照实显示它，不显示成自定义。
-  check(doubao_stream_endpoint_id(L"") == L"async" && doubao_stream_endpoint_id(L"  ") == L"async",
-        "an empty address is the default bidirectional stream");
+  // 合成目录改变数量、顺序、标识与默认地址，原生规则必须照目录匹配。
+  const std::vector<StreamEndpoint> streams{
+      {L"third", L"wss://example.invalid/third", L"第三种接口"},
+      {L"first", L"wss://example.invalid/first", L"第一种接口"},
+      {L"second", L"wss://example.invalid/second", L"第二种接口"}};
+  const auto default_endpoint = streams[2].endpoint;
+  check(doubao_stream_endpoint_id(streams, L"", default_endpoint) == L"second" &&
+            doubao_stream_endpoint_id(streams, L" \t\u3000", default_endpoint) == L"second",
+        "blank endpoints follow the catalog default");
+  check(doubao_stream_endpoint_id(streams, L" wss://example.invalid/first\u3000", default_endpoint) == L"first" &&
+            doubao_stream_endpoint_id(streams, streams[0].endpoint, default_endpoint) == L"third",
+        "all catalog entries match after JavaScript trimming");
+  check(doubao_stream_endpoint_id(streams, L"", streams[0].endpoint) == L"third",
+        "changing the catalog default changes the blank selection");
+  check(doubao_stream_endpoint_id(streams, L"wss://example.invalid/custom", default_endpoint) == L"custom" &&
+            doubao_stream_endpoint_id(streams, L"", L"wss://example.invalid/unlisted") == L"custom" &&
+            doubao_stream_endpoint_id({}, L"", default_endpoint) == L"custom",
+        "unknown or absent presets remain custom");
+  auto owned_streams = streams;
+  owned_streams[0].id = L"owned";
+  owned_streams[0].endpoint = L"wss://example.invalid/owned";
+  owned_streams[0].title = L"独立快照";
+  check(streams[0].id == L"third" && streams[0].title == L"第三种接口" &&
+            doubao_stream_endpoint_id(owned_streams, owned_streams[0].endpoint, default_endpoint) == L"owned",
+        "stream catalog snapshots own their strings");
 
   // 「更多选项」在用户改过接口地址或资源 ID 时打开就展开。
   check(!asr_advanced_changed(asr_provider_defaults(), L"doubao", L"", L"") &&
@@ -176,6 +191,29 @@ int main() {
             local_model_import_error_message(L"local_model_io") ==
                 std::wstring(L"无法写入模型文件，请确认磁盘空间充足。"),
         "import error messages");
+
+  // 「服务配置 ›」的状态（desktopVoiceServiceStatus 的 Windows 分支）：豆包没填时照实说没填，不说「暂用系统识别」。
+  check(service_status(L"local", false, true, L"", L"", L"", L"", L"api_key") == L"未选模型" &&
+            service_status(L"local", false, true, L"C:\\models\\a", L"", L"", L"", L"api_key") ==
+                L"已选模型",
+        "local recognition reports the chosen model");
+  check(service_status(L"system", false, false, L"", L"t", L"", L"", L"api_key").empty(),
+        "system recognition has no status");
+  check(service_status(L"openai", true, false, L"", L"", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"openai", true, false, L"", L" \t", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"openai", true, false, L"", L"", L"saved", L"", L"api_key") == L"已填写" &&
+            service_status(L"openai", true, false, L"", L"t", L"", L"", L"api_key") == L"已填写",
+        "network services look at the current or the saved token");
+  check(service_status(L"doubao", true, false, L"", L"", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"", L"", L"key", L"api_key") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"", L"api_key") == L"已填写",
+        "doubao with an API key");
+  check(service_status(L"doubao", true, false, L"", L"", L"", L"", L"legacy") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"", L"legacy") == L"未填写完整" &&
+            service_status(L"doubao", true, false, L"", L"", L"", L"key", L"legacy") ==
+                L"未填写完整" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"key", L"legacy") == L"已填写",
+        "doubao legacy needs both the token and the app key");
 
   if (failures)
     return 1;

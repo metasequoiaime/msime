@@ -23,7 +23,7 @@ struct TypingEffectPresentation {
   HWND candidate_window = nullptr;
   // 这个会话最近一次组字的锚点（TSF 报来的物理像素，文字底边的左端），系统光标取不到时用它估一个光标行。
   std::optional<POINT> anchor;
-  // 主题的强调色 0xRRGGBB，特效包没有颜色时用它。
+  // 系统强调色 0xRRGGBB（取不到时是主题的强调色），特效包没有颜色时用它，与 macOS 的 controlAccentColor 一样。
   uint32_t accent = 0x3B82F6u;
   // Windows 的「显示动画」开关（SPI_GETCLIENTAREAANIMATION）和节电模式。
   bool animations = true;
