@@ -13,9 +13,11 @@ struct VoiceProviderCatalog: Sendable {
     let title: String
   }
 
-  private struct Provider: Decodable {
+  struct Provider: Decodable, Sendable {
     let id: String
     let endpoint: String
+    let models: [String]
+    let documentation: String
   }
 
   private struct Value: Decodable {
@@ -35,19 +37,23 @@ struct VoiceProviderCatalog: Sendable {
 
   private enum Failure: Error { case unavailable }
 
-  let doubaoDefaultEndpoint: String
   let doubaoStreamEndpoints: [StreamEndpoint]
+  private let asrProviders: [Provider]
 
   /// 缓存静态目录；读取失败时不复制宿主默认表兜底，已保存的地址仍由原配置持有。
   static let shared = load()
 
   init(data: Data) throws {
     let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-    guard envelope.ok, let doubao = envelope.value.asr.first(where: { $0.id == "doubao" }) else {
+    guard envelope.ok, envelope.value.asr.contains(where: { $0.id == "doubao" }) else {
       throw Failure.unavailable
     }
-    doubaoDefaultEndpoint = doubao.endpoint
     doubaoStreamEndpoints = envelope.value.doubaoStreamEndpoints
+    asrProviders = envelope.value.asr
+  }
+
+  func asrProvider(id: String) -> Provider? {
+    asrProviders.first { $0.id == id }
   }
 
   static func load() -> Self? {

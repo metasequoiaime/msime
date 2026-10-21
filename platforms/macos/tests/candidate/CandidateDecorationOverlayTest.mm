@@ -140,6 +140,18 @@ int main()
                     assert([text.string hasPrefix:@"合成很长"]);
                     NSFont *font = [text attribute:NSFontAttributeName atIndex:0 effectiveRange:nullptr];
                     assert(font.pointSize == 10 && text.size.width > 120);
+                    // 装饰来源标注遵守 AI 样式，皮肤去标注开关仍优先；不修改原候选字典。
+                    NSDictionary *aiPage = Page(1);
+                    for (NSString *badgeStyle in @[@"robot", @"whale"]) {
+                        [controller applySharedToolbarPreferences:@{@"candidate_ai_badge_style": badgeStyle}];
+                        [controller setValue:aiPage forKey:@"view"];
+                        [controller renderCandidates];
+                        NSString *suffix = badge ? ([badgeStyle isEqual:@"whale"] ? @" 🐳" : @" 🤖") : @"";
+                        NSString *expected = [aiPage[@"candidates"][1][@"text"] stringByAppendingString:suffix];
+                        assert([Word(panel.contentView) isEqual:expected]);
+                        assert([aiPage[@"candidates"][1][@"source"] isEqual:@3]);
+                        assert(([aiPage[@"candidates"][1][@"id"] isEqual:@{@"generation": @1, @"index": @1}]));
+                    }
                     [controller setValue:Page(-1) forKey:@"view"];
                     [controller renderCandidates];
                     assert(WordView(panel.contentView) == nil);

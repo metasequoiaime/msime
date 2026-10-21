@@ -30,6 +30,12 @@ export interface CandidateTranslationOptionsSectionProps {
   onTargetLanguageChange: (language: TranslationLanguage) => void;
   onSecondaryLanguageChange: (language: TranslationSecondaryLanguage) => void;
   onAccountTranslationChange: (enabled: boolean) => void;
+  /** 候选释义里显示词性标记；只在宿主消费这个偏好时传入（当前只有 macOS）。 */
+  showPos?: boolean;
+  /** 候选释义只显示第一条；只在宿主消费这个偏好时传入（当前只有 macOS）。 */
+  singleSense?: boolean;
+  onShowPosChange?: (enabled: boolean) => void;
+  onSingleSenseChange?: (enabled: boolean) => void;
   /** `phone` 是 HarmonyOS 手机的「翻译」组：开关注明它显示哪种语言，目标行是普通的「翻译目标语言」选项，`beforeMore` 紧随其后，第二语言和账号相关的行收进「更多选项」折叠区。`default` 布局只把第二种语言收进「更多选项」；账号开关留在外面，因为在 Android 上它是唯一的在线翻译来源。 */
   layout?: "default" | "phone";
   /** 绘制在目标语言之后、折叠区之前的行：`phone` 布局放离线释义开关，桌面「候选释义」标签放「显示读音」。 */
@@ -51,6 +57,10 @@ export function CandidateTranslationOptionsSection({
   onTargetLanguageChange,
   onSecondaryLanguageChange,
   onAccountTranslationChange,
+  showPos,
+  singleSense,
+  onShowPosChange,
+  onSingleSenseChange,
   layout = "default",
   beforeMore,
 }: CandidateTranslationOptionsSectionProps) {
@@ -110,11 +120,33 @@ export function CandidateTranslationOptionsSection({
       onChange={onAccountTranslationChange}
     />
   );
+  // 「显示词性」和「只显示单条释义」是释义的子行：没有任何释义来源打开时没有释义可整理，两行不出现，已存的值不动。
+  const glossDisplayRows = candidateGlossLanguagesEnabled && (
+    <>
+      {onShowPosChange && (
+        <SwitchRow
+          title="显示词性"
+          description="显示译文中的 n.、v. 等词性标记，关闭后仅显示释义"
+          checked={showPos ?? true}
+          onChange={onShowPosChange}
+        />
+      )}
+      {onSingleSenseChange && (
+        <SwitchRow
+          title="只显示单条释义"
+          description="每个候选只显示第一条译文释义；Ctrl+Enter 仍可选择全部释义上屏"
+          checked={singleSense ?? false}
+          onChange={onSingleSenseChange}
+        />
+      )}
+    </>
+  );
   if (phone)
     return (
       <>
         {enabledRow}
         {targetRow}
+        {glossDisplayRows}
         {beforeMore}
         {(secondaryRow || accountRow) && (
           <MoreOptions>
@@ -128,6 +160,7 @@ export function CandidateTranslationOptionsSection({
     <>
       {enabledRow}
       {targetRow}
+      {glossDisplayRows}
       {beforeMore}
       {accountRow}
       {secondaryRow && <MoreOptions>{secondaryRow}</MoreOptions>}

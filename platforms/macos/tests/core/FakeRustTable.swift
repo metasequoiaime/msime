@@ -3,10 +3,12 @@ import CMSIMEClient
 import Foundation
 
 enum FakeRust {
-  /// 一次调用：入口名（`account`、`cloud_clipboard`、`cloud_dictionary`、`community`、`client_agent`）和整个请求。
+  /// 一次调用：入口名（`account`、`cloud_clipboard`、`cloud_clipboard_source`、`relay_cloud_clipboard`、`cloud_dictionary`、`community`、`client_agent`）和整个请求。
   struct Call {
     let entry: String
     let request: [String: Any]
+    /// 原始请求字节；`cloud_clipboard_source` 的请求是一段目录路径，不是 JSON，只有在 `bytes` 里读得到。
+    let bytes: Data
     /// 请求里的 action；`client_agent` 没有 action，是空的。
     var action: [String: Any] { request["action"] as? [String: Any] ?? [:] }
     var operation: String? { action["operation"] as? String }
@@ -50,7 +52,7 @@ enum FakeRust {
   fileprivate static func handle(_ entry: String, _ bytes: UnsafePointer<UInt8>?, _ length: Int) -> UnsafeMutablePointer<CChar>? {
     let data = bytes.map { Data(bytes: $0, count: length) } ?? Data()
     let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-    let call = Call(entry: entry, request: request)
+    let call = Call(entry: entry, request: request, bytes: data)
     lock.lock()
     recorded.append(call)
     let respond = self.respond
@@ -68,6 +70,8 @@ enum FakeRust {
     table.client_agent = { FakeRust.handle("client_agent", $0, $1) }
     table.account = { FakeRust.handle("account", $0, $1) }
     table.account_cloud_clipboard = { FakeRust.handle("cloud_clipboard", $0, $1) }
+    table.cloud_clipboard_source = { FakeRust.handle("cloud_clipboard_source", $0, $1) }
+    table.relay_cloud_clipboard = { FakeRust.handle("relay_cloud_clipboard", $0, $1) }
     table.cloud_dictionary = { FakeRust.handle("cloud_dictionary", $0, $1) }
     table.community = { FakeRust.handle("community", $0, $1) }
     return table

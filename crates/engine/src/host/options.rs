@@ -67,11 +67,15 @@ pub struct EngineOptions {
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
+    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
+    pub learn_english_on_enter: bool,
     pub autocorrect_transposition: bool,
     pub autocorrect_neighbor: bool,
     /// Masked with `fuzzy_rule::ALL`.
     pub fuzzy_pinyin_rules: u32,
     pub wubi_mixed_pinyin: bool,
+    /// 五笔 `z` 通配（`WubiInputOptions::z_wildcard`）。
+    pub wubi_z_wildcard: bool,
     /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
     pub helpcode: bool,
@@ -193,10 +197,12 @@ pub fn prepare_options_for(
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: false,
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
         show_helpcode: true,
@@ -297,12 +303,14 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);
     session.japanese_dictionary = PathBuf::from(&options.japanese_dictionary);
     session.learning = options.learning;
+    session.learn_english_on_enter = options.learn_english_on_enter;
     session.autocorrect_types = autocorrect_types;
     session.fuzzy_pinyin = FuzzyPinyinOptions {
         rules: options.fuzzy_pinyin_rules & fuzzy_rule::ALL,
     };
     session.wubi = WubiInputOptions {
         mixed_pinyin: options.wubi_mixed_pinyin,
+        z_wildcard: options.wubi_z_wildcard,
         profile: wubi_profile,
     };
     session.chinese_punctuation = options.chinese_punctuation;

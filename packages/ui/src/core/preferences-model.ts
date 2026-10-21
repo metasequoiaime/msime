@@ -67,6 +67,16 @@ export type Preferences = PunctuationPreferences &
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;
+    /** 候选译文中显示 n.、v. 等词性标记；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */
+    candidate_translation_show_pos?: boolean;
+    /** 候选译文只显示第一条释义；缺省为关闭。 */
+    candidate_translation_single_sense?: boolean;
+    /** 固定排位的候选词是否显示角标；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */
+    candidate_fixed_badge?: boolean;
+    /** 固定排位候选角的样式；缺省为 `paperclip`。 */
+    candidate_fixed_badge_style?: "paperclip" | "pushpin" | "dot";
+    /** AI 联想候选的来源角标样式；缺省为 `robot`（🤖），另一档是 `whale`（🐳）。 */
+    candidate_ai_badge_style?: "robot" | "whale";
     english_suggestions?: boolean;
     translation_target_language?: TranslationLanguage;
     /** 可选的第二种候选翻译语言；null 或缺省表示只显示一行释义。 */
@@ -84,6 +94,8 @@ export type Preferences = PunctuationPreferences &
     second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
     /** 退格在剩余拼写即将删空时回退最近一次选词；缺省为开启。 */
     backspace_reverts_selection?: boolean;
+    /** 造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次才整体取消；Windows 出厂缺省为关闭。 */
+    escape_keeps_selected_word?: boolean;
     navigation?: NavigationPreferences;
     keybindings?: KeybindingPreferences;
     scheme: InputScheme;
@@ -148,6 +160,8 @@ export type Preferences = PunctuationPreferences &
     /** `custom` 全局主题由外部候选皮肤包、七个候选颜色选项与键盘编辑器设计组成。 */
     custom_theme?: CustomTheme;
     learning: boolean;
+    /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */
+    enter_learns_english_word?: boolean;
     diagnostic_log?: { server?: boolean; tsf?: boolean };
     /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
     game_compatibility?: {

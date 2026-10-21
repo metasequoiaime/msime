@@ -10,6 +10,7 @@ pub mod doubao_frame;
 pub mod hotwords;
 pub mod local_models;
 pub mod numbers;
+pub mod polish_catalog;
 pub mod provider;
 pub mod provider_catalog;
 pub mod provider_settings;

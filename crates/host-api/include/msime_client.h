@@ -95,10 +95,11 @@ char *msime_client_client_agent(const uint8_t *request, size_t length);
 /* 输入法进程取账号服务的访问令牌。request 是 length 字节的 UTF-8 JSON {"directory": 绝对路径, "rejected_token": 可选}，最多 16384 字节；directory 是设置应用和输入法共用的账号目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account，与 msime_client_ensure_anonymous_account 相同）。设置应用登录的 account-session.json 优先，刷新时与设置应用共用 account-refresh.lock；没有登录时用 anonymous-session.json。rejected_token 是服务端刚以 401 拒绝的令牌，传入后强制刷新。每次调用都重新读文件，登录、退出和换号下一次调用即生效。也可以用 {"session_store": msime_client_session_store_register 给的 id, "rejected_token": 可选} 代替 directory：登录会话和匿名会话都在宿主注入的存储里，同样登录的优先，刷新时持宿主的 lock(ACCOUNT) 或 lock(ANONYMOUS)。Value {access_token, user_id, anonymous}；没有任何会话时 error 是 account_unauthorized。响应含凭据，不要写进日志。刷新会阻塞网络：不要在输入线程调用。 */
 char *msime_client_account_access_token(const uint8_t *request, size_t length);
 /* 设置窗口自己的云剪贴板请求，与云剪贴板面板发的相同。request 是 length 字节（最多 131072）的 UTF-8 JSON {directory: 账号目录的绝对路径, device_name?, action}；directory 是共享应用登录时写 account-session.json 的目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account），只用登录的会话，不退回匿名账号。device_name 是可选的、端到端加密登记本机时给其他设备看的名称（例如鸿蒙的 marketName），规则与 msime_client_relay_cloud_clipboard 的相同：不给、为 null、只有空白、超过 256 字节或含控制字符时改用计算机名或平台名，不算请求不合法，登记前驱动还会再清理一遍；只在本机还没登记时用到。也可以用 {session_store: id, device_name?, action} 代替 directory，id 来自 msime_client_session_store_register，用该 store 的登录会话（注册时建好的那一个，不每次新建）；两者都给、都不给或 id 没有注册时 error 是 invalid_cloud_clipboard。action 是下面之一：{operation:"list",search}（search 不超过 1024 字节、不含控制字符，在本机解密后匹配）→ {enabled, retention_days, items:[{id,text,updated_at,pinned,device}], e2e:{status,code,pending_devices,undecryptable}}；{operation:"add",text}（非空、不超过 4000 个 UTF-16 单元、不含控制字符，换行除外）→ 新条目；{operation:"delete",id}（条目的 id，64 位小写十六进制；不超过 256 字节的其他 ASCII 标识符不发出请求，error 是 account_invalid）→ {}；{operation:"set_enabled",enabled} → {enabled}；{operation:"pin",id,pinned}（id 是 64 位小写十六进制，pinned 是布尔）→ {}；{operation:"set_retention",days}（days 是 0、1、7、30 之一，0 表示一直保留）→ {retention_days}；{operation:"clear"} 删掉云端全部条目、开关不变 → {}；端到端加密的设备管理 {operation:"devices"}、{operation:"approve"|"reject"|"remove",device_id}（device_id 是 32 位小写十六进制）、{operation:"reset"} → 驱动 status 的结果 {enabled,status,device_id,code,devices:[{device_id,name,created_at,approved,current,code}]}（见 docs/cloud-clipboard-e2e.md 的「共享面板的动作」）。action 不合法时 error 是 invalid_cloud_clipboard，不联网；没有登录或会话已失效时是 account_unauthorized，驱动给出的码原样交回（例如 clipboard_device_pending、clipboard_sync_disabled），其他失败是相应的 account_* 代码（置顶的条目已经不在时服务端回 404，是 account_unavailable）。按 directory 时刷新令牌与共享应用共用 account-refresh.lock；按 session_store 时持宿主的 lock(ACCOUNT)。阻塞网络：放在工作线程上调用。 */
+/* 可选 preferences_directory 绑定账号路径的偏好来源；当前已配置中继时返回 clipboard_source_changed，不发账号请求。 */
 char *msime_client_account_cloud_clipboard(const uint8_t *request, size_t length);
-/* 云剪贴板该走哪条路。directory 是 length 字节（最多 16384）的共享偏好目录绝对路径。偏好里的 cloud_clipboard_relay 配置了中继时 Value 是 {source:"relay"}，否则是 {source:"account"}；配置了中继就只走中继，不再用水杉账号。偏好读不了时 error 是 storage，中继配置不合规时是 relay_not_configured。不联网。 */
+/* 云剪贴板该走哪条路。directory 是 length 字节（最多 16384）的共享偏好目录绝对路径。偏好里的 cloud_clipboard_relay 配置了中继时 Value 是 {source:"relay"}，否则是 {source:"account"}；两者都带不含凭据的偏好 revision，供窗口绑定来源。配置了中继就只走中继，不再用水杉账号。偏好读不了时 error 是 storage，中继配置不合规时是 relay_not_configured。不联网。 */
 char *msime_client_cloud_clipboard_source(const uint8_t *directory, size_t length);
-/* 经自建中继（协议见 docs/cloud-clipboard-relay.md）答一个云剪贴板动作。request 是 length 字节（最多 131072）的 UTF-8 JSON {preferences_directory: 共享偏好目录的绝对路径, directory: 本机放中继密钥串 cloud-clipboard-relay-keystore 的绝对路径目录, device_name: 可选，登记设备时给其他设备看的名称, action}。中继地址和令牌从偏好的 cloud_clipboard_relay 读，没有配置时 error 是 relay_not_configured。directory 在同一台设备上的输入法、设置和面板之间要相同，否则会登记成几台设备；密钥串退出水杉账号时不删除。action 与 msime_client_account_cloud_clipboard 的相同，两个入口接受同样的十二个动作，结果形状也相同：list、add、delete、set_enabled、pin、set_retention、clear，以及端到端加密的 devices、approve、reject、remove、reset（各自的字段和结果见 msime_client_account_cloud_clipboard）。action 不合法时 error 是 invalid_cloud_clipboard；中继拒绝令牌时是 relay_unauthorized，连不上是 relay_unavailable，密钥串读写失败是 relay_storage，其余是驱动给出的码（例如 clipboard_device_pending）。阻塞网络：放在工作线程上调用。 */
+/* 经自建中继（协议见 docs/cloud-clipboard-relay.md）答一个云剪贴板动作。request 是 length 字节（最多 131072）的 UTF-8 JSON {preferences_directory: 共享偏好目录的绝对路径, directory: 本机放中继密钥串 cloud-clipboard-relay-keystore 的绝对路径目录, device_name: 可选，登记设备时给其他设备看的名称, action}。中继地址和令牌从偏好的 cloud_clipboard_relay 读，没有配置时 error 是 relay_not_configured。可选 expected_revision 与读取配置的同一快照比较，不符时 error 是 clipboard_source_changed，不联网。directory 在同一台设备上的输入法、设置和面板之间要相同，否则会登记成几台设备；密钥串退出水杉账号时不删除。action 与 msime_client_account_cloud_clipboard 的相同，两个入口接受同样的十二个动作，结果形状也相同：list、add、delete、set_enabled、pin、set_retention、clear，以及端到端加密的 devices、approve、reject、remove、reset（各自的字段和结果见 msime_client_account_cloud_clipboard）。action 不合法时 error 是 invalid_cloud_clipboard；中继拒绝令牌时是 relay_unauthorized，连不上是 relay_unavailable，密钥串读写失败是 relay_storage，其余是驱动给出的码（例如 clipboard_device_pending）。阻塞网络：放在工作线程上调用。 */
 char *msime_client_relay_cloud_clipboard(const uint8_t *request, size_t length);
 /* 向自建中继发端到端加密驱动（msime_client_cloud_clipboard_e2e）给出的一个请求，给自己跑驱动、自己保存密钥串的宿主用：Android 把中继的密钥串交给 AndroidKeyStore 加密，不经上面那个由 Rust 把密钥串存成明文文件的入口跑驱动。request 是 length 字节（最多 131072）的 UTF-8 JSON {url: 中继基地址, token: 中继令牌, method: GET|PUT|POST|DELETE, path: 驱动给的路径（必须在 /v1/users/me/clipboard 之下）, body: 可选，驱动给的 JSON 正文文本}。url 和 token 是宿主在这次操作开始时从偏好的 cloud_clipboard_relay 读到的那一份，整次操作都传同一份，中途改了偏好也不会发到另一个中继；校验规则与偏好相同，不合规时 error 是 relay_not_configured。Value 是 {status, body}，状态码和正文原样交回驱动。不读偏好、不读写任何密钥串。请求不合规时 error 是 invalid_cloud_clipboard（不发出去），中继拒绝令牌时是 relay_unauthorized，连不上或响应过大是 relay_unavailable。阻塞网络：放在工作线程上调用。 */
 char *msime_client_relay_cloud_clipboard_exchange(const uint8_t *request, size_t length);
@@ -756,6 +757,12 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
+/* 中日英循环切换的状态机（`crates/client-core/src/language_cycle.rs`），一个键在 中 → 日 → 英 → 中 之间转圈。顺序来自旧版 Windows 正式版 `engine/contracts/trilingual_input.h` 的 `Next()`：中文 → 日文 → 英文 → 中文；参与循环的是「切换中英文」那一组快捷键，不是 Ctrl+Shift+J。
+ * 参数：enabled 是 keybindings.trilingual_cycle；mode 是按下循环键那一刻的模式，0 中文、1 日文、2 英文；scheme 是实际在跑的方案，编号同 View.scheme；last_chinese_scheme 是要回去的中文方案（0/1/2/5/6/9），-1 表示还没记下；has_composition 是宿主会话里还有组字（已选词段或未上屏的拼音）。
+ * Value 是 {mode, scheme, commit_raw}：mode 同上编号；scheme 是进入中文时要切到的方案，null 表示只换中英模式；commit_raw 为真时先原样上屏正在组的内容（已选词段保留，剩下没选的拼音串照原样出去），再换模式。value 为 null 表示这一键不循环（开关关着，这一组快捷键仍是二态切换），宿主照旧自己处理这个键。非法编号返回错误。
+ * 有组字时上的屏是原始拼音串，不是高亮的候选：旧版在改名或缩写时按住循环键是为了保住已经打出来的字母，而不是替用户选一个他没要的词。 */
+char *msime_client_language_cycle(bool enabled, uint8_t mode, uint8_t scheme, int8_t last_chinese_scheme,
+                                  bool has_composition);
 /* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
 char *msime_client_set_caps_lock(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
@@ -816,6 +823,18 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
+/* 宿主等待输入停顿后，在后台启动模型评分。
+ * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
+ * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
+ * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
+ * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+char *msime_client_start_settled_rerank(uint64_t session);
+/* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
+ * 完成后返回 {"status":"done","moved":...,"current":...}。
+ * current 为真表示当前组字及配置已评分；按键、开关或模型改变，或 accept=false 时为假。
+ * 未知令牌返回 {"status":"done","moved":false,"current":false}。
+ * 宿主已离开原组字时传 accept=false，只归还仍适用的模型。必须在会话线程调用。 */
+char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact

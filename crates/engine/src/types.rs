@@ -952,6 +952,8 @@ pub struct QueryRequest {
     pub rescoring_context: String,
     /// Korean only: the Hanja list of the composing syllable is open, so the request is answered with its Hanja.
     pub korean_hanja: bool,
+    /// 五笔通配：码里确实有 `z`，provider 改用模式匹配而不是前缀范围扫描（见 [`WubiInputOptions::z_wildcard`]）。
+    pub wubi_z_wildcard: bool,
     /// False means no query at all.
     pub valid: bool,
 }
@@ -1351,6 +1353,10 @@ pub struct WubiInputOptions {
     pub mixed_pinyin: bool,
     /// 查询、学习和删除所用的码表版本。
     pub profile: WubiProfileKind,
+    /// `z` 通配：码里的 `z` 匹配码表该位置的任意一个字母（含首位）。
+    ///
+    /// 与混输无关：混输里 `z` 是普通拼音字母，这里它是未知码位。两者都关时 `z` 不进码。
+    pub z_wildcard: bool,
 }
 
 /// The request a host sends to its cloud or AI provider, and must hand back unchanged with the answer. The engine revalidates every field against the live composition before inserting anything.

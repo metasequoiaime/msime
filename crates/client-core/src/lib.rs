@@ -36,6 +36,7 @@ pub use msime_client_base::file_lock;
 pub mod helpcode;
 pub mod host_surface;
 pub mod ios_keyboard;
+pub mod language_cycle;
 pub mod network;
 pub mod panels;
 pub mod preferences;

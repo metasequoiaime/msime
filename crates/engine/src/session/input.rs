@@ -75,6 +75,8 @@ pub(super) struct InputSession {
     pub chinese_punctuation_enabled: bool,
     pub punctuation_lock: i32,
     pub learning_enabled: bool,
+    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。
+    pub learn_english_on_enter: bool,
     pub personal_context_enabled: bool,
     pub punctuation: PunctuationPolicy,
     pub frequency: FrequencyAdjustmentOptions,
@@ -161,6 +163,7 @@ impl InputSession {
             chinese_punctuation_enabled: true,
             punctuation_lock: 0,
             learning_enabled: true,
+            learn_english_on_enter: options.learn_english_on_enter,
             personal_context_enabled: true,
             punctuation: PunctuationPolicy::default(),
             frequency: FrequencyAdjustmentOptions::default(),
@@ -416,7 +419,13 @@ impl InputSession {
                 self.refresh_temporary_japanese();
                 return KeyResult::handled();
             }
-            LocalInputMode::SuperJianpin => letter,
+            // 空 J 入口后的大写属于英文串；交给下方拒绝大写分支转回普通组字。
+            LocalInputMode::SuperJianpin => {
+                letter
+                    && !(value.is_ascii_uppercase()
+                        && self.local_preedit.len() == 1
+                        && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin))
+            }
             LocalInputMode::Emoji | LocalInputMode::Kaomoji => letter || value == b'\'',
             LocalInputMode::QuickPhrase | LocalInputMode::DateTime => value.is_ascii_lowercase(),
             LocalInputMode::Unicode => {
@@ -1947,7 +1956,8 @@ impl InputSession {
             raw.remove(0);
         }
         let mut diagnostic = None;
-        if self.dedicated_english
+        if self.learn_english_on_enter
+            && self.dedicated_english
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
                 self.journal_path(),

@@ -21,7 +21,7 @@ export interface WubiSectionProps {
   onChange: (patch: Partial<WubiPreferences>) => void;
 }
 
-/** 使用五笔时显示在「方案」组里的混输、编码提示和自动上屏控件。 */
+/** 使用五笔时显示在「方案」组里的混输、编码提示、z 通配、顶字和自动上屏控件。 */
 export function WubiSection({
   preferences,
   mixedPinyinDefault = false,
@@ -46,6 +46,18 @@ export function WubiSection({
         key={JSON.stringify(preferences.wubi_candidate_selection ?? defaultWubiCandidateSelection)}
         settings={preferences.wubi_candidate_selection ?? defaultWubiCandidateSelection}
         onChange={(wubi_candidate_selection) => onChange({ wubi_candidate_selection })}
+      />
+      <SwitchRow
+        title="z 键通配"
+        description="开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头；同时停用 z 引导的临时拼音反查。"
+        checked={state.wubi_z_wildcard}
+        onChange={(checked) => onChange({ wubi_z_wildcard: checked })}
+      />
+      <SwitchRow
+        title="第五码将首选上屏"
+        description="完整四码后再敲字母时上屏首选，并把该字母留作下一组开头；关闭只在拼音混输开启时生效，这个字母并入混输串。混输关闭时仍按顶字上屏，不会丢字。"
+        checked={state.wubi_fifth_code_top_commit}
+        onChange={(checked) => onChange({ wubi_fifth_code_top_commit: checked })}
       />
       <SwitchRow
         title="五笔四码唯一候选自动上屏"

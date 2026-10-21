@@ -328,6 +328,9 @@ static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
 static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const CapsLockTapShortcutKey = @"MSIMEClientCapsLockTapShortcut";
+// 中日英循环切换只由共享设置页写进共享文档；这个本机键留着的是它到达之前的读数和测试入口，
+// 和全半角、繁简这些同类的纯共享开关一样，缺键读作关（共享偏好的默认值）。
+static NSString *const TrilingualCycleKey = @"MSIMEClientTrilingualCycle";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
@@ -441,6 +444,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         ShiftTapShortcutKey : @"sharedShiftTapShortcut",
         ControlTapShortcutKey : @"sharedControlTapShortcut",
         CapsLockTapShortcutKey : @"sharedCapsLockTapShortcut",
+        TrilingualCycleKey : @"sharedTrilingualCycle",
         ControlOptionSpaceShortcutKey : @"sharedControlOptionSpaceShortcut",
         CharacterSetShortcutKey : @"sharedCharacterSetShortcut",
         FullWidthShortcutKey : @"sharedFullWidthShortcut",
@@ -546,6 +550,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             ShiftTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shiftTapShortcut); },
             ControlTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.controlTapShortcut); },
             CapsLockTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.capsLockTapShortcut); },
+            TrilingualCycleKey : ^id(MSIMEAppearancePreferences *p) { return @(p.trilingualCycle); },
             ControlOptionSpaceShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.controlOptionSpaceShortcut); },
             CharacterSetShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.characterSetShortcut); },
             FullWidthShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.fullWidthShortcut); },
@@ -996,6 +1001,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedShiftTapShortcut;
     NSNumber *_sharedControlTapShortcut;
     NSNumber *_sharedCapsLockTapShortcut;
+    NSNumber *_sharedTrilingualCycle;
     NSSwitch *_shiftTapShortcutToggle;
     NSSwitch *_controlTapShortcutToggle;
     NSSwitch *_capsLockTapShortcutToggle;
@@ -2060,6 +2066,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     }
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
+        // 中日英循环切换：缺键读作关，和共享偏好的默认值（对齐旧版 Windows 出厂值）一致。
+        id cycle = keys[@"trilingual_cycle"];
+        if (LocalModeBoolean(cycle)) _sharedTrilingualCycle = cycle;
         id shift = keys[@"switch_language_shift"];
         if (LocalModeBoolean(shift)) {
             // The shared Tauri setting reaches both native Shift routes.
@@ -2490,6 +2499,17 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return _sharedControlTapShortcut ? _sharedControlTapShortcut.boolValue : [_defaults boolForKey:ControlTapShortcutKey];
 }
 // 缺省为关，和共享偏好 `keybindings.switch_language_caps_lock` 一致。
+// 中日英循环切换（共享偏好 `keybindings.trilingual_cycle`，默认关）：打开后「切换中英文」那一组
+// 快捷键按 中 → 日 → 英 → 中 转圈，顺序和「有组字时先上屏」在共享层（`msime_client_language_cycle`）。
+- (BOOL)trilingualCycle {
+    if (_sharedTrilingualCycle) return _sharedTrilingualCycle.boolValue;
+    return [_defaults boolForKey:TrilingualCycleKey];
+}
+- (void)setTrilingualCycle:(BOOL)value {
+    _sharedTrilingualCycle = nil;
+    [_defaults setBool:value forKey:TrilingualCycleKey];
+    [self preferencesChanged];
+}
 - (BOOL)capsLockTapShortcut {
     return _sharedCapsLockTapShortcut ? _sharedCapsLockTapShortcut.boolValue : [_defaults boolForKey:CapsLockTapShortcutKey];
 }
@@ -2570,8 +2590,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
     [self preferencesChanged];
 }
-// The three modifier holds are off unless they were asked for, which is what MSIMEVoiceHoldShortcut is handed in InputController: a modifier combination that starts recording on its own is not something to turn on for a user who never asked for it.
-- (BOOL)voiceHotkeyRightAlt { return [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
+// 三个按住录音的组合键里只有「按住右 Option」（`hotkey_ralt`）默认打开，与共享默认
+// `VoiceInputPreferences::default()`、Windows、Linux 和共享设置页一致；另外两个默认关。设置窗口是独立
+// 进程，可能在输入法把共享文档写进本机键之前打开；旧回退把缺键读作关，窗口于是显示「未启用」，而
+// 输入法载入文档后已按打开的默认值录音。
+- (BOOL)voiceHotkeyRightAlt { return [_defaults objectForKey:VoiceHotkeyRightAltKey] == nil || [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
 - (void)setVoiceHotkeyRightAlt:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyRightAltKey];
     [self preferencesChanged];
@@ -2601,9 +2624,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     NSInteger size = _sharedFontSize ? _sharedFontSize.integerValue : [_defaults integerForKey:FontKey];
     return size >= 12 && size <= 32 ? size : 18;
 }
+// 共享默认（client-core 的 `default_candidate_font_family`）是 Noto Sans SC，React 页也用它。旧回退值
+// `Segoe UI` 是 Windows 的字体，在 macOS 上落到系统字体，正是这里要避免的分叉。
 - (NSString *)fontFamily {
     id value = _sharedFontFamily ?: [_defaults objectForKey:FontFamilyKey];
-    return ValidFontFamily(value) ? value : @"Segoe UI";
+    return ValidFontFamily(value) ? value : @"Noto Sans SC";
 }
 - (NSString *)candidateEnglishFont {
     id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
@@ -2806,13 +2831,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (_silent) return;
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
+// 与共享默认（client-core 的 `default_candidate_preedit_font_size`，15）、React 页和 Windows 的
+// 「预编辑字号」一致；旧的 16 只在这一个宿主上。
 - (NSUInteger)preeditFontSize {
     NSInteger size = _sharedPreeditFontSize ? _sharedPreeditFontSize.integerValue : [_defaults integerForKey:PreeditFontKey];
-    return size >= 12 && size <= 32 ? size : 16;
+    return size >= 12 && size <= 32 ? size : 15;
 }
 - (void)setPreeditFontSize:(NSUInteger)value {
     _sharedPreeditFontSize = nil;
-    [_defaults setInteger:value >= 12 && value <= 32 ? value : 16 forKey:PreeditFontKey];
+    [_defaults setInteger:value >= 12 && value <= 32 ? value : 15 forKey:PreeditFontKey];
     [self preferencesChanged];
 }
 - (NSInteger)candidateScalePercent {
@@ -4351,7 +4378,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
                                 summary:@"切换中英文、翻页选字与开始语音输入使用的按键。"
                                 content:@[
         [self sectionHeader:@"输入状态切换"
-                       keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey,
+                       keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey, TrilingualCycleKey,
                               ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
                               VoiceHotkeyCtrlF9Key, VoiceHotkeyRightAltKey, VoiceHotkeyCtrlCommandKey,
                               VoiceHotkeyCtrlOptionKey]],
