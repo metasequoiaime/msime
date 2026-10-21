@@ -123,6 +123,8 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 请求复用 `HarmonyVoicePolisher`，那本来就是本宿主的润色器。这不是顺手：它允许重写后的段落里的换行，而旁边那个 AI 候选解析器拒绝一切控制字符——后者是给候选词用的，把一段重写过的消息送进去会让每一条分段的结果被静默丢掉。会话持有自己的润色器而不是复用识别器那一个：识别器在每次录音开始、结束或放弃时都会取消它，那对转写是对的，对用户正等着的一次重写不是。
 
+润色服务的默认地址和模型由共享 `client-providers::voice::provider_catalog` 生成到 `VoiceProviderCatalog.ts`；润色器与初始语音配置同步读取，配置中的自定义值继续优先。修改共享目录后运行 `cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --write`，再用 `--check` 检查 UI JSON 与鸿蒙生成物；`tests/voice-provider-catalog.test.ts` 固定服务默认值、未知 id 回退和初始配置。
+
 内置润色的四篇简版正文由 `client-providers::voice::polish_catalog` 的 `compact_prompt` 持有，通过 `export_polish_prompt_catalog --write` 生成 `VoicePolishPromptCatalog.ts`，`HarmonyVoicePolisher` 同步查表；完整版设置目录 JSON 不包含简版字段。三个自定义槽位仍由宿主 trim，空正文和未知 id 回退到精炼整理。`tests/voice-polish-prompts.test.ts` 固定迁移前的四篇正文，导出器 `--check` 检查生成物没有过期。
 
 替换前会重新读一次光标前的文字并要求原文还在那里。一次润色要几秒，其间用户可以继续打字、移动光标或换个输入框；那时替换会删掉现在那里的东西，再把另一段话的重写放进去。不匹配就拒绝并说明，而不是硬替。

@@ -5,6 +5,7 @@ import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
 import { VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoicePolishPromptCatalog } from './VoicePolishPromptCatalog';
+import { VoiceProviderCatalog } from './VoiceProviderCatalog';
 import { VoiceInputConfiguration, VoicePolishTokens } from './VoiceInputConfiguration';
 import { VoicePolishRequestPolicy } from './VoicePolishRequestPolicy';
 
@@ -13,27 +14,6 @@ const MAX_MODEL_BYTES: number = 512;
 const MAX_TOKEN_BYTES: number = 16384;
 const MAX_PROMPT_BYTES: number = 16384;
 const MAX_REQUEST_TEXT_BYTES: number = 16384;
-
-interface PolishProviderTable {
-  siliconflow: string;
-  openai: string;
-  deepseek: string;
-  groq: string;
-}
-
-const POLISH_ENDPOINTS: PolishProviderTable = {
-  siliconflow: 'https://api.siliconflow.cn/v1/chat/completions',
-  openai: 'https://api.openai.com/v1/chat/completions',
-  deepseek: 'https://api.deepseek.com/chat/completions',
-  groq: 'https://api.groq.com/openai/v1/chat/completions'
-};
-
-const POLISH_MODELS: PolishProviderTable = {
-  siliconflow: 'Qwen/Qwen3-8B',
-  openai: 'gpt-4o-mini',
-  deepseek: 'deepseek-v4-flash',
-  groq: 'llama-3.3-70b-versatile'
-};
 
 interface PolishMessage {
   role: string;
@@ -60,8 +40,8 @@ export class HarmonyVoicePolisher {
   async polish(config: VoiceInputConfiguration, text: string): Promise<string | null> {
     if (!config.polish_enabled && !config.polish_text) return null;
     const provider: string = (config.polish_provider ?? '').trim();
-    const defaultEndpoint: string = this.providerValue(POLISH_ENDPOINTS, provider);
-    const defaultModel: string = this.providerValue(POLISH_MODELS, provider);
+    const defaultEndpoint: string = VoiceProviderCatalog.polishEndpoint(provider);
+    const defaultModel: string = VoiceProviderCatalog.polishModel(provider);
     const endpoint: string = (config.polish_endpoint ?? '').trim() || defaultEndpoint;
     const model: string = (config.polish_model ?? '').trim() || defaultModel;
     const token: string = (config.polish_token ?? '').trim()
@@ -117,16 +97,6 @@ export class HarmonyVoicePolisher {
     else if (slot === 'custom_3') custom = config.polish_prompt_custom_3 ?? '';
     if (custom !== null) return custom.trim().length > 0 ? custom.trim() : VoicePolishPromptCatalog.promptForId('cleanup');
     return VoicePolishPromptCatalog.promptForId(slot);
-  }
-
-  private providerValue(table: PolishProviderTable, provider: string): string {
-    switch (provider) {
-      case 'siliconflow': return table.siliconflow;
-      case 'openai': return table.openai;
-      case 'deepseek': return table.deepseek;
-      case 'groq': return table.groq;
-      default: return '';
-    }
   }
 
   private tokenValue(tokens: VoicePolishTokens, provider: string): string {
