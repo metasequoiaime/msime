@@ -85,6 +85,18 @@ inline std::optional<std::size_t> HighlightedCandidateIndex(const EngineView &vi
     return std::nullopt;
 }
 
+// 宿主会话执行一条光标或候选命令之后，行内组字和候选窗要不要按引擎视图整个重画：高亮换了一个候选（左右键被换成移动候选，或者 Home 回到首选），或者整句改字在进行、刚开始或刚结束（预编辑在拼音和改好的句子之间换，候选也换）。都不是时只有拼音光标动了，只移预编辑里的光标就够了。
+inline bool HostCompositionNeedsRedraw(const EngineView &before, const EngineView &after) {
+    return HighlightedCandidateIndex(before) != HighlightedCandidateIndex(after) || !before.conversion.empty() ||
+           !after.conversion.empty();
+}
+
+// Home 键发给宿主会话的命令。候选窗显示（视图里有候选）时是两段式的 MSIME_FIRST_CANDIDATE_OR_HOME：高亮不在首选时回到首选，已在首选时把光标移到输入串开头。没有候选时发 MSIME_FIRST_CANDIDATE，什么也不动：Server 的会话只在有候选时接 Home（ReplyComposer::configured_key），两边的光标才不会分开。
+inline uint32_t HostHomeCommand(const EngineView &view) {
+    return view.candidates.empty() ? static_cast<uint32_t>(MSIME_FIRST_CANDIDATE)
+                                   : static_cast<uint32_t>(MSIME_FIRST_CANDIDATE_OR_HOME);
+}
+
 // 宿主会话正在整句改字。
 template<class Host> bool HostConversionActive(Host &host) {
     EngineResult current;

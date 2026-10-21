@@ -2990,6 +2990,45 @@ int main(int argc, char **argv) {
       modifier(FcitxKey_Control_L, true, fcitx::KeyStates(fcitx::KeyState::Ctrl));
       require(state->input_enabled_, "a bare Ctrl does not switch while its binding is off");
     }
+    // 组字时 Shift+左右和 Ctrl+左右在全拼里也按音节移动拼音光标：发的是分段命令，运行时不会把它换成移动候选，以前全拼的 Ctrl+左右发字母光标命令，高亮不在首选时就成了移动候选。按住 Shift 再按方向键是组合键，松开 Shift 不切换中英文。候选窗显示时 Home 先回首选，已在首选时才把拼音光标移到开头。没有组字时这些组合键仍是应用的按键。
+    {
+      const auto shiftHeld = fcitx::KeyStates(fcitx::KeyState::Shift);
+      const auto ctrlHeld = fcitx::KeyStates(fcitx::KeyState::Ctrl);
+      const auto shiftEdge = [&](bool release) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_Shift_L, release ? shiftHeld : fcitx::KeyStates()), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto caret = [&] { return state->view_.value("caret_position", size_t{99}); };
+      const auto highlighted = [&](size_t index) {
+        const auto candidates = state->view_.value("candidates", Json::array());
+        return index < candidates.size() && candidates[index].value("highlighted", false);
+      };
+      require(state->input_enabled_ && !state->composingOrCandidates(), "segment caret test starts idle in Chinese");
+      require(!keyWith(FcitxKey_Left, shiftHeld) && !keyWith(FcitxKey_Right, shiftHeld) &&
+                  !keyWith(FcitxKey_Left, ctrlHeld) && !keyWith(FcitxKey_Right, ctrlHeld),
+              "with nothing composing Shift and Ctrl arrows stay the application's keys");
+      require(key(FcitxKey_n) && key(FcitxKey_i) && key(FcitxKey_h) && key(FcitxKey_a) && key(FcitxKey_o) && caret() == 5,
+              "segment caret test composes nihao");
+      require(!shiftEdge(false) && keyWith(FcitxKey_Left, shiftHeld) && caret() == 2,
+              "Shift+Left moves the quanpin caret to the preceding syllable");
+      require(!shiftEdge(true) && state->input_enabled_ &&
+                  state->view_.value("editing_text", std::string{}) == "nihao",
+              "releasing Shift after Shift+Left neither switches to English nor touches the composition");
+      require(!shiftEdge(false) && keyWith(FcitxKey_Right, shiftHeld) && caret() == 5,
+              "Shift+Right moves the quanpin caret to the following syllable");
+      require(!shiftEdge(true) && state->input_enabled_, "releasing Shift after Shift+Right does not switch");
+      require(keyWith(FcitxKey_Left, ctrlHeld) && caret() == 2,
+              "Ctrl+Left moves the quanpin caret by a syllable, not by a letter");
+      require(keyWith(FcitxKey_Right, ctrlHeld) && caret() == 5,
+              "Ctrl+Right moves the quanpin caret by a syllable, not by a letter");
+      require(key(FcitxKey_Down) && highlighted(1), "the Home test moves the highlight off the first candidate");
+      require(key(FcitxKey_Home) && highlighted(0) && caret() == 5,
+              "Home off the first candidate returns the highlight to it and leaves the caret");
+      require(key(FcitxKey_Home) && caret() == 0 && state->view_.value("editing_text", std::string{}) == "nihao",
+              "Home on the first candidate moves the pinyin caret to the start");
+      require(key(FcitxKey_Escape) && !state->composingOrCandidates(), "the segment caret test cancels its composition");
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition keys");
     require(ic.inputPanel().clientPreedit().toString() == "ni", "native preedit");
     auto horizontalPage = ic.inputPanel().candidateList();

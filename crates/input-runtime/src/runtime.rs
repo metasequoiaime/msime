@@ -62,6 +62,8 @@ pub enum Action {
     PreviousCandidate,
     FirstCandidate,
     LastCandidate,
+    /// Home 键（命令 106）：高亮不在首选时回到首选，已经在首选、输入串可以编辑时把光标移到开头。由 [`Runtime::home_key_action`] 换成 [`Action::FirstCandidate`] 或 `MoveHome`，不会走到别处。
+    FirstCandidateOrHome,
 }
 
 /// What one selection of a phrase-in-progress can be taken back to.
@@ -710,6 +712,24 @@ impl<E: InputEngine> Runtime<E> {
             Action::PreviousCandidate
         } else {
             Action::NextCandidate
+        }
+    }
+
+    /// Home 键分两段：高亮不在首选时第一下回到首选，已经在首选时才把输入串的光标移到开头。打开的候选列表（韩文汉字、注音）里没有可编辑的光标，那里一直是回到首选。
+    ///
+    /// 宿主只在 Home 键上发这条命令；日文转换用 [`Action::FirstCandidate`] 循环回首选，不能因为高亮已在首选就去动读音的光标。
+    fn home_key_action(&self, action: Action) -> Action {
+        if !matches!(action, Action::FirstCandidateOrHome) {
+            return action;
+        }
+        let caret_home = self.snapshot_valid
+            && self.highlighted == 0
+            && !self.cached.candidate_list_open
+            && !self.cached.editing_text.is_empty();
+        if caret_home {
+            Action::Command(Command::MoveHome)
+        } else {
+            Action::FirstCandidate
         }
     }
 
@@ -2410,6 +2430,7 @@ impl<E: InputEngine> Runtime<E> {
         let action = self.candidate_shortcut(action);
         // 横排候选里，首选上左右键编辑输入串（→ 到末尾为止），其余候选上左右键移动候选（偏好 `navigation.left_right`）；竖排时左右键只编辑。
         let action = self.caret_edge_candidate_shortcut(action);
+        let action = self.home_key_action(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation

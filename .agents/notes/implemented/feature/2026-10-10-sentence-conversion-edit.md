@@ -10,7 +10,7 @@ Status: implemented
 
 macOS 普通拼音候选的方向键分工及展开末页显示由[拼音与候选方向键分工](../bug-fix/2026-10-14-macos-arrow-candidate-navigation.md)部分取代，原有引擎契约和其它平台行为保留。
 
-「方向键不看候选窗横排竖排」由[左右键按候选窗朝向和首选分工](../bug-fix/2026-10-21-left-right-by-orientation-and-first-candidate.md)部分取代：`navigation.left_right` 开启时左右键只在横排候选窗里选词，竖排时只编辑输入串；判断仍在共享 runtime，三个桌面平台一致。
+「方向键不看候选窗横排竖排」和「Ctrl+左右一个字母一个字母地编辑拼音」由[方向键按候选窗朝向和首选分工](../bug-fix/2026-10-21-left-right-by-orientation-and-first-candidate.md)部分取代：`navigation.left_right` 开启时左右键只在横排候选窗里选词，竖排时只编辑输入串；Shift+左右和 Ctrl+左右在所有方案里按音节移动拼音光标；判断仍在共享 runtime，三个桌面平台一致。
 
 macOS 普通左右键的入口由[普通左右键编辑拼音光标](../bug-fix/2026-10-14-macos-plain-arrow-pinyin-caret.md)部分取代；下面记录的引擎改字语义、Windows 和 Linux 入口仍成立。
 

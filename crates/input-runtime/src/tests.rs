@@ -2535,6 +2535,31 @@ fn vertical_candidates_leave_left_right_to_the_input_string() {
     assert_eq!(highlighted(&horizontal), Some(0));
 }
 
+/// Home 键分两段：高亮不在首选时先回到首选，光标不动；已经在首选时才把光标移到输入串开头。
+#[test]
+fn home_key_returns_to_the_first_candidate_before_it_moves_the_caret() {
+    let highlighted = |view: &View| {
+        view.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted)
+    };
+    let mut runtime = phrase_runtime("nihaoma", Vec::new());
+    runtime.dispatch(Action::NextCandidate).unwrap();
+
+    let first = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(highlighted(&first), Some(0));
+    assert_eq!(first.caret_position, 7);
+
+    let home = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(highlighted(&home), Some(0));
+    assert_eq!(home.caret_position, 0);
+
+    // 日文转换用的 FirstCandidate 不分段：高亮已在首选时光标也不动。
+    runtime.dispatch(Action::Command(Command::MoveEnd)).unwrap();
+    let plain = runtime.dispatch(Action::FirstCandidate).unwrap().view;
+    assert_eq!(plain.caret_position, 7);
+}
+
 #[test]
 fn taking_focus_discards_held_phrase_even_if_refresh_fails() {
     let mut runtime = Runtime::new(

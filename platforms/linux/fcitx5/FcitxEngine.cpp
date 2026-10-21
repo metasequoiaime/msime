@@ -8078,15 +8078,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return false;
   }
-  // 只按 Ctrl 的分段编辑与 IBus 和 Windows 组字编辑器保持一致。实际的分段边界由共享运行时决定，局部模式下也能安全退回。韩文音节、注音转换、越南文单词和藏文音节串没有分段，所以这些组合键在下面结束组字，并仍然作为应用的快捷键。
-  if (ctrl && !alt && !shift && composing && !commitsOnBlur()) {
-    if (sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
-    // 全拼和双拼的左右键是整句改字，Ctrl+左右就是一个字母一个字母地编辑拼音。
-    const bool sentence = msime::linux_host::edits_sentence(view_);
-    if (sym == FcitxKey_Left || sym == FcitxKey_KP_Left)
-      return command(sentence ? MSIME_MOVE_LEFT : MSIME_MOVE_LEFT_SEGMENT);
-    if (sym == FcitxKey_Right || sym == FcitxKey_KP_Right)
-      return command(sentence ? MSIME_MOVE_RIGHT : MSIME_MOVE_RIGHT_SEGMENT);
+  // 分段编辑与 IBus、Windows 和 macOS 保持一致：组字时 Shift+左右和 Ctrl+左右（只按这一个修饰键）在所有方案里都按音节移动拼音光标，全拼和双拼也一样；只按 Ctrl 的退格删除一段，Shift+退格不在此列。共享运行时在横排候选窗里会把字母光标命令换成移动候选，但从不换分段命令，所以高亮停在哪个候选上，这两个组合键都编辑拼音。实际的分段边界由共享运行时决定，局部模式下也能安全退回。韩文音节、注音转换、越南文单词和藏文音节串没有分段，所以这些组合键在下面照旧结束组字，并仍然作为应用的快捷键。没有组字时它们同样是应用的按键。
+  if (composing && !commitsOnBlur()) {
+    if (ctrl && !alt && !shift && sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
+    const bool segmentChord =
+        ctrl != shift && !alt &&
+        !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper,
+                                         fcitx::KeyState::Meta, fcitx::KeyState::Mod5});
+    if (segmentChord && (sym == FcitxKey_Left || sym == FcitxKey_KP_Left))
+      return command(MSIME_MOVE_LEFT_SEGMENT);
+    if (segmentChord && (sym == FcitxKey_Right || sym == FcitxKey_KP_Right))
+      return command(MSIME_MOVE_RIGHT_SEGMENT);
   }
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper,
@@ -8217,8 +8219,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       return command(msime::linux_host::edits_sentence(view_) ? MSIME_CONVERSION_LEFT : MSIME_MOVE_LEFT);
     case FcitxKey_Right: case FcitxKey_KP_Right:
       return command(msime::linux_host::edits_sentence(view_) ? MSIME_CONVERSION_RIGHT : MSIME_MOVE_RIGHT);
+    // Home 分两段：高亮不在首选时回到首选，已在首选时把拼音光标移到开头（msime_client.h 的 MSIME_FIRST_CANDIDATE_OR_HOME）。End 仍只跳到末选。
     case FcitxKey_Home: case FcitxKey_KP_Home:
-      return command(MSIME_FIRST_CANDIDATE);
+      return command(MSIME_FIRST_CANDIDATE_OR_HOME);
     case FcitxKey_End: case FcitxKey_KP_End:
       return command(MSIME_LAST_CANDIDATE);
     case FcitxKey_Tab: case FcitxKey_KP_Tab:
