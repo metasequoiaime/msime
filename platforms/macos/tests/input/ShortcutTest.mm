@@ -9,6 +9,13 @@
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
 
+// 既有候选文字回归使用出厂徽标；包装只属于本测试，不让其他引入控制器的测试产生未使用函数。
+static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
+    return CandidateDisplayWithBadges(candidate, traditional,
+        MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
+        MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
+}
+
 static NSUInteger missingKeyFontCalls;
 static IMP originalMonospacedFont;
 static NSFont *MissingKeyFont(id cls, SEL selector, CGFloat size, NSFontWeight weight) {
@@ -11014,6 +11021,13 @@ int main(int argc, char **argv) {
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:appearance forKey:@"appearance"];
+        // 夹具直接注入外观，跳过 ensureAppearance；经生产偏好入口补齐候选显示的出厂状态。
+        NSDictionary *candidateDisplayDefaults = @{
+            @"candidate_translation_show_pos": @YES, @"candidate_translation_single_sense": @NO,
+            @"candidate_fixed_badge": @YES, @"candidate_fixed_badge_style": @"paperclip",
+            @"candidate_ai_badge_style": @"robot"
+        };
+        [controller applySharedToolbarPreferences:candidateDisplayDefaults];
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         [controller syncPageSize];
         // 上面逐项点过每页候选的弹出菜单，停在最后一项 10。
@@ -12374,6 +12388,11 @@ int main(int argc, char **argv) {
             assert(([CandidateDisplay(@{@"text":@"汉语", @"source":source}, NO) isEqual:@"汉语"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@2}, YES) isEqual:@"漢語(aB) ☁️"]));
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@3}, NO) isEqual:@"汉语(aB) 🤖"]));
+        // nil 表示尚未提供缓存，空串是显式隐藏；两者不能合并成同一个回退行为。
+        NSDictionary *aiFixed = @{@"text": @"汉语", @"source": @3, @"fixed_position": @1};
+        assert([CandidateDisplayWithBadges(aiFixed, NO, nil, nil) isEqual:@"汉语 🤖 📎"]);
+        assert([CandidateDisplayWithBadges(aiFixed, NO, @"", @"") isEqual:@"汉语"]);
+        assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
@@ -12478,6 +12497,30 @@ int main(int argc, char **argv) {
                 assert(scriptButton.frame.size.width > 0 && scriptButton.frame.size.height > 0);
             }
         }
+        // 走实际偏好缓存和候选按钮，确认两类徽标可以独立切换，固定状态与候选身份保持不变。
+        word[@"source"] = @3;
+        word[@"fixed_position"] = @1;
+        for (NSDictionary *badgeCase in @[
+            @{@"ai": @"robot", @"fixed": @"paperclip", @"show": @YES, @"suffix": @" 🤖 📎"},
+            @{@"ai": @"whale", @"fixed": @"pushpin", @"show": @YES, @"suffix": @" 🐳 📌"},
+            @{@"ai": @"whale", @"fixed": @"pushpin", @"show": @NO, @"suffix": @" 🐳"},
+            @{@"ai": @"robot", @"fixed": @"dot", @"show": @YES, @"suffix": @" 🤖 ·"}
+        ]) {
+            NSDictionary *unchanged = [word copy];
+            [controller applySharedToolbarPreferences:@{
+                @"candidate_ai_badge_style": badgeCase[@"ai"],
+                @"candidate_fixed_badge_style": badgeCase[@"fixed"],
+                @"candidate_fixed_badge": badgeCase[@"show"]
+            }];
+            [controller renderCandidates];
+            scriptButton = PageButton(layoutPanel.contentView, 0);
+            assert([scriptButton.toolTip isEqual:[@"漢語(aB)" stringByAppendingString:badgeCase[@"suffix"]]]);
+            assert([scriptButton.title containsString:[@"漢語" stringByAppendingString:badgeCase[@"suffix"]]]);
+            assert(scriptButton.candidateFixed && [scriptButton.candidateID isEqual:word[@"id"]]);
+            assert([word isEqual:unchanged]);
+        }
+        [word removeObjectForKey:@"fixed_position"];
+        [controller applySharedToolbarPreferences:candidateDisplayDefaults];
         NSUInteger contextIndex = 0;
         // The view and the commit context say whether conversion applies (`script_conversion`), as the runtime decides it from the scheme and local mode; the host no longer infers it from those. A view or context without the field converts nothing.
         for (NSDictionary *context in @[@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES}, @{@"scheme": @1, @"local_mode": @"quick_phrase", @"script_conversion": @YES}, @{@"scheme": @3, @"local_mode": @"none", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"unicode", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}, @{@"scheme": @1, @"local_mode": @"temporary_japanese", @"script_conversion": @NO}, @{@"scheme": @0, @"local_mode": @"none"}, @{}]) {

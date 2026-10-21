@@ -1,4 +1,4 @@
-//! 生成各宿主同步读取的润色正文，防止手工复制的提示词漂移。
+//! 生成各宿主同步读取的润色目录，防止手工复制的名称和提示词漂移。
 
 use msime_client_providers::voice::polish_catalog::POLISH_PROMPT_PRESETS;
 use std::path::Path;
@@ -27,6 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     let typescript = format!("export const POLISH_PRESET_IDS = [{ids}] as const;\n");
+    let mut swift = String::from(
+        "// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nenum VoicePolishPresetCatalog {\n  static let builtIns: [(id: String, title: String)] = [\n",
+    );
+    for preset in POLISH_PROMPT_PRESETS {
+        swift.push_str(&format!("    ({:?}, {:?}),\n", preset.id, preset.title));
+    }
+    swift.push_str("  ]\n}\n");
     let mut header = format!(
         "#pragma once\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::windows {{\nstruct PolishPromptCatalogEntry {{\n  std::string_view id;\n  std::string_view prompt;\n}};\ninline constexpr std::array<PolishPromptCatalogEntry, {}> kPolishPromptPresets = {{{{\n",
         POLISH_PROMPT_PRESETS.len()
@@ -67,6 +74,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             "platforms/linux/scripts/msime_voice_polish_prompts.py",
             python,
+            false,
+        ),
+        (
+            "platforms/ios/App/Services/VoicePolishPresetCatalog.swift",
+            swift,
             false,
         ),
         ("shared/voice/PolishPromptCatalog.h", header, false),

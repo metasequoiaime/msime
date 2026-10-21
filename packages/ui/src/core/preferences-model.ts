@@ -67,6 +67,16 @@ export type Preferences = PunctuationPreferences &
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
     candidate_pronunciation?: boolean;
+    /** 候选译文中显示 n.、v. 等词性标记；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */
+    candidate_translation_show_pos?: boolean;
+    /** 候选译文只显示第一条释义；缺省为关闭。 */
+    candidate_translation_single_sense?: boolean;
+    /** 固定排位的候选词是否显示角标；缺省为开启（对齐 Windows v0.11.1 出厂配置）。 */
+    candidate_fixed_badge?: boolean;
+    /** 固定排位候选角的样式；缺省为 `paperclip`。 */
+    candidate_fixed_badge_style?: "paperclip" | "pushpin" | "dot";
+    /** AI 联想候选的来源角标样式；缺省为 `robot`（🤖），另一档是 `whale`（🐳）。 */
+    candidate_ai_badge_style?: "robot" | "whale";
     english_suggestions?: boolean;
     translation_target_language?: TranslationLanguage;
     /** 可选的第二种候选翻译语言；null 或缺省表示只显示一行释义。 */
