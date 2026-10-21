@@ -34,6 +34,8 @@ Status: implemented
 - Android API 28：`CompositionRestartDeviceSmoke -e magnifier true` 与默认套件、`CompositionBatchDeviceSmoke`、基础 `DeviceSmoke` 通过；实际放大条和右侧手柄已截图检查。旧 APK 在 Android API 35 的同一放大编辑专项失败。
 - Android API 35：新版放大编辑专项通过；默认组字重启（含放大编辑）、批量编辑与基础输入回归也全部通过。运行 instrumentation 前按现有设备脚本先启动产品主进程，使用 `--no-restart`；逐项检查通过标记，不以 instrumentation 进程退出码代替断言。
 
+- 十四键旧选择器在固定基线与修复包上同样失败；按动作描述和可见文字分别定位后，API 28、35 的完整十四键套件通过，包含窄屏与实际选词提交。
+
 ## Consequences
 
 临时编辑条增加 144dp 高度，只在编辑时占用屏幕；日常输入不重复显示拼写。输入框可能不回报同一点的点击，因此提供键盘内入口。组字内的真实文字修改不能误认成单纯选择，必须核对组字文本与范围。九键读音里分隔符不是按键，必须走现有对齐规则。
