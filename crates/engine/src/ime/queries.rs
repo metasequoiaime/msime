@@ -18,7 +18,7 @@ use crate::local::expression::query_expression;
 use crate::local::jianpin::{query_jianpin, result_limit};
 use crate::local::mention::{mention_annotation, query_mentions, usable_mentions};
 use crate::local::quick_phrase::{
-    merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
+    merge_quick_phrases, query_exact_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
 };
 use crate::local::symbol_candidates::{query_mixed_symbols, SymbolRow, MIXED_SYMBOL_LIMIT};
 use crate::local::unicode::query_unicode;
@@ -119,13 +119,16 @@ impl CandidateQueries {
         self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
-    /// 把普通组字的编码匹配到快捷短语时追加到候选末尾；普通候选的顺序和来源保持不变。
-    pub fn append_quick_phrase_candidates(&self, prefix: &str, candidates: &mut Vec<WordItem>) {
-        if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+    /// 普通组字的编码恰好是某条快捷短语的编码时，把短语追加到候选末尾；普通候选的顺序和来源保持不变。只认整个编码，不按前缀匹配（见 [`query_exact_quick_phrases`]）。
+    pub fn append_quick_phrase_candidates(&self, code: &str, candidates: &mut Vec<WordItem>) {
+        if code.is_empty() || !code.bytes().all(|byte| byte.is_ascii_lowercase()) {
             return;
         }
-        let database = query_quick_phrases(prefix, &self.paths.dictionary(assets::MAIN_DICTIONARY));
-        let merged = merge_quick_phrases(prefix, database, &self.quick_phrase_table);
+        let merged = query_exact_quick_phrases(
+            code,
+            &self.paths.dictionary(assets::MAIN_DICTIONARY),
+            &self.quick_phrase_table,
+        );
         for candidate in merged.candidates {
             if !candidates
                 .iter()

@@ -14290,6 +14290,17 @@ fn requested_quick_phrase_candidates_join_regular_composition() {
     });
     let rows = local_mode_candidates(handle, b"dh");
     assert!(rows.contains(&"办公室电话".to_owned()), "{rows:?}");
+    // 设置页「快捷短语」开关关掉后，请求了这项能力的会话也不再把短语放进普通候选。
+    preferences.local_modes.quick_phrase = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(
+        !rows
+            .iter()
+            .any(|row| ["电话", "办公室电话"].contains(&row.as_str())),
+        "{rows:?}"
+    );
+    preferences.local_modes.quick_phrase = true;
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 
     for requested in [None, Some(false)] {
