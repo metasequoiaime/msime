@@ -31,11 +31,11 @@ Android 的 #9178 录屏显示普通英文输入和删除时工具栏反复闪�
 
 ## Verification
 
-针对 #9178，`EnglishSuggestionPendingChecks` 复用既有英文纠错设备入口，在安装后的原生服务中阻住真实查询线程，覆盖首次输入、继续输入、删除回原前缀、同词旧代次答案拒绝与词清空后恢复工具栏。API 28 的旧宿主在第一处等待结果断言确定性失败，报告 `Pending English query flashed the shortcut toolbar`。修复后同一套件在 API 28 通过，包含真实编辑器中的既有纠错、点原文拒绝、标点、无建议／网址／邮箱／密码输入框门控。Java/JNI、254 项 JVM 冒烟、203 个设备源文件编译、原生 full APK 的资源锁与 ELF／签名检查、quick 门禁通过；API 35 设备验收待完成。
+针对 #9178，`EnglishSuggestionPendingChecks` 复用既有英文纠错设备入口，在安装后的原生服务中阻住真实查询线程，覆盖首次输入、继续输入、删除回原前缀、同词旧代次答案拒绝与词清空后恢复工具栏。API 28 的旧宿主在第一处等待结果断言确定性失败，报告 `Pending English query flashed the shortcut toolbar`。修复后同一套件在 API 28、35 通过，包含真实编辑器中的既有纠错、点原文拒绝、标点、无建议／网址／邮箱／密码输入框门控。Java/JNI、254 项 JVM 冒烟、203 个设备源文件编译、原生 full APK 的资源锁与 ELF／签名检查、quick 门禁通过。未在报告人的 vivo 真机上验收。
 
 合成词库覆盖 issue 示例、正确词只有原文、大小写、缩写、手动撇号、长度边界与缺失词库；C ABI 回归核对原文顺序、两行上限、不改变输入会话、旧请求保持补全。固定词库的六个分词/纠错示例全部通过，本机调试构建单次查询约 0.4–29 毫秒。手机延迟尚未测量。
 
-显式大小写回归覆盖 `IM`、`I'M`、`I'VE`、`ENGLISH`、`CHINESE` 及混合大小写只返回原文，同时保留 `Im`、`Youre` 的撇号恢复和 `English` 原样返回。算法与 C ABI 回归在旧检查顺序下均先失败；修复后完整 Engine 单测 2185 项通过、33 项按既有条件忽略，31 项 golden 通过；host-api 单测 639 项通过、2 项忽略，两 crate 的 `--all-targets` Clippy 与 Rustfmt 通过。独立审查复跑聚焦算法和 ABI 回归通过。本次本地 quick 门禁通过，含工作区、Android、WASM、Android Java、macOS 原生宿主和共享 Apple 桥接编译；Linux 容器、MinGW 和 HarmonyOS 真打包因本机环境缺失跳过。本次只调整纯算法的检查顺序，没有新增文件访问或宿主代码改动，未重新运行手机设备套件。
+显式大小写回归覆盖 `IM`、`I'M`、`I'VE`、`ENGLISH`、`CHINESE` 及混合大小写只返回原文，同时保留 `Im`、`Youre` 的撇号恢复和 `English` 原样返回。算法与 C ABI 回归在旧检查顺序下均先失败；修复后完整 Engine 单测 2185 项通过、33 项按既有条件忽略，31 项 golden 通过；host-api 单测 639 项通过、2 项忽略，两 crate 的 `--all-targets` Clippy 与 Rustfmt 通过。独立审查复跑聚焦算法和 ABI 回归通过。本次本地 quick 门禁通过，含工作区、Android、WASM、Android Java、macOS 原生宿主和共享 Apple 桥接编译；Linux 容器、MinGW 和 HarmonyOS 真打包因本机环境缺失跳过。该次大小写修复只调整纯算法的检查顺序，没有新增文件访问或宿主代码改动，因此当时未重新运行手机设备套件。
 
 原功能接线验收时，Engine 全套 2156 项、31 项 golden 和新增 C ABI 专项通过，相关 crate 的 clippy 通过。Android 235 项 JVM 冒烟及 129 个设备套件源文件编译通过；功能接线时重编的原生 APK 在 API 28、35 的专用模拟器通过纠错示例、正确词与缩写、明确点原文、数字页标点和禁止建议／网址／邮箱／密码输入框验收。
 
