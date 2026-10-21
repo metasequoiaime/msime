@@ -242,6 +242,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Bundled wordbook acceptance failed" >&2; exit 1; }
+# 公告获取和关闭即使等待独立文件锁，实际设置内容也必须可读；复用设置 runner，覆盖最低 API。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e notice-queue true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Notice queue isolation acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
