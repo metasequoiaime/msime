@@ -16,7 +16,7 @@ try {
         $path = if ($stage -eq 'Build-Client.ps1') { Join-Path $root 'platforms/windows/Build-Client.ps1' } else { Join-Path $installer $stage }
         $body = @'
 param($RepoRoot,$X64Dependencies,$X86Dependencies,$Generator,$TargetVersion,$NoticesDirectory,
-      $DesktopResourcesDirectory,$ServerReleaseDirectory,$Tsf32ReleaseDirectory,$Tsf64ReleaseDirectory,$DesktopExecutable,[switch]$Light)
+      $DesktopResourcesDirectory,$ServerReleaseDirectory,$Tsf32ReleaseDirectory,$Tsf64ReleaseDirectory,$DesktopExecutable,[switch]$Light,[switch]$ServerUiAccess)
 $global:InstallerProbeCalls.Add(@{ Stage = '@STAGE@'; Parameters = $PSBoundParameters })
 if ($global:InstallerProbeCalls.Count -eq $global:InstallerProbeFailAt) {
     if ($global:InstallerProbeExit) { exit 23 }
@@ -37,6 +37,7 @@ if ($global:InstallerProbeCalls.Count -eq $global:InstallerProbeFailAt) {
         if ($global:InstallerProbeCalls[0].Parameters.TargetVersion -ne '2026.9.1') {
             throw 'Release version did not reach Client build'
         }
+        if (-not $global:InstallerProbeCalls[0].Parameters.ServerUiAccess) { throw 'Trusted local signing build lost UIAccess' }
         if ($prepare.RepoRoot -ne $root -or $prepare.ServerReleaseDirectory -ne 'target/windows-full/x64/bin' -or
             $prepare.Tsf32ReleaseDirectory -ne 'target/windows-full/x86/bin' -or $prepare.TargetVersion -ne '2026.9.1') {
             throw 'Client build/staging arguments mismatch'

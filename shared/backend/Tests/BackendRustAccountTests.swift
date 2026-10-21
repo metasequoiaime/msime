@@ -9,6 +9,8 @@ private enum FakeAccountRust {
   static var registrations: [String?] = []
   static var agentRequests: [[String: Any]] = []
   static var requests: [(entry: String, body: [String: Any])] = []
+  /// 原始请求字节：`cloud_clipboard_source` 的请求是一段目录路径，不是 JSON。
+  static var raw: [(entry: String, bytes: Data)] = []
   static var agentReply = #"{"ok":true,"value":"msime-macos/0.52.0 (Mac14,2; macOS 26.0; edition=full)"}"#
   static var replies: [String: String] = [:]
 
@@ -16,6 +18,7 @@ private enum FakeAccountRust {
     let body = bytes.flatMap { (try? JSONSerialization.jsonObject(with: Data(bytes: $0, count: length))) as? [String: Any] } ?? [:]
     lock.lock(); defer { lock.unlock() }
     requests.append((entry, body))
+    raw.append((entry, bytes.map { Data(bytes: $0, count: length) } ?? Data()))
     let operation = (body["action"] as? [String: Any])?["operation"] as? String ?? ""
     return strdup(replies["\(entry).\(operation)"] ?? #"{"ok":false,"error":"account_invalid"}"#)
   }
@@ -39,14 +42,21 @@ private enum FakeAccountRust {
     }
     table.account = { FakeAccountRust.record("account", $0, $1) }
     table.account_cloud_clipboard = { FakeAccountRust.record("cloud_clipboard", $0, $1) }
+    table.cloud_clipboard_source = { FakeAccountRust.record("cloud_clipboard_source", $0, $1) }
+    table.relay_cloud_clipboard = { FakeAccountRust.record("relay_cloud_clipboard", $0, $1) }
     table.cloud_dictionary = { FakeAccountRust.record("cloud_dictionary", $0, $1) }
     return table
   }
 
   static func reset() {
     lock.lock(); defer { lock.unlock() }
-    registrations = []; agentRequests = []; requests = []; replies = [:]
+    registrations = []; agentRequests = []; requests = []; raw = []; replies = [:]
     agentReply = #"{"ok":true,"value":"msime-macos/0.52.0 (Mac14,2; macOS 26.0; edition=full)"}"#
+  }
+
+  static var rawRequests: [(entry: String, bytes: Data)] {
+    lock.lock(); defer { lock.unlock() }
+    return raw
   }
 
   static func snapshot() -> (registrations: [String?], agents: [[String: Any]], requests: [(entry: String, body: [String: Any])]) {
@@ -134,6 +144,29 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual((seen[2].body["options"] as? [String: String])?["user_data"], "/synthetic/user")
   }
 
+  /// 自建中继的两个入口：`cloud_clipboard_source` 传偏好目录、答走哪条路；`relay_cloud_clipboard` 带偏好目录、密钥串目录、设备名和动作，不带会话存储。
+  func testRelayRequestsCarryThePreferencesAndKeystoreDirectories() async throws {
+    FakeAccountRust.replies = [
+      "cloud_clipboard_source.": #"{"ok":true,"value":{"source":"relay","revision":7}}"#,
+      "relay_cloud_clipboard.list": #"{"ok":true,"value":{"enabled":true,"items":[]}}"#,
+    ]
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    let state = directory.appendingPathComponent("state", isDirectory: true)
+    let source = try await account.cloudClipboardSource(preferencesDirectory: state)
+    XCTAssertEqual(source, "relay")
+    _ = try await account.relayCloudClipboard(["operation": "list", "search": ""], preferencesDirectory: state,
+                                              keystoreDirectory: state, deviceName: "合成 Mac", expectedRevision: 7)
+    let raw = FakeAccountRust.rawRequests
+    XCTAssertEqual(raw.map(\.entry), ["cloud_clipboard_source", "relay_cloud_clipboard"])
+    XCTAssertEqual(raw.first?.bytes, Data(state.path.utf8))
+    let relay = FakeAccountRust.snapshot().requests.last
+    XCTAssertEqual(relay?.body["preferences_directory"] as? String, state.path)
+    XCTAssertEqual(relay?.body["directory"] as? String, state.path)
+    XCTAssertEqual(relay?.body["device_name"] as? String, "合成 Mac")
+    XCTAssertNil(relay?.body["session_store"])
+    XCTAssertEqual(relay?.body["expected_revision"] as? Int, 7)
+  }
+
   func testSignedOutIsNilButUnreadableStorageIsAFailure() async throws {
     let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
     FakeAccountRust.replies = ["account.status": #"{"ok":true,"value":{"user":null}}"#]
@@ -153,6 +186,7 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual(message("clipboard_device_pending"), BackendAccountClient.Failure.clipboardMessages["clipboard_device_pending"])
     XCTAssertEqual(message("account_blocked_content"), BackendAccountClient.Failure.moderationMessages["blocked_content"])
     XCTAssertEqual(message("rust_client_unavailable"), "账号服务暂不可用，请稍后再试。")
+    XCTAssertEqual(message("clipboard_source_changed"), "云剪贴板同步来源已更改，请关闭后重新打开。")
   }
   func testRateLimitSaysHowLongToWaitWhenKnown() {
     func message(_ seconds: Int?) -> String? {

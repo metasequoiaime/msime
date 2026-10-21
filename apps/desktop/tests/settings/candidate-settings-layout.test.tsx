@@ -75,7 +75,7 @@ test("顶部四标签按功能分组，只显示当前分区，共用预览位�
       "跟随光标",
     ],
     字体与大小: ["候选字体", "字号", "英文字体", "整体大小"],
-    窗口样式: ["不透明度", "圆角大小", "内边距"],
+    窗口样式: ["不透明度", "圆角大小", "内边距", "固定候选徽标", "固定候选徽标样式", "AI 联想候选徽标样式"],
     预编辑: ["预编辑字号", "候选窗口预编辑", "行内预编辑"],
   };
   const content = document.getElementById("settings-content")!;
@@ -91,6 +91,32 @@ test("顶部四标签按功能分组，只显示当前分区，共用预览位�
   }
   expect(save).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "皮肤、颜色与明暗" })).toBeNull();
+});
+
+test("候选徽标只随 macOS 出现，改动写进同一草稿并保存", async () => {
+  const save = await renderAppearance();
+  fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
+  // 出厂默认：固定排位徽标开、样式回形针、AI 徽标机器人。
+  const fixedBadge = screen.getByRole("switch", { name: "固定候选徽标" }) as HTMLInputElement;
+  expect(fixedBadge.checked).toBe(true);
+  const fixedStyle = screen.getByRole("combobox", { name: "固定候选徽标样式" }) as HTMLSelectElement;
+  expect(fixedStyle.value).toBe("paperclip");
+  const aiStyle = screen.getByRole("combobox", { name: "AI 联想候选徽标样式" }) as HTMLSelectElement;
+  expect(aiStyle.value).toBe("robot");
+
+  fireEvent.click(fixedBadge);
+  fireEvent.change(fixedStyle, { target: { value: "dot" } });
+  fireEvent.change(aiStyle, { target: { value: "whale" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    expect.any(Number),
+    expect.objectContaining({
+      candidate_fixed_badge: false,
+      candidate_fixed_badge_style: "dot",
+      candidate_ai_badge_style: "whale",
+    }),
+  );
 });
 
 test("顶部标签支持方向键、Home 和 End，并同步焦点及选中状态", async () => {

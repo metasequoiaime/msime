@@ -192,6 +192,14 @@ export function InputSharedSettingsSection({
               onPreferencesChange({ backspace_reverts_selection })
             }
           />
+          <SwitchRow
+            title="Esc 保留已选词"
+            description="造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消（小狼毫风格）。"
+            checked={preferences.escape_keeps_selected_word ?? false}
+            onChange={(escape_keeps_selected_word) =>
+              onPreferencesChange({ escape_keeps_selected_word })
+            }
+          />
           {paging}
         </GroupList>,
       )}
@@ -209,6 +217,14 @@ export function InputSharedSettingsSection({
           {foldIntoMore && candidatesMoreRows}
           {beforeLearning}
           {learningRow}
+          <SwitchRow
+            title="回车学英文词"
+            description="按回车上屏输入的英文时，把这个单词写入英文词库，之后可作为候选出现。"
+            checked={preferences.enter_learns_english_word ?? true}
+            onChange={(enter_learns_english_word) =>
+              onPreferencesChange({ enter_learns_english_word })
+            }
+          />
           {afterLearning}
           {!foldIntoMore && <MoreOptions>{candidatesMoreRows}</MoreOptions>}
         </GroupList>,

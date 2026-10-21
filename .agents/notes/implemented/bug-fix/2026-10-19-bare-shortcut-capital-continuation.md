@@ -14,6 +14,8 @@ Status: implemented
 
 ## Historical note audit
 
+- [超级简拼空入口大写续输](2026-10-21-super-jianpin-capital-continuation.md)补充例外：全拼、双拼的空 `J` 入口遇到下一枚大写，转回普通组字；小写超级简拼和 Unicode 合法大写继续保留。
+
 - [快捷模式拒绝键](../../implemented/bug-fix/2026-10-15-local-mode-rejected-key-passthrough.md)部分重叠：本篇只取代空入口拒绝大写的情况，已经输入模式内容后的规则保留。
 - [光标拒绝键](../../implemented/bug-fix/2026-10-16-local-caret-rejected-keys.md)持有光标内部编辑；入口字母之后的末尾转移不改变该路径。
 - [Shift 入口总开关](../../implemented/feature/2026-10-11-shift-letter-entry-switch.md)持有默认值及触屏菜单约束，本篇不改变它们。该笔记曾否决连续大写退出，因为宿主需重放且会提前上屏；现在普通拼音能接收大写，两枚字母能留在共享组字中，因此不需要宿主重放。

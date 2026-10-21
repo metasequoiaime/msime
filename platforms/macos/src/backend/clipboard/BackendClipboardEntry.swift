@@ -2,14 +2,13 @@ import Foundation
 
 @MainActor
 enum BackendClipboardEntry {
-  /// 已登录时为这个账号打开云剪贴板，没有登录或读不了登录状态时请用户登录。`status` 是 Rust 的 `status`（`BackendRustAccount.status`）。
-  static func open(status: () async throws -> BackendAccountClient.User?,
-                   present: (String) -> Void, signIn: () -> Void) async {
+  /// 配置了自建中继时为中继打开云剪贴板，否则为已登录的账号打开；没有登录时请用户登录，选路失败时同样退回登录窗口（`BackendCloudClipboardRoute.selected` 只在状态目录读不了、偏好读不出来时抛错，正常配置的偏好由设置页先校验）。`route` 是 [`BackendCloudClipboardRoute.selected`]。
+  static func open(route: () async throws -> BackendCloudClipboardRoute?,
+                   present: (BackendCloudClipboardRoute) -> Void, signIn: () -> Void) async {
     do {
-      let user = try await status()
+      guard let route = try await route() else { signIn(); return }
       try Task.checkCancellation()
-      guard let user else { signIn(); return }
-      present(user.id)
+      present(route)
     } catch is CancellationError {
     } catch {
       signIn()

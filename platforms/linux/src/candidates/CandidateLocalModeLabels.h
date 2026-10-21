@@ -4,7 +4,7 @@
 
 namespace msime::linux_host {
 
-// Footer label for the Engine's local input mode, shared by the IBus auxiliary text and the Fcitx5 aux-down line. The keys are the names the Engine emits in `local_mode` (crates/engine/src/types.rs LocalInputMode::name); "none" and any unknown name have no label.
+// IBus 辅助文本与 Fcitx5 底栏共用的本地模式标签，键与引擎 `local_mode` 名称一致；默认和未知模式不显示标签。
 inline const char *candidate_local_mode_label(std::string_view mode) {
   struct Entry {
     std::string_view name;
@@ -17,7 +17,7 @@ inline const char *candidate_local_mode_label(std::string_view mode) {
       {"temporary_english", "EN"}, {"temporary_japanese", "日文"},
       {"expression", "计算"},     {"command", "指令"},
       {"mention", "@"},           {"url", "网址"},
-      {"chaizi", "拆字"}};
+      {"chaizi", "拆字"},         {"symbol", "符号"}};
   for (const auto &entry : entries)
     if (entry.name == mode)
       return entry.label;

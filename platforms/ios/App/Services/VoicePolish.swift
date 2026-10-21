@@ -9,8 +9,7 @@ private func msimeIOSVoicePolishPrompt(_ id: UnsafePointer<CChar>?, _ custom1: U
 ///
 /// The desktop configures a separate polish provider and key in the document. On iOS the service lives in `VoicePolishService`, with its key in the Keychain, so only the preset and the three custom prompts come from the document.
 struct VoicePolishSettings: Equatable {
-  static let presets: [(id: String, title: String)] = [
-    ("cleanup", "精炼整理"), ("faithful", "忠实校对"), ("zh2en", "中翻英"), ("casual", "口语整理"),
+  static let presets: [(id: String, title: String)] = VoicePolishPresetCatalog.builtIns + [
     ("custom_1", "自定义一"), ("custom_2", "自定义二"), ("custom_3", "自定义三"),
   ]
   /// Android 用于 `voice_input.language` 的 id；`auto` 让识别器自行区分普通话和英语。

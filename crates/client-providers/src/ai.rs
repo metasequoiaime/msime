@@ -11,6 +11,8 @@ pub mod settings;
 pub enum AiError {
     #[error("segmented pinyin is empty or too large")]
     InvalidSegments,
+    #[error("English input is empty, too large or contains non-letters")]
+    InvalidEnglishInput,
     #[error("context is too large")]
     ContextTooLarge,
     #[error("candidate limit is invalid")]
@@ -21,8 +23,26 @@ pub enum AiError {
     InvalidConfiguration,
 }
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiInputMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
+impl AiInputMode {
+    fn is_pinyin(&self) -> bool {
+        *self == Self::Pinyin
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AiSuggestionRequest {
+    #[serde(default, skip_serializing_if = "AiInputMode::is_pinyin")]
+    pub mode: AiInputMode,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub input: String,
     pub segmented_pinyin: Vec<String>,
     pub context: String,
     pub candidate_limit: u8,
@@ -49,6 +69,9 @@ pub const DEFAULT_TRANSLATION_PROMPT: &str = "你是一个机器翻译服务。�
 
 /// The system prompt a blank prompt slot stands for. It used to exist only in the Windows installer's default configuration, so every other host that never wrote a prompt sent an empty system message and got replies the JSON parser rejects.
 pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
+
+/// 英文模式按原始拼写与前文补全、纠错，不将字母拆成拼音。
+pub const DEFAULT_ENGLISH_CANDIDATE_PROMPT: &str = "你是一个英文输入法补全和拼写纠错服务。用户提供 mode=english、原始字母串 input、前文 context 和候选数量 candidate_limit。结合前文返回最可能的完整英文单词，保留合理的大小写，纠正常见拼写错误。不要把字母当作拼音，不翻译成中文，不解释。只输出合法 JSON：{\"candidates\":[{\"text\":\"英文单词\"}]}。按推荐程度降序，数量不超过 candidate_limit；没有合理结果返回空数组。";
 
 pub trait AiSuggestor {
     fn suggest(&self, request: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError>;
@@ -115,7 +138,10 @@ pub fn chat_completion_http_request(
         _ => &config.prompt_custom_1,
     };
     let prompt = if prompt.trim().is_empty() {
-        DEFAULT_CANDIDATE_PROMPT
+        match request.mode {
+            AiInputMode::Pinyin => DEFAULT_CANDIDATE_PROMPT,
+            AiInputMode::English => DEFAULT_ENGLISH_CANDIDATE_PROMPT,
+        }
     } else {
         prompt
     };
@@ -380,14 +406,28 @@ pub fn suggest<S: AiSuggestor>(
 
 impl AiSuggestionRequest {
     pub fn validate(&self) -> Result<(), AiError> {
-        if self.segmented_pinyin.is_empty()
-            || self.segmented_pinyin.len() > 128
-            || self
-                .segmented_pinyin
-                .iter()
-                .any(|part| part.is_empty() || !crate::text::is_bounded_text(part, 32))
-        {
-            return Err(AiError::InvalidSegments);
+        match self.mode {
+            AiInputMode::Pinyin => {
+                if !self.input.is_empty()
+                    || self.segmented_pinyin.is_empty()
+                    || self.segmented_pinyin.len() > 128
+                    || self
+                        .segmented_pinyin
+                        .iter()
+                        .any(|part| part.is_empty() || !crate::text::is_bounded_text(part, 32))
+                {
+                    return Err(AiError::InvalidSegments);
+                }
+            }
+            AiInputMode::English => {
+                if !self.segmented_pinyin.is_empty()
+                    || self.input.is_empty()
+                    || self.input.len() > 256
+                    || !self.input.bytes().all(|byte| byte.is_ascii_alphabetic())
+                {
+                    return Err(AiError::InvalidEnglishInput);
+                }
+            }
         }
         if !crate::text::is_bounded_text_with_options(&self.context, 16 * 1024, true) {
             return Err(AiError::ContextTooLarge);
@@ -434,6 +474,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn english_online_request_carries_mode_spelling_context_and_prompt() {
+        let mut ai = crate::preferences::Preferences::default().ai_assistant;
+        ai.enabled = true;
+        ai.endpoint = "https://synthetic.invalid/chat".into();
+        ai.model = "synthetic-model".into();
+        ai.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        let mut request = AiSuggestionRequest {
+            mode: AiInputMode::English,
+            input: "accessability".into(),
+            segmented_pinyin: vec![],
+            context: "Synthetic preceding sentence.".into(),
+            candidate_limit: ai.candidate_limit,
+        };
+        let descriptor = chat_completion_http_request(&ai, &request)
+            .unwrap()
+            .unwrap();
+        let body = &descriptor["body"];
+        assert_eq!(
+            body["messages"][0]["content"],
+            DEFAULT_ENGLISH_CANDIDATE_PROMPT
+        );
+        let user: serde_json::Value =
+            serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(user["mode"], "english");
+        assert_eq!(user["input"], "accessability");
+        assert_eq!(user["context"], request.context);
+        ai.prompt_id = "custom_2".into();
+        ai.prompt_custom_2 = "合成自定义英文提示".into();
+        let descriptor = chat_completion_http_request(&ai, &request)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            descriptor["body"]["messages"][0]["content"],
+            "合成自定义英文提示"
+        );
+        for input in [
+            "",
+            "https://synthetic.invalid",
+            "word name",
+            "word1",
+            "拼音",
+        ] {
+            request.input = input.into();
+            assert_eq!(request.validate(), Err(AiError::InvalidEnglishInput));
+        }
+        request.input = "a".repeat(257);
+        assert_eq!(request.validate(), Err(AiError::InvalidEnglishInput));
+        request.input = "word".into();
+        request.segmented_pinyin = vec!["ni".into()];
+        assert_eq!(request.validate(), Err(AiError::InvalidEnglishInput));
+    }
+
+    #[test]
     fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
         // The stored slot stays empty on purpose: blank means "use the built-in prompt" at request time, here and in the Linux provider's copy of the same text.
         let mut ai = crate::preferences::Preferences::default().ai_assistant;
@@ -446,6 +542,8 @@ mod tests {
             "synthetic-token".into(),
         );
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["shu".into(), "ru".into()],
             context: String::new(),
             candidate_limit: ai.candidate_limit,
@@ -473,6 +571,8 @@ mod tests {
     #[test]
     fn validates_and_dispatches_suggestions() {
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: String::new(),
             candidate_limit: 3,
@@ -482,6 +582,8 @@ mod tests {
     #[test]
     fn rejects_invalid_bounds() {
         let mut request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 0,
@@ -510,6 +612,8 @@ mod tests {
     #[test]
     fn rejects_control_characters_in_model_inputs() {
         let mut request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni\u{0}".into()],
             context: String::new(),
             candidate_limit: 1,
@@ -538,6 +642,8 @@ mod tests {
     #[test]
     fn request_body_matches_windows_shape_without_credentials() {
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: "合成上下文\n\"引用\"".into(),
             candidate_limit: 3,
@@ -760,6 +866,8 @@ mod tests {
             ..Default::default()
         };
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 3,
@@ -918,6 +1026,8 @@ mod tests {
             .tokens
             .insert("http://localhost:11434".into(), "synthetic-stale".into());
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,
@@ -981,6 +1091,8 @@ mod tests {
             .tokens
             .insert("deepseek".into(), "synthetic-provider-legacy".into());
         let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,

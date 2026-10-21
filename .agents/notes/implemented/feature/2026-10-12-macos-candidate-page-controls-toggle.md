@@ -25,6 +25,8 @@ macOS 复用 `show_candidate_page_number`，不新增偏好：
 
 logo、拼音、页码和翻页按钮都关掉时，首行高度为 0，卡片只剩候选行。
 
+Windows 版式皮肤由[共享出厂布局](2026-10-20-skin-factory-layout.md)接管翻页位置：`pageArrows` 为 true 时显示列表内箭头，不再显示首行页码；false 时没有鼠标翻页入口。原生主题仍沿用本篇首行决定，用户的页码和翻页按钮开关在两种布局都生效。
+
 ### 卡片内边距
 
 新增共享偏好 `candidate_padding: Option<u8>`，写法照 `candidate_corner_radius`：

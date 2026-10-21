@@ -63,6 +63,20 @@ foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msi
 # The MCP server an AI assistant starts from the install directory must run there, not only be copied; --version touches no state and prints to stderr.
 $mcpVersion = (& (Join-Path $pf64 'server\msime-mcp.exe') --version 2>&1 | Out-String).Trim()
 Check ($LASTEXITCODE -eq 0 -and $mcpVersion -like 'msime-mcp *') "installed msime-mcp.exe runs ($mcpVersion)"
+# --help 在进入生产会话、读取账号和创建窗口前退出；实际启动能发现未签名 UIAccess 与缺 DLL。
+$serverHelp = $null
+try {
+    $serverHelp = Start-Process -FilePath (Join-Path $pf64 'server\MetasequoiaImeServer.exe') -ArgumentList '--help' -PassThru
+    $finished = $serverHelp.WaitForExit(15000)
+    Check ($finished -and $serverHelp.ExitCode -eq 0) 'installed Server can start and exit through --help'
+} catch {
+    Check $false "installed Server cannot start ($($_.Exception.Message))"
+} finally {
+    if ($serverHelp) {
+        if (-not $serverHelp.HasExited) { $serverHelp.Kill(); $serverHelp.WaitForExit() }
+        $serverHelp.Dispose()
+    }
+}
 $tip64 = Join-Path $sys64 "$versionDir\MetasequoiaImeTsf.dll"
 $tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
 Check (Test-Path -LiteralPath (Join-Path $sys64 "$versionDir\$($identity.host_dll)") -PathType Leaf) "64-bit $($identity.host_dll) installed beside the TSF DLL"

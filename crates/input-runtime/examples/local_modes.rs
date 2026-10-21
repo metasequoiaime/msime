@@ -203,6 +203,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "quick phrase mode did not take its code letter"
     );
 
-    println!("local modes: date/time, Unicode, emoji, kaomoji, super jianpin, temporary English and Japanese, quick phrase all answer as the guide describes");
+    // 符号模式（S）: 分组码 `xl` 与符号名 `alpha`。分组码表与符号名表都编在引擎里，不读词库。
+    for (input, expected) in [("xl", "α"), ("alpha", "α"), ("jt", "→")] {
+        let (mode, offered) = offer(&options, b'S', input)?;
+        assert_eq!(mode, "symbol", "Shift+S did not enter the symbol mode");
+        assert!(
+            offered.iter().any(|text| text == expected),
+            "symbol mode offered {offered:?} for {input}"
+        );
+    }
+
+    println!("local modes: date/time, Unicode, emoji, kaomoji, symbols, super jianpin, temporary English and Japanese, quick phrase all answer as the guide describes");
     Ok(())
 }
