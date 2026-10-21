@@ -59,6 +59,59 @@ test("emoji panel reloads a failed catalog and displays the recovered items", as
   expect(await screen.findByRole("button", { name: "🦉" })).toBeDefined();
 });
 
+test.each([
+  [12, 2, 0],
+  [60, 2, 1],
+  [60, 1, 1],
+])(
+  "目录重载为 %i 项时把页索引 %i 约束到 %i，恢复后不跳回旧页码",
+  async (count, initialPage, expectedPage) => {
+    const catalog = (prefix: string, length: number) => ({
+      emoji: [],
+      symbols: [],
+      kaomoji: [
+        {
+          title: "合成插件组",
+          icon: "◉",
+          pack: "synthetic-pack",
+          items: Array.from({ length }, (_, index) => ({
+            text: `${prefix}${index}`,
+            keywords: `synthetic-${index}`,
+          })),
+        },
+      ],
+      unavailable: ["emoji" as const],
+    });
+    const loadCatalog = vi
+      .fn()
+      .mockResolvedValueOnce(catalog("合成原有项目", 120))
+      .mockResolvedValueOnce(catalog("合成更新项目", count))
+      .mockResolvedValueOnce(catalog("合成恢复项目", 120));
+    render(<EmojiPanel client={{ close: async () => {}, loadCatalog }} />);
+    fireEvent.click(screen.getByRole("button", { name: "颜文字" }));
+    await screen.findByRole("button", { name: "合成原有项目0" });
+    for (let page = 0; page < initialPage; page++) {
+      fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    }
+    expect(screen.getByText(`第 ${initialPage + 1} / 3 页`)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(
+      await screen.findByRole("button", { name: `合成更新项目${expectedPage * 48}` }),
+    ).toBeDefined();
+    expect(screen.queryByText("暂无可显示内容")).toBeNull();
+    if (count <= 48) {
+      expect(screen.queryByRole("navigation", { name: "Emoji 分页" })).toBeNull();
+    } else {
+      expect(screen.getByText(`第 ${expectedPage + 1} / 2 页`)).toBeDefined();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(
+      await screen.findByRole("button", { name: `合成恢复项目${expectedPage * 48}` }),
+    ).toBeDefined();
+    expect(screen.getByText(`第 ${expectedPage + 1} / 3 页`)).toBeDefined();
+  },
+);
+
 test("clipboard panel exposes host paste and keeps copy separate", async () => {
   const paste = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
