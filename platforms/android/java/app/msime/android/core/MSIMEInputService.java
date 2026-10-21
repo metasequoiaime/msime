@@ -679,6 +679,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 不为 null 时语音面板画的是「语音输入还不能用」的引导（{@link #showVoiceSetup}），内容是原因。 */
     private String voiceSetupReason;
     private EditorContextSnapshot voiceTarget;
+    private long voiceActivityGeneration;
     private ScrollView aiPolishScroll;
     LinearLayout aiPolishContainer;
     LinearLayout aiPolishPanel;
@@ -1869,6 +1870,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
@@ -6232,6 +6234,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void startVoiceRecognition() {
+        voiceActivityGeneration++;
         if (!voiceInputEnabled) {
             showVoiceSetup("语音输入已关闭，在设置里打开后，长按空格就能说话。");
             return;
@@ -6243,7 +6246,7 @@ public final class MSIMEInputService extends InputMethodService {
         launchVoiceActivity();
     }
 
-    /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
+    /** 申请麦克风权限或系统服务需要前台恢复时，打开识别窗口并回传结果。 */
     void launchVoiceActivity() {
         imeDebugOverlay.recordEvent(DiagnosticEventKind.VOICE_ACTIVITY_LAUNCH);
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
@@ -6257,11 +6260,13 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeVoiceResult();
+        long operation = ++voiceActivityGeneration;
+        android.os.ResultReceiver resultReceiver = voiceActivityResultReceiver(operation);
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
                 configured.providerName(), configured.requestFormat(), configured.endpoint(),
                 configured.model(), configured.token(), configured.streaming(), configured.polish(),
-                configured.localModel(), null, null, voiceDiagnosticsReceiver());
+                configured.localModel(), null, null, voiceDiagnosticsReceiver(), resultReceiver);
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
             // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
@@ -6269,6 +6274,51 @@ public final class MSIMEInputService extends InputMethodService {
             imeDebugOverlay.recordEvent(VoiceDiagnostics.unexpected(error));
             ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
+        }
+    }
+
+    /** 独立保存目标快照，避免窗口收起键盘时关闭面板把它清掉。 */
+    private android.os.ResultReceiver voiceActivityResultReceiver(long operation) {
+        if (!voiceInsertionReady()) return null;
+        String before = editorContext(true);
+        String after = editorContext(false);
+        // 读不到上下文时无法确认原输入位置，保留原来的手动插入路径。
+        if (before == null || after == null) return null;
+        EditorContextSnapshot target = new EditorContextSnapshot(connection, editorContextRevision,
+            before, selectedEditorText(), after);
+        return new android.os.ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
+                if (operation != voiceActivityGeneration || code != android.app.Activity.RESULT_OK
+                        || payload == null) return;
+                final java.util.UUID id;
+                try { id = java.util.UUID.fromString(payload.getString(VoiceRecognitionActivity.RESULT_ID)); }
+                catch (IllegalArgumentException | NullPointerException error) { return; }
+                insertVoiceActivityResult(operation, target, id, 30);
+            }
+        };
+    }
+
+    /** 等前台窗口归还原编辑连接，再领取本次结果；不能把结果插进后来切换的输入框。 */
+    private void insertVoiceActivityResult(long operation, EditorContextSnapshot target,
+                                          java.util.UUID id, int attempts) {
+        if (operation != voiceActivityGeneration || voiceResultStore == null) return;
+        if (voiceInsertionReady() && target.matches(connection, editorContextRevision,
+                editorContext(true), selectedEditorText(), editorContext(false))) {
+            // 先使重复回传失效，再按编号领取，旧回调不能插入更新后的另一条结果。
+            voiceActivityGeneration++;
+            try {
+                String text = voiceResultStore.consume(id, System.currentTimeMillis());
+                if (!commitText(text, TypingSource.VOICE)) notice("编辑器拒绝插入；结果已安全清除");
+            } catch (VoiceResultStore.Failure error) {
+                notice("语音结果未能自动插入，可在语音结果中查看");
+            }
+            return;
+        }
+        if (attempts > 0) {
+            main.postDelayed(() -> insertVoiceActivityResult(operation, target, id, attempts - 1), 100);
+        } else {
+            voiceActivityGeneration++;
+            notice("输入位置已变化，结果已保留，可在语音结果中插入");
         }
     }
 
