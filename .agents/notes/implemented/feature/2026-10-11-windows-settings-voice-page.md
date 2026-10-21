@@ -64,3 +64,5 @@ Status: implemented
 - `tests/ui/voice_settings.cpp` 注入三项合成接口，核对重排后的标识匹配、JavaScript 空白字符、改变默认地址、未知与空目录，以及快照副本持有字符串。新增用例在旧接口上编译失败，实现后以 `c++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过。
 - 下拉选项、选中后保存和偏好同步均读取同一份共享快照；显式选择自定义和手填地址的状态处理保持原有逻辑。本机没有 Windows 运行环境，尚未验收运行中的 WinUI 窗口。
 - 本片 `bash scripts/verify-local.sh --quick` 通过，包含 176 项 Windows 可移植测试、仓库契约检查、Rust workspace 与共享 Apple bridge 编译。MinGW 与运行中的 Windows 宿主未在本机验证，完整设置工程由 PR CI 构建。
+
+语音请求实际发送的 C++ 共享正文已由[共享 Rust 润色目录](../simplification/2026-10-21-shared-polish-prompt-catalog.md)静态导出；本篇的 Windows 原生设置页仍有用于展示的宽字符串副本，后续再迁移。

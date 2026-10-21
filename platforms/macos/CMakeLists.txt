@@ -28,6 +28,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
+# 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
+add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
+target_compile_options(trilingual-cycle-routing-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+set_target_properties(trilingual-cycle-routing-test PROPERTIES OBJCXX_STANDARD 20)
+target_link_libraries(trilingual-cycle-routing-test PRIVATE "-framework Foundation")
+add_test(NAME trilingual-cycle-routing COMMAND trilingual-cycle-routing-test)
 add_executable(desktop-input-interop-test tests/input/DesktopInputInteropTest.mm src/core/DesktopInputSession.mm)
 target_compile_options(desktop-input-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-input-interop-test PRIVATE "-framework AppKit")

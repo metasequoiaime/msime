@@ -81,6 +81,7 @@
 #include "../core/DiagnosticLog.h"
 #include "../../../../shared/input/EnglishModeOutput.h"
 #include "../../../../shared/input/CapsLockTap.h"
+#include "TrilingualCycleRouting.h"
 #import <IOKit/hidsystem/IOHIDLib.h>
 #import <IOKit/hidsystem/IOHIDParameter.h>
 #include <atomic>
@@ -1357,6 +1358,12 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
     NSTimer *_settledTimer;
+    // 单独轮询后台评分；取消停顿计时不得丢失评分中的模型。
+    NSTimer *_settledPollTimer;
+    uint64_t _settledToken;
+    uint64_t _settledPollEpoch;
+    MSIMEClientSession *_settledPollSession;
+    id _settledPollClient;
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
     uint64_t _cloudEpoch;
@@ -3328,20 +3335,75 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 /// it fire, which is what keeps the 24M model off the keystroke path where it measures p95 153ms
 /// against a 16ms frame.
 static const NSTimeInterval kSettledRerankDelay = 0.15;
+/// 主线程只轮询后台结果，不运行模型前向计算，避免后续按键排队。
+static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
 
 - (void)cancelSettledRerank {
     [_settledTimer invalidate];
     _settledTimer = nil;
 }
 
-/// Re-rank once typing stops. Every refresh reschedules, so it only runs on a real pause.
-///
-/// Inert unless a settled model was installed: the shared host answers `moved: NO` immediately
-/// when none is attached, which is every installation that ships one model. The window is redrawn
-/// only when the order actually moved — repainting an identical candidate list on every pause is
-/// a flicker with no explanation behind it.
+/// 停止停顿计时和轮询；会话销毁时一并放弃在途模型。
+- (void)stopSettledScoring {
+    [self cancelSettledRerank];
+    [_settledPollTimer invalidate];
+    _settledPollTimer = nil;
+    _settledToken = 0;
+    _settledPollSession = nil;
+    _settledPollClient = nil;
+}
+
+- (void)armSettledPoll {
+    [_settledPollTimer invalidate];
+    _settledPollTimer = nil;
+    const uint64_t token = _settledToken;
+    if (token == 0 || !_settledPollSession) return;
+    MSIMEClientSession *session = _settledPollSession;
+    id client = _settledPollClient;
+    const uint64_t epoch = _settledPollEpoch;
+    __weak MSIMEInputController *weakSelf = self;
+    _settledPollTimer = [NSTimer timerWithTimeInterval:kSettledRerankPoll repeats:NO block:^(NSTimer *fired) {
+        (void)fired;
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_settledToken != token) {
+            // 控制器消失或已切换任务，只向原会话归还模型；已销毁会话的评分已被放弃。
+            [session pollSettledRerank:token accept:NO error:nil];
+            return;
+        }
+        controller->_settledPollTimer = nil;
+        const BOOL same = controller->_cloudEpoch == epoch && controller->_session == session &&
+            controller->_activeClient == client && !controller->_focusPending &&
+            !controller->_appearance.englishMode;
+        NSDictionary *polled = [session pollSettledRerank:token accept:same error:nil];
+        if ([polled[@"status"] isEqual:@"pending"]) {
+            [controller armSettledPoll];
+            return;
+        }
+        [controller finishSettledScore:polled same:same session:session client:client];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_settledPollTimer forMode:NSRunLoopCommonModes];
+}
+
+/// `current` 表示当前组字及配置已评分；过期结果仅在同一客户端仍组字时重试。
+- (void)finishSettledScore:(NSDictionary *)polled same:(BOOL)same session:(MSIMEClientSession *)session client:(id)client {
+    _settledToken = 0;
+    _settledPollSession = nil;
+    _settledPollClient = nil;
+    if (!polled) return;
+    if (same && MSIMEStrictBoolean(polled[@"moved"])) {
+        [self apply:polled];
+        return;
+    }
+    if (same && MSIMEStrictBoolean(polled[@"current"])) return;
+    if (_session != session || _activeClient != client || _focusPending || _appearance.englishMode) return;
+    [self scheduleSettledRerank];
+}
+
+/// 每次刷新都重新等待真实输入停顿，再在后台评分；新按键继续立即处理。
+/// 结果仅发布到仍匹配的组字；未安装模型时立即结束，仅顺序变化才重绘候选窗口。
 - (void)scheduleSettledRerank {
     [self cancelSettledRerank];
+    if (_settledToken != 0) return;
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode) return;
     const uint64_t epoch = _cloudEpoch;
     MSIMEClientSession *session = _session;
@@ -3350,14 +3412,25 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _settledTimer = [NSTimer timerWithTimeInterval:kSettledRerankDelay repeats:NO block:^(NSTimer *timer) {
         (void)timer;
         MSIMEInputController *controller = weakSelf;
-        if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
+        if (!controller) return;
+        controller->_settledTimer = nil;
+        if (controller->_settledToken != 0 || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending ||
             controller->_appearance.englishMode) return;
-        controller->_settledTimer = nil;
-        NSDictionary *applied = [session rerankSettledWithError:nil];
+        NSDictionary *started = [session startSettledRerankWithError:nil];
+        if ([started[@"status"] isEqual:@"pending"]) {
+            uint64_t token = 0;
+            if (!MSIMEStrictUnsignedInteger(started[@"token"], &token) || token == 0) return;
+            controller->_settledToken = token;
+            controller->_settledPollEpoch = epoch;
+            controller->_settledPollSession = session;
+            controller->_settledPollClient = client;
+            [controller armSettledPoll];
+            return;
+        }
         // Same shape the cloud path applies — a transition carrying the refreshed view — so it
         // goes through the same method rather than a second way of updating the window.
-        if (MSIMEStrictBoolean(applied[@"moved"])) [controller apply:applied];
+        if (MSIMEStrictBoolean(started[@"moved"])) [controller apply:started];
     }];
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
@@ -3728,6 +3801,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 //
 // Commit first, then switch: switching rebuilds the input session, and the other order loses the letters still being composed. setEnglishInputMode: finishes any composition of its own, which is a no-op once this has run.
 - (void)toggleInputModeFromModifierTap {
+    if ([self applyTrilingualCycleIfEnabled]) return;
     if ([_view[@"editing_text"] length] && _session && _activeClient) {
         // 单按修饰键是一次物理按下，却不经过 handleEvent: 的按下报告（它只看 keyDown）。派发前按指针开一轮：不出按键音，与以前一样；原样上屏的提交音照常由核心出。
         [self reportPointerToLifecycle];
@@ -3735,6 +3809,76 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (raw) [self apply:raw];
     }
     [self setEnglishInputMode:!_appearance.englishMode];
+}
+
+// 组合键在循环关闭时保留原来的取消组字规则；轻点修饰键单独保留原文提交规则。
+- (void)toggleChineseEnglishMode {
+    if (![self applyTrilingualCycleIfEnabled])
+        [self setEnglishInputMode:!_appearance.englishMode];
+}
+
+// 中日英循环切换（共享偏好 `keybindings.trilingual_cycle`，默认关）。
+//
+// 顺序和「有组字时先上屏原始字母」都在共享层：`msime_client_language_cycle` →
+// `crates/client-core/src/language_cycle.rs`，桌面宿主将来共用同一份。这里只做两件事：
+// 把控制器此刻的状态交给它，按它的答复执行。返回 NO 表示这一键不循环（开关关着），调用方
+// 照旧走二态切换，行为与加这个开关之前完全一样。
+//
+// 上的屏是原始拼音串，不是高亮的候选：旧版在改名、缩写、命令这类打不出来的词上按住切换键，
+// 要的是已经打出来的字母，而不是替用户选一个他没要的字。
+- (BOOL)applyTrilingualCycleIfEnabled {
+    if (!_appearance.trilingualCycle) return NO;
+    if (!_session || !_activeClient) return NO;
+    NSDictionary *hostOptions = [self inputSchemeHostOptions];
+    NSArray<NSString *> *names = MSIMEInputSchemeNames();
+    NSString *chineseFallback = nil;
+    for (NSString *name in names) {
+        if (msime::mac::cycle::LastChineseSchemeCode(name.UTF8String) >= 0 && MSIMEInputSchemeAvailable(name, hostOptions)) {
+            chineseFallback = name;
+            break;
+        }
+    }
+    // 从其他版本同步来的开关也要受本版本能力约束。
+    if (!chineseFallback || !MSIMEInputSchemeAvailable(@"japanese", hostOptions)) return NO;
+    NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, hostOptions);
+    const NSUInteger schemeIndex = scheme ? [names indexOfObject:scheme] : NSNotFound;
+    if (schemeIndex == NSNotFound || schemeIndex > 9) return NO;
+    const BOOL english = _appearance.englishMode;
+    const int mode = msime::mac::cycle::ModeCode(english, schemeIndex == 3);
+    NSDictionary *reply = [_session languageCycleEnabled:YES
+                                                   mode:(uint8_t)mode
+                                                 scheme:(uint8_t)schemeIndex
+                                      lastChineseScheme:msime::mac::cycle::LastChineseSchemeCode(_appearance.lastChineseScheme.UTF8String)
+                                         hasComposition:[_view[@"editing_text"] length] > 0 ||
+                                                        [_view[@"candidates"] count] > 0];
+    const auto step = msime::mac::cycle::ParseReply(reply);
+    if (!step.claimed) return NO;
+    // 先把正在组的东西原样上屏，再换模式：换方案会重建会话，留下的组字会跟着一起丢。
+    if (step.commitRaw && [_view[@"editing_text"] length] > 0) {
+        [self reportPointerToLifecycle];
+        NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
+        // 命令失败时消费切换键并保留现有组字，不能重建会话后丢掉它。
+        if (!raw) return YES;
+        [self apply:raw];
+    }
+    if (step.mode == static_cast<int>(msime::mac::cycle::Mode::English)) {
+        [self setEnglishInputMode:YES];
+        return YES;
+    }
+    // 从英文回中文时先退出英文模式：`setEnglishInputMode:NO` 会把标点、工具栏和菜单栏都摆回中文，
+    // 之后换方案的那一次写入才不会被仍在英文的状态盖掉。
+    if (_appearance.englishMode) [self setEnglishInputMode:NO];
+    // 换方案：走和输入菜单同一条路（`selectInputScheme:` 的写法），记下离开时的中文方案。
+    if (step.scheme >= 0 && step.scheme < (int)names.count) {
+        NSString *target = names[(NSUInteger)step.scheme];
+        if (step.mode == static_cast<int>(msime::mac::cycle::Mode::Chinese) &&
+            !MSIMEInputSchemeAvailable(target, hostOptions)) target = chineseFallback;
+        if (![target isEqualToString:_appearance.inputScheme] && MSIMEInputSchemeAvailable(target, hostOptions)) {
+            _appearance.inputScheme = target;
+            [self applyPreferencesToSessionNow];
+        }
+    }
+    return YES;
 }
 - (void)syncCharacterWidth {
     if (!_session) return;
@@ -4348,6 +4492,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
+    [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
@@ -4960,6 +5105,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (!finished) return;
         [self apply:finished];
         [_session setFocused:NO error:nil];
+        [self stopSettledScoring];
         [_session closeWithError:nil];
         _session = nil;
         [_preferencesTimer invalidate];
@@ -5031,6 +5177,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self discardExpandedCandidates];
     _resumeDedicatedEnglish = MSIMEStrictBoolean(_view[@"dedicated_english"]);
     [_session setFocused:NO error:nil];
+    [self stopSettledScoring];
     [_session closeWithError:nil];
     _session = nil;
     _focusPending = YES;
@@ -6239,13 +6386,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_doubaoVoiceRequest) [self cancelDoubaoVoiceInput];
     if (_liveVoiceToken) [self cancelLiveVoiceInput];
+    // 「切换中英文」这一组快捷键（Ctrl+Option+Space、Shift+Space）和中英文切换的修饰键轻点走同一条路：
+    // 中日英循环开着时它们一起参与循环，关着时仍是二态切换。
     if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
         (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagOption)) {
-        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
     if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
-        if (!event.isARepeat) [self setEnglishInputMode:!_appearance.englishMode];
+        if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
     if (MSIMEPunctuationToggle(event)) {

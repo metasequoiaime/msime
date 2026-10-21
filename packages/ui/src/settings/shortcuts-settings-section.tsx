@@ -30,6 +30,8 @@ export interface ShortcutsSettingsSectionProps {
   capsLockLanguageSwitch?: boolean;
   /** 显示「Ctrl+Shift+J 在中文和日语之间切换」（`offersJapaneseToggle`）。 */
   japaneseToggle?: boolean;
+  /** 显示「中英日循环切换」（`offersTrilingualCycle`）。 */
+  trilingualCycle?: boolean;
   navigation: NavigationPreferences;
   /** 以词定字的设置，用来在「候选操作」里列出它占用的键；没有实体键的宿主不传。 */
   wordCharacter?: WordCharacterPreferences;
@@ -64,6 +66,7 @@ export function ShortcutsSettingsSection({
   windows,
   capsLockLanguageSwitch = false,
   japaneseToggle = false,
+  trilingualCycle = false,
   navigation,
   wordCharacter,
   numberRowSelection,
@@ -101,6 +104,7 @@ export function ShortcutsSettingsSection({
             windows={windows}
             capsLockLanguageSwitch={capsLockLanguageSwitch}
             japaneseToggle={japaneseToggle}
+            trilingualCycle={trilingualCycle}
             harmonyPhone={harmonyPhone}
           />
           <CandidateShortcutsSection

@@ -9457,6 +9457,8 @@ mod static_evidence;
 
 mod rerank_declined;
 
+mod settled_async;
+
 mod online_slot_order_equivalence;
 
 mod translation_reply_allocations;

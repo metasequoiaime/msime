@@ -3,8 +3,8 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order,
-    ParallelOrderRows,
+    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
+    runner_up_order, ParallelOrderRows, StaticEvidence,
 };
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
@@ -13,6 +13,7 @@ pub(crate) use msime_engine::ordering::{
 };
 use msime_engine::SchemeType;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 pub enum Action {
     ResetCache,
@@ -163,6 +164,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) settled_reranker: Option<Reranker>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
+    // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
+    settled_settings_epoch: Arc<()>,
+    settled_model_epoch: Arc<()>,
     /// 最近一次 `dispatch` 或 `focus` 的旁路事实，见 [`DispatchFacts`]。
     pub(crate) facts: DispatchFacts,
     /// `facts.selection` 那个座位上候选的文本，用引擎调用之前的快照记下；没有选择时为空。`DispatchFacts` 要保持 `Copy`，文本单独放在这里，缓冲区在调用之间复用。
@@ -239,6 +243,74 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
         &snapshot.candidate_corrected,
     )
     .with_static_evidence(&snapshot.candidate_static_evidence)
+}
+
+/// 复制候选行，供停顿模型在会话线程之外评分。
+struct SettledRerankRows {
+    texts: Vec<String>,
+    sources: Vec<u8>,
+    answers_key: Vec<bool>,
+    corrected: Vec<bool>,
+    static_evidence: Vec<Option<StaticEvidence>>,
+}
+
+/// 脱离会话借用的停顿评分请求；模型随请求转移，必须经
+/// [`Runtime::apply_settled_rerank`] 或 [`Runtime::discard_settled_rerank`] 归还。
+pub struct SettledRerankRequest {
+    generation: u64,
+    settings_epoch: Arc<()>,
+    model_epoch: Arc<()>,
+    context: String,
+    scheme: u8,
+    answered_by_pinyin_fallback: bool,
+    rows: SettledRerankRows,
+    reranker: Reranker,
+}
+
+/// [`score_settled_rerank`] 产生的模型和待提升的候选行。
+pub struct SettledRerankScore {
+    generation: u64,
+    settings_epoch: Arc<()>,
+    model_epoch: Arc<()>,
+    promote: Option<usize>,
+    reranker: Reranker,
+}
+
+/// [`Runtime::apply_settled_rerank`] 对评分的发布结果。
+pub struct SettledRerankApplied {
+    /// 评分仍属于当前组字和配置；按键、开关或模型改变后为假且不重排。
+    /// 为真表示本次组字已评分，无论顺序是否变化。
+    pub current: bool,
+    /// 已发布的候选顺序发生变化。
+    pub moved: bool,
+}
+
+/// 计算 [`Runtime::begin_settled_rerank`] 取出的请求；拥有模型及候选副本，
+/// 不访问会话，可以在任意线程调用。
+pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankScore {
+    let promote = {
+        let rows = ParallelOrderRows::new(
+            &request.rows.texts,
+            &request.rows.sources,
+            &request.rows.answers_key,
+            &request.rows.corrected,
+        )
+        .with_static_evidence(&request.rows.static_evidence);
+        rerank_pick(
+            &mut request.reranker,
+            &request.context,
+            request.scheme,
+            request.answered_by_pinyin_fallback,
+            &rows,
+        )
+    };
+    SettledRerankScore {
+        generation: request.generation,
+        settings_epoch: request.settings_epoch,
+        model_epoch: request.model_epoch,
+        promote,
+        reranker: request.reranker,
+    }
 }
 
 impl Runtime<Session> {
@@ -822,6 +894,8 @@ impl<E: InputEngine> Runtime<E> {
             reranker: None,
             settled_reranker: None,
             settled_rerank_enabled: true,
+            settled_settings_epoch: Arc::new(()),
+            settled_model_epoch: Arc::new(()),
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -890,14 +964,18 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker.is_some()
     }
 
-    /// Attach the model that runs after typing settles. Absent leaves the behaviour unchanged.
+    /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.settled_model_epoch = Arc::new(());
         self.settled_reranker = reranker;
     }
 
-    /// Turn the settled rerank on or off without dropping the attached model, so switching it back on needs no reload. Hosts drive this from the desktop sentence model preference.
+    /// 开关改变时作废在途评分，但保留模型，重新开启时不必加载。
     pub fn set_settled_rerank_enabled(&mut self, enabled: bool) {
-        self.settled_rerank_enabled = enabled;
+        if self.settled_rerank_enabled != enabled {
+            self.settled_settings_epoch = Arc::new(());
+            self.settled_rerank_enabled = enabled;
+        }
     }
 
     pub fn settled_rerank_enabled(&self) -> bool {
@@ -909,43 +987,166 @@ impl<E: InputEngine> Runtime<E> {
     /// The host decides when this is: it owns the clock and already runs a settle timer for cloud candidates. The runtime has no timer of its own and should not grow one — a keystroke that arrives while this is deciding makes the whole answer stale, and only the host knows that a keystroke arrived.
     ///
     /// Returns false when nothing changed, so a host can skip redrawing the candidate window. A window that repaints identically on every pause is a flicker the user cannot explain.
+    ///
+    /// 本方法在调用线程运行模型；输入线程应使用 [`Runtime::begin_settled_rerank`] 和
+    /// [`score_settled_rerank`] 异步计算，再经 [`Runtime::apply_settled_rerank`] 归还模型。
     pub fn rerank_settled(&mut self) -> bool {
-        // A reorder has to advance the generation (old IDs would otherwise select by the new seats), so an exhausted generation cannot reorder at all.
-        if !self.settled_rerank_enabled
+        if self.settled_rerank_blocked() {
+            return false;
+        }
+        self.snapshot_settled_seats();
+        let marked = self.settled_highlight();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        // 使用快速重排相同的后处理，保留固定席位。
+        let moved = self.rerank();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        self.finish_settled_presentation(moved, marked)
+    }
+
+    /// 后台评分可能改变顺序时取出停顿模型。
+    ///
+    /// `None` 保留模型，调用方可运行 [`Runtime::rerank_settled`] 完成无需模型的呈现整理。
+    /// `Some` 转移模型所有权，但按键仍使用快速模型；调用方必须经
+    /// [`Runtime::apply_settled_rerank`] 或 [`Runtime::discard_settled_rerank`] 归还。
+    pub fn begin_settled_rerank(&mut self) -> Option<SettledRerankRequest> {
+        if self.settled_rerank_blocked() || !self.settled_model_would_score() {
+            return None;
+        }
+        self.snapshot_settled_seats();
+        let generation = self.generation;
+        let context = self.ai_context.clone();
+        let scheme = self.cached.scheme;
+        let answered_by_pinyin_fallback = self.cached.answered_by_pinyin_fallback;
+        let texts = self.cached.candidates.clone();
+        let sources = self.cached.candidate_sources.clone();
+        let answers_key = self.cached.candidate_answers_key.clone();
+        let corrected = self.cached.candidate_corrected.clone();
+        let static_evidence = if self.cached.candidate_static_evidence.len() == texts.len() {
+            self.cached.candidate_static_evidence.clone()
+        } else {
+            Vec::new()
+        };
+        let reranker = self.settled_reranker.take()?;
+        Some(SettledRerankRequest {
+            generation,
+            settings_epoch: self.settled_settings_epoch.clone(),
+            model_epoch: self.settled_model_epoch.clone(),
+            context,
+            scheme,
+            answered_by_pinyin_fallback,
+            rows: SettledRerankRows {
+                texts,
+                sources,
+                answers_key,
+                corrected,
+                static_evidence,
+            },
+            reranker,
+        })
+    }
+
+    /// 仅发布同一组字、开关与模型版本的评分；开关变化不推进可见候选的身份。
+    pub fn apply_settled_rerank(&mut self, score: SettledRerankScore) -> SettledRerankApplied {
+        let SettledRerankScore {
+            generation,
+            settings_epoch,
+            model_epoch,
+            promote,
+            reranker,
+        } = score;
+        let current = generation == self.generation
+            && self.settled_rerank_enabled
+            && Arc::ptr_eq(&settings_epoch, &self.settled_settings_epoch)
+            && Arc::ptr_eq(&model_epoch, &self.settled_model_epoch);
+        self.restore_settled_reranker(reranker, &model_epoch);
+        if !current {
+            return SettledRerankApplied {
+                current: false,
+                moved: false,
+            };
+        }
+        // 评分期间用户仍可移动高亮，按发布前的实际选择恢复。
+        let marked = self.settled_highlight();
+        let moved = promote.is_some_and(|index| self.promote_row(index));
+        SettledRerankApplied {
+            current: true,
+            moved: self.finish_settled_presentation(moved, marked),
+        }
+    }
+
+    /// 放弃发布；模型未被替换或移除时才归还，关闭开关仍保留模型供下次使用。
+    pub fn discard_settled_rerank(&mut self, score: SettledRerankScore) {
+        self.restore_settled_reranker(score.reranker, &score.model_epoch);
+    }
+
+    fn settled_rerank_blocked(&self) -> bool {
+        // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
+        !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
+    }
+
+    /// 判断是否需要模型前向计算；提前退出的情况可留在会话线程处理。
+    fn settled_model_would_score(&self) -> bool {
+        if !self.cached.conversion.is_empty() {
+            return false;
+        }
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return false;
         }
+        rerank_needs_model(
+            snapshot.scheme,
+            snapshot.answered_by_pinyin_fallback,
+            &order_rows(snapshot),
+        )
+    }
+
+    fn snapshot_settled_seats(&mut self) {
         // 脚本插件的操作只按候选身份重放，不运行脚本：停顿的时机不能透露给脚本。是否挪动按重放之后的座位比较。
-        // 重排会就地挪动 `cached`，先记下高亮那一条。高亮还在第一条时不用记：落定之后仍停在第一条。
-        let previous_highlight = self.highlighted;
-        let marked = if previous_highlight == 0 {
-            None
-        } else {
-            self.cached
-                .candidates
-                .get(previous_highlight)
-                .cloned()
-                .map(|text| {
-                    (
-                        text,
-                        self.cached.candidate_codes.get(previous_highlight).cloned(),
-                    )
-                })
-        };
-        let replayed = self.has_candidate_ops();
-        if replayed {
-            let mut order = std::mem::take(&mut self.settled_order_scratch);
-            self.copy_seat_order(&mut order);
-            self.settled_order_scratch = order;
+        if !self.has_candidate_ops() {
+            return;
         }
-        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        // The same passes the fast path runs after its rerank, so the seats they fix stay fixed.
-        let mut moved = self.order_presentation();
-        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        if replayed {
+        let mut order = std::mem::take(&mut self.settled_order_scratch);
+        self.copy_seat_order(&mut order);
+        self.settled_order_scratch = order;
+    }
+
+    fn restore_settled_reranker(&mut self, reranker: Reranker, model_epoch: &Arc<()>) {
+        if Arc::ptr_eq(model_epoch, &self.settled_model_epoch) && self.settled_reranker.is_none() {
+            self.settled_reranker = Some(reranker);
+        }
+    }
+
+    fn settled_highlight(&self) -> Option<(usize, String, Option<String>)> {
+        if self.highlighted == 0 {
+            return None;
+        }
+        Some((
+            self.highlighted,
+            self.cached.candidates.get(self.highlighted)?.clone(),
+            self.cached.candidate_codes.get(self.highlighted).cloned(),
+        ))
+    }
+
+    fn finish_settled_presentation(
+        &mut self,
+        rerank_moved: bool,
+        marked: Option<(usize, String, Option<String>)>,
+    ) -> bool {
+        let mut moved = rerank_moved;
+        moved |= self.demote_runner_up_readings();
+        moved |= self.normalize_online_slots();
+        if self.has_candidate_ops() {
             let marks_changed = self.transform_candidates();
             moved = marks_changed || !self.seat_order_matches(&self.settled_order_scratch);
         }
@@ -953,8 +1154,8 @@ impl<E: InputEngine> Runtime<E> {
             self.snapshot_valid = true;
             // 用户还停在第一条时，落定重排换上来的词就是新的第一条。已经翻页或移动过高亮时，
             // 停在原来那一条上，不能弹回第一页。
-            if let Some((text, code)) = &marked {
-                self.keep_highlight_on_same_candidate(previous_highlight, text, code.as_deref());
+            if let Some((previous_highlight, text, code)) = &marked {
+                self.keep_highlight_on_same_candidate(*previous_highlight, text, code.as_deref());
             } else {
                 self.highlighted = 0;
             }
@@ -2072,13 +2273,46 @@ impl<E: InputEngine> Runtime<E> {
         if !self.cached.conversion.is_empty() {
             return false;
         }
-        let Some(reranker) = self.reranker.as_mut() else {
+        let promote = {
+            let Some(reranker) = self.reranker.as_mut() else {
+                return false;
+            };
+            let snapshot = &self.cached;
+            let count = snapshot.candidates.len();
+            if count < 2
+                || snapshot.candidate_sources.len() != count
+                || snapshot.candidate_codes.len() != count
+                || snapshot.candidate_annotations.len() != count
+                || snapshot.candidate_positions.len() != count
+                || snapshot.candidate_corrected.len() != count
+                || snapshot.candidate_answers_key.len() != count
+            {
+                return false;
+            }
+            // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
+            let rows = order_rows(snapshot);
+            rerank_pick(
+                reranker,
+                &self.ai_context,
+                snapshot.scheme,
+                snapshot.answered_by_pinyin_fallback,
+                &rows,
+            )
+        };
+        let Some(promote) = promote else {
             return false;
         };
+        self.promote_row(promote)
+    }
+
+    /// 把 `promote` 旋到首位，并同步候选元数据和引擎座位映射。下标为 0 或越界时不动。
+    fn promote_row(&mut self, promote: usize) -> bool {
+        let count = self.cached.candidates.len();
+        if promote == 0 || promote >= count {
+            return false;
+        }
         let snapshot = &self.cached;
-        let count = snapshot.candidates.len();
-        if count < 2
-            || snapshot.candidate_sources.len() != count
+        if snapshot.candidate_sources.len() != count
             || snapshot.candidate_codes.len() != count
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
@@ -2087,17 +2321,6 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
-        let rows = order_rows(snapshot);
-        let Some(promote) = rerank_pick(
-            reranker,
-            &self.ai_context,
-            snapshot.scheme,
-            snapshot.answered_by_pinyin_fallback,
-            &rows,
-        ) else {
-            return false;
-        };
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         rotate_to_front(&mut snapshot.candidates, promote);
