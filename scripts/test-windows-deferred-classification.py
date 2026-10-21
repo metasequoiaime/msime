@@ -244,6 +244,51 @@ int main() {
         check(f.ime._deferredKeyClassificationPending && !f.ime._deferredKeyProjectionValid,
               "phrase Backspace waits for Runtime before classifying queued keys");
     }
+    // 组字时只按 Shift 或只按 Ctrl 的左右键是分段光标键，全拼、五笔都一样；锁光标的方案（韩文、注音、越南文、藏文）里 Shift+左右不是分段键，Ctrl+左右照旧是；Shift+退格、带 Win 的 Shift+左右、没有组字时的 Shift+左右都不是。
+    {
+        const auto classify = [](Fixture &f, UINT code, UINT modifiers) {
+            WCHAR wch = 0, original = 0; UINT classified = 0;
+            _KEYSTROKE_STATE state{};
+            f.ime._ClassifyDeferredKeyDown(&f.context, code, 0, &original, &modifiers, &wch, &classified, &state);
+            return state.Function;
+        };
+        const auto segment = [](KEYSTROKE_FUNCTION function) {
+            return function == FUNCTION_MOVE_LEFT_SEGMENT || function == FUNCTION_MOVE_RIGHT_SEGMENT ||
+                   function == FUNCTION_BACKSPACE_SEGMENT;
+        };
+        for (int scheme : {msime::windows::scheme::Quanpin, msime::windows::scheme::Shuangpin,
+                           msime::windows::scheme::Wubi}) {
+            Fixture f; f.finishSelection(L"nihao", false);
+            f.ime._deferredKeyClassificationPending = false; f.ime._deferredKeyProjectionValid = false;
+            Global::InputModeScheme = scheme;
+            for (UINT modifiers : {1u, 2u}) {
+                check(classify(f, VK_LEFT, modifiers) == FUNCTION_MOVE_LEFT_SEGMENT, "Shift/Ctrl+Left composing is a segment caret key");
+                check(classify(f, VK_RIGHT, modifiers) == FUNCTION_MOVE_RIGHT_SEGMENT, "Shift/Ctrl+Right composing is a segment caret key");
+            }
+            check(classify(f, VK_BACK, 2) == FUNCTION_BACKSPACE_SEGMENT, "Ctrl+Backspace composing stays a segment erase");
+            check(!segment(classify(f, VK_BACK, 1)), "Shift+Backspace is not a segment key");
+            check(!segment(classify(f, VK_LEFT, 3)) && !segment(classify(f, VK_LEFT, 5)),
+                  "Shift with Ctrl or Alt is not a segment caret key");
+            winDown = true;
+            check(!segment(classify(f, VK_LEFT, 1)), "Win+Shift+Left is not a segment caret key");
+            winDown = false;
+        }
+        for (int scheme : {msime::windows::scheme::Korean, msime::windows::scheme::Zhuyin,
+                           msime::windows::scheme::Vietnamese, msime::windows::scheme::Tibetan}) {
+            Fixture f; f.finishSelection(L"gks", false);
+            f.ime._deferredKeyClassificationPending = false; f.ime._deferredKeyProjectionValid = false;
+            Global::InputModeScheme = scheme;
+            check(!segment(classify(f, VK_LEFT, 1)) && !segment(classify(f, VK_RIGHT, 1)),
+                  "Shift+Left/Right is not a segment key where the caret is locked");
+            check(classify(f, VK_LEFT, 2) == FUNCTION_MOVE_LEFT_SEGMENT, "Ctrl+Left keeps its segment classification where the caret is locked");
+        }
+        {
+            Fixture f; f.finishSelection(L"", false);
+            f.ime._deferredKeyClassificationPending = false; f.ime._deferredKeyProjectionValid = false;
+            check(!segment(classify(f, VK_LEFT, 1)) && !segment(classify(f, VK_RIGHT, 1)) &&
+                  !segment(classify(f, VK_LEFT, 2)), "caret chords belong to the application with nothing composing");
+        }
+    }
 
     struct Case { UINT code; WCHAR wch; KEYSTROKE_FUNCTION continuing; bool applicationKey; };
     const Case cases[] = {

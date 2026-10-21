@@ -220,7 +220,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void renderSyncMode(LinearLayout target) {
         Relay current = relay;
         if (current == null) return;
-        GroupCard card = GroupCard.add(sectionColumn(target, "设置"), "云剪贴板同步方式").withDividers(Ui.ROW_PADDING_H);
+        GroupCard card = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
         card.nav("同步方式", "自建中继不需要登录水杉账号：内容仍在本机加密，中继只保存密文，新设备照样要在已有设备上核对后允许",
             current.configured() ? "自建中继" : "水杉账号", () -> pickSyncMode(current));
         if (!current.configured()) return;

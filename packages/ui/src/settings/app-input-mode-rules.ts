@@ -3,7 +3,7 @@ import { asciiLowercase, utf8ByteLength } from "../core/text";
 /** 对应 `client-core::preferences::AppInputModeRule`。 */
 export type AppInputModeRule = "chinese" | "english";
 
-/** 宿主选中的应用：`id` 是规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名），`name` 是给人看的名称。 */
+/** 宿主选中的应用：`id` 是规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名，Linux 的程序名），`name` 是给人看的名称。 */
 export interface PickedApplication {
   id: string;
   name: string;
@@ -21,9 +21,10 @@ export type AppInputModeRuleProblem =
   | "duplicate"
   | "too_many";
 
-/** 用户填的应用标识。Windows 上是进程的可执行文件名：粘贴了完整路径时只取文件名，资源管理器「复制文件地址」（Ctrl+Shift+C）给路径加的一对双引号也去掉，ASCII 字母转小写，和 Server 不分大小写的比较一致；macOS 上是 bundle id，原样保留大小写。两端都去掉首尾空白（含不换行空格和全角空格）。 */
-export function normalizeAppInputModeRuleId(raw: string, windows: boolean): string {
+/** 用户填的应用标识。Windows 上是进程的可执行文件名：粘贴了完整路径时只取文件名，资源管理器「复制文件地址」（Ctrl+Shift+C）给路径加的一对双引号也去掉，ASCII 字母转小写，和 Server 不分大小写的比较一致；macOS 上是 bundle id，原样保留大小写；Linux 上是输入法框架报告的程序名，粘贴了 `/usr/bin/firefox` 这样的路径时只取文件名，大小写原样保留（宿主比较时不分 ASCII 大小写）。两端都去掉首尾空白（含不换行空格和全角空格）。 */
+export function normalizeAppInputModeRuleId(raw: string, windows: boolean, linux = false): string {
   const trimmed = raw.trim();
+  if (linux) return trimmed.slice(trimmed.lastIndexOf("/") + 1).trim();
   if (!windows) return trimmed;
   const unquoted =
     trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
@@ -68,12 +69,15 @@ export function sortedAppInputModeRules(
 export function appInputModeRuleProblemText(
   problem: AppInputModeRuleProblem,
   windows: boolean,
+  linux = false,
 ): string {
   switch (problem) {
     case "empty":
       return windows
         ? "请填写程序文件名，例如 code.exe。"
-        : "请填写应用的 Bundle ID，例如 com.apple.Terminal。";
+        : linux
+          ? "请填写程序名，例如 firefox。"
+          : "请填写应用的 Bundle ID，例如 com.apple.Terminal。";
     case "not_exe":
       return "程序文件名要以 .exe 结尾，例如 code.exe。";
     case "invalid_character":

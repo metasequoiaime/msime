@@ -24,4 +24,4 @@ Windows 的 WinUI「输入习惯」页已经从 host-api 读取 `mixed_input.jap
 
 ## Consequences
 
-Windows 用户现在可以在「输入习惯 › 候选与联想 › 更多选项」查看和修改三项已有能力；搜索这些标题会定位到并展开对应折叠区。带临时日语的版本可直接开启日文混输，其他版本不会出现无效开关。新增检查只读取源码，不要求 Windows 运行时；WinUI 的实际编译和 UI Automation 仍由 Windows CI 验证。
+Windows 用户现在可以在「输入 › 候选与联想 › 更多选项」查看和修改三项已有能力（这一组原来在「输入习惯」，后来归回「输入」页的「候选与联想」标签，见[打字三页照 macOS 分标签](../feature/2026-10-20-windows-settings-typing-mac-parity.md)）；搜索这些标题会定位到并展开对应折叠区。带临时日语的版本可直接开启日文混输，其他版本不会出现无效开关。新增检查只读取源码，不要求 Windows 运行时；WinUI 的实际编译和 UI Automation 仍由 Windows CI 验证。

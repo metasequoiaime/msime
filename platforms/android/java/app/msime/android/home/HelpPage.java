@@ -40,6 +40,9 @@ public final class HelpPage extends DetailPage {
         trouble.value("键盘里没有水杉", "回到上面的启用步骤确认开关已打开；开过仍看不到时，点输入框右下角的键盘图标翻一下列表。", null);
         trouble.value("社区连不上", "社区目录不需要登录就能读。读不出来时多为网络或服务端限流，过一会儿再试。", null);
         trouble.value("更新后行为变了", "词库随版本更新。确认装的是最新版本，或在发布页查看这一版改了什么。", null);
+        trouble.value("更新后仍有旧问题", "先切换到其他输入法，再切回水杉。如果问题仍在，可以在备份后尝试卸载重装。卸载会删除本机数据，请先查看备份范围、导出备份到应用外，并确认导出成功；重装后可从备份恢复。", null);
+        trouble.nav("重装前先导出备份", "打开「备份与恢复」，查看备份包含的内容并导出文件", null,
+            () -> SettingsNavigator.open(context, PageId.BACKUP, null));
 
         GroupCard more = GroupCard.add(sectionColumn(column, "更多"), "更多").withDividers(Ui.ROW_PADDING_H);
         more.nav("完整文档", "msime.app，在浏览器里打开", null, () -> AboutPage.openLink(context, DOCUMENTATION));

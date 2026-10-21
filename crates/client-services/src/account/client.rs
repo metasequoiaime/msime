@@ -6,9 +6,14 @@ use super::validate::*;
 use super::*;
 use crate::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
 
+type SharedAccountHttp = std::sync::Arc<
+    std::sync::Mutex<Option<(msime_client_core::network::NetworkPreferences, Client)>>,
+>;
+
 #[derive(Clone)]
 pub struct BackendAccountClient {
-    client: Client,
+    client: SharedAccountHttp,
+    agent: String,
     origin: Url,
 }
 
@@ -102,8 +107,13 @@ fn client_agent_part(value: &str, fallback: &str) -> String {
     }
 }
 
-fn build_http_client(agent: &str) -> Result<Client, AccountError> {
-    Client::builder()
+fn build_http_client(
+    agent: &str,
+    origin: &Url,
+    network: &msime_client_core::network::NetworkPreferences,
+) -> Result<Client, AccountError> {
+    // 测试回环和正式源站都按目标判据配置，系统模式也不能把本机令牌交给代理。
+    crate::proxy::configure_blocking_for_with_preferences(Client::builder(), origin, network)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .user_agent(agent)
@@ -111,16 +121,13 @@ fn build_http_client(agent: &str) -> Result<Client, AccountError> {
         .map_err(|_| AccountError::Unavailable)
 }
 
-/// [`BackendAccountClient::new`] 用的 HTTP 客户端，整个进程共用一个（克隆只是多一个引用）。reqwest 的阻塞客户端各自带一个后台线程和它的事件循环（macOS 上占三个文件描述符），宿主按账号目录、社区服务、AI 皮肤、整份快照各建一个 `BackendAccountClient`，各建一份时这些线程和描述符跟着按目录缓存的会话一直留着：测试里每个用例一个临时目录，几十个用例就把默认 256 的打开文件上限占掉一大半。客户端里只有连接池、不跟随重定向和 30 秒超时这几样与账号无关的配置，令牌每个请求单独带，共用不会串号。建不出来时不缓存，下一次再试。
-fn shared_default_client() -> Result<Client, AccountError> {
-    static SHARED: std::sync::Mutex<Option<Client>> = std::sync::Mutex::new(None);
-    let mut shared = SHARED.lock().map_err(|_| AccountError::Unavailable)?;
-    if let Some(client) = shared.as_ref() {
-        return Ok(client.clone());
-    }
-    let client = build_http_client(DEFAULT_USER_AGENT)?;
-    *shared = Some(client.clone());
-    Ok(client)
+/// 默认账号共享连接池；长期会话每次请求检查代理版本，变更后替换池，而不是只在构造会话时更新。
+/// 自报 User-Agent 和测试源站各自持有缓存；令牌只写在请求上，不进入连接池。
+fn shared_default_client() -> SharedAccountHttp {
+    static SHARED: std::sync::OnceLock<SharedAccountHttp> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+        .clone()
 }
 
 impl BackendAccountClient {
@@ -161,11 +168,17 @@ impl BackendAccountClient {
         }
         // 正式服务端、默认 User-Agent 的客户端整个进程共用一个；自报 User-Agent 的和测试连本机回环的各建各的。
         let client = if agent == DEFAULT_USER_AGENT && !allow_http_loopback {
-            shared_default_client()?
+            shared_default_client()
         } else {
-            build_http_client(agent)?
+            std::sync::Arc::new(std::sync::Mutex::new(None))
         };
-        Ok(Self { client, origin })
+        let account = Self {
+            client,
+            origin,
+            agent: agent.to_owned(),
+        };
+        account.http()?;
+        Ok(account)
     }
 
     #[cfg(test)]
@@ -308,7 +321,7 @@ impl BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let mut request = self
-            .client
+            .http()?
             .request(method, url)
             .header(reqwest::header::ACCEPT, accept);
         if let Some(token) = token {
@@ -477,9 +490,18 @@ impl BackendAccountClient {
         Ok(url)
     }
 
-    /// 本客户端的 HTTP 客户端，给 [`Self::url`] 配套的请求用。
-    pub(super) fn http(&self) -> &Client {
-        &self.client
+    /// 给下一次请求领取当前代理设置对应的连接池；已经开始的请求继续使用原连接池。
+    pub(super) fn http(&self) -> Result<Client, AccountError> {
+        let network = msime_client_core::network::current();
+        let mut cached = self.client.lock().map_err(|_| AccountError::Unavailable)?;
+        if let Some((installed, client)) = cached.as_ref() {
+            if installed == &network {
+                return Ok(client.clone());
+            }
+        }
+        let client = build_http_client(&self.agent, &self.origin, &network)?;
+        *cached = Some((network, client.clone()));
+        Ok(client)
     }
 
     /// POSTs a JSON `body` to `path` without credentials and reports the response status with its `Retry-After` delay (seconds form only), for callers whose handling depends on the status itself rather than on a decoded document, such as telemetry delivery. The response body is discarded. A request that never got a response is `Err(Unavailable)`.
@@ -495,7 +517,7 @@ impl BackendAccountClient {
         }
         let url = self.origin.join(path).map_err(|_| AccountError::Invalid)?;
         let response = self
-            .client
+            .http()?
             .post(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -809,7 +831,7 @@ impl BackendAccountClient {
             .join("/v1/users/me/dictionary/snapshot")
             .map_err(|_| AccountError::Invalid)?;
         let mut response = self
-            .client
+            .http()?
             .get(url)
             .header(reqwest::header::ACCEPT, "application/x-ndjson")
             .bearer_auth(access_token)
@@ -899,7 +921,7 @@ impl BackendAccountClient {
             ))
             .map_err(|_| AccountError::Invalid)?;
         let response = self
-            .client
+            .http()?
             .put(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
@@ -967,7 +989,7 @@ impl BackendAccountClient {
                 "/v1/users/me/dictionary/snapshot?revision={revision}"
             ))
             .map_err(|_| AccountError::Invalid)?;
-        self.client
+        self.http()?
             .put(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
@@ -1798,7 +1820,7 @@ impl AccountApi for BackendAccountClient {
             .map_err(|_| AccountError::Invalid)?;
         // The body is the image itself, not JSON, so this does not go through `request`, which only sends JSON.
         let response = self
-            .client
+            .http()?
             .put(url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, image.content_type)
@@ -2370,5 +2392,117 @@ impl AccountApi for BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountFailure> {
         self.restore_dictionary_snapshot_file_detailed(snapshot, revision, access_token)
+    }
+}
+
+#[cfg(test)]
+mod proxy_cache_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn long_lived_account_clients_switch_proxy_on_the_next_request() {
+        const CHILD: &str = "MSIME_ACCOUNT_PROXY_CACHE_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            // 偏好读取也会安装进程级代理，隔离后才不会与其他账号用例互相覆盖。
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "account::client::proxy_cache_tests::long_lived_account_clients_switch_proxy_on_the_next_request",
+                ])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        use msime_client_core::network::{self, NetworkPreferences, ProxyMode};
+        struct RestoreNetwork(NetworkPreferences);
+        impl Drop for RestoreNetwork {
+            fn drop(&mut self) {
+                network::install(&self.0);
+            }
+        }
+        let _restore = RestoreNetwork(network::current());
+        let proxy = || {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let worker = std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let mut requests = Vec::new();
+                while requests.len() < 2 && std::time::Instant::now() < deadline {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream.set_nonblocking(false).unwrap();
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(1)))
+                                .unwrap();
+                            let mut bytes = [0; 4096];
+                            let mut length = 0;
+                            while !bytes[..length].ends_with(b"\r\n\r\n") {
+                                let read = stream.read(&mut bytes[length..]).unwrap();
+                                assert!(read > 0 && length + read < bytes.len());
+                                length += read;
+                            }
+                            requests.push(String::from_utf8_lossy(&bytes[..length]).to_string());
+                            stream
+                                .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+                                .unwrap();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("合成代理监听失败: {error}"),
+                    }
+                }
+                requests
+            });
+            (address, worker)
+        };
+        let (first, first_worker) = proxy();
+        let (second, second_worker) = proxy();
+        network::install(&NetworkPreferences {
+            proxy_mode: ProxyMode::Custom,
+            proxy_server: first,
+        });
+        let clients = [
+            BackendAccountClient::new().unwrap(),
+            BackendAccountClient::with_user_agent("msime-linux/0.0.0").unwrap(),
+        ];
+        for address in [None, Some(second)] {
+            if let Some(address) = address {
+                network::install(&NetworkPreferences {
+                    proxy_mode: ProxyMode::Custom,
+                    proxy_server: address,
+                });
+            }
+            for client in &clients {
+                // CONNECT 在 TLS 与认证之前被合成代理拒绝；不联系真实服务。
+                assert!(client
+                    .request_with_limit_timeout(
+                        Method::GET,
+                        "/v1/users/me",
+                        None,
+                        None,
+                        1024,
+                        Duration::from_secs(1)
+                    )
+                    .is_err());
+            }
+        }
+        for worker in [first_worker, second_worker] {
+            let requests = worker.join().unwrap();
+            assert_eq!(
+                requests.len(),
+                2,
+                "每个长期客户端的下一次请求都应经过新代理"
+            );
+            assert!(requests
+                .iter()
+                .all(|request| request.starts_with("CONNECT ")
+                    && !request.to_ascii_lowercase().contains("authorization:")));
+        }
     }
 }

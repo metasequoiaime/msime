@@ -111,7 +111,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
     switch self {
     case .local, .system: ""
     case .everyAPI: "https://api.everyapi.ai/v1/audio/transcriptions"
-    case .doubao: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+    case .doubao: VoiceProviderCatalog.shared?.doubaoDefaultEndpoint ?? ""
     case .openAI: "https://api.openai.com/v1/audio/transcriptions"
     case .siliconFlow: "https://api.siliconflow.cn/v1/audio/transcriptions"
     case .groq: "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -120,11 +120,10 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
     case .custom: ""
     }
   }
-  /// Doubao's two streaming recognizers, as on Windows and the desktop settings page: nostream uploads while the user speaks and answers with whole sentences, which Volcengine recommends for input methods; async answers incrementally.
-  static let doubaoStreamEndpoints: [(endpoint: String, title: String)] = [
-    ("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream", "整句流式（准确率更高）"),
-    ("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", "双向流式（增量结果）"),
-  ]
+  /// 与共享 Rust 运行时相同的豆包接口顺序、地址与标题；字符串由目录快照持有。
+  static var doubaoStreamEndpoints: [VoiceProviderCatalog.StreamEndpoint] {
+    VoiceProviderCatalog.shared?.doubaoStreamEndpoints ?? []
+  }
   var models: [String] {
     switch self {
     case .local, .system: []

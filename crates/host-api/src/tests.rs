@@ -774,10 +774,12 @@ fn host_capability_boundary_describes_each_platform() {
     // Every host reads capabilities through this boundary; the Fcitx5 border follows the theme, so the Linux page gets no border picker.
     assert_eq!(linux["value"]["candidate_border_color"], false);
     assert_eq!(linux["value"]["candidate_selection_appearance"], false);
-    // Fcitx5 主题支持圆角和候选字号缩放，桌面面板仍不提供半透明填充。
+    // Fcitx5 主题照 macOS 应用圆角、整体缩放、半透明卡片、内边距和 logo 开关；IBus 面板做不到的由 candidate_panel_limit 说明。
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
     assert_eq!(linux["value"]["candidate_window_scale"], true);
-    assert_eq!(linux["value"]["candidate_window_opacity"], false);
+    assert_eq!(linux["value"]["candidate_window_opacity"], true);
+    assert_eq!(linux["value"]["candidate_padding"], true);
+    assert_eq!(linux["value"]["app_logo"], true);
     // 菜单栏状态项是 macOS 独有的：Linux 由 Fcitx5/IBus 面板显示模式。
     assert_eq!(linux["value"]["input_mode_status_item"], false);
 
@@ -1609,6 +1611,8 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
+    // 左右键只在横排候选窗里选词；缺省是竖排。
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Horizontal;
     let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
     read(msime_client_focus(handle, true));
     type_letters(handle, b"nihao");
@@ -1649,6 +1653,18 @@ fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
         "{closed}"
     );
     assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
+
+    // 重新打开、但候选窗改成竖排：左右键与候选方向垂直，同一个键仍是普通光标命令。
+    preferences.navigation.left_right = true;
+    preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Vertical;
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    let vertical = read(msime_client_command(handle, 5));
+    assert_eq!(
+        highlighted(&vertical["value"]["view"]),
+        default_highlighted,
+        "{vertical}"
+    );
+    assert_eq!(vertical["value"]["view"]["caret_position"], 5, "{vertical}");
 
     read(msime_client_destroy(handle));
 }
@@ -4234,6 +4250,44 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
     assert_eq!(night["candidate"]["accent"], "#4FD1C5");
     assert_eq!(catalog["value"]["themes"][0]["candidate"], Value::Null);
     assert_eq!(catalog["value"]["themes"][6]["keyboard"], Value::Null);
+}
+
+#[test]
+fn image_toolbar_layout_bridge_uses_cached_metadata_and_rejects_invalid_geometry() {
+    let cases: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/skins/toolbar-image-layout-cases.json"
+    )))
+    .unwrap();
+    let case = &cases[0];
+    let call = |value: &Value| {
+        let request = value.to_string();
+        read(unsafe { msime_client_skin_toolbar_image_layout(request.as_ptr(), request.len()) })
+    };
+    let valid = json!({"toolbar": case["skin"], "shown": case["shown"]});
+    let result = call(&valid);
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["value"], case["expected"]);
+    for (pointer, replacement) in [
+        ("/toolbar/imageWidthDip", json!(-1)),
+        ("/toolbar/imageHeightDip", json!(1e50)),
+        ("/toolbar/image", json!("../outside.png")),
+        ("/toolbar/buttons/status/xDip", json!(-1)),
+        ("/toolbar/buttons/status/widthDip", json!(501)),
+        ("/toolbar/buttonDefaults/iconSizeDip", json!(0)),
+        ("/toolbar/buttonFlow/gapDip", json!(501)),
+        ("/toolbar/buttonFlow/direction", json!("diagonal")),
+        ("/toolbar/buttons/status/images/cn", json!("bar.svg")),
+        ("/shown", json!(vec![["status", "cn"]; 8])),
+    ] {
+        let mut invalid = valid.clone();
+        *invalid.pointer_mut(pointer).unwrap() = replacement;
+        assert_eq!(call(&invalid)["ok"], false, "{pointer}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_skin_toolbar_image_layout(std::ptr::null(), 0) })["ok"],
+        false
+    );
 }
 
 #[test]
@@ -13487,10 +13541,11 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
         "a failed card stays in its session"
     );
 
-    // The next day the recalled card is due again and the counts start over.
+    // 次日两张复习卡加上尚未开始的 gamma 新卡，今日待复习共三张。
     let tomorrow = call("2026-09-24", json!({"operation": "load"}));
     assert_eq!(tomorrow["value"]["answeredToday"], 0);
-    assert_eq!(tomorrow["value"]["due"], 2);
+    assert_eq!(tomorrow["value"]["due"], 3);
+    assert_eq!(tomorrow["value"]["introducing"], 1);
 
     // Settings round-trip through the boundary.
     let settings = call(
@@ -14239,6 +14294,81 @@ fn phrase_tables_reach_the_quick_phrase_mode_from_the_plugins_directory() {
             .is_empty());
     });
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 宿主选项里的 `quick_phrase_candidates`（macOS 和 Linux 的宿主会请求）让普通组字也带出快捷短语，不必先按 K；没请求的宿主保持原样。偏好变更重建 Engine 后仍然生效。
+#[test]
+fn requested_quick_phrase_candidates_join_regular_composition() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["resources", "dictionaries"] {
+        let directory = dir.path().join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO quick_parases VALUES('dh','电话',10);",
+            )
+            .unwrap();
+    }
+    install_phrase_table(dir.path(), "office", &[("dh", "办公室电话")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["office".into()];
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let create = |preferences: &Preferences, requested: Option<bool>| {
+        let mut options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "preferences_directory": path("state") });
+        if let Some(requested) = requested {
+            options["quick_phrase_candidates"] = json!(requested);
+        }
+        let options = options.to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        handle
+    };
+
+    let handle = create(&preferences, Some(true));
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(
+        rows.contains(&"电话".to_owned()) && rows.contains(&"办公室电话".to_owned()),
+        "{rows:?}"
+    );
+    preferences.local_modes.unicode = !preferences.local_modes.unicode;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.quick_phrase_candidates);
+    });
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(rows.contains(&"办公室电话".to_owned()), "{rows:?}");
+    // 设置页「快捷短语」开关关掉后，请求了这项能力的会话也不再把短语放进普通候选。
+    preferences.local_modes.quick_phrase = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let rows = local_mode_candidates(handle, b"dh");
+    assert!(
+        !rows
+            .iter()
+            .any(|row| ["电话", "办公室电话"].contains(&row.as_str())),
+        "{rows:?}"
+    );
+    preferences.local_modes.quick_phrase = true;
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    for requested in [None, Some(false)] {
+        let handle = create(&preferences, requested);
+        let rows = local_mode_candidates(handle, b"dh");
+        assert!(
+            !rows
+                .iter()
+                .any(|row| ["电话", "办公室电话"].contains(&row.as_str())),
+            "{requested:?}: {rows:?}"
+        );
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
 }
 
 /// 官方短语表（随桌面安装包分发的 latex-symbols）从内置目录读：宿主选项给了 `plugin_packs` 时读那里，没给时读内置音效包旁边的 `plugin-packs`（macOS 的 bundle、Linux 的安装就是这样放的）。不在 `phrase_tables` 里就不进 K 模式；插件目录里同 id 的旧副本不顶替它。
@@ -17220,6 +17350,7 @@ fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
     }
 }
 
+mod fuzzy_single;
 mod lifecycle_traces;
 #[cfg(any(
     target_os = "macos",
@@ -17950,6 +18081,37 @@ fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
     });
     assert_eq!(result["ok"], true);
     assert_eq!(result["value"]["accepted"], false);
+}
+
+#[test]
+fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
+    let endpoint = "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=";
+    let result =
+        read(unsafe { msime_client_voice_websocket_endpoint(endpoint.as_ptr(), endpoint.len()) });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{
+            "socket_host":"xn--fsqu00a.invalid",
+            "port":8443,
+            "host_header":"xn--fsqu00a.invalid:8443",
+            "request_target":"/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+        }})
+    );
+    let invalid = "wss://fixture.invalid:65536/stream";
+    assert_eq!(
+        read(unsafe { msime_client_voice_websocket_endpoint(invalid.as_ptr(), invalid.len()) }),
+        serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+    );
+    for (pointer, length) in [
+        (std::ptr::null(), 1),
+        (b"\xff".as_ptr(), 1),
+        (endpoint.as_ptr(), 65_537),
+    ] {
+        assert_eq!(
+            read(unsafe { msime_client_voice_websocket_endpoint(pointer, length) }),
+            serde_json::json!({"ok":false,"error":"invalid voice websocket endpoint"})
+        );
+    }
 }
 
 #[test]

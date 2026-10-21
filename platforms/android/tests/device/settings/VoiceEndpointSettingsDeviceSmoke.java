@@ -3,6 +3,7 @@ package app.msime.android.test;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.os.Bundle;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import org.json.JSONObject;
 
@@ -58,6 +59,56 @@ public final class VoiceEndpointSettingsDeviceSmoke extends Instrumentation {
             require(parse.invoke(null, broken) != null, "损坏或矛盾响应不能放行保存");
         }
         Class<?> bridge = loader.loadClass("app.msime.android.NativeClient");
+        Method descriptor = bridge.getMethod("voiceWebSocketEndpoint", String.class);
+        JSONObject descriptorRoot = new JSONObject((String) descriptor.invoke(null,
+            "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty="));
+        JSONObject descriptorValue = descriptorRoot.getJSONObject("value");
+        require("xn--fsqu00a.invalid".equals(descriptorValue.getString("socket_host")),
+            "共享描述符使用规范化域名");
+        require(descriptorValue.getInt("port") == 8443,
+            "共享描述符保留非默认端口");
+        require("xn--fsqu00a.invalid:8443".equals(descriptorValue.getString("host_header")),
+            "共享描述符保留 Host 端口");
+        require("/%E5%90%88%E6%88%90%F0%9F%8D%83/%2F?lang=zh+cn&empty="
+                .equals(descriptorValue.getString("request_target")),
+            "共享描述符保留路径与查询编码");
+        JSONObject ipv6 = new JSONObject((String) descriptor.invoke(null, "wss://[::1]/stream?"))
+            .getJSONObject("value");
+        require("::1".equals(ipv6.getString("socket_host"))
+                && "[::1]".equals(ipv6.getString("host_header"))
+                && "/stream?".equals(ipv6.getString("request_target")),
+            "共享描述符分别格式化 IPv6 socket 和 Host");
+        Class<?> endpointType = loader.loadClass("app.msime.android.DoubaoRecognizer$Endpoint");
+        Method transportParse = endpointType.getDeclaredMethod("parse", String.class);
+        transportParse.setAccessible(true);
+        Class<?> frames = loader.loadClass("app.msime.android.WebSocketFrames");
+        Method handshake = frames.getDeclaredMethod("handshakeRequest", String.class, String.class,
+            String.class, String[].class);
+        handshake.setAccessible(true);
+        for (String address : new String[] {"wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=",
+                "wss://[::1]/stream?", "wss://example.invalid:0/%zz?value=%"}) {
+            JSONObject expectedDescriptor = new JSONObject((String) descriptor.invoke(null, address))
+                .getJSONObject("value");
+            Object parsed = transportParse.invoke(null, address);
+            require(parsed != null, "实际传输入口接受共享描述符");
+            for (String[] names : new String[][] {{"socketHost", "socket_host"},
+                    {"port", "port"}, {"hostHeader", "host_header"}, {"requestTarget", "request_target"}}) {
+                Field field = endpointType.getDeclaredField(names[0]);
+                field.setAccessible(true);
+                require(expectedDescriptor.get(names[1]).equals(field.get(parsed)),
+                    "实际传输字段与共享描述符一致");
+            }
+            String request = (String) handshake.invoke(null, expectedDescriptor.getString("host_header"),
+                expectedDescriptor.getString("request_target"), "c3ludGhldGlj", new String[0]);
+            require(request.startsWith("GET " + expectedDescriptor.getString("request_target") + " HTTP/1.1\r\n")
+                    && request.contains("\r\nHost: " + expectedDescriptor.getString("host_header") + "\r\n"),
+                "握手保留实际路径与 Host");
+        }
+        for (String invalid : new String[] {"wss://example.invalid:65536/stream", "wss://example.invalid/stream\nX: y"}) {
+            JSONObject rejected = new JSONObject((String) descriptor.invoke(null, invalid));
+            require(!rejected.optBoolean("ok", false), "共享描述符拒绝无效端点");
+            require(transportParse.invoke(null, invalid) == null, "实际传输入口拒绝无效端点");
+        }
         Method bounded = bridge.getMethod("voiceEndpointIssue", String.class, boolean.class);
         for (String oversized : new String[] {"x".repeat(65_537), "合".repeat(30_000)}) {
             try {

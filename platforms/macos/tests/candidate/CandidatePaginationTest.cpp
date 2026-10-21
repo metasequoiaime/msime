@@ -1,5 +1,5 @@
 #include "../../src/input/InputControllerKeyRouting.h"
-#include "../../src/candidate/CandidateWheelRouting.h"
+#include "../../../../shared/candidate/CandidateWheelRouting.h"
 #include <stdexcept>
 
 static void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
@@ -72,13 +72,13 @@ int main() {
                 msime::mac::KeypadPunctuation(95) == ',', "keypad punctuation mapping");
     require(msime::mac::KeypadPunctuation(82) == '\0' && msime::mac::KeypadPunctuation(0) == '\0',
             "non-punctuation keypad codes rejected");
-    using msime::mac::CandidateWheelAction;
-    require(msime::mac::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
-    require(msime::mac::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");
-    require(msime::mac::CandidateWheelPageAction(-1, false, true, true) == CandidateWheelAction::None, "disabled wheel passthrough");
-    require(msime::mac::CandidateWheelPageAction(1, true, false, true) == CandidateWheelAction::None, "wheel respects first page");
-    require(msime::mac::CandidateWheelPageAction(-1, true, true, false) == CandidateWheelAction::None, "wheel respects last page");
-    using msime::mac::ConsumeCandidateWheelDelta;
+    using msime::candidate::CandidateWheelAction;
+    require(msime::candidate::CandidateWheelPageAction(1, true, true, false) == CandidateWheelAction::PreviousPage, "wheel previous page");
+    require(msime::candidate::CandidateWheelPageAction(-1, true, false, true) == CandidateWheelAction::NextPage, "wheel next page");
+    require(msime::candidate::CandidateWheelPageAction(-1, false, true, true) == CandidateWheelAction::None, "disabled wheel passthrough");
+    require(msime::candidate::CandidateWheelPageAction(1, true, false, true) == CandidateWheelAction::None, "wheel respects first page");
+    require(msime::candidate::CandidateWheelPageAction(-1, true, true, false) == CandidateWheelAction::None, "wheel respects last page");
+    using msime::candidate::ConsumeCandidateWheelDelta;
     double wheel = 0.0;
     int wheelPages = 0;
     for (int event = 0; event < 20; ++event)
@@ -101,7 +101,7 @@ int main() {
     require(ConsumeCandidateWheelDelta(wheel, -6.0, false, false, false, 40.0) == -1 && wheel == 0.0,
             "classic wheel pages once per notch regardless of line acceleration");
     require(ConsumeCandidateWheelDelta(wheel, 0.0, false, false, false, 40.0) == 0, "zero classic delta does not page");
-    static_assert(msime::mac::CandidateWheelPreciseNotch > 0.0);
+    static_assert(msime::candidate::CandidateWheelPreciseNotch > 0.0);
     static_assert(msime::mac::KoreanKeyLetter('r', false) == 'r' && msime::mac::KoreanKeyLetter('R', false) == 'r',
                   "Caps Lock must not turn a Korean key into its shifted jamo");
     static_assert(msime::mac::KoreanKeyLetter('r', true) == 'R' && msime::mac::KoreanKeyLetter('R', true) == 'R',

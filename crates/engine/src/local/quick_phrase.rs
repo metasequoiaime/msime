@@ -18,6 +18,8 @@ pub const KEY_LIMIT: usize = 32;
 pub const TEXT_UTF16_LIMIT: usize = 199;
 
 const SQL: &str = "SELECT key,value,weight FROM quick_parases WHERE key>=?1 AND key<?2 ORDER BY weight DESC,key,value LIMIT ?3";
+const EXACT_SQL: &str =
+    "SELECT key,value,weight FROM quick_parases WHERE key=?1 ORDER BY weight DESC,value LIMIT ?2";
 
 /// `SELECT key,value,weight FROM quick_parases WHERE key>=?1 AND key<?2 ORDER BY weight DESC,key,value LIMIT ?3`, upper bound `prefix + "\x7f"`; QuickPhrase rows.
 pub fn query_quick_phrases(prefix: &str, main_db: &Path) -> LocalQueryResult {
@@ -36,7 +38,13 @@ pub fn query_quick_phrases_with_limit(
     let Some(database) = open_local_database(main_db) else {
         return LocalQueryResult::failure(diagnostics::QUICK_PHRASE_UNAVAILABLE);
     };
-    let rows = read(&lock(&database), prefix, limit);
+    let upper_bound = prefix_upper_bound(prefix);
+    let rows = read(
+        &lock(&database),
+        SQL,
+        rusqlite::params![prefix, upper_bound, super::sql_limit(limit)],
+        limit,
+    );
     match rows {
         Ok(candidates) => LocalQueryResult {
             candidates,
@@ -47,19 +55,50 @@ pub fn query_quick_phrases_with_limit(
     }
 }
 
-fn read(connection: &Connection, prefix: &str, limit: usize) -> rusqlite::Result<Vec<WordItem>> {
-    let mut statement = connection.prepare_cached(SQL)?;
-    let upper_bound = prefix_upper_bound(prefix);
-    let rows = statement.query_map(
-        rusqlite::params![prefix, upper_bound, super::sql_limit(limit)],
-        |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-            ))
+/// 普通组字追加的快捷短语：只取编码恰好是 `code` 的行，先是数据库行（按权重），再接上编码相同的宿主短语行，文本重复的跳过，总数不超过 `RESULT_LIMIT`。K 模式按前缀列出整张表，普通组字若也按前缀匹配，`x`、`p` 这类单个字母就会把以它开头的短语全部带进普通候选。`table` 必须先经过 [`usable_quick_phrase_table`]。
+pub fn query_exact_quick_phrases(
+    code: &str,
+    main_db: &Path,
+    table: &[QuickPhraseEntry],
+) -> LocalQueryResult {
+    if code.is_empty() || !code.bytes().all(|byte| byte.is_ascii_lowercase()) {
+        return LocalQueryResult::default();
+    }
+    let database = match open_local_database(main_db) {
+        None => LocalQueryResult::failure(diagnostics::QUICK_PHRASE_UNAVAILABLE),
+        Some(database) => match read(
+            &lock(&database),
+            EXACT_SQL,
+            rusqlite::params![code, super::sql_limit(RESULT_LIMIT)],
+            RESULT_LIMIT,
+        ) {
+            Ok(candidates) => LocalQueryResult {
+                candidates,
+                diagnostic: None,
+            },
+            Err(_) => LocalQueryResult::failure(diagnostics::QUICK_PHRASE_QUERY_FAILED),
         },
-    )?;
+    };
+    // 宿主短语表按编码排好序，编码相同的行连在一起；只把这一段交给前缀合并，结果就是精确匹配。
+    let start = table.partition_point(|entry| entry.key.as_str() < code);
+    let end = start + table[start..].partition_point(|entry| entry.key == code);
+    merge_quick_phrases(code, database, &table[start..end])
+}
+
+fn read<P: rusqlite::Params>(
+    connection: &Connection,
+    sql: &str,
+    params: P,
+    limit: usize,
+) -> rusqlite::Result<Vec<WordItem>> {
+    let mut statement = connection.prepare_cached(sql)?;
+    let rows = statement.query_map(params, |row| {
+        Ok((
+            row.get::<_, Option<String>>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<i64>>(2)?,
+        ))
+    })?;
     let mut candidates = Vec::new();
     for row in rows {
         // A NULL key or value is skipped and a NULL weight reads as 0, as `sqlite3_column_*` did.

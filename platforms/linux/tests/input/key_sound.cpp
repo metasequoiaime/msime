@@ -52,6 +52,17 @@ int main() {
   assert(repeat.press('b'));
   repeat.reset();
   assert(!repeat.press('b'));
+  // 按的是硬件键码：Shift+1 按下时 keysym 是 '!'，先松开 Shift 再松开 1 时松开带的是 '1'，但键码不变，下一次 Shift+1 仍是新的按下。
+  constexpr std::uint32_t kKeycodeOne = 10;
+  repeat.reset();
+  assert(!repeat.press(kKeycodeOne));
+  repeat.release(kKeycodeOne);
+  assert(!repeat.press(kKeycodeOne));
+  assert(repeat.press(kKeycodeOne));
+  // 键码 0 是面板或屏幕键盘合成的键，连着两次也不算重复。
+  repeat.reset();
+  assert(!repeat.press(0));
+  assert(!repeat.press(0));
 
   // Music: the player hears only changes, and only through a live session.
   std::vector<std::pair<std::uint64_t, bool>> calls;

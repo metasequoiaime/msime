@@ -31,6 +31,9 @@ public:
   std::optional<CandidatePresentation> candidate_view() {
     return controller_->candidate_view();
   }
+  bool candidate_lease_current(const FocusLease &lease) const {
+    return controller_->candidate_lease_current(lease);
+  }
   void wait_candidate_render_for_key(const FocusLease &lease,
                                      const FanyImeNamedpipeData &packet) {
     controller_->wait_candidate_render_for_key(lease, packet);

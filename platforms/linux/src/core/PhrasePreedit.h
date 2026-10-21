@@ -27,6 +27,10 @@ struct PhrasePreedit
     std::string text;
     std::size_t caret_bytes = 0;
     std::size_t caret_scalars = 0;
+    // Where the held piece ends and the reading begins, and the whole length, in both units for the same reason as the caret. The hosts draw the two as separate clauses (see `phrase_preedit_has_clauses`).
+    std::size_t prefix_bytes = 0;
+    std::size_t prefix_scalars = 0;
+    std::size_t scalars = 0;
 };
 
 // Scalars, not bytes: the count of UTF-8 lead bytes, which is what a well-formed string has one of
@@ -64,7 +68,16 @@ inline PhrasePreedit compose_phrase_preedit(std::string_view prefix, std::string
     composed.text.append(editing);
     composed.caret_bytes = prefix.size() + caret;
     composed.caret_scalars = utf8_scalar_count(prefix) + utf8_scalar_count(editing.substr(0, caret));
+    composed.prefix_bytes = prefix.size();
+    composed.prefix_scalars = utf8_scalar_count(prefix);
+    composed.scalars = composed.prefix_scalars + utf8_scalar_count(editing);
     return composed;
+}
+
+// 正在组词时（已选了一段、还有读音在输入）预编辑分成两个子句：已选的那一段画细下划线，还在输入的读音画粗下划线，对应 macOS 的细、粗两种下划线（shared/apple/TextClient.mm）。IBus 用单、双下划线；Fcitx5 没有粗下划线这种格式（`Bold` 在前端里是字形加粗），读音用下划线加高亮，和整句改字的焦点子句一样。只有其中一段时整段照旧一条细下划线。
+inline bool phrase_preedit_has_clauses(const PhrasePreedit &composed)
+{
+    return composed.prefix_bytes > 0 && composed.prefix_bytes < composed.text.size();
 }
 
 } // namespace msime::linux_host

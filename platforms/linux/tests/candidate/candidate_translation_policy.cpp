@@ -3,6 +3,13 @@
 #include <cassert>
 
 int main() {
+  // 横排预留的译文行数：一种语言一行，两种不同的语言两行，不认识的语言不算，至少一行。
+  using msime::linux_host::translation_reserved_lines;
+  assert(translation_reserved_lines("en", "") == 1);
+  assert(translation_reserved_lines("en", "ja") == 2);
+  assert(translation_reserved_lines("en", "en") == 1);
+  assert(translation_reserved_lines("xx", "ja") == 1);
+  assert(translation_reserved_lines("xx", "yy") == 1);
   using msime::linux_host::split_translation_gloss;
   assert((split_translation_gloss("apple; fruit") ==
           std::vector<std::string>{"apple", "fruit"}));

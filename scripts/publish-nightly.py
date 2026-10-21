@@ -135,7 +135,7 @@ def previous_state(release, assets):
     return state
 
 
-def render(state, results, updated, repository, source_sha, run_url):
+def render(state, results, updated, repository, source_sha, run_url, ios_group):
     lines = ["各平台独立更新；本轮失败的平台保留上次成功包。",
              f"本轮：[构建记录]({run_url}) · 源码 `{source_sha}`。",
              "汇总标签不代表所有安装包来自同一提交，请以各平台的来源为准。", "",
@@ -144,7 +144,10 @@ def render(state, results, updated, repository, source_sha, run_url):
     for platform, label in PLATFORMS.items():
         build = state["platforms"].get(platform)
         if platform in updated:
-            status = "已提交 TestFlight，待 Apple 审核" if platform == "ios" else "已更新"
+            status = "已更新"
+            if platform == "ios":
+                # release-ios.yml 只把已发布的版本号送外部组；没发布的只上传到内部组，外部测试者拿不到。
+                status = "已提交 TestFlight，待 Apple 审核" if ios_group != "internal" else "仅上传 TestFlight 内部组：这个版本号尚未发布"
         else:
             result = {"failure": "构建或验收失败", "cancelled": "已取消", "skipped": "未运行"}.get(
                 results[platform], results[platform])
@@ -171,7 +174,7 @@ def render(state, results, updated, repository, source_sha, run_url):
     return "\n".join(lines) + "\n\n" + MARKER + json.dumps(state, ensure_ascii=False) + "\n-->\n"
 
 
-def publish(client, source, output, results, downloads, source_sha, build_id, run_url):
+def publish(client, source, output, results, downloads, source_sha, build_id, run_url, ios_group="external"):
     if not SHA.fullmatch(source_sha) or not re.fullmatch(r"[0-9]+\.[0-9]+", build_id):
         raise ValueError("源码提交或运行标识无效")
     if output.exists() and any(output.iterdir()):
@@ -229,7 +232,7 @@ def publish(client, source, output, results, downloads, source_sha, build_id, ru
         if uploaded.get("digest") != f"sha256:{PACKAGING.checksum(checksums)}":
             raise ValueError("校验清单上传后的摘要不符")
         state["checksum"] = checksums.name
-    body = render(state, results, updated, client.repository, source_sha, run_url)
+    body = render(state, results, updated, client.repository, source_sha, run_url, ios_group)
     client.commit(release, body, source_sha)
     # 正文已指向完整的新文件集合，才清理不再被任何平台引用的旧附件。
     keep = {file["name"] for file in all_files} | {state.get("checksum")}
@@ -262,7 +265,8 @@ def main():
     publish(GitHub(os.environ["GITHUB_REPOSITORY"]), args.source, args.output,
             results, json.loads(os.environ["DOWNLOAD_RESULTS"]), os.environ["SOURCE_SHA"],
             f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
-            f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}")
+            f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            needs["ios"].get("outputs", {}).get("testflight_group") or "external")
 
 
 if __name__ == "__main__":

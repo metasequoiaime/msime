@@ -22,7 +22,7 @@ export interface LocalModesSectionProps {
   temporaryJapanese?: boolean;
   /** 显示「Shift+字母进入快捷模式」总开关（`HostCapabilities.shift_letter_entry_switch`，三个桌面宿主）。触屏键盘从菜单打开这些模式，不显示它。它同时区分桌面和触屏：拆字反查缺键时桌面读作关、触屏读作开，和 host-api 按宿主形态取的缺省一致。 */
   shiftLetterEntrySwitch?: boolean;
-  /** 宿主把快捷短语编码追加到普通候选（`HostCapabilities.quick_phrase_candidates`，当前只有 macOS）。 */
+  /** 宿主把快捷短语编码追加到普通候选（`HostCapabilities.quick_phrase_candidates`，macOS 和 Linux）。 */
   quickPhraseCandidates?: boolean;
   /** 紧跟在临时日语(R 模式)那一行后面的内容，例如它要用的日文词库的下载行。 */
   temporaryJapaneseExtra?: ReactNode;

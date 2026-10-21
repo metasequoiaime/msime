@@ -57,7 +57,7 @@ public final class ContactsPage extends ReloadingDetailPage {
         LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
-        GroupCard card = GroupCard.add(sectionColumn(target, "联系人"), "电话本").withDividers(16);
+        GroupCard card = GroupCard.add(sectionColumn(target, "联系人"), null).withDividers(16);
         int count = entries == null ? 0 : entries.size();
         card.note("已保存 " + count + " 个联系人。名单供输入法本地匹配，数据只保存在本机。");
         card.button("导入联系人", "首次点击时才申请读取联系人权限", "导入", this::requestImport);

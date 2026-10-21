@@ -39,6 +39,7 @@ export const dictionaryManifest: (resources: string) => string;
 export const nineKeyShuangpinLayout: (request: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
+export const skinToolbarImageLayout: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */
 export const skinToolbarStylesheet: (request: string) => string;
 /** `{source,directory}` validates and atomically imports a picked skin folder off the UI thread. */

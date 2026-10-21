@@ -38,6 +38,17 @@ int main()
         assert(composed.caret_scalars == 4);
     }
 
+    // 已选的一段和读音分成两个子句：分界和总长按两种单位给出，IBus 用标量画单、双下划线，Fcitx5 用字节画下划线和下划线加高亮。只有读音或只剩已选段时不分。
+    {
+        const auto composed = compose_phrase_preedit("海滩", "paobu", 2);
+        assert(msime::linux_host::phrase_preedit_has_clauses(composed));
+        assert(composed.prefix_bytes == 6 && composed.prefix_scalars == 2 && composed.scalars == 7);
+        assert(composed.text.substr(composed.prefix_bytes) == "paobu");
+        assert(!msime::linux_host::phrase_preedit_has_clauses(compose_phrase_preedit("", "nihao", 3)));
+        const auto held = compose_phrase_preedit("海滩", "", 0);
+        assert(!msime::linux_host::phrase_preedit_has_clauses(held) && held.scalars == 2);
+    }
+
     // The caret at either end of the reading.
     {
         const auto start = compose_phrase_preedit("海滩", "paobu", 0);

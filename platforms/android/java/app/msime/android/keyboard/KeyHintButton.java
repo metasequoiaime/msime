@@ -5,6 +5,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.util.TypedValue;
+import android.widget.TextView;
 
 /**
  * 带提示的字母键：右上角画符号提示（设计的 q1 … m/，10 sp kbSub，上 3 dp、右 5 dp），底边留给双拼提示。
@@ -25,6 +27,7 @@ public class KeyHintButton extends KeyboardPressButton {
     private int hintColor = Color.GRAY;
     private String cornerHint = "";
     private int cornerHintColor = Color.GRAY;
+    private float unhintedTextSize;
 
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
@@ -42,10 +45,7 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (hintText.equals(next)) return;
         hintText = next;
-        // 键帽的上下内边距和字体留白在构造时已归零（KeyboardTypographyPolicy.normalizeKeyCap）；有提示时下边只留提示那一行，字母在剩下的高度里居中。
-        boolean hinted = !hintText.isEmpty();
-        ViewPolicy.setPadding(this, getPaddingLeft(), hinted ? 0 : basePaddingTop, getPaddingRight(),
-            hinted ? DimensionPolicy.pixels(getContext(), 11) : basePaddingBottom);
+        updateHintInsets();
         invalidate();
     }
 
@@ -60,7 +60,36 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
+        if (!hintText.isEmpty()) updateHintInsets();
         invalidate();
+    }
+
+    /** 提示占据独立区域；主标签按剩余宽高缩放，不能因底部提示把字母推到右上角符号上。 */
+    private void updateHintInsets() {
+        if (hintText.isEmpty()) {
+            setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE);
+            if (unhintedTextSize > 0) setTextSize(TypedValue.COMPLEX_UNIT_PX, unhintedTextSize);
+            unhintedTextSize = 0;
+            ViewPolicy.setPadding(this, getPaddingLeft(), basePaddingTop, getPaddingRight(), basePaddingBottom);
+            return;
+        }
+        if (unhintedTextSize == 0) unhintedTextSize = getTextSize();
+        ViewPolicy.setTextSize(hintPaint, KeyboardTypographyPolicy.keySp(getContext(), 9));
+        Paint.FontMetrics bottom = hintPaint.getFontMetrics();
+        int bottomInset = (int) Math.ceil(bottom.bottom - bottom.top)
+            + DimensionPolicy.pixels(getContext(), 4);
+        int topInset = basePaddingTop;
+        if (!cornerHint.isEmpty()) {
+            ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP));
+            Paint.FontMetrics corner = cornerPaint.getFontMetrics();
+            topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP)
+                + corner.descent - corner.ascent) + DimensionPolicy.pixels(getContext(), 2);
+        }
+        ViewPolicy.setPadding(this, getPaddingLeft(), topInset, getPaddingRight(), bottomInset);
+        setMaxLines(1);
+        setHorizontallyScrolling(false);
+        int maximum = Math.max(2, Math.round(unhintedTextSize));
+        setAutoSizeTextTypeUniformWithConfiguration(1, maximum, 1, TypedValue.COMPLEX_UNIT_PX);
     }
 
     public final String cornerHint() { return cornerHint; }
@@ -94,11 +123,8 @@ public class KeyHintButton extends KeyboardPressButton {
         float available = BoundsPolicy.bounded(getWidth() - getPaddingLeft() - getPaddingRight()
             - DimensionPolicy.pixels(getContext(), 4), 1f, Float.MAX_VALUE);
         ViewPolicy.setTextSize(hintPaint, size);
-        while (size > KeyboardTypographyPolicy.keySp(getContext(), 6)
-                && hintPaint.measureText(hintText) > available) {
-            size -= KeyboardTypographyPolicy.keySp(getContext(), 0.5f);
-            ViewPolicy.setTextSize(hintPaint, size);
-        }
+        float width = hintPaint.measureText(hintText);
+        if (width > available) ViewPolicy.setTextSize(hintPaint, size * available / width);
         hintPaint.setColor(hintColor);
         hintPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = hintPaint.getFontMetrics();

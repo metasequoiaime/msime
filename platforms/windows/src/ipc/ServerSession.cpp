@@ -265,7 +265,7 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       result = {{"handled", false}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}};
       return {client_, epoch_, packet.request_id, false, std::move(result)};
     }
-    // 全拼和双拼的左右键是整句改字，Ctrl+左右逐个字母编辑拼音，与 TIP 自己的宿主会话发同样的命令（sentence_edit_command）。
+    // 全拼和双拼不带修饰键的左右键是整句改字；Shift/Ctrl+左右在所有方案里都是分段命令，按音节移动拼音光标。与 TIP 自己的宿主会话发同样的命令（sentence_edit_command）。
     const bool edits_sentence =
         scheme::EditsSentence(static_cast<int>(current.value("scheme", 0u))) &&
         current.value("local_mode", std::string{}) == "none" && !current.value("dedicated_english", false);

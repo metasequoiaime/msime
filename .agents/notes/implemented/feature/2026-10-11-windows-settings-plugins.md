@@ -28,7 +28,7 @@ Status: implemented
 - 原生窗口不再为「插件」拉起共享应用；`SettingsNavigation.h` 里 `plugins` 是 Native，导航测试和 README 同步，`shell_page_description` 里的插件说明删除。
 - 「社区插件」标签（浏览、安装、发布社区插件）现在不在原生窗口里，也不再能从这一页打开；它由后续的一项补上。在那之前用户在原生窗口里看不到社区插件。
 - 共享页的规则改了，`PluginPageModel.h` 要跟着改；头文件开头列了它对应的 TypeScript 文件。脚本插件的分组、详情和授权对话框后来也加进了这一页，见 [Windows 授权页](../architecture/2026-10-12-windows-script-grants-page.md)。
-- 列表行是整张卡片的按钮，悬停和按下用按钮的系统样式，与设置卡片的外观略有不同。
+- 「我的插件」列表的布局（两个入口、按类分组的行、页底的「导入插件」）后来换成 macOS 的插件库，见 [Windows 设置的「我的插件」改成 macOS 的插件库](2026-10-20-windows-settings-plugin-library.md)；各视图、选用规则和宿主调用仍按本篇。
 
 ## Verification
 

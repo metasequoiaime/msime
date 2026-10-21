@@ -1,7 +1,7 @@
 #pragma once
 #include <cstddef>
 
-namespace msime::mac
+namespace msime::candidate
 {
 // 展开的候选网格（共享偏好 `expand_candidates`，#7307）里光标怎么走。网格一行是当前每页候选数，行与行之间上下滚动；这里只管下标，不碰 AppKit，所以能单独测。
 //
@@ -84,4 +84,4 @@ constexpr std::size_t ExpandedGridFirstRow(std::size_t firstRow, std::size_t cur
         firstRow = cursorRow + 1 - visibleRows;
     return firstRow < rows ? firstRow : rows - 1;
 }
-} // namespace msime::mac
+} // namespace msime::candidate

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CloudDictionaryApplyPanel, type CloudDictionaryPanelClient } from "@msime/ui";
 
 const snapshot = {
@@ -38,7 +38,10 @@ async function download() {
     expect(screen.getByRole("button", { name: "丢弃预览" })).toHaveProperty("disabled", false),
   );
 }
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 test("面板丢弃预览后清理展示且可重新下载，不请求入列", async () => {
   const client = host("synthetic-preview-token");
@@ -70,4 +73,26 @@ test("面板收到空预览令牌时显示元数据但禁止替换", async () =>
   expect(client.request).not.toHaveBeenCalledWith(
     expect.objectContaining({ operation: "snapshot_enqueue" }),
   );
+});
+
+test("状态读取慢于两秒时仍展示本机版本并允许下载", async () => {
+  vi.useFakeTimers();
+  const client: CloudDictionaryPanelClient = {
+    close: vi.fn(),
+    request: vi.fn(
+      () =>
+        new Promise<{ localVersion: string }>((resolve) => {
+          setTimeout(() => resolve({ localVersion: "synthetic-slow-version" }), 2500);
+        }),
+    ),
+  };
+  render(<CloudDictionaryApplyPanel client={client} />);
+  const downloadButton = screen.getByRole("button", { name: "下载云词库并预览" });
+  expect(downloadButton).toHaveProperty("disabled", true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2500);
+  });
+  expect(screen.getByText("synthetic-slow-version")).toBeTruthy();
+  expect(downloadButton).toHaveProperty("disabled", false);
+  expect(client.request).toHaveBeenCalledTimes(1);
 });

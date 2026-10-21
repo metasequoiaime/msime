@@ -10,19 +10,51 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.function.Predicate;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** 数字行（#6022）的设备验收：打开本地设置后 26 键字母上方出现 1–0；空闲时点数字上屏数字；组字中点 Engine 不收的 0 先按首选结束组合再上屏，不顶掉组字区里的拼音；手机横屏时不画数字行。 */
-public final class NumberRowDeviceSmoke extends DeviceSmoke {
+public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
     /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code NUMBER_ROW}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
     private static final String NUMBER_ROW_SETTING = "platform.android.number_row";
 
     @Override protected String successDescription() {
-        return "number row above the letters, idle digit commit, declined digit after the composition, five-row number/symbol pages and no extra row when disabled or in a landscape phone window";
+        return "automatic context activation and IME reset, number row above the letters, idle digit commit, declined digit after the composition, five-row number/symbol pages and no extra row when disabled or in a landscape phone window";
     }
 
     @Override protected void runChecks() throws Exception {
+        File root = getTargetContext().getFilesDir().getCanonicalFile();
+        JSONObject options = new JSONObject(new String(Files.readAllBytes(
+            new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
+        File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
+        if (!directory.toPath().startsWith(root.toPath()))
+            throw new AssertionError("Preferences escaped test sandbox");
+        File preferences = new File(directory, "preferences.json");
+        byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
+        try {
+            // 全拼断言不能继承上次设备套件留下的双拼或九键；结束后恢复原偏好。
+            JSONObject values = new JSONObject(options.getJSONObject("preferences").toString())
+                .put("scheme", "quanpin").put("last_chinese_scheme", "quanpin")
+                .put("touch_keyboard_layout", "twenty_six_key")
+                .put("ime_mode_scope", "app").put("default_ime_mode", "chinese")
+                .put("character_width", "halfwidth")
+                .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put("quanpin"))
+                    .put("selected", "quanpin"));
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 1)
+                .put("preferences", values).toString().getBytes(StandardCharsets.UTF_8));
+            super.runChecks();
+            runManualNumberRowChecks();
+        } finally {
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            if (original == null) Files.deleteIfExists(preferences.toPath());
+            else publish(preferences, original);
+            restartIme();
+        }
+    }
+
+    private void runManualNumberRowChecks() throws Exception {
         File root = getTargetContext().getFilesDir();
         File localSettings = new File(new File(new File(root, "bootstrap"), "state"), LOCAL_SETTINGS_FILE);
         byte[] originalLocal = localSettings.exists() ? Files.readAllBytes(localSettings.toPath()) : null;
@@ -38,6 +70,8 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
                 .toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();
+            if (findVisible(key("英")) != null) tap(key("英"));
+            await(key("中"));
 
             stage = "number row above the letters";
             Rect q = bounds(key("q"));

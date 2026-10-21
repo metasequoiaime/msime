@@ -14,6 +14,8 @@ Status: implemented
 
 ## Decision
 
+HTTP 整句上传进入键盘及必要窗口的自动结果回传由[语音自动上屏](2026-10-21-android-voice-auto-insert.md)补充；本篇的系统识别和权限恢复约束继续适用。
+
 - `ImeVoiceEntry.choose` 多一种 `Engine.PLATFORM`：没有本机模型和豆包、离线回退也不成立、没有配置上传式服务商、`SpeechRecognizer.isRecognitionAvailable` 为真时，系统识别服务在键区里聆听，和本机模型、豆包共用 `VoiceListeningView`。识别结果直接经 `commitText(…, TypingSource.VOICE)` 上屏；聆听期间输入位置变了才存进语音结果，与另外两种引擎相同。配置了润色时在工作线程上润色再上屏。
 - 键区里的系统识别带 `EXTRA_PARTIAL_RESULTS`，边听边把识别出的文字显示在提示行，但不像本机模型和豆包那样按 1.5 秒停顿自动结束：系统识别服务自己判断说完了没有。再按一次语音键是 `stopListening`，点面板是取消。
 - `onRmsChanged` 经 `PlatformSpeechPolicy.level` 换成 0–1 的音量，`VoiceListeningView.setLevel` 在麦克风圆盘外画一圈随音量涨落的光圈（最多 12 dp，变大立即跟上、变小按 0.75 回落），原来的 1.2 秒脉冲环保留。`onEndOfSpeech` 和「识别完成」时用 `resetLevel` 直接收回光圈：多数识别服务说完后不再报音量，只靠平滑回落的话光圈会停在上一帧的四分之三。

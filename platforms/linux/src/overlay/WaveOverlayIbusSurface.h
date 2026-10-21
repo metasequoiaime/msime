@@ -1,12 +1,11 @@
 #pragma once
 
+#include "WaveOverlayFeedback.h"
 #include "WaveOverlaySurface.h"
 #include <ibus.h>
 #include <string>
 
 namespace msime::linux_host {
-
-std::string wave_overlay_feedback_text(const WaveOverlayModel &model);
 
 // IBus fallback surface. A native Wayland/X11 surface can implement the same
 // WaveOverlaySurface contract without changing ClientEngine's voice lifecycle.
