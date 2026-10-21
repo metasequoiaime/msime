@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <mutex>
@@ -86,6 +87,14 @@ inline std::vector<int> floating_toolbar_slots(const FloatingToolbarSettings &se
   if (items[4]) result.push_back(5);
   if (settings.voice) result.push_back(8);
   if (items[5]) result.push_back(6);
+  return result;
+}
+
+// 图片工具栏向共享布局桥请求的按钮：只取有图片皮肤键的 0 到 6，按 status、fullwidth、punctuation、character_set、emoji、screen_keyboard、settings 的固定顺序，与 macOS FloatingToolbarPanel、设置页预览（toolbar-image-layout.ts）和共享的 TOOLBAR_BUTTON_KEYS 相同。普通条把标点排在全角之前，这里不跟它：布局桥按请求顺序排 buttonFlow 里的按钮，命中测试和读屏顺序也随这个顺序。
+inline std::vector<int> floating_toolbar_image_slots(const std::vector<int> &slots) {
+  std::vector<int> result;
+  for (int id = 0; id < 7; ++id)
+    if (std::find(slots.begin(), slots.end(), id) != slots.end()) result.push_back(id);
   return result;
 }
 

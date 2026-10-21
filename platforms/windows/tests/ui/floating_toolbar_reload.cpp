@@ -39,6 +39,9 @@ int main() {
   assert((floating_toolbar_slots(*full) == std::vector<int>{0, 11, 2, 1, 3, 4, 7, 5, 8, 6}));
   // 不提供手写的版本不画手写按钮，偏好里的开关也不算。
   assert((floating_toolbar_slots(*full, false) == std::vector<int>{0, 11, 2, 1, 3, 4, 5, 8, 6}));
+  // 图片工具栏按共享键序请求按钮：全角在标点之前，没有图片键的切换输入方案、手写和语音不请求。
+  assert((floating_toolbar_image_slots(floating_toolbar_slots(*full)) == std::vector<int>{0, 1, 2, 3, 4, 5, 6}));
+  assert((floating_toolbar_image_slots(default_slots) == std::vector<int>{0, 1, 2, 3, 6}));
   // 设置不同，比较结果也不同，工具栏据此重新排版。
   auto without_voice = *full;
   without_voice.voice = false;

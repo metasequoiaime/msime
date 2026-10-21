@@ -266,7 +266,7 @@ candidate_palette(const CandidatePaletteOverrides &overrides,
     palette.show_selected_bar = *overrides.show_selected_bar;
   return palette;
 }
-// The floating toolbar derives from the candidate palette (surface, text, hover, border; a pressed button is drawn with the hover fill, as on macOS), so it follows the global theme. Its geometry is the toolbar's own, macOS's: a 10 DIP card radius (NativeCandidateTokens' radius, which macOS uses whatever the theme's card radius is, until a package's `[toolbar]` radius replaces it) and a 1 DIP hairline. The hover fill's corner follows the button size (toolbar_button_radius in ToolbarLayout.h), so it is not set here.
+// The floating toolbar derives from the candidate palette (surface, text, hover, border; a pressed button is drawn with the hover fill, as on macOS), so it follows the global theme. Its geometry is the toolbar's own, macOS's: a 10 DIP card radius (NativeCandidateTokens' radius, which macOS uses whatever the theme's card radius is, until a package's `[toolbar]` radius replaces it) and a 1 DIP hairline. The hover fill's corner follows the button size (toolbar_button_radius in ToolbarLayout.h), so item_radius is not set here and stays the candidate default; the image toolbar does not use it either, its own hover/pressed pill has a fixed corner (kImagePillRadius in FloatingToolbarWindow.cpp). The hover-for-pressed rule is the normal bar's only: an image toolbar still draws a pressed button with the selected fill and selected text colour.
 inline CandidatePalette toolbar_palette(CandidatePalette palette) {
   palette.radius = 10.0f;
   palette.border_width = 1.0f;

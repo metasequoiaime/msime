@@ -26,6 +26,8 @@ namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar" MSIME_EDITION_NAME_SUFFIX;
 constexpr int kWidth = 732;
 constexpr int kHeight = 52;
+// 图片工具栏自己的悬停/按下药丸的圆角，DIP。普通条的悬停圆角跟按钮尺寸走（toolbar_button_radius），toolbar_palette 不再设 item_radius，药丸用这个固定值，保持合并前图片工具栏的 6.5。
+constexpr float kImagePillRadius = 6.5f;
 int dpi_scale(HWND window, int value) {
   const UINT dpi = GetDpiForWindow(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
@@ -96,7 +98,8 @@ void FloatingToolbarWindow::update_image() {
   if (!image_.active() || !shown_) return;
   const std::string language = language_.caps_lock ? "caps" : !shown_->chinese ? "en"
       : language_.dedicated_english ? "en-candidate" : language_.mode == scheme::InputMode::Japanese ? "ja" : "cn";
-  image_.update(floating_toolbar_slots(layout_, MSIME_EDITION_HANDWRITING != 0),
+  // 按共享键序请求，不用普通条标点在前的顺序，见 floating_toolbar_image_slots。
+  image_.update(floating_toolbar_image_slots(floating_toolbar_slots(layout_, MSIME_EDITION_HANDWRITING != 0)),
       {language, shown_->fullwidth ? "full" : "half", shown_->chinese_punctuation ? "cn" : "en",
        shown_character_set_.value_or(false) ? "traditional" : "simplified", "", "", ""});
 }
@@ -581,7 +584,7 @@ void FloatingToolbarWindow::paint() {
                              static_cast<float>(box.top) * unit,
                              static_cast<float>(box.right) * unit,
                              static_cast<float>(box.bottom) * unit};
-      // Hover and press fills, so a button looks like one. On the normal bar that is the whole button square with a quarter of its height as the corner radius, and pressed in the same hover colour, as macOS's MetasequoiaFloatingToolbarButton draws both. An image toolbar keeps its own feedback over the skin's button background: a pill inset 2 DIP a side, and pressed drawn like the card's selected row. A button the shell would have to answer is drawn disabled: no hover fill and the secondary text colour, exactly as the tray draws a row whose capability is missing.
+      // Hover and press fills, so a button looks like one. On the normal bar that is the whole button square with a quarter of its height as the corner radius, and pressed in the same hover colour, as macOS's MetasequoiaFloatingToolbarButton draws both. An image toolbar keeps its own feedback over the skin's button background: a pill inset 2 DIP a side with a fixed kImagePillRadius corner, and pressed drawn like the card's selected row. A button the shell would have to answer is drawn disabled: no hover fill and the secondary text colour, exactly as the tray draws a row whose capability is missing.
       const bool usable = this->usable(button);
       // An image toolbar sizes each button's glyph from the skin; the normal bar uses the toolbar font size.
       const float icon_size = static_cast<float>(image_.active() ? image_.buttons[i].icon : bar.icon) * unit;
@@ -594,8 +597,8 @@ void FloatingToolbarWindow::paint() {
         if (image_.active()) {
           const D2D1_ROUNDED_RECT fill{{cell.left + 2.0f * unit, cell.top,
                                         cell.right - 2.0f * unit, cell.bottom},
-                                       palette_.item_radius * unit,
-                                       palette_.item_radius * unit};
+                                       kImagePillRadius * unit,
+                                       kImagePillRadius * unit};
           target->FillRoundedRectangle(
               fill, brush(down ? palette_.selected : palette_.hover));
         } else {
@@ -614,11 +617,11 @@ void FloatingToolbarWindow::paint() {
             DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
             DWRITE_WORD_WRAPPING_NO_WRAP);
       const wchar_t text[] = {icon.codepoint, L'\0'};
-      // An image toolbar draws its text at the skin's icon size in Segoe UI (or the Tibetan face the badge needs); the normal bar uses the shared text face at 0.95 of the font size.
+      // An image toolbar draws its text at the skin's icon size in the shared Chinese UI face (or the Tibetan face the badge needs), as macOS's image canvas draws the system font at iconSizeDip; the normal bar uses the same face at 0.95 of the font size.
       IDWriteTextFormat *cell_format = glyph_format;
       if (!cell_format && image_.active())
         cell_format = device_.GetTextFormat(
-            icon.family ? icon.family : L"Segoe UI", icon_size, DWRITE_FONT_WEIGHT_NORMAL,
+            icon.family ? icon.family : toolbar_text_font, icon_size, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
             DWRITE_WORD_WRAPPING_NO_WRAP);
       if (!cell_format)
