@@ -412,7 +412,8 @@ def accept_pager(manifest, preferences, publish, entry):
         # 两种形状行高相同，必须等各自的配色实际绘出，不能命中上一轮的旧几何。
         wait(lambda: palette_visible((ready,)))
         # 最小候选行高为 24 * 1.35 + 20；热更新后再据真实面板边缘定位。
-        wait(lambda: selected_pixels() and selected_pixels()[1] >= 52 * NATIVE_SCALE)
+        # 只取一次：热更新时窗口可能在两次读取之间撤下又出现。
+        wait(lambda: (pixels := selected_pixels()) is not None and pixels[1] >= 52 * NATIVE_SCALE)
         subprocess.run(['xdotool', 'mousemove', '0', '0'], check=True, timeout=5)
         if horizontal:
             # 两轮的行高相同，上面的等待在这一轮清单热更新生效之前就会通过；横排只有三角样式画翻页分隔线，等它出现（或消失）确认画的已是这一轮的清单，免得按上一轮的位置去点。
@@ -1105,10 +1106,14 @@ def main():
                         journal = root / "state/user/msime_user.db"
                         if not journal.exists():
                             return False
-                        with sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True) as connection:
-                            return connection.execute(
-                                "SELECT count(*) FROM pinned_candidates WHERE context_key=? AND value=?", ("ni", "你")
-                            ).fetchone()[0] == 1
+                        # 运行时正写这个库时只读连接会报 locked，当作还没写好，接着等。
+                        try:
+                            with sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True) as connection:
+                                return connection.execute(
+                                    "SELECT count(*) FROM pinned_candidates WHERE context_key=? AND value=?", ("ni", "你")
+                                ).fetchone()[0] == 1
+                        except sqlite3.OperationalError:
+                            return False
 
                     wait(pinned)
                     wait(lambda: palette_visible((SELECTED,)))
