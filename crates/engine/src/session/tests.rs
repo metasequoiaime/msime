@@ -1915,6 +1915,74 @@ fn complete_shuangpin_and_ambiguous_direct_helpcodes_both_commit_the_whole_input
 }
 
 #[test]
+fn ziranma_shouyou_complete_phrases_keep_the_plain_reading_and_commit_once() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_3_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_s VALUES('shu''ru''fa','srf','输入法',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shu''shen','ss','舒谌',100000);\
+         CREATE TABLE tbl_4_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_4_k VALUES('kao''shi''fen''shu','ksfs','考试分数',100);\
+         CREATE TABLE tbl_3_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_k VALUES('kao''shi''fu','ksf','靠势浮',100000);\
+         CREATE TABLE tbl_5_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_5_n VALUES('ni''xi''huan''wo''ma','nxhwm','你喜欢我吗',100);\
+         CREATE TABLE tbl_4_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_4_n VALUES('ni''chang''wo''ma','ncwm','怩偿我吗',100000);",
+    );
+    let codes = Arc::new(
+        crate::helpcode::HelpcodeKeymap::from_table_bytes(include_bytes!(
+            "../../../../resources/helpcodes/shouyou2_0_helpcode.txt"
+        ))
+        .unwrap(),
+    );
+    // 使用随产品分发的真实码表；这两个首码正好让三音节输入与两音节直接辅助码重叠。
+    assert!(codes.code("舒").unwrap().starts_with('r'));
+    assert!(codes.code("谌").unwrap().starts_with('a'));
+    let profile = crate::shuangpin::profile::profile(ShuangpinProfileKind::Ziranma).unwrap();
+    for enabled in [true, false] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode = enabled;
+            options.helpcode_table = Some(codes.clone());
+            options.fuzzy_pinyin.rules = 0;
+        });
+        for _ in 0..2 {
+            for (reading, expected) in [
+                ("shu'ru'fa", "输入法"),
+                ("kao'shi'fen'shu", "考试分数"),
+                ("ni'xi'huan'wo'ma", "你喜欢我吗"),
+            ] {
+                let typed = crate::shuangpin::utils::encode_pinyin(reading, profile)
+                    .unwrap()
+                    .replace('\'', "");
+                for byte in typed.bytes() {
+                    let result = session.character(byte, false);
+                    assert!(
+                        result.handled && result.commit.is_none(),
+                        "{typed}: {result:?}"
+                    );
+                }
+                assert_eq!(session.snapshot().editing_text, typed);
+                assert_eq!(words(&session)[0], expected, "enabled={enabled}: {typed}");
+                if enabled && expected == "输入法" {
+                    assert!(index_of(&session, expected) < index_of(&session, "舒谌"));
+                }
+                assert_eq!(session.finish(0).commit.as_deref(), Some(expected));
+                assert!(session.snapshot().editing_text.is_empty());
+            }
+        }
+        if enabled {
+            type_text(&mut session, "uurufa");
+            let direct = index_of(&session, "舒谌");
+            assert_eq!(session.select(direct).commit.as_deref(), Some("舒谌"));
+            assert!(session.snapshot().editing_text.is_empty());
+        }
+    }
+}
+
+#[test]
 fn direct_shuangpin_helpcodes_commit_without_leaving_auxiliary_letters() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
