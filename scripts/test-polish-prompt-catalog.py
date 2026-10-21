@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查各语言消费的内置润色正文和 Windows 展示目录相同，不读取用户配置。"""
+"""检查各语言消费的内置润色正文和原生展示目录相同，不读取用户配置。"""
 import importlib.util
 import json
 from pathlib import Path
@@ -63,3 +63,21 @@ int main() {
                      for index in range(0, len(values), 3)]
         assert projected == PRESETS, "Windows 设置的名称、顺序或正文与共享目录不同"
     print("polish prompt catalog: 请求正文、Python、UI 与 Windows 设置目录一致")
+
+swiftc = shutil.which("swiftc")
+if not swiftc:
+    print("skipped: iOS 润色展示目录检查需要 Swift 编译器")
+else:
+    with tempfile.TemporaryDirectory(prefix="msime-polish-swift-") as directory:
+        source = Path(directory) / "main.swift"
+        program = Path(directory) / "catalog"
+        source.write_text('''import Foundation
+let presets = VoicePolishPresetCatalog.builtIns.map { ["id": $0.id, "title": $0.title] }
+FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: presets))
+''', encoding="utf-8")
+        subprocess.run([swiftc, str(ROOT / "platforms/ios/App/Services/VoicePolishPresetCatalog.swift"),
+                        str(source), "-o", str(program)], check=True, timeout=60)
+        projected = json.loads(subprocess.check_output([str(program)], timeout=10))
+        assert projected == [{"id": preset["id"], "title": preset["title"]} for preset in PRESETS], \
+            "iOS 润色方案 id、名称或顺序与共享目录不同"
+    print("polish prompt catalog: iOS 展示目录与共享目录一致")
