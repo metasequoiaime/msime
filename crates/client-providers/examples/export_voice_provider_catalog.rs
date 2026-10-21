@@ -1,9 +1,28 @@
 //! 导出设置页与原生宿主同步读取的公开语音预设；不读取偏好或凭据。
 
+use msime_client_providers::voice::provider::{
+    asr_request_format, ASR_REQUEST_CHAT_AUDIO, ASR_REQUEST_MULTIPART,
+};
 use msime_client_providers::voice::provider_catalog::{
     ASR_PROVIDERS, DOUBAO_STREAM_ENDPOINTS, POLISH_PROVIDERS,
 };
 use std::path::Path;
+
+fn harmony_method<'a>(
+    name: &str,
+    values: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<String, serde_json::Error> {
+    let mut method = format!("  static {name}(id: string): string {{\n    switch (id) {{\n");
+    for (id, value) in values {
+        method.push_str(&format!(
+            "      case {}:\n        return {};\n",
+            serde_json::to_string(id)?,
+            serde_json::to_string(value)?
+        ));
+    }
+    method.push_str("      default:\n        return \"\";\n    }\n  }\n");
+    Ok(method)
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let catalog = serde_json::json!({
@@ -22,24 +41,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [flag] if flag == "--check" => false,
         _ => return Err("用法：export_voice_provider_catalog [--write|--check]".into()),
     };
-    let mut endpoints =
-        String::from("  static polishEndpoint(id: string): string {\n    switch (id) {\n");
-    let mut models =
-        String::from("  static polishModel(id: string): string {\n    switch (id) {\n");
-    for preset in POLISH_PROVIDERS {
-        let id = serde_json::to_string(preset.id)?;
-        endpoints.push_str(&format!(
-            "      case {id}:\n        return {};\n",
-            serde_json::to_string(preset.endpoint)?
-        ));
-        models.push_str(&format!(
-            "      case {id}:\n        return {};\n",
-            serde_json::to_string(preset.model)?
-        ));
-    }
-    let end = "      default:\n        return \"\";\n    }\n  }\n";
+    let http_asr: Vec<_> = ASR_PROVIDERS
+        .iter()
+        .filter_map(|preset| {
+            let format = asr_request_format(preset.id)?;
+            matches!(format, ASR_REQUEST_MULTIPART | ASR_REQUEST_CHAT_AUDIO)
+                .then_some((preset, format))
+        })
+        .collect();
+    let methods = [
+        harmony_method(
+            "polishEndpoint",
+            POLISH_PROVIDERS.iter().map(|p| (p.id, p.endpoint)),
+        )?,
+        harmony_method(
+            "polishModel",
+            POLISH_PROVIDERS.iter().map(|p| (p.id, p.model)),
+        )?,
+        harmony_method(
+            "httpAsrEndpoint",
+            http_asr.iter().map(|(p, _)| (p.id, p.endpoint)),
+        )?,
+        harmony_method(
+            "httpAsrModel",
+            http_asr.iter().map(|(p, _)| (p.id, p.model)),
+        )?,
+        harmony_method(
+            "httpAsrRequestFormat",
+            http_asr.iter().map(|(p, format)| (p.id, *format)),
+        )?,
+    ]
+    .join("\n");
     let harmony = format!(
-        "// 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nexport class VoiceProviderCatalog {{\n{endpoints}{end}\n{models}{end}}}\n"
+        "// 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nexport class VoiceProviderCatalog {{\n{methods}}}\n"
     );
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (relative, content, semantic) in [

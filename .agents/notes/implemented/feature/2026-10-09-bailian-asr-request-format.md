@@ -10,7 +10,7 @@ Status: implemented
 
 - provider id 为 `bailian`，只接整句识别，复用各宿主现有的「录完上传」批量流程。默认地址 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`、模型 `qwen3-asr-flash`，按 2026-10-09 百炼官方文档（`help.aliyun.com/zh/model-studio/qwen-speech-recognition` 与 `qwen-asr-api-reference`）：鉴权是 `Authorization: Bearer`，请求体是 `{"model", "stream": false, "messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,..."}}]}]}`，不带 `asr_options`，语种交给模型自动识别。文档推荐业务空间专属地址（`{WorkspaceId}.cn-beijing.maas.aliyuncs.com`），并说明旧域名仍可用；默认用旧域名是因为它不需要用户先填 WorkspaceId，需要时可在接口地址里改。
 - 请求格式成为显式契约：client-core 的 `voice::provider::asr_request_format(provider)` 给出 `multipart`、`chat_audio`、`doubao_websocket` 或 `local`，`MobileVoiceProviderConfiguration.request_format` 带着它，`msime_client_mobile_voice_configuration` 的 JSON 是 `requestFormat`，`tauri-mobile-platform` 的 `MobileVoiceTranscriptionRequest` 也带着它，并在 `is_valid` 里要求它就是该 provider 的格式。Android（`VoiceConfiguration` → `VoiceRecognitionActivity` → `HttpAsrRecognizer`）和 iOS 的 Tauri 插件（`MobilePlatformPlugin.swift`）按这个字段挑请求构造，不再看 provider 名字。
-- 没有经过 `MobileVoiceProviderConfiguration` 的宿主各留一份同样的对应：共享 C++ 的 `asr_request_format`（Windows 与 macOS 经它调用 `recognize_cloud_asr`）、Linux 语音服务脚本的 `REQUEST_FORMATS`、HarmonyOS 的 `HttpAsrConfigurationPolicy.requestFormat`、iOS 原生设置的 `VoiceProviderPreset.usesChatAudio`。它们的识别和凭据测试也只按格式分支。
+- 没有经过 `MobileVoiceProviderConfiguration` 的宿主中，共享 C++ 的 `asr_request_format`（Windows 与 macOS 经它调用 `recognize_cloud_asr`）、Linux 语音服务脚本的 `REQUEST_FORMATS`、iOS 原生设置的 `VoiceProviderPreset.usesChatAudio` 各留一份同样的对应。HarmonyOS 的 `HttpAsrConfigurationPolicy.requestFormat` 读取共享 Rust 格式与目录静态生成的 `VoiceProviderCatalog.ts`，只投影 HTTP 上传服务，见[共享语音目录](../simplification/2026-10-21-shared-ui-voice-catalog.md)。识别和凭据测试都只按格式分支。
 - 上传上限：百炼限制请求里的音频含 Base64 编码不超过 10 MB，所以 chat_audio 的 WAV 上限是 7,000,000 字节（client-core `CHAT_AUDIO_MAX_WAV_BYTES`、C++ `chat_audio_max_wav_bytes`、Linux `CHAT_AUDIO_MAX_WAV`），16 kHz 单声道 16 位约 218 秒。macOS、Windows、Linux 都按它截取录音：录到上限就结束录音并识别，与 multipart 录满 20 MiB 的处理相同。三处共用一个判断，C++ 是 `batch_capture_sample_limit_for(provider)`（macOS 的 `sampleLimit` 与 Windows 的采集回调都调它），Linux 是 `capture_byte_limit(provider)`。最初的版本只有 macOS 截取，Windows 和 Linux 录满批量上限（约 655 秒或 `--max-recording-seconds`）后才在上传前整段拒绝，说了四分钟的话全部丢掉，Linux 还只回一个不带说明的失败；review 时发现后改成三处一致。`recognize_cloud_asr` 与 Linux `chat_audio()` 的超限检查留着兜底。Android、iOS、HarmonyOS 的录音本来就只有 60 到 120 秒，远在上限以内。
 - 回答解析各宿主都改成先取 `text`，没有时再取 `choices[0].message.content`；`text` 存在但不合法时不回退到 `choices`。
 - macOS 与 Windows 的共享 C++ 转写入口在提取文字前拒绝明确错误、截断与过滤回复，见[转写完整性](../bug-fix/2026-10-19-voice-asr-incomplete-reply.md)；请求格式和上限不变。
@@ -27,7 +27,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：多了一个对中文表现好的云端识别服务；宿主选择请求构造的依据从「provider 名字」变成共享层给出的字段，Android 与 iOS Tauri 插件不再各自维护名字白名单，格式与 provider 不一致的请求会在 `MobileVoiceTranscriptionRequest::is_valid` 被拒。
-- **代价与已知上限**：Base64 让上传体积变成 4/3；选百炼时 macOS、Windows、Linux 的单次录音最长约 218 秒，录到上限就结束录音并识别已录下的部分，上传前的长度检查只作兜底。不经过共享配置的宿主（C++、Linux 脚本、HarmonyOS、iOS 原生）仍各有一份格式映射，靠各自的测试和本笔记保持一致。默认地址用旧域名，百炼若停用它，需要把默认值换成业务空间专属地址并引导用户填 WorkspaceId。没有用真实的百炼 API Key 在任何平台上听写过。
+- **代价与已知上限**：Base64 让上传体积变成 4/3；选百炼时 macOS、Windows、Linux 的单次录音最长约 218 秒，录到上限就结束录音并识别已录下的部分，上传前的长度检查只作兜底。不经过共享配置的 C++、Linux 脚本与 iOS 原生仍各有一份格式映射，靠各自的测试和本笔记保持一致；HarmonyOS 的 HTTP 映射由 Rust 导出检查防止漂移。默认地址用旧域名，百炼若停用它，需要把默认值换成业务空间专属地址并引导用户填 WorkspaceId。没有用真实的百炼 API Key 在任何平台上听写过。
 
 ## Verification
 

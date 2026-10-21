@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-共享 React 设置页重复保存 Rust 语音目录已有的识别服务、润色服务和豆包流式接口元数据。默认地址、建议模型、文档链接和选择器标题因此需要分别维护。鸿蒙的润色器和初始语音配置还分别手写同一目录中的默认地址与模型，运行时与设置页可能漂移。
+共享 React 设置页重复保存 Rust 语音目录已有的识别服务、润色服务和豆包流式接口元数据。默认地址、建议模型、文档链接和选择器标题因此需要分别维护。鸿蒙的润色器、HTTP 识别策略与初始语音配置还分别手写同一目录中的默认地址与模型，HTTP 识别另有一份服务到请求格式的映射，运行时与设置页可能漂移。
 
 ## Decision
 
@@ -13,6 +13,8 @@ Status: implemented
 导出器保留无参时向标准输出生成 JSON 的接口，新增 `--write` 同步更新 JSON 与鸿蒙的静态 TypeScript 类。`--check` 比较提交 JSON 的语义值（空白与键顺序交给前端格式化），并逐字检查 TypeScript；继续由 Linux 设置应用 CI 在既有 Rust 依赖构建后执行，避免轻量 Repository contracts 作业单独编译网络依赖。
 
 鸿蒙的 `VoiceProviderCatalog.polishEndpoint` 和 `polishModel` 使用带显式类型的静态 switch，同步返回字符串，未知 id 返回空串。`HarmonyVoicePolisher` 继续先 trim provider，配置中的自定义地址和模型仍优先；`DEFAULT_VOICE_INPUT_CONFIGURATION` 只把原有 SiliconFlow 的地址、模型来源换为生成方法。初始 provider 的平台选择、凭据槽位适配、请求校验、取消和润色正文规则继续由宿主持有。生成类不暴露可变表，不增加 NAPI/JSON 初始化，也不在产品运行时访问文件、网络或偏好。
+
+`VoiceProviderCatalog.httpAsrEndpoint`、`httpAsrModel` 和 `httpAsrRequestFormat` 同样使用静态 switch。导出器遍历 `ASR_PROVIDERS`，通过真实 `voice::provider::asr_request_format` 只保留 `multipart` 与 `chat_audio`；豆包流式、本地、系统和未知服务不进入 HTTP 路径。`HttpAsrConfigurationPolicy` 同步读取这三项，未知 id 的默认值仍为 `null`，每次返回新的默认对象，provider 的大小写与空白继续按原样匹配。自定义地址、模型的 trim 与优先级、凭据槽位、请求预检、语种和请求体继续由原策略负责。构建工具的五个方法共用同一个字符串转义与 switch 渲染函数。
 
 ## Alternatives considered
 
@@ -23,9 +25,9 @@ Status: implemented
 
 ## Consequences
 
-共享 UI 只维护模型到现有 API 的投影，端点、默认模型、建议模型、文档和标题随 Rust 目录更新。提交的 JSON 和鸿蒙 TypeScript 增加生成物维护成本，以同一真实 Rust 导出检查阻止漂移。鸿蒙的四服务地址、模型与初始配置不再各自保存一份字面量；配置选择仍按平台策略，凭据字段仍由宿主适配，新增服务需要同时接好对应槽位。兼容顺序只保存标识优先级，不复制端点、模型或标题；新增服务排在历史项之后，选择器仍遵循 Rust 顺序。若以后共享 UI 接入统一的异步目录桥，可重访静态生成方案。
+共享 UI 只维护模型到现有 API 的投影，端点、默认模型、建议模型、文档和标题随 Rust 目录更新。提交的 JSON 和鸿蒙 TypeScript 增加生成物维护成本，以同一真实 Rust 导出检查阻止漂移。鸿蒙的四项润色与六项 HTTP 识别服务地址、模型、HTTP 格式映射和初始配置不再各自保存一份字面量；配置选择仍按平台策略，凭据字段仍由宿主适配，新增服务需要同时接好对应槽位。兼容顺序只保存标识优先级，不复制端点、模型或标题；新增服务排在历史项之后，选择器仍遵循 Rust 顺序。若以后共享 UI 接入统一的异步目录桥，可重访静态生成方案。
 
-检索活跃笔记中的 `provider_catalog`、`ASR_PROVIDER_DEFAULTS` 和语音服务目录。[iOS 目录读取](2026-10-21-ios-voice-provider-catalog.md)拥有 Swift C ABI 读取，[Windows 语音页](../feature/2026-10-11-windows-settings-voice-page.md)拥有共享目录与原生页绑定；本片新增的是 React 与鸿蒙默认值的静态投影，不改变那些决定。[预设公共模型](2026-10-16-provider-preset-model.md)仍持有 `ProviderDefaults` 字段契约，投影继续复用它。
+检索活跃笔记中的 `provider_catalog`、`ASR_PROVIDER_DEFAULTS` 和语音服务目录。[iOS 目录读取](2026-10-21-ios-voice-provider-catalog.md)拥有 Swift C ABI 读取，[Windows 语音页](../feature/2026-10-11-windows-settings-voice-page.md)拥有共享目录与原生页绑定；本片新增的是 React 与鸿蒙默认值的静态投影，不改变那些决定。[预设公共模型](2026-10-16-provider-preset-model.md)仍持有 `ProviderDefaults` 字段契约，投影继续复用它。[百炼请求格式](../feature/2026-10-09-bailian-asr-request-format.md)部分重叠于 HTTP 格式契约；这里消除鸿蒙的映射副本，上传格式和非 HTTP 的边界不变。[EveryAPI 默认模型修复](../bug-fix/2026-10-12-everyapi-asr-default-model.md)保留原修复理由，鸿蒙目前从共享目录读取当时固定的模型。
 
 ## Verification
 
@@ -39,3 +41,7 @@ Status: implemented
 - 合成接线探针临时替换生成类的地址与含中文、非 BMP 字符的模型，确认实际润色初始化与初始配置都读取生成值；旧宿主在同一探针上失败，导出器也拒绝陈旧 TypeScript。探针结束后恢复生成物。无参导出仍为纯 JSON，与固定 base 语义相等；`--check`、前端格式检查、`cargo fmt --all -- --check` 和 exporter 严格 clippy 通过。
 - `platforms/harmony/tests/run.sh` 全套通过，独立审查的 40 组基线对照与单独严格编译运行也通过。真实原生库构建和 `hvigorw assembleHap --no-daemon` 通过，最终 HAP 包含 `ets/modules.abc`、`libmsimeclient.so`、`libmsime_host_api.so` 与 `libc++_shared.so`。未安装鸿蒙设备或运行输入法界面，此验证覆盖真实 ArkTS 编译和打包。
 - 鸿蒙润色默认值迁移的完整 `bash scripts/verify-local.sh --quick` 通过：仓库契约、Rust workspace、Android 交叉检查与宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用与原生 108 项测试、双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过，2 项由宿主差异排除、64 项需要 Windows 构建；本机未配置 MinGW/Windows 原生构建，x86 语法与 pipe-only 检查明确跳过。
+- HTTP 识别迁移先固定六项预设、七类非 HTTP/不规范 id 和真实策略解析的 104 组配置。合成生成目录在旧消费者上以“未读取生成请求格式”断言失败，接入后实际服务集合、格式、默认值与预检均读取合成值，结束后恢复生成物。迁移前后 104 组配置逐字一致；回归还检查自定义字段 trim 优先、空白回退和默认对象修改隔离。
+- HTTP 生成物的 `--check` 在旧 TypeScript 上先失败，重新生成后通过；临时修改识别模型后也非零退出，恢复后通过。无参仍只输出与固定 base 语义一致的 JSON，原润色生成方法逐字相等；严格 TypeScript 编译与新 HTTP 回归、定向格式检查通过。
+- HTTP 迁移的 `platforms/harmony/tests/run.sh` 全套为 `0 failure(s)`，`cargo fmt --all -- --check`、exporter 的 `clippy -D warnings` 与笔记门禁通过。独立审查严格编译并运行新增 HTTP 和既有润色回归、104 组真实配置对照，未发现实质问题。最终 `hvigorw assembleHap --no-daemon` 通过真实 `CompileArkTS`，28 秒完成；HAP 内核实 `ets/modules.abc` 与三项 arm64 原生库。未安装鸿蒙设备或运行输入法 UI。
+- HTTP 迁移的完整 `bash scripts/verify-local.sh --quick` 通过：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 108 项测试与 full/五笔双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过；2 项由宿主差异排除、64 项需要 Windows 构建，未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。

@@ -146,7 +146,7 @@ pnpm exec vp fmt packages/ui/src/voice/voice-provider-catalog.json
 cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
 ```
 
-导出器同时生成鸿蒙 `VoiceProviderCatalog.ts` 的润色默认地址和模型，润色器与初始配置同步读取；无参时仍只向标准输出生成 JSON。Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查，JSON 比较语义值，TypeScript 逐字比较。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
+导出器同时生成鸿蒙 `VoiceProviderCatalog.ts` 的润色与 HTTP 识别默认地址、模型和 HTTP 请求格式，润色器、识别策略与初始配置同步读取；HTTP 服务范围由 Rust `asr_request_format` 筛选，流式与本地服务不进入上传路径；无参时仍只向标准输出生成 JSON。Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查，JSON 比较语义值，TypeScript 逐字比较。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
 
 ## 共享润色提示词
 
