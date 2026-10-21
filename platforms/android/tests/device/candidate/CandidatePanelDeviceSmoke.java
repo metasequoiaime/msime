@@ -281,38 +281,6 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    private void openEditor() throws Exception {
-        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.EditorActivity");
-    }
-
-    /** 只匹配候选描述；首选必须带新序号，不能把旧列表中仍存在的同字候选当作刷新。 */
-    private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
-        return node -> {
-            if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
-                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
-            String description = node.getContentDescription().toString();
-            String prefix = index == 0 ? "候选 " : "候选 " + index + "：";
-            int delimiter = description.indexOf('：');
-            if (!description.startsWith(prefix) || delimiter < 0) return false;
-            String text = description.substring(delimiter + 1);
-            return text.equals(value) || text.startsWith(value + "，") || text.startsWith(value + "；");
-        };
-    }
-
-    /** 只匹配候选描述；首选必须带新序号，不能把旧列表中仍存在的同字候选当作刷新。 */
-    private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
-        return node -> {
-            if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
-                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
-            String description = node.getContentDescription().toString();
-            String prefix = index == 0 ? "候选 " : "候选 " + index + "：";
-            int delimiter = description.indexOf('：');
-            if (!description.startsWith(prefix) || delimiter < 0) return false;
-            String text = description.substring(delimiter + 1);
-            return text.equals(value) || text.startsWith(value + "，") || text.startsWith(value + "；");
-        };
-    }
-
     private Predicate<AccessibilityNodeInfo> candidateTen() {
         return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getContentDescription() != null
