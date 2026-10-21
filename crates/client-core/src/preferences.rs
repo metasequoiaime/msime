@@ -932,6 +932,18 @@ pub struct Preferences {
     /// *哪些*码是这样由 Engine 回答；词是否就在那里离开输入法由用户决定，关掉表示它留在候选列表里，等空格或数字键选走。
     #[serde(default = "enabled_by_default")]
     pub wubi_auto_commit_unique: bool,
+    /// 五笔 `z` 通配：`z` 匹配码表里该位置的任意一个字母（含首位）。
+    ///
+    /// 关掉时 `z` 不是码位，组字开头按下它照旧按混输开关打开临时拼音反查。两条路都要占用这个键，
+    /// 所以通配打开时反查关掉。默认关，与来源出厂 `wubi_z_mode = "off"` 一致。
+    #[serde(default)]
+    pub wubi_z_wildcard: bool,
+    /// 五笔顶字：完整四码之后再敲一个字母时上屏首选，并把这个字母留作下一组开头。
+    ///
+    /// 关掉只在拼音混输开启时生效：那个字母并进混输串；混输关闭时它无处容纳，仍按顶字上屏，不会丢字。
+    /// 默认开，与来源出厂一致，也是接入这个开关之前唯一可能的行为。
+    #[serde(default = "enabled_by_default")]
+    pub wubi_fifth_code_top_commit: bool,
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
@@ -1033,6 +1045,9 @@ pub struct Preferences {
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
+    /// 回车上屏英文时把该英文单词写入英文词库，之后可作为候选出现（Windows `input.enter_learns_english_word`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `true`，所以等于出厂值时文档里不写这个键，没有它的旧版本照样按开启读；关掉后回车照常上屏，只是不学词。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enter_learns_english_word: bool,
     #[serde(default)]
     pub quanpin: QuanpinPreferences,
     #[serde(default)]
@@ -1110,6 +1125,9 @@ pub struct Preferences {
     /// 普通退格在剩余拼写即将删空时，是否撤回最近一次选词；默认保持原行为。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub backspace_reverts_selection: bool,
+    /// 造词时按 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消（Windows `input.escape_keeps_selected_word` 的语义，即小狼毫的 `ClearNonConfirmedComposition`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `false`，关着时 Esc 连已选词一起丢掉，与旧行为一致；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub escape_keeps_selected_word: bool,
     #[serde(default)]
     pub frequency: FrequencyPreferences,
     #[serde(default)]
@@ -1191,6 +1209,10 @@ pub struct VoiceInputPreferences {
     pub end_sound: bool,
     #[serde(default = "source_voice_default")]
     pub mute_system_audio: bool,
+    /// 识别语言：系统识别器用 BCP 47 区域形式（`zh-CN`、`en-US`），其他识别服务用短形式
+    /// （`zh-cn`、`en`、`ja`、`auto`）。出厂默认取 `zh-CN`，与共享设置页（React 的
+    /// `defaultVoiceInput`）和 macOS 原生回退窗口一致；缺字段的旧文档仍由各宿主自己的回退处理，
+    /// 读盘和界面比较都不区分大小写。
     #[serde(default)]
     pub language: String,
     /// Empty values inherit the user-managed Linux recording service defaults.
@@ -1295,7 +1317,7 @@ impl Default for VoiceInputPreferences {
             start_sound: true,
             end_sound: true,
             mute_system_audio: source_voice_default(),
-            language: "zh-cn".into(),
+            language: "zh-CN".into(),
             capture_backend: String::new(),
             capture_device: String::new(),
             commit_mode: "tsf".into(),
@@ -1541,6 +1563,21 @@ pub struct FloatingToolbarPreferences {
     pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
+    /// 显示一段时间无交互后把悬浮工具栏淡出隐藏。Windows 旧正式版 v0.11.1 的
+    /// `installer/default_config/config.default.toml` 里 `floating_toolbar_auto_hide = false`，这里对齐它。
+    /// macOS 此前把这个行为写死成常开 10 秒（`FloatingToolbarPanel.mm` 的 `_idleTimer`），新字段接管后
+    /// 默认不再自动隐藏；想保留旧行为的用户在共享设置页把这一项打开。
+    #[serde(default)]
+    pub auto_hide: bool,
+    /// 自动隐藏延时（秒）。Windows v0.11.1 的 `floating_toolbar_auto_hide_delay` 出厂为 5、可选 1–60，
+    /// 越界按 5 处理。macOS 面板用 `FloatingToolbarBehavior.h` 解析它来决定空闲计时器的间隔。
+    #[serde(default = "default_toolbar_auto_hide_delay")]
+    pub auto_hide_delay: u16,
+    /// 悬浮工具栏的柔和阴影，与候选窗一致。Windows 旧正式版 v0.11.1 的
+    /// `installer/default_config/config.default.toml` 里 `floating_toolbar_shadow = true`，这里对齐它；
+    /// macOS 此前写死 `self.hasShadow = YES`（`FloatingToolbarPanel.mm`）。
+    #[serde(default = "enabled_by_default")]
+    pub shadow: bool,
 }
 
 fn default_toolbar_scale() -> u16 {
@@ -1548,6 +1585,9 @@ fn default_toolbar_scale() -> u16 {
 }
 fn default_toolbar_font_size() -> u16 {
     24
+}
+fn default_toolbar_auto_hide_delay() -> u16 {
+    5
 }
 
 /// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
@@ -1627,6 +1667,9 @@ impl Default for FloatingToolbarPreferences {
             screen_keyboard: false,
             voice: false,
             settings: true,
+            auto_hide: false,
+            auto_hide_delay: default_toolbar_auto_hide_delay(),
+            shadow: true,
         }
     }
 }
@@ -2195,6 +2238,9 @@ pub struct KeybindingPreferences {
     /// Ctrl+Shift+J 在中文和日语之间切换：中文状态下，当前是中文方案时切到日语方案，并把这个中文方案记进 `last_chinese_scheme`；当前是日语或其他非中文方案时回到 `last_chinese_scheme`。英文模式下组合键交给应用。默认关，因为浏览器把它当作打开开发者工具或下载页；只有声明 `HostCapabilities::japanese_toggle_shortcut` 的宿主读它。
     #[serde(default)]
     pub toggle_japanese_ctrl_shift_j: bool,
+    /// 中日英循环切换：打开后，「切换中英文」那一组快捷键按 中 → 日 → 英 → 中 依次切换，有组字时先把正在组的原始字母上屏；英文模式下再按切换键回到中文。默认关，对齐旧版 Windows 正式版的出厂值（`installer/default_config/config.default.toml`）。没打开时这一组快捷键仍是二态切换，行为与加这个开关之前完全一样。只有声明 `HostCapabilities::trilingual_cycle` 的宿主读它；状态机在 `crate::language_cycle`。
+    #[serde(default)]
+    pub trilingual_cycle: bool,
 }
 
 impl Default for KeybindingPreferences {
@@ -2208,6 +2254,7 @@ impl Default for KeybindingPreferences {
             toggle_fullwidth_option_shift_h: true,
             switch_language_caps_lock: false,
             toggle_japanese_ctrl_shift_j: false,
+            trilingual_cycle: false,
         }
     }
 }
@@ -2409,6 +2456,8 @@ impl Default for Preferences {
             scheme: InputScheme::default(),
             wubi_code_hint: true,
             wubi_auto_commit_unique: true,
+            wubi_z_wildcard: false,
+            wubi_fifth_code_top_commit: true,
             wubi_mixed_pinyin: false,
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
@@ -2444,6 +2493,7 @@ impl Default for Preferences {
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
             learning: true,
+            enter_learns_english_word: true,
             quanpin: QuanpinPreferences::default(),
             fuzzy_pinyin: FuzzyPinyinPreferences::default(),
             quanpin_helpcode: default_quanpin_helpcode(),
@@ -2469,6 +2519,7 @@ impl Default for Preferences {
             second_third_candidate: SecondThirdCandidatePreferences::default(),
             wubi_candidate_selection: WubiCandidateSelectionPreferences::default(),
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             frequency: FrequencyPreferences::default(),
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),

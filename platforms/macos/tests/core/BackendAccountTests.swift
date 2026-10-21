@@ -184,7 +184,9 @@ private final class CloudPreferences: @unchecked Sendable {
     let rust = FakeRust.account
     var clipboardAccount: String?
     var signInRequests = 0
-    await BackendClipboardEntry.open(status: { try await rust.status() }, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    await BackendClipboardEntry.open(route: { (try await rust.status()).map { .account(userID: $0.id) } },
+                                     present: { if case .account(let userID) = $0 { clipboardAccount = userID } },
+                                     signIn: { signInRequests += 1 })
     try require(clipboardAccount == nil && signInRequests == 1)
     var windowClosures = 0
     // 默认的匿名会话在真实的 App Group 容器里，未签名的测试程序可能建不出它，也绝不能读或丢掉它，所以这个模型用一份空的内存会话。
@@ -209,7 +211,9 @@ private final class CloudPreferences: @unchecked Sendable {
     // 每个请求都带注册给出的存储 id，不带目录：会话只在注入的存储里。
     try require(FakeRust.calls.allSatisfy { $0.entry == "account" && $0.request["session_store"] as? Int == 7 && $0.request["directory"] == nil })
     script.status = FakeRust.user("synthetic-user")
-    await BackendClipboardEntry.open(status: { try await rust.status() }, present: { clipboardAccount = $0 }, signIn: { signInRequests += 1 })
+    await BackendClipboardEntry.open(route: { (try await rust.status()).map { .account(userID: $0.id) } },
+                                     present: { if case .account(let userID) = $0 { clipboardAccount = userID } },
+                                     signIn: { signInRequests += 1 })
     try require(clipboardAccount == "synthetic-user" && signInRequests == 1)
     model.name = "新昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && FakeRust.calls("rename").last?.action["display_name"] as? String == "新昵称")
@@ -304,6 +308,7 @@ private final class CloudPreferences: @unchecked Sendable {
       ]]
     }
     FakeRust.answer { call in
+      if call.entry == "cloud_clipboard_source" { return FakeRust.ok(["source": "account", "revision": 7]) }
       if call.entry == "account" { return FakeRust.ok(["user": FakeRust.user("synthetic-user")]) }
       switch call.operation {
       case "list":
@@ -327,7 +332,7 @@ private final class CloudPreferences: @unchecked Sendable {
       }
     }
     func sent() -> [String] { FakeRust.calls.filter { $0.entry == "cloud_clipboard" }.compactMap(\.operation) }
-    let clipboard = MacClipboardModel(accountID: "synthetic-user", rust: FakeRust.account, deviceName: "合成 Mac")
+    let clipboard = MacClipboardModel(route: .account(userID: "synthetic-user"), rust: FakeRust.account, deviceName: "合成 Mac")
     clipboard.refresh(); try await finished(clipboard)
     try require(clipboard.loaded && !clipboard.enabled && clipboard.items.isEmpty && clipboard.devices == nil && sent() == ["list"])
     clipboard.setEnabled(true); try await finished(clipboard)
@@ -364,7 +369,7 @@ private final class CloudPreferences: @unchecked Sendable {
     clipboard.setEnabled(false); try await finished(clipboard)
     try require(!clipboard.enabled && clipboard.items.isEmpty)
     // 打开窗口时的账号已经不是登录的那个：什么都不发，也不显示。
-    let wrongAccount = MacClipboardModel(accountID: "previous-account", rust: FakeRust.account, deviceName: "合成 Mac")
+    let wrongAccount = MacClipboardModel(route: .account(userID: "previous-account"), rust: FakeRust.account, deviceName: "合成 Mac")
     let sentBefore = sent().count
     wrongAccount.refresh(); try await finished(wrongAccount)
     try require(!wrongAccount.loaded && wrongAccount.items.isEmpty && sent().count == sentBefore)

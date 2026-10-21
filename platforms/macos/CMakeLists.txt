@@ -28,6 +28,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
+# 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
+add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
+target_compile_options(trilingual-cycle-routing-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+set_target_properties(trilingual-cycle-routing-test PROPERTIES OBJCXX_STANDARD 20)
+target_link_libraries(trilingual-cycle-routing-test PRIVATE "-framework Foundation")
+add_test(NAME trilingual-cycle-routing COMMAND trilingual-cycle-routing-test)
 add_executable(desktop-input-interop-test tests/input/DesktopInputInteropTest.mm src/core/DesktopInputSession.mm)
 target_compile_options(desktop-input-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-input-interop-test PRIVATE "-framework AppKit")
@@ -424,6 +431,7 @@ add_test(NAME secure-file-reader COMMAND "${CMAKE_CURRENT_BINARY_DIR}/secure-fil
 set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
   src/backend/clipboard/BackendCloudClipboardProvider.swift
+  src/backend/clipboard/BackendCloudClipboardRoute.swift
   src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
@@ -680,6 +688,10 @@ add_test(NAME macos-diagnostic-log COMMAND macos-diagnostic-log-test)
 add_executable(system-path-alias-test tests/core/SystemPathAliasTest.cpp)
 target_compile_options(system-path-alias-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME system-path-alias COMMAND system-path-alias-test)
+# 纯逻辑：悬浮工具栏的自动隐藏与阴影判定不碰窗口，所以在没有图形会话的机器上也能跑。
+add_executable(floating-toolbar-behavior-test tests/core/FloatingToolbarBehaviorTest.cpp)
+target_compile_options(floating-toolbar-behavior-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME floating-toolbar-behavior COMMAND floating-toolbar-behavior-test)
 add_executable(shared-voice-preferences-test tests/voice/SharedVoicePreferencesTest.mm)
 target_compile_options(shared-voice-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shared-voice-preferences-test PRIVATE "-framework Foundation")
@@ -782,6 +794,16 @@ add_executable(local-mode-preferences-test tests/settings/LocalModePreferencesTe
 target_compile_options(local-mode-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-mode-preferences-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME local-mode-preferences COMMAND local-mode-preferences-test)
+# 候选窗外观的出厂回退值（只读 getter，不建窗口）。回退漂移过一次 `Segoe UI`／字号 16。
+add_executable(candidate-appearance-defaults-test tests/settings/CandidateAppearanceDefaultsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
+target_compile_options(candidate-appearance-defaults-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-appearance-defaults-test PRIVATE apple-client "-framework AppKit")
+add_test(NAME candidate-appearance-defaults COMMAND candidate-appearance-defaults-test)
+# 语音按住录音组合键的出厂回退值（只读 getter，不建窗口）。`hotkey_ralt` 与共享默认漂移过。
+add_executable(voice-hold-defaults-test tests/settings/VoiceHoldDefaultsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
+target_compile_options(voice-hold-defaults-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-hold-defaults-test PRIVATE apple-client "-framework AppKit")
+add_test(NAME voice-hold-defaults COMMAND voice-hold-defaults-test)
 add_executable(skin-package-replace-test tests/candidate/SkinPackageReplaceTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
 target_compile_options(skin-package-replace-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(skin-package-replace-test PRIVATE apple-client "-framework AppKit")
@@ -870,7 +892,7 @@ target_compile_options(external-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG
 add_test(NAME external-skin COMMAND external-skin-test)
 add_executable(text-client-test tests/core/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
+target_link_libraries(text-client-test PRIVATE apple-client)
 add_test(NAME text-client COMMAND text-client-test)
 add_executable(cloud-candidate-request-test tests/candidate/CloudCandidateRequestTest.mm src/cloud/CloudCandidateRequest.mm)
 target_compile_options(cloud-candidate-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -1113,10 +1135,10 @@ target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werro
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
 add_executable(skin-settings-test tests/candidate/SkinSettingsTest.mm src/settings/AppearancePreferences.mm src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm src/core/ChineseTextConversion.mm)
-foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
+foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test candidate-appearance-defaults-test voice-hold-defaults-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${translation_settings_consumer} PRIVATE src/cloud/TranslationSettingsWindow.mm)
 endforeach()
-foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
+foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test wubi-auto-commit-preferences-test local-mode-preferences-test candidate-appearance-defaults-test voice-hold-defaults-test skin-package-replace-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${ai_settings_consumer} PRIVATE src/core/AISettingsWindow.mm)
 endforeach()
 foreach(translation_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test skin-preview-test skin-settings-test)

@@ -614,6 +614,11 @@ pub(super) fn insert_input_settings(
         "input.wubi_auto_commit_unique",
         preferences.wubi_auto_commit_unique,
     );
+    insert_bool(
+        settings,
+        "input.wubi_fifth_code_top_commit",
+        preferences.wubi_fifth_code_top_commit,
+    );
 }
 
 /// 桌面宿主（Windows、Linux）导出成账号文档的键值：只有各平台共有的 `input.*` 键。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
@@ -949,6 +954,9 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_bool("input.wubi_auto_commit_unique", |preferences, value| {
         preferences.wubi_auto_commit_unique = value
+    })?;
+    applier.set_bool("input.wubi_fifth_code_top_commit", |preferences, value| {
+        preferences.wubi_fifth_code_top_commit = value
     })?;
     Ok(())
 }

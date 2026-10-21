@@ -576,6 +576,9 @@ export function useEmojiPanel(
     1,
     ...uniqueGroups.map((group) => Math.ceil(group.items.length / itemsPerPage)),
   );
+  useLayoutEffect(() => {
+    setItemPage((value) => Math.min(value, itemPageCount - 1));
+  }, [itemPageCount]);
   const displayGroups = uniqueGroups
     .map((group) => ({
       ...group,

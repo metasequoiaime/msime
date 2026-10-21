@@ -682,10 +682,12 @@ impl HostSession {
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
+        options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
+        options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
@@ -1070,6 +1072,9 @@ impl HostSession {
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
+        // Esc 保留已选词同样是宿主状态：改完下一次 Esc 就按新开关解释。
+        self.runtime
+            .set_escape_keeps_selected_word(requested_preferences.escape_keeps_selected_word);
         // 左右键的候选回退（`navigation.left_right`）同样是宿主状态：改完立刻生效，左右键不必等 Engine 重建。
         self.runtime
             .set_left_right_navigation(requested_preferences.navigation.left_right);
@@ -1079,6 +1084,9 @@ impl HostSession {
             ));
         self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        // 顶字同样是宿主状态：纯判定在 Engine 与 runtime 之间，改偏好不必等组字结束。
+        self.runtime
+            .set_wubi_fifth_code_top_commit(requested_preferences.wubi_fifth_code_top_commit);
         self.runtime
             .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
         self.sound.update(key_sound::SoundSettings::new(
@@ -1838,10 +1846,12 @@ impl HostOptions {
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
+            learn_english_on_enter: self.preferences.enter_learns_english_word,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
+            wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,

@@ -213,6 +213,38 @@ fn japanese_toggle_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    // 默认对齐旧版 Windows 正式版的出厂值。
+    assert!(!snapshot.preferences.keybindings.trilingual_cycle);
+    // 早于这个开关的文档没有这个键，读出来是关。
+    let mut value = serde_json::to_value(&snapshot.preferences).unwrap();
+    assert_eq!(
+        value["keybindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("trilingual_cycle"),
+        Some(false.into())
+    );
+    let legacy: Preferences = serde_json::from_value(value.clone()).unwrap();
+    assert!(!legacy.keybindings.trilingual_cycle);
+    // 打开它，「切换中英文」那一组快捷键本身不变：循环与否是另一项。
+    value["keybindings"]["trilingual_cycle"] = true.into();
+    let enabled: Preferences = serde_json::from_value(value).unwrap();
+    store.save(snapshot.revision, enabled).unwrap();
+    let keybindings = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        keybindings,
+        KeybindingPreferences {
+            trilingual_cycle: true,
+            ..KeybindingPreferences::default()
+        }
+    );
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
@@ -707,6 +739,34 @@ fn candidate_translations_keep_legacy_and_explicit_choices() {
 }
 
 #[test]
+fn voice_language_default_uses_the_bcp47_region_form() {
+    // 共享设置页（React 的 `defaultVoiceInput`）和 macOS 原生回退窗口都写 `zh-CN`。共享默认以前是
+    // 小写的 `zh-cn`，同一份文档因此可能带着两种写法，界面和读盘比较只能靠不区分大小写兜住。
+    // 统一成区域形式后，宿主和页面显示的是同一个码。
+    let defaults = Preferences::default();
+    assert_eq!(defaults.voice_input.language, "zh-CN");
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["voice_input"]["language"], "zh-CN");
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-CN"
+    );
+    // 只改出厂值：用户或旧版本写下的短形式原样保留，不在这里做迁移改写。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy["voice_input"]["language"] = "zh-cn".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-cn"
+    );
+}
+
+#[test]
 fn translation_account_is_an_explicit_choice_on_every_platform() {
     let defaults = Preferences::default();
     assert!(!defaults.translation_account);
@@ -818,6 +878,59 @@ fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
             .wubi_auto_commit_unique
+    );
+}
+
+#[test]
+fn wubi_z_wildcard_defaults_off_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_z_mode = "off"`：新键的缺省必须跟它一致。
+    assert!(!defaults.wubi_z_wildcard);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy.as_object_mut().unwrap().remove("wubi_z_wildcard");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_z_wildcard
+    );
+
+    let enabled = Preferences {
+        wubi_z_wildcard: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+            .unwrap()
+            .wubi_z_wildcard
+    );
+}
+
+#[test]
+fn wubi_fifth_code_top_commit_defaults_on_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_fifth_code_top_commit = true`，也是接入开关之前唯一可能的行为。
+    assert!(defaults.wubi_fifth_code_top_commit);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("wubi_fifth_code_top_commit");
+    assert!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_fifth_code_top_commit
+    );
+
+    let disabled = Preferences {
+        wubi_fifth_code_top_commit: false,
+        ..defaults
+    };
+    assert!(
+        !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+            .unwrap()
+            .wubi_fifth_code_top_commit
     );
 }
 
@@ -3973,6 +4086,11 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         !defaults.emoji && !defaults.handwriting && !defaults.voice && !defaults.screen_keyboard
     );
+    // 自动隐藏按 Windows 旧正式版 v0.11.1 的出厂配置：关、延时 5 秒。macOS 旧行为是常开 10 秒。
+    assert!(!defaults.auto_hide);
+    assert_eq!(defaults.auto_hide_delay, 5);
+    // 阴影出厂为开，与 Windows v0.11.1 一致，也是 macOS 一直写死的行为。
+    assert!(defaults.shadow);
     let json = serde_json::to_string(&Preferences::default()).unwrap();
     let restored: Preferences = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.floating_toolbar, defaults);
@@ -3991,6 +4109,9 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.fullwidth);
     assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    assert!(!restored.preferences.floating_toolbar.auto_hide);
+    assert_eq!(restored.preferences.floating_toolbar.auto_hide_delay, 5);
+    assert!(restored.preferences.floating_toolbar.shadow);
 }
 
 #[test]
