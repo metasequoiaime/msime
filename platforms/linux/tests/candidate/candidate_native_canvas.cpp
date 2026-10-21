@@ -163,6 +163,21 @@ void skin_appearance() {
       {"accent", "#0000FF"}, {"selected_bar", "#00000000"}, {"show_selected_bar", true}};
   layout = host::measure_native_canvas(cr, assets, content);
   assert(layout.metrics.bar_width == 3 && layout.metrics.bar_height == 6);
+  // 候选窗不透明度只淡化卡片底色：选中高亮仍不透明，卡片其余部分的 alpha 按比例降低。
+  {
+    const auto translucent = image(500, 300, 0);
+    cairo_t *faded = cairo_create(translucent.get());
+    cairo_set_operator(faded, CAIRO_OPERATOR_CLEAR);
+    cairo_paint(faded);
+    cairo_set_operator(faded, CAIRO_OPERATOR_OVER);
+    auto see_through = assets;
+    see_through.opacity = 0.5;
+    host::paint_native_canvas(faded, see_through, content, layout, palette);
+    assert(pixel(translucent.get(), rect.x + 2, rect.y + rect.height / 2) >> 24 == 0xff);
+    const auto card = pixel(translucent.get(), layout.items[1].x + 15, layout.items[1].y + layout.items[1].height / 2) >> 24;
+    assert(card >= 0x7f && card <= 0x80);
+    cairo_destroy(faded);
+  }
   host::paint_native_canvas(cr, assets, content, layout, palette);
   assert((pixel(target.get(), rect.x, rect.y) & 0xffffff) == 0xff0000);
   assert((pixel(target.get(), rect.x + rect.width - 1, rect.y) & 0xffffff) == 0);
@@ -222,6 +237,35 @@ void skin_appearance() {
   assert((pixel(target.get(), layout.panel.width - 20, layout.preedit.y + 5) & 0xffffff) == 0x123456);
   assert((pixel(target.get(), layout.items[1].x + 15, layout.items[1].y + 15) & 0xffffff) == 0x654321);
   cairo_destroy(cr);
+}
+
+// 固定了排位的行未选中时正文画 macOS 的固定色 #379AD3，选中时照旧用选中文字色。
+void fixed_position_appearance() {
+  host::NativeCanvasAssets assets;
+  host::NativeCanvasContent content;
+  content.font = "Sans 30px";
+  content.items = {{"", "MMMM"}};
+  content.items[0].fixed = true;
+  const Json palette = {{"surface", "#000000"}, {"selected", "#000000"}, {"hover", "#000000"},
+      {"text", "#FFFFFF"}, {"selected_text", "#FFFFFF"}};
+  const auto ink = [&](int selected) {
+    content.selected = selected;
+    auto target = image(600, 200, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    std::map<std::uint32_t, int> colors;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) ++colors[pixel(target.get(), x, y) & 0xffffff];
+    cairo_destroy(cr);
+    return colors;
+  };
+  auto normal = ink(-1);
+  assert(normal[host::kCandidateFixedPositionColor] > 100 && normal[0xffffff] == 0);
+  auto selected = ink(0);
+  assert(selected[0xffffff] > 100 && selected[host::kCandidateFixedPositionColor] == 0);
+  content.items[0].fixed = false;
+  auto plain = ink(-1);
+  assert(plain[0xffffff] > 100 && plain[host::kCandidateFixedPositionColor] == 0);
 }
 
 void translation_appearance() {
@@ -424,6 +468,12 @@ void constrained_text_layout() {
   assert(paged.pager.visible && paged.width <= 320);
   assert(paged.items.back().y > paged.items.front().y);
   for (const auto &box : paged.items) assert(box.x + box.width < paged.previous.x);
+  // 关掉 show_candidate_page_number 时皮肤要的翻页箭头也不画，候选拿回那一列，点不到翻页。
+  content.page_arrows = false;
+  const auto unpaged = host::measure_native_canvas(cr, assets, content, 320);
+  assert(!unpaged.pager.visible);
+  assert(host::native_canvas_hit(content, unpaged, paged.next.x + paged.next.width / 2,
+                                 paged.next.y + paged.next.height / 2) != -3);
   cairo_destroy(cr);
 }
 
@@ -505,7 +555,7 @@ void pager_layout() {
     content.previous = content.next = false;
     assert(host::measure_native_canvas(cr, assets, content).pager.visible);
     assets.expand_panel = true;
-    content.expand = [](bool) {};
+    content.expandable = true;
     assert(host::measure_native_canvas(cr, assets, content).pager.visible == !horizontal);
     assets.expand_panel = false;
     content.menu = true;
@@ -532,20 +582,23 @@ void expanded_panel() {
   content.preedit = "synthetic";
   content.page_size = 3;
   content.items = {{"1.", "a"}, {"2.", "b"}, {"3.", "c"}};
-  content.expand = [](bool) {};
+  content.expandable = true;
   const auto collapsed = host::measure_native_canvas(cr, assets, content, 600);
-  assert(!collapsed.pager.visible && collapsed.toggle.width > 0 && collapsed.grid.empty());
-  assert(host::native_canvas_hit(content, collapsed, collapsed.toggle.x + 1, collapsed.toggle.y + 1) == -4);
+  assert(!collapsed.pager.visible && collapsed.expand.width > 0 && collapsed.grid.empty());
+  assert(host::native_canvas_hit(content, collapsed, collapsed.expand.x + 1, collapsed.expand.y + 1) == host::kNativeCanvasHitExpand);
   content.expanded = true;
   for (int at = 0; at < 400; ++at) content.grid_items.push_back({{}, "synthetic"});
-  for (const int rows : {2, 4, 8}) {
-    assets.expand_rows = rows;
+  // 没写 expandRows 时与 chrome 的网格一样看得见首行之后 kExpandedGridVisibleRows - 1 行。
+  for (const int rows : {0, 2, 4, 8}) {
+    if (rows == 0) assets.expand_rows.reset();
+    else assets.expand_rows = static_cast<std::size_t>(rows);
+    const double extra = rows == 0 ? static_cast<double>(msime::candidate::kExpandedGridVisibleRows - 1) : rows;
     const auto layout = host::measure_native_canvas(cr, assets, content, 600);
     const double first = collapsed.items.front().height;
-    assert(std::abs(layout.viewport.height - first - rows * layout.scroll_step) < 0.001);
+    assert(std::abs(layout.viewport.height - first - extra * layout.scroll_step) < 0.001);
     assert(layout.grid.size() == 300 && layout.max_scroll > 0 && layout.thumb.width == 4);
     assert(host::native_canvas_hit(content, layout, layout.grid.front().x + 1, layout.grid.front().y + 1) == 3);
-    assert(host::native_canvas_hit(content, layout, layout.scrollbar.x + 1, layout.scrollbar.y + 1) == -5);
+    assert(host::native_canvas_hit(content, layout, layout.scrollbar.x + 1, layout.scrollbar.y + 1) == host::kNativeCanvasHitScrollbar);
     assert(host::native_canvas_hit(content, layout, layout.grid.back().x + 1, layout.grid.back().y + 1) == -1);
     content.scroll_offset = 1e9;
     const auto end = host::measure_native_canvas(cr, assets, content, 600);
@@ -554,7 +607,7 @@ void expanded_panel() {
     assert(host::native_canvas_hit(content, end, end.items[0].x + 1, end.items[0].y + 1) == -1);
     const auto &last = end.grid.back();
     assert(host::native_canvas_hit(content, end, last.x + 1, last.y + last.height - 1) == 302);
-    assert(end.toggle.y == layout.toggle.y && end.toggle.x == layout.toggle.x);
+    assert(end.expand.y == layout.expand.y && end.expand.x == layout.expand.x);
     host::paint_native_canvas(cr, assets, content, end, {{"surface", "#ffffff"}});
     content.scroll_offset = -10;
     assert(host::measure_native_canvas(cr, assets, content, 600).scroll_offset == 0);
@@ -566,12 +619,12 @@ void expanded_panel() {
   assert(short_screen.panel.height <= 180 && short_screen.max_scroll > 0);
   content.horizontal = false;
   const auto vertical = host::measure_native_canvas(cr, assets, content, 600);
-  assert(vertical.grid.empty() && vertical.toggle.width == 0 && vertical.pager.visible);
+  assert(vertical.grid.empty() && vertical.expand.width == 0 && vertical.pager.visible);
   content.horizontal = true;
-  content.expand = {};
+  content.expandable = false;
   assert(host::measure_native_canvas(cr, assets, content, 600).pager.visible);
   content.menu = true;
-  assert(host::measure_native_canvas(cr, assets, content, 600).toggle.width == 0);
+  assert(host::measure_native_canvas(cr, assets, content, 600).expand.width == 0);
   cairo_destroy(cr);
 }
 
@@ -602,6 +655,7 @@ int main() {
   pager_layout();
   skin_layout();
   skin_appearance();
+  fixed_position_appearance();
   translation_appearance();
   constrained_text_layout();
   // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。
@@ -665,7 +719,7 @@ int main() {
   package["expandPanel"] = true;
   package["expandRows"] = 2;
   const auto expanding = host::load_native_canvas(package, root, "fixture", true);
-  assert(expanding->page_arrows && expanding->expand_panel && expanding->expand_rows == 2);
+  assert(expanding->page_arrows && expanding->expand_panel && expanding->expand_rows == std::size_t{2});
   assert(cached && cached->panel_animation == cached->decorations[0].animation);
   // 共享解析结果独立于编辑器声明；默认高亮圆角和两种排列的几何都进入真实测量。
   package["resolvedLayout"] = {{"cornerRadiusDip", 0}, {"itemCornerRadiusDip", 4},
@@ -686,7 +740,13 @@ int main() {
   package["expandPanel"] = false;
   const auto resolved_switches = host::load_native_canvas(package, root, "fixture", true);
   assert(resolved_switches->page_arrows && resolved_switches->expand_panel && resolved_switches->fit_content);
-  assert(resolved_switches->expand_rows == 8);
+  assert(resolved_switches->expand_rows == std::size_t{8});
+  // expandRows 夹在 2–8，不是整数时当作没写。
+  package["resolvedLayout"]["expandRows"] = 20;
+  assert(host::load_native_canvas(package, root, "fixture", true)->expand_rows == std::size_t{8});
+  package["resolvedLayout"]["expandRows"] = "4";
+  assert(!host::load_native_canvas(package, root, "fixture", true)->expand_rows);
+  package["resolvedLayout"].erase("expandRows");
   const auto canvas = image(700, 700, 0);
   auto *context = cairo_create(canvas.get());
   host::NativeCanvasContent factory_content;

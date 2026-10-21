@@ -1,3 +1,5 @@
+#include "../../settings/SettingsMascotIntro.h"
+#include "../../settings/SettingsNavIcons.h"
 #include "../../settings/SettingsNavigation.h"
 #include "ShellSurfaces.h"
 #include <array>
@@ -36,7 +38,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
+    // 侧栏：16 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。侧栏平铺、不显示组名，组只决定顺序。
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;
@@ -157,6 +159,46 @@ int main() {
         require(offered_page_for_route(page.id, handwriting) == page.id);
     // 旧的页面 id `hand` 不再是页面，也不是共享路由的类别，和其他未知 id 一样打开默认页。
     require(page_for_route("hand") == default_page);
+
+    // 侧栏每一页都有一个产品图标，按侧栏顺序排列，路径是非零环绕的 XAML 路径标记。
+    require(nav_icons.size() == pages.size());
+    for (std::size_t i = 0; i < pages.size(); ++i) {
+      require(nav_icons[i].page == pages[i].id);
+      require(nav_icon_path(pages[i].id).substr(0, 4) == L"F1 M");
+      require(nav_icons[i].source.size() > 4 &&
+              nav_icons[i].source.substr(nav_icons[i].source.size() - 4) == ".svg");
+    }
+    require(nav_icon_path("hand").empty());
+
+    // 页首引导：除「关于」以外每一页都有一句说明和一张插画，说明照共享 UI 的 `settings-mascot-intro.tsx`。
+    for (const auto &page : pages) {
+      const auto intro = mascot_intro(page.id);
+      require(intro.has_value() == (page.id != "about"));
+      if (intro)
+        require(!intro->description.empty());
+    }
+    for (const auto &entry : mascot_intros)
+      require(find_page(entry.page) != nullptr);
+    require(mascot_intro("account")->description == L"管理账号与跨设备设置同步。");
+    require(mascot_intro("account")->scene == MascotScene::sync);
+    require(mascot_intro("dev")->description == L"检查输入法状态与维护工具。");
+    // 有标签的页面打开时是第一个标签的那句，切到别的标签换成那个标签的；没有标签或不认识的标签仍是第一句。
+    require(mascot_intro("voice")->description == L"配置语音识别、服务与输入快捷键。");
+    require(mascot_intro("voice", "recording")->description ==
+            L"调整录音提示音与录音期间的静音行为。");
+    require(mascot_intro("voice", "recording")->scene == MascotScene::settings);
+    require(mascot_intro("osk")->description == L"调整屏幕键盘布局与外观。");
+    require(mascot_intro("osk", "handwriting")->description == L"设置手写识别与输入方式。");
+    require(mascot_intro("clip")->scene == MascotScene::sync);
+    require(mascot_intro("clip", "history")->description ==
+            L"查看、复制和管理已保存的剪贴板记录。");
+    require(mascot_intro("clip", "nonexistent")->description ==
+            L"设置剪贴板历史的保存与云端同步。");
+    require(mascot_intro("ai", "connection")->description == L"配置候选辅助与文本处理服务。");
+    require(!mascot_intro("nonexistent"));
+    // 插画的资源号与 Settings.rc 一致：110 起，按 MascotScene 的顺序。
+    require(mascot_resource(MascotScene::settings) == 110);
+    require(mascot_resource(MascotScene::downloading) == 119);
   } catch (const std::exception &error) {
     std::fputs(error.what(), stderr);
     std::fputs("\n", stderr);

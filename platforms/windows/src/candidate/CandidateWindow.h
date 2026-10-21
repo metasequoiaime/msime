@@ -16,6 +16,7 @@
 #include "CandidateWindowStyle.h"
 #include "ComponentFailure.h"
 #include "FullscreenForeground.h"
+#include "SystemAccent.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -117,6 +118,9 @@ public:
   // 卷轴展开（CandidateExpandPanel.h）打开或收起时通知 Server（SessionController::set_candidate_expansion）：打开后 Server 才去取这一代的完整候选列表，随快照的 CandidatePresentation::expanded 交回来。
   using Expansion = std::function<void(const FocusLease &, bool)>;
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
+  // 不阻塞地问一个焦点租约是否仍是当前焦点（SessionController::candidate_lease_current）。读快照读不到时，候选窗靠它分清只是没抢到锁还是焦点已经换走：换走了就不让退场继续画旧候选，和 macOS 隐私收起时 finishExit 一样立即消失。没设时按没抢到锁处理，退场照常播完。
+  using LeaseCheck = std::function<bool(const FocusLease &)>;
+  void set_lease_check(LeaseCheck check) { lease_current_ = std::move(check); }
   // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
   bool open_expansion();
   // The package's bounded native motion model. Reduced motion in Windows
@@ -158,8 +162,10 @@ private:
   // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
   std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
-  // 这一页最宽的序号（1 到 count）按序号字号量出的宽度。只有皮肤的版式用得上它（number_inset、fit_content、竖排的列表翻页箭头），其他时候不量、返回 0，没有皮肤时排版和以前一样。
+  // 这一页最宽的序号（1 到 count）按序号字号量出的宽度：候选文字从它之后开始（CandidateCardInput::number_width）。
   double number_label_width(size_t count, const CandidateSkinMetrics &skin);
+  // 这一页候选字一行的高度：主字体的一行，和每个候选的文字、注释用回退字体画出来的那一行，取最高的，和 macOS 按每个候选量 MSIMECandidateTextHeight 一样。card_bounds 和 paint 都读它，量出来的行高和画出来的一致。
+  double candidate_line_height(const CandidatePresentation &value);
   // 横排候选为还没到的释义预留几行：偏好算出的有释义来源的目标语言行数（这一页不请求释义时为 0），韩文汉字列表再加 훈음 那一行。card_bounds 和 paint 都读它，量出来的尺寸和画出来的行才一致。
   size_t reserved_secondary_lines(const CandidatePresentation &value) const;
   // 预留的 lines 行释义用释义字体量出的高度（lines 行占位文字，和 wrap_measure 量多行释义同一种格式），交给 candidate_reserved_row_height。不到两行时为 0：一行释义按固定行高算，不用量。
@@ -172,10 +178,15 @@ private:
   // Repaint for the next flash frame, and stop the timer once the flash has faded.
   void typing_effect_tick(UINT_PTR timer);
   void skin_animation_tick();
-  void begin_skin_animation(CandidateSkinAnimationPreset preset);
+  // rows 是这一页的候选行数，逐行浮现的进场按它算总时长；选中动效不错峰，传 0。
+  void begin_skin_animation(CandidateSkinAnimationPreset preset, size_t rows = 0);
   void finish_skin_animation();
   void hide_now();
   void hide_immediately();
+  // 读到的快照不可见时按原因收起：组字正常结束（CandidatePresentation::composition_ended）走 hide()、可以播退场，其余（失焦、UILess、断开、换了租约，或根本读不到快照）立即收起；读不到快照时已经在播的退场只在退场那一帧的租约仍是当前焦点时播完（exit_lease_lost）。
+  void hide_for(const std::optional<CandidatePresentation> &value);
+  // 正在播的退场所画的那一帧，它的焦点租约已经不是当前焦点（焦点换到了别的客户端或应用）。
+  bool exit_lease_lost() const;
   bool skin_motion_enabled() const;
   float skin_motion_progress() const;
   // Device pixels per DIP for a window DPI, including the user's scale. Layout, rendering, the logo and hit testing all read this one factor.
@@ -219,6 +230,7 @@ private:
   Page page_;
   Rendered rendered_;
   Expansion expansion_;
+  LeaseCheck lease_current_;
   // 卷轴展开的状态和打开它时的租约；expand_viewport_ 是上一帧展开区的高度，后续候选还在路上的那一帧沿用它，卡片不先缩回一行再长回来。
   CandidateExpandState expand_;
   std::optional<FocusLease> expand_lease_;
@@ -291,6 +303,8 @@ private:
   bool show_app_logo_ = false;
   // 偏好算出的释义预留行数（0 到 2），经 set_layout 即时生效。
   unsigned reserved_gloss_lines_ = 0;
+  // 共享偏好 `show_candidate_page_number`，经 set_layout 即时生效；关掉时首行不画页码和翻页箭头。
+  bool show_page_number_ = true;
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
@@ -309,6 +323,10 @@ private:
   CandidateSkinAnimation animation_;
   CandidateSkinAnimationPreset active_animation_ = CandidateSkinAnimationPreset::none;
   uint64_t animation_started_ = 0;
+  // 这次动效一共播多久（毫秒）：卡片的时长，逐行浮现的进场再加上最后一行的延迟。
+  uint64_t animation_total_ms_ = 0;
+  // 卡片上一次开始收起的时刻（GetTickCount64），从没收起过时为空。离它不到 candidate_typing_burst_ms 又出现时不播进场。
+  std::optional<uint64_t> last_hidden_at_;
   bool animation_active_ = false;
   bool finishing_animation_ = false;
   // The running animation is the selection preset: it moves only the highlighted row, never the whole card.
@@ -356,6 +374,9 @@ private:
   bool effect_shaking_ = false;
   // 浮层在画连击徽标，卡片不画计数。
   bool effect_badge_elsewhere_ = false;
+  // 这次特效的强调色：特效包没给颜色时火花、闪光和连击数用它。取系统强调色，与 macOS 的 controlAccentColor 一样；取不到时是主题的强调色。随特效一起取，闪光淡出期间不变。
+  SystemAccent system_accent_;
+  CandidateColor effect_accent_{};
   TypingEffectPresenter typing_effect_presenter_;
   // 最近一次显示候选时 TSF 给的光标锚点，以及当时的前台窗口：上屏之后候选窗收起了，浮层还要知道光标在哪；前台换了就不再用它。
   std::optional<POINT> typing_anchor_;

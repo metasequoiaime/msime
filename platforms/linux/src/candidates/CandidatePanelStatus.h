@@ -47,11 +47,21 @@ inline const char *candidate_panel_limit_name(CandidatePanelLimit limit) {
   return nullptr;
 }
 
-// {"host":"ibus"|"fcitx5","limit":<name>|null}; both values are fixed ASCII names, so no escaping is needed.
-inline std::string candidate_panel_status_document(std::string_view host, CandidatePanelLimit limit) {
+// {"host":"ibus"|"fcitx5","limit":<name>|null}; both values are fixed ASCII names, so no escaping is needed. `native_canvas` 为真时再加 `"renderer":"native_canvas"`：Fcitx5 在 X11 会话里用自己的原生画布按 macOS 的结构画候选窗，设置页据此在 Linux 上也提供展开候选、拼音字号和选中外观（client-core host_surface.rs 的 `linux_native_canvas_renderer`）。
+inline std::string candidate_panel_status_document(std::string_view host, CandidatePanelLimit limit,
+                                                   bool native_canvas = false) {
   const char *name = candidate_panel_limit_name(limit);
   return std::string("{\"host\":\"") + std::string(host) + "\",\"limit\":" +
-         (name ? "\"" + std::string(name) + "\"" : std::string("null")) + "}\n";
+         (name ? "\"" + std::string(name) + "\"" : std::string("null")) +
+         (native_canvas ? ",\"renderer\":\"native_canvas\"" : "") + "}\n";
+}
+
+// Fcitx5 的候选窗这次会话里是不是原生画布画的：会话是 X11。XDG_SESSION_TYPE 是 x11 或 wayland 时照它；是别的值（控制台登录后 startx 时为 tty）或没设时看有没有 DISPLAY 而没有 WAYLAND_DISPLAY。Wayland 会话里走 XWayland 的程序也不用原生画布画水杉主题（FcitxEngine 用同一个判断），所以不算。
+inline bool candidate_session_is_x11(const char *session_type, const char *display, const char *wayland_display) {
+  const std::string_view type = session_type ? session_type : "";
+  if (type == "x11") return true;
+  if (type == "wayland") return false;
+  return display && display[0] && !(wayland_display && wayland_display[0]);
 }
 
 // $XDG_RUNTIME_DIR/msime-client/candidate-panel.json, beside the panel input socket. A missing or relative runtime directory yields nothing, as it does for the socket.

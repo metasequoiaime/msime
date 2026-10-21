@@ -414,6 +414,9 @@ def accept_pager(manifest, preferences, publish, entry):
         # 最小候选行高为 24 * 1.35 + 20；热更新后再据真实面板边缘定位。
         wait(lambda: selected_pixels() and selected_pixels()[1] >= 52 * NATIVE_SCALE)
         subprocess.run(['xdotool', 'mousemove', '0', '0'], check=True, timeout=5)
+        if horizontal:
+            # 两轮的行高相同，上面的等待在这一轮清单热更新生效之前就会通过；横排只有三角样式画翻页分隔线，等它出现（或消失）确认画的已是这一轮的清单，免得按上一轮的位置去点。
+            wait(lambda: native_window() is not None and palette_visible((divider,)) == triangle and palette_visible((SELECTED,)))
 
         def buttons():
             left, top, _, bottom = color_bounds(SELECTED)
@@ -854,6 +857,8 @@ def main():
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
                            candidate_layout=os.environ.get("MSIME_TEST_CANVAS_LAYOUT", "vertical"))
+        # 悬浮工具栏会画在屏幕右下角；截图只看候选画布，不让它进到画面里。
+        preferences["floating_toolbar"]["enabled"] = False
         if TRANSLATION_BELOW:
             preferences.update(candidate_translations=False, candidate_english_gloss=False, candidate_font_size=20)
             options["translation_provider_socket"] = synthetic_translation_provider(root, cleanups)

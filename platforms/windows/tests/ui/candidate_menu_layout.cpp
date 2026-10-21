@@ -3,6 +3,7 @@
 #include <cassert>
 #include <iostream>
 #include <set>
+#include <string>
 
 using namespace msime::windows;
 
@@ -229,6 +230,31 @@ void invalid_placement_is_refused() {
   assert(!candidate_menu_hit(0.0, 0.0, {}, metrics));
 }
 
+// 「删除」行提示 Ctrl+Shift+Alt+N，N 是候选在本页的位置；第 9 个候选没有这个快捷键，不提示。有提示时菜单在右侧多留一栏，提示那一栏照样可以点。
+void delete_row_shows_its_shortcut() {
+  const CandidateMenuMetrics metrics;
+  const auto plain = candidate_menu_items(2);
+  for (const auto &item : plain)
+    assert(item.shortcut.empty());
+  for (size_t slot = 0; slot < 8; ++slot) {
+    const auto items = candidate_menu_items(2, true, slot);
+    assert(items.back().command == CandidateMenuCommand::Remove &&
+           items.back().shortcut == "Ctrl+Shift+Alt+" + std::to_string(slot + 1));
+    assert(items.front().shortcut.empty() && items[1].shortcut.empty());
+  }
+  assert(candidate_menu_items(2, true, 8).back().shortcut.empty());
+  // 单个字没有「删除」行，也就没有提示。
+  for (const auto &item : candidate_menu_items(1, true, 0))
+    assert(item.shortcut.empty());
+  const auto hinted = candidate_menu_items(3, true, 2);
+  const auto size = candidate_menu_size(hinted, metrics);
+  assert(size.width == metrics.width + metrics.shortcut_column);
+  assert(candidate_menu_size(plain, metrics).width == metrics.width);
+  const auto remove = candidate_menu_row(2, hinted, metrics);
+  assert(candidate_menu_hit(size.width - 2.0, remove.top + 1.0, hinted, metrics) ==
+         std::optional<size_t>(2));
+}
+
 // Each chosen row maps to the Engine action it asks for; 固定排位 itself only opens the submenu.
 void chosen_rows_map_to_engine_actions() {
   assert(candidate_menu_action(CandidateMenuCommand::PinToTop, 0)->action ==
@@ -285,6 +311,7 @@ void every_opening_acts_on_its_own_candidate() {
 
 int main() {
   chosen_rows_map_to_engine_actions();
+  delete_row_shows_its_shortcut();
   every_opening_acts_on_its_own_candidate();
   delete_is_offered_only_for_words();
   only_the_fix_row_carries_a_submenu();

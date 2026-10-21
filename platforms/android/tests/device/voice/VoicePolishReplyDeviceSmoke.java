@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.os.Bundle;
 import app.msime.android.VoicePolisher;
+import app.msime.android.HttpAsrResponsePolicy;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +22,8 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
         try {
             // 直接调用产品的私有解析入口，不为测试扩大生产 API。
             Method parser = VoicePolisher.class.getDeclaredMethod("content", String.class);
+            Method asrStatus = HttpAsrResponsePolicy.class.getDeclaredMethod("responseAllowed", String.class);
+            asrStatus.setAccessible(true);
             parser.setAccessible(true);
             Object[][] cases = {
                 {"length", "length", null, ""},
@@ -45,6 +48,17 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
                 check(parser, document.toString(), (String) item[3], (String) item[0], failures);
             }
             check(parser, "{\"choices\":[]}", "", "empty-choices", failures);
+            checkStatus(asrStatus, "{\"text\":\"synthetic transcript\",\"error\":null}", true,
+                "asr-null-error", failures);
+            checkStatus(asrStatus, "{\"text\":\"partial\",\"error\":{\"message\":\"denied\"}}", false,
+                "asr-error-object", failures);
+            checkStatus(asrStatus, asrChat("length", "partial"), false, "asr-length", failures);
+            checkStatus(asrStatus, asrChat("content_filter", "filtered"), false,
+                "asr-content-filter", failures);
+            checkStatus(asrStatus, asrChat("stop", "complete"), true, "asr-stop", failures);
+            checkStatus(asrStatus, asrChat(null, "legacy complete"), true, "asr-missing-finish", failures);
+            checkStatus(asrStatus, asrChat(JSONObject.NULL, "null complete"), true,
+                "asr-null-finish", failures);
             if (!failures.isEmpty()) {
                 result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: voice polish replies: "
                     + String.join(", ", failures) + "\n");
@@ -59,6 +73,17 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
                 + error.getClass().getSimpleName() + ")\n");
             finish(Activity.RESULT_CANCELED, result);
         }
+    }
+
+    private static String asrChat(Object finishReason, String content) throws Exception {
+        JSONObject choice = new JSONObject().put("message", new JSONObject().put("content", content));
+        if (finishReason != null) choice.put("finish_reason", finishReason);
+        return new JSONObject().put("choices", new JSONArray().put(choice)).toString();
+    }
+
+    private static void checkStatus(Method parser, String document, boolean expected, String name,
+                                    List<String> failures) throws Exception {
+        if (expected != (Boolean) parser.invoke(null, document)) failures.add(name);
     }
 
     private static void check(Method parser, String document, String expected, String name,

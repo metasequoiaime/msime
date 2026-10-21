@@ -18,6 +18,8 @@ add_test(NAME voice-provider-socket COMMAND voice-provider-socket-test)
 add_executable(input-mode-hud-panel-test tests/input/InputModeHUDPanelTest.mm src/input/InputModeHUDPanel.mm)
 target_compile_options(input-mode-hud-panel-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(input-mode-hud-panel-test PRIVATE "-framework AppKit")
+# InputModeHUDPanel.mm 经 CandidatePlacement.h 引入 shared/candidate（嵌套命名空间、std::optional），这个目标定义在下面统一设置 C++17 之前，所以单独指定。
+set_target_properties(input-mode-hud-panel-test PROPERTIES OBJCXX_STANDARD 17)
 add_test(NAME input-mode-hud-panel COMMAND input-mode-hud-panel-test)
 # The selected input mode (中, 英, 日 or 한) follows the controller's state; this checks the mapping to the plist's mode identifiers and that a switch made by either side is not echoed back by the other.
 add_executable(input-mode-identifiers-test tests/input/InputModeIdentifiersTest.mm)
@@ -1328,6 +1330,16 @@ foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
   endif()
   target_sources(${msime_target} PRIVATE src/candidate/CandidateCanvas.mm)
   target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore" "-framework ImageIO")
+endforeach()
+
+# 编译悬浮工具栏的所有目标都需要图片画布与共享解码桥。
+get_property(MSIME_TOOLBAR_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_TOOLBAR_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(msime_target_sources AND "src/core/FloatingToolbarPanel.mm" IN_LIST msime_target_sources)
+    target_sources(${msime_target} PRIVATE src/core/ToolbarImageCanvas.mm)
+    target_link_libraries(${msime_target} PRIVATE apple-client "-framework QuartzCore")
+  endif()
 endforeach()
 
 # VoiceInputService.mm passes the system recogniser's text through shared/voice's tidy_local_transcript, so every target compiling it links the library that defines it. Found by source rather than listed, for the same reason as the loops above.

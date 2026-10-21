@@ -115,6 +115,74 @@ int main() {
   assert(!host::prepare_fcitx_canvas_panel(summary, root, "fixture", true));
   assert(!host::fcitx_canvas_directory(Json{{"directory", "relative"}}));
   assert(host::fcitx_canvas_directory(Json{{"directory", root.string()}}) == root);
+
+  // 皮肤背景图按 fit 画进框里：一张 4x2 的图，左半红、右半蓝，放进 20x20 的框。
+  {
+    host::FcitxCanvas photo(4, 2, 1);
+    for (int y = 0; y < 2; ++y) for (int x = 0; x < 4; ++x) photo.blend(x, y, x < 2 ? 0xff0000 : 0x0000ff, 1);
+    const auto source = skin / "background.png";
+    std::ofstream(source, std::ios::binary) << host::fcitx_png_encode(photo);
+    const auto rendered = [&](host::CandidateSkinBackgroundFit fit, double opacity) {
+      const auto result = host::render_fcitx_background({source.string(), fit, 1.0}, 20, 20, opacity);
+      assert(result);
+      const auto one = root / "background-1x.png";
+      const auto two = root / "background-2x.png";
+      std::ofstream(one, std::ios::binary) << result->first;
+      std::ofstream(two, std::ios::binary) << result->second;
+      auto *doubled = cairo_image_surface_create_from_png(two.c_str());
+      assert(cairo_image_surface_get_width(doubled) == 40 && cairo_image_surface_get_height(doubled) == 40);
+      cairo_surface_destroy(doubled);
+      return one;
+    };
+    // cover 铺满整个框，两边裁掉：左上角是红色，右上角是蓝色，四角都不透明。
+    const auto cover = rendered(host::CandidateSkinBackgroundFit::cover, 1.0);
+    assert(pixel(cover, 1, 1) == 0xffff0000u && pixel(cover, 18, 1) == 0xff0000ffu && pixel(cover, 1, 18) >> 24 == 0xff);
+    // contain 完整放进框里，上下留空：顶上一行透明，中间一行是图。
+    const auto contain = rendered(host::CandidateSkinBackgroundFit::contain, 1.0);
+    assert(pixel(contain, 10, 1) == 0 && pixel(contain, 1, 10) == 0xffff0000u && pixel(contain, 18, 10) == 0xff0000ffu);
+    // stretch 两个方向各自拉满；不透明度乘进 alpha。
+    const auto stretch = rendered(host::CandidateSkinBackgroundFit::stretch, 0.5);
+    assert(pixel(stretch, 1, 1) >> 24 >= 0x7f && pixel(stretch, 1, 1) >> 24 <= 0x80 && pixel(stretch, 1, 18) >> 24 >= 0x7f);
+    // 读不到或解不开的图不画。
+    assert(!host::render_fcitx_background({(skin / "missing.png").string()}, 20, 20, 1.0));
+    std::ofstream(skin / "broken.png", std::ios::binary) << "not an image";
+    assert(!host::render_fcitx_background({(skin / "broken.png").string()}, 20, 20, 1.0));
+    assert(!host::render_fcitx_background({source.string()}, 0, 20, 1.0));
+  }
+  // 自由挂件：整个落在角切片里的画进面板图（Wayland 上 classicui 是唯一画法），跨过拉伸区的不画，免得被九宫格拉变形。
+  {
+    const std::array<int, 4> margin{3, 4, 5, 8};
+    // 面板图 28x15，外留白上 2、右 1、下 3、左 4，卡片是中间那块。
+    const std::array<double, 4> card{4, 2, 23, 10};
+    Json corner{{"anchor", "top-left"}, {"offsetXDip", -4}, {"offsetYDip", -2}, {"widthDip", 3}, {"heightDip", 2}};
+    const auto box = host::fcitx_canvas_widget_box(corner, card, 28, 15, margin);
+    assert(box && (*box == std::array<double, 4>{0, 0, 3, 2}));
+    Json bottom_right{{"anchor", "bottom-right"}, {"offsetXDip", 1}, {"offsetYDip", 3}, {"widthDip", 3}, {"heightDip", 3}};
+    assert(host::fcitx_canvas_widget_box(bottom_right, card, 28, 15, margin));
+    Json centred{{"anchor", "top"}, {"widthDip", 3}, {"heightDip", 2}};
+    assert(!host::fcitx_canvas_widget_box(centred, card, 28, 15, margin));
+    Json outside{{"anchor", "top-left"}, {"offsetXDip", -9}, {"widthDip", 3}, {"heightDip", 2}};
+    assert(!host::fcitx_canvas_widget_box(outside, card, 28, 15, margin));
+    host::FcitxCanvas widget(3, 2, 1);
+    for (int y = 0; y < 2; ++y) for (int x = 0; x < 3; ++x) widget.blend(x, y, 0x123456, 1);
+    std::ofstream(skin / "widget.png", std::ios::binary) << host::fcitx_png_encode(widget);
+    // 上面的边界用例把 panel.png 换成了坏图，这里放回合成的九宫格。
+    std::ofstream(skin / "panel.png", std::ios::binary) << host::fcitx_png_encode(canvas);
+    Json decorated{{"id", "fixture"}, {"schemaVersion", 2}, {"canvas", true},
+                   {"borderImage", {{"source", "panel.png"}, {"sliceDip", {2}}, {"widthDip", {2}}, {"fill", true}}},
+                   {"outerInsetsDip", {{"top", 2}, {"right", 2}, {"bottom", 2}, {"left", 4}}},
+                   {"decorations", Json::array({Json{{"image", "widget.png"}, {"anchor", "top-left"}, {"offsetXDip", -4},
+                                                     {"offsetYDip", -2}, {"widthDip", 3}, {"heightDip", 2}, {"zIndex", 2}},
+                                                Json{{"image", "widget.png"}, {"anchor", "top"}, {"widthDip", 3}, {"heightDip", 2}}})}};
+    const auto with_widget = host::prepare_fcitx_canvas_panel(decorated, root, "fixture", true);
+    assert(with_widget);
+    const auto file = root / "widget-panel.png";
+    std::ofstream(file, std::ios::binary) << with_widget->images[0].bytes;
+    assert(pixel(file, 1, 1) == 0xff123456u);
+    decorated["decorations"][0]["image"] = "missing.png";
+    const auto without = host::prepare_fcitx_canvas_panel(decorated, root, "fixture", true);
+    assert(without && without->file != with_widget->file);
+  }
   std::filesystem::remove_all(root);
-  std::cout << "canvas 九宫格像素、明暗、留白、更新与资源边界通过\n";
+  std::cout << "canvas 九宫格像素、明暗、留白、角上挂件、更新与资源边界通过\n";
 }

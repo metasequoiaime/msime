@@ -6903,7 +6903,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let selected = candidatePalette == nil && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
-    let pinned = markers.contains { $0.symbol == "pin.fill" }
+    let pinned = markers.contains(where: \.pinned)
     configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
       : (number == 1 ? candidatePalette?.selectedText : nil) ?? candidatePalette?.text ?? skin.keyForeground
@@ -6984,7 +6984,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static func markerRun(_ markers: [CandidateMarker], color: UIColor, scale: CGFloat) -> AttributedString {
     let font = CandidateFontPreference.font(.caption1, scale: scale)
     var run = AttributedString()
-    for marker in markers {
+    for marker in markers where !marker.symbol.isEmpty {
       guard let image = UIImage(systemName: marker.symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?
         .withTintColor(color, renderingMode: .alwaysOriginal) else { continue }
       run += AttributedString(" ")

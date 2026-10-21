@@ -26,12 +26,15 @@ struct CandidateAccessibleFrame {
   double card_left = 0.0, card_top = 0.0, card_width = 0.0, scale = 1.0;
 };
 
-// 一行候选读出来的样子：候选文字（带纠错星号和徽标），跟着注释（五笔的辅助码、引擎的注释）、脚本插件的注释和韩文汉字的훈음，与 macOS 的 CandidateDisplayWithWubiHint 一样把它们连在候选后面，次序和卡片上画的一样。
+// 一行候选读出来的样子：候选文字（带纠错星号和徽标），跟着注释（五笔的辅助码、引擎的注释）和韩文汉字的훈음，与 macOS 的 CandidateDisplayWithWubiHint 一样把它们连在候选后面；脚本插件的注释最后读，和卡片上画在释义那一段最后一行一样，前面照 macOS 加「，插件注释：」，免得把插件写的字当成输入法的释义或辅助码；读的是卡片上画的那一行（candidate_script_annotation_line 收拾过的）。
 inline std::string candidate_accessible_display(const PresentationCandidate &candidate) {
   auto text = candidate_primary_text(candidate);
-  for (const auto *run : {&candidate.annotation, &candidate.script_annotation, &candidate.gloss})
+  for (const auto *run : {&candidate.annotation, &candidate.gloss})
     if (!run->empty())
       text += " " + *run;
+  const auto script = candidate_script_annotation_line(candidate.script_annotation);
+  if (!script.empty())
+    text += "，插件注释：" + script;
   return text;
 }
 

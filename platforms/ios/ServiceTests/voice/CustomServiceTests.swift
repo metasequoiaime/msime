@@ -369,6 +369,21 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(Data("{\"error\":\"private\"}".utf8), voice: false))
   }
 
+  func testVoiceResponseRejectsExplicitFailureBeforeReadingTextAliases() throws {
+    let replies = [
+      #"{"error":{},"text":"部分转写"}"#,
+      #"{"error":"synthetic failure","text":"部分转写"}"#,
+      #"{"choices":[{"finish_reason":"length","message":{"content":"部分转写"}}]}"#,
+      #"{"choices":[{"finish_reason":"content_filter","message":{"content":"部分转写"}}]}"#,
+    ]
+    for reply in replies {
+      XCTAssertThrowsError(try AppServicesBridge.parseResponse(Data(reply.utf8), voice: true), reply)
+    }
+    XCTAssertEqual(
+      try AppServicesBridge.parseResponse(Data(#"{"error":null,"text":"完整转写"}"#.utf8), voice: true),
+      "完整转写")
+  }
+
   func testBailianSendsTheRecordingAsChatAudioAndReadsTheMessage() throws {
     XCTAssertTrue(VoiceProviderPreset.bailian.usesChatAudio)
     XCTAssertFalse(VoiceProviderPreset.openAI.usesChatAudio)

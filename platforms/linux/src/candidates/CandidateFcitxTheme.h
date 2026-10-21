@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <system_error>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include "CandidateColors.h"
@@ -56,6 +57,17 @@ struct FcitxThemeOverlay {
   std::optional<int> height;
   CandidateSkinAlign align = CandidateSkinAlign::right;
 };
+
+// 皮肤背景图在主题目录里的副本（background-<内容哈希>.png 与 @2x），由 write_fcitx_candidate_theme 生成。
+struct FcitxThemeBackground {
+  std::string file;
+};
+
+inline constexpr std::string_view kFcitxBackgroundPrefix = "background-";
+
+// 把背景图按 fit 和不透明度画成 width×height（逻辑像素）的 1x 与 2x 两张 PNG；读不出或解不开时返回 `nullopt`。需要 cairo 和共享层的图片解码器，由链接了它们的 addon 传入（FcitxCanvasPanel.h 的 render_fcitx_background）。
+using FcitxBackgroundRenderer = std::function<std::optional<std::pair<std::string, std::string>>(
+    const CandidateSkinBackground &background, int width, int height, double opacity)>;
 
 // The @2x twin a resampled decoration is written with: decoration-<hash>.png beside decoration-<hash>@2x.png, the naming the generated shapes use.
 inline std::string fcitx_overlay_2x_name(const std::string &file) {
@@ -99,10 +111,10 @@ inline void fcitx_collect_shape_names(const FcitxThemeFiles &theme, ShapeNames &
 // Generated images are named shape-<content hash>.png with an @2x copy beside each: changed colours give new names, so theme.conf changes with them and the classic UI loads the new pictures rather than ones it already holds under the old names.
 inline constexpr std::string_view kFcitxShapePrefix = "shape-";
 
-// The Linux design's candidate card (tok('linux')): a 10 px radius, 6 px padding inside a 1 px hairline, 6 px rounded items with 5 px 12 px 5 px 10 px padding, and a 0 6px 18px rgba(0,0,0,.22) shadow. The classic UI positions the panel by the shadow margin only on X11 and never scales the shadow away, so the shadow is drawn tighter than the design's (4 px down, sigma 5 instead of 6 px and 9) to keep the transparent margin, and with it the offset Wayland compositors place the panel at, small. Items are padded 6 px vertically instead of 5 because a nine-slice corner cannot be shorter than its 6 px radius; the item pitch stays the design's, which also had a 2 px gap between rows.
+// 候选卡片的几何照 macOS 候选窗（design-tokens-desktop §1.2 的 macOS 一栏，CandidateSkin.cpp 的 SkinTokens、CandidateChrome.h）：10 px 卡片圆角、4 px 内边距（从卡片外沿量起，1 px 发丝线在其中）、6 px 行圆角，行内文字左右各留 8 px、上下各留 6 px，序号与 logo 也取 macOS 的尺寸。配色仍是 Linux 的 Adwaita token（CandidatePalette.h）。macOS 的投影由系统画，classicui 只能画进图片里：这里画成 4 px 向下、sigma 5、22% 黑，阴影边距也就是 Wayland 合成器放面板时的偏移，所以画得比设计稿的 0 6px 18px 紧。这些都是 100% 大小时的长度，`fcitx_panel_metrics` 按 candidate_scale_percent 缩放阴影以外的长度。
 struct FcitxPanelGeometry {
   static constexpr int radius = 10;
-  static constexpr int padding = 6;
+  static constexpr int padding = 4;
   static constexpr int shadow_left = 12;
   static constexpr int shadow_right = 12;
   static constexpr int shadow_top = 8;
@@ -111,18 +123,133 @@ struct FcitxPanelGeometry {
   static constexpr double shadow_sigma = 5.0;
   static constexpr float shadow_alpha = 0.22f;
   static constexpr int item_radius = 6;
-  static constexpr int item_left = 10;
-  static constexpr int item_right = 12;
+  static constexpr int item_left = 8;
+  static constexpr int item_right = 8;
   static constexpr int item_vertical = 6;
   static constexpr int page_button = 16;
-  // The brand mark leading the header row, at the size and gap Windows draws it (CandidateCardSize.h).
+  // The brand mark leading the header row, at the size and gap macOS draws it (CandidateTypography.h).
   static constexpr int logo_side = 16;
   static constexpr int logo_gap = 6;
+  // classicui 主题的 LabelTextSizeFactor 是百分比：序号按候选字号的 80% 画，与 macOS 的 MSIMECandidateNumberScale 相同。
+  static constexpr int label_size_percent = 80;
 };
 
-// 卡片内边距含至少 1 px 发丝线与内容留白；装饰底边定位和可用高度共用 `fcitx_card_padding`，避免缩放后越界或偏移。
-inline int fcitx_card_padding(const CandidateColors &colors) {
-  return std::max(1, colors.border ? std::max(0, colors.border_width) : 0) + FcitxPanelGeometry::padding;
+// 用户在设置里调的候选窗样式（共享偏好），classicui 主题照 macOS 的 StyledCandidateSkin 应用它们：`scale` 是 candidate_scale_percent，乘到阴影以外的每一个长度上（圆角、内边距、行边距、翻页按钮、logo、装饰图），字号已经在字体描述里按它放大；`padding` 是 candidate_padding（0–16 px），代替主题的 4 px 内边距；`opacity` 是 candidate_opacity_percent，只淡化卡片底色和描边，文字、序号和选中高亮保持不透明；`page_arrows` 是 show_candidate_page_number，关掉时不画 ‹ ›（翻页键和滚轮照常），和 macOS 一起隐藏「1 / 3」与箭头一样；`item_radius` 是皮肤包的 item_corner_radius_dip。缺省值画出的主题与没有这些设置时完全相同。
+struct FcitxCandidateStyle {
+  double scale = 1.0;
+  std::optional<double> padding;
+  double opacity = 1.0;
+  bool page_arrows = true;
+  std::optional<double> item_radius;
+  // candidate_layout 是否横排：只用来估计皮肤背景图按多大的卡片排（fcitx_background_box）。
+  bool horizontal = false;
+};
+
+// 从偏好文档读样式，范围与共享层的校验相同（缩放 50–200%、不透明度 50–100%、内边距 0–16），超出范围或类型不对的值按没设处理。皮肤包的行圆角不在偏好里，由调用方另外填。
+inline FcitxCandidateStyle read_fcitx_candidate_style(const nlohmann::json &preferences) {
+  FcitxCandidateStyle style;
+  if (!preferences.is_object()) return style;
+  const auto integer = [&](const char *key) -> std::optional<long long> {
+    const auto value = preferences.find(key);
+    if (value == preferences.end() || !value->is_number_integer()) return std::nullopt;
+    return value->get<long long>();
+  };
+  if (const auto scale = integer("candidate_scale_percent"); scale && *scale >= 50 && *scale <= 200)
+    style.scale = static_cast<double>(*scale) / 100.0;
+  if (const auto opacity = integer("candidate_opacity_percent"); opacity && *opacity >= 50 && *opacity <= 100)
+    style.opacity = static_cast<double>(*opacity) / 100.0;
+  if (const auto padding = integer("candidate_padding"); padding && *padding >= 0 && *padding <= 16)
+    style.padding = static_cast<double>(*padding);
+  if (const auto pages = preferences.find("show_candidate_page_number"); pages != preferences.end() && pages->is_boolean())
+    style.page_arrows = pages->get<bool>();
+  if (const auto layout = preferences.find("candidate_layout"); layout != preferences.end() && *layout == "horizontal")
+    style.horizontal = true;
+  return style;
+}
+
+// 按样式缩放后的几何，单位是 classicui 的逻辑像素。阴影（边距、偏移、模糊和透明度）不缩放，见 fcitx_panel_metrics。
+struct FcitxPanelMetrics {
+  double scale = 1.0;
+  int padding = FcitxPanelGeometry::padding;
+  int shadow_left = FcitxPanelGeometry::shadow_left;
+  int shadow_right = FcitxPanelGeometry::shadow_right;
+  int shadow_top = FcitxPanelGeometry::shadow_top;
+  int shadow_bottom = FcitxPanelGeometry::shadow_bottom;
+  int shadow_offset = FcitxPanelGeometry::shadow_offset;
+  double shadow_sigma = FcitxPanelGeometry::shadow_sigma;
+  int item_left = FcitxPanelGeometry::item_left;
+  int item_right = FcitxPanelGeometry::item_right;
+  int item_vertical = FcitxPanelGeometry::item_vertical;
+  int page_button = FcitxPanelGeometry::page_button;
+  int logo_side = FcitxPanelGeometry::logo_side;
+  int logo_gap = FcitxPanelGeometry::logo_gap;
+};
+
+inline FcitxPanelMetrics fcitx_panel_metrics(const FcitxCandidateStyle &style = {}) {
+  using G = FcitxPanelGeometry;
+  FcitxPanelMetrics metrics;
+  metrics.scale = std::isfinite(style.scale) ? std::clamp(style.scale, 0.5, 2.0) : 1.0;
+  const auto length = [&](double value) { return std::max(0, static_cast<int>(std::lround(value * metrics.scale))); };
+  metrics.padding = length(style.padding ? std::clamp(*style.padding, 0.0, 16.0) : G::padding);
+  // 阴影边距和模糊保持 100% 时的值：Wayland 上 classicui 不读 ShadowMargin，按窗口左上角放面板，阴影边越宽候选窗离光标越远，缩放不能让这段偏移跟着变大。macOS 的投影由系统画，也不随候选窗缩放。
+  metrics.item_left = length(G::item_left);
+  metrics.item_right = length(G::item_right);
+  metrics.item_vertical = std::max(1, length(G::item_vertical));
+  metrics.page_button = std::max(8, length(G::page_button));
+  metrics.logo_side = std::max(8, length(G::logo_side));
+  metrics.logo_gap = length(G::logo_gap);
+  return metrics;
+}
+
+// 皮肤背景图按多大的卡片排。classicui 的背景图只能是一张固定大小、居中贴在卡片上并裁到卡片里的叠图，画主题时还不知道卡片会多大，所以按这个布局下常见的一页候选估一个尺寸：竖排约 240×280，横排约 560×80（100% 时的逻辑像素，随缩放变化）。卡片比它大时四周露出卡片底色，比它小时只看得到中间一块。
+inline std::pair<int, int> fcitx_background_box(const FcitxCandidateStyle &style) {
+  const double scale = fcitx_panel_metrics(style).scale;
+  const auto length = [scale](double value) { return std::max(1, static_cast<int>(std::lround(value * scale))); };
+  return style.horizontal ? std::pair{length(560), length(80)} : std::pair{length(240), length(280)};
+}
+
+// 卡片圆角、内容到卡片外沿的距离和选中行圆角，主题图片、ContentMargin 和装饰图的定位共用这一份。
+struct FcitxCardInset {
+  int radius = 0;
+  int pad = 0;
+  int item_radius = 0;
+};
+
+// 内边距照 macOS 的 CandidateInset 取描边宽度与内边距中较大的一个（描边画在内边距里面），选中高亮因此不会压住描边。
+//
+// 行圆角照 macOS 的 StyledCandidateSkin 推导：`user_radius` 表示 `corner_radius` 是用户自己设的卡片圆角（不是皮肤包的），这时行圆角是卡片圆角减去内边距，和卡片同心；只调了内边距时行圆角至少大到高亮的角不伸出卡片；都没调时用皮肤包的 item_corner_radius_dip（`style.item_radius`），没有就是 6 px。classicui 的高亮九宫格固定切片就是行的文字边距，所以行圆角最多等于上下文字边距（6 px），再圆就画不出来。
+//
+// 被这个上限截短时，macOS 靠同心保证的「高亮不伸出卡片圆角」不再成立：卡片圆角大（例如用户设 32）、内边距只有 4 px 时，首行或末行高亮的角会伸到卡片外面的阴影上。所以这时把内边距加大到高亮圆弧在对角线上不越过卡片圆弧（描边按半宽算，与上面的下限同一种量法）：pad ≥ b/2 + (R − b/2 − r)(1 − 1/√2)。默认的 10 px 卡片和 6 px 行圆角用不到这一步。
+inline FcitxCardInset fcitx_card_inset(const CandidateColors &colors, const FcitxCandidateStyle &style = {},
+                                       const std::optional<double> &corner_radius = std::nullopt,
+                                       bool user_radius = false) {
+  using G = FcitxPanelGeometry;
+  const auto metrics = fcitx_panel_metrics(style);
+  const int border_width = colors.border ? std::max(0, colors.border_width) : 0;
+  FcitxCardInset inset;
+  inset.pad = std::max(border_width, metrics.padding);
+  // The user's or the skin's radius (0-32, resolved by the caller) replaces the design's; the corner slices grow and shrink with it.
+  inset.radius = static_cast<int>(
+      std::lround((corner_radius ? std::clamp(*corner_radius, 0.0, 32.0) : static_cast<double>(G::radius)) * metrics.scale));
+  const int item_limit = std::min({metrics.item_vertical, metrics.item_left, metrics.item_right});
+  double row_radius = (style.item_radius ? std::clamp(*style.item_radius, 0.0, 16.0) : static_cast<double>(G::item_radius)) * metrics.scale;
+  const double half_border = border_width / 2.0;
+  if (user_radius) {
+    row_radius = std::max(0, inset.radius - inset.pad);
+  } else if (style.padding) {
+    row_radius = std::max(row_radius, inset.radius - half_border - (inset.pad - half_border) * (2.0 + std::sqrt(2.0)));
+  }
+  inset.item_radius = std::clamp(static_cast<int>(std::lround(row_radius)), 0, item_limit);
+  const double arc = 1.0 - 1.0 / std::sqrt(2.0);
+  const double needed = half_border + std::max(0.0, inset.radius - half_border - inset.item_radius) * arc;
+  inset.pad = std::max(inset.pad, static_cast<int>(std::ceil(needed - 1e-9)));
+  return inset;
+}
+
+// 卡片外沿到内容的距离（见 fcitx_card_inset）。装饰底边定位和可用高度共用它，避免缩放后越界或偏移。
+inline int fcitx_card_padding(const CandidateColors &colors, const FcitxCandidateStyle &style = {},
+                              const std::optional<double> &corner_radius = std::nullopt, bool user_radius = false) {
+  return fcitx_card_inset(colors, style, corner_radius, user_radius).pad;
 }
 
 // The brand mark as the theme draws it: the installed application icon at 1x (logo_side square) and 2x (twice that), read by load_fcitx_theme_logo.
@@ -168,7 +295,8 @@ inline FcitxMenuPalette fcitx_menu_palette(bool dark, const CandidateMenuSlots &
       background,
       dark ? over(slots.text, 0xFFFFFFu, 0xFF) : over(slots.text, 0x000000u, 0xD1),
       dark ? over(slots.hover, 0xFFFFFFu, 0x14) : over(slots.hover, 0x000000u, 0x0F),
-      over(outlined ? slots.border : std::nullopt, 0x000000u, dark ? 0x5C : 0x1A),
+      // 皮肤包的工具栏分隔线色（slots.divider）优先；没有时分隔线跟随外框。
+      slots.divider ? over(slots.divider, 0, 0) : over(outlined ? slots.border : std::nullopt, 0x000000u, dark ? 0x5C : 0x1A),
       outlined ? composite_color(ring_stroke.rgb, ring_stroke.alpha, background) : background,
       ring_stroke,
   };
@@ -213,71 +341,93 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
 //
 // 装饰作为背景 Overlay：透明顶带增加面板与九宫格顶部固定切片高度，阴影和内容边距同步增加，让 X11 卡片仍贴光标；装饰底边伸入卡片一个内边距，画在候选前但止于内容起点。PNG 按 `width_dip` 缩放并生成 @2x，过高则继续等比缩小；无法缩放但已知高度的图按底边定位，过高会裁顶部，高度未知则从预留区顶部按原尺寸绘制。
 //
-// `user_radius` says whether `corner_radius` is the user's own setting rather than the skin package's: only then does the highlight follow a card tighter than its 6 px, so a package's radius leaves the rows as they were drawn before the setting existed.
+// 卡片圆角、内边距和行圆角由 fcitx_card_inset 推导，`user_radius` 的含义见那里。
+//
+// `style` 是用户的候选窗样式（见 FcitxCandidateStyle）。不透明度低于 100% 时卡片底下的阴影被擦掉，好让桌面透出来；同时打开 classicui 的 EnableBlur，并给出卡片形状的 BlurMask 和到卡片外沿的 BlurMargin：KWin 据此模糊卡片后面的内容（接近 macOS 半透明卡片的观感），其他合成器忽略这几个键，较旧的 Fcitx5 不认 BlurMask 时按 BlurMargin 模糊整个矩形。
 inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors, bool dark,
                                                    const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
                                                    const std::optional<double> &corner_radius = std::nullopt,
                                                    const std::optional<FcitxThemeLogo> &logo = std::nullopt,
                                                    bool user_radius = false,
-                                                   const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt) {
+                                                   const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt,
+                                                   const FcitxCandidateStyle &style = {},
+                                                   const std::optional<FcitxThemeBackground> &background = std::nullopt) {
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
+  const auto metrics = fcitx_panel_metrics(style);
+  const float opacity = static_cast<float>(std::isfinite(style.opacity) ? std::clamp(style.opacity, 0.0, 1.0) : 1.0);
+  const bool translucent = opacity < 1.0f && !canvas_panel;
   FcitxThemeFiles files;
-  files.images.reserve(colors.selected ? 12 : 10);
+  files.images.reserve(colors.selected ? 13 : 11);
   const auto surface = colors.background.value_or(0xffffffu);
   const auto text = colors.text.value_or(contrasting_color(surface).value_or(0));
   const auto selected_text = colors.selected_text.value_or(text);
   const auto highlight = colors.selected ? fcitx_theme_color(*colors.selected) : fcitx_theme_color(surface, true);
   const int border_width = colors.border ? std::max(0, colors.border_width) : 0;
   const auto border = border_width > 0 ? fcitx_theme_color(*colors.border) : fcitx_theme_color(surface, true);
-  // The content keeps the design's 1 px hairline plus 6 px padding even without a border, and grows with a wider one, so the highlight never covers the outline.
+  // 装饰图的裁剪边距止于描边内侧，没有描边时也留出发丝线的 1 px。
   const int inset = std::max(1, border_width);
-  const int pad = fcitx_card_padding(colors);
+  // 卡片圆角、内容到卡片外沿的距离和行圆角（fcitx_card_inset）。
+  const auto card_inset = fcitx_card_inset(colors, style, corner_radius, user_radius);
+  const int radius = card_inset.radius;
+  const int pad = card_inset.pad;
+  const int item_radius = card_inset.item_radius;
   const int band = overlay ? std::max(0, overlay->band) : 0;
-  // The user's or the skin's radius (0-32, resolved by the caller) replaces the design's; the corner slices grow and shrink with it. The highlight keeps its 6 px unless the user's card corners are tighter than that, so a square card the user chose gets square rows.
-  const int radius = corner_radius ? std::clamp(static_cast<int>(std::lround(*corner_radius)), 0, 32) : G::radius;
-  const int item_radius = user_radius ? std::min(G::item_radius, radius) : G::item_radius;
 
   // The card: the corner slices hold the rounded corners and the part of the shadow that varies along the edge, so the stretched middle slices are exact. A decoration's band is the transparent top of the top slices.
-  const int shadow_top = G::shadow_top + band;
-  const int content_left = G::shadow_left + pad;
-  const int logo_top = shadow_top + pad + G::item_vertical;
-  const int lead = logo ? G::logo_side + G::logo_gap : 0;
+  const int shadow_top = metrics.shadow_top + band;
+  const int content_left = metrics.shadow_left + pad;
+  const int logo_top = shadow_top + pad + metrics.item_vertical;
+  const int lead = logo ? metrics.logo_side + metrics.logo_gap : 0;
   // 固定切片必须容下整条描边，否则边框色会进入可拉伸的中心，被拉成整片卡片；左上切片在有关标志时还要容下标志。
   const int edge = std::max(radius, border_width);
-  const int slice_left = std::max(G::shadow_left + edge, logo ? content_left + G::logo_side : 0);
-  const int slice_right = G::shadow_right + edge;
-  const int slice_top = std::max(shadow_top + G::shadow_offset + edge, logo ? logo_top + G::logo_side : 0);
-  const int slice_bottom = G::shadow_bottom + edge;
+  const int slice_left = std::max(metrics.shadow_left + edge, logo ? content_left + metrics.logo_side : 0);
+  const int slice_right = metrics.shadow_right + edge;
+  const int slice_top = std::max(shadow_top + metrics.shadow_offset + edge, logo ? logo_top + metrics.logo_side : 0);
+  const int slice_bottom = metrics.shadow_bottom + edge;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
-  const FcitxRect card{G::shadow_left, static_cast<double>(shadow_top), static_cast<double>(panel_width - G::shadow_right),
-                       static_cast<double>(panel_height - G::shadow_bottom)};
+  const FcitxRect card{static_cast<double>(metrics.shadow_left), static_cast<double>(shadow_top),
+                       static_cast<double>(panel_width - metrics.shadow_right),
+                       static_cast<double>(panel_height - metrics.shadow_bottom)};
   const auto panel = fcitx_add_shape(files.images, panel_width, panel_height, [&](FcitxCanvas &canvas) {
-    const FcitxRect shadow{card.left, card.top + G::shadow_offset, card.right, card.bottom + G::shadow_offset};
-    fcitx_drop_shadow(canvas, shadow, radius, G::shadow_sigma, G::shadow_alpha);
-    fcitx_fill_rounded(canvas, card, radius, surface);
-    if (border_width > 0) fcitx_stroke_rounded(canvas, card, radius, border_width, *colors.border);
+    const FcitxRect shadow{card.left, card.top + metrics.shadow_offset, card.right, card.bottom + metrics.shadow_offset};
+    fcitx_drop_shadow(canvas, shadow, radius, metrics.shadow_sigma, G::shadow_alpha);
+    if (translucent) fcitx_clear_rounded(canvas, card, radius);
+    fcitx_fill_rounded(canvas, card, radius, surface, opacity);
+    if (border_width > 0) fcitx_stroke_rounded(canvas, card, radius, border_width, *colors.border, opacity);
     canvas.clear_above(band);
     if (logo) canvas.draw(canvas.scale() == 1 ? logo->one : logo->two, content_left, logo_top);
   });
+  // KWin 按这张图的 alpha 决定模糊哪里：与卡片同一套九宫格，只有卡片本身不透明。
+  std::string blur_mask;
+  if (translucent)
+    blur_mask = fcitx_add_shape(files.images, panel_width, panel_height, [&](FcitxCanvas &canvas) {
+      fcitx_fill_rounded(canvas, card, radius, 0x000000u);
+    });
+  const int highlight_width = metrics.item_left + 2 + metrics.item_right;
+  const int highlight_height = 2 * metrics.item_vertical + 2;
   std::string highlight_image;
   if (colors.selected)
-    highlight_image = fcitx_add_shape(files.images, G::item_left + 2 + G::item_right, 2 * G::item_vertical + 2,
-                                      [&](FcitxCanvas &canvas) {
-                                        fcitx_fill_rounded(canvas,
-                                                           {0, 0, static_cast<double>(G::item_left + 2 + G::item_right),
-                                                            static_cast<double>(2 * G::item_vertical + 2)},
-                                                           item_radius, *colors.selected);
-                                      });
-  // The design's ‹ › page buttons in the card's header, drawn in its secondary colour, which is the number slot (THEME_CONTRACT: secondary always equals number). The classic UI draws page buttons only when both images load, at the right edge of the content, dimming the one with no page to go to. PageButtonAlignment=Top (Fcitx5 releases since April 2023) lifts them to the top row, where the preedit sits as the design's header does; older releases such as the 5.0.21 the tests run against ignore the key and draw them at the bottom. With no click margin the whole image is the click target, as the design's glyph with its padding is.
-  const auto page_color = colors.number.value_or(text);
-  const auto page_prev = fcitx_add_shape(files.images, G::page_button, G::page_button, [&](FcitxCanvas &canvas) {
-    fcitx_stroke_polyline(canvas, {{9.5, 4.5}, {6, 8}, {9.5, 11.5}}, 1.5, page_color);
-  });
-  const auto page_next = fcitx_add_shape(files.images, G::page_button, G::page_button, [&](FcitxCanvas &canvas) {
-    fcitx_stroke_polyline(canvas, {{6.5, 4.5}, {10, 8}, {6.5, 11.5}}, 1.5, page_color);
-  });
+    highlight_image = fcitx_add_shape(files.images, highlight_width, highlight_height, [&](FcitxCanvas &canvas) {
+      fcitx_fill_rounded(canvas, {0, 0, static_cast<double>(highlight_width), static_cast<double>(highlight_height)},
+                         item_radius, *colors.selected);
+    });
+  // The design's ‹ › page buttons in the card's header, drawn in its secondary colour, which is the number slot (THEME_CONTRACT: secondary always equals number). The classic UI draws page buttons only when both images load, at the right edge of the content, dimming the one with no page to go to. PageButtonAlignment=Top (Fcitx5 releases since April 2023) lifts them to the top row, where the preedit sits as the design's header does; older releases such as the 5.0.21 the tests run against ignore the key and draw them at the bottom. With no click margin the whole image is the click target, as the design's glyph with its padding is. 关掉 show_candidate_page_number 时不生成这两张图，classicui 就不画翻页按钮。
+  std::string page_prev;
+  std::string page_next;
+  if (style.page_arrows) {
+    const auto page_color = colors.number.value_or(text);
+    const double unit = metrics.page_button / static_cast<double>(G::page_button);
+    page_prev = fcitx_add_shape(files.images, metrics.page_button, metrics.page_button, [&](FcitxCanvas &canvas) {
+      fcitx_stroke_polyline(canvas, {{9.5 * unit, 4.5 * unit}, {6 * unit, 8 * unit}, {9.5 * unit, 11.5 * unit}},
+                            1.5 * unit, page_color);
+    });
+    page_next = fcitx_add_shape(files.images, metrics.page_button, metrics.page_button, [&](FcitxCanvas &canvas) {
+      fcitx_stroke_polyline(canvas, {{6.5 * unit, 4.5 * unit}, {10 * unit, 8 * unit}, {6.5 * unit, 11.5 * unit}},
+                            1.5 * unit, page_color);
+    });
+  }
 
   const auto menu = fcitx_menu_palette(dark, colors.menu);
   const int menu_size = 2 * M::radius + 2;
@@ -310,19 +460,30 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   if (overlay) {
     // The card's padding, where the content starts inside the outline: the image's bottom edge is this far below the card's top edge, and its side this far in from the card's side, as Windows places it with pad_y and pad_x.
     // With Top gravity the classic UI measures the offset down from the panel's top edge. An image of known height ends `pad` below the card's top (a negative offset is cut by the clip margin below); one of unknown height starts at the band's top.
-    const int offset = overlay->height ? shadow_top + pad - *overlay->height : G::shadow_top;
+    const int offset = overlay->height ? shadow_top + pad - *overlay->height : metrics.shadow_top;
     // Measured from the gravity's edge: `pad` inside the card on the side the skin aligns to, none when centred (the card is centred in the panel, its shadow margins being equal).
     const char *gravity = overlay->align == CandidateSkinAlign::left     ? "Top Left"
                           : overlay->align == CandidateSkinAlign::center ? "Top Center"
                                                                          : "Top Right";
-    const int offset_x = overlay->align == CandidateSkinAlign::left     ? G::shadow_left + pad
+    const int offset_x = overlay->align == CandidateSkinAlign::left     ? metrics.shadow_left + pad
                          : overlay->align == CandidateSkinAlign::center ? 0
-                                                                        : G::shadow_right + pad;
+                                                                        : metrics.shadow_right + pad;
     // The image may cover the band and the card down to just inside its outline, never the shadow around them.
     decoration = "Overlay=" + overlay->file + "\nGravity=" + gravity + "\nOverlayOffsetX=" +
                  std::to_string(offset_x) + "\nOverlayOffsetY=" + std::to_string(offset) +
                  "\nHideOverlayIfOversize=False\n\n[InputPanel/Background/OverlayClipMargin]\n" +
-                 fcitx_margin(G::shadow_left + inset, G::shadow_right + inset, G::shadow_top, G::shadow_bottom + inset);
+                 fcitx_margin(metrics.shadow_left + inset, metrics.shadow_right + inset, metrics.shadow_top,
+                              metrics.shadow_bottom + inset);
+    decoration.pop_back();
+  } else if (background && !canvas_panel) {
+    // 皮肤背景图：classicui 的背景只有一张叠图，没有装饰图时用它画背景。叠图居中贴在卡片中心（上下阴影边距不等，所以向上挪半个差值），裁到卡片里面：四边各收进描边宽度和圆角处的弧高（r·(1−1/√2)），矩形裁剪才不会让图片从圆角伸出去。
+    const int corner = std::max(border_width, static_cast<int>(std::ceil(radius * (1.0 - 1.0 / std::sqrt(2.0)))));
+    decoration = "Overlay=" + background->file + "\nGravity=Center\nOverlayOffsetX=" +
+                 std::to_string((metrics.shadow_left - metrics.shadow_right) / 2) + "\nOverlayOffsetY=" +
+                 std::to_string((shadow_top - metrics.shadow_bottom) / 2) +
+                 "\nHideOverlayIfOversize=False\n\n[InputPanel/Background/OverlayClipMargin]\n" +
+                 fcitx_margin(metrics.shadow_left + corner, metrics.shadow_right + corner, shadow_top + corner,
+                              metrics.shadow_bottom + corner);
     decoration.pop_back();
   }
   std::ostringstream conf;
@@ -343,10 +504,16 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   if (colors.number) conf << "CandidateLabelColor=" << fcitx_theme_color(*colors.number) << "\n";
   if (colors.selected_number || colors.number)
     conf << "HighlightCandidateLabelColor=" << fcitx_theme_color(colors.selected_number.value_or(selected_text)) << "\n";
-  conf << "EnableBlur=False\n"
-          "FullWidthHighlight=True\n"
-          "PageButtonAlignment=Top\n\n"
-          "[InputPanel/Background]\n"
+  // 序号按候选字号的 80% 画（macOS 的 0.8 倍）；Fcitx5 5.1.18 之前的版本不认这个键，序号与候选一样大。
+  conf << "LabelTextSizeFactor=" << G::label_size_percent << "\n";
+  if (translucent) conf << "EnableBlur=True\nBlurMask=" << blur_mask << "\n";
+  else conf << "EnableBlur=False\n";
+  conf << "FullWidthHighlight=True\n"
+          "PageButtonAlignment=Top\n\n";
+  if (translucent)
+    conf << "[InputPanel/BlurMargin]\n"
+         << fcitx_margin(metrics.shadow_left, metrics.shadow_right, shadow_top, metrics.shadow_bottom);
+  conf << "[InputPanel/Background]\n"
        << "Image=" << (canvas_panel ? canvas_panel->file : panel) << "\n"
        << "Color=" << fcitx_theme_color(surface) << "\n"
        << "BorderColor=" << border << "\n"
@@ -356,24 +523,27 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
                         : fcitx_margin(slice_left, slice_right, slice_top, slice_bottom))
        << "[InputPanel/ShadowMargin]\n"
        << (canvas_panel ? fcitx_margin(canvas_panel->outer[3], canvas_panel->outer[1], canvas_panel->outer[0], canvas_panel->outer[2])
-                        : fcitx_margin(G::shadow_left, G::shadow_right, shadow_top, G::shadow_bottom))
+                        : fcitx_margin(metrics.shadow_left, metrics.shadow_right, shadow_top, metrics.shadow_bottom))
        << "[InputPanel/ContentMargin]\n"
        << (canvas_panel ? fcitx_margin(canvas_panel->content[3] + canvas_panel->outer[3], canvas_panel->content[1] + canvas_panel->outer[1],
                                       canvas_panel->content[0] + canvas_panel->outer[0], canvas_panel->content[2] + canvas_panel->outer[2])
-                        : fcitx_margin(content_left + lead, G::shadow_right + inset + G::padding,
-                                       shadow_top + inset + G::padding, G::shadow_bottom + inset + G::padding))
-       << "[InputPanel/TextMargin]\n" << fcitx_margin(G::item_left, G::item_right, G::item_vertical, G::item_vertical)
+                        : fcitx_margin(content_left + lead, metrics.shadow_right + pad, shadow_top + pad,
+                                       metrics.shadow_bottom + pad))
+       << "[InputPanel/TextMargin]\n"
+       << fcitx_margin(metrics.item_left, metrics.item_right, metrics.item_vertical, metrics.item_vertical)
        << "[InputPanel/Highlight]\n";
   if (!highlight_image.empty()) conf << "Image=" << highlight_image << "\n";
   conf << "Color=" << highlight << "\n\n"
-       << "[InputPanel/Highlight/Margin]\n" << fcitx_margin(G::item_left, G::item_right, G::item_vertical, G::item_vertical)
-       << "[InputPanel/PrevPage]\n"
-       << "Image=" << page_prev << "\n\n"
-       << "[InputPanel/PrevPage/ClickMargin]\n" << fcitx_margin(0, 0, 0, 0)
-       << "[InputPanel/NextPage]\n"
-       << "Image=" << page_next << "\n\n"
-       << "[InputPanel/NextPage/ClickMargin]\n" << fcitx_margin(0, 0, 0, 0)
-       << "[Menu]\n"
+       << "[InputPanel/Highlight/Margin]\n"
+       << fcitx_margin(metrics.item_left, metrics.item_right, metrics.item_vertical, metrics.item_vertical);
+  if (style.page_arrows)
+    conf << "[InputPanel/PrevPage]\n"
+         << "Image=" << page_prev << "\n\n"
+         << "[InputPanel/PrevPage/ClickMargin]\n" << fcitx_margin(0, 0, 0, 0)
+         << "[InputPanel/NextPage]\n"
+         << "Image=" << page_next << "\n\n"
+         << "[InputPanel/NextPage/ClickMargin]\n" << fcitx_margin(0, 0, 0, 0);
+  conf << "[Menu]\n"
        << "NormalColor=" << fcitx_theme_color(menu.text) << "\n"
        << "HighlightCandidateColor=" << fcitx_theme_color(menu.text) << "\n"
        << "Spacing=0\n\n"
@@ -409,8 +579,10 @@ inline std::string fcitx_candidate_theme(const CandidateColors &colors, bool dar
                                          const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
                                          const std::optional<double> &corner_radius = std::nullopt,
                                          const std::optional<FcitxThemeLogo> &logo = std::nullopt,
-                                         bool user_radius = false) {
-  return fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius).conf;
+                                         bool user_radius = false, const FcitxCandidateStyle &style = {},
+                                         const std::optional<FcitxThemeBackground> &background = std::nullopt) {
+  return fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius, std::nullopt, style, background)
+      .conf;
 }
 
 // Where Fcitx5 looks for a user theme: $XDG_DATA_HOME/fcitx5/themes/<name>/theme.conf. A relative XDG value is ignored, as the specification requires.
@@ -580,18 +752,44 @@ inline std::string fcitx_overlay_stamp(const std::optional<CandidateSkinDecorati
   return stamp.str();
 }
 
-// Write the theme for these colours and decoration into `file`. The images are written before theme.conf so the theme never names a file that is not there, and the images of an earlier theme are removed once theme.conf no longer names them. A decoration that cannot be staged leaves the theme without it rather than without MSIME's colours; a shape that cannot be written leaves theme.conf unchanged. Returns whether theme.conf now holds the theme.
+// Write the theme for these colours and decoration into `file`. The images are written before theme.conf so the theme never names a file that is not there, and the images of an earlier theme are removed once theme.conf no longer names them. A decoration that cannot be staged leaves the theme without it rather than without MSIME's colours; a shape that cannot be written leaves theme.conf unchanged. Returns whether theme.conf now holds the theme. 装饰图的预留高度和宽度与卡片的其他长度一样按 `style.scale` 缩放（macOS 的 StyledCandidateSkin 也这样做）。
 inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const CandidateColors &colors, bool dark,
                                         const std::optional<CandidateSkinDecoration> &decoration,
                                         const std::optional<double> &corner_radius = std::nullopt,
                                         const std::optional<FcitxThemeLogo> &logo = std::nullopt,
                                         bool user_radius = false, const FcitxOverlayScaler &scale = {},
-                                        const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt) {
+                                        const std::optional<FcitxCanvasPanel> &canvas_panel = std::nullopt,
+                                        const FcitxCandidateStyle &style = {},
+                                        const std::optional<CandidateSkinBackground> &background = std::nullopt,
+                                        const FcitxBackgroundRenderer &render_background = {}) {
   const auto directory = file.parent_path();
   if (!prepare_candidate_directory(directory)) return false;
-  const auto overlay =
-      decoration && !canvas_panel ? stage_fcitx_overlay(directory, *decoration, fcitx_card_padding(colors), scale) : std::nullopt;
-  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius, canvas_panel);
+  std::optional<FcitxThemeOverlay> overlay;
+  if (decoration && !canvas_panel) {
+    auto scaled = *decoration;
+    const double factor = fcitx_panel_metrics(style).scale;
+    scaled.top_dip *= factor;
+    scaled.width_dip *= factor;
+    overlay = stage_fcitx_overlay(directory, scaled, fcitx_card_padding(colors, style, corner_radius, user_radius), scale);
+  }
+  // 背景图和装饰图共用 classicui 唯一的一张叠图，装饰图画得出来时让给它；背景图的不透明度再乘上用户的候选窗不透明度，和 macOS 一样。
+  std::optional<FcitxThemeBackground> staged_background;
+  std::vector<std::string> backgrounds;
+  if (background && render_background && !overlay && !canvas_panel) {
+    const auto [width, height] = fcitx_background_box(style);
+    const double opacity = std::clamp(background->opacity, 0.0, 1.0) *
+                           (std::isfinite(style.opacity) ? std::clamp(style.opacity, 0.0, 1.0) : 1.0);
+    if (const auto rendered = render_background(*background, width, height, opacity)) {
+      auto name = std::string(kFcitxBackgroundPrefix) + fcitx_content_hash(rendered->first + rendered->second) + ".png";
+      if (!write_fcitx_theme(directory / fcitx_overlay_2x_name(name), rendered->second) ||
+          !write_fcitx_theme(directory / name, rendered->first))
+        return false;
+      backgrounds = {name, fcitx_overlay_2x_name(name)};
+      staged_background = FcitxThemeBackground{std::move(name)};
+    }
+  }
+  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius, canvas_panel, style,
+                                                 staged_background);
   std::vector<std::string> shapes;
   fcitx_collect_shape_names(theme, shapes);
   for (const auto &image : theme.images) {
@@ -602,6 +800,7 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
   std::vector<std::string> overlays;
   if (overlay) overlays = {overlay->file, fcitx_overlay_2x_name(overlay->file)};
   remove_stale_fcitx_files(directory, kFcitxOverlayPrefix, overlays);
+  remove_stale_fcitx_files(directory, kFcitxBackgroundPrefix, backgrounds);
   remove_stale_fcitx_files(directory, kFcitxShapePrefix, shapes);
   remove_stale_fcitx_files(directory, kFcitxCanvasPrefix, shapes);
   return true;

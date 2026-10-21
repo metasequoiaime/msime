@@ -98,7 +98,7 @@ test("Linux does not offer a menu theme it cannot apply", async () => {
   expect(screen.queryByLabelText("菜单主题")).toBeNull();
 });
 
-// Linux stands its toolbar up as the IBus property menu and the Fcitx5 status menu, drawn by the desktop panel; no Linux host reads toolbar_theme.
+// Linux 宿主都不读 toolbar_theme：X11 上的悬浮工具栏跟随颜色模式，「工具栏」子菜单由桌面面板按它自己的主题画。
 test("Linux does not offer a floating-toolbar theme it cannot apply", async () => {
   await openThemePage("linux", { floating_toolbar: true });
   expect(screen.queryByLabelText("悬浮工具栏主题")).toBeNull();
@@ -110,7 +110,7 @@ test("a desktop host that draws the toolbar and does not follow keeps its theme"
   expect(screen.getByLabelText("悬浮工具栏主题")).toBeTruthy();
 });
 
-// 跟随颜色模式的桌面宿主上工具栏和屏幕键盘没有自己的明暗、主题页也没有「高级」组，两页指向「主题」页的那一行要照实说它们跟随颜色模式和主题；颜色模式也不再是可被各界面覆盖的「默认」。Linux 不画工具栏那一行（见 floating-toolbar-page.tsx）。宿主报告不跟随时照旧。
+// 跟随颜色模式的桌面宿主上工具栏和屏幕键盘没有自己的明暗、主题页也没有「高级」组，两页指向「主题」页的那一行要照实说它们跟随颜色模式和主题；颜色模式也不再是可被各界面覆盖的「默认」。画悬浮工具栏的 Linux 宿主（报告 floating_toolbar_appearance）与 macOS 一样有那一行，只剩菜单的 Linux 宿主没有（见 floating-toolbar-page.tsx）。宿主报告不跟随时照旧。
 const following = {
   colourMode: "设置窗口和各界面的明暗模式；候选窗口可在下面单独设置",
   toolbar: "悬浮工具栏跟随「主题」页的颜色模式和主题",
@@ -119,7 +119,7 @@ const following = {
 test.each([
   ["macos", true, following],
   ["windows", true, following],
-  ["linux", true, { ...following, toolbar: undefined }],
+  ["linux", true, following],
   [
     "windows",
     false,

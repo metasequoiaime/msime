@@ -152,10 +152,11 @@ inline std::string shuangpin_keymap_zero_initial_text(const nlohmann::json &zero
   return text;
 }
 
-// 键位图的几何，设备无关像素，取 macOS 面板的尺寸：620×203 的卡片，左右各留 14，三排键帽各高 38、键间距 5；中排、下排按键数往里收，与 macOS 的 KeyRowInset 相同。窗口四周再加阴影的边距。
+// 键位图的几何，设备无关像素，取 macOS 面板的尺寸：620×203 的卡片，圆角固定 13（macOS 卡片层的 cornerRadius，不随候选窗主题的圆角变），左右各留 14，三排键帽各高 38、键间距 5；中排、下排按键数往里收，与 macOS 的 KeyRowInset 相同。窗口四周再加阴影的边距。
 struct ShuangpinKeymapMetrics {
   double width = 620.0;
   double height = 203.0;
+  double card_radius = 13.0;
   double inset = 14.0;
   double header_top = 10.0;
   double header_height = 20.0;
@@ -196,15 +197,38 @@ inline ShuangpinKeymapRect shuangpin_keymap_key_rect(const ShuangpinKeymapMetric
   return {left, top, left + key_width, top + metrics.key_height};
 }
 
-// 高亮键帽上的字色：强调色够暗时用白字，够亮时用黑字（Windows 深色主题的强调色是浅蓝，白字看不清），按 WCAG 的相对亮度取对比更大的那一个。
-inline CandidateColor shuangpin_keymap_on_accent(const CandidateColor &accent) {
+// WCAG 的相对亮度。白字对比度 (1.05)/(L+0.05)，黑字 (L+0.05)/0.05，两者相等时 L 约为 0.179：高于它的颜色算亮色，上面配黑字。
+inline float shuangpin_keymap_luminance(const CandidateColor &color) {
   const auto linear = [](float channel) {
     return channel <= 0.04045f ? channel / 12.92f
                                : static_cast<float>(std::pow((channel + 0.055f) / 1.055f, 2.4f));
   };
-  const float luminance = 0.2126f * linear(accent.r) + 0.7152f * linear(accent.g) + 0.0722f * linear(accent.b);
-  // 白字对比度 (1.05)/(L+0.05)，黑字 (L+0.05)/0.05，两者相等时 L 约为 0.179。
-  return luminance > 0.179f ? CandidateColor{0.0f, 0.0f, 0.0f, 1.0f} : CandidateColor{1.0f, 1.0f, 1.0f, 1.0f};
+  return 0.2126f * linear(color.r) + 0.7152f * linear(color.g) + 0.0722f * linear(color.b);
+}
+inline constexpr float shuangpin_keymap_light_luminance = 0.179f;
+
+// 高亮键帽上的字色：强调色够暗时用白字，够亮时用黑字（Windows 深色主题的强调色是浅蓝，白字看不清），按 WCAG 的相对亮度取对比更大的那一个。
+inline CandidateColor shuangpin_keymap_on_accent(const CandidateColor &accent) {
+  return shuangpin_keymap_luminance(accent) > shuangpin_keymap_light_luminance ? CandidateColor{0.0f, 0.0f, 0.0f, 1.0f}
+                                                                               : CandidateColor{1.0f, 1.0f, 1.0f, 1.0f};
+}
+
+// 卡面和未高亮键帽的填充色。macOS 是 popover 材质的半透明卡面上一排 controlBackgroundColor 实色键帽：浅色下是白键帽、比卡面亮，深色下约 #1E1E1E、比卡面暗；这里从候选窗的表面色推出这两层，明暗关系与 macOS 相同。浅色主题的键帽是表面色往白色提亮的不透明实色（白卡上仍是白色），卡面再往正文色压暗一点，让白键帽从卡面上浮出来；深色主题的卡面保持表面色，键帽是表面色往黑色压暗四分之一的不透明实色（默认 #28282A 的卡面上约 #1E1E1F），陷在卡面里。
+struct ShuangpinKeymapFills {
+  CandidateColor card;
+  CandidateColor key;
+};
+inline ShuangpinKeymapFills shuangpin_keymap_fills(const CandidatePalette &palette) {
+  const auto mix = [](const CandidateColor &from, const CandidateColor &to, float amount, float alpha) {
+    return CandidateColor{from.r + (to.r - from.r) * amount, from.g + (to.g - from.g) * amount,
+                          from.b + (to.b - from.b) * amount, alpha};
+  };
+  const CandidateColor white{1.0f, 1.0f, 1.0f, 1.0f};
+  const CandidateColor black{0.0f, 0.0f, 0.0f, 1.0f};
+  const bool light = shuangpin_keymap_luminance(palette.surface) > shuangpin_keymap_light_luminance;
+  const CandidateColor key = light ? mix(palette.surface, white, 0.6f, 1.0f) : mix(palette.surface, black, 0.25f, 1.0f);
+  const CandidateColor card = light ? mix(palette.surface, palette.text, 0.06f, palette.surface.a) : palette.surface;
+  return {card, key};
 }
 
 // 屏幕上的矩形，物理像素。

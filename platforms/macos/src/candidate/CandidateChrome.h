@@ -2,34 +2,29 @@
 #import <AppKit/AppKit.h>
 #import "CandidateTypography.h"
 #import "CandidateTextMetrics.h"
-#include "CandidateItemLayout.h"
+#include "../../../../shared/candidate/CandidateItemLayout.h"
 #include "CandidateSkin.h"
 #import "CandidatePronunciation.h"
 #import "CandidateMotion.h"
 #import "CandidateCanvas.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
-static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
-// A reading is quieter than the gloss it follows, relative to the gloss colour.
-static const CGFloat MSIMECandidatePronunciationOpacity = 0.72;
-// The translation under or beside a candidate is a fixed 12pt run at every candidate size (design-input-surfaces §2.1), so a large candidate font does not grow a gloss the eye only glances at.
-static const CGFloat MSIMECandidateTranslationPointSize = 12.0;
-// The top row of the card: the reading on the left, then 「1 / 3」 and the two page arrows on the right.
-static const CGFloat MSIMECandidateHeaderHeight = 26.0;
-// Room kept between a horizontal card that grows past half the screen and each edge of the visible area.
-static const CGFloat MSIMECandidateScreenMargin = 16.0;
-// 「1 / 3」 is set at the design's 13pt in the secondary colour (dc.html L1324), a point above the translation run.
-static const CGFloat MSIMECandidatePageIndicatorPointSize = 13.0;
-static const CGFloat MSIMECandidatePageArrowWidth = 28.0;
-static const CGFloat MSIMECandidatePageIndicatorGap = 4.0;
-// A row keeps 6 points above and below its text, and a gloss under the text 2 points on each side of its lines.
-static const CGFloat MSIMECandidateRowPadding = 12.0;
-static const CGFloat MSIMECandidateGlossPadding = 4.0;
-static const CGFloat MSIMECandidateTextRight = 8.0;
+// 尺寸和透明度与 Linux 的 X11 原生画布共用 shared/candidate/CandidateChromeMetrics.h，含义见那里。
+static const CGFloat MSIMECandidateTranslationOpacity = msime::candidate::kCandidateTranslationOpacity;
+static const CGFloat MSIMECandidatePronunciationOpacity = msime::candidate::kCandidatePronunciationOpacity;
+static const CGFloat MSIMECandidateTranslationPointSize = msime::candidate::kCandidateTranslationPointSize;
+static const CGFloat MSIMECandidateHeaderHeight = msime::candidate::kCandidateHeaderHeight;
+static const CGFloat MSIMECandidateScreenMargin = msime::candidate::kCandidateScreenMargin;
+static const CGFloat MSIMECandidatePageIndicatorPointSize = msime::candidate::kCandidatePageIndicatorPointSize;
+static const CGFloat MSIMECandidatePageArrowWidth = msime::candidate::kCandidatePageArrowWidth;
+static const CGFloat MSIMECandidatePageIndicatorGap = msime::candidate::kCandidatePageIndicatorGap;
+static const CGFloat MSIMECandidateRowPadding = msime::candidate::kCandidateRowPadding;
+static const CGFloat MSIMECandidateGlossPadding = msime::candidate::kCandidateGlossPadding;
+static const CGFloat MSIMECandidateTextRight = msime::candidate::kCandidateTextRight;
 
 // Every length below is the window at 100%; `scale` is candidate_scale_percent as a factor, which the candidate fonts are already set at.
 static inline CGFloat MSIMECandidateTextLeft(BOOL showSelectedBar, CGFloat scale = 1.0)
 {
-    return (8.0 + (showSelectedBar ? 6.0 : 0.0)) * scale;
+    return msime::candidate::CandidateTextLeft(showSelectedBar, scale);
 }
 
 // One set of attributes for measuring and drawing a run, so a wrapped run is drawn in exactly the height the layout measured for it. A run that fits clips instead of wrapping.
@@ -67,9 +62,9 @@ static inline CGFloat MSIMECandidateGlossHeight(NSString *text, NSFont *font, CG
 }
 
 // Metrics of a candidate row. The annotation is drawn at the candidate font, the gloss at glossFont; `chrome` is the width of the number, bar and paddings around the content.
-static inline msime::mac::CandidateLayoutMetrics MSIMECandidateLayoutMetrics(NSFont *font, NSFont *glossFont, CGFloat candidateRow, CGFloat chrome, CGFloat scale = 1.0)
+static inline msime::candidate::CandidateLayoutMetrics MSIMECandidateLayoutMetrics(NSFont *font, NSFont *glossFont, CGFloat candidateRow, CGFloat chrome, CGFloat scale = 1.0)
 {
-    msime::mac::CandidateLayoutMetrics metrics;
+    msime::candidate::CandidateLayoutMetrics metrics;
     metrics.candidateRow = candidateRow;
     metrics.chrome = chrome;
     // 注释包在括号里紧贴候选字（「你好(wqvb)」），括号本身就是分隔，不再留空隙。
@@ -80,9 +75,9 @@ static inline msime::mac::CandidateLayoutMetrics MSIMECandidateLayoutMetrics(NSF
     return metrics;
 }
 
-static inline msime::mac::CandidateItemWidths MSIMECandidateItemWidths(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0)
+static inline msime::candidate::CandidateItemWidths MSIMECandidateItemWidths(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0)
 {
-    msime::mac::CandidateItemWidths widths;
+    msime::candidate::CandidateItemWidths widths;
     widths.text = MSIMECandidateSingleLineWidth(text, font);
     widths.annotation = MSIMECandidateSingleLineWidth(annotation, font);
     widths.translation = MSIMECandidateSingleLineWidth(translation, glossFont);
@@ -91,17 +86,17 @@ static inline msime::mac::CandidateItemWidths MSIMECandidateItemWidths(NSString 
 }
 
 // Wrapped height of each run, as the layout asks for it: the text keeps the row's padding, a gloss its own.
-static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0, CGFloat rowPadding = -1.0)
+static inline msime::candidate::CandidateRunMeasure MSIMECandidateRunMeasure(NSString *text, NSString *annotation, NSString *translation, NSFont *font, NSFont *glossFont, CGFloat scale = 1.0, CGFloat rowPadding = -1.0)
 {
     if (rowPadding < 0.0) rowPadding = MSIMECandidateRowPadding * scale;
-    return [text = [text copy], annotation = [annotation copy], translation = [translation copy], font, glossFont, scale, rowPadding](msime::mac::CandidateRun run, double width) -> double {
+    return [text = [text copy], annotation = [annotation copy], translation = [translation copy], font, glossFont, scale, rowPadding](msime::candidate::CandidateRun run, double width) -> double {
         switch (run)
         {
-        case msime::mac::CandidateRun::text:
+        case msime::candidate::CandidateRun::text:
             return MSIMECandidateWrappedHeight(text, font, width) + rowPadding;
-        case msime::mac::CandidateRun::annotation:
+        case msime::candidate::CandidateRun::annotation:
             return MSIMECandidateWrappedHeight(annotation, font, width);
-        case msime::mac::CandidateRun::translation:
+        case msime::candidate::CandidateRun::translation:
             return MSIMECandidateWrappedHeight(translation, glossFont, width) + MSIMECandidateGlossPadding * scale;
         }
         return 0.0;
@@ -198,7 +193,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 // 脚本插件给这一行加的注释，已经过 MSIMECandidateScriptAnnotationRun 收拾；画在释义行的最后一行，斜体，从不上屏，也不替换引擎的 annotation。没有时为空。
 @property(nonatomic, copy) NSString *scriptAnnotation;
 // Geometry from the panel's page layout; frames, drawing and hit testing all come from it. Without one the button lays itself out in its bounds.
-@property(nonatomic) msime::mac::CandidateItemLayout itemLayout;
+@property(nonatomic) msime::candidate::CandidateItemLayout itemLayout;
 @property(nonatomic) BOOL hasItemLayout;
 // Where the candidate text starts, the same for every row of a page so their text lines up. Zero derives it from the number drawn.
 @property(nonatomic) CGFloat contentLeft;
@@ -366,14 +361,14 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
     NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:MSIMECandidateTranslationPointSize * scale];
     const CGFloat contentLeft = self.contentLeft > 0.0 ? self.contentLeft : textLeft + numberSize.width + MSIMECandidateNumberGap * scale;
-    msime::mac::CandidateItemLayout layout = self.itemLayout;
+    msime::candidate::CandidateItemLayout layout = self.itemLayout;
     if (!self.hasItemLayout)
     {
         // A button nobody laid out lays itself out in its own bounds, with the same rule the panel uses.
-        const msime::mac::CandidateLayoutMetrics metrics =
+        const msime::candidate::CandidateLayoutMetrics metrics =
             MSIMECandidateLayoutMetrics(self.font, glossFont, MAX(boundsHeight, MSIMECandidateTextHeight(word, self.font) + MSIMECandidateRowPadding * scale),
                                         contentLeft + textRight, scale);
-        layout = msime::mac::LayoutCandidateItem(MSIMECandidateItemWidths(word, annotation, translation, self.font, glossFont, scale),
+        layout = msime::candidate::LayoutCandidateItem(MSIMECandidateItemWidths(word, annotation, translation, self.font, glossFont, scale),
                                                  self.bounds.size.width - contentLeft - textRight, metrics,
                                                  self.translationBelow, MSIMECandidateRunMeasure(word, annotation, translation, self.font, glossFont, scale));
     }
@@ -395,7 +390,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
         withAttributes:numberAttributes];
     if (annotation.length && layout.annotation.width > 0.0)
     {
-        const msime::mac::CandidateRunBox &run = layout.annotation;
+        const msime::candidate::CandidateRunBox &run = layout.annotation;
         if (run.below)
             [annotation drawInRect:box(contentLeft + run.x, run.y, run.width, run.height) withAttributes:MSIMECandidateRunAttributes(self.font, titleColor, YES)];
         else
@@ -406,7 +401,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
     }
     if (translation.length && layout.translation.width > 0.0)
     {
-        const msime::mac::CandidateRunBox &run = layout.translation;
+        const msime::candidate::CandidateRunBox &run = layout.translation;
         NSColor *glossColor = self.translationColor ?: [titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         NSMutableAttributedString *glossText = [[NSMutableAttributedString alloc] initWithString:translation
             attributes:MSIMECandidateRunAttributes(glossFont, glossColor, run.below)];

@@ -22,14 +22,14 @@ const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 const USER_AGENT: &str = "msime-client";
 
 /// 设置页展示和比较时使用的发布版本号：只保留点分数字，去掉开头的 `v` 以及预发布、构建后缀。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Version {
     pub display: String,
     pub parts: Vec<u64>,
 }
 
 /// 某个平台的最新发布；能选出本版本的安装包时一并带上。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseUpdate {
     pub version: Version,
     /// 该发布在 [`RELEASES_PAGE_URL`] 下的页面。
@@ -43,7 +43,7 @@ pub struct ReleaseUpdate {
 }
 
 /// 一次检查的结果，宿主序列化后的形状为 `{"status": "available" | "current" | "none", "update": ReleaseUpdate | null}`。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", content = "update", rename_all = "lowercase")]
 pub enum UpdateCheck {
     /// 有版本号高于当前运行版本号的发布。

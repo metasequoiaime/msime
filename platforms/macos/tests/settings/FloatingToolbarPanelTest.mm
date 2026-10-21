@@ -1,9 +1,13 @@
 #import "../../src/core/FloatingToolbarPanel.h"
 #import "../../src/core/NativeGlassBackground.h"
 #import "../../src/candidate/CandidateSkinAppearance.h"
+#import "../../src/core/ToolbarImageCanvas.h"
+#import <ImageIO/ImageIO.h>
+#include "../../../common/SkinImageAnimation.h"
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 
 @interface FloatingToolbarTestDelegate : NSObject <MSIMEFloatingToolbarDelegate>
 @property(nonatomic) NSUInteger inputModeToggles;
@@ -74,6 +78,88 @@ static double ExpectedWidth(double count, double fontSize, double factor, bool l
 static void SendButton(NSButton *button) {
     assert(button != nil && button.target != nil && button.action != nullptr);
     [NSApp sendAction:button.action to:button.target from:button];
+}
+
+static void TestImageToolbar() {
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSURL *background = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"bar.png"]];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithURL((__bridge CFURLRef)background, CFSTR("public.png"), 2, nullptr);
+    assert(destination);
+    CGImageDestinationSetProperties(destination, (__bridge CFDictionaryRef)@{@"{PNG}":@{@"LoopCount":@0}});
+    for (NSUInteger at = 0; at < 2; ++at) {
+        NSBitmapImageRep *image = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nil pixelsWide:4 pixelsHigh:1
+            bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:16 bitsPerPixel:32];
+        std::memset(image.bitmapData, 0, 16);
+        // 两帧只在两端各有一个不透明像素；中间始终透明，用于验证并集而非当前帧命中。
+        image.bitmapData[at * 12] = 255;
+        image.bitmapData[at * 12 + 3] = 255;
+        CGImageDestinationAddImage(destination, image.CGImage, (__bridge CFDictionaryRef)@{@"{PNG}":@{@"DelayTime":@0.1}});
+    }
+    assert(CGImageDestinationFinalize(destination));
+    CFRelease(destination);
+    const auto root = std::filesystem::path(directory.UTF8String);
+    uint64_t budget = 8000000;
+    auto frames = msime::skin::ImageAnimation::load(root, "bar.png", budget);
+    assert(frames && frames->frames.size() == 2 && frames->alpha[0] && !frames->alpha[1] && frames->alpha[3]);
+    assert(frames->frame_at(0) == 0 && frames->frame_at(150) == 1 && frames->frame_at(250) == 0);
+    assert(frames->frame_at(150, true) == 0);
+    assert(!msime::skin::ImageAnimation::load(root, "../bar.png", budget));
+
+    NSDictionary *manifest = @{
+        @"image":@"bar.png", @"imageWidthDip":@80, @"imageHeightDip":@40,
+        @"buttonDefaults":@{@"widthDip":@20,@"heightDip":@20},
+        @"buttonFlow":@{@"xDip":@0,@"yDip":@40,@"direction":@"horizontal",@"gapDip":@0},
+        @"buttons":@{
+            @"status":@{@"xDip":@90,@"yDip":@0,@"images":@{@"cn":@"bar.png",@"en":@"bar.png"}},
+            @"fullwidth":@{@"visible":@NO,@"images":@{}}
+        }
+    };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:manifest options:0 error:nil];
+    msime::mac::SkinToolbarImage skin{std::string(static_cast<const char *>(json.bytes), json.length), root};
+    MSIMEFloatingToolbarPanel *panel = [MSIMEFloatingToolbarPanel new];
+    [panel setFrameAutosaveName:@""];
+    [panel applyThemePreferences:@{@"theme":@"dark"}];
+    NSDictionary *preferences = @{@"floating_toolbar":@{@"scale_percent":@150,@"english_mode":@YES,
+        @"punctuation":@NO,@"fullwidth":@YES,@"character_set":@NO,@"settings":@YES}};
+    [panel applySizingPreferences:preferences];
+    const NSSize barSize = [[panel valueForKey:@"preferredSize"] sizeValue];
+    FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
+    [panel activateForDelegate:delegate visible:NO];
+    [panel applyLightToolbarImage:skin darkSkin:skin];
+    MSIMEToolbarImageCanvas *canvas = [panel valueForKey:@"imageCanvas"];
+    assert(canvas && canvas.subviews.count == 2 && !panel.hasShadow);
+    assert(canvas.preferredSize.width == 165 && canvas.preferredSize.height == 90);
+    NSButton *status = FindButton(canvas, @"MetasequoiaFloatingToolbarInputMode");
+    NSButton *settings = FindButton(canvas, @"MetasequoiaFloatingToolbarSettings");
+    assert(status && settings && status.frame.origin.x == 135 && settings.frame.origin.y == 60);
+    assert(!FindButton(canvas, @"MetasequoiaFloatingToolbarFullWidth"));
+    assert([canvas containsInteractivePoint:NSMakePoint(10, 10)]);
+    assert([canvas containsInteractivePoint:NSMakePoint(110, 10)]);
+    assert(![canvas containsInteractivePoint:NSMakePoint(60, 10)]);
+    assert([canvas containsInteractivePoint:NSMakePoint(140, 10)]);
+    assert([canvas containsInteractivePoint:NSMakePoint(5, 70)]);
+    SendButton(status);
+    SendButton(settings);
+    assert(delegate.inputModeToggles == 1 && delegate.settingsRequests == 1);
+    assert([status valueForKey:@"faceAsset"]);
+    // 删除源文件后切换状态仍从预载帧选图，不重新读图或扫描整个包。
+    assert([NSFileManager.defaultManager removeItemAtURL:background error:nil]);
+    [panel updateEnglishInputMode:YES chinesePunctuationEnabled:YES fullWidthEnabled:NO traditionalChineseOutputEnabled:NO];
+    assert([FindButton(canvas, @"MetasequoiaFloatingToolbarInputMode") valueForKey:@"faceAsset"]);
+    [panel applyLightToolbarImage:skin darkSkin:skin];
+    assert([panel valueForKey:@"imageCanvas"] == canvas);
+    [panel reloadToolbarImages];
+    canvas = [panel valueForKey:@"imageCanvas"];
+    assert(![FindButton(canvas, @"MetasequoiaFloatingToolbarInputMode") valueForKey:@"faceAsset"]);
+    // 读不出背景时保留背景矩形拖动回退，按钮仍有原生文字与动作。
+    assert([canvas containsInteractivePoint:NSMakePoint(60, 10)]);
+    msime::mac::SkinToolbarImage none;
+    [panel applyLightToolbarImage:none darkSkin:none];
+    assert(![panel valueForKey:@"imageCanvas"] && panel.hasShadow && !panel.ignoresMouseEvents);
+    assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], barSize));
+    [panel deactivateForDelegate:delegate];
+    assert([NSFileManager.defaultManager removeItemAtPath:directory error:nil]);
 }
 
 int main() {
@@ -655,4 +741,5 @@ int main() {
         [[NSWorkspace sharedWorkspace].notificationCenter postNotificationName:NSWorkspaceDidActivateApplicationNotification object:[NSWorkspace sharedWorkspace]];
         assert(!panel.visible);
     }
+    @autoreleasepool { TestImageToolbar(); }
 }

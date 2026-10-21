@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "ModeBadgePainter.h"
 #include "WaveOverlayX11Placement.h"
@@ -58,6 +59,7 @@ bool ModeBadgeX11Surface::ensure_window() {
   if (visuals && visual_count > 0) {
     visual = visuals[0].visual;
     depth = visuals[0].depth;
+    argb_ = true;
     attributes.colormap = XCreateColormap(display_, root, visual, AllocNone);
     colormap_ = attributes.colormap;
     mask |= CWColormap;
@@ -88,30 +90,75 @@ bool ModeBadgeX11Surface::ensure_window() {
   return true;
 }
 
+bool ModeBadgeX11Surface::compositing() const {
+  if (!display_) return false;
+  const auto name = "_NET_WM_CM_S" + std::to_string(DefaultScreen(display_));
+  const auto selection = XInternAtom(display_, name.c_str(), True);
+  return selection != None && XGetSelectionOwner(display_, selection) != None;
+}
+
 bool ModeBadgeX11Surface::show(const std::string &text, const std::string &icon_path,
-                               const ModeBadgeStyle &style) {
+                               const ModeBadgeStyle &style, std::optional<ModeBadgeCaret> caret) {
   if (!ensure_window()) return false;
-  const auto layout = measure_mode_badge(style.metrics, icon_path);
-  // Bottom-right with the Wayland badge's margin, but inside the work area of the monitor holding the focused window (else the pointer) and scaled by GDK_SCALE / Xft.dpi, as the voice bar is; GNOME under Xwayland comes through here too. It still does not follow the caret: the panel's text hint covers that half, which keeps both session types alike. Monitors, panels and the scale can all change between two switches, and a switch is rare enough that re-reading them on every show costs nothing.
+  // 合成器、显示器、面板和缩放在两次切换之间都可能变，切换又不频繁，所以每次 show 都重读，不缓存。
+  auto metrics = style.metrics;
+  metrics.shadow = argb_ && compositing();
+  const auto layout = measure_mode_badge(metrics, icon_path);
   const auto scale = x11_overlay_scale(display_);
   const auto width = wave_overlay_scaled(layout.width, scale);
   const auto height = wave_overlay_scaled(layout.height, scale);
-  const auto monitor = x11_overlay_monitor(display_, randr_monitors_);
-  const auto position =
-      wave_overlay_bottom_right(monitor.work, width, height, wave_overlay_scaled(kEdgeMargin, scale));
-  // Moved and resized before mapping, so the badge never flashes at its previous monitor or size.
+  const auto plate_width = wave_overlay_scaled(layout.plate_width, scale);
+  const auto plate_height = wave_overlay_scaled(layout.plate_height, scale);
+  const auto margin = wave_overlay_scaled(static_cast<int>(layout.margin), scale);
+  WaveOverlayPosition position;
+  if (caret) {
+    // 跟随光标：在光标所在显示器的工作区里按 macOS 的规则放本体，再退出阴影边得到窗口位置。光标矩形不可用时以焦点窗口（再不行用指针）所在的显示器为准，放在 macOS 的回退位置。
+    std::optional<WaveOverlayPosition> anchor;
+    if (mode_badge_caret_usable(*caret))
+      anchor = WaveOverlayPosition{caret->x + caret->width / 2, caret->y + caret->height / 2};
+    const auto monitor = x11_overlay_monitor(display_, randr_monitors_, anchor);
+    const auto plate = mode_badge_caret_position(
+        caret, plate_width, plate_height, monitor.work,
+        wave_overlay_scaled(static_cast<int>(ModeBadgeGeometry::caret_gap), scale),
+        wave_overlay_scaled(static_cast<int>(ModeBadgeGeometry::screen_margin), scale));
+    position = {plate.x - margin, plate.y - margin};
+  } else {
+    // 不跟随光标时放在焦点窗口（再不行用指针）所在显示器工作区的右下角，边距与 Wayland 徽章相同，GNOME 的 Xwayland 也走这里。
+    const auto monitor = x11_overlay_monitor(display_, randr_monitors_);
+    const auto plate = wave_overlay_bottom_right(monitor.work, plate_width, plate_height,
+                                                 wave_overlay_scaled(kEdgeMargin, scale));
+    position = {plate.x - margin, plate.y - margin};
+  }
+  // 先移动、改尺寸再映射，徽章不会在上一次的显示器或尺寸上闪一下。
   XMoveResizeWindow(display_, window_, position.x, position.y, static_cast<unsigned>(width),
                     static_cast<unsigned>(height));
   XMapRaised(display_, window_);
-  auto *surface = cairo_xlib_surface_create(display_, window_, visual_, width, height);
+  text_ = text;
+  icon_path_ = icon_path;
+  colors_ = style.colors;
+  layout_ = layout;
+  window_width_ = width;
+  window_height_ = height;
+  paint(1.0);
+  visible_ = true;
+  return true;
+}
+
+void ModeBadgeX11Surface::paint(double alpha) {
+  auto *surface = cairo_xlib_surface_create(display_, window_, visual_, window_width_, window_height_);
   auto *cairo = cairo_create(surface);
-  // The painter works in the layout's logical pixels; scaling the context scales the plate, the logo, the glyph and the outline together.
-  cairo_scale(cairo, static_cast<double>(width) / layout.width, static_cast<double>(height) / layout.height);
-  paint_mode_badge(cairo, layout, text, icon_path, style.colors);
+  // 画法按 layout 的逻辑像素来，缩放上下文就把本体、阴影、标志、字和描边一起缩放。
+  cairo_scale(cairo, static_cast<double>(window_width_) / layout_.width,
+              static_cast<double>(window_height_) / layout_.height);
+  paint_mode_badge(cairo, layout_, text_, icon_path_, colors_, alpha);
   cairo_destroy(cairo);
   cairo_surface_destroy(surface);
   XFlush(display_);
-  visible_ = true;
+}
+
+bool ModeBadgeX11Surface::set_opacity(double alpha) {
+  if (!visible_ || !display_ || !window_ || !argb_ || !compositing()) return false;
+  paint(alpha);
   return true;
 }
 

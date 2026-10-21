@@ -56,6 +56,7 @@ final class ImeVoiceEntry {
     private LocalAsrRecognizer local;
     private DoubaoRecognizer streaming;
     private SpeechRecognizer platform;
+    private VoicePolisher polisher = new VoicePolisher();
     /** 系统识别服务已经报过 onReadyForSpeech：之后只为权限拒绝转交识别窗口。 */
     private boolean platformListening;
     /** 用户已经按语音键结束了这次系统识别：之后报的错（例如还没开始聆听就被叫停时的 ERROR_CLIENT）不再转交识别窗口，否则按两下语音键会弹出一个识别窗口重新录音。 */
@@ -171,6 +172,7 @@ final class ImeVoiceEntry {
         }
         LocalAsrRecognizer runningLocal = local;
         DoubaoRecognizer runningStream = streaming;
+        VoicePolisher runningPolisher = polisher;
         String options = HostOptionsPolicy.readRuntimeOptions(files);
         try {
             worker.execute(() -> {
@@ -216,7 +218,7 @@ final class ImeVoiceEntry {
                 }
                 String result = text == null ? null : TextPolicy.trimmed(text);
                 if (result != null && !result.isEmpty() && polish != null) {
-                    String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
+                    String polished = runningPolisher.polish(polish.endpoint(), polish.model(), polish.token(),
                         polish.prompt(), result);
                     if (TextPolicy.hasText(polished)) {
                         result = TextPolicy.trimmed(polished);
@@ -331,6 +333,9 @@ final class ImeVoiceEntry {
         generation++;
         recognizing = false;
         held = false;
+        polisher.cancel();
+        // 后台任务保留旧实例，新识别不能复用它永久生效的取消标记。
+        polisher = new VoicePolisher();
         if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
         local = null;
@@ -429,9 +434,10 @@ final class ImeVoiceEntry {
         }
         if (listening != null) listening.setHint("正在润色…");
         String transcript = result;
+        VoicePolisher runningPolisher = polisher;
         try {
             worker.execute(() -> {
-                String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
+                String polished = runningPolisher.polish(polish.endpoint(), polish.model(), polish.token(),
                     polish.prompt(), transcript);
                 String finalText = TextPolicy.hasText(polished)
                     ? TextPolicy.trimmed(polished) : transcript;
@@ -594,13 +600,7 @@ final class ImeVoiceEntry {
                     listening = null;
                     host = null;
                     hidden.clear();
-                    generation++;
-                    recognizing = false;
-                    if (local != null) local.cancel();
-                    if (streaming != null) streaming.cancel();
-                    local = null;
-                    streaming = null;
-                    releasePlatform();
+                    cancel();
                 }
             }
         });

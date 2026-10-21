@@ -18,6 +18,8 @@ struct CandidateSkinAssets {
   std::optional<float> corner_radius;
   CandidateSkinBackground background;
   CandidateSkinToolbar toolbar;
+  nlohmann::json toolbar_image;
+  std::filesystem::path toolbar_directory;
   CandidateSkinAnimation animation;
   // 版式、外框、阴影、材质、翻页箭头和收紧宽度；候选窗按当前排列和字号解析（candidate_skin_metrics）。
   CandidateSkinLayout layout;
@@ -40,6 +42,11 @@ candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
   assets.corner_radius = candidate_skin_corner_radius(catalog, id);
   assets.background = candidate_skin_background(catalog, id, root);
   assets.toolbar = candidate_skin_toolbar(catalog, id);
+  if (const auto *package = detail::candidate_skin_package(catalog, id);
+      package && package->contains("toolbarImage") && package->at("toolbarImage").is_object()) {
+    assets.toolbar_image = package->at("toolbarImage");
+    assets.toolbar_directory = root / id;
+  }
   assets.animation = candidate_skin_animation(catalog, id);
   assets.layout = candidate_skin_layout(catalog, id);
   if (const auto *package = detail::candidate_skin_package(catalog, id);
