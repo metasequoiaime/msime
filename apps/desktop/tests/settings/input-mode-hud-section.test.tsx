@@ -22,3 +22,21 @@ test("shortcut placement uses the enabled default and its shortcut label", () =>
   const toggle = screen.getByLabelText("切换中英文时显示提示") as HTMLInputElement;
   expect(toggle.checked).toBe(true);
 });
+
+test("聚焦提示默认关闭且独立于切换提示保存", () => {
+  const switchChange = vi.fn();
+  const focusChange = vi.fn();
+  render(
+    <InputModeHudSection value={false} onChange={switchChange} focus={{ onChange: focusChange }} />,
+  );
+  const focus = screen.getByLabelText("聚焦输入框时提示") as HTMLInputElement;
+  expect(focus.checked).toBe(false);
+  fireEvent.click(focus);
+  expect(focusChange).toHaveBeenCalledWith(true);
+  expect(switchChange).not.toHaveBeenCalled();
+});
+
+test("未提供 Linux 聚焦能力时只显示切换提示", () => {
+  render(<InputModeHudSection value={true} onChange={vi.fn()} />);
+  expect(screen.queryByLabelText("聚焦输入框时提示")).toBeNull();
+});

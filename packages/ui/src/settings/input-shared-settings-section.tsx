@@ -31,6 +31,8 @@ export interface InputSharedSettingsSectionProps {
   frequency: FrequencyPreferences;
   ios: boolean;
   showInputModeHUD: boolean;
+  /** Linux 可选的聚焦提示，与真正切换中英文时的提示分开。 */
+  showInputModeFocusHUD?: boolean;
   /** macOS 菜单栏的输入模式状态项开关，跟在中英文切换提示之后。 */
   showInputModeStatusItem?: boolean;
   showModeScope: boolean;
@@ -71,6 +73,7 @@ export function InputSharedSettingsSection({
   frequency,
   ios,
   showInputModeHUD,
+  showInputModeFocusHUD = false,
   showInputModeStatusItem = false,
   showModeScope,
   mixedInput,
@@ -166,6 +169,15 @@ export function InputSharedSettingsSection({
             <InputModeHudSection
               value={preferences.input_mode_hud}
               onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
+              focus={
+                showInputModeFocusHUD
+                  ? {
+                      value: preferences.input_mode_focus_hud,
+                      onChange: (input_mode_focus_hud) =>
+                        onPreferencesChange({ input_mode_focus_hud }),
+                    }
+                  : undefined
+              }
             />
           )}
           {showInputModeStatusItem && (

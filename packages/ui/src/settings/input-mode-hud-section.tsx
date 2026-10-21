@@ -3,6 +3,8 @@ import { SwitchRow } from "./switch-row";
 export interface InputModeHudSectionProps {
   value?: boolean;
   onChange: (value: boolean) => void;
+  /** 只有 Linux 提供聚焦提示；与切换提示各自保存，不互相禁用。 */
+  focus?: { value?: boolean; onChange: (value: boolean) => void };
   /** Use the wording of the shortcut group, where macOS keeps this switch with the chords that trigger it. */
   shortcut?: boolean;
 }
@@ -11,9 +13,10 @@ export interface InputModeHudSectionProps {
 export function InputModeHudSection({
   value,
   onChange,
+  focus,
   shortcut = false,
 }: InputModeHudSectionProps) {
-  return shortcut ? (
+  const switchRow = shortcut ? (
     <SwitchRow
       title="切换中英文时显示提示"
       description="切换后在光标下方短暂显示「中」或「英」。"
@@ -27,5 +30,18 @@ export function InputModeHudSection({
       checked={value ?? true}
       onChange={onChange}
     />
+  );
+  return (
+    <>
+      {switchRow}
+      {focus && (
+        <SwitchRow
+          title="聚焦输入框时提示"
+          description="进入输入框时，短暂显示当前的中英文状态。"
+          checked={focus.value ?? false}
+          onChange={focus.onChange}
+        />
+      )}
+    </>
   );
 }

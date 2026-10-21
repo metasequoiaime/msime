@@ -166,6 +166,7 @@ def screenshot():
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
 TRANSLATION_BELOW = os.environ.get("MSIME_TEST_TRANSLATION_BELOW") == "1"
 FONT_GEOMETRY = os.environ.get("MSIME_TEST_FONT_GEOMETRY") == "1"
+MODE_HINT_PREFERENCES = os.environ.get("MSIME_TEST_MODE_HINT_PREFERENCES") == "1"
 ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
 OVERLAY = os.environ.get("MSIME_TEST_DECORATION_OVERLAY") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
@@ -997,6 +998,86 @@ def accept_font_geometry(root, preferences, publish, entry, focused, control, da
     print("真实 classicui 序号字号、整体缩放、热更新和 GTK 上屏通过")
 
 
+def accept_mode_hint_preferences(root, preferences, publish, window, entry, focused, focused_context, control, daemon):
+    """经真实 GTK 焦点、Shift 切换和窗口像素验证两个提示开关。"""
+    xid = GdkX11.X11Window.get_xid(window.get_window())
+    root_xid = GdkX11.X11Window.get_xid(Gdk.get_default_root_window())
+    bottom = window.get_position()[1] + window.get_size()[1]
+
+    def hint_visible():
+        image = capture_image()
+        data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+        # Xvfb 根背景是黑色；编辑器下方的非黑像素来自实际提示窗口。
+        return sum(max(data[y * stride + x * channels:y * stride + x * channels + 3]) > 30
+                   for y in range(bottom, min(bottom + 120, image.get_height()))
+                   for x in range(min(window.get_size()[0] + 150, image.get_width()))) > 16
+
+    def observe_hidden():
+        deadline = time.monotonic() + 0.4
+        while time.monotonic() < deadline:
+            while GLib.MainContext.default().iteration(False):
+                pass
+            assert not hint_visible(), "没有切换模式时出现了提示窗口"
+            time.sleep(0.02)
+
+    def remote_focus(active):
+        return any(focused_context in line and re.search(rf"\bfocus:{int(active)}\b", line)
+                   for line in str(control.DebugInfo()).splitlines())
+
+    def refocus():
+        subprocess.run(["xdotool", "windowfocus", "--sync", str(root_xid)], check=True, timeout=5)
+        wait(lambda: not entry.has_focus() and remote_focus(False))
+        subprocess.run(["xdotool", "windowfocus", "--sync", str(xid)], check=True, timeout=5)
+        wait(lambda: entry.has_focus() and focused() and remote_focus(True))
+
+    config = root / "config/fcitx5/conf/classicui.conf"
+
+    def font_setting():
+        return next((line for line in config.read_text().splitlines() if line.startswith("Font=")), None) if config.exists() else None
+
+    def set_hints(focus, switch):
+        before = font_setting()
+        preferences.update(input_mode_focus_hud=focus, input_mode_hud=switch,
+                           candidate_font_size=preferences["candidate_font_size"] + 1)
+        publish()
+        # 同一快照中改字号，等实际字体配置变化作为宿主已读偏好的确认。
+        wait(lambda: font_setting() is not None and font_setting() != before)
+
+    def dismiss_hint():
+        # 先清掉框架在切到输入法时自带的信息，随后只观察本次触发产生的窗口。
+        subprocess.run(["xdotool", "key", "Escape"], check=True, timeout=5)
+        wait(lambda: not hint_visible())
+
+    dismiss_hint()
+    # 未设置聚焦偏好的旧文档，以及反复点击输入框，都不应借切换开关弹窗。
+    for _ in range(3):
+        refocus()
+        observe_hidden()
+    subprocess.run(["xdotool", "key", "Shift_L"], check=True, timeout=5)
+    wait(hint_visible)
+    save_image("mode-switch-hint")
+    dismiss_hint()
+    set_hints(True, False)
+    refocus()
+    wait(hint_visible)
+    save_image("focus-hint-enabled")
+    dismiss_hint()
+    subprocess.run(["xdotool", "key", "Shift_L"], check=True, timeout=5)
+    observe_hidden()
+    set_hints(False, True)
+    refocus()
+    observe_hidden()
+    save_image("focus-hint-disabled")
+    subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "nihao"], check=True, timeout=5)
+    wait(lambda: palette_visible(LIGHT))
+    assert focused() and entry.get_text() == "", "提示偏好影响焦点或提前上屏"
+    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你好")
+    control.Exit()
+    assert daemon.wait(timeout=10) == 0
+    print("真实 GTK 聚焦默认无提示、切换提示、独立热更新和中文上屏通过")
+
+
 def main():
     resources, library, addon = map(Path, sys.argv[1:4])
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -1112,6 +1193,12 @@ def main():
                 "selected": "#075BAD", "text": "#010203", "selected_text": "#FFFFFF",
                 "selected_number": "#FFFFFF"}
 
+        if MODE_HINT_PREFERENCES:
+            assert not NATIVE and not WAYLAND
+            preferences.pop("input_mode_focus_hud", None)
+            preferences.update(input_mode_hud=True, candidate_font_size=20, show_app_logo=False,
+                               candidate_font_family="DejaVu Sans", candidate_fallback_fonts=[])
+
         def publish():
             store = options["preferences_directory"].encode()
             snapshot = value(host.msime_client_load_preferences(store, len(store)))
@@ -1128,6 +1215,9 @@ def main():
         os.environ["GDK_BACKEND"] = "wayland" if WAYLAND else "x11"
         if WAYLAND:
             assert Path(env.get("WAYLAND_DISPLAY", "")).is_absolute(), "需要隔离合成器的绝对 socket 路径"
+        if MODE_HINT_PREFERENCES:
+            # 框架默认用 Shift 临时切换输入法；本用例要走插件自己的中英文切换。
+            (root / "config/fcitx5/config").write_text("[Hotkey/AltTriggerKeys]\n0=Control+Shift+F12\n")
         window = keyboard = control = compositor = None
         with (root / "daemon.log").open("w") as log:
             daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env, stdout=log, stderr=log)
@@ -1202,6 +1292,9 @@ def main():
                 control.SetCurrentIM("msime")
                 control.Activate()
                 wait(lambda: str(control.CurrentInputMethod()) == "msime")
+                if MODE_HINT_PREFERENCES:
+                    accept_mode_hint_preferences(root, preferences, publish, window, entry, focused, focused_context, control, daemon)
+                    return
                 if WAYLAND:
                     keyboard.keys(*"nihao")
                 else:

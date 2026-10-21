@@ -19,7 +19,7 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 
 - 尺寸与 macOS `InputModeHUDPanel.mm` 相同：18 px 常规字重，32 px 高，左右 8 px 内边距，8 px 圆角；标志跟随 `show_app_logo`，默认不画。显示 0.6 秒后分四帧在 0.18 秒内淡出（`ModeBadgeTiming`）。有合成器时画一圈阴影并淡出；没有合成器的 X11 上透明像素会变黑，所以不画阴影、到时直接收起。
 - 两个宿主各只有一块徽章表面（Fcitx5 在 `FcitxEngine` 上，IBus 是进程级的 `process_mode_badge`），第一次真要画时才建（`mode_badge_surface_wanted`）：新的提示替换屏幕上那块，与 macOS 只有一个提示面板相同；IBus 为每个输入上下文建一个引擎对象，徽章跟着引擎走的话，每个获得过焦点的输入框都各占一条显示服务器连接，快速换输入框时还会在几个光标下同时留着几块徽章。
-- 获得焦点时（#2589）光标徽章先等客户端报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报光标位置，那一刻的矩形是上一个位置或全 0。Fcitx5 等 `InputContextCursorRectChanged`，IBus 等 `set_cursor_location`，最多等 `ModeBadgeTiming::focus_caret_wait_ms`（150 ms，矩形没变时 Fcitx5 不发变化事件）；等完仍没有可用矩形就改用面板的文字提示（`mode_badge_focus_hint`），不把徽章放到屏幕下方。真正的切换不等，那时客户端早已报过光标。「可用」只排除四个分量全为 0 的矩形（`mode_badge_caret_usable`），等待期间报来的全 0 矩形也不算，接着等：macOS 把高度为 0 的也当成没报，Linux 不能照搬，XIM 客户端（xterm、X 下的 Emacs、Wine 和 Java 程序）报的就是一个宽高为 0 的点，Fcitx5 的 XIM 前端和 ibus-x11 都这样传，评审前按高度判断时，这些客户端的切换徽章被放到屏幕下方的回退位置，原来跟着光标的面板提示也没了。
+- 聚焦提示现在由[独立偏好](../bug-fix/2026-10-22-linux-focus-mode-hint.md)控制，默认关闭；开启后（#2589）光标徽章先等客户端报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报光标位置，那一刻的矩形是上一个位置或全 0。Fcitx5 等 `InputContextCursorRectChanged`，IBus 等 `set_cursor_location`，最多等 `ModeBadgeTiming::focus_caret_wait_ms`（150 ms，矩形没变时 Fcitx5 不发变化事件）；等完仍没有可用矩形就改用面板的文字提示（`mode_badge_focus_hint`），不把徽章放到屏幕下方。真正的切换不等，那时客户端早已报过光标。「可用」只排除四个分量全为 0 的矩形（`mode_badge_caret_usable`），等待期间报来的全 0 矩形也不算，接着等：macOS 把高度为 0 的也当成没报，Linux 不能照搬，XIM 客户端（xterm、X 下的 Emacs、Wine 和 Java 程序）报的就是一个宽高为 0 的点，Fcitx5 的 XIM 前端和 ibus-x11 都这样传，评审前按高度判断时，这些客户端的切换徽章被放到屏幕下方的回退位置，原来跟着光标的面板提示也没了。
 - 一次切换只出一处提示（`ModeBadgePlacement.h` 的 `mode_badge_hint`）：X11 客户端（Fcitx5 看输入上下文的 display，IBus 看会话里没有 `WAYLAND_DISPLAY`）时，徽章按 `MSIMEInputModeHUDFrame` 的规则放在光标下方 10 px，下面放不下就翻到上方，夹在工作区 8 px 以内，没有光标时放在下沿离底边四分之一高的位置，不再发面板提示。其余情况由面板的文字提示跟随光标；只有用户要了标志时，带标志的徽章另放在屏幕角上，因为面板提示带不了图。
 - 离开输入框或换到别的输入法时立刻收起这个上下文自己的那块徽章（Fcitx5 在 `deactivate`，IBus 在 `focus_out`），与 macOS 在 `deactivateServer:` 里 orderOut 提示面板相同；还在等光标的获得焦点提示在用户按下第一个键时作废，否则候选窗刚出现在光标下方，徽章随后放上去会盖住它。macOS 打字时不收起已经显示的徽章，这里也不收。
 - IBus 也链接同一套后端，有 X11 或 layer-shell 时画徽章，否则保留辅助文本。辅助文本的显示时间也改成 0.6 秒。
@@ -55,7 +55,7 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
   - Wayland 原生客户端仍看不到跟着光标的徽章，只有面板文字提示；GNOME Wayland 下 IBus 的徽章（打开标志时）经 Xwayland 显示在角上。
   - IBus 的徽章只在纯 X11 会话里跟随光标：同一个引擎服务 Wayland 原生客户端时分不出坐标系，宁可用辅助文本。
   - Fcitx5 顶层从 24 项变成 32 项（失焦时 23 项），kimpanel 的按钮更多。
-  - 焦点进入新输入框时 Linux 仍显示提示（#2589），macOS 只在切换时显示，这是有意保留的差异。
+  - Linux 的聚焦提示可以独立开启以满足 #2589，默认只在切换时提示；触发控制见[独立偏好](../bug-fix/2026-10-22-linux-focus-mode-hint.md)。
   - GNOME Shell 的 IBus 菜单仍只有两项（Shell 的属性树会卡死桌面），每模式图标、「检查更新…」入口和设置页的「已更新到 X」状态卡都没有做。
   - 升级通知的按钮需要 libnotify 0.7.10 起的 `notify-send --action`；带按钮的通知会让一个 `notify-send` 等到用户关掉它。
 

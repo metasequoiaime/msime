@@ -332,6 +332,17 @@ if(BUILD_TESTING)
             "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+        # 自定义模式提示从 5.1.11 起可用，旧开发库不编入这条生产路径。
+        if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
+          add_test(NAME fcitx5-mode-hint-preferences
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_MODE_HINT_PREFERENCES=1
+              MSIME_FCITX5_CANDIDATE_RENDERER=classicui
+              "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" -- "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-mode-hint-preferences PROPERTIES TIMEOUT 90)
+        endif()
         foreach(canvas_layout horizontal vertical)
           add_test(NAME fcitx5-candidate-font-pixels-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
