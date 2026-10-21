@@ -49,13 +49,17 @@
 #include "FeedbackReport.h"
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
+#include "HistoryPagination.h"
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
 #include "PunctuationSettings.h"
 #include "SettingsDocumentFile.h"
+#include "SettingsMascotIntro.h"
+#include "SettingsNavIcons.h"
 #include "SettingsNavigation.h"
 #include "SettingsStateDirectory.h"
+#include "SettingsText.h"
 #include "ShellLauncher.h"
 #include "ThemeSkinModel.h"
 #include "ToolbarIcons.h"
@@ -78,6 +82,7 @@
 #include <winrt/Microsoft.UI.Xaml.Documents.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
@@ -914,17 +919,19 @@ Color rgba(int red, int green, int blue, double alpha) {
 
 Color transparent_color() { return Color{0, 0, 0, 0}; }
 
-// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。
+// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。`window_bg` 是侧栏（窗口底色），`content_bg` 是正文和它上方的标题栏那一列，`edge` 是侧栏右侧的边线，`title_edge` 是标题栏内容列底部的细线，`hover` 是侧栏导航项悬停、按下和选中共用的中性底色，数值取自共享设置 UI 的 macOS 外壳（`settings-style.ts` 的 `sidebar`、`content`、`macosToolbar` 和 `platform-tokens.ts` 的 `hover`）。`accent` 只用于开关、复选框、滑块这类不带文字的填充；底上是白字的填充（主按钮、提示条按钮、头像、社区资源图块）用 `accent_strong`，深浅两种外观都是浅色模式的品牌绿，与共享页的 `--accent-strong` 一样保证白字可读。
 struct Palette {
   bool dark = false;
   Color text, sub, faint, subtle, subtle2, card, stroke, stroke2, divider,
-      accent, on_accent, seg_well, preview_bg, window_bg, content_bg, edge;
+      accent, accent_strong, on_accent, seg_well, preview_bg, window_bg, content_bg, edge,
+      title_edge, hover;
 };
 
 Palette make_palette(bool dark) {
   Palette p;
   p.dark = dark;
   p.accent = dark ? rgba(0x5F, 0xBF, 0x84, 1) : rgba(0x2C, 0x7A, 0x4B, 1);
+  p.accent_strong = rgba(0x2C, 0x7A, 0x4B, 1);
   p.on_accent = rgba(255, 255, 255, 1);
   if (dark) {
     p.text = rgba(0xF5, 0xF5, 0xF7, 1);
@@ -932,15 +939,18 @@ Palette make_palette(bool dark) {
     p.faint = rgba(255, 255, 255, .6);
     p.subtle = rgba(255, 255, 255, .0605);
     p.subtle2 = rgba(255, 255, 255, .0837);
-    p.card = rgba(0x35, 0x35, 0x35, 1);
+    // macOS 的深色分组底是 #1F1F21 正文上叠 4.5% 白（rgba(255,255,255,.045)），这里取合成后的不透明色。
+    p.card = rgba(0x29, 0x29, 0x2B, 1);
     p.stroke = rgba(255, 255, 255, .07);
     p.stroke2 = rgba(255, 255, 255, .093);
     p.divider = rgba(255, 255, 255, .0837);
     p.seg_well = rgba(0, 0, 0, .12);
     p.preview_bg = rgba(0x2C, 0x2C, 0x2C, 1);
-    p.window_bg = rgba(0x2A, 0x2A, 0x2A, 1);
-    p.content_bg = rgba(0x1E, 0x1E, 0x1E, 1);
-    p.edge = rgba(0, 0, 0, .1);
+    p.window_bg = rgba(0x2E, 0x2E, 0x30, 1);
+    p.content_bg = rgba(0x1F, 0x1F, 0x21, 1);
+    p.edge = rgba(0, 0, 0, .5);
+    p.title_edge = rgba(255, 255, 255, .08);
+    p.hover = rgba(255, 255, 255, .1);
   } else {
     p.text = rgba(0x1D, 0x1D, 0x1F, 1);
     p.sub = rgba(0x6E, 0x6E, 0x73, 1);
@@ -953,9 +963,11 @@ Palette make_palette(bool dark) {
     p.divider = rgba(0, 0, 0, .0803);
     p.seg_well = rgba(0, 0, 0, .04);
     p.preview_bg = rgba(255, 255, 255, 1);
-    p.window_bg = rgba(0xF6, 0xF6, 0xF6, 1);
-    p.content_bg = rgba(0xF6, 0xF6, 0xF6, 1);
-    p.edge = rgba(0, 0, 0, .06);
+    p.window_bg = rgba(0xE8, 0xE8, 0xEA, 1);
+    p.content_bg = rgba(0xF2, 0xF2, 0xF4, 1);
+    p.edge = rgba(0, 0, 0, .08);
+    p.title_edge = rgba(0, 0, 0, .07);
+    p.hover = rgba(0, 0, 0, .06);
   }
   return p;
 }
@@ -997,41 +1009,34 @@ std::optional<Color> parse_hex(std::wstring_view value) {
 
 // ---- Page labels ----
 
-// 页面名称、说明与侧栏图标，按稳定的路由 id 取值。
+// 页面名称与图标字形，按稳定的路由 id 取值。侧栏画的是 `SettingsNavIcons.h` 里的产品图标，这里的 Segoe Fluent Icons 字形留给正文里代表整页的行（交给共享应用的页面、插件页的插件包行）；页首的说明和插画在 `SettingsMascotIntro.h`。
 struct PageLabel {
   std::string_view id;
   const wchar_t *title;
   wchar_t glyph;
-  const wchar_t *summary;
 };
 
 // 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
 constexpr std::array<PageLabel, 16> page_labels{{
-    {"typing", L"输入", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
-    {"expression", L"标点与翻译", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
-    {"shortcuts", L"快捷键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
-    {"lexicon", L"词库", 0xE82D, L"管理本机词库、个人词条和常用语。"},
-    {"themes", L"主题", 0xE790, L"选择皮肤与配色；布局、字体和显示方式在「候选窗口」中设置。"},
-    {"candidate", L"候选窗口", 0xE8FD, L"调整布局、字体和显示方式；皮肤与配色在「主题」中设置。"},
-    {"toolbar", L"悬浮工具栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
-    {"osk", MSIME_EDITION_HANDWRITING ? L"键盘与手写" : L"屏幕键盘", 0xE92E,
-     MSIME_EDITION_HANDWRITING ? L"设置屏幕键盘的布局、按键和外观，打开手写识别板。"
-                               : L"设置屏幕键盘的布局、按键和外观。"},
-    {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
-    {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
-    {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
-    {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
-    {"ai", L"AI", 0xE99A, L"配置 AI 辅助功能，连接本机 AI 助手。"},
-    {"account", L"账号与同步", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
-    {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
-    {"about", L"关于", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
+    {"typing", L"输入", 0xE765},
+    {"expression", L"标点与翻译", 0xE8C1},
+    {"shortcuts", L"快捷键", 0xEDA7},
+    {"lexicon", L"词库", 0xE82D},
+    {"themes", L"主题", 0xE790},
+    {"candidate", L"候选窗口", 0xE8FD},
+    {"toolbar", L"悬浮工具栏", 0xE7F4},
+    {"osk", MSIME_EDITION_HANDWRITING ? L"键盘与手写" : L"屏幕键盘", 0xE92E},
+    {"voice", L"语音输入", 0xE720},
+    {"clip", L"剪贴板", 0xE77F},
+    {"stats", L"打字统计", 0xE9D2},
+    {"plugins", L"插件", 0xEA86},
+    {"ai", L"AI", 0xE99A},
+    {"account", L"账号与同步", 0xE77B},
+    {"dev", L"维护与诊断", 0xE90F},
+    {"about", L"关于", 0xE946},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
-
-// 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
-constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
-    {L"打字", L"输入方式", L"外观", L"工具", L"数据", L"支持"}};
 
 // 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {
@@ -1041,8 +1046,20 @@ const PageLabel &page_label(std::string_view id) {
   return page_labels[0];
 }
 
-// The line the search list shows when nothing matches. It is a list item, so it can be highlighted and submitted like a result; the search box treats it as neither.
-constexpr std::wstring_view no_search_results = L"没有找到相关设置";
+// 页面结果除了侧栏上的名字，也按共享设置 UI 的注册名匹配（`use-settings-shell-navigation.tsx` 的 `shownSidebarGroups`）：合并后的「键盘与手写」仍能按「屏幕键盘」找到，AI 页也能按「AI 辅助」和并进来的连接助手页「AI 助手」找到。
+std::vector<std::wstring_view> page_search_names(std::string_view id) {
+  std::vector<std::wstring_view> names{page_label(id).title};
+  if (id == "osk")
+    names.push_back(L"屏幕键盘");
+  if (id == "ai") {
+    names.push_back(L"AI 辅助");
+    names.push_back(L"AI 助手");
+  }
+  return names;
+}
+
+// 侧栏搜索没有结果时结果列表里的那句话，与 macOS 相同。
+constexpr std::wstring_view no_search_results = L"没有匹配的设置";
 
 constexpr const wchar_t *download_url = L"https://msime.app/download/";
 constexpr const wchar_t *privacy_url = L"https://msime.app/privacy/";
@@ -1223,26 +1240,55 @@ std::vector<uint8_t> const &logo_png() {
   return bytes;
 }
 
-fire_and_forget show_logo(Image image, int32_t pixels) {
-  const auto &bytes = logo_png();
-  if (bytes.empty())
+// Decodes PNG bytes into `bitmap`. The bytes must outlive the decode: callers pass the static logo copy or a resource, which stays mapped as long as the process runs. Must start on the UI thread; awaiting a WinRT operation resumes on this apartment.
+fire_and_forget load_png(Imaging::BitmapImage bitmap, uint8_t const *data, size_t size) {
+  if (size == 0)
     co_return;
-  // Created on the UI thread before the first suspension; awaiting a WinRT operation resumes on this apartment.
-  Imaging::BitmapImage bitmap;
-  bitmap.DecodePixelWidth(pixels);
   try {
     Windows::Storage::Streams::InMemoryRandomAccessStream stream;
     Windows::Storage::Streams::DataWriter writer(stream);
-    writer.WriteBytes(
-        array_view<uint8_t const>(bytes.data(), bytes.data() + bytes.size()));
+    writer.WriteBytes(array_view<uint8_t const>(data, data + size));
     co_await writer.StoreAsync();
     writer.DetachStream();
     stream.Seek(0);
     co_await bitmap.SetSourceAsync(stream);
-    image.Source(bitmap);
   } catch (hresult_error const &) {
-    // A logo that cannot be decoded leaves the space empty; nothing else depends on it.
+    // A picture that cannot be decoded leaves the space empty; nothing else depends on it.
   }
+}
+
+// Shows PNG bytes in `image`; the picture appears once `load_png` has decoded it. `pixels` is the decode width, 0 for the picture's own.
+void show_png(Image image, uint8_t const *data, size_t size, int32_t pixels) {
+  if (size == 0)
+    return;
+  Imaging::BitmapImage bitmap;
+  if (pixels > 0)
+    bitmap.DecodePixelWidth(pixels);
+  image.Source(bitmap);
+  load_png(bitmap, data, size);
+}
+
+void show_logo(Image image, int32_t pixels) {
+  const auto &bytes = logo_png();
+  show_png(image, bytes.data(), bytes.size(), pixels);
+}
+
+// 页首的水杉娘插画：Settings.rc 里那张 PNG（RCDATA）解码成的位图。位图立刻返回，解码完自己显示出来；调用方按场景缓存它（`mascot_bitmaps_`），再画页首时直接复用，插画不会因为重新解码而闪一下。资源缺失时返回空，页首只剩说明文字。
+Imaging::BitmapImage load_mascot(nav::MascotScene scene) {
+  const HMODULE instance = GetModuleHandleW(nullptr);
+  const HRSRC resource =
+      FindResourceW(instance, MAKEINTRESOURCEW(nav::mascot_resource(scene)),
+                    MAKEINTRESOURCEW(10) /* RT_RCDATA */);
+  if (!resource)
+    return nullptr;
+  const HGLOBAL handle = LoadResource(instance, resource);
+  const auto *data =
+      handle ? static_cast<const uint8_t *>(LockResource(handle)) : nullptr;
+  if (!data)
+    return nullptr;
+  Imaging::BitmapImage bitmap;
+  load_png(bitmap, data, SizeofResource(instance, resource));
+  return bitmap;
 }
 
 struct Option {
@@ -1640,11 +1686,15 @@ struct Check {
   bool enabled = true;
 };
 
+// 侧栏搜索的一条结果：整页（`whole_page`，只写页名，打开那一页）或页里的一行（打开那一页并把焦点交给这一行）。
 struct SearchEntry {
   std::wstring title;
-  std::wstring detail;
   std::string page;
-  std::wstring display;
+  // 条目所在的页内标签（`page_tab_bar`），不在标签里时为空；选中这条结果时先切到这个标签。
+  std::wstring tab;
+  // 结果第二行的位置「页 › 标签 › 分组」，没有标签或分组时省掉那一段，整页结果为空。
+  std::wstring path;
+  bool whole_page = false;
 };
 
 struct ThemePreview {
@@ -3135,21 +3185,25 @@ Canvas chart_overlay(std::function<void(Canvas const &, double, double)> draw) {
 struct MainWindow : WindowT<MainWindow> {
   explicit MainWindow(std::string page)
       : current_page_(nav::offered_page_for_route(page, MSIME_EDITION_HANDWRITING != 0)) {
-    ai_mcp_view_ = page == "mcp";
-    // 窗口标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
-    Title(MSIME_EDITION_DISPLAY_NAME L"设置");
+    // 两条路由直接落到页内的某个标签：`mcp` 是 AI 页的「连接助手」，`handwriting` 是「键盘与手写」页的「手写」（不提供手写的版本没有这个标签，这条路由打开默认页）。
+    if (page == "mcp")
+      page_tabs_["ai"] = L"connection";
+    if (page == "handwriting" && MSIME_EDITION_HANDWRITING != 0)
+      page_tabs_["osk"] = L"handwriting";
+    // 窗口标题与 macOS 设置窗口相同，写作「水杉输入法 · 设置」（任务栏和 Alt+Tab 里看得到）；标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
+    Title(MSIME_EDITION_DISPLAY_NAME L" · 设置");
     ExtendsContentIntoTitleBar(true);
     reload_document();
     load_catalog();
     system_dark_ = system_dark();
     input_method_ = input_method_state();
     palette_ = make_palette(resolve_dark());
-    // 初始尺寸按系统缩放换算，正文保留 macOS 的紧凑密度。
+    // 初始尺寸与 macOS 设置窗口相同（`tauri.macos.conf.json` 的 1000 × 780），按系统缩放换算。
     const double scale = static_cast<double>(GetDpiForSystem()) / 96.0;
     AppWindow().Resize(
         {static_cast<int32_t>(std::lround(1000 * scale)),
-         static_cast<int32_t>(std::lround(760 * scale))});
-    // 参照 macOS 的最小窗口尺寸，避免侧栏把设置正文挤到无法操作。
+         static_cast<int32_t>(std::lround(780 * scale))});
+    // 最小尺寸不跟 macOS 的 360 × 540：macOS 窄于 601 时收起侧栏，这个窗口没有窄窗口布局，侧栏常驻，800 × 560 以下正文会被挤到无法操作。
     if (const auto presenter = AppWindow().Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
       presenter.PreferredMinimumWidth(
           box_value(static_cast<int32_t>(std::lround(800 * scale)))
@@ -3348,7 +3402,7 @@ private:
     render_page(true);
   }
 
-  // 切换明暗时保留滚动位置和侧栏搜索内容；恢复文字不会主动打开建议列表。
+  // 切换明暗时保留滚动位置和侧栏搜索内容；写回文字时结果列表随之重建。
   void rebuild_shell() {
     const double offset = scroll_ ? scroll_.VerticalOffset() : 0.0;
     const hstring query = search_ ? search_.Text() : hstring();
@@ -3577,6 +3631,9 @@ private:
     root.Children().Append(navigation_);
 
     track_pointer(root);
+    root.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
+      update_intro_size();
+    });
     root_ = root;
     Content(root);
     SetTitleBar(titlebar_);
@@ -3598,11 +3655,15 @@ private:
     bar.ButtonPressedForegroundColor(palette_.text);
   }
 
+  // 侧栏宽度，与 macOS 设置侧栏（`settings-style.ts` 的 `mac:w-[260px]`）相同。
+  static constexpr double sidebar_width = 260;
+
   Grid make_titlebar() {
     Grid bar;
     bar.Height(48);
+    // 侧栏列与 `make_navigation` 的 OpenPaneLength 同宽（macOS 侧栏的 260），两处要一起改，否则品牌行和侧栏对不齐。
     ColumnDefinition sidebar;
-    sidebar.Width(GridLength{224, GridUnitType::Pixel});
+    sidebar.Width(GridLength{sidebar_width, GridUnitType::Pixel});
     ColumnDefinition content;
     content.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition caption;
@@ -3611,115 +3672,186 @@ private:
     bar.ColumnDefinitions().Append(content);
     bar.ColumnDefinitions().Append(caption);
 
+    // 与 macOS 的页面工具栏一样，标题栏里正文上方那一列（连同窗口按钮）用正文底色，底部一条细线；左边那条 1 DIP 边线接着下面侧栏右侧的边线。侧栏那一列留给窗口底色，和侧栏连成一片。只是着色，整条标题栏仍是 SetTitleBar 的拖动区。
+    Border content_fill;
+    content_fill.Background(brush(palette_.content_bg));
+    content_fill.BorderBrush(brush(palette_.edge));
+    content_fill.BorderThickness(Thickness{1, 0, 0, 0});
+    Border content_rule;
+    content_rule.BorderBrush(brush(palette_.title_edge));
+    content_rule.BorderThickness(Thickness{0, 0, 0, 1});
+    content_fill.Child(content_rule);
+    Grid::SetColumn(content_fill, 1);
+    Grid::SetColumnSpan(content_fill, 2);
+    bar.Children().Append(content_fill);
+
+    // 品牌行照 macOS 侧栏顶部：24 DIP 图标、8 DIP 间距、15 DIP 半粗体产品名，左缘取导航项的 12 DIP 外边距加 10 DIP 内边距，与下面各项的图标列对齐。图标不另裁圆角：msime.ico 的四角本来就是透明的。
     StackPanel identity;
     identity.Orientation(Orientation::Horizontal);
-    identity.Spacing(10);
-    identity.Margin(Thickness{18, 0, 12, 0});
+    identity.Spacing(8);
+    identity.Margin(Thickness{22, 0, 12, 0});
     identity.VerticalAlignment(VerticalAlignment::Center);
     Image logo;
     logo.Width(24);
     logo.Height(24);
     show_logo(logo, 48);
     identity.Children().Append(logo);
-    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 13, palette_.text);
+    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 15, palette_.text);
     product.FontWeight(Windows::UI::Text::FontWeight{600});
     product.VerticalAlignment(VerticalAlignment::Center);
     identity.Children().Append(product);
     bar.Children().Append(identity);
 
-    StackPanel tools;
-    tools.Orientation(Orientation::Horizontal);
-    tools.Spacing(8);
-    tools.Margin(Thickness{12, 0, 0, 0});
-    tools.VerticalAlignment(VerticalAlignment::Center);
-    back_ = Button();
-    back_.Width(32);
-    back_.Height(30);
-    back_.Padding(Thickness{0, 0, 0, 0});
-    back_.CornerRadius(CornerRadius{6, 6, 6, 6});
-    back_.Background(brush(transparent_color()));
-    back_.BorderThickness(Thickness{0, 0, 0, 0});
-    back_.Content(make_icon(0xE72B, 12, palette_.text));
-    back_.IsEnabled(!history_.empty());
-    A11y::SetName(back_, L"返回");
-    back_.Click([this](Inspectable const &, RoutedEventArgs const &) { go_back(); });
-    tools.Children().Append(back_);
-    toolbar_title_ = make_text(page_label(current_page_).title, 13, palette_.sub);
+    // 页名只写在这里，正文不再画大标题，与 macOS 的页面工具栏（`settings-style.ts` 的 `macosToolbar`：左右 20 DIP 内边距，15 DIP 粗体、正文色，放不下时截断）相同。macOS 没有跨页面的历史返回，这里也不放返回按钮，整条标题栏都是拖动区，不需要放行区域。
+    toolbar_title_ = make_text(page_label(current_page_).title, 15, palette_.text);
+    toolbar_title_.FontWeight(Windows::UI::Text::FontWeight{700});
+    toolbar_title_.TextWrapping(TextWrapping::NoWrap);
+    toolbar_title_.TextTrimming(TextTrimming::CharacterEllipsis);
+    toolbar_title_.Margin(Thickness{20, 0, 20, 0});
     toolbar_title_.VerticalAlignment(VerticalAlignment::Center);
-    tools.Children().Append(toolbar_title_);
-    Grid::SetColumn(tools, 1);
-    bar.Children().Append(tools);
-    bar.Loaded([this](Inspectable const &, RoutedEventArgs const &) { update_passthrough(); });
-    bar.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) { update_passthrough(); });
+    Grid::SetColumn(toolbar_title_, 1);
+    bar.Children().Append(toolbar_title_);
     return bar;
   }
 
-  AutoSuggestBox make_search_field() {
-    search_ = AutoSuggestBox();
-    search_.PlaceholderText(L"搜索设置");
-    search_.QueryIcon(SymbolIcon(Symbol::Find));
+  // 侧栏搜索框照 macOS（`settings-style.ts` 的 `sidebarSearch`、`settings-navigation-search.tsx`）：32 DIP 高、圆角 8、没有描边，底色浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.07)，悬停不变；左边 10 DIP 处一个 15 DIP 的次要色放大镜，相隔 8 是 13 DIP 的文字，占位文字「搜索」；聚焦时是 2 DIP 的强调色边框。WinUI 的 `TextBox` 没有左侧图标，放大镜叠在输入框上、不接收指针，输入框用左内边距给它让位；底色、边框和文字色经模板资源 `TextControl*` 覆盖，模板的视觉状态才不会把它们换回系统色。读屏名仍是「搜索设置」，自动化 ID 是 `settings-search`。
+  FrameworkElement make_search_field() {
+    Grid field;
+    field.Height(32);
+    field.Margin(Thickness{12, 4, 12, 8});
+    field.HorizontalAlignment(HorizontalAlignment::Stretch);
+    field.VerticalAlignment(VerticalAlignment::Center);
+
+    search_ = TextBox();
+    search_.PlaceholderText(L"搜索");
+    search_.FontSize(13);
     search_.Height(32);
-    search_.Margin(Thickness{12, 4, 12, 12});
+    search_.MinHeight(32);
+    search_.Padding(Thickness{33, 7, 10, 7});
+    search_.CornerRadius(CornerRadius{8, 8, 8, 8});
+    search_.BorderThickness(Thickness{0, 0, 0, 0});
     search_.HorizontalAlignment(HorizontalAlignment::Stretch);
-    search_.VerticalAlignment(VerticalAlignment::Center);
+    const auto fill = palette_.dark ? rgba(255, 255, 255, .07) : rgba(0, 0, 0, .055);
+    auto resources = search_.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    for (const auto *suffix : {L"", L"PointerOver", L"Focused"}) {
+      put((std::wstring(L"TextControlBackground") + suffix).c_str(), fill);
+      put((std::wstring(L"TextControlForeground") + suffix).c_str(), palette_.text);
+      put((std::wstring(L"TextControlPlaceholderForeground") + suffix).c_str(), palette_.sub);
+    }
+    put(L"TextControlBorderBrush", transparent_color());
+    put(L"TextControlBorderBrushPointerOver", transparent_color());
+    put(L"TextControlBorderBrushFocused", palette_.accent);
+    // 模板的 Focused 状态把边框厚度换成这个资源（不聚焦时用控件自己的 0），四边都是 2，就是 macOS 聚焦时的强调色外框。
+    resources.Insert(box_value(L"TextControlBorderThemeThicknessFocused"),
+                     box_value(Thickness{2, 2, 2, 2}));
     A11y::SetName(search_, L"搜索设置");
     A11y::SetAutomationId(search_, L"settings-search");
-    search_.TextChanged([this](AutoSuggestBox const &sender,
-                               AutoSuggestBoxTextChangedEventArgs const &args) {
-      const auto reason = args.Reason();
-      if (reason == AutoSuggestionBoxTextChangeReason::UserInput) {
-        search_query_ = sender.Text().c_str();
-        update_suggestions(search_query_);
-      } else if (reason == AutoSuggestionBoxTextChangeReason::SuggestionChosen &&
-                 std::wstring_view(sender.Text()) == no_search_results) {
-        // 无结果提示不能替换用户已经输入的查询。
-        sender.Text(hstring(search_query_));
-      }
+    search_.TextChanged([this](Inspectable const &, TextChangedEventArgs const &) {
+      update_search_results(std::wstring(search_.Text().c_str()));
     });
-    search_.QuerySubmitted(
-        [this](AutoSuggestBox const &,
-               AutoSuggestBoxQuerySubmittedEventArgs const &args) {
-          std::wstring chosen;
-          if (const auto item = args.ChosenSuggestion())
-            chosen = unbox_value_or<hstring>(item, L"").c_str();
-          if (std::wstring_view(chosen) == no_search_results)
-            return;
-          open_search_result(chosen, std::wstring(args.QueryText().c_str()));
-        });
-    return search_;
+    // 与 macOS 一样，组字期间不抢回车和 Esc（`settings-navigation-search.tsx` 的 `isComposingKeyEvent`）：输入法的组字起止由这两个事件告知。
+    search_composing_ = false;
+    search_.TextCompositionStarted(
+        [this](TextBox const &, TextCompositionStartedEventArgs const &) { search_composing_ = true; });
+    search_.TextCompositionEnded(
+        [this](TextBox const &, TextCompositionEndedEventArgs const &) { search_composing_ = false; });
+    // 有查询时上下键在结果里移动高亮、回车打开高亮的那条，Esc 清空查询。
+    search_.PreviewKeyDown([this](Inspectable const &, Input::KeyRoutedEventArgs const &args) {
+      if (search_composing_)
+        return;
+      const auto key = args.Key();
+      if (key == Windows::System::VirtualKey::Escape) {
+        if (search_.Text().empty())
+          return;
+        args.Handled(true);
+        clear_search();
+        return;
+      }
+      if (key != Windows::System::VirtualKey::Down && key != Windows::System::VirtualKey::Up &&
+          key != Windows::System::VirtualKey::Enter)
+        return;
+      const std::wstring typed(search_.Text().c_str());
+      if (search_needle(typed).empty())
+        return;
+      args.Handled(true);
+      // UI 自动化直接写值后马上回车时，TextChanged 可能还没轮到，先按框里的文字重查。
+      if (typed != search_query_)
+        update_search_results(typed);
+      if (search_hits_.empty())
+        return;
+      if (key == Windows::System::VirtualKey::Enter) {
+        open_search_result(search_hits_[std::min(search_active_, search_hits_.size() - 1)]);
+        return;
+      }
+      const size_t count = search_hits_.size();
+      search_active_ = key == Windows::System::VirtualKey::Down
+                           ? (search_active_ + 1) % count
+                           : (search_active_ + count - 1) % count;
+      paint_search_results();
+      search_buttons_[search_active_].StartBringIntoView();
+      // 焦点一直在搜索框里，结果按钮也不进 Tab 顺序，读屏不会自己念换到的那条（macOS 靠搜索框的 `aria-activedescendant`）：由搜索框发一条通知，念标题和位置。
+      auto const &active = search_hits_[search_active_];
+      if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::FromElement(search_))
+        peer.RaiseNotificationEvent(
+            Automation::Peers::AutomationNotificationKind::Other,
+            Automation::Peers::AutomationNotificationProcessing::ImportantMostRecent,
+            hstring(active.path.empty() ? active.title : active.title + L"，" + active.path),
+            L"settings-search-active");
+    });
+    field.Children().Append(search_);
+
+    // 放大镜照 macOS 的 16 × 16 图形：圆心 (7, 7)、半径 5 的圆和从 (11, 11) 到 (14.5, 14.5) 的柄，1.8 粗、圆头，整体缩到 15 DIP。XAML 的椭圆把描边画在宽高之内，所以外径是 10 加一个线宽。
+    const double unit = 15.0 / 16.0;
+    Canvas glyph;
+    glyph.Width(15);
+    glyph.Height(15);
+    glyph.Margin(Thickness{10, 0, 0, 0});
+    glyph.HorizontalAlignment(HorizontalAlignment::Left);
+    glyph.VerticalAlignment(VerticalAlignment::Center);
+    glyph.IsHitTestVisible(false);
+    Shapes::Ellipse lens;
+    lens.Width(11.8 * unit);
+    lens.Height(11.8 * unit);
+    lens.Stroke(brush(palette_.sub));
+    lens.StrokeThickness(1.8 * unit);
+    Canvas::SetLeft(lens, 1.1 * unit);
+    Canvas::SetTop(lens, 1.1 * unit);
+    glyph.Children().Append(lens);
+    Shapes::Line handle;
+    handle.X1(11 * unit);
+    handle.Y1(11 * unit);
+    handle.X2(14.5 * unit);
+    handle.Y2(14.5 * unit);
+    handle.Stroke(brush(palette_.sub));
+    handle.StrokeThickness(1.8 * unit);
+    handle.StrokeStartLineCap(PenLineCap::Round);
+    handle.StrokeEndLineCap(PenLineCap::Round);
+    glyph.Children().Append(handle);
+    field.Children().Append(glyph);
+    return field;
   }
 
-  // 标题栏保留拖动区域；返回按钮接收自己的点击。
-  void update_passthrough() {
-    if (!titlebar_ || !titlebar_.XamlRoot())
-      return;
-    const double scale = titlebar_.XamlRoot().RasterizationScale();
-    std::vector<Windows::Graphics::RectInt32> rects;
-    rects.reserve(2);
-    auto add = [&rects, scale](FrameworkElement const &element) {
-      if (!element || element.ActualWidth() <= 0)
-        return;
-      const auto bounds = element.TransformToVisual(nullptr).TransformBounds(
-          Windows::Foundation::Rect{0, 0,
-                                    static_cast<float>(element.ActualWidth()),
-                                    static_cast<float>(element.ActualHeight())});
-      rects.push_back(Windows::Graphics::RectInt32{
-          static_cast<int32_t>(std::lround(bounds.X * scale)),
-          static_cast<int32_t>(std::lround(bounds.Y * scale)),
-          static_cast<int32_t>(std::lround(bounds.Width * scale)),
-          static_cast<int32_t>(std::lround(bounds.Height * scale))});
-    };
-    add(back_);
-    Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(
-        AppWindow().Id())
-        .SetRegionRects(Microsoft::UI::Input::NonClientRegionKind::Passthrough,
-                        rects);
+  // 侧栏搜索结果，照 macOS（`use-settings-shell-navigation.tsx` 的 `navSearchResults`）：有查询时页面列表整个换成结果列表，不是下拉框。结果放在导航视图的 PaneCustomContent 里（模板中排在页面列表之上），查询期间页面列表的各项收起；列表自己滚动，最高到侧栏底部（`fit_search_results`）。读屏名「设置搜索结果」，自动化 ID 是 `settings-search-results`。
+  ScrollViewer make_search_results() {
+    search_list_ = StackPanel();
+    search_list_.Margin(Thickness{12, 0, 12, 0});
+    search_scroll_ = ScrollViewer();
+    search_scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+    search_scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    search_scroll_.Content(search_list_);
+    search_scroll_.Visibility(Visibility::Collapsed);
+    A11y::SetName(search_scroll_, L"设置搜索结果");
+    A11y::SetAutomationId(search_scroll_, L"settings-search-results");
+    return search_scroll_;
   }
 
   NavigationView make_navigation() {
     NavigationView view;
     view.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
-    view.OpenPaneLength(224);
+    view.OpenPaneLength(sidebar_width);
     view.CompactModeThresholdWidth(0);
     view.ExpandedModeThresholdWidth(0);
     view.IsPaneToggleButtonVisible(false);
@@ -3734,53 +3866,58 @@ private:
       resources.Insert(box_value(hstring(key)), brush(color));
     };
     put(L"NavigationViewContentBackground", palette_.content_bg);
+    // 侧栏右侧的 1 DIP 边线由正文格的左边框画出，正文格不再有 Windows 11 那个带上边框的左上圆角：上方是标题栏底部的细线，与 macOS 的侧栏和工具栏一致。
     put(L"NavigationViewContentGridBorderBrush", palette_.edge);
+    resources.Insert(box_value(L"NavigationViewContentGridBorderThickness"),
+                     box_value(Thickness{1, 0, 0, 0}));
+    resources.Insert(box_value(L"NavigationViewContentGridCornerRadius"),
+                     box_value(CornerRadius{0, 0, 0, 0}));
     put(L"NavigationViewExpandedPaneBackground", transparent_color());
     put(L"NavigationViewDefaultPaneBackground", transparent_color());
     put(L"NavigationViewSelectionIndicatorForeground", transparent_color());
-    put(L"NavigationViewItemBackgroundSelected", palette_.accent);
-    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.accent);
-    put(L"NavigationViewItemBackgroundPointerOver", palette_.subtle);
-    put(L"NavigationViewItemForegroundSelected", palette_.on_accent);
-    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.on_accent);
-    put(L"NavigationViewItemForegroundSelectedPressed", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelected", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.on_accent);
-    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.on_accent);
-    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.accent);
-    // 行高 28 包含模板上下各 2 DIP 的边距；内部仍用默认 36 会裁掉文字。
-    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(24.0));
-    // 分组标题的模板把文字放进写死 40 DIP 高的 InnerHeaderGrid 里垂直居中，标题本身压到 24 就从中间截断，下半截不见（「工具」看着像「丁目」）。上下各 -8 DIP 把那 40 收进 24 里，文字整个落在其中；左右保持模板默认的 16。
-    resources.Insert(box_value(L"NavigationViewItemInnerHeaderMargin"),
-                     box_value(Thickness{16, -8, 16, -8}));
+    // 选中项与 macOS 一样只铺一层中性底色，文字和图标仍是正文色，没有强调色胶囊；悬停和按下用同一层底色（macOS 的 `--p-hover`）。模板里图标的前景也取 NavigationViewItemForeground* 这组键。
+    put(L"NavigationViewItemBackgroundSelected", palette_.hover);
+    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.hover);
+    put(L"NavigationViewItemBackgroundPointerOver", palette_.hover);
+    put(L"NavigationViewItemBackgroundPressed", palette_.hover);
+    put(L"NavigationViewItemForegroundPressed", palette_.text);
+    put(L"NavigationViewItemForegroundSelected", palette_.text);
+    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.text);
+    put(L"NavigationViewItemForegroundSelectedPressed", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelected", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.text);
+    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.text);
+    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.hover);
+    // 导航项照 macOS 侧栏：可见的底色块高 36 DIP，项与项之间 2 DIP。模板在底色块外留 NavigationViewItemButtonMargin（默认左右 4、上下 2），这里收成上下各 1，左右的间距改由导航项自己的 12 DIP 外边距给出，与侧栏搜索框的左右边距一致；所以导航项本身高 38。
+    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(36.0));
+    resources.Insert(box_value(L"NavigationViewItemButtonMargin"),
+                     box_value(Thickness{0, 1, 0, 1}));
+    // 模板把图标装进这个高度的 Viewbox 里缩放（默认 16），macOS 侧栏的图标是 15。
+    resources.Insert(box_value(L"NavigationViewItemOnLeftIconBoxHeight"), box_value(15.0));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     view.PaneHeader(make_search_field());
+    view.PaneCustomContent(make_search_results());
+    view.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
+      fit_search_results();
+    });
 
-    // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
-    std::optional<std::size_t> group;
+    // 与 macOS 侧栏一样平铺 16 个页面，不插分组标题；顺序取自 `SettingsNavigation.h`（按共享设置 UI 的 `settingsNavGroups` 排列）。
     for (const auto &page : nav::pages) {
-      if (page.group != group) {
-        group = page.group;
-        NavigationViewItemHeader header;
-        header.Content(box_value(hstring(group_titles[page.group])));
-        // 这里设不了字号和左右边距：模板里 HeaderText 的 NavigationViewItemHeaderTextStyle 是 StaticResource，在 generic.xaml 内就解析完了，页面资源覆盖不到，字号固定 14 DIP；模板根也不读 Padding，水平边距走上面那条 NavigationViewItemInnerHeaderMargin。Foreground 是本控件上的本地值，优先于模板样式，照常生效。
-        header.MinHeight(24);
-        header.Height(24);
-        header.Foreground(brush(palette_.sub));
-        view.MenuItems().Append(header);
-      }
       const auto &label = page_label(page.id);
       NavigationViewItem item;
       item.Content(box_value(hstring(label.title)));
-      auto icon = make_icon(label.glyph, 14, palette_.text);
-      icon.ClearValue(IconElement::ForegroundProperty());
+      // 产品图标照 macOS 侧栏：15 DIP、不透明度 0.9（`settings-style.ts` 的 `navIcon`）。前景交给模板的 NavigationViewItemForeground* 这组键，也就是正文色。
+      auto icon = make_nav_icon(page.id, 15);
+      icon.Opacity(0.9);
       item.Icon(icon);
-      item.FontSize(13);
-      item.MinHeight(28);
-      item.Height(28);
-      item.Margin(Thickness{6, 0, 6, 0});
-      item.Padding(Thickness{8, 0, 8, 0});
+      item.FontSize(14);
+      item.MinHeight(38);
+      item.Height(38);
+      // 圆角经模板的 TemplateBinding 落到底色块上；不能改 ControlCornerRadius，那会连正文里的控件一起改掉。
+      item.CornerRadius(CornerRadius{8, 8, 8, 8});
+      item.Margin(Thickness{12, 0, 12, 0});
+      item.Padding(Thickness{10, 0, 10, 0});
       item.VerticalContentAlignment(VerticalAlignment::Center);
       item.Tag(box_value(text(page.id)));
       A11y::SetAutomationId(item, text(page.id));
@@ -3793,7 +3930,7 @@ private:
             return;
           const auto item = sender.SelectedItem().try_as<NavigationViewItem>();
           if (item)
-            navigate(utf8(unbox_value<hstring>(item.Tag())), true);
+            navigate(utf8(unbox_value<hstring>(item.Tag())));
         });
 
     scroll_ = ScrollViewer();
@@ -3816,14 +3953,12 @@ private:
     }
   }
 
-  void navigate(std::string const &page, bool remember) {
+  void navigate(std::string const &page) {
     const auto *target = nav::find_page(page);
     const std::string id(target ? target->id : nav::default_page);
     flush_pending();
     if (id == current_page_ && focus_row_.empty())
       return;
-    if (remember && id != current_page_)
-      history_.push_back(current_page_);
     // 每次进入「输入」页都重读已安装的辅助码表插件。
     if (id == "typing" && id != current_page_)
       helpcode_packs_stale_ = true;
@@ -3862,14 +3997,6 @@ private:
     render_page(false);
   }
 
-  void go_back() {
-    if (history_.empty())
-      return;
-    const auto page = history_.back();
-    history_.pop_back();
-    navigate(page, false);
-  }
-
   // ---- Search ----
 
   void rebuild_search_index() {
@@ -3879,25 +4006,40 @@ private:
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
       current_page_ = std::string(page.id);
+      tab_index_.clear();
+      index_tabs_.clear();
+      group_index_.clear();
       StackPanel scratch;
       build_page(page.id, scratch);
     }
     current_page_ = saved_page;
+    tab_index_.clear();
+    index_tabs_.clear();
+    group_index_.clear();
     indexing_ = false;
     index_revision_ = document_.revision();
     index_valid_ = true;
   }
 
-  void record(std::wstring const &title, std::wstring const &detail) {
+  // 说明不进索引：与 macOS 一样只按行标题匹配（`settings-search-index.ts` 不读说明、表单值和历史），调用处照常传行的说明。结果的第二行是「页 › 标签 › 分组」：标签取建索引时正在画的那一块（`in_tab`），分组取这一行之前最近的 `add_group` 标题。
+  void record(std::wstring const &title, [[maybe_unused]] std::wstring const &detail) {
     if (!indexing_ || title.empty())
       return;
     if (!fold_index_.empty())
       search_folds_[title] = fold_index_;
     SearchEntry entry;
     entry.title = title;
-    entry.detail = detail;
     entry.page = current_page_;
-    entry.display = title + L" · " + page_label(current_page_).title;
+    entry.tab = tab_index_;
+    entry.path = page_label(current_page_).title;
+    if (!tab_index_.empty())
+      for (const auto &tab : index_tabs_)
+        if (tab.value == tab_index_) {
+          entry.path += L" › " + tab.label;
+          break;
+        }
+    if (!group_index_.empty())
+      entry.path += L" › " + group_index_;
     search_index_.push_back(std::move(entry));
   }
 
@@ -3915,59 +4057,172 @@ private:
       focus_target_ = element;
   }
 
-  std::vector<SearchEntry const *> search(std::wstring const &query) {
-    if (!index_valid_ || index_revision_ != document_.revision())
-      rebuild_search_index();
-    std::vector<SearchEntry const *> matches;
-    matches.reserve(12);
-    const auto needle = lowercase(query);
+  // 查询按 JavaScript 的 trim 去掉两头空白再转小写，与 macOS 的 `navQuery.trim().toLocaleLowerCase()` 相同；为空表示没在搜索。
+  static std::wstring search_needle(std::wstring const &query) {
+    return lowercase(nav::text::trim(query));
+  }
+
+  // 结果照 macOS 的顺序：先是名字匹配的页面（侧栏顺序），再是标题匹配的设置行（索引顺序），不设条数上限。同一页同一位置的同名行只列一次。
+  std::vector<SearchEntry> search(std::wstring const &query) {
+    std::vector<SearchEntry> matches;
+    const auto needle = search_needle(query);
     if (needle.empty())
       return matches;
+    if (!index_valid_ || index_revision_ != document_.revision())
+      rebuild_search_index();
+    for (const auto &page : nav::pages) {
+      const auto names = page_search_names(page.id);
+      if (std::none_of(names.begin(), names.end(), [&needle](std::wstring_view name) {
+            return lowercase(name).find(needle) != std::wstring::npos;
+          }))
+        continue;
+      SearchEntry entry;
+      entry.title = page_label(page.id).title;
+      entry.page = std::string(page.id);
+      entry.whole_page = true;
+      matches.push_back(std::move(entry));
+    }
     for (const auto &entry : search_index_) {
-      const bool hit =
-          lowercase(entry.title).find(needle) != std::wstring::npos ||
-          lowercase(entry.detail).find(needle) != std::wstring::npos ||
-          lowercase(page_label(entry.page).title).find(needle) !=
-              std::wstring::npos;
-      if (hit)
-        matches.push_back(&entry);
-      if (matches.size() == 12)
-        break;
+      if (lowercase(entry.title).find(needle) == std::wstring::npos)
+        continue;
+      const bool repeated = std::any_of(matches.begin(), matches.end(), [&entry](SearchEntry const &shown) {
+        return !shown.whole_page && shown.title == entry.title && shown.page == entry.page &&
+               shown.path == entry.path;
+      });
+      if (!repeated)
+        matches.push_back(entry);
     }
     return matches;
   }
 
-  void update_suggestions(std::wstring const &query) {
-    std::vector<Inspectable> items;
-    items.reserve(13);
-    for (const auto *entry : search(query))
-      items.push_back(box_value(hstring(entry->display)));
-    if (items.empty() && !query.empty())
-      items.push_back(box_value(hstring(no_search_results)));
-    search_.ItemsSource(single_threaded_vector<Inspectable>(std::move(items)));
+  // 按查询重建结果列表：有查询时收起页面列表、显示结果，第一条高亮；查询清空时换回页面列表。
+  void update_search_results(std::wstring const &query) {
+    search_query_ = query;
+    const bool searching = !search_needle(query).empty();
+    search_hits_ = search(query);
+    search_active_ = 0;
+    search_buttons_.clear();
+    if (!search_list_ || !navigation_)
+      return;
+    // 上一次已经是「没有匹配的设置」时，接着输入仍查不到就不再播报。
+    const bool was_empty = search_list_.Children().Size() == 1 &&
+                           static_cast<bool>(search_list_.Children().GetAt(0).try_as<TextBlock>());
+    search_list_.Children().Clear();
+    for (auto const &value : navigation_.MenuItems())
+      if (const auto item = value.try_as<NavigationViewItem>())
+        item.Visibility(searching ? Visibility::Collapsed : Visibility::Visible);
+    search_scroll_.Visibility(searching ? Visibility::Visible : Visibility::Collapsed);
+    if (!searching)
+      return;
+    fit_search_results();
+    search_scroll_.ChangeView(nullptr, 0.0, nullptr, true);
+    if (search_hits_.empty()) {
+      // 照 macOS 的 `role="status"`：14 DIP、60% 不透明度，读屏礼貌播报。新建的文字块只设 LiveSetting 不会被念出来，进了可视树后要自己发 LiveRegionChanged，与 show_warning 相同；接着输入仍查不到时不再发，与 macOS 那个文字不变的状态元素一样只念一次。
+      auto empty = make_text(no_search_results, 14, palette_.text);
+      empty.Opacity(0.6);
+      empty.Margin(Thickness{12, 8, 12, 8});
+      A11y::SetLiveSetting(empty, Automation::Peers::AutomationLiveSetting::Polite);
+      if (!was_empty)
+        empty.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+          if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(
+                  sender.as<UIElement>()))
+            peer.RaiseAutomationEvent(Automation::Peers::AutomationEvents::LiveRegionChanged);
+        });
+      search_list_.Children().Append(empty);
+      return;
+    }
+    for (size_t i = 0; i < search_hits_.size(); ++i) {
+      auto button = make_search_result(search_hits_[i], i);
+      search_buttons_.push_back(button);
+      search_list_.Children().Append(button);
+    }
+    paint_search_results();
   }
 
-  void open_search_result(std::wstring const &chosen, std::wstring const &query) {
-    const auto matches = search(query.empty() ? chosen : query);
-    SearchEntry const *target = nullptr;
-    for (const auto *entry : matches)
-      if (entry->display == chosen)
-        target = entry;
-    if (!target && !chosen.empty())
-      for (const auto &entry : search_index_)
-        if (entry.display == chosen)
-          target = &entry;
-    if (!target && !matches.empty())
-      target = matches.front();
-    if (!target)
+  // 一条结果照 macOS 的结果按钮：内边距左右 12、上下 8，圆角 8，条与条相隔 4；13 DIP 标题，下面相隔 4 是 12 DIP、60% 不透明度的位置。悬停铺 10% 的强调色，高亮的那条是 15%（`paint_search_results`）。结果不进 Tab 顺序，键盘在搜索框里用上下键选，换到的那条由搜索框发通知念出；读屏名是标题，帮助文本是位置。
+  Button make_search_result(SearchEntry const &hit, size_t index) {
+    StackPanel lines;
+    lines.Spacing(4);
+    lines.Children().Append(make_text(hit.title, 13, palette_.text));
+    if (!hit.path.empty()) {
+      auto path = make_text(hit.path, 12, palette_.text);
+      path.Opacity(0.6);
+      lines.Children().Append(path);
+    }
+    Button button;
+    button.Content(lines);
+    button.HorizontalAlignment(HorizontalAlignment::Stretch);
+    button.HorizontalContentAlignment(HorizontalAlignment::Left);
+    button.Padding(Thickness{12, 8, 12, 8});
+    button.Margin(Thickness{0, 0, 0, 4});
+    button.CornerRadius(CornerRadius{8, 8, 8, 8});
+    button.BorderThickness(Thickness{0, 0, 0, 0});
+    button.IsTabStop(false);
+    auto resources = button.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", faded(palette_.accent, .1));
+    put(L"ButtonBackgroundPressed", faded(palette_.accent, .15));
+    put(L"ButtonForeground", palette_.text);
+    put(L"ButtonForegroundPointerOver", palette_.text);
+    put(L"ButtonForegroundPressed", palette_.text);
+    A11y::SetName(button, hstring(hit.title));
+    if (!hit.path.empty())
+      A11y::SetHelpText(button, hstring(hit.path));
+    A11y::SetAutomationId(button, hstring(L"settings-search-result-" + std::to_wstring(index)));
+    button.Click([this, hit](Inspectable const &, RoutedEventArgs const &) {
+      // 打开结果会清空查询、卸下这个按钮，放到下一轮再做。
+      DispatcherQueue().TryEnqueue([weak = get_weak(), hit] {
+        if (auto self = weak.get())
+          self->open_search_result(hit);
+      });
+    });
+    return button;
+  }
+
+  // 高亮的那条铺 15% 的强调色，ItemStatus 是「已选择」，与页内标签的写法相同。
+  void paint_search_results() {
+    for (size_t i = 0; i < search_buttons_.size(); ++i) {
+      const bool active = i == search_active_;
+      search_buttons_[i].Background(brush(active ? faded(palette_.accent, .15) : transparent_color()));
+      A11y::SetItemStatus(search_buttons_[i], active ? L"已选择" : L"");
+    }
+  }
+
+  // PaneCustomContent 所在的模板行按内容定高，结果多了会伸出侧栏，所以给列表定一个最高值：从搜索框底下（加上搜索框外框的 8 DIP 下边距）到侧栏底部，再留 16。搜索框还没进可视树时（换明暗重建外壳后写回查询）先不算，导航视图第一次排版的 SizeChanged 会再算。
+  void fit_search_results() {
+    if (!search_scroll_ || !navigation_ || !search_ || !search_.IsLoaded())
       return;
-    focus_row_ = target->title;
-    const auto page = target->page;
-    if (page == current_page_) {
+    const auto bottom = search_.TransformToVisual(navigation_)
+                            .TransformPoint(point_at(0, search_.ActualHeight()))
+                            .Y;
+    search_scroll_.MaxHeight(std::max(0.0, navigation_.ActualHeight() - bottom - 8 - 16));
+  }
+
+  // 打开一条结果，照 macOS 的 `openResult`：先清空查询、换回页面列表，整页结果只切到那一页；设置行切到它所在的页和标签，画好后滚到那一行，是控件时把焦点交给它（`render_page_at`），所在的折叠区由 `fold_holds_focus` 展开。
+  void open_search_result(SearchEntry hit) {
+    clear_search();
+    if (hit.whole_page) {
+      navigate(hit.page);
+      return;
+    }
+    focus_row_ = hit.title;
+    if (!hit.tab.empty())
+      page_tabs_[hit.page] = hit.tab;
+    if (hit.page == current_page_) {
       render_page(true);
       return;
     }
-    navigate(page, true);
+    navigate(hit.page);
+  }
+
+  // 清空查询：TextBox 的 TextChanged 是异步的，这里直接换回页面列表，之后到的 TextChanged 再算一遍也是同样的结果。
+  void clear_search() {
+    if (search_)
+      search_.Text(L"");
+    update_search_results(L"");
   }
 
   // ---- Page scaffolding ----
@@ -3982,7 +4237,6 @@ private:
   void render_page_at(double offset) {
     if (!scroll_)
       return;
-    back_.IsEnabled(!history_.empty());
     toolbar_title_.Text(page_label(current_page_).title);
     preview_host_ = nullptr;
     toolbar_preview_host_ = nullptr;
@@ -3994,12 +4248,15 @@ private:
     focus_target_ = nullptr;
 
     StackPanel page;
-    page.Padding(Thickness{22, 22, 22, 32});
+    page.Padding(content_padding(scroll_.ActualWidth()));
+    page.SizeChanged([](Inspectable const &sender, SizeChangedEventArgs const &args) {
+      sender.as<StackPanel>().Padding(content_padding(args.NewSize().Width));
+    });
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)
       page.Children().Append(make_input_method_banner());
-    page.Children().Append(make_page_title());
+    page.Children().Append(make_page_header());
     if (!loaded_)
       page.Children().Append(make_load_failure());
     if (!notice_.empty())
@@ -4031,10 +4288,15 @@ private:
     });
   }
 
-  FrameworkElement make_page_title() {
+  // 正文边距照 macOS 的 `contentColumn`（`settings-style.ts` 的 `mac:px-12 mac:pt-6 mac:pb-11`）：上 24、左右 48、下 44。macOS 窄于 601 时收起侧栏，这个窗口的侧栏常驻，窗口拉到最窄（800）时正文只剩 540 宽，左右退到 32，给卡片多留些宽度。
+  static Thickness content_padding(double width) {
+    const double side = width > 0 && width < 640 ? 32 : 48;
+    return Thickness{side, 24, side, 44};
+  }
+
+  // 页名只在标题栏里（与 macOS 的页面工具栏相同），正文不再画大标题。正文顶部照 macOS 的页首引导（`settings-mascot-intro.tsx` 的 `SettingsMascotIntro`）：左边一句 13 DIP、1.625 倍行高的次要色说明，右边一张 80 DIP 的水杉娘插画，两者竖直居中、相隔 20，整行左右各留 4；窗口矮于 700 DIP 时插画缩到 56、间隔收成 12（`update_intro_size`）。说明和插画按页面与当前标签取自 `SettingsMascotIntro.h`，「关于」没有这一行。「候选窗口」「主题」两页在它下面右侧放 Windows 自己的预览工具。说明带 `settings-page-<页面 id>` 的自动化 ID，界面验收靠它确认正文已换成这一页；「关于」页由品牌卡上的产品名带这个 ID。
+  FrameworkElement make_page_header() {
     Grid row;
-    row.MinHeight(40);
-    row.Margin(Thickness{0, 0, 0, 8});
     ColumnDefinition title_column;
     title_column.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition tools_column;
@@ -4042,16 +4304,38 @@ private:
     row.ColumnDefinitions().Append(title_column);
     row.ColumnDefinitions().Append(tools_column);
 
-    auto title = make_text(page_label(current_page_).title, 22, palette_.text);
-    A11y::SetAutomationId(title, text("settings-page-" + current_page_));
-    title.FontWeight(Windows::UI::Text::FontWeight{600});
-    title.VerticalAlignment(VerticalAlignment::Center);
-    StackPanel heading;
-    heading.Spacing(4);
-    heading.Children().Append(title);
-    heading.Children().Append(make_text(page_label(current_page_).summary, 11, palette_.sub));
-    Grid::SetColumnSpan(heading, 2);
-    row.Children().Append(heading);
+    intro_row_ = nullptr;
+    intro_text_ = nullptr;
+    intro_mascot_ = nullptr;
+    if (nav::mascot_intro(current_page_)) {
+      Grid intro;
+      intro.Padding(Thickness{4, 0, 4, 0});
+      ColumnDefinition description_column;
+      description_column.Width(GridLength{1, GridUnitType::Star});
+      ColumnDefinition mascot_column;
+      mascot_column.Width(GridLength{1, GridUnitType::Auto});
+      intro.ColumnDefinitions().Append(description_column);
+      intro.ColumnDefinitions().Append(mascot_column);
+      auto description = make_text(L"", 13, palette_.sub);
+      description.LineHeight(13 * 1.625);
+      description.VerticalAlignment(VerticalAlignment::Center);
+      A11y::SetAutomationId(description, text("settings-page-" + current_page_));
+      intro.Children().Append(description);
+      Image mascot;
+      mascot.Stretch(Stretch::Uniform);
+      mascot.VerticalAlignment(VerticalAlignment::Center);
+      // 纯装饰：旁边的说明已经讲清这一页，读屏不读它，与共享 UI 插画的 aria-hidden 相同。
+      A11y::SetAccessibilityView(mascot, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+      Grid::SetColumn(mascot, 1);
+      intro.Children().Append(mascot);
+      Grid::SetColumnSpan(intro, 2);
+      row.Children().Append(intro);
+      intro_row_ = intro;
+      intro_text_ = description;
+      intro_mascot_ = mascot;
+      show_page_intro_tab(utf8(hstring(page_tab(current_page_))));
+      update_intro_size();
+    }
     RowDefinition heading_row;
     heading_row.Height(GridLength{1, GridUnitType::Auto});
     RowDefinition actions_row;
@@ -4096,7 +4380,7 @@ private:
         edit.Content(label);
         A11y::SetName(edit, L"编辑主题");
         edit.Click([this](Inspectable const &, RoutedEventArgs const &) {
-          navigate("themes", true);
+          navigate("themes");
         });
         tools.Children().Append(edit);
       }
@@ -4107,6 +4391,32 @@ private:
       row.Children().Append(tools);
     }
     return row;
+  }
+
+  // 把页首引导换成这一页 `tab` 标签的说明和插画，不重画整页；`tab` 为空或这一页没有这个标签时是第一个标签的那句。`make_page_header` 用这一页现在的标签（`page_tabs_`）调用，切标签时整页重画，引导随之换掉。这一页没有引导时什么也不做。
+  void show_page_intro_tab(std::string_view tab) {
+    if (!intro_text_ || !intro_mascot_)
+      return;
+    const auto intro = nav::mascot_intro(current_page_, tab);
+    if (!intro)
+      return;
+    intro_text_.Text(hstring(intro->description));
+    auto bitmap = mascot_bitmaps_.find(intro->scene);
+    if (bitmap == mascot_bitmaps_.end())
+      bitmap = mascot_bitmaps_.emplace(intro->scene, load_mascot(intro->scene)).first;
+    intro_mascot_.Source(bitmap->second);
+  }
+
+  // macOS 的引导行在视口矮于 700 时把插画缩到 56、间隔收成 12（`[@media(max-height:700px)]`）。这里按窗口内容区的高度判断，窗口拉高拉矮时由 `build_shell` 里根元素的 SizeChanged 跟着改。
+  void update_intro_size() {
+    if (!intro_row_ || !intro_mascot_)
+      return;
+    const double height = root_ ? root_.ActualHeight() : 0;
+    const bool short_window = height > 0 && height < 700;
+    const double size = short_window ? 56 : 80;
+    intro_mascot_.Width(size);
+    intro_mascot_.Height(size);
+    intro_row_.ColumnSpacing(short_window ? 12 : 20);
   }
 
   static bool has_preview(std::string_view page) {
@@ -4183,7 +4493,7 @@ private:
     Grid::SetColumn(text_block, 1);
     row.Children().Append(text_block);
 
-    // The fixed accent fill of the design, kept through hover and press rather than the system accent the default button styles use.
+    // The fixed accent fill of the design, kept through hover and press rather than the system accent the default button styles use. It carries white text, so it is the strong accent in both appearances.
     Button action;
     action.Content(box_value(hstring(action_label)));
     action.FontSize(13);
@@ -4195,7 +4505,7 @@ private:
     auto put = [&resources](const wchar_t *key, Color const &color) {
       resources.Insert(box_value(hstring(key)), brush(color));
     };
-    const auto accent = palette_.accent;
+    const auto accent = palette_.accent_strong;
     auto faded = [accent](double alpha) {
       return Color{static_cast<uint8_t>(std::lround(alpha * 255)), accent.R,
                    accent.G, accent.B};
@@ -4254,18 +4564,22 @@ private:
     queue_refresh();
   }
 
-  // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。
+  // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。密度照 macOS 的平台 token（`platform-tokens.ts` 的 `groupTitle`、`groupsGap`）：组名 14 DIP 半粗体、左右缩进 8，与卡片相隔 8；组与组相隔 24（这里的上边距 20 加页面的 Spacing 4）。卡片里的行面板左右留 16 DIP：不是行的内容（说明、表单、子卡片）照这个缩进，`add_row` 等行再用负边距伸到卡片两边，分隔线和悬停底色因此贯穿整行。
   StackPanel add_group(StackPanel const &page, std::wstring const &title) {
+    // 建索引时记下组名，之后 record 的行在搜索结果里写成「页 › 分组」。
+    if (indexing_)
+      group_index_ = title;
     StackPanel section;
-    section.Spacing(6);
-    section.Margin(Thickness{0, 14, 0, 0});
+    section.Spacing(8);
+    section.Margin(Thickness{0, 20, 0, 0});
     if (!title.empty()) {
-      auto heading = make_text(title, 13, palette_.text);
+      auto heading = make_text(title, 14, palette_.text);
       heading.FontWeight(Windows::UI::Text::FontWeight{600});
+      heading.Margin(Thickness{8, 0, 8, 0});
       section.Children().Append(heading);
     }
     StackPanel rows;
-    rows.Padding(Thickness{12, 6, 12, 6});
+    rows.Padding(Thickness{row_inset, 0, row_inset, 0});
     auto card = make_card();
     card.Child(rows);
     section.Children().Append(card);
@@ -4273,44 +4587,197 @@ private:
     return rows;
   }
 
+  // 分组卡片照 macOS 的 `--p-group-*`：10 DIP 圆角，外围一圈 1 DIP 描边（浅色 rgba(0,0,0,.06)、深色 rgba(255,255,255,.07)，即 `palette_.stroke`）。
   Border make_card() {
     Border card;
     card.Background(brush(palette_.card));
+    card.BorderBrush(brush(palette_.stroke));
+    card.BorderThickness(Thickness{1, 1, 1, 1});
     card.CornerRadius(CornerRadius{10, 10, 10, 10});
     return card;
   }
 
-  // 组末的「更多选项」折叠区，对应共享页的 MoreOptions，写法与本地识别模型、AI 辅助两处的 Expander 相同：展开与否记在 `open` 这个成员里，跨页面重建保留；`focused` 为真（搜索落到折叠区里的某一行）时直接展开。返回放行的面板。
-  StackPanel add_more_options(StackPanel const &group, bool &open, bool focused) {
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(open || focused);
-    // `open` 是窗口自己的成员，与这些控件同寿。
-    bool *const state = &open;
-    more.Expanding([state](Expander const &, ExpanderExpandingEventArgs const &) {
-      *state = true;
+  // 放进分组卡片里的子卡片（说明文字、表单、列表）：上下各留 10 DIP，与 macOS 组内非行内容的 `groupBlock` 内边距相同，排在组首或组末时不和外层卡片的边框贴在一起。
+  Border make_inner_card() {
+    auto card = make_card();
+    card.Margin(Thickness{0, 10, 0, 10});
+    return card;
+  }
+
+  // 卡片行面板左右各留的宽度，也是每行左右的内边距，与 macOS 的 `rowPad`（10px 16px）相同。
+  static constexpr double row_inset = 16;
+
+  // 组内一行的外框：左右用负边距伸到卡片边缘，不是第一项时顶上一条贯穿整行的 1 DIP 分隔线，与 macOS 的 `groupRows` 相同。
+  Border append_row_frame(StackPanel const &group, UIElement const &child) {
+    Border frame;
+    frame.Margin(Thickness{-row_inset, 0, -row_inset, 0});
+    if (group.Children().Size() > 0) {
+      frame.BorderBrush(brush(palette_.divider));
+      frame.BorderThickness(Thickness{0, 1, 0, 0});
+    }
+    frame.Child(child);
+    group.Children().Append(frame);
+    return frame;
+  }
+
+  // 整行可点的透明按钮，跳转行和折叠区的标题行共用，对应共享页的 `linkRow` 和 `moreOptionsSummary`：内边距与普通行相同，悬停和按下铺 `palette_.hover`。底色走模板资源，模板的视觉状态才不会把它盖回系统色。
+  Button make_row_button(bool described) {
+    Button button;
+    button.HorizontalAlignment(HorizontalAlignment::Stretch);
+    button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    button.VerticalContentAlignment(VerticalAlignment::Center);
+    button.MinHeight(described ? 56 : 44);
+    button.Padding(Thickness{row_inset, 10, row_inset, 10});
+    button.CornerRadius(CornerRadius{0, 0, 0, 0});
+    button.BorderThickness(Thickness{0, 0, 0, 0});
+    button.Background(brush(transparent_color()));
+    auto resources = button.Resources();
+    auto put = [&resources](const wchar_t *key, Color const &color) {
+      resources.Insert(box_value(hstring(key)), brush(color));
+    };
+    put(L"ButtonBackground", transparent_color());
+    put(L"ButtonBackgroundPointerOver", palette_.hover);
+    put(L"ButtonBackgroundPressed", palette_.hover);
+    put(L"ButtonBackgroundDisabled", transparent_color());
+    put(L"ButtonForeground", palette_.text);
+    put(L"ButtonForegroundPointerOver", palette_.text);
+    put(L"ButtonForegroundPressed", palette_.text);
+    return button;
+  }
+
+  // 跳转行，对应共享页的 LinkRow：没有单独的按钮，整行就是按钮，行尾是 12 DIP 的灰色「↗」（`external`，打开网页、文件这类窗口外的东西）或「›」（本窗口的另一页）。按钮以标题命名、以说明描述，箭头不进无障碍树。
+  Button link_row(StackPanel const &group, std::wstring const &title,
+                  std::wstring const &subtitle, bool external,
+                  std::function<void()> click) {
+    record(title, subtitle);
+    Grid content;
+    content.ColumnSpacing(12);
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition arrow_column;
+    arrow_column.Width(GridLength{1, GridUnitType::Auto});
+    content.ColumnDefinitions().Append(text_column);
+    content.ColumnDefinitions().Append(arrow_column);
+    StackPanel texts;
+    texts.Spacing(2);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    texts.Children().Append(make_text(title, 14, palette_.text));
+    if (!subtitle.empty())
+      texts.Children().Append(make_text(subtitle, 12, palette_.sub));
+    content.Children().Append(texts);
+    auto arrow = make_text(external ? L"\u2197" : L"\u203A", 12, palette_.sub);
+    arrow.VerticalAlignment(VerticalAlignment::Center);
+    A11y::SetAccessibilityView(arrow, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    Grid::SetColumn(arrow, 1);
+    content.Children().Append(arrow);
+
+    auto button = make_row_button(!subtitle.empty());
+    button.Content(content);
+    A11y::SetName(button, hstring(title));
+    if (!subtitle.empty())
+      A11y::SetHelpText(button, hstring(subtitle));
+    button.Click([on_click = std::move(click)](Inspectable const &, RoutedEventArgs const &) {
+      on_click();
     });
-    more.Collapsed([state](Expander const &, ExpanderCollapsedEventArgs const &) {
-      *state = false;
-    });
+    append_row_frame(group, button);
+    mark_search_target(title, button);
+    return button;
+  }
+
+  // 组里的折叠区，对应共享页的 MoreOptions：标题行与普通行同高、没有边框，悬停铺中性底色，标题右边一个灰色「›」，展开时转 90°（关掉系统动画效果时直接转过去）；展开后的各行和组内其他行一样带分隔线，第一行上面那条由折叠体的上边框画出。名字默认是「更多选项」，只有里面是同一类具体东西时才写它是什么（「自定义配色」「更多音效」）。`open` 是画出来时展开与否，点按时经 `remember` 交给调用方记在自己的成员里，跨页面重建保留。标题行是普通按钮，展开与否用 ItemStatus（「已展开」「已收起」）告诉读屏。`search_title` 非空时，搜索落到这个标题的结果把焦点交给标题按钮（「自定义主题」组只有这一个折叠区）。返回放行的面板。
+  StackPanel add_fold(StackPanel const &group, std::wstring const &title, bool open,
+                      std::function<void(bool)> remember,
+                      std::wstring const &automation_id = L"",
+                      std::wstring const &search_title = L"") {
+    StackPanel fold;
+    fold.Margin(Thickness{-row_inset, 0, -row_inset, 0});
+
+    StackPanel label;
+    label.Orientation(Orientation::Horizontal);
+    label.Spacing(12);
+    auto heading = make_text(title, 14, palette_.text);
+    heading.VerticalAlignment(VerticalAlignment::Center);
+    label.Children().Append(heading);
+    auto marker = make_text(L"\u203A", 12, palette_.sub);
+    marker.VerticalAlignment(VerticalAlignment::Center);
+    marker.RenderTransformOrigin(Windows::Foundation::Point{0.5f, 0.5f});
+    RotateTransform turn;
+    turn.Angle(open ? 90 : 0);
+    marker.RenderTransform(turn);
+    A11y::SetAccessibilityView(marker, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    label.Children().Append(marker);
+
+    auto header = make_row_button(false);
+    header.Content(label);
+    A11y::SetName(header, hstring(title));
+    A11y::SetItemStatus(header, open ? L"已展开" : L"已收起");
+    if (!automation_id.empty())
+      A11y::SetAutomationId(header, hstring(automation_id));
+    if (!search_title.empty())
+      mark_search_target(search_title, header);
+    Border head;
+    if (group.Children().Size() > 0) {
+      head.BorderBrush(brush(palette_.divider));
+      head.BorderThickness(Thickness{0, 1, 0, 0});
+    }
+    head.Child(header);
+    fold.Children().Append(head);
+
     StackPanel rows;
-    rows.Spacing(4);
-    more.Content(rows);
-    group.Children().Append(more);
+    Border body;
+    body.BorderBrush(brush(palette_.divider));
+    body.BorderThickness(Thickness{0, 1, 0, 0});
+    body.Padding(Thickness{row_inset, 0, row_inset, 0});
+    body.Visibility(open ? Visibility::Visible : Visibility::Collapsed);
+    body.Child(rows);
+    fold.Children().Append(body);
+
+    // 折叠体和「›」的旋转按值捕获：CI 上对折叠体取的弱引用在点按时解析为空（元素明明还在树上），点了没有反应。两者都不引用标题按钮，按值持有不成环，折叠区整体丢弃时一起释放。
+    header.Click([this, body, turn, on_toggle = std::move(remember)](Inspectable const &sender,
+                                                                     RoutedEventArgs const &) {
+      const bool expanded = body.Visibility() == Visibility::Collapsed;
+      body.Visibility(expanded ? Visibility::Visible : Visibility::Collapsed);
+      A11y::SetItemStatus(sender.as<Button>(), expanded ? L"已展开" : L"已收起");
+      turn_fold_marker(turn, expanded);
+      on_toggle(expanded);
+    });
+    group.Children().Append(fold);
     return rows;
   }
 
-  // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。
+  // 折叠区的「›」转到展开（90°）或收起（0°），与共享页 `moreOptionsMarker` 的 transition 一样用 150 ms；系统关掉了动画效果时直接转过去，对应 `motion-reduce:transition-none`。
+  void turn_fold_marker(RotateTransform const &turn, bool expanded) {
+    const double angle = expanded ? 90 : 0;
+    if (!ui_settings_.AnimationsEnabled()) {
+      turn.Angle(angle);
+      return;
+    }
+    Media::Animation::DoubleAnimation spin;
+    spin.To(angle);
+    spin.Duration(DurationHelper::FromTimeSpan(std::chrono::milliseconds(150)));
+    Media::Animation::Storyboard::SetTarget(spin, turn);
+    Media::Animation::Storyboard::SetTargetProperty(spin, L"Angle");
+    Media::Animation::Storyboard board;
+    board.Children().Append(spin);
+    board.Begin();
+  }
+
+  // 组末的「更多选项」折叠区：展开与否记在 `open` 这个成员里，跨页面重建保留；`focused` 为真（搜索落到折叠区里的某一行）时直接展开。返回放行的面板。
+  StackPanel add_more_options(StackPanel const &group, bool &open, bool focused) {
+    // `open` 是窗口自己的成员，与这些控件同寿。
+    bool *const state = &open;
+    return add_fold(group, L"更多选项", open || focused, [state](bool expanded) { *state = expanded; });
+  }
+
+  // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。尺寸照 macOS 的 `group` token：左右 16、上下 10 的内边距，行高至少 56（有说明时；没有说明的行 44，避免一列开关显得松散），标题 14 DIP、说明 12 DIP。
   Border add_row(StackPanel const &group, wchar_t,
                  std::wstring const &title, std::wstring const &subtitle,
                  FrameworkElement const &control,
                  FrameworkElement const &below = nullptr) {
     record(title, subtitle);
     Grid header;
-    header.MinHeight(subtitle.empty() ? 30 : 38);
-    header.Padding(Thickness{0, 4, 0, 4});
+    // 行的上下内边距各 10，标题区至少 36（或 24），合起来就是 56（或 44）。
+    header.MinHeight(subtitle.empty() ? 24 : 36);
     header.ColumnSpacing(12);
     ColumnDefinition text_column;
     text_column.Width(GridLength{1, GridUnitType::Star});
@@ -4328,11 +4795,10 @@ private:
     StackPanel texts;
     texts.Spacing(2);
     texts.VerticalAlignment(VerticalAlignment::Center);
-    texts.Children().Append(make_text(title, 13, palette_.text));
+    texts.Children().Append(make_text(title, 14, palette_.text));
     if (!subtitle.empty())
-      texts.Children().Append(make_text(subtitle, 11, palette_.sub));
+      texts.Children().Append(make_text(subtitle, 12, palette_.sub));
     header.Children().Append(texts);
-
     if (control) {
       control.VerticalAlignment(VerticalAlignment::Center);
       control.HorizontalAlignment(HorizontalAlignment::Right);
@@ -4361,13 +4827,8 @@ private:
     body.Children().Append(header);
     if (below)
       body.Children().Append(below);
-    Border row;
-    if (group.Children().Size() > 0) {
-      row.BorderBrush(brush(palette_.divider));
-      row.BorderThickness(Thickness{0, 1, 0, 0});
-    }
-    row.Child(body);
-    group.Children().Append(row);
+    auto row = append_row_frame(group, body);
+    row.Padding(Thickness{row_inset, 10, row_inset, 10});
     mark_search_target(title, row);
     return row;
   }
@@ -4381,6 +4842,21 @@ private:
     block.Foreground(brush(color));
     block.TextWrapping(TextWrapping::Wrap);
     return block;
+  }
+
+  // 侧栏的产品图标（`SettingsNavIcons.h`）。路径坐标在 24 × 24 的方框里，按 `size` 缩放；图标本身定成 size × size，保留图源四周的留白，导航项模板里装图标的 Viewbox 因此不再按路径的外框放大。不设前景，由所在的模板或父元素决定。
+  static PathIcon make_nav_icon(std::string_view page, double size) {
+    const std::wstring markup =
+        L"<PathIcon xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"" +
+        std::wstring(nav::nav_icon_path(page)) + L"\"/>";
+    auto icon = Markup::XamlReader::Load(hstring(markup)).as<PathIcon>();
+    ScaleTransform scale;
+    scale.ScaleX(size / nav::nav_icon_box);
+    scale.ScaleY(size / nav::nav_icon_box);
+    icon.Data().Transform(scale);
+    icon.Width(size);
+    icon.Height(size);
+    return icon;
   }
 
   FontIcon make_icon(wchar_t glyph, double size, Color const &color) {
@@ -4446,39 +4922,52 @@ private:
     return combo;
   }
 
-  // 分段控件用浮起的选中底；默认超过三项用下拉框，紧凑页内标签可显式允许四项。
+  // 分段控件用浮起的选中底；默认超过三项用下拉框，紧凑页内标签可显式允许四项。`full_width` 是页内顶部标签的样式（macOS 的 `candidateTabs`，见 `page_tab_bar`）：铺满正文宽度、各段等宽，段高 36、14 DIP 字，选中与否都用正文色，外框圆角 6、段圆角 5；这种样式不按 `maximum_segments` 退成下拉框。
   FrameworkElement segmented_control(std::wstring const &name,
                                      std::vector<Option> const &options,
                                      std::wstring const &current,
                                      std::function<void(std::wstring const &)> apply,
                                      bool enabled = true, bool document = true,
                                      size_t maximum_segments = 3,
-                                     std::wstring const &automation_prefix = L"") {
-    if (options.size() > maximum_segments)
+                                     std::wstring const &automation_prefix = L"",
+                                     bool full_width = false) {
+    if (!full_width && options.size() > maximum_segments)
       return select_control(name, options, current, std::move(apply), enabled, document);
     Border well;
-    well.Background(brush(palette_.seg_well));
-    well.BorderBrush(brush(palette_.stroke));
-    well.BorderThickness(Thickness{1, 1, 1, 1});
-    well.CornerRadius(CornerRadius{5, 5, 5, 5});
+    if (full_width) {
+      // 标签条的底照 macOS `candidateTabs` 的 `--p-seg-bg`、`--p-seg-border`：浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.08)，没有描边。
+      well.Background(brush(palette_.dark ? rgba(255, 255, 255, .08) : rgba(0, 0, 0, .055)));
+    } else {
+      well.Background(brush(palette_.seg_well));
+      well.BorderBrush(brush(palette_.stroke));
+      well.BorderThickness(Thickness{1, 1, 1, 1});
+    }
+    well.CornerRadius(full_width ? CornerRadius{6, 6, 6, 6} : CornerRadius{5, 5, 5, 5});
     well.Padding(Thickness{2, 2, 2, 2});
+    // 紧凑样式横排、按内容定宽；整宽样式每段一个等宽的 * 列。
     StackPanel items;
     items.Orientation(Orientation::Horizontal);
     items.Spacing(2);
+    Grid columns;
+    columns.ColumnSpacing(2);
+    if (full_width)
+      well.HorizontalAlignment(HorizontalAlignment::Stretch);
+    int32_t column = 0;
     for (const auto &option : options) {
       const bool on = option.value == current;
       Button button;
-      button.Height(26);
+      button.Height(full_width ? 36 : 26);
       button.MinWidth(0);
-      button.Padding(Thickness{10, 0, 10, 0});
-      button.CornerRadius(CornerRadius{4, 4, 4, 4});
+      button.Padding(full_width ? Thickness{8, 0, 8, 0} : Thickness{10, 0, 10, 0});
+      button.CornerRadius(full_width ? CornerRadius{5, 5, 5, 5} : CornerRadius{4, 4, 4, 4});
       button.BorderThickness(Thickness{1, 1, 1, 1});
       button.Background(brush(on ? (palette_.dark ? rgba(0x5A, 0x5A, 0x5E, 1) : rgba(255, 255, 255, 1)) : transparent_color()));
       button.BorderBrush(brush(on ? palette_.stroke : transparent_color()));
       button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
       button.VerticalContentAlignment(VerticalAlignment::Stretch);
       Grid content;
-      auto label = make_text(option.label, 13, on ? palette_.text : palette_.sub);
+      auto label = make_text(option.label, full_width ? 14 : 13,
+                             (on || full_width) ? palette_.text : palette_.sub);
       label.TextWrapping(TextWrapping::NoWrap);
       label.HorizontalAlignment(HorizontalAlignment::Center);
       label.VerticalAlignment(VerticalAlignment::Center);
@@ -4495,11 +4984,69 @@ private:
         if (!on)
           apply(value);
       });
-      items.Children().Append(button);
+      if (full_width) {
+        ColumnDefinition segment;
+        segment.Width(GridLength{1, GridUnitType::Star});
+        columns.ColumnDefinitions().Append(segment);
+        button.HorizontalAlignment(HorizontalAlignment::Stretch);
+        Grid::SetColumn(button, column++);
+        columns.Children().Append(button);
+      } else {
+        items.Children().Append(button);
+      }
     }
     A11y::SetName(well, hstring(name));
-    well.Child(items);
+    if (full_width)
+      well.Child(columns);
+    else
+      well.Child(items);
     return well;
+  }
+
+  // ---- 页内标签 ----
+
+  // 页内顶部标签，照共享设置 UI 的 `useSettingsTabs`（桌面用 `candidateTabs` 样式，即 segmented_control 的 `full_width`）：一页的内容分成几块，一次只画选中的那一块。选中哪个标签记在窗口成员 `page_tabs_` 里，按页面 id 存，跨页面保留、不写偏好（与 macOS 的 `useSettingsIntroTabs` 相同）；还没选过、或记下的标签这一页没有时，落到第一个。切标签时整页重画，页首引导随之换成这个标签的说明和插画（`SettingsMascotIntro.h`）。用法是先 `const auto tab = page_tab_bar(page, 名称, 标签, 自动化前缀);`，再把每块内容包在 `if (in_tab(tab, L"<标签 id>"))` 里。标签按钮的自动化 ID 是 `<自动化前缀>-<标签 id>`。建搜索索引时不画标签条、返回空，只记下各标签的名字（`index_tabs_`，结果第二行的位置要写标签名），`in_tab` 对每块都返回真，并把之后 record 的条目记在那个标签下（`tab_index_`）；选中搜索结果时 open_search_result 先把它所在的标签设成当前标签，再画页面，结果因此总在画出来的那块里。
+  std::wstring page_tab_bar(StackPanel const &page, std::wstring const &name,
+                            std::vector<Option> const &tabs,
+                            std::wstring const &automation_prefix) {
+    // 建索引时只记下各标签的名字，搜索结果的位置要写标签名。
+    if (indexing_) {
+      index_tabs_ = tabs;
+      return {};
+    }
+    if (tabs.empty())
+      return {};
+    auto current = page_tab(current_page_);
+    if (std::none_of(tabs.begin(), tabs.end(),
+                     [&current](Option const &tab) { return tab.value == current; }))
+      current = tabs.front().value;
+    auto bar = segmented_control(
+        name, tabs, current,
+        [this, id = current_page_](std::wstring const &value) {
+          page_tabs_[id] = value;
+          queue_refresh();
+        },
+        true, false, tabs.size(), automation_prefix, true);
+    // 与页首引导、下面的第一组都相隔 24（页面的 Spacing 4 加这里的 20，组自己的上边距 20 加 Spacing 4）。
+    bar.Margin(Thickness{0, 20, 0, 0});
+    page.Children().Append(bar);
+    return current;
+  }
+
+  // 标签 `tab` 那一块现在画不画：平时只画选中的（`current` 是 page_tab_bar 的返回值），建索引时每块都画，并把之后的条目记在这个标签下。
+  bool in_tab(std::wstring const &current, std::wstring const &tab) {
+    if (indexing_) {
+      tab_index_ = tab;
+      group_index_.clear();
+      return true;
+    }
+    return current == tab;
+  }
+
+  // 某一页记下的标签，没选过时为空。
+  std::wstring page_tab(std::string const &page) const {
+    const auto found = page_tabs_.find(page);
+    return found == page_tabs_.end() ? std::wstring() : found->second;
   }
 
   FrameworkElement slider_control(std::wstring const &name, double minimum,
@@ -4729,11 +5276,10 @@ private:
             button_control(action, [this, target] { open_shell(target); }));
   }
 
-  void url_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
-               std::wstring const &subtitle, std::wstring const &action,
-               const wchar_t *url) {
-    add_row(group, glyph, title, subtitle,
-            button_control(action, [this, url] { open_url(url); }));
+  // 打开网页的跳转行，行尾是「↗」。
+  void url_row(StackPanel const &group, std::wstring const &title,
+               std::wstring const &subtitle, const wchar_t *url) {
+    link_row(group, title, subtitle, true, [this, url] { open_url(url); });
   }
 
   // ---- 检查更新 ----
@@ -5665,13 +6211,13 @@ private:
     redraw_account();
   }
 
-  // 圆形头像（AccountAvatar）：取到的图片，或强调色底上名字的第一个字。`name` 是代替图片的那个名字。
+  // 圆形头像（AccountAvatar）：取到的图片，或强调色底上名字的第一个字。`name` 是代替图片的那个名字。底上是白字，与共享页的 `bg-accent-strong` 一样用 `accent_strong`。
   FrameworkElement make_account_avatar(double size, double font_size, std::wstring const &name) {
     Grid avatar;
     avatar.Width(size);
     avatar.Height(size);
     Shapes::Ellipse circle;
-    circle.Fill(brush(palette_.accent));
+    circle.Fill(brush(palette_.accent_strong));
     avatar.Children().Append(circle);
     const bool image = account_user_ && account_avatar_ && !account_user_->avatar_url.empty() &&
                        account_user_->avatar_url == account_avatar_url_;
@@ -6649,7 +7195,7 @@ private:
       tile.Width(32);
       tile.Height(32);
       tile.CornerRadius(CornerRadius{6, 6, 6, 6});
-      tile.Background(brush(palette_.accent));
+      tile.Background(brush(palette_.accent_strong));
       auto glyph = make_text(cm::resource_card_glyph(item.kind), 15, palette_.on_accent);
       glyph.HorizontalAlignment(HorizontalAlignment::Center);
       glyph.VerticalAlignment(VerticalAlignment::Center);
@@ -7376,26 +7922,14 @@ private:
     // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
     auto colors = add_group(page, L"自定义主题");
     record(L"自定义主题", L"候选颜色取色器");
-    Expander custom_colors;
-    custom_colors.Header(box_value(L"自定义配色"));
-    custom_colors.HorizontalAlignment(HorizontalAlignment::Stretch);
-    custom_colors.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    custom_colors.IsExpanded(custom_colors_open_ || focus_row_ == L"自定义主题" ||
-                             fold_holds_focus(L"custom-colors"));
-    custom_colors.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      custom_colors_open_ = true;
-    });
-    custom_colors.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      custom_colors_open_ = false;
-    });
-    mark_search_target(L"自定义主题", custom_colors);
-    StackPanel color_rows;
-    color_rows.Spacing(4);
+    auto color_rows = add_fold(colors, L"自定义配色",
+                               custom_colors_open_ || focus_row_ == L"自定义主题" ||
+                                   fold_holds_focus(L"custom-colors"),
+                               [this](bool expanded) { custom_colors_open_ = expanded; }, L"",
+                               L"自定义主题");
     fold_index_ = L"custom-colors";
     candidate_color_rows(color_rows);
     fold_index_.clear();
-    custom_colors.Content(color_rows);
-    colors.Children().Append(custom_colors);
   }
 
   // ---- 皮肤包 ----
@@ -8029,7 +8563,7 @@ private:
   }
 
   // 共享页的 openAccountLogin：去「账号与同步」页登录。
-  void open_account_login() { navigate("account", true); }
+  void open_account_login() { navigate("account"); }
 
   // ---- 标签 ----
 
@@ -10965,20 +11499,9 @@ private:
                L"candidate_font_size", 12, 32, 18);
 
     // 搜索命中折叠区里的某一行时展开它（fold_holds_focus）。
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    A11y::SetAutomationId(more, L"candidate-more");
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(candidate_more_open_ || fold_holds_focus(L"candidate-more"));
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      candidate_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      candidate_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        layout, L"更多选项", candidate_more_open_ || fold_holds_focus(L"candidate-more"),
+        [this](bool expanded) { candidate_more_open_ = expanded; }, L"candidate-more");
     fold_index_ = L"candidate-more";
     // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
     bool_row(rows, 0xE790, L"显示水杉 logo",
@@ -11006,8 +11529,6 @@ private:
                 {L"empty", L"不显示"}},
                L"raw");
     fold_index_.clear();
-    more.Content(rows);
-    layout.Children().Append(more);
 
     auto games = add_group(page, L"游戏");
     bool_row(
@@ -11518,7 +12039,7 @@ private:
     add_row(general, 0xE790, L"颜色与明暗", L"悬浮工具栏跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
               focus_row_ = L"颜色模式";
-              navigate("themes", true);
+              navigate("themes");
             }));
     std::vector<Check> checks;
     for (const auto &component : toolbar_components_) {
@@ -11783,14 +12304,8 @@ private:
       A11y::SetName(radio, hstring(option.label + L"输入"));
       A11y::SetAutomationId(radio, hstring(L"scheme-" + option.value));
       record(option.label + L"输入", L"输入方案");
-      Border choice;
-      choice.Padding(Thickness{0, 2, 0, 2});
-      if (schemes.Children().Size() > 0) {
-        choice.BorderBrush(brush(palette_.divider));
-        choice.BorderThickness(Thickness{0, 1, 0, 0});
-      }
-      choice.Child(radio);
-      schemes.Children().Append(choice);
+      auto choice = append_row_frame(schemes, radio);
+      choice.Padding(Thickness{row_inset, 2, row_inset, 2});
       mark_search_target(option.label + L"输入", radio);
     }
     StackPanel scheme_options_group{nullptr};
@@ -12376,22 +12891,12 @@ private:
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
     // 「更多选项」：方头括号样式、智能标点总开关和它的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。搜索落在其中任何一行时展开。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(punctuation_more_open_ || focus_row_ == L"方头括号样式" ||
-                    focus_row_ == L"智能标点" || focus_row_ == L"重复标点转中文" ||
-                    focus_row_ == L"中文标点后按空格转换" || focus_row_ == L"数字后直出" ||
-                    focus_row_ == L"字母后直出");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      punctuation_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      punctuation_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        punctuation, L"更多选项",
+        punctuation_more_open_ || focus_row_ == L"方头括号样式" || focus_row_ == L"智能标点" ||
+            focus_row_ == L"重复标点转中文" || focus_row_ == L"中文标点后按空格转换" ||
+            focus_row_ == L"数字后直出" || focus_row_ == L"字母后直出",
+        [this](bool expanded) { punctuation_more_open_ = expanded; });
     select_row(rows, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
                L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
     // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII。四个键默认都是开（client-core 的 smart_punctuation_default，读进来的文档总带着这些键，这里的回退值只是与它一致）。只写过总开关的旧文档在说明里多一句提示，不改写存储。
@@ -12420,8 +12925,6 @@ private:
     bool_row(rows, 0xE8EE, L"字母后直出",
              L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
              L"smart_punctuation_direct_letter", true, true, smart);
-    more.Content(rows);
-    punctuation.Children().Append(more);
 
     build_input_habits(page);
 
@@ -12448,19 +12951,9 @@ private:
                L"candidate_pronunciation", false);
     // 第二种语言：候选窗在第一种语言下面再画一行。和共享页 CandidateTranslationOptionsSection 的默认布局一样收进「更多选项」（它会上云，所以只折叠不砍），翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
     {
-      Expander translation_more;
-      translation_more.Header(box_value(L"更多选项"));
-      translation_more.HorizontalAlignment(HorizontalAlignment::Stretch);
-      translation_more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-      translation_more.IsExpanded(translation_more_open_ || focus_row_ == L"第二种语言");
-      translation_more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-        translation_more_open_ = true;
-      });
-      translation_more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-        translation_more_open_ = false;
-      });
-      StackPanel translation_rows;
-      translation_rows.Spacing(4);
+      auto translation_rows = add_fold(
+          candidates, L"更多选项", translation_more_open_ || focus_row_ == L"第二种语言",
+          [this](bool expanded) { translation_more_open_ = expanded; });
       add_row(translation_rows, 0xE774, L"第二种语言", L"候选词下方可同时显示第二种释义",
               select_control(L"第二种语言",
                              {{L"", L"不显示第二种语言"}, {L"en", L"英语"}, {L"fr", L"法语"},
@@ -12477,8 +12970,6 @@ private:
                                }, false);
                              },
                              glosses));
-      translation_more.Content(translation_rows);
-      candidates.Children().Append(translation_more);
     }
     // 翻译服务：共享页「翻译服务」一行（`translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
     // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
@@ -12539,7 +13030,7 @@ private:
   // 分组里的一条警告（共享页的 `SettingsWarning`），文字为空时收起；读屏在文字变化时播报。
   TextBlock group_warning() {
     auto warning = make_text(L"", 13, danger_color());
-    warning.Margin(Thickness{4, 2, 4, 4});
+    warning.Margin(Thickness{0, 2, 0, 10});
     warning.Visibility(Visibility::Collapsed);
     A11y::SetLiveSetting(warning, Automation::Peers::AutomationLiveSetting::Polite);
     return warning;
@@ -12654,7 +13145,7 @@ private:
     content.Padding(Thickness{25, 12, 25, 12});
     content.Children().Append(button);
     content.Children().Append(message);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
     if (indexing_)
@@ -12787,19 +13278,9 @@ private:
     // 地域收进「更多选项」：请求一律发往 tmt.tencentcloudapi.com，地域只写进 X-TC-Region，留空按广州处理（crates/client-core/src/translation.rs），平时用不着改；需要境外数据驻留的人仍能填。与共享页 MoreOptions 的 defaultOpen 相同，第一次画出时已存的地域不合规就展开，让错误旁边就是要改的那一格。
     if (!indexing_ && !tencent_region_open_)
       tencent_region_open_ = !nav::tencent_credential_issue(L"", L"", fields->region).empty();
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(tencent_region_open_.value_or(false) || focus_row_ == L"地域");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      tencent_region_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      tencent_region_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        group, L"更多选项", tencent_region_open_.value_or(false) || focus_row_ == L"地域",
+        [this](bool expanded) { tencent_region_open_ = expanded; });
     add_row(rows, 0xE774, L"地域", L"",
             credential_input(L"腾讯云地域", fields->region, false, L"ap-guangzhou", available,
                              [this, fields, refresh](std::wstring const &value) {
@@ -12810,8 +13291,6 @@ private:
                                refresh();
                                return saved;
                              }));
-    more.Content(rows);
-    group.Children().Append(more);
     add_credential_test(
         group, L"translation.tencent", L"测试腾讯云翻译配置",
         [fields] {
@@ -14275,6 +14754,7 @@ private:
     }
   }
 
+  // 共享页 `ClipboardHistorySection` 的桌面分标签版（`tabbed`）：顶上是「剪贴管理分类」两个页内标签（page_tab_bar）。「设置」是「剪贴板」组（历史开关、历史记录上限）和「云剪贴板」组；「历史记录」一直进得去，最上面是一行管理：左边有历史时的「清空历史」（点两次才清空，第二次是「确认清空」），右边超过一页时的翻页器（上一页、「第 N / M 页 · 共 X 条」、下一页，每页 20 条，HistoryPagination.h），下面是这一页的记录；历史关着时只写「请先在「剪贴板」中开启剪贴板历史」，开着但没有记录时写「暂无历史记录」。翻页只改显示，不重读历史；删除后页码收进有效范围；历史关掉时回到第一页。
   void build_clip_page(StackPanel const &page) {
     synchronize_cloud_clipboard_configuration();
     const bool enabled = clipboard_history_enabled();
@@ -14282,6 +14762,7 @@ private:
     if (!enabled) {
       clip_entries_.clear();
       clip_clear_armed_ = false;
+      clip_offset_ = 0;
     }
     if (!indexing_ && enabled) {
       if (!clip_busy_ && (clip_stale_ || clip_read_revision_ != document_.revision()))
@@ -14290,15 +14771,69 @@ private:
         check_cloud_clipboard();
     }
 
-    auto group = add_group(page, L"剪贴板");
-    // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。只剩有历史时的「清空历史」，没有历史时开关下面不留空行。
-    FrameworkElement actions_row{nullptr};
-    if (!clip_entries_.empty()) {
-      StackPanel actions;
-      actions.Orientation(Orientation::Horizontal);
-      actions.Spacing(8);
-      actions.Margin(Thickness{0, 0, 0, 16});
-      actions.Children().Append(button_control(
+    const auto tab = page_tab_bar(page, L"剪贴管理分类",
+                                  {{L"clipboard", L"设置"}, {L"history", L"历史记录"}}, L"clip-tab");
+    if (in_tab(tab, L"clipboard")) {
+      auto group = add_group(page, L"剪贴板");
+      // 没有「从系统剪贴板同步」：打开历史的那一次已经自动同步过（toggle_clipboard_history）。「清空历史」在「历史记录」标签的列表上面。
+      add_row(group, 0xE81C, L"剪贴板历史",
+              L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
+              toggle_control(L"剪贴板历史", enabled,
+                             [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_));
+      const auto history_limit = clipboard_history_limit();
+      std::vector<Option> limit_options;
+      for (const auto limit : {50, 100, 200, 500, 1000})
+        limit_options.push_back({std::to_wstring(limit), std::to_wstring(limit) + L" 条", true});
+      add_row(group, 0xE8AB, L"历史记录上限",
+              L"达到上限后，最旧的未固定记录会被新记录替换。",
+              select_control(L"历史记录上限", std::move(limit_options),
+                             std::to_wstring(history_limit), [this](std::wstring const &value) {
+                               try {
+                                 const auto limit = std::stoul(value);
+                                 change([limit](PreferencesDocument &doc) {
+                                   doc.SetNumber(L"clipboard_history_limit", static_cast<double>(limit));
+                                 }, true);
+                               } catch (...) {
+                                 show_notice(L"历史记录上限无效");
+                               }
+                             }, true));
+
+      // 设备批准和列表管理继续使用共享云剪贴板面板。
+      auto cloud = add_group(page, L"云剪贴板");
+      build_cloud_clipboard_relay_settings(cloud);
+      shell_row(cloud, 0xE753, L"云剪贴板", L"", L"打开云剪贴板", nav::shell_links::cloud_clipboard);
+    }
+    if (in_tab(tab, L"history"))
+      build_clip_history(page, enabled);
+  }
+
+  // 「历史记录」标签：管理行和这一页的记录，见 build_clip_page。
+  void build_clip_history(StackPanel const &page, bool enabled) {
+    auto history = add_group(page, L"历史记录");
+    if (const auto note = cloud_clipboard_note(); !note.empty())
+      history.Children().Append(group_note(note));
+    const auto paging = nav::history_page(clip_entries_.size(), clip_offset_);
+    // 这次重画是不是刚点了翻页按钮（show_clip_page 记下的自动化 ID），用过就清掉。
+    std::wstring turned_from;
+    if (!indexing_) {
+      clip_offset_ = paging.offset;
+      turned_from = std::exchange(clip_page_focus_, std::wstring());
+    }
+    const bool managed = enabled && !clip_entries_.empty();
+    if (managed) {
+      Grid actions;
+      actions.Padding(Thickness{0, 10, 0, 10});
+      actions.ColumnSpacing(12);
+      ColumnDefinition clear_column;
+      clear_column.Width(GridLength{1, GridUnitType::Auto});
+      ColumnDefinition gap_column;
+      gap_column.Width(GridLength{1, GridUnitType::Star});
+      ColumnDefinition pager_column;
+      pager_column.Width(GridLength{1, GridUnitType::Auto});
+      actions.ColumnDefinitions().Append(clear_column);
+      actions.ColumnDefinitions().Append(gap_column);
+      actions.ColumnDefinitions().Append(pager_column);
+      auto clear = button_control(
           clip_clear_armed_ ? L"确认清空" : L"清空历史",
           [this] {
             if (!clip_clear_armed_) {
@@ -14309,136 +14844,210 @@ private:
             change_clipboard_history(clipboard_action(L"clear"),
                                      L"无法清空剪贴板历史，请稍后重试。");
           },
-          enabled && !clip_busy_));
-      actions_row = actions;
-    }
-    add_row(group, 0xE81C, L"剪贴板历史",
-            L"开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。",
-            toggle_control(L"剪贴板历史", enabled,
-                           [this](bool on) { toggle_clipboard_history(on); }, !clip_busy_),
-            actions_row);
-    const auto history_limit = clipboard_history_limit();
-    std::vector<Option> limit_options;
-    for (const auto limit : {50, 100, 200, 500, 1000})
-      limit_options.push_back({std::to_wstring(limit), std::to_wstring(limit) + L" 条", true});
-    add_row(group, 0xE8AB, L"历史记录上限",
-            L"达到上限后，最旧的未固定记录会被新记录替换。",
-            select_control(L"历史记录上限", std::move(limit_options),
-                           std::to_wstring(history_limit), [this](std::wstring const &value) {
-                             try {
-                               const auto limit = std::stoul(value);
-                               change([limit](PreferencesDocument &doc) {
-                                 doc.SetNumber(L"clipboard_history_limit", static_cast<double>(limit));
-                               }, true);
-                             } catch (...) {
-                               show_notice(L"历史记录上限无效");
-                             }
-                           }, true));
-
-    if (enabled) {
-      auto history = add_group(page, L"历史记录");
-      if (const auto note = cloud_clipboard_note(); !note.empty())
-        history.Children().Append(group_note(note));
-      StackPanel list;
-      if (clip_entries_.empty()) {
-        auto empty = make_text(L"暂无历史记录", 12, palette_.sub);
-        empty.HorizontalAlignment(HorizontalAlignment::Center);
-        empty.Margin(Thickness{16, 24, 16, 24});
-        list.Children().Append(empty);
+          !clip_busy_);
+      A11y::SetAutomationId(clear, L"clipboard-clear");
+      actions.Children().Append(clear);
+      if (paging.paged()) {
+        // 共享页的 DictionaryPagination：上一页、状态、下一页，12 DIP 次要色，状态变化时读屏播报。翻页会整页重画，按下的按钮也换成新的：焦点交回同一个按钮，翻到头它不能再点时落到另一个，与共享页按钮留在原处的效果相同；新建的状态文字只设 LiveSetting 不会被念出来，进了可视树后要自己发 LiveRegionChanged。两者都只在翻页后的这一次重画里做，别的重画（复制、固定、删除）不抢焦点也不重复播报。
+        StackPanel pager;
+        pager.Orientation(Orientation::Horizontal);
+        pager.Spacing(8);
+        pager.VerticalAlignment(VerticalAlignment::Center);
+        auto previous = button_control(
+            L"上一页",
+            [this, target = paging.previous_offset()] {
+              show_clip_page(target, L"clipboard-page-previous");
+            },
+            !clip_busy_ && paging.has_previous());
+        A11y::SetAutomationId(previous, L"clipboard-page-previous");
+        pager.Children().Append(previous);
+        auto status = make_text(nav::history_page_status(paging), 12, palette_.sub);
+        status.VerticalAlignment(VerticalAlignment::Center);
+        status.TextWrapping(TextWrapping::NoWrap);
+        A11y::SetAutomationId(status, L"clipboard-page-status");
+        A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
+        pager.Children().Append(status);
+        auto next = button_control(
+            L"下一页",
+            [this, target = paging.next_offset()] { show_clip_page(target, L"clipboard-page-next"); },
+            !clip_busy_ && paging.has_next());
+        A11y::SetAutomationId(next, L"clipboard-page-next");
+        pager.Children().Append(next);
+        if (!turned_from.empty()) {
+          const bool back = turned_from == L"clipboard-page-previous";
+          const bool usable = back ? paging.has_previous() : paging.has_next();
+          auto const &keep = back == usable ? previous : next;
+          // Programmatic 只在上一次输入来自键盘时画焦点框，鼠标点翻页不会留下键盘焦点框。
+          keep.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+            sender.as<Control>().Focus(FocusState::Programmatic);
+          });
+          status.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+            if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(
+                    sender.as<UIElement>()))
+              peer.RaiseAutomationEvent(Automation::Peers::AutomationEvents::LiveRegionChanged);
+          });
+        }
+        Grid::SetColumn(pager, 2);
+        actions.Children().Append(pager);
       }
-      bool first = true;
-      size_t entry_index = 0;
-      for (auto const &entry : clip_entries_) {
-        Border divider;
-        divider.BorderThickness(Thickness{0, first ? 0.0 : 1.0, 0, 0});
-        divider.BorderBrush(brush(palette_.divider));
-        first = false;
-        Grid row;
-        row.MinHeight(62);
-        row.Padding(Thickness{0, 8, 0, 8});
-        row.ColumnSpacing(12);
-        const auto entry_id = L"clipboard-entry-" + std::to_wstring(entry_index++);
-        ColumnDefinition text_column;
-        text_column.Width(GridLength{1, GridUnitType::Star});
-        ColumnDefinition actions_column;
-        actions_column.Width(GridLength{1, GridUnitType::Auto});
-        row.ColumnDefinitions().Append(text_column);
-        row.ColumnDefinitions().Append(actions_column);
-
-        StackPanel texts;
-        texts.Spacing(2);
-        texts.VerticalAlignment(VerticalAlignment::Center);
-        auto line = make_text(single_line(entry.text), 13, palette_.text);
-        A11y::SetAutomationId(line, hstring(entry_id + L"-preview"));
-        line.TextWrapping(TextWrapping::NoWrap);
-        line.TextTrimming(TextTrimming::CharacterEllipsis);
-        line.MaxLines(1);
-        ToolTipService::SetToolTip(line, box_value(hstring(entry.text)));
-        texts.Children().Append(line);
-        std::wstring meta = entry.pinned ? L"已固定 · " : L"";
-        meta += entry.timestamp_ms > 1'000'000'000'000ULL ? local_date_time(entry.timestamp_ms)
-                                                           : std::wstring(L"旧记录");
-        texts.Children().Append(make_text(meta, 11, palette_.sub));
-        Grid::SetColumn(texts, 0);
-        row.Children().Append(texts);
-
-        StackPanel buttons;
-        buttons.Orientation(Orientation::Horizontal);
-        buttons.Spacing(6);
-        buttons.VerticalAlignment(VerticalAlignment::Center);
-        buttons.Children().Append(button_control(
-            L"重新复制", [this, value = entry.text] { recopy_clipboard_entry(value); }));
-        // 次要操作放进菜单，给窄窗口中的记录正文留出空间。
-        MenuFlyout menu;
-        MenuFlyoutItem cloud;
-        cloud.Text(L"发到云剪贴板");
-        cloud.IsEnabled(cloud_state_ == CloudClipboardState::ready && !cloud_sending_);
-        cloud.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
-          send_to_cloud_clipboard(value);
-        });
-        menu.Items().Append(cloud);
-        MenuFlyoutItem pin;
-        pin.Text(entry.pinned ? L"取消固定" : L"固定");
-        pin.Click([this, value = entry.text, pinned = !entry.pinned](
-                      Inspectable const &, RoutedEventArgs const &) {
-          set_clipboard_entry_pinned(value, pinned);
-        });
-        A11y::SetName(pin, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
-        A11y::SetAutomationId(pin, L"clipboard-entry-pin");
-        menu.Items().Append(pin);
-        menu.Items().Append(MenuFlyoutSeparator());
-        MenuFlyoutItem remove;
-        remove.Text(L"删除");
-        remove.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
-          remove_clipboard_entry(value);
-        });
-        A11y::SetName(remove, L"删除剪贴板记录");
-        menu.Items().Append(remove);
-        Button more;
-        more.Width(32);
-        more.Height(32);
-        more.Padding(Thickness{0, 0, 0, 0});
-        more.Content(make_icon(0xE712, 14, palette_.sub));
-        more.IsEnabled(!clip_busy_);
-        more.Flyout(menu);
-        A11y::SetName(more, L"剪贴板记录的更多操作");
-        A11y::SetAutomationId(more, hstring(entry_id + L"-actions"));
-        ToolTipService::SetToolTip(more, box_value(L"更多操作"));
-        buttons.Children().Append(more);
-        Grid::SetColumn(buttons, 1);
-        row.Children().Append(buttons);
-
-        divider.Child(row);
-        list.Children().Append(divider);
-      }
-      A11y::SetName(list, L"剪贴板历史");
-      history.Children().Append(list);
+      history.Children().Append(actions);
     }
 
-    // 设备批准和列表管理继续使用共享云剪贴板面板。
-    auto cloud = add_group(page, L"云剪贴板");
-    build_cloud_clipboard_relay_settings(cloud);
-    shell_row(cloud, 0xE753, L"云剪贴板", L"", L"打开云剪贴板", nav::shell_links::cloud_clipboard);
+    StackPanel list;
+    if (!enabled || clip_entries_.empty()) {
+      auto empty = make_text(enabled ? L"暂无历史记录" : L"请先在「剪贴板」中开启剪贴板历史", 12,
+                             palette_.sub);
+      empty.HorizontalAlignment(HorizontalAlignment::Center);
+      empty.TextAlignment(TextAlignment::Center);
+      empty.Margin(Thickness{16, 24, 16, 24});
+      A11y::SetAutomationId(empty, L"clipboard-history-empty");
+      list.Children().Append(empty);
+    }
+    // 管理行和第一条之间也有分隔线，与共享页组内各块之间一样。
+    bool first = !managed;
+    for (size_t index = paging.offset; index < paging.offset + paging.count; ++index) {
+      auto const &entry = clip_entries_[index];
+      Border divider;
+      divider.BorderThickness(Thickness{0, first ? 0.0 : 1.0, 0, 0});
+      divider.BorderBrush(brush(palette_.divider));
+      first = false;
+      divider.Child(make_clip_entry_row(entry, index - paging.offset));
+      list.Children().Append(divider);
+    }
+    A11y::SetName(list, L"剪贴板历史");
+    history.Children().Append(list);
+  }
+
+  // 翻到从 `offset` 起的那一页：只改显示，不重读历史。`from` 是点的那个翻页按钮的自动化 ID，重画后焦点回到它（build_clip_history）。
+  void show_clip_page(size_t offset, std::wstring from) {
+    clip_offset_ = offset;
+    clip_page_focus_ = std::move(from);
+    redraw_clip();
+  }
+
+  // 历史里的一条：左边单行正文（悬停看全文）和「已固定 · 」加本地时间，右边照共享页直接排出「重新复制」「发到云剪贴板」「固定 / 取消固定」「删除」。行窄到正文不足 180 DIP 时，后三个收进「更多操作」菜单（与共享页一样的名字），只留「重新复制」；按行宽在 SizeChanged 里切换，宽度够了再排回来。`position` 是这条在当前页里的序号，自动化 ID 是 `clipboard-entry-<序号>-…`。
+  Grid make_clip_entry_row(ClipboardEntry const &entry, size_t position) {
+    Grid row;
+    row.MinHeight(62);
+    row.Padding(Thickness{0, 8, 0, 8});
+    row.ColumnSpacing(12);
+    const auto entry_id = L"clipboard-entry-" + std::to_wstring(position);
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition actions_column;
+    actions_column.Width(GridLength{1, GridUnitType::Auto});
+    row.ColumnDefinitions().Append(text_column);
+    row.ColumnDefinitions().Append(actions_column);
+
+    StackPanel texts;
+    texts.Spacing(2);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    auto line = make_text(single_line(entry.text), 13, palette_.text);
+    A11y::SetAutomationId(line, hstring(entry_id + L"-preview"));
+    line.TextWrapping(TextWrapping::NoWrap);
+    line.TextTrimming(TextTrimming::CharacterEllipsis);
+    line.MaxLines(1);
+    ToolTipService::SetToolTip(line, box_value(hstring(entry.text)));
+    texts.Children().Append(line);
+    std::wstring meta = entry.pinned ? L"已固定 · " : L"";
+    meta += entry.timestamp_ms > 1'000'000'000'000ULL ? local_date_time(entry.timestamp_ms)
+                                                       : std::wstring(L"旧记录");
+    texts.Children().Append(make_text(meta, 11, palette_.sub));
+    Grid::SetColumn(texts, 0);
+    row.Children().Append(texts);
+
+    StackPanel buttons;
+    buttons.Orientation(Orientation::Horizontal);
+    buttons.Spacing(6);
+    buttons.VerticalAlignment(VerticalAlignment::Center);
+    const bool cloud_ready = cloud_state_ == CloudClipboardState::ready && !cloud_sending_;
+    auto recopy = button_control(
+        L"重新复制", [this, value = entry.text] { recopy_clipboard_entry(value); });
+    A11y::SetAutomationId(recopy, hstring(entry_id + L"-copy"));
+    buttons.Children().Append(recopy);
+    auto cloud = button_control(
+        L"发到云剪贴板", [this, value = entry.text] { send_to_cloud_clipboard(value); }, cloud_ready);
+    A11y::SetAutomationId(cloud, hstring(entry_id + L"-cloud"));
+    buttons.Children().Append(cloud);
+    auto pin = button_control(
+        entry.pinned ? L"取消固定" : L"固定",
+        [this, value = entry.text, pinned = !entry.pinned] { set_clipboard_entry_pinned(value, pinned); },
+        !clip_busy_);
+    A11y::SetName(pin, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
+    A11y::SetAutomationId(pin, hstring(entry_id + L"-pin"));
+    buttons.Children().Append(pin);
+    auto remove_button = button_control(
+        L"删除", [this, value = entry.text] { remove_clipboard_entry(value); }, !clip_busy_);
+    A11y::SetName(remove_button, L"删除剪贴板记录");
+    A11y::SetAutomationId(remove_button, hstring(entry_id + L"-remove"));
+    buttons.Children().Append(remove_button);
+
+    // 窄行的菜单：与直接排出的三个按钮同名、同样可用。
+    MenuFlyout menu;
+    MenuFlyoutItem cloud_item;
+    cloud_item.Text(L"发到云剪贴板");
+    cloud_item.IsEnabled(cloud_ready);
+    cloud_item.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+      send_to_cloud_clipboard(value);
+    });
+    menu.Items().Append(cloud_item);
+    MenuFlyoutItem pin_item;
+    pin_item.Text(entry.pinned ? L"取消固定" : L"固定");
+    pin_item.Click([this, value = entry.text, pinned = !entry.pinned](
+                       Inspectable const &, RoutedEventArgs const &) {
+      set_clipboard_entry_pinned(value, pinned);
+    });
+    A11y::SetName(pin_item, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
+    A11y::SetAutomationId(pin_item, L"clipboard-entry-pin");
+    menu.Items().Append(pin_item);
+    menu.Items().Append(MenuFlyoutSeparator());
+    MenuFlyoutItem remove_item;
+    remove_item.Text(L"删除");
+    remove_item.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+      remove_clipboard_entry(value);
+    });
+    A11y::SetName(remove_item, L"删除剪贴板记录");
+    menu.Items().Append(remove_item);
+    Button more;
+    more.Width(32);
+    more.Height(32);
+    more.Padding(Thickness{0, 0, 0, 0});
+    more.Content(make_icon(0xE712, 14, palette_.sub));
+    more.IsEnabled(!clip_busy_);
+    more.Flyout(menu);
+    more.Visibility(Visibility::Collapsed);
+    A11y::SetName(more, L"剪贴板记录的更多操作");
+    A11y::SetAutomationId(more, hstring(entry_id + L"-actions"));
+    ToolTipService::SetToolTip(more, box_value(L"更多操作"));
+    buttons.Children().Append(more);
+    Grid::SetColumn(buttons, 1);
+    row.Children().Append(buttons);
+
+    // 三个按钮排开时量下它们连同「重新复制」要多宽（收起后量不到，沿用上次量到的），行宽不够这么宽加正文的 180 和列距 12 时收进菜单。
+    auto inline_width = std::make_shared<double>(0);
+    row.SizeChanged([weak_buttons = make_weak(buttons), weak_more = make_weak(more), inline_width](
+                        Inspectable const &sender, SizeChangedEventArgs const &) {
+      const auto self = sender.as<Grid>();
+      const auto panel = weak_buttons.get();
+      const auto menu_button = weak_more.get();
+      if (!panel || !menu_button)
+        return;
+      const auto children = panel.Children();
+      const bool spread = menu_button.Visibility() == Visibility::Collapsed;
+      if (spread) {
+        double width = 0;
+        for (uint32_t index = 0; index + 1 < children.Size(); ++index)
+          width += children.GetAt(index).DesiredSize().Width;
+        *inline_width = width + panel.Spacing() * (children.Size() - 2);
+      }
+      const bool wide = self.ActualWidth() >= *inline_width + 12 + 180;
+      if (wide == spread)
+        return;
+      for (uint32_t index = 1; index + 1 < children.Size(); ++index)
+        children.GetAt(index).Visibility(wide ? Visibility::Visible : Visibility::Collapsed);
+      menu_button.Visibility(wide ? Visibility::Collapsed : Visibility::Visible);
+    });
+    return row;
   }
 
   void build_cloud_clipboard_relay_settings(StackPanel const &group) {
@@ -15954,11 +16563,8 @@ private:
         12, palette_.sub);
     privacy.Margin(Thickness{0, 16, 0, 0});
     actions.Children().Append(privacy);
-    Border actions_row;
-    actions_row.BorderBrush(brush(palette_.divider));
-    actions_row.BorderThickness(Thickness{0, 1, 0, 0});
-    actions_row.Child(actions);
-    group.Children().Append(actions_row);
+    auto actions_row = append_row_frame(group, actions);
+    actions_row.Padding(Thickness{row_inset, 0, row_inset, 0});
 
     const auto message = typing::availability_notice(
         statistics.enabled, statistics.total, status.never_written,
@@ -16372,7 +16978,7 @@ private:
           }
           apply_vocabulary_response(response);
           focus_row_ = L"词书";
-          navigate("lexicon", true);
+          navigate("lexicon");
         });
   }
 
@@ -16392,13 +16998,13 @@ private:
     queue_refresh();
   }
 
-  // 「保存名单」是主按钮：设计里固定的强调色填充，悬停和按下时也不换成系统强调色。
+  // 「保存名单」是主按钮：设计里固定的强调色填充，悬停和按下时也不换成系统强调色。底上是白字，所以深浅两种外观都用 `accent_strong`（共享页 `primary` 的 `--accent-strong`）。
   void make_primary(Button const &button) {
     auto resources = button.Resources();
     auto put = [&resources](const wchar_t *key, Color const &color) {
       resources.Insert(box_value(hstring(key)), brush(color));
     };
-    const auto accent = palette_.accent;
+    const auto accent = palette_.accent_strong;
     auto faded = [accent](double alpha) {
       return Color{static_cast<uint8_t>(std::lround(alpha * 255)), accent.R, accent.G, accent.B};
     };
@@ -16510,7 +17116,7 @@ private:
         actions.Children().Append(button);
       body.Children().Append(actions);
     }
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(body);
     group.Children().Append(card);
   }
@@ -16549,7 +17155,7 @@ private:
       divider.Child(texts);
       list.Children().Append(divider);
     }
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(list);
     group.Children().Append(card);
   }
@@ -16745,7 +17351,7 @@ private:
     add_row(import, 0xE8B5, L"从文件导入", std::wstring(pg::import_description), buttons);
     if (!plugins_notice_.empty()) {
       auto notice = group_note(plugins_notice_);
-      notice.Margin(Thickness{4, 4, 4, 4});
+      notice.Margin(Thickness{0, 4, 0, 10});
       A11y::SetLiveSetting(notice, Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
       import.Children().Append(notice);
     }
@@ -16760,7 +17366,7 @@ private:
                                              (issue.folder.empty() ? std::wstring(L"目录") : issue.folder) +
                                              L" 无法载入：" + issue.reason,
                                          13, palette_.sub));
-      auto card = make_card();
+      auto card = make_inner_card();
       A11y::SetName(card, L"无法载入的插件");
       card.Child(list);
       issues.Children().Append(card);
@@ -16844,19 +17450,10 @@ private:
               set([on](pg::Preferences &next) { next.commit_sound_enabled = on; });
             }));
     // 成就音效和升档音都是默认关闭的小玩法，收进「更多音效」，主列表只留常用的几项；搜索落到其中一项时展开。
-    Expander more;
-    more.Header(box_value(L"更多音效"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      plugin_sound_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      plugin_sound_more_open_ = false;
-    });
-    StackPanel extra;
-    extra.Spacing(4);
+    auto extra = add_fold(
+        keys, L"更多音效",
+        plugin_sound_more_open_ || focus_row_ == L"成就音效" || focus_row_ == L"升档音",
+        [this](bool expanded) { plugin_sound_more_open_ = expanded; });
     const bool achievements_blocked =
         pg::achievements_blocked(plugin_statistics_enabled_, preferences.achievements_enabled);
     add_row(extra, 0xE734, L"成就音效",
@@ -16875,8 +17472,6 @@ private:
                              set([on](pg::Preferences &next) { next.combo_tier_sound = on; });
                            },
                            preferences.combo_counter));
-    more.Content(extra);
-    keys.Children().Append(more);
 
     // 选了特效包时由它决定样式，这一项只描述不选包时画什么。强度在 Windows 上固定为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），宿主不读存下的值，所以没有「效果强度」。
     const bool pack_selected = !preferences.effect_pack.empty();
@@ -17013,7 +17608,7 @@ private:
     plugin_mentions_save_ = save;
     actions.Children().Append(save);
     body.Children().Append(actions);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(body);
     group.Children().Append(card);
     update_plugin_mentions_state();
@@ -17185,7 +17780,7 @@ private:
     const auto preferences = plugin_preferences();
     const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     auto select = [this, pack] { change_plugins(pg::with_pack_selected(plugin_preferences(), pack)); };
-    auto go_typing = [this] { navigate("typing", true); };
+    auto go_typing = [this] { navigate("typing"); };
     if (pack.kind == L"sound") {
       const auto action = pg::sound_pack_action(pack, preferences);
       plugin_action_block(group, action.note,
@@ -17685,7 +18280,7 @@ private:
 
   // ---- 屏幕键盘、语音、手写 ----
 
-  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」；提供手写的版本在「工具栏」和「外观」之间多一组「手写识别板」，即并进来的「手写输入」页（build_hand_page），与共享页 `handwritingOnScreenKeyboardPage` 的顺序相同。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
+  // 共享的「屏幕键盘」页（packages/ui/src/settings/pages/screen-keyboard-page.tsx 和 touch-keyboard-geometry-section.tsx）在 Windows 上画四组：「屏幕键盘」（打开面板和可拖动的预览）、「尺寸」（高度、两种间距和恢复默认）、「工具栏」，以及指向「主题」的「外观」。提供手写的版本与共享页 `handwritingOnScreenKeyboardPage` 一样分成「键盘」「手写」两个页内标签（page_tab_bar，「键盘手写分类」）：四组都在「键盘」，「手写」只有并进来的「手写输入」页（build_hand_page）；`handwriting` 路由和搜索到手写那一组的行时打开「手写」。不提供手写的版本没有标签，只画这四组。Windows 不是 `touch_toolbar_components` 的宿主，「工具栏」里只有顶部语音入口；「布局」「手势」两组和触屏反馈只在手机上画，这里也不画。Windows 有触屏的二合一设备，面板也写明「使用鼠标或触控方式」，所以高度和间距都留着（macOS 没有触屏，那里去掉了间距）。面板本身是输入工具，仍由共享应用打开。
   void build_osk_page(StackPanel const &page) {
     if (!indexing_) {
       osk_drag_.reset();
@@ -17694,6 +18289,20 @@ private:
       osk_row_slider_ = nullptr;
     }
 
+    if constexpr (MSIME_EDITION_HANDWRITING != 0) {
+      const auto tab = page_tab_bar(page, L"键盘手写分类",
+                                    {{L"keyboard", L"键盘"}, {L"handwriting", L"手写"}}, L"osk-tab");
+      if (in_tab(tab, L"keyboard"))
+        build_osk_keyboard(page);
+      if (in_tab(tab, L"handwriting"))
+        build_hand_page(page);
+    } else {
+      build_osk_keyboard(page);
+    }
+  }
+
+  // 「键盘与手写」页「键盘」标签的四组；不提供手写的版本整页就是这四组。
+  void build_osk_keyboard(StackPanel const &page) {
     auto keyboard = add_group(page, L"屏幕键盘");
     add_row(keyboard, 0xE92E, L"打开屏幕键盘", L"使用鼠标或触控方式输入文字与快捷按键",
             button_control(L"打开", [this] { open_shell(nav::shell_links::keyboard_panel); }));
@@ -17730,7 +18339,9 @@ private:
       osk_row_slider_ = row_slider.Children().GetAt(0).as<Slider>();
     }
     // 恢复默认也管下面「工具栏」组的顶部语音入口，所以和共享页一样放在它重置的第一组末尾；说明只列这一页看得到的几项，与共享页的 `touchKeyboardResetSubjects` 给 Windows 的相同。
+    // 与共享页的 `danger-text` 一样用危险色的字。
     auto reset = button_control(L"恢复默认", [this] { reset_screen_keyboard(); }, loaded_);
+    reset.as<Button>().Foreground(brush(danger_color()));
     A11y::SetName(reset, L"恢复屏幕键盘默认设置");
     add_row(size, 0xE777, L"恢复默认", L"高度、间距和顶部语音入口回到默认", reset);
 
@@ -17738,15 +18349,12 @@ private:
     bool_row(toolbar, 0xE720, L"顶部语音入口", L"在键盘顶部显示一个语音按钮，点按开始语音输入",
              L"touch_voice_shortcut", false);
 
-    if constexpr (MSIME_EDITION_HANDWRITING != 0)
-      build_hand_page(page);
-
     // 屏幕键盘跟随「主题」页的颜色模式和主题，没有自己的明暗（共享页在跟随颜色模式的宿主上同样这样说），按钮落到「颜色模式」那一行。
     auto look = add_group(page, L"外观");
     add_row(look, 0xE790, L"屏幕键盘外观", L"屏幕键盘跟随「主题」页的颜色模式和主题",
             button_control(L"前往", [this] {
               focus_row_ = L"颜色模式";
-              navigate("themes", true);
+              navigate("themes");
             }));
   }
 
@@ -17789,7 +18397,7 @@ private:
     osk_preview_ = surface;
     draw_osk_preview();
     block.Children().Append(surface);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     A11y::SetName(card, L"屏幕键盘预览");
     return card;
@@ -18375,7 +18983,7 @@ private:
         auto silence = make_text(
             L"测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。", 12,
             palette_.sub);
-        silence.Margin(Thickness{4, 8, 4, 4});
+        silence.Margin(Thickness{0, 8, 0, 10});
         config.Children().Append(silence);
         add_credential_test(config, L"voice.asr",
                             doubao ? L"测试豆包识别配置" : L"测试语音识别配置",
@@ -18419,22 +19027,10 @@ private:
                                  doc.SetBoolean(L"voice_input." + std::wstring(key), on);
                              }, true);
                            }));
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      voice_hotkeys_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      voice_hotkeys_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        shortcuts, L"更多选项", voice_hotkeys_more_open_ || focus_row_ == L"Ctrl+F9 切换语音",
+        [this](bool expanded) { voice_hotkeys_more_open_ = expanded; });
     bool_row(rows, 0xEDA7, L"Ctrl+F9 切换语音", L"", L"voice_input.hotkey_ctrl_f9", true);
-    more.Content(rows);
-    shortcuts.Children().Append(more);
   }
 
   void redraw_voice() {
@@ -18561,7 +19157,7 @@ private:
     content.Padding(Thickness{25, 12, 25, 12});
     content.Children().Append(
         button_control(label + L"接入说明与 API Key", [this, url] { open_url(url.c_str()); }));
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
   }
@@ -18658,22 +19254,12 @@ private:
     static constexpr std::array<std::wstring_view, 9> folded{
         L"流式接口", L"自定义接口地址", L"识别接口地址", L"识别模型", L"自定义模型",
         L"Doubao 资源 ID", L"数字格式化", L"语义顺滑", L"热词表 ID"};
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(
+    auto rows = add_fold(
+        group, L"更多选项",
         voice_service_more_open_.value_or(vs::asr_advanced_changed(voice_provider_catalog().asr,
             provider, endpoint, document_.String(L"voice_input.asr_resource_id", L""))) ||
-        std::find(folded.begin(), folded.end(), focus_row_) != folded.end());
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      voice_service_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      voice_service_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+            std::find(folded.begin(), folded.end(), focus_row_) != folded.end(),
+        [this](bool expanded) { voice_service_more_open_ = expanded; });
     if (doubao || indexing_) {
       // 地址为空时宿主用默认的双向流式地址，下拉照实显示它；选「自定义地址」不改地址，只重画出输入框（共享页 DoubaoStreamEndpointSection 的 customRequested），在输入框里打出预设的地址也不收起。
       const bool custom = voice_custom_endpoint_ || vs::doubao_stream_endpoint_id(endpoint) == L"custom";
@@ -18747,8 +19333,6 @@ private:
       voice_text_row(rows, 0xE8EC, L"热词表 ID", L"", L"热词表 ID",
                      L"voice_input.doubao_boosting_table_id");
     }
-    more.Content(rows);
-    group.Children().Append(more);
   }
 
   // 「测试豆包识别配置」「测试语音识别配置」发给 msime_client_test_api_credential 的配置（asrServiceCredentialTestConfig）。
@@ -18928,7 +19512,7 @@ private:
         write_credential(prompt_key, textarea_value(sender.as<TextBox>()));
       });
     block.Children().Append(prompt);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     group.Children().Append(card);
     mark_search_target(L"润色提示词", card);
@@ -19086,20 +19670,10 @@ private:
     if (!indexing_ && local_models_stale_)
       refresh_local_models();
     add_local_model_manager(group);
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    more.IsExpanded(local_more_open_ || focus_row_ == L"模型下载镜像" ||
-                    focus_row_ == L"本地模型目录");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      local_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      local_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        group, L"更多选项",
+        local_more_open_ || focus_row_ == L"模型下载镜像" || focus_row_ == L"本地模型目录",
+        [this](bool expanded) { local_more_open_ = expanded; });
     voice_text_row(rows, 0xE896, L"模型下载镜像",
                    L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载",
                    L"模型下载镜像", L"voice_input.asr_model_mirror", false,
@@ -19125,8 +19699,6 @@ private:
     }, loaded_));
     add_row(rows, 0xE8B7, L"本地模型目录", L"已安装模型所在文件夹的绝对路径（包含 msime-model.json）",
             path);
-    more.Content(rows);
-    group.Children().Append(more);
   }
 
   // 模型管理器（LocalModelManager）：每个模型一张卡片，写着它是什么、多大、许可，按状态给出下载、从文件导入、取消、使用、删除。
@@ -19153,7 +19725,7 @@ private:
       block.Children().Append(notice);
     }
     A11y::SetName(block, L"本地识别模型");
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     group.Children().Append(card);
     mark_search_target(L"本地识别模型", card);
@@ -19617,11 +20189,75 @@ private:
     return files;
   }
 
-  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），所以这里只留打开面板的一行，文案与 handwriting-settings-section.tsx 相同。它不再单独成页，由 build_osk_page 画在「屏幕键盘与手写」页的「外观」之前。
+  // 共享的「手写输入」在 Windows 上只有「手写识别板」一组：打开面板的一行和一张静态预览，没有可调的项（手写面板主题在「主题」页），文案与 handwriting-settings-section.tsx 的桌面分支相同。它不再单独成页，由 build_osk_page 画在「键盘与手写」页的「手写」标签里。
   void build_hand_page(StackPanel const &page) {
     auto group = add_group(page, L"手写识别板");
     shell_row(group, 0xE929, L"打开手写识别板", L"使用鼠标或触控方式手写输入，自动识别候选汉字",
               L"打开", nav::shell_links::handwriting_panel);
+    if (!indexing_)
+      group.Children().Append(make_handwriting_preview_card());
+  }
+
+  // 「手写识别板」组的预览，照共享页的 SettingsPreviewBlock 和 panel-surface-style.ts 的手写板示意（`mock`）：与屏幕键盘预览一样的卡片和「预览」小字，下面是最宽 560、居中的示意，一块至少 230 高、12 圆角、虚线描边的画布，中间一个 110 DIP、向左倾 7° 的楷体「水」当作笔迹，再下面相隔 10 是一排四个等宽候选「水 永 木 未」（6 圆角、细描边、8 内边距、相隔 8）。颜色取设置窗口当前的明暗，与共享页取自身的配色相同。示意里的字与共享页一样留在无障碍树里，笔迹那个字带 `handwriting-preview-stroke`，界面验收靠它确认预览画出来了。
+  FrameworkElement make_handwriting_preview_card() {
+    StackPanel block;
+    block.Spacing(8);
+    block.Padding(Thickness{25, 14, 25, 18});
+    block.Children().Append(make_text(L"预览", 12, palette_.sub));
+
+    StackPanel mock;
+    mock.MaxWidth(560);
+    mock.HorizontalAlignment(HorizontalAlignment::Stretch);
+    mock.Spacing(10);
+    Grid canvas;
+    canvas.MinHeight(230);
+    Shapes::Rectangle frame;
+    frame.RadiusX(12);
+    frame.RadiusY(12);
+    frame.Fill(brush(palette_.card));
+    frame.Stroke(brush(palette_.stroke2));
+    frame.StrokeThickness(1);
+    DoubleCollection dash;
+    dash.Append(4);
+    dash.Append(3);
+    frame.StrokeDashArray(dash);
+    canvas.Children().Append(frame);
+    auto stroke = make_text(L"水", 110, palette_.sub);
+    stroke.FontFamily(Media::FontFamily(L"KaiTi, STKaiti"));
+    stroke.LineHeight(110);
+    stroke.HorizontalAlignment(HorizontalAlignment::Center);
+    stroke.VerticalAlignment(VerticalAlignment::Center);
+    stroke.RenderTransformOrigin(Windows::Foundation::Point{0.5f, 0.5f});
+    RotateTransform tilt;
+    tilt.Angle(-7);
+    stroke.RenderTransform(tilt);
+    A11y::SetAutomationId(stroke, L"handwriting-preview-stroke");
+    canvas.Children().Append(stroke);
+    mock.Children().Append(canvas);
+
+    Grid candidates;
+    candidates.ColumnSpacing(8);
+    int32_t column = 0;
+    for (const auto *candidate : {L"水", L"永", L"木", L"未"}) {
+      ColumnDefinition cell;
+      cell.Width(GridLength{1, GridUnitType::Star});
+      candidates.ColumnDefinitions().Append(cell);
+      Border chip;
+      chip.CornerRadius(CornerRadius{6, 6, 6, 6});
+      chip.BorderBrush(brush(palette_.stroke2));
+      chip.BorderThickness(Thickness{1, 1, 1, 1});
+      chip.Padding(Thickness{8, 8, 8, 8});
+      chip.Child(make_text(candidate, 14, palette_.text));
+      Grid::SetColumn(chip, column++);
+      candidates.Children().Append(chip);
+    }
+    mock.Children().Append(candidates);
+    block.Children().Append(mock);
+
+    auto card = make_inner_card();
+    card.Child(block);
+    A11y::SetName(card, L"手写识别板预览");
+    return card;
   }
 
   // ---- AI 辅助 ----
@@ -19719,23 +20355,12 @@ private:
 
   // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：只有「服务」一组（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、「更多选项」里的接口地址、获取模型列表和当前槽位的自定义提示词，末尾是「测试 AI 辅助配置」）。Windows 固定 AI 候选数量为 3（client-core 的 `HostPlatform::fixed_ai_candidate_limit`，TSF 从 host-api 的在线查询读这个值），所以没有「联想」组；桌面上这份配置只给拼音联想用，没有「AI 润色测试」。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
-    if (!indexing_ && !focus_row_.empty())
-      ai_mcp_view_ = focus_row_ == L"连接 AI 助手";
-    if (!indexing_) {
-      auto tabs = segmented_control(
-          L"AI 设置分类", {{L"assistance", L"输入辅助"}, {L"connection", L"连接助手"}},
-          ai_mcp_view_ ? L"connection" : L"assistance",
-          [this](std::wstring const &value) {
-            ai_mcp_view_ = value == L"connection";
-            queue_refresh();
-          }, true, false, 3, L"ai-settings");
-      tabs.HorizontalAlignment(HorizontalAlignment::Left);
-      tabs.Margin(Thickness{0, 0, 0, 12});
-      page.Children().Append(tabs);
-    }
-    if (indexing_ || !ai_mcp_view_)
+    const auto tab = page_tab_bar(page, L"AI 设置分类",
+                                  {{L"assistance", L"输入辅助"}, {L"connection", L"连接助手"}},
+                                  L"ai-settings");
+    if (in_tab(tab, L"assistance"))
       build_ai_assistance_page(page);
-    if (indexing_ || ai_mcp_view_)
+    if (in_tab(tab, L"connection"))
       build_mcp_page(page);
   }
 
@@ -19808,21 +20433,12 @@ private:
                                     return true;
                                   });
         });
-    Expander more;
-    more.Header(box_value(L"更多选项"));
-    more.HorizontalAlignment(HorizontalAlignment::Stretch);
-    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
     // 搜索落到收在里面的行时展开。
-    more.IsExpanded(ai_more_open_.value_or(false) || focus_row_ == L"接口地址" ||
-                    focus_row_ == L"服务模型" || focus_row_ == L"自定义提示词");
-    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
-      ai_more_open_ = true;
-    });
-    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
-      ai_more_open_ = false;
-    });
-    StackPanel rows;
-    rows.Spacing(4);
+    auto rows = add_fold(
+        service, L"更多选项",
+        ai_more_open_.value_or(false) || focus_row_ == L"接口地址" || focus_row_ == L"服务模型" ||
+            focus_row_ == L"自定义提示词",
+        [this](bool expanded) { ai_more_open_ = expanded; });
     const auto endpoint_text = document_.String(L"ai_assistant.endpoint", L"");
     auto endpoint_input = credential_input(
         L"AI 接口地址", endpoint_text, false, L"", true, [this](std::wstring const &value) {
@@ -19880,12 +20496,10 @@ private:
       sync_ai();
     });
     block.Children().Append(prompt);
-    auto prompt_card = make_card();
+    auto prompt_card = make_inner_card();
     prompt_card.Child(block);
     rows.Children().Append(prompt_card);
     mark_search_target(label, prompt_card);
-    more.Content(rows);
-    service.Children().Append(more);
     add_credential_test(
         service, L"ai.assistant", L"测试 AI 辅助配置",
         [this] {
@@ -20082,7 +20696,7 @@ private:
       // `add_group` 返回的就是卡片里的行面板，直接放进行面板与其他工具页对齐。
       StackPanel content;
       content.Spacing(10);
-      content.Padding(Thickness{0, 4, 0, 4});
+      content.Padding(Thickness{0, 10, 0, 10});
       append_mcp_section(content);
       mark_search_target(L"连接 AI 助手", content);
       mcp.Children().Append(content);
@@ -20160,14 +20774,14 @@ private:
     block.Children().Append(make_text(
         L"提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。", 12,
         palette_.sub));
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     report.Children().Append(card);
     mark_search_target(L"提交可复现的问题", card);
     report.Children().Append(group_note(
         L"提交问题时建议附上系统版本、输入方案、复现步骤、相关截图，以及诊断日志中的关键片段。"));
-    add_row(report, 0xEBE8, L"诊断日志", L"在维护与诊断页开启日志并打开日志目录",
-            button_control(L"前往", [this] { navigate("dev", true); }));
+    link_row(report, L"诊断日志", L"在维护与诊断页开启日志并打开日志目录", false,
+             [this] { navigate("dev"); });
 
     // 「反馈与交流」的三张渠道卡片（`feedback-channels.tsx`），每张下面是地址或群号。图标用 Segoe Fluent 的通用字形，本窗口不带品牌标志。
     const std::wstring issues(msime::settings::feedback_issues_url);
@@ -20200,7 +20814,8 @@ private:
   // 分组里的一段说明文字，对应共享页的 `SettingsGroupNote`。
   TextBlock group_note(std::wstring_view value) {
     auto note = make_text(value, 12, palette_.sub);
-    note.Margin(Thickness{4, 0, 4, 4});
+    // 上下 10 与 macOS `groupNote` 的行内边距相同；左右由卡片行面板的 16 DIP 缩进给出。
+    note.Margin(Thickness{0, 10, 0, 10});
     return note;
   }
 
@@ -20263,7 +20878,7 @@ private:
     record(L"帮助", intro);
     auto note = make_text(intro, 14, palette_.sub);
     note.IsTextSelectionEnabled(true);
-    note.Margin(Thickness{4, 0, 4, 4});
+    note.Margin(Thickness{0, 10, 0, 10});
     help.Children().Append(note);
     mark_search_target(L"帮助", note);
 
@@ -20275,7 +20890,9 @@ private:
          L"语音识别和 AI 联想需要自行填入 API 和 token。云候选目前支持谷歌的云接口，请注意网络问题。",
          L"更多功能欢迎自由探索～"});
     auto more = add_group(page, L"更多");
-    url_row(more, 0xE8A5, L"完整文档", L"", L"完整文档（网页）", documentation_url);
+    // 共享帮助页这一行是带按钮的 ActionRow，不是跳转行，照旧用按钮。
+    add_row(more, 0xE8A5, L"完整文档", L"",
+            button_control(L"完整文档（网页）", [this] { open_url(documentation_url); }));
   }
 
   // 一个带标题的分组，里面只有一张写着几段说明文字的卡片，对应共享页的 `GroupList` + `SettingsGroupBlock`。搜索按分组标题找到它。
@@ -20293,7 +20910,7 @@ private:
       detail.append(paragraph);
     }
     record(title, detail);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(content);
     group.Children().Append(card);
     mark_search_target(title, card);
@@ -20323,6 +20940,8 @@ private:
       // 产品名按版本取，与窗口标题和侧栏一致；full 仍是「水杉输入法」。
       auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 20, palette_.text);
       product.FontWeight(Windows::UI::Text::FontWeight{600});
+      // 关于页没有页首引导（与 macOS 相同），界面验收认的 `settings-page-about` 落在产品名上。
+      A11y::SetAutomationId(product, L"settings-page-about");
       names.Children().Append(product);
       names.Children().Append(make_text(L"© 2026 Metasequoia", 12, palette_.faint));
       Grid::SetColumn(names, 1);
@@ -20357,9 +20976,8 @@ private:
       update_detail_ = update_detail;
     }
     show_update_outcome();
-    url_row(updates, 0xE896, L"其他平台下载",
-            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。",
-            L"打开下载页", download_url);
+    url_row(updates, L"其他平台下载",
+            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。", download_url);
     add_row(updates, 0xE8C8, L"复制下载链接", download_url,
             button_control(L"复制链接", [this] {
               if (copy_text(download_url))
@@ -20367,7 +20985,7 @@ private:
               else
                 show_notice(L"复制失败，请重试");
             }));
-    url_row(updates, 0xE8A5, L"历史版本", L"各版本的更新说明与安装包。", L"查看", releases_url);
+    url_row(updates, L"历史版本", L"各版本的更新说明与安装包。", releases_url);
 
     // 并进来的帮助与反馈，顺序与共享的 about-page.tsx 相同：版本与更新 → 帮助与反馈 → 许可与隐私。
     build_feedback_sections(page);
@@ -20376,11 +20994,11 @@ private:
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
              L"仅发送匿名使用记录和崩溃摘要，不含输入内容、候选、剪贴板、账号或设备信息；关闭后不再发送，并清空待发记录。",
              L"usage_reporting", true);
-    url_row(privacy, 0xEA18, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
-            L"查看", privacy_url);
-    url_row(privacy, 0xE8A5, L"开源许可协议", L"水杉输入法的开源许可证", L"查看", license_url);
-    add_row(privacy, 0xE8A5, L"第三方组件许可", L"随安装包提供的第三方组件许可声明",
-            button_control(L"查看", [this] { open_third_party_notices(); }));
+    url_row(privacy, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
+            privacy_url);
+    url_row(privacy, L"开源许可协议", L"水杉输入法的开源许可证", license_url);
+    link_row(privacy, L"第三方组件许可", L"随安装包提供的第三方组件许可声明", true,
+             [this] { open_third_party_notices(); });
   }
 
   // ---- 连接 AI 助手 ----
@@ -20389,14 +21007,14 @@ private:
                       hstring description) {
     auto heading_text = TextBlock();
     heading_text.Text(heading);
-    // 13/11 DIP 是卡片内标签和说明的尺寸（`add_row`、README 的「组内使用细分隔线、13 DIP 标签和 11 DIP 说明」）；这里原来用 14 DIP，比组标题还大，卡片内外对不上。
-    heading_text.FontSize(13);
+    // 与 `add_row` 的标签和说明同尺寸（14/12 DIP，README 的「14 DIP 标签和 12 DIP 说明」），卡片内外对得上。
+    heading_text.FontSize(14);
     heading_text.FontWeight(Windows::UI::Text::FontWeight{600});
     heading_text.Foreground(brush(palette_.text));
     panel.Children().Append(heading_text);
     auto description_text = TextBlock();
     description_text.Text(description);
-    description_text.FontSize(11);
+    description_text.FontSize(12);
     description_text.TextWrapping(TextWrapping::Wrap);
     description_text.IsTextSelectionEnabled(true);
     description_text.Foreground(brush(palette_.sub));
@@ -20547,7 +21165,7 @@ private:
       mcp_result_ = mcp_failure(response_error(response), name);
     }
     mcp_busy_ = false;
-    if (!closed_ && current_page_ == "ai" && ai_mcp_view_)
+    if (!closed_ && current_page_ == "ai" && page_tab("ai") == L"connection")
       render_page(true);
   }
 
@@ -20565,7 +21183,6 @@ private:
   Palette palette_;
 
   std::string current_page_;
-  std::vector<std::string> history_;
   bool selecting_ = false;
   bool refresh_queued_ = false;
   bool closed_ = false;
@@ -20576,6 +21193,12 @@ private:
   // 正在索引的折叠区（「候选窗口」页的「更多选项」、「主题」页的「自定义配色」），以及索引时记下的每行所在的折叠区，见 fold_holds_focus。
   std::wstring fold_index_;
   std::map<std::wstring, std::wstring> search_folds_;
+  // 每页选中的页内标签（页面 id → 标签 id），跨页面保留、不写偏好；以及建索引时正在画的标签。见 page_tab_bar。
+  std::map<std::string, std::wstring> page_tabs_;
+  std::wstring tab_index_;
+  // 建索引时这一页的标签（取标签名）和正在画的分组标题，写进搜索结果的位置，见 record。
+  std::vector<Option> index_tabs_;
+  std::wstring group_index_;
   // 两个折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
   bool candidate_more_open_ = false;
   bool custom_colors_open_ = false;
@@ -20588,13 +21211,16 @@ private:
   bool index_valid_ = false;
   uint64_t index_revision_ = 0;
   std::wstring focus_row_;
-  // What was last typed in the title bar search, which the no-results line must not replace.
+  // 侧栏结果列表现在对应的查询、结果、高亮的那条和每条的按钮，见 update_search_results。
   std::wstring search_query_;
+  std::vector<SearchEntry> search_hits_;
+  size_t search_active_ = 0;
+  std::vector<Button> search_buttons_;
+  bool search_composing_ = false;
   FrameworkElement focus_target_{nullptr};
 
   std::wstring mcp_result_;
   bool mcp_busy_ = false;
-  bool ai_mcp_view_ = false;
 
   // 「标点与翻译」页三个「测试配置」的结果，按服务记，跨页面重建保留（共享页 useProviderCredentials 的 credentialTests）；signature 是测试时的配置。刷新函数属于当前页面上的那一组按钮，测试结束时用它就地更新，不重画整页，免得输入框丢掉焦点和没能写入的内容。
   struct CredentialTest {
@@ -20765,6 +21391,10 @@ private:
 
   // 「剪贴板」页：读到的历史、「确认清空」是否待确认、写入是否在进行，跨页面重建保留。clip_generation_ 在开关变化时递增，作废进行中的读写；clip_read_ 在写入完成时递增，作废更早发出的读取。
   std::vector<ClipboardEntry> clip_entries_;
+  // 「历史记录」标签当前页第一条的下标（HistoryPagination.h），只管显示；历史关着时回到 0。
+  size_t clip_offset_ = 0;
+  // 刚点过的翻页按钮的自动化 ID，下一次画「历史记录」时把焦点交回它，见 build_clip_history。
+  std::wstring clip_page_focus_;
   bool clip_clear_armed_ = false;
   bool clip_busy_ = false;
   bool clip_stale_ = true;
@@ -20882,9 +21512,16 @@ private:
 
   Grid root_{nullptr};
   Grid titlebar_{nullptr};
-  Button back_{nullptr};
-  AutoSuggestBox search_{nullptr};
+  TextBox search_{nullptr};
+  ScrollViewer search_scroll_{nullptr};
+  StackPanel search_list_{nullptr};
   TextBlock toolbar_title_{nullptr};
+  // 当前页页首引导的那一行、说明和插画；没有引导的页面（「关于」）为空。
+  Grid intro_row_{nullptr};
+  TextBlock intro_text_{nullptr};
+  Image intro_mascot_{nullptr};
+  // 页首插画按场景解码一次后留着，每次重画页首（切标签、改设置后的刷新）直接挂上，不重新解码。
+  std::map<nav::MascotScene, Imaging::BitmapImage> mascot_bitmaps_;
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};

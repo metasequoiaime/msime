@@ -256,12 +256,11 @@ function Set-CandidateMore($window, [bool]$expanded) {
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $fold) { throw 'Missing candidate 更多选项 fold' }
-    $pattern = $fold.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
-    $wanted = if ($expanded) { [System.Windows.Automation.ExpandCollapseState]::Expanded } else { [System.Windows.Automation.ExpandCollapseState]::Collapsed }
-    if ($pattern.Current.ExpandCollapseState -ne $wanted) {
-        if ($expanded) { $pattern.Expand() } else { $pattern.Collapse() }
+    # 折叠区的标题行是一个整行按钮（照 macOS 的 MoreOptions），没有 ExpandCollapse 模式。主流程的行一直在，折叠区里的行只在展开时出现在 UIA 树里，所以按里面那行在不在判断状态，不对时点按一次标题行。
+    $content = Find-ById $window 'settings-content'
+    if ([bool](Find-ByName $content '行内预编辑') -ne $expanded) {
+        $fold.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     }
-    # 主流程的行一直在；折叠区里的行只在展开时出现在 UIA 树里。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
@@ -269,6 +268,10 @@ function Set-CandidateMore($window, [bool]$expanded) {
         $inside = Find-ByName $content '行内预编辑'
     } while (([bool]$inside -ne $expanded) -and [DateTime]::UtcNow -lt $deadline)
     if ([bool]$inside -ne $expanded) { throw "Candidate 更多选项 did not change to expanded=$expanded" }
+    # 读屏从 ItemStatus 得知展开与否。
+    $wanted = if ($expanded) { '已展开' } else { '已收起' }
+    $status = (Find-ById $window 'candidate-more').Current.ItemStatus
+    if ($status -ne $wanted) { throw "Candidate 更多选项 reports ItemStatus '$status' instead of '$wanted'" }
     if (-not (Find-ByName $content '候选项排列方式')) { throw 'Candidate main rows are missing' }
 }
 function Select-ComboChoice($window, [string]$id, [string]$label) {
@@ -284,6 +287,30 @@ function Select-ComboChoice($window, [string]$id, [string]$label) {
     if (-not $item) { throw "Missing combo option: $label" }
     $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+}
+function Select-PageTab($window, [string]$id, [string]$expected) {
+    # 页内标签照 macOS 的 useSettingsTabs：按钮 ID 是 <前缀>-<标签 id>，选中的那个 ItemStatus 是「已选择」；切换后整页重画，等这块内容里的一个名字出现，而不是固定延时。
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $tab = Find-ById $window $id
+        if ($tab -and $tab.Current.IsEnabled) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $tab) { throw "Missing page tab: $id" }
+    if ($tab.Current.ItemStatus -ne '已选择') { $tab.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $tab = Find-ById $window $id
+        $content = Find-ById $window 'settings-content'
+        $shown = $content -and (Find-ByName $content $expected)
+    } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $shown) -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $shown) { throw "Page tab $id did not show $expected" }
+}
+function Assert-PageIntro($window, [string]$page, [string]$expected) {
+    # 页首引导随页内标签换成那个标签的说明（SettingsMascotIntro.h）。
+    $intro = Find-ById (Find-ById $window 'settings-content') "settings-page-$page"
+    if (-not $intro -or $intro.Current.Name -ne $expected) { throw "Page intro of $page does not follow its tab: expected '$expected'" }
 }
 function Wait-RelayControl($window, [string]$id) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -399,36 +426,43 @@ try {
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
+        # 窗口标题与 macOS 设置窗口相同，写作「<产品名> · 设置」。
+        if (-not $window.Current.Name.EndsWith(' · 设置')) { throw "Unexpected settings window title: $($window.Current.Name)" }
         foreach ($width in @(1000, 800)) {
-            if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 760, 0x0040)) { throw 'Window resize failed' }
+            if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Window resize failed' }
             foreach ($page in $pages) {
                 if ($process.HasExited) { throw "Settings exited on $page" }
                 # 复用导航等待，既验证正文身份，也处理侧栏虚拟化。
                 Open-Page $window $page
                 $content = Find-ById $window 'settings-content'
                 if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
+                # 与 macOS 一样，标题栏里只有页名，没有跨页面的历史返回按钮。
+                if (Find-ByName $window '返回') { throw "Settings title bar still has a history back button on $page" }
+                # 页首照 macOS 的水杉娘引导（SettingsMascotIntro.h）：除「关于」外，正文顶部是一句说明配插画，说明带 settings-page-<页面>；「关于」没有引导，这个 ID 落在品牌卡的产品名上。
+                $intro = Find-ById $content "settings-page-$page"
+                if ($page -eq 'about') {
+                    if (-not $window.Current.Name.StartsWith($intro.Current.Name + ' · ')) { throw "About page identifies itself as '$($intro.Current.Name)' instead of the product name" }
+                } elseif (-not $intro.Current.Name.EndsWith('。')) {
+                    throw "Page intro of $page is not a sentence: '$($intro.Current.Name)'"
+                }
+                if ($page -eq 'account' -and $intro.Current.Name -ne '管理账号与跨设备设置同步。') { throw "Account page intro does not follow macOS: '$($intro.Current.Name)'" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
                 if ($page -eq 'clip') {
-                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-                    do {
-                        $preview = Find-ById $window 'clipboard-entry-0-preview'
-                        if ($preview) { break }
-                        Start-Sleep -Milliseconds 200
-                    } while ([DateTime]::UtcNow -lt $deadline)
-                    if (-not $preview) { throw 'Synthetic clipboard history was not rendered' }
-                    $more = Find-ById $window 'clipboard-entry-0-actions'
-                    if (-not $preview -or -not $more) { throw 'Clipboard preview or actions are missing' }
-                    $textBounds = $preview.Current.BoundingRectangle
-                    $actionBounds = $more.Current.BoundingRectangle
-                    if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $actionBounds.Left) { throw 'Clipboard actions crowded out the text preview' }
-                    if ($actionBounds.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
+                    # 照 macOS 分「设置」「历史记录」两个标签，打开时是「设置」：这里有开关和云剪贴板，没有历史条目。
+                    Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ById $content 'cloud-clipboard-source')) { throw 'Clipboard settings tab is missing the cloud clipboard group' }
+                    if (Find-ById $content 'clipboard-entry-0-preview') { throw 'Clipboard history rendered inside the settings tab' }
+                    Assert-PageIntro $window 'clip' '设置剪贴板历史的保存与云端同步。'
                 }
                 if ($page -eq 'osk') {
-                    # 完整版提供手写：「手写输入」并进了这一页；「恢复默认」的说明只提这一页看得到的几项，不再提工具栏按钮。
-                    foreach ($name in @('打开手写识别板', '高度、间距和顶部语音入口回到默认')) {
-                        if (-not (Find-ByName $content $name)) { throw "Screen keyboard page is missing: $name" }
-                    }
+                    # 完整版提供手写：照 macOS 分「键盘」「手写」两个标签，打开时是「键盘」；「恢复默认」的说明只提这一页看得到的几项，不再提工具栏按钮。
+                    Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ByName $content '高度、间距和顶部语音入口回到默认')) { throw 'Screen keyboard tab is missing the reset row' }
+                    if (Find-ByName $content '打开手写识别板') { throw 'Handwriting rendered inside the keyboard tab' }
+                    Assert-PageIntro $window 'osk' '调整屏幕键盘布局与外观。'
                 }
                 if ($page -eq 'about') {
                     # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
@@ -446,6 +480,44 @@ try {
                 }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
+                if ($page -eq 'clip') {
+                    # 「历史记录」标签：合成的两条记录在第一页，不足一页时没有翻页器；宽窗口直接排出四个操作，窄窗口收进「更多操作」，两种都不能挤掉正文或伸出正文列。
+                    Select-PageTab $window 'clip-tab-history' '历史记录'
+                    Assert-PageIntro $window 'clip' '查看、复制和管理已保存的剪贴板记录。'
+                    # 行宽要等第一轮布局后才决定操作是排开还是收进菜单；再等一轮呈现再量。
+                    Start-Sleep -Milliseconds 500
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        $preview = Find-ById $window 'clipboard-entry-0-preview'
+                        if ($preview) { break }
+                        Start-Sleep -Milliseconds 200
+                    } while ([DateTime]::UtcNow -lt $deadline)
+                    if (-not $preview) { throw 'Synthetic clipboard history was not rendered' }
+                    $clear = Find-ById $window 'clipboard-clear'
+                    if (-not $clear) { throw 'Clear history is missing from the history tab' }
+                    if ($clear.Current.BoundingRectangle.Bottom -gt $preview.Current.BoundingRectangle.Top) { throw 'Clear history is not above the clipboard list' }
+                    if (Find-ById $window 'clipboard-page-status') { throw 'Pager shown for a single page of clipboard history' }
+                    $content = Find-ById $window 'settings-content'
+                    $copy = Find-ById $window 'clipboard-entry-0-copy'
+                    $last = Find-ById $window 'clipboard-entry-0-remove'
+                    if (-not $last) { $last = Find-ById $window 'clipboard-entry-0-actions' }
+                    if (-not $copy -or -not $last) { throw 'Clipboard preview or actions are missing' }
+                    $textBounds = $preview.Current.BoundingRectangle
+                    if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $copy.Current.BoundingRectangle.Left) { throw 'Clipboard actions crowded out the text preview' }
+                    if ($last.Current.BoundingRectangle.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
+                    if ($width -eq 1000 -and -not (Find-ById $window 'clipboard-entry-0-pin')) { throw 'Wide clipboard rows do not lay out their actions like macOS' }
+                    Save-Window $window "$theme-$width-clip-history.png"
+                    Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
+                }
+                if ($page -eq 'osk') {
+                    # 「手写」标签只有「手写识别板」一组：打开面板的一行和手写板示意。
+                    Select-PageTab $window 'osk-tab-handwriting' '打开手写识别板'
+                    Assert-PageIntro $window 'osk' '设置手写识别与输入方式。'
+                    if (-not (Find-ById $window 'handwriting-preview-stroke')) { throw 'Handwriting preview is missing' }
+                    if (Find-ByName (Find-ById $window 'settings-content') '打开屏幕键盘') { throw 'Keyboard groups rendered inside the handwriting tab' }
+                    Save-Window $window "$theme-$width-osk-handwriting.png"
+                    Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
+                }
                 if ($page -eq 'ai') {
                     # 两类配置共用一个导航；切到连接页截图，再回到辅助页，不能只覆盖默认标签。
                     foreach ($tab in @('connection', 'assistance')) {
@@ -504,6 +576,64 @@ try {
             }
         }
         Assert-CanvasPreview $window $theme
+        # 侧栏搜索照 macOS：有查询时页面列表整个换成结果列表，名字匹配的页面排在最前，设置行的第二行（读屏帮助文本）是「页 › 标签 › 分组」；查不到时写「没有匹配的设置」；Esc 清空查询，页面列表回来。
+        $search = Find-ById $window 'settings-search'
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+        $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
+        if (-not $input) { throw 'Settings search input is missing' }
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('剪贴板')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $results = Find-ById $window 'settings-search-results'
+            $first = if ($results) { Find-ById $results 'settings-search-result-0' } else { $null }
+            $row = if ($results) { Find-ByName $results '剪贴板历史' } else { $null }
+        } while ((-not $first -or -not $row) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $first -or $first.Current.Name -ne '剪贴板' -or $first.Current.HelpText) { throw 'Search results do not start with the matching page' }
+        if (-not $row -or $row.Current.HelpText -ne '剪贴板 › 设置 › 剪贴板') { throw "Search result path is wrong: $($row.Current.HelpText)" }
+        $listed = Find-ById $window 'typing'
+        if ($listed -and -not $listed.Current.IsOffscreen) { throw 'The page list is still shown while searching' }
+        Save-Window $window "$theme-search-results.png"
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('没有这个设置项')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $results = Find-ById $window 'settings-search-results'
+            $empty = if ($results) { Find-ByName $results '没有匹配的设置' } else { $null }
+        } while (-not $empty -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $empty) { throw 'Search without matches does not say 没有匹配的设置' }
+        $input.SetFocus()
+        [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $item = Find-ById $window 'typing'
+        } while ((-not $item -or $item.Current.IsOffscreen) -and [DateTime]::UtcNow -lt $deadline)
+        $results = Find-ById $window 'settings-search-results'
+        if (-not $item -or $item.Current.IsOffscreen -or ($results -and -not $results.Current.IsOffscreen)) { throw 'Escape did not clear the search and bring the page list back' }
+        # 搜索落到页内标签里的行时先切到那个标签：「打开手写识别板」在「键盘与手写」页的「手写」标签里，从「键盘」标签搜它。
+        Open-Page $window 'osk'
+        Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
+        $search = Find-ById $window 'settings-search'
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+        $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
+        if (-not $input) { throw 'Settings search input is missing' }
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('打开手写识别板')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $tab = Find-ById $window 'osk-tab-handwriting'
+            $target = Find-ByName (Find-ById $window 'settings-content') '打开手写识别板'
+        } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) { throw 'Search did not switch to the tab holding its target' }
+        Assert-PageIntro $window 'osk' '设置手写识别与输入方式。'
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+        Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
         # 搜索必须让目标可见：主字体在预设下本来收起，搜索落到它时要画出来；折叠区里的行要把「更多选项」展开。
         Open-Page $window 'candidate'
         Set-CandidateMore $window $false
@@ -591,18 +721,22 @@ try {
             if ($enabled) { Assert-SelectedAccent (Find-CheckBox (Find-ById $window 'settings-content') '语音输入') }
             Save-Window $window "$theme-toolbar-voice-$enabled.png"
         }
-        # 菜单中的固定操作仍要写入真实历史存储，只操作上方构造的合成记录。
+        # 固定操作仍要写入真实历史存储，只操作上方构造的合成记录。此时窗口是 800 宽，行窄，固定在「更多操作」菜单里；宽行直接点排出来的「固定」。
         Open-Page $window 'clip'
-        $more = Find-ById $window 'clipboard-entry-0-actions'
-        if (-not $more) { throw 'Clipboard actions are missing' }
-        $more.SetFocus()
-        $more.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        $deadline = [DateTime]::UtcNow.AddSeconds(10)
-        do {
-            Start-Sleep -Milliseconds 200
-            $pin = Find-ById $window 'clipboard-entry-pin'
-        } while (-not $pin -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $pin) { throw 'Clipboard action menu did not open' }
+        Select-PageTab $window 'clip-tab-history' '历史记录'
+        $pin = Find-ById $window 'clipboard-entry-0-pin'
+        if (-not $pin) {
+            $more = Find-ById $window 'clipboard-entry-0-actions'
+            if (-not $more) { throw 'Clipboard actions are missing' }
+            $more.SetFocus()
+            $more.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                Start-Sleep -Milliseconds 200
+                $pin = Find-ById $window 'clipboard-entry-pin'
+            } while (-not $pin -and [DateTime]::UtcNow -lt $deadline)
+            if (-not $pin) { throw 'Clipboard action menu did not open' }
+        }
         Save-Window $window "$theme-clipboard-actions.png"
         $pin.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -617,6 +751,7 @@ try {
         do {
             Start-Sleep -Milliseconds 200
             $more = Find-ById $window 'clipboard-entry-0-actions'
+            if (-not $more) { $more = Find-ById $window 'clipboard-entry-0-pin' }
             $pinnedVisible = $false
             $texts = (Find-ById $window 'settings-content').FindAll([System.Windows.Automation.TreeScope]::Descendants, $textCondition)
             foreach ($text in $texts) {
@@ -626,6 +761,7 @@ try {
         if (-not $pinnedVisible -or -not $more -or -not $more.Current.IsEnabled) { throw 'Clipboard pin result did not finish rendering' }
         Start-Sleep -Milliseconds 200
         Save-Window $window "$theme-clipboard-pinned.png"
+        Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
         Assert-CloudClipboardRelaySettings $window
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
