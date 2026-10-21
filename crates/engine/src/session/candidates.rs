@@ -108,7 +108,8 @@ impl InputSession {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
             self.queries
                 .append_contact_candidates(self.engine.request().raw_input.as_str(), &mut decoded);
-            if self.quick_phrase_candidates {
+            // 宿主请求了这项能力还不够：设置页「快捷短语」开关的说明写的是两种入口都由它管，关掉它时普通候选里也不再出现短语。
+            if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
                     &mut decoded,
@@ -182,6 +183,11 @@ impl InputSession {
         if self.local_mode == LocalInputMode::Url {
             self.add_url_completions();
         }
+        if self.local_mode == LocalInputMode::TemporaryEnglish {
+            let mut candidates = std::mem::take(&mut self.local_candidates);
+            self.append_english_online_rows(&mut candidates);
+            self.local_candidates = candidates;
+        }
         result.diagnostic
     }
 
@@ -238,6 +244,7 @@ impl InputSession {
                 "",
             ));
         }
+        self.append_english_online_rows(&mut candidates);
         self.dedicated_english_candidates = candidates;
     }
 

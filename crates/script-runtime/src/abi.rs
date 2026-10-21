@@ -148,7 +148,7 @@ pub mod scalar_values {
         ("host_commit", 5),
         ("other", 6),
     ];
-    /// `LOCAL_MODE`：host-api 的 `LocalModeClass`，名字同 `commit_context.local_mode`。0 到 5 在 U6 白名单里（[`super::local_mode_allows_text`]），其余模式（含拆字 13）下文本一律按屏蔽处理。
+    /// `LOCAL_MODE`：host-api 的 `LocalModeClass`，名字同 `commit_context.local_mode`。0 到 5 在 U6 白名单里（[`super::local_mode_allows_text`]），其余模式（含拆字 13、符号 14）下文本一律按屏蔽处理。
     pub const LOCAL_MODE: &[(&str, u8)] = &[
         ("none", 0),
         ("temporary_english", 1),
@@ -164,6 +164,7 @@ pub mod scalar_values {
         ("date_time", 11),
         ("quick_phrase", 12),
         ("chaizi", 13),
+        ("symbol", 14),
         ("unknown", 255),
     ];
     /// `INPUT_CLASS`：host-api 的 `InputClass`。

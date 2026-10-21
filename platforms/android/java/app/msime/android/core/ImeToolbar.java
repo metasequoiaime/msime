@@ -31,9 +31,6 @@ final class ImeToolbar {
     /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
     private Button recentClipHistoryButton;
     private Button recentClipCollapseButton;
-    /** 最近一次按在读音上的位置（读音视图自己的坐标）。 */
-    private float preeditTouchX;
-    private float preeditTouchY;
     private String styleCacheKey;
     private int iconColor;
     private int activeIconColor;
@@ -139,17 +136,10 @@ final class ImeToolbar {
             s.imePanels.showLocalInputMenu();
             return true;
         });
-        // 组字时轻点读音把组字光标移到点中的字母前（#5613）；落点在按下时记下，抬手成为一次点击时才换算成光标位置。render 只在组字可以移光标时让它可点。
-        s.preedit.setOnTouchListener((view, event) -> {
-            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                preeditTouchX = event.getX();
-                preeditTouchY = event.getY();
-            }
-            return false;
-        });
+        // 点击现有标题进入临时放大编辑，不在细小的标题里直接定位。
         s.preedit.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(s.preedit);
-            s.movePreeditCaret(s.preedit.getOffsetForPosition(preeditTouchX, preeditTouchY));
+            s.imeCompositionEditor.open();
         });
         ViewPolicy.setClickable(s.preedit, false);
         LinearLayout preeditFrame = LayoutPolicy.row(s);
@@ -194,7 +184,7 @@ final class ImeToolbar {
         s.phraseShortcutButton.setContentDescription("常用语");
         s.clipboardShortcutButton = s.shortcutButton(s.shortcutBar, "剪贴板",
             KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
-            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+            panelToggle(() -> s.clipboardSurface, s.imePanels::showClipboardHistory));
         s.clipboardShortcutButton.setContentDescription("剪贴板");
         // 浮动键盘按钮默认不在工具栏上，用户在设置「键盘工具栏」里打开（#5621）。
         s.floatingShortcutButton = s.shortcutButton(s.shortcutBar, "浮动键盘",
@@ -304,7 +294,7 @@ final class ImeToolbar {
         LayoutPolicy.setPaddingDp(row, s, 2, 4, 2, 4);
         row.setContentDescription("最近复制");
         Button history = s.shortcutButton(row, "剪贴板", KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
-            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+            panelToggle(() -> s.clipboardSurface, s.imePanels::showClipboardHistory));
         history.setContentDescription("剪贴板");
         history.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         recentClipHistoryButton = history;

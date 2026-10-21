@@ -272,7 +272,12 @@ impl TypingStatisticsStore {
         if !state.enabled || state.device.is_empty() {
             return Ok(Err(UploadOutcome::Disabled));
         }
-        if !force && now_ms.saturating_sub(state.last_upload_ms) < UPLOAD_INTERVAL_MS {
+        // 墙上时钟回拨时旧的成功时间不能继续阻止补传；成功后会以修正后的时间重新节流。
+        if !force
+            && now_ms
+                .checked_sub(state.last_upload_ms)
+                .is_some_and(|elapsed| elapsed < UPLOAD_INTERVAL_MS)
+        {
             return Ok(Err(UploadOutcome::NotDue));
         }
         let statistics = self.read_locked(&lock)?;
@@ -559,6 +564,89 @@ mod tests {
                 enabled: false,
                 last_upload_ms: None
             }
+        );
+    }
+
+    #[test]
+    fn automatic_upload_recovers_after_the_wall_clock_moves_backwards() {
+        const UPLOADED_AT: u64 = 1_800_000_000_000;
+        const CORRECTED_NOW: u64 = UPLOADED_AT - 7 * 24 * 60 * 60 * 1000;
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path().join("statistics"));
+        store.set_enabled(true).unwrap();
+        let device = store.set_upload_enabled(true).unwrap().device;
+        store
+            .record(
+                "字",
+                super::super::TypingSource::Quanpin,
+                "2026-10-17",
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .upload_if_due("2026-10-17", "linux", UPLOADED_AT, false, |_| Ok::<(), ()>(
+                    ()
+                ))
+                .unwrap(),
+            UploadOutcome::Uploaded(1)
+        );
+
+        // 新建 store 仍读到校时前的成功时间，不能等一周后墙上时钟追上它才补传。
+        let store = TypingStatisticsStore::new(store.directory());
+        let payload = store
+            .prepare_upload("2026-10-17", "linux", CORRECTED_NOW, false)
+            .unwrap()
+            .expect("时钟回拨后应允许自动补传");
+        assert_eq!(payload.device, device);
+        assert!(matches!(
+            store.upload_if_due("2026-10-17", "linux", CORRECTED_NOW, false, |_| Err(
+                "offline"
+            )),
+            Err(UploadError::Send("offline"))
+        ));
+        assert_eq!(store.upload_state().unwrap().last_upload_ms, UPLOADED_AT);
+        assert_eq!(
+            store
+                .upload_if_due(
+                    "2026-10-17",
+                    "linux",
+                    CORRECTED_NOW,
+                    false,
+                    |_| Ok::<(), ()>(())
+                )
+                .unwrap(),
+            UploadOutcome::Uploaded(1)
+        );
+        assert_eq!(store.upload_state().unwrap().last_upload_ms, CORRECTED_NOW);
+
+        // 成功后从修正后的时间重新节流，区间内和恰好十分钟的边界都保留。
+        assert_eq!(
+            store
+                .prepare_upload(
+                    "2026-10-17",
+                    "linux",
+                    CORRECTED_NOW + UPLOAD_INTERVAL_MS - 1,
+                    false
+                )
+                .unwrap(),
+            Err(UploadOutcome::NotDue)
+        );
+        assert!(store
+            .prepare_upload(
+                "2026-10-17",
+                "linux",
+                CORRECTED_NOW + UPLOAD_INTERVAL_MS,
+                false
+            )
+            .unwrap()
+            .is_ok());
+        store.set_upload_enabled(false).unwrap();
+        assert_eq!(
+            store
+                .prepare_upload("2026-10-17", "linux", CORRECTED_NOW - 1, false)
+                .unwrap(),
+            Err(UploadOutcome::Disabled)
         );
     }
 

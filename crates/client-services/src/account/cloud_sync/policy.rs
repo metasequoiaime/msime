@@ -25,11 +25,12 @@ pub const STALL_BASE_MS: u64 = THROTTLE_MS;
 /// 词库合并退避的上限：云端有本机导入不了的词时合并永远做不完，这样每台设备一天最多自动重下几次整份快照。
 pub const MAX_STALL_MS: u64 = 6 * 60 * 60 * 1000;
 /// 设备本地且涉及隐私、无论如何都不上传也不应用的设置，按键名里的片段识别。
-pub const LOCAL_ONLY_FRAGMENTS: [&str; 4] = [
+pub const LOCAL_ONLY_FRAGMENTS: [&str; 5] = [
     "incognito",
     "developer_options",
     "diagnostic_log",
     "contribute_audio",
+    "english_online_candidates",
 ];
 /// 整份偏好文档给皮肤库留预算时用的上限：服务端 1 MiB，这里只用到 900 KiB。
 pub const DOCUMENT_LIMIT_BYTES: usize = 900 * 1024;

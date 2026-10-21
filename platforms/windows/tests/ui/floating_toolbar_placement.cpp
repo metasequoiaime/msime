@@ -112,7 +112,7 @@ int main() {
     // 再拖一次，新位置取代旧的。
     const auto second_drag = floating_toolbar_drag_end(first_drag, dropped, FloatingToolbarPlacement{640, 400});
     require(second_drag && second_drag->x == 640 && second_drag->y == 400);
-    // 只在拖动条上按了一下没动：没记过就仍然没有，工具栏照旧贴着角；记过就保留原来的位置。
+    // 只在 logo、握把或工具栏上别的非按钮区域按了一下没动：没记过就仍然没有，工具栏照旧贴着角；记过就保留原来的位置。
     require(!floating_toolbar_drag_end(std::nullopt, corner, corner));
     const auto kept = floating_toolbar_drag_end(dropped, dropped, dropped);
     require(kept && kept->x == 120 && kept->y == 80);

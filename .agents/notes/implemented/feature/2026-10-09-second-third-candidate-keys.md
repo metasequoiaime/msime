@@ -24,7 +24,7 @@ Windows 接入：组字时 `;` 选当前页第二个候选，`'` 选第三个，
 
 - Server 从偏好快照读，随 `NavigationBindings` 进入 `configured_key`，排在以词定字之后、`basic_key` 之前，因为 `basic_key` 会把组字中的 `'` 当作音节分隔符交给 Engine。
 - TIP 从新的 Worker 帧 `SecondThirdCandidateChanged`（30）读；推送到达之前视为关闭。
-- WinUI 设置页在「输入 › 选词与翻页」里加了一行下拉框：关闭，或 `; / '`。
+- WinUI 设置页在「输入 › 选词与翻页」里加了一行下拉框：关闭，或 `; / '`（后来照 macOS 去掉了这一行，偏好和按键行为不变，见[打字三页照 macOS 分标签](2026-10-20-windows-settings-typing-mac-parity.md)）。
 
 macOS、Linux（IBus、Fcitx5）、HarmonyOS 外接键盘和 Android 硬件键盘都还没有接入。共享的 React 设置页也没有加这一行，免得在不生效的平台上显示开关。
 

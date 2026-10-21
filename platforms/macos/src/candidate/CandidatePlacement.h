@@ -1,61 +1,45 @@
 #pragma once
 #import <AppKit/AppKit.h>
-#include <cmath>
+#include "../../../../shared/candidate/CandidatePlacement.h"
+
+// 规则本身在 shared/candidate/CandidatePlacement.h，Linux 的 X11 原生画布用同一份；这里只把 NSRect、NSPoint 换成共享的结构。
+static inline msime::candidate::CandidateRect MSIMECandidateRect(NSRect rect) {
+    return {NSMinX(rect), NSMinY(rect), NSWidth(rect), NSHeight(rect)};
+}
 
 inline bool MSIMEValidCaret(NSRect caret) {
-    return std::isfinite(caret.origin.x) && std::isfinite(caret.origin.y) &&
-           std::isfinite(caret.size.width) && std::isfinite(caret.size.height) && caret.size.height > 0;
+    return msime::candidate::CandidateValidCaret(MSIMECandidateRect(caret));
 }
 
-// The tallest vertical candidate panel shown since the panel last became visible, matching Windows' g_max_vertical_container_height_dip. A panel that was hidden in between starts over, as Windows' ResetCandidatePlacementMemory does when its candidate window hides; a horizontal panel carries the memory without adding to it.
+// 见 msime::candidate::TallestCandidateHeight。
 inline CGFloat MSIMETallestCandidateHeight(CGFloat remembered, CGFloat current, bool vertical, bool panelWasVisible) {
-    const CGFloat base = panelWasVisible ? MAX(remembered, 0.0) : 0.0;
-    return vertical ? MAX(base, current) : base;
+    return msime::candidate::TallestCandidateHeight(remembered, current, vertical, panelWasVisible);
 }
 
-// 横排候选窗自上次显示以来最宽的一次。横排卡片的宽度按这一页候选的长短算，打字时候选每个键都在变，不记的话卡片随每个键忽长忽短（实测一次输入里在 557pt 和 792pt 之间来回跳，同一个键补一轮候选还会再变一次）。记住之后，候选窗一直开着的这段时间里卡片只变宽不变窄；候选窗隐藏过（上屏、取消、失焦）就从头记，与 MSIMETallestCandidateHeight 对竖排高度的处理相同。竖排不记，返回 0。
+// 见 msime::candidate::WidestCandidateWidth。
 inline CGFloat MSIMEWidestCandidateWidth(CGFloat remembered, CGFloat current, bool vertical, bool panelWasVisible) {
-    if (vertical) return 0.0;
-    const CGFloat base = panelWasVisible ? MAX(remembered, 0.0) : 0.0;
-    return MAX(base, current);
+    return msime::candidate::WidestCandidateWidth(remembered, current, vertical, panelWasVisible);
 }
 
-// Decides the side of the caret with the taller of the current height and flipDecisionHeight, but places the panel with its current height. A vertical list that grows as candidates arrive therefore does not jump from below the caret to above it, and a shorter later page that stays above the caret sits against the line instead of leaving the tallest page's gap.
-// cardTopInset 是窗口顶上留给皮肤装饰的透明带（MSIMECandidateChromeView.cardTopInset），size 和 flipDecisionHeight 都含这条带。放在光标下方时贴着光标的是卡片顶边，不是窗口顶边：透明带朝上伸，盖在光标所在的这一行和上面几行上，装饰图不透明的地方会挡住那里的字。放不下、翻到光标上方时窗口底边就是卡片底边，透明带在最上面，和以前一样贴着光标上方。翻不翻只看卡片：卡片在光标下方放得下就放下方，透明带朝上伸不占光标下方的地方。最后整个窗口（连同透明带）仍夹进可见区域，光标贴近屏幕上边、透明带伸出上边时宁可把窗口往下压、卡片和光标之间留出一段，也不让装饰图被屏幕边缘裁掉；留出的这段至多是透明带伸出的部分，比以前整条透明带的空隙小。cardTopInset 为 0 时结果和以前完全一样。
-// canvas 的左、下外留白不参与卡片对齐和翻转判断；窗口仍整体夹进可见区域，保留原有装饰裁切策略。
+// 见 msime::candidate::CandidateOrigin：光标下方 4pt，放不下按记住的最高一页翻到上方，装饰透明带不占光标间隙，最后夹进可见区域。
 inline NSPoint MSIMECandidateOrigin(NSRect caret, NSSize size, NSRect bounds, CGFloat flipDecisionHeight, CGFloat cardTopInset = 0,
                                    CGFloat cardLeftInset = 0, CGFloat cardBottomInset = 0) {
-    const CGFloat left = MIN(MAX(cardLeftInset, 0.0), size.width);
-    const CGFloat x = MIN(MAX(NSMinX(caret) - left, NSMinX(bounds)), MAX(NSMinX(bounds), NSMaxX(bounds) - size.width));
-    const CGFloat band = MIN(MAX(cardTopInset, 0.0), size.height);
-    const CGFloat bottom = MIN(MAX(cardBottomInset, 0.0), size.height - band);
-    const CGFloat decisionHeight = MAX(size.height, flipDecisionHeight) - band - bottom;
-    CGFloat y = NSMinY(caret) - (size.height - band) - 4;
-    if (NSMinY(caret) - decisionHeight - 4 < NSMinY(bounds)) y = NSMaxY(caret) + 4 - bottom;
-    y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
-    return NSMakePoint(x, y);
+    const auto origin = msime::candidate::CandidateOrigin(MSIMECandidateRect(caret), size.width, size.height, MSIMECandidateRect(bounds),
+                                                          flipDecisionHeight, cardTopInset, cardLeftInset, cardBottomInset);
+    return NSMakePoint(origin.x, origin.y);
 }
 
 inline NSPoint MSIMECandidateOrigin(NSRect caret, NSSize size, NSRect bounds) {
     return MSIMECandidateOrigin(caret, size, bounds, size.height);
 }
 
-// 候选窗放在 frames 里的哪一块屏幕上：先取 NSPointInRect 含住锚点的第一块（两块屏幕共用的边归右边、上边那块，和以前一样）；一块都不含时取离锚点最近的一块，距离相同取排在前面的。NSPointInRect 不含矩形的右边和上边，光标正好贴着某块屏幕的右边或上边时以前一块都找不到，退回 NSScreen.mainScreen，候选窗就被摆到了另一块屏幕上。frames 为空时返回 NSNotFound。
+// 见 msime::candidate::CandidateScreenIndex。NSPointInRect 不含矩形的右边和上边，光标正好贴着某块屏幕的右边或上边时以前一块都找不到，退回 NSScreen.mainScreen，候选窗就被摆到了另一块屏幕上；共享规则在一块都不含时取最近的一块。frames 为空时返回 NSNotFound。
 inline NSUInteger MSIMECandidateScreenIndex(NSPoint anchor, NSArray<NSValue *> *frames) {
-    NSUInteger nearest = NSNotFound;
-    CGFloat nearestDistance = INFINITY;
-    for (NSUInteger index = 0; index < frames.count; ++index) {
-        const NSRect frame = frames[index].rectValue;
-        if (NSPointInRect(anchor, frame)) return index;
-        const CGFloat dx = MAX(MAX(NSMinX(frame) - anchor.x, 0.0), anchor.x - NSMaxX(frame));
-        const CGFloat dy = MAX(MAX(NSMinY(frame) - anchor.y, 0.0), anchor.y - NSMaxY(frame));
-        const CGFloat distance = dx * dx + dy * dy;
-        if (distance < nearestDistance) {
-            nearest = index;
-            nearestDistance = distance;
-        }
-    }
-    return nearest;
+    std::vector<msime::candidate::CandidateRect> rects;
+    rects.reserve(frames.count);
+    for (NSValue *frame in frames) rects.push_back(MSIMECandidateRect(frame.rectValue));
+    const auto index = msime::candidate::CandidateScreenIndex({anchor.x, anchor.y}, rects);
+    return index ? (NSUInteger)*index : NSNotFound;
 }
 
 // 锚点所在的屏幕，规则见 MSIMECandidateScreenIndex；没有任何屏幕时才退回 NSScreen.mainScreen。候选窗、模式提示、双拼键位图、打字特效、悬浮工具栏和语音浮层都按它选屏，光标或鼠标贴着屏幕右边、上边时不会跳到另一块屏幕。

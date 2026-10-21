@@ -35,7 +35,8 @@ struct PreviewConfig {
   // "pinyin" shows the reading above the list; "empty" hides that line.
   bool candidate_show_preedit = true;
   std::optional<bool> candidate_selected_bar;
-  std::array<bool, 6> floating_toolbar_items{true, true, true, true, false, true};
+  // 与 FloatingToolbarSettings::items 同序同缺省：表情和屏幕键盘缺省关。快照里缺这六个键、或偏好的缩放和字号超出范围读不出工具栏设置时，按钮仍与 macOS 和 client-core 的缺省一致。
+  std::array<bool, 6> floating_toolbar_items{true, true, true, false, false, true};
   static PreviewConfig parse(const std::string &document) {
     if (document.size() > 16384)
       throw std::invalid_argument("Oversized preview configuration");

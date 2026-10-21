@@ -74,22 +74,120 @@ test("StrictMode 初始化后每两秒轮询，客户端替换重建相位，卸
   expect(next.request).toHaveBeenCalledTimes(2);
 });
 
+test("慢于轮询间隔的状态仍可发布，读取完成前不重复请求", async () => {
+  vi.useFakeTimers();
+  let sequence = 0;
+  const request = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        const version = `synthetic-version-${++sequence}`;
+        setTimeout(() => resolve({ localVersion: version }), 2500);
+      }),
+  );
+  const client = host(request);
+  const { result } = renderHook(() => useCloudDictionaryApplyPanel(client));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2500);
+  });
+  expect(result.current.localVersion).toBe("synthetic-version-1");
+  expect(request).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(result.current.localVersion).toBe("synthetic-version-2");
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
 test.each(["resolve", "reject"] as const)(
-  "并发状态请求只采纳最新回答，忽略旧请求的 %s",
+  "状态读取的 %s 结束后允许重试，进行中不重复读取",
   async (outcome) => {
-    const old = deferred<Response>();
-    const client = host(vi.fn().mockReturnValueOnce(old.promise).mockResolvedValue(status));
+    const pending = deferred<Response>();
+    const client = host(vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(status));
     const { result } = renderHook(() => useCloudDictionaryApplyPanel(client));
     await act(async () => {
       await result.current.refreshStatus();
     });
+    expect(client.request).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      if (outcome === "resolve") pending.resolve({ localVersion: "synthetic-first-version" });
+      else pending.reject(new Error("synthetic failure"));
+    });
+    expect(result.current.localVersion).toBe(
+      outcome === "resolve" ? "synthetic-first-version" : null,
+    );
+    await act(async () => {
+      await result.current.refreshStatus();
+    });
     expect(result.current.localVersion).toBe(status.localVersion);
+    expect(client.request).toHaveBeenCalledTimes(2);
+  },
+);
+
+test.each(["resolve", "reject"] as const)(
+  "客户端替换后旧状态的 %s 不发布，也不释放新读取",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const old = deferred<Response>();
+    const current = deferred<Response>();
+    const first = host(vi.fn().mockReturnValue(old.promise));
+    const next = host(vi.fn().mockReturnValueOnce(current.promise).mockResolvedValue(status));
+    const { result, rerender } = renderHook(({ client }) => useCloudDictionaryApplyPanel(client), {
+      initialProps: { client: first },
+    });
+    rerender({ client: next });
+    expect(next.request).toHaveBeenCalledTimes(1);
     await act(async () => {
       if (outcome === "resolve") old.resolve({ localVersion: "synthetic-stale-version" });
       else old.reject(new Error("synthetic failure"));
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.localVersion).toBeNull();
+    expect(result.current.notice).toBe("先获取本机词库版本，再下载并预览云端快照");
+    expect(next.request).toHaveBeenCalledTimes(1);
+    await act(async () => current.resolve(status));
+    expect(result.current.localVersion).toBe(status.localVersion);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(next.request).toHaveBeenCalledTimes(2);
+  },
+);
+
+test.each(["resolve", "reject"] as const)(
+  "状态读取期间仍能下载，旧状态的 %s 不覆盖操作结果",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const pending = deferred<Response>();
+    const client = host(
+      vi
+        .fn()
+        .mockResolvedValueOnce(status)
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce(preview)
+        .mockResolvedValue(status),
+    );
+    const { result } = renderHook(() => useCloudDictionaryApplyPanel(client));
+    await act(async () => {});
+    act(() => {
+      void result.current.refreshStatus();
+    });
+    await act(async () => result.current.download());
+    expect(result.current.preview).toEqual(preview.snapshot);
+    expect(result.current.busy).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(client.request).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      if (outcome === "resolve") pending.resolve({ localVersion: "synthetic-stale-version" });
+      else pending.reject(new Error("synthetic failure"));
     });
     expect(result.current.localVersion).toBe(status.localVersion);
-    expect(result.current.notice).toBe("先获取本机词库版本，再下载并预览云端快照");
+    expect(result.current.notice).toBe("云端快照已校验，请确认后替换本机词库");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(client.request).toHaveBeenCalledTimes(4);
   },
 );
 

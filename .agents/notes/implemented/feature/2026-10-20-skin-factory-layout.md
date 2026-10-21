@@ -34,7 +34,7 @@ macOS 的 `itemCornersFollowCard` 依据实际候选矩形与列表区域逐角�
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
 | 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距；`expandPanel`、`expandRows` | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
-该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的卷轴展开／收起按钮已接入来源字号尺寸与候选右侧窄列，网格等宽列、无序号绘制和滚动条几何仍未完整接入；Linux Wayland/IBus 的完整布局消费也有缺口。本分支基线的 Linux X11 `expandPanel` 仅影响分页标记；完整 X11 canvas 卷轴已在[独立 PR #8979](https://github.com/metasequoiaime/msime/pull/8979) 实现并验证，尚未并入本分支，不能把它的证据外推到 Wayland、IBus 或非 canvas 路径。
+该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的卷轴展开／收起按钮已接入来源字号尺寸与候选右侧窄列，网格等宽列、无序号绘制和滚动条几何仍未完整接入；Linux Wayland/IBus 的完整布局消费也有缺口。Linux X11 的 Fcitx5 canvas 路径通过[原生卷轴](2026-10-20-linux-canvas-layout.md#横排卷轴)消费 `expandPanel` 与 `expandRows`，显示完整候选网格、滚动与按代次点选；Wayland、IBus 和非 canvas 路径不由此覆盖。
 
 网页的 `tools/factory-layouts.json` 由共享 Rust 解析器生成并逐字段核对，构建时随现有 `theme-catalog.js` 一同装入 SDK。它包含八种基底的公共、横排和竖排默认，不引入运行时宿主调用或 TOML 解析器。未提供 `resolvedLayout` 时，出厂当前排列、包公共 `geometry`、包当前排列依次覆盖；若提供完整解析结果，不再重叠原始声明。镜像更新用 `MSIME_WRITE_FACTORY_LAYOUTS=1 cargo test -p msime-client-services web_factory_layout_copy_matches_shared_resolution`，无写入开关的同一测试验证提交中的文件。长度边界沿用共享扫描器的 DIP / em 上限。Windows 版式使用来源的固定 160 DIP 卡片下限，收紧时取消；未声明阴影档位时仍画来源的普通双层阴影。
 
@@ -48,7 +48,7 @@ macOS 普通页与展开网格保留来源 body 的 2 DIP 基础行距，显示�
 
 canvas 的 `lineGap` 只在预编辑文字实际显示时生效，不因 logo 让首行有高度就继续加入。键位图避让使用相同的显隐规则和隐藏行距。固定来源更新核对到 `msime-windows@b0bcb6ff5bef797d72e6b38930be8a6b9dccfb2f`，相对原固定提交 `a60e2948` 没有皮肤定义变化；语义来自 `candidate_skin_scene.cpp` 的隐藏预编辑 margin 与 `candidate_skin_tokens.cpp` 的零圆角贴角开关。
 
-再次核对远端默认分支 `develop@0978b5c28b2a1806e7ef3acdbc3a1c87e4784823`：相对 `b0bcb6ff`，八份出厂清单及卷轴按钮配方没有变化。本轮继续以原固定来源实现按钮；上游新增了图片工具栏、按钮底图／自动排列与装饰图叠加候选词，共享解析和六个平台宿主尚未完成这些新字段的接入，不能把当前出厂布局对齐称为已经兼容最新全部能力。
+再次核对远端默认分支 `develop@0978b5c28b2a1806e7ef3acdbc3a1c87e4784823`：相对 `b0bcb6ff`，八份出厂清单及卷轴按钮配方没有变化。本轮继续以原固定来源实现按钮；上游新增了图片工具栏、按钮底图／自动排列与装饰图叠加候选词，图片工具栏与装饰词的接入由各自笔记记录并按平台验收，不能把当前出厂布局对齐称为已经兼容最新全部能力。
 
 macOS 的 `pageArrows` 消费共享解析结果：空值保留原生首行，显式 false 隐藏鼠标翻页入口，true 按来源放入候选列表。横排预留右侧窄列，竖排增加下方矮行；按钮、字形、分隔线和悬停按当前候选字号及皮肤颜色绘制；来源未声明的分隔线保持透明，不借用卡片描边。用户关闭「显示页码和翻页按钮」时仍全部隐藏，键盘与滚轮的规则不变。皮肤声明 `expandPanel = false` 时不提供横排展开，空值保留原生用户偏好；true 仍要求用户启用展开。当前横排卷轴可用且皮肤声明 `expandPanel` 时卷轴优先；不能展开的列表仍保留翻页。键位图测量和实际候选共用翻页槽位宽高，卡片最小宽度只计算一次。
 

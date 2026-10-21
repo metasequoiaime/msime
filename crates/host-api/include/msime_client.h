@@ -95,10 +95,11 @@ char *msime_client_client_agent(const uint8_t *request, size_t length);
 /* 输入法进程取账号服务的访问令牌。request 是 length 字节的 UTF-8 JSON {"directory": 绝对路径, "rejected_token": 可选}，最多 16384 字节；directory 是设置应用和输入法共用的账号目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account，与 msime_client_ensure_anonymous_account 相同）。设置应用登录的 account-session.json 优先，刷新时与设置应用共用 account-refresh.lock；没有登录时用 anonymous-session.json。rejected_token 是服务端刚以 401 拒绝的令牌，传入后强制刷新。每次调用都重新读文件，登录、退出和换号下一次调用即生效。也可以用 {"session_store": msime_client_session_store_register 给的 id, "rejected_token": 可选} 代替 directory：登录会话和匿名会话都在宿主注入的存储里，同样登录的优先，刷新时持宿主的 lock(ACCOUNT) 或 lock(ANONYMOUS)。Value {access_token, user_id, anonymous}；没有任何会话时 error 是 account_unauthorized。响应含凭据，不要写进日志。刷新会阻塞网络：不要在输入线程调用。 */
 char *msime_client_account_access_token(const uint8_t *request, size_t length);
 /* 设置窗口自己的云剪贴板请求，与云剪贴板面板发的相同。request 是 length 字节（最多 131072）的 UTF-8 JSON {directory: 账号目录的绝对路径, device_name?, action}；directory 是共享应用登录时写 account-session.json 的目录（Windows 是 %LOCALAPPDATA%\<本版本的用户目录>\account），只用登录的会话，不退回匿名账号。device_name 是可选的、端到端加密登记本机时给其他设备看的名称（例如鸿蒙的 marketName），规则与 msime_client_relay_cloud_clipboard 的相同：不给、为 null、只有空白、超过 256 字节或含控制字符时改用计算机名或平台名，不算请求不合法，登记前驱动还会再清理一遍；只在本机还没登记时用到。也可以用 {session_store: id, device_name?, action} 代替 directory，id 来自 msime_client_session_store_register，用该 store 的登录会话（注册时建好的那一个，不每次新建）；两者都给、都不给或 id 没有注册时 error 是 invalid_cloud_clipboard。action 是下面之一：{operation:"list",search}（search 不超过 1024 字节、不含控制字符，在本机解密后匹配）→ {enabled, retention_days, items:[{id,text,updated_at,pinned,device}], e2e:{status,code,pending_devices,undecryptable}}；{operation:"add",text}（非空、不超过 4000 个 UTF-16 单元、不含控制字符，换行除外）→ 新条目；{operation:"delete",id}（条目的 id，64 位小写十六进制；不超过 256 字节的其他 ASCII 标识符不发出请求，error 是 account_invalid）→ {}；{operation:"set_enabled",enabled} → {enabled}；{operation:"pin",id,pinned}（id 是 64 位小写十六进制，pinned 是布尔）→ {}；{operation:"set_retention",days}（days 是 0、1、7、30 之一，0 表示一直保留）→ {retention_days}；{operation:"clear"} 删掉云端全部条目、开关不变 → {}；端到端加密的设备管理 {operation:"devices"}、{operation:"approve"|"reject"|"remove",device_id}（device_id 是 32 位小写十六进制）、{operation:"reset"} → 驱动 status 的结果 {enabled,status,device_id,code,devices:[{device_id,name,created_at,approved,current,code}]}（见 docs/cloud-clipboard-e2e.md 的「共享面板的动作」）。action 不合法时 error 是 invalid_cloud_clipboard，不联网；没有登录或会话已失效时是 account_unauthorized，驱动给出的码原样交回（例如 clipboard_device_pending、clipboard_sync_disabled），其他失败是相应的 account_* 代码（置顶的条目已经不在时服务端回 404，是 account_unavailable）。按 directory 时刷新令牌与共享应用共用 account-refresh.lock；按 session_store 时持宿主的 lock(ACCOUNT)。阻塞网络：放在工作线程上调用。 */
+/* 可选 preferences_directory 绑定账号路径的偏好来源；当前已配置中继时返回 clipboard_source_changed，不发账号请求。 */
 char *msime_client_account_cloud_clipboard(const uint8_t *request, size_t length);
-/* 云剪贴板该走哪条路。directory 是 length 字节（最多 16384）的共享偏好目录绝对路径。偏好里的 cloud_clipboard_relay 配置了中继时 Value 是 {source:"relay"}，否则是 {source:"account"}；配置了中继就只走中继，不再用水杉账号。偏好读不了时 error 是 storage，中继配置不合规时是 relay_not_configured。不联网。 */
+/* 云剪贴板该走哪条路。directory 是 length 字节（最多 16384）的共享偏好目录绝对路径。偏好里的 cloud_clipboard_relay 配置了中继时 Value 是 {source:"relay"}，否则是 {source:"account"}；两者都带不含凭据的偏好 revision，供窗口绑定来源。配置了中继就只走中继，不再用水杉账号。偏好读不了时 error 是 storage，中继配置不合规时是 relay_not_configured。不联网。 */
 char *msime_client_cloud_clipboard_source(const uint8_t *directory, size_t length);
-/* 经自建中继（协议见 docs/cloud-clipboard-relay.md）答一个云剪贴板动作。request 是 length 字节（最多 131072）的 UTF-8 JSON {preferences_directory: 共享偏好目录的绝对路径, directory: 本机放中继密钥串 cloud-clipboard-relay-keystore 的绝对路径目录, device_name: 可选，登记设备时给其他设备看的名称, action}。中继地址和令牌从偏好的 cloud_clipboard_relay 读，没有配置时 error 是 relay_not_configured。directory 在同一台设备上的输入法、设置和面板之间要相同，否则会登记成几台设备；密钥串退出水杉账号时不删除。action 与 msime_client_account_cloud_clipboard 的相同，两个入口接受同样的十二个动作，结果形状也相同：list、add、delete、set_enabled、pin、set_retention、clear，以及端到端加密的 devices、approve、reject、remove、reset（各自的字段和结果见 msime_client_account_cloud_clipboard）。action 不合法时 error 是 invalid_cloud_clipboard；中继拒绝令牌时是 relay_unauthorized，连不上是 relay_unavailable，密钥串读写失败是 relay_storage，其余是驱动给出的码（例如 clipboard_device_pending）。阻塞网络：放在工作线程上调用。 */
+/* 经自建中继（协议见 docs/cloud-clipboard-relay.md）答一个云剪贴板动作。request 是 length 字节（最多 131072）的 UTF-8 JSON {preferences_directory: 共享偏好目录的绝对路径, directory: 本机放中继密钥串 cloud-clipboard-relay-keystore 的绝对路径目录, device_name: 可选，登记设备时给其他设备看的名称, action}。中继地址和令牌从偏好的 cloud_clipboard_relay 读，没有配置时 error 是 relay_not_configured。可选 expected_revision 与读取配置的同一快照比较，不符时 error 是 clipboard_source_changed，不联网。directory 在同一台设备上的输入法、设置和面板之间要相同，否则会登记成几台设备；密钥串退出水杉账号时不删除。action 与 msime_client_account_cloud_clipboard 的相同，两个入口接受同样的十二个动作，结果形状也相同：list、add、delete、set_enabled、pin、set_retention、clear，以及端到端加密的 devices、approve、reject、remove、reset（各自的字段和结果见 msime_client_account_cloud_clipboard）。action 不合法时 error 是 invalid_cloud_clipboard；中继拒绝令牌时是 relay_unauthorized，连不上是 relay_unavailable，密钥串读写失败是 relay_storage，其余是驱动给出的码（例如 clipboard_device_pending）。阻塞网络：放在工作线程上调用。 */
 char *msime_client_relay_cloud_clipboard(const uint8_t *request, size_t length);
 /* 向自建中继发端到端加密驱动（msime_client_cloud_clipboard_e2e）给出的一个请求，给自己跑驱动、自己保存密钥串的宿主用：Android 把中继的密钥串交给 AndroidKeyStore 加密，不经上面那个由 Rust 把密钥串存成明文文件的入口跑驱动。request 是 length 字节（最多 131072）的 UTF-8 JSON {url: 中继基地址, token: 中继令牌, method: GET|PUT|POST|DELETE, path: 驱动给的路径（必须在 /v1/users/me/clipboard 之下）, body: 可选，驱动给的 JSON 正文文本}。url 和 token 是宿主在这次操作开始时从偏好的 cloud_clipboard_relay 读到的那一份，整次操作都传同一份，中途改了偏好也不会发到另一个中继；校验规则与偏好相同，不合规时 error 是 relay_not_configured。Value 是 {status, body}，状态码和正文原样交回驱动。不读偏好、不读写任何密钥串。请求不合规时 error 是 invalid_cloud_clipboard（不发出去），中继拒绝令牌时是 relay_unauthorized，连不上或响应过大是 relay_unavailable。阻塞网络：放在工作线程上调用。 */
 char *msime_client_relay_cloud_clipboard_exchange(const uint8_t *request, size_t length);
@@ -425,6 +426,13 @@ char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
+
+/* 图片工具栏的无 I/O 布局。请求 {toolbar: 扫描缓存中的 toolbarImage,
+   shown: [[按钮键, 当前状态], ...]}，最多 7 个当前显示按钮；皮肤只能进一步隐藏。
+   返回 {widthDip,heightDip,buttons:[{key,xDip,yDip,widthDip,heightDip,iconSizeDip,
+   background,image}]}，尺寸覆盖背景与全部按钮。失败不能继续使用旧命中区。
+   UTF-8 JSON 最多 64 KiB；结果用 msime_client_string_free 释放。 */
+char *msime_client_skin_toolbar_image_layout(const uint8_t *request, size_t length);
 /* 同步解码有界内存中的 PNG/APNG 默认图或 GIF/JPEG/WebP 首帧，不读文件。
  * 输入最多 8 MiB，边长最多 2048。成功时只调用一次回调，rgba 为非预乘 RGBA8，
  * length = width * height * 4。字节只在回调期间有效，宿主必须当场复制；回调不得抛异常。
@@ -560,6 +568,11 @@ char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
  * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
  * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
+/* 流式 wss 地址的传输描述；输入是 <=64 KiB 的 UTF-8 地址，实际地址遵循共享 2048 字节与 URL 形状规则。
+ * value 为 {socket_host:string,port:uint16,host_header:string,request_target:string}；保留显式端口 0，缺省端口为 443。
+ * socket_host 不含 IPv6 方括号，host_header 保留方括号与非默认端口，request_target 使用 URL 库序列化的路径与查询。
+ * 不访问网络，失败不回显输入；返回缓冲区用 msime_client_string_free 释放。 */
+char *msime_client_voice_websocket_endpoint(const uint8_t *endpoint, size_t length);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
@@ -744,6 +757,12 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
+/* 中日英循环切换的状态机（`crates/client-core/src/language_cycle.rs`），一个键在 中 → 日 → 英 → 中 之间转圈。顺序来自旧版 Windows 正式版 `engine/contracts/trilingual_input.h` 的 `Next()`：中文 → 日文 → 英文 → 中文；参与循环的是「切换中英文」那一组快捷键，不是 Ctrl+Shift+J。
+ * 参数：enabled 是 keybindings.trilingual_cycle；mode 是按下循环键那一刻的模式，0 中文、1 日文、2 英文；scheme 是实际在跑的方案，编号同 View.scheme；last_chinese_scheme 是要回去的中文方案（0/1/2/5/6/9），-1 表示还没记下；has_composition 是宿主会话里还有组字（已选词段或未上屏的拼音）。
+ * Value 是 {mode, scheme, commit_raw}：mode 同上编号；scheme 是进入中文时要切到的方案，null 表示只换中英模式；commit_raw 为真时先原样上屏正在组的内容（已选词段保留，剩下没选的拼音串照原样出去），再换模式。value 为 null 表示这一键不循环（开关关着，这一组快捷键仍是二态切换），宿主照旧自己处理这个键。非法编号返回错误。
+ * 有组字时上的屏是原始拼音串，不是高亮的候选：旧版在改名或缩写时按住循环键是为了保住已经打出来的字母，而不是替用户选一个他没要的词。 */
+char *msime_client_language_cycle(bool enabled, uint8_t mode, uint8_t scheme, int8_t last_chinese_scheme,
+                                  bool has_composition);
 /* 报告大写锁定状态：偏好 caps_lock_ascii_punctuation 打开时，大写锁定期间没有组字的标点键（经 msime_client_character、msime_client_punctuation 或 msime_client_punctuation_with_context 送来）改走字面 ASCII 路线，和英文模式一样；punctuation_lock 为 chinese 时仍是中文标点。会话状态而非偏好，会话重建后由宿主重新报告。Value 是设下的布尔值。接上这个调用的宿主在 HostCapabilities.caps_lock_punctuation 里声明。 */
 char *msime_client_set_caps_lock(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
@@ -774,7 +793,7 @@ char *msime_client_punctuation_ascii(uint64_t session, uint8_t ascii);
  * Stroke: only h s p n z start a composition; x and other letters return handled=false while idle, so a host inserts them as usual. While composing x appends a wildcard, other letters are swallowed with handled=true, and digits 1-9 pick candidates. View.reading and View.preedit hold the stroke glyphs 一丨丿丶乛＊, one per typed letter, which a host draws inline; editing_text and caret_position count the ASCII letters. MSIME_COMMIT_RAW commits the typed letters, MSIME_COMMIT_CANDIDATE the highlighted character (the letters when there is none), and focus loss does not commit.
  * MSIME_OPEN_CANDIDATE_LIST is MSIME_CONVERT_HANJA under the name that says what it does in every scheme: open the active scheme's candidate list. Korean opens and closes its Hanja list as described above; Zhuyin opens the candidate list of its composition; every other scheme answers handled=false. */
 /* View.display_reading 是宿主画在行内的读音。日文罗马字（scheme 3，非本地模式、非英文）组字时末尾单个 n 还没定成ん，这里留作字母（kan 是 かn，kann 才是 かん），与微软、Google 日文输入法一致；其余方案和状态下与 View.reading 相同。View.reading 仍是 MSIME_COMMIT_READING 上屏的读音，末尾的 n 在那里已是ん。宿主不经引擎结束组字区时：光标被移走、编辑器仍报告着组字区，应把组字区换成 View.reading 再结束；确认不了组字区还在（编辑器报告没有组字区、会话停下）时只结束组字，不要把 View.reading 写进可能已被应用清空或改写的输入框，这时文档里可能留下画出的读音。只读 View.reading 的宿主行为不变。 */
-/* 整句改字（全拼、双拼）：桌面宿主把不带修饰键的左右方向键发成 MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT，Ctrl+左右发成 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT 编辑拼音字母。首选是一个字对一个完整音节、覆盖整个组字、至少两个字的句子时，MSIME_CONVERSION_LEFT 进入改字：View.conversion 是整句，光标在 View.conversion_focus_start 个字（Unicode 标量）之前，conversion_focus_start..conversion_focus_end 是候选所替换的那一段，候选换成这一段（先是光标所在的词，再是更短、更长的）的字和词。之后左右键每次移一个字，最远到句末（focus_start 等于字数，没有候选）。选中候选（数字、MSIME_COMMIT_CANDIDATE、msime_client_select）把这段钉住，句子其余部分围绕它重新转换，光标移到这段后面，不上屏；光标在句末时 MSIME_COMMIT_CANDIDATE 上屏整句。MSIME_COMMIT_RAW、MSIME_FINISH_COMPOSITION、标点和失去焦点上屏改好的整句，不是拼音字母。MSIME_CANCEL 和 MSIME_BACKSPACE 只退出改字回到拼音（组字保留，钉住的段丢掉）；键入字母或撇号、Ctrl+左右、Home/End 先退出改字再照常处理。进不了改字时（读音不完整、单字、光标在拼音中间、其他方案、本地模式）这两条命令就是 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT。改字期间宿主把 View.phrase_prefix 加 View.conversion 画在行内代替拼音，不管预编辑样式选的是什么；改字的候选不能置顶、删除或固定位置。 */
+/* 整句改字（全拼、双拼）：桌面宿主把不带修饰键的左右方向键发成 MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT（macOS 不进改字，发 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT）；Shift+左右和 Ctrl+左右在所有方案里都发 MSIME_MOVE_LEFT_SEGMENT / MSIME_MOVE_RIGHT_SEGMENT，按音节移动拼音光标。偏好 navigation.left_right 打开时，横排候选窗里不带修饰键的左右键可能被换成移动候选（高亮不在首选，或首选上光标已在末尾时按右键），分段命令从不被换，所以高亮在哪个候选上它们都编辑拼音。首选是一个字对一个完整音节、覆盖整个组字、至少两个字的句子时，MSIME_CONVERSION_LEFT 进入改字：View.conversion 是整句，光标在 View.conversion_focus_start 个字（Unicode 标量）之前，conversion_focus_start..conversion_focus_end 是候选所替换的那一段，候选换成这一段（先是光标所在的词，再是更短、更长的）的字和词。之后左右键每次移一个字，最远到句末（focus_start 等于字数，没有候选）。选中候选（数字、MSIME_COMMIT_CANDIDATE、msime_client_select）把这段钉住，句子其余部分围绕它重新转换，光标移到这段后面，不上屏；光标在句末时 MSIME_COMMIT_CANDIDATE 上屏整句。MSIME_COMMIT_RAW、MSIME_FINISH_COMPOSITION、标点和失去焦点上屏改好的整句，不是拼音字母。MSIME_CANCEL 和 MSIME_BACKSPACE 只退出改字回到拼音（组字保留，钉住的段丢掉）；键入字母或撇号、Shift/Ctrl+左右、Home/End 先退出改字再照常处理。进不了改字时（读音不完整、单字、光标在拼音中间、其他方案、本地模式）这两条命令就是 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT。改字期间宿主把 View.phrase_prefix 加 View.conversion 画在行内代替拼音，不管预编辑样式选的是什么；改字的候选不能置顶、删除或固定位置。 */
 enum MsimeCommand {
     MSIME_BACKSPACE = 0, MSIME_COMMIT_CANDIDATE = 1, MSIME_COMMIT_RAW = 2,
     MSIME_CANCEL = 3, MSIME_MOVE_LEFT = 4, MSIME_MOVE_RIGHT = 5,
@@ -792,7 +811,9 @@ enum MsimeCommand {
     MSIME_FINISH_ON_FOCUS_LOSS = 20,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
-    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
+    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105,
+    /* 候选窗显示时的 Home 键：高亮不在首选时同 MSIME_FIRST_CANDIDATE；已经在首选、输入串非空、没有打开的候选列表（韩文汉字、注音）且不在整句改字时同 MSIME_MOVE_HOME；整句改字时一直同 MSIME_FIRST_CANDIDATE，不退出改字。宿主只在 Home 键上发它；需要「无条件回到首选」的地方（日文转换循环候选）仍发 MSIME_FIRST_CANDIDATE。 */
+    MSIME_FIRST_CANDIDATE_OR_HOME = 106
 };
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
@@ -802,6 +823,18 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
+/* 宿主等待输入停顿后，在后台启动模型评分。
+ * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
+ * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
+ * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
+ * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+char *msime_client_start_settled_rerank(uint64_t session);
+/* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
+ * 完成后返回 {"status":"done","moved":...,"current":...}。
+ * current 为真表示当前组字及配置已评分；按键、开关或模型改变，或 accept=false 时为假。
+ * 未知令牌返回 {"status":"done","moved":false,"current":false}。
+ * 宿主已离开原组字时传 accept=false，只归还仍适用的模型。必须在会话线程调用。 */
+char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact
@@ -836,7 +869,7 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好；它为真表示当前是双拼且韵母或零声母编码用 `;` 作第二键，宿主要把 `;` 当字母键交给 msime_client_character。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url、chaizi（拆字反查，Shift+C 进入；候选注释是字的带调读音，由 Engine 给出），未知取值视为不可用状态。
+/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好；它为真表示当前是双拼且韵母或零声母编码用 `;` 作第二键，宿主要把 `;` 当字母键交给 msime_client_character。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url、chaizi（拆字反查，Shift+C 进入；候选注释是字的带调读音，由 Engine 给出）、symbol（符号模式，Shift+S 进入；输入分组码 xl / sx / szq / jt 或符号名 alpha、infinity），未知取值视为不可用状态。
  * View.spelling_symbols 列出 Engine 在当前状态下当作输入的非字母键：当前模式的拼写（expression 的数字和运算符、unicode 的数字、url 的数字和网址符号）；没有组字时打开模式的键（`/` 和 `@`）；全拼、双拼、五笔组字中原文恰好是 www、http、https、ftp 时打开网址模式的键（`.` 或 `:`）。宿主要把它们当字符发送；列在里面的数字是输入，不是选候选的快捷键。转换结果的 commit_context.typing_statistics 对 expression、command、mention 模式生成的文本为 false，这些文本不计入打字统计。
  * 中文标点下 '\'' 与 '"' 出哪种引号、'[' ']' 出哪种方头括号由偏好 quote_style、bracket_style 决定（契约 shared/contracts/punctuation 的 styles 段）。View.punctuation_marks 报告引擎已应用的样式：{"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}，corner_when_traditional 已按繁体输出开关解析成 curly 或 corner。宿主做成对补全、跨过后半个、空格转换、英文模式下的中文标点和画触屏键面时读它，不自己解析偏好；改了偏好要等空闲重建后它才变，和引擎出字同步。
  */
@@ -1101,7 +1134,7 @@ bool msime_client_music_set_active(uint64_t session, bool active);
  *   MSIME_LIFECYCLE_COMMIT_OBSERVE_ONLY：之后的上屏只能观察、不能改写，可随时切换。TIP 已经从自己的会话把文字写进文档的路径（Windows），Server 在派发前设上、派发后清掉。设着它时脚本插件的候选变换也停下：派发里不运行 candidates，旁路调用也不重放之前的重排、隐藏和注释，列表保持引擎和内置排序的顺序。TIP 在自己的会话里选词的列表（注音等 AlwaysInlinePreedit 方案）按那个会话的顺序选，Server 一侧重排或隐藏就会让显示的顺序和数字选中的对不上，所以这类列表的每一次派发都要设着它。
  *   MSIME_LIFECYCLE_HOST_HOLDS_PIECES：宿主自己暂存部分选词（Windows），补齐整个词时才把各段拼好写进文档。这样的会话里每次部分选词都是一次上屏，commit 事件按段投递，插件读到的 commit 只是这一段；这个词的各段，包括补齐它的那一段，before_commit 都不可改写。部分选词上屏的那一段还在宿主手里、没进文档，FEEDBACK 不为它出上屏音、不画上屏特效（transition 的 feedback 为 0），整段送出的那次上屏再出；生命周期事件照常发。
  * 顺序契约。轮次：宿主每把一个物理按下交给输入法，都要在为这个键调用任何派发之前先调一次 msime_client_key，它开启新的一轮；到下一次 msime_client_key 之前的所有派发和 focus 调用都属于这一轮，同一个键可能触发多次派发（如 Windows 对同一个键再发一次 MSIME_CANCEL）。指针点选和翻页先调 msime_client_key(session, MSIME_KEY_POINTER)。带 MSIME_KEY_PASSTHROUGH 的键（Windows 交给应用、由 TIP 经 Aux 管道异步上报的键）不开新的一轮，也不承诺先于应用处理。所以"打字前"只承诺先于本轮的第一次派发。
- *   过渡期的例外：msime_client_key 还没有"开一轮但不出声"的位，所以 Linux 的 IBus 和 Fcitx5 宿主只为会出按键音的打字键调用它。松开、单独的修饰键、带 Ctrl/Alt/Super 的组合键、录音中的键和 IBus 屏幕键盘面板送来的键都不开新的一轮，它们引起的派发（如组字中按 Ctrl 组合键发出的 MSIME_FINISH_COMPOSITION 或 MSIME_CANCEL、单按 Shift 切换中英文时的 MSIME_COMMIT_RAW）算在上一轮里。第 3 阶段按轮计 fuel 的脚本运行时不会因为这类没有先调 msime_client_key 的派发熔断；补上这个位之后，宿主再为这些按下也调用它，让它们各自成一轮。
+ *   过渡期的例外：msime_client_key 还没有"开一轮但不出声"的位，所以 Linux 的 IBus 和 Fcitx5 宿主只为会出按键音的打字键调用它。松开、单独的修饰键、带 Ctrl/Alt/Super 的组合键、录音中的键和 IBus 屏幕键盘面板送来的键都不开新的一轮，它们引起的派发（如组字中按 Ctrl 组合键发出的 MSIME_FINISH_COMPOSITION 或 MSIME_CANCEL、单按 Shift 切换中英文时的 MSIME_COMMIT_RAW）算在上一轮里。第 3 阶段按轮计 fuel 的脚本运行时不会因为这类没有先调 msime_client_key 的派发熔断；补上这个位之后，宿主再为这些按下也调用它，让它们各自成一轮。按住不放产生的自动重复不出声、不画（与 macOS 宿主一样），但每次重复都会派发，所以两个 Linux 宿主为它借 msime_client_key(session, MSIME_KEY_POINTER) 开新的一轮；macOS 宿主目前不为自动重复调用 msime_client_key，自动重复引起的派发算在第一次按下那一轮里。
  * 同一次调用内的事件顺序：input（派发前）→ selection_retracted → candidate_selected → before_commit → commit → composition_end 或 composition_start → composition_update → candidates_shown 或 candidates_hidden，每次调用最多一个候选事件。focus 调用没有 input，focus_in/focus_out 排在它自己的上屏和组字结束之后；失焦上屏一律不可改写。destroy 先发 composition_end{Destroyed}，最后是会话结束。组字状态只在调用边界前后各采样一次。一次 transition 同时带着上屏和新组字时（韩文音节延续）只发 commit{continues}，不发 end 和 start。apply_online_*、resolve_online_candidates、clear_online_candidates、apply_cloud_response、rerank_settled、apply_translations 这些旁路调用，以及 set_english_mode、set_chinese_punctuation、set_punctuation_lock、update_preferences、set_ai_credential 这些可能在组字中途改动组字或候选的设置调用，只给核心发视图类事件（composition_end{Other}、candidates_shown/hidden 等）。派发、focus 和上面这些调用报错时照样推导事件：runtime 可能在报错前已经结束或改动了组字，start 和 end 始终成对。事件不带文本，也不写进任何逐键记录。
  * Windows TIP 会话的约束：TIP 在应用进程里自己的会话只给 Server 转述，不调用以下任何一个函数；字段属性和激活由 Server 的会话报告。
  * msime_client_key：key 的位 0-6 是按键类别 0-3（同 key_sound），位 7（MSIME_KEY_POINTER）是指针调用，类别被忽略，不出声不画；位 8（MSIME_KEY_REPEAT）是自动重复，画但不计连击；位 10（MSIME_KEY_PASSTHROUGH）见上。其余位忽略，类别超出 0-3 时什么都不做。返回值是 FEEDBACK 下这个键的打字特效，位布局同 msime_client_typing_effect；没开 FEEDBACK 时为 0。

@@ -24,7 +24,7 @@ export interface CandidateColorsSectionProps {
   onChange: (key: CandidateColorKey, value: string | null) => void;
 }
 
-// The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
+// Fcitx5 经典界面的主题格式没有编号色和强调色（platforms/linux/src/candidates/CandidateFcitxTheme.h），所以 Linux 上编号和强调色取色器只对 IBus 面板生效。X11 上的 Fcitx5 原生画布两者都画，宿主经 `candidate_selection_appearance`（`HostCapabilities::apply_linux_native_canvas`）报告它，那时不显示这条说明。
 const linuxFcitxClassicColorNote =
   "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
 
@@ -86,6 +86,9 @@ export function CandidateColorsSection({
   onChange,
 }: CandidateColorsSectionProps) {
   const light = previewTheme === "light";
+  // Linux 上只有原生画布给出选中外观；没有它时候选窗由 classicui 或 IBus 面板画，编号和强调色只有 IBus 读。
+  const classicColorNote =
+    linux && !showSelectionAppearance ? linuxFcitxClassicColorNote : undefined;
   return (
     <>
       {/* 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态，最后是边框。 */}
@@ -113,7 +116,7 @@ export function CandidateColorsSection({
           fallback={light ? "#5f6368" : "#bdc1c6"}
           onChange={onChange}
           resetLabel="候选编号颜色跟随主题"
-          description={linux ? linuxFcitxClassicColorNote : undefined}
+          description={classicColorNote}
         />
       )}
       {showRowColors ? (
@@ -125,7 +128,7 @@ export function CandidateColorsSection({
             fallback={light ? "#1a73e8" : "#8ab4f8"}
             onChange={onChange}
             resetLabel="候选强调色跟随主题"
-            description={linux ? linuxFcitxClassicColorNote : undefined}
+            description={classicColorNote}
           />
           <CandidateColorRow
             title="候选选中色"

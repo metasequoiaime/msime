@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   fromHostUpdate,
@@ -12,6 +12,8 @@ export interface UseUpdateCheckOptions {
   checkForApplicationUpdate?: () => Promise<void>;
   /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_services::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
+  /** 宿主后台检查已经找到的新版本（`SettingsClient.pendingUpdateCheck`），页面打开时先显示它。 */
+  pendingUpdateCheck?: () => Promise<UpdateCheckResult | null>;
   /** 宿主所在平台（`HostCapabilities.platform`），同时也是它的发布 tag 前缀。 */
   platform: string | null;
   /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
@@ -25,6 +27,7 @@ export interface UseUpdateCheckOptions {
 export function useUpdateCheck({
   checkUpdate,
   checkForApplicationUpdate,
+  pendingUpdateCheck,
   platform,
   edition,
   arch,
@@ -32,6 +35,7 @@ export function useUpdateCheck({
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
+  const manualCheckStarted = useRef(false);
   const supported = !!checkForApplicationUpdate || (!!checkUpdate && !!platform);
   const { busy, run } = useAsyncActionRunner(
     setStatus,
@@ -45,17 +49,45 @@ export function useUpdateCheck({
   );
 
   useEffect(() => {
+    manualCheckStarted.current = false;
     setStatus("");
     setAvailable(null);
   }, [arch, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
 
+  // 后台检查已经找到新版本时直接显示，与手动检查发现新版本时一样；读不到或没有时保持原样。
+  useEffect(() => {
+    if (!pendingUpdateCheck) return;
+    let active = true;
+    void pendingUpdateCheck()
+      .then((result) => {
+        if (!active || manualCheckStarted.current || result?.status !== "available") return;
+        const update = fromHostUpdate(result.update);
+        if (!update) return;
+        setAvailable((current) => current ?? update);
+        setStatus((current) => current || `发现新版本 v${update.version.display}`);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+    // 上面的重置在这些值变化时清空结果，这里随之重新读取一次。
+  }, [
+    arch,
+    checkUpdate,
+    checkForApplicationUpdate,
+    currentAppVersion,
+    edition,
+    pendingUpdateCheck,
+    platform,
+  ]);
+
   async function checkForUpdate() {
     if (busy) return;
     if (checkForApplicationUpdate) {
-      setAvailable(null);
-      setStatus("");
       await run(
         async () => {
+          manualCheckStarted.current = true;
+          setAvailable(null);
           await checkForApplicationUpdate();
         },
         {
@@ -65,9 +97,11 @@ export function useUpdateCheck({
       return;
     }
     if (!checkUpdate || !platform) return;
-    setAvailable(null);
     await run(
       async (isCurrent) => {
+        // 手动检查接管展示，迟到的后台缓存不能恢复已清掉的旧结果。
+        manualCheckStarted.current = true;
+        setAvailable(null);
         const result = await checkUpdate({
           platform,
           currentVersion: currentAppVersion,

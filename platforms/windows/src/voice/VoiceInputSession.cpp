@@ -31,8 +31,8 @@
 namespace msime::windows {
 namespace {
 constexpr std::size_t kSampleRate = 16000;
-// MSIME-Windows keeps its message boxes until they are dismissed. The overlay cannot take focus, so it holds a failure long enough to read a provider's sentence and then steps aside.
-constexpr DWORD kFailureDisplayMs = 4000;
+// MSIME-Windows keeps its message boxes until they are dismissed. The overlay cannot take focus, so it holds a failure long enough to read a provider's sentence and then steps aside: 6 秒，与 macOS VoiceWaveOverlay 的 failureDisplayDuration 相同。
+constexpr DWORD kFailureDisplayMs = 6000;
 constexpr DWORD kFailurePollMs = 100;
 // How long a loaded local model is kept without a dictation: the same two minutes the macOS and Linux recognizer process waits (shared/voice/LocalAsrHelper.cpp).
 constexpr auto kLocalModelIdle = std::chrono::seconds(120);
@@ -94,20 +94,21 @@ std::string correct_with_hotwords(const std::string &text,
   return corrected->get<std::string>();
 }
 
-// 本机识别器在录音中就出错时给人看的那句话，与 finish() 捕获同一失败时的文案相同。
-std::string on_device_failure_message(const VoiceInputConfig &config,
-                                      const std::exception_ptr &error) {
+// 本机识别器在录音中就出错时浮层上的提示，与 finish() 捕获同一失败时相同。
+VoiceFailureNotice on_device_failure(const VoiceInputConfig &config,
+                                     const std::exception_ptr &error) {
   if (is_system_asr_provider(config.asr_provider)) {
     try {
       std::rethrow_exception(error);
     } catch (const std::exception &failure) {
-      return system_asr_failure(failure);
+      return voice_failure_notice(VoiceFailure::Provider, system_asr_failure(failure));
     } catch (...) {
-      return system_asr_failure(std::runtime_error("unknown"));
+      return voice_failure_notice(VoiceFailure::Provider,
+                                  system_asr_failure(std::runtime_error("unknown")));
     }
   }
-  return std::string(voice_local_failure(
-      local_asr_available(), msime::voice::is_local_model_dir(config.asr_model_path)));
+  return voice_local_failure(local_asr_available(),
+                             msime::voice::is_local_model_dir(config.asr_model_path));
 }
 
 std::wstring wide(std::string_view text) {
@@ -310,7 +311,8 @@ std::size_t send_text_via_ctrl_v(std::wstring_view text, const CommitTarget &tar
 // The epoch gate prevents generation changes during each visible effect. A new session or a later failure takes the overlay over, so the wait ends early and leaves the overlay to it. This sleeps, so it runs on a worker: the overlay's window belongs to the control thread, and a sleeping control thread would paint nothing and then hide it at once.
 void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
                         uint64_t expected, std::atomic<uint64_t> &displays,
-                        const std::wstring &message) {
+                        const std::wstring &headline,
+                        const std::wstring &detail) {
   const uint64_t display = displays.fetch_add(1) + 1;
   if (!session.with_current(expected, [&] {
     overlay.set_listening(false);
@@ -318,7 +320,7 @@ void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
     overlay.set_show_transcript(true);
     overlay.set_compact_status(WaveOverlay::CompactStatus::None);
     overlay.set_actions_visible(false);
-    overlay.set_transcript(message);
+    overlay.set_failure(headline, detail);
     overlay.show();
   }))
     return;
@@ -330,16 +332,17 @@ void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
   session.with_current(expected, [&] {
     if (displays.load() != display)
       return;
-    overlay.set_transcript(L"");
+    overlay.set_failure(L"", L"");
     overlay.hide();
   });
 }
 static_assert(std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                   VoiceSessionEpoch &, uint64_t,
-                                  std::atomic<uint64_t> &, const std::wstring &>);
+                                  std::atomic<uint64_t> &, const std::wstring &,
+                                  const std::wstring &>);
 static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                    uint64_t, uint64_t, std::atomic<uint64_t> &,
-                                   const std::wstring &>);
+                                   const std::wstring &, const std::wstring &>);
 // The epoch must arrive as the live object, never a temporary. That used to be
 // asserted through is_invocable with an rvalue argument, but MSVC answers true
 // there even though the call itself does not compile - a temporary cannot bind
@@ -577,9 +580,9 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   if (!lease || !lease->epoch || !lease->token)
     return false;
   // A review capture reports through its own result object; only native recordings are told why they did not start.
-  const auto refuse = [&](std::string_view message) {
+  const auto refuse = [&](const VoiceFailureNotice &failure) {
     if (!review)
-      report_failure(message, session_.load());
+      report_failure(failure, session_.load());
     return false;
   };
   const auto verdict = voice_start_verdict(
@@ -588,14 +591,14 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   if (verdict.check == VoiceStartCheck::Disabled)
     return false;
   if (verdict.check == VoiceStartCheck::Rejected)
-    return refuse(verdict.message);
+    return refuse(voice_start_failure(verdict));
   // 没装这种语言的语音识别时在开始录音前就说清楚，而不是让人说完一整段才看到失败。
   if (system)
     if (const auto problem = system_asr_start_problem(config.language))
-      return refuse(*problem);
+      return refuse(voice_failure_notice(VoiceFailure::Provider, *problem));
   // 这台主机打不开的设备 id（带控制字符或超长）就是所选麦克风不可用。别的平台写下的后端在读配置时已经连同设备一起当作系统默认设备（voice_capture_selection），不会走到这里。
   if (!config.capture.supported())
-    return refuse(voice_microphone_device_message);
+    return refuse(voice_failure_notice(VoiceFailure::Capture, voice_microphone_device_message));
   bool expected = false;
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
@@ -670,7 +673,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
         doubao_.reset();
       lease_.reset();
       starting_.store(false);
-      return refuse(voice_doubao_start_message);
+      return refuse(voice_failure_notice(VoiceFailure::Provider, voice_doubao_start_message));
     }
   }
   // 阿里云百炼（chat_audio）一次能上传的录音短得多（约 218 秒），录到它就结束并提交，和 macOS 一样，不让录满后整段被拒。
@@ -729,7 +732,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
     drop_stream();
     lease_.reset();
     starting_.store(false);
-    return refuse(voice_capture_start_message(capture_->last_failure()));
+    return refuse(voice_capture_start_failure(capture_->last_failure()));
   }
   if (cancel_requested_.load()) {
     capture_->stop();
@@ -753,6 +756,8 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
     overlay_.set_show_transcript(!stream_inline);
     overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
     overlay_.set_actions_visible(false);
+    // 上一次失败提示还在浮层上时由这次录音接手，先收起失败态再清空转写。
+    overlay_.set_failure(L"", L"");
     overlay_.set_transcript(L"");
     overlay_.show();
   }
@@ -802,7 +807,9 @@ void VoiceInputSession::stop() {
     const bool native = !review_;
     cancel_session(true);
     if (native)
-      report_failure(voice_capture_interrupted_message, session_.load());
+      report_failure(voice_failure_notice(VoiceFailure::Capture,
+                                          voice_capture_interrupted_message),
+                     session_.load());
     return;
   }
   // A callback that threw stopped delivering audio part-way, so what was captured is not the recording the person made. MSIME-Windows StopRecording discards it and says so.
@@ -810,7 +817,9 @@ void VoiceInputSession::stop() {
     const bool native = !review_;
     cancel_session(true);
     if (native)
-      report_failure(voice_capture_interrupted_message, session_.load());
+      report_failure(voice_failure_notice(VoiceFailure::Capture,
+                                          voice_capture_interrupted_message),
+                     session_.load());
     return;
   }
   locked_.store(false);
@@ -1001,7 +1010,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
         clear_current_overlay();
         release_doubao();
         if (!review && !cancel_requested_.load())
-          report_failure(error, session);
+          report_failure(voice_failure_notice(VoiceFailure::Provider, error), session);
         return;
       }
     } else if (system) {
@@ -1021,10 +1030,10 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     release_doubao();
     if (!review && !cancel_requested_.load())
       report_failure(
-          system ? system_asr_failure(error)
-          : local ? std::string(voice_local_failure(
+          system ? voice_failure_notice(VoiceFailure::Provider, system_asr_failure(error))
+          : local ? voice_local_failure(
                       local_asr_available(),
-                      msime::voice::is_local_model_dir(config.asr_model_path)))
+                      msime::voice::is_local_model_dir(config.asr_model_path))
                 : voice_recognition_failure(error),
           session);
     return;
@@ -1036,7 +1045,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     // 识别正常结束却没有文字：告诉人没听到，而不是让浮层一声不响地消失。取消或新会话接手时不提示。
     if (text.empty() && !review && session_.load() == session &&
         !cancel_requested_.load())
-      report_failure(voice_no_speech_message, session);
+      report_failure(voice_failure_notice(VoiceFailure::NoSpeech), session);
     return;
   }
   if (!review)
@@ -1313,7 +1322,9 @@ void VoiceInputSession::maintain() {
     const bool native = !review_;
     cancel_session(true);
     if (native)
-      report_failure(voice_capture_interrupted_message, session_.load());
+      report_failure(voice_failure_notice(VoiceFailure::Capture,
+                                          voice_capture_interrupted_message),
+                     session_.load());
     return;
   }
   // 本机识别器（系统识别、本地模型）在录音中就已失败时立即结束这次录音并报出原因，而不是让人说完一整段、停下后才看到失败。识别器停下后采集推来的音频直接丢掉，不会走到上面的溢出判定。
@@ -1329,14 +1340,16 @@ void VoiceInputSession::maintain() {
     const bool native = !review_;
     cancel_session(true);
     if (native)
-      report_failure(voice_capture_interrupted_message, session_.load());
+      report_failure(voice_failure_notice(VoiceFailure::Capture,
+                                          voice_capture_interrupted_message),
+                     session_.load());
     return;
   }
   if (capture_full_.load())
     stop();
 }
 
-std::optional<std::string> VoiceInputSession::local_stream_failure() {
+std::optional<VoiceFailureNotice> VoiceInputSession::local_stream_failure() {
   std::shared_ptr<OnDeviceAsrStream> stream;
   {
     std::lock_guard lock(local_stream_mutex_);
@@ -1352,14 +1365,15 @@ std::optional<std::string> VoiceInputSession::local_stream_failure() {
     std::lock_guard lock(config_mutex_);
     config = active_config_ ? *active_config_ : config_provider_();
   }
-  return on_device_failure_message(config, error);
+  return on_device_failure(config, error);
 }
 
-void VoiceInputSession::report_failure(std::string_view message,
+void VoiceInputSession::report_failure(const VoiceFailureNotice &failure,
                                        uint64_t session) {
-  auto text = wide(message);
-  if (text.empty())
+  auto headline = wide(failure.headline);
+  if (headline.empty())
     return;
+  auto detail = wide(failure.detail);
   std::lock_guard lock(notices_mutex_);
   notices_.erase(std::remove_if(notices_.begin(), notices_.end(),
                                 [](auto &notice) {
@@ -1368,8 +1382,10 @@ void VoiceInputSession::report_failure(std::string_view message,
                                 }),
                  notices_.end());
   notices_.emplace_back(std::async(
-      std::launch::async, [this, text = std::move(text), session] {
-        show_voice_failure(overlay_, session_, session, failure_displays_, text);
+      std::launch::async, [this, headline = std::move(headline),
+                           detail = std::move(detail), session] {
+        show_voice_failure(overlay_, session_, session, failure_displays_,
+                           headline, detail);
       }));
 }
 
@@ -1379,6 +1395,7 @@ void VoiceInputSession::clear_overlay() {
   overlay_.set_show_transcript(true);
   overlay_.set_compact_status(WaveOverlay::CompactStatus::None);
   overlay_.set_actions_visible(false);
+  overlay_.set_failure(L"", L"");
   overlay_.set_transcript(L"");
   overlay_.hide();
 }

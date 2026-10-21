@@ -9,7 +9,9 @@ param(
     # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。TSF DLL、Server、看门狗、prepare 工具和 WinUI 设置窗口在编译期绑定到这个版本；full 的输出在 target/windows-full，其他版本在 target/windows-<id>，可以一个接一个地构建而不互相覆盖。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     # Build-RustOutputs.ps1's output directory with its x64, x86 and arm64 subdirectories. None of it depends on the edition, so a release builds it once for every edition; without it this script builds it under target/windows-rust.
-    [string]$RustOutputs = ''
+    [string]$RustOutputs = '',
+    # 仅供随后使用受信任证书签名的安装包；未签名或测试证书包开启后会被 Windows 拒绝启动。
+    [switch]$ServerUiAccess
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -88,7 +90,10 @@ try {
             "-DMSIME_HOST_LIBRARY=$hostLibrary", "-DMSIME_EDITION=$Edition",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$bin",
             '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF')
-        if ($arch -eq 'x64') { $configure += '-DMSIME_SERVER_UIACCESS=ON' }
+        if ($arch -eq 'x64') {
+            # 每次都传 OFF/ON，避免复用签名构建的 CMake 缓存时保留 UIAccess。
+            $configure += "-DMSIME_SERVER_UIACCESS=$(if ($ServerUiAccess) { 'ON' } else { 'OFF' })"
+        }
         if ($TargetVersion -ne '') { $configure += "-DMSIME_WINDOWS_VERSION=$TargetVersion" }
         Invoke-ClientBuild cmake $configure
         $targets = if ($arch -eq 'x64') {

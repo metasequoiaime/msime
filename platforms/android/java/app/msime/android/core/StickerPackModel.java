@@ -106,31 +106,25 @@ public final class StickerPackModel {
         return ASSET_DIRECTORY + "/" + sticker.file();
     }
 
-    /** 表情包的分类序号：取在所有 Emoji 分类之后的那个号。它只是标识，显示时排在第一个，见 {@link #categoryOrder}。 */
+    /** 表情包的分类序号：取在所有 Emoji 分类之后的那个号。它只是标识，显示顺序见 {@link #categoryOrder}。 */
     public static int category(int emojiCategories) {
         return emojiCategories;
     }
 
     /**
-     * 底栏分类签从左到右的分类序号，横划也按这个顺序切换：表情包在时排第一，之后是「最近」（有记录时才有）和各 Emoji 分类。读不到清单（`stickers` 为 false）时就是原来的「最近、各 Emoji 分类」。
+     * 底栏分类签与横划共用顺序：常用始终排第一，表情包可用时排第二，其后是各 Emoji 分类。
      */
-    public static List<Integer> categoryOrder(boolean stickers, boolean recents, int emojiCategories) {
+    public static List<Integer> categoryOrder(boolean stickers, int emojiCategories) {
         ArrayList<Integer> order = new ArrayList<>(emojiCategories + 2);
+        order.add(RECENTS_CATEGORY);
         if (stickers) order.add(category(emojiCategories));
-        if (recents) order.add(RECENTS_CATEGORY);
         for (int index = 0; index < emojiCategories; index++) order.add(index);
         return List.copyOf(order);
     }
 
-    /** 打开表情面板时选中的分类：底栏第一个，即表情包；没有表情包时有最近记录就是「最近」，否则是第一个 Emoji 分类。 */
-    public static int defaultCategory(boolean stickers, boolean recents, int emojiCategories) {
-        List<Integer> order = categoryOrder(stickers, recents, emojiCategories);
-        return order.isEmpty() ? NO_CATEGORY : order.get(0);
-    }
-
     /** 从 `current` 横划一步（`step` 为 1 往右、-1 往左）到的分类；在两端不回绕，当前分类不在底栏里时也不切换，都返回 {@link #NO_CATEGORY}。 */
-    public static int swipeCategory(int current, int step, boolean stickers, boolean recents, int emojiCategories) {
-        List<Integer> order = categoryOrder(stickers, recents, emojiCategories);
+    public static int swipeCategory(int current, int step, boolean stickers, int emojiCategories) {
+        List<Integer> order = categoryOrder(stickers, emojiCategories);
         int position = order.indexOf(current);
         if (position < 0) return NO_CATEGORY;
         int next = position + Integer.signum(step);

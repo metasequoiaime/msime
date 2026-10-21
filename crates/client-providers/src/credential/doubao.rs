@@ -66,11 +66,22 @@ async fn connect_and_probe(probe: &ProbeRequest) -> bool {
         value.set_sensitive(true);
         request.headers_mut().insert(*name, value);
     }
-    // connect_async does not follow redirects: credentials stay at the chosen
-    // endpoint. The five-second deadline includes DNS, TCP, TLS and upgrade.
+    // 与上游默认实现相同，只信任内置 Mozilla 根证书，不使用系统根证书或自定义校验器。
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let connector = tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    ));
+    // 不跟随重定向，凭据留在所选地址；五秒截止时间包含 DNS、TCP、TLS 与升级。
     let Ok(Ok((mut socket, _))) = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio_tungstenite::connect_async_with_config(request, Some(socket_config()), false),
+        tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            Some(socket_config()),
+            false,
+            Some(connector),
+        ),
     )
     .await
     else {

@@ -4,7 +4,7 @@ import { CandidateApng, CandidateApngCompositor } from './CandidateApng';
 import { CandidateCanvasPolicy, CandidateCanvasScene,
   CandidateCanvasDecoration, CandidateCanvasRect, CandidateCanvasGeometry } from './CandidateCanvasPolicy';
 
-class DecodedCanvasImage {
+export class DecodedCanvasImage {
   relative: string = '';
   width: number = 0;
   height: number = 0;
@@ -13,7 +13,7 @@ class DecodedCanvasImage {
   loops: number = 0;
 }
 
-class DecodedCanvasScene {
+export class DecodedCanvasScene {
   images: DecodedCanvasImage[] = [];
 
   find(relative: string): DecodedCanvasImage | null {
@@ -32,7 +32,7 @@ class DecodedCanvasScene {
   }
 }
 
-class CanvasDecodeLease {
+export class CanvasDecodeLease {
   readers: number = 0;
   promise: Promise<DecodedCanvasScene>;
 
@@ -139,7 +139,7 @@ class CanvasDecodeLease {
 }
 
 /** 普通条与展开区共享解码；最后一个读者离开后释放位图和迟到的结果。 */
-class CandidateCanvasDecoder {
+export class CandidateCanvasDecoder {
   private static leases: Map<string, CanvasDecodeLease> = new Map<string, CanvasDecodeLease>();
 
   static retain(scene: CandidateCanvasScene): CanvasDecodeLease {

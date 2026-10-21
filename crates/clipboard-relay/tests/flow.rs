@@ -166,6 +166,32 @@ fn devices_pair_share_and_manage_a_clipboard_through_the_relay() {
 }
 
 #[test]
+fn a_fully_pinned_clipboard_reports_full_and_still_accepts_duplicates() {
+    let root = tempfile::tempdir().unwrap();
+    let server = start(&root.path().join("relay.db"));
+    let laptop = device(&server, &root.path().join("laptop"), TOKEN, "合成设备");
+    for index in 0..msime_clipboard_relay::store::MAX_ITEMS {
+        let item = laptop.add(&format!("合成条目 {index}")).unwrap();
+        laptop.set_pinned(&item.id, true).unwrap();
+    }
+
+    let failure = laptop.add("合成超限条目").unwrap_err();
+    assert_eq!(failure.code(), "clipboard_full");
+    let before = laptop.list("").unwrap().items;
+    assert_eq!(before.len(), msime_clipboard_relay::store::MAX_ITEMS);
+    assert!(before.iter().all(|item| item.pinned));
+    assert!(!before.iter().any(|item| item.text == "合成超限条目"));
+
+    let duplicate = before.last().unwrap();
+    let uploaded = laptop.add(&duplicate.text).unwrap();
+    assert_eq!(uploaded.id, duplicate.id);
+    assert!(uploaded.pinned);
+    let after = laptop.list("").unwrap().items;
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[0].id, duplicate.id);
+}
+
+#[test]
 fn a_wrong_token_is_refused_and_two_tokens_never_see_each_other() {
     let root = tempfile::tempdir().unwrap();
     let server = start(&root.path().join("relay.db"));

@@ -31,7 +31,7 @@ constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || schem
 // The composition is always drawn inline whatever the preedit display preference says: until a list is opened there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
 constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme) || OpensCandidateList(scheme); }
 
-// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：左右键交给引擎的改字命令，Ctrl+左右一个字母一个字母地编辑拼音。
+// 整句改字（MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT）只在全拼和双拼里有：不带修饰键的左右键交给引擎的改字命令。Shift+左右和 Ctrl+左右不看这一条，在所有方案里都按音节移动拼音光标（MSIME_MOVE_LEFT_SEGMENT / MSIME_MOVE_RIGHT_SEGMENT）。
 constexpr bool EditsSentence(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
 
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
@@ -54,7 +54,7 @@ constexpr bool OpensTableModes(int scheme) { return scheme == Quanpin || scheme 
 // `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
 constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
-// `locks_caret`: the caret stays at the end of the composition, so there are no segments for Ctrl+Backspace and Ctrl+Left/Right to edit.
+// `locks_caret`：光标始终停在组字末尾，没有可供 Ctrl+退格、Ctrl+左右和 Shift+左右编辑的分段。
 constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
 // `uses_chinese_punctuation`：标点走中文标点表。韩文、越南文和藏文不论中文标点开关怎么设都写半角 ASCII 标点。

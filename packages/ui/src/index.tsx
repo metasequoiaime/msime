@@ -537,10 +537,14 @@ export {
 } from "./settings/use-preferences-snapshot";
 export {
   LinuxSetupPage,
+  nextSetupProgress,
   type LinuxSetupClient,
   type LinuxSetupLine,
+  type LinuxSetupRegistration,
+  type LinuxSetupStage,
   type LinuxSetupStatus,
 } from "./account/linux-setup-page";
+export { LinuxInputMethodNotice } from "./account/linux-input-method-notice";
 export {
   MacosInstallPage,
   nextSimulatedProgress,
@@ -885,6 +889,10 @@ export {
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
 export {
+  NetworkProxySection,
+  type NetworkProxySectionProps,
+} from "./settings/network-proxy-section";
+export {
   TelemetryRow,
   TelemetrySection,
   UsageReportingDetails,
@@ -1095,6 +1103,8 @@ export {
 } from "./settings/voice-hotkeys-section";
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
+  floatingToolbarAutoHideDelay,
+  floatingToolbarAutoHideDelayRange,
   floatingToolbarButtonOptions,
   floatingToolbarSize,
   floatingToolbarSizes,
@@ -1748,6 +1758,7 @@ export type {
   CloudDictionarySnapshotRequest,
   CloudFixedPosition,
   CloudRankingMode,
+  ClipboardCaptureStatus,
   EmojiPanelClient,
   PanelClient,
   VoicePanelClient,

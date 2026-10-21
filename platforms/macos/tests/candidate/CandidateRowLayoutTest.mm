@@ -122,6 +122,9 @@ static NSDictionary *MotionView(NSString *editing, NSUInteger count, NSUInteger 
 // 产品路径（InputController）在皮肤包写了动效时的行为：每次排版都换一个新的内容视图，显示和装饰在同一轮事件里发生，候选行这时还没有自己的图层。
 static void TestDeclaredMotion(RowLayoutClient *client)
 {
+    // 合成面板可能完全被遮挡；只在计时验收期间避免 App Nap 延迟主队列定时回调，保留原来的两秒门限。
+    id activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+        reason:@"验证候选动画的主队列完成回调"];
     char temporary[] = "/tmp/msime-candidate-motion-XXXXXX";
     assert(mkdtemp(temporary));
     const std::filesystem::path root(temporary);
@@ -289,6 +292,7 @@ stagger_ms = 10
     [motion stop];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     std::filesystem::remove_all(root);
+    [NSProcessInfo.processInfo endActivity:activity];
 }
 
 // 写一张 width×height、frames 帧、每帧 delay 秒、无限循环的 APNG，各帧颜色不同。
@@ -453,7 +457,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     NSFont *glossFont = read.translationFont;
     const CGFloat glossWidth = MSIMECandidateSingleLineWidth(@"Animation protagonist", glossFont);
     const CGFloat ipaWidth = MSIMECandidateSingleLineWidth(ipa, glossFont);
-    const msime::mac::CandidateRunBox &run = read.itemLayout.translation;
+    const msime::candidate::CandidateRunBox &run = read.itemLayout.translation;
     assert(run.below && fabs(run.y - plain.itemLayout.translation.y) < 0.5);
     assert(run.height > glossLine * 1.5 && run.height < glossLine * 2.5);
     // 每一行都放得下，不折行：格子按较宽的那一行量，不按「释义  读音」连在一起的宽度。
@@ -1171,7 +1175,14 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
                 if ([child.identifier isEqual:@"candidate-preedit"]) preedit = (id)child;
             assert(preedit && [preedit.textColor isEqual:SkinColor(skin.tokens.preeditText.value_or(skin.tokens.accent))]);
             assert([preedit.caretColor isEqual:SkinColor(skin.tokens.preeditCaret.value_or(skin.tokens.accent))]);
-            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) - skin.canvas->lineGap.value_or(0)) < 0.01);
+            // 预编辑在整条首行内居中；字号小于展开按钮时，下缘还包含居中偏移。
+            const CGFloat scale = MSIMECandidateScale(appearance);
+            const BOOL headerHasControls = expanded.boolValue || (appearance.showsCandidateExpandButton && [controller expandedCandidatesOffered]);
+            const CGFloat headerHeight = MAX(NSHeight(preedit.frame), headerHasControls ? MSIMECandidateHeaderHeight * scale : 0);
+            const CGFloat centeredOffset = floor((headerHeight - NSHeight(preedit.frame)) / 2);
+            const auto preeditMargin = MSIMECandidatePreeditMargins(skin, YES, scale);
+            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) -
+                skin.canvas->lineGap.value_or(0) - preeditMargin.bottom - centeredOffset) < 0.01);
             for (NSView *child in chrome.subviews) {
                 if ([child isKindOfClass:MSIMECandidateCanvasView.class]) {
                     [levels addObject:child.identifier];
@@ -1821,6 +1832,7 @@ int main(int argc, char **argv)
         RowLayoutClient *client = [RowLayoutClient new];
         NSRect screen = NSScreen.mainScreen.visibleFrame;
         client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+        TestFactoryShadows(client);
         RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
                                                                   styleMask:NSWindowStyleMaskBorderless |
                                                                             NSWindowStyleMaskNonactivatingPanel

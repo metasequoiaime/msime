@@ -407,6 +407,123 @@ fn initial_letter_expansion_reuses_warm_candidate_buffer() {
 }
 
 #[test]
+fn invalid_flat_initial_pairs_still_accept_enabled_fuzzy_partners() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_s VALUES('shuang','s','双',1000);\
+CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shuang''ren','sr','双人',10000),('shuang''shuang','ss','双双',9000);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for input in ["slrf", "slsl", "sl'rf"] {
+        let mut typed = request(input, false);
+        let expected = if input == "slsl" { "双双" } else { "双人" };
+        assert!(!words(&engine.query(&typed, None)).contains(&expected));
+        typed.fuzzy_pinyin.rules = fuzzy_rule::S_SH;
+        let rows = engine.query(&typed, None);
+        let row = &rows[index_of(&rows, expected)];
+        assert_eq!(row.pinyin.replace('\'', ""), input.replace('\'', ""));
+        assert_eq!(
+            row.canonical_pinyin,
+            if input == "slsl" {
+                "shuang'shuang"
+            } else {
+                "shuang'ren"
+            }
+        );
+        assert!(row.fuzzy);
+        typed.fuzzy_pinyin.rules = fuzzy_rule::Z_ZH;
+        assert!(!words(&engine.query(&typed, None)).contains(&expected));
+    }
+    let mut separated = request("s'lrf", false);
+    separated.fuzzy_pinyin.rules = fuzzy_rule::S_SH;
+    assert!(!words(&engine.query(&separated, None)).contains(&"双人"));
+}
+
+#[test]
+fn invalid_fuzzy_initials_use_each_profiles_keys_and_preserve_helpcodes() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shuang''ren','sr','双人',10000),('shuang''ren','sr','双刃',9000);",
+    );
+    for kind in [
+        ShuangpinProfileKind::Xiaohe,
+        ShuangpinProfileKind::Ziranma,
+        ShuangpinProfileKind::Shoudao,
+        ShuangpinProfileKind::Microsoft,
+        ShuangpinProfileKind::SmartAbc,
+    ] {
+        let mut input = super::utils::encode_pinyin("shuang'ren", profile(kind).unwrap()).unwrap();
+        input.replace_range(..1, "s");
+        let mut typed = request(&input, false);
+        typed.fuzzy_pinyin.rules = fuzzy_rule::S_SH;
+        let mut engine = fixture.engine(kind);
+        let rows = engine.query(&typed, None);
+        let row = &rows[index_of(&rows, "双人")];
+        assert_eq!(row.pinyin.replace('\'', ""), input.replace('\'', ""));
+        assert_eq!(row.canonical_pinyin, "shuang'ren");
+        assert!(row.fuzzy);
+    }
+
+    let codes = keymap(&[("双", "ab"), ("人", "cd"), ("刃", "ef")]);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for (input, expected) in [("slrfc", "双人"), ("slrfe", "双刃")] {
+        let mut typed = request(input, true);
+        typed.fuzzy_pinyin.rules = fuzzy_rule::S_SH;
+        let rows = engine.query(&typed, Some(&codes));
+        let row = &rows[index_of(&rows, expected)];
+        assert_eq!(row.pinyin.replace('\'', ""), input);
+        assert_eq!(row.canonical_pinyin, "shuang'ren");
+    }
+}
+
+#[test]
+fn invalid_fuzzy_initial_paths_share_dictionary_weights_and_helpcode_priority() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('nen','n','嫩',100);\
+CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_r VALUES('ren','r','人',10000);",
+    );
+    let codes = keymap(&[("嫩", "ab"), ("人", "cd")]);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for (input, expected) in [
+        ("lf", ["人", "嫩"]),
+        ("lfa", ["嫩", "人"]),
+        ("lfc", ["人", "嫩"]),
+    ] {
+        let mut typed = request(input, true);
+        typed.fuzzy_pinyin.rules = fuzzy_rule::N_L | fuzzy_rule::R_L;
+        for _ in 0..2 {
+            let rows = engine.query(&typed, Some(&codes));
+            assert_eq!(words(&rows), expected, "input={input}");
+            assert!(rows.iter().all(|row| row.fuzzy));
+            assert!(rows
+                .iter()
+                .all(|row| input.starts_with(&row.pinyin.replace('\'', ""))));
+        }
+    }
+
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('nen''hao','nh','嫩好',100);\
+CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_r VALUES('ren''hao','rh','人好',10000);",
+    );
+    let codes = keymap(&[("嫩", "ab"), ("人", "cd"), ("好", "ae")]);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for (input, expected) in [("lfhc", ["人好", "嫩好"]), ("lfhca", ["嫩好", "人好"])] {
+        let mut typed = request(input, true);
+        typed.fuzzy_pinyin.rules = fuzzy_rule::N_L | fuzzy_rule::R_L;
+        for _ in 0..2 {
+            let rows = engine.query(&typed, Some(&codes));
+            assert_eq!(words(&rows), expected, "input={input}");
+            assert!(rows.iter().all(|row| row.pinyin.replace('\'', "") == input));
+        }
+    }
+}
+
+#[test]
 fn fuzzy_rows_take_the_typed_keys() {
     let fixture = Fixture::new(
         "BEGIN;CREATE TABLE tbl_1_z(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_z VALUES('zi', 'z', '字', 50);INSERT INTO tbl_1_z VALUES('zhi', 'z', '之', 100);COMMIT;",
@@ -865,6 +982,69 @@ fn a_helpcode_never_moves_the_typo_sentence_to_the_first_seat() {
         let double = engine.query(&with_helpcode("mzgrcimX"), Some(&codes));
         assert!(double.is_empty(), "{:?}", words(&double));
     }
+}
+
+#[test]
+fn complete_shuangpin_keeps_its_reading_when_direct_helpcodes_also_match() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shu','s','书',100),('shu','s','叔',90),\
+         ('shang','s','商',100),('su','s','苏',100),('sheng','s','声',100);\
+         CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_r VALUES('ru','r','如',100);\
+         CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_h VALUES('he','h','和',100);\
+         CREATE TABLE tbl_3_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_s VALUES('shu''ru''he','srh','书如和',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shu''shang','ss','叔商',10000),\
+         ('su''shang','ss','苏商',10000),('shu''sheng','ss','叔声',10000);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let codes = keymap(&[("叔", "ra"), ("苏", "ra"), ("商", "ea"), ("声", "ea")]);
+    let fuzzy = FuzzyPinyinOptions {
+        rules: fuzzy_rule::S_SH,
+    };
+
+    // 合成词条同时命中三音节双拼和两音节直接辅助码；重复查询覆盖两条缓存。
+    for _ in 0..2 {
+        for (typed, fuzzy_enabled, direct) in [("uuruhe", false, "叔商"), ("suruhe", true, "苏商")]
+        {
+            let mut query = request(typed, true);
+            if fuzzy_enabled {
+                query.fuzzy_pinyin = fuzzy;
+            }
+            let candidates = engine.query(&query, Some(&codes));
+            let ordinary = index_of(&candidates, "书如和");
+            assert!(
+                ordinary < index_of(&candidates, direct),
+                "{typed}: {:?}",
+                words(&candidates)
+            );
+            let candidate = &candidates[ordinary];
+            assert_eq!(candidate.canonical_pinyin, "shu'ru'he");
+            assert_eq!(candidate.pinyin.replace('\'', ""), typed);
+        }
+    }
+
+    // 大写明确指定音节内双辅助码时，仍然按约束选词。
+    let explicit = engine.query(&request("uurAuh", true), Some(&codes));
+    assert_eq!(words(&explicit)[0], "叔商");
+    assert_eq!(explicit[0].pinyin, "uurauh");
+
+    // 普通双拼无完整候选时保留直接辅助码优先级。
+    let fallback = engine.query(&request("uuruge", true), Some(&codes));
+    assert_eq!(words(&fallback)[0], "叔声");
+
+    // 没有整词也不能抢占普通逐音节组句。
+    Connection::open(fixture.paths.dictionary(assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute("DELETE FROM tbl_3_s", [])
+        .unwrap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let generated = engine.query(&request("uuruhe", true), Some(&codes));
+    assert!(index_of(&generated, "书如和") < index_of(&generated, "叔商"));
+    assert!(generated[index_of(&generated, "书如和")].sentence_association);
 }
 
 #[test]

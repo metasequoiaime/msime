@@ -114,6 +114,12 @@ fn host_page_size(requested: u8) -> u8 {
     requested.min(ffi::host::compiled_platform().max_candidate_page_size())
 }
 
+/// 会话的候选窗是否竖排：桌面宿主按 `candidate_layout` 画候选窗，触屏宿主的候选栏总是横排，不读这一项（它的缺省是竖排，照读会让外接键盘的左右键不再选词）。
+fn host_vertical_candidates(layout: msime_client_core::preferences::CandidateLayout) -> bool {
+    ffi::host::compiled_platform().is_desktop()
+        && layout == msime_client_core::preferences::CandidateLayout::Vertical
+}
+
 /// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS、Windows 和 Linux 三个桌面宿主，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
 fn host_english_minimum_prefix(stored: u8) -> u8 {
     english_minimum_prefix_for(ffi::host::compiled_platform(), stored)
@@ -454,8 +460,37 @@ impl HostSession {
         self.ai_provider_cache.as_ref()
     }
     fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
-        self.ai_provider_config()
-            .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+        self.english_query_allowed(query)
+            && self
+                .ai_provider_config()
+                .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+    }
+    fn english_query_allowed(&self, query: &OnlineQuery) -> bool {
+        if query.mode != msime_engine::OnlineInputMode::English {
+            return true;
+        }
+        let enabled = self
+            .requested
+            .as_ref()
+            .map_or(self.applied.english_online_candidates, |snapshot| {
+                snapshot.preferences.english_online_candidates
+            });
+        enabled
+            && self.runtime.online_query().is_ok_and(|live| {
+                live.is_some_and(|live| {
+                    live.mode == query.mode
+                        && live.scheme == query.scheme
+                        && live.session_id == query.session_id
+                        && live.generation == query.generation
+                        && live.identity == query.identity
+                        && live.query_text == query.query_text
+                        && live.cache_key == query.cache_key
+                        && live.pinyin_segments == query.pinyin_segments
+                        && live.ai_context == query.ai_context
+                        && live.cloud_eligible == query.cloud_eligible
+                        && live.ai_eligible == query.ai_eligible
+                })
+            })
     }
     fn set_ai_provider_cache(&mut self, preferences: &Preferences) {
         let ai = &preferences.ai_assistant;
@@ -477,9 +512,13 @@ impl HostSession {
             .requested
             .as_ref()
             .map_or(&self.applied, |snapshot| &snapshot.preferences);
-        self.cloud_candidates_enabled()
+        self.english_query_allowed(query)
+            && self.cloud_candidates_enabled()
             && query.cloud_request.as_ref().map_or_else(
-                || preferences.cloud_candidate_provider == Default::default(),
+                || {
+                    query.mode != msime_engine::OnlineInputMode::English
+                        && preferences.cloud_candidate_provider == Default::default()
+                },
                 |request| request.provider_id == preferences.cloud_candidate_provider.identity(),
             )
     }
@@ -643,10 +682,12 @@ impl HostSession {
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.single_character_only = preferences.single_character_only;
         options.learning = preferences.learning;
+        options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
+        options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
@@ -670,6 +711,7 @@ impl HostSession {
         options.local_command = preferences.local_modes.command;
         options.local_mention = preferences.local_modes.mention;
         options.local_chaizi = chaizi_enabled(&preferences.local_modes);
+        options.local_symbol = preferences.local_modes.symbol;
         options.local_shift_letter_entry = preferences.local_modes.shift_letter_entry;
         // 繁体输出开着时拆字行按繁体字形去重；改这个偏好同样会让 Engine 在空闲时重建。
         options.chaizi_traditional_output = preferences.traditional_chinese_output;
@@ -710,6 +752,7 @@ impl HostSession {
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);
+        engine.set_english_online_candidates_enabled(preferences.english_online_candidates);
         if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
                 .set_chinese_punctuation_enabled(engine_chinese_punctuation(
@@ -1022,16 +1065,29 @@ impl HostSession {
             .clone();
         self.set_ai_provider_cache(&requested_preferences);
         self.runtime
+            .set_english_online_candidates_enabled(requested_preferences.english_online_candidates)
+            .map_err(|e| e.to_string())?;
+        self.runtime
             .set_cloud_candidates_enabled(requested_preferences.cloud_candidates)
             .map_err(|e| e.to_string())?;
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_backspace_reverts_selection(requested_preferences.backspace_reverts_selection);
+        // Esc 保留已选词同样是宿主状态：改完下一次 Esc 就按新开关解释。
+        self.runtime
+            .set_escape_keeps_selected_word(requested_preferences.escape_keeps_selected_word);
         // 左右键的候选回退（`navigation.left_right`）同样是宿主状态：改完立刻生效，左右键不必等 Engine 重建。
         self.runtime
             .set_left_right_navigation(requested_preferences.navigation.left_right);
         self.runtime
+            .set_vertical_candidates(host_vertical_candidates(
+                requested_preferences.candidate_layout,
+            ));
+        self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        // 顶字同样是宿主状态：纯判定在 Engine 与 runtime 之间，改偏好不必等组字结束。
+        self.runtime
+            .set_wubi_fifth_code_top_commit(requested_preferences.wubi_fifth_code_top_commit);
         self.runtime
             .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
         self.sound.update(key_sound::SoundSettings::new(
@@ -1657,7 +1713,7 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
-    /// macOS 把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。
+    /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1791,10 +1847,12 @@ impl HostOptions {
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             single_character_only: self.preferences.single_character_only,
             learning: self.preferences.learning,
+            learn_english_on_enter: self.preferences.enter_learns_english_word,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
+            wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
@@ -1819,13 +1877,14 @@ impl HostOptions {
             local_command: self.preferences.local_modes.command,
             local_mention: self.preferences.local_modes.mention,
             local_chaizi: chaizi_enabled(&self.preferences.local_modes),
+            local_symbol: self.preferences.local_modes.symbol,
             local_shift_letter_entry: self.preferences.local_modes.shift_letter_entry,
             chaizi_traditional_output: self.preferences.traditional_chinese_output,
             command_table: Vec::new(),
             plugin_commands: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
-            quick_phrase_candidates: false,
+            quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false),
             helpcode_table: None,
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(

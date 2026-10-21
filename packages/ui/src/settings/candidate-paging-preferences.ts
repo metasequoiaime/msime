@@ -11,7 +11,7 @@ export type NavigationPreferences = {
   page_up_down: boolean;
   mouse_wheel?: boolean;
   arrows: boolean;
-  /** 左右键在输入串两端时移动候选项；缺少该字段时按默认开启，与 `arrows` 各自独立。 */
+  /** 横排候选窗里左右键移动候选项：首选上 ← 编辑输入串、→ 先把光标送回末尾，其余候选上左右键只移动候选；竖排时左右键只编辑输入串。缺少该字段时按默认开启，与 `arrows` 各自独立。 */
   left_right?: boolean;
 };
 

@@ -59,6 +59,59 @@ test("emoji panel reloads a failed catalog and displays the recovered items", as
   expect(await screen.findByRole("button", { name: "🦉" })).toBeDefined();
 });
 
+test.each([
+  [12, 2, 0],
+  [60, 2, 1],
+  [60, 1, 1],
+])(
+  "目录重载为 %i 项时把页索引 %i 约束到 %i，恢复后不跳回旧页码",
+  async (count, initialPage, expectedPage) => {
+    const catalog = (prefix: string, length: number) => ({
+      emoji: [],
+      symbols: [],
+      kaomoji: [
+        {
+          title: "合成插件组",
+          icon: "◉",
+          pack: "synthetic-pack",
+          items: Array.from({ length }, (_, index) => ({
+            text: `${prefix}${index}`,
+            keywords: `synthetic-${index}`,
+          })),
+        },
+      ],
+      unavailable: ["emoji" as const],
+    });
+    const loadCatalog = vi
+      .fn()
+      .mockResolvedValueOnce(catalog("合成原有项目", 120))
+      .mockResolvedValueOnce(catalog("合成更新项目", count))
+      .mockResolvedValueOnce(catalog("合成恢复项目", 120));
+    render(<EmojiPanel client={{ close: async () => {}, loadCatalog }} />);
+    fireEvent.click(screen.getByRole("button", { name: "颜文字" }));
+    await screen.findByRole("button", { name: "合成原有项目0" });
+    for (let page = 0; page < initialPage; page++) {
+      fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    }
+    expect(screen.getByText(`第 ${initialPage + 1} / 3 页`)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(
+      await screen.findByRole("button", { name: `合成更新项目${expectedPage * 48}` }),
+    ).toBeDefined();
+    expect(screen.queryByText("暂无可显示内容")).toBeNull();
+    if (count <= 48) {
+      expect(screen.queryByRole("navigation", { name: "Emoji 分页" })).toBeNull();
+    } else {
+      expect(screen.getByText(`第 ${expectedPage + 1} / 2 页`)).toBeDefined();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(
+      await screen.findByRole("button", { name: `合成恢复项目${expectedPage * 48}` }),
+    ).toBeDefined();
+    expect(screen.getByText(`第 ${expectedPage + 1} / 3 页`)).toBeDefined();
+  },
+);
+
 test("clipboard panel exposes host paste and keeps copy separate", async () => {
   const paste = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
@@ -153,4 +206,85 @@ test("plugin symbol groups keep their own category and search by group keywords"
   await waitFor(() => expect(screen.queryByRole("button", { name: "←" })).toBeNull());
   // 组的关键词只用于搜索：各项仍以自己的文本作提示。
   expect(screen.getByRole("button", { name: "⇒" }).getAttribute("title")).toBe("⇒");
+});
+
+test("颜文字插件与内置或其他组重叠时保持完整分组，首页仍去重", async () => {
+  const item = { text: "合成颜文字", keywords: "合成颜文字" };
+  const client = {
+    close: async () => {},
+    loadCatalog: async () => ({
+      emoji: [],
+      symbols: [],
+      kaomoji: [
+        { title: "All", icon: ";-)", items: [item] },
+        { title: "合成内置重复组", icon: ";-)", items: [item] },
+        {
+          title: "合成插件甲",
+          icon: ";-)",
+          pack: "synthetic-a",
+          keywords: "合成检索",
+          items: [item],
+        },
+        {
+          title: "合成同包乙组",
+          icon: ";-)",
+          pack: "synthetic-a",
+          keywords: "合成检索",
+          items: [item],
+        },
+        {
+          title: "合成插件乙",
+          icon: ";-)",
+          pack: "synthetic-b",
+          keywords: "合成检索",
+          items: [item],
+        },
+      ],
+    }),
+  };
+  render(<EmojiPanel client={client} />);
+  await waitFor(() => expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(1));
+  fireEvent.click(screen.getByRole("button", { name: "颜文字" }));
+  for (const title of ["All", "合成插件甲", "合成同包乙组", "合成插件乙"]) {
+    expect(await screen.findByRole("heading", { name: title })).toBeDefined();
+  }
+  expect(screen.queryByRole("heading", { name: "合成内置重复组" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(4);
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), {
+    target: { value: "合成检索" },
+  });
+  expect(screen.queryByRole("heading", { name: "All" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(3);
+  for (const title of ["合成插件甲", "合成同包乙组", "合成插件乙"]) {
+    expect(screen.getByRole("heading", { name: title })).toBeDefined();
+  }
+});
+
+test.each([
+  ["kaomoji", "颜文字"],
+  ["symbols", "符号"],
+] as const)("%s 内置目录不可用时仍显示宿主返回的插件组", async (page, label) => {
+  const plugin = {
+    title: "合成插件组",
+    icon: "◉",
+    pack: "synthetic-pack",
+    items: [{ text: "合成插件项目", keywords: "合成插件项目" }],
+  };
+  render(
+    <EmojiPanel
+      client={{
+        close: async () => {},
+        loadCatalog: async () => ({
+          emoji: [],
+          kaomoji: [],
+          symbols: [],
+          [page]: [plugin],
+          unavailable: [page],
+        }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  expect(await screen.findByRole("button", { name: "合成插件项目" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "重新加载" })).toBeDefined();
 });

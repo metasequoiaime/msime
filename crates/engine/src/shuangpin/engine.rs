@@ -5,9 +5,9 @@ use std::collections::HashSet;
 
 use super::dictionary::ShuangpinDictionary;
 use super::query::{
-    detect_active_double_helpcode_length, raw_length_for_effective_prefix,
-    remove_manual_delimiters, segment_input, to_quanpin_segmentation,
-    trim_trailing_letters_preserve_delimiters,
+    detect_active_double_helpcode_length, fuzzy_initial_spellings, is_complete_input,
+    raw_length_for_effective_prefix, remove_manual_delimiters, segment_input,
+    to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
 };
 use super::utils::{cvt_single_sp_to_pinyin, get_full_help_codes, is_all_complete_pinyin};
 use super::ShuangpinProfile;
@@ -254,6 +254,76 @@ impl ShuangpinEngine {
         request: &QueryRequest,
         keymap: Option<&HelpcodeKeymap>,
     ) -> Vec<WordItem> {
+        let mut candidates = self.query_standard(request, keymap);
+        if !request.valid {
+            return candidates;
+        }
+        let alternatives =
+            fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
+        if alternatives.is_empty() {
+            return candidates;
+        }
+        let mut single_helpcode = None;
+        for spelling in alternatives {
+            let mut alternate = request.clone();
+            // 替代的声母保持原位置的大小写，辅助码与手动分隔符仍交给原查询识别。
+            alternate.raw_input_with_cases = spelling
+                .bytes()
+                .zip(request.raw_input_with_cases.bytes())
+                .map(|(new, old)| {
+                    char::from(if old.is_ascii_uppercase() {
+                        new.to_ascii_uppercase()
+                    } else {
+                        new
+                    })
+                })
+                .collect();
+            alternate.raw_input = spelling;
+            // 原编码非法时识别不到末尾辅助码，采用合法替代读法识别出的同一末码。
+            if single_helpcode.is_none() {
+                single_helpcode = active_helpcode_query(&alternate, self.profile)
+                    .map(|query| query.help_codes)
+                    .filter(|code| code.len() == 1);
+            }
+            let mut rows = self.query_standard(&alternate, keymap);
+            rows.retain_mut(|row| {
+                let mut original = request.raw_input.bytes().filter(|&byte| byte != b'\'');
+                let code: Option<String> = row
+                    .pinyin
+                    .bytes()
+                    .map(|byte| {
+                        if byte == b'\'' {
+                            Some('\'')
+                        } else {
+                            original.next().map(char::from)
+                        }
+                    })
+                    .collect();
+                let Some(code) = code else {
+                    return false;
+                };
+                row.pinyin = code;
+                row.fuzzy = true;
+                true
+            });
+            append_fuzzy_rows(&mut candidates, rows);
+        }
+        sort_by_coverage(&mut candidates);
+        // 不同替代路径的词库行共用权重，随后恢复辅助码匹配优先级。
+        sort_dictionary_weights(&mut candidates);
+        if let (Some(helpcode), Some(keymap)) = (single_helpcode, keymap) {
+            candidates = reorder_candidates_with_single_helpcode(candidates, &helpcode, keymap);
+            sort_by_coverage(&mut candidates);
+        }
+        keep_typo_sentence_off_first_seat(&mut candidates);
+        candidates
+    }
+
+    fn query_standard(
+        &mut self,
+        request: &QueryRequest,
+        keymap: Option<&HelpcodeKeymap>,
+    ) -> Vec<WordItem> {
         if !request.valid {
             return Vec::new();
         }
@@ -276,12 +346,13 @@ impl ShuangpinEngine {
 
         // 移动端在直接辅助码后会继续输入：`uibjm` 是 `ui` 加首码 `b` 再加 `jm`，
         // `tartantab` 则在三个音节上各带一位辅助码。普通的末尾辅助码路径只会看到最后一个奇数字母，
-        // 所以先把这类编码解析成逐音节约束，再回退到原有路径。
+        // 所以把这类编码解析成逐音节约束；与完整小写双拼有歧义时仍保留普通读法。
         let typed = if request.raw_input_with_cases.is_empty() {
             raw.as_str()
         } else {
             request.raw_input_with_cases.as_str()
         };
+        let mut ambiguous_direct = None;
         if request.enable_shuangpin_helpcode && !keymap.is_empty() {
             let mut direct_best: Option<(usize, Vec<WordItem>)> = None;
             for path in direct_helpcode_paths(typed, self.profile) {
@@ -333,7 +404,13 @@ impl ShuangpinEngine {
                 }
             }
             if let Some((_, candidates)) = direct_best {
-                return candidates;
+                if typed.bytes().all(|byte| byte.is_ascii_lowercase())
+                    && is_complete_input(raw, self.profile)
+                {
+                    ambiguous_direct = Some(candidates);
+                } else {
+                    return candidates;
+                }
             }
         }
 
@@ -359,6 +436,30 @@ impl ShuangpinEngine {
                     .generate_series(&remove_manual_delimiters(raw), &segmentation, raw);
             self.append_fuzzy(exact, &segmentation, request.fuzzy_pinyin, "", keymap)
         };
+        if let Some(direct) = ambiguous_direct {
+            // 辅助码可以与普通两键音节重叠；完整读法（含模糊音和整句）先于歧义约束。
+            let complete = |candidate: &WordItem| {
+                candidate.corrected_from.is_empty()
+                    && candidate
+                        .pinyin
+                        .bytes()
+                        .filter(|&byte| byte != b'\'')
+                        .count()
+                        == raw.len()
+                    && candidate.canonical_pinyin.split('\'').count() == raw.len() / 2
+            };
+            let whole_count = candidates
+                .iter()
+                .filter(|candidate| complete(candidate))
+                .count();
+            if whole_count == 0 {
+                return direct;
+            }
+            candidates.sort_by_key(|candidate| !complete(candidate));
+            let prefixes = candidates.split_off(whole_count);
+            append_fuzzy_rows(&mut candidates, direct);
+            append_fuzzy_rows(&mut candidates, prefixes);
+        }
         keep_typo_sentence_off_first_seat(&mut candidates);
         candidates
     }

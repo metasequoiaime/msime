@@ -28,6 +28,8 @@ export function testHost(
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
     floating_toolbar_input_scheme: false,
+    // 只有 macOS 的面板读自动隐藏、延时与阴影（host_surface.rs 的 floating_toolbar_idle_behavior）。
+    floating_toolbar_idle_behavior: macos,
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     number_row_selection: false,
@@ -35,7 +37,7 @@ export function testHost(
     candidate_font_controls: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
-    app_logo: macos || platform === "windows",
+    app_logo: macos || platform === "windows" || linux,
     expand_candidates: macos,
     // 桌面宿主（macOS、Windows、Linux、HarmonyOS）的各界面一律跟随颜色模式，只有候选窗口仍能单独设明暗（host_surface.rs）。
     surface_themes_follow: !android && platform !== "ios",
@@ -60,7 +62,7 @@ export function testHost(
     touch_keyboard_height: !macos && !linux,
     touch_keyboard_spacing: !macos,
     shuangpin_preedit: macos,
-    shuangpin_keymap_hint: macos || platform === "windows",
+    shuangpin_keymap_hint: macos || windows || linux,
     maintenance_shortcuts: false,
     fullwidth_chord: macos,
     voice_provider_settings: !android,

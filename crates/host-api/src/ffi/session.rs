@@ -110,12 +110,18 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime
+            .set_english_online_candidates_enabled(applied.english_online_candidates)
+            .map_err(|e| e.to_string())?;
+        runtime
             .set_cloud_candidates_enabled(applied.cloud_candidates)
             .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
         runtime.set_backspace_reverts_selection(applied.backspace_reverts_selection);
+        runtime.set_escape_keeps_selected_word(applied.escape_keeps_selected_word);
         runtime.set_left_right_navigation(applied.navigation.left_right);
+        runtime.set_vertical_candidates(crate::host_vertical_candidates(applied.candidate_layout));
         runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
+        runtime.set_wubi_fifth_code_top_commit(applied.wubi_fifth_code_top_commit);
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));

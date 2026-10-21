@@ -15,6 +15,53 @@
 }
 @end
 
+static NSEvent *PointerEvent(NSEventType type, NSWindow *window, NSPoint location)
+{
+    if (type == NSEventTypeMouseEntered || type == NSEventTypeMouseExited)
+        return [NSEvent enterExitEventWithType:type location:location modifierFlags:0
+            timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:window.windowNumber
+            context:nil eventNumber:0 trackingNumber:0 userData:nullptr];
+    return [NSEvent mouseEventWithType:type location:location modifierFlags:0
+        timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:window.windowNumber
+        context:nil eventNumber:0 clickCount:0 pressure:0];
+}
+
+// 真实 AppKit 按钮及跟踪区域覆盖事件序列；不把注入消息当作系统输入法的人工验收。
+static void CheckPointerTracking(MSIMECandidateButton *button)
+{
+    NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(100, 100, 360, 120)
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+        backing:NSBackingStoreBuffered defer:NO];
+    button.frame = NSMakeRect(0, 0, 160, 36);
+    [panel.contentView addSubview:button];
+    [button updateTrackingAreas];
+    assert(!button.candidateHovered);
+    BOOL tracksMovement = NO;
+    for (NSTrackingArea *area in button.trackingAreas)
+        if (area.owner == button && (area.options & NSTrackingMouseMoved) &&
+            (area.options & NSTrackingActiveAlways)) tracksMovement = YES;
+    assert(tracksMovement);
+    const NSPoint inside = NSMakePoint(40, 20);
+    // 新窗口或跟踪区域的进入消息本身不能让静止、隐藏的指针激活悬停。
+    [button mouseEntered:PointerEvent(NSEventTypeMouseEntered, panel, inside)];
+    assert(!button.candidateHovered);
+    [button mouseMoved:PointerEvent(NSEventTypeMouseMoved, panel, inside)];
+    assert(button.candidateHovered);
+    [button mouseExited:PointerEvent(NSEventTypeMouseExited, panel, NSMakePoint(220, 20))];
+    assert(!button.candidateHovered);
+    [button mouseMoved:PointerEvent(NSEventTypeMouseMoved, panel, inside)];
+    assert(button.candidateHovered);
+    [button updateTrackingAreas];
+    assert(!button.candidateHovered);
+    [button mouseEntered:PointerEvent(NSEventTypeMouseEntered, panel, inside)];
+    assert(!button.candidateHovered);
+    [button mouseMoved:PointerEvent(NSEventTypeMouseMoved, panel, NSMakePoint(50, 20))];
+    assert(button.candidateHovered);
+    [button mouseExited:PointerEvent(NSEventTypeMouseExited, panel, inside)];
+    assert(!button.candidateHovered);
+    [button removeFromSuperview];
+}
+
 int main()
 {
     @autoreleasepool
@@ -23,12 +70,7 @@ int main()
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:@"1  候选" target:nil action:nil];
         button.frame = NSMakeRect(0, 0, 160, 36);
         button.hoverColor = [NSColor colorWithSRGBRed:0.2 green:0.3 blue:0.4 alpha:0.5];
-        [button updateTrackingAreas];
-        assert(!button.candidateHovered);
-        [button mouseEntered:(NSEvent *)[NSNull null]];
-        assert(button.candidateHovered);
-        [button mouseExited:(NSEvent *)[NSNull null]];
-        assert(!button.candidateHovered);
+        CheckPointerTracking(button);
         CursorProbeButton *cursorButton = [[CursorProbeButton alloc] initWithFrame:NSMakeRect(3, 4, 160, 36)];
         [cursorButton resetCursorRects];
         assert(NSEqualRects(cursorButton.capturedRect, cursorButton.bounds));

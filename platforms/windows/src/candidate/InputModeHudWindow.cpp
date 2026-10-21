@@ -4,6 +4,7 @@
 #include "WindowShadow.h"
 #include <oleauto.h>
 #include <uiautomation.h>
+#include <wrl/client.h>
 #include <cmath>
 #include <cwchar>
 #include <stdexcept>
@@ -13,6 +14,8 @@ namespace msime::windows {
 namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.InputModeHud" MSIME_EDITION_NAME_SUFFIX;
 constexpr UINT_PTR kHideTimer = 0x4601;
+// 淡出的帧计时器，按 input_mode_hud_fade_frame_ms 重画，不透明度降到 0 时隐藏。
+constexpr UINT_PTR kFadeTimer = 0x4602;
 // 和候选窗一样只在这次界面操作里切到每显示器 DPI v2，结束时恢复调用方的线程设置；窗口在整个生命期里保持 v2，坐标都是物理像素，和 TSF 报来的光标锚点一致。
 struct DpiScope {
   DPI_AWARENESS_CONTEXT previous;
@@ -97,11 +100,13 @@ void InputModeHudWindow::set_palette(CandidatePalette palette) {
   if (window_ && IsWindowVisible(window_))
     InvalidateRect(window_, nullptr, FALSE);
 }
-void InputModeHudWindow::set_settings(const FloatingToolbarSettings &settings) {
-  if (!settings.valid())
+void InputModeHudWindow::set_show_logo(bool show) {
+  if (show_logo_ == show)
     return;
-  scale_ = static_cast<double>(settings.scale_percent) / 100.0;
-  font_size_ = static_cast<double>(settings.font_size);
+  show_logo_ = show;
+  // 窗口按旧宽度摆好了，换宽度重画会裁掉或留空，直接收起。
+  if (window_ && IsWindowVisible(window_))
+    hide();
 }
 ID2D1Bitmap *InputModeHudWindow::logo_bitmap(int pixels) {
   if (pixels <= 0)
@@ -123,6 +128,8 @@ void InputModeHudWindow::hide() {
   if (!window_)
     return;
   KillTimer(window_, kHideTimer);
+  KillTimer(window_, kFadeTimer);
+  opacity_ = 1.0f;
   ShowWindow(window_, SW_HIDE);
 }
 std::optional<HudRect> InputModeHudWindow::system_caret(HWND foreground) {
@@ -175,8 +182,9 @@ void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND f
         !SetWindowPos(window_, nullptr, info.rcWork.left, info.rcWork.top, 0, 0,
                       SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
       throw std::runtime_error("Input mode HUD move failed");
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
-    const auto metrics = input_mode_hud_metrics(font_size_, logo_available_);
+    // 只按显示器 DPI 换算成像素，不乘工具栏的缩放。
+    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), 1.0);
+    const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_);
     InputModeHudPlacementInput placement;
     if (usable)
       placement.caret = *caret;
@@ -185,13 +193,15 @@ void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND f
     placement.card_height = scaled(metrics.height, unit);
     placement.shadow_left = scaled(metrics.shadow.left, unit);
     placement.shadow_top = scaled(metrics.shadow.top, unit);
-    const double dpi_unit = toolbar_pixel_unit(GetDpiForWindow(window_), 1.0);
-    placement.margin = scaled(8.0, dpi_unit);
-    placement.gap = scaled(10.0, dpi_unit);
+    placement.margin = scaled(8.0, unit);
+    placement.gap = scaled(10.0, unit);
     const auto placed = input_mode_hud_placement(placement);
     const int width = static_cast<int>(std::ceil(metrics.window_width() * unit));
     const int height = static_cast<int>(std::ceil(metrics.window_height() * unit));
+    // 正在淡出的上一次徽标直接回到完全显示，重新计时。
     KillTimer(window_, kHideTimer);
+    KillTimer(window_, kFadeTimer);
+    opacity_ = 1.0f;
     if (!SetWindowPos(window_, HWND_TOPMOST, static_cast<int>(placed.x), static_cast<int>(placed.y),
                       width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
       throw std::runtime_error("Input mode HUD positioning failed");
@@ -225,39 +235,49 @@ void InputModeHudWindow::paint() {
       throw std::runtime_error("Input mode HUD brush unavailable");
     return created;
   };
-  const float unit = static_cast<float>(scale_);
-  const auto metrics = input_mode_hud_metrics(font_size_, logo_available_);
-  const D2D1_RECT_F card{static_cast<float>(metrics.shadow.left) * unit,
-                         static_cast<float>(metrics.shadow.top) * unit,
-                         static_cast<float>(metrics.shadow.left + metrics.card_width()) * unit,
-                         static_cast<float>(metrics.shadow.top + metrics.height) * unit};
-  target->BeginDraw();
-  target->Clear(D2D1::ColorF(0, 0.0f));
-  draw_window_shadow(target, card, palette_.radius * unit, static_cast<float>(metrics.shadow.scale));
-  const float inset = palette_.border_width * unit / 2.0f;
-  const D2D1_ROUNDED_RECT body{{card.left + inset, card.top + inset, card.right - inset, card.bottom - inset},
-                               palette_.radius * unit, palette_.radius * unit};
-  target->FillRoundedRectangle(body, brush(palette_.surface));
-  target->DrawRoundedRectangle(body, brush(palette_.border), palette_.border_width * unit);
-  float left = card.left + static_cast<float>(metrics.inset) * unit;
-  if (metrics.logo > 0.0) {
-    const float side = static_cast<float>(metrics.logo) * unit;
-    const float top = (card.top + card.bottom - side) / 2.0f;
-    // 以真实像素取图标帧：msime.ico 带 16 到 256 的各档，取对尺寸才清晰。
-    const double pixels = metrics.logo * toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
-    if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
-      target->DrawBitmap(logo, D2D1_RECT_F{left, top, left + side, top + side}, 1.0f,
-                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-    left += side + static_cast<float>(metrics.spacing) * unit;
-  }
-  auto *format = device_.GetTextFormat(L"Microsoft YaHei UI", static_cast<float>(metrics.font * 0.95) * unit,
-                                       DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER,
+  // 固定尺寸：Direct2D 的 DIP 已经带上了显示器 DPI，这里不再乘工具栏的缩放。圆角和描边也是徽标自己的（8 和 1），只有颜色取工具栏的调色板。
+  const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_);
+  const D2D1_RECT_F card{static_cast<float>(metrics.shadow.left), static_cast<float>(metrics.shadow.top),
+                         static_cast<float>(metrics.shadow.left + metrics.card_width()),
+                         static_cast<float>(metrics.shadow.top + metrics.height)};
+  const auto radius = static_cast<float>(metrics.radius);
+  const auto border = static_cast<float>(metrics.border);
+  // 常规字重，与 macOS 的 18pt 系统字相同。
+  auto *format = device_.GetTextFormat(L"Microsoft YaHei UI", static_cast<float>(metrics.font),
+                                       DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER,
                                        DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
   if (!format)
     throw std::runtime_error("Input mode HUD text format unavailable");
+  target->BeginDraw();
+  target->Clear(D2D1::ColorF(0, 0.0f));
+  // 淡出时整张徽标连同阴影放进一个带不透明度的图层里画。
+  Microsoft::WRL::ComPtr<ID2D1Layer> fade;
+  if (opacity_ < 1.0f && SUCCEEDED(target->CreateLayer(nullptr, fade.GetAddressOf())))
+    target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                                            D2D1::IdentityMatrix(), opacity_),
+                      fade.Get());
+  draw_window_shadow(target, card, radius, static_cast<float>(metrics.shadow.scale));
+  const float inset = border / 2.0f;
+  const D2D1_ROUNDED_RECT body{{card.left + inset, card.top + inset, card.right - inset, card.bottom - inset},
+                               radius, radius};
+  target->FillRoundedRectangle(body, brush(palette_.surface));
+  target->DrawRoundedRectangle(body, brush(palette_.border), border);
+  float left = card.left + static_cast<float>(metrics.inset);
+  if (metrics.logo > 0.0) {
+    const float side = static_cast<float>(metrics.logo);
+    const float top = (card.top + card.bottom - side) / 2.0f;
+    // 以真实像素取图标帧：msime.ico 带 16 到 256 的各档，取对尺寸才清晰。
+    const double pixels = metrics.logo * toolbar_pixel_unit(GetDpiForWindow(window_), 1.0);
+    if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
+      target->DrawBitmap(logo, D2D1_RECT_F{left, top, left + side, top + side}, 1.0f,
+                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    left += side + static_cast<float>(metrics.spacing);
+  }
   const wchar_t *text = input_mode_hud_text(chinese_);
-  const D2D1_RECT_F glyph{left, card.top, left + static_cast<float>(metrics.glyph) * unit, card.bottom};
+  const D2D1_RECT_F glyph{left, card.top, left + static_cast<float>(metrics.glyph), card.bottom};
   target->DrawText(text, static_cast<UINT32>(wcslen(text)), format, glyph, brush(palette_.text));
+  if (fade)
+    target->PopLayer();
   const HRESULT drawn = target->EndDraw();
   const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
   // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
@@ -289,8 +309,20 @@ LRESULT CALLBACK InputModeHudWindow::procedure(HWND window, UINT message, WPARAM
     case WM_ERASEBKGND:
       return 1;
     case WM_TIMER:
+      // 完全显示的 0.6 秒到了：开始淡出，与 macOS 的 fadeOut 一样。帧计时器建不起来时直接隐藏。
       if (w == kHideTimer) {
-        self->hide();
+        KillTimer(window, kHideTimer);
+        self->fade_started_ = GetTickCount64();
+        if (!SetTimer(window, kFadeTimer, input_mode_hud_fade_frame_ms, nullptr))
+          self->hide();
+        return 0;
+      }
+      if (w == kFadeTimer) {
+        self->opacity_ = input_mode_hud_fade_opacity(GetTickCount64() - self->fade_started_);
+        if (self->opacity_ <= 0.0f)
+          self->hide();
+        else
+          InvalidateRect(window, nullptr, FALSE);
         return 0;
       }
       break;
@@ -298,7 +330,7 @@ LRESULT CALLBACK InputModeHudWindow::procedure(HWND window, UINT message, WPARAM
     case WM_SETTINGCHANGE:
     case WM_DWMCOMPOSITIONCHANGED:
     case WM_DPICHANGED:
-      // 换了显示器设置或 DPI：丢掉旧的合成表面，下次显示时重建；正在显示的这次直接收起。
+      // 换了显示器设置或 DPI：丢掉旧的合成表面，下次显示时重建；正在显示或淡出的这次直接收起。
       self->device_.DiscardTarget();
       self->hide();
       return 0;

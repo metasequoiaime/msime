@@ -261,11 +261,16 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCompositionConvert(TfEditCookie ec, _In_ ITfContext *pContext, BOOL isWildcardSearch);
     HRESULT _HandleCompositionBackspace(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
     HRESULT _HandleCompositionDelete(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
-    // `letterCaret`：全拼、双拼里 Ctrl+左右逐个字母地移拼音光标，不是整句改字。
+    // `letterCaret`：逐个字母地移拼音光标，不进整句改字。只有分段编辑（Shift/Ctrl+左右）在宿主会话没接分段命令时这样退回。
     HRESULT _HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfContext *pContext, KEYSTROKE_FUNCTION keyFunction,
                                        uint64_t requestId = FANY_IME_NO_REQUEST_ID, bool letterCaret = false);
     HRESULT _HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITfContext *pContext,
                                            KEYSTROKE_FUNCTION keyFunction, uint64_t requestId);
+    // 宿主会话只移了拼音光标（候选和高亮都没变）时，把行内组字的光标放到宿主视图的光标处，不重画。编辑串不是 ASCII、光标对不上已画的预编辑时返回 S_FALSE，由调用方决定怎么办。
+    HRESULT _MoveCompositionCaretToHost(TfEditCookie ec, _In_ ITfContext *pContext,
+                                        const msime::tsf::EngineResult &result);
+    // Home 键（FUNCTION_MOVE_PAGE_TOP）交给宿主会话：候选窗显示时发 MSIME_FIRST_CANDIDATE_OR_HOME，高亮不在首选时回到首选并重画，已在首选时把光标移到输入串开头、只移光标；没有候选时发 MSIME_FIRST_CANDIDATE，什么也不动（HostHomeCommand，Server 的会话同样只在有候选时接 Home）。宿主会话没接这个键时返回 false，`outcome` 是接了之后的结果。
+    bool _HandleHostHomeKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId, _Out_ HRESULT *outcome);
     HRESULT _HandleCompositionPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                           uint64_t requestId, const std::wstring &prefetchedText);
     // Character immediately before the caret / composition start (0 if unavailable).

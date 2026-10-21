@@ -5,6 +5,8 @@
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
 #import "WindowPresentationLog.h"
+#import "FloatingToolbarBehavior.h"
+#import "ToolbarImageCanvas.h"
 #import <CoreGraphics/CoreGraphics.h>
 
 #include <algorithm>
@@ -531,6 +533,19 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     BOOL _recentInput;
     BOOL _applyingSkin;
     NSTimer *_idleTimer;
+    MSIMEToolbarImageCanvas *_imageCanvas;
+    msime::mac::SkinToolbarImage _lightToolbarImage;
+    msime::mac::SkinToolbarImage _darkToolbarImage;
+    NSTimer *_imageTimer;
+    NSString *_imageStatus;
+    NSString *_imageFullWidth;
+    NSString *_imagePunctuation;
+    NSString *_imageCharacterSet;
+    NSSize _barPreferredSize;
+    // 由共享偏好解析出的空闲行为，`noteInputForDelegate:` 只读它。
+    msime::mac::FloatingToolbarBehavior _behavior;
+    // 上一次应用下去的行为，用来跳过没有变化的偏好快照。
+    msime::mac::FloatingToolbarBehavior _appliedBehavior;
 }
 
 + (instancetype)sharedPanel
@@ -559,6 +574,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _preferredSize = NSMakeSize(kToolbarWidth, kToolbarHeight);
     self.opaque = NO;
     self.backgroundColor = [NSColor clearColor];
+    // 出厂画阴影，与 Windows v0.11.1 的 `floating_toolbar_shadow = true` 一致；`applySizingPreferences:` 按偏好改写。
     self.hasShadow = YES;
     self.hidesOnDeactivate = NO;
     self.becomesKeyOnlyIfNeeded = YES;
@@ -686,6 +702,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)dealloc
 {
     [_idleTimer invalidate];
+    [_imageTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:self];
 }
@@ -745,11 +762,30 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // 共享文档总会写这个字段；读不到时按新装处理，不画 logo。
     id logoValue = preferences[@"show_app_logo"];
     const BOOL showsLogo = [logoValue isKindOfClass:NSNumber.class] && [logoValue boolValue];
-    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask && showsLogo == _appliedShowsLogo) return;
+    // 自动隐藏开关、延时和阴影按 Windows v0.11.1 的出厂配置解析（关、5 秒、阴影开；延时可选 1–60），缺键和越界都由纯函数兜底。
+    id autoHideValue = toolbar[@"auto_hide"];
+    id autoHideDelayValue = toolbar[@"auto_hide_delay"];
+    id shadowValue = toolbar[@"shadow"];
+    const BOOL hasAutoHide = [autoHideValue isKindOfClass:NSNumber.class];
+    const BOOL hasAutoHideDelay = [autoHideDelayValue isKindOfClass:NSNumber.class];
+    const BOOL hasShadow = [shadowValue isKindOfClass:NSNumber.class];
+    const msime::mac::FloatingToolbarBehavior behavior = msime::mac::ResolveFloatingToolbarBehavior(
+        hasAutoHide, hasAutoHide && [autoHideValue boolValue], hasAutoHideDelay,
+        hasAutoHideDelay ? [autoHideDelayValue doubleValue] : 0.0, hasShadow,
+        hasShadow && [shadowValue boolValue]);
+    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask && showsLogo == _appliedShowsLogo &&
+        behavior.autoHideEnabled == _appliedBehavior.autoHideEnabled &&
+        behavior.autoHideDelaySeconds == _appliedBehavior.autoHideDelaySeconds &&
+        behavior.drawsShadow == _appliedBehavior.drawsShadow)
+        return;
     _appliedScale = scale;
     _appliedFontSize = fontSize;
     _appliedComponentMask = mask;
     _appliedShowsLogo = showsLogo;
+    _appliedBehavior = behavior;
+    _behavior = behavior;
+    // 阴影是窗口属性，改偏好时立即生效；出厂（以及 macOS 一直以来的行为）是画。
+    self.hasShadow = behavior.drawsShadow;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
     for (NSButton *button in @[_inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
@@ -779,6 +815,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _trailingInset.constant = -kToolbarTrailingChrome * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
     _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale, showsLogo), std::ceil((fontSize + 20.0) * scale));
+    _barPreferredSize = _preferredSize;
     // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
     // change, hidden or not, and the window carries a frame autosave name - so resizing a hidden toolbar
     // wrote a saved frame for a window the user has never placed, pinned to the restored-margin corner.
@@ -794,6 +831,18 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     }
     [_chrome layoutSubtreeIfNeeded];
     [self applySkin];
+    // 自动隐藏关掉后残留的计时器和已经隐藏的状态一并清掉，工具栏按当前可见性回来。
+    if (!_behavior.autoHideEnabled)
+    {
+        [_idleTimer invalidate];
+        _idleTimer = nil;
+        if (_idleHidden)
+        {
+            _idleHidden = NO;
+            _recentInput = YES;
+            [self refreshVisibility];
+        }
+    }
 }
 
 - (void)applyThemePreferences:(NSDictionary *)preferences
@@ -828,6 +877,46 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)setLiquidGlassEnabled:(BOOL)enabled {
     _liquidGlassEnabled = enabled;
     [self applySkin];
+}
+
+- (void)applyLightToolbarImage:(const msime::mac::SkinToolbarImage &)light darkSkin:(const msime::mac::SkinToolbarImage &)dark {
+    if (_lightToolbarImage.json == light.json && _lightToolbarImage.directory == light.directory &&
+        _darkToolbarImage.json == dark.json && _darkToolbarImage.directory == dark.directory) return;
+    _lightToolbarImage = light;
+    _darkToolbarImage = dark;
+    [self reloadToolbarImages];
+}
+
+- (void)reloadToolbarImages {
+    [_imageCanvas removeFromSuperview];
+    _imageCanvas = nil;
+    [self applySkin];
+}
+
+- (void)updateImagePointer {
+    if (!_imageCanvas || !self.visible) return;
+    // AppKit 的 view hit-test 不能单独保证跨窗口穿透；用全局鼠标坐标更新窗口级命中。
+    if ((NSEvent.pressedMouseButtons & 1) == 0) {
+        const NSPoint point = [_imageCanvas convertPoint:[self convertPointFromScreen:NSEvent.mouseLocation] fromView:nil];
+        self.ignoresMouseEvents = ![_imageCanvas containsInteractivePoint:point];
+    }
+    [_imageCanvas advanceAnimation];
+}
+
+- (void)startImageTimer {
+    if (!_imageCanvas || _imageTimer || !self.visible) return;
+    __weak MetasequoiaFloatingToolbarPanel *weakSelf = self;
+    _imageTimer = [NSTimer timerWithTimeInterval:1.0 / 30.0 repeats:YES block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf updateImagePointer];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_imageTimer forMode:NSRunLoopCommonModes];
+    [self updateImagePointer];
+}
+
+- (void)orderFrontRegardless {
+    [super orderFrontRegardless];
+    [self startImageTimer];
 }
 
 - (void)applySkin
@@ -868,6 +957,47 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         }
     }
     _chrome.needsDisplay = YES;
+    const auto &image = dark ? _darkToolbarImage : _lightToolbarImage;
+    const BOOL imageMode = !image.json.empty();
+    _chrome.hidden = imageMode;
+    _chrome.glassBackground.hidden = imageMode;
+    self.hasShadow = !imageMode;
+    if (imageMode) {
+        if (!_imageCanvas) {
+            _imageCanvas = [[MSIMEToolbarImageCanvas alloc] initWithFrame:self.contentView.bounds];
+            _imageCanvas.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            _imageCanvas.accessibilityIdentifier = @"MSIMEImageToolbarCanvas";
+            [self.contentView addSubview:_imageCanvas];
+        }
+        NSArray<NSString *> *keys = @[@"status", @"fullwidth", @"punctuation", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+        NSArray<NSNumber *> *indices = @[@0, @3, @2, @4, @5, @7, @9];
+        NSArray<NSString *> *states = @[_imageStatus ?: @"cn", _imageFullWidth ?: @"half", _imagePunctuation ?: @"cn", _imageCharacterSet ?: @"simplified", @"", @"", @""];
+        NSArray<NSButton *> *sources = @[_inputModeButton, _fullWidthButton, _punctuationButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
+        NSMutableArray *shown = [NSMutableArray array];
+        NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
+        for (NSUInteger at = 0; at < keys.count; ++at) {
+            if ((_appliedComponentMask & (1u << indices[at].unsignedIntegerValue)) == 0) continue;
+            [shown addObject:@[keys[at], states[at]]];
+            buttons[keys[at]] = sources[at];
+        }
+        [_imageCanvas applySkin:image shown:shown buttons:buttons scale:(_appliedScale > 0 ? _appliedScale : 1) color:text];
+        _preferredSize = _imageCanvas.preferredSize;
+        [self startImageTimer];
+    } else {
+        [_imageCanvas removeFromSuperview];
+        _imageCanvas = nil;
+        [_imageTimer invalidate];
+        _imageTimer = nil;
+        self.ignoresMouseEvents = NO;
+        if (_barPreferredSize.width > 0) _preferredSize = _barPreferredSize;
+    }
+    if (self.visible && _preferredSize.width > 0 && _preferredSize.height > 0 && !NSEqualSizes(self.frame.size, _preferredSize)) {
+        NSRect frame = self.frame;
+        frame.size = _preferredSize;
+        NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
+        if (screen) frame = SizedToolbarFrame(frame, screen.visibleFrame, YES, _preferredSize);
+        [self setFrame:frame display:YES];
+    }
     _applyingSkin = NO;
 }
 
@@ -879,6 +1009,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 - (void)orderOut:(id)sender
 {
     [super orderOut:sender];
+    [_imageTimer invalidate];
+    _imageTimer = nil;
     if (_applyingSkin || _inputModeButton == nil || _settingsButton == nil) return;
     // A hidden window gets no mouseExited:, so a button hovered at the moment the toolbar hides would come back highlighted.
     for (MetasequoiaFloatingToolbarButton *button in
@@ -946,6 +1078,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _punctuationButton.toolTip = _punctuationButton.accessibilityLabel;
     _fullWidthButton.toolTip = _fullWidthButton.accessibilityLabel;
     _traditionalOutputButton.toolTip = _traditionalOutputButton.accessibilityLabel;
+    _imageStatus = capsLock ? @"caps" : englishInputMode ? @"en" : englishCandidateMode ? @"en-candidate" : [scheme isEqual:@"japanese"] ? @"ja" : @"cn";
+    _imageFullWidth = fullWidthEnabled ? @"full" : @"half";
+    _imagePunctuation = chinesePunctuationEnabled ? @"cn" : @"en";
+    _imageCharacterSet = traditionalChineseOutputEnabled ? @"traditional" : @"simplified";
     [self applySkin];
 }
 
@@ -994,14 +1130,20 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     if (!delegate || self.toolbarDelegate != delegate || !_imeActive || !_requestedVisible) return;
     _idleHidden = NO;
     _recentInput = YES;
-    if (_idleTimer) {
-        _idleTimer.fireDate = [NSDate dateWithTimeIntervalSinceNow:10.0];
+    // 自动隐藏关掉时不排计时器，工具栏一直留着；开着时用偏好里的秒数（出厂默认 5 秒，范围 1–60）。
+    if (!_behavior.autoHideEnabled) {
+        [_idleTimer invalidate];
+        _idleTimer = nil;
+    } else if (_idleTimer) {
+        _idleTimer.fireDate = [NSDate dateWithTimeIntervalSinceNow:_behavior.autoHideDelaySeconds];
     } else {
         __weak MetasequoiaFloatingToolbarPanel *weakSelf = self;
-        _idleTimer = [NSTimer timerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+        _idleTimer = [NSTimer timerWithTimeInterval:_behavior.autoHideDelaySeconds repeats:NO block:^(NSTimer *timer) {
             MetasequoiaFloatingToolbarPanel *panel = weakSelf;
             if (!panel || panel->_idleTimer != timer) return;
             panel->_idleTimer = nil;
+            // 关掉自动隐藏后残留的计时器仍会走到这里，所以在隐藏前再判一次。
+            if (!msime::mac::ShouldHideFloatingToolbarForIdle(panel->_behavior, panel->_imeActive, panel->_requestedVisible)) return;
             panel->_idleHidden = YES;
             panel->_recentInput = NO;
             [panel refreshVisibility];

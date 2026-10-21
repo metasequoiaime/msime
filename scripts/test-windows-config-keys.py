@@ -66,6 +66,19 @@ ANSWERED_ELSEWHERE: dict[str, str] = {
         "the current host always uses the Engine session through input-runtime, so the legacy "
         "backend selector has no product behavior to configure"
     ),
+    "input.wubi_z_mode": (
+        "the shared preference wubi_z_wildcard is a switch, not the reference's off|wildcard "
+        "string: ime_config.cpp already normalises every value but wildcard to off, so the "
+        "Windows host reads the boolean from the shared document instead of this template"
+    ),
+    "input.wubi_four_code_auto_commit": (
+        "answered by the shared preference wubi_auto_commit_unique; the Windows host reads the "
+        "shared document, not this template"
+    ),
+    "input.wubi_fifth_code_top_commit": (
+        "answered by the shared preference wubi_fifth_code_top_commit; the Windows host reads "
+        "the shared document, not this template"
+    ),
     "voice_input.polish_prompt": (
         "the old single prompt migrated to voice_input.polish_prompt_custom_1; the shared voice "
         "prompt selector resolves the three custom slots and keeps the old value as slot one"

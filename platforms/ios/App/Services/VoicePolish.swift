@@ -9,8 +9,7 @@ private func msimeIOSVoicePolishPrompt(_ id: UnsafePointer<CChar>?, _ custom1: U
 ///
 /// The desktop configures a separate polish provider and key in the document. On iOS the service lives in `VoicePolishService`, with its key in the Keychain, so only the preset and the three custom prompts come from the document.
 struct VoicePolishSettings: Equatable {
-  static let presets: [(id: String, title: String)] = [
-    ("cleanup", "精炼整理"), ("faithful", "忠实校对"), ("zh2en", "中翻英"), ("casual", "口语整理"),
+  static let presets: [(id: String, title: String)] = VoicePolishPresetCatalog.builtIns + [
     ("custom_1", "自定义一"), ("custom_2", "自定义二"), ("custom_3", "自定义三"),
   ]
   /// Android 用于 `voice_input.language` 的 id；`auto` 让识别器自行区分普通话和英语。
@@ -143,6 +142,17 @@ struct VoicePolishService: Equatable {
   }
 
   /// The configuration and key a polish request goes out with: the saved separate service, or 「AI 设置」.
+  /// 识别之后的润色：用单独保存的润色服务，或「AI 设置」里的服务。语音页和按住说话的后台会话共用。
+  static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
+    var (configuration, token) = try resolved()
+    configuration.prompt = settings.systemPrompt
+    let polished = try await CustomServiceClient.request(
+      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript), token: token)
+    let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { throw ServiceFailure(message: "服务未返回可用文字。") }
+    return trimmed
+  }
+
   static func resolved(defaults: UserDefaults = .standard,
                        readToken: (String, URL) throws -> String = { try ServiceTokenStore.read(scope: $0, url: $1) })
     throws -> (configuration: CustomServiceConfiguration, token: String) {

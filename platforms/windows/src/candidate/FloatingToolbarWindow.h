@@ -14,6 +14,7 @@
 // windows.h first: its DrawText macro has to reach the Direct2D declarations.
 #include <windows.h>
 #include <msimeui/DeviceResources.h>
+#include "ToolbarImageState.h"
 
 namespace msime::windows {
 class AccessibleWindow;
@@ -41,6 +42,8 @@ public:
   ~FloatingToolbarWindow();
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
+  // 只在皮肤或资源代次改变时重新加载；输入状态只更新缓存布局。
+  void set_image_skin(nlohmann::json manifest, std::filesystem::path directory);
   // Caps Lock and the input mode change what the language button shows.
   void set_language_state(ToolbarLanguageState state) {
     if (state.caps_lock == language_.caps_lock &&
@@ -48,6 +51,7 @@ public:
         state.dedicated_english == language_.dedicated_english)
       return;
     language_ = state;
+    image_dirty_ = true;
     if (window_)
       InvalidateRect(window_, nullptr, FALSE);
   }
@@ -124,6 +128,11 @@ private:
   // 当前设置下要画的按钮和尺寸。
   std::vector<int> slots() const;
   ToolbarMetrics metrics() const;
+  ToolbarRect cell(size_t index) const;
+  std::optional<size_t> button_at_pixel(double x, double y) const;
+  bool drag_at_pixel(double x, double y) const;
+  bool card_at_pixel(double x, double y) const;
+  void update_image();
   // 按钮能不能用：缺设置窗口或共享应用时，依赖它的按钮不能用。
   bool usable(int button) const;
   // 按钮 `index` 弹出菜单用的锚点，已换成屏幕物理像素（toolbar_physical_coordinate）。
@@ -155,6 +164,8 @@ private:
   } apartment_;
   msimeui::DeviceResources device_;
   CandidatePalette palette_;
+  ToolbarImageState image_;
+  bool image_dirty_ = false;
   Reader reader_;
   Click click_;
   Action settings_action_;

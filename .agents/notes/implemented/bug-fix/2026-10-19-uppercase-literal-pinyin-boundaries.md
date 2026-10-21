@@ -26,6 +26,8 @@ Status: implemented
 
 ## Historical note audit
 
+- [超级简拼空入口大写续输](2026-10-21-super-jianpin-capital-continuation.md)补充例外：全拼、双拼的空 `J` 入口遇到下一枚大写，转回普通组字；小写超级简拼和 Unicode 合法大写继续保留。
+
 - [大写开始组字](2026-10-14-uppercase-pinyin-start.md)部分重叠：接收和保留原文继续成立，本篇取代大写仍按小写查询中文的部分，两篇互链。
 - [组合内保留大写](../../implemented/bug-fix/2026-10-11-shifted-uppercase-composition.md)部分重叠：活动辅助码和非拼音方案的边界保留。
 - [Shift 入口总开关](../../implemented/feature/2026-10-11-shift-letter-entry-switch.md)持有维护者选择的缺省开启及触屏入口约束，不取代该决定。

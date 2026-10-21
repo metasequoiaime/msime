@@ -5,11 +5,11 @@
 
 int main() {
   using msime::linux_host::candidate_local_mode_label;
-  // Every non-default name the engine emits in `local_mode`.
+  // 覆盖引擎 `local_mode` 输出的全部非默认名称。
   for (const char *mode :
        {"unicode", "date_time", "quick_phrase", "emoji", "kaomoji",
         "super_jianpin", "temporary_english", "temporary_japanese",
-        "expression", "command", "mention", "url", "chaizi"}) {
+        "expression", "command", "mention", "url", "chaizi", "symbol"}) {
     const char *label = candidate_local_mode_label(mode);
     assert(label != nullptr);
     assert(std::strlen(label) > 0);
@@ -23,6 +23,7 @@ int main() {
   assert(std::strcmp(candidate_local_mode_label("mention"), "@") == 0);
   assert(std::strcmp(candidate_local_mode_label("url"), "网址") == 0);
   assert(std::strcmp(candidate_local_mode_label("chaizi"), "拆字") == 0);
+  assert(std::strcmp(candidate_local_mode_label("symbol"), "符号") == 0);
   assert(candidate_local_mode_label("none") == nullptr);
   // Names the Fcitx5 footer used to compare against; the Engine never emits them.
   assert(candidate_local_mode_label("phrase") == nullptr);

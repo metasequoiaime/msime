@@ -37,6 +37,8 @@ export interface InputModeShortcutsSectionProps {
   capsLockLanguageSwitch?: boolean;
   /** 宿主处理 Ctrl+Shift+J 并且本版本同时提供中文方案和日语（`offersJapaneseToggle`），显示它的开关。 */
   japaneseToggle?: boolean;
+  /** 宿主把「切换中英文」接进中日英循环并且本版本同时提供中文方案和日语（`offersTrilingualCycle`），显示它的开关。 */
+  trilingualCycle?: boolean;
   /** HarmonyOS 手机的「通用」分组：只列出其硬件按键路由处理的组合键，每项都是一个可选「无」的选择，并且没有分组说明。 */
   harmonyPhone?: boolean;
 }
@@ -56,6 +58,7 @@ export function InputModeShortcutsSection({
   windows,
   capsLockLanguageSwitch = false,
   japaneseToggle = false,
+  trilingualCycle = false,
   harmonyPhone = false,
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
@@ -107,6 +110,15 @@ export function InputModeShortcutsSection({
             description="中文方案下按它切到日语，在日语里再按回到上次的中文方案；英文模式下交给应用。关着时这个组合键交给应用；浏览器里它是开发者工具或下载页的快捷键，打开后在浏览器里会被输入法占用。"
             checked={keybindings.toggle_japanese_ctrl_shift_j ?? false}
             onChange={(checked) => onChange({ toggle_japanese_ctrl_shift_j: checked })}
+          />
+        )}
+        {/* 和上面的「切换中英文」是同一组键：打开后它们在中 → 日 → 英 → 中 之间循环，不是另加一个键。 */}
+        {trilingualCycle && (
+          <SwitchRow
+            title="中英日循环切换"
+            description="打开后上面的「切换中英文」快捷键按 中文 → 日文 → 英文 → 中文 依次切换，正在组字时先把已经打出来的原始字母上屏。英文模式下再按切换键回到中文；关着时这一组快捷键仍只在中文和英文之间切换。"
+            checked={keybindings.trilingual_cycle ?? false}
+            onChange={(checked) => onChange({ trilingual_cycle: checked })}
           />
         )}
         {/* 缺键时按开显示，与 client-core 的默认值一致。 */}

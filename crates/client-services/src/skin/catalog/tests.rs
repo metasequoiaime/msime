@@ -16,6 +16,57 @@ fn resource_package(root: &Path) -> std::path::PathBuf {
     skin
 }
 
+#[test]
+fn image_toolbar_resources_join_the_catalog_budget_and_export() {
+    let root = tempdir().unwrap();
+    let directory = resource_package(root.path());
+    let toolbar = "[toolbar]\nmode='image'\nimage='images/bar.png'\nimage_width_dip=168\nimage_height_dip=48\n\
+        [toolbar.button_defaults]\nbackground='images/button.png'\n\
+        [toolbar.buttons.status]\nx_dip=170\ny_dip=1\nimage='images/button.png'\n\
+        [toolbar.buttons.status.images]\ncn='images/cn.png'\n";
+    fs::write(
+        directory.join("skin.toml"),
+        format!("{}{toolbar}", manifest("sample")),
+    )
+    .unwrap();
+    for path in ["images/bar.png", "images/button.png", "images/cn.png"] {
+        fs::write(directory.join(path), encoded_png(4, 3)).unwrap();
+    }
+    let summary = load(root.path(), "sample").unwrap();
+    assert_eq!(referenced_image_paths(&summary).len(), 3);
+    assert_eq!(
+        serde_json::to_value(&summary).unwrap()["toolbarImage"]["buttons"]["status"]["xDip"]
+            .as_f64(),
+        Some(170.0)
+    );
+    let files = package_files(root.path(), "sample").unwrap();
+    assert_eq!(files.images.len(), 3);
+    fs::remove_file(directory.join("images/cn.png")).unwrap();
+    assert!(load(root.path(), "sample").is_err());
+    fs::write(
+        directory.join("images/cn.png"),
+        encoded_png(MAX_IMAGE_SIDE + 1, 1),
+    )
+    .unwrap();
+    assert_eq!(
+        load(root.path(), "sample").unwrap_err(),
+        IMAGE_DIMENSIONS_TOO_LARGE
+    );
+    // 普通条形模式校验字段，但不要求被忽略的图片存在。
+    fs::write(
+        directory.join("skin.toml"),
+        format!(
+            "{}{}",
+            manifest("sample"),
+            toolbar.replace("mode='image'", "mode='bar'")
+        ),
+    )
+    .unwrap();
+    let summary = load(root.path(), "sample").unwrap();
+    assert!(summary.toolbar_image.is_none());
+    assert!(referenced_image_paths(&summary).is_empty());
+}
+
 fn encoded_png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbImage::from_pixel(width, height, image::Rgb([0, 0, 0]));
     let mut output = Cursor::new(Vec::new());
@@ -1003,6 +1054,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             decoration_frames: 0,
             background: None,
             toolbar: SkinToolbar::default(),
+            toolbar_image: None,
             toolbar_icon_corner_radius_dip: None,
             border_image: None,
             content_insets_dip: None,
@@ -2171,7 +2223,7 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
     let skin = styled_package(root.path());
     let catalog = scan(root.path());
     let published = host_candidate_catalog(&catalog, root.path(), &["bigfish"]);
-    // The background and toolbar stay out: neither Linux host can draw them.
+    // Fcitx5 的经典界面主题画背景图，把工具栏配色用到它的菜单上，所以两者都发布：背景图是绝对路径，工具栏配色按模式、只留读得懂的颜色，菜单没有的拖动把手不发布。
     assert_eq!(
         published,
         serde_json::json!({"packages": [{
@@ -2188,8 +2240,60 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
             "decoration_image": skin.join("assets/character.png").to_str().unwrap(),
             "decoration_align": "left",
             "corner_radius_dip": 12.0,
+            "background_image": skin.join("assets/background.png").to_str().unwrap(),
+            "background_fit": "contain",
+            "background_opacity": 0.35,
+            "toolbar": {
+                "dark": {
+                    "background": "#141B33",
+                    "border": "#5B9BFF61",
+                    "divider": "#5B9BFF47",
+                    "icon": "#E3EAFF",
+                },
+                "light": {"background": "#F4F8FF"},
+            },
         }]})
     );
+    // 宿主把条目原样交回主题解析，严格的读法认得这些新键。
+    let entry = published["packages"][0].clone();
+    assert!(super::super::theme::ThemePackage::from_host_catalog_entry(entry).is_ok());
+    // 行圆角也发布；相对的皮肤根目录给不出宿主能打开的背景图路径，就不发布背景图。
+    let rows = root.path().join("rows");
+    fs::create_dir(&rows).unwrap();
+    fs::write(
+        rows.join("skin.toml"),
+        manifest("rows").replace(
+            "min_width_dip = 10\n",
+            "min_width_dip = 10\nitem_corner_radius_dip = 3\n",
+        ),
+    )
+    .unwrap();
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let relative = host_candidate_catalog(&catalog, Path::new("skins"), &["bigfish"]);
+    let entry = |id: &str| {
+        relative["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|package| package["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(entry("rows")["item_corner_radius_dip"], 3.0);
+    assert!(entry("bigfish").get("background_image").is_none());
+    assert!(entry("bigfish").get("toolbar").is_some());
+    // 没写工具栏配色的包没有这个键。
+    assert!(entry("rows").get("toolbar").is_none());
+    // 没选中的包同样带背景图和工具栏配色：Fcitx5 的「主题」菜单换皮肤时不重写运行时选项，换上的那一款只能从这份目录读到它们。
+    let unselected = host_candidate_catalog(&catalog, root.path(), &["rows"]);
+    let bigfish = unselected["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["id"] == "bigfish")
+        .unwrap();
+    assert_eq!(bigfish, &published["packages"][0]);
 }
 
 /// `client_dialect.json` 是皮肤清单规则的共享用例表，各个实现都按它校验：这里的 `load`、msime-cloud 的 Go 移植（`internal/skins/client.go`）与种子脚本，以及 msime-windows 的 `CandidateSkinCatalog::Load`。它们各自保存一份副本，由各自仓库的同步脚本按本文件刷新，所以改规则先改这里。

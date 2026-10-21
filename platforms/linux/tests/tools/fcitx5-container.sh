@@ -6,10 +6,22 @@ cmake -S platforms/linux -B /build/fcitx5 -G Ninja \
   -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so \
   -DMSIME_ENABLE_FCITX5=ON -DMSIME_ENABLE_PACKAGING=OFF \
   -DMSIME_FCITX5_TEST_RESOURCES=/resources
-cmake --build /build/fcitx5 --target msime-fcitx5 fcitx5-native-test linux-candidate-fcitx-canvas-test linux-candidate-native-canvas-test
-ctest --test-dir /build/fcitx5 -R '^(linux-candidate-(fcitx-canvas|native-canvas)|fcitx5-(candidate-rows|native-context|native-ai|native-smart-abc|daemon-frontend|gtk-editor|translation-below-(horizontal|vertical)|gtk-canvas-(horizontal|vertical)(-(gif|webp))?|native-canvas-(horizontal|vertical)(-(scale2|composited))?|wayland-canvas-(horizontal|vertical)-(png|gif|webp)|ibus-gtk-editor))$' \
+cmake --build /build/fcitx5 --target msime-fcitx5 fcitx5-native-test linux-candidate-fcitx-canvas-test linux-candidate-native-canvas-test linux-candidate-native-canvas-chrome-test
+# 用例名逐个列出、只用一组括号：CMake 的正则最多容纳 10 组括号，原先按前缀嵌套的写法超出上限，ctest 报「Too many parentheses」后一个用例也不跑。
+names=(linux-candidate-fcitx-canvas linux-candidate-native-canvas linux-candidate-native-canvas-chrome
+  fcitx5-candidate-rows fcitx5-native-context fcitx5-native-ai fcitx5-native-smart-abc fcitx5-daemon-frontend
+  fcitx5-gtk-editor fcitx5-ibus-gtk-editor)
+for layout in horizontal vertical; do
+  names+=("fcitx5-translation-below-$layout" "fcitx5-gtk-canvas-$layout" "fcitx5-gtk-canvas-$layout-gif"
+    "fcitx5-gtk-canvas-$layout-webp" "fcitx5-native-canvas-$layout" "fcitx5-native-canvas-$layout-scale2"
+    "fcitx5-native-canvas-$layout-composited" "fcitx5-native-chrome-$layout" "fcitx5-native-chrome-$layout-composited"
+    "fcitx5-wayland-canvas-$layout-png"
+    "fcitx5-wayland-canvas-$layout-gif" "fcitx5-wayland-canvas-$layout-webp")
+done
+pattern="^($(IFS='|'; echo "${names[*]}"))\$"
+ctest --test-dir /build/fcitx5 -R "$pattern" \
   --output-on-failure --output-junit /build/fcitx5-acceptance.xml
-# 专用镜像提供全部依赖；X11 与 Wayland 的十八项真实窗口用例不能靠跳过得到验收通过。
+# 专用镜像提供全部依赖；X11 与 Wayland 的二十二项真实窗口用例不能靠跳过得到验收通过。
 python3 - /build/fcitx5-acceptance.xml <<'PY'
 import sys
 import xml.etree.ElementTree as ET
@@ -19,6 +31,7 @@ for layout in ("horizontal", "vertical"):
     names = [f"fcitx5-gtk-canvas-{layout}{suffix}" for suffix in ("", "-gif", "-webp")]
     names += [f"fcitx5-wayland-canvas-{layout}-{format}" for format in ("png", "gif", "webp")]
     names += [f"fcitx5-native-canvas-{layout}{suffix}" for suffix in ("", "-scale2", "-composited")]
+    names += [f"fcitx5-native-chrome-{layout}{suffix}" for suffix in ("", "-composited")]
     for name in names:
         tests = [test for test in report.findall("testcase") if test.get("name") == name]
         assert len(tests) == 1, f"{name}: 未注册"
