@@ -2241,6 +2241,8 @@ struct PhraseEngine {
     words: Vec<String>,
     /// Published with nothing composed, as the Engine publishes `/` and `@` when their modes are on.
     idle_symbols: String,
+    /// 非空时快照报告正在整句改字（`View::conversion`）；`MoveHome` 像真引擎一样先退出改字，把它清空。
+    conversion: String,
 }
 
 impl PhraseEngine {
@@ -2251,6 +2253,7 @@ impl PhraseEngine {
             consumes,
             words: vec!["海滩".into(), "跑步".into()],
             idle_symbols: String::new(),
+            conversion: String::new(),
         }
     }
 }
@@ -2288,6 +2291,7 @@ impl InputEngine for PhraseEngine {
             editing_text: self.reading.clone(),
             caret_position: self.caret.min(self.reading.len()),
             segment_raw_boundaries: Vec::new(),
+            conversion: self.conversion.clone(),
             candidates: if self.reading.is_empty() {
                 Vec::new()
             } else {
@@ -2306,7 +2310,10 @@ impl InputEngine for PhraseEngine {
             // 与真引擎的字母光标一致：每次移一个字符，到两端就停住（这里没有本地模式的前缀字母）。
             Command::MoveLeft => self.caret = self.caret.saturating_sub(1),
             Command::MoveRight => self.caret = (self.caret + 1).min(self.reading.len()),
-            Command::MoveHome => self.caret = 0,
+            Command::MoveHome => {
+                self.conversion.clear();
+                self.caret = 0;
+            }
             Command::MoveEnd => self.caret = self.reading.len(),
             Command::Backspace => {
                 if self.caret > 0 {
@@ -2418,8 +2425,7 @@ fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> 
     runtime
 }
 
-/// `navigation.left_right`：首选上 ← 编辑输入串，→ 先把光标送回输入串末尾、到了末尾才选下一个；高亮
-/// 不在首选时左右键只移动候选，与 ↑/↓ 走同一段代码。关着时两个键都还是普通光标命令。
+/// `navigation.left_right`：首选上 ← 编辑输入串，→ 先把光标送回输入串末尾、到了末尾才选下一个；高亮不在首选时左右键只移动候选，与 ↑/↓ 走同一段代码。关着时两个键都还是普通光标命令。
 #[test]
 fn left_right_edits_only_on_the_first_candidate() {
     let highlighted = |view: &View| {
@@ -2558,6 +2564,28 @@ fn home_key_returns_to_the_first_candidate_before_it_moves_the_caret() {
     runtime.dispatch(Action::Command(Command::MoveEnd)).unwrap();
     let plain = runtime.dispatch(Action::FirstCandidate).unwrap().view;
     assert_eq!(plain.caret_position, 7);
+}
+
+/// 整句改字时 Home 只回到首选：刚进改字时高亮就在首选，发 `MoveHome` 会让引擎退出改字、丢掉钉住的段。
+#[test]
+fn home_key_keeps_sentence_conversion() {
+    let mut engine = PhraseEngine::new(Vec::new());
+    engine.conversion = "你好吗".into();
+    let mut runtime = Runtime::new(engine, 5).unwrap();
+    runtime.focus(true).unwrap();
+    for value in *b"nihaoma" {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+
+    let home = runtime.dispatch(Action::FirstCandidateOrHome).unwrap().view;
+    assert_eq!(home.conversion, "你好吗");
+    assert_eq!(home.caret_position, 7);
+    assert!(home.candidates[0].highlighted);
 }
 
 #[test]

@@ -6441,7 +6441,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // Ctrl+Backspace deletes a segmentation unit and Ctrl+Left / Ctrl+Right move the caret by one, which is what the reference's composition editor does (`IsSegmentBackspaceKey` and `IsSegmentCaretKey` in its input_key_policy.h) and what both Linux front ends and the Windows host already route. It has to be decided before the rule below, which hands every Ctrl, Option and Command chord back to the application after finishing the composition - that rule is what left this host without segment editing.
     //
-    // Only the bare Ctrl chord is the input method's: with Shift, Option or Command also held, or with nothing being composed, the key stays the application's. A scheme that locks the caret (`locks_caret`: Korean, Zhuyin, Vietnamese) has no segments, so there the chord finishes the composition below and the application edits by word as usual.
+    // Only the bare Ctrl chord, and for Left / Right also the bare Shift chord, is the input method's: with Ctrl and Shift together, with Option or Command also held, or with nothing being composed, the key stays the application's. A scheme that locks the caret (`locks_caret`: Korean, Zhuyin, Vietnamese) has no segments, so there the chord finishes the composition below and the application edits by word as usual.
     //
     // Shift+左右与 Ctrl+左右相同，按音节移动拼音光标：macOS 默认把 Ctrl+左右分给调度中心切换桌面，按键到不了输入法，Shift+左右是这里实际能用的那一个（Rime 也把 Shift+方向键当 Ctrl+方向键）。两者在所有方案里都发分段命令，不再把全拼、双拼换成逐个字母的光标命令：共享 runtime 在横排候选窗里会把高亮不在首选时的字母光标命令换成移动候选，分段命令从不被换，所以停在哪个候选上它们都编辑拼音。Shift+Backspace 不在其中，仍是下面的普通退格。没有组字时两者照旧是应用的选择文字和按词移动。
     const NSEventModifierFlags segmentChord = event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
@@ -6455,8 +6455,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const uint32_t segment = segmentBackspaceKey ? MSIME_BACKSPACE_SEGMENT
             : event.keyCode == 123 ? MSIME_MOVE_LEFT_SEGMENT : MSIME_MOVE_RIGHT_SEGMENT;
         NSDictionary *transition = [_session command:segment error:nil];
-        // An Engine failure leaves the composition alone rather than finishing it below: the
-        // user asked to edit what is there, not to commit it.
+        // An Engine failure leaves the composition alone rather than finishing it below: the user asked to edit what is there, not to commit it.
         if (transition) { [self apply:transition]; return YES; }
         return YES;
     }

@@ -28,7 +28,7 @@ Status: implemented
 
 高亮不在首选时改拼音用修饰键：组字时 Shift+←/→ 和 Ctrl+←/→（只按这一个修饰键）在所有方案里按音节移动拼音光标，停在哪个候选上都一样。Shift+Backspace 不在其中。没有组字时这两个组合键照旧是应用的选择文字和按词移动。锁光标的方案（韩文、注音、越南文、藏文）照旧不接管。
 
-Home 分两段：候选窗开着时，高亮不在首选就回到首选，已经在首选才把拼音光标移到开头。End 不变，仍跳到末选。
+Home 分两段：候选窗开着时，高亮不在首选就回到首选，已经在首选才把拼音光标移到开头。End 不变，仍跳到末选。整句改字进行中 Home 一直只回到首选：改字的光标不在输入串里，`MoveHome` 会让引擎退出改字、丢掉已经钉住的段，而刚进改字时高亮就在首选，按一下 Home 就会把改好的句子扔掉。
 
 实现：
 
@@ -72,7 +72,7 @@ Home 分两段：候选窗开着时，高亮不在首选就回到首选，已经
 
 验证：
 
-- `cargo test -p msime-input-runtime` 328 项通过。`left_right_edits_only_on_the_first_candidate` 走完横排的四种情况和跨页的首个候选，修改前在「不在首选时按 ←」一步失败（光标从 7 变成 6）；`vertical_candidates_leave_left_right_to_the_input_string` 覆盖竖排；`home_key_returns_to_the_first_candidate_before_it_moves_the_caret` 覆盖两段式 Home，并确认 `FirstCandidate` 本身不分段。`msime-host-api` 的 `left_right_navigation_preference_reaches_real_sessions_and_live_updates` 用真引擎验证横排首选末尾 → 选下一个、偏好关闭和改成竖排后都恢复光标命令。`cargo fmt --check`、两个 crate 的 clippy `-D warnings` 通过。
+- `cargo test -p msime-input-runtime` 329 项通过。`left_right_edits_only_on_the_first_candidate` 走完横排的四种情况和跨页的首个候选，修改前在「不在首选时按 ←」一步失败（光标从 7 变成 6）；`vertical_candidates_leave_left_right_to_the_input_string` 覆盖竖排；`home_key_returns_to_the_first_candidate_before_it_moves_the_caret` 覆盖两段式 Home，并确认 `FirstCandidate` 本身不分段。`home_key_keeps_sentence_conversion` 确认整句改字中 Home 不退出改字，去掉判断时失败。`msime-host-api` 的 `left_right_navigation_preference_reaches_real_sessions_and_live_updates` 用真引擎验证横排首选末尾 → 选下一个、偏好关闭和改成竖排后都恢复光标命令。`cargo fmt --check`、两个 crate 的 clippy `-D warnings` 通过。
 - macOS `shortcut-test` 在本机图形会话中运行通过：偏好开启时交给 runtime、关闭时宿主回退分支横排按规则选词、竖排只编辑（含第二页首个候选）；全拼和五笔里 Ctrl/Shift+左右发分段命令，Shift+Backspace 仍是普通退格，没有组字时 Shift+左不发分段命令；候选窗显示时 Home 发 106。
 - Linux：`platforms/linux/build-container.sh` 编译 IBus 与 Fcitx5 两个前端，94 项 ctest 通过（1 项原本就跳过），`fcitx5_contract.py` 的新断言固定了分段分支、Shift 组合标记的先后顺序和 Home 命令号。`fcitx5-native-test` 与 `ibus-engine-smoke` 里新增的按键断言只编译过，没有执行到：两个测试要词库资源，门禁和 CI 都不带资源运行；带资源运行时，它们分别在更早的 `Disabled expression mode must pass through` 和英文录入的断言处失败，在 PR 基线提交上用同样方式运行失败相同，是已有问题。
 - Windows：`input_key_policy`、`edit_policy`、TSF 的 `host_composition` 用 clang++ 编译运行通过；Server 侧改动文件和测试用 MinGW `-fsyntax-only -Wall -Wextra -Werror` 通过，TSF 四个文件语法检查无错误；`test-windows-deferred-classification.py` 217 项等六份脚本通过。`reply_composer` 和 `session_smoke` 的真实会话断言（分段边界 0/2/5、两段式 Home、End 跳到末页末选）要链接 Windows 版 Rust 库，由 PR 上的 CI 运行。

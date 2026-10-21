@@ -62,7 +62,7 @@ pub enum Action {
     PreviousCandidate,
     FirstCandidate,
     LastCandidate,
-    /// Home 键（命令 106）：高亮不在首选时回到首选，已经在首选、输入串可以编辑时把光标移到开头。由 [`Runtime::home_key_action`] 换成 [`Action::FirstCandidate`] 或 `MoveHome`，不会走到别处。
+    /// Home 键（命令 106）：高亮不在首选时回到首选，已经在首选、输入串可以编辑（没有打开的候选列表、不在整句改字）时把光标移到开头。由 [`Runtime::home_key_action`] 换成 [`Action::FirstCandidate`] 或 `MoveHome`，不会走到别处。
     FirstCandidateOrHome,
 }
 
@@ -715,7 +715,7 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
-    /// Home 键分两段：高亮不在首选时第一下回到首选，已经在首选时才把输入串的光标移到开头。打开的候选列表（韩文汉字、注音）里没有可编辑的光标，那里一直是回到首选。
+    /// Home 键分两段：高亮不在首选时第一下回到首选，已经在首选时才把输入串的光标移到开头。打开的候选列表（韩文汉字、注音）里没有可编辑的光标，那里一直是回到首选。整句改字时也一直是回到首选：改字的光标不在输入串里，`MoveHome` 会让引擎退出改字、丢掉已经钉住的段，而刚进改字时高亮就在首选，按一下 Home 就会把改好的句子扔掉；End 在改字里同样只跳到末选。
     ///
     /// 宿主只在 Home 键上发这条命令；日文转换用 [`Action::FirstCandidate`] 循环回首选，不能因为高亮已在首选就去动读音的光标。
     fn home_key_action(&self, action: Action) -> Action {
@@ -725,6 +725,7 @@ impl<E: InputEngine> Runtime<E> {
         let caret_home = self.snapshot_valid
             && self.highlighted == 0
             && !self.cached.candidate_list_open
+            && self.cached.conversion.is_empty()
             && !self.cached.editing_text.is_empty();
         if caret_home {
             Action::Command(Command::MoveHome)

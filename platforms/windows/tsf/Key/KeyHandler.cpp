@@ -1869,15 +1869,17 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
     // 整句改字时分段命令先退出改字再移光标，预编辑从改好的句子换回拼音、候选也换了，要按引擎视图整个重画；高亮换了候选时同样重画（与左右键的 _HandleCompositionArrowKey 同一条件）。否则只有拼音光标动了，只移预编辑里的光标。
     if ((viewed && msime::tsf::HostCompositionNeedsRedraw(before.view, result.view)) || !result.view.conversion.empty())
         return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+    // 光标对不上已画的预编辑时按引擎视图整个重画，不能再走 fallback：分段命令已经在宿主会话里移过光标，fallback 会再发一次字母光标命令，光标多移一格，高亮不在首选时还会被共享 runtime 换成移动候选。
     const HRESULT moved = _MoveCompositionCaretToHost(ec, pContext, result);
-    return moved == S_FALSE ? fallback() : moved;
+    return moved == S_FALSE
+               ? _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID)
+               : moved;
 }
 
 HRESULT CMetasequoiaIME::_MoveCompositionCaretToHost(TfEditCookie ec, _In_ ITfContext *pContext,
                                                      const msime::tsf::EngineResult &result)
 {
-    // The runtime caret is a byte offset in ASCII editing_text, not a
-    // preedit prefix length. Map it against the text already rendered.
+    // The runtime caret is a byte offset in ASCII editing_text, not a preedit prefix length. Map it against the text already rendered.
     for (unsigned char byte : result.view.editing_text)
         if (byte > 0x7f)
             return S_FALSE;
@@ -2038,11 +2040,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionArrowKey(TfEditCookie ec, _In_ ITfCon
                 !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
             if (!result.handled) return S_OK;
             // 横排候选窗里，高亮不在首选、或者首选上 → 已经到了输入串末尾时，共享 runtime 会把这次左右键换成移动候选高亮（偏好 `navigation.left_right`，竖排时不换）。那种情况下预编辑一个字都没变，只有高亮动了，所以这里也要重画候选窗；下面的 SetSelection 只移动预编辑里的光标。
-            const bool highlightMoved =
-                viewed &&
-                msime::tsf::HighlightedCandidateIndex(before.view) !=
-                    msime::tsf::HighlightedCandidateIndex(result.view);
-            if (highlightMoved || (viewed && !before.view.conversion.empty()) ||
+            if ((viewed && msime::tsf::HostCompositionNeedsRedraw(before.view, result.view)) ||
                 !result.view.conversion.empty())
                 return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
                                                      FANY_IME_NO_REQUEST_ID);

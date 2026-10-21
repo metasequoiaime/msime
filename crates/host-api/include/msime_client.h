@@ -800,7 +800,7 @@ enum MsimeCommand {
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
     MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105,
-    /* 候选窗显示时的 Home 键：高亮不在首选时同 MSIME_FIRST_CANDIDATE；已经在首选、输入串非空且没有打开的候选列表（韩文汉字、注音）时同 MSIME_MOVE_HOME。宿主只在 Home 键上发它；需要「无条件回到首选」的地方（日文转换循环候选）仍发 MSIME_FIRST_CANDIDATE。 */
+    /* 候选窗显示时的 Home 键：高亮不在首选时同 MSIME_FIRST_CANDIDATE；已经在首选、输入串非空、没有打开的候选列表（韩文汉字、注音）且不在整句改字时同 MSIME_MOVE_HOME；整句改字时一直同 MSIME_FIRST_CANDIDATE，不退出改字。宿主只在 Home 键上发它；需要「无条件回到首选」的地方（日文转换循环候选）仍发 MSIME_FIRST_CANDIDATE。 */
     MSIME_FIRST_CANDIDATE_OR_HOME = 106
 };
 char *msime_client_command(uint64_t session, uint32_t command);
