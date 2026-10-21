@@ -130,7 +130,7 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
     }
 
     private static TextView find(View view, String value) {
-        if (view instanceof TextView text && value.contentEquals(text.getText())) return text;
+        if (view instanceof TextView text && text.isShown() && value.contentEquals(text.getText())) return text;
         if (view instanceof ViewGroup group) {
             for (int index = 0; index < group.getChildCount(); index++) {
                 TextView found = find(group.getChildAt(index), value);
@@ -145,7 +145,10 @@ public abstract class LocalVoiceReadinessChecks extends DeviceSmoke {
     private void onMain(MainAction action) throws Exception {
         List<Throwable> errors = new ArrayList<>();
         runOnMainSync(() -> { try { action.run(); } catch (Throwable error) { errors.add(error); } });
-        if (!errors.isEmpty()) throw new AssertionError("本地语音准备界面检查失败", errors.get(0));
+        if (!errors.isEmpty()) {
+            if (errors.get(0) instanceof AssertionError failure) throw failure;
+            throw new AssertionError("本地语音准备界面检查失败：" + errors.get(0).getClass().getSimpleName());
+        }
     }
 
     private static void check(boolean condition, String message) {
