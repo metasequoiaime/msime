@@ -671,7 +671,7 @@ pub enum AppInputModeRule {
 pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
 pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
 
-/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
 fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> bool {
     let mut seen = BTreeSet::new();
     rules.len() <= MAX_APP_INPUT_MODE_RULES
@@ -849,7 +849,7 @@ pub struct Preferences {
     pub default_ime_mode: DefaultImeMode,
     #[serde(default)]
     pub ime_mode_scope: ImeModeScope,
-    /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
+    /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名、Linux 按输入法框架报告的程序名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
     #[serde(default)]
@@ -1499,7 +1499,7 @@ pub struct FloatingToolbarPreferences {
     pub enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub english_mode: bool,
-    /// 切换输入方案的按钮：点开列出全拼、双拼、五笔、粤拼、注音等方案。默认开启——在 macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置里添加，这个按钮让不加入口也能切换。macOS 和 Windows 的工具栏画它（见 `HostCapabilities::floating_toolbar_input_scheme`）。
+    /// 切换输入方案的按钮：点开列出全拼、双拼、五笔、粤拼、注音等方案。默认开启——在 macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置里添加，这个按钮让不加入口也能切换。macOS、Windows 和 Linux 的悬浮工具栏画它，Linux 的「工具栏」子菜单也列出它（见 `HostCapabilities::floating_toolbar_input_scheme`）。
     #[serde(default = "enabled_by_default")]
     pub input_scheme: bool,
     #[serde(default = "default_toolbar_scale")]
@@ -1915,7 +1915,7 @@ pub struct AchievementPreferences {
     pub enabled: bool,
 }
 
-/// 中英混输的默认触发字符数：拼写达到这个长度才补英文候选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
+/// 中英混输默认的补全与英文领先门槛；26 键中更短的完整词仍可选。调低会让常见简拼被英文词抢走首选（见 `.agents/notes/implemented/feature/2026-10-12-mixed-english-leads-unsegmentable-input.md`）；不读偏好的宿主固定用它（`HostPlatform::reads_mixed_input_minimum_prefix`）。
 pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2142,7 +2142,7 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键：光标已经停在输入串的这一端、编辑器动不了它时，改成移动候选高亮（左是上一个、右是下一个）；光标还能移动时照旧编辑输入串。与 `arrows` 各自独立，默认开启。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
     #[serde(default = "enabled_by_default")]

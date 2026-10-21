@@ -46,6 +46,8 @@ export interface InputSchemeSettingsContentProps {
   edition?: EditionInfo;
   /** 「输入时显示双拼键位提示」的当前值，宿主不画双拼键位图时不传；改动写进共享偏好 `shuangpin_keymap_hint`。 */
   shuangpinKeymapHint?: boolean;
+  /** Linux 宿主；见 `InputSchemeDetailsSection` 的同名属性。 */
+  linux?: boolean;
   /** 「双拼预编辑」的当前样式，宿主不画双拼预编辑或在触屏宿主上时不传；改动写进共享偏好 `shuangpin_preedit_uses_raw`。 */
   shuangpinPreedit?: "raw" | "pinyin";
   /** macOS 的输入法列表；有它时在方案组末尾显示「菜单栏入口」。 */
@@ -76,6 +78,7 @@ export function InputSchemeSettingsContent({
   inputSchemes = baseInputSchemes,
   edition,
   shuangpinKeymapHint,
+  linux = false,
   shuangpinPreedit,
   macosInputModes,
   onError = () => {},
@@ -229,6 +232,7 @@ export function InputSchemeSettingsContent({
           hasTouchKeyboardSchemes={hasTouchKeyboardSchemes}
           touchKeyboardHasWubi={touchHasWubi}
           shuangpinKeymapHint={shuangpinKeymapHint}
+          linux={linux}
           shuangpinPreedit={shuangpinPreedit}
           onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
             onPreferencesChange({ shuangpin_profile })

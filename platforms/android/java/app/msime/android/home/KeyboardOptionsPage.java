@@ -384,7 +384,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "剪贴板排列", null);
         for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
-                () -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_COLUMNS, value));
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_COLUMNS, value,
+                    this::reload, this::reload));
         }
         sheet.show();
     }

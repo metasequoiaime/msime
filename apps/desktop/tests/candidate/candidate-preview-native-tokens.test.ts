@@ -4,6 +4,7 @@ import { utilityCss } from "../support/utility-css";
 import candidateSkin from "../../../../platforms/macos/src/candidate/CandidateSkin.cpp?raw";
 import candidateSkinHeader from "../../../../platforms/macos/src/candidate/CandidateSkin.h?raw";
 import candidateChrome from "../../../../platforms/macos/src/candidate/CandidateChrome.h?raw";
+import candidateChromeMetrics from "../../../../shared/candidate/CandidateChromeMetrics.h?raw";
 
 const card = utilityCss("skin-card-preview").replace(/\s+/g, "");
 
@@ -162,7 +163,13 @@ test("the macOS preview selects with a solid accent, white text and no bar, in t
     Number(new RegExp(`float ${name} = ([\\d.]+)f;`).exec(candidateSkinHeader)![1]);
   expect(tokenField("selectedRadius")).toBe(tokenField("candidateRadius"));
   expect(/bool showSelectedBar = (\w+);/.exec(candidateSkinHeader)![1]).toBe("false");
-  const rowPadding = Number(/MSIMECandidateRowPadding = ([\d.]+);/.exec(candidateChrome)![1]);
+  // 行内边距的数值在 shared/candidate 里，macOS 的 MSIMECandidateRowPadding 只是引用它。
+  expect(candidateChrome).toContain(
+    "MSIMECandidateRowPadding = msime::candidate::kCandidateRowPadding;",
+  );
+  const rowPadding = Number(
+    /constexpr double kCandidateRowPadding = ([\d.]+);/.exec(candidateChromeMetrics)![1],
+  );
   expect(declarations(`${mac}[data-preview-theme]`)).toEqual({
     "--cand-selected": "var(--cand-accent)",
     "--cand-selected-text": `var(--cand-mac-selected-text,${native.selectedText})`,

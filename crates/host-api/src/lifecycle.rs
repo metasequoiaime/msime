@@ -121,7 +121,8 @@ impl InputClass {
             | Action::NextCandidate
             | Action::PreviousCandidate
             | Action::FirstCandidate
-            | Action::LastCandidate => Self::Navigation,
+            | Action::LastCandidate
+            | Action::FirstCandidateOrHome => Self::Navigation,
             Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight => {
                 Self::Edit
             }

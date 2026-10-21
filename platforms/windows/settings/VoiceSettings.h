@@ -101,7 +101,7 @@ inline std::wstring doubao_test_resource_id(std::wstring_view stored) {
   return std::wstring(trimmed.empty() ? doubao_default_resource_id : trimmed);
 }
 
-// 「识别服务配置」的「更多选项」打开页面时就展开（advancedChanged）：用户改过接口地址（不为空，也不是这个服务的默认地址），或豆包的资源 ID 不是出厂值，免得改过的值藏起来看不见。
+// 「服务配置」子视图里「识别服务」的「更多选项」打开页面时就展开（advancedChanged）：用户改过接口地址（不为空，也不是这个服务的默认地址），或豆包的资源 ID 不是出厂值，免得改过的值藏起来看不见。
 inline bool asr_advanced_changed(std::vector<ProviderDefaults> const &table,
                                  std::wstring_view provider, std::wstring_view endpoint,
                                  std::wstring_view resource_id) {
@@ -168,6 +168,27 @@ inline bool asr_test_disabled(std::wstring_view provider, std::wstring_view auth
 
 // 「测试语音润色配置」不可用：没有令牌（polishServiceCredentialTestDisabled）。
 inline bool polish_test_disabled(std::wstring_view token) { return js_trim(token).empty(); }
+
+// 「识别」组里「服务配置 ›」一行右侧的状态，照共享页 `desktopVoiceServiceStatus` 的 Windows 分支：Windows 的豆包没填密钥时拒绝录音，不会改用系统识别，所以照实说没填。本地识别看有没有选模型；网络服务看当前框里的令牌，空时看按服务记下的那一份（`voice_input.asr_tokens[服务]`）；豆包旧版鉴权还要 App Key。系统识别不用配置，返回空，这一行只有箭头。
+inline std::wstring_view service_status(std::wstring_view provider, bool service_voice,
+                                        bool local_voice, std::wstring_view model_path,
+                                        std::wstring_view token, std::wstring_view saved_token,
+                                        std::wstring_view app_key, std::wstring_view auth_mode) {
+  if (local_voice)
+    return model_path.empty() ? L"未选模型" : L"已选模型";
+  if (!service_voice)
+    return {};
+  const bool has_token = !js_trim(token).empty() || !js_trim(saved_token).empty();
+  if (provider != L"doubao")
+    return has_token ? L"已填写" : L"未填写";
+  const bool has_app_key = !js_trim(app_key).empty();
+  const bool legacy = auth_mode == L"legacy";
+  if (!has_token && (!legacy || !has_app_key))
+    return L"未填写";
+  if (!has_token || (legacy && !has_app_key))
+    return L"未填写完整";
+  return L"已填写";
+}
 
 // 识别语言的建议（VoiceLanguageOptions）：系统识别用 zh-CN 这样的区域代码，也不能自动识别；其他识别器用短代码。
 inline std::vector<Choice> language_choices(bool system_voice) {

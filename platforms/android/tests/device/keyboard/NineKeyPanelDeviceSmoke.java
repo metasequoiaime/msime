@@ -1,6 +1,7 @@
 package app.msime.android.test;
 
 import android.os.SystemClock;
+import android.graphics.Rect;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -136,7 +137,33 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo editor = await(field("msime-test-plain"));
             if (editor.getText() != null && editor.getText().length() > 0 && !editor.isShowingHintText())
                 throw new AssertionError("Cancelled nine-key composition reached the editor");
+
+
+            stage = "touch selection closes the nine-key panel";
+            tap(key("MNO"));
+            tap(key("GHI"));
+            tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            AccessibilityNodeInfo choice = await(inPanel(describedPrefix("候选 1：")));
+            Rect bounds = new Rect();
+            choice.getBoundsInScreen(bounds);
+            shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
+            awaitGone(described(PANEL));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().length() > 0 && !node.isShowingHintText()));
+            String committed = await(field("msime-test-plain")).getText().toString();
+            stage = "nine-key keyboard accepts input without hiding the IME";
+            await(key("MNO")).getBoundsInScreen(bounds);
+            shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().length() > committed.length()));
+            // 触摸回归留下了已提交文字与新组字，先清空再验证最近选词，避免两项用例互相影响。
+            tap(key("重输"));
+            android.os.Bundle clear = new android.os.Bundle();
+            clear.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
+            if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clear))
+                throw new AssertionError("Cannot clear synthetic editor before recent selections");
             verifyRecentSpellingSelection();
+
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

@@ -14,11 +14,22 @@ import org.json.JSONObject;
  * 九键双拼（#6572）的设备验收：键面印着米旮旯 3 每个数字键上的声母和韵母（2 键是 b c 和零声母、a ai iang，0 键是 u ü ei）；6 4 4 7 是 ni'hao，打出「你好」，输入框里写拼音读音而不是数字；0 是组码（5 0 是 lu）；最后一行的分词键把 8 和 4 切成两个声母，按简拼出「中国」；换成米旮旯 2 后键面跟着换（零声母在 6 键，0 键不再是组码）。
  */
 public final class NineKeyShuangpinDeviceSmoke extends DeviceSmoke {
+    private boolean facesOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        facesOnly = arguments != null && "true".equals(arguments.getString("faces_only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
-        return "nine-key shuangpin faces from the table, two digits per syllable, 0 as a code key, separator initials and a table switch";
+        return facesOnly ? "九键与 26 键双拼的键面像素边界、字体缩放及提示开关"
+            : "nine-key shuangpin faces from the table, two digits per syllable, 0 as a code key, separator initials and a table switch";
     }
 
     @Override protected void runChecks() throws Exception {
+        stage = "shuangpin key face geometry";
+        ShuangpinKeyFaceChecks.verify(this);
+        if (facesOnly) return;
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(
             Files.readAllBytes(new File(root, "runtime-options.json").toPath()),
@@ -47,6 +58,13 @@ public final class NineKeyShuangpinDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));
+            // 英文九键套件会记住英文模式；本套件要验中文双拼键面，先明确切回中文。
+            for (AccessibilityWindowInfo window : automation.getWindows()) {
+                if (find(window.getRoot(), key("英")) != null) {
+                    tap(key("英"));
+                    break;
+                }
+            }
 
             stage = "Mi Ga La 3 faces";
             await(described("按键 2，声母 b c 和零声母，韵母 a ai iang"));

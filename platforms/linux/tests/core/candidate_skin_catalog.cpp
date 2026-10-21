@@ -259,5 +259,47 @@ int main() {
   assert(candidate_corner_radius(Json::object(), rounded_catalog, "sakura") == 12.0);
   assert(candidate_corner_radius(Json{{"candidate_corner_radius", 40}}, rounded_catalog, "sakura") == 12.0);
   assert(!candidate_corner_radius(Json::object(), decorated_catalog, "sakura"));
+  // 皮肤包的行圆角：共享目录直接给出的 item_corner_radius_dip 优先，其次是 Windows 外观和 canvas 底的 resolvedLayout；都按清单的 0–16 再查一遍。
+  {
+    using msime::linux_host::candidate_skin_item_radius;
+    auto rows = decorated;
+    rows["item_corner_radius_dip"] = 3.0;
+    assert(candidate_skin_item_radius(Json{{"packages", Json::array({rows})}}, "sakura") == 3.0);
+    rows["resolvedLayout"] = Json{{"itemCornerRadiusDip", 8}};
+    assert(candidate_skin_item_radius(Json{{"packages", Json::array({rows})}}, "sakura") == 3.0);
+    rows.erase("item_corner_radius_dip");
+    assert(candidate_skin_item_radius(Json{{"packages", Json::array({rows})}}, "sakura") == 8.0);
+    for (const Json &value : {Json(17), Json(-1), Json("4")}) {
+      rows["resolvedLayout"]["itemCornerRadiusDip"] = value;
+      assert(!candidate_skin_item_radius(Json{{"packages", Json::array({rows})}}, "sakura"));
+    }
+    assert(!candidate_skin_item_radius(decorated_catalog, "sakura"));
+    assert(!candidate_skin_item_radius(decorated_catalog, "absent"));
+  }
+  // 背景图：绝对路径、fit 和不透明度都合规才画；缺省是 cover、不透明。
+  {
+    using msime::linux_host::candidate_skin_background;
+    using msime::linux_host::CandidateSkinBackgroundFit;
+    auto painted = decorated;
+    painted["background_image"] = "/skins/sakura/assets/background.png";
+    const auto catalog_of = [](const Json &package) { return Json{{"packages", Json::array({package})}}; };
+    const auto plain = candidate_skin_background(catalog_of(painted), "sakura");
+    assert(plain && plain->image == "/skins/sakura/assets/background.png" &&
+           plain->fit == CandidateSkinBackgroundFit::cover && plain->opacity == 1.0);
+    painted["background_fit"] = "contain";
+    painted["background_opacity"] = 0.35;
+    const auto contained = candidate_skin_background(catalog_of(painted), "sakura");
+    assert(contained && contained->fit == CandidateSkinBackgroundFit::contain && contained->opacity == 0.35);
+    painted["background_fit"] = "stretch";
+    assert(candidate_skin_background(catalog_of(painted), "sakura")->fit == CandidateSkinBackgroundFit::stretch);
+    for (const auto &[key, value] : std::vector<std::pair<std::string, Json>>{
+             {"background_fit", "tile"}, {"background_opacity", 1.5}, {"background_opacity", "0.5"},
+             {"background_image", "relative.png"}, {"background_image", 7}}) {
+      auto broken = painted;
+      broken[key] = value;
+      assert(!candidate_skin_background(catalog_of(broken), "sakura"));
+    }
+    assert(!candidate_skin_background(decorated_catalog, "sakura"));
+  }
   return 0;
 }

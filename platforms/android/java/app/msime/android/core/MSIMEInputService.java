@@ -10,6 +10,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
+import android.database.ContentObserver;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -158,6 +160,8 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
      */
     boolean candidateRenderDeferred;
+    /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
+    private final java.util.Map<View, Object> candidateTouches = new java.util.WeakHashMap<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
@@ -365,8 +369,11 @@ public final class MSIMEInputService extends InputMethodService {
     private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
     /** 浮动面板顶部的拖动条，只在浮动时显示。 */
     FloatingKeyboardBar floatingBar;
-    /** 上一次套到窗口上的是不是浮动布局（浮动键盘或跟随光标的候选栏）；起初是系统默认的停靠布局。 */
+    /** 上一次窗口是否铺满透明区域（浮动键盘、跟随光标候选栏或全文预览）；起初是系统默认的停靠布局。 */
     private boolean floatingLayoutApplied;
+    /** 全文预览只临时扩展窗口，停靠键区沿用扩展前的像素高度。 */
+    boolean clipboardPreviewExpanded;
+    int clipboardPreviewKeyboardHeight;
     /** 上一次套上的浮动布局是不是跟随光标的候选栏：它和浮动键盘的外框宽度、拖动条不同，在两者之间切换也要重新套。 */
     private boolean caretLayoutApplied;
     /** 第一次浮动前窗口与系统 inputArea 原来的高度，停靠时原样恢复；{@link Integer#MIN_VALUE} 表示还没记下。 */
@@ -416,6 +423,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
+    private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -748,6 +756,19 @@ public final class MSIMEInputService extends InputMethodService {
     boolean emojiLoading;
     private long emojiLoadGeneration;
     final Handler main = new Handler(Looper.getMainLooper());
+    private final ContentObserver inputMethodWatcher = new ContentObserver(main) {
+        @Override public void onChange(boolean selfChange) {
+            automaticNumberRow.inputMethodChanged();
+            // 回调异步到达：切回本输入法后仍在密码/终端中时，按当前编辑器重新开启。
+            String selected;
+            try { selected = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD); }
+            catch (SecurityException unavailable) { selected = null; }
+            EditorInfo info = getCurrentInputEditorInfo();
+            if (selected != null && selected.startsWith(getPackageName() + "/") && isInputViewShown() && info != null)
+                automaticNumberRow.enterEditor(info.inputType, info.packageName);
+            if (keyboardRoot != null) render();
+        }
+    };
     Runnable backspaceRepeatTask;
     Button backspaceRepeatButton;
     boolean backspaceRepeated;
@@ -1490,6 +1511,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
@@ -1631,6 +1653,8 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        getContentResolver().registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
         LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
@@ -1654,6 +1678,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -1728,6 +1753,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        imePanels.dismissClipboardPreview();
         flushKeyPresses();
         cancelInputViewRefresh();
         // 键盘收起时还在调整高度就照「完成」保存：用户拖到满意的高度后直接收起键盘或切到别的应用，是把这个高度留下来的意思，原来当作取消，下次弹出就回到设置页里的旧值。只有明确点「取消」才放弃预览。
@@ -1847,6 +1873,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        getContentResolver().unregisterContentObserver(inputMethodWatcher);
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -4278,15 +4305,15 @@ public final class MSIMEInputService extends InputMethodService {
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
     }
 
-    /** 现在字母上方要不要画数字行（#6022）：开关打开、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
+    /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
     boolean numberRowDrawn() {
-        return KeyboardLayout.drawsNumberRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsNumberRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 
     /** 数字、符号页保留源字母数字行占用的一排。 */
     boolean symbolExtraRowDrawn() {
-        return KeyboardLayout.drawsSymbolExtraRow(numberRowEnabled, keyboardLayer, displayedTouchLayout(view),
+        return KeyboardLayout.drawsSymbolExtraRow(automaticNumberRow.enabled(numberRowEnabled), keyboardLayer, displayedTouchLayout(view),
             getResources().getConfiguration().screenHeightDp);
     }
 
@@ -4577,8 +4604,6 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (dedicatedEnglish) command(3); else command(2);
             if (session == 0) return;
-            int previousLayout = displayedTouchLayout(view);
-            boolean previousUppercase = letterCase.usesUppercase();
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
             if (rememberMode && inputModeStore != null) {
@@ -4587,9 +4612,8 @@ public final class MSIMEInputService extends InputMethodService {
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();
-            // 布局变了时 refreshLetterCase 自己会整组重建；只是大写回到小写时就地改键面。
-            if (previousLayout != displayedTouchLayout(view) || previousUppercase)
-                imeLetterRows.refreshLetterCase();
+            // 同为小写状态时，中文固定大写键帽与英文小写键帽也不同；布局是否需要重建交给 refreshLetterCase 判断。
+            imeLetterRows.refreshLetterCase();
             updateAutomaticCapitalization(shouldRender);
             if (directEnglishActive()) refreshEnglishSuggestions();
             else {
@@ -4993,6 +5017,15 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyCode == KeyEvent.KEYCODE_SPACE) return command(1) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_ENTER) { enter(); return true; }
         int unicode = event.getUnicodeChar();
+        // 普通组字里未被选词规则认领的硬件数字是字面输入；本地模式仍由引擎决定拼写、选词或原文回退。
+        if (unicode >= '0' && unicode <= '9'
+                && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
+                && (nineKeyShuangpinGrid(view)
+                || InputViewValuePolicy.booleanValue(view, "nine_key", false))) {
+            if (hasEngineComposition()) command(FINISH_COMPOSITION_COMMAND);
+            commitText(fullWidthOutput(String.valueOf((char) unicode)));
+            return true;
+        }
         if (dedicatedEnglish && unicode >= 32 && unicode <= 126 && !TextPolicy.isAsciiLetter(unicode)) {
             commitEnglishLiteral(unicode);
             return true;
@@ -5557,6 +5590,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeClipboardHistory() {
+        imePanels.dismissClipboardPreview();
         if (clipboardScroll != null) ViewPolicy.hide(clipboardScroll);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
@@ -8380,6 +8414,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
         candidateButtons.clear();
@@ -9017,16 +9052,27 @@ public final class MSIMEInputService extends InputMethodService {
         return floatingDrawn() || caretCandidatesDrawn();
     }
 
+    /** 全文预览临时扩大透明窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
+    void setClipboardPreviewExpanded(boolean expanded) {
+        if (clipboardPreviewExpanded == expanded) return;
+        if (expanded) clipboardPreviewKeyboardHeight = keyboardSurface.getHeight();
+        clipboardPreviewExpanded = expanded;
+        applyFloatingLayout(true);
+        imeStyler.applySkin();
+    }
+
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
+     * 剪贴板全文预览同样临时铺满透明窗口，但停靠键区保留原高，应用仍只为键区让出空间。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        if (!force && floating == floatingLayoutApplied && caret == caretLayoutApplied) return;
-        floatingLayoutApplied = floating;
+        boolean fullWindow = floating || clipboardPreviewExpanded;
+        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
+        floatingLayoutApplied = fullWindow;
         caretLayoutApplied = caret;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
@@ -9034,15 +9080,15 @@ public final class MSIMEInputService extends InputMethodService {
             android.view.WindowManager.LayoutParams attributes = window.getAttributes();
             View inputArea = window.findViewById(android.R.id.inputArea);
             ViewGroup.LayoutParams areaParams = inputArea == null ? null : inputArea.getLayoutParams();
-            if (floating && dockedWindowHeight == Integer.MIN_VALUE) dockedWindowHeight = attributes.height;
-            if (floating && areaParams != null && dockedInputAreaHeight == Integer.MIN_VALUE)
+            if (fullWindow && dockedWindowHeight == Integer.MIN_VALUE) dockedWindowHeight = attributes.height;
+            if (fullWindow && areaParams != null && dockedInputAreaHeight == Integer.MIN_VALUE)
                 dockedInputAreaHeight = areaParams.height;
-            int windowHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedWindowHeight;
+            int windowHeight = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : dockedWindowHeight;
             if (windowHeight != Integer.MIN_VALUE && attributes.height != windowHeight) {
                 attributes.height = windowHeight;
                 window.setAttributes(attributes);
             }
-            int areaHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedInputAreaHeight;
+            int areaHeight = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : dockedInputAreaHeight;
             if (areaParams != null && areaHeight != Integer.MIN_VALUE && areaParams.height != areaHeight) {
                 areaParams.height = areaHeight;
                 // 铺满时 inputArea 仍贴着窗口底部，停靠后的包裹高度同样贴底，与系统默认一致。
@@ -9053,7 +9099,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (keyboardRoot != null && keyboardRoot.getLayoutParams() != null) {
             ViewGroup.LayoutParams params = keyboardRoot.getLayoutParams();
-            int height = floating ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            int height = fullWindow ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
             if (params.height != height) {
                 params.height = height;
                 keyboardRoot.setLayoutParams(params);
@@ -9079,11 +9125,12 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
+     * 全文预览的透明窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
-        if (!overlayDrawn() || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !clipboardPreviewExpanded) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -9091,6 +9138,10 @@ public final class MSIMEInputService extends InputMethodService {
         outInsets.contentTopInsets = height;
         outInsets.visibleTopInsets = height;
         keyboardSurface.getLocationInWindow(floatingLocation);
+        if (clipboardPreviewExpanded && !overlayDrawn()) {
+            outInsets.contentTopInsets = floatingLocation[1];
+            outInsets.visibleTopInsets = floatingLocation[1];
+        }
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
         if (keyboardSurface.getVisibility() != View.VISIBLE) {
             outInsets.touchableRegion.setEmpty();
@@ -9947,10 +9998,10 @@ public final class MSIMEInputService extends InputMethodService {
         imeToolbar.styleTopRow();
     }
 
-    /** 在候选条或展开面板里是否有一个视图正被手指按着。 */
-    private static boolean candidateTreeHeld(View view) {
+    /** 在候选条或展开面板里是否有尚未结束的触摸或排队点击。 */
+    private boolean candidateTreeHeld(View view) {
         if (view == null || view.getVisibility() != View.VISIBLE) return false;
-        if (view.isPressed()) return true;
+        if (candidateTouches.containsKey(view)) return true;
         if (!(view instanceof android.view.ViewGroup group)) return false;
         for (int index = 0; index < group.getChildCount(); index++)
             if (candidateTreeHeld(group.getChildAt(index))) return true;
@@ -9961,11 +10012,16 @@ public final class MSIMEInputService extends InputMethodService {
     void bindCandidateRenderRelease(View button) {
         button.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
-            if ((action == android.view.MotionEvent.ACTION_UP
-                    || action == android.view.MotionEvent.ACTION_CANCEL)
-                    && candidateRenderDeferred) {
-                candidateRenderDeferred = false;
-                view.post(this::render);
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                candidateTouches.put(view, new Object());
+            } else if (action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL) {
+                Object gesture = candidateTouches.get(view);
+                // 触摸监听先于框架的点击入队；再排一次队，既不能提前摘掉按钮，也不能漏掉点击触发的延后绘制。
+                main.post(() -> main.post(() -> {
+                    if (candidateTouches.get(view) == gesture) candidateTouches.remove(view);
+                    if (candidateRenderDeferred) render();
+                }));
             }
             return false;
         });

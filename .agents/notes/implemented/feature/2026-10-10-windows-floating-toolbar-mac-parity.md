@@ -8,7 +8,7 @@ macOS 的悬浮工具栏有切换输入方案、手写、语音三个可选按�
 
 ## Decision
 
-工具栏的按钮组、默认值与 macOS 和 client-core 的 `FloatingToolbarPreferences` 一致。`FloatingToolbarSettings`（`platforms/windows/src/candidate/FloatingToolbarSettings.h`）在原有六项 `items` 之外另读 `input_scheme`（默认开）、`handwriting`、`voice`（默认关）和顶层 `show_app_logo`（默认关）。六项 `items` 不扩成十项：它同时是 PreviewConfig `floating_toolbar_items` 的契约，那里要求正好六个键。`floating_toolbar_slots` 按「中英、切换输入方案(11)、全角、标点、简繁、表情、手写(7)、屏幕键盘、语音(8)、设置」排，手写还按版本（`MSIME_EDITION_HANDWRITING`）去掉。手写和语音沿用它们原来的 id 7、8，9（关于）不再分配。
+工具栏的按钮组、默认值与 macOS 和 client-core 的 `FloatingToolbarPreferences` 一致。`FloatingToolbarSettings`（`platforms/windows/src/candidate/FloatingToolbarSettings.h`）在原有六项 `items` 之外另读 `input_scheme`（默认开）、`handwriting`、`voice`（默认关）和顶层 `show_app_logo`（默认关）。六项 `items` 不扩成十项：它同时是 PreviewConfig `floating_toolbar_items` 的契约，那里要求正好六个键。`floating_toolbar_slots` 按「中英、切换输入方案(11)、标点、全角、简繁、表情、手写(7)、屏幕键盘、语音(8)、设置」排（与 macOS 的按钮栈相同），手写还按版本（`MSIME_EDITION_HANDWRITING`）去掉。手写和语音沿用它们原来的 id 7、8，9（关于）不再分配。
 
 切换输入方案按钮和右键实用菜单都用托盘卡片的 `TrayMenuWindow` 画，新增按行构造的构造函数和 `open_beside`（`toolbar_menu_bounds`：上方放得下开在工具栏上方，否则开在下方）。方案菜单的行就是托盘「输入方案」那一组（`tray_menu_scheme_items`，托盘也从这里取），选中后走 Server 里托盘同一个 `tray_command`，也就是 `store_input_scheme` 写偏好；实用菜单的行由 `toolbar_utility_menu_items` 给出，照搬 macOS 的 `CreateMetasequoiaFloatingToolbarUtilityMenu`。右键在卡片任何位置都打开实用菜单，不只设置按钮：设置按钮能被关掉，隐藏工具栏那一项不能跟着丢。「隐藏悬浮状态栏」写回 `floating_toolbar.enabled`，与托盘的工具栏开关同一条路径；「检查更新…」和「关于」一样打开设置窗口的「关于」页（`settings:about`），检查在那一页里经 `msime_client_update_check` 完成（合入 develop 的「设置窗口关于页直接检查更新」之后，原先直接让 MSIME.exe 打开共享应用关于页的做法随之改掉），没有设置窗口时这一行不可用；帮助和反馈落到设置窗口的「帮助与反馈」页。两个弹出菜单与托盘卡片一样不抢焦点，由 UI 循环用 `tray_menu_dismissal` 轮询收起；被轮询收起后 400 ms 内同一按钮不再重开，所以再按一次按钮就是关上它。工具栏窗口不感知 DPI，它量到的按钮位置是系统虚拟化过的逻辑坐标，而弹出菜单按物理像素摆放，所以锚点先按同一个窗口在两种坐标里的外框换算（`toolbar_physical_coordinate`），否则缩放不是 100% 时菜单开到离按钮很远的地方。
 
@@ -16,7 +16,7 @@ macOS 的悬浮工具栏有切换输入方案、手写、语音三个可选按�
 
 语言按钮在中文模式下按运行中的方案画「双」「五」（`ToolbarLanguageState::scheme`）。悬停提示用 comctl32 的 tooltip 控件，每个按钮一个区域，文字由 `toolbar_tooltip` 现算，与 macOS 的 toolTip 相同，语言按钮带方案名（`toolbar_scheme_title`，如「小鹤双拼 · 切换到英文输入」）；用户自定义的双拼键位（`custom`）写「自定义双拼」，不按 macOS 的规范化说成小鹤双拼，其余不认识的键位仍按 macOS 落到小鹤。`show_app_logo` 关掉时 logo 槽按 macOS 的比例收窄（图标 24 时 10 DIP），画两列三行圆点，仍是拖动区。
 
-空闲隐藏由 `FloatingToolbarIdleTimer`（`FloatingToolbarVisibilityPolicy.h`）决定：每次真实按键（维护快捷键的低级键盘钩子新增的 `KeySink`，不含注入的按键）、Server 经 TSF 管道收到的按键（`ServerKeyActivity`：焦点会话处理的键和 Aux 管道的 KeySound 各加一次计数，界面线程每轮比较计数，变了就算一次输入；钩子看不到屏幕键盘和 SendInput 类键鼠共享工具注入的按键、看不到发往提权窗口的按键，也可能没装上，这些按键只要经过了 Server 照样唤醒工具栏）、在工具栏上按下鼠标、拖动工具栏松手（系统的移动循环占着 UI 线程，拖动期间计时没有机会重置，松手时补记一次）、弹出菜单开着，都让工具栏回来并重新计时；开关打开或输入法重新激活也算一次输入；全屏切换、偏好刷新和普通焦点切换不唤醒。生产 Server 把拖动后的位置写进状态目录的 `floating_toolbar_position.json`（`FloatingToolbarPosition.h`），启动时读回。移动循环里窗口动了就记下松手时的位置（`floating_toolbar_drag_end`），没记过位置的第一次拖动也算，只在拖动条上按一下没动时不记；越界由原有的放置逻辑夹回工作区；预览实例照旧写自己的配置文件。位置只属于这台机器的显示器布局，不进同步到云端的共享偏好。
+空闲隐藏由 `FloatingToolbarIdleTimer`（`FloatingToolbarVisibilityPolicy.h`）决定：每次真实按键（维护快捷键的低级键盘钩子新增的 `KeySink`，不含注入的按键）、Server 经 TSF 管道收到的按键（`ServerKeyActivity`：焦点会话处理的键和 Aux 管道的 KeySound 各加一次计数，界面线程每轮比较计数，变了就算一次输入；钩子看不到屏幕键盘和 SendInput 类键鼠共享工具注入的按键、看不到发往提权窗口的按键，也可能没装上，这些按键只要经过了 Server 照样唤醒工具栏）、在工具栏上按下鼠标、拖动工具栏松手（系统的移动循环占着 UI 线程，拖动期间计时没有机会重置，松手时补记一次）、弹出菜单开着，都让工具栏回来并重新计时；开关打开或输入法重新激活也算一次输入；全屏切换、偏好刷新和普通焦点切换不唤醒。生产 Server 把拖动后的位置写进状态目录的 `floating_toolbar_position.json`（`FloatingToolbarPosition.h`），启动时读回。移动循环里窗口动了就记下松手时的位置（`floating_toolbar_drag_end`），没记过位置的第一次拖动也算，只在 logo、握把或工具栏上别的非按钮区域按了一下没动时不记；越界由原有的放置逻辑夹回工作区；预览实例照旧写自己的配置文件。位置只属于这台机器的显示器布局，不进同步到云端的共享偏好。
 
 WinUI 设置窗口的「工具栏组件」加入切换输入方案、手写识别板（不提供手写的版本不显示）和语音输入；`HostCapabilities::for_platform(Windows)` 的三个能力位翻成 true，手写仍由 `narrow_to_edition` 按版本收窄。
 
@@ -38,7 +38,7 @@ WinUI 设置窗口的「工具栏组件」加入切换输入方案、手写识�
   - 系统表情面板靠合成 Win+.，Windows 没有给 Win32 进程的公开接口；系统改了这个快捷键就失效。
   - 提示只是 tooltip 控件；读屏读到的按钮名字（与提示同一段文字）由 UI Automation 提供者给出，见 [自绘窗口的 UI Automation 读屏](2026-10-10-windows-server-window-ui-automation.md)。
   - 任务栏语言栏图标按方案画一个字，Ctrl+Shift+Win+K 也退回 `osk.exe`，见 [遗留项](2026-10-10-windows-mac-parity-leftovers.md)；按方案注册多个 TSF 语言配置文件没有做。
-  - 藏文在工具栏仍画「藏」，macOS 画「ཀ」；Windows 的托盘和语言栏都用「藏」，这里保持一致。
+  - 工具栏的尺寸、字形、拖动区域和缺省的表情按钮后来按 macOS 改过，藏文按钮改画「ཀ」（任务栏语言栏图标仍是「藏」），见[工具栏、提示与托盘对齐 macOS](2026-10-20-windows-toolbar-hud-tray-mac-geometry.md)。
 
 ## Verification
 

@@ -31,7 +31,7 @@ test.each<{
   { platform: "ios", snapshot: true, native: false, download: true },
   { platform: "macos", snapshot: true, native: true, download: false },
   { platform: "windows", snapshot: true, native: false, download: false },
-  { platform: "linux", snapshot: false, native: false, download: false },
+  { platform: "linux", snapshot: true, native: false, download: false },
   { platform: "harmony", snapshot: false, native: false, download: false },
   { platform: undefined, snapshot: false, native: false, download: false },
 ])("$platform 面板沿用宿主快照与单词条下载能力", ({ platform, snapshot, native, download }) => {
@@ -40,7 +40,9 @@ test.each<{
   expect(client.snapshot).toBe(snapshot);
   expect(client.snapshotNative).toBe(native);
   expect(typeof client.downloadToLocal === "function").toBe(download);
-  expect(client.snapshotAppliesInPanel).toBe(platform === "windows" ? true : undefined);
+  expect(client.snapshotAppliesInPanel).toBe(
+    platform === "windows" || platform === "linux" ? true : undefined,
+  );
   expect(typeof client.chooseSnapshotRestore === "function").toBe(platform === "macos");
   expect(base.request).not.toHaveBeenCalled();
   expect(base.close).not.toHaveBeenCalled();
@@ -63,6 +65,18 @@ test("复制客户端而不改原对象，保留账号请求和窗口动作", as
   expect(client.exportNative).toBe(true);
   await expect(client.request({ operation: "snapshot_status" })).resolves.toEqual({ saved: true });
   expect(base.request).toHaveBeenCalledExactlyOnceWith({ operation: "snapshot_status" });
+});
+
+test("只有 Linux 面板经宿主把导出写进下载目录", async () => {
+  const saveHostExport = vi.fn(async (_name: string, _contents: string) => "/synthetic/path");
+  const linux = createDesktopCloudDictionaryClient(panelClient(), "linux", {}, saveHostExport);
+  await expect(linux.saveExport!("synthetic.ndjson", "合成快照")).resolves.toBeUndefined();
+  expect(saveHostExport).toHaveBeenCalledExactlyOnceWith("synthetic.ndjson", "合成快照");
+  for (const platform of ["windows", "macos", "android", "ios", undefined] as const)
+    expect(
+      createDesktopCloudDictionaryClient(panelClient(), platform, {}, saveHostExport).saveExport,
+    ).toBeUndefined();
+  expect(createDesktopCloudDictionaryClient(panelClient(), "linux", {}).saveExport).toBeUndefined();
 });
 
 test("macOS 原生文件选择调用当前账号客户端并返回其结果", async () => {

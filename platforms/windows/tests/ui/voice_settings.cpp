@@ -177,6 +177,29 @@ int main() {
                 std::wstring(L"无法写入模型文件，请确认磁盘空间充足。"),
         "import error messages");
 
+  // 「服务配置 ›」的状态（desktopVoiceServiceStatus 的 Windows 分支）：豆包没填时照实说没填，不说「暂用系统识别」。
+  check(service_status(L"local", false, true, L"", L"", L"", L"", L"api_key") == L"未选模型" &&
+            service_status(L"local", false, true, L"C:\\models\\a", L"", L"", L"", L"api_key") ==
+                L"已选模型",
+        "local recognition reports the chosen model");
+  check(service_status(L"system", false, false, L"", L"t", L"", L"", L"api_key").empty(),
+        "system recognition has no status");
+  check(service_status(L"openai", true, false, L"", L"", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"openai", true, false, L"", L" \t", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"openai", true, false, L"", L"", L"saved", L"", L"api_key") == L"已填写" &&
+            service_status(L"openai", true, false, L"", L"t", L"", L"", L"api_key") == L"已填写",
+        "network services look at the current or the saved token");
+  check(service_status(L"doubao", true, false, L"", L"", L"", L"", L"api_key") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"", L"", L"key", L"api_key") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"", L"api_key") == L"已填写",
+        "doubao with an API key");
+  check(service_status(L"doubao", true, false, L"", L"", L"", L"", L"legacy") == L"未填写" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"", L"legacy") == L"未填写完整" &&
+            service_status(L"doubao", true, false, L"", L"", L"", L"key", L"legacy") ==
+                L"未填写完整" &&
+            service_status(L"doubao", true, false, L"", L"t", L"", L"key", L"legacy") == L"已填写",
+        "doubao legacy needs both the token and the app key");
+
   if (failures)
     return 1;
   std::puts("voice settings: ok");

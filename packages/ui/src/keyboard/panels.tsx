@@ -18,6 +18,7 @@ import type {
   CloudRankingMode,
   CloudDictionaryFileFormat,
   CloudDictionaryPanelClient,
+  ClipboardCaptureStatus,
   EmojiPanelClient,
 } from "./panel-client";
 import { FluentIcon } from "../core/fluent-icons";
@@ -89,6 +90,7 @@ export type {
   CloudDictionaryResponse,
   CloudDictionaryPanelClient,
   EmojiPanelClient,
+  ClipboardCaptureStatus,
 } from "./panel-client";
 export type { InkStroke } from "./panel-client";
 
@@ -1285,14 +1287,30 @@ const panelChip = (chosen: boolean) =>
       : `border-transparent bg-transparent ${panelDim} ${panelRaise} focus-visible:bg-[#303038] focus-visible:text-[#f5f5f7] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:text-[#202124]`
   }`;
 const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-center text-sm ${surface.panelMuted}`;
+/** 临时消息的胶囊提示，尺寸和配色取自 macOS 原生表情面板的 `MacEmojiToastOverlay`：浮在底部状态行上方，不接收指针。 */
+const panelToast =
+  "pointer-events-none absolute bottom-[42px] left-1/2 z-10 flex h-[35px] max-w-[calc(100%-27px)] -translate-x-1/2 items-center overflow-hidden rounded-full bg-[#3a3a44]/96 px-[19px] text-[13px] font-semibold whitespace-nowrap text-[#f5f5f7] group-data-[panel-theme=light]:bg-[#2b2b33]/94";
+/** 剪贴板采集状态，文案与 macOS 原生剪贴板页的状态行一致；Linux 另有读不到系统剪贴板的三种，按当前会话该装什么来说。 */
+const captureStatusText: Record<ClipboardCaptureStatus, string> = {
+  disabled: "剪贴板采集已停用",
+  monitoring: "历史开启时，保存新复制的文本",
+  unavailable: "无法读取共享设置，剪贴板采集已暂停",
+  read_unavailable: "当前会话里读不到系统剪贴板，剪贴板采集已暂停",
+  read_unavailable_x11: "读不到系统剪贴板，剪贴板采集已暂停：请安装 xclip 或 xsel",
+  read_unavailable_wayland: "读不到系统剪贴板，剪贴板采集已暂停：请安装 wl-clipboard",
+  save_failed: "剪贴板历史保存失败，将重试",
+};
 export function EmojiPanel({
   client,
   theme = "dark",
   initialPage = "home",
+  standaloneClipboard = false,
 }: {
   client: EmojiPanelClient;
   theme?: "dark" | "light";
   initialPage?: "home" | "clipboard";
+  /** 独立的本地剪贴板窗口（Linux 的「水杉本地剪贴板」）：页头叫「剪贴板」，不显示表情面板的分类导航。 */
+  standaloneClipboard?: boolean;
 }) {
   const {
     page,
@@ -1304,7 +1322,9 @@ export function EmojiPanel({
     clipboardBusy,
     clipboardLoadFailed,
     clipboardEnabled,
+    captureStatus,
     notice,
+    toast,
     catalogUnavailable,
     catalogLoading,
     categoryPage,
@@ -1325,6 +1345,7 @@ export function EmojiPanel({
     enableClipboard,
     syncClipboard,
     pasteClipboard,
+    sendClipboardToCloud,
     removeClipboard,
     clearClipboard,
     clearRecent,
@@ -1338,17 +1359,19 @@ export function EmojiPanel({
     showMore,
     previousItemPage,
     nextItemPage,
-  } = useEmojiPanel(client, initialPage);
+  } = useEmojiPanel(client, initialPage, standaloneClipboard);
   const selectCatalogItem = (item: EmojiCatalogItem) => copy(item.text, false, item.keywords);
+  const standalone = standaloneClipboard && page === "clipboard";
   return (
     <main
       {...navigation}
-      className={`native-panel group flex min-h-screen flex-col overflow-hidden ${page === "symbols" ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText}`}
+      // `panelSurface` 的浅色变体是 `group-data`，只作用于子元素；根元素自己就是这个 group，浅色底色要直接按自身的 `data-panel-theme` 给，否则浅色主题下空白处仍是深色。
+      className={`native-panel group relative flex min-h-screen flex-col overflow-hidden ${page === "symbols" ? "h-screen" : ""} ${surface.panelSurface} ${surface.panelText} data-[panel-theme=light]:bg-[#f7f8fa] data-[panel-theme=light]:text-[#202124]`}
       data-panel-theme={theme}
-      aria-label="表情与符号"
+      aria-label={standalone ? "剪贴板" : "表情与符号"}
     >
       <NativePanelHeader
-        title={page === "symbols" ? "符号大全" : "Emoji and more"}
+        title={standalone ? "剪贴板" : page === "symbols" ? "符号大全" : "Emoji and more"}
         className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${surface.panelSurface} ${surface.panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
         closeDisabled={clipboardBusy}
         onClose={() => void closeEmoji()}
@@ -1384,6 +1407,7 @@ export function EmojiPanel({
       <nav
         className={`flex ${page === "symbols" ? "flex-[0_0_38px]" : "flex-[0_0_72px]"} items-stretch gap-1 px-[18px] pt-2 max-phone:px-2`}
         aria-label="面板分类"
+        hidden={standalone}
       >
         {emojiPages.map((item) => (
           <button
@@ -1409,7 +1433,7 @@ export function EmojiPanel({
           </button>
         ))}
       </nav>
-      {isDetail && page !== "symbols" && (
+      {isDetail && page !== "symbols" && !standalone && (
         <div className="flex-[0_0_32px] px-6">
           <button
             type="button"
@@ -1627,6 +1651,11 @@ export function EmojiPanel({
               )}
             </div>
           </div>
+          {captureStatus && (
+            <p className={`m-0 mb-2 text-xs ${panelDim}`} data-clipboard-capture={captureStatus}>
+              {captureStatusText[captureStatus]}
+            </p>
+          )}
           {clipboardLoadFailed ? (
             <p className={panelEmpty} role="status">
               无法读取剪贴板历史，请点击“刷新列表”重试
@@ -1654,6 +1683,7 @@ export function EmojiPanel({
               onCopy={(text) => void copy(text, true)}
               onItemKeyDown={clipboardItemKey}
               onPaste={client.clipboard?.paste ? pasteClipboard : undefined}
+              onSendToCloud={client.clipboard?.sendToCloud ? sendClipboardToCloud : undefined}
               onRemove={client.clipboard?.remove ? removeClipboard : undefined}
             />
           ) : (
@@ -1779,6 +1809,12 @@ export function EmojiPanel({
             ? "点击项目即可复制"
             : "点击项目即可输入到原应用")}
       </p>
+      {toast && (
+        <div className={panelToast} role="status" data-panel-toast="">
+          {/* whitespace-pre 保留「已复制」后面的两个空格，与 macOS 原生提示一致；nowrap 会把它们并成一个。 */}
+          <span className="overflow-hidden text-ellipsis whitespace-pre">{toast}</span>
+        </div>
+      )}
     </main>
   );
 }

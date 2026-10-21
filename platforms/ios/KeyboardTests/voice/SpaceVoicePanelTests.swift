@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// 空格长按与语音结果面板：长按直接转交主 App 开始录音，面板仍负责待插入结果；光标拖动裁决方式同 Android 的 `SpaceGesturePolicy`。
+/// 空格长按与语音结果面板：长按按住说话（会话没开时转交主 App 开启），面板仍负责待插入结果；光标拖动裁决方式同 Android 的 `SpaceGesturePolicy`。
 @MainActor
 final class SpaceVoicePanelTests: XCTestCase {
   private var storedScheme = InputSchemePreference.scheme
@@ -68,7 +68,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     KeyboardLayoutPreference.spaceVoice = true
     controller.viewWillAppear(false)
     XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移", "语音输入"])
-    XCTAssertTrue(space.accessibilityHint?.contains("长按打开语音输入") ?? false)
+    XCTAssertTrue(space.accessibilityHint?.contains("按住说话，松开上屏") ?? false)
   }
 
   /// VoiceOver 通过空格键的 语音输入 操作进入面板。测试宿主没有完全访问权限，结果永远无法从 App 传回：键盘会直接提示这一点，而不是打开面板。
@@ -86,8 +86,8 @@ final class SpaceVoicePanelTests: XCTestCase {
   }
 
   func testThePanelSaysWhatTheOrbDoes() {
-    XCTAssertEqual(KeyboardVoicePanelView.status(for: nil), "轻点录音")
-    XCTAssertEqual(KeyboardVoicePanelView.orbLabel(for: nil), "去水杉 App 录音")
+    XCTAssertEqual(KeyboardVoicePanelView.status(for: nil), "轻点开启语音")
+    XCTAssertEqual(KeyboardVoicePanelView.orbLabel(for: nil), "去水杉 App 开启语音")
     let entry = VoiceTextHandoff(id: UUID(), text: "明天见", createdAt: Date(), expiresAt: Date().addingTimeInterval(600))
     XCTAssertEqual(KeyboardVoicePanelView.status(for: entry), "已识别：明天见")
     XCTAssertEqual(KeyboardVoicePanelView.orbLabel(for: entry), "插入语音结果")
@@ -111,11 +111,11 @@ final class SpaceVoicePanelTests: XCTestCase {
     let caption = panel.captionLabel.convert(panel.captionLabel.bounds, to: panel)
     XCTAssertEqual(status.minY - orb.maxY, 14, accuracy: 0.5)
     XCTAssertEqual(caption.minY - status.maxY, 14, accuracy: 0.5)
-    XCTAssertEqual(panel.statusLabel.text, "轻点录音")
+    XCTAssertEqual(panel.statusLabel.text, "轻点开启语音")
     XCTAssertEqual(panel.statusLabel.font.pointSize, 15)
     XCTAssertEqual(panel.captionLabel.text, "点任意处取消")
     XCTAssertEqual(panel.captionLabel.font.pointSize, 12.5)
-    XCTAssertEqual(panel.orb.accessibilityLabel, "去水杉 App 录音")
+    XCTAssertEqual(panel.orb.accessibilityLabel, "去水杉 App 开启语音")
     XCTAssertEqual(panel.orb.isPulsing, !UIAccessibility.isReduceMotionEnabled)
 
     XCTAssertTrue(panel.hitTest(CGPoint(x: orb.midX, y: orb.midY), with: nil) === panel.orb)

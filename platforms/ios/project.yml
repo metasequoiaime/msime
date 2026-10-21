@@ -53,7 +53,7 @@ targets:
   MSIMEApp:
     type: application
     platform: iOS
-    # 只放 INFOPLIST_KEY_* 表达不了的键：两个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme；另一个是 Google 登录的回调）、Google 登录的两个 client ID、ATS 的局域网例外和界面语言的声明。
+    # 只放 INFOPLIST_KEY_* 表达不了的键：两个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme；另一个是 Google 登录的回调）、Google 登录的两个 client ID、ATS 的局域网例外、界面语言的声明和后台音频模式。
     # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来。
     info:
       path: App/Resources/Info.plist
@@ -75,6 +75,8 @@ targets:
         # 界面只有中文，所以界面里内嵌的系统控件（Sign in with Apple、`ContentUnavailableView.search`、系统弹出面板）也要请求中文；不声明本地化时，不管设备语言是什么，它们都会回落到英文的开发区域。
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
+        # 按住空格说话：键盘扩展不能录音，App 在后台保持录音会话，替键盘录音识别（App/Services/VoiceSessionService.swift）。会话空闲 5 分钟自动关闭。
+        UIBackgroundModes: [audio]
     sources:
       - path: App/Sources
       - path: App/Services

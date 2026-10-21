@@ -11,7 +11,7 @@ export interface HostCapabilities {
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
-  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
+  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS、Windows 和 Linux）。 */
   app_input_mode_rules?: boolean;
   typing_statistics: boolean;
   /** 宿主已接通共享的背单词入口。 */
@@ -37,11 +37,11 @@ export interface HostCapabilities {
   candidate_font_controls: boolean;
   candidate_preedit_font: boolean;
   candidate_page_number: boolean;
-  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
+  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS、Windows 和 Linux 的 Fcitx5）。 */
   app_logo?: boolean;
   /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
   traditional_chinese_variants?: boolean;
-  /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（目前只有 macOS）。 */
+  /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（macOS，以及 X11 上用原生画布画候选窗的 Linux Fcitx5）。 */
   expand_candidates?: boolean;
   /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（macOS、Windows、Linux 和 HarmonyOS；Android 和 iOS 不是）。 */
   surface_themes_follow?: boolean;
@@ -57,7 +57,7 @@ export interface HostCapabilities {
   candidate_window_opacity: boolean;
   /** 宿主按 `candidate_corner_radius` 设置候选卡片圆角，优先于皮肤包里的半径。 */
   candidate_corner_radius: boolean;
-  /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前只有 macOS。 */
+  /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前是 macOS 和 Linux 的 Fcitx5。 */
   candidate_padding: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
@@ -88,7 +88,7 @@ export interface HostCapabilities {
   /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
   touch_keyboard_spacing?: boolean;
   shuangpin_preedit: boolean;
-  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
+  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS、Windows 和 Linux 的 X11 客户端）。 */
   shuangpin_keymap_hint?: boolean;
   /** 宿主响应 Ctrl+Shift+Alt 维护快捷键。 */
   maintenance_shortcuts: boolean;
@@ -120,7 +120,7 @@ export interface HostCapabilities {
   input_method_framework?: string;
   /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
   device_model?: string;
-  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角和皮肤的装饰图，也不描边（Linux 本来就不给边框色取色器）。 */
+  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、内边距、不透明度、水杉 logo 和皮肤的装饰图，也不描边（Linux 本来就不给边框色取色器）。 */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
   /** 宿主播放 `plugins` 中的音效包：按键音、旋律、上屏音和成就提示音。 */
   key_sound: boolean;
@@ -130,13 +130,13 @@ export interface HostCapabilities {
   music: boolean;
   /** 宿主绘制打字特效及 `msime_client_typing_effect` 返回的连击计数。 */
   typing_effects: boolean;
-  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
+  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（macOS 和 Linux）。 */
   caps_lock_punctuation?: boolean;
   /** 宿主能分辨 Caps Lock 的轻点和长按并撤回大写锁定，「单按 Caps Lock 切换中英文」在这里有效（三个桌面宿主）。 */
   caps_lock_language_switch?: boolean;
   /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
   shift_letter_entry_switch?: boolean;
-  /** 宿主把快捷短语编码追加到普通候选，目前只有 macOS。 */
+  /** 宿主把快捷短语编码追加到普通候选（macOS 和 Linux）。 */
   quick_phrase_candidates?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;

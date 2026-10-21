@@ -62,6 +62,8 @@ pub enum Action {
     PreviousCandidate,
     FirstCandidate,
     LastCandidate,
+    /// Home 键（命令 106）：高亮不在首选时回到首选，已经在首选、输入串可以编辑（没有打开的候选列表、不在整句改字）时把光标移到开头。由 [`Runtime::home_key_action`] 换成 [`Action::FirstCandidate`] 或 `MoveHome`，不会走到别处。
+    FirstCandidateOrHome,
 }
 
 /// What one selection of a phrase-in-progress can be taken back to.
@@ -118,8 +120,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 横排候选窗里，左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
+    /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
+    pub(crate) vertical_candidates: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -621,6 +625,11 @@ impl<E: InputEngine> Runtime<E> {
         self.left_right_navigation = enabled;
     }
 
+    /// 候选窗是否竖排：和 `set_left_right_navigation` 一样只影响左右键这一次怎么解释。
+    pub fn set_vertical_candidates(&mut self, vertical: bool) {
+        self.vertical_candidates = vertical;
+    }
+
     /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
     pub fn set_wubi_candidate_selection(
         &mut self,
@@ -670,19 +679,18 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// 左右键的候选回退（`navigation.left_right`）：不带修饰键的左右键在宿主那里先是编辑输入串的光标命令，
-    /// 光标已经停在要移动的那一端、引擎动不了它的时候，这一次按键换成移动候选高亮，与 ↑/↓ 落在同一段代码上
-    /// （[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
+    /// 左右键的候选导航（`navigation.left_right`）：不带修饰键的左右键在宿主那里是编辑输入串的光标命令，这里按高亮决定这一次按键是编辑还是移动候选，移动候选与 ↑/↓ 落在同一段代码上（[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
     ///
-    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，
-    /// 于是仍被吞掉，不会作为应用的按键落进文档。
+    /// 只在候选横排时接管：方向键沿着候选的排列方向移动高亮，竖排时由 ↑/↓ 移高亮，左右键只编辑输入串。
     ///
-    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里
-    /// （`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，
-    /// 各宿主也先一步把四个方向键都归给高亮。本地模式的光标起点在前缀字母之后，这里按 0 判左端：
-    /// 那一个位置上左右键仍然什么都不做。
+    /// 高亮在首选（全部候选里的第一个，不是当前页的第一个）时，← 编辑输入串；→ 在光标没到末尾时把光标往末尾送，到了末尾才选下一个。高亮不在首选时，左右键只移动候选，不再编辑输入串：离开首选的那一下光标就在末尾，用 ↓ 离开首选时光标可能停在中间，那时 → 也照样选下一个。
+    ///
+    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，于是仍被吞掉，不会作为应用的按键落进文档。
+    ///
+    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里（`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，各宿主也先一步把四个方向键都归给高亮。
     fn caret_edge_candidate_shortcut(&self, action: Action) -> Action {
         if !self.left_right_navigation
+            || self.vertical_candidates
             || !self.snapshot_valid
             || self.visible_len() == 0
             || self.cached.candidate_list_open
@@ -695,19 +703,34 @@ impl<E: InputEngine> Runtime<E> {
             Action::Command(Command::MoveRight | Command::ConversionRight) => false,
             _ => return action,
         };
-        let caret = self.cached.caret_position;
-        let at_edge = if backwards {
-            caret == 0
-        } else {
-            caret >= self.cached.editing_text.len()
-        };
-        if !at_edge {
+        let edits = self.highlighted == 0
+            && (backwards || self.cached.caret_position < self.cached.editing_text.len());
+        if edits {
             return action;
         }
         if backwards {
             Action::PreviousCandidate
         } else {
             Action::NextCandidate
+        }
+    }
+
+    /// Home 键分两段：高亮不在首选时第一下回到首选，已经在首选时才把输入串的光标移到开头。打开的候选列表（韩文汉字、注音）里没有可编辑的光标，那里一直是回到首选。整句改字时也一直是回到首选：改字的光标不在输入串里，`MoveHome` 会让引擎退出改字、丢掉已经钉住的段，而刚进改字时高亮就在首选，按一下 Home 就会把改好的句子扔掉；End 在改字里同样只跳到末选。
+    ///
+    /// 宿主只在 Home 键上发这条命令；日文转换用 [`Action::FirstCandidate`] 循环回首选，不能因为高亮已在首选就去动读音的光标。
+    fn home_key_action(&self, action: Action) -> Action {
+        if !matches!(action, Action::FirstCandidateOrHome) {
+            return action;
+        }
+        let caret_home = self.snapshot_valid
+            && self.highlighted == 0
+            && !self.cached.candidate_list_open
+            && self.cached.conversion.is_empty()
+            && !self.cached.editing_text.is_empty();
+        if caret_home {
+            Action::Command(Command::MoveHome)
+        } else {
+            Action::FirstCandidate
         }
     }
 
@@ -805,6 +828,7 @@ impl<E: InputEngine> Runtime<E> {
             phrase_preedit: false,
             backspace_reverts_selection: true,
             left_right_navigation: false,
+            vertical_candidates: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
@@ -879,6 +903,22 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         }
         // 脚本插件的操作只按候选身份重放，不运行脚本：停顿的时机不能透露给脚本。是否挪动按重放之后的座位比较。
+        // 重排会就地挪动 `cached`，先记下高亮那一条。高亮还在第一条时不用记：落定之后仍停在第一条。
+        let previous_highlight = self.highlighted;
+        let marked = if previous_highlight == 0 {
+            None
+        } else {
+            self.cached
+                .candidates
+                .get(previous_highlight)
+                .cloned()
+                .map(|text| {
+                    (
+                        text,
+                        self.cached.candidate_codes.get(previous_highlight).cloned(),
+                    )
+                })
+        };
         let replayed = self.has_candidate_ops();
         if replayed {
             let mut order = std::mem::take(&mut self.settled_order_scratch);
@@ -895,7 +935,13 @@ impl<E: InputEngine> Runtime<E> {
         }
         if moved {
             self.snapshot_valid = true;
-            self.highlighted = 0;
+            // 用户还停在第一条时，落定重排换上来的词就是新的第一条。已经翻页或移动过高亮时，
+            // 停在原来那一条上，不能弹回第一页。
+            if let Some((text, code)) = &marked {
+                self.keep_highlight_on_same_candidate(previous_highlight, text, code.as_deref());
+            } else {
+                self.highlighted = 0;
+            }
             let _ = self.advance();
             self.bump_candidates_epoch();
         }
@@ -2088,6 +2134,44 @@ impl<E: InputEngine> Runtime<E> {
         Ok(())
     }
 
+    /// 组字没变时，异步改写候选不能把用户已经翻到的页弹回第一页。
+    ///
+    /// 高亮还停在第一条时留在第一条：云候选插进第二格，空格选中的仍是新的第一条。
+    /// 已经翻页或移动过高亮时，按文本和编码找回那一条。它若被排回更前的页，不跟回去，
+    /// 停在原来那一页的开头。否则云联想回包一到，`+` 刚翻开的下一页就会弹回第一页。
+    fn keep_highlight_on_same_candidate(
+        &mut self,
+        previous_highlight: usize,
+        text: &str,
+        code: Option<&str>,
+    ) {
+        let visible = self.visible_len();
+        if visible == 0 {
+            self.highlighted = 0;
+            return;
+        }
+        let page_size = self.page_size.max(1);
+        let page = previous_highlight / page_size;
+        let page_start = page * page_size;
+        let found = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                *index < visible
+                    && *index / page_size >= page
+                    && candidate.as_str() == text
+                    && code.is_none_or(|expected| {
+                        self.cached.candidate_codes.get(*index).map(String::as_str)
+                            == Some(expected)
+                    })
+            })
+            .min_by_key(|(index, _)| index.abs_diff(previous_highlight))
+            .map(|(index, _)| index);
+        self.highlighted = found.unwrap_or(page_start).min(visible - 1);
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
@@ -2149,23 +2233,33 @@ impl<E: InputEngine> Runtime<E> {
         // 派发类调用里的 refresh 重新运行插件，其余只重放；隐藏的行数和插件注释的变化也算候选视图的变化。
         let plugin_marks_changed = self.transform_candidates();
         self.snapshot_valid = true;
-        if self.cached.editing_text == previous.editing_text
+        let composition_held = self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
             && self.cached.local_mode == previous.local_mode
             && self.cached.reading == previous.reading
             && self.cached.dedicated_english == previous.dedicated_english
-            && self.cached.candidates == previous.candidates
-            && self.cached.candidate_codes == previous.candidate_codes
-            && self.cached.candidate_annotations == previous.candidate_annotations
-            && self.cached.candidate_sources == previous.candidate_sources
-            && self.cached.candidate_positions == previous.candidate_positions
-            && self.cached.candidate_corrected == previous.candidate_corrected
-            && self.cached.candidate_answers_key == previous.candidate_answers_key
-            && self.cached.candidate_static_evidence == previous.candidate_static_evidence
             && self.cached.conversion == previous.conversion
-            && self.cached.conversion_focus_start == previous.conversion_focus_start
-        {
-            self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
+            && self.cached.conversion_focus_start == previous.conversion_focus_start;
+        if composition_held {
+            let candidates_held = self.cached.candidates == previous.candidates
+                && self.cached.candidate_codes == previous.candidate_codes
+                && self.cached.candidate_annotations == previous.candidate_annotations
+                && self.cached.candidate_sources == previous.candidate_sources
+                && self.cached.candidate_positions == previous.candidate_positions
+                && self.cached.candidate_corrected == previous.candidate_corrected
+                && self.cached.candidate_answers_key == previous.candidate_answers_key
+                && self.cached.candidate_static_evidence == previous.candidate_static_evidence;
+            if candidates_held {
+                self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
+            } else if previous_highlight > 0 {
+                if let Some(text) = previous.candidates.get(previous_highlight) {
+                    let code = previous
+                        .candidate_codes
+                        .get(previous_highlight)
+                        .map(String::as_str);
+                    self.keep_highlight_on_same_candidate(previous_highlight, text, code);
+                }
+            }
         }
         let cached = &self.cached;
         if cached.preedit != previous.preedit
@@ -2405,8 +2499,9 @@ impl<E: InputEngine> Runtime<E> {
         }
         // 只在当前页有目标候选时接管；否则继续原标点路径，不能像越界数字键那样吞掉。
         let action = self.candidate_shortcut(action);
-        // 左右键先编辑输入串，光标已经停在这一端时这一次按键才是移动候选（偏好 `navigation.left_right`）。
+        // 横排候选里，首选上左右键编辑输入串（→ 到末尾为止），其余候选上左右键移动候选（偏好 `navigation.left_right`）；竖排时左右键只编辑。
         let action = self.caret_edge_candidate_shortcut(action);
+        let action = self.home_key_action(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation

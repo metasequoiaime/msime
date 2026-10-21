@@ -88,6 +88,7 @@
 		14B842D20FCD4A43757314B8 /* MSIMELogoShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351D02547A39864AD54B844E /* MSIMELogoShape.swift */; };
 		14BCB5C318B84D6A1E406FC7 /* Unicode-License-V3.txt in Resources */ = {isa = PBXBuildFile; fileRef = 878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */; };
 		14C4F1C9C76476FB98201280 /* OnlineTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720F2C5C7D633B6ECA1913B2 /* OnlineTransport.swift */; };
+		15AF6D3B3DB28ED27AE2EFC3 /* VoiceSessionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */; };
 		15B2C334F157816C422B28D1 /* DoubaoWebSocketTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E380781C2A6D1D0E5BD79134 /* DoubaoWebSocketTransport.swift */; };
 		15C43E9BC5E5F91133A70F2D /* KeyboardPhrasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F062B819666D4A4D9287AD8D /* KeyboardPhrasesView.swift */; };
 		15D44FBE14031F4502B8E302 /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
@@ -187,6 +188,7 @@
 		2F4A629CA2AB65BE1507E206 /* SharedNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC92FC1B37877C543213DF /* SharedNumber.swift */; };
 		2F812313F653E9B8990F6ABE /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		2F8CC6AEE4BFB93E614C546D /* StrokeKeypadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4950C6F74FAE801B8E9D22 /* StrokeKeypadView.swift */; };
+		2FBF23FC984850789DFBC449 /* VoiceSessionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */; };
 		3014ECA4EE0B5695576DD6F1 /* IOSCloudSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7987ED59A86BCCC48CAE3C16 /* IOSCloudSettings.swift */; };
 		301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0A83D8DED0888156567425AF /* LaunchScreen.storyboard */; };
 		30748AC7DE037442DBBC3E1A /* AboutUpdateRequestStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B65369702DF08F20727C45 /* AboutUpdateRequestStateTests.swift */; };
@@ -226,6 +228,7 @@
 		38CBF4A9C7713B943687BBD9 /* CommunityDictionaryImportsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B1C8E88C7D7E0CA6F9BC93 /* CommunityDictionaryImportsTests.swift */; };
 		38EC11CDF714A19EAEF6C6BC /* KeyboardTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 268C07E14E8904421A470FCC /* KeyboardTheme.swift */; };
 		38F4082CABCEB319F7E53F14 /* SkinCommunityAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488B833986CE8AAD950359C9 /* SkinCommunityAccountTests.swift */; };
+		38F9777E616079ADBBFC1797 /* VoiceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE37C57DC5D9672B075F4F61 /* VoiceSessionView.swift */; };
 		3985E045FA7B6C519947593D /* KeyboardGeometrySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A96144FAFD463E1EA64B913 /* KeyboardGeometrySettingsTests.swift */; };
 		39A1CB56B13D281EFF3D182F /* GeneratedKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC587235772F54E138C05322 /* GeneratedKeyboardSkin.swift */; };
 		39B23CEF8FDA399B83D1D550 /* BackendAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFFAD7862417E1ED7B2FE00 /* BackendAccountSession.swift */; };
@@ -357,6 +360,7 @@
 		5AACF8DA8AF76C0D40C819F6 /* PersonalDictionaryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070E2130BE0A27C9B3CFD530 /* PersonalDictionaryBridge.swift */; };
 		5ABCD6601127685E2DCA353F /* CompositionBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7561DB9278BE9F36866CF72C /* CompositionBoundaryTests.swift */; };
 		5AF5FB33A4D63BBBE39D7CB3 /* NineKeyShuangpinLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A015A7C186EE5829EE62B4 /* NineKeyShuangpinLayout.swift */; };
+		5B06E28CAB2564D63AC7225B /* DoubaoSessionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6486B6B72A11A948AD67A0 /* DoubaoSessionLifecycleTests.swift */; };
 		5B337485BA9B9A78C6D11857 /* DiagnosticLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE8BE645B7881F20FC18502E /* DiagnosticLogTests.swift */; };
 		5B51CCD104CFC35594E7CAD3 /* CloudClipboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E730A38A35919513E9F22337 /* CloudClipboardView.swift */; };
 		5B5E189C070E6E46D795E81F /* KeyboardAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F455BDE0DBDA8A761F0373 /* KeyboardAIView.swift */; };
@@ -562,6 +566,7 @@
 		91F9EC1353356B1A77EE96FF /* KeyboardLayoutTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58FA4200E8A4B07CEFC31B28 /* KeyboardLayoutTables.swift */; };
 		92B9A7AB26701550B0862D96 /* CloudDictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC403F205F97D0B32D52DA5 /* CloudDictionaryView.swift */; };
 		92F55375741FEE1356A50C88 /* KeyboardPunctuationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BDF370F68412D2706739B9 /* KeyboardPunctuationContext.swift */; };
+		92FFF12A7EBB91DFCE2885AE /* KeyboardVoiceDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */; };
 		931C18533F352DF104950528 /* CloudSyncMarkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B381E4EB8A994D9BAA5646 /* CloudSyncMarkingTests.swift */; };
 		932F90F4AD57D89829769D20 /* KeyboardSkinTrial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7C0956C2183B09335BD442 /* KeyboardSkinTrial.swift */; };
 		9357E84C7F2063301A7942E0 /* WelcomeFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874FE91F05D7569EE19499A6 /* WelcomeFlowView.swift */; };
@@ -650,6 +655,7 @@
 		AB82A31F6FBFD8A281B70A75 /* VerificationCodePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E458895F904999F03A6A88F /* VerificationCodePolicyTests.swift */; };
 		AB8E1B417432DE61CBB64EFF /* ViewRequestTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB78FF7812EC435D05E8FFC8 /* ViewRequestTaskTests.swift */; };
 		AC098C8E31A217080EFE8F5B /* AppAppearancePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */; };
+		AC2E477B10D66D04DACA2442 /* VoiceSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1A614C1102F8D726E39906 /* VoiceSessionTests.swift */; };
 		AC3B2E364A8EE2DF6CF5A4D6 /* KeyboardAppLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEF68D184EE85FAFAA3B5DA /* KeyboardAppLauncher.swift */; };
 		AC51D29B60B89BEB8FE2A395 /* HandwritingInputViewFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB16ED43E02A5C32A83690FE /* HandwritingInputViewFallback.swift */; };
 		AC66953B50B979EDAAB8046D /* KeyboardOneHandGutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB35BCE48E4B543ED876A384 /* KeyboardOneHandGutterView.swift */; };
@@ -672,6 +678,7 @@
 		B146B20EEBC76B528A20052E /* OnlineCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */; };
 		B16E1F19505648A62CC4C1BC /* BackendDictionaryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA5AC2ED8E38D8E073C2C85 /* BackendDictionaryClient.swift */; };
 		B1A2369A77062FDEF7BD12C7 /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574E6D9379A517BF9C5CEB82 /* SpaceCursorMovement.swift */; };
+		B1D2E3A87B9C6F7C88210DFC /* DoubaoLiveFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56116E1E60ACAF9CC705B0D2 /* DoubaoLiveFailureTests.swift */; };
 		B28586C994CA2F0D4425851B /* CandidateMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B836D28DBED9680F0BBDD3 /* CandidateMarker.swift */; };
 		B2D406BD3029AAA4AF982BBF /* CloudClipboardTimePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A6C4BAD194E965A914892 /* CloudClipboardTimePolicyTests.swift */; };
 		B2D9B9A7A9E6AB944761C169 /* HelpcodeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A648FB41B90E98C5CE44CA23 /* HelpcodeSettingsView.swift */; };
@@ -700,6 +707,7 @@
 		B7A7630A70483915C37566C4 /* KeyboardSymbolPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEB9046FB868FC3891C261B /* KeyboardSymbolPanelView.swift */; };
 		B7B62CB145E2989062034455 /* VoiceLevelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 286B7C738B89772E01C574B9 /* VoiceLevelTests.swift */; };
 		B88C8FDE4AEDFF84EB5130F3 /* BackendCandidateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F8DF30A61A7F6604ED4032 /* BackendCandidateClient.swift */; };
+		B89F8699C23AB75C54D93780 /* LoopbackWebSocketServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7097E49A6C0747CD1236C292 /* LoopbackWebSocketServer.swift */; };
 		B906E09D022EED36C7C0A0C6 /* DictionarySnapshotWorkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC00C071ACBFB34984B70AE /* DictionarySnapshotWorkerTests.swift */; };
 		B90FBF28E9B8214B0CD9510F /* InputSchemeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6824935264C5DE093C8BD4 /* InputSchemeTestSupport.swift */; };
 		B964EBCB680F36174468E437 /* PairedPunctuationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430CEF9F25B7660AE6166101 /* PairedPunctuationPolicy.swift */; };
@@ -717,6 +725,7 @@
 		BB93D0765E966E4C9E79D1AD /* CrashDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA92C5A35ED33AEFD30AF0B /* CrashDiagnostics.swift */; };
 		BB9A341B8013C76D8062570A /* CommunityReportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8808E90622807023716EB81C /* CommunityReportSheet.swift */; };
 		BBBE49FB3068D359D9098B87 /* JapaneseNineKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6127ECD9DDBE583947F95958 /* JapaneseNineKeyTests.swift */; };
+		BC0F8DF86A9299C796094CE4 /* KeyboardVoiceDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */; };
 		BC22DA9B3FE192BAB9121B39 /* VoiceTextHandoffStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */; };
 		BC27D2FBC32D0B431F03E3C1 /* KeyboardInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD26F465BA4C55F35689C05 /* KeyboardInputView.swift */; };
 		BC33560DD8F1B616CA5F55D4 /* BackendChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4382C16C3E9BCE74058CA5F8 /* BackendChatClient.swift */; };
@@ -806,6 +815,7 @@
 		D45B9A1F1DE875832AB72B04 /* CustomThemeCandidateSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5634B081FC6ABBB98C23F4D7 /* CustomThemeCandidateSection.swift */; };
 		D45EB26792BA47A6717D7E09 /* DictionarySnapshotQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B65B316B421B3B207226096 /* DictionarySnapshotQueue.swift */; };
 		D4AB61039A0C861574C33411 /* AISkinServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380144EA98A8648F53897AE8 /* AISkinServiceTests.swift */; };
+		D55E7A3806BA9534AF6E0705 /* DoubaoStaleOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99043029DF1A1518FA9296E9 /* DoubaoStaleOpenTests.swift */; };
 		D58C2061C697D595FA89D9B9 /* InlineCompositionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE4C0D423F2A501E473C686 /* InlineCompositionPolicy.swift */; };
 		D5922DD850B4F75555250637 /* IOSSharedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0504CF247D77C6734DD3AD7 /* IOSSharedPaths.swift */; };
 		D59ABD3F84F4FEA98413D561 /* HelpAndFeedbackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F52D8110112A94DDD2213D /* HelpAndFeedbackViews.swift */; };
@@ -859,6 +869,7 @@
 		DFF827C8BB5690133C49921B /* DictionarySnapshotBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5819BA25B6709171AD0CD6BB /* DictionarySnapshotBridgeTests.swift */; };
 		E01870696D6C21BCEC3188F0 /* CloudSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B63FCD53218F052853D1DD /* CloudSyncState.swift */; };
 		E045BFA50011369D8DC358C9 /* CustomKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11272E51943034A200457067 /* CustomKeyboardSkin.swift */; };
+		E07B9C232FA2C667E6FFDF7F /* VoiceSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0599204316B90477F99B85 /* VoiceSessionService.swift */; };
 		E091B0A3BCEA0BA797F0657F /* NineKeyKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */; };
 		E0CD75E6677580B215B008D4 /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD11D99530807021B657EBC3 /* VoiceSettingsView.swift */; };
 		E0DA5C33FC119BC15C2FB43D /* FuzzyPinyinPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4D40C7A42E722D65076156 /* FuzzyPinyinPreference.swift */; };
@@ -882,6 +893,7 @@
 		E64626F93B699908E04CCAC6 /* HandwritingCanvasCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB46140677FBE04AD2162 /* HandwritingCanvasCard.swift */; };
 		E665E4E5F71AFB3CDD1427B7 /* QuickPunctuationSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E2919FBC3B1DCF8C86928F /* QuickPunctuationSettingsTests.swift */; };
 		E6C5E0D00CFF17205B41CA12 /* CrashSignalRecorder.c in Sources */ = {isa = PBXBuildFile; fileRef = 333BE267E92B331059A2035B /* CrashSignalRecorder.c */; };
+		E79710D1FE6C484D6E0C2B63 /* VoiceSessionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */; };
 		E7A616629FA491D6E3C7B980 /* DubeolsikKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B074ACFAB38464164DC139F1 /* DubeolsikKeyLayout.swift */; };
 		E7B90D7921A313C033C52090 /* CommunityUnseenItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = B249F70169DFCEB2B819CCF6 /* CommunityUnseenItems.swift */; };
 		E84C87D05719F5BA554925BC /* IOSSharedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0504CF247D77C6734DD3AD7 /* IOSSharedPaths.swift */; };
@@ -909,6 +921,7 @@
 		EEDABC563F556FDBBE40A504 /* GoogleSignIn-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 2B7ADA6A964F03595EE175C6 /* GoogleSignIn-Dependencies.txt */; };
 		EEF2B92AD2E1215BBECF6A2C /* AIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2ABA346D43E3C2EC9A54C /* AIEndpointPolicy.swift */; };
 		EEF62F7F95D353839FD7441D /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
+		F102A6AF2C3194067148568E /* KeyboardVoiceDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */; };
 		F13CFDAF00D61710DF1AA8F7 /* HandwritingDownloadSession.m in Sources */ = {isa = PBXBuildFile; fileRef = DA3994022F73A592AC2A907B /* HandwritingDownloadSession.m */; };
 		F15CA3088A526483C2319C60 /* ScrollEdgeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA2E218C83BD4492D3233B5 /* ScrollEdgeEffects.swift */; };
 		F162459F4FE0BC93071CE1F6 /* ChineseOutputPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4152BF2948CC00B7A2B2F9 /* ChineseOutputPreference.swift */; };
@@ -949,6 +962,7 @@
 		FCC154F09E2F1BF1CC7F9B25 /* DubeolsikKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B074ACFAB38464164DC139F1 /* DubeolsikKeyLayout.swift */; };
 		FCD1A4B614A117C8597A4DCB /* CandidateCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B9143D7F2B0D1AE4E4896F /* CandidateCanvasView.swift */; };
 		FD2B2B7207D3052EFCAF2389 /* CommunityUnseenItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = B249F70169DFCEB2B819CCF6 /* CommunityUnseenItems.swift */; };
+		FD33C3E42D48C4BF366EC00E /* VoiceSessionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */; };
 		FD3D2F4FB7D9EFA0D929CFEC /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33592DBFB8317D57E3C2CA80 /* KeyboardViewController.swift */; };
 		FD8CA750A87711BE088B040E /* AppNotices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA0F6652DC4817F9B83399B /* AppNotices.swift */; };
 		FDEBFED8121DBD5791594B46 /* KeyboardEmojiCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFBC401DFCE3F18547806B1E /* KeyboardEmojiCatalog.swift */; };
@@ -1187,6 +1201,7 @@
 		542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "onnxruntime-ThirdPartyNotices.txt"; sourceTree = "<group>"; };
 		543C9DADA404F7AA48009C2B /* FourteenKeyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourteenKeyLayout.swift; sourceTree = "<group>"; };
 		554DF108CE1D88971DE22972 /* CommunitySkinTrialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunitySkinTrialView.swift; sourceTree = "<group>"; };
+		56116E1E60ACAF9CC705B0D2 /* DoubaoLiveFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoLiveFailureTests.swift; sourceTree = "<group>"; };
 		5634B081FC6ABBB98C23F4D7 /* CustomThemeCandidateSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomThemeCandidateSection.swift; sourceTree = "<group>"; };
 		565EC1253FB1509446408155 /* SkinCommunityAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityAPI.swift; sourceTree = "<group>"; };
 		574E6D9379A517BF9C5CEB82 /* SpaceCursorMovement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceCursorMovement.swift; sourceTree = "<group>"; };
@@ -1220,6 +1235,7 @@
 		67826B857915C6E65F366518 /* TranslationProviderPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationProviderPreference.swift; sourceTree = "<group>"; };
 		685BE6AFE6198B61D33EB140 /* KeyboardSkinTrialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinTrialTests.swift; sourceTree = "<group>"; };
 		699DF28E042CF425E21C4650 /* AboutUpdateRequestState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutUpdateRequestState.swift; sourceTree = "<group>"; };
+		6A1A614C1102F8D726E39906 /* VoiceSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSessionTests.swift; sourceTree = "<group>"; };
 		6AA2E218C83BD4492D3233B5 /* ScrollEdgeEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollEdgeEffects.swift; sourceTree = "<group>"; };
 		6B65B316B421B3B207226096 /* DictionarySnapshotQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotQueue.swift; sourceTree = "<group>"; };
 		6E06A207F69CEF1302DBE9E4 /* SettingsRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRouter.swift; sourceTree = "<group>"; };
@@ -1228,6 +1244,7 @@
 		6FEF544BDE4D4F10A81E15E4 /* InputHabitPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHabitPreference.swift; sourceTree = "<group>"; };
 		703F0A6DF0E8C6C550A36C13 /* ImeModeMemoryPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImeModeMemoryPreference.swift; sourceTree = "<group>"; };
 		70841255440CA3E4143108C1 /* PersonalDictionaryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryImport.swift; sourceTree = "<group>"; };
+		7097E49A6C0747CD1236C292 /* LoopbackWebSocketServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackWebSocketServer.swift; sourceTree = "<group>"; };
 		70BDECDB04B6EFFFA3BFB5C8 /* HelpcodeChoicePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpcodeChoicePolicy.swift; sourceTree = "<group>"; };
 		70EF2588A63F3119450E2EBD /* KeyboardCloudClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCloudClipboardTests.swift; sourceTree = "<group>"; };
 		71264FE18C922E544DE7E509 /* SettingsSaveFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSaveFailure.swift; sourceTree = "<group>"; };
@@ -1281,10 +1298,12 @@
 		8A152549B4D3E07752BF4A2A /* WordCharacterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordCharacterTests.swift; sourceTree = "<group>"; };
 		8A28330A8A6A26456C5CAB1A /* BackendAnonymousAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendAnonymousAccount.swift; sourceTree = "<group>"; };
 		8B3F8C327CDE97B3864BE413 /* RustCloudSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustCloudSyncTests.swift; sourceTree = "<group>"; };
+		8C0599204316B90477F99B85 /* VoiceSessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSessionService.swift; sourceTree = "<group>"; };
 		8C8F5B7B2EBE47BEE4955A24 /* CommonPhrasesRequestState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonPhrasesRequestState.swift; sourceTree = "<group>"; };
 		8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "libhangul-hanja-BSD-3-Clause.txt"; sourceTree = "<group>"; };
 		8CCF806900D0D3E85D72402A /* LocalSpeechModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechModelTests.swift; sourceTree = "<group>"; };
 		8D46EFDD9BA187AAD3B6ECA1 /* KeyboardAITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAITests.swift; sourceTree = "<group>"; };
+		8D6486B6B72A11A948AD67A0 /* DoubaoSessionLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoSessionLifecycleTests.swift; sourceTree = "<group>"; };
 		8D91196B66808B1D5F14A605 /* MorePanelFoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorePanelFoldTests.swift; sourceTree = "<group>"; };
 		8E1B440208EC785423E3A275 /* IOSResourcePackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSResourcePackTests.swift; sourceTree = "<group>"; };
 		8EB6D10E4CB15433D5C28E93 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -1301,6 +1320,7 @@
 		97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyGapRouting.swift; sourceTree = "<group>"; };
 		98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePreference.swift; sourceTree = "<group>"; };
 		98B1A9D27C521DC3E8D516BD /* TauriDictionarySnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TauriDictionarySnapshotBridge.swift; sourceTree = "<group>"; };
+		99043029DF1A1518FA9296E9 /* DoubaoStaleOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoStaleOpenTests.swift; sourceTree = "<group>"; };
 		998740623BE3E698150DCE1E /* KeyboardBrand.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = KeyboardBrand.png; sourceTree = "<group>"; };
 		999B49E42E770ED3489631D8 /* AICandidatePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICandidatePreference.swift; sourceTree = "<group>"; };
 		9B331DBB6B11BEAFDA5BA11C /* VocabularyReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocabularyReviewStore.swift; sourceTree = "<group>"; };
@@ -1346,6 +1366,7 @@
 		AFA5AC2ED8E38D8E073C2C85 /* BackendDictionaryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendDictionaryClient.swift; sourceTree = "<group>"; };
 		B063B1760382A73A3B650384 /* KeyboardIconPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardIconPaths.swift; sourceTree = "<group>"; };
 		B074ACFAB38464164DC139F1 /* DubeolsikKeyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DubeolsikKeyLayout.swift; sourceTree = "<group>"; };
+		B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSessionChannel.swift; sourceTree = "<group>"; };
 		B13D513386E7FBA1868D7A85 /* CustomSkinEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSkinEditorView.swift; sourceTree = "<group>"; };
 		B16FF3EE3BC80BFAA59D45D0 /* PersonalDictionaryImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryImportView.swift; sourceTree = "<group>"; };
 		B189D74A0FB8D21A92C60973 /* HandwritingDownloadSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HandwritingDownloadSession.h; sourceTree = "<group>"; };
@@ -1450,6 +1471,7 @@
 		DD529A5680B55F96705E74E4 /* KeyboardPanelButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPanelButtonStyle.swift; sourceTree = "<group>"; };
 		DD5484BB43341C14418BF640 /* SystemSpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSpeechRecognizer.swift; sourceTree = "<group>"; };
 		DD631D4EDB5CF38EF5EAC720 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		DE37C57DC5D9672B075F4F61 /* VoiceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSessionView.swift; sourceTree = "<group>"; };
 		DE3CD6FB7B6261EEEA75BBA4 /* KeyboardFeedbackPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardFeedbackPreference.swift; sourceTree = "<group>"; };
 		DEAF15A86CDD5D3183D8708B /* InputSchemeRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSchemeRestoreTests.swift; sourceTree = "<group>"; };
 		DEB93D86E9601DFA050B6A32 /* KeyboardBrandMarkButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardBrandMarkButton.swift; sourceTree = "<group>"; };
@@ -1471,6 +1493,7 @@
 		EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineCandidateTests.swift; sourceTree = "<group>"; };
 		EB77A60E8E3F4DB399AD5E20 /* ViewRequestGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewRequestGeneration.swift; sourceTree = "<group>"; };
 		EBEB652D060E71402D04AE7E /* SkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinGenerationView.swift; sourceTree = "<group>"; };
+		EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardVoiceDictation.swift; sourceTree = "<group>"; };
 		EC5BB6B17CD5C55ABCC417BE /* CloudCandidatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCandidatesView.swift; sourceTree = "<group>"; };
 		EC8D760D00ADE2D08AE7A18B /* DictionarySnapshotWorkerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotWorkerTests.swift; sourceTree = "<group>"; };
 		EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "libchewing-data-LGPL-2.1.txt"; sourceTree = "<group>"; };
@@ -1687,6 +1710,7 @@
 				28DB401DB38653A3B64B4551 /* VoicePolish.swift */,
 				74D6B4A4DE5179C661538C9C /* VoicePolishPrompt.cpp */,
 				306B951F716B9FAD3F702B19 /* VoiceRecorder.swift */,
+				8C0599204316B90477F99B85 /* VoiceSessionService.swift */,
 				CF406F60D186354E48767AFB /* WAVPCMExtractor.swift */,
 			);
 			name = Services;
@@ -1861,6 +1885,7 @@
 			isa = PBXGroup;
 			children = (
 				0714DB09F79EDE9A485EBE89 /* KeyboardVoiceView.swift */,
+				B0DC4F8D6A0415FE92057C89 /* VoiceSessionChannel.swift */,
 				1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */,
 			);
 			path = voice;
@@ -1909,6 +1934,7 @@
 				DF177BF60021D4C39BA1EFB9 /* TypingUpload.swift */,
 				5917780B1A4C4D3B374A176E /* VocabularyReviewSettingsView.swift */,
 				CA710F5959A43A89A98870EE /* VoicePolishServiceView.swift */,
+				DE37C57DC5D9672B075F4F61 /* VoiceSessionView.swift */,
 				BD11D99530807021B657EBC3 /* VoiceSettingsView.swift */,
 				E8B4AA60393F58C6D45A8A49 /* WubiCodeLookupView.swift */,
 			);
@@ -2004,6 +2030,7 @@
 				8D46EFDD9BA187AAD3B6ECA1 /* KeyboardAITests.swift */,
 				40CC09A165A6615AB613AD90 /* KeyboardServiceFallbackTests.swift */,
 				1EED3E1167B76EB91F1811E3 /* SpaceVoicePanelTests.swift */,
+				6A1A614C1102F8D726E39906 /* VoiceSessionTests.swift */,
 			);
 			path = voice;
 			sourceTree = "<group>";
@@ -2105,6 +2132,7 @@
 				A97AA91C710BBE7373B00A2D /* KeyboardToolbarButton.swift */,
 				D3364995828FFBEEF4F6A694 /* KeyboardToolSection.swift */,
 				33592DBFB8317D57E3C2CA80 /* KeyboardViewController.swift */,
+				EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */,
 				C85BAC20261DD7AC0622794B /* KeyboardVoicePanelView.swift */,
 				97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */,
 				652B32C59D45791D371669AB /* PromotionText.swift */,
@@ -2293,7 +2321,11 @@
 		A9DDE659AE0042820685DE0A /* TransportTests */ = {
 			isa = PBXGroup;
 			children = (
+				56116E1E60ACAF9CC705B0D2 /* DoubaoLiveFailureTests.swift */,
+				8D6486B6B72A11A948AD67A0 /* DoubaoSessionLifecycleTests.swift */,
+				99043029DF1A1518FA9296E9 /* DoubaoStaleOpenTests.swift */,
 				5056CE49456A6F5FA9F19CBF /* DoubaoVoiceCoordinatorTests.swift */,
+				7097E49A6C0747CD1236C292 /* LoopbackWebSocketServer.swift */,
 			);
 			path = TransportTests;
 			sourceTree = "<group>";
@@ -2893,7 +2925,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1D2E3A87B9C6F7C88210DFC /* DoubaoLiveFailureTests.swift in Sources */,
+				5B06E28CAB2564D63AC7225B /* DoubaoSessionLifecycleTests.swift in Sources */,
+				D55E7A3806BA9534AF6E0705 /* DoubaoStaleOpenTests.swift in Sources */,
 				6B3EEC6DD6913DCF224567DC /* DoubaoVoiceCoordinatorTests.swift in Sources */,
+				B89F8699C23AB75C54D93780 /* LoopbackWebSocketServer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3103,6 +3139,7 @@
 				8E8B28BE3B5B6ACC3C5857DC /* KeyboardToolbarButton.swift in Sources */,
 				A79E61EBD45B2E225AB73170 /* KeyboardUsageReporting.swift in Sources */,
 				0EB04D78B25BD8723F06E5C5 /* KeyboardViewController.swift in Sources */,
+				BC0F8DF86A9299C796094CE4 /* KeyboardVoiceDictation.swift in Sources */,
 				9FCB94755C66BAFB19B16C2D /* KeyboardVoicePanelView.swift in Sources */,
 				9E5D66FC49F49252AEAE6DAD /* KeyboardVoiceView.swift in Sources */,
 				75A3179E50A0E516A469962C /* KeystrokeLatencyTests.swift in Sources */,
@@ -3175,6 +3212,8 @@
 				0D17506BB8BEC3EB3F238962 /* ViewRequestTask.swift in Sources */,
 				D1EBC8A919403FF7EC801495 /* VocabularyReviewStore.swift in Sources */,
 				E40B14CB5026FF3469F20AA3 /* VocabularyReviewTests.swift in Sources */,
+				FD33C3E42D48C4BF366EC00E /* VoiceSessionChannel.swift in Sources */,
+				AC2E477B10D66D04DACA2442 /* VoiceSessionTests.swift in Sources */,
 				63D1F52ED890530466D31FF3 /* VoiceTextHandoffStore.swift in Sources */,
 				C637669DAF73F41B59953611 /* VoiceTextHandoffTests.swift in Sources */,
 				6C5A0AA00DB661F5C289EDAF /* WordCharacterTests.swift in Sources */,
@@ -3310,6 +3349,7 @@
 				5E2E94CE8F833F76E117A73F /* KeyboardToolbarButton.swift in Sources */,
 				6EB221D66027E769AC309E7C /* KeyboardUsageReporting.swift in Sources */,
 				FE628E7FBCD9635D07D3F1E3 /* KeyboardViewController.swift in Sources */,
+				92FFF12A7EBB91DFCE2885AE /* KeyboardVoiceDictation.swift in Sources */,
 				C4434161ADA1E2775930E031 /* KeyboardVoicePanelView.swift in Sources */,
 				D70BBC279D817CE3109811E8 /* KeyboardVoiceView.swift in Sources */,
 				0522121532482678D3F490DD /* LetterHintTable.swift in Sources */,
@@ -3340,6 +3380,7 @@
 				624FA42ADFF223A018E177D5 /* UsageReporting.swift in Sources */,
 				084235F917F2BD09C9D4741A /* VerificationCodePolicy.swift in Sources */,
 				BB202272F3C0066F21159C19 /* VocabularyReviewStore.swift in Sources */,
+				15AF6D3B3DB28ED27AE2EFC3 /* VoiceSessionChannel.swift in Sources */,
 				A11C9C468B2FEBEC20527576 /* VoiceTextHandoffStore.swift in Sources */,
 				4310AB5D1DAD95B897EA8C38 /* WubiCodeHintPreference.swift in Sources */,
 				35DC127C343DB215BC67BAE0 /* WubiCodeLookup.swift in Sources */,
@@ -3496,6 +3537,7 @@
 				49933BC75AD7B456D92A9A36 /* KeyboardToolbarButton.swift in Sources */,
 				93E83C9F6F18D1627A6AA7EA /* KeyboardUsageReporting.swift in Sources */,
 				FD3D2F4FB7D9EFA0D929CFEC /* KeyboardViewController.swift in Sources */,
+				F102A6AF2C3194067148568E /* KeyboardVoiceDictation.swift in Sources */,
 				B3925080F278AF81719F415A /* KeyboardVoicePanelView.swift in Sources */,
 				262C056FDCA3214CD54FB035 /* KeyboardVoiceView.swift in Sources */,
 				30EEC9D84813804DA6329964 /* LetterHintTable.swift in Sources */,
@@ -3531,6 +3573,7 @@
 				3A6C6CEF688B2E8235A524EA /* VerificationCodePolicy.swift in Sources */,
 				AB82A31F6FBFD8A281B70A75 /* VerificationCodePolicyTests.swift in Sources */,
 				29F8B1C831FF4EF97BEE120C /* VocabularyReviewStore.swift in Sources */,
+				2FBF23FC984850789DFBC449 /* VoiceSessionChannel.swift in Sources */,
 				BC22DA9B3FE192BAB9121B39 /* VoiceTextHandoffStore.swift in Sources */,
 				39B33B25456804C4D2036A2B /* VoiceTextHandoffTests.swift in Sources */,
 				31FB2796F064B131CB55632B /* WubiCodeHintPreference.swift in Sources */,
@@ -3834,6 +3877,9 @@
 				BFD417BB1989C1BBF616297A /* VoicePolishPrompt.cpp in Sources */,
 				A801B56779A10DAFFB19E8E6 /* VoicePolishServiceView.swift in Sources */,
 				432D7F28B9A689636CD74837 /* VoiceRecorder.swift in Sources */,
+				E79710D1FE6C484D6E0C2B63 /* VoiceSessionChannel.swift in Sources */,
+				E07B9C232FA2C667E6FFDF7F /* VoiceSessionService.swift in Sources */,
+				38F9777E616079ADBBFC1797 /* VoiceSessionView.swift in Sources */,
 				E0CD75E6677580B215B008D4 /* VoiceSettingsView.swift in Sources */,
 				1BF3081F7CC2564EAA602B5A /* VoiceTextHandoffStore.swift in Sources */,
 				A35F7DAD53B9D6BB454FD8F2 /* WAVPCMExtractor.swift in Sources */,
@@ -3884,6 +3930,11 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -3894,6 +3945,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.shared-tests";
 				PRODUCT_NAME = MSIMESharedTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost";
 			};
 			name = Release;
@@ -3901,16 +3954,32 @@
 		143518B7EC5E729B63C83CAD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.transport.tests;
 				PRODUCT_NAME = MSIMEDoubaoTransportTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
 		27F54419864ECE6C1D6807F1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.transport.tests;
 				PRODUCT_NAME = MSIMEDoubaoTransportTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -3918,15 +3987,59 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = LXCL4Z68GU;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
 				MARKETING_VERSION = 0.52.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../shared/backend/rust";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -3935,15 +4048,66 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = LXCL4Z68GU;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
 				MARKETING_VERSION = 0.52.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../shared/backend/rust";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -3952,13 +4116,21 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.keyboard-test-host";
 				PRODUCT_NAME = MSIMEKeyboardTestHost;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -3971,6 +4143,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -4005,6 +4178,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
 				PRODUCT_NAME = MSIMEApp;
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_APP_PROFILE)";
+				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -4013,9 +4187,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4026,6 +4206,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.service-tests";
 				PRODUCT_NAME = MSIMEServiceTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -4036,6 +4218,11 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4046,6 +4233,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.keyboard-tests";
 				PRODUCT_NAME = MSIMEKeyboardTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost";
 			};
 			name = Debug;
@@ -4054,9 +4243,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4067,15 +4262,32 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.service-tests";
 				PRODUCT_NAME = MSIMEServiceTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
 		A75D1CA9C69371F7870CBECB /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				ENABLE_TESTABILITY = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.transport;
 				PRODUCT_NAME = MSIMEDoubaoTransport;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
 		};
@@ -4086,6 +4298,11 @@
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = HandwritingInputViewFallback.swift;
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = "HandwritingInputView.swift HandwritingDownloadSession.m";
 				INFOPLIST_FILE = KeyboardExtension/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4097,16 +4314,33 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_KEYBOARD_PROFILE)";
+				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
 		B237A2859A7650B807ED3128 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				ENABLE_TESTABILITY = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.transport;
 				PRODUCT_NAME = MSIMEDoubaoTransport;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
 		};
@@ -4114,13 +4348,21 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.keyboard-test-host";
 				PRODUCT_NAME = MSIMEKeyboardTestHost;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -4131,6 +4373,11 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4141,6 +4388,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.shared-tests";
 				PRODUCT_NAME = MSIMESharedTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost";
 			};
 			name = Debug;
@@ -4154,6 +4403,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEApp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -4188,6 +4438,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
 				PRODUCT_NAME = MSIMEApp;
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_APP_PROFILE)";
+				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4197,10 +4448,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.uitests;
 				PRODUCT_NAME = MSIMEClientUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = MSIMEApp;
 			};
 			name = Release;
@@ -4209,10 +4468,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.uitests;
 				PRODUCT_NAME = MSIMEClientUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = MSIMEApp;
 			};
 			name = Debug;
@@ -4224,6 +4491,11 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4234,6 +4506,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.msime.ios.keyboard-tests";
 				PRODUCT_NAME = MSIMEKeyboardTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost";
 			};
 			name = Release;
@@ -4245,6 +4519,11 @@
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = HandwritingInputViewFallback.swift;
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = "HandwritingInputView.swift HandwritingDownloadSession.m";
 				INFOPLIST_FILE = KeyboardExtension/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
@@ -4256,7 +4535,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				PROVISIONING_PROFILE_SPECIFIER = "$(MSIME_IOS_KEYBOARD_PROFILE)";
+				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};

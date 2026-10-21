@@ -13,7 +13,7 @@ Status: implemented
 
 ## Decision
 
-拍子照旧每一拍同步主题，变的是每一拍做什么。
+默认每一拍照旧同步主题，变的是每一拍做什么。[切片与定制](2026-10-21-fcitx-theme-slice-customization.md)增加 `MSIME_FCITX5_THEME_AUTOGENERATE=0` 的显式退出：人工主题不再生成或接管，以下缓存规则只适用于自动生成开启时。
 
 - 新增 `read_classicui_theme_selection()`：用 `fcitx::readAsIni(config, "conf/classicui.conf")` 读 classicui 落盘的 `Theme` 与 `DarkTheme`。这个单参数重载在 5.0.20 到 master 都存在，内部都按 PkgConfig 查找，和 classicui 自己 `reloadConfig()` 读配置用的是同一个调用；classicui 的 `setConfig()` 载入后立刻 `safeSaveAsIni` 回这个文件，所以正常情况下文件就是现值。不用 `StandardPath::Type` 那个重载，master 已把 `StandardPath` 标为 deprecated，`-Werror` 下会编不过。
 - `publishCandidatePanelStatus()` 不再调 `getConfig()`，只在当前界面是 classicui 时读这份选择。缺省的处理不变：`Theme` 缺失按空串，`DarkTheme` 缺失按没有；classicui 的缺省值 `default`、`default-dark` 本来也都可替换，所以文件不存在、键缺失时的结论和以前问 `getConfig()` 一样。

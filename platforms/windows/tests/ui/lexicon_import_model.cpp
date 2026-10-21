@@ -103,6 +103,60 @@ int main() {
             L"该文件的两列与所选格式相反，已按文件本身的顺序读取。",
         "truncated and swapped");
 
+  // 词库种类：本机词库的下拉名字照 macOS 改成「中文 · 拼音」，提示里仍说「拼音」；资源词库只读，日语和韩语的第一列是读音。
+  check(local_kinds.size() == 5 && local_kinds[0].title == L"中文 · 拼音" &&
+            local_kinds[1].title == L"中文 · 86 五笔" && local_kinds[2].title == L"中文 · 98 五笔" &&
+            local_kinds[3].id == L"english" && local_kinds[4].id == L"quick_phrase",
+        "local kinds in the shared order and words");
+  check(kind_label(L"pinyin") == L"拼音" && kind_label(L"wubi98") == L"98 五笔", "message labels");
+  check(kind_label(L"cantonese") == L"中文 · 粤语", "resource kinds are named by their title");
+  check(kind_label(L"unknown") == L"词库", "an unknown kind");
+  check(resource_kinds.size() == 5 && resource_kinds[0].id == L"japanese" &&
+            resource_kinds[1].id == L"korean_hanja" && resource_kinds[4].id == L"stroke",
+        "resource kinds in the shared order");
+  check(find_resource_kind(L"japanese")->reading && find_resource_kind(L"korean_hanja")->reading &&
+            !find_resource_kind(L"zhuyin")->reading,
+        "reading column");
+  check(!find_resource_kind(L"pinyin") && !find_local_kind(L"stroke"), "the two sets do not overlap");
+  check(find_resource_kind(L"japanese")->note == L"基础词库只读，显示假名读音与词条。", "japanese note");
+  check(find_resource_kind(L"stroke")->placeholder == L"输入汉字或笔画编码，例如：一 或 h", "stroke placeholder");
+  check(resource_unavailable(L"japanese") == L"日语词库尚未安装。", "resource not installed");
+
+  // 一页查询结果的状态。
+  check(page_status(0, 0, false) == L"未找到匹配词条", "nothing found");
+  check(page_status(100, 0, false) == L"没有更多结果", "past the last page");
+  check(page_status(0, 100, true) == L"第 1–100 条，后面还有结果", "a full first page");
+  check(page_status(100, 3, false) == L"第 101–103 条", "the last page");
+
+  // 导出当前类型：拼音只留两个字以上的词，空行去掉，开头 BOM、末尾换行。
+  const auto pinyin_export = export_payload(L"pinyin", L"standard", "你好\tni'hao\t5\n好\thao\t1\n\n水杉\tshui'shan\t3\n");
+  check(pinyin_export.rows == 2 &&
+            pinyin_export.body == "\xEF\xBB\xBF你好\tni'hao\t5\n水杉\tshui'shan\t3\n",
+        "pinyin keeps words of two characters or more");
+  const auto windows_export = export_payload(L"pinyin", L"windows", "ni'hao\t你好\t5\nhao\t好\t1\n");
+  check(windows_export.rows == 1 && windows_export.body == "\xEF\xBB\xBFni'hao\t你好\t5\n",
+        "windows format reads the word from the second column");
+  const auto phrase_export = export_payload(L"quick_phrase", L"rime", "地址\tdz\t1\n");
+  check(phrase_export.rows == 1 && phrase_export.body == "\xEF\xBB\xBF地址\tdz\t1\n",
+        "other kinds keep single rows");
+  const auto single = export_payload(L"pinyin", L"standard", "好\thao\t1\n");
+  check(single.rows == 0 && single.body.empty(), "nothing left to export");
+  check(export_page_rows("") == 0 && export_page_rows("a\t1\n") == 1 && export_page_rows("a\nb\n\n") == 2,
+        "rows of an export page");
+  check(personal_export_kinds[3] == L"quick_phrase" && personal_export_kinds[4] == L"english",
+        "export all reads quick phrases before english");
+  check(personal_export_row(L"wubi98", L"aaaa", L"工", 7) == L"98 五笔\taaaa\t工\t7", "export all row");
+  check(personal_export_header == L"# 类别\t编码\t词条\t权重\n", "export all header");
+  check(local_kinds[1].export_name == L"水杉IME-五笔用户词库.txt", "export file name");
+
+  // 背单词导入词表。
+  check(wordbook_too_large() == L"文件不能超过 1 MB，请拆分后分别导入。", "word list bound");
+  check(wordbook_name(L"CET4.csv") == L"CET4", "the extension is dropped");
+  check(wordbook_name(L"a.b.txt") == L"a.b", "only the last extension");
+  check(wordbook_name(L".csv") == L"导入的词表", "an empty name");
+  check(wordbook_name(L"notes.") == L"notes.", "a trailing dot is not an extension");
+  check(wordbook_name(std::wstring(70, L'x') + L".txt") == std::wstring(64, L'x'), "64 characters at most");
+
   if (failures == 0)
     std::printf("lexicon import model passed\n");
   return failures == 0 ? 0 : 1;

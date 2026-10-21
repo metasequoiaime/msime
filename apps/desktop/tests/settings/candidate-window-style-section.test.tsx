@@ -135,9 +135,10 @@ test("the sliders write the window style, leaving the defaults out of the docume
   expect(edited.onChange).toHaveBeenLastCalledWith({ candidate_opacity_percent: undefined });
 });
 
-test("Linux explains that overall size scales the panel font", () => {
+// Linux 的 Fcitx5 主题也按整体大小缩放卡片几何（IBus 面板只缩放字号，由面板限制说明交代），所以和其他宿主同一句说明。
+test("Linux describes overall size like the other hosts", () => {
   renderSection({ platform: "linux" });
-  expect(screen.getByText("100%，候选字号跟随缩放")).toBeTruthy();
+  expect(screen.getByText("100%，字号与窗口尺寸一起缩放")).toBeTruthy();
 });
 
 test("the corner radius follows the skin until set, and returns to it", () => {
@@ -193,7 +194,6 @@ const macosNativeRadius = String(Number(/float radius = ([\d.]+)f;/.exec(candida
 test.each([
   ["macos", macosNativeRadius],
   ["windows", "6"],
-  ["linux", "6"],
 ] as const)(
   "following the skin, the %s radius slider shows the radius the preview draws",
   (platform, value) => {
@@ -203,6 +203,16 @@ test.each([
     );
   },
 );
+
+// Linux 的滑块停在 Fcitx5 卡片自己的 10px 圆角和 4px 内边距上（`CandidateFcitxTheme.h` 的 `FcitxPanelGeometry`）：从这里往上拖，卡片跟着变圆、变宽松，而不是先跳到更小的值。
+test("following the skin on Linux, the sliders rest on the Fcitx5 card's own radius and padding", () => {
+  const following = renderSection({ platform: "linux", showPadding: true });
+  expect((screen.getByRole("slider", { name: "圆角大小" }) as HTMLInputElement).value).toBe("10");
+  const padding = screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement;
+  expect(padding.value).toBe("4");
+  fireEvent.change(padding, { target: { value: "5" } });
+  expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 5 });
+});
 
 test.each([
   ["macos", macosNativeRadius],
@@ -251,7 +261,7 @@ test("the rows a host cannot draw are hidden", () => {
 test.each([
   ["windows", { scale: true, opacity: true, radius: true, padding: false }],
   ["macos", { scale: true, opacity: true, radius: true, padding: true }],
-  ["linux", { scale: true, opacity: false, radius: true, padding: false }],
+  ["linux", { scale: true, opacity: true, radius: true, padding: true }],
   ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
   ["ios", { scale: false, opacity: false, radius: false, padding: false }],
   ["android", { scale: false, opacity: false, radius: false, padding: false }],

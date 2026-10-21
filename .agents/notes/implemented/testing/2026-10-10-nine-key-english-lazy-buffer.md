@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-英文词条结果向量改为空创建，首次通过数字匹配过滤的词条才按原理论上限 `reserve_exact`。英文候选排序、去重和前缀查询顺序保持不变。
+英文词条结果向量改为空创建，首次收到完整组码查询匹配的词条才按原理论上限 `reserve_exact`。候选预留时机不改变排序和去重；完整码过滤现由词库查询在限额前执行。
 
 ## Alternatives considered
 
@@ -22,3 +22,5 @@ Status: implemented
 ## Consequences
 
 英文九键空结果不再预留前缀理论上限；首次有效结果仍一次预留原上限，输出内容和排序保持一致。
+
+完整组码与查询限额的先后顺序由[分组键盘英文先过滤再限额](../bug-fix/2026-10-21-keypad-english-filter-before-limit.md)约束，保留本篇的预算与分配边界。

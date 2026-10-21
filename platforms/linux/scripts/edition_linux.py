@@ -115,8 +115,6 @@ RULES: dict[str, list[Rule]] = {
     "scripts/msime-linux-provider-session": [CLIENT_DIRECTORY],
     "scripts/msime-linux-online-provider": [CLIENT_DIRECTORY],
     "data/msime-linux.xml.in": [
-        # full 的组件写的图标名是 msime-client，没有这个名字的图标；其他版本直接用装上的图标名。
-        ("engine icon", r"<icon>msime-client</icon>", lambda n: f"<icon>{n['package']}</icon>"),
         ("engine language", r"<language>zh</language>", lambda n: f"<language>{n['ibus_language']}</language>"),
         CLIENT_DIRECTORY, PACKAGE, DISPLAY_NAME,
     ],

@@ -18,7 +18,8 @@ Status: implemented
 
 - 已接入：Linux（共享页 + 上面的全部字段）、macOS（共享页，系统版本、架构、应用版本、输入方案）。
 - 已有原生实现：Android（「关于 → 设备信息」，#5662）。
-- 需跟进：Windows 的设置是原生 WinUI 3 `msime-client-settings.exe`，iOS 的「关于」是原生 SwiftUI，都不渲染共享页；HarmonyOS 走共享页里按设计稿单独绘制的分支，没有加这一组，是否加入要按设计决定。macOS 的设备型号（`hw.model`）需要 `sysctl`，这次没有读；输入法框架版本（IBus 1.5.x、Fcitx5 5.x）需要宿主在状态文件里多写一项或起进程查询，也没有做。
+- 已有原生实现：Windows（原生 WinUI 3 `msime-client-settings.exe` 的「关于 › 系统信息」标签，应用版本、系统、处理器架构和输入方案，见 [Windows 设置「关于」页分标签对齐 macOS](2026-10-20-windows-settings-about-tabs.md)）。
+- 需跟进：iOS 的「关于」是原生 SwiftUI，不渲染共享页；HarmonyOS 走共享页里按设计稿单独绘制的分支，没有加这一组，是否加入要按设计决定。macOS 的设备型号（`hw.model`）需要 `sysctl`，这次没有读；输入法框架版本（IBus 1.5.x、Fcitx5 5.x）需要宿主在状态文件里多写一项或起进程查询，也没有做。
 
 ## Alternatives considered
 
@@ -30,7 +31,7 @@ Status: implemented
 
 收益：macOS 和 Linux 用户在「关于」里一次复制就能带齐排错信息；Linux 的「帮助与反馈」附带的诊断文本也从 User-Agent 变成真实的发行版名。
 
-代价：「关于」页多一组、版本在「当前版本」和「系统信息」里各出现一次；`HostCapabilities` 多了四个只有 Linux 会填的字段。Windows、iOS 还要各自在原生页面里做一遍。
+代价：「关于」页多一组、版本在「当前版本」和「系统信息」里各出现一次；`HostCapabilities` 多了四个只有 Linux 会填的字段。iOS 还要在原生页面里做一遍（Windows 已做）。
 
 ## Verification
 
