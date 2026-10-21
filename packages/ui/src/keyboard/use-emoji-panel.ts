@@ -553,11 +553,15 @@ export function useEmojiPanel(
   const seenDisplayItems = new Set<string>();
   const uniqueGroups = sourceGroups.map((group) => ({
     ...group,
-    items: group.items.filter((item) => {
-      if (seenDisplayItems.has(item.text)) return false;
-      seenDisplayItems.add(item.text);
-      return true;
-    }),
+    // 插件详情保留每组完整项目；首页合并预览和内置组仍按文本去重。
+    items:
+      page !== "home" && group.pack !== undefined
+        ? group.items
+        : group.items.filter((item) => {
+            if (seenDisplayItems.has(item.text)) return false;
+            seenDisplayItems.add(item.text);
+            return true;
+          }),
   }));
   const itemPageCount = Math.max(
     1,

@@ -49,7 +49,7 @@ test("面板状态支持目录分页、搜索复位和更多入口", async () =>
   expect(result.current.effectiveMode).toBe("copy");
 });
 
-test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目分页", async (uniqueCount) => {
+test.each([12, 60])("颜文字插件的重叠项目各自保留并分页（新增 %i 项）", async (uniqueCount) => {
   const shared = Array.from({ length: 48 }, (_, index) => ({
     text: `合成共同项${index}`,
     keywords: `shared-${index}`,
@@ -85,7 +85,7 @@ test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目�
   await waitFor(() => expect(result.current.catalogLoading).toBe(false));
   act(() => result.current.selectPage("kaomoji"));
   act(() => result.current.updateQuery("合成检索"));
-  const pageCount = Math.ceil(uniqueCount / 48);
+  const pageCount = Math.ceil((shared.length + uniqueCount) / 48);
   expect(result.current.itemPageCount).toBe(pageCount);
   const displayed: string[] = [];
   for (let page = 0; page < pageCount; page++) {
@@ -96,11 +96,11 @@ test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目�
     );
     act(() => result.current.nextItemPage());
   }
-  expect(displayed).toEqual([...shared, ...unique].map((item) => item.text));
+  expect(displayed).toEqual([...shared, ...shared, ...unique].map((item) => item.text));
   expect(result.current.itemPage).toBe(pageCount - 1);
   if (pageCount > 1) {
     act(() => result.current.previousItemPage());
-    expect(result.current.itemPage).toBe(0);
+    expect(result.current.itemPage).toBe(pageCount - 2);
   }
 });
 

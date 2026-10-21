@@ -154,3 +154,55 @@ test("plugin symbol groups keep their own category and search by group keywords"
   // 组的关键词只用于搜索：各项仍以自己的文本作提示。
   expect(screen.getByRole("button", { name: "⇒" }).getAttribute("title")).toBe("⇒");
 });
+
+test("颜文字插件与内置或其他组重叠时保持完整分组，首页仍去重", async () => {
+  const item = { text: "合成颜文字", keywords: "合成颜文字" };
+  const client = {
+    close: async () => {},
+    loadCatalog: async () => ({
+      emoji: [],
+      symbols: [],
+      kaomoji: [
+        { title: "All", icon: ";-)", items: [item] },
+        { title: "合成内置重复组", icon: ";-)", items: [item] },
+        {
+          title: "合成插件甲",
+          icon: ";-)",
+          pack: "synthetic-a",
+          keywords: "合成检索",
+          items: [item],
+        },
+        {
+          title: "合成同包乙组",
+          icon: ";-)",
+          pack: "synthetic-a",
+          keywords: "合成检索",
+          items: [item],
+        },
+        {
+          title: "合成插件乙",
+          icon: ";-)",
+          pack: "synthetic-b",
+          keywords: "合成检索",
+          items: [item],
+        },
+      ],
+    }),
+  };
+  render(<EmojiPanel client={client} />);
+  await waitFor(() => expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(1));
+  fireEvent.click(screen.getByRole("button", { name: "颜文字" }));
+  for (const title of ["All", "合成插件甲", "合成同包乙组", "合成插件乙"]) {
+    expect(await screen.findByRole("heading", { name: title })).toBeDefined();
+  }
+  expect(screen.queryByRole("heading", { name: "合成内置重复组" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(4);
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), {
+    target: { value: "合成检索" },
+  });
+  expect(screen.queryByRole("heading", { name: "All" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: item.text })).toHaveLength(3);
+  for (const title of ["合成插件甲", "合成同包乙组", "合成插件乙"]) {
+    expect(screen.getByRole("heading", { name: title })).toBeDefined();
+  }
+});
