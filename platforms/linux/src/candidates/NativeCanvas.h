@@ -307,9 +307,17 @@ constexpr int kNativeCanvasHitExpand = -4;
 constexpr int kNativeCanvasHitScrollbar = -5;
 
 // 只消费共享层规范化后的颜色，保留用户取色器与可读选中文字的优先级。
-inline nlohmann::json native_canvas_palette(const nlohmann::json &document, bool dark = false) {
+// 保留主题明确声明的槽位，不能把 canvas 回退色覆盖到 chrome 的系统调色板上。
+inline nlohmann::json native_canvas_declared_palette(const nlohmann::json &document) {
   auto palette = document.value("candidate", nlohmann::json{});
   if (!palette.is_object()) palette = nlohmann::json::object();
+  if (const auto details = document.find("candidate_details"); details != document.end() && details->is_object())
+    for (const auto &[key, value] : details->items()) if (!value.is_null()) palette[key] = value;
+  return palette;
+}
+
+inline nlohmann::json native_canvas_palette(const nlohmann::json &document, bool dark = false) {
+  auto palette = native_canvas_declared_palette(document);
   const auto colors = candidate_theme_colors(document, dark).colors;
   for (const auto &[key, color] : {
       std::pair<const char *, std::optional<std::uint32_t>>{"surface", colors.background},
@@ -317,8 +325,6 @@ inline nlohmann::json native_canvas_palette(const nlohmann::json &document, bool
       {"selected", colors.selected}, {"selected_text", colors.selected_text},
       {"selected_number", colors.selected_number}, {"border", colors.border}})
     if (color && !theme_color(palette.value(key, nlohmann::json{}))) palette[key] = fcitx_theme_color(*color);
-  if (const auto details = document.find("candidate_details"); details != document.end() && details->is_object())
-    for (const auto &[key, value] : details->items()) if (!value.is_null()) palette[key] = value;
   return palette;
 }
 
@@ -1238,7 +1244,7 @@ inline nlohmann::json native_canvas_theme_palette(const nlohmann::json &document
       {"border", hex(native.border)}, {"hover", dark ? hex(0xffffff, 0x1a) : hex(0x000000, 0x0f)},
       {"selected_bar", hex(kLinuxAccent)}};
   if (document.is_object()) {
-    const auto themed = native_canvas_palette(document);
+    const auto themed = native_canvas_declared_palette(document);
     for (const auto &[key, value] : themed.items())
       if (theme_color(value) || value.is_boolean()) palette[key] = value;
     // 选中竖条与 macOS 一样没设时跟随主题的 accent（selectedBar ?? accent）；只有主题自己没给 accent 时才用 Adwaita 的蓝。
