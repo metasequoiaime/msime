@@ -4191,6 +4191,64 @@ fn chinese_caret_editing_does_not_claim_the_japanese_long_vowel_key() {
 }
 
 #[test]
+fn temporary_japanese_long_vowels_preserve_composition_and_commit_katakana() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for punctuation_route in [false, true] {
+            let mut session = fixture.session_with(|options| options.scheme = scheme);
+            assert!(session.character(b'R', true).handled);
+            for byte in b"ko-hi-" {
+                let result = if punctuation_route && *byte == b'-' {
+                    session.punctuation(*byte)
+                } else {
+                    session.character(*byte, false)
+                };
+                assert!(result.handled, "{scheme:?}, {punctuation_route}, {byte}");
+                assert!(result.commit.is_none(), "{result:?}");
+            }
+            let snapshot = session.snapshot();
+            assert_eq!(snapshot.editing_text, "Rko-hi-");
+            assert_eq!(snapshot.scheme, scheme);
+            assert_eq!(snapshot.local_mode, LocalInputMode::TemporaryJapanese);
+            let index = snapshot
+                .candidates
+                .iter()
+                .position(|row| row.word == "コーヒー")
+                .unwrap();
+            assert_eq!(session.select(index).commit.as_deref(), Some("コーヒー"));
+            assert_eq!(session.snapshot().scheme, scheme);
+            assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+            assert!(!session.snapshot().spelling_symbols.contains('-'));
+        }
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowel_can_be_inserted_and_erased_inside_romaji() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        session.character(b'R', true);
+        type_text(&mut session, "kohi");
+        session.set_caret(Some(3));
+        let result = session.character(b'-', false);
+        assert!(result.handled);
+        assert!(result.commit.is_none());
+        assert_eq!(session.snapshot().editing_text, "Rko-hi");
+        assert_eq!(session.snapshot().caret_position, 4);
+        assert!(words(&session).contains(&"コーヒ".to_owned()));
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "Rkohi");
+        assert_eq!(session.snapshot().caret_position, 3);
+        assert_eq!(
+            session.snapshot().local_mode,
+            LocalInputMode::TemporaryJapanese
+        );
+        assert_eq!(session.snapshot().scheme, scheme);
+    }
+}
+
+#[test]
 fn temporary_japanese_returns_to_the_original_scheme() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {

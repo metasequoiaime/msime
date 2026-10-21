@@ -5933,16 +5933,72 @@ static void TestSmartPunctuationVersionNumberThroughRealSession() {
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
-// What an editor receives, driven through the real engine.
-//
-// Every other controller test here hands the controller a stand-in session, and the tests that drive a real
-// session call it directly. Neither covers the path a typist exercises: a key event reaching handleEvent:,
-// the engine deciding what the composition now is, and the transition being applied to the text client. A
-// wrong preedit, a swallowed commit or punctuation in the wrong script would show up in that seam, and it
-// had nothing under it.
-//
-// IMK delivering the event is the only part left out - that needs the input source selected. From
-// handleEvent: down this is the real thing.
+// 使用真实 Rust 会话走原生按键入口，覆盖减号翻页开关的两种状态。
+static void TestTemporaryJapaneseLongVowelThroughRealSession(BOOL paging) {
+    // 复用引擎 golden 的微型模型，让真实 Host API 保持临时日文可用，不依赖本机安装的词库。
+    NSString *fixturePath = [[@(__FILE__).stringByDeletingLastPathComponent
+        stringByAppendingPathComponent:@"../../../../crates/engine/tests/golden/scenarios/ri_japanese_model_a.json"] stringByStandardizingPath];
+    NSData *fixtureData = [NSData dataWithContentsOfFile:fixturePath];
+    assert(fixtureData);
+    NSDictionary *fixture = [NSJSONSerialization JSONObjectWithData:fixtureData options:0 error:nil];
+    NSData *model = [fixture[@"fixture"][@"files"][@"msime-japanese.dat"] dataUsingEncoding:NSUTF8StringEncoding];
+    assert(model.length);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSDictionary *preferences = @{@"scheme":scheme, @"learning":@NO, @"cloud_candidates":@NO,
+            @"candidate_page_size":@6, @"default_ime_mode":@"chinese", @"chinese_punctuation":@YES};
+        NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":preferences} mutableCopy];
+        for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+            NSString *path = [root stringByAppendingPathComponent:name];
+            assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[name] = path;
+        }
+        assert([model writeToFile:[options[@"resources"] stringByAppendingPathComponent:@"msime-japanese.dat"] atomically:YES]);
+        NSError *error = nil;
+        MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(session && !error);
+        NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+        assert(view && !error);
+        NSString *suite = [@"msime.temporary-japanese." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+        [prefs applySharedInputPreferences:preferences];
+        [prefs applySharedCandidatePreferences:@{@"navigation":@{@"minus_equal":@(paging)},
+            @"word_character":@{@"enabled":@NO, @"keys":@"minus_equal"}}];
+        prefs.englishMode = NO;
+        ShortcutClient *client = [ShortcutClient new];
+        client.document = @"";
+        client.selection = NSMakeRange(0, 0);
+        client.caret = NSMakeRect(100, 100, 1, 16);
+        ModeController *controller = [ModeController alloc];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:view forKey:@"view"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        for (NSArray *stroke in @[@[@"R", @15], @[@"k", @40], @[@"o", @31], @[@"-", @27], @[@"h", @4], @[@"i", @34], @[@"-", @27]]) {
+            NSString *character = stroke[0];
+            NSEventModifierFlags flags = [character isEqual:@"R"] ? NSEventModifierFlagShift : 0;
+            assert([controller handleEvent:KeypadKey([stroke[1] unsignedShortValue], character, flags, NO) client:client]);
+            assert(client.insertions.count == 0);
+        }
+        NSDictionary *composed = [controller valueForKey:@"view"];
+        assert([composed[@"editing_text"] isEqual:@"Rko-hi-"]);
+        assert([composed[@"local_mode"] isEqual:@"temporary_japanese"]);
+        NSDictionary *katakana = nil;
+        for (NSDictionary *row in composed[@"candidates"]) if ([row[@"text"] isEqual:@"コーヒー"]) katakana = row;
+        assert(katakana);
+        [controller apply:[session selectGeneration:[composed[@"generation"] unsignedLongLongValue]
+            index:[katakana[@"id"][@"index"] unsignedIntegerValue] error:&error]];
+        assert(!error && [client.committed isEqual:@"コーヒー"]);
+        assert([session closeWithError:&error] && !error);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+    }
+}
+
+// 按键从 handleEvent: 进入真实引擎，再把组字和提交写回合成编辑器，覆盖桩会话测不到的接缝。
+// 尚未覆盖的只有系统 IMK 投递入口，那需要选中已安装的输入源。
 static void TestRealSessionComposition() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version": @1,
@@ -10482,6 +10538,11 @@ int main(int argc, char **argv) {
             TestShiftCornerQuotesThroughRealSession();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--temporary-japanese-long-vowel") {
+            @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
+            @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
             TestGlassInputModeHUD(YES);
             return 0;
@@ -12196,6 +12257,8 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
+        @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestModifierTaps(); }

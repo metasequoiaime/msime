@@ -1160,6 +1160,7 @@ impl LocalInputMode {
             Self::Unicode => "0123456789",
             Self::Expression => crate::local::expression::SPELLING_SYMBOLS,
             Self::Url => crate::local::url::SPELLING_SYMBOLS,
+            Self::TemporaryJapanese => "-",
             _ => "",
         }
     }

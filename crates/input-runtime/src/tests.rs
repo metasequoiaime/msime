@@ -4614,6 +4614,52 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
+fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
+    for scheme in [0, 1] {
+        for punctuation_route in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut options = real_engine_options(directory.path());
+            options.scheme = scheme;
+            let session = msime_engine::host::Session::new(&options).unwrap();
+            let mut runtime = Runtime::new(session, 6).unwrap();
+            runtime.focus(true).unwrap();
+            runtime
+                .dispatch(Action::Character {
+                    value: b'R',
+                    shift: true,
+                })
+                .unwrap();
+            for byte in b"ko-hi-" {
+                let action = if punctuation_route && *byte == b'-' {
+                    Action::Punctuation(*byte)
+                } else {
+                    Action::Character {
+                        value: *byte,
+                        shift: false,
+                    }
+                };
+                let transition = runtime.dispatch(action).unwrap();
+                assert!(transition.handled, "{scheme}, {punctuation_route}, {byte}");
+                assert!(transition.commit.is_none(), "{transition:?}");
+                assert_eq!(transition.view.local_mode, "temporary_japanese");
+            }
+            let view = runtime.view();
+            assert_eq!(view.editing_text, "Rko-hi-");
+            assert_eq!(view.scheme, scheme);
+            let candidate = view
+                .candidates
+                .iter()
+                .find(|row| row.text == "コーヒー")
+                .unwrap();
+            let transition = runtime.dispatch(Action::Select(candidate.id)).unwrap();
+            assert_eq!(transition.commit.as_deref(), Some("コーヒー"));
+            assert_eq!(transition.view.scheme, scheme);
+            assert_eq!(transition.view.local_mode, "none");
+        }
+    }
+}
+
+#[test]
 fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
     for (entry, continuation) in [(b'U', b'V'), (b'U', b'I'), (b'K', b'A'), (b'T', b'A')] {
         let directory = tempfile::tempdir().unwrap();
