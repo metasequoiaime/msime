@@ -321,8 +321,8 @@ public final class VoicePage extends ReloadingDetailPage {
     private void modelsGroup(LinearLayout target, JSONObject voice, State state) {
         LinearLayout column = sectionColumn(target, "模型");
         GroupCard preparation = GroupCard.add(column, "本地识别准备");
-        LocalVoiceModels.Model selected = selectedModel(voice, state);
-        preparation.value("已选模型", null, selected == null ? "未选用" : selected.title());
+        LocalVoiceModels.Model chosenModel = selectedModel(voice, state);
+        preparation.value("已选模型", null, chosenModel == null ? "未选用" : chosenModel.title());
         if (state.runtimeReady()) preparation.value("本地语音运行库", null, "已就绪");
         else {
             runtimeRow(preparation, state);
@@ -334,7 +334,7 @@ public final class VoicePage extends ReloadingDetailPage {
                         ResourcePackService.title(ResourcePacks.VOICE_RUNTIME), runtime.importFiles()));
             }
         }
-        preparation.footer(selected != null && state.runtimeReady()
+        preparation.footer(chosenModel != null && state.runtimeReady()
             ? "模型和运行库均已准备好，可以开始语音输入。"
             : "本地识别需要模型和语音运行库。导入模型后，还需单独准备运行库；「已选用」只表示选中了模型。");
         GroupCard group = GroupCard.add(column, "本地模型");
