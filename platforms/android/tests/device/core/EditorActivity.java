@@ -44,7 +44,17 @@ public final class EditorActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("MSIME synthetic editor fixture");
         layout.addView(title);
-        EditText plain = new EditText(this);
+        EditText plain = new EditText(this) {
+            @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(info);
+                // 产品进程中的回归只能跨进程读取节点；仅显式启用时提供合成编辑器的真实组字范围。
+                if (!getIntent().getBooleanExtra("msime_test_composition_spans", false)) return;
+                info.getExtras().putInt("msime-test-composing-start",
+                    android.view.inputmethod.BaseInputConnection.getComposingSpanStart(getText()));
+                info.getExtras().putInt("msime-test-composing-end",
+                    android.view.inputmethod.BaseInputConnection.getComposingSpanEnd(getText()));
+            }
+        };
         // 需要验收真实换行的套件显式使用多行编辑器，普通单行夹具继续保留。
         plain.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra(
             "msime_test_multiline", false) ? InputType.TYPE_TEXT_FLAG_MULTI_LINE : 0));

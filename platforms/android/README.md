@@ -387,6 +387,8 @@ APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由�
 
 完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装 `app.msime.android` 开发包和独立合成编辑器，准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
 
+默认冒烟还通过 `NineKeyPanelDeviceSmoke -e partial-selection true` 验证九键逐字选词：真实触摸展开面板中的单字后，剩余组字必须自动刷新；不发送返回操作即可再次展开并选完四个合成音节。每次核对真实编辑器的已选前缀与组字标记，最终确认完整提交并结束组字。专项复用既有清单入口，不增加 instrumentation 数量。
+
 完整上游皮肤需显式运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/upstream-skins.sh emulator-5580 <msime-windows检出目录>`（API 28 同理）。先按上面的步骤安装当前原生 APK 并准备好词库；此命令只重建和安装测试编辑器。它从固定提交 `dd018f79858314ed542a47c528608752b13bd261` 归档 `green_leaf`、`sakura-night`，不读取未提交资源，不把上游图片加入本仓库或默认测试包。真实 JNI 确认面板及全部挂件解码，随后在独立合成编辑器中保存两款皮肤 × 明暗 × 普通／展开的八张候选区截图，并检查底层按键隐藏、顶部候选条保留、窗口尺寸不变、两种收起入口与点击上屏；结束恢复原偏好并移除本次临时皮肤。同名已安装目录会拒绝覆盖。截图保存在 `target/android/device-test/<serial>/upstream-*/`，必须目测图片、文字、挂件与裁切，脚本成功不等于逐像素一致或动画全部验收。
 
 独立 instrumentation 读取编辑器与输入法的交互窗口，等待窗口稳定后重新定位并注入触摸，断言“你好”提交、退格、“直接输入”状态和密码框字符长度；不记录编辑器原文。普通 uiautomator dump 只用于准备 Activity，不能用它缺少输入法节点推断键盘未显示。APK fixture 不随产品打包。

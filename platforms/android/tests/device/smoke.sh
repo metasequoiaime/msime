@@ -311,6 +311,10 @@ do
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "${entry#*|}" >&2; exit 1; }
 done
+# 九键逐字选词复用原入口；真实触摸后必须自动刷新剩余组字，不能依靠手动返回解除旧面板。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke -e partial-selection true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Nine-key partial selection acceptance failed" >&2; exit 1; }
 # 中文字母长按与上滑选择大小写/符号，复用标点套件的 instrumentation 入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-hold true)
 printf '%s\n' "$result"

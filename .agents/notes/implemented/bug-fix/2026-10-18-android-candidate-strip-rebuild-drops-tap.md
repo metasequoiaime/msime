@@ -37,6 +37,8 @@ Status: implemented
 
 ## Verification
 
+#9193 的九键逐字选词与整词上屏共享触摸释放路径。`NineKeyPanelDeviceSmoke -e partial-selection true` 在真实编辑器输入四个合成音节，每次从展开面板只选一个字；每轮都检查旧面板自动收起、输入框保留已选前缀与剩余组字标记，再直接展开继续选字，最终提交「你好你好」且组字标记消失。测试不发送返回操作，默认 `smoke.sh` 包含此专项，复用原清单入口以保持 instrumentation 数量不变。该入口运行在产品进程中，合成编辑器仍为独立应用，不能用 `startActivitySync` 跨进程取得 Activity；编辑器仅在显式测试标记下，将真实 composing span 的两个偏移放入节点 extras，由回归跨进程读取，不增加产品测试接口。旧触摸保护与现实现的设备对照尚待执行。
+
 2026-10-21 在 API 28 专用模拟器确认选词后停在展开页的回归：`CandidatePanelDeviceSmoke` 改为通过真实触摸选择第十个候选，再直接触摸字母键继续输入。旧包选词成功上屏，但后续输入断言失败，截图仍显示原展开列表。修复包通过同一回归，无需隐藏、重新打开输入法。`NineKeyPanelDeviceSmoke` 继续覆盖拼音锁定、退格、筛选和重输，并新增真实触摸选词后收起三栏面板、直接按九键继续输入的检查，也通过。
 
 验证包重新编译当前 Java 和资源，复用模拟器原安装包的原生库及词库；没有重新构建 Rust/原生库，没有在 API 35 或真机重复本轮验收。`check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease`、远端 `scripts/verify-local.sh --quick`、本地 `pnpm run verify-notes` 和 `git diff --check` 通过。
