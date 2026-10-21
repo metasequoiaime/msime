@@ -138,5 +138,7 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
     self.task = nil
     self.session = nil
     isConnected = false
+    // 清空成员后仍用回调参数失效会话，释放它持有的 delegate。
+    session.invalidateAndCancel()
   }
 }
