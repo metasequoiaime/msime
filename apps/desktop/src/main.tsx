@@ -443,6 +443,9 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
+  // 宿主是 Linux（被叫到前台时要重看词库是否过期），以及用户在本进程里已对「词库需要更新」点过「稍后」。
+  const linuxHost = useRef(false);
+  const linuxUpdateDeferred = useRef(false);
   const [macosInstall, setMacosInstall] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   // 首启引导准备资源之后重新读到的版本：第一次启动时 HostOptions 由这一步写下，发现宿主能力时还读不到版本。
@@ -574,8 +577,17 @@ function DesktopSettings() {
     const disposeSubscription = isTauri()
       ? trackAsyncSubscription(
           listen<string>("settings-route", (event) => {
+            if (!active) return;
             // 未指定分区的入口只将窗口带到前台，保留当前页面。
-            if (active && event.payload) requestSettingsPage(event.payload);
+            if (event.payload) requestSettingsPage(event.payload);
+            // 设置进程可能早于宿主留下词库过期标记就在运行（关窗后还常驻十分钟），被叫到前台时（包括点「词库需要更新」通知的「打开设置」）再看一次，与启动时一样先打开「立即更新」页。用户在本进程里点过「稍后」就不再打断。
+            if (linuxHost.current && !linuxUpdateDeferred.current)
+              void invoke<LinuxSetupStatus>("linux_setup_status")
+                .then((status) => {
+                  if (active && status.prepared && status.dictionaryOutdated)
+                    setLinuxSetup((current) => current ?? status);
+                })
+                .catch(() => undefined);
           }),
           () => active,
         )
@@ -611,6 +623,7 @@ function DesktopSettings() {
           ? await invoke<boolean>("application_update_supported").catch(() => false)
           : false;
       if (!active) return;
+      linuxHost.current = host?.platform === "linux";
       // 还没配置，或宿主报告词库过期时先打开首次配置（更新）页；宿主已在启动时把窗口变成它的小窗口。其余情况把窗口换回设置的大小（宿主没变过窗口时这一步什么也不做）。
       if (linuxSetupStatus && (!linuxSetupStatus.prepared || linuxSetupStatus.dictionaryOutdated))
         setLinuxSetup(linuxSetupStatus);
@@ -946,7 +959,10 @@ function DesktopSettings() {
       <LinuxSetupPage
         status={linuxSetup}
         client={linuxSetupClient}
+        edition={settingsClient?.host?.edition}
         onComplete={() => {
+          if (linuxSetup.prepared && linuxSetup.dictionaryOutdated)
+            linuxUpdateDeferred.current = true;
           void invoke("leave_linux_setup_window")
             .catch(() => undefined)
             .then(() => setLinuxSetup(null));

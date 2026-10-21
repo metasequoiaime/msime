@@ -3802,6 +3802,9 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+    // 只为面板启动过的设置进程，这时才第一次打开设置窗口；常驻的设置进程也在每次被叫到前台时看一眼是否又满一天。
+    #[cfg(target_os = "linux")]
+    update_check::start_linux_background_update_check(app);
     let page = route
         .settings_category()
         .map(|category| category.as_str())
@@ -5494,24 +5497,22 @@ pub fn run() {
                 #[cfg(not(any(target_os = "linux", target_os = "android")))]
                 document: Arc::new(host_document.clone()),
             });
-            // 每天一次的后台更新检查（只提醒，不在应用里安装），见 `update_check` 里 Linux 后台检查一节。开发构建不联网检查。
+            // 这次启动打开的是设置窗口，不是某个面板（屏幕键盘、表情、剪贴板等由输入法按需拉起）。
+            #[cfg(target_os = "linux")]
+            let settings_launch = requested_surface_route()
+                .and_then(|route| route.panel_for(host_platform()))
+                .is_none();
+            // 每天一次的后台更新检查（只提醒，不在应用里安装），见 `update_check` 里 Linux 后台检查一节。只在打开设置窗口时检查（这里是启动时，另见 `activate_desktop_surface`），面板启动不联网。
             #[cfg(target_os = "linux")]
             {
                 app.manage(update_check::BackgroundUpdateState::new(&directory));
-                if !tauri::is_dev() {
-                    update_check::start_linux_background_update_check(
-                        app.handle().clone(),
-                        directory.clone(),
-                    );
+                if settings_launch {
+                    update_check::start_linux_background_update_check(app.handle());
                 }
             }
             // 与 macOS 的首次安装窗口一样：还没配置（或宿主报告词库过期）时设置窗口先以居中的小窗口打开首次配置页。面板启动不碰主窗口。
             #[cfg(target_os = "linux")]
-            if requested_surface_route()
-                .and_then(|route| route.panel_for(host_platform()))
-                .is_none()
-                && linux_setup::setup_window_pending(runtime_path.as_deref())
-            {
+            if settings_launch && linux_setup::setup_window_pending(runtime_path.as_deref()) {
                 if let Some(main) = app.get_webview_window("main") {
                     linux_setup::shape_setup_window(&main);
                 }

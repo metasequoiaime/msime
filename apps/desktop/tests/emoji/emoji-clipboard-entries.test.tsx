@@ -257,3 +257,28 @@ test("面板轮询给出内容相同的新数组时，正在显示的预览和�
   expect(screen.queryByRole("menu")).toBeNull();
   expect(view.container.querySelector("[data-clipboard-preview]")).toBeNull();
 });
+
+test("没有悬停的触屏设备上用行旁带文字的「删除」，不用要悬停才出现的小 ×", () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({ matches: query === "(hover: none)", media: query })),
+  );
+  try {
+    const callbacks = actions();
+    const view = render(
+      <EmojiClipboardEntries items={items} busy={false} canCopy {...callbacks} />,
+    );
+    const row = view.container.querySelector<HTMLElement>("[data-clipboard-row]")!;
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["合成  记录 下一行  ", "粘贴", "删除"]);
+    // 行内不再给 × 留出右侧空位。
+    expect(row.querySelector("[data-clipboard-item]")?.className).not.toContain("pr-10");
+    fireEvent.click(within(row).getByRole("button", { name: "删除此条历史记录" }));
+    expect(callbacks.onRemove.mock.calls).toEqual([[raw]]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

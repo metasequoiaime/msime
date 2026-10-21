@@ -1290,13 +1290,14 @@ const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-cent
 /** 临时消息的胶囊提示，尺寸和配色取自 macOS 原生表情面板的 `MacEmojiToastOverlay`：浮在底部状态行上方，不接收指针。 */
 const panelToast =
   "pointer-events-none absolute bottom-[42px] left-1/2 z-10 flex h-[35px] max-w-[calc(100%-27px)] -translate-x-1/2 items-center overflow-hidden rounded-full bg-[#3a3a44]/96 px-[19px] text-[13px] font-semibold whitespace-nowrap text-[#f5f5f7] group-data-[panel-theme=light]:bg-[#2b2b33]/94";
-/** 剪贴板采集状态，文案与 macOS 原生剪贴板页的状态行一致；Linux 另有读不到系统剪贴板一种。 */
+/** 剪贴板采集状态，文案与 macOS 原生剪贴板页的状态行一致；Linux 另有读不到系统剪贴板的三种，按当前会话该装什么来说。 */
 const captureStatusText: Record<ClipboardCaptureStatus, string> = {
   disabled: "剪贴板采集已停用",
   monitoring: "历史开启时，保存新复制的文本",
   unavailable: "无法读取共享设置，剪贴板采集已暂停",
-  read_unavailable:
-    "读不到系统剪贴板，剪贴板采集已暂停：Wayland 需要 wl-clipboard，X11 需要 xclip 或 xsel",
+  read_unavailable: "当前会话里读不到系统剪贴板，剪贴板采集已暂停",
+  read_unavailable_x11: "读不到系统剪贴板，剪贴板采集已暂停：请安装 xclip 或 xsel",
+  read_unavailable_wayland: "读不到系统剪贴板，剪贴板采集已暂停：请安装 wl-clipboard",
   save_failed: "剪贴板历史保存失败，将重试",
 };
 export function EmojiPanel({

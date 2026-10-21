@@ -135,6 +135,7 @@ export function SettingsPreferencesForm({
             hidden={page !== "help"}
             macos={macosPlatform}
             linux={linuxPlatform}
+            edition={client.host?.edition}
             mobile={mobilePlatform}
             ios={iosPlatform}
             android={androidPlatform}

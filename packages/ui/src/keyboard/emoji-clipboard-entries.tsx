@@ -29,6 +29,15 @@ export interface EmojiClipboardEntriesProps {
   onRemove?: (text: string) => void;
 }
 
+/** 没有悬停的设备（触屏手机、平板）：× 要悬停才出现，而一直显示的 28px × 又小于触屏的点按尺寸、紧挨着复制整行，误触就删掉一条，所以这些设备上仍用行旁带文字的「删除」按钮。共享面板也经 Android 设置应用的表情与剪贴板页显示。 */
+function noHoverDevice(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: none)").matches
+  );
+}
+
 /** 悬停或键盘聚焦停留这么久才显示长文本预览，划过列表时不闪出一串气泡。 */
 const PREVIEW_DELAY_MS = 350;
 
@@ -76,6 +85,8 @@ export function EmojiClipboardEntries({
 }: EmojiClipboardEntriesProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [sideDelete] = useState(noHoverDevice);
+  const inlineDelete = onRemove && !sideDelete;
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pointerFocus = useRef(false);
   // 行上刚按下菜单键或 Shift+F10。浏览器随后派发的 contextmenu 带的是这一行的坐标（WebKit、Chromium 都取聚焦元素的左下角），不能凭坐标判断它来自键盘。
@@ -167,7 +178,7 @@ export function EmojiClipboardEntries({
           <div className={clipboardRowFrame}>
             <button
               type="button"
-              className={clipboardRow(Boolean(onRemove))}
+              className={clipboardRow(Boolean(inlineDelete))}
               data-clipboard-item=""
               data-clipboard-text={item}
               data-emoji-navigation-item
@@ -203,7 +214,7 @@ export function EmojiClipboardEntries({
             >
               {item.replace(/[\r\n\t]/g, " ")}
             </button>
-            {onRemove && (
+            {inlineDelete && (
               <button
                 type="button"
                 className={clipboardDeleteButton}
@@ -225,6 +236,17 @@ export function EmojiClipboardEntries({
               onClick={() => void onPaste(item)}
             >
               粘贴
+            </button>
+          )}
+          {onRemove && sideDelete && (
+            <button
+              type="button"
+              className={clipboardSideButton}
+              disabled={busy}
+              aria-label="删除此条历史记录"
+              onClick={() => void onRemove(item)}
+            >
+              删除
             </button>
           )}
         </div>

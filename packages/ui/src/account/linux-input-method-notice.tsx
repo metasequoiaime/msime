@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ActionButton } from "../core/action-button";
 import { MascotIllustration } from "../core/mascot";
+import type { LinuxEditionNames } from "./linux-edition-names";
 
 /** `msime-linux-setup` 报告的输入法列表情况：正在运行的输入法框架（都没在运行时为 `null`）以及水杉输入法是否已在它的列表里。 */
 export interface LinuxSetupRegistration {
@@ -11,12 +12,13 @@ export interface LinuxSetupRegistration {
 export interface LinuxInputMethodNoticeProps {
   /** 没有结果时（旧版脚本、或配置在报告之前就结束了）按两种框架都给出手动加入的步骤。 */
   registration: LinuxSetupRegistration | null | undefined;
+  /** 本版本的名字和首次配置命令（`linuxEditionNames`）。 */
+  names: LinuxEditionNames;
+  /** 配置脚本报告的、要用户留意的提示，配置成功时也列在卡片上。 */
+  notes?: readonly string[];
   openFcitx5Config?: () => Promise<void>;
   copyText?: (text: string) => Promise<void>;
 }
-
-const fcitx5Name = "「水杉输入法」（英文界面显示为「MSIME」）";
-const ibusName = "「Metasequoia 水杉输入法」";
 
 function Steps({ steps }: { steps: readonly string[] }) {
   return (
@@ -33,10 +35,13 @@ function Steps({ steps }: { steps: readonly string[] }) {
  */
 export function LinuxInputMethodNotice({
   registration,
+  names,
+  notes = [],
   openFcitx5Config,
   copyText,
 }: LinuxInputMethodNoticeProps) {
   const [message, setMessage] = useState("");
+  const { name, fcitx5Label: fcitx5Name, ibusLabel: ibusName, setupCommand } = names;
   const host = registration?.host ?? null;
   const registered = registration?.registered === true && host !== null;
 
@@ -45,20 +50,20 @@ export function LinuxInputMethodNotice({
   let steps: readonly string[] = [];
   if (registered && host === "fcitx5") {
     title = "已加入 Fcitx5 输入法组";
-    detail = "用 Fcitx5 的输入法切换快捷键（默认是 Ctrl+空格）切换到水杉输入法即可开始输入。";
+    detail = `用 Fcitx5 的输入法切换快捷键（默认是 Ctrl+空格）切换到${name}即可开始输入。`;
   } else if (registered) {
     title = "已加入输入源列表";
     detail = `在桌面的输入源里切换到${ibusName}即可开始输入（GNOME 默认是 Super+空格）。`;
   } else if (host === "fcitx5") {
-    title = "把水杉输入法加入 Fcitx5 输入法组";
+    title = `把${name}加入 Fcitx5 输入法组`;
     detail = "没能自动加入，请手动添加：";
     steps = [
       "点「打开 Fcitx5 配置」。",
       `在右侧「可用输入法」里找到${fcitx5Name}，把它移到左侧的当前输入法组。`,
-      "点「应用」，再用 Ctrl+空格 切换到水杉输入法。",
+      `点「应用」，再用 Ctrl+空格 切换到${name}。`,
     ];
   } else if (host === "ibus") {
-    title = "把水杉输入法加入输入源";
+    title = `把${name}加入输入源`;
     detail = "没能自动加入，请手动添加：";
     steps = [
       "在终端运行 ibus restart，让 IBus 读到新装的输入法。",
@@ -67,15 +72,14 @@ export function LinuxInputMethodNotice({
     ];
   } else if (registration) {
     title = "启动 Fcitx5 或 IBus 后加入输入法列表";
-    detail =
-      "没有检测到正在运行的 Fcitx5 或 IBus，输入法列表没有改动。启动其中一个后，在终端运行 msime-linux-setup --register 自动加入，或按下面的方法手动添加：";
+    detail = `没有检测到正在运行的 Fcitx5 或 IBus，输入法列表没有改动。启动其中一个后，在终端运行 ${setupCommand} --register 自动加入，或按下面的方法手动添加：`;
     steps = [
       `Fcitx5：用 fcitx5-configtool 把${fcitx5Name}加入当前输入法组。`,
       `IBus：执行 ibus restart，再在系统设置的输入源里添加${ibusName}。`,
     ];
   } else {
     title = "加入输入法列表";
-    detail = "水杉输入法还不在输入法列表里时，按正在使用的输入法框架手动添加：";
+    detail = `${name}还不在输入法列表里时，按正在使用的输入法框架手动添加：`;
     steps = [
       `Fcitx5：用 fcitx5-configtool 把${fcitx5Name}加入当前输入法组。`,
       `IBus：执行 ibus restart，再在系统设置的输入源里添加${ibusName}。`,
@@ -95,6 +99,16 @@ export function LinuxInputMethodNotice({
       <p className="m-0 text-[15px] font-semibold text-[var(--p-text)]">{title}</p>
       {detail && <p className="m-0 text-[13px] leading-relaxed text-[var(--p-sub)]">{detail}</p>}
       {steps.length > 0 && <Steps steps={steps} />}
+      {notes.length > 0 && (
+        <ul
+          className="m-0 mt-1 flex list-none flex-col gap-1.5 p-0 text-left text-[13px] leading-relaxed text-[var(--p-sub)] select-text"
+          aria-label="配置提示"
+        >
+          {notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
       {(showConfigtool || showCopy) && (
         <div className="mt-1 flex flex-wrap justify-center gap-2">
           {showConfigtool && (

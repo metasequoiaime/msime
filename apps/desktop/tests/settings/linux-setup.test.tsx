@@ -289,3 +289,49 @@ test("宿主报告词库过期时以「词库需要更新」打开，立即更�
     true,
   );
 });
+
+test("配置成功时脚本报告的提示列在结果卡片上，不必展开详细输出", async () => {
+  const note = "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。";
+  const run = vi.fn(async (_choices: unknown, onLine: (line: LinuxSetupLine) => void) => {
+    onLine({ text: note, error: false });
+    return {
+      ...missing,
+      prepared: true,
+      registration: { host: "fcitx5" as const, registered: true },
+      notes: [note],
+    };
+  });
+  render(<LinuxSetupPage status={missing} client={{ run }} onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始配置" }));
+  const card = await screen.findByRole("status", { name: "输入法列表" });
+  expect(card.querySelector('[aria-label="配置提示"]')?.textContent).toContain(note);
+  expect(screen.getByRole("log", { name: "配置输出" }).closest("details")?.open).toBe(false);
+});
+
+test("首次配置页的产品名、结果卡片和终端命令随安装的版本", async () => {
+  const wubi = {
+    id: "wubi",
+    display_name: "水杉五笔",
+    input_schemes: ["wubi" as const],
+    default_scheme: "wubi" as const,
+    temporary_japanese: false,
+    neural_keyboard: false,
+    offline_glosses: false,
+    handwriting: false,
+    wubi_mixed_pinyin_default: false,
+  };
+  const run = vi.fn(async () => ({
+    ...missing,
+    prepared: true,
+    registration: { host: null, registered: false },
+  }));
+  render(<LinuxSetupPage status={missing} client={{ run }} edition={wubi} onComplete={vi.fn()} />);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("水杉五笔");
+  expect(screen.getByText(/msime-linux-wubi-setup 完成同样的配置/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "开始配置" }));
+  const card = await screen.findByRole("status", { name: "输入法列表" });
+  expect(card.textContent).toContain("msime-linux-wubi-setup --register");
+  expect(card.textContent).toContain("「水杉五笔」");
+  expect(card.textContent).toContain("「Metasequoia 水杉五笔」");
+  expect(card.textContent).not.toContain("水杉输入法");
+});

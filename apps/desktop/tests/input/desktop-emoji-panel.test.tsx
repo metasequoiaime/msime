@@ -171,7 +171,7 @@ test("StrictMode 重放与卸载后忽略能力回答", async () => {
 });
 
 /** 按命令名回答的宿主：粘贴能力、采集状态和云剪贴板请求各有各的结果。 */
-function linuxHost(captureStatus: string | null = "read_unavailable") {
+function linuxHost(captureStatus: string | null = "read_unavailable_x11") {
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockImplementation(async (command: string) => {
     if (command === "supports_clipboard_paste") return true;
@@ -193,10 +193,25 @@ test("Linux 的独立剪贴板窗口用自己的页头，不显示表情分类�
   expect(screen.queryByRole("navigation", { name: "面板分类" })).toBeNull();
   expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
   expect(
-    await screen.findByText(
-      "读不到系统剪贴板，剪贴板采集已暂停：Wayland 需要 wl-clipboard，X11 需要 xclip 或 xsel",
-    ),
+    await screen.findByText("读不到系统剪贴板，剪贴板采集已暂停：请安装 xclip 或 xsel"),
   ).toBeTruthy();
+});
+
+test.each([
+  ["read_unavailable_wayland", "读不到系统剪贴板，剪贴板采集已暂停：请安装 wl-clipboard"],
+  ["read_unavailable", "当前会话里读不到系统剪贴板，剪贴板采集已暂停"],
+  ["monitoring", "历史开启时，保存新复制的文本"],
+] as const)("Linux 剪贴板采集状态 %s 按会话给出提示", async (status, text) => {
+  linuxHost(status);
+  render(
+    <DesktopEmojiPanel
+      client={panelClient()}
+      theme="dark"
+      initialPage="clipboard"
+      hostPlatform="linux"
+    />,
+  );
+  expect(await screen.findByText(text)).toBeTruthy();
 });
 
 test("Linux 粘贴成功后关闭独立窗口，与 macOS 一样只插入一次", async () => {

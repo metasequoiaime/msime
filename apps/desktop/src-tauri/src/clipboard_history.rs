@@ -76,7 +76,7 @@ pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> 
     clipboard_without_text(reader_installed)
 }
 
-/// 本会话可用的读取程序都没读到文本时的结果。`wl-paste`、`xclip` 在剪贴板为空或只有图片、文件时也以非零状态退出，与没装它们在 `read_text` 看来一样，所以按有没有装来分：装了其中任何一个，读取本身是通的，只是这时没有文本，按没有内容处理（`Ok(None)`），采集照常；一个都没装（或会话里没有能用的显示）才是读不了剪贴板，面板的状态行据此提示安装 wl-clipboard、xclip 或 xsel。
+/// 本会话可用的读取程序都没读到文本时的结果。`wl-paste`、`xclip` 在剪贴板为空或只有图片、文件时也以非零状态退出，与没装它们在 `read_text` 看来一样，所以按有没有装来分：装了其中任何一个，读取本身是通的，只是这时没有文本，按没有内容处理（`Ok(None)`），采集照常；一个都没装（或会话里没有能用的显示）才是这个进程读不了剪贴板，面板的状态行据此按 `unreadable_clipboard_status` 说明。
 #[cfg(target_os = "linux")]
 pub(crate) fn clipboard_without_text(
     reader_installed: bool,
@@ -104,7 +104,7 @@ pub(crate) fn write_linux_clipboard(text: &str) -> bool {
     false
 }
 
-/// 剪贴板采集最近一轮的结果，给面板的状态行用，对应 macOS 原生剪贴板页 `MacClipboardMonitor.Status` 的四种状态；Linux 多一种读不到系统剪贴板（缺 wl-clipboard、xclip 或 xsel，或会话里没有可读的剪贴板）。
+/// 剪贴板采集最近一轮的结果，给面板的状态行用，对应 macOS 原生剪贴板页 `MacClipboardMonitor.Status` 的四种状态；Linux 多出读不到系统剪贴板的三种，按该装什么来分（见 `unreadable_clipboard_status`）。
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -112,7 +112,12 @@ pub(crate) enum ClipboardCaptureStatus {
     Disabled,
     Monitoring,
     Unavailable,
+    /// 这个会话里没有能读的剪贴板：没有显示，或只有不提供 data-control 的 Wayland 合成器而没有 XWayland，装什么程序都没用。
     ReadUnavailable,
+    /// 有 X11 显示（含 XWayland），装上 xclip 或 xsel 就能读。
+    ReadUnavailableX11,
+    /// 只有 Wayland 显示且没装 wl-paste，装上 wl-clipboard 就能读。
+    ReadUnavailableWayland,
     SaveFailed,
 }
 
@@ -125,6 +130,8 @@ impl ClipboardCaptureStatus {
             Self::Unavailable => 3,
             Self::ReadUnavailable => 4,
             Self::SaveFailed => 5,
+            Self::ReadUnavailableX11 => 6,
+            Self::ReadUnavailableWayland => 7,
         }
     }
 
@@ -134,6 +141,8 @@ impl ClipboardCaptureStatus {
             Self::Monitoring,
             Self::Unavailable,
             Self::ReadUnavailable,
+            Self::ReadUnavailableX11,
+            Self::ReadUnavailableWayland,
             Self::SaveFailed,
         ]
         .into_iter()
@@ -160,7 +169,7 @@ impl ClipboardCaptureState {
     }
 }
 
-/// 一轮采集的状态：偏好读不出来时暂停；关闭历史时停用；没有能读剪贴板的程序时报读取不可用；剪贴板里没有文本或是密码管理器标了保密的内容（`Ok(None)`）也算在正常采集；保存失败下一轮重试。
+/// 一轮采集的状态：偏好读不出来时暂停；关闭历史时停用；没有能读剪贴板的程序时报读取不可用（监视线程随后按 `unreadable_clipboard_status` 细分）；剪贴板里没有文本或是密码管理器标了保密的内容（`Ok(None)`）也算在正常采集；保存失败下一轮重试。
 #[cfg(target_os = "linux")]
 pub(crate) fn clipboard_capture_round(
     preferences_readable: bool,
@@ -181,6 +190,63 @@ pub(crate) fn clipboard_capture_round(
     }
 }
 
+/// 设置程序自己读不到剪贴板时状态行怎么说。剪贴板历史在 Linux 上主要由用户服务 `<package>-clipboard.service`（`msime-linux-clipboard-monitor`）采集：它用随包的 `msime-linux-clipboard-watch-x11` 或 `wl-paste --watch`，不需要 xclip、xsel，首次配置会启用它。它在运行时采集照常，状态行说正在采集，不提示去装用不上的工具。服务没在运行时才按会话说该装什么：有 X11 显示（含 XWayland）时 xclip 或 xsel 一定能用；只有 Wayland 显示且没装 wl-paste 时是 wl-clipboard；其余情况（没有显示，或只有 Wayland 显示、装了 wl-paste 但合成器不提供 data-control，见 `wayland_paste_is_background`）装什么都读不到。
+#[cfg(target_os = "linux")]
+pub(crate) fn unreadable_clipboard_status(
+    capture_service_active: bool,
+    x11_display: bool,
+    wayland_display: bool,
+    wl_paste_installed: bool,
+) -> ClipboardCaptureStatus {
+    if capture_service_active {
+        ClipboardCaptureStatus::Monitoring
+    } else if x11_display {
+        ClipboardCaptureStatus::ReadUnavailableX11
+    } else if wayland_display && !wl_paste_installed {
+        ClipboardCaptureStatus::ReadUnavailableWayland
+    } else {
+        ClipboardCaptureStatus::ReadUnavailable
+    }
+}
+
+/// 隔多久再问一次 systemd 剪贴板服务是否在运行；只在这个进程读不到剪贴板时才问。
+#[cfg(target_os = "linux")]
+const CAPTURE_SERVICE_RECHECK: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// 本版本的剪贴板用户服务（full 是 `msime-linux-clipboard.service`）是否在运行。
+#[cfg(target_os = "linux")]
+fn capture_service_active() -> bool {
+    let unit = msime_client_core::edition::Edition::linux_package_identity_or_full()
+        .user_unit("clipboard.service");
+    linux_process::run_status(
+        "systemctl",
+        &["--user", "--quiet", "is-active", &unit],
+        std::time::Duration::from_secs(2),
+    )
+}
+
+/// 本进程读不到剪贴板时的状态行，见 `unreadable_clipboard_status`。服务状态最多每 `CAPTURE_SERVICE_RECHECK` 问一次。
+#[cfg(target_os = "linux")]
+fn session_unreadable_status(
+    service: &mut Option<(std::time::Instant, bool)>,
+) -> ClipboardCaptureStatus {
+    let active = match *service {
+        Some((checked, active)) if checked.elapsed() < CAPTURE_SERVICE_RECHECK => active,
+        _ => {
+            let active = capture_service_active();
+            *service = Some((std::time::Instant::now(), active));
+            active
+        }
+    };
+    let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+    unreadable_clipboard_status(
+        active,
+        set("DISPLAY"),
+        set("WAYLAND_DISPLAY"),
+        linux_process::program_available("wl-paste"),
+    )
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn start_linux_clipboard_monitor(
     history: Arc<Mutex<ClipboardHistoryStore>>,
@@ -192,6 +258,8 @@ pub(crate) fn start_linux_clipboard_monitor(
         .name("msime-clipboard-monitor".to_owned())
         .spawn(move || {
             let mut last_text = None;
+            // 上次问 systemd 剪贴板服务的时间和结果，见 `session_unreadable_status`。
+            let mut service = None;
             loop {
                 let snapshot = preferences.load().ok();
                 let enabled = snapshot
@@ -224,7 +292,13 @@ pub(crate) fn start_linux_clipboard_monitor(
                         }
                     }
                 }
-                let status = clipboard_capture_round(snapshot.is_some(), enabled, &read, saved);
+                let status =
+                    match clipboard_capture_round(snapshot.is_some(), enabled, &read, saved) {
+                        ClipboardCaptureStatus::ReadUnavailable => {
+                            session_unreadable_status(&mut service)
+                        }
+                        status => status,
+                    };
                 if capture.update(status) {
                     on_status_changed();
                 }

@@ -1677,6 +1677,65 @@ fn linux_clipboard_capture_status_names_each_round() {
         serde_json::to_value(ClipboardCaptureStatus::ReadUnavailable).unwrap(),
         serde_json::json!("read_unavailable")
     );
+    assert!(state.update(ClipboardCaptureStatus::ReadUnavailableX11));
+    assert_eq!(
+        state.current(),
+        Some(ClipboardCaptureStatus::ReadUnavailableX11)
+    );
+    assert!(state.update(ClipboardCaptureStatus::ReadUnavailableWayland));
+    assert_eq!(
+        state.current(),
+        Some(ClipboardCaptureStatus::ReadUnavailableWayland)
+    );
+    assert_eq!(
+        serde_json::to_value(ClipboardCaptureStatus::ReadUnavailableX11).unwrap(),
+        serde_json::json!("read_unavailable_x11")
+    );
+    assert_eq!(
+        serde_json::to_value(ClipboardCaptureStatus::ReadUnavailableWayland).unwrap(),
+        serde_json::json!("read_unavailable_wayland")
+    );
+}
+
+// 设置程序自己读不到剪贴板时，状态行先看剪贴板用户服务：默认的 Ubuntu GNOME 没装 xclip、wl-clipboard，服务用随包的原生读取照常采集，不能说采集已暂停。服务没在运行时才按会话提示该装什么。
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_clipboard_unreadable_status_follows_the_capture_service_and_the_session() {
+    use super::clipboard_history::{unreadable_clipboard_status, ClipboardCaptureStatus};
+    // 服务在运行：不管会话是什么都在正常采集。
+    for (x11, wayland, wl_paste) in [
+        (true, true, false),
+        (false, true, true),
+        (false, false, false),
+    ] {
+        assert_eq!(
+            unreadable_clipboard_status(true, x11, wayland, wl_paste),
+            ClipboardCaptureStatus::Monitoring
+        );
+    }
+    // GNOME Wayland（有 XWayland）：wl-paste 用不上，提示 xclip 或 xsel，不提示 wl-clipboard。
+    assert_eq!(
+        unreadable_clipboard_status(false, true, true, true),
+        ClipboardCaptureStatus::ReadUnavailableX11
+    );
+    assert_eq!(
+        unreadable_clipboard_status(false, true, false, false),
+        ClipboardCaptureStatus::ReadUnavailableX11
+    );
+    // 只有 Wayland、没装 wl-paste：提示 wl-clipboard。
+    assert_eq!(
+        unreadable_clipboard_status(false, false, true, false),
+        ClipboardCaptureStatus::ReadUnavailableWayland
+    );
+    // 只有 Wayland、装了 wl-paste 仍读不到（合成器不提供 data-control），或没有显示：装什么都没用。
+    assert_eq!(
+        unreadable_clipboard_status(false, false, true, true),
+        ClipboardCaptureStatus::ReadUnavailable
+    );
+    assert_eq!(
+        unreadable_clipboard_status(false, false, false, false),
+        ClipboardCaptureStatus::ReadUnavailable
+    );
 }
 
 // 与 macOS 一致：屏幕键盘贴着工作区底部居中，表情和本地剪贴板面板在工作区居中，其余面板仍在输入窗口下方。

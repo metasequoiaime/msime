@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { HelpSettingsPage } from "@msime/ui";
+import { HelpSettingsPage, type EditionInfo } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -89,4 +89,50 @@ test("Linux 也用术语卡片，键名和排查步骤是 Linux 的，并提供�
   expect(screen.queryByText("快速开始")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "打开官网" }));
   expect(onOpenDocumentation).toHaveBeenCalledOnce();
+});
+
+/** 合成的非 full 版本：名字和方案取自版本表的形状，id 不对应任何真实安装。 */
+function edition(
+  id: string,
+  displayName: string,
+  schemes: EditionInfo["input_schemes"],
+): EditionInfo {
+  return {
+    id,
+    display_name: displayName,
+    input_schemes: schemes,
+    default_scheme: schemes[0],
+    temporary_japanese: false,
+    neural_keyboard: false,
+    offline_glosses: false,
+    handwriting: false,
+    wubi_mixed_pinyin_default: false,
+  };
+}
+
+test("Linux 帮助卡片里的输入法条目名和命令随安装的版本，不写死 full 的", () => {
+  render(<HelpSettingsPage {...common} linux edition={edition("wubi", "水杉五笔", ["wubi"])} />);
+
+  const problems = screen.getByRole("group", { name: "遇到问题" });
+  expect(problems.textContent).toContain("「水杉五笔」");
+  expect(problems.textContent).toContain("「Metasequoia 水杉五笔」");
+  expect(problems.textContent).toContain("msime-linux-wubi-setup --register");
+  expect(problems.textContent).toContain("msime-linux-wubi-setup --update --download");
+  expect(problems.textContent).not.toContain("水杉输入法");
+  expect(problems.textContent).not.toContain("msime-linux-setup");
+  // 五笔是中文方案，简繁和中文标点照样列出。
+  expect(screen.getByRole("group", { name: "开始输入" }).textContent).toContain("Ctrl+Shift+F");
+});
+
+test("不提供中文方案的 Linux 版本不列简繁和中文标点", () => {
+  render(
+    <HelpSettingsPage {...common} linux edition={edition("japanese", "水杉日语", ["japanese"])} />,
+  );
+
+  const start = screen.getByRole("group", { name: "开始输入" });
+  expect(start.textContent).not.toContain("Ctrl+Shift+F");
+  expect(start.textContent).not.toContain("Ctrl+.");
+  expect(screen.getByRole("group", { name: "遇到问题" }).textContent).toContain(
+    "msime-linux-japanese-setup",
+  );
 });

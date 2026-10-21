@@ -84,11 +84,17 @@ pub async fn application_update_check(app: tauri::AppHandle) -> Result<(), Comma
 
 // ---- Linux 后台更新检查 ----
 //
-// macOS 的输入法每天在后台检查一次、静默下载并在切换输入源时安装；Linux 的安装包归包管理器管（deb、rpm、AUR、OBS、nix），不能在应用里安装，所以这里只做检查和提醒：设置应用启动时（打开设置窗口或任何一个面板都会启动它）若距上次检查已满一天，就在后台问一次发布列表，发现新版本时发一条桌面通知，点通知打开设置的「关于」页，关于页直接显示找到的新版本。找到的版本记进 `update-check.json`，发通知的那个进程退出以后再打开关于页也能看到，直到运行的版本追上它。通知上的「查看」只在发通知的进程还在时有效（它要等 notify-send 退出才知道点了哪个动作），之后从设置窗口打开「关于」页即可。检查在设置应用里跑，不在 Fcitx5 插件或 IBus 宿主里联网。
+// macOS 的输入法每天在后台检查一次、静默下载并在切换输入源时安装；Linux 的安装包归包管理器管（deb、rpm、AUR、OBS、nix），不能在应用里安装，所以这里只做检查和提醒：打开设置窗口时（启动时或把已在运行的设置进程叫到前台时；只为面板启动的设置进程不检查）若距上次成功检查已满一天、距上次尝试已满 `BACKGROUND_RETRY_SECONDS`，就在后台问一次发布列表，发现新版本时发一条桌面通知，点通知打开设置的「关于」页，关于页直接显示找到的新版本。找到的版本记进 `update-check.json`，发通知的那个进程退出以后再打开关于页也能看到，直到运行的版本追上它。通知上的「查看」只在发通知的进程还在时有效（它要等 notify-send 退出才知道点了哪个动作），之后从设置窗口打开「关于」页即可。检查在设置应用里跑，不在 Fcitx5 插件或 IBus 宿主里联网。构建时或运行时设置了 `MSIME_DISABLE_UPDATE_CHECK`（见 `background_check_disabled`）时不做后台检查，关于页的「检查更新」按钮照常可用。请求的内容与「检查更新」按钮相同，见 PRIVACY.md「资源与更新下载」。
 
-/// 两次后台检查之间至少隔多久，与 macOS 输入法的每日检查一致。
+/// 两次成功的后台检查之间至少隔多久，与 macOS 输入法的每日检查一致。
 #[cfg(any(target_os = "linux", test))]
 const BACKGROUND_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
+/// 连不上 GitHub 时隔多久再试。失败也记下尝试的时间，断网期间不会每次打开设置都再问一次。
+#[cfg(any(target_os = "linux", test))]
+const BACKGROUND_RETRY_SECONDS: u64 = 6 * 60 * 60;
+/// 关掉后台检查的环境变量：发行版打包时在构建环境里设置（编进二进制），或者在运行设置应用的环境里设置。值非空且不是 `0` 才算关掉。
+#[cfg(target_os = "linux")]
+const BACKGROUND_DISABLE_ENV: &str = "MSIME_DISABLE_UPDATE_CHECK";
 /// 状态目录里记下上次检查时间和已提醒过的版本的文件。
 #[cfg(target_os = "linux")]
 const BACKGROUND_RECORD: &str = "update-check.json";
@@ -103,8 +109,11 @@ const NOTIFICATION_WAIT: std::time::Duration = std::time::Duration::from_secs(10
 #[cfg(any(target_os = "linux", test))]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct BackgroundRecord {
-    /// 上次检查的 Unix 时间（秒）。
+    /// 上次成功检查的 Unix 时间（秒）。
     pub(crate) checked_at: u64,
+    /// 上次尝试检查的 Unix 时间（秒），连不上时也记；旧记录没有这一项，按从没尝试过处理。
+    #[serde(default)]
+    pub(crate) attempted_at: u64,
     /// 已经发过通知的版本号，同一个版本只提醒一次。
     #[serde(default)]
     pub(crate) notified_version: Option<String>,
@@ -113,10 +122,22 @@ pub(crate) struct BackgroundRecord {
     pub(crate) available: Option<ReleaseUpdate>,
 }
 
-/// 现在是否该再检查一次：满一天，或者时钟被往回拨过（记录在将来）。
+/// 现在是否该再检查一次：距上次成功检查满一天，且距上次尝试满 `BACKGROUND_RETRY_SECONDS`；时钟被往回拨过（记录在将来）时按已经满了处理。
 #[cfg(any(target_os = "linux", test))]
 pub(crate) fn background_check_due(record: &BackgroundRecord, now: u64) -> bool {
-    now < record.checked_at || now - record.checked_at >= BACKGROUND_INTERVAL_SECONDS
+    let elapsed = |since: u64, interval: u64| now < since || now - since >= interval;
+    elapsed(record.checked_at, BACKGROUND_INTERVAL_SECONDS)
+        && elapsed(record.attempted_at, BACKGROUND_RETRY_SECONDS)
+}
+
+/// 后台检查是否被关掉：`build` 是构建时的 `MSIME_DISABLE_UPDATE_CHECK`，`runtime` 是运行时的；任何一个非空且不是 `0` 就关掉。
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn background_check_disabled(
+    build: Option<&str>,
+    runtime: Option<&std::ffi::OsStr>,
+) -> bool {
+    let set = |value: &std::ffi::OsStr| !value.is_empty() && value != "0";
+    build.is_some_and(|value| set(std::ffi::OsStr::new(value))) || runtime.is_some_and(set)
 }
 
 /// 这次检查结果要不要发通知：有新版本，且这个版本还没提醒过。返回要提醒的版本号。
@@ -194,52 +215,85 @@ fn read_background_record(path: &std::path::Path) -> BackgroundRecord {
         .unwrap_or_default()
 }
 
-/// 在后台线程里检查一次（未满一天则什么也不做），见本节开头的说明。
+/// 在后台线程里检查一次（未到时间则什么也不做），见本节开头的说明。设置窗口启动时和被叫到前台时都调用它；上一次还没结束时不再起一个。
 #[cfg(target_os = "linux")]
-pub(crate) fn start_linux_background_update_check(
-    app: tauri::AppHandle,
-    directory: std::path::PathBuf,
-) {
-    let _ = std::thread::Builder::new()
+pub(crate) fn start_linux_background_update_check(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use tauri::Manager;
+    static CHECKING: AtomicBool = AtomicBool::new(false);
+    if tauri::is_dev()
+        || background_check_disabled(
+            option_env!("MSIME_DISABLE_UPDATE_CHECK"),
+            std::env::var_os(BACKGROUND_DISABLE_ENV).as_deref(),
+        )
+    {
+        return;
+    }
+    let Some(path) = app
+        .try_state::<BackgroundUpdateState>()
+        .map(|state| state.0.clone())
+    else {
+        return;
+    };
+    if CHECKING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
         .name("msime-update-check".to_owned())
         .spawn(move || {
-            let path = directory.join(BACKGROUND_RECORD);
-            let record = read_background_record(&path);
-            let Ok(now) = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_secs())
-            else {
-                return;
-            };
-            if !background_check_due(&record, now) {
-                return;
-            }
-            let request = UpdateCheckRequest {
-                platform: "linux".to_owned(),
-                current_version: app.package_info().version.to_string(),
-                edition: crate::host_edition(&app).map(|edition| edition.id.clone()),
-                arch: Some(std::env::consts::ARCH.to_owned()),
-            };
-            // 连不上时不记时间，下次启动再试；检查成功才算这一天检查过了。
-            let Ok(check) = check_for_update(&request) else {
-                return;
-            };
-            let notify = background_notification(&check, &record);
-            let updated = BackgroundRecord {
-                checked_at: now,
-                notified_version: notify.clone().or(record.notified_version),
-                available: match check {
-                    UpdateCheck::Available(update) => Some(update),
-                    UpdateCheck::Current(_) | UpdateCheck::None => None,
-                },
-            };
-            if let Ok(text) = serde_json::to_vec(&updated) {
-                let _ = crate::shared::atomic_file::write(&path, &text);
-            }
-            if let Some(version) = notify {
-                notify_linux_update(&app, &version);
-            }
+            run_linux_background_update_check(&app, &path);
+            CHECKING.store(false, Ordering::Release);
         });
+    if spawned.is_err() {
+        CHECKING.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn run_linux_background_update_check(app: &tauri::AppHandle, path: &std::path::Path) {
+    let record = read_background_record(path);
+    let Ok(now) = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+    else {
+        return;
+    };
+    if !background_check_due(&record, now) {
+        return;
+    }
+    let request = UpdateCheckRequest {
+        platform: "linux".to_owned(),
+        current_version: app.package_info().version.to_string(),
+        edition: crate::host_edition(app).map(|edition| edition.id.clone()),
+        arch: Some(std::env::consts::ARCH.to_owned()),
+    };
+    let write = |record: &BackgroundRecord| {
+        if let Ok(text) = serde_json::to_vec(record) {
+            let _ = crate::shared::atomic_file::write(path, &text);
+        }
+    };
+    // 连不上时只记下这次尝试，其余照旧：过 `BACKGROUND_RETRY_SECONDS` 再试，检查成功才算这一天检查过了。
+    let Ok(check) = check_for_update(&request) else {
+        write(&BackgroundRecord {
+            attempted_at: now,
+            ..record
+        });
+        return;
+    };
+    let notify = background_notification(&check, &record);
+    write(&BackgroundRecord {
+        checked_at: now,
+        attempted_at: now,
+        notified_version: notify.clone().or(record.notified_version),
+        available: match check {
+            UpdateCheck::Available(update) => Some(update),
+            UpdateCheck::Current(_) | UpdateCheck::None => None,
+        },
+    });
+    if let Some(version) = notify {
+        notify_linux_update(app, &version);
+    }
 }
 
 /// 通知用的应用名和图标名：随本安装包所属的版本（五笔版是「水杉五笔」和 `msime-linux-wubi`），与引导脚本按版本改写出的通知一致；full 是「水杉输入法」和 `msime-linux`。设置程序在各版本之间共用，写死 full 的名字时五笔版的通知会找不到图标，并排安装时两条通知也分不出是谁的。
@@ -345,6 +399,7 @@ mod tests {
     fn background_check_runs_once_a_day_and_after_the_clock_moves_back() {
         let record = BackgroundRecord {
             checked_at: 1_000_000,
+            attempted_at: 1_000_000,
             notified_version: None,
             available: None,
         };
@@ -365,6 +420,51 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_check_waits_for_the_retry_interval_instead_of_every_launch() {
+        // 从没成功过、刚才连不上：几分钟后再打开设置不再联网，过了重试间隔才再试。
+        let offline = BackgroundRecord {
+            checked_at: 0,
+            attempted_at: 2_000_000,
+            ..BackgroundRecord::default()
+        };
+        assert!(!background_check_due(&offline, 2_000_000 + 60));
+        assert!(!background_check_due(
+            &offline,
+            2_000_000 + BACKGROUND_RETRY_SECONDS - 1
+        ));
+        assert!(background_check_due(
+            &offline,
+            2_000_000 + BACKGROUND_RETRY_SECONDS
+        ));
+        // 成功检查过的一天之内，失败的重试间隔不会让它提前再查。
+        let checked = BackgroundRecord {
+            checked_at: 2_000_000,
+            attempted_at: 2_000_000,
+            ..BackgroundRecord::default()
+        };
+        assert!(!background_check_due(
+            &checked,
+            2_000_000 + BACKGROUND_RETRY_SECONDS
+        ));
+        // 时钟往回拨过：两个时间都在将来，照样可以再查。
+        assert!(background_check_due(&checked, 1_000));
+    }
+
+    #[test]
+    fn packagers_and_users_can_turn_the_background_check_off() {
+        use std::ffi::OsStr;
+        assert!(!background_check_disabled(None, None));
+        assert!(!background_check_disabled(Some(""), Some(OsStr::new(""))));
+        assert!(!background_check_disabled(Some("0"), Some(OsStr::new("0"))));
+        assert!(background_check_disabled(Some("1"), None));
+        assert!(background_check_disabled(None, Some(OsStr::new("1"))));
+        assert!(background_check_disabled(
+            Some("0"),
+            Some(OsStr::new("yes"))
+        ));
+    }
+
+    #[test]
     fn notification_names_the_installed_edition() {
         use msime_client_core::edition::Edition;
         assert_eq!(
@@ -382,6 +482,7 @@ mod tests {
     fn the_about_page_keeps_showing_a_found_update_until_it_is_installed() {
         let record = BackgroundRecord {
             checked_at: 1,
+            attempted_at: 1,
             notified_version: Some("9.9.9".to_owned()),
             available: Some(release("9.9.9")),
         };
@@ -411,6 +512,7 @@ mod tests {
         );
         let told = BackgroundRecord {
             checked_at: 1,
+            attempted_at: 1,
             notified_version: Some("9.9.9".to_owned()),
             available: None,
         };
@@ -427,11 +529,12 @@ mod tests {
             None
         );
         assert_eq!(background_notification(&UpdateCheck::None, &fresh), None);
-        // 记录的形状：旧文件没有 `notified_version` 也读得出来。
+        // 记录的形状：旧文件没有 `notified_version` 和 `attempted_at` 也读得出来。
         assert_eq!(
             serde_json::from_str::<BackgroundRecord>("{\"checked_at\":5}").unwrap(),
             BackgroundRecord {
                 checked_at: 5,
+                attempted_at: 0,
                 notified_version: None,
                 available: None,
             }

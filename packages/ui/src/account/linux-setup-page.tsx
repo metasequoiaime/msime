@@ -6,7 +6,9 @@ import { useAsyncActionRunner } from "../core/use-async-action";
 import { useInterval } from "../core/use-interval";
 import { logo, windowIcons } from "../settings/app-resources";
 import * as settings from "../settings/settings-style";
+import type { EditionInfo } from "../core/host-capabilities";
 import { LinuxInputMethodNotice, type LinuxSetupRegistration } from "./linux-input-method-notice";
+import { linuxEditionNames } from "./linux-edition-names";
 
 export type { LinuxSetupRegistration } from "./linux-input-method-notice";
 
@@ -19,6 +21,8 @@ export interface LinuxSetupStatus {
   dictionaryOutdated?: boolean;
   /** 刚跑完的配置把输入法加入输入法列表的结果。 */
   registration?: LinuxSetupRegistration | null;
+  /** 刚跑完的配置要用户留意的提示（脚本的 `msime-setup-note:` 行），配置成功时也显示在结果卡片上。 */
+  notes?: string[];
 }
 
 export interface LinuxSetupLine {
@@ -101,12 +105,16 @@ const primary =
 export function LinuxSetupPage({
   status,
   client,
+  edition,
   onComplete,
 }: {
   status: LinuxSetupStatus;
   client: LinuxSetupClient;
+  /** 本安装包所属的版本（`HostCapabilities.edition`），决定页面上的产品名和终端命令。 */
+  edition?: EditionInfo;
   onComplete: () => void;
 }) {
+  const names = linuxEditionNames(edition);
   const updating = status.prepared && status.dictionaryOutdated === true;
   const [download, setDownload] = useState(false);
   const [cloudCandidates, setCloudCandidates] = useState(false);
@@ -122,9 +130,9 @@ export function LinuxSetupPage({
   const blocked = updating
     ? client.update
       ? ""
-      : linuxSetupFailureMessage({ code: "setup_unavailable" })
+      : linuxSetupFailureMessage({ code: "setup_unavailable" }, names.setupCommand)
     : !status.setupAvailable
-      ? linuxSetupFailureMessage({ code: "setup_unavailable" })
+      ? linuxSetupFailureMessage({ code: "setup_unavailable" }, names.setupCommand)
       : status.directoryOccupied
         ? `${directory} 已存在但缺少 runtime-options.json。请先移走这个目录，再重新打开设置。`
         : "";
@@ -164,10 +172,13 @@ export function LinuxSetupPage({
           setPhase("done");
         } else {
           setPhase("ready");
-          setError(linuxSetupFailureMessage(null));
+          setError(linuxSetupFailureMessage(null, names.setupCommand));
         }
       },
-      { formatError: linuxSetupFailureMessage, onError: () => setPhase("ready") },
+      {
+        formatError: (error) => linuxSetupFailureMessage(error, names.setupCommand),
+        onError: () => setPhase("ready"),
+      },
     );
   };
 
@@ -186,7 +197,7 @@ export function LinuxSetupPage({
         className="relative flex h-[46px] shrink-0 items-center justify-center border-b border-[var(--p-hair)] bg-[var(--p-chrome)]"
         data-tauri-drag-region=""
       >
-        <span className="pointer-events-none text-[15px] font-bold">水杉输入法</span>
+        <span className="pointer-events-none text-[15px] font-bold">{names.name}</span>
         {client.close && (
           <span className={`${settings.windowControls} absolute right-0`}>
             <ActionButton
@@ -209,7 +220,7 @@ export function LinuxSetupPage({
         <div className="grid size-[88px] shrink-0 place-items-center rounded-[22px] border border-[var(--p-hair)] bg-[var(--p-group-bg)]">
           <img src={logo} alt="" className="size-[60px]" />
         </div>
-        <h1 className="mt-5 mb-0 text-[24px] font-[650] tracking-[0.02em]">水杉输入法</h1>
+        <h1 className="mt-5 mb-0 text-[24px] font-[650] tracking-[0.02em]">{names.name}</h1>
         <h2
           className={`mt-3 mb-0 text-[15px] font-semibold ${failed ? "text-danger" : ""}`}
           aria-live="polite"
@@ -256,6 +267,8 @@ export function LinuxSetupPage({
           <div className="mt-5 flex w-full max-w-[400px]">
             <LinuxInputMethodNotice
               registration={result?.registration}
+              names={names}
+              notes={result?.notes}
               openFcitx5Config={client.openFcitx5Config}
               copyText={client.copyText}
             />
@@ -340,8 +353,8 @@ export function LinuxSetupPage({
         )}
         <p className="mt-auto mb-0 max-w-[400px] pt-5 text-center text-xs leading-[1.7] text-[var(--p-sub)]">
           {updating
-            ? "也可以在终端运行 msime-linux-setup --update --download 完成同样的更新。"
-            : "也可以在终端运行 msime-linux-setup 完成同样的配置；配置文件、凭据和学习数据只保存在本机。"}
+            ? `也可以在终端运行 ${names.setupCommand} --update --download 完成同样的更新。`
+            : `也可以在终端运行 ${names.setupCommand} 完成同样的配置；配置文件、凭据和学习数据只保存在本机。`}
         </p>
       </div>
     </main>

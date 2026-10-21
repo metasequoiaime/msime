@@ -11,7 +11,7 @@ export const clipboardRowFrame = "group/row relative flex min-w-0 flex-1";
 export const clipboardRow = (withDelete: boolean) =>
   `w-full flex-1 min-w-0 overflow-hidden rounded-lg py-3 pl-3.5 ${withDelete ? "pr-10" : "pr-3.5"} text-left font-[inherit] text-ellipsis whitespace-nowrap ${panelField} hover:border-[#5fbf84] hover:bg-[#303038] focus-visible:border-[#5fbf84] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#2c7a4b] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#2c7a4b] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3]`;
 
-/** × 删除按钮与 macOS 原生剪贴板行一样只在悬停或聚焦这一行时显示；没有悬停的触屏设备上一直显示，否则删不掉。 */
+/** × 删除按钮与 macOS 原生剪贴板行一样只在悬停或聚焦这一行时显示。没有悬停的设备不用它，改用行旁的「删除」按钮（见 `EmojiClipboardEntries`）；这里的 hover:hover 条件只是兜底，媒体特性判断与组件不一致时 × 仍然看得见、删得掉。 */
 export const clipboardDeleteButton =
   "absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent p-0 font-[inherit] text-lg leading-none text-[#aeb0b7] hover:bg-white/10 hover:text-[#f5f5f7] focus-visible:opacity-100 disabled:cursor-wait group-data-[panel-theme=light]:text-[#656a73] group-data-[panel-theme=light]:hover:bg-black/[0.06] group-data-[panel-theme=light]:hover:text-[#202124] [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/row:opacity-100 [@media(hover:hover)]:group-hover/row:opacity-100";
 

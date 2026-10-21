@@ -37,6 +37,9 @@ pub const SETUP_STAGE_EVENT: &str = "linux-setup-stage";
 const REPORT_ENV: &str = "MSIME_LINUX_SETUP_REPORT";
 const STAGE_PREFIX: &str = "msime-setup-stage: ";
 const RESULT_PREFIX: &str = "msime-setup-result: ";
+const NOTE_PREFIX: &str = "msime-setup-note: ";
+/// 结果卡片上最多放几条提示；脚本现在最多报告两条，多出来的仍在详细输出里。
+const MAX_NOTES: usize = 8;
 const STAGES: [&str; 6] = [
     "verify", "download", "prepare", "services", "register", "update",
 ];
@@ -62,6 +65,8 @@ pub struct LinuxSetupStatus {
     dictionary_outdated: bool,
     /// 这次配置把输入法加入输入法列表的结果；只有刚跑完的配置才有。
     registration: Option<LinuxSetupRegistration>,
+    /// 刚跑完的配置要用户留意的提示（GNOME Wayland 的 GTK_IM_MODULE、玲珑与 IBus、Fcitx5 托盘），配置成功时也显示在结果卡片上。
+    notes: Vec<String>,
 }
 
 /// `msime-linux-setup` 最后报告的输入法列表情况：正在运行的框架（`fcitx5`、`ibus`，都没在运行时为空）以及水杉输入法是否已在它的列表里。
@@ -72,15 +77,23 @@ pub struct LinuxSetupRegistration {
     registered: bool,
 }
 
-/// 脚本输出里的一行：机读的阶段或结果，或者给人看的输出。
+/// 脚本输出里的一行：机读的阶段、结果或提示，或者给人看的输出。
 #[derive(Debug, PartialEq, Eq)]
 enum ReportLine {
     Stage(&'static str),
     Result(LinuxSetupRegistration),
+    Note(String),
     Output,
 }
 
-/// 认出脚本的机读行。只认 stdout 上、阶段名在已知清单里、结果的框架是 `fcitx5` 或 `ibus` 的行；其余一律当作普通输出照常显示。
+/// 脚本跑完后交给页面的机读结果。
+#[derive(Debug, Default)]
+struct SetupReport {
+    registration: Option<LinuxSetupRegistration>,
+    notes: Vec<String>,
+}
+
+/// 认出脚本的机读行。只认 stdout 上、阶段名在已知清单里、结果的框架是 `fcitx5` 或 `ibus`、提示是非空字符串的行；其余一律当作普通输出照常显示。提示行不进输出区：脚本已经另外打印了给人看的同一段文字。
 fn report_line(line: &SetupLine) -> ReportLine {
     if line.error {
         return ReportLine::Output;
@@ -90,6 +103,13 @@ fn report_line(line: &SetupLine) -> ReportLine {
             .ok()
             .and_then(|stage| STAGES.into_iter().find(|known| *known == stage))
             .map_or(ReportLine::Output, ReportLine::Stage);
+    }
+    if let Some(note) = line.text.strip_prefix(NOTE_PREFIX) {
+        return serde_json::from_str::<String>(note)
+            .ok()
+            .map(|note| note.trim().to_owned())
+            .filter(|note| !note.is_empty())
+            .map_or(ReportLine::Output, ReportLine::Note);
     }
     if let Some(result) = line.text.strip_prefix(RESULT_PREFIX) {
         return serde_json::from_str::<LinuxSetupRegistration>(result)
@@ -252,6 +272,7 @@ fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatu
         setup_available: program.is_some(),
         dictionary_outdated: false,
         registration: None,
+        notes: Vec::new(),
     }
 }
 
@@ -433,19 +454,19 @@ pub fn linux_setup_status(options: State<'_, RuntimeOptionsState>) -> LinuxSetup
     )
 }
 
-/// 在阻塞线程里跑脚本：给人看的行发到页面，阶段行发成进度事件，结果行留下来随返回值交给页面。
+/// 在阻塞线程里跑脚本：给人看的行发到页面，阶段行发成进度事件，结果行和提示行留下来随返回值交给页面。
 async fn run_reporting(
     app: AppHandle,
     running: &LinuxSetupState,
     program: PathBuf,
     arguments: Vec<OsString>,
-) -> Result<Option<LinuxSetupRegistration>, LinuxSetupError> {
+) -> Result<SetupReport, LinuxSetupError> {
     if running.0.swap(true, Ordering::AcqRel) {
         return Err(LinuxSetupError::new("setup_running"));
     }
     let flag = Arc::clone(&running.0);
-    let registration = Arc::new(std::sync::Mutex::new(None));
-    let reported = Arc::clone(&registration);
+    let report = Arc::new(std::sync::Mutex::new(SetupReport::default()));
+    let reported = Arc::clone(&report);
     let result = tauri::async_runtime::spawn_blocking(move || {
         let result = run_setup(
             &program,
@@ -456,8 +477,15 @@ async fn run_reporting(
                     let _ = app.emit(SETUP_STAGE_EVENT, stage);
                 }
                 ReportLine::Result(result) => {
-                    if let Ok(mut slot) = reported.lock() {
-                        *slot = Some(result);
+                    if let Ok(mut report) = reported.lock() {
+                        report.registration = Some(result);
+                    }
+                }
+                ReportLine::Note(note) => {
+                    if let Ok(mut report) = reported.lock() {
+                        if report.notes.len() < MAX_NOTES {
+                            report.notes.push(note);
+                        }
                     }
                 }
                 ReportLine::Output => {
@@ -471,7 +499,11 @@ async fn run_reporting(
     .await
     .map_err(|_| LinuxSetupError::new("setup_failed"))?;
     result?;
-    Ok(registration.lock().ok().and_then(|mut slot| slot.take()))
+    let report = report
+        .lock()
+        .map(|mut report| std::mem::take(&mut *report))
+        .unwrap_or_default();
+    Ok(report)
 }
 
 #[tauri::command]
@@ -499,14 +531,15 @@ pub async fn run_linux_setup(
         .ok_or(LinuxSetupError::new("setup_unavailable"))?
         .to_path_buf();
     let arguments = setup_arguments(&state_directory, download, cloud_candidates);
-    let registration = run_reporting(app, &running, program, arguments).await?;
+    let report = run_reporting(app, &running, program, arguments).await?;
     Ok(LinuxSetupStatus {
-        registration,
+        registration: report.registration,
+        notes: report.notes,
         ..status_for(Some(&options_path), setup_program().as_deref())
     })
 }
 
-/// 设置应用里的「立即更新」词库：与终端里的 `msime-linux-setup --update --download` 相同，取回当前版本的词库、切换代次并回放用户词库。成功后删掉宿主留下的过期标记。
+/// 设置应用里的「立即更新」词库：与终端里的 `msime-linux-setup --update --download` 相同，取回当前版本的词库、切换代次并回放用户词库。成功后脚本自己删掉宿主留下的过期标记（终端里运行也一样）；这里再删一次，旧版脚本没有这一步时页面也不会再报过期。
 #[tauri::command]
 pub async fn run_linux_dictionary_update(
     app: AppHandle,
@@ -720,8 +753,18 @@ mod tests {
                 registered: false,
             })
         );
-        // 未知阶段、未知框架、stderr 上的同样文字和普通输出都照常显示给用户。
+        assert_eq!(
+            report_line(&line(
+                "msime-setup-note: \"提示：当前是 GNOME 的 Wayland 会话\"",
+                false
+            )),
+            ReportLine::Note("提示：当前是 GNOME 的 Wayland 会话".into())
+        );
+        // 未知阶段、未知框架、空提示、不是字符串的提示、stderr 上的同样文字和普通输出都照常显示给用户。
         for (text, error) in [
+            ("msime-setup-note: \"  \"", false),
+            ("msime-setup-note: [\"提示\"]", false),
+            ("msime-setup-note: \"提示\"", true),
             ("msime-setup-stage: \"format-disk\"", false),
             (
                 "msime-setup-result: {\"host\": \"kime\", \"registered\": true}",
