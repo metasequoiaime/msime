@@ -1653,6 +1653,7 @@ std::optional<std::vector<msime::settings::plugins::Mention>> plugin_mentions(Re
 struct VoiceProviderCatalog {
   std::vector<msime::settings::voice::ProviderDefaults> asr;
   std::vector<msime::settings::voice::ProviderDefaults> polish;
+  std::vector<msime::settings::voice::StreamEndpoint> doubao_stream_endpoints;
 };
 
 VoiceProviderCatalog const &voice_provider_catalog() {
@@ -1674,7 +1675,14 @@ VoiceProviderCatalog const &voice_provider_catalog() {
       }
       return entries;
     };
-    VoiceProviderCatalog result{presets(L"asr"), presets(L"polish")};
+    VoiceProviderCatalog result{presets(L"asr"), presets(L"polish"), {}};
+    for (auto const &item : value.GetNamedArray(L"doubao_stream_endpoints")) {
+      const auto preset = item.GetObject();
+      result.doubao_stream_endpoints.push_back({
+          std::wstring(preset.GetNamedString(L"id").c_str()),
+          std::wstring(preset.GetNamedString(L"endpoint").c_str()),
+          std::wstring(preset.GetNamedString(L"title").c_str())});
+    }
     result.asr.push_back({L"system", L"", L"", {}, L"", L"Windows 系统识别"});
     result.asr.push_back({L"local", L"", L"", {}, L"", L"本地模型（离线）"});
     return result;
@@ -21586,19 +21594,23 @@ private:
             std::find(folded.begin(), folded.end(), focus_row_) != folded.end(),
         [this](bool expanded) { voice_service_more_open_ = expanded; });
     if (doubao || indexing_) {
-      // 地址为空时宿主用默认的双向流式地址，下拉照实显示它；选「自定义地址」不改地址，只重画出输入框（共享页 DoubaoStreamEndpointSection 的 customRequested），在输入框里打出预设的地址也不收起。
-      const bool custom = voice_custom_endpoint_ || vs::doubao_stream_endpoint_id(endpoint) == L"custom";
+      // 地址为空时按共享目录的默认地址显示选项；选「自定义地址」不改地址，只重画出输入框（共享页 DoubaoStreamEndpointSection 的 customRequested），在输入框里打出预设的地址也不收起。
+      const auto &catalog = voice_provider_catalog();
+      const auto preset_id = vs::doubao_stream_endpoint_id(
+          catalog.doubao_stream_endpoints, endpoint,
+          vs::provider_setting_value(L"", L"doubao", catalog.asr, true));
+      const bool custom = voice_custom_endpoint_ || preset_id == L"custom";
       std::vector<Option> streams;
-      for (auto const &option : vs::doubao_stream_endpoints)
+      for (auto const &option : catalog.doubao_stream_endpoints)
         streams.push_back({std::wstring(option.id), std::wstring(option.title)});
       streams.push_back({L"custom", L"自定义地址"});
       auto stream = select_control(
           L"流式接口", std::move(streams),
-          custom ? std::wstring(L"custom") : std::wstring(vs::doubao_stream_endpoint_id(endpoint)),
+          custom ? std::wstring(L"custom") : std::wstring(preset_id),
           [this](std::wstring const &value) {
             const bool was_custom = voice_custom_endpoint_;
             voice_custom_endpoint_ = value == L"custom";
-            for (auto const &option : vs::doubao_stream_endpoints)
+            for (auto const &option : voice_provider_catalog().doubao_stream_endpoints)
               if (option.id == value) {
                 const std::wstring chosen(option.endpoint);
                 if (chosen == document_.String(L"voice_input.asr_endpoint", L"")) {
@@ -21624,12 +21636,14 @@ private:
           auto shown = weak.get();
           if (!shown)
             return;
-          const auto id =
-              vs::doubao_stream_endpoint_id(document_.String(L"voice_input.asr_endpoint", L""));
-          int32_t index = static_cast<int32_t>(vs::doubao_stream_endpoints.size());
+          const auto &current_catalog = voice_provider_catalog();
+          const auto id = vs::doubao_stream_endpoint_id(
+              current_catalog.doubao_stream_endpoints, document_.String(L"voice_input.asr_endpoint", L""),
+              vs::provider_setting_value(L"", L"doubao", current_catalog.asr, true));
+          int32_t index = static_cast<int32_t>(current_catalog.doubao_stream_endpoints.size());
           if (!voice_custom_endpoint_)
-            for (size_t i = 0; i < vs::doubao_stream_endpoints.size(); ++i)
-              if (vs::doubao_stream_endpoints[i].id == id)
+            for (size_t i = 0; i < current_catalog.doubao_stream_endpoints.size(); ++i)
+              if (current_catalog.doubao_stream_endpoints[i].id == id)
                 index = static_cast<int32_t>(i);
           if (shown.SelectedIndex() != index)
             shown.SelectedIndex(index);

@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-// 「语音输入」页识别服务与润色的展示规则，平台固定为 Windows：共享 Rust 目录的持有模型，豆包的两种流式接口，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「语音输入」页识别服务与润色的展示规则，平台固定为 Windows：共享 Rust 目录的持有模型，豆包流式接口的匹配，识别语言的建议（`voice-language-options.tsx`），内置润色方案（`polish-presets.ts`），「测试配置」何时可用（`voice-credential-test-config.ts`）和本地模型列表的文字（`local-model-helpers.ts`）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::voice {
 
 struct Choice {
@@ -67,27 +67,21 @@ inline std::wstring provider_setting_value(std::wstring_view value, std::wstring
   return std::wstring(endpoint ? defaults->endpoint : defaults->model);
 }
 
-// 豆包的两种流式接口（DOUBAO_STREAM_ENDPOINTS），其余地址算「自定义地址」。
+// 共享 Rust 目录的流式接口快照，同样持有字符串。
 struct StreamEndpoint {
-  std::wstring_view id;
-  std::wstring_view endpoint;
-  std::wstring_view title;
+  std::wstring id;
+  std::wstring endpoint;
+  std::wstring title;
 };
 
-inline constexpr std::array<StreamEndpoint, 2> doubao_stream_endpoints{{
-    {L"nostream", L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
-     L"整句流式（准确率更高）"},
-    {L"async", L"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-     L"双向流式（增量结果）"},
-}};
-
-// 下拉里显示哪一项（DoubaoStreamEndpointSection 的 presetId）：地址为空时宿主用豆包的默认地址（双向流式），照实显示它，而不是显示成自定义。
-inline std::wstring_view doubao_stream_endpoint_id(std::wstring_view endpoint) {
+// 空地址按共享服务默认地址匹配；目录没有该地址时显示「自定义地址」。
+inline std::wstring_view doubao_stream_endpoint_id(std::vector<StreamEndpoint> const &table,
+                                                   std::wstring_view endpoint,
+                                                   std::wstring_view default_endpoint) {
   const auto trimmed = js_trim(endpoint);
-  if (trimmed.empty())
-    return L"async";
-  for (auto const &option : doubao_stream_endpoints)
-    if (option.endpoint == trimmed)
+  const auto effective = trimmed.empty() ? default_endpoint : trimmed;
+  for (auto const &option : table)
+    if (option.endpoint == effective)
       return option.id;
   return L"custom";
 }
