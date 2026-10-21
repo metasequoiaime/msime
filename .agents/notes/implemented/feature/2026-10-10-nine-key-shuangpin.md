@@ -39,6 +39,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - **简拼行核对声母所在的键**：简拼按首字母查词库，`z` 同时查出 z 和 zh 开头的词，九键双拼里它们常在不同的键上（米旮旯 3 的 zh 在 8、z 在 9），所以先多取一些行，再逐行核对声母所在的键。
 - **英文九键关闭**：数字不是字母的分组，没有英文行，专用英文里数字照常是数字，`Session` 不把它交给九宫格。日期时间的关键词按音节编码比（`riqi`）或按声母的键比（`rq`）；emoji、颜文字的读法边界按每条读法换算成字母位置。
 - **数字路由**：`Session::character` 把方案用到的数字（可以有 1 和 0）交给九宫格；`'` 照旧切分。runtime 里网格用数字时（九键、九键双拼）数字都不当选词键，方案没用到的数字也一样，否则米旮旯 2 下按到 0 会选走一个候选。`View.key_grid` 是 `"nine_key_shuangpin"`，`View.nine_key` 为假（它没有英文九键，也不开注音九键）。
+- **Android 实体键盘的数字边界**：`onKeyDown` 先处理注音键、本地模式拼写和数字选词，只在 `local_mode` 为 `none` 时把九键、九键双拼下未被认领的数字按字面上屏；仍有组合时先执行自动确认命令，避免替换组字区。表情、快捷短语等本地模式保持引擎自己的数字回退规则：不接数字时可以先上屏原文，不能被宿主的自动确认改为选择首个候选。普通组字的数字不能送回 `character`：这个入口同时承载触屏九键组码，数字 2 会开启 ABC 的候选，数字 3 会开启 DEF 的候选。触屏继续直接调用 `character`，不用为实体数字切换全局网格，因而不会丢失触屏组合或改写布局偏好。
 
 ### 偏好、宿主接口与 MCP
 
@@ -81,6 +82,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 
 ## Alternatives considered
 
+- **Android 检测到实体键盘就关闭引擎网格**：实体数字自然不再进入触屏组码。但切换时可能还有触屏组合，而且用户仍能同时点屏幕九键；临时改会话网格会让两种来源互相影响。保留网格，在硬件事件边界处理未被认领的数字。
 - **在 26 键双拼的 `ShuangpinEngine` 上扩展多义编码**：双拼的切分、辅助码、整句都在那里。但它的切分是「两键能组成音节就两键，否则一键」的贪心（`pinyin_segmentation`），转换结果是一条全拼切分；多义编码要求同时保留多条音节路径，这正是九宫格已经实现、而双拼引擎没有的东西。在双拼引擎里再写一套多路径搜索就是两份实现。
 - **把九键双拼映射成「每个数字代表键上的几个字母」再走全拼 T9**：零改动引擎。但九键双拼的数字分组不是电话键盘的字母分组，一个音节固定两位、与字母数无关，套用全拼 T9 的编码会给出完全不同的切分。
 - **照字面禁止零声母编码与声母加韵母的编码相同**：这是提案里写下、维护者拍板时沿用的规则，最强的理由是与 26 键自定义表的校验一致，用户表里也查得出「安」和「班」挤在一个编码上。但三个公开方案都把零声母当成某个声母键上的一员（米旮旯 3 在 2 键，与 b、c 同键），照字面执行一个内置方案也收不进来，而这条规则在九键上防的事情（某个音节打不出来）并不存在。没有照做，而是在 PR 里请维护者确认这一解释。
@@ -92,6 +94,8 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - **Android 给九键双拼一个新的触屏布局编号**：判断更直白，不靠 `key_grid` 补一层。但宿主里按 `QUANPIN_NINE_KEY_LAYOUT` 判断的地方有十几处（读音行、左列、三栏面板、数字层、Shift、快捷标点……），14 键的笔记已经记着这种非穷举判断漏一处就静默变成 26 键的行为；九键双拼除了键面以外都该与拼音九键相同，共用编号让这些地方一处不改就对。
 
 ## Consequences
+
+`HardwareTranslationDeviceSmoke` 先运行隔离原生服务的 `HardwareDigitChecks`，覆盖九键、九键双拼、26 键、数字选词开关、组合后输入数字、触屏组码、U 模式数字和表情模式的原文回退与数字选词；`-e digits-only true` 只执行这部分合成按键回归，不要求系统接着实体键盘。完整套件仍要求实体键盘并验证翻译快捷键。合成事件不能代替 Android 16 平板蓝牙键盘的真机验收。
 
 - **收益**：
   - 九宫格上能打三个公开的九键双拼方案和任意一张合法的用户表，与全拼九宫格共用路径搜索、锁定、切分、整句、学习和候选排序，以后九宫格的改进九键双拼自动得到。
@@ -108,6 +112,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 
 ## Verification
 
+- Android 实体数字回归（2026-10-21）：修复前安装包在 `idle hardware digits, grid 1, selection true` 失败；未限制本地模式的 PR 初版在 `emoji mode keeps raw fallback, grid 1` 失败。修复后的 API 28 原生宿主通过 `HardwareTranslationDeviceSmoke -e digits-only true`，包括主键区 0–9、小键盘 Num Lock、全角数字、数字选词开关、组合后字面数字、U 模式、表情模式原文回退与数字选词和触屏组码。真实触屏的 `NineKeyEnglishDeviceSmoke` 和 `NineKeyShuangpinDeviceSmoke` 均通过；双拼套件明确切回中文，消除前一个英文套件留下的模式对键面断言的影响。设备包复用已安装版本的原生库和词库，重新编译 Java 与资源，未重新构建 Rust 原生库。`verify-local.sh --quick`、`check-host.sh`（252 个 JVM 冒烟、200 个设备测试源编译）通过；笔记校验在本机运行。未完成 Lenovo Android 16 蓝牙键盘真机验收。
 - `cargo test -p msime-engine`：库 1854 项、golden 31 项全过。新增 `nine_key_shuangpin::tests` 11 项（每个音节一个编码、内置表写成用户表再读回是同一份、三个方案按来源的例子核对、编码共用、带位置的错误、1 和 0、单键片段、关键词和简拼、键面）和 `nine_key::tests` 的 6 项九键双拼（两位一个音节、0 是组码、共用编码与锁定和退格、简拼核对声母所在的键、切分与左列字母、按声母位找词，以及全拼九宫格不受影响）。
 - `cargo test -p msime-client-core`（1376 项，新增九键双拼偏好的往返与不写默认值、布局的账号同步）、`-p msime-input-runtime`（新增九键双拼只给全拼、数字不当选词键；去掉 runtime 那道门时这项失败）、`-p msime-host-api`（新增偏好开网格、换表、自定义表回退与诊断、宿主覆盖，以及 `msime_client_nine_key_shuangpin_layout` 的表、问题和键面）、`-p msime-mcp-server`（新增读写和拒绝不合法的表）全过；上述五个 crate `cargo clippy --all-targets -D warnings` 无警告，`cargo fmt --check` 干净。`cargo check -p msime-desktop --target aarch64-apple-ios --lib` 通过（iOS 的账号偏好映射认识新方案）。
 - `scripts/test-preferences-field-parity.py` 通过。

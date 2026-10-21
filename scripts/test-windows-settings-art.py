@@ -3,6 +3,7 @@
 
 - 页首插画：`packages/ui/src/assets/mascot/*.webp` 的每个场景在 `SettingsMascotIntro.h` 的 `MascotScene` 里都有，`platforms/windows/settings/assets/mascot/` 里有同名、同尺寸的 PNG，`Settings.rc` 按枚举顺序把它们打成 RCDATA 110 起的资源。
 - 页首文案：`SettingsMascotIntro.h` 的每一句说明连同场景都逐字出自 `settings-mascot-intro.tsx`；没有标签的页面用的是经路由别名对应到它的共享页面那一句。
+- AI 服务商图标：`AiSettings.h` 的 `provider_icons` 与 `ai-provider-icon.tsx` 是同一张表，`platforms/windows/settings/assets/providers/` 里有每张图源转成的 80 × 80 PNG 和同一份许可，`Settings.rc` 按表的顺序打成 RCDATA 150 起的资源。
 - 侧栏图标：`SettingsNavIcons.h` 每一页记的图源文件还在，并且是共享设置 UI 给对应页面的那张（`settings-page-registry.ts` 的 `icon` 经 `app-resources.ts` 的 `settingsIcons` 落到的文件）。
 
 PNG 是否由 WebP 逐像素转来这里不查（需要 WebP 解码器）；图源换了以后按 `platforms/windows/settings/README.md` 重新转换。
@@ -68,6 +69,38 @@ for scene in scenes:
     webp = webp_size(UI / "assets/mascot" / f"{scene}.webp")
     assert png == webp, f"{scene}.png 的尺寸 {png} 与 WebP 的 {webp} 不同，图源换过以后没有重新转换"
 
+# AI 服务商下拉的品牌图标：AiSettings.h 的 provider_icons 与共享 UI 的 ai-provider-icon.tsx 是同一张表（服务商、图源文件、深色底板），PNG 都在，Settings.rc 按表的顺序从 provider_icon_resource_base 起打成 RCDATA，许可随图标一起带上。
+ai_header = read(SETTINGS / "AiSettings.h")
+icon_table = re.search(r"provider_icons\{\{(.*?)\}\};", ai_header, re.S)
+assert icon_table, "读不到 provider_icons"
+win_icons = re.findall(r'\{L"([a-z]+)", "([a-z]+)", (true|false)\}', icon_table[1])
+icon_count = re.search(r"std::array<ProviderIcon, (\d+)> provider_icons", ai_header)
+assert icon_count and int(icon_count[1]) == len(win_icons), "provider_icons 的条目数读不全"
+icon_tsx = read(UI / "settings/ai-provider-icon.tsx")
+imports = dict(re.findall(r'^import ([a-z]+) from "\.\./assets/providers/([a-z]+)\.svg";$', icon_tsx, re.M))
+icon_record = re.search(r"const icons: Record<string, string> = \{(.*?)\};", icon_tsx, re.S)
+assert icon_record, "读不到 ai-provider-icon.tsx 的 icons"
+shared_icons = {}
+for entry in re.findall(r"([a-z]+)(?:: ([a-z]+))?,", icon_record[1]):
+    provider, variable = entry[0], entry[1] or entry[0]
+    shared_icons[provider] = imports[variable]
+dark_tiles = re.search(r'\[([^\]]*)\]\.includes\(provider\) \? "dark"', icon_tsx)
+assert dark_tiles, "读不到深色底板的服务商"
+shared_dark = set(re.findall(r'"([a-z]+)"', dark_tiles[1]))
+assert {provider: file for provider, file, _ in win_icons} == shared_icons, f"provider_icons 与 ai-provider-icon.tsx 不一致：{win_icons} != {shared_icons}"
+assert {provider for provider, _, dark in win_icons if dark == "true"} == shared_dark, "深色底板的服务商与 ai-provider-icon.tsx 不一致"
+icon_base = re.search(r"provider_icon_resource_base = (\d+);", ai_header)
+assert icon_base, "读不到 provider_icon_resource_base"
+icon_resources = re.findall(r'^(\d+) RCDATA "assets\\\\providers\\\\([a-z]+)\.png"$', read(SETTINGS / "Settings.rc"), re.M)
+expected_icons = [(str(int(icon_base[1]) + index), file) for index, (_, file, _) in enumerate(win_icons)]
+assert icon_resources == expected_icons, f"Settings.rc 的服务商图标与 provider_icons 顺序不一致：{icon_resources} != {expected_icons}"
+mascot_ids = {int(number) for number, _ in resources}
+assert not mascot_ids & {int(number) for number, _ in icon_resources}, "服务商图标和插画的资源号重叠"
+for _, file, _ in win_icons:
+    assert (UI / "assets/providers" / f"{file}.svg").is_file(), f"图源 {file}.svg 不存在"
+    assert png_size(SETTINGS / "assets/providers" / f"{file}.png") == (80, 80), f"{file}.png 不是 80 × 80"
+assert (SETTINGS / "assets/providers/LICENSE").read_bytes() == (UI / "assets/providers/LICENSE").read_bytes(), "服务商图标的许可没有随图标带上"
+
 # 路由别名：共享设置页 id 到本窗口的页面。
 navigation = read(SETTINGS / "SettingsNavigation.h")
 aliases = re.search(r"route_aliases\{\{(.*?)\}\};", navigation, re.S)
@@ -112,4 +145,4 @@ for page, source in icons:
     shared = {icon_file_for[icon_key_for[route]] for route in routes if route in icon_key_for}
     assert source in shared, f"{page} 的图标 {source} 不是共享 UI 给 {sorted(routes)} 的 {sorted(shared)}"
 
-print("windows settings art: mascots, intro copy and sidebar icons follow the shared settings UI")
+print("windows settings art: mascots, intro copy, provider icons and sidebar icons follow the shared settings UI")

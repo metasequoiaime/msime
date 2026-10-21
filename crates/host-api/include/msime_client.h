@@ -567,6 +567,11 @@ char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
  * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
  * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
+/* 流式 wss 地址的传输描述；输入是 <=64 KiB 的 UTF-8 地址，实际地址遵循共享 2048 字节与 URL 形状规则。
+ * value 为 {socket_host:string,port:uint16,host_header:string,request_target:string}；保留显式端口 0，缺省端口为 443。
+ * socket_host 不含 IPv6 方括号，host_header 保留方括号与非默认端口，request_target 使用 URL 库序列化的路径与查询。
+ * 不访问网络，失败不回显输入；返回缓冲区用 msime_client_string_free 释放。 */
+char *msime_client_voice_websocket_endpoint(const uint8_t *endpoint, size_t length);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and

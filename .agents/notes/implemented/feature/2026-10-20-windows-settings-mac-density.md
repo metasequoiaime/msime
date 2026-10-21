@@ -16,7 +16,7 @@ Status: implemented
 - 正文边距 `content_padding`：上 24、左右 48、下 44。正文窄于 640 DIP（窗口拉到最窄 800）时左右退到 32。
 - 正文不再画页面大标题。页名只在标题栏里：15 DIP 粗体、正文色，左右 20 DIP，放不下时截断。原来大标题下的页面说明后来换成了 macOS 的页首引导（说明配水杉娘插画，见[页首引导与侧栏产品图标](2026-10-20-windows-settings-mascot-intro.md)），说明仍带 `settings-page-<页面 id>` 的自动化 ID，`settings_ui.ps1` 靠它确认正文已换成这一页。「候选窗口」「主题」页的预览工具（界面预览开关、编辑主题）仍在它下面右侧。
 - 标题栏去掉历史返回按钮，连同 `history_`、`go_back`、`navigate` 的 `remember` 参数和 `update_passthrough` 一起删掉：标题栏里不再有要接收点击的控件，整条都是拖动区，不需要放行区域。
-- 新增 `link_row`，对应 `LinkRow`：整行是一个透明按钮（`make_row_button`），悬停和按下铺 `palette_.hover`，行尾是 12 DIP 灰色的「↗」（窗口外）或「›」（本窗口的另一页），按钮以标题命名、以说明描述。`url_row` 改为它的外链形式。「关于」页的「其他平台下载」「历史版本」「隐私政策」「开源许可协议」「第三方组件许可」和问题报告下的「诊断日志」用它。「完整文档」在共享帮助页是带按钮的 `ActionRow`，照旧是按钮。
+- 新增 `link_row`，对应 `LinkRow`：整行是一个透明按钮（`make_row_button`），悬停和按下铺 `palette_.hover`，行尾是 12 DIP 灰色的「↗」（窗口外）或「›」（本窗口的另一页），按钮以标题命名、以说明描述。`url_row` 改为它的外链形式。「关于」页的「其他平台下载」「历史版本」「隐私政策」「开源许可协议」「第三方组件许可」和问题报告下的「诊断日志」用它。「完整文档」在共享帮助页是带按钮的 `ActionRow`，当时照旧是按钮；「关于」分标签以后这一行去掉了，官网入口改成帮助视图末尾「更多」一行的「打开官网」，见 [Windows 设置「关于」页分标签对齐 macOS](2026-10-20-windows-settings-about-tabs.md)。
 - 新增 `add_fold`，对应 `MoreOptions`，替换所有「更多选项」式 Expander（输入页里经 `add_more_options` 的折叠区，以及候选窗口、标点、候选词翻译、腾讯云地域、更多音效、语音快捷键、语音服务、本地模型、AI 服务和主题页的「自定义配色」）：标题行是与普通行同样内边距、至少 44 高的整行按钮，标题右边 12 DIP 灰色「›」，展开时用 150 ms 的 `RotateTransform` 动画转到 90°，`UISettings.AnimationsEnabled` 为假时直接转过去；折叠体上边框画出标题行与第一行之间的分隔线，里面的行照常经 `add_row` 伸到卡片两边。展开状态仍由调用方的成员保存，跨页面重建保留，搜索落进折叠区时照旧展开。皮肤页「已忽略 N 个无效皮肤目录」不是设置折叠区，仍用 Expander。
 
 ### 无障碍与验收
@@ -37,6 +37,7 @@ Status: implemented
 - **代价**：同样的内容比原来高出不少，800 × 780 的窗口一屏能放的行变少。折叠区失去 ExpandCollapse 模式，读屏只从 ItemStatus 得知状态。卡片四角的悬停底色依赖 WinUI 的 `Border` 按 `CornerRadius` 裁剪子元素；若某个版本不裁，组首组末的跳转行悬停时会露出直角，只影响悬停的观感。
 - **重访信号**：macOS 的 `platform-tokens.ts` 改了 `group`、`groupTitle`、`groupsGap`，或 `settings-style.ts` 改了 `contentColumn`、`macosToolbar`；Windows App SDK 升级后 `Button` 模板不再读 `ButtonBackgroundPointerOver` 这组资源。
 - 页首插画、引导文案和「关于」页不放引导行由[页首引导与侧栏产品图标](2026-10-20-windows-settings-mascot-intro.md)接手，改的是 `make_page_header`。
+- 正文列随 macOS 一起「不限宽」这一点由[正文列限宽 900](../bug-fix/2026-10-21-windows-settings-content-max-width.md)取代：24/48/44 的边距照旧，但窗口拉宽后正文收在 900 DIP 并居中，默认的 1000 × 780 下版面不变。
 - 本篇取代[模板陷阱](../bug-fix/2026-10-17-windows-settings-winui-template-traps.md)第三条里「小标题 13 DIP、说明 11 DIP」的取值：「连接 AI 助手」的小标题和说明跟着 `add_row` 改为 14 / 12 DIP，那一条「内容直接进行面板、不套第二张卡片」的结论照旧成立。[Windows 界面采用 macOS 的分组与选中样式](2026-10-15-windows-ui-macos-layout.md)里的分组卡片与两列布局继续有效，具体数值以本篇为准。
 
 ## Verification

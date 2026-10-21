@@ -8,6 +8,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
+英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
+
 ## 产品版本
 
 版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi、japanese、vietnamese、tibetan）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
@@ -412,3 +414,16 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
+
+### 拼写放大编辑
+
+组字时点输入框里拼写的中间，或点键盘标题「编辑拼写」，会打开临时放大条。直接点放大的字母可定位，拖动下方右侧的 `↔` 手柄可移动光标；手柄靠边停留会继续移动并滚动长拼写。原字母键和退格在引擎光标处插入、删除，候选仍可选择。「完成」将光标放回末尾并收起编辑条；结束组字或换输入框也会收起。全拼（含九键）、双拼、五笔、粤拼使用既有按键映射；韩语、注音等锁定末尾的方案不提供该入口。
+
+编辑器必须仍报告完整组字标记，选区须为组字内单点，读回拼写须与引擎一致；否则沿用外部移动结束组字的路径。组字后的实际系统选区仍在末尾，编辑位置显示在放大条里。默认输入框拼写和候选位置不变。设计见[决策笔记](../../.agents/notes/implemented/feature/2026-10-21-android-composition-magnifier.md)。
+
+设备专项（API 28 去掉 `--no-restart`；也包含在默认组字重启套件里）：
+
+```sh
+adb -s emulator-5580 shell am instrument --no-restart -e magnifier true -w \
+  app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke
+```

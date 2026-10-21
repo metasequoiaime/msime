@@ -29,6 +29,7 @@ platforms/android/tests/device/keyboard/NumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/AutomaticNumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/CaretCandidatesDeviceSmoke.java
 platforms/android/tests/device/keyboard/HardwareTranslationDeviceSmoke.java
+platforms/android/tests/device/keyboard/HardwareDigitChecks.java
 platforms/android/tests/device/voice/HandwritingDeviceSmoke.java
 platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
 platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java
@@ -195,6 +196,7 @@ platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java
 platforms/android/tests/device/keyboard/RestartingEditorActivity.java
 platforms/android/tests/device/keyboard/NumberLayerRestartDeviceSmoke.java
 platforms/android/tests/device/keyboard/CompositionRestartDeviceSmoke.java
+platforms/android/tests/device/keyboard/CompositionMagnifierChecks.java
 platforms/android/tests/device/keyboard/ChineseShiftReturnDeviceSmoke.java
 platforms/android/java/app/msime/android/NativeHandlePolicy.java
 platforms/android/java/app/msime/android/policy/SmartPunctuationContext.java
@@ -207,3 +209,5 @@ platforms/android/java/app/msime/android/keyboard/StrokeKeyboardLayout.java
 platforms/android/java/app/msime/android/voice/AiEndpointPolicy.java
 
 platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java
+
+platforms/android/tests/device/voice/VoiceAutoInsertDeviceCases.java

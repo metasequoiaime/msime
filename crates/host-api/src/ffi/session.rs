@@ -117,6 +117,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         runtime.set_left_right_navigation(applied.navigation.left_right);
         runtime.set_vertical_candidates(crate::host_vertical_candidates(applied.candidate_layout));
         runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
+        runtime.set_wubi_fifth_code_top_commit(applied.wubi_fifth_code_top_commit);
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));

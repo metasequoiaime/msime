@@ -45,7 +45,11 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
             String expected = "";
             for (int cycle = 0; cycle < 2; cycle++) {
                 stage = "numeric geometry cycle " + cycle;
+                Rect letterSymbol = bounds(key("符"));
+                Rect digitsEntry = bounds(key("123"));
                 tap(key("123"));
+                Rect symbol = bounds(key("符"));
+                Rect returnToLetters = bounds(key("九键"));
                 Rect zero = bounds(key("0"));
                 Rect eight = bounds(key("8"));
                 Rect space = bounds(describedPrefix("空格"));
@@ -54,6 +58,10 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
                         || !(zero.left < eight.centerX() && zero.right > eight.centerX())
                         || space.left < nine.right || space.centerY() != nine.centerY())
                     throw new AssertionError("0 must sit below 8, with the original space key beside 9");
+                if (symbol.left != letterSymbol.left || symbol.right != letterSymbol.right
+                        || returnToLetters.left != digitsEntry.left
+                        || returnToLetters.right != digitsEntry.right)
+                    throw new AssertionError("数字层的符号入口与返回入口应保持切层前的横向位置");
                 stage = "literal numeric, space and decimal commit cycle " + cycle;
                 for (String digit : new String[] {"1", "0"}) tap(key(digit));
                 tap(describedPrefix("空格"));

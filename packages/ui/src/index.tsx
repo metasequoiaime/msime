@@ -889,6 +889,10 @@ export {
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
 export {
+  NetworkProxySection,
+  type NetworkProxySectionProps,
+} from "./settings/network-proxy-section";
+export {
   TelemetryRow,
   TelemetrySection,
   UsageReportingDetails,

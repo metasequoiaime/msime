@@ -19,6 +19,7 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
     private volatile int created;
     private volatile int resumed;
     private volatile Activity voiceActivity;
+    private volatile String returnedResultId;
     private final java.util.List<Integer> diagnosticCodes = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     @Override public void onCreate(Bundle arguments) {
@@ -34,6 +35,14 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
         created++;
         try {
             if (recognizer(activity) != null) violation = "Recognizer started before resume";
+            if (scenario.equals("result")) {
+                var save = activity.getClass().getDeclaredMethod("saveResult", String.class);
+                save.setAccessible(true);
+                save.invoke(activity, "synthetic window transcript");
+                var finish = activity.getClass().getDeclaredMethod("finishRequest");
+                finish.setAccessible(true);
+                finish.invoke(activity);
+            }
             if (scenario.equals("stop-before-resume")) {
                 activity.getClass().getMethod("stopActive").invoke(null);
                 if (!activity.isFinishing()) violation = "Pending stop did not finish the request";
@@ -79,6 +88,7 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
             getTargetContext().registerReceiver(receiver, new IntentFilter(CALLBACKS));
         }
         try {
+            if (scenario.equals("result")) VoiceAutoInsertDeviceCases.runUploadPermissionFallback(this);
             String requestId = "voice-lifecycle-" + scenario;
             Intent intent = new Intent().setClassName(getTargetContext(),
                 "app.msime.android.VoiceRecognitionActivity")
@@ -91,6 +101,18 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
                     diagnosticCodes.add(code);
                 }
             };
+            if (scenario.equals("result")) {
+                intent.putExtra("app.msime.android.voice.RESULT_RECEIVER", new android.os.ResultReceiver(
+                        new android.os.Handler(android.os.Looper.getMainLooper())) {
+                    @Override protected void onReceiveResult(int code, Bundle payload) {
+                        if (code != Activity.RESULT_OK || payload == null || payload.size() != 1) {
+                            violation = "Unexpected voice result payload";
+                            return;
+                        }
+                        returnedResultId = payload.getString("result_id");
+                    }
+                });
+            }
             // 经 Parcel 强制走 Binder 回传，覆盖真实进程间传递的整数事件契约。
             android.os.Parcel parcel = android.os.Parcel.obtain();
             try {
@@ -121,8 +143,21 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
             Class<?> kinds = getTargetContext().getClassLoader().loadClass("app.msime.android.DiagnosticEventKind");
             Object engine = kinds.getMethod("fromWire", String.class).invoke(null, "voice_engine_platform");
             Object failure = kinds.getMethod("fromWire", String.class).invoke(null, "voice_failure_permission");
-            java.util.List<Integer> expected = scenario.equals("stop-before-resume") ? java.util.List.of()
+            Object success = kinds.getMethod("fromWire", String.class).invoke(null, "voice_success");
+            java.util.List<Integer> expected = scenario.equals("result")
+                ? java.util.List.of(((Enum<?>) success).ordinal())
+                : scenario.equals("stop-before-resume") ? java.util.List.of()
                 : java.util.List.of(((Enum<?>) engine).ordinal(), ((Enum<?>) failure).ordinal());
+            if (scenario.equals("result")) {
+                java.util.UUID id = java.util.UUID.fromString(returnedResultId);
+                Class<?> storeType = getTargetContext().getClassLoader().loadClass("app.msime.android.VoiceResultStore");
+                Object store = storeType.getConstructor(java.nio.file.Path.class).newInstance(
+                    getTargetContext().getFilesDir().toPath().resolve("voice-handoff"));
+                Object text = storeType.getMethod("consume", java.util.UUID.class, long.class)
+                    .invoke(store, id, System.currentTimeMillis());
+                if (!"synthetic window transcript".equals(text))
+                    throw new AssertionError("Window result ID does not identify its saved transcript");
+            }
             if (!diagnosticCodes.equals(expected)) throw new AssertionError("Unexpected diagnostic sequence");
             result.putString("stream", "MSIME_VOICE_LIFECYCLE_PASSED: " + scenario + "\n");
             passed = true;

@@ -3062,6 +3062,101 @@ fn bianyi_continues_after_the_bian_wubi_code() {
     );
 }
 
+const WUBI_WILDCARD_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('wqiy','你',100);\
+INSERT INTO wubi86 VALUES('wqiy','伱',10);\
+INSERT INTO wubi86 VALUES('abcd','合成',200);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',100);";
+
+/// 通配打开时的端到端行为：`z` 进码、查询走模式匹配、四码唯一与顶字都不会对带 `z` 的猜码动手。
+#[test]
+fn the_wubi_wildcard_matches_any_letter_and_keeps_guessing_codes_open() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut session, "wqzy");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "wqzy");
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .map(|item| item.word.as_str())
+            .collect::<Vec<_>>(),
+        ["你", "伱"]
+    );
+    // 此快照只验证带 `z` 的猜码不算四码唯一；第五键的顶字边界由真实 runtime 用例验证。
+    assert!(!snapshot.wubi_unique_four_code);
+    assert!(!snapshot.answered_by_pinyin_fallback);
+}
+
+/// 带 `z` 的码即使是码表唯一命中也不算「四码唯一」：它是猜码，后台那个唯一候选与好几个码只差一个字母。
+#[test]
+fn a_wildcard_code_never_counts_as_a_unique_four_code() {
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('wqzy','唯一',100);\
+INSERT INTO wubi86 VALUES('abcd','合成',200);",
+    );
+    let mut wildcard = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut wildcard, "wqzy");
+    assert_eq!(words(&wildcard), ["唯一"]);
+    assert!(!wildcard.snapshot().wubi_unique_four_code);
+
+    // 同一个码表里不含 `z` 的四码仍然是四码唯一：守卫只针对 `z`。
+    let mut plain = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+    });
+    type_text(&mut plain, "abcd");
+    assert_eq!(words(&plain), ["合成"]);
+    assert!(plain.snapshot().wubi_unique_four_code);
+}
+
+/// 通配打开时 `z` 是未知码位，临时拼音反查让位：组字开头的 `z` 进码，反查不打开。
+#[test]
+fn the_wubi_wildcard_takes_z_from_the_pinyin_lookup() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = true;
+    });
+    type_text(&mut session, "zqiy");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "zqiy");
+    // 反查不打开：候选来自五笔码表的通配匹配，不是全拼。
+    assert!(!snapshot.answered_by_pinyin_fallback);
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .map(|item| item.word.as_str())
+            .collect::<Vec<_>>(),
+        ["你", "伱"]
+    );
+}
+
+/// 通配关闭时 `z` 照旧不进码，组字开头的 `z` 照旧打开临时拼音反查——升级用户零变化。
+#[test]
+fn turning_the_wubi_wildcard_off_keeps_z_out_of_the_code() {
+    let fixture = Fixture::new(WUBI_WILDCARD_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.z_wildcard = false;
+    });
+    type_text(&mut session, "zni");
+    let snapshot = session.snapshot();
+    // 反查打开：组字是 `zni`，候选来自全拼。
+    assert_eq!(snapshot.preedit, "zni");
+    assert!(snapshot.answered_by_pinyin_fallback);
+    assert!(snapshot.candidates.iter().any(|item| item.word == "你"));
+}
+
 #[test]
 fn xuqiu_continues_after_a_four_letter_wubi_code() {
     let fixture = Fixture::new(WUBI_XUQIU_FIXTURE);
@@ -4187,6 +4282,64 @@ fn chinese_caret_editing_does_not_claim_the_japanese_long_vowel_key() {
         assert!(!result.handled, "{scheme:?}");
         assert!(result.commit.is_none(), "{scheme:?}");
         assert_eq!(session.snapshot(), before, "{scheme:?}");
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowels_preserve_composition_and_commit_katakana() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for punctuation_route in [false, true] {
+            let mut session = fixture.session_with(|options| options.scheme = scheme);
+            assert!(session.character(b'R', true).handled);
+            for byte in b"ko-hi-" {
+                let result = if punctuation_route && *byte == b'-' {
+                    session.punctuation(*byte)
+                } else {
+                    session.character(*byte, false)
+                };
+                assert!(result.handled, "{scheme:?}, {punctuation_route}, {byte}");
+                assert!(result.commit.is_none(), "{result:?}");
+            }
+            let snapshot = session.snapshot();
+            assert_eq!(snapshot.editing_text, "Rko-hi-");
+            assert_eq!(snapshot.scheme, scheme);
+            assert_eq!(snapshot.local_mode, LocalInputMode::TemporaryJapanese);
+            let index = snapshot
+                .candidates
+                .iter()
+                .position(|row| row.word == "コーヒー")
+                .unwrap();
+            assert_eq!(session.select(index).commit.as_deref(), Some("コーヒー"));
+            assert_eq!(session.snapshot().scheme, scheme);
+            assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+            assert!(!session.snapshot().spelling_symbols.contains('-'));
+        }
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowel_can_be_inserted_and_erased_inside_romaji() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        session.character(b'R', true);
+        type_text(&mut session, "kohi");
+        session.set_caret(Some(3));
+        let result = session.character(b'-', false);
+        assert!(result.handled);
+        assert!(result.commit.is_none());
+        assert_eq!(session.snapshot().editing_text, "Rko-hi");
+        assert_eq!(session.snapshot().caret_position, 4);
+        assert!(words(&session).contains(&"コーヒ".to_owned()));
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "Rkohi");
+        assert_eq!(session.snapshot().caret_position, 3);
+        assert_eq!(
+            session.snapshot().local_mode,
+            LocalInputMode::TemporaryJapanese
+        );
+        assert_eq!(session.snapshot().scheme, scheme);
     }
 }
 

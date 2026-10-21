@@ -58,6 +58,13 @@ public final class NineKeyShuangpinDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));
+            // 英文九键套件会记住英文模式；本套件要验中文双拼键面，先明确切回中文。
+            for (AccessibilityWindowInfo window : automation.getWindows()) {
+                if (find(window.getRoot(), key("英")) != null) {
+                    tap(key("英"));
+                    break;
+                }
+            }
 
             stage = "Mi Ga La 3 faces";
             await(described("按键 2，声母 b c 和零声母，韵母 a ai iang"));

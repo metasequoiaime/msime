@@ -243,14 +243,20 @@ pub(crate) fn open_panel_window(
         let theme = app
             .get_webview_window("main")
             .and_then(|window| window.theme().ok());
+        let resizable = label == "emoji-panel";
+        let (minimum_width, minimum_height) = if resizable {
+            (560.0, 480.0)
+        } else {
+            (width, height)
+        };
         let window = builder
             .background_color(crate::chrome_background(theme))
             .inner_size(width, height)
             .visible(false)
             .focused(false)
             .focusable(accepts_focus)
-            .min_inner_size(width, height)
-            .resizable(false)
+            .min_inner_size(minimum_width, minimum_height)
+            .resizable(resizable)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)

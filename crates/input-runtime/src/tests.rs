@@ -4678,6 +4678,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
@@ -4777,6 +4778,52 @@ fn super_jianpin_capital_word_uses_literal_candidates_and_space_commit() {
             .dispatch(Action::Command(Command::CommitRaw))
             .unwrap();
         assert_eq!(committed.commit.as_deref(), Some("JI"));
+    }
+}
+
+#[test]
+fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
+    for scheme in [0, 1] {
+        for punctuation_route in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut options = real_engine_options(directory.path());
+            options.scheme = scheme;
+            let session = msime_engine::host::Session::new(&options).unwrap();
+            let mut runtime = Runtime::new(session, 6).unwrap();
+            runtime.focus(true).unwrap();
+            runtime
+                .dispatch(Action::Character {
+                    value: b'R',
+                    shift: true,
+                })
+                .unwrap();
+            for byte in b"ko-hi-" {
+                let action = if punctuation_route && *byte == b'-' {
+                    Action::Punctuation(*byte)
+                } else {
+                    Action::Character {
+                        value: *byte,
+                        shift: false,
+                    }
+                };
+                let transition = runtime.dispatch(action).unwrap();
+                assert!(transition.handled, "{scheme}, {punctuation_route}, {byte}");
+                assert!(transition.commit.is_none(), "{transition:?}");
+                assert_eq!(transition.view.local_mode, "temporary_japanese");
+            }
+            let view = runtime.view();
+            assert_eq!(view.editing_text, "Rko-hi-");
+            assert_eq!(view.scheme, scheme);
+            let candidate = view
+                .candidates
+                .iter()
+                .find(|row| row.text == "コーヒー")
+                .unwrap();
+            let transition = runtime.dispatch(Action::Select(candidate.id)).unwrap();
+            assert_eq!(transition.commit.as_deref(), Some("コーヒー"));
+            assert_eq!(transition.view.scheme, scheme);
+            assert_eq!(transition.view.local_mode, "none");
+        }
     }
 }
 
@@ -6020,6 +6067,45 @@ fn wubi_literal_marks_do_not_open_table_modes() {
 }
 
 #[test]
+fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
+    for profile in [0, 1] {
+        for mixed in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut options = real_engine_options(directory.path());
+            options.scheme = 2;
+            options.wubi_profile = profile;
+            options.wubi_z_wildcard = true;
+            options.wubi_mixed_pinyin = mixed;
+            options.mixed_english = false;
+            rusqlite::Connection::open(
+                std::path::Path::new(&options.dictionaries)
+                    .join(msime_engine::assets::MAIN_DICTIONARY),
+            )
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubi86 VALUES('wqty','合成甲',100),('wqry','合成乙',90);
+                 CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubi98 SELECT * FROM wubi86;",
+            )
+            .unwrap();
+            let mut runtime =
+                Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+            runtime.focus(true).unwrap();
+            for value in b"wqzy" {
+                assert!(character(&mut runtime, *value).commit.is_none());
+            }
+            assert_eq!(runtime.view().editing_text, "wqzy");
+            assert_eq!(runtime.view().candidates[0].text, "合成甲");
+            let next = character(&mut runtime, b'e');
+            assert!(next.commit.is_none(), "{next:?}");
+            // 纯五笔保留四码上限；混输可以继续增长，但都不能把猜码当作已确认编码提交。
+            assert!(next.view.editing_text.starts_with("wqzy"));
+        }
+    }
+}
+
+#[test]
 fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
     for profile in [0, 1] {
         for mixed in [false, true] {
@@ -6556,6 +6642,146 @@ fn paging_reaches_candidates_the_engine_withheld() {
         fourth.candidates.first().map(|c| c.text.as_str()),
         Some("candidate-15")
     );
+}
+
+/// 云联想的回包在组字没变时改写候选。用户还停在第一条时，高亮留在新的第一条；
+/// 已经按 `+` 翻到下一页时，高亮留在那一页，不弹回第一页。再打一个字母仍从第一页开始。
+#[test]
+fn a_late_cloud_candidate_keeps_the_page_the_user_opened() {
+    let mut paged = cloud_page_runtime();
+    let second = paged.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(second.page, 1);
+    assert_eq!(second.candidates[0].text, "词5");
+    push_cloud_candidate(&mut paged);
+    paged.refresh().unwrap();
+    let kept = paged.view();
+    assert_eq!(kept.page, 1);
+    assert!(kept
+        .candidates
+        .iter()
+        .any(|candidate| candidate.text == "词5" && candidate.highlighted));
+    assert!(kept
+        .candidates
+        .iter()
+        .all(|candidate| candidate.text != "云联想"));
+    assert_eq!(paged.cached.candidates[1], "云联想");
+
+    let typed = paged
+        .dispatch(Action::Character {
+            value: b'b',
+            shift: false,
+        })
+        .unwrap()
+        .view;
+    assert_eq!(typed.page, 0);
+    assert!(typed.candidates[0].highlighted);
+
+    let mut stayed = cloud_page_runtime();
+    push_cloud_candidate(&mut stayed);
+    stayed.refresh().unwrap();
+    let home = stayed.view();
+    assert_eq!(home.page, 0);
+    assert_eq!(home.candidates[0].text, "词0");
+    assert!(home.candidates[0].highlighted);
+    assert_eq!(home.candidates[1].text, "云联想");
+}
+
+/// 高亮那一条若只剩更前一页上的副本，不跟回去。翻开的页留在原地。
+#[test]
+fn a_promoted_candidate_does_not_pull_an_open_page_back() {
+    let mut runtime = cloud_page_runtime();
+    runtime.dispatch(Action::NextPage).unwrap();
+    runtime.engine.words = (0..12)
+        .map(|n| match n {
+            1 => "词5".to_owned(),
+            5 => "词1".to_owned(),
+            n => format!("词{n}"),
+        })
+        .collect();
+    runtime.engine.codes = (0..12)
+        .map(|n| match n {
+            1 => "ci5".to_owned(),
+            5 => "ci1".to_owned(),
+            n => format!("ci{n}"),
+        })
+        .collect();
+    runtime.engine.sources = vec![0; 12];
+    runtime.refresh().unwrap();
+    let view = runtime.view();
+    assert_eq!(view.page, 1);
+    assert_eq!(view.candidates[0].text, "词1");
+    assert!(view.candidates[0].highlighted);
+    assert!(view
+        .candidates
+        .iter()
+        .all(|candidate| candidate.text != "词5"));
+}
+
+/// 静止重排把高亮那一条提到更前的页时，已翻开的页留在原地。
+/// `rerank_settled` 若在挪动后把高亮置 0，这一页会回到第一页。
+#[test]
+fn a_settled_rerank_does_not_pull_an_open_page_back() {
+    let words = [
+        "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "子", "丑",
+    ];
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: words.iter().map(|word| (*word).to_owned()).collect(),
+            codes: (0..words.len()).map(|n| format!("c{n}")).collect(),
+            sources: vec![msime_engine::ordering::LATTICE_SOURCE; words.len()],
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let model = favouring_model(
+        &[
+            '甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸', '子', '丑',
+        ],
+        &['己'],
+    );
+    runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+    let second = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(second.page, 1);
+    assert_eq!(second.candidates[0].text, "己");
+
+    assert!(runtime.rerank_settled());
+    assert_eq!(runtime.cached.candidates[0], "己");
+    let kept = runtime.view();
+    assert_eq!(kept.page, 1);
+    assert_eq!(kept.candidates[0].text, "戊");
+    assert!(kept.candidates[0].highlighted);
+    assert!(kept
+        .candidates
+        .iter()
+        .all(|candidate| candidate.text != "己"));
+}
+
+fn cloud_page_runtime() -> Runtime<Fixture> {
+    let count = 12;
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: (0..count).map(|n| format!("词{n}")).collect(),
+            codes: (0..count).map(|n| format!("ci{n}")).collect(),
+            sources: vec![0; count],
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    runtime
+}
+
+fn push_cloud_candidate(runtime: &mut Runtime<Fixture>) {
+    runtime.engine.words.push("云联想".into());
+    runtime.engine.codes.push("yun".into());
+    runtime.engine.sources.push(2);
 }
 
 #[test]

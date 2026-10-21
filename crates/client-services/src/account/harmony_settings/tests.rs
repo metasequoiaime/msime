@@ -1031,6 +1031,7 @@ fn every_exported_key_round_trips() {
         bracket_style: BracketStyle::Hollow,
         wubi_code_hint: !Preferences::default().wubi_code_hint,
         wubi_auto_commit_unique: !Preferences::default().wubi_auto_commit_unique,
+        wubi_fifth_code_top_commit: !Preferences::default().wubi_fifth_code_top_commit,
         touch_keyboard_layout: TouchKeyboardLayout::NineKey,
         theme: crate::preferences::ThemeMode::Dark,
         touch_key_spacing_tenths: 40,

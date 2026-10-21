@@ -1,6 +1,7 @@
 package app.msime.android.test;
 
 import android.os.Build;
+import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.KeyEvent;
@@ -18,11 +19,22 @@ import org.json.JSONObject;
  * <p>键从 `uinput` 接上的 USB 键盘打进去（API 31 起；更早的系统要 `hw.keyboard=yes` 的 AVD），理由见 {@link DeviceSmoke#physicalKeyboard}。用的是随包离线英文释义：「你好」是一个义项 `hello`，「我的」是两个义项 `my; mine`。数据换了、这两个前提不成立时在对应阶段失败并说明，而不是测成别的东西。
  */
 public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
+    // 清单已达 100 个 instrumentation：数字回归复用这个硬件按键入口，可单独运行合成事件部分。
+    private boolean digitsOnly;
+
+    @Override public void onCreate(Bundle arguments) {
+        digitsOnly = arguments != null && "true".equals(arguments.getString("digits-only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
-        return "Ctrl+Enter commits a single-sense gloss, opens the sense page for several senses (digit, Space, Escape), swallows the key with glosses off and leaves an idle editor's key alone";
+        return digitsOnly ? "native service hardware digit routing with synthetic key events"
+            : "native service digit routing; Ctrl+Enter translation commits, sense pages and editor pass-through";
     }
 
     @Override protected void runChecks() throws Exception {
+        HardwareDigitChecks.run(this);
+        if (digitsOnly) return;
         ParcelFileDescriptor[] uinput = null;
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(

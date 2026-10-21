@@ -5,8 +5,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -94,14 +92,14 @@ public final class DoubaoRecognizer {
      */
     public String recognize(String endpoint, String[] headers, boolean itn, boolean punctuation,
                             boolean ddc, String boostingTableId, Listener listener) {
-        URI uri = parse(endpoint);
-        if (uri == null) return null;
+        Endpoint descriptor = Endpoint.parse(endpoint);
+        if (descriptor == null) return null;
         byte[] start = NativeClient.doubaoStartFrame(itn, punctuation, ddc, boostingTableId);
         if (start == null) return null;
         AudioRecord recorder = null;
         SSLSocket socket = null;
         try {
-            socket = connect(uri, headers);
+            socket = connect(descriptor, headers);
             if (socket == null || cancelled.get()) return null;
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
@@ -245,18 +243,18 @@ public final class DoubaoRecognizer {
         }
     }
 
-    private SSLSocket connect(URI uri, String[] headers) throws IOException {
-        int port = uri.getPort() > 0 ? uri.getPort() : 443;
+    private SSLSocket connect(Endpoint endpoint, String[] headers) throws IOException {
+        int port = endpoint.port;
         // Connect first, then hand the connected socket to TLS, so the connect attempt is bounded:
         // SSLSocketFactory.createSocket(host, port) connects with no timeout at all.
         java.net.Socket plain = new java.net.Socket();
         transport = plain;
         SSLSocket socket = null;
         try {
-            plain.connect(new java.net.InetSocketAddress(uri.getHost(), port),
+            plain.connect(new java.net.InetSocketAddress(endpoint.socketHost, port),
                 CONNECT_TIMEOUT_MILLIS);
             SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-            socket = (SSLSocket) factory.createSocket(plain, uri.getHost(), port, true);
+            socket = (SSLSocket) factory.createSocket(plain, endpoint.socketHost, port, true);
             // A raw SSLSocket checks the chain but not the hostname unless asked to.
             SSLParameters parameters = socket.getSSLParameters();
             parameters.setEndpointIdentificationAlgorithm("HTTPS");
@@ -264,14 +262,12 @@ public final class DoubaoRecognizer {
             socket.setSoTimeout(READ_TIMEOUT_MILLIS);
             socket.startHandshake();
             if (!HttpsURLConnection.getDefaultHostnameVerifier()
-                    .verify(uri.getHost(), socket.getSession())) {
-                throw new SSLPeerUnverifiedException("certificate does not match " + uri.getHost());
+                    .verify(endpoint.socketHost, socket.getSession())) {
+                throw new SSLPeerUnverifiedException("certificate does not match " + endpoint.socketHost);
             }
             String key = Base64.getEncoder().encodeToString(randomBytes(16));
-            String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
-            if (uri.getRawQuery() != null) path = path + "?" + uri.getRawQuery();
             socket.getOutputStream().write(WebSocketFrames
-                .handshakeRequest(uri.getHost(), path, key, headers)
+                .handshakeRequest(endpoint.hostHeader, endpoint.requestTarget, key, headers)
                 .getBytes(StandardCharsets.US_ASCII));
             socket.getOutputStream().flush();
             String response = readHandshake(socket.getInputStream());
@@ -354,14 +350,48 @@ public final class DoubaoRecognizer {
         return bytes;
     }
 
-    /** Only `wss://` is accepted: this protocol carries the user's credentials in its headers. */
-    static URI parse(String endpoint) {
-        if (!DoubaoAsrPolicy.validEndpoint(endpoint)) return null;
-        try {
-            URI uri = new URI(endpoint);
-            return uri.getHost() == null || uri.getHost().isEmpty() ? null : uri;
-        } catch (URISyntaxException error) {
-            return null;
+    private static final class Endpoint {
+        private final String socketHost;
+        private final int port;
+        private final String hostHeader;
+        private final String requestTarget;
+
+        private Endpoint(String socketHost, int port, String hostHeader, String requestTarget) {
+            this.socketHost = socketHost;
+            this.port = port;
+            this.hostHeader = hostHeader;
+            this.requestTarget = requestTarget;
+        }
+
+        /** URL 语法只由共享 Rust 解析器决定；Java 只校验类型化信封。 */
+        private static Endpoint parse(String endpoint) {
+            try {
+                String response = NativeClient.voiceWebSocketEndpoint(endpoint);
+                if (response == null || response.length() > 32768
+                        || TextPolicy.utf8Length(response) > 32768) return null;
+                JSONObject root = new JSONObject(response);
+                JSONObject value = JsonPolicy.objectValue(root);
+                if (value == null) return null;
+                String socketHost = JsonPolicy.strictString(value.opt("socket_host"));
+                Integer port = JsonPolicy.strictInteger(value.opt("port"));
+                String hostHeader = JsonPolicy.strictString(value.opt("host_header"));
+                String requestTarget = JsonPolicy.strictString(value.opt("request_target"));
+                if (!validField(socketHost, 8192) || port == null || port < 0 || port > 65535
+                        || !validField(hostHeader, 8192) || !validField(requestTarget, 8192)
+                        || !requestTarget.startsWith("/")) return null;
+                return new Endpoint(socketHost, port, hostHeader, requestTarget);
+            } catch (JSONException | RuntimeException | LinkageError error) {
+                return null;
+            }
+        }
+
+        private static boolean validField(String value, int maximumBytes) {
+            if (value == null || value.isEmpty() || TextPolicy.utf8Length(value) > maximumBytes) return false;
+            for (int index = 0; index < value.length(); index++) {
+                char unit = value.charAt(index);
+                if (unit > 0x7e || unit < 0x21) return false;
+            }
+            return true;
         }
     }
 }

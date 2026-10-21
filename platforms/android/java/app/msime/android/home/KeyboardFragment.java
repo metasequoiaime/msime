@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.DimensionPolicy;
+import app.msime.android.ImageViewPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.NumberPolicy;
@@ -10,6 +11,8 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.DrawableRes;
@@ -81,7 +84,23 @@ public final class KeyboardFragment extends HomeTabFragment {
 
         SearchPill search = view.findViewById(R.id.keyboard_search);
         search.setHint(getString(R.string.keyboard_search_hint));
-        search.setOnQueryChange(query -> applySearch());
+        ImageView clearSearch = ImageViewPolicy.iconButton(requireContext(),
+            android.R.drawable.ic_menu_close_clear_cancel, ThemeColorPolicy.subText(requireContext()),
+            "清除搜索并返回设置首页", 48, () -> {
+                search.field().setText("");
+                // 清除后恢复首页并离开输入状态，避免还得再次打开键盘逐字删除。
+                view.setFocusableInTouchMode(true);
+                view.requestFocus();
+                InputMethodManager keyboard = requireContext().getSystemService(InputMethodManager.class);
+                if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
+            });
+        ViewPolicy.hide(clearSearch);
+        search.addView(clearSearch, new LinearLayout.LayoutParams(
+            DimensionPolicy.pixels(requireContext(), 48), DimensionPolicy.pixels(requireContext(), 48)));
+        search.setOnQueryChange(query -> {
+            ViewPolicy.setVisible(clearSearch, search.field().length() > 0);
+            applySearch();
+        });
 
         View bar = view.findViewById(R.id.keyboard_bar);
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);

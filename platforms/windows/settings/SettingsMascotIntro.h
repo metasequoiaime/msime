@@ -60,7 +60,7 @@ inline constexpr std::array<PageMascotIntro, 18> mascot_intros{{
     {"dev", "", {MascotScene::settings, L"检查输入法状态与维护工具。"}},
 }};
 
-// 页面在当前标签下的页首引导。`tab` 为空或这一页没有这个标签时，取这一页的第一条，也就是打开页面时的标签。设置窗口把这一页在 `page_tabs_` 里记下的页内标签传进来（`main.cpp` 的 `page_tab_bar`）；「语音输入」在 Windows 上还没有页内标签，仍是第一条。「关于」和不认识的页面没有引导。
+// 页面在当前标签下的页首引导。`tab` 为空或这一页没有这个标签时，取这一页的第一条，也就是打开页面时的标签。设置窗口把这一页在 `page_tabs_` 里记下的页内标签传进来（`main.cpp` 的 `page_tab_bar`）；「语音输入」的「服务配置」子视图在那里记作 `service`，这里没有它，取第一条，与共享页打开子视图时仍显示「识别与输入」那句相同。「关于」和不认识的页面没有引导。
 inline std::optional<MascotIntro> mascot_intro(std::string_view page, std::string_view tab = {}) {
   std::optional<MascotIntro> first;
   for (const auto &entry : mascot_intros) {

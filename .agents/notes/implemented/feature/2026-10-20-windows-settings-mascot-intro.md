@@ -11,7 +11,7 @@ macOS 设置在常用页面的正文顶部放一行页首引导：左边一句 1
 ### 页首引导
 
 - 文案与插画场景放在 `platforms/windows/settings/SettingsMascotIntro.h`，逐字取自 `packages/ui/src/settings/settings-mascot-intro.tsx` 的 `introductions` 和 `tabIntroductions`，页面 id 换成本窗口的。头文件不依赖 Windows，`tests/ui/settings_navigation.cpp` 直接核对。
-- `mascot_intro(page, tab)` 按页面和页内标签取引导；`tab` 为空或这一页没有这个标签时取这一页的第一条，「关于」和不认识的页面没有引导。「语音输入」「键盘与手写」「剪贴板」在共享 UI 里按标签各有一句（输入 / 录音、键盘 / 手写、剪贴板 / 历史记录）。「键盘与手写」「剪贴板」接上[页内标签框架](2026-10-20-windows-settings-page-tabs.md)后显示当前标签那句；「语音输入」在 Windows 上还没有页内标签，显示第一个标签那句。
+- `mascot_intro(page, tab)` 按页面和页内标签取引导；`tab` 为空或这一页没有这个标签时取这一页的第一条，「关于」和不认识的页面没有引导。「语音输入」「键盘与手写」「剪贴板」在共享 UI 里按标签各有一句（输入 / 录音、键盘 / 手写、剪贴板 / 历史记录）。「键盘与手写」「剪贴板」接上[页内标签框架](2026-10-20-windows-settings-page-tabs.md)后显示当前标签那句；「语音输入」当时在 Windows 上还没有页内标签，显示第一个标签那句。后来语音页也分成「识别与输入」「录音行为」两个标签，现在同样显示当前标签那句，「服务配置」子视图（标签 id `service`）仍显示「识别与输入」那句，见 [Windows 设置的语音页标签与服务配置子视图](2026-10-20-windows-settings-voice-ai-mac-parity.md)。
 - `main.cpp` 的 `make_page_header` 画这一行：说明 13 DIP、1.625 倍行高、次要色，插画 80 DIP，两者竖直居中、相隔 20，整行左右各留 4（macOS 的 `px-1`、`gap-5`）。`update_intro_size` 在窗口内容区矮于 700 DIP 时把插画缩到 56、间隔收成 12，`build_shell` 给根元素挂 SizeChanged 跟着改。插画对 UIA 是 Raw 视图，与共享 UI 的 `aria-hidden` 相同。
 - `show_page_intro_tab(tab)` 只换说明文字和插画、不重画整页；`make_page_header` 用这一页在 `page_tabs_` 里记下的标签调用它，切标签时整页重画，引导随之换掉。
 - 说明仍带 `settings-page-<页面 id>` 的自动化 ID；「关于」没有引导，这个 ID 落在品牌卡的产品名上，`settings_ui.ps1` 的切页等待因此不用分支。

@@ -10485,8 +10485,9 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组；
+  // 桌面宿主自己发请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
@@ -10520,7 +10521,7 @@ test.each(["macos", "windows", "linux", "harmony"])(
   },
 );
 
-test("the macOS AI page shows only the service group", async () => {
+test("the macOS AI page shows the service and network groups", async () => {
   render(
     <SettingsPage
       initialPage="ai"
@@ -10534,7 +10535,7 @@ test("the macOS AI page shows only the service group", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

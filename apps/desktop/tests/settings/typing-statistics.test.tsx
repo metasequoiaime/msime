@@ -300,6 +300,38 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
   expect(screen.queryByText(key(-40))).toBeNull();
 });
 
+// Windows 的概览在六格下面并排画「日均…」和「最多…·最快…」；macOS 少了后者这一行。
+test("desktop statistics render the best day and fastest day line", async () => {
+  const statistics: TypingStatistics = {
+    enabled: true,
+    total: 120,
+    days: { [key(-2)]: 20, [key(-1)]: 100 },
+    dailyDetails: {
+      [key(-2)]: { characters: { han: 20 } },
+      [key(-1)]: { characters: { han: 100 } },
+    },
+    // 两秒打 20 字是尖峰，不参与最快；昨天 100 字 / 2 分钟 = 50 字 / 分钟。
+    dailyActiveMs: { [key(-2)]: 2_000, [key(-1)]: 120_000 },
+  };
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: testHost({ platform: "macos" }),
+        typingStatistics: {
+          load: vi.fn().mockResolvedValue(status(statistics)),
+          setEnabled: vi.fn(),
+          reset: vi.fn(),
+        },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  expect(
+    await screen.findByText(`最多 ${label(-1)}，100 字符 · 最快 ${label(-1)}，50 字 / 分钟`),
+  ).toBeTruthy();
+});
+
 test("mobile statistics refresh when the settings surface returns to the foreground", async () => {
   let now = 10_000;
   vi.spyOn(Date, "now").mockImplementation(() => now);

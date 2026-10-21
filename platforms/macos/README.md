@@ -149,6 +149,8 @@ SwiftUI 设置同步覆盖 28 个当前宿主偏好：全局主题、自定义�
 
 原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。调用 `msime-host-api` 的 `msime_client_simplified_to_traditional` 导出转换候选显示、完整 tooltip 和最终上屏文本（包括 Ctrl+Enter 上屏的译文、释义页选中的义项与 Option/Ctrl+数字取的释义列；释义页按转换后的文本绘制，选中后上屏的就是页面上显示的那一项），与 Windows、Linux 及来源同用 OpenCC s2t 词级词典（「头发」→「頭髮」而非逐字的「頭發」），输入不是合法 UTF-8 时保留原文；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
 
+系统从强制 ASCII 的应用恢复水杉输入源时，`activateServer:` 只立即刷新状态项，把系统模式同步延后一轮主队列。执行时确认客户端、焦点与激活代次仍有效，并重新读取 TIS；仍是外部输入源或未知状态时跳过自动选择，已恢复到目标模式时不重复请求。用户主动切换模式会取消旧的排队校准。`shortcut-test --input-source-restore` 与 `input-mode-identifiers` 使用合成输入源验证这些时序，不代表已完成真实 Kindle 切换验收。
+
 ## 候选辅助码与纠错
 
 候选辅助码后缀由引擎的宿主接口按辅助码注释规则给出（`crates/engine/src/host/`，映射由 `crates/engine/src/helpcode.rs` 加载），按当前会话自身资源目录与辅助码方案加载不可变映射；仅启用辅助码的全拼/双拼普通模式和超级简拼附加后缀，Unicode、日期、快捷短语等合成模式及五笔/日语不附加。未提供共享或本地覆盖时按 Windows 基线使用全拼自然码且隐藏、双拼蓝天且显示。共享 JSON 候选新增 `annotation` 字符串，原 `text` 和候选 ID 不变；macOS 候选面板把后缀（或五笔编码提示）作为文字之后独立的一段绘制，间隔 4 点，同行放不下时移到文字下方并按列宽换行；tooltip 与辅助功能标签仍使用原文加后缀。两者都在繁体展示转换之后显示，上屏仍只提交 Engine 原文。映射缺失时后缀为空，不读取其他会话的全局映射。共享偏好现有延迟应用机制确保组合期间不切换映射；旧宿主无 annotation 字段仍显示原文。

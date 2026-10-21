@@ -1174,6 +1174,7 @@ static NSImage *MSIMECandidateLogoImage() {
     OSStatus (^_optInInputModeEnabler)(NSString *identifier);
     // 设置后代替菜单栏状态项，测试由此看到状态项被摆成哪个模式（nil 表示隐藏），不在测试进程里真的建 NSStatusItem。
     void (^_inputModeStatusItemPresenter)(NSString *modeID);
+    NSUInteger _inputModeActivationGeneration;
     MSIMEVoiceInputService *_voiceService;
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
@@ -4195,6 +4196,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 //
 // 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音、越南文、藏文或笔画时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这五个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
 - (void)syncSystemInputModeForClient:(id)client {
+    // 显式同步优先于尚未执行的激活校准，不能再用滞后的 TIS 状态覆盖刚发出的选择。
+    ++_inputModeActivationGeneration;
     NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
     NSString *synced = _appearance.lastSyncedInputScheme;
     if (![scheme isEqualToString:synced]) {
@@ -4206,6 +4209,29 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
 }
+// 单独读取入口让原生测试注入合成输入源，不切换开发者的真实输入源。
+- (NSString *)selectedSystemInputModeID {
+    TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
+    if (!source) return nil;
+    CFTypeRef value = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+    NSString *identifier = value && CFGetTypeID(value) == CFStringGetTypeID() ? [(__bridge NSString *)value copy] : nil;
+    CFRelease(source);
+    return identifier;
+}
+
+- (void)scheduleSystemInputModeSyncForClient:(id)client {
+    [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? [self currentInputModeID] : nil];
+    const NSUInteger generation = ++_inputModeActivationGeneration;
+    __weak MSIMEInputController *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_inputModeActivationGeneration != generation ||
+            controller->_activeClient != client || MSIMEFocusedController != controller) return;
+        if (!MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), [controller selectedSystemInputModeID])) return;
+        [controller syncSystemInputModeForClient:client];
+    });
+}
+
 // 控制器此刻的输入模式：英文模式是「英」，其余按实际运行的方案（MSIMEEffectiveInputScheme）。
 - (NSString *)currentInputModeID {
     NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
@@ -5040,8 +5066,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     [self applySharedInputPreferencesBeforeFirstUse];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
-    // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
-    [self syncSystemInputModeForClient:sender];
+    // 系统可能仍在从强制 ASCII 的应用恢复输入源；离开激活调用栈后再核对实际模式，避免重复选择把它退回 U.S.（#8993）。
+    [self scheduleSystemInputModeSyncForClient:sender];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];

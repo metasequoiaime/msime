@@ -1,5 +1,6 @@
 #import "../../src/settings/AppearancePreferences.h"
 #import "../../src/candidate/CandidateSkinPreviewView.h"
+#import "../../src/candidate/CandidateTextMetrics.h"
 #import "../../src/cloud/CloudAppearanceSettings.h"
 #import "../../src/settings/PreferenceSnapshotMerge.h"
 #import <CoreText/CoreText.h>
@@ -639,10 +640,15 @@ int main(int argc, const char **argv) {
                     preferences.pageSize = size.unsignedIntegerValue;
                     for (NSNumber *font in @[@12, @13, @16, @18, @20, @32]) {
                         preferences.fontSize = font.unsignedIntegerValue;
-                        NSFont *candidateFont = [NSFont systemFontOfSize:font.doubleValue];
-                        NSFont *preeditFont = [NSFont systemFontOfSize:preferences.preeditFontSize];
-                        CGFloat preeditHeight = MAX(22.0, ceil(preeditFont.ascender - preeditFont.descender + preeditFont.leading) + 6.0);
-                        CGFloat rowHeight = ceil(candidateFont.ascender - candidateFont.descender + candidateFont.leading) + 8.0;
+                        // 默认字体也参与几何；按实际字体及后备字形测量，避免继续断言旧系统字体的高度。
+                        NSFont *candidateFont = [preferences candidateFontOfSize:font.doubleValue englishFirst:YES];
+                        NSFont *preeditFont = [preferences candidateFontOfSize:preferences.preeditFontSize englishFirst:YES];
+                        CGFloat preeditHeight = MAX(22.0, MSIMECandidateTextHeight(@"nihao", preeditFont) + 6.0);
+                        CGFloat rowHeight = MSIMECandidateTextHeight(@"", candidateFont);
+                        for (NSString *sample in @[@"水杉(Ss)", @"输入法(Sw)", @"你好(Nh)", @"世界(Sj)", @"中国(Zg)",
+                                @"水仙(Sx)", @"水山(Ss)", @"水衫(Ss)", @"水善(Ss)"])
+                            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(sample, candidateFont));
+                        rowHeight += 8.0;
                         NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
                         CGFloat footerHeight = vertical.boolValue && size.integerValue > 5 ? 18.0 : 0.0;
                         // 卡片上下各留原生默认的 4pt 内边距。
