@@ -57,6 +57,15 @@ test('failed later pages or metrics never produce a partial aggregate', async ()
   await assert.rejects(collectStats('123', credentials, async () => answer([])), /No available/);
 });
 
+test('Apple failures name the endpoint and the rejected parameter without the build id', async () => {
+  const rejected = Response.json({ errors: [{ status: '400', code: 'PARAMETER_ERROR.INVALID', title: 'A parameter has an invalid value', detail: "'limit' is not a valid parameter" }] }, { status: 400 });
+  await assert.rejects(collectStats('123', credentials, async url => new URL(url).pathname === '/v1/builds' ? answer([build('secret-build')]) : rejected), error => {
+    assert.equal(error.message, "Apple metrics request failed: HTTP 400 on /v1/builds/{id}/metrics/betaBuildUsages (PARAMETER_ERROR.INVALID: 'limit' is not a valid parameter)");
+    return true;
+  });
+  await assert.rejects(applePages('/v1/builds', credentials, async () => new Response('not json', { status: 400 })), /Apple metrics request failed: HTTP 400 on \/v1\/builds$/);
+});
+
 test('pagination rejects redirects to other hosts, other Apple resources and cycles before sending credentials', async () => {
   for (const next of ['https://outside.example/v1/builds', 'https://api.appstoreconnect.apple.com/v1/betaTesters', 'https://api.appstoreconnect.apple.com/v1/builds']) {
     let calls = 0;

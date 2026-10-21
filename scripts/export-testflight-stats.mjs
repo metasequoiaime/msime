@@ -16,6 +16,15 @@ export function appleToken({ keyId, issuerId, privateKey }, now = Date.now()) {
   return `${body}.${sign('sha256', Buffer.from(body), { key, dsaEncoding: 'ieee-p1363' }).toString('base64url')}`;
 }
 
+/** Apple 的错误体只含错误码和参数说明，不含令牌或测试者资料；只取 code 与 detail 并截断，让失败日志能看出是哪个参数被拒。 */
+async function appleErrors(response) {
+  let body;
+  try { body = await response.json(); } catch { return ''; }
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  const text = errors.slice(0, 3).map(error => [error?.code, error?.detail].filter(value => typeof value === 'string').join(': ')).filter(Boolean).join('; ');
+  return text ? ` (${text.replace(/\s+/g, ' ').slice(0, 500)})` : '';
+}
+
 /** 分页只访问原端点；禁止将 Apple 授权转发到其他主机或资料接口。 */
 export async function applePages(path, credentials, request = fetch) {
   const endpoint = new URL(path, APPLE);
@@ -28,7 +37,7 @@ export async function applePages(path, credentials, request = fetch) {
     check(!seen.has(url.href) && seen.size < 1000, 'Invalid Apple pagination cycle');
     seen.add(url.href);
     const response = await request(url.href, { headers: { Authorization: `Bearer ${appleToken(credentials)}`, Accept: 'application/json' }, signal: AbortSignal.timeout(30000), redirect: 'error' });
-    check(response.ok, `Apple metrics request failed: HTTP ${response.status}`);
+    if (!response.ok) throw new StatsError(`Apple metrics request failed: HTTP ${response.status} on ${endpoint.pathname.replace(/^\/v1\/builds\/[^/]+\//, '/v1/builds/{id}/')}${await appleErrors(response)}`);
     const page = await response.json();
     check(Array.isArray(page.data), 'Invalid Apple metrics response');
     rows.push(...page.data);
