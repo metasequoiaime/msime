@@ -431,10 +431,10 @@ if section == "我的" {
           }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("confirmSaveCustomSkin")
         }.designPage()
+          .fittedSheet()
           .navigationTitle(renaming == nil ? "保存我的皮肤" : "重命名")
           .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showSave = false } } }
       }
-      .designCompactSheet()
     }
     .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好") { message = nil }

@@ -220,12 +220,12 @@ private struct AuthenticatedTypingStatisticsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
       .designCanvasBackground()
+      .fittedSheet()
       .navigationTitle("关于统计").navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("完成") { showsAbout = false } }
       }
     }
-    .presentationDetents([.medium, .large])
   }
 
   private static let aboutParagraphs = [

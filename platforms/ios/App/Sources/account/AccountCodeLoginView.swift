@@ -292,6 +292,8 @@ struct CodeLoginView: View {
         if let message = model.message { Text(message).foregroundStyle(.secondary) }
       }
       .disabled(model.busy)
+      .designPage()
+      .fittedSheet()
       .navigationTitle(channel.title)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { ViewRequestTask.cancel(task: $pending); dismiss() } } }
     }

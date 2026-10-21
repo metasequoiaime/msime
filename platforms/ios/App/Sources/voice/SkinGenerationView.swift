@@ -12,6 +12,8 @@ struct SavedSkinPublishFlow: View {
       else {
         NavigationView {
           Form { AppleAccountSection(signedIn: $signedIn) }
+            .designPage()
+            .fittedSheet()
             .navigationTitle("登录后发布").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
         }.navigationViewStyle(.stack)

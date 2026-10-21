@@ -20,7 +20,7 @@ struct CommunityReportButton: View {
     Button { reporting = true } label: { Label("举报", systemImage: "exclamationmark.bubble") }
       .font(.subheadline).foregroundStyle(.secondary)
       .accessibilityIdentifier("reportCommunityWork")
-      .sheet(isPresented: $reporting) { CommunityReportSheet(kind: kind, itemID: itemID).designCompactSheet() }
+      .sheet(isPresented: $reporting) { CommunityReportSheet(kind: kind, itemID: itemID) }
   }
 }
 
@@ -60,6 +60,7 @@ private struct CommunityReportSheet: View {
         if busy { ProgressView() }
       }.disabled(busy)
         .designPage()
+        .fittedSheet()
         .navigationTitle("举报").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         .alert("已收到举报", isPresented: $sent) { Button("好") { dismiss() } } message: { Text("感谢反馈，我们会尽快核实处理。") }

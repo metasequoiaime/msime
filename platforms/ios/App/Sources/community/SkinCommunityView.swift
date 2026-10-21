@@ -504,6 +504,8 @@ struct CommunityPublishView: View {
           .accessibilityIdentifier("confirmCommunitySkinPublication")
         if busy { ProgressView() }
       }.disabled(busy)
+        .designPage()
+        .fittedSheet()
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         .trackViewRequest(request: $request, pending: $pending, onAppear: {

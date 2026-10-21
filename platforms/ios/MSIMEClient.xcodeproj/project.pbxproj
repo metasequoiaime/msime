@@ -524,6 +524,7 @@
 		773A85ED7867CD78DF93689E /* KeyboardClipboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09ADCCD7226D6D9037DF7D6F /* KeyboardClipboardView.swift */; };
 		77ACB35EEA8F5ADDECEC8DA4 /* DoubaoHostFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B958F722D77F264EB1AF5490 /* DoubaoHostFrameCodec.swift */; };
 		77D1A5B162679A9DFF30A87A /* EnglishSuggestionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A50D7142E85E6E4C4429351 /* EnglishSuggestionPolicyTests.swift */; };
+		7824D7DA4D25416CA09C478E /* FittedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0627F670F3F10639339CF446 /* FittedSheet.swift */; };
 		78480680705EF5C3D8FEE3F1 /* IOSCloudSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7987ED59A86BCCC48CAE3C16 /* IOSCloudSettings.swift */; };
 		790ED8222B1E97112FFF6F30 /* PersonalDictionaryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070E2130BE0A27C9B3CFD530 /* PersonalDictionaryBridge.swift */; };
 		79263B4881D743B17809D551 /* CandidateFontSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8287109EE6C4EB060ACDFD01 /* CandidateFontSizeTests.swift */; };
@@ -1178,6 +1179,7 @@
 		0492B8D83678AE386AE140BF /* AISkinDesignView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinDesignView.swift; sourceTree = "<group>"; };
 		04E8D8CCE3BDAFFC98C21A05 /* WubiLookupRequestStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiLookupRequestStateTests.swift; sourceTree = "<group>"; };
 		056A372D26C6B68B89E7825B /* KeyboardSkinPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinPickerView.swift; sourceTree = "<group>"; };
+		0627F670F3F10639339CF446 /* FittedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FittedSheet.swift; sourceTree = "<group>"; };
 		065A732A3DCA8B3E1C7C54F6 /* CandidatePanelSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePanelSelectionPolicy.swift; sourceTree = "<group>"; };
 		066353FEF9721AD090D0EBE4 /* ChineseTextConversionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChineseTextConversionTests.swift; sourceTree = "<group>"; };
 		06E8A8E6142CFA3FF2724809 /* DefaultImeModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultImeModeTests.swift; sourceTree = "<group>"; };
@@ -2485,6 +2487,7 @@
 			isa = PBXGroup;
 			children = (
 				A1C6E60D1255310204986D04 /* BackendInputModifiers.swift */,
+				0627F670F3F10639339CF446 /* FittedSheet.swift */,
 			);
 			path = core;
 			sourceTree = "<group>";
@@ -4127,6 +4130,7 @@
 				753210AA3A327B38B0EFC536 /* ExpressionSettingsView.swift in Sources */,
 				473F5D9EBA6AEFA3D4DF46A5 /* ExternalCandidateSkin.swift in Sources */,
 				A35795B48AA7C7BF1A941958 /* FeatureSettingsViews.swift in Sources */,
+				7824D7DA4D25416CA09C478E /* FittedSheet.swift in Sources */,
 				9979EA28495F113752B181FD /* FourteenKeyLayout.swift in Sources */,
 				510E4AB50677EBC9382BA77B /* FrequencyAdjustmentPreference.swift in Sources */,
 				39D7A2F0B08CF364E7E94E1F /* FuzzyPinyinPreference.swift in Sources */,

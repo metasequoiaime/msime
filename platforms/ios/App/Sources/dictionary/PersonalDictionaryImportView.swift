@@ -137,6 +137,7 @@ struct PersonalDictionaryImportView: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("导入个人词库")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

@@ -56,7 +56,6 @@ struct CommonPhrasesSettingsView: View {
     }
     .sheet(isPresented: $adding) {
       CommonPhraseEditor { text in run(success: "已添加") { try CommonPhrasesBridge.add(text) } }
-        .designCompactSheet()
     }
     .alert("删除这条常用语？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
            presenting: deleting) { phrase in
@@ -161,6 +160,7 @@ private struct CommonPhraseEditor: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("添加常用语")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

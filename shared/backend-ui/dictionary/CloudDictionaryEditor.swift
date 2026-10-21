@@ -54,7 +54,7 @@ struct CloudDictionaryEditor: View {
       }.padding(20).frame(width: 440, height: 320)
       #else
       NavigationView {
-        fields.navigationTitle(title).toolbar {
+        fields.fittedSheet().navigationTitle(title).toolbar {
           ToolbarItem(placement: .cancellationAction) { cancelButton }
           ToolbarItem(placement: .confirmationAction) { uploadButton }
         }

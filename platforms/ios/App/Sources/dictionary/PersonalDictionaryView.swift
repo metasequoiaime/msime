@@ -472,6 +472,7 @@ private struct PersonalWordEditor: View {
         Section {} footer: { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。") }
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle(previous == nil ? "添加词条" : word.isBundled ? "调整权重" : "编辑词条")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

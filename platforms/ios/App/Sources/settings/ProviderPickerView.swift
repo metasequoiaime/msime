@@ -68,6 +68,7 @@ struct ProviderPickerView: View {
         }
       }
       .designPage()
+      .fittedSheet()
       .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索服务商")
       .navigationTitle("选择服务商")
       .navigationBarTitleDisplayMode(.inline)

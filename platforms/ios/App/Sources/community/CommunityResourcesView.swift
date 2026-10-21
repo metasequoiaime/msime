@@ -616,6 +616,8 @@ struct CommunityResourceEditor: View {
             .font(.caption).foregroundStyle(.secondary)
         }
       }.disabled(busy)
+        .designPage()
+        .fittedSheet()
         .navigationTitle(existing == nil ? "发布\(kind.title)" : "更新作品")
         .toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
