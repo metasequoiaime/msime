@@ -69,8 +69,8 @@ public final class VoiceProviderPolicy {
      * 选了本地模型时「识别服务」行的说明：还没选用装好的模型，或这个安装包不带、也还没下载语音运行库时，说明缺什么；都齐了为 null。本地识别不会回退到系统识别（录音不该在用户不知道时离开手机），所以这里说的是「还不能用」而不是「暂用系统识别」。
      */
     public static String localStatus(boolean modelReady, boolean runtimeReady) {
-        if (!modelReady) return "还没有可用的模型，请在下面下载一个";
-        return runtimeReady ? null : "还要下载本地语音运行库";
+        if (!modelReady) return "还没有选用可用模型，请到「模型」选用、下载或导入";
+        return runtimeReady ? null : "还需准备本地语音运行库，请到「模型」下载或导入";
     }
 
     /**

@@ -1,8 +1,5 @@
 package app.msime.android.test;
 
-import android.app.Activity;
-import android.app.Instrumentation;
-import android.os.Bundle;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -10,21 +7,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** 经安装产品的 JNI 读取真实共享目录，并用合成响应核对 Android 的严格解析与名称更新。 */
-public final class VoiceProviderCatalogDeviceSmoke extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+/** 经安装产品的 JNI 核对共享目录，再在真实原生页面验证模型与运行库两项准备状态。 */
+public final class VoiceProviderCatalogDeviceSmoke extends LocalVoiceReadinessChecks {
+    @Override protected String successDescription() { return "shared voice catalog and local voice preparation passed"; }
 
-    @Override public void onStart() {
-        Bundle result = new Bundle();
-        try {
-            runCases();
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED\n");
-            finish(Activity.RESULT_OK, result);
-        } catch (Throwable error) {
-            Throwable cause = error.getCause() == null ? error : error.getCause();
-            result.putString("stream", "MSIME_VOICE_CATALOG_FAILED: " + cause.getClass().getSimpleName() + "\n");
-            finish(Activity.RESULT_CANCELED, result);
-        }
+    @Override protected void runChecks() throws Exception {
+        runCases();
+        super.runChecks();
     }
 
     private void runCases() throws Exception {
