@@ -30,6 +30,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -344,6 +345,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
     /** 工具栏上的「最近复制」（#5692）。 */
@@ -1511,6 +1513,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
+        if (inlineAutofill != null) inlineAutofill.startInput();
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
@@ -1655,6 +1658,7 @@ public final class MSIMEInputService extends InputMethodService {
         super.onCreate();
         getContentResolver().registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
+        if (Build.VERSION.SDK_INT >= 30) inlineAutofill = new ImeInlineAutofill(this);
         LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
@@ -1676,9 +1680,20 @@ public final class MSIMEInputService extends InputMethodService {
         clearClipboardImages();
     }
 
+    @android.annotation.TargetApi(30)
+    @Override public android.view.inputmethod.InlineSuggestionsRequest onCreateInlineSuggestionsRequest(Bundle extras) {
+        return inlineAutofill == null ? null : inlineAutofill.request(extras);
+    }
+
+    @android.annotation.TargetApi(30)
+    @Override public boolean onInlineSuggestionsResponse(android.view.inputmethod.InlineSuggestionsResponse response) {
+        return inlineAutofill != null && inlineAutofill.response(response);
+    }
+
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
+        if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -1719,6 +1734,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
         flushKeyPresses();
@@ -1753,6 +1769,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
         cancelInputViewRefresh();
@@ -1875,6 +1892,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -3784,6 +3802,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
         if (shortcutToolbar != null)
             ViewPolicy.setFixedHeight(shortcutToolbar, (idleHeader ? 0 : readingRow) + pixels(line));
+        if (inlineAutofill != null) inlineAutofill.setHeight((idleHeader ? 0 : readingRow) + pixels(line));
         // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
         if (recentClipRow != null)
             ViewPolicy.setFixedHeight(recentClipRow, (idleHeader ? 0 : readingRow) + pixels(line));
@@ -8575,6 +8594,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(shortcutToolbar, LayoutPolicy.matchWidthHeightPx(
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
         imeToolbar.addRecentClipRow(candidateRegion);
+        if (inlineAutofill != null) inlineAutofill.buildRow(candidateRegion);
         nineKeySpellings = LayoutPolicy.row(this);
         nineKeySpellingScroll = new HorizontalScrollView(this);
         nineKeySpellingScroll.setHorizontalScrollBarEnabled(false);
@@ -9796,7 +9816,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
         // 文本编辑面板保留顶部的复制预览，点「复制」后不必先返回键盘（#8104）。
         boolean recentPanelAllowed = ViewPolicy.isVisible(textEditPanel) || !anyToolbarPanelOpen();
-        boolean recentAllowed = toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
+        boolean autofillShown = inlineAutofill != null && inlineAutofill.update(
+            !heightMode && idle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
+        boolean recentAllowed = !autofillShown && toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY);
         String recent = recentAllowed ? recentClip.text(nowMs) : null;
         // 图片只在当前输入框收得下时才占这一行（#6781）。
@@ -9806,7 +9828,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean recentShown = recent != null || recentImage;
         if (recentShown) main.postDelayed(recentClipExpiry, recentClip.remainingMs(nowMs) + 50);
         if (shortcutToolbar != null)
-            ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown);
+            ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
             ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
