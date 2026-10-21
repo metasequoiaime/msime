@@ -1664,7 +1664,7 @@ const char *scheme_property_key(std::string_view scheme) {
   return "Scheme/Quanpin";
 }
 
-// 工具栏子菜单，对应 macOS 悬浮工具栏：按钮的顺序和默认开关与 macOS 相同（FloatingToolbarPanel.mm，默认值见 preferences.rs 的 FloatingToolbarPreferences），其后是 macOS 工具栏齿轮菜单里的宣传、官网、帮助、关于与反馈。
+// 工具栏子菜单，对应 macOS 悬浮工具栏：按钮的顺序和默认开关与 macOS 相同（FloatingToolbarPanel.mm，默认值见 preferences.rs 的 FloatingToolbarPreferences），其后是 macOS 工具栏齿轮菜单里的宣传、官网、帮助、关于与反馈。english_mode 管的是中英文那一项（macOS 的 _inputModeButton），macOS 工具栏没有「英文候选模式」，它只在菜单顶层。文案与菜单顶层和 Fcitx5 的「工具栏」子菜单相同，取自 MenuLabels.h。
 IBusProperty *toolbar_property(IBusEngine *engine) {
   const auto &s = state(engine);
   const auto toolbar = configured.at("preferences").value(
@@ -1691,13 +1691,8 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
                    "", ibus_text_new_from_static_string(hint), TRUE, TRUE,
                    PROP_STATE_UNCHECKED, nullptr));
   };
-  append_toggle("Toolbar/InputMode", "中英文模式", "切换中文输入与直接输入",
-                available, s.input_enabled);
-  append_toggle("Toolbar/EnglishMode", "英文候选模式",
-                "切换 Engine 的独立英文候选模式",
-                available && toolbar.value("english_mode", true) &&
-                    s.input_enabled && s.session,
-                s.english_mode);
+  append_toggle("Toolbar/InputMode", msime::linux_host::menu_label::kChineseInput, "切换中文输入与直接输入",
+                available && toolbar.value("english_mode", true), s.input_enabled);
   // 切换输入方案：macOS 的按钮弹出与输入法菜单同一份方案菜单，这里是同样内容的子菜单；条目的键与菜单里的不同（IBus 按键找属性，键不能重复），激活时转给菜单里对应的方案。
   if (available && toolbar.value("input_scheme", true)) {
     auto schemes = ibus_prop_list_new();
@@ -1713,14 +1708,15 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
     }
     ibus_prop_list_append(items, ibus_property_new(
         "Toolbar/InputScheme", PROP_TYPE_MENU,
-        ibus_text_new_from_static_string("切换输入方案"), "",
+        ibus_text_new_from_string(msime::linux_host::menu_heading(
+            msime::linux_host::menu_label::kScheme, scheme_title(s, active)).c_str()), "",
         ibus_text_new_from_static_string("选择输入方案"), TRUE, TRUE, PROP_STATE_UNCHECKED, schemes));
   }
-  append_toggle("Toolbar/Punctuation", "中文标点", "切换中文或英文标点",
+  append_toggle("Toolbar/Punctuation", msime::linux_host::menu_label::kChinesePunctuation, "切换中文或英文标点",
                 available && toolbar.value("punctuation", true), s.chinese_punctuation);
-  append_toggle("Toolbar/Fullwidth", "全角字符", "切换 ASCII 全角或半角输出",
+  append_toggle("Toolbar/Fullwidth", msime::linux_host::menu_label::kFullwidth, "切换 ASCII 全角或半角输出",
                 available && toolbar.value("fullwidth", true), s.fullwidth);
-  append_toggle("Toolbar/CharacterSet", "繁体输出", "切换简体或繁体输出",
+  append_toggle("Toolbar/CharacterSet", msime::linux_host::menu_label::kTraditionalOutput, "切换简体或繁体输出",
                 available && toolbar.value("character_set", true), s.traditional_output);
   // 表情、手写、屏幕键盘和语音四个按钮默认关，与共享默认值（preferences.rs）一致。
   append_action("Toolbar/Emoji", msime::linux_host::menu_label::kEmojiPanel, "打开 Emoji、颜文字和符号面板",
@@ -1733,7 +1729,7 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
                 available && toolbar.value("voice", false) && s.voice_enabled &&
                     !s.voice_provider_socket.empty(),
                 s.voice_active);
-  append_action("Toolbar/Settings", "打开设置…", "打开" MSIME_EDITION_DISPLAY_NAME "设置",
+  append_action("Toolbar/Settings", msime::linux_host::menu_label::kSettings, "打开" MSIME_EDITION_DISPLAY_NAME "设置",
                 available && toolbar.value("settings", true));
   if (available) {
     ibus_prop_list_append(items, menu_separator("Toolbar/Separator"));
@@ -5235,7 +5231,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     const char *target =
         property_name == "Toolbar/InputMode" ? "InputMode"
-        : property_name == "Toolbar/EnglishMode" ? "EnglishMode"
         : property_name == "Toolbar/Fullwidth" ? "CharacterMode"
         : property_name == "Toolbar/Punctuation" ? "Punctuation"
         : property_name == "Toolbar/CharacterSet" ? "TraditionalOutput"

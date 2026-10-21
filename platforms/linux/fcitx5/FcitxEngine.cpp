@@ -6984,7 +6984,8 @@ public:
   void holdMenuContext(fcitx::InputContext *ic) {
     if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
     menu_context_ic_ = ic->watch();
-    // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项）随之拿掉，顺带刷新状态区。
+    // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项，以及「工具栏」子菜单里的语音和宣传）随之拿掉，顺带刷新状态区。
+    rebuildToolbarMenu(ic);
     arrangeStatusArea(ic);
   }
   // 只往有焦点的输入框里写的那几项；托盘留着失焦的上下文时不列它们。语音项另按会话和语音开关决定，见 arrangeStatusArea。
@@ -7092,17 +7093,23 @@ public:
     if (current == ProgramFileState::Current || current == shown) return;
     shown = current;
     msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
+    // KWin 启动的 Fcitx5 没有重启命令（见 ReplacedProgram.h 的 kwin_launched），只能注销或在系统设置里重新选一次虚拟键盘。
     const auto restart = msime::linux_host::fcitx5_restart_command();
+    const std::string how = restart ? "执行 " + *restart + " 或注销后重新登录" : "注销后重新登录";
     state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
-        ? MSIME_EDITION_DISPLAY_NAME "已升级：执行 " + restart + " 或注销后重新登录即可使用新版本"
-        : MSIME_EDITION_DISPLAY_NAME "已卸载：执行 " + restart + " 或注销后重新登录即可完成卸载"));
+        ? MSIME_EDITION_DISPLAY_NAME "已升级：" + how + "即可使用新版本"
+        : MSIME_EDITION_DISPLAY_NAME "已卸载：" + how + "即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-    // 升级时另发一条桌面通知，带「立即重启 Fcitx5」按钮，用户不必自己去敲命令（见 msime-linux-first-run-guide 的 upgraded）。卸载时脚本可能已经不在，只留辅助行。
+    // 升级时另发一条桌面通知，有重启命令时带「立即重启 Fcitx5」按钮，用户不必自己去敲命令（见 msime-linux-first-run-guide 的 upgraded）。卸载时脚本可能已经不在，只留辅助行。
     if (current == ProgramFileState::Replaced) {
       const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
-      if (access(guide.c_str(), X_OK) == 0)
-        fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--restart-unit",
-                             msime::linux_host::current_user_service_unit().value_or(std::string())});
+      if (access(guide.c_str(), X_OK) == 0) {
+        if (restart)
+          fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--restart-unit",
+                               msime::linux_host::current_user_service_unit().value_or(std::string())});
+        else
+          fcitx::startProcess({guide, "--host", "fcitx5", "--reason", "upgraded", "--launched-by", "kwin"});
+      }
     }
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
@@ -8544,20 +8551,20 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   for (auto *action : toolbar_entries_)
     toolbar_menu_.removeAction(action);
   toolbar_entries_.clear();
-  toolbar_entries_.reserve(17);
+  toolbar_entries_.reserve(16);
   if (!ic) return;
   const auto *state = ic->propertyFor(&factory_);
   if (!state->session_) return;
   const auto toolbar = state->preferences_.value("floating_toolbar", Json::object());
   if (!toolbar.value("enabled", true)) return;
-  // 按钮的顺序和默认开关与 macOS 悬浮工具栏相同（FloatingToolbarPanel.mm；默认值见 preferences.rs 的 FloatingToolbarPreferences）：中英文一项总在，表情、手写、屏幕键盘和语音默认关。之后是 macOS 齿轮菜单里的宣传、官网、帮助、关于与反馈。条目就是状态区里的同一个动作，不是副本。
+  // 按钮的顺序和默认开关与 macOS 悬浮工具栏相同（FloatingToolbarPanel.mm；默认值见 preferences.rs 的 FloatingToolbarPreferences）：english_mode 管的是中英文那一项（macOS 的 _inputModeButton），macOS 工具栏没有「英文候选模式」，它只在状态区顶层；表情、手写、屏幕键盘和语音默认关。之后是 macOS 齿轮菜单里的宣传、官网、帮助、关于与反馈。条目就是状态区里的同一个动作，不是副本。托盘留着失焦的上下文时，语音和宣传这两项要往有焦点的输入框里写，点了没有地方落，不列（与 arrangeStatusArea 对 focusOnlyActions 的处理相同）。
+  const bool focused = ic->hasFocus();
   const auto append = [&](bool present, fcitx::Action *action) {
     if (!present) return;
     toolbar_menu_.addAction(action);
     toolbar_entries_.push_back(action);
   };
-  append(true, &input_mode_action_);
-  append(toolbar.value("english_mode", true), &english_action_);
+  append(toolbar.value("english_mode", true), &input_mode_action_);
   append(toolbar.value("input_scheme", true), &scheme_action_);
   append(toolbar.value("punctuation", true), &chinese_punctuation_action_);
   append(toolbar.value("fullwidth", true), &width_action_);
@@ -8565,10 +8572,10 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   append(toolbar.value("emoji", false), &desktop_emoji_action_);
   append(MSIME_EDITION_HANDWRITING != 0 && toolbar.value("handwriting", false), &handwriting_action_);
   append(toolbar.value("screen_keyboard", false), &keyboard_action_);
-  append(toolbar.value("voice", false) && state->voice_enabled_, &voice_action_);
+  append(toolbar.value("voice", false) && state->voice_enabled_ && focused, &voice_action_);
   append(toolbar.value("settings", true), &settings_action_);
   append(true, &toolbar_separator_);
-  append(true, &promotion_action_);
+  append(focused, &promotion_action_);
   append(true, &website_action_);
   append(true, &help_action_);
   append(true, &about_action_);

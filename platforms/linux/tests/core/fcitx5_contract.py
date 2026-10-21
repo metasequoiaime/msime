@@ -688,6 +688,23 @@ for action in (
     assert f"append(" in source and action in source, action
 # A rebuild removes exactly what it added; the menu is shared across contexts.
 assert "toolbar_entries_" in source
+# english_mode 管的是中英文那一项（macOS 的 _inputModeButton），工具栏里没有「英文候选模式」；托盘留着失焦的上下文时不列语音和宣传，失焦时重建子菜单。
+toolbar_menu = source[source.index("void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {") :]
+toolbar_menu = toolbar_menu[: toolbar_menu.index("class FcitxFactory")]
+assert 'append(toolbar.value("english_mode", true), &input_mode_action_);' in toolbar_menu
+assert "&english_action_" not in toolbar_menu
+assert "&& focused, &voice_action_);" in toolbar_menu and "append(focused, &promotion_action_);" in toolbar_menu
+hold = source[source.index("void holdMenuContext(fcitx::InputContext *ic) {") :]
+hold = hold[: hold.index("\n  }\n")]
+assert hold.index("rebuildToolbarMenu(ic);") < hold.index("arrangeStatusArea(ic);")
+# IBus 的工具栏子菜单用同一套菜单文案（MenuLabels.h），同一个开关管同一项。
+ibus_toolbar = ibus_source[ibus_source.index("IBusProperty *toolbar_property(IBusEngine *engine) {") :]
+ibus_toolbar = ibus_toolbar[: ibus_toolbar.index("\n}\n")]
+assert "Toolbar/EnglishMode" not in ibus_source
+assert 'append_toggle("Toolbar/InputMode", msime::linux_host::menu_label::kChineseInput,' in ibus_toolbar
+assert 'available && toolbar.value("english_mode", true), s.input_enabled);' in ibus_toolbar
+for label in ("kChinesePunctuation", "kFullwidth", "kTraditionalOutput", "kSettings", "kScheme"):
+    assert f"msime::linux_host::menu_label::{label}" in ibus_toolbar, label
 
 # 还没做首次配置时，激活和按键两条路径都要给出具体提示，而不是笼统的「请检查运行配置」；但只有激活会打开设置窗口，打字途中弹出的窗口可能抢走键盘焦点。引导走与 IBus 启动器同一个脚本，每个登录会话只弹一次的限制因此两边共用。
 assert (

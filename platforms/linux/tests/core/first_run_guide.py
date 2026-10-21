@@ -279,6 +279,14 @@ def main() -> int:
         wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification missing")
         message = calls(log, "notify")[-1]
         assert "--action=restart=立即重启 Fcitx5" in message and "systemctl --user restart omarchy-fcitx5.service" in message, message
+        # 两个宿主的通知标题相同。
+        assert "水杉输入法已更新" in message, message
+        # KWin 作为虚拟键盘启动的 Fcitx5：别处起来的 fcitx5 -r 拿不到输入法协议的连接，所以不给命令也不带按钮。
+        count = len(calls(log, "notify"))
+        assert subprocess.run([*upgraded, "--host", "fcitx5", "--launched-by", "kwin"], env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == count + 1, "KWin upgrade notification missing")
+        message = calls(log, "notify")[-1]
+        assert "虚拟键盘" in message and "--action" not in message and "fcitx5 -r" not in message and "systemctl" not in message, message
         count = len(calls(log, "notify"))
         assert subprocess.run([*upgraded, "--host", "fcitx5", "--restart-unit", ""], env=graphical, timeout=10).returncode == 0
         wait_for(lambda: len(calls(log, "notify")) == count + 1, "Fcitx5 upgrade notification without a unit missing")
