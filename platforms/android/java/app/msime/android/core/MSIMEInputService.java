@@ -3074,6 +3074,8 @@ public final class MSIMEInputService extends InputMethodService {
         clearEnglishSuggestions();
         if (rejected) englishCorrectionRejectedPrefix = prefix;
         englishSuggestionPrefix = prefix;
+        // 共享纠错始终把原文放在第一行；等待查询时先显示当前原文，避免每一键都闪回空闲工具栏。
+        englishSuggestions = java.util.List.of(prefix);
         long epoch = englishSuggestionEpoch;
         String resources = candidateGlossResources;
         englishSuggestionRequestedEpoch = epoch;

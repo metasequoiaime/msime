@@ -15,6 +15,7 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() { return "mobile English correction and editor gates"; }
 
     @Override protected void runChecks() throws Exception {
+        EnglishSuggestionPendingChecks.run(this);
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(
             new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
