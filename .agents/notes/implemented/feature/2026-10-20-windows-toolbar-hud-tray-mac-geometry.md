@@ -28,6 +28,8 @@ Status: implemented
 
 **拖动。** `toolbar_drag_at_pixel` 是「在卡片上且不在按钮上」，按下时发 `WM_NCLBUTTONDOWN` + `HTCAPTION`；阴影边距不算。移动光标 `IDC_SIZEALL` 只在 logo 槽上出现（`toolbar_logo_at_pixel`），对应 macOS 只在 logo 视图上显示张开手形，其余地方照样能拖但不改光标。
 
+**图片工具栏（[原生宿主图片工具栏](2026-10-21-native-image-toolbar.md)）。** 以上几何、外观和拖动只管普通条。皮肤包带 `toolbarImage` 时 `FloatingToolbarWindow` 走 `ToolbarImageState`：不画底色、阴影、边框、logo 或握把和分隔线，按钮矩形、图标字号来自共享布局桥；拖动仍按背景图 alpha 判定（`drag_at`），移动光标出现在所有能拖的地方，因为图片条没有 logo 可以指示；悬停仍是左右各缩 2 的药丸、按下用选中色，按钮没有状态图时文字用 Segoe UI 按皮肤给的图标字号画，藏文换成 `ToolbarIcon::family`。两种模式共用 `cell`、`button_at_pixel`、`drag_at_pixel`、`card_at_pixel` 这几个入口，绘制、命中、提示和读屏不会各算各的。
+
 **中英切换提示（`InputModeHudLayout.h`、`InputModeHudWindow.cpp`）。** `input_mode_hud_metrics(show_logo)` 返回固定值：字号 18、高 32、内缩 8、logo 16、间距 4、字宽 18、圆角 8、描边 1，阴影边距沿用工具栏的。窗口只按显示器 DPI 换算，不乘 `scale_percent`；画不画 logo 由 `set_show_logo` 决定，再看可执行文件里有没有图标；Server 用 `hud_show_app_logo`（`FloatingToolbarSettings.h`）单独读偏好 `show_app_logo`，只认布尔 true，与 macOS 的 `applySizingPreferences:` 相同，不经 `floating_toolbar_settings`：工具栏的字号或缩放越界时那份设置整个作废，提示的 logo 不该因此消失。字用 Microsoft YaHei UI 常规字重。0.6 秒后开一个 16 毫秒的帧计时器，`input_mode_hud_fade_opacity` 在 180 毫秒里从 1 线性降到 0，每帧把整张徽标连同阴影画进一个带不透明度的 `ID2D1Layer`，降到 0 时隐藏；淡出中再次切换时直接回到完全显示，显示设置或 DPI 变化时直接收起。
 
 **打字特效的强调色（`src/system/SystemAccent.{h,cpp}`、`CandidateWindow.cpp`）。** 每次取到特效时，候选窗经 `SystemAccent::rgb()` 读 `Windows.UI.ViewManagement.UISettings` 的 `GetColorValue(UIColorType::Accent)`，存进 `effect_accent_`，交给浮层的 `presentation.accent`，也用于卡片闪光和卡片里画的升档连击数；读不到时退回主题的 accent。特效包给了颜色时仍以包为准。`IUISettings3` 按 Windows SDK 元数据自己声明，`RoActivateInstance` 和 `WindowsCreateStringReference` 运行时从 combase.dll 取，与 msimeui 的 `CompositionInterop.h` 同一个理由：MinGW 和 MSVC 编同一份代码。UISettings 对象在候选窗的界面线程上建一次留着，改了强调色不用重启。

@@ -97,7 +97,7 @@ pub struct CreateSkinRequest {
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// 以标准 base64 给出的资源，以包内相对路径为键。支持 PNG/JPEG/APNG/GIF/WebP，预览限 PNG/JPEG；与 image_files 合计最多 37 张，每张 1 MiB、每边 2048 像素，合计 2 MiB 和 8,000,000 像素，预览最多 256 KiB。动画最多 120 帧，每帧按整张画布计入像素预算。
+    /// 以标准 base64 给出的资源，以包内相对路径为键。支持 PNG/JPEG/APNG/GIF/WebP，预览限 PNG/JPEG；与 image_files 合计最多 64 张（含工具栏图片），每张 1 MiB、每边 2048 像素，合计 2 MiB 和 8,000,000 像素，预览最多 256 KiB。动画最多 120 帧，每帧按整张画布计入像素预算。社区上传沿用服务端的 37 张上限，图片工具栏另需明确能力声明。
     #[serde(default)]
     pub images: BTreeMap<String, String>,
     /// 以本机文件给出的资源，以包内相对路径为键、文件的绝对路径为值。服务器只读这些文件：路径上不能有符号链接，必须是普通文件，超过 1 MiB 的在读之前就拒绝；读进来的字节和 images 里的 base64 走同一套检查和上限。同一个包内路径不能两边都给。
@@ -383,7 +383,7 @@ fn local_file_problem(image_files: &BTreeMap<String, String>) -> String {
 fn explain(code: &str) -> &'static str {
     match code {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
-        "candidate_skin_file_path" => "images and image_files together must hold 1 to 37 entries, the preview and any decoration, background, border_image and decorations images counted together, each a relative path inside the skin folder other than skin.toml, unique ignoring case and given in only one of the two",
+        "candidate_skin_file_path" => "images and image_files together must hold 1 to 64 entries, including preview, candidate and toolbar images, each a relative path inside the skin folder other than skin.toml, unique ignoring case and given in only one of the two",
         "candidate_skin_file_type" => "resources must be .png, .jpg, .jpeg, .apng, .gif or .webp; the preview must be .png, .jpg or .jpeg, and stylesheets are not accepted",
         "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB (a larger file in image_files is refused before it is read) and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together (each animated frame counts as a whole image), an animation at most 120 frames, and the preview 256 KiB",
         "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes (every animation frame) cannot be decoded using the format its extension names: it may be truncated or corrupted, so generate it again with code, write it to a file and pass its path in image_files",

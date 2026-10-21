@@ -139,6 +139,25 @@ public final class HttpAsrPolicySmoke {
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("HTTP ASR response parser unavailable", error);
         }
+        try {
+            Method responseAllowed = HttpAsrPolicy.class.getDeclaredMethod(
+                "responseAllowed", boolean.class, String.class);
+            responseAllowed.setAccessible(true);
+            check((Boolean) responseAllowed.invoke(null, false, null),
+                "a null error keeps a complete transcription response valid");
+            check(!(Boolean) responseAllowed.invoke(null, true, null),
+                "an error object refuses the response");
+            check(!(Boolean) responseAllowed.invoke(null, false, "length"),
+                "length refuses a partial chat response");
+            check(!(Boolean) responseAllowed.invoke(null, false, "content_filter"),
+                "content_filter refuses a filtered chat response");
+            check((Boolean) responseAllowed.invoke(null, false, "stop"),
+                "stop keeps a complete chat response valid");
+            check((Boolean) responseAllowed.invoke(null, false, "unknown"),
+                "an unknown finish reason stays compatible");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("HTTP ASR response status policy unavailable", error);
+        }
         System.out.println("Android HTTP ASR policy passed");
     }
 }

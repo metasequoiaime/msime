@@ -1084,7 +1084,7 @@ int wmain(int argc, wchar_t **argv) {
     auto candidate_style = std::make_shared<CandidateWindowStyleMailbox>();
     auto toolbar_settings = std::make_shared<FloatingToolbarMailbox>();
     auto candidate_theme = std::make_shared<CandidateThemeMailbox>();
-    // logo 开关和释义预留行数从启动时的偏好取，第一次发布之前候选卡片就按它们排版。预留行数还要看装了哪些离线释义词典，启动时查一次。
+    // logo 开关、页码开关和释义预留行数从启动时的偏好取，第一次发布之前候选卡片就按它们排版。预留行数还要看装了哪些离线释义词典，启动时查一次。
     const auto offline_gloss_languages = installed_offline_gloss_languages(config.resources);
     const auto stored_candidate_layout =
         candidate_layout_settings(prepared.at("value").at("preferences"), offline_gloss_languages)
@@ -1093,7 +1093,8 @@ int wmain(int argc, wchar_t **argv) {
         CandidateLayoutSettings{
             config.horizontal_candidates, config.candidate_show_preedit, true,
             stored_candidate_layout.show_app_logo,
-            stored_candidate_layout.reserved_gloss_lines}
+            stored_candidate_layout.reserved_gloss_lines,
+            stored_candidate_layout.show_page_number}
             .encode());
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
@@ -1476,6 +1477,9 @@ int wmain(int argc, wchar_t **argv) {
     candidates.set_expansion_handler([&](const FocusLease &lease, bool open) {
       server.set_candidate_expansion(lease, open);
     });
+    // 退场途中焦点换走时立即收起，不让旧候选在新的前台上淡出。
+    candidates.set_lease_check(
+        [&](const FocusLease &lease) { return server.candidate_lease_current(lease); });
     if (typing_overlay)
       candidates.set_typing_effect_presenter([&typing_overlay](const TypingEffectPresentation &presentation) {
         return typing_overlay->present(presentation);
@@ -1605,6 +1609,11 @@ int wmain(int argc, wchar_t **argv) {
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     uint64_t toolbar_theme_applied = candidate_theme_generation;
     toolbar.set_palette(toolbar_surface_palette(toolbar_dark_applied));
+    {
+      const auto &theme = resolved_theme(toolbar_dark_applied, candidate_horizontal_applied);
+      const auto &assets = package_assets(theme.candidate_skin);
+      toolbar.set_image_skin(assets.toolbar_image, assets.toolbar_directory);
+    }
     // 中英文切换提示，穿工具栏的配色，按 `show_app_logo` 画不画 logo；尺寸是自己的固定紧凑尺寸，不跟工具栏的字号和缩放。建不出窗口时记一条诊断，Server 照常服务输入，和工具栏失败时一样。
     std::optional<InputModeHudWindow> mode_hud;
     try {
@@ -2299,6 +2308,9 @@ int wmain(int argc, wchar_t **argv) {
         toolbar_dark_applied = dark;
         toolbar_theme_applied = candidate_theme_generation;
         toolbar.set_palette(toolbar_surface_palette(dark));
+        const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
+        const auto &assets = package_assets(theme.candidate_skin);
+        toolbar.set_image_skin(assets.toolbar_image, assets.toolbar_directory);
         if (mode_hud)
           mode_hud->set_palette(toolbar_surface_palette(dark));
       }

@@ -1,3 +1,6 @@
+import window from '@ohos.window';
+import { ToolbarImageScene } from './ToolbarImagePolicy';
+import { ToolbarImageCanvas } from './ToolbarImageCanvas';
 import { KeyboardSession } from './KeyboardSession';
 import { ToolbarState, ToolbarButton, FloatingToolbarLayout } from './FloatingToolbarLayout';
 import { GlobalTheme } from './skin/GlobalTheme';
@@ -19,6 +22,10 @@ import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 @Entry
 @Component
 struct FloatingToolbar {
+  @State imageScene: ToolbarImageScene | null = null;
+  private shapeGeneration: number = 0;
+  private shapeQueue: Promise<void> = Promise.resolve();
+  private maskUsed: boolean = false;
   @State state: ToolbarState = FloatingToolbarLayout.idleState();
   @State buttons: ToolbarButton[] = [];
   @State hoveredButton: ToolbarButton | undefined = undefined;
@@ -30,12 +37,15 @@ struct FloatingToolbar {
   aboutToAppear(): void {
     KeyboardSession.shared.onToolbar = (state: ToolbarState, buttons: ToolbarButton[],
                                         fontSize: number, scale: number,
-                                        toolbarSkin: ToolbarSkin): void => {
+                                        toolbarSkin: ToolbarSkin, image: ToolbarImageScene | null): void => {
       this.state = state;
       this.buttons = buttons;
       this.fontSize = fontSize;
       this.toolbarScale = scale;
       this.toolbarSkin = toolbarSkin;
+      this.shapeGeneration++;
+      this.imageScene = image;
+      if (image === null) this.applyShape(null, null);
     };
     // `setUiContent()` 可能在 ArkUI 调用 `aboutToAppear()` 前就已完成，宿主的首次刷新会早于
     // `onToolbar` 注册。注册回调后主动取一次当前状态，让页面首次显示时就拿到会话的按钮与主题。
@@ -43,6 +53,7 @@ struct FloatingToolbar {
   }
 
   aboutToDisappear(): void {
+    this.shapeGeneration++;
     KeyboardSession.shared.onToolbar = undefined;
   }
 
@@ -68,7 +79,46 @@ struct FloatingToolbar {
     return Math.max(1, this.toolbarHeight() - 2 * this.scaleFactor());
   }
 
+  /** 所有尺寸与形状更新串行执行，迟到的旧状态不能盖过新皮肤或普通条。 */
+  private applyShape(key: string | null, mask: number[][] | null): void {
+    const generation: number = this.shapeGeneration;
+    this.shapeQueue = this.shapeQueue.catch((): void => {}).then(async (): Promise<void> => {
+      if (generation !== this.shapeGeneration || (key !== null && this.imageScene?.key !== key)) return;
+      await KeyboardSession.shared.resizeToolbarWindow();
+      if (generation !== this.shapeGeneration) return;
+      if (mask === null && !this.maskUsed) return;
+      const name: string | undefined = this.getUIContext().getWindowName();
+      if (name === undefined) throw new Error('toolbar window unavailable');
+      const target: window.Window = window.findWindow(name);
+      if (mask !== null) {
+        this.maskUsed = true;
+        await target.setWindowMask(mask);
+      } else {
+        const rect: window.Rect = target.getWindowProperties().windowRect;
+        if (rect.width * rect.height > 1000000) throw new Error('toolbar rectangle exceeds mask budget');
+        const rectangle: number[][] = [];
+        for (let y: number = 0; y < rect.height; y++) rectangle.push(new Array<number>(rect.width).fill(1));
+        await target.setWindowMask(rectangle);
+        this.maskUsed = false;
+      }
+    }).catch((): void => {
+      if (key !== null && generation === this.shapeGeneration) KeyboardSession.shared.rejectToolbarImage(key);
+    });
+  }
+
   build() {
+    if (this.imageScene !== null) {
+      ToolbarImageCanvas({ scene: this.imageScene, state: this.state, skin: this.toolbarSkin,
+        imageScale: this.scaleFactor(),
+        onShape: (key: string, mask: number[][]): void => this.applyShape(key, mask),
+        onFailure: (key: string): void => KeyboardSession.shared.rejectToolbarImage(key) })
+    } else {
+      this.nativeBar();
+    }
+  }
+
+  @Builder
+  nativeBar() {
     // The colour goes on a container that fills the panel rather than on the row of buttons: a panel
     // is transparent where nothing is drawn, and a row only covers the buttons it holds.
     Column() {
