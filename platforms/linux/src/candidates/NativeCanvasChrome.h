@@ -774,11 +774,11 @@ inline void paint_native_canvas_chrome(cairo_t *cr, const NativeCanvasAssets &as
   }
 }
 
-// 菜单（右键的候选操作）仍是简单列表，两种画法共用 canvas 那套。
+// 菜单（右键的候选操作）仍是简单列表，两种画法共用 canvas 那套。`panel_height_limit` 只约束 canvas 包展开的卷轴（视口变矮、可以滚动）；chrome 的网格按可见行数定高，不读它。
 inline NativeCanvasLayout measure_native_canvas(cairo_t *cr, const NativeCanvasAssets &assets,
-    const NativeCanvasContent &content, double panel_width_limit = -1) {
+    const NativeCanvasContent &content, double panel_width_limit = -1, double panel_height_limit = -1) {
   if (assets.chrome && !content.menu) return measure_native_canvas_chrome(cr, assets, content, panel_width_limit);
-  return measure_native_canvas_skin(cr, assets, content, panel_width_limit);
+  return measure_native_canvas_skin(cr, assets, content, panel_width_limit, panel_height_limit);
 }
 
 inline int native_canvas_hit(const NativeCanvasContent &content, const NativeCanvasLayout &layout, double x, double y) {
