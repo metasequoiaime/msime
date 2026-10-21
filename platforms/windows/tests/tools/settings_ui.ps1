@@ -493,7 +493,9 @@ try {
                         Start-Sleep -Milliseconds 200
                     } while ([DateTime]::UtcNow -lt $deadline)
                     if (-not $preview) { throw 'Synthetic clipboard history was not rendered' }
-                    if (-not (Find-ById $window 'clipboard-clear')) { throw 'Clear history is not above the clipboard list' }
+                    $clear = Find-ById $window 'clipboard-clear'
+                    if (-not $clear) { throw 'Clear history is missing from the history tab' }
+                    if ($clear.Current.BoundingRectangle.Bottom -gt $preview.Current.BoundingRectangle.Top) { throw 'Clear history is not above the clipboard list' }
                     if (Find-ById $window 'clipboard-page-status') { throw 'Pager shown for a single page of clipboard history' }
                     $content = Find-ById $window 'settings-content'
                     $copy = Find-ById $window 'clipboard-entry-0-copy'

@@ -3792,6 +3792,14 @@ private:
                            : (search_active_ + count - 1) % count;
       paint_search_results();
       search_buttons_[search_active_].StartBringIntoView();
+      // 焦点一直在搜索框里，结果按钮也不进 Tab 顺序，读屏不会自己念换到的那条（macOS 靠搜索框的 `aria-activedescendant`）：由搜索框发一条通知，念标题和位置。
+      auto const &active = search_hits_[search_active_];
+      if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::FromElement(search_))
+        peer.RaiseNotificationEvent(
+            Automation::Peers::AutomationNotificationKind::Other,
+            Automation::Peers::AutomationNotificationProcessing::ImportantMostRecent,
+            hstring(active.path.empty() ? active.title : active.title + L"，" + active.path),
+            L"settings-search-active");
     });
     field.Children().Append(search_);
 
@@ -4096,6 +4104,9 @@ private:
     search_buttons_.clear();
     if (!search_list_ || !navigation_)
       return;
+    // 上一次已经是「没有匹配的设置」时，接着输入仍查不到就不再播报。
+    const bool was_empty = search_list_.Children().Size() == 1 &&
+                           static_cast<bool>(search_list_.Children().GetAt(0).try_as<TextBlock>());
     search_list_.Children().Clear();
     for (auto const &value : navigation_.MenuItems())
       if (const auto item = value.try_as<NavigationViewItem>())
@@ -4106,11 +4117,17 @@ private:
     fit_search_results();
     search_scroll_.ChangeView(nullptr, 0.0, nullptr, true);
     if (search_hits_.empty()) {
-      // 照 macOS 的 `role="status"`：14 DIP、60% 不透明度，读屏礼貌播报。
+      // 照 macOS 的 `role="status"`：14 DIP、60% 不透明度，读屏礼貌播报。新建的文字块只设 LiveSetting 不会被念出来，进了可视树后要自己发 LiveRegionChanged，与 show_warning 相同；接着输入仍查不到时不再发，与 macOS 那个文字不变的状态元素一样只念一次。
       auto empty = make_text(no_search_results, 14, palette_.text);
       empty.Opacity(0.6);
       empty.Margin(Thickness{12, 8, 12, 8});
       A11y::SetLiveSetting(empty, Automation::Peers::AutomationLiveSetting::Polite);
+      if (!was_empty)
+        empty.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+          if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(
+                  sender.as<UIElement>()))
+            peer.RaiseAutomationEvent(Automation::Peers::AutomationEvents::LiveRegionChanged);
+        });
       search_list_.Children().Append(empty);
       return;
     }
@@ -4122,7 +4139,7 @@ private:
     paint_search_results();
   }
 
-  // 一条结果照 macOS 的结果按钮：内边距左右 12、上下 8，圆角 8，条与条相隔 4；13 DIP 标题，下面相隔 4 是 12 DIP、60% 不透明度的位置。悬停铺 10% 的强调色，高亮的那条是 15%（`paint_search_results`）。结果不进 Tab 顺序，键盘在搜索框里用上下键选；读屏名是标题，帮助文本是位置。
+  // 一条结果照 macOS 的结果按钮：内边距左右 12、上下 8，圆角 8，条与条相隔 4；13 DIP 标题，下面相隔 4 是 12 DIP、60% 不透明度的位置。悬停铺 10% 的强调色，高亮的那条是 15%（`paint_search_results`）。结果不进 Tab 顺序，键盘在搜索框里用上下键选，换到的那条由搜索框发通知念出；读屏名是标题，帮助文本是位置。
   Button make_search_result(SearchEntry const &hit, size_t index) {
     StackPanel lines;
     lines.Spacing(4);
@@ -4667,10 +4684,11 @@ private:
     return button;
   }
 
-  // 组里的折叠区，对应共享页的 MoreOptions：标题行与普通行同高、没有边框，悬停铺中性底色，标题右边一个灰色「›」，展开时转 90°（关掉系统动画效果时直接转过去）；展开后的各行和组内其他行一样带分隔线，第一行上面那条由折叠体的上边框画出。名字默认是「更多选项」，只有里面是同一类具体东西时才写它是什么（「自定义配色」「更多音效」）。`open` 是画出来时展开与否，点按时经 `remember` 交给调用方记在自己的成员里，跨页面重建保留。标题行是普通按钮，展开与否用 ItemStatus（「已展开」「已收起」）告诉读屏。返回放行的面板。
+  // 组里的折叠区，对应共享页的 MoreOptions：标题行与普通行同高、没有边框，悬停铺中性底色，标题右边一个灰色「›」，展开时转 90°（关掉系统动画效果时直接转过去）；展开后的各行和组内其他行一样带分隔线，第一行上面那条由折叠体的上边框画出。名字默认是「更多选项」，只有里面是同一类具体东西时才写它是什么（「自定义配色」「更多音效」）。`open` 是画出来时展开与否，点按时经 `remember` 交给调用方记在自己的成员里，跨页面重建保留。标题行是普通按钮，展开与否用 ItemStatus（「已展开」「已收起」）告诉读屏。`search_title` 非空时，搜索落到这个标题的结果把焦点交给标题按钮（「自定义主题」组只有这一个折叠区）。返回放行的面板。
   StackPanel add_fold(StackPanel const &group, std::wstring const &title, bool open,
                       std::function<void(bool)> remember,
-                      std::wstring const &automation_id = L"") {
+                      std::wstring const &automation_id = L"",
+                      std::wstring const &search_title = L"") {
     StackPanel fold;
     fold.Margin(Thickness{-row_inset, 0, -row_inset, 0});
 
@@ -4695,6 +4713,8 @@ private:
     A11y::SetItemStatus(header, open ? L"已展开" : L"已收起");
     if (!automation_id.empty())
       A11y::SetAutomationId(header, hstring(automation_id));
+    if (!search_title.empty())
+      mark_search_target(search_title, header);
     Border head;
     if (group.Children().Size() > 0) {
       head.BorderBrush(brush(palette_.divider));
@@ -4914,9 +4934,14 @@ private:
     if (!full_width && options.size() > maximum_segments)
       return select_control(name, options, current, std::move(apply), enabled, document);
     Border well;
-    well.Background(brush(palette_.seg_well));
-    well.BorderBrush(brush(palette_.stroke));
-    well.BorderThickness(Thickness{1, 1, 1, 1});
+    if (full_width) {
+      // 标签条的底照 macOS `candidateTabs` 的 `--p-seg-bg`、`--p-seg-border`：浅色 rgba(0,0,0,.055)、深色 rgba(255,255,255,.08)，没有描边。
+      well.Background(brush(palette_.dark ? rgba(255, 255, 255, .08) : rgba(0, 0, 0, .055)));
+    } else {
+      well.Background(brush(palette_.seg_well));
+      well.BorderBrush(brush(palette_.stroke));
+      well.BorderThickness(Thickness{1, 1, 1, 1});
+    }
     well.CornerRadius(full_width ? CornerRadius{6, 6, 6, 6} : CornerRadius{5, 5, 5, 5});
     well.Padding(Thickness{2, 2, 2, 2});
     // 紧凑样式横排、按内容定宽；整宽样式每段一个等宽的 * 列。
@@ -7897,11 +7922,11 @@ private:
     // 取色器收在默认收起的「自定义配色」里（共享页的 MoreOptions title），悬停色也在其中。搜索命中「自定义主题」或某个取色器时展开。
     auto colors = add_group(page, L"自定义主题");
     record(L"自定义主题", L"候选颜色取色器");
-    mark_search_target(L"自定义主题", colors);
     auto color_rows = add_fold(colors, L"自定义配色",
                                custom_colors_open_ || focus_row_ == L"自定义主题" ||
                                    fold_holds_focus(L"custom-colors"),
-                               [this](bool expanded) { custom_colors_open_ = expanded; });
+                               [this](bool expanded) { custom_colors_open_ = expanded; }, L"",
+                               L"自定义主题");
     fold_index_ = L"custom-colors";
     candidate_color_rows(color_rows);
     fold_index_.clear();
@@ -14771,8 +14796,12 @@ private:
     if (const auto note = cloud_clipboard_note(); !note.empty())
       history.Children().Append(group_note(note));
     const auto paging = nav::history_page(clip_entries_.size(), clip_offset_);
-    if (!indexing_)
+    // 这次重画是不是刚点了翻页按钮（show_clip_page 记下的自动化 ID），用过就清掉。
+    std::wstring turned_from;
+    if (!indexing_) {
       clip_offset_ = paging.offset;
+      turned_from = std::exchange(clip_page_focus_, std::wstring());
+    }
     const bool managed = enabled && !clip_entries_.empty();
     if (managed) {
       Grid actions;
@@ -14802,13 +14831,16 @@ private:
       A11y::SetAutomationId(clear, L"clipboard-clear");
       actions.Children().Append(clear);
       if (paging.paged()) {
-        // 共享页的 DictionaryPagination：上一页、状态、下一页，12 DIP 次要色，状态变化时读屏播报。
+        // 共享页的 DictionaryPagination：上一页、状态、下一页，12 DIP 次要色，状态变化时读屏播报。翻页会整页重画，按下的按钮也换成新的：焦点交回同一个按钮，翻到头它不能再点时落到另一个，与共享页按钮留在原处的效果相同；新建的状态文字只设 LiveSetting 不会被念出来，进了可视树后要自己发 LiveRegionChanged。两者都只在翻页后的这一次重画里做，别的重画（复制、固定、删除）不抢焦点也不重复播报。
         StackPanel pager;
         pager.Orientation(Orientation::Horizontal);
         pager.Spacing(8);
         pager.VerticalAlignment(VerticalAlignment::Center);
         auto previous = button_control(
-            L"上一页", [this, target = paging.previous_offset()] { show_clip_page(target); },
+            L"上一页",
+            [this, target = paging.previous_offset()] {
+              show_clip_page(target, L"clipboard-page-previous");
+            },
             !clip_busy_ && paging.has_previous());
         A11y::SetAutomationId(previous, L"clipboard-page-previous");
         pager.Children().Append(previous);
@@ -14819,10 +14851,24 @@ private:
         A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
         pager.Children().Append(status);
         auto next = button_control(
-            L"下一页", [this, target = paging.next_offset()] { show_clip_page(target); },
+            L"下一页",
+            [this, target = paging.next_offset()] { show_clip_page(target, L"clipboard-page-next"); },
             !clip_busy_ && paging.has_next());
         A11y::SetAutomationId(next, L"clipboard-page-next");
         pager.Children().Append(next);
+        if (!turned_from.empty()) {
+          const bool back = turned_from == L"clipboard-page-previous";
+          const bool usable = back ? paging.has_previous() : paging.has_next();
+          auto const &keep = back == usable ? previous : next;
+          keep.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+            sender.as<Control>().Focus(FocusState::Keyboard);
+          });
+          status.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
+            if (auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(
+                    sender.as<UIElement>()))
+              peer.RaiseAutomationEvent(Automation::Peers::AutomationEvents::LiveRegionChanged);
+          });
+        }
         Grid::SetColumn(pager, 2);
         actions.Children().Append(pager);
       }
@@ -14854,9 +14900,10 @@ private:
     history.Children().Append(list);
   }
 
-  // 翻到从 `offset` 起的那一页：只改显示，不重读历史。
-  void show_clip_page(size_t offset) {
+  // 翻到从 `offset` 起的那一页：只改显示，不重读历史。`from` 是点的那个翻页按钮的自动化 ID，重画后焦点回到它（build_clip_history）。
+  void show_clip_page(size_t offset, std::wstring from) {
     clip_offset_ = offset;
+    clip_page_focus_ = std::move(from);
     redraw_clip();
   }
 
@@ -18332,7 +18379,7 @@ private:
     osk_preview_ = surface;
     draw_osk_preview();
     block.Children().Append(surface);
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     A11y::SetName(card, L"屏幕键盘预览");
     return card;
@@ -20189,7 +20236,7 @@ private:
     mock.Children().Append(candidates);
     block.Children().Append(mock);
 
-    auto card = make_card();
+    auto card = make_inner_card();
     card.Child(block);
     A11y::SetName(card, L"手写识别板预览");
     return card;
@@ -21328,6 +21375,8 @@ private:
   std::vector<ClipboardEntry> clip_entries_;
   // 「历史记录」标签当前页第一条的下标（HistoryPagination.h），只管显示；历史关着时回到 0。
   size_t clip_offset_ = 0;
+  // 刚点过的翻页按钮的自动化 ID，下一次画「历史记录」时把焦点交回它，见 build_clip_history。
+  std::wstring clip_page_focus_;
   bool clip_clear_armed_ = false;
   bool clip_busy_ = false;
   bool clip_stale_ = true;

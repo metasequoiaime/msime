@@ -12,9 +12,9 @@ macOS 设置（共享设置 UI 的桌面分支）的侧栏搜索是一个没有�
 - 结果列表是 `NavigationView.PaneCustomContent` 里的一个 ScrollViewer（`settings-search-results`），模板里排在页面列表之上；有查询时各 `NavigationViewItem` 收起、列表显示，查询清空时反过来。这一行的模板高度按内容定，所以 `fit_search_results` 按搜索框底部到导航视图底部的距离给列表定 `MaxHeight`（再留 16），导航视图 SizeChanged 时重算，列表自己滚动。
 - 匹配照 `use-settings-shell-navigation.tsx`：查询 trim 后转小写；页面按侧栏名字匹配，也认共享 UI 的注册名（`page_search_names`：「屏幕键盘」对「键盘与手写」，「AI 辅助」「AI 助手」对 AI 页）；设置行只按 `record` 的标题匹配，说明不再进索引（`record` 的说明参数保留，调用处不动）。页面结果按侧栏顺序排在前面，设置行按索引顺序排在后面，不设上限；同一页同一位置的同名行只列一次。
 - 位置：建索引时 `page_tab_bar` 记下这一页的标签名（`index_tabs_`），`in_tab` 换块时清空分组，`add_group` 记下组名（`group_index_`），`record` 拼成「页 › 标签 › 分组」写进 `SearchEntry::path`，缺哪一段就省掉。fold 的名字不进位置，折叠区仍由 `fold_holds_focus` 展开。
-- 每条结果是一个按钮：内边距 12 / 8、圆角 8、条间 4，13 DIP 标题，设置行下面相隔 4 是 12 DIP、60% 不透明度的位置；悬停 10% 强调色，高亮 15%（ItemStatus「已选择」）。按钮不进 Tab 顺序，读屏名是标题，帮助文本是位置，自动化 ID 是 `settings-search-result-<序号>`。查不到时是 14 DIP、60% 不透明度、礼貌播报的「没有匹配的设置」。
-- 键盘：搜索框的 PreviewKeyDown 处理上下键（循环移动高亮并滚进视野）、回车（打开高亮的那条）和 Esc（清空）；输入法组字期间（`TextCompositionStarted` 到 `TextCompositionEnded`）不接管。回车时框里的文字和结果对应的查询不同（UI 自动化写值后立刻回车，TextChanged 还没到）就先重查。
-- 打开结果照 macOS 的 `openResult`：先清空查询、换回页面列表；页面结果只切页；设置行写 `focus_row_`、把所在标签写进 `page_tabs_`，再切页或重画，`render_page_at` 滚到那一行并把键盘焦点交给控件。点击结果时打开动作放到下一轮调度，因为清空查询会卸下这个按钮。
+- 每条结果是一个按钮：内边距 12 / 8、圆角 8、条间 4，13 DIP 标题，设置行下面相隔 4 是 12 DIP、60% 不透明度的位置；悬停 10% 强调色，高亮 15%（ItemStatus「已选择」）。按钮不进 Tab 顺序，读屏名是标题，帮助文本是位置，自动化 ID 是 `settings-search-result-<序号>`。查不到时是 14 DIP、60% 不透明度、礼貌播报的「没有匹配的设置」：新建的文字块只设 LiveSetting 不会被念出来，进了可视树后自己发 LiveRegionChanged，上一次已经查不到时不再重复发。
+- 键盘：搜索框的 PreviewKeyDown 处理上下键（循环移动高亮并滚进视野）、回车（打开高亮的那条）和 Esc（清空）；输入法组字期间（`TextCompositionStarted` 到 `TextCompositionEnded`）不接管。焦点始终在搜索框里，高亮换到哪条由搜索框的自动化对等体发一条通知（`RaiseNotificationEvent`，ImportantMostRecent），念标题和位置，代替 macOS 搜索框上的 `aria-activedescendant`；原来的 `AutoSuggestBox` 靠建议列表的选中让读屏念出，换成普通 `TextBox` 后不这样做就一声不响。回车时框里的文字和结果对应的查询不同（UI 自动化写值后立刻回车，TextChanged 还没到）就先重查。
+- 打开结果照 macOS 的 `openResult`：先清空查询、换回页面列表；页面结果只切页；设置行写 `focus_row_`、把所在标签写进 `page_tabs_`，再切页或重画，`render_page_at` 滚到那一行并把键盘焦点交给控件。「自定义主题」落在组里唯一的折叠区上，焦点交给折叠区的标题按钮（`add_fold` 的 `search_title`），不是只滚到组。点击结果时打开动作放到下一轮调度，因为清空查询会卸下这个按钮。
 - 换明暗重建外壳时照旧写回查询，结果列表随 TextChanged 重建。
 
 ## Historical audit
