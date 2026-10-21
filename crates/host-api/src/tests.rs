@@ -13698,6 +13698,26 @@ fn voice_number_normalization_follows_the_model_kind() {
 }
 
 #[test]
+fn voice_number_normalization_preserves_approximate_percentages() {
+    for kind in ["online_transducer", "offline_transducer"] {
+        let request = json!({
+            "text": "约百分之二十点几，精确值百分之三点五，末尾百分之三点",
+            "kind": kind,
+        })
+        .to_string();
+        let response =
+            read(unsafe { msime_client_voice_normalize_numbers(request.as_ptr(), request.len()) });
+        assert_eq!(
+            response,
+            json!({"ok": true, "value": {
+                "text": "约百分之二十点几，精确值3.5%，末尾百分之三点"
+            }}),
+            "{kind}",
+        );
+    }
+}
+
+#[test]
 fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
     let request = json!({
         "text": "名天和铭天",
