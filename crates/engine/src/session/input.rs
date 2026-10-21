@@ -291,6 +291,9 @@ impl InputSession {
             }
             self.leave_conversion();
         }
+        if self.takes_literal_symbol(value) {
+            return self.insert_literal_symbol(value);
+        }
         if self
             .caret
             .is_some_and(|caret| caret < self.editing_text_len())
@@ -1032,9 +1035,12 @@ impl InputSession {
         self.select_candidate(usize::from(value - b'1'))
     }
 
-    /// input_session.cpp:260-292. `/` and `@` never open their modes here: a runtime finishes the composition before it asks for the mark, so an empty composition at this point does not mean the key was typed with nothing composed. They open through `handle_character`, which the runtime reaches first.
+    /// 组字接收的符号先回到字符入口；`/` 和 `@` 仅经字符入口开启模式，避免 runtime 结束组字后的空状态被误当成空闲输入。
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
         self.end_uppercase_run();
+        if self.takes_literal_symbol(value) {
+            return self.handle_character(value, false);
+        }
         if matches!(
             self.local_mode,
             LocalInputMode::Command | LocalInputMode::Mention
@@ -1220,6 +1226,12 @@ impl InputSession {
 
     /// `SessionSnapshot::spelling_symbols`.
     pub fn spelling_symbols(&self) -> String {
+        let mut symbols = self.base_spelling_symbols();
+        symbols.extend(self.literal_spelling_symbols());
+        symbols
+    }
+
+    fn base_spelling_symbols(&self) -> String {
         if self.dedicated_english {
             return String::new();
         }

@@ -26,6 +26,8 @@ Status: implemented
 
 ## Historical note audit
 
+[特殊符号字面组字](2026-10-22-pinyin-literal-symbol-composition.md)沿用本篇的原文身份与学习隔离；含 `# $ % &` 时整段只出原文，小写片段也不再转换中文。
+
 - [超级简拼空入口大写续输](2026-10-21-super-jianpin-capital-continuation.md)补充例外：全拼、双拼的空 `J` 入口遇到下一枚大写，转回普通组字；小写超级简拼和 Unicode 合法大写继续保留。
 
 - [大写开始组字](2026-10-14-uppercase-pinyin-start.md)部分重叠：接收和保留原文继续成立，本篇取代大写仍按小写查询中文的部分，两篇互链。

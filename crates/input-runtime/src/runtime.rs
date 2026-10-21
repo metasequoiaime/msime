@@ -2713,12 +2713,13 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
-        // A spelling symbol is input, as on the punctuation route: it extends the local mode in progress, and a scheme that spells with marks (Zhuyin's bopomofo keys) takes them whenever it lists them. The symbols that open a mode with nothing composed are the exception: there the host asked for the literal mark after weighing the surrounding text (a `/` after a digit), so it never opens a mode.
+        // 已发布的组字符号仍交给引擎；空闲的模式入口和普通拼音的网址触发键保留 ASCII 标点语义。
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
-                && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_table_modes()));
-        // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
+                && (scheme_type(self.cached.scheme)
+                    .is_some_and(|scheme| !scheme.opens_table_modes())
+                    || (!self.cached.editing_text.is_empty()
+                        && !matches!(value, b'/' | b'@' | b'.' | b':'))));
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
         }

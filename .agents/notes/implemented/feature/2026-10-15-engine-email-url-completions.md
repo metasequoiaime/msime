@@ -94,5 +94,7 @@ TIP 的宿主会话处理输入时绕过 `AddVirtualKey`，旧键击缓冲可能
 
 ## Related notes
 
+[特殊符号字面组字](../bug-fix/2026-10-22-pinyin-literal-symbol-composition.md)扩展普通全拼、双拼的 `spelling_symbols`；邮箱 `@` 和网址触发键仍由本篇规则持有。
+
 - [Android 邮箱后缀](2026-10-09-android-email-suffixes.md)：同一份后缀表和匹配规则，Android 在邮箱输入框里由宿主补全；邮箱输入框进框时切英文，引擎的网址模式不参与，两者不会同时出现。
 - [网址退回组字复用剩余文本](../testing/2026-10-08-url-reversion-buffer.md)：退回组字的路径（`restore_composition_from_url`）不变，退回条件多了“删的是末尾”。
