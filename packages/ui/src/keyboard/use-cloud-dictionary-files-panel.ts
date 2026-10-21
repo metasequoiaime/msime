@@ -155,6 +155,7 @@ export function useCloudDictionaryFilesPanel(client: CloudDictionaryPanelClient)
   async function chooseRestoreSnapshot(selected: File) {
     if (!mounted.current) return;
     const lifecycle = lifecycleRevision.current;
+    setRestorePreview(null);
     if (selected.size === 0 || selected.size > 512 * 1024 * 1024) {
       setNotice("快照文件必须大于 0 且不超过 512 MiB");
       return;
