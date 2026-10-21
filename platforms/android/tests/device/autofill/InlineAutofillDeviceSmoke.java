@@ -94,7 +94,7 @@ public final class InlineAutofillDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    private void restoreAutofillService(String value) {
+    private void restoreAutofillService(String value) throws Exception {
         // executeShellCommand 不解析 shell 引号；空字符串用提供方接口传递，不能写成两个引号。
         shellDiscard(value == null ? "settings delete secure autofill_service"
             : value.isEmpty() ? "content call --uri content://settings/secure --method PUT_secure"
