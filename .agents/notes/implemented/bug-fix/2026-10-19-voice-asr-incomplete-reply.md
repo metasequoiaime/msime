@@ -18,6 +18,8 @@ Linux `transcript` 在提取任何别名前应用同一规则，抛出固定、�
 
 iOS `voice` 解析分支在读取 `text` 或 `choices[0].message.content` 前应用同一规则，抛固定 `ServiceFailure`，不透传服务端错误正文；`error: null`、缺省结束原因和正常文字保持兼容。非语音 AI 分支的既有规则不变。
 
+Android `HttpAsrRecognizer` 在两种整句上传格式读取正文前应用同一规则，顶层错误或首候选的 `length`、`content_filter` 都归为空结果并沿用 `Failure.EMPTY`；`error: null`、缺省或未知结束原因和 `stop` 保持兼容。状态判断集中在无 Android 依赖的 `HttpAsrPolicy`，避免主机 JVM 冒烟依赖 `android.jar` 的 `org.json` 桩。
+
 ## 历史笔记审计
 
 - [润色完整性](../../implemented/bug-fix/2026-10-19-voice-polish-incomplete-reply.md)：部分重叠，状态规则相同，但润色失败保留完整转写，转写失败不得投递正文。
@@ -43,13 +45,15 @@ Linux 的 `scripts/test-linux-voice-asr-reply.py` 经真实 HTTP worker 和回�
 
 本批再次运行 `bash scripts/verify-local.sh --quick` 时，Rust workspace 因缺少既有的 `target/macos/水杉输入法.app` 资源而失败；Linux Docker 桌面与原生宿主阶段因本机没有 Docker 跳过。笔记校验、差异检查及上述 Linux 回归通过。
 
+Android `bash platforms/android/check-host.sh` 编译并运行 250 个 JVM 冒烟、编译 198 个设备套件源通过；主机 `android.jar` 的 `org.json` 是桩实现，因此状态组合由无依赖 `HttpAsrPolicySmoke` 覆盖，真实 `org.json` 的 `HttpAsrReplyDeviceSmoke` 也已纳入设备套件。由于外置盘剩余空间低于仓库要求，未启动 Android Gradle 构建或模拟器。
+
 iOS `CustomServiceTests` 新增 4 种明确失败回复和 `error: null` 兼容回归；Swift 源文件 `swiftc -parse`、iOS 项目配置、特殊文件读取和请求生命周期静态回归通过。由于外置盘低于 50 GB，本批未启动 Xcode 构建或模拟器。
 
 ## Consequences
 
 - 明确失败的转写不会进入润色或投递，宿主沿用现有失败提示；不增加日志或服务端错误正文透传。
 - 省略结束状态的服务依然不能证明结果完整，未知结束原因沿用现有兼容行为。明确失败时舍弃服务已经生成的部分文字。
-- 覆盖共享 C++ 的 macOS、Windows 转写入口、Linux 用户会话服务的批量转写及 iOS 整句转写解析，不覆盖 Android、HarmonyOS 的独立解析路径、流式识别或凭据探测。
+- 覆盖共享 C++ 的 macOS、Windows 转写入口、Linux 用户会话服务的批量转写、iOS 整句转写解析及 Android 两种整句上传格式，不覆盖 HarmonyOS 的独立解析路径、流式识别或凭据探测。
 - 本机缺少 Windows 完整交叉工具链，共享测试不能替代 Windows 产品构建与系统输入法验收；也未验证外部 HTTPS、麦克风录音或完整语音交互。
 
 ## Sources
