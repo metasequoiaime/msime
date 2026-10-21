@@ -507,6 +507,17 @@ else()
 endif()
 add_test(NAME windows-candidate-card-size COMMAND windows-candidate-card-size)
 set_tests_properties(windows-candidate-card-size PROPERTIES TIMEOUT 10)
+# 候选窗皮肤动效的时间规则：连续输入不重播进场、逐行错峰、ease-out 进场与 ease-in 退场，和 macOS 的 CandidateMotion.mm 一致。
+add_executable(windows-candidate-motion tests/ui/candidate_motion.cpp)
+target_include_directories(windows-candidate-motion PRIVATE src)
+target_link_libraries(windows-candidate-motion PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-candidate-motion PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-motion PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-motion COMMAND windows-candidate-motion)
+set_tests_properties(windows-candidate-motion PROPERTIES TIMEOUT 10)
 # 皮肤的卷轴展开（expand_panel）：按钮那一窄列、等宽网格、一屏的高度、滚动条、点击、滚轮、批次和回到顶部的规则。
 add_executable(windows-candidate-expand-panel tests/ui/candidate_expand_panel.cpp)
 target_include_directories(windows-candidate-expand-panel PRIVATE src)
@@ -1614,6 +1625,18 @@ if(WIN32)
   endif()
   add_test(NAME windows-candidate-image-animation COMMAND windows-candidate-image-animation)
   set_tests_properties(windows-candidate-image-animation PROPERTIES TIMEOUT 30)
+  # 通过真实共享布局桥验证图片工具栏与 GDI 窗口形状，不用手写的布局替身。
+  add_executable(windows-toolbar-image tests/ui/toolbar_image.cpp)
+  target_include_directories(windows-toolbar-image PRIVATE common src/candidate ../../crates/host-api/include)
+  target_link_libraries(windows-toolbar-image PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" user32 gdi32 d2d1)
+  target_compile_definitions(windows-toolbar-image PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+  if(MSVC)
+    target_compile_options(windows-toolbar-image PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+  else()
+    target_compile_options(windows-toolbar-image PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  endif()
+  add_test(NAME windows-toolbar-image COMMAND windows-toolbar-image)
+  set_tests_properties(windows-toolbar-image PROPERTIES TIMEOUT 30)
   add_subdirectory(tsf)
   add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp ../../platforms/common/Telemetry.cpp)
   target_include_directories(msime-windows-server PRIVATE ../../platforms/common)
@@ -1623,7 +1646,7 @@ if(WIN32)
   # 候选窗、悬浮状态栏和托盘卡片共用的 UI Automation 提供者（读屏）；UiaReturnRawElementProvider 等在 uiautomationcore，BSTR 与 SAFEARRAY 在 oleaut32。
   target_sources(msime-windows-server PRIVATE src/candidate/AccessibleWindow.cpp)
   target_link_libraries(msime-windows-server PUBLIC uiautomationcore oleaut32)
-  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp
+  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp
                  src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
                  src/voice/SystemAsrStream.cpp

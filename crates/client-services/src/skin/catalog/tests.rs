@@ -16,6 +16,57 @@ fn resource_package(root: &Path) -> std::path::PathBuf {
     skin
 }
 
+#[test]
+fn image_toolbar_resources_join_the_catalog_budget_and_export() {
+    let root = tempdir().unwrap();
+    let directory = resource_package(root.path());
+    let toolbar = "[toolbar]\nmode='image'\nimage='images/bar.png'\nimage_width_dip=168\nimage_height_dip=48\n\
+        [toolbar.button_defaults]\nbackground='images/button.png'\n\
+        [toolbar.buttons.status]\nx_dip=170\ny_dip=1\nimage='images/button.png'\n\
+        [toolbar.buttons.status.images]\ncn='images/cn.png'\n";
+    fs::write(
+        directory.join("skin.toml"),
+        format!("{}{toolbar}", manifest("sample")),
+    )
+    .unwrap();
+    for path in ["images/bar.png", "images/button.png", "images/cn.png"] {
+        fs::write(directory.join(path), encoded_png(4, 3)).unwrap();
+    }
+    let summary = load(root.path(), "sample").unwrap();
+    assert_eq!(referenced_image_paths(&summary).len(), 3);
+    assert_eq!(
+        serde_json::to_value(&summary).unwrap()["toolbarImage"]["buttons"]["status"]["xDip"]
+            .as_f64(),
+        Some(170.0)
+    );
+    let files = package_files(root.path(), "sample").unwrap();
+    assert_eq!(files.images.len(), 3);
+    fs::remove_file(directory.join("images/cn.png")).unwrap();
+    assert!(load(root.path(), "sample").is_err());
+    fs::write(
+        directory.join("images/cn.png"),
+        encoded_png(MAX_IMAGE_SIDE + 1, 1),
+    )
+    .unwrap();
+    assert_eq!(
+        load(root.path(), "sample").unwrap_err(),
+        IMAGE_DIMENSIONS_TOO_LARGE
+    );
+    // 普通条形模式校验字段，但不要求被忽略的图片存在。
+    fs::write(
+        directory.join("skin.toml"),
+        format!(
+            "{}{}",
+            manifest("sample"),
+            toolbar.replace("mode='image'", "mode='bar'")
+        ),
+    )
+    .unwrap();
+    let summary = load(root.path(), "sample").unwrap();
+    assert!(summary.toolbar_image.is_none());
+    assert!(referenced_image_paths(&summary).is_empty());
+}
+
 fn encoded_png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbImage::from_pixel(width, height, image::Rgb([0, 0, 0]));
     let mut output = Cursor::new(Vec::new());
@@ -1003,6 +1054,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             decoration_frames: 0,
             background: None,
             toolbar: SkinToolbar::default(),
+            toolbar_image: None,
             toolbar_icon_corner_radius_dip: None,
             border_image: None,
             content_insets_dip: None,

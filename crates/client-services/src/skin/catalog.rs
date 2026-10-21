@@ -13,12 +13,17 @@ use std::path::Path;
 use toml::Value;
 
 mod factory_layout;
+mod toolbar_image;
 mod windows_looks;
 /// 定义在 `crate::text`（偏好校验要用），从这里导回。
 pub(crate) use crate::text::safe_id;
 /// 定义在 `crate::theme`（偏好校验要用），从这里导回，原来的路径照常可用。
 pub use crate::theme::is_selectable_id;
 pub use factory_layout::ResolvedSkinLayout;
+pub use toolbar_image::{
+    SkinToolbarButtonFlow, SkinToolbarButtonLook, SkinToolbarImage, SkinToolbarImageButton,
+    ToolbarFlowDirection, ToolbarImageButtonSlot, ToolbarImageLayout, TOOLBAR_BUTTON_KEYS,
+};
 pub use windows_looks::{
     is_windows_look, WINDOWS_BUILTIN_IDS, WINDOWS_DEFAULTS_FOLDER, WINDOWS_LOOK_IDS,
 };
@@ -251,6 +256,9 @@ pub struct SkinSummary {
     pub background: Option<SkinBackground>,
     /// The floating toolbar's own geometry and colours, drawn over what the base theme derives and under `toolbar_stylesheet`.
     pub toolbar: SkinToolbar,
+    /// 图片工具栏的布局与资源；`None` 表示普通条形模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toolbar_image: Option<SkinToolbarImage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toolbar_icon_corner_radius_dip: Option<f64>,
     /// `[candidate_window.border_image]` 九宫格面板。只在 `base = "canvas"` 时读取；按 msime-windows 的规则校验并保留，供支持贴图的宿主绘制；其他宿主使用可读回退（见 [`Self::panel_candidate`]）。
@@ -941,6 +949,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         )?),
     };
     let mut toolbar = read_toolbar(table)?;
+    let toolbar_image = toolbar_image::read(table, &mut notices)?;
     let license = match table.get("license") {
         None => None,
         Some(value) => {
@@ -1024,6 +1033,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         decoration_frames: 0,
         background,
         toolbar,
+        toolbar_image,
         toolbar_icon_corner_radius_dip,
         border_image,
         content_insets_dip,
@@ -1515,8 +1525,8 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<u32, S
     Ok(decoration_frames)
 }
 
-/// 清单引用的图片路径：装饰图、背景、预览（是图片时）、九宫格的两个来源，再是各个挂件，同一路径只列一次。
-fn referenced_image_paths(summary: &SkinSummary) -> Vec<&str> {
+/// 清单生效的图片引用，供扫描预算、资源导出与社区整包共同使用；同一路径只列一次。
+pub(crate) fn referenced_image_paths(summary: &SkinSummary) -> Vec<&str> {
     let mut paths = Vec::new();
     for path in [
         summary.decoration_image.as_deref(),
@@ -1544,6 +1554,13 @@ fn referenced_image_paths(summary: &SkinSummary) -> Vec<&str> {
     for decoration in &summary.decorations {
         if !paths.iter().any(|existing| existing == &decoration.image) {
             paths.push(decoration.image.as_str());
+        }
+    }
+    if let Some(toolbar) = &summary.toolbar_image {
+        for path in toolbar.image_paths() {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
         }
     }
     paths

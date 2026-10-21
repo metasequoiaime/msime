@@ -4237,6 +4237,44 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
 }
 
 #[test]
+fn image_toolbar_layout_bridge_uses_cached_metadata_and_rejects_invalid_geometry() {
+    let cases: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/skins/toolbar-image-layout-cases.json"
+    )))
+    .unwrap();
+    let case = &cases[0];
+    let call = |value: &Value| {
+        let request = value.to_string();
+        read(unsafe { msime_client_skin_toolbar_image_layout(request.as_ptr(), request.len()) })
+    };
+    let valid = json!({"toolbar": case["skin"], "shown": case["shown"]});
+    let result = call(&valid);
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["value"], case["expected"]);
+    for (pointer, replacement) in [
+        ("/toolbar/imageWidthDip", json!(-1)),
+        ("/toolbar/imageHeightDip", json!(1e50)),
+        ("/toolbar/image", json!("../outside.png")),
+        ("/toolbar/buttons/status/xDip", json!(-1)),
+        ("/toolbar/buttons/status/widthDip", json!(501)),
+        ("/toolbar/buttonDefaults/iconSizeDip", json!(0)),
+        ("/toolbar/buttonFlow/gapDip", json!(501)),
+        ("/toolbar/buttonFlow/direction", json!("diagonal")),
+        ("/toolbar/buttons/status/images/cn", json!("bar.svg")),
+        ("/shown", json!(vec![["status", "cn"]; 8])),
+    ] {
+        let mut invalid = valid.clone();
+        *invalid.pointer_mut(pointer).unwrap() = replacement;
+        assert_eq!(call(&invalid)["ok"], false, "{pointer}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_skin_toolbar_image_layout(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn app_theme_catalog_and_resolution_have_the_documented_shape() {
     let catalog = read(msime_client_app_theme_catalog());
     assert_eq!(catalog["ok"], true);
@@ -13487,10 +13525,11 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
         "a failed card stays in its session"
     );
 
-    // The next day the recalled card is due again and the counts start over.
+    // 次日两张复习卡加上尚未开始的 gamma 新卡，今日待复习共三张。
     let tomorrow = call("2026-09-24", json!({"operation": "load"}));
     assert_eq!(tomorrow["value"]["answeredToday"], 0);
-    assert_eq!(tomorrow["value"]["due"], 2);
+    assert_eq!(tomorrow["value"]["due"], 3);
+    assert_eq!(tomorrow["value"]["introducing"], 1);
 
     // Settings round-trip through the boundary.
     let settings = call(
@@ -17220,6 +17259,7 @@ fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
     }
 }
 
+mod fuzzy_single;
 mod lifecycle_traces;
 #[cfg(any(
     target_os = "macos",

@@ -193,11 +193,13 @@ void ShuangpinKeymapWindow::paint() {
                          top + static_cast<float>(metrics_.height)};
   target->BeginDraw();
   target->Clear(D2D1::ColorF(0, 0.0f));
-  draw_window_shadow(target, card, palette_.radius, static_cast<float>(metrics_.shadow.scale));
+  const float card_radius = static_cast<float>(metrics_.card_radius);
+  const auto fills = shuangpin_keymap_fills(palette_);
+  draw_window_shadow(target, card, card_radius, static_cast<float>(metrics_.shadow.scale));
   const float inset = palette_.border_width / 2.0f;
   const D2D1_ROUNDED_RECT body{{card.left + inset, card.top + inset, card.right - inset, card.bottom - inset},
-                               palette_.radius, palette_.radius};
-  target->FillRoundedRectangle(body, brush(palette_.surface));
+                               card_radius, card_radius};
+  target->FillRoundedRectangle(body, brush(fills.card));
   target->DrawRoundedRectangle(body, brush(palette_.border), palette_.border_width);
 
   // 标题行：左边方案名加「键位」，右边一句说明，和 macOS 面板的页眉相同。
@@ -214,8 +216,8 @@ void ShuangpinKeymapWindow::paint() {
 
   auto *key_format = format(L"Consolas", 11.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING);
   auto *codes_format = format(L"Segoe UI", 9.0f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
-  // 未高亮的键帽是卡面上一层浅色，描一圈正文色的细边；高亮键填强调色，字按强调色的明暗取黑或白。
-  auto key_fill = palette_.hover;
+  // 未高亮的键帽是不透明实色（macOS 的 controlBackgroundColor）：浅色下比卡面亮一层，深色下比卡面暗一层，描一圈正文色的细边；高亮键填强调色，字按强调色的明暗取黑或白。
+  const auto key_fill = fills.key;
   auto key_border = palette_.text;
   key_border.a = 0.16f;
   auto on_accent = shuangpin_keymap_on_accent(palette_.accent);

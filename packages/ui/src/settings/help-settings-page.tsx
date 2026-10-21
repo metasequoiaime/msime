@@ -6,6 +6,9 @@ import { ActionButton } from "../core/action-button";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
+import type { EditionInfo } from "../core/host-capabilities";
+import { linuxEditionNames } from "../account/linux-edition-names";
+import { isChineseScheme } from "./input-scheme-options";
 
 /**
  * The macOS help page. The reference window answers the three questions a new user actually has --
@@ -66,10 +69,83 @@ const macosHelpCards = [
   },
 ] as const;
 
+interface HelpCard {
+  title: string;
+  rows: readonly { term: string; text: string }[];
+}
+
+/**
+ * Linux 的帮助页沿用 macOS 的术语/答案卡片版式，键名和排查步骤换成 Linux 上实际生效的：简繁和中英文标点的组合键两个宿主都处理，输入法列表分 Fcitx5 和 IBus 两条路，重启快捷键在 IBus 下重启服务、在 Fcitx5 下只重置水杉插件。设置前端在各 Linux 版本之间共用，输入法条目名和命令按本版本取（`linuxEditionNames`）；简繁和中文标点两行只给提供中文方案的版本。
+ */
+function linuxHelpCards(edition: EditionInfo | undefined): readonly HelpCard[] {
+  const { name, fcitx5Label, ibusLabel, setupCommand } = linuxEditionNames(edition);
+  const chinese = !edition || edition.input_schemes.some(isChineseScheme);
+  return [
+    {
+      title: "开始输入",
+      rows: [
+        {
+          term: "Shift",
+          text: "在中文和英文之间切换。切换时会短暂显示「中」或「英」，可以在「输入 › 中英文」里关掉。",
+        },
+        { term: "数字键 1–9", text: "选中候选栏里对应位置的词，空格上屏第一个。" },
+        {
+          term: "翻页",
+          text: "默认是减号和等号（- / =）。在「输入 › 选词与翻页」的翻页方式里可以换成逗号句号（, / .）或方括号（[ / ]）。",
+        },
+        ...(chinese
+          ? [
+              { term: "Ctrl+Shift+F", text: "在简体和繁体输出之间切换。" },
+              { term: "Ctrl+.", text: "切换中文标点与英文标点。" },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "候选词释义",
+      rows: [
+        {
+          term: "离线优先",
+          text: "常见词直接用本机词典，不联网、没有延迟。选了在线服务后，生僻字和多字词的释义可能要等半秒左右才出现。",
+        },
+        {
+          term: "在线释义",
+          text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app。请求由用户级的 msime-linux-online-provider 服务发出，输入法本身不联网。",
+        },
+      ],
+    },
+    {
+      title: "遇到问题",
+      rows: [
+        {
+          term: "输入法列表里没有",
+          text: `使用 Fcitx5 时，用 fcitx5-configtool 把${fcitx5Label}加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加${ibusLabel}。也可以在终端运行 ${setupCommand} --register 自动加回去。`,
+        },
+        {
+          term: "输入没有反应",
+          text: "按 Ctrl+Shift+Alt+R 重启：IBus 下重启 IBus 服务，Fcitx5 下只重置水杉插件，不影响其他输入法。也可以在「维护与诊断」里点「重启」。",
+        },
+        {
+          term: "状态栏没有入口",
+          text: `中英文、简繁、工具栏等入口挂在输入法的状态区，需要桌面提供托盘；没有托盘时输入本身不受影响，设置可以从应用列表里的「${name}」打开。`,
+        },
+        {
+          term: "词库没有更新",
+          text: `随安装包提供的词库由包管理器随版本升级一起更新。首次配置时自己下载的词库不随软件包更新：升级后会收到「词库需要更新」的通知，打开设置点「立即更新」即可，也可以在终端运行 ${setupCommand} --update --download。`,
+        },
+      ],
+    },
+  ];
+}
+
 export interface HelpSettingsPageProps {
   busy: boolean;
   hidden: boolean;
   macos: boolean;
+  /** Linux 用自己的术语卡片（`linuxHelpCards`），版式与 macOS 相同。 */
+  linux?: boolean;
+  /** 本安装包所属的版本（`HostCapabilities.edition`）；Linux 卡片里的输入法条目名和命令按它取。 */
+  edition?: EditionInfo;
   mobile: boolean;
   ios: boolean;
   android: boolean;
@@ -85,6 +161,8 @@ export function HelpSettingsPage({
   busy,
   hidden,
   macos,
+  linux = false,
+  edition,
   mobile,
   ios,
   android,
@@ -94,10 +172,15 @@ export function HelpSettingsPage({
   onOpenDocumentation,
   onOpenSystemKeyboardSettings,
 }: HelpSettingsPageProps) {
+  const helpCards: readonly HelpCard[] | null = macos
+    ? macosHelpCards
+    : linux
+      ? linuxHelpCards(edition)
+      : null;
   return (
     <SettingsPageFieldset disabled={busy} hidden={hidden} ariaLabel="帮助">
-      {macos &&
-        macosHelpCards.map((card) => (
+      {helpCards &&
+        helpCards.map((card) => (
           <GroupList key={card.title} title={card.title}>
             <SettingsGroupBlock className={doc.guide} role="group" aria-label={card.title}>
               {card.rows.map((row, index) => (
@@ -112,7 +195,15 @@ export function HelpSettingsPage({
             </SettingsGroupBlock>
           </GroupList>
         ))}
-      {macos && onOpenDocumentation && (
+      {linux && !macos && (
+        // macOS 的卡片只讲候选释义的联网；Linux 还有云候选、语音和 AI 的用户级服务与本机凭据文件，这段说明照旧保留。
+        <GroupList title="联网与凭据">
+          <SettingsGroupBlock className={doc.page}>
+            <p>{platformNetworkDescription}</p>
+          </SettingsGroupBlock>
+        </GroupList>
+      )}
+      {helpCards && onOpenDocumentation && (
         <GroupList>
           <SettingsRowStack role="group" aria-label="更多">
             <ActionRow
@@ -124,7 +215,7 @@ export function HelpSettingsPage({
           </SettingsRowStack>
         </GroupList>
       )}
-      {!macos && (
+      {!helpCards && (
         <>
           <SettingsGroupNote>{platformHelpIntro}</SettingsGroupNote>
           <GroupList title="快速上手">

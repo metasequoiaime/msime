@@ -38,6 +38,6 @@ Status: implemented
 
 ## Verification
 
-`progress.rs` 新增「答题不会让未开始变多」的用例，`session.rs` 新增进度行三个数随导入、答「认识」、答「不认识」变化的用例；`cards_not_yet_due_stay_out_of_the_queue` 和次日用例改为新含义。修复前这 4 个用例失败，修复后 `cargo test -p msime-client-services vocabulary` 106 个全部通过，`cargo fmt --check`、`cargo clippy --all-targets -D warnings` 通过（经 rbuild 在 Mac Studio 上运行）。宿主端的测试只用手写 JSON 验解析，不受影响。改后的包还没有装到真机上看过。
+`progress.rs` 新增「答题不会让未开始变多」的用例，`session.rs` 新增进度行三个数随导入、答「认识」、答「不认识」变化的用例；`cards_not_yet_due_stay_out_of_the_queue` 和次日用例改为新含义。修复前这 4 个用例失败，修复后 `cargo test -p msime-client-services vocabulary` 106 个全部通过，`cargo fmt --check`、`cargo clippy --all-targets -D warnings` 通过（经 rbuild 在 Mac Studio 上运行）。Host API 边界的次日用例同步检查 `due = 3`：两张到期复习卡，加上一张未开始的新卡，并检查 `introducing = 1`。其余原生宿主的测试只用手写 JSON 验解析，不受影响。改后的包还没有装到真机上看过。
 
 同一轮验收顺手把 `scripts/fetch_wordbooks.py` 写出的 NOTICE 开头从 "The wordbooks in this directory" 改成 "The bundled wordbooks"：这份文本也在 App 的关于页里显示，那里没有「这个目录」。打包方式见 [内置词书打包](2026-10-20-bundled-wordbooks-packaging.md)。

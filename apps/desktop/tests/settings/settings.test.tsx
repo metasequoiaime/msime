@@ -3821,6 +3821,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   expect(await screen.findByLabelText("输入法日志")).toBeDefined();
   // Without the host callback, as on the phones, there is no button that would fail when pressed.
   expect(screen.queryByRole("button", { name: "在 Finder 中显示" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "在文件管理器中显示" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开日志目录" })).toBeNull();
   unmount();
 
@@ -3837,9 +3838,18 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
-  // Outside macOS the action opens the folder and says so.
-  fireEvent.click(await screen.findByRole("button", { name: "打开日志目录" }));
+  // Linux 也选中文件本身，按钮按文件管理器命名；说明提到选不中时退回打开目录。
+  const log = await screen.findByLabelText("输入法宿主日志");
+  const description =
+    document.getElementById(log.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+  expect(description).toContain("在文件管理器中显示");
+  fireEvent.click(await screen.findByRole("button", { name: "在文件管理器中显示" }));
   expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
+  openDiagnosticLogDirectory.mockRejectedValueOnce(new Error("storage"));
+  fireEvent.click(screen.getByRole("button", { name: "在文件管理器中显示" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "无法在文件管理器中显示诊断日志，可能是文件管理器不可用。",
+  );
 });
 
 test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])(
@@ -6570,12 +6580,11 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
   selectSettingsTab("帮助与反馈");
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
-  expect(intro.textContent).toContain("Fcitx5");
-  expect(intro.textContent).toContain("IBus");
-  const quickStart = screen.getByText(/fcitx5-configtool/);
-  // First-run setup adds the input method on its own; the manual steps are the fallback.
-  expect(quickStart.textContent).toContain("自动加入正在运行的 Fcitx5 或 IBus 的输入法列表");
+  // Linux 与 macOS 一样用术语卡片回答「输入法列表里没有」，两种框架的手动步骤都在那一行里。
+  const problems = await screen.findByRole("group", { name: "遇到问题" });
+  const quickStart = within(problems).getByText(/fcitx5-configtool/);
+  // First-run setup adds the input method on its own; the manual steps are the fallback, and --register adds it back.
+  expect(quickStart.textContent).toContain("msime-linux-setup --register");
   expect(quickStart.textContent).toContain(
     "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
   );
@@ -8928,7 +8937,7 @@ test("emoji panel searches, copies items, tracks recent use and reads clipboard 
   fireEvent.click(screen.getByRole("button", { name: "😀" }));
   fireEvent.click(screen.getByRole("button", { name: "😂" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("😂"));
-  expect(screen.getByRole("status").textContent).toContain("已复制：😂");
+  expect(document.querySelector("[data-panel-toast]")?.textContent).toBe("已复制  😂");
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), { target: { value: "laugh" } });
   expect(screen.getByRole("button", { name: "😂" })).toBeDefined();

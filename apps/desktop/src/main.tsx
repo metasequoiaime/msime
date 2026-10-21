@@ -58,6 +58,7 @@ import {
   type LinuxSetupClient,
   type MacosInstallClient,
   type LinuxSetupLine,
+  type LinuxSetupStage,
   type LinuxSetupStatus,
   type McpClientId,
   type McpFlag,
@@ -84,7 +85,7 @@ import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard } from "./input/desktop-keyboard";
 import { createDesktopPanelClients } from "./input/desktop-panel-clients";
 import { createDesktopClipboardClient } from "./input/desktop-clipboard-client";
-import { useHostPlatform } from "./input/panel-host";
+import { useHostPlatform, usePanelHost } from "./input/panel-host";
 import { DesktopPanelTheme } from "./input/desktop-panel-theme";
 import { DesktopEmojiPanel } from "./input/desktop-emoji-panel";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
@@ -158,17 +159,40 @@ const mobileDictionary: DictionaryClient = {
     invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
 
+/** 在配置脚本运行期间转发它的输出和阶段事件，结束后取消订阅。 */
+async function withLinuxSetupEvents(
+  onLine: (line: LinuxSetupLine) => void,
+  onStage: ((stage: LinuxSetupStage) => void) | undefined,
+  command: () => Promise<LinuxSetupStatus>,
+): Promise<LinuxSetupStatus> {
+  const unlistenOutput = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
+    onLine(event.payload),
+  );
+  const unlistenStage = await listen<LinuxSetupStage>("linux-setup-stage", (event) =>
+    onStage?.(event.payload),
+  ).catch((error: unknown) => {
+    unlistenOutput();
+    throw error;
+  });
+  try {
+    return await command();
+  } finally {
+    unlistenOutput();
+    unlistenStage();
+  }
+}
 const linuxSetupClient: LinuxSetupClient = {
-  run: async ({ download, cloudCandidates }, onLine) => {
-    const unlisten = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
-      onLine(event.payload),
-    );
-    try {
-      return await invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates });
-    } finally {
-      unlisten();
-    }
-  },
+  run: ({ download, cloudCandidates }, onLine, onStage) =>
+    withLinuxSetupEvents(onLine, onStage, () =>
+      invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates }),
+    ),
+  update: (onLine, onStage) =>
+    withLinuxSetupEvents(onLine, onStage, () =>
+      invoke<LinuxSetupStatus>("run_linux_dictionary_update"),
+    ),
+  close: () => getCurrentWindow().close(),
+  openFcitx5Config: () => invoke<void>("open_fcitx5_configtool"),
+  copyText: (text) => invoke<void>("copy_text", { text }),
 };
 // The host resolves the plugins directory and the built-in sound packs, and shows its own picker for an import; the page never names a path.
 const plugins: PluginClient = {
@@ -388,6 +412,27 @@ function DesktopHandwritingSurface({ theme }: { theme: "dark" | "light" }) {
   );
 }
 
+/** 独立的表情和本地剪贴板窗口：等宿主报告平台后再挂面板，免得面板先按一种平台装好客户端、随后又整个换掉。 */
+function DesktopEmojiSurface({
+  theme,
+  initialPage,
+}: {
+  theme: "dark" | "light";
+  initialPage?: "home" | "clipboard";
+}) {
+  const host = usePanelHost(client.host);
+  return host.resolved ? (
+    <DesktopEmojiPanel
+      client={panelClients.emoji}
+      theme={theme}
+      initialPage={initialPage}
+      hostPlatform={host.host?.platform}
+    />
+  ) : (
+    <StatusMessage role="status">正在连接面板…</StatusMessage>
+  );
+}
+
 // The host reports what it supports; outside Tauri (the browser preview) there is no host.
 async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
   if (!isTauri()) return null;
@@ -398,6 +443,9 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
+  // 宿主是 Linux（被叫到前台时要重看词库是否过期），以及用户在本进程里已对「词库需要更新」点过「稍后」。
+  const linuxHost = useRef(false);
+  const linuxUpdateDeferred = useRef(false);
   const [macosInstall, setMacosInstall] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   // 首启引导准备资源之后重新读到的版本：第一次启动时 HostOptions 由这一步写下，发现宿主能力时还读不到版本。
@@ -529,8 +577,17 @@ function DesktopSettings() {
     const disposeSubscription = isTauri()
       ? trackAsyncSubscription(
           listen<string>("settings-route", (event) => {
+            if (!active) return;
             // 未指定分区的入口只将窗口带到前台，保留当前页面。
-            if (active && event.payload) requestSettingsPage(event.payload);
+            if (event.payload) requestSettingsPage(event.payload);
+            // 设置进程可能早于宿主留下词库过期标记就在运行（关窗后还常驻十分钟），被叫到前台时（包括点「词库需要更新」通知的「打开设置」）再看一次，与启动时一样先打开「立即更新」页。用户在本进程里点过「稍后」就不再打断。
+            if (linuxHost.current && !linuxUpdateDeferred.current)
+              void invoke<LinuxSetupStatus>("linux_setup_status")
+                .then((status) => {
+                  if (active && status.prepared && status.dictionaryOutdated)
+                    setLinuxSetup((current) => current ?? status);
+                })
+                .catch(() => undefined);
           }),
           () => active,
         )
@@ -566,7 +623,12 @@ function DesktopSettings() {
           ? await invoke<boolean>("application_update_supported").catch(() => false)
           : false;
       if (!active) return;
-      if (linuxSetupStatus && !linuxSetupStatus.prepared) setLinuxSetup(linuxSetupStatus);
+      linuxHost.current = host?.platform === "linux";
+      // 还没配置，或宿主报告词库过期时先打开首次配置（更新）页；宿主已在启动时把窗口变成它的小窗口。其余情况把窗口换回设置的大小（宿主没变过窗口时这一步什么也不做）。
+      if (linuxSetupStatus && (!linuxSetupStatus.prepared || linuxSetupStatus.dictionaryOutdated))
+        setLinuxSetup(linuxSetupStatus);
+      else if (host?.platform === "linux")
+        void invoke("leave_linux_setup_window").catch(() => undefined);
       setMacosInstall(macosInstallPending);
       setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
@@ -580,6 +642,13 @@ function DesktopSettings() {
             ...(applicationUpdater
               ? {
                   checkForApplicationUpdate: () => invoke<void>("application_update_check"),
+                }
+              : {}),
+            // Linux 设置应用每天在后台检查一次更新并发通知（不在应用里安装），关于页先显示它找到的新版本。
+            ...(host.platform === "linux"
+              ? {
+                  pendingUpdateCheck: () =>
+                    invoke<UpdateCheckResult | null>("pending_update_check"),
                 }
               : {}),
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
@@ -634,8 +703,8 @@ function DesktopSettings() {
             host.platform === "windows"
               ? { resourcePacks }
               : {}),
-            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
-            ...(host.platform === "macos"
+            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there. Linux 的两个宿主把它写进数据目录（通常是隐藏的 ~/.config 下），宿主同样在文件管理器里选中它。
+            ...(host.platform === "macos" || host.platform === "linux"
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
             // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
@@ -890,7 +959,14 @@ function DesktopSettings() {
       <LinuxSetupPage
         status={linuxSetup}
         client={linuxSetupClient}
-        onComplete={() => setLinuxSetup(null)}
+        edition={settingsClient?.host?.edition}
+        onComplete={() => {
+          if (linuxSetup.prepared && linuxSetup.dictionaryOutdated)
+            linuxUpdateDeferred.current = true;
+          void invoke("leave_linux_setup_window")
+            .catch(() => undefined)
+            .then(() => setLinuxSetup(null));
+        }}
       />
     );
   if (macosInstall)
@@ -1067,13 +1143,11 @@ const content =
     <DesktopCloudDictionarySurface />
   ) : panel === "clipboard" ? (
     <DesktopPanelTheme preferences={client} surface="emoji">
-      {(theme) => (
-        <DesktopEmojiPanel client={panelClients.emoji} theme={theme} initialPage="clipboard" />
-      )}
+      {(theme) => <DesktopEmojiSurface theme={theme} initialPage="clipboard" />}
     </DesktopPanelTheme>
   ) : panel === "emoji" ? (
     <DesktopPanelTheme preferences={client} surface="emoji">
-      {(theme) => <DesktopEmojiPanel client={panelClients.emoji} theme={theme} />}
+      {(theme) => <DesktopEmojiSurface theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "vocabulary" ? (
     <VocabularyReviewPanel client={vocabularyReview} />

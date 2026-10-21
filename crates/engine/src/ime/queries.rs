@@ -303,7 +303,7 @@ impl CandidateQueries {
         candidates
     }
 
-    /// 英文、emoji、颜文字、符号和日文混输行混入拼音列表，规则见 `insert_mixed_rows_with_japanese`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。`japanese` 是调用方已经判定要混入的那一行日文（见 `InputSession::mixed_japanese_row`），这里只决定它的位置。符号行（打拼音出符号）另要 `symbols_allowed`：调用方在光标前缀解码和辅助码激活时传假，这两种情况下整段输入不是用户打的名称。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
+    /// 英文、emoji、颜文字、符号和日文混输行混入拼音列表，规则见 `insert_mixed_rows_with_japanese`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有达到 `minimum_prefix`、`english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。`japanese` 是调用方已经判定要混入的那一行日文（见 `InputSession::mixed_japanese_row`），这里只决定它的位置。符号行（打拼音出符号）另要 `symbols_allowed`：调用方在光标前缀解码和辅助码激活时传假，这两种情况下整段输入不是用户打的名称。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
     #[allow(clippy::too_many_arguments)]
     pub fn mixed(
         &mut self,
@@ -332,15 +332,22 @@ impl CandidateQueries {
             return candidates;
         }
 
-        let english_rows = if english.mixed_candidates
-            && prefix.len() >= english.minimum_prefix
-            && prefix.bytes().all(|byte| byte.is_ascii_lowercase())
-        {
-            self.english_dictionary()
-                .query_prefix(prefix, MIXED_ENGLISH_LIMIT)
-        } else {
-            Vec::new()
-        };
+        let english_rows =
+            if english.mixed_candidates && prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+                if prefix.len() >= english.minimum_prefix {
+                    self.english_dictionary()
+                        .query_prefix(prefix, MIXED_ENGLISH_LIMIT)
+                } else if prefix.len() >= 2 {
+                    self.english_dictionary()
+                        .query_exact(prefix)
+                        .into_iter()
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
         let shuangpin = self.profile;
         let long_enough = prefix.len() >= MIXED_EXPRESSIVE_MINIMUM_INPUT;
         let (emoji_rows, kaomoji_rows) =
@@ -367,6 +374,7 @@ impl CandidateQueries {
         };
         // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。
         let english_lead = (english_may_lead
+            && prefix.len() >= english.minimum_prefix
             && !english_rows.is_empty()
             && !spells_whole_syllables(prefix, scheme, self.profile))
         .then_some(prefix);
@@ -776,6 +784,10 @@ mod tests {
             ),
         ] {
             let mut queries = CandidateQueries::new(&paths, default_profile());
+            // 短完整词也会查询英文；先初始化词库，只计混排阶段的无用表情路径分配。
+            if english.mixed_candidates {
+                queries.english_dictionary();
+            }
             let mut candidates = Vec::with_capacity(3);
             candidates.extend(chinese());
             let expected = candidates.clone();
@@ -1670,6 +1682,37 @@ mod tests {
     }
 
     #[test]
+    fn short_exact_english_is_available_without_completions_or_a_leading_seat() {
+        let (_directory, mut queries) = queries_with_english(
+            default_profile(),
+            &[
+                ("home", "home", 10),
+                ("homeland", "homeland", 1000),
+                ("cd", "CD", 100),
+            ],
+        );
+        for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+            for _ in 0..2 {
+                for (input, english) in [("home", "home"), ("cd", "CD")] {
+                    let chinese = vec![WordItem::new(
+                        input,
+                        "合成词",
+                        1,
+                        CandidateSource::Database,
+                        "",
+                    )];
+                    let list = mix(&mut queries, chinese, input, scheme, 5, true);
+                    assert_eq!(words(&list), ["合成词", english]);
+                    assert_eq!(list[1].pinyin, input);
+                    assert_eq!(list[1].source, CandidateSource::EnglishDictionary);
+                }
+                assert!(mix(&mut queries, Vec::new(), "hom", scheme, 5, true).is_empty());
+                assert!(mix(&mut queries, Vec::new(), "h", scheme, 5, true).is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn quanpin_english_leads_only_input_that_is_not_whole_syllables() {
         let (_directory, mut queries) = queries_with_english(
             default_profile(),
@@ -1708,7 +1751,7 @@ mod tests {
             true,
         );
         assert_eq!(words(&list), vec!["我们", "women"]);
-        // 最短前缀照旧：`home`（ho'me 拆不开）四个字母，前缀 5 时根本不查英文，放宽到 4 才领先。
+        // 短完整词仍可选；`home`（ho'me 拆不开）在门槛 5 时不领先，放宽到 4 才领先。
         let list = mix(
             &mut queries,
             chinese("hou'me", "后面"),
@@ -1717,7 +1760,7 @@ mod tests {
             5,
             true,
         );
-        assert_eq!(words(&list), vec!["后面"]);
+        assert_eq!(words(&list), vec!["后面", "home"]);
         let list = mix(
             &mut queries,
             chinese("hou'me", "后面"),

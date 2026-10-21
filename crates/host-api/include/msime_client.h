@@ -425,6 +425,13 @@ char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
+
+/* 图片工具栏的无 I/O 布局。请求 {toolbar: 扫描缓存中的 toolbarImage,
+   shown: [[按钮键, 当前状态], ...]}，最多 7 个当前显示按钮；皮肤只能进一步隐藏。
+   返回 {widthDip,heightDip,buttons:[{key,xDip,yDip,widthDip,heightDip,iconSizeDip,
+   background,image}]}，尺寸覆盖背景与全部按钮。失败不能继续使用旧命中区。
+   UTF-8 JSON 最多 64 KiB；结果用 msime_client_string_free 释放。 */
+char *msime_client_skin_toolbar_image_layout(const uint8_t *request, size_t length);
 /* 同步解码有界内存中的 PNG/APNG 默认图或 GIF/JPEG/WebP 首帧，不读文件。
  * 输入最多 8 MiB，边长最多 2048。成功时只调用一次回调，rgba 为非预乘 RGBA8，
  * length = width * height * 4。字节只在回调期间有效，宿主必须当场复制；回调不得抛异常。

@@ -86,7 +86,7 @@ jobs:
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。run_ui_tests.sh 在 platforms/ios/scripts/ 下,已由 platforms/ios/* 覆盖。
               # fetch_voice_runtime.py 与它读的 lock 决定 MSIMEApp 嵌入的 sherpa-onnx 运行时。
-              scripts/fetch_voice_runtime.py|resources/voice-runtime.lock.json|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py)
+              scripts/test-ios-doubao-session-lifecycle.py|scripts/fetch_voice_runtime.py|resources/voice-runtime.lock.json|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
@@ -128,6 +128,8 @@ jobs:
           pod --version
       - name: Test shared account transport and session lifecycle
         run: swift test --package-path shared/backend
+      - name: Test standalone voice transport lifecycle
+        run: python3 scripts/test-ios-doubao-session-lifecycle.py
       - name: Validate keyboard configuration
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py
