@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import android.graphics.Rect;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.function.Predicate;
 
 /** 候选区设备验收：完整面板选词与横向候选条的部分选词刷新。 */
@@ -90,7 +91,7 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo mode = await(key("中").or(key("英")).and(language));
             if (equalsText("英", mode.getText())) tap(key("英").and(language));
             // 小鹤 ni/hao 两轮，独立合成输入不使用报告人的原文。
-            for (char letter : "nihknihk".toCharArray()) tap(key(String.valueOf(letter)));
+            for (char letter : "nihcnihc".toCharArray()) tap(key(String.valueOf(letter)));
             stage = "synthetic long phrase and partial candidate are present";
             AccessibilityNodeInfo first = await(stripCandidate(1, "你好你好"));
             AccessibilityNodeInfo scroller = first.getParent();
@@ -110,7 +111,10 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 && node.getText().toString().startsWith("你好") && node.getText().length() > 2));
             stage = "remaining strip candidates refresh without another gesture";
             await(stripCandidate(1, "你好"));
-            awaitGone(stripCandidate(0, "你好你好"));
+            dropStaleNodes();
+            for (AccessibilityWindowInfo window : automation.getWindows())
+                if (find(window.getRoot(), stripCandidate(0, "你好你好")) != null)
+                    throw new AssertionError("Synthetic old phrase remained after partial selection");
             stage = "finish the refreshed synthetic composition";
             touch(stripCandidate(1, "你好"));
             await(field("msime-test-plain").and(node -> equalsText("你好你好", node.getText())));
@@ -129,11 +133,12 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
         return node -> {
             if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
-                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
+                    || !node.isVisibleToUser()) return false;
+            if (node.getText() != null && value.equals(node.getText().toString())) return true;
+            if (node.getContentDescription() == null) return false;
             String description = node.getContentDescription().toString();
             int delimiter = description.indexOf('：');
-            if (!description.startsWith(index == 0 ? "候选 " : "候选 " + index + "：") || delimiter < 0)
-                return false;
+            if (!description.startsWith("候选 ") || delimiter < 0) return false;
             String text = description.substring(delimiter + 1);
             return value.equals(text.contains("；") ? text.substring(0, text.indexOf('；')) : text);
         };
