@@ -6,8 +6,8 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 
-/** 九键键帽：全拼的数字画成右上角标记（10 sp，距上边 3 dp、右边 5 dp），主标签居中；双拼以数字为主标签，底部声母提示复用 {@link KeyHintButton} 的空间适配。 */
-public final class NineKeyDigitButton extends KeyHintButton {
+/** 九键键帽：数字缩成右上角标记，字号、位置和颜色与 26 键字母的角标相同（{@link KeyHintButton}：10 sp，距上边 3 dp、右边 5 dp，皮肤的 `hint` 色），主键面不为它让位、保持居中。 */
+public final class NineKeyDigitButton extends KeyboardPressButton {
     private final Paint digitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private String digitText = "";
     private int digitColor = Color.GRAY;
@@ -28,7 +28,6 @@ public final class NineKeyDigitButton extends KeyHintButton {
     }
 
     public void setDigitColor(int color) {
-        setHintColor(color);
         if (digitColor == color) return;
         digitColor = color;
         invalidate();

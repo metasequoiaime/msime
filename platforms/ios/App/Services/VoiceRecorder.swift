@@ -132,23 +132,28 @@ final class VoiceRecorder: ObservableObject {
   private nonisolated static func tap(converter: AVAudioConverter, target: AVAudioFormat, capture: LiveCapture,
                                       continuation: AsyncStream<Data>.Continuation) -> AVAudioNodeTapBlock {
     { buffer, _ in
-      let ratio = target.sampleRate / buffer.format.sampleRate
-      guard let converted = AVAudioPCMBuffer(pcmFormat: target,
-                                             frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1)
-      else { return }
-      var supplied = false
-      var error: NSError?
-      converter.convert(to: converted, error: &error) { _, status in
-        if supplied { status.pointee = .noDataNow; return nil }
-        supplied = true
-        status.pointee = .haveData
-        return buffer
-      }
-      guard error == nil, converted.frameLength > 0, let samples = converted.int16ChannelData else { return }
-      let pcm = Data(bytes: samples[0], count: Int(converted.frameLength) * MemoryLayout<Int16>.size)
-      guard capture.append(pcm, decibels: VoiceLevel.decibels(pcm16: pcm)) else { return }
+      guard let pcm = pcm16(buffer, converter: converter, target: target),
+            capture.append(pcm, decibels: VoiceLevel.decibels(pcm16: pcm)) else { return }
       continuation.yield(pcm)
     }
+  }
+
+  /// 把输入节点的一块音频转成 16 kHz 单声道 PCM16；按住说话的后台会话（`VoiceSessionService`）用同一个转换。
+  nonisolated static func pcm16(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, target: AVAudioFormat) -> Data? {
+    let ratio = target.sampleRate / buffer.format.sampleRate
+    guard let converted = AVAudioPCMBuffer(pcmFormat: target,
+                                           frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1)
+    else { return nil }
+    var supplied = false
+    var error: NSError?
+    converter.convert(to: converted, error: &error) { _, status in
+      if supplied { status.pointee = .noDataNow; return nil }
+      supplied = true
+      status.pointee = .haveData
+      return buffer
+    }
+    guard error == nil, converted.frameLength > 0, let samples = converted.int16ChannelData else { return nil }
+    return Data(bytes: samples[0], count: Int(converted.frameLength) * MemoryLayout<Int16>.size)
   }
 
   func stop() {

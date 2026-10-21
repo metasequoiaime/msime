@@ -2,7 +2,7 @@ import UIKit
 
 /// 键盘功能菜单里的语音结果面板（dc.html `showVoice`）：一个 72pt 的强调色圆球，里面是 30pt 的麦克风，外面一圈脉冲环，下面是 15pt 的状态行和 12.5pt 的提示「点任意处取消」，居中排列，间距 14pt。
 ///
-/// 键盘扩展不能录音，所以这里是语音交接的入口，而不是聆听界面：没有待取的结果时状态行显示「轻点录音」，点圆球打开应用的录音页；有待取的结果时显示「已识别：<text>」，点圆球把它上屏。长按空格会直接打开录音页并自动开始录音。点其他任何地方都取消。脉冲环照 Android 的 `VoiceListeningView`：在 1.2s 内从圆球向外扩 18pt，同时从 35% 淡出，颜色用皮肤的强调色而不是原型里固定的绿色，开了「减弱动态效果」时保持静止。
+/// 它有两种用法。按住说话时（`init(dictationHeld:skin:)`）是聆听界面，照 Android 的 `VoiceListeningView`：状态行「正在聆听…」，提示行先写怎么结束，开始识别后换成实时文字（太长时从开头截断，最新的字留在眼前）；上滑到取消区时状态行变成「松开取消」，圆球换成次要色。录音和识别都在后台的主 App 里，见 `KeyboardVoiceDictation`。另一种是语音交接的入口（`init(entry:skin:)`）：没有待取的结果时状态行显示「轻点开启语音」，点圆球去 App 开启语音会话；有待取的结果时显示「已识别：<text>」，点圆球把它上屏。点其他任何地方都取消。脉冲环照 Android 的 `VoiceListeningView`：在 1.2s 内从圆球向外扩 18pt，同时从 35% 淡出，颜色用皮肤的强调色而不是原型里固定的绿色，开了「减弱动态效果」时保持静止。
 final class KeyboardVoicePanelView: UIControl {
   static let orbSide: CGFloat = 72
   static let micSide: CGFloat = 30
@@ -12,15 +12,22 @@ final class KeyboardVoicePanelView: UIControl {
   static let pulseDuration: CFTimeInterval = 1.2
   static let spacing: CGFloat = 14
   static let cancelCaption = "点任意处取消"
+  static let listeningTitle = "正在聆听…"
+  static let recognizingTitle = "正在识别…"
+  static let cancellingTitle = "松开取消"
+  /// 按住空格开始的听写：松开结束，上滑取消（Android 的 `ImeVoiceEntry` 同一句）。
+  static let heldCaption = "松开结束，上滑取消"
+  /// 读屏操作开始的听写：再点圆球结束，点其他地方取消。
+  static let tappedCaption = "点圆球结束，点其他地方取消"
 
   /// 状态行：待取的结果，没有结果时说明圆球的作用。
   static func status(for entry: VoiceTextHandoff?) -> String {
-    entry.map { "已识别：\($0.text)" } ?? "轻点录音"
+    entry.map { "已识别：\($0.text)" } ?? "轻点开启语音"
   }
 
   /// 圆球的作用，作为 VoiceOver 读出的名称。
   static func orbLabel(for entry: VoiceTextHandoff?) -> String {
-    entry == nil ? "去水杉 App 录音" : "插入语音结果"
+    entry == nil ? "去水杉 App 开启语音" : "插入语音结果"
   }
 
   let orb: KeyboardVoiceOrbButton
@@ -28,6 +35,50 @@ final class KeyboardVoicePanelView: UIControl {
   let captionLabel = UILabel()
   var onOrb: (() -> Void)?
   var onCancel: (() -> Void)?
+
+  /// 听写的提示行：没有文字时说明怎么结束。
+  private var idleCaption = cancelCaption
+  /// 是否在上滑取消区里。
+  private(set) var isCancelling = false
+
+  /// 听写中的聆听界面。`held` 为真时手指还按在空格上，松开和上滑由空格的手势处理；否则点圆球结束。两种情况下点面板其他地方都取消。
+  convenience init(dictationHeld held: Bool, skin: KeyboardTheme) {
+    self.init(entry: nil, skin: skin)
+    accessibilityIdentifier = "keyboardVoiceListening"
+    idleCaption = held ? Self.heldCaption : Self.tappedCaption
+    orb.accessibilityLabel = "结束语音输入"
+    showListening("")
+  }
+
+  /// 听写中的实时文字。
+  func showListening(_ text: String) {
+    guard !isCancelling else { return }
+    statusLabel.text = Self.listeningTitle
+    showCaption(text)
+  }
+
+  /// 松开以后在识别或润色。
+  func showRecognizing(text: String, message: String) {
+    isCancelling = false
+    orb.isCancelling = false
+    statusLabel.text = message.isEmpty ? Self.recognizingTitle : message
+    showCaption(text)
+  }
+
+  /// 手指上滑进出取消区。
+  func setCancelling(_ cancelling: Bool) {
+    guard cancelling != isCancelling else { return }
+    isCancelling = cancelling
+    orb.isCancelling = cancelling
+    statusLabel.text = cancelling ? Self.cancellingTitle : Self.listeningTitle
+  }
+
+  private func showCaption(_ text: String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    captionLabel.text = trimmed.isEmpty ? idleCaption : trimmed
+    captionLabel.lineBreakMode = trimmed.isEmpty ? .byTruncatingTail : .byTruncatingHead
+    captionLabel.accessibilityLabel = captionLabel.text
+  }
 
   init(entry: VoiceTextHandoff?, skin: KeyboardTheme) {
     orb = KeyboardVoiceOrbButton(skin: skin)
@@ -46,6 +97,7 @@ final class KeyboardVoicePanelView: UIControl {
     captionLabel.text = Self.cancelCaption
     captionLabel.font = .systemFont(ofSize: 12.5)
     captionLabel.textAlignment = .center
+    captionLabel.numberOfLines = 2
     let column = UIStackView(arrangedSubviews: [orb, statusLabel, captionLabel])
     column.axis = .vertical
     column.alignment = .center
@@ -57,6 +109,8 @@ final class KeyboardVoicePanelView: UIControl {
       column.centerYAnchor.constraint(equalTo: centerYAnchor),
       column.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
       column.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
+      statusLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
+      captionLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
       orb.widthAnchor.constraint(equalToConstant: Self.orbSide),
       orb.heightAnchor.constraint(equalToConstant: Self.orbSide),
     ])
@@ -116,6 +170,11 @@ final class KeyboardVoiceOrbButton: UIButton {
   /// 脉冲环是否在运行。
   var isPulsing: Bool { pulseLayer.animation(forKey: Self.pulseKey) != nil }
 
+  /// 上滑到取消区时圆球换成次要色，和 Android 一样。
+  var isCancelling = false {
+    didSet { if isCancelling != oldValue { applyColors() } }
+  }
+
   func apply(skin: KeyboardTheme) {
     self.skin = skin
     applyColors()
@@ -168,7 +227,7 @@ final class KeyboardVoiceOrbButton: UIButton {
 
   private func applyColors() {
     let traits = traitCollection
-    let accent = skin.accent.resolvedColor(with: traits).cgColor
+    let accent = (isCancelling ? skin.secondary : skin.accent).resolvedColor(with: traits).cgColor
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     pulseLayer.fillColor = accent

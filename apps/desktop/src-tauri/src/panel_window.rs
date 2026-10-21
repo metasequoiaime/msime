@@ -20,7 +20,7 @@ use crate::platform::macos::macos_keyboard;
 use crate::platform::macos::macos_panel_session;
 use crate::voice::cancel_voice;
 use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
-use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
+use msime_client_core::host_surface::{PanelPlacement, PanelSurface, SurfaceRoute};
 use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -293,6 +293,16 @@ fn panel_surface(route: SurfaceRoute) -> Result<PanelSurface, HostActionError> {
         })
 }
 
+/// 背单词 has no launch route, so its geometry lives here rather than in the shared route table.
+pub(crate) const VOCABULARY_PANEL: PanelSurface = PanelSurface {
+    label: "vocabulary-panel",
+    query: "vocabulary",
+    title: "水杉背单词",
+    width: 560,
+    height: 680,
+    placement: PanelPlacement::BottomCenter,
+};
+
 /// Opens a panel route's window on this host. See [`open_surface_panel`].
 pub(crate) fn open_route_panel(
     app: &tauri::AppHandle,
@@ -402,7 +412,7 @@ pub(crate) fn open_vocabulary_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    open_route_panel(&app, &state, SurfaceRoute::Vocabulary)
+    open_surface_panel(&app, &state, VOCABULARY_PANEL)
 }
 
 #[tauri::command]

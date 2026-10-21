@@ -949,7 +949,6 @@ fn macos_single_instance_admits_only_settings_launches() {
         SurfaceRoute::Clipboard,
         SurfaceRoute::CloudClipboard,
         SurfaceRoute::CloudDictionary,
-        SurfaceRoute::Vocabulary,
     ] {
         assert!(!super::macos_settings_launch(Some(route)), "{route:?}");
     }
@@ -1318,7 +1317,7 @@ fn every_opened_panel_label_can_be_closed() {
     ] {
         assert!(closable.contains(&label), "{label}");
     }
-    // Every open_*_panel command opens a route's panel, on whichever host it runs.
+    // Every open_*_panel command opens a route's panel or the vocabulary panel, on whichever host it runs.
     for platform in [
         HostPlatform::Linux,
         HostPlatform::Macos,
@@ -1331,6 +1330,8 @@ fn every_opened_panel_label_can_be_closed() {
             assert!(closable.contains(&surface.label), "{}", surface.label);
         }
     }
+    let vocabulary = crate::panel_window::VOCABULARY_PANEL.label;
+    assert!(closable.contains(&vocabulary), "{vocabulary}");
 }
 #[test]
 fn toolbar_stylesheet_command_errors_do_not_expose_paths() {

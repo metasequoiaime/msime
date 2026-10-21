@@ -295,7 +295,7 @@ private struct MainTabView: View {
     .environmentObject(navigation)
     .environmentObject(router)
     .tint(MetasequoiaTheme.accent)
-    // 键盘发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）：settings[/页面]、feedback、about、voice。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘面板点过来的,落点应该是对应的页面；认不出的链接落在设置。
+    // 键盘发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）：settings[/页面]、feedback、about、voice、voice-session。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘面板点过来的,落点应该是对应的页面；认不出的链接落在设置。
     .onOpenURL { url in
       #if canImport(GoogleSignIn)
       // Google 登录的回调（scheme 是倒序的 iOS client ID）交还给 GoogleSignIn；它不认的链接返回 false。
@@ -309,12 +309,21 @@ private struct MainTabView: View {
       }
       navigation.tab = router.handle(url) ?? .settings
       if url.host == "voice" { navigation.recordsVoice = true }
+      if url.host == "voice-session" { navigation.opensVoiceSession = true }
     }
     .sheet(isPresented: $navigation.recordsVoice) {
       NavigationView {
         ServiceSettingsView(kind: .voice, autoStartVoice: true)
           .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
+          }
+      }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+    }
+    .sheet(isPresented: $navigation.opensVoiceSession) {
+      NavigationView {
+        VoiceSessionView()
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.opensVoiceSession = false } }
           }
       }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
     }

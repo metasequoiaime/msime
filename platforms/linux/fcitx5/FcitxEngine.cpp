@@ -43,7 +43,6 @@
 #include "../src/candidates/FcitxCanvasPanel.h"
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
 #include "../src/candidates/NativeCanvasX11.h"
-#include "../src/candidates/NativeCanvasSnapshot.h"
 #include "../src/candidates/ReduceMotion.h"
 #include "../../../shared/candidate/CandidateExpandedGrid.h"
 #endif
@@ -700,11 +699,6 @@ public:
   // 失焦后会话留给托盘菜单时用它代替 close()：托盘读到的勾选和点下的开关都落在这个会话上，到下一次有上下文获得焦点才真正关掉（见 FcitxEngine::holdMenuContext）。除了 releaseFocusResources，还要停掉录音、按失焦结束组字和候选，与 IBus 宿主失焦时一样只取视图：要上屏的组字已由 focus_watch_ 或 Fcitx5 自己提交，留着的话之后的菜单动作会把它当成正在输入的文字再提交一次。
   void leaveFocus() {
     if (!session_) return;
-#ifdef MSIME_FCITX5_NATIVE_CANVAS
-    // 失焦收起展开的候选（网格或卷轴），候选窗立即撤下。
-    discardExpanded();
-    if (native_canvas_) native_canvas_->hide();
-#endif
     cancelVoice();
     releaseFocusResources();
     if (composingOrCandidates()) {
@@ -716,7 +710,6 @@ public:
   bool menuTarget() const;
   void clearPanel() {
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-    discardExpanded();
     if (native_canvas_) native_canvas_->hide();
 #endif
     hideShuangpinKeymap();
@@ -3780,40 +3773,26 @@ public:
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   bool renderNativeCanvas();
   std::unique_ptr<msime::linux_host::NativeCanvasX11> native_canvas_;
-  // 原生画布画得出来：X11、classicui、有焦点、客户端不自己画面板。
-  bool nativeCanvasDrawable() const;
-  // 原生画布正按 macOS 的结构画（水杉主题或非 canvas 皮肤包），首行的展开键和网格只在这时提供。
+  // 原生画布正按 macOS 的结构画（X11、classicui、水杉主题或非 canvas 皮肤包），首行的展开键和网格只在这时提供。
   bool nativeChromeActive() const;
-  // ---- 展开候选：两种样式共用一份状态 ----
-  // 横排候选窗可以展开成这一代的全部候选，样式跟着原生画布的画法走：
-  // - 网格（chrome，macOS 的「展开候选」，#7307）：`expand_candidates` 打开、不止一页时，↓ 或 Tab（或点首行的展开键）把全部候选排成多行，一行是每页候选数，一次最多看见 kExpandedGridVisibleRows 行（或皮肤的 expand_rows 加 1），高亮所在的行始终可见。网格开着时它接管键盘：←/→ 在行内移动，↑/↓ 换行并保持列，翻页键和 Tab 一次滚过可见的几行，空格和回车选高亮的那一个，数字键选高亮那一行里的第几个，Esc 或第一行再按 ↑ 收起网格而组字保留；它不认的键先收起网格，再照常处理。组字变了就收起。
-  // - 卷轴（canvas 皮肤包的 expandPanel，Windows 的卷轴）：横排右侧固定的展开／收起键，首行仍是当前页，下面排完整列表里当前页之后的候选，画布自己按像素滚动（滚轮、拖滑块、点轨道）。不接管键盘，继续输入时留着并按新的一代重载，滚动随换代、翻页回到顶部。
-  // 两种样式共用：完整候选经 expandedEntries 复制一次（all_candidates 可能推进代次，复制后重读当前页），选择用 msime_client_select_any_candidate 带着复制时的全局身份与一代（selectExpanded），组字没变或卷轴继续输入时候选换了一代就按新的一代重载；失焦、上屏、关掉面板、换皮肤、换竖排、进释义页或打开候选列表时收起。只有 X11 上的原生画布画得出来，classicui 主题、Wayland 和 IBus 不提供。
-  enum class ExpandStyle { none, grid, scroll };
-  ExpandStyle expandStyle() const;
+  // ---- 展开的候选网格（macOS 的「展开候选」，#7307） ----
+  // 横排候选窗在 `expand_candidates` 打开、不止一页时，↓ 或 Tab（或点首行的展开键）把这一代的全部候选排成多行：一行是每页候选数，一次最多看见 kExpandedGridVisibleRows 行，高亮所在的行始终可见。网格开着时它接管键盘：←/→ 在行内移动，↑/↓ 换行并保持列，翻页键和 Tab 一次滚过可见的几行，空格和回车选高亮的那一个，数字键选高亮那一行里的第几个，Esc 或第一行再按 ↑ 收起网格而组字保留；它不认的键先收起网格，再照常处理。网格经 msime_client_all_candidates 复制一次全部候选，选择用 msime_client_select_any_candidate 带着复制时的一代；组字没变而候选换了一代时按新的一代重载，组字变了就收起。只有 X11 上的原生画布画得出网格，classicui 主题、Wayland 和 IBus 不提供。
   std::vector<Json> expanded_;
-  ExpandStyle expanded_style_ = ExpandStyle::none;
-  // 展开时的皮肤资产：换了皮肤（资产重建）就收起。
-  std::weak_ptr<msime::linux_host::NativeCanvasAssets> expanded_assets_;
   uint64_t expanded_session_ = 0, expanded_generation_ = 0;
   std::string expanded_composition_;
   size_t expanded_cursor_ = 0, expanded_first_row_ = 0;
   size_t expandedColumns() const {
     return std::max<size_t>(1, msime::linux_host::strict_json_value(view_, "page_size", size_t{1}));
   }
-  // 网格一次看得见几行：皮肤包的共享版式写了 expand_rows（2–8，只数首行之后的网格）时是它加上当前页这一行，与 macOS 的 windowRows 相同；没有时是 kExpandedGridVisibleRows。卷轴的视口高度由画布按同一个 expand_rows 算。
+  // 一次看得见几行：皮肤包的共享版式写了 expand_rows（2–8，只数首行之后的网格）时是它加上当前页这一行，与 macOS 的 windowRows 相同；没有时是 kExpandedGridVisibleRows。
   size_t expandedVisibleRows(size_t rows) const;
-  // 这时候还能不能展开着（两种样式）。
   bool expandAllowed() const;
-  // 网格能不能打开：上面的条件之外还要是网格样式、不止一页。
   bool expandOffered() const;
   std::vector<Json> expandedEntries();
   bool openExpanded();
   bool expandedStillApplies();
   void discardExpanded() {
     expanded_.clear();
-    expanded_style_ = ExpandStyle::none;
-    expanded_assets_.reset();
     expanded_session_ = expanded_generation_ = 0;
     expanded_composition_.clear();
     expanded_cursor_ = expanded_first_row_ = 0;
@@ -7934,10 +7913,6 @@ std::string FcitxState::candidateAux() const {
 }
 
 void FcitxState::render() {
-#ifdef MSIME_FCITX5_NATIVE_CANVAS
-  // 展开的候选先对照当前视图：换代时重载完整候选，all_candidates 可能放出缓存尾部并推进代次、重读当前页（expandedEntries），必须在下面构建这一页的候选列表之前做完。
-  if (!expanded_.empty() && !expandedStillApplies()) discardExpanded();
-#endif
   if (engine_) {
     engine_->english_action_.update(&ic_);
     engine_->width_action_.update(&ic_);
@@ -8022,46 +7997,43 @@ void FcitxState::render() {
 }
 
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-bool FcitxState::nativeCanvasDrawable() const {
+bool FcitxState::nativeChromeActive() const {
   return engine_ && engine_->native_canvas_owned_ && engine_->native_canvas_assets_ &&
-      engine_->instance_->currentUI() == "classicui" && ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
+      engine_->native_canvas_assets_->chrome && engine_->instance_->currentUI() == "classicui" &&
+      ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
       !ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel);
 }
 
-bool FcitxState::nativeChromeActive() const {
-  return nativeCanvasDrawable() && engine_->native_canvas_assets_->chrome;
-}
-
-// chrome 按「展开候选」偏好给网格；canvas 包按清单的 expandPanel 给卷轴，与 Windows 一样不看那个偏好。
-FcitxState::ExpandStyle FcitxState::expandStyle() const {
-  if (!nativeCanvasDrawable()) return ExpandStyle::none;
-  const auto &assets = *engine_->native_canvas_assets_;
-  if (assets.chrome) return preferences_.value("expand_candidates", false) ? ExpandStyle::grid : ExpandStyle::none;
-  return assets.expand_panel ? ExpandStyle::scroll : ExpandStyle::none;
-}
-
-// 这时候还能不能展开着：有展开样式、横排、有焦点、不是受限输入，没有打开候选列表（韩文汉字、注音）或释义页。
+// 网格这时候还能不能开着：偏好打开、横排、有焦点、原生画布按 macOS 结构画，没有打开候选列表（韩文汉字、注音）或释义页。
 bool FcitxState::expandAllowed() const {
-  return session_ && expandStyle() != ExpandStyle::none && !restricted() &&
+  return session_ && nativeChromeActive() && preferences_.value("expand_candidates", false) &&
       preferences_.value("candidate_layout", std::string("vertical")) == "horizontal" &&
       !translationCandidatesActive() && !msime::linux_host::opened_candidate_list(view_) &&
       !msime::linux_host::korean_hanja_list_open(view_) && !view_.value("candidates", Json::array()).empty();
 }
 
+// 这时候能不能展开：上面的条件之外还要不止一页。
 bool FcitxState::expandOffered() const {
-  return expandAllowed() && expandStyle() == ExpandStyle::grid &&
-      msime::linux_host::strict_json_value(view_, "page_count", 0u) > 1;
+  return expandAllowed() && msime::linux_host::strict_json_value(view_, "page_count", 0u) > 1;
 }
 
-// 这个会话这一代的完整候选。all_candidates 会放出引擎扣着的尾部并推进代次（input-runtime 的 Runtime::all_candidates），所以复制之后重读当前页，按重读后的这一代整份核对（NativeCanvasSnapshot.h：会话、代次和严格递增的全局下标）；混了代、身份不合法或重复时一个也不认，不拿数组位置猜全局下标。即便完整候选不能用，也要换上重读的当前页，旧页的身份可能已经属于上一代。
+// msime_client_all_candidates 的回答里网格要画的候选：只认当前视图这个会话、这一代、身份合法的条目。
 std::vector<Json> FcitxState::expandedEntries() {
   std::vector<Json> entries;
   try {
-    auto snapshot = response(msime_client_all_candidates(session_));
-    view_ = response(msime_client_view(session_));
+    const auto snapshot = response(msime_client_all_candidates(session_));
     const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
-    if (!msime::linux_host::native_canvas_snapshot_current(snapshot, session_, generation)) return entries;
-    for (auto &entry : snapshot.at("candidates")) entries.push_back(std::move(entry));
+    if (msime::linux_host::strict_json_value(snapshot, "session", uint64_t{}) != session_ ||
+        msime::linux_host::strict_json_value(snapshot, "generation", uint64_t{}) != generation)
+      return entries;
+    for (const auto &entry : snapshot.value("candidates", Json::array())) {
+      if (!entry.is_object() || !entry.contains("id") || !entry.at("id").is_object() || !entry.contains("text")) continue;
+      const auto &id = entry.at("id");
+      if (msime::linux_host::strict_json_value(id, "session", uint64_t{}) != session_ ||
+          msime::linux_host::strict_json_value(id, "generation", uint64_t{}) != generation || !id.contains("index"))
+        continue;
+      entries.push_back(entry);
+    }
   } catch (const std::exception &) {
     entries.clear();
   }
@@ -8074,18 +8046,12 @@ size_t FcitxState::expandedVisibleRows(size_t rows) const {
   return std::min(rows, limit);
 }
 
-// 展开。网格：高亮停在普通候选窗正高亮的那一个上，没有更多候选时返回 false，调用方照旧处理这个键。卷轴：只有一页时也展开（展开键翻成收起，下面没有网格）。
+// 打开网格，高亮停在普通候选窗正高亮的那一个上；没有更多候选时返回 false，调用方照旧处理这个键。
 bool FcitxState::openExpanded() {
-  const auto style = expandStyle();
-  if (!expanded_.empty() || !(style == ExpandStyle::grid ? expandOffered() : expandAllowed())) return false;
-  const auto before = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+  if (!expanded_.empty() || !expandOffered()) return false;
   auto entries = expandedEntries();
   const auto page = view_.value("candidates", Json::array());
-  if (entries.empty() || (style == ExpandStyle::grid && entries.size() <= page.size())) {
-    // 复制时推进了代次：当前页已经换成重读的那一页，重画让候选列表跟上新的身份。
-    if (msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) != before) render();
-    return false;
-  }
+  if (entries.size() <= page.size()) return false;
   const auto columns = expandedColumns();
   size_t cursor = std::min(msime::linux_host::strict_json_value(view_, "page", size_t{}) * columns, entries.size() - 1);
   for (const auto &candidate : page) {
@@ -8095,8 +8061,6 @@ bool FcitxState::openExpanded() {
     break;
   }
   expanded_ = std::move(entries);
-  expanded_style_ = style;
-  expanded_assets_ = engine_->native_canvas_assets_;
   expanded_session_ = session_;
   expanded_generation_ = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
   expanded_composition_ = view_.value("editing_text", std::string{});
@@ -8107,15 +8071,13 @@ bool FcitxState::openExpanded() {
   return !expanded_.empty();
 }
 
-// 每次重画和每个键之前对照当前视图；返回 false 表示该收起。
+// 每次重画和每个键之前对照当前视图；返回 false 表示网格该收起。
 bool FcitxState::expandedStillApplies() {
-  if (expanded_.empty() || !expandAllowed() || expandStyle() != expanded_style_ ||
-      expanded_assets_.lock() != engine_->native_canvas_assets_ || session_ != expanded_session_)
-    return false;
-  // 网格跟着一段组字，组字变了就收起；卷轴是一个开关，继续输入时留着。
-  if (expanded_style_ == ExpandStyle::grid && view_.value("editing_text", std::string{}) != expanded_composition_) return false;
-  if (msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) == expanded_generation_) return true;
-  // 候选换了一代（云候选、AI 回答、整句重排到达，卷轴还有继续输入）：按新的一代重载，网格的光标留在原来那个词上，它不在新的一代里时夹在范围内。重载可能再推进一代，记重读后的那一代。
+  if (expanded_.empty() || !expandAllowed()) return false;
+  if (session_ != expanded_session_ || view_.value("editing_text", std::string{}) != expanded_composition_) return false;
+  const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+  if (generation == expanded_generation_) return true;
+  // 组字没变而候选换了一代（云候选、AI 回答、整句重排到达）：按新的一代重载，光标留在原来那个词上，它不在新的一代里时夹在范围内。
   auto entries = expandedEntries();
   if (entries.empty()) return false;
   const auto text = expanded_cursor_ < expanded_.size() ? expanded_[expanded_cursor_].value("text", std::string{}) : std::string{};
@@ -8123,21 +8085,20 @@ bool FcitxState::expandedStillApplies() {
   for (size_t index = 0; index < entries.size(); ++index)
     if (entries[index].value("text", std::string{}) == text) { cursor = index; break; }
   expanded_ = std::move(entries);
-  expanded_generation_ = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
-  expanded_composition_ = view_.value("editing_text", std::string{});
+  expanded_generation_ = generation;
   expanded_cursor_ = cursor;
   return true;
 }
 
-// 选完整候选里的第 index 个（两种样式共用），按复制时的全局身份选，不翻页、不按文字找替代。复制时的一代已经不是当前这一代时什么也不选：网格收起，卷轴重画（重画时按新的一代重载）。网格选完就收起；卷轴留着，上屏后没了候选时随下一次重画收起。`pointer` 是鼠标点选，先开一轮。
+// 选网格里的第 index 个。复制时的一代已经不是当前这一代时什么也不选，只收起网格；`pointer` 是鼠标点选，先开一轮。
 void FcitxState::selectExpanded(size_t index, bool pointer) {
   if (expanded_.empty() || index >= expanded_.size()) return;
   const auto id = expanded_[index].at("id");
   const auto generation = msime::linux_host::strict_json_value(id, "generation", uint64_t{});
   const auto global = msime::linux_host::strict_json_value(id, "index", size_t{});
-  const bool current = ic_.hasFocus() && session_ == expanded_session_ && generation == expanded_generation_ &&
+  const bool current = session_ == expanded_session_ && generation == expanded_generation_ &&
       msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) == generation && !restricted();
-  if (expanded_style_ == ExpandStyle::grid) discardExpanded();
+  discardExpanded();
   if (!current) { render(); return; }
   if (pointer) pointerTurn();
   try {
@@ -8256,12 +8217,14 @@ bool FcitxState::renderNativeCanvas() {
   namespace host = msime::linux_host;
   const auto list = ic_.inputPanel().candidateList();
   // 客户端自己画候选面板（ClientSideInputPanel，例如 fcitx5-gtk 的客户端面板）时 classicui 也不画，原生画布同样让给它。
-  const bool drawable = nativeCanvasDrawable();
+  const bool drawable = engine_ && engine_->native_canvas_owned_ && engine_->native_canvas_assets_ &&
+      engine_->instance_->currentUI() == "classicui" && ic_.hasFocus() && ic_.display().rfind("x11:", 0) == 0 &&
+      !ic_.capabilityFlags().test(fcitx::CapabilityFlag::ClientSideInputPanel);
   if (!drawable || !list || list->size() == 0) {
     // 只有普通收起（上屏、取消后没了候选）播退场；失焦、换界面、换到 Wayland 一律立即收起，不在屏幕上留旧候选文字。同一个输入上下文换进密码、数字或敏感字段（Chromium、Electron 复用一个 IC）时也立即收起，不让上一个字段的候选在退场里多留一会儿；只带 NoSpellCheck 的普通字段照常播退场。
     const bool animate = drawable && !restricted() && !ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive);
     if (native_canvas_) native_canvas_->hide(animate);
-    discardExpanded();
+    if (!drawable) discardExpanded();
     return false;
   }
   const auto &assets = *engine_->native_canvas_assets_;
@@ -8328,15 +8291,8 @@ bool FcitxState::renderNativeCanvas() {
     }
     return result;
   };
-  // 展开状态已在 render() 开头对照过当前视图；两种样式都只认展开时的那种画法。
-  const bool grid = chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::grid;
-  const bool scroll = !chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::scroll;
-  // 展开／收起键：网格和卷轴共用，开的时候收起、收着的时候展开。
-  const auto toggle = [this](bool open) {
-    if (open) openExpanded();
-    else closeExpanded();
-  };
-  if (grid) {
+  if (chrome && !expanded_.empty() && !expandedStillApplies()) discardExpanded();
+  if (chrome && !expanded_.empty()) {
     // 网格：可见的几行，只有高亮所在的那一行有序号；首行是「行 / 总行数」和收起键。
     const auto columns = expandedColumns();
     const auto count = expanded_.size();
@@ -8358,14 +8314,13 @@ bool FcitxState::renderNativeCanvas() {
     content.grid_row = cursor_row;
     content.grid_rows = rows;
     content.selection_context.clear();
-    content.expanded = true;
-    // 画出来的这一代已经被重载替换时不选（下标会落到新的一代上）。
-    content.select = [this, first, generation = expanded_generation_](int at) {
-      if (ic_.hasFocus() && !restricted() && at >= 0 && expanded_generation_ == generation)
-        selectExpanded(first + static_cast<size_t>(at), true);
+    content.select = [this, first](int at) {
+      if (ic_.hasFocus() && !restricted() && at >= 0) selectExpanded(first + static_cast<size_t>(at), true);
     };
     content.grid_scroll = [this](bool backwards) { scrollExpanded(backwards); };
-    content.expand = toggle;
+    content.expand = [this](bool open) {
+      if (!open) closeExpanded();
+    };
   } else {
     for (int at = 0; at < list->size(); ++at) {
       if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at))) {
@@ -8374,35 +8329,8 @@ bool FcitxState::renderNativeCanvas() {
         content.items.push_back({label(list->label(at).toString()), list->candidate(at).text().toString()});
       }
     }
-    // 卷轴：首行仍是当前页，下面是完整候选里当前页之后的那些（跳过联网占位和空文字），不画序号和释义；命中下标接在当前页后面，按完整候选里的位置选。
-    std::vector<size_t> grid_entries;
-    if (scroll) {
-      const auto &page = view_.at("candidates");
-      const auto last = page.empty() ? size_t{} :
-          host::strict_json_required_integer<size_t>(page.back().at("id").at("index"));
-      for (size_t at = 0; at < expanded_.size(); ++at) {
-        const auto &entry = expanded_[at];
-        if (host::strict_json_required_integer<size_t>(entry.at("id").at("index")) <= last ||
-            host::strict_json_value(entry, "source", uint64_t{}) == 12 ||
-            entry.at("text").get_ref<const std::string &>().empty()) continue;
-        const auto display = candidateDisplay(entry, traditionalApplies(), showCandidateAnnotations(),
-            host::korean_hanja_gloss(view_, entry), traditional_variant_);
-        content.grid_items.push_back({{}, display.body, {}, display.suffix});
-        grid_entries.push_back(at);
-      }
-      content.expanded = true;
-      // 同一段组字、同一页、同样的简繁投影重画时画布保留滚动位置；后台换代（云候选、释义到达）不算，继续输入、翻页才回到顶部。
-      content.revision = std::to_string(session_) + "\n" + view_.value("editing_text", std::string{}) + "\n" +
-          std::to_string(host::strict_json_value(view_, "page", size_t{})) + "\n" +
-          std::to_string(traditionalApplies()) + ":" + std::to_string(traditional_variant_);
-      content.page_size = host::strict_json_value(view_, "page_size", size_t{9});
-    }
-    content.select = [this, list, grid_entries = std::move(grid_entries), generation = expanded_generation_](int at) {
-      if (!ic_.hasFocus() || restricted() || at < 0) return;
-      if (at < list->size()) { list->candidate(at).select(&ic_); return; }
-      const auto cell = static_cast<size_t>(at - list->size());
-      if (cell < grid_entries.size() && !expanded_.empty() && expanded_generation_ == generation)
-        selectExpanded(grid_entries[cell], true);
+    content.select = [this, list](int at) {
+      if (ic_.hasFocus() && !restricted() && at >= 0 && at < list->size()) list->candidate(at).select(&ic_);
     };
     if (auto *page = list->toPageable()) {
       content.previous = page->hasPrev(); content.next = page->hasNext();
@@ -8427,11 +8355,12 @@ bool FcitxState::renderNativeCanvas() {
       }
       return result;
     };
-    // 展开键。网格：「展开候选」打开、显示展开按钮、横排而且不止一页。卷轴：清单打开 expandPanel、横排，没在释义页或候选列表里；展开着时它是收起键。
-    if (chrome ? expandOffered() && preferences_.value("show_candidate_expand_button", true)
-               : scroll || (expandStyle() == ExpandStyle::scroll && expandAllowed())) {
+    // 展开键：「展开候选」打开、显示展开按钮、横排而且不止一页。
+    if (chrome && expandOffered() && preferences_.value("show_candidate_expand_button", true)) {
       content.expandable = true;
-      content.expand = toggle;
+      content.expand = [this](bool open) {
+        if (open) openExpanded();
+      };
     }
   }
   if (!native_canvas_) native_canvas_ = std::make_unique<host::NativeCanvasX11>(*loop_);
@@ -8439,10 +8368,9 @@ bool FcitxState::renderNativeCanvas() {
   const auto cursor = ic_.cursorRect();
   if (!native_canvas_->show(ic_.display(), engine_->native_canvas_assets_, std::move(content),
       engine_->native_canvas_palette_, cursor.left(), cursor.top(), cursor.height())) {
-    // 展开后画不下（工作区太小）时收起，接着由原生画布画普通的一页，不把这一帧交给 classicui；普通的一页也画不出来（工作区太小、X 连接失败）时才由 classicui 画。
-    if (expanded_.empty()) return false;
+    // 原生画布画不出来（工作区太小、X 连接失败）时由 classicui 画普通的一页，网格随之收起。
     discardExpanded();
-    return renderNativeCanvas();
+    return false;
   }
   const auto client_preedit = ic_.inputPanel().clientPreedit();
   ic_.inputPanel().reset();
@@ -8791,9 +8719,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (event.isRelease()) return false;
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-  // 网格开着时先由它处理；横排候选窗的 ↓ 和 Tab 在「展开候选」打开、不止一页时展开网格（只有一页、竖排、候选列表开着时 openExpanded 返回 false，键照下面的规则走）。canvas 包的卷轴不接管键盘，也不由键盘打开。
-  if (!expanded_.empty() && expanded_style_ == ExpandStyle::grid && expandedKey(event)) return true;
-  if (expanded_.empty() && expandStyle() == ExpandStyle::grid && !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+  // 网格开着时先由它处理；横排候选窗的 ↓ 和 Tab 在「展开候选」打开、不止一页时展开网格（只有一页、竖排、候选列表开着时 openExpanded 返回 false，键照下面的规则走）。
+  if (!expanded_.empty() && expandedKey(event)) return true;
+  if (expanded_.empty() && !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                                              fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                                              fcitx::KeyState::Mod5}) &&
       !event.rawKey().states().test(fcitx::KeyState::Shift) &&

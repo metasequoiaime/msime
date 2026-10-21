@@ -27,7 +27,6 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
             .put("scheme", "shuangpin")
             .put("shuangpin_profile", "microsoft")
             .put("touch_keyboard_layout", "twenty_six_key")
-            .put("touch_shuangpin_key_hints", true)
             .put("touch_keyboard_schemes", new JSONObject()
                 .put("enabled", new JSONArray().put("microsoft"))
                 .put("selected", "microsoft"));
@@ -42,9 +41,6 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
 
             stage = "Microsoft ing key visibility";
             await(microsoftKey());
-            stage = "Microsoft double-pinyin hints visible";
-            await(node -> node.getContentDescription() != null
-                && node.getContentDescription().toString().contains("；双拼提示"));
             stage = "Microsoft ing key Engine route";
             tap(key("b"));
             tap(microsoftKey());

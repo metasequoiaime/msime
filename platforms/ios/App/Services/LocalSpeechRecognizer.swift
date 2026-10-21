@@ -93,11 +93,17 @@ final class LocalSpeechEngine: @unchecked Sendable {
   private var cached: (key: Key, recognizer: LoadedLocalRecognizer)?
   private var idleRelease: DispatchWorkItem?
 
+  /// 按住说话的后台会话开着时为 true：App 在后台正是为了听写，进入后台不释放模型，否则每句话都要重新加载。只在主线程上读写。
+  var keepsModelInBackground = false
+
   private init() {
     NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil,
                                            queue: nil) { [weak self] _ in self?.release() }
     NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
-                                           queue: nil) { [weak self] _ in self?.release() }
+                                           queue: nil) { [weak self] _ in
+      guard let self, !keepsModelInBackground else { return }
+      release()
+    }
   }
 
   /// Runs sherpa work off the main thread, one call at a time.

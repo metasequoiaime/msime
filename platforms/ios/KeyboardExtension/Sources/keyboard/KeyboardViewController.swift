@@ -162,6 +162,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var oneHandGutterWidth: NSLayoutConstraint?
   /// 长按空格键时在键区打开的语音面板。
   private var voicePanel: KeyboardVoicePanelView?
+  /// 正在进行的按住说话，录音和识别在后台的主 App 里（`KeyboardVoiceDictation`）。
+  private var voiceDictation: KeyboardVoiceDictation?
+  /// 听写开始时的输入位置；结果回来时位置变了就不直接上屏。
+  private var voiceDictationContext: KeyboardDocumentContext?
+  /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
+  private var voiceHoldOriginY: CGFloat?
   private let handwriting = HandwritingInputView()
   /// 手写区：标点列、书写卡片和 ⌫ / 重写列，与 Android 的 rebuildHandwritingRows 布局一致。
   private let handwritingPad = UIStackView()
@@ -888,7 +894,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
   private static func spaceAccessibilityHint(voice: Bool) -> String {
-    voice ? "轻点输入空格或选词，左右滑动移动光标，长按打开语音输入" : "轻点输入空格或选词，左右滑动或长按移动光标"
+    voice ? "轻点输入空格或选词，左右滑动移动光标，按住说话，松开上屏" : "轻点输入空格或选词，左右滑动或长按移动光标"
   }
 
   override func selectionWillChange(_ textInput: UITextInput?) {
@@ -3309,7 +3315,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if spaceVoiceEnabled {
       actions.append(UIAccessibilityCustomAction(name: "语音输入") { [weak self] _ in
         guard let self, voiceInsertionReady else { return false }
-        showVoicePanel()
+        // 会话开着时直接开始听写，点圆球结束；没开时先打开语音面板，由它去开启会话或插入待取的结果。
+        if hasFullAccess && KeyboardVoiceDictation().sessionAvailable { startVoiceFromSpace(held: false) } else { showVoicePanel() }
         return true
       })
     }
@@ -4569,18 +4576,40 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if !spaceHoldMovesCursor {
         countKeyPress(TypingKeyID.space)
         playInputClick()
-        startVoiceFromSpace()
+        startVoiceFromSpace(held: true, originY: hold.location(in: view).y)
       }
     }
     if spaceHoldMovesCursor {
       handleSpaceCursorMovement(hold.state, at: hold.location(in: view).x,
                                 velocity: 0, space: hold.view as? UIButton)
+    } else if let dictation = voiceDictation, let originY = voiceHoldOriginY {
+      // 按住说话：松开结束，上滑超过键盘高度的四分之一后松开取消（Android 的 `VoiceHoldPolicy`）。
+      switch hold.state {
+      case .changed:
+        voicePanel?.setCancelling(Self.voiceHoldCancels(originY: originY, y: hold.location(in: view).y,
+                                                        height: view.bounds.height))
+      case .ended:
+        voiceHoldOriginY = nil
+        if voicePanel?.isCancelling == true { closeKeyboardPicker() } else { dictation.finish() }
+      case .cancelled, .failed:
+        closeKeyboardPicker()
+      default:
+        break
+      }
     }
     if [.ended, .cancelled, .failed].contains(hold.state) { spaceHoldMovesCursor = false }
   }
 
-  /// 键盘扩展不能录音；长按空格直接把用户带到主 App 的录音页，由深链进入逻辑自动开始录音。
-  private func startVoiceFromSpace() {
+  /// 对应 Android 的 `VoiceHoldPolicy.CANCEL_ZONE_FRACTION`。
+  static let voiceCancelFraction: CGFloat = 0.25
+
+  /// 按住说话时手指从按下处上滑超过键盘高度的四分之一就进入取消区。
+  static func voiceHoldCancels(originY: CGFloat, y: CGFloat, height: CGFloat) -> Bool {
+    originY - y > height * voiceCancelFraction
+  }
+
+  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时是读屏操作开始的听写，点圆球结束。
+  private func startVoiceFromSpace(held: Bool, originY: CGFloat? = nil) {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
       renderCandidateStrip()
@@ -4589,10 +4618,88 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard voiceInsertionReady else { return }
     closeKeyboardService()
     closeKeyboardPicker()
-    KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
+    let dictation = KeyboardVoiceDictation()
+    guard dictation.sessionAvailable else {
+      openVoiceSession()
+      return
+    }
+    voiceDictationContext = KeyboardHostContext.documentIdentifier(for: textDocumentProxy).map {
+      KeyboardDocumentContext(document: $0, before: textDocumentProxy.documentContextBeforeInput,
+                              selected: textDocumentProxy.selectedText, after: textDocumentProxy.documentContextAfterInput)
+    }
+    voiceHoldOriginY = held ? originY : nil
+    let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
+    panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
+    panel.onOrb = { [weak self] in self?.voiceDictation?.finish() }
+    dictation.onEvent = { [weak self] event in self?.handleVoiceDictation(event) }
+    voiceDictation = dictation
+    voicePanel = panel
+    // 按着的手指属于空格键，面板盖住键区时不能让这一行停止接收触摸，否则松开和上滑都收不到。
+    installPanel(panel, keepsKeyTouches: held)
+    dictation.start()
   }
 
-  /// 键区里的语音结果面板。键盘扩展不能录音，面板只负责读取待插入的交接结果；长按空格改走 `startVoiceFromSpace()` 直接打开主 App 的录音页。点圆球时会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
+  /// 打开 App 的语音会话页。打不开时说明原因，不让长按空格看起来毫无反应。
+  private func openVoiceSession() {
+    KeyboardAppLauncher.open(KeyboardAppLauncher.voiceSessionURL, from: self) { [weak self] opened in
+      guard !opened else { return }
+      DispatchQueue.main.async {
+        self?.showDiagnostic("未能打开水杉，请手动打开水杉 App 开启语音。")
+        self?.renderCandidateStrip()
+      }
+    }
+  }
+
+  private func handleVoiceDictation(_ event: KeyboardVoiceDictation.Event) {
+    switch event {
+    case .listening(let text):
+      voicePanel?.showListening(text)
+    case .recognizing(let text, let message):
+      voicePanel?.showRecognizing(text: text, message: message)
+    case .finished(let text):
+      let context = voiceDictationContext
+      endVoiceDictation()
+      insertVoiceResult(text, context: context)
+    case .failed(let message, let reopensSession):
+      endVoiceDictation()
+      showDiagnostic(message)
+      renderCandidateStrip()
+      if reopensSession { openVoiceSession() }
+    }
+  }
+
+  /// 听写已经结束：收起面板，不再向 App 发取消。
+  private func endVoiceDictation() {
+    voiceDictation = nil
+    voiceDictationContext = nil
+    voiceHoldOriginY = nil
+    closeKeyboardPicker()
+  }
+
+  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。
+  private func insertVoiceResult(_ text: String, context: KeyboardDocumentContext?) {
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      showDiagnostic("没有听到内容，请靠近麦克风再试。")
+      renderCandidateStrip()
+      return
+    }
+    if hasFullAccess, voiceInsertionReady, let context,
+       context.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
+                       before: textDocumentProxy.documentContextBeforeInput, selected: textDocumentProxy.selectedText,
+                       after: textDocumentProxy.documentContextAfterInput) {
+      insertOwnText(text, source: .voice)
+      return
+    }
+    do {
+      try VoiceTextHandoffStore().save(text)
+      showDiagnostic("输入位置已变化，结果已保留，可在功能菜单的“语音结果”里插入。")
+    } catch {
+      showDiagnostic(error.localizedDescription)
+    }
+    renderCandidateStrip()
+  }
+
+  /// 键区里的语音结果面板，读屏的「语音输入」操作在语音会话还没开时打开它：有待插入的交接结果时点圆球插入，没有时点圆球去 App 开启语音会话；长按空格走 `startVoiceFromSpace(held:originY:)`。插入前会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
   private func showVoicePanel() {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
@@ -4619,7 +4726,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let self else { return }
       closeKeyboardPicker()
       guard let entry else {
-        KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
+        openVoiceSession()
         return
       }
       insertVoiceHandoff(entry, store: store, context: context)
@@ -7361,7 +7468,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 在键区显示 `panel`：位于顶栏之下、按键之上，面板打开期间按键隐藏，透明面板就不会透出它们。工具栏留在上方且可操作，因为关面板靠的就是它的按钮。
-  private func installPanel(_ panel: UIView) {
+  /// `keepsKeyTouches` 为真时键区只是看不见，按着的手指（按住空格说话）照常收到松开和移动；新的触摸落在面板上。
+  private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false) {
     guard let root = keyboardRoot, let topRow = compositionContainer else { return }
     // 面板替换回复面板的方式与替换按键相同。
     if replyKeyboardShown { closeReplyKeyboard() }
@@ -7375,7 +7483,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: root.trailingAnchor),
     ])
-    setKeyRowsCovered(true)
+    setKeyRowsCovered(true, keepsTouches: keepsKeyTouches)
     updateToolbarActiveState()
     UIAccessibility.post(notification: .layoutChanged, argument: panel)
   }
@@ -7386,10 +7494,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
-  private func setKeyRowsCovered(_ covered: Bool) {
+  private func setKeyRowsCovered(_ covered: Bool, keepsTouches: Bool = false) {
     for row in keyColumn.arrangedSubviews + [oneHandGutter] {
       row.alpha = covered ? 0 : 1
-      row.isUserInteractionEnabled = !covered
+      row.isUserInteractionEnabled = !covered || keepsTouches
       row.accessibilityElementsHidden = covered
     }
   }
@@ -7748,6 +7856,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.removeFromSuperview()
       voicePanel = nil
       UIAccessibility.post(notification: .layoutChanged, argument: spaceButton)
+    }
+    // 听写还没结束时面板被关掉（点面板、上滑取消、键盘收起、换出别的面板）就取消它。
+    if let dictation = voiceDictation {
+      voiceDictation = nil
+      voiceDictationContext = nil
+      voiceHoldOriginY = nil
+      dictation.cancel()
     }
     if keyAreaPanel != nil {
       keyAreaPanel = nil

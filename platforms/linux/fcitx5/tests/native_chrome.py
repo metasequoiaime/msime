@@ -249,31 +249,9 @@ def main():
                     subprocess.run(["xdotool", "key", "Right"], check=True, timeout=5)
                     pump()
                     assert entry.get_text() == "", "网格里移动高亮错误地上屏"
-                    # 网格里滚轮一格滚一行，高亮跟着留在可见的几行里，不翻页也不上屏。
-                    before_wheel = selected_pixels()
-                    l, t, r, b = card_bounds(SELECTED)
-                    subprocess.run(["xdotool", "mousemove", str((l + r) // 2), str((t + b) // 2), "click", "5"],
-                                   check=True, timeout=5)
-                    wait(lambda: selected_pixels() != before_wheel)
-                    assert entry.get_text() == "", "网格里的滚轮错误地上屏"
-                    save_image("grid-wheel")
-                    subprocess.run(["xdotool", "mousemove", "0", "0"], check=True, timeout=5)
                     subprocess.run(["xdotool", "key", "Escape"], check=True, timeout=5)
                     wait(lambda: int(window_geometry(native_window())["HEIGHT"]) == height)
                     assert entry.get_text() == "", "收起网格错误地上屏或清掉了组字"
-
-                    def expand_key():
-                        # 首行最右端的展开键；网格里同一个位置是收起键（28pt 宽，内边距 4pt，首行从卡片顶边 4pt 处开始、26pt 高）。
-                        settle()
-                        _, top, card_right, _ = card_rect()
-                        return card_right - (4 + 14) * SCALE, top + (4 + 13) * SCALE
-
-                    subprocess.run(["xdotool", "mousemove", *map(str, expand_key()), "click", "1"], check=True, timeout=5)
-                    wait(lambda: int(window_geometry(native_window())["HEIGHT"]) > height + 20 * SCALE)
-                    subprocess.run(["xdotool", "mousemove", *map(str, expand_key()), "click", "1"], check=True, timeout=5)
-                    wait(lambda: int(window_geometry(native_window())["HEIGHT"]) == height)
-                    assert entry.get_text() == "", "展开键或收起键错误地上屏"
-                    subprocess.run(["xdotool", "mousemove", "0", "0"], check=True, timeout=5)
                 # 点选高亮的候选上屏，候选窗随之收起。
                 selected = card_bounds(SELECTED)
                 subprocess.run(["xdotool", "mousemove", str((selected[0] + selected[2]) // 2),
