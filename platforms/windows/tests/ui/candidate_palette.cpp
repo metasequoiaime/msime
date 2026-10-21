@@ -186,12 +186,21 @@ int main() {
   require(skinned.menu_fill == defaults.menu_fill &&
           skinned.menu_text == skinned.text);
 
-  // A fixed candidate uses the accent only until it becomes the selected row, where the selected text wins; a transparent selected text keeps the normal colour.
+  // A fixed candidate uses macOS's fixed #379AD3 only until it becomes the selected row, where the selected text wins; a transparent selected text keeps the normal colour. The theme's accent does not change it.
   const auto normal_text = candidate_rgb(0x123456);
   require(candidate_row_text_color(defaults, normal_text, false, false) ==
           normal_text);
   require(candidate_row_text_color(defaults, normal_text, false, true) ==
-          defaults.accent);
+          candidate_rgb(0x379AD3));
+  CandidatePaletteOverrides tinted;
+  tinted.accent = "#FF0000";
+  require(candidate_row_text_color(candidate_palette(tinted), normal_text, false, true) ==
+          candidate_rgb(0x379AD3));
+  // 没有皮肤释义色时，未高亮的固定排位候选的释义是 #379AD3 的 0.62 倍透明度；高亮行照常用选中序号色。
+  require(candidate_row_translation_color(defaults, false, true) ==
+          candidate_rgb(0x379AD3, 0.62f));
+  require(candidate_row_translation_color(defaults, true, true) ==
+          candidate_row_translation_color(defaults, true, false));
   require(candidate_row_text_color(defaults, normal_text, true, false) ==
           defaults.selected_text);
   CandidatePaletteOverrides keep;
@@ -240,7 +249,8 @@ int main() {
             toolbar.selected == base.selected &&
             toolbar.selected_text == base.selected_text &&
             toolbar.accent == base.accent);
-    require(toolbar.radius == 8.0f && toolbar.border_width > 0.0f);
+    // macOS's toolbar card: radius 10, a 1 DIP hairline.
+    require(toolbar.radius == 10.0f && toolbar.border_width == 1.0f);
   }
 
   // The tray menu draws the menu slots of the same palette.

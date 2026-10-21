@@ -60,12 +60,14 @@ docker run --rm --init \
       -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
     cmake --build /build/cmake
     ctest --test-dir /build/cmake --output-on-failure --output-junit /build/native-tests.xml
-    # 三项真实 classicui 测试必须注册并执行，缺依赖或返回 77 都不能让门禁假绿。
+    # 三项真实 classicui 测试和三项在 Xvfb 里画 IBus 切换徽章的测试必须注册并执行，缺依赖或返回 77 都不能让门禁假绿。
     python3 - /build/native-tests.xml <<"PY"
 import sys
 import xml.etree.ElementTree as ET
 report = ET.parse(sys.argv[1]).getroot()
-for name in ("fcitx5-candidate-theme-priority", "fcitx5-candidate-theme-hint", "fcitx5-candidate-theme-canvas"):
+for name in ("fcitx5-candidate-theme-priority", "fcitx5-candidate-theme-hint", "fcitx5-candidate-theme-canvas",
+             "ibus-mode-hint-x11-badge", "ibus-mode-hint-x11-badge-no-caret",
+             "ibus-mode-hint-x11-badge-point"):
     tests = [test for test in report.findall("testcase") if test.get("name") == name]
     assert len(tests) == 1, f"{name}: missing from Linux gate"
     assert tests[0].get("status") == "run" and tests[0].find("skipped") is None, f"{name}: skipped"

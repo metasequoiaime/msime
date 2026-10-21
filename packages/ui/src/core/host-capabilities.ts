@@ -11,7 +11,7 @@ export interface HostCapabilities {
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
-  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
+  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS、Windows 和 Linux）。 */
   app_input_mode_rules?: boolean;
   typing_statistics: boolean;
   /** 宿主已接通共享的背单词入口。 */
@@ -130,13 +130,13 @@ export interface HostCapabilities {
   music: boolean;
   /** 宿主绘制打字特效及 `msime_client_typing_effect` 返回的连击计数。 */
   typing_effects: boolean;
-  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
+  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（macOS 和 Linux）。 */
   caps_lock_punctuation?: boolean;
   /** 宿主能分辨 Caps Lock 的轻点和长按并撤回大写锁定，「单按 Caps Lock 切换中英文」在这里有效（三个桌面宿主）。 */
   caps_lock_language_switch?: boolean;
   /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
   shift_letter_entry_switch?: boolean;
-  /** 宿主把快捷短语编码追加到普通候选，目前只有 macOS。 */
+  /** 宿主把快捷短语编码追加到普通候选（macOS 和 Linux）。 */
   quick_phrase_candidates?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;

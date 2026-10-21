@@ -10,6 +10,77 @@ use super::utils::{
     pinyin_segmentation, takes_two_keys,
 };
 use super::ShuangpinProfile;
+use crate::pinyin::fuzzy::fuzzy_initial_partners;
+use crate::types::FuzzyPinyinOptions;
+
+/// 非法两键只尝试已启用的声母伙伴，保留普通切分与用户手动边界。
+pub(crate) fn fuzzy_initial_spellings(
+    raw: &str,
+    profile: &ShuangpinProfile,
+    options: FuzzyPinyinOptions,
+    limit: usize,
+) -> Vec<String> {
+    if options.rules == 0 || limit == 0 || !raw.is_ascii() {
+        return Vec::new();
+    }
+    let mut paths: Vec<String> = Vec::new();
+    let bytes = raw.as_bytes();
+    let mut position = 0;
+    while position < bytes.len() {
+        let width = if bytes[position] != b'\'' && takes_two_keys(bytes, position, profile) {
+            2
+        } else {
+            1
+        };
+        let mut alternatives = Vec::new();
+        if width == 1
+            && bytes[position].is_ascii_lowercase()
+            && bytes.get(position + 1).is_some_and(u8::is_ascii_lowercase)
+        {
+            let initial = super::utils::initial_for_key(&raw[position..position + 1], profile);
+            for partner in fuzzy_initial_partners(initial, options) {
+                let key = profile
+                    .initials
+                    .iter()
+                    .find(|(unit, _)| *unit == partner)
+                    .map_or(partner, |(_, key)| *key);
+                if key.len() != 1 {
+                    continue;
+                }
+                let code = format!("{key}{}", char::from(bytes[position + 1]));
+                if super::utils::is_accepted_syllable_code(&code, profile)
+                    && !alternatives.contains(&code)
+                {
+                    alternatives.push(code);
+                }
+            }
+        }
+        if alternatives.is_empty() {
+            for path in &mut paths {
+                path.push_str(&raw[position..position + width]);
+            }
+            position += width;
+        } else {
+            if paths.is_empty() {
+                paths.push(raw[..position].to_owned());
+            }
+            let mut next = Vec::new();
+            'paths: for path in paths {
+                for code in &alternatives {
+                    let mut updated = path.clone();
+                    updated.push_str(code);
+                    next.push(updated);
+                    if next.len() == limit {
+                        break 'paths;
+                    }
+                }
+            }
+            paths = next;
+            position += 2;
+        }
+    }
+    paths
+}
 
 pub fn segment_input(raw: &str, profile: &ShuangpinProfile) -> String {
     // Empty chunks from `''` or a leading or trailing `'` contribute nothing (:20-54).
@@ -267,6 +338,31 @@ mod tests {
 
     fn microsoft() -> &'static ShuangpinProfile {
         profile(ShuangpinProfileKind::Microsoft).unwrap()
+    }
+
+    #[test]
+    fn invalid_initial_fuzzy_spellings_are_bounded_and_keep_manual_edges() {
+        let enabled = FuzzyPinyinOptions {
+            rules: crate::types::fuzzy_rule::S_SH,
+        };
+        assert_eq!(
+            fuzzy_initial_spellings("slrf", xiaohe(), enabled, 32),
+            ["ulrf"]
+        );
+        assert_eq!(
+            fuzzy_initial_spellings("sl'rf", xiaohe(), enabled, 32),
+            ["ul'rf"]
+        );
+        assert!(fuzzy_initial_spellings("s'lrf", xiaohe(), enabled, 32).is_empty());
+        assert!(fuzzy_initial_spellings("ulrf", xiaohe(), enabled, 32).is_empty());
+        assert!(fuzzy_initial_spellings("slrf", xiaohe(), enabled, 0).is_empty());
+        assert!(
+            fuzzy_initial_spellings("slrf", xiaohe(), FuzzyPinyinOptions::default(), 32).is_empty()
+        );
+        assert_eq!(
+            fuzzy_initial_spellings(&"sl".repeat(64), xiaohe(), enabled, 1),
+            ["ul".repeat(64)]
+        );
     }
 
     #[test]

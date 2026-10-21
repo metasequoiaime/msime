@@ -115,14 +115,16 @@ int main() {
     require(accessible_selection_change(tree, moved) == std::optional<int>(2));
     value.candidates[0].highlighted = true;
     value.candidates[1].highlighted = false;
-    // 脚本插件的注释跟在引擎注释后面读，和卡片上画的次序一样；只有插件注释时直接跟在候选后面。
+    // 脚本插件的注释最后读：在引擎注释和韩文汉字的 훈음 之后，和卡片上画在释义那一段最后一行的次序一样；读的是收拾成一行的文本。前面照 macOS 加「，插件注释：」。
     value.candidates[1].script_annotation = "常用";
-    value.candidates[0].script_annotation = "问候";
+    value.candidates[0].script_annotation = " 问\n候 ";
+    value.candidates[0].gloss = "나라 이름 한";
     const auto annotated = candidate_accessible_tree(value, rows, pager, metrics, true, frame,
                                                      true, true, "水杉输入法");
-    require(element(annotated, 2).name == "2  拟好* rv 常用");
-    require(element(annotated, 1).name == "1  你好 问候");
+    require(element(annotated, 2).name == "2  拟好* rv，插件注释：常用");
+    require(element(annotated, 1).name == "1  你好 나라 이름 한，插件注释：问 候");
     value.candidates[0].script_annotation.clear();
+    value.candidates[0].gloss.clear();
     value.candidates[1].script_annotation.clear();
 
     // 第一页上的上一页箭头和画出来的一样不可用；下一页总是可用，因为页数会随翻页增长。

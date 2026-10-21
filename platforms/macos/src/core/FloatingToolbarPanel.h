@@ -75,6 +75,10 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)applyLightSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark;
 /// Use the toolbar's own palette, independent of candidate color overrides.
 - (void)applyLightToolbarSkin:(const msime::mac::SkinTokens &)light darkSkin:(const msime::mac::SkinTokens &)dark;
+/// 图片模式独立于候选取色器，沿用当前宿主解析出的明暗皮肤与资源缓存。
+- (void)applyLightToolbarImage:(const msime::mac::SkinToolbarImage &)light darkSkin:(const msime::mac::SkinToolbarImage &)dark;
+/// 同名皮肤原子替换后清空解码缓存，即使新旧清单字节相同也重新读资源。
+- (void)reloadToolbarImages;
 @end
 #define MSIMEFloatingToolbarDelegate MetasequoiaFloatingToolbarDelegate
 #define MSIMEFloatingToolbarPanel MetasequoiaFloatingToolbarPanel

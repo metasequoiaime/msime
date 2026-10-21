@@ -1,5 +1,6 @@
 #pragma once
 #include "PipeTicket.h"
+#include <atomic>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -35,6 +36,7 @@ public:
     FocusChange change{current_, {ticket, ++next_epoch_, token}, ready_};
     current_ = change.pending;
     ready_ = false;
+    publish_locked();
     return change;
   }
   // Prepare the queue-owned Engine session before scheduling its worker fence.
@@ -62,10 +64,12 @@ public:
     } catch (...) {
       current_.reset();
       ready_ = false;
+      publish_locked();
       throw;
     }
     current_.reset();
     ready_ = false;
+    publish_locked();
     return false;
   }
   // Check AND execute under the same focus lock so a new activation cannot
@@ -95,6 +99,7 @@ public:
       return false;
     current_.reset();
     ready_ = false;
+    publish_locked();
     return true;
   }
   // Drop whatever focus is current, whoever owns it. Used when every session
@@ -103,6 +108,7 @@ public:
     std::lock_guard lock(mutex_);
     current_.reset();
     ready_ = false;
+    publish_locked();
   }
   bool invalidate(const PipeTicket &ticket) {
     std::lock_guard lock(mutex_);
@@ -110,6 +116,7 @@ public:
       return false;
     current_.reset();
     ready_ = false;
+    publish_locked();
     return true;
   }
   // Snapshot the currently acknowledged focus lease for host work that must
@@ -119,8 +126,15 @@ public:
     std::lock_guard lock(mutex_);
     return ready_ ? current_ : std::nullopt;
   }
+  // Lock-free: whether `lease` is still the focus this gate holds. try_with_active reports a busy gate and a lost lease alike as false; a UI thread that must tell them apart without waiting behind a pipe writer asks this. Every activation takes a new epoch, so a different focus, a deactivation or an invalidated transport all answer false. The answer can be stale only for the instant of a concurrent change.
+  bool still_current(const FocusLease &lease) const {
+    return lease.epoch != 0 && current_epoch_.load(std::memory_order_acquire) == lease.epoch;
+  }
 
 private:
+  void publish_locked() {
+    current_epoch_.store(current_ ? current_->epoch : 0, std::memory_order_release);
+  }
   bool matches(const FocusLease &lease) const {
     return current_ && current_->epoch == lease.epoch &&
            current_->token == lease.token &&
@@ -130,5 +144,7 @@ private:
   uint64_t next_epoch_ = 0;
   std::optional<FocusLease> current_;
   bool ready_ = false;
+  // current_'s epoch (0 for none), mirrored for still_current().
+  std::atomic<uint64_t> current_epoch_{0};
 };
 } // namespace msime::windows

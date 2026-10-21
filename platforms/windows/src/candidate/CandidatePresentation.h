@@ -13,6 +13,10 @@
 #include "WubiCodeHintPolicy.h"
 #include <algorithm>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace msime::windows {
 // TSF can report the candidate show event before it has a usable text extent.
@@ -41,7 +45,7 @@ struct PresentationCandidate {
   std::string pronunciation{};
   // AI 占位行（Engine 候选来源 12）：等回答时是「…」，回答为空或失败后是「—」。画成次要色，选它什么都不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   bool pending = false;
-  // 授权的脚本插件给这一行加的注释（view 候选的 script_annotation，没有插件注释时为空）。和引擎的 annotation 分开放、分开画：跟在注释那一段后面，换成次要色，从不替换引擎的注释，见 candidate_annotation_run。
+  // 授权的脚本插件给这一行加的注释（view 候选的 script_annotation，没有插件注释时为空）。和引擎的 annotation 分开放、分开画：单独占释义那一段的最后一行，斜体，从不替换引擎的注释，见 candidate_secondary_run。
   std::string script_annotation{};
 };
 // Whether this view's candidates are a Korean Hanja list: the Korean scheme under its own rules, outside the dedicated English mode and every local mode, where the Engine lists candidates only after MSIME_CONVERT_HANJA. ReplyComposer::korean_hanja reads the same three fields.
@@ -61,9 +65,10 @@ inline void move_korean_hanja_gloss(PresentationCandidate &candidate) {
   candidate.gloss = std::move(candidate.annotation);
   candidate.annotation.clear();
 }
-// 释义部分画出来的样子：每种目标语言一行，行后跟读音（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音。
+// 释义部分画出来的样子：每种目标语言一行，行后跟读音（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音。reading_ranges 不为空时记下读音的位置。
 inline std::string candidate_translation_display(const PresentationCandidate &candidate,
-                                                 bool with_readings = true) {
+                                                 bool with_readings = true,
+                                                 std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr) {
   std::vector<std::string> lines;
   if (!candidate.translation.empty())
     lines = translation_lines(candidate.translation);
@@ -77,22 +82,123 @@ inline std::string candidate_translation_display(const PresentationCandidate &ca
       break;
     start = cut + 1;
   }
-  return candidate_gloss_display(lines, readings);
+  return candidate_gloss_display(lines, readings, reading_ranges);
 }
-// 一行候选下面那段较小的次要文字：只有 훈음、只有释义，或 훈음 在上、释义在下一行。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，免得一条很长的释义让整个候选窗画不出来。
-inline std::string candidate_secondary_text(const PresentationCandidate &candidate) {
+// 去掉首尾空白，和 macOS 的 whitespaceAndNewlineCharacterSet 一样：ASCII 空白、U+0085，以及 Unicode 的空格分隔符（U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）。
+inline std::string_view candidate_trim_unicode_spaces(std::string_view trimmed) {
+  static constexpr std::string_view spaces[] = {
+      "\t", "\n", "\v", "\f", "\r", " ", "\xC2\x85", "\xC2\xA0", "\xE1\x9A\x80",
+      "\xE2\x80\x80", "\xE2\x80\x81", "\xE2\x80\x82", "\xE2\x80\x83", "\xE2\x80\x84",
+      "\xE2\x80\x85", "\xE2\x80\x86", "\xE2\x80\x87", "\xE2\x80\x88", "\xE2\x80\x89",
+      "\xE2\x80\x8A", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80\xAF", "\xE2\x81\x9F",
+      "\xE3\x80\x80"};
+  for (bool stripped = true; stripped && !trimmed.empty();) {
+    stripped = false;
+    for (const auto space : spaces) {
+      if (trimmed.substr(0, space.size()) == space) {
+        trimmed.remove_prefix(space.size());
+        stripped = true;
+      }
+      if (trimmed.size() >= space.size() &&
+          trimmed.substr(trimmed.size() - space.size()) == space) {
+        trimmed.remove_suffix(space.size());
+        stripped = true;
+      }
+    }
+  }
+  return trimmed;
+}
+// macOS 的 controlCharacterSet 里除了 Cc（C0、DEL、C1）之外的格式字符（Unicode 的 Cf）：软连字符、阿拉伯字母标记、零宽字符、双向控制符（U+202A–U+202E、U+2066–U+2069）、BOM 等。插件注释里的 U+202E 不去掉的话会把自己那一行倒过来画。
+inline bool candidate_format_code_point(char32_t c) {
+  return c == 0xAD || (c >= 0x600 && c <= 0x605) || c == 0x61C || c == 0x6DD || c == 0x70F ||
+         c == 0x890 || c == 0x891 || c == 0x8E2 || c == 0x180E || (c >= 0x200B && c <= 0x200F) ||
+         (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) ||
+         (c >= 0x2066 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB) ||
+         c == 0x110BD || c == 0x110CD || (c >= 0x13430 && c <= 0x1343F) ||
+         (c >= 0x1BCA0 && c <= 0x1BCA3) || (c >= 0x1D173 && c <= 0x1D17A) || c == 0xE0001 ||
+         (c >= 0xE0020 && c <= 0xE007F);
+}
+// 脚本插件的注释收拾成能画成一行的文本，和 macOS 的 MSIMECandidateScriptAnnotationRun 一样：控制字符（Cc）、格式字符（Cf，见 candidate_format_code_point）和各种换行（含 U+0085、U+2028、U+2029，释义那一段正是按 "\n" 分行的）连成的一段换成一个空格，再去掉首尾空白（candidate_trim_unicode_spaces）。长度由共享内核按 32 个 UTF-16 码元截好。
+inline std::string candidate_script_annotation_line(const std::string &value) {
+  std::string line;
+  line.reserve(value.size());
+  bool broken = false;
+  for (size_t index = 0; index < value.size();) {
+    const auto byte = static_cast<unsigned char>(value[index]);
+    const auto next = [&](size_t offset) {
+      return index + offset < value.size() ? static_cast<unsigned char>(value[index + offset]) : 0u;
+    };
+    // 按 UTF-8 解出这个码位；不成形的字节原样留下，一次走一个字节。
+    size_t length = 1;
+    char32_t code = byte;
+    if (byte >= 0xC0 && byte < 0xF8) {
+      length = byte < 0xE0 ? 2 : byte < 0xF0 ? 3 : 4;
+      code = byte & (0x7F >> length);
+      for (size_t offset = 1; offset < length; ++offset) {
+        if ((next(offset) & 0xC0) != 0x80) {
+          length = 1;
+          code = byte;
+          break;
+        }
+        code = (code << 6) | (next(offset) & 0x3F);
+      }
+    }
+    const bool breaking = code < 0x20 || (code >= 0x7F && code <= 0x9F) || code == 0x2028 ||
+                          code == 0x2029 || candidate_format_code_point(code);
+    if (breaking && (length > 1 || byte < 0x80)) {
+      broken = true;
+      index += length;
+      continue;
+    }
+    if (broken)
+      line.push_back(' ');
+    broken = false;
+    line.append(value, index, length);
+    index += length;
+  }
+  return std::string(candidate_trim_unicode_spaces(line));
+}
+// 一行候选下面那段较小的次要文字，连同要换样式画的几段：只有 훈음、只有释义，或 훈음 在上、释义在下一行；脚本插件的注释单独占最后一行，排在输入法自己的读音、译文之后，不挪动它们的位置，和 macOS 的 MSIMECandidateGlossWithScriptAnnotation 一样。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，插件注释再加上去超过时就不带插件注释，免得一条很长的释义让整个候选窗画不出来。
+struct CandidateSecondaryRun {
+  std::string text;
+  // 读音在 text 里的位置（UTF-8 字节的起点和长度），候选窗按释义色的 0.72 倍透明度画。
+  std::vector<std::pair<size_t, size_t>> readings;
+  // 插件注释那一行在 text 里的起点（UTF-8 字节），到 text 末尾为止，候选窗画成斜体；没有时为 npos。
+  size_t script_start = std::string::npos;
+};
+inline CandidateSecondaryRun candidate_secondary_run(const PresentationCandidate &candidate) {
   const auto compose = [&](bool with_readings) {
-    const auto translation = candidate_translation_display(candidate, with_readings);
-    if (candidate.gloss.empty())
-      return translation;
-    if (translation.empty())
-      return candidate.gloss;
-    return candidate.gloss + "\n" + translation;
+    CandidateSecondaryRun run;
+    std::vector<std::pair<size_t, size_t>> readings;
+    const auto translation = candidate_translation_display(candidate, with_readings, &readings);
+    size_t offset = 0;
+    if (candidate.gloss.empty()) {
+      run.text = translation;
+    } else if (translation.empty()) {
+      run.text = candidate.gloss;
+    } else {
+      run.text = candidate.gloss + "\n" + translation;
+      offset = candidate.gloss.size() + 1;
+    }
+    for (const auto &[start, length] : readings)
+      run.readings.emplace_back(offset + start, length);
+    return run;
   };
-  auto text = compose(true);
-  if (text.size() > 4096 && !candidate.pronunciation.empty())
-    text = compose(false);
-  return text;
+  auto run = compose(true);
+  if (run.text.size() > 4096 && !candidate.pronunciation.empty())
+    run = compose(false);
+  const auto script = candidate_script_annotation_line(candidate.script_annotation);
+  const size_t start = run.text.empty() ? 0 : run.text.size() + 1;
+  if (!script.empty() && start + script.size() <= 4096) {
+    if (!run.text.empty())
+      run.text.push_back('\n');
+    run.script_start = run.text.size();
+    run.text += script;
+  }
+  return run;
+}
+inline std::string candidate_secondary_text(const PresentationCandidate &candidate) {
+  return candidate_secondary_run(candidate).text;
 }
 // 把翻译工作线程算好的读音挂到候选上，没有的清空：读音只在候选眼下的释义与算它时的释义相同才挂。
 inline void attach_candidate_readings(std::vector<PresentationCandidate> &candidates,
@@ -111,18 +217,24 @@ inline void attach_candidate_readings(std::vector<PresentationCandidate> &candid
 inline std::string candidate_primary_text(const PresentationCandidate &candidate) {
   return candidate.text + (candidate.corrected ? "*" : "") + candidate.badge;
 }
-// 一行候选的注释那一段：引擎的注释（或五笔的剩余编码）在前，脚本插件的注释隔一个空格跟在后面。script_start 是插件注释在 text 里的 UTF-8 字节起点，候选窗从这里起换成次要色画；没有插件注释时为 npos。两段连起来超过候选窗能画的 4096 字节（CandidateWindow 的 wide()）时只留引擎的注释，插件的注释不让这一段画不出来。
-struct CandidateAnnotationRun {
-  std::string text;
-  size_t script_start = std::string::npos;
-};
-inline CandidateAnnotationRun candidate_annotation_run(const PresentationCandidate &candidate) {
-  const auto &engine = candidate.annotation;
-  const auto &script = candidate.script_annotation;
-  const size_t start = engine.empty() ? 0 : engine.size() + 1;
-  if (script.empty() || start + script.size() > 4096)
-    return {engine, std::string::npos};
-  return {engine.empty() ? script : engine + " " + script, start};
+// 一行候选的注释那一段：引擎的注释（辅助码、五笔的剩余编码、emoji 说明、地名所属省份……）一律包在半角括号里、紧贴候选文字，画成「你好(wqvb)」，和 macOS 的 MSIMEParenthesizedAnnotation 一样；已经带半角或全角括号的原样保留，只有空白时不画。韩文汉字的 훈음 不在这里，它已经挪到释义那一段（move_korean_hanja_gloss）；脚本插件的注释也不在这里，见 candidate_secondary_run。
+inline std::string candidate_annotation_run(const PresentationCandidate &candidate) {
+  // 首尾空白和 macOS 的 whitespaceAndNewlineCharacterSet 一样去掉（candidate_trim_unicode_spaces）。
+  const std::string_view trimmed = candidate_trim_unicode_spaces(candidate.annotation);
+  if (trimmed.empty())
+    return {};
+  const std::string annotation(trimmed);
+  const auto wrapped = [&](std::string_view open, std::string_view close) {
+    return annotation.size() >= open.size() + close.size() &&
+           annotation.compare(0, open.size(), open) == 0 &&
+           annotation.compare(annotation.size() - close.size(), close.size(), close) == 0;
+  };
+  if (wrapped("(", ")") || wrapped("\xEF\xBC\x88", "\xEF\xBC\x89"))
+    return annotation;
+  // 加上的括号让这一段超过候选窗能画的 4096 字节时原样画，不让一条注释把整个候选窗弄得画不出来。
+  if (annotation.size() + 2 > 4096)
+    return annotation;
+  return "(" + annotation + ")";
 }
 // 鼠标停在一行候选上时的提示：候选全文，有释义时下一行是释义，和 macOS 候选按钮的 toolTip 一样。长候选和长释义在卡片里会折行，提示里是完整的一段。
 inline std::string candidate_tooltip_text(const PresentationCandidate &candidate) {
@@ -147,6 +259,8 @@ struct CandidatePresentation {
   // Ctrl+Enter 释义页的编号（view 的 translation_page，ReplyComposer::translation_page），Engine 自己的候选为 0。释义页沿用 Engine 列表的 session 和 generation，点击要带上它，Server 才分得清点的是哪一张表。
   uint64_t translation_page = 0;
   bool visible = false;
+  // visible 为 false 时：是不是组字正常结束（上屏、取消，或切到英文）。只有这种收起候选窗才播皮肤的退场；失焦、UILess、宿主接管、断开这些涉及隐私和输入目标的收起都立即消失，不把旧候选留在新的前台上淡出，和 macOS 的 allowExit 只认 "empty"、"english_mode" 一样。
+  bool composition_ended = false;
   int x = 0;
   int y = 0;
   std::string preedit;
@@ -268,8 +382,10 @@ candidate_presentation_from_view(const FocusLease &lease,
   output.x = x;
   output.y = y;
   if (!view.at("focused").get<bool>() ||
-      view.at("editing_text").get<std::string>().empty())
+      view.at("editing_text").get<std::string>().empty()) {
+    output.composition_ended = view.at("focused").get<bool>();
     return output;
+  }
   const auto text = view.at("preedit").get<std::string>();
   if (prefix.size() > 4096 ||
       text.size() > 4096 - prefix.size() || view.at("candidates").size() > 9)
@@ -354,8 +470,11 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
   if (!view.at("focused").get<bool>() ||
       (packet.modifiers_down & FanyImePipeFlags::UiLess) ||
-      view.at("editing_text").get<std::string>().empty())
+      view.at("editing_text").get<std::string>().empty()) {
+    output.composition_ended = view.at("focused").get<bool>() &&
+                               (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0;
     return output;
+  }
   const auto text = view.at("preedit").get<std::string>();
   if (reply.next_prefix.size() > 4096 ||
       text.size() > 4096 - reply.next_prefix.size() ||

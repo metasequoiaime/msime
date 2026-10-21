@@ -28,7 +28,7 @@ test("on Linux the switch names the page arrows and says the IBus panel keeps it
   expect((screen.getByLabelText("显示页码和翻页按钮") as HTMLInputElement).checked).toBe(true);
   expect(
     screen.getByText(
-      "关闭后候选窗不再显示页码和 ‹ ›（IBus 面板自带的翻页箭头不受影响），仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+      "关闭后候选窗不再显示页码和 ‹ ›（IBus 面板自带的翻页箭头不受影响），仍可用键盘翻页；鼠标滚轮是否翻页见「输入 › 选词与翻页」。",
     ),
   ).toBeTruthy();
 });

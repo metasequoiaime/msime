@@ -30,7 +30,8 @@ extern "C" PangoFontMap *__wrap_pango_cairo_font_map_new() {
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
 public:
-  explicit FixtureContext(fcitx::InputContextManager &manager) : InputContext(manager, "msime-test") { created(); }
+  explicit FixtureContext(fcitx::InputContextManager &manager, const std::string &program = "msime-test")
+      : InputContext(manager, program) { created(); }
   ~FixtureContext() override { destroy(); }
   const char *frontend() const override { return "msime-test"; }
   void commitStringImpl(const std::string &text) override {
@@ -1292,11 +1293,12 @@ int main(int argc, char **argv) {
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
+                                       std::string(argv[2]) == "--app-rules" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1652,6 +1654,114 @@ int main(int argc, char **argv) {
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
       return 0;
     }
+    // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。排在快捷模式那一段之前，免得那里的失败让它跑不到。
+    if (argc == 3 && std::string(argv[2]) == "--app-rules") {
+      const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+      // 前面的状态栏开关在后台保存偏好；等它落盘再读修订号，免得这次保存撞上它。
+      state->waitForPreferenceSave();
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["app_input_mode_rules"] = Json{{"Synthetic-Ruled", "english"}};
+        snapshot["preferences"]["default_ime_mode"] = "chinese";
+        snapshot["preferences"]["ime_mode_scope"] = "app";
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+      }
+      const auto focusContext = [&](FixtureContext &context) {
+        context.focusIn();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusIn);
+        engine.activate(entry, event);
+      };
+      const auto blurContext = [&](FixtureContext &context) {
+        context.focusOut();
+        fcitx::InputContextEvent event(&context, fcitx::EventType::InputContextFocusOut);
+        engine.deactivate(entry, event);
+      };
+      const bool unruledMode = state->input_enabled_;
+      blur();
+      FixtureContext ruled(instance.inputContextManager(), "synthetic-ruled");
+      ruled.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+      auto *ruledState = ruled.propertyFor(&engine.factory_);
+      focusContext(ruled);
+      require(ruledState->session_ != 0 && !ruledState->input_enabled_,
+              "a ruled program did not start in its rule's English mode");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese");
+      blurContext(ruled);
+      focusContext(ruled);
+      require(ruledState->input_enabled_,
+              "refocusing the same program put the rule back over the user's own switch");
+      {
+        FixtureContext sameProgram(instance.inputContextManager(), "synthetic-ruled");
+        sameProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        blurContext(ruled);
+        focusContext(sameProgram);
+        require(sameProgram.propertyFor(&engine.factory_)->input_enabled_,
+                "another window of the same program is not the same stay");
+        blurContext(sameProgram);
+      }
+      focusContext(ic);
+      require(state->input_enabled_ == unruledMode, "an unruled program took the ruled program's mode");
+      blurContext(ic);
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "coming back from another program did not apply the rule again");
+      // 没有程序名的上下文（不报告程序名的 Wayland text-input、XIM 前端）也是另一个客户端：经过它再回来，手动切换过的程序重新套用规则。
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese again");
+      blurContext(ruled);
+      {
+        FixtureContext anonymous(instance.inputContextManager(), "");
+        anonymous.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(anonymous);
+        blurContext(anonymous);
+        anonymous.propertyFor(&engine.factory_)->close();
+      }
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a context without a program name did not end the stay");
+      // 全局作用域：规则定下的模式不写进全局状态，从状态栏切到全局时、离开这个程序时都是；用户在这个程序里手动切换过才写进去。
+      fcitx_global_input_mode = true;
+      engine.mode_scope_action_.activate(&ruled);
+      ruledState->waitForPreferenceSave();
+      require(ruledState->preferences_.value("ime_mode_scope", std::string{}) == "global",
+              "the mode scope action did not switch to global scope");
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "switching to global scope wrote the rule's English mode into the global state");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(true),
+              "leaving a ruled program wrote the rule's mode into the global state");
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope");
+      engine.input_mode_action_.activate(&ruled);
+      engine.input_mode_action_.activate(&ruled);
+      require(!ruledState->input_enabled_, "switching twice did not come back to English");
+      blurContext(ruled);
+      require(fcitx_global_input_mode == std::optional<bool>(false),
+              "a manual switch in a ruled program did not reach the global state");
+      // 不同焦点组之间 Fcitx5 不保证先失焦再聚焦（例如 XWayland 程序和原生 Wayland 程序）：别的程序先获得焦点、把停留换走，有规则的程序随后才失焦，用户在它里面的手动切换照样写进全局状态。
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope again");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese under global scope");
+      {
+        FixtureContext otherProgram(instance.inputContextManager(), "synthetic-other");
+        otherProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(otherProgram);
+        blurContext(ruled);
+        require(fcitx_global_input_mode == std::optional<bool>(true),
+                "a manual switch was lost when another program gained focus before the ruled one lost it");
+        blurContext(otherProgram);
+        otherProgram.propertyFor(&engine.factory_)->close();
+      }
+      ruledState->close();
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 app input mode rules: start mode, manual switch yield, re-entry, anonymous contexts and global scope passed\n";
+      return 0;
+    }
     // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
     {
       const auto press = [&](fcitx::KeySym sym) {
@@ -1941,10 +2051,50 @@ int main(int argc, char **argv) {
       setBinding(false);
       tap();
       require(state->input_enabled_ && releases == 5, "a disabled Caps Lock switched or released the lock");
+      // 会话建立时就请求了把快捷短语编码排进普通候选，和 macOS 一样。
+      require(state->voice_host_options_.value("quick_phrase_candidates", false),
+              "the session was not asked for quick phrase candidates");
+      // 「大写锁定时使用英文标点」：宿主把每个键带的锁定状态报告给会话，锁定时没有组字的标点交给应用，即英文标点。智能标点关掉，免得前文决定标点。
+      state->waitForPreferenceSave();
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["caps_lock_ascii_punctuation"] = true;
+        snapshot["preferences"]["smart_punctuation"] = false;
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+          state->refreshPreferences();
+          if (state->preferences_.value("caps_lock_ascii_punctuation", false) &&
+              !state->preferences_.value("smart_punctuation", true))
+            break;
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+        require(state->preferences_.value("caps_lock_ascii_punctuation", false),
+                "Caps Lock punctuation preference did not hot-reload");
+      }
+      const auto comma = [&](fcitx::KeyStates states) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_comma, states));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      {
+        const auto before = ic.committed;
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，",
+                "a comma without Caps Lock did not commit Chinese punctuation");
+        require(!comma(lock) && ic.committed == before + "，",
+                "a comma under Caps Lock was not left to the application as English punctuation");
+        require(comma(fcitx::KeyStates()) && ic.committed == before + "，，",
+                "releasing Caps Lock did not bring Chinese punctuation back");
+      }
       state->close();
       removeFixtureTree(directory);
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
-      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release, hot-reload, Caps Lock punctuation and quick phrase candidates passed\n";
       return 0;
     }
     // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 keyEvent 驱动：缺省关时交给应用；打开后中文方案去日语并记下这个中文方案，再按回到它；一次按下只切换一次；组字中先上屏；英文模式和 Engine 的英文模式里交给应用。
@@ -2118,10 +2268,8 @@ int main(int argc, char **argv) {
     while (statisticsTotal() < 4 && std::chrono::steady_clock::now() < resumedDeadline)
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     require(statisticsTotal() == 4, "after that tick a commit and a passthrough key are recorded again");
-    // One per addAction() in activate(), plus the toolbar entry the host adds
-    // once it has a session. Adding or removing a status action changes this on
-    // purpose; the count is here so one going missing is noticed.
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 24,
+    // One per entry arrangeStatusArea lists for a focused context with a session (the toolbar and voice entries included). Adding or removing a status action changes this on purpose; the count is here so one going missing is noticed.
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 32,
             ("native status actions attached: " +
              std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
                 .c_str());
@@ -2177,7 +2325,7 @@ int main(int argc, char **argv) {
             "theme menu lists each installed package after the global themes");
     for (auto *action : engine.global_theme_menu_.actions())
       require(!action->name().empty(), "every theme menu entry is registered");
-    require(engine.global_theme_action_.shortText(&ic) == "主题：跟随系统", "theme action starts at the shared default");
+    require(engine.global_theme_action_.shortText(&ic) == "主题（跟随系统）", "theme action starts at the shared default");
     require(themeItem("跟随系统").isChecked(&ic) && !themeItem("夜青").isChecked(&ic), "theme menu checks the current theme");
     themeItem("夜青").activate(&ic);
     require(state->preferences_.value("global_theme", std::string{}) == "night", "theme item selects its global theme");
@@ -2196,7 +2344,7 @@ int main(int argc, char **argv) {
             "another package entry switches to that package");
     require(themeItem("Solarized").isChecked(&ic) && !themeItem("纸鸢").isChecked(&ic) && !themeItem("自定义").isChecked(&ic),
             "theme menu moves the check to the package drawn");
-    require(engine.global_theme_action_.shortText(&ic) == "主题：Solarized", "theme action names the package drawn");
+    require(engine.global_theme_action_.shortText(&ic) == "主题（Solarized）", "theme action names the package drawn");
     options["candidate_skin_catalog"]["packages"][0]["title"] = "Solarized 更新";
     std::ofstream(path) << options.dump();
     state->refreshProviderSockets();
@@ -2250,7 +2398,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 24,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 32,
             ("status actions unchanged by the option toggles: " +
              std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
                 .c_str());
@@ -2261,7 +2409,7 @@ int main(int argc, char **argv) {
       const bool fullwidth = engine.width_action_.isChecked(&ic);
       const auto scheme = engine.scheme_action_.shortText(&ic);
       blur();
-      require(state->session_ != 0 && heldForTray() && statusActions() == 15,
+      require(state->session_ != 0 && heldForTray() && statusActions() == 23,
               ("focus out keeps the session for the tray, without the focus-only tools: " +
                std::to_string(statusActions()))
                   .c_str());
@@ -2274,7 +2422,7 @@ int main(int argc, char **argv) {
       require(engine.width_action_.isChecked(&ic) != fullwidth, "the tray switches the width after focus out");
       ic.focusIn();
       engine.activate(entry, focus);
-      require(state->session_ != 0 && !heldForTray() && statusActions() == 24,
+      require(state->session_ != 0 && !heldForTray() && statusActions() == 32,
               ("refocusing reopens the session with the status actions once each: session=" +
                std::to_string(state->session_) + " actions=" + std::to_string(statusActions()))
                   .c_str());
@@ -2295,13 +2443,13 @@ int main(int argc, char **argv) {
       }
       ic.focusIn();
       engine.activate(entry, focus);
-      require(state->session_ != 0 && statusActions() == 24, "focus brings the session and the status actions back");
+      require(state->session_ != 0 && statusActions() == 32, "focus brings the session and the status actions back");
       fcitx::InputContextEvent switched(&ic, fcitx::EventType::InputContextSwitchInputMethod);
       engine.deactivate(entry, switched);
       require(state->session_ == 0 && statusActions() == 0,
               ("switching input methods removes the status actions: " + std::to_string(statusActions())).c_str());
       engine.activate(entry, focus);
-      require(state->session_ != 0 && statusActions() == 24, "switching back restores the status actions");
+      require(state->session_ != 0 && statusActions() == 32, "switching back restores the status actions");
     }
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -2433,28 +2581,45 @@ int main(int argc, char **argv) {
             "clipboard history management menu attached");
     require(engine.cloud_clipboard_menu_.actions().size() == 5,
             "cloud clipboard menu attached");
-    require(engine.desktop_tools_menu_.actions().size() == 13,
+    require(engine.desktop_tools_menu_.actions().size() == 7,
             "desktop tools menu attached");
-    // The status area opens with the design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
+    // 状态区按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。
     {
       const auto status = ic.statusArea().actions(fcitx::StatusGroup::InputMethod);
       const std::vector<fcitx::Action *> design{
-          &engine.input_mode_action_, &engine.width_action_,
+          &engine.input_mode_action_, &engine.english_action_, &engine.traditional_action_, &engine.width_action_,
           &engine.chinese_punctuation_action_, &engine.candidate_translation_action_, &engine.scheme_action_,
-          &engine.global_theme_action_, &engine.dictionary_action_, &engine.settings_action_, &engine.about_action_};
+          &engine.global_theme_action_, &engine.toolbar_enabled_action_, &engine.toolbar_action_,
+          &engine.desktop_emoji_action_, &engine.desktop_cloud_clipboard_action_, &engine.cloud_dictionary_action_,
+          &engine.keyboard_action_, &engine.handwriting_action_, &engine.voice_action_, &engine.voice_cancel_action_,
+          &engine.settings_action_, &engine.about_action_, &engine.dictionary_action_};
       require(status.size() > design.size() && std::equal(design.begin(), design.end(), status.begin()),
-              "status area starts with the design menu");
-      require(engine.input_mode_action_.shortText(&ic) == "中文" && engine.width_action_.shortText(&ic) == "全角字符" &&
+              "status area follows the macOS input menu order");
+      require(engine.input_mode_action_.shortText(&ic) == "中文输入" &&
+                  engine.english_action_.shortText(&ic) == "英文候选模式（Ctrl+Shift+E）" &&
+                  engine.traditional_action_.shortText(&ic) == "繁体输出" &&
+                  engine.width_action_.shortText(&ic) == "全角字符（Ctrl+Shift+Space）" &&
+                  engine.chinese_punctuation_action_.shortText(&ic) == "中文标点（Ctrl+.）" &&
                   engine.candidate_translation_action_.shortText(&ic) == "显示译文" &&
-                  engine.dictionary_action_.shortText(&ic) == "词库…" && engine.settings_action_.shortText(&ic) == "设置…" &&
-                  engine.about_action_.shortText(&ic) == "关于水杉输入法",
-              "design menu entries use the design labels");
-      // The Engine's dedicated English mode is not the design's 英文 (that is the 中文 toggle unchecked); it stays reachable in 输入选项, next to 混合英文.
+                  engine.desktop_emoji_action_.shortText(&ic) == "水杉表情面板…" &&
+                  engine.handwriting_action_.shortText(&ic) == "手写输入…" &&
+                  engine.dictionary_action_.shortText(&ic) == "词库…" &&
+                  engine.settings_action_.shortText(&ic) == "水杉输入法设置…" &&
+                  engine.about_action_.shortText(&ic) == "关于水杉输入法…",
+              "status entries use the macOS menu labels");
+      // 英文候选模式挂在顶层，不再收在「输入选项」里；那里的「中英混输」是另一项功能。
       const auto input = engine.input_group_menu_.actions();
-      const auto mixed = std::find(input.begin(), input.end(), &engine.mixed_english_action_);
-      require(std::find(status.begin(), status.end(), &engine.english_action_) == status.end() &&
-                  mixed != input.end() && std::next(mixed) != input.end() && *std::next(mixed) == &engine.english_action_,
-              "dedicated English mode moves into 输入选项");
+      require(std::find(input.begin(), input.end(), &engine.english_action_) == input.end() &&
+                  std::find(input.begin(), input.end(), &engine.traditional_action_) == input.end() &&
+                  engine.mixed_english_action_.shortText(&ic) == "中英混输",
+              "英文候选模式 and 繁体输出 move to the top level");
+      // 输入方案这一行带上正在用的方案，子菜单按 Engine 的方案顺序排列。
+      require(engine.scheme_action_.shortText(&ic).rfind("输入方案（", 0) == 0, "the scheme row names the scheme in use");
+      const auto schemes = engine.scheme_menu_.actions();
+      require(!schemes.empty() && schemes.front() == &engine.scheme_quanpin_action_ &&
+                  engine.scheme_japanese_action_.shortText(&ic) == "日语" &&
+                  engine.scheme_vietnamese_action_.shortText(&ic) == "越南语",
+              "the scheme menu uses the macOS order and names");
     }
     // Nothing the status area listed before is lost: each moved action sits in one of the option groups, and every entry of those menus is registered so the D-Bus menus can reach it.
     {
@@ -2464,7 +2629,7 @@ int main(int argc, char **argv) {
           require(!action->name().empty(), "every option group entry is registered");
           if (!action->isSeparator()) ++grouped;
         }
-      require(grouped == 44, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
+      require(grouped == 42, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
       for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_, &engine.helpcode_schema_menu_})
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");
@@ -3522,8 +3687,8 @@ int main(int argc, char **argv) {
         fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
     engine.keyEvent(entry, voiceHotkey);
     require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
-    require(state->wave_overlay_.actions_visible && state->wave_overlay_.listening,
-            "voice start arms the native wave overlay actions");
+    require(!state->wave_overlay_.actions_visible() && state->wave_overlay_.listening,
+            "voice start shows the bare wave; the round actions wait for a Space lock or recognition");
     bool observedVoicePartial = false;
     bool observedVoicePreedit = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -3621,25 +3786,105 @@ int main(int argc, char **argv) {
       state->wave_overlay_failed_ = false;
       state->wave_overlay_visible_ = false;
       state->voice_loading_ = true;
-      state->voice_phase_ = "录音中";
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
+      // 一次新录音的模型；Xlib 的 `None` 宏使这里无法写出 `CompactStatus::None`。
+      state->wave_overlay_.reset();
       const auto voiceAux = [&] { return ic.inputPanel().auxUp().toString(); };
       state->updateVoiceOverlay();
       require(shows == 1 && state->wave_overlay_failed_ && !state->wave_overlay_visible_,
               "a surface that cannot show is marked failed");
-      require(voiceAux().rfind("语音：录音中", 0) == 0, "a failed surface falls back to the auxiliary text");
+      require(voiceAux().rfind("正在录音…  麦克风 [", 0) == 0,
+              "a failed surface falls back to the auxiliary text the IBus host shows");
       state->voice_transcript_ = "你好";
       state->updateVoiceOverlay();
-      require(shows == 1 && voiceAux() == "语音：录音中：你好",
+      require(shows == 1 && voiceAux() == msime::linux_host::wave_overlay_feedback_text(state->wave_overlay_) &&
+                  voiceAux().find("\n你好") != std::string::npos,
               "later updates stay on the auxiliary text without retrying the surface");
+      state->voice_space_locked_ = true;
+      state->updateVoiceOverlay();
+      require(voiceAux().rfind(msime::linux_host::kVoiceStatusLockedHint, 0) == 0,
+              "a Space-locked recording says so in the auxiliary text");
+      state->voice_space_locked_ = false;
+      state->updateVoiceOverlay();
+      const auto statusBeforeRedraw = voiceAux();
       state->render();
-      require(voiceAux() == "语音：录音中：你好", "a panel redraw keeps the voice status");
+      require(voiceAux() == statusBeforeRedraw, "a panel redraw keeps the voice status");
       state->voice_loading_ = false;
       state->voice_transcript_.clear();
       state->wave_overlay_failed_ = false;
       state->wave_overlay_surface_ = std::move(nativeSurface);
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
-    // A provider that gives no result is a provider failure, as in the IBus host, and a named missing dependency says what to install; neither may read as 未识别到文字, which recording again cannot fix.
+    // 画出来的浮层在自己的 `update()` 里报告点击，所以取消会在 `update()` 返回之前拆掉帧定时器和显示连接监听（帧定时器自己的回调之后不再经捕获读取任何东西，由 `fcitx5_contract.py` 固定）；识别进行中点确认只收起浮条，不再向提供商发送第二次停止。这里不运行事件循环：sd-event 循环一旦退出就不再接受新的事件源。
+    {
+      using Action = msime::linux_host::WaveOverlayModel::Action;
+      struct ActingSurface final : msime::linux_host::WaveOverlaySurface {
+        explicit ActingSurface(FcitxState &owner) : state(owner) {}
+        bool show(const msime::linux_host::WaveOverlayModel &) override { return true; }
+        void update(const msime::linux_host::WaveOverlayModel &) override {
+          ++updates;
+          if (!pending) return;
+          const auto action = *pending;
+          pending.reset();
+          state.handleVoiceOverlayAction(action);
+        }
+        void hide() override { ++hides; }
+        bool animates() const override { return true; }
+        FcitxState &state;
+        std::optional<Action> pending;
+        int updates = 0;
+        int hides = 0;
+      };
+      auto nativeSurface = std::move(state->wave_overlay_surface_);
+      auto acting = std::make_unique<ActingSurface>(*state);
+      auto *surface = acting.get();
+      state->wave_overlay_surface_ = std::move(acting);
+      state->wave_overlay_failed_ = false;
+      state->wave_overlay_visible_ = false;
+      state->wave_overlay_dismissed_ = false;
+      state->voice_job_ = {};
+      state->voice_mailbox_.reset();
+      state->voice_loading_ = true;
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
+      state->wave_overlay_.reset();
+      state->updateVoiceOverlay();
+      require(state->wave_overlay_visible_ && state->wave_overlay_frame_timer_,
+              "a drawn recording runs the wave's frame timer");
+      surface->pending = Action::Cancel;
+      state->updateVoiceOverlay();
+      require(!surface->pending && surface->updates >= 1, "the click was delivered from inside update()");
+      require(!state->voice_loading_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
+                  !state->wave_overlay_frame_timer_ && !state->wave_overlay_io_,
+              "Cancel from inside update() ends the recording and stops the overlay's sources");
+      // 识别进行中：浮条显示文字标签，没有帧定时器，点确认只收起它。
+      state->voice_loading_ = true;
+      state->voice_socket_ = "/nonexistent/msime-voice-provider.sock";
+      state->voice_generation_ = 7;
+      state->voice_phase_ = msime::linux_host::kVoiceStatusRecognizing;
+      state->wave_overlay_.reset();
+      state->wave_overlay_.compact_status = msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
+      state->updateVoiceOverlay();
+      require(state->wave_overlay_visible_ && !state->wave_overlay_frame_timer_ &&
+                  state->wave_overlay_.actions_visible(),
+              "pending recognition shows its actions and needs no frame timer");
+      require(state->stopVoice() && state->voice_loading_ && !state->wave_overlay_.failure,
+              "a second stop while recognition is pending sends the provider nothing and cancels nothing");
+      state->handleVoiceOverlayAction(Action::Confirm);
+      require(state->wave_overlay_dismissed_ && !state->wave_overlay_visible_ && state->voice_loading_,
+              "Confirm while recognition is pending only takes the bar down");
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      require(state->cancelVoice(), "the pending recognition is cancelled for the next case");
+      state->wave_overlay_dismissed_ = false;
+      state->wave_overlay_.reset();
+      state->wave_overlay_surface_ = std::move(nativeSurface);
+      ic.inputPanel().setAuxUp(fcitx::Text());
+    }
+    // 提供商没给出结果算提供商失败，与 IBus 宿主一致；缺了具名依赖时说明要装什么。两者都不能显示成「未识别到文字」，因为重新录音解决不了。这里没有浮层，提示走辅助行；测试环境有没有显示连接不影响结果。
+    auto failureSurface = std::move(state->wave_overlay_surface_);
+    state->wave_overlay_visible_ = false;
     for (const auto &[providerError, notice] : std::vector<std::pair<std::string, std::string>>{
              {"voice_dependency_missing:websockets", "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets"},
              {"voice_dependency_missing:recorder", "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils"},
@@ -3657,12 +3902,47 @@ int main(int argc, char **argv) {
       state->refreshVoice();
       require(!state->voice_job_.valid() && !state->voice_loading_, "a failed voice result is reclaimed");
       require(ic.committed == committedBeforeFailure, "a failed voice result commits nothing");
-      require(ic.inputPanel().auxUp().toString() == "语音：" + notice,
+      require(ic.inputPanel().auxUp().toString() == notice,
               "a provider failure shows its fixed notice");
-      state->voice_failure_visible_ = false;
+      require(state->wave_overlay_.failure && !state->wave_overlay_.actions_visible(),
+              "a failure notice shows its message alone, without actions");
+      // Esc 在六秒到期之前收起提示。
+      fcitx::KeyEvent dismiss(&ic, fcitx::Key(FcitxKey_Escape));
+      engine.keyEvent(entry, dismiss);
+      require(!state->voice_failure_visible_ && !state->wave_overlay_.failure &&
+                  ic.inputPanel().auxUp().toString() != notice,
+              "Esc dismisses a voice failure notice");
       state->hideVoiceOverlay();
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
+    // 画出来的浮层承载失败提示时不再往辅助行写一份副本，与 macOS 一样；Esc 收起浮层后辅助行原样不动。
+    {
+      struct DrawnSurface final : msime::linux_host::WaveOverlaySurface {
+        bool show(const msime::linux_host::WaveOverlayModel &) override { return true; }
+        void update(const msime::linux_host::WaveOverlayModel &) override {}
+        void hide() override { ++hides; }
+        bool animates() const override { return true; }
+        int hides = 0;
+      };
+      auto drawn = std::make_unique<DrawnSurface>();
+      auto *surface = drawn.get();
+      state->wave_overlay_surface_ = std::move(drawn);
+      state->wave_overlay_visible_ = false;
+      state->wave_overlay_dismissed_ = false;
+      ic.inputPanel().setAuxUp(fcitx::Text());
+      state->showVoiceFailure("未识别到文字，请重新录音");
+      require(state->voice_failure_visible_ && state->wave_overlay_visible_ && state->wave_overlay_.failure,
+              "a drawn surface shows the voice failure notice");
+      require(ic.inputPanel().auxUp().toString().empty(),
+              "a drawn failure notice leaves no copy on the auxiliary line");
+      fcitx::KeyEvent dismiss(&ic, fcitx::Key(FcitxKey_Escape));
+      engine.keyEvent(entry, dismiss);
+      require(!state->voice_failure_visible_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
+                  ic.inputPanel().auxUp().toString().empty(),
+              "Esc takes a drawn failure notice down and leaves the auxiliary line empty");
+    }
+    state->wave_overlay_surface_ = std::move(failureSurface);
+    state->wave_overlay_visible_ = false;
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");
@@ -3948,7 +4228,7 @@ int main(int argc, char **argv) {
       state->close();
       state->clearPanel();
     }
-    // 正在组词时内嵌预编辑分成两个子句，对应 macOS 的细、粗两种下划线：已选的一段只加下划线，还在输入的读音加下划线并加粗；没有已选段时整段只是一条下划线。
+    // 正在组词时内嵌预编辑分成两个子句，对应 macOS 的细、粗两种下划线：已选的一段只加下划线，还在输入的读音加下划线并高亮（Fcitx5 没有粗下划线，`Bold` 是字形加粗）；没有已选段时整段只是一条下划线。
     {
       require(state->ensure(), "session for the phrase preedit check");
       const auto savedView = state->view_;
@@ -3962,7 +4242,7 @@ int main(int argc, char **argv) {
       state->view_["local_mode"] = "none";
       state->view_["candidates"] = Json::array();
       state->render();
-      const fcitx::TextFormatFlags reading{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::Bold};
+      const fcitx::TextFormatFlags reading{fcitx::TextFormatFlag::Underline, fcitx::TextFormatFlag::HighLight};
       const auto segmented = ic.inputPanel().clientPreedit();
       require(segmented.toString() == "你好shi" && segmented.size() == 2 && segmented.stringAt(0) == "你好" &&
                   segmented.formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::Underline) &&

@@ -3543,6 +3543,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     [self refreshFloatingToolbarState];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -5044,6 +5046,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     MSIMEFocusedController = self;
@@ -5466,9 +5470,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // 选中的皮肤包被同名替换（MCP 的 `create_candidate_skin` 带 replace、皮肤编辑器、图库重装）时选择没变，偏好文档的 revision 也不变，-completePreferenceLoad: 不会重新应用，旧的配色和装饰图会一直画到进程重启。这里问外观设置包是否换过（几次 stat），换过就让工具栏取新的调色板；候选窗的皮肤和装饰图在下一次绘制时从外观设置读。
 - (BOOL)applyReplacedSkinPackages {
     if (!_appearance || ![_appearance reloadReplacedSkinPackages]) return NO;
+    [_toolbar reloadToolbarImages];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     return YES;
 }
 
@@ -5616,6 +5623,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyLightToolbarImage:[_appearance resolvedSkinForDark:NO].toolbarImage
+                             darkSkin:[_appearance resolvedSkinForDark:YES].toolbarImage];
     const BOOL systemGlass = [_appearance.globalTheme isEqual:@"system"];
     _toolbar.liquidGlassEnabled = systemGlass;
     [MSIMEInputModeHUDPanel sharedPanel].liquidGlassEnabled = systemGlass;
@@ -6651,6 +6660,52 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // Japanese converts with Space and commits with Enter; every other scheme keeps the mapping
     // below. See handleJapaneseConversionKey: for why the two keys cannot be the shared ones.
     if ([self handleJapaneseConversionKey:event client:sender]) return YES;
+    // 中文方案把 Shift+[ / Shift+] 的大括号映射成「」，和引号键的样式并存。
+    // 注音自己使用这两个键，独立英文和本地模式也保留引擎的原始规则。
+    if (([event.characters isEqualToString:@"{"] || [event.characters isEqualToString:@"}"]) &&
+        (event.modifierFlags & NSEventModifierFlagShift) && MSIMESchemeRulesApply(_view) &&
+        msime::mac::scheme::HostSmartPunctuation(MSIMEViewScheme(_view)) &&
+        _appearance.runtimeChinesePunctuation && ![_appearance.punctuationLock isEqual:@"english"] &&
+        !(_capsLock && MSIMEStrictBoolean(MSIMEStatisticsHostOptions(_session)[@"preferences"][@"caps_lock_ascii_punctuation"])) &&
+        !MSIMESpellingSymbolString(_view, event.characters)) {
+        const BOOL opening = [event.characters isEqualToString:@"{"];
+        const BOOL composing = [_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
+            [_view[@"phrase_prefix"] length];
+        // 只跨过本宿主补出的、并且仍在光标后的右引号，不触碰文档原有的文字。
+        if (!opening && !composing && _appearance.pairedPunctuation && _pairedPunctuation.matches("」")) {
+            NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);
+            if (msime::mac::paired_closing_should_skip(_pairedPunctuation, "」", following.UTF8String ?: "",
+                    following != nil, event.modifierFlags, NSEventModifierFlagControl,
+                    NSEventModifierFlagOption, NSEventModifierFlagCommand)) {
+                NSRange selected = [(id<MSIMETextClient>)sender selectedRange];
+                [(id<MSIMETextClient>)sender insertText:@"」" replacementRange:NSMakeRange(selected.location, 1)];
+                MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"], @"」",
+                    MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
+                return YES;
+            }
+        }
+        const uint8_t ascii = opening ? '{' : '}';
+        NSDictionary *engine = [_session punctuationASCII:ascii error:nil];
+        // 会话失败时保留组字，不能把标点直接写进应用而丢掉尚未提交的拼音。
+        if (!engine) return YES;
+        NSMutableDictionary *transition = [engine mutableCopy];
+        NSString *mark = opening ? @"「" : @"」";
+        // 右引号尚挂在 marked text 时，这次上屏会带上它，不再追加第二个。
+        if (!opening && [_pendingPairedClosing isEqualToString:mark]) mark = @"";
+        if (MSIMEStrictBoolean(engine[@"handled"])) {
+            NSString *commit = engine[@"commit"];
+            if ([commit isKindOfClass:NSString.class] && [commit hasSuffix:event.characters])
+                transition[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:mark];
+        } else {
+            transition[@"handled"] = @YES;
+            transition[@"commit"] = mark;
+        }
+        _punctuationKeyInFlight = ascii;
+        if (opening) _hostOpenedClosing = @"」";
+        [self apply:transition];
+        _hostOpenedClosing = nil;
+        return YES;
+    }
     // The reference sends `{` down its punctuation path and closes it with `}` (`_GetPairedPunctuationClosingFor`), whether or not a composition is live, and the Linux host does the same. The Engine answers `{` on its ASCII route: while composing it commits the candidate followed by `{`, and idle it leaves the key alone, so the host commits the opening mark itself. The mark is not in MSIMEPunctuationPairs because a symbol candidate that is exactly `{` is not paired by the reference.
     // A scheme outside the Chinese punctuation table (`uses_chinese_punctuation`: Korean, Vietnamese) ignores the Chinese punctuation switch, so its `{` is the Engine's plain ASCII mark. Zhuyin's Shift overlay turns `{` into 『 in the Engine whatever the switches say, so its `{` is the Engine's as well.
     if ([event.characters isEqualToString:@"{"] &&
@@ -6879,8 +6934,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     NSString *hostOpenedClosing = _hostOpenedClosing;
     _hostOpenedClosing = nil;
-    if (hostOpenedClosing && !openedClosing && [commitForTracking isKindOfClass:NSString.class] &&
-        [commitForTracking hasSuffix:[hostOpenedClosing isEqualToString:@"｝"] ? @"｛" : @"{"] &&
+    static NSDictionary<NSString *, NSString *> *const hostOpenings = @{@"}": @"{", @"｝": @"｛", @"」": @"「"};
+    NSString *hostOpening = hostOpenedClosing ? hostOpenings[hostOpenedClosing] : nil;
+    if (hostOpening && !openedClosing && [commitForTracking isKindOfClass:NSString.class] &&
+        [commitForTracking hasSuffix:hostOpening] &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost())
         openedClosing = hostOpenedClosing;
     // A pair this host closed is a pair the Engine still counts as open. Book title marks are the

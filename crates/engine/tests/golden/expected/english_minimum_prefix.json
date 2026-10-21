@@ -37,7 +37,7 @@
      0,
      2
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "你",
@@ -46,6 +46,15 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 200,
+      "answers_key": true
+     },
+     {
+      "word": "Ni",
+      "pinyin": "ni",
+      "canonical_pinyin": "",
+      "source": 4,
+      "scheme": "quanpin",
+      "weight": 300,
       "answers_key": true
      },
      {

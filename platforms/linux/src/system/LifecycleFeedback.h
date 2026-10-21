@@ -17,10 +17,13 @@ constexpr std::uint32_t lifecycle_field_traits(bool private_field, bool no_spell
          (no_spellcheck ? MSIME_TRAIT_NO_SPELLCHECK : 0u);
 }
 
-// msime_client_key 的参数：按键类别（key_sound_class 的 0-3），自动重复再带 MSIME_KEY_REPEAT。Linux 的自动重复照旧出声，只是画出来不计连击（设计待决问题 Q3：各宿主保留现状）。
+// msime_client_key 的参数：按键类别（key_sound_class 的 0-3），自动重复再带 MSIME_KEY_REPEAT。两个 Linux 宿主与 macOS 一样不为自动重复出按键音、画特效（KeyRepeat 认出重复后改用 lifecycle_silent_turn），所以实际传的 repeat 总是 false；带重复位的编码留给仍然报告重复的调用方。
 constexpr std::uint32_t lifecycle_key(std::uint32_t key_class, bool repeat) {
   return key_class | (repeat ? MSIME_KEY_REPEAT : 0u);
 }
+
+// 自动重复的按下交给 msime_client_key 的参数：只开新的一轮，不出声、不画、不动连击。脚本插件的 fuel 按轮给，按住退格或方向键时每次重复都会派发，若不开新的一轮，这些派发共用第一次按下那一轮的配额，用完时运行到一半被截断的插件在这次聚焦里就再也不运行了。host-api 目前只有指针调用（MSIME_KEY_POINTER）是"开一轮但不出声"，所以借它；它的返回值总是 0，调用方不要拿来更新连击数。
+constexpr std::uint32_t lifecycle_silent_turn() { return MSIME_KEY_POINTER; }
 
 // 宿主这一侧记着核心现在知道的字段属性。顺序契约要求宿主在每个键之前比较一次，变了才先报告、再调 msime_client_key；换了会话就从头报告，核心那边的新会话还什么都不知道。
 class FieldTraitsReport {

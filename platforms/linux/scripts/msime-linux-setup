@@ -294,6 +294,12 @@ def fetch_missing(lock: dict, resources: Path, in_use: Path | None = None) -> li
     return verify_directory(resources, lock)
 
 
+def report(kind: str, value: object) -> None:
+    """设置应用的首次配置页经环境变量 MSIME_LINUX_SETUP_REPORT=1 运行本脚本，这时额外打印一行机读的阶段（kind 为 stage）、结果（kind 为 result）或要用户留意的提示（kind 为 note，每条提示一行，配置成功时也显示在结果卡片上，不必展开详细输出），驱动页面的进度条和结果卡片（apps/desktop 的 linux_setup.rs 解析，不进页面的输出区）。在终端里运行时不打印。"""
+    if os.environ.get("MSIME_LINUX_SETUP_REPORT") == "1":
+        print(f"msime-setup-{kind}: {json.dumps(value, ensure_ascii=False)}", flush=True)
+
+
 def print_problems(heading: str, problems: list[str]) -> None:
     print(heading, file=sys.stderr)
     for problem in problems[:5]:
@@ -466,6 +472,33 @@ def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Pat
         shutil.rmtree(staged_directory, ignore_errors=True)
 
 
+# 宿主启动时发现下载的词库落后于当前版本，引导脚本（msime-linux-first-run-guide --reason dictionary-outdated）在引导目录留下的标记，设置应用据此以「词库需要更新」打开（apps/desktop 的 linux_setup.rs）。
+DICTIONARY_OUTDATED_MARKER = "dictionary-outdated"
+
+
+def dictionary_outdated_markers() -> list[Path]:
+    """引导脚本可能放标记的两处，与它的 guide_dir、设置应用 linux_setup.rs 的 dictionary_outdated_markers 同一条规则：绝对的 XDG_RUNTIME_DIR 下，以及缓存目录（绝对的 XDG_CACHE_HOME，否则 ~/.cache）下。两处都查，因为写标记时的环境不一定与这里相同。子目录名随版本由 edition_linux.py 改写。"""
+    directories = []
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+    if runtime.startswith("/"):
+        directories.append(Path(runtime))
+    cache = os.environ.get("XDG_CACHE_HOME", "")
+    home = os.environ.get("HOME", "")
+    if cache.startswith("/"):
+        directories.append(Path(cache))
+    elif home.startswith("/"):
+        directories.append(Path(home) / ".cache")
+    return [directory / "msime-client" / DICTIONARY_OUTDATED_MARKER for directory in directories]
+
+
+def clear_dictionary_outdated() -> None:
+    """词库已是当前版本（刚切换过，或本来就是）时删掉过期标记，不论更新是在设置里点「立即更新」还是在终端里运行的；否则设置窗口会一直以「词库需要更新」打开。只删普通文件，不跟随符号链接。"""
+    for marker in dictionary_outdated_markers():
+        with contextlib.suppress(OSError):
+            if marker.is_file() and not marker.is_symlink():
+                marker.unlink()
+
+
 def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: bool) -> int:
     """把已有状态记录的那份词库补到已安装的锁，再切换代次并回放用户词库。"""
     document = read_options(options_file)
@@ -480,6 +513,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             file=sys.stderr,
         )
         return 1
+    report("stage", "verify")
     problems = verify_directory(resources, lock)
     if problems and not download:
         print_problems(f"词库与当前版本不符：{resources}", problems)
@@ -487,6 +521,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
         return 1
     target = resources
     if problems:
+        report("stage", "download")
         try:
             target = staged_resources(resources, lock)
         except OSError as error:
@@ -496,6 +531,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             print_problems("下载后仍不完整：", remaining)
             return 1
     print(f"词库已校验：{target}")
+    report("stage", "update")
     try:
         with hosts_held_off(user_data):
             install_helpcodes(prefix, target)
@@ -1206,6 +1242,7 @@ def print_gnome_wayland_gtk_note(host: str | None) -> None:
     note = gnome_wayland_gtk_note(host, environment, manager)
     if note:
         print(note)
+        report("note", note)
 
 
 # 注册到 IBus daemon 且玲珑运行时缺少 IBus 模块时，改用 Fcitx5 是可选排查路径；仅凭发行版和环境变量不能认定模块缺失。Fcitx5 自身也可接收 IBus 前端连接（#8009），见 README「deepin 玲珑应用里只能输入字母」。
@@ -1266,6 +1303,7 @@ def print_linglong_ibus_note(host: str | None) -> None:
     note = linglong_ibus_note(host, os_release(), linglong_installed(), fcitx5_addon_installed(install_prefix()))
     if note:
         print(note)
+        report("note", note)
 
 
 def register_input_method(host: str | None) -> str | None:
@@ -1277,6 +1315,14 @@ def register_input_method(host: str | None) -> str | None:
     except RegistrationFailed as error:
         print(f"未能自动加入输入法列表：{error}", file=sys.stderr)
         return None
+
+
+# 上面三行在首次配置页的结果卡片里显示成一段（report 的 note）。
+FCITX5_TRAY_NOTE = (
+    "状态栏上的中英文、简繁、工具栏等入口挂在输入法状态区，需要桌面提供托盘宿主；"
+    "若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，"
+    "但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。"
+)
 
 
 def next_steps(state: Path, host: str | None, registered: str | None) -> None:
@@ -1294,6 +1340,7 @@ def next_steps(state: Path, host: str | None, registered: str | None) -> None:
         print("  状态栏上的中英文、简繁、工具栏等入口挂在输入法状态区，需要桌面提供托盘")
         print("  宿主；若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，")
         print("  但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。")
+        report("note", FCITX5_TRAY_NOTE)
     print_gnome_wayland_gtk_note(host)
     print_linglong_ibus_note(host)
     print("设置面板：msime-linux-settings（需要安装时提供了桌面二进制）")
@@ -1420,6 +1467,8 @@ def main() -> int:
     lock = json.loads(lock_file.read_text())
     if update:
         status = update_dictionaries(prefix, lock, options_file, arguments.download)
+        if status == 0:
+            clear_dictionary_outdated()
         link_omarchy_theme_hook(prefix, options_file)
         link_omarchy_plugin(prefix)
         return status
@@ -1434,6 +1483,7 @@ def main() -> int:
             data_home() / "msime-client/resources",
         )
 
+    report("stage", "verify")
     problems = verify_directory(resources, lock)
     if problems and not arguments.download:
         print_problems(f"词库目录不可用：{resources}", problems)
@@ -1444,23 +1494,29 @@ def main() -> int:
         )
         return 1
     if problems:
+        report("stage", "download")
         remaining = fetch_missing(lock, resources)
         if remaining:
             print_problems("下载后仍不完整：", remaining)
             return 1
 
     print(f"词库已校验：{resources}")
+    report("stage", "prepare")
     try:
         install_helpcodes(prefix, resources)
     except OSError as error:
         raise SystemExit(f"准备辅助码失败：{error}") from error
     prepare_state(prefix, resources, state, arguments.cloud_candidates)
     ensure_anonymous_account(prefix)
+    report("stage", "services")
     enable_services(service_units(state, config_home() / "msime-client"))
     link_omarchy_theme_hook(prefix, options_file)
     link_omarchy_plugin(prefix)
+    report("stage", "register")
     host = active_host()
-    next_steps(state, host, None if arguments.no_register else register_input_method(host))
+    registered = None if arguments.no_register else register_input_method(host)
+    next_steps(state, host, registered)
+    report("result", {"host": host, "registered": registered is not None})
     return 0
 
 
