@@ -36,6 +36,7 @@ public static class SettingsWindowProbe {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 }
 '@
+. (Join-Path $PSScriptRoot 'settings_wheel.ps1')
 $programPath = (Resolve-Path -LiteralPath $Program).Path
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
@@ -478,6 +479,7 @@ try {
                 if ($page -eq 'shortcuts') {
                     # 照 macOS 分「按键设置」「按键速查」两个标签；选词与翻页在输入页，桌面上没有「恢复默认快捷键」。
                     Select-PageTab $window 'shortcuts-tab-settings' 'Ctrl+Space（由 Windows 管理）'
+                    Assert-SettingsWheelHitRegions $window $process.MainWindowHandle "$theme-$width"
                     $content = Find-ById $window 'settings-content'
                     foreach ($name in @('恢复默认快捷键', '以词定字')) {
                         if (Find-ByName $content $name) { throw "Shortcuts settings tab still shows $name" }
