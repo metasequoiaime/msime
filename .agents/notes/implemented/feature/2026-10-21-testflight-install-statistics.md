@@ -22,7 +22,7 @@ Status: implemented
 
 7 项合成测试验证 ES256 JWT、完整分页、重复构建去重、合法零值、缺失指标与失败分页拒绝发布、跨域分页拦截和仅发送公开汇总。workflow 的 actionlint、`bash scripts/run-checks.sh` 契约门禁与 `pnpm run verify-notes` 通过；缺少工具链的既有契约按门禁规则跳过。
 
-本机可用磁盘约 12 GiB，低于仓库要求的 50 GB，不创建新的 Rust 构建树，因此未运行会无条件编译 workspace 的 `verify-local.sh --quick`。本次没有修改 Rust、原生宿主或发布链。首次真实执行仍须在 workflow 合入默认分支后验证现有密钥的指标权限和官网接收链；合成测试不是 Apple 授权或实数验证。
+本机可用磁盘约 12 GiB，低于仓库要求的 50 GB，不创建新的 Rust 构建树，因此未运行会无条件编译 workspace 的 `verify-local.sh --quick`。本次没有修改 Rust、原生宿主或发布链。[修正版的真实统计运行](https://github.com/metasequoiaime/msime/actions/runs/39598834120)使用现有授权成功读取 37 个构建、汇总 3,860 次安装并完成官网 dispatch；官网接收工作流成功，生成仅修改公开快照的自动 PR。修复前的真实运行在构建指标端点因 `limit` 返回 HTTP 400，错误码为 `PARAMETER_ERROR.INVALID`。回归断言确保指标初始请求不再附带该参数，并验证诊断不会输出原始错误详情或参数值。
 
 ## Consequences
 
