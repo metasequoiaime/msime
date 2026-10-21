@@ -332,6 +332,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     issuesUrl: platformIssuesUrl,
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
+    setError,
   });
   const {
     dataDirectory,
