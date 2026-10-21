@@ -308,6 +308,7 @@ export interface EmojiPanelClient extends PanelClient {
     emoji: EmojiCatalogGroup[];
     kaomoji: EmojiCatalogGroup[];
     symbols: EmojiCatalogGroup[];
+    /** 只标记内置目录不可用；成功响应中的插件组仍是当前完整快照。 */
     unavailable?: ("emoji" | "kaomoji" | "symbols")[];
   }>;
 }

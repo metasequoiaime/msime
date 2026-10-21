@@ -180,3 +180,58 @@ test("剪贴板操作互斥并在成功后刷新列表", async () => {
   expect(result.current.clipboard).toEqual(["合成保留记录"]);
   expect(result.current.clipboardBusy).toBe(false);
 });
+
+test.each(["kaomoji", "symbols"] as const)(
+  "%s 重试只回退内置目录，插件随新快照更新、卸载并支持目录恢复",
+  async (page) => {
+    type Catalog = Awaited<ReturnType<NonNullable<EmojiPanelClient["loadCatalog"]>>>;
+    const group = (title: string, pack?: string) => ({
+      title,
+      icon: "◉",
+      ...(pack ? { pack } : {}),
+      items: [{ text: title, keywords: title }],
+    });
+    const response = (
+      groups: Catalog["symbols"],
+      unavailable: Catalog["unavailable"],
+    ): Catalog => ({
+      emoji: [],
+      kaomoji: [],
+      symbols: [],
+      [page]: groups,
+      unavailable,
+    });
+    const builtin = group("合成已有内置组");
+    const oldPlugin = group("合成旧插件组", "synthetic-pack");
+    const newPlugin = group("合成新插件组", "synthetic-pack");
+    const recovered = group("合成恢复内置组");
+    const loadCatalog = vi
+      .fn<NonNullable<EmojiPanelClient["loadCatalog"]>>()
+      .mockResolvedValueOnce(response([builtin, oldPlugin], ["emoji"]))
+      .mockResolvedValueOnce(response([newPlugin], [page]))
+      .mockRejectedValueOnce(new Error("synthetic transport failure"))
+      .mockResolvedValueOnce(response([], [page]))
+      .mockResolvedValueOnce(response([recovered, newPlugin], []));
+    const client = { close: async () => {}, loadCatalog };
+    const { result } = renderHook(() => useEmojiPanel(client));
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    act(() => result.current.selectPage(page));
+    const titles = () => result.current.filteredGroups.map((entry) => entry.title);
+    expect(titles()).toEqual([builtin.title, oldPlugin.title]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual([page]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual(["emoji", "kaomoji", "symbols"]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([recovered.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual([]);
+  },
+);

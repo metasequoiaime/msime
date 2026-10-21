@@ -206,3 +206,32 @@ test("颜文字插件与内置或其他组重叠时保持完整分组，首页�
     expect(screen.getByRole("heading", { name: title })).toBeDefined();
   }
 });
+
+test.each([
+  ["kaomoji", "颜文字"],
+  ["symbols", "符号"],
+] as const)("%s 内置目录不可用时仍显示宿主返回的插件组", async (page, label) => {
+  const plugin = {
+    title: "合成插件组",
+    icon: "◉",
+    pack: "synthetic-pack",
+    items: [{ text: "合成插件项目", keywords: "合成插件项目" }],
+  };
+  render(
+    <EmojiPanel
+      client={{
+        close: async () => {},
+        loadCatalog: async () => ({
+          emoji: [],
+          kaomoji: [],
+          symbols: [],
+          [page]: [plugin],
+          unavailable: [page],
+        }),
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  expect(await screen.findByRole("button", { name: "合成插件项目" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "重新加载" })).toBeDefined();
+});

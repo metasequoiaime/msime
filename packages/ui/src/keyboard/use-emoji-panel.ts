@@ -162,11 +162,20 @@ export function useEmojiPanel(
       .then((next) => {
         if (generation !== catalogGeneration.current) return;
         const unavailable = next.unavailable ?? [];
-        setCatalog((current) => ({
-          emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
-          kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
-          symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
-        }));
+        setCatalog((current) => {
+          const groupsFor = (kind: keyof typeof current) =>
+            unavailable.includes(kind)
+              ? [
+                  ...current[kind].filter((group) => !group.pack),
+                  ...next[kind].filter((group) => group.pack),
+                ]
+              : next[kind];
+          return {
+            emoji: groupsFor("emoji"),
+            kaomoji: groupsFor("kaomoji"),
+            symbols: groupsFor("symbols"),
+          };
+        });
         setCatalogUnavailable(unavailable);
       })
       .catch(() => {
