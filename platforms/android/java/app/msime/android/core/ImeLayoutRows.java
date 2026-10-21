@@ -28,6 +28,7 @@ final class ImeLayoutRows {
     private View nineKeyPunctuation;
     private Button letterOptionsAnchor;
     private LinearLayout letterOptions;
+    private final java.util.List<Button> letterOptionButtons = new java.util.ArrayList<>();
     private int letterOptionIndex = -1;
     private boolean letterOptionsEntered;
 
@@ -890,6 +891,16 @@ final class ImeLayoutRows {
         if (options != null) {
             letterOptionsAnchor = anchor;
             letterOptions = options;
+            collectLetterOptionButtons(options);
+        }
+    }
+
+    /** 弹窗以多行容器排版，拖选只跟踪其中实际可提交的按钮。 */
+    private void collectLetterOptionButtons(android.view.ViewGroup group) {
+        for (int index = 0; index < group.getChildCount(); index++) {
+            View child = group.getChildAt(index);
+            if (child instanceof Button button) letterOptionButtons.add(button);
+            else if (child instanceof android.view.ViewGroup nested) collectLetterOptionButtons(nested);
         }
     }
 
@@ -899,8 +910,8 @@ final class ImeLayoutRows {
         int selected = -1;
         android.graphics.Rect bounds = new android.graphics.Rect();
         int[] location = new int[2];
-        for (int index = 0; index < letterOptions.getChildCount(); index++) {
-            View option = letterOptions.getChildAt(index);
+        for (int index = 0; index < letterOptionButtons.size(); index++) {
+            Button option = letterOptionButtons.get(index);
             option.getLocationOnScreen(location);
             bounds.set(location[0], location[1], location[0] + option.getWidth(), location[1] + option.getHeight());
             if (option.isShown() && bounds.contains((int) event.getRawX(), (int) event.getRawY())) {
@@ -912,8 +923,8 @@ final class ImeLayoutRows {
         letterOptionsEntered |= selected >= 0;
         if (selected == letterOptionIndex) return;
         letterOptionIndex = selected;
-        for (int index = 0; index < letterOptions.getChildCount(); index++) {
-            Button option = (Button) letterOptions.getChildAt(index);
+        for (int index = 0; index < letterOptionButtons.size(); index++) {
+            Button option = letterOptionButtons.get(index);
             option.setSelected(index == selected);
             s.imeStyler.styleButton(option, false);
         }
@@ -924,7 +935,7 @@ final class ImeLayoutRows {
         if (letterOptionsAnchor != anchor || letterOptions == null || !letterOptionsEntered) return false;
         moveLetterOptions(anchor, event);
         Button selected = letterOptionIndex < 0 ? null
-            : (Button) letterOptions.getChildAt(letterOptionIndex);
+            : letterOptionButtons.get(letterOptionIndex);
         if (selected == null) dismissNineKeyHoldOptions();
         else selected.performClick();
         return true;
@@ -1035,6 +1046,7 @@ final class ImeLayoutRows {
     private void clearLetterOptions() {
         letterOptionsAnchor = null;
         letterOptions = null;
+        letterOptionButtons.clear();
         letterOptionIndex = -1;
         letterOptionsEntered = false;
     }
