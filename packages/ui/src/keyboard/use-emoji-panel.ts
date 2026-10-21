@@ -27,6 +27,8 @@ import {
   symbolCategoryTitle,
 } from "./emoji-panel-helpers";
 import { usePanelAction } from "./use-panel-action";
+import { usePanelDrag } from "./use-panel-drag";
+import { useWindowResizeCapture } from "../settings/use-window-resize-capture";
 
 export type EmojiPage = "home" | "emoji" | "sticker" | "gif" | "kaomoji" | "symbols" | "clipboard";
 
@@ -97,6 +99,12 @@ export function useEmojiPanel(
   const [panelNotice, setPanelNotice] = useTimedValue<PanelNotice>(NO_NOTICE);
   const notice = panelNotice.toast ? "" : panelNotice.text;
   const toast = panelNotice.toast ? panelNotice.text : "";
+  const drag = usePanelDrag(client, () => setNotice("无法移动面板，请重试。"));
+  const resize = useWindowResizeCapture({
+    resizeWindow: client.resizeWindow,
+    windowMaximized: false,
+    setError: setNotice,
+  });
   const [catalog, setCatalog] = useState({
     emoji: fallbackEmojiGroups,
     kaomoji: fallbackKaomojiGroups,
@@ -276,8 +284,8 @@ export function useEmojiPanel(
   const categoryKey = (group: EmojiCatalogGroup) =>
     group.pack !== undefined
       ? JSON.stringify(["pack", group.pack])
-      : page === "symbols" && group.parent
-        ? `parent:${group.parent}`
+      : page === "symbols"
+        ? JSON.stringify(["group", group.parent ?? "", group.title])
         : `group:${group.title}`;
   const categoryTabs: { id: string; title: string; icon: string }[] = [];
   for (const group of groups) {
@@ -285,7 +293,12 @@ export function useEmojiPanel(
     if (!categoryTabs.some((tab) => tab.id === id)) {
       categoryTabs.push({
         id,
-        title: page === "symbols" ? group.parent || group.title : group.title,
+        title:
+          page === "symbols"
+            ? group.pack !== undefined
+              ? group.parent || group.title
+              : symbolCategoryTitle(group.title)
+            : group.title,
         icon: group.icon,
       });
     }
@@ -650,6 +663,8 @@ export function useEmojiPanel(
     captureStatus,
     notice,
     toast,
+    drag,
+    resize,
     catalogUnavailable,
     catalogLoading,
     categoryPage,

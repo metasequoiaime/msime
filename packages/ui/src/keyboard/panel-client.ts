@@ -1,6 +1,7 @@
 import type { EmojiCatalogGroup } from "../emoji/emoji-catalog";
 import type { ModelMirrorClient, ResourcePackClient } from "../settings/resource-packs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
+import type { WindowResizeEdge } from "./window-host";
 
 export interface KeyboardInputRequest {
   virtual_key: number;
@@ -283,6 +284,8 @@ export type ClipboardCaptureStatus =
   | "save_failed";
 
 export interface EmojiPanelClient extends PanelClient {
+  /** 宿主允许调整表情与符号窗口的大小时，处理边缘拖动。 */
+  resizeWindow?(edge: WindowResizeEdge): Promise<void>;
   copyText?(text: string): Promise<void>;
   /** 「输入到原应用」或「粘贴」成功后关闭面板，与 macOS 的表情面板一样只插入一次（Linux 设置宿主）。复制不关闭。 */
   closeAfterInsert?: boolean;
