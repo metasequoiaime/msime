@@ -640,6 +640,8 @@ public final class MSIMEInputService extends InputMethodService {
         final boolean bottomRow;
         /** 整块里还包着底行（日语九键、注音九键没有单独的底行，四行都在块里）：`baseHeight` 已经是四行，块拿整份调整。其余的键行和键块分摊底行以外的那部分（{@link KeyboardGeometry#keyRowsAdjustment}）。 */
         final boolean withBottomRow;
+        /** 九宫格主体；上方补充数字行仍按原字母行分摊，避免切层改变总高。 */
+        final boolean nineKeyGrid;
 
         KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex,
                            boolean includesRowSpacing) {
@@ -647,11 +649,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
 
         KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex, int rowSpacings) {
-            this(baseHeight, rowCount, rowIndex, rowSpacings, false, false);
+            this(baseHeight, rowCount, rowIndex, rowSpacings, false, false, false);
         }
 
         private KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex, int rowSpacings,
-                                   boolean bottomRow, boolean withBottomRow) {
+                                   boolean bottomRow, boolean withBottomRow, boolean nineKeyGrid) {
             this.baseHeight = baseHeight;
             this.rowCount = rowCount;
             this.rowIndex = rowIndex;
@@ -659,17 +661,24 @@ public final class MSIMEInputService extends InputMethodService {
             this.rowSpacings = rowSpacings;
             this.bottomRow = bottomRow;
             this.withBottomRow = withBottomRow;
+            this.nineKeyGrid = nineKeyGrid;
         }
 
         /** 底行这一行。 */
         static KeyboardHeightRole bottomRow() {
-            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 1, 0, 1, true, false);
+            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 1, 0, 1, true, false, false);
+        }
+
+        /** 九宫格三行外框，单独标记以免上方的补充符号行跟着加高。 */
+        static KeyboardHeightRole nineKeyGrid() {
+            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3,
+                1, 0, 3, false, false, true);
         }
 
         /** 三行键加底行的整块：四行键高、四份行距，拿整份高度调整，总高和三行键加一条底行的布局相同。 */
         static KeyboardHeightRole threeRowsWithBottomRow() {
             return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardHeightPolicy.KEYBOARD_ROW_COUNT,
-                1, 0, KeyboardHeightPolicy.KEYBOARD_ROW_COUNT, false, true);
+                1, 0, KeyboardHeightPolicy.KEYBOARD_ROW_COUNT, false, true, false);
         }
     }
     private ScrollView voiceResultScroll;

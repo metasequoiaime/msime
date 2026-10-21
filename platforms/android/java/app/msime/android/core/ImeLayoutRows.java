@@ -372,7 +372,7 @@ final class ImeLayoutRows {
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
         LinearLayout container = LayoutPolicy.row(s);
-        s.imeStyler.adjustThreeRowBlockHeight(container);
+        container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 

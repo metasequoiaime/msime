@@ -168,7 +168,8 @@ final class ImeStyler {
         if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
             // 九宫格加高只扩大上方键区，其余布局及缩小量仍四行均分；总高始终为四行默认键高加整份调整。
-            boolean nineKeyGrid = s.imeLayoutRows.nineKeyGridDrawn();
+            boolean nineKeyGrid = s.imeLayoutRows.nineKeyGridDrawn()
+                && (role.bottomRow || role.nineKeyGrid);
             int heightDp;
             if (role.bottomRow) {
                 heightDp = role.baseHeight + KeyboardHeightPolicy.bottomRowAdjustment(adjustment, nineKeyGrid);
