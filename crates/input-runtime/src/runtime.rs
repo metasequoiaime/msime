@@ -327,6 +327,19 @@ impl Runtime<Session> {
         self.refresh()
     }
 
+    /// 英文在线授权的改变立即失效旧查询，并刷新已经显示的英文列表。
+    pub fn set_english_online_candidates_enabled(
+        &mut self,
+        enabled: bool,
+    ) -> Result<(), RuntimeError> {
+        if self.engine.english_online_candidates_enabled() == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_english_online_candidates_enabled(enabled);
+        self.refresh()
+    }
+
     /// A live host mode changes neither composition nor candidate identity.
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.engine
@@ -344,6 +357,7 @@ impl Runtime<Session> {
             return Ok(None);
         }
         Ok(Some(OnlineQuery {
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity,
@@ -374,6 +388,7 @@ impl Runtime<Session> {
         let cloud_candidates = query.cloud_candidates;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -400,6 +415,7 @@ impl Runtime<Session> {
     ) -> Result<bool, RuntimeError> {
         let cloud_candidates = query.cloud_candidates;
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -413,6 +429,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,
@@ -485,6 +502,7 @@ impl Runtime<Session> {
         };
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -512,6 +530,7 @@ impl Runtime<Session> {
             query.ai_candidate_limit()
         };
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -525,6 +544,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,

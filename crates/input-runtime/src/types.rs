@@ -304,6 +304,11 @@ pub const MAX_ONLINE_QUERY_BYTES: usize = 131_072;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
+    #[serde(
+        default,
+        skip_serializing_if = "msime_engine::OnlineInputMode::is_pinyin"
+    )]
+    pub mode: msime_engine::OnlineInputMode,
     /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ai_context: String,

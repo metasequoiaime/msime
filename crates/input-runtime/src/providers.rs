@@ -25,7 +25,14 @@ pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
 fn cloud_query_allowed(query: &OnlineQuery) -> bool {
     query.cloud_eligible
         && query.cloud_candidates
-        && SchemeType::from_u8(query.scheme).is_some_and(SchemeType::cloud_eligible)
+        && if query.mode == msime_engine::OnlineInputMode::English {
+            query
+                .cloud_request
+                .as_ref()
+                .is_some_and(|request| request.validate())
+        } else {
+            SchemeType::from_u8(query.scheme).is_some_and(SchemeType::cloud_eligible)
+        }
 }
 
 /// 按共享描述符解析宿主取得的响应，旧查询仍按 Google 格式处理。

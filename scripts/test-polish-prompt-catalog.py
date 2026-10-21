@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """检查各语言消费的内置润色正文和原生展示目录相同，不读取用户配置。"""
+import base64
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -81,3 +83,50 @@ FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: prese
         assert projected == [{"id": preset["id"], "title": preset["title"]} for preset in PRESETS], \
             "iOS 润色方案 id、名称或顺序与共享目录不同"
     print("polish prompt catalog: iOS 展示目录与共享目录一致")
+
+javac = shutil.which("javac")
+java = shutil.which("java")
+jdk_version = subprocess.run([javac, "-version"], capture_output=True, text=True, timeout=10) if javac else None
+version = re.search(r"javac (\d+)", jdk_version.stdout + jdk_version.stderr) if jdk_version else None
+if not java or not version or int(version[1]) < 17:
+    print("skipped: Android 润色展示目录检查需要 JDK 17")
+else:
+    with tempfile.TemporaryDirectory(prefix="msime-polish-java-") as directory:
+        source = Path(directory) / "CatalogCheck.java"
+        source.write_text('''package app.msime.android;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+public final class CatalogCheck {
+  public static void main(String[] args) {
+    String[] ids = VoicePolishPresetCatalog.ids();
+    String[] titles = VoicePolishPresetCatalog.titles();
+    ids[0] = "synthetic-id";
+    titles[0] = "synthetic-title";
+    if (VoicePolishPresetCatalog.ids()[0].equals(ids[0])
+        || VoicePolishPresetCatalog.titles()[0].equals(titles[0])) {
+      throw new AssertionError("调用方不能修改共享生成目录");
+    }
+    for (String id : VoicePolishSettingsPolicy.PROMPTS) {
+      for (String value : new String[] {id, VoicePolishSettingsPolicy.promptLabel(id)}) {
+        System.out.println(Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)));
+      }
+    }
+  }
+}
+''', encoding="utf-8")
+        voice = ROOT / "platforms/android/java/app/msime/android/voice"
+        subprocess.run([javac, "--release", "17", "-encoding", "UTF-8", "-Xlint:all", "-Werror",
+                        "-d", directory, str(voice / "VoicePolishPresetCatalog.java"),
+                        str(voice / "VoicePolishSettingsPolicy.java"), str(source)],
+                       check=True, timeout=60)
+        lines = subprocess.check_output([java, "-cp", directory, "app.msime.android.CatalogCheck"],
+                                        timeout=10).decode("ascii").splitlines()
+        values = [base64.b64decode(line).decode("utf-8") for line in lines]
+        projected = [dict(zip(("id", "title"), values[index:index + 2]))
+                     for index in range(0, len(values), 2)]
+        custom = [{"id": f"custom_{index}", "title": f"自定义{title}"}
+                  for index, title in enumerate("一二三", start=1)]
+        assert projected == [{"id": preset["id"], "title": preset["title"]}
+                             for preset in PRESETS] + custom, \
+            "Android 润色方案 id、名称或顺序与共享目录不同"
+    print("polish prompt catalog: Android 实际选择表与共享目录一致，自定义槽位保留")

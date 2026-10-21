@@ -1223,6 +1223,7 @@ fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
                     quick_phrase: false,
                     emoji: false,
                     kaomoji: false,
+                    symbol: false,
                     super_jianpin: false,
                     temporary_english: false,
                     temporary_japanese: false,
@@ -5629,6 +5630,159 @@ fn dedicated_english_offers_the_typed_word_when_unknown() {
 }
 
 #[test]
+fn english_online_requires_opt_in_and_answers_enter_the_visible_list() {
+    for dedicated in [true, false] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+        let mut session = generated_modes_session(&fixture);
+        if dedicated {
+            session.set_dedicated_english(true);
+        } else {
+            session.character(b'Y', true);
+        }
+        type_text(&mut session, "accessability");
+        assert!(session.online_query().is_none());
+        let local = words(&session);
+        session.set_english_online_candidates_enabled(true);
+        let query = session.online_query().unwrap();
+        assert_eq!(query.mode, crate::OnlineInputMode::English);
+        assert_eq!(query.query_text, "accessability");
+        assert_eq!(query.cache_key, "english:accessability");
+        assert!(query.pinyin_segments.is_empty());
+        assert!(query.ai_eligible && query.cloud_eligible);
+        assert!(session.apply_online_candidates(
+            &query,
+            &[
+                "accessibility".into(),
+                "accessibility".into(),
+                "accessible".into()
+            ],
+            CandidateSource::AiSuggestion,
+        ));
+        assert_eq!(&words(&session)[..local.len()], local);
+        assert_eq!(
+            &words(&session)[local.len()..],
+            ["accessibility", "accessible"]
+        );
+        let chosen = session.select(local.len());
+        assert_eq!(chosen.commit.as_deref(), Some("accessibility"));
+        assert!(!session.apply_online_candidate(
+            &query,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        assert!(session.online_query().is_none());
+    }
+}
+
+#[test]
+fn english_online_edits_revocation_and_mode_changes_reject_old_answers() {
+    for dedicated in [true, false] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+        let mut session = generated_modes_session(&fixture);
+        session.set_english_online_candidates_enabled(true);
+        if dedicated {
+            session.set_dedicated_english(true);
+        } else {
+            session.character(b'Y', true);
+        }
+        type_text(&mut session, "accessability");
+        let old = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &old,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        session.character(b'x', false);
+        assert!(!words(&session).contains(&"accessibility".to_owned()));
+        session.command(Command::Backspace);
+        assert!(!session.apply_online_candidate(
+            &old,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &current,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        session.command(Command::MoveHome);
+        session.command(Command::DeleteForward);
+        assert!(!words(&session).contains(&"accessibility".to_owned()));
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessibility",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        assert!(session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        session.set_english_online_candidates_enabled(false);
+        assert!(session.online_query().is_none());
+        assert!(!words(&session).contains(&"accessible".to_owned()));
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        session.set_english_online_candidates_enabled(true);
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+        let current = session.online_query().unwrap();
+        session.set_dedicated_english(!dedicated);
+        assert!(!session.apply_online_candidate(
+            &current,
+            "accessible",
+            CandidateSource::AiSuggestion
+        ));
+    }
+}
+
+#[test]
+fn english_online_batches_replace_sources_and_validate_query_mode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_english_online_candidates_enabled(true);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "HE");
+    let query = session.online_query().unwrap();
+    let mut wrong_mode = query.clone();
+    wrong_mode.mode = crate::OnlineInputMode::Pinyin;
+    assert!(!session.apply_online_candidate(&wrong_mode, "Helper", CandidateSource::AiSuggestion));
+    assert!(session.apply_online_candidates(
+        &query,
+        &["Helper".into()],
+        CandidateSource::AiSuggestion
+    ));
+    assert!(session.apply_online_candidate(&query, "Hero", CandidateSource::CloudSuggestion));
+    assert!(!session.apply_online_candidates(&query, &[], CandidateSource::AiSuggestion));
+    assert!(words(&session).contains(&"Helper".to_owned()));
+    // 同源批次即使只重复本地词，也必须撤回旧在线行。
+    assert!(session.apply_online_candidates(
+        &query,
+        &["Hello".into()],
+        CandidateSource::AiSuggestion
+    ));
+    assert!(!words(&session).contains(&"Helper".to_owned()));
+    assert_eq!(
+        words(&session)
+            .iter()
+            .filter(|word| *word == "Hello")
+            .count(),
+        1
+    );
+    session.clear_online_candidates(CandidateSource::CloudSuggestion);
+    assert!(!words(&session).contains(&"Hero".to_owned()));
+    assert!(!session.apply_online_candidate(&query, "Hero", CandidateSource::CloudSuggestion));
+}
+
+#[test]
 fn dedicated_english_refresh_reuses_candidate_row_storage() {
     let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
     let mut old_style = fixture.session();
@@ -6897,6 +7051,96 @@ fn generated_mode_commits_are_never_learned() {
             "SELECT COUNT(*) FROM user_dictionary_operations"
         ),
         0
+    );
+}
+
+/// 进入符号模式并打出 `typed`，返回候选。
+fn symbol_mode_rows(fixture: &Fixture, typed: &str) -> Vec<String> {
+    let mut session = fixture.session();
+    assert!(session.character(b'S', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Symbol);
+    type_text(&mut session, typed);
+    session
+        .snapshot()
+        .candidates
+        .iter()
+        .map(|item| item.word.clone())
+        .collect()
+}
+
+/// 符号模式（Shift+S）的分组码 `xl` 出希腊字母。
+#[test]
+fn symbol_mode_group_xl_gives_greek_letters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "xl");
+    assert_eq!(rows[..3], ["α", "β", "γ"], "{rows:?}");
+}
+
+/// 分组码 `sx` 出数学符号。
+#[test]
+fn symbol_mode_group_sx_gives_math_symbols() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "sx");
+    assert!(rows.iter().any(|text| text == "∑"), "{rows:?}");
+    assert!(rows.iter().any(|text| text == "√"), "{rows:?}");
+}
+
+/// 分组码 `jt` 出箭头。
+#[test]
+fn symbol_mode_group_jt_gives_arrows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "jt");
+    assert!(rows.iter().any(|text| text == "→"), "{rows:?}");
+}
+
+/// 符号名 `alpha` 出 α；符号名在分组码之后给，不重复。
+#[test]
+fn symbol_mode_name_alpha_gives_the_letter() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "alpha");
+    assert_eq!(rows[0], "α", "{rows:?}");
+    assert_eq!(rows.iter().filter(|text| *text == "α").count(), 1);
+}
+
+/// 选中符号行整段上屏并结束组字；与 emoji 行一样不学习、不调频。
+#[test]
+fn symbol_mode_commits_the_row_and_ends_the_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    assert!(session.character(b'S', true).handled);
+    type_text(&mut session, "xl");
+    // 符号模式只收字母，数字交还宿主：选中高亮那一行走 `CommitCandidate`。
+    let result = session.command(Command::CommitCandidate);
+    assert_eq!(result.commit.as_deref(), Some("α"), "{result:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert!(snapshot.preedit.is_empty());
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT COUNT(*) FROM user_dictionary_operations"
+        ),
+        0
+    );
+}
+
+/// 关掉偏好后 Shift+S 不再进入符号模式，照常打出一个大写 S（或开始拼音组字）。
+#[test]
+fn disabled_symbol_mode_leaves_shift_s_to_the_scheme() {
+    let fixture = Fixture::new(HELLO_FIXTURE);
+    // 同一份夹具下开着偏好时确实进模式，关掉后那条断言才不是空的。
+    let mut on = fixture.session();
+    assert!(on.character(b'S', true).handled);
+    assert_eq!(on.snapshot().local_mode, LocalInputMode::Symbol);
+    let mut session = fixture.session_with(|options| options.local_modes.symbol = false);
+    assert!(session.character(b'S', true).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "S");
+    assert!(snapshot.candidates.iter().all(|item| item.word != "α"));
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("S")
     );
 }
 

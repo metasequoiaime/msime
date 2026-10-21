@@ -124,6 +124,7 @@ pub struct EngineResult {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuerySnapshot {
     pub available: bool,
+    pub mode: crate::OnlineInputMode,
     pub scheme: u8,
     pub generation: u64,
     pub identity: String,
@@ -345,6 +346,7 @@ impl Session {
         };
         Ok(OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme as u8,
             generation: query.generation,
             identity: query.identity,
@@ -379,6 +381,14 @@ impl Session {
 
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
         self.inner.set_cloud_candidates_enabled(enabled);
+    }
+
+    pub fn english_online_candidates_enabled(&self) -> bool {
+        self.inner.english_online_candidates_enabled()
+    }
+
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.inner.set_english_online_candidates_enabled(enabled);
     }
 
     pub fn set_caret(&mut self, caret: Option<usize>) {
@@ -812,6 +822,7 @@ fn online_request(
         _ => return None,
     };
     let request = OnlineQuery {
+        mode: query.mode,
         scheme: SchemeType::from_u8(query.scheme)?,
         generation: query.generation,
         identity: query.identity.clone(),

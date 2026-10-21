@@ -1277,7 +1277,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         [controller renderCandidates];
         assert(candidatePanel.requestedVisible);
         assert(candidatePanel.frame.size.height >= measuredHeight);
-        assert(panel.clearance >= candidatePanel.frame.size.height);
+        assert(panel.clearance >= NSHeight(((MSIMECandidateChromeView *)candidatePanel.contentView).cardBounds));
     }
     appearance.candidatePadding = savedPadding;
     appearance.fontSize = savedFontSize;
@@ -1392,7 +1392,7 @@ preedit_margin_dip = [70, 11, 80, 17]
             [controller updateKeymapPanel];
             [controller renderCandidates];
             assert(keymap.requestedVisible && panel.requestedVisible);
-            assert(keymap.clearance >= panel.frame.size.height);
+            assert(keymap.clearance >= NSHeight(((MSIMECandidateChromeView *)panel.contentView).cardBounds));
         }
     }
     MSIMERemoveTestPreferenceSuite(defaults, suite);
@@ -8762,6 +8762,167 @@ static void TestEmptyGlossDoesNotApplyAStaleServiceGeneration() {
     return batch;
 }
 @end
+// 真实控制器、Rust 会话与合成编辑器覆盖普通英文、专用英文和临时英文；只替换网络传输。
+static void TestEnglishOnlineCandidatesThroughRealSession() {
+    for (NSUInteger entry = 0; entry < 3; ++entry) {
+        @autoreleasepool {
+            NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+            NSMutableDictionary *preferences = [@{@"scheme": @"quanpin", @"default_ime_mode": @"chinese",
+                @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @NO,
+                @"cloud_candidates": @YES, @"candidate_translations": @NO,
+                @"english_online_candidates": @(entry != 0),
+                @"ai_assistant": @{@"enabled": @YES, @"provider": @"openai", @"model": @"synthetic",
+                    @"endpoint": @"https://synthetic.invalid/chat", @"candidate_limit": @3,
+                    @"tokens": @{@"https://synthetic.invalid:443": @"synthetic-token"}}} mutableCopy];
+            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+            for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+                NSString *path = [root stringByAppendingPathComponent:name];
+                assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+                options[name] = path;
+                if ([name isEqual:@"resources"] || [name isEqual:@"dictionaries"]) {
+                    sqlite3 *database = nullptr;
+                    assert(sqlite3_open([[path stringByAppendingPathComponent:@"msime-english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+                    assert(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);", nullptr, nullptr, nullptr) == SQLITE_OK);
+                    assert(sqlite3_exec(database, "INSERT INTO english_words VALUES('wording','wording',100);", nullptr, nullptr, nullptr) == SQLITE_OK);
+                    sqlite3_close(database);
+                }
+            }
+            NSError *error = nil;
+            MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+            assert(session && !error);
+            NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+            assert(view && !error);
+            NSString *suite = [@"msime.english-online." stringByAppendingString:NSUUID.UUID.UUIDString];
+            NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+            MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+            [appearance applySharedInputPreferences:preferences];
+            appearance.cloudCandidates = YES;
+            ShortcutClient *client = [ShortcutClient new];
+            client.document = @"";
+            client.selection = NSMakeRange(0, 0);
+            AIShortcutController *controller = [AIShortcutController alloc];
+            controller.aiBatches = [NSMutableArray array];
+            controller.requests = [NSMutableArray array];
+            [controller setValue:appearance forKey:@"appearance"];
+            [controller setValue:session forKey:@"session"];
+            [controller setValue:client forKey:@"activeClient"];
+            [controller setValue:view forKey:@"view"];
+            [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+            [controller applySharedToolbarPreferences:preferences];
+            auto type = [&](NSString *text) {
+                for (NSUInteger index = 0; index < text.length; ++index) {
+                    NSString *character = [text substringWithRange:NSMakeRange(index, 1)];
+                    assert([controller handleEvent:LayoutKey(0, character, 0) client:client]);
+                }
+            };
+            if (entry == 0) {
+                [controller setEnglishInputMode:YES];
+                assert(![controller handleEvent:LayoutKey(0, @"x", 0) client:client]);
+                assert(![controller valueForKey:@"aiTimer"] && ![session onlineQueryWithError:nil]);
+                preferences[@"english_online_candidates"] = @YES;
+                assert(([session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @1, @"preferences": preferences} error:&error] && !error));
+                [controller applySharedToolbarPreferences:preferences];
+                assert([[controller valueForKey:@"managedEnglishComposition"] boolValue]);
+            } else if (entry == 1) {
+                [controller setDedicatedEnglishInputMode:YES];
+            } else {
+                assert([controller handleEvent:LayoutKey(16, @"Y", NSEventModifierFlagShift) client:client]);
+            }
+            type(@"alpha");
+            [controller apply:[session command:MSIME_COMMIT_RAW error:nil]];
+            if (entry == 2) assert([controller handleEvent:LayoutKey(16, @"Y", NSEventModifierFlagShift) client:client]);
+            type(@"accessability");
+            NSDictionary *query = [session onlineQueryWithError:&error];
+            assert(!error && [query[@"mode"] isEqual:@"english"] && [query[@"query_text"] isEqual:@"accessability"]);
+            assert([query[@"ai_context"] containsString:@"alpha"]);
+            assert(![query[@"cloud_candidates"] boolValue] && ![query[@"cloud_request"] isKindOfClass:NSDictionary.class]);
+            assert(![controller valueForKey:@"cloudTimer"] && controller.requests.count == 0);
+            NSTimer *timer = [controller valueForKey:@"aiTimer"];
+            assert(timer && controller.aiBatches.count == 0);
+            controller.secureInput = YES;
+            [controller synchronizeAITranslations];
+            [timer fire];
+            assert(!timer.valid && controller.aiBatches.count == 0);
+            controller.secureInput = NO;
+            [controller synchronizeAITranslations];
+            timer = [controller valueForKey:@"aiTimer"];
+            assert(timer);
+            [timer fire]; [timer invalidate];
+            assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
+            NSDictionary *body = controller.aiBatches[0].items[0][@"request"][@"body"];
+            NSData *payloadBytes = [body[@"messages"][1][@"content"] dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *payload = [NSJSONSerialization JSONObjectWithData:payloadBytes options:0 error:nil];
+            assert([payload[@"mode"] isEqual:@"english"] && [payload[@"input"] isEqual:@"accessability"]);
+            controller.aiBatches[0].reply(@[@{@"translation": @"accessibility"}]);
+            NSDictionary *after = [session viewWithError:nil];
+            NSArray *rows = after[@"candidates"];
+            NSUInteger answer = [rows indexOfObjectPassingTest:^BOOL(NSDictionary *row, NSUInteger index, BOOL *stop) {
+                (void)index; (void)stop; return [row[@"text"] isEqual:@"accessibility"];
+            }];
+            assert(answer != NSNotFound && answer == MIN((NSUInteger)4, rows.count - 1));
+            [controller apply:[session selectGeneration:[after[@"generation"] unsignedLongLongValue] index:answer error:&error]];
+            assert(!error && [client.document hasSuffix:@"accessibility"]);
+            if (entry == 0) {
+                type(@"word");
+                if (![controller handleEvent:LayoutKey(49, @" ", 0) client:client])
+                    [client insertText:@" " replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                assert([client.document hasSuffix:@"wording "]);
+                type(@"word");
+                [controller commitComposition:client];
+                assert([client.document hasSuffix:@"word"] && client.marked.length == 0);
+                type(@"word");
+                Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+                IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+                [controller deactivateServer:client];
+                method_setImplementation(base, original);
+                assert([client.document hasSuffix:@"wordword"] && client.marked.length == 0);
+                [controller setValue:client forKey:@"activeClient"];
+                [controller apply:[session setFocused:YES error:nil]];
+                type(@"token");
+                if (![controller handleEvent:LayoutKey(47, @".", 0) client:client])
+                    [client insertText:@"." replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                assert([client.document hasSuffix:@"token."]);
+            }
+            if (entry == 2) assert([controller handleEvent:LayoutKey(16, @"Y", NSEventModifierFlagShift) client:client]);
+            type(@"accessability");
+            timer = [controller valueForKey:@"aiTimer"];
+            assert(timer);
+            preferences[@"english_online_candidates"] = @NO;
+            assert(([session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @2, @"preferences": preferences} error:&error] && !error));
+            [controller applySharedToolbarPreferences:preferences];
+            assert(![session onlineQueryWithError:nil] && !timer.valid);
+            [timer fire];
+            assert(controller.aiBatches.count == 1);
+            if (entry == 0) {
+                assert([client.document hasSuffix:@"accessability"] && client.marked.length == 0);
+                assert(![[controller valueForKey:@"managedEnglishComposition"] boolValue]);
+                assert(![controller handleEvent:LayoutKey(0, @"x", 0) client:client]);
+            }
+            [controller cancelAITranslations];
+            [controller cancelCloudCandidates];
+            if (entry == 0) {
+                preferences[@"english_online_candidates"] = @YES;
+                assert(([session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @3, @"preferences": preferences} error:&error] && !error));
+                [controller applySharedToolbarPreferences:preferences];
+                type(@"pending");
+                std::string lease;
+                const std::string userData = [options[@"user_data"] fileSystemRepresentation];
+                assert(msime::dictionary_lease::raise_dictionary_quiesce_lease(userData, lease));
+                [controller releaseDictionarySessionIfQuiesced];
+                assert(![controller valueForKey:@"session"]);
+                assert(![[controller valueForKey:@"resumeDedicatedEnglish"] boolValue]);
+                assert(![[controller valueForKey:@"managedEnglishComposition"] boolValue]);
+                assert([client.document hasSuffix:@"pending"] && !client.marked.length);
+                msime::dictionary_lease::lower_dictionary_quiesce_lease(userData, lease);
+            } else {
+                assert([session closeWithError:&error] && !error);
+            }
+            MSIMERemoveTestPreferenceSuite(defaults, suite);
+            [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+        }
+    }
+}
+
 static void TestAiCandidateScheduling() {
     AIShortcutController *controller = [AIShortcutController alloc];
     controller.aiBatches = [NSMutableArray array];
@@ -10822,6 +10983,10 @@ int main(int argc, char **argv) {
             TestKeyFocusRestoresPreferenceMonitoring();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--english-online") {
+            TestEnglishOnlineCandidatesThroughRealSession();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             @autoreleasepool { TestPreferenceLoadReusesCandidateServiceSnapshots(); }
             @autoreleasepool { TestCandidateServiceSnapshotsAreReused(); }
@@ -12567,6 +12732,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
+        @autoreleasepool { TestEnglishOnlineCandidatesThroughRealSession(); }
         @autoreleasepool { TestRealTrilingualCycle(); }
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestModifierTaps(); }

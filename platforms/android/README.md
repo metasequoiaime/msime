@@ -6,6 +6,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a（按需加 x86_64）的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
+语音润色的内置方案 id、名称与顺序由共享 Rust 的 `voice::polish_catalog` 导出到 `voice/VoicePolishPresetCatalog.java`；`VoicePolishSettingsPolicy` 追加原有三个自定义槽位，选择表不在 Java 里另写一份。更新与检查使用[共享润色提示词导出命令](../../packages/ui/UPSTREAM.md#共享润色提示词)，生成文件随源码提交，普通 APK 与 JVM 冒烟都按现有源码发现规则编译它。`scripts/test-polish-prompt-catalog.py` 在 JDK 17 可用时编译真实设置选择表，与共享 JSON 对照并检查生成数组互不影响。
+
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
 英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。

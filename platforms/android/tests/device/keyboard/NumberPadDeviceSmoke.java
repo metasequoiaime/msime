@@ -151,11 +151,8 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     }
 
     private void assertGrid() {
-        Rect[] cells = new Rect[9];
+        Rect[] cells = awaitStableGrid();
         for (int index = 0; index < cells.length; index++) {
-            cells[index] = new Rect();
-            awaitStableBounds(key(Integer.toString(index + 1))).getBoundsInScreen(cells[index]);
-            if (cells[index].isEmpty()) throw new AssertionError("Number key has no bounds");
             if (index % 3 > 0 && (cells[index].top != cells[index - 1].top
                     || cells[index].left <= cells[index - 1].left))
                 throw new AssertionError("Number keys are not arranged in three columns: " + java.util.Arrays.toString(cells));
@@ -170,6 +167,31 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             node.getBoundsInScreen(bounds);
             if (!node.isClickable() || bounds.isEmpty()) throw new AssertionError("Numeric action is not reachable");
         }
+    }
+
+    /** 整组坐标连续两拍一致后才比较同行同列，避免逐键等待把窗口过渡的不同帧拼到一起。 */
+    private Rect[] awaitStableGrid() {
+        Rect[] previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            dropStaleNodes();
+            Rect[] current = new Rect[9];
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo root = window.getRoot();
+                for (int index = 0; index < current.length; index++) {
+                    AccessibilityNodeInfo node = find(root, key(Integer.toString(index + 1)));
+                    if (node == null) continue;
+                    Rect bounds = new Rect();
+                    node.getBoundsInScreen(bounds);
+                    if (!bounds.isEmpty()) current[index] = bounds;
+                }
+            }
+            boolean complete = java.util.Arrays.stream(current).allMatch(java.util.Objects::nonNull);
+            if (complete && java.util.Arrays.equals(previous, current)) return current;
+            previous = complete ? current : null;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Number grid bounds never settled: " + java.util.Arrays.toString(previous));
     }
 
     private void typeLiteral(String text) throws Exception {

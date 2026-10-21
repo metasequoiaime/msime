@@ -158,4 +158,4 @@ pnpm exec vp fmt packages/ui/src/voice/polish-prompt-catalog.json packages/ui/sr
 cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
 ```
 
-导出工具同步更新 UI JSON、公开 id 字面量元组、共享 C++ 窄字符串目录头、Windows 设置页的宽字符串目录头、Linux Python 模块和 iOS 的内置方案 Swift 目录，Linux 设置应用 CI 检查它们。`scripts/test-polish-prompt-catalog.py` 用真实 C++ 解析函数、Windows 设置目录、Python 模块和编译后的 Swift 内置方案目录对照 UI JSON；没有 C++17 或 Swift 编译器时分别明确跳过对应部分。自定义槽位、未知方案与空正文的既有处理继续由各消费方的回归覆盖。
+导出工具同步更新 UI JSON、公开 id 字面量元组、共享 C++ 窄字符串目录头、Windows 设置页的宽字符串目录头、Linux Python 模块、iOS 的内置方案 Swift 目录和 Android 的内置方案 Java 目录，Linux 设置应用 CI 检查它们。`scripts/test-polish-prompt-catalog.py` 用真实 C++ 解析函数、Windows 设置目录、Python 模块、编译后的 Swift 内置方案目录和 Android 实际设置选择表对照 UI JSON；没有 C++17、Swift 编译器或 JDK 17 时分别明确跳过对应部分。Java 生成方法每次返回独立数组，Android 设置策略追加三个自定义槽位。自定义槽位、未知方案与空正文的既有处理继续由各消费方的回归覆盖。

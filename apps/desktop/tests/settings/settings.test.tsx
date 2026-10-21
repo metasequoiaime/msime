@@ -2728,6 +2728,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,
@@ -2762,6 +2763,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
   expect(screen.getByRole("switch", { name: /^Emoji/ })).toBeDefined();
   // 颜文字混输 sits on the same page under 候选与联想, so match the local mode alone.
   expect(screen.getByRole("switch", { name: /^颜文字(?!混输)/ })).toBeDefined();
+  expect(screen.getByRole("switch", { name: /^符号快捷输入/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeDefined();
   fireEvent.click(screen.getByRole("switch", { name: /^Unicode/ }));
   saveSettingsNow();
@@ -2774,6 +2776,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,

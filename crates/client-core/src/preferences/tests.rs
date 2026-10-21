@@ -1347,6 +1347,38 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn symbol_mode_defaults_on_and_is_written_only_when_off() {
+    // 与 Windows 正式版的出厂配置一致：缺键读作开，文档里也不写这个键。
+    assert!(LocalModePreferences::default().symbol);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("symbol").is_none());
+
+    // 早于符号模式的文档没有这个键，读出来仍是开，其余模式开关照原样。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(local_modes.remove("symbol"), None);
+    local_modes.insert("emoji".into(), false.into());
+    fs::write(store.path(), serde_json::to_vec(&sparse).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.local_modes;
+    assert!(loaded.symbol && !loaded.emoji && loaded.unicode);
+
+    // 关掉后文档里写 false，读回来还是关。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["local_modes"]["symbol"] = false.into();
+    store
+        .save(0, serde_json::from_value(value).unwrap())
+        .unwrap();
+    assert!(!store.load().unwrap().preferences.local_modes.symbol);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["local_modes"]["symbol"], false);
+}
+
+#[test]
 fn chaizi_is_unset_until_the_user_flips_it() {
     // 缺省是 `None`：由宿主形态决定开关，文档里也不写这个键，旧版本照常读得懂。
     assert_eq!(LocalModePreferences::default().chaizi, None);
@@ -6130,6 +6162,33 @@ fn finished_scope_releases_inherited_lock() {
         inherited,
         &root.path().join("preferences.lock"),
     );
+}
+
+#[test]
+fn english_online_is_an_explicit_local_opt_in() {
+    let defaults = Preferences::default();
+    assert!(!defaults.english_online_candidates);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("english_online_candidates");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .english_online_candidates
+    );
+    let enabled = Preferences {
+        english_online_candidates: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_value::<Preferences>(serde_json::to_value(&enabled).unwrap())
+            .unwrap()
+            .english_online_candidates
+    );
+    let exported = crate::settings_document::export_document(&enabled).unwrap();
+    assert!(!exported.contains("english_online_candidates"));
 }
 
 /// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。

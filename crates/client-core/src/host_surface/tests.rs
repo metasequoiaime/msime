@@ -1157,3 +1157,20 @@ fn fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults() {
         assert!(json.get("fixed_effect_intensity").is_none(), "{platform:?}");
     }
 }
+
+#[test]
+fn english_online_capability_only_names_a_host_with_the_input_path() {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).english_online_candidates,
+            platform == HostPlatform::Macos
+        );
+    }
+}

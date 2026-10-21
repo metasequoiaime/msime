@@ -1280,6 +1280,7 @@ set(MSIME_NOTICE_NAMES
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt
   kfcd-chaizi-CC-BY-3.0.txt
+  rime-wanxiang-CC-BY-4.0.txt
   Unicode-License-V3.txt
   rime-cantonese-CC-BY-4.0.txt
   libchewing-data-LGPL-2.1.txt

@@ -285,6 +285,11 @@ impl CandidateQueries {
                 shuangpin,
                 self.chaizi_traditional_output,
             )),
+            // 符号模式查两张编进引擎的表（分组码与符号名），不发诊断：表总在，输入只是没命中。
+            LocalInputMode::Symbol => rows(crate::local::symbol_groups::query_symbol_mode(
+                code,
+                crate::local::symbol_groups::SYMBOL_MODE_LIMIT,
+            )),
         }
     }
 

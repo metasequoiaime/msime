@@ -78,6 +78,7 @@ export type Preferences = PunctuationPreferences &
     /** AI 联想候选的来源角标样式；缺省为 `robot`（🤖），另一档是 `whale`（🐳）。 */
     candidate_ai_badge_style?: "robot" | "whale";
     english_suggestions?: boolean;
+    english_online_candidates?: boolean;
     translation_target_language?: TranslationLanguage;
     /** 可选的第二种候选翻译语言；null 或缺省表示只显示一行释义。 */
     translation_secondary_language?: TranslationLanguage | null;

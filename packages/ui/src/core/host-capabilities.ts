@@ -67,6 +67,7 @@ export interface HostCapabilities {
   input_mode_status_item: boolean;
   candidate_english_font: boolean;
   english_suggestions: boolean;
+  english_online_candidates?: boolean;
   helpcode_shift_entry: boolean;
   skin_directory_import: boolean;
   /** 设置页提供「制作皮肤」标签：宿主经 client-services 的 `skin::candidate_editor` 把编辑器做的皮肤装进本机皮肤目录（`SettingsClient.candidateSkinEditor`）。桌面宿主为真；HarmonyOS 按设备形态只在 2in1 上打开。缺省按不提供处理。 */

@@ -85,6 +85,8 @@ cp resources/licenses/vi-MIT.txt "$notices/vi.txt"
 cp resources/licenses/ewts-MIT.txt "$notices/ewts.txt"
 # 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进 libmsime_host_api.so，第 4(b) 条要求随改编作品署名并说明改动；许可证文件里写着署名、固定提交、改动说明和法律文本全文。
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$notices/kfcd-chaizi.txt"
+# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），第 3(a) 条要求随改编数据署名并说明改动；许可证文件里写着这些和法律文本全文。
+cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang.txt"
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
 # 简繁转换内嵌的 OpenCC 词表许可证与原生库一并打包。

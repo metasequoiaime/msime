@@ -309,6 +309,8 @@ pub struct HostCapabilities {
     /// offers the same surface but keeps its switch in the native App Group
     /// store, so it reads this as false and shows its own control.
     pub english_suggestions: bool,
+    /// 宿主已接通普通英文、专用英文和临时英文的在线候选。
+    pub english_online_candidates: bool,
     /// A letter becomes a helper code because the user held Shift for it, rather
     /// than because of where it sits in the spelling. Windows appends helper
     /// codes directly to a finished pinyin and needs no gesture; a keyboard host
@@ -780,6 +782,7 @@ impl HostCapabilities {
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
             ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
+            english_online_candidates: platform == HostPlatform::Macos,
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
                 platform,
