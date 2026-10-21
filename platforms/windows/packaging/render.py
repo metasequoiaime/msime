@@ -9,7 +9,7 @@
 
 走 GitHub 时，GitHub 为每个附件记录的摘要与发布流程放在安装包旁边的 `<安装包>.sha256` 小文件互相核对，再下载安装包本身核对同一个摘要。`--installer` 改为对本地文件求摘要，地址按发布流程发布它的位置推出。
 
-两种来源都要求安装包带有效的 Authenticode 签名，没有就拒绝渲染。release-windows.yml 在 CI 上打出、先行发布的安装包是未签名的：x64 Server 以 uiAccess=true 构建，未签名时系统拒绝启动它，装上之后只能打英文（installer/Sign-InstalledServer-Local.ps1）。能交给包管理器的只有维护者用 installer/Package-SimplySign.ps1 签名后替换上去的那一份，而替换会改变摘要，所以也只能在替换之后渲染。签名用 Windows 自己的 Get-AuthenticodeSignature 核对（状态必须是 Valid），所以本脚本只能在 Windows 上渲染；其他系统上一律失败，改为手动触发 package-definitions-windows.yml。
+两种来源都要求安装包带有效的 Authenticode 签名，没有就拒绝渲染。发布工作流不开生产 SignPath 签名时，安装包未签名、Server 使用普通权限；它可以用于普通应用输入，但不满足包管理器的签名要求。维护者可用 installer/Package-SimplySign.ps1 生成带 UIAccess 的可信签名包，连同新的摘要与同次构建的符号包替换发布附件，再渲染包定义。签名用 Windows 的 Get-AuthenticodeSignature 核对（状态必须是 Valid）；其他系统上一律失败，可手动触发 package-definitions-windows.yml。
 
 输出目录按三个包管理器各自的布局：
 
