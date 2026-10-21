@@ -137,6 +137,16 @@ std::optional<Placed> visible(Display *display, const char *resource_class) {
   return found;
 }
 
+// 浮窗与观察者使用不同连接；观察连接的 XSync 不能保证浮窗的请求已生效，按实际状态等待。
+template <typename Predicate>
+void wait_until(Predicate ready, const char *message) {
+  const auto deadline = Clock::now() + std::chrono::seconds(2);
+  while (!ready()) {
+    require(Clock::now() < deadline, message);
+    poll(nullptr, 0, 5);
+  }
+}
+
 // 像 X 服务器那样把一次指针事件送到窗口上；坐标是窗口里的。
 void pointer(Display *display, const Placed &window, int type, unsigned button, int x, int y) {
   XEvent event{};
@@ -370,26 +380,29 @@ void keymap(Display *display) {
   const auto colors = host::shuangpin_keymap_colors(host::CandidateTheme{});
   // 光标在上半屏：放在光标下方、让开候选窗再隔 8，左边对齐光标。
   require(keymap.show("", hint, colors, {200, 150, 2, 20, 60, std::nullopt}), "键位图没有画出来");
-  XSync(display, False);
-  auto window = visible(display, "MSIMEShuangpinKeymap");
-  require(window && window->x == 200 && window->y == 150 + 20 + 60 + 8, "键位图没有放在光标下方");
+  std::optional<Placed> window;
+  wait_until([&] {
+    window = visible(display, "MSIMEShuangpinKeymap");
+    return window && window->x == 200 && window->y == 150 + 20 + 60 + 8;
+  }, "键位图没有放在光标下方");
   require(window->width == 620 && window->height == 203, "键位图尺寸不对");
   save(display, *window, "shuangpin-keymap-x11.png");
   // 宿主量出了候选窗的真实高度（Fcitx5 的原生画布）：按它让开，不用按字号估计的高度。
   require(keymap.show("", hint, colors, {200, 150, 2, 20, 60, 100}), "键位图没有画出来");
-  XSync(display, False);
-  window = visible(display, "MSIMEShuangpinKeymap");
-  require(window && window->y == 150 + 20 + 100 + 8, "键位图没有按量出的候选窗高度让开");
+  wait_until([&] {
+    window = visible(display, "MSIMEShuangpinKeymap");
+    return window && window->y == 150 + 20 + 100 + 8;
+  }, "键位图没有按量出的候选窗高度让开");
   // 光标靠近底边：翻到光标上方。
   const int bottom = DisplayHeight(display, DefaultScreen(display)) - 40;
   require(keymap.show("", hint, colors, {200, bottom, 2, 20, 60, std::nullopt}), "键位图没有画出来");
-  XSync(display, False);
-  window = visible(display, "MSIMEShuangpinKeymap");
-  require(window && window->y + window->height == bottom - 60 - 8, "键位图没有翻到光标上方");
+  wait_until([&] {
+    window = visible(display, "MSIMEShuangpinKeymap");
+    return window && window->y + window->height == bottom - 60 - 8;
+  }, "键位图没有翻到光标上方");
   // 光标矩形不可用时不画。
   require(!keymap.show("", hint, colors, {0, 0, 0, 0, 60, std::nullopt}), "没有光标时不该画键位图");
-  XSync(display, False);
-  require(!visible(display, "MSIMEShuangpinKeymap").has_value(), "没有光标时键位图还在");
+  wait_until([&] { return !visible(display, "MSIMEShuangpinKeymap").has_value(); }, "没有光标时键位图还在");
 }
 
 }  // namespace

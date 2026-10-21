@@ -53,6 +53,7 @@ macOS 有两块 Linux 没有的屏幕浮窗：
 - **IBus 失焦后绕过焦点检查直接改状态** — 按钮在失焦后照 macOS 生效。没有采用：中文输入的切换会对会话调用 `focus_session(true)`，失焦的引擎改输入状态会让会话以为自己有焦点，其余几项要在失焦的引擎上重画；画成不能用是照实，回到输入框就恢复。
 - **读皮肤包的 `[toolbar]` 段（ToolbarSkinTokens）** — 皮肤在工具栏上也画自己单独的配色和圆角。这次没有做：共享层发给宿主的皮肤目录（`host_candidate_catalog`）为控制文档大小不带工具栏段，要改那份跨宿主的契约；Linux 的工具栏先用候选配色和固定的 10 圆角，与 macOS 在带 `[toolbar]` 段的皮肤下颜色会有差别。
 - **设置页按 `!showToolbarAppearance` 判断要不要显示菜单版文案（[2026-10-09](../bug-fix/2026-10-09-linux-toolbar-settings-menu-copy.md) 否掉的那个）** — 现在用的是 `linuxPlatform && !showToolbarAppearance`，两个条件一起：菜单版文案仍只给 Linux，那篇担心的「别的宿主套上 Linux 文案」不会发生。
+- **在 Xvfb 断言前固定睡一段时间** — 只需增加一行，能缓解多数机器上的时序差异。没有采用：无法知道另一条连接何时完成请求，负载变化仍会误报，并让正常路径每次都额外等待；按状态轮询同时保留失败上限和原有几何、可见性断言。
 
 ## Consequences
 
@@ -73,6 +74,8 @@ macOS 有两块 Linux 没有的屏幕浮窗：
   - 键位图的规则与 Windows 的 `ShuangpinKeymapLayout.h` 是两份，改其中一份时要对照另一份，直到合并。
 
 ## Verification
+
+键位图 Xvfb 测试通过独立连接观察窗口，按目标几何或不可见状态轮询，达到条件立即继续，2 秒仍不满足才失败。浮窗自己的 `XFlush` 只保证请求发出，观察连接上的 `XSync` 不能确认另一条连接的请求已被服务端执行；立即断言隐藏会在同一构建上交替通过和失败。测试等待实际状态，生产浮窗维持异步绘制与隐藏。
 
 - `bash platforms/linux/build-container.sh`：`linux-floating-panels-model`（规则、几何、颜色和控制逻辑，假的事件循环和后端；含「En」回到中文、要输入框的按钮、失焦停用、强调色和量出的候选窗高度）、`linux-floating-panels-render`（cairo、pango 实画键位图、工具栏、菜单、提示并检查像素，含停用的按钮和菜单项）、`linux-floating-panels-x11`（Xvfb：另测前台窗口换了以后工具栏回到最上面、连接断开后进程不退出并重新连上、失焦时停用的按钮点了不做事、键位图按量出的高度让开）和 `ibus-mode-hint-x11-toolbar`（Xvfb），`build-container.sh` 要求它们注册并执行。`MSIME_TEST_CANVAS_ARTIFACTS` 指向可写目录时，渲染测试和 Xvfb 测试把画面存成 PNG。
 - `cargo test -p msime-client-core --lib host_surface` 钉住 Linux 的两个能力位；`apps/desktop` 的 `tests/input/host-capabilities.test.tsx` 钉住画悬浮工具栏的 Linux 页面。
