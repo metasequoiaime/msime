@@ -352,6 +352,9 @@ final class ImeLayoutRows {
     /** 当前键行是 {@link #rebuildNineKeyRows} 建的。 */
     private boolean builtNineKeyGrid;
 
+    /** 按实际绘制的网格选择高度分摊，包含其他中文布局借用的数字页。 */
+    boolean nineKeyGridDrawn() { return builtNineKeyGrid; }
+
     /** 键行换成别的布局时调用。 */
     void forgetNineKeyGrid() {
         builtNineKeyGrid = false;
