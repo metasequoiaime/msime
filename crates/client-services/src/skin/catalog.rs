@@ -2062,7 +2062,7 @@ pub const HOST_CATALOG_DRAWN_EXTRAS: [&str; 4] = [
 /// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
 /// 最多列出 `HOST_CATALOG_MAX_PACKAGES` 个，按目录顺序。`selected` 是自定义主题选中的皮肤（浅色、深色两个槽位）：已安装的一律列出，落在上限之外时挤掉上限内最后几个没选中的，排到末尾，因为屏幕上画的是它们的颜色。
-/// 含 canvas 包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
+/// 含 canvas 或有效装饰词包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
 /// 旧宿主继续只读 `packages`；它们严格解析的条目不增加 canvas 字段，配色仍是可读回退。
 pub fn host_candidate_catalog(
     catalog: &SkinCatalog,
@@ -2148,8 +2148,13 @@ pub fn host_candidate_catalog(
             entry
         }));
     let mut published = serde_json::json!({ "packages": packages });
-    // canvas 宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
-    if catalog.packages.iter().any(|package| package.canvas) && root.is_absolute() {
+    // canvas 和装饰词宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
+    if catalog
+        .packages
+        .iter()
+        .any(|package| package.canvas || package.decoration_candidate.is_some())
+        && root.is_absolute()
+    {
         if let Some(directory) = root.to_str() {
             published["directory"] = directory.into();
         }

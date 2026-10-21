@@ -818,15 +818,21 @@ def accept_overlay(skin, entry, preferences, publish, focused):
     publish()
     wait(lambda: background((48, 48, 48)) and len(glyphs()) > 10)
     save_image("overlay-dark")
+    decorated_height = int(window_geometry(native_window())["HEIGHT"])
     (skin / "banner.png").write_bytes(b"broken")
-    wait(lambda: native_window() is None and not glyphs())
+    # 坏图回到默认原生卡片，撤下装饰带和文字，不能残留旧资源。
+    wait(lambda: (window := native_window()) is not None and not glyphs()
+         and int(window_geometry(window)["HEIGHT"]) < decorated_height and background((48, 48, 48)))
+    assert entry.get_text() == "", "坏图回退提前上屏"
     save_image("overlay-broken")
     (skin / "banner.png").write_bytes(png(((30, 40, 50),) * 9))
     wait(lambda: native_window() is not None and len(glyphs()) > 10)
     save_image("overlay-repaired")
-    # 关闭声明回到桌面静态主题；重新启用后恢复原生窗，不能留下孤立文字。
+    # 关闭声明只撤下文字，保留默认原生候选窗；重新启用后恢复图内候选。
     manifest.write_text(original.replace("candidate_overlay = true", "candidate_overlay = false"))
-    wait(lambda: native_window() is None and not glyphs())
+    wait(lambda: native_window() is not None and not glyphs() and background((48, 48, 48)))
+    assert entry.get_text() == "", "关闭装饰词提前上屏"
+    save_image("overlay-disabled")
     manifest.write_text(original)
     wait(lambda: native_window() is not None and len(glyphs()) > 10)
     subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
@@ -893,7 +899,7 @@ def main():
     bus.request_name("org.freedesktop.portal.Desktop")
     host = ctypes.CDLL(str(library))
     responses = ResponseDecoder(host)
-    for name in ("msime_client_prepare_host", "msime_client_load_preferences"):
+    for name in ("msime_client_prepare_host", "msime_client_load_preferences", "msime_client_skin_package"):
         function = getattr(host, name)
         function.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
         function.restype = ctypes.c_void_p
@@ -962,6 +968,16 @@ def main():
             "directory": str(skin.parent), "packages": [{
                 "id": "canvas-fixture", "title": "Canvas fixture", "base": "system",
                 "layouts": ["horizontal", "vertical"], "candidate": {"light": {}, "dark": {}}}]}
+        if OVERLAY:
+            # 从完整包转换宿主目录字段；严格主题解析不接受 UI 包的 camelCase 条目。
+            request = json.dumps({"directory": str(skin.parent), "id": skin.name}).encode()
+            package = value(host.msime_client_skin_package(request, len(request)))
+            assert package.get("decorationCandidate") and package.get("decorationImage") == "banner.png"
+            options["candidate_skin_catalog"]["packages"][0].update(
+                decoration_top_dip=package["decorationTopDip"],
+                decoration_width_dip=package["decorationWidthDip"],
+                decoration_image=str(skin / package["decorationImage"]),
+                decoration_align=package["decorationAlign"])
         preferences = options["preferences"]
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",

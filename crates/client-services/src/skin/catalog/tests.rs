@@ -238,6 +238,41 @@ fn decoration_candidate_overlay_keeps_v1_and_legacy_host_contracts() {
 }
 
 #[test]
+fn host_catalog_exposes_package_directory_for_non_canvas_decoration_candidates() {
+    let root = tempdir().unwrap();
+    for enabled in [true, false] {
+        decorated_package(
+            root.path(),
+            &encoded_png(6, 4),
+            &format!("candidate_overlay = {enabled}\n"),
+        );
+        let catalog = scan(root.path());
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        assert!(!catalog.packages[0].canvas);
+        let published = host_candidate_catalog(&catalog, root.path(), &["whale"]);
+        assert_eq!(
+            published
+                .get("directory")
+                .and_then(serde_json::Value::as_str),
+            enabled.then(|| root.path().to_str().unwrap())
+        );
+        let entry = &published["packages"][0];
+        assert_eq!(entry["decoration_top_dip"], 40.0);
+        assert_eq!(entry["decoration_width_dip"], 60.0);
+        assert_eq!(
+            entry["decoration_image"],
+            root.path().join("whale/whale.png").to_str().unwrap()
+        );
+        // 完整包经 directory 单独读取，严格的旧主题条目仍不携带 UI 字段。
+        assert!(entry.get("decorationCandidate").is_none());
+        assert!(super::super::theme::ThemePackage::from_host_catalog_entry(entry.clone()).is_ok());
+        let relative = host_candidate_catalog(&catalog, Path::new("skins"), &["whale"]);
+        assert!(relative.get("directory").is_none());
+        assert!(relative["packages"][0].get("decoration_image").is_none());
+    }
+}
+
+#[test]
 fn decoration_candidate_overlay_requires_drawable_decoration() {
     let root = tempdir().unwrap();
     decorated_package(
