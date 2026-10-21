@@ -422,7 +422,15 @@ try {
                 # 与 macOS 一样，标题栏里只有页名，没有跨页面的历史返回按钮。
                 if (Find-ByName $window '返回') { throw "Settings title bar still has a history back button on $page" }
                 # 页首照 macOS 的水杉娘引导（SettingsMascotIntro.h）：除「关于」外，正文顶部是一句说明配插画，说明带 settings-page-<页面>；「关于」没有引导，这个 ID 落在品牌卡的产品名上。
-                $intro = Find-ById $content "settings-page-$page"
+                # 账号页进来后在工作线程读登录状态，读完整页重画；Open-Page 等到的页首可能正好在重画间隙里不在树上，所以这里重新等它出现（CI 上深色 1000 宽的账号页两次因此拿到空值）。
+                $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                do {
+                    $content = Find-ById $window 'settings-content'
+                    $intro = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
+                    if ($intro) { break }
+                    Start-Sleep -Milliseconds 200
+                } while ([DateTime]::UtcNow -lt $deadline)
+                if (-not $intro) { throw "Page intro of $page is missing" }
                 if ($page -eq 'about') {
                     if (-not $window.Current.Name.StartsWith($intro.Current.Name + ' · ')) { throw "About page identifies itself as '$($intro.Current.Name)' instead of the product name" }
                 } elseif (-not $intro.Current.Name.EndsWith('。')) {
