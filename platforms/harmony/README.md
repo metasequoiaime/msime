@@ -123,6 +123,8 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 请求复用 `HarmonyVoicePolisher`，那本来就是本宿主的润色器。这不是顺手：它允许重写后的段落里的换行，而旁边那个 AI 候选解析器拒绝一切控制字符——后者是给候选词用的，把一段重写过的消息送进去会让每一条分段的结果被静默丢掉。会话持有自己的润色器而不是复用识别器那一个：识别器在每次录音开始、结束或放弃时都会取消它，那对转写是对的，对用户正等着的一次重写不是。
 
+内置润色的四篇简版正文由 `client-providers::voice::polish_catalog` 的 `compact_prompt` 持有，通过 `export_polish_prompt_catalog --write` 生成 `VoicePolishPromptCatalog.ts`，`HarmonyVoicePolisher` 同步查表；完整版设置目录 JSON 不包含简版字段。三个自定义槽位仍由宿主 trim，空正文和未知 id 回退到精炼整理。`tests/voice-polish-prompts.test.ts` 固定迁移前的四篇正文，导出器 `--check` 检查生成物没有过期。
+
 替换前会重新读一次光标前的文字并要求原文还在那里。一次润色要几秒，其间用户可以继续打字、移动光标或换个输入框；那时替换会删掉现在那里的东西，再把另一段话的重写放进去。不匹配就拒绝并说明，而不是硬替。
 
 删除长度按码点计算而不是 `String.length`。删除走 `deleteForwardSync(length)`：鸿蒙输入法框架的 forward 指光标之前、backward 指光标之后，与 Android 的命名相反，设备实测如此（以前用的是 `deleteBackwardSync`，光标在末尾时退格什么也删不掉）。它的文档只写了"length of text"，两种读法对 BMP 之外的字符不一样——句中一个 emoji 是一个码点、两个 UTF-16 单元；设备上 `deleteForwardSync(1)` 把光标前的 😀 整个删掉，单位不是 UTF-16 单元，这里按码点计算与之一致（多码点组成的字形还没在设备上试过）。文档措辞留有歧义，所以上面那次重读同时给它兜底：单位错了的代价是一次拒绝，不是一条被改坏的消息。
@@ -538,10 +540,14 @@ MSIME_OHOS_NDK=/absolute/openharmony/native \
 bash platforms/harmony/build-native.sh arm64-v8a
 bash platforms/harmony/stage-voice-runtime.sh
 cd platforms/harmony
-# 使用 DevEco SDK 配套且已加入 PATH 的 hvigorw
+# 使用 DevEco SDK 配套且已加入 PATH 的 ohpm、hvigorw、Node 与 Java 21
+export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+export NODE_HOME=/Applications/DevEco-Studio.app/Contents/tools/node
 ohpm install
-hvigorw assembleHap
+hvigorw assembleHap --no-daemon
 ```
+
+`NODE_HOME` 只让 Hvigor 使用 DevEco 配套 Node；根目录 pnpm 仍用项目要求的 Node 版本。不要把 DevEco 的 `tools/node/bin` 提到 PATH 前面：当前配套 Node 18 不满足 pnpm 的最低版本，完整 quick 会在设置页构建阶段失败。
 
 `stage-resources.sh` 还把仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 

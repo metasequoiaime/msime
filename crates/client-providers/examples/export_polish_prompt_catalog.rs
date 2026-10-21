@@ -69,6 +69,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     header.push_str("}};\n} // 命名空间 msime::windows\n");
     wide_header.push_str("}};\n} // 命名空间 msime::windows\n");
+    let cleanup = POLISH_PROMPT_PRESETS
+        .iter()
+        .find(|preset| preset.id == "cleanup")
+        .ok_or("润色目录缺少 cleanup 回退")?;
+    let mut harmony = String::from(
+        "// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nexport class VoicePolishPromptCatalog {\n  static promptForId(id: string): string {\n    switch (id) {\n",
+    );
+    for preset in POLISH_PROMPT_PRESETS
+        .iter()
+        .filter(|preset| preset.id != "cleanup")
+    {
+        harmony.push_str(&format!(
+            "      case {}:\n        return {};\n",
+            serde_json::to_string(preset.id)?,
+            serde_json::to_string(preset.compact_prompt)?
+        ));
+    }
+    harmony.push_str(&format!(
+        "      case \"cleanup\":\n      default:\n        return {};\n    }}\n  }}\n}}\n",
+        serde_json::to_string(cleanup.compact_prompt)?
+    ));
     for (relative, generated, semantic) in [
         (
             "packages/ui/src/voice/polish-prompt-catalog.json",
@@ -97,6 +118,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         ("shared/voice/PolishPromptCatalog.h", header, false),
         ("shared/voice/PolishPromptWideCatalog.h", wide_header, false),
+        (
+            "platforms/harmony/entry/src/main/ets/keyboard/input/VoicePolishPromptCatalog.ts",
+            harmony,
+            false,
+        ),
     ] {
         let path = root.join(relative);
         if write {
