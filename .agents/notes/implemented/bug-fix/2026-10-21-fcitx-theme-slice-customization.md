@@ -38,7 +38,9 @@ Status: implemented
 
 `classicuiThemeTicks` 驱动真实宿主与记录配置写入的经典界面替身：关闭生成后经历明暗和配色变化、主动选择、缺失目录，主题与所有图片的内容、inode 和时间戳不变；恢复生成后又能按偏好更新。真实 classicui 加载入口也执行该用例，旧实现因改写定制文件而失败。
 
-远端固定 Linux 容器构建 IBus/Fcitx5 及全部 provider，107／107 项 CTest 通过，并完成 full／wubi 分开安装、五笔库链接和日文语言登记检查。完整 `scripts/verify-local.sh --quick` 通过，包含 Rust 工作区、Linux 设置外壳和共享 Apple 桥接层检查；本机 `pnpm run verify-notes` 与 `git diff --check` 通过。未运行报告人的 niri／Wayland 分数缩放环境。
+`linux-setup-panel-restore`（`tests/core/setup_panel_restore.py`）覆盖生成原样、改了说明行、多出文件或子目录、符号链接四种主题目录，以及 Fcitx5 运行与否两条恢复路径；改动前的脚本通不过。`fcitx_theme_autogenerate_enabled` 的取值表在 `linux-candidate-fcitx-theme` 中。
+
+远端固定 Linux 容器构建 IBus/Fcitx5 及全部 provider，107 项 CTest 通过（评审修正后重跑同样通过，`linux-ibus-demand-activation` 照旧跳过），并完成 full／wubi 分开安装、五笔库链接和日文语言登记检查。完整 `scripts/verify-local.sh --quick` 通过，包含 Rust 工作区、Linux 设置外壳和共享 Apple 桥接层检查；本机 `pnpm run verify-notes` 与 `git diff --check` 通过。未运行报告人的 niri／Wayland 分数缩放环境。
 
 ## Consequences
 
