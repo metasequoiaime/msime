@@ -180,7 +180,7 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: cursorSwipeKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: cursorSwipeKey) }
   }
-  /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的启动方式由它和 `touch_voice_shortcut` 一起派生。
+  /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的「长按空格说话」开关直接读写它；iOS 没有工具栏语音按钮。
   static var spaceVoice: Bool {
     get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: spaceVoiceKey) }

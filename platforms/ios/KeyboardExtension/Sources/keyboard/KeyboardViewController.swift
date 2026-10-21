@@ -2740,11 +2740,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     moreShortcut.apply(skin: skin)
     moreShortcut.accessibilityLabel = "功能"
-    // 语音入口只在「顶部语音入口」打开时显示；简繁是设一次就很少再动的开关，和其他开关一起放在功能菜单里。
+    // iOS 的语音入口是长按空格，工具栏不放语音按钮：共享文档里的 `touch_voice_shortcut` 是 Android 的「启动方式」，iOS 设置里没有对应的开关，按它显示就成了关不掉的按钮。关掉长按空格时从功能菜单的「语音输入」开始说话。简繁是设一次就很少再动的开关，和其他开关一起放在功能菜单里。
     configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音输入", id: "layoutVoiceShortcut")
     scriptShortcut.isEnabled = true
     scriptShortcut.accessibilityValue = nil
-    scriptShortcut.isHidden = !KeyboardLayoutPreference.voiceShortcutEnabled
+    scriptShortcut.isHidden = true
     configure(replyShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
       label: "高情商回复", id: "replyShortcut")
     replyShortcut.accessibilityValue = replyPanel != nil ? "已打开" : nil

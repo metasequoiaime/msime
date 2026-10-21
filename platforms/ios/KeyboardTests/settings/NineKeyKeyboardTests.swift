@@ -1103,8 +1103,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 语音入口只由它自己的偏好决定露不露面，键距和行距不牵连它。
-  func testVoiceShortcutFollowsOnlyItsOwnPreference() throws {
+  /// iOS 的语音入口只有长按空格：同步来的 Android 工具栏语音按钮设置（`touch_voice_shortcut`）开着，iOS 工具栏也不放语音按钮；键距和行距不受它牵连。
+  func testTheToolbarNeverCarriesAVoiceButton() throws {
     KeyboardLayoutPreference.keySpacing = 5
     KeyboardLayoutPreference.rowSpacing = 8
     KeyboardLayoutPreference.voiceShortcutEnabled = true
@@ -1112,7 +1112,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
     controller.viewWillAppear(false)
-    XCTAssertFalse(try button("layoutVoiceShortcut", in: controller).isHidden)
+    XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
     KeyboardLayoutPreference.voiceShortcutEnabled = false
     controller.viewWillAppear(false)
     XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
@@ -1221,7 +1221,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       if pinned.characterSet { expected.append("characterSetShortcut") }
       if pinned.fullwidth { expected.append("fullwidthShortcut") }
       if pinned.punctuation { expected.append("punctuationShortcut") }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { expected.append("layoutVoiceShortcut") }
       expected.append("dismissShortcut")
       let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
       XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), expected)
