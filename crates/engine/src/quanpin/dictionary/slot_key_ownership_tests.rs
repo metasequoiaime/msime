@@ -87,7 +87,7 @@ fn only_unscored_series_misses_transfer_the_slot_key() {
         ("ni", "ni", 0, false),
         ("n", "n", 0, false),
         ("ni", "", 0, false),
-        ("nue", "", 0, false),
+        ("nue", "", 0, true),
         ("sahng", "", autocorrect_type::TRANSPOSITION, false),
         (
             "gau",
@@ -345,7 +345,13 @@ impl QuanpinDictionary {
             }
         }
         self.series_cache.insert(slot.clone(), result.clone());
-        if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+        // 保留原分配对照，只同步备选系列新增的个人模型依赖。
+        if segments.len() >= 2
+            || resolution.corrected.len() >= 2
+            || alternatives
+                .iter()
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
+        {
             self.remember_personal_scored_key(slot);
         }
         result

@@ -50,9 +50,10 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
     append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
-    merge_alternative_segmentations, resolve_series_query, series_cache_key, SeriesResolution,
-    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
-    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
+    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
+    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
+    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -264,8 +265,8 @@ impl QuanpinDictionary {
             };
             let typed = fuzzy_segmentation(segmentation, &normalized_segments);
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
-            append_unique_words(&mut result, rows);
-            result.sort_by_key(|item| std::cmp::Reverse(matched_letters(&item.pinyin)));
+            // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
+            merge_series_by_coverage(&mut result, rows);
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
         }
         // Marking runs after every change, including the fuzzy merge, so every row the caller sees carries its mark.
@@ -832,8 +833,13 @@ impl QuanpinDictionary {
                 }
             }
         };
-        // 缓存始终取得未筛选、未标记的整页；至少两音节登记个人计分键。
-        if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+        // 单音节主路径也可能沿完整备选切分组句，需要跟随个人模型失效。
+        if segments.len() >= 2
+            || resolution.corrected.len() >= 2
+            || alternatives
+                .iter()
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
+        {
             self.series_cache.insert(slot.clone(), cached);
             self.remember_personal_scored_key(slot);
         } else {
@@ -842,8 +848,53 @@ impl QuanpinDictionary {
         projected
     }
 
-    /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。
+    /// 完整词继续按词频合并，字面备选另外补齐前缀和整句，不能叠加一层纠错。
     fn merge_alternatives(
+        &mut self,
+        raw: &str,
+        primary_segmentation: &str,
+        primary_segments: &[String],
+        alternatives: &[Vec<String>],
+        result: Vec<WordItem>,
+    ) -> Vec<WordItem> {
+        let mut result = self.merge_alternative_full(
+            raw,
+            primary_segmentation,
+            primary_segments,
+            alternatives,
+            result,
+        );
+        let mut supplemental = Vec::new();
+        // 相同音节前缀在多条完整路径中会重复出现；它们的行和消费范围相同，只查一次。
+        let mut queried_prefixes = HashMap::new();
+        if is_literal_segmentation(raw, primary_segments) {
+            for count in 1..primary_segments.len() {
+                let key = join_segments(&primary_segments[..count]);
+                if let Some(rows) = self.cache.get_ref_by(&key) {
+                    queried_prefixes.insert(key, rows.len());
+                }
+            }
+        }
+        for path in alternatives {
+            if is_literal_segmentation(raw, path) {
+                let rows = self.query_series_with_typos(
+                    raw,
+                    &join_segments(path),
+                    path,
+                    false,
+                    Some(&mut queried_prefixes),
+                );
+                supplemental.extend(rows);
+            }
+        }
+        if !supplemental.is_empty() {
+            merge_series_by_coverage(&mut result, supplemental);
+        }
+        result
+    }
+
+    /// `merge_alternative_segmentations` 的完整词查询部分，升位与合并规则在 `series`。
+    fn merge_alternative_full(
         &mut self,
         raw: &str,
         primary_segmentation: &str,
@@ -904,10 +955,22 @@ impl QuanpinDictionary {
         segmentation: &str,
         segments: &[String],
     ) -> Vec<WordItem> {
+        self.query_series_with_typos(raw, segmentation, segments, true, None)
+    }
+
+    fn query_series_with_typos(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+        include_typos: bool,
+        mut queried_prefixes: Option<&mut HashMap<String, usize>>,
+    ) -> Vec<WordItem> {
         if segments.is_empty() {
             return self.query_single_path(raw, segmentation, segments);
         }
         let mut result = Vec::new();
+        let mut skipped_prefix_rows = 0usize;
         let prefix_key = series_prefix_key(segmentation, segments);
         let mut partial_segmentation = prefix_key.as_ref();
         for count in (1..=segments.len()).rev() {
@@ -918,8 +981,18 @@ impl QuanpinDictionary {
             }
             let partial = &segments[..count];
             if count < segments.len() {
+                if let Some(prefixes) = queried_prefixes.as_deref_mut() {
+                    if let Some(&count) = prefixes.get(partial_segmentation) {
+                        skipped_prefix_rows = skipped_prefix_rows.saturating_add(count);
+                        continue;
+                    }
+                }
+                let before = result.len();
                 self.append_single_path(&mut result, raw, partial_segmentation, partial);
                 self.append_initial_split_rows(&mut result, raw, partial);
+                if let Some(prefixes) = queried_prefixes.as_deref_mut() {
+                    prefixes.insert(partial_segmentation.to_owned(), result.len() - before);
+                }
                 continue;
             }
             let mut rows = self.query_single_path(raw, partial_segmentation, partial);
@@ -953,10 +1026,15 @@ impl QuanpinDictionary {
         }
 
         if segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
-            self.merge_sentences(&mut result, raw, segmentation, segments);
+            if include_typos {
+                self.merge_sentences(&mut result, raw, segmentation, segments);
+            } else {
+                self.merge_sentences_with_typos(&mut result, raw, segmentation, segments, false);
+            }
         }
 
-        if result.len() < SPARSE_FALLBACK_THRESHOLD {
+        // 跳过的重复行仍计入原路径的稀疏门槛，不能因此额外触发读音回退。
+        if result.len().saturating_add(skipped_prefix_rows) < SPARSE_FALLBACK_THRESHOLD {
             for fallback in sparse_pinyin_fallback_segments(segments) {
                 if fallback.is_empty() {
                     continue;
@@ -997,6 +1075,17 @@ impl QuanpinDictionary {
         segmentation: &str,
         segments: &[String],
     ) {
+        self.merge_sentences_with_typos(result, raw, segmentation, segments, true);
+    }
+
+    fn merge_sentences_with_typos(
+        &mut self,
+        result: &mut Vec<WordItem>,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+        include_typos: bool,
+    ) {
         let association = self.sentence_association;
         if !association.word_lattice && self.rerankers.is_empty() {
             return;
@@ -1019,7 +1108,7 @@ impl QuanpinDictionary {
             segmentation
         };
         let types = self.current_autocorrect_types;
-        let typo_eligible = types & TYPO_EDGE_TYPES != 0 && !raw.contains('\'');
+        let typo_eligible = include_typos && types & TYPO_EDGE_TYPES != 0 && !raw.contains('\'');
         let span_limit = options.span_limit;
         let database = &self.database;
         let span_cache = &mut self.typo_span_cache;
@@ -1787,6 +1876,16 @@ fn remember_segmentation_key(
     true
 }
 
+/// 仅接受没有手动边界、没有替换字母的完整切分。
+fn is_literal_segmentation(raw: &str, segments: &[String]) -> bool {
+    !raw.contains('\'')
+        && has_only_complete_pinyin_segments(segments)
+        && segments
+            .iter()
+            .flat_map(|segment| segment.bytes())
+            .eq(raw.bytes())
+}
+
 /// Letters of a row's matched code, what the fuzzy merge sorts by.
 fn matched_letters(pinyin: &str) -> usize {
     pinyin.bytes().filter(|&byte| byte != b'\'').count()
@@ -1825,6 +1924,10 @@ fn first_correction_cut(pinyin: &str) -> Option<Vec<String>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "dictionary/alternative_series_tests.rs"]
+mod alternative_series_tests;
 
 #[cfg(test)]
 #[path = "dictionary/lattice_span_cache_tests.rs"]

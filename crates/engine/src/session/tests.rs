@@ -399,6 +399,73 @@ fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
     session.select(index)
 }
 
+#[test]
+fn quanpin_alternative_series_selection_consumes_letters_and_learns_its_own_reading() {
+    for (input, word, canonical, rest, caret) in [
+        ("fanouer", "帆偶尔", "fan'ou'er", "", None),
+        ("fanouer", "帆", "fan", "ouer", None),
+        ("fanouerni", "帆偶尔", "fan'ou'er", "ni", Some(7)),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_1_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_f VALUES('fa','f','发',300),('fan','f','帆',200);\
+CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('nou','n','耨',1),('ni','n','尼',100);\
+CREATE TABLE tbl_1_o(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_o VALUES('ou','o','偶',100);\
+CREATE TABLE tbl_1_e(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_e VALUES('er','e','尔',100);\
+CREATE TABLE tbl_2_o(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_o VALUES('ou''er','oe','偶尔',1000);\
+CREATE TABLE tbl_3_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        );
+        if word == "帆" {
+            // 调频需要同读音的另一条高权重词，不能依靠默认接受也写日志。
+            Connection::open(fixture.main_db())
+                .unwrap()
+                .execute("INSERT INTO tbl_1_f VALUES('fan','f','凡',300)", [])
+                .unwrap();
+        }
+        let mut session = fixture.session_with(|options| {
+            options.helpcode = false;
+            options.autocorrect_types = 0;
+            options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        });
+        type_text(&mut session, input);
+        if let Some(caret) = caret {
+            session.set_caret(Some(caret));
+        }
+        let index = index_of(&session, word);
+        let row = &session.snapshot().candidates[index];
+        assert_eq!(
+            row.pinyin.replace('\'', "").len(),
+            if word == "帆" { 3 } else { 7 }
+        );
+        assert_eq!(row.canonical_pinyin, canonical);
+        assert!(row.corrected_from.is_empty());
+        let selected = session.select(index);
+        assert_eq!(selected.diagnostic, None);
+        assert_eq!(selected.commit.as_deref(), Some(word));
+        assert_eq!(session.snapshot().editing_text, rest);
+        let journal = Connection::open(fixture.journal()).unwrap();
+        let learned: i64 = journal.query_row(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key=?1 AND value=?2 AND operation<>'delete'",
+            [canonical, word], |row| row.get(0),
+        ).unwrap();
+        assert!(
+            learned > 0,
+            "{input}/{word}/{canonical}：备选切分必须按候选自己的标准读音学习"
+        );
+        if word == "帆" {
+            assert_eq!(
+                select_word(&mut session, "偶尔").commit.as_deref(),
+                Some("偶尔")
+            );
+            assert!(session.snapshot().editing_text.is_empty());
+        }
+    }
+}
+
 fn count(database: &Path, sql: &str) -> i64 {
     Connection::open(database)
         .and_then(|connection| connection.query_row(sql, [], |row| row.get(0)))
@@ -2364,7 +2431,8 @@ fn learning_a_non_top_candidate_does_not_clone_the_whole_ranking_list() {
         options.frequency.mode = FrequencyAdjustmentMode::Promote;
         options.frequency.trigger_count = 1;
     });
-    type_text(&mut session, "nihao");
+    // 固定音节边界，单独约束学习字段复制，不把备选切分冷查询计入该预算。
+    type_text(&mut session, "ni'hao");
     let index = index_of(&session, "拟好");
     assert_eq!(index, 1);
 
@@ -2392,7 +2460,8 @@ fn frequency_learning_borrows_an_existing_entry_key() {
         options.frequency.mode = FrequencyAdjustmentMode::Promote;
         options.frequency.trigger_count = 1;
     });
-    type_text(&mut session, "nihao");
+    // 固定音节边界，单独约束学习字段复制，不把备选切分冷查询计入该预算。
+    type_text(&mut session, "ni'hao");
     let index = index_of(&session, "拟好");
     assert_eq!(index, 1);
 

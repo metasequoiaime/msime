@@ -1337,7 +1337,7 @@
      0,
      4
     ],
-    "candidate_count": 1,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "原10",
@@ -1347,6 +1347,24 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": true
+     },
+     {
+      "word": "糊10",
+      "pinyin": "gu",
+      "canonical_pinyin": "guang",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
+     },
+     {
+      "word": "国",
+      "pinyin": "gu",
+      "canonical_pinyin": "guo",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -1401,7 +1419,7 @@
      0,
      5
     ],
-    "candidate_count": 1,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "糊10",
@@ -1411,6 +1429,24 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": true
+     },
+     {
+      "word": "原10",
+      "pinyin": "gu",
+      "canonical_pinyin": "guan",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
+     },
+     {
+      "word": "国",
+      "pinyin": "gu",
+      "canonical_pinyin": "guo",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
      }
     ],
     "online_query": {

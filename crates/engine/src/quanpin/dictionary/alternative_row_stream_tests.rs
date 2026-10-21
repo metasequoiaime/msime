@@ -103,8 +103,9 @@ fn alternative_merge_streams_hot_primary_rows() {
                     old_rows,
                 )
             });
-            let (actual, new) =
-                count(|| after.merge_alternatives("xian", primary, &segments, &alternatives, rows));
+            let (actual, new) = count(|| {
+                after.merge_alternative_full("xian", primary, &segments, &alternatives, rows)
+            });
             rows_equal(&actual, &expected);
             let saved = usize::from(hot && primary != "missing");
             eprintln!("{primary} hot={hot}: {old}->{new}");
@@ -368,7 +369,7 @@ fn alternative_stream_keeps_cached_fields_and_fifo_age() {
         let expected =
             before.legacy_merge_alternatives("xian", "xi'an", &segments, &alternatives, Vec::new());
         let mut actual =
-            after.merge_alternatives("xian", "xi'an", &segments, &alternatives, Vec::new());
+            after.merge_alternative_full("xian", "xi'an", &segments, &alternatives, Vec::new());
         rows_equal(&actual, &expected);
         assert_eq!(before.cache.get_ref_by("xi'an").unwrap(), &before_cached);
         assert_eq!(after.cache.get_ref_by("xi'an").unwrap(), &after_cached);
