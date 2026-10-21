@@ -350,6 +350,16 @@ if(BUILD_TESTING)
               "$<TARGET_FILE:msime-fcitx5>")
           set_tests_properties(fcitx5-gtk-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
           if(MSIME_BADGE_X11_FOUND)
+            foreach(overlay_scale 1 2)
+              add_test(NAME fcitx5-decoration-overlay-${canvas_layout}-scale${overlay_scale}
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                  MSIME_TEST_NATIVE_CANVAS=1 MSIME_TEST_DECORATION_OVERLAY=1 GDK_SCALE=${overlay_scale}
+                  "${XVFB_RUN}" -a -s "-screen 0 1920x1280x24" "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-decoration-overlay-${canvas_layout}-scale${overlay_scale} PROPERTIES TIMEOUT 120)
+            endforeach()
             add_test(NAME fcitx5-native-canvas-${canvas_layout}
               COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout} MSIME_TEST_NATIVE_CANVAS=1
                 "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --

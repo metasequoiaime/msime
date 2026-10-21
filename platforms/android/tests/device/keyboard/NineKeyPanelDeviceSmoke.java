@@ -11,12 +11,19 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 全拼九键展开面板的设备验收：拼音列、锁定、退格和面板内筛选。 */
+/** 全拼九键设备验收：展开面板、拼音锁定、筛选，以及选定读法后的最近候选。 */
 public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
+    private boolean recentOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        recentOnly = arguments != null && "true".equals(arguments.getString("recent-learning"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
-        return "nine-key expanded panel keeps open across spelling locks, backspace and filters";
+        return recentOnly ? "nine-key spelling picks lead the next unlocked composition across input restarts"
+            : "nine-key panel locks, backspace, filters and recent spelling selections";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -33,6 +40,9 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             .put("scheme", "quanpin")
             .put("touch_keyboard_layout", "nine_key")
             .put("traditional_chinese_output", false)
+            .put("learning", true)
+            .put("frequency", new JSONObject().put("mode", "disabled")
+                .put("trigger_count", 1).put("linear_step", 1))
             .put("candidate_english_gloss", false)
             .put("mixed_input", new JSONObject().put("english", false)
                 .put("minimum_prefix", 2).put("emoji", false).put("kaomoji", false))
@@ -55,6 +65,11 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo mode = await(key("中").or(key("英")).and(language));
             if (equalsText("英", mode.getText())) tap(key("英").and(language));
             await(key("ABC"));
+
+            if (recentOnly) {
+                verifyRecentSpellingSelection();
+                return;
+            }
 
             // 6464224：6464 可以是 ming 或 ning，224 可以是 bai 或 cai。
             stage = "nine-key composition";
@@ -123,6 +138,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             if (editor.getText() != null && editor.getText().length() > 0 && !editor.isShowingHintText())
                 throw new AssertionError("Cancelled nine-key composition reached the editor");
 
+
             stage = "touch selection closes the nine-key panel";
             tap(key("MNO"));
             tap(key("GHI"));
@@ -140,10 +156,48 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().length() > committed.length()));
+            // 触摸回归留下了已提交文字与新组字，先清空再验证最近选词，避免两项用例互相影响。
+            tap(key("重输"));
+            android.os.Bundle clear = new android.os.Bundle();
+            clear.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
+            if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clear))
+                throw new AssertionError("Cannot clear synthetic editor before recent selections");
+            verifyRecentSpellingSelection();
+
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
+        }
+    }
+
+    /** 用合成输入交替选择竞争读法，确认锁定首候选会被新会话的未锁定输入读到。 */
+    private void verifyRecentSpellingSelection() throws Exception {
+        for (String spelling : new String[] {"mi", "ni", "mi"}) {
+            stage = "lock synthetic spelling " + spelling;
+            tap(key("MNO"));
+            tap(key("GHI"));
+            tap(described("选择拼音 " + spelling));
+            AccessibilityNodeInfo chosen = await(describedPrefix("候选 1："));
+            String word = chosen.getText() == null ? "" : chosen.getText().toString().split("\n")[0];
+            if (word.isEmpty()) throw new AssertionError("Synthetic spelling has no first candidate");
+            tap(describedPrefix("候选 1："));
+            await(field("msime-test-plain").and(node -> equalsText(word, node.getText())));
+
+            stage = "new input connection remembers unlocked pick " + spelling;
+            restartIme();
+            openEditor();
+            AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+            android.os.Bundle clear = new android.os.Bundle();
+            clear.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
+            if (!editor.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clear))
+                throw new AssertionError("Cannot clear synthetic editor");
+            tap(field("msime-test-plain"));
+            tap(key("MNO"));
+            tap(key("GHI"));
+            await(describedPrefix("候选 1：").and(node -> equalsText(word, node.getText())));
+            tap(key("重输"));
+            awaitGone(describedPrefix("选择拼音 "));
         }
     }
 

@@ -1347,6 +1347,38 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn symbol_mode_defaults_on_and_is_written_only_when_off() {
+    // 与 Windows 正式版的出厂配置一致：缺键读作开，文档里也不写这个键。
+    assert!(LocalModePreferences::default().symbol);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("symbol").is_none());
+
+    // 早于符号模式的文档没有这个键，读出来仍是开，其余模式开关照原样。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(local_modes.remove("symbol"), None);
+    local_modes.insert("emoji".into(), false.into());
+    fs::write(store.path(), serde_json::to_vec(&sparse).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.local_modes;
+    assert!(loaded.symbol && !loaded.emoji && loaded.unicode);
+
+    // 关掉后文档里写 false，读回来还是关。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["local_modes"]["symbol"] = false.into();
+    store
+        .save(0, serde_json::from_value(value).unwrap())
+        .unwrap();
+    assert!(!store.load().unwrap().preferences.local_modes.symbol);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["local_modes"]["symbol"], false);
+}
+
+#[test]
 fn chaizi_is_unset_until_the_user_flips_it() {
     // 缺省是 `None`：由宿主形态决定开关，文档里也不写这个键，旧版本照常读得懂。
     assert_eq!(LocalModePreferences::default().chaizi, None);

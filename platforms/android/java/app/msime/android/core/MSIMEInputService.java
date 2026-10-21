@@ -30,6 +30,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -155,10 +156,11 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
+    final java.util.List<CandidateCanvasAssets.Word> candidateDecorationWords = new java.util.ArrayList<>();
     /**
      * 候选条上有手指按着，这一帧的候选内容推迟到松开之后再画。
      *
-     * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。松手时 {@link ImeCandidates} 在按钮的触摸监听里补一次 render，画面只晚这一下按压。
+     * <p>候选条每次 render 都 `removeAllViews` 再逐个挂回去，候选对象本身是复用的，但摘下来的那一瞬间框架就把这次按压变成 CANCEL，点击不再发出，用户看到的是「候选偶尔点不上」。候选内容又几乎每帧都在变（组字的异步回包、译文角标），所以这个窗口并不罕见。按钮通过 {@link #bindCandidateRenderRelease} 在按下状态真正清除后补一次 render，避免 ACTION_UP 早于点击和延迟松开时漏掉补帧。
      */
     boolean candidateRenderDeferred;
     /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
@@ -186,6 +188,8 @@ public final class MSIMEInputService extends InputMethodService {
     JSONObject candidatePanelSnapshot;
     PopupWindow nineKeyHoldPopup;
     ScrollView clipboardScroll;
+    FrameLayout clipboardSurface;
+    LinearLayout clipboardHeader;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -341,6 +345,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
     /** 工具栏上的「最近复制」（#5692）。 */
@@ -1508,6 +1513,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
+        if (inlineAutofill != null) inlineAutofill.startInput();
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         if (restarting && retainRestartedComposition(info, nextConnection)) {
@@ -1652,6 +1658,7 @@ public final class MSIMEInputService extends InputMethodService {
         super.onCreate();
         getContentResolver().registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
+        if (Build.VERSION.SDK_INT >= 30) inlineAutofill = new ImeInlineAutofill(this);
         LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
@@ -1673,9 +1680,20 @@ public final class MSIMEInputService extends InputMethodService {
         clearClipboardImages();
     }
 
+    @android.annotation.TargetApi(30)
+    @Override public android.view.inputmethod.InlineSuggestionsRequest onCreateInlineSuggestionsRequest(Bundle extras) {
+        return inlineAutofill == null ? null : inlineAutofill.request(extras);
+    }
+
+    @android.annotation.TargetApi(30)
+    @Override public boolean onInlineSuggestionsResponse(android.view.inputmethod.InlineSuggestionsResponse response) {
+        return inlineAutofill != null && inlineAutofill.response(response);
+    }
+
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
+        if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -1716,6 +1734,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
         flushKeyPresses();
@@ -1750,6 +1769,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
         cancelInputViewRefresh();
@@ -1872,6 +1892,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onDestroy() {
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
+        if (inlineAutofill != null) inlineAutofill.finishInput();
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -2324,7 +2345,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
     private boolean toolbarExitNeeded() {
         if (!anyToolbarPanelOpen()) return false;
-        return !(ViewPolicy.isVisible(clipboardScroll) && imeBottomBar.shown());
+        return !(ViewPolicy.isVisible(clipboardSurface) && imeBottomBar.shown());
     }
 
     /** `touch_toolbar` 的按钮开关，以及功能面板直接切换的模糊音、单手、隐私三项；缺键时按 Android 的默认值读。 */
@@ -3137,7 +3158,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button makeEnglishSuggestionButton(int slot) {
-        Button button = new KeyboardPressButton(this);
+        KeyboardPressButton button = new KeyboardPressButton(this);
         bindCandidateRenderRelease(button);
         ViewPolicy.setAllCapsFalse(button);
         button.setOnClickListener(ignored -> {
@@ -3781,6 +3802,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
         if (shortcutToolbar != null)
             ViewPolicy.setFixedHeight(shortcutToolbar, (idleHeader ? 0 : readingRow) + pixels(line));
+        if (inlineAutofill != null) inlineAutofill.setHeight((idleHeader ? 0 : readingRow) + pixels(line));
         // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
         if (recentClipRow != null)
             ViewPolicy.setFixedHeight(recentClipRow, (idleHeader ? 0 : readingRow) + pixels(line));
@@ -5245,15 +5267,16 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    Button keyboardKey(String label, String description, Runnable action) {
-        Button button = new KeyboardPressButton(this);
+    KeyboardPressButton keyboardKey(String label, String description, Runnable action) {
+        KeyboardPressButton button = new KeyboardPressButton(this);
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
-        return bindCountedAction(button, action);
+        bindCountedAction(button, action);
+        return button;
     }
 
     /** 九键、注音、笔画、手写和日语九键的 ⌫：和 {@link #keyboardKey} 一样的键，只是画 26 键那个 22 dp 的删除图标，不再用排版字号的「⌫」字符，那样比 26 键的小一圈。 */
@@ -5624,7 +5647,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void closeClipboardHistory() {
         imePanels.dismissClipboardPreview();
-        if (clipboardScroll != null) ViewPolicy.hide(clipboardScroll);
+        if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
         cloudClipboardAccountId = "";
@@ -7912,8 +7935,14 @@ public final class MSIMEInputService extends InputMethodService {
     private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
-        String displayedText = ContactCandidatePolicy.displayText(source, text);
+        ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
+        CandidateCanvasAssets canvas = candidateAppearance.canvas();
+        if (canvas != null && canvas.banner != null && canvas.banner.candidate() != null) {
+            // 来源标注独立于原文，不包含固定图钉，也不猜测原文中的括号后缀。
+            String badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+            candidateDecorationWords.add(new CandidateCanvasAssets.Word(text, badge, highlighted));
+        }
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
@@ -7924,7 +7953,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
-        button.setText(candidateLabel(number, displayedText, annotation, highlighted));
+        button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -8499,6 +8528,7 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         deactivateHandwriting();
         candidateButtons.clear();
+        candidateDecorationWords.clear();
         englishSuggestionButtons.clear();
         nineKeySpellingButtons.clear();
         nineKeySpellingIndices = java.util.List.of();
@@ -8564,6 +8594,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(shortcutToolbar, LayoutPolicy.matchWidthHeightPx(
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
         imeToolbar.addRecentClipRow(candidateRegion);
+        if (inlineAutofill != null) inlineAutofill.buildRow(candidateRegion);
         nineKeySpellings = LayoutPolicy.row(this);
         nineKeySpellingScroll = new HorizontalScrollView(this);
         nineKeySpellingScroll.setHorizontalScrollBarEnabled(false);
@@ -8748,16 +8779,23 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(expandedCandidateCanvas);
         keyboardSurface.addView(expandedCandidateCanvas, LayoutPolicy.frameMatchParentParams());
         keyboardSurface.addView(imeNineKeyPanel.build(), LayoutPolicy.frameMatchParentParams());
+        clipboardSurface = new FrameLayout(this);
+        ViewPolicy.setBackgroundColor(clipboardSurface, Color.parseColor(skin.background()));
+        clipboardSurface.setContentDescription("剪贴板历史");
+        clipboardHeader = LayoutPolicy.column(this);
         clipboardPanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         ViewPolicy.setBackgroundColor(clipboardPanel, Color.parseColor(skin.background()));
-        clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
         // 和候选、方案面板一样撑满整个键区：原先内容少时滚动视图本身是透明的，下面的键从空白处露出来。
         clipboardScroll.setFillViewport(true);
         clipboardScroll.addView(clipboardPanel, LayoutPolicy.scrollMatchParentParams());
-        ViewPolicy.hide(clipboardScroll);
-        keyboardSurface.addView(clipboardScroll, LayoutPolicy.frameMatchParentParams());
+        FrameLayout.LayoutParams clipboardScrollParams = LayoutPolicy.frameMatchParentParams();
+        clipboardScrollParams.topMargin = pixels(32);
+        clipboardSurface.addView(clipboardScroll, clipboardScrollParams);
+        clipboardSurface.addView(clipboardHeader, LayoutPolicy.frameMatchWidthWrapParams());
+        ViewPolicy.hide(clipboardSurface);
+        keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
         schemePanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
         ViewPolicy.setBackgroundColor(schemePanel, Color.parseColor(skin.background()));
@@ -8926,7 +8964,7 @@ public final class MSIMEInputService extends InputMethodService {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
         for (View overlay : new View[] {moreToolsScroll, expandedCandidateCanvas, imeNineKeyPanel.root(),
-                phraseScroll, emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll,
+                phraseScroll, emojiPanel, symbolPanel, clipboardSurface, skinScroll, schemeScroll,
                 aiPolishContainer, textEditPanel}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
@@ -8940,7 +8978,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean anyToolbarPanelOpen() {
         return ViewPolicy.isVisible(moreToolsScroll) || ViewPolicy.isVisible(emojiPanel)
             || ViewPolicy.isVisible(phraseScroll)
-            || ViewPolicy.isVisible(clipboardScroll) || ViewPolicy.isVisible(skinScroll)
+            || ViewPolicy.isVisible(clipboardSurface) || ViewPolicy.isVisible(skinScroll)
             || ViewPolicy.isVisible(schemeScroll) || ViewPolicy.isVisible(symbolPanel)
             || ViewPolicy.isVisible(aiPolishContainer) || ViewPolicy.isVisible(voiceResultScroll)
             || ViewPolicy.isVisible(layoutSettingsScroll) || ViewPolicy.isVisible(layoutAdjustView)
@@ -9778,7 +9816,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
         // 文本编辑面板保留顶部的复制预览，点「复制」后不必先返回键盘（#8104）。
         boolean recentPanelAllowed = ViewPolicy.isVisible(textEditPanel) || !anyToolbarPanelOpen();
-        boolean recentAllowed = toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
+        boolean autofillShown = inlineAutofill != null && inlineAutofill.update(
+            !heightMode && idle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
+        boolean recentAllowed = !autofillShown && toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY);
         String recent = recentAllowed ? recentClip.text(nowMs) : null;
         // 图片只在当前输入框收得下时才占这一行（#6781）。
@@ -9788,7 +9828,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean recentShown = recent != null || recentImage;
         if (recentShown) main.postDelayed(recentClipExpiry, recentClip.remainingMs(nowMs) + 50);
         if (shortcutToolbar != null)
-            ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown);
+            ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
             ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
@@ -10013,6 +10053,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         candidateRenderDeferred = false;
+        candidateDecorationWords.clear();
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (expandCandidates != null) ViewPolicy.hide(expandCandidates);
@@ -10089,7 +10130,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 候选视图结束按压后补上被延后的那一帧；监听返回 false，不改变按钮自身的点击、长按和滚动语义。 */
-    void bindCandidateRenderRelease(View button) {
+    void bindCandidateRenderRelease(KeyboardPressButton button) {
         button.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
             if (action == android.view.MotionEvent.ACTION_DOWN) {
@@ -10105,6 +10146,10 @@ public final class MSIMEInputService extends InputMethodService {
             }
             return false;
         });
+        button.setPressReleaseListener(() -> main.post(() -> {
+            // 点击可能在松开通知之后才置标记，所以到执行时再检查；其他手指仍按着时由最后一次松开补帧。
+            if (candidateRenderDeferred) render();
+        }));
     }
 
     /**
@@ -10146,7 +10191,7 @@ public final class MSIMEInputService extends InputMethodService {
         for (int index = 0; index < handwritingResults.size(); index++) {
             String candidate = handwritingResults.get(index);
             HandwritingRequestTracker.Token token = handwritingCandidateToken;
-            Button choice = keyboardKey(chineseOutput(candidate, view),
+            KeyboardPressButton choice = keyboardKey(chineseOutput(candidate, view),
                 "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
             bindCandidateRenderRelease(choice);
             KeyboardTypographyPolicy.setKeyTextSize(choice, candidateFontSize);

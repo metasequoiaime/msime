@@ -120,6 +120,8 @@ pub struct EngineOptions {
     pub local_mention: bool,
     /// `C`：拆字反查。默认关；host-api 按宿主形态决定偏好缺省时的值。
     pub local_chaizi: bool,
+    /// `S`：符号模式，按分组码或符号名查符号。默认开，和 Windows 正式版的出厂配置一致。
+    pub local_symbol: bool,
     /// Shift+字母进入快捷模式的总开关（`LocalModeOptions::shift_letter_entry`）。
     pub local_shift_letter_entry: bool,
     /// 宿主会把候选转成繁体输出（`SessionOptions::chaizi_traditional_output`）。
@@ -235,6 +237,7 @@ pub fn prepare_options_for(
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -363,6 +366,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         command: options.local_command,
         mention: options.local_mention,
         chaizi: options.local_chaizi,
+        symbol: options.local_symbol,
         shift_letter_entry: options.local_shift_letter_entry,
     };
     session.chaizi_traditional_output = options.chaizi_traditional_output;

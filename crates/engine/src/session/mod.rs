@@ -545,10 +545,12 @@ impl Session {
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
-                    // AI 占位行和网址补全不回答按键：重排模型不能把它们提到前面。
+                    // 占位行、网址补全和联系人不交给重排模型；联系人保留本地优先顺序。
                     !matches!(
                         item.source,
-                        CandidateSource::AiPending | CandidateSource::CloudPending
+                        CandidateSource::AiPending
+                            | CandidateSource::CloudPending
+                            | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
                         && input.selection_completes_composition(item)
                 })

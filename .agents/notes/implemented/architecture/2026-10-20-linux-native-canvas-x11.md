@@ -50,4 +50,6 @@ GTK 3 移动整个窗口后，在下一次光标更新时上报新的根坐标�
 
 选中条、逐角高亮、悬停与预编辑配色由[原生画布外观](../../implemented/feature/2026-10-20-linux-canvas-appearance.md)补充，保留本篇其余范围与生命周期规则。
 
+[装饰候选词窗口](2026-10-21-linux-decoration-overlay-window.md)补充 canvas 与 chrome 顶带的图内文字，其他所有权与回退围栏保持。
+
 「只在选中 canvas 包时进入」已被 [X11 原生画布默认](2026-10-21-linux-x11-native-candidate-default.md) 取代：X11 上水杉接管的 classicui 主题一律由原生窗口画，非 canvas 主题按 macOS 结构；本篇的窗口生命周期、回退与 Wayland 边界仍然成立。

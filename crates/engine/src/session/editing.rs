@@ -174,6 +174,8 @@ impl InputSession {
                 LocalInputMode::TemporaryJapanese => {
                     accepted = accepted || matches!(value, b'\'' | b'-');
                 }
+                // 与 `handle_local_character` 同一组规则：符号模式只收字母。
+                LocalInputMode::Symbol => accepted = value.is_ascii_alphabetic(),
                 LocalInputMode::SuperJianpin | LocalInputMode::TemporaryEnglish => {}
                 LocalInputMode::Expression => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT

@@ -10,6 +10,8 @@ Status: implemented
 
 `FileStamp` 是（修改时间、长度、inode），Unix 上取 `MetadataExt::ino`，其他平台记 0，与 `PackStamp` 的取法一致。换目录导入时新清单在旧清单还没删掉前就已建好，两者 inode 必然不同，所以同长度、同时间的重新导入也会被看到。辅助码表包的目录戳用的是同一个 `FileStamp`，一并受益。
 
+联系人名单独立于 `@` 开关装载时继续使用本篇的文件戳，见[联系人计数与姓名候选](../bug-fix/2026-10-21-android-contact-candidates.md)；普通组字的装载条件由该篇补充。
+
 ## Alternatives considered
 
 - **比较清单内容的哈希**：不依赖文件系统的时间粒度，Windows 上也有效。但每次获得焦点都要读并哈希每个启用的清单，而这条路径的设计前提是「没变动时只做几次 stat」；指令表和短语表可以有几千行。

@@ -27,6 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     let typescript = format!("export const POLISH_PRESET_IDS = [{ids}] as const;\n");
+    let titles = POLISH_PROMPT_PRESETS
+        .iter()
+        .map(|preset| serde_json::to_string(preset.title))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let java = format!(
+        "package app.msime.android;\n\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nfinal class VoicePolishPresetCatalog {{\n    private VoicePolishPresetCatalog() {{}}\n\n    static String[] ids() {{\n        return new String[] {{{ids}}};\n    }}\n\n    static String[] titles() {{\n        return new String[] {{{titles}}};\n    }}\n}}\n"
+    );
     let mut swift = String::from(
         "// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nenum VoicePolishPresetCatalog {\n  static let builtIns: [(id: String, title: String)] = [\n",
     );
@@ -35,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     swift.push_str("  ]\n}\n");
     let mut header = format!(
-        "#pragma once\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::windows {{\nstruct PolishPromptCatalogEntry {{\n  std::string_view id;\n  std::string_view prompt;\n}};\ninline constexpr std::array<PolishPromptCatalogEntry, {}> kPolishPromptPresets = {{{{\n",
+        "#pragma once\n// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::windows {{\nstruct PolishPromptCatalogEntry {{\n  std::string_view id;\n  std::string_view prompt;\n  std::string_view title;\n}};\ninline constexpr std::array<PolishPromptCatalogEntry, {}> kPolishPromptPresets = {{{{\n",
         POLISH_PROMPT_PRESETS.len()
     );
     let mut wide_header = format!(
@@ -47,9 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("提示词包含 C++ raw string 分隔符".into());
         }
         header.push_str(&format!(
-            "  {{{}, R\"MSIME_POLISH({})MSIME_POLISH\"}},\n",
+            "  {{{}, R\"MSIME_POLISH({})MSIME_POLISH\", {}}},\n",
             serde_json::to_string(preset.id)?,
-            preset.prompt
+            preset.prompt,
+            serde_json::to_string(preset.title)?
         ));
         wide_header.push_str(&format!(
             "  {{L{}, L{}, LR\"MSIME_POLISH({})MSIME_POLISH\"}},\n",
@@ -60,6 +69,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     header.push_str("}};\n} // 命名空间 msime::windows\n");
     wide_header.push_str("}};\n} // 命名空间 msime::windows\n");
+    let cleanup = POLISH_PROMPT_PRESETS
+        .iter()
+        .find(|preset| preset.id == "cleanup")
+        .ok_or("润色目录缺少 cleanup 回退")?;
+    let mut harmony = String::from(
+        "// 由共享 Rust 润色目录导出；通过 export_polish_prompt_catalog 更新。\nexport class VoicePolishPromptCatalog {\n  static promptForId(id: string): string {\n    switch (id) {\n",
+    );
+    for preset in POLISH_PROMPT_PRESETS
+        .iter()
+        .filter(|preset| preset.id != "cleanup")
+    {
+        harmony.push_str(&format!(
+            "      case {}:\n        return {};\n",
+            serde_json::to_string(preset.id)?,
+            serde_json::to_string(preset.compact_prompt)?
+        ));
+    }
+    harmony.push_str(&format!(
+        "      case \"cleanup\":\n      default:\n        return {};\n    }}\n  }}\n}}\n",
+        serde_json::to_string(cleanup.compact_prompt)?
+    ));
     for (relative, generated, semantic) in [
         (
             "packages/ui/src/voice/polish-prompt-catalog.json",
@@ -81,8 +111,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             swift,
             false,
         ),
+        (
+            "platforms/android/java/app/msime/android/voice/VoicePolishPresetCatalog.java",
+            java,
+            false,
+        ),
         ("shared/voice/PolishPromptCatalog.h", header, false),
         ("shared/voice/PolishPromptWideCatalog.h", wide_header, false),
+        (
+            "platforms/harmony/entry/src/main/ets/keyboard/input/VoicePolishPromptCatalog.ts",
+            harmony,
+            false,
+        ),
     ] {
         let path = root.join(relative);
         if write {

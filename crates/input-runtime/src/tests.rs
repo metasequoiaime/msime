@@ -4822,6 +4822,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -9636,6 +9637,34 @@ fn cloud_switch_does_not_change_engine_after_generation_exhaustion() {
     assert_eq!(runtime.engine.snapshot().unwrap(), before);
     runtime.set_cloud_candidates_enabled(false).unwrap();
     assert_eq!(runtime.engine.snapshot().unwrap(), before);
+}
+
+#[test]
+fn contacts_stay_first_and_adjacent_with_online_rows() {
+    for page_size in [1, 2, 9] {
+        let mut runtime = runtime();
+        runtime.engine.words = vec![
+            "合成甲".into(),
+            "合成甲 202-555-0101".into(),
+            "字典词".into(),
+            "云词".into(),
+            "智能词".into(),
+            "synthetic".into(),
+        ];
+        runtime.engine.sources = vec![16, 16, 0, 2, 3, 4];
+        runtime.engine.codes = vec!["a".into(); 6];
+        runtime.engine.positions = vec![0, 0, 0, 0, 0, 1];
+        runtime.set_page_size(page_size).unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        let rows = runtime.all_candidates().candidates;
+        assert_eq!(rows[0].text, "合成甲");
+        assert_eq!(rows[1].text, "合成甲 202-555-0101", "page size {page_size}");
+        let selected = runtime
+            .dispatch(Action::SelectAnyCandidate(rows[1].id))
+            .unwrap();
+        assert_eq!(selected.commit.as_deref(), Some("合成甲 202-555-0101"));
+    }
 }
 
 #[test]

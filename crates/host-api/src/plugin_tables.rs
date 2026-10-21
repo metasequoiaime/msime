@@ -1,6 +1,6 @@
 //! 从插件目录读进 Engine 选项的表：`/` 模式的指令表、K 模式的短语表、当前方案选中的辅助码表和 `@` 模式的名单。
 //!
-//! 它们都是设置页在输入进程运行期间写的文件：导入的指令表包、短语表包、辅助码表包和 `mentions.json`。会话记下读过的每个文件的修改时间、长度和（Unix 上的）inode，输入框获得焦点和偏好应用时再看一遍，有变动才重新读。关着的模式什么都不读。
+//! 它们都是设置页在输入进程运行期间写的文件：导入的指令表包、短语表包、辅助码表包和 `mentions.json`。会话记下读过的每个文件的修改时间、长度和（Unix 上的）inode，输入框获得焦点和偏好应用时再看一遍，有变动才重新读。关着的模式不读其专属表；联系人名单独立于 `@` 模式装载，供普通拼音匹配。
 
 use msime_client_core::preferences::PluginPreferences;
 use msime_client_services::plugins::{
@@ -54,7 +54,7 @@ type HelpcodeStamp = (String, String, Vec<(String, FileStamp)>);
 pub(crate) struct PluginTables {
     /// The enabled command-table ids with each manifest's stamp, while the `/` mode is on.
     commands: Option<Vec<(String, FileStamp)>>,
-    /// `mentions.json`'s stamp, while the `@` mode is on.
+    /// 本地名单的文件戳；普通联系人候选不依赖 `@` 模式开关。
     mentions: Option<FileStamp>,
     /// K 模式打开时，启用的短语表 id 与各自清单的戳。
     phrases: Option<Vec<(String, FileStamp)>>,
@@ -65,7 +65,7 @@ pub(crate) struct PluginTables {
 }
 
 impl PluginTables {
-    /// Stamp the files `options` would be filled from. Cheap: a few `stat`s, and none for a mode that is off or a session without a plugins directory.
+    /// 给选项来源盖戳：只做少量 `stat`；未启用的模式专属表和没有插件目录的会话不读取文件。
     pub(crate) fn stamp(
         root: Option<&Path>,
         builtin_packs: Option<&Path>,
@@ -91,9 +91,7 @@ impl PluginTables {
             commands: options
                 .local_command
                 .then(|| manifests(PluginKind::CommandTable, &plugins.command_tables)),
-            mentions: options
-                .local_mention
-                .then(|| stamp(&mentions::document_path(root))),
+            mentions: Some(stamp(&mentions::document_path(root))),
             phrases: options
                 .local_quick_phrase
                 .then(|| manifests(PluginKind::PhraseTable, &plugins.phrase_tables)),
@@ -201,7 +199,7 @@ impl PluginTables {
             .collect()
     }
 
-    /// The saved name list; empty while the `@` mode is off or when the document does not load, which the settings page reports. A Chinese name saved without a key is given the reading of the Engine's dictionary in `options`.
+    /// 本地保存的名单；无插件目录或读取失败时为空。未填拼音的中文姓名用引擎词典补全读音，与 `@` 模式开关无关。
     pub(crate) fn mention_entries(
         &self,
         root: Option<&Path>,

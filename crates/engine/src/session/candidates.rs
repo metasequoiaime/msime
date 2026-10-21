@@ -106,9 +106,7 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            self.queries
-                .append_contact_candidates(self.engine.request().raw_input.as_str(), &mut decoded);
-            // 宿主请求了这项能力还不够：设置页「快捷短语」开关的说明写的是两种入口都由它管，关掉它时普通候选里也不再出现短语。
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
             if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
@@ -662,6 +660,25 @@ impl InputSession {
         }
         // 放在最后：网址补全不参与固定位置，也不被挪开。
         self.insert_url_scheme_completions(&mut mixed);
+        // 联系人优先级高于固定位置和云候选；两行相邻，不能让云占位插进姓名与组合文本之间。
+        // 光标前缀只解码局部，联系人选择却会结束整段组字，因此只在完整普通拼音组字中加入。
+        if !self.prefix_active
+            && !self.dedicated_english
+            && self.local_mode == LocalInputMode::None
+            && !self.has_active_helpcode()
+            && !self.single_character_only
+        {
+            let input = match scheme {
+                SchemeType::Quanpin => {
+                    Some(Cow::Borrowed(self.engine.request().raw_input.as_str()))
+                }
+                SchemeType::Shuangpin => Some(self.pinyin_ranking_context()),
+                _ => None,
+            };
+            if let Some(input) = input {
+                self.queries.append_contact_candidates(&input, &mut mixed);
+            }
+        }
         mixed
     }
 

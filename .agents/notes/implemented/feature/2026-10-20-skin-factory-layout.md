@@ -34,7 +34,7 @@ macOS 的 `itemCornersFollowCard` 依据实际候选矩形与列表区域逐角�
 | HarmonyOS 原生键盘 | 2in1 卡片/候选圆角、描边、横竖排间距、序号与选中条尺寸；触屏候选圆角、横排间距；两条路径均使用候选最小宽度与右内边距 | 2in1 的窗口估算和候选格共用版式；竖排行间距同时计入系统窗口高度；序号为零时清空字形而保留 9vp 栏 |
 | 网页候选栏 | 皮肤字体、卡片/候选圆角、描边、padding、候选最小宽度、横竖排间距、额外行高、序号 inset/gap/scale、选中条尺寸与位置；阴影、翻页标记开关与形状、预编辑边距、贴角、横排行对齐和隐藏预编辑间距；`expandPanel`、`expandRows` | em 按候选字号计算，序号字号为零也不影响其 em 间距；卡片最小宽度与单项最小宽度分开；收紧时右内边距与序号 inset 对称 |
 
-该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的卷轴按钮几何仍未完整接入；Linux Wayland/IBus 的完整布局消费也有缺口。Linux X11 的 Fcitx5 canvas 路径通过[原生卷轴](2026-10-20-linux-canvas-layout.md#横排卷轴)消费 `expandPanel` 与 `expandRows`，显示完整候选网格、滚动与按代次点选；Wayland、IBus 和非 canvas 路径不由此覆盖。
+该表只描述实际接入的字段。移动宿主的 `shadow`、`pageArrows`、`expandPanel`、`expandRows`、`justifyRows`、`itemCornersFollowCard`、`trimHiddenPreeditGap` 和 `preeditMarginDip` 尚未完成与 Windows 的同等消费。不能因为读模型携带这些字段就声称已实现。macOS 已接入上述候选几何，0.54.2 完整包已安装并通过 TextEdit 合成输入的预编辑与上屏验收，尚未逐款皮肤目测；macOS 的卷轴展开／收起按钮已接入来源字号尺寸与候选右侧窄列，网格等宽列、无序号绘制和滚动条几何仍未完整接入；Linux Wayland/IBus 的完整布局消费也有缺口。Linux X11 的 Fcitx5 canvas 路径通过[原生卷轴](2026-10-20-linux-canvas-layout.md#横排卷轴)消费 `expandPanel` 与 `expandRows`，显示完整候选网格、滚动与按代次点选；Wayland、IBus 和非 canvas 路径不由此覆盖。
 
 网页的 `tools/factory-layouts.json` 由共享 Rust 解析器生成并逐字段核对，构建时随现有 `theme-catalog.js` 一同装入 SDK。它包含八种基底的公共、横排和竖排默认，不引入运行时宿主调用或 TOML 解析器。未提供 `resolvedLayout` 时，出厂当前排列、包公共 `geometry`、包当前排列依次覆盖；若提供完整解析结果，不再重叠原始声明。镜像更新用 `MSIME_WRITE_FACTORY_LAYOUTS=1 cargo test -p msime-client-services web_factory_layout_copy_matches_shared_resolution`，无写入开关的同一测试验证提交中的文件。长度边界沿用共享扫描器的 DIP / em 上限。Windows 版式使用来源的固定 160 DIP 卡片下限，收紧时取消；未声明阴影档位时仍画来源的普通双层阴影。
 
@@ -48,7 +48,11 @@ macOS 普通页与展开网格保留来源 body 的 2 DIP 基础行距，显示�
 
 canvas 的 `lineGap` 只在预编辑文字实际显示时生效，不因 logo 让首行有高度就继续加入。键位图避让使用相同的显隐规则和隐藏行距。固定来源更新核对到 `msime-windows@b0bcb6ff5bef797d72e6b38930be8a6b9dccfb2f`，相对原固定提交 `a60e2948` 没有皮肤定义变化；语义来自 `candidate_skin_scene.cpp` 的隐藏预编辑 margin 与 `candidate_skin_tokens.cpp` 的零圆角贴角开关。
 
+再次核对远端默认分支 `develop@0978b5c28b2a1806e7ef3acdbc3a1c87e4784823`：相对 `b0bcb6ff`，八份出厂清单及卷轴按钮配方没有变化。本轮继续以原固定来源实现按钮；上游新增了图片工具栏、按钮底图／自动排列与装饰图叠加候选词，图片工具栏与装饰词的接入由各自笔记记录并按平台验收，不能把当前出厂布局对齐称为已经兼容最新全部能力。
+
 macOS 的 `pageArrows` 消费共享解析结果：空值保留原生首行，显式 false 隐藏鼠标翻页入口，true 按来源放入候选列表。横排预留右侧窄列，竖排增加下方矮行；按钮、字形、分隔线和悬停按当前候选字号及皮肤颜色绘制；来源未声明的分隔线保持透明，不借用卡片描边。用户关闭「显示页码和翻页按钮」时仍全部隐藏，键盘与滚轮的规则不变。皮肤声明 `expandPanel = false` 时不提供横排展开，空值保留原生用户偏好；true 仍要求用户启用展开。当前横排卷轴可用且皮肤声明 `expandPanel` 时卷轴优先；不能展开的列表仍保留翻页。键位图测量和实际候选共用翻页槽位宽高，卡片最小宽度只计算一次。
+
+macOS 共享布局声明 `expandPanel = true` 时，展开与收起按钮按来源取 `round(1.1em)` 方形、`round(0.6em)` 折线和 `max(1.2 DIP, 字号 / 13)` 线宽，左右留白为 2／1 DIP，竖向对齐候选首行。按钮始终占候选右侧窄列，不挤进预编辑首行；Canvas 显式预编辑行距只移动预编辑控件。候选测量、实际命中和键位图避让共用窄列宽度；展开网格也扣掉该区域。共享卷轴的收起入口按独立按钮偏好显示，不再受原生行号开关控制；没有共享卷轴的原生布局仍使用原来首行的模板图和行号。按钮用 AppKit 两段平头线重写来源形状，悬停和按下分别使用皮肤的 hover 与 selected／hover 回退，角半径上限为 4 DIP。
 
 ## 历史审计
 
@@ -133,10 +137,12 @@ macOS 列表翻页专项使用六类合成皮肤覆盖原生默认、微软出�
 
 阴影、翻页与预编辑间距组合验收时，补充两条几何围栏：竖排 `candidateRowsRect` 的底边位于翻页栏上方，与最后候选底边对齐；横排箭头底边按实际候选行计算，不被上方新增行距抬高。普通页与展开网格的预编辑矩阵分别保留列表翻页和原生首行控件的差异，候选命中不占空隙。
 
-组合回归在 `TestDeclaredMotion` 的选中清理断言间歇失败。诊断复现时，额外安排的 400ms 主队列探针在两秒截止后也未执行，选中令牌、图层和行对象均未变化；替换成 AppKit 取事件循环仍能复现，不能归因于翻页几何。测试仅在计时验收范围内声明 `NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical`，避免合成面板被完全遮挡时的后台计时延后；结束后释放，不改产品动画实现、两秒门限或完成状态断言。选项依据 [Apple 活动优先级说明](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/power_efficiency_guidelines_osx/PrioritizeWorkAtTheAppLevel.html)和[计时精度说明](https://developer.apple.com/documentation/foundation/processinfo/activityoptions/latencycritical?language=objc)，与观测到的回调整体延后相符；未采集系统 App Nap 状态，故不把它记为经系统追踪确认的唯一原因。
-
-计时活动调整后的诊断版在远端 run `20261021-002200` 连续 10 次通过完整 `candidate-row-layout`（132.30 秒），不放宽门限。移除临时令牌与主队列探针后，最终源码另跑组合专项与完整门禁；之前 run `20261021-002454` 因新增 Canvas 组合回归而主动停止，不计为最终通过。
+组合回归在 `TestDeclaredMotion` 的选中清理断言间歇失败。探针显示主队列 400ms 定时回调也未在两秒内到达，不能归因于翻页几何。高精度活动范围在 run `20261021-002200` 曾连续 10 次通过，后续仍复现；共同模式定时器同样未稳定通过，两者都未保留为当前方案。产品继续使用原来的完成回调，测试改为独立 CTest 进程运行动效与几何矩阵，详见[动效笔记](2026-10-16-macos-candidate-declared-motion.md)。这项隔离保留两秒门限、全部状态断言和 CI 的单项 20 秒上限，不把一次通过当作充分修复证据。
 
 Canvas 显示预编辑且显式 19 DIP 行距时，新回归先在 run `20261021-002554` 复现翻页箭头偏移为 `24.15` 而非候选行内居中的 `5.15` DIP，误差恰好是 19 DIP。Canvas 内容变换现在把列表箭头和分隔线留在候选区域，仅移动首行控件；矩阵同时检查三角／折线、横竖排、显示／隐藏预编辑、100%／150% 和分隔线底边。
 
-最终组合源码的远端 run `20261021-002627` 通过 `--skin-preedit-gap`、`--shadow-host`、`--pager-host`，随后 quick 门禁及 17 项候选／皮肤／快捷键／设置玻璃回归全部通过，无跳过，回归耗时 97.65 秒。最终版已移除临时诊断，仅保留计时活动范围和原有完成断言。四张完整候选窗栅格图核对 Canvas／微软基底、明暗与横竖排的候选、箭头和分隔线；Canvas 的 19 DIP 组合另由严格坐标矩阵验证。Windows 交叉构建因远端未配置 MinGW 跳过，Linux 原生、Android 与 HarmonyOS 宿主按本次 macOS 范围跳过；Linux 设置壳编译实际执行通过。这些结果为原生 AppKit 控制器级别，不替代 IMK 系统输入、旧 macOS 真机或其他平台设备验收。
+最终组合源码的远端 run `20261021-002627` 通过 `--skin-preedit-gap`、`--shadow-host`、`--pager-host`，随后 quick 门禁及 17 项候选／皮肤／快捷键／设置玻璃回归全部通过，无跳过，回归耗时 97.65 秒。该历史版本保留计时活动范围；后续重复测试仍失败，当前版本已移除活动并拆分测试进程。四张完整候选窗栅格图核对 Canvas／微软基底、明暗与横竖排的候选、箭头和分隔线；Canvas 的 19 DIP 组合另由严格坐标矩阵验证。Windows 交叉构建因远端未配置 MinGW 跳过，Linux 原生、Android 与 HarmonyOS 宿主按本次 macOS 范围跳过；Linux 设置壳编译实际执行通过。这些结果为原生 AppKit 控制器级别，不替代 IMK 系统输入、旧 macOS 真机或其他平台设备验收。
+
+卷轴按钮专项先在旧控制器上复现 12pt 字号仍画 28pt 按钮，而来源应为 13pt（run `20261021-003713`）。新矩阵跨微软／Canvas、明暗、12／24pt、100%／150%、显示／隐藏预编辑、页码开关和普通／展开页检查实际矩形；Canvas 使用 19 DIP 行距和非对称内边距。覆盖按钮与候选分离、右边距、首行定位、可访问名称、悬停／按下像素、旧按钮拒绝与收起 action，独立按钮关闭时不保留入口。
+
+卷轴按钮最终组合在远端 run `20261021-010853` 强制刷新 CMake、控制器与测试源码时间戳后重编，完整 quick 通过；22 项候选／皮肤／快捷键／设置玻璃回归全部执行通过，无失败、无跳过，共 85.46 秒，JUnit 同时核对执行状态。此前 run `20261021-005732` 的普通排版、动效、布局、阴影、翻页与卷轴按钮六项各连续 5 次通过，共 75.37 秒，单次最长 6 秒，未放宽两秒动效完成门限或 CI 的单项时限。16 张完整候选窗导出图中核对了微软／Canvas、明暗、显示／隐藏预编辑与普通／展开页的四张代表图。最终 quick 的 Windows 可移植策略 171 项、Linux 原生 94 项、Rust／Android／WebAssembly 目标和 Android Java 宿主通过；HarmonyOS HAP 与 Windows 原生／pipe 编译因构建机前置输入不足跳过。以上均不替代已安装 IMK 输入法和其他平台设备验收。

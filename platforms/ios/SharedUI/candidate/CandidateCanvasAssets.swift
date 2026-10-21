@@ -64,6 +64,59 @@ extension ExternalCandidateSkin {
       let zIndex: Int
     }
 
+    struct Word: Equatable {
+      let text: String
+      var badge = ""
+      var highlighted = false
+    }
+
+    /// 只消费共享扫描器发布的有界声明，不在宿主重新解析清单颜色。
+    struct CandidateOverlay {
+      let index: Int
+      let fontSize, minFontSize, maxWidth, offsetX, offsetY: CGFloat
+      let color: UIColor
+      let alignH, alignV: String
+      let stripBadge: Bool
+
+      init?(_ raw: Any?) {
+        guard let entry = raw as? [String: Any] else { return nil }
+        func number(_ key: String, _ range: ClosedRange<Double>) -> CGFloat? {
+          guard let value = entry[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+                value.doubleValue.isFinite, range.contains(value.doubleValue) else { return nil }
+          return CGFloat(value.doubleValue)
+        }
+        guard let index = SharedNumber.strictInt(entry["index"]), (0...100).contains(index),
+              let font = number("fontSizeDip", 0...200), font > 0,
+              let minimum = number("minFontSizeDip", 0...200), minimum > 0,
+              let width = number("maxWidthDip", 0...2000),
+              let x = number("offsetXDip", -2000...2000), let y = number("offsetYDip", -2000...2000),
+              let horizontal = entry["alignH"] as? String, ["left", "center", "right"].contains(horizontal),
+              let vertical = entry["alignV"] as? String, ["top", "center", "bottom"].contains(vertical),
+              let strip = entry["stripBadge"] as? NSNumber, CFGetTypeID(strip) == CFBooleanGetTypeID(),
+              let color = entry["resolvedColor"] as? String, color.utf8.count == 9, color.first == "#",
+              color.dropFirst().utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }),
+              let rgba = UInt32(color.dropFirst(), radix: 16) else { return nil }
+        self.index = index
+        fontSize = font; minFontSize = minimum; maxWidth = width; offsetX = x; offsetY = y
+        alignH = horizontal; alignV = vertical; stripBadge = strip.boolValue
+        self.color = UIColor(red: CGFloat((rgba >> 24) & 255) / 255, green: CGFloat((rgba >> 16) & 255) / 255,
+          blue: CGFloat((rgba >> 8) & 255) / 255, alpha: CGFloat(rgba & 255) / 255)
+      }
+
+      func word(_ words: [Word]) -> String {
+        let seat = index == 0 ? words.firstIndex(where: \.highlighted) : index - 1
+        guard let seat, words.indices.contains(seat) else { return "" }
+        return words[seat].text + (stripBadge ? "" : words[seat].badge)
+      }
+    }
+
+    struct Banner {
+      let frames: Frames
+      let width, height: CGFloat
+      let align: String
+      let candidate: CandidateOverlay?
+    }
+
     let tiles: [Frames?]
     let widths: [CGFloat]
     let fill: Bool
@@ -72,10 +125,11 @@ extension ExternalCandidateSkin {
     let decorations: [Decoration]
     let itemCornerRadius: CGFloat
     let lineGap: CGFloat
+    let banner: Banner?
     var panelLoaded: Bool { tiles.count == 9 }
 
     init(tiles: [Frames?], widths: [CGFloat], fill: Bool, contentInsets: UIEdgeInsets,
-         outerInsets: UIEdgeInsets, decorations: [Decoration], itemCornerRadius: CGFloat, lineGap: CGFloat) {
+         outerInsets: UIEdgeInsets, decorations: [Decoration], itemCornerRadius: CGFloat, lineGap: CGFloat, banner: Banner? = nil) {
       self.tiles = tiles
       self.widths = widths
       self.fill = fill
@@ -84,6 +138,7 @@ extension ExternalCandidateSkin {
       self.decorations = decorations
       self.itemCornerRadius = itemCornerRadius
       self.lineGap = lineGap
+      self.banner = banner
     }
 
     static func == (lhs: Canvas, rhs: Canvas) -> Bool { lhs === rhs }
@@ -120,8 +175,8 @@ extension ExternalCandidateSkin {
         return envelope["value"] as? [String: Any]
       }
     }
-    guard let package = reply(["directory": root.path, "id": id], resource: false),
-          package["canvas"] as? Bool == true else { return nil }
+    guard let package = reply(["directory": root.path, "id": id], resource: false) else { return nil }
+    let isCanvas = package["canvas"] as? Bool == true
     var remaining = 8_000_000, loaded: [String: Canvas.Frames] = [:]
     func load(_ relative: String) -> Canvas.Frames? {
       if let frames = loaded[relative] { return frames }
@@ -140,7 +195,7 @@ extension ExternalCandidateSkin {
                           bottom: number(value, "bottom"), right: number(value, "right"))
     }
     var tiles: [Canvas.Frames?] = [], widths: [CGFloat] = [0, 0, 0, 0], fill = true
-    if let border = package["borderImage"] as? [String: Any] {
+    if isCanvas, let border = package["borderImage"] as? [String: Any] {
       let slices = Canvas.sides(border["stretchDip"] ?? border["sliceDip"], fallback: [0, 0, 0, 0])
       widths = Canvas.sides(border["widthDip"], fallback: slices)
       fill = border["fill"] as? Bool ?? true
@@ -155,7 +210,7 @@ extension ExternalCandidateSkin {
         }
       }
     }
-    let entries = package["decorations"] as? [[String: Any]] ?? []
+    let entries = isCanvas ? package["decorations"] as? [[String: Any]] ?? [] : []
     let decorations: [Canvas.Decoration] = entries.enumerated().sorted {
       let left = ($0.element["zIndex"] as? Int) ?? 2, right = ($1.element["zIndex"] as? Int) ?? 2
       return left == right ? $0.offset < $1.offset : left < right
@@ -165,12 +220,21 @@ extension ExternalCandidateSkin {
         offsetX: number(entry, "offsetXDip"), offsetY: number(entry, "offsetYDip"),
         width: number(entry, "widthDip"), height: number(entry, "heightDip"), zIndex: (entry["zIndex"] as? Int) ?? 2)
     }
-    guard !tiles.isEmpty || !decorations.isEmpty else { return nil }
-    var content = insets("contentInsetsDip")
+    var banner: Canvas.Banner?
+    let width = number(package, "decorationWidthDip"), height = number(package, "decorationTopDip")
+    if width > 0, height > 0, let path = package["decorationImage"] as? String, let frames = load(path) {
+      banner = Canvas.Banner(frames: frames, width: width, height: height,
+        align: package["decorationAlign"] as? String ?? "right", candidate: Canvas.CandidateOverlay(package["decorationCandidate"]))
+    }
+    guard !tiles.isEmpty || !decorations.isEmpty || banner != nil else { return nil }
+    var content = isCanvas ? insets("contentInsetsDip") : .zero
+    var outer = isCanvas ? insets("outerInsetsDip") : .zero
+    // 传统装饰带与画布留白共用统一缩放，不增加键盘的固定高度。
+    outer.top = max(outer.top, banner?.height ?? 0)
     content.top = max(content.top, widths[0]); content.right = max(content.right, widths[1])
     content.bottom = max(content.bottom, widths[2]); content.left = max(content.left, widths[3])
     return Canvas(tiles: tiles, widths: widths, fill: fill, contentInsets: content,
-                  outerInsets: insets("outerInsetsDip"), decorations: decorations,
-                  itemCornerRadius: number(package, "itemCornerRadiusDip", fallback: 9), lineGap: number(package, "lineGapDip"))
+                  outerInsets: outer, decorations: decorations,
+                  itemCornerRadius: number(package, "itemCornerRadiusDip", fallback: 9), lineGap: isCanvas ? number(package, "lineGapDip") : 0, banner: banner)
   }
 }

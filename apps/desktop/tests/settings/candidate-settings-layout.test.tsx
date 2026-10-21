@@ -75,7 +75,14 @@ test("顶部四标签按功能分组，只显示当前分区，共用预览位�
       "跟随光标",
     ],
     字体与大小: ["候选字体", "字号", "英文字体", "整体大小"],
-    窗口样式: ["不透明度", "圆角大小", "内边距", "固定候选徽标", "固定候选徽标样式", "AI 联想候选徽标样式"],
+    窗口样式: [
+      "不透明度",
+      "圆角大小",
+      "内边距",
+      "固定候选徽标",
+      "固定候选徽标样式",
+      "AI 联想候选徽标样式",
+    ],
     预编辑: ["预编辑字号", "候选窗口预编辑", "行内预编辑"],
   };
   const content = document.getElementById("settings-content")!;
@@ -99,9 +106,13 @@ test("候选徽标只随 macOS 出现，改动写进同一草稿并保存", asyn
   // 出厂默认：固定排位徽标开、样式回形针、AI 徽标机器人。
   const fixedBadge = screen.getByRole("switch", { name: "固定候选徽标" }) as HTMLInputElement;
   expect(fixedBadge.checked).toBe(true);
-  const fixedStyle = screen.getByRole("combobox", { name: "固定候选徽标样式" }) as HTMLSelectElement;
+  const fixedStyle = screen.getByRole("combobox", {
+    name: "固定候选徽标样式",
+  }) as HTMLSelectElement;
   expect(fixedStyle.value).toBe("paperclip");
-  const aiStyle = screen.getByRole("combobox", { name: "AI 联想候选徽标样式" }) as HTMLSelectElement;
+  const aiStyle = screen.getByRole("combobox", {
+    name: "AI 联想候选徽标样式",
+  }) as HTMLSelectElement;
   expect(aiStyle.value).toBe("robot");
 
   fireEvent.click(fixedBadge);

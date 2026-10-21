@@ -1194,3 +1194,5 @@ Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：�
 IBus 与 Fcitx5 也保留 Backspace 长按的物理按键所有权：若首次按下发生在活动组字中，重复键可以继续删除预编辑；最后一个组字字符消失后，同一次按住的后续重复仍由输入法吞掉，不会开始删除编辑器里已经上屏的正文。按键松开、失焦、reset 或按下其他键都会解除所有权，之后一次新的 Backspace 仍正常交给编辑器。实现复用纯策略，但输入事件仍分别走 IBus 与 Fcitx5 的原生入口。
 
 字典导入沿用 Windows 固定提交 `6e03f577` 的全拼规则：普通字典和个人字典的 Pinyin 词条在 Host API 中调用固定 Engine 的全拼切分，并按词条汉字数解决无分隔拼音歧义，例如两字词 `西安` 的 `xian` 规范化为 `xi'an`。无效音节、非法 apostrophe 或无法匹配词长的行会被跳过并报告；Wubi、快捷短语和英文导入不经过该规范化。规范化只发生在带 Engine 选项的实际导入请求中，Linux IBus 不复制输入算法。
+
+X11 的传统装饰图启用 `candidate_overlay_*` 后，复用原生候选窗口按当前页和真实高亮绘制图内词，保留简繁转换并独立控制云／AI 来源标注。图片解码成功才接管，长词最小字号后仍完整单行，窗口放不进工作区时保留桌面面板。关闭声明、失效、菜单和隐藏会清理文字；无配色的 system 包沿用当前明暗的 Linux 原生颜色。其他 Wayland、IBus 和第三方 UI 的静态回退范围不变。专项入口为 `fcitx5-decoration-overlay-{horizontal,vertical}-scale{1,2}`，需要已验证词库、Xvfb、D-Bus 和真实 GTK 编辑器，与原生 canvas 用例共用隔离环境。

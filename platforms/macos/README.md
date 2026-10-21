@@ -225,6 +225,8 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 语音设置的原生备用窗口提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页通过 `list_voice_capture_devices` 提供刷新列表。
 
+原生回退语音页的润色方案 id、名称和顺序读取共享 Rust 静态导出的 `shared/voice/PolishPromptCatalog.h`，再追加原有三个自定义槽位；更新命令见[共享润色提示词](../../packages/ui/UPSTREAM.md#共享润色提示词)。`voice-polish-presets` CTest 覆盖实际选择表、所有有效下标、越界下标及空值/未知 id 回退，`scripts/test-polish-prompt-catalog.py` 在 Apple 宿主上编译真实 `VoiceSettings.h`，与共享 JSON 对照。测试只读取静态目录并使用合成边界值，不创建窗口或访问偏好、凭据。
+
 原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失或为空的模式即 API Key。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。共享快照写进 NSUserDefaults 之前，润色服务的原生回退值统一是 DeepSeek（`https://api.deepseek.com/chat/completions`、`deepseek-v4-flash`，定义在 `SharedVoicePreferences.h`），与共享层在 macOS 上的首次运行默认一致，原生语音设置窗口、备用 provider 窗口与录音请求不会各报一个 provider。
 
 录音提示音是产品自己的 `start.mp3` / `end.mp3`，CMake 直接从 `platforms/windows/installer/assets/audios/` 放进 bundle 的 `Resources/audios/`，仓库里不另存一份。`VoiceCuePlayer.mm` 启动时一次性解码为 `NSSound`，每次播放先 `stop` 再 `play`，与来源 `cue_player.cpp` 一样从头重播。某一个文件缺失或解码失败时该侧回落到系统的 Glass / Pop 并写一行日志，而来源此时不出声：这里宁可保留一个能听见的开始 / 结束反馈。`voice-cue-player` 与 `bundle-contents` 覆盖这两点。

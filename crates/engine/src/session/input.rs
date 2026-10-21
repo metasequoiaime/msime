@@ -432,6 +432,8 @@ impl InputSession {
                         && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin))
             }
             LocalInputMode::Emoji | LocalInputMode::Kaomoji => letter || value == b'\'',
+            // 符号模式只收字母：分组码与符号名都是字母，撇号、数字和 `;` 交还宿主。
+            LocalInputMode::Symbol => letter,
             LocalInputMode::QuickPhrase | LocalInputMode::DateTime => value.is_ascii_lowercase(),
             LocalInputMode::Unicode => {
                 value.is_ascii_hexdigit() || (value == b'+' && self.local_preedit == "U")
@@ -1291,12 +1293,17 @@ impl InputSession {
             .flatten()
     }
 
-    /// Replaces the `@` mode's list, refreshing the list on screen when that mode is open.
+    /// 替换本地名单，刷新打开的 `@` 列表或普通组字中的联系人候选。
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
         self.queries.set_mentions(entries);
-        (self.local_mode == LocalInputMode::Mention)
-            .then(|| self.update_local_candidates())
-            .flatten()
+        if self.local_mode == LocalInputMode::Mention {
+            self.update_local_candidates()
+        } else {
+            if self.local_mode == LocalInputMode::None && self.has_composition() {
+                self.update_mixed_candidates();
+            }
+            None
+        }
     }
 
     pub fn set_mention_places(&mut self, enabled: bool) -> Option<String> {
@@ -1760,6 +1767,7 @@ impl InputSession {
             ),
             b'V' => (LocalInputMode::Expression, options.expression),
             b'C' => (LocalInputMode::Chaizi, options.chaizi),
+            b'S' => (LocalInputMode::Symbol, options.symbol),
             _ => return None,
         };
         // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
@@ -2050,6 +2058,7 @@ fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {
         LocalInputMode::Command => options.command,
         LocalInputMode::Mention => options.mention,
         LocalInputMode::Chaizi => options.chaizi,
+        LocalInputMode::Symbol => options.symbol,
         // 网址模式默认开启，没有开关。
         LocalInputMode::Url => true,
     }

@@ -1,18 +1,25 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#include "../../../../shared/voice/PolishPromptCatalog.h"
 FOUNDATION_EXPORT NSNotificationName const MSIMEVoiceSettingsDidChangeNotification;
 
-// The prompt presets, as an identifier the preference stores and a name the user reads.
-//
-// The popup that offered these used to be built from the identifiers alone, so it showed `cleanup` and `zh2en` as menu items and wrote back whichever string was on screen. The names are the reference's own (`PolishPromptPreset` in voice_providers.cpp); the three custom slots are this client's.
+// 内置方案的 id、名称和顺序读取共享 Rust 静态目录；三个自定义槽位由宿主追加。
 static inline NSArray<NSString *> *MSIMEPolishPromptIdentifiers(void)
 {
-    return @[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"];
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray arrayWithCapacity:msime::windows::kPolishPromptPresets.size() + 3];
+    for (const auto &preset : msime::windows::kPolishPromptPresets)
+        [identifiers addObject:[[NSString alloc] initWithBytes:preset.id.data() length:preset.id.size() encoding:NSUTF8StringEncoding]];
+    [identifiers addObjectsFromArray:@[@"custom_1", @"custom_2", @"custom_3"]];
+    return [identifiers copy];
 }
 
 static inline NSArray<NSString *> *MSIMEPolishPromptTitles(void)
 {
-    return @[@"精炼整理", @"忠实校对", @"中翻英", @"口语整理", @"自定义一", @"自定义二", @"自定义三"];
+    NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithCapacity:msime::windows::kPolishPromptPresets.size() + 3];
+    for (const auto &preset : msime::windows::kPolishPromptPresets)
+        [titles addObject:[[NSString alloc] initWithBytes:preset.title.data() length:preset.title.size() encoding:NSUTF8StringEncoding]];
+    [titles addObjectsFromArray:@[@"自定义一", @"自定义二", @"自定义三"]];
+    return [titles copy];
 }
 
 static inline NSString *MSIMEPolishPromptIdentifierForIndex(NSInteger index)
