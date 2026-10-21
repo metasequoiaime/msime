@@ -333,6 +333,14 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
         foreach(canvas_layout horizontal vertical)
+          add_test(NAME fcitx5-candidate-font-pixels-${canvas_layout}
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+              MSIME_TEST_FONT_GEOMETRY=1 MSIME_FCITX5_CANDIDATE_RENDERER=classicui
+              "${XVFB_RUN}" -a -s "-screen 0 1024x768x24 -dpi 96" "${DBUS_RUN_SESSION}" --
+              "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-candidate-font-pixels-${canvas_layout} PROPERTIES TIMEOUT 90)
           # 这一项验收 X11 上的 classicui 主题本身，所以用逃生口关掉默认的原生画布。
           add_test(NAME fcitx5-translation-below-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
