@@ -4663,6 +4663,53 @@ fn nine_key_digits_of_a_keyword_add_date_time_rows() {
 }
 
 #[test]
+fn super_jianpin_bare_entry_keeps_capital_words_literal() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for text in ["JI", "JIT", "JNH", "JPEG", "JSON"] {
+            let mut session = fixture.session_with(|options| options.scheme = scheme);
+            for byte in text.bytes() {
+                let result = session.character(byte, true);
+                assert!(result.handled && result.commit.is_none());
+            }
+            let snapshot = session.snapshot();
+            assert_eq!(
+                snapshot.local_mode,
+                LocalInputMode::None,
+                "{scheme:?} {text}"
+            );
+            assert_eq!(snapshot.editing_text, text);
+            assert_eq!(words(&session), [text]);
+            assert_eq!(session.select(0).commit.as_deref(), Some(text));
+        }
+    }
+}
+
+#[test]
+fn super_jianpin_lowercase_entry_and_unicode_hex_stay_available() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        session.character(b'J', true);
+        type_text(&mut session, "nh");
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::SuperJianpin);
+        assert!(words(&session).contains(&"你好".to_owned()));
+        let at = words(&session)
+            .iter()
+            .position(|word| word == "你好")
+            .unwrap();
+        assert_eq!(session.select(at).commit.as_deref(), Some("你好"));
+
+        session.character(b'U', true);
+        session.character(b'F', true);
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::Unicode);
+        type_text(&mut session, "F21");
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::Unicode);
+        assert!(words(&session).contains(&"Ａ".to_owned()));
+    }
+}
+
+#[test]
 fn rejected_capital_after_bare_shortcut_keeps_both_letters_composing() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
