@@ -88,6 +88,7 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
             getTargetContext().registerReceiver(receiver, new IntentFilter(CALLBACKS));
         }
         try {
+            if (scenario.equals("result")) VoiceAutoInsertDeviceCases.runUploadPermissionFallback(this);
             String requestId = "voice-lifecycle-" + scenario;
             Intent intent = new Intent().setClassName(getTargetContext(),
                 "app.msime.android.VoiceRecognitionActivity")

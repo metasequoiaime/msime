@@ -15,6 +15,7 @@ import android.speech.SpeechRecognizer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.Button;
 import java.io.File;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -51,6 +52,10 @@ final class ImeVoiceEntry {
     });
     private Runnable silenceStop;
     private VoiceListeningView listening;
+    private View listeningPanel;
+    private Button uploadDone;
+    /** 用户已经结束整句采集后，权限错误不能重新弹窗录音。 */
+    private boolean uploadStopped;
     private ViewGroup host;
     private final ArrayList<View> hidden = new ArrayList<>();
     private LocalAsrRecognizer local;
@@ -150,7 +155,8 @@ final class ImeVoiceEntry {
             && !EditorPolicy.password(s.editorInputType);
         // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
         s.captureVoiceTarget();
-        show(keyArea);
+        show(keyArea, engine == Engine.UPLOAD);
+        uploadStopped = false;
         long session = ++generation;
         long startedAt = SystemClock.uptimeMillis();
         recognizing = true;
@@ -171,7 +177,7 @@ final class ImeVoiceEntry {
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
             upload = new HttpAsrRecognizer();
-            listening.setHint("说完再点语音键，或长按空格说话后松开");
+            listening.setHint("说完点「完成」；按住空格说话时松开结束");
         } else {
             streaming = new DoubaoRecognizer();
             streaming.retainAudio(contribute);
@@ -223,6 +229,10 @@ final class ImeVoiceEntry {
                         case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
                         case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
                     });
+                    if (refused.failure() == HttpAsrRecognizer.Failure.PERMISSION) {
+                        s.main.post(() -> uploadPermissionFailed(session));
+                        return;
+                    }
                     failure = switch (refused.failure()) {
                         case PERMISSION -> "语音识别需要麦克风权限";
                         case UNAVAILABLE -> "麦克风被其他应用占用";
@@ -340,7 +350,11 @@ final class ImeVoiceEntry {
         }
         if (local != null) local.stop();
         if (streaming != null) streaming.stop();
-        if (upload != null) upload.stop();
+        if (upload != null) {
+            uploadStopped = true;
+            upload.stop();
+        }
+        if (uploadDone != null) ViewPolicy.setEnabled(uploadDone, false);
         if (platform != null) {
             platformStopped = true;
             platform.stopListening();
@@ -490,6 +504,15 @@ final class ImeVoiceEntry {
         s.notice(PlatformSpeechPolicy.message(error));
     }
 
+    /** 键区采集被权限拒绝时让前台窗口恢复；旧回调和主动结束不能重新开始录音。 */
+    private void uploadPermissionFailed(long session) {
+        if (session != generation) return;
+        boolean retry = !uploadStopped;
+        cancel();
+        if (retry) s.launchVoiceActivity();
+        else s.notice("语音识别需要麦克风权限");
+    }
+
     private void releasePlatform() {
         SpeechRecognizer recognizer = platform;
         platform = null;
@@ -605,7 +628,7 @@ final class ImeVoiceEntry {
     }
 
     /** 把键区的内容换成聆听面板；键区被重建（换布局、收起键盘）时自动取消。 */
-    private void show(ViewGroup keyArea) {
+    private void show(ViewGroup keyArea, boolean manualStop) {
         dismiss();
         host = keyArea;
         hidden.clear();
@@ -621,11 +644,31 @@ final class ImeVoiceEntry {
         view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
             Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
         ViewPolicy.bindClick(view, this::cancel);
-        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+        View panel = view;
+        if (manualStop) {
+            LinearLayout column = LayoutPolicy.column(s);
+            column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            LinearLayout actions = LayoutPolicy.row(s);
+            Button done = ViewPolicy.newPressButton(s);
+            done.setText("完成");
+            done.setContentDescription("结束聆听并识别");
+            ViewPolicy.bindClick(done, this::finishListening);
+            uploadDone = done;
+            actions.addView(done, LayoutPolicy.weightedWrapParams(1));
+            Button cancel = ViewPolicy.newPressButton(s);
+            cancel.setText("取消");
+            ViewPolicy.bindClick(cancel, this::cancel);
+            actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
+            column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+            panel = column;
+        }
+        listeningPanel = panel;
+        panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View attached) { }
 
             @Override public void onViewDetachedFromWindow(View detached) {
-                if (listening == detached) {
+                if (listeningPanel == detached) {
+                    listeningPanel = null;
                     listening = null;
                     host = null;
                     hidden.clear();
@@ -643,18 +686,20 @@ final class ImeVoiceEntry {
         if (params instanceof LinearLayout.LayoutParams linear && keyArea.getHeight() > 0) {
             linear.topMargin = -keyArea.getHeight();
         }
-        keyArea.addView(view, params);
+        keyArea.addView(panel, params);
     }
 
     private void dismiss() {
         if (silenceStop != null) s.main.removeCallbacks(silenceStop);
         silenceStop = null;
-        VoiceListeningView view = listening;
+        View panel = listeningPanel;
         ViewGroup parent = host;
+        listeningPanel = null;
+        uploadDone = null;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);
         hidden.clear();
-        if (view != null && parent != null && view.getParent() == parent) parent.removeView(view);
+        if (panel != null && parent != null && panel.getParent() == parent) parent.removeView(panel);
     }
 }

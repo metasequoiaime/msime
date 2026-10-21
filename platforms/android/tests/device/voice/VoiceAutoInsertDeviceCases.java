@@ -7,6 +7,10 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.os.ResultReceiver;
 import android.text.InputType;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.EditText;
@@ -63,6 +67,7 @@ final class VoiceAutoInsertDeviceCases {
                     constructor.setAccessible(true);
                     Object entry = constructor.newInstance(service);
                     owned[1] = entry;
+                    checkUploadControls(entry, context, loader);
                     field(entryType, "generation").setLong(entry, 7);
                     Method delivered = method(entryType, "delivered", long.class, String.class, String.class,
                         byte[].class, long.class, String.class, String.class);
@@ -139,6 +144,114 @@ final class VoiceAutoInsertDeviceCases {
                 }
                 Files.deleteIfExists(directory[0]);
             }
+        }
+    }
+
+    /** 点击真实按钮结束采集，不能取消转写；收起面板后必须恢复原键行。 */
+    private static void checkUploadControls(Object entry, Context context,
+                                            ClassLoader loader) throws Exception {
+        Class<?> entryType = entry.getClass();
+        Class<?> uploadType = loader.loadClass("app.msime.android.HttpAsrRecognizer");
+        Object upload = uploadType.getConstructor().newInstance();
+        LinearLayout keys = new LinearLayout(context);
+        keys.setOrientation(LinearLayout.VERTICAL);
+        Button space = new Button(context);
+        space.setText("synthetic space");
+        keys.addView(space, new LinearLayout.LayoutParams(600, 600));
+        keys.layout(0, 0, 600, 600);
+        method(entryType, "show", ViewGroup.class, boolean.class).invoke(entry, keys, true);
+        keys.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY));
+        keys.layout(0, 0, 600, 600);
+        Button done = (Button) field(entryType, "uploadDone").get(entry);
+        check(done != null && done.getHeight() > 0 && done.getWidth() > 0 && done.isEnabled(),
+            "整句上传必须有可点击的完成按钮");
+        check(done.getTop() >= 0 && done.getBottom() <= 600, "完成按钮必须在键区范围内");
+        check(space.getVisibility() == View.INVISIBLE, "聆听时原空格键被遮住");
+        field(entryType, "upload").set(entry, upload);
+        field(entryType, "recognizing").setBoolean(entry, true);
+        field(entryType, "generation").setLong(entry, 5);
+        done.performClick();
+        check(((java.util.concurrent.atomic.AtomicBoolean) field(uploadType, "stopped").get(upload)).get(),
+            "点击完成必须结束采集");
+        check(!((java.util.concurrent.atomic.AtomicBoolean) field(uploadType, "cancelled").get(upload)).get(),
+            "点击完成不能取消转写");
+        check(!done.isEnabled(), "等待转写时不能重复提交完成");
+        Method refused = method(entryType, "uploadPermissionFailed", long.class);
+        refused.invoke(entry, 4L);
+        check(field(entryType, "generation").getLong(entry) == 5, "旧权限失败回调不能影响当前识别");
+        refused.invoke(entry, 5L);
+        check(field(entryType, "generation").getLong(entry) == 6,
+            "主动结束后的权限失败只能结束当前识别");
+        check(space.getVisibility() == View.VISIBLE && keys.getChildCount() == 1,
+            "结束后必须移除整个聆听面板并恢复键行");
+        method(entryType, "show", ViewGroup.class, boolean.class).invoke(entry, keys, true);
+        Object cancelled = uploadType.getConstructor().newInstance();
+        field(entryType, "upload").set(entry, cancelled);
+        field(entryType, "recognizing").setBoolean(entry, true);
+        ViewGroup panel = (ViewGroup) field(entryType, "listeningPanel").get(entry);
+        ViewGroup actions = (ViewGroup) panel.getChildAt(1);
+        actions.getChildAt(1).performClick();
+        check(((java.util.concurrent.atomic.AtomicBoolean) field(uploadType, "cancelled").get(cancelled)).get(),
+            "点击取消必须丢弃整句识别");
+        check(space.getVisibility() == View.VISIBLE && keys.getChildCount() == 1,
+            "取消后必须恢复原键行");
+    }
+
+    /** 合成系统识别服务可用时验证前台回退意图，不真正启动窗口或采集音频。 */
+    static void runUploadPermissionFallback(Instrumentation instrumentation) throws Exception {
+        Throwable[] failure = new Throwable[1];
+        instrumentation.runOnMainSync(() -> {
+            Object service = null;
+            Object entry = null;
+            android.content.Intent[] launched = new android.content.Intent[1];
+            try {
+                Context context = instrumentation.getTargetContext();
+                ClassLoader loader = context.getClassLoader();
+                Class<?> serviceType = loader.loadClass("app.msime.android.MSIMEInputService");
+                service = serviceType.getConstructor().newInstance();
+                Context isolated = new ContextWrapper(context) {
+                    @Override public java.io.File getFilesDir() { return null; }
+                    @Override public void startActivity(android.content.Intent intent) { launched[0] = intent; }
+                };
+                method(ContextWrapper.class, "attachBaseContext", Context.class).invoke(service, isolated);
+                Class<?> overlayType = loader.loadClass("app.msime.android.ImeDebugOverlay");
+                var overlay = overlayType.getDeclaredConstructor(serviceType);
+                overlay.setAccessible(true);
+                field(serviceType, "imeDebugOverlay").set(service, overlay.newInstance(service));
+                Class<?> entryType = loader.loadClass("app.msime.android.ImeVoiceEntry");
+                var constructor = entryType.getDeclaredConstructor(serviceType);
+                constructor.setAccessible(true);
+                entry = constructor.newInstance(service);
+                field(entryType, "generation").setLong(entry, 9L);
+                method(entryType, "uploadPermissionFailed", long.class).invoke(entry, 9L);
+                check(launched[0] != null && launched[0].getComponent().getClassName()
+                    .equals("app.msime.android.VoiceRecognitionActivity"),
+                    "HTTP 麦克风被拒绝后必须回退到前台识别窗口");
+                check(field(entryType, "generation").getLong(entry) == 10L,
+                    "前台窗口启动前必须使键区回调失效");
+                loader.loadClass("app.msime.android.VoiceRecognitionActivity")
+                    .getMethod("clearRequest", String.class).invoke(null,
+                        launched[0].getStringExtra("app.msime.android.voice.REQUEST_ID"));
+                launched[0] = null;
+                method(entryType, "uploadPermissionFailed", long.class).invoke(entry, 9L);
+                check(launched[0] == null, "过期权限回调不能重复启动窗口");
+            } catch (Throwable error) { failure[0] = error; }
+            finally {
+                try {
+                    if (entry != null) method(entry.getClass(), "shutdown").invoke(entry);
+                    if (service != null) {
+                        Object ownEntry = field(service.getClass(), "imeVoiceEntry").get(service);
+                        if (ownEntry != null) method(ownEntry.getClass(), "shutdown").invoke(ownEntry);
+                    }
+                } catch (Exception error) { failure[0] = error; }
+            }
+        });
+        if (failure[0] != null) {
+            Throwable cause = failure[0];
+            while (cause.getCause() != null) cause = cause.getCause();
+            throw new AssertionError("HTTP 前台回退回归失败：" + cause.getClass().getSimpleName()
+                + " at " + cause.getStackTrace()[0], failure[0]);
         }
     }
 
