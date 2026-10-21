@@ -143,7 +143,11 @@ int main()
                     // 装饰来源标注遵守 AI 样式，皮肤去标注开关仍优先；不修改原候选字典。
                     NSDictionary *aiPage = Page(1);
                     for (NSString *badgeStyle in @[@"robot", @"whale"]) {
-                        [controller applySharedToolbarPreferences:@{@"candidate_ai_badge_style": badgeStyle}];
+                        [controller applySharedToolbarPreferences:@{
+                            @"candidate_ai_badge_style": badgeStyle,
+                            @"global_theme": @"custom",
+                            @"custom_theme": @{@"base": @"system", @"candidate_skin": @"sample", @"candidate_skin_dark": @"sample"}
+                        }];
                         [controller setValue:aiPage forKey:@"view"];
                         [controller renderCandidates];
                         NSString *suffix = badge ? ([badgeStyle isEqual:@"whale"] ? @" 🐳" : @" 🤖") : @"";
