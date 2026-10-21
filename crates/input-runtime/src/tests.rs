@@ -2190,6 +2190,113 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
     assert!(emptied.view.phrase_prefix.is_empty());
 }
 
+// Windows `input.escape_keeps_selected_word`（出厂关）：开着时造词中第一次 Esc 只丢掉还没选的拼写，
+// 已经选好的词留在组字里，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）；关着时照旧整体取消。
+#[test]
+fn escape_keeps_the_selected_word_when_the_preference_is_on() {
+    let start = |keeps: bool| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "跑步".into()],
+                remaining_after_select: Some("paobu".into()),
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(keeps);
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let pick = |runtime: &mut Runtime<Fixture>| {
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap()
+    };
+
+    // 关（Windows 出厂值）：Esc 把拼写和已选词一起丢掉。
+    let mut off = start(false);
+    type_key(&mut off);
+    pick(&mut off);
+    let cancelled = off.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // 开：第一次 Esc 只丢掉拼写，词留在组字里；第二次 Esc 才整体取消。
+    let mut on = start(true);
+    type_key(&mut on);
+    pick(&mut on);
+    assert_eq!(on.view().editing_text, "paobu");
+    let kept = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(kept.commit, None);
+    assert!(kept.handled);
+    assert_eq!(kept.view.phrase_prefix, "海滩");
+    assert!(kept.view.editing_text.is_empty());
+    let ended = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(ended.commit, None);
+    assert!(ended.view.phrase_prefix.is_empty());
+}
+
+#[test]
+fn real_engine_escape_preserves_selection_history_and_followup_actions() {
+    for action in [
+        Action::Command(Command::Cancel),
+        Action::Command(Command::Backspace),
+        Action::SegmentBackspace,
+        Action::Command(Command::CommitRaw),
+        Action::Command(Command::CommitCandidate),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        rusqlite::Connection::open(
+            directory
+                .path()
+                .join("dictionaries")
+                .join(msime_engine::assets::MAIN_DICTIONARY),
+        )
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER); \
+            INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(true);
+        type_characters(&mut runtime, "nihao");
+        runtime.set_caret(Some(2)).unwrap();
+        let id = runtime
+            .view()
+            .candidates
+            .iter()
+            .find(|row| row.text == "你")
+            .unwrap()
+            .id;
+        let selected = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(selected.commit, None);
+        assert_eq!(selected.view.phrase_prefix, "你");
+        assert_eq!(selected.view.editing_text, "hao");
+        let kept = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        assert!(kept.handled);
+        assert_eq!(kept.commit, None);
+        assert_eq!(kept.view.phrase_prefix, "你");
+        assert!(kept.view.editing_text.is_empty());
+        assert_eq!(runtime.phrase_selections.len(), 1);
+        let restored = matches!(action, Action::Command(Command::Backspace));
+        let committed = matches!(
+            action,
+            Action::Command(Command::CommitRaw | Command::CommitCandidate)
+        );
+        let result = runtime.dispatch(action).unwrap();
+        assert!(result.handled);
+        assert_eq!(result.commit.as_deref(), committed.then_some("你"));
+        assert!(result.view.phrase_prefix.is_empty());
+        assert_eq!(result.view.editing_text, if restored { "ni" } else { "" });
+        assert!(runtime.phrase_selections.is_empty());
+    }
+}
+
 #[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();
@@ -2957,6 +3064,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
 #[test]
 fn online_provider_worker_is_bounded_and_filters_invalid_results() {
     let query = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 4,
         identity: "identity".into(),
@@ -3006,6 +3114,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
     })
     .unwrap();
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: "identity".into(),
@@ -3055,6 +3164,7 @@ fn online_provider_worker_debounces_from_the_latest_submission() {
         })
         .unwrap();
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: text.into(),
@@ -3100,6 +3210,7 @@ fn cloud_request_requires_eligible_query() {
         std::time::Duration::from_millis(500)
     );
     let mut query = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: "x".into(),
@@ -3123,6 +3234,7 @@ fn cloud_request_requires_eligible_query() {
     let response = serde_json::json!(["SUCCESS", [["ni", ["你"]]]]).to_string();
     // Korean never goes to a cloud provider, even with a query claiming eligibility.
     let korean = OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: KOREAN_SCHEME,
         ..query.clone()
     };
@@ -4674,6 +4786,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
@@ -4709,6 +4822,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -4732,6 +4846,52 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
+    }
+}
+
+#[test]
+fn super_jianpin_capital_word_uses_literal_candidates_and_space_commit() {
+    for scheme in [0, 1] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = scheme;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        for text in ["JIT", "JSON"] {
+            for byte in text.bytes() {
+                let transition = runtime
+                    .dispatch(Action::Character {
+                        value: byte,
+                        shift: true,
+                    })
+                    .unwrap();
+                assert!(transition.handled && transition.commit.is_none());
+            }
+            assert_eq!(runtime.view().local_mode, "none");
+            assert_eq!(runtime.view().editing_text, text);
+            assert_eq!(texts(&runtime.view()), [text]);
+            let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+            assert_eq!(committed.commit.as_deref(), Some(text));
+            assert!(committed.view.editing_text.is_empty());
+        }
+        for byte in b"JIT" {
+            runtime
+                .dispatch(Action::Character {
+                    value: *byte,
+                    shift: true,
+                })
+                .unwrap();
+        }
+        let erased = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert_eq!(erased.view.editing_text, "JI");
+        assert_eq!(erased.view.local_mode, "none");
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some("JI"));
     }
 }
 
@@ -7222,6 +7382,7 @@ fn a_blur_commit_survives_a_failed_refresh() {
 #[test]
 fn a_busy_provider_keeps_only_the_newest_completed_result() {
     let query = |text: &str| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme: 0,
         generation: 1,
         identity: text.into(),
@@ -7335,6 +7496,7 @@ fn scheme_predicates_reproduce_the_ordinal_rules_they_replace() {
 
     // The cloud gate reads the predicate: a Wubi query claiming eligibility is refused like a Korean one, and so is a query naming no scheme.
     let query = |scheme: u8| OnlineQuery {
+        mode: msime_engine::OnlineInputMode::Pinyin,
         scheme,
         generation: 1,
         identity: "x".into(),
@@ -9411,6 +9573,8 @@ mod static_evidence;
 
 mod rerank_declined;
 
+mod settled_async;
+
 mod online_slot_order_equivalence;
 
 mod translation_reply_allocations;
@@ -9501,4 +9665,90 @@ fn contacts_stay_first_and_adjacent_with_online_rows() {
             .unwrap();
         assert_eq!(selected.commit.as_deref(), Some("合成甲 202-555-0101"));
     }
+}
+
+#[test]
+fn english_online_runtime_keeps_local_order_places_ai_and_commits_the_answer() {
+    for dedicated in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let options = real_engine_options(directory.path());
+        let english = std::path::Path::new(&options.dictionaries).join("msime-english.db");
+        msime_engine::ensure_english_schema(&english).unwrap();
+        let connection = rusqlite::Connection::open(english).unwrap();
+        for (index, word) in ["Hello", "Help", "Helmet", "Hero", "Heron", "Hedge", "Herd"]
+            .iter()
+            .enumerate()
+        {
+            connection
+                .execute(
+                    "INSERT INTO english_words VALUES(?1,?2,?3)",
+                    rusqlite::params![word.to_lowercase(), word, 100 - index as i64],
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        if dedicated {
+            runtime.set_dedicated_english(true).unwrap();
+        } else {
+            runtime
+                .dispatch(Action::Character {
+                    value: b'Y',
+                    shift: true,
+                })
+                .unwrap();
+        }
+        type_characters(&mut runtime, "he");
+        assert!(runtime.online_query().unwrap().is_none());
+        let local = texts(&runtime.view());
+        assert!(local.len() >= 5, "dedicated={dedicated}: {local:?}");
+        runtime.seed_context("Synthetic preceding sentence.");
+        runtime.set_english_online_candidates_enabled(true).unwrap();
+        let mut query = runtime.online_query().unwrap().unwrap();
+        assert_eq!(query.mode, msime_engine::OnlineInputMode::English);
+        assert_eq!(query.ai_context, "Synthetic preceding sentence.");
+        query.ai_assistant =
+            Some(serde_json::from_value(json!({"enabled": true, "candidate_limit": 2})).unwrap());
+        assert!(runtime
+            .apply_online_candidates(&query, &["Helpful".into(), "Health".into()], 1)
+            .unwrap());
+        let page = texts(&runtime.view());
+        assert_eq!(&page[..4], &local[..4]);
+        assert_eq!(page[4], "Helpful");
+        let chosen = runtime.view().candidates[4].id;
+        let transition = runtime.dispatch(Action::Select(chosen)).unwrap();
+        assert_eq!(transition.commit.as_deref(), Some("Helpful"));
+        assert!(!runtime.apply_online_candidate(&query, "Health", 1).unwrap());
+    }
+}
+
+#[test]
+fn english_online_runtime_revocation_and_blur_reject_pending_answers() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_dedicated_english(true).unwrap();
+    runtime.set_english_online_candidates_enabled(true).unwrap();
+    type_characters(&mut runtime, "accessability");
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
+    runtime
+        .set_english_online_candidates_enabled(false)
+        .unwrap();
+    assert!(runtime.online_query().unwrap().is_none());
+    assert!(!texts(&runtime.view()).contains(&"accessibility".into()));
+    runtime.set_english_online_candidates_enabled(true).unwrap();
+    assert!(!runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
+    let query = runtime.online_query().unwrap().unwrap();
+    runtime.focus(false).unwrap();
+    assert!(!runtime
+        .apply_online_candidate(&query, "accessibility", 1)
+        .unwrap());
 }

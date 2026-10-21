@@ -32,7 +32,7 @@ foreach ($stage in @($build, (Join-Path $PSScriptRoot 'Prepare-PackageFiles.ps1'
 }
 Push-Location $PSScriptRoot
 try {
-    Invoke-InstallerStage $build @{ RepoRoot = $RepoRoot; X64Dependencies = $X64Dependencies; X86Dependencies = $X86Dependencies; Generator = $Generator; TargetVersion = $TargetVersion }
+    Invoke-InstallerStage $build @{ RepoRoot = $RepoRoot; X64Dependencies = $X64Dependencies; X86Dependencies = $X86Dependencies; Generator = $Generator; TargetVersion = $TargetVersion; ServerUiAccess = $true }
     Invoke-InstallerStage (Join-Path $PSScriptRoot 'Prepare-PackageFiles.ps1') @{
         RepoRoot = $RepoRoot; TargetVersion = $TargetVersion; NoticesDirectory = $noticeRoot
         DesktopResourcesDirectory = $DesktopResourcesDirectory; Light = $Light

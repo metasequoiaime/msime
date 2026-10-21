@@ -62,7 +62,8 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible;
 /// Force the toolbar visible for a real input event, repairing stale ownership/focus state.
 - (void)wakeForInputDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
-/// Reset the 10-second idle timeout and restore the toolbar for its current owner.
+/// Restart the idle timeout (the shared `auto_hide_delay`, 1–60 秒) and restore the toolbar for its current owner.
+/// `auto_hide` 关掉时不排计时器：见 `FloatingToolbarBehavior.h`。
 - (void)noteInputForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;

@@ -288,11 +288,35 @@ pub fn build_request(
     query: &str,
     japanese: bool,
 ) -> Option<CloudHttpRequest> {
+    build_request_for_input(config, query, japanese, None)
+}
+
+/// 英文仅发往用户配置的服务；请求显式携带模式和前文，不回退到拼音转换服务。
+pub fn build_english_request(
+    config: &CloudCandidatePreferences,
+    input: &str,
+    context: &str,
+) -> Option<CloudHttpRequest> {
+    if config.source != CloudCandidateSource::Custom
+        || !input.bytes().all(|byte| byte.is_ascii_alphabetic())
+        || !crate::text::is_bounded_text_with_options(context, 16 * 1024, true)
+    {
+        return None;
+    }
+    build_request_for_input(config, input, false, Some(context))
+}
+
+fn build_request_for_input(
+    config: &CloudCandidatePreferences,
+    query: &str,
+    japanese: bool,
+    english_context: Option<&str>,
+) -> Option<CloudHttpRequest> {
     if !valid_cloud_input(query) || !config.validate() {
         return None;
     }
     let google = config.source == CloudCandidateSource::Google;
-    let url = if google {
+    let mut url = if google {
         build_google_url(query, japanese)?
     } else {
         config.endpoint.replace("{query}", &urlencoding(query))
@@ -306,7 +330,29 @@ pub fn build_request(
     if method == CloudHttpMethod::Post {
         let mut body: Value = serde_json::from_str(&config.body_template).ok()?;
         replace_query(&mut body, query);
+        if let Some(context) = english_context {
+            body["mode"] = Value::String("english".into());
+            body["context"] = Value::String(context.into());
+        }
         body_utf8 = serde_json::to_string(&body).ok()?;
+    }
+    if method == CloudHttpMethod::Get {
+        if let Some(context) = english_context {
+            let mut parsed = url::Url::parse(&url).ok()?;
+            // 同名参数由本次英文请求决定，避免模板里的拼音模式覆盖它。
+            let pairs: Vec<_> = parsed
+                .query_pairs()
+                .filter(|(key, _)| key != "mode" && key != "context")
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            parsed.set_query(None);
+            parsed
+                .query_pairs_mut()
+                .extend_pairs(pairs)
+                .append_pair("mode", "english")
+                .append_pair("context", context);
+            url = parsed.into();
+        }
     }
     let mut headers: BTreeMap<String, String> = if google {
         BTreeMap::new()
@@ -327,7 +373,11 @@ pub fn build_request(
         headers.insert("Content-Type".into(), "application/json".into());
     }
     let provider_id = config.identity();
-    let cache_key = hex::encode(Sha256::digest(format!("{provider_id}:{japanese}:{query}")));
+    let cache_input = english_context.map_or_else(
+        || format!("{provider_id}:{japanese}:{query}"),
+        |context| format!("{provider_id}:english:{query}:{context}"),
+    );
+    let cache_key = hex::encode(Sha256::digest(cache_input));
     let mut request = CloudHttpRequest {
         url,
         method,
@@ -427,6 +477,47 @@ mod tests {
             cache_enabled: false,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn english_online_cloud_requests_separate_mode_context_and_cache() {
+        assert!(
+            build_english_request(&CloudCandidatePreferences::default(), "accessability", "")
+                .is_none()
+        );
+        for method in [CloudHttpMethod::Get, CloudHttpMethod::Post] {
+            let mut config = custom("english");
+            config.method = method;
+            let request =
+                build_english_request(&config, "accessability", "Synthetic preceding sentence.")
+                    .unwrap();
+            assert_ne!(
+                request.cache_key,
+                build_request(&config, "accessability", false)
+                    .unwrap()
+                    .cache_key
+            );
+            assert_ne!(
+                request.cache_key,
+                build_english_request(&config, "accessability", "Another sentence.")
+                    .unwrap()
+                    .cache_key
+            );
+            if method == CloudHttpMethod::Post {
+                let body: Value = serde_json::from_str(&request.body_utf8).unwrap();
+                assert_eq!(body["mode"], "english");
+                assert_eq!(body["context"], "Synthetic preceding sentence.");
+            } else {
+                let url = url::Url::parse(&request.url).unwrap();
+                assert!(url
+                    .query_pairs()
+                    .any(|(key, value)| key == "mode" && value == "english"));
+                assert!(url.query_pairs().any(
+                    |(key, value)| key == "context" && value == "Synthetic preceding sentence."
+                ));
+            }
+        }
+        assert!(build_english_request(&custom("invalid"), "word1", "").is_none());
     }
 
     #[test]

@@ -26,3 +26,5 @@ Status: implemented
 ## Consequences
 
 字段仍须深复制，不能声称消除了主候选克隆或达到 16 ms。重复检测的时机调整必须保留首条替代行去重后回退语义；无替代词仍立即原样返回。
+
+[合法备选系列](../bug-fix/2026-10-20-quanpin-alternative-series.md)在外层补查前缀与整句；本文的完整词行流入口为 `merge_alternative_full`，独立分配对照继续只测完整词合并。

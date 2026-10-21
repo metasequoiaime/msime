@@ -1330,6 +1330,7 @@ fn session_options(scheme: Scheme, paths: RuntimePaths) -> SessionOptions {
         command: false,
         mention: false,
         chaizi: false,
+        symbol: false,
         shift_letter_entry: false,
     };
     options.english = EnglishInputOptions {

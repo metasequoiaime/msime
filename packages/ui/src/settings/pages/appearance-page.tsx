@@ -26,6 +26,7 @@ import {
 } from "../candidate-window-style-section";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { CandidateFontSettingsRows } from "../candidate-font-settings-rows";
+import { CandidateBadgeSettingsSection } from "../candidate-badge-settings-section";
 
 /** 候选窗口按功能分区，共用预览；手机保留直列和折叠区。 */
 export function AppearanceSettingsPage() {
@@ -221,6 +222,23 @@ export function AppearanceSettingsPage() {
         showPadding={showCandidatePadding}
         onChange={appearanceActions.onPreferencesChange}
       />
+      {/* 候选徽标只有 macOS 宿主消费；其它平台画出来会是个不起作用的开关。 */}
+      {host?.platform === "macos" && (
+        <CandidateBadgeSettingsSection
+          fixedBadge={draft.candidate_fixed_badge ?? true}
+          fixedBadgeStyle={draft.candidate_fixed_badge_style ?? "paperclip"}
+          aiBadgeStyle={draft.candidate_ai_badge_style ?? "robot"}
+          onFixedBadgeChange={(candidate_fixed_badge) =>
+            appearanceActions.onPreferencesChange({ candidate_fixed_badge })
+          }
+          onFixedBadgeStyleChange={(candidate_fixed_badge_style) =>
+            appearanceActions.onPreferencesChange({ candidate_fixed_badge_style })
+          }
+          onAiBadgeStyleChange={(candidate_ai_badge_style) =>
+            appearanceActions.onPreferencesChange({ candidate_ai_badge_style })
+          }
+        />
+      )}
     </>
   );
   const preeditControls = (
