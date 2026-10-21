@@ -223,6 +223,8 @@ jobs:
           [ -e apps/desktop/dist/index.html ] || : > apps/desktop/dist/index.html
           cargo clippy --locked -p msime-desktop --all-targets -- -D warnings
           cargo test --locked -p msime-desktop
+          # 复用已构建的 Rust 依赖，检查共享 UI 的静态语音目录没有漂移。
+          cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
       - name: Linux platform unchanged
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
