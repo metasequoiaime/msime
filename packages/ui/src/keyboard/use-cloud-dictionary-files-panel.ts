@@ -56,8 +56,8 @@ export function useCloudDictionaryFilesPanel(client: CloudDictionaryPanelClient)
 
   function chooseFile(selected: File) {
     if (busyRef.current) return;
+    setFile(null);
     if (selected.size === 0 || selected.size > 65536) {
-      setFile(null);
       setNotice("导入文件必须大于 0 且不超过 64 KiB");
       return;
     }
