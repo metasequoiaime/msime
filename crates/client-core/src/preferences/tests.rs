@@ -707,6 +707,34 @@ fn candidate_translations_keep_legacy_and_explicit_choices() {
 }
 
 #[test]
+fn voice_language_default_uses_the_bcp47_region_form() {
+    // 共享设置页（React 的 `defaultVoiceInput`）和 macOS 原生回退窗口都写 `zh-CN`。共享默认以前是
+    // 小写的 `zh-cn`，同一份文档因此可能带着两种写法，界面和读盘比较只能靠不区分大小写兜住。
+    // 统一成区域形式后，宿主和页面显示的是同一个码。
+    let defaults = Preferences::default();
+    assert_eq!(defaults.voice_input.language, "zh-CN");
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["voice_input"]["language"], "zh-CN");
+    assert_eq!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-CN"
+    );
+    // 只改出厂值：用户或旧版本写下的短形式原样保留，不在这里做迁移改写。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy["voice_input"]["language"] = "zh-cn".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .voice_input
+            .language,
+        "zh-cn"
+    );
+}
+
+#[test]
 fn translation_account_is_an_explicit_choice_on_every_platform() {
     let defaults = Preferences::default();
     assert!(!defaults.translation_account);
@@ -818,6 +846,59 @@ fn wubi_auto_commit_unique_defaults_on_and_roundtrips() {
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
             .wubi_auto_commit_unique
+    );
+}
+
+#[test]
+fn wubi_z_wildcard_defaults_off_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_z_mode = "off"`：新键的缺省必须跟它一致。
+    assert!(!defaults.wubi_z_wildcard);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy.as_object_mut().unwrap().remove("wubi_z_wildcard");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_z_wildcard
+    );
+
+    let enabled = Preferences {
+        wubi_z_wildcard: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+            .unwrap()
+            .wubi_z_wildcard
+    );
+}
+
+#[test]
+fn wubi_fifth_code_top_commit_defaults_on_and_roundtrips() {
+    let defaults = Preferences::default();
+    // 来源出厂 `wubi_fifth_code_top_commit = true`，也是接入开关之前唯一可能的行为。
+    assert!(defaults.wubi_fifth_code_top_commit);
+
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("wubi_fifth_code_top_commit");
+    assert!(
+        serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .wubi_fifth_code_top_commit
+    );
+
+    let disabled = Preferences {
+        wubi_fifth_code_top_commit: false,
+        ..defaults
+    };
+    assert!(
+        !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+            .unwrap()
+            .wubi_fifth_code_top_commit
     );
 }
 

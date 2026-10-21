@@ -632,6 +632,12 @@ impl InputSession {
         if self.dedicated_english || self.local_mode != LocalInputMode::None {
             return false;
         }
+        // 带 `z` 的码是通配猜码，不是用户确定下来的编码：它后面那个「唯一」候选只跟若干个码差一个字母，
+        // 直接上屏就把「看见命中了什么」这件事拿走了——那正是这个键存在的理由。来源的
+        // `wubi_unique_four_code` 用同一条 `raw_input.find('z')` 守卫。
+        if self.engine.request().raw_input.contains('z') {
+            return false;
+        }
         // The whole list counts, not only the wubi rows. In mixed Wubi four letters are often pinyin as well — `jixu` is the wubi code of 曳光弹 and the pinyin of 继续 — and committing the one wubi row on the fourth key takes the pinyin away from someone typing it. The wubi_mixed_routing overlay counted wubi rows only; it never applied to the shipped engine, and that rule is what auto-committed 曳光弹 for jixu.
         // 追加在末尾的快捷短语不算：它们只是编码恰好相同，而这条规则问的是五笔码本身唯一；算上它们，`addr`（莽原）这类码就因为词库里有同编码的短语而不再自动上屏。宿主提交的是第一格，所以第一格也得是那一行。
         let candidates = self.candidates();

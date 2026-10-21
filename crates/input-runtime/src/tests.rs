@@ -4678,6 +4678,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
@@ -6017,6 +6018,45 @@ fn wubi_literal_marks_do_not_open_table_modes() {
     assert_eq!(literal.view.local_mode, "none");
     let opened = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
     assert_eq!(opened.view.local_mode, "command");
+}
+
+#[test]
+fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
+    for profile in [0, 1] {
+        for mixed in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut options = real_engine_options(directory.path());
+            options.scheme = 2;
+            options.wubi_profile = profile;
+            options.wubi_z_wildcard = true;
+            options.wubi_mixed_pinyin = mixed;
+            options.mixed_english = false;
+            rusqlite::Connection::open(
+                std::path::Path::new(&options.dictionaries)
+                    .join(msime_engine::assets::MAIN_DICTIONARY),
+            )
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubi86 VALUES('wqty','合成甲',100),('wqry','合成乙',90);
+                 CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubi98 SELECT * FROM wubi86;",
+            )
+            .unwrap();
+            let mut runtime =
+                Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+            runtime.focus(true).unwrap();
+            for value in b"wqzy" {
+                assert!(character(&mut runtime, *value).commit.is_none());
+            }
+            assert_eq!(runtime.view().editing_text, "wqzy");
+            assert_eq!(runtime.view().candidates[0].text, "合成甲");
+            let next = character(&mut runtime, b'e');
+            assert!(next.commit.is_none(), "{next:?}");
+            // 纯五笔保留四码上限；混输可以继续增长，但都不能把猜码当作已确认编码提交。
+            assert!(next.view.editing_text.starts_with("wqzy"));
+        }
+    }
 }
 
 #[test]

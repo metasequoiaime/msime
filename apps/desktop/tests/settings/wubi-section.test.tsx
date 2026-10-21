@@ -35,6 +35,24 @@ test("Wubi section renders the enabled defaults", () => {
   expect((screen.getByLabelText("五笔四码唯一候选自动上屏") as HTMLInputElement).checked).toBe(
     true,
   );
+  // z 通配是来源出厂关着的那一项；顶字则一直常开，缺键按开显示。
+  expect((screen.getByLabelText("z 键通配") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("第五码将首选上屏") as HTMLInputElement).checked).toBe(true);
+});
+
+test("五笔 z 通配与第五码顶字各写各的共享偏好", () => {
+  const onChange = vi.fn();
+  render(
+    <WubiSection
+      preferences={{ wubi_z_wildcard: false, wubi_fifth_code_top_commit: true }}
+      onChange={onChange}
+    />,
+  );
+
+  fireEvent.click(screen.getByLabelText("z 键通配"));
+  expect(onChange).toHaveBeenLastCalledWith({ wubi_z_wildcard: true });
+  fireEvent.click(screen.getByLabelText("第五码将首选上屏"));
+  expect(onChange).toHaveBeenLastCalledWith({ wubi_fifth_code_top_commit: false });
 });
 
 test("Wubi section writes the auto-commit preference through the shared patch", () => {

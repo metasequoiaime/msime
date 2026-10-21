@@ -134,3 +134,16 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 `everyapi.svg` 为 EveryAPI 公开站点的 [favicon](https://everyapi.ai/favicon.svg)，于 2026-10-19 获取，原样用于标识该服务商，品牌权利归 EveryAPI。自定义与未知服务商使用已有 Fluent 连接图标。
 
 AI 服务商选择是原生 select 原则的局部例外：该控件用 combobox/listbox 呈现选项内图标，自行维护键盘、焦点、定位与高对比度；其他 select 继续使用系统控件，鸿蒙手机继续使用整行选择面板。
+
+## 共享语音目录
+
+识别、润色服务预设和豆包流式接口读取 `voice/voice-provider-catalog.json`，事实源是 `crates/client-providers/src/voice/provider_catalog.rs`。修改 Rust 目录后在仓库根目录生成，再检查：
+
+```sh
+mkdir -p target
+cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog > target/voice-provider-catalog.json && mv target/voice-provider-catalog.json packages/ui/src/voice/voice-provider-catalog.json
+pnpm exec vp fmt packages/ui/src/voice/voice-provider-catalog.json
+cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
+```
+
+Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。

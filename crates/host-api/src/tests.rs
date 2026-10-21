@@ -256,6 +256,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
         show_helpcode: false,
@@ -13695,6 +13696,26 @@ fn voice_number_normalization_follows_the_model_kind() {
         read(unsafe { msime_client_voice_normalize_numbers(std::ptr::null(), 4) })["ok"],
         false
     );
+}
+
+#[test]
+fn voice_number_normalization_preserves_approximate_percentages() {
+    for kind in ["online_transducer", "offline_transducer"] {
+        let request = json!({
+            "text": "约百分之二十点几，精确值百分之三点五，末尾百分之三点",
+            "kind": kind,
+        })
+        .to_string();
+        let response =
+            read(unsafe { msime_client_voice_normalize_numbers(request.as_ptr(), request.len()) });
+        assert_eq!(
+            response,
+            json!({"ok": true, "value": {
+                "text": "约百分之二十点几，精确值3.5%，末尾百分之三点"
+            }}),
+            "{kind}",
+        );
+    }
 }
 
 #[test]

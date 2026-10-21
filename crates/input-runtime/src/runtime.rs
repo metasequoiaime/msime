@@ -104,6 +104,10 @@ pub struct Runtime<E: InputEngine = Session> {
     ///
     /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
     pub(crate) wubi_auto_commit_unique: bool,
+    /// 完整四码后再敲字母时，是否把首选顶上去、并把这个字母留作下一组开头。
+    ///
+    /// 默认开，与来源出厂一致，也是接入这个开关之前唯一可能的行为。关掉只在混输打开时生效：那个字母并进混输串；混输关掉时它无处容纳，仍按顶字上屏，一个键都不丢。
+    pub(crate) wubi_fifth_code_top_commit: bool,
     pub(crate) wubi_candidate_selection:
         msime_client_core::preferences::WubiCandidateSelectionPreferences,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
@@ -615,6 +619,17 @@ impl<E: InputEngine> Runtime<E> {
         self.wubi_auto_commit_unique = enabled;
     }
 
+    /// 完整四码后再敲字母时是否顶字上屏。
+    ///
+    /// 宿主状态而不是 Engine 状态：它决定本 runtime 要不要先 `select(0)` 再把这个字母送进新组合，所以组字中途改也安全，下一键生效。
+    pub fn set_wubi_fifth_code_top_commit(&mut self, enabled: bool) {
+        self.wubi_fifth_code_top_commit = enabled;
+    }
+
+    pub fn wubi_fifth_code_top_commit(&self) -> bool {
+        self.wubi_fifth_code_top_commit
+    }
+
     /// 只影响下一次退格，不清空已选词段或历史，也不重建 Engine。
     pub fn set_backspace_reverts_selection(&mut self, enabled: bool) {
         self.backspace_reverts_selection = enabled;
@@ -824,6 +839,7 @@ impl<E: InputEngine> Runtime<E> {
             punctuation_marks: PunctuationMarks::default(),
             touch_keyboard_layout,
             wubi_auto_commit_unique: true,
+            wubi_fifth_code_top_commit: true,
             wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
@@ -2611,14 +2627,22 @@ impl<E: InputEngine> Runtime<E> {
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
         let character_action = matches!(action, Action::Character { .. });
-        // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。
-        // 混输拼音能继续当前候选的读音时，由引擎保留组字，避免把五字母拼音截成四码。
-        // 光标在末尾、没有暂存词段才顶字；光标中间的按键仍是编辑。
-        let wubi_top_commit = matches!(action, Action::Character { value, .. } if value.is_ascii_alphabetic())
-            && self.snapshot_valid
-            && self.phrase_prefix.is_empty()
-            && wubi_four_code_is_complete(&self.cached)
-            && !matches!(action, Action::Character { value, shift } if self.engine.wubi_pinyin_continues(value, shift));
+        // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
+        // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
+        // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
+        let wubi_top_commit = match action {
+            Action::Character { value, shift } if value.is_ascii_alphabetic() => {
+                wubi_top_commit_on_next_key(&WubiTopCommitRequest {
+                    top_commit_enabled: self.wubi_fifth_code_top_commit,
+                    mixed_pinyin: self.engine.wubi_mixed_pinyin(),
+                    four_code_is_complete: self.snapshot_valid
+                        && wubi_four_code_is_complete(&self.cached),
+                    phrase_prefix_empty: self.phrase_prefix.is_empty(),
+                    pinyin_continues: self.engine.wubi_pinyin_continues(value, shift),
+                })
+            }
+            _ => false,
+        };
         // 这次把哪个座位的候选交给了引擎、经由哪条路径，引擎调用之后再与它的上屏核对（`selection_fact`）。标点结束组字的两条路由在 `punctuation`、`punctuation_ascii` 里自己记。
         let mut pick: Option<(SelectionHow, usize)> = None;
         // 原样上屏读音的路由：bare 前缀上的 Finish 和 `CommitRaw` 命令。
@@ -2873,11 +2897,13 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 本次按键是否以唯一五笔候选被提交收尾。读缓存快照，所以 refresh 前后的两处调用会故意看到不同代。
     fn wubi_should_auto_commit(&self, character_action: bool) -> bool {
-        self.wubi_auto_commit_unique
-            && character_action
-            && self.snapshot_valid
-            && self.cached.wubi_unique_four_code
-            && self.phrase_prefix.is_empty()
+        wubi_auto_commit_on_fourth_key(&WubiAutoCommitRequest {
+            auto_commit_enabled: self.wubi_auto_commit_unique,
+            character_action,
+            snapshot_valid: self.snapshot_valid,
+            unique_four_code: self.cached.wubi_unique_four_code,
+            phrase_prefix_empty: self.phrase_prefix.is_empty(),
+        })
     }
 }
 
@@ -2924,12 +2950,59 @@ fn key_grid_name(grid: Option<KeyGrid>) -> &'static str {
     }
 }
 
-/// The reference Engine's `wubi_four_code_is_complete`, read off the snapshot this Engine already
-/// publishes: the guards of `wubi_unique_four_code` without the candidate count. The code is a
-/// native Wubi one (not dedicated English, no local mode, not answered by the pinyin fallback), it
-/// is exactly the four letters the Wubi scheme caps a table-answered code at, the caret is at its
-/// end, and there is a candidate to commit: a four-letter spelling no row matched was not answered
-/// by the table, and committing nothing would still drop the key.
+/// 四码唯一自动上屏的五项输入。
+pub(crate) struct WubiAutoCommitRequest {
+    /// 用户开着「五码…四码唯一候选自动上屏」。
+    pub auto_commit_enabled: bool,
+    /// 这一键是字符键：退格、方向键和恢复组字都不该触发上屏。
+    pub character_action: bool,
+    /// 快照还没失效，`unique_four_code` 是这一代的答案。
+    pub snapshot_valid: bool,
+    /// 引擎答过的完整四码，且整个候选列表只有这一个词。
+    pub unique_four_code: bool,
+    /// 没有暂存的词段：造词时 raw 还是正在拼的前缀，提交它会提前结束这个词。
+    pub phrase_prefix_empty: bool,
+}
+
+/// 第四键是否把唯一候选自动上屏。
+///
+/// 五项全是用户或引擎给出的事实，判定本身不再问任何状态，宿主重排、插件和平台适配都不参与。
+pub(crate) fn wubi_auto_commit_on_fourth_key(request: &WubiAutoCommitRequest) -> bool {
+    request.auto_commit_enabled
+        && request.character_action
+        && request.snapshot_valid
+        && request.unique_four_code
+        && request.phrase_prefix_empty
+}
+
+/// 顶字判定的五项输入，每一项都由调用方先问出来，函数本身只看布尔值。
+pub(crate) struct WubiTopCommitRequest {
+    /// 用户开着「第五码将首选上屏」。
+    pub top_commit_enabled: bool,
+    /// 五笔拼音混输开着。
+    pub mixed_pinyin: bool,
+    /// 当前组字是码表答过的完整四码（[`wubi_four_code_is_complete`]），且快照没有失效、没有暂存词段。
+    pub four_code_is_complete: bool,
+    /// 没有暂存的词段：造词时 raw 还是正在拼的前缀，提交它会提前结束这个词。
+    pub phrase_prefix_empty: bool,
+    /// 引擎说这个字母还能继续当前混输拼音的读音。
+    pub pinyin_continues: bool,
+}
+
+/// 完整四码之后再敲一个字母时，是否先顶字上屏首选、再把这个字母留作下一组开头。
+///
+/// 关掉只在混输打开时生效：那时字母并进混输串，用户想继续打拼音。混输关掉时引擎会把码裁回四位，
+/// 字母无处容纳，宿主已经按下的键不能丢，所以仍按顶字上屏——与来源 `ShouldCommitCompleteWubiCodeOnNextKey`
+/// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。
+pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
+    (request.top_commit_enabled || !request.mixed_pinyin)
+        && request.four_code_is_complete
+        && request.phrase_prefix_empty
+        && !request.pinyin_continues
+}
+
+/// 从引擎快照判断本码表是否答过完整四码：非英文或快捷模式、非拼音回退，光标在末尾且有候选。
+/// 带 `z` 的猜码仍需用户确认，不能把它当成完整编码自动顶字。
 pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
     const WUBI_COMPLETE_CODE_LENGTH: usize = 4;
     scheme_type(snapshot.scheme) == Some(SchemeType::Wubi)
@@ -2938,6 +3011,7 @@ pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
         && !snapshot.nine_key
         && !snapshot.answered_by_pinyin_fallback
         && snapshot.editing_text.len() == WUBI_COMPLETE_CODE_LENGTH
+        && !snapshot.editing_text.contains('z')
         && msime_client_core::is_ascii_alphabetic(&snapshot.editing_text)
         && snapshot.caret_position == WUBI_COMPLETE_CODE_LENGTH
         && !snapshot.candidates.is_empty()
