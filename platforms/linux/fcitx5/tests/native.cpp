@@ -27,6 +27,13 @@ extern "C" PangoFontMap *__wrap_pango_cairo_font_map_new() {
 }
 #endif
 
+// 只替换测试程序调用的版本入口，模拟旧开发库构建的插件在新运行库上启动。
+static const char *font_runtime_version = nullptr;
+extern "C" const char *__real__ZN5fcitx8Instance7versionEv();
+extern "C" const char *__wrap__ZN5fcitx8Instance7versionEv() {
+  return font_runtime_version ? font_runtime_version : __real__ZN5fcitx8Instance7versionEv();
+}
+
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
 public:
@@ -1256,8 +1263,37 @@ int cloudClipboardResultFencing() {
   return 0;
 }
 
+int candidateRuntimeFontUnits() {
+  char pattern[] = "/tmp/msime-font-runtime-XXXXXX";
+  const auto *directory = mkdtemp(pattern);
+  require(directory != nullptr, "创建合成字号测试目录");
+  const std::filesystem::path root(directory);
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  char program[] = "msime-font-runtime-test";
+  char disabled[] = "--disable=all";
+  char *args[] = {program, disabled, nullptr};
+  for (const auto &[version, expected] : std::array<std::pair<const char *, const char *>, 4>{{
+           {"5.0.21", "Synthetic Sans, 20px"}, {"5.1.17", "Synthetic Sans, 20px"},
+           {"5.1.18", "Synthetic Sans, 15"}, {"5.1.23", "Synthetic Sans, 15"}}}) {
+    font_runtime_version = version;
+    fcitx::Instance instance(2, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    FcitxEngine engine(&instance);
+    const auto description = engine.candidate_font_sync_.next({"Synthetic Sans", {}, 20});
+    require(description && *description == expected, "真实宿主按运行版本选择字号单位，不受编译版本限制");
+  }
+  font_runtime_version = nullptr;
+  std::filesystem::remove_all(root);
+  std::cout << "Fcitx5 runtime font units passed\n";
+  return 0;
+}
+
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--font-runtime") return candidateRuntimeFontUnits();
     if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
     if (argc == 2 && std::string(argv[1]) == "--theme-canvas") return candidateThemeCanvas();

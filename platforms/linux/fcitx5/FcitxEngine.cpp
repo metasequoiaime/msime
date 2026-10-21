@@ -7550,14 +7550,9 @@ public:
     fcitx::startProcess({guide, "--host", "fcitx5"});
   }
   fcitx::Instance *instance_;
-  // 5.1.18 起的经典界面字号写成磅，候选序号才与候选同样大小（见 CandidateFontUnit）。
-  static constexpr auto kClassicUiFontUnit =
-#ifdef MSIME_FCITX5_LABEL_POINTS
-      msime::linux_host::CandidateFontUnit::Points;
-#else
-      msime::linux_host::CandidateFontUnit::Pixels;
-#endif
-  msime::linux_host::CandidateFontSync candidate_font_sync_{kClassicUiFontUnit};
+  // 使用运行库版本，旧开发库构建的包在新版 classicui 上也要写磅，避免序号被放大。
+  msime::linux_host::CandidateFontSync candidate_font_sync_{
+      msime::linux_host::fcitx_candidate_font_unit(fcitx::Instance::version())};
   // classicui 属于整个插件，已见的主题选择也共用；不随某个上下文关闭而清空。
   Json candidate_theme_selection_;
   // applyCandidatePanelTheme 上一次接管写好时的主题输入。
