@@ -104,6 +104,85 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
+/// `View.scheme` / `commit_context.scheme` 的编号（`crate::scheme_code` 的反向）：循环入口收的是同一套数字。
+fn engine_input_scheme(code: u8) -> Option<InputScheme> {
+    [
+        InputScheme::Quanpin,
+        InputScheme::Shuangpin,
+        InputScheme::Wubi,
+        InputScheme::Japanese,
+        InputScheme::Korean,
+        InputScheme::Cantonese,
+        InputScheme::Zhuyin,
+        InputScheme::Vietnamese,
+        InputScheme::Tibetan,
+        InputScheme::Stroke,
+    ]
+    .into_iter()
+    .find(|scheme| crate::scheme_code(*scheme) == code)
+}
+
+/// 中日英循环切换的目标：`{mode, scheme, commit_raw}`。
+///
+/// `mode` 是按下循环键的那一刻，0 中文、1 日文、2 英文（`LanguageCycleMode`）；`scheme` 是
+/// 实际在跑的方案（0 全拼 … 9 笔画，与 `View.scheme` 同一套编号），`last_chinese_scheme`
+/// 是要回去的那个中文方案（-1 表示还没记下）。`has_composition` 由宿主
+/// 从自己的会话里读（`editing_text` 或候选列表非空）。`enabled` 是 `keybindings.trilingual_cycle`。
+///
+/// 返回 null 表示这一键不循环：开关关着，这一组快捷键仍是二态切换。否则 `value` 是
+/// `{mode, scheme, commit_raw}`，`commit_raw` 为真时先把正在组的内容原样上屏再换模式，
+/// `scheme` 为 null 表示只换中英模式、不换方案。
+/// # Safety
+/// 无指针参数。
+#[no_mangle]
+pub extern "C" fn msime_client_language_cycle(
+    enabled: bool,
+    mode: u8,
+    scheme: u8,
+    last_chinese_scheme: i8,
+    has_composition: bool,
+) -> *mut c_char {
+    use msime_client_core::language_cycle::{next, LanguageCycleMode, LanguageCycleState};
+    use msime_client_core::preferences::ChineseScheme;
+    response(|| {
+        let mode = match mode {
+            0 => LanguageCycleMode::Chinese,
+            1 => LanguageCycleMode::Japanese,
+            2 => LanguageCycleMode::English,
+            _ => return Err("invalid_language_cycle_mode".into()),
+        };
+        let scheme = engine_input_scheme(scheme).ok_or("invalid_language_cycle_scheme")?;
+        let last_chinese_scheme = match last_chinese_scheme {
+            -1 => None,
+            0 => Some(ChineseScheme::Quanpin),
+            1 => Some(ChineseScheme::Shuangpin),
+            2 => Some(ChineseScheme::Wubi),
+            5 => Some(ChineseScheme::Cantonese),
+            6 => Some(ChineseScheme::Zhuyin),
+            9 => Some(ChineseScheme::Stroke),
+            _ => return Err("invalid_language_cycle_last_chinese_scheme".into()),
+        };
+        let state = LanguageCycleState {
+            mode,
+            scheme,
+            last_chinese_scheme,
+            has_composition,
+        };
+        match next(enabled, state) {
+            None => Ok(Value::Null),
+            Some(step) => Ok(json!({
+                "mode": match step.mode {
+                    LanguageCycleMode::Chinese => 0,
+                    LanguageCycleMode::Japanese => 1,
+                    LanguageCycleMode::English => 2,
+                },
+                "scheme": step.scheme.map(crate::scheme_code),
+                "commit_raw": step.commit_raw,
+            })),
+        }
+    })
+}
+
 /// 宿主报告大写锁定状态。偏好 `caps_lock_ascii_punctuation` 打开时，大写锁定期间没有组字的标点按英文标点输出（见 `HostSession::caps_lock_punctuation`）。不是持久化的偏好，换会话后由宿主重新报告。
 #[no_mangle]
 pub extern "C" fn msime_client_set_caps_lock(handle: u64, enabled: bool) -> *mut c_char {

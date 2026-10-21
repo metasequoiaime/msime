@@ -1,0 +1,36 @@
+name: Sync TestFlight statistics
+
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-testflight-stats
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Read Apple metrics and send the public aggregate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Test metrics aggregation without credentials
+        run: node --test scripts/export-testflight-stats.test.mjs
+      - name: Send only the aggregated install count to the site
+        env:
+          IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
+          GH_TOKEN: ${{ secrets.MSIME_WEB_DISPATCH_TOKEN }}
+        run: node scripts/export-testflight-stats.mjs

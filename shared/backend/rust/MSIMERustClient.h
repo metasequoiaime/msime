@@ -25,6 +25,10 @@ typedef struct msime_rust_client {
   msime_rust_client_json_entry account_gloss;
   msime_rust_client_json_entry account_cloud_clipboard;
   msime_rust_client_json_entry cloud_clipboard_e2e;
+  /* 云剪贴板该走哪条路：传偏好目录，答 `{"source":"relay"|"account"}`（`msime_client_cloud_clipboard_source`）。配置了自建中继的宿主据此选路，macOS 的输入法进程用它，见 `docs/cloud-clipboard-relay.md`。 */
+  msime_rust_client_json_entry cloud_clipboard_source;
+  /* 经用户自建的中继答一个云剪贴板动作（`msime_client_relay_cloud_clipboard`），请求是 `{preferences_directory, directory, device_name?, action}`。 */
+  msime_rust_client_json_entry relay_cloud_clipboard;
   msime_rust_client_json_entry community;
   msime_rust_client_json_entry cloud_dictionary;
   char *(*ai_skin_generate)(const uint8_t *request, size_t length, msime_client_ai_skin_progress_callback progress, void *context);
@@ -52,6 +56,8 @@ static inline msime_rust_client msime_rust_client_linked(void) {
       msime_client_account_gloss,
       msime_client_account_cloud_clipboard,
       msime_client_cloud_clipboard_e2e,
+      msime_client_cloud_clipboard_source,
+      msime_client_relay_cloud_clipboard,
       msime_client_community,
       msime_client_cloud_dictionary,
       msime_client_ai_skin_generate,

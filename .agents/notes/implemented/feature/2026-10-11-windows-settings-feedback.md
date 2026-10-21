@@ -13,7 +13,7 @@ Status: implemented
 - 诊断信息的系统版本来自 `RtlGetVersion`，走共享函数里「宿主报告了 `os_version`」那一支，写成「Windows 10.0.<内部版本号>」；读不到时写「平台：windows」。输入方案只在偏好读到时写，与共享页没有草稿时不写一致。
 - 类型、描述和「已复制」标记是窗口的成员，页面重建（保存、刷新、切页）时保留，关窗即丢，与共享页的组件状态相同。「已复制」1.6 秒后复原。
 - 「复制报告」「复制群号」与共享页一样只在复制成功后才改成「已复制」；剪贴板被别的程序占着时 `copy_text` 捕获 `hresult_error` 并提示「复制失败，请重试」（文案取自共享面板），不让异常漏出点击回调。复制后 `Clipboard::Flush`，关窗后群号和报告仍在剪贴板里。「关于」页的「复制系统信息」走同一函数。
-- TextBox 的换行是 CR，生成报告前统一换成 LF，与 textarea 的值一致。
+- TextBox 的换行是 CR，生成报告前统一换成 LF，与 textarea 的值一致。共享页对宿主复制或浏览器启动失败的处理由[反馈宿主操作错误提示](../bug-fix/2026-10-21-feedback-host-action-errors.md)补齐，本篇原生错误提示保留。
 - 删掉不再使用的 `shell_links::feedback`，`all` 从 10 项减为 9 项；导航测试把 `feedback` 列入原生页。README 同步。
 
 ## Alternatives considered
@@ -26,7 +26,7 @@ Status: implemented
 
 - 「帮助与反馈」页不再有拉起共享应用的入口。
 - 报告格式、反馈类型和渠道信息写死在 `FeedbackReport.h` 和 `main.cpp`，共享页的这些改了要同步改这里。
-- 「在 GitHub 提交」与 Tauri 一样经 `ShellExecuteW` 打开地址；描述接近 4000 个汉字时编码后的地址会超过三万字符，浏览器能否接受这么长的地址与 Tauri 应用相同，未在本机验证。
+- 「在 GitHub 提交」经 `ShellExecuteW` 打开地址；描述接近 4000 个汉字时编码后的地址会超过三万字符，原生路径能否打开尚未在本机验证。共享 Tauri 路径实际上在启动浏览器前就拒绝超过 4096 字节的网址，已由[反馈网址预算修复](../bug-fix/2026-10-21-feedback-encoded-url-limit.md)改为按完整编码网址裁剪，原生复制品的系统边界仍需单独验证。
 
 ## Verification
 

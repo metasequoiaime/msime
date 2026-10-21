@@ -443,6 +443,14 @@ impl Session {
         self.input.set_cloud_candidates_enabled(enabled);
     }
 
+    pub fn english_online_candidates_enabled(&self) -> bool {
+        self.input.english_online_candidates_enabled
+    }
+
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.input.set_english_online_candidates_enabled(enabled);
+    }
+
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);

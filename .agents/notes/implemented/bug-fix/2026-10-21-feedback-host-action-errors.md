@@ -1,0 +1,34 @@
+# Agent Note: 反馈页接住宿主操作失败并允许重试
+
+Status: implemented
+
+## Problem
+
+macOS 和 Linux 原生设置入口承载的共享反馈页直接调用稳定的 `SettingsClient.copyText` 和 `openExternalUrl`。Tauri 在剪贴板工具失败、剪贴板不可用或默认浏览器无法启动时会拒绝调用；`useFeedbackReport` 的复制操作只有 `.then`，提交操作只写 `void`，`ActionButton` 也不接异常。因此三个按钮失败时既不显示失败说明，也产生未处理的 Promise 拒绝，用户无法知道报告有没有复制或提交入口有没有打开。
+
+## Decision
+
+反馈报告 hook 统一接住复制报告、复制群号和打开提交网址的同步异常及异步拒绝，通过可选的 `setError` 回调交给调用方展示；完整设置页传入已有的 `setError`。每次实际重试先清除旧错误，只有复制成功才显示「已复制」。用已有 `useMountedRef` 忽略卸载后的成功与失败反馈。保留现有 capability 判断、完整复制和网址预算，不额外串行化无关的按钮。
+
+## Historical audit
+
+- [反馈网址预算](../../implemented/bug-fix/2026-10-21-feedback-encoded-url-limit.md)同属报告 hook，但决定不同：它约束提交内容大小，本篇处理宿主的失败结果；现有预算和 Unicode 裁剪不变。
+- [Windows 原生反馈表单](../../implemented/feature/2026-10-11-windows-settings-feedback.md)部分重叠：它已记录原生复制失败的提示，共享页在本篇补齐；保留原生实现并互链。
+- [macOS 工具与支持设置裁剪](../../implemented/simplification/2026-10-16-macos-tools-support-settings-prune.md)只规定反馈页的归属和标签，属于相关背景，不改变其导航决定。其余活跃目录未找到持有本错误处理决定的笔记。
+
+## Alternatives considered
+
+- 在通用 `ActionButton` 里吞掉拒绝：可以保护所有按钮，但通用按钮不知道失败文案和展示位置，吞掉后用户仍无法知道操作失败，也无法处理复制的成功标记。
+- 只在 `useSettingsPageModel` 包装宿主方法：可以复用页面已有错误状态，但复制包装若吞异常会错误触发 hook 的「已复制」，若继续抛出又仍是未处理拒绝。由拥有成功标记的 hook 接住才完整。
+- 要求所有 hook 调用方新增必填错误回调：接口更严格，但该 hook 已从公共 UI 包导出；可选回调能兼容现有调用者，完整设置页仍明确接上可见错误。
+
+## Verification
+
+- 旧实现的完整设置页回归有 9 项失败，分别覆盖三个按钮的异步拒绝、同步抛出及重试前错误；三个卸载后回调断言表面通过，但仍触发未处理拒绝。测试进程同时报告 10 个未处理异常。
+- 修复后回归要求失败可重试、开始重试清除旧错误、复制成功后显示已有成功提示。
+- 卸载后迟到的成功和失败均不产生界面回调。
+- 修复后反馈、关于页和外链相关 6 文件共 39 项测试通过，无未处理异常；桌面类型检查及生产构建、Harmony 类型检查、lint/格式和笔记校验通过。本地 quick 门禁和独立审查通过。quick 覆盖契约检查、Rust 工作区、Android 目标、Linux 桌面外壳及共享 Apple 桥接层编译；不相关平台按范围跳过，Harmony 真打包缺少暂存原生产物而跳过。验证覆盖共享页面交互与编译，未在实际宿主中人为阻断剪贴板或浏览器。
+
+## Consequences
+
+没有提供 `setError` 的外部 hook 调用者只接住失败，不展示新文案；共享设置页始终传入该回调。并行按钮仍遵循页面已有的单个错误区域，未引入新的请求互斥策略。

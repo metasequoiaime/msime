@@ -55,43 +55,31 @@
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "super_jianpin",
+    "local_mode": "none",
     "preedit": "JNH",
-    "raw_segmentation": "JNH",
-    "normalized_segmentation": "JNH",
+    "raw_segmentation": "J'N'H",
+    "normalized_segmentation": "j'n'h",
     "editing_text": "JNH",
     "caret": 3,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 3,
+    "candidate_count": 1,
     "candidates": [
      {
-      "word": "你好",
-      "pinyin": "n'h",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
+      "word": "JNH",
+      "pinyin": "JNH",
+      "canonical_pinyin": "",
+      "source": 9,
       "scheme": "quanpin",
-      "weight": 300,
-      "answers_key": true
-     },
-     {
-      "word": "拟好",
-      "pinyin": "n'h",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "quanpin",
-      "weight": 200,
-      "answers_key": true
-     },
-     {
-      "word": "呐喊",
-      "pinyin": "n'h",
-      "canonical_pinyin": "na'han",
-      "source": 0,
-      "scheme": "quanpin",
-      "weight": 100,
+      "weight": 0,
       "answers_key": true
      }
+    ],
+    "segment_boundaries": [
+     0,
+     1,
+     2,
+     3
     ]
    }
   },

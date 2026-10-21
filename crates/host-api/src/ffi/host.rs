@@ -2357,6 +2357,8 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             directory: Option<String>,
             #[serde(default)]
             session_store: Option<u64>,
+            #[serde(default)]
+            preferences_directory: Option<String>,
             /// 端到端加密登记本机时给其他设备看的名称（#8201 的 P6，例如鸿蒙的 marketName），规则与中继路径相同，见 [`host_device_name`]。
             #[serde(default)]
             device_name: Option<String>,
@@ -2377,6 +2379,17 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
             }
         }
         crate::cloud_clipboard::validate_account_request(&request.action).map_err(|_| INVALID)?;
+        if let Some(directory) = &request.preferences_directory {
+            if directory.len() > 16384 || !std::path::Path::new(directory).is_absolute() {
+                return Err(INVALID.into());
+            }
+            if crate::cloud_clipboard::configured_relay(std::path::Path::new(directory))
+                .map_err(str::to_owned)?
+                .is_some()
+            {
+                return Err("clipboard_source_changed".into());
+            }
+        }
         let device_name = host_device_name(request.device_name);
         match source {
             super::session_store::Source::Directory(directory) => {
@@ -2420,6 +2433,8 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
         #[serde(deny_unknown_fields)]
         struct RelayRequest {
             preferences_directory: String,
+            #[serde(default)]
+            expected_revision: Option<u64>,
             directory: String,
             #[serde(default)]
             device_name: Option<String>,
@@ -2433,10 +2448,12 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
             return Err(INVALID.into());
         }
         crate::cloud_clipboard::validate_relay_request(&request.action).map_err(|_| INVALID)?;
-        let config = crate::cloud_clipboard::configured_relay(std::path::Path::new(
-            &request.preferences_directory,
-        ))
+        let config = crate::cloud_clipboard::configured_relay_at_revision(
+            std::path::Path::new(&request.preferences_directory),
+            request.expected_revision,
+        )
         .map_err(str::to_owned)?
+        .0
         .ok_or("relay_not_configured")?;
         let device_name = host_device_name(request.device_name)
             .unwrap_or_else(msime_client_services::account::cloud_clipboard_device_name);
@@ -2509,9 +2526,13 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_source(
             "invalid preferences directory encoding",
             "preferences directory must be absolute",
         )?;
-        let source = crate::cloud_clipboard::source(std::path::Path::new(directory))
-            .map_err(str::to_owned)?;
-        Ok(json!({ "source": source }))
+        let (config, revision) = crate::cloud_clipboard::configured_relay_at_revision(
+            std::path::Path::new(directory),
+            None,
+        )
+        .map_err(str::to_owned)?;
+        let source = if config.is_some() { "relay" } else { "account" };
+        Ok(json!({ "source": source, "revision": revision }))
     })
 }
 

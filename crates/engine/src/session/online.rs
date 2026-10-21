@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::composition::resolve_shuangpin_composition_base;
 use super::input::InputSession;
-use crate::ime::online_batch::validate_online_candidate_batch;
+use crate::ime::online_batch::{replace_online_candidate_batch, validate_online_candidate_batch};
 use crate::local::command::TEXT_UTF16_LIMIT;
 use crate::pinyin::active_helpcode::detect_active_helpcode_length;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
@@ -14,7 +14,8 @@ use crate::shuangpin::query::{
     is_complete_input, normalize_input_with_delimiters, raw_length_for_effective_prefix,
 };
 use crate::types::{
-    CandidateSource, CommandTranslationQuery, LocalInputMode, OnlineQuery, SchemeType, WordItem,
+    CandidateSource, CommandTranslationQuery, LocalInputMode, OnlineInputMode, OnlineQuery,
+    SchemeType, WordItem,
 };
 
 /// Session ids are unique for the process, so an answer can never be applied to a different session than the one that asked.
@@ -55,6 +56,7 @@ impl OnlineRequestGuard {
             && answered.session_id == self.session_id
             && answered.generation == self.generation
             && live.scheme == answered.scheme
+            && live.mode == answered.mode
             && live.identity == answered.identity
             && live.query_text == answered.query_text
             && live.cache_key == answered.cache_key
@@ -119,10 +121,75 @@ fn online_identity(scheme: SchemeType, input: &str) -> String {
 }
 
 impl InputSession {
+    fn english_online_input(&self) -> Option<(&str, &'static str)> {
+        if !self.english_online_candidates_enabled || self.online_requests.exhausted {
+            return None;
+        }
+        let (input, entry) = if self.dedicated_english {
+            (self.dedicated_english_preedit.as_str(), "dedicated")
+        } else if self.local_mode == LocalInputMode::TemporaryEnglish {
+            (self.local_preedit.get(1..)?, "temporary")
+        } else {
+            return None;
+        };
+        (!input.is_empty()
+            && input.len() <= 256
+            && input.bytes().all(|byte| byte.is_ascii_alphabetic()))
+        .then_some((input, entry))
+    }
+
+    fn english_online_query(&self) -> Option<OnlineQuery> {
+        let (input, entry) = self.english_online_input()?;
+        Some(OnlineQuery {
+            mode: OnlineInputMode::English,
+            scheme: self.scheme(),
+            generation: self.online_requests.generation,
+            identity: format!("english:{entry}:{input}"),
+            query_text: input.to_owned(),
+            cache_key: format!("english:{input}"),
+            pinyin_segments: Vec::new(),
+            cloud_eligible: true,
+            ai_eligible: true,
+            session_id: self.online_requests.session_id,
+        })
+    }
+
+    pub(super) fn append_english_online_rows(&self, candidates: &mut Vec<WordItem>) {
+        for row in &self.english_online_rows {
+            if !candidates.iter().any(|existing| existing.word == row.word) {
+                candidates.push(row.clone());
+            }
+        }
+    }
+
+    fn apply_english_online_rows(
+        &mut self,
+        query: &OnlineQuery,
+        words: &[String],
+        source: CandidateSource,
+    ) -> bool {
+        if !replace_online_candidate_batch(
+            &mut self.english_online_rows,
+            &query.query_text,
+            words,
+            source,
+        ) {
+            return false;
+        }
+        if self.dedicated_english {
+            self.update_dedicated_english_candidates();
+        } else {
+            self.update_local_candidates();
+        }
+        true
+    }
+
     /// input_session.cpp:631-667 over `get_cloud_query_state` (input_session_composition.cpp:913-974).
     pub(super) fn online_query(&self) -> Option<OnlineQuery> {
-        if self.dedicated_english
-            || self.online_requests.exhausted
+        if self.dedicated_english || self.local_mode == LocalInputMode::TemporaryEnglish {
+            return self.english_online_query();
+        }
+        if self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
             || !self.has_composition()
         {
@@ -234,6 +301,9 @@ impl InputSession {
         if self.candidates().iter().any(|item| item.word == word) {
             return false;
         }
+        if query.mode == OnlineInputMode::English {
+            return self.apply_english_online_rows(query, &[word.to_owned()], source);
+        }
         if !self
             .engine
             .apply_dynamic_candidates(&[word.to_owned()], source)
@@ -259,6 +329,9 @@ impl InputSession {
         if !self.online_answer_accepted(query, source) {
             return false;
         }
+        if query.mode == OnlineInputMode::English {
+            return self.apply_english_online_rows(query, words, source);
+        }
         if !self.engine.apply_dynamic_candidates(words, source) {
             return false;
         }
@@ -280,6 +353,27 @@ impl InputSession {
 
     /// 不重建拥有型 `OnlineQuery`，直接把回包和当前组字比较。应用回包本来就要扫描候选列表；每次回调再复制身份、缓存键和分段只会增加临时缓冲。
     fn online_answer_state(&self, query: &OnlineQuery) -> Option<OnlineAnswerState> {
+        if query.mode == OnlineInputMode::English {
+            let (input, entry) = self.english_online_input()?;
+            let identity = query
+                .identity
+                .strip_prefix("english:")?
+                .strip_prefix(entry)?
+                .strip_prefix(':')?;
+            return (query.session_id == self.online_requests.session_id
+                && query.generation == self.online_requests.generation
+                && query.scheme == self.scheme()
+                && identity == input
+                && query.query_text == input
+                && query.cache_key.strip_prefix("english:") == Some(input)
+                && query.pinyin_segments.is_empty()
+                && query.cloud_eligible
+                && query.ai_eligible)
+                .then_some(OnlineAnswerState {
+                    cloud_eligible: true,
+                    ai_eligible: true,
+                });
+        }
         if self.dedicated_english
             || self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
@@ -415,6 +509,7 @@ mod tests {
 
     fn stamped(guard: &OnlineRequestGuard) -> OnlineQuery {
         OnlineQuery {
+            mode: OnlineInputMode::Pinyin,
             scheme: SchemeType::Quanpin,
             generation: guard.generation,
             identity: "0:nihao".to_owned(),

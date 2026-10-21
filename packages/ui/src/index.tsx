@@ -1103,6 +1103,8 @@ export {
 } from "./settings/voice-hotkeys-section";
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
+  floatingToolbarAutoHideDelay,
+  floatingToolbarAutoHideDelayRange,
   floatingToolbarButtonOptions,
   floatingToolbarSize,
   floatingToolbarSizes,
