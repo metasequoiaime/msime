@@ -116,6 +116,7 @@ public final class MSIMEInputService extends InputMethodService {
     static final int CYCLE_KANA_VARIANT_COMMAND = 10;
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
     ImeToolbar imeToolbar;
+    ImeCompositionEditor imeCompositionEditor;
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
@@ -166,12 +167,6 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
-    /** 点读音行移组字光标用的那一份读音（#5613）：画出来的读音（不含已选的词和光标符）、它对应的 `editing_text`、光标符画在读音的哪个下标前（没画是 -1）、前面已选的词有多长、引擎光标现在在哪。读音行不可点时 `preeditCaretEditing` 为 null。 */
-    private String preeditCaretEditing;
-    private String preeditCaretSpelling = "";
-    private int preeditCaretMark = -1;
-    private int preeditCaretPrefix;
-    private int preeditCaretPosition;
     TextView candidatePage;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
@@ -682,6 +677,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 不为 null 时语音面板画的是「语音输入还不能用」的引导（{@link #showVoiceSetup}），内容是原因。 */
     private String voiceSetupReason;
     private EditorContextSnapshot voiceTarget;
+    private long voiceActivityGeneration;
     private ScrollView aiPolishScroll;
     LinearLayout aiPolishContainer;
     LinearLayout aiPolishPanel;
@@ -1624,6 +1620,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onCreate() {
         // 拆出去的构建与渲染类持有本服务；在 onCreate 里创建，构造期间不把 this 交出去。
         imeToolbar = new ImeToolbar(this);
+        imeCompositionEditor = new ImeCompositionEditor(this);
         imeCandidates = new ImeCandidates(this);
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
@@ -1873,6 +1870,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
@@ -2002,6 +2000,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
     private void stop(boolean finish, boolean keepMoreTools) {
+        imeCompositionEditor.close();
         pendingEngineStartup = -1;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
@@ -3876,21 +3875,53 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    /**
-     * 点在读音行 {@code offset} 处（`TextView.getOffsetForPosition` 的结果）：把组字光标移到点中的字母前，之后的退格、打字都作用在那里（#5613）。引擎只有逐格左右移和移到两头的命令，连发若干次；光标移动不改组字，只把最后一次的结果交给 apply 去画。
-     */
-    void movePreeditCaret(int offset) {
-        String editing = preeditCaretEditing;
-        if (session == 0 || editing == null) return;
-        int target = CompositionCaretPolicy.tapTarget(preeditCaretPrefix, preeditCaretSpelling,
-            editing, preeditCaretMark, offset);
-        int[] moves = CompositionCaretPolicy.moves(preeditCaretPosition, target, editing.length());
-        if (moves.length == 0) return;
+    boolean compositionEditable() {
+        return session != 0 && view != null && CompositionCaretPolicy.editable(
+            InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
+            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+    }
+
+    /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
+    void moveCompositionCaret(int target) {
+        if (!compositionEditable()) return;
+        String editing = InputViewValuePolicy.editingText(view);
+        if (target < 0 || target > editing.length()) return;
+        int current = InputViewValuePolicy.integer(view, "caret_position", editing.length());
+        int[] moves = CompositionCaretPolicy.moves(current, target, editing.length());
         try {
+            // 位置没变时也重写组字，把系统选区放回末尾，维持编辑器桥的读回契约。
+            if (moves.length == 0) {
+                if (!bridge.apply(sink(typingSource()), null, composingText(view, editing, true)))
+                    throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+                render();
+                return;
+            }
             String response = null;
             for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
             apply(response);
         } catch (JSONException | LinkageError error) { fail(error); }
+    }
+
+    /** 用户点击仍完整的组字时进入临时编辑；丢标记、选区或文本改写仍走原先的结束路径。 */
+    private boolean editCompositionSelection(int start, int end, int newStart, int newEnd) {
+        if (!compositionEditable() || connection == null || editorCompositionSuppressed) return false;
+        String editing = InputViewValuePolicy.editingText(view);
+        String composing = composingText(view, editing, true);
+        int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
+        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, prefix,
+            start, end, newStart, newEnd);
+        if (target < 0) return false;
+        int offset = newStart - start;
+        try {
+            CharSequence before = connection.getTextBeforeCursor(offset, 0);
+            CharSequence after = connection.getTextAfterCursor(composing.length() - offset, 0);
+            if (before == null || after == null
+                    || !before.toString().endsWith(composing.substring(0, offset))
+                    || !after.toString().startsWith(composing.substring(offset))) return false;
+        } catch (RuntimeException disconnected) { return false; }
+        moveCompositionCaret(target);
+        imeCompositionEditor.open();
+        return true;
     }
 
     void type(char key) {
@@ -5113,7 +5144,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
-        if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+        boolean editingComposition = !ownEcho && selectionChanged
+            && editCompositionSelection(composingStart, composingEnd, newStart, newEnd);
+        if (!ownEcho && !editingComposition && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
             // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
@@ -6243,6 +6276,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void startVoiceRecognition() {
+        voiceActivityGeneration++;
         if (!voiceInputEnabled) {
             showVoiceSetup("语音输入已关闭，在设置里打开后，长按空格就能说话。");
             return;
@@ -6254,7 +6288,7 @@ public final class MSIMEInputService extends InputMethodService {
         launchVoiceActivity();
     }
 
-    /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
+    /** 申请麦克风权限或系统服务需要前台恢复时，打开识别窗口并回传结果。 */
     void launchVoiceActivity() {
         imeDebugOverlay.recordEvent(DiagnosticEventKind.VOICE_ACTIVITY_LAUNCH);
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
@@ -6268,11 +6302,13 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         closeVoiceResult();
+        long operation = ++voiceActivityGeneration;
+        android.os.ResultReceiver resultReceiver = voiceActivityResultReceiver(operation);
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
                 configured.providerName(), configured.requestFormat(), configured.endpoint(),
                 configured.model(), configured.token(), configured.streaming(), configured.polish(),
-                configured.localModel(), null, null, voiceDiagnosticsReceiver());
+                configured.localModel(), null, null, voiceDiagnosticsReceiver(), resultReceiver);
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
             // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
@@ -6280,6 +6316,51 @@ public final class MSIMEInputService extends InputMethodService {
             imeDebugOverlay.recordEvent(VoiceDiagnostics.unexpected(error));
             ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
+        }
+    }
+
+    /** 独立保存目标快照，避免窗口收起键盘时关闭面板把它清掉。 */
+    private android.os.ResultReceiver voiceActivityResultReceiver(long operation) {
+        if (!voiceInsertionReady()) return null;
+        String before = editorContext(true);
+        String after = editorContext(false);
+        // 读不到上下文时无法确认原输入位置，保留原来的手动插入路径。
+        if (before == null || after == null) return null;
+        EditorContextSnapshot target = new EditorContextSnapshot(connection, editorContextRevision,
+            before, selectedEditorText(), after);
+        return new android.os.ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
+                if (operation != voiceActivityGeneration || code != android.app.Activity.RESULT_OK
+                        || payload == null) return;
+                final java.util.UUID id;
+                try { id = java.util.UUID.fromString(payload.getString(VoiceRecognitionActivity.RESULT_ID)); }
+                catch (IllegalArgumentException | NullPointerException error) { return; }
+                insertVoiceActivityResult(operation, target, id, 30);
+            }
+        };
+    }
+
+    /** 等前台窗口归还原编辑连接，再领取本次结果；不能把结果插进后来切换的输入框。 */
+    private void insertVoiceActivityResult(long operation, EditorContextSnapshot target,
+                                          java.util.UUID id, int attempts) {
+        if (operation != voiceActivityGeneration || voiceResultStore == null) return;
+        if (voiceInsertionReady() && target.matches(connection, editorContextRevision,
+                editorContext(true), selectedEditorText(), editorContext(false))) {
+            // 先使重复回传失效，再按编号领取，旧回调不能插入更新后的另一条结果。
+            voiceActivityGeneration++;
+            try {
+                String text = voiceResultStore.consume(id, System.currentTimeMillis());
+                if (!commitText(text, TypingSource.VOICE)) notice("编辑器拒绝插入；结果已安全清除");
+            } catch (VoiceResultStore.Failure error) {
+                notice("语音结果未能自动插入，可在语音结果中查看");
+            }
+            return;
+        }
+        if (attempts > 0) {
+            main.postDelayed(() -> insertVoiceActivityResult(operation, target, id, attempts - 1), 100);
+        } else {
+            voiceActivityGeneration++;
+            notice("输入位置已变化，结果已保留，可在语音结果中插入");
         }
     }
 
@@ -8472,6 +8553,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateCanvasRegion = new CandidateCanvasColumn(this);
         LinearLayout candidateRegion = candidateCanvasRegion;
         imeToolbar.buildCandidateHeader(candidateRegion);
+        imeCompositionEditor.install(candidateRegion);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);
         KeyboardTypographyPolicy.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
@@ -9633,11 +9715,7 @@ public final class MSIMEInputService extends InputMethodService {
                 caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            preeditCaretEditing = caretEditable && spellingDrawn ? editingText : null;
-            preeditCaretSpelling = caretSpelling;
-            preeditCaretMark = caretMark;
-            preeditCaretPrefix = phrasePrefix.length();
-            preeditCaretPosition = caret;
+            imeCompositionEditor.render(caretSpelling, editingText, caret);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
@@ -9646,11 +9724,13 @@ public final class MSIMEInputService extends InputMethodService {
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
+            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty()) displayText = "编辑拼写";
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
-            preedit.setContentDescription(offersLocalModes ? "长按打开本地输入模式" : displayText);
+            preedit.setContentDescription(caretEditable ? "编辑拼写"
+                : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
-            ViewPolicy.setClickable(preedit, preeditCaretEditing != null);
+            ViewPolicy.setClickable(preedit, caretEditable);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {

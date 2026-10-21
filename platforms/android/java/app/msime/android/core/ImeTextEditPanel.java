@@ -115,7 +115,7 @@ final class ImeTextEditPanel {
             button = s.keyboardKey(spec.label(), spec.description(), run);
             if (isArrow(action)) {
                 // 系统默认按钮字号和字重让方向箭头显得细小；编辑面板的箭头是主要操作，统一放大并加粗。
-                KeyboardTypographyPolicy.setKeyTextSize(button, 24);
+                KeyboardTypographyPolicy.setKeyTextSize(button, isDocumentEdge(action) ? 36 : 24);
                 button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             } else if (action == TextEditPanelModel.Action.SELECT || spec.label().length() > 1)
                 KeyboardTypographyPolicy.setKeyTextSize(button, 16);
@@ -133,6 +133,12 @@ final class ImeTextEditPanel {
             || action == TextEditPanelModel.Action.DOWN
             || action == TextEditPanelModel.Action.RIGHT
             || action == TextEditPanelModel.Action.DOCUMENT_START
+            || action == TextEditPanelModel.Action.DOCUMENT_END;
+    }
+
+    /** `⇤` / `⇥` 的字面框比方向箭头窄，同字号绘制时视觉尺寸明显偏小。 */
+    private static boolean isDocumentEdge(TextEditPanelModel.Action action) {
+        return action == TextEditPanelModel.Action.DOCUMENT_START
             || action == TextEditPanelModel.Action.DOCUMENT_END;
     }
 

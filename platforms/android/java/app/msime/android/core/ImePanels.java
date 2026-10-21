@@ -1567,7 +1567,8 @@ final class ImePanels {
                 renderClipboardHistory();
             });
             if (s.hasClipboardUndo()) {
-                Button undo = clipboardAction(header, "撤销", s::undoClipboardItems);
+                // 撤销是删除后的限时恢复入口，使用完整键帽底色和边框，避免在顶行右侧被看成普通文字。
+                Button undo = clipboardAction(header, "撤销", s::undoClipboardItems, KeyboardKeyRole.KEY);
                 undo.setContentDescription("撤销刚才删除的剪贴板记录");
             }
         }
@@ -1934,7 +1935,12 @@ final class ImePanels {
     }
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
-        Button button = MSIMEInputService.role(s.button(header, label, action), KeyboardKeyRole.GLYPH);
+        return clipboardAction(header, label, action, KeyboardKeyRole.GLYPH);
+    }
+
+    private Button clipboardAction(LinearLayout header, String label, Runnable action,
+            KeyboardKeyRole role) {
+        Button button = MSIMEInputService.role(s.button(header, label, action), role);
         ViewPolicy.setTextSizeSp(button, 13);
         compactReplyControl(button, s.pixels(10));
         button.setLayoutParams(LayoutPolicy.wrapMatchParentParams());

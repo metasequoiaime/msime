@@ -148,6 +148,14 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_rerank_settled(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
+- (NSDictionary *)startSettledRerankWithError:(NSError **)error {
+    id value = decodeValue(msime_client_start_settled_rerank(_handle), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
+- (NSDictionary *)pollSettledRerank:(uint64_t)token accept:(BOOL)accept error:(NSError **)error {
+    id value = decodeValue(msime_client_poll_settled_rerank(_handle, token, accept), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
 - (NSDictionary *)onlineQueryWithError:(NSError **)error {
     id value = decodeValue(msime_client_online_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
@@ -672,6 +680,16 @@ static NSDictionary *decode(char *response, NSError **error) {
 - (nullable NSDictionary *)punctuation:(uint8_t)ascii preceding:(uint32_t)preceding error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     return decode(msime_client_punctuation_with_context(_handle, ascii, preceding), error);
+}
+- (nullable NSDictionary *)languageCycleEnabled:(BOOL)enabled
+                                           mode:(uint8_t)mode
+                                         scheme:(uint8_t)scheme
+                              lastChineseScheme:(int8_t)lastChineseScheme
+                                 hasComposition:(BOOL)hasComposition {
+    // 只从会话线程问，和其它入口一样：它读的那几项由控制器在同一线程上填。
+    if (![self checkThreadAndHandle:nil]) return nil;
+    // 共享层用 `value: null` 表示「不接管」；decode 不返回候选动作，调用方回到原有切换路径。
+    return decode(msime_client_language_cycle(enabled, mode, scheme, lastChineseScheme, hasComposition), nil);
 }
 - (nullable NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;

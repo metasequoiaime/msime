@@ -120,7 +120,7 @@
      0,
      3
     ],
-    "candidate_count": 1,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "国",
@@ -130,6 +130,24 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": true
+     },
+     {
+      "word": "原10",
+      "pinyin": "gu",
+      "canonical_pinyin": "guan",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
+     },
+     {
+      "word": "糊10",
+      "pinyin": "gu",
+      "canonical_pinyin": "guang",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "answers_key": false
      }
     ],
     "online_query": {

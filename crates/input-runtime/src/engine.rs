@@ -178,6 +178,10 @@ pub trait InputEngine {
     fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
         false
     }
+    /// 五笔拼音混输是否打开。顶字关掉时，混输关着就没有地方容纳第五个字母，仍要顶字上屏；混输开着才让它并进混输串。
+    fn wubi_mixed_pinyin(&self) -> bool {
+        false
+    }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
@@ -402,6 +406,9 @@ impl InputEngine for Session {
     }
     fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
         Session::wubi_pinyin_continues(self, value, shift)
+    }
+    fn wubi_mixed_pinyin(&self) -> bool {
+        Session::wubi_mixed_pinyin(self)
     }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError> {
         Session::character(self, value, shift)

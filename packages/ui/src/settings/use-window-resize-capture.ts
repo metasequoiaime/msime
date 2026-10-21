@@ -8,13 +8,13 @@ export interface UseWindowResizeCaptureOptions {
   setError: (error: string) => void;
 }
 
-/** Handles edge pointer presses for resizable settings windows. */
+/** 可调整大小的设置窗口和共享面板复用边缘拖动判定。 */
 export function useWindowResizeCapture({
   resizeWindow,
   windowMaximized,
   setError,
 }: UseWindowResizeCaptureOptions) {
-  return (event: PointerEvent<HTMLDivElement>) => {
+  return (event: PointerEvent<HTMLElement>) => {
     if (!resizeWindow || event.button !== 0 || windowMaximized) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const edge = windowResizeEdge(event, rect);

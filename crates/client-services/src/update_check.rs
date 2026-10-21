@@ -115,7 +115,8 @@ fn validate_request(request: &UpdateCheckRequest) -> Result<Version, UpdateCheck
 }
 
 fn fetch_release_list() -> Result<Vec<u8>, UpdateCheckError> {
-    let client = reqwest::blocking::Client::builder()
+    // 版本列表在 GitHub（https 公网）；按用户的网络代理设置走。
+    let client = crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
         .timeout(TIMEOUT)
         .user_agent(USER_AGENT)
         .build()

@@ -20,6 +20,7 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            VoiceAutoInsertDeviceCases.run(this);
             // 直接调用产品的私有解析入口，不为测试扩大生产 API。
             Method parser = VoicePolisher.class.getDeclaredMethod("content", String.class);
             Method asrStatus = HttpAsrResponsePolicy.class.getDeclaredMethod("responseAllowed", String.class);
@@ -65,7 +66,7 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
                 finish(Activity.RESULT_CANCELED, result);
                 return;
             }
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: 12 voice polish reply cases\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: voice replies and automatic voice insertion\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             // 只输出异常类别，不输出服务正文或请求数据。

@@ -37,6 +37,8 @@ export function settingsCapabilities({
   const showInstallInputSource = macos && canInstallInputSource;
   const showFloatingToolbar = host ? host.floating_toolbar : true;
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
+  // 没有宿主消费自动隐藏/延时/阴影时不列这三行：改了没有效果的开关比没有开关更糟。
+  const showToolbarIdleBehavior = host ? host.floating_toolbar_idle_behavior === true : true;
   const showToolbarComponents = host ? host.floating_toolbar_components : true;
   // 屏幕键盘的高度和间距：没有宿主（网页预览）或宿主没报这两项时照旧给出。
   const showTouchKeyboardHeight = host?.touch_keyboard_height !== false;
@@ -116,6 +118,7 @@ export function settingsCapabilities({
     showInstallInputSource,
     showFloatingToolbar,
     showToolbarAppearance,
+    showToolbarIdleBehavior,
     showToolbarComponents,
     showTouchKeyboardHeight,
     showTouchKeyboardSpacing,

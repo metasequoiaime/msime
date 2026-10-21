@@ -282,6 +282,53 @@ impl<'a> OrderRowSource<'a> for ParallelOrderRows<'a> {
     }
 }
 
+fn row_answers_key(scheme: u8, row: OrderRow<'_>) -> bool {
+    row.answers_key
+        && !CATALOG_SOURCES.contains(&row.source)
+        && !AI_SEAT_SOURCES.contains(&row.source)
+        && row.source != MIXED_JAPANESE_SOURCE
+        && (corrections_may_lead(scheme) || !row.corrected)
+}
+
+fn any_corrected_key<'a, R: OrderRowSource<'a> + ?Sized>(scheme: u8, rows: &'a R) -> bool {
+    corrections_may_lead(scheme) && (0..rows.len()).any(|index| rows.get(index).corrected)
+}
+
+/// 判断 `rerank_pick` 是否需要运行模型，提前拒绝时宿主无需把停顿模型移出会话线程。
+///
+/// 韩文汉字候选按单音节词频排表，不能用中文模型评分。五笔码表回答的列表先排表码行，
+/// 再追加拼音纠错行；若让纠错规则撤销表码首选的豁免，就会把 `dyn` 的「态」挤到
+/// `dynn` 的「太快」之后。只有完全由拼音兜底回答的五笔列表才按拼音重排。
+pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    answered_by_pinyin_fallback: bool,
+    rows: &'a R,
+) -> bool {
+    if !reorders_candidates(scheme) {
+        return false;
+    }
+    if scheme_type(scheme) == Some(SchemeType::Wubi) && !answered_by_pinyin_fallback {
+        return false;
+    }
+    if rows.len() < 2 {
+        return false;
+    }
+    let leader = rows.get(0);
+    // 引擎让英文或日文混输行领先的列表原样保留，见 `ENGLISH_SOURCE`、`MIXED_JAPANESE_SOURCE`。
+    if matches!(leader.source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
+        return false;
+    }
+    // 首行不回答当前按键时，上游同样拒绝比较，无需准备模型输入。
+    if !row_answers_key(scheme, leader) {
+        return false;
+    }
+    // 词典命中携带当前按键的词频；全拼出现任何纠错行时，这份依据不再可信，
+    // 整表撤销豁免。双拼纠错行不许领先，也不撤销词典首选的豁免。
+    let corrected_key = any_corrected_key(scheme, rows);
+    let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
+    !trusted_leader
+}
+
 /// rerank() 的决策部分：返回应当移到首位的行下标；None 表示不动。
 ///
 /// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
@@ -292,41 +339,11 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     answered_by_pinyin_fallback: bool,
     rows: &'a R,
 ) -> Option<usize> {
-    // A Korean Hanja list is a table in frequency order for one syllable, not Chinese text the language model can read.
-    if !reorders_candidates(scheme) {
+    if !rerank_needs_model(scheme, answered_by_pinyin_fallback, rows) {
         return None;
     }
-    // A Wubi list the table answered is ranked by the table: the Engine seats the Wubi rows first (`merge_pinyin_fallback`) and appends the mixed-in pinyin rows after them. Those pinyin rows are corrections of the same letters (dyn read as dun), so the corrected-key rule below would strip the exact code hit (态 on dyn) of its dictionary exemption and let the model promote a longer code's row (太快 on dynn) over it. Only a list the pinyin fallback answered alone is pinyin, and that one is reranked like pinyin.
-    if scheme_type(scheme) == Some(SchemeType::Wubi) && !answered_by_pinyin_fallback {
-        return None;
-    }
-    if rows.len() < 2 {
-        return None;
-    }
-    let leader = rows.get(0);
-    // 引擎让英文或日文混输行领先的列表原样保留，见 `ENGLISH_SOURCE`、`MIXED_JAPANESE_SOURCE`。
-    if matches!(leader.source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
-        return None;
-    }
-    let corrections_lead = corrections_may_lead(scheme);
-    let answers_key = |row: OrderRow<'a>| {
-        row.answers_key
-            && !CATALOG_SOURCES.contains(&row.source)
-            && !AI_SEAT_SOURCES.contains(&row.source)
-            && row.source != MIXED_JAPANESE_SOURCE
-            && (corrections_lead || !row.corrected)
-    };
-    // 首行不回答当前按键时，上游同样拒绝比较，无需准备模型输入。
-    if !answers_key(leader) {
-        return None;
-    }
-    // 词典命中携带当前按键的词频；全拼出现任何纠错行时，这份依据不再可信，
-    // 整表撤销豁免。双拼纠错行不许领先，也不撤销词典首选的豁免。
-    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
-    let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
-    if trusted_leader {
-        return None;
-    }
+    let answers_key = |row: OrderRow<'a>| row_answers_key(scheme, row);
+    let corrected_key = any_corrected_key(scheme, rows);
     // 只有参与比较的候选需要占用模型上下文窗口。
     let longest = longest_rerank_candidate(rows, &answers_key);
     let context = rerank_context(context, reranker.model().context_length(), longest);

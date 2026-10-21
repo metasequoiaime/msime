@@ -1,7 +1,8 @@
 ﻿# 用独立合成设置运行真实 WinUI 宿主，检查全部页面并保存浅深色与窄窗口截图。
 param(
     [Parameter(Mandatory = $true)][string]$Program,
-    [Parameter(Mandatory = $true)][string]$OutputDirectory
+    [Parameter(Mandatory = $true)][string]$OutputDirectory,
+    [switch]$InputOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -34,6 +35,30 @@ public static class SettingsWindowProbe {
         return info;
     }
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
+    [DllImport("user32.dll")] static extern bool AreDpiAwarenessContextsEqual(IntPtr first, IntPtr second);
+    public static bool PerMonitorV2(IntPtr window) {
+        return AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(window), new IntPtr(-4));
+    }
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    static extern bool GetParameter(uint action, uint parameter, out uint value, uint flags);
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    static extern bool SetParameter(uint action, uint parameter, IntPtr value, uint flags);
+    public static uint WheelRouting() {
+        uint value;
+        if (!GetParameter(0x201C, 0, out value, 0)) throw new System.ComponentModel.Win32Exception();
+        return value;
+    }
+    public static void WheelRouting(uint value) {
+        if (!SetParameter(0x201D, 0, new IntPtr(value), 2)) throw new System.ComponentModel.Win32Exception();
+        if (WheelRouting() != value) throw new InvalidOperationException("Wheel routing did not change");
+    }
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+    public static void Wheel(int delta) { mouse_event(0x0800, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
 }
 '@
 $programPath = (Resolve-Path -LiteralPath $Program).Path
@@ -131,6 +156,61 @@ function Assert-CanvasPreview($window, [string]$mode) {
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Assert-NativeInput($window, [IntPtr]$handle) {
+    if (-not [SettingsWindowProbe]::PerMonitorV2($handle)) { throw 'Settings window is not PerMonitorV2 DPI aware' }
+    # 固定为最小窗口与内容较长的工具栏页，避免默认输入页的短标签页没有滚动范围。
+    if (-not [SettingsWindowProbe]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, 800, 560, 0x0040)) { throw 'Wheel fixture resize failed' }
+    Open-Page $window 'toolbar'
+    $routing = [SettingsWindowProbe]::WheelRouting()
+    $cursor = New-Object SettingsWindowProbe+Point
+    if (-not [SettingsWindowProbe]::GetCursorPos([ref]$cursor)) { throw 'Could not save cursor position' }
+    try {
+        foreach ($mode in @(0, 2)) {
+            # 同时覆盖关闭和开启「悬停时滚动非活动窗口」；不持久化系统设置，退出时恢复。
+            [SettingsWindowProbe]::WheelRouting($mode)
+            [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
+            # 导航和窗口缩放都会异步提交布局；每次重取 UIA 节点，直到真实正文出现滚动范围。
+            $scroll = $null
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                $content = Find-ById $window 'settings-content'
+                if ($content) {
+                    try {
+                        [object]$pattern = $null
+                        if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern) -and $pattern.Current.VerticallyScrollable) {
+                            $scroll = $pattern
+                            break
+                        }
+                    } catch [System.Windows.Automation.ElementNotAvailableException] {
+                        # 页面重建时重新查询，不能把失效节点当成已完成布局。
+                    }
+                }
+                Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if (-not $scroll) {
+                Save-Window $window "wheel-fixture-routing-$mode.png"
+                throw 'Wheel fixture page does not overflow after layout'
+            }
+            $scroll.SetScrollPercent(-1, 0)
+            Start-Sleep -Milliseconds 250
+            $bounds = $content.Current.BoundingRectangle
+            if (-not [SettingsWindowProbe]::SetCursorPos([int]$bounds.X + 10, [int]($bounds.Y + $bounds.Height / 2))) { throw 'Could not position wheel over the content margin' }
+            if ([SettingsWindowProbe]::GetForegroundWindow() -ne $handle) { throw 'Settings window could not acquire foreground for wheel input' }
+            $before = $scroll.Current.VerticalScrollPercent
+            [SettingsWindowProbe]::Wheel(-360)
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+                Start-Sleep -Milliseconds 100
+                $after = $scroll.Current.VerticalScrollPercent
+            } while ($after -le $before -and [DateTime]::UtcNow -lt $deadline)
+            if ($after -le $before) { throw "Mouse wheel did not scroll the native page (routing=$mode)" }
+            Write-Host "Native wheel routing=$mode moved from $before to $after"
+        }
+    } finally {
+        [SettingsWindowProbe]::WheelRouting($routing)
+        [SettingsWindowProbe]::SetCursorPos($cursor.X, $cursor.Y) | Out-Null
+    }
 }
 function Find-ByName($parent, [string]$name) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
@@ -405,7 +485,8 @@ try {
     if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
     $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
     if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
-    foreach ($theme in @('light', 'dark')) {
+    $themes = if ($InputOnly) { @('light') } else { @('light', 'dark') }
+    foreach ($theme in $themes) {
         $preferences = $defaults.value
         $preferences.theme = $theme
         $preferences.scheme = 'quanpin'
@@ -425,6 +506,13 @@ try {
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
         # 窗口标题与 macOS 设置窗口相同，写作「<产品名> · 设置」。
         if (-not $window.Current.Name.EndsWith(' · 设置')) { throw "Unexpected settings window title: $($window.Current.Name)" }
+        Assert-NativeInput $window $process.MainWindowHandle
+        if ($InputOnly) {
+            $process.CloseMainWindow() | Out-Null
+            if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 0) { throw 'Settings input probe failed to close cleanly' }
+            $process = $null
+            continue
+        }
         foreach ($width in @(1000, 800)) {
             if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 780, 0x0040)) { throw 'Window resize failed' }
             foreach ($page in $pages) {

@@ -15,6 +15,11 @@
 - (CGPathRef)createSelectionFillPath CF_RETURNS_RETAINED;
 @end
 
+// 进场期间切换皮肤后，结束回调只能恢复当前内容仍需要的系统窗口阴影。
+@protocol MSIMECandidateWindowShadowHost <NSObject>
+@property(nonatomic, readonly) BOOL nativeWindowShadowEnabled;
+@end
+
 // APNG 装饰图解码好的各帧，供 Core Animation 逐帧播放。帧时长和循环次数取自文件（ImageIO 的 APNG 属性）。
 @interface MSIMEDecorationFrames : NSObject
 // 文件不是多帧图片或读不出时返回 nil。帧数按共享加载器的上限截断。

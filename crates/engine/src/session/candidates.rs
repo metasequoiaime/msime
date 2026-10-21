@@ -183,6 +183,11 @@ impl InputSession {
         if self.local_mode == LocalInputMode::Url {
             self.add_url_completions();
         }
+        if self.local_mode == LocalInputMode::TemporaryEnglish {
+            let mut candidates = std::mem::take(&mut self.local_candidates);
+            self.append_english_online_rows(&mut candidates);
+            self.local_candidates = candidates;
+        }
         result.diagnostic
     }
 
@@ -239,6 +244,7 @@ impl InputSession {
                 "",
             ));
         }
+        self.append_english_online_rows(&mut candidates);
         self.dedicated_english_candidates = candidates;
     }
 

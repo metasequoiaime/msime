@@ -15,6 +15,8 @@ import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
 import { dimension, skinDecorationGeometry, skinPreviewBackground } from "./skin-preview-geometry";
 export { dimension } from "./skin-preview-geometry";
+import { useDecodedSkinImage } from "./skin-image";
+import { skinCanvasGeometry, canvasVariables } from "./skin-canvas-preview";
 import { candidateWindowStyle } from "../candidate/candidate-window-style";
 import type { CandidateWindowStylePreferences } from "../candidate/candidate-preferences";
 import * as settings from "../settings/settings-style";
@@ -46,11 +48,32 @@ export type SkinBackground = {
 export type ToolbarPalette = Partial<
   Record<"background" | "border" | "handle" | "divider" | "icon" | "hover", string | null>
 >;
+/** 清单 `candidate_window` 的四边长度，单位 DIP。 */
+export type SkinInsets = { top: number; right: number; bottom: number; left: number };
+/** 清单 `[candidate_window.border_image]` 九宫格面板；`sliceDip` 以源图像素计，写了 `stretchDip` 就用它当切片，`widthDip` 缺省取切片。 */
+export type SkinBorderImage = {
+  source: string;
+  lightSource?: string | null;
+  sliceDip: number[];
+  stretchDip?: number[] | null;
+  widthDip?: number[] | null;
+  fill?: boolean | null;
+};
+/** 清单 `[[candidate_window.decorations]]` 自由挂件；框按 `anchor` 贴卡片，再平移 `offsetXDip` / `offsetYDip`，图片在框内等比缩放。 */
+export type SkinFreeDecoration = {
+  image: string;
+  anchor?: string | null;
+  offsetXDip?: number | null;
+  offsetYDip?: number | null;
+  widthDip: number;
+  heightDip: number;
+  zIndex?: number | null;
+};
 export type ExternalSkin = {
   id: string;
   /** 清单版本；版本 2 对任何 base 都增加有限的候选窗动效契约（`animation`、装饰 `motion` 与 APNG 帧）。 */
   schemaVersion?: 1 | 2;
-  /** 清单写的是 `base = "canvas"`（此时 `base` 报成 `system`）。只表示九宫格、自由挂件等 canvas 专属字段，设置页预览不绘制它们；不影响动效。 */
+  /** 清单写的是 `base = "canvas"`（此时 `base` 报成 `system`）。九宫格、内容与外留白、拼音行距和自由挂件由设置页的卡片预览画出；不影响动效。 */
   canvas?: boolean;
   /** 不影响加载的提示，对应 msime-windows 的 `package.notices`，例如非 canvas 基底上被忽略的 canvas 专属键。 */
   notices?: string[];
@@ -76,6 +99,18 @@ export type ExternalSkin = {
   /** 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。 */
   decorationFrames?: number;
   background?: SkinBackground | null;
+  /** `[candidate_window.border_image]` 九宫格面板；只在 `canvas` 时由 catalog 保留。 */
+  borderImage?: SkinBorderImage | null;
+  /** `candidate_window.content_insets_dip`：面板外缘到内容的内边距。 */
+  contentInsetsDip?: SkinInsets | null;
+  /** `candidate_window.line_gap_dip`：拼音行与候选之间的距离。 */
+  lineGapDip?: number | null;
+  /** `candidate_window.outer_insets_dip`：卡片四周的窗口留白。 */
+  outerInsetsDip?: SkinInsets | null;
+  /** `[[candidate_window.decorations]]` 自由挂件，最多 32 个。 */
+  decorations?: SkinFreeDecoration[];
+  /** 面板成功绘制时使用的贴图配色；`candidate` 仍是未绘制贴图时的可读回退。 */
+  panelCandidate?: { dark: Palette; light: Palette };
   toolbar?: { cornerRadiusDip: number | null; dark: ToolbarPalette; light: ToolbarPalette };
   toolbarImage?: SkinToolbarImage;
   toolbarStylesheet: string | null;
@@ -248,7 +283,12 @@ export function ExternalSkinCard({
     readImage,
     readFont,
   );
-  const palette = drawnPackagePalette(skin, theme);
+  const canvas = skinCanvasGeometry(skin, theme);
+  const panel = useDecodedSkinImage(readImage, skin.id, canvas?.panel?.image ?? null, revision);
+  const palette =
+    panel?.url && skin.themes.includes(theme)
+      ? (skin.panelCandidate?.[theme] ?? drawnPackagePalette(skin, theme))
+      : drawnPackagePalette(skin, theme);
   const hideBar = palette?.showSelectedBar === false;
   const paletteFailed = useSelectedBarPalette(scope, hideBar);
   // 卡片上的预览切换不影响能否选用。固定明暗底的包放进自己的槽位、只在那种明暗下画，所以当前模式挡不住它；`system` 底的包两个槽位都放，仍要支持当前模式。
@@ -258,6 +298,8 @@ export function ExternalSkinCard({
   const deselecting = selected && onDeselect !== undefined;
   const { decorated } = skinDecorationGeometry(skin);
   const decoration = decorated ? decorationImage(skin) : null;
+  // 所有 canvas 包都要 `.containerParent` 承载外留白、装饰带和挂件层；只画装饰带的包也照旧要它。
+  const framed = decorated || canvas !== null;
   const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
     readImage,
     skin,
@@ -268,6 +310,8 @@ export function ExternalSkinCard({
     // The package drawn over its base theme, as `resolve()` layers them; a card has no pickers.
     ...customCandidateStyle(skin.base, undefined, palette),
     ...skinGeometryStyle(skin, theme),
+    // canvas 的内容／外留白和行距写在预览表面上，候选标记里的选择器按继承读到它们。
+    ...(canvas ? canvasVariables(canvas) : {}),
     // 放在包的几何之后：用户设的圆角压过包的圆角，与各宿主相同。
     ...candidateWindowStyle(windowStyle ?? {}),
   } as CSSProperties;
@@ -280,8 +324,8 @@ export function ExternalSkinCard({
   return (
     <article
       aria-label={skin.name}
-      // `external-skin-decorated` is the `@utility` that lays out the decoration band inside the preview.
-      className={`${settings.skinCard(selected)}${decorated ? " external-skin-decorated" : ""}`}
+      // `external-skin-decorated` is the `@utility` that lays out the decoration band inside the preview; canvas cards use it for the outer margins and decoration layers too.
+      className={`${settings.skinCard(selected)}${framed ? " external-skin-decorated" : ""}`}
     >
       <SkinCardHeader
         title={skin.name}
@@ -342,6 +386,11 @@ export function ExternalSkinCard({
             <SkinCandidatePreview
               orientation="horizontal"
               decorated={decorated}
+              canvas={canvas}
+              panelUrl={panel?.url}
+              readImage={readImage}
+              skinId={skin.id}
+              revision={revision}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
               background={drawnBackground}
@@ -352,6 +401,11 @@ export function ExternalSkinCard({
             <SkinCandidatePreview
               orientation="vertical"
               decorated={decorated}
+              canvas={canvas}
+              panelUrl={panel?.url}
+              readImage={readImage}
+              skinId={skin.id}
+              revision={revision}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
               background={drawnBackground}

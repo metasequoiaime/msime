@@ -27,6 +27,8 @@ import {
   symbolCategoryTitle,
 } from "./emoji-panel-helpers";
 import { usePanelAction } from "./use-panel-action";
+import { usePanelDrag } from "./use-panel-drag";
+import { useWindowResizeCapture } from "../settings/use-window-resize-capture";
 
 export type EmojiPage = "home" | "emoji" | "sticker" | "gif" | "kaomoji" | "symbols" | "clipboard";
 
@@ -97,6 +99,12 @@ export function useEmojiPanel(
   const [panelNotice, setPanelNotice] = useTimedValue<PanelNotice>(NO_NOTICE);
   const notice = panelNotice.toast ? "" : panelNotice.text;
   const toast = panelNotice.toast ? panelNotice.text : "";
+  const drag = usePanelDrag(client, () => setNotice("无法移动面板，请重试。"));
+  const resize = useWindowResizeCapture({
+    resizeWindow: client.resizeWindow,
+    windowMaximized: false,
+    setError: setNotice,
+  });
   const [catalog, setCatalog] = useState({
     emoji: fallbackEmojiGroups,
     kaomoji: fallbackKaomojiGroups,
@@ -154,11 +162,20 @@ export function useEmojiPanel(
       .then((next) => {
         if (generation !== catalogGeneration.current) return;
         const unavailable = next.unavailable ?? [];
-        setCatalog((current) => ({
-          emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
-          kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
-          symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
-        }));
+        setCatalog((current) => {
+          const groupsFor = (kind: keyof typeof current) =>
+            unavailable.includes(kind)
+              ? [
+                  ...current[kind].filter((group) => !group.pack),
+                  ...next[kind].filter((group) => group.pack),
+                ]
+              : next[kind];
+          return {
+            emoji: groupsFor("emoji"),
+            kaomoji: groupsFor("kaomoji"),
+            symbols: groupsFor("symbols"),
+          };
+        });
         setCatalogUnavailable(unavailable);
       })
       .catch(() => {
@@ -276,8 +293,8 @@ export function useEmojiPanel(
   const categoryKey = (group: EmojiCatalogGroup) =>
     group.pack !== undefined
       ? JSON.stringify(["pack", group.pack])
-      : page === "symbols" && group.parent
-        ? `parent:${group.parent}`
+      : page === "symbols"
+        ? JSON.stringify(["group", group.parent ?? "", group.title])
         : `group:${group.title}`;
   const categoryTabs: { id: string; title: string; icon: string }[] = [];
   for (const group of groups) {
@@ -285,7 +302,12 @@ export function useEmojiPanel(
     if (!categoryTabs.some((tab) => tab.id === id)) {
       categoryTabs.push({
         id,
-        title: page === "symbols" ? group.parent || group.title : group.title,
+        title:
+          page === "symbols"
+            ? group.pack !== undefined
+              ? group.parent || group.title
+              : symbolCategoryTitle(group.title)
+            : group.title,
         icon: group.icon,
       });
     }
@@ -538,27 +560,31 @@ export function useEmojiPanel(
   const sourceGroups =
     page === "home" ? homeGroups.filter((group) => group.items.length) : filteredGroups;
   const seenDisplayItems = new Set<string>();
-  const displayGroups = sourceGroups
-    .map((group) => ({
-      ...group,
-      items: group.items
-        .filter((item) => {
-          if (seenDisplayItems.has(item.text)) return false;
-          seenDisplayItems.add(item.text);
-          return true;
-        })
-        .slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
-    }))
-    .filter((group) => group.items.length);
+  const uniqueGroups = sourceGroups.map((group) => ({
+    ...group,
+    // 插件详情保留每组完整项目；首页合并预览和内置组仍按文本去重。
+    items:
+      page !== "home" && group.pack !== undefined
+        ? group.items
+        : group.items.filter((item) => {
+            if (seenDisplayItems.has(item.text)) return false;
+            seenDisplayItems.add(item.text);
+            return true;
+          }),
+  }));
   const itemPageCount = Math.max(
     1,
-    Math.max(
-      ...(page === "home" ? homeGroups : filteredGroups).map((group) =>
-        Math.ceil(group.items.length / itemsPerPage),
-      ),
-      1,
-    ),
+    ...uniqueGroups.map((group) => Math.ceil(group.items.length / itemsPerPage)),
   );
+  useLayoutEffect(() => {
+    setItemPage((value) => Math.min(value, itemPageCount - 1));
+  }, [itemPageCount]);
+  const displayGroups = uniqueGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
+    }))
+    .filter((group) => group.items.length);
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
@@ -650,6 +676,8 @@ export function useEmojiPanel(
     captureStatus,
     notice,
     toast,
+    drag,
+    resize,
     catalogUnavailable,
     catalogLoading,
     categoryPage,
