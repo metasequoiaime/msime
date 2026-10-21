@@ -163,6 +163,27 @@ function Assert-SelectedAccent($element) {
         $bitmap.Dispose()
     }
 }
+function Wait-PageIntroName($window, [string]$page) {
+    # 节点先出现、名称稍后才可读；每轮重新查询，返回当次名称，避免断言再读到重建中的节点。
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        try {
+            $content = Find-ById $window 'settings-content'
+            if ($content) {
+                if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
+                $intro = Find-ById $content "settings-page-$page"
+                if ($intro) {
+                    $name = $intro.Current.Name
+                    if (-not [string]::IsNullOrWhiteSpace($name)) { return $name }
+                }
+            }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+            # 页面异步重建会让刚查到的节点失效，下一轮重新查询。
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Page did not expose a name: $page"
+}
 function Open-Page($window, [string]$page) {
     # 下拉框等弹出层刚关闭时，UIA 树要稍晚才把侧栏交回来；等待导航项而非固定延时。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -192,14 +213,7 @@ function Open-Page($window, [string]$page) {
         if (-not $selected) { Start-Sleep -Milliseconds 200 }
     } while (-not $selected -and [DateTime]::UtcNow -lt $deadline)
     if (-not $selected) { throw "Native page could not be selected after scrolling: $page" }
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    do {
-        Start-Sleep -Milliseconds 200
-        $content = Find-ById $window 'settings-content'
-        $title = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
-    } while (-not $title -and [DateTime]::UtcNow -lt $deadline)
-    if (-not $title) { throw "Page did not change to $page" }
-    if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
+    Wait-PageIntroName $window $page | Out-Null
 }
 function Wait-WubiControl($window, [string]$id) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -301,8 +315,8 @@ function Select-PageTab($window, [string]$id, [string]$expected) {
 }
 function Assert-PageIntro($window, [string]$page, [string]$expected) {
     # 页首引导随页内标签换成那个标签的说明（SettingsMascotIntro.h）。
-    $intro = Find-ById (Find-ById $window 'settings-content') "settings-page-$page"
-    if (-not $intro -or $intro.Current.Name -ne $expected) { throw "Page intro of $page does not follow its tab: expected '$expected'" }
+    $name = Wait-PageIntroName $window $page
+    if ($name -ne $expected) { throw "Page intro of $page does not follow its tab: expected '$expected'" }
 }
 function Wait-RelayControl($window, [string]$id) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -422,21 +436,14 @@ try {
                 # 与 macOS 一样，标题栏里只有页名，没有跨页面的历史返回按钮。
                 if (Find-ByName $window '返回') { throw "Settings title bar still has a history back button on $page" }
                 # 页首照 macOS 的水杉娘引导（SettingsMascotIntro.h）：除「关于」外，正文顶部是一句说明配插画，说明带 settings-page-<页面>；「关于」没有引导，这个 ID 落在品牌卡的产品名上。
-                # 账号页进来后在工作线程读登录状态，读完整页重画；Open-Page 等到的页首可能正好在重画间隙里不在树上，所以这里重新等它出现（CI 上深色 1000 宽的账号页两次因此拿到空值）。
-                $deadline = [DateTime]::UtcNow.AddSeconds(10)
-                do {
-                    $content = Find-ById $window 'settings-content'
-                    $intro = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
-                    if ($intro) { break }
-                    Start-Sleep -Milliseconds 200
-                } while ([DateTime]::UtcNow -lt $deadline)
-                if (-not $intro) { throw "Page intro of $page is missing" }
+                $introName = Wait-PageIntroName $window $page
+                $content = Find-ById $window 'settings-content'
                 if ($page -eq 'about') {
-                    if (-not $window.Current.Name.StartsWith($intro.Current.Name + ' · ')) { throw "About page identifies itself as '$($intro.Current.Name)' instead of the product name" }
-                } elseif (-not $intro.Current.Name.EndsWith('。')) {
-                    throw "Page intro of $page is not a sentence: '$($intro.Current.Name)'"
+                    if (-not $window.Current.Name.StartsWith($introName + ' · ')) { throw "About page identifies itself as '$introName' instead of the product name" }
+                } elseif (-not $introName.EndsWith('。')) {
+                    throw "Page intro of $page is not a sentence: '$introName'"
                 }
-                if ($page -eq 'account' -and $intro.Current.Name -ne '管理账号与跨设备设置同步。') { throw "Account page intro does not follow macOS: '$($intro.Current.Name)'" }
+                if ($page -eq 'account' -and $introName -ne '管理账号与跨设备设置同步。') { throw "Account page intro does not follow macOS: '$introName'" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
                 if ($page -eq 'clip') {
