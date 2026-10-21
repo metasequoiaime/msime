@@ -49,6 +49,61 @@ test("面板状态支持目录分页、搜索复位和更多入口", async () =>
   expect(result.current.effectiveMode).toBe("copy");
 });
 
+test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目分页", async (uniqueCount) => {
+  const shared = Array.from({ length: 48 }, (_, index) => ({
+    text: `合成共同项${index}`,
+    keywords: `shared-${index}`,
+  }));
+  const unique = Array.from({ length: uniqueCount }, (_, index) => ({
+    text: `合成新增项${index}`,
+    keywords: `unique-${index}`,
+  }));
+  const client = {
+    close: async () => {},
+    loadCatalog: async () => ({
+      emoji: [],
+      symbols: [],
+      kaomoji: [
+        {
+          title: "合成甲组",
+          icon: ";-)",
+          pack: "synthetic-a",
+          keywords: "合成检索",
+          items: shared,
+        },
+        {
+          title: "合成乙组",
+          icon: ";-)",
+          pack: "synthetic-b",
+          keywords: "合成检索",
+          items: [...shared, ...unique],
+        },
+      ],
+    }),
+  };
+  const { result } = renderHook(() => useEmojiPanel(client));
+  await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+  act(() => result.current.selectPage("kaomoji"));
+  act(() => result.current.updateQuery("合成检索"));
+  const pageCount = Math.ceil(uniqueCount / 48);
+  expect(result.current.itemPageCount).toBe(pageCount);
+  const displayed: string[] = [];
+  for (let page = 0; page < pageCount; page++) {
+    expect(result.current.itemPage).toBe(page);
+    expect(result.current.displayGroups.length).toBeGreaterThan(0);
+    displayed.push(
+      ...result.current.displayGroups.flatMap((group) => group.items.map((item) => item.text)),
+    );
+    act(() => result.current.nextItemPage());
+  }
+  expect(displayed).toEqual([...shared, ...unique].map((item) => item.text));
+  expect(result.current.itemPage).toBe(pageCount - 1);
+  if (pageCount > 1) {
+    act(() => result.current.previousItemPage());
+    expect(result.current.itemPage).toBe(0);
+  }
+});
+
 test("候选操作成功后才记录最近使用，客户端切换隔离迟到结果", async () => {
   const pending = deferred<void>();
   const first: EmojiPanelClient = { close: async () => {}, copyText: () => pending.promise };

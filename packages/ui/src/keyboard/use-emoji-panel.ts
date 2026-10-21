@@ -538,27 +538,24 @@ export function useEmojiPanel(
   const sourceGroups =
     page === "home" ? homeGroups.filter((group) => group.items.length) : filteredGroups;
   const seenDisplayItems = new Set<string>();
-  const displayGroups = sourceGroups
-    .map((group) => ({
-      ...group,
-      items: group.items
-        .filter((item) => {
-          if (seenDisplayItems.has(item.text)) return false;
-          seenDisplayItems.add(item.text);
-          return true;
-        })
-        .slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
-    }))
-    .filter((group) => group.items.length);
+  const uniqueGroups = sourceGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      if (seenDisplayItems.has(item.text)) return false;
+      seenDisplayItems.add(item.text);
+      return true;
+    }),
+  }));
   const itemPageCount = Math.max(
     1,
-    Math.max(
-      ...(page === "home" ? homeGroups : filteredGroups).map((group) =>
-        Math.ceil(group.items.length / itemsPerPage),
-      ),
-      1,
-    ),
+    ...uniqueGroups.map((group) => Math.ceil(group.items.length / itemsPerPage)),
   );
+  const displayGroups = uniqueGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
+    }))
+    .filter((group) => group.items.length);
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
