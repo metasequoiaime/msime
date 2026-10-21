@@ -1323,7 +1323,7 @@ pub struct MentionEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EnglishInputOptions {
     pub mixed_candidates: bool,
-    /// 1..=8.
+    /// 补全与英文领先的触发字符数，范围 1..=8；26 键中更短的完整词可选，但不抢占中文首选。
     pub minimum_prefix: usize,
 }
 

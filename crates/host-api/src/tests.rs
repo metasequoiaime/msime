@@ -13525,10 +13525,11 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
         "a failed card stays in its session"
     );
 
-    // The next day the recalled card is due again and the counts start over.
+    // 次日两张复习卡加上尚未开始的 gamma 新卡，今日待复习共三张。
     let tomorrow = call("2026-09-24", json!({"operation": "load"}));
     assert_eq!(tomorrow["value"]["answeredToday"], 0);
-    assert_eq!(tomorrow["value"]["due"], 2);
+    assert_eq!(tomorrow["value"]["due"], 3);
+    assert_eq!(tomorrow["value"]["introducing"], 1);
 
     // Settings round-trip through the boundary.
     let settings = call(
@@ -17258,6 +17259,7 @@ fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
     }
 }
 
+mod fuzzy_single;
 mod lifecycle_traces;
 #[cfg(any(
     target_os = "macos",

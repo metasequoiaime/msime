@@ -1655,7 +1655,7 @@ static void TestPairedPunctuationClosesThePair() {
 }
 
 static void TestPairedPunctuationClosesBrace() {
-    // The reference routes `{` through its punctuation path and appends `}` (`_GetPairedPunctuationClosingFor`), with or without a live composition. The Engine answers `{` as ASCII, so the host opens the pair itself and the closing mark rides after the caret like the other pairs.
+    // 独立英文模式保留大括号的成对补全；普通中文方案的 Shift+[ / Shift+] 另测直角引号。
     NSString *suite = [@"app.msime.test.paired-brace." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -1667,7 +1667,7 @@ static void TestPairedPunctuationClosesBrace() {
     [controller setValue:appearance forKey:@"appearance"];
     [controller setValue:session forKey:@"session"];
     [controller setValue:client forKey:@"activeClient"];
-    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    NSDictionary *idle = @{ @"dedicated_english": @YES, @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
     NSEvent *brace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
                                       timestamp:0 windowNumber:0 context:nil characters:@"{" charactersIgnoringModifiers:@"["
                                       isARepeat:NO keyCode:33];
@@ -1703,7 +1703,7 @@ static void TestPairedPunctuationClosesBrace() {
     // Composing: the Engine commits the highlighted candidate followed by `{`, and the pair is still opened.
     client.document = @"";
     client.selection = NSMakeRange(0, 0);
-    [controller setValue:@{ @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:@{ @"dedicated_english": @YES, @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
     session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"你{", @"view": idle };
     assert([controller handleEvent:brace client:client]);
     assert([client.committed isEqual:@"你{"] && [client.marked isEqual:@"}"] && session.asciiCalls == asciiBeforeStep);
@@ -1717,7 +1717,7 @@ static void TestPairedPunctuationClosesBrace() {
     assert([controller handleEvent:brace client:client]);
     assert([client.committed isEqual:@"｛"] && [client.marked isEqual:@"｝"]);
     [controller flushPendingPairedClosing];
-    [controller setValue:@{ @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:@{ @"dedicated_english": @YES, @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
     session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"你{", @"view": idle };
     assert([controller handleEvent:brace client:client]);
     assert([client.committed isEqual:@"你｛"] && [client.marked isEqual:@"｝"]);
@@ -1738,6 +1738,136 @@ static void TestPairedPunctuationClosesBrace() {
         assert(session.asciiCalls == 1 && session.lastASCII == '{' && session.punctuationASCIICalls == punctuationCalls);
         assert([client.committed isEqual:@"{"] && client.marked.length == 0);
     }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// 从原生控制器到真实 Rust 会话验证键位，使用合成词库和合成输入，不依赖本机词库。
+static void AssertShiftCornerQuotes(NSDictionary *overrides, NSString *typed, NSString *expected,
+                                   NSEventModifierFlags extraFlags = 0) {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *preferences = [@{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
+        @"learning": @NO, @"chinese_punctuation": @YES, @"paired_punctuation": @YES,
+        @"smart_punctuation": @NO, @"cloud_candidates": @NO} mutableCopy];
+    [preferences addEntriesFromDictionary:overrides];
+    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    // 可选方案必须有对应资源才能启用；用合成空库，避免「请求五笔、实际回退全拼」的假覆盖。
+    options[@"language_dictionaries"] = options[@"resources"];
+    for (NSString *name in @[@"msime-wubi.db", @"msime-zhuyin.db"]) {
+        sqlite3 *database = nullptr;
+        NSString *path = [options[@"resources"] stringByAppendingPathComponent:name];
+        assert(sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK);
+        assert(sqlite3_exec(database,
+            "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;"
+            "INSERT INTO metadata VALUES('format_version','1');"
+            "CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;"
+            "CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key,text)) WITHOUT ROWID;"
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);", nullptr, nullptr, nullptr) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+    }
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    if (!session || error) fprintf(stderr, "corner quote session: %s\n", error.localizedDescription.UTF8String);
+    assert(session && !error);
+    NSDictionary *view = [session setFocused:YES error:&error][@"view"];
+    assert(view && !error);
+    NSDictionary *schemes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"korean": @4,
+        @"zhuyin": @6, @"vietnamese": @7};
+    assert([view[@"scheme"] isEqual:schemes[preferences[@"scheme"]]]);
+    NSString *suite = [@"msime.shift-corner-quotes." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+        skinsRoot:[NSURL fileURLWithPath:root]];
+    [prefs applySharedInputPreferences:preferences];
+    prefs.cloudCandidates = NO;
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    client.selection = NSMakeRange(0, 0);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:view forKey:@"view"];
+    [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+    for (NSUInteger index = 0; index < typed.length; ++index) {
+        NSString *character = [typed substringWithRange:NSMakeRange(index, 1)];
+        const unichar ascii = [character characterAtIndex:0];
+        const unsigned short code = ascii == '{' || ascii == '[' ? 33 : ascii == '}' || ascii == ']' ? 30 :
+            ascii == '\'' || ascii == '"' ? 39 : ascii == 'n' ? 45 : ascii == 'i' ? 34 : 49;
+        const BOOL shift = ascii == '{' || ascii == '}' || ascii == '"';
+        if (![controller handleEvent:LayoutKey(code, character, (shift ? NSEventModifierFlagShift : 0) | extraFlags) client:client])
+            [client insertText:character replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    }
+    [controller flushPendingPairedClosing];
+    if (![client.document isEqual:expected])
+        fprintf(stderr, "shift corner quotes: requested=%s initial=%d current=%d document=%s expected=%s\n", [preferences[@"scheme"] UTF8String], MSIMEViewScheme(view), MSIMEViewScheme([controller valueForKey:@"view"]), client.document.UTF8String, expected.UTF8String);
+    assert([client.document isEqual:expected]);
+    assert([session closeWithError:&error] && !error);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+static void TestShiftCornerQuotesThroughRealSession() {
+    for (NSString *scheme in @[@"quanpin", @"shuangpin", @"wubi"]) {
+        for (NSNumber *paired in @[@NO, @YES]) {
+            for (NSString *width in @[@"halfwidth", @"fullwidth"]) {
+                NSDictionary *preferences = @{@"scheme": scheme, @"paired_punctuation": paired, @"character_width": width};
+                AssertShiftCornerQuotes(preferences, @"{}", @"「」");
+                // 普通方头括号仍走原来的中文标点映射。
+                if (!paired.boolValue) AssertShiftCornerQuotes(preferences, @"{}[]", @"「」【】");
+            }
+        }
+    }
+    AssertShiftCornerQuotes(@{@"paired_punctuation": @NO}, @"\"\"{}''", @"“”「」‘’");
+    AssertShiftCornerQuotes(@{@"paired_punctuation": @NO, @"quote_style": @"corner"}, @"\"\"{}''", @"『』「」「」");
+    // 空词库仍有正在编辑的拼音：标点必须保留原始组字，不能吞掉它。
+    AssertShiftCornerQuotes(@{}, @"ni{}", @"ni「」");
+    AssertShiftCornerQuotes(@{}, @"{ni}", @"「ni」");
+    AssertShiftCornerQuotes(@{@"paired_punctuation": @NO}, @"{ni}", @"「ni」");
+    AssertShiftCornerQuotes(@{@"chinese_punctuation": @NO}, @"{}", @"{}");
+    AssertShiftCornerQuotes(@{@"punctuation_lock": @"english"}, @"{}", @"{}");
+    AssertShiftCornerQuotes(@{@"caps_lock_ascii_punctuation": @YES, @"paired_punctuation": @NO},
+        @"{}", @"{}", NSEventModifierFlagCapsLock);
+    AssertShiftCornerQuotes(@{@"caps_lock_ascii_punctuation": @NO}, @"{}", @"「」", NSEventModifierFlagCapsLock);
+    AssertShiftCornerQuotes(@{@"scheme": @"korean"}, @"{}", @"{}");
+    AssertShiftCornerQuotes(@{@"scheme": @"vietnamese"}, @"{}", @"{}");
+    AssertShiftCornerQuotes(@{@"scheme": @"zhuyin"}, @"{}", @"『』");
+
+    // 文档里已有自动补出的右引号时，只有 tracker 和光标后文字同时匹配才跨过。
+    NSString *suite = [@"msime.corner-quote-skip." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ShortcutSession *session = [ShortcutSession new];
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"「合成」";
+    client.selection = NSMakeRange(3, 0);
+    NSDictionary *idle = @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]};
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:idle forKey:@"view"];
+    // 通过既有成对上屏路线登记，避免直接修改 tracker 的内部栈。
+    [controller apply:@{@"commit": @"「合成」", @"view": idle}];
+    client.document = @"「合成」";
+    client.selection = NSMakeRange(3, 0);
+    assert([controller handleEvent:LayoutKey(30, @"}", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"「合成」"] && client.selection.location == 4);
+    assert(session.punctuationASCIICalls == 0);
+    // 原有右引号没有登记过，照常插入一个，不得把文档里的字跳掉。
+    client.selection = NSMakeRange(3, 0);
+    session.punctuationASCIITransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": idle};
+    assert([controller handleEvent:LayoutKey(30, @"}", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"「合成」」"] && session.punctuationASCIICalls == 1);
+    // 会话失败保留正在编辑的拼音，不插入标点。
+    session.punctuationASCIITransition = nil;
+    [controller setValue:@{@"editing_text": @"ni", @"candidates": @[]} forKey:@"view"];
+    assert([controller handleEvent:LayoutKey(33, @"{", NSEventModifierFlagShift) client:client]);
+    assert([client.document isEqual:@"「合成」」"] && [[[controller valueForKey:@"view"] objectForKey:@"editing_text"] isEqual:@"ni"]);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -4164,34 +4294,34 @@ static void TestStaleDeactivationLeavesTheCurrentPairOpen() {
     baseDeactivationCalls = 0;
     IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
 
-    // 当前客户端打开了一对 `{}`，`}` 作为 marked text 的尾巴等着补上。
+    // 当前客户端打开了一对 `「」`，`」` 作为 marked text 的尾巴等着补上。
     session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
     assert([controller handleEvent:brace client:current]);
-    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    assert([current.committed isEqual:@"「"] && [current.marked isEqual:@"」"]);
     for (id stale in @[previous, NSNull.null]) {
         [controller deactivateServer:stale == NSNull.null ? nil : stale];
-        assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"] && current.insertions.count == 1);
+        assert([current.committed isEqual:@"「"] && [current.marked isEqual:@"」"] && current.insertions.count == 1);
         assert(previous.insertions.count == 0 && previous.marked == nil);
-        assert([[controller valueForKey:@"pendingPairedClosing"] isEqual:@"}"]);
+        assert([[controller valueForKey:@"pendingPairedClosing"] isEqual:@"」"]);
         assert([controller valueForKey:@"activeClient"] == current && baseDeactivationCalls == 0);
     }
 
-    // 这一对仍归当前客户端：下一次上屏把 `}` 一起带走，之后在它前面敲的 `}` 被跨过去。
+    // 这一对仍归当前客户端：下一次上屏把 `」` 一起带走，之后在它前面敲的 `」` 被跨过去。
     [controller apply:@{ @"commit": @"a", @"view": idle }];
-    assert([current.committed isEqual:@"a}"] && [current.document isEqual:@"{a}"]);
+    assert([current.committed isEqual:@"a」"] && [current.document isEqual:@"「a」"]);
     for (id stale in @[previous, NSNull.null]) [controller deactivateServer:stale == NSNull.null ? nil : stale];
     current.selection = NSMakeRange(2, 0);
     const NSUInteger asciiBeforeStep = session.asciiCalls;
     assert([controller handleEvent:closeBrace client:current]);
-    assert(session.asciiCalls == asciiBeforeStep && [current.document isEqual:@"{a}"] && current.selection.location == 3);
+    assert(session.asciiCalls == asciiBeforeStep && [current.document isEqual:@"「a」"] && current.selection.location == 3);
     assert(previous.insertions.count == 0 && previous.marked == nil);
 
     // 正常的 deactivate 照旧在自己的客户端里把这一对合上。
     current.selection = NSMakeRange(current.document.length, 0);
     assert([controller handleEvent:brace client:current]);
-    assert([current.committed isEqual:@"{"] && [current.marked isEqual:@"}"]);
+    assert([current.committed isEqual:@"「"] && [current.marked isEqual:@"」"]);
     [controller deactivateServer:current];
-    assert([current.committed isEqual:@"}"] && [current.document isEqual:@"{a}{}"]);
+    assert([current.committed isEqual:@"」"] && [current.document isEqual:@"「a」「」"]);
     assert([controller valueForKey:@"pendingPairedClosing"] == nil && [controller valueForKey:@"activeClient"] == nil);
     assert(baseDeactivationCalls == 1 && previous.insertions.count == 0);
     method_setImplementation(base, original);
@@ -10348,6 +10478,10 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
+        if (argc == 2 && std::string(argv[1]) == "--shift-corner-quotes") {
+            TestShiftCornerQuotesThroughRealSession();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
             TestGlassInputModeHUD(YES);
             return 0;
@@ -11486,7 +11620,7 @@ int main(int argc, char **argv) {
             [controller setValue:saved forKey:@"view"];
         }
         CheckMenu([controller menu], controller);
-        // Pairing sends a shifted `{` down the paired-punctuation route; this loop is about page keys versus typed keys only.
+        // Shift+[ / Shift+] 是直角引号键，仍不参与候选翻页；其它未翻页字符走普通输入。
         const BOOL pairedBeforePaging = appearance.pairedPunctuation;
         appearance.pairedPunctuation = NO;
         for (NSInteger option = 0; option < 3; ++option) {
@@ -11507,6 +11641,9 @@ int main(int argc, char **argv) {
                         if (paging) {
                             assert(session.lastCommand == (i % 2 == 0 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
                             assert(session.asciiCalls == 0);
+                        } else if (shift.boolValue && i >= 2) {
+                            assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+                            assert(session.lastPunctuationASCII == [characters characterAtIndex:0]);
                         } else {
                             assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1);
                             assert(session.lastASCII == [characters characterAtIndex:0] && session.lastShift == shift.boolValue);
@@ -12116,6 +12253,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestPairedPunctuationHostExclusion(); }
         @autoreleasepool { TestPairedPunctuationClosesThePair(); }
         @autoreleasepool { TestPairedPunctuationClosesBrace(); }
+        @autoreleasepool { TestShiftCornerQuotesThroughRealSession(); }
         @autoreleasepool { TestEmojiBridgeFallback(); }
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
