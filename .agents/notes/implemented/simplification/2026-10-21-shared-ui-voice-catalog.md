@@ -50,6 +50,6 @@ Linux 的生成模块 `msime_voice_provider_catalog.py` 同步导出 `ASR_PROVID
 - HTTP 迁移的完整 `bash scripts/verify-local.sh --quick` 通过：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 108 项测试与 full/五笔双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过；2 项由宿主差异排除、64 项需要 Windows 构建，未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。
 - Linux 迁移前固定七项识别和四项润色的真实公开目录，并用真实 `load_config` 记录 484 组合法/非法、自定义/默认及 profile 配置结果。注入合成模块的消费者探针在旧实现上以“识别服务集合仍是宿主副本”失败，确认测试能识别未接入生成数据的宿主。
 - Linux 消费者接入生成模块后，同一合成探针与两项持久回归通过：真实配置读取合成服务集合、默认地址/含中文与非 BMP 字符的模型、大小写 profile、本地 profile 与自定义值，实际请求按合成的 chat_audio 生成正文；移除的旧服务被真实校验拒绝。迁移前后 484 组配置解析逐字一致，原鸿蒙生成类逐字不变。
-- Linux 原生容器门禁通过：109 项 CTest 全部通过，full 与五笔版原生构建、两套安装路径隔离、辅助码、五笔宿主库链接和日文版登记检查完成。再用容器 Python `-I` 分别加载两套已安装的语音服务，两项目录与真实配置回归各自通过；新模块确实从各自安装目录导入。未启动真实 IBus/Fcitx5 输入会话。
+- Linux 原生容器门禁通过：109 项 CTest 中 108 项通过，`linux-ibus-demand-activation` 按环境条件跳过，零失败，full 与五笔版原生构建、两套安装路径隔离、辅助码、五笔宿主库链接和日文版登记检查完成。再用容器 Python `-I` 分别加载两套已安装的语音服务，两项目录与真实配置回归各自通过；新模块确实从各自安装目录导入。未启动真实 IBus/Fcitx5 输入会话。
 - Linux 独立审查未发现实质问题，另跑九项定向测试并核对原有五个公开表的名称、set/dict 类型和值、无参 JSON 语义和鸿蒙输出字节。导出器缺少新模块或模型被篡改时均拒绝，恢复后通过；定向 Python 共 14 项、格式与严格 clippy 通过。
-- Linux 迁移的完整 `bash scripts/verify-local.sh --quick` 以 `quick check passed` 结束：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 109 项测试与双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过，2 项由宿主差异排除、64 项需要 Windows 构建；未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。
+- Linux 迁移的完整 `bash scripts/verify-local.sh --quick` 以 `quick check passed` 结束：仓库契约、Rust workspace、Android 交叉检查和宿主 Java、Wasm、真实鸿蒙 HAP、Linux 设置应用、原生 108 项通过与 1 项条件跳过、双版本构建、macOS 原生和共享 Apple bridge 均完成。Windows 可移植测试 176 项通过，2 项由宿主差异排除、64 项需要 Windows 构建；未配置 MinGW 的原生交叉构建、x86 语法与 pipe-only 明确跳过。
