@@ -147,3 +147,15 @@ cargo run --quiet --locked -p msime-client-providers --example export_voice_prov
 ```
 
 Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
+
+## 共享润色提示词
+
+内置方案的名称与正文归 `crates/client-providers/src/voice/polish_catalog.rs`。修改它后，在仓库根目录运行：
+
+```sh
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --write
+pnpm exec vp fmt packages/ui/src/voice/polish-prompt-catalog.json packages/ui/src/voice/polish-preset-ids.ts
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
+```
+
+导出工具同步更新 UI JSON、公开 id 字面量元组、共享 C++ 目录头和 Linux Python 模块，Linux 设置应用 CI 检查它们。`scripts/test-polish-prompt-catalog.py` 用真实 C++ 解析函数和 Python 模块对照 UI JSON；没有 C++17 编译器时只明确跳过该部分。自定义槽位、未知方案与空正文的既有处理继续由各消费方的回归覆盖。
