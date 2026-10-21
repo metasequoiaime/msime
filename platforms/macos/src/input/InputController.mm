@@ -7433,7 +7433,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         layout ? std::optional<bool>(_candidateLayoutFitContent) : std::nullopt, scale));
     geometry.width = width;
     geometry.lineWidth = MAX(1, width - 2 * inset - pagerWidth);
-    const msime::mac::CandidatePageMeasure measure = [texts, annotations, translations, font, glossFont, scale, rowPadding](std::size_t row, msime::mac::CandidateRun run, double runWidth) {
+    const msime::candidate::CandidatePageMeasure measure = [texts, annotations, translations, font, glossFont, scale, rowPadding](std::size_t row, msime::candidate::CandidateRun run, double runWidth) {
         return MSIMECandidateRunMeasure(texts[row], annotations[row], translations[row], font, glossFont, scale, rowPadding)(run, runWidth);
     };
     // Horizontal rows keep the height a gloss will need even before it arrives, so the card does not grow under the user seconds after the composition started.
