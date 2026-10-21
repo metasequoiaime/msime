@@ -173,16 +173,16 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
         String prefix = "";
         for (String character : new String[] {"你", "好", "你", "好"}) {
             stage = "expand remaining composition after " + prefix.length() + " selections";
-            touch(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
             await(described(PANEL));
             stage = "filter the next syllable to single-character candidates";
             if (findKey(inPanel(described("只显示单字"))))
-                touch(inPanel(described("只显示单字")));
+                tap(inPanel(described("只显示单字")));
             await(inPanel(described("显示全部候选")));
             stage = "touch a single character from the remaining syllables";
             touch(inPanel(candidate(character)));
             prefix += character;
-            stage = "partial selection refreshes without the return action";
+            stage = "partial selection refreshes without the return action " + prefix.length();
             awaitGone(described(PANEL));
             final String selected = prefix;
             await(field("msime-test-plain").and(node -> node.getText() != null
