@@ -1048,6 +1048,10 @@ target_compile_options(voice-provider-settings-validation-test PRIVATE -fobjc-ar
 target_link_libraries(voice-provider-settings-validation-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-validation COMMAND voice-provider-settings-validation-test)
+add_executable(voice-polish-presets-test tests/voice/VoicePolishPresetsTest.mm)
+target_compile_options(voice-polish-presets-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-polish-presets-test PRIVATE "-framework AppKit")
+add_test(NAME voice-polish-presets COMMAND voice-polish-presets-test)
 add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm src/voice/HTTPVoiceRequest.mm)
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
