@@ -4254,6 +4254,9 @@ private:
     page.SizeChanged([](Inspectable const &sender, SizeChangedEventArgs const &args) {
       sender.as<StackPanel>().Padding(content_padding(args.NewSize().Width));
     });
+    // 正文列不跟着窗口无限变宽。共享样式给 Windows 和 macOS 的是 `max-w-none`（`settings-style.ts` 的 `contentColumn`），那是照 macOS 定的，而 Windows 上最大化是常态：在 1700 宽的窗口里一行的标签贴着最左、控件贴着最右，中间一千多 DIP 全是空白，单选项也被拉成几百 DIP 宽的大块。上限取共享样式自己的基准 900（Linux 680、HarmonyOS 760、iPad 720 也都限宽），初始的 1000 × 780 下正文只有 730 DIP，这个值不改变它的样子，只在窗口拉宽后把正文居中留白。
+    page.MaxWidth(900);
+    page.HorizontalAlignment(HorizontalAlignment::Center);
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)

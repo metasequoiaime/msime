@@ -37,6 +37,7 @@ Status: implemented
 - **代价**：同样的内容比原来高出不少，800 × 780 的窗口一屏能放的行变少。折叠区失去 ExpandCollapse 模式，读屏只从 ItemStatus 得知状态。卡片四角的悬停底色依赖 WinUI 的 `Border` 按 `CornerRadius` 裁剪子元素；若某个版本不裁，组首组末的跳转行悬停时会露出直角，只影响悬停的观感。
 - **重访信号**：macOS 的 `platform-tokens.ts` 改了 `group`、`groupTitle`、`groupsGap`，或 `settings-style.ts` 改了 `contentColumn`、`macosToolbar`；Windows App SDK 升级后 `Button` 模板不再读 `ButtonBackgroundPointerOver` 这组资源。
 - 页首插画、引导文案和「关于」页不放引导行由[页首引导与侧栏产品图标](2026-10-20-windows-settings-mascot-intro.md)接手，改的是 `make_page_header`。
+- 正文列随 macOS 一起「不限宽」这一点由[正文列限宽 900](../bug-fix/2026-10-21-windows-settings-content-max-width.md)取代：24/48/44 的边距照旧，但窗口拉宽后正文收在 900 DIP 并居中，默认的 1000 × 780 下版面不变。
 - 本篇取代[模板陷阱](../bug-fix/2026-10-17-windows-settings-winui-template-traps.md)第三条里「小标题 13 DIP、说明 11 DIP」的取值：「连接 AI 助手」的小标题和说明跟着 `add_row` 改为 14 / 12 DIP，那一条「内容直接进行面板、不套第二张卡片」的结论照旧成立。[Windows 界面采用 macOS 的分组与选中样式](2026-10-15-windows-ui-macos-layout.md)里的分组卡片与两列布局继续有效，具体数值以本篇为准。
 
 ## Verification
