@@ -40,3 +40,5 @@ Status: implemented
 2026-10-21 在 API 28 专用模拟器确认选词后停在展开页的回归：`CandidatePanelDeviceSmoke` 改为通过真实触摸选择第十个候选，再直接触摸字母键继续输入。旧包选词成功上屏，但后续输入断言失败，截图仍显示原展开列表。修复包通过同一回归，无需隐藏、重新打开输入法。`NineKeyPanelDeviceSmoke` 继续覆盖拼音锁定、退格、筛选和重输，并新增真实触摸选词后收起三栏面板、直接按九键继续输入的检查，也通过。
 
 验证包重新编译当前 Java 和资源，复用模拟器原安装包的原生库及词库；没有重新构建 Rust/原生库，没有在 API 35 或真机重复本轮验收。`check-host.sh` 通过 252 项 JVM 冒烟并编译 199 个设备源文件，Gradle `assembleFullRelease`、远端 `scripts/verify-local.sh --quick`、本地 `pnpm run verify-notes` 和 `git diff --check` 通过。
+
+#9197 补横向候选条的小鹤双拼部分选词设备回归：输入合成的「你好你好」，先真实滑动候选条，再触摸短候选「你好」。不发送额外按键、滑动或展开操作，直接要求编辑器保留前缀与剩余组字、首候选变为「你好」且旧长候选消失，随后选完剩余词。不能只检查「你好」仍存在，因为它在旧列表里也存在。复用 `CandidatePanelDeviceSmoke -e strip-partial-selection true`，清单入口改为产品目标以读取和恢复隔离偏好；原完整候选测试改用 shell 启动独立编辑器，避免跨进程 `startActivitySync`。设备对照与既有套件验证待执行。
