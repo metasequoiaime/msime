@@ -36,9 +36,18 @@ struct DoubaoHandshake {
 final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, DoubaoVoiceTransport {
   enum Failure: Error { case notConnected, closed }
 
-  private var session: URLSession?
-  private var task: URLSessionWebSocketTask?
-  private(set) var isConnected = false
+  private struct Connection {
+    let session: URLSession
+    let task: URLSessionWebSocketTask
+    var isConnected = false
+  }
+
+  private let stateLock = NSLock()
+  private var connection: Connection?
+
+  var isConnected: Bool {
+    stateLock.withLock { connection?.isConnected ?? false }
+  }
 
   func start(endpoint: URL) async throws {
     try await start(endpoint: endpoint, headers: [:])
@@ -49,15 +58,20 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
   }
 
   func start(endpoint: URL, headers: [String: String] = [:]) async throws {
-    guard task == nil else { return }
-    let configuration = URLSessionConfiguration.ephemeral
-    let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-    var request = URLRequest(url: endpoint)
-    request.allHTTPHeaderFields = headers
-    let task = session.webSocketTask(with: request)
-    task.maximumMessageSize = DoubaoVoiceCoordinator.maximumResponseFrameBytes
-    self.session = session
-    self.task = task
+    guard let current = stateLock.withLock({ () -> Connection? in
+      guard connection == nil else { return nil }
+      let configuration = URLSessionConfiguration.ephemeral
+      let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+      var request = URLRequest(url: endpoint)
+      request.allHTTPHeaderFields = headers
+      let task = session.webSocketTask(with: request)
+      task.maximumMessageSize = DoubaoVoiceCoordinator.maximumResponseFrameBytes
+      let current = Connection(session: session, task: task)
+      connection = current
+      return current
+    }) else { return }
+    let session = current.session
+    let task = current.task
     task.resume()
     do {
       try await withTaskCancellationHandler(operation: {
@@ -67,23 +81,22 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
           }
         }
       }, onCancel: {
+        _ = self.detachConnection(matching: task)
         task.cancel(with: .goingAway, reason: nil)
         session.invalidateAndCancel()
       })
       try Task.checkCancellation()
-      isConnected = true
+      let stillCurrent = stateLock.withLock {
+        guard connection?.task === task else { return false }
+        connection?.isConnected = true
+        return true
+      }
+      guard stillCurrent else { throw Failure.closed }
     } catch {
-      // Keep a failed or cancelled handshake retryable. The task is stored before
-      // sendPing so callbacks can observe it, but leaving it there after an error
-      // makes the next start() hit the `task == nil` guard and silently reuse a
-      // dead socket forever.
+      // 握手失败只移除自己的登记，不能清除已经开始的替代连接。
+      _ = detachConnection(matching: task)
       task.cancel(with: .goingAway, reason: nil)
       session.invalidateAndCancel()
-      if self.task === task {
-        self.task = nil
-        self.session = nil
-        self.isConnected = false
-      }
       throw error
     }
   }
@@ -96,12 +109,14 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
   }
 
   func send(binary frame: Data) async throws {
-    guard let task, isConnected else { throw Failure.notConnected }
+    let task = stateLock.withLock { connection?.isConnected == true ? connection?.task : nil }
+    guard let task else { throw Failure.notConnected }
     try await task.send(.data(frame))
   }
 
   func receive() async throws -> Data {
-    guard let task, isConnected else { throw Failure.notConnected }
+    let task = stateLock.withLock { connection?.isConnected == true ? connection?.task : nil }
+    guard let task else { throw Failure.notConnected }
     switch try await task.receive() {
     case .data(let frame): return frame
     case .string: throw Failure.closed
@@ -110,35 +125,38 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
   }
 
   func finish() {
-    task?.cancel(with: .normalClosure, reason: nil)
-    task = nil
-    session?.invalidateAndCancel()
-    session = nil
-    isConnected = false
+    guard let current = detachConnection() else { return }
+    current.task.cancel(with: .normalClosure, reason: nil)
+    current.session.invalidateAndCancel()
   }
 
   func cancel() {
-    task?.cancel(with: .goingAway, reason: nil)
-    task = nil
-    session?.invalidateAndCancel()
-    session = nil
-    isConnected = false
+    guard let current = detachConnection() else { return }
+    current.task.cancel(with: .goingAway, reason: nil)
+    current.session.invalidateAndCancel()
+  }
+
+  private func detachConnection(matching task: URLSessionWebSocketTask? = nil) -> Connection? {
+    stateLock.withLock {
+      guard let current = connection, task == nil || current.task === task else { return nil }
+      connection = nil
+      return current
+    }
   }
 
   func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                   didOpenWithProtocol protocol: String?) {
-    self.session = session
-    self.task = webSocketTask
-    isConnected = true
+    // delegate 队列里的旧回调不能重新登记已结束的连接。
+    stateLock.withLock {
+      guard connection?.task === webSocketTask, connection?.session === session else { return }
+      connection?.isConnected = true
+    }
   }
 
   func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                   didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-    guard self.task === webSocketTask else { return }
-    self.task = nil
-    self.session = nil
-    isConnected = false
-    // 清空成员后仍用回调参数失效会话，释放它持有的 delegate。
-    session.invalidateAndCancel()
+    guard let current = detachConnection(matching: webSocketTask) else { return }
+    // 锁外失效刚取出的会话，释放它持有的 delegate，避免重入状态锁。
+    current.session.invalidateAndCancel()
   }
 }
