@@ -106,6 +106,9 @@ int main() {
     require(msime::windows::shell_route_argument(request_for(shell_links::voice_panel)) == L"voice");
     require(msime::windows::shell_route_argument(
                 request_for(shell_links::cloud_dictionary)) == L"cloud-dictionary");
+    // 背单词子页的「开始复习」打开共享应用的背单词面板；设置类别 vocabulary 仍落到词库页。
+    require(msime::windows::shell_route_argument(
+                request_for(shell_links::vocabulary_panel)) == L"vocabulary");
 
     // Every settings category the shared routes know still opens a page here, and the ids the tray sends land where the features moved.
     const std::set<std::string_view> categories{

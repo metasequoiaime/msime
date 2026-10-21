@@ -116,6 +116,24 @@ fn panel_routes_keep_the_labels_the_hosts_already_use() {
     let keyboard = SurfaceRoute::Keyboard.panel().expect("keyboard is a panel");
     assert_eq!(keyboard.label, "keyboard-panel");
     assert_eq!(keyboard.query, "keyboard");
+    // 背单词面板与设置里的背单词页是两条路由：原生设置窗口的「开始复习」打开面板，`settings:vocabulary` 仍打开设置页。
+    assert_eq!(
+        SurfaceRoute::parse("vocabulary"),
+        Ok(SurfaceRoute::Vocabulary)
+    );
+    let vocabulary = SurfaceRoute::Vocabulary
+        .panel()
+        .expect("vocabulary is a panel");
+    assert_eq!(
+        (vocabulary.label, vocabulary.width, vocabulary.height),
+        ("vocabulary-panel", 560, 680)
+    );
+    assert_eq!(
+        SurfaceRoute::parse("settings:vocabulary")
+            .unwrap()
+            .settings_category(),
+        Some(SettingsCategory::Vocabulary)
+    );
     for route in SurfaceRoute::ALL {
         let Some(panel) = route.panel() else { continue };
         // The window label is the query with the shared panel suffix.

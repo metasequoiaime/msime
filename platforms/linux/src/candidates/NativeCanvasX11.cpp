@@ -41,6 +41,7 @@ struct NativeCanvasX11::Impl {
   int window_x = 0, window_y = 0;
   int measured_work_width = 0, measured_work_height = 0;
   int pressed = -1, hovered = -1;
+  double thumb_grab = 0;
   int cursor_x = 0, cursor_y = 0, cursor_height = 0;
   // 这次显示以来竖排最高的一页（决定翻不翻到光标上方）和横排最宽的一张卡片（卡片只变宽不变窄），隐藏后从头记。
   double tallest = 0, widest = 0;
@@ -119,6 +120,8 @@ struct NativeCanvasX11::Impl {
         [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) { events(); return true; });
     return true;
   }
+  // 展开着：chrome 的网格（grid_columns）或 canvas 包的卷轴（expanded）。
+  bool expanded() const { return content.expanded || content.grid_columns > 0; }
   int hit(int x, int y) const {
     return native_canvas_hit(content, layout, x / scale - inset.left, y / scale - inset.top);
   }
@@ -130,6 +133,20 @@ struct NativeCanvasX11::Impl {
     else XUndefineCursor(display, window);
     XFlush(display);
   }
+  // canvas 包卷轴的滚动：画布自己记滚动位置（content.scroll_offset），接近底部时多排一批网格项。`y` 都是卡片坐标（已减去投影边距）。
+  void scroll(double offset, bool dragging = false) {
+    content.scroll_offset = std::clamp(offset, 0.0, layout.max_scroll);
+    if (layout.max_scroll - content.scroll_offset <= layout.scroll_step * 1.5 &&
+        content.grid_limit < content.grid_items.size()) content.grid_limit += 300;
+    pressed = dragging ? kNativeCanvasHitScrollbar : -1;
+    hovered = -1;
+    if (measure()) { shape(); place(); paint(); }
+  }
+  void drag(double y) {
+    const double travel = layout.scrollbar.height - layout.thumb.height;
+    if (travel <= 0) return;
+    scroll((y - thumb_grab - layout.scrollbar.y) / travel * layout.max_scroll, true);
+  }
   void events() {
     while (display && XPending(display)) {
       XEvent event{};
@@ -137,6 +154,7 @@ struct NativeCanvasX11::Impl {
       if (!visible) continue;
       if (event.type == Expose && event.xexpose.count == 0) paint();
       if (event.type == MotionNotify || event.type == EnterNotify) {
+        if (event.type == MotionNotify && pressed == kNativeCanvasHitScrollbar) { drag(event.xmotion.y / scale - inset.top); continue; }
         const int at = event.type == MotionNotify ? hit(event.xmotion.x, event.xmotion.y) : hit(event.xcrossing.x, event.xcrossing.y);
         pointer(at);
         if (hovered != at) { hovered = at; paint(); }
@@ -147,13 +165,24 @@ struct NativeCanvasX11::Impl {
       }
       if (event.type == ButtonPress) {
         if (event.xbutton.button == Button3) menu(hit(event.xbutton.x, event.xbutton.y));
-        if (event.xbutton.button == Button1) { pressed = hit(event.xbutton.x, event.xbutton.y); paint(); }
+        if (event.xbutton.button == Button1) {
+          pressed = hit(event.xbutton.x, event.xbutton.y);
+          if (pressed == kNativeCanvasHitScrollbar) {
+            // 按在滑块上时拖着它走，按在轨道上时滑块中心跳到这里。
+            const double x = event.xbutton.x / scale - inset.left, y = event.xbutton.y / scale - inset.top;
+            thumb_grab = layout.thumb.contains(x, y) ? y - layout.thumb.y : layout.thumb.height / 2;
+            drag(y);
+          }
+          paint();
+        }
         if (event.xbutton.button == Button4 || event.xbutton.button == Button5) {
           const bool forward = event.xbutton.button == Button5;
-          // 网格的滚轮一格滚一行，不看「滚轮翻页」开关（macOS 的网格滚轮同样与它无关）；普通候选窗照旧按开关翻页。
+          // 展开后滚轮滚动内容，不看「滚轮翻页」开关（macOS 的网格滚轮同样与它无关）：chrome 的网格一格滚一行，canvas 包的卷轴按候选行高滚。普通候选窗照旧按开关翻页。
           if (content.grid_columns > 0) {
-            const auto scroll = content.grid_scroll;
-            if (scroll) scroll(!forward);
+            const auto scroll_grid = content.grid_scroll;
+            if (scroll_grid) scroll_grid(!forward);
+          } else if (content.expanded) {
+            if (layout.viewport.height > 0) scroll(layout.scroll_offset + (forward ? 1 : -1) * layout.scroll_step);
           } else if (content.wheel_paging) {
             const auto page = content.page;
             if (page && (forward ? content.next : content.previous)) page(forward);
@@ -169,10 +198,10 @@ struct NativeCanvasX11::Impl {
         const auto select = content.select;
         const auto page = content.page;
         const auto expand = content.expand;
-        const bool grid = content.grid_columns > 0;
+        // 候选下标接着 items 往后数到 canvas 卷轴的网格项，都交给 select，由宿主按全局身份选。
         if (item >= 0 && select) select(item);
         else if ((item == kNativeCanvasHitPrevious || item == kNativeCanvasHitNext) && page) page(item == kNativeCanvasHitNext);
-        else if (item == kNativeCanvasHitExpand && expand) expand(!grid);
+        else if (item == kNativeCanvasHitExpand && expand) expand(!expanded());
       }
     }
   }
@@ -197,7 +226,7 @@ struct NativeCanvasX11::Impl {
     return work;
   }
   bool steadyWidth() const {
-    return assets && assets->chrome && content.horizontal && !assets->fit_content && !content.menu && content.grid_columns == 0;
+    return assets && assets->chrome && content.horizontal && !assets->fit_content && !content.menu && !expanded();
   }
   bool measure() {
     const auto work = workArea();
@@ -205,25 +234,34 @@ struct NativeCanvasX11::Impl {
     auto *cr = cairo_create(surface);
     const bool steady = steadyWidth();
     content.minimum_width = steady && visible ? widest : 0;
-    double limit = std::min(work.width, 8192) / scale;
+    // canvas 包的卷轴展开后，窗口连同挂件、外留白限制在工作区的一半以内，放不下时视口变矮、可以滚动；chrome 的网格宽度已按可见区域的一半封顶，高度由可见行数决定，仍只受整个工作区限制。
+    const bool half = content.expanded && content.grid_columns == 0 && !assets->chrome;
+    const double max_width = std::min(half ? work.width / 2 : work.width, 8192);
+    const double max_height = std::min(half ? work.height / 2 : work.height, 8192);
+    double limit = max_width / scale;
+    double height_limit = half ? max_height / scale : -1;
     double previous_width = std::numeric_limits<double>::infinity();
-    // 外留白和挂件也占窗口宽度；收紧面板后重新排字，不能在提交窗口时裁切。记住的最宽卡片在换到更窄的屏幕后放不下时先放弃它。
+    // 外留白、挂件和投影边距也占窗口宽度；收紧面板后重新排字，不能在提交窗口时裁切。记住的最宽卡片在换到更窄的屏幕后放不下时先放弃它。
     for (int attempt = 0; attempt < 8; ++attempt) {
-      layout = measure_native_canvas(cr, *assets, content, limit);
+      layout = measure_native_canvas(cr, *assets, content, limit, height_limit);
       inset = native_canvas_shadow_insets(layout, composited);
-      const double wanted = std::ceil((layout.width + inset.left + inset.right) * scale);
-      if (wanted <= std::min(work.width, 8192)) break;
-      if (content.minimum_width > 0) { content.minimum_width = 0; continue; }
-      if (wanted >= previous_width) break;
-      previous_width = wanted;
-      limit = layout.panel.width - (wanted - std::min(work.width, 8192)) / scale - 1;
-      if (limit <= 0) break;
+      const double wanted_x = std::ceil((layout.width + inset.left + inset.right) * scale);
+      const double wanted_y = std::ceil((layout.height + inset.top + inset.bottom) * scale);
+      const bool fits_x = wanted_x <= max_width, fits_y = !half || wanted_y <= max_height;
+      if (fits_x && fits_y) break;
+      if (!fits_x && content.minimum_width > 0) { content.minimum_width = 0; continue; }
+      if (!fits_x) {
+        if (wanted_x >= previous_width) break;
+        previous_width = wanted_x;
+        limit = layout.panel.width - (wanted_x - max_width) / scale - 1;
+      }
+      if (!fits_y) height_limit -= (wanted_y - max_height) / scale + 1;
+      if (limit <= 0 || (half && height_limit <= 0)) break;
     }
     cairo_destroy(cr); cairo_surface_destroy(surface);
     const double wanted_width = std::ceil((layout.width + inset.left + inset.right) * scale);
     const double wanted_height = std::ceil((layout.height + inset.top + inset.bottom) * scale);
-    if (wanted_width <= 0 || wanted_height <= 0 || wanted_width > work.width ||
-        wanted_height > work.height || wanted_width > 8192 || wanted_height > 8192) return false;
+    if (wanted_width <= 0 || wanted_height <= 0 || wanted_width > max_width || wanted_height > max_height) return false;
     width = static_cast<int>(wanted_width); height = static_cast<int>(wanted_height);
     measured_work_width = work.width; measured_work_height = work.height;
     const NativeCanvasRect card{inset.left + layout.panel.x, inset.top + layout.panel.y, layout.panel.width, layout.panel.height};
@@ -419,12 +457,14 @@ struct NativeCanvasX11::Impl {
       XUnionRectWithRegion(&rectangle, region, region);
     };
     if (clickable) {
-      for (const auto &box : layout.items) add(box);
+      // canvas 包的卷轴整块视口接收点击和滚轮（滚出去的候选不吞点击，视口留白仍能滚动、拖滑块）；其余只有候选行接收。
+      if (layout.viewport.height > 0) add(layout.viewport);
+      else for (const auto &box : layout.items) add(box);
       // 禁用箭头仍占输入区域，点击不应穿透到编辑器或下面的窗口。
       if (layout.chrome ? layout.page_controls && content.grid_columns == 0 : layout.pager.visible) { add(layout.previous); add(layout.next); }
       add(layout.expand);
     }
-    // 挂件和留白不吞鼠标；候选与箭头才接收点击。退场中的窗口一点也不接收。
+    // 挂件和留白不吞鼠标；候选、按钮和展开视口才接收点击。退场中的窗口一点也不接收。
     XShapeCombineRegion(display, window, ShapeInput, 0, 0, region, ShapeSet);
     XDestroyRegion(region);
   }
@@ -459,11 +499,19 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
                            int cursor_x, int cursor_y, int cursor_height) {
   auto &state = *impl_;
   if (!assets || content.items.empty() || !state.open(display)) { hide(); return false; }
+  // canvas 包的卷轴在同一段组字、同一页、同样的简繁投影里重画（后台换代：云候选、释义到达）时留在原来的滚动位置（测量时夹在新的范围里），正在拖的滑块也接着拖。
+  const bool same_scroll = content.expanded && !content.revision.empty() && state.visible && state.assets == assets &&
+      state.content.expanded && state.content.revision == content.revision;
+  if (same_scroll) {
+    content.scroll_offset = state.layout.scroll_offset;
+    content.grid_limit = std::max(content.grid_limit, state.content.grid_limit);
+  }
   const auto now = fcitx::now(CLOCK_MONOTONIC);
   const bool was_visible = state.visible, was_exiting = state.exiting;
   // 正在退场时重新显示：撤掉退场，以完整不透明度接着显示，不再播进场。
   state.exiting = false;
-  state.pressed = state.hovered = -1;
+  state.pressed = same_scroll && state.pressed == kNativeCanvasHitScrollbar ? kNativeCanvasHitScrollbar : -1;
+  state.hovered = -1;
   if (!state.visible || state.assets != assets) state.animation_started_us = now;
   const bool new_skin = state.assets != assets;
   state.assets = std::move(assets); state.content = std::move(content); state.palette = std::move(palette);
@@ -488,7 +536,7 @@ bool NativeCanvasX11::show(const std::string &display, std::shared_ptr<NativeCan
   const auto &context = state.content.selection_context;
   if (was_visible && !state.reduce_motion && skin.selection != shared::MotionPreset::none && skin.duration_ms > 0 &&
       context == state.highlight_context && state.highlighted >= 0 && highlighted >= 0 && highlighted != state.highlighted &&
-      state.content.grid_columns == 0) {
+      !state.expanded()) {
     state.selecting = true;
     state.selection_start_us = now;
   } else if (highlighted != state.highlighted || context != state.highlight_context) {
