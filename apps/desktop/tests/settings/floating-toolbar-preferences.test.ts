@@ -22,3 +22,14 @@ test("fills missing floating toolbar fields from the shared defaults", () => {
     floatingToolbarPreferences({ floating_toolbar: { enabled: false, font_size: 20 } }),
   ).toMatchObject({ ...defaultFloatingToolbar, enabled: false, font_size: 20 });
 });
+
+test("自动隐藏按 Windows v0.11.1 出厂配置投影：关、延时 5 秒", () => {
+  const toolbar = floatingToolbarPreferences();
+  expect(toolbar.auto_hide).toBe(false);
+  expect(toolbar.auto_hide_delay).toBe(5);
+  // 旧文档缺这两个键时也走同一套缺省，不因缺键把自动隐藏当成开。
+  expect(floatingToolbarPreferences({ floating_toolbar: { enabled: true } })).toMatchObject({
+    auto_hide: false,
+    auto_hide_delay: 5,
+  });
+});

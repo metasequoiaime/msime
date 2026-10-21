@@ -12,6 +12,8 @@ SignPath Foundation 的开源计划已经批准了项目 `msime-windows`，签�
 
 `release-windows.yml` 带上 SignPath 签名路径，由仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开，默认关闭，关闭时行为与原来一样（未签名，Depot runner）。
 
+未签名包的 Server 权限行为由 [Windows 未签名包与设置输入修复](../../implemented/bug-fix/2026-10-21-windows-unsigned-server-and-settings-input.md) 部分取代：签名服务开关仍默认关闭，普通包关闭 UIAccess，生产可信签名流程保留 UIAccess。
+
 - **开关和配置**：`source` 任务决定本次签不签。变量是 `signpath` 时，`SIGNPATH_TOKEN`、`SIGNPATH_ORGANIZATION_ID`、`SIGNPATH_PROJECT_SLUG`、`SIGNPATH_SIGNING_POLICY_SLUG` 缺一个就失败，不悄悄退回未签名；变量是别的值也失败。开关变量必须建在本仓库，不能建在组织级：msime-windows 用同名变量打开它自己的 SignPath 路径，组织级的会让两个仓库一起打开。
 - **只签 `main` 和 `develop`**：其他分支的 `-alpha` 是试验构建，照旧不签名，不占审批。
 - **签名测试**：派发时勾上 `signpath_test`，不看开关、不限分支，用 SignPath 的 `test-signing` 策略走一遍两个签名任务。测试证书不受系统信任，策略不要审批、也不核对来源，所以这种运行从不发布，并且用单独的并发组，不挡真正的发布。正式证书还没签发时（`release_certificate_2026` 处于 CsrPending），用它先验证托管 runner 构建和整条签名链路。
@@ -31,7 +33,7 @@ SignPath Foundation 的开源计划已经批准了项目 `msime-windows`，签�
 
 ## Consequences
 
-- 开关打开前什么都不变。打开要四步：SignPath Foundation 把 `https://github.com/metasequoiaime/msime.git` 加进 `msime-windows` 项目；在 SignPath 里建 `msime-payload` 和 `msime-installer` 两个 artifact configuration；在本仓库建 `SIGNPATH_ORGANIZATION_ID`、`SIGNPATH_PROJECT_SLUG`（`msime-windows`）、`SIGNPATH_SIGNING_POLICY_SLUG` 变量；最后建 `WINDOWS_SIGNING_PROVIDER=signpath`。
+- 签名服务开关仍默认关闭；未签名包的普通输入能力按上面链接的新决定处理。启用生产签名仍要四步：SignPath Foundation 把 `https://github.com/metasequoiaime/msime.git` 加进 `msime-windows` 项目；在 SignPath 里建 `msime-payload` 和 `msime-installer` 两个 artifact configuration；在本仓库建 `SIGNPATH_ORGANIZATION_ID`、`SIGNPATH_PROJECT_SLUG`（`msime-windows`）、`SIGNPATH_SIGNING_POLICY_SLUG` 变量；最后建 `WINDOWS_SIGNING_PROVIDER=signpath`。
 - 签名时构建在 4 核托管 runner 上，比 Depot 慢；两个签名任务各自等审批，最多等 80 分钟。暂存包（不带 PDB）每个版本多传一次 artifact。
 - 不签名时多了暂存包的上传下载和一个 `package` 任务，代价是几分钟。
 - CS2 Trusted Mode：SignPath 签的安装包里 TIP 旁边的 `fmt.dll`、`libcurl.dll`、`zlib1.dll` 未签名，按 [CS2 Trusted Mode 的 System32 部署](../../implemented/feature/2026-10-08-windows-cs2-trusted-mode-system32-deployment.md) 的分析大概率仍被拒；要解决得让 TIP 和宿主 DLL 静态链接这几个依赖。

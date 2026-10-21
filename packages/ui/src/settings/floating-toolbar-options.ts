@@ -69,6 +69,20 @@ export function floatingToolbarSize(
   );
 }
 
+/** 自动隐藏延时的可选范围（秒）与出厂值，对齐 Windows 旧正式版 v0.11.1 的 `floating_toolbar_auto_hide_delay`（可选 1–60、出厂 5）。 */
+export const floatingToolbarAutoHideDelayRange = { min: 1, max: 60, default: 5 } as const;
+
+/** 存下的延时落回滑块能表示的 1–60 秒：缺值、越界、小数和非有限值都取出厂值，与 macOS `FloatingToolbarBehavior.h` 的解析一致，滑块不会被一个坏值卡住。 */
+export function floatingToolbarAutoHideDelay(
+  preferences: Partial<Pick<FloatingToolbarPreferences, "auto_hide_delay">>,
+): number {
+  const value = Number(preferences.auto_hide_delay);
+  const { min, max, default: fallback } = floatingToolbarAutoHideDelayRange;
+  if (!Number.isFinite(value)) return fallback;
+  const seconds = Math.round(value);
+  return seconds >= min && seconds <= max ? seconds : fallback;
+}
+
 /** 工具栏上每个可以关掉的按钮，按显示顺序。中/英按钮也能关（每个宿主都读 `english_mode`），所以没有锁定勾选的「始终显示」一项。 */
 export function floatingToolbarButtonOptions(
   preferences: FloatingToolbarPreferences,

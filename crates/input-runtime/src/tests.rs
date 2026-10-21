@@ -2190,6 +2190,113 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
     assert!(emptied.view.phrase_prefix.is_empty());
 }
 
+// Windows `input.escape_keeps_selected_word`（出厂关）：开着时造词中第一次 Esc 只丢掉还没选的拼写，
+// 已经选好的词留在组字里，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）；关着时照旧整体取消。
+#[test]
+fn escape_keeps_the_selected_word_when_the_preference_is_on() {
+    let start = |keeps: bool| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "跑步".into()],
+                remaining_after_select: Some("paobu".into()),
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(keeps);
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let pick = |runtime: &mut Runtime<Fixture>| {
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap()
+    };
+
+    // 关（Windows 出厂值）：Esc 把拼写和已选词一起丢掉。
+    let mut off = start(false);
+    type_key(&mut off);
+    pick(&mut off);
+    let cancelled = off.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // 开：第一次 Esc 只丢掉拼写，词留在组字里；第二次 Esc 才整体取消。
+    let mut on = start(true);
+    type_key(&mut on);
+    pick(&mut on);
+    assert_eq!(on.view().editing_text, "paobu");
+    let kept = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(kept.commit, None);
+    assert!(kept.handled);
+    assert_eq!(kept.view.phrase_prefix, "海滩");
+    assert!(kept.view.editing_text.is_empty());
+    let ended = on.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(ended.commit, None);
+    assert!(ended.view.phrase_prefix.is_empty());
+}
+
+#[test]
+fn real_engine_escape_preserves_selection_history_and_followup_actions() {
+    for action in [
+        Action::Command(Command::Cancel),
+        Action::Command(Command::Backspace),
+        Action::SegmentBackspace,
+        Action::Command(Command::CommitRaw),
+        Action::Command(Command::CommitCandidate),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = ai_answer_runtime(directory.path(), 5);
+        rusqlite::Connection::open(
+            directory
+                .path()
+                .join("dictionaries")
+                .join(msime_engine::assets::MAIN_DICTIONARY),
+        )
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER); \
+            INSERT INTO tbl_1_h VALUES('hao','h','好',100);",
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.set_escape_keeps_selected_word(true);
+        type_characters(&mut runtime, "nihao");
+        runtime.set_caret(Some(2)).unwrap();
+        let id = runtime
+            .view()
+            .candidates
+            .iter()
+            .find(|row| row.text == "你")
+            .unwrap()
+            .id;
+        let selected = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(selected.commit, None);
+        assert_eq!(selected.view.phrase_prefix, "你");
+        assert_eq!(selected.view.editing_text, "hao");
+        let kept = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        assert!(kept.handled);
+        assert_eq!(kept.commit, None);
+        assert_eq!(kept.view.phrase_prefix, "你");
+        assert!(kept.view.editing_text.is_empty());
+        assert_eq!(runtime.phrase_selections.len(), 1);
+        let restored = matches!(action, Action::Command(Command::Backspace));
+        let committed = matches!(
+            action,
+            Action::Command(Command::CommitRaw | Command::CommitCandidate)
+        );
+        let result = runtime.dispatch(action).unwrap();
+        assert!(result.handled);
+        assert_eq!(result.commit.as_deref(), committed.then_some("你"));
+        assert!(result.view.phrase_prefix.is_empty());
+        assert_eq!(result.view.editing_text, if restored { "ni" } else { "" });
+        assert!(runtime.phrase_selections.is_empty());
+    }
+}
+
 #[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();
@@ -4674,6 +4781,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
@@ -4732,6 +4840,52 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
+    }
+}
+
+#[test]
+fn super_jianpin_capital_word_uses_literal_candidates_and_space_commit() {
+    for scheme in [0, 1] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = scheme;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        for text in ["JIT", "JSON"] {
+            for byte in text.bytes() {
+                let transition = runtime
+                    .dispatch(Action::Character {
+                        value: byte,
+                        shift: true,
+                    })
+                    .unwrap();
+                assert!(transition.handled && transition.commit.is_none());
+            }
+            assert_eq!(runtime.view().local_mode, "none");
+            assert_eq!(runtime.view().editing_text, text);
+            assert_eq!(texts(&runtime.view()), [text]);
+            let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+            assert_eq!(committed.commit.as_deref(), Some(text));
+            assert!(committed.view.editing_text.is_empty());
+        }
+        for byte in b"JIT" {
+            runtime
+                .dispatch(Action::Character {
+                    value: *byte,
+                    shift: true,
+                })
+                .unwrap();
+        }
+        let erased = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert_eq!(erased.view.editing_text, "JI");
+        assert_eq!(erased.view.local_mode, "none");
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some("JI"));
     }
 }
 
@@ -9410,6 +9564,8 @@ mod parallel_order_allocations;
 mod static_evidence;
 
 mod rerank_declined;
+
+mod settled_async;
 
 mod online_slot_order_equivalence;
 

@@ -27,6 +27,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
@@ -1831,6 +1832,44 @@ fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {
     assert_eq!(result.diagnostic, "");
     assert_eq!(english_word_count(&value, "rkk"), 1);
     assert_eq!(english_word_count(&value, "kk"), 0);
+}
+
+/// Windows `input.enter_learns_english_word` 出厂为开：回车上屏输入的英文词写进英文词库；
+/// 关掉后回车照常上屏，只是不学词。
+#[test]
+fn enter_learns_english_word_follows_the_preference() {
+    for enabled in [false, true] {
+        for (route, typed, committed, learned) in [
+            ("dedicated", "hello", "hello", "hello"),
+            ("incomplete_pinyin", "xyz", "xyz", "xyz"),
+            ("temporary_english", "Yrustacean", "Yrustacean", "rustacean"),
+            ("temporary_japanese", "Rkk", "Rkk", "rkk"),
+            ("complete_pinyin", "ni", "ni", "ni"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut value = options(dir.path());
+            value.learn_english_on_enter = enabled;
+            let mut session = Session::new(&value).unwrap();
+            session.set_dedicated_english(route == "dedicated").unwrap();
+            for byte in typed.bytes() {
+                assert!(
+                    session
+                        .character(byte, byte.is_ascii_uppercase())
+                        .unwrap()
+                        .handled
+                );
+            }
+            let result = session.command(Command::CommitRaw).unwrap();
+            assert!(result.handled && result.has_commit, "{route}");
+            assert_eq!(result.commit, committed, "{route}");
+            assert_eq!(result.diagnostic, "", "{route}");
+            assert_eq!(
+                english_word_count(&value, learned),
+                i64::from(enabled && route != "complete_pinyin"),
+                "{route}"
+            );
+        }
+    }
 }
 
 /// bridge.cpp:1349-1357: a local-mode commit that is not an English word (here the Unicode mode's hex digits) is still committed; the failed learning is reported beside it rather than undoing it.

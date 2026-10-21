@@ -205,6 +205,10 @@ pub struct HostCapabilities {
     pub floating_toolbar_voice: bool,
     /// 工具栏带切换输入方案的按钮。macOS、Windows 和 Linux 的悬浮工具栏画它，Linux 的「工具栏」子菜单另列出同样内容的方案子菜单，其它宿主不提供这个开关。
     pub floating_toolbar_input_scheme: bool,
+    /// 宿主按 `floating_toolbar.auto_hide` / `auto_hide_delay` / `shadow` 控制自己的悬浮条。
+    /// 目前只有 macOS 消费这三个值：Windows 与 HarmonyOS 的面板还没读，Linux 的工具栏是输入法菜单。
+    /// 为假时设置页不列这三行，免得改了没有效果。
+    pub floating_toolbar_idle_behavior: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -391,6 +395,8 @@ pub struct HostCapabilities {
     pub quick_phrase_candidates: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
+    /// 宿主把「切换中英文」那一组快捷键接进中日英循环（`KeybindingPreferences::trilingual_cycle` 与 `crate::language_cycle`）：中 → 日 → 英 → 中，有组字时先上屏原始字母，英文模式下交回应用。目前只有 macOS 接入；其余宿主不声明此能力。
+    pub trilingual_cycle: bool,
     /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。只在关掉确实把键还给应用的宿主上为真：
     ///
     /// - macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。
@@ -588,6 +594,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
             ),
+            // 只有 macOS 的面板读 auto_hide / auto_hide_delay / shadow（见 FloatingToolbarBehavior.h）。
+            floating_toolbar_idle_behavior: platform == HostPlatform::Macos,
             // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,
@@ -833,6 +841,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Linux
             ),
+            // 目前只有 macOS 把「切换中英文」这一组快捷键接进了循环；Windows 的 TIP 与 Server 之间要新开一条协议，Linux 的两个引擎各自处理切换，都留给后续改动，等接上时再在这里加上自己。
+            trilingual_cycle: platform == HostPlatform::Macos,
             // macOS（`AppearancePreferences.mm` 的 `-navigationEnabled:`）、Windows（`NavigationPolicy.h` 的 `preference_navigation`）和 HarmonyOS（`KeyboardSession.ets`）把 Tab 和 PageUp/PageDown 两组翻页键固定为开，其余宿主照旧读偏好。
             tab_page_paging_switches: !matches!(
                 platform,

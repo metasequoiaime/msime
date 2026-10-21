@@ -6405,6 +6405,16 @@ test("floating toolbar settings use Windows defaults and persist independently",
   );
   // 175% 一档写成 150% 缩放加 28 的图标，和以前两个下拉都拉满时一样大。
   fireEvent.change(screen.getByLabelText("工具栏大小"), { target: { value: "175" } });
+  // 自动隐藏出厂关（对齐 Windows v0.11.1）；和 Windows 设置页一样，关闭时延时的整行留着但置灰。
+  const autoHide = screen.getByRole("switch", { name: "自动隐藏工具栏" }) as HTMLInputElement;
+  expect(autoHide.checked).toBe(false);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("switch", { name: "工具栏阴影" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(autoHide);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText("自动隐藏延时"), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("switch", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
@@ -6428,6 +6438,10 @@ test("floating toolbar settings use Windows defaults and persist independently",
       screen_keyboard: true,
       voice: false,
       settings: true,
+      // 自动隐藏在默认快照里是关的，这一轮把它打开并调到 12 秒。
+      auto_hide: true,
+      auto_hide_delay: 12,
+      shadow: true,
       scale_percent: 150,
       font_size: 28,
     },

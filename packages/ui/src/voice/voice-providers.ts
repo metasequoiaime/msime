@@ -1,37 +1,12 @@
-/**
- * Per-provider endpoint and model defaults for voice input.
- *
- * These matter for more than convenience. The shipped `asr_endpoint` default is
- * the Doubao websocket URL, and the Windows host treats a `wss://` endpoint as
- * "this is Doubao". So a user who picked OpenAI but kept the stored endpoint
- * had their OpenAI token sent to ByteDance. Rewriting the endpoint when the
- * provider changes is what stops that at the source.
- */
-/**
- * `models` is what the service is known to accept, so a user can pick one before
- * holding any credential; `documentation` is where that provider explains the
- * endpoint and how to obtain an API key. Both are presentation only -- the model
- * a request actually sends is still whatever is stored in preferences.
- */
+/** 语音预设读取共享 Rust 目录的静态导出，换服务时继续清除旧服务默认地址与凭据。 */
 import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
-import {
-  deepseekChatEndpoint,
-  deepseekDocumentationUrl,
-  dashScopeChatEndpoint,
-  everyApiModelsUrl,
-  groqChatEndpoint,
-  groqDocumentationUrl,
-  openAiChatEndpoint,
-  openAiModelsDocumentationUrl,
-  siliconFlowChatEndpoint,
-  siliconFlowTextDocumentationUrl,
-} from "../core/provider-resources";
+import { voiceProviderCatalog, voiceProviderDefaults } from "./voice-provider-catalog";
 import type { ProviderDefaults } from "../core/provider-preset";
 
 export type { ProviderDefaults } from "../core/provider-preset";
 
-/** ASR providers that use the shared service credential and test configuration. */
-export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [
+// 公开数组保留历史顺序；新增服务随后追加，显示选择器仍遵循 Rust 目录顺序。
+const serviceProviderOrder = [
   "openai",
   "siliconflow",
   "groq",
@@ -40,6 +15,15 @@ export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [
   "bailian",
   "doubao",
 ];
+export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = voiceProviderCatalog.asr
+  .map(({ id }) => id)
+  .sort((left, right) => {
+    const rank = (id: string) => {
+      const index = serviceProviderOrder.indexOf(id);
+      return index < 0 ? serviceProviderOrder.length : index;
+    };
+    return rank(left) - rank(right);
+  });
 
 /** Returns whether an ASR provider uses the shared service credential flow. */
 export function isAsrServiceProvider(provider: string): boolean {
@@ -58,78 +42,12 @@ export function providerSettingValue(
 
 export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   system: { endpoint: "", model: "" },
-  // On-device recognition. The model is an installed model directory (one holding msime-model.json) the user points at, not a name a service resolves, so it lives in `asr_model_path` and there is no endpoint, token or model list to offer here.
+  // 本地模型路径由 `asr_model_path` 保存，不提供服务地址、凭据或模型名。
   local: { endpoint: "", model: "" },
-  doubao: {
-    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-    model: "",
-    documentation: "https://www.volcengine.com/docs/6561/1354869",
-  },
-  openai: {
-    endpoint: "https://api.openai.com/v1/audio/transcriptions",
-    model: "whisper-1",
-    models: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"],
-    documentation: "https://developers.openai.com/api/docs/guides/speech-to-text",
-  },
-  siliconflow: {
-    endpoint: "https://api.siliconflow.cn/v1/audio/transcriptions",
-    model: "FunAudioLLM/SenseVoiceSmall",
-    models: ["FunAudioLLM/SenseVoiceSmall"],
-    documentation: "https://siliconflow.readme.io/reference/createaudiotranscriptions",
-  },
-  groq: {
-    endpoint: "https://api.groq.com/openai/v1/audio/transcriptions",
-    model: "whisper-large-v3-turbo",
-    models: ["whisper-large-v3-turbo", "whisper-large-v3"],
-    documentation: "https://console.groq.com/docs/speech-to-text",
-  },
-  everyapi: {
-    endpoint: "https://api.everyapi.ai/v1/audio/transcriptions",
-    model: "volc.seedasr.sauc.duration",
-    models: ["volc.seedasr.sauc.duration"],
-    documentation: everyApiModelsUrl,
-  },
-  mistral: {
-    endpoint: "https://api.mistral.ai/v1/audio/transcriptions",
-    model: "voxtral-mini-latest",
-    models: ["voxtral-mini-latest"],
-    documentation: "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription",
-  },
-  // 阿里云百炼的 Qwen3-ASR 整句识别：OpenAI 兼容的 Chat Completions，录音作为 input_audio 上传（请求格式 chat_audio）。地址也可以换成控制台给出的业务空间专属地址。
-  bailian: {
-    endpoint: dashScopeChatEndpoint,
-    model: "qwen3-asr-flash",
-    models: ["qwen3-asr-flash", "qwen3-asr-flash-2026-02-10"],
-    documentation: "https://help.aliyun.com/zh/model-studio/qwen-speech-recognition",
-  },
+  ...voiceProviderDefaults(voiceProviderCatalog.asr),
 };
 
-export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
-  siliconflow: {
-    endpoint: siliconFlowChatEndpoint,
-    model: "Qwen/Qwen3-8B",
-    models: ["Qwen/Qwen3-8B", "Qwen/Qwen3.6-27B"],
-    documentation: siliconFlowTextDocumentationUrl,
-  },
-  openai: {
-    endpoint: openAiChatEndpoint,
-    model: "gpt-4o-mini",
-    models: ["gpt-4o-mini", "gpt-4.1-mini"],
-    documentation: openAiModelsDocumentationUrl,
-  },
-  deepseek: {
-    endpoint: deepseekChatEndpoint,
-    model: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-    documentation: deepseekDocumentationUrl,
-  },
-  groq: {
-    endpoint: groqChatEndpoint,
-    model: "llama-3.3-70b-versatile",
-    models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-    documentation: groqDocumentationUrl,
-  },
-};
+export const POLISH_PROVIDER_DEFAULTS = voiceProviderDefaults(voiceProviderCatalog.polish);
 
 /** The voice fields to update when the recognition provider changes. */
 export function asrProviderUpdate(
@@ -222,29 +140,15 @@ export function polishProviderUpdate(
   return update;
 }
 
-/** The two Doubao streaming interfaces, which differ in what they return.
- *
- * Both are recognition endpoints for the same model, so the choice is only
- * ever spelled as a URL in `asr_endpoint`. Nobody types one of these from
- * memory, and the trade-off between them is not visible in the address:
- * whole-sentence streaming uploads while you speak and answers once you stop,
- * which is what the service documents as the more accurate option and
- * recommends for input methods; bidirectional streaming answers incrementally,
- * so an inline preedit updates far more often. */
+/** 同一识别模型的整句流式与双向增量接口；选择值仍保存到 `asr_endpoint`。 */
 export type DoubaoStreamEndpoint = { id: string; endpoint: string; title: string };
 
-export const DOUBAO_STREAM_ENDPOINTS: readonly DoubaoStreamEndpoint[] = [
-  {
-    id: "nostream",
-    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
-    title: "整句流式（准确率更高）",
-  },
-  {
-    id: "async",
-    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-    title: "双向流式（增量结果）",
-  },
-];
+export const DOUBAO_STREAM_ENDPOINTS: readonly DoubaoStreamEndpoint[] =
+  voiceProviderCatalog.doubao_stream_endpoints.map(({ id, endpoint, title }) => ({
+    id,
+    endpoint,
+    title,
+  }));
 
 export function findDoubaoStreamEndpoint(id: string): DoubaoStreamEndpoint | undefined {
   return DOUBAO_STREAM_ENDPOINTS.find((option) => option.id === id);

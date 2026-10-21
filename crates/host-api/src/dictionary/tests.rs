@@ -18,6 +18,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         shuangpin_preedit_uses_raw: true,
         single_character_only: false,
         learning: false,
+        learn_english_on_enter: true,
         autocorrect_transposition: true,
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,

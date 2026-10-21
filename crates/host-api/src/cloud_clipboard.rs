@@ -102,11 +102,24 @@ pub fn validate_account_request(request: &Value) -> Result<(), &'static str> {
 
 /// 偏好目录里配置的中继；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
 pub fn configured_relay(preferences_directory: &Path) -> Result<Option<RelayConfig>, &'static str> {
+    configured_relay_at_revision(preferences_directory, None).map(|(config, _)| config)
+}
+
+/// 从同一份快照读取来源、配置和修订号，防止旧窗口把操作发送到新中继。
+/// 修订号不含地址或凭据；偏好变化后，持有旧修订号的窗口必须重新打开。
+pub fn configured_relay_at_revision(
+    preferences_directory: &Path,
+    expected_revision: Option<u64>,
+) -> Result<(Option<RelayConfig>, u64), &'static str> {
     let snapshot = PreferencesStore::new(preferences_directory)
         .load()
         .map_err(|_| "storage")?;
-    RelayConfig::from_preferences(&snapshot.preferences.cloud_clipboard_relay)
-        .map_err(|error| error.code())
+    if expected_revision.is_some_and(|expected| expected != snapshot.revision) {
+        return Err("clipboard_source_changed");
+    }
+    let config = RelayConfig::from_preferences(&snapshot.preferences.cloud_clipboard_relay)
+        .map_err(|error| error.code())?;
+    Ok((config, snapshot.revision))
 }
 
 /// 宿主据此决定云剪贴板走哪条路：配置了中继时是 `relay`，否则是 `account`。不联网。
