@@ -1184,6 +1184,7 @@ public:
     ime_mode_chosen_ = true;
     // 用户手动切换：这个程序的应用例外在这次停留里让位。
     fcitx_app_rule_stay.yield(ic_.program());
+    app_rule_active_ = false;
     // 从托盘切换时上下文已经失焦，失焦那一刻记下的是切换前的模式；回到这个应用时按记下的恢复，所以这里重记一次。
     if (!ic_.hasFocus()) rememberInputMode();
     if (!input_enabled_) {
@@ -1549,9 +1550,8 @@ public:
   bool reloadService();
   void rememberInputMode() {
     if (preferences_.value("ime_mode_scope", std::string("app")) == "global") {
-      // 应用例外定下的模式不改全局状态，和 macOS、Windows 一样；用户在这个程序里手动切换过才算全局的选择。
-      if (!msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay))
-        fcitx_global_input_mode = input_enabled_;
+      // 应用例外定下的模式不改全局状态，和 macOS、Windows 一样；用户在这个程序里手动切换过才算全局的选择。看的是这个上下文自己的 `app_rule_active_`，不是插件范围的停留：失焦时停留可能已经被别的焦点组里先获得焦点的程序换走，再按停留判断就会把用户在这里的手动切换当成规则的模式丢掉。
+      if (!app_rule_active_) fcitx_global_input_mode = input_enabled_;
     } else {
       fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
     }
@@ -1569,9 +1569,10 @@ public:
   // 应用例外（`app_input_mode_rules`）排在作用域、记忆和 `default_ime_mode` 前面：焦点从别的程序进入有规则的程序时从规则的模式开始，两种作用域下都是；用户在这次停留里手动切换后让位，离开再回来重新生效。程序名是 Fcitx5 前端报告的 `program()`，报告不了的前端（空程序名）照旧。
   void applyAppInputModeRule() {
     enterAppRuleStay(ic_.program());
-    if (const auto rule =
-            msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay))
-      input_enabled_ = *rule;
+    const auto rule =
+        msime::linux_host::app_input_mode_rule_start(preferences_, ic_.program(), fcitx_app_rule_stay);
+    app_rule_active_ = rule.has_value();
+    if (rule) input_enabled_ = *rule;
   }
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
@@ -4026,6 +4027,8 @@ public:
   // of them did anything here, and a user who chose to start in English got
   // Chinese anyway.
   bool input_enabled_ = true;
+  // 当前模式来自这次聚焦的应用例外，用户还没有手动切换：全局作用域下不把它写进全局状态（和 IBus 宿主的 `app_rule_active` 一样按上下文记）。
+  bool app_rule_active_ = false;
   bool mode_shift_enabled_ = true;
   bool mode_ctrl_enabled_ = false;
   bool mode_ctrl_space_enabled_ = true;

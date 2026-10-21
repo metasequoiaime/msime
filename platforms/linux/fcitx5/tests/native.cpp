@@ -1704,6 +1704,21 @@ int main(int argc, char **argv) {
       blurContext(ruled);
       require(fcitx_global_input_mode == std::optional<bool>(false),
               "a manual switch in a ruled program did not reach the global state");
+      // 不同焦点组之间 Fcitx5 不保证先失焦再聚焦（例如 XWayland 程序和原生 Wayland 程序）：别的程序先获得焦点、把停留换走，有规则的程序随后才失焦，用户在它里面的手动切换照样写进全局状态。
+      focusContext(ruled);
+      require(!ruledState->input_enabled_, "a ruled program did not start in its rule's mode under global scope again");
+      engine.input_mode_action_.activate(&ruled);
+      require(ruledState->input_enabled_, "the mode action did not switch the ruled program to Chinese under global scope");
+      {
+        FixtureContext otherProgram(instance.inputContextManager(), "synthetic-other");
+        otherProgram.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit});
+        focusContext(otherProgram);
+        blurContext(ruled);
+        require(fcitx_global_input_mode == std::optional<bool>(true),
+                "a manual switch was lost when another program gained focus before the ruled one lost it");
+        blurContext(otherProgram);
+        otherProgram.propertyFor(&engine.factory_)->close();
+      }
       ruledState->close();
       state->close();
       removeFixtureTree(directory);
