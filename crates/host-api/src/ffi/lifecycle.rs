@@ -48,6 +48,8 @@ pub extern "C" fn msime_client_destroy(handle: u64) -> *mut c_char {
             session.flush_selections();
             // Dropping the engine session writes its own journal's delayed context learning; this also covers every other journal the process learned into, while this session still holds its dictionary access.
             msime_engine::flush_personal_learning();
+            // 停顿模型可能仍在后台评分；销毁会话时放弃任务，避免模型残留在作业表中。
+            crate::ffi::settled::abandon_settled_job(handle);
             drop(session);
             Ok(Value::Null)
         })

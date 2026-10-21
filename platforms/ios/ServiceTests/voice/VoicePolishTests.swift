@@ -1,6 +1,17 @@
 import XCTest
 
 final class VoicePolishTests: XCTestCase {
+  func testPresetChoicesConsumeSharedCatalogAndKeepCustomSlots() {
+    let builtIns = VoicePolishPresetCatalog.builtIns
+    XCTAssertEqual(VoicePolishSettings.presets.map(\.id), builtIns.map(\.id) + VoicePolishSettings.customSlots)
+    XCTAssertEqual(Array(VoicePolishSettings.presets.prefix(builtIns.count)).map(\.title), builtIns.map(\.title))
+    XCTAssertEqual(Array(VoicePolishSettings.presets.suffix(3)).map(\.title), ["自定义一", "自定义二", "自定义三"])
+    for preset in VoicePolishSettings.presets {
+      let settings = VoicePolishSettings(["voice_input": ["polish_prompt_id": preset.id]])
+      XCTAssertEqual(settings.promptID, preset.id)
+    }
+  }
+
   func testPresetsComeFromTheSharedPromptHeader() {
     var settings = VoicePolishSettings()
     XCTAssertTrue(settings.systemPrompt.hasPrefix("你是语音转写整理助手。"))

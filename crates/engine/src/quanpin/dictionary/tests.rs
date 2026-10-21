@@ -859,8 +859,12 @@ fn fuzzy_rules_expand_both_ways_without_polluting_the_exact_cache() {
         let reverse = dictionary.query(partner, partner, NONE, rule);
         assert!(contains(&reverse, &format!("原{i}")), "reverse rule {i}");
         let exact = query(&mut dictionary, plain, plain, NONE);
+        assert!(exact.iter().all(|row| !row.fuzzy));
         assert!(
-            !contains(&exact, &format!("糊{i}")),
+            !exact
+                .iter()
+                .any(|row| row.word == format!("糊{i}")
+                    && matched_letters(&row.pinyin) >= plain.len()),
             "fuzzy polluted exact cache {i}"
         );
         let other_rule = FuzzyPinyinOptions {
@@ -868,7 +872,10 @@ fn fuzzy_rules_expand_both_ways_without_polluting_the_exact_cache() {
         };
         let other = dictionary.query(plain, plain, NONE, other_rule);
         assert!(
-            !contains(&other, &format!("糊{i}")),
+            !other
+                .iter()
+                .any(|row| row.word == format!("糊{i}")
+                    && matched_letters(&row.pinyin) >= plain.len()),
             "unselected rule expanded {i}"
         );
     }

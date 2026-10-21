@@ -142,6 +142,20 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
+    def test_app_ships_the_licence_of_the_symbol_group_table(self):
+        # 链接进 App 和键盘扩展的 Engine 编入了符号模式的分组码表，它取自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），署名、固定提交和改动说明都在这份许可证文件里。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        path = "../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
+        blocks = source_path_blocks(app, path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        self.assertIn("rime-wanxiang", text)
+        self.assertIn("7ab73ee0c7f80190004233e70f954833df64c80e", text)
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        self.assertIn('LicenseNotice(file: "rime-wanxiang-CC-BY-4.0"', about)
+
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
         project = (IOS_ROOT / "project.yml").read_text()

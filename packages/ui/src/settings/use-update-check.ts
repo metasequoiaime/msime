@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   fromHostUpdate,
@@ -35,6 +35,7 @@ export function useUpdateCheck({
 }: UseUpdateCheckOptions) {
   const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
+  const manualCheckStarted = useRef(false);
   const supported = !!checkForApplicationUpdate || (!!checkUpdate && !!platform);
   const { busy, run } = useAsyncActionRunner(
     setStatus,
@@ -48,6 +49,7 @@ export function useUpdateCheck({
   );
 
   useEffect(() => {
+    manualCheckStarted.current = false;
     setStatus("");
     setAvailable(null);
   }, [arch, checkUpdate, checkForApplicationUpdate, currentAppVersion, edition, platform]);
@@ -58,7 +60,7 @@ export function useUpdateCheck({
     let active = true;
     void pendingUpdateCheck()
       .then((result) => {
-        if (!active || result?.status !== "available") return;
+        if (!active || manualCheckStarted.current || result?.status !== "available") return;
         const update = fromHostUpdate(result.update);
         if (!update) return;
         setAvailable((current) => current ?? update);
@@ -82,10 +84,10 @@ export function useUpdateCheck({
   async function checkForUpdate() {
     if (busy) return;
     if (checkForApplicationUpdate) {
-      setAvailable(null);
-      setStatus("");
       await run(
         async () => {
+          manualCheckStarted.current = true;
+          setAvailable(null);
           await checkForApplicationUpdate();
         },
         {
@@ -95,9 +97,11 @@ export function useUpdateCheck({
       return;
     }
     if (!checkUpdate || !platform) return;
-    setAvailable(null);
     await run(
       async (isCurrent) => {
+        // 手动检查接管展示，迟到的后台缓存不能恢复已清掉的旧结果。
+        manualCheckStarted.current = true;
+        setAvailable(null);
         const result = await checkUpdate({
           platform,
           currentVersion: currentAppVersion,

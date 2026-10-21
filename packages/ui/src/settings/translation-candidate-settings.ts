@@ -17,6 +17,10 @@ export interface CandidateTranslationSettingsOptions {
   translationTargetLanguage: TranslationLanguage;
   translationSecondaryLanguage: TranslationSecondaryLanguage | null | undefined;
   candidateGlossLanguagesEnabled: boolean;
+  /** 候选释义是否显示词性标记；当前只有 macOS 宿主消费这个偏好，缺省对齐出厂配置开启。 */
+  candidateTranslationShowPos?: boolean;
+  /** 候选释义是否只显示第一条；当前只有 macOS 宿主消费这个偏好，缺省对齐出厂配置关闭。 */
+  candidateTranslationSingleSense?: boolean;
   visibleTranslationLanguages: readonly TranslationLanguageOption[];
   visibleSecondaryLanguages: readonly TranslationSecondaryLanguageOption[];
   android: boolean;
@@ -44,6 +48,8 @@ export function createCandidateTranslationSettings({
   translationTargetLanguage,
   translationSecondaryLanguage,
   candidateGlossLanguagesEnabled,
+  candidateTranslationShowPos = true,
+  candidateTranslationSingleSense = false,
   visibleTranslationLanguages,
   visibleSecondaryLanguages,
   android,
@@ -66,6 +72,16 @@ export function createCandidateTranslationSettings({
     targetLanguage: translationTargetLanguage,
     secondaryLanguage: translationSecondaryLanguage ?? "",
     candidateGlossLanguagesEnabled,
+    // 释义整理的两行只有 macOS 消费：Windows 新宿主和移动端还没有这两项，画出来会是个空开关。
+    showPos: macos ? candidateTranslationShowPos : undefined,
+    singleSense: macos ? candidateTranslationSingleSense : undefined,
+    onShowPosChange: macos
+      ? (candidate_translation_show_pos) => onPreferencesChange({ candidate_translation_show_pos })
+      : undefined,
+    onSingleSenseChange: macos
+      ? (candidate_translation_single_sense) =>
+          onPreferencesChange({ candidate_translation_single_sense })
+      : undefined,
     visibleLanguages: visibleTranslationLanguages,
     visibleSecondaryLanguages,
     showSecondaryLanguage: !mobile && (macos || harmony || windows),

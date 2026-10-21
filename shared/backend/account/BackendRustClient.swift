@@ -25,6 +25,7 @@ struct BackendRustClient: @unchecked Sendable {
   /// 只收一段 JSON、回一段 JSON 的入口。
   enum Entry: Sendable {
     case clientAgent, account, accountChatCancel, accountGloss, accountCloudClipboard, cloudClipboardE2E
+    case cloudClipboardSource, relayCloudClipboard
     case community, cloudDictionary, aiSkinCancel, aiSkinJob, cloudSync
     case accountSettingsExport, accountSettingsApply, accountIOSSettingsExport, accountIOSSettingsApply
   }
@@ -67,6 +68,8 @@ struct BackendRustClient: @unchecked Sendable {
     case .accountGloss: return table.account_gloss
     case .accountCloudClipboard: return table.account_cloud_clipboard
     case .cloudClipboardE2E: return table.cloud_clipboard_e2e
+    case .cloudClipboardSource: return table.cloud_clipboard_source
+    case .relayCloudClipboard: return table.relay_cloud_clipboard
     case .community: return table.community
     case .cloudDictionary: return table.cloud_dictionary
     case .aiSkinCancel: return table.ai_skin_cancel

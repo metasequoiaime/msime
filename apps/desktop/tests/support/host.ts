@@ -28,6 +28,8 @@ export function testHost(
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
     floating_toolbar_input_scheme: false,
+    // 只有 macOS 的面板读自动隐藏、延时与阴影（host_surface.rs 的 floating_toolbar_idle_behavior）。
+    floating_toolbar_idle_behavior: macos,
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     number_row_selection: false,

@@ -213,6 +213,38 @@ fn japanese_toggle_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    // 默认对齐旧版 Windows 正式版的出厂值。
+    assert!(!snapshot.preferences.keybindings.trilingual_cycle);
+    // 早于这个开关的文档没有这个键，读出来是关。
+    let mut value = serde_json::to_value(&snapshot.preferences).unwrap();
+    assert_eq!(
+        value["keybindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("trilingual_cycle"),
+        Some(false.into())
+    );
+    let legacy: Preferences = serde_json::from_value(value.clone()).unwrap();
+    assert!(!legacy.keybindings.trilingual_cycle);
+    // 打开它，「切换中英文」那一组快捷键本身不变：循环与否是另一项。
+    value["keybindings"]["trilingual_cycle"] = true.into();
+    let enabled: Preferences = serde_json::from_value(value).unwrap();
+    store.save(snapshot.revision, enabled).unwrap();
+    let keybindings = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        keybindings,
+        KeybindingPreferences {
+            trilingual_cycle: true,
+            ..KeybindingPreferences::default()
+        }
+    );
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
@@ -509,6 +541,65 @@ fn candidate_pronunciation_is_opt_in_and_round_trips() {
             .unwrap()
             .candidate_pronunciation
     );
+}
+
+#[test]
+fn candidate_translation_display_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_translation_show_pos);
+    assert!(!defaults.candidate_translation_single_sense);
+
+    // 旧文档缺这两个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_translation_show_pos");
+    fields.remove("candidate_translation_single_sense");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translation_show_pos);
+    assert!(!parsed.candidate_translation_single_sense);
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_translation_show_pos: false,
+        candidate_translation_single_sense: true,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_translation_show_pos);
+    assert!(round_tripped.candidate_translation_single_sense);
+}
+
+#[test]
+fn candidate_badge_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_fixed_badge);
+    assert_eq!(defaults.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(defaults.candidate_ai_badge_style, "robot");
+
+    // 旧文档缺这几个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_fixed_badge");
+    fields.remove("candidate_fixed_badge_style");
+    fields.remove("candidate_ai_badge_style");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_fixed_badge);
+    assert_eq!(parsed.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(parsed.candidate_ai_badge_style, "robot");
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_fixed_badge: false,
+        candidate_fixed_badge_style: "dot".to_string(),
+        candidate_ai_badge_style: "whale".to_string(),
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_fixed_badge);
+    assert_eq!(round_tripped.candidate_fixed_badge_style, "dot");
+    assert_eq!(round_tripped.candidate_ai_badge_style, "whale");
 }
 
 #[test]
@@ -1253,6 +1344,38 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
             ..LocalModePreferences::default()
         }
     );
+}
+
+#[test]
+fn symbol_mode_defaults_on_and_is_written_only_when_off() {
+    // 与 Windows 正式版的出厂配置一致：缺键读作开，文档里也不写这个键。
+    assert!(LocalModePreferences::default().symbol);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("symbol").is_none());
+
+    // 早于符号模式的文档没有这个键，读出来仍是开，其余模式开关照原样。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(local_modes.remove("symbol"), None);
+    local_modes.insert("emoji".into(), false.into());
+    fs::write(store.path(), serde_json::to_vec(&sparse).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.local_modes;
+    assert!(loaded.symbol && !loaded.emoji && loaded.unicode);
+
+    // 关掉后文档里写 false，读回来还是关。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["local_modes"]["symbol"] = false.into();
+    store
+        .save(0, serde_json::from_value(value).unwrap())
+        .unwrap();
+    assert!(!store.load().unwrap().preferences.local_modes.symbol);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["local_modes"]["symbol"], false);
 }
 
 #[test]
@@ -4054,6 +4177,11 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         !defaults.emoji && !defaults.handwriting && !defaults.voice && !defaults.screen_keyboard
     );
+    // 自动隐藏按 Windows 旧正式版 v0.11.1 的出厂配置：关、延时 5 秒。macOS 旧行为是常开 10 秒。
+    assert!(!defaults.auto_hide);
+    assert_eq!(defaults.auto_hide_delay, 5);
+    // 阴影出厂为开，与 Windows v0.11.1 一致，也是 macOS 一直写死的行为。
+    assert!(defaults.shadow);
     let json = serde_json::to_string(&Preferences::default()).unwrap();
     let restored: Preferences = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.floating_toolbar, defaults);
@@ -4072,6 +4200,9 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.fullwidth);
     assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    assert!(!restored.preferences.floating_toolbar.auto_hide);
+    assert_eq!(restored.preferences.floating_toolbar.auto_hide_delay, 5);
+    assert!(restored.preferences.floating_toolbar.shadow);
 }
 
 #[test]
@@ -6031,6 +6162,33 @@ fn finished_scope_releases_inherited_lock() {
         inherited,
         &root.path().join("preferences.lock"),
     );
+}
+
+#[test]
+fn english_online_is_an_explicit_local_opt_in() {
+    let defaults = Preferences::default();
+    assert!(!defaults.english_online_candidates);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("english_online_candidates");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .english_online_candidates
+    );
+    let enabled = Preferences {
+        english_online_candidates: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_value::<Preferences>(serde_json::to_value(&enabled).unwrap())
+            .unwrap()
+            .english_online_candidates
+    );
+    let exported = crate::settings_document::export_document(&enabled).unwrap();
+    assert!(!exported.contains("english_online_candidates"));
 }
 
 /// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。

@@ -91,6 +91,8 @@ export function ExpressionSettingsPage() {
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
     onDeviceMissingLanguages,
+    candidateTranslationShowPos: draft.candidate_translation_show_pos ?? true,
+    candidateTranslationSingleSense: draft.candidate_translation_single_sense ?? false,
     openSettings: client.onDeviceTranslation?.openSettings,
     onError: setError,
   });

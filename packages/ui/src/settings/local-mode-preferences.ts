@@ -4,6 +4,7 @@ export type LocalModeKey =
   | "quick_phrase"
   | "emoji"
   | "kaomoji"
+  | "symbol"
   | "super_jianpin"
   | "temporary_english"
   | "temporary_japanese"
@@ -19,6 +20,8 @@ export type LocalModePreferences = {
   quick_phrase: boolean;
   emoji: boolean;
   kaomoji: boolean;
+  /** 符号模式（Shift+S）：分组码与符号名两种查法。与 Windows 正式版的出厂配置一致，缺键读作开。 */
+  symbol?: boolean;
   super_jianpin: boolean;
   temporary_english: boolean;
   temporary_japanese: boolean;
@@ -40,6 +43,7 @@ export const defaultLocalModes: LocalModePreferences = {
   quick_phrase: true,
   emoji: true,
   kaomoji: true,
+  symbol: true,
   super_jianpin: true,
   temporary_english: true,
   temporary_japanese: true,
@@ -52,6 +56,7 @@ const shiftLetterModes: ReadonlySet<LocalModeKey> = new Set<LocalModeKey>([
   "quick_phrase",
   "emoji",
   "kaomoji",
+  "symbol",
   "super_jianpin",
   "temporary_english",
   "temporary_japanese",
@@ -67,8 +72,10 @@ export function localModeControlState(
 ) {
   // 只有显示总开关的宿主才按它禁用各行；其他宿主的入口保持可用。
   const shiftLetterEntry = !shiftLetterEntrySwitch || (preferences.shift_letter_entry ?? true);
+  // 缺键时的缺省：符号模式与 Windows 正式版的出厂配置一致读作开；拆字由宿主形态决定；其余读作关。
+  const defaultsOn = key === "symbol" || (key === "chaizi" && !shiftLetterEntrySwitch);
   return {
-    checked: preferences[key] ?? (key === "chaizi" && !shiftLetterEntrySwitch),
+    checked: preferences[key] ?? defaultsOn,
     disabled:
       (key === "mention_places" && !preferences.mention) ||
       (!shiftLetterEntry && shiftLetterModes.has(key)),

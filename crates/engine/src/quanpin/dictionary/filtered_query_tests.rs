@@ -542,7 +542,13 @@ impl QuanpinDictionary {
                 );
             }
         }
-        if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+        // 保留原分配对照，只同步备选系列新增的个人模型依赖。
+        if segments.len() >= 2
+            || resolution.corrected.len() >= 2
+            || alternatives
+                .iter()
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
+        {
             self.series_cache.insert(slot.clone(), result.clone());
             self.remember_personal_scored_key(slot);
         } else {
