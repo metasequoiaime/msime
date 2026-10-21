@@ -505,11 +505,18 @@ try {
                     if (Find-ById $content 'lexicon-export-all') { throw 'Import and export rendered inside the lookup tab' }
                 }
                 if ($page -eq 'about') {
-                    # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
-                    foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues')) {
-                        if (-not (Find-ByName $content $name)) { throw "About page is missing merged feedback content: $name" }
+                    # 照 macOS 分「版本更新」「帮助与反馈」「系统信息」「许可与隐私」四个标签，打开时是「版本更新」：品牌卡和「当前版本 / 检查更新」在这里，反馈表单不在；「复制下载链接」与 macOS 一样去掉了。
+                    Select-PageTab $window 'about-tab-version' '当前版本'
+                    $content = Find-ById $window 'settings-content'
+                    if (-not (Find-ByName $content '检查更新')) { throw 'About version tab is missing the update check' }
+                    if (Find-ByName $content '复制下载链接') { throw 'About page still offers 复制下载链接' }
+                    if (Find-ByName $content '反馈描述') { throw 'Feedback rendered inside the about version tab' }
+                }
+                if ($page -eq 'dev') {
+                    # 照 macOS 的维护页依次是输入法服务、诊断日志、数据目录和 Windows 独有的设置文件；只查行在不在，不点「重启」，免得重启跑验收这台机器上真正的 Server。
+                    foreach ($name in @('输入法服务', '立即重启输入法服务', '诊断日志', '日志文件', 'TSF 端日志', '数据目录', '当前目录', '设置文件')) {
+                        if (-not (Find-ByName $content $name)) { throw "Maintenance page is missing: $name" }
                     }
-                    if (Find-ById $window 'feedback') { throw 'Merged feedback page is still in the sidebar' }
                 }
                 if ($page -eq 'toolbar') {
                     # 缩放和图标尺寸合成一个「工具栏大小」。
@@ -637,6 +644,51 @@ try {
                     if (Find-ById (Find-ById $window 'settings-content') 'voice-service') { throw 'The 服务配置 row rendered inside the recording tab' }
                     Save-Window $window "$theme-$width-voice-recording.png"
                     Select-PageTab $window 'voice-tab-input' '结果提交策略'
+                }
+                if ($page -eq 'about') {
+                    # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。它在「帮助与反馈」标签里，前面是进帮助视图的「帮助」一行。
+                    Select-PageTab $window 'about-tab-feedback' '反馈描述'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues', '复制群号', '打开群组')) {
+                        if (-not (Find-ByName $content $name)) { throw "About page is missing merged feedback content: $name" }
+                    }
+                    if (Find-ById $window 'feedback') { throw 'Merged feedback page is still in the sidebar' }
+                    Save-Window $window "$theme-$width-about-feedback.png"
+                    # 「帮助」一行在原处换成帮助视图（macOS 的「帮助」子页），这时没有标签条；顶上的「关于」回到标签页。
+                    (Find-ById $window 'about-help-entry').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        Start-Sleep -Milliseconds 200
+                        $content = Find-ById $window 'settings-content'
+                        $guide = if ($content) { Find-ByName $content '开始输入' } else { $null }
+                    } while ((-not $guide -or -not (Find-ById $window 'about-help')) -and [DateTime]::UtcNow -lt $deadline)
+                    if (-not $guide -or -not (Find-ById $window 'about-help')) { throw 'Help entry did not open the help view' }
+                    if (Find-ById $window 'about-tab-version') { throw 'Help view still shows the about tabs' }
+                    Start-Sleep -Milliseconds 350
+                    Save-Window $window "$theme-$width-about-help.png"
+                    (Find-ById $window 'about-help-back').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        Start-Sleep -Milliseconds 200
+                        $entry = Find-ById $window 'about-help-entry'
+                    } while (-not $entry -and [DateTime]::UtcNow -lt $deadline)
+                    if (-not $entry) { throw 'Help view did not return to the about tabs' }
+                    # 「系统信息」逐项列出，最后一行一键复制；不点复制，免得动验收机器的剪贴板。
+                    Select-PageTab $window 'about-tab-system' '复制系统信息'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($name in @('应用版本', '系统', '处理器架构')) {
+                        if (-not (Find-ByName $content $name)) { throw "About system tab is missing: $name" }
+                    }
+                    Save-Window $window "$theme-$width-about-system.png"
+                    # 「许可与隐私」的顺序照 macOS，末尾是「发送哪些内容」折叠区；不碰统计开关。
+                    Select-PageTab $window 'about-tab-privacy' '许可与版权'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($name in @('开源许可协议', '第三方组件许可', '隐私政策', '匿名使用统计', '发送哪些内容')) {
+                        if (-not (Find-ByName $content $name)) { throw "About privacy tab is missing: $name" }
+                    }
+                    Save-Window $window "$theme-$width-about-privacy.png"
+                    # 回到打开时的标签，下一轮打开「关于」时品牌卡上的 settings-page-about 还在。
+                    Select-PageTab $window 'about-tab-version' '当前版本'
                 }
                 if ($page -eq 'osk') {
                     # 「手写」标签只有「手写识别板」一组：打开面板的一行和手写板示意。

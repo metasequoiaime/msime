@@ -34,8 +34,11 @@
 #include <vector>
 
 #include "../../../shared/contracts/msime_edition.h"
+#include "../../../shared/contracts/windows_ipc.h"
+#include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
 #include "../common/GameCompatProfile.h"
+#include "AboutPageModel.h"
 #include "AccountPageModel.h"
 #include "AiSettings.h"
 #include "AppInputModeRuleList.h"
@@ -1103,11 +1106,14 @@ std::wstring app_version_label() {
 
 // 检查更新的结果，措辞与共享设置页一致。
 struct UpdateOutcome {
+  // 「当前版本」下面的那一行：「已是最新版本」「暂无可用发行版」「检查失败，请稍后重试」或「发现新版本 vX」。
   std::wstring status;
-  // 未签名构建的警告以及如何校验安装程序；只有提供了更新的发布时才非空。
-  std::wstring detail;
-  // 要打开的发布页面；只有提供了更新的发布时才非空。
-  std::wstring release_url;
+  // 当前运行的已是最新版本（回答的 status 是 current），这时状态下面画 updated 插画。
+  bool current = false;
+  // 发现新版本时结果块里的内容（共享页的 `updateResult`）：版本号、安装包的可信度说明和国内镜像地址（拼不出时为空）。没有可用更新时 version 为空。
+  std::wstring version;
+  msime::settings::InstallerTrust trust;
+  std::wstring mirror_url;
 };
 
 // `msime_client_update_check` 的请求：本版本的 Windows 发布。不带架构：同一个安装程序同时支持 x64 和 Arm64。
@@ -1143,45 +1149,48 @@ std::wstring installer_placeholder() {
   return L"MetasequoiaIME-" + id + L"_Setup_v<版本>.exe";
 }
 
-// 读取 `msime_client_update_check` 的答复。不在本仓库 tag 下的发布页面视为检查失败，不会打开。
+// 读取 `msime_client_update_check` 的答复。发布页不在本仓库的 tag 下时视为检查失败。安装包名和摘要照共享页的 `fromHostUpdate` 先查形状，不合的当作没有；可信度说明和镜像地址的拼法在 AboutPageModel.h。
 UpdateOutcome describe_update_check(Response const &response) {
-  const UpdateOutcome failed{L"检查失败，请稍后重试", {}, {}};
+  const UpdateOutcome failed{L"检查失败，请稍后重试"};
   if (!response.ok)
     return failed;
   try {
     const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
     const std::wstring status(value.GetNamedString(L"status", L"").c_str());
     if (status == L"none")
-      return {L"暂无可用发行版", {}, {}};
+      return {L"暂无可用发行版"};
     const auto update = value.GetNamedObject(L"update");
     const std::wstring version(
         update.GetNamedObject(L"version").GetNamedString(L"display", L"").c_str());
     const std::wstring url(update.GetNamedString(L"release_url", L"").c_str());
     if (version.empty() || !url.starts_with(std::wstring(releases_url) + L"/tag/"))
       return failed;
-    if (status == L"current")
-      return {L"已是最新版本", {}, {}};
+    if (status == L"current") {
+      UpdateOutcome latest{L"已是最新版本"};
+      latest.current = true;
+      return latest;
+    }
     if (status != L"available")
       return failed;
-    UpdateOutcome outcome{L"发现新版本 v" + version, {}, url};
-    const auto is_string = [&](wchar_t const *key) {
-      return update.GetNamedValue(key, JsonValue::CreateNullValue()).ValueType() ==
-             JsonValueType::String;
+    UpdateOutcome outcome{L"发现新版本 v" + version};
+    outcome.version = version;
+    const auto string_field = [&update](wchar_t const *key) {
+      const auto field = update.GetNamedValue(key, JsonValue::CreateNullValue());
+      return field.ValueType() == JsonValueType::String ? std::wstring(field.GetString().c_str())
+                                                        : std::wstring();
     };
+    auto name = string_field(L"installer_name");
+    if (!msime::settings::installer_name_valid(name))
+      name.clear();
+    auto sha256 = string_field(L"installer_sha256");
+    if (!msime::settings::installer_sha256_valid(sha256))
+      sha256.clear();
+    std::optional<bool> is_signed;
     const auto signed_value = update.GetNamedValue(L"signed", JsonValue::CreateNullValue());
-    if (signed_value.ValueType() == JsonValueType::Boolean && !signed_value.GetBoolean()) {
-      // 沿用正式发布的设置页的措辞：未签名的安装程序不只会触发 SmartScreen 提示，还会失去 uiAccess。
-      const std::wstring name = is_string(L"installer_name")
-                                    ? std::wstring(update.GetNamedString(L"installer_name").c_str())
-                                    : installer_placeholder();
-      outcome.detail =
-          L"该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。";
-      if (is_string(L"installer_sha256"))
-        outcome.detail += L"下载 " + name + L" 后请核对 SHA256：" +
-                          std::wstring(update.GetNamedString(L"installer_sha256").c_str());
-      else
-        outcome.detail += L"请从发行页一并下载 " + name + L".sha256 核对。";
-    }
+    if (signed_value.ValueType() == JsonValueType::Boolean)
+      is_signed = signed_value.GetBoolean();
+    outcome.trust = msime::settings::installer_trust(is_signed, name, sha256, installer_placeholder());
+    outcome.mirror_url = msime::settings::update_mirror_url(url, name);
     return outcome;
   } catch (...) {
     return failed;
@@ -1288,6 +1297,27 @@ void show_png(Image image, uint8_t const *data, size_t size, int32_t pixels) {
 void show_logo(Image image, int32_t pixels) {
   const auto &bytes = logo_png();
   show_png(image, bytes.data(), bytes.size(), pixels);
+}
+
+// 「关于」页反馈渠道的品牌图标在 Settings.rc 里的资源号（72 × 72 的 PNG，许可见 assets/feedback/NOTICE.md）。GitHub 的图标是单色的，共享页把它遮罩成正文色，这里按明暗各打一份。
+constexpr int github_light_icon = 120;
+constexpr int github_dark_icon = 121;
+constexpr int qq_icon = 122;
+constexpr int telegram_icon = 123;
+
+// 把 Settings.rc 里资源号为 `resource_id` 的 PNG（RCDATA）显示到 `image` 上，`pixels` 同 show_png；资源缺失时什么都不画。
+void show_resource_png(Image image, int resource_id, int32_t pixels) {
+  const HMODULE instance = GetModuleHandleW(nullptr);
+  const HRSRC resource = FindResourceW(instance, MAKEINTRESOURCEW(resource_id),
+                                       MAKEINTRESOURCEW(10) /* RT_RCDATA */);
+  if (!resource)
+    return;
+  const HGLOBAL handle = LoadResource(instance, resource);
+  const auto *data =
+      handle ? static_cast<const uint8_t *>(LockResource(handle)) : nullptr;
+  if (!data)
+    return;
+  show_png(image, data, SizeofResource(instance, resource), pixels);
 }
 
 // 页首的水杉娘插画：Settings.rc 里那张 PNG（RCDATA）解码成的位图。位图立刻返回，解码完自己显示出来；调用方按场景缓存它（`mascot_bitmaps_`），再画页首时直接复用，插画不会因为重新解码而闪一下。资源缺失时返回空，页首只剩说明文字。
@@ -3232,6 +3262,10 @@ struct MainWindow : WindowT<MainWindow> {
       page_tabs_["lexicon"] = L"manage";
       vocabulary_view_ = true;
     }
+    // 「帮助与反馈」并进了「关于」：`feedback` 打开它的「帮助与反馈」标签，`help` 再在那里打开帮助视图（macOS 上是「帮助」子页）。
+    if (page == "feedback" || page == "help")
+      page_tabs_["about"] = L"feedback";
+    about_help_open_ = page == "help";
     // 窗口标题与 macOS 设置窗口相同，写作「水杉输入法 · 设置」（任务栏和 Alt+Tab 里看得到）；标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
     Title(MSIME_EDITION_DISPLAY_NAME L" · 设置");
     ExtendsContentIntoTitleBar(true);
@@ -4035,6 +4069,9 @@ private:
       leave_account_page();
     if (id == "account" && id != current_page_)
       enter_account_page();
+    // 帮助视图是「关于」里的子页：与 macOS 一样，从别的页回到「关于」时回到标签页。
+    if (id == "about" && id != current_page_)
+      about_help_open_ = false;
     // 每次进入「主题」页都重扫皮肤目录，与共享页重新显示时一样。
     if (id == "themes" && id != current_page_)
       skins_stale_ = true;
@@ -5374,31 +5411,73 @@ private:
 
   // ---- 检查更新 ----
 
-  // 在「关于」页的控件上显示正在检查或上一次检查的结果；该页没有构建出来时什么都不做。
+  // 在「关于」页「版本更新」标签的控件上显示正在检查或上一次检查的结果，照共享页：按钮一直是「检查更新」，检查中写「正在检查…」并且按不下去；状态写在版本号下面，已是最新版本时再加 64 DIP 的 updated 插画；发现新版本时下面单列结果块（fill_update_result）。该标签没有画出来时什么都不做。
   void show_update_outcome() {
     if (!update_button_)
       return;
-    const bool download =
-        !update_checking_ && update_outcome_ && !update_outcome_->release_url.empty();
-    update_button_.Content(box_value(hstring(
-        update_checking_ ? L"正在检查…" : download ? L"前往下载" : L"检查")));
+    update_button_.Content(box_value(update_checking_ ? L"正在检查…" : L"检查更新"));
     update_button_.IsEnabled(!update_checking_);
     const std::wstring status = update_outcome_ ? update_outcome_->status : L"";
-    const std::wstring detail = update_outcome_ ? update_outcome_->detail : L"";
+    const bool latest = !update_checking_ && update_outcome_ && update_outcome_->current;
     update_status_.Text(hstring(status));
-    update_detail_.Text(hstring(detail));
-    update_detail_.Visibility(detail.empty() ? Visibility::Collapsed : Visibility::Visible);
-    update_lines_.Visibility(status.empty() ? Visibility::Collapsed : Visibility::Visible);
+    update_status_.Visibility(status.empty() ? Visibility::Collapsed : Visibility::Visible);
+    if (latest)
+      update_mascot_.Source(mascot_bitmap(nav::MascotScene::updated));
+    update_mascot_.Visibility(latest ? Visibility::Visible : Visibility::Collapsed);
+    update_lines_.Visibility(status.empty() && !latest ? Visibility::Collapsed
+                                                       : Visibility::Visible);
+    fill_update_result();
+  }
+
+  // 发现新版本时「当前版本」下面单列的结果块（共享页的 `updateResult`）：「水杉 IME vX 已发布。」、未签名时的红字警告、要核对的 SHA256 和核对命令（Consolas，可以选中复制），然后是「国内镜像下载」（拼得出镜像地址时；国内连 GitHub 常常很慢，镜像是同一个文件，上面的 SHA256 照样适用）和打开官网下载页的「前往下载」。没有可用更新时整块连同上面的分隔线一起收起。
+  void fill_update_result() {
+    if (!update_result_ || !update_result_frame_)
+      return;
+    update_result_.Children().Clear();
+    const bool available =
+        !update_checking_ && update_outcome_ && !update_outcome_->version.empty();
+    update_result_frame_.Visibility(available ? Visibility::Visible : Visibility::Collapsed);
+    if (!available)
+      return;
+    auto const &outcome = *update_outcome_;
+    auto headline = make_text(msime::settings::update_release_headline(outcome.version), 12,
+                              palette_.sub);
+    headline.IsTextSelectionEnabled(true);
+    update_result_.Children().Append(headline);
+    if (!outcome.trust.warning.empty()) {
+      auto warning = make_text(outcome.trust.warning, 12, danger_color());
+      warning.IsTextSelectionEnabled(true);
+      update_result_.Children().Append(warning);
+    }
+    if (!outcome.trust.sha256.empty()) {
+      update_result_.Children().Append(code_line(L"下载后请核对 SHA256：", outcome.trust.sha256));
+      update_result_.Children().Append(code_line(L"核对命令：", outcome.trust.command));
+    }
+    StackPanel actions;
+    actions.Orientation(Orientation::Horizontal);
+    actions.Spacing(8);
+    if (!outcome.mirror_url.empty())
+      actions.Children().Append(button_control(
+          L"国内镜像下载", [this, url = outcome.mirror_url] { open_url(url.c_str()); }));
+    actions.Children().Append(button_control(L"前往下载", [this] { open_url(download_url); }));
+    update_result_.Children().Append(actions);
+  }
+
+  // 结果块里的一行「说明：代码」，代码那一段用 Consolas，整行可以选中复制（共享页的 `<code>`）。
+  TextBlock code_line(std::wstring const &label, std::wstring const &code) {
+    auto line = make_text(L"", 12, palette_.sub);
+    line.IsTextSelectionEnabled(true);
+    append_run(line, label);
+    Documents::Run run;
+    run.Text(hstring(code));
+    run.FontFamily(Media::FontFamily(L"Consolas"));
+    line.Inlines().Append(run);
+    return line;
   }
 
   void on_update_button() {
     if (update_checking_)
       return;
-    if (update_outcome_ && !update_outcome_->release_url.empty()) {
-      const auto url = update_outcome_->release_url;
-      open_url(url.c_str());
-      return;
-    }
     check_for_update();
   }
 
@@ -5493,6 +5572,42 @@ private:
         nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     if (result <= 32)
       show_notice(L"无法打开数据目录：" + folder.wstring());
+  }
+
+  // 「打开日志目录」：Server 的日志在数据目录下的 logs（server.log，TSF 端日志也汇总进去，见 src/system/DiagnosticLog.h）。还没写过日志、这个目录还不存在时打开数据目录本身，与共享页「还没有写入时打开它所在的目录」一样。打不开时用共享页 Windows 一支的说法。
+  void open_log_directory(std::filesystem::path const &root) {
+    std::error_code error;
+    const auto logs = root / L"logs";
+    const auto target = std::filesystem::is_directory(logs, error) ? logs : root;
+    if (root.empty() || !std::filesystem::is_directory(target, error)) {
+      show_notice(L"无法打开日志目录，可能是文件管理器不可用。");
+      return;
+    }
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(
+        nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (result <= 32)
+      show_notice(L"无法打开日志目录，可能是文件管理器不可用。");
+  }
+
+  // 「立即重启输入法服务」，与共享应用 Windows 上的 `restart_input_method`（`apps/desktop/src-tauri/src/lib.rs`）走同一条路：往本版本 Server 的 Aux 管道（`FANY_IME_AUX_NAMED_PIPE`，带版本后缀）写 UTF-16LE 的 `RestartServer`，不带结尾的 0、不等回答。Server 只收本用户完整桌面进程发来的这条消息（`src/ipc/AuxListener.cpp`），收到后以重启退出码结束，由看门狗重新拉起。管道在短暂重试后仍连不上（Server 没在运行）时报失败。管道的写法复用 TSF 的 `AuxNamedpipeSender.h`；连接最多重试约 100 ms，所以放到工作线程，结果照共享页的 HostActionButton 写在页面顶上。
+  fire_and_forget restart_input_method() {
+    if (input_method_restarting_)
+      co_return;
+    input_method_restarting_ = true;
+    auto weak = get_weak();
+    auto queue = DispatcherQueue();
+    co_await resume_background();
+    const bool sent = msime::windows::detail::SendToAuxNamedpipe(FANY_IME_AUX_NAMED_PIPE,
+                                                                  L"RestartServer", false);
+    queue.TryEnqueue([weak, sent] {
+      if (auto self = weak.get()) {
+        self->input_method_restarting_ = false;
+        if (sent)
+          self->show_notice(L"已发送重启请求。", InfoBarSeverity::Success);
+        else
+          self->show_notice(L"重启输入法服务失败，请稍后重试。");
+      }
+    });
   }
 
   // 安装器随包装入的第三方组件许可声明，用系统关联的程序（通常是记事本）打开。
@@ -21929,23 +22044,39 @@ private:
 
   // ---- 维护与诊断 ----
 
+  // 共享「维护与诊断」页（`pages/developer-page.tsx`）在 Windows 上的样子，顺序也相同：「输入法服务」（`input-method-service-section.tsx` 非 macOS、非 Linux 的一支）、「诊断日志」（`diagnostic-logs-section.tsx` 的 Windows 一支）、「数据目录」，最后是 Windows 独有的「设置文件」。macOS 的「卸载」一组不画，Windows 从系统的「应用」设置卸载。
   void build_dev_page(StackPanel const &page) {
-    auto diagnostics = add_group(page, L"诊断");
-    bool_row(diagnostics, 0xEBE8, L"Server 端日志",
+    auto service = add_group(page, L"输入法服务");
+    service.Children().Append(group_note(L"请求受监督的输入法服务重新启动。"));
+    add_row(service, 0xE72C, L"立即重启输入法服务", L"",
+            button_control(L"重启", [this] { restart_input_method(); }));
+
+    const auto directory = state_directory();
+    auto logs = add_group(page, L"诊断日志");
+    bool_row(logs, 0xEBE8, L"Server 端日志",
              L"排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。",
              L"diagnostic_log.server", false);
-    bool_row(diagnostics, 0xEBE8, L"TSF 端日志",
+    add_row(logs, 0xE838, L"日志文件", L"打开日志文件所在的目录。",
+            button_control(L"打开日志目录", [this, directory] { open_log_directory(directory); },
+                           !directory.empty()));
+    bool_row(logs, 0xEBE8, L"TSF 端日志",
              L"排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。",
              L"diagnostic_log.tsf", false);
-    const auto directory = state_directory();
-    // 数据目录登记在安装器写的 HKLM DataDir 里（common/StateDirectory.h），32 位和 64 位 TSF DLL 与 Server 都按它解析状态根，改它要管理员权限，搬迁时还要先停掉 Server 和看门狗；这些安装器都已经做了（「选择数据位置」一步、MigrateUserDataDir 只复制、安装成功后 FinishDataDirMove 才删旧目录），所以这里指向安装器，而不是在设置窗口里另做一套搬迁。
-    add_row(diagnostics, 0xE838, L"数据目录",
-            directory.empty()
-                ? std::wstring(L"未找到数据目录")
-                : directory.wstring() +
-                      L"\n要移到其他磁盘，请下载完整安装包重新安装，在「选择数据位置」一步选一个空文件夹；词库、学习记录、皮肤和设置会自动迁移过去，旧目录随后删除。",
+
+    // 数据目录登记在安装器写的 HKLM DataDir 里（common/StateDirectory.h），32 位和 64 位 TSF DLL 与 Server 都按它解析状态根，改它要管理员权限，搬迁时还要先停掉 Server 和看门狗；这些安装器都已经做了（「选择数据位置」一步、MigrateUserDataDir 只复制、安装成功后 FinishDataDirMove 才删旧目录），所以这里没有共享页的「选择位置…」，只显示和打开，搬迁的办法写在组注里指向安装器。路径照共享页的 `<code>` 用 Consolas。
+    auto data = add_group(page, L"数据目录");
+    data.Children().Append(group_note(
+        L"词库、学习记录、皮肤、剪贴板历史和设置共用此位置。要移到其他磁盘，请下载完整安装包重新安装，在「选择数据位置」一步选一个空文件夹；词库、学习记录、皮肤和设置会自动迁移过去，旧目录随后删除。"));
+    auto path = make_text(directory.empty() ? std::wstring(L"未找到数据目录") : directory.wstring(), 12,
+                          palette_.sub);
+    if (!directory.empty())
+      path.FontFamily(Media::FontFamily(L"Consolas"));
+    path.IsTextSelectionEnabled(true);
+    path.Margin(Thickness{0, 2, 0, 0});
+    add_row(data, 0xE838, L"当前目录", L"",
             button_control(L"打开", [this, directory] { open_folder(directory); },
-                           !directory.empty()));
+                           !directory.empty()),
+            path);
 
     auto settings_file = add_group(page, L"设置文件");
     add_row(settings_file, 0xEDE1, L"导出设置",
@@ -21975,9 +22106,17 @@ private:
 
   // ---- 关于（含并进来的帮助与反馈） ----
 
-  // 共享设置的 `FeedbackSections`（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子，画在「关于」页「版本与更新」之后：「帮助」，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。桌面上「帮助与反馈」并进了「关于」（`desktopMergedPages`），没有单独的页，也就没有页首那句说明。共享页的「帮助」是一个子页入口，本窗口没有子页，直接把帮助内容画在这里（`build_help_section`），「关于」因此比共享页长。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
+  // 共享设置的 `FeedbackSections`（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子，是「关于」页「帮助与反馈」标签的内容：「帮助」入口，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。桌面上「帮助与反馈」并进了「关于」（`desktopMergedPages`），没有单独的页，也就没有页首那句说明。共享页的「帮助」是进子页的一行（`HelpEntry`），这里点它在原处换成帮助视图（build_help_view）；建搜索索引时把帮助视图也画一遍，搜到帮助里的卡片时 build_about_page 打开视图。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
   void build_feedback_sections(StackPanel const &page) {
-    build_help_section(page);
+    auto help = add_group(page, L"帮助");
+    auto help_entry = link_row(help, L"帮助", L"安装、切换输入法与常见问题", false, [this] {
+      about_help_open_ = true;
+      about_help_focus_back_ = true;
+      queue_refresh();
+    });
+    A11y::SetAutomationId(help_entry, L"about-help-entry");
+    if (indexing_)
+      build_help_view(page);
 
     auto report = add_group(page, L"提交可复现的问题");
     record(L"提交可复现的问题", L"反馈 问题报告 GitHub 复制报告");
@@ -22053,32 +22192,91 @@ private:
     link_row(report, L"诊断日志", L"在维护与诊断页开启日志并打开日志目录", false,
              [this] { navigate("dev"); });
 
-    // 「反馈与交流」的三张渠道卡片（`feedback-channels.tsx`），每张下面是地址或群号。图标用 Segoe Fluent 的通用字形，本窗口不带品牌标志。
+    // 「反馈与交流」的三张渠道卡片（`feedback-channels.tsx`）：品牌图标、标题、说明和地址或群号，行尾一个按钮。
     const std::wstring issues(msime::settings::feedback_issues_url);
     const std::wstring group_number(msime::settings::feedback_qq_group);
     auto channels = add_group(page, L"反馈与交流");
-    add_row(channels, 0xE943, L"GitHub Issues", L"适合提交可复现的问题、功能建议和开发讨论。",
-            button_control(L"查看 Issues", [this, issues] { open_url(issues.c_str()); }),
-            channel_code(issues.substr(std::wstring_view(L"https://").size())));
-    auto copy_group =
-        button_control(feedback_group_copied_ ? L"已复制" : L"复制群号", [this, group_number] {
+    channel_row(channels, palette_.dark ? github_dark_icon : github_light_icon, L"GitHub Issues",
+                L"适合提交可复现的问题、功能建议和开发讨论。",
+                issues.substr(std::wstring_view(L"https://").size()), L"查看 Issues",
+                [this, issues] { open_url(issues.c_str()); });
+    auto copy_group = channel_row(
+        channels, qq_icon, L"QQ 交流群", L"适合中文用户进行日常交流、测试反馈和使用讨论。",
+        L"群号：" + group_number, feedback_group_copied_ ? L"已复制" : L"复制群号",
+        [this, group_number] {
           if (copy_text(group_number))
             mark_copied(feedback_group_copied_, feedback_group_timer_);
           else
             show_notice(L"复制失败，请重试");
         });
-    add_row(channels, 0xE8BD, L"QQ 交流群", L"适合中文用户进行日常交流、测试反馈和使用讨论。",
-            copy_group, channel_code(L"群号：" + group_number));
-    add_row(channels, 0xE724, L"Telegram 群组", L"面向国际用户和开发者的即时讨论频道。",
-            button_control(L"打开群组",
-                           [this] {
-                             open_url(std::wstring(msime::settings::feedback_telegram_url).c_str());
-                           }),
-            channel_code(L"t.me/msimegroup"));
+    channel_row(channels, telegram_icon, L"Telegram 群组", L"面向国际用户和开发者的即时讨论频道。",
+                L"t.me/msimegroup", L"打开群组", [this] {
+                  open_url(std::wstring(msime::settings::feedback_telegram_url).c_str());
+                });
     if (!indexing_) {
       feedback_report_button_ = copy_report.as<Button>();
-      feedback_group_button_ = copy_group.as<Button>();
+      feedback_group_button_ = copy_group;
     }
+  }
+
+  // 「反馈与交流」的一行，照共享页的渠道卡片（`document-style.ts` 的 `feedbackCard`）：三列是 42 DIP 宽的图标列、文字和行尾按钮，相隔 14。图标块 38 DIP、圆角 10、1 DIP 细描边，里面是 24 DIP 的品牌图标（`icon` 是 Settings.rc 的资源号）；文字是 14 DIP 半粗体的标题、12 DIP 的说明和下面 Consolas 的地址或群号。图标是装饰，读屏不读。返回行尾的按钮，复制后要改它的字。
+  Button channel_row(StackPanel const &group, int icon, std::wstring const &title,
+                     std::wstring const &description, std::wstring const &code,
+                     std::wstring const &action, std::function<void()> click) {
+    record(title, description);
+    Grid row;
+    row.ColumnSpacing(14);
+    ColumnDefinition icon_column;
+    icon_column.Width(GridLength{42, GridUnitType::Pixel});
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition action_column;
+    action_column.Width(GridLength{1, GridUnitType::Auto});
+    row.ColumnDefinitions().Append(icon_column);
+    row.ColumnDefinitions().Append(text_column);
+    row.ColumnDefinitions().Append(action_column);
+
+    Border mark;
+    mark.Width(38);
+    mark.Height(38);
+    mark.CornerRadius(CornerRadius{10, 10, 10, 10});
+    mark.BorderThickness(Thickness{1, 1, 1, 1});
+    mark.BorderBrush(brush(palette_.divider));
+    mark.HorizontalAlignment(HorizontalAlignment::Left);
+    mark.VerticalAlignment(VerticalAlignment::Center);
+    Image glyph;
+    glyph.Width(24);
+    glyph.Height(24);
+    glyph.HorizontalAlignment(HorizontalAlignment::Center);
+    glyph.VerticalAlignment(VerticalAlignment::Center);
+    if (!indexing_)
+      show_resource_png(glyph, icon, 0);
+    mark.Child(glyph);
+    A11y::SetAccessibilityView(mark, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    row.Children().Append(mark);
+
+    StackPanel texts;
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    auto heading = make_text(title, 14, palette_.text);
+    heading.FontWeight(Windows::UI::Text::FontWeight{600});
+    texts.Children().Append(heading);
+    auto note = make_text(description, 12, palette_.sub);
+    note.Margin(Thickness{0, 3, 0, 5});
+    texts.Children().Append(note);
+    texts.Children().Append(channel_code(code));
+    Grid::SetColumn(texts, 1);
+    row.Children().Append(texts);
+
+    auto button = button_control(action, std::move(click)).as<Button>();
+    button.VerticalAlignment(VerticalAlignment::Center);
+    Grid::SetColumn(button, 2);
+    row.Children().Append(button);
+
+    auto frame = append_row_frame(group, row);
+    frame.MinHeight(56);
+    frame.Padding(Thickness{row_inset, 10, row_inset, 10});
+    mark_search_target(title, frame);
+    return button;
   }
 
   // 分组里的一段说明文字，对应共享页的 `SettingsGroupNote`。
@@ -22094,7 +22292,6 @@ private:
     auto code = make_text(value, 12, palette_.sub);
     code.FontFamily(Media::FontFamily(L"Consolas"));
     code.IsTextSelectionEnabled(true);
-    code.Padding(Thickness{0, 0, 0, 12});
     return code;
   }
 
@@ -22138,137 +22335,344 @@ private:
           box_value(feedback_report_copied_ ? L"已复制报告" : L"复制报告"));
     if (feedback_group_button_)
       feedback_group_button_.Content(box_value(feedback_group_copied_ ? L"已复制" : L"复制群号"));
+    if (system_info_button_)
+      system_info_button_.Content(box_value(system_info_copied_ ? L"已复制" : L"复制"));
   }
 
-  // 共享设置的「帮助」页（`packages/ui/src/settings/help-settings-page.tsx`）在 Windows 上的样子：非 macOS、非移动端的那一支，文案取 `settings/platform-copy.ts` 的 Windows 分支。没有系统键盘设置按钮，也没有 iOS 和 Android 的分组。
-  void build_help_section(StackPanel const &page) {
-    auto help = add_group(page, L"帮助");
-    const std::wstring intro =
-        L"水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。";
-    record(L"帮助", intro);
-    auto note = make_text(intro, 14, palette_.sub);
-    note.IsTextSelectionEnabled(true);
-    note.Margin(Thickness{0, 10, 0, 10});
-    help.Children().Append(note);
-    mark_search_target(L"帮助", note);
+  // 帮助视图里的一张术语卡片：卡片标题，以及一行行「按键或术语 + 说明」。说明里有随版本变的字（默认方案的名字），所以存 std::wstring。
+  struct HelpCard {
+    std::wstring title;
+    std::vector<std::pair<std::wstring, std::wstring>> rows;
+  };
 
-    add_text_card(page, L"快速上手",
-                  {L"安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。"});
-    add_text_card(
-        page, L"基本功能",
-        {L"支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右 2.0、首右 plus、小鹤、拼音加加和五笔 86。",
-         L"语音识别和 AI 联想需要自行填入 API 和 token。云候选目前支持谷歌的云接口，请注意网络问题。",
-         L"更多功能欢迎自由探索～"});
-    auto more = add_group(page, L"更多");
-    // 共享帮助页这一行是带按钮的 ActionRow，不是跳转行，照旧用按钮。
-    add_row(more, 0xE8A5, L"完整文档", L"",
-            button_control(L"完整文档（网页）", [this] { open_url(documentation_url); }));
+  // 帮助视图的内容，照 macOS「帮助」子页（`help-settings-page.tsx` 的 `macosHelpCards`）的三张卡片和问法写 Windows 自己的：按键用 Windows 的（Win+Space、Ctrl+Shift+Space、Alt+Shift+H），设置的位置写本窗口的页名，系统路径是 Windows 设置的「语言和区域」。「候选词释义」一张对应 GlossColumnPolicy.h 的释义列快捷键：macOS 的 Option / Control 加数字在 Windows 上是 Alt / Ctrl 加数字，Tab / Shift+Tab 在高亮候选有释义时换列、没有释义时照常翻页。默认方案取本版本的 `MSIME_EDITION_DEFAULT_SCHEME_W`（五笔、日语、越南语、藏文各版不是全拼）。翻页的默认键组取共享偏好的默认值（`NavigationPreferences::default`）。
+  static std::vector<HelpCard> const &help_cards() {
+    static const std::vector<HelpCard> cards{
+        {L"开始输入",
+         {{L"Win+Space", L"在已添加的输入法之间切换，切到水杉输入法就可以打字。默认是" +
+                             std::wstring(msime::settings::feedback_scheme_title(
+                                 MSIME_EDITION_DEFAULT_SCHEME_W)) +
+                             L"输入法。"},
+          {L"Shift", L"在中文和英文之间切换。切换时光标附近会短暂显示「中」或「英」，可以在「输入 › 中英文」里关掉。"},
+          {L"数字键 1–9", L"选中候选窗口里对应位置的词，空格上屏第一个。"},
+          {L"翻页", L"默认是减号和等号（- / =）以及逗号和句号（, / .），PageUp / PageDown 在候选窗口显示时也能翻页，Tab / Shift+Tab 在高亮的候选没有释义时也能翻页。在「输入 › 选词与翻页」的翻页方式里可以换成方括号（[ / ]）。"},
+          {L"Ctrl+Shift+Space", L"切换全角与半角。中文模式下也可以按 Alt+Shift+H，在「快捷键」页可以关掉它。"}}},
+        {L"候选词释义",
+         {{L"离线优先", L"常见词直接用本机的离线词库，不联网、没有延迟。选了在线服务后，生僻字和多字词的释义可能要等半秒左右才出现。"},
+          {L"在线释义", L"默认不联网。只有在「标点与翻译」页的「翻译服务」标签里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，没有登录时用本机的匿名账号。"},
+          {L"两种语言", L"可以同时显示两种语言的释义，在标点与翻译页「候选词翻译」的「更多选项」里选第二种语言。"},
+          {L"Tab", L"在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。切到哪一列，那一列就会加下划线，数字键和空格上屏的都是它。高亮的候选没有释义时，Tab 照常翻页。"},
+          {L"Alt / Ctrl + 数字", L"不切换，直接上屏那一格的释义：Alt 是目标语言，Ctrl 是第二种语言。"}}},
+        {L"遇到问题",
+         {{L"输入法列表里没有", L"到 Windows「设置 › 时间和语言 › 语言和区域」，在这门语言的「语言选项」里添加水杉输入法；没添加时本窗口顶上也会提示「去添加」。刚安装或刚更新过时，可能需要切到别的输入法再切回来。"},
+          {L"候选旁没有释义", L"先确认标点与翻译页的「显示英文释义」或「候选词翻译」是开着的。离线词库没收录的词要联网查询，断网时只会显示词库里有的那些。"},
+          {L"词库没有更新", L"词库更新随版本发布。在「关于」页检查更新。"}}},
+    };
+    return cards;
   }
 
-  // 一个带标题的分组，里面只有一张写着几段说明文字的卡片，对应共享页的 `GroupList` + `SettingsGroupBlock`。搜索按分组标题找到它。
-  void add_text_card(StackPanel const &page, std::wstring const &title,
-                     std::initializer_list<std::wstring_view> paragraphs) {
-    auto group = add_group(page, title);
-    std::wstring detail;
-    StackPanel content;
-    content.Spacing(10);
-    content.Padding(Thickness{25, 20, 25, 20});
-    for (const auto paragraph : paragraphs) {
-      auto block = make_text(paragraph, 14, palette_.text);
-      block.IsTextSelectionEnabled(true);
-      content.Children().Append(block);
-      detail.append(paragraph);
+  // 搜索结果的标题落在帮助视图里（三张卡片和「更多」），打开「关于」时要换成帮助视图才看得见它。
+  static bool is_help_title(std::wstring const &title) {
+    if (title == L"更多")
+      return true;
+    for (auto const &card : help_cards())
+      if (card.title == title)
+        return true;
+    return false;
+  }
+
+  // 帮助视图，对应 macOS 设置的「帮助」子页：顶上一个「关于」回到「帮助与反馈」标签（与插件页视图头上的返回同一种按钮），然后是页名「帮助」、术语卡片（help_cards）和「更多 / 打开官网」一行。卡片照 macOS 的版式（`document-style.ts` 的 `guide*`）：左边 170 DIP 宽的按键或术语用正文色，右边的说明用次要色，相隔 20；第一行是整张卡片的重点，下面一条分隔线、留 14 DIP。视图刚打开时焦点落在返回上。建搜索索引时不画返回按钮和页名，只登记卡片。
+  void build_help_view(StackPanel const &page) {
+    if (!indexing_) {
+      StackPanel label;
+      label.Orientation(Orientation::Horizontal);
+      label.Spacing(6);
+      auto chevron = make_icon(0xE76B, 12, palette_.text);
+      chevron.VerticalAlignment(VerticalAlignment::Center);
+      label.Children().Append(chevron);
+      label.Children().Append(make_text(L"关于", 14, palette_.text));
+      Button back;
+      back.Content(label);
+      back.Height(32);
+      back.Padding(Thickness{12, 0, 12, 0});
+      A11y::SetName(back, L"返回关于");
+      A11y::SetAutomationId(back, L"about-help-back");
+      back.Click([this](Inspectable const &, RoutedEventArgs const &) {
+        about_help_open_ = false;
+        // 回到标签页时焦点落回「帮助」那一行。
+        focus_row_ = L"帮助";
+        queue_refresh();
+      });
+      page.Children().Append(back);
+      auto heading = make_text(L"帮助", 20, palette_.text);
+      heading.FontWeight(Windows::UI::Text::FontWeight{600});
+      heading.Padding(Thickness{4, 16, 4, 0});
+      A11y::SetAutomationId(heading, L"about-help");
+      page.Children().Append(heading);
+      if (about_help_focus_back_) {
+        about_help_focus_back_ = false;
+        focus_target_ = back;
+      }
     }
-    record(title, detail);
-    auto card = make_inner_card();
-    card.Child(content);
-    group.Children().Append(card);
-    mark_search_target(title, card);
+    for (auto const &card : help_cards()) {
+      const std::wstring title(card.title);
+      auto group = add_group(page, title);
+      record(title, L"");
+      StackPanel content;
+      content.Spacing(12);
+      content.Margin(Thickness{0, 12, 0, 12});
+      for (size_t i = 0; i < card.rows.size(); ++i) {
+        Grid row;
+        row.ColumnSpacing(20);
+        ColumnDefinition term_column;
+        term_column.Width(GridLength{170, GridUnitType::Pixel});
+        ColumnDefinition text_column;
+        text_column.Width(GridLength{1, GridUnitType::Star});
+        row.ColumnDefinitions().Append(term_column);
+        row.ColumnDefinitions().Append(text_column);
+        auto term = make_text(card.rows[i].first, 13, palette_.text);
+        term.IsTextSelectionEnabled(true);
+        row.Children().Append(term);
+        auto text_block = make_text(card.rows[i].second, 13, palette_.sub);
+        text_block.IsTextSelectionEnabled(true);
+        Grid::SetColumn(text_block, 1);
+        row.Children().Append(text_block);
+        if (i == 0 && card.rows.size() > 1) {
+          Border lead;
+          lead.BorderBrush(brush(palette_.divider));
+          lead.BorderThickness(Thickness{0, 0, 0, 1});
+          lead.Padding(Thickness{0, 0, 0, 14});
+          lead.Child(row);
+          content.Children().Append(lead);
+        } else {
+          content.Children().Append(row);
+        }
+      }
+      A11y::SetName(content, hstring(title));
+      group.Children().Append(content);
+      mark_search_target(title, content);
+    }
+    auto more = add_group(page, L"");
+    add_row(more, 0xE8A5, L"更多", L"更完整的说明、词库来源和更新记录在官网上。",
+            button_control(L"打开官网", [this] { open_url(documentation_url); }));
   }
 
+  // 按场景缓存的水杉娘插画（load_mascot），与页首共用 `mascot_bitmaps_`。
+  Imaging::BitmapImage mascot_bitmap(nav::MascotScene scene) {
+    auto bitmap = mascot_bitmaps_.find(scene);
+    if (bitmap == mascot_bitmaps_.end())
+      bitmap = mascot_bitmaps_.emplace(scene, load_mascot(scene)).first;
+    return bitmap->second;
+  }
+
+  // 「关于」页照共享设置的 `about-page.tsx` 在桌面上的样子：顶上是四个页内标签（`about-tabs.ts`：版本更新、帮助与反馈、系统信息、许可与隐私；page_tab_bar，「关于设置分类」），一次只画一个。「关于」没有页首引导，标签条就是正文的第一样东西，顶上不再空出与引导相隔的那一段。「帮助与反馈」标签里的「帮助」一行在原处换成帮助视图（build_help_view，macOS 上是「帮助」子页），这时整页只有帮助视图；搜索结果落在帮助视图里时直接打开它，落在别处时关上它。
   void build_about_page(StackPanel const &page) {
+    if (!indexing_ && !focus_row_.empty())
+      about_help_open_ = is_help_title(focus_row_);
+    if (!indexing_ && about_help_open_) {
+      build_help_view(page);
+      return;
+    }
+    const auto tab = page_tab_bar(page, L"关于设置分类",
+                                  {{L"version", L"版本更新"},
+                                   {L"feedback", L"帮助与反馈"},
+                                   {L"system", L"系统信息"},
+                                   {L"privacy", L"许可与隐私"}},
+                                  L"about-tab");
+    if (!indexing_ && page.Children().Size() > 0)
+      page.Children().GetAt(page.Children().Size() - 1).as<FrameworkElement>().Margin(Thickness{});
+    if (in_tab(tab, L"version"))
+      build_about_version(page);
+    if (in_tab(tab, L"feedback"))
+      build_feedback_sections(page);
+    if (in_tab(tab, L"system"))
+      build_system_info(page);
+    if (in_tab(tab, L"privacy"))
+      build_about_privacy(page);
+  }
+
+  // 「版本更新」标签：无标题分组里的品牌卡（共享页的 `AboutHeroSection`），然后是「版本与更新」组。品牌卡左边是 62 DIP、圆角 16、浅底的标志块，里面 48 DIP 的产品图标；中间依次是 12 DIP、字距 0.04em 的「Metasequoia IME」，22 DIP 半粗体的产品名，相隔 7 DIP 的一句 12 DIP 说明（`platform-copy.ts` Windows 一支的 `aboutDescription`）；右边是 112 DIP 的 welcome 插画。产品名按版本取，与窗口标题和侧栏一致（full 仍是「水杉输入法」），界面验收认的 `settings-page-about` 落在它上面。
+  void build_about_version(StackPanel const &page) {
     if (!indexing_) {
       auto card = make_card();
-      Grid identity;
-      identity.Padding(Thickness{25, 20, 25, 20});
-      identity.ColumnSpacing(20);
-      ColumnDefinition logo_column;
-      logo_column.Width(GridLength{64, GridUnitType::Pixel});
+      // 与标签条相隔 24：组自己的上边距是 20，再加页面的 Spacing 4。
+      card.Margin(Thickness{0, 20, 0, 0});
+      Grid hero;
+      hero.Padding(Thickness{20, 20, 20, 20});
+      hero.ColumnSpacing(18);
+      ColumnDefinition mark_column;
+      mark_column.Width(GridLength{1, GridUnitType::Auto});
       ColumnDefinition text_column;
       text_column.Width(GridLength{1, GridUnitType::Star});
-      identity.ColumnDefinitions().Append(logo_column);
-      identity.ColumnDefinitions().Append(text_column);
+      ColumnDefinition mascot_column;
+      mascot_column.Width(GridLength{1, GridUnitType::Auto});
+      hero.ColumnDefinitions().Append(mark_column);
+      hero.ColumnDefinitions().Append(text_column);
+      hero.ColumnDefinitions().Append(mascot_column);
+      Border mark;
+      mark.Width(62);
+      mark.Height(62);
+      mark.CornerRadius(CornerRadius{16, 16, 16, 16});
+      mark.Background(brush(palette_.subtle));
+      mark.VerticalAlignment(VerticalAlignment::Center);
       Image logo;
-      logo.Width(64);
-      logo.Height(64);
+      logo.Width(48);
+      logo.Height(48);
+      logo.HorizontalAlignment(HorizontalAlignment::Center);
+      logo.VerticalAlignment(VerticalAlignment::Center);
       show_logo(logo, 128);
-      Grid::SetColumn(logo, 0);
-      identity.Children().Append(logo);
+      A11y::SetName(logo, L"水杉 IME");
+      mark.Child(logo);
+      hero.Children().Append(mark);
       StackPanel names;
-      names.Spacing(4);
       names.VerticalAlignment(VerticalAlignment::Center);
-      // 产品名按版本取，与窗口标题和侧栏一致；full 仍是「水杉输入法」。
-      auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 20, palette_.text);
+      auto eyebrow = make_text(L"Metasequoia IME", 12, palette_.sub);
+      eyebrow.CharacterSpacing(40);
+      names.Children().Append(eyebrow);
+      auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 22, palette_.text);
       product.FontWeight(Windows::UI::Text::FontWeight{600});
-      // 关于页没有页首引导（与 macOS 相同），界面验收认的 `settings-page-about` 落在产品名上。
+      product.Margin(Thickness{0, 2, 0, 0});
       A11y::SetAutomationId(product, L"settings-page-about");
       names.Children().Append(product);
-      names.Children().Append(make_text(L"© 2026 Metasequoia", 12, palette_.faint));
+      auto description = make_text(L"为现代 Windows 桌面体验打造的开放中文输入法。", 12, palette_.sub);
+      description.Margin(Thickness{0, 7, 0, 0});
+      names.Children().Append(description);
       Grid::SetColumn(names, 1);
-      identity.Children().Append(names);
-      card.Child(identity);
+      hero.Children().Append(names);
+      Image mascot;
+      mascot.Width(112);
+      mascot.Height(112);
+      mascot.Stretch(Stretch::Uniform);
+      mascot.VerticalAlignment(VerticalAlignment::Center);
+      mascot.Source(mascot_bitmap(nav::MascotScene::welcome));
+      // 纯装饰，与共享 UI 插画的 aria-hidden 相同。
+      A11y::SetAccessibilityView(mascot, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+      Grid::SetColumn(mascot, 2);
+      hero.Children().Append(mascot);
+      card.Child(hero);
       page.Children().Append(card);
     }
 
     auto updates = add_group(page, L"版本与更新");
-    // 检查经由 `msime_client_update_check` 在这里执行，结果显示在该行下方；只有「前往下载」会离开窗口。
+    // 「当前版本」一行（共享页的 versionRow）：说明是版本号和发布日期，下面是检查结果（show_update_outcome）；检查经由 `msime_client_update_check` 在这里执行。发现新版本时这一行下面单列结果块（fill_update_result）。
     StackPanel update_lines;
-    update_lines.Spacing(4);
-    update_lines.Padding(Thickness{0, 0, 0, 12});
-    auto update_status = make_text(L"", 12, palette_.text);
-    auto update_detail = make_text(L"", 12, palette_.sub);
+    update_lines.Spacing(8);
+    update_lines.Margin(Thickness{0, 5, 0, 0});
+    auto update_status = make_text(L"", 12, palette_.sub);
     update_status.IsTextSelectionEnabled(true);
-    update_detail.IsTextSelectionEnabled(true);
+    A11y::SetLiveSetting(update_status, Automation::Peers::AutomationLiveSetting::Polite);
     update_lines.Children().Append(update_status);
-    update_lines.Children().Append(update_detail);
+    Image update_mascot;
+    update_mascot.Width(64);
+    update_mascot.Height(64);
+    update_mascot.HorizontalAlignment(HorizontalAlignment::Left);
+    A11y::SetAccessibilityView(update_mascot, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
+    update_lines.Children().Append(update_mascot);
     Button update_button;
     update_button.Height(32);
     update_button.Padding(Thickness{16, 0, 16, 0});
     update_button.Click([this](Inspectable const &, RoutedEventArgs const &) {
       on_update_button();
     });
-    add_row(updates, 0xE895, L"检查更新", L"当前版本 " + app_version_label(),
-            update_button, update_lines);
+    add_row(updates, 0xE895, L"当前版本", app_version_label(), update_button, update_lines);
+    StackPanel update_result;
+    update_result.Spacing(8);
+    auto update_result_frame = append_row_frame(updates, update_result);
+    update_result_frame.Padding(Thickness{row_inset, 10, row_inset, 10});
     if (!indexing_) {
       update_button_ = update_button;
       update_lines_ = update_lines;
       update_status_ = update_status;
-      update_detail_ = update_detail;
+      update_mascot_ = update_mascot;
+      update_result_ = update_result;
+      update_result_frame_ = update_result_frame;
+      show_update_outcome();
     }
-    show_update_outcome();
-    url_row(updates, L"其他平台下载",
-            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。", download_url);
-    add_row(updates, 0xE8C8, L"复制下载链接", download_url,
-            button_control(L"复制链接", [this] {
-              if (copy_text(download_url))
-                show_notice(L"已复制下载链接。", InfoBarSeverity::Success);
-              else
-                show_notice(L"复制失败，请重试");
-            }));
+    url_row(updates, L"其他平台下载", L"在水杉输入法官网的下载页获取其他平台的版本。",
+            download_url);
     url_row(updates, L"历史版本", L"各版本的更新说明与安装包。", releases_url);
+  }
 
-    // 并进来的帮助与反馈，顺序与共享的 about-page.tsx 相同：版本与更新 → 帮助与反馈 → 许可与隐私。
-    build_feedback_sections(page);
+  // 「系统信息」各项（AboutPageModel.h）：本版本号，非完整版另写版本名，有发布日期时带上；`RtlGetVersion` 的系统版本；本程序的处理器架构；偏好读到时再加当前的输入方案（与反馈报告的诊断信息同一个来源）。
+  std::vector<msime::settings::SystemInfoEntry> current_system_info() {
+#if MSIME_EDITION_IS_FULL
+    constexpr std::wstring_view edition_name;
+#else
+    constexpr std::wstring_view edition_name = MSIME_EDITION_DISPLAY_NAME;
+#endif
+    const std::wstring scheme =
+        loaded_ ? document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W) : std::wstring();
+    return msime::settings::system_info_entries(
+        app_version, edition_name, app_release_date, windows_os_version(),
+        msime::settings::build_architecture(),
+        scheme.empty() ? std::wstring_view() : msime::settings::feedback_scheme_title(scheme));
+  }
 
+  // 「系统信息」标签（共享页的 `SystemInfoSection`）：逐项一行，值在行尾，次要色、右对齐、可以选中；最后一行「复制系统信息」把同样的内容按「名称：值」每行一项放进剪贴板，复制成功后按钮显示「已复制」1.6 秒（mark_copied）。
+  void build_system_info(StackPanel const &page) {
+    auto group = add_group(page, L"系统信息");
+    for (auto const &entry : current_system_info()) {
+      auto value = make_text(entry.value, 12, palette_.sub);
+      value.IsTextSelectionEnabled(true);
+      value.TextAlignment(TextAlignment::Right);
+      value.MaxWidth(280);
+      add_row(group, 0xE946, entry.label, L"", value);
+    }
+    auto copy = button_control(system_info_copied_ ? L"已复制" : L"复制", [this] {
+      if (copy_text(msime::settings::system_info_text(current_system_info())))
+        mark_copied(system_info_copied_, system_info_timer_);
+      else
+        show_notice(L"复制失败，请重试");
+    });
+    A11y::SetName(copy, L"复制系统信息");
+    add_row(group, 0xE8C8, L"复制系统信息", L"反馈问题时贴进去，方便排查；不含账号和输入内容", copy);
+    if (!indexing_)
+      system_info_button_ = copy.as<Button>();
+  }
+
+  // 「许可与隐私」标签，顺序照共享页：「开源许可协议」（↗）、「许可与版权」、「第三方组件许可」（↗，用关联程序打开安装目录下的 THIRD_PARTY_NOTICES.txt）、「隐私政策」（↗）、「匿名使用统计」开关和「发送哪些内容」。共享页的「发送哪些内容」是进子页的一行（`UsageReportingDetails`），这里是同一位置的折叠区，展开后是同样的四组；搜索落到里面的行时展开它。
+  void build_about_privacy(StackPanel const &page) {
     auto privacy = add_group(page, L"许可与隐私");
-    bool_row(privacy, 0xE9D2, L"匿名使用统计",
-             L"仅发送匿名使用记录和崩溃摘要，不含输入内容、候选、剪贴板、账号或设备信息；关闭后不再发送，并清空待发记录。",
+    url_row(privacy, L"开源许可协议", L"", license_url);
+    auto copyright = make_text(L"© 2026 Metasequoia IME", 12, palette_.sub);
+    A11y::SetName(copyright, L"版权");
+    add_row(privacy, 0xE8A5, L"许可与版权",
+            L"水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。", copyright);
+    link_row(privacy, L"第三方组件许可", L"", true, [this] { open_third_party_notices(); });
+    url_row(privacy, L"隐私政策", L"", privacy_url);
+    bool_row(privacy, 0xE9D2, L"匿名使用统计", L"不含输入内容、候选和剪贴板；关闭后不再发送。",
              L"usage_reporting", true);
-    url_row(privacy, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
-            privacy_url);
-    url_row(privacy, L"开源许可协议", L"水杉输入法的开源许可证", license_url);
-    link_row(privacy, L"第三方组件许可", L"随安装包提供的第三方组件许可声明", true,
-             [this] { open_third_party_notices(); });
+    record(L"发送哪些内容", L"");
+    auto details = add_fold(privacy, L"发送哪些内容",
+                            usage_details_open_ || focus_row_ == L"发送哪些内容" ||
+                                fold_holds_focus(L"usage-reporting-details"),
+                            [this](bool expanded) { usage_details_open_ = expanded; },
+                            L"usage-reporting-details");
+    mark_search_target(L"发送哪些内容", details);
+    fold_index_ = L"usage-reporting-details";
+    const std::vector<std::pair<std::wstring_view, std::vector<std::pair<std::wstring_view, std::wstring_view>>>>
+        sections{
+            {L"发送什么",
+             {{L"每天最多一条活跃记录", L""},
+              {L"输入法进程结束或崩溃后一条会话记录", L""},
+              {L"崩溃时另带错误摘要和调用栈", L"模块路径只保留文件名"}}},
+            {L"每条包含", {{L"随机事件 id、类型、平台和版本号", L""}, {L"本机随机生成的安装 id", L""}}},
+            {L"不包含", {{L"输入内容、候选和剪贴板", L""}, {L"账号、设备硬件和用户目录信息", L""}}},
+            {L"其他",
+             {{L"默认开启", L"可随时在「关于」里关闭"},
+              {L"发送失败时", L"在本机最多保留 64 条，稍后重试"},
+              {L"关闭后", L"不再发送，并清空尚未发送的记录"},
+              {L"发送地址", L"https://api.msime.app/v1/telemetry/events"}}},
+        };
+    for (auto const &[heading, rows] : sections) {
+      auto title = make_text(heading, 12, palette_.sub);
+      title.FontWeight(Windows::UI::Text::FontWeight{600});
+      title.Margin(Thickness{0, 12, 0, 4});
+      details.Children().Append(title);
+      for (auto const &[label, note] : rows)
+        add_row(details, 0xE946, std::wstring(label), std::wstring(note), nullptr);
+    }
+    fold_index_.clear();
   }
 
   // ---- 连接 AI 助手 ----
@@ -22901,13 +23305,26 @@ private:
   std::wstring sync_message_;
   uint64_t sync_generation_ = 0;
 
+  // 「立即重启输入法服务」的请求还在工作线程上时为真，连点不重复发送。
+  bool input_method_restarting_ = false;
+
   // 检查更新：状态跨页面重建保留；控件是「关于」页当前的那一组。
   bool update_checking_ = false;
   std::optional<UpdateOutcome> update_outcome_;
   Button update_button_{nullptr};
   StackPanel update_lines_{nullptr};
   TextBlock update_status_{nullptr};
-  TextBlock update_detail_{nullptr};
+  Image update_mascot_{nullptr};
+  StackPanel update_result_{nullptr};
+  Border update_result_frame_{nullptr};
+
+  // 「关于」页：帮助视图开着没有（macOS 的「帮助」子页，换页回来时关上），刚打开时焦点要不要落在返回上；「发送哪些内容」折叠区展开没有；「复制系统信息」的「已复制」标记和计时器、当前那一个按钮。都跨页面重建保留，不写偏好。
+  bool about_help_open_ = false;
+  bool about_help_focus_back_ = false;
+  bool usage_details_open_ = false;
+  bool system_info_copied_ = false;
+  Button system_info_button_{nullptr};
+  Microsoft::UI::Dispatching::DispatcherQueueTimer system_info_timer_{nullptr};
 
   // 「关于」页里并进来的帮助与反馈的报告草稿和「已复制」标记：跨页面重建保留，关闭窗口即丢弃，与共享页的组件状态一样。按钮是该页当前的那一组。
   std::wstring feedback_kind_{msime::settings::feedback_kinds[0]};

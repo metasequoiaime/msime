@@ -14,6 +14,11 @@
 117 RCDATA "assets\\mascot\\empty.png"
 118 RCDATA "assets\\mascot\\offline.png"
 119 RCDATA "assets\\mascot\\downloading.png"
+// The brand icons of the feedback channels on the about page, rendered to 72 x 72 PNG from packages/ui/src/assets (github.svg twice, filled with the light and dark text colour because the shared page masks it to the text colour; qq.svg; telegram-color.svg). Their licences are in assets/feedback/NOTICE.md, collected into THIRD_PARTY_NOTICES by Collect-Notices.ps1.
+120 RCDATA "assets\\feedback\\github-light.png"
+121 RCDATA "assets\\feedback\\github-dark.png"
+122 RCDATA "assets\\feedback\\qq.png"
+123 RCDATA "assets\\feedback\\telegram.png"
 // The AI provider brand icons of the provider select (AiSettings.h, provider_icons), rasterised to 80 x 80 PNG from the SVG files of the same name in packages/ui/src/assets/providers: Lobe Icons under the MIT license kept beside them in assets/providers/LICENSE, and the EveryAPI favicon (packages/ui/UPSTREAM.md). The id is 150 plus the index in provider_icons, so the order follows that table.
 150 RCDATA "assets\\providers\\everyapi.png"
 151 RCDATA "assets\\providers\\openai.png"
