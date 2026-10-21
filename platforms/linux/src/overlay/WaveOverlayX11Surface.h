@@ -12,7 +12,7 @@
 
 namespace msime::linux_host {
 
-// Lightweight X11 fallback for desktops that do not expose a layer-shell protocol. The surface never takes focus and accepts pointer input only in its explicit action-button regions. It draws with cairo-xlib and Pango through WaveOverlayPainter: on a 32-bit ARGB visual with translucent rounded corners when a compositing manager runs, otherwise opaque and cut to the rounded shape with the Shape extension.
+// 为不提供 layer-shell 协议的桌面准备的轻量 X11 回退。浮层从不获取焦点，只在明确的操作按钮区域接收指针输入。它经 `WaveOverlayPainter` 用 cairo-xlib 和 Pango 绘制：有合成管理器时用 32 位 ARGB visual 和半透明圆角，否则画成不透明，并用 Shape 扩展切成圆角形状。
 class WaveOverlayX11Surface final : public WaveOverlaySurface {
  public:
   explicit WaveOverlayX11Surface(ActionHandler action_handler = {})
@@ -42,11 +42,11 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   Visual *visual_ = nullptr;
   Colormap colormap_ = 0;
   cairo_surface_t *cairo_surface_ = nullptr;
-  // The window has a 32-bit visual with alpha because a compositing manager was running when it was made; without one the panel is opaque and shaped instead.
+  // 窗口创建时有合成管理器在运行，所以它用带 alpha 的 32 位 visual；没有合成管理器时面板改为不透明并切出形状。
   bool translucent_ = false;
   bool made_composited_ = false;
   WaveOverlayPainter painter_;
-  // The last model shown, for an Expose redraw and for hit testing between updates.
+  // 最近一次显示的模型，用于 Expose 重画和两次更新之间的命中测试。
   WaveOverlayModel model_;
   WaveOverlayFrame frame_;
   bool visible_ = false;
@@ -56,7 +56,7 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   // RandR 1.5 monitor enumeration; without it the bar is placed on the EWMH work area or the root window.
   bool randr_monitors_ = false;
   double scale_ = 1.0;
-  // The device size and the logical size it was computed from; the shapes are cut for this geometry and the panel's actions.
+  // 设备像素尺寸及据以算出它的逻辑尺寸；形状按这组几何尺寸和面板的操作按钮切出。
   unsigned width_ = 0;
   unsigned height_ = 0;
   int logical_width_ = 0;

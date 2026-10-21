@@ -53,9 +53,9 @@ pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
-# The voice overlay enumerates monitors with RandR 1.5 to follow the focused window; libXrandr ships with every X desktop that has libXfixes. Xlib alone also builds the X11 Caps Lock release (src/system/CapsLockRelease.cpp, MSIME_LINUX_HAS_X11_SURFACE).
+# 语音浮层用 RandR 1.5 枚举显示器，以跟随获得焦点的窗口；凡是带 libXfixes 的 X 桌面都带 libXrandr。只有 Xlib 也能构建 X11 的 Caps Lock 释放（`src/system/CapsLockRelease.cpp`，`MSIME_LINUX_HAS_X11_SURFACE`）。
 pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)
-# Both overlay backends draw through WaveOverlayPainter.h with Cairo and Pango (cairo-xlib on X11), which every desktop with GTK has; without them the overlay falls back to the auxiliary text. Checked apart from X11_SURFACE so that a machine without them still gets the Caps Lock release.
+# 两个浮层后端都经 `WaveOverlayPainter.h` 用 Cairo 和 Pango 绘制（X11 上用 cairo-xlib），装了 GTK 的桌面都有；缺了它们浮层就退到辅助文本。这项检查与 `X11_SURFACE` 分开，缺这些库的机器照样能得到 Caps Lock 释放。
 pkg_check_modules(X11_OVERLAY_DRAW QUIET IMPORTED_TARGET cairo-xlib pangocairo)
 pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_TEXT QUIET IMPORTED_TARGET pangocairo)
@@ -146,7 +146,7 @@ if(X11_SURFACE_FOUND)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(msime-ibus-host PUBLIC PkgConfig::X11_SURFACE)
 endif()
-# The X11 overlay needs Xlib, XFixes and RandR (X11_SURFACE) and cairo-xlib with pangocairo for its drawing; MSIME_LINUX_HAS_X11_OVERLAY selects it in the surface factories.
+# X11 浮层需要 Xlib、XFixes 和 RandR（`X11_SURFACE`），绘制还需要 cairo-xlib 和 pangocairo；浮层工厂按 `MSIME_LINUX_HAS_X11_OVERLAY` 选用它。
 set(MSIME_WAVE_X11_SURFACE OFF)
 if(X11_SURFACE_FOUND AND X11_OVERLAY_DRAW_FOUND)
   set(MSIME_WAVE_X11_SURFACE ON)
@@ -156,7 +156,7 @@ if(MSIME_WAVE_X11_SURFACE)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_OVERLAY)
   target_link_libraries(msime-ibus-host PUBLIC PkgConfig::X11_OVERLAY_DRAW)
 endif()
-# The Wayland overlay needs the layer-shell and xdg-shell protocol code and pangocairo for its drawing.
+# Wayland 浮层需要 layer-shell 和 xdg-shell 的协议代码，绘制需要 pangocairo。
 set(MSIME_WAVE_WAYLAND_SURFACE OFF)
 if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML AND WAYLAND_TEXT_FOUND)
   set(MSIME_WAVE_WAYLAND_SURFACE ON)
@@ -1082,7 +1082,7 @@ if(BUILD_TESTING)
     tests/runtime/wave_overlay_model.cpp src/overlay/WaveOverlayIbusSurface.cpp
     src/overlay/WaveOverlaySurfaceFactory.cpp)
   target_compile_features(linux-wave-overlay-model-test PRIVATE cxx_std_17)
-  target_compile_options(linux-wave-overlay-model-test PRIVATE -Wall -Wextra -Werror)
+  target_compile_options(linux-wave-overlay-model-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-wave-overlay-model-test PRIVATE src)
   target_link_libraries(linux-wave-overlay-model-test PRIVATE PkgConfig::IBUS)
   if(MSIME_WAVE_X11_SURFACE)
@@ -1102,11 +1102,11 @@ if(BUILD_TESTING)
                           PkgConfig::WAYLAND_CLIENT PkgConfig::WAYLAND_TEXT ${MSIME_SHM_LIBRARIES})
   endif()
   add_test(NAME linux-wave-overlay-model COMMAND linux-wave-overlay-model-test)
-  # The shared drawing: layout sizes, the failure pill, the newest-three-lines transcript and the painted panel, measured with real Pango. MSIME_TEST_CANVAS_ARTIFACTS saves every presentation as a PNG for a visual check.
+  # 共用的绘制：布局尺寸、失败提示胶囊、只留最新三行的转写文字和画出的面板，用真实的 Pango 测量。设置 `MSIME_TEST_CANVAS_ARTIFACTS` 时把每种呈现存成 PNG，供目视检查。
   if(WAYLAND_TEXT_FOUND)
     add_executable(linux-wave-overlay-painter-test tests/runtime/wave_overlay_painter.cpp)
     target_compile_features(linux-wave-overlay-painter-test PRIVATE cxx_std_17)
-    target_compile_options(linux-wave-overlay-painter-test PRIVATE -Wall -Wextra -Werror)
+    target_compile_options(linux-wave-overlay-painter-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     target_include_directories(linux-wave-overlay-painter-test PRIVATE src)
     target_link_libraries(linux-wave-overlay-painter-test PRIVATE PkgConfig::WAYLAND_TEXT)
     add_test(NAME linux-wave-overlay-painter COMMAND linux-wave-overlay-painter-test)
@@ -1115,7 +1115,7 @@ if(BUILD_TESTING)
   if(X11_SURFACE_FOUND)
     add_executable(linux-wave-overlay-placement-test tests/runtime/wave_overlay_placement.cpp)
     target_compile_features(linux-wave-overlay-placement-test PRIVATE cxx_std_17)
-    target_compile_options(linux-wave-overlay-placement-test PRIVATE -Wall -Wextra -Werror)
+    target_compile_options(linux-wave-overlay-placement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     target_include_directories(linux-wave-overlay-placement-test PRIVATE src)
     target_link_libraries(linux-wave-overlay-placement-test PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME linux-wave-overlay-placement COMMAND linux-wave-overlay-placement-test)

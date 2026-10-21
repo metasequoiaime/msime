@@ -3576,7 +3576,7 @@ int main(int argc, char **argv) {
       state->wave_overlay_visible_ = false;
       state->voice_loading_ = true;
       state->voice_phase_ = msime::linux_host::kVoiceStatusRecording;
-      // A fresh recording's model; Xlib's None macro rules out naming CompactStatus::None here.
+      // 一次新录音的模型；Xlib 的 `None` 宏使这里无法写出 `CompactStatus::None`。
       state->wave_overlay_.reset();
       const auto voiceAux = [&] { return ic.inputPanel().auxUp().toString(); };
       state->updateVoiceOverlay();
@@ -3604,7 +3604,7 @@ int main(int argc, char **argv) {
       state->wave_overlay_surface_ = std::move(nativeSurface);
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
-    // The drawn surfaces report a click from inside their own update(), so Cancel tears the frame timer and the display watch down before update() returns (the frame timer's own callback reads nothing through its capture afterwards, which fcitx5_contract.py pins); Confirm while recognition is pending only takes the bar down and sends the provider no second stop. The loop is not run here: once exited, an sd-event loop takes no new sources.
+    // 画出来的浮层在自己的 `update()` 里报告点击，所以取消会在 `update()` 返回之前拆掉帧定时器和显示连接监听（帧定时器自己的回调之后不再经捕获读取任何东西，由 `fcitx5_contract.py` 固定）；识别进行中点确认只收起浮条，不再向提供商发送第二次停止。这里不运行事件循环：sd-event 循环一旦退出就不再接受新的事件源。
     {
       using Action = msime::linux_host::WaveOverlayModel::Action;
       struct ActingSurface final : msime::linux_host::WaveOverlaySurface {
@@ -3647,7 +3647,7 @@ int main(int argc, char **argv) {
       require(!state->voice_loading_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
                   !state->wave_overlay_frame_timer_ && !state->wave_overlay_io_,
               "Cancel from inside update() ends the recording and stops the overlay's sources");
-      // Recognition pending: the bar shows its label without a frame timer, and Confirm only dismisses it.
+      // 识别进行中：浮条显示文字标签，没有帧定时器，点确认只收起它。
       state->voice_loading_ = true;
       state->voice_socket_ = "/nonexistent/msime-voice-provider.sock";
       state->voice_generation_ = 7;
@@ -3671,7 +3671,9 @@ int main(int argc, char **argv) {
       state->wave_overlay_surface_ = std::move(nativeSurface);
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
-    // A provider that gives no result is a provider failure, as in the IBus host, and a named missing dependency says what to install; neither may read as 未识别到文字, which recording again cannot fix.
+    // 提供商没给出结果算提供商失败，与 IBus 宿主一致；缺了具名依赖时说明要装什么。两者都不能显示成「未识别到文字」，因为重新录音解决不了。这里没有浮层，提示走辅助行；测试环境有没有显示连接不影响结果。
+    auto failureSurface = std::move(state->wave_overlay_surface_);
+    state->wave_overlay_visible_ = false;
     for (const auto &[providerError, notice] : std::vector<std::pair<std::string, std::string>>{
              {"voice_dependency_missing:websockets", "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets"},
              {"voice_dependency_missing:recorder", "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils"},
@@ -3693,7 +3695,7 @@ int main(int argc, char **argv) {
               "a provider failure shows its fixed notice");
       require(state->wave_overlay_.failure && !state->wave_overlay_.actions_visible(),
               "a failure notice shows its message alone, without actions");
-      // Esc takes the notice down before its six seconds are up.
+      // Esc 在六秒到期之前收起提示。
       fcitx::KeyEvent dismiss(&ic, fcitx::Key(FcitxKey_Escape));
       engine.keyEvent(entry, dismiss);
       require(!state->voice_failure_visible_ && !state->wave_overlay_.failure &&
@@ -3702,6 +3704,34 @@ int main(int argc, char **argv) {
       state->hideVoiceOverlay();
       ic.inputPanel().setAuxUp(fcitx::Text());
     }
+    // 画出来的浮层承载失败提示时不再往辅助行写一份副本，与 macOS 一样；Esc 收起浮层后辅助行原样不动。
+    {
+      struct DrawnSurface final : msime::linux_host::WaveOverlaySurface {
+        bool show(const msime::linux_host::WaveOverlayModel &) override { return true; }
+        void update(const msime::linux_host::WaveOverlayModel &) override {}
+        void hide() override { ++hides; }
+        bool animates() const override { return true; }
+        int hides = 0;
+      };
+      auto drawn = std::make_unique<DrawnSurface>();
+      auto *surface = drawn.get();
+      state->wave_overlay_surface_ = std::move(drawn);
+      state->wave_overlay_visible_ = false;
+      state->wave_overlay_dismissed_ = false;
+      ic.inputPanel().setAuxUp(fcitx::Text());
+      state->showVoiceFailure("未识别到文字，请重新录音");
+      require(state->voice_failure_visible_ && state->wave_overlay_visible_ && state->wave_overlay_.failure,
+              "a drawn surface shows the voice failure notice");
+      require(ic.inputPanel().auxUp().toString().empty(),
+              "a drawn failure notice leaves no copy on the auxiliary line");
+      fcitx::KeyEvent dismiss(&ic, fcitx::Key(FcitxKey_Escape));
+      engine.keyEvent(entry, dismiss);
+      require(!state->voice_failure_visible_ && !state->wave_overlay_visible_ && surface->hides >= 1 &&
+                  ic.inputPanel().auxUp().toString().empty(),
+              "Esc takes a drawn failure notice down and leaves the auxiliary line empty");
+    }
+    state->wave_overlay_surface_ = std::move(failureSurface);
+    state->wave_overlay_visible_ = false;
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");

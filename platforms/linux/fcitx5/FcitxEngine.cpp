@@ -2876,12 +2876,12 @@ public:
     emoji_previous_offsets_.clear();
     return requestEmojiPage({});
   }
-  // A click on the overlay's round actions. The surface reports it from inside its own update() or dispatch_events(), so this may run within the frame timer's or the display watch's callback and tear that source down.
+  // 浮层上圆形操作按钮的一次点击。浮层在自己的 `update()` 或 `dispatch_events()` 里报告它，所以这里可能运行在帧定时器或显示连接监听的回调之内，并把那个事件源拆掉。
   void handleVoiceOverlayAction(msime::linux_host::WaveOverlayModel::Action action) {
     if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
       cancelVoice();
     } else if (voice_loading_ && wave_overlay_.processing()) {
-      // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
+      // 识别或润色进行中点确认只收起浮条，与 macOS 的 `dismissProcessing` 一样；结果到达后照常上屏。
       wave_overlay_dismissed_ = true;
       hideVoiceOverlay();
     } else {
@@ -2894,7 +2894,7 @@ public:
     wave_overlay_visible_ = false;
     syncVoiceOverlaySources();
   }
-  // Start or stop the 16 ms wave animation and the watch on the overlay's display connection to match what is on screen: the animation runs while a drawn overlay shows the wave, the watch while a drawn overlay is shown at all. The auxiliary-text fallback needs neither.
+  // 按屏幕上的实际情况启停 16 ms 的波形动画和浮层显示连接的监听：画出来的浮层显示波形时跑动画，只要画出来的浮层在显示就监听。辅助文本回退两者都不需要。
   void syncVoiceOverlaySources() {
     auto *surface = wave_overlay_surface_.get();
     const bool shown = surface && wave_overlay_visible_ && !wave_overlay_failed_;
@@ -2904,10 +2904,10 @@ public:
       wave_overlay_frame_timer_ = loop_->addTimeEvent(
           CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + interval, 1000,
           [this](fcitx::EventSourceTime *timer, uint64_t now) {
-            // update() also reads the pointer and expose events Xlib or libwayland already queued, and an action handled there may reset wave_overlay_frame_timer_, which destroys this closure and the `this` it captured while the call is still running. Everything after update() therefore goes through this copy on the stack and never through the capture.
+            // `update()` 还会读取 Xlib 或 libwayland 已经排进队列的指针和 expose 事件，在那里处理的操作可能重置 `wave_overlay_frame_timer_`，在调用尚未返回时就销毁这个闭包和它捕获的 `this`。因此 `update()` 之后的一切都经过栈上的这份副本，绝不经过捕获。
             auto *const self = this;
             if (self->wave_overlay_surface_ && self->wave_overlay_visible_ && self->wave_overlay_.animates()) {
-              // The provider's level arrives on its own thread; the frame reads the newest one rather than waiting for the 250 ms poll.
+              // 提供商的音量在它自己的线程上到达；每一帧读取最新的值，不等 250 ms 的轮询。
               if (const auto mailbox = self->voice_mailbox_) {
                 std::lock_guard lock(mailbox->mutex);
                 if (mailbox->level_seen) self->wave_overlay_.set_input_level(static_cast<float>(mailbox->level) / 10.0f);
@@ -2923,7 +2923,7 @@ public:
           });
     } else if (!animate && wave_overlay_frame_timer_) {
       wave_overlay_frame_timer_.reset();
-      // The next wave starts from dots, as macOS resets its bars when the animation stops.
+      // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
       wave_overlay_.levels.fill(0.0f);
     }
     const int fd = shown ? surface->event_fd() : -1;
@@ -2933,7 +2933,7 @@ public:
       if (fd >= 0 && loop_)
         wave_overlay_io_ = loop_->addIOEvent(fd, fcitx::IOEventFlag::In,
             [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
-              // An action handled in dispatch_events() may hide the overlay and so reset wave_overlay_io_, destroying this closure; nothing after the call may read the capture.
+              // 在 `dispatch_events()` 里处理的操作可能收起浮层，从而重置 `wave_overlay_io_` 并销毁这个闭包；调用之后不得再读取捕获。
               if (wave_overlay_surface_ && wave_overlay_visible_) wave_overlay_surface_->dispatch_events();
               return true;
             });
@@ -2985,12 +2985,12 @@ public:
       wave_overlay_failed_ = true;
     }
     if (voice_loading_) {
-      // The same text the IBus host's fallback shows: status or locked hint, microphone meter, newest transcript.
+      // 与 IBus 宿主回退显示的文字相同：状态或锁定提示、麦克风音量条、最新的转写文字。
       ic_.inputPanel().setAuxUp(fcitx::Text(msime::linux_host::wave_overlay_feedback_text(wave_overlay_)));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
   }
-  // Tell the user why nothing was typed, as the Windows service does with a message box, macOS in its overlay and the IBus host with show_voice_failure: the overlay (and the auxiliary text, which is all there is without an overlay surface) carries a fixed message for six seconds, or until Esc or the next recording. The messages are fixed on purpose, since provider errors can carry private values.
+  // 告诉用户为什么什么也没输入，就像 Windows 服务用消息框、macOS 用浮层、IBus 宿主用 `show_voice_failure` 做的那样：浮层（没有浮层时就是辅助文本）显示一条固定消息六秒，或者直到按 Esc、开始下一次录音。消息刻意固定，因为提供商的错误可能带有隐私内容。
   void showVoiceFailure(const char *message) {
     if (++voice_failure_id_ == 0) ++voice_failure_id_;
     const auto id = voice_failure_id_;
@@ -3009,8 +3009,11 @@ public:
         wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
       syncVoiceOverlaySources();
     }
-    ic_.inputPanel().setAuxUp(fcitx::Text(voice_failure_message_));
-    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    // 画得出浮层时提示只在浮层上，与 macOS 和 IBus 宿主一样；画不出时才写辅助行，`dismissVoiceFailure` 按内容认领后收掉它。
+    if (!(wave_overlay_visible_ && wave_overlay_surface_->animates())) {
+      ic_.inputPanel().setAuxUp(fcitx::Text(voice_failure_message_));
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
     voice_failure_timer_ = loop_->addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + uint64_t{msime::linux_host::kWaveOverlayFailureMilliseconds} * 1000, 0,
         [this, id](fcitx::EventSourceTime *, uint64_t) {
@@ -3221,7 +3224,7 @@ public:
   }
   bool stopVoice() {
     if (!voice_loading_ || voice_socket_.empty() || voice_generation_ == 0) return false;
-    // Already stopped and waiting for recognition: a second confirm, shortcut or menu click must not send the provider another stop, whose refusal would cancel the recording.
+    // 已经停止录音、正在等识别：再次确认、按快捷键或点菜单都不能再向提供商发送停止，否则它的拒绝会取消这次录音。
     if (wave_overlay_.processing()) return true;
     const auto socket = voice_socket_;
     bool stopped = false;
@@ -4105,9 +4108,9 @@ public:
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
   bool wave_overlay_failed_ = false;
-  // Confirm was clicked while recognition was pending: the bar stays down for the rest of this recording.
+  // 识别进行中点了确认：这次录音余下的时间里浮条一直收着。
   bool wave_overlay_dismissed_ = false;
-  // Declared after the surface so they are destroyed before it closes its display connection.
+  // 声明在浮层之后，这样它们会在浮层关闭显示连接之前销毁。
   std::unique_ptr<fcitx::EventSourceTime> wave_overlay_frame_timer_;
   std::unique_ptr<fcitx::EventSourceIO> wave_overlay_io_;
   int wave_overlay_io_fd_ = -1;
@@ -7660,7 +7663,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
        sym == FcitxKey_Home || sym == FcitxKey_End || sym == FcitxKey_Page_Up ||
        sym == FcitxKey_Page_Down))
     forgetSmartPunctuationShadow();
-  // Esc takes a voice failure notice down, as on macOS, and still goes on to the editor or the composition.
+  // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
   if (!event.isRelease() && sym == FcitxKey_Escape && !voice_loading_) dismissVoiceFailure();
   // 和裸 Shift 一样，切换之后松开事件照常交给应用；布防了的按下也只交给应用。
   if (observeCapsLockTap(event)) return false;
@@ -7894,7 +7897,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     voice_space_consumed_ = true;
     if (!voice_space_locked_) {
       voice_space_locked_ = true;
-      // The locked look (the round actions, or the locked hint in the text fallback) shows now rather than at the next 250 ms poll.
+      // 锁定后的样子（圆形操作按钮，或文本回退里的锁定提示）立即显示，不等下一次 250 ms 的轮询。
       updateVoiceOverlay();
     }
     return true;

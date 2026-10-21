@@ -18,10 +18,10 @@
 namespace msime::linux_host {
 namespace {
 
-// update() runs for every input-level change and every animation frame, so the monitor, work area and scale are re-read at most this often while the size stays the same; show() and a layout change always re-read them.
+// 每次音量变化和每帧动画都会运行 `update()`，所以尺寸不变时最多按这个频率重读显示器、工作区和缩放；`show()` 和布局变化总会重读。
 constexpr auto kPlacementRefreshInterval = std::chrono::milliseconds(500);
 
-// The rounded panel as horizontal bands, for the Shape extension when no compositing manager can show translucent corners.
+// 把圆角面板拆成一条条水平带，供没有合成管理器、无法显示半透明圆角时的 Shape 扩展使用。
 std::vector<XRectangle> rounded_bands(int width, int height, double radius) {
   std::vector<XRectangle> bands;
   radius = std::clamp(radius, 0.0, std::min(width, height) / 2.0);
@@ -79,7 +79,7 @@ bool WaveOverlayX11Surface::compositor_running() const {
   return atom != None && XGetSelectionOwner(display_, atom) != None;
 }
 
-// The window is made for the compositing state of the moment: a 32-bit visual only shows its alpha through a compositing manager, and without one its transparent corners would be black. A manager that starts or stops between two recordings gets a new window at the next show().
+// 窗口按当时的合成状态创建：32 位 visual 只有经过合成管理器才显示得出 alpha，没有合成管理器时透明的圆角会变黑。两次录音之间合成管理器启动或停止，下一次 `show()` 会换一个新窗口。
 bool WaveOverlayX11Surface::ensure_window() {
   const bool composited = compositor_running();
   if (window_ && composited == made_composited_)
@@ -114,7 +114,7 @@ bool WaveOverlayX11Surface::ensure_window() {
     if (visuals)
       XFree(visuals);
   }
-  // Position and size are set by place(), which knows the target monitor, the scale and the layout.
+  // 位置和尺寸由 `place()` 设置，它知道目标显示器、缩放和布局。
   window_ = XCreateWindow(display_, root, 0, 0, 1, 1, 0, depth, InputOutput, visual, mask, &attributes);
   if (!window_) {
     if (colormap_)
@@ -123,12 +123,12 @@ bool WaveOverlayX11Surface::ensure_window() {
     return false;
   }
   visual_ = visual;
-  // Remembered as the compositing state it was made for, even when no ARGB visual was found, so the next show() does not remake it for nothing.
+  // 记下窗口创建时对应的合成状态，即使没找到 ARGB visual 也记，下一次 `show()` 就不会白白重建。
   made_composited_ = composited;
   translucent_ = argb;
   cairo_surface_ = cairo_xlib_surface_create(display_, window_, visual_, 1, 1);
   XSelectInput(display_, window_, ExposureMask | ButtonPressMask | ButtonReleaseMask);
-  // Zero sizes make the first place() size the window and the first draw cut its shapes.
+  // 尺寸置零，第一次 `place()` 就会设定窗口尺寸，第一次绘制就会切出形状。
   width_ = 0;
   height_ = 0;
   logical_width_ = 0;
@@ -164,7 +164,7 @@ void WaveOverlayX11Surface::close_display() {
   display_ = nullptr;
 }
 
-// Mirrors the macOS and Windows placement: the scale and the target monitor are re-read, the window sized for the current layout, and the bar centred on the monitor holding the focused window, 10 px above its work-area bottom.
+// 与 macOS 和 Windows 的定位一致：重读缩放和目标显示器，按当前布局设定窗口尺寸，把浮条居中放在有焦点窗口所在的显示器上，离工作区底边 10 px。
 void WaveOverlayX11Surface::place(bool force) {
   if (!display_ || !window_)
     return;
@@ -192,7 +192,7 @@ void WaveOverlayX11Surface::place(bool force) {
   XMoveResizeWindow(display_, window_, position.x, position.y, width_, height_);
 }
 
-// Only the two round actions take the pointer, and without a compositing manager the window is cut to the rounded panel. Both are redone when the size or the actions change; the size alone fixes the rounding, since every layout has its own size.
+// 只有两个圆形操作按钮接收指针，没有合成管理器时窗口切成圆角面板的形状。尺寸或操作按钮变化时两者都重做；圆角只由尺寸决定，因为每种布局的尺寸各不相同。
 void WaveOverlayX11Surface::apply_shapes() {
   if (shaped_ && shaped_actions_ == frame_.actions)
     return;
@@ -235,7 +235,7 @@ void WaveOverlayX11Surface::draw() {
   }
   apply_shapes();
   auto *cairo = cairo_create(cairo_surface_);
-  // Drawn off screen and copied in one operation, so a 16 ms frame never shows a half-painted panel.
+  // 先在屏幕外画好，再一次复制上去，16 ms 的一帧因此不会显示画了一半的面板。
   cairo_push_group(cairo);
   cairo_scale(cairo, static_cast<double>(width_) / std::max(1, frame_.width),
               static_cast<double>(height_) / std::max(1, frame_.height));
@@ -255,7 +255,7 @@ void WaveOverlayX11Surface::pump_events() {
     XEvent event{};
     XNextEvent(display_, &event);
     if (event.type == Expose && event.xexpose.window == window_ && event.xexpose.count == 0) {
-      // An override-redirect window keeps no backing store of its own; whatever covered it is repainted from the last model.
+      // override-redirect 窗口自己不保留后备存储；被遮住的部分按上一次的模型重画。
       draw();
       continue;
     }

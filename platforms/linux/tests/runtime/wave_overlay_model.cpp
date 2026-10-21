@@ -13,7 +13,7 @@ using msime::linux_host::WaveOverlayModel;
 void check_layouts() {
   using msime::linux_host::wave_overlay_layout;
   using msime::linux_host::wave_overlay_size;
-  // The macOS precedence: actions over a label over a transcript, and the four sizes.
+  // macOS 的优先顺序：操作按钮优先于标签，标签优先于转写文字；以及四种尺寸。
   assert(wave_overlay_layout(true, true, true) == WaveOverlayLayout::Action);
   assert(wave_overlay_layout(false, true, true) == WaveOverlayLayout::Processing);
   assert(wave_overlay_layout(false, false, true) == WaveOverlayLayout::Transcript);
@@ -31,15 +31,15 @@ void check_layouts() {
 void check_presentation_rules() {
   WaveOverlayModel model;
   model.listening = true;
-  // A plain hold shows the bare compact wave: no actions, no label.
+  // 普通按住录音只显示紧凑的波形：没有操作按钮，没有标签。
   assert(!model.actions_visible() && !model.label_visible() && model.animates());
   assert(model.layout() == WaveOverlayLayout::Compact);
   model.set_transcript("你好");
   assert(model.layout() == WaveOverlayLayout::Transcript);
-  // Space-locking it brings the actions, which win over the transcript.
+  // 按空格锁定后出现操作按钮，它们优先于转写文字。
   model.locked = true;
   assert(model.actions_visible() && model.layout() == WaveOverlayLayout::Action && model.animates());
-  // Recognition keeps the actions and puts the macOS label in place of the wave.
+  // 识别时保留操作按钮，并用 macOS 的标签代替波形。
   model.locked = false;
   model.listening = false;
   model.compact_status = WaveOverlayModel::CompactStatus::Recognizing;
@@ -47,7 +47,7 @@ void check_presentation_rules() {
   assert(model.label() == "识别中...");
   model.compact_status = WaveOverlayModel::CompactStatus::Processing;
   assert(model.label() == "处理中...");
-  // A failure shows only its message: no actions, no transcript, no wave.
+  // 失败时只显示消息：没有操作按钮，没有转写文字，没有波形。
   model.reset();
   model.failure = true;
   model.status = "未识别到文字，请重新录音";
@@ -55,7 +55,7 @@ void check_presentation_rules() {
   assert(!model.actions_visible() && model.label_visible() && !model.has_transcript() && !model.animates());
   assert(model.label() == model.status);
 
-  // Hit testing follows the actions: only the two circles 18 px in from each end of the pill take the pointer.
+  // 命中测试跟随操作按钮：只有离胶囊两端各 18 px 的两个圆接收指针。
   WaveOverlayModel locked;
   locked.listening = true;
   locked.locked = true;
@@ -72,11 +72,11 @@ void check_presentation_rules() {
 void check_wave_motion() {
   WaveOverlayModel model;
   model.listening = true;
-  // Silence keeps every bar a dot.
+  // 静音时每根条都是圆点。
   model.set_input_level(0.0f);
   for (int frame = 0; frame < 120; ++frame) model.advance(1000.0 + frame * 0.016);
   for (float level : model.levels) assert(level < 0.06f);
-  // Speech raises the bars, peaked toward the centre, and keeps them within 0...1.
+  // 说话时波形条升高，中间最高，并保持在 0...1 之内。
   model.set_input_level(1.0f);
   float edge = 0.0f, centre = 0.0f;
   for (int frame = 0; frame < 240; ++frame) {
@@ -89,7 +89,7 @@ void check_wave_motion() {
   bool raised = false;
   for (float level : model.levels) raised = raised || level >= 0.06f;
   assert(raised);
-  // Input beyond the range is clamped, and the bars settle back to dots once listening stops.
+  // 超出范围的输入被截断，停止收音后波形条回落成圆点。
   model.set_input_level(5.0f);
   assert(model.input_level == 1.0f);
   model.set_input_level(-1.0f);
@@ -98,7 +98,7 @@ void check_wave_motion() {
   model.set_input_level(1.0f);
   for (int frame = 0; frame < 240; ++frame) model.advance(3000.0 + frame * 0.016);
   for (float level : model.levels) assert(level < 0.06f);
-  // The motion is deterministic for the same clock.
+  // 同样的时钟得到同样的运动。
   WaveOverlayModel first, second;
   first.listening = second.listening = true;
   first.set_input_level(0.7f);
@@ -107,7 +107,7 @@ void check_wave_motion() {
   second.advance(12.5);
   assert(first.levels == second.levels);
 
-  // The wave's geometry: the compact pill spreads twelve bars across its width, the action pill keeps them between the circles.
+  // 波形的几何布局：紧凑胶囊把十二根条铺满整个宽度，操作胶囊把它们放在两个圆之间。
   const auto compact = msime::linux_host::wave_overlay_wave(model.levels, 78, 32, false, false);
   assert(compact.center_y == 16 && compact.bars.front().x > 0 && compact.bars.back().x < 78);
   const auto action = msime::linux_host::wave_overlay_wave(model.levels, 142, 40, true, false);
@@ -130,11 +130,11 @@ void check_transcript_window() {
   assert(model.transcript == "ok((尾" && !model.transcript_truncated);
   model.set_transcript("\xed\xa0\x80\xf4\x90\x80\x80valid");
   assert(model.transcript == "valid");
-  // A NUL or another C0 control from a provider is dropped, so no C string reader stops short of the byte length Pango is given; line breaks and tabs stay.
+  // 提供商给出的 NUL 或其他 C0 控制字符被丢弃，读 C 字符串的代码就不会在交给 Pango 的字节长度之前提前停下；换行和制表符保留。
   model.set_transcript(std::string("\0\x01你好\r\n\tok\x1b", 14));
   assert(model.transcript == "你好\n\tok");
 
-  // The newest text that fits: here a line holds four bytes.
+  // 放得下的最新文字：这里一行容纳四个字节。
   const std::string text = "abcdefghij";
   std::vector<std::size_t> cuts;
   for (std::size_t offset = 0; offset <= text.size(); ++offset) cuts.push_back(offset);
@@ -143,7 +143,7 @@ void check_transcript_window() {
   const auto newest = msime::linux_host::wave_overlay_visible_transcript(text, cuts, false, 2, lines);
   assert(newest.rfind("…", 0) == 0 && lines(newest) <= 2);
   assert(newest.size() >= 3 && newest.compare(newest.size() - 3, 3, "hij") == 0);
-  // Dropped text always shows as "…", even when the rest fits.
+  // 丢弃过的文字总是显示为「…」，即使剩下的部分放得下。
   assert(msime::linux_host::wave_overlay_visible_transcript(text, cuts, true, 5, lines) == "…" + text);
 }
 
@@ -186,7 +186,7 @@ int main() {
   unsetenv("WAYLAND_DISPLAY");
   const auto surface = msime::linux_host::create_wave_overlay_surface(nullptr);
   assert(surface);
-  // The text fallback neither animates nor has a connection to watch.
+  // 文本回退既没有动画，也没有要监听的连接。
   assert(!surface->animates() && surface->event_fd() == -1);
   assert(msime_voice_stream_inline_enabled(true, "doubao"));
   assert(msime_voice_stream_inline_enabled(true, "doubao", "tsf"));

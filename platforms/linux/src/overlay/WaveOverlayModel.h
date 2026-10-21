@@ -17,22 +17,22 @@ struct WaveOverlayModel {
   enum class Action { Cancel, Confirm };
   enum class CompactStatus { None, Recognizing, Processing };
   static constexpr std::size_t kLevelCount = kWaveOverlayBarCount;
-  // The bars as drawn; advance() moves them toward input_level one frame at a time.
+  // 画出来的波形条；`advance()` 每次一帧地把它们推向 `input_level`。
   std::array<float, kLevelCount> levels{};
-  // The latest microphone level, 0...1.
+  // 最新的麦克风音量，0...1。
   float input_level = 0.0f;
   bool listening = false;
   bool show_transcript = true;
-  // A failure notice: `status` holds its fixed message, drawn alone in a pill widened to fit it.
+  // 失败提示：`status` 存放它的固定消息，单独画在加宽到能放下它的胶囊里。
   bool failure = false;
   bool light_theme = false;
   // The resolved theme's colours for the surfaces MSIME draws itself (X11, Wayland); unset keeps their built-in light or dark colours. The IBus fallback shows only text and ignores it.
   std::optional<FloatingSurfaceColors> palette;
   std::string transcript;
-  // Older text was dropped to keep the transcript within kWaveOverlayTranscriptWindow, so every preview of it starts with "…".
+  // 为了让转写文字不超过 `kWaveOverlayTranscriptWindow`，更早的文字已被丢弃，所以它的每一次预览都以「…」开头。
   bool transcript_truncated = false;
   std::string status;
-  // Space locked a hold-to-record recording: it goes on after the shortcut is released.
+  // 按住录音时按了空格锁定：松开快捷键后录音继续。
   bool locked = false;
 
   void reset() {
@@ -75,7 +75,7 @@ struct WaveOverlayModel {
           if ((static_cast<std::uint8_t>(value[offset + index]) & 0xc0) != 0x80)
             sequence_valid = false;
       }
-      // C0 controls other than a line break or a tab are dropped too: a NUL would end the text early for every C string API that later reads it (GLib, IBus, Pango's validation) while the byte length still counts past it.
+      // 换行和制表符以外的 C0 控制字符也丢弃：NUL 会让之后读取它的每个 C 字符串接口（GLib、IBus、Pango 的校验）提前结束文本，而字节长度仍然算到它后面。
       if (sequence_valid && width == 1 && first < 0x20 && first != '\n' && first != '\t')
         sequence_valid = false;
       if (!sequence_valid) {
@@ -108,22 +108,22 @@ struct WaveOverlayModel {
   Action pressed_action = Action::Confirm;
   CompactStatus compact_status = CompactStatus::None;
 
-  // The level the wave moves toward; the bars themselves change only in advance().
+  // 波形要趋向的音量；波形条本身只在 `advance()` 里改变。
   void set_input_level(float value) {
     input_level = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
   }
-  // One animation frame at monotonic time `seconds`.
+  // 单调时间 `seconds` 处的一帧动画。
   void advance(double seconds) {
     wave_overlay_advance_levels(levels, input_level, listening, seconds);
   }
 
-  // Recognition or polishing is pending after the recording ended.
+  // 录音结束后正在识别或润色。
   bool processing() const { return compact_status != CompactStatus::None; }
-  // The macOS rule: the round cancel and confirm actions appear while a locked recording is listening or while recognition or polishing is pending, never during a plain hold and never on a failure.
+  // macOS 的规则：锁定的录音正在收音，或者正在识别或润色时，显示圆形的取消和确认按钮；普通按住录音和失败提示时都不显示。
   bool actions_visible() const {
     return !failure && (processing() || (locked && listening));
   }
-  // A status label replaces the wave while recognition or polishing is pending and on a failure; a recording shows the bare wave.
+  // 识别或润色进行中以及失败时，状态标签代替波形；录音时只显示波形。
   bool label_visible() const { return failure || processing(); }
   std::string label() const {
     if (failure) return status;
@@ -134,11 +134,11 @@ struct WaveOverlayModel {
   WaveOverlayLayout layout() const {
     return wave_overlay_layout(actions_visible(), label_visible(), has_transcript());
   }
-  // The wave animates whenever it is drawn, that is whenever no label stands in its place.
+  // 只要画了波形就播放动画，也就是没有标签代替它的时候。
   bool animates() const { return !label_visible(); }
 };
 
-// Which action, if any, the logical point (x, y) of a `width` x `height` overlay lands on; only the two round actions take the pointer.
+// `width` x `height` 浮层上的逻辑点 (x, y) 落在哪个操作按钮上（如果有）；只有两个圆形操作按钮接收指针。
 inline bool wave_overlay_hit_action(const WaveOverlayModel &model, double x, double y, double width,
                                     double height, WaveOverlayModel::Action &action) {
   if (!model.actions_visible()) return false;

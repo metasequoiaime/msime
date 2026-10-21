@@ -15,7 +15,7 @@
 
 namespace msime::linux_host {
 
-// What one presentation of the overlay shows, in logical pixels: the layout and its size, whether the actions and a status label are drawn, the label's text and the part of the transcript that fits.
+// 浮层一次呈现的内容，单位是逻辑像素：布局及其尺寸、是否画操作按钮和状态标签、标签文字，以及放得下的那部分转写文字。
 struct WaveOverlayFrame {
   WaveOverlayLayout layout = WaveOverlayLayout::Compact;
   int width = 0;
@@ -26,7 +26,7 @@ struct WaveOverlayFrame {
   std::string transcript;
 };
 
-// Drawing the voice overlay with Cairo and Pango, shared by the X11 and Wayland surfaces so the two session types cannot drift apart; they differ only in where the pixels go. The painter works in logical pixels and the caller scales the context to the device. It follows the macOS overlay's geometry, type sizes and interaction; the colours stay the resolved theme's (the Adwaita palette for the built-in theme, a skin's own colours otherwise).
+// 用 Cairo 和 Pango 绘制语音浮层，X11 和 Wayland 浮层共用，两种会话因此不会各自走样；它们只在像素送往何处上不同。绘制器以逻辑像素工作，由调用方把上下文缩放到设备像素。几何、字号和交互跟随 macOS 浮层；颜色仍取解析出的主题（内置主题用 Adwaita 配色，皮肤则用皮肤自己的颜色）。
 class WaveOverlayPainter {
  public:
   WaveOverlayPainter() = default;
@@ -38,7 +38,7 @@ class WaveOverlayPainter {
     if (context_) g_object_unref(context_);
   }
 
-  // The longest a failure pill grows to fit its message; a longer message is cut with "…".
+  // 失败提示胶囊为容纳消息最多能加宽到的长度；更长的消息用「…」截断。
   static constexpr int kMaxFailureWidth = 720;
 
   WaveOverlayFrame frame(const WaveOverlayModel &model) {
@@ -46,7 +46,7 @@ class WaveOverlayPainter {
     frame.actions = model.actions_visible();
     frame.label = model.label_visible();
     if (model.failure) {
-      // The fixed message takes the label line of a processing-sized pill, widened to fit it, as macOS does.
+      // 固定消息占用处理中尺寸胶囊的标签行，并加宽到能放下它，与 macOS 一样。
       frame.layout = WaveOverlayLayout::Processing;
       frame.label_text = model.status;
       auto *layout = text_layout(status_font(), model.status, -1);
@@ -69,7 +69,7 @@ class WaveOverlayPainter {
     return frame;
   }
 
-  // Paint `frame` into `cairo`, whose user space is the frame's logical pixels. `translucent` is false on a surface without an alpha channel, where the panel is drawn opaque instead of at the macOS 0.90.
+  // 把 `frame` 画进 `cairo`，后者的用户空间就是这一帧的逻辑像素。在没有 alpha 通道的浮层上 `translucent` 为 false，面板画成不透明，而不是 macOS 的 0.90。
   void paint(cairo_t *cairo, const WaveOverlayFrame &frame, const WaveOverlayModel &model, bool translucent) {
     const auto colors = palette(model);
     const double w = frame.width, h = frame.height;
@@ -81,7 +81,7 @@ class WaveOverlayPainter {
     cairo_paint(cairo);
     cairo_restore(cairo);
 
-    // The panel, inset by half the hairline so the outline stays inside the surface.
+    // 面板向内缩进半根细线的宽度，描边因此留在浮层之内。
     const double radius = std::min(wave_overlay_corner_radius(h, frame.actions, frame.label, transcript),
                                    std::min(w, h) / 2.0 - 0.5);
     rounded_rectangle(cairo, 0.5, 0.5, w - 1.0, h - 1.0, radius);
@@ -110,7 +110,7 @@ class WaveOverlayPainter {
       g_object_unref(layout);
     } else {
       const auto wave = wave_overlay_wave(model.levels, w, h, frame.actions, transcript);
-      // The bars take the text colour, as macOS fills them with its foreground.
+      // 波形条用文字颜色，与 macOS 用前景色填充它们一样。
       set_color(cairo, colors.text, 1.0);
       for (const auto &bar : wave.bars) {
         if (bar.dot) {
@@ -125,7 +125,7 @@ class WaveOverlayPainter {
     }
 
     if (transcript) {
-      // The newest three lines at the macOS 22 px pitch, clipped to the text area.
+      // 最新的三行，按 macOS 的 22 px 行距排列，裁剪到文字区域内。
       const double left = kWaveOverlayTranscriptPadding;
       const double top = kWaveOverlayTranscriptTop;
       const double text_width = w - 2.0 * kWaveOverlayTranscriptPadding;
@@ -157,7 +157,7 @@ class WaveOverlayPainter {
       const double y = wave_overlay_action_center_y(h);
       const double left_x = wave_overlay_cancel_center_x();
       const double right_x = wave_overlay_confirm_center_x(w);
-      // A neutral circle a little toward the text colour, as the macOS grey sits between its panel and its glyphs.
+      // 略偏向文字颜色的中性圆，就像 macOS 的灰色介于面板和字形之间。
       set_color(cairo, mix(colors.surface, colors.text, 0.12), 1.0);
       for (const double x : {left_x, right_x}) {
         cairo_new_sub_path(cairo);
@@ -178,7 +178,7 @@ class WaveOverlayPainter {
     }
   }
 
-  // Lines `text` wraps into in the transcript font at `width` logical pixels.
+  // `text` 以转写字体在 `width` 逻辑像素宽度下折成的行数。
   std::size_t transcript_line_count(const std::string &text, double width) {
     auto *layout = transcript_layout(text, width);
     const auto lines = static_cast<std::size_t>(pango_layout_get_line_count(layout));
@@ -218,7 +218,7 @@ class WaveOverlayPainter {
     cairo_close_path(cairo);
   }
 
-  // The resolved theme's surface and text, with its outline when it draws one. Without a theme palette the built-in light or dark colours apply, outlined by a faint hairline of the text colour as macOS outlines its panel.
+  // 解析出的主题的表面色和文字色，主题画描边时带上描边。没有主题配色时用内置的浅色或深色，并像 macOS 给面板描边那样，用文字颜色画一条淡淡的细线。
   static Colors palette(const WaveOverlayModel &model) {
     Colors colors;
     if (model.palette) {
@@ -233,7 +233,7 @@ class WaveOverlayPainter {
     return colors;
   }
 
-  // One Pango context for measuring and drawing, with hinted metrics off, so a layout wraps the same way whatever scale the surface draws it at.
+  // 测量和绘制共用一个 Pango 上下文，并关闭度量微调，无论浮层以什么缩放绘制，排版的折行都相同。
   PangoContext *context() {
     if (!context_) {
       context_ = pango_font_map_create_context(pango_cairo_font_map_get_default());
@@ -271,13 +271,13 @@ class WaveOverlayPainter {
     return layout;
   }
 
-  // The newest text that fits in three lines, cut only where a cursor may stand (a grapheme boundary), so an emoji or a base letter with its marks is kept or dropped whole. Cached: the text changes a few times a second, the frames come every 16 ms.
+  // 放得进三行的最新文字，只在光标可以停留的位置（字素边界）切开，emoji 或带附加符号的基字母因此整体保留或整体丢弃。结果有缓存：文字每秒只变几次，而帧每 16 ms 一帧。
   std::string visible_transcript(const WaveOverlayModel &model, double width) {
     if (model.transcript == cached_source_ && model.transcript_truncated == cached_truncated_ &&
         width == cached_width_)
       return cached_visible_;
     const auto &text = model.transcript;
-    // pango_get_log_attrs writes one entry per character over the whole byte length, so the characters are counted the same way, by their lead bytes; g_utf8_strlen would stop at a NUL and leave the array short.
+    // `pango_get_log_attrs` 按整个字节长度为每个字符写一项，所以字符数也用同样的方法按首字节数；`g_utf8_strlen` 遇到 NUL 就会停下，数组于是不够长。
     const auto characters = static_cast<glong>(
         std::count_if(text.begin(), text.end(), [](char byte) { return (static_cast<unsigned char>(byte) & 0xc0) != 0x80; }));
     std::vector<PangoLogAttr> attributes(static_cast<std::size_t>(characters) + 1);

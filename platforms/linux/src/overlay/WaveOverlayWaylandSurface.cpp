@@ -59,9 +59,9 @@ void WaveOverlayWaylandSurface::registry_global(
     self->compositor_ = static_cast<wl_compositor *>(wl_registry_bind(
         registry, name, &wl_compositor_interface, self->compositor_version_));
   } else if (std::strcmp(interface, "wl_output") == 0 && version >= 2) {
-    // Version 2 brings the scale event, all the bar needs from an output.
+    // 版本 2 带来 scale 事件，这是浮条需要从 output 得到的全部信息。
     auto *output = static_cast<wl_output *>(wl_registry_bind(registry, name, &wl_output_interface, 2));
-    // Assigned member by member, as the pointer listener below is: newer wayland headers add name and description, which a version 2 binding never receives.
+    // 逐个成员赋值，与下面的指针监听器一样：较新的 wayland 头文件增加了 name 和 description，版本 2 的绑定永远收不到它们。
     static const wl_output_listener output_listener = [] {
       wl_output_listener listener{};
       listener.geometry = output_geometry;
@@ -228,7 +228,7 @@ void WaveOverlayWaylandSurface::surface_leave(void *data, wl_surface *, wl_outpu
   self->scale_changed_ = true;
 }
 
-// The layout's size is advertised with set_size and the compositor's choice is drawn as advertised: the bar is small and centred, so a compositor that picks another size still shows all of it.
+// 布局尺寸用 `set_size` 告知合成器，合成器选定的尺寸仍按告知的尺寸绘制：浮条小而居中，合成器选了别的尺寸也能完整显示。
 void WaveOverlayWaylandSurface::layer_configure(
     void *data, zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t,
     uint32_t) {
@@ -283,7 +283,7 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
     static const zwlr_layer_surface_v1_listener layer_listener = {
         layer_configure, layer_closed};
     zwlr_layer_surface_v1_add_listener(layer_surface_, &layer_listener, this);
-    // With only the bottom anchor set, layer-shell centres the surface horizontally on the output the compositor picks (normally the focused one). An exclusive zone of 0 keeps it clear of panels that reserve space, so the 10 px margin is measured from the usable area as the X11 bar's is from the work area; it reserves nothing itself and never requests keyboard focus.
+    // 只设底部锚点时，layer-shell 把浮层水平居中放在合成器选定的 output 上（通常是有焦点的那个）。独占区设为 0 让它避开预留空间的面板，10 px 边距因此从可用区域量起，就像 X11 浮条从工作区量起；它自己不预留空间，也从不请求键盘焦点。
     zwlr_layer_surface_v1_set_anchor(
         layer_surface_, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
     zwlr_layer_surface_v1_set_margin(layer_surface_, 0, 0, kWaveOverlayWorkAreaGap, 0);
@@ -298,7 +298,7 @@ bool WaveOverlayWaylandSurface::ensure_surface() {
   return true;
 }
 
-// Ask for the current layout's size with a buffer-less commit and wait for the compositor's configure, as layer-shell requires before the first buffer and again after the surface was unmapped (`map`). A layout change while mapped asks the same way, so the new buffer normally follows an acknowledged size; a compositor that answers a resize with no configure keeps the surface mapped under the last one, so drawing goes on.
+// 用不带缓冲区的 commit 请求当前布局的尺寸，并等待合成器的 configure，这是 layer-shell 在第一个缓冲区之前、以及浮层取消映射后再次显示时（`map`）的要求。已映射时布局变化也这样请求，新缓冲区通常跟在已确认的尺寸之后；合成器对尺寸变化不回 configure 时，浮层仍按上一次的尺寸保持映射，绘制照常进行。
 bool WaveOverlayWaylandSurface::configure_size(bool map) {
   configured_ = false;
   requested_width_ = frame_.width;
@@ -308,13 +308,13 @@ bool WaveOverlayWaylandSurface::configure_size(bool map) {
   wl_surface_commit(surface_);
   if (wl_display_roundtrip(display_) < 0)
     closed_ = true;
-  // The roundtrip also runs the pointer handlers, so an action may have hidden (unmapped) the bar meanwhile; that surface needs the full map handshake at the next show(), whatever configure arrived during the roundtrip.
+  // roundtrip 也会运行指针处理函数，期间某个操作可能已经收起（取消映射）了浮条；不论 roundtrip 期间收到了什么 configure，这样的浮层在下一次 `show()` 时都需要完整的映射握手。
   if (!map && !closed_)
     configured_ = visible_;
   return configured_ && !closed_;
 }
 
-// Only the two round actions take the pointer; the rest of the bar lets clicks through.
+// 只有两个圆形操作按钮接收指针；浮条的其余部分让点击穿过。
 void WaveOverlayWaylandSurface::set_input_region() {
   if (!surface_ || !compositor_)
     return;
@@ -361,14 +361,14 @@ void WaveOverlayWaylandSurface::pump_events() {
   }
   if (!closed_ && wl_display_dispatch_pending(display_) < 0)
     closed_ = true;
-  // Moving to an output of another scale redraws at once, also while the bar shows a still label.
+  // 移到缩放不同的 output 上时立即重画，浮条显示静止标签时也一样。
   if (scale_changed_ && visible_ && !closed_) {
     scale_changed_ = false;
     draw();
   }
 }
 
-// Two buffers of `width` x `height` device pixels, remade when the layout or the scale changes the size.
+// 两个 `width` x `height` 设备像素的缓冲区，布局或缩放改变尺寸时重建。
 bool WaveOverlayWaylandSurface::ensure_buffers(int width, int height) {
   if (buffers_[0] && buffers_[1] && width == buffer_width_ && height == buffer_height_)
     return true;
@@ -415,7 +415,7 @@ bool WaveOverlayWaylandSurface::ensure_buffers(int width, int height) {
   return true;
 }
 
-// A buffer the compositor still holds stays valid on its side after destruction: shm contents are copied or kept by the compositor until it lets go.
+// 合成器仍持有的缓冲区在销毁后对它那一侧依然有效：shm 内容由合成器复制或保留，直到它释放。
 void WaveOverlayWaylandSurface::destroy_buffers() {
   for (auto *buffer : buffers_)
     if (buffer)
@@ -438,7 +438,7 @@ void WaveOverlayWaylandSurface::release_buffer(std::size_t index) {
     buffer_busy_[index] = false;
 }
 
-// The largest integer scale among the outputs the surface is on, or among all outputs before the compositor has said where it is. wl_surface.set_buffer_scale needs a version 3 compositor; an older one gets 1x buffers.
+// 浮层所在各 output 中最大的整数缩放；合成器还没告知它在哪里时，取全部 output 中最大的。`wl_surface.set_buffer_scale` 需要版本 3 的合成器，更旧的合成器拿到 1x 缓冲区。
 int WaveOverlayWaylandSurface::buffer_scale() const {
   if (compositor_version_ < 3)
     return 1;
@@ -455,7 +455,7 @@ void WaveOverlayWaylandSurface::draw() {
   if (!visible_ || !surface_ || !configured_ || closed_)
     return;
   if (frame_.width != requested_width_ || frame_.height != requested_height_) {
-    // The roundtrip dispatches pointer events too, and an action may hide the bar meanwhile.
+    // roundtrip 也会分发指针事件，期间某个操作可能收起浮条。
     if (!configure_size(false) || !visible_)
       return;
   }
@@ -510,7 +510,7 @@ void WaveOverlayWaylandSurface::update(const WaveOverlayModel &model) {
   draw();
 }
 
-// Attaching no buffer unmaps the layer surface; the next show() asks for its size again before it draws, as layer-shell requires of a remapped surface.
+// 附加空缓冲区会取消映射 layer surface；下一次 `show()` 绘制之前会重新请求尺寸，这是 layer-shell 对重新映射的浮层的要求。
 void WaveOverlayWaylandSurface::hide() {
   if (display_ && surface_ && visible_) {
     wl_surface_attach(surface_, nullptr, 0, 0);

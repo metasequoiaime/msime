@@ -572,11 +572,11 @@ struct State {
   msime::linux_host::WaveOverlayModel wave_overlay;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface;
   bool wave_overlay_visible = false;
-  // The 16 ms wave animation and the watch on the overlay's display connection; both run only while a drawn overlay is shown (sync_wave_overlay_sources).
+  // 16 ms 的波形动画和浮层显示连接的监听；两者只在画出来的浮层显示时运行（`sync_wave_overlay_sources`）。
   guint wave_overlay_timer = 0;
   guint wave_overlay_watch = 0;
   int wave_overlay_watch_fd = -1;
-  // Confirm was clicked while recognition was pending: the bar stays down for the rest of this recording, whose result is still committed, as macOS dismissProcessing does.
+  // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
   bool wave_overlay_dismissed = false;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
@@ -678,11 +678,20 @@ struct State {
   guint surrounding_anchor = 0;
   ~State() {
     alive->store(false);
+    close();
+  }
+  // 收起语音浮层并停掉它的帧动画和显示连接监听，与 `hide_wave_overlay` 相同，只是不需要 `IBusEngine`。会话的每条出口都经过 `close()`：`guarded()` 兜底和词典维护释放会话之后不再走 `render()`，浮层如果留着，重置过的模型会让 16 ms 的帧定时器一直重画一排圆点。
+  void release_wave_overlay() {
+    if (wave_overlay_surface && wave_overlay_visible)
+      wave_overlay_surface->hide();
+    wave_overlay_visible = false;
     if (wave_overlay_timer)
       g_source_remove(wave_overlay_timer);
+    wave_overlay_timer = 0;
     if (wave_overlay_watch)
       g_source_remove(wave_overlay_watch);
-    close();
+    wave_overlay_watch = 0;
+    wave_overlay_watch_fd = -1;
   }
   void close() {
     session_chinese_punctuation.reset();
@@ -719,6 +728,7 @@ struct State {
     voice_generation = 0;
     voice_preedit.clear();
     voice_transcript.clear();
+    release_wave_overlay();
     wave_overlay.reset();
     voice_consumed_keys.clear();
     voice_hold_key = 0;
@@ -3830,14 +3840,14 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   }
   return paging;
 }
-// The engine a voice overlay source belongs to, with its liveness flag: a source that outlives the engine sees the flag cleared and removes itself without touching the freed state.
+// 语音浮层事件源所属的引擎及其存活标记：比引擎活得久的事件源看到标记已清除，就移除自己，不碰已释放的状态。
 struct WaveOverlaySource {
   IBusEngine *engine;
   std::shared_ptr<std::atomic_bool> alive;
 };
 void delete_wave_overlay_source(gpointer data) { delete static_cast<WaveOverlaySource *>(data); }
 void sync_wave_overlay_sources(IBusEngine *engine);
-// One 16 ms frame of the wave: the bars move toward the latest microphone level and the surface redraws.
+// 波形的一帧（16 ms）：波形条向最新的麦克风音量移动，浮层重画。
 gboolean wave_overlay_frame(gpointer data) {
   auto *source = static_cast<WaveOverlaySource *>(data);
   if (!source->alive->load())
@@ -3849,11 +3859,11 @@ gboolean wave_overlay_frame(gpointer data) {
     return G_SOURCE_REMOVE;
   }
   s.wave_overlay.advance(static_cast<double>(g_get_monotonic_time()) / G_USEC_PER_SEC);
-  // update() also reads the pointer and expose events Xlib or libwayland already queued.
+  // `update()` 还会读取 Xlib 或 libwayland 已经排进队列的指针和 expose 事件。
   s.wave_overlay_surface->update(s.wave_overlay);
   return G_SOURCE_CONTINUE;
 }
-// The overlay's display connection became readable: a click on an action or an expose is handled now, not at the next redraw.
+// 浮层的显示连接可读了：操作按钮上的点击或 expose 现在就处理，不等下一次重画。
 gboolean wave_overlay_events(gint, GIOCondition condition, gpointer data) {
   auto *source = static_cast<WaveOverlaySource *>(data);
   if (!source->alive->load())
@@ -3868,7 +3878,7 @@ gboolean wave_overlay_events(gint, GIOCondition condition, gpointer data) {
   s.wave_overlay_surface->dispatch_events();
   return G_SOURCE_CONTINUE;
 }
-// Start or stop the wave animation and the event watch to match what is on screen: the animation runs while a drawn overlay shows the wave, the watch while a drawn overlay is shown at all. The auxiliary-text fallback needs neither.
+// 按屏幕上的实际情况启停波形动画和事件监听：画出来的浮层显示波形时跑动画，只要画出来的浮层在显示就监听。辅助文本回退两者都不需要。
 void sync_wave_overlay_sources(IBusEngine *engine) {
   auto &s = state(engine);
   auto *surface = s.wave_overlay_surface.get();
@@ -3881,7 +3891,7 @@ void sync_wave_overlay_sources(IBusEngine *engine) {
   } else if (!animate && s.wave_overlay_timer) {
     g_source_remove(s.wave_overlay_timer);
     s.wave_overlay_timer = 0;
-    // The next wave starts from dots, as macOS resets its bars when the animation stops.
+    // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
     s.wave_overlay.levels.fill(0.0f);
   }
   const int fd = shown ? surface->event_fd() : -1;
@@ -3896,7 +3906,7 @@ void sync_wave_overlay_sources(IBusEngine *engine) {
                                                 delete_wave_overlay_source);
   }
 }
-// Show or redraw the voice overlay from s.wave_overlay.
+// 按 `s.wave_overlay` 显示或重画语音浮层。
 void present_wave_overlay(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.wave_overlay_surface)
@@ -3947,7 +3957,7 @@ void render(IBusEngine *engine, const Json &view) {
       present_wave_overlay(engine);
     return;
   }
-  // A failure notice the overlay draws stays up while the user types on, as on macOS and in the Fcitx5 host; Esc, a focus change, the next recording or its six seconds take it down. Shown on the auxiliary line instead, it gives the line back to the candidates.
+  // 浮层画出的失败提示在用户继续打字时保持不动，与 macOS 和 Fcitx5 宿主一样；Esc、焦点变化、下一次录音或六秒到期会收起它。如果提示显示在辅助行上，就把这一行让回给候选。
   if (auto &s = state(engine); s.wave_overlay_visible &&
       !(s.wave_overlay.failure && s.wave_overlay_surface && s.wave_overlay_surface->animates()))
     hide_wave_overlay(engine);
@@ -4428,11 +4438,10 @@ void show_voice_failure(IBusEngine *engine, const char *message) {
   s.wave_overlay.failure = true;
   s.wave_overlay.listening = false;
   s.wave_overlay_dismissed = false;
+  // 提示只由浮层承载，与 macOS 一样：画得出浮层时就是那块浮层，画不出时 `FallbackSurface` 退到 `WaveOverlayIbusSurface`，把同一条消息写上辅助行。这里不再另写一份辅助行，否则浮层收起之后那份副本还留在候选窗里；`hide_wave_overlay` 收起浮层时，两种情况都一并收掉。
   present_wave_overlay(engine);
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_static_string(message), TRUE);
   auto *notice = new VoiceFailureNotice{engine, s.alive, s.voice_failure_id};
-  // The macOS overlay keeps a failure up for six seconds; Esc, a focus change or the next recording take it down sooner, and typing on leaves a drawn notice in place (see render).
+  // macOS 的浮层把失败提示保留六秒；Esc、焦点变化或下一次录音会提前收起它，继续打字时画出来的提示保持不动（见 `render`）。
   g_timeout_add_full(
       G_PRIORITY_DEFAULT, msime::linux_host::kWaveOverlayFailureMilliseconds,
       +[](gpointer data) -> gboolean {
@@ -4578,7 +4587,7 @@ void voice_start_impl(IBusEngine *engine) {
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
               s.wave_overlay.set_input_level(result->level / 10.0f);
-              // A drawn wave picks the level up on its next frame; only the text fallback's meter needs a redraw.
+              // 画出来的波形在下一帧取用音量；只有文本回退的音量条需要重画。
               if (!s.wave_overlay_surface || !s.wave_overlay_surface->animates())
                 render(result->engine, s.view);
             }
@@ -6402,7 +6411,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
-  // Esc takes a voice failure notice down, as on macOS, and still goes on to the editor or the composition.
+  // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
   if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
       s.wave_overlay_visible) {
     hide_wave_overlay(engine);
@@ -8494,7 +8503,7 @@ static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
             if (action == msime::linux_host::WaveOverlayModel::Action::Cancel) {
               voice_cancel(ibus_engine);
             } else if (s.voice_active && s.voice_stopping) {
-              // Confirm while recognition or polishing is pending only takes the bar down, as macOS dismissProcessing does; the result still commits when it arrives.
+              // 识别或润色进行中点确认只收起浮条，与 macOS 的 `dismissProcessing` 一样；结果到达后照常上屏。
               s.wave_overlay_dismissed = true;
               hide_wave_overlay(ibus_engine);
             } else {

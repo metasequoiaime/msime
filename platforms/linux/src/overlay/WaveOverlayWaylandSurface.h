@@ -26,7 +26,7 @@ struct zwlr_layer_surface_v1;
 
 namespace msime::linux_host {
 
-// Native wlroots layer-shell surface. It never requests keyboard focus; unsupported compositors use the factory's IBus fallback. It is sized for the current layout, drawn through WaveOverlayPainter at the integer scale of the output it is on, and sits 10 px above the bottom of the output's usable area, as the X11 and macOS bars do.
+// 原生的 wlroots layer-shell 浮层。它从不请求键盘焦点；不支持的合成器使用工厂里的 IBus 回退。它按当前布局定尺寸，经 `WaveOverlayPainter` 以所在 output 的整数缩放绘制，位于 output 可用区域底边以上 10 px，与 X11 和 macOS 的浮条一样。
 class WaveOverlayWaylandSurface final : public WaveOverlaySurface {
  public:
   explicit WaveOverlayWaylandSurface(ActionHandler action_handler = {})
@@ -98,7 +98,7 @@ class WaveOverlayWaylandSurface final : public WaveOverlaySurface {
   wl_surface *surface_ = nullptr;
   zwlr_layer_surface_v1 *layer_surface_ = nullptr;
   std::vector<Output> outputs_;
-  // The outputs the surface is on, from wl_surface.enter/leave; the buffer takes the largest of their scales.
+  // 浮层所在的 output，来自 `wl_surface.enter`/`leave`；缓冲区取其中最大的缩放。
   std::vector<wl_output *> entered_;
   bool scale_changed_ = false;
   std::array<wl_buffer *, 2> buffers_{};
@@ -112,13 +112,13 @@ class WaveOverlayWaylandSurface final : public WaveOverlaySurface {
   int shm_fd_ = -1;
   std::size_t buffer_size_ = 0;
   std::size_t next_buffer_ = 0;
-  // The device size of the current buffers.
+  // 当前缓冲区的设备像素尺寸。
   int buffer_width_ = 0;
   int buffer_height_ = 0;
-  // The logical size last requested with set_size; a layout of another size asks again before drawing.
+  // 上一次用 `set_size` 请求的逻辑尺寸；换成另一尺寸的布局时，绘制之前重新请求。
   int requested_width_ = 0;
   int requested_height_ = 0;
-  // The input region's geometry, so it is only resent when the size or the actions change.
+  // 输入区域的几何形状，只有尺寸或操作按钮变化时才重新发送。
   int input_width_ = -1;
   bool input_actions_ = false;
   bool configured_ = false;

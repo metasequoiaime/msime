@@ -14,7 +14,7 @@ Linux 的语音浮层和 macOS 差得很远。X11 与 Wayland 两个后端各画
 
 X11 与 Wayland 共用 `WaveOverlayPainter.h`（Cairo + Pango）。画家按逻辑像素工作，测量与绘制共用一个关闭度量 hinting 的 Pango 上下文，保证任何缩放下换行一致；转写的截断位置取 Pango 的 `is_cursor_position`，不会切开字形簇。X11 后端改用 cairo-xlib：有合成管理器时用 32 位 ARGB visual 画半透明圆角，没有时面板不透明、用 XFixes 的 ShapeBounding 区域裁圆角，合成管理器启停后下次显示重建窗口；离屏 group 绘制后一次拷贝，避免 16 ms 一帧时闪烁；处理 Expose。Wayland 后端按布局 `set_size` 并在拿到 configure 后再挂新尺寸的缓冲；按所在输出的 `wl_output.scale` 画整数倍缓冲并 `set_buffer_scale`；底边距 10 px、exclusive zone 0，与 X11 的“工作区底部之上 10 px”同义；隐藏后再次显示先重新协商尺寸，符合 layer-shell 对重新映射的要求。
 
-两个宿主在浮层显示时各起一个 16 ms 定时器推进波形（IBus 用 GLib，Fcitx5 用事件循环并在每帧读取邮箱里的最新电平），并在自己的主循环上监听浮层显示连接的 fd（`WaveOverlaySurface::event_fd()` / `dispatch_events()`），点击随到随处理。辅助文字回退不动画、不监听。识别中点完成只收起浮层（`wave_overlay_dismissed`），结果照常上屏；Fcitx5 的 `stopVoice` 在已进入识别后直接返回，不再重复发结束请求。点击是在浮层自己的 `update()` 或 `dispatch_events()` 里报告的，处理它可能停掉正在回调的帧定时器或 fd 监听，连同保存回调的闭包一起销毁；Fcitx5 的帧回调因此在调用 `update()` 之前把 `this` 复制到栈上，之后不再读捕获。失败提示 6 秒，Esc、切换焦点或下一次录音提前收起，Esc 不吞键；浮层上的失败提示在继续打字时不收起（macOS 和 Fcitx5 本来如此，IBus 以前每次重画候选都收掉它），只显示在辅助栏时把那一行让给候选。空格锁定在 Fcitx5 上立即刷新浮层。
+两个宿主在浮层显示时各起一个 16 ms 定时器推进波形（IBus 用 GLib，Fcitx5 用事件循环并在每帧读取邮箱里的最新电平），并在自己的主循环上监听浮层显示连接的 fd（`WaveOverlaySurface::event_fd()` / `dispatch_events()`），点击随到随处理。辅助文字回退不动画、不监听。识别中点完成只收起浮层（`wave_overlay_dismissed`），结果照常上屏；Fcitx5 的 `stopVoice` 在已进入识别后直接返回，不再重复发结束请求。点击是在浮层自己的 `update()` 或 `dispatch_events()` 里报告的，处理它可能停掉正在回调的帧定时器或 fd 监听，连同保存回调的闭包一起销毁；Fcitx5 的帧回调因此在调用 `update()` 之前把 `this` 复制到栈上，之后不再读捕获。失败提示 6 秒，Esc、切换焦点或下一次录音提前收起，Esc 不吞键；浮层上的失败提示在继续打字时不收起（macOS 和 Fcitx5 本来如此，IBus 以前每次重画候选都收掉它），只显示在辅助栏时把那一行让给候选。画得出浮层时失败提示只在浮层上，不再往辅助栏另写一份：IBus 由 `FallbackSurface` 在画不出时退到辅助文字，Fcitx5 只在画不出时写辅助栏，否则浮层收起后那份副本会一直留在候选窗里。IBus 的 `State::close()` 也收起浮层并撤掉帧定时器和 fd 监听，`guarded()` 兜底和词典维护释放会话之后不再经过 `render()`，浮层不会留在屏幕上空转。空格锁定在 Fcitx5 上立即刷新浮层。
 
 状态文案统一为 macOS 的写法：“正在录音…”“识别中...”“处理中...”；锁定提示只在辅助文字里出现。两个框架的辅助文字回退都用 `WaveOverlayFeedback.h` 生成同一段文字，Fcitx5 不再加“语音：”前缀。
 
@@ -40,6 +40,6 @@ X11 与 Wayland 共用 `WaveOverlayPainter.h`（Cairo + Pango）。画家按逻�
 
 - `platforms/linux/tests/runtime/wave_overlay_model.cpp`：布局优先级与尺寸、圆角、按钮规则与命中、波形在静音时为点、说话时中间高于两边且有界、停止后回落、转写窗口与“…”、NUL 等控制字符被丢掉、辅助文字的电平格、锁定提示与失败文案。
 - `platforms/linux/tests/runtime/wave_overlay_painter.cpp`（`linux-wave-overlay-painter` 测试，需 pangocairo）：用真实 Pango 量出的四种呈现尺寸、失败胶囊加宽、最新三行与组合字符不被切开、圆角外全透明、面板 0.90 不透明、无 alpha 时不透明、皮肤配色且波形用文字色、带 NUL 的转写照常截断绘制；设置 `MSIME_TEST_CANVAS_ARTIFACTS` 时把每种呈现存成 PNG。
-- `platforms/linux/fcitx5/tests/native.cpp`：开始录音不显示按钮、辅助文字与 IBus 同文、锁定提示、失败提示无按钮且 Esc 可收起；一个在 `update()` 里报告点击的假浮层点取消，`update()` 返回前录音结束、帧定时器和监听都撤掉（测试不跑事件循环：sd-event 的循环退出后不再接受新的事件源，帧回调本身由合约测试钉住）；识别中再次 `stopVoice` 不发请求也不取消，点完成只收起浮层。
+- `platforms/linux/fcitx5/tests/native.cpp`：开始录音不显示按钮、辅助文字与 IBus 同文、锁定提示、失败提示无按钮且 Esc 可收起；一个在 `update()` 里报告点击的假浮层点取消，`update()` 返回前录音结束、帧定时器和监听都撤掉（测试不跑事件循环：sd-event 的循环退出后不再接受新的事件源，帧回调本身由合约测试钉住）；识别中再次 `stopVoice` 不发请求也不取消，点完成只收起浮层；画出来的浮层显示失败提示时辅助栏保持空白，Esc 收起后也一样。
 - `platforms/linux/tests/core/fcitx5_contract.py` 钉住 Fcitx5 的帧定时器、fd 监听、收起与统一文字，并禁止宿主再写 `actions_visible = true`；还钉住帧回调在 `update()` 之后只经栈上的 `self` 访问状态、IBus 的 `render()` 保留浮层上的失败提示、`X11_SURFACE` 不含 cairo 与 pango。
 - 运行：`bash platforms/linux/build-container.sh`。

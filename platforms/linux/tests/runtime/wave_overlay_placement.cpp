@@ -16,7 +16,7 @@ int main() {
   assert(bounded_work_areas.size() == 2);
   assert(bounded_work_areas.capacity() >= 8);
 
-  // The default gap is the macOS and Windows 10 px above the bottom of the work area.
+  // 默认间距是 macOS 和 Windows 的 10 px，从工作区底边量起。
   const auto primary = wave_overlay_bottom_center({0, 0, 1920, 1080}, 420, 132);
   assert(primary.x == 750);
   assert(primary.y == 938);

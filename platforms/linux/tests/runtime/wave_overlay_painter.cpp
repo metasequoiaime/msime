@@ -25,7 +25,7 @@ struct Image {
   int alpha(int x, int y) const { return static_cast<int>(pixel(x, y) >> 24); }
 };
 
-// Paint `model` at `scale` device pixels per logical pixel, as the surfaces do, and keep a PNG of it when MSIME_TEST_CANVAS_ARTIFACTS names a directory.
+// 像浮层那样以每逻辑像素 `scale` 个设备像素绘制 `model`，`MSIME_TEST_CANVAS_ARTIFACTS` 指定了目录时存一张 PNG。
 Image paint(WaveOverlayPainter &painter, const WaveOverlayModel &model, int scale, bool translucent,
             const std::string &name, WaveOverlayFrame *frame_out = nullptr) {
   const auto frame = painter.frame(model);
@@ -39,7 +39,8 @@ Image paint(WaveOverlayPainter &painter, const WaveOverlayModel &model, int scal
   cairo_surface_flush(image.surface);
   if (const char *directory = std::getenv("MSIME_TEST_CANVAS_ARTIFACTS"); directory && *directory) {
     const auto path = std::string(directory) + "/wave-overlay-" + name + ".png";
-    assert(cairo_surface_write_to_png(image.surface, path.c_str()) == CAIRO_STATUS_SUCCESS);
+    const auto written = cairo_surface_write_to_png(image.surface, path.c_str());
+    assert(written == CAIRO_STATUS_SUCCESS);
   }
   return image;
 }
@@ -60,7 +61,7 @@ int main() {
   for (const bool light : {false, true}) {
     const std::string theme = light ? "light" : "dark";
 
-    // The compact pill: 78x32, transparent outside its rounded corners, the panel at the macOS 0.90 opacity.
+    // 紧凑胶囊：78x32，圆角之外透明，面板是 macOS 的 0.90 不透明度。
     WaveOverlayFrame frame;
     auto compact = listening(light);
     const auto compact_image = paint(painter, compact, 2, true, "compact-" + theme, &frame);
@@ -69,25 +70,25 @@ int main() {
     assert(compact_image.alpha(0, 0) == 0);
     const int panel_alpha = compact_image.alpha(78, 8);
     assert(panel_alpha >= 226 && panel_alpha <= 234);
-    // Without an alpha channel the panel is opaque.
+    // 没有 alpha 通道时面板不透明。
     const auto opaque = paint(painter, compact, 1, false, "compact-opaque-" + theme);
     assert(opaque.alpha(39, 4) == 255);
 
-    // A locked recording: the 142x40 action pill with two neutral circles around the wave.
+    // 锁定的录音：142x40 的操作胶囊，波形两侧各一个中性色的圆。
     auto locked = listening(light);
     locked.locked = true;
     const auto locked_image = paint(painter, locked, 2, true, "locked-" + theme, &frame);
     assert(frame.layout == WaveOverlayLayout::Action && frame.width == 142 && frame.height == 40 && frame.actions);
     assert(locked_image.pixel(36, 24) != locked_image.pixel(142, 8));
 
-    // Recognition: the actions stay and the macOS label replaces the wave.
+    // 识别中：操作按钮保留，macOS 的标签代替波形。
     WaveOverlayModel processing;
     processing.light_theme = light;
     processing.compact_status = WaveOverlayModel::CompactStatus::Recognizing;
     paint(painter, processing, 2, true, "recognizing-" + theme, &frame);
     assert(frame.layout == WaveOverlayLayout::Action && frame.label && frame.label_text == "识别中...");
 
-    // A streaming transcript: the 420x112 card keeps the newest three lines behind "…".
+    // 流式转写：420x112 的卡片在「…」之后保留最新的三行。
     auto transcript = listening(light);
     std::string text;
     for (int i = 0; i < 40; ++i) text += "这是一段比较长的实时转写文字，用来检查只显示最新的三行。";
@@ -99,11 +100,11 @@ int main() {
     assert(text.size() >= frame.transcript.size() - 3 &&
            text.compare(text.size() - (frame.transcript.size() - 3), std::string::npos, frame.transcript.substr(3)) == 0);
     assert(painter.transcript_line_count(frame.transcript, 392) <= 3);
-    // A short transcript is shown whole.
+    // 短的转写文字完整显示。
     transcript.set_transcript("你好，世界");
     assert(painter.frame(transcript).transcript == "你好，世界");
 
-    // A failure: no wave, no actions, the message alone in a pill widened to fit it.
+    // 失败：没有波形，没有操作按钮，只有消息，画在加宽到能放下它的胶囊里。
     WaveOverlayModel failure;
     failure.light_theme = light;
     failure.failure = true;
@@ -115,14 +116,14 @@ int main() {
     assert(painter.frame(failure).width == 112);
   }
 
-  // A theme palette replaces the built-in colours, and without its own outline the panel has none.
+  // 主题配色取代内置颜色，主题没有描边时面板也没有描边。
   {
     auto skinned = listening(false);
     skinned.palette = msime::linux_host::FloatingSurfaceColors{0x336699u, 0xFFFFFFu, 0xFFCC00u, std::nullopt};
     const auto image = paint(painter, skinned, 1, false, "skin");
     const auto panel = image.pixel(39, 4);
     assert(((panel >> 16) & 0xff) == 0x33 && ((panel >> 8) & 0xff) == 0x66 && (panel & 0xff) == 0x99);
-    // The bars take the text colour, as macOS fills them with its foreground, never the accent.
+    // 波形条用文字颜色，与 macOS 用前景色填充一样，从不用强调色。
     const auto bars = paint(painter, skinned, 2, false, "skin-2x");
     bool text_seen = false;
     for (int y = 0; y < 64; ++y)
@@ -135,7 +136,7 @@ int main() {
     assert(text_seen);
   }
 
-  // A provider's NUL never reaches Pango: the model drops it, and the newest lines of a long transcript are still cut and drawn.
+  // 提供商的 NUL 到不了 Pango：模型把它丢掉，长转写的最新几行照样切出并画出。
   {
     WaveOverlayModel nul;
     nul.listening = true;
@@ -148,7 +149,7 @@ int main() {
     assert(frame.layout == WaveOverlayLayout::Transcript && frame.transcript.find('\0') == std::string::npos);
   }
 
-  // A cut never splits a base letter from its combining mark.
+  // 切分从不把基字母和它的组合符号分开。
   {
     WaveOverlayModel marks;
     marks.listening = true;
