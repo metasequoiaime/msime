@@ -22,12 +22,14 @@ export interface HostCapabilities {
   floating_toolbar: boolean;
   floating_toolbar_appearance: boolean;
   floating_toolbar_components: boolean;
-  /** 工具栏带手写面板按钮，目前只有 macOS 工具栏提供。 */
+  /** 工具栏带手写面板按钮，macOS、Windows 和 Linux 的工具栏提供（手写还要随版本收窄）。 */
   floating_toolbar_handwriting: boolean;
-  /** 工具栏带语音输入按钮，目前只有 macOS 工具栏提供。 */
+  /** 工具栏带语音输入按钮，macOS、Windows 和 Linux 的工具栏提供。 */
   floating_toolbar_voice: boolean;
-  /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
+  /** 工具栏带切换输入方案的按钮（macOS、Windows 和 Linux）。 */
   floating_toolbar_input_scheme: boolean;
+  /** 宿主按 `floating_toolbar.auto_hide` / `auto_hide_delay` / `shadow` 控制悬浮条；目前只有 macOS 消费，其余宿主不列这三行。 */
+  floating_toolbar_idle_behavior?: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection: boolean;
@@ -140,6 +142,8 @@ export interface HostCapabilities {
   quick_phrase_candidates?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;
+  /** 宿主把「切换中英文」那一组快捷键接进了中日英循环（目前只有 macOS）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
+  trilingual_cycle?: boolean;
   /** 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出这两组翻页键的开关。macOS、Windows 和 HarmonyOS 为假：关掉只会让键在组字时被吃掉，两组固定开启。缺省（早于这一项的宿主）按读处理。 */
   tab_page_paging_switches?: boolean;
   /** 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。macOS、Windows 和 Linux 为假：固定为 5。缺省按读处理。 */

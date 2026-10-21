@@ -4736,6 +4736,52 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
+fn super_jianpin_capital_word_uses_literal_candidates_and_space_commit() {
+    for scheme in [0, 1] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = scheme;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        for text in ["JIT", "JSON"] {
+            for byte in text.bytes() {
+                let transition = runtime
+                    .dispatch(Action::Character {
+                        value: byte,
+                        shift: true,
+                    })
+                    .unwrap();
+                assert!(transition.handled && transition.commit.is_none());
+            }
+            assert_eq!(runtime.view().local_mode, "none");
+            assert_eq!(runtime.view().editing_text, text);
+            assert_eq!(texts(&runtime.view()), [text]);
+            let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+            assert_eq!(committed.commit.as_deref(), Some(text));
+            assert!(committed.view.editing_text.is_empty());
+        }
+        for byte in b"JIT" {
+            runtime
+                .dispatch(Action::Character {
+                    value: *byte,
+                    shift: true,
+                })
+                .unwrap();
+        }
+        let erased = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert_eq!(erased.view.editing_text, "JI");
+        assert_eq!(erased.view.local_mode, "none");
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some("JI"));
+    }
+}
+
+#[test]
 fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
     for scheme in [0, 1] {
         for punctuation_route in [false, true] {
@@ -9410,6 +9456,8 @@ mod parallel_order_allocations;
 mod static_evidence;
 
 mod rerank_declined;
+
+mod settled_async;
 
 mod online_slot_order_equivalence;
 

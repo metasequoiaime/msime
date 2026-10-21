@@ -134,3 +134,28 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 `everyapi.svg` 为 EveryAPI 公开站点的 [favicon](https://everyapi.ai/favicon.svg)，于 2026-10-19 获取，原样用于标识该服务商，品牌权利归 EveryAPI。自定义与未知服务商使用已有 Fluent 连接图标。
 
 AI 服务商选择是原生 select 原则的局部例外：该控件用 combobox/listbox 呈现选项内图标，自行维护键盘、焦点、定位与高对比度；其他 select 继续使用系统控件，鸿蒙手机继续使用整行选择面板。
+
+## 共享语音目录
+
+识别、润色服务预设和豆包流式接口读取 `voice/voice-provider-catalog.json`，事实源是 `crates/client-providers/src/voice/provider_catalog.rs`。修改 Rust 目录后在仓库根目录生成，再检查：
+
+```sh
+mkdir -p target
+cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog > target/voice-provider-catalog.json && mv target/voice-provider-catalog.json packages/ui/src/voice/voice-provider-catalog.json
+pnpm exec vp fmt packages/ui/src/voice/voice-provider-catalog.json
+cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
+```
+
+Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
+
+## 共享润色提示词
+
+内置方案的名称与正文归 `crates/client-providers/src/voice/polish_catalog.rs`。修改它后，在仓库根目录运行：
+
+```sh
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --write
+pnpm exec vp fmt packages/ui/src/voice/polish-prompt-catalog.json packages/ui/src/voice/polish-preset-ids.ts
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
+```
+
+导出工具同步更新 UI JSON、公开 id 字面量元组、共享 C++ 窄字符串目录头、Windows 设置页的宽字符串目录头和 Linux Python 模块，Linux 设置应用 CI 检查它们。`scripts/test-polish-prompt-catalog.py` 用真实 C++ 解析函数、Windows 设置目录和 Python 模块对照 UI JSON；没有 C++17 编译器时只明确跳过该部分。自定义槽位、未知方案与空正文的既有处理继续由各消费方的回归覆盖。

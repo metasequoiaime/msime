@@ -26,7 +26,7 @@ Status: implemented
 
 - 「帮助与反馈」页不再有拉起共享应用的入口。
 - 报告格式、反馈类型和渠道信息写死在 `FeedbackReport.h` 和 `main.cpp`，共享页的这些改了要同步改这里。
-- 「在 GitHub 提交」与 Tauri 一样经 `ShellExecuteW` 打开地址；描述接近 4000 个汉字时编码后的地址会超过三万字符，浏览器能否接受这么长的地址与 Tauri 应用相同，未在本机验证。
+- 「在 GitHub 提交」经 `ShellExecuteW` 打开地址；描述接近 4000 个汉字时编码后的地址会超过三万字符，原生路径能否打开尚未在本机验证。共享 Tauri 路径实际上在启动浏览器前就拒绝超过 4096 字节的网址，已由[反馈网址预算修复](../bug-fix/2026-10-21-feedback-encoded-url-limit.md)改为按完整编码网址裁剪，原生复制品的系统边界仍需单独验证。
 
 ## Verification
 

@@ -213,6 +213,38 @@ fn japanese_toggle_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    // 默认对齐旧版 Windows 正式版的出厂值。
+    assert!(!snapshot.preferences.keybindings.trilingual_cycle);
+    // 早于这个开关的文档没有这个键，读出来是关。
+    let mut value = serde_json::to_value(&snapshot.preferences).unwrap();
+    assert_eq!(
+        value["keybindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("trilingual_cycle"),
+        Some(false.into())
+    );
+    let legacy: Preferences = serde_json::from_value(value.clone()).unwrap();
+    assert!(!legacy.keybindings.trilingual_cycle);
+    // 打开它，「切换中英文」那一组快捷键本身不变：循环与否是另一项。
+    value["keybindings"]["trilingual_cycle"] = true.into();
+    let enabled: Preferences = serde_json::from_value(value).unwrap();
+    store.save(snapshot.revision, enabled).unwrap();
+    let keybindings = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        keybindings,
+        KeybindingPreferences {
+            trilingual_cycle: true,
+            ..KeybindingPreferences::default()
+        }
+    );
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
@@ -4054,6 +4086,11 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         !defaults.emoji && !defaults.handwriting && !defaults.voice && !defaults.screen_keyboard
     );
+    // 自动隐藏按 Windows 旧正式版 v0.11.1 的出厂配置：关、延时 5 秒。macOS 旧行为是常开 10 秒。
+    assert!(!defaults.auto_hide);
+    assert_eq!(defaults.auto_hide_delay, 5);
+    // 阴影出厂为开，与 Windows v0.11.1 一致，也是 macOS 一直写死的行为。
+    assert!(defaults.shadow);
     let json = serde_json::to_string(&Preferences::default()).unwrap();
     let restored: Preferences = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.floating_toolbar, defaults);
@@ -4072,6 +4109,9 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.fullwidth);
     assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
+    assert!(!restored.preferences.floating_toolbar.auto_hide);
+    assert_eq!(restored.preferences.floating_toolbar.auto_hide_delay, 5);
+    assert!(restored.preferences.floating_toolbar.shadow);
 }
 
 #[test]

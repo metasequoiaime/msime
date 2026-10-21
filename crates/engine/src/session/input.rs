@@ -416,7 +416,13 @@ impl InputSession {
                 self.refresh_temporary_japanese();
                 return KeyResult::handled();
             }
-            LocalInputMode::SuperJianpin => letter,
+            // 空 J 入口后的大写属于英文串；交给下方拒绝大写分支转回普通组字。
+            LocalInputMode::SuperJianpin => {
+                letter
+                    && !(value.is_ascii_uppercase()
+                        && self.local_preedit.len() == 1
+                        && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin))
+            }
             LocalInputMode::Emoji | LocalInputMode::Kaomoji => letter || value == b'\'',
             LocalInputMode::QuickPhrase | LocalInputMode::DateTime => value.is_ascii_lowercase(),
             LocalInputMode::Unicode => {

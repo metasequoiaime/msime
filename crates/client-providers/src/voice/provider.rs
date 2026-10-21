@@ -77,12 +77,10 @@ pub struct MobileVoiceProviderConfiguration {
     pub model_path: String,
 }
 
-/// The optional rewrite that runs over a transcript, resolved the same way the provider is.
+/// 按服务配置解析的可选转写润色；未启用时返回 `None`，不视为错误。
 ///
-/// `None` means the user did not ask for it, which is the common case and not an error. The prompt
-/// itself is not resolved here: the shipped preset bodies live in `shared/voice/PolishPrompt.h`,
-/// and the host that sends the request reads them from there so there is one copy of the wording
-/// that tells the model the transcript is data rather than instructions.
+/// 这里只传递方案与自定义槽位，不解析正文。内置正文归 `polish_catalog` 所有，
+/// 宿主通过静态导出的 `shared/voice/PolishPromptCatalog.h` 读取同一份内容。
 #[derive(Debug, PartialEq, Eq)]
 pub struct MobileVoicePolishConfiguration {
     pub endpoint: String,
