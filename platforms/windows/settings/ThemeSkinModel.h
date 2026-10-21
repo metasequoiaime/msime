@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（五个取色器、它们的默认色和「跟随主题」按钮；编号色和边框色跟随主题，不给取色器）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`settings/settings-options.ts`（内置主题卡片的说明 globalThemeDescription）、`settings/theme-carousel.tsx`（轮播停在哪张卡片）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（五个取色器、它们的默认色和「跟随主题」按钮；编号色和边框色跟随主题，不给取色器）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::skins {
 
 // 以某个 base 为底的皮肤包放在哪个槽位：固定明暗的内置主题给出它自己的明暗，`system` 两个槽位都放（skinSlot 的 null）。
@@ -216,6 +216,34 @@ inline std::wstring card_meta(std::wstring const &id, std::wstring const &versio
   if (!author.empty())
     parts.push_back(author);
   return joined(parts, L" · ");
+}
+
+// 内置主题卡片标题下的说明，照共享页 `settings-options.ts` 的 globalThemeDescription（桌面、非 Linux 的分支）：跟随系统用平台自带配色，自定义是外部皮肤和候选颜色，其余按主题目录给的明暗写浅色或深色，没有明暗的也写浅色。`native` 只在 iOS 提供，照样给它那一句。
+inline std::wstring theme_description(std::wstring_view id, std::optional<bool> dark) {
+  if (id == L"system")
+    return L"候选窗口、悬浮工具栏与键盘使用平台自带配色";
+  if (id == L"native")
+    return L"iOS 自带键盘的样子，跟随系统明暗，不跟季节";
+  if (id == L"custom")
+    return L"外部皮肤、候选颜色与自定义键盘";
+  return std::wstring(dark.value_or(false) ? L"深色" : L"浅色") + L"候选窗口、悬浮工具栏与键盘";
+}
+
+// 主题轮播停在哪张卡片，照共享页 `theme-carousel.tsx`：选中的卡片换了（`keys[selected]` 不再是上次画时选中的 `previous_selected`）或还没显示过卡片时跟到选中的那张；否则留在上次显示的 `shown`，按 key 找，重扫皮肤目录在前面插进或删掉卡片时它的序号会变；它已经不在时停在原来的序号 `shown_at` 上，越界时退到最后一张。没有卡片时是 0。
+inline std::size_t carousel_index(std::vector<std::wstring> const &keys, std::size_t selected,
+                                  std::wstring_view previous_selected, std::wstring_view shown,
+                                  std::size_t shown_at) {
+  if (keys.empty())
+    return 0;
+  const auto last = keys.size() - 1;
+  if (selected > last)
+    selected = last;
+  if (shown.empty() || keys[selected] != previous_selected)
+    return selected;
+  for (std::size_t index = 0; index < keys.size(); ++index)
+    if (keys[index] == shown)
+      return index;
+  return shown_at < last ? shown_at : last;
 }
 
 // 一个候选颜色：`#RRGGBB`（不分大小写）读成小写，别的都算没设。

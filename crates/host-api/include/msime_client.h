@@ -425,6 +425,13 @@ char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
+
+/* 图片工具栏的无 I/O 布局。请求 {toolbar: 扫描缓存中的 toolbarImage,
+   shown: [[按钮键, 当前状态], ...]}，最多 7 个当前显示按钮；皮肤只能进一步隐藏。
+   返回 {widthDip,heightDip,buttons:[{key,xDip,yDip,widthDip,heightDip,iconSizeDip,
+   background,image}]}，尺寸覆盖背景与全部按钮。失败不能继续使用旧命中区。
+   UTF-8 JSON 最多 64 KiB；结果用 msime_client_string_free 释放。 */
+char *msime_client_skin_toolbar_image_layout(const uint8_t *request, size_t length);
 /* 同步解码有界内存中的 PNG/APNG 默认图或 GIF/JPEG/WebP 首帧，不读文件。
  * 输入最多 8 MiB，边长最多 2048。成功时只调用一次回调，rgba 为非预乘 RGBA8，
  * length = width * height * 4。字节只在回调期间有效，宿主必须当场复制；回调不得抛异常。
@@ -560,6 +567,11 @@ char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
  * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
  * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
+/* 流式 wss 地址的传输描述；输入是 <=64 KiB 的 UTF-8 地址，实际地址遵循共享 2048 字节与 URL 形状规则。
+ * value 为 {socket_host:string,port:uint16,host_header:string,request_target:string}；保留显式端口 0，缺省端口为 443。
+ * socket_host 不含 IPv6 方括号，host_header 保留方括号与非默认端口，request_target 使用 URL 库序列化的路径与查询。
+ * 不访问网络，失败不回显输入；返回缓冲区用 msime_client_string_free 释放。 */
+char *msime_client_voice_websocket_endpoint(const uint8_t *endpoint, size_t length);
 char *msime_client_voice_start(uint64_t session);
 char *msime_client_voice_cancel(uint64_t session);
 /* Capture bounded mono 16 kHz samples. The JSON result is transient audio and
@@ -774,7 +786,7 @@ char *msime_client_punctuation_ascii(uint64_t session, uint8_t ascii);
  * Stroke: only h s p n z start a composition; x and other letters return handled=false while idle, so a host inserts them as usual. While composing x appends a wildcard, other letters are swallowed with handled=true, and digits 1-9 pick candidates. View.reading and View.preedit hold the stroke glyphs 一丨丿丶乛＊, one per typed letter, which a host draws inline; editing_text and caret_position count the ASCII letters. MSIME_COMMIT_RAW commits the typed letters, MSIME_COMMIT_CANDIDATE the highlighted character (the letters when there is none), and focus loss does not commit.
  * MSIME_OPEN_CANDIDATE_LIST is MSIME_CONVERT_HANJA under the name that says what it does in every scheme: open the active scheme's candidate list. Korean opens and closes its Hanja list as described above; Zhuyin opens the candidate list of its composition; every other scheme answers handled=false. */
 /* View.display_reading 是宿主画在行内的读音。日文罗马字（scheme 3，非本地模式、非英文）组字时末尾单个 n 还没定成ん，这里留作字母（kan 是 かn，kann 才是 かん），与微软、Google 日文输入法一致；其余方案和状态下与 View.reading 相同。View.reading 仍是 MSIME_COMMIT_READING 上屏的读音，末尾的 n 在那里已是ん。宿主不经引擎结束组字区时：光标被移走、编辑器仍报告着组字区，应把组字区换成 View.reading 再结束；确认不了组字区还在（编辑器报告没有组字区、会话停下）时只结束组字，不要把 View.reading 写进可能已被应用清空或改写的输入框，这时文档里可能留下画出的读音。只读 View.reading 的宿主行为不变。 */
-/* 整句改字（全拼、双拼）：桌面宿主把不带修饰键的左右方向键发成 MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT，Ctrl+左右发成 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT 编辑拼音字母。首选是一个字对一个完整音节、覆盖整个组字、至少两个字的句子时，MSIME_CONVERSION_LEFT 进入改字：View.conversion 是整句，光标在 View.conversion_focus_start 个字（Unicode 标量）之前，conversion_focus_start..conversion_focus_end 是候选所替换的那一段，候选换成这一段（先是光标所在的词，再是更短、更长的）的字和词。之后左右键每次移一个字，最远到句末（focus_start 等于字数，没有候选）。选中候选（数字、MSIME_COMMIT_CANDIDATE、msime_client_select）把这段钉住，句子其余部分围绕它重新转换，光标移到这段后面，不上屏；光标在句末时 MSIME_COMMIT_CANDIDATE 上屏整句。MSIME_COMMIT_RAW、MSIME_FINISH_COMPOSITION、标点和失去焦点上屏改好的整句，不是拼音字母。MSIME_CANCEL 和 MSIME_BACKSPACE 只退出改字回到拼音（组字保留，钉住的段丢掉）；键入字母或撇号、Ctrl+左右、Home/End 先退出改字再照常处理。进不了改字时（读音不完整、单字、光标在拼音中间、其他方案、本地模式）这两条命令就是 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT。改字期间宿主把 View.phrase_prefix 加 View.conversion 画在行内代替拼音，不管预编辑样式选的是什么；改字的候选不能置顶、删除或固定位置。 */
+/* 整句改字（全拼、双拼）：桌面宿主把不带修饰键的左右方向键发成 MSIME_CONVERSION_LEFT / MSIME_CONVERSION_RIGHT（macOS 不进改字，发 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT）；Shift+左右和 Ctrl+左右在所有方案里都发 MSIME_MOVE_LEFT_SEGMENT / MSIME_MOVE_RIGHT_SEGMENT，按音节移动拼音光标。偏好 navigation.left_right 打开时，横排候选窗里不带修饰键的左右键可能被换成移动候选（高亮不在首选，或首选上光标已在末尾时按右键），分段命令从不被换，所以高亮在哪个候选上它们都编辑拼音。首选是一个字对一个完整音节、覆盖整个组字、至少两个字的句子时，MSIME_CONVERSION_LEFT 进入改字：View.conversion 是整句，光标在 View.conversion_focus_start 个字（Unicode 标量）之前，conversion_focus_start..conversion_focus_end 是候选所替换的那一段，候选换成这一段（先是光标所在的词，再是更短、更长的）的字和词。之后左右键每次移一个字，最远到句末（focus_start 等于字数，没有候选）。选中候选（数字、MSIME_COMMIT_CANDIDATE、msime_client_select）把这段钉住，句子其余部分围绕它重新转换，光标移到这段后面，不上屏；光标在句末时 MSIME_COMMIT_CANDIDATE 上屏整句。MSIME_COMMIT_RAW、MSIME_FINISH_COMPOSITION、标点和失去焦点上屏改好的整句，不是拼音字母。MSIME_CANCEL 和 MSIME_BACKSPACE 只退出改字回到拼音（组字保留，钉住的段丢掉）；键入字母或撇号、Shift/Ctrl+左右、Home/End 先退出改字再照常处理。进不了改字时（读音不完整、单字、光标在拼音中间、其他方案、本地模式）这两条命令就是 MSIME_MOVE_LEFT / MSIME_MOVE_RIGHT。改字期间宿主把 View.phrase_prefix 加 View.conversion 画在行内代替拼音，不管预编辑样式选的是什么；改字的候选不能置顶、删除或固定位置。 */
 enum MsimeCommand {
     MSIME_BACKSPACE = 0, MSIME_COMMIT_CANDIDATE = 1, MSIME_COMMIT_RAW = 2,
     MSIME_CANCEL = 3, MSIME_MOVE_LEFT = 4, MSIME_MOVE_RIGHT = 5,
@@ -792,7 +804,9 @@ enum MsimeCommand {
     MSIME_FINISH_ON_FOCUS_LOSS = 20,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
-    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
+    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105,
+    /* 候选窗显示时的 Home 键：高亮不在首选时同 MSIME_FIRST_CANDIDATE；已经在首选、输入串非空、没有打开的候选列表（韩文汉字、注音）且不在整句改字时同 MSIME_MOVE_HOME；整句改字时一直同 MSIME_FIRST_CANDIDATE，不退出改字。宿主只在 Home 键上发它；需要「无条件回到首选」的地方（日文转换循环候选）仍发 MSIME_FIRST_CANDIDATE。 */
+    MSIME_FIRST_CANDIDATE_OR_HOME = 106
 };
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
@@ -1101,7 +1115,7 @@ bool msime_client_music_set_active(uint64_t session, bool active);
  *   MSIME_LIFECYCLE_COMMIT_OBSERVE_ONLY：之后的上屏只能观察、不能改写，可随时切换。TIP 已经从自己的会话把文字写进文档的路径（Windows），Server 在派发前设上、派发后清掉。设着它时脚本插件的候选变换也停下：派发里不运行 candidates，旁路调用也不重放之前的重排、隐藏和注释，列表保持引擎和内置排序的顺序。TIP 在自己的会话里选词的列表（注音等 AlwaysInlinePreedit 方案）按那个会话的顺序选，Server 一侧重排或隐藏就会让显示的顺序和数字选中的对不上，所以这类列表的每一次派发都要设着它。
  *   MSIME_LIFECYCLE_HOST_HOLDS_PIECES：宿主自己暂存部分选词（Windows），补齐整个词时才把各段拼好写进文档。这样的会话里每次部分选词都是一次上屏，commit 事件按段投递，插件读到的 commit 只是这一段；这个词的各段，包括补齐它的那一段，before_commit 都不可改写。部分选词上屏的那一段还在宿主手里、没进文档，FEEDBACK 不为它出上屏音、不画上屏特效（transition 的 feedback 为 0），整段送出的那次上屏再出；生命周期事件照常发。
  * 顺序契约。轮次：宿主每把一个物理按下交给输入法，都要在为这个键调用任何派发之前先调一次 msime_client_key，它开启新的一轮；到下一次 msime_client_key 之前的所有派发和 focus 调用都属于这一轮，同一个键可能触发多次派发（如 Windows 对同一个键再发一次 MSIME_CANCEL）。指针点选和翻页先调 msime_client_key(session, MSIME_KEY_POINTER)。带 MSIME_KEY_PASSTHROUGH 的键（Windows 交给应用、由 TIP 经 Aux 管道异步上报的键）不开新的一轮，也不承诺先于应用处理。所以"打字前"只承诺先于本轮的第一次派发。
- *   过渡期的例外：msime_client_key 还没有"开一轮但不出声"的位，所以 Linux 的 IBus 和 Fcitx5 宿主只为会出按键音的打字键调用它。松开、单独的修饰键、带 Ctrl/Alt/Super 的组合键、录音中的键和 IBus 屏幕键盘面板送来的键都不开新的一轮，它们引起的派发（如组字中按 Ctrl 组合键发出的 MSIME_FINISH_COMPOSITION 或 MSIME_CANCEL、单按 Shift 切换中英文时的 MSIME_COMMIT_RAW）算在上一轮里。第 3 阶段按轮计 fuel 的脚本运行时不会因为这类没有先调 msime_client_key 的派发熔断；补上这个位之后，宿主再为这些按下也调用它，让它们各自成一轮。
+ *   过渡期的例外：msime_client_key 还没有"开一轮但不出声"的位，所以 Linux 的 IBus 和 Fcitx5 宿主只为会出按键音的打字键调用它。松开、单独的修饰键、带 Ctrl/Alt/Super 的组合键、录音中的键和 IBus 屏幕键盘面板送来的键都不开新的一轮，它们引起的派发（如组字中按 Ctrl 组合键发出的 MSIME_FINISH_COMPOSITION 或 MSIME_CANCEL、单按 Shift 切换中英文时的 MSIME_COMMIT_RAW）算在上一轮里。第 3 阶段按轮计 fuel 的脚本运行时不会因为这类没有先调 msime_client_key 的派发熔断；补上这个位之后，宿主再为这些按下也调用它，让它们各自成一轮。按住不放产生的自动重复不出声、不画（与 macOS 宿主一样），但每次重复都会派发，所以两个 Linux 宿主为它借 msime_client_key(session, MSIME_KEY_POINTER) 开新的一轮；macOS 宿主目前不为自动重复调用 msime_client_key，自动重复引起的派发算在第一次按下那一轮里。
  * 同一次调用内的事件顺序：input（派发前）→ selection_retracted → candidate_selected → before_commit → commit → composition_end 或 composition_start → composition_update → candidates_shown 或 candidates_hidden，每次调用最多一个候选事件。focus 调用没有 input，focus_in/focus_out 排在它自己的上屏和组字结束之后；失焦上屏一律不可改写。destroy 先发 composition_end{Destroyed}，最后是会话结束。组字状态只在调用边界前后各采样一次。一次 transition 同时带着上屏和新组字时（韩文音节延续）只发 commit{continues}，不发 end 和 start。apply_online_*、resolve_online_candidates、clear_online_candidates、apply_cloud_response、rerank_settled、apply_translations 这些旁路调用，以及 set_english_mode、set_chinese_punctuation、set_punctuation_lock、update_preferences、set_ai_credential 这些可能在组字中途改动组字或候选的设置调用，只给核心发视图类事件（composition_end{Other}、candidates_shown/hidden 等）。派发、focus 和上面这些调用报错时照样推导事件：runtime 可能在报错前已经结束或改动了组字，start 和 end 始终成对。事件不带文本，也不写进任何逐键记录。
  * Windows TIP 会话的约束：TIP 在应用进程里自己的会话只给 Server 转述，不调用以下任何一个函数；字段属性和激活由 Server 的会话报告。
  * msime_client_key：key 的位 0-6 是按键类别 0-3（同 key_sound），位 7（MSIME_KEY_POINTER）是指针调用，类别被忽略，不出声不画；位 8（MSIME_KEY_REPEAT）是自动重复，画但不计连击；位 10（MSIME_KEY_PASSTHROUGH）见上。其余位忽略，类别超出 0-3 时什么都不做。返回值是 FEEDBACK 下这个键的打字特效，位布局同 msime_client_typing_effect；没开 FEEDBACK 时为 0。

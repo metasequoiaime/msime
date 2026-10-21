@@ -404,13 +404,13 @@ impl InputSession {
                 true
             }
             LocalInputMode::TemporaryJapanese => {
-                if !letter && value != b'\'' {
+                if !letter && !matches!(value, b'\'' | b'-') {
                     return KeyResult::unhandled();
                 }
-                let key = if value == b'\'' {
-                    SchemeKey::Apostrophe
-                } else {
-                    SchemeKey::Letter(value)
+                let key = match value {
+                    b'\'' => SchemeKey::Apostrophe,
+                    b'-' => SchemeKey::Minus,
+                    _ => SchemeKey::Letter(value),
                 };
                 self.engine.handle_key(key);
                 self.refresh_temporary_japanese();

@@ -58,6 +58,14 @@ public:
       }
   }
 
+  // 把一个设备像素已画的内容乘以 `keep`（0–1）：`keep` 为 0 时这一点变成全透明。
+  void fade(int x, int y, float keep) {
+    if (x < 0 || y < 0 || x >= width_ || y >= height_) return;
+    keep = std::clamp(keep, 0.0f, 1.0f);
+    auto *pixel = &pixels_[(static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x)) * 4u];
+    for (int channel = 0; channel < 4; ++channel) pixel[channel] *= keep;
+  }
+
   // Make every pixel above `top` (logical pixels) fully transparent, whatever was drawn there.
   void clear_above(int top) {
     const auto rows = static_cast<std::size_t>(std::clamp(top * scale_, 0, height_));
@@ -126,6 +134,13 @@ inline void fcitx_fill_rounded(FcitxCanvas &canvas, const FcitxRect &rect, doubl
                                float alpha = 1.0f) {
   fcitx_each_pixel(canvas, [&](int x, int y, double px, double py, double unit) {
     canvas.blend(x, y, rgb, alpha * fcitx_coverage(fcitx_rounded_rect_distance(px, py, rect, radius), unit));
+  });
+}
+
+// 擦掉圆角矩形里已经画上的东西（按覆盖率），半透明的卡片底下因此透出桌面，而不是先画上的阴影。
+inline void fcitx_clear_rounded(FcitxCanvas &canvas, const FcitxRect &rect, double radius) {
+  fcitx_each_pixel(canvas, [&](int x, int y, double px, double py, double unit) {
+    canvas.fade(x, y, 1.0f - fcitx_coverage(fcitx_rounded_rect_distance(px, py, rect, radius), unit));
   });
 }
 

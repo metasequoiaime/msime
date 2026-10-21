@@ -79,6 +79,16 @@ export class VoiceResponsePolicy {
     let text: string = "";
     try {
       const document: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
+      if (document.error !== undefined && document.error !== null) {
+        return { text: "", failure: "语音服务未返回有效识别结果。", last: true };
+      }
+      const choices: Object | undefined = document.choices;
+      const first: Record<string, Object> | null = Array.isArray(choices)
+        ? VoiceResponsePolicy.record(choices[0])
+        : null;
+      if (first?.finish_reason === "length" || first?.finish_reason === "content_filter") {
+        return { text: "", failure: "语音服务未返回有效识别结果。", last: true };
+      }
       const value: Object | undefined = document.text ?? VoiceResponsePolicy.chatContent(document);
       text = VoiceRecognitionPolicy.result(typeof value === "string" ? (value as string) : "");
     } catch (error) {

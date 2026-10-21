@@ -2,7 +2,7 @@
 
 #include "WaveOverlayIbusSurface.h"
 
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
 #include "WaveOverlayX11Surface.h"
 #endif
 #ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
@@ -49,6 +49,19 @@ class FallbackSurface final : public WaveOverlaySurface {
     using_primary_ = false;
   }
 
+  int event_fd() const override {
+    return using_primary_ && primary_ ? primary_->event_fd() : -1;
+  }
+
+  void dispatch_events() override {
+    if (using_primary_ && primary_)
+      primary_->dispatch_events();
+  }
+
+  bool animates() const override {
+    return using_primary_ && primary_ && primary_->animates();
+  }
+
  private:
   std::unique_ptr<WaveOverlaySurface> primary_;
   std::unique_ptr<WaveOverlaySurface> fallback_;
@@ -75,7 +88,7 @@ std::unique_ptr<WaveOverlaySurface> create_wave_overlay_surface(
 #else
   (void)wayland_requested;
 #endif
-#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#ifdef MSIME_LINUX_HAS_X11_OVERLAY
   if (!force_ibus &&
       (x11_requested || g_getenv("DISPLAY"))) {
     return std::make_unique<FallbackSurface>(

@@ -256,6 +256,15 @@ struct TelemetryState {
     retry_after_unix_ms: u64,
 }
 
+impl TelemetryState {
+    /// 远于最大退避窗口的截止时间来自旧时钟或异常状态，不能持续挡住队列。
+    fn retry_deadline(&self, now_ms: u64) -> Option<u64> {
+        let remaining = self.retry_after_unix_ms.checked_sub(now_ms)?;
+        (remaining > 0 && Duration::from_millis(remaining) <= MAX_RETRY_AFTER)
+            .then_some(self.retry_after_unix_ms)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SessionMarker {
     id: String,
@@ -433,17 +442,17 @@ impl TelemetryStore {
         sender: &impl TelemetrySender,
         now: SystemTime,
     ) -> Result<FlushReport, TelemetryError> {
-        let pending = {
+        let (pending, observed_retry_after) = {
             let _lock = self.lock()?;
             let state = self.read_state();
-            if state.retry_after_unix_ms > unix_ms(now) {
+            if state.retry_deadline(unix_ms(now)).is_some() {
                 return Ok(FlushReport {
                     remaining: self.read_queue()?.len(),
                     deferred: true,
                     ..FlushReport::default()
                 });
             }
-            self.read_queue()?
+            (self.read_queue()?, state.retry_after_unix_ms)
         };
         let mut done = Vec::with_capacity(pending.len());
         let mut report = FlushReport::default();
@@ -480,15 +489,22 @@ impl TelemetryStore {
             self.write_queue(&queue)?;
         }
         let now_ms = unix_ms(now);
+        // 开始时已确认观察到的旧值过期或异常；在途期间新写入的未来截止时间可能基于更晚的时钟，不能再用本次较早的 now 判上限。
+        let existing_deadline = if state.retry_after_unix_ms != observed_retry_after
+            && state.retry_after_unix_ms > now_ms
+        {
+            state.retry_after_unix_ms
+        } else {
+            0
+        };
         let deadline = match retry_after {
             Some(delay) => {
                 // 请求在途期间，另一个 flush 可能已经记录了更长的退避时间。
                 let proposed =
                     now_ms.saturating_add(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX));
-                state.retry_after_unix_ms.max(proposed)
+                existing_deadline.max(proposed)
             }
-            None if state.retry_after_unix_ms > now_ms => state.retry_after_unix_ms,
-            None => 0,
+            None => existing_deadline,
         };
         if state.retry_after_unix_ms != deadline {
             state.retry_after_unix_ms = deadline;

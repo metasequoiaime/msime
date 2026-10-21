@@ -50,3 +50,29 @@ export function useSkinImage(
   }, [read, id, relative, key, generation]);
   return result?.key === key ? result : undefined;
 }
+
+/** CSS 图片没有加载事件，面板先经浏览器解码成功，再替换可读底色与配色。 */
+export function useDecodedSkinImage(
+  read: SkinImageReader | undefined,
+  id: string,
+  relative: string | null,
+  revision: number,
+) {
+  const result = useSkinImage(read, id, relative, revision);
+  const [decoded, setDecoded] = useState<typeof result>();
+  const generation = useAsyncGeneration(result);
+  useEffect(() => {
+    if (!result?.url) return;
+    const image = new Image();
+    const requestGeneration = generation.current;
+    image.onload = () => {
+      if (generation.current === requestGeneration) setDecoded(result);
+    };
+    image.src = result.url;
+    return () => {
+      image.onload = null;
+    };
+  }, [result, generation]);
+  // 同一 URL 在新代数中也要重新解码；旧结果不能短暂套到新皮肤或新配色上。
+  return result && decoded === result ? result : undefined;
+}

@@ -106,7 +106,8 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            if self.quick_phrase_candidates {
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
+            if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
                 self.queries.append_quick_phrase_candidates(
                     self.engine.request().raw_input.as_str(),
                     &mut decoded,

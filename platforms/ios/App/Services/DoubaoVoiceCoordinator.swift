@@ -85,7 +85,13 @@ final class DoubaoVoiceCoordinator {
     try await withThrowingTaskGroup(of: Void.self) { group in
       group.addTask { try await self.sendLive(pcm, buildAudioFrame: codec.audioFrame) }
       group.addTask { try await self.receiveUntilFinal(generation: generation, decode: codec.decodeFrame) }
-      try await group.waitForAll()
+      do {
+        while try await group.next() != nil {}
+      } catch {
+        // 先关闭传输，恢复仍在等待外部回调的收发任务，再让任务组取消并排空。
+        transport.finish()
+        throw error
+      }
     }
   }
 

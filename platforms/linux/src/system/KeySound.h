@@ -38,16 +38,16 @@ inline std::string typing_combo_label(std::uint32_t combo) {
   return combo < 2 ? std::string{} : "连击 ×" + std::to_string(combo);
 }
 
-// Whether a press is an auto-repeat of the key still held. Neither IBus nor Fcitx5 tells an input method that a press repeats, but both pass it releases, and where a held key arrives as more presses of the same keysym with no release between them (Wayland, and X11 clients with detectable auto-repeat, which GDK turns on) that is the repeat; where X11 sends a fake release before each repeat, a repeat counts as a press. A release lost to a focus change misreads at most the next press of that key, and reset() at focus out avoids even that.
+// 一次按下是不是还按着的那个键的自动重复。IBus 和 Fcitx5 都不告诉输入法按下是不是重复，但都把松开交给它：按住的键以同一个物理键的多次按下到来、中间没有松开（Wayland，以及开了可检测自动重复的 X11 客户端，GDK 会打开它），那就是重复；X11 在每次重复前补一个假松开时，重复算作新的按下。按硬件键码认键，不按 keysym：先松开 Shift 再松开 1 时，松开事件带的是 '1' 而按下时是 '!'，按 keysym 记就清不掉，下一次 Shift+1 会被当成重复。键码 0 没有物理键在后面（面板或屏幕键盘合成的键），这样的按下从不算重复。失焦丢掉的松开最多让那个键的下一次按下认错，失焦时 reset() 连这个也避免了。
 class KeyRepeat {
 public:
-  bool press(std::uint32_t keysym) {
-    const bool repeat = keysym == held_;
-    held_ = keysym;
+  bool press(std::uint32_t keycode) {
+    const bool repeat = keycode != 0 && keycode == held_;
+    held_ = keycode;
     return repeat;
   }
-  void release(std::uint32_t keysym) {
-    if (keysym == held_) held_ = 0;
+  void release(std::uint32_t keycode) {
+    if (keycode == held_) held_ = 0;
   }
   void reset() { held_ = 0; }
 

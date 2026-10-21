@@ -29,6 +29,8 @@ Linux 两个前端都不画悬浮工具栏窗口，这是既有设计（`platfor
 
 ## Consequences
 
+部分被 [Linux 在 X11 上画悬浮工具栏和双拼键位提示](../feature/2026-10-21-linux-x11-floating-panels.md) 取代：Linux 宿主现在在 X11 上画悬浮工具栏并报告 `floating_toolbar_appearance`，页面对它走与 macOS 相同的预览和尺寸；这里的菜单版文案只留给不报这项能力的 Linux 宿主，GNOME 的判据和文案照旧。
+
 收益：Linux 用户打开这一页，第一眼看到的是「没有悬浮窗、工具栏在输入法菜单里」以及具体入口；GNOME + IBus 用户被明确告知这页在当前桌面不生效，而不是被告知「仍然生效」。
 
 代价：

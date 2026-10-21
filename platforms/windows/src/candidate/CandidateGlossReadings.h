@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace msime::windows {
@@ -151,9 +152,10 @@ gloss_pronunciation_lines(const std::string &candidate_text, const std::vector<s
   return readings;
 }
 
-// 候选窗画出来的释义：每行释义后面空两格跟它的读音。读音是 "\n" 分行的纯文本，和释义同一种颜色。
+// 候选窗画出来的释义：每行释义后面空两格跟它的读音。读音是 "\n" 分行的纯文本，候选窗按释义色的 0.72 倍透明度画（macOS 的 MSIMECandidatePronunciationOpacity）；reading_ranges 不为空时记下每段读音在结果里的位置（UTF-8 字节的起点和长度）。
 inline std::string candidate_gloss_display(const std::vector<std::string> &lines,
-                                           const std::vector<std::string> &readings) {
+                                           const std::vector<std::string> &readings,
+                                           std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr) {
   std::string display;
   for (size_t index = 0; index < lines.size(); ++index) {
     if (index)
@@ -161,6 +163,8 @@ inline std::string candidate_gloss_display(const std::vector<std::string> &lines
     display.append(lines[index]);
     if (!lines[index].empty() && index < readings.size() && !readings[index].empty()) {
       display.append("  ");
+      if (reading_ranges)
+        reading_ranges->emplace_back(display.size(), readings[index].size());
       display.append(readings[index]);
     }
   }

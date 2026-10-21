@@ -10,7 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 /**
- * 删除键长按或上滑时在键上方弹出的「快速删除」框（#5585、#8321）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：没待命时是按键底色加细边，待命时换成强调色，表示松手就会删掉光标前的全部文字。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
+ * 删除键长按或上滑时在键上方弹出的「快速删除」框（#5585、#8321）。位置和待命的判断都在 {@link BackspaceSwipePolicy}，这里只负责把删除键换算到自己的坐标系并画框：删除未待命时用按键底色加细边，撤回未待命时用固定灰底和灰色细边；待命时换成强调色，表示松手就执行对应操作。不接收触摸，读屏也不念它，手势仍由删除键自己的触摸监听处理。
  */
 final class QuickDeleteOverlay extends View {
     static final String LABEL = "快速删除";
@@ -50,7 +50,7 @@ final class QuickDeleteOverlay extends View {
         show(key, armed, false);
     }
 
-    /** 撤回提示复用浮层，下滑待命前只画灰色提示。 */
+    /** 撤回提示复用浮层，下滑待命前使用灰底和边框区分键盘背景。 */
     void show(View key, boolean armed, boolean undo) {
         View frame = frame();
         frame.getLocationOnScreen(ownLocation);
@@ -83,20 +83,21 @@ final class QuickDeleteOverlay extends View {
         float radius = DimensionPolicy.floatPixels(10, density);
         KeyboardSkin skin = s.imeStyler.themed(s.skin);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.parseColor(armed ? skin.accent() : skin.keyBackground()));
+        paint.setColor(undo && !armed ? Color.LTGRAY
+            : Color.parseColor(armed ? skin.accent() : skin.keyBackground()));
         // 和日语九键的 flick 浮层一样先带一层投影：框要看得出压在键盘上面，而不是键盘本身的一部分。
         paint.setShadowLayer(DimensionPolicy.floatPixels(10, density), 0,
             DimensionPolicy.floatPixels(3, density), 0x40000000);
-        if (!undo || armed) canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
+        canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
             radius, radius, paint);
         paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(BoundsPolicy.bounded(density, 1f, Float.MAX_VALUE));
-        paint.setColor(Color.parseColor(skin.hairline()));
-        if (!undo || armed) canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
+        paint.setColor(undo && !armed ? Color.GRAY : Color.parseColor(skin.hairline()));
+        canvas.drawRoundRect(current.left(), current.top(), current.right(), current.bottom(),
             radius, radius, paint);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(undo && !armed ? Color.GRAY
+        paint.setColor(undo && !armed ? Color.DKGRAY
             : Color.parseColor(armed ? skin.onAccent() : skin.keyForeground()));
         ViewPolicy.setTextSize(paint, KeyboardTypographyPolicy.keySp(getContext(), 15));
         ViewPolicy.setTypeface(paint, Typeface.DEFAULT_BOLD);

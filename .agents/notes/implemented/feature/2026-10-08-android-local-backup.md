@@ -9,6 +9,7 @@ Status: implemented
 ## Decision
 
 - 「我的 → 我的内容 → 备份与恢复」（`BackupPage`，`PageId.BACKUP`）：「导出备份」经系统文件选择器（SAF，不申请存储权限）写一个 zip，预填文件名 `<应用名>-<版本名>-<yyyyMMdd-HHmm>.zip`；「从备份恢复」选一个 zip，先读出说明让用户确认，再恢复。
+- 帮助页「遇到问题」提供「更新后仍有旧问题」的处理说明（#8994）：先切换输入法重试，仍有问题时可在备份后尝试重装。说明明确卸载会删除本机数据，须先把备份导出到应用外并确认成功；相邻入口直接打开 `PageId.BACKUP`，由备份页说明包含和排除的内容。此入口只导航，不代用户导出、卸载或恢复。
 - 包的内容与云同步相同，复用同一套导出和应用（`LocalBackup`，格式规则在纯 Java 的 `LocalBackupPolicy`）：
   - `manifest.json`：`format = "msime-android-backup"`、`version = 1`、应用名、版本名、产品版本、导出时间和各部分的条数；
   - `settings.json`：`msime_client_account_settings_export` 导出的设置文档（与云同步上传的同一份，凭据和诊断日志永远不在里面），不含皮肤库；

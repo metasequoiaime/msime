@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-中文 26 键字母的长按打开一个短选项条，顺序为小写、大写和右上角符号；向上滑同样打开这组选项。选择项沿用现有长按选项窗口和 `commitNineKeyHoldOption`，先结束组字再写入选择内容。英文状态、专用英文键盘和既有向下滑符号行为保持原路由。
+中文 26 键字母的长按打开一个短选项条，顺序为小写、大写和右上角符号；向上滑同样打开这组选项。选择项沿用现有长按选项窗口和 `commitNineKeyHoldOption`，先结束组字再写入选择内容。既有向下滑符号行为保持原路由。英文长按由[英文变体决定](2026-10-21-android-english-letter-options.md)补齐，本篇的中文三选项与上滑手势不变。
 
 ## Alternatives considered
 

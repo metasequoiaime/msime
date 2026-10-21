@@ -73,6 +73,130 @@ fn canvas_images_round_trip_through_packing_and_atomic_install() {
 }
 
 #[test]
+fn image_toolbar_resources_round_trip_at_the_full_local_file_limit() {
+    let source = tempfile::tempdir().unwrap();
+    let skin = source.path().join("full-toolbar");
+    fs::create_dir(&skin).unwrap();
+    let mut manifest = String::from("schema_version=2\nid='full-toolbar'\nname='合成工具栏'\nversion='1'\nbase='canvas'\npreview='preview.png'\n[supports]\nlayouts=['horizontal']\nthemes=['light']\n[candidate_window.decoration]\ntop_inset_dip=4\nwidth_dip=4\nimage='decoration.png'\n[candidate_window.background]\nimage='background.png'\n[candidate_window.border_image]\nsource='panel.png'\nlight_source='panel-light.png'\nslice_dip=[1]\n");
+    for index in 0..32 {
+        manifest.push_str(&format!("[[candidate_window.decorations]]\nimage='widget-{index}.png'\nwidth_dip=4\nheight_dip=4\n"));
+    }
+    manifest.push_str("[toolbar]\nmode='image'\nimage='toolbar.png'\nimage_width_dip=168\nimage_height_dip=48\n[toolbar.button_defaults]\nbackground='default.png'\n[toolbar.button_flow]\n");
+    for (key, states) in [
+        ("status", &["cn", "en", "ja", "caps", "en-candidate"][..]),
+        ("fullwidth", &["full", "half"][..]),
+        ("punctuation", &["cn", "en"][..]),
+        ("character_set", &["simplified", "traditional"][..]),
+        ("emoji", &[][..]),
+        ("screen_keyboard", &[][..]),
+        ("settings", &[][..]),
+    ] {
+        manifest.push_str(&format!(
+            "[toolbar.buttons.{key}]\nimage='{key}.png'\nbackground='{key}-bg.png'\n"
+        ));
+        if !states.is_empty() {
+            manifest.push_str(&format!("[toolbar.buttons.{key}.images]\n"));
+            for state in states {
+                manifest.push_str(&format!("{state}='{key}-{state}.png'\n"));
+            }
+        }
+    }
+    manifest.push_str("[license]\nassets='CC0'\n");
+    fs::write(skin.join("skin.toml"), &manifest).unwrap();
+    // 从合成清单枚举路径，所有 64 张独立资源都必须随安装保留。
+    for line in manifest.lines() {
+        if let Some((_, value)) = line.split_once('=') {
+            let path = value.trim_matches('\'');
+            if path.ends_with(".png") {
+                fs::write(skin.join(path), png(0)).unwrap();
+            }
+        }
+    }
+    let summary = catalog::load_package(source.path(), "full-toolbar").unwrap();
+    assert_eq!(catalog::referenced_image_paths(&summary).len(), 64);
+    let packed = pack(source.path(), "full-toolbar").unwrap();
+    assert_eq!(packed.file_count, MAX_LOCAL_PACKAGE_FILES);
+    assert!(packed.file_count > MAX_PACKAGE_FILES);
+    let package = CandidateSkinPackage {
+        id: item().id,
+        package_id: packed.package_id,
+        manifest: packed.manifest,
+        files: packed.files,
+    };
+    let target = tempfile::tempdir().unwrap();
+    install(target.path(), &package, false).unwrap();
+    assert_eq!(
+        pack(target.path(), "full-toolbar").unwrap().files,
+        package.files
+    );
+    let reloaded = catalog::load_package(target.path(), "full-toolbar").unwrap();
+    assert_eq!(reloaded.toolbar_image.as_ref().unwrap().buttons.len(), 7);
+    // 社区协议上限保持独立，不能把本地扩容默默当作服务器也接受。
+    assert_eq!(validate_package(&package), Err(AccountError::Unavailable));
+    let mut too_many = package.clone();
+    too_many
+        .files
+        .insert("extra.png".into(), BASE64.encode(png(0)));
+    let before = snapshot(target.path());
+    assert_eq!(install(target.path(), &too_many, true), Err(FILE_PATH));
+    assert_eq!(snapshot(target.path()), before);
+    // 后续状态图损坏时整包原子替换失败，既有皮肤不变。
+    too_many.files.remove("extra.png");
+    too_many
+        .files
+        .insert("status-en.png".into(), BASE64.encode(b"invalid image"));
+    assert!(install(target.path(), &too_many, true).is_err());
+    assert_eq!(snapshot(target.path()), before);
+}
+
+#[test]
+fn image_toolbar_upload_needs_its_own_server_capability() {
+    let root = tempfile::tempdir().unwrap();
+    let skin = write_skin(root.path(), "toolbar-test", TOP, "", "", LICENSE);
+    let path = skin.join("skin.toml");
+    let manifest = format!("{}\n[toolbar]\nmode='image'\nimage='preview.png'\nimage_width_dip=168\nimage_height_dip=48\n", fs::read_to_string(&path).unwrap());
+    fs::write(path, manifest).unwrap();
+    let request = CandidateSkinPublishRequest::new(
+        item().id,
+        "合成工具栏".into(),
+        "".into(),
+        pack(root.path(), "toolbar-test").unwrap(),
+        CandidateSkinVisibility::Public,
+        None,
+    );
+    for header in [
+        "",
+        "X-MSIME-Candidate-Resources: canvas-v1\r\n",
+        "X-MSIME-Candidate-Toolbar: unknown\r\n",
+    ] {
+        let (origin, received) = serve_responses(vec![(200, header, b"{}".to_vec())]);
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        assert_eq!(
+            client.publish_candidate_skin(&request, &token(b'x')),
+            Err(AccountError::Invalid)
+        );
+        let (head, body) = received.recv().unwrap();
+        assert!(head.starts_with("GET "));
+        assert!(body.is_empty());
+        assert!(received.recv().is_err());
+    }
+    let (origin, received) = serve_responses(vec![
+        (
+            200,
+            "X-MSIME-Candidate-Toolbar: image-v1\r\n",
+            b"{}".to_vec(),
+        ),
+        (200, "", serde_json::to_vec(&item()).unwrap()),
+    ]);
+    assert!(BackendAccountClient::loopback(&origin)
+        .unwrap()
+        .publish_candidate_skin(&request, &token(b'x'))
+        .is_ok());
+    assert!(received.recv().unwrap().0.starts_with("GET "));
+    assert!(received.recv().unwrap().0.starts_with("POST "));
+}
+
+#[test]
 fn animated_resources_are_strictly_decoded_and_bounded() {
     for (kind, bytes, frames) in [
         ("image/gif", animated_gif(3), 3),

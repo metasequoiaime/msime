@@ -13,6 +13,8 @@ enum KeyboardAppLauncher {
   static let settingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings")!
   /// 语音录音页。iOS 键盘扩展拿不到麦克风,录音只能在应用里做,识别结果再经语音交接回到键盘。
   static let voiceURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice")!
+  /// 按住说话的后台语音会话：还没开或已经过期时长按空格打开它，App 在后台替键盘录音，用户回到原应用按住空格说话（`KeyboardVoiceDictation`）。
+  static let voiceSessionURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice-session")!
   /// 功能菜单里的「词库」：打开应用的词库页。
   static let dictionaryURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings/dictionary")!
   /// 功能菜单里的「设置」和方案选择里的「添加语言」：打开应用的「输入」页。

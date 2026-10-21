@@ -8,6 +8,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
+英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
+
 ## 产品版本
 
 版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi、japanese、vietnamese、tibetan）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
@@ -424,3 +426,16 @@ adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.
 此开关仅在测试清单中替换一个入口，避免超过 Android 35 的 100 项 instrumentation 限制，不改变产品清单。用例经系统联系人 provider 创建合成姓名和保留号码，实际点击导入、刷新、清空，核对保存计数、普通条及展开面板的完整上屏和右上角标；结束移除本次合成电话本条目并恢复原名单与偏好。必须检查输出含 `MSIME_DEVICE_SMOKE_PASSED` 且不含 `FAILED`，不能只依赖 adb 退出码。
 
 验收拼音版时先安装本分支的 `pinyin` 原生 APK，再用 `MSIME_ANDROID_CONTACTS_SMOKE=pinyin` 构建测试包；instrumentation 命令相同，目标切到 `app.msime.android.pinyin`，测试不会借用全功能版的数据目录。
+
+### 拼写放大编辑
+
+组字时点输入框里拼写的中间，或点键盘标题「编辑拼写」，会打开临时放大条。直接点放大的字母可定位，拖动下方右侧的 `↔` 手柄可移动光标；手柄靠边停留会继续移动并滚动长拼写。原字母键和退格在引擎光标处插入、删除，候选仍可选择。「完成」将光标放回末尾并收起编辑条；结束组字或换输入框也会收起。全拼（含九键）、双拼、五笔、粤拼使用既有按键映射；韩语、注音等锁定末尾的方案不提供该入口。
+
+编辑器必须仍报告完整组字标记，选区须为组字内单点，读回拼写须与引擎一致；否则沿用外部移动结束组字的路径。组字后的实际系统选区仍在末尾，编辑位置显示在放大条里。默认输入框拼写和候选位置不变。设计见[决策笔记](../../.agents/notes/implemented/feature/2026-10-21-android-composition-magnifier.md)。
+
+设备专项（API 28 去掉 `--no-restart`；也包含在默认组字重启套件里）：
+
+```sh
+adb -s emulator-5580 shell am instrument --no-restart -e magnifier true -w \
+  app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke
+```

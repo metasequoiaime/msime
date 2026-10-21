@@ -435,7 +435,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     NSFont *glossFont = read.translationFont;
     const CGFloat glossWidth = MSIMECandidateSingleLineWidth(@"Animation protagonist", glossFont);
     const CGFloat ipaWidth = MSIMECandidateSingleLineWidth(ipa, glossFont);
-    const msime::mac::CandidateRunBox &run = read.itemLayout.translation;
+    const msime::candidate::CandidateRunBox &run = read.itemLayout.translation;
     assert(run.below && fabs(run.y - plain.itemLayout.translation.y) < 0.5);
     assert(run.height > glossLine * 1.5 && run.height < glossLine * 2.5);
     // 每一行都放得下，不折行：格子按较宽的那一行量，不按「释义  读音」连在一起的宽度。
@@ -1043,7 +1043,14 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
                 if ([child.identifier isEqual:@"candidate-preedit"]) preedit = (id)child;
             assert(preedit && [preedit.textColor isEqual:SkinColor(skin.tokens.preeditText.value_or(skin.tokens.accent))]);
             assert([preedit.caretColor isEqual:SkinColor(skin.tokens.preeditCaret.value_or(skin.tokens.accent))]);
-            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) - skin.canvas->lineGap.value_or(0)) < 0.01);
+            // 预编辑在整条首行内居中；字号小于展开按钮时，下缘还包含居中偏移。
+            const CGFloat scale = MSIMECandidateScale(appearance);
+            const BOOL headerHasControls = expanded.boolValue || (appearance.showsCandidateExpandButton && [controller expandedCandidatesOffered]);
+            const CGFloat headerHeight = MAX(NSHeight(preedit.frame), headerHasControls ? MSIMECandidateHeaderHeight * scale : 0);
+            const CGFloat centeredOffset = floor((headerHeight - NSHeight(preedit.frame)) / 2);
+            const auto preeditMargin = MSIMECandidatePreeditMargins(skin, YES, scale);
+            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) -
+                skin.canvas->lineGap.value_or(0) - preeditMargin.bottom - centeredOffset) < 0.01);
             for (NSView *child in chrome.subviews) {
                 if ([child isKindOfClass:MSIMECandidateCanvasView.class]) {
                     [levels addObject:child.identifier];

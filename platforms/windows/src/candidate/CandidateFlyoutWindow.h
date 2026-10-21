@@ -46,8 +46,10 @@ public:
   // Open at the pointer for a candidate of `code_points` characters. The
   // Engine may expose a candidate that is display-only; keep its dictionary
   // rows visible but inert instead of waiting for a rejected IPC action.
+  // `slot` 是这个候选在本页的位置，「删除」行据此提示删除它的快捷键（candidate_menu_items）。
   bool open(int pointer_x, int pointer_y, size_t code_points,
-            bool actions_available, int fixed_position) noexcept;
+            bool actions_available, int fixed_position,
+            std::optional<size_t> slot = std::nullopt) noexcept;
   bool visible() const noexcept;
   void hide() noexcept;
   HWND handle() const noexcept { return menu_.window; }

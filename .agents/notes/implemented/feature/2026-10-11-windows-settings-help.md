@@ -22,6 +22,7 @@ Status: implemented
 
 - 「帮助与反馈」页不再有拉起共享应用的帮助入口；「反馈」一行仍跳共享应用，留给后续步骤。
 - 帮助文字写死在 `main.cpp`，`platform-copy.ts` 的 Windows 分支改了要同步改这里。
+- 帮助的位置和版式后来换了：「关于」分标签以后，帮助是「帮助与反馈」标签里的一行，点开在原处换成照 macOS「帮助」子页版式的术语卡片，内容改写成 Windows 的按键和路径，不再照 `platform-copy.ts` 的段落；理由见 [Windows 设置「关于」页分标签对齐 macOS](2026-10-20-windows-settings-about-tabs.md)。「不搬 macOS 问答卡片」那一条否掉的是照搬 macOS 的按键，按 Windows 改写的卡片不在其列。
 
 ## Verification
 
