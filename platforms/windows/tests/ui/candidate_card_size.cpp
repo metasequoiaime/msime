@@ -85,6 +85,17 @@ int main() {
       require(near(candidate_card_metrics(font, 16.0, false, true, true, shared).min_width, 160.0));
     shared.fit_content = true;
     require(near(candidate_card_metrics(16.0, 16.0, false, true, true, shared).min_width, 0.0));
+    shared.fit_content = false;
+    // 皮肤没有键能改的注释间距、释义字号、首行和翻页也保留 msime-windows 的值，缺省路径才照 macOS。
+    const auto windows = candidate_card_metrics(24.0, 16.0, false, true, true, shared);
+    require(near(windows.annotation_gap, 4.0) && near(windows.translation_font, 24.0 * 0.78) &&
+            near(windows.translation_line, 24.0 * 0.78 * 1.25) &&
+            near(windows.header_row, 22.0) && near(windows.preedit_row, 22.0) &&
+            near(windows.pager_gap, 12.0) && near(windows.pager_arrow, 16.0));
+    const auto mac = candidate_card_metrics(24.0, 16.0, false);
+    require(near(mac.annotation_gap, 0.0) && near(mac.translation_font, 12.0) &&
+            near(mac.header_row, 26.0) && near(mac.preedit_row, 26.0) &&
+            near(mac.pager_gap, 4.0) && near(mac.pager_arrow, 28.0));
   }
   // Half the work area still caps the floor.
   empty.font_size = 32.0;

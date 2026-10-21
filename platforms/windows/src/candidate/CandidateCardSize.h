@@ -213,6 +213,13 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   if (skin.shared_layout || skin.selected_bar_inside)
     metrics.selection_bar_offset =
         skin.selected_bar_inside ? 0.0 : -metrics.selection_bar_width * 0.5;
+  // 带着共享层出厂版式的皮肤是照 msime-windows 的几何画的，皮肤没有键能改的这几项也保留它的值：注释离候选 4 DIP，首行 22 DIP，页码离拼音和箭头 12 DIP，箭头 16 DIP 见方；释义字号在下面。
+  if (skin.shared_layout) {
+    metrics.annotation_gap = 4.0;
+    metrics.header_row = 22.0;
+    metrics.pager_gap = 12.0;
+    metrics.pager_arrow = 16.0;
+  }
   // 首行：显示拼音时是拼音那一行，有 logo 或翻页时不矮于它们需要的高度；三者都没有时不占高度。
   metrics.logo_visible = logo_visible;
   metrics.preedit_row = (std::max)(
@@ -231,8 +238,8 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   metrics.candidate_row = skin.item_extra_height ? font_size * 1.35 + *skin.item_extra_height
                                                  : line + metrics.row_padding;
   metrics.annotation_line = font_size * 1.25;
-  // 释义固定 12 DIP，和 macOS 的 MSIMECandidateTranslationPointSize 一样：候选字号调大，扫一眼的释义不跟着变大。用户的整体缩放（candidate_scale_percent）照样作用在它上面，和别的 DIP 一样。
-  metrics.translation_font = 12.0;
+  // 释义固定 12 DIP，和 macOS 的 MSIMECandidateTranslationPointSize 一样：候选字号调大，扫一眼的释义不跟着变大。用户的整体缩放（candidate_scale_percent）照样作用在它上面，和别的 DIP 一样。带着共享层出厂版式的皮肤仍是 msime-windows 的 0.78 倍候选字号。
+  metrics.translation_font = skin.shared_layout ? font_size * 0.78 : 12.0;
   metrics.translation_gap = font_size * 0.65;
   metrics.translation_line = metrics.translation_font * 1.25;
   if (list_arrows) {

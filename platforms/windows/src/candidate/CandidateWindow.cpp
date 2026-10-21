@@ -726,13 +726,14 @@ bool CandidateWindow::exit_lease_lost() const {
 }
 
 void CandidateWindow::hide_for(const std::optional<CandidatePresentation> &value) {
-  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场。退场只在组字正常结束时开始；退场途中焦点换走了（租约不再是当前焦点），旧候选不能留在新的前台上，立即收起，和 macOS 隐私收起时 finishExit 一样。
-  if (!value && finishing_animation_) {
+  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场，也不能把还开着的卡片（连同展开的网格）硬收掉：没在退场时走 hide()，有退场的皮肤开始退场，下一次读到可见快照就取消它；没有退场的主题和以前一样立即收起。退场那一帧的租约已经不是当前焦点（焦点换走了）时，旧候选不能留在新的前台上，立即收起，和 macOS 隐私收起时 finishExit 一样；刚开始的退场也当场查一次，之后每一帧的 paint 和这里都会查。读到了快照时，退场只在组字正常结束时开始。
+  if (!value) {
+    hide();
     if (exit_lease_lost())
       hide_immediately();
     return;
   }
-  if (value && value->composition_ended)
+  if (value->composition_ended)
     hide();
   else
     hide_immediately();
