@@ -2496,6 +2496,45 @@ fn left_right_edits_only_on_the_first_candidate() {
     assert_eq!(highlighted(&home).as_deref(), Some("你好吗"));
 }
 
+/// 竖排候选窗里左右键与候选的排列方向垂直：`navigation.left_right` 开着也只编辑输入串，高亮交给 ↑/↓。
+#[test]
+fn vertical_candidates_leave_left_right_to_the_input_string() {
+    let highlighted = |view: &View| {
+        view.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted)
+    };
+    let mut runtime = phrase_runtime("nihaoma", Vec::new());
+    runtime.set_left_right_navigation(true);
+    runtime.set_vertical_candidates(true);
+
+    // 首选、光标在末尾：→ 不选下一个。
+    let right = runtime
+        .dispatch(Action::Command(Command::MoveRight))
+        .unwrap()
+        .view;
+    assert_eq!(right.caret_position, 7);
+    assert_eq!(highlighted(&right), Some(0));
+
+    // 不在首选：← 仍是编辑输入串，高亮不动。
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let left = runtime
+        .dispatch(Action::Command(Command::MoveLeft))
+        .unwrap()
+        .view;
+    assert_eq!(left.caret_position, 6);
+    assert_eq!(highlighted(&left), Some(1));
+
+    // 换回横排，同一个位置上 ← 回到上一个候选，光标不动。
+    runtime.set_vertical_candidates(false);
+    let horizontal = runtime
+        .dispatch(Action::Command(Command::MoveLeft))
+        .unwrap()
+        .view;
+    assert_eq!(horizontal.caret_position, 6);
+    assert_eq!(highlighted(&horizontal), Some(0));
+}
+
 #[test]
 fn taking_focus_discards_held_phrase_even_if_refresh_fails() {
     let mut runtime = Runtime::new(

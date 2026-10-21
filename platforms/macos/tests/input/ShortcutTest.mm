@@ -3191,22 +3191,23 @@ static void TestPinyinArrowCandidateNavigation() {
         assert([controller handleEvent:ModeKey(key, 0, NO) client:client]);
         assert(session.lastCommand == expected && !client.committed);
     };
-    // 默认交给 runtime；关闭后由宿主按同一条规则分工：首选上 ← 编辑、→ 先回到末尾，其余候选上左右键只移动候选。
+    // 默认交给 runtime；关闭后横排由宿主按同一条规则分工：首选上 ← 编辑、→ 先回到末尾，其余候选上左右键只移动候选。竖排时左右键与候选方向垂直，只编辑光标。
     for (NSNumber *leftRight in @[@YES, @NO]) {
         [prefs applySharedCandidatePreferences:@{@"navigation": @{@"left_right": leftRight}}];
         for (BOOL vertical : {NO, YES}) {
             prefs.vertical = vertical;
+            const BOOL host = !leftRight.boolValue && !vertical;
             for (BOOL expand : {NO, YES}) {
                 prefs.expandCandidates = expand;
                 check(0, 5, 0, 123, MSIME_MOVE_LEFT);
-                check(0, 5, 1, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE);
+                check(0, 5, 1, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT);
                 check(0, 2, 0, 124, MSIME_MOVE_RIGHT);
-                check(0, 2, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                check(0, 2, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
                 // 第二页的第一个不是首选，左右键都移动候选。
-                check(0, 5, 0, 123, leftRight.boolValue ? MSIME_MOVE_LEFT : MSIME_PREVIOUS_CANDIDATE, NO, 1);
-                check(0, 2, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE, NO, 1);
-                check(0, 5, 0, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
-                check(0, 5, 1, 124, leftRight.boolValue ? MSIME_MOVE_RIGHT : MSIME_NEXT_CANDIDATE);
+                check(0, 5, 0, 123, host ? MSIME_PREVIOUS_CANDIDATE : MSIME_MOVE_LEFT, NO, 1);
+                check(0, 2, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT, NO, 1);
+                check(0, 5, 0, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
+                check(0, 5, 1, 124, host ? MSIME_NEXT_CANDIDATE : MSIME_MOVE_RIGHT);
             }
         }
     }
