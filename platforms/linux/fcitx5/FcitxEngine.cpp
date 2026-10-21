@@ -1159,6 +1159,11 @@ public:
     if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
     showInputModeHud(ModeHudTrigger::FocusSettled);
   }
+  // 撤掉还在等光标的获得焦点提示：用户已经开始打字（候选窗马上出现在光标下方，徽章这时再放上去会盖住它），或者已经离开这个输入框。
+  void cancelFocusInputModeHud() {
+    mode_hud_after_focus_ = false;
+    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
+  }
 #endif
   // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
   void resyncPunctuationForMode() {
@@ -3753,7 +3758,9 @@ public:
   // 一次按下交给生命周期核心：每个打字键，只要中文输入开着、没有在录音，不论之后是引擎还是应用拿走这个键。先比较并报告字段属性，再调 msime_client_key，都在 key() 处理这个键之前，这是顺序契约（msime_client.h），按键音因此排在这个键带来的上屏音前面；Sensitive 字段里核心不出声也不画。松开、单独的修饰键和快捷键不算打字（key_press_sounds），不开新的一轮。录音中按 Esc 取消录音的那个键也不出声：这里读到的是 key() 处理前的状态，录音还在。这里跑在 fcitx5 守护进程里，所以只投递请求：Host API 在发现某个声音打开之前不开音频设备、不起线程，音频出错时只在 stderr 写一行并在本进程关掉声音，不会落到插件里。打字特效的连击数现在就记下，key() 里画出的辅助行用的就是它。
   void keyDown(const fcitx::KeyEvent &event) {
     const auto sym = static_cast<std::uint32_t>(event.key().sym());
-    if (event.isRelease()) key_repeat_.release(sym);
+    // 按硬件键码认自动重复：修饰键先松开时松开事件的 keysym 和按下时不同（见 KeyRepeat）。
+    const auto keycode = static_cast<std::uint32_t>(event.rawKey().code());
+    if (event.isRelease()) key_repeat_.release(keycode);
     if (!session_ || !input_enabled_ || !ic_.hasFocus() || restricted() || voice_loading_)
       return;
     const bool shortcut = event.rawKey().states().testAny(fcitx::KeyStates{
@@ -3761,9 +3768,13 @@ public:
         fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
     if (!msime::linux_host::key_press_sounds(event.isRelease(), event.key().isModifier(), shortcut))
       return;
-    // 自动重复的按下不交给生命周期核心：不出按键音、不画特效、不开新的一轮，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同。按住退格或空格时只在第一次按下响一声。
-    if (key_repeat_.press(sym)) return;
+    const bool repeat = key_repeat_.press(keycode);
     syncFieldTraits();
+    // 自动重复的按下不出按键音、不画特效、不动连击，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同，按住退格或空格时只在第一次按下响一声；但仍开新的一轮，否则按住期间的每次派发共用第一次按下那一轮的脚本 fuel（见 lifecycle_silent_turn）。
+    if (repeat) {
+      msime_client_key(session_, msime::linux_host::lifecycle_silent_turn());
+      return;
+    }
     // Linux 只显示打字特效里的连击数，在候选下方的辅助行（setAuxDown；setAuxUp 归语音、表情搜索和配置提示）。
     typing_combo_ = msime::linux_host::typing_effect_combo(msime_client_key(
         session_, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(sym), false)));
@@ -3781,7 +3792,7 @@ public:
   msime::linux_host::MusicActivity music_;
   // 生命周期核心现在知道的字段属性，变了才重新报告，见 syncFieldTraits。
   msime::linux_host::FieldTraitsReport field_traits_;
-  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复不交给核心，见 keyDown。
+  // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复只开新的一轮、不出声不画，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
   // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
@@ -6270,9 +6281,10 @@ public:
     }
     return mode_badge_.get();
   }
-  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。新的提示重新计时。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。
-  void scheduleModeBadgeHide() {
+  // 徽章显示 0.6 秒，再分几帧在 0.18 秒里淡出，与 macOS 相同；后端做不到半透明时直接隐藏。新的提示重新计时。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条线程上，Wayland 连接不是线程安全的。`owner` 是这次提示所属的输入上下文，见 dismissModeBadge。
+  void scheduleModeBadgeHide(fcitx::InputContext &owner) {
     using Timing = msime::linux_host::ModeBadgeTiming;
+    mode_badge_owner_ = owner.watch();
     mode_badge_fade_step_ = 0;
     mode_badge_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + Timing::visible_ms * 1000ULL, 0,
@@ -6288,6 +6300,13 @@ public:
           mode_badge_->hide();
           return true;
         });
+  }
+  // 离开输入框或换到别的输入法时立刻收起徽章并停掉淡出，与 macOS 在 deactivateServer: 里 orderOut 提示面板相同。只收这个上下文自己的那条提示：Fcitx5 先让新输入框获得焦点、再让旧的失焦时，屏幕上那块已经属于新输入框。
+  void dismissModeBadge(fcitx::InputContext *ic) {
+    if (!mode_badge_ || mode_badge_owner_.get() != ic) return;
+    mode_badge_owner_.unwatch();
+    mode_badge_timer_.reset();
+    mode_badge_->hide();
   }
 #endif
 #ifdef MSIME_FCITX5_HINT_FONT
@@ -6668,11 +6687,14 @@ public:
         });
 #endif
 #ifdef MSIME_FCITX5_MODE_BADGE
-    // 获得焦点后在等光标矩形的徽章，等到输入框报来新矩形就放（见 FcitxState::settleFocusInputModeHud）。
+    // 获得焦点后在等光标矩形的徽章，等到输入框报来新矩形就放（见 FcitxState::settleFocusInputModeHud）。报来的若仍是全 0 的矩形（还没有光标，见 mode_badge_caret_usable），接着等下一次报告或等满时间。
     mode_hud_cursor_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCursorRectChanged, fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) {
           auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          const auto &rect = ic->cursorRect();
+          if (!msime::linux_host::mode_badge_caret_usable({rect.left(), rect.top(), rect.width(), rect.height()}))
+            return;
           ic->propertyFor(&factory_)->settleFocusInputModeHud();
         });
 #endif
@@ -6938,6 +6960,10 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+#ifdef MSIME_FCITX5_MODE_BADGE
+    state->cancelFocusInputModeHud();
+    dismissModeBadge(event.inputContext());
+#endif
     // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
@@ -7030,6 +7056,9 @@ public:
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try {
       if (state->ensure()) {
+#ifdef MSIME_FCITX5_MODE_BADGE
+        if (!event.isRelease()) state->cancelFocusInputModeHud();
+#endif
         state->countKeyPress(event);
         const auto comboBefore = state->typing_combo_;
         state->keyDown(event);
@@ -7145,6 +7174,8 @@ public:
   bool mode_badge_unavailable_ = false;
   std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
   int mode_badge_fade_step_ = 0;
+  // 屏幕上那块徽章是为哪个输入上下文显示的，见 dismissModeBadge。
+  fcitx::TrackableObjectReference<fcitx::InputContext> mode_badge_owner_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> mode_hud_cursor_watch_;
 #endif
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
@@ -7618,10 +7649,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 新的提示取代还在等光标的那条获得焦点提示。
-  if (trigger != ModeHudTrigger::FocusSettled && mode_hud_after_focus_) {
-    mode_hud_after_focus_ = false;
-    if (mode_hud_focus_timer_) mode_hud_focus_timer_->setEnabled(false);
-  }
+  if (trigger != ModeHudTrigger::FocusSettled) cancelFocusInputModeHud();
 #endif
   // 共享偏好 input_mode_hud 控制，默认开启。
   if (!preferences_.value("input_mode_hud", true)) return;
@@ -7655,7 +7683,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
     std::optional<msime::linux_host::ModeBadgeCaret> caret;
     if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) caret = caret_rect;
     if (badge->show(label, show_logo ? MSIME_MODE_BADGE_ICON : "", style, caret)) {
-      engine_->scheduleModeBadgeHide();
+      engine_->scheduleModeBadgeHide(ic_);
     } else {
       hint = msime::linux_host::ModeBadgeHint::PanelText;
     }

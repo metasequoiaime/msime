@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
   if (argc != 2)
     return 2;
   const std::string scenario = argv[1];
-  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret";
+  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret" || scenario == "x11-badge-point";
   if (scenario != "english" && scenario != "blocked" && scenario != "destroyed" &&
       scenario != "compose" && !x11)
     return 2;
@@ -233,6 +233,28 @@ int main(int argc, char **argv) {
         fixture.destroy_engine();
         run_for(1500);
         require(!visible_badge(), "引擎销毁后徽章没有收起");
+      } else if (scenario == "x11-badge-point") {
+        // 全 0 的报告还不是光标，接着等；XIM 客户端报的是一个点（宽高为 0），那就是光标：徽章放在它下方，不放到屏幕下方的回退位置，也不发辅助文本。
+        fixture.report_cursor(0, 0, 0, 0);
+        run_for(20);
+        require(!visible_badge(), "全 0 的光标报告就画了徽章");
+        fixture.report_cursor(200, 300, 0, 0);
+        std::optional<BadgeWindow> badge;
+        wait_until([&] { return (badge = visible_badge()).has_value(); }, "报来点状光标后没有画徽章");
+        require(badge->y >= 300 && badge->y < 300 + 40 && badge->x > 100 && badge->x < 220,
+                "徽章没有放在点状光标下方");
+        require(fixture.seen.shown == 0, "画了徽章还发辅助文本");
+        // 离开输入框时立刻收起，不等 0.6 秒后的淡出，与 macOS 的 deactivateServer: 相同。
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_out(fixture.engine);
+        run_for(50);
+        require(!visible_badge(), "失焦后徽章没有立刻收起");
+        // 再次获得焦点后、光标报来之前就开始打字：那条获得焦点提示作废，徽章不再盖到随后出现的候选窗上，也不改发辅助文本。
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_in(fixture.engine);
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->process_key_event(fixture.engine, XKB_KEY_a, 30, 0);
+        fixture.report_cursor(250, 400, 0, 0);
+        run_for(300);
+        require(!visible_badge(), "开始打字后仍放了获得焦点的徽章");
+        require(fixture.seen.shown == 0, "开始打字后改发了辅助文本");
       } else {
         // 等满时间仍没报光标：不把徽章放到屏幕下方，改用辅助文本。
         wait_until([&] { return fixture.seen.shown == 1; });

@@ -99,7 +99,18 @@ assert activate.index("state->render();") < activate.index(focus_hint)
 # 获得焦点时的光标徽章要等输入框补报光标（GTK、Qt 在获得焦点之后的空闲回调里才报），整个插件只用一块徽章表面，新的提示替换屏幕上那块。
 assert "InputContextCursorRectChanged" in source and "settleFocusInputModeHud();" in source
 assert "mode_badge_focus_hint(hint, caret_rect)" in source
-assert "engine_->modeBadge()" in source and "engine_->scheduleModeBadgeHide();" in source
+assert "engine_->modeBadge()" in source and "engine_->scheduleModeBadgeHide(ic_);" in source
+# 全 0 的光标报告不算（还没有光标），接着等；宽高为 0 的点状光标（XIM 客户端）是真实位置。
+cursor_watch = source[source.index("mode_hud_cursor_watch_ = instance->watchEvent(") :]
+cursor_watch = cursor_watch[: cursor_watch.index("});")]
+assert cursor_watch.index("mode_badge_caret_usable(") < cursor_watch.index("settleFocusInputModeHud();")
+# 失焦或换输入法时立刻收起这个上下文的徽章（macOS 的 deactivateServer:），开始打字就作废还在等光标的获得焦点提示。
+deactivate = source[source.index("void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override") :]
+deactivate = deactivate[: deactivate.index("void holdMenuContext(")]
+assert "state->cancelFocusInputModeHud();" in deactivate and "dismissModeBadge(event.inputContext());" in deactivate
+key_event_body = source[source.index("void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override") :]
+key_event_body = key_event_body[: key_event_body.index("std::string subModeLabelImpl(")]
+assert key_event_body.index("if (!event.isRelease()) state->cancelFocusInputModeHud();") < key_event_body.index("state->keyDown(event);")
 # Linux 应用普遍把 Ctrl+Shift+P 用作命令面板或隐私窗口；Fcitx5 只从工具栏菜单插入宣传文字，与 macOS 相同。
 assert "FcitxKey_P ? FcitxKey_p" not in source
 assert "toggle_chord_held_ = FcitxKey_p" not in source
@@ -227,19 +238,22 @@ assert key_event.index("state->countKeyPress(event);") < key_event.index("state-
 assert key_event.index("state->keyDown(event);") < key_event.index("state->key(event)")
 assert key_event.index("state->key(event)") < key_event.index("state->keySettled(comboBefore);")
 ibus_key_event = body(ibus_source, "gboolean process_key_and_count(")
-assert ibus_key_event.index("key_down(engine, key, flags);") < ibus_key_event.index(
+assert ibus_key_event.index("key_down(engine, key, keycode, flags);") < ibus_key_event.index(
     "process_key(engine, key, keycode, flags)"
 )
 assert ibus_key_event.index("process_key(engine, key, keycode, flags)") < ibus_key_event.index(
     "key_settled(engine, combo_before);"
 )
-for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")):
+for key_down in (body(source, "void keyDown(const fcitx::KeyEvent &event)"), body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint keycode, guint flags)")):
     traits = "syncFieldTraits();" if "syncFieldTraits" in key_down else "s.report_field_traits();"
     assert key_down.index(traits) < key_down.index("msime_client_key(")
-    # 自动重复与 macOS 一样不交给生命周期核心：认出重复就返回，排在报告字段属性和 msime_client_key 之前。
+    # 自动重复与 macOS 一样不出声、不画：按硬件键码认出重复，报告字段属性之后只用 lifecycle_silent_turn 开新的一轮就返回，脚本 fuel 因此仍按每次按下给。
     assert "lifecycle_key(msime::linux_host::key_sound_class(" in key_down
-    repeat = "key_repeat_.press(sym)" if "key_repeat_" in key_down else "s.key_repeat.press(key)"
-    assert key_down.index(repeat) < key_down.index(traits) < key_down.index("msime_client_key(")
+    repeat = "key_repeat_.press(keycode)" if "key_repeat_" in key_down else "s.key_repeat.press(keycode)"
+    release = "key_repeat_.release(keycode)" if "key_repeat_" in key_down else "s.key_repeat.release(keycode)"
+    assert release in key_down
+    silent = key_down.index("lifecycle_silent_turn()")
+    assert key_down.index(repeat) < key_down.index(traits) < silent < key_down.index("return;", silent) < key_down.index("lifecycle_key(")
     assert "key_press_sounds(" in key_down
     # 隐私字段不由宿主拦着：核心按字段属性决定静音，这样只带 NoSpellCheck 的字段才能照常出声。
     assert "privateInput()" not in key_down and "private_input" not in key_down
@@ -272,7 +286,7 @@ unchanged = ibus_content_type.index("if (blocked == s.blocked && private_input =
 assert unchanged < ibus_content_type.index("s.report_field_traits();", unchanged) < ibus_content_type.index("return;", unchanged) < ibus_content_type.index("s.close();")
 assert "state->syncFieldTraits();" in source[source.index("InputContextCapabilityChanged") :]
 # IBus 的会话由 process_key 惰性创建：key_down 在判断会话之前先打开它（同 Fcitx5 在 keyDown 之前跑的 ensure()），词库维护或出错关掉会话后的第一个键才有按键音，它的派发也才属于它自己这一轮。
-ibus_key_down = body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint flags)")
+ibus_key_down = body(ibus_source, "void key_down(IBusEngine *engine, guint key, guint keycode, guint flags)")
 assert ibus_key_down.index("key_press_sounds(") < ibus_key_down.index("s.open();") < ibus_key_down.index("if (!s.session ||") < ibus_key_down.index("msime_client_key(")
 # 设置里的声音（plugins）变了而本会话正激活着时，两个宿主都再声明一次激活：set_active 对选择加入的会话总是返回 true，MusicActivity 不会重试，不重新声明的话刚打开的背景音乐要等下一次换焦点才响。
 ibus_live = body(ibus_source, "void apply_live_preferences(IBusEngine *engine, Json snapshot) {")

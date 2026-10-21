@@ -33,7 +33,7 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 其他：
 
 - 模式字加「双」「五」，IBus 面板符号改为「中」「英」（`InputModeIndicator.h`）。「⇪」仍保留，这是 Windows 语言栏的规则，macOS 没有。
-- 自动重复不调 `msime_client_key`，与 macOS 的 `!event.isARepeat`（`InputController.mm` 里 `reportKeyToLifecycle:` 的调用处）相同：不出按键音、不画特效，重复引起的派发算在第一次按下的那一轮里。`msime_client.h` 顺序契约下的过渡期例外随之列上自动重复；这一条取代[桌面端生命周期核心](../architecture/2026-10-11-desktop-lifecycle-core.md)里「自动重复照旧出声」（Q3）在 Linux 上的做法，那篇已标注，Windows 仍按原样带 `MSIME_KEY_REPEAT` 出声。
+- 自动重复不出按键音、不画特效，与 macOS 的 `!event.isARepeat`（`InputController.mm` 里 `reportKeyToLifecycle:` 的调用处）相同；但每次重复仍调 `msime_client_key(MSIME_KEY_POINTER)` 开新的一轮。最初的做法是重复时根本不调，评审指出那样按住退格时每次重复的派发（input、candidates、composition_update）都算在第一次按下那一轮里，共用 125 000 的每轮 fuel，运行到一半被截断的插件在这次聚焦里就停掉了；`MSIME_KEY_POINTER` 是 host-api 现有的「开一轮但不出声不画」，借它不用改核心，`script_plugins.rs` 的 `a_silent_turn_per_repeat_keeps_the_plugin_running` 钉住这个行为。重复按硬件键码认，不按 keysym：先松开 Shift 再松开 1 时松开事件带的是 `1` 而按下时是 `!`，按 keysym 记会把下一次 Shift+1 当成重复。`msime_client.h` 顺序契约下的过渡期例外随之写明自动重复借指针位开轮；这一条取代[桌面端生命周期核心](../architecture/2026-10-11-desktop-lifecycle-core.md)里「自动重复照旧出声」（Q3）在 Linux 上的做法，那篇已标注，Windows 仍按原样带 `MSIME_KEY_REPEAT` 出声。
 - IBus 组件图标改为 `msime-linux`，引擎描述是产品名；Fcitx5 条目和桌面入口加 `zh_TW`、`zh_HK` 名称。
 - 升级后：IBus 启动器换上新版本后经 `msime-linux-first-run-guide --reason upgraded` 发「水杉输入法已更新」通知；Fcitx5 插件发「水杉输入法已升级」通知，带「立即重启 Fcitx5」按钮。
 

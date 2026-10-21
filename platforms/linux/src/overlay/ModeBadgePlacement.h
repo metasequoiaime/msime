@@ -16,8 +16,10 @@ struct ModeBadgeCaret {
   int height = 0;
 };
 
-// 与 macOS 的 MSIMEInputModeHUDUsableCaretRect 相同：高度为 0 的矩形是输入框没报光标，不能拿来定位。
-constexpr bool mode_badge_caret_usable(const ModeBadgeCaret &caret) { return caret.height > 0; }
+// 输入框报过光标没有：只有四个分量全为 0 的矩形算没报（Fcitx5 和 IBus 给新上下文的初值就是它，GTK、Qt 在补报之前也停在这里）。macOS 的 MSIMEInputModeHUDUsableCaretRect 把高度为 0 的也当成没报，Linux 不能照搬：XIM 客户端（xterm、X 下的 Emacs、Wine 和 Java 程序）报的是一个点，Fcitx5 的 XIM 前端在换算后的位置放一个宽高都为 0 的矩形，ibus-x11 传的宽度为 0、高度通常也为 0，这是真实的光标位置，徽章照样放在它下方 gap 处。
+constexpr bool mode_badge_caret_usable(const ModeBadgeCaret &caret) {
+  return caret.x != 0 || caret.y != 0 || caret.width != 0 || caret.height != 0;
+}
 
 namespace mode_badge_detail {
 constexpr int clamp(int value, int minimum, int maximum) {

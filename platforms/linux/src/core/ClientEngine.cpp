@@ -1501,6 +1501,9 @@ void sync_global_input_mode(IBusEngine *engine);
 // 切换提示的来由：真正的切换，获得焦点（#2589），以及获得焦点后等到光标位置（或等满时间）的那一次。
 enum class ModeHintTrigger { Switch, FocusEntered, FocusSettled };
 void show_input_mode_hint(IBusEngine *engine, ModeHintTrigger trigger = ModeHintTrigger::Switch);
+#ifdef MSIME_IBUS_MODE_BADGE
+void dismiss_mode_badge(const IBusEngine *engine);
+#endif
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
@@ -4999,6 +5002,10 @@ void focus_out(IBusEngine *engine) {
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
     s.focused = false;
+#ifdef MSIME_IBUS_MODE_BADGE
+    s.mode_hint_after_focus = false;
+    dismiss_mode_badge(engine);
+#endif
     if (panel_input_engine == engine) panel_input_engine = nullptr;
     ++s.focus_epoch;
     s.focused_context.clear();
@@ -6353,6 +6360,8 @@ struct ProcessModeBadge {
   bool unavailable = false;
   uint64_t id = 0;
   int fade_step = 0;
+  // 屏幕上那块是为哪个引擎显示的，只拿来比较、从不解引用，见 dismiss_mode_badge。
+  const IBusEngine *owner = nullptr;
 };
 ProcessModeBadge &process_mode_badge() {
   static ProcessModeBadge badge;
@@ -6384,6 +6393,15 @@ void schedule_mode_badge_fade(guint interval) {
         return G_SOURCE_REMOVE;
       },
       new uint64_t(process_mode_badge().id), +[](gpointer data) { delete static_cast<uint64_t *>(data); });
+}
+// 离开输入框时立刻收起徽章并作废它的淡出回调，与 macOS 在 deactivateServer: 里 orderOut 提示面板相同。只收这个引擎自己的那条提示：新输入框先获得焦点、旧的后失焦时，屏幕上那块已经属于新输入框。
+void dismiss_mode_badge(const IBusEngine *engine) {
+  auto &badge = process_mode_badge();
+  if (!badge.surface || badge.owner != engine)
+    return;
+  badge.owner = nullptr;
+  ++badge.id;
+  badge.surface->hide();
 }
 // 获得焦点后等到了光标位置，或等满 ModeBadgeTiming::focus_caret_wait_ms：放那条一直在等的提示，只放一次。
 void settle_focus_mode_hint(IBusEngine *engine) {
@@ -6451,6 +6469,7 @@ void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger t
       auto &shared = process_mode_badge();
       ++shared.id;
       shared.fade_step = 0;
+      shared.owner = engine;
       schedule_mode_badge_fade(msime::linux_host::ModeBadgeTiming::visible_ms);
     } else {
       hint = msime::linux_host::ModeBadgeHint::PanelText;
@@ -8547,11 +8566,12 @@ void destroy(IBusObject *object) {
   IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
 // 一次按下交给生命周期核心：每个打字键，只要中文输入开着、没有在录音，不论之后是引擎还是应用拿走这个键。先比较并报告字段属性，再调 msime_client_key，都在引擎处理这个键之前，这是顺序契约（msime_client.h），按键音因此排在这个键带来的上屏音前面；隐私字段里核心不出声也不画。松开、单独的修饰键和快捷键不算打字（key_press_sounds），不开新的一轮。录音中按 Esc 取消录音的那个键也不出声：这里读到的是引擎处理前的状态，录音还在。打字特效的连击数现在就记下，引擎处理时画出的候选辅助行用的就是它。
-void key_down(IBusEngine *engine, guint key, guint flags) {
+void key_down(IBusEngine *engine, guint key, guint keycode, guint flags) {
   auto &s = state(engine);
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // 按硬件键码认自动重复：修饰键先松开时松开事件的 keyval 和按下时不同（见 KeyRepeat）。
   if (release)
-    s.key_repeat.release(key);
+    s.key_repeat.release(keycode);
   const bool shortcut =
       (flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
                 IBUS_META_MASK | IBUS_HYPER_MASK)) != 0;
@@ -8563,10 +8583,13 @@ void key_down(IBusEngine *engine, guint key, guint flags) {
     guarded(engine, "key_down", [&] { s.open(); });
   if (!s.session || !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
-  // 自动重复的按下不交给生命周期核心：不出按键音、不画特效、不开新的一轮，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同。按住退格或空格时只在第一次按下响一声。
-  if (s.key_repeat.press(key))
-    return;
+  const bool repeat = s.key_repeat.press(keycode);
   s.report_field_traits();
+  // 自动重复的按下不出按键音、不画特效、不动连击，与 macOS 在调用处用 `!event.isARepeat` 挡掉自动重复相同，按住退格或空格时只在第一次按下响一声；但仍开新的一轮，否则按住期间的每次派发共用第一次按下那一轮的脚本 fuel（见 lifecycle_silent_turn）。
+  if (repeat) {
+    msime_client_key(s.session, msime::linux_host::lifecycle_silent_turn());
+    return;
+  }
   // Linux 只显示打字特效里的连击数，在候选辅助行的末尾。
   s.typing_combo = msime::linux_host::typing_effect_combo(msime_client_key(
       s.session, msime::linux_host::lifecycle_key(msime::linux_host::key_sound_class(key), false)));
@@ -8587,9 +8610,14 @@ void key_settled(IBusEngine *engine, uint32_t combo_before) {
 // Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
 gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,
                                guint flags) {
+#ifdef MSIME_IBUS_MODE_BADGE
+  // 开始打字就撤掉还在等光标的获得焦点提示：候选窗马上出现在光标下方，徽章这时再放上去会盖住它。
+  if ((flags & IBUS_RELEASE_MASK) == 0)
+    state(engine).mode_hint_after_focus = false;
+#endif
   count_key_press(engine, keycode, flags);
   const auto combo_before = state(engine).typing_combo;
-  key_down(engine, key, flags);
+  key_down(engine, key, keycode, flags);
   const gboolean handled = process_key(engine, key, keycode, flags);
   key_settled(engine, combo_before);
   if (handled || (flags & IBUS_RELEASE_MASK) || !typing_statistics_switch.enabled())
@@ -8645,10 +8673,12 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   engine->focus_in = focus_in;
   engine->focus_out = focus_out;
 #ifdef MSIME_IBUS_MODE_BADGE
-  // 获得焦点后在等光标的切换徽章，客户端一报光标就放（见 show_input_mode_hint）。先交给 IBusEngine 自己的处理，cursor_area 由它维护。
+  // 获得焦点后在等光标的切换徽章，客户端一报光标就放（见 show_input_mode_hint）。先交给 IBusEngine 自己的处理，cursor_area 由它维护。报来的若是全 0 的矩形（还没有光标，见 mode_badge_caret_usable），接着等下一次报告或等满时间。
   engine->set_cursor_location = [](IBusEngine *engine, gint x, gint y, gint w, gint h) {
     if (auto *parent = IBUS_ENGINE_CLASS(msime_ibus_engine_parent_class)->set_cursor_location)
       parent(engine, x, y, w, h);
+    if (!msime::linux_host::mode_badge_caret_usable({x, y, w, h}))
+      return;
     guarded(engine, "set_cursor_location", [&] { settle_focus_mode_hint(engine); });
   };
 #endif
