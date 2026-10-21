@@ -464,6 +464,23 @@ try {
                     if (Find-ByName $content '打开手写识别板') { throw 'Handwriting rendered inside the keyboard tab' }
                     Assert-PageIntro $window 'osk' '调整屏幕键盘布局与外观。'
                 }
+                if ($page -eq 'typing') {
+                    # 照 macOS 分六个标签，打开时是「输入方案」：方案组的第一行是「中文方案」卡片。
+                    Select-PageTab $window 'input-tab-scheme' '中文方案'
+                }
+                if ($page -eq 'shortcuts') {
+                    # 照 macOS 分「按键设置」「按键速查」两个标签；选词与翻页在输入页，桌面上没有「恢复默认快捷键」。
+                    Select-PageTab $window 'shortcuts-tab-settings' 'Ctrl+Space（由 Windows 管理）'
+                    $content = Find-ById $window 'settings-content'
+                    foreach ($name in @('恢复默认快捷键', '以词定字')) {
+                        if (Find-ByName $content $name) { throw "Shortcuts settings tab still shows $name" }
+                    }
+                }
+                if ($page -eq 'expression') {
+                    # 照 macOS 分「标点设置」「候选释义」「翻译服务」三个标签；混输等输入习惯在输入页。
+                    Select-PageTab $window 'expression-tab-punctuation' '引号样式'
+                    if (Find-ByName (Find-ById $window 'settings-content') '中英混输') { throw 'Input habits still render on the punctuation page' }
+                }
                 if ($page -eq 'about') {
                     # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
                     foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues')) {
@@ -509,6 +526,31 @@ try {
                     Save-Window $window "$theme-$width-clip-history.png"
                     Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
                 }
+                if ($page -eq 'typing') {
+                    # 其余五个标签逐个截图；「二三候选」「自动纠错」照 macOS 不在设置里，偏好本身不动。
+                    foreach ($pair in @(@('mode', '默认中英文'), @('selection', '以词定字'), @('candidates', '云候选来源'), @('output', '中文输出'), @('advanced', '启用模糊音'))) {
+                        Select-PageTab $window "input-tab-$($pair[0])" $pair[1]
+                        $content = Find-ById $window 'settings-content'
+                        foreach ($name in @('二三候选', '自动纠错')) {
+                            if (Find-ByName $content $name) { throw "Input page still shows $name" }
+                        }
+                        Save-Window $window "$theme-$width-typing-$($pair[0]).png"
+                    }
+                    Select-PageTab $window 'input-tab-scheme' '中文方案'
+                }
+                if ($page -eq 'shortcuts') {
+                    Select-PageTab $window 'shortcuts-tab-reference' '选择候选'
+                    if (-not (Find-ByName (Find-ById $window 'settings-content') '打开屏幕键盘')) { throw 'Shortcut reference is missing the screen keyboard chord' }
+                    Save-Window $window "$theme-$width-shortcuts-reference.png"
+                    Select-PageTab $window 'shortcuts-tab-settings' 'Ctrl+Space（由 Windows 管理）'
+                }
+                if ($page -eq 'expression') {
+                    Select-PageTab $window 'expression-tab-gloss' '显示英文释义'
+                    Save-Window $window "$theme-$width-expression-gloss.png"
+                    Select-PageTab $window 'expression-tab-providers' '候选词翻译服务'
+                    Save-Window $window "$theme-$width-expression-providers.png"
+                    Select-PageTab $window 'expression-tab-punctuation' '引号样式'
+                }
                 if ($page -eq 'osk') {
                     # 「手写」标签只有「手写识别板」一组：打开面板的一行和手写板示意。
                     Select-PageTab $window 'osk-tab-handwriting' '打开手写识别板'
@@ -540,8 +582,9 @@ try {
                 }
             }
         }
-        # 通过真实单选控件切换方案，再读合成偏好确认保存成功，避免只验证静态页面。
+        # 通过真实单选控件切换方案，再读合成偏好确认保存成功，避免只验证静态页面。方案卡片在「输入方案」标签里。
         Open-Page $window 'typing'
+        Select-PageTab $window 'input-tab-scheme' '中文方案'
         Start-Sleep -Milliseconds 700
         foreach ($scheme in @('shuangpin', 'wubi', 'quanpin')) {
             $radio = Find-ById $window "scheme-$scheme"
@@ -634,6 +677,21 @@ try {
         Assert-PageIntro $window 'osk' '设置手写识别与输入方式。'
         $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
         Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
+        # 输入页同样：「@ 地名」在「高级选项」标签「逐个模式」的「更多选项」里，从「输入方案」标签搜它要先切标签再展开折叠区。
+        Open-Page $window 'typing'
+        Select-PageTab $window 'input-tab-scheme' '中文方案'
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('@ 地名')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $tab = Find-ById $window 'input-tab-advanced'
+            $target = Find-ByName (Find-ById $window 'settings-content') '@ 地名'
+        } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) { throw 'Search did not open the input tab and fold holding its target' }
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+        Select-PageTab $window 'input-tab-scheme' '中文方案'
         # 搜索必须让目标可见：主字体在预设下本来收起，搜索落到它时要画出来；折叠区里的行要把「更多选项」展开。
         Open-Page $window 'candidate'
         Set-CandidateMore $window $false

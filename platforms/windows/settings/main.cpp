@@ -50,6 +50,7 @@
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
 #include "HistoryPagination.h"
+#include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
@@ -122,6 +123,7 @@ namespace nav = msime::settings;
 namespace pg = msime::settings::plugins;
 namespace vs = msime::settings::voice;
 namespace ps = msime::settings::punctuation;
+namespace ism = msime::settings::input;
 namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
 
@@ -4956,7 +4958,13 @@ private:
     for (const auto &option : options) {
       const bool on = option.value == current;
       Button button;
-      button.Height(full_width ? 36 : 26);
+      // 整宽样式的段至少 36 高；最窄的窗口里放不下一行字时（「输入」页有六个标签）字折成两行，同一排的段一起变高，与共享页按钮里的字折行相同。
+      if (full_width) {
+        button.MinHeight(36);
+        button.VerticalAlignment(VerticalAlignment::Stretch);
+      } else {
+        button.Height(26);
+      }
       button.MinWidth(0);
       button.Padding(full_width ? Thickness{8, 0, 8, 0} : Thickness{10, 0, 10, 0});
       button.CornerRadius(full_width ? CornerRadius{5, 5, 5, 5} : CornerRadius{4, 4, 4, 4});
@@ -4968,7 +4976,9 @@ private:
       Grid content;
       auto label = make_text(option.label, full_width ? 14 : 13,
                              (on || full_width) ? palette_.text : palette_.sub);
-      label.TextWrapping(TextWrapping::NoWrap);
+      label.TextWrapping(full_width ? TextWrapping::Wrap : TextWrapping::NoWrap);
+      if (full_width)
+        label.TextAlignment(TextAlignment::Center);
       label.HorizontalAlignment(HorizontalAlignment::Center);
       label.VerticalAlignment(VerticalAlignment::Center);
       content.Children().Append(label);
@@ -5119,12 +5129,13 @@ private:
     return button;
   }
 
-  // 按可用宽度等分列，重排已有子项，保留按钮与复选框的焦点和选择状态。
-  Grid responsive_grid(double minimum_width, double gap, int maximum_columns = 0) {
+  // 按可用宽度等分列，重排已有子项，保留按钮与复选框的焦点和选择状态。`natural_columns` 时列宽取本列最宽子项的宽度（Auto 列）、从左排起，不铺满整行，`minimum_width` 只用来估算一行放几列。
+  Grid responsive_grid(double minimum_width, double gap, int maximum_columns = 0,
+                       bool natural_columns = false) {
     Grid grid;
     grid.ColumnSpacing(gap);
     grid.RowSpacing(gap);
-    grid.SizeChanged([minimum_width, gap, maximum_columns](
+    grid.SizeChanged([minimum_width, gap, maximum_columns, natural_columns](
                          Inspectable const &sender, SizeChangedEventArgs const &) {
       const auto panel = sender.as<Grid>();
       auto columns = std::max(
@@ -5137,7 +5148,7 @@ private:
       panel.RowDefinitions().Clear();
       for (int column = 0; column < columns; ++column) {
         ColumnDefinition definition;
-        definition.Width(GridLength{1, GridUnitType::Star});
+        definition.Width(GridLength{1, natural_columns ? GridUnitType::Auto : GridUnitType::Star});
         panel.ColumnDefinitions().Append(definition);
       }
       const auto count = static_cast<int>(panel.Children().Size());
@@ -12266,65 +12277,97 @@ private:
     render_page(true);
   }
 
+  // 「输入」页照共享设置 `InputSettingsPage` 的桌面分支（`pages/input-page.tsx`）分六个页内标签（`InputSettingsModel.h` 的 `tabs`，与 `input-tabs.ts` 相同）：「输入方案」放方案组和五笔查码，「中英模式」放中英文组，「选词与翻页」放以词定字和翻页，「候选与联想」「输出设置」各一组，「高级选项」依次是快捷模式、逐个模式、模糊音、辅助码和拼音方案调频。组的顺序按「基础 → 进阶」排，与共享页相同；方案相关的行在当前方案用不到时不画，换方案时整页重画。
   void build_typing_page(StackPanel const &page) {
-    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
-    auto language = add_group(page, L"中英文");
-    segment_row(language, 0xE774, L"默认中英文", L"新焦点会话开始时使用的中文或英文状态",
-                L"default_ime_mode", {{L"chinese", L"中文"}, {L"english", L"英文"}},
-                L"english");
-    segment_row(language, 0xE71D, L"中英文状态",
-                L"按应用分别记忆输入状态，或让所有输入上下文保持同一状态",
-                L"ime_mode_scope", {{L"app", L"按应用记忆"}, {L"global", L"全局统一"}},
-                L"app");
-    bool_row(language, 0xE946, L"中英文切换提示",
-             L"切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。",
-             L"input_mode_hud", true);
-    app_input_mode_rule_row(language);
+    std::vector<Option> tabs;
+    for (auto const &tab : ism::tabs)
+      tabs.push_back({std::wstring(tab.id), std::wstring(tab.title)});
+    const auto tab = page_tab_bar(page, L"输入设置分类", tabs, L"input-tab");
+    if (in_tab(tab, L"scheme"))
+      build_scheme_group(page);
+    if (in_tab(tab, L"mode")) {
+      // 两行与共享页的 DefaultImeModeSection、ImeModeScopeSection 一样是下拉框。
+      auto language = add_group(page, L"中英文");
+      select_row(language, 0xE774, L"默认中英文", L"新焦点会话开始时使用的中文或英文状态",
+                 L"default_ime_mode", {{L"chinese", L"中文"}, {L"english", L"英文"}},
+                 L"english");
+      select_row(language, 0xE71D, L"中英文状态",
+                 L"按应用分别记忆输入状态，或让所有输入上下文保持同一状态",
+                 L"ime_mode_scope", {{L"app", L"按应用记忆"}, {L"global", L"全局统一"}},
+                 L"app");
+      bool_row(language, 0xE946, L"中英文切换提示",
+               L"切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。",
+               L"input_mode_hud", true);
+      app_input_mode_rule_row(language);
+    }
+    if (in_tab(tab, L"selection"))
+      build_selection_keys(page);
+    build_input_habits(page, tab);
+  }
 
-    auto schemes = add_group(page, L"输入方案");
-    // 只列出本版本提供的方案。
-    std::vector<Option> scheme_options;
+  // 「方案」组（共享页 `InputSchemeSettingsContent`）：第一行是「输入语言」下拉（中文、日文、韩文、越南文、藏文，`InputModeSection`），选「中文」时回到记住的中文方案；当前是中文方案时下面是「中文方案」三列卡片单选（`InputSchemeSelectorSection`），再往下是当前方案的选项行。只列出本版本提供的语言和方案，只剩一项时那一行不画。选用五笔时这一组后面是「五笔查码」组。
+  void build_scheme_group(StackPanel const &page) {
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+    const auto chinese = [](std::wstring const &value) {
+      return value != L"japanese" && value != L"korean" && value != L"vietnamese" && value != L"tibetan";
+    };
+    std::vector<Option> chinese_schemes;
     for (Option const &option : std::vector<Option>{
              {L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
-             {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
-             {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
-             {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}})
+             {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"}, {L"stroke", L"笔画"}})
       if (edition_offers_scheme(option.value))
-        scheme_options.push_back(option);
-    for (const auto &option : scheme_options) {
-      RadioButton radio;
-      radio.Content(box_value(hstring(option.label + L"输入")));
-      radio.GroupName(L"input-scheme");
-      radio.MinHeight(32);
-      radio.IsChecked(option.value == scheme);
-      radio.IsEnabled(loaded_);
-      radio.Checked([this, next = option.value](Inspectable const &, RoutedEventArgs const &) {
-        select_scheme(next);
-      });
-      A11y::SetName(radio, hstring(option.label + L"输入"));
-      A11y::SetAutomationId(radio, hstring(L"scheme-" + option.value));
-      record(option.label + L"输入", L"输入方案");
-      auto choice = append_row_frame(schemes, radio);
-      choice.Padding(Thickness{row_inset, 2, row_inset, 2});
-      mark_search_target(option.label + L"输入", radio);
+        chinese_schemes.push_back(option);
+    // 本版本一个中文方案都没有时（日文、越南文、藏文版）不列「中文」。
+    std::vector<Option> languages;
+    if (!chinese_schemes.empty())
+      languages.push_back({L"chinese", L"中文"});
+    for (Option const &option : std::vector<Option>{
+             {L"japanese", L"日文"}, {L"korean", L"韩文"}, {L"vietnamese", L"越南文"},
+             {L"tibetan", L"藏文"}})
+      if (edition_offers_scheme(option.value))
+        languages.push_back(option);
+
+    auto group = add_group(page, L"方案");
+    if (languages.size() > 1) {
+      // 选「中文」回到记住的中文方案（last_chinese_scheme），它不可用时回到本版本的默认方案，再不行用列出的第一个中文方案，与共享页的 fallbackChineseScheme 相同。
+      auto language = select_control(
+          L"输入语言", languages, chinese(scheme) ? std::wstring(L"chinese") : scheme,
+          [this, chinese, first = chinese_schemes.empty() ? std::wstring() : chinese_schemes.front().value](
+              std::wstring const &value) {
+            if (value != L"chinese") {
+              select_scheme(value);
+              return;
+            }
+            auto next = document_.String(L"last_chinese_scheme", L"");
+            if (!chinese(next) || !edition_offers_scheme(next))
+              next = MSIME_EDITION_DEFAULT_SCHEME_W;
+            if (!chinese(next) || !edition_offers_scheme(next))
+              next = first;
+            if (!next.empty())
+              select_scheme(next);
+          });
+      A11y::SetAutomationId(language, L"input-language");
+      add_row(group, 0xE774, L"输入语言", L"", language);
     }
-    StackPanel scheme_options_group{nullptr};
-    if (scheme == L"shuangpin" || scheme == L"wubi" || scheme == L"vietnamese" ||
-        scheme == L"tibetan")
-      scheme_options_group = add_group(page, L"当前方案选项");
+    if (chinese(scheme) && chinese_schemes.size() > 1)
+      scheme_cards(group, chinese_schemes, scheme);
+
     if (scheme == L"shuangpin") {
-      select_row(scheme_options_group, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
-                 {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
-                  {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"},
-                  {L"smart_abc", L"智能 ABC 双拼"}},
+      // 选项顺序与共享页 shuangpinProfileOptions 相同。Windows 还没有自定义双拼的编辑页，平时不列「自定义双拼」；文档里已经是它（比如在 macOS 上选的、同步过来）时照共享页列出一项灰的，否则下拉框找不到当前值，显示成空白。
+      std::vector<Option> profiles{{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
+                                   {L"shoudao", L"首道双拼"}, {L"microsoft", L"微软双拼"},
+                                   {L"smart_abc", L"智能 ABC 双拼"}};
+      if (document_.String(L"shuangpin_profile", L"xiaohe") == L"custom")
+        profiles.push_back({L"custom", L"自定义双拼", false});
+      select_row(group, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile", std::move(profiles),
                  L"xiaohe");
       // 共享偏好 shuangpin_keymap_hint，与共享设置的同名开关相同；没选过时文档里没有这一项，按关显示。
-      bool_row(scheme_options_group, 0xE765, L"输入时显示双拼键位提示",
+      bool_row(group, 0xE765, L"输入时显示双拼键位提示",
                L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
                L"shuangpin_keymap_hint", false);
       // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
       add_row(
-          scheme_options_group, 0xE8AB, L"双拼预编辑",
+          group, 0xE8AB, L"双拼预编辑",
           L"保留原始双拼按键，或显示展开后的拼音分词。",
           select_control(L"双拼预编辑",
                          {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
@@ -12340,44 +12383,120 @@ private:
                                false);
                          }));
     }
-    if (scheme == L"vietnamese") {
-      segment_row(scheme_options_group, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
-                  L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
-      segment_row(scheme_options_group, 0xE8D2, L"声调位置", L"oa、oe、uy 中声调标在哪个元音上：新式 hoà，旧式 hòa",
-                  L"vietnamese.tone_style", {{L"modern", L"新式"}, {L"classic", L"旧式"}}, L"modern");
-    }
-    // 藏文只有威利转写一种输入法，没有可调的选项，这一行只说明按键。
-    if (scheme == L"tibetan")
-      add_row(scheme_options_group, 0xE8AB, L"藏文输入法",
-              L"威利转写（EWTS）：用拉丁字母拼写，区分大小写。空格上屏并加音节点 ་，/ 上屏并加垂符 །，回车只上屏藏文，Esc 先显示拉丁原文",
-              nullptr);
     if (scheme == L"wubi") {
-      select_row(scheme_options_group, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
+      select_row(group, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
                  {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
-      bool_row(scheme_options_group, 0xE8D2, L"五笔拼音混输",
+      bool_row(group, 0xE8D2, L"五笔拼音混输",
                L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
                L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
-      bool_row(scheme_options_group, 0xE8CB, L"候选显示剩余编码",
+      bool_row(group, 0xE8CB, L"候选显示剩余编码",
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
-      build_wubi_candidate_selection(scheme_options_group);
-      bool_row(scheme_options_group, 0xE8CB, L"四码唯一候选自动上屏",
+      build_wubi_candidate_selection(group);
+      bool_row(group, 0xE8CB, L"五笔四码唯一候选自动上屏",
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
     }
+    // 日语、韩语、粤拼、注音和笔画各只有一个方案，没有可选的东西，只在对应方案下用一行说明怎么打，标题和说明与共享页 InputSchemeDetailsSection 的 schemeNote 相同。
+    if (scheme == L"japanese")
+      add_row(group, 0xE8AB, L"日语方案",
+              L"罗马音：直接输入罗马音，提供平假名、片假名及日语词库候选", nullptr);
+    if (scheme == L"korean")
+      add_row(group, 0xE8AB, L"韩语方案",
+              L"两套式：按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角", nullptr);
+    if (scheme == L"cantonese")
+      add_row(group, 0xE8AB, L"粤拼方案",
+              L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);
+    if (scheme == L"zhuyin")
+      add_row(group, 0xE8AB, L"注音键盘",
+              L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
+              nullptr);
+    if (scheme == L"stroke")
+      add_row(group, 0xE8AB, L"笔画方案",
+              L"横竖撇点折：按 h s p n z 依次输入横、竖、撇、点、折，x 代替不确定的一笔，数字键选词，候选为笔顺以此开头的单字",
+              nullptr);
+    if (scheme == L"vietnamese") {
+      segment_row(group, 0xE8AB, L"越南语方案",
+                  L"Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键",
+                  L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
+      segment_row(group, 0xE8D2, L"声调位置",
+                  L"新式把声调标在主元音上（hoà），旧式按传统位置标注（hòa）",
+                  L"vietnamese.tone_style", {{L"modern", L"新式 hoà"}, {L"classic", L"旧式 hòa"}},
+                  L"modern");
+    }
+    // 藏文只有威利转写一种输入法，没有可调的选项，这一行只说明按键，标题和说明与共享页 schemeNote 的「藏文方案」相同。Esc 在两个平台都由引擎处理（第一次切回威利原文，第二次取消），「恢复原始按键」说的是同一件事。
+    if (scheme == L"tibetan")
+      add_row(group, 0xE8AB, L"藏文方案",
+              L"威利转写：按 EWTS 威利转写输入，区分大小写；空格加音节点 ་ 上屏，/ 加垂符 ། 上屏，回车只上屏藏文，Esc 恢复原始按键",
+              nullptr);
     if (scheme == L"wubi")
       build_wubi_code_lookup(page);
+  }
 
-    // 辅助码与搜索索引均只登记当前方案；切换方案后的修订会使索引重建。
-    if (scheme == L"quanpin" || scheme == L"shuangpin") {
-      if (!indexing_)
-        load_helpcode_sources();
-      auto helpcode = add_group(page, L"辅助码");
-      if (edition_offers_scheme(L"quanpin") && scheme == L"quanpin")
-        helpcode_rows(helpcode, L"全拼", L"quanpin", true, L"ziranma", false);
-      if (edition_offers_scheme(L"shuangpin") && scheme == L"shuangpin")
-        helpcode_rows(helpcode, L"双拼", L"shuangpin", true, L"lantian", true);
+  // 「中文方案」卡片单选，照共享页 InputSchemeSelectorSection：标题下面三列等宽卡片，相隔 8 DIP，圆角 8、1 DIP 分隔色描边；悬停铺中性底色，选中的那张描边换成强调色、底色是淡强调色（macOS 的 `accent-soft`）。每张卡片里是一个整宽的单选按钮（自动化 ID `scheme-<方案>`），系统单选的 32 DIP 最小高度加上下各 6 的内边距，卡片高度与 macOS 上下各 12 的内边距相当。
+  void scheme_cards(StackPanel const &group, std::vector<Option> const &schemes,
+                    std::wstring const &scheme) {
+    record(L"中文方案", L"");
+    StackPanel block;
+    block.Spacing(8);
+    block.Children().Append(make_text(L"中文方案", 14, palette_.text));
+    mark_search_target(L"中文方案", block);
+    Grid cards;
+    cards.ColumnSpacing(8);
+    cards.RowSpacing(8);
+    for (int column = 0; column < 3; ++column) {
+      ColumnDefinition definition;
+      definition.Width(GridLength{1, GridUnitType::Star});
+      cards.ColumnDefinitions().Append(definition);
     }
+    const auto soft = palette_.dark ? rgba(0x5F, 0xBF, 0x84, .22) : rgba(0x2C, 0x7A, 0x4B, .12);
+    int32_t index = 0;
+    for (auto const &option : schemes) {
+      const bool on = option.value == scheme;
+      if (index % 3 == 0) {
+        RowDefinition definition;
+        definition.Height(GridLength{1, GridUnitType::Auto});
+        cards.RowDefinitions().Append(definition);
+      }
+      RadioButton radio;
+      radio.Content(box_value(hstring(option.label)));
+      radio.GroupName(L"input-scheme");
+      radio.MinWidth(0);
+      radio.HorizontalAlignment(HorizontalAlignment::Stretch);
+      radio.IsChecked(on);
+      radio.IsEnabled(loaded_ && option.enabled);
+      radio.Checked([this, next = option.value](Inspectable const &, RoutedEventArgs const &) {
+        select_scheme(next);
+      });
+      A11y::SetName(radio, hstring(option.label));
+      A11y::SetAutomationId(radio, hstring(L"scheme-" + option.value));
+      record(option.label, L"中文方案");
+      mark_search_target(option.label, radio);
+      Border card;
+      card.CornerRadius(CornerRadius{8, 8, 8, 8});
+      card.BorderThickness(Thickness{1, 1, 1, 1});
+      card.BorderBrush(brush(on ? palette_.accent : palette_.divider));
+      card.Background(brush(on ? soft : transparent_color()));
+      card.Padding(Thickness{12, 6, 12, 6});
+      card.Opacity(option.enabled ? 1.0 : 0.5);
+      card.Child(radio);
+      if (!on) {
+        card.PointerEntered([hover = palette_.hover](Inspectable const &sender,
+                                                     Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const &) {
+          sender.as<Border>().Background(brush(hover));
+        });
+        card.PointerExited([](Inspectable const &sender, Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const &) {
+          sender.as<Border>().Background(brush(transparent_color()));
+        });
+      }
+      Grid::SetRow(card, index / 3);
+      Grid::SetColumn(card, index % 3);
+      cards.Children().Append(card);
+      ++index;
+    }
+    block.Children().Append(cards);
+    auto frame = append_row_frame(group, block);
+    frame.Padding(Thickness{row_inset, 10, row_inset, 10});
   }
 
   void build_wubi_candidate_selection(StackPanel const &group) {
@@ -12432,30 +12551,41 @@ private:
         doc.SetString(L"wubi_candidate_selection.third_key", third_value);
       }, true);
     });
+    // 与共享页的 WubiCandidateSelectionSection 一样边输入边校验（InputSettingsModel.h）：两个键不是各一个不同的英文标点时，说明换成提示，保存按钮变灰；没有改动时保存按钮也是灰的。
+    auto keys_row = add_row(
+        group, 0xE8C1, L"自定义选词键",
+        std::wstring(ism::wubi_candidate_keys_description(
+            ism::valid_wubi_candidate_keys(second_key, third_key))),
+        save);
     const auto edited = [weak_second = make_weak(second), weak_third = make_weak(third),
-                         weak_save = make_weak(save), second_key, third_key,
-                         loaded = loaded_](Inspectable const &, TextChangedEventArgs const &) {
+                         weak_save = make_weak(save),
+                         weak_description = make_weak(row_subtitle(keys_row)), second_key,
+                         third_key, loaded = loaded_](Inspectable const &,
+                                                      TextChangedEventArgs const &) {
       const auto second_field = weak_second.get();
       const auto third_field = weak_third.get();
       const auto button = weak_save.get();
-      if (second_field && third_field && button)
-        button.IsEnabled(loaded && (std::wstring_view(second_field.Text()) != second_key ||
-                                    std::wstring_view(third_field.Text()) != third_key));
+      if (!second_field || !third_field || !button)
+        return;
+      const std::wstring second_value = second_field.Text().c_str();
+      const std::wstring third_value = third_field.Text().c_str();
+      const bool valid = ism::valid_wubi_candidate_keys(second_value, third_value);
+      button.IsEnabled(loaded && valid &&
+                       (second_value != second_key || third_value != third_key));
+      if (auto description = weak_description.get())
+        set_subtitle(description, std::wstring(ism::wubi_candidate_keys_description(valid)));
     };
     second.TextChanged(edited);
     third.TextChanged(edited);
-    add_row(group, 0xE8C1, L"自定义选词键",
-            L"使用两个不同的英文标点；请选择未用于翻页或以词定字的键。改完后一起保存。",
-            save);
   }
 
-  // 设置按任务归页，搜索索引随所属页面一起建立。
+  // 「选词与翻页」组（共享页 InputSharedSettingsSection 的 selection 一组）：以词定字、退格回退和翻页方式。
   void build_selection_keys(StackPanel const &page) {
     auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
     const auto word_keys = document_.String(L"word_character.keys", L"brackets");
     const auto word_current = word_enabled ? word_keys : std::wstring(L"off");
-    // 同一键组不能同时用于以词定字和翻页：与共享页的 wordCharacterChoiceChange 相同，已用于翻页的键组不能选（当前选中的除外），选键组时不去关掉另一项设置。
+    // 与共享页的 WordCharacterSection 一样是「关闭 / [ / ] / - / =」三段的分段控件。同一键组不能同时用于以词定字和翻页：与共享页的 wordCharacterChoiceChange 相同，已用于翻页的键组那一段按不下去（当前选中的除外），选键组时不去关掉另一项设置。
     std::vector<Option> word_options{Option{L"off", L"关闭"}};
     for (Option option : std::vector<Option>{{L"brackets", L"[ / ]"}, {L"minus_equal", L"- / ="}}) {
       option.enabled = option.value == word_current ||
@@ -12464,34 +12594,21 @@ private:
     }
     add_row(word, 0xE8C1, L"以词定字",
             L"按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字；已用于翻页的键组不能选",
-            select_control(L"以词定字", std::move(word_options), word_current,
-                           [this](std::wstring const &value) {
-                             change([&](PreferencesDocument &doc) {
-                               // 选「关闭」只关开关，记着的键组不动。
-                               if (value == L"off") {
-                                 doc.SetBoolean(L"word_character.enabled", false);
-                                 return;
-                               }
-                               doc.SetString(L"word_character.keys", value);
-                               doc.SetBoolean(L"word_character.enabled", true);
-                             }, true);
-                           }));
-    const bool second_third_enabled = document_.Boolean(L"second_third_candidate.enabled", false);
-    add_row(word, 0xE8C1, L"二三候选",
-            L"开启后，输入时按 ; 选第二个候选，按 ' 选第三个候选。组字中的 ' 不再作为音节分隔符。",
-            select_control(L"二三候选",
-                           {{L"off", L"关闭"}, {L"semicolon_quote", L"; / '"}},
-                           second_third_enabled ? L"semicolon_quote" : L"off",
-                           [this](std::wstring const &value) {
-                             change([&](PreferencesDocument &doc) {
-                               // 两个字段一起写，关闭时也写上键位，偏好里不会留下缺字段的对象。
-                               doc.SetString(L"second_third_candidate.keys", L"semicolon_quote");
-                               doc.SetBoolean(L"second_third_candidate.enabled", value != L"off");
-                             }, false);
-                           }));
+            segmented_control(L"以词定字", word_options, word_current,
+                              [this](std::wstring const &value) {
+                                change([&](PreferencesDocument &doc) {
+                                  // 选「关闭」只关开关，记着的键组不动。
+                                  if (value == L"off") {
+                                    doc.SetBoolean(L"word_character.enabled", false);
+                                    return;
+                                  }
+                                  doc.SetString(L"word_character.keys", value);
+                                  doc.SetBoolean(L"word_character.enabled", true);
+                                }, true);
+                              }));
 
     bool_row(word, 0xE8AB, L"退格键回退已选候选词",
-             L"开启时，剩余拼写删到末尾会恢复最近一次选词的拼音；关闭时保留已选词，删空剩余拼写后上屏。",
+             L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。",
              L"backspace_reverts_selection", true);
 
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
@@ -12499,7 +12616,7 @@ private:
         {L"minus_equal", L"- / ="},
         {L"comma_period", L", / ."},
         {L"brackets", L"[ / ]"},
-        {L"mouse_wheel", L"鼠标滚轮（候选面板支持时翻页）"},
+        {L"mouse_wheel", L"鼠标滚轮（候选窗口支持时翻页）"},
         {L"arrows", L"上 / 下（移动候选项）"},
         {L"left_right", L"左 / 右（移动候选项）"},
     }};
@@ -12522,207 +12639,257 @@ private:
            }});
     }
     add_row(word, 0xE8AB, L"翻页方式",
-            L"选择用于翻页的按键；Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页", nullptr,
+            L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页", nullptr,
             checks_panel(std::move(paging_checks), 190));
-
   }
 
-  // 对话框持有草稿，所有字段确认后一次交给 Rust 校验并持久化。
-  fire_and_forget edit_cloud_provider() {
-    auto lifetime = get_strong();
-    const auto stored = document_.Value(L"cloud_candidate_provider");
-    if (!stored || stored.ValueType() != JsonValueType::Object) co_return;
-    auto config = std::make_shared<JsonObject>(JsonObject::Parse(stored.Stringify()));
-    StackPanel form;
-    form.Spacing(12);
-    form.Children().Append(make_text(L"仅发送当前组字，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。公网使用 HTTPS，本机服务可用 HTTP。", 13, palette_.sub));
-    form.Children().Append(select_control(L"云候选来源", {{L"google", L"Google input-tools"}, {L"custom", L"自定义 HTTP 接口"}},
-      std::wstring(config->GetNamedString(L"source").c_str()), [config](std::wstring const &value) {
-        config->SetNamedValue(L"source", JsonValue::CreateStringValue(hstring(value)));
-      }));
-    auto field = [&](wchar_t const *key, wchar_t const *title, bool multiline) {
-      TextBox box;
-      box.Header(box_value(hstring(title)));
-      box.Text(config->GetNamedString(key, L""));
-      box.MaxLength(4096);
-      box.AcceptsReturn(multiline);
-      if (multiline) box.MinHeight(80);
-      form.Children().Append(box);
-      return box;
-    };
-    const auto endpoint = field(L"endpoint", L"接口地址（GET 用 {query}）", false);
-    form.Children().Append(select_control(L"请求方法", {{L"GET", L"GET"}, {L"POST", L"POST"}},
-      std::wstring(config->GetNamedString(L"method").c_str()), [config](std::wstring const &value) {
-        config->SetNamedValue(L"method", JsonValue::CreateStringValue(hstring(value)));
-      }));
-    const auto headers = field(L"headers_json", L"请求头（JSON，可填写 Authorization）", true);
-    const auto body = field(L"body_template", L"请求体模板（JSON 字符串里的 {query} 自动转义）", true);
-    form.Children().Append(select_control(L"响应格式", {{L"candidates", L"标准 candidates 数组"}, {L"google", L"Google input-tools"}, {L"json_path", L"JSON 路径"}},
-      std::wstring(config->GetNamedString(L"response_format").c_str()), [config](std::wstring const &value) {
-        config->SetNamedValue(L"response_format", JsonValue::CreateStringValue(hstring(value)));
-      }));
-    const auto path = field(L"response_path", L"JSON 路径（例如 data.0 或 choices.0.message.content）", false);
-    NumberBox timeout;
-    timeout.Header(box_value(L"超时（毫秒）"));
-    timeout.Minimum(100); timeout.Maximum(10000);
-    timeout.Value(config->GetNamedNumber(L"timeout_ms"));
-    form.Children().Append(timeout);
-    CheckBox cache;
-    cache.Content(box_value(L"缓存云候选（仅本机内存，按来源隔离，无结果缓存 60 秒）"));
-    cache.IsChecked(config->GetNamedBoolean(L"cache_enabled"));
-    form.Children().Append(cache);
-    auto error = make_text(L"", 13, palette_.sub);
-    form.Children().Append(error);
-    ScrollViewer scroll;
-    scroll.Content(form); scroll.MaxHeight(480);
-    ContentDialog dialog;
-    dialog.Title(box_value(L"云候选服务"));
-    dialog.Content(scroll);
-    dialog.PrimaryButtonText(L"保存"); dialog.CloseButtonText(L"取消");
-    dialog.XamlRoot(root_.XamlRoot());
-    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
-    dialog.PrimaryButtonClick([this, config, endpoint, headers, body, path, timeout, cache, error](
-        ContentDialog const &, ContentDialogButtonClickEventArgs const &args) {
-      config->SetNamedValue(L"endpoint", JsonValue::CreateStringValue(endpoint.Text()));
-      config->SetNamedValue(L"headers_json", JsonValue::CreateStringValue(headers.Text()));
-      config->SetNamedValue(L"body_template", JsonValue::CreateStringValue(body.Text()));
-      config->SetNamedValue(L"response_path", JsonValue::CreateStringValue(path.Text()));
-      if (!std::isfinite(timeout.Value())) { args.Cancel(true); return; }
-      config->SetNamedValue(L"timeout_ms", JsonValue::CreateNumberValue(timeout.Value()));
-      const auto checked = cache.IsChecked();
-      config->SetNamedValue(L"cache_enabled", JsonValue::CreateBooleanValue(checked && checked.Value()));
-      flush_pending();
-      document_.SetValue(L"cloud_candidate_provider", *config);
-      if (!commit()) {
-        args.Cancel(true);
-        error.Text(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
-      } else queue_refresh();
-    });
-    co_await show_dialog(dialog);
-  }
-
-  void build_input_habits(StackPanel const &page) {
-    auto candidates = add_group(page, L"候选与联想");
+  // 「候选与联想」组开头的云候选（共享页 CloudCandidatesSection）：开关之后直接是服务配置。「云候选来源」一直在；选「自定义 HTTP 接口」才有接口地址、请求方法、请求头和响应格式，请求体模板只在 POST 时出现，JSON 路径只在响应格式选「JSON 路径」时出现；然后是超时、缓存和「保存云候选服务」。改动先记在草稿 `cloud_provider_draft_` 里，三个下拉改了要增减行，整页重画；按保存时整份配置一次交给 Rust 校验并写入，失败时提示、草稿留着。文档里的配置变了（保存成功或别处改了）草稿作废，重新从文档读，与共享页随 provider 重置草稿相同。
+  void build_cloud_candidates(StackPanel const &group) {
     std::wstring cloud_recipient = L"Google input-tools（inputtools.google.com）";
     if (document_.String(L"cloud_candidate_provider.source", L"google") == L"custom") {
       cloud_recipient = L"所选自定义服务";
       try { cloud_recipient = Windows::Foundation::Uri(hstring(document_.String(L"cloud_candidate_provider.endpoint", L""))).Host().c_str(); }
       catch (...) {}
     }
-    bool_row(candidates, 0xE753, L"云候选", L"仅将当前拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
+    bool_row(group, 0xE753, L"云候选", L"仅将当前正在组的拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
-    add_row(candidates, 0xE713, L"云候选服务", L"来源、GET/POST、请求头、JSON 模板、响应路径、超时和缓存",
-            nullptr, button_control(L"配置", [this] { edit_cloud_provider(); }));
-    // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
-    bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
-             L"mixed_input.english", true, true);
-    // Windows 的 emoji 混输默认开（client-core 的 source_mixed_emoji_default），回退值与它一致；平时由出厂偏好兜底，读不到出厂偏好时才用到这里。
-    bool_row(candidates, 0xE76E, L"emoji 混输",
-             L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
-             L"mixed_input.emoji", true);
-    // 学习选词习惯决定下面「拼音方案调频」组画不画，改它时重画这一页。
-    bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
-             true, true);
-    // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
-    auto candidates_more = add_more_options(
-        candidates, candidates_more_open_,
-        focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
-            focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
-            focus_row_ == L"本地整句联想");
-    // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
-    bool_row(candidates_more, 0xE8EF, L"符号混输",
-             L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
-             L"mixed_input.symbols", true);
-    bool_row(candidates_more, 0xE76E, L"颜文字混输",
-             L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
-             L"mixed_input.kaomoji", false);
-    // 不带临时日语的版本没有这项能力，host-api 也会把偏好固定为关。
-    if constexpr (MSIME_EDITION_TEMPORARY_JAPANESE) {
-      bool_row(candidates_more, 0xE76E, L"日文混输（实验）",
-               L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
-               L"mixed_input.japanese", false);
-    }
-    bool_row(candidates_more, 0xE8C1, L"只出单字",
-             L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
-             L"single_character_only", false);
-    bool_row(candidates_more, 0xE8C1, L"本地整句联想",
-             L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
-             L"sentence_association.word_lattice", true);
 
-    auto output = add_group(page, L"输出");
-    bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
-             L"traditional_chinese_output", false);
-    bool_row(output, 0xE8D2, L"中英文之间加空格",
-             L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
-             L"chinese_english_spacing", false);
-    // 全角输入只是会话开始时的状态，工具栏和快捷键随时可切，收进「更多选项」。
-    auto output_more = add_more_options(output, output_more_open_, focus_row_ == L"全角输入");
-    add_row(output_more, 0xE8E9, L"全角输入",
-            L"将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换",
-            toggle_control(L"全角输入",
-                           document_.String(L"character_width", L"halfwidth") ==
-                               L"fullwidth",
-                           [this](bool on) {
-                             change([&](PreferencesDocument &doc) {
-                               doc.SetString(L"character_width",
-                                             on ? L"fullwidth" : L"halfwidth");
-                             }, false);
-                           }));
-
-    struct LocalMode {
-      const wchar_t *id;
-      const wchar_t *label;
-      bool default_on;
-    };
-    // V、/、@ 会占用原本可直接输入的键，默认关闭。
-    // 拆字反查（C 模式）同理在桌面默认关：打开后句首和中英混打的大写 C（C 盘、C 语言）会进模式。共享文档在用户动过开关之前没有这个键，host-api 在桌面构建里把缺键读作关。
-    const std::array<LocalMode, 12> modes{{
-        {L"quick_phrase", L"快捷短语(K 模式)", true},
-        {L"date_time", L"日期与时间快捷输入(T 模式)", true},
-        {L"unicode", L"Unicode 便捷录入(U 模式)", true},
-        {L"emoji", L"Emoji 快捷输入(E 模式)", true},
-        {L"kaomoji", L"颜文字快捷输入(M 模式)", true},
-        {L"super_jianpin", L"超级简拼(J 模式)", true},
-        {L"temporary_english", L"临时英文(Y 模式)", true},
-        {L"temporary_japanese", L"临时日语(R 模式)", true},
-        {L"chaizi", L"拆字反查(C 模式)", false},
-        {L"expression", L"计算与数字(V 模式)", false},
-        {L"command", L"指令(/ 模式)", false},
-        {L"mention", L"@ 名字与地点(@ 模式)", false},
-    }};
-    std::vector<Check> checks;
-    checks.reserve(modes.size());
-    // 搜索落到某个模式的勾选（checks_panel 逐个登记）或这一行时展开「逐个模式」的折叠区。
-    bool modes_focused = focus_row_ == L"快捷模式";
-    for (const auto &[id, label, default_on] : modes) {
-      // 不带临时日语的版本（版本表 features.temporary_japanese，host-api 也始终把它关掉）不列出这个开关。
-      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
-        if (std::wstring_view(id) == L"temporary_japanese")
-          continue;
+    const auto stored = document_.Value(L"cloud_candidate_provider");
+    const std::wstring stored_text = stored && stored.ValueType() == JsonValueType::Object
+                                         ? std::wstring(stored.Stringify().c_str())
+                                         : std::wstring();
+    if (!cloud_provider_draft_ || stored_text != cloud_provider_base_) {
+      cloud_provider_base_ = stored_text;
+      if (!stored_text.empty()) {
+        cloud_provider_draft_ = JsonObject::Parse(hstring(stored_text));
+      } else {
+        // 读不到文档时的显示值，与共享页的 defaultProvider 相同；有效配置由 Rust 校验。
+        JsonObject fallback;
+        fallback.SetNamedValue(L"source", JsonValue::CreateStringValue(L"google"));
+        fallback.SetNamedValue(L"endpoint", JsonValue::CreateStringValue(L""));
+        fallback.SetNamedValue(L"method", JsonValue::CreateStringValue(L"GET"));
+        fallback.SetNamedValue(L"headers_json", JsonValue::CreateStringValue(L"{}"));
+        fallback.SetNamedValue(L"body_template", JsonValue::CreateStringValue(L"{\"query\":\"{query}\"}"));
+        fallback.SetNamedValue(L"response_format", JsonValue::CreateStringValue(L"candidates"));
+        fallback.SetNamedValue(L"response_path", JsonValue::CreateStringValue(L"data.0"));
+        fallback.SetNamedValue(L"timeout_ms", JsonValue::CreateNumberValue(2000));
+        fallback.SetNamedValue(L"cache_enabled", JsonValue::CreateBooleanValue(true));
+        cloud_provider_draft_ = fallback;
       }
-      const std::wstring key = std::wstring(L"local_modes.") + id;
-      modes_focused = modes_focused || focus_row_ == label;
-      checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
-                          change([&](PreferencesDocument &doc) {
-                            doc.SetBoolean(key, on);
-                          }, false);
-                        }});
     }
+    // JsonObject 是引用类型，下面的回调改的就是窗口里那份草稿。
+    const JsonObject config = *cloud_provider_draft_;
+    const auto named = [config](wchar_t const *key, wchar_t const *fallback) {
+      return std::wstring(config.GetNamedString(key, fallback).c_str());
+    };
+    // 三个下拉改了要增减下面的行，整页重画；草稿留在窗口里，重画后照旧。
+    const auto choice = [this, config](wchar_t const *key) {
+      return [this, config, name = std::wstring(key)](std::wstring const &value) {
+        config.SetNamedValue(hstring(name), JsonValue::CreateStringValue(hstring(value)));
+        queue_refresh();
+      };
+    };
+    // 输入框只改草稿，不重画。
+    const auto field = [this, config](wchar_t const *key, std::wstring const &name,
+                                      std::wstring const &placeholder, int32_t max_length,
+                                      bool multiline) {
+      TextBox box;
+      // AcceptsReturn 必须早于 Text，否则多行内容在单行状态下被截到第一个换行符。
+      box.AcceptsReturn(multiline);
+      if (multiline) {
+        box.TextWrapping(TextWrapping::Wrap);
+        box.MinHeight(72);
+        box.Margin(Thickness{0, 6, 0, 0});
+        box.HorizontalAlignment(HorizontalAlignment::Stretch);
+      } else {
+        box.Width(240);
+      }
+      box.Text(config.GetNamedString(key, L""));
+      box.PlaceholderText(hstring(placeholder));
+      box.MaxLength(max_length);
+      box.IsSpellCheckEnabled(false);
+      box.IsTextPredictionEnabled(false);
+      box.IsEnabled(loaded_);
+      A11y::SetName(box, hstring(name));
+      box.TextChanged([config, field_key = std::wstring(key)](Inspectable const &sender,
+                                                              TextChangedEventArgs const &) {
+        config.SetNamedValue(hstring(field_key), JsonValue::CreateStringValue(sender.as<TextBox>().Text()));
+      });
+      return box;
+    };
+
+    add_row(group, 0xE713, L"云候选来源", L"",
+            select_control(L"云候选来源",
+                           {{L"google", L"Google input-tools"}, {L"custom", L"自定义 HTTP 接口"}},
+                           named(L"source", L"google"), choice(L"source")));
+    if (named(L"source", L"google") == L"custom") {
+      add_row(group, 0xE774, L"接口地址", L"GET 用 {query} 填入当前拼写；支持 HTTPS 或本机 HTTP",
+              field(L"endpoint", L"云候选接口地址", L"https://example.com/candidates?q={query}", 2048, false));
+      const auto method = named(L"method", L"GET");
+      add_row(group, 0xE8AB, L"请求方法", L"",
+              select_control(L"云候选请求方法", {{L"GET", L"GET"}, {L"POST", L"POST"}}, method,
+                             choice(L"method")));
+      add_row(group, 0xE8AB, L"请求头（JSON）", L"例如 {\"Authorization\":\"Bearer …\"}，仅保存在本机",
+              nullptr, field(L"headers_json", L"云候选请求头", L"", 4096, true));
+      if (method == L"POST")
+        add_row(group, 0xE8AB, L"请求体模板（JSON）",
+                L"{query} 仅在 JSON 字符串值中替换，自动转义；可用于自建模型或 OpenAI 兼容接口",
+                nullptr, field(L"body_template", L"云候选请求体模板", L"", 4096, true));
+      const auto format = named(L"response_format", L"candidates");
+      add_row(group, 0xE8AB, L"响应格式", L"",
+              select_control(L"云候选响应格式",
+                             {{L"candidates", L"标准 candidates 数组"},
+                              {L"google", L"Google input-tools"},
+                              {L"json_path", L"JSON 路径"}},
+                             format, choice(L"response_format")));
+      if (format == L"json_path")
+        add_row(group, 0xE8AB, L"JSON 路径",
+                L"点分对象键或数组下标，路径最终指向候选文本，例如 choices.0.message.content",
+                field(L"response_path", L"云候选 JSON 路径", L"data.0", 128, false));
+    }
+    NumberBox timeout;
+    timeout.Minimum(100);
+    timeout.Maximum(10000);
+    timeout.SmallChange(100);
+    timeout.Width(120);
+    timeout.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
+    timeout.Value(config.GetNamedNumber(L"timeout_ms", 2000));
+    timeout.IsEnabled(loaded_);
+    A11y::SetName(timeout, L"云候选超时");
+    timeout.ValueChanged([config](NumberBox const &, NumberBoxValueChangedEventArgs const &args) {
+      if (!std::isnan(args.NewValue()))
+        config.SetNamedValue(L"timeout_ms", JsonValue::CreateNumberValue(args.NewValue()));
+    });
+    add_row(group, 0xE916, L"超时（毫秒）", L"", timeout);
+    add_row(group, 0xE8C1, L"缓存云候选", L"仅在本机内存缓存，按来源隔离；无结果缓存 60 秒",
+            toggle_control(L"缓存云候选", config.GetNamedBoolean(L"cache_enabled", true),
+                           [config](bool on) {
+                             config.SetNamedValue(L"cache_enabled", JsonValue::CreateBooleanValue(on));
+                           }));
+    auto save = button_control(L"保存云候选服务", [this] {
+      if (!cloud_provider_draft_)
+        return;
+      flush_pending();
+      // 交一份拷贝：文档存的是对象的引用，草稿之后再改不能悄悄改到文档里。
+      document_.SetValue(L"cloud_candidate_provider",
+                         JsonObject::Parse(cloud_provider_draft_->Stringify()));
+      if (commit()) {
+        cloud_provider_draft_.reset();
+        queue_refresh();
+      } else
+        show_notice(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
+    }, loaded_);
+    A11y::SetAutomationId(save, L"cloud-candidate-save");
+    append_row_frame(group, save).Padding(Thickness{row_inset, 10, row_inset, 10});
+  }
+
+  // 「候选与联想」「输出设置」「高级选项」三个标签的内容，与共享页 InputSharedSettingsSection 的 candidates、output、advanced 三块相同。
+  void build_input_habits(StackPanel const &page, std::wstring const &tab) {
+    if (in_tab(tab, L"candidates")) {
+      auto candidates = add_group(page, L"候选与联想");
+      build_cloud_candidates(candidates);
+      // 触发字符数固定为默认的 5，不再给出（HostCapabilities.mixed_input_minimum_prefix）：调低会让常见简拼被英文词抢走首选。
+      bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
+               L"mixed_input.english", true, true);
+      // Windows 的 emoji 混输默认开（client-core 的 source_mixed_emoji_default），回退值与它一致；平时由出厂偏好兜底，读不到出厂偏好时才用到这里。
+      bool_row(candidates, 0xE76E, L"emoji 混输",
+               L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
+               L"mixed_input.emoji", true);
+      // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
+      bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
+               true, true);
+      // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
+      auto candidates_more = add_more_options(
+          candidates, candidates_more_open_,
+          focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
+              focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+              focus_row_ == L"本地整句联想");
+      // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
+      bool_row(candidates_more, 0xE8EF, L"符号混输",
+               L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
+               L"mixed_input.symbols", true);
+      bool_row(candidates_more, 0xE76E, L"颜文字混输",
+               L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
+               L"mixed_input.kaomoji", false);
+      // 不带临时日语的版本没有这项能力，host-api 也会把偏好固定为关。
+      if constexpr (MSIME_EDITION_TEMPORARY_JAPANESE) {
+        bool_row(candidates_more, 0xE76E, L"日文混输（实验）",
+                 L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
+                 L"mixed_input.japanese", false);
+      }
+      bool_row(candidates_more, 0xE8C1, L"只出单字",
+               L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
+               L"single_character_only", false);
+      bool_row(candidates_more, 0xE8C1, L"本地整句联想",
+               L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
+               L"sentence_association.word_lattice", true);
+    }
+
+    if (in_tab(tab, L"output")) {
+      auto output = add_group(page, L"输出");
+      // 「中文输出」与共享页 TraditionalChineseOutputSection 一样是简体 / 繁体两段，说明随选项和方案变（InputSettingsModel.h）。Windows 不认繁体变体，只写 traditional_chinese_output。
+      const bool traditional = document_.Boolean(L"traditional_chinese_output", false);
+      add_row(output, 0xE8C1, L"中文输出",
+              ism::chinese_output_description(
+                  traditional, document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W)),
+              segmented_control(L"中文输出", {{L"simplified", L"简体"}, {L"s2t", L"繁体"}},
+                                traditional ? L"s2t" : L"simplified",
+                                [this](std::wstring const &value) {
+                                  change([&](PreferencesDocument &doc) {
+                                    doc.SetBoolean(L"traditional_chinese_output", value == L"s2t");
+                                  }, true);
+                                }));
+      bool_row(output, 0xE8D2, L"中英文之间加空格",
+               L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
+               L"chinese_english_spacing", false);
+      // 全角输入是会话开始时的状态，与共享页的 CharacterWidthRow 一样直接排在组里。
+      add_row(output, 0xE8E9, L"全角输入",
+              L"将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换",
+              toggle_control(L"全角输入",
+                             document_.String(L"character_width", L"halfwidth") ==
+                                 L"fullwidth",
+                             [this](bool on) {
+                               change([&](PreferencesDocument &doc) {
+                                 doc.SetString(L"character_width",
+                                               on ? L"fullwidth" : L"halfwidth");
+                               }, false);
+                             }));
+    }
+
+    if (!in_tab(tab, L"advanced"))
+      return;
     auto local = add_group(page, L"快捷模式");
-    // 总开关：关掉后没有输入时 Shift+字母照常打出大写字母，「逐个模式」里各模式的勾选保留原值；/ 和 @ 不经过它。
+    // 总开关：关掉后没有输入时 Shift+字母照常打出大写字母，「逐个模式」里各模式的开关保留原值、变灰；/ 和 @ 不经过它。
+    const bool shift_letter_entry = document_.Boolean(L"local_modes.shift_letter_entry", true);
     bool_row(local, 0xE8D3, L"Shift+字母进入快捷模式",
              L"没有输入时按 Shift 加各模式的字母进入该模式。关掉后 Shift+字母照常打出大写字母，「逐个模式」里的开关保留，/ 和 @ 不受影响",
-             L"local_modes.shift_letter_entry", true);
-    // 与共享页一样，各模式的开关收进紧跟其后的「逐个模式」组的「更多选项」。
+             L"local_modes.shift_letter_entry", true, true);
+    // 与共享页的 LocalModesSection 一样，各模式一行带说明的开关，收进紧跟其后的「逐个模式」组的「更多选项」（InputSettingsModel.h 的 local_modes）。总开关关着时 Shift+字母进入的各行变灰，「@ 地名」在 @ 模式关着时变灰，值都不动；没有选翻译服务时指令模式的说明补一句 fy 不会出结果。搜索落到其中一行时展开。
     auto modes_group = add_group(page, L"逐个模式");
-    auto modes_more = add_more_options(modes_group, local_modes_more_open_, modes_focused);
-    add_row(modes_more, 0xE945, L"快捷模式", L"用引导字母进入对应的输入模式；V、/、@ 只在拼音方案下没有输入时进入，/ 和 @ 还需中文标点", nullptr,
-            checks_panel(std::move(checks), 250));
+    auto modes_more = add_fold(
+        modes_group, L"更多选项", local_modes_more_open_ || fold_holds_focus(L"local-modes-more"),
+        [this](bool expanded) { local_modes_more_open_ = expanded; });
+    fold_index_ = L"local-modes-more";
+    const bool mention = document_.Boolean(L"local_modes.mention", false);
+    const bool translation_service =
+        nav::translation_provider(translation_choice()) != std::wstring_view(L"none");
+    for (auto const &mode : ism::local_modes) {
+      // 不带临时日语的版本（版本表 features.temporary_japanese，host-api 也始终把它关掉）不列出这个开关。
+      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
+        if (mode.id == L"temporary_japanese")
+          continue;
+      }
+      const std::wstring key = L"local_modes." + std::wstring(mode.id);
+      // @ 模式决定「@ 地名」可不可用，改它时重画。
+      bool_row(modes_more, 0xE945, std::wstring(mode.title),
+               ism::local_mode_description(mode, translation_service), key, mode.default_on,
+               mode.id == L"mention",
+               !ism::local_mode_disabled(mode, shift_letter_entry, mention));
+    }
+    fold_index_.clear();
 
-    auto correction = add_group(page, L"纠错与模糊音");
-    bool_row(correction, 0xE70F, L"自动纠错", L"修正常见的相邻按键顺序。",
-             L"quanpin.autocorrect_transposition", true);
-    fuzzy_row(correction);
+    build_fuzzy_group(page);
+    build_helpcode_group(page);
 
     // 与共享页的 FrequencySection 相同，只按条件显示，不改存着的值（这几项会上云）：学习选词习惯关闭时整组不画；调频方式为「关闭」时不画触发频次；步长只有线性调频读。
     if (document_.Boolean(L"learning", true)) {
@@ -12858,7 +13025,21 @@ private:
 
   // ---- 标点与翻译 ----
 
+  // 「标点与翻译」页照共享页 `ExpressionSettingsPage` 的桌面分支（`pages/expression-page.tsx`）分三个页内标签（`expression-tabs.ts`）：「标点设置」是「标点」组；「候选释义」是「多语言与释义」「候选词翻译」两组；「翻译服务」单独成组，下面接所选服务的设置组。混输、输出、快捷模式和模糊音在「输入」页。
   void build_expression_page(StackPanel const &page) {
+    std::vector<Option> tabs;
+    for (auto const &tab : ism::expression_tabs)
+      tabs.push_back({std::wstring(tab.id), std::wstring(tab.title)});
+    const auto tab = page_tab_bar(page, L"标点与翻译设置分类", tabs, L"expression-tab");
+    if (in_tab(tab, L"punctuation"))
+      build_punctuation_group(page);
+    if (in_tab(tab, L"gloss"))
+      build_gloss_groups(page);
+    if (in_tab(tab, L"providers"))
+      build_translation_service_group(page);
+  }
+
+  void build_punctuation_group(StackPanel const &page) {
     // 与共享页 PunctuationSection 相同，主流程只留三行：「标点」选择、引号样式、成对标点；方头括号样式、智能标点总开关和它的四个细分开关收进「更多选项」（智能标点默认开，用户不必先找到它）。规则在 PunctuationSettings.h。
     auto punctuation = add_group(page, L"标点");
     // 「中文标点」开关和「固定标点」合成一个「标点」选择（PunctuationModeRow）：显示值每次从两个键推出，锁定优先，打开页面不改写文档；只有用户选了一项才写入。
@@ -12925,9 +13106,9 @@ private:
     bool_row(rows, 0xE8EE, L"字母后直出",
              L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
              L"smart_punctuation_direct_letter", true, true, smart);
+  }
 
-    build_input_habits(page);
-
+  void build_gloss_groups(StackPanel const &page) {
     auto gloss = add_group(page, L"多语言与释义");
     bool_row(gloss, 0xE82D, L"显示英文释义",
              L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
@@ -12971,10 +13152,15 @@ private:
                              },
                              glosses));
     }
-    // 翻译服务：共享页「翻译服务」一行（`translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
+  }
+
+  void build_translation_service_group(StackPanel const &page) {
+    const bool translations = document_.Boolean(L"candidate_translations", false);
+    // 翻译服务：共享页「翻译服务」一组（`translation-settings-content.tsx` 的 serviceInOwnGroup，选择器是 `translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
     // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
     const std::wstring provider(nav::translation_provider(translation_choice()));
-    add_row(candidates, 0xE774, L"翻译服务",
+    auto service = add_group(page, L"翻译服务");
+    add_row(service, 0xE774, L"翻译服务",
             L"不联网，候选只显示离线词库查得到的释义：英文来自「显示英文释义」，其他语言要装有对应的离线词库；选择在线服务后由该服务翻译",
             select_control(L"候选词翻译服务",
                            {{L"none", L"不使用在线服务"},
@@ -13398,56 +13584,125 @@ private:
         [fields, available] { return nav::issue_credential_test_disabled(available, fields->issue); });
   }
 
-  void fuzzy_row(StackPanel const &group) {
+  // 「模糊音」组，照共享页 FuzzyPinyinSection 的桌面形态：只有「启用模糊音」开关时规则都收起；打开后下面是说明、按「平翘舌」「声母」「前后鼻音」「其他韵母」四个小标题分组的规则（InputSettingsModel.h 的 fuzzy_rules）和「重置模糊音配置」。关掉开关保留已选规则，重新打开原样展开。第一次打开时勾上全部规则，之后保留用户的选择。
+  void build_fuzzy_group(StackPanel const &page) {
+    auto group = add_group(page, L"模糊音");
     const bool enabled = document_.Boolean(L"fuzzy_pinyin.enabled", false);
-    auto rules = document_.Strings(L"fuzzy_pinyin.rules");
-    static constexpr std::array<const wchar_t *, 11> all_rules{
-        L"z-zh", L"c-ch", L"s-sh", L"n-l", L"f-h", L"r-l",
-        L"an-ang", L"en-eng", L"in-ing", L"ian-iang", L"uan-uang"};
-    auto toggle = toggle_control(L"启用模糊音", enabled, [this](bool on) {
-      change([&](PreferencesDocument &doc) {
-        doc.SetBoolean(L"fuzzy_pinyin.enabled", on);
-        // The first time it is switched on every rule starts checked; afterwards the user's choice is kept, also while it is off.
-        if (on && !doc.Boolean(L"fuzzy_pinyin.seeded", false)) {
-          doc.SetStrings(L"fuzzy_pinyin.rules",
-                         std::vector<std::wstring>(all_rules.begin(), all_rules.end()));
-          doc.SetBoolean(L"fuzzy_pinyin.seeded", true);
-        }
-      }, true);
-    });
-    std::vector<Check> checks;
-    checks.reserve(all_rules.size());
-    for (const auto *rule : all_rules) {
-      const std::wstring id(rule);
-      const auto dash = id.find(L'-');
-      const std::wstring label = id.substr(0, dash) + L" ↔ " + id.substr(dash + 1);
-      const bool on = std::find(rules.begin(), rules.end(), id) != rules.end();
-      checks.push_back({label, on, [this, id](bool checked) {
-                          change([&](PreferencesDocument &doc) {
-                            auto current = doc.Strings(L"fuzzy_pinyin.rules");
-                            current.erase(std::remove(current.begin(), current.end(), id),
-                                          current.end());
-                            if (checked)
-                              current.push_back(id);
-                            doc.SetStrings(L"fuzzy_pinyin.rules", std::move(current));
-                          }, false);
-                        },
-                        enabled});
+    add_row(group, 0xE8D2, L"启用模糊音", L"全拼、九键与双拼均支持；更改会在当前输入结束后生效",
+            toggle_control(L"启用模糊音", enabled, [this](bool on) {
+              change([&](PreferencesDocument &doc) {
+                doc.SetBoolean(L"fuzzy_pinyin.enabled", on);
+                // The first time it is switched on every rule starts checked; afterwards the user's choice is kept, also while it is off.
+                if (on && !doc.Boolean(L"fuzzy_pinyin.seeded", false)) {
+                  std::vector<std::wstring> all;
+                  for (auto const &rule : ism::fuzzy_rules)
+                    all.emplace_back(rule.id);
+                  doc.SetStrings(L"fuzzy_pinyin.rules", std::move(all));
+                  doc.SetBoolean(L"fuzzy_pinyin.seeded", true);
+                }
+              }, true);
+            }));
+    if (!enabled)
+      return;
+    const auto rules = document_.Strings(L"fuzzy_pinyin.rules");
+    StackPanel block;
+    block.Spacing(8);
+    block.Children().Append(make_text(
+        L"勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。", 12, palette_.sub));
+    for (size_t first = 0; first < ism::fuzzy_rules.size();) {
+      const auto title = ism::fuzzy_rules[first].group;
+      auto heading = make_text(title, 13, palette_.text);
+      heading.FontWeight(Windows::UI::Text::FontWeight{600});
+      heading.Margin(Thickness{0, 4, 0, 0});
+      block.Children().Append(heading);
+      std::vector<Check> checks;
+      for (; first < ism::fuzzy_rules.size() && ism::fuzzy_rules[first].group == title; ++first) {
+        const std::wstring id(ism::fuzzy_rules[first].id);
+        const bool on = std::find(rules.begin(), rules.end(), id) != rules.end();
+        checks.push_back({std::wstring(ism::fuzzy_rules[first].label), on, [this, id](bool checked) {
+                            change([&](PreferencesDocument &doc) {
+                              auto current = doc.Strings(L"fuzzy_pinyin.rules");
+                              current.erase(std::remove(current.begin(), current.end(), id),
+                                            current.end());
+                              if (checked)
+                                current.push_back(id);
+                              doc.SetStrings(L"fuzzy_pinyin.rules", std::move(current));
+                            }, false);
+                          }});
+      }
+      block.Children().Append(checks_panel(std::move(checks), 120));
     }
-    StackPanel below;
-    below.Children().Append(checks_panel(std::move(checks), 120));
-    auto note = make_text(L"平翘舌 z c s、声母 n-l f-h r-l、前后鼻音 an en in、其他韵母 ian uan。勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。",
-                          12, palette_.sub);
-    note.Margin(Thickness{0, 0, 0, 16});
-    below.Children().Append(note);
-    add_row(group, 0xE8D2, L"模糊音", L"全拼、九键与双拼均支持；更改会在当前输入结束后生效",
-            toggle, below);
+    record(L"重置模糊音配置", L"");
+    auto reset = button_control(L"重置模糊音配置", [this] { reset_fuzzy_pinyin(); }, loaded_);
+    reset.HorizontalAlignment(HorizontalAlignment::Left);
+    mark_search_target(L"重置模糊音配置", reset);
+    block.Children().Append(reset);
+    append_row_frame(group, block).Padding(Thickness{row_inset, 10, row_inset, 10});
+  }
+
+  // 共享页的重置（resetFuzzyPinyin）：先问一句，确认后关掉模糊音并清空全部规则；seeded 不动，所以再打开时不会重新勾上全部规则。
+  fire_and_forget reset_fuzzy_pinyin() {
+    auto strong = get_strong();
+    if (!loaded_)
+      co_return;
+    if (!co_await confirm(L"关闭模糊音", L"所有模糊音规则会被清空。", L"关闭并清空"))
+      co_return;
+    change([](PreferencesDocument &doc) {
+      doc.SetBoolean(L"fuzzy_pinyin.enabled", false);
+      doc.SetStrings(L"fuzzy_pinyin.rules", std::vector<std::wstring>{});
+    }, true);
+  }
+
+  // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
+  void build_helpcode_group(StackPanel const &page) {
+    if (!helpcode_offered())
+      return;
+    if (!indexing_)
+      load_helpcode_sources();
+    const bool shuangpin =
+        document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W) == L"shuangpin";
+    const auto family = [this](StackPanel const &rows, bool double_pinyin) {
+      if (double_pinyin)
+        helpcode_rows(rows, L"双拼", L"shuangpin", true, L"lantian", true);
+      else
+        helpcode_rows(rows, L"全拼", L"quanpin", true, L"ziranma", false);
+    };
+    auto helpcode = add_group(page, L"辅助码");
+    family(helpcode, shuangpin);
+    auto more = add_fold(
+        helpcode, L"更多选项", helpcode_more_open_ || fold_holds_focus(L"helpcode-more"),
+        [this](bool expanded) { helpcode_more_open_ = expanded; });
+    fold_index_ = L"helpcode-more";
+    family(more, !shuangpin);
+    fold_index_.clear();
   }
 
   // ---- 快捷键 ----
 
+  // 「快捷键」页照共享页 ShortcutsSettingsSection 的桌面分支分两个页内标签（InputSettingsModel.h 的 shortcut_tabs）：「按键设置」是页首说明和「输入模式切换」组；「按键速查」是只读的键帽行。翻页方式和以词定字在「输入 › 选词与翻页」。与 macOS 一样，桌面上没有「恢复默认快捷键」。
   void build_shortcuts_page(StackPanel const &page) {
+    std::vector<Option> tabs;
+    for (auto const &tab : ism::shortcut_tabs)
+      tabs.push_back({std::wstring(tab.id), std::wstring(tab.title)});
+    const auto tab = page_tab_bar(page, L"按键设置分类", tabs, L"shortcuts-tab");
+    if (in_tab(tab, L"settings"))
+      build_shortcut_settings(page);
+    if (in_tab(tab, L"reference"))
+      build_shortcut_reference(page);
+  }
+
+  void build_shortcut_settings(StackPanel const &page) {
+    // 页首说明（共享页 ShortcutsIntroSection 的 PageIntro）：12 DIP 次要色，左右缩进与组名对齐。
+    if (!indexing_) {
+      auto intro = make_text(
+          L"输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式和以词定字在「输入 › 选词与翻页」中设置。",
+          12, palette_.sub);
+      intro.Margin(Thickness{8, 20, 8, 0});
+      page.Children().Append(intro);
+    }
     auto keys = add_group(page, L"输入模式切换");
+    keys.Children().Append(
+        group_note(L"在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。"));
     // 偏好里仍是三个独立的布尔值，这里和共用设置页一样只让选一个：同时开着多个时按 Shift > 单击 Ctrl > Ctrl+Alt+Space 显示第一个，选中一项时一次写全三个，「不使用」三个都关。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 3> switches{{
         {L"shift", L"keybindings.switch_language_shift"},
@@ -13461,7 +13716,7 @@ private:
         break;
       }
     }
-    add_row(keys, 0xE8AB, L"切换中英文", L"选择用于切换中英文的按键",
+    add_row(keys, 0xE8AB, L"切换中英文", L"",
             select_control(L"切换中英文",
                            {{L"shift", L"Shift"}, {L"ctrl", L"单击 Ctrl"},
                             {L"ctrl_alt_space", L"Ctrl+Alt+Space"}, {L"none", L"不使用"}},
@@ -13472,12 +13727,10 @@ private:
                                  doc.SetBoolean(key, value == choice);
                              }, false);
                            }));
-    // 和上面的切换键互不排斥：Caps Lock 是另加的一个键。
+    // 和上面的切换键互不排斥：Caps Lock 是另加的一个键。说明与共享页 capsLockLanguageSwitchDescription 给 Windows 的相同。
     bool_row(keys, 0xE8AB, L"单按 Caps Lock 切换中英文",
-             L"轻点（300 毫秒内松开）切换中英文，不打开大写锁定；按住更久照常打开大写锁定",
+             L"轻点 Caps Lock（300 毫秒内松开）切换中英文，不打开大写锁定；按住更久照常打开大写锁定，大写锁定开着时按一下照常关掉。",
              L"keybindings.switch_language_caps_lock", false);
-    bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"在简体与繁体输出之间切换",
-             L"keybindings.toggle_character_set_ctrl_shift_f", true);
     // 只有同时提供日语和中文方案的版本（full）有可切的两头；其他版本不显示，TIP 也不吃这个组合键。
     const bool offers_chinese =
         edition_offers_scheme(L"quanpin") || edition_offers_scheme(L"shuangpin") ||
@@ -13487,22 +13740,77 @@ private:
       bool_row(keys, 0xE8AB, L"Ctrl+Shift+J 在中文和日语之间切换",
                L"中文方案下按它切到日语，在日语里再按回到上次的中文方案；英文模式下交给应用。关着时这个组合键交给应用；浏览器里它是开发者工具或下载页的快捷键，打开后在浏览器里会被输入法占用。语言栏图标会变成「日」，系统的输入指示器仍显示中文。",
                L"keybindings.toggle_japanese_ctrl_shift_j", false);
+    bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"",
+             L"keybindings.toggle_character_set_ctrl_shift_f", true);
+    // 说明照共享页，Windows 另有系统的 Ctrl+Shift+Space 全半角切换，也不受这个开关影响，补在后半句里。
     bool_row(keys, 0xE8D3, L"Alt+Shift+H 切换全半角",
-             L"中文模式下切换全角与半角。关掉后这个组合键交给应用处理；工具栏的全半角开关和 Ctrl+Shift+Space 不受影响。",
+             L"关掉后这个组合键交给应用处理；工具栏的全半角开关和 Ctrl+Shift+Space 不受影响。",
              L"keybindings.toggle_fullwidth_option_shift_h", true);
+    // Ctrl+Space 是 Windows 自己的快捷键，这里只说明去哪里改，压成组末一行（共享页 InputModeShortcutsSection 的 windows 一支）。
+    add_row(keys, 0xE765, L"Ctrl+Space（由 Windows 管理）",
+            L"此处不控制。要修改或关闭，打开「设置 › 时间和语言 › 输入 › 高级键盘设置 › 输入语言热键」，选中「中文（简体）输入法 - 输入法 / 非输入法切换」，点「更改按键顺序」后关闭它或改成不常用的组合。不同 Windows 版本的名称可能略有差异；未立即生效时请重新登录或重启电脑。",
+            nullptr);
+  }
 
-    build_selection_keys(page);
+  // 「按键速查」组（共享页 CandidateShortcutReference 加 PanelShortcutRow）：候选窗口显示时各键做什么，只读。翻页的几组按现在生效的列出（Tab 和 PageUp / PageDown 固定算开），只有一组时和其他行一样放在行尾，多组时排到标题下方；鼠标滚轮、上下键、左右键和以词定字只在开着时列出。Windows 没有「数字键选词」开关，数字键总能选词。
+  void build_shortcut_reference(StackPanel const &page) {
+    auto group = add_group(page, L"按键速查");
+    add_row(group, 0xE765, L"选择候选", L"", key_cap(L"Space 或 1–9"));
+    std::vector<std::wstring> paging;
+    for (auto const &keys : ism::paging_keys) {
+      const bool stored = document_.Boolean(L"navigation." + std::wstring(keys.id),
+                                            keys.id != L"brackets");
+      if (ism::paging_keys_on(keys, stored))
+        paging.emplace_back(keys.chord);
+    }
+    if (paging.size() == 1) {
+      add_row(group, 0xE765, L"向前 / 向后翻页", L"", key_cap(paging.front()));
+    } else if (paging.size() > 1) {
+      // 照共享页 settings.shortcutKeys：键帽按自身宽度（至少 120）靠左排、相隔 6 DIP，一行放不下时折行。WinUI 没有按子项宽度折行的面板，这里用 Auto 列的 responsive_grid，每列按最宽的「Page Up / Page Down」约 140 DIP 估算列数；键帽靠左，不随列宽拉伸。
+      auto caps = responsive_grid(140, 6, 0, true);
+      caps.Margin(Thickness{0, 6, 0, 0});
+      for (auto const &chord : paging) {
+        auto cap = key_cap(chord);
+        cap.HorizontalAlignment(HorizontalAlignment::Left);
+        caps.Children().Append(cap);
+      }
+      add_row(group, 0xE765, L"向前 / 向后翻页", L"", nullptr, caps);
+    }
+    if (document_.Boolean(L"navigation.mouse_wheel", false))
+      add_row(group, 0xE765, L"候选窗口翻页", L"", key_cap(L"鼠标滚轮"));
+    if (document_.Boolean(L"navigation.arrows", true))
+      add_row(group, 0xE765, L"移动候选项", L"", key_cap(L"↑ / ↓"));
+    // 打开左右键移动候选时，左右键先编辑输入串，光标到了这一端才移高亮。
+    if (document_.Boolean(L"navigation.left_right", true))
+      add_row(group, 0xE765, L"移动候选项（输入串两端）", L"", key_cap(L"← / →"));
+    if (document_.Boolean(L"word_character.enabled", false))
+      add_row(group, 0xE765, L"以词定字（上屏首字 / 末字）", L"",
+              key_cap(document_.String(L"word_character.keys", L"brackets") == L"minus_equal"
+                          ? L"- / ="
+                          : L"[ / ]"));
+    add_row(group, 0xE765, L"移动到候选列表首项 / 末项（页码随之切换）", L"",
+            key_cap(L"Home / End"));
+    add_row(group, 0xE765, L"编辑输入串", L"", key_cap(L"← / → / Backspace"));
+    add_row(group, 0xE765, L"提交原始输入 / 取消输入", L"", key_cap(L"Enter / Esc"));
+    // Server 的维护快捷键（MaintenanceHotkeys.h）在任何输入上下文里都能打开屏幕键盘。
+    add_row(group, 0xE765, L"打开屏幕键盘", L"可从当前输入上下文使用 Win 组合键打开面板。",
+            key_cap(L"Ctrl+Shift+Win+K"));
+  }
 
-    auto reset = add_group(page, L"");
-    add_row(reset, 0xE72C, L"恢复默认快捷键",
-            L"切换中英文、Caps Lock、Ctrl+Shift+F、Ctrl+Shift+J 和 Alt+Shift+H 恢复为默认设置",
-            button_control(L"恢复默认",
-                           [this] {
-                             change([](PreferencesDocument &doc) {
-                               doc.Restore(L"keybindings");
-                             }, true);
-                           },
-                           loaded_));
+  // 按键速查里的一个键帽，照共享页的 SettingsShortcutKey（`settings-style.ts` 的 shortcutKey）：至少 120 宽、圆角 5、1 DIP 描边，次要按钮的底色，12 DIP 正文色的字居中。
+  Border key_cap(std::wstring const &chord) {
+    Border cap;
+    cap.MinWidth(120);
+    cap.CornerRadius(CornerRadius{5, 5, 5, 5});
+    cap.BorderThickness(Thickness{1, 1, 1, 1});
+    cap.BorderBrush(brush(palette_.dark ? rgba(255, 255, 255, .08) : rgba(0, 0, 0, .08)));
+    cap.Background(brush(palette_.dark ? rgba(0x3B, 0x3B, 0x3B, 1) : rgba(0xF0, 0xF0, 0xF0, 1)));
+    cap.Padding(Thickness{8, 4, 8, 4});
+    auto label = make_text(chord, 12, palette_.text);
+    label.TextAlignment(TextAlignment::Center);
+    label.HorizontalAlignment(HorizontalAlignment::Center);
+    cap.Child(label);
+    return cap;
   }
 
   // ---- 词库 ----
@@ -17780,7 +18088,11 @@ private:
     const auto preferences = plugin_preferences();
     const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     auto select = [this, pack] { change_plugins(pg::with_pack_selected(plugin_preferences(), pack)); };
-    auto go_typing = [this] { navigate("typing"); };
+    // 快捷模式和辅助码都在「输入」页的「高级选项」标签里。
+    auto go_typing = [this] {
+      page_tabs_["typing"] = L"advanced";
+      navigate("typing");
+    };
     if (pack.kind == L"sound") {
       const auto action = pg::sound_pack_action(pack, preferences);
       plugin_action_block(group, action.note,
@@ -21300,10 +21612,13 @@ private:
   uint64_t local_models_generation_ = 0;
   bool local_models_stale_ = true;
   bool local_more_open_ = false;
-  // 「输入」页「候选与联想」「输出」「逐个模式」三处「更多选项」是否展开，跨页面重建保留。
+  // 「输入」页「候选与联想」「逐个模式」「辅助码」三处「更多选项」是否展开，跨页面重建保留。
   bool candidates_more_open_ = false;
-  bool output_more_open_ = false;
   bool local_modes_more_open_ = false;
+  bool helpcode_more_open_ = false;
+  // 「输入 › 候选与联想」云候选服务的草稿（共享页 CloudCandidatesSection 的组件状态）和它出自的那份文档配置（序列化后的文字）；文档里的配置变了草稿作废。
+  std::optional<JsonObject> cloud_provider_draft_;
+  std::wstring cloud_provider_base_;
   // 「语音快捷键」的「更多选项」（Ctrl+F9）是否展开；「识别服务配置」的「更多选项」是否展开，没动过时按用户改没改过接口地址或资源 ID 决定（共享页 MoreOptions 的 defaultOpen）；豆包的「流式接口」选了「自定义地址」，地址输入框照旧显示。都跨页面重建保留。
   bool voice_hotkeys_more_open_ = false;
   std::optional<bool> voice_service_more_open_;
