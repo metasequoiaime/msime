@@ -70,7 +70,8 @@ bool FloatingToolbarX11Surface::open() {
   return true;
 }
 
-bool FloatingToolbarX11Surface::visible() const { return toolbar_ && toolbar_->visible(); }
+// 连接断了时窗口已经不在屏幕上（服务器那头随连接一起销毁了它）：报告不可见，控制器下一次刷新就调 present，经 open 重新连上。
+bool FloatingToolbarX11Surface::visible() const { return toolbar_ && !lost_ && toolbar_->visible(); }
 
 void FloatingToolbarX11Surface::dispatch() {
   dispatching_ = true;
@@ -80,11 +81,16 @@ void FloatingToolbarX11Surface::dispatch() {
     handle(event);
   }
   dispatching_ = false;
-  // 连接断了：读到文件尾的套接字一直可读，不能留着这个监视；在下一轮主循环里（不在这个监视自己的回调里）关掉连接，工具栏下一次要显示时重新连。
-  if (display_ && lost_) reconnect_ = loop_.timer(0, [this] { close_connection(); });
+  if (display_ && lost_) {
+    // 连接断了：读到文件尾的套接字一直可读，这个监视现在就撤掉（两个宿主的适配都先复制回调再调用，在回调里撤掉自己是安全的），否则 GLib 每一轮都先分发它，同优先级、后加入的收尾定时器永远轮不到，宿主空转占满一个核。收尾只排一次：在下一轮主循环里关掉连接，工具栏下一次要显示时重新连。
+    watch_.reset();
+    if (!reconnect_) reconnect_ = loop_.timer(0, [this] { close_connection(); });
+  }
 }
 
 void FloatingToolbarX11Surface::close_connection() {
+  // open 先于排好的收尾关掉连接时把收尾一起撤掉，免得它稍后关掉新连上的连接；收尾自己调到这里时撤掉的是已经触发过的令牌。
+  reconnect_.reset();
   watch_.reset();
   drain_.reset();
   tooltip_timer_.reset();

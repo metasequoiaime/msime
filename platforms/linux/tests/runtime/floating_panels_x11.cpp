@@ -58,7 +58,7 @@ struct PollLoop {
     };
     return result;
   }
-  // 跑 milliseconds 毫秒：连接可读就分发，定时器到期就触发。
+  // 跑 milliseconds 毫秒：连接可读就分发，定时器到期就触发。顺序照 IBus 宿主的 GLib 主循环：这一轮要分发哪些源在分发前就定下来，同一轮里先分发连接、后分发定时器；连接的回调里新排的定时器等下一轮，被它撤掉的定时器这一轮不再触发。
   void run_for(int milliseconds) {
     const auto end = Clock::now() + std::chrono::milliseconds(milliseconds);
     while (Clock::now() < end) {
@@ -70,19 +70,29 @@ struct PollLoop {
           watched.push_back(source);
         }
       poll(fds.data(), fds.size(), 10);
+      std::vector<std::shared_ptr<Source>> due;
+      const auto now = Clock::now();
+      for (const auto &source : sources)
+        if (source->alive && source->fd < 0 && now >= source->deadline) due.push_back(source);
       for (std::size_t index = 0; index < fds.size(); ++index)
         if ((fds[index].revents & POLLIN) && watched[index]->alive) {
           const auto callback = watched[index]->callback;
           callback();
         }
-      const auto pending = sources;
-      for (const auto &source : pending)
-        if (source->alive && source->fd < 0 && Clock::now() >= source->deadline) {
+      for (const auto &source : due)
+        if (source->alive) {
           source->alive = false;
           const auto callback = source->callback;
           callback();
         }
     }
+  }
+  // 还在监视的连接有几条。
+  std::size_t watches() const {
+    std::size_t count = 0;
+    for (const auto &source : sources)
+      if (source->alive && source->fd >= 0) ++count;
+    return count;
   }
 };
 
@@ -294,6 +304,8 @@ void toolbar(Display *display) {
     if (source->alive && source->fd >= 0) shutdown(source->fd, SHUT_RD);
   loop.run_for(100);
   require(!visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后旧的工具栏窗口还在");
+  require(loop.watches() == 0, "连接断开后还在监视读到文件尾的连接");
+  require(!toolbar->visible(), "连接断开后工具栏仍报告自己在屏幕上");
   toolbar->note_input(&owner);
   loop.run_for(100);
   require(visible(display, "MSIMEFloatingToolbar").has_value(), "连接断开后有输入时工具栏没有重新连上并显示");

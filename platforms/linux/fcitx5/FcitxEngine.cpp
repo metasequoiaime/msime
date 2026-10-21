@@ -7087,13 +7087,6 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
-#ifdef MSIME_LINUX_FLOATING_PANELS
-    // 失焦照 macOS 留着悬浮工具栏；换到别的输入法才收起并放开属主（deactivateForInputSourceSwitch）。
-    if (floating_toolbar_) {
-      if (event.type() == fcitx::EventType::InputContextFocusOut) floating_toolbar_->focus_out(event.inputContext());
-      else floating_toolbar_->deactivate(event.inputContext());
-    }
-#endif
     // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
@@ -7108,6 +7101,13 @@ public:
       event.inputContext()->statusArea().clearGroup(fcitx::StatusGroup::InputMethod);
       state->close(); state->clearPanel();
     }
+#ifdef MSIME_LINUX_FLOATING_PANELS
+    // 失焦照 macOS 留着悬浮工具栏；换到别的输入法才收起并放开属主（deactivateForInputSourceSwitch）。放在上屏和关会话之后：上屏打开的组字要经 render 刷新工具栏，那时会话还在、焦点也还在，先放开的话它会把工具栏又接回来，换到别的输入法后工具栏还留在屏幕上。
+    if (floating_toolbar_) {
+      if (event.type() == fcitx::EventType::InputContextFocusOut) floating_toolbar_->focus_out(event.inputContext());
+      else floating_toolbar_->deactivate(event.inputContext());
+    }
+#endif
     state->publishInputStatus(false);
   }
   // Fcitx5 的托盘（SNI/dbusmenu）列的是最近聚焦的上下文的状态动作，点下去也作用于它；在 Hyprland 上的 noctalia、waybar 等桌面，点托盘本身就让应用失焦。所以失焦的上下文留着会话，托盘读到的勾选是它真实的状态，点下的开关作用于它的会话并照常保存。同一时间只留一个，到有上下文获得焦点时交出（releaseMenuContext）。只往有焦点的输入框里写的入口——语音、候选维护、剪贴板、云剪贴板、表情——这时点了也没有地方落，先从状态区拿掉，获得焦点时 activate 再放回。
@@ -7866,9 +7866,10 @@ msime::linux_host::FloatingToolbarState FcitxState::floatingToolbarState() const
 
 void FcitxState::syncFloatingToolbar([[maybe_unused]] bool focus_entered) {
 #ifdef MSIME_LINUX_FLOATING_PANELS
-  if (!engine_ || !preferences_.is_object()) return;
-  // 能接手的只有正在用水杉、有焦点的上下文：activate 时（focus_entered）总能接手；之后只有有会话的上下文才算，换到别的输入法时 deactivate 先关掉会话再清面板，清面板走到这里不会把刚放开的工具栏又接回来。
-  const bool can_own = ic_.hasFocus() && (focus_entered || session_);
+  // 没有会话的上下文什么也不碰：close() 把偏好清成了空对象，按它读出的缺省配置（开关开着、缺省按钮和大小）会把用户关掉的工具栏重新打开、把属主的外观冲掉。这包括密码框和数字框这类受限输入框（ensure 关掉会话，activate 照样走到这里）、交出托盘菜单时关掉的上下文，以及换到别的输入法时已经关掉会话的上下文。
+  if (!engine_ || !session_ || !preferences_.is_object() || preferences_.empty()) return;
+  // 能接手的只有有焦点的上下文：activate 时（focus_entered）总能接手，之后在工具栏还没有属主时接手。
+  const bool can_own = ic_.hasFocus();
   const auto config = msime::linux_host::floating_toolbar_config(preferences_, MSIME_EDITION_HANDWRITING != 0, voice_enabled_);
   // 只在开关开着、这个上下文有焦点时才建：失焦的上下文刷新状态区时不为它连 X 服务器。
   auto *toolbar = engine_->floatingToolbar(config.enabled && can_own);
