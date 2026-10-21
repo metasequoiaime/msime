@@ -431,6 +431,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateAnnotations: [String] = []
   private var visibleCandidateSources: [Int] = []
   private var visibleCandidateFixedPositions: [Int] = []
+  private var visibleCandidateHighlighted: [Bool] = []
   /// 候选条隐藏云占位行后，显示序号对应的 Engine 当前页索引。
   private var visibleCandidateEngineIndices: [Int] = []
   private var visibleCandidatePageCount = 0
@@ -5019,6 +5020,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         onClose: { [weak self] in self?.closeKeyboardPicker() },
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
+      refreshDecorationWords()
       candidatePanelSnapshot = snapshot
       nineKeyPanelColumns = columns
       // 九键三栏面板和普通候选网格一样装在键区：上面的候选栏和读音留着，用户看得到选拼音、筛选之后读音和首选怎么变。
@@ -6343,6 +6345,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateAnnotations: visibleValues(snapshot.candidateAnnotations),
                          candidateSources: visibleValues(snapshot.candidateSources),
                          candidateFixedPositions: visibleValues(snapshot.candidateFixedPositions),
+                         candidateHighlighted: visibleValues(snapshot.candidateHighlighted),
                          candidatePageCount: snapshot.candidatePageCount,
                          candidateEngineIndices: visibleIndices,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
@@ -6389,7 +6392,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
                                     candidateAnnotations: [String] = [], candidateSources: [Int] = [],
-                                    candidateFixedPositions: [Int] = [], candidatePageCount: Int = 0,
+                                    candidateFixedPositions: [Int] = [], candidateHighlighted: [Bool] = [], candidatePageCount: Int = 0,
                                     candidateEngineIndices: [Int]? = nil,
                                     answeredByPinyinFallback: Bool = false) {
     // 光标前打到 `xxx@` 时邮箱后缀占候选条，排在英文建议之前，与 Android 一样；它们不是 Engine 的候选，不带编码、释义和来源。
@@ -6407,6 +6410,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateAnnotations = showsEmailSuffixes ? [] : candidateAnnotations
     visibleCandidateSources = showsEmailSuffixes ? [] : candidateSources
     visibleCandidateFixedPositions = showsEmailSuffixes ? [] : candidateFixedPositions
+    visibleCandidateHighlighted = showsEmailSuffixes ? [] : candidateHighlighted
     if showsEmailSuffixes || candidates.isEmpty {
       visibleCandidateEngineIndices = []
     } else if let candidateEngineIndices, candidateEngineIndices.count == candidates.count {
@@ -6429,6 +6433,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
+  /// 展开网格仍使用普通当前页；独立来源标注不包含固定位置图钉或原文后缀。
+  private func refreshDecorationWords() {
+    let page = visibleEmailSuffixes.isEmpty ? Array(visibleCandidates.prefix(candidatePageSize)) : visibleEmailSuffixes
+    let hasOverlay = candidateCanvasSkin?.banner?.candidate != nil
+    let words: [ExternalCandidateSkin.Canvas.Word] = hasOverlay && visibleDiagnostic == nil ? page.enumerated().map { index, text in
+      let source = visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : -1
+      let badge = source == CandidateMarker.cloudSource ? "☁️" : source == CandidateMarker.aiSource ? "🤖" : ""
+      let highlighted = japaneseConversionIndex.map { $0 == index }
+        ?? (visibleCandidateHighlighted.indices.contains(index) && visibleCandidateHighlighted[index])
+      return ExternalCandidateSkin.Canvas.Word(text: chineseOutput(text), badge: badge, highlighted: highlighted)
+    } : []
+    let hosts: [CandidateCanvasHostView?] = [compositionContainer, candidatePanel]
+    for host in hosts {
+      host?.decorationWords = words
+      host?.decorationFontFamilies = candidateFontFamilies
+    }
+  }
+
   private func renderCandidateStrip() {
     exitLocalModeButton.isHidden = !isInLocalMode
     updateHanjaButton()
@@ -6442,6 +6464,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
     // 邮箱后缀不分页：二十个全排在候选条上横向滚动，与 Android 一样。
+    refreshDecorationWords()
     let page = visibleEmailSuffixes.isEmpty ? Array(visibleCandidates.prefix(candidatePageSize)) : visibleEmailSuffixes
     while candidateStack.arrangedSubviews.count < page.count {
       let index = candidateStack.arrangedSubviews.count
@@ -6987,8 +7010,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout,
                                     fontSize: Self.candidateChipFontSize * candidateFontScale) : nil
       configuration.background.backgroundColor = converting ? palette.selected.withAlphaComponent(0.35)
-        : number == 1 ? (candidateCanvasSkin == nil ? palette.hover : palette.selected)
-        : candidateCanvasSkin == nil ? palette.surface : .clear
+        : number == 1 ? (candidateCanvasSkin?.panelLoaded != true ? palette.hover : palette.selected)
+        : candidateCanvasSkin?.panelLoaded != true ? palette.surface : .clear
       configuration.background.cornerRadius = candidatePalette?.layout?.itemRadius ?? candidateCanvasSkin?.itemCornerRadius ?? 9
       configuration.background.strokeWidth = palette.layout?.borderWidth ?? 1
       configuration.background.strokeColor = palette.border

@@ -89,6 +89,9 @@ cp -R target/android/notices/. "$assets/native-notices/"
 # 手势图像的许可和来源随两条 APK 打包路径分发。
 mkdir -p "$assets/native-notices/noto-emoji"
 cp platforms/android/third_party/noto-emoji/*.txt platforms/android/third_party/noto-emoji/sources.json "$assets/native-notices/noto-emoji/"
+# 内联自动填充的官方样式依赖附带固定来源和许可。
+mkdir -p "$assets/native-notices/androidx-autofill"
+cp platforms/android/third_party/androidx-autofill/*.txt "$assets/native-notices/androidx-autofill/"
 cp LICENSE "$assets/client-LICENSE.txt"
 # 组合表情只提取上游短语，必须与 BSD 版权通知一同分发。
 cp shared/emoji-combinations/emoji-combinations*.txt "$assets/"

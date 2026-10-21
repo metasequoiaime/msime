@@ -315,6 +315,10 @@ done
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-hold true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Letter hold case acceptance failed" >&2; exit 1; }
+# 连续触摸拖选、中文标点与手势开关/方向；复用入口，不增加 instrumentation 数量。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-swipe true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Letter swipe option acceptance failed" >&2; exit 1; }
 # 英文三排长按覆盖大小写、数字与字母上下标、声调和 O 的既有切换入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-hold true)
 printf '%s\n' "$result"

@@ -385,6 +385,8 @@ APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由�
 
 ## 专用模拟器验收
 
+系统自动填充专项：构建当前原生宿主 APK 后运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/inline-autofill.sh emulator-5580`，API 28 用 `emulator-5566`。测试包的合成服务只提供固定虚构账号，API 35 验证真实内联请求、系统远程视图、隐藏／再显示、切框、空响应和系统多字段填充；API 28 验证旧菜单填充。退出时恢复原填充服务。专项替换默认设备套件的一个 instrumentation 入口，不增加系统限定的 100 项数量；下次运行普通 `build-editor.sh` 会恢复默认入口。内联功能需要 Android 11 以上、支持它的填充服务及提供填充信息的应用；不支持时由系统显示原有菜单。
+
 预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像，也不自动接受 SDK 许可。
 
 完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装 `app.msime.android` 开发包和独立合成编辑器，准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
@@ -416,6 +418,10 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
+
+### 装饰图中的候选词
+
+原生候选列与展开候选支持传统装饰图的 `candidate_overlay_*`，普通当前页的真实高亮用于索引 0，其余索引从 1 开始。图片、字号和偏移使用 DIP，文字按声明框对齐，缩到最小字号后保留完整单行；云／AI 来源标记独立于原文。资源在偏好线程解码，逐键复用，隐藏停止图片动画。装饰带参与 Android 既有候选容器的留白测量，未接入桌面装饰待机变换。设备回归入口为 `CandidateCanvasDeviceSmoke`，需在 API 28 与 35 的专用 AVD 上运行，Java 编译通过不代替设备绘制验收。
 
 ### 拼写放大编辑
 

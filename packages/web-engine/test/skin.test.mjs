@@ -299,6 +299,29 @@ test("geometry follows dimension, decorationImage and the background rules", () 
   assert.equal(resolveSkin({ decorationTopDip: 10, decorationImage: "a.png" }).geometry.decoration, null);
 });
 
+test("装饰候选词按来源的默认值、边界与颜色规则解析", () => {
+  const base = { decorationTopDip: 40, decorationWidthDip: 120, decorationImage: "mascot.png" };
+  const read = (decorationCandidate) => resolveSkin({ ...base, decorationCandidate }).geometry.decoration.candidate;
+  assert.deepEqual(read({}), { index: 1, fontSizeDip: 16, minFontSizeDip: 8, maxWidthDip: 0,
+    color: "#FFFFFF", alignH: "center", alignV: "center", offsetXDip: 0, offsetYDip: 0, stripBadge: true });
+  for (const [color, expected] of [["abc", "#AABBCC"], ["#1234", "#11223344"], ["transparent", "#00000000"],
+    ["rgba(10.5 20 30 0.5)", "rgba(10.5,20,30,0.5)"], ["rgb(10, 20, 30)", "rgba(10,20,30,1)"],
+    ["red", "#FFFFFF"], ["", "#FFFFFF"], ["rgb(10 20)", "#FFFFFF"]]) {
+    assert.equal(read({ color }).color, expected, color);
+  }
+  const explicit = read({ index: 0, fontSizeDip: 200, minFontSizeDip: 200, maxWidthDip: 2000, offsetXDip: -2000, offsetYDip: 2000, stripBadge: false });
+  assert.equal(explicit.offsetXDip, -2000);
+  assert.equal(explicit.index, 0);
+  assert.ok(Object.isFrozen(explicit));
+  for (const value of [{ index: 1.5 }, { index: 101 }, { index: -1 }, { fontSizeDip: 0 }, { minFontSizeDip: Infinity },
+    { maxWidthDip: 2001 }, { offsetXDip: NaN }, { offsetYDip: -2001 }, { stripBadge: "false" },
+    { color: "#fff;display:none" }, { color: "a".repeat(81) }, { alignH: "top" }, { alignV: "left" }]) {
+    assert.equal(read(value), null, JSON.stringify(value));
+  }
+  assert.equal(resolveSkin({ decorationCandidate: {} }).geometry.decoration, null);
+  assert.equal(resolveSkin({ ...base, schemaVersion: 1, decorationCandidate: {} }).geometry.decoration.candidate.index, 1);
+});
+
 test("schema v2 resolves a bounded motion contract and safe CSS variables", () => {
   const result = resolveSkin({
     schemaVersion: 2,

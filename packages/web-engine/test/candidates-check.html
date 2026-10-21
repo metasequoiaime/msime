@@ -542,6 +542,62 @@
         }
       }
 
+      async function decorationCandidates() {
+        current = "装饰框内的候选词";
+        const canvas = document.createElement("canvas");
+        canvas.width = 60; canvas.height = 40;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#227744"; ctx.fillRect(0, 0, 60, 40);
+        const skin = { schemaVersion: 1, decorationTopDip: 40, decorationWidthDip: 120, decorationImage: canvas.toDataURL(),
+          decorationCandidate: { index: 0, fontSizeDip: 30, minFontSizeDip: 10, color: "abc" } };
+        const picks = [];
+        const bar = createCandidateBar({ skin, onPick: (...args) => picks.push(args) });
+        const root = parts(bar.element).root;
+        const image = root.querySelector(".skin-decoration-image");
+        const word = root.querySelector(".skin-decoration-word");
+        const next = { ...composingFrame("n", ["示例(原文)", "合成很长很长很长很长的候选词"]), highlight: 0 };
+        next.page[0].badge = "[合成标注]";
+        const anchor = { left: 20, top: 20, bottom: 40 };
+        bar.render(next, anchor);
+        await image.decode(); await tick();
+        equal(word.textContent, "示例(原文)", "默认只画原文，保留原文内的括号");
+        check(!word.hidden, "装饰图加载后文字可见");
+        equal(getComputedStyle(word).color, "rgb(170, 187, 204)", "无 # 的十六进制颜色与来源一致");
+        equal(getComputedStyle(word).pointerEvents, "none", "装饰词不接收点击");
+        root.querySelector('.cand[data-index="0"]').click();
+        equal(picks.length, 1, "候选点击仍上屏原始候选");
+        bar.render({ ...next, highlight: 1 }, anchor);
+        equal(word.textContent, next.page[1].text, "index=0 跟随本页高亮");
+        equal(parseFloat(word.style.fontSize), 10, "长词缩到最小字号");
+        check(word.offsetWidth > 120 && word.offsetHeight <= 13, "最小字号仍过宽时保持一行并超框");
+        for (const alignH of ["left", "center", "right"]) {
+          for (const alignV of ["top", "center", "bottom"]) {
+            bar.setSkin({ ...skin, decorationCandidate: { index: 1, stripBadge: false, alignH, alignV, offsetXDip: -3, offsetYDip: 4, color: "unknown" } });
+            equal(word.textContent, "示例(原文)[合成标注]", "标注只从独立 badge 追加");
+            const x = alignH === "left" ? 0 : (120 - word.offsetWidth) * (alignH === "center" ? 0.5 : 1);
+            const y = alignV === "top" ? 0 : (40 - word.offsetHeight) * (alignV === "center" ? 0.5 : 1);
+            check(Math.abs(parseFloat(word.style.left) - (image.offsetLeft + x - 3)) < 0.6, `${alignH}: 水平对齐与偏移`);
+            check(Math.abs(parseFloat(word.style.top) - (image.offsetTop + image.offsetHeight - 40 + y + 4)) < 0.6, `${alignV}: 垂直对齐与偏移`);
+            equal(getComputedStyle(word).color, "rgb(255, 255, 255)", "未知安全颜色使用白色");
+          }
+        }
+        bar.setSkin({ ...skin, decorationCandidate: { index: 100 } });
+        check(word.hidden && word.textContent === "", "越出当前页时移除旧词");
+        bar.setSkin(skin);
+        bar.render({ ...next, highlight: -1 }, anchor);
+        check(word.hidden && word.textContent === "", "无效高亮不显示旧词");
+        bar.render(next, anchor);
+        bar.hide();
+        check(word.hidden && word.textContent === "", "隐藏立即清理原文");
+        bar.render(next, anchor);
+        bar.setSkin({ ...skin, decorationCandidate: null });
+        check(word.hidden && word.textContent === "", "热切换为关闭叠加时清理旧词");
+        bar.setSkin(skin);
+        image.dispatchEvent(new Event("error"));
+        check(word.hidden && word.textContent === "", "图片失败不留下孤立的候选词");
+        bar.destroy();
+      }
+
       async function expandedCandidates() {
         current = "expanded candidate panel";
         const all = Array.from({ length: 640 }, (_, i) => ({ text: i === 10 ? "合成长候选需要跨越几个格子" : `示例${i}`, code: "", hint: "" }));
@@ -720,6 +776,7 @@
 
       try {
         await candidateBar();
+        await decorationCandidates();
         await expandedCandidates();
         await factoryGeometry();
         await layoutControls();

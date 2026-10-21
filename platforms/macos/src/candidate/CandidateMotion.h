@@ -39,6 +39,9 @@
 @property(nonatomic, strong) NSImage *image;
 // APNG 的各帧；nil 时是静态图。图层内容平时是第一帧，动画只在 MSIMECandidateMotion 挂上时播放。
 @property(nonatomic, strong) MSIMEDecorationFrames *frames;
+// 文字挂在装饰图的同一视图下，跟随待机变换；空词或空声明清理旧文字。
+- (void)setCandidateWord:(NSString *)word style:(const std::optional<msime::candidate::DecorationCandidate> &)style
+                boxSize:(NSSize)boxSize alignment:(msime::mac::DecorationAlign)alignment font:(NSFont *)font;
 @end
 
 @interface MSIMECandidateMotion : NSObject

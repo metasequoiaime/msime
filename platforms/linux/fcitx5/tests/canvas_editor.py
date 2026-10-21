@@ -166,6 +166,7 @@ def screenshot():
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
 TRANSLATION_BELOW = os.environ.get("MSIME_TEST_TRANSLATION_BELOW") == "1"
 ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
+OVERLAY = os.environ.get("MSIME_TEST_DECORATION_OVERLAY") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
 COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
 SELECTED = (7, 91, 173)
@@ -738,6 +739,108 @@ def save_image(name):
         capture_image().savev(str(directory / f"{name}.png"), "png", [], [])
 
 
+def accept_overlay(skin, entry, preferences, publish, focused):
+    """真实 GTK 输入只装饰图的 system 包，检查文字、分页、失败和焦点。"""
+    green, blue = (0, 255, 127), (53, 132, 228)
+    manifest = skin / "skin.toml"
+    original = manifest.read_text()
+
+    def glyphs():
+        window = native_window()
+        if window is None:
+            return frozenset()
+        geometry = window_geometry(window)
+        image, _ = screenshot()
+        data, channels, stride = image.get_pixels(), image.get_n_channels(), image.get_rowstride()
+        x0, y0 = int(geometry["X"]), int(geometry["Y"])
+        points = set()
+        for y in range(max(0, y0), min(image.get_height(), y0 + int(geometry["HEIGHT"]))):
+            for x in range(max(0, x0), min(image.get_width(), x0 + int(geometry["WIDTH"]))):
+                at = y * stride + x * channels
+                if data[at:at + 3] == bytes(green):
+                    points.add((x - x0, y - y0))
+        return frozenset(points)
+
+    def wheel(button):
+        # GTK 焦点边框可能透过上方留白；在原生选中行底部的实色区定位。
+        left, _, right, bottom = color_bounds(blue)
+        y = bottom - 3 * NATIVE_SCALE
+        image, _ = screenshot()
+        data, channels, stride = image.get_pixels(), image.get_n_channels(), image.get_rowstride()
+        xs = [x for x in range(left, right)
+              if data[y * stride + x * channels:y * stride + x * channels + 3] == bytes(blue)]
+        assert xs, "原生选中行没有可点击的高亮区域"
+        subprocess.run(["xdotool", "mousemove", str(xs[len(xs) // 2]), str(y),
+                        "click", str(button)], check=True, timeout=5)
+
+    def background(color):
+        window = native_window()
+        if window is None:
+            return False
+        bounds = window_geometry(window)
+        image, _ = screenshot()
+        x = int(bounds["X"]) + int(bounds["WIDTH"]) // 2
+        y = int(bounds["Y"]) + int(bounds["HEIGHT"]) - 4 * NATIVE_SCALE
+        at = y * image.get_rowstride() + x * image.get_n_channels()
+        # 浅色文字也可能等于深色底色，只检查面板底部的空白内边距。
+        return image.get_pixels()[at:at + 3] == bytes(color)
+
+    wait(lambda: len(glyphs()) > 10)
+    first = glyphs()
+    save_image("overlay-first")
+    subprocess.run(["xdotool", "key", "Down"], check=True, timeout=5)
+    wait(lambda: (points := glyphs()) and points != first)
+    save_image("overlay-highlight")
+    subprocess.run(["xdotool", "key", "Up"], check=True, timeout=5)
+    wait(lambda: glyphs() == first)
+    wheel(5)
+    wait(lambda: (points := glyphs()) and points != first)
+    save_image("overlay-next-page")
+    wheel(4)
+    wait(lambda: glyphs() == first)
+    manifest.write_text(original.replace("candidate_overlay_index = 0", "candidate_overlay_index = 100"))
+    wait(lambda: native_window() is not None and not glyphs())
+    save_image("overlay-out-of-range")
+    manifest.write_text(original)
+    wait(lambda: glyphs() == first)
+    for horizontal in ("left", "center", "right"):
+        for vertical in ("top", "center", "bottom"):
+            text = original.replace("candidate_overlay_align_h = 'center'", f"candidate_overlay_align_h = '{horizontal}'")
+            text = text.replace("candidate_overlay_align_v = 'center'", f"candidate_overlay_align_v = '{vertical}'")
+            before = glyphs()
+            manifest.write_text(text)
+            # 位置变化必须体现在原生字形像素上；文件轮询不会抢走编辑器焦点。
+            wait(lambda: len(glyphs()) > 10 and glyphs() != before)
+            save_image(f"overlay-{horizontal}-{vertical}")
+    manifest.write_text(original)
+    wait(lambda: glyphs() == first)
+    preferences["candidate_theme"] = "dark"
+    publish()
+    wait(lambda: background((48, 48, 48)) and len(glyphs()) > 10)
+    save_image("overlay-dark")
+    decorated_height = int(window_geometry(native_window())["HEIGHT"])
+    (skin / "banner.png").write_bytes(b"broken")
+    # 坏图回到默认原生卡片，撤下装饰带和文字，不能残留旧资源。
+    wait(lambda: (window := native_window()) is not None and not glyphs()
+         and int(window_geometry(window)["HEIGHT"]) < decorated_height and background((48, 48, 48)))
+    assert entry.get_text() == "", "坏图回退提前上屏"
+    save_image("overlay-broken")
+    (skin / "banner.png").write_bytes(png(((30, 40, 50),) * 9))
+    wait(lambda: native_window() is not None and len(glyphs()) > 10)
+    save_image("overlay-repaired")
+    # 关闭声明只撤下文字，保留默认原生候选窗；重新启用后恢复图内候选。
+    manifest.write_text(original.replace("candidate_overlay = true", "candidate_overlay = false"))
+    wait(lambda: native_window() is not None and not glyphs() and background((48, 48, 48)))
+    assert entry.get_text() == "", "关闭装饰词提前上屏"
+    save_image("overlay-disabled")
+    manifest.write_text(original)
+    wait(lambda: native_window() is not None and len(glyphs()) > 10)
+    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+    wait(lambda: entry.get_text() != "" and native_window() is None)
+    assert focused(), "装饰词窗口抢走编辑器焦点"
+    print("真实 GTK 装饰词高亮、翻页、九种对齐、明暗、坏图与关闭清理及上屏通过")
+
+
 def fallback_visible(theme):
     config = configparser.ConfigParser(interpolation=None)
     config.read(theme)
@@ -796,7 +899,7 @@ def main():
     bus.request_name("org.freedesktop.portal.Desktop")
     host = ctypes.CDLL(str(library))
     responses = ResponseDecoder(host)
-    for name in ("msime_client_prepare_host", "msime_client_load_preferences"):
+    for name in ("msime_client_prepare_host", "msime_client_load_preferences", "msime_client_skin_package"):
         function = getattr(host, name)
         function.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
         function.restype = ctypes.c_void_p
@@ -850,10 +953,31 @@ def main():
             text += (f"[[candidate_window.decorations]]\nimage = '{widget_name}'\nanchor = 'top-right'\n"
                      "offset_x_dip = 24\noffset_y_dip = -24\nwidth_dip = 20\nheight_dip = 20\nz_index = 2\n")
             manifest.write_text(text)
+        if OVERLAY:
+            assert NATIVE and not WAYLAND and not ANIMATION
+            (skin / "banner.png").write_bytes(png(((30, 40, 50),) * 9))
+            # 不声明 candidate 配色，确保有效图片包不会被空配色丢弃。
+            (skin / "skin.toml").write_text(
+                "schema_version = 2\nid = 'canvas-fixture'\nname = 'Overlay fixture'\nversion = '1'\nbase = 'system'\n"
+                "[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['light', 'dark']\n"
+                "[candidate_window.decoration]\nimage = 'banner.png'\ntop_inset_dip = 80\nwidth_dip = 120\n"
+                "candidate_overlay = true\ncandidate_overlay_index = 0\ncandidate_overlay_font_size_dip = 36\n"
+                "candidate_overlay_min_font_size_dip = 8\ncandidate_overlay_color = '#00FF7F'\n"
+                "candidate_overlay_align_h = 'center'\ncandidate_overlay_align_v = 'center'\n")
         options["candidate_skin_catalog"] = {
             "directory": str(skin.parent), "packages": [{
                 "id": "canvas-fixture", "title": "Canvas fixture", "base": "system",
                 "layouts": ["horizontal", "vertical"], "candidate": {"light": {}, "dark": {}}}]}
+        if OVERLAY:
+            # 从完整包转换宿主目录字段；严格主题解析不接受 UI 包的 camelCase 条目。
+            request = json.dumps({"directory": str(skin.parent), "id": skin.name}).encode()
+            package = value(host.msime_client_skin_package(request, len(request)))
+            assert package.get("decorationCandidate") and package.get("decorationImage") == "banner.png"
+            options["candidate_skin_catalog"]["packages"][0].update(
+                decoration_top_dip=package["decorationTopDip"],
+                decoration_width_dip=package["decorationWidthDip"],
+                decoration_image=str(skin / package["decorationImage"]),
+                decoration_align=package["decorationAlign"])
         preferences = options["preferences"]
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
@@ -941,10 +1065,13 @@ def main():
                     return int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid
                 wait(lambda: entry.has_focus())
                 next_focus_retry = 0.0
+                focused_line = None
 
                 def ime_focused():
-                    nonlocal next_focus_retry
-                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())):
+                    nonlocal next_focus_retry, focused_line
+                    focused_line = next((line for line in str(control.DebugInfo()).splitlines()
+                                         if re.search(r"frontend:dbus\b.*\bfocus:1\b", line)), None)
+                    if focused_line is not None:
                         return True
                     # GTK 创建远端上下文是异步的；连接之前发出的首次焦点可能丢失。
                     # 只在握手未完成时重发真实窗口焦点，不重启 daemon 或绕过输入框。
@@ -956,8 +1083,7 @@ def main():
                     return False
 
                 wait(ime_focused)
-                focused_line = next(line for line in str(control.DebugInfo()).splitlines()
-                                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", line))
+                # 使用等待成功的同一份焦点快照，避免两次 D-Bus 查询之间的连接切换。
                 focused_context = re.search(r"IC \[[^\]]+\]", focused_line).group()
                 control.SetCurrentIM("msime")
                 control.Activate()
@@ -967,6 +1093,9 @@ def main():
                 else:
                     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni" if NATIVE else "nihao"],
                                    check=True, timeout=5)
+                if OVERLAY:
+                    accept_overlay(skin, entry, preferences, publish, focused)
+                    return
                 if not TRANSLATION_BELOW:
                     wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"
