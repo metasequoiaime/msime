@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
@@ -107,6 +108,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, layoutLabel(current),
             pairOffered ? () -> pickLayout(current, pair) : null);
+        String candidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
+            candidatePreeditStyleLabel(candidatePreeditStyle),
+            () -> pickCandidatePreeditStyle(candidatePreeditStyle));
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言",
@@ -337,6 +343,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             case "fourteen_key" -> "14 键";
             default -> "26 键";
         };
+    }
+
+    private static String candidatePreeditStyleLabel(String value) {
+        return CandidatePreeditStylePolicy.PINYIN.equals(value) ? "候选栏" : "输入框";
+    }
+
+    private void pickCandidatePreeditStyle(String current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "拼音显示位置", null);
+        sheet.option("输入框", !CandidatePreeditStylePolicy.PINYIN.equals(current),
+            () -> savePreference("candidate_preedit_style", CandidatePreeditStylePolicy.EMPTY));
+        sheet.option("候选栏", CandidatePreeditStylePolicy.PINYIN.equals(current),
+            () -> savePreference("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
+        sheet.show();
     }
 
     /** 26 / 14 / 9 键是当前方案的那几个触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */

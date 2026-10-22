@@ -3,7 +3,7 @@ package app.msime.android;
 /**
  * 候选栏上画不画正在拼写的内容，以及写进输入框的是哪一段拼写。
  *
- * <p>拼写作为组字写进输入框（与 Apple 自带键盘和 Gboard 一样），候选栏就不再重复画它：读音行只剩页码和提示，候选不随拼写变长而变化。这是固定的行为，不再读共享偏好 `candidate_preedit_style`，也不提供开关。盛京银行的全拼、双拼因搜索框不区分组字而留在键盘上，见 {@link #keepsPinyinOnKeyboard}。只有拼写类方案（全拼、双拼、五笔、粤拼，与 iOS `hasSpellingCaret` 同一组）这样做：日语读音、韩语音节这类就地组字的方案和笔画字形照常画在候选栏上；全拼 14 键的组字是组码字母（`bugao`），不写进输入框，读音仍画在候选栏上；编辑器截短了组字、整段组字只能留在键盘上时也照常画。
+ * <p>拼写可以作为组字写进输入框，也可以只画在候选栏上，由共享偏好 `candidate_preedit_style` 决定。盛京银行的全拼、双拼因搜索框不区分组字而留在键盘上，见 {@link #keepsPinyinOnKeyboard}。只有拼写类方案（全拼、双拼、五笔、粤拼，与 iOS `hasSpellingCaret` 同一组）这样做：日语读音、韩语音节这类就地组字的方案和笔画字形照常画在候选栏上；全拼 14 键的组字是组码字母（`bugao`），不写进输入框，读音仍画在候选栏上；编辑器截短了组字、整段组字只能留在键盘上时也照常画。
  *
  * <p>有两样东西不归这里管。
  *
@@ -30,6 +30,16 @@ public final class CandidatePreeditStylePolicy {
             || scheme == InputSchemeTraits.WUBI || scheme == InputSchemeTraits.CANTONESE;
     }
 
+    /** 共享偏好只接受两个值；未知值按输入框模式回退，保持 Android 原来的行为。 */
+    public static String normalize(String preference) {
+        return PINYIN.equals(preference) ? PINYIN : EMPTY;
+    }
+
+    /** 拼写是否只显示在候选栏，不写入编辑器。 */
+    public static boolean keepsSpellingOnKeyboard(String preference) {
+        return PINYIN.equals(normalize(preference));
+    }
+
     /**
      * 候选栏的样式：拼写类方案的拼写已经写在输入框里时为 {@link #EMPTY}，其余为 {@link #PINYIN}。
      *
@@ -37,6 +47,11 @@ public final class CandidatePreeditStylePolicy {
      */
     public static String style(int scheme, boolean spellingInEditor) {
         return writesSpelling(scheme) && spellingInEditor ? EMPTY : PINYIN;
+    }
+
+    /** 按共享偏好和实际组字状态决定候选栏样式。 */
+    public static String style(String preference, int scheme, boolean spellingInEditor) {
+        return keepsSpellingOnKeyboard(preference) ? PINYIN : style(scheme, spellingInEditor);
     }
 
     /** 候选栏画不画组字。 */

@@ -12,6 +12,15 @@ public final class CandidatePreeditStylePolicySmoke {
         String pinyin = CandidatePreeditStylePolicy.PINYIN;
         String empty = CandidatePreeditStylePolicy.EMPTY;
 
+        check(CandidatePreeditStylePolicy.normalize("pinyin").equals(pinyin),
+            "the candidate-bar preference is preserved");
+        check(CandidatePreeditStylePolicy.normalize("empty").equals(empty)
+                && CandidatePreeditStylePolicy.normalize("invalid").equals(empty),
+            "missing and invalid preferences use the editor fallback");
+        check(CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(pinyin)
+                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(empty),
+            "the candidate-bar preference keeps spelling out of the editor");
+
         // 兼容例外只匹配应用完整包名和中文拼音，不影响其他应用、英文与其他语言。
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN}) {
             check(CandidatePreeditStylePolicy.keepsPinyinOnKeyboard("com.shengjingbank.mobile.cust", scheme, false),
@@ -38,6 +47,10 @@ public final class CandidatePreeditStylePolicySmoke {
             check(CandidatePreeditStylePolicy.style(scheme, false).equals(pinyin),
                 "a spelling kept out of the field is still drawn, scheme " + scheme);
         }
+        check(CandidatePreeditStylePolicy.style(pinyin, InputSchemeTraits.QUANPIN, true).equals(pinyin),
+            "candidate-bar mode keeps pinyin visible even when composition is available");
+        check(CandidatePreeditStylePolicy.style(empty, InputSchemeTraits.QUANPIN, true).equals(empty),
+            "editor mode hides pinyin after composition is written");
         // 日语读音、就地组字的方案和笔画字形照常画在候选栏上。
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.KOREAN,
                 InputSchemeTraits.ZHUYIN, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN,
