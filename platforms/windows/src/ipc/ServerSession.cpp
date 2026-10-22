@@ -3,6 +3,7 @@
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
 #include "InputSchemeTraits.h"
+#include "../../common/CandidateSources.h"
 #include "../../common/PhrasePreeditOptions.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
@@ -237,10 +238,22 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
           current.value("spelling_symbols", std::string{}),
           static_cast<uint32_t>(packet.wch), modifiers)) {
     // TSF selects by VK digit. Unicode requires Shift, a digit the Engine spells (V) is input, and ordinary modes use unmodified digits; see digit_selects_candidate. Use current IDs.
+    // 数字数的是候选窗上看得见的行。云的占位席位（`CandidateSource::CloudPending`）是引擎内部用来固定云候选位置的，宿主不显示它（候选窗同样跳过），所以它也不能吃掉一个编号——否则它后面每一行的编号都比看到的大一位，按 3 上屏的是第 4 行。移动端早就是这么做的（`CandidatePresentationPolicy.visibleIndices`），这里补上桌面端缺的那一半。
     const auto slot = static_cast<size_t>(digit_key - '1');
     const auto &page = current.at("candidates");
-    if (slot < page.size()) {
-      const auto &id = page.at(slot).at("id");
+    const nlohmann::json *picked = nullptr;
+    size_t seen = 0;
+    for (const auto &candidate : page) {
+      if (!candidate_source_is_visible(candidate.value("source", 0u)))
+        continue;
+      if (seen == slot) {
+        picked = &candidate;
+        break;
+      }
+      ++seen;
+    }
+    if (picked) {
+      const auto &id = picked->at("id");
       result = select(epoch, id.at("generation").get<uint64_t>(),
                       id.at("index").get<size_t>());
     } else {
