@@ -64,11 +64,12 @@ final class ClipboardPhraseNoticeDeviceCheck {
             Rect before = bounds(t.awaitStableBounds(card(SOURCE)));
             t.stage = "successful phrase feedback stays at phone top";
             add(SOURCE);
+            SystemClock.sleep(150);
+            capture();
             notice("已添加到常用语");
             requireSame(before, bounds(t.await(card(SOURCE))));
             t.await(t.field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
             awaitPhrase(phrases, SOURCE);
-            capture();
             t.stage = "duplicate feedback replaces success without list movement";
             add(SOURCE);
             notice("已经有这条常用语了。");

@@ -1869,6 +1869,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
+        operationNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
