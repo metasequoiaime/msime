@@ -184,6 +184,7 @@ MAPPING: dict[str, str] = {
     "utility.jianpin_mode": "local_modes.super_jianpin",
     "utility.kaomoji_mode": "local_modes.kaomoji",
     "utility.quick_phrase": "local_modes.quick_phrase",
+    "utility.symbol_mode": "local_modes.symbol",
     "utility.r_mode": "local_modes.temporary_japanese",
     "utility.study_english_word": "!dead: written by the reference's config template and read by nothing in it",
     "utility.unicode_mode": "local_modes.unicode",

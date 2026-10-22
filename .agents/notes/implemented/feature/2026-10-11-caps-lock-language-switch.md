@@ -13,7 +13,7 @@ Status: implemented
 - 共享偏好 `keybindings.switch_language_caps_lock`，serde 缺省和 `Default` 都是关。`HostCapabilities::caps_lock_language_switch` 只在三个桌面宿主上为真，共享设置页「快捷键 › 输入模式切换」在声明了它的宿主上多一行开关。它和切换键下拉框互不排斥：Caps Lock 是另加的一个键，打开它不关掉 Shift。
 - 判定规则写在 `shared/input/CapsLockTap.h`，三个宿主共用：开关打开、按下前大写锁定是关的、按下时没有别的键或修饰键、按着期间没有按别的键、按下到松开不超过 `kCapsLockTapThresholdMs`（300 毫秒）才算轻点。大写锁定开着时按 Caps Lock 是关掉它，照常处理，不切换。单按 Shift、Control 的 500 毫秒窗口不变；Caps Lock 取更短的 300 毫秒，因为长按它是在要大写锁定，那一侧应该早点认定。
 - 认定为轻点后，宿主先撤回大写锁定，撤回成功才切换；切换走单按 Shift 的同一条路，组字中先上屏原文。撤不回时不切换，大写锁定照常生效。
-- macOS：系统只在锁定状态改变时报一次 FlagsChanged，没有松开事件。控制器在大写锁定从关变开时布防，并暂不把这次的大写锁定报告给会话和工具栏；每 10 毫秒用 `CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, 0x39)` 查键是否还按着。松开且在分界内就用 IOKit 的 `IOHIDSetModifierLockState(kIOHIDCapsLockState, false)` 撤回；按住超过分界、按着时打字或撤不回，就把大写锁定补报给会话。失焦、换会话等外部重置时按实际锁定状态报告。
+- macOS：IMK 不保证交付实体松手事件。控制器在大写锁定从关变开时布防，并暂不把这次的大写锁定报告给会话和工具栏；每 10 毫秒从 `CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)` 的 `NX_ALPHASHIFT_STATELESS_MASK` 查实体键是否还按着；若松手状态事件先到，就使用原来的按下时刻完成判定。键码 0x39 的查询会随逻辑锁定保持为真，不能用于计时；这项决定的翻转及实机缺口见[实体按住状态](../bug-fix/2026-10-21-macos-caps-lock-physical-flags.md)。松开且在分界内就用 IOKit 的 `IOHIDSetModifierLockState(kIOHIDCapsLockState, false)` 撤回；按住超过分界、按着时打字或撤不回，就把大写锁定补报给会话。失焦、换会话等外部重置时按实际锁定状态报告。
 - macOS 的轮询定时器注册到主运行循环的 `NSRunLoopCommonModes`：`scheduledTimerWithTimeInterval` 只注册默认模式，事件跟踪或模态面板期间不会执行；等默认模式恢复时，真实时钟可能已经超过 300 毫秒，轻点就被当作长按。普通、事件跟踪和模态三种模式均需执行相同的轻点、长按判定（Refs #8961）。此修复覆盖运行模式造成的漏判，尚不能据此认定报告人的物理按键链路已完整修复。
 - macOS 轻点撤回后，窗口服务器可能在紧邻的事件中暂时保留旧的 `CapsLock` 修饰位；控制器在下一次真实按下或收到关闭状态前忽略这份旧位，并把英文模式下受其影响的 ASCII 字母还原为小写，避免工具栏回到 `A` 或连续输入大写。
 - Windows：TIP 在 `OnTestKeyDown` 的 Caps Lock 首次按下时布防（`GetKeyState` 这时还是按下前的状态），`_TrackModifierHotkeyArming` 遇到别的键按下时取消；`OnTestKeyUp` 和 `OnKeyUp` 认定后用 `SendInput` 再按一次 Caps Lock 撤回，合成事件带 `CAPS_LOCK_SENDINPUT_EXTRA_INFO`（`0x4D535054`），按键处理和裸 Shift 钩子都放行，然后把切换排进延迟按键队列。松开事件不吃掉。系统设置成只有 Shift 能关掉大写锁定（`KLF_SHIFTLOCK`）时不布防。合成的那一下被 TIP 当作自注入放行，TIP 撤回成功后自己把 `Global::CapsLockEnabled` 记成关；Server 的低级钩子（`MaintenanceHotkey.cpp`）在跳过注入按键之前计入 Caps Lock，因为它记的锁定状态是每按下一次翻转一次，漏掉撤回的那一下，报告给工具栏和语言栏的大写锁定就从此反着，直到 Server 重启。
@@ -24,7 +24,7 @@ Windows 的 `0x4D535053` 留给[面板文字注入](2026-10-10-windows-clipboard
 
 ### 权限
 
-`IOHIDSetModifierLockState` 经 `IOServiceOpen(kIOHIDSystemClass, kIOHIDParamConnectType)` 调用。在 macOS 27（Darwin 27.0）上用一个独立签名、经 `open` 启动的探针程序实测：`IOHIDCheckAccess` 对输入监控和事件发送都是「未询问」，`AXIsProcessTrusted` 为假，照样能把大写锁定打开再关上，前后不弹授权框，授权状态也不变。所以输入法不需要为它申请输入监控或辅助功能。`CGEventSourceKeyState` 只读 HID 系统的按键状态，同样不需要权限，`ModifierTap.h` 早已在用。
+`IOHIDSetModifierLockState` 经 `IOServiceOpen(kIOHIDSystemClass, kIOHIDParamConnectType)` 调用。在 macOS 27（Darwin 27.0）上用一个独立签名、经 `open` 启动的探针程序实测：`IOHIDCheckAccess` 对输入监控和事件发送都是「未询问」，`AXIsProcessTrusted` 为假，照样能把大写锁定打开再关上，前后不弹授权框，授权状态也不变。所以输入法不需要为它申请输入监控或辅助功能。Caps Lock 的实体状态通过 `CGEventSourceFlagsState` 只读 HID 系统的 stateless 标志，不创建监听器或请求输入权限。`ModifierTap.h` 仍用键码查询校验其他按键是否按住，不用它判定 Caps Lock 的实体松手。
 
 ## Alternatives considered
 
@@ -52,7 +52,7 @@ Windows 的 `0x4D535053` 留给[面板文字注入](2026-10-10-windows-clipboard
 - `client-core`：`caps_lock_language_switch_defaults_off_and_persists_an_explicit_enable` 覆盖默认关、旧文档缺键、保存读回且不动其他切换键；`host_surface` 断言只有三个桌面宿主声明能力。
 - 共享设置页：`input-mode-shortcuts-section.test.tsx` 覆盖没有能力时不显示、缺省关、打开只写这一个键、macOS 与 Linux 的限制说明。
 - macOS CTest `shortcut` 的 `TestCapsLockTap` 用合成的时钟、按键状态和撤回函数驱动真实控制器：轻点切换且不报告大写锁定、撤回后的陈旧修饰位不使英文变大写、撤回后系统的「关」不再切换、长按与两次轮询之间的慢松开都保留大写锁定、大写锁定开着时按下只是关掉、按着打字和组合键不切换、撤不回不切换、组字中先上屏原文、开关关掉时照常。原生设置的开关读写也在其中。
-- `shortcut-test --caps-lock` 单独运行上述用例，并实际推进默认、事件跟踪和模态运行模式，确认真实定时器调用控制器完成轻点撤回与长按保留；只有时钟、物理按键查询和撤回函数是合成值，不改动测试机器的真实 Caps Lock。新增运行循环用例在旧实现的事件跟踪模式下失败，直接手动调用轮询的旧用例无法发现这一缺口。[Apple 的定时器文档](https://developer.apple.com/documentation/Foundation/Timer/scheduledTimer%28withTimeInterval%3Arepeats%3Ablock%3A%29)明确默认注册模式。
+- `shortcut-test --caps-lock` 单独运行上述用例，并实际推进默认、事件跟踪和模态运行模式，确认真实定时器调用控制器完成轻点撤回与长按保留；只有时钟、原生 flags 状态查询和撤回函数是合成值，生产的物理按住判定仍参与执行，不改动测试机器的真实 Caps Lock。新增运行循环用例在旧实现的事件跟踪模式下失败，直接手动调用轮询的旧用例无法发现这一缺口。[Apple 的定时器文档](https://developer.apple.com/documentation/Foundation/Timer/scheduledTimer%28withTimeInterval%3Arepeats%3Ablock%3A%29)明确默认注册模式。
 - Windows：`crates/host-windows/tests/send_input_marker.rs` 保证面板标记与 C++ 一致且不出现在 TIP 自注入集合中，防止 Caps Lock 再次与面板碰撞。`msime-tsf-caps-lock-tap` 逐条钉住共享判定规则，并检查 TSF 接线（按下前状态、两个松开入口、先撤回后切换、撤回后记成关、`KLF_SHIFTLOCK` 时不布防、合成事件标记、Server 钩子在跳过注入按键之前计入 Caps Lock、偏好键与缺省值），本机 clang 运行通过；`windows-maintenance-hotkeys` 覆盖 `CapsLockTracker`：真实的一下加注入的一下之后报告关，之后的长按照常；`KeyEventSink.cpp` 用 MinGW 做过语法检查。WinUI 3 的原生设置窗口只能交给 Windows CI 编译。
 - Linux：`linux-caps-lock-tap` 覆盖判定规则和 X11/Wayland 会话判断。宿主层面 `CapsLockRelease.h` 有一个只给测试用的替换入口，`ibus-engine-smoke --caps-lock` 和 `fcitx5-native-test --caps-lock`（ctest 里的 `ibus-caps-lock-tap`、`fcitx5-caps-lock-tap`，需要已校验的词库）从真实的按键处理路径驱动：缺省关时不切换、偏好热重载打开与关闭、轻点切到英文并从英文透传切回、长按、大写锁定开着时按下、按着打字、和 Shift 一起按、撤不回不切换、组字中上屏原文；Fcitx5 还覆盖组字中长按不上屏。在 `build-container.sh` 的镜像里编译两个宿主、跑 ctest，并对着本机已校验的词库手动跑了这两个模式和两个宿主的其他模式。
 - 没有在任何平台上实机按 Caps Lock 验证：macOS 只验证了 IOKit 调用在无授权进程里可用，Windows 与 Linux 没有实机。

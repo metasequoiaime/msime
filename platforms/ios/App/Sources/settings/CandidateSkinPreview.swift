@@ -150,15 +150,17 @@ final class CandidateSkinPreviewRow: CandidateCanvasHostView {
 
   func apply(_ snapshot: CandidateSkinPreview.Snapshot) {
     canvas = snapshot.canvas
+    decorationWords = [ExternalCandidateSkin.Canvas.Word(text: "水杉", highlighted: true),
+      ExternalCandidateSkin.Canvas.Word(text: "输入"), ExternalCandidateSkin.Canvas.Word(text: "输入法")]
     let palette = snapshot.palette
     backgroundColor = canvas?.panelLoaded == true ? .clear : palette.surface
-    layer.cornerRadius = canvas == nil ? 12 : 0
+    layer.cornerRadius = canvas?.panelLoaded != true ? 12 : 0
     for (index, item) in items.enumerated() {
       item.1.textColor = palette.number
-      item.2.textColor = index == 0 && canvas != nil ? palette.selectedText ?? palette.text : palette.text
-      item.0.backgroundColor = index == 0 ? (canvas == nil ? palette.hover : palette.selected) : .clear
+      item.2.textColor = index == 0 && canvas?.panelLoaded == true ? palette.selectedText ?? palette.text : palette.text
+      item.0.backgroundColor = index == 0 ? (canvas?.panelLoaded != true ? palette.hover : palette.selected) : .clear
       item.0.layer.cornerRadius = canvas?.itemCornerRadius ?? 9
-      item.0.layer.borderWidth = canvas == nil ? 1 : 0
+      item.0.layer.borderWidth = canvas?.panelLoaded != true ? 1 : 0
       item.0.layer.borderColor = palette.border.cgColor
     }
   }

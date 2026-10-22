@@ -123,3 +123,9 @@ powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
 脚本不注册输入法，不修改现有用户偏好；页面运行验收仍不能替代 TSF 在真实编辑器里的输入验证。
 
 「候选窗口 → 游戏」另有 CS2 / Dota 2 原生候选兼容按钮：默认关闭，启用后系统登记名称变为「拼音输入法」，关闭恢复当前 edition 的产品名。它需要 UAC 授权和重启游戏，作用于本 edition 的两份 TSF profile，并由注册流程在升级时保留、卸载时清除。它不写共享偏好；失败恢复原名称，详见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)。
+
+## 缩放与滚轮验收
+
+`app.manifest` 经 MSBuild 合并进最终可执行文件，声明 PerMonitorV2 与 PerMonitor 回退；保留 Windows App SDK 注入的 WinRT 激活清单。默认 SDK 使用 1.7.9（`1.7.260224002`），包含 1.7.5 对关闭「悬停时滚动非活动窗口」后丢失滚轮输入的修复。
+
+`tests/tools/settings_ui.ps1` 直接查询真实窗口的 DPI 上下文，并分别在两种滚轮路由下发送鼠标滚轮，读取正文滚动位置是否改变；测试恢复原系统设置和指针位置。`-InputOnly` 可只跑这一部分。运行需要交互式 Windows 桌面；SSH 的非交互窗口站不能代替它。

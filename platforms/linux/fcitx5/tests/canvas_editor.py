@@ -165,7 +165,9 @@ def screenshot():
 
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
 TRANSLATION_BELOW = os.environ.get("MSIME_TEST_TRANSLATION_BELOW") == "1"
+FONT_GEOMETRY = os.environ.get("MSIME_TEST_FONT_GEOMETRY") == "1"
 ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
+OVERLAY = os.environ.get("MSIME_TEST_DECORATION_OVERLAY") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
 COMPOSITED = os.environ.get("MSIME_TEST_COMPOSITED") == "1"
 SELECTED = (7, 91, 173)
@@ -738,6 +740,108 @@ def save_image(name):
         capture_image().savev(str(directory / f"{name}.png"), "png", [], [])
 
 
+def accept_overlay(skin, entry, preferences, publish, focused):
+    """真实 GTK 输入只装饰图的 system 包，检查文字、分页、失败和焦点。"""
+    green, blue = (0, 255, 127), (53, 132, 228)
+    manifest = skin / "skin.toml"
+    original = manifest.read_text()
+
+    def glyphs():
+        window = native_window()
+        if window is None:
+            return frozenset()
+        geometry = window_geometry(window)
+        image, _ = screenshot()
+        data, channels, stride = image.get_pixels(), image.get_n_channels(), image.get_rowstride()
+        x0, y0 = int(geometry["X"]), int(geometry["Y"])
+        points = set()
+        for y in range(max(0, y0), min(image.get_height(), y0 + int(geometry["HEIGHT"]))):
+            for x in range(max(0, x0), min(image.get_width(), x0 + int(geometry["WIDTH"]))):
+                at = y * stride + x * channels
+                if data[at:at + 3] == bytes(green):
+                    points.add((x - x0, y - y0))
+        return frozenset(points)
+
+    def wheel(button):
+        # GTK 焦点边框可能透过上方留白；在原生选中行底部的实色区定位。
+        left, _, right, bottom = color_bounds(blue)
+        y = bottom - 3 * NATIVE_SCALE
+        image, _ = screenshot()
+        data, channels, stride = image.get_pixels(), image.get_n_channels(), image.get_rowstride()
+        xs = [x for x in range(left, right)
+              if data[y * stride + x * channels:y * stride + x * channels + 3] == bytes(blue)]
+        assert xs, "原生选中行没有可点击的高亮区域"
+        subprocess.run(["xdotool", "mousemove", str(xs[len(xs) // 2]), str(y),
+                        "click", str(button)], check=True, timeout=5)
+
+    def background(color):
+        window = native_window()
+        if window is None:
+            return False
+        bounds = window_geometry(window)
+        image, _ = screenshot()
+        x = int(bounds["X"]) + int(bounds["WIDTH"]) // 2
+        y = int(bounds["Y"]) + int(bounds["HEIGHT"]) - 4 * NATIVE_SCALE
+        at = y * image.get_rowstride() + x * image.get_n_channels()
+        # 浅色文字也可能等于深色底色，只检查面板底部的空白内边距。
+        return image.get_pixels()[at:at + 3] == bytes(color)
+
+    wait(lambda: len(glyphs()) > 10)
+    first = glyphs()
+    save_image("overlay-first")
+    subprocess.run(["xdotool", "key", "Down"], check=True, timeout=5)
+    wait(lambda: (points := glyphs()) and points != first)
+    save_image("overlay-highlight")
+    subprocess.run(["xdotool", "key", "Up"], check=True, timeout=5)
+    wait(lambda: glyphs() == first)
+    wheel(5)
+    wait(lambda: (points := glyphs()) and points != first)
+    save_image("overlay-next-page")
+    wheel(4)
+    wait(lambda: glyphs() == first)
+    manifest.write_text(original.replace("candidate_overlay_index = 0", "candidate_overlay_index = 100"))
+    wait(lambda: native_window() is not None and not glyphs())
+    save_image("overlay-out-of-range")
+    manifest.write_text(original)
+    wait(lambda: glyphs() == first)
+    for horizontal in ("left", "center", "right"):
+        for vertical in ("top", "center", "bottom"):
+            text = original.replace("candidate_overlay_align_h = 'center'", f"candidate_overlay_align_h = '{horizontal}'")
+            text = text.replace("candidate_overlay_align_v = 'center'", f"candidate_overlay_align_v = '{vertical}'")
+            before = glyphs()
+            manifest.write_text(text)
+            # 位置变化必须体现在原生字形像素上；文件轮询不会抢走编辑器焦点。
+            wait(lambda: len(glyphs()) > 10 and glyphs() != before)
+            save_image(f"overlay-{horizontal}-{vertical}")
+    manifest.write_text(original)
+    wait(lambda: glyphs() == first)
+    preferences["candidate_theme"] = "dark"
+    publish()
+    wait(lambda: background((48, 48, 48)) and len(glyphs()) > 10)
+    save_image("overlay-dark")
+    decorated_height = int(window_geometry(native_window())["HEIGHT"])
+    (skin / "banner.png").write_bytes(b"broken")
+    # 坏图回到默认原生卡片，撤下装饰带和文字，不能残留旧资源。
+    wait(lambda: (window := native_window()) is not None and not glyphs()
+         and int(window_geometry(window)["HEIGHT"]) < decorated_height and background((48, 48, 48)))
+    assert entry.get_text() == "", "坏图回退提前上屏"
+    save_image("overlay-broken")
+    (skin / "banner.png").write_bytes(png(((30, 40, 50),) * 9))
+    wait(lambda: native_window() is not None and len(glyphs()) > 10)
+    save_image("overlay-repaired")
+    # 关闭声明只撤下文字，保留默认原生候选窗；重新启用后恢复图内候选。
+    manifest.write_text(original.replace("candidate_overlay = true", "candidate_overlay = false"))
+    wait(lambda: native_window() is not None and not glyphs() and background((48, 48, 48)))
+    assert entry.get_text() == "", "关闭装饰词提前上屏"
+    save_image("overlay-disabled")
+    manifest.write_text(original)
+    wait(lambda: native_window() is not None and len(glyphs()) > 10)
+    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+    wait(lambda: entry.get_text() != "" and native_window() is None)
+    assert focused(), "装饰词窗口抢走编辑器焦点"
+    print("真实 GTK 装饰词高亮、翻页、九种对齐、明暗、坏图与关闭清理及上屏通过")
+
+
 def fallback_visible(theme):
     config = configparser.ConfigParser(interpolation=None)
     config.read(theme)
@@ -788,6 +892,111 @@ def accept_translation_below(preferences, publish, entry, control, daemon):
     print("真实 classicui 译文位于正文下方，行高与译文区域点击上屏通过")
 
 
+def accept_font_geometry(root, preferences, publish, entry, focused, control, daemon):
+    """比较真实 classicui 序号像素与独立的绝对像素字号参考。"""
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import Pango, PangoCairo
+
+    version = subprocess.check_output(["fcitx5", "--version"], text=True).strip()
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", version)
+    assert match, "无法确认实际 Fcitx5 版本"
+    modern = tuple(map(int, match.groups())) >= (5, 1, 18)
+    libdir = Path(subprocess.check_output(["pkg-config", "--variable=libdir", "Fcitx5Core"], text=True).strip()).resolve()
+    mappings = (Path("/proc") / str(daemon.pid) / "maps").read_text().splitlines()
+    for library in ("libFcitx5Core.so", "libclassicui.so"):
+        loaded = {Path(line.split()[-1]).resolve() for line in mappings if library in line}
+        assert loaded and all(path.is_relative_to(libdir) for path in loaded), f"运行库来源不符：{library}"
+        print(f"实际加载 {library}: {', '.join(map(str, sorted(loaded)))}", flush=True)
+    context = PangoCairo.FontMap.get_default().create_context()
+    PangoCairo.context_set_resolution(context, 96)
+    config = root / "config/fcitx5/conf/classicui.conf"
+
+    def font_setting():
+        if not config.exists():
+            return None
+        return next((line for line in config.read_text().splitlines() if line.startswith("Font=")), None)
+
+    def label_geometry():
+        image = capture_image()
+        data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+        selected = bytes((7, 91, 173))
+        points = [(x, y) for y in range(image.get_height()) for x in range(image.get_width())
+                  if data[y * stride + x * channels:y * stride + x * channels + 3] == selected]
+        if not points:
+            return None
+        # 页眉图标也可能使用同一蓝色，只测面积最大的连续高亮区域。
+        remaining = set(points)
+        largest = set()
+        while remaining:
+            component = {remaining.pop()}
+            pending = list(component)
+            while pending:
+                x, y = pending.pop()
+                for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        component.add(neighbor)
+                        pending.append(neighbor)
+            if len(component) > len(largest):
+                largest = component
+        points = largest
+        left, right = min(x for x, _ in points), max(x for x, _ in points) + 1
+        top, bottom = min(y for _, y in points), max(y for _, y in points) + 1
+        rows, columns = {}, {}
+        for x, y in points:
+            rows.setdefault(y, []).append(x)
+            columns.setdefault(x, []).append(y)
+        row_bounds = {y: (min(xs), max(xs)) for y, xs in rows.items()}
+        column_bounds = {x: (min(ys), max(ys)) for x, ys in columns.items()}
+        # 圆角外的白色卡片底色会落在包围盒内；字形须在四个方向都被高亮包围。
+        glyphs = [(x, y) for y in range(top, bottom) for x in range(left, right)
+                  if min(data[y * stride + x * channels:y * stride + x * channels + 3]) >= 220
+                  and y in row_bounds and x in column_bounds
+                  and row_bounds[y][0] < x < row_bounds[y][1]
+                  and column_bounds[x][0] < y < column_bounds[x][1]]
+        if not glyphs:
+            return None
+        # 首个候选标为「1 」；空列把序号与后面的汉字分开，不受两者字体回退差异影响。
+        columns = {x for x, _ in glyphs}
+        first = min(columns)
+        last = first
+        while last + 1 in columns:
+            last += 1
+        label = [(x, y) for x, y in glyphs if x <= last]
+        return last - first + 1, max(y for _, y in label) - min(y for _, y in label) + 1
+
+    wait(lambda: font_setting() is not None and label_geometry() is not None)
+    previous = label_geometry()
+    for size, scale in ((20, 100), (32, 100), (20, 150)):
+        before = font_setting()
+        preferences.update(candidate_font_size=size, candidate_scale_percent=scale)
+        publish()
+        wait(lambda: font_setting() != before)
+        wait(lambda: (geometry := label_geometry()) is not None and geometry != previous)
+        actual = label_geometry()
+        reference = Pango.Layout.new(context)
+        description = Pango.FontDescription.from_string("DejaVu Sans")
+        description.set_absolute_size(round(size * scale / 100 * (0.8 if modern else 1) * Pango.SCALE))
+        reference.set_font_description(description)
+        reference.set_text("1", -1)
+        ink, _ = reference.get_pixel_extents()
+        expected = (ink.width, ink.height)
+        save_image(f"font-{size}-scale-{scale}")
+        print(f"Fcitx5 {version}: 字号 {size}，缩放 {scale}%，序号像素 {actual}，参考 {expected}", flush=True)
+        # 墨迹矩形包含抗锯齿边缘，浅色字形实部在两侧合计可收窄两个像素。
+        assert all(abs(a - b) <= 2 for a, b in zip(actual, expected)), "序号像素偏离预期字号"
+        configured = Pango.FontDescription.from_string(font_setting().split("=", 1)[1].strip('"'))
+        assert configured.get_size_is_absolute() != modern, "字体描述的单位与实际运行库不匹配"
+        assert focused() and entry.get_text() == "", "字号热更新改变了焦点或提前上屏"
+        previous = actual
+    assert native_window() is None, "此项必须验收真实 classicui"
+    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你好")
+    control.Exit()
+    assert daemon.wait(timeout=10) == 0
+    print("真实 classicui 序号字号、整体缩放、热更新和 GTK 上屏通过")
+
+
 def main():
     resources, library, addon = map(Path, sys.argv[1:4])
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -796,7 +1005,7 @@ def main():
     bus.request_name("org.freedesktop.portal.Desktop")
     host = ctypes.CDLL(str(library))
     responses = ResponseDecoder(host)
-    for name in ("msime_client_prepare_host", "msime_client_load_preferences"):
+    for name in ("msime_client_prepare_host", "msime_client_load_preferences", "msime_client_skin_package"):
         function = getattr(host, name)
         function.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
         function.restype = ctypes.c_void_p
@@ -834,7 +1043,7 @@ def main():
             f"[candidate_window.border_image]\nsource = '{panel_file}'\nlight_source = '{light_file}'\n"
             "slice_dip = [20]\nwidth_dip = [8]\n[candidate.light]\ntext = '#010203'\n"
             "[candidate.dark]\ntext = '#FDFCFB'\n")
-        if TRANSLATION_BELOW:
+        if TRANSLATION_BELOW or FONT_GEOMETRY:
             manifest = skin / "skin.toml"
             # 普通基底由 classicui 绘制；canvas 基底在 X11 会被产品自身的原生窗口接管。
             manifest.write_text(manifest.read_text().replace("base = 'canvas'", "base = 'system'"))
@@ -850,10 +1059,31 @@ def main():
             text += (f"[[candidate_window.decorations]]\nimage = '{widget_name}'\nanchor = 'top-right'\n"
                      "offset_x_dip = 24\noffset_y_dip = -24\nwidth_dip = 20\nheight_dip = 20\nz_index = 2\n")
             manifest.write_text(text)
+        if OVERLAY:
+            assert NATIVE and not WAYLAND and not ANIMATION
+            (skin / "banner.png").write_bytes(png(((30, 40, 50),) * 9))
+            # 不声明 candidate 配色，确保有效图片包不会被空配色丢弃。
+            (skin / "skin.toml").write_text(
+                "schema_version = 2\nid = 'canvas-fixture'\nname = 'Overlay fixture'\nversion = '1'\nbase = 'system'\n"
+                "[supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['light', 'dark']\n"
+                "[candidate_window.decoration]\nimage = 'banner.png'\ntop_inset_dip = 80\nwidth_dip = 120\n"
+                "candidate_overlay = true\ncandidate_overlay_index = 0\ncandidate_overlay_font_size_dip = 36\n"
+                "candidate_overlay_min_font_size_dip = 8\ncandidate_overlay_color = '#00FF7F'\n"
+                "candidate_overlay_align_h = 'center'\ncandidate_overlay_align_v = 'center'\n")
         options["candidate_skin_catalog"] = {
             "directory": str(skin.parent), "packages": [{
                 "id": "canvas-fixture", "title": "Canvas fixture", "base": "system",
                 "layouts": ["horizontal", "vertical"], "candidate": {"light": {}, "dark": {}}}]}
+        if OVERLAY:
+            # 从完整包转换宿主目录字段；严格主题解析不接受 UI 包的 camelCase 条目。
+            request = json.dumps({"directory": str(skin.parent), "id": skin.name}).encode()
+            package = value(host.msime_client_skin_package(request, len(request)))
+            assert package.get("decorationCandidate") and package.get("decorationImage") == "banner.png"
+            options["candidate_skin_catalog"]["packages"][0].update(
+                decoration_top_dip=package["decorationTopDip"],
+                decoration_width_dip=package["decorationWidthDip"],
+                decoration_image=str(skin / package["decorationImage"]),
+                decoration_align=package["decorationAlign"])
         preferences = options["preferences"]
         preferences.update(learning=False, cloud_candidates=False, usage_reporting=False,
                            global_theme="custom", candidate_theme="light",
@@ -873,6 +1103,14 @@ def main():
                                            candidate_skin_dark="canvas-fixture")
         if TRANSLATION_BELOW:
             preferences["custom_theme"]["candidate_colors"] = {"selected": "#075BAD", "text": "#010203"}
+        if FONT_GEOMETRY:
+            assert not NATIVE and not WAYLAND
+            preferences.update(candidate_translations=False, candidate_english_gloss=False,
+                               candidate_font_family="DejaVu Sans", candidate_fallback_fonts=[],
+                               candidate_font_size=12, candidate_scale_percent=100)
+            preferences["custom_theme"]["candidate_colors"] = {
+                "selected": "#075BAD", "text": "#010203", "selected_text": "#FFFFFF",
+                "selected_number": "#FFFFFF"}
 
         def publish():
             store = options["preferences_directory"].encode()
@@ -941,10 +1179,13 @@ def main():
                     return int(subprocess.check_output(["xdotool", "getwindowfocus"])) == xid
                 wait(lambda: entry.has_focus())
                 next_focus_retry = 0.0
+                focused_line = None
 
                 def ime_focused():
-                    nonlocal next_focus_retry
-                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", str(control.DebugInfo())):
+                    nonlocal next_focus_retry, focused_line
+                    focused_line = next((line for line in str(control.DebugInfo()).splitlines()
+                                         if re.search(r"frontend:dbus\b.*\bfocus:1\b", line)), None)
+                    if focused_line is not None:
                         return True
                     # GTK 创建远端上下文是异步的；连接之前发出的首次焦点可能丢失。
                     # 只在握手未完成时重发真实窗口焦点，不重启 daemon 或绕过输入框。
@@ -956,8 +1197,7 @@ def main():
                     return False
 
                 wait(ime_focused)
-                focused_line = next(line for line in str(control.DebugInfo()).splitlines()
-                                    if re.search(r"frontend:dbus\b.*\bfocus:1\b", line))
+                # 使用等待成功的同一份焦点快照，避免两次 D-Bus 查询之间的连接切换。
                 focused_context = re.search(r"IC \[[^\]]+\]", focused_line).group()
                 control.SetCurrentIM("msime")
                 control.Activate()
@@ -967,6 +1207,12 @@ def main():
                 else:
                     subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "100", "ni" if NATIVE else "nihao"],
                                    check=True, timeout=5)
+                if OVERLAY:
+                    accept_overlay(skin, entry, preferences, publish, focused)
+                    return
+                if FONT_GEOMETRY:
+                    accept_font_geometry(root, preferences, publish, entry, focused, control, daemon)
+                    return
                 if not TRANSLATION_BELOW:
                     wait(lambda: palette_visible(LIGHT))
                 assert entry.get_text() == "", "预编辑文字提前进入编辑器"

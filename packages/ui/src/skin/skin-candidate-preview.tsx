@@ -1,5 +1,7 @@
 import { clamp } from "../core/number";
 import { logo } from "../settings/app-resources";
+import type { DecorationCandidate } from "./decoration-candidate";
+import { SkinDecorationWord } from "./skin-decoration-word";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import {
   canvasDecorationStyle,
@@ -75,6 +77,7 @@ export function SkinCandidatePreview({
   helpcode = false,
   ghost = false,
   brand = true,
+  decorationCandidate,
   canvas = null,
   panelUrl,
   readImage,
@@ -95,6 +98,7 @@ export function SkinCandidatePreview({
   ghost?: boolean;
   /** 画不画首行的水杉 logo。macOS 和 Windows 按 `show_app_logo` 隐藏它，拼音行也隐藏时首行整行不画，和候选窗一致。 */
   brand?: boolean;
+  decorationCandidate?: DecorationCandidate | null;
   /** 一个 canvas 包的九宫格、内外留白、行距与自由挂件；只对它画面板，其余包与以前逐位相同。 */
   canvas?: SkinCanvasGeometry | null;
   /** 已经浏览器解码成功的面板地址；读取成功但尚未解码时不传。 */
@@ -183,7 +187,7 @@ export function SkinCandidatePreview({
     >
       {framed ? (
         <div className="containerParent">
-          {image && (
+          {image && !decorationCandidate && (
             <img className="skin-decoration-image" src={image} alt="" onError={onImageError} />
           )}
           {canvas && canvas.below.length > 0 && (
@@ -194,6 +198,22 @@ export function SkinCandidatePreview({
               skinId={skinId}
               revision={revision}
             />
+          )}
+          {image && decorationCandidate && (
+            <div className="skin-decoration-group">
+              <img
+                className="skin-decoration-image"
+                data-grouped=""
+                src={image}
+                alt=""
+                onError={onImageError}
+              />
+              <SkinDecorationWord
+                candidate={decorationCandidate}
+                samples={previewSamples.slice(0, visibleCount)}
+                image={image}
+              />
+            </div>
           )}
           {content}
           {canvas && canvas.above.length > 0 && (

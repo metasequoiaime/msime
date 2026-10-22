@@ -30,6 +30,7 @@ test('complete build pagination deduplicates builds and collects only aggregate 
       return parsed.searchParams.has('cursor') ? answer([build('a'), build('b')]) : answer([build('a')], `${url}&cursor=next`);
     }
     assert.ok(!url.includes('betaTester'));
+    assert.equal(parsed.searchParams.has('limit'), false, 'the live build usage API rejects limit; pagination follows Apple links');
     return answer(metrics([point(url.includes('/a/') ? 5 : 0)]));
   };
   assert.deepEqual(await collectStats('123', credentials, request, new Date('2026-10-21T10:00:00Z')), {
@@ -75,4 +76,19 @@ test('site dispatch strips raw fields and refuses unsuccessful delivery', async 
   });
   assert.deepEqual(body, { event_type: 'testflight-stats-v1', client_payload: stats });
   await assert.rejects(dispatchStats(stats, 'synthetic', async () => new Response(null, { status: 403 })), /HTTP 403/);
+});
+
+
+test('Apple failures expose only endpoint, code and known parameter names', async () => {
+  const response = () => Response.json({ errors: [{ code: 'PARAMETER_ERROR.INVALID', source: { parameter: 'filter[app]' }, detail: 'synthetic-private-detail' }, { code: 'synthetic-private-code', source: { parameter: 'synthetic-private-parameter' } }] }, { status: 400 });
+  await assert.rejects(applePages('/v1/builds?filter[app]=123', credentials, response), error => {
+    assert.match(error.message, /HTTP 400; endpoint=build list; codes=PARAMETER_ERROR.INVALID; parameters=filter\[app\]/);
+    assert.doesNotMatch(error.message, /synthetic-private|123|Bearer/);
+    return true;
+  });
+  await assert.rejects(applePages('/v1/builds/synthetic-id/metrics/betaBuildUsages', credentials, async () => new Response('synthetic-private-non-json', { status: 400 })), error => {
+    assert.match(error.message, /endpoint=build usage/);
+    assert.doesNotMatch(error.message, /synthetic/);
+    return true;
+  });
 });

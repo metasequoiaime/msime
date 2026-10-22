@@ -31,7 +31,24 @@ if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
   sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.CandidateUpstreamSkinDeviceSmoke/' \
     platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
 fi
-"$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" -o "$build_dir/unsigned.apk"
+# 联系人专项复用一个原生宿主入口，避免超过 Android 35 的 100 项限制。
+if [[ "${MSIME_ANDROID_CONTACTS_SMOKE:-0}" == 1 || "${MSIME_ANDROID_CONTACTS_SMOKE:-0}" == pinyin ]]; then
+  contacts_target=app.msime.android
+  if [[ "$MSIME_ANDROID_CONTACTS_SMOKE" == pinyin ]]; then contacts_target=app.msime.android.pinyin; fi
+  contacts_manifest="$build_dir/contacts-manifest.xml"
+  sed "s/app.msime.android.test.CandidateCanvasDeviceSmoke\" android:targetPackage=\"app.msime.android\"/app.msime.android.test.ContactsDeviceSmoke\" android:targetPackage=\"$contacts_target\"/" \
+    "$editor_manifest" > "$contacts_manifest"
+  editor_manifest="$contacts_manifest"
+fi
+if [[ "${MSIME_ANDROID_INLINE_AUTOFILL:-0}" == 1 ]]; then
+  # 专项复用一个入口，保持清单在系统允许的 100 项以内。
+  sed 's/app.msime.android.test.DeviceSmoke/app.msime.android.test.InlineAutofillDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/autofill-manifest.xml"
+  editor_manifest="$build_dir/autofill-manifest.xml"
+fi
+"$tools_dir/aapt2" compile --dir platforms/android/tests/device/res -o "$build_dir/resources.zip"
+"$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" \
+  -R "$build_dir/resources.zip" -o "$build_dir/unsigned.apk"
 (cd "$build_dir/dex" && zip -q -0 "$build_dir/unsigned.apk" classes.dex)
 "$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"
 # Instrumentation that targets app.msime.android only runs when this package carries the app's certificate, so it signs with the same key (scripts/signing.sh).
@@ -46,3 +63,12 @@ cp "$build_dir/signed.apk" target/android/editor-test.apk
 "$tools_dir/apksigner" sign "${android_signing[@]}" --out target/android/first-frame-editor.apk "$build_dir/first-frame-aligned.apk"
 "$tools_dir/apksigner" verify target/android/first-frame-editor.apk
 echo "Synthetic editor APKs built; no device changed"
+
+# 应用兼容专项只在显式请求时生成；无网络权限的合成搜索框使用被测应用包名。
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  "$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/CompositionSearchEditorManifest.xml -o "$build_dir/search-unsigned.apk"
+  (cd "$build_dir/dex" && zip -q -0 "$build_dir/search-unsigned.apk" classes.dex)
+  "$tools_dir/zipalign" -P 16 4 "$build_dir/search-unsigned.apk" "$build_dir/search-aligned.apk"
+  "$tools_dir/apksigner" sign "${android_signing[@]}" --out target/android/composition-search-editor.apk "$build_dir/search-aligned.apk"
+  "$tools_dir/apksigner" verify target/android/composition-search-editor.apk
+fi

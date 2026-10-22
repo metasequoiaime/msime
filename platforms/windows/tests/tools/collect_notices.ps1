@@ -14,6 +14,7 @@ try {
         'resources/licenses/Zinnia-LICENSE.txt', 'resources/licenses/Administrative-divisions-of-China-WTFPL.txt',
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/kfcd-chaizi-CC-BY-3.0.txt',
         'resources/licenses/Unicode-License-V3.txt',
+        'resources/licenses/rime-wanxiang-CC-BY-4.0.txt',
         'resources/licenses/rime-cantonese-CC-BY-4.0.txt',
         'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/rime-stroke-LGPL-3.0.txt',
         'resources/licenses/vi-MIT.txt', 'resources/licenses/ewts-MIT.txt',

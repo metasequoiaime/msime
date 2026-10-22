@@ -22,6 +22,7 @@ import {
   manifestReasonMessage,
 } from "../../../../packages/ui/src/skin/candidate-skin-editor-messages";
 import type { ExternalSkin } from "../../../../packages/ui/src/skin/external-skins";
+import { decorationCandidate } from "../../../../packages/ui/src/skin/decoration-candidate";
 
 const image = (contentType: DraftImage["contentType"], data = "AAAA"): DraftImage => ({
   fileName: "synthetic",
@@ -265,6 +266,81 @@ const scanned = {
   animation: { enter: "glow", exit: "fade", selection: "spring", durationMs: 300, staggerMs: 10 },
   license: { code: "MIT", assets: "CC0-1.0", source: null },
 } satisfies ExternalSkin;
+
+test("复制、暂存和导出皮肤时保留装饰候选词及原始颜色声明", () => {
+  const candidate = {
+    index: 0,
+    fontSizeDip: 12,
+    minFontSizeDip: 30,
+    maxWidthDip: 80,
+    color: "rgba(10.5 20 30 0.5)",
+    resolvedColor: "#0B141E80",
+    alignH: "right",
+    alignV: "bottom",
+    offsetXDip: -12,
+    offsetYDip: 5,
+    stripBadge: false,
+  } as const;
+  const draft = draftFromSkin(
+    {
+      ...scanned,
+      schemaVersion: 1,
+      decorationTopDip: 40,
+      decorationWidthDip: 60,
+      decorationImage: "decoration.png",
+      decorationCandidate: candidate,
+    },
+    { decoration: image("image/png") },
+  );
+  expect(draft.decoration?.candidate).toEqual(candidate);
+  const saved = normalizeCandidateSkinDraft(JSON.parse(JSON.stringify(draft)));
+  expect(saved.decoration?.candidate).toEqual(candidate);
+  expect(draftSkin(saved).decorationCandidate).toEqual(candidate);
+  const manifest = draftManifest(saved, "preview.png");
+  expect(manifest).toContain("schema_version = 1");
+  for (const line of [
+    "candidate_overlay = true",
+    "candidate_overlay_index = 0",
+    "candidate_overlay_font_size_dip = 12",
+    "candidate_overlay_min_font_size_dip = 30",
+    "candidate_overlay_max_width_dip = 80",
+    'candidate_overlay_color = "rgba(10.5 20 30 0.5)"',
+    'candidate_overlay_align_h = "right"',
+    'candidate_overlay_align_v = "bottom"',
+    "candidate_overlay_offset_x_dip = -12",
+    "candidate_overlay_offset_y_dip = 5",
+    "candidate_overlay_strip_badge = false",
+  ]) {
+    expect(manifest).toContain(line);
+  }
+  expect(manifest).not.toContain("resolvedColor");
+  for (const invalid of [
+    { ...candidate, index: 101 },
+    { ...candidate, fontSizeDip: 0 },
+    { ...candidate, offsetYDip: Infinity },
+    { ...candidate, color: "#fff;display:none" },
+  ]) {
+    const rejected = normalizeCandidateSkinDraft({
+      ...draft,
+      decoration: { ...draft.decoration, candidate: invalid },
+    });
+    expect(rejected.decoration?.candidate).toBeUndefined();
+    expect(draftManifest(rejected, "preview.png")).not.toContain("candidate_overlay");
+  }
+});
+
+test("旧草稿缺少规范化颜色时保持来源的颜色语义", () => {
+  for (const [color, resolved] of [
+    ["abc", "#AABBCCFF"],
+    ["abcd", "#AABBCCDD"],
+    ["rgba(10.5 20 30 0.5)", "#0B141E80"],
+    ["rgb(-10, 300, 20)", "#00FF14FF"],
+    ["transparent", "#00000000"],
+    ["unknown", "#FFFFFFFF"],
+  ]) {
+    expect(decorationCandidate({ color })?.resolvedColor).toBe(resolved);
+  }
+});
 
 test("duplicating an installed skin keeps what the editor cannot edit and writes it back", () => {
   const draft = draftFromSkin(scanned);

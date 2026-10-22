@@ -31,3 +31,7 @@ Status: implemented
 ## Verification
 
 `platforms/android/tests/clipboard/RecentClipboardSuggestionSmoke.java` 验证显示窗口、过期、关掉后不再出现、新复制重新出现、预览折叠与截断、`enabled` 在历史关着时为假、本地设置默认值和只在本机；`bash platforms/android/check-host.sh` 编译服务与工具栏代码并运行它，另有源码守卫要求这一行保留剪贴板入口、`insertClipboardText` 收起这条建议，以及服务里本地开关只经 `RecentClipboardSuggestion.enabled` 使用、`offerRecentClip` 在读剪贴板之前先问 `recentClipEnabled()` 并丢弃敏感内容、`render` 也问它（在把这几处分别改回只看本地开关、去掉敏感判断的副本上确认守卫会失败）。设置页只在 Gradle 构建里编译。真机上的显示与粘贴没有在设备上验证。
+
+## 关联决定
+
+[系统内联自动填充](2026-10-21-android-inline-autofill.md) 沿用同一工具栏位置；显示系统托管的填充建议时暂时隐藏最近复制，剪贴板历史开关与隐私限制保持各自含义。

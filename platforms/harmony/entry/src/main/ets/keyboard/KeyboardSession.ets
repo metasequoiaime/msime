@@ -1,3 +1,4 @@
+import { DecorationCandidateStyle } from './candidate/DecorationCandidatePolicy';
 import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
@@ -973,6 +974,8 @@ export interface KeyboardPreferences {
   readonly candidateMinWidthVp: number;
   /** Image-only data URL for a compatible external candidate decoration. */
   readonly candidateDecorationImage: string | null;
+  /** 只在桌面装饰图成功读取时提供文字声明。 */
+  readonly candidateDecorationCandidate: DecorationCandidateStyle | null;
   readonly candidateDecorationTopVp: number;
   readonly candidateDecorationWidthVp: number;
   readonly candidateDecorationAspectRatio: number;
@@ -1271,6 +1274,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     globalThemeId: 'system',
     candidateMinWidthVp: CandidateWidthPolicy.MIN_WIDTH_VP,
     candidateDecorationImage: null,
+    candidateDecorationCandidate: null,
     candidateDecorationTopVp: 0,
     candidateDecorationWidthVp: 0,
     candidateDecorationAspectRatio: 1,
@@ -1655,6 +1659,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
           Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
       candidateDecorationImage: skinImage.image,
+      candidateDecorationCandidate: skinImage.image === null || packageId === null ? null
+        : CandidateSkinCatalogPolicy.decorationCandidate(skinPackages, packageId),
       candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
       candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
       candidateDecorationAspectRatio: skinImage.aspectRatio,

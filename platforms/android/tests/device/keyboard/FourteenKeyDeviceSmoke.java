@@ -80,8 +80,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             stage = "nihao through the group keys";
             for (String pair : new String[] {"B N", "U I", "G H", "A S", "O P"}) tap(described("按键 " + pair));
             // 组字是组码字母，不写进输入框；读音行显示引擎首选的读音（BN UI 也是 bu，首选可能是「不好」），不是组码 bugao。
+            // 读音文字与编辑拼写动作一并校验，不混用描述和文字。
             await(reading("ni'hao").or(reading("bu'hao")));
             awaitGone(reading("bugao"));
+            stage = "group composition leaves editor empty";
             await(field("msime-test-plain").and(FourteenKeyDeviceSmoke::emptyField));
             stage = "nihao commit";
             tap(candidate("你好"));

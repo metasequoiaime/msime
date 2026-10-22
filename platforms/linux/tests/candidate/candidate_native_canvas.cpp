@@ -569,6 +569,152 @@ void pager_layout() {
   }
 }
 
+
+Json overlay_metadata() {
+  return {{"index", 0}, {"fontSizeDip", 24}, {"minFontSizeDip", 8}, {"maxWidthDip", 0},
+      {"alignH", "center"}, {"alignV", "center"}, {"offsetXDip", 0}, {"offsetYDip", 0},
+      {"stripBadge", true}, {"resolvedColor", "#FF00FFFF"}};
+}
+
+void decoration_overlay() {
+  const auto metadata = overlay_metadata();
+  assert(host::native_canvas_overlay(metadata));
+  for (const auto &[key, value] : std::vector<std::pair<std::string, Json>>{
+      {"index", true}, {"index", 1.5}, {"index", -1}, {"fontSizeDip", "24"},
+      {"maxWidthDip", -1}, {"stripBadge", 1}, {"alignH", "unsafe"}, {"resolvedColor", "#FF00FF"},
+      {"resolvedColor", "#FF00FFZZ"}}) {
+    auto invalid = metadata; invalid[key] = value;
+    assert(!host::native_canvas_overlay(invalid));
+  }
+  const auto target = image(2400, 500, 0);
+  auto *cr = cairo_create(target.get());
+  host::NativeCanvasAssets assets;
+  assets.banner = host::NativeCanvasBanner{image(40, 20, 0x123456), {}, 120, 80, "right",
+      host::native_canvas_overlay(metadata)};
+  host::NativeCanvasContent content;
+  content.font = "Sans 16px";
+  content.items = {{"", "placeholder"}, {"1.", "ordinary*"}, {"2.", "second"}};
+  content.items[1].decoration_text = "alpha(cloud)";
+  content.items[1].decoration_badge = "cloud";
+  content.items[2].decoration_text = "beta";
+  content.selected = 1;
+  auto layout = host::measure_native_canvas(cr, assets, content);
+  assert(layout.overlay && layout.overlay->text == "alpha(cloud)");
+  assert(layout.panel.y >= 80 && layout.overlay->box.y < layout.panel.y);
+  auto &style = *assets.banner->candidate;
+  style.stripBadge = false;
+  assert(host::measure_native_canvas(cr, assets, content).overlay->text == "alpha(cloud)cloud");
+  style.stripBadge = true;
+  content.selected = 2;
+  assert(host::measure_native_canvas(cr, assets, content).overlay->text == "beta");
+  content.selected = 0;
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  content.selected = -1;
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  style.index = 1;
+  assert(host::measure_native_canvas(cr, assets, content).overlay->text == "alpha(cloud)");
+  style.index = 3;
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  style.index = 1;
+  // 九种对齐真实绘制；文字和声明框相对定位，装饰区域不获得候选命中。
+  for (const auto *h : {"left", "center", "right"}) for (const auto *v : {"top", "center", "bottom"}) {
+    style.alignH = h; style.alignV = v;
+    layout = host::measure_native_canvas(cr, assets, content);
+    assert(layout.overlay);
+    cairo_save(cr); cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR); cairo_paint(cr); cairo_restore(cr);
+    host::paint_native_canvas(cr, assets, content, layout, Json::object());
+    int ink = 0;
+    for (int y = 0; y < layout.panel.y; ++y) for (int x = 0; x < layout.width; ++x) {
+      if ((pixel(target.get(), x, y) & 0xffffff) != 0xff00ff) continue;
+      ++ink;
+      assert(host::native_canvas_hit(content, layout, x, y) == -1);
+      const auto &box = layout.overlay->ink;
+      assert(x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height);
+    }
+    assert(ink > 10);
+  }
+  content.items[1].decoration_text = std::string(300, 'W');
+  style.maxWidthDip = 1;
+  style.fontSizeDip = 24; style.minFontSizeDip = 8;
+  layout = host::measure_native_canvas(cr, assets, content);
+  assert(layout.overlay->font_size == 8 && layout.overlay->text.size() == 300);
+  assert(layout.overlay->box.width > assets.banner->width && layout.width > 500);
+  assert(layout.overlay->ink.x >= 0 && layout.overlay->ink.x + layout.overlay->ink.width <= layout.width);
+  style.offsetXDip = -1000;
+  assert(host::measure_native_canvas(cr, assets, content).width > layout.width);
+  content.menu = true;
+  const auto menu = host::measure_native_canvas(cr, assets, content);
+  assert(!menu.overlay && menu.panel.y == 0);
+  content.menu = false;
+  assets.banner.reset();
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  const auto dark = host::native_canvas_palette({{"candidate", nullptr}}, true);
+  assert(host::theme_color(dark.at("surface"))->rgb == host::candidate_native_palette(true).surface);
+  assert(host::theme_color(dark.at("text"))->rgb == host::candidate_native_palette(true).text);
+  content = {};
+  content.font = "Sans 16px";
+  content.auxiliary = "MMMM";
+  const auto auxiliary = host::measure_native_canvas(cr, assets, content);
+  host::paint_native_canvas(cr, assets, content, auxiliary, dark);
+  int auxiliary_ink = 0;
+  for (int y = auxiliary.auxiliary.y; y < auxiliary.auxiliary.y + auxiliary.auxiliary.height; ++y)
+    for (int x = auxiliary.auxiliary.x; x < auxiliary.auxiliary.x + auxiliary.auxiliary.width; ++x)
+      auxiliary_ink += (pixel(target.get(), x, y) & 0xffffff) == host::candidate_native_palette(true).number;
+  assert(auxiliary_ink > 10);
+  cairo_destroy(cr);
+}
+
+// 非 canvas 包沿用最新 chrome 布局；图内文字、命中和展开网格共用同一份普通页快照。
+void chrome_decoration_overlay() {
+  const auto target = image(2400, 800, 0);
+  auto *cr = cairo_create(target.get());
+  host::NativeCanvasAssets assets;
+  assets.chrome = true;
+  auto animation = std::make_shared<host::NativeCanvasAnimation>();
+  animation->frames = {image(40, 20, 0x123456)};
+  animation->delays_ms = {0};
+  assets.band.image = animation;
+  assets.band.top = 80;
+  assets.band.width = 120;
+  assets.band.candidate = host::native_canvas_overlay(overlay_metadata());
+  host::NativeCanvasContent content;
+  content.font = "Sans 16px";
+  content.items = {{"1", "alpha"}, {"2", "beta"}};
+  content.items[0].decoration_text = "alpha";
+  content.items[1].decoration_text = "beta";
+  content.selected = 1;
+  for (bool horizontal : {false, true}) {
+    content.horizontal = horizontal;
+    auto layout = host::measure_native_canvas(cr, assets, content);
+    assert(layout.chrome && layout.overlay && layout.overlay->text == "beta");
+    host::paint_native_canvas(cr, assets, content, layout, {{"surface", "#000000"}});
+    int ink = 0;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x)
+      ink += (pixel(target.get(), x, y) & 0xffffff) == 0xff00ff;
+    assert(ink > 10);
+    // 文字超出声明框后整体平移，不让候选命中留在原位置。
+    assets.band.candidate->offsetXDip = -500;
+    assets.band.candidate->offsetYDip = -100;
+    layout = host::measure_native_canvas(cr, assets, content);
+    assert(layout.overlay->ink.x >= 0 && layout.overlay->ink.y >= 0);
+    assert(layout.overlay->ink.x + layout.overlay->ink.width <= layout.width);
+    assert(layout.overlay->ink.y + layout.overlay->ink.height <= layout.height);
+    assert(host::native_canvas_hit(content, layout, layout.items[0].x + 1, layout.items[0].y + 1) == 0);
+    assets.band.candidate->offsetXDip = assets.band.candidate->offsetYDip = 0;
+  }
+  content.decoration_items = content.items;
+  content.decoration_selected = 0;
+  content.items[0].decoration_text = "grid-word";
+  content.selected = 1;
+  assert(host::measure_native_canvas(cr, assets, content).overlay->text == "alpha");
+  content.decoration_selected = -1;
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  content.decoration_selected = 0;
+  assets.band.image.reset();
+  assert(!host::measure_native_canvas(cr, assets, content).overlay);
+  cairo_destroy(cr);
+}
+
 void expanded_panel() {
   const auto target = image(1200, 1200, 0);
   auto *cr = cairo_create(target.get());
@@ -650,6 +796,8 @@ void expanded_identity() {
 }
 
 int main() {
+  decoration_overlay();
+  chrome_decoration_overlay();
   expanded_panel();
   expanded_identity();
   pager_layout();
@@ -760,6 +908,16 @@ int main() {
   cairo_destroy(context);
   package["decorations"][0]["image"] = "b.png";
   assert(!host::load_native_canvas(package, root, "fixture", true));
+
+  Json banner_package = {{"id", "fixture"}, {"canvas", false}, {"decorationImage", "a.png"},
+      {"decorationWidthDip", 120}, {"decorationTopDip", 80}, {"decorationCandidate", overlay_metadata()}};
+  const auto traditional = host::load_native_canvas(banner_package, root, "fixture", false);
+  assert(traditional && traditional->banner && !traditional->panel && traditional->decorations.empty());
+  banner_package.erase("decorationCandidate");
+  assert(!host::load_native_canvas(banner_package, root, "fixture", false));
+  banner_package["decorationCandidate"] = overlay_metadata();
+  banner_package["decorationImage"] = "missing.png";
+  assert(!host::load_native_canvas(banner_package, root, "fixture", false));
 
   const auto target = image(700, 700, 0);
   auto *cr = cairo_create(target.get());

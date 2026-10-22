@@ -20,12 +20,23 @@ public final class KeyboardHeightPolicy {
     public static final int WINDOW_HEIGHT_ADJUSTMENT_PERCENT = 17;
 
     public static int bottomRowAdjustment(int adjustment) {
-        return Math.floorDiv(designHeightAdjustment(adjustment), KEYBOARD_ROW_COUNT);
+        return bottomRowAdjustment(adjustment, false);
+    }
+
+    /** 九宫格加高时底行保持默认高度；缩小时仍均分，保留底行的点击面积。 */
+    public static int bottomRowAdjustment(int adjustment, boolean nineKeyGrid) {
+        int value = designHeightAdjustment(adjustment);
+        return nineKeyGrid && value > 0 ? 0 : Math.floorDiv(value, KEYBOARD_ROW_COUNT);
     }
 
     public static int keyRowsAdjustment(int adjustment) {
+        return keyRowsAdjustment(adjustment, false);
+    }
+
+    /** 与底行使用同一分摊规则，两部分之和始终等于实际调整量。 */
+    public static int keyRowsAdjustment(int adjustment, boolean nineKeyGrid) {
         int value = designHeightAdjustment(adjustment);
-        return value - bottomRowAdjustment(value);
+        return value - bottomRowAdjustment(value, nineKeyGrid);
     }
 
     public static int heightPercentToAdjustment(int percent) {

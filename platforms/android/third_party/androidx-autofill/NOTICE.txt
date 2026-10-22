@@ -1,0 +1,9 @@
+AndroidX Autofill 1.3.0
+Copyright The Android Open Source Project
+
+来源：https://android.googlesource.com/platform/frameworks/support/+/934a41ec2c6c5c7a033e600ca0635df2c79ccd13/autofill/autofill
+固定提交：934a41ec2c6c5c7a033e600ca0635df2c79ccd13（官方 1.3.0 发行说明的提交范围终点）
+发布物：androidx.autofill:autofill:1.3.0，由 Google Maven 提供，Gradle 固定版本。
+用途：为系统托管的内联自动填充界面生成 AndroidX V1 样式。
+许可：Apache-2.0，全文见同目录 LICENSE.txt。
+分发：原生 APK 与开发合包的 assets/native-notices/androidx-autofill/ 包含本通知和许可证；未复制库实现源码。

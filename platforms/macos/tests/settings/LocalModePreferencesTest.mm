@@ -31,8 +31,10 @@ int main() {
         NSMutableDictionary<NSString *, NSButton *> *buttons = [NSMutableDictionary dictionary];
         for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, NSSelectorFromString(@"localModeChanged:")))
             buttons[control.identifier] = (id)control;
-        // 九种模式加上「Shift+字母进入快捷模式」总开关。
-        assert(buttons.count == 10 && buttons[@"shift_letter_entry"].state == NSControlStateValueOn);
+        // 十种模式加上「Shift+字母进入快捷模式」总开关。
+        assert(buttons.count == 11 && buttons[@"shift_letter_entry"].state == NSControlStateValueOn);
+        // 符号快捷输入（S 模式）缺键读作开，与来源出厂一致。
+        assert([prefs localModeEnabled:@"symbol"] && buttons[@"symbol"].state == NSControlStateValueOn);
         // 拆字反查在桌面默认关：缺键读作关，勾选框不勾，合并进共享文档时也不写这个键，让 host-api 按宿主形态决定。
         assert(![prefs localModeEnabled:@"chaizi"] && buttons[@"chaizi"].state == NSControlStateValueOff);
         assert([prefs sharedPreferencesByMerging:base][@"local_modes"][@"chaizi"] == nil);
@@ -69,7 +71,7 @@ int main() {
         NSDictionary *assistance = [prefs sharedPreferencesByMerging:base];
         assert([assistance[@"learning"] isEqual:@YES]);
         assert(([assistance[@"frequency"] isEqual:@{@"mode": @"halve", @"trigger_count": @3, @"linear_step": @4}]));
-        for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"chaizi"]) {
+        for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"symbol", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"chaizi"]) {
             NSButton *button = buttons[mode];
             assert(button && [prefs localModeEnabled:mode] == !([mode isEqual:@"unicode"] || [mode isEqual:@"chaizi"]));
             NSUInteger before = changes;

@@ -7,6 +7,11 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import java.util.List;
 import android.os.SystemClock;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,6 +25,9 @@ final class CandidateCanvasRenderer {
     private final RectF destination = new RectF();
     private final RectF card = new RectF();
     private CandidateCanvasAssets assets;
+    private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private List<CandidateCanvasAssets.Word> words = List.of();
+    private Typeface typeface = Typeface.DEFAULT;
     private boolean enabled;
     private long anchor;
     private long elapsed;
@@ -48,6 +56,13 @@ final class CandidateCanvasRenderer {
         }
     }
 
+    void words(List<CandidateCanvasAssets.Word> next, Typeface font) {
+        if (words.equals(next) && typeface.equals(font)) return;
+        words = List.copyOf(next);
+        typeface = font;
+        host.invalidate();
+    }
+
     void attached() {
         if (!observing) {
             host.getContext().getContentResolver().registerContentObserver(
@@ -69,6 +84,7 @@ final class CandidateCanvasRenderer {
         visible &= enabled && host.isAttachedToWindow() && host.isShown()
             && host.getWindowVisibility() == View.VISIBLE;
         if (assets.panel != null) assets.panel.visible(host, visible);
+        if (assets.banner != null) assets.banner.image().visible(host, visible);
         for (CandidateCanvasAssets.Widget widget : assets.widgets) widget.image().visible(host, visible);
     }
 
@@ -94,6 +110,42 @@ final class CandidateCanvasRenderer {
         if (!ready() || card.isEmpty()) return;
         float density = host.getResources().getDisplayMetrics().density;
         for (CandidateCanvasAssets.Widget widget : assets.widgets) if (widget.z() >= 1) widget(canvas, widget, density);
+        if (assets.banner != null) banner(canvas, assets.banner, density);
+    }
+
+    private void banner(Canvas canvas, CandidateCanvasAssets.Banner banner, float density) {
+        Bitmap image = frame(banner.image());
+        float width = (float) banner.width() * density, height = (float) banner.height() * density;
+        float scale = Math.min(Math.min(width / image.getWidth(), height / image.getHeight()), card.width() / image.getWidth());
+        if (!(scale > 0) || !Float.isFinite(scale)) return;
+        float align = "left".equals(banner.align()) ? 0 : "center".equals(banner.align()) ? .5f : 1;
+        float w = image.getWidth() * scale, h = image.getHeight() * scale;
+        float left = card.left + (card.width() - w) * align, bottom = card.top;
+        destination.set(left, bottom - h, left + w, bottom);
+        paint.setAlpha(255);
+        canvas.drawBitmap(image, null, destination, paint);
+        CandidateCanvasAssets.CandidateOverlay style = banner.candidate();
+        if (style == null) return;
+        String word = style.word(words);
+        if (word.isEmpty()) return;
+        textPaint.setTypeface(typeface);
+        textPaint.setColor(style.color());
+        textPaint.setTextSize((float) style.fontSize() * density);
+        float natural = Layout.getDesiredWidth(word, textPaint);
+        float limit = style.maxWidth() > 0 ? (float) style.maxWidth() * density : width;
+        if (natural > limit) textPaint.setTextSize(Math.max((float) Math.min(style.fontSize(), style.minimum()) * density,
+            textPaint.getTextSize() * limit / natural));
+        // 单行布局保留完整原文，最小字号后允许超出声明框，不向图片裁切。
+        int measured = Math.max(1, (int) Math.ceil(Layout.getDesiredWidth(word, textPaint)));
+        StaticLayout layout = StaticLayout.Builder.obtain(word, 0, word.length(), textPaint, measured)
+            .setIncludePad(false).setMaxLines(1).build();
+        float ax = "left".equals(style.horizontal()) ? 0 : "center".equals(style.horizontal()) ? .5f : 1;
+        float ay = "top".equals(style.vertical()) ? 0 : "center".equals(style.vertical()) ? .5f : 1;
+        int save = canvas.save();
+        canvas.translate(left + (w - width) * align + (width - measured) * ax + (float) style.x() * density,
+            bottom - height + (height - layout.getHeight()) * ay + (float) style.y() * density);
+        layout.draw(canvas);
+        canvas.restoreToCount(save);
     }
 
     private void panel(Canvas canvas, float density) {

@@ -125,7 +125,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 横排候选窗里，左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 造词时按 Esc 是否只丢掉还没选的拼写、保留已经选好的词（Windows `input.escape_keeps_selected_word`）。默认关：Esc 连已选词一起丢掉，与旧行为一致。
+    pub(crate) escape_keeps_selected_word: bool,
+    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
@@ -325,6 +327,19 @@ impl Runtime<Session> {
         self.refresh()
     }
 
+    /// 英文在线授权的改变立即失效旧查询，并刷新已经显示的英文列表。
+    pub fn set_english_online_candidates_enabled(
+        &mut self,
+        enabled: bool,
+    ) -> Result<(), RuntimeError> {
+        if self.engine.english_online_candidates_enabled() == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_english_online_candidates_enabled(enabled);
+        self.refresh()
+    }
+
     /// A live host mode changes neither composition nor candidate identity.
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.engine
@@ -342,6 +357,7 @@ impl Runtime<Session> {
             return Ok(None);
         }
         Ok(Some(OnlineQuery {
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity,
@@ -372,6 +388,7 @@ impl Runtime<Session> {
         let cloud_candidates = query.cloud_candidates;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -398,6 +415,7 @@ impl Runtime<Session> {
     ) -> Result<bool, RuntimeError> {
         let cloud_candidates = query.cloud_candidates;
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -411,6 +429,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,
@@ -483,6 +502,7 @@ impl Runtime<Session> {
         };
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -510,6 +530,7 @@ impl Runtime<Session> {
             query.ai_candidate_limit()
         };
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -523,6 +544,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,
@@ -705,6 +727,11 @@ impl<E: InputEngine> Runtime<E> {
     /// 只影响下一次退格，不清空已选词段或历史，也不重建 Engine。
     pub fn set_backspace_reverts_selection(&mut self, enabled: bool) {
         self.backspace_reverts_selection = enabled;
+    }
+
+    /// 造词时第一次 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消。只影响下一次 Esc，不清空已选词段或历史，也不重建 Engine。
+    pub fn set_escape_keeps_selected_word(&mut self, enabled: bool) {
+        self.escape_keeps_selected_word = enabled;
     }
 
     /// 左右键的候选回退（`navigation.left_right`）：只影响左右键这一次怎么解释，不动组字状态，也不重建 Engine。
@@ -917,6 +944,7 @@ impl<E: InputEngine> Runtime<E> {
             wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             left_right_navigation: false,
             vertical_candidates: false,
             phrase_prefix: String::new(),
@@ -1910,14 +1938,16 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 暂存只消耗部分拼写的选词结果，等整段组字完成后一次上屏。
     /// 仍在组字时把刚选的词放进 `phrase_prefix`；有最终提交时把前缀接在它前面。
-    /// 拼写删空而没有提交时，取消丢掉前缀；分段编辑在仍有可回退历史时保留前缀；
-    /// 其余动作上屏前缀，避免丢掉已选文字。普通退格关闭回退时也走这条删空收尾路径。
+    /// 拼写删空而没有提交时，取消丢掉前缀；第一次 Esc 保留已选词时把词段留在组字里；
+    /// 分段编辑在仍有可回退历史时保留前缀；其余动作上屏前缀，避免丢掉已选文字。
+    /// 普通退格关闭回退时也走这条删空收尾路径。
     /// 只剩暂存词段时，提交或丢弃它都算处理了按键，防止回车、空格再穿透到应用。
     fn hold_phrase_progress(
         &mut self,
         picked: bool,
         discard: bool,
         keep_empty: bool,
+        keep_for_escape: bool,
         consumed: &str,
         result: &mut EngineResult,
     ) {
@@ -1949,6 +1979,12 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
         if self.phrase_prefix.is_empty() || composing {
+            return;
+        }
+        // 第一次 Esc 保留已选词：引擎的 Cancel 已经把没选的拼写清掉，词段留在组字里等下一次 Esc 或别的键。
+        // 不要求有可回退历史：选择没有消耗拼写时 `phrase_selections` 可以为空，词段仍要留下。
+        if keep_for_escape && !discard && !result.has_commit {
+            result.handled = true;
             return;
         }
         if keep_empty && !discard && !result.has_commit && !self.phrase_selections.is_empty() {
@@ -2115,8 +2151,19 @@ impl<E: InputEngine> Runtime<E> {
         let has_cloud = counts[CLOUD_GROUP] > 0;
         let ai_count = counts[AI_GROUP];
         let non_ai = count - ai_count;
-        // 第一条 AI 候选的座位：第一页最后一格，不占首位；第一页排不满时紧跟在其余行之后。
-        let ai_seat = self.page_size.saturating_sub(1).max(1).min(non_ai);
+        // 联系人姓名与组合文本占据开头的连续位置，云与 AI 候选都不能拆开这一组。
+        let contact_prefix = snapshot
+            .candidate_sources
+            .iter()
+            .take_while(|source| **source == msime_engine::CandidateSource::Contact as u8)
+            .count();
+        // 第一条 AI 候选通常坐第一页最后一格；小页数也必须让完整联系人组保持在它前面。
+        let ai_seat = self
+            .page_size
+            .saturating_sub(1)
+            .max(1)
+            .max(contact_prefix)
+            .min(non_ai);
 
         // 有云候选时其余行每组有优先段和剩余段，组内按引擎原顺序排列。
         let mut head_starts = [0; 7];
@@ -2131,7 +2178,7 @@ impl<E: InputEngine> Runtime<E> {
             let mut reading = snapshot.reading.chars();
             let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
                 && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
-            let local_prefix = if single_kana { 2 } else { 1 };
+            let local_prefix = (if single_kana { 2 } else { 1 }).max(contact_prefix);
 
             let mut next_seat = 0;
             let mut head = |group: usize, limit: usize| {
@@ -2232,7 +2279,9 @@ impl<E: InputEngine> Runtime<E> {
             }
             fixed_english_scratch.sort_by_key(|index| snapshot.candidate_positions[*index]);
             for &index in &fixed_english_scratch {
-                let seat = usize::from(snapshot.candidate_positions[index] - 1).min(write);
+                let seat = usize::from(snapshot.candidate_positions[index] - 1)
+                    .max(contact_prefix)
+                    .min(write);
                 order.copy_within(seat..write, seat + 1);
                 order[seat] = index;
                 write += 1;
@@ -2568,7 +2617,7 @@ impl<E: InputEngine> Runtime<E> {
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
         // 失焦时送出用户已经选好的暂存段；获得焦点时旧词段已丢弃，不会产生提交。
-        self.hold_phrase_progress(false, false, false, "", &mut result);
+        self.hold_phrase_progress(false, false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another. The Engine's committed-word context follows the same rule: the next word
@@ -2664,12 +2713,13 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
-        // A spelling symbol is input, as on the punctuation route: it extends the local mode in progress, and a scheme that spells with marks (Zhuyin's bopomofo keys) takes them whenever it lists them. The symbols that open a mode with nothing composed are the exception: there the host asked for the literal mark after weighing the surrounding text (a `/` after a digit), so it never opens a mode.
+        // 已发布的组字符号仍交给引擎；空闲的模式入口和普通拼音的网址触发键保留 ASCII 标点语义。
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
-                && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_table_modes()));
-        // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
+                && (scheme_type(self.cached.scheme)
+                    .is_some_and(|scheme| !scheme.opens_table_modes())
+                    || (!self.cached.editing_text.is_empty()
+                        && !matches!(value, b'/' | b'@' | b'.' | b':'))));
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
         }
@@ -2872,6 +2922,15 @@ impl<E: InputEngine> Runtime<E> {
         let mut raw_route = false;
         // 顶字时接在首选后面的那段文本的字符数。
         let mut top_tail = 0;
+        // Windows `input.escape_keeps_selected_word`（出厂关）：造词时第一次 Esc 只丢掉还没选的拼写、
+        // 留下已经选好的词，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）。判据与
+        // `ShouldEscapeKeepSelectedWord` 相同：开关开着、还有没选的拼写、不在临时日文（R 模式只能整段重置）。
+        // 词段由 runtime 暂存，引擎的 Cancel 正好清掉拼写而留下它。
+        let escape_keeps_word = self.escape_keeps_selected_word
+            && matches!(action, Action::Command(Command::Cancel))
+            && !self.cached.editing_text.is_empty()
+            && !self.phrase_prefix.is_empty()
+            && self.cached.local_mode != "temporary_japanese";
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -3091,15 +3150,22 @@ impl<E: InputEngine> Runtime<E> {
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
         let picked = selected_by_digit || selection_action;
-        // Escape throws the whole composition away, the chosen pieces with it - the reference's
-        // _HandleCancel clears `word_for_creating_word` in the same breath.
-        let discarded = matches!(action, Action::Command(Command::Cancel));
+        // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
+        // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
+        let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
         // Segment editing on an emptied reading leaves the held phrase for the next segment key or Backspace, instead of sending it to the document (the reference's `keep_creating_word_after_empty_raw`).
         let keep_empty = matches!(
             action,
             Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight
         );
-        self.hold_phrase_progress(picked, discarded, keep_empty, consumed, &mut result);
+        self.hold_phrase_progress(
+            picked,
+            discarded,
+            keep_empty,
+            escape_keeps_word,
+            consumed,
+            &mut result,
+        );
         // 选中的文本上屏了，读音却还在：这次选择只用掉了一部分读音。顶字时剩下的是新打的那一键，不算。
         if let Some(selection) = self.facts.selection.as_mut() {
             if selection.outcome == SelectionOutcome::Committed

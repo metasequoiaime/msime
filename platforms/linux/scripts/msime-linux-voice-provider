@@ -31,6 +31,9 @@ from msime_provider_runtime import open_server
 from msime_voice_doubao import normalize_doubao_auth_mode
 import msime_voice_local
 from msime_voice_polish_prompts import PROMPTS
+from msime_voice_provider_catalog import (
+    ASR_PROVIDERS, POLISH_PROVIDERS, DEFAULT_ENDPOINTS, DEFAULT_MODELS, REQUEST_FORMATS,
+)
 
 
 RATE = 16000
@@ -38,44 +41,12 @@ MAX_AUDIO = 20 * 1024 * 1024
 MAX_PACTL_OUTPUT = 1024 * 1024
 MAX_PIPEWIRE_OUTPUT = 8 * 1024 * 1024
 MAX_VOLUME_OUTPUT = 4096
-# 润色走 Chat Completions，所以取整句识别服务集合，去掉只做识别的服务，再加上 DeepSeek；识别另外还有豆包。
-ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral", "bailian"}
-POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral", "bailian"}) | {"deepseek"}
-ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}
-# 整句上传的请求格式，与 client-providers 的 `voice::provider::asr_request_format` 相同：multipart 是 OpenAI 兼容的 /audio/transcriptions，chat_audio 是 Chat Completions 带 input_audio（阿里云百炼）。请求体按格式拼，不按 provider 名字判断。
+# 整句上传格式由共享 Rust 目录导出；豆包流式与本地识别不进入 HTTP 格式表。
 CHAT_AUDIO = "chat_audio"
-REQUEST_FORMATS = {"openai": "multipart", "groq": "multipart", "siliconflow": "multipart",
-                   "everyapi": "multipart", "mistral": "multipart", "bailian": CHAT_AUDIO}
 # 百炼限制请求里的音频含 Base64 编码不超过 10 MB；与 client-providers 的 CHAT_AUDIO_MAX_WAV_BYTES 相同，约 218 秒。
 CHAT_AUDIO_MAX_WAV = 7_000_000
 # On-device recognition through the msime-voice-local helper (msime_voice_local.py). It needs no credential: the request names the installed model directory in `asr_model_path`, so a private file entry for it carries only the provider name.
 LOCAL_PROVIDER = "local"
-# Windows voice_providers.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
-DEFAULT_MODELS = {
-    "asr": {"openai": "whisper-1", "groq": "whisper-large-v3-turbo",
-            "siliconflow": "FunAudioLLM/SenseVoiceSmall", "doubao": "",
-            "everyapi": "volc.seedasr.sauc.duration", "mistral": "voxtral-mini-latest",
-            "bailian": "qwen3-asr-flash"},
-    "polish": {"openai": "gpt-4o-mini", "groq": "llama-3.3-70b-versatile",
-               "siliconflow": "Qwen/Qwen3-8B", "deepseek": "deepseek-v4-flash"},
-}
-DEFAULT_ENDPOINTS = {
-    "asr": {
-        "openai": "https://api.openai.com/v1/audio/transcriptions",
-        "groq": "https://api.groq.com/openai/v1/audio/transcriptions",
-        "siliconflow": "https://api.siliconflow.cn/v1/audio/transcriptions",
-        "everyapi": "https://api.everyapi.ai/v1/audio/transcriptions",
-        "mistral": "https://api.mistral.ai/v1/audio/transcriptions",
-        "bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        "doubao": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-    },
-    "polish": {
-        "openai": "https://api.openai.com/v1/chat/completions",
-        "groq": "https://api.groq.com/openai/v1/chat/completions",
-        "siliconflow": "https://api.siliconflow.cn/v1/chat/completions",
-        "deepseek": "https://api.deepseek.com/chat/completions",
-    },
-}
 
 
 def provider_id(value):

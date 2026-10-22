@@ -85,3 +85,5 @@ develop 上的[Android 九键数字层把 0 移到底行中间](2026-10-16-andro
 ## Verification update
 
 Android 原生库、发布 APK、宿主检查和 JVM 冒烟通过；API 28 专用模拟器安装发布 APK 后，`NumberLayerRestartDeviceSmoke` 通过，确认同一编辑器连续数字与退格保持数字层、切换编辑器回到字母层。此前 API 35 轮次未建立可见输入法窗口，不能计为通过。词库批量导入的整套验收再次运行此用例时，诊断确认连接计数位于 `[0,0][1080,51]`、`isVisibleToUser=false`，在第一个数字前读取计数就超时；数字层实际仍可见。让合成编辑器复用 `WindowLayout` 的系统栏边距后，原断言在 API 28、35 的独立专项均通过；临时诊断已移除。该修正不改变输入法产品逻辑。
+
+Android 15 的皮肤回归中，数字网格验收在不同方案的相邻按键间间歇读到 1 像素偏差。稳定性检查原先两次调用 `await` 仍可能命中同一份无障碍坐标缓存，无法证明第二次坐标来自当前布局。`NumberPadDeviceSmoke` 现在每次等待查询前调用既有 `dropStaleNodes`，API 34 以上清理缓存；API 28 继续沿用原先逐节点 `refresh`。不增加坐标容差，不改数字页几何、逐键输入或统计断言。最终测试 APK 在 API 35 专用 AVD 上的 `NumberPadDeviceSmoke` 七组方案全部通过，覆盖精确三行三列、连续字面输入、符号往返、全角与 `Digit*`／`Nine*` 增量。

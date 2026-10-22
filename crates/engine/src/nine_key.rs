@@ -780,18 +780,37 @@ impl NineKeySession {
         } else {
             None
         };
-        // 最近选中的候选要在相同九键上下文的下一次输入中直接显示在首位。用已有固定位置表保存这个信号，不把单字写进个人上下文模型，也不改主词库权重。
+        // 最近选中的候选要在下一次相同数字输入中直接显示在首位。选定读法后，首候选也是显式选择，另外记到未锁定的上下文；不把单字写进个人模型，也不改主词库权重。
         if self.learning
-            && index != 0
-            && selected_fixed_position == 0
             && selected_source.is_dictionary()
             && !selected_canonical_pinyin.is_empty()
             && !selected_is_initials
             && selected_pinyin_length == self.digits.len()
             && self.remember_recent
         {
-            diagnostic = diagnostic
-                .or(self.remember_recent_candidate(&selected_canonical_pinyin, &selected_word));
+            if index != 0 && selected_fixed_position == 0 {
+                diagnostic = diagnostic.or(self.remember_recent_candidate(
+                    &self.ranking_context(),
+                    &selected_canonical_pinyin,
+                    &selected_word,
+                ));
+            }
+            if !self.locked.is_empty() {
+                let unlocked_context = format!("nine-key:{}:", self.digits);
+                // 两个上下文的固定位置互相独立，不能因为读法内未固定就覆盖未锁定上下文里同一候选的手动槽位。
+                if !positions::is_fixed(
+                    &self.paths.user(assets::USER_JOURNAL),
+                    &unlocked_context,
+                    &selected_canonical_pinyin,
+                    &selected_word,
+                ) {
+                    diagnostic = diagnostic.or(self.remember_recent_candidate(
+                        &unlocked_context,
+                        &selected_canonical_pinyin,
+                        &selected_word,
+                    ));
+                }
+            }
         }
         self.consume(selected_pinyin_length);
         if self.learning {
@@ -2190,11 +2209,16 @@ impl NineKeySession {
         }
     }
 
-    /// 把最近一次九键选择固定到当前输入上下文的首位；后一次选择会替换第 1 槽，手动固定的其它槽位不受影响。
-    fn remember_recent_candidate(&self, canonical_pinyin: &str, word: &str) -> Option<String> {
+    /// 把最近一次九键选择固定到指定上下文的首位；后一次选择会替换第 1 槽。
+    fn remember_recent_candidate(
+        &self,
+        context: &str,
+        canonical_pinyin: &str,
+        word: &str,
+    ) -> Option<String> {
         positions::set_fixed_position(
             &self.paths.user(assets::USER_JOURNAL),
-            &self.ranking_context(),
+            context,
             canonical_pinyin,
             word,
             1,
@@ -6426,6 +6450,152 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         type_digits(&mut repeated, "6364");
         assert_eq!(words(&repeated)[0], "能");
         assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+    }
+
+    const SPELLING_RECENT_FIXTURE: &str =
+        "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('ni','n','你',1000);\
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mi','m','米',100),('mi','m','谜',10),('mo','m','墨',100);\
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('hao','h','好',100);";
+
+    fn lock_spelling(session: &mut NineKeySession, spelling: &str) {
+        let index = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|choice| choice == spelling)
+            .expect("synthetic spelling offered");
+        assert!(session.choose_spelling(index).handled);
+    }
+
+    /// 显式选读法再确认候选，也要让下一次未锁定的数字输入记住这次选择。
+    #[test]
+    fn spelling_selection_remembers_first_and_later_candidates_without_a_lock() {
+        for (word, selected_index) in [("米", 0), ("谜", 1)] {
+            let fixture = fixture_with(SPELLING_RECENT_FIXTURE);
+            let mut session =
+                open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+            type_digits(&mut session, "64");
+            assert_eq!(words(&session)[0], "你");
+            lock_spelling(&mut session, "mi");
+            assert_eq!(index_of(&session, word), selected_index);
+            let selected = session.select(selected_index);
+            assert_eq!(selected.commit.as_deref(), Some(word));
+            assert_eq!(selected.diagnostic, None);
+            drop(session);
+
+            let mut repeated = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut repeated, "64");
+            assert_eq!(words(&repeated)[0], word);
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+            lock_spelling(&mut repeated, "ni");
+            assert_eq!(words(&repeated)[0], "你");
+        }
+    }
+
+    /// 未显式完成整串选择时，不把读法筛选本身当作最近选词。
+    #[test]
+    fn spelling_recent_requires_learning_and_an_explicit_whole_selection() {
+        for case in ["learning_off", "finish", "partial", "unlocked_first"] {
+            let fixture = fixture_with(SPELLING_RECENT_FIXTURE);
+            let mut session =
+                open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+            session.learning = case != "learning_off";
+            let digits = if case == "partial" { "64426" } else { "64" };
+            type_digits(&mut session, digits);
+            if case != "unlocked_first" {
+                lock_spelling(&mut session, "mi");
+            }
+            let word = if case == "unlocked_first" {
+                "你"
+            } else {
+                "米"
+            };
+            let index = index_of(&session, word);
+            let result = if case == "finish" {
+                session.finish(index)
+            } else {
+                session.select(index)
+            };
+            assert_eq!(result.commit.as_deref(), Some(word), "{case}");
+            assert_eq!(result.diagnostic, None, "{case}");
+            if case == "partial" {
+                assert!(session.active());
+            }
+            let journal = fixture.paths.user(assets::USER_JOURNAL);
+            for (key, spelling, value) in
+                [("64", "mi", "米"), (digits, "mi", "米"), ("64", "ni", "你")]
+            {
+                assert!(
+                    !positions::is_fixed(&journal, &format!("nine-key:{key}:"), spelling, value),
+                    "{case}"
+                );
+                assert!(
+                    !positions::is_fixed(
+                        &journal,
+                        &format!("nine-key:{key}:{spelling}"),
+                        spelling,
+                        value
+                    ),
+                    "{case}"
+                );
+            }
+        }
+    }
+
+    /// 未锁定的最近候选变化后，再选已有锁定首位也能更新；不同数字与读法仍隔离。
+    #[test]
+    fn spelling_recent_replaces_the_previous_unlocked_pick() {
+        let fixture = fixture_with(SPELLING_RECENT_FIXTURE);
+        let journal = fixture.paths.user(assets::USER_JOURNAL);
+        positions::set_fixed_position(&journal, "nine-key:64:mi", "mi", "米", 1).unwrap();
+        for word in ["米", "你", "米"] {
+            let mut session =
+                open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+            type_digits(&mut session, "64");
+            if word == "米" {
+                lock_spelling(&mut session, "mi");
+                assert_eq!(session.snapshot().candidates[0].fixed_position, 1);
+            }
+            let index = index_of(&session, word);
+            assert_eq!(session.select(index).commit.as_deref(), Some(word));
+            let mut repeated = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut repeated, "64");
+            assert_eq!(words(&repeated)[0], word);
+            lock_spelling(&mut repeated, "ni");
+            assert_eq!(words(&repeated), ["你"]);
+            repeated.command(Command::Cancel);
+            type_digits(&mut repeated, "66");
+            assert_eq!(words(&repeated)[0], "墨");
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 0);
+        }
+    }
+
+    /// 读法内的位置不能覆盖未锁定上下文里同一词或其它词的手动槽位。
+    #[test]
+    fn spelling_recent_preserves_unlocked_manual_slots() {
+        for selected_is_fixed in [false, true] {
+            let fixture = fixture_with(SPELLING_RECENT_FIXTURE);
+            let journal = fixture.paths.user(assets::USER_JOURNAL);
+            positions::set_fixed_position(&journal, "nine-key:64:", "mi", "谜", 2).unwrap();
+            if selected_is_fixed {
+                positions::set_fixed_position(&journal, "nine-key:64:", "mi", "米", 3).unwrap();
+            }
+            let mut session =
+                open_with_frequency(&fixture.paths, FrequencyAdjustmentMode::Disabled, 1, 1);
+            type_digits(&mut session, "64");
+            lock_spelling(&mut session, "mi");
+            assert_eq!(session.select(0).commit.as_deref(), Some("米"));
+            let mut repeated = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut repeated, "64");
+            let snapshot = repeated.snapshot();
+            let target = &snapshot.candidates[index_of(&repeated, "米")];
+            assert_eq!(target.fixed_position, if selected_is_fixed { 3 } else { 1 });
+            assert_eq!(snapshot.candidates[1].word, "谜");
+            assert_eq!(snapshot.candidates[1].fixed_position, 2);
+        }
     }
 
     /// #5640：两位数字的音节行比候选上限还多时（出货词库里 `68` 有两百多个单字），不打切分的简拼行也不能被截掉：前三个音节行之后，其余音节行和简拼行按权重归并。

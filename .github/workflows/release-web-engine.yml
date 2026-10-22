@@ -172,4 +172,3 @@ jobs:
     with:
       version: ${{ needs.build.outputs.version }}
       prerelease: ${{ inputs.prerelease }}
-    secrets: inherit

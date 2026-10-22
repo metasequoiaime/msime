@@ -124,6 +124,7 @@ pub struct EngineResult {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuerySnapshot {
     pub available: bool,
+    pub mode: crate::OnlineInputMode,
     pub scheme: u8,
     pub generation: u64,
     pub identity: String,
@@ -345,6 +346,7 @@ impl Session {
         };
         Ok(OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme as u8,
             generation: query.generation,
             identity: query.identity,
@@ -379,6 +381,14 @@ impl Session {
 
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
         self.inner.set_cloud_candidates_enabled(enabled);
+    }
+
+    pub fn english_online_candidates_enabled(&self) -> bool {
+        self.inner.english_online_candidates_enabled()
+    }
+
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.inner.set_english_online_candidates_enabled(enabled);
     }
 
     pub fn set_caret(&mut self, caret: Option<usize>) {
@@ -714,7 +724,7 @@ impl Session {
         result_for(KeyResult::committed(raw))
     }
 
-    /// Windows 只在回车时学词：专用英文、本地模式里原样上屏的字母，以及不是完整音节序列的拼音，学成英文词（bridge.cpp:1332-1359）。九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。
+    /// Windows 只在回车时学词：专用英文、本地模式里原样上屏的字母，以及不是完整音节序列的拼音，学成英文词（bridge.cpp:1332-1359）。九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。整条学习由 `input.enter_learns_english_word` 总开关控制（出厂为开），关掉后回车照常上屏、只是不入库。
     fn commit_raw_with_policy(&mut self) -> EngineResult {
         let grid_composing = self.inner.grid_composing();
         let before = self.inner.snapshot();
@@ -729,7 +739,8 @@ impl Session {
         };
         // 计算、指令和名单模式里是算式、触发词或键，网址也不是英文单词，都不是用户拼出的词，不进英文词库。
         // 整句改字时回车上屏的是改好的汉字，不是拼出来的字母。
-        let should_learn = before.conversion.is_empty()
+        let should_learn = self.options.learn_english_on_enter
+            && before.conversion.is_empty()
             && !grid_composing
             && !before.local_mode.generates_text()
             && before.local_mode != LocalInputMode::Url
@@ -811,6 +822,7 @@ fn online_request(
         _ => return None,
     };
     let request = OnlineQuery {
+        mode: query.mode,
         scheme: SchemeType::from_u8(query.scheme)?,
         generation: query.generation,
         identity: query.identity.clone(),

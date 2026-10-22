@@ -242,6 +242,109 @@ fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
             ..KeybindingPreferences::default()
         }
     );
+fn toggle_hotkeys_use_the_legacy_factory_defaults() {
+    let keybindings = Preferences::default().keybindings;
+    assert_eq!(keybindings.toggle_english_candidates, "Ctrl+Shift+KeyE");
+    assert_eq!(keybindings.toggle_full_width, "Ctrl+Shift+Space");
+    assert_eq!(keybindings.toggle_punctuation, "Ctrl+Period");
+    // 出厂值不落盘：写出的文档不带这三个键；没有这三个键的旧文档读回来还是出厂值。
+    let value = serde_json::to_value(Preferences::default()).unwrap();
+    let object = value["keybindings"].as_object().unwrap();
+    for key in [
+        "toggle_english_candidates",
+        "toggle_full_width",
+        "toggle_punctuation",
+    ] {
+        assert!(
+            !object.contains_key(key),
+            "{key} must stay out of the default document"
+        );
+    }
+    let restored: Preferences = serde_json::from_value(value).unwrap();
+    assert_eq!(restored.keybindings, Preferences::default().keybindings);
+}
+
+#[test]
+fn toggle_hotkeys_persist_custom_chords_and_disabled_bindings() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences.clone();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Alt+Slash".into();
+    preferences.keybindings.toggle_full_width = String::new();
+    store.save(snapshot.revision, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        loaded.punctuation_chord().unwrap().to_string(),
+        "Ctrl+Alt+Slash"
+    );
+    // 空串是「不绑定」，不是回到出厂值。
+    assert!(loaded.full_width_chord().is_none());
+    assert_eq!(loaded.toggle_full_width, "");
+}
+
+#[test]
+fn toggle_hotkeys_reject_unparseable_values() {
+    for bad in ["Ctrl+", "Ctrl+Alt+Shift", "Ctrl+Banana", "Period+Ctrl"] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = bad.into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidToggleHotkey)
+        ));
+    }
+}
+
+#[test]
+fn toggle_hotkeys_reject_two_bindings_for_the_same_chord() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "control+shift+keye".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+    preferences.keybindings.toggle_punctuation = "Shift+Ctrl+Space".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+}
+
+#[test]
+fn toggle_hotkeys_reject_chords_owned_by_enabled_switches() {
+    // 保留表随开关开合：简繁开着时 Ctrl+Shift+F 被占用，关掉后才绑得出去。
+    for (text, reason) in [
+        ("Ctrl+Shift+KeyF", "简繁切换"),
+        ("Ctrl+Space", "Linux 语言切换"),
+        ("Ctrl+Alt+Space", "语言切换"),
+        ("Ctrl+F9", "语音切换"),
+        ("Ctrl+Shift+F9", "Windows 语音只看 Ctrl 按住"),
+        ("Ctrl+Alt+Shift+KeyC", "macOS 维护键"),
+    ] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = text.into();
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::ConflictingToggleHotkeys)
+            ),
+            "{text} must conflict ({reason})"
+        );
+    }
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Shift+KeyF".into();
+    preferences.keybindings.toggle_character_set_ctrl_shift_f = false;
+    preferences.validate().unwrap();
+}
+
+#[test]
+fn toggle_hotkeys_all_empty_disables_every_toggle() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_english_candidates = String::new();
+    preferences.keybindings.toggle_full_width = String::new();
+    preferences.keybindings.toggle_punctuation = String::new();
+    preferences.validate().unwrap();
+    assert!(preferences.keybindings.english_candidates_chord().is_none());
 }
 
 #[test]
@@ -541,6 +644,65 @@ fn candidate_pronunciation_is_opt_in_and_round_trips() {
             .unwrap()
             .candidate_pronunciation
     );
+}
+
+#[test]
+fn candidate_translation_display_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_translation_show_pos);
+    assert!(!defaults.candidate_translation_single_sense);
+
+    // 旧文档缺这两个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_translation_show_pos");
+    fields.remove("candidate_translation_single_sense");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_translation_show_pos);
+    assert!(!parsed.candidate_translation_single_sense);
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_translation_show_pos: false,
+        candidate_translation_single_sense: true,
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_translation_show_pos);
+    assert!(round_tripped.candidate_translation_single_sense);
+}
+
+#[test]
+fn candidate_badge_defaults_follow_windows_factory_config() {
+    let defaults = Preferences::default();
+    assert!(defaults.candidate_fixed_badge);
+    assert_eq!(defaults.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(defaults.candidate_ai_badge_style, "robot");
+
+    // 旧文档缺这几个键时按 Windows v0.11.1 的出厂配置补上。
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    let fields = legacy.as_object_mut().unwrap();
+    fields.remove("candidate_fixed_badge");
+    fields.remove("candidate_fixed_badge_style");
+    fields.remove("candidate_ai_badge_style");
+    let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+    assert!(parsed.candidate_fixed_badge);
+    assert_eq!(parsed.candidate_fixed_badge_style, "paperclip");
+    assert_eq!(parsed.candidate_ai_badge_style, "robot");
+
+    // 用户显式保存的选择原样往返。
+    let saved = Preferences {
+        candidate_fixed_badge: false,
+        candidate_fixed_badge_style: "dot".to_string(),
+        candidate_ai_badge_style: "whale".to_string(),
+        ..defaults
+    };
+    let round_tripped =
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert!(!round_tripped.candidate_fixed_badge);
+    assert_eq!(round_tripped.candidate_fixed_badge_style, "dot");
+    assert_eq!(round_tripped.candidate_ai_badge_style, "whale");
 }
 
 #[test]
@@ -1285,6 +1447,38 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
             ..LocalModePreferences::default()
         }
     );
+}
+
+#[test]
+fn symbol_mode_defaults_on_and_is_written_only_when_off() {
+    // 与 Windows 正式版的出厂配置一致：缺键读作开，文档里也不写这个键。
+    assert!(LocalModePreferences::default().symbol);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("symbol").is_none());
+
+    // 早于符号模式的文档没有这个键，读出来仍是开，其余模式开关照原样。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(local_modes.remove("symbol"), None);
+    local_modes.insert("emoji".into(), false.into());
+    fs::write(store.path(), serde_json::to_vec(&sparse).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.local_modes;
+    assert!(loaded.symbol && !loaded.emoji && loaded.unicode);
+
+    // 关掉后文档里写 false，读回来还是关。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["local_modes"]["symbol"] = false.into();
+    store
+        .save(0, serde_json::from_value(value).unwrap())
+        .unwrap();
+    assert!(!store.load().unwrap().preferences.local_modes.symbol);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["local_modes"]["symbol"], false);
 }
 
 #[test]
@@ -6071,6 +6265,33 @@ fn finished_scope_releases_inherited_lock() {
         inherited,
         &root.path().join("preferences.lock"),
     );
+}
+
+#[test]
+fn english_online_is_an_explicit_local_opt_in() {
+    let defaults = Preferences::default();
+    assert!(!defaults.english_online_candidates);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("english_online_candidates");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .english_online_candidates
+    );
+    let enabled = Preferences {
+        english_online_candidates: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_value::<Preferences>(serde_json::to_value(&enabled).unwrap())
+            .unwrap()
+            .english_online_candidates
+    );
+    let exported = crate::settings_document::export_document(&enabled).unwrap();
+    assert!(!exported.contains("english_online_candidates"));
 }
 
 /// 网络代理设置：出厂值与 Windows 正式版相同，等于默认值时不写进文档，旧文档缺这一节时也能读。

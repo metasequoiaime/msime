@@ -174,6 +174,8 @@ impl InputSession {
                 LocalInputMode::TemporaryJapanese => {
                     accepted = accepted || matches!(value, b'\'' | b'-');
                 }
+                // 与 `handle_local_character` 同一组规则：符号模式只收字母。
+                LocalInputMode::Symbol => accepted = value.is_ascii_alphabetic(),
                 LocalInputMode::SuperJianpin | LocalInputMode::TemporaryEnglish => {}
                 LocalInputMode::Expression => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT
@@ -267,7 +269,7 @@ impl InputSession {
         self.caret = Some(caret);
         // The edit may have moved the caret into or out of a complete prefix.
         self.update_mixed_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         self.discard_abandoned_phrase_progress();
         KeyResult::handled().with_diagnostic(diagnostic)
     }
@@ -282,7 +284,7 @@ impl InputSession {
         if raw_with_cases.is_empty() {
             return Vec::new();
         }
-        if self.has_literal_capitals() {
+        if self.has_literal_input() {
             return self.literal_raw_boundaries();
         }
         match self.engine.current_scheme_type() {

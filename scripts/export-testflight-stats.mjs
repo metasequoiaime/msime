@@ -28,7 +28,18 @@ export async function applePages(path, credentials, request = fetch) {
     check(!seen.has(url.href) && seen.size < 1000, 'Invalid Apple pagination cycle');
     seen.add(url.href);
     const response = await request(url.href, { headers: { Authorization: `Bearer ${appleToken(credentials)}`, Accept: 'application/json' }, signal: AbortSignal.timeout(30000), redirect: 'error' });
-    check(response.ok, `Apple metrics request failed: HTTP ${response.status}`);
+    if (!response.ok) {
+      // 只记录错误码、端点类别和请求中已有的参数名，不输出 Apple 原始响应或参数值。
+      const problem = await response.json().catch(() => null);
+      const codes = new Set();
+      const parameters = new Set();
+      for (const error of Array.isArray(problem?.errors) ? problem.errors : []) {
+        if (typeof error.code === 'string' && /^[A-Z_]+(?:\.[A-Z_]+)*$/.test(error.code)) codes.add(error.code);
+        if (url.searchParams.has(error.source?.parameter)) parameters.add(error.source.parameter);
+      }
+      const endpointName = url.pathname === '/v1/builds' ? 'build list' : 'build usage';
+      throw new StatsError(`Apple metrics request failed: HTTP ${response.status}; endpoint=${endpointName}; codes=${[...codes].join(',') || 'unavailable'}; parameters=${[...parameters].join(',') || 'unavailable'}`);
+    }
     const page = await response.json();
     check(Array.isArray(page.data), 'Invalid Apple metrics response');
     rows.push(...page.data);
@@ -70,7 +81,7 @@ export async function collectStats(appId, credentials, request = fetch, now = ne
     check(build.type === 'builds' && typeof build.id === 'string' && /^[a-z0-9-]+$/i.test(build.id) && build.attributes?.processingState === 'VALID', 'Invalid Apple build response');
     if (ids.has(build.id)) continue;
     ids.add(build.id);
-    const stats = buildInstalls(await applePages(`/v1/builds/${build.id}/metrics/betaBuildUsages?limit=200`, credentials, request));
+    const stats = buildInstalls(await applePages(`/v1/builds/${build.id}/metrics/betaBuildUsages`, credentials, request));
     installs += stats.installs;
     check(Number.isSafeInteger(installs), 'Apple install count overflow');
     periodStart = periodStart === null || stats.periodStart < periodStart ? stats.periodStart : periodStart;

@@ -36,6 +36,19 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["nine_key_single_character": 1]]))
   }
 
+  func testCandidateHighlightIsStrictAndAlignedWithRows() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let rows: [[String: Any]] = [["text": "合成一", "highlighted": false],
+      ["text": "合成二", "highlighted": true], ["text": "合成三"]]
+    let snapshot = try bridge.snapshot(from: ["view": ["candidates": rows]])
+    XCTAssertEqual(snapshot.candidateHighlighted, [false, true, false])
+    let visible = CandidateMarker.visibleIndices(sources: [0, 15, 0])
+    XCTAssertEqual(visible.map { snapshot.candidateHighlighted[$0] }, [false, false])
+    XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["candidates": [["text": "合成", "highlighted": 1]]]]))
+  }
+
   func testAllSessionCallsUseOneOwningThread() {
     let owner = MSIMEInputThread.shared.sync { Thread.current }
     XCTAssertFalse(owner.isMainThread)

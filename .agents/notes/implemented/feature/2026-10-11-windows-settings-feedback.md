@@ -13,7 +13,7 @@ Status: implemented
 - 诊断信息的系统版本来自 `RtlGetVersion`，走共享函数里「宿主报告了 `os_version`」那一支，写成「Windows 10.0.<内部版本号>」；读不到时写「平台：windows」。输入方案只在偏好读到时写，与共享页没有草稿时不写一致。
 - 类型、描述和「已复制」标记是窗口的成员，页面重建（保存、刷新、切页）时保留，关窗即丢，与共享页的组件状态相同。「已复制」1.6 秒后复原。
 - 「复制报告」「复制群号」与共享页一样只在复制成功后才改成「已复制」；剪贴板被别的程序占着时 `copy_text` 捕获 `hresult_error` 并提示「复制失败，请重试」（文案取自共享面板），不让异常漏出点击回调。复制后 `Clipboard::Flush`，关窗后群号和报告仍在剪贴板里。「关于」页的「复制系统信息」走同一函数。
-- TextBox 的换行是 CR，生成报告前统一换成 LF，与 textarea 的值一致。
+- TextBox 的换行是 CR，生成报告前统一换成 LF，与 textarea 的值一致。共享页对宿主复制或浏览器启动失败的处理由[反馈宿主操作错误提示](../bug-fix/2026-10-21-feedback-host-action-errors.md)补齐，本篇原生错误提示保留。
 - 删掉不再使用的 `shell_links::feedback`，`all` 从 10 项减为 9 项；导航测试把 `feedback` 列入原生页。README 同步。
 
 ## Alternatives considered

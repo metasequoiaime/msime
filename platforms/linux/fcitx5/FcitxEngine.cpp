@@ -4287,6 +4287,8 @@ struct FcitxCandidateDisplay {
   // 原生画布的 macOS 结构分开画的几段：不带训音的正文、韩文汉字的训音（画在释义行第一行）、收拾过的插件注释（释义行最后一行，斜体），以及 AI 占位行。
   std::string word, reading, script_annotation;
   bool pending = false;
+  std::optional<std::string> decoration_text;
+  std::string decoration_badge;
 };
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
@@ -4300,9 +4302,12 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
         fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit});
     return display;
   }
-  fcitx::Text row((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
-                               : candidate.at("text").get<std::string>()) +
-      // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
+  display.decoration_text = traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
+                                       : candidate.at("text").get<std::string>();
+  const auto source = msime::linux_host::strict_json_value(candidate, "source", uint64_t{});
+  display.decoration_badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+  fcitx::Text row(*display.decoration_text +
+      // 纠错标记只属于普通显示行；装饰词保留完成简繁转换的原文，选择仍沿用候选身份。
       (candidate.value("corrected", false) ? "*" : "") +
       // 注释括起来紧贴候选字，角标隔一个空格跟在后面，与 macOS 候选窗的写法相同（CandidateRowText.h）。
       (!hanjaGloss.empty() || !annotations ? std::string() :
@@ -6377,13 +6382,20 @@ public:
     const auto background = host::candidate_skin_background(catalog, resolved.candidate_skin);
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
     const auto canvas_directory = host::fcitx_canvas_directory(catalog);
+    const auto overlay_stamp = host::fcitx_overlay_stamp(decoration);
+    std::map<std::filesystem::path, std::string> source_stamps;
+    const auto source_stamp = [&](const std::filesystem::path &path) {
+      auto at = source_stamps.find(path);
+      if (at == source_stamps.end()) at = source_stamps.emplace(path, host::fcitx_canvas_file_stamp(path)).first;
+      return at->second;
+    };
     const auto theme_inputs = [&] {
       Json canvas_stamps = Json::array();
       if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
-        canvas_stamps.push_back(host::fcitx_canvas_file_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
-        if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(candidate_canvas_source_));
+        canvas_stamps.push_back(source_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
+        if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(source_stamp(candidate_canvas_source_));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-        for (const auto &source : native_canvas_sources_) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(source));
+        for (const auto &source : native_canvas_sources_) canvas_stamps.push_back(source_stamp(source));
 #endif
       }
       return Json{
@@ -6395,7 +6407,7 @@ public:
                        {"item_radius", style.item_radius ? Json(*style.item_radius) : Json(nullptr)}}},
         {"logo", show_logo},
         {"background", background ? host::fcitx_canvas_file_stamp(background->image) : std::string()},
-        {"overlay", host::fcitx_overlay_stamp(decoration)},
+        {"overlay", overlay_stamp},
         {"canvas", std::move(canvas_stamps)}}.dump();
     };
     auto inputs = theme_inputs();
@@ -6470,14 +6482,26 @@ public:
           canvas_package = package.value("canvas", false);
 #endif
           candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
-          canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
-                                                         &candidate_canvas_source_);
+          if (const auto border = package.find("borderImage"); package.value("canvas", false) && border != package.end()) {
+            const auto &image = border->at(!resolved.dark && border->contains("lightSource") ? "lightSource" : "source");
+            if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, image))
+              candidate_canvas_source_ = *source;
+          }
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-          native_canvas_assets_ = host::load_native_canvas(package, *canvas_directory, resolved.candidate_skin, resolved.dark);
           for (const auto &item : package.value("decorations", Json::array())) {
             if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, item.at("image")))
               native_canvas_sources_.push_back(*source);
           }
+          if (const auto image = package.find("decorationImage"); image != package.end())
+            if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, *image))
+              native_canvas_sources_.push_back(*source);
+#endif
+          // 新依赖也在解码前取戳；已有路径与清单沿用本次调用首次读到的戳。
+          inputs = theme_inputs();
+          canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
+                                                         &candidate_canvas_source_);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+          if (canvas_package) native_canvas_assets_ = host::load_native_canvas(package, *canvas_directory, resolved.candidate_skin, resolved.dark);
 #endif
           if (canvas_panel
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
@@ -6491,7 +6515,7 @@ public:
             const auto query = request.dump();
             const auto panel_document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-            native_canvas_palette_ = host::native_canvas_palette(panel_document);
+            native_canvas_palette_ = host::native_canvas_palette(panel_document, resolved.dark);
             if (native_canvas_assets_ && corner_radius) {
               native_canvas_assets_->card_radius = *corner_radius;
               native_canvas_assets_->user_radius = user_radius;
@@ -6568,8 +6592,6 @@ public:
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
         return false;
       }
-      // 首次准备资源后把已选图片的戳写进同一份缓存，之后每拍只 stat，不再扫描或解码。
-      inputs = theme_inputs();
 #ifdef MSIME_FCITX5_HINT_FONT
       // 装饰图的宽度只在写主题时读一次，模式提示切换时直接用结果。
       hint_text_width_ = fcitx_hint_width_from_theme(*file);
@@ -6585,6 +6607,7 @@ public:
     if (replace_dark) current.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
     hint_inputs_ = fcitx_hint_inputs(current, system_dark);
     classicui_hint_stamp_ = read_classicui_hint_stamp();
+    // 只缓存解码前的完整依赖快照，不能把加载期间的新文件误记为已解码。
     candidate_theme_applied_ = std::move(inputs);
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     native_canvas_owned_ = host::fcitx_candidate_theme_drawn(
@@ -8335,6 +8358,8 @@ bool FcitxState::renderNativeCanvas() {
   const auto make_item = [&](const FcitxCandidateDisplay &display, std::string number) {
     host::NativeCanvasItem result{std::move(number), chrome ? display.word : display.body, display.translation,
         display.suffix, display.translation_runs, display.fixed};
+    result.decoration_text = display.decoration_text;
+    result.decoration_badge = display.decoration_badge;
     if (chrome) {
       result.reading = display.reading;
       result.script_annotation = display.script_annotation;
@@ -8342,6 +8367,14 @@ bool FcitxState::renderNativeCanvas() {
     }
     return result;
   };
+  // 装饰词始终取普通当前页；展开网格只改变候选的显示与选择，不改变装饰词索引。
+  content.decoration_items.emplace();
+  content.decoration_selected = list->cursorIndex();
+  for (int at = 0; at < list->size(); ++at) {
+    if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at)))
+      content.decoration_items->push_back(make_item(candidate->display(), {}));
+    else content.decoration_items->push_back({{}, {}});
+  }
   // 展开状态已在 render() 开头对照过当前视图；两种样式都只认展开时的那种画法。
   const bool grid = chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::grid;
   const bool scroll = !chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::scroll;

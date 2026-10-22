@@ -47,6 +47,34 @@ int main() {
   require(mascot.image == (root / "mascot" / "preview.png").wstring());
   require(mascot.top_dip == 50.0 && mascot.width_dip == 180.0);
 
+
+  // 装饰词声明走完整 catalog，采用规范色；无效字段只移除文字，不影响图片。
+  Json overlaid = catalog;
+  const Json overlay{{"index", 0}, {"fontSizeDip", 20}, {"minFontSizeDip", 8},
+      {"maxWidthDip", 0}, {"offsetXDip", -3}, {"offsetYDip", 4},
+      {"alignH", "center"}, {"alignV", "bottom"}, {"resolvedColor", "#12345680"}, {"stripBadge", true}};
+  overlaid["packages"][0]["decorationCandidate"] = overlay;
+  const auto with_word = candidate_skin_assets(overlaid, "mascot", root).decoration;
+  require(with_word.candidate && with_word.candidate->index == 0 && with_word.candidate->color == "#12345680");
+  require(with_word.candidate->stripBadge && with_word.candidate->seat(3, 2) == 2);
+  for (const auto &invalid : {Json{{"index", 0.5}}, Json{{"index", 101}}, Json{{"fontSizeDip", 0}},
+      Json{{"minFontSizeDip", 201}}, Json{{"maxWidthDip", -1}}, Json{{"offsetXDip", 2001}},
+      Json{{"alignH", "unsafe"}}, Json{{"resolvedColor", "white"}}, Json{{"resolvedColor", "#123456"}},
+      Json{{"stripBadge", 1}}, Json{{"fontSizeDip", "20"}}}) {
+    auto malformed = overlay;
+    malformed.update(invalid);
+    overlaid["packages"][0]["decorationCandidate"] = malformed;
+    const auto result = candidate_skin_decoration(overlaid, "mascot", root);
+    require(!result.image.empty() && !result.candidate);
+  }
+  auto missing_field = overlay;
+  missing_field.erase("fontSizeDip");
+  require(!candidate_skin_decoration_candidate(Json{{"decorationCandidate", missing_field}}));
+  overlaid["packages"][0]["decorationCandidate"] = overlay;
+  overlaid["packages"][0]["decorationImage"] = "missing.png";
+  require(!candidate_skin_decoration(overlaid, "mascot", root).candidate);
+  require(!mascot.candidate);
+
 #ifndef _WIN32
   const auto outside = root / "outside.png";
   std::ofstream(outside) << "external";

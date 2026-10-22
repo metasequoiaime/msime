@@ -250,6 +250,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrat
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/libhangul-hanja-BSD-3-Clause.txt" COPYONLY)
 # 拆字反查（C 模式）的部件拼音表，从 kfcd/chaizi（開放詞典《漢語拆字字典》，CC BY 3.0）改编后编进引擎；CC BY 3.0 第 4(b) 条要求分发改编作品时附上署名和改动说明，这份文件就是。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
+# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0）；第 3(a) 条要求分发改编数据时附上署名、许可证地址和改动说明，这份文件就是。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
 # 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
@@ -1048,6 +1050,10 @@ target_compile_options(voice-provider-settings-validation-test PRIVATE -fobjc-ar
 target_link_libraries(voice-provider-settings-validation-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-validation COMMAND voice-provider-settings-validation-test)
+add_executable(voice-polish-presets-test tests/voice/VoicePolishPresetsTest.mm)
+target_compile_options(voice-polish-presets-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-polish-presets-test PRIVATE "-framework AppKit")
+add_test(NAME voice-polish-presets COMMAND voice-polish-presets-test)
 add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm src/voice/HTTPVoiceRequest.mm)
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
@@ -1074,6 +1080,14 @@ add_test(NAME candidate-panel COMMAND candidate-panel-test)
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
+# 候选释义的词性显示与单条释义两个开关，纯逻辑，不依赖窗口。
+add_executable(candidate-translation-display-test tests/core/CandidateTranslationDisplayTest.cpp)
+target_compile_options(candidate-translation-display-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-translation-display COMMAND candidate-translation-display-test)
+# 候选徽标的字形选择（AI 来源两档、固定排位开关与三档样式），纯逻辑，不依赖窗口。
+add_executable(candidate-badge-policy-test tests/core/CandidateBadgePolicyTest.cpp)
+target_compile_options(candidate-badge-policy-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-badge-policy COMMAND candidate-badge-policy-test)
 # The readings drawn after gloss lines: language per line, romaji from the system tokenizer, and the drawn string.
 add_executable(candidate-pronunciation-test tests/candidate/CandidatePronunciationTest.mm)
 target_compile_options(candidate-pronunciation-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
@@ -1088,6 +1102,19 @@ add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
+# 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
+add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
+# 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
+add_test(NAME candidate-factory-layout COMMAND candidate-row-layout-test --factory-layout)
+add_test(NAME candidate-factory-shadow COMMAND candidate-row-layout-test --shadow-host)
+add_test(NAME candidate-factory-pager COMMAND candidate-row-layout-test --pager-host)
+add_test(NAME candidate-factory-expand-toggle COMMAND candidate-row-layout-test --expand-toggle)
+# 装饰词的真实控制器绘制独立运行，避免大布局矩阵与动效计时互相影响。
+add_executable(candidate-decoration-overlay-test tests/candidate/CandidateDecorationOverlayTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm)
+target_link_libraries(candidate-decoration-overlay-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_compile_options(candidate-decoration-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME candidate-decoration-overlay COMMAND candidate-decoration-overlay-test)
+set_tests_properties(candidate-decoration-overlay PROPERTIES TIMEOUT 30)
 # Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
 add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
