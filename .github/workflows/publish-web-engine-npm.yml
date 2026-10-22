@@ -8,8 +8,6 @@ on:
     inputs:
       version: {required: true, type: string}
       prerelease: {required: false, default: false, type: boolean}
-    secrets:
-      NPM_TOKEN: {required: false}
   workflow_dispatch:
     inputs:
       version: {description: "Version of an existing web-engine-vX.Y.Z release (X.Y.Z)", required: true, type: string}
@@ -20,7 +18,7 @@ jobs:
   npm:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # id-token 用于 npm provenance：npm 页面会显示这个包由本仓库的 workflow 构建。
+    # id-token 既用于 trusted publishing（npm 用 GitHub 的 OIDC 令牌换发一次性的发布凭据，仓库里不存 npm token），也用于 provenance：npm 页面会显示这个包由本仓库的 workflow 构建。npm 校验的是最外层调用方的 workflow 文件名，所以 npmjs.com 上 @msime/web-engine 的 Trusted Publisher 要配两条：release-web-engine.yml（发版时调用这里）和 publish-web-engine-npm.yml（单独手动补发）。之前存在仓库里的 NPM_TOKEN 在 web-engine-v0.4.1 发布时被 npm 拒绝（PUT 返回 404），改用 trusted publishing 后不再依赖会过期或被撤销的 token。
     permissions: {contents: read, id-token: write}
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -29,13 +27,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ inputs.version }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "version must be X.Y.Z or X.Y.Z-pre, got '$VERSION'" >&2; exit 1; }
-          if [[ -z "$NODE_AUTH_TOKEN" ]]; then echo "::warning::NPM_TOKEN is not set; @msime/web-engine $VERSION was not published to npm."; exit 0; fi
+          # Trusted publishing needs npm 11.5.1 or later; an older npm falls back to token auth and fails with a misleading 404.
+          npm_version=$(npm --version)
+          [[ "$(printf '%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" == 11.5.1 ]] || { echo "trusted publishing needs npm >= 11.5.1, got $npm_version" >&2; exit 1; }
           # npm never lets a published version be replaced, so a re-published release (scripts/publish-release.sh overwrites it) leaves npm on the build first published under this version.
           if npm view "@msime/web-engine@${VERSION}" version > /dev/null 2>&1; then echo "::warning::@msime/web-engine $VERSION is already on npm, which cannot replace it; npm keeps the build first published as $VERSION."; exit 0; fi
           mkdir -p npm

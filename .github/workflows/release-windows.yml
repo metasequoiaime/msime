@@ -239,7 +239,7 @@ jobs:
           "MSIME_DESKTOP_RESOURCES=$(@($resources)[-1].Trim())" >> $env:GITHUB_ENV
       - name: Build Windows client
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}", SERVER_UIACCESS: "${{ needs.source.outputs.signpath == 'true' && needs.source.outputs.policy != 'test-signing' }}"}
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
           # Build-Client.ps1 defaults to the Visual Studio 2022 generator; the runner image moves between Visual Studio releases, so name the one it has.
@@ -265,7 +265,8 @@ jobs:
             if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) { throw "Visual Studio lacks $component" }
           }
           # The Rust half comes from the rust job; nothing is compiled by cargo or pnpm here.
-          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION -RustOutputs (Join-Path $env:RUNNER_TEMP 'msime-rust')
+          # UIAccess 需要受信任签名；nightly、未签名包和 test-signing 包保留普通权限输入能力。
+          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION -RustOutputs (Join-Path $env:RUNNER_TEMP 'msime-rust') -ServerUiAccess:($env:SERVER_UIACCESS -eq 'true')
       - name: Collect third-party notices
         shell: pwsh
         env: {EDITION: "${{ matrix.edition }}"}

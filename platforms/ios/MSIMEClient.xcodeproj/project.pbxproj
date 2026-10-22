@@ -324,6 +324,7 @@
 		503E56126CCB1979D8DC4BEB /* OwnEditEchoWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CFC7B25A297D666AB0B4BC /* OwnEditEchoWindow.swift */; };
 		5078F23BE45FA3D000CC384F /* KeyboardCloudClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE5D92375F4741B1A2E3BDA /* KeyboardCloudClipboard.swift */; };
 		510E4AB50677EBC9382BA77B /* FrequencyAdjustmentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AB2A5BF965499D6D662031 /* FrequencyAdjustmentPreference.swift */; };
+		51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */; };
 		51E67BC9E9E773CA3A2E302A /* GlideTyping.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB65620E5B3B44FBBEC6462C /* GlideTyping.swift */; };
 		51FD461A541E3DC8A55F97BE /* AIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2ABA346D43E3C2EC9A54C /* AIEndpointPolicy.swift */; };
 		52F479E64A93D99AE4B5C739 /* IOSResourcePacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E8B4297D68CF9B8E393590 /* IOSResourcePacks.swift */; };
@@ -1169,6 +1170,7 @@
 		39A2E34AAE87C6EEC7120307 /* CommunityResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityResource.swift; sourceTree = "<group>"; };
 		39A57ED3372EEA9F4E698D40 /* JapaneseNineKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JapaneseNineKeyTests.swift; sourceTree = "<group>"; };
 		3A65A0F8F45AA0AB5A6922C3 /* KeyboardPagedGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPagedGridView.swift; sourceTree = "<group>"; };
+		3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "rime-wanxiang-CC-BY-4.0.txt"; sourceTree = "<group>"; };
 		3B7C88992D4866617DCC4285 /* KoreanDubeolsikTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanDubeolsikTests.swift; sourceTree = "<group>"; };
 		3C593401E864A58F7F8763D1 /* AISkinService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinService.swift; sourceTree = "<group>"; };
 		3D764D60307540C5C0D0BB5C /* InputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputLanguage.swift; sourceTree = "<group>"; };
@@ -1872,6 +1874,7 @@
 				DAC83802853B57ACCD2EE104 /* OpenCC-Apache-2.0.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
+				3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */,
 				878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */,
 				F00250F90DDDC57808459590 /* vi-MIT.txt */,
 			);
@@ -2882,6 +2885,7 @@
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */,
 				6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */,
+				51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */,
 				3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

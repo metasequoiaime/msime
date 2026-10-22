@@ -84,10 +84,44 @@ struct BackendRustAccount: Sendable {
   }
 
   /// `msime_client_account_cloud_clipboard` 的一个 action。`deviceName` 只在本机还没登记端到端加密时发给服务端，给其他设备的设备列表看。
-  func cloudClipboard(_ action: [String: Any], deviceName: String?) async throws -> Data {
+  func cloudClipboard(_ action: [String: Any], deviceName: String?, preferencesDirectory: URL? = nil) async throws -> Data {
     var request: [String: Any] = ["session_store": store, "action": action]
+    if let preferencesDirectory { request["preferences_directory"] = preferencesDirectory.path }
     if let deviceName { request["device_name"] = deviceName }
     return try await client.call(.accountCloudClipboard, request)
+  }
+
+  /// `msime_client_cloud_clipboard_source`：偏好里配置了自建中继时是 `relay`，否则是 `account`。`preferencesDirectory` 是共享偏好目录（macOS 是 `account-session.json` 所在的那一个）。不联网，偏好读不了或中继配置不合规时抛错。
+  struct ClipboardSource: Equatable, Sendable {
+    let source: String
+    let revision: UInt64
+  }
+
+  func cloudClipboardSelection(preferencesDirectory: URL) async throws -> ClipboardSource {
+    let value = try await client.call(.cloudClipboardSource, Data(preferencesDirectory.path.utf8))
+    guard let source = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
+          let text = source["source"] as? String, ["account", "relay"].contains(text),
+          let revision = source["revision"] as? NSNumber,
+          CFGetTypeID(revision) != CFBooleanGetTypeID(),
+          !["f", "d"].contains(String(cString: revision.objCType)),
+          let number = UInt64(revision.stringValue) else {
+      throw BackendRustClient.Failure.invalidResponse
+    }
+    return ClipboardSource(source: text, revision: number)
+  }
+
+  func cloudClipboardSource(preferencesDirectory: URL) async throws -> String {
+    try await cloudClipboardSelection(preferencesDirectory: preferencesDirectory).source
+  }
+
+  /// `msime_client_relay_cloud_clipboard` 的一个 action：动作经用户自建的中继完成，中继地址和令牌从 `preferencesDirectory` 的偏好里读。`keystoreDirectory` 放中继的密钥串 `cloud-clipboard-relay-keystore`，同一台设备上的各个进程要传同一个，否则会登记成几台设备。
+  func relayCloudClipboard(_ action: [String: Any], preferencesDirectory: URL, keystoreDirectory: URL,
+                           deviceName: String?, expectedRevision: UInt64? = nil) async throws -> Data {
+    var request: [String: Any] = ["preferences_directory": preferencesDirectory.path,
+                                  "directory": keystoreDirectory.path, "action": action]
+    if let expectedRevision { request["expected_revision"] = expectedRevision }
+    if let deviceName { request["device_name"] = deviceName }
+    return try await client.call(.relayCloudClipboard, request)
   }
 
   /// `msime_client_community` 的一个 action（键盘皮肤、词包与回复模板、举报）。键盘皮肤的下载和举报没有登录时 Rust 用本机匿名账号。
@@ -200,6 +234,7 @@ extension BackendRustClient.Failure: LocalizedError {
     case "account_rate_limited", "community_rate_limited":
       return retryAfterSeconds.map { "操作过于频繁，请约 \(Self.wait($0))后再试。" } ?? "操作过于频繁，请稍后再试。"
     case "account_storage": return "无法安全读取登录状态，请检查设备安全设置。"
+    case "clipboard_source_changed": return "云剪贴板同步来源已更改，请关闭后重新打开。"
     case "account_cancelled", "community_cancelled": return "操作已取消，请重试。"
     case "account_network": return "网络连接失败，请检查网络后重试。"
     case "account_recent_login_required": return "需要重新登录后再注销：请先退出登录，重新登录后再试。"

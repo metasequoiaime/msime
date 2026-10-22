@@ -2,7 +2,10 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InputModeShortcutsSection, type HostCapabilities } from "@msime/ui";
-import { offersJapaneseToggle } from "../../../../packages/ui/src/settings/input-scheme-options";
+import {
+  offersJapaneseToggle,
+  offersTrilingualCycle,
+} from "../../../../packages/ui/src/settings/input-scheme-options";
 
 afterEach(() => {
   cleanup();
@@ -391,6 +394,77 @@ test("the Japanese toggle needs both a Chinese scheme and Japanese in the editio
   expect(offersJapaneseToggle(host({ edition: edition(["wubi"]) }))).toBe(false);
   expect(offersJapaneseToggle(host({ edition: edition(["japanese"]) }))).toBe(false);
   expect(offersJapaneseToggle(host({ edition: edition(["japanese", "korean"]) }))).toBe(false);
+});
+
+test("the trilingual cycle is offered only where the host cycles the language switch", () => {
+  const onChange = vi.fn();
+  renderLanguageSwitch({}, onChange);
+  // 没声明能力的宿主（Windows、Linux、移动端）不显示：它们这一组快捷键仍是二态切换。
+  expect(screen.queryByRole("switch", { name: /中英日循环切换/ })).toBeNull();
+  cleanup();
+
+  render(
+    <InputModeShortcutsSection
+      keybindings={keybindings}
+      onChange={onChange}
+      showModeSwitchShortcuts
+      macos
+      showFullwidthChord={false}
+      windows={false}
+      trilingualCycle
+    />,
+  );
+  const toggle = screen.getByRole("switch", { name: "中英日循环切换" });
+  // 缺省为关，对齐旧版 Windows 正式版的出厂值。
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  // 说明写出参与循环的是「切换中英文」那一组键，而不是另加一个键。
+  expect(screen.getByText(/中文 → 日文 → 英文 → 中文/)).toBeTruthy();
+  expect(screen.getByText(/原始字母上屏/)).toBeTruthy();
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange).toHaveBeenCalledWith({ trilingual_cycle: true });
+  // 打开循环不改动已选的切换键：它是这一组键的行为，不是另一个组合键。
+  expect((screen.getByLabelText("切换中英文") as HTMLSelectElement).value).toBe("shift");
+  cleanup();
+
+  render(
+    <InputModeShortcutsSection
+      keybindings={{ ...keybindings, trilingual_cycle: true }}
+      onChange={vi.fn()}
+      showModeSwitchShortcuts
+      macos
+      showFullwidthChord={false}
+      windows={false}
+      trilingualCycle
+    />,
+  );
+  expect((screen.getByRole("switch", { name: "中英日循环切换" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+});
+
+test("the trilingual cycle needs both a Chinese scheme and Japanese in the edition", () => {
+  const host = (overrides: Partial<HostCapabilities>) =>
+    ({ trilingual_cycle: true, input_schemes: [], ...overrides }) as HostCapabilities;
+  const edition = (input_schemes: HostCapabilities["input_schemes"]) =>
+    ({
+      id: "test",
+      input_schemes,
+      default_scheme: input_schemes[0],
+    }) as HostCapabilities["edition"];
+
+  expect(offersTrilingualCycle(undefined)).toBe(false);
+  // 目前只有 macOS 声明了这项能力。
+  expect(offersTrilingualCycle(host({ trilingual_cycle: undefined }))).toBe(false);
+  expect(offersTrilingualCycle(host({ trilingual_cycle: false }))).toBe(false);
+  // 版本缺省就是 full：中文方案和日语都有。
+  expect(offersTrilingualCycle(host({}))).toBe(true);
+  expect(
+    offersTrilingualCycle(host({ edition: edition(["quanpin", "shuangpin", "japanese"]) })),
+  ).toBe(true);
+  // 五笔版没有日语，日语版没有中文方案，这两种都凑不成一圈。
+  expect(offersTrilingualCycle(host({ edition: edition(["wubi"]) }))).toBe(false);
+  expect(offersTrilingualCycle(host({ edition: edition(["japanese"]) }))).toBe(false);
 });
 
 test("a document without the Control+Shift+F key shows the switch on, as client-core defaults it", () => {

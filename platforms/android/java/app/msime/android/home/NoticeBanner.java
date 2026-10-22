@@ -38,9 +38,9 @@ final class NoticeBanner {
 
     private NoticeBanner() {}
 
-    /** Fetch (or reuse the cached feed) off the main thread and show the newest notice in `container`. */
+    /** 公告可能联网，使用独立队列，避免后续设置读写排在慢请求之后。 */
     static void load(Fragment fragment, LinearLayout container) {
-        HostTask.run(fragment, NoticeBanner::fetch, notices -> show(fragment, container, notices));
+        HostTask.runNetwork(fragment, NoticeBanner::fetch, notices -> show(fragment, container, notices));
     }
 
     private static List<Notice> fetch(Context context) {
@@ -89,7 +89,8 @@ final class NoticeBanner {
         ViewPolicy.bindClick(card.findViewById(R.id.notice_dismiss), () -> {
             List<Notice> rest = new ArrayList<>(notices.subList(1, notices.size()));
             show(fragment, container, rest);
-            HostTask.run(fragment, worker -> dismiss(worker, notice.id()), ignoredResult -> {});
+            // 获取公告时会持有公告锁，关闭操作也不能在设置队列里等它。
+            HostTask.runNetwork(fragment, worker -> dismiss(worker, notice.id()), ignoredResult -> {});
         });
         container.addView(card);
     }

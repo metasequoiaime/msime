@@ -10,8 +10,10 @@ import org.json.JSONObject;
 /** 组字写入后立即 restartInput 的合成编辑器，必须继续使用同一串候选。 */
 public final class CompositionRestartDeviceSmoke extends DeviceSmoke {
     private boolean magnifierOnly;
+    private boolean appCompositionOnly;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        appCompositionOnly = arguments != null && "true".equals(arguments.getString("app-composition"));
         magnifierOnly = arguments != null && "true".equals(arguments.getString("magnifier"));
         super.onCreate(arguments);
     }
@@ -19,11 +21,12 @@ public final class CompositionRestartDeviceSmoke extends DeviceSmoke {
     private long eventWindowStart;
 
     @Override protected String successDescription() {
-        return magnifierOnly ? "composition magnifier: editor taps, middle edits, offset dragging and long spelling"
+        return appCompositionOnly ? "app-specific keyboard composition and ordinary editor isolation" : magnifierOnly ? "composition magnifier: editor taps, middle edits, offset dragging and long spelling"
             : "composition survives same-editor restarts; magnifier middle edits and offset dragging";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (appCompositionOnly) { AppCompositionDeviceChecks.run(this); return; }
         if (magnifierOnly) { CompositionMagnifierChecks.run(this); return; }
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(

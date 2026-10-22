@@ -37,7 +37,7 @@
      0,
      3
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "虐",
@@ -58,6 +58,15 @@
       "scheme": "quanpin",
       "weight": 30,
       "answers_key": true
+     },
+     {
+      "word": "怒",
+      "pinyin": "nu",
+      "canonical_pinyin": "nu",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 80,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -112,7 +121,7 @@
      0,
      3
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "虐",
@@ -131,6 +140,15 @@
       "scheme": "quanpin",
       "weight": 30,
       "answers_key": true
+     },
+     {
+      "word": "怒",
+      "pinyin": "nu",
+      "canonical_pinyin": "nu",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 80,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -185,7 +203,7 @@
      0,
      3
     ],
-    "candidate_count": 1,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "略",
@@ -197,6 +215,29 @@
       "corrected_from": "lue",
       "annotation": "lue",
       "answers_key": true
+     },
+     {
+      "word": "路鹅",
+      "pinyin": "lu'e",
+      "canonical_pinyin": "lu'e",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": -19336,
+      "sentence_association": true,
+      "sentence_words": [
+       "路",
+       "鹅"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "路",
+      "pinyin": "lu",
+      "canonical_pinyin": "lu",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 80,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -251,7 +292,7 @@
      0,
      3
     ],
-    "candidate_count": 1,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "略",
@@ -261,6 +302,29 @@
       "scheme": "quanpin",
       "weight": 100,
       "answers_key": true
+     },
+     {
+      "word": "路鹅",
+      "pinyin": "lu'e",
+      "canonical_pinyin": "lu'e",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": -19336,
+      "sentence_association": true,
+      "sentence_words": [
+       "路",
+       "鹅"
+      ],
+      "answers_key": true
+     },
+     {
+      "word": "路",
+      "pinyin": "lu",
+      "canonical_pinyin": "lu",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 80,
+      "answers_key": false
      }
     ],
     "online_query": {
@@ -776,7 +840,7 @@
      0,
      3
     ],
-    "candidate_count": 2,
+    "candidate_count": 3,
     "candidates": [
      {
       "word": "虐",
@@ -797,6 +861,15 @@
       "scheme": "quanpin",
       "weight": 30,
       "answers_key": true
+     },
+     {
+      "word": "怒",
+      "pinyin": "nu",
+      "canonical_pinyin": "nu",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 80,
+      "answers_key": false
      }
     ],
     "online_query": {

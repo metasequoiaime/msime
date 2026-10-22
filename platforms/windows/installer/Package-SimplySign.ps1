@@ -54,7 +54,7 @@ if ($editionEntry.Count -ne 1) { throw "版本 $Edition 在 shared/contracts/edi
 $editionBuild = "target/windows-$Edition"
 $stageArgs = @{
     RepoRoot=$RepoRoot; X64Dependencies=$X64Dependencies; X86Dependencies=$X86Dependencies
-    Generator=$Generator; TargetVersion=$TargetVersion; Edition=$Edition
+    Generator=$Generator; TargetVersion=$TargetVersion; Edition=$Edition; ServerUiAccess=$true
 }
 $prepareArgs = @{
     RepoRoot=$RepoRoot; TargetVersion=$TargetVersion; NoticesDirectory=$noticeRoot

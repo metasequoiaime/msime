@@ -1224,7 +1224,7 @@ final class ImePanels {
     void showClipboardHistory() {
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!CloudClipboardPanelPolicy.panelAvailable(s.clipboardHistoryEnabled, cloudAllowed)
-                || s.clipboardScroll == null) return;
+                || s.clipboardSurface == null) return;
         // Clipboard entries are independent editor text. Finish the active composition when the
         // panel opens, matching the symbol and emoji panels instead of leaving stale preedit behind
         // while the user browses history.
@@ -1246,13 +1246,13 @@ final class ImePanels {
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
         s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
         renderClipboardHistory();
-        ViewPolicy.show(s.clipboardScroll);
+        ViewPolicy.show(s.clipboardSurface);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
         if (cloudAllowed) refreshCloudClipboard();
     }
 
     boolean clipboardPanelOpen() {
-        return ViewPolicy.isVisible(s.clipboardScroll);
+        return ViewPolicy.isVisible(s.clipboardSurface);
     }
 
     boolean cloudClipboardAllowed() {
@@ -1465,9 +1465,11 @@ final class ImePanels {
     void renderClipboardHistory() {
         dismissClipboardPreview();
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
+        s.clipboardHeader.removeAllViews();
         s.clipboardPanel.removeAllViews();
         clipboardCardRow = null;
         clipboardSwipedCell = null;
+        LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
@@ -1572,7 +1574,7 @@ final class ImePanels {
                 undo.setContentDescription("撤销刚才删除的剪贴板记录");
             }
         }
-        s.clipboardPanel.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+        s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
         if (cloud) {
             renderCloudClipboard(notes);
         } else if (!s.clipboardHistoryEnabled) {

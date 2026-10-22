@@ -1,5 +1,6 @@
 #include "CandidateWindow.h"
 #include "CandidateCanvasDrawing.h"
+#include "CandidateDecorationDrawing.h"
 #include "AccessibleWindow.h"
 #include "CandidateAccessibility.h"
 #include "CandidateFlyoutWindow.h"
@@ -1713,10 +1714,39 @@ void CandidateWindow::paint() {
               static_cast<float>(metrics.pad_x),
               static_cast<float>(metrics.pad_y), decoration_offset_,
               static_cast<float>(decoration_width_), natural.width,
-              natural.height))
+              natural.height)) {
         target->DrawBitmap(
             bitmap, D2D1_RECT_F{rect->left, rect->top, rect->right, rect->bottom},
-            1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            motion_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        if (decoration_candidate_) {
+          const auto &overlay = *decoration_candidate_;
+          const auto highlighted = std::find_if(value->candidates.begin(), value->candidates.end(),
+              [](const PresentationCandidate &candidate) { return candidate.highlighted; });
+          const int highlight = highlighted == value->candidates.end() ? -1
+              : static_cast<int>(highlighted - value->candidates.begin());
+          if (const auto seat = overlay.seat(value->candidates.size(), highlight)) {
+            const auto &candidate = value->candidates[*seat];
+            // 原文已按输出模式转换；只控制独立标注，不猜测括号、纠错标记或后缀。
+            const auto word = candidate.text + (overlay.stripBadge ? std::string{} : candidate.badge);
+            if (!word.empty() && word.size() <= 4096) {
+              const float box_width = static_cast<float>(decoration_width_);
+              const float box_height = static_cast<float>(decoration_top_);
+              const float align = decoration_align_ == CandidateSkinAlign::left ? 0.0f
+                  : decoration_align_ == CandidateSkinAlign::center ? 0.5f : 1.0f;
+              // 图片等比缩小时，声明框仍沿同一边与图片底边对齐。
+              const D2D1_RECT_F box{rect->left + (rect->right - rect->left - box_width) * align,
+                  rect->bottom - box_height,
+                  rect->left + (rect->right - rect->left - box_width) * align + box_width, rect->bottom};
+              const auto text = candidate_decoration_text(device_.GetDWriteFactory(),
+                  format(overlay.fontSizeDip, DWRITE_TEXT_ALIGNMENT_LEADING), wide(word), overlay, box);
+              if (text)
+                target->DrawTextLayout(text->origin, text->layout.Get(),
+                    brush(parse_css_color(overlay.color, candidate_rgb(0xffffff))),
+                    D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+          }
+        }
+      }
     }
   }
   // Fluent 风格的首行：左边是水杉 logo（`show_app_logo` 关掉时不画）和强调色半粗体的拼音，右边是次要色的页码和上一页、下一页箭头。只要有 logo 或翻页，拼音隐藏时这一行也在。

@@ -61,6 +61,156 @@ final class CandidateCanvasTests: XCTestCase {
     return bytes
   }
 
+  private func decoratedRoot(_ candidate: String = "candidate_overlay_index = 0\ncandidate_overlay_font_size_dip = 32\ncandidate_overlay_min_font_size_dip = 8\ncandidate_overlay_color = '#FF00FF'", align: String = "right") throws -> URL {
+    let root = try root()
+    try """
+    schema_version = 2
+    id = 'canvas-fixture'
+    name = '合成装饰'
+    version = '1.0.0'
+    base = 'system'
+    [supports]
+    layouts = ['horizontal', 'vertical']
+    themes = ['light', 'dark']
+    [candidate_window.decoration]
+    top_inset_dip = 80
+    width_dip = 120
+    image = 'light.png'
+    align = '\(align)'
+    candidate_overlay = true
+    \(candidate)
+    """.write(to: root.appendingPathComponent("canvas-fixture/skin.toml"), atomically: true, encoding: .utf8)
+    return root
+  }
+
+  private func decorationLabel(_ view: UIView) throws -> UILabel {
+    let all = view.subviews.flatMap { [$0] + $0.subviews }
+    return try XCTUnwrap(all.first { $0.accessibilityIdentifier == "candidate-decoration-word" } as? UILabel)
+  }
+
+  private func magentaPixels(_ view: UIView) throws -> Int {
+    view.layoutIfNeeded()
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { view.layer.render(in: $0.cgContext) }
+    let cg = try XCTUnwrap(image.cgImage)
+    let width = cg.width, height = cg.height
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    let context = try XCTUnwrap(CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] > 150 && bytes[$0 + 1] < 60 && bytes[$0 + 2] > 150 }.count
+  }
+
+  func testTraditionalDecorationUsesCurrentHighlightAndClearsOldWords() throws {
+    let root = try decoratedRoot()
+    let canvas = try XCTUnwrap(ExternalCandidateSkin.canvas("canvas-fixture", dark: false, root: root))
+    XCTAssertFalse(canvas.panelLoaded)
+    XCTAssertNotNil(canvas.banner?.candidate)
+    let view = CandidateCanvasView(level: 1)
+    view.frame = CGRect(x: 0, y: 0, width: 400, height: 180)
+    view.canvas = canvas
+    view.words = [.init(text: "WWW", highlighted: true), .init(text: "i")]
+    let first = try magentaPixels(view)
+    XCTAssertGreaterThan(first, 100)
+    XCTAssertEqual(try decorationLabel(view).text, "WWW")
+    view.words = [.init(text: "WWW"), .init(text: "i", highlighted: true)]
+    let second = try magentaPixels(view)
+    XCTAssertGreaterThan(second, 0)
+    XCTAssertGreaterThan(first, second * 2)
+    XCTAssertEqual(try decorationLabel(view).text, "i")
+    view.words = [.init(text: "MMMM", highlighted: true)]
+    XCTAssertGreaterThan(try magentaPixels(view), second * 2)
+    view.words = [.init(text: "无高亮")]
+    XCTAssertEqual(try magentaPixels(view), 0)
+    view.words = [.init(text: "WWW", highlighted: true)]
+    view.layoutIfNeeded()
+    view.isHidden = true
+    XCTAssertNil(try decorationLabel(view).text)
+    view.isHidden = false
+    XCTAssertGreaterThan(try magentaPixels(view), 100)
+    view.frame.size.width = 0
+    view.layoutIfNeeded()
+    XCTAssertNil(try decorationLabel(view).text, "图片没有可绘制尺寸时不留下孤立文字")
+    view.frame.size.width = 400
+    view.canvas = nil
+    XCTAssertEqual(try magentaPixels(view), 0)
+    try FileManager.default.removeItem(at: root.appendingPathComponent("canvas-fixture/light.png"))
+    XCTAssertNil(ExternalCandidateSkin.canvas("canvas-fixture", dark: false, root: root))
+    XCTAssertNil(view.hitTest(CGPoint(x: 350, y: 40), with: nil))
+    XCTAssertTrue(view.accessibilityElementsHidden)
+  }
+
+  func testDecorationWordFitsAndAlignsInDeclaredBoxEvenWhenImageShrinks() throws {
+    for horizontal in ["left", "center", "right"] {
+      for vertical in ["top", "center", "bottom"] {
+        let root = try decoratedRoot("""
+        candidate_overlay_index = 2
+        candidate_overlay_font_size_dip = 32
+        candidate_overlay_min_font_size_dip = 8
+        candidate_overlay_max_width_dip = 1
+        candidate_overlay_align_h = '\(horizontal)'
+        candidate_overlay_align_v = '\(vertical)'
+        candidate_overlay_offset_x_dip = -3
+        candidate_overlay_offset_y_dip = 4
+        candidate_overlay_strip_badge = false
+        """)
+        let view = CandidateCanvasView(level: 1)
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 180)
+        view.canvas = try XCTUnwrap(ExternalCandidateSkin.canvas("canvas-fixture", dark: true, root: root))
+        view.words = [.init(text: "首项"), .init(text: "WWW(原文)", badge: "WW")]
+        view.layoutIfNeeded()
+        let label = try decorationLabel(view)
+        XCTAssertEqual(label.text, "WWW(原文)WW")
+        XCTAssertEqual(label.font.pointSize, 8)
+        XCTAssertGreaterThan(label.frame.width, 1, "最小字号后仍绘制完整单行")
+        let ax: CGFloat = horizontal == "left" ? 0 : horizontal == "center" ? 0.5 : 1
+        let ay: CGFloat = vertical == "top" ? 0 : vertical == "center" ? 0.5 : 1
+        // 正方形图在 120×80 的声明框里缩成 80×80，并沿同一右边与底边对齐。
+        XCTAssertEqual(label.frame.minX, 280 + (120 - label.frame.width) * ax - 3, accuracy: 0.01)
+        XCTAssertEqual(label.frame.minY, (80 - label.frame.height) * ay + 4, accuracy: 0.01)
+      }
+    }
+    let root = try decoratedRoot("candidate_overlay_index = 100")
+    let view = CandidateCanvasView(level: 1)
+    view.canvas = ExternalCandidateSkin.canvas("canvas-fixture", dark: false, root: root)
+    view.frame = CGRect(x: 0, y: 0, width: 400, height: 180)
+    view.words = [.init(text: "越界")]
+    view.layoutIfNeeded()
+    XCTAssertNil(try decorationLabel(view).text)
+  }
+
+  func testDecorationRespectsFixedHeightAndScalesTextWithItsImage() throws {
+    let host = CandidateCanvasHostView(frame: CGRect(x: 0, y: 0, width: 390, height: 44))
+    host.minimumContentHeight = 28
+    host.canvas = try XCTUnwrap(ExternalCandidateSkin.canvas("canvas-fixture", dark: false, root: decoratedRoot()))
+    host.decorationWords = [.init(text: "合成词", highlighted: true)]
+    host.layoutIfNeeded()
+    XCTAssertEqual(host.frame.height, 44)
+    XCTAssertEqual(host.candidateContentGuide.layoutFrame.height, 28, accuracy: 0.01)
+    let front = try XCTUnwrap(host.subviews.last as? CandidateCanvasView)
+    let label = try decorationLabel(front)
+    XCTAssertEqual(label.font.pointSize, 32 * 0.2, accuracy: 0.01)
+    host.canvasVisible = false
+    host.layoutIfNeeded()
+    XCTAssertNil(label.text)
+    XCTAssertEqual(host.candidateContentGuide.layoutFrame, host.bounds)
+  }
+
+  func testDecorationOverlayRejectsMalformedPublishedMetadata() throws {
+    var value: [String: Any] = ["index": 0, "fontSizeDip": 16, "minFontSizeDip": 8, "maxWidthDip": 0,
+      "offsetXDip": 0, "offsetYDip": 0, "alignH": "left", "alignV": "top", "stripBadge": true, "resolvedColor": "#12345678"]
+    XCTAssertNotNil(ExternalCandidateSkin.Canvas.CandidateOverlay(value))
+    for (key, invalid): (String, Any) in [("index", true), ("index", 0.5), ("fontSizeDip", true),
+      ("fontSizeDip", 0), ("maxWidthDip", -1), ("offsetXDip", Double.infinity), ("stripBadge", 1),
+      ("resolvedColor", "#fff"), ("resolvedColor", "#1234567x"), ("alignH", "unknown")] {
+      let old = value[key]
+      value[key] = invalid
+      XCTAssertNil(ExternalCandidateSkin.Canvas.CandidateOverlay(value), key)
+      value[key] = old
+    }
+  }
+
   func testNineSlicesHaveCorrectOrientationAndDoNotBleedAcrossEdges() throws {
     let canvas = try XCTUnwrap(ExternalCandidateSkin.canvas("canvas-fixture", dark: true, root: root()))
     XCTAssertTrue(canvas.panelLoaded)
@@ -247,7 +397,14 @@ final class CandidateCanvasTests: XCTestCase {
     }
     defaults.set(true, forKey: CandidatePalette.followsDesktopKey)
     InputSchemePreference.scheme = .quanpin
-    let fixtureRoot = try root()
+    let fixtureRoot = try root(extra: """
+    [candidate_window.decoration]
+    image = 'light.png'
+    top_inset_dip = 40
+    width_dip = 80
+    candidate_overlay = true
+    candidate_overlay_index = 1
+    """)
     let source = fixtureRoot.appendingPathComponent("canvas-fixture")
     let destination = fixtureRoot.appendingPathComponent("installed-skins")
     let id = "ios-canvas-" + UUID().uuidString.lowercased()
@@ -286,10 +443,25 @@ final class CandidateCanvasTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(strip.canvas === canvas, "逐键复用已解码资源")
+    XCTAssertFalse(strip.decorationWords.isEmpty)
+    XCTAssertTrue(strip.decorationWords.first?.highlighted == true, "生产桥保留引擎高亮")
+    let stripFront = try XCTUnwrap(strip.subviews.last as? CandidateCanvasView)
+    XCTAssertEqual(try decorationLabel(stripFront).text, strip.decorationWords.first?.text)
+    let raster = UIGraphicsImageRenderer(size: controller.view.bounds.size).image { controller.view.layer.render(in: $0.cgContext) }
+    let attachment = XCTAttachment(image: raster)
+    attachment.name = "ios-decoration-candidate-controller"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    let oldWords = strip.decorationWords
+    let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+    more.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotEqual(strip.decorationWords, oldWords, "候选变化时刷新词而不解码图片")
     try button("expandCandidates").sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" } as? KeyboardCandidatePanelView)
     XCTAssertTrue(panel.canvas === canvas)
+    XCTAssertEqual(panel.decorationWords, strip.decorationWords)
     defaults.set(false, forKey: CandidatePalette.followsDesktopKey)
     controller.viewWillAppear(false)
     for _ in 0..<100 where strip.canvas != nil { try await Task.sleep(nanoseconds: 10_000_000) }

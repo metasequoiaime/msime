@@ -82,9 +82,8 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
   }
 }
 
-// File transcription presets use Engine's multipart file/model codec; 阿里云百炼（`bailian`）是 Chat Completions 带 input_audio 的 JSON 请求（chat_audio）。
-// Official provider documentation checked 2026-09-07; 百炼按 2026-10-09 的官方文档。
-// `local` and `system` recognize on the phone and carry no endpoint, model or key; their raw values are the shared `voice_input.provider` names.
+// 文件识别复用共享 multipart 编码，百炼使用带 input_audio 的 Chat Completions JSON；目录元数据由共享 Rust 提供。
+// `local` 与 `system` 在设备上识别，不带接口、模型或密钥；枚举原始值保持既有 UserDefaults 格式。
 enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   case local, system, everyAPI, doubao, openAI, siliconFlow, groq, mistral, bailian, custom
 
@@ -109,16 +108,13 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   }
   var endpoint: String {
     switch self {
-    case .local, .system: ""
-    case .everyAPI: "https://api.everyapi.ai/v1/audio/transcriptions"
-    case .doubao: VoiceProviderCatalog.shared?.doubaoDefaultEndpoint ?? ""
-    case .openAI: "https://api.openai.com/v1/audio/transcriptions"
-    case .siliconFlow: "https://api.siliconflow.cn/v1/audio/transcriptions"
-    case .groq: "https://api.groq.com/openai/v1/audio/transcriptions"
-    case .mistral: "https://api.mistral.ai/v1/audio/transcriptions"
-    case .bailian: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-    case .custom: ""
+    case .local, .system, .custom: ""
+    default: catalogPreset?.endpoint ?? ""
     }
+  }
+
+  private var catalogPreset: VoiceProviderCatalog.Provider? {
+    VoiceProviderCatalog.shared?.asrProvider(id: rawValue.lowercased())
   }
   /// 与共享 Rust 运行时相同的豆包接口顺序、地址与标题；字符串由目录快照持有。
   static var doubaoStreamEndpoints: [VoiceProviderCatalog.StreamEndpoint] {
@@ -126,31 +122,18 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   }
   var models: [String] {
     switch self {
-    case .local, .system: []
-    case .everyAPI: ["volc.seedasr.sauc.duration"]
+    case .local, .system, .custom: []
     case .doubao: ["volc.seedasr.sauc.duration"]
-    case .openAI: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"]
-    case .siliconFlow: ["FunAudioLLM/SenseVoiceSmall"]
-    case .groq: ["whisper-large-v3-turbo", "whisper-large-v3"]
-    case .mistral: ["voxtral-mini-latest"]
-    case .bailian: ["qwen3-asr-flash", "qwen3-asr-flash-2026-02-10"]
-    case .custom: []
+    default: catalogPreset?.models ?? []
     }
   }
   var documentation: URL? {
-    let address: String
     switch self {
-    case .local, .system: return nil
-    case .everyAPI: address = "https://everyapi.ai/models"
-    case .doubao: return nil
-    case .openAI: address = "https://developers.openai.com/api/docs/guides/speech-to-text"
-    case .siliconFlow: address = "https://siliconflow.readme.io/reference/createaudiotranscriptions"
-    case .groq: address = "https://console.groq.com/docs/speech-to-text"
-    case .mistral: address = "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription"
-    case .bailian: address = "https://help.aliyun.com/zh/model-studio/qwen-speech-recognition"
-    case .custom: return nil
+    case .local, .system, .doubao, .custom: return nil
+    default:
+      guard let address = catalogPreset?.documentation, !address.isEmpty else { return nil }
+      return URL(string: address)
     }
-    return URL(string: address)
   }
 }
 

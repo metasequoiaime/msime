@@ -75,6 +75,8 @@ pub(super) struct InputSession {
     pub chinese_punctuation_enabled: bool,
     pub punctuation_lock: i32,
     pub learning_enabled: bool,
+    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。
+    pub learn_english_on_enter: bool,
     pub personal_context_enabled: bool,
     pub punctuation: PunctuationPolicy,
     pub frequency: FrequencyAdjustmentOptions,
@@ -86,6 +88,8 @@ pub(super) struct InputSession {
     pub dedicated_english: bool,
     pub dedicated_english_preedit: String,
     pub dedicated_english_candidates: Vec<WordItem>,
+    pub english_online_candidates_enabled: bool,
+    pub english_online_rows: Vec<WordItem>,
     pub mixed_candidates: Vec<WordItem>,
     pub local_mode: LocalInputMode,
     /// The scheme to return to after temporary Japanese.
@@ -161,6 +165,7 @@ impl InputSession {
             chinese_punctuation_enabled: true,
             punctuation_lock: 0,
             learning_enabled: true,
+            learn_english_on_enter: options.learn_english_on_enter,
             personal_context_enabled: true,
             punctuation: PunctuationPolicy::default(),
             frequency: FrequencyAdjustmentOptions::default(),
@@ -171,6 +176,8 @@ impl InputSession {
             dedicated_english: false,
             dedicated_english_preedit: String::new(),
             dedicated_english_candidates: Vec::new(),
+            english_online_candidates_enabled: false,
+            english_online_rows: Vec::new(),
             mixed_candidates: Vec::new(),
             local_mode: LocalInputMode::None,
             temporary_original_scheme: None,
@@ -284,6 +291,9 @@ impl InputSession {
             }
             self.leave_conversion();
         }
+        if self.takes_literal_symbol(value) {
+            return self.insert_literal_symbol(value);
+        }
         if self
             .caret
             .is_some_and(|caret| caret < self.editing_text_len())
@@ -294,6 +304,7 @@ impl InputSession {
         if self.dedicated_english {
             // Every other key is swallowed, even with nothing composed, so the English mode never leaks Chinese punctuation or digits into the host (core-session.md §15.2).
             if value.is_ascii_alphabetic() {
+                self.invalidate_online_requests();
                 self.dedicated_english_preedit.push(value as char);
                 self.update_dedicated_english_candidates();
             }
@@ -388,7 +399,7 @@ impl InputSession {
         if !changed {
             return KeyResult::unhandled();
         }
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         KeyResult::handled()
     }
 
@@ -416,8 +427,16 @@ impl InputSession {
                 self.refresh_temporary_japanese();
                 return KeyResult::handled();
             }
-            LocalInputMode::SuperJianpin => letter,
+            // 空 J 入口后的大写属于英文串；交给下方拒绝大写分支转回普通组字。
+            LocalInputMode::SuperJianpin => {
+                letter
+                    && !(value.is_ascii_uppercase()
+                        && self.local_preedit.len() == 1
+                        && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin))
+            }
             LocalInputMode::Emoji | LocalInputMode::Kaomoji => letter || value == b'\'',
+            // 符号模式只收字母：分组码与符号名都是字母，撇号、数字和 `;` 交还宿主。
+            LocalInputMode::Symbol => letter,
             LocalInputMode::QuickPhrase | LocalInputMode::DateTime => value.is_ascii_lowercase(),
             LocalInputMode::Unicode => {
                 value.is_ascii_hexdigit() || (value == b'+' && self.local_preedit == "U")
@@ -479,6 +498,7 @@ impl InputSession {
             result.handled = false;
             return result;
         }
+        self.invalidate_online_requests();
         self.local_preedit.push(value as char);
         KeyResult::handled().with_diagnostic(self.update_local_candidates())
     }
@@ -500,7 +520,7 @@ impl InputSession {
         self.engine.handle_key(SchemeKey::Letter(value));
         let finished = self.engine.take_korean_commit();
         self.update_mixed_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         if finished.is_empty() {
             return KeyResult::handled();
         }
@@ -552,7 +572,7 @@ impl InputSession {
         };
         self.engine.handle_key(key);
         self.update_mixed_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         KeyResult::handled()
     }
 
@@ -575,7 +595,7 @@ impl InputSession {
         self.engine.handle_key(SchemeKey::Letter(value));
         self.update_mixed_candidates();
         if self.engine.request().raw_input.len() != previous {
-            self.online_requests.invalidate();
+            self.invalidate_online_requests();
         }
         KeyResult::handled()
     }
@@ -633,7 +653,7 @@ impl InputSession {
         };
         self.engine.handle_key(key);
         self.update_mixed_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         KeyResult::handled()
     }
 
@@ -702,7 +722,7 @@ impl InputSession {
             Err(error) => return KeyResult::handled().with_diagnostic(Some(error.to_string())),
         };
         if claimed {
-            self.online_requests.invalidate();
+            self.invalidate_online_requests();
             if !self.has_composition() {
                 self.reset_composition();
             }
@@ -741,7 +761,7 @@ impl InputSession {
         self.update_mixed_candidates();
         match chosen {
             Ok(true) => {
-                self.online_requests.invalidate();
+                self.invalidate_online_requests();
                 KeyResult::handled()
             }
             Ok(false) => KeyResult::unhandled(),
@@ -795,7 +815,7 @@ impl InputSession {
         if let Err(error) = claimed {
             return Some(KeyResult::handled().with_diagnostic(Some(error.to_string())));
         }
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         if !self.has_composition() {
             // Nothing reached the host on Cancel or Backspace, so the chain still ends where it did; only the composition is over.
             self.reset_composition();
@@ -1015,9 +1035,12 @@ impl InputSession {
         self.select_candidate(usize::from(value - b'1'))
     }
 
-    /// input_session.cpp:260-292. `/` and `@` never open their modes here: a runtime finishes the composition before it asks for the mark, so an empty composition at this point does not mean the key was typed with nothing composed. They open through `handle_character`, which the runtime reaches first.
+    /// 组字接收的符号先回到字符入口；`/` 和 `@` 仅经字符入口开启模式，避免 runtime 结束组字后的空状态被误当成空闲输入。
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
         self.end_uppercase_run();
+        if self.takes_literal_symbol(value) {
+            return self.handle_character(value, false);
+        }
         if matches!(
             self.local_mode,
             LocalInputMode::Command | LocalInputMode::Mention
@@ -1203,6 +1226,12 @@ impl InputSession {
 
     /// `SessionSnapshot::spelling_symbols`.
     pub fn spelling_symbols(&self) -> String {
+        let mut symbols = self.base_spelling_symbols();
+        symbols.extend(self.literal_spelling_symbols());
+        symbols
+    }
+
+    fn base_spelling_symbols(&self) -> String {
         if self.dedicated_english {
             return String::new();
         }
@@ -1276,12 +1305,17 @@ impl InputSession {
             .flatten()
     }
 
-    /// Replaces the `@` mode's list, refreshing the list on screen when that mode is open.
+    /// 替换本地名单，刷新打开的 `@` 列表或普通组字中的联系人候选。
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
         self.queries.set_mentions(entries);
-        (self.local_mode == LocalInputMode::Mention)
-            .then(|| self.update_local_candidates())
-            .flatten()
+        if self.local_mode == LocalInputMode::Mention {
+            self.update_local_candidates()
+        } else {
+            if self.local_mode == LocalInputMode::None && self.has_composition() {
+                self.update_mixed_candidates();
+            }
+            None
+        }
     }
 
     pub fn set_mention_places(&mut self, enabled: bool) -> Option<String> {
@@ -1416,6 +1450,23 @@ impl InputSession {
         self.update_mixed_candidates();
     }
 
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        if self.english_online_candidates_enabled == enabled {
+            return;
+        }
+        self.english_online_candidates_enabled = enabled;
+        self.invalidate_online_requests();
+    }
+
+    /// 输入或模式变化同时撤回英文在线行，不能只让旧查询失效却继续显示它的回答。
+    pub(super) fn invalidate_online_requests(&mut self) {
+        self.online_requests.invalidate();
+        self.english_online_rows.clear();
+        self.dedicated_english_candidates
+            .retain(|row| !row.source.is_online());
+        self.local_candidates.retain(|row| !row.source.is_online());
+    }
+
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.engine.set_rescoring_context(context);
     }
@@ -1435,7 +1486,7 @@ impl InputSession {
         self.phrase_progress = CreatingWordProgress::default();
         self.pending_sequence = None;
         self.pending_sequence_with_cases = None;
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         let original_scheme = self.temporary_original_scheme.take();
         self.local_mode = LocalInputMode::None;
         self.local_preedit.clear();
@@ -1478,7 +1529,13 @@ impl InputSession {
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
         self.engine.clear_online_candidates(source);
         self.online_requests.invalidate();
-        self.update_mixed_candidates();
+        self.english_online_rows.retain(|row| row.source != source);
+        self.dedicated_english_candidates
+            .retain(|row| row.source != source);
+        self.local_candidates.retain(|row| row.source != source);
+        if !self.dedicated_english && self.local_mode == LocalInputMode::None {
+            self.update_mixed_candidates();
+        }
     }
 
     /// input_session_composition.cpp:379-385. While a caret prefix is decoded the prefix list is the one on screen, so it is the one widened; the reference's caret-prefix overlay widened only the hidden whole-input list and reported growth the host could not see.
@@ -1664,7 +1721,7 @@ impl InputSession {
         self.engine.set_quanpin_helpcode_enabled(enabled);
         // The engine reads the flag only while querying, so a live composition has to be asked again.
         self.recompute_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
     }
 
     fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
@@ -1674,7 +1731,7 @@ impl InputSession {
         self.shuangpin_helpcode_enabled = enabled;
         self.engine.set_shuangpin_helpcode_enabled(enabled);
         self.recompute_candidates();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
     }
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {
@@ -1722,6 +1779,7 @@ impl InputSession {
             ),
             b'V' => (LocalInputMode::Expression, options.expression),
             b'C' => (LocalInputMode::Chaizi, options.chaizi),
+            b'S' => (LocalInputMode::Symbol, options.symbol),
             _ => return None,
         };
         // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
@@ -1880,6 +1938,7 @@ impl InputSession {
         }
         self.caret = None;
         if self.dedicated_english {
+            self.invalidate_online_requests();
             self.dedicated_english_preedit.pop();
             self.update_dedicated_english_candidates();
             return KeyResult::handled();
@@ -1899,13 +1958,14 @@ impl InputSession {
                 self.refresh_temporary_japanese();
                 return KeyResult::handled();
             }
+            self.invalidate_online_requests();
             self.local_preedit.pop();
             return KeyResult::handled().with_diagnostic(self.update_local_candidates());
         }
         self.engine.handle_key(SchemeKey::Backspace);
         self.update_mixed_candidates();
         self.discard_abandoned_phrase_progress();
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         KeyResult::handled()
     }
 
@@ -1923,7 +1983,7 @@ impl InputSession {
         self.reset_composition();
         // 直接借用剩余文本还原方案，保留原文以检测码长截断。
         self.engine.replace_active_raw_input(&letters, &letters);
-        self.online_requests.invalidate();
+        self.invalidate_online_requests();
         self.update_mixed_candidates();
         // 方案装不下全部字母（五笔不开混拼时码长 4，`https:` 删掉 `:` 剩 5 个字母）时留在网址模式，不能悄悄丢掉用户键入的字母。
         if self.raw_with_cases() != letters {
@@ -1947,7 +2007,8 @@ impl InputSession {
             raw.remove(0);
         }
         let mut diagnostic = None;
-        if self.dedicated_english
+        if self.learn_english_on_enter
+            && self.dedicated_english
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
                 self.journal_path(),
@@ -2009,6 +2070,7 @@ fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {
         LocalInputMode::Command => options.command,
         LocalInputMode::Mention => options.mention,
         LocalInputMode::Chaizi => options.chaizi,
+        LocalInputMode::Symbol => options.symbol,
         // 网址模式默认开启，没有开关。
         LocalInputMode::Url => true,
     }

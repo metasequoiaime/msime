@@ -1931,9 +1931,20 @@ int main(int argc, char **argv) {
                     state->view_.value("local_mode", std::string("none")) == "none",
                 "Escape must leave the local mode");
       }
-      require(!press(FcitxKey_V, shiftState), "Disabled expression mode must pass through");
-      // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从菜单打开后 Shift+C 进入，组字中的 ' 当字符送进 Engine 作部件分隔符。
-      require(!press(FcitxKey_C, shiftState), "Disabled chaizi mode must pass through");
+      const auto disabledEntryComposes = [&](fcitx::KeySym sym, const char *letter) {
+        require(press(sym, shiftState) &&
+                    state->view_.value("local_mode", std::string("none")) == "none" &&
+                    state->view_.value("editing_text", std::string()) == letter,
+                "关闭的快捷入口应保留大写普通组字，不进入本地模式");
+        press(sym, shiftState, true);
+        press(FcitxKey_Shift_L, fcitx::KeyStates(), true);
+        require(state->input_enabled_ && press(FcitxKey_Escape) &&
+                    state->view_.value("editing_text", std::string()).empty() && ic.committed == before,
+                "关闭入口的组字可取消，松开组合键不切英文也不上屏");
+      };
+      disabledEntryComposes(FcitxKey_V, "V");
+      // 拆字反查在桌面默认关：Shift+C 留在普通组字；从菜单打开后进入拆字，撇号作为部件分隔符。
+      disabledEntryComposes(FcitxKey_C, "C");
       require(state->toggleLocalMode("chaizi"), "The chaizi switch did not turn on");
       // 菜单开关会在后台把选择写回偏好文档；等它落盘，免得后面的偏好刷新撞上还没完成的保存。
       state->preferences_save_job_.wait();
@@ -1954,8 +1965,8 @@ int main(int argc, char **argv) {
       require(press(FcitxKey_Escape) &&
                   state->view_.value("local_mode", std::string("none")) == "none",
               "Escape must leave the chaizi mode");
-      require(state->toggleLocalMode("chaizi") && !press(FcitxKey_C, shiftState),
-              "Turning the chaizi switch off must hand Shift+C back");
+      require(state->toggleLocalMode("chaizi"), "拆字开关应能再次关闭");
+      disabledEntryComposes(FcitxKey_C, "C");
       state->preferences_save_job_.wait();
       state->waitForPreferenceSave();
       require(ic.committed == before, "Mode shortcuts must not commit uppercase letters");
@@ -4152,11 +4163,15 @@ int main(int argc, char **argv) {
     require(bind(translationServer, reinterpret_cast<sockaddr *>(&translationAddress), sizeof(translationAddress)) == 0 &&
             listen(translationServer, 1) == 0, "translation listener");
     auto translationProvider = std::async(std::launch::async, [translationServer] {
+      const auto failed = [](const char *stage) {
+        std::cerr << "合成翻译服务失败阶段：" << stage << '\n';
+        return false;
+      };
       struct Descriptor { int fd; ~Descriptor() { if (fd >= 0) close(fd); } } server{translationServer};
       pollfd ready{server.fd, POLLIN, 0};
-      if (poll(&ready, 1, 5000) <= 0) return false;
+      if (poll(&ready, 1, 5000) <= 0) return failed("等待连接");
       Descriptor client{accept(server.fd, nullptr, nullptr)};
-      if (client.fd < 0) return false;
+      if (client.fd < 0) return failed("接受连接");
       std::string request;
       const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
       while (request.size() < 16384 && request.find('\n') == std::string::npos &&
@@ -4165,13 +4180,13 @@ int main(int argc, char **argv) {
         if (poll(&readable, 1, 100) <= 0) continue;
         char buffer[1024];
         const auto count = read(client.fd, buffer, sizeof(buffer));
-        if (count <= 0) return false;
+        if (count <= 0) return failed("读取请求");
         request.append(buffer, count);
       }
       const auto document = Json::parse(request);
-      if (document.at("kind") != "translation" || document.at("query").at("target_language") != "en") return false;
+      if (document.at("kind") != "translation" || document.at("query").at("target_language") != "en") return failed("请求类型或目标语言");
       const auto &texts = document.at("query").at("candidates");
-      if (texts.empty() || !texts.at(0).is_string()) return false;
+      if (texts.empty() || !texts.at(0).is_string()) return failed("候选格式");
       const auto reply = Json{{"translations", Json::array({
           Json{{"text", texts.at(0)}, {"translation", "synthetic-gloss"}}})}}.dump() + "\n";
       return send(client.fd, reply.data(), reply.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(reply.size());
@@ -4182,7 +4197,11 @@ int main(int argc, char **argv) {
       preferences["candidate_english_gloss"] = false;
       preferences["translation_target_language"] = "en";
     });
+    // 前面的 CapsLock 透传已重建会话；新套接字写入配置后重新加载，不能沿用旧地址。
+    state->close();
+    state->clearPanel();
     require(key(FcitxKey_n) && key(FcitxKey_i), "translation composition");
+    require(state->translation_socket_ == translationPath, "翻译夹具必须加载新配置的套接字");
     // 模拟定时器重复收到同一份云候选或 AI 候选，已显示的译文不能被清掉。
     const uint8_t repeatedSource = ai ? 1 : 0;
     const auto deliverRepeatedOnline = [&] {

@@ -28,6 +28,8 @@ Status: implemented
 
 ## Consequences
 
+[特殊符号字面组字](2026-10-22-pinyin-literal-symbol-composition.md)补充空大写入口的边界：模式尚无正文且不接受 `# $ % &` 时转回普通原文组字；已有模式内容仍沿用本篇。
+
 [空入口大写衔接](2026-10-19-bare-shortcut-capital-continuation.md)取代全拼、双拼只有一个大写入口时拒绝第二枚大写的提交规则：两枚字母转入普通组字。已有模式内容、小写拒绝、符号入口和其他方案仍遵循本篇。
 
 光标入口由[光标拒绝键的提交与透传](2026-10-16-local-caret-rejected-keys.md)补齐；本篇继续持有末尾拒绝语义与临时模式例外。

@@ -20,6 +20,15 @@ const QUERY_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WH
 /// 与 `QUERY_SQL_86` 相同，只是读 `wubi98`。
 const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 
+/// 通配查询：码里的 `z` 换成 GLOB 的单字符 `?`，其余部分按字面匹配，末尾接 `*` 收下所有更长编码的前缀行。
+///
+/// 用 GLOB 而不是 LIKE：码是小写 ASCII、`key` 列是 BINARY，字面前缀照样收窄索引扫描（`a?*` 扫 a–b），
+/// LIKE 要达到同样效果得打开 `case_sensitive_like`。首位就是 `z` 时（`?bc*`）整表扫描，按权重排序，
+/// 正好是「不知道首码」的用户想要的顺序。
+const WILDCARD_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
+/// 与 `WILDCARD_SQL_86` 相同，只是读 `wubi98`。
+const WILDCARD_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
+
 /// 反查按 `"value"` 找行，而发布词库只有 `("key","value")` 的唯一约束和 `("key","weight")` 索引，没有索引时每次反查都要扫整张表。每张五笔表配一个只按词条建的索引，由 [`ensure_reverse_indexes`] 在可写的代次副本里补上。
 const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
     (
@@ -56,11 +65,41 @@ fn query_sql(profile: WubiProfileKind) -> &'static str {
     }
 }
 
+fn wildcard_sql(profile: WubiProfileKind) -> &'static str {
+    match profile {
+        WubiProfileKind::Wubi86 => WILDCARD_SQL_86,
+        WubiProfileKind::Wubi98 => WILDCARD_SQL_98,
+    }
+}
+
+/// 把通配码转成 GLOB 模式：`z` → `?`，GLOB 自己的元字符（`*` `?` `[` `]`）按字面转义，末尾接 `*`。
+///
+/// 五笔码只有 `a..=y`，`z` 之外不该出现元字符，但宿主编辑过的文本仍可能带进来；转义保证它们匹配自己
+/// 而不是被当成模式。
+fn wildcard_pattern_into(code: &str, pattern: &mut String) {
+    pattern.clear();
+    pattern.reserve(code.len() + 1);
+    for character in code.chars() {
+        match character {
+            'z' => pattern.push('?'),
+            '*' | '?' | '[' | ']' => {
+                pattern.push('[');
+                pattern.push(character);
+                pattern.push(']');
+            }
+            other => pattern.push(other),
+        }
+    }
+    pattern.push('*');
+}
+
 pub struct WubiProvider {
     main_db: PathBuf,
     profile: WubiProfileKind,
     connection: Option<Connection>,
     query_upper_bound: String,
+    /// 通配查询的 GLOB 模式，逐键复用容量。
+    wildcard_pattern: String,
     reverse_cache: LruCache<String, Option<String>>,
 }
 
@@ -72,6 +111,7 @@ impl WubiProvider {
             profile: WubiProfileKind::Wubi86,
             connection: None,
             query_upper_bound: String::new(),
+            wildcard_pattern: String::new(),
             reverse_cache: LruCache::new(NonZeroUsize::new(REVERSE_CACHE_CAPACITY).unwrap()),
         }
     }
@@ -97,12 +137,18 @@ impl WubiProvider {
         let Some(connection) = self.connection.as_ref() else {
             return Vec::new();
         };
-        match query_rows(
-            connection,
-            profile,
-            &request.normalized_input,
-            &mut self.query_upper_bound,
-        ) {
+        let rows = if request.wubi_z_wildcard {
+            wildcard_pattern_into(&request.normalized_input, &mut self.wildcard_pattern);
+            query_wildcard_rows(connection, profile, &self.wildcard_pattern)
+        } else {
+            query_rows(
+                connection,
+                profile,
+                &request.normalized_input,
+                &mut self.query_upper_bound,
+            )
+        };
+        match rows {
             Ok(rows) => rows,
             Err(_) => {
                 // The reference dropped a statement that failed and prepared it again on the next key; closing gives the same retry.
@@ -195,6 +241,11 @@ fn query_rows(
     let mut statement = connection.prepare_cached(query_sql(profile))?;
     prefix_upper_bound_into(code, upper);
     let mut rows = statement.query((code, upper.as_str(), QUERY_LIMIT))?;
+    collect_rows(&mut rows)
+}
+
+/// 读出行集：与 [`query_rows`] 相同的读法，前缀和通配两条语句共用。
+fn collect_rows(rows: &mut rusqlite::Rows<'_>) -> rusqlite::Result<Vec<WordItem>> {
     let mut candidates = Vec::new();
     while let Some(row) = rows.next()? {
         // The reference skipped rows whose key or value read back as NULL.
@@ -217,6 +268,17 @@ fn query_rows(
         candidates.push(item);
     }
     Ok(candidates)
+}
+
+/// 通配查询的行收集：与 [`query_rows`] 同一个读法，只是绑定模式而不是范围。
+fn query_wildcard_rows(
+    connection: &Connection,
+    profile: WubiProfileKind,
+    pattern: &str,
+) -> rusqlite::Result<Vec<WordItem>> {
+    let mut statement = connection.prepare_cached(wildcard_sql(profile))?;
+    let mut rows = statement.query((pattern, QUERY_LIMIT))?;
+    collect_rows(&mut rows)
 }
 
 fn reverse_code(
@@ -271,6 +333,21 @@ mod tests {
     fn rows(provider: &mut WubiProvider, code: &str) -> Vec<(String, String, i64)> {
         provider
             .query(&request(code))
+            .into_iter()
+            .map(|item| (item.pinyin, item.word, item.weight))
+            .collect()
+    }
+
+    fn wildcard_request(code: &str) -> QueryRequest {
+        QueryRequest {
+            wubi_z_wildcard: true,
+            ..request(code)
+        }
+    }
+
+    fn wildcard_rows(provider: &mut WubiProvider, code: &str) -> Vec<(String, String, i64)> {
+        provider
+            .query(&wildcard_request(code))
             .into_iter()
             .map(|item| (item.pinyin, item.word, item.weight))
             .collect()
@@ -378,6 +455,71 @@ mod tests {
         assert_eq!(
             rows(&mut fixture.provider, "yz"),
             vec![row("yz", "甲", 1), row("yzz", "乙", 2)]
+        );
+    }
+
+    #[test]
+    fn a_z_in_the_code_matches_any_one_letter_when_the_wildcard_is_on() {
+        let mut fixture = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('wqiy','你',100);\
+             INSERT INTO wubi86 VALUES('wqiy','伱',10);\
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);\
+             INSERT INTO wubi86 VALUES('abcd','合成',200);",
+        );
+        let provider = &mut fixture.provider;
+        // `wqzy` 只有 `wqiy` 一列对得上：`z` 匹配该位置的任意一个字母，其余按字面。
+        assert_eq!(
+            wildcard_rows(provider, "wqzy"),
+            vec![row("wqiy", "你", 100), row("wqiy", "伱", 10)]
+        );
+        // 首位是 `z` 时整表扫描，按权重降序：`zqiy` → `?qiy*` 匹配 `wqiy`。
+        assert_eq!(
+            wildcard_rows(provider, "zqiy"),
+            vec![row("wqiy", "你", 100), row("wqiy", "伱", 10)]
+        );
+        // 位置对不上就没有行：`zvbb` → `?vbb*`，而码表里四个字母的第 2 位是 `q`。
+        assert!(wildcard_rows(provider, "zvbb").is_empty());
+    }
+
+    #[test]
+    fn a_wildcard_query_does_not_leak_glob_metacharacters() {
+        let mut fixture = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('a[b','甲',100);\
+             INSERT INTO wubi86 VALUES('a*b','乙',90);\
+             INSERT INTO wubi86 VALUES('axb','丙',80);",
+        );
+        let provider = &mut fixture.provider;
+        // 宿主编辑进来的 `[` 与 `*` 匹配它们自己，不被当成模式。
+        assert_eq!(wildcard_rows(provider, "a[b"), vec![row("a[b", "甲", 100)]);
+        assert_eq!(wildcard_rows(provider, "a*b"), vec![row("a*b", "乙", 90)]);
+        // `z` 仍是「任意一个字母」，所以 `azb` 三行都对得上，按权重降序。
+        assert_eq!(
+            wildcard_rows(provider, "azb"),
+            vec![
+                row("a[b", "甲", 100),
+                row("a*b", "乙", 90),
+                row("axb", "丙", 80),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_wildcard_only_takes_the_pattern_path_when_the_code_holds_z() {
+        // 混输单独打开时 `z` 是普通拼音字母，查询不能被当成通配：`wubi_z_wildcard` 是方案按「码里有 z」算出来的。
+        let mut fixture = fixture(SESSION_FIXTURE);
+        let provider = &mut fixture.provider;
+        let plain = request("wq");
+        assert!(!plain.wubi_z_wildcard);
+        assert_eq!(
+            rows(provider, "wq"),
+            vec![
+                row("wq", "你", 10),
+                row("wqbb", "父子", 30),
+                row("wqb", "爷", 20),
+                row("wqi", "你", 10),
+            ]
         );
     }
 

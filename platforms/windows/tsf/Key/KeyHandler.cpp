@@ -86,11 +86,6 @@ WCHAR GetPairedPunctuationClosing(const std::wstring &text)
     return Global::PairedPunctuationClosingFor(text.back());
 }
 
-DWORD_PTR MapRawCaretToPreedit(const CStringRange &raw, DWORD_PTR rawCaret, const std::wstring &preedit,
-                               size_t prefixLength)
-{
-    return msime::tsf::MapPreeditCaret(raw.ToWString(), rawCaret, preedit, prefixLength);
-}
 } // namespace
 
 //////////////////////////////////////////////////////////////////////
@@ -1239,6 +1234,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     // 整句改字时改好的整句和光标（UTF-16 下标），不改字时为空。
     std::wstring hostConversion;
     size_t hostConversionCaret = 0;
+    msime::tsf::KeyCompositionState composition;
     BOOL isWildcardIncluded = FALSE;
 
     //
@@ -1252,6 +1248,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
         msime::tsf::EngineResult result;
         if (host->view(&raw, &error) && msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
         {
+            // 文字与光标来自同一次读取；宿主按键不会推进旧键击缓冲。
+            composition = msime::tsf::KeyCompositionStateFromView(result.view, FanyUtils::string_to_wstring);
             // A Japanese composition is かな, not the letters that produced it: it is what the user
             // means, what the candidates are for, and what Enter commits. The one case that keeps
             // the letters is a caret the user moved into them, because the Engine's offset is an
@@ -1296,6 +1294,15 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
                 hostConversionCaret = (std::min)(toWide(conversion.data(), focusBytes).size(), hostConversion.size());
             }
         }
+        else
+        {
+            return E_FAIL;
+        }
+    }
+    else
+    {
+        composition.rawInput = pCompositionProcessorEngine->GetKeystrokeBuffer().ToWString();
+        composition.caret = pCompositionProcessorEngine->GetCaretPosition();
     }
     double readingElapsedMs = readingTimer.ElapsedMs();
 
@@ -1418,9 +1425,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             !hostConversion.empty() ? preeditPrefixLength + hostConversionCaret
             : msime::windows::scheme::LocksCaret(Global::InputModeScheme.load(std::memory_order_relaxed))
                 ? curReadingStr.GetLength()
-                : MapRawCaretToPreedit(pCompositionProcessorEngine->GetKeystrokeBuffer(),
-                                       pCompositionProcessorEngine->GetCaretPosition(), curReadingStr.ToWString(),
-                                       preeditPrefixLength);
+                : msime::tsf::MapPreeditCaret(composition.rawInput, composition.caret,
+                                             curReadingStr.ToWString(), preeditPrefixLength);
         pCompositionProcessorEngine->SetRenderedPreedit(curReadingStr.ToWString(), preeditPrefixLength);
 
         PerfTimer addComposingTimer;

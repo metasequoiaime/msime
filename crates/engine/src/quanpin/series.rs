@@ -268,7 +268,16 @@ pub(super) fn merge_alternative_rows(
     merged
 }
 
-/// Deduplicate rows that are already sorted by weight while keeping the merged vector's allocation.
+/// 备选系列按匹配字母数稳定合并；词频和整句概率不作跨来源比较。
+pub(super) fn merge_series_by_coverage(result: &mut Vec<WordItem>, supplemental: Vec<WordItem>) {
+    result.extend(supplemental);
+    result.sort_by_key(|item| {
+        std::cmp::Reverse(item.pinyin.bytes().filter(|&byte| byte != b'\'').count())
+    });
+    retain_unique_sorted_rows(result);
+}
+
+/// 对已排序的行按词面去重，保留首条及原有向量容量。
 fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
     // 候选页规模内直接扫描已保留的词，避免为一次合并建立临时哈希表和布尔数组。
     if rows.len() <= SMALL_UNIQUE_ROWS {

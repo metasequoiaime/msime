@@ -1,0 +1,108 @@
+{
+  "asr": [
+    {
+      "documentation": "https://www.volcengine.com/docs/6561/1354869",
+      "endpoint": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+      "id": "doubao",
+      "model": "",
+      "models": [],
+      "title": "豆包"
+    },
+    {
+      "documentation": "https://siliconflow.readme.io/reference/createaudiotranscriptions",
+      "endpoint": "https://api.siliconflow.cn/v1/audio/transcriptions",
+      "id": "siliconflow",
+      "model": "FunAudioLLM/SenseVoiceSmall",
+      "models": ["FunAudioLLM/SenseVoiceSmall"],
+      "title": "SiliconFlow"
+    },
+    {
+      "documentation": "https://developers.openai.com/api/docs/guides/speech-to-text",
+      "endpoint": "https://api.openai.com/v1/audio/transcriptions",
+      "id": "openai",
+      "model": "whisper-1",
+      "models": ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"],
+      "title": "OpenAI"
+    },
+    {
+      "documentation": "https://console.groq.com/docs/speech-to-text",
+      "endpoint": "https://api.groq.com/openai/v1/audio/transcriptions",
+      "id": "groq",
+      "model": "whisper-large-v3-turbo",
+      "models": ["whisper-large-v3-turbo", "whisper-large-v3"],
+      "title": "Groq"
+    },
+    {
+      "documentation": "https://everyapi.ai/models",
+      "endpoint": "https://api.everyapi.ai/v1/audio/transcriptions",
+      "id": "everyapi",
+      "model": "volc.seedasr.sauc.duration",
+      "models": ["volc.seedasr.sauc.duration"],
+      "title": "EveryAPI"
+    },
+    {
+      "documentation": "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription",
+      "endpoint": "https://api.mistral.ai/v1/audio/transcriptions",
+      "id": "mistral",
+      "model": "voxtral-mini-latest",
+      "models": ["voxtral-mini-latest"],
+      "title": "Mistral · Voxtral"
+    },
+    {
+      "documentation": "https://help.aliyun.com/zh/model-studio/qwen-speech-recognition",
+      "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "id": "bailian",
+      "model": "qwen3-asr-flash",
+      "models": ["qwen3-asr-flash", "qwen3-asr-flash-2026-02-10"],
+      "title": "阿里云百炼 · 千问"
+    }
+  ],
+  "doubao_stream_endpoints": [
+    {
+      "endpoint": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+      "id": "nostream",
+      "label": "整句流式",
+      "title": "整句流式（准确率更高）"
+    },
+    {
+      "endpoint": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+      "id": "async",
+      "label": "双向流式",
+      "title": "双向流式（增量结果）"
+    }
+  ],
+  "polish": [
+    {
+      "documentation": "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
+      "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
+      "id": "siliconflow",
+      "model": "Qwen/Qwen3-8B",
+      "models": ["Qwen/Qwen3-8B", "Qwen/Qwen3.6-27B"],
+      "title": "SiliconFlow"
+    },
+    {
+      "documentation": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "id": "openai",
+      "model": "gpt-4o-mini",
+      "models": ["gpt-4o-mini", "gpt-4.1-mini"],
+      "title": "OpenAI"
+    },
+    {
+      "documentation": "https://api-docs.deepseek.com/",
+      "endpoint": "https://api.deepseek.com/chat/completions",
+      "id": "deepseek",
+      "model": "deepseek-v4-flash",
+      "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "title": "DeepSeek"
+    },
+    {
+      "documentation": "https://console.groq.com/docs/quickstart",
+      "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+      "id": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+      "title": "Groq"
+    }
+  ]
+}

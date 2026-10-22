@@ -59,6 +59,15 @@ export function offersJapaneseToggle(host?: HostCapabilities): boolean {
   );
 }
 
+/** 中日英循环切换的开关只在宿主把它接进「切换中英文」、并且本版本同时提供中文方案和日语时显示。目前只有 macOS 接上。 */
+export function offersTrilingualCycle(host?: HostCapabilities): boolean {
+  if (!host?.trilingual_cycle) return false;
+  const editionSchemes = host.edition?.input_schemes;
+  return (
+    !editionSchemes || (editionSchemes.includes("japanese") && editionSchemes.some(isChineseScheme))
+  );
+}
+
 /** The schemes offered when there is no host (the browser preview and tests). */
 export const baseInputSchemes: readonly InputScheme[] = [
   "quanpin",

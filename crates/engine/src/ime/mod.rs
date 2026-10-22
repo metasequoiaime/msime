@@ -708,7 +708,8 @@ impl ImeSession {
         if let Some(wubi) = scratch.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(self.wubi_options.mixed_pinyin);
             wubi.set_extended_length_allowed(self.wubi_options.mixed_pinyin);
-            wubi.set_pinyin_lookup_allowed(!self.wubi_options.mixed_pinyin);
+            wubi.set_z_wildcard(self.wubi_options.z_wildcard);
+            wubi.set_pinyin_lookup_allowed(self.pinyin_lookup_allowed());
         }
         scratch.set_raw_input(raw, raw_with_cases);
         let built = self.prepare_request(&scratch);
@@ -1032,7 +1033,7 @@ impl ImeSession {
 
     /// 五笔请求是临时拼音反查时，去掉引导键 `z` 之后的拼音原文（不带大小写的和带大小写的）。混输关闭时五笔码里不会出现 `z`，所以以 `z` 开头的五笔请求只能来自反查；混输打开时 `z` 是拼音字母，没有反查。
     fn pinyin_lookup_spelling<'a>(&self, request: &'a QueryRequest) -> Option<(&'a str, &'a str)> {
-        if request.scheme != SchemeType::Wubi || self.wubi_options.mixed_pinyin {
+        if request.scheme != SchemeType::Wubi || !self.pinyin_lookup_allowed() {
             return None;
         }
         let raw = request
@@ -1068,11 +1069,21 @@ impl ImeSession {
 
     fn bind_wubi_scheme(&mut self) {
         let mixed_pinyin = self.wubi_options.mixed_pinyin;
+        let z_wildcard = self.wubi_options.z_wildcard;
+        let lookup_allowed = self.pinyin_lookup_allowed();
         if let Some(wubi) = self.scheme.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(mixed_pinyin);
-            // 混输打开时 `z` 已经是拼音字母，引导反查只在混输关闭时有意义。
-            wubi.set_pinyin_lookup_allowed(!mixed_pinyin);
+            wubi.set_z_wildcard(z_wildcard);
+            // 混输打开时 `z` 已经是拼音字母；通配打开时它是未知码位。两条路都占着这个键，引导反查只在两者都关时才有意义。
+            wubi.set_pinyin_lookup_allowed(lookup_allowed);
         }
+    }
+
+    /// `z` 引导的临时拼音反查能否打开：混输关闭、通配也关闭。
+    ///
+    /// 五笔码不用 `z`，所以三条路不重叠地各占一种语义：拼音字母、未知码位、拼音反查。
+    fn pinyin_lookup_allowed(&self) -> bool {
+        !self.wubi_options.mixed_pinyin && !self.wubi_options.z_wildcard
     }
 }
 

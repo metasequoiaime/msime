@@ -12,12 +12,19 @@ private func check(_ condition: @autoclosure () -> Bool, _ message: String, line
 private final class Cloud: @unchecked Sendable {
   var user: String? = "synthetic-user"
   var failure: String?
+  /// 偏好里的同步方式：`account` 或 `relay`，由 `cloud_clipboard_source` 回答。
+  var source = "account"
+  var revision = 7
   static let devices: [String: Any] = ["enabled": true, "status": "ready", "device_id": String(repeating: "a", count: 32),
     "code": "0421 9873 5530 1176", "devices": [
       ["device_id": String(repeating: "a", count: 32), "name": "合成 Mac", "created_at": "2026-10-11T08:00:00Z", "approved": true, "current": true, "code": "0421 9873 5530 1176"],
       ["device_id": String(repeating: "b", count: 32), "name": "合成 iPhone", "created_at": "2026-10-11T09:00:00Z", "approved": false, "current": false, "code": "1111 2222 3333 4444"],
     ]]
   func respond(_ call: FakeRust.Call) -> String {
+    if call.entry == "cloud_clipboard_source" {
+      if let failure { return FakeRust.failure(failure) }
+      return FakeRust.ok(["source": source, "revision": revision])
+    }
     if call.entry == "account" { return FakeRust.ok(["user": user.map { FakeRust.user($0) as Any } ?? NSNull()]) }
     if let failure { return FakeRust.failure(failure) }
     switch call.operation {
@@ -45,7 +52,7 @@ private final class Cloud: @unchecked Sendable {
     let cloud = Cloud()
     FakeRust.answer(cloud.respond)
     func sent() -> [FakeRust.Call] { FakeRust.calls.filter { $0.entry == "cloud_clipboard" } }
-    let provider = BackendCloudClipboardProvider(rust: FakeRust.account, accountID: "synthetic-user", deviceName: "合成 Mac")
+    let provider = BackendCloudClipboardProvider(rust: FakeRust.account, route: .account(userID: "synthetic-user"), deviceName: "合成 Mac")
     let page = try await provider.execute(["operation": "list", "search": "合成"])
     // 列表原样转发 Rust 的形状：条目带置顶和设备名，另有保留期和端到端加密状态。
     let listed = (page["items"] as? [[String: Any]])?.first
@@ -56,7 +63,7 @@ private final class Cloud: @unchecked Sendable {
     check(first?.action["operation"] as? String == "list" && first?.action["search"] as? String == "合成"
           && first?.request["session_store"] as? Int == 7 && first?.request["device_name"] as? String == "合成 Mac"
           && first?.request["directory"] == nil, "forwarded \(String(describing: first?.request))")
-    check(FakeRust.calls.map(\.entry) == ["account", "cloud_clipboard", "account"], "binding \(FakeRust.calls.map(\.entry))")
+    check(FakeRust.calls.map(\.entry) == ["cloud_clipboard_source", "account", "cloud_clipboard", "cloud_clipboard_source", "account"], "binding \(FakeRust.calls.map(\.entry))")
     let text = String(repeating: "界", count: 3997) + "\n\r\t"
     _ = try await provider.execute(["operation": "add", "text": text])
     check(sent().last?.action["text"] as? String == text, "add text")
@@ -87,7 +94,7 @@ private final class Cloud: @unchecked Sendable {
     check(invalid["error"] as? String == "invalid", "invalid \(invalid)")
     cloud.failure = nil
     let unavailable = BackendCloudClipboardProvider(rust: BackendRustAccount(client: BackendRustClient(table: {
-      var table = FakeRust.table(); table.account_cloud_clipboard = nil; return table }())!, store: 7), accountID: "synthetic-user", deviceName: "合成 Mac")
+      var table = FakeRust.table(); table.account_cloud_clipboard = nil; return table }())!, store: 7), route: .account(userID: "synthetic-user"), deviceName: "合成 Mac")
     let missing = await reply(unavailable, ["operation": "list", "search": ""])
     check(missing["error"] as? String == "unavailable", "missing entry \(missing)")
     // 打开面板以后换了号或退出登录：不发请求，回答 account_unauthorized；请求在路上时换了号，回答不交给面板。
@@ -126,6 +133,81 @@ private final class Cloud: @unchecked Sendable {
     check(failed == .failed, "failed")
     check(BackendCloudClipboardProvider.SendOutcome.signedOut.message == "登录水杉账号后可在设备间同步剪贴板", "signed out message")
     check(BackendCloudClipboardProvider.SendOutcome.pending.message.contains("等待批准"), "pending message")
+
+    // 偏好里配置了自建中继：`cloud_clipboard_source` 说走中继，没有登录也照常选路，动作交给 `relay_cloud_clipboard`，带偏好目录、密钥串目录和设备名，不发账号请求。
+    cloud.failure = nil
+    cloud.source = "relay"
+    cloud.user = nil
+    guard case .relay(let directory, let revision)? = try await BackendCloudClipboardRoute.selected(rust: FakeRust.account) else {
+      check(false, "relay route not selected"); return
+    }
+    let chosen = BackendCloudClipboardRoute.relay(directory: directory, revision: revision)
+    let source = FakeRust.calls.last
+    check(source?.entry == "cloud_clipboard_source"
+          && source?.bytes == Data((BackendDesktopSessionFile.standardDirectory?.path ?? "").utf8),
+          "source request \(String(describing: source?.bytes))")
+    let callsBeforeRelay = FakeRust.calls.count
+    let relay = BackendCloudClipboardProvider(rust: FakeRust.account, route: chosen, deviceName: "合成 Mac")
+    let relayed = try await relay.execute(["operation": "list", "search": "合成"])
+    let relayCalls = Array(FakeRust.calls.dropFirst(callsBeforeRelay))
+    check(relayCalls.map(\.entry) == ["cloud_clipboard_source", "relay_cloud_clipboard", "cloud_clipboard_source"], "relay entries \(relayCalls.map(\.entry))")
+    check(relayCalls[1].request["preferences_directory"] as? String == directory.path
+          && relayCalls[1].request["directory"] as? String == directory.path
+          && relayCalls[1].request["device_name"] as? String == "合成 Mac"
+          && relayCalls[1].request["session_store"] == nil
+          && relayCalls[1].request["expected_revision"] as? UInt64 == revision, "relay request \(String(describing: relayCalls.first?.request))")
+    check((relayed["items"] as? [[String: Any]])?.count == 1, "relay list \(relayed)")
+    // 中继路径不核对账号：换号不影响回答，也不额外发账号请求。
+    cloud.user = "another-user"
+    let relayedAgain = try await relay.execute(["operation": "list", "search": ""])
+    let afterRelay = Array(FakeRust.calls.dropFirst(callsBeforeRelay))
+    check((relayedAgain["items"] as? [[String: Any]])?.count == 1
+          && afterRelay.allSatisfy { $0.entry == "relay_cloud_clipboard" || $0.entry == "cloud_clipboard_source" }, "relay asked the account \(relayedAgain)")
+    // 来源切换后旧账号窗口不联网；中继修订改变后旧窗口不能操作新空间。
+    cloud.user = "synthetic-user"
+    let accountBefore = sent().count
+    let accountOnRelay = await reply(provider, ["operation": "add", "text": "合成旧窗口"])
+    check(accountOnRelay["error"] as? String == "clipboard_source_changed" && sent().count == accountBefore,
+          "old account window sent to the official service")
+    let oldKey = chosen.cacheKey
+    cloud.revision += 1
+    let relayBefore = FakeRust.calls.filter { $0.entry == "relay_cloud_clipboard" }.count
+    let staleRelay = await reply(relay, ["operation": "delete", "id": String(repeating: "a", count: 64)])
+    check(staleRelay["error"] as? String == "clipboard_source_changed" &&
+          FakeRust.calls.filter { $0.entry == "relay_cloud_clipboard" }.count == relayBefore, "old relay window sent a mutation")
+    let replacement = BackendCloudClipboardRoute.relay(directory: directory, revision: UInt64(cloud.revision))
+    check(oldKey != replacement.cacheKey && replacement.cacheKey != BackendCloudClipboardRoute.account(userID: "relay").cacheKey,
+          "window cache reused another source")
+    cloud.revision = Int(revision)
+    FakeRust.answer { call in
+      let response = cloud.respond(call)
+      if call.entry == "relay_cloud_clipboard" { cloud.revision += 1 }
+      return response
+    }
+    let relayRace = await reply(relay, ["operation": "list", "search": ""])
+    check(relayRace["error"] as? String == "clipboard_source_changed", "old relay response reached the panel")
+    cloud.source = "account"
+    FakeRust.answer { call in
+      let response = cloud.respond(call)
+      if call.entry == "cloud_clipboard" { cloud.source = "relay" }
+      return response
+    }
+    let sourceRace = await reply(provider, ["operation": "list", "search": ""])
+    check(sourceRace["error"] as? String == "clipboard_source_changed", "old official response reached the panel")
+    FakeRust.answer(cloud.respond)
+    // 没有登录、也没有配置中继时选不出路，界面请用户登录。
+    cloud.source = "account"
+    cloud.user = nil
+    let signedOutRoute = try await BackendCloudClipboardRoute.selected(rust: FakeRust.account)
+    check(signedOutRoute == nil, "signed out picked a route")
+    // 偏好读不了或中继配置不合规时抛错，不退回账号。
+    cloud.failure = "relay_not_configured"
+    do {
+      _ = try await BackendCloudClipboardRoute.selected(rust: FakeRust.account)
+      check(false, "a broken relay fell back to the account")
+    } catch let failure as BackendRustClient.Failure {
+      check(failure.code == "relay_not_configured", "broken relay \(failure.code)")
+    }
     print("DesktopCloudClipboardProviderTest: ok")
   }
 }

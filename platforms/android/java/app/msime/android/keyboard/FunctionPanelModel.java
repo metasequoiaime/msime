@@ -52,14 +52,14 @@ public final class FunctionPanelModel {
         action(Id.VOICE_RESULT, "插入语音文字"),
         action(Id.DICTIONARY, "词库"),
         action(Id.TEXT_EDIT, "文本编辑"),
-        action(Id.FEEDBACK, "反馈"),
-        action(Id.ABOUT, "关于"),
-        action(Id.WEBSITE, "打开官网"),
+        action(Id.TOOLBAR_EDITOR, "编辑工具栏"),
         action(Id.COPY_DEVICE_INFO, "设备信息"),
+        action(Id.FEEDBACK, "反馈"),
         action(Id.PROMOTION, "宣传"),
+        action(Id.WEBSITE, "打开官网"),
+        action(Id.ABOUT, "关于"),
         action(Id.EMOJI, "表情"),
-        action(Id.CLIPBOARD, "剪贴板历史"),
-        action(Id.TOOLBAR_EDITOR, "编辑工具栏"));
+        action(Id.CLIPBOARD, "剪贴板历史"));
 
     private FunctionPanelModel() { }
 

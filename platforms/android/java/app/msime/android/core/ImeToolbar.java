@@ -184,7 +184,7 @@ final class ImeToolbar {
         s.phraseShortcutButton.setContentDescription("常用语");
         s.clipboardShortcutButton = s.shortcutButton(s.shortcutBar, "剪贴板",
             KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
-            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+            panelToggle(() -> s.clipboardSurface, s.imePanels::showClipboardHistory));
         s.clipboardShortcutButton.setContentDescription("剪贴板");
         // 浮动键盘按钮默认不在工具栏上，用户在设置「键盘工具栏」里打开（#5621）。
         s.floatingShortcutButton = s.shortcutButton(s.shortcutBar, "浮动键盘",
@@ -226,7 +226,7 @@ final class ImeToolbar {
         s.exitLocalModeButton.setContentDescription("退出本地模式");
         ViewPolicy.clearPadding(s.exitLocalModeButton);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
-        bindToolbarAction(s.exitLocalModeButton, () -> s.command(3));
+        bindToolbarAction(s.exitLocalModeButton, s::clearCurrentInput);
         ViewPolicy.clearMinimumHeight(s.exitLocalModeButton);
         candidateHeader.addView(s.exitLocalModeButton, new LinearLayout.LayoutParams(
             s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));
@@ -294,7 +294,7 @@ final class ImeToolbar {
         LayoutPolicy.setPaddingDp(row, s, 2, 4, 2, 4);
         row.setContentDescription("最近复制");
         Button history = s.shortcutButton(row, "剪贴板", KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
-            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+            panelToggle(() -> s.clipboardSurface, s.imePanels::showClipboardHistory));
         history.setContentDescription("剪贴板");
         history.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         recentClipHistoryButton = history;

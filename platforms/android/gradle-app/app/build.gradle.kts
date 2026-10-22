@@ -155,6 +155,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.autofill:autofill:1.3.0")
     implementation("androidx.appcompat:appcompat:1.8.0")
     // Held at 1.13.1: androidx.core 1.19 declares a minimum of AGP 9.1, and AGP cannot move here without the Gradle wrapper, which belongs to the Tauri bundle. The other four in this group carry no such floor.
     implementation("androidx.core:core:1.13.1")

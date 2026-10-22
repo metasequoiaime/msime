@@ -62,11 +62,12 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
         String accelerometerRotation = null;
         String userRotation = null;
         try {
-            stage = "enable number row";
+            stage = "enable number row at 130 percent height";
             if (!localSettings.getParentFile().isDirectory() && !localSettings.getParentFile().mkdirs())
                 throw new AssertionError("Local settings directory unavailable");
             publish(localSettings, new JSONObject().put("version", 1)
-                .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, true))
+                .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, true)
+                    .put("platform.android.keyboard_height_adjustment", 55))
                 .toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();

@@ -569,7 +569,7 @@ impl InputSession {
 
     /// input_session_composition.cpp:417-449.
     pub(super) fn pinyin_segmentation_with_cases(&self) -> Cow<'_, str> {
-        if self.has_literal_capitals() {
+        if self.has_literal_input() {
             return Cow::Borrowed(self.raw_with_cases());
         }
         let request = self.engine.request();
@@ -630,6 +630,12 @@ impl InputSession {
     /// Four native letters whose whole list is one wubi row, the rule the shipped engine applied (input_session_composition.cpp:483-490).
     pub(super) fn wubi_unique_four_code(&self) -> bool {
         if self.dedicated_english || self.local_mode != LocalInputMode::None {
+            return false;
+        }
+        // 带 `z` 的码是通配猜码，不是用户确定下来的编码：它后面那个「唯一」候选只跟若干个码差一个字母，
+        // 直接上屏就把「看见命中了什么」这件事拿走了——那正是这个键存在的理由。来源的
+        // `wubi_unique_four_code` 用同一条 `raw_input.find('z')` 守卫。
+        if self.engine.request().raw_input.contains('z') {
             return false;
         }
         // The whole list counts, not only the wubi rows. In mixed Wubi four letters are often pinyin as well — `jixu` is the wubi code of 曳光弹 and the pinyin of 继续 — and committing the one wubi row on the fourth key takes the pinyin away from someone typing it. The wubi_mixed_routing overlay counted wubi rows only; it never applied to the shipped engine, and that rule is what auto-committed 曳光弹 for jixu.

@@ -44,7 +44,11 @@ fn probes() -> Vec<Probe<'static>> {
             symbols: symbols.clone(),
             required: syllables.len() >= 2,
         });
-        if syllables.len() >= 2 {
+        // 序号只按完整拼音匹配，首字母重合不能把多个数字带进普通候选。
+        let number_name = name
+            .chars()
+            .all(|character| "一二三四五六七八九十".contains(character));
+        if syllables.len() >= 2 && !number_name {
             probes.push(Probe {
                 input: syllables
                     .iter()

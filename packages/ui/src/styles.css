@@ -814,7 +814,8 @@
   }
 
   & .candidate .containerParent:not(:empty)::before,
-  & .skin-decoration-image {
+  & .skin-decoration-image,
+  & .skin-decoration-group {
     position: absolute;
     z-index: 2;
     bottom: calc(100% - var(--msime-skin-decoration-bottom));
@@ -837,6 +838,28 @@
     background: none right bottom / contain no-repeat;
   }
 
+  & .skin-decoration-word {
+    position: absolute;
+    z-index: 3;
+    width: max-content;
+    font-family: inherit;
+    font-weight: normal;
+    line-height: 1.2;
+    white-space: pre;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  & .skin-decoration-word[hidden] {
+    display: none;
+  }
+
+  & .skin-decoration-group .skin-decoration-image {
+    position: static;
+    display: block;
+    width: 100%;
+  }
+
   & .candidate .container {
     position: relative;
     z-index: 1;
@@ -845,12 +868,14 @@
 
   /* The manifest's `decoration.align`; right is the default above. */
   & [data-decoration-align="left"] .skin-decoration-image,
+  & [data-decoration-align="left"] .skin-decoration-group,
   & [data-decoration-align="left"] .candidate .containerParent:not(:empty)::before {
     left: var(--msime-candidate-pad-x, 0px);
     object-position: left bottom;
     background-position: left bottom;
   }
   & [data-decoration-align="center"] .skin-decoration-image,
+  & [data-decoration-align="center"] .skin-decoration-group,
   & [data-decoration-align="center"] .candidate .containerParent:not(:empty)::before {
     left: max(0px, calc(50% - var(--msime-skin-decoration-width, 0px) / 2));
     object-position: center bottom;
@@ -3453,18 +3478,22 @@ html[data-theme="light"][data-macos-liquid-glass="true"]
 .skin-editor-motion[data-motion-phase="exit"][data-motion-exit="glow"] .container {
   animation: msime-editor-glow var(--msime-editor-duration) ease-in reverse both;
 }
-.skin-editor-motion[data-decoration-motion="float"] .skin-decoration-image {
+.skin-editor-motion[data-decoration-motion="float"]
+  :is(.skin-decoration-image:not([data-grouped]), .skin-decoration-group) {
   animation: msime-editor-float var(--msime-editor-period) ease-in-out infinite;
 }
-.skin-editor-motion[data-decoration-motion="sway"] .skin-decoration-image {
+.skin-editor-motion[data-decoration-motion="sway"]
+  :is(.skin-decoration-image:not([data-grouped]), .skin-decoration-group) {
   transform-origin: 50% 100%;
   animation: msime-editor-sway var(--msime-editor-period) ease-in-out infinite;
 }
-.skin-editor-motion[data-decoration-motion="breathe"] .skin-decoration-image {
+.skin-editor-motion[data-decoration-motion="breathe"]
+  :is(.skin-decoration-image:not([data-grouped]), .skin-decoration-group) {
   transform-origin: 50% 100%;
   animation: msime-editor-breathe var(--msime-editor-period) ease-in-out infinite;
 }
-.skin-editor-motion[data-decoration-motion="bounce"] .skin-decoration-image {
+.skin-editor-motion[data-decoration-motion="bounce"]
+  :is(.skin-decoration-image:not([data-grouped]), .skin-decoration-group) {
   animation: msime-editor-bounce var(--msime-editor-period) ease-out infinite;
 }
 @keyframes msime-editor-fade {
@@ -3576,7 +3605,8 @@ html[data-theme="light"][data-macos-liquid-glass="true"]
   .skin-editor-motion .container,
   .skin-editor-motion .row-wrapper,
   .skin-editor-motion .cand.first,
-  .skin-editor-motion .skin-decoration-image {
+  .skin-editor-motion .skin-decoration-image,
+  .skin-editor-motion .skin-decoration-group {
     animation: none !important;
   }
 }
