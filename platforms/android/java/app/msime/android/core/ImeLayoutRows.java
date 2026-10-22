@@ -807,6 +807,7 @@ final class ImeLayoutRows {
             keyButton.setDigitText(digit);
         };
         keyButton.setOnTouchListener((view, event) -> {
+            s.imeLetterRows.updateKeyPreview(keyButton, event);
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
@@ -836,6 +837,7 @@ final class ImeLayoutRows {
                         face[0] = keyButton.getText().toString();
                         keyButton.setText(digit);
                         keyButton.setDigitText("");
+                        s.imeLetterRows.updateKeyPreviewLabel(keyButton, digit);
                     }
                     return true;
                 }
@@ -983,6 +985,7 @@ final class ImeLayoutRows {
     private LinearLayout showChoiceOptions(Button anchor, java.util.List<String> choices,
             java.util.function.Consumer<String> action) {
         dismissNineKeyHoldOptions();
+        s.imeLetterRows.hideKeyPreview();
         if (s.keyboardRoot == null || choices.isEmpty()) return null;
         s.imeKeyFeedback.playFeedback(anchor);
         LinearLayout options = LayoutPolicy.column(s);

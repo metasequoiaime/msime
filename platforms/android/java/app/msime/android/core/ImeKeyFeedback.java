@@ -179,7 +179,8 @@ final class ImeKeyFeedback {
             }
         }
         AudioManager audio = (AudioManager) s.getSystemService(Context.AUDIO_SERVICE);
-        if (audio != null) audio.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD);
+        // 应用有独立按键音开关和音量，使用对应接口，避免受系统触摸音效开关限制。
+        if (audio != null) audio.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, volume);
     }
 
     private static boolean inside(View view, View ancestor) {
