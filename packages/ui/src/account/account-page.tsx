@@ -2,10 +2,7 @@ import type {
   AccountUser,
   AccountProviders,
   AccountProfile,
-  AccountPreferences,
-  AccountPreferenceSchema,
   AppIconClient,
-  SettingsSyncClient,
   AccountClient,
   AccountCommunityDestination,
 } from "./account-model";
@@ -32,6 +29,7 @@ import { AccountNicknameEditor, accountNicknameHelpText } from "./account-nickna
 import { AccountVerificationForm } from "./account-verification-form";
 import { AccountStatusMessages } from "./account-status-messages";
 import { AccountIdentityDetails, AccountIdentityRows } from "./account-identity-details";
+import { SettingsSyncCard } from "./settings-sync-card";
 import { AppIconSettingsCard } from "./app-icon-settings-card";
 import { AppThemeRow } from "./app-theme-row";
 import { QqLinkCard } from "./qq-link-card";
@@ -358,138 +356,6 @@ function MeGroup({ title, children }: { title?: string; children: ReactNode }) {
         </h3>
       )}
       <NavGroup>{children}</NavGroup>
-    </section>
-  );
-}
-
-/**
- * 上传本机设置、应用云端设置：一张带按钮和行内状态的卡片。鸿蒙手机的「我的」不画它：键盘扩展有独立沙箱，设置应用里上传、应用的只是它自己那份偏好，键盘读不到，两行按钮只是摆设。
- */
-function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
-  const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
-  const [cloud, setCloud] = useState<AccountPreferences | null>(null);
-  const [message, setMessage] = useState("");
-  const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
-  const report = (text: string) => setMessage(text);
-  const { busy, mounted, clientGeneration, perform } = useAccountAction(
-    client,
-    report,
-    report,
-    userId,
-  );
-
-  const load = () => {
-    if (busy || !mounted.current) return;
-    void perform(async () => {
-      const current = clientGeneration.current;
-      const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
-      if (!mounted.current || clientGeneration.current !== current) return;
-      setSchema(nextSchema);
-      setCloud(nextCloud);
-    });
-  };
-
-  useEffect(() => {
-    setSchema(null);
-    setCloud(null);
-    setMessage("");
-    void perform(
-      async () => {
-        const current = clientGeneration.current;
-        const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
-        if (!mounted.current || clientGeneration.current !== current) return;
-        setSchema(nextSchema);
-        setCloud(nextCloud);
-      },
-      { allowBusy: true },
-    );
-  }, [client, userId]);
-
-  // 操作面板先关闭自己再报告所选项，所以由它交回打开时对应的那个操作。
-  const runConfirmed = (operation = confirmation) => {
-    if (!cloud || !schema || !operation || busy) return;
-    setConfirmation(null);
-    void perform(async () => {
-      const current = clientGeneration.current;
-      if (operation === "upload") {
-        const next = await client.upload();
-        if (!mounted.current || clientGeneration.current !== current) return;
-        setCloud(next);
-      } else {
-        await client.apply(userId, cloud);
-        if (!mounted.current || clientGeneration.current !== current) return;
-      }
-      report(
-        operation === "upload"
-          ? "本机设置已上传。"
-          : (client.appliedMessage ?? "已应用云端设置。请重新打开键盘使部分设置生效。"),
-      );
-    });
-  };
-
-  const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
-  return (
-    <section className={`${account.section} ${account.stack}`}>
-      <h2 className={account.heading}>设置同步</h2>
-      <p className={account.note}>
-        {client.description ??
-          "同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。"}
-      </p>
-      {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
-      <div className={account.actionRow}>
-        <ActionButton
-          action={() => void load()}
-          ariaBusy={busy}
-          className="secondary"
-          disabled={busy}
-          label="刷新云端设置"
-        />
-        <ActionButton
-          action={() => setConfirmation("upload")}
-          ariaBusy={busy}
-          className={account.primary}
-          disabled={busy || !cloud || !schema}
-          label="上传本机设置"
-        />
-        <ActionButton
-          action={() => setConfirmation("apply")}
-          ariaBusy={busy}
-          className="secondary"
-          disabled={busy || !cloud || !schema || !hasCloudSettings}
-          label="下载并应用云端设置"
-        />
-      </div>
-      {busy && <StatusMessage role="status">正在处理…</StatusMessage>}
-      {message && <StatusMessage role="status">{message}</StatusMessage>}
-      {confirmation && (
-        <div
-          className={account.confirmation}
-          role="alertdialog"
-          aria-label={confirmation === "upload" ? "确认上传本机设置" : "确认应用云端设置"}
-        >
-          <p className={account.note}>
-            {confirmation === "upload"
-              ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
-              : "将替换本机对应设置，不会下载词库或开启数据上传。"}
-          </p>
-          <div className={account.actionRow}>
-            <ActionButton
-              action={() => void runConfirmed()}
-              ariaBusy={busy}
-              className={account.primary}
-              disabled={busy}
-              label={confirmation === "upload" ? "确认上传" : "确认应用"}
-            />
-            <ActionButton
-              action={() => setConfirmation(null)}
-              ariaBusy={busy}
-              className="secondary"
-              disabled={busy}
-              label="取消"
-            />
-          </div>
-        </div>
-      )}
     </section>
   );
 }
