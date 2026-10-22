@@ -278,14 +278,24 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
+            restartIme();
         }
     }
 
-    private Predicate<AccessibilityNodeInfo> candidateTen() {
-        return node -> equalsText("app.msime.android", node.getPackageName())
-            && node.getContentDescription() != null
-            && node.getContentDescription().toString().startsWith("候选 10：")
-            && node.isClickable();
+    /** 只匹配候选描述，避免将仍在旧列表中的候选当成刷新证据。 */
+    private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
+        return node -> {
+            if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
+                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
+            String description = node.getContentDescription().toString();
+            String prefix = index == 0 ? "候选 " : "候选 " + index + "：";
+            int delimiter = description.indexOf('：');
+            if (!description.startsWith(prefix) || delimiter < 0) return false;
+            String text = description.substring(delimiter + 1);
+            return text.equals(value) || text.startsWith(value + "，") || text.startsWith(value + "；");
+        };
     }
+
+
 
 }
