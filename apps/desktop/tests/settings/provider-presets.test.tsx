@@ -103,6 +103,17 @@ test("the AI provider links to its own integration page through the host", async
   expect(openExternalUrl).toHaveBeenCalledWith("https://api-docs.deepseek.com/");
 });
 
+test("an integration link failure is shown in the settings error area", async () => {
+  const openExternalUrl = vi.fn().mockRejectedValue(new Error("synthetic host failure"));
+  await openPage("AI 辅助", openExternalUrl);
+
+  fireEvent.click(screen.getByRole("button", { name: "AI 接入说明与 API Key" }));
+
+  expect(
+    await screen.findByText("无法打开外部链接，请稍后重试。", {}, { timeout: 1000 }),
+  ).toBeTruthy();
+});
+
 test("a host without an external link capability shows no integration link", async () => {
   await openPage("AI 辅助");
 

@@ -521,7 +521,9 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     localModelsAvailable: client.localVoiceModels !== undefined,
     onChange: onVoiceChange,
   });
-  const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
+  const providerPresetControls = createProviderPresetControl(
+    client.openExternalUrl ? openExternalUrl : undefined,
+  );
   const floatingToolbar = floatingToolbarPreferences(draft);
   const {
     themeMode,
