@@ -613,11 +613,8 @@ public final class MSIMEInputService extends InputMethodService {
                             DeviceInfoCollector.text(this, entries)));
                         // 剪贴板监听会把刚复制的内容放进键盘顶部预览；预览可用时不要再用诊断行盖住它。
                         offerRecentClip(true);
-                        long now = System.currentTimeMillis();
-                        if (recentClip.text(now) == null && recentClip.imageMimeType(now) == null)
+                        if (recentClipRow == null || !recentClipRow.isShown())
                             notice("已复制设备信息");
-                        else
-                            render();
                     } catch (RuntimeException unavailable) {
                         notice("无法复制设备信息");
                     }

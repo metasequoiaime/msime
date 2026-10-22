@@ -45,7 +45,12 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             }
             stage = "device information clipboard result";
             String copied = awaitDeviceInfo(clipboard);
-            await(described("最近复制"));
+            await(node -> {
+                if (described("提示：已复制设备信息").test(node))
+                    throw new AssertionError("Copy success notice hides the clipboard preview");
+                return describedPrefix("粘贴最近复制的内容：").test(node)
+                    && node.getText() != null && node.getText().toString().contains("设备信息");
+            });
             String[] lines = copied.split("\\n");
             String[] labels = {"应用版本", "品牌", "型号", "系统版本", "系统构建", "处理器架构",
                 "屏幕分辨率", "存储空间", "运行内存", "Android System WebView", "键盘"};
