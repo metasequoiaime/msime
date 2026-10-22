@@ -128,7 +128,9 @@ function GrammarModelRow({
         title="语法模型"
         description="octagram 语法模型给整句候选加分；模型按需下载，不随安装包。选择后切换一次输入框生效。"
         value={model}
-        onChange={(event) => onChange({ ...value, grammar_model: event.target.value as GrammarModel })}
+        onChange={(event) =>
+          onChange({ ...value, grammar_model: event.target.value as GrammarModel })
+        }
       >
         <option value="none">不使用</option>
         <option value="wanxiang">万象 LTS（约 380MB，CC-BY-4.0）</option>
@@ -139,7 +141,9 @@ function GrammarModelRow({
       {pack && status?.state === "installed" && resourcePacks && (
         <ActionRow
           title={resourcePackTitles[pack]}
-          description={resourcePacks.errors[pack] ?? "已安装；删除后切换输入框即可退回无语法模型的候选行为。"}
+          description={
+            resourcePacks.errors[pack] ?? "已安装；删除后切换输入框即可退回无语法模型的候选行为。"
+          }
           action={() => resourcePacks.remove(pack)}
           label="删除"
           ariaLabel={`删除${resourcePackTitles[pack]}`}

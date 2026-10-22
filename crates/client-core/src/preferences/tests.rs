@@ -1981,6 +1981,95 @@ fn app_input_mode_rule_identifiers_are_validated() {
 }
 
 #[test]
+fn vim_mode_apps_stay_out_of_the_document_until_written() {
+    // 没有名单时不写这个键，没有它的旧版本照样能读；缺这个键的文档读成空表。
+    let serialized = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(serialized.get("vim_mode_apps").is_none());
+    assert!(Preferences::default().vim_mode_apps.is_empty());
+
+    // macOS 的 bundle id 和 Windows 的进程基名放在同一份名单里，保存再读回原样不变。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut chosen = Preferences::default();
+    chosen.vim_mode_apps = vec![
+        "com.apple.Terminal".into(),
+        "code.exe".into(),
+        "nvim.exe".into(),
+    ];
+    let written = serde_json::to_value(&chosen).unwrap();
+    assert_eq!(
+        written["vim_mode_apps"],
+        serde_json::json!(["com.apple.Terminal", "code.exe", "nvim.exe"])
+    );
+    store.save(0, chosen.clone()).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.vim_mode_apps,
+        chosen.vim_mode_apps
+    );
+    assert!(chosen.restored_to_defaults().vim_mode_apps.is_empty());
+
+    // 类型非法（不是字符串数组）时整个文档读不出。
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["vim_mode_apps"] = serde_json::json!({ "code.exe": true });
+    assert!(serde_json::from_value::<Preferences>(value).is_err());
+}
+
+#[test]
+fn vim_mode_app_identifiers_are_validated() {
+    let invalid: [fn(&mut Vec<String>); 8] = [
+        |apps| apps.push(String::new()),
+        |apps| apps.push(" code.exe".into()),
+        |apps| apps.push(r"C:\Program Files\code.exe".into()),
+        |apps| apps.push("apps/code".into()),
+        |apps| apps.push("code\n.exe".into()),
+        |apps| apps.push("a".repeat(MAX_APP_INPUT_MODE_RULE_ID_BYTES + 1)),
+        // 与应用例外同一口径：只差大小写的两条命中同一个应用。
+        |apps| {
+            apps.push("Code.exe".into());
+            apps.push("code.exe".into());
+        },
+        |apps| {
+            for index in 0..=MAX_APP_INPUT_MODE_RULES {
+                apps.push(format!("app{index}.exe"));
+            }
+        },
+    ];
+    for (index, change) in invalid.into_iter().enumerate() {
+        let mut preferences = Preferences::default();
+        change(&mut preferences.vim_mode_apps);
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidVimModeApps)
+            ),
+            "{index}"
+        );
+    }
+
+    // 恰好上限的条数和字节数、带空格和非 ASCII 字符的名字都合法。
+    let mut preferences = Preferences::default();
+    for index in 0..MAX_APP_INPUT_MODE_RULES - 2 {
+        preferences.vim_mode_apps.push(format!("app{index}.exe"));
+    }
+    preferences
+        .vim_mode_apps
+        .push("a".repeat(MAX_APP_INPUT_MODE_RULE_ID_BYTES));
+    preferences.vim_mode_apps.push("终端 beta.app".into());
+    assert!(preferences.validate().is_ok());
+
+    // 拒绝的文档不会被保存。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut rejected = Preferences::default();
+    rejected.vim_mode_apps = vec!["apps/code".into()];
+    assert!(matches!(
+        store.save(0, rejected),
+        Err(PreferencesError::InvalidVimModeApps)
+    ));
+    assert!(!store.path().exists());
+}
+
+#[test]
 fn appearance_preferences_absent_defaults_and_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());

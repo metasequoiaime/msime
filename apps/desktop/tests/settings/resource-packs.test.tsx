@@ -731,14 +731,16 @@ test("a handwriting download failure offers the download mirror and retries afte
   await waitFor(() => expect(packs.client.install).toHaveBeenCalledTimes(2));
 });
 
-
 test("语法模型卸载失败保留已安装状态并显示错误，允许重试", async () => {
   const id = "grammar-model-baguwen-compact";
   const packs = fakePacks({ [id]: "installed" }, [id]);
   packs.client.remove.mockRejectedValueOnce({ code: "resource_pack_remove_denied" });
   renderSettings("windows", packs.client, {
     ...initial,
-    preferences: { ...initial.preferences, sentence_association: { grammar_model: "baguwen_compact" } },
+    preferences: {
+      ...initial.preferences,
+      sentence_association: { grammar_model: "baguwen_compact" },
+    },
   });
   await settingsFormReady();
   selectSettingsTab("候选与联想");

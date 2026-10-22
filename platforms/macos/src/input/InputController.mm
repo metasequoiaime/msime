@@ -59,6 +59,7 @@
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
 #include "../core/ModifierTap.h"
+#include "../core/VimMode.h"
 #import "../settings/ShuangpinKeymapPanel.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
@@ -7160,6 +7161,20 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const BOOL applicationNavigationKey = ((event.keyCode == 116 || event.keyCode == 121) && ![_appearance navigationEnabled:@"page_up_down"]) ||
         ((event.keyCode == 125 || event.keyCode == 126) && ![_appearance navigationEnabled:@"arrows"]);
     if (MSIMESchemeTrait(_view, msime::mac::scheme::CommitsOnBlur) && applicationNavigationKey && !_panel.isVisible && [_view[@"editing_text"] length]) [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    // Vim 模式（共享偏好 vim_mode_apps）：名单命中的前台应用里，无修饰、非长按、无组字的 Esc
+    // 会原样回到应用（MSIME_CANCEL 无事可取消），搭车把水杉切到英文，Vim 用户立刻能按 hjkl。
+    // 判定必须在下面派发 MSIME_CANCEL 之前：组字开着时这次 Esc 归引擎取消组字，不能既取消又切。
+    const BOOL vimListed = event.keyCode == 53 &&
+        [_appearance vimModeEnabledForApplication:[sender respondsToSelector:@selector(bundleIdentifier)]
+                                                       ? [sender bundleIdentifier] : nil];
+    if (msime::mac::VimModeEscapeSwitchesToEnglish(
+            event.keyCode, event.isARepeat,
+            (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                    NSEventModifierFlagOption | NSEventModifierFlagCommand)) != 0,
+            [_view[@"editing_text"] length] > 0 || [_view[@"candidates"] count] > 0 ||
+                [_view[@"phrase_prefix"] length] > 0,
+            vimListed, _appearance.englishMode))
+        [self setEnglishInputMode:YES];
     switch (event.keyCode) {
         case 48:
             // With no candidate panel on screen (the caret rect was invalid or there is no screen to show it on) Tab and Shift+Tab are the application's, whatever navigation.tab says. A composition still being edited is finished first, for every scheme and not only a Korean syllable, so the key does not move focus away from marked text that would then dangle in the old field. With nothing composed the session is left alone.

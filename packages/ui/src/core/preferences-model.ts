@@ -125,6 +125,8 @@ export type Preferences = PunctuationPreferences &
     ime_mode_scope?: "app" | "global";
     /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
     app_input_mode_rules?: Record<string, AppInputModeRule>;
+    /** Vim 模式应用名单（macOS）：名单里的前台应用收到无修饰 Esc 时，输入法同时切到英文。标识口径同 `app_input_mode_rules`；空表不写进文档。 */
+    vim_mode_apps?: string[];
     last_chinese_scheme?: ChineseScheme | null;
     /** `custom` 用下面的 `shuangpin_custom_profile`；表不能用时输入法按小鹤运行。 */
     shuangpin_profile: BuiltinShuangpinProfile | "custom";

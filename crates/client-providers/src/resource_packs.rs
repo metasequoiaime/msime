@@ -1718,7 +1718,7 @@ mod tests {
                 let pinned_raw = url
                     .strip_prefix("https://raw.githubusercontent.com/")
                     .is_some_and(|rest| {
-                        rest.splitn(4, '/')
+                        rest.split('/')
                             .nth(2)
                             .is_some_and(|commit| crate::is_lower_hex(commit, 40))
                     });

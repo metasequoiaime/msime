@@ -185,3 +185,31 @@ fn replace_default(current: &str, previous: Option<&str>, next: &str) -> String 
         current.to_owned()
     }
 }
+
+/// 共享 UI 的静态投影；保留可选字段缺省形状，不改变 Android C ABI 的完整字段。
+#[derive(Debug, Serialize)]
+pub struct UiAiProviderPreset {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub endpoint: &'static str,
+    pub model: &'static str,
+    #[serde(skip_serializing_if = "<[&str]>::is_empty")]
+    pub models: &'static [&'static str],
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub documentation: &'static str,
+}
+
+/// 元数据只维护在 `PROVIDERS`，平台差异通过投影表达。
+pub fn ui_provider_catalog() -> Vec<UiAiProviderPreset> {
+    PROVIDERS
+        .iter()
+        .map(|preset| UiAiProviderPreset {
+            id: preset.id,
+            title: preset.title,
+            endpoint: preset.endpoint,
+            model: preset.model,
+            models: preset.models,
+            documentation: preset.documentation,
+        })
+        .collect()
+}

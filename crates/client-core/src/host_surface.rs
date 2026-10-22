@@ -182,6 +182,8 @@ pub struct HostCapabilities {
     pub ime_mode_scope: bool,
     /// 宿主认得前台应用并执行 `app_input_mode_rules`（应用例外）：macOS 按 bundle id，Windows 按进程基名，Linux 按输入法框架报告的程序名（Fcitx5 的 `InputContext::program()`；IBus 只有经 IBus GTK 输入法模块输入的程序经 1.5.27 起的客户端名报告，GNOME Wayland 下经 GNOME Shell 转发的程序是匿名的）。
     pub app_input_mode_rules: bool,
+    /// 宿主认得前台应用并对 `vim_mode_apps` 名单里的应用把无修饰 Esc 搭车切英文（目前只有 macOS）。
+    pub vim_mode_apps: bool,
     /// The host records typing statistics.
     pub typing_statistics: bool,
     /// The host exposes the shared fuzzy-pinyin settings.
@@ -557,6 +559,8 @@ impl HostCapabilities {
             ),
             // macOS 的输入控制器在每次切换客户端时按 bundle id 查规则；Windows 由 Server 按焦点客户端的进程基名查规则，TIP 激活时也按它定起始模式。其余宿主不认规则，设置页不显示规则表。
             app_input_mode_rules: platform.is_desktop(),
+            // Windows 还在 TSF 本地读自己的 `vim_mode_apps`，共享键先只给 macOS。
+            vim_mode_apps: matches!(platform, HostPlatform::Macos),
             typing_statistics: true,
             // Every input host consumes the shared fuzzy-pinyin options. The
             // iOS Tauri settings surface writes the same PreferencesStore that

@@ -671,19 +671,32 @@ pub enum AppInputModeRule {
 pub const MAX_APP_INPUT_MODE_RULES: usize = 32;
 pub const MAX_APP_INPUT_MODE_RULE_ID_BYTES: usize = 64;
 
-/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白；整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
+/// 应用标识：macOS 是 bundle id，Windows 是进程的可执行文件基名（如 `code.exe`，设置页写入前转成小写），Linux 是输入法框架报告的程序名（如 `firefox`）。非空、不超过 `MAX_APP_INPUT_MODE_RULE_ID_BYTES` 字节，不含控制字符和路径分隔符，两侧没有空白。
+fn valid_app_list_identifier(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_APP_INPUT_MODE_RULE_ID_BYTES
+        && id.trim() == id
+        && !id
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '\\' | '/'))
+}
+
+/// 整张表按 ASCII 不分大小写地不重复，因为 Windows 按这个规则比较进程名，只差大小写的两条会让同一个进程拿到两种模式。
 fn valid_app_input_mode_rules(rules: &BTreeMap<String, AppInputModeRule>) -> bool {
     let mut seen = BTreeSet::new();
     rules.len() <= MAX_APP_INPUT_MODE_RULES
-        && rules.keys().all(|id| {
-            !id.is_empty()
-                && id.len() <= MAX_APP_INPUT_MODE_RULE_ID_BYTES
-                && id.trim() == id.as_str()
-                && !id
-                    .chars()
-                    .any(|character| character.is_control() || matches!(character, '\\' | '/'))
-                && seen.insert(id.to_ascii_lowercase())
-        })
+        && rules
+            .keys()
+            .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
+}
+
+/// `vim_mode_apps` 的名单：与应用例外同一口径、同一档上限。标识认法相同，只差大小写的两条会命中同一个应用。
+fn valid_vim_mode_apps(apps: &[String]) -> bool {
+    let mut seen = BTreeSet::new();
+    apps.len() <= MAX_APP_INPUT_MODE_RULES
+        && apps
+            .iter()
+            .all(|id| valid_app_list_identifier(id) && seen.insert(id.to_ascii_lowercase()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -876,6 +889,9 @@ pub struct Preferences {
     /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名、Linux 按输入法框架报告的程序名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
+    /// Vim 模式：名单命中的前台应用里，交给应用的无修饰 Esc 同时把水杉切到英文，Vim 用户可以立刻输入 `hjkl`；组字开着时 Esc 仍只取消组字。标识口径与 `app_input_mode_rules` 相同（macOS 按 bundle id，Windows 按进程基名）。没有名单时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vim_mode_apps: Vec<String>,
     #[serde(default)]
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
@@ -2580,6 +2596,7 @@ impl Default for Preferences {
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             app_input_mode_rules: BTreeMap::new(),
+            vim_mode_apps: Vec::new(),
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
@@ -3358,6 +3375,9 @@ impl Preferences {
         if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
             return Err(PreferencesError::InvalidAppInputModeRules);
         }
+        if !valid_vim_mode_apps(&self.vim_mode_apps) {
+            return Err(PreferencesError::InvalidVimModeApps);
+        }
         if !self.cloud_clipboard_relay.validate() {
             return Err(PreferencesError::InvalidCloudClipboardRelay);
         }
@@ -3592,6 +3612,8 @@ pub enum PreferencesError {
     InvalidGameCompatibility,
     #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
     InvalidAppInputModeRules,
+    #[error("vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    InvalidVimModeApps,
     #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
     InvalidCloudClipboardRelay,
     #[error(

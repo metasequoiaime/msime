@@ -13,6 +13,8 @@ export interface HostCapabilities {
   ime_mode_scope: boolean;
   /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS、Windows 和 Linux）。 */
   app_input_mode_rules?: boolean;
+  /** 宿主对 `vim_mode_apps` 名单里的应用把无修饰 Esc 搭车切英文（目前只有 macOS）。 */
+  vim_mode_apps?: boolean;
   typing_statistics: boolean;
   /** 宿主已接通共享的背单词入口。 */
   vocabulary_review: boolean;

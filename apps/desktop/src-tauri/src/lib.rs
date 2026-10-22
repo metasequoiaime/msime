@@ -1433,6 +1433,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidPlugins => "plugins_invalid",
                 PreferencesError::InvalidGameCompatibility => "game_compatibility_invalid",
                 PreferencesError::InvalidAppInputModeRules => "app_input_mode_rules_invalid",
+                PreferencesError::InvalidVimModeApps => "vim_mode_apps_invalid",
                 PreferencesError::InvalidCloudClipboardRelay => "cloud_clipboard_relay_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",

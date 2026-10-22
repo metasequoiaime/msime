@@ -118,6 +118,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *defaultImeMode;
 @property(nonatomic, copy) NSString *imeModeScope;
 - (void)activateInputModeForApplication:(NSString *)identifier;
+/// Vim 模式（共享偏好 `vim_mode_apps`）：这个 bundle id 的前台应用是否把无修饰 Esc 搭车切英文。
+- (BOOL)vimModeEnabledForApplication:(NSString *)identifier;
 - (void)lockActiveInputMode;
 - (void)resetRememberedInputModes;
 @property(nonatomic) BOOL inputModeShortcut;

@@ -8,6 +8,7 @@ import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
 import { AppInputModeRulesSection } from "../app-input-mode-rules-section";
+import { VimModeAppsSection } from "../vim-mode-apps-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
@@ -369,20 +370,35 @@ export function InputSettingsPage() {
         showInputModeStatusItem={showInputModeStatusItem}
         showModeScope={showModeScope}
         modeExtra={
-          showAppInputModeRules && (
-            <AppInputModeRulesSection
-              value={draft.app_input_mode_rules}
-              windows={host?.platform === "windows"}
-              linux={linuxPlatform}
-              // Linux 没有选应用的对话框，程序名手填。
-              pickApplication={linuxPlatform ? undefined : client.pickApplication}
-              // Windows 和 Linux 的规则就是程序名，名称没有更多信息，宿主也不提供查询。
-              applicationNames={
-                host?.platform === "windows" || linuxPlatform ? undefined : client.applicationNames
-              }
-              onChange={(app_input_mode_rules) => onPreferencesChange({ app_input_mode_rules })}
-            />
-          )
+          <>
+            {showAppInputModeRules && (
+              <AppInputModeRulesSection
+                value={draft.app_input_mode_rules}
+                windows={host?.platform === "windows"}
+                linux={linuxPlatform}
+                // Linux 没有选应用的对话框，程序名手填。
+                pickApplication={linuxPlatform ? undefined : client.pickApplication}
+                // Windows 和 Linux 的规则就是程序名，名称没有更多信息，宿主也不提供查询。
+                applicationNames={
+                  host?.platform === "windows" || linuxPlatform
+                    ? undefined
+                    : client.applicationNames
+                }
+                onChange={(app_input_mode_rules) => onPreferencesChange({ app_input_mode_rules })}
+              />
+            )}
+            {host?.vim_mode_apps === true && (
+              <VimModeAppsSection
+                value={draft.vim_mode_apps}
+                windows={host?.platform === "windows"}
+                pickApplication={client.pickApplication}
+                applicationNames={
+                  host?.platform === "windows" ? undefined : client.applicationNames
+                }
+                onChange={(vim_mode_apps) => onPreferencesChange({ vim_mode_apps })}
+              />
+            )}
+          </>
         }
         mixedInput={mixedInput}
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}

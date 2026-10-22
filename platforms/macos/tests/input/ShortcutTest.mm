@@ -607,6 +607,46 @@ static NSEvent *ModeKey(unsigned short code, NSEventModifierFlags flags, BOOL re
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:repeat keyCode:code];
 }
 
+@interface VimModeClient : ShortcutClient
+@property(nonatomic, copy) NSString *bundleIdentifier;
+@end
+@implementation VimModeClient
+@end
+
+// 经真实事件路由核对：空闲 Esc 交给应用并切英文，组字中的第一次 Esc 只取消。
+static void TestVimModeEscapeRouting(void) {
+    for (NSUInteger scenario = 0; scenario < 8; ++scenario) {
+        NSString *suite = [@"msime.vim-mode." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [appearance applySharedInputPreferences:@{@"vim_mode_apps": @[@"org.example.Editor"]}];
+        ModeController *controller = [ModeController alloc];
+        VimModeClient *client = [VimModeClient new];
+        client.bundleIdentifier = scenario == 1 ? @"org.example.Other" : @"ORG.EXAMPLE.EDITOR";
+        ShortcutSession *session = [ShortcutSession new];
+        NSDictionary *empty = @{@"editing_text": @"", @"candidates": @[]};
+        session.nextTransition = @{@"handled": @NO, @"view": empty};
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:scenario == 7 ? @{@"editing_text": @"ni", @"candidates": @[]} : empty forKey:@"view"];
+        appearance.englishMode = NO;
+        const NSEventModifierFlags flags[] = {0, 0, NSEventModifierFlagShift,
+            NSEventModifierFlagControl, NSEventModifierFlagOption, NSEventModifierFlagCommand, 0, 0};
+        if (scenario == 7) session.cancelTransition = @{@"handled": @YES, @"view": empty};
+        const BOOL handled = [controller handleEvent:ModeKey(53, flags[scenario], scenario == 6) client:client];
+        assert(appearance.englishMode == (scenario == 0));
+        if (scenario == 0) assert(!handled && client.committed.length == 0);
+        if (scenario == 7) {
+            assert(handled);
+            session.cancelTransition = nil;
+            assert(![controller handleEvent:ModeKey(53, 0, NO) client:client]);
+            assert(appearance.englishMode);
+        }
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+}
+
 // 非美式键盘布局上的按键：`code` 是物理位置，`characters` 是当前布局在这个键上打出的字符。
 static NSEvent *LayoutKey(unsigned short code, NSString *characters, NSEventModifierFlags flags) {
     return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
@@ -11071,6 +11111,10 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--vim-mode") {
+            TestVimModeEscapeRouting();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
             TestGlassInputModeHUD(YES);
             return 0;
@@ -12914,6 +12958,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestEmojiBridgeFallback(); }
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
+        @autoreleasepool { TestVimModeEscapeRouting(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }

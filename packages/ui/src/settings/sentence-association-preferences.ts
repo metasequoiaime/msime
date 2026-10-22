@@ -1,10 +1,5 @@
 /** octagram `.gram` 语法模型选择：`none` 不用（默认）；`wanxiang` 万象 LTS（CC-BY-4.0）；`baguwen_word`/`baguwen_compact` 八股文·词级与紧凑（LGPL-3.0）。白霜（GPL-3.0 且构建链许可未声明）不提供。 */
-export type GrammarModel =
-  | "none"
-  | "wanxiang"
-  | "baguwen_word"
-  | "baguwen_compact"
-  | "baishuang";
+export type GrammarModel = "none" | "wanxiang" | "baguwen_word" | "baguwen_compact" | "baishuang";
 
 /** 本地整句候选来源与可选的神经重排偏好。 */
 export type SentenceAssociationPreferences = {

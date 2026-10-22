@@ -419,6 +419,7 @@ targets:
       - path: App/Sources/settings/SettingsAutosave.swift
       - path: App/Services/AboutUpdateRequestState.swift
       - path: App/Services/CustomService.swift
+      - path: App/Services/AIProviderCatalog.swift
       - path: App/Services/VoiceProviderCatalog.swift
       - path: App/Services/LocalSpeechModel.swift
       - path: App/Services/LocalSpeechModelDownload.swift
@@ -479,6 +480,7 @@ targets:
       - path: KeyboardTests/input/InputSchemeTestSupport.swift
       - path: App/Services/BoundedFileReader.swift
       - path: App/Services/CustomService.swift
+      - path: App/Services/AIProviderCatalog.swift
       - path: App/Services/VoiceProviderCatalog.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift

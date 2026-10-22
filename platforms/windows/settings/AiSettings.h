@@ -1,5 +1,6 @@
 #pragma once
 #include "TranslationServiceSettings.h"
+#include "../../../shared/ai/AiProviderCatalog.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -7,60 +8,15 @@
 #include <string_view>
 #include <vector>
 
-// 「AI 辅助」页的规则，平台固定为 Windows：服务商列表和各服务商的默认地址、模型、已知模型与接入文档（`packages/ui/src/settings/ai-provider-options.ts`），服务商下拉的品牌图标（`ai-provider-icon.tsx`），换服务商时改哪些字段（`ai-provider-update.ts`），「测试 AI 辅助配置」何时可用（`ai-credential-test-config.ts` 的 aiServiceCredentialTestDisabled），API Token 说明里的服务地址（`ai-endpoint-policy.ts` 的 aiEndpointServiceAddress），提示词槽位和自定义提示词的说明（`ai-settings-page-section.tsx`），以及获取模型的提示文字（`use-ai-assistant.ts`）。接口地址合不合规和地址的问题说明在 Rust（msime_client_ai_endpoint_check），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「AI 辅助」页的规则，平台固定为 Windows：服务商列表和各服务商的默认地址、模型、已知模型与接入文档（共享 Rust `ai::provider_catalog` 的生成投影），服务商下拉的品牌图标（`ai-provider-icon.tsx`），换服务商时改哪些字段（`ai-provider-update.ts`），「测试 AI 辅助配置」何时可用（`ai-credential-test-config.ts` 的 aiServiceCredentialTestDisabled），API Token 说明里的服务地址（`ai-endpoint-policy.ts` 的 aiEndpointServiceAddress），提示词槽位和自定义提示词的说明（`ai-settings-page-section.tsx`），以及获取模型的提示文字（`use-ai-assistant.ts`）。接口地址合不合规和地址的问题说明在 Rust（msime_client_ai_endpoint_check），不在这里。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::ai {
 
-// 一个服务商（AI_PROVIDER_OPTIONS 的一项）。models 和 documentation 只用来显示，请求总是用设置里保存的值。
-struct Provider {
-  std::wstring_view id;
-  std::wstring_view title;
-  std::wstring_view endpoint;
-  std::wstring_view model;
-  std::vector<std::wstring_view> models;
-  std::wstring_view documentation;
-};
+// 服务商字段与静态生命周期由共享 Rust 目录的宽字符串投影提供。
+using Provider = msime::ai::ProviderPreset;
 
-// 按共享页的顺序；最后一项「自定义」没有默认值，也是不认识的服务商换过去时落到的那一项。id 与偏好库的 AI_PROVIDERS 一致。
+// 保持共享目录的历史顺序；最后一项自定义服务也是未知服务的回退。
 inline std::vector<Provider> const &providers() {
-  static const std::vector<Provider> table{
-      {L"everyapi", L"EveryAPI", L"https://api.everyapi.ai/v1/chat/completions",
-       L"deepseek-v4-flash",
-       {L"deepseek-v4-flash", L"deepseek-v4-pro", L"claude-sonnet-5", L"glm-5.3-flash"},
-       L"https://everyapi.ai/models"},
-      {L"openai", L"OpenAI", L"https://api.openai.com/v1/chat/completions", L"gpt-4.1-mini",
-       {L"gpt-4.1-mini"}, L"https://developers.openai.com/api/docs/models/gpt-4.1-mini"},
-      {L"anthropic", L"Anthropic · Claude", L"https://api.anthropic.com/v1/chat/completions",
-       L"claude-sonnet-4-6", {L"claude-sonnet-4-6", L"claude-opus-5"},
-       L"https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"},
-      {L"gemini", L"Google · Gemini",
-       L"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-       L"gemini-3.8-flash", {L"gemini-3.8-flash", L"gemini-2.5-flash"},
-       L"https://ai.google.dev/gemini-api/docs/openai"},
-      {L"deepseek", L"DeepSeek", L"https://api.deepseek.com/chat/completions",
-       L"deepseek-v4-flash", {L"deepseek-v4-flash", L"deepseek-v4-pro"},
-       L"https://api-docs.deepseek.com/"},
-      {L"qwen", L"通义千问 · 阿里云百炼",
-       L"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", L"qwen-plus",
-       {L"qwen-plus"},
-       L"https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope"},
-      {L"kimi", L"Kimi · 月之暗面", L"https://api.moonshot.cn/v1/chat/completions", L"kimi-k2.6",
-       {L"kimi-k2.6", L"kimi-k2.5"}, L"https://platform.kimi.com/docs/api/chat"},
-      {L"zhipu", L"智谱 · GLM", L"https://open.bigmodel.cn/api/paas/v4/chat/completions",
-       L"glm-4.7", {L"glm-4.7", L"glm-4.7-flashx"},
-       L"https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"},
-      {L"siliconflow", L"硅基流动", L"https://api.siliconflow.cn/v1/chat/completions",
-       L"Qwen/Qwen3.6-27B", {L"Qwen/Qwen3.6-27B"},
-       L"https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"},
-      {L"groq", L"Groq", L"https://api.groq.com/openai/v1/chat/completions",
-       L"llama-3.3-70b-versatile", {L"llama-3.3-70b-versatile", L"llama-3.1-8b-instant"},
-       L"https://console.groq.com/docs/quickstart"},
-      {L"openrouter", L"OpenRouter", L"https://openrouter.ai/api/v1/chat/completions",
-       L"openrouter/auto", {L"openrouter/auto"}, L"https://openrouter.ai/docs/quickstart"},
-      {L"ollama", L"Ollama", L"http://localhost:11434/v1/chat/completions", L"", {},
-       L"https://docs.ollama.com/api/openai-compatibility"},
-      {L"custom", L"自定义", L"", L"", {}, L""},
-  };
-  return table;
+  return msime::ai::provider_catalog();
 }
 
 // aiProviderOption：不认识的服务商为空。
