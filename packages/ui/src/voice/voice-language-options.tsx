@@ -23,8 +23,10 @@ export function VoiceLanguageOptions({ systemVoice = false }: VoiceLanguageOptio
 /** Display a stored language code in the same names used by the voice settings choices. */
 export function voiceLanguageTitle(language: string | undefined): string {
   const code = (language ?? "").trim();
-  const mobileTitle = (value: string) =>
-    MOBILE_VOICE_LANGUAGES.find((choice) => choice.value === value)?.label ?? value;
+  // 目录中的 mobile_title 也覆盖当前移动端未提供选择项的语言（例如日语），
+  // 因而已保存的旧值仍能显示本地化标题；未知值继续由 default 原样回显。
+  const mobileTitle = (id: string) =>
+    catalog.find((choice) => choice.id === id)?.mobile_title ?? id;
   switch (code.toLowerCase()) {
     case "":
     case "zh":
