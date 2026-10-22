@@ -124,6 +124,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentActionsDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard segment actions acceptance failed" >&2; exit 1; }
+# 常用语结果显示在手机顶部，不占诊断行，也不移动剪贴板列表。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentActionsDeviceSmoke -e phrase-notice true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Clipboard phrase notice acceptance failed" >&2; exit 1; }
 # 稀疏横拖直接经过安装产品的触摸分发，最低 API 也检查接手位移与子控件取消。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.PagedTileGridGestureDeviceSmoke)
 printf '%s\n' "$result"

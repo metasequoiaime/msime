@@ -5,6 +5,8 @@ import android.content.ClipboardManager;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.os.Build;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -25,6 +27,9 @@ final class ClipboardPhraseNoticeDeviceCheck {
     private static final String SECOND = "SyntheticNoticeBeta";
     private final DeviceSmoke t;
     private final Map<File, byte[]> backups = new LinkedHashMap<>();
+    private Bitmap baseline;
+    private volatile String legacyMessage = "";
+    private boolean editorViewFocusedBeforeAdd;
 
     ClipboardPhraseNoticeDeviceCheck(DeviceSmoke test) { t = test; }
 
@@ -40,7 +45,21 @@ final class ClipboardPhraseNoticeDeviceCheck {
             backups.put(file, file.isFile() ? Files.readAllBytes(file.toPath()) : null);
         ClipboardManager clipboard = t.getTargetContext().getSystemService(ClipboardManager.class);
         ClipData previous = clipboard.getPrimaryClip();
+        String previousTimeout = android.provider.Settings.Secure.getString(
+            t.getTargetContext().getContentResolver(), "accessibility_non_interactive_ui_timeout_ms");
+        t.automation.setOnAccessibilityEventListener(event -> {
+            if (event.getEventType() != AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+                    || !DeviceSmoke.equalsText("app.msime.android", event.getPackageName())) return;
+            // 仅记固定的测试结果，不收集其他通知或用户内容。
+            for (String message : new String[] {"已添加到常用语", "已经有这条常用语了。",
+                    "这条记录含有制表符等常用语不能保存的字符，可以先「编辑」去掉再添加。",
+                    "常用语文件已损坏，为避免丢失没有改动它。"})
+                if (event.getText().contains(message)) legacyMessage = message;
+        });
         try {
+            // 在高负载模拟器上用系统无障碍时长保证能观察提示，同时验证产品尊重这项设置。
+            if (Build.VERSION.SDK_INT >= 30)
+                t.shellDiscard("settings put secure accessibility_non_interactive_ui_timeout_ms 10000");
             JSONObject document = read(preferences);
             document.put("revision", document.getLong("revision") + 1);
             document.getJSONObject("preferences").put("clipboard_history", true)
@@ -62,25 +81,37 @@ final class ClipboardPhraseNoticeDeviceCheck {
             openEditor();
             t.tap(t.described("剪贴板"));
             Rect before = bounds(t.awaitStableBounds(card(SOURCE)));
-            t.stage = "successful phrase feedback stays at phone top";
+            baseline = t.automation.takeScreenshot();
+            if (baseline == null) throw new AssertionError("Synthetic baseline screenshot unavailable");
+            t.stage = "successful phrase feedback uses independent window";
             add(SOURCE);
-            SystemClock.sleep(150);
-            capture();
-            notice("已添加到常用语");
+            t.stage = "success notice is at phone top";
+            Rect noticeBounds = notice("已添加到常用语");
+            SystemClock.sleep(250);
+            capture(noticeBounds);
+            t.stage = "success notice preserves clipboard list position";
             requireSame(before, bounds(t.await(card(SOURCE))));
-            t.await(t.field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
+            t.stage = "success notice preserves editor window and view focus";
+            requireEditorFocus();
             awaitPhrase(phrases, SOURCE);
             t.stage = "duplicate feedback replaces success without list movement";
             add(SOURCE);
             notice("已经有这条常用语了。");
             requireSame(before, bounds(t.await(card(SOURCE))));
-            t.stage = "invalid phrase is rejected at the phone top";
+            if (Build.VERSION.SDK_INT >= 30) {
+                if (!awaitNotice("已经有这条常用语了。")
+                        .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new AssertionError("Synthetic notice dismissal refused");
+                awaitNoNotice(2000);
+            } else awaitNoNotice(15000);
+
+            t.stage = "invalid phrase is rejected in independent window";
             add("SyntheticNotice\tInvalid");
             notice("这条记录含有制表符等常用语不能保存的字符，可以先「编辑」去掉再添加。");
             t.stage = "expired notice leaves list and input usable";
-            awaitNoNotice(6000);
+            awaitNoNotice(15000);
             requireSame(before, bounds(t.await(card(SOURCE))));
-            t.stage = "storage failure keeps corrupt bytes and shows its reason at phone top";
+            t.stage = "storage failure preserves bytes and reports its reason";
             byte[] saved = Files.readAllBytes(phrases.toPath());
             byte[] corrupt = "[synthetic-invalid-phrases".getBytes(StandardCharsets.UTF_8);
             try {
@@ -112,6 +143,13 @@ final class ClipboardPhraseNoticeDeviceCheck {
             t.tap(t.key("n"));
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("n", node.getText())));
         } finally {
+            t.automation.setOnAccessibilityEventListener(null);
+            if (Build.VERSION.SDK_INT >= 30)
+                t.shellDiscard(previousTimeout == null
+                    ? "settings delete secure accessibility_non_interactive_ui_timeout_ms"
+                    : "settings put secure accessibility_non_interactive_ui_timeout_ms "
+                        + Integer.parseInt(previousTimeout));
+            if (baseline != null) { baseline.recycle(); baseline = null; }
             if (previous == null) clipboard.clearPrimaryClip(); else clipboard.setPrimaryClip(previous);
             for (Map.Entry<File, byte[]> entry : backups.entrySet()) {
                 if (entry.getValue() == null) Files.deleteIfExists(entry.getKey().toPath());
@@ -123,34 +161,87 @@ final class ClipboardPhraseNoticeDeviceCheck {
 
     private void openEditor() throws Exception {
         t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        if (!t.await(t.field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+            throw new AssertionError("Synthetic editor focus request refused");
         t.tap(t.field("msime-test-plain"));
+        t.await(t.field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
         t.await(t.key("n"));
     }
 
     private void add(String text) throws Exception {
+        t.automation.waitForIdle(300, 3000);
+        t.dropStaleNodes();
+        legacyMessage = "";
+        String operationStage = t.stage;
+        t.stage = operationStage + ": open menu";
         if (!t.await(card(text)).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
             throw new AssertionError("Synthetic clipboard menu refused");
+        t.stage = operationStage + ": dismiss preview";
+        if (!t.await(t.described("关闭剪贴板全文预览")).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            throw new AssertionError("Synthetic clipboard preview dismissal refused");
+        t.automation.waitForIdle(300, 3000);
+        t.dropStaleNodes();
         Predicate<AccessibilityNodeInfo> action = node -> DeviceSmoke.equalsText("添加到常用语", node.getText())
             && node.getParent() != null
             && DeviceSmoke.equalsText("剪贴板记录操作", node.getParent().getContentDescription());
-        if (!t.await(action).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            throw new AssertionError("Synthetic add action refused");
+        t.stage = operationStage + ": editor window focused before add";
+        // Android 9 的预览流程可能已改变输入框节点焦点；提示只与操作前的实际状态比较。
+        editorViewFocusedBeforeAdd = t.await(t.field("msime-test-plain")).isFocused();
+        requireEditorFocus();
+        t.stage = operationStage + ": add menu action";
+        t.tap(action);
+        t.stage = operationStage;
+    }
+
+    private void requireEditorFocus() {
+        for (var window : t.automation.getWindows()) {
+            AccessibilityNodeInfo editor = t.find(window.getRoot(), t.field("msime-test-plain"));
+            if (editor == null) continue;
+            if (!window.isFocused() || editor.isFocused() != editorViewFocusedBeforeAdd)
+                throw new AssertionError("Operation notice changed editor window or view focus");
+            return;
+        }
+        throw new AssertionError("Synthetic editor window unavailable");
     }
 
     private Rect notice(String message) {
-        AccessibilityNodeInfo node = t.await(t.described("常用语操作提示：" + message));
-        Rect bounds = bounds(node);
+        Rect bounds;
+        if (Build.VERSION.SDK_INT < 30) {
+            long deadline = SystemClock.uptimeMillis() + 10000;
+            do {
+                bounds = legacyNoticeBounds();
+                if (message.equals(legacyMessage) && bounds != null) return bounds;
+                SystemClock.sleep(50);
+            } while (SystemClock.uptimeMillis() < deadline);
+            throw new AssertionError("Legacy notice text and phone-top pixels were not observed");
+        }
+        bounds = bounds(awaitNotice(message));
         int height = t.getTargetContext().getResources().getDisplayMetrics().heightPixels;
         if (bounds.isEmpty() || bounds.top < 0 || bounds.bottom > height / 4)
             throw new AssertionError("Notice is outside phone top: " + bounds + ", height=" + height);
         return bounds;
     }
 
+    private AccessibilityNodeInfo awaitNotice(String message) {
+        long deadline = SystemClock.uptimeMillis() + 10000;
+        do {
+            for (var window : t.automation.getWindows()) {
+                if (!DeviceSmoke.equalsText("MSIME common phrase notice", window.getTitle())) continue;
+                AccessibilityNodeInfo node = t.find(window.getRoot(),
+                    t.described("常用语操作提示：" + message));
+                if (node != null) return node;
+            }
+            SystemClock.sleep(50);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic operation notice was not visible");
+    }
+
     private void awaitNoNotice(long timeout) {
         long deadline = SystemClock.uptimeMillis() + timeout;
         do {
-            boolean visible = false;
+            boolean visible = Build.VERSION.SDK_INT < 30 && legacyNoticeBounds() != null;
             for (var window : t.automation.getWindows()) {
+                if (!DeviceSmoke.equalsText("MSIME common phrase notice", window.getTitle())) continue;
                 if (t.find(window.getRoot(), node -> node.getContentDescription() != null
                         && node.getContentDescription().toString().startsWith("常用语操作提示：")) != null)
                     visible = true;
@@ -161,13 +252,66 @@ final class ClipboardPhraseNoticeDeviceCheck {
         throw new AssertionError("Transient phrase notice did not disappear");
     }
 
-    private void capture() throws Exception {
+    /** 旧版系统 Toast 不进入可交互无障碍窗口，结合固定通知文字与实际像素验收。 */
+    private Rect legacyNoticeBounds() {
+        Bitmap bitmap = t.automation.takeScreenshot();
+        if (bitmap == null) throw new AssertionError("Legacy notice screenshot unavailable");
+        try {
+            int minimum = bitmap.getWidth() / 6;
+            for (int y = 0; y < bitmap.getHeight() / 4; y++) {
+                int start = -1;
+                for (int x = 0; x < bitmap.getWidth(); x++) {
+                    if (isDark(bitmap.getPixel(x, y))) {
+                        if (start < 0) start = x;
+                    } else {
+                        if (start >= 0 && x - start >= minimum) {
+                            int bottom = y + 1;
+                            for (; bottom < bitmap.getHeight() / 4; bottom++) {
+                                int dark = 0;
+                                for (int column = start; column < x; column++)
+                                    if (isDark(bitmap.getPixel(column, bottom))) dark++;
+                                if (dark < (x - start) / 2) break;
+                            }
+                            if (bottom - y >= 16) return new Rect(start, y, x, bottom);
+                        }
+                        start = -1;
+                    }
+                }
+            }
+            return null;
+        } finally { bitmap.recycle(); }
+    }
+
+    private static boolean isDark(int color) {
+        return android.graphics.Color.red(color) < 48 && android.graphics.Color.green(color) < 48
+            && android.graphics.Color.blue(color) < 48;
+    }
+
+    private void capture(Rect noticeBounds) throws Exception {
         Bitmap bitmap = t.automation.takeScreenshot();
         if (bitmap == null) throw new AssertionError("Synthetic notice screenshot unavailable");
         try (FileOutputStream output = new FileOutputStream(new File(t.getTargetContext().getCacheDir(),
                 "clipboard-phrase-notice.png"))) {
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
                 throw new AssertionError("Synthetic notice screenshot failed");
+            int dark = 0;
+            for (int y = noticeBounds.top; y < noticeBounds.bottom; y += 4)
+                for (int x = noticeBounds.left; x < noticeBounds.right; x += 4) {
+                    int color = bitmap.getPixel(x, y);
+                    if (android.graphics.Color.red(color) < 48 && android.graphics.Color.green(color) < 48
+                            && android.graphics.Color.blue(color) < 48) dark++;
+                }
+            if (dark < noticeBounds.width() * noticeBounds.height() / 64)
+                throw new AssertionError("Notice has no visible dark background at its reported bounds");
+            // 旧系统曾把透明子窗口画成长条，窗口坐标正确也必须核对父窗口上方的实际像素。
+            int same = 0, total = 0;
+            for (int y = noticeBounds.bottom + 32; y < bitmap.getHeight() / 2; y += 16)
+                for (int x = noticeBounds.left; x < noticeBounds.right; x += 16) {
+                    if (bitmap.getPixel(x, y) == baseline.getPixel(x, y)) same++;
+                    total++;
+                }
+            if (total == 0 || same < total * 0.95)
+                throw new AssertionError("Notice changed pixels between phone top and keyboard");
         } finally { bitmap.recycle(); }
     }
 

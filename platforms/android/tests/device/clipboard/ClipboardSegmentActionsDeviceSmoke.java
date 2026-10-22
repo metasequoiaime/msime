@@ -27,7 +27,7 @@ public final class ClipboardSegmentActionsDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        if (phraseNotice) return "clipboard phrase notice at screen top without moving the list or editor focus";
+        if (phraseNotice) return "clipboard phrase notice position, stable list, editor focus, dismissal and delayed-result cancellation";
         return "segmented sharing, common phrases, copying, recent preview and insertion";
     }
 
