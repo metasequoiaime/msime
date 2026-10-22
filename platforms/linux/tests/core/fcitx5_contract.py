@@ -111,9 +111,11 @@ assert "state->cancelFocusInputModeHud();" in deactivate and "dismissModeBadge(e
 key_event_body = source[source.index("void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override") :]
 key_event_body = key_event_body[: key_event_body.index("std::string subModeLabelImpl(")]
 assert key_event_body.index("if (!event.isRelease()) state->cancelFocusInputModeHud();") < key_event_body.index("state->keyDown(event);")
-# Linux 应用普遍把 Ctrl+Shift+P 用作命令面板或隐私窗口；Fcitx5 只从工具栏菜单插入宣传文字，与 macOS 相同。
+# Linux 应用普遍把 Ctrl+Shift+P 用作命令面板或隐私窗口；两个 Linux 宿主都只从工具栏菜单插入宣传文字。
 assert "FcitxKey_P ? FcitxKey_p" not in source
 assert "toggle_chord_held_ = FcitxKey_p" not in source
+assert "promotion_shortcut" not in ibus_source
+assert "Ctrl+Shift+P" not in ibus_source
 assert "tsf_preedit_style" in source
 assert "candidate_preedit_style" in source
 assert "FcitxSchemeBooleanAction" in source
