@@ -9,75 +9,24 @@ enum CustomServiceKind: String {
   }
 }
 
-// Official endpoint/model documentation, checked 2026-09-07. These presets use the
-// providers' Chat Completions compatibility APIs; request codecs remain in Engine.
+// 公开元数据读取共享 Rust 目录的静态投影；枚举原始值继续用于既有偏好槽位。
 enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
   case everyAPI, openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, groq, openRouter, custom
 
-  var title: String {
-    switch self {
-    case .everyAPI: "EveryAPI"
-    case .openAI: "OpenAI"
-    case .anthropic: "Anthropic · Claude"
-    case .gemini: "Google · Gemini"
-    case .deepSeek: "DeepSeek"
-    case .qwen: "通义千问 · 阿里云百炼"
-    case .kimi: "Kimi · 月之暗面"
-    case .zhipu: "智谱 · GLM"
-    case .siliconFlow: "硅基流动"
-    case .groq: "Groq"
-    case .openRouter: "OpenRouter"
-    case .custom: "自定义"
-    }
+  private var catalog: AIProviderCatalog.Provider? {
+    AIProviderCatalog.provider(id: rawValue.lowercased())
   }
-  var endpoint: String {
-    switch self {
-    case .everyAPI: "https://api.everyapi.ai/v1/chat/completions"
-    case .openAI: "https://api.openai.com/v1/chat/completions"
-    case .anthropic: "https://api.anthropic.com/v1/chat/completions"
-    case .gemini: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    case .deepSeek: "https://api.deepseek.com/chat/completions"
-    case .qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-    case .kimi: "https://api.moonshot.cn/v1/chat/completions"
-    case .zhipu: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-    case .siliconFlow: "https://api.siliconflow.cn/v1/chat/completions"
-    case .groq: "https://api.groq.com/openai/v1/chat/completions"
-    case .openRouter: "https://openrouter.ai/api/v1/chat/completions"
-    case .custom: ""
-    }
-  }
+
+  var title: String { catalog?.title ?? "" }
+  var endpoint: String { catalog?.endpoint ?? "" }
   var models: [String] {
-    switch self {
-    case .everyAPI: ["deepseek-v4-flash", "deepseek-v4-pro", "claude-sonnet-5", "glm-5.3-flash"]
-    case .openAI: ["gpt-4.1-mini"]
-    case .anthropic: ["claude-sonnet-4-6", "claude-opus-5"]
-    case .gemini: ["gemini-3.8-flash", "gemini-2.5-flash"]
-    case .deepSeek: ["deepseek-v4-flash", "deepseek-v4-pro"]
-    case .qwen: ["qwen-plus"]
-    case .kimi: ["kimi-k2.6", "kimi-k2.5"]
-    case .zhipu: ["glm-4.7", "glm-4.7-flashx"]
-    case .siliconFlow: ["Qwen/Qwen3.6-27B"]
-    case .groq: ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
-    case .openRouter: ["openrouter/auto"]
-    case .custom: []
-    }
+    // Groq 的 iOS 建议与共享桌面目录不同，保留现有平台策略。
+    self == .groq ? ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"] : catalog?.models ?? []
   }
   var documentation: URL? {
-    let address: String
-    switch self {
-    case .everyAPI: address = "https://everyapi.ai/models"
-    case .openAI: address = "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
-    case .anthropic: address = "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk"
-    case .gemini: address = "https://ai.google.dev/gemini-api/docs/openai"
-    case .deepSeek: address = "https://api-docs.deepseek.com/"
-    case .qwen: address = "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope"
-    case .kimi: address = "https://platform.kimi.com/docs/api/chat"
-    case .zhipu: address = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"
-    case .siliconFlow: address = "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"
-    case .groq: address = "https://console.groq.com/docs/openai"
-    case .openRouter: address = "https://openrouter.ai/docs/quickstart"
-    case .custom: return nil
-    }
+    guard self != .custom else { return nil }
+    let address = self == .groq ? "https://console.groq.com/docs/openai" : catalog?.documentation ?? ""
+    guard !address.isEmpty else { return nil }
     return URL(string: address)
   }
 }

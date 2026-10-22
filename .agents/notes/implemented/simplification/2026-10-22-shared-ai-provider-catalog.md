@@ -14,6 +14,8 @@ Status: implemented
 
 精确 id 匹配、未知值回退、换服务时自定义字段优先、Ollama 桌面过滤与免 Token、图标资源号保持；偏好的首次默认值、iOS 和语音目录仍各自负责原有策略。
 
+iOS 也消费同一导出器生成的静态 Swift 元数据，保留其枚举标识、模型首项默认策略及 Groq 差异，见 [iOS AI 预设](2026-10-22-ios-ai-provider-catalog.md)。
+
 ## Existing notes audit
 
 - [预设公共模型](../../implemented/simplification/2026-10-16-provider-preset-model.md)持有 TypeScript 字段契约，部分重叠，继续复用类型。
