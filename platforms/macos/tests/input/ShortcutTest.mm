@@ -3528,6 +3528,18 @@ static void TestExpandedCandidateGrid() {
     assert(ExpandedGridSubview(panel, 22) && !ExpandedGridSubview(panel, 23));
     MSIMECandidateButton *collapse = ExpandedGridSubview(panel, -3);
     assert(collapse && [collapse.identifier isEqual:@"candidate-collapse"]);
+    // 展开网格与普通候选共用译文字号，并乘整窗缩放；设置变化不能沿用旧字体。
+    NSMutableDictionary *sizedGrid = [[prefs sharedPreferencesByMerging:@{}] mutableCopy];
+    sizedGrid[@"candidate_translation_font_size"] = @21;
+    sizedGrid[@"candidate_scale_percent"] = @150;
+    [prefs applySharedCandidatePreferences:sizedGrid];
+    [controller renderCandidates];
+    assert(fabs(ExpandedGridSubview(panel, 0).translationFont.pointSize - 31.5) < 0.01);
+    sizedGrid[@"candidate_translation_font_size"] = NSNull.null;
+    sizedGrid[@"candidate_scale_percent"] = @100;
+    [prefs applySharedCandidatePreferences:sizedGrid];
+    [controller renderCandidates];
+    assert(fabs(ExpandedGridSubview(panel, 0).translationFont.pointSize - MSIMECandidateTranslationPointSize) < 0.01);
     // 只有高亮那一行标序号，数字键选的就是那一行。
     assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
 
@@ -12790,6 +12802,22 @@ int main(int argc, char **argv) {
             NSBitmapImageRep *bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
             assert(bitmap);
             [translated cacheDisplayInRect:translated.bounds toBitmapImageRep:bitmap];
+            // 译文覆盖必须同时影响测量与绘制；改字号时不依赖候选内容变化。
+            NSMutableDictionary *sized = [[appearance sharedPreferencesByMerging:@{}] mutableCopy];
+            for (NSNumber *size in @[@21, @32]) {
+                sized[@"candidate_translation_font_size"] = size;
+                [appearance applySharedCandidatePreferences:sized];
+                [controller renderCandidates];
+                translated = PageButton(layoutPanel.contentView, 0);
+                assert(fabs(translated.translationFont.pointSize - size.doubleValue) < 0.01);
+                assert(translated.frame.size.height >= MSIMETranslationTextSize(translated.translation, translated.translationFont).height);
+                assert([translated.candidateID isEqual:word[@"id"]]);
+            }
+            sized[@"candidate_translation_font_size"] = NSNull.null;
+            [appearance applySharedCandidatePreferences:sized];
+            [controller renderCandidates];
+            translated = PageButton(layoutPanel.contentView, 0);
+            assert(fabs(translated.translationFont.pointSize - MSIMECandidateTranslationPointSize) < 0.01);
             [word removeObjectForKey:@"translation"];
         }
         // The reservation is real, not just an absent assertion: with the feature off the horizontal row is

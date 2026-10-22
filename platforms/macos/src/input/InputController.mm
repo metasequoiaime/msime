@@ -7792,7 +7792,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
         NSScreen *screen = MSIMECandidateScreen(cursor);
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
-        NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+        NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
         // 键位图先于候选窗更新，必须自行读取本次皮肤，不能使用上一次重绘留下的几何。
         NSAppearance *current = _keymapPanel.appearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
         NSString *theme = [current bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
@@ -8245,7 +8245,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
-    NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+    NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
@@ -8545,7 +8545,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
-    NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+    NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
     NSRect rowVisible = visible;
