@@ -39,6 +39,7 @@ from pathlib import Path
 # Preferences that no macOS input method can act on. Each entry says why, because "macOS does not read it"
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
+    "input_mode_focus_hud": "仅 Linux 的 IBus 与 Fcitx5 在聚焦输入框时显示模式提示；共享设置页只在 Linux 显示此项，macOS 没有聚焦提示入口",
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
     # macOS 的这些界面一律跟随颜色模式（HostCapabilities 的 surface_themes_follow），设置页不给这几行；固定明暗的主题由 InputController 钉住传给面板的 `theme`。
     "toolbar_theme": "the floating toolbar and the mode badge follow the colour mode on macOS (surface_themes_follow)",
