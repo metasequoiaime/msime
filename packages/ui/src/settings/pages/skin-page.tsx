@@ -2,6 +2,7 @@ import { PageIntro } from "../../core/platform-controls";
 import type { DesktopSkinTab } from "../desktop-skin-tabs";
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { themeModeOptions } from "../theme-mode-options";
+import { recordSkinSafely } from "../typing-statistics-model";
 import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
 import { globalThemeDescription } from "../settings-options";
@@ -241,7 +242,7 @@ export function SkinSettingsPage({
     onSelectSavedDesign: client.customTouchKeyboardSkins ? onCustomKeyboardChange : undefined,
     keyboardTheme: keyboardPreviewTheme,
     onApply: onPreferencesChange,
-    onApplied: (id: string) => void client.typingStatistics?.recordSkin?.(id),
+    onApplied: (id: string) => recordSkinSafely(client.typingStatistics, id),
     onOpenAi: aiSkins && customSkinLibrary ? openAi : undefined,
   };
   const colourMode = (
@@ -610,7 +611,7 @@ export function SkinSettingsPage({
           onUse={(design) => {
             onCustomKeyboardChange(design);
             // 提案成为用户自己的设计，「换装达人」徽章把它计为 `custom`，即 Android 键盘皮肤面板为设计记录的 id。
-            void client.typingStatistics?.recordSkin?.("custom");
+            recordSkinSafely(client.typingStatistics, "custom");
           }}
           onClose={closeAi}
         />

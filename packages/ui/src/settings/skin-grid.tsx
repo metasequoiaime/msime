@@ -59,7 +59,7 @@ export interface SkinGridProps {
   /** 把卡片的选择应用到偏好设置草稿，与主题轮播的切换做的更新相同。 */
   onApply: (patch: Partial<Preferences>) => void;
   /** 告知点击的卡片应用了哪个皮肤，用于换装达人徽章：主题 id，我的皮肤或自定义主题为 `custom`，或者皮肤包 id，与 Android 皮肤页记录的 id 相同。 */
-  onApplied?: (id: string) => void;
+  onApplied?: (id: string) => void | Promise<void>;
   /** 打开 AI 皮肤抽卡；只有提供它时才在「我的」最前面绘制虚线的 AI 卡片。 */
   onOpenAi?: () => void;
 }
@@ -286,7 +286,12 @@ export function SkinGrid(props: SkinGridProps) {
               ? (card.deselect ?? (() => undefined))
               : () => {
                   card.select();
-                  props.onApplied?.(card.statisticsId);
+                  try {
+                    const result = props.onApplied?.(card.statisticsId);
+                    if (result) void result.catch(() => undefined);
+                  } catch {
+                    // 统计是后台徽章数据，宿主失败不应阻断换肤操作或冒泡成未处理异常。
+                  }
                 }
           }
           className={cardButton}

@@ -35,6 +35,7 @@ import { createSettingsExternalActions } from "./settings-external-actions";
 import { createSettingsNavigationActions } from "./settings-navigation-actions";
 import { logo } from "./settings-options";
 import { createCommunityLocalDictionary } from "../community/community-resource-actions";
+import { recordSkinSafely } from "./typing-statistics-model";
 
 export function SettingsPage(props: SettingsPageProps) {
   // 宿主自己的屏幕键盘布局：没写 `layout` 的键盘预览按它画，手机上不画桌面键盘。
@@ -155,7 +156,7 @@ function SettingsShell(props: SettingsPageProps) {
     client.dictionaryCollections,
   );
   const recordCommunitySkin = (id: string) => {
-    void client.typingStatistics?.recordSkin?.(id);
+    recordSkinSafely(client.typingStatistics, id);
   };
   const communityViews = useSettingsCommunityViews({
     page,
