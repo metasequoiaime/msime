@@ -137,25 +137,26 @@ impl EnglishDictionary {
         read_prefix_rows(&mut rows, limit, candidates);
     }
 
-    /// 按索引前缀与完整分组键码共同筛选，匹配行才占用候选限额。
-    pub(crate) fn query_keypad_prefix(
+    /// 按索引前缀与完整分组键码共同筛选，直接追加匹配行；失败只丢弃本页。
+    pub(crate) fn append_keypad_prefix(
         &self,
         prefix: &str,
         pattern: &str,
         typed: usize,
         limit: usize,
-    ) -> Vec<WordItem> {
-        let mut candidates = Vec::new();
+        candidates: &mut Vec<WordItem>,
+        capacity: usize,
+    ) {
         let Some(connection) = &self.connection else {
-            return candidates;
+            return;
         };
         if !is_lower_ascii_word(prefix) || pattern.is_empty() || limit == 0 {
-            return candidates;
+            return;
         }
         let upper_bound = prefix_upper_bound(prefix);
         let sql = format!("{KEYPAD_PREFIX_SQL}{}", sql_limit(limit));
         let Ok(mut statement) = connection.prepare_cached(&sql) else {
-            return candidates;
+            return;
         };
         let Ok(mut rows) = statement.query(rusqlite::params![
             prefix,
@@ -163,10 +164,9 @@ impl EnglishDictionary {
             pattern,
             sql_limit(typed)
         ]) else {
-            return candidates;
+            return;
         };
-        read_prefix_rows(&mut rows, limit, &mut candidates);
-        candidates
+        append_prefix_rows(&mut rows, limit, candidates, capacity);
     }
 
     /// Custom sidecar, then `en_zh_glosses`, then the learned store; exact key, English not lowercased. Empty when none has it.
@@ -222,6 +222,31 @@ impl EnglishDictionary {
 
 /// 普通前缀与完整组码查询共用行解码、空页延迟预留及失败时整页丢弃的约定。
 fn read_prefix_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mut Vec<WordItem>) {
+    read_prefix_rows_at(rows, limit, candidates, 0, limit);
+}
+
+fn append_prefix_rows(
+    rows: &mut rusqlite::Rows<'_>,
+    limit: usize,
+    candidates: &mut Vec<WordItem>,
+    capacity: usize,
+) {
+    let start = candidates.len();
+    let had_storage = candidates.capacity() != 0;
+    let capacity = capacity.max(start.saturating_add(limit));
+    if !read_prefix_rows_at(rows, limit, candidates, start, capacity) && !had_storage {
+        // 第一页部分写入后失败，仍须保持旧聚合结果的零容量。
+        *candidates = Vec::new();
+    }
+}
+
+fn read_prefix_rows_at(
+    rows: &mut rusqlite::Rows<'_>,
+    limit: usize,
+    candidates: &mut Vec<WordItem>,
+    start: usize,
+    capacity: usize,
+) -> bool {
     let reusable = candidates.len();
     let mut count = 0;
     loop {
@@ -237,12 +262,13 @@ fn read_prefix_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mu
                     column_text_ref(row, 1),
                     column_i64(row, 2),
                 ) else {
-                    candidates.clear();
-                    return;
+                    candidates.truncate(start);
+                    return false;
                 };
                 if count < limit {
-                    if count < reusable {
-                        let candidate = &mut candidates[count];
+                    let index = start + count;
+                    if index < reusable {
+                        let candidate = &mut candidates[index];
                         candidate.pinyin.clear();
                         candidate.pinyin.push_str(&word);
                         candidate.canonical_pinyin.clear();
@@ -257,8 +283,8 @@ fn read_prefix_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mu
                         candidate.sentence_association = false;
                         candidate.sentence_words.clear();
                     } else {
-                        if count == candidates.capacity() {
-                            candidates.reserve_exact(limit - count);
+                        if index == candidates.capacity() {
+                            candidates.reserve_exact(capacity - index);
                         }
                         candidates.push(WordItem::new(
                             word.as_ref(),
@@ -272,13 +298,13 @@ fn read_prefix_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mu
                 }
             }
             Ok(None) => {
-                candidates.truncate(count);
-                return;
+                candidates.truncate(start + count);
+                return true;
             }
             // SQLite 未正常完成时丢弃整页，避免展示不完整结果。
             Err(_) => {
-                candidates.clear();
-                return;
+                candidates.truncate(start);
+                return false;
             }
         }
     }
@@ -949,3 +975,7 @@ hello\tlast wins\n\
 #[cfg(test)]
 #[path = "english/empty_page_tests.rs"]
 mod empty_page_tests;
+
+#[cfg(test)]
+#[path = "english/keypad_append_tests.rs"]
+mod keypad_append_tests;
