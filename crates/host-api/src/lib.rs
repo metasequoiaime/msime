@@ -1757,6 +1757,31 @@ fn path_text(path: Option<PathBuf>) -> String {
         .unwrap_or_default()
 }
 
+/// 内置辅助码表的只读回退根目录（`EngineOptions::helpcode_fallback_resources`）。
+///
+/// 辅助码表随安装包放在资源目录的 `helpcodes/` 下，不在词库发布里，所以装上在线词库更新、`resources` 换成下载的代次目录后，那里没有这些表，Engine 只得到空表，辅助码什么也筛不掉。文档记了回退目录时用它（macOS 输入法、`prepare_host_with_updates` 准备出的文档）；没记时取更新记录里的随包资源目录，覆盖只经 `refresh_host_options` 换过 `resources` 的旧文档。`resources` 自己带着 `helpcodes/` 时不需要回退，也就不读更新记录。
+fn helpcode_fallback_resources(
+    recorded: Option<String>,
+    resources: &Path,
+    state_root: Option<&Path>,
+    edition: &'static Edition,
+) -> Option<String> {
+    if recorded.is_some() || resources.join("helpcodes").is_dir() {
+        return recorded;
+    }
+    recorded_helpcode_bundle(state_root?, &edition.resource_set().ok()?)
+}
+
+/// 更新记录里的随包资源目录，要求那里确实有 `helpcodes/`；`baseline` 是本版本编译进来的词库锁。
+fn recorded_helpcode_bundle(state_root: &Path, baseline: &ResourceSet) -> Option<String> {
+    let bundled =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, baseline)?;
+    if !bundled.join("helpcodes").is_dir() {
+        return None;
+    }
+    bundled.to_str().map(str::to_owned)
+}
+
 /// HostOptions 的 `preferences_directory`，只认绝对路径：按需下载的资源包装在它下面。
 fn absolute_state_root(preferences_directory: Option<&str>) -> Option<PathBuf> {
     preferences_directory
@@ -1837,7 +1862,7 @@ fn helpcode_for_scheme(
 struct HostOptions {
     api_version: u32,
     resources: String,
-    /// 当前宿主随包提供的内置辅助码回退资源根目录；只在内存文档中注入，不要求旧配置写入。
+    /// 当前宿主随包提供的内置辅助码回退资源根目录。macOS 输入法只在内存文档中注入；`prepare_host_with_updates` 在 `resources` 换成下载代次时写它；都没有时 `helpcode_fallback_resources()` 从更新记录里找。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     helpcode_fallback_resources: Option<String>,
     user_data: String,
@@ -1974,6 +1999,12 @@ impl HostOptions {
             edition.default_scheme,
         );
         let helpcode = helpcode_for_scheme(&self.preferences, scheme);
+        let helpcode_fallback_resources = helpcode_fallback_resources(
+            self.helpcode_fallback_resources,
+            Path::new(&self.resources),
+            state_root.as_deref(),
+            edition,
+        );
         let mut options = EngineOptions {
             resources: self.resources,
             user_data: self.user_data,
@@ -2032,7 +2063,7 @@ impl HostOptions {
                 && self.preferences.mixed_input.quick_phrase,
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
             helpcode_table: None,
-            helpcode_fallback_resources: self.helpcode_fallback_resources,
+            helpcode_fallback_resources,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
                 absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
@@ -2381,6 +2412,10 @@ fn prepare_host_with_updates(
             }
             if let Some(model) = settled_model_beside(&original) {
                 document["settled_model"] = json!(model);
+            }
+            // 辅助码表也不在词库发布里，下载的代次目录没有 `helpcodes/`。这里直接记下当前安装包的目录：iOS 每次 App 更新都换安装路径，更新记录里的随包目录会失效，`helpcode_fallback_resources()` 只能从记录里找。
+            if original.join("helpcodes").is_dir() {
+                document["helpcode_fallback_resources"] = json!(original);
             }
             if let Some(languages) = dictionary_updates::languages(state_root, edition)
                 .and_then(|p| p.to_str().map(str::to_owned))

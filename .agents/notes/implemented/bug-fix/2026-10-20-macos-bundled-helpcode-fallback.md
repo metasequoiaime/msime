@@ -33,3 +33,5 @@ Android API 28 和 35 上，75 项 Engine 辅助码测试通过（两项读取 c
 ## 历史笔记检索
 
 [Linux 随包码表](2026-10-18-linux-packaged-helpcodes.md)部分重叠，保留其安装机制；[自定义表扩展名](2026-10-16-custom-helpcode-extension.md)和[目录句柄读取](2026-10-09-helpcode-read-directory-handle.md)继续约束自定义表选择与读取，不被本篇取代。移动端表导入、网页宿主字节表和五笔码表来源不涉及本次缺表回退。
+
+[下载代次的码表回退](2026-10-23-downloaded-generation-helpcode-fallback.md)把同一回退移进 host-api，覆盖所有装了在线词库更新的宿主；本篇「准备配置的序列化输出省略它」只对随包资源那条路径仍然成立。
