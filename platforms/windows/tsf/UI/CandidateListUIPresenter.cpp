@@ -1,3 +1,4 @@
+#include "../../common/CandidateSources.h"
 #include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
 #include "Globals.h"
@@ -483,6 +484,8 @@ HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ I
         found = &candidate;
     }
     if (!found) return S_FALSE;
+    // 占位席位（云的「☁」、旧数据里的 AI 行）占着一格和一个编号，却不是候选。引擎对它们「什么都不做但算处理过」（`crates/engine/src/session/commit.rs`，#6888），这里必须给出同样的结果：返回 S_OK 把按键吃掉，组字原样留着。退回 S_FALSE 会被调用方当成选择失败，于是去写 Server 的文字并丢掉宿主会话的组字——按一下云席位的数字键，整串拼音就被原样吐进文档了。
+    if (msime::windows::candidate_source_is_pending_seat(found->source)) return S_OK;
     std::string raw;
     msime::tsf::EngineResult selected;
     if (!host->select(view.view.generation, found->index, &raw, &error) ||

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../common/CandidateSources.h"
+
 namespace msime::windows {
 // Which candidates the right-click actions - 置顶, 固定排位, 取消固定, 删除 -
 // may be offered for.
@@ -11,19 +13,7 @@ namespace msime::windows {
 // tables these actions edit. Offering them anyway produces a menu item that
 // does nothing, which is worse than not offering it.
 //
-// The identifiers are the Engine's `CandidateSource` enum positions, from
-// `core/word_item.h`. They are values on a wire rather than a type this side
-// can include, so `scripts/test-candidate-sources.py` holds each name below to
-// its position in that enum: inserting a source there would otherwise shift
-// every later one and silently hand 删除 to cloud candidates.
-inline constexpr unsigned candidate_source_database = 0;
-inline constexpr unsigned candidate_source_user_database = 1;
-inline constexpr unsigned candidate_source_cloud_suggestion = 2;
-inline constexpr unsigned candidate_source_ai_suggestion = 3;
-inline constexpr unsigned candidate_source_english_dictionary = 4;
-// AI 占位行，不是候选，不给任何右键动作（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
-inline constexpr unsigned candidate_source_ai_pending = 12;
-inline constexpr unsigned candidate_source_cloud_pending = 15;
+// 来源的取值和它们与引擎枚举的对应关系在 `common/CandidateSources.h`，TIP 的选词也读同一份。
 
 // Japanese candidates are display-only whatever their source: the Host API
 // refuses dictionary maintenance for that scheme, so every one of these items

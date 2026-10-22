@@ -98,5 +98,9 @@ int main(int argc, char **argv) {
            "digits take the Server's reply as the chosen text");
     expect_before(helper, "if (found) return S_FALSE;", "if (!found) return S_FALSE;",
                   "an ambiguous match refuses instead of guessing");
+    // 占位席位要把按键吃掉（S_OK），不能退回 S_FALSE——那会被当成选择失败，丢掉组字并把拼音原文写进文档。
+    expect_before(helper, "candidate_source_is_pending_seat(found->source)) return S_OK;",
+                  "host->select(view.view.generation",
+                  "a pending seat swallows the key instead of falling through to the Server's text");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

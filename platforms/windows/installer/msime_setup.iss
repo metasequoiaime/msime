@@ -19,7 +19,7 @@
 
 #include "editions.iss"
 #define MyAppName      MyEditionAppName
-#define MyAppVersion   "0.0.1"
+#define MyAppVersion   "0.3.0"
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
 #define MySettingsExeName "msime-client-settings.exe"
