@@ -357,6 +357,9 @@ final class ImeLayoutRows {
     /** 当前键行是 {@link #rebuildNineKeyRows} 建的。 */
     private boolean builtNineKeyGrid;
 
+    /** 按实际绘制的网格选择高度分摊，包含其他中文布局借用的数字页。 */
+    boolean nineKeyGridDrawn() { return builtNineKeyGrid; }
+
     /** 键行换成别的布局时调用。 */
     void forgetNineKeyGrid() {
         builtNineKeyGrid = false;
@@ -374,7 +377,7 @@ final class ImeLayoutRows {
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
         LinearLayout container = LayoutPolicy.row(s);
-        s.imeStyler.adjustThreeRowBlockHeight(container);
+        container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 

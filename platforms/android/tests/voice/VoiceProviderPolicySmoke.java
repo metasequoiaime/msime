@@ -48,10 +48,10 @@ public final class VoiceProviderPolicySmoke {
                 VoiceProviderPolicy.status("openai", null, true)),
             "an available platform recogniser keeps the existing fallback wording");
         check(VoiceProviderPolicy.status("local", "local") == null, "the local model reports through localStatus");
-        check("还没有可用的模型，请在下面下载一个".equals(VoiceProviderPolicy.localStatus(false, true))
-                && "还没有可用的模型，请在下面下载一个".equals(VoiceProviderPolicy.localStatus(false, false)),
+        check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(VoiceProviderPolicy.localStatus(false, true))
+                && "还没有选用可用模型，请到「模型」选用、下载或导入".equals(VoiceProviderPolicy.localStatus(false, false)),
             "a missing model is named first");
-        check("还要下载本地语音运行库".equals(VoiceProviderPolicy.localStatus(true, false)),
+        check("还需准备本地语音运行库，请到「模型」下载或导入".equals(VoiceProviderPolicy.localStatus(true, false)),
             "a thin package also needs the runtime");
         check(VoiceProviderPolicy.localStatus(true, true) == null, "a ready local model needs no remark");
         System.out.println("Android voice provider settings: credentials, status and unavailable endpoint bridge passed");

@@ -86,6 +86,7 @@
     <instrumentation android:name="app.msime.android.test.CompositionBatchDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.BatchCompositionDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
+        <activity android:name="app.msime.android.test.CompositionSearchEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.android.test.InlineAutofillEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <!-- 仅专用模拟器测试启用，服务只提供固定合成账号。 -->
         <service android:name="app.msime.android.test.SyntheticAutofillService" android:exported="true" android:permission="android.permission.BIND_AUTOFILL_SERVICE">

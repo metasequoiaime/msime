@@ -7,6 +7,7 @@ platforms/android/tests/device/autofill/SyntheticAutofillService.java
 platforms/android/tests/device/autofill/InlineAutofillDeviceSmoke.java
 platforms/android/tests/device/core/EnglishCorrectionEditorActivity.java
 platforms/android/tests/device/keyboard/EnglishCorrectionDeviceSmoke.java
+platforms/android/tests/device/keyboard/EnglishSuggestionPendingChecks.java
 platforms/android/tests/device/core/DeviceSmoke.java
 platforms/android/tests/device/core/ImageClipProvider.java
 platforms/android/tests/device/clipboard/ClipboardImageDeviceSmoke.java
@@ -50,6 +51,7 @@ platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
+platforms/android/tests/device/settings/NoticeQueueDeviceCheck.java
 platforms/android/tests/device/settings/SkinDeleteDeviceCheck.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java
 platforms/android/tests/device/voice/TypingStatisticsDeviceSmoke.java
@@ -215,3 +217,6 @@ platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java
 platforms/android/tests/device/settings/ContactsDeviceSmoke.java
 
 platforms/android/tests/device/voice/VoiceAutoInsertDeviceCases.java
+platforms/android/tests/device/settings/LocalVoiceReadinessChecks.java
+platforms/android/tests/device/keyboard/CompositionSearchEditorActivity.java
+platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java

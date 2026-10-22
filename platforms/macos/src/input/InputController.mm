@@ -87,6 +87,7 @@
 #include "../../../../shared/input/CapsLockTap.h"
 #include "TrilingualCycleRouting.h"
 #import <IOKit/hidsystem/IOHIDLib.h>
+#import <IOKit/hidsystem/IOLLEvent.h>
 #import <IOKit/hidsystem/IOHIDParameter.h>
 #include <atomic>
 #include <memory>
@@ -996,9 +997,11 @@ static bool MSIMEReleaseSystemCapsLock() {
     IOServiceClose(connect);
     return released;
 }
-// Caps Lock 只在锁定状态改变时报一次 FlagsChanged，没有松开事件，只能问 HID 系统它是否还按着；这个查询不需要权限（ModifierTap.h 用的是同一个）。
+// 在原生查询边界替换合成状态，回归必须经过生产的实体按住判定。
+static CGEventFlags (*MSIMECapsLockFlagsState)(CGEventSourceStateID) = &CGEventSourceFlagsState;
+// 键码 0x39 的查询跟随大写锁定，松手后仍可能为真；只读 stateless 位区分实体按住与逻辑锁定。
 static bool MSIMECapsLockPhysicallyHeld() {
-    return CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, 0x39) != false;
+    return (MSIMECapsLockFlagsState(kCGEventSourceStateHIDSystemState) & NX_ALPHASHIFT_STATELESS_MASK) != 0;
 }
 // 和 NSEvent.timestamp 同一个开机后时钟，单位毫秒。
 static std::int64_t MSIMEUptimeMilliseconds() {
@@ -3837,12 +3840,20 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 // 返回 YES 表示这次大写锁定打开可能是一次轻点：先不报告给会话和工具栏，等 pollCapsLockTap 认定。
 - (BOOL)observeCapsLockTap:(NSEvent *)event capsLock:(BOOL)capsLock sender:(id)sender {
+    const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
+        NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged && capsLock &&
+        !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
+        // 实体松手的状态事件先到时，用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        [self pollCapsLockTap];
+        return YES;
+    }
     if (event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39) {
         [self cancelCapsLockTap];
         // 只有大写锁定从关变开才可能是轻点；开着时按它是关掉大写锁定，照常处理，不切换。
         if (!capsLock || _capsLock || !sender || !_appearance.capsLockTapShortcut) return NO;
-        const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
-            NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+        // 设备没有提供实体按住位时保留系统大写锁定，不能把缺失状态当作已经松手。
+        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld()) return NO;
         _capsLockTap.press(MSIMECapsLockNow(), true, false, (event.modifierFlags & others) != 0);
         if (!_capsLockTap.armed()) return NO;
         __weak MSIMEInputController *weakSelf = self;

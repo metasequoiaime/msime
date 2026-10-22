@@ -2,6 +2,7 @@ package app.msime.android.test;
 
 import android.content.Context;
 import android.graphics.Rect;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.ContextThemeWrapper;
 import android.view.InputDevice;
@@ -18,11 +19,19 @@ import org.json.JSONObject;
 
 /** 用真实触摸检查候选条、完整网格与九键三栏选词后不必再按其他键就能刷新。 */
 public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
+    private boolean stripPartialSelection;
+
+    @Override public void onCreate(Bundle arguments) {
+        stripPartialSelection = arguments != null && "true".equals(arguments.getString("strip-partial-selection"));
+        super.onCreate(arguments);
+    }
     @Override protected String successDescription() {
-        return "touch candidate release redraws the strip, complete grid and nine-key panel";
+        return stripPartialSelection ? "小鹤双拼横向候选条部分选词后自动刷新，无需再次滑动"
+            : "touch candidate release redraws the strip, complete grid and nine-key panel";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (stripPartialSelection) { checkStripPartialSelection(); return; }
         stage = "pressed release cancellation and repeated key guard";
         Throwable[] failure = {null};
         runOnMainSync(() -> {
@@ -194,4 +203,99 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> candidate(int index) {
         return describedPrefix("候选 " + index + "：").and(AccessibilityNodeInfo::isClickable);
     }
+
+    private void openEditor() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.EditorActivity");
+    }
+
+    /** 只在选词前滑动；选词后直接观察剩余候选，不用下一次手势触发补绘。 */
+    private void checkStripPartialSelection() throws Exception {
+        File root = getTargetContext().getFilesDir();
+        JSONObject options = new JSONObject(new String(Files.readAllBytes(
+            new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
+        File preferences = new File(options.getString("preferences_directory"), "preferences.json");
+        byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        long revision = original == null ? 0
+            : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
+        JSONObject configured = new JSONObject(options.getJSONObject("preferences").toString())
+            .put("scheme", "shuangpin").put("shuangpin_profile", "xiaohe")
+            .put("touch_keyboard_layout", "twenty_six_key")
+            .put("traditional_chinese_output", false).put("learning", false)
+            .put("cloud_candidates", false).put("candidate_english_gloss", false)
+            .put("mixed_input", new JSONObject().put("english", false)
+                .put("minimum_prefix", 2).put("emoji", false).put("kaomoji", false))
+            .put("touch_keyboard_schemes", new JSONObject()
+                .put("enabled", new JSONArray().put("xiaohe")).put("selected", "xiaohe"));
+        try {
+            stage = "configure synthetic Xiaohe strip composition";
+            publish(preferences, new JSONObject().put("format_version", 1)
+                .put("revision", revision + 1).put("preferences", configured).toString()
+                .getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            tap(field("msime-test-plain"));
+            Predicate<AccessibilityNodeInfo> language = node -> node.isClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().startsWith("切换到");
+            AccessibilityNodeInfo mode = await(key("中").or(key("英")).and(language));
+            if (equalsText("英", mode.getText())) tap(key("英").and(language));
+            // 小鹤 ni/hao/shi/yao，独立合成输入不使用报告人的原文。
+            int typed = 0;
+            for (char letter : "nihcuiyc".toCharArray()) {
+                stage = "compose synthetic Xiaohe prefix " + (++typed);
+                tap(key(String.valueOf(letter)));
+                await(field("msime-test-plain").and(node -> node.getText() != null
+                    && node.getText().length() > 0 && !node.isShowingHintText()));
+            }
+            stage = "synthetic long phrase and partial candidate are present";
+            AccessibilityNodeInfo first = await(stripCandidate(1, "你好是要"));
+            AccessibilityNodeInfo scroller = first.getParent();
+            while (scroller != null && !equalsText("android.widget.HorizontalScrollView", scroller.getClassName()))
+                scroller = scroller.getParent();
+            if (scroller == null) throw new AssertionError("Synthetic candidate strip is not horizontal");
+            Rect viewport = new Rect();
+            scroller.getBoundsInScreen(viewport);
+            if (viewport.width() < 100 || viewport.height() < 20)
+                throw new AssertionError("Synthetic candidate viewport bounds are unavailable");
+            stage = "swipe the horizontal candidate strip before selection";
+            int start = viewport.right - 12;
+            shellDiscard("input swipe " + start + " " + viewport.centerY() + " "
+                + (start - viewport.width() / 8) + " " + viewport.centerY() + " 500");
+            stage = "touch the synthetic partial phrase " + viewport.toShortString();
+            touch(stripCandidate(0, "你好"));
+            stage = "partial selection preserves the remaining composition";
+            await(field("msime-test-plain").and(node -> equalsText("你好uiyc", node.getText())));
+            stage = "remaining strip candidates refresh without another gesture";
+            await(stripCandidate(1, "是要"));
+            dropStaleNodes();
+            for (AccessibilityWindowInfo window : automation.getWindows())
+                if (find(window.getRoot(), stripCandidate(0, "你好是要")) != null)
+                    throw new AssertionError("Synthetic old phrase remained after partial selection");
+            stage = "finish the refreshed synthetic composition";
+            touch(stripCandidate(1, "是要"));
+            await(field("msime-test-plain").and(node -> equalsText("你好是要", node.getText())));
+        } finally {
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            if (original == null) Files.deleteIfExists(preferences.toPath());
+            else publish(preferences, original);
+            restartIme();
+        }
+    }
+
+    /** 只匹配候选描述，避免将仍在旧列表中的候选当成刷新证据。 */
+    private Predicate<AccessibilityNodeInfo> stripCandidate(int index, String value) {
+        return node -> {
+            if (!equalsText("app.msime.android", node.getPackageName()) || !node.isClickable()
+                    || !node.isVisibleToUser() || node.getContentDescription() == null) return false;
+            String description = node.getContentDescription().toString();
+            String prefix = index == 0 ? "候选 " : "候选 " + index + "：";
+            int delimiter = description.indexOf('：');
+            if (!description.startsWith(prefix) || delimiter < 0) return false;
+            String text = description.substring(delimiter + 1);
+            return text.equals(value) || text.startsWith(value + "，") || text.startsWith(value + "；");
+        };
+    }
+
+
+
 }

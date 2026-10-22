@@ -63,3 +63,12 @@ cp "$build_dir/signed.apk" target/android/editor-test.apk
 "$tools_dir/apksigner" sign "${android_signing[@]}" --out target/android/first-frame-editor.apk "$build_dir/first-frame-aligned.apk"
 "$tools_dir/apksigner" verify target/android/first-frame-editor.apk
 echo "Synthetic editor APKs built; no device changed"
+
+# 应用兼容专项只在显式请求时生成；无网络权限的合成搜索框使用被测应用包名。
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  "$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/CompositionSearchEditorManifest.xml -o "$build_dir/search-unsigned.apk"
+  (cd "$build_dir/dex" && zip -q -0 "$build_dir/search-unsigned.apk" classes.dex)
+  "$tools_dir/zipalign" -P 16 4 "$build_dir/search-unsigned.apk" "$build_dir/search-aligned.apk"
+  "$tools_dir/apksigner" sign "${android_signing[@]}" --out target/android/composition-search-editor.apk "$build_dir/search-aligned.apk"
+  "$tools_dir/apksigner" verify target/android/composition-search-editor.apk
+fi

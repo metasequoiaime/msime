@@ -31,6 +31,10 @@ bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/first-frame-editor.apk
+# 同包名搜索夹具只在专用兼容验收时安装，不进入默认设备测试。
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  "$adb" -s "$serial" install --no-incremental -r target/android/composition-search-editor.apk
+fi
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"
 dump() {
@@ -95,6 +99,11 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e app-composition true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "App composition compatibility acceptance failed" >&2; exit 1; }
+fi
 # Compose 可在批量结束时才执行写入，核心验收覆盖延迟组字和中英往返。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke)
 printf '%s\n' "$result"
@@ -214,7 +223,7 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.AiEndpointCheckDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_AI_ENDPOINT_CHECK_PASSED* ]] || { echo "AI endpoint check acceptance failed" >&2; exit 1; }
-# 语音设置目录从 Rust 经真实 JNI 读取；中文、顺序、默认接口和损坏响应都在设备上核对。
+# 语音设置目录从 Rust 经真实 JNI 读取；同一套件还验证原生模型页的两项准备状态及运行库导入入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared voice catalog JNI acceptance failed" >&2; exit 1; }
@@ -242,6 +251,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Bundled wordbook acceptance failed" >&2; exit 1; }
+# 公告获取和关闭即使等待独立文件锁，实际设置内容也必须可读；复用设置 runner，覆盖最低 API。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e notice-queue true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Notice queue isolation acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
@@ -311,6 +324,10 @@ do
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "${entry#*|}" >&2; exit 1; }
 done
+# 横向候选条的双拼部分选词复用完整候选入口，选词后禁止再滑动来触发刷新。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e strip-partial-selection true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Xiaohe strip partial selection acceptance failed" >&2; exit 1; }
 # 中文字母长按与上滑选择大小写/符号，复用标点套件的 instrumentation 入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-hold true)
 printf '%s\n' "$result"

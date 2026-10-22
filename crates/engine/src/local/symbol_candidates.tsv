@@ -2,7 +2,7 @@
 # 格式：名称<TAB>拼音<TAB>符号[<空格>符号...]，`#` 开头的行是注释。
 # 拼音用引擎词库的写法：音节以 ' 分隔，ü 写 v；拉丁名称（希腊字母的英文拼写）的拼音列写 -。
 # 符号之间用一个空格分隔，所以符号本身不含空格，成对的括号算一个符号。专用码位在前，ASCII 组合在后（全角时 ASCII 会变宽）。
-# 写法规则由 symbol_candidates.rs 的单元测试检查：名称必须是符号的名字，不收常用虚词；单音节名称只收派、度；每个名称最多 6 个符号。
+# 写法规则由 symbol_candidates.rs 的单元测试检查：名称必须是符号的名字，不收常用虚词；单音节名称只收派、度和一至十；每个名称最多 6 个符号。
 # 同一个拼音有几个名称时，词库里有的那个写在前面：符号按文字去重，留下的那行跟着排在前面的名称找锚定词。
 
 # ---- 数学 ----
@@ -272,3 +272,56 @@ infinity	-	∞
 印度卢比	yin'du'lu'bi	₹
 泰铢	tai'zhu	฿
 比特币	bi'te'bi	₿
+
+# 数字名称只认完整拼音，不提供首字母别名；单音节仍要求名称锚定词且最早排第 4 位。
+# ---- 数字序号 ----
+一	yi	① ⑴ ⒈
+二	er	② ⑵ ⒉
+三	san	③ ⑶ ⒊
+四	si	④ ⑷ ⒋
+五	wu	⑤ ⑸ ⒌
+六	liu	⑥ ⑹ ⒍
+七	qi	⑦ ⑺ ⒎
+八	ba	⑧ ⑻ ⒏
+九	jiu	⑨ ⑼ ⒐
+十	shi	⑩ ⑽ ⒑
+十一	shi'yi	⑪ ⑾ ⒒
+十二	shi'er	⑫ ⑿ ⒓
+十三	shi'san	⑬ ⒀ ⒔
+十四	shi'si	⑭ ⒁ ⒕
+十五	shi'wu	⑮ ⒂ ⒖
+十六	shi'liu	⑯ ⒃ ⒗
+十七	shi'qi	⑰ ⒄ ⒘
+十八	shi'ba	⑱ ⒅ ⒙
+十九	shi'jiu	⑲ ⒆ ⒚
+二十	er'shi	⑳ ⒇ ⒛
+二十一	er'shi'yi	㉑
+二十二	er'shi'er	㉒
+二十三	er'shi'san	㉓
+二十四	er'shi'si	㉔
+二十五	er'shi'wu	㉕
+二十六	er'shi'liu	㉖
+二十七	er'shi'qi	㉗
+二十八	er'shi'ba	㉘
+二十九	er'shi'jiu	㉙
+三十	san'shi	㉚
+三十一	san'shi'yi	㉛
+三十二	san'shi'er	㉜
+三十三	san'shi'san	㉝
+三十四	san'shi'si	㉞
+三十五	san'shi'wu	㉟
+三十六	san'shi'liu	㊱
+三十七	san'shi'qi	㊲
+三十八	san'shi'ba	㊳
+三十九	san'shi'jiu	㊴
+四十	si'shi	㊵
+四十一	si'shi'yi	㊶
+四十二	si'shi'er	㊷
+四十三	si'shi'san	㊸
+四十四	si'shi'si	㊹
+四十五	si'shi'wu	㊺
+四十六	si'shi'liu	㊻
+四十七	si'shi'qi	㊼
+四十八	si'shi'ba	㊽
+四十九	si'shi'jiu	㊾
+五十	wu'shi	㊿

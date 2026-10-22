@@ -569,7 +569,7 @@ impl InputSession {
 
     /// input_session_composition.cpp:417-449.
     pub(super) fn pinyin_segmentation_with_cases(&self) -> Cow<'_, str> {
-        if self.has_literal_capitals() {
+        if self.has_literal_input() {
             return Cow::Borrowed(self.raw_with_cases());
         }
         let request = self.engine.request();

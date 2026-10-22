@@ -69,7 +69,7 @@ impl InputSession {
         if source != CandidateSource::EnglishDictionary
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
-            || (self.has_active_helpcode() && !self.has_literal_capitals())
+            || (self.has_active_helpcode() && !self.has_literal_input())
         {
             return;
         }

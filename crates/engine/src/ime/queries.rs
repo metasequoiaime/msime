@@ -1982,6 +1982,24 @@ mod tests {
     }
 
     #[test]
+    fn number_symbols_preserve_the_first_three_words_and_require_the_number_anchor() {
+        let numbers = || {
+            query_mixed_symbols(
+                "yi",
+                SchemeType::Quanpin,
+                crate::shuangpin::profile::default_profile(),
+            )
+        };
+        let merged = with_symbols(database(&["一", "已", "以", "易", "衣"]), numbers());
+        assert_eq!(
+            words(&merged),
+            vec!["一", "已", "以", "①", "⑴", "⒈", "易", "衣"]
+        );
+        let merged = with_symbols(database(&["已", "以", "易"]), numbers());
+        assert_eq!(words(&merged), vec!["已", "以", "易"]);
+    }
+
+    #[test]
     fn a_symbol_shared_by_several_names_follows_the_earliest_of_them() {
         let shared = || SymbolRow {
             item: WordItem::new("dg", "√", 0, CandidateSource::Emoji, ""),

@@ -2239,7 +2239,7 @@ impl Default for NavigationPreferences {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeybindingPreferences {
     #[serde(default = "enabled_by_default")]
     pub switch_language_shift: bool,
@@ -2264,6 +2264,56 @@ pub struct KeybindingPreferences {
     /// 中日英循环切换：打开后，「切换中英文」那一组快捷键按 中 → 日 → 英 → 中 依次切换，有组字时先把正在组的原始字母上屏；英文模式下再按切换键回到中文。默认关，对齐旧版 Windows 正式版的出厂值（`installer/default_config/config.default.toml`）。没打开时这一组快捷键仍是二态切换，行为与加这个开关之前完全一样。只有声明 `HostCapabilities::trilingual_cycle` 的宿主读它；状态机在 `crate::language_cycle`。
     #[serde(default)]
     pub trilingual_cycle: bool,
+    /// 中英切换（英文候选模式）热键，写法见 [`crate::key_chord::KeyChord`]；空串表示不绑定。键名沿用旧版 Windows 的 `keybindings.toggle_english_candidates`，出厂值 `Ctrl+Shift+KeyE` 不写进文档，没有这个键的旧文档照出厂值读。
+    #[serde(
+        default = "default_toggle_english_candidates",
+        skip_serializing_if = "is_default_toggle_english_candidates"
+    )]
+    pub toggle_english_candidates: String,
+    /// 全角 / 半角切换热键（旧版 `keybindings.toggle_full_width`），出厂值 `Ctrl+Shift+Space`；空串表示不绑定。
+    #[serde(
+        default = "default_toggle_full_width",
+        skip_serializing_if = "is_default_toggle_full_width"
+    )]
+    pub toggle_full_width: String,
+    /// 中英文标点切换热键（旧版 `keybindings.toggle_punctuation`），出厂值 `Ctrl+Period`；空串表示不绑定。
+    #[serde(
+        default = "default_toggle_punctuation",
+        skip_serializing_if = "is_default_toggle_punctuation"
+    )]
+    pub toggle_punctuation: String,
+}
+
+/// 三个切换热键的出厂值，沿用旧版 Windows v0.11.1 `engine/contracts/input_state_shortcuts.h` 的 `defaultBinding`。
+pub const TOGGLE_ENGLISH_CANDIDATES_DEFAULT: &str = "Ctrl+Shift+KeyE";
+pub const TOGGLE_FULL_WIDTH_DEFAULT: &str = "Ctrl+Shift+Space";
+pub const TOGGLE_PUNCTUATION_DEFAULT: &str = "Ctrl+Period";
+
+impl KeybindingPreferences {
+    /// `toggle_english_candidates` 解析出的 chord；空串或非法写法为 `None`，宿主按「不绑定」处理。`Preferences::validate` 保证能进文档的串都解析得出来。
+    pub fn english_candidates_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_english_candidates)
+    }
+
+    /// `toggle_full_width` 解析出的 chord；语义同上。
+    pub fn full_width_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_full_width)
+    }
+
+    /// `toggle_punctuation` 解析出的 chord；语义同上。
+    pub fn punctuation_chord(&self) -> Option<crate::key_chord::KeyChord> {
+        toggle_chord(&self.toggle_punctuation)
+    }
+}
+
+/// 「不绑定」在文档里存成空串而不是缺键：缺键读回出厂值，空串才留在「不绑定」。
+fn toggle_chord(text: &str) -> Option<crate::key_chord::KeyChord> {
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        text.parse().ok()
+    }
 }
 
 impl Default for KeybindingPreferences {
@@ -2278,8 +2328,35 @@ impl Default for KeybindingPreferences {
             switch_language_caps_lock: false,
             toggle_japanese_ctrl_shift_j: false,
             trilingual_cycle: false,
+            toggle_english_candidates: default_toggle_english_candidates(),
+            toggle_full_width: default_toggle_full_width(),
+            toggle_punctuation: default_toggle_punctuation(),
         }
     }
+}
+
+fn default_toggle_english_candidates() -> String {
+    TOGGLE_ENGLISH_CANDIDATES_DEFAULT.into()
+}
+
+fn default_toggle_full_width() -> String {
+    TOGGLE_FULL_WIDTH_DEFAULT.into()
+}
+
+fn default_toggle_punctuation() -> String {
+    TOGGLE_PUNCTUATION_DEFAULT.into()
+}
+
+fn is_default_toggle_english_candidates(value: &str) -> bool {
+    value == TOGGLE_ENGLISH_CANDIDATES_DEFAULT
+}
+
+fn is_default_toggle_full_width(value: &str) -> bool {
+    value == TOGGLE_FULL_WIDTH_DEFAULT
+}
+
+fn is_default_toggle_punctuation(value: &str) -> bool {
+    value == TOGGLE_PUNCTUATION_DEFAULT
 }
 
 fn enabled_by_default() -> bool {
@@ -3284,6 +3361,45 @@ impl Preferences {
         if self.word_character.enabled && paging {
             return Err(PreferencesError::ConflictingKeyBindings);
         }
+        // 三个切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。macOS 维护组合键没有开关、永远占用（`InputControllerPhysicalKeys.h` 的 Ctrl+Shift+Option+C/R/T，对应 Alt 写作 Option 的一面），绑了它在 macOS 上会被维护动作吃掉，所以跨平台文档一律不让绑。
+        let keybindings = &self.keybindings;
+        let mut occupied: Vec<crate::key_chord::KeyChord> = Vec::new();
+        for (enabled, text) in [
+            (keybindings.switch_language_ctrl_space, "Ctrl+Space"),
+            (keybindings.switch_language_ctrl_alt_space, "Ctrl+Alt+Space"),
+            (
+                keybindings.toggle_character_set_ctrl_shift_f,
+                "Ctrl+Shift+KeyF",
+            ),
+            (keybindings.toggle_japanese_ctrl_shift_j, "Ctrl+Shift+KeyJ"),
+            (self.voice_input.hotkey_ctrl_f9, "Ctrl+F9"),
+            // Windows 的语音开关只看 Ctrl 是否按住、不看 Shift，`Ctrl+Shift+F9` 同样触发。
+            (self.voice_input.hotkey_ctrl_f9, "Ctrl+Shift+F9"),
+            (true, "Ctrl+Alt+Shift+KeyC"),
+            (true, "Ctrl+Alt+Shift+KeyR"),
+            (true, "Ctrl+Alt+Shift+KeyT"),
+        ] {
+            if enabled {
+                occupied.push(text.parse().expect("保留表里的写法必须是合法 chord"));
+            }
+        }
+        let mut toggles: Vec<crate::key_chord::KeyChord> = Vec::new();
+        for text in [
+            &keybindings.toggle_english_candidates,
+            &keybindings.toggle_full_width,
+            &keybindings.toggle_punctuation,
+        ] {
+            if text.trim().is_empty() {
+                continue;
+            }
+            let chord = text
+                .parse()
+                .map_err(|_| PreferencesError::InvalidToggleHotkey)?;
+            if toggles.contains(&chord) || occupied.contains(&chord) {
+                return Err(PreferencesError::ConflictingToggleHotkeys);
+            }
+            toggles.push(chord);
+        }
         Ok(())
     }
 }
@@ -3376,6 +3492,10 @@ pub enum PreferencesError {
     InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
+    #[error("切换热键必须是合法的快捷键组合；留空表示不绑定")]
+    InvalidToggleHotkey,
+    #[error("切换热键不能互相相同，也不能和已启用的快捷键相同")]
+    ConflictingToggleHotkeys,
     #[error("frequency trigger count and linear step must be between 1 and 10")]
     InvalidFrequency,
     #[error("mixed English minimum prefix must be between 1 and 8")]

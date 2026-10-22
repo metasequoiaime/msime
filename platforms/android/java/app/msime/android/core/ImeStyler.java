@@ -137,7 +137,7 @@ final class ImeStyler {
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
         applyKeyboardHeight(s.keyRows);
-        // 功能行是键行的兄弟而不是其中一行，按底行角色算高度：和一行键同高，分摊四分之一的键盘高度调整；键帽照样带键距。
+        // 功能行是键行的兄弟而不是其中一行，按同一网格状态分摊高度；九宫格加高时底行保持默认高度，键帽照样带键距。
         if (s.actionRow != null) {
             applyKeyboardGeometry(s.actionRow);
             applyKeyboardHeight(s.actionRow);
@@ -162,17 +162,19 @@ final class ImeStyler {
             s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
     }
 
-    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardGeometry#windowHeightAdjustment}），整棵树用同一个值。 */
+    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardHeightPolicy#windowHeightAdjustment}），整棵树用同一个值。 */
     private void applyKeyboardHeight(View node, int adjustment) {
         Object tag = node.getTag();
         if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
-            // 调整量由键区四行均分：底行拿它那一份，底行以上的键行和三行高的键块分摊其余部分，连底行一起占四行的整块（日语、注音九键）拿整份，各布局的总高都等于四行键高加整份调整。
+            // 九宫格加高只扩大上方键区，其余布局及缩小量仍四行均分；总高始终为四行默认键高加整份调整。
+            boolean nineKeyGrid = s.imeLayoutRows.nineKeyGridDrawn()
+                && (role.bottomRow || role.nineKeyGrid);
             int heightDp;
             if (role.bottomRow) {
-                heightDp = role.baseHeight + KeyboardHeightPolicy.bottomRowAdjustment(adjustment);
+                heightDp = role.baseHeight + KeyboardHeightPolicy.bottomRowAdjustment(adjustment, nineKeyGrid);
             } else {
-                int share = role.withBottomRow ? adjustment : KeyboardHeightPolicy.keyRowsAdjustment(adjustment);
+                int share = role.withBottomRow ? adjustment : KeyboardHeightPolicy.keyRowsAdjustment(adjustment, nineKeyGrid);
                 heightDp = KeyboardHeightPolicy.adjustedRowHeight(role.baseHeight, share, role.rowCount, role.rowIndex);
             }
             int height = s.pixels(heightDp);

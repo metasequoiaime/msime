@@ -14,6 +14,8 @@ Android 键盘的底行（123、中/英、空格、换行那一行，以及 123 
 
 ## Decision
 
+九宫格正高度增量的均分规则由[九宫格宽高比例](2026-10-21-android-nine-key-grid-proportions.md)部分取代：实际三行外框的网格（含借用的数字页）加高时底行保持 52 dp，增量给上方键区。默认、缩小量和其他布局继续使用本篇的四行均分。
+
 大千注音的四行压三行由[大千键高修正](../bug-fix/2026-10-13-android-dachen-key-size.md)取代，其字母层多占一行；本篇其余高度和底行决定继续成立。
 
 - 键区四行一样高：`KEY_ROW_HEIGHT_DP` 从 56 改为 52，字母行、数字层前三行、九键 / 笔画 / 手写这类三行高的键块的每一行，以及底行，都是 52 dp 加一份行距。`STANDARD_ROW_HEIGHT_DP` 和 `bottomRowHeightDp` / `bottomRowSpacings` 删去，底行的高度角色 `KeyboardHeightRole.bottomRow()` 是 52 dp、一份行距。

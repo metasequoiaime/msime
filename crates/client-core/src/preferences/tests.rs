@@ -245,6 +245,112 @@ fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn toggle_hotkeys_use_the_legacy_factory_defaults() {
+    let keybindings = Preferences::default().keybindings;
+    assert_eq!(keybindings.toggle_english_candidates, "Ctrl+Shift+KeyE");
+    assert_eq!(keybindings.toggle_full_width, "Ctrl+Shift+Space");
+    assert_eq!(keybindings.toggle_punctuation, "Ctrl+Period");
+    // 出厂值不落盘：写出的文档不带这三个键；没有这三个键的旧文档读回来还是出厂值。
+    let value = serde_json::to_value(Preferences::default()).unwrap();
+    let object = value["keybindings"].as_object().unwrap();
+    for key in [
+        "toggle_english_candidates",
+        "toggle_full_width",
+        "toggle_punctuation",
+    ] {
+        assert!(
+            !object.contains_key(key),
+            "{key} must stay out of the default document"
+        );
+    }
+    let restored: Preferences = serde_json::from_value(value).unwrap();
+    assert_eq!(restored.keybindings, Preferences::default().keybindings);
+}
+
+#[test]
+fn toggle_hotkeys_persist_custom_chords_and_disabled_bindings() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences.clone();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Alt+Slash".into();
+    preferences.keybindings.toggle_full_width = String::new();
+    store.save(snapshot.revision, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        loaded.punctuation_chord().unwrap().to_string(),
+        "Ctrl+Alt+Slash"
+    );
+    // 空串是「不绑定」，不是回到出厂值。
+    assert!(loaded.full_width_chord().is_none());
+    assert_eq!(loaded.toggle_full_width, "");
+}
+
+#[test]
+fn toggle_hotkeys_reject_unparseable_values() {
+    for bad in ["Ctrl+", "Ctrl+Alt+Shift", "Ctrl+Banana", "Period+Ctrl"] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = bad.into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidToggleHotkey)
+        ));
+    }
+}
+
+#[test]
+fn toggle_hotkeys_reject_two_bindings_for_the_same_chord() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "control+shift+keye".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+    preferences.keybindings.toggle_punctuation = "Shift+Ctrl+Space".into();
+    assert!(matches!(
+        preferences.validate(),
+        Err(PreferencesError::ConflictingToggleHotkeys)
+    ));
+}
+
+#[test]
+fn toggle_hotkeys_reject_chords_owned_by_enabled_switches() {
+    // 保留表随开关开合：简繁开着时 Ctrl+Shift+F 被占用，关掉后才绑得出去。
+    for (text, reason) in [
+        ("Ctrl+Shift+KeyF", "简繁切换"),
+        ("Ctrl+Space", "Linux 语言切换"),
+        ("Ctrl+Alt+Space", "语言切换"),
+        ("Ctrl+F9", "语音切换"),
+        ("Ctrl+Shift+F9", "Windows 语音只看 Ctrl 按住"),
+        ("Ctrl+Alt+Shift+KeyC", "macOS 维护键"),
+    ] {
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = text.into();
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::ConflictingToggleHotkeys)
+            ),
+            "{text} must conflict ({reason})"
+        );
+    }
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "Ctrl+Shift+KeyF".into();
+    preferences.keybindings.toggle_character_set_ctrl_shift_f = false;
+    preferences.validate().unwrap();
+}
+
+#[test]
+fn toggle_hotkeys_all_empty_disables_every_toggle() {
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_english_candidates = String::new();
+    preferences.keybindings.toggle_full_width = String::new();
+    preferences.keybindings.toggle_punctuation = String::new();
+    preferences.validate().unwrap();
+    assert!(preferences.keybindings.english_candidates_chord().is_none());
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]

@@ -167,7 +167,7 @@ public final class LocalAsrPolicySmoke {
         check("本地语音模型未安装或已损坏，请在设置中重新下载".equals(LocalAsrPolicy.failureMessage(
                 LocalAsrRecognizer.Failure.MODEL, false)),
             "model failure has one shared message");
-        check("本地语音识别组件尚未下载，请在设置中下载后再试".equals(LocalAsrPolicy.failureMessage(
+        check("缺少本地语音运行库，请到「语音输入→模型」下载或从文件导入".equals(LocalAsrPolicy.failureMessage(
                 LocalAsrRecognizer.Failure.RUNTIME, true)),
             "missing runtime has one shared message");
         check("本地语音识别组件无法加载".equals(LocalAsrPolicy.failureMessage(

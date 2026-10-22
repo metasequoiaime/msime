@@ -165,6 +165,7 @@ def screenshot():
 
 NATIVE = os.environ.get("MSIME_TEST_NATIVE_CANVAS") == "1"
 TRANSLATION_BELOW = os.environ.get("MSIME_TEST_TRANSLATION_BELOW") == "1"
+FONT_GEOMETRY = os.environ.get("MSIME_TEST_FONT_GEOMETRY") == "1"
 ANIMATION = os.environ.get("MSIME_TEST_CANVAS_ANIMATION") == "1"
 OVERLAY = os.environ.get("MSIME_TEST_DECORATION_OVERLAY") == "1"
 NATIVE_SCALE = int(os.environ.get("GDK_SCALE", "1"))
@@ -891,6 +892,111 @@ def accept_translation_below(preferences, publish, entry, control, daemon):
     print("真实 classicui 译文位于正文下方，行高与译文区域点击上屏通过")
 
 
+def accept_font_geometry(root, preferences, publish, entry, focused, control, daemon):
+    """比较真实 classicui 序号像素与独立的绝对像素字号参考。"""
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import Pango, PangoCairo
+
+    version = subprocess.check_output(["fcitx5", "--version"], text=True).strip()
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", version)
+    assert match, "无法确认实际 Fcitx5 版本"
+    modern = tuple(map(int, match.groups())) >= (5, 1, 18)
+    libdir = Path(subprocess.check_output(["pkg-config", "--variable=libdir", "Fcitx5Core"], text=True).strip()).resolve()
+    mappings = (Path("/proc") / str(daemon.pid) / "maps").read_text().splitlines()
+    for library in ("libFcitx5Core.so", "libclassicui.so"):
+        loaded = {Path(line.split()[-1]).resolve() for line in mappings if library in line}
+        assert loaded and all(path.is_relative_to(libdir) for path in loaded), f"运行库来源不符：{library}"
+        print(f"实际加载 {library}: {', '.join(map(str, sorted(loaded)))}", flush=True)
+    context = PangoCairo.FontMap.get_default().create_context()
+    PangoCairo.context_set_resolution(context, 96)
+    config = root / "config/fcitx5/conf/classicui.conf"
+
+    def font_setting():
+        if not config.exists():
+            return None
+        return next((line for line in config.read_text().splitlines() if line.startswith("Font=")), None)
+
+    def label_geometry():
+        image = capture_image()
+        data, stride, channels = image.get_pixels(), image.get_rowstride(), image.get_n_channels()
+        selected = bytes((7, 91, 173))
+        points = [(x, y) for y in range(image.get_height()) for x in range(image.get_width())
+                  if data[y * stride + x * channels:y * stride + x * channels + 3] == selected]
+        if not points:
+            return None
+        # 页眉图标也可能使用同一蓝色，只测面积最大的连续高亮区域。
+        remaining = set(points)
+        largest = set()
+        while remaining:
+            component = {remaining.pop()}
+            pending = list(component)
+            while pending:
+                x, y = pending.pop()
+                for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        component.add(neighbor)
+                        pending.append(neighbor)
+            if len(component) > len(largest):
+                largest = component
+        points = largest
+        left, right = min(x for x, _ in points), max(x for x, _ in points) + 1
+        top, bottom = min(y for _, y in points), max(y for _, y in points) + 1
+        rows, columns = {}, {}
+        for x, y in points:
+            rows.setdefault(y, []).append(x)
+            columns.setdefault(x, []).append(y)
+        row_bounds = {y: (min(xs), max(xs)) for y, xs in rows.items()}
+        column_bounds = {x: (min(ys), max(ys)) for x, ys in columns.items()}
+        # 圆角外的白色卡片底色会落在包围盒内；字形须在四个方向都被高亮包围。
+        glyphs = [(x, y) for y in range(top, bottom) for x in range(left, right)
+                  if min(data[y * stride + x * channels:y * stride + x * channels + 3]) >= 220
+                  and y in row_bounds and x in column_bounds
+                  and row_bounds[y][0] < x < row_bounds[y][1]
+                  and column_bounds[x][0] < y < column_bounds[x][1]]
+        if not glyphs:
+            return None
+        # 首个候选标为「1 」；空列把序号与后面的汉字分开，不受两者字体回退差异影响。
+        columns = {x for x, _ in glyphs}
+        first = min(columns)
+        last = first
+        while last + 1 in columns:
+            last += 1
+        label = [(x, y) for x, y in glyphs if x <= last]
+        return last - first + 1, max(y for _, y in label) - min(y for _, y in label) + 1
+
+    wait(lambda: font_setting() is not None and label_geometry() is not None)
+    previous = label_geometry()
+    for size, scale in ((20, 100), (32, 100), (20, 150)):
+        before = font_setting()
+        preferences.update(candidate_font_size=size, candidate_scale_percent=scale)
+        publish()
+        wait(lambda: font_setting() != before)
+        wait(lambda: (geometry := label_geometry()) is not None and geometry != previous)
+        actual = label_geometry()
+        reference = Pango.Layout.new(context)
+        description = Pango.FontDescription.from_string("DejaVu Sans")
+        description.set_absolute_size(round(size * scale / 100 * (0.8 if modern else 1) * Pango.SCALE))
+        reference.set_font_description(description)
+        reference.set_text("1", -1)
+        ink, _ = reference.get_pixel_extents()
+        expected = (ink.width, ink.height)
+        save_image(f"font-{size}-scale-{scale}")
+        print(f"Fcitx5 {version}: 字号 {size}，缩放 {scale}%，序号像素 {actual}，参考 {expected}", flush=True)
+        # 墨迹矩形包含抗锯齿边缘，浅色字形实部在两侧合计可收窄两个像素。
+        assert all(abs(a - b) <= 2 for a, b in zip(actual, expected)), "序号像素偏离预期字号"
+        configured = Pango.FontDescription.from_string(font_setting().split("=", 1)[1].strip('"'))
+        assert configured.get_size_is_absolute() != modern, "字体描述的单位与实际运行库不匹配"
+        assert focused() and entry.get_text() == "", "字号热更新改变了焦点或提前上屏"
+        previous = actual
+    assert native_window() is None, "此项必须验收真实 classicui"
+    subprocess.run(["xdotool", "key", "space"], check=True, timeout=5)
+    wait(lambda: entry.get_text() == "你好")
+    control.Exit()
+    assert daemon.wait(timeout=10) == 0
+    print("真实 classicui 序号字号、整体缩放、热更新和 GTK 上屏通过")
+
+
 def main():
     resources, library, addon = map(Path, sys.argv[1:4])
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -937,7 +1043,7 @@ def main():
             f"[candidate_window.border_image]\nsource = '{panel_file}'\nlight_source = '{light_file}'\n"
             "slice_dip = [20]\nwidth_dip = [8]\n[candidate.light]\ntext = '#010203'\n"
             "[candidate.dark]\ntext = '#FDFCFB'\n")
-        if TRANSLATION_BELOW:
+        if TRANSLATION_BELOW or FONT_GEOMETRY:
             manifest = skin / "skin.toml"
             # 普通基底由 classicui 绘制；canvas 基底在 X11 会被产品自身的原生窗口接管。
             manifest.write_text(manifest.read_text().replace("base = 'canvas'", "base = 'system'"))
@@ -997,6 +1103,14 @@ def main():
                                            candidate_skin_dark="canvas-fixture")
         if TRANSLATION_BELOW:
             preferences["custom_theme"]["candidate_colors"] = {"selected": "#075BAD", "text": "#010203"}
+        if FONT_GEOMETRY:
+            assert not NATIVE and not WAYLAND
+            preferences.update(candidate_translations=False, candidate_english_gloss=False,
+                               candidate_font_family="DejaVu Sans", candidate_fallback_fonts=[],
+                               candidate_font_size=12, candidate_scale_percent=100)
+            preferences["custom_theme"]["candidate_colors"] = {
+                "selected": "#075BAD", "text": "#010203", "selected_text": "#FFFFFF",
+                "selected_number": "#FFFFFF"}
 
         def publish():
             store = options["preferences_directory"].encode()
@@ -1095,6 +1209,9 @@ def main():
                                    check=True, timeout=5)
                 if OVERLAY:
                     accept_overlay(skin, entry, preferences, publish, focused)
+                    return
+                if FONT_GEOMETRY:
+                    accept_font_geometry(root, preferences, publish, entry, focused, control, daemon)
                     return
                 if not TRANSLATION_BELOW:
                     wait(lambda: palette_visible(LIGHT))
