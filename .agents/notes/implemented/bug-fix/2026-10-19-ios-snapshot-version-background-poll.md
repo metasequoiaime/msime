@@ -14,7 +14,7 @@ Status: implemented
 
 ## Related decisions
 
-[按键线程归属](../../implemented/bug-fix/2026-10-19-ios-nine-key-owned-thread.md)部分重叠：它约束有会话句柄的 C ABI，版本接口不含会话句柄；[收起时释放租约](../../implemented/bug-fix/2026-10-14-ios-snapshot-worker-lock-release.md)部分重叠，立即释放契约继续保持；[按压反馈](../../implemented/bug-fix/2026-10-19-ios-nine-key-immediate-press-feedback.md)处理不同路径，不能视为用户卡顿已解决。没有完全吸收或需要否决的旧提案。
+[按键线程归属](../../implemented/bug-fix/2026-10-19-ios-nine-key-owned-thread.md)部分重叠：它约束有会话句柄的 C ABI，版本接口不含会话句柄；[收起时释放租约](../../implemented/bug-fix/2026-10-14-ios-snapshot-worker-lock-release.md)部分重叠，立即释放契约继续保持；[按压反馈](../../implemented/bug-fix/2026-10-19-ios-nine-key-immediate-press-feedback.md)处理不同路径，不能视为用户卡顿已解决。没有完全吸收或需要否决的旧提案。同一个维护定时器里剩下的个人词库和快照队列读取后来也移出了主线程，见[维护定时器的文件读取](2026-10-22-ios-idle-maintenance-off-main.md)。
 
 ## Alternatives considered
 
