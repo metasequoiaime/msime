@@ -61,6 +61,8 @@ export interface HostCapabilities {
   candidate_corner_radius: boolean;
   /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前是 macOS 和 Linux 的 Fcitx5。 */
   candidate_padding: boolean;
+  /** 窗口分轴内边距与候选项的内边距、圆角和间距；旧宿主不显示这些控件。 */
+  candidate_item_geometry?: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
   /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */

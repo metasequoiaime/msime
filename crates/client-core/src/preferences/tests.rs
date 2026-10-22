@@ -5578,6 +5578,55 @@ fn candidate_padding_is_absent_by_default_and_bounded() {
     ));
 }
 
+#[test]
+fn candidate_item_geometry_preserves_absence_zero_bounds_and_store_roundtrip() {
+    let base = serde_json::to_value(Preferences::default()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut generation = 0;
+    for (key, maximum) in [
+        ("candidate_padding_horizontal", 16),
+        ("candidate_padding_vertical", 16),
+        ("candidate_item_padding_horizontal", 16),
+        ("candidate_item_padding_vertical", 16),
+        ("candidate_item_corner_radius", 32),
+        ("candidate_item_spacing", 16),
+    ] {
+        assert!(base.get(key).is_none());
+        for number in [0, maximum] {
+            let mut value = base.clone();
+            value[key] = number.into();
+            value["candidate_padding"] = 7.into();
+            let preferences: Preferences = serde_json::from_value(value).unwrap();
+            assert!(preferences.validate().is_ok());
+            assert_eq!(serde_json::to_value(&preferences).unwrap()[key], number);
+            store.save(generation, preferences.clone()).unwrap();
+            generation += 1;
+            assert_eq!(store.load().unwrap().preferences, preferences);
+        }
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!(true),
+        ] {
+            let mut value = base.clone();
+            value[key] = invalid;
+            assert!(serde_json::from_value::<Preferences>(value).is_err());
+        }
+        let mut value = base.clone();
+        value[key] = (maximum + 1).into();
+        let invalid: Preferences = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(PreferencesError::InvalidCandidateWindowStyle)
+        ));
+        let mut value = base.clone();
+        value[key] = serde_json::Value::Null;
+        let cleared: Preferences = serde_json::from_value(value).unwrap();
+        assert!(serde_json::to_value(cleared).unwrap().get(key).is_none());
+    }
+}
+
 fn wubi_edition() -> &'static crate::edition::Edition {
     crate::edition::Edition::by_id("wubi").unwrap()
 }

@@ -159,10 +159,21 @@ ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &
     tokens.candidateRadius = static_cast<float>(tokens.candidateRadius * scale);
     tokens.selectedRadius = static_cast<float>(tokens.selectedRadius * scale);
     tokens.pad = static_cast<float>(tokens.pad * scale);
+    const auto scaledPadding = [scale](std::optional<double> value) -> std::optional<double> {
+        return value ? std::optional<double>(std::clamp(*value, 0.0, 16.0) * scale) : std::nullopt;
+    };
+    tokens.paddingHorizontal = scaledPadding(style.paddingHorizontal ? style.paddingHorizontal : style.padding);
+    tokens.paddingVertical = scaledPadding(style.paddingVertical ? style.paddingVertical : style.padding);
+    tokens.itemPaddingHorizontal = scaledPadding(style.itemPaddingHorizontal);
+    tokens.itemPaddingVertical = scaledPadding(style.itemPaddingVertical);
+    tokens.itemSpacing = scaledPadding(style.itemSpacing);
+    tokens.explicitItemRadius = style.itemCornerRadius.has_value();
     // 行圆角在缩放之后推导：边框不随整体大小变粗，缩放后的内边距和它比较才是窗口实际留的距离。用户圆角扣除有效内边距，选中与悬停共享同一内轮廓；只调内边距时保留皮肤的行圆角，内边距小到高亮的角会伸出卡片时才把它调圆。
-    if (style.cornerRadius)
-        tokens.candidateRadius = tokens.selectedRadius = std::max(0.0f, tokens.radius - CandidateInset(tokens));
-    else if (style.padding)
+    if (style.itemCornerRadius)
+        tokens.candidateRadius = tokens.selectedRadius = static_cast<float>(std::clamp(*style.itemCornerRadius, 0.0, 32.0) * scale);
+    else if (style.cornerRadius)
+        tokens.candidateRadius = tokens.selectedRadius = std::max(0.0f, tokens.radius - std::min(CandidateInset(tokens), CandidateVerticalInset(tokens)));
+    else if (style.padding || style.paddingHorizontal || style.paddingVertical)
     {
         const float floor = CandidateRowRadiusFloor(tokens);
         tokens.candidateRadius = std::max(tokens.candidateRadius, floor);
@@ -182,6 +193,12 @@ ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &
         for (auto &decoration : skin.canvas->decorations) {
             decoration.width *= scale; decoration.height *= scale;
             decoration.offsetX *= scale; decoration.offsetY *= scale;
+        }
+        if (style.paddingHorizontal || style.paddingVertical) {
+            auto content = CanvasContentInsets(*skin.canvas, CandidateInset(tokens), CandidateVerticalInset(tokens));
+            if (style.paddingHorizontal) content.left = content.right = *tokens.paddingHorizontal;
+            if (style.paddingVertical) content.top = content.bottom = *tokens.paddingVertical;
+            skin.canvas->content = content;
         }
     }
     return skin;

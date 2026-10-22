@@ -27,6 +27,8 @@ import java.util.function.Predicate;
 public class DeviceSmoke extends Instrumentation {
     protected UiAutomation automation;
     protected String stage = "launch";
+    private boolean pinyinStartup;
+    private boolean pinyinHideResume;
 
     /** 执行设备测试命令并排空输出，避免未读取的管道阻塞命令。 */
     protected final void shellDiscard(String command) throws Exception {
@@ -92,7 +94,12 @@ public class DeviceSmoke extends Instrumentation {
     /** `uinput` 接上的键盘的标准输入，往里写注入命令就是在那块键盘上按键；没有接时为空。 */
     protected FileOutputStream uinputInput;
 
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    @Override public void onCreate(Bundle arguments) {
+        pinyinStartup = arguments != null && "true".equals(arguments.getString("pinyin-startup"));
+        pinyinHideResume = arguments != null && "true".equals(arguments.getString("pinyin-hide-resume"));
+        super.onCreate(arguments);
+        start();
+    }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
@@ -100,7 +107,8 @@ public class DeviceSmoke extends Instrumentation {
             AccessibilityServiceInfo info = automation.getServiceInfo();
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
-            runChecks();
+            if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
+            else runChecks();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + successDescription() + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
@@ -110,6 +118,7 @@ public class DeviceSmoke extends Instrumentation {
         }
     }
     protected String successDescription() {
+        if (pinyinStartup) return "pinyin edition prepares without launcher, composes and commits in the same editor";
         if (Build.VERSION.SDK_INT < 30) return "phrase commit and deletion (API " + Build.VERSION.SDK_INT + ")";
         return "phrase commit, Traditional Chinese display/commit, deletion and password direct input";
     }

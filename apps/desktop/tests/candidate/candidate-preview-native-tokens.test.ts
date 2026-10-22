@@ -214,13 +214,50 @@ test("the card geometry reads the host values, keeping the old ones where no hos
   );
 });
 
-test("macOS 自定义行圆角扣除实际内边距，选中与悬停保持同形", () => {
+test("macOS 分轴留白与独立行圆角优先，选中与悬停保持同形", () => {
   const geometry = declarations(`${mac}[data-preview-theme] :is(.wnd-h,.wnd-v)`);
   expect(geometry["--msime-candidate-pad-x"]).toBe(
-    "max(var(--msime-host-border-width),var(--msime-candidate-user-pad,var(--msime-host-pad)))",
+    "max(0px,var(--msime-candidate-padding-horizontal,var(--msime-candidate-user-pad,var(--msime-host-pad))))",
   );
-  expect(geometry["--msime-candidate-pad-y"]).toBe("var(--msime-candidate-pad-x)");
+  expect(geometry["--msime-candidate-pad-y"]).toBe(
+    "max(0px,var(--msime-candidate-padding-vertical,var(--msime-candidate-user-pad,var(--msime-host-pad))))",
+  );
   expect(geometry["--msime-candidate-row-radius"]).toBe(
-    "max(0px,calc(var(--msime-candidate-user-radius,calc(var(--msime-host-row-radius)+var(--msime-candidate-pad-x)))-var(--msime-candidate-pad-x)),calc(var(--msime-skin-radius,var(--msime-host-card-radius))-var(--msime-host-border-width)-max(var(--msime-candidate-pad-x),var(--msime-candidate-user-pad,999px))*3.4142))",
+    "var(--msime-candidate-item-corner-radius,max(0px,calc(var(--msime-candidate-user-radius,calc(var(--msime-host-row-radius)+var(--msime-candidate-min-pad)))-var(--msime-candidate-min-pad)),calc(var(--msime-skin-radius,var(--msime-host-card-radius))-var(--msime-host-border-width)-max(var(--msime-candidate-min-pad),var(--msime-candidate-user-inset))*3.4142)))",
   );
+  expect(geometry["--msime-candidate-min-pad"]).toBe(
+    "min(var(--msime-candidate-pad-x),var(--msime-candidate-pad-y))",
+  );
+});
+
+test("macOS 候选预览不在窗口留白之外叠加候选行上下外边距", () => {
+  const selector = `${mac}[data-preview-theme] :is(.wnd-h,.wnd-v)`.replace(/\s+/g, "");
+  const block = card.slice(card.indexOf(`${selector}{.container{`));
+  expect(block).toMatch(/^.+?\{\.container\{[^}]*\}\.cand\{margin-top:0;margin-bottom:0;/);
+});
+
+test("macOS 横排预览不用内联基线撑高卡片，首行仍独占整行", () => {
+  const selector = `${mac}[data-preview-theme] :is(.wnd-h,.wnd-v)`.replace(/\s+/g, "");
+  const block = card.slice(card.indexOf(`${selector}{.container{`));
+  expect(block).toContain(
+    ".skin-card-preview.wnd-h.container{display:flex;flex-wrap:wrap;align-items:flex-start;}",
+  );
+  expect(block).toContain(
+    ".skin-card-preview.wnd-h.pinyin,.skin-card-preview.wnd-h.candidate-brand-row{flex-basis:100%;}",
+  );
+});
+
+test("macOS 系统主题预览补出原生材质的灰色边框，不覆盖自定义调色板", () => {
+  expect(
+    declarations(`${mac}[data-global-theme="system"][data-preview-theme]`)["--cand-border"],
+  ).toBe("#8e8e9380");
+  expect(
+    card.match(/border:var\(--msime-host-border-width,1\.5px\)solidvar\(--cand-border\);/g),
+  ).toHaveLength(2);
+});
+
+test("macOS 背景图容器在未覆盖候选项圆角时仍裁剪图片", () => {
+  const selector = `${mac}[data-preview-theme] :is(.wnd-h,.wnd-v)`.replace(/\s+/g, "");
+  const block = card.slice(card.indexOf(`${selector}{.container{`));
+  expect(block).toContain(".container:has(>.skin-background-image){overflow:hidden!important;}");
 });

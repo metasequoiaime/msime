@@ -46,6 +46,7 @@ export function AppearanceSettingsPage() {
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showCandidatePadding,
+    showCandidateItemGeometry,
     snapshot,
     draft,
     previewCustomTheme,
@@ -220,6 +221,7 @@ export function AppearanceSettingsPage() {
         showOpacity={showCandidateWindowOpacity}
         showCornerRadius={showCandidateCornerRadius}
         showPadding={showCandidatePadding}
+        showItemGeometry={showCandidateItemGeometry}
         onChange={appearanceActions.onPreferencesChange}
       />
       {/* 候选徽标只有 macOS 宿主消费；其它平台画出来会是个不起作用的开关。 */}
@@ -339,6 +341,7 @@ function HarmonyPhoneCandidateGroups() {
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showCandidatePadding,
+    showCandidateItemGeometry,
     draft,
     setDraft,
     mobileKeyboardFeedback,
@@ -426,6 +429,7 @@ function HarmonyPhoneCandidateGroups() {
           showOpacity={showCandidateWindowOpacity}
           showCornerRadius={showCandidateCornerRadius}
           showPadding={showCandidatePadding}
+          showItemGeometry={showCandidateItemGeometry}
           onChange={appearanceActions.onPreferencesChange}
         />
       )}

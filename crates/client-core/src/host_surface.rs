@@ -249,6 +249,9 @@ pub struct HostCapabilities {
     pub candidate_corner_radius: bool,
     /// The host insets its candidates from the card's edge by `candidate_padding`, ahead of the skin package's padding and its own constant.
     pub candidate_padding: bool,
+    /// 宿主支持窗口分轴内边距、候选项内边距、独立圆角和间距。
+    #[serde(default)]
+    pub candidate_item_geometry: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
     /// and positions the candidate list itself - cannot honour the choice, so
@@ -709,6 +712,7 @@ impl HostCapabilities {
             ),
             // macOS 候选窗和 Linux 的 Fcitx5 经典界面主题按 `candidate_padding` 改卡片内边距（#7316；IBus 面板做不到，同样经 `candidate_panel_limit` 说明）。Windows 的卡片内边距写在 `candidate_card_metrics` 里，鸿蒙卡片有自己的边距，接上之前不声明，免得设置页出现一个改了没反应的滑块。
             candidate_padding: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
+            candidate_item_geometry: platform == HostPlatform::Macos,
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(

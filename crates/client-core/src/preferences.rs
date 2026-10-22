@@ -1039,6 +1039,24 @@ pub struct Preferences {
     /// 候选卡片边缘到候选的距离，单位为点（Windows 上为 DIP），0–16，在 `candidate_scale_percent` 缩放之前生效。它优先于皮肤包的内边距和宿主自己的常量（macOS 为 4pt）；缺省时由宿主或皮肤决定。宿主可以保留一个很小的下限，让选中高亮不压住卡片边框（macOS 至少留出边框的宽度）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_padding: Option<u8>,
+    /// 窗口水平内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_padding_horizontal: Option<u8>,
+    /// 窗口垂直内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_padding_vertical: Option<u8>,
+    /// 候选项左右各自的内边距，0–16pt；缺省时保留皮肤与宿主的留白。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_padding_horizontal: Option<u8>,
+    /// 候选项上下各自的内边距，0–16pt；缺省时保留皮肤与宿主的行高规则。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_padding_vertical: Option<u8>,
+    /// 选中与悬停背景的独立圆角，0–32pt；缺省时保留原有圆角推导。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_corner_radius: Option<u8>,
+    /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_item_spacing: Option<u8>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -2601,6 +2619,12 @@ impl Default for Preferences {
             candidate_opacity_percent: default_candidate_opacity_percent(),
             candidate_corner_radius: None,
             candidate_padding: None,
+            candidate_padding_horizontal: None,
+            candidate_padding_vertical: None,
+            candidate_item_padding_horizontal: None,
+            candidate_item_padding_vertical: None,
+            candidate_item_corner_radius: None,
+            candidate_item_spacing: None,
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
@@ -3334,6 +3358,19 @@ impl Preferences {
                 .candidate_corner_radius
                 .is_some_and(|radius| radius > 32)
             || self.candidate_padding.is_some_and(|padding| padding > 16)
+            || [
+                self.candidate_padding_horizontal,
+                self.candidate_padding_vertical,
+                self.candidate_item_padding_horizontal,
+                self.candidate_item_padding_vertical,
+                self.candidate_item_spacing,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|value| value > 16)
+            || self
+                .candidate_item_corner_radius
+                .is_some_and(|radius| radius > 32)
         {
             return Err(PreferencesError::InvalidCandidateWindowStyle);
         }

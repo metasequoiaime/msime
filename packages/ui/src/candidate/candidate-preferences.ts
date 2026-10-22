@@ -19,4 +19,14 @@ export type CandidateWindowStylePreferences = {
   candidate_corner_radius?: number | null;
   /** 缩放前的卡片内边距（0–16pt）；缺省或 `null` 时先跟随皮肤，再跟随宿主。 */
   candidate_padding?: number | null;
+  /** 窗口分轴内边距（0–16pt）；缺省时沿用旧的统一内边距。 */
+  candidate_padding_horizontal?: number | null;
+  candidate_padding_vertical?: number | null;
+  /** 候选项每侧内边距（0–16pt），缺省时跟随皮肤与宿主。 */
+  candidate_item_padding_horizontal?: number | null;
+  candidate_item_padding_vertical?: number | null;
+  /** 选中与悬停背景的独立圆角（0–32pt）。 */
+  candidate_item_corner_radius?: number | null;
+  /** 横排列距或竖排行距（0–16pt）。 */
+  candidate_item_spacing?: number | null;
 };

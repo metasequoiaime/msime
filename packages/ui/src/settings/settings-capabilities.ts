@@ -74,6 +74,7 @@ export function settingsCapabilities({
   const showCandidateCornerRadius = host ? host.candidate_corner_radius : true;
   // 卡片内边距目前只有 macOS 候选窗和 Linux 的 Fcitx5 主题读；没有宿主时（网页预览）照样给出，与圆角一致。
   const showCandidatePadding = host ? host.candidate_padding : true;
+  const showCandidateItemGeometry = host ? host.candidate_item_geometry === true : macos;
   const showInputModeHUD = host ? host.input_mode_hud : false;
   const showInputModeStatusItem = host ? host.input_mode_status_item : false;
   const showVoiceCaptureDevices =
@@ -147,6 +148,7 @@ export function settingsCapabilities({
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showCandidatePadding,
+    showCandidateItemGeometry,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,

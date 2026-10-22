@@ -46,6 +46,9 @@
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
 @property(nonatomic) CGFloat cornerRadius;
+@property(nonatomic) BOOL hasSkinLayout;
+@property(nonatomic) CGFloat textLeftInset;
+@property(nonatomic) CGFloat textRightInset;
 @end
 @implementation MetasequoiaCandidateButton
 - (BOOL)acceptsFirstResponder
@@ -130,11 +133,12 @@
     };
     NSString *title = self.title;
     NSRange split = [title rangeOfString:@"  "];
-    const CGFloat textLeft = 8.0 + (self.showSelectedBar ? 6.0 : 0.0);
+    const CGFloat textLeft = self.hasSkinLayout ? self.textLeftInset : 8.0 + (self.showSelectedBar ? 6.0 : 0.0);
+    const CGFloat textRight = self.hasSkinLayout ? self.textRightInset : 8.0;
     if (split.location == NSNotFound)
     {
         const NSSize size = [title sizeWithAttributes:titleAttributes];
-        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - 8.0);
+        const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - textLeft - textRight);
         [title drawInRect:NSMakeRect(textLeft, (self.bounds.size.height - size.height) / 2, maxWidth, size.height)
             withAttributes:titleAttributes];
         return;
@@ -147,7 +151,7 @@
     const CGFloat wordY = (self.bounds.size.height - wordSize.height) / 2;
     [number drawAtPoint:NSMakePoint(textLeft, numberY) withAttributes:numberAttributes];
     const CGFloat wordX = textLeft + numberSize.width + MSIMECandidateNumberGap;
-    const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - 8.0);
+    const CGFloat maxWidth = MAX(0.0, self.bounds.size.width - wordX - textRight);
     [word drawInRect:NSMakeRect(wordX, wordY, maxWidth, wordSize.height) withAttributes:titleAttributes];
 }
 @end
@@ -335,7 +339,9 @@
     for (NSView *view in [_chrome.subviews copy])
         [view removeFromSuperview];
     const CGFloat inset = msime::mac::CandidateInset(_skin.tokens);
-    const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 12;
+    const CGFloat verticalInset = msime::mac::CandidateVerticalInset(_skin.tokens);
+    const CGFloat itemGap = _skin.tokens.itemSpacing.value_or(0.0);
+    const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 2 * _skin.tokens.itemPaddingVertical.value_or(6.0);
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
@@ -343,7 +349,8 @@
     const BOOL paging = _hasPreviousPage || _hasNextPage;
     const CGFloat screenWidth = [self screenForCaret].visibleFrame.size.width;
     const CGFloat availableWidth = MAX(80, screenWidth - 20 - 2 * inset - (paging && !vertical ? 56 : 0));
-    const CGFloat leftPad = 8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0);
+    const CGFloat leftPad = _skin.tokens.itemPaddingHorizontal.value_or(8.0 + (_skin.tokens.showSelectedBar ? 6.0 : 0.0));
+    const CGFloat rightPad = _skin.tokens.itemPaddingHorizontal.value_or(8.0);
     NSDictionary *measure = @{NSFontAttributeName : _font};
     NSFont *numberFont = MSIMECandidateNumberFont(_font);
     NSDictionary *numberMeasure = @{NSFontAttributeName : numberFont};
@@ -354,19 +361,21 @@
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
         const CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +
-                                       [word sizeWithAttributes:measure].width + 8.0);
+                                       [word sizeWithAttributes:measure].width + rightPad);
         [titles addObject:title];
         [widths addObject:@(itemWidth)];
         width = vertical ? MAX(width, itemWidth) : width + itemWidth;
     }
+    if (!vertical && _data.count > 1) width += (_data.count - 1) * itemGap;
     if (vertical)
     {
         width = MIN(width, availableWidth);
     }
     else if (width > availableWidth && width > 0)
     {
-        const CGFloat scale = availableWidth / width;
-        width = 0;
+        const CGFloat gaps = _data.count > 1 ? (_data.count - 1) * itemGap : 0;
+        const CGFloat scale = MAX(0.0, availableWidth - gaps) / MAX(1.0, width - gaps);
+        width = gaps;
         for (NSUInteger index = 0; index < widths.count; ++index)
         {
             const CGFloat scaled = MAX(24.0, floor(widths[index].doubleValue * scale));
@@ -381,7 +390,8 @@
     const CGFloat minWidth = MAX(_skin.minWidthDip, MAX(_skin.decorationWidthDip, 20));
     NSSize size = NSMakeSize(MAX(width + 2 * inset, minWidth),
                              MAX((vertical ? _data.count : (_data.count > 0 ? 1 : 0)) * rowHeight + navigationHeight +
-                                     2 * inset + decorationHeight,
+                                     (vertical && _data.count > 1 ? (_data.count - 1) * itemGap : 0) +
+                                     2 * verticalInset + decorationHeight,
                                  10));
     [_window setContentSize:size];
     _chrome.fillColor = MetasequoiaColorFromRgba(_skin.tokens.surface);
@@ -408,7 +418,7 @@
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;
-    const CGFloat contentTop = size.height - inset - decorationHeight;
+    const CGFloat contentTop = size.height - verticalInset - decorationHeight;
     const CGFloat verticalItemWidth = MAX(0.0, size.width - 2.0 * inset);
     NSColor *selectedFill = MetasequoiaColorFromRgba(_skin.tokens.selected);
     NSColor *textColor = MetasequoiaColorFromRgba(_skin.tokens.text);
@@ -418,7 +428,7 @@
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         const CGFloat itemWidth = vertical ? verticalItemWidth : widths[index].doubleValue;
-        const CGFloat y = vertical ? contentTop - (index + 1) * rowHeight : inset;
+        const CGFloat y = vertical ? contentTop - (index + 1) * rowHeight - index * itemGap : verticalInset;
         MetasequoiaCandidateButton *button =
             [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(vertical ? inset : x, y, itemWidth, rowHeight)];
         button.title = titles[index];
@@ -437,12 +447,15 @@
         button.numberColor = button.candidateHighlighted ? selectedText : numberColor;
         button.barColor = accent;
         button.showSelectedBar = _skin.tokens.showSelectedBar;
+        button.hasSkinLayout = _skin.tokens.itemPaddingHorizontal.has_value();
+        button.textLeftInset = leftPad;
+        button.textRightInset = rightPad;
         button.cornerRadius = button.candidateHighlighted ? _skin.tokens.selectedRadius : _skin.tokens.candidateRadius;
         button.accessibilityLabel = titles[index];
         button.toolTip = _data[index].string;
         [_chrome addSubview:button];
         if (!vertical)
-            x += itemWidth;
+            x += itemWidth + itemGap;
     }
     if (paging)
     {

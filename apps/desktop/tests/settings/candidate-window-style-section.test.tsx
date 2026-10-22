@@ -24,6 +24,9 @@ import {
   candidateOpacityPercent,
   candidateScalePercent,
   candidateWindowStyle,
+  candidateGeometryFields,
+  candidateGeometryValue,
+  candidateGeometryPatch,
 } from "../../../../packages/ui/src/candidate/candidate-window-style";
 import { customCandidatePalette } from "../../../../packages/ui/src/theme/global-theme";
 
@@ -40,6 +43,7 @@ interface SectionOptions {
   showOpacity: boolean;
   showCornerRadius: boolean;
   showPadding: boolean;
+  showItemGeometry: boolean;
   showFontPresets: boolean;
 }
 
@@ -52,6 +56,7 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
     showOpacity: true,
     showCornerRadius: true,
     showPadding: false,
+    showItemGeometry: false,
     showFontPresets: true,
     ...overrides,
   };
@@ -80,6 +85,7 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
         showOpacity={options.showOpacity}
         showCornerRadius={options.showCornerRadius}
         showPadding={options.showPadding}
+        showItemGeometry={options.showItemGeometry}
         onChange={onChange}
       >
         <p>跳转行</p>
@@ -426,6 +432,78 @@ test("the preview style carries the scale, the opacity and a set radius only", (
     "--msime-candidate-scale": "1",
     "--msime-candidate-opacity": "100%",
     "--msime-candidate-user-pad": "2px",
+  });
+});
+
+test.each([0, 4, 16])("候选项间距 %s 只改变间隔，不改变跟随皮肤时的行外边距", (spacing) => {
+  expect(candidateWindowStyle({ candidate_item_spacing: spacing })).toEqual({
+    ...candidateWindowStyle({}),
+    "--msime-candidate-item-spacing": `${spacing}px`,
+  });
+});
+
+test("分轴窗口留白与候选项几何分别显示并允许显式零值", () => {
+  const { onChange } = renderSection({
+    showPadding: true,
+    showItemGeometry: true,
+    preferences: { candidate_item_spacing: 1 },
+  });
+  expect(screen.queryByRole("slider", { name: "内边距" })).toBeNull();
+  for (const field of candidateGeometryFields) {
+    const slider = screen.getByRole("slider", { name: field.title });
+    expect(slider.getAttribute("min")).toBe("0");
+    expect(slider.getAttribute("max")).toBe(String(field.max));
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(onChange).toHaveBeenLastCalledWith(candidateGeometryPatch({}, field.key, 0));
+    expect(candidateGeometryValue({ [field.key]: 0 }, field.key)).toBe(0);
+    expect(candidateGeometryValue({ [field.key]: field.max + 1 }, field.key)).toBeNull();
+  }
+});
+
+test("编辑或恢复单轴时拆分旧窗口留白，另一轴的视觉值不变", () => {
+  const preferences = { candidate_padding: 7 };
+  expect(candidateGeometryValue(preferences, "candidate_padding_vertical")).toBe(7);
+  expect(candidateGeometryPatch(preferences, "candidate_padding_horizontal", 2)).toEqual({
+    candidate_padding: undefined,
+    candidate_padding_horizontal: 2,
+    candidate_padding_vertical: 7,
+  });
+  expect(candidateGeometryPatch(preferences, "candidate_padding_vertical", null)).toEqual({
+    candidate_padding: undefined,
+    candidate_padding_vertical: undefined,
+    candidate_padding_horizontal: 7,
+  });
+  const { onChange } = renderSection({
+    showPadding: true,
+    showItemGeometry: true,
+    preferences,
+  });
+  const row = screen
+    .getByText("窗口垂直内边距")
+    .closest<HTMLElement>("[data-settings-search-label]")!;
+  fireEvent.click(within(row).getByRole("button", { name: "跟随皮肤" }));
+  expect(onChange).toHaveBeenLastCalledWith(
+    candidateGeometryPatch(preferences, "candidate_padding_vertical", null),
+  );
+});
+
+test("预览保留独立几何与显式零值，不把旧统一留白复制成新字段", () => {
+  const style = candidateWindowStyle({
+    candidate_padding_horizontal: 1,
+    candidate_padding_vertical: 12,
+    candidate_item_padding_horizontal: 0,
+    candidate_item_padding_vertical: 3,
+    candidate_item_corner_radius: 0,
+    candidate_item_spacing: 6,
+  });
+  expect(style).toMatchObject({
+    "--msime-candidate-padding-horizontal": "1px",
+    "--msime-candidate-padding-vertical": "12px",
+    "--msime-candidate-item-padding-horizontal": "0px",
+    "--msime-candidate-item-padding-vertical": "3px",
+    "--msime-candidate-item-corner-radius": "0px",
+    "--msime-candidate-item-spacing": "6px",
+    "--msime-candidate-preview-text-pad-left": "0px",
   });
 });
 

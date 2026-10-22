@@ -12,6 +12,8 @@ Status: implemented
 
 放大条显示完整拼写的可滚动视口和闪动光标，下面的拖动手柄在光标右侧偏移，靠边时夹在可触摸区域；相对拖动而非绝对触点控制拼写位置，手指不会盖住当前字母。长拼写自动跟随光标，边缘持续拖动可到两端。复用现有 `CompositionCaretPolicy` 的拼音与九键数字映射，不复制引擎编辑状态。写回编辑器仍把系统选区置于组字末尾，避免破坏既有批量编辑读回与长度过滤器处理。
 
+候选读音节点的可见文字继续显示引擎读音，无障碍描述用于「编辑拼写」动作。十四键设备回归同时限定动作描述与可见文字，不能把动作描述当读音，也不能只按文字误匹配侧栏选项。
+
 ## Historical audit
 
 - [组字光标点按](../../implemented/feature/2026-10-08-composition-caret-tap.md)：部分重叠，保留引擎命令和对齐规则；本篇接手当时延期的放大交互，双方互链。
@@ -31,6 +33,8 @@ Status: implemented
 - `CompositionCaretPolicySmoke` 覆盖组字边界、前缀、分隔符、范围选择、丢失标记和截短；JVM 冒烟、远端 quick、原生 full APK 与 ABI 检查通过。
 - Android API 28：`CompositionRestartDeviceSmoke -e magnifier true` 与默认套件、`CompositionBatchDeviceSmoke`、基础 `DeviceSmoke` 通过；实际放大条和右侧手柄已截图检查。旧 APK 在 Android API 35 的同一放大编辑专项失败。
 - Android API 35：新版放大编辑专项通过；默认组字重启（含放大编辑）、批量编辑与基础输入回归也全部通过。运行 instrumentation 前按现有设备脚本先启动产品主进程，使用 `--no-restart`；逐项检查通过标记，不以 instrumentation 进程退出码代替断言。
+
+- 十四键旧选择器在固定基线与修复包上同样失败；按动作描述和可见文字分别定位后，API 28、35 的完整十四键套件通过，包含窄屏与实际选词提交。
 
 ## Consequences
 

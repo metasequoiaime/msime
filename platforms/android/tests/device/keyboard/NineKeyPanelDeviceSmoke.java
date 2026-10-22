@@ -2,6 +2,7 @@ package app.msime.android.test;
 
 import android.os.SystemClock;
 import android.graphics.Rect;
+import android.os.Bundle;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -11,18 +12,21 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 全拼九键设备验收：展开面板、拼音锁定、筛选，以及选定读法后的最近候选。 */
+/** 全拼九键设备验收：展开面板、逐字选词后的剩余候选，以及选定读法后的最近候选。 */
 public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
+    private boolean partialSelection;
     private boolean recentOnly;
 
-    @Override public void onCreate(android.os.Bundle arguments) {
+    @Override public void onCreate(Bundle arguments) {
+        partialSelection = arguments != null && "true".equals(arguments.getString("partial-selection"));
         recentOnly = arguments != null && "true".equals(arguments.getString("recent-learning"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
-        return recentOnly ? "nine-key spelling picks lead the next unlocked composition across input restarts"
+        return partialSelection ? "九键展开后连续逐字选词，无需返回即可继续剩余组字并完成提交"
+            : recentOnly ? "nine-key spelling picks lead the next unlocked composition across input restarts"
             : "nine-key panel locks, backspace, filters and recent spelling selections";
     }
 
@@ -65,6 +69,10 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo mode = await(key("中").or(key("英")).and(language));
             if (equalsText("英", mode.getText())) tap(key("英").and(language));
             await(key("ABC"));
+            if (partialSelection) {
+                checkPartialSelection();
+                return;
+            }
 
             if (recentOnly) {
                 verifyRecentSpellingSelection();
@@ -169,6 +177,81 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
+    }
+
+    /** 每次只选一个字；必须先看到收起和剩余组字，再重新展开，整个过程不发返回操作。 */
+    private void checkPartialSelection() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.EditorActivity"
+            + " --ez msime_test_composition_spans true");
+        tap(field("msime-test-plain"));
+        stage = "compose four synthetic nine-key syllables";
+        for (String face : new String[] {"MNO", "GHI", "GHI", "ABC", "MNO",
+                "MNO", "GHI", "GHI", "ABC", "MNO"}) tap(key(face));
+        await(field("msime-test-plain").and(node -> node.getText() != null
+            && node.getText().length() > 0 && !node.isShowingHintText()));
+        assertComposition("", true);
+        String prefix = "";
+        for (String character : new String[] {"你", "好", "你", "好"}) {
+            stage = "expand remaining composition after " + prefix.length() + " selections";
+            tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
+            await(described(PANEL));
+            stage = "filter the next syllable to single-character candidates";
+            if (findKey(inPanel(described("只显示单字"))))
+                tap(inPanel(described("只显示单字")));
+            await(inPanel(described("显示全部候选")));
+            stage = "touch a single character from the remaining syllables";
+            touch(inPanel(candidate(character)));
+            prefix += character;
+            stage = "partial selection refreshes without the return action " + prefix.length();
+            awaitGone(described(PANEL));
+            final String selected = prefix;
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().startsWith(selected)));
+            boolean pending = prefix.length() < 4;
+            assertComposition(prefix, pending);
+            if (pending) await(key("展开").and(AccessibilityNodeInfo::isEnabled));
+        }
+        await(field("msime-test-plain").and(node -> equalsText("你好你好", node.getText())));
+    }
+
+    /** 读取独立编辑器提供的真实组字范围，不跨进程取得 Activity 对象。 */
+    private void assertComposition(String prefix, boolean pending) {
+        dropStaleNodes();
+        AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+        String text = editor.getText() == null ? "" : editor.getText().toString();
+        if (!text.startsWith(prefix) || (pending ? text.length() <= prefix.length() : !text.equals(prefix)))
+            throw new AssertionError("Synthetic partial selection text mismatch");
+        Bundle state = editor.getExtras();
+        if (!state.containsKey("msime-test-composing-start") || !state.containsKey("msime-test-composing-end"))
+            throw new AssertionError("Synthetic editor did not report composition markers");
+        int start = state.getInt("msime-test-composing-start");
+        int end = state.getInt("msime-test-composing-end");
+        if (pending ? start < 0 || end <= start : start >= 0 || end >= 0)
+            throw new AssertionError("Synthetic partial selection composition marker mismatch");
+    }
+
+    private Predicate<AccessibilityNodeInfo> candidate(String text) {
+        return node -> {
+            if (!node.isClickable() || node.getContentDescription() == null) return false;
+            String description = node.getContentDescription().toString();
+            int delimiter = description.indexOf('：');
+            if (!description.startsWith("候选 ") || delimiter < 0) return false;
+            String value = description.substring(delimiter + 1);
+            return text.equals(value.contains("；") ? value.substring(0, value.indexOf('；')) : value);
+        };
+    }
+
+    /** 真实触摸覆盖按下、抬起与排队点击之间的延后绘制。 */
+    private void touch(Predicate<AccessibilityNodeInfo> match) throws Exception {
+        Rect bounds = new Rect();
+        awaitStableBounds(match.and(AccessibilityNodeInfo::isVisibleToUser)).getBoundsInScreen(bounds);
+        shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
+    }
+
+    private boolean findKey(Predicate<AccessibilityNodeInfo> match) {
+        for (AccessibilityWindowInfo window : automation.getWindows())
+            if (find(window.getRoot(), match) != null) return true;
+        return false;
     }
 
     /** 用合成输入交替选择竞争读法，确认锁定首候选会被新会话的未锁定输入读到。 */
