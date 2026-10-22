@@ -8,7 +8,9 @@ Status: implemented
 
 ## Decision
 
-在 `packages/ui/src/core/use-debounced-callback.ts` 提供 `useDebouncedCallback`。Hook 返回稳定的 `schedule` 和 `cancel`：每次 `schedule` 先取消旧计时器，延迟后通过 `useLatestRef` 调用最新回调；组件卸载或延迟变化时清理待执行回调。自定义双拼校验、手写滑块保存、鸿蒙词库搜索和聊天发送后的输入框调整复用这个生命周期，继续由各自调用方决定依赖、代次、请求参数和业务状态。
+在 `packages/ui/src/core/use-debounced-callback.ts` 提供 `useDebouncedCallback`。Hook 返回稳定的 `schedule` 和 `cancel`：每次 `schedule` 先取消旧计时器，延迟后通过 `useLatestRef` 调用最新回调；组件卸载或延迟变化时清理待执行回调。自定义双拼校验、手写滑块保存、鸿蒙词库搜索、聊天发送后的输入框调整，以及个人词库和资源词库查询复用这个生命周期，继续由各自调用方决定依赖、代次、请求参数和业务状态。
+
+`useDictionaryManager` 与 `ResourceDictionaryLookup` 在原 effect 的依赖变化时调度和取消 280ms 查询。个人词库仍在条件变化时清理反馈并使请求代次失效，延迟回调通过 `preserveError` 保留期间完成的操作提示；资源词库仍以每次 effect 独有的有效性闭包丢弃旧请求的成功、失败和结束状态。公共 Hook 只取消尚未发出的计时器，不接管已经开始的宿主请求。
 
 手写页两个滑块共用的预览与保存协调收在 `packages/ui/src/core/use-settled-slider.ts`，通过公共出口提供 `useSettledSlider`。它立即展示本地值，静止 300ms 后仅在值不同于外部值时保存，并清除本地预览；保存回调需要同步更新外部值，异步持久化由调用方负责。外部值变化会重新等待，回调身份变化不会重置倒计时，卸载会取消未执行保存。手写默认值、设置字段和写入接口仍由手写页拥有。
 
@@ -23,11 +25,13 @@ Status: implemented
 
 公共 Hook 测试覆盖重复调用只执行最后一次、手动取消、最新回调和卸载清理；自定义双拼、鸿蒙词库、聊天页和相关共享 UI 回归测试通过。桌面类型检查、构建、lint、格式、笔记校验和 `verify-local.sh --quick` 覆盖共享 UI 及宿主边界。
 
+个人词库、资源词库与词库标签反馈的既有行为回归在迁移前后运行，核对防抖与分页、旧响应丢弃、客户端替换和延迟查询不清理已完成的导出、学习数据清除或保存失败提示。
+
 `use-settled-slider.test.ts` 直接覆盖拖动立即预览、最后一次变化后等待 300ms、保存时无旧值闪回、回到原值不保存、最新回调、外部值变化与卸载取消。手写页回归继续覆盖两个调用的宿主展示。
 
 ## Consequences
 
-四处 UI 共享同一套防抖计时器替换与清理规则，旧回调不会在组件卸载后执行。滑块额外共享本地预览与保存协调，但不扩展为任意类型表单状态，也不替调用方管理异步写入。异步代次、请求取消边界、搜索分页顺序和聊天输入框布局仍由调用方拥有；新的延迟执行 UI 应优先复用 `useDebouncedCallback`，不要把业务状态塞入公共 Hook。
+六处 UI 共享同一套防抖计时器替换与清理规则，旧回调不会在组件卸载后执行。滑块额外共享本地预览与保存协调，但不扩展为任意类型表单状态，也不替调用方管理异步写入。异步代次、请求取消边界、搜索分页顺序和聊天输入框布局仍由调用方拥有；新的延迟执行 UI 应优先复用 `useDebouncedCallback`，不要把业务状态塞入公共 Hook。
 
 ## Existing notes audit
 
