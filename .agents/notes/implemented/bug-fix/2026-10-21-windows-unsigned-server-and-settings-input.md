@@ -6,6 +6,8 @@ Status: implemented
 
 #9074 的发布包和 nightly 在 Windows 11 只有行内编码，没有候选窗和工具栏。报告人的后续检查发现 Server 没有签名；`Build-Client.ps1` 却无条件给 x64 Server 开启 `MSIME_SERVER_UIACCESS`。Windows 要求 `uiAccess=true` 的程序带受信任签名并安装在安全目录，否则不能启动。发布工作流默认不签名，nightly 也不走发布签名，安装冒烟只核对文件和 TIP 注册，漏掉了 Server 的可启动性。
 
+#9201 报告的 Windows 0.3.0 同样只有行内拼音、没有渲染窗口，按数字后无法上屏。公开版本 `windows-v0.3.0-beta` 早于本修复，不能用当前源码已有开关推断旧包已经可用。用户具体下载来源尚未核实，故该报告只关联本修复，不据此宣称真实编辑器验收完成。
+
 同一报告还指出原生 WinUI 设置文字模糊、鼠标滚轮无效。设置工程未显式提供 DPI 清单，最终生成的清单与真实窗口的输入行为需要在 Windows 上核对，不能从编译成功推断修复完成。
 
 ## Decision
@@ -35,6 +37,8 @@ Windows 的基线链接产物经 `mt.exe` 提取后没有 `dpiAware` 或 `dpiAwa
 - Windows 上 `tests/server-manifest/verify.ps1` 通过：实际 MSVC 链接同一 probe 的 OFF → ON → OFF，读取每次生成 PE 的清单，两个普通权限产物实际启动成功。它复用产品的 `ServerManifest.cmake`，不是完整 Server；安装冒烟新增完整 Server 的 `--help` 启动检查。
 - Windows 上 MSVC 编译和链接设置宿主后，`mt.exe` 提取实际 PE：`dpiAware=true/pm`、`dpiAwareness=PerMonitorV2, PerMonitor`，928 项 WinRT 激活声明保留。完整 Build 在后续 PRI 处理阶段遇到本机缺少 `Microsoft.Build.Packaging.Pri.Tasks.dll`，同样发生于未改动的基线；不能当作完整设置构建通过。
 - 鼠标滚轮测试仅以 ScrollPattern 重置起点和读取位置，滚动动作来自鼠标输入。完整设置构建与交互式验收由 PR 的 `Windows native settings` 作业继续验证。
+- #9201 的公开产物对照（2026-10-22，Windows 原生加载器）：`windows-v0.3.0-beta` 的 full 安装包 SHA-256 为 `9aba661a7171d9d61e5145d9dd20c0a91c8f8817ceb4b6c4b4f945c82a76b55f`，与同页摘要一致；对应发布任务 `39414032228` 的暂存产物 `12261757883` 内 Server SHA-256 为 `534d9c0e30224d49502537185079bef9b72a5997d1992fb6cb66bb0a07755b21`，PE 证书目录为 `(0, 0)`，内嵌清单为 `asInvoker` / `uiAccess=true`。签名任务在该次发布中均被跳过，`Get-AuthenticodeSignature` 确认 `NotSigned`。在同一隔离目录中配齐同一暂存包安装时会复制的运行时 DLL 后，原始 Server 以 `UseShellExecute=false` 启动返回 740（需要提升），以 `true` 启动返回 1459（需要交互窗口站）；仅用 Windows SDK 的 `mt.exe` 将副本清单改为 `uiAccess=false`，普通权限副本在这两条启动路径实际执行 `--help`、退出码均为 0。这个差异证明该构建的启动权限缺口，不证明报告人的安装来源或 TSF 编辑器链路。
+- 对 `d88229b20e` 源码重新执行 `build_client.ps1`、`installer_entry.ps1` 与 `tests/server-manifest/verify.ps1`，全部通过。后者由 MSVC 在同一规定目录 `target/windows-server-manifest` 构建 OFF → ON → OFF，两个 OFF 产物实际运行成功。本轮没有重新构建完整 Server，也没有修改、签名或替换公开发布文件。仅补笔记的远端 `bash scripts/verify-local.sh --quick`（任务 `20261022-112107`）退出 0，Rust workspace、仓库契约、笔记和共享 Apple bridge 通过；各平台构建依改动范围跳过。
 - 验证缺口：SSH 所在的非交互窗口站无法设置鼠标路由，系统返回 `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`（1459）；不能在此宣称滚轮已验收。真实签名安装和报告人的 Windows Insider 26340 不在本机验证范围。
 
 ## Consequences
