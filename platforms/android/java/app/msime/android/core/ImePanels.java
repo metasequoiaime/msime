@@ -1628,7 +1628,10 @@ final class ImePanels {
                     clipboardClearPending = false;
                     clipboardSwipedText = null;
                     renderClipboardHistory();
-                    clipboardPreview.show(item.text());
+                    clipboardPreview.show(item.text(), () -> s.insertClipboardText(item.text()), () -> {
+                        clipboardActionText = null;
+                        s.editClipboardItem(item);
+                    });
                     return true;
                 });
                 placeClipboardCell(index, items.size(), clipboardSwipeCell(card, item, swiped, reveal));
