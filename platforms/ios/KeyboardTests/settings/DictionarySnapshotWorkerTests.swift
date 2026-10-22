@@ -50,6 +50,60 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     _ = session.cancel()
   }
 
+  func testIdleTickUsesStateReadOffTheMainThread() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queueDirectory = root.appendingPathComponent("Queue")
+    let queue = DictionarySnapshotQueue(directory: queueDirectory)
+    let version = "local-v1:legacy:" + String(repeating: "a", count: 64)
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in version })
+    var messages: [String] = []
+    worker.report = { messages.append($0) }
+    worker.tick(idle: true, fullAccess: true)
+    let deadline = Date().addingTimeInterval(5)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertEqual(try queue.read().localVersion, version)
+
+    let reader = worker.stateReader()
+    let prefetched = await Task.detached {
+      XCTAssertFalse(Thread.isMainThread)
+      return reader()
+    }.value
+    // 预读之后状态文件坏掉：tick 用的是后台读好的状态，主线程不再读它，也就不报错、不再开一次版本轮询。
+    try Data("not-json".utf8).write(to: queueDirectory.appendingPathComponent("DictionarySnapshots/state.json"))
+    worker.tick(idle: true, fullAccess: true, prefetched: prefetched)
+    XCTAssertFalse(worker.isPreparing)
+    XCTAssertEqual(messages, [])
+    // 同一份预读不能用第二次：上一次 tick 已经推进了代次，这次当场重读，读到的是坏文件。
+    worker.tick(idle: true, fullAccess: true, prefetched: prefetched)
+    XCTAssertEqual(messages, [DictionarySnapshotQueue.Failure.invalid.localizedDescription])
+  }
+
+  func testIdleTickRereadsStateWhenThePrefetchPredatesTheWorkersOwnUpdate() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queue = DictionarySnapshotQueue(directory: root.appendingPathComponent("Queue"))
+    let version = "local-v1:legacy:" + String(repeating: "b", count: 64)
+    let polls = LockedCounter()
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in
+      polls.increment()
+      return version
+    })
+    // 预读时本机版本还没发布。
+    let reader = worker.stateReader()
+    let stale = await Task.detached { reader() }.value
+    worker.tick(idle: true, fullAccess: true)
+    let deadline = Date().addingTimeInterval(5)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertEqual(try queue.read().localVersion, version)
+    // 准备任务已经发布了版本；过期的预读会让工作者以为还没有版本，马上再查一次。
+    worker.tick(idle: true, fullAccess: true, prefetched: stale)
+    XCTAssertFalse(worker.isPreparing)
+    XCTAssertEqual(polls.value, 1)
+  }
+
   func testQueuedSnapshotForAnotherAccountIsCancelledBeforePreparation() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -160,4 +214,12 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     try FileManager.default.removeItem(at: root)
     cleaned = true
   }
+}
+
+/// 后台版本读取的调用次数。
+private final class LockedCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var count = 0
+  var value: Int { lock.withLock { count } }
+  func increment() { lock.withLock { count += 1 } }
 }

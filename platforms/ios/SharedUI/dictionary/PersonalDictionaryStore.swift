@@ -77,6 +77,8 @@ struct PersonalDictionaryState: Codable, Sendable {
   var exportRequest: PersonalExportRequest?
   var exportResult: PersonalExportResult?
   var pendingCount: Int { requests.filter { $0.status == .pending }.count }
+  /// 键盘的空闲轮询据此决定要不要同步：还有待应用的编辑，或者宿主发出的刷新（翻页、导出、入队）还没被确认。
+  var needsKeyboardSynchronization: Bool { pendingCount > 0 || refreshID != completedRefreshID }
 
   init() {}
 
@@ -208,6 +210,38 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   func read() throws -> PersonalDictionaryState {
     guard let directory else { throw StoreError.unavailable }
     return try readFile(at: directory.appendingPathComponent("sync.json"))
+  }
+
+  /// `sync.json` 这个文件对象的身份。
+  ///
+  /// 写这个文件的只有两处，都是先写临时文件再改名替换：本类的 `update` 用 `.atomic` 写入，Rust 的 `PersonalDictionaryStore::write_locked` 经 `write_private_file_at` 用 `renameat`。所以内容每变一次，路径上就换成一个新的 inode；APFS 在同一个卷上不重用 inode 号。修改时间和大小一并比较，防的是有人原地改写。
+  struct FileRevision: Equatable, Sendable {
+    let device: Int64
+    let inode: UInt64
+    let size: Int64
+    let modifiedSeconds: Int
+    let modifiedNanoseconds: Int
+  }
+
+  /// 不跟随符号链接；文件不存在或不是普通文件时为 nil，调用方照常走 `read()`，由它做符号链接检查和报错。
+  func fileRevision() -> FileRevision? {
+    guard let directory else { return nil }
+    var status = stat()
+    guard lstat(directory.appendingPathComponent("sync.json").path, &status) == 0,
+          status.st_mode & S_IFMT == S_IFREG else { return nil }
+    return FileRevision(device: Int64(status.st_dev), inode: UInt64(status.st_ino), size: Int64(status.st_size),
+                        modifiedSeconds: status.st_mtimespec.tv_sec, modifiedNanoseconds: status.st_mtimespec.tv_nsec)
+  }
+
+  /// 键盘空闲轮询用的只读检查，可以在主线程之外调用：只读文件，不取 `sync.lock`，所以键盘被挂起时不会因为持有共享容器里的文件锁被系统终止。
+  ///
+  /// `idle` 是上一次判定无事可做时记下的文件身份；文件还是那一个就不再读取和解码。返回的 `idle` 是这一次可以记下的身份：只有判定无事可做、并且读取前后文件没被替换时才给出，否则为 nil，下一次照常读取。
+  func pollKeyboardSynchronization(idle: FileRevision?) throws -> (needed: Bool, idle: FileRevision?) {
+    let before = fileRevision()
+    if let before, before == idle { return (false, before) }
+    let needed = try read().needsKeyboardSynchronization
+    guard !needed, let before, fileRevision() == before else { return (needed, nil) }
+    return (false, before)
   }
 
   private func readFile(at file: URL) throws -> PersonalDictionaryState {

@@ -70,6 +70,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private weak var compositionContainer: CandidateCanvasHostView?
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
+  private let idleMaintenance = IdleMaintenancePoll()
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
@@ -747,15 +748,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     snapshotWorker.tick(idle: !hasComposition && !isInLocalMode, fullAccess: hasFullAccess, force: true)
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated {
-        guard let self else { return }
-        // 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
-        guard !self.hasComposition, !self.isInLocalMode, !self.session.hasPendingCharacters,
-              ProcessInfo.processInfo.systemUptime - self.lastKeyTouchTime >= 0.3 else { return }
-        let fullAccess = self.hasFullAccess
-        self.synchronizePersonalDictionary(force: false, fullAccess: fullAccess)
-        self.snapshotWorker.tick(idle: true, fullAccess: fullAccess)
+      MainActor.assumeIsolated { self?.startIdleMaintenance() }
+    }
+  }
+
+  /// 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
+  private var idleForMaintenance: Bool {
+    !hasComposition && !isInLocalMode && !session.hasPendingCharacters
+      && ProcessInfo.processInfo.systemUptime - lastKeyTouchTime >= 0.3
+  }
+
+  /// 两秒一轮的词库维护。读两份共享文件放到后台，主线程只在读完、并且仍然空闲时做真正要做的同步；通常两边都无事可做，主线程这一轮只读一次完全访问权限。
+  private func startIdleMaintenance() {
+    guard idleForMaintenance, !idleMaintenance.isRunning else { return }
+    let fullAccess = hasFullAccess
+    guard fullAccess else {
+      // 没有完全访问时个人词库不同步，快照工作者停下并归还租约，两边都不读共享目录。
+      snapshotWorker.tick(idle: true, fullAccess: false)
+      return
+    }
+    idleMaintenance.start(readSnapshotState: snapshotWorker.stateReader()) { [weak self] outcome in
+      // 后台读文件期间用户可能已经开始输入：这一轮让给按键，下一次定时器再来。
+      guard let self, self.idleForMaintenance else { return }
+      switch outcome.personalDictionary {
+      case .success(true): self.synchronizePersonalDictionary(force: false, fullAccess: fullAccess)
+      case .success(false): break
+      case .failure(let error): self.showDiagnostic(error.localizedDescription)
       }
+      self.snapshotWorker.tick(idle: true, fullAccess: fullAccess, prefetched: outcome.snapshotState)
     }
   }
 
@@ -992,6 +1012,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateGlossTimer = nil
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
+    idleMaintenance.cancel()
     closeKeyboardPicker()
     // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存，与 Android onFinishInputView 一致。
     closeInlineHeight(commit: false)
@@ -4769,7 +4790,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let store = PersonalDictionaryStore()
     do {
       let state = try store.read()
-      guard force || state.pendingCount > 0 || state.refreshID != state.completedRefreshID else { return }
+      guard force || state.needsKeyboardSynchronization else { return }
       synchronizingPersonalDictionary = true
       defer { synchronizingPersonalDictionary = false }
       try store.synchronize(apply: { request in

@@ -57,6 +57,41 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     #endif
   }
 
+  func testIdlePollSkipsAnUnchangedFileAndRereadsAReplacedOne() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    // 还没有同步文件时键盘要同步一次把它建出来，这时不给可记住的身份。
+    let missing = try keyboard.pollKeyboardSynchronization(idle: nil)
+    XCTAssertTrue(missing.needed)
+    XCTAssertNil(missing.idle)
+    try keyboard.synchronize(apply: { _ in }, page: { _ in .init(entries: [], hasMore: false) })
+    let settled = try keyboard.pollKeyboardSynchronization(idle: nil)
+    XCTAssertFalse(settled.needed)
+    let revision = try XCTUnwrap(settled.idle)
+
+    // 文件还是那一个时不再读取：拿走读权限后，带着记住的身份照样判定无事可做，不带就读不出来。
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+    let skipped = try keyboard.pollKeyboardSynchronization(idle: revision)
+    XCTAssertThrowsError(try keyboard.pollKeyboardSynchronization(idle: nil))
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    XCTAssertFalse(skipped.needed)
+    XCTAssertEqual(skipped.idle, revision)
+
+    // 宿主的每一次写入都替换整个文件，记住的身份随之失效。
+    try host.requestPage(offset: 100)
+    let paged = try keyboard.pollKeyboardSynchronization(idle: revision)
+    XCTAssertTrue(paged.needed)
+    XCTAssertNil(paged.idle)
+    try keyboard.synchronize(apply: { _ in }, page: { _ in .init(entries: [], hasMore: false) })
+    let next = try keyboard.pollKeyboardSynchronization(idle: revision)
+    XCTAssertFalse(next.needed)
+    XCTAssertNotEqual(next.idle, revision)
+    XCTAssertNotNil(next.idle)
+  }
+
   func testQueueAcknowledgementFailureAndPaging() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
