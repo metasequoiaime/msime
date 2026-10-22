@@ -12,6 +12,7 @@
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleVersion</key><string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
 <key>CFBundleShortVersionString</key><string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+${MSIME_INPUT_SOURCE_REVISION_PLIST}
 <key>NSMicrophoneUsageDescription</key><string>仅在开始语音输入时录音，用于识别并输入您说出的文字。</string>
 <!-- The macOS 系统识别 provider asks SFSpeechRecognizer for authorization. TCC refuses a request for a
      protected resource that the bundle has not declared a purpose for, and terminates the process rather

@@ -29,6 +29,7 @@
 #   MSIME_SPARKLE_PRIVATE_KEY     与 platforms/macos/sparkle-public-key.txt 对应的 base64 EdDSA 私钥（generate_keys -x 导出的 32 字节种子或旧版 96 字节格式）。同时具备私钥和签名身份时，每个发行版本生成输入法与完整设置应用的签名归档和独立 appcast；缺少时不配置更新通道，保留下载页入口
 #   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
 #   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX 更新包的下载地址前缀，缺省也是 macos-appcast release：更新包和 appcast 放在一起，不进版本发布页（见 platforms/macos/scripts/publish-sparkle-feed.sh）
+#   MSIME_BUILD_NUMBER 发布工作流传入的唯一构建号；未设置时使用 platforms/macos/build-number.txt
 #
 # 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
 set -Eeuo pipefail
@@ -276,6 +277,7 @@ MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-v
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a" \
+  -DMSIME_BUILD_NUMBER="${MSIME_BUILD_NUMBER:-}" -DMSIME_INPUT_SOURCE_REVISION="$(git rev-parse HEAD)" \
   -DMSIME_SPARKLE_APPCAST_BASE_URL="$sparkle_appcast_base" \
   -DMSIME_BUNDLE_VOICE_RUNTIME="$([ "$omit_voice_runtime" = 1 ] && echo OFF || echo ON)" \
   -DMSIME_REQUIRE_OFFICIAL_PLUGINS="$([ "${MSIME_REQUIRE_OFFICIAL_PLUGINS:-}" = 1 ] && echo ON || echo OFF)"

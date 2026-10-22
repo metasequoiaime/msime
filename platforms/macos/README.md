@@ -101,7 +101,7 @@ workflow 曾经读取的是括号里的名字，而仓库的 secrets 是以前�
 
 Sparkle 跑在输入法进程里，几处默认行为对它不合适，`src/core/UpdateController.mm` 改掉了：输入法是 `LSBackgroundOnly`，Sparkle 的提醒窗口会从正在打字的应用那里抢走焦点，所以后台检查到的更新只静默下载，由委托接管安装时机，在用户切到别的输入源时安装（`input_method_main.mm` 的 `switchedAway`），应用退出时 Sparkle 也会装；装完不重新拉起，系统在下次需要时从新 bundle 拉起它。独立设置窗口只在以 `--preferences` 参数启动输入法 bundle 时出现（`src/input/input_method_main.mm` 的 `MSIMEShouldShowPreferences`），不带参数直接启动 bundle 不会打开它。手动「检查更新…」显示 Sparkle 自己的界面。
 
-输入法和设置应用可以分别更新。设置应用启动时从不把已装的输入法降级（`macos_input_source.rs`），反过来输入法比设置应用新是安全的方向：新的读旧的写下的配置。Sparkle 的安装进程只用标准比较器比新旧 bundle 的 `CFBundleVersion`，所以它由 CMake 按 `((主 × 1000 + 次) × 1000 + 修订) × 1000 + build-number.txt` 算出，跨版本单调递增，设置应用也使用同一个值，见 `CMakeLists.txt`。
+输入法和设置应用可以分别更新。设置应用启动时从不把已装的输入法降级（`macos_input_source.rs`），反过来输入法比设置应用新是安全的方向：新的读旧的写下的配置。Sparkle 的安装进程只用标准比较器比新旧 bundle 的 `CFBundleVersion`，所以它由 CMake 按 `((主 × 1000 + 次) × 1000 + 修订) × 1,000,000 + 构建号` 算出，跨版本单调递增，设置应用也使用同一个值；本地构建的构建号来自 `build-number.txt`，发布工作流用运行号覆盖它，见 `CMakeLists.txt` 和 `release-macos.yml`。发布输入法还带 `MSIMEInputSourceRevision`，相同版本和构建号但修订变化时设置应用会刷新随附 bundle。
 
 ### Homebrew
 
