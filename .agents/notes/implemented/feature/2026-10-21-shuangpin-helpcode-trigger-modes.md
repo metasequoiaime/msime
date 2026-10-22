@@ -64,6 +64,8 @@ Windows 侧这些键的详细语义见 `msime-windows` v0.11.1 的 `engine/contr
 
 ## Consequences
 
+后续修复见[双拼未完成尾音节保持较长候选优先](../bug-fix/2026-10-22-shuangpin-incomplete-tail-candidate-order.md)：末尾直接辅助码仍保留，但尾字母没有命中任何基础候选时，完整前缀行先于较短整段回退行。
+
 - 双拼专属字段没有摊进共用类型：`modes` 是 `HelpcodePreferences` 上唯一的双拼子节，等于默认值时序列化不出来，旧文档缺这一段按 Windows 出厂值读；`quanpin_helpcode` 里的 `modes` 字段存在但不被任何路径读取。
 - `direct=false` 目前等价于把末尾辅助码整个关掉（触发键引擎还没实现），与 Windows「直接关 = 改用间接引导键」的完整语义差一层；用户在 macOS 上关掉直接辅助码后暂时没有任何触发键可用。
 - 偏好文档里出现 `shuangpin_helpcode.modes` 时，保存路径会把它归一到互斥合法的形态，读路径不受影响。

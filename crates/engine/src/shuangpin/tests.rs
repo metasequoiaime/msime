@@ -1173,3 +1173,19 @@ fn direct_helpcode_builds_an_unstored_sentence_before_pruning_homophones() {
     assert_eq!(candidates[0].canonical_pinyin, "ta'ta'ta");
     assert_eq!(candidates[0].pinyin, "tartantab");
 }
+
+#[test]
+fn unmatched_trailing_helpcode_keeps_longer_prefix_first() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_f VALUES('feng''kuang','fk','疯狂',1000);\
+         CREATE TABLE tbl_3_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_f VALUES('feng''kuang''shui','fks','疯狂水',900);\
+         CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shui','s','水',800);\
+         CREATE TABLE tbl_4_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let candidates = engine.query(&request("fgkluvu", true), Some(&keymap(&[("水", "ln")])));
+    assert_eq!(words(&candidates)[0], "疯狂水");
+}
