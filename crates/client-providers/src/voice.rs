@@ -8,6 +8,7 @@
 pub mod controller;
 pub mod doubao_frame;
 pub mod hotwords;
+pub mod language_catalog;
 pub mod local_models;
 pub mod numbers;
 pub mod polish_catalog;

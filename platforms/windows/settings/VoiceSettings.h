@@ -1,6 +1,7 @@
 #pragma once
 #include "TranslationServiceSettings.h"
 #include "../../../shared/voice/PolishPromptWideCatalog.h"
+#include "../../../shared/voice/VoiceLanguageCatalog.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -187,9 +188,13 @@ inline std::wstring_view service_status(std::wstring_view provider, bool service
 
 // 识别语言的建议（VoiceLanguageOptions）：系统识别用 zh-CN 这样的区域代码，也不能自动识别；其他识别器用短代码。
 inline std::vector<Choice> language_choices(bool system_voice) {
-  if (system_voice)
-    return {{L"zh-CN", L"中文（普通话）"}, {L"en-US", L"English"}, {L"ja-JP", L"日本語"}};
-  return {{L"zh-cn", L"中文（普通话）"}, {L"en", L"English"}, {L"ja", L"日本語"}, {L"auto", L"自动识别"}};
+  std::vector<Choice> choices;
+  for (auto const &language : msime::voice::kLanguages) {
+    const auto value = system_voice ? language.system_value : language.provider_value;
+    const auto title = system_voice ? language.system_title : language.provider_title;
+    if (!value.empty()) choices.push_back({value, title});
+  }
+  return choices;
 }
 
 // 内置名称与正文读取共享 Rust 目录的宽字符串导出，保留静态字符串视图。
