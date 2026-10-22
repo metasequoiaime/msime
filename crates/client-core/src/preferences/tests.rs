@@ -242,6 +242,9 @@ fn trilingual_cycle_defaults_off_and_persists_an_explicit_enable() {
             ..KeybindingPreferences::default()
         }
     );
+}
+
+#[test]
 fn toggle_hotkeys_use_the_legacy_factory_defaults() {
     let keybindings = Preferences::default().keybindings;
     assert_eq!(keybindings.toggle_english_candidates, "Ctrl+Shift+KeyE");
