@@ -26,7 +26,9 @@ test("browser fallback refuses HTTPS URLs with credentials or without a host", a
   await openExternalUrl("https:///docs");
 
   expect(open).not.toHaveBeenCalled();
-  expect(setError).toHaveBeenCalledTimes(2);
+  expect(setError).toHaveBeenCalledTimes(4);
+  expect(setError).toHaveBeenNthCalledWith(2, "无法打开外部链接，请稍后重试。");
+  expect(setError).toHaveBeenNthCalledWith(4, "无法打开外部链接，请稍后重试。");
 });
 
 test("native host refuses unsafe URLs before receiving them", async () => {
@@ -52,7 +54,7 @@ test("浏览器成功隔离新标签页并返回 null 时不显示失败", async
     "_blank",
     "noopener,noreferrer",
   );
-  expect(setError).not.toHaveBeenCalled();
+  expect(setError).toHaveBeenCalledExactlyOnceWith("");
 });
 
 test("浏览器打开链接抛出异常时仍显示失败", async () => {
@@ -76,4 +78,19 @@ test("原生宿主打开链接失败时仍显示失败", async () => {
 
   expect(hostOpenExternalUrl).toHaveBeenCalledWith("https://example.invalid/docs");
   expect(setError).toHaveBeenCalledWith("无法打开外部链接，请稍后重试。");
+});
+
+test("重试成功后清除上一次打开链接的错误", async () => {
+  const hostOpenExternalUrl = vi
+    .fn<() => Promise<void>>()
+    .mockRejectedValueOnce(new Error("synthetic host failure"))
+    .mockResolvedValueOnce(undefined);
+  const setError = vi.fn();
+  const openExternalUrl = useExternalUrl({ openExternalUrl: hostOpenExternalUrl, setError });
+
+  await openExternalUrl("https://example.invalid/docs");
+  await openExternalUrl("https://example.invalid/docs");
+
+  expect(setError).toHaveBeenNthCalledWith(2, "无法打开外部链接，请稍后重试。");
+  expect(setError).toHaveBeenNthCalledWith(3, "");
 });

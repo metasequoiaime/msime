@@ -38,6 +38,7 @@ export function useExternalUrl({
   setError,
 }: UseExternalUrlOptions) {
   async function openExternalUrl(url: string) {
+    setError("");
     try {
       if (!isSafeExternalUrl(url)) throw new Error("invalid URL");
       if (hostOpenExternalUrl) {
