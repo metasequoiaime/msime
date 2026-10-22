@@ -28,7 +28,12 @@ Status: implemented
 
 ## Verification
 
-`check-host.sh` 已通过 257 个 JVM smoke、217 个设备源码编译与 JNI/Java 契约。旧 APK 在 API 28 的新专项中确定失败：上滑后没有「松开复制全文」键面。新 APK 的 EditText/WebView 设备验收与 quick 门禁仍在执行，结果随提交补齐。
+- `check-host.sh` 通过 257 个 JVM smoke、217 个设备源码编译与 JNI/Java 契约。完整当前原生库与发布宿主 APK 构建通过，使用开发签名并校验 16 KB 对齐。
+- 旧 APK 在 API 28 的新专项中确定失败：上滑后没有「松开复制全文」键面。
+- API 28/35 的完整 `TextEditRecentClipboardDeviceSmoke` 均通过，覆盖原生 EditText 和 WebView 的全文复制与光标/选区恢复、松手前不复制、超过语音时限仍保持已锁定的复制手势、滑回/系统取消、多输入框、拒绝全选/复制、未知位置、密码、预览开关、真实短按/横滑及原有编辑面板回归。
+- 最终 quick `20261023-044100` 通过，笔记和差异检查通过。
+
+设备夹具直接在 `EditText` 创建时设置合成光标或选区，不通过 `ACTION_SET_SELECTION` 初始化：Android 9 的该无障碍动作会启动智能选择模式，迟到的 `SmartSelectSprite` 动画会在复制结束后重新全选，干扰对产品恢复位置的判断。调查时从合成编辑器的选区回调定位到系统 `SelectionActionModeHelper`，已移除临时诊断字段。旧 WebView 没有把 textarea 的 `aria-label` 暴露为 `contentDescription`，专项按夹具中唯一可编辑节点定位，复制结果仍核对完整合成文本。
 
 ## Consequences
 
