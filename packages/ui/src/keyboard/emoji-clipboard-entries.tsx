@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { useDebouncedCallback } from "../core/use-debounced-callback";
 import { clipboardTooltip } from "./emoji-panel-helpers";
 import {
   clipboardContextMenu,
@@ -87,14 +88,18 @@ export function EmojiClipboardEntries({
   const [menu, setMenu] = useState<Menu | null>(null);
   const [sideDelete] = useState(noHoverDevice);
   const inlineDelete = onRemove && !sideDelete;
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { schedule: schedulePreview, cancel: cancelPreview } = useDebouncedCallback(
+    (row: HTMLElement, text: string) => {
+      if (row.isConnected) setPreview(previewFor(row, text));
+    },
+    PREVIEW_DELAY_MS,
+  );
   const pointerFocus = useRef(false);
   // 行上刚按下菜单键或 Shift+F10。浏览器随后派发的 contextmenu 带的是这一行的坐标（WebKit、Chromium 都取聚焦元素的左下角），不能凭坐标判断它来自键盘。
   const keyboardMenu = useRef(false);
   const menuItem = useRef<HTMLButtonElement>(null);
   const bubble = useRef<HTMLDivElement>(null);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -130,19 +135,13 @@ export function EmojiClipboardEntries({
   // 列表内容变化（删除、刷新、搜索）后旧的预览和菜单指向的行可能已经不在了。按内容比较：面板每次轮询都会给出一个新的数组，内容没变时不能把正在显示的预览和菜单收掉。
   const itemsKey = items.join("\u0000");
   useEffect(() => {
-    clearTimeout(timer.current);
+    cancelPreview();
     setPreview(null);
     setMenu(null);
-  }, [itemsKey]);
+  }, [itemsKey, cancelPreview]);
 
-  function schedulePreview(row: HTMLElement, text: string) {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      if (row.isConnected) setPreview(previewFor(row, text));
-    }, PREVIEW_DELAY_MS);
-  }
   function hidePreview() {
-    clearTimeout(timer.current);
+    cancelPreview();
     setPreview(null);
   }
   function openMenu(event: MouseEvent<HTMLButtonElement>, text: string) {
