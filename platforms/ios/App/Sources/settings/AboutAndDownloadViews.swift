@@ -349,6 +349,7 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "vi-MIT", title: "vi", detail: "越南文 · MIT"),
     LicenseNotice(file: "ewts-MIT", title: "ewts", detail: "藏文 · MIT"),
     LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0", title: "開放詞典 拆字表", detail: "拆字 · CC BY 3.0"),
+    LicenseNotice(file: "rime-wanxiang-CC-BY-4.0", title: "rime-wanxiang 符号表", detail: "符号模式 · CC BY 4.0"),
     LicenseNotice(file: "Unicode-License-V3", title: "Unicode 汉字数据库", detail: "拆字读音 · Unicode License V3")
   ]
 

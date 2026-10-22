@@ -21,6 +21,9 @@ int main() {
         }];
         [window showWindow:nil];
         NSButton *enabled = [window valueForKey:@"enabled"];
+        // 「英文模式也请求 AI 候选」是窗口里第二个复选框，与共享页的「联想」组同一项。
+        NSButton *englishCandidates = [window valueForKey:@"englishCandidates"];
+        assert(englishCandidates && [englishCandidates isKindOfClass:NSButton.class]);
         NSPopUpButton *provider = [window valueForKey:@"provider"];
         NSTextField *model = [window valueForKey:@"model"], *endpoint = [window valueForKey:@"endpoint"];
         // 窗口里没有「候选数量」：macOS 固定给 3 个 AI 候选，这个窗口不读也不写 candidate_limit。
@@ -31,7 +34,8 @@ int main() {
         // There is nothing to press: no 保存 or 重新加载 button.
         NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:window.window.contentView];
         for (NSUInteger i = 0; i < views.count; ++i) {
-            assert(![views[i] isKindOfClass:NSButton.class] || views[i] == enabled || views[i] == provider);
+            assert(![views[i] isKindOfClass:NSButton.class] || views[i] == enabled || views[i] == englishCandidates ||
+                   views[i] == provider);
             [views addObjectsFromArray:views[i].subviews];
         }
         // Controls that reflect what is stored write nothing.

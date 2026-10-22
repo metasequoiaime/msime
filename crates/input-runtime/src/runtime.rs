@@ -2151,8 +2151,19 @@ impl<E: InputEngine> Runtime<E> {
         let has_cloud = counts[CLOUD_GROUP] > 0;
         let ai_count = counts[AI_GROUP];
         let non_ai = count - ai_count;
-        // 第一条 AI 候选的座位：第一页最后一格，不占首位；第一页排不满时紧跟在其余行之后。
-        let ai_seat = self.page_size.saturating_sub(1).max(1).min(non_ai);
+        // 联系人姓名与组合文本占据开头的连续位置，云与 AI 候选都不能拆开这一组。
+        let contact_prefix = snapshot
+            .candidate_sources
+            .iter()
+            .take_while(|source| **source == msime_engine::CandidateSource::Contact as u8)
+            .count();
+        // 第一条 AI 候选通常坐第一页最后一格；小页数也必须让完整联系人组保持在它前面。
+        let ai_seat = self
+            .page_size
+            .saturating_sub(1)
+            .max(1)
+            .max(contact_prefix)
+            .min(non_ai);
 
         // 有云候选时其余行每组有优先段和剩余段，组内按引擎原顺序排列。
         let mut head_starts = [0; 7];
@@ -2167,7 +2178,7 @@ impl<E: InputEngine> Runtime<E> {
             let mut reading = snapshot.reading.chars();
             let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
                 && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
-            let local_prefix = if single_kana { 2 } else { 1 };
+            let local_prefix = (if single_kana { 2 } else { 1 }).max(contact_prefix);
 
             let mut next_seat = 0;
             let mut head = |group: usize, limit: usize| {
@@ -2268,7 +2279,9 @@ impl<E: InputEngine> Runtime<E> {
             }
             fixed_english_scratch.sort_by_key(|index| snapshot.candidate_positions[*index]);
             for &index in &fixed_english_scratch {
-                let seat = usize::from(snapshot.candidate_positions[index] - 1).min(write);
+                let seat = usize::from(snapshot.candidate_positions[index] - 1)
+                    .max(contact_prefix)
+                    .min(write);
                 order.copy_within(seat..write, seat + 1);
                 order[seat] = index;
                 write += 1;
@@ -2700,12 +2713,13 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
-        // A spelling symbol is input, as on the punctuation route: it extends the local mode in progress, and a scheme that spells with marks (Zhuyin's bopomofo keys) takes them whenever it lists them. The symbols that open a mode with nothing composed are the exception: there the host asked for the literal mark after weighing the surrounding text (a `/` after a digit), so it never opens a mode.
+        // 已发布的组字符号仍交给引擎；空闲的模式入口和普通拼音的网址触发键保留 ASCII 标点语义。
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
-                && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_table_modes()));
-        // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
+                && (scheme_type(self.cached.scheme)
+                    .is_some_and(|scheme| !scheme.opens_table_modes())
+                    || (!self.cached.editing_text.is_empty()
+                        && !matches!(value, b'/' | b'@' | b'.' | b':'))));
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
         }

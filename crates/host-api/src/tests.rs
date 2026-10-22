@@ -288,6 +288,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -18286,6 +18287,46 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
     let result = read(unsafe { msime_client_voice_provider_update(b"x".as_ptr(), 1_048_577) });
     assert_eq!(result["ok"], false);
     assert_eq!(result["error"], "invalid voice request buffer");
+}
+
+#[test]
+fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = msime_client_services::plugins::mentions::MentionStore::new(
+        dir.path().join("state/plugins"),
+    );
+    let save = |phone: &str| {
+        store
+            .save(&[msime_client_services::plugins::mentions::MentionEntry {
+                text: "拟好".into(),
+                key: "ni'hao".into(),
+                phone: phone.into(),
+            }])
+            .unwrap()
+    };
+    save("202-555-0101");
+    let mut preferences = chinese_preferences();
+    preferences.local_modes.mention = false;
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0101"]
+    );
+    save("202-555-0102");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        &local_mode_candidates(handle, b"nihao")[..2],
+        ["拟好", "拟好 202-555-0102"]
+    );
+    store.save(&[]).unwrap();
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert!(!local_mode_candidates(handle, b"nihao")
+        .iter()
+        .any(|row| row.contains("202-555-")));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 #[test]

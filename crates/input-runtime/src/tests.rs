@@ -4822,6 +4822,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_command: false,
         local_mention: false,
         local_chaizi: false,
+        local_symbol: true,
         local_shift_letter_entry: true,
         chaizi_traditional_output: false,
         command_table: Vec::new(),
@@ -5895,7 +5896,7 @@ fn expression_operators_sent_as_punctuation_extend_the_expression() {
     let mut runtime = generated_mode_runtime(directory.path());
     let entered = character(&mut runtime, b'V');
     assert_eq!(entered.view.local_mode, "expression");
-    assert_eq!(entered.view.spelling_symbols, "0123456789+-*/.()%^");
+    assert_eq!(entered.view.spelling_symbols, "0123456789+-*/.()%^#$&");
     character(&mut runtime, b'1');
     for (action, value) in [
         (Action::Punctuation(b'+'), b'2'),
@@ -8995,7 +8996,7 @@ fn url_mode_opens_on_the_punctuation_route() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = url_runtime(directory.path(), 0);
     type_characters(&mut runtime, "www");
-    assert_eq!(runtime.view().spelling_symbols, ".@");
+    assert_eq!(runtime.view().spelling_symbols, ".@#$%&");
     let opened = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
     assert!(opened.handled && opened.commit.is_none(), "{opened:?}");
     assert_eq!(opened.view.local_mode, "url");
@@ -9117,7 +9118,7 @@ fn url_backspace_past_the_trigger_returns_to_the_composition() {
     assert!(back.handled && back.commit.is_none());
     assert_eq!(back.view.local_mode, "none");
     assert_eq!(back.view.editing_text, "www");
-    assert_eq!(back.view.spelling_symbols, ".@");
+    assert_eq!(back.view.spelling_symbols, ".@#$%&");
 }
 
 // 空格上屏网址本身，不在末尾带空格；Esc 丢弃网址不上屏，回到没有本地模式的状态。
@@ -9149,7 +9150,7 @@ fn url_email_suffixes_leave_digits_and_space_to_the_address() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = url_runtime(directory.path(), 0);
     type_characters(&mut runtime, "abc");
-    assert_eq!(runtime.view().spelling_symbols, "@");
+    assert_eq!(runtime.view().spelling_symbols, "@#$%&");
     let at = runtime.dispatch(Action::Punctuation(b'@')).unwrap();
     assert!(at.handled && at.commit.is_none(), "{at:?}");
     assert_eq!(at.view.local_mode, "url");
@@ -9639,6 +9640,34 @@ fn cloud_switch_does_not_change_engine_after_generation_exhaustion() {
 }
 
 #[test]
+fn contacts_stay_first_and_adjacent_with_online_rows() {
+    for page_size in [1, 2, 9] {
+        let mut runtime = runtime();
+        runtime.engine.words = vec![
+            "合成甲".into(),
+            "合成甲 202-555-0101".into(),
+            "字典词".into(),
+            "云词".into(),
+            "智能词".into(),
+            "synthetic".into(),
+        ];
+        runtime.engine.sources = vec![16, 16, 0, 2, 3, 4];
+        runtime.engine.codes = vec!["a".into(); 6];
+        runtime.engine.positions = vec![0, 0, 0, 0, 0, 1];
+        runtime.set_page_size(page_size).unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        let rows = runtime.all_candidates().candidates;
+        assert_eq!(rows[0].text, "合成甲");
+        assert_eq!(rows[1].text, "合成甲 202-555-0101", "page size {page_size}");
+        let selected = runtime
+            .dispatch(Action::SelectAnyCandidate(rows[1].id))
+            .unwrap();
+        assert_eq!(selected.commit.as_deref(), Some("合成甲 202-555-0101"));
+    }
+}
+
+#[test]
 fn english_online_runtime_keeps_local_order_places_ai_and_commits_the_answer() {
     for dedicated in [true, false] {
         let directory = tempfile::tempdir().unwrap();
@@ -9722,4 +9751,37 @@ fn english_online_runtime_revocation_and_blur_reject_pending_answers() {
     assert!(!runtime
         .apply_online_candidate(&query, "accessibility", 1)
         .unwrap());
+}
+
+#[test]
+fn literal_symbol_survives_runtime_punctuation_without_early_commit() {
+    for scheme in [0, 1] {
+        for symbol in *b"#$%&" {
+            for action in [
+                Action::Character {
+                    value: symbol,
+                    shift: false,
+                },
+                Action::Punctuation(symbol),
+                Action::PunctuationAscii(symbol),
+            ] {
+                let directory = tempfile::tempdir().unwrap();
+                let mut options = real_engine_options(directory.path());
+                options.scheme = scheme;
+                let session = msime_engine::host::Session::new(&options).unwrap();
+                let mut runtime = Runtime::new(session, 5).unwrap();
+                runtime.focus(true).unwrap();
+                character(&mut runtime, b'C');
+                let added = runtime.dispatch(action).unwrap();
+                assert!(added.handled && added.commit.is_none(), "{added:?}");
+                let expected = format!("C{}", char::from(symbol));
+                assert_eq!(added.view.editing_text, expected);
+                assert_eq!(added.view.candidates.len(), 1);
+                assert_eq!(added.view.candidates[0].text, expected);
+                let selected = runtime.dispatch(Action::SelectHighlighted).unwrap();
+                assert_eq!(selected.commit.as_deref(), Some(expected.as_str()));
+                assert!(selected.view.editing_text.is_empty());
+            }
+        }
+    }
 }

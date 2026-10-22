@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "../../../../shared/contracts/candidate_decoration_overlay.h"
 
 #include "../../../../shared/candidate/CandidateDecoration.h"
 
@@ -369,6 +370,7 @@ struct SkinPackage
     double decorationMotionPeriodMs = 3000.0;
     // 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG 为它的动画帧数。
     unsigned decorationFrames = 0;
+    std::optional<msime::candidate::DecorationCandidate> decorationCandidate;
     std::optional<SkinBackground> background;
     std::optional<SkinCanvas> canvas;
     SkinToolbar toolbar;
@@ -446,6 +448,7 @@ struct ResolvedSkin
     DecorationAlign decorationAlign = DecorationAlign::right;
     DecorationMotion decorationMotion = DecorationMotion::none;
     double decorationMotionPeriodMs = 3000.0;
+    std::optional<msime::candidate::DecorationCandidate> decorationCandidate;
     // Absolute path of the drawn package's background image, empty for none.
     std::string backgroundPath;
     BackgroundFit backgroundFit = BackgroundFit::cover;

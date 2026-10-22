@@ -27,7 +27,7 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
     private float density;
 
     @Override protected String successDescription() {
-        return "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP and invalidation";
+        return "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -138,6 +138,116 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         Files.delete(skin.resolve("atlas.png"));
         call(resolver, "read", new Class<?>[] {String.class}, state.toString());
         check(property(resolve(resolver, state, preferences, true), "canvas") == null, "missing texture retained old scene");
+        decoration(state, skin, resolver, preferences);
+    }
+
+    private void decoration(Path state, Path skin, Object resolver, JSONObject preferences) throws Exception {
+        png(skin.resolve("banner.png"), 1, 1, new int[] {0xff000000});
+        Class<?> word = loader.loadClass("app.msime.android.CandidateCanvasAssets$Word");
+        var constructor = word.getConstructor(String.class, String.class, boolean.class);
+        var first = constructor.newInstance("WWW", "", true);
+        var second = constructor.newInstance("i", "", false);
+        for (String name : new String[] {"CandidateCanvasColumn", "CandidateCanvasFrame"}) {
+            stage = name + " traditional decoration follows highlight and clears stale words";
+            View host = (View) loader.loadClass("app.msime.android." + name)
+                .getConstructor(android.content.Context.class).newInstance(getTargetContext());
+            Object assets = decorationAssets(state, skin, resolver, preferences, "", "right");
+            check(!((Boolean) property(assets, "panelDrawn")), "banner must not claim the canvas palette");
+            stage = name + " strict decoration metadata";
+            JSONObject published = new JSONObject(nativeCall("skinPackage", new JSONObject().put("directory", state.resolve("skins").toString())
+                .put("id", "canvas-device").toString())).getJSONObject("value").getJSONObject("decorationCandidate");
+            Class<?> overlayType = loader.loadClass("app.msime.android.CandidateCanvasAssets$CandidateOverlay");
+            var parse = overlayType.getDeclaredMethod("from", JSONObject.class); parse.setAccessible(true);
+            check(parse.invoke(null, published) != null, "published overlay rejected");
+            for (Object[] invalid : new Object[][] {{"index", true}, {"index", 0.5}, {"fontSizeDip", 0},
+                    {"maxWidthDip", -1}, {"offsetXDip", "0"}, {"alignH", "unknown"}, {"stripBadge", 1},
+                    {"resolvedColor", "#fff"}, {"resolvedColor", "#1234567x"}}) {
+                JSONObject bad = new JSONObject(published.toString()).put((String) invalid[0], invalid[1]);
+                check(parse.invoke(null, bad) == null, "malformed metadata accepted: " + invalid[0]);
+            }
+            var select = overlayType.getDeclaredMethod("word", java.util.List.class); select.setAccessible(true);
+            Object policy = parse.invoke(null, new JSONObject(published.toString()).put("index", 1).put("stripBadge", true));
+            check("W(原文)".equals(select.invoke(policy, java.util.List.of(constructor.newInstance("W(原文)", "WW", false)))),
+                "badge stripping changed original suffix");
+            stage = name + " decoration pixels";
+            setWords(host, java.util.List.of(first, second));
+            int[] wide = magenta(render(host, assets));
+            check(wide[0] > 10, "decoration word has no pixels");
+            setWords(host, java.util.List.of(constructor.newInstance("WWW", "", false),
+                constructor.newInstance("i", "", true)));
+            int[] narrow = magenta(render(host, assets));
+            check(narrow[0] > 0 && wide[0] > narrow[0] * 2, "highlight did not change decoration pixels");
+            setWords(host, java.util.List.of(constructor.newInstance("MMM", "", true)));
+            check(magenta(render(host, assets))[0] > narrow[0] * 2, "page replacement kept old word");
+            setWords(host, java.util.List.of(second));
+            check(magenta(render(host, assets))[0] == 0, "no highlight guessed the first row");
+            setWords(host, java.util.List.of(constructor.newInstance("W", "WW", false)));
+            Object stripped = decorationAssets(state, skin, resolver, preferences, "candidate_overlay_index=1\ncandidate_overlay_strip_badge=true\n", "right");
+            int withoutBadge = magenta(render(host, stripped))[0];
+            Object marked = decorationAssets(state, skin, resolver, preferences, "candidate_overlay_index=1\ncandidate_overlay_strip_badge=false\n", "right");
+            check(magenta(render(host, marked))[0] > withoutBadge, "independent badge not rendered");
+            Object outOfRange = decorationAssets(state, skin, resolver, preferences, "candidate_overlay_index=100\n", "right");
+            check(magenta(render(host, outOfRange))[0] == 0, "out-of-range index retained word");
+            setWords(host, java.util.List.of(first));
+            int[] x = new int[3], y = new int[3];
+            for (int h = 0; h < 3; h++) for (int v = 0; v < 3; v++) {
+                String options = "candidate_overlay_align_h='" + new String[] {"left", "center", "right"}[h]
+                    + "'\ncandidate_overlay_align_v='" + new String[] {"top", "center", "bottom"}[v] + "'\n";
+                int[] bounds = magenta(render(host, decorationAssets(state, skin, resolver, preferences, options, "right")));
+                check(bounds[0] > 0, "alignment clipped all text");
+                x[h] = bounds[1]; y[v] = bounds[2];
+            }
+            check(x[0] < x[1] && x[1] < x[2] && y[0] < y[1] && y[1] < y[2], "nine text alignments");
+            Object fitted = decorationAssets(state, skin, resolver, preferences, "candidate_overlay_max_width_dip=1\n", "right");
+            int[] small = magenta(render(host, fitted));
+            check(small[0] > 0 && small[0] < wide[0] && small[3] - small[1] > px(1), "minimum font must retain complete single line");
+            Bitmap reset = render(host, null);
+            check(magenta(reset)[0] == 0, "theme reset retained decoration");
+            Files.delete(skin.resolve("banner.png"));
+            call(resolver, "read", new Class<?>[] {String.class}, state.toString());
+            check(property(resolve(resolver, state, preferences, true), "canvas") == null, "bad banner retained old scene");
+            png(skin.resolve("banner.png"), 1, 1, new int[] {0xff000000});
+        }
+    }
+
+    private Object decorationAssets(Path state, Path skin, Object resolver, JSONObject preferences,
+            String options, String align) throws Exception {
+        String manifest = "schema_version=2\nid='canvas-device'\nname='Synthetic decoration'\nversion='1.0'\nbase='system'\n"
+            + "[supports]\nlayouts=['horizontal','vertical']\nthemes=['light','dark']\n"
+            + "[candidate_window.decoration]\nimage='banner.png'\ntop_inset_dip=80\nwidth_dip=120\nalign='" + align + "'\n"
+            + "candidate_overlay=true\ncandidate_overlay_font_size_dip=24\ncandidate_overlay_min_font_size_dip=8\ncandidate_overlay_color='#FF00FF'\n"
+            + (options.contains("candidate_overlay_index=") ? "" : "candidate_overlay_index=0\n") + options;
+        Files.write(skin.resolve("skin.toml"), manifest.getBytes(StandardCharsets.UTF_8));
+        call(resolver, "read", new Class<?>[] {String.class}, state.toString());
+        Object appearance = resolve(resolver, state, preferences, true);
+        Object assets = property(appearance, "canvas");
+        check("canvas-device".equals(property(appearance, "id")), "decoration-only package lost its active identity");
+        check(assets != null, "decoration-only package must retain the host palette and decoded banner");
+        return assets;
+    }
+
+    private void setWords(View host, java.util.List<?> words) throws Exception {
+        runOnMainSync(() -> {
+            try { call(host, "decorationWords", new Class<?>[] {java.util.List.class, android.graphics.Typeface.class},
+                words, android.graphics.Typeface.DEFAULT); }
+            catch (Exception error) { throw new AssertionError(error); }
+        });
+    }
+
+    /** 返回合成洋红文字的像素数及边界，并释放该次截图。 */
+    private int[] magenta(Bitmap image) {
+        int[] result = {0, image.getWidth(), image.getHeight(), -1, -1};
+        try {
+            for (int y = 0; y < image.getHeight(); y++) for (int x = 0; x < image.getWidth(); x++) {
+                int value = image.getPixel(x, y);
+                if ((value >>> 24) > 100 && ((value >>> 16) & 255) > 150 && ((value >>> 8) & 255) < 60 && (value & 255) > 150) {
+                    result[0]++;
+                    result[1] = Math.min(result[1], x); result[2] = Math.min(result[2], y);
+                    result[3] = Math.max(result[3], x); result[4] = Math.max(result[4], y);
+                }
+            }
+            return result;
+        } finally { image.recycle(); }
     }
 
     private Object resolve(Object resolver, Path state, JSONObject preferences, boolean dark) throws Exception {

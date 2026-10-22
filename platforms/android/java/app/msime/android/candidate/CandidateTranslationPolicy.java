@@ -131,10 +131,10 @@ public final class CandidateTranslationPolicy {
 
     /** 与共享层的 source_gets_no_gloss 保持一致：这些来源既不请求也不显示候选释义。 */
     public static boolean sourceGetsNoGloss(int source) {
-        return source == 6 || source == 7 || source == 13 || source == 14;
+        return source == 6 || source == 7 || source == 13 || source == 14 || source == 15 || source == 16;
     }
 
-    /** 与共享层的 source_gets_no_gloss 保持一致：表情、颜文字、日文混输和插件候选不送用户翻译服务。 */
+    /** 与共享层的 source_gets_no_gloss 保持一致：表情、颜文字、日文混输、插件、占位及联系人候选不送用户翻译服务。 */
     public static boolean userTranslationSourceAllowed(int source) {
         return !sourceGetsNoGloss(source);
     }

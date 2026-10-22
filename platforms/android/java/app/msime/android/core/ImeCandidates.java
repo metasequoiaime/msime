@@ -195,7 +195,7 @@ final class ImeCandidates {
         // Apple uses the same press-feedback button for candidate chips as for keys. Android's
         // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
         // feedback without changing the existing scroll-versus-select boundary.
-        Button button = candidateButton();
+        KeyboardPressButton button = candidateButton();
         ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
         s.bindCandidateRenderRelease(button);
         button.setOnLongClickListener(ignored -> {
@@ -212,16 +212,16 @@ final class ImeCandidates {
 
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
-        Button button = candidateButton();
+        KeyboardPressButton button = candidateButton();
         s.bindCandidateRenderRelease(button);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
-        String displayedText = ContactCandidatePolicy.displayText(source, text);
+        ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
         String annotation = s.candidateAnnotation(candidate, typed);
-        button.setText(s.candidateLabel("", displayedText, annotation, highlighted));
+        button.setText(s.candidateLabel("", text, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
@@ -285,8 +285,7 @@ final class ImeCandidates {
     }
 
     private KeyboardPressButton candidateButton() {
-        KeyboardPressButton button = ViewPolicy.newPressButton(s);
-        return button;
+        return new ContactCandidateButton(s);
     }
 
     void renderExpandedCandidates() {

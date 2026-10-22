@@ -191,14 +191,17 @@ static void TestEngineMaintenance() {
     }
     englishView = [session setDedicatedEnglishEnabled:NO error:&error];
     assert(!error && [englishView[@"dedicated_english"] isEqual:@NO]);
-    // 真正的 Apple 桥和 Engine 会话在半角、全角、再半角时输出不同人民币码位。
+    // 空闲时真正的 Apple 桥和 Engine 会话在半角、全角、再半角时输出不同人民币码位；组字中保留原文。
     for (NSNumber *fullwidth in @[@NO, @YES, @NO]) {
         assert([session setCharacterWidthFull:fullwidth.boolValue error:&error] && !error);
         NSString *currency = fullwidth.boolValue ? @"￥" : @"¥";
         assert([[session punctuation:'$' preceding:0 error:&error][@"commit"] isEqual:currency] && !error);
         for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
-        NSString *expected = [@"你好" stringByAppendingString:currency];
-        assert([[session punctuation:'$' preceding:0 error:&error][@"commit"] isEqual:expected] && !error);
+        NSDictionary *literal = [session punctuation:'$' preceding:0 error:&error];
+        assert(literal && !error && literal[@"commit"] == NSNull.null);
+        assert([literal[@"view"][@"editing_text"] isEqual:@"nihao$"]);
+        NSString *expected = fullwidth.boolValue ? @"ｎｉｈａｏ＄" : @"nihao$";
+        assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:expected] && !error);
     }
     assert(![session onlineQueryWithError:&error] && !error);
     for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
@@ -254,6 +257,46 @@ static void TestEngineMaintenance() {
     assert(!MaintenanceCandidate(session));
     assert([session closeWithError:&error] && !error);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
+static void TestLiteralSymbols() {
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":@{@"scheme":scheme, @"default_ime_mode":@"chinese", @"candidate_page_size":@5, @"learning":@NO, @"chinese_punctuation":@YES}} mutableCopy];
+        for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+            NSString *path = [root stringByAppendingPathComponent:name];
+            assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+            options[name] = path;
+        }
+        NSError *error = nil;
+        MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(session && !error && [session setFocused:YES error:&error]);
+        for (char symbol : std::string("#$%&")) {
+            for (bool punctuation : {false, true}) {
+                for (uint32_t command : {MSIME_COMMIT_CANDIDATE, MSIME_COMMIT_RAW}) {
+                    FakeTextClient *client = [[FakeTextClient alloc] init];
+                    NSDictionary *typed = [session typeASCII:'C' shift:YES error:&error];
+                    assert(typed && !error && typed[@"commit"] == NSNull.null);
+                    assert(([typed[@"view"][@"spelling_symbols"] containsString:[NSString stringWithFormat:@"%c", symbol]]));
+                    MSIMEApplyTransition(typed, client);
+                    typed = punctuation ? [session punctuation:symbol preceding:0 error:&error] : [session typeASCII:symbol shift:NO error:&error];
+                    assert(typed && !error && [typed[@"handled"] boolValue] && typed[@"commit"] == NSNull.null);
+                    NSString *expected = [NSString stringWithFormat:@"C%c", symbol];
+                    assert([typed[@"view"][@"candidates"] count] == 1);
+                    assert([typed[@"view"][@"candidates"][0][@"text"] isEqual:expected]);
+                    MSIMEApplyTransition(typed, client);
+                    assert(!client.committed && [client.markedString isEqual:expected] && client.selection.location == 2);
+                    NSDictionary *confirmed = [session command:command error:&error];
+                    assert(confirmed && !error && [confirmed[@"handled"] boolValue]);
+                    MSIMEApplyTransition(confirmed, client);
+                    assert([client.committed isEqual:expected] && client.markedString.length == 0);
+                    assert([confirmed[@"view"][@"editing_text"] isEqual:@""]);
+                }
+            }
+        }
+        assert([session closeWithError:&error] && !error);
+        assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    }
 }
 
 static void TestEngineEdges(FakeTextClient *client) {
@@ -533,6 +576,7 @@ int main() {
         TestEnginePreedit(client);
         TestEngineEdges(client);
         TestEngineMaintenance();
+        TestLiteralSymbols();
         TestCustomTranslationHTTPBridge();
         TestTencentTranslationHTTPBridge();
         // A pair the host owes the document: the closing mark is the tail of the marked text, so it

@@ -1,4 +1,5 @@
 #include "candidate/CandidateCanvasPreview.h"
+#include "candidate/CandidateDecorationDrawing.h"
 #include <iostream>
 #include <stdexcept>
 #include <windows.h>
@@ -24,6 +25,42 @@ ComPtr<IWICBitmap> image(IWICImagingFactory *wic,
         "fixture bitmap");
   return bitmap;
 }
+// 和候选窗共用 DirectWrite layout，验证缩字、单行超框及九种对齐，不依赖特定中文字形。
+void decoration_layout() {
+  ComPtr<IDWriteFactory> factory;
+  check(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+      reinterpret_cast<IUnknown **>(factory.GetAddressOf()))), "decoration text factory");
+  ComPtr<IDWriteTextFormat> format;
+  check(SUCCEEDED(factory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 20, L"", format.GetAddressOf())), "decoration format");
+  msime::candidate::DecorationCandidate style;
+  style.fontSizeDip = 20;
+  const D2D1_RECT_F box{10, 20, 110, 80};
+  const auto word = candidate_decoration_text(factory.Get(), format.Get(), L"WWW", style, box);
+  check(word && word->metrics.lineCount == 1 && word->metrics.widthIncludingTrailingWhitespace > 0, "decoration measured");
+  for (const auto *horizontal : {"left", "center", "right"})
+    for (const auto *vertical : {"top", "center", "bottom"}) {
+      style.alignH = horizontal; style.alignV = vertical;
+      style.offsetXDip = -3; style.offsetYDip = 4;
+      const auto aligned = candidate_decoration_text(factory.Get(), format.Get(), L"WWW", style, box);
+      check(aligned && std::abs(aligned->origin.x - (box.left + style.left(100,
+          aligned->metrics.widthIncludingTrailingWhitespace))) < 0.01 &&
+          std::abs(aligned->origin.y - (box.top + style.top(60, aligned->metrics.height))) < 0.01,
+          "decoration declaration box alignment");
+    }
+  style.maxWidthDip = 1;
+  const auto overflow = candidate_decoration_text(factory.Get(), format.Get(), L"WWWWWW", style, box);
+  FLOAT size = 0;
+  check(overflow && SUCCEEDED(overflow->layout->GetFontSize(0, &size)) && size == 8 &&
+      overflow->metrics.lineCount == 1 && overflow->metrics.widthIncludingTrailingWhitespace > 1,
+      "decoration minimum font must retain the complete single line");
+  style.maxWidthDip = 40;
+  style.minFontSizeDip = 1;
+  const auto fitted = candidate_decoration_text(factory.Get(), format.Get(), L"WWWWWW", style, box);
+  check(fitted && fitted->metrics.widthIncludingTrailingWhitespace <= 40.1f, "decoration proportional fit");
+  check(!candidate_decoration_text(factory.Get(), format.Get(), L"", style, box), "empty decoration word clears");
+  check(!candidate_decoration_text(factory.Get(), format.Get(), L"W", style, {10, 20, 10, 80}), "zero declaration box clears");
+}
 struct Pixels {
   UINT width = 0, height = 0;
   std::vector<uint32_t> values;
@@ -48,6 +85,7 @@ int main() {
     return 1;
   int result = 0;
   try {
+    decoration_layout();
     ComPtr<IWICImagingFactory> wic;
     check(SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                      CLSCTX_INPROC_SERVER,

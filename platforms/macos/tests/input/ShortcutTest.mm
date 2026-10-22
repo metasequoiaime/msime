@@ -5807,15 +5807,19 @@ static bool gCapsHeld = false;
 static bool gCapsReleaseWorks = true;
 static NSUInteger gCapsReleases = 0;
 static std::int64_t SyntheticCapsNow() { return gCapsNow; }
-static bool SyntheticCapsHeld() { return gCapsHeld; }
+static CGEventFlags SyntheticCapsFlags(CGEventSourceStateID state) {
+    assert(state == kCGEventSourceStateHIDSystemState);
+    // 松手后逻辑锁定位仍为真，只有实体按住位清除；不能把锁定当成长按。
+    return NX_ALPHASHIFTMASK | (gCapsHeld ? NX_ALPHASHIFT_STATELESS_MASK : 0);
+}
 static bool SyntheticCapsRelease() { ++gCapsReleases; return gCapsReleaseWorks; }
 
 static void TestCapsLockTap() {
     const auto realRelease = MSIMECapsLockRelease;
-    const auto realHeld = MSIMECapsLockKeyHeld;
+    const auto realFlags = MSIMECapsLockFlagsState;
     const auto realNow = MSIMECapsLockNow;
     MSIMECapsLockRelease = &SyntheticCapsRelease;
-    MSIMECapsLockKeyHeld = &SyntheticCapsHeld;
+    MSIMECapsLockFlagsState = &SyntheticCapsFlags;
     MSIMECapsLockNow = &SyntheticCapsNow;
     gCapsReleases = 0;
     gCapsReleaseWorks = true;
@@ -5971,8 +5975,30 @@ static void TestCapsLockTap() {
         gCapsHeld = false;
     }
 
+    // 实体松手的 FlagsChanged 可能先于下一次轮询抵达；锁定位仍开时不能取消这次轻点，也不能重新计时。
+    for (unsigned short code : {static_cast<unsigned short>(0x39), static_cast<unsigned short>(0xff)}) {
+        assert(![controller handleEvent:capsOff(12.0) client:client]);
+        prefs.englishMode = NO;
+        const NSUInteger releasesBefore = gCapsReleases;
+        gCapsNow = 12000; gCapsHeld = true;
+        assert(![controller handleEvent:capsOn(12.0) client:client]);
+        gCapsNow = 12050; gCapsHeld = false;
+        assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, code, NSEventModifierFlagCapsLock, 12.05) client:client]);
+        assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
+    }
+
+    // 初始事件和 HID 状态都没有实体按住位时不布防，避免不支持该位的设备连长按也被切换。
+    assert(![controller handleEvent:capsOff(13.0) client:client]);
+    prefs.englishMode = NO;
+    const NSUInteger releasesBefore = gCapsReleases;
+    gCapsNow = 13000; gCapsHeld = false;
+    assert(![controller handleEvent:capsOn(13.0) client:client]);
+    gCapsNow = 13050;
+    [controller pollCapsLockTap];
+    assert(session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
+
     MSIMECapsLockRelease = realRelease;
-    MSIMECapsLockKeyHeld = realHeld;
+    MSIMECapsLockFlagsState = realFlags;
     MSIMECapsLockNow = realNow;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }

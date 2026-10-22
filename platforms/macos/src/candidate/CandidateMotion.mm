@@ -278,7 +278,54 @@ bool StaggersRows(SkinAnimationPreset preset)
 }
 @end
 
+@interface MSIMEDecorationWordView : NSView
+@property(nonatomic, copy) NSAttributedString *text;
+@end
+@implementation MSIMEDecorationWordView
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; [self.text drawAtPoint:NSZeroPoint]; }
+@end
+
 @implementation MSIMECandidateDecorationView
+{
+    MSIMEDecorationWordView *_candidateWord;
+}
+
+- (void)setCandidateWord:(NSString *)word style:(const std::optional<msime::candidate::DecorationCandidate> &)style
+                boxSize:(NSSize)boxSize alignment:(msime::mac::DecorationAlign)alignment font:(NSFont *)font
+{
+    if (!style || word.length == 0 || boxSize.width <= 0 || boxSize.height <= 0) {
+        [_candidateWord removeFromSuperview];
+        _candidateWord = nil;
+        return;
+    }
+    const auto &value = *style;
+    NSFont *initial = [NSFont fontWithDescriptor:font.fontDescriptor size:value.fontSizeDip];
+    const CGFloat naturalWidth = [word sizeWithAttributes:@{NSFontAttributeName: initial}].width;
+    NSFont *fitted = [NSFont fontWithDescriptor:font.fontDescriptor size:value.fittedFont(naturalWidth, boxSize.width)];
+    const auto color = msime::mac::ParseCssColor(value.color).value_or(msime::mac::Rgba{1, 1, 1, 1});
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:word attributes:@{
+        NSFontAttributeName: fitted,
+        NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a]
+    }];
+    const NSSize measured = text.size;
+    if (!_candidateWord) {
+        _candidateWord = [[MSIMEDecorationWordView alloc] initWithFrame:NSZeroRect];
+        _candidateWord.identifier = @"candidate-decoration-word";
+        _candidateWord.accessibilityElement = NO;
+        [self addSubview:_candidateWord];
+    }
+    // 图像可能被等比缩小，文字仍相对声明的装饰框定位；超框的部分不裁切。
+    const CGFloat originX = alignment == msime::mac::DecorationAlign::left ? 0
+        : (NSWidth(self.bounds) - boxSize.width) * (alignment == msime::mac::DecorationAlign::center ? 0.5 : 1);
+    _candidateWord.frame = NSMakeRect(originX + value.left(boxSize.width, measured.width),
+        boxSize.height - value.top(boxSize.height, measured.height) - measured.height,
+        std::ceil(measured.width), std::ceil(measured.height));
+    _candidateWord.text = text;
+    _candidateWord.needsDisplay = YES;
+}
 
 - (instancetype)initWithFrame:(NSRect)frameRect
 {
@@ -287,6 +334,7 @@ bool StaggersRows(SkinAnimationPreset preset)
     {
         self.wantsLayer = YES;
         self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
+        self.clipsToBounds = NO;
     }
     return self;
 }

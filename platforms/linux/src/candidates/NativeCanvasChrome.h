@@ -348,6 +348,27 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   }
   layout.width = std::ceil(width);
   layout.height = std::ceil(band + card_height);
+  if (assets.band.candidate && layout.band.width > 0) {
+    const double align = assets.band.align == shared::DecorationAlign::left ? 0 :
+        assets.band.align == shared::DecorationAlign::center ? 0.5 : 1;
+    const NativeCanvasRect declared{layout.band.x + (layout.band.width - assets.band.width) * align,
+        layout.band.y + layout.band.height - assets.band.top, assets.band.width, assets.band.top};
+    layout.overlay = native_canvas_overlay_layout(cr, *assets.band.candidate, content, layout, declared);
+    if (layout.overlay) {
+      double left = 0, top = 0, right = layout.width, bottom = layout.height;
+      for (const auto &box : {layout.overlay->box, layout.overlay->ink}) {
+        left = std::min(left, box.x); top = std::min(top, box.y);
+        right = std::max(right, box.x + box.width); bottom = std::max(bottom, box.y + box.height);
+      }
+      // 最小字号后的完整文字及字形外伸计入窗口；所有命中矩形与绘制一起平移。
+      const auto shift = [&](NativeCanvasRect &box) { box.x -= left; box.y -= top; };
+      for (auto *box : {&layout.panel, &layout.preedit, &layout.auxiliary, &layout.previous, &layout.next,
+          &layout.page_divider, &layout.expand, &layout.logo, &layout.indicator, &layout.band, &layout.rows_area,
+          &layout.overlay->box, &layout.overlay->ink}) shift(*box);
+      for (auto &box : layout.items) shift(box);
+      layout.width = std::ceil(right - left); layout.height = std::ceil(bottom - top);
+    }
+  }
   return layout;
 }
 
@@ -770,6 +791,14 @@ inline void paint_native_canvas_chrome(cairo_t *cr, const NativeCanvasAssets &as
     cairo_translate(cr, -pivot_x, -pivot_y);
     native_canvas_image(cr, image, {0, 0, static_cast<double>(cairo_image_surface_get_width(image)),
         static_cast<double>(cairo_image_surface_get_height(image))}, box);
+    if (layout.overlay && assets.band.candidate) {
+      const auto &overlay = *layout.overlay;
+      auto *line = native_canvas_overlay_line(cr, layout.metrics.font, overlay.text, overlay.font_size);
+      native_canvas_color(cr, {{"text", assets.band.candidate->color}}, "text", "#FFFFFFFF");
+      cairo_move_to(cr, overlay.box.x, overlay.box.y);
+      pango_cairo_show_layout(cr, line);
+      g_object_unref(line);
+    }
     cairo_restore(cr);
   }
 }

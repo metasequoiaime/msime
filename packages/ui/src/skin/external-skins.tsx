@@ -98,6 +98,8 @@ export type ExternalSkin = {
   decorationMotionPeriodMs?: number;
   /** 装饰图的帧数：没有装饰图为 0，静态图为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。 */
   decorationFrames?: number;
+  /** 装饰图内的候选词叠加声明，v1、v2 均可用。 */
+  decorationCandidate?: import("./decoration-candidate").DecorationCandidate | null;
   background?: SkinBackground | null;
   /** `[candidate_window.border_image]` 九宫格面板；只在 `canvas` 时由 catalog 保留。 */
   borderImage?: SkinBorderImage | null;
@@ -393,6 +395,7 @@ export function ExternalSkinCard({
               revision={revision}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
+              decorationCandidate={skin.decorationCandidate}
               background={drawnBackground}
               onBackgroundError={background.onError}
             />
@@ -408,6 +411,7 @@ export function ExternalSkinCard({
               revision={revision}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
+              decorationCandidate={skin.decorationCandidate}
               background={drawnBackground}
               onBackgroundError={background.onError}
             />

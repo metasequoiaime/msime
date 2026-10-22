@@ -10,7 +10,7 @@ Status: implemented
 
 独立统计 workflow 复用现有 App Store Connect 授权，每半小时分页读取当前应用的 iOS 有效构建及各构建 `betaBuildUsages`。只将安装次数合计、构建数、指标覆盖日期和生成时间通过既有官网 dispatch 凭据发送到官网，协议名为 `testflight-stats-v1`。官网独立快照与 GitHub 合计分开维护；无需触发发布或读取测试者明细。
 
-分页失败、指标缺失或无法确认统计口径时整次失败，保留官网旧快照，不发布部分计数或伪造零值。请求与分页链接只允许预期的 Apple API 路径；不记录令牌、密钥、构建原始响应或测试者资料。
+分页失败、指标缺失或无法确认统计口径时整次失败，保留官网旧快照，不发布部分计数或伪造零值。请求与分页链接只允许预期的 Apple API 路径；不记录令牌、密钥、构建原始响应或测试者资料。API 请求失败时仅记录 HTTP 状态、端点类别、规范化错误码和请求中已有的参数名，以定位参数兼容性问题；不记录参数值及 Apple 错误详情。构建列表使用 `limit=200`，但构建指标请求不显式传 `limit`，仅跟随 Apple 返回的分页链接：真实接口对该参数返回 `PARAMETER_ERROR.INVALID`，即使当前官方文档将其列为可选参数。
 
 ## Alternatives considered
 
@@ -20,9 +20,9 @@ Status: implemented
 
 ## Verification
 
-6 项合成测试验证 ES256 JWT、完整分页、重复构建去重、合法零值、缺失指标与失败分页拒绝发布、跨域分页拦截和仅发送公开汇总。workflow 的 actionlint、`bash scripts/run-checks.sh` 契约门禁与 `pnpm run verify-notes` 通过；缺少工具链的既有契约按门禁规则跳过。
+7 项合成测试验证 ES256 JWT、完整分页、重复构建去重、合法零值、缺失指标与失败分页拒绝发布、跨域分页拦截和仅发送公开汇总。workflow 的 actionlint、`bash scripts/run-checks.sh` 契约门禁与 `pnpm run verify-notes` 通过；缺少工具链的既有契约按门禁规则跳过。
 
-本机可用磁盘约 12 GiB，低于仓库要求的 50 GB，不创建新的 Rust 构建树，因此未运行会无条件编译 workspace 的 `verify-local.sh --quick`。本次没有修改 Rust、原生宿主或发布链。首次真实执行仍须在 workflow 合入默认分支后验证现有密钥的指标权限和官网接收链；合成测试不是 Apple 授权或实数验证。
+本机可用磁盘约 12 GiB，低于仓库要求的 50 GB，不创建新的 Rust 构建树，因此未运行会无条件编译 workspace 的 `verify-local.sh --quick`。本次没有修改 Rust、原生宿主或发布链。[修正版的真实统计运行](https://github.com/metasequoiaime/msime/actions/runs/39598834120)使用现有授权成功读取 37 个构建、汇总 3,860 次安装并完成官网 dispatch；官网接收工作流成功，生成仅修改公开快照的自动 PR。修复前的真实运行在构建指标端点因 `limit` 返回 HTTP 400，错误码为 `PARAMETER_ERROR.INVALID`。回归断言确保指标初始请求不再附带该参数，并验证诊断不会输出原始错误详情或参数值。
 
 ## Consequences
 

@@ -703,6 +703,43 @@ fn real_dictionary_answers_common_readings() {
     );
 }
 
+#[test]
+fn ziranma_shouyou_real_dictionary_keeps_complete_phrases() {
+    let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES") else {
+        eprintln!("跳过：未设置 MSIME_EVAL_RESOURCES，真实词库回归未执行");
+        return;
+    };
+    let user = tempfile::tempdir().unwrap();
+    let resources = PathBuf::from(resources);
+    let paths = RuntimePaths {
+        resources: resources.clone(),
+        user_data: user.path().to_path_buf(),
+        cache: user.path().to_path_buf(),
+        dictionaries: resources,
+    };
+    let profile = profile(ShuangpinProfileKind::Ziranma).unwrap();
+    let codes = HelpcodeKeymap::from_table_bytes(include_bytes!(
+        "../../../../resources/helpcodes/shouyou2_0_helpcode.txt"
+    ))
+    .unwrap();
+    let mut engine = ShuangpinEngine::new(profile, &paths);
+    for _ in 0..2 {
+        for (reading, expected) in [
+            ("shu'ru'fa", "输入法"),
+            ("kao'shi'fen'shu", "考试分数"),
+            ("ni'xi'huan'wo'ma", "你喜欢我吗"),
+        ] {
+            let typed = super::utils::encode_pinyin(reading, profile)
+                .unwrap()
+                .replace('\'', "");
+            let plain = engine.query(&request(&typed, false), None);
+            let with_helpcode = engine.query(&request(&typed, true), Some(&codes));
+            assert_eq!(words(&plain)[0], expected, "普通读法：{typed}");
+            assert_eq!(words(&with_helpcode)[0], expected, "首右辅助码：{typed}");
+        }
+    }
+}
+
 /// Without a sentence model no answer reads the committed context, so a new context keeps every cached answer, the online rows included.
 #[test]
 fn context_changes_keep_the_caches_without_a_model() {

@@ -47,8 +47,8 @@ public final class AiPendingCandidatePolicy {
         return prefix + text + suffix;
     }
 
-    /** 长按是否打开候选菜单：占位行没有可管理的词，也没有释义可插入。 */
+    /** 长按是否打开候选菜单：占位行和联系人不参与词库管理，也没有释义可插入。 */
     public static boolean offersMenu(int source) {
-        return !isPlaceholder(source) && !isCloudPending(source);
+        return !isPlaceholder(source) && !isCloudPending(source) && !ContactCandidatePolicy.isContact(source);
     }
 }

@@ -7,6 +7,12 @@ class CandidateCanvasHostView: UIView {
   private let panel = CandidateCanvasView(level: 0)
   private let front = CandidateCanvasView(level: 1)
   private var insetConstraints: [NSLayoutConstraint] = []
+  var decorationWords: [ExternalCandidateSkin.Canvas.Word] = [] {
+    didSet { if oldValue != decorationWords { front.words = decorationWords } }
+  }
+  var decorationFontFamilies: [String] = [] {
+    didSet { if oldValue != decorationFontFamilies { front.fontFamilies = decorationFontFamilies } }
+  }
   var minimumContentHeight: CGFloat = 24
   var minimumContentWidth: CGFloat = 44
   var canvasVisible = true {
@@ -88,11 +94,16 @@ final class CandidateCanvasView: UIView {
   var geometryScale: CGFloat = 1 { didSet { if oldValue != geometryScale { setNeedsLayout() } } }
   private var sprites: [(CALayer, ExternalCandidateSkin.Canvas.Frames)] = []
   private var suspended = false
+  private let bannerWord = UILabel()
+  var words: [ExternalCandidateSkin.Canvas.Word] = [] { didSet { if oldValue != words { setNeedsLayout() } } }
+  var fontFamilies: [String] = [] { didSet { if oldValue != fontFamilies { setNeedsLayout() } } }
   var reduceMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
   var canvas: ExternalCandidateSkin.Canvas? {
     didSet {
       for (sprite, _) in sprites { sprite.removeFromSuperlayer() }
       sprites.removeAll()
+      bannerWord.text = nil
+      bannerWord.removeFromSuperview()
       if let canvas {
         if level == 0 {
           for (index, frames) in canvas.tiles.enumerated() {
@@ -106,6 +117,10 @@ final class CandidateCanvasView: UIView {
           }
         }
       }
+      if level == 1, let banner = canvas?.banner {
+        add(banner.frames, identifier: "banner")
+        addSubview(bannerWord)
+      }
       refreshPlayback()
       setNeedsLayout()
     }
@@ -117,6 +132,12 @@ final class CandidateCanvasView: UIView {
     isUserInteractionEnabled = false
     isAccessibilityElement = false
     backgroundColor = .clear
+    accessibilityElementsHidden = true
+    bannerWord.numberOfLines = 1
+    bannerWord.lineBreakMode = .byClipping
+    bannerWord.isUserInteractionEnabled = false
+    bannerWord.isAccessibilityElement = false
+    bannerWord.accessibilityIdentifier = "candidate-decoration-word"
     let center = NotificationCenter.default
     center.addObserver(self, selector: #selector(motionChanged), name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
     for name in [UIApplication.didEnterBackgroundNotification, NSNotification.Name("NSExtensionHostWillResignActiveNotification")] {
@@ -148,7 +169,12 @@ final class CandidateCanvasView: UIView {
   }
 
   override var isHidden: Bool {
-    didSet { if oldValue != isHidden { refreshPlayback() } }
+    didSet {
+      guard oldValue != isHidden else { return }
+      if isHidden { bannerWord.text = nil }
+      refreshPlayback()
+      setNeedsLayout()
+    }
   }
 
   @objc private func motionChanged() { refreshPlayback() }
@@ -187,7 +213,22 @@ final class CandidateCanvasView: UIView {
     CATransaction.setDisableActions(true)
     for (sprite, _) in sprites {
       guard let name = sprite.name else { continue }
-      if name.hasPrefix("tile-"), let index = Int(name.dropFirst(5)) {
+      if name == "banner", let banner = canvas.banner {
+        let boxWidth = banner.width * scale, boxHeight = banner.height * scale
+        let fit = min(boxWidth / CGFloat(banner.frames.images[0].width), boxHeight / CGFloat(banner.frames.images[0].height),
+                      card.width / CGFloat(banner.frames.images[0].width))
+        guard !bounds.isEmpty, fit.isFinite, fit > 0 else {
+          sprite.frame = .zero
+          bannerWord.text = nil
+          continue
+        }
+        let size = CGSize(width: CGFloat(banner.frames.images[0].width) * fit, height: CGFloat(banner.frames.images[0].height) * fit)
+        let align: CGFloat = banner.align == "left" ? 0 : banner.align == "center" ? 0.5 : 1
+        sprite.frame = CGRect(x: card.minX + (card.width - size.width) * align, y: card.minY - size.height,
+          width: size.width, height: size.height)
+        layoutBannerWord(banner, box: CGRect(x: sprite.frame.minX + (size.width - boxWidth) * align,
+          y: sprite.frame.maxY - boxHeight, width: boxWidth, height: boxHeight), scale: scale)
+      } else if name.hasPrefix("tile-"), let index = Int(name.dropFirst(5)) {
         let row = index / 3, col = index % 3
         sprite.frame = CGRect(x: x[col], y: y[row], width: x[col + 1] - x[col], height: y[row + 1] - y[row])
       } else if let index = Int(name.dropFirst(11)), canvas.decorations.indices.contains(index) {
@@ -195,6 +236,37 @@ final class CandidateCanvasView: UIView {
       }
     }
     CATransaction.commit()
+  }
+
+  /// 测量完整单行；达到最小字号仍过宽时允许溢出，不截断候选原文。
+  private func layoutBannerWord(_ banner: ExternalCandidateSkin.Canvas.Banner, box: CGRect, scale: CGFloat) {
+    guard !isHidden, scale > 0, box.width > 0, box.height > 0, let style = banner.candidate else {
+      bannerWord.text = nil
+      return
+    }
+    let word = style.word(words)
+    guard !word.isEmpty else { bannerWord.text = nil; return }
+    func font(_ size: CGFloat) -> UIFont {
+      guard let first = fontFamilies.first else { return .systemFont(ofSize: size) }
+      return UIFont(descriptor: UIFontDescriptor(fontAttributes: [.family: first,
+        .cascadeList: fontFamilies.dropFirst().map { UIFontDescriptor(fontAttributes: [.family: $0]) }]), size: size)
+    }
+    let naturalFont = font(style.fontSize * scale)
+    let natural = (word as NSString).size(withAttributes: [.font: naturalFont])
+    let limit = style.maxWidth > 0 ? style.maxWidth * scale : box.width
+    let size = natural.width > limit && natural.width > 0
+      ? max(min(style.fontSize, style.minFontSize) * scale, style.fontSize * scale * limit / natural.width)
+      : style.fontSize * scale
+    let fittedFont = size == naturalFont.pointSize ? naturalFont : font(size)
+    let measured = (word as NSString).size(withAttributes: [.font: fittedFont])
+    let width = ceil(measured.width), height = ceil(measured.height)
+    let horizontal: CGFloat = style.alignH == "left" ? 0 : style.alignH == "center" ? 0.5 : 1
+    let vertical: CGFloat = style.alignV == "top" ? 0 : style.alignV == "center" ? 0.5 : 1
+    bannerWord.text = word
+    bannerWord.font = fittedFont
+    bannerWord.textColor = style.color
+    bannerWord.frame = CGRect(x: box.minX + (box.width - width) * horizontal + style.offsetX * scale,
+      y: box.minY + (box.height - height) * vertical + style.offsetY * scale, width: width, height: height)
   }
 
   static func cardRect(in bounds: CGRect, outer: UIEdgeInsets) -> CGRect {

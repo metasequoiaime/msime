@@ -10,6 +10,10 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import java.io.File;
+import java.nio.file.Files;
+import java.util.Comparator;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -74,6 +78,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                                 + " scroll=" + scroll.getScrollX() + " content=" + bar.getWidth());
                     }
                 }
+                checkClipboardHeader(type, service, loader, density);
                 // 用真实排序入口移动同一组按钮，检查算式仍是第一项、动作对象未被重建。
                 Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
                 Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
@@ -108,10 +113,61 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order, hidden tools and resize\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order, hidden tools, resize and sticky clipboard header\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    /** 用隔离历史驱动产品的真实渲染，记录卡片滚动时顶栏仍留在原位。 */
+    private void checkClipboardHeader(Class<?> type, Object service, ClassLoader loader, float density)
+            throws Exception {
+        File directory = Files.createTempDirectory(getTargetContext().getCacheDir().toPath(),
+            "clipboard-sticky-").toFile();
+        Field history = field(type, "clipboardHistory");
+        Object original = history.get(service);
+        boolean enabled = field(type, "clipboardHistoryEnabled").getBoolean(service);
+        try {
+            Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
+            Object store = storeType.getConstructor(File.class).newInstance(directory);
+            for (int index = 0; index < 30; index++)
+                storeType.getMethod("add", String.class).invoke(store, "合成剪贴板记录 " + index);
+            history.set(service, store);
+            field(type, "clipboardHistoryEnabled").setBoolean(service, true);
+            Object panels = field(type, "imePanels").get(service);
+            method(panels.getClass(), "renderClipboardHistory").invoke(panels);
+            ViewGroup surface = (ViewGroup) field(type, "clipboardSurface").get(service);
+            ViewGroup header = (ViewGroup) field(type, "clipboardHeader").get(service);
+            ScrollView scroll = (ScrollView) field(type, "clipboardScroll").get(service);
+            ViewGroup cards = (ViewGroup) field(type, "clipboardPanel").get(service);
+            surface.setVisibility(View.VISIBLE);
+            for (int widthDp : new int[] {320, 600}) {
+                layout(surface, Math.round(widthDp * density), Math.round(300 * density));
+                scroll.scrollTo(0, 0);
+                check(header.getChildCount() > 0 && cards.getChildCount() > 1,
+                    "clipboard renderer did not create header and synthetic cards");
+                Rect fixed = bounds(surface, header);
+                Rect first = bounds(surface, cards.getChildAt(0));
+                check(first.top >= fixed.bottom, "clipboard cards overlap fixed header");
+                scroll.scrollTo(0, cards.getHeight());
+                check(scroll.getScrollY() > 0, "synthetic clipboard history did not overflow");
+                check(fixed.equals(bounds(surface, header)), "clipboard scrolling moved header");
+                check(bounds(surface, cards.getChildAt(0)).top < first.top,
+                    "clipboard scrolling did not move history cards");
+            }
+            check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
+                "visible clipboard surface is not reported open");
+            method(type, "closeClipboardHistory").invoke(service);
+            check(surface.getVisibility() == View.GONE
+                    && !(Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
+                "clipboard close left fixed header or panel state visible");
+        } finally {
+            history.set(service, original);
+            field(type, "clipboardHistoryEnabled").setBoolean(service, enabled);
+            try (var paths = Files.walk(directory.toPath())) {
+                for (var path : paths.sorted(Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) Files.delete(path);
+            }
+        }
     }
 
     private static void layout(View row, int width, int height) {

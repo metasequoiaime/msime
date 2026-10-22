@@ -1,6 +1,6 @@
 //! 打拼音出符号：全拼、双拼（26 键和九宫格）整段组字正好拼出某个符号的名称时，混排给出对应的符号，`zhengfu` 得 ±、`pingfangmi` 得 ㎡、`gamma` 得 γ Γ。
 //!
-//! 数据是本项目自写的 `symbol_candidates.tsv`，编进引擎，不读磁盘；格式和写法规则见文件头。第一次查询时解析一次，建三个索引：全拼（去掉 `'`）、两个音节以上名称的首字母、拉丁名称。
+//! 数据是本项目自写的 `symbol_candidates.tsv`，编进引擎，不读磁盘；格式和写法规则见文件头。第一次查询时解析一次，建三个索引：全拼（去掉 `'`）、两个音节以上非数字名称的首字母、拉丁名称。
 //!
 //! 只认完全相等，不按前缀：表是封闭的小集合，前缀命中几乎都是噪音（`zheng` 能命中正负、正比……），打完整名称只多几个字母。行的位置由混排决定（`queries::place_symbol_rows`）：跟在名称那个词后面，永远不占首位。行的来源是 `CandidateSource::Emoji`，所以选中时整段上屏、结束组字，不学习、不调频、不进个人上下文，也不能置顶、固定或删除。
 
@@ -21,9 +21,11 @@ pub const SYMBOLS_PER_NAME: usize = 6;
 /// 拉丁名称至少几个字母：`pi`、`mu`、`xi`、`nu` 都是常用拼音音节，这些希腊字母走中文名。
 #[cfg(test)]
 pub const LATIN_NAME_MINIMUM: usize = 4;
-/// 单音节名称只收有 issue 依据的这两个（W#40 的派 π、W#759 的度 °）：它们在最常用的音节上，锚定词不在候选里时不出，在时最早排第 4 位（`SymbolRow::ambiguous`）。
+/// 单音节名称只收有 issue 依据的派、度和一至十：常用音节必须有名称锚定词，且最早排第 4 位（`SymbolRow::ambiguous`），避免序号挤动前三个普通词。
 #[cfg(test)]
-pub const SINGLE_SYLLABLE_NAMES: [&str; 2] = ["派", "度"];
+pub const SINGLE_SYLLABLE_NAMES: [&str; 12] = [
+    "派", "度", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+];
 
 /// 混排的一行符号，带着决定它位置的信息，规则见 `queries::place_symbol_rows`。
 #[derive(Debug, Clone, PartialEq)]
@@ -87,7 +89,12 @@ impl SymbolTable {
                 .entry(pinyin.replace('\'', ""))
                 .or_default()
                 .push(index);
-            if entry.syllables() >= 2 {
+            // 数字名称的首字母高度重合（十三、十四、三十、四十都是 ss），只接受完整拼音，避免混入其他数字或耗尽符号上限。
+            let number_name = entry
+                .name
+                .chars()
+                .all(|character| "一二三四五六七八九十".contains(character));
+            if entry.syllables() >= 2 && !number_name {
                 let first_letters = pinyin
                     .split('\'')
                     .filter_map(|syllable| syllable.chars().next())
@@ -138,7 +145,7 @@ enum Match {
     Initials,
 }
 
-/// 26 键混排：整段组字（去掉 `'`、转成小写）正好是某个名称时给出它的符号。全拼认名称的全拼、两个音节以上名称的首字母（`ssd` 摄氏度）和拉丁名称（`gamma`）；双拼把输入归一成全拼后比全拼，另按原样比拉丁名称，不认首字母。微软双拼的 `;` 是 `ing` 韵母键，作为双拼编码保留；其他方案、输入不到两键或含无效字符时没有行。同一个符号只出一次，合计最多 `MIXED_SYMBOL_LIMIT` 行；行的 `pinyin` 是整段输入，选中即吃掉全部组字。
+/// 26 键混排：整段组字（去掉 `'`、转成小写）正好是某个名称时给出它的符号。全拼认名称的全拼、两个音节以上非数字名称的首字母（`ssd` 摄氏度）和拉丁名称（`gamma`）；双拼把输入归一成全拼后比全拼，另按原样比拉丁名称，不认首字母。微软双拼的 `;` 是 `ing` 韵母键，作为双拼编码保留；其他方案、输入不到两键或含无效字符时没有行。同一个符号只出一次，合计最多 `MIXED_SYMBOL_LIMIT` 行；行的 `pinyin` 是整段输入，选中即吃掉全部组字。
 pub fn query_mixed_symbols(
     code: &str,
     scheme: SchemeType,
@@ -309,7 +316,7 @@ mod tests {
                     if entry.syllables() == 1 {
                         assert!(
                             SINGLE_SYLLABLE_NAMES.contains(&entry.name),
-                            "单音节名称只收派、度：{}",
+                            "单音节名称必须在明确的白名单中：{}",
                             entry.name
                         );
                     }
@@ -367,6 +374,44 @@ mod tests {
         // 一个字母不查；含字母以外的字符不查。
         assert!(quanpin("d").is_empty());
         assert!(quanpin("da1yu").is_empty());
+    }
+
+    #[test]
+    fn number_names_offer_encoded_ordinal_symbols() {
+        for (input, expected) in [
+            ("yi", vec!["①", "⑴", "⒈"]),
+            ("er", vec!["②", "⑵", "⒉"]),
+            ("shi", vec!["⑩", "⑽", "⒑"]),
+            ("shiyi", vec!["⑪", "⑾", "⒒"]),
+            ("ershi", vec!["⑳", "⒇", "⒛"]),
+            ("ershiyi", vec!["㉑"]),
+            ("sanshi", vec!["㉚"]),
+            ("sanshiwu", vec!["㉟"]),
+            ("sanshiliu", vec!["㊱"]),
+            ("wushi", vec!["㊿"]),
+        ] {
+            assert_eq!(texts(&quanpin(input)), expected, "{input}");
+        }
+        // 每个数字独立匹配；较小数字不能把以它开头的其他序号一并带出。
+        assert!(quanpin("ersh").is_empty());
+        assert!(!texts(&quanpin("ershi")).contains(&"㉑"));
+        assert_eq!(texts(&quanpin("ss")), vec!["℃"]);
+        assert!(quanpin("es").is_empty());
+    }
+
+    #[test]
+    fn number_symbols_match_shuangpin_and_keypad_readings() {
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        assert_eq!(
+            texts(&query_mixed_symbols("erui", SchemeType::Shuangpin, xiaohe)),
+            vec!["⑳", "⒇", "⒛"]
+        );
+        let rows = query_symbol_readings(&["ershi".to_owned(), "yi".to_owned()], &|_| true);
+        assert_eq!(texts(&rows), vec!["⑳", "⒇", "⒛", "①", "⑴", "⒈"]);
+        assert!(rows
+            .iter()
+            .filter(|row| row.anchors == ["一"])
+            .all(|row| row.ambiguous && !row.unanchored));
     }
 
     #[test]

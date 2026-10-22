@@ -12,6 +12,12 @@ Android 的 `CandidateSkinResolver` 已读取共享候选配色，但 `canvas` �
 
 APNG 按帧控制块重建 PNG 子帧，并用 Android 位图完成混合与处置；GIF/WebP 使用 Android 28 起的 `ImageDecoder` / `AnimatedImageDrawable`。系统关闭动画时显示首帧，隐藏与卸载时停止动画。资源与主题切换不替换候选按钮。展开画布盖住普通键区时，`ImeFrame` 将整行键区设为 `INVISIBLE`，保留候选覆盖层所依赖的测量高度，并隐藏按键及单手侧栏；收起后恢复。外接键盘的收起状态仍优先使用 `GONE`。顶部候选条保留在展开层上方：`alignOverlaysBelowTopRow` 把偏移设到外层 `expandedCandidateCanvas`，内部滚动区只使用画布内边距，不能把窗口坐标写成嵌套滚动区的边距，否则画布会盖住候选条并在顶部留下空白。
 
+仅含装饰图而未声明颜色的 `base = "system"` 包会由共享解析器返回有效 `candidate_skin` 和空 `candidate` 配色；`CandidateSkinResolver` 保留这份已确认的包身份、图片和布局，颜色继续沿用宿主的安全回退，不能因没有显式颜色就丢弃整包。设备合成夹具覆盖这条真实解析链。
+
+传统装饰带复用同一安全资源读取、后台解码和动画生命周期，只有成功取得 `decorationImage` 才建立装饰场景；非 canvas 包不读取九宫格与自由挂件，不因图片存在就申请 `canvas_panel_drawn`。装饰高度参与既有候选列／展开容器的留白测量，不复制 iOS 固定条高度的统一缩放规则。图片按声明框等比缩小，文字仍按声明框的同侧和底边定位，使用普通候选的 Typeface 与 Android 原生单行布局实测；缩到下限后保留完整单行。该切片不增加装饰待机变换。
+
+装饰词取普通当前页实际可见的引擎候选，过滤云占位行后保留严格高亮；展开网格仍使用这份当前页，不取其缓存中别的页。生产候选循环在完成既有显示转换时缓存文字，不在每帧或皮肤样式遍历时再转换。独立云／AI 标注与原文分开，`stripBadge` 不删原文后缀或图钉。手写、英文建议、邮箱后缀和义项等替代候选模式清空这份引擎装饰词，避免残留上一个模式的文字。资源失败、无高亮、越界、换肤与隐藏不留下孤立文字。
+
 ## 既有笔记审计
 
 - [共享清单兼容](../../implemented/feature/2026-10-19-windows-skin-schema-parity.md)部分重叠：负责协议及安全回退，保留并互链。
@@ -30,6 +36,8 @@ APNG 按帧控制块重建 PNG 子帧，并用 Android 位图完成混合与处�
 ## Verification
 
 API 28 与 API 35 专用 AVD 上的 `CandidateCanvasDeviceSmoke` 均通过，覆盖九宫格像素、挂件层级、四边留白、明暗换图、APNG/GIF/WebP 帧、有限循环、减弱动态效果、资源失效与候选点击路径。`CandidateSkinDeviceSmoke` 与 API 28 `smoke.sh --core` 通过；两个 API 的四个共享客户端 crate 设备单测通过。`check-host.sh` 的 247 项 JVM 冒烟和 186 项设备源编译通过，`verify-local.sh --quick` 通过。完整上游验收修复后，重新构建完整原生 APK，在 API 28 与 API 35 上重跑 `CandidateCanvasDeviceSmoke`、`CandidateSkinDeviceSmoke`、`CandidatePanelDeviceSmoke`，六组均通过；设备测试源与默认测试 APK 也重新编译通过。
+
+本轮装饰词验证：`check-host.sh` 的 250 项 JVM 冒烟、196 项设备套件源编译及 JNI 语法检查通过。API 28、35 上最新 `CandidateCanvasDeviceSmoke` 均通过，覆盖真实 JNI 解析的无配色 `system` 包、普通与展开容器像素、高亮、页替换、独立标注、九种对齐、缩字下限、坏图与重置。两个 API 各自的四个共享客户端 crate 设备测试通过：base 36、core 429、providers 230、services 1216，预期 ignored 不计通过。包含词库与词书的原生 APK 在 API 28 的完整 `smoke.sh --core` 通过。API 35 的完整脚本曾在数字网格过渡坐标和文件夹授权处失败；文件夹导出两阶段独立复跑通过，数字网格修正缓存稳定性检查后，最终测试 APK 上七组方案通过，随后未排除套件地续跑默认脚本剩余用例及剪贴板保存生命周期，退出码为 0。此前通过的前半段、文件夹导出复跑、最终数字网格专项与后续套件共同构成逐项分段验收，不报告为单次完整 API 35 脚本全绿。最终 `verify-local.sh --quick`、笔记门禁与差异格式检查通过；两个本任务专用 AVD 已停止并移除，未做物理设备验收。
 
 ## Consequences
 

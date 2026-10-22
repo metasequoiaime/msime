@@ -1223,6 +1223,7 @@ fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
                     quick_phrase: false,
                     emoji: false,
                     kaomoji: false,
+                    symbol: false,
                     super_jianpin: false,
                     temporary_english: false,
                     temporary_japanese: false,
@@ -1909,6 +1910,74 @@ fn complete_shuangpin_and_ambiguous_direct_helpcodes_both_commit_the_whole_input
             let selected = index_of(&session, expected);
             assert_eq!(session.select(selected).commit.as_deref(), Some(expected));
             assert!(session.snapshot().preedit.is_empty(), "{typed}: {expected}");
+        }
+    }
+}
+
+#[test]
+fn ziranma_shouyou_complete_phrases_keep_the_plain_reading_and_commit_once() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_3_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_s VALUES('shu''ru''fa','srf','输入法',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shu''shen','ss','舒谌',100000);\
+         CREATE TABLE tbl_4_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_4_k VALUES('kao''shi''fen''shu','ksfs','考试分数',100);\
+         CREATE TABLE tbl_3_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_k VALUES('kao''shi''fu','ksf','靠势浮',100000);\
+         CREATE TABLE tbl_5_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_5_n VALUES('ni''xi''huan''wo''ma','nxhwm','你喜欢我吗',100);\
+         CREATE TABLE tbl_4_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_4_n VALUES('ni''chang''wo''ma','ncwm','怩偿我吗',100000);",
+    );
+    let codes = Arc::new(
+        crate::helpcode::HelpcodeKeymap::from_table_bytes(include_bytes!(
+            "../../../../resources/helpcodes/shouyou2_0_helpcode.txt"
+        ))
+        .unwrap(),
+    );
+    // 使用随产品分发的真实码表；这两个首码正好让三音节输入与两音节直接辅助码重叠。
+    assert!(codes.code("舒").unwrap().starts_with('r'));
+    assert!(codes.code("谌").unwrap().starts_with('a'));
+    let profile = crate::shuangpin::profile::profile(ShuangpinProfileKind::Ziranma).unwrap();
+    for enabled in [true, false] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
+            options.helpcode = enabled;
+            options.helpcode_table = Some(codes.clone());
+            options.fuzzy_pinyin.rules = 0;
+        });
+        for _ in 0..2 {
+            for (reading, expected) in [
+                ("shu'ru'fa", "输入法"),
+                ("kao'shi'fen'shu", "考试分数"),
+                ("ni'xi'huan'wo'ma", "你喜欢我吗"),
+            ] {
+                let typed = crate::shuangpin::utils::encode_pinyin(reading, profile)
+                    .unwrap()
+                    .replace('\'', "");
+                for byte in typed.bytes() {
+                    let result = session.character(byte, false);
+                    assert!(
+                        result.handled && result.commit.is_none(),
+                        "{typed}: {result:?}"
+                    );
+                }
+                assert_eq!(session.snapshot().editing_text, typed);
+                assert_eq!(words(&session)[0], expected, "enabled={enabled}: {typed}");
+                if enabled && expected == "输入法" {
+                    assert!(index_of(&session, expected) < index_of(&session, "舒谌"));
+                }
+                assert_eq!(session.finish(0).commit.as_deref(), Some(expected));
+                assert!(session.snapshot().editing_text.is_empty());
+            }
+        }
+        if enabled {
+            type_text(&mut session, "uurufa");
+            let direct = index_of(&session, "舒谌");
+            assert_eq!(session.select(direct).commit.as_deref(), Some("舒谌"));
+            assert!(session.snapshot().editing_text.is_empty());
         }
     }
 }
@@ -4503,9 +4572,9 @@ fn shuangpin_snapshot_does_not_build_unused_raw_preedit() {
         crate::ime::personal_rerank::allocations::count(|| session.snapshot());
 
     assert_eq!(snapshot.preedit, "ni'hao");
-    // 其中一次是 `spelling_symbols` 里的邮箱入口 `@`。
+    // 邮箱入口 `@` 及追加的字面符号各占一次分配。
     assert_eq!(
-        allocations, 37,
+        allocations, 38,
         "shuangpin snapshot allocations: {allocations}"
     );
 }
@@ -6525,7 +6594,7 @@ fn expression_mode_evaluates_what_follows_shift_v() {
     assert!(session.character(b'V', true).handled);
     let snapshot = session.snapshot();
     assert_eq!(snapshot.local_mode, LocalInputMode::Expression);
-    assert_eq!(snapshot.spelling_symbols, "0123456789+-*/.()%^");
+    assert_eq!(snapshot.spelling_symbols, "0123456789+-*/.()%^#$&");
     assert_eq!(words(&session), ["V"]);
     // 数字之前的字母不能表示单位，提交入口字母后交还当前键。
     let rejected = session.character(b'x', false);
@@ -7050,6 +7119,96 @@ fn generated_mode_commits_are_never_learned() {
             "SELECT COUNT(*) FROM user_dictionary_operations"
         ),
         0
+    );
+}
+
+/// 进入符号模式并打出 `typed`，返回候选。
+fn symbol_mode_rows(fixture: &Fixture, typed: &str) -> Vec<String> {
+    let mut session = fixture.session();
+    assert!(session.character(b'S', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Symbol);
+    type_text(&mut session, typed);
+    session
+        .snapshot()
+        .candidates
+        .iter()
+        .map(|item| item.word.clone())
+        .collect()
+}
+
+/// 符号模式（Shift+S）的分组码 `xl` 出希腊字母。
+#[test]
+fn symbol_mode_group_xl_gives_greek_letters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "xl");
+    assert_eq!(rows[..3], ["α", "β", "γ"], "{rows:?}");
+}
+
+/// 分组码 `sx` 出数学符号。
+#[test]
+fn symbol_mode_group_sx_gives_math_symbols() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "sx");
+    assert!(rows.iter().any(|text| text == "∑"), "{rows:?}");
+    assert!(rows.iter().any(|text| text == "√"), "{rows:?}");
+}
+
+/// 分组码 `jt` 出箭头。
+#[test]
+fn symbol_mode_group_jt_gives_arrows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "jt");
+    assert!(rows.iter().any(|text| text == "→"), "{rows:?}");
+}
+
+/// 符号名 `alpha` 出 α；符号名在分组码之后给，不重复。
+#[test]
+fn symbol_mode_name_alpha_gives_the_letter() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let rows = symbol_mode_rows(&fixture, "alpha");
+    assert_eq!(rows[0], "α", "{rows:?}");
+    assert_eq!(rows.iter().filter(|text| *text == "α").count(), 1);
+}
+
+/// 选中符号行整段上屏并结束组字；与 emoji 行一样不学习、不调频。
+#[test]
+fn symbol_mode_commits_the_row_and_ends_the_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    assert!(session.character(b'S', true).handled);
+    type_text(&mut session, "xl");
+    // 符号模式只收字母，数字交还宿主：选中高亮那一行走 `CommitCandidate`。
+    let result = session.command(Command::CommitCandidate);
+    assert_eq!(result.commit.as_deref(), Some("α"), "{result:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert!(snapshot.preedit.is_empty());
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT COUNT(*) FROM user_dictionary_operations"
+        ),
+        0
+    );
+}
+
+/// 关掉偏好后 Shift+S 不再进入符号模式，照常打出一个大写 S（或开始拼音组字）。
+#[test]
+fn disabled_symbol_mode_leaves_shift_s_to_the_scheme() {
+    let fixture = Fixture::new(HELLO_FIXTURE);
+    // 同一份夹具下开着偏好时确实进模式，关掉后那条断言才不是空的。
+    let mut on = fixture.session();
+    assert!(on.character(b'S', true).handled);
+    assert_eq!(on.snapshot().local_mode, LocalInputMode::Symbol);
+    let mut session = fixture.session_with(|options| options.local_modes.symbol = false);
+    assert!(session.character(b'S', true).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "S");
+    assert!(snapshot.candidates.iter().all(|item| item.word != "α"));
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("S")
     );
 }
 
@@ -9275,7 +9434,7 @@ fn url_scheme_colon_in_quanpin_and_shuangpin() {
     for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
         let mut session = fixture.session_with(|options| options.scheme = scheme);
         type_text(&mut session, "https");
-        assert_eq!(session.snapshot().spelling_symbols, ":@", "{scheme:?}");
+        assert_eq!(session.snapshot().spelling_symbols, ":@#$%&", "{scheme:?}");
         type_url(&mut session, "://github.com/a?b=1");
         assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
         let committed = session.command(Command::CommitRaw);
@@ -9510,16 +9669,16 @@ fn url_spelling_symbols_follow_the_composition() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     for (raw, keys) in [
-        ("www", ".@"),
-        ("ftp", ".:@"),
-        ("http", ":@"),
-        ("https", ":@"),
+        ("www", ".@#$%&"),
+        ("ftp", ".:@#$%&"),
+        ("http", ":@#$%&"),
+        ("https", ":@#$%&"),
         // 不是触发词的字母和数字仍能做邮箱的本地部分。
-        ("ni", "@"),
-        ("wwww", "@"),
+        ("ni", "@#$%&"),
+        ("wwww", "@#$%&"),
         // 大写的辅助码不算触发词。
-        ("wwW", "@"),
-        ("xi'an", ""),
+        ("wwW", "@#$%&"),
+        ("xi'an", "#$%&"),
     ] {
         type_text(&mut session, raw);
         assert_eq!(session.snapshot().spelling_symbols, keys, "{raw}");
@@ -9528,10 +9687,10 @@ fn url_spelling_symbols_follow_the_composition() {
     // 空闲时不变：生成类模式默认关闭，没有任何符号。
     assert!(session.snapshot().spelling_symbols.is_empty());
 
-    // 光标不在末尾时不发布，按下的 `.` 也不进入网址模式（列出的键必须正是接受的键）。
+    // 光标不在末尾时只发布字面符号，按下的 `.` 不进入网址模式。
     type_text(&mut session, "www");
     session.command(Command::MoveLeft);
-    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert_eq!(session.snapshot().spelling_symbols, "#$%&");
     assert!(!session.character(b'.', false).handled);
     assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
     session.command(Command::Cancel);
@@ -9558,7 +9717,7 @@ fn url_at_after_a_local_part_offers_email_suffixes() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     type_text(&mut session, "zhangsan");
-    assert_eq!(session.snapshot().spelling_symbols, "@");
+    assert_eq!(session.snapshot().spelling_symbols, "@#$%&");
     let at = session.punctuation(b'@');
     assert!(at.handled && at.commit.is_none(), "{at:?}");
     let snapshot = session.snapshot();
@@ -10903,4 +11062,191 @@ fn a_host_finish_ends_the_uppercase_run() {
         session.snapshot().local_mode,
         LocalInputMode::TemporaryEnglish
     );
+}
+
+#[test]
+fn contacts_lead_with_name_and_combination_without_learning() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, input) in [
+        (SchemeType::Quanpin, "nihao"),
+        (SchemeType::Quanpin, "ni'hao"),
+        (SchemeType::Quanpin, "nh"),
+        (SchemeType::Shuangpin, "nihc"),
+    ] {
+        for slot in 0..2 {
+            let mut session = fixture.session_with(|options| {
+                options.scheme = scheme;
+                options.frequency.mode = FrequencyAdjustmentMode::Promote;
+                options.mention_entries = vec![crate::types::MentionEntry {
+                    text: "拟好".into(),
+                    key: "ni'hao".into(),
+                    phone: "202-555-0101".into(),
+                }];
+            });
+            session.set_cloud_candidates_enabled(true);
+            type_text(&mut session, input);
+            let expected = ["拟好", "拟好 202-555-0101"];
+            let view = session.snapshot();
+            assert_eq!(&words(&session)[..2], expected, "{scheme:?}: {input}");
+            assert!(view.candidate_sources[..2]
+                .iter()
+                .all(|source| *source == CandidateSource::Contact));
+            assert!(view.candidate_answers_key[..2].iter().all(|answer| !answer));
+            assert_eq!(
+                words(&session)
+                    .iter()
+                    .filter(|word| *word == "拟好")
+                    .count(),
+                1
+            );
+            if let Some(query) = session.online_query() {
+                session.apply_online_candidate(
+                    &query,
+                    "合成云词",
+                    CandidateSource::CloudSuggestion,
+                );
+                assert_eq!(&words(&session)[..2], expected);
+            }
+            assert_eq!(session.select(slot).commit.as_deref(), Some(expected[slot]));
+            assert!(session.snapshot().editing_text.is_empty());
+            assert!(!fixture.journal().exists(), "联系人选择不得写入个人词库");
+        }
+    }
+}
+
+#[test]
+fn contacts_refresh_live_and_do_not_replace_caret_prefixes() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.set_mention_entries(&[crate::types::MentionEntry {
+        text: "拟好".into(),
+        key: "ni'hao".into(),
+        phone: "202-555-0102".into(),
+    }]);
+    assert_eq!(&words(&session)[..2], ["拟好", "拟好 202-555-0102"]);
+    session.set_caret(Some(2));
+    assert!(!session
+        .snapshot()
+        .candidate_sources
+        .contains(&CandidateSource::Contact));
+    session.set_caret(None);
+    assert_eq!(words(&session)[0], "拟好");
+    session.set_mention_entries(&[]);
+    assert!(!session
+        .snapshot()
+        .candidate_sources
+        .contains(&CandidateSource::Contact));
+    assert_eq!(words(&session)[0], "你好");
+}
+
+#[test]
+fn literal_symbol_keeps_pinyin_uncommitted_with_one_raw_candidate() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for prefix in ["C", "Something", "nihao"] {
+            for symbol in *b"#$%&" {
+                for punctuation_route in [false, true] {
+                    let mut session = fixture.session_with(|options| {
+                        options.scheme = scheme;
+                        // `S` 是已启用的符号入口；本用例验证普通英文字母串，模式自身内容另测。
+                        options.local_modes.symbol = false;
+                    });
+                    for value in prefix.bytes() {
+                        assert!(session.character(value, value.is_ascii_uppercase()).handled);
+                    }
+                    let result = if punctuation_route {
+                        session.punctuation(symbol)
+                    } else {
+                        session.character(symbol, false)
+                    };
+                    assert!(
+                        result.handled && result.commit.is_none(),
+                        "{prefix} {symbol} {result:?}"
+                    );
+                    let expected = format!("{prefix}{}", char::from(symbol));
+                    assert_eq!(session.snapshot().editing_text, expected);
+                    assert_eq!(words(&session), vec![expected.clone()]);
+                    assert_eq!(session.select(0).commit.as_deref(), Some(expected.as_str()));
+                    assert!(session.snapshot().editing_text.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn literal_symbol_deletion_and_caret_editing_restore_pinyin() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (scheme, raw) in [
+        (SchemeType::Quanpin, "nihao"),
+        (SchemeType::Shuangpin, "nihc"),
+    ] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        type_text(&mut session, raw);
+        assert!(session.character(b'#', false).handled);
+        assert_eq!(words(&session), vec![format!("{raw}#")]);
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, raw);
+        assert_eq!(words(&session)[0], "你好");
+        session.command(Command::MoveHome);
+        assert!(session.punctuation(b'#').commit.is_none());
+        assert_eq!(session.snapshot().editing_text, format!("#{raw}"));
+        session.command(Command::MoveHome);
+        session.command(Command::DeleteForward);
+        session.command(Command::MoveEnd);
+        assert_eq!(words(&session)[0], "你好");
+    }
+}
+
+#[test]
+fn literal_symbol_stops_chinese_queries_and_does_not_learn() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    let query = session.online_query().unwrap();
+    assert!(session.character(b'#', false).handled);
+    type_text(&mut session, "nihao");
+    assert_eq!(words(&session), vec!["nihao#nihao"]);
+    assert!(session.online_query().is_none());
+    assert!(!session.apply_online_candidate(
+        &query,
+        "合成旧响应",
+        CandidateSource::CloudSuggestion
+    ));
+    let journal_before = journal_rows(&fixture.journal());
+    assert!(session.snapshot().candidate_answers_key[0]);
+    assert!(!session.pin(0).handled);
+    assert!(!session.remove(0).handled);
+    assert_eq!(session.finish(0).commit.as_deref(), Some("nihao#nihao"));
+    assert_eq!(journal_rows(&fixture.journal()), journal_before);
+}
+
+#[test]
+fn literal_symbol_keeps_mode_content_and_sentence_punctuation_boundaries() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for initial in *b"UCS" {
+        let mut session = fixture.session_with(|options| options.local_modes.chaizi = true);
+        assert!(session.character(initial, true).handled);
+        assert_ne!(session.snapshot().local_mode, LocalInputMode::None);
+        let symbol = session.character(b'#', false);
+        assert!(symbol.handled && symbol.commit.is_none());
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+        assert_eq!(words(&session), vec![format!("{}#", char::from(initial))]);
+    }
+    let mut session = fixture.session();
+    assert!(!session.character(b'#', false).handled);
+    session.character(b'C', true);
+    session.character(b'#', false);
+    type_text(&mut session, "nihao");
+    assert_eq!(
+        session.punctuation(b',').commit.as_deref(),
+        Some("C#nihao，")
+    );
+    session.character(b'U', true);
+    type_text(&mut session, "4e2d");
+    assert!(session.character(b'#', false).commit.is_some());
+    session.command(Command::Cancel);
+    type_text(&mut session, "nihao");
+    assert_eq!(session.punctuation(b'.').commit.as_deref(), Some("你好。"));
 }

@@ -1,3 +1,4 @@
+import { DecorationCandidateStyle, DecorationCandidatePolicy } from "./DecorationCandidatePolicy";
 import { CandidateCanvasSpec } from "./CandidateCanvasPolicy";
 import { ToolbarImageSpec } from "../ToolbarImagePolicy";
 
@@ -41,6 +42,7 @@ export interface CandidateSkinPackage extends CandidateCanvasSpec {
   /** Set only for a decorated package: the manifest's decoration image, or its preview. */
   readonly decorationImage?: string | null;
   readonly decorationAlign?: string;
+  readonly decorationCandidate?: DecorationCandidateStyle | null;
   readonly background?: CandidateSkinBackgroundEntry | null;
   readonly toolbar?: CandidateSkinToolbar;
   readonly toolbarImage?: ToolbarImageSpec;
@@ -246,6 +248,21 @@ export class CandidateSkinCatalogPolicy {
       widthVp: candidate.decorationWidthDip,
       align: align,
     };
+  }
+
+  /** 只接受共享扫描器的有界装饰词声明；没有装饰图时不保留孤立文字。 */
+  static decorationCandidate(
+    packages: CandidateSkinPackage[],
+    id: string,
+  ): DecorationCandidateStyle | null {
+    const value: DecorationCandidateStyle | null | undefined = CandidateSkinCatalogPolicy.package(
+      packages,
+      id,
+    )?.decorationCandidate;
+    return CandidateSkinCatalogPolicy.decoration(packages, id) !== null &&
+      DecorationCandidatePolicy.valid(value)
+      ? (value ?? null)
+      : null;
   }
 
   /** Convert validated image bytes into an ArkUI image-only data URL. */

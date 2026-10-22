@@ -17,6 +17,7 @@ int main() {
         NSDictionary *edits = @{
             @"enabled": @NO, @"provider": @"deepseek", @"model": @"new-model",
             @"endpoint": @"https://synthetic.invalid/chat",
+            @"english_candidates": @YES,
             @"prompt_custom_1": @"new-one",
             @"prompt_custom_2": @"new-two", @"prompt_custom_3": @"new-three"
         };

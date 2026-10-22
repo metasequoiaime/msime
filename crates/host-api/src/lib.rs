@@ -711,6 +711,7 @@ impl HostSession {
         options.local_command = preferences.local_modes.command;
         options.local_mention = preferences.local_modes.mention;
         options.local_chaizi = chaizi_enabled(&preferences.local_modes);
+        options.local_symbol = preferences.local_modes.symbol;
         options.local_shift_letter_entry = preferences.local_modes.shift_letter_entry;
         // 繁体输出开着时拆字行按繁体字形去重；改这个偏好同样会让 Engine 在空闲时重建。
         options.chaizi_traditional_output = preferences.traditional_chinese_output;
@@ -1876,6 +1877,7 @@ impl HostOptions {
             local_command: self.preferences.local_modes.command,
             local_mention: self.preferences.local_modes.mention,
             local_chaizi: chaizi_enabled(&self.preferences.local_modes),
+            local_symbol: self.preferences.local_modes.symbol,
             local_shift_letter_entry: self.preferences.local_modes.shift_letter_entry,
             chaizi_traditional_output: self.preferences.traditional_chinese_output,
             command_table: Vec::new(),

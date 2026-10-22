@@ -291,6 +291,9 @@ impl InputSession {
             }
             self.leave_conversion();
         }
+        if self.takes_literal_symbol(value) {
+            return self.insert_literal_symbol(value);
+        }
         if self
             .caret
             .is_some_and(|caret| caret < self.editing_text_len())
@@ -432,6 +435,8 @@ impl InputSession {
                         && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin))
             }
             LocalInputMode::Emoji | LocalInputMode::Kaomoji => letter || value == b'\'',
+            // 符号模式只收字母：分组码与符号名都是字母，撇号、数字和 `;` 交还宿主。
+            LocalInputMode::Symbol => letter,
             LocalInputMode::QuickPhrase | LocalInputMode::DateTime => value.is_ascii_lowercase(),
             LocalInputMode::Unicode => {
                 value.is_ascii_hexdigit() || (value == b'+' && self.local_preedit == "U")
@@ -1030,9 +1035,12 @@ impl InputSession {
         self.select_candidate(usize::from(value - b'1'))
     }
 
-    /// input_session.cpp:260-292. `/` and `@` never open their modes here: a runtime finishes the composition before it asks for the mark, so an empty composition at this point does not mean the key was typed with nothing composed. They open through `handle_character`, which the runtime reaches first.
+    /// 组字接收的符号先回到字符入口；`/` 和 `@` 仅经字符入口开启模式，避免 runtime 结束组字后的空状态被误当成空闲输入。
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
         self.end_uppercase_run();
+        if self.takes_literal_symbol(value) {
+            return self.handle_character(value, false);
+        }
         if matches!(
             self.local_mode,
             LocalInputMode::Command | LocalInputMode::Mention
@@ -1218,6 +1226,12 @@ impl InputSession {
 
     /// `SessionSnapshot::spelling_symbols`.
     pub fn spelling_symbols(&self) -> String {
+        let mut symbols = self.base_spelling_symbols();
+        symbols.extend(self.literal_spelling_symbols());
+        symbols
+    }
+
+    fn base_spelling_symbols(&self) -> String {
         if self.dedicated_english {
             return String::new();
         }
@@ -1291,12 +1305,17 @@ impl InputSession {
             .flatten()
     }
 
-    /// Replaces the `@` mode's list, refreshing the list on screen when that mode is open.
+    /// 替换本地名单，刷新打开的 `@` 列表或普通组字中的联系人候选。
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
         self.queries.set_mentions(entries);
-        (self.local_mode == LocalInputMode::Mention)
-            .then(|| self.update_local_candidates())
-            .flatten()
+        if self.local_mode == LocalInputMode::Mention {
+            self.update_local_candidates()
+        } else {
+            if self.local_mode == LocalInputMode::None && self.has_composition() {
+                self.update_mixed_candidates();
+            }
+            None
+        }
     }
 
     pub fn set_mention_places(&mut self, enabled: bool) -> Option<String> {
@@ -1760,6 +1779,7 @@ impl InputSession {
             ),
             b'V' => (LocalInputMode::Expression, options.expression),
             b'C' => (LocalInputMode::Chaizi, options.chaizi),
+            b'S' => (LocalInputMode::Symbol, options.symbol),
             _ => return None,
         };
         // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
@@ -2050,6 +2070,7 @@ fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {
         LocalInputMode::Command => options.command,
         LocalInputMode::Mention => options.mention,
         LocalInputMode::Chaizi => options.chaizi,
+        LocalInputMode::Symbol => options.symbol,
         // 网址模式默认开启，没有开关。
         LocalInputMode::Url => true,
     }

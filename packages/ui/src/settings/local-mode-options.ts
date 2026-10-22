@@ -26,6 +26,11 @@ const localModeRows: readonly LocalModeRow[] = [
     "中文模式下按 Shift+M，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词",
   ],
   [
+    "symbol",
+    "符号快捷输入(S 模式)",
+    "中文模式下按 Shift+S，再输入分组码（xl 希腊字母、sx 数学、szq 带圈数字、jt 箭头等）或符号名（alpha、infinity）。空格上屏；数字选词",
+  ],
+  [
     "super_jianpin",
     "超级简拼(J 模式)",
     "中文模式下按 Shift+J，每个字母作为简拼；双拼按当前方案转换声母。空格上屏；数字选词",
@@ -82,6 +87,7 @@ const iosLocalModeDescriptions: Partial<Record<LocalModeKey, string>> = {
   unicode: `${iosLocalModeEntry("Unicode 码点")}再输入十六进制码位（如 4e00 / +1f600）。空格或点候选上屏`,
   emoji: `${iosLocalModeEntry("表情")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
   kaomoji: `${iosLocalModeEntry("颜文字")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
+  symbol: `${iosLocalModeEntry("符号")}再输入分组码（xl 希腊字母、sx 数学、szq 带圈数字、jt 箭头等）或符号名（alpha、infinity）。空格或点候选上屏`,
   super_jianpin: `${iosLocalModeEntry("超级简拼")}每个字母作为简拼；双拼按当前方案转换声母。空格或点候选上屏`,
   temporary_english: `${iosLocalModeEntry("英文补全")}之后按英文处理。空格上屏当前输入，也可以点候选；上屏后回到中文`,
   temporary_japanese: `${iosLocalModeEntry("临时日语")}之后按日语罗马字处理。空格上屏首选，也可以点候选；上屏后回到中文`,

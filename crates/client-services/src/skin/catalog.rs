@@ -12,6 +12,7 @@ use std::io::Cursor;
 use std::path::Path;
 use toml::Value;
 
+mod decoration_candidate;
 mod factory_layout;
 mod toolbar_image;
 mod windows_looks;
@@ -19,6 +20,7 @@ mod windows_looks;
 pub(crate) use crate::text::safe_id;
 /// 定义在 `crate::theme`（偏好校验要用），从这里导回，原来的路径照常可用。
 pub use crate::theme::is_selectable_id;
+pub use decoration_candidate::{DecorationVerticalAlign, SkinDecorationCandidate};
 pub use factory_layout::ResolvedSkinLayout;
 pub use toolbar_image::{
     SkinToolbarButtonFlow, SkinToolbarButtonLook, SkinToolbarImage, SkinToolbarImageButton,
@@ -246,6 +248,9 @@ pub struct SkinSummary {
     pub decoration_image: Option<String>,
     /// Where the decoration sits along the card's top edge.
     pub decoration_align: DecorationAlign,
+    /// 装饰图上叠加的当前页候选词；旧包和显式关闭时省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decoration_candidate: Option<SkinDecorationCandidate>,
     /// 候选窗在屏幕上时整张装饰图的待机动效（`decoration.motion`，只在 schema 2 里可写），缺省 `none`。与 `[animation]` 的显隐动效无关。
     pub decoration_motion: DecorationMotion,
     /// 待机动效一个周期的毫秒数（`decoration.motion_period_ms`），限制在 [`DECORATION_MOTION_PERIOD_MS`] 内，缺省 [`DEFAULT_DECORATION_MOTION_PERIOD_MS`]。
@@ -941,6 +946,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     };
     let (decoration_motion, decoration_motion_period_ms) =
         read_decoration_motion(decoration, decorated, schema_version)?;
+    let decoration_candidate = decoration_candidate::read(decoration)?;
     let background = match window.get("background") {
         None => None,
         Some(value) => Some(read_background(
@@ -998,6 +1004,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .clone()
             .filter(|preview| decorated && is_image(preview))
     });
+    if decoration_candidate.is_some() && (!decorated || decoration_image.is_none()) {
+        return Err("candidate overlay requires a decoration image and dimensions".into());
+    }
     let mut summary = SkinSummary {
         schema_version: schema_version as u8,
         id,
@@ -1028,6 +1037,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         decoration_width_dip: width,
         decoration_image,
         decoration_align,
+        decoration_candidate,
         decoration_motion,
         decoration_motion_period_ms,
         decoration_frames: 0,
@@ -2052,7 +2062,7 @@ pub const HOST_CATALOG_DRAWN_EXTRAS: [&str; 4] = [
 /// `scan` 已限制标识与名称，宿主仍复核它们和装饰尺寸；布局与明暗支持范围沿用共享解析器的规则。
 ///
 /// 最多列出 `HOST_CATALOG_MAX_PACKAGES` 个，按目录顺序。`selected` 是自定义主题选中的皮肤（浅色、深色两个槽位）：已安装的一律列出，落在上限之外时挤掉上限内最后几个没选中的，排到末尾，因为屏幕上画的是它们的颜色。
-/// 含 canvas 包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
+/// 含 canvas 或有效装饰词包且根目录为绝对 UTF-8 路径时，顶层另带 `directory`，供 Fcitx5 按需调用包 API。
 /// 旧宿主继续只读 `packages`；它们严格解析的条目不增加 canvas 字段，配色仍是可读回退。
 pub fn host_candidate_catalog(
     catalog: &SkinCatalog,
@@ -2138,8 +2148,13 @@ pub fn host_candidate_catalog(
             entry
         }));
     let mut published = serde_json::json!({ "packages": packages });
-    // canvas 宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
-    if catalog.packages.iter().any(|package| package.canvas) && root.is_absolute() {
+    // canvas 和装饰词宿主按需复用已校验的包 API；顶层扩展不改变旧宿主严格读取的配色条目。
+    if catalog
+        .packages
+        .iter()
+        .any(|package| package.canvas || package.decoration_candidate.is_some())
+        && root.is_absolute()
+    {
         if let Some(directory) = root.to_str() {
             published["directory"] = directory.into();
         }

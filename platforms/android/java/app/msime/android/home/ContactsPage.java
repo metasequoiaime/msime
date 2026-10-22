@@ -40,9 +40,10 @@ public final class ContactsPage extends ReloadingDetailPage {
     @Nullable private static List<Contact> load(Context context) {
         try {
             JSONObject request = request(context, new JSONObject().put("operation", "load_mentions"));
-            JSONArray entries = JsonPolicy.objectValue(request).optJSONArray("entries");
+            JSONArray entries = JsonPolicy.arrayValue(request);
+            if (entries == null) return null;
             List<Contact> result = new ArrayList<>();
-            if (entries != null) for (int i = 0; i < entries.length(); i++) {
+            for (int i = 0; i < entries.length(); i++) {
                 JSONObject entry = entries.optJSONObject(i);
                 if (entry != null) result.add(new Contact(entry.optString("text", ""),
                     entry.optString("phone", "")));
@@ -58,8 +59,8 @@ public final class ContactsPage extends ReloadingDetailPage {
         if (target == null) return;
         target.removeAllViews();
         GroupCard card = GroupCard.add(sectionColumn(target, "联系人"), null).withDividers(16);
-        int count = entries == null ? 0 : entries.size();
-        card.note("已保存 " + count + " 个联系人。名单供输入法本地匹配，数据只保存在本机。");
+        card.note(entries == null ? "联系人名单读取失败，请稍后重试。"
+            : "已保存 " + entries.size() + " 个联系人。名单供输入法本地匹配，数据只保存在本机。");
         card.button("导入联系人", "首次点击时才申请读取联系人权限", "导入", this::requestImport);
         card.button("刷新联系人", "重新读取电话本并替换本机名单", "刷新", this::requestImport);
         card.button("清空联系人", "删除已导入的联系人，不影响系统电话本", "清空", this::clearContacts);
