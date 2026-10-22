@@ -15,6 +15,9 @@ struct TouchToolbarPreference: Equatable {
   var characterSet = false
   var fullwidth = false
   var punctuation = false
+  /// Android 工具栏提供的撤销、重做开关；iOS 不显示按钮，但保存共享对象时必须保留这两个字段。
+  var undo = false
+  var redo = false
 
   init() {}
 
@@ -29,6 +32,8 @@ struct TouchToolbarPreference: Equatable {
     characterSet = read("character_set", characterSet)
     fullwidth = read("fullwidth", fullwidth)
     punctuation = read("punctuation", punctuation)
+    undo = read("undo", undo)
+    redo = read("redo", redo)
   }
 
   /// The switches in the order and wording of the shared settings page, keyed by the document name.
@@ -41,6 +46,8 @@ struct TouchToolbarPreference: Equatable {
     ("character_set", "简繁切换", \.characterSet),
     ("fullwidth", "全角 / 半角", \.fullwidth),
     ("punctuation", "中英文标点", \.punctuation),
+    ("undo", "撤销", \.undo),
+    ("redo", "重做", \.redo),
   ]
 
   /// The whole object, so a document holding only some switches is completed the same way the shared page completes it.
