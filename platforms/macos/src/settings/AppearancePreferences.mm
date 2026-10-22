@@ -158,6 +158,12 @@ static BOOL ValidCandidateScale(id value) { return ValidCandidateStyleInteger(va
 static BOOL ValidCandidateOpacity(id value) { return ValidCandidateStyleInteger(value, 50, 100); }
 static BOOL ValidCandidateCornerRadius(id value) { return ValidCandidateStyleInteger(value, 0, 32); }
 static BOOL ValidCandidatePadding(id value) { return ValidCandidateStyleInteger(value, 0, 16); }
+
+static NSArray<NSString *> *CandidateGeometryKeys() {
+    return @[@"candidate_padding_horizontal", @"candidate_padding_vertical",
+             @"candidate_item_padding_horizontal", @"candidate_item_padding_vertical",
+             @"candidate_item_corner_radius", @"candidate_item_spacing"];
+}
 /// The 候选字体 presets in the order the popup lists them: a title, then the families the preset writes. The first family is the one this host puts in 候选字体; all of them go to the front of the fallback list, because the document is shared and the Windows and Linux names are what those hosts will find there. 默认 is the shared default pair (crates/client-core) rather than a preset of its own.
 static NSArray<NSArray<NSString *> *> *CandidateFontPresets() {
     return @[
@@ -1108,6 +1114,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedCandidateCornerRadius;
     /// Padding in points, or NSNull for a document that follows the skin.
     id _sharedCandidatePadding;
+    NSDictionary<NSString *, id> *_sharedCandidateGeometry;
     NSSlider *_candidateScaleSlider;
     NSTextField *_candidateScaleLabel;
     NSSlider *_candidateOpacitySlider;
@@ -1441,6 +1448,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_opacity_percent"] = @(self.candidateOpacityPercent);
     merged[@"candidate_corner_radius"] = self.candidateCornerRadius ?: (id)NSNull.null;
     merged[@"candidate_padding"] = self.candidatePadding ?: (id)NSNull.null;
+    for (NSString *key in CandidateGeometryKeys()) {
+        if (_sharedCandidateGeometry) merged[key] = _sharedCandidateGeometry[key] ?: (id)NSNull.null;
+    }
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"smart_punctuation"] = @(self.smartPunctuation);
@@ -2970,6 +2980,16 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     style.opacity = self.candidateOpacityPercent / 100.0;
     if (NSNumber *radius = self.candidateCornerRadius) style.cornerRadius = radius.doubleValue;
     if (NSNumber *padding = self.candidatePadding) style.padding = padding.doubleValue;
+    const auto length = [&](NSString *key) -> std::optional<double> {
+        id value = _sharedCandidateGeometry[key];
+        return [value isKindOfClass:NSNumber.class] ? std::optional<double>([value doubleValue]) : std::nullopt;
+    };
+    style.paddingHorizontal = length(@"candidate_padding_horizontal");
+    style.paddingVertical = length(@"candidate_padding_vertical");
+    style.itemPaddingHorizontal = length(@"candidate_item_padding_horizontal");
+    style.itemPaddingVertical = length(@"candidate_item_padding_vertical");
+    style.itemCornerRadius = length(@"candidate_item_corner_radius");
+    style.itemSpacing = length(@"candidate_item_spacing");
     return style;
 }
 - (msime::mac::ResolvedSkin)candidateWindowSkinForDark:(BOOL)dark {
@@ -3179,6 +3199,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id padding = preferences[@"candidate_padding"];
     if (ValidCandidatePadding(padding)) _sharedCandidatePadding = padding;
     else if (!padding || padding == NSNull.null) _sharedCandidatePadding = NSNull.null;
+    NSMutableDictionary *geometry = [_sharedCandidateGeometry mutableCopy] ?: [NSMutableDictionary dictionary];
+    for (NSString *key in CandidateGeometryKeys()) {
+        id value = preferences[key];
+        const NSInteger maximum = [key isEqual:@"candidate_item_corner_radius"] ? 32 : 16;
+        if (ValidCandidateStyleInteger(value, 0, maximum)) geometry[key] = value;
+        else if (!value || value == NSNull.null) [geometry removeObjectForKey:key];
+        else NSLog(@"MSIME ignored invalid candidate geometry preference: %@", key);
+    }
+    _sharedCandidateGeometry = [geometry copy];
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if (ValidCandidateStyleInteger(font, 12, 32)) _sharedFontSize = font;

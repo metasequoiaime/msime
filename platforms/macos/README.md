@@ -273,6 +273,19 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 候选定位与焦点约束对照同一 Apple 提交的 `CandidatePanel.mm`：无效光标隐藏窗口、以光标垂直中点选屏、与光标相隔 4 点、底部不足时向上放置，超大窗口至少锚定可见屏幕原点。候选窗口不能成为 key/main window，按钮不接受键盘焦点但支持首次鼠标点击。宽度随候选文字变化，以屏幕可见区域的一半封顶，且至少是候选字号的 7 倍（与来源皮肤的 `.container { min-width: 7em }` 和 Windows `CandidateCardSize.h` 同一规则），皮肤包的 `min_width_dip` 与装饰宽度只能抬高这个下限，7em 下限本身不超过上述屏宽封顶；竖排行铺满卡片，横排列保持自然宽度靠左排列、余量留在右侧；超出列宽的文字在列内折行而不截断，tooltip 仍给出完整文本；候选行使用主题解析出的行圆角（原生为 6 点，高亮连段的首尾行取卡片圆角），并区分普通行和选中行的 hover 颜色。
 
+## 候选窗口与候选项留白
+
+共享设置页「候选窗口 › 窗口样式」提供窗口水平、垂直内边距，以及候选项水平、垂直内边距、独立圆角和间距。窗口内边距是卡片到候选项边缘的距离，候选项内边距包住序号、候选文字及附加行；横排间距作用于列之间，竖排与展开网格作用于行之间。选中、悬停与动画高亮的底色铺满候选项，不额外内缩 1pt；贴边时由窗口内轮廓裁剪保护边框。选中与悬停使用同一个候选项圆角，不改变窗口圆角。
+
+| 共享偏好 | 范围（整体缩放前） |
+| --- | --- |
+| `candidate_padding_horizontal`、`candidate_padding_vertical` | 0–16pt |
+| `candidate_item_padding_horizontal`、`candidate_item_padding_vertical` | 每侧 0–16pt |
+| `candidate_item_corner_radius` | 0–32pt |
+| `candidate_item_spacing` | 0–16pt |
+
+缺省时全部跟随皮肤与现有宿主布局，零是有效覆盖。旧 `candidate_padding` 作为窗口每一轴的兼容回退；首次编辑分轴设置时拆开旧值，恢复某一轴不会改变另一轴。窗口内边距可以为零，不再受边框宽度限制，`0` 与 `1` 分别生效；显式候选项圆角以卡片内轮廓裁剪避免贴边溢出，不强制改写其半径。整体大小缩放这些长度，但不放大边框。新能力只在 macOS 声明，其他宿主不显示无效控件；AppKit 回退设置不增加新控件，但保存时保留这些共享字段。
+
 ## 构建与本地测试
 
 `src/` 下每个源文件都必须被某个 target 编译。固定 Apple 快照里那对直连引擎的适配器（`MetasequoiaInputController.mm` 与 `DictionaryRuntime.mm`）从未参与构建，已随 C++ Engine 一起删除；产品用的是 `src/input/InputController.mm` 与 `src/core/ClientDictionaryRuntime.mm`。#912 就是把一个输入会话的修复提交进了那份不参与构建的 `DictionaryRuntime.mm`，通过评审、合并，而产品一行没变；`scripts/test-macos-orphan-sources.py` 列出 `src/` 下不被 CMake 编译的源文件，新出现的一个会直接失败。

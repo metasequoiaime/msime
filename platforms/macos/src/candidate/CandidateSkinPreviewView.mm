@@ -43,6 +43,15 @@ CGFloat PreviewCandidateHeight(NSArray<NSString *> *words, NSFont *font) {
     return height + 8.0;
 }
 
+CGFloat PreviewRowHeight(NSArray<NSString *> *words, NSFont *font, MSIMEAppearancePreferences *preferences) {
+    const auto style = preferences ? [preferences candidateWindowStyle] : msime::mac::CandidateWindowStyle{};
+    return PreviewCandidateHeight(words, font) + (style.itemPaddingVertical ? 2 * *style.itemPaddingVertical - 8.0 : 0.0);
+}
+
+CGFloat PreviewItemGap(MSIMEAppearancePreferences *preferences) {
+    return preferences ? [preferences candidateWindowStyle].itemSpacing.value_or(0.0) : 0.0;
+}
+
 // How many rows a vertical list shows, and what the corner says about the rest. The candidate window is a panel the size of its content and the preview is one column of a settings page, so nine candidates do not fit at every font size the window offers; five rows plus a count of what is left over is the compromise, and both the single preview and the showcase's 竖排候选 section ask here so that neither can drift from the other.
 constexpr NSInteger kMaximumPreviewRows = 5;
 NSInteger PreviewVisibleRows(NSInteger pageSize) { return MIN(MAX(pageSize, (NSInteger)1), kMaximumPreviewRows); }
@@ -170,12 +179,13 @@ SkinPreviewMetrics MakeShowcaseMetrics(NSInteger pageSize, CGFloat candidateFont
     metrics.top = 10.0;
     metrics.bottom = 14.0;
     metrics.preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
-    metrics.rowHeight = PreviewCandidateHeight(words, font);
+    metrics.rowHeight = PreviewRowHeight(words, font, preferences);
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const CGFloat footer = PreviewPendingFooter(pageSize) != nil ? 18.0 : 0.0;
     metrics.horizontalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + padding) * scale;
     metrics.verticalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight +
-                              PreviewVisibleRows(pageSize) * metrics.rowHeight + footer + padding) * scale;
+                              PreviewVisibleRows(pageSize) * metrics.rowHeight +
+                              (PreviewVisibleRows(pageSize) - 1) * PreviewItemGap(preferences) + footer + padding) * scale;
     const ToolbarPreviewInputs toolbar = ToolbarInputs(preferences);
     metrics.toolbarHeight = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo).height;
     metrics.panelHeight = 0.0;
@@ -199,12 +209,13 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     metrics.top = 10.0;
     metrics.bottom = 14.0;
     metrics.preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
-    metrics.rowHeight = PreviewCandidateHeight(words, font);
+    metrics.rowHeight = PreviewRowHeight(words, font, preferences);
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const NSInteger visibleRows = panelStyle == 1 ? PreviewVisibleRows(pageSize) : 1;
     const CGFloat footer = (panelStyle == 1 && PreviewPendingFooter(pageSize) != nil) ? 18.0 : 0.0;
     metrics.panelHeight =
-        (padding + metrics.decorationHeight + metrics.preeditHeight + visibleRows * metrics.rowHeight + footer + padding) * scale;
+        (padding + metrics.decorationHeight + metrics.preeditHeight + visibleRows * metrics.rowHeight +
+         (visibleRows - 1) * PreviewItemGap(preferences) + footer + padding) * scale;
     metrics.horizontalHeight = 0.0;
     metrics.verticalHeight = 0.0;
     metrics.toolbarHeight = 0.0;
@@ -280,9 +291,11 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
     const CGFloat pad = msime::mac::CandidateInset(tokens);
+    const CGFloat padY = msime::mac::CandidateVerticalInset(tokens);
+    const CGFloat itemGap = tokens.itemSpacing.value_or(0.0);
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
     NSRect preeditRow =
-        NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
+        NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + padY, NSWidth(chrome) - pad * 2.0, preeditHeight);
     if (preeditFontSize > 0) {
         // The brand mark leads the reading, as the candidate window's top row draws it.
         static NSImage *logo;
@@ -309,8 +322,9 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSRectFill(caret);
     }
 
-    const CGFloat textInset = 8.0 + (tokens.showSelectedBar ? 6.0 : 0.0);
-    const CGFloat contentTop = NSMinY(chrome) + pad + preeditHeight;
+    const CGFloat textInset = tokens.itemPaddingHorizontal.value_or(8.0 + (tokens.showSelectedBar ? 6.0 : 0.0));
+    const CGFloat textRight = tokens.itemPaddingHorizontal.value_or(8.0);
+    const CGFloat contentTop = NSMinY(chrome) + padY + preeditHeight;
     CGFloat x = NSMinX(chrome) + pad;
     const CGFloat maxX = NSMaxX(chrome) - pad;
     for (NSInteger index = 0; index < static_cast<NSInteger>(words.count); ++index)
@@ -329,7 +343,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSString *word = words[index];
         const CGFloat numberWidth = [number sizeWithAttributes:numberAttributes].width;
         const CGFloat wordWidth = [word sizeWithAttributes:wordAttributes].width;
-        const CGFloat itemWidth = textInset + numberWidth + 6.0 + wordWidth + 8.0;
+        const CGFloat itemWidth = textInset + numberWidth + 6.0 + wordWidth + textRight;
         if (!vertical && x + itemWidth > maxX)
         {
             NSDictionary *ellipsisAttributes = @{
@@ -344,10 +358,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
             }
             break;
         }
-        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * rowHeight, NSWidth(chrome) - 2.0 * pad,
+        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * (rowHeight + itemGap), NSWidth(chrome) - 2.0 * pad,
                                            rowHeight)
                               : NSMakeRect(x, contentTop, itemWidth, rowHeight);
-        if (NSMaxY(row) > NSMaxY(chrome) - pad + 0.01)
+        if (NSMaxY(row) > NSMaxY(chrome) - padY + 0.01)
         {
             break;
         }
@@ -365,7 +379,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         DrawAlignedString(word, row, textX + numberWidth + 6.0, wordAttributes);
         if (!vertical)
         {
-            x += itemWidth;
+            x += itemWidth + itemGap;
         }
     }
     if (footer.length > 0)
@@ -689,6 +703,11 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     skin.tokens.selectedRadius /= scale;
     skin.tokens.pad /= scale;
     skin.tokens.borderWidth /= scale;
+    for (auto *value : {&skin.tokens.paddingHorizontal, &skin.tokens.paddingVertical,
+                       &skin.tokens.itemPaddingHorizontal, &skin.tokens.itemPaddingVertical,
+                       &skin.tokens.itemSpacing}) {
+        if (*value) **value /= scale;
+    }
     skin.decorationTopDip /= scale;
     skin.decorationWidthDip /= scale;
     skin.minWidthDip /= scale;
@@ -751,11 +770,11 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     const msime::mac::ResolvedSkin skin = [self previewWindowSkin];
     if (_showsLayoutShowcase)
     {
-        return MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
+        return MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateVerticalInset(skin.tokens),
                                    [self previewPreeditFontSize], [self previewWords], self.preferences, [self previewScale])
             .totalHeight;
     }
-    return MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
+    return MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateVerticalInset(skin.tokens),
                                  [self previewPreeditFontSize], [self previewWords], self.preferences, [self previewScale])
         .totalHeight;
 }
@@ -811,7 +830,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     const NSInteger count = MAX(_pageSize, (NSInteger)1);
     if (_showsLayoutShowcase)
     {
-        const SkinPreviewMetrics metrics = MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
+        const SkinPreviewMetrics metrics = MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateVerticalInset(skin.tokens),
                                                               preeditFontSize, samples, self.preferences, scale);
         NSArray<NSString *> *horizontal = PreviewPageWords(samples, count);
         NSArray<NSString *> *vertical = PreviewPageWords(samples, PreviewVisibleRows(count));
@@ -838,7 +857,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     }
 
     const SkinPreviewMetrics metrics =
-        MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens), preeditFontSize,
+        MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateVerticalInset(skin.tokens), preeditFontSize,
                               samples, self.preferences, scale);
     const BOOL vertical = _panelStyle == 1;
     NSArray<NSString *> *words = PreviewPageWords(samples, vertical ? PreviewVisibleRows(count) : count);

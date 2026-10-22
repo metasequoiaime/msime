@@ -61,3 +61,6 @@ Status: implemented
 偏好文档形态是纯字符串：设置页和四份原生设置直接读写 `keybindings.toggle_*`，不再需要额外的序列化层；TS 契约（`packages/ui/src/settings/keybinding-preferences.ts`）随第四步一起进。三个字段在 `scripts/test-preferences-field-parity.py` 的 `RUST_ONLY` 登记为「Rust 先行」，第四步录入控件落地时移出。非法 chord 在 `load`/`save` 的 `validate` 被拒，整份文档进恢复流程逐字段打捞，坏字段回到出厂值而不是整份重置——与既有校验失败的恢复语义一致。`KeybindingPreferences` 不再 `Copy`：全仓只有本 crate 与它的测试按值用它，下游 `msime-host-api`、`msime-input-runtime`、`msime-mcp-server` 编译零改动。
 
 已知边界：保留表只管「输入法自己占用」的组合键；操作系统级占用（旧版 `Warnings` 表里的 `Ctrl+A`/`Ctrl+C`/`Ctrl+Space` 等）只做提示不拒绝，与旧版语义一致。第二步的风险原样保留：macOS 合并「按 keyCode 认」与「按布局字母认」两条路径时不能碰坏 Option+Shift+H 和维护键；Windows 从「无条件吞掉」改成「可关」是行为变化，关掉后 `Ctrl+Shift+Space`/`Ctrl+.` 归应用；fcitx5 在输入法关闭状态下也吃 `Ctrl+.`，HarmonyOS 与 Linux 的「关闭状态下也生效」分支要显式建模。
+
+
+审查补齐 macOS 偏好覆盖清单：三项绑定目前仅为共享契约预留，设置页没有录键入口，宿主仍用既有固定键；后续接入宿主时必须同时移除清单条目。偏好测试之间保留各自的闭合与 `#[test]`，避免三语循环测试和新默认键测试被错误连接。

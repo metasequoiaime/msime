@@ -45,6 +45,12 @@ struct SkinTokens
     float selectedRadius = 6.0f;
     float borderWidth = 1.0f;
     float pad = 4.0f;
+    std::optional<double> paddingHorizontal;
+    std::optional<double> paddingVertical;
+    std::optional<double> itemPaddingHorizontal;
+    std::optional<double> itemPaddingVertical;
+    std::optional<double> itemSpacing;
+    bool explicitItemRadius = false;
     bool showSelectedBar = false;
     // The translation line when a package gives one (the resolved `secondary` differs from `number`); none draws it like the numbers.
     std::optional<Rgba> translation;
@@ -62,27 +68,38 @@ inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted)
     return highlighted ? tokens.selectedRadius : tokens.candidateRadius;
 }
 
-// 卡片边缘到候选行的实际距离：内边距可以小到 0，但选中高亮不能压住卡片的边框，所以至少留出边框的宽度（#7974）。`tokens` 已经按整体大小缩放过时，内边距随之缩放，边框不变粗，下限也就不变。
+// 卡片边缘到候选行的实际距离；零表示贴边，不再以边框宽度作为下限。
 inline float CandidateInset(const SkinTokens &tokens)
 {
-    return std::max({0.0f, tokens.borderWidth, tokens.pad});
+    return std::max(0.0f, static_cast<float>(tokens.paddingHorizontal.value_or(tokens.pad)));
+}
+
+inline float CandidateVerticalInset(const SkinTokens &tokens)
+{
+    return std::max(0.0f, static_cast<float>(tokens.paddingVertical.value_or(tokens.pad)));
 }
 
 // 候选行的圆角至少要多大，高亮的角才不伸出卡片的圆角：两个圆角在对角线方向相切时 r = R - d(2 + √2)，卡片圆角 R 和内边距 d 都从边框内沿量起（窗口按矩形裁掉描边外侧的一半）。内边距够大时结果是 0，不改变行圆角。
 inline float CandidateRowRadiusFloor(const SkinTokens &tokens)
 {
     const float halfBorder = std::max(0.0f, tokens.borderWidth) / 2.0f;
-    const float inset = CandidateInset(tokens) - halfBorder;
+    const float inset = std::min(CandidateInset(tokens), CandidateVerticalInset(tokens)) - halfBorder;
     return std::max(0.0f, tokens.radius - halfBorder - inset * (2.0f + std::sqrt(2.0f)));
 }
 
-// The user's own 候选窗 style from the shared preferences: candidate_scale_percent and candidate_opacity_percent as factors, candidate_corner_radius in points, none to keep the theme's or the package's card radius, and candidate_padding in points, none to keep the theme's or the package's `pad`. The defaults leave a skin exactly as it was resolved.
+// 共享偏好的用户覆盖：长度为缩放前的点，缺省保留皮肤与宿主。窗口逐轴内边距先回退到旧的统一 padding；候选项圆角显式设置后不随窗口圆角联动。
 struct CandidateWindowStyle
 {
     double scale = 1.0;
     double opacity = 1.0;
     std::optional<double> cornerRadius;
     std::optional<double> padding;
+    std::optional<double> paddingHorizontal;
+    std::optional<double> paddingVertical;
+    std::optional<double> itemPaddingHorizontal;
+    std::optional<double> itemPaddingVertical;
+    std::optional<double> itemCornerRadius;
+    std::optional<double> itemSpacing;
 };
 
 struct SkinColors
@@ -195,7 +212,7 @@ struct SkinCanvas
     std::vector<SkinFreeDecoration> decorations;
 };
 
-inline SkinInsets CanvasContentInsets(const SkinCanvas &canvas, double inset)
+inline SkinInsets CanvasContentInsets(const SkinCanvas &canvas, double inset, std::optional<double> verticalInset = std::nullopt)
 {
     const auto width = canvas.border ? canvas.border->width : std::array<double, 4>{};
     if (canvas.content) {
@@ -203,7 +220,8 @@ inline SkinInsets CanvasContentInsets(const SkinCanvas &canvas, double inset)
         return {std::max(content.top, width[0]), std::max(content.right, width[1]),
                 std::max(content.bottom, width[2]), std::max(content.left, width[3])};
     }
-    return {inset + width[0], inset + width[1], inset + width[2], inset + width[3]};
+    return {verticalInset.value_or(inset) + width[0], inset + width[1],
+            verticalInset.value_or(inset) + width[2], inset + width[3]};
 }
 inline double CanvasExtraWidth(const SkinCanvas &canvas, double inset)
 {

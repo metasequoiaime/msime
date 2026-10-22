@@ -846,7 +846,7 @@ bool StaggersRows(SkinAnimationPreset preset)
     NSColor *ring = accent ?: fill;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    // 自定义四角沿用行自己的路径与坐标方向，原生主题继续内缩 1 点画统一圆角。
+    // 静态与动画高亮都铺满候选项，自定义四角沿用行自己的路径与坐标方向。
     if (shape) {
         layer.frame = rowLayer.frame;
         layer.bounds = rowLayer.bounds;
@@ -855,7 +855,7 @@ bool StaggersRows(SkinAnimationPreset preset)
         shape.fillColor = fill.CGColor;
         CGPathRelease(path);
     } else {
-        layer.frame = CGRectInset(rowLayer.frame, 1.0, 1.0);
+        layer.frame = rowLayer.frame;
         layer.cornerRadius = MAX(0.0, cornerRadius);
         layer.backgroundColor = fill.CGColor;
     }
