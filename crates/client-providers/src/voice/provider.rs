@@ -106,6 +106,15 @@ pub fn bounded_voice_fields(endpoint: &str, model: &str, token: &str) -> bool {
         && crate::text::is_bounded_text(token, 16 * 1024)
 }
 
+/// 设置页保存凭据前的共享预检。空白值表示删除凭据，因此允许；非空值必须是单行、有界文本。
+/// 豆包凭据会进入 WebSocket 握手头，必须保持 ASCII，其他服务允许 Unicode。
+pub fn valid_voice_credential(provider: &str, value: &str) -> bool {
+    let value = value.trim();
+    value.is_empty()
+        || (crate::text::is_bounded_text(value, 16 * 1024)
+            && (provider != "doubao" || value.is_ascii()))
+}
+
 /// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
 /// 凭据不能嵌在 authority 中；缺少 authority 的地址若只检查 scheme 前缀会被错误放行，
 /// 随后又被平台传输层拒绝。
@@ -519,6 +528,20 @@ mod tests {
             assert!(credential_test_config(&preferences, "voice.asr").is_none());
         }
         assert!(credential_test_config(&preferences, "ai.assistant").is_none());
+    }
+
+    #[test]
+    fn voice_credential_preflight_matches_the_mobile_contract() {
+        assert!(valid_voice_credential("openai", ""));
+        assert!(valid_voice_credential("openai", "  "));
+        assert!(valid_voice_credential("openai", "密钥"));
+        assert!(!valid_voice_credential("openai", "key\nvalue"));
+        assert!(!valid_voice_credential(
+            "openai",
+            &"x".repeat(16 * 1024 + 1)
+        ));
+        assert!(valid_voice_credential("doubao", "ascii-key"));
+        assert!(!valid_voice_credential("doubao", "密钥"));
     }
 
     #[test]

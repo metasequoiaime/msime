@@ -28,6 +28,20 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
     private void runCases() throws Exception {
         ClassLoader loader = getTargetContext().getClassLoader();
         Class<?> type = loader.loadClass("app.msime.android.VoiceProviderSettings");
+        Class<?> policy = loader.loadClass("app.msime.android.VoiceProviderPolicy");
+        Method credential = policy.getMethod("validCredential", String.class, String.class);
+        check((Boolean) credential.invoke(null, "openai", "") && (Boolean) credential.invoke(null, "openai", "密钥"),
+            "共享 JNI 接受空值和 Unicode 凭据");
+        check(!(Boolean) credential.invoke(null, "openai", "key\nvalue")
+                && !(Boolean) credential.invoke(null, "doubao", "密钥")
+                && !(Boolean) credential.invoke(null, "openai", "x".repeat(16 * 1024 + 1)),
+            "共享 JNI 拒绝控制字符、豆包非 ASCII 和超长凭据");
+        Method credentialParse = policy.getDeclaredMethod("credentialAccepted", String.class);
+        credentialParse.setAccessible(true);
+        check((Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":true}}"),
+            "严格成功信封允许保存");
+        check(!(Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":\"true\"}}"),
+            "字符串布尔值不允许保存");
         Method change = type.getMethod("switchProvider", JSONObject.class, String.class, String.class);
         JSONObject voice = new JSONObject().put("asr_provider", "groq")
             .put("asr_token", "合成当前🍃").put("asr_endpoint", "https://example.invalid/synthetic-proxy")

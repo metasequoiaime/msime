@@ -144,6 +144,31 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceEndpointIs
     });
 }
 
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceCredentialIssueRaw(JNIEnv *env, jclass, jbyteArray provider, jbyteArray value) {
+    if (!provider || !value || env->GetArrayLength(provider) > 256
+            || env->GetArrayLength(value) > 16 * 1024) {
+        return response(env, msime_client_voice_credential_issue(nullptr, 0, nullptr, 0));
+    }
+    jsize provider_length = env->GetArrayLength(provider);
+    jsize value_length = env->GetArrayLength(value);
+    static const uint8_t empty[] = {0};
+    jbyte *provider_bytes = provider_length == 0 ? nullptr : env->GetByteArrayElements(provider, nullptr);
+    if (provider_length != 0 && !provider_bytes) return nullptr;
+    jbyte *value_bytes = value_length == 0 ? nullptr : env->GetByteArrayElements(value, nullptr);
+    if (value_length != 0 && !value_bytes) {
+        if (provider_bytes) env->ReleaseByteArrayElements(provider, provider_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    char *result = msime_client_voice_credential_issue(
+        provider_length == 0 ? empty : reinterpret_cast<const uint8_t *>(provider_bytes),
+        static_cast<size_t>(provider_length),
+        value_length == 0 ? empty : reinterpret_cast<const uint8_t *>(value_bytes),
+        static_cast<size_t>(value_length));
+    if (value_bytes) env->ReleaseByteArrayElements(value, value_bytes, JNI_ABORT);
+    if (provider_bytes) env->ReleaseByteArrayElements(provider, provider_bytes, JNI_ABORT);
+    return response(env, result);
+}
+
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceWebSocketEndpointRaw(JNIEnv *env, jclass, jbyteArray endpoint) {
     return bounded_request(env, endpoint, kVoiceEndpointRequestLimit, [](const uint8_t *bytes, size_t length) {
         return msime_client_voice_websocket_endpoint(bytes, length);

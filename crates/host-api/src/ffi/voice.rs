@@ -33,6 +33,46 @@ pub unsafe extern "C" fn msime_client_voice_endpoint_issue(
     })
 }
 
+/// 设置页保存语音凭据前的共享预检；不回显凭据。
+///
+/// # Safety
+/// `provider` 与 `value` 必须分别指向本次调用期间可读的 `length` 个字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_credential_issue(
+    provider: *const u8,
+    provider_length: usize,
+    value: *const u8,
+    value_length: usize,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            provider,
+            provider_length,
+            256,
+            "invalid voice credential",
+            |bytes| {
+                let provider = std::str::from_utf8(bytes)
+                    .map_err(|_| "invalid voice credential".to_owned())?;
+                with_bounded_bytes(
+                    value,
+                    value_length,
+                    16 * 1024,
+                    "invalid voice credential",
+                    |bytes| {
+                        let value = std::str::from_utf8(bytes)
+                            .map_err(|_| "invalid voice credential".to_owned())?;
+                        let accepted =
+                            msime_client_providers::voice::provider::valid_voice_credential(
+                                provider, value,
+                            );
+                        Ok(json!({"accepted": accepted}))
+                    },
+                )
+            },
+        )
+    })
+}
+
 /// 生成 Android 流式 WebSocket 使用的规范化传输描述；不返回原始地址或凭据。
 ///
 /// # Safety

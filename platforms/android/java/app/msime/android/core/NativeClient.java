@@ -406,6 +406,16 @@ public final class NativeClient {
         return TextPolicy.utf8(voiceEndpointIssueRaw(payload, websocket));
     }
 
+    /** 设置页的共享语音凭据预检；空值表示删除，响应不含凭据。 */
+    public static String voiceCredentialIssue(String provider, String value) {
+        if (provider == null || value == null || !TextPolicy.validUnicode(provider)
+                || !TextPolicy.validUnicode(value) || provider.length() > 256
+                || TextPolicy.utf8Length(provider) > 256 || value.length() > 16 * 1024
+                || TextPolicy.utf8Length(value) > 16 * 1024)
+            throw new IllegalArgumentException("Invalid voice credential");
+        return TextPolicy.utf8(voiceCredentialIssueRaw(utf8(provider), utf8(value)));
+    }
+
     /** 生成流式 WebSocket 的共享传输描述；失败时返回标准错误信封，不回退本地 URI 解析。 */
     public static String voiceWebSocketEndpoint(String endpoint) {
         if (endpoint == null || endpoint.length() > 65_536 || !TextPolicy.validUnicode(endpoint))
@@ -976,6 +986,7 @@ public final class NativeClient {
     private static native byte[] aiProviderUpdateRaw(byte[] request);
     private static native byte[] aiModelsRaw(byte[] request);
     private static native byte[] voiceEndpointIssueRaw(byte[] endpoint, boolean websocket);
+    private static native byte[] voiceCredentialIssueRaw(byte[] provider, byte[] value);
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);

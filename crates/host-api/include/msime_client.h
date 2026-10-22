@@ -568,6 +568,10 @@ char *msime_client_voice_provider_update(const uint8_t *request, size_t length);
  * value 为 {accepted:boolean,issue:string|null}；失败提示固定，不回显输入，不访问偏好或网络。
  * 空引用、超限和非法 UTF-8 返回错误；返回缓冲区用 msime_client_string_free 释放。 */
 char *msime_client_voice_endpoint_issue(const uint8_t *endpoint, size_t length, bool websocket);
+/* 纯语音凭据预检。空值或空白值表示删除并接受；其他值若含控制字符、超过 16 KiB，或豆包握手凭据不是 ASCII 则拒绝。
+ * 返回 {accepted}，绝不回显凭据。 */
+char *msime_client_voice_credential_issue(const uint8_t *provider, size_t provider_length,
+                                          const uint8_t *value, size_t value_length);
 /* 流式 wss 地址的传输描述；输入是 <=64 KiB 的 UTF-8 地址，实际地址遵循共享 2048 字节与 URL 形状规则。
  * value 为 {socket_host:string,port:uint16,host_header:string,request_target:string}；保留显式端口 0，缺省端口为 443。
  * socket_host 不含 IPv6 方括号，host_header 保留方括号与非默认端口，request_target 使用 URL 库序列化的路径与查询。

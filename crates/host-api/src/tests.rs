@@ -18359,6 +18359,30 @@ fn voice_endpoint_issue_export_uses_shared_validation_without_echoing_input() {
 }
 
 #[test]
+fn voice_credential_issue_export_uses_shared_validation_without_echoing_input() {
+    let check = |provider: &str, value: &str| {
+        read(unsafe {
+            msime_client_voice_credential_issue(
+                provider.as_ptr(),
+                provider.len(),
+                value.as_ptr(),
+                value.len(),
+            )
+        })
+    };
+    assert_eq!(check("openai", "")["value"]["accepted"], true);
+    assert_eq!(check("openai", "密钥")["value"]["accepted"], true);
+    assert_eq!(check("openai", "key\nvalue")["value"]["accepted"], false);
+    assert_eq!(check("doubao", "ascii-key")["value"]["accepted"], true);
+    assert_eq!(check("doubao", "密钥")["value"]["accepted"], false);
+    let oversized = "x".repeat(16 * 1024 + 1);
+    assert_eq!(check("openai", &oversized)["ok"], false);
+    assert!(!check("openai", "synthetic-secret")
+        .to_string()
+        .contains("synthetic-secret"));
+}
+
+#[test]
 fn voice_websocket_endpoint_export_serializes_one_transport_descriptor() {
     let endpoint = "wss://例子.invalid:8443/合成🍃/%2F?lang=zh+cn&empty=";
     let result =

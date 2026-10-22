@@ -18,14 +18,6 @@ public final class VoiceProviderPolicySmoke {
                 && !VoiceProviderPolicy.legacyAuth(null),
             "empty means API key, as in the shared auth policy");
 
-        check(VoiceProviderPolicy.validCredential("openai", "") && VoiceProviderPolicy.validCredential("openai", "  "),
-            "an empty key deletes it");
-        check(VoiceProviderPolicy.validCredential("openai", "sk-abc"), "a normal key is accepted");
-        check(!VoiceProviderPolicy.validCredential("openai", "sk\nabc"), "a control character cannot reach a header");
-        check(VoiceProviderPolicy.validCredential("openai", "密钥") && !VoiceProviderPolicy.validCredential("doubao", "密钥"),
-            "Doubao keys travel in handshake headers and must be ASCII");
-        check(!VoiceProviderPolicy.validCredential("openai", "x".repeat(16 * 1024 + 1)), "the shared length bound applies");
-
         check(VoiceProviderPolicy.endpointProblem("openai", "https://example.invalid/v1") != null
                 && VoiceProviderPolicy.endpointProblem("openai", "") != null,
             "共享 JNI 不可用时不放行保存；地址规则由 Rust 和真实 JNI 设备套件验证");

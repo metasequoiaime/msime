@@ -29,12 +29,26 @@ public final class VoiceProviderPolicy {
         return AUTH_LEGACY.equals(mode == null ? "" : mode.trim());
     }
 
-    /** 密钥、App ID 能不能存：留空表示删除；否则不能有控制字符，长度与共享层的上限一致。豆包的凭据放进 WebSocket 握手的请求头，非 ASCII 的值共享层会拒绝，这里提前拦下。 */
+    /** 密钥、App ID 能不能存：规则由共享 Rust 预检，桥接失败时拒绝保存。 */
     public static boolean validCredential(String provider, String value) {
-        String trimmed = value == null ? "" : value.trim();
-        if (trimmed.isEmpty()) return true;
-        if (TextPolicy.hasControl(trimmed) || !TextPolicy.boundedNonBlank(trimmed, 16 * 1024)) return false;
-        return !DoubaoAsrPolicy.isStreaming(provider) || trimmed.chars().allMatch(c -> c < 0x80);
+        try {
+            String response = NativeClient.voiceCredentialIssue(provider == null ? "" : provider,
+                value == null ? "" : value);
+            return credentialAccepted(response);
+        } catch (IllegalArgumentException | LinkageError error) {
+            return false;
+        }
+    }
+
+    /** 只接受共享层的严格成功信封；不把字符串布尔值或缺字段当成允许保存。 */
+    private static boolean credentialAccepted(String response) {
+        try {
+            JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
+            if (value == null || !value.has("accepted")) return false;
+            return Boolean.TRUE.equals(JsonPolicy.strictBoolean(value.opt("accepted")));
+        } catch (JSONException error) {
+            return false;
+        }
     }
 
     /** 读取共享运行时规则的设置提示；留空用默认值，失败时返回错误提示并阻止保存。 */
