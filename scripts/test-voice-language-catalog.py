@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""核对语音语言目录的共享数据、UI 投影和 Windows 原生消费者。"""
+"""核对语音语言目录的共享数据和各平台消费者。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ HEADER = ROOT / "shared/voice/VoiceLanguageCatalog.h"
 UI_SOURCE = ROOT / "packages/ui/src/voice/voice-language-options.tsx"
 WINDOWS_SOURCE = ROOT / "platforms/windows/settings/VoiceSettings.h"
 ANDROID_SOURCE = ROOT / "platforms/android/java/app/msime/android/home/VoicePage.java"
+IOS_SOURCE = ROOT / "platforms/ios/App/Services/VoicePolish.swift"
+IOS_CATALOG = ROOT / "platforms/ios/App/Services/VoiceLanguageCatalog.swift"
 
 EXPECTED = [
     {
@@ -67,7 +69,7 @@ EXPECTED = [
 
 
 def main() -> None:
-    if not CATALOG.exists() or not HEADER.exists():
+    if not CATALOG.exists() or not HEADER.exists() or not IOS_CATALOG.exists():
         raise AssertionError("语音语言目录生成物尚未接入")
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     if catalog != EXPECTED:
@@ -135,7 +137,15 @@ def main() -> None:
         raise AssertionError("Android 没有接入生成的移动语言目录")
     if 'LANGUAGES = {"zh-cn", "yue", "en", "auto"}' in android:
         raise AssertionError("Android 仍保留移动语言表的手写副本")
-    print("语音语言目录的 UI、Windows 与 Android 消费者通过")
+    ios = IOS_SOURCE.read_text(encoding="utf-8")
+    if "static let languages = VoiceLanguageCatalog.mobile" not in ios:
+        raise AssertionError("iOS 没有接入生成的移动语言目录")
+    swift_catalog = IOS_CATALOG.read_text(encoding="utf-8")
+    if 'static let mobile: [(id: String, title: String)]' not in swift_catalog:
+        raise AssertionError("iOS 语言目录没有生成移动端投影")
+    if '("zh-cn", "普通话")' not in swift_catalog or '("auto", "普通话 + 英语")' not in swift_catalog:
+        raise AssertionError("iOS 语言目录缺少稳定的移动端选项")
+    print("语音语言目录的 UI、Windows、Android 与 iOS 消费者通过")
 
 
 if __name__ == "__main__":

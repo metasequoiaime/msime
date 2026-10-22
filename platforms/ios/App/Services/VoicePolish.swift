@@ -13,9 +13,7 @@ struct VoicePolishSettings: Equatable {
     ("custom_1", "自定义一"), ("custom_2", "自定义二"), ("custom_3", "自定义三"),
   ]
   /// Android 用于 `voice_input.language` 的 id；`auto` 让识别器自行区分普通话和英语。
-  static let languages: [(id: String, title: String)] = [
-    ("zh-cn", "普通话"), ("yue", "粤语"), ("en", "英语"), ("auto", "普通话 + 英语"),
-  ]
+  static let languages = VoiceLanguageCatalog.mobile
   static let customSlots = ["custom_1", "custom_2", "custom_3"]
   static let maximumPromptBytes = 8_192
 

@@ -26,4 +26,4 @@ Rust 目录单元测试通过，生成器 `--check` 通过；合成 C++ 消费�
 
 ## Consequences
 
-共享 UI、Windows 和 Android 不再维护语言值和标题的第二份表；导出生成物必须通过 `--check` 保持同步。iOS 仍通过 `VoicePolishSettings.languages` 管理自己的 Swift 映射，待单独核对其区域值契约后再接入。
+共享 UI、Windows、Android 和 iOS 不再维护语言值和标题的第二份表；导出生成物必须通过 `--check` 保持同步。iOS 只消费移动端投影，继续保留 `zh-cn`、`yue`、`en`、`auto` 四项及旧 `en-us` 迁移规则，不引入目录中的日语条目。

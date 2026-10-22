@@ -425,6 +425,7 @@ targets:
       - path: App/Services/LocalSpeechModelDownload.swift
       - path: App/Services/LocalSpeechModelStore.swift
       - path: App/Services/VoicePolish.swift
+      - path: App/Services/VoiceLanguageCatalog.swift
       - path: App/Services/VoicePolishPresetCatalog.swift
       - path: App/Services/VoicePolishPrompt.cpp
       - path: App/Services/DoubaoHostFrameCodec.swift
