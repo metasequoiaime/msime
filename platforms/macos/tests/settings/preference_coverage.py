@@ -63,6 +63,9 @@ NOT_APPLICABLE = {
     # 下面几条是嵌套子字段。父结构整体不适用时门禁不下降，所以这里列出的是父结构仍在 macOS 被读、但这一项本身不读的字段。
     "keybindings.switch_language_ctrl_space": "Ctrl+Space 换语言只在 Linux 提供：共享设置页按 `linux` 决定是否写这个字段（`packages/ui/src/settings/input-mode-shortcuts-model.ts` 的 `languageSwitchPatch`），macOS 走 Ctrl+Alt+Space 与 Caps Lock，不读这一项",
     "keybindings.toggle_japanese_ctrl_shift_j": "由 `HostCapabilities::japanese_toggle_shortcut` 门控，macOS 为 false（`crates/client-core/src/host_surface.rs`：macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要这个组合键），设置页不显示这一项",
+    "keybindings.toggle_english_candidates": "共享 KeyChord 契约先行，宿主路由与设置编辑器尚未接入；macOS 仍按 InputController.mm 中固定的 Ctrl+Shift+E 切换英文候选，接入 english_candidates_chord() 时移除此项",
+    "keybindings.toggle_full_width": "共享 KeyChord 契约先行，宿主路由与设置编辑器尚未接入；macOS 仍按 FullWidthInput.h 中固定的 Ctrl+Shift+Space 切换全半角，接入 full_width_chord() 时移除此项",
+    "keybindings.toggle_punctuation": "共享 KeyChord 契约先行，宿主路由与设置编辑器尚未接入；macOS 仍按 InputController.mm 中固定的 Ctrl+Period 切换标点，接入 punctuation_chord() 时移除此项",
     "wubi_candidate_selection.second_key": "由共享运行时经 `WubiCandidateSelectionPreferences::slot` 消费（`crates/input-runtime/src/runtime.rs` 的 `set_wubi_candidate_selection` / `candidate_for_slot`）；宿主不直接拼字段名，所以按名匹配看不见它",
     "wubi_candidate_selection.third_key": "同上：与 `second_key` 一起交给 `slot()` 决定第二、第三候选的取词键",
     "traditional_chinese_variant": "macOS 的简繁转换固定用 OpenCC `s2t`（`platforms/macos/src/core/ChineseTextConversion.mm` 调 `msime_client_simplified_to_traditional`），不选变体；带变体的 `msime_client_convert_to_traditional` 目前只有 Linux 的 IBus / Fcitx5 宿主调用（`crates/client-core/src/host_surface.rs` 的 `traditional_chinese_variants: matches!(platform, HostPlatform::Linux)`）。macOS 用 s2t 而不是 `s2tw` / `s2twp` 是刻意的：来源 MSIME-Apple 只有「简体 / 繁体」二选一的 `outputScript`，没有台湾正体 / 台湾用词三态，设置页也只给这两项；从 Linux 或云同步带过来的 `s2tw` / `s2twp` 在 macOS 上按 s2t 处理，属于「这项在 macOS 不适用」而不是「开关坏了」",
