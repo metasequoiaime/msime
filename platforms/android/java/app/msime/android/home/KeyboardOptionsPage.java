@@ -225,7 +225,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
-            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(toolbar, settings, member),
+            String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
+                ? "由当前应用处理；部分输入框不支持，密码框不可用" : null;
+            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -253,9 +255,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
-    /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */
+    /** 工具栏按钮是否开启：本地项读取本地设置，其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
     private static boolean toolbarButton(JSONObject toolbar, AndroidLocalSettings.Snapshot settings, String member) {
-        return AndroidLocalSettings.specs().containsKey(member) ? settings.bool(member) : toolbar.optBoolean(member, true);
+        if (AndroidLocalSettings.specs().containsKey(member)) return settings.bool(member);
+        return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */

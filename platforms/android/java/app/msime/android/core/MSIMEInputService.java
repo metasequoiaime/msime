@@ -310,6 +310,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 工具栏上的「浮动键盘」按钮（本地设置 TOOLBAR_FLOATING，默认不显示）。 */
     Button floatingShortcutButton;
     Button textEditShortcutButton;
+    Button undoShortcutButton;
+    Button redoShortcutButton;
     Button skinButton;
     Button layoutSettingsButton;
     Button scriptShortcutButton;
@@ -366,6 +368,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarFloating;
     /** 本地设置 `platform.android.toolbar_text_edit`：工具栏上显示「文本编辑」按钮。 */
     boolean toolbarTextEdit;
+    boolean toolbarUndo;
+    boolean toolbarRedo;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
     private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
@@ -2397,7 +2401,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 空闲时不画工具栏那一行：显示方式选了「隐藏」，或者工具按钮全关了。全关时这一行只剩两端的品牌键和收起键，按「隐藏」处理，整行不显示。 */
     boolean toolbarRowHidden() {
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
-            || toolbarScheme || toolbarFloating || toolbarTextEdit);
+            || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
@@ -2417,6 +2421,8 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarEmoji = toolbar == null || toolbar.optBoolean("emoji", true);
         toolbarClipboard = toolbar == null || toolbar.optBoolean("clipboard", true);
         toolbarSkin = toolbar == null || toolbar.optBoolean("skin", true);
+        toolbarUndo = toolbar != null && toolbar.optBoolean("undo", false);
+        toolbarRedo = toolbar != null && toolbar.optBoolean("redo", false);
         JSONObject fuzzy = preferences == null ? null : preferences.optJSONObject("fuzzy_pinyin");
         fuzzyPinyinEnabled = fuzzy != null && fuzzy.optBoolean("enabled", false);
         applyLocalSettings();
@@ -10098,6 +10104,14 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
             if (Build.VERSION.SDK_INT >= 30)
                 floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+        }
+        if (undoShortcutButton != null) {
+            ViewPolicy.setVisible(undoShortcutButton, toolbarUndo);
+            ViewPolicy.setEnabled(undoShortcutButton, connection != null && !EditorPolicy.password(editorInputType));
+        }
+        if (redoShortcutButton != null) {
+            ViewPolicy.setVisible(redoShortcutButton, toolbarRedo);
+            ViewPolicy.setEnabled(redoShortcutButton, connection != null && !EditorPolicy.password(editorInputType));
         }
         if (textEditShortcutButton != null) {
             ViewPolicy.setVisible(textEditShortcutButton, toolbarTextEdit);

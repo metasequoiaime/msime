@@ -3,6 +3,10 @@ package app.msime.android;
 import app.msime.android.LayoutPolicy;
 
 import android.graphics.Color;
+import android.os.SystemClock;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
+import android.view.inputmethod.InputConnection;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -52,7 +56,7 @@ final class ImeToolbar {
         s.dismissShortcutButton = dismissButton;
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton};
+            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
         for (Button button : new Button[] {s.moreButton, dismissButton}) {
             bindEditor(button);
@@ -115,6 +119,8 @@ final class ImeToolbar {
                 case SCHEME -> s.schemeButton;
                 case FLOATING -> s.floatingShortcutButton;
                 case TEXT_EDIT -> s.textEditShortcutButton;
+                case UNDO -> s.undoShortcutButton;
+                case REDO -> s.redoShortcutButton;
             };
             // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
             s.shortcutBar.addView(button, index + 1);
@@ -195,6 +201,12 @@ final class ImeToolbar {
             KeyboardShortcutIconPolicy.Icon.TEXT_EDIT,
             panelToggle(() -> s.textEditPanel, s.imeTextEditPanel::show));
         s.textEditShortcutButton.setContentDescription("文本编辑");
+        s.undoShortcutButton = s.shortcutButton(s.shortcutBar, "撤销",
+            KeyboardShortcutIconPolicy.Icon.UNDO, () -> performHistory(false));
+        s.undoShortcutButton.setContentDescription("撤销");
+        s.redoShortcutButton = s.shortcutButton(s.shortcutBar, "重做",
+            KeyboardShortcutIconPolicy.Icon.REDO, () -> performHistory(true));
+        s.redoShortcutButton.setContentDescription("重做");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
             KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
         s.voiceShortcutButton.setContentDescription("打开语音结果");
@@ -232,6 +244,27 @@ final class ImeToolbar {
             s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));
         candidateRegion.addView(candidateHeader, LayoutPolicy.matchWidthHeightPx(
             s.pixels(READING_ROW_DP)));
+    }
+
+    /** 历史由编辑器持有；仅发送一次快捷键，不采集文本，也不以投递成功冒充已撤销。 */
+    private void performHistory(boolean redo) {
+        InputConnection target = s.connection;
+        if (target == null || EditorPolicy.password(s.editorInputType)) return;
+        if (s.session != 0 && s.hasEngineComposition()) s.command(2);
+        if (s.connection != target) return;
+        try {
+            target.finishComposingText();
+        } catch (RuntimeException ignored) { return; }
+        s.selectionEcho.invalidate();
+        int meta = KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;
+        if (redo) meta |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
+        long down = SystemClock.uptimeMillis();
+        // 无论按下是否被接收都尝试松开，连接可在任意一步断开；不追加另一种撤销命令。
+        for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP})
+            InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down,
+                SystemClock.uptimeMillis(), action, KeyEvent.KEYCODE_Z, 0, meta,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
+                KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
     }
 
     private void bindToolbarAction(Button button, Runnable action) {

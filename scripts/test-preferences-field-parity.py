@@ -34,6 +34,11 @@ RUST_ONLY: dict[str, set[str]] = {
         "toggle_full_width",
         "toggle_punctuation",
     },
+    "TouchToolbarPreferences": {
+        # 撤销与重做仅在 Android 原生工具栏设置页提供入口，其他宿主保留共享字段，React 设置页不显示。
+        "undo",
+        "redo",
+    },
 }
 
 

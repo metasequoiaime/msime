@@ -37,6 +37,12 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 attach.invoke(service, getTargetContext());
                 type.getMethod("onCreate").invoke(service);
                 type.getMethod("onCreateInputView").invoke(service);
+                Button undo = (Button) field(type, "undoShortcutButton").get(service);
+                Button redo = (Button) field(type, "redoShortcutButton").get(service);
+                check(!undo.isEnabled() && !redo.isEnabled(), "history controls enabled without editor");
+                Object historyToolbar = field(type, "imeToolbar").get(service);
+                method(historyToolbar.getClass(), "performHistory", boolean.class).invoke(historyToolbar, false);
+                method(historyToolbar.getClass(), "performHistory", boolean.class).invoke(historyToolbar, true);
                 Button more = (Button) field(type, "moreButton").get(service);
                 Button dismiss = (Button) field(type, "dismissShortcutButton").get(service);
                 HorizontalScrollView scroll = (HorizontalScrollView) field(type, "shortcutScroll").get(service);

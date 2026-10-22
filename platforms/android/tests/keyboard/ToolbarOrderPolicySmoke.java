@@ -12,14 +12,15 @@ public final class ToolbarOrderPolicySmoke {
         List<ToolbarOrderPolicy.Item> custom = ToolbarOrderPolicy.ordered("text_edit,skin,emoji,skin,unknown");
         check(custom.equals(List.of(ToolbarOrderPolicy.Item.TEXT_EDIT, ToolbarOrderPolicy.Item.SKIN,
             ToolbarOrderPolicy.Item.EMOJI, ToolbarOrderPolicy.Item.PHRASE, ToolbarOrderPolicy.Item.CLIPBOARD,
-            ToolbarOrderPolicy.Item.SCHEME, ToolbarOrderPolicy.Item.FLOATING)), "missing items append in default order");
+            ToolbarOrderPolicy.Item.SCHEME, ToolbarOrderPolicy.Item.FLOATING,
+            ToolbarOrderPolicy.Item.UNDO, ToolbarOrderPolicy.Item.REDO)), "missing items append in default order");
         check(ToolbarOrderPolicy.ordered(ToolbarOrderPolicy.format(custom)).equals(custom), "stable IDs round trip");
         check(ToolbarOrderPolicy.ordered(" skin , clipboard ").get(0) == ToolbarOrderPolicy.Item.SKIN, "whitespace accepted");
         check(ToolbarOrderPolicy.normalize("x".repeat(513)) == null, "oversized writes rejected");
         check(ToolbarOrderPolicy.ordered("x".repeat(513)).equals(defaults), "oversized reads default");
         check(ToolbarOrderPolicy.normalize(null) == null, "null writes rejected");
         check(ToolbarOrderPolicy.move(custom, custom.get(0), -1).equals(custom), "first stays inside bounds");
-        check(ToolbarOrderPolicy.move(custom, custom.get(6), 1).equals(custom), "last stays inside bounds");
+        check(ToolbarOrderPolicy.move(custom, custom.get(custom.size() - 1), 1).equals(custom), "last stays inside bounds");
         List<ToolbarOrderPolicy.Item> moved = ToolbarOrderPolicy.move(defaults, ToolbarOrderPolicy.Item.SKIN, -1);
         check(moved.get(2) == ToolbarOrderPolicy.Item.SKIN && moved.get(3) == ToolbarOrderPolicy.Item.CLIPBOARD,
             "move preserves neighboring identities");

@@ -222,3 +222,5 @@ platforms/android/tests/device/settings/AiSettingsDeviceChecks.java
 platforms/android/tests/device/settings/LocalVoiceReadinessChecks.java
 platforms/android/tests/device/keyboard/CompositionSearchEditorActivity.java
 platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java
+platforms/android/tests/device/keyboard/HistoryEditorActivity.java
+platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
