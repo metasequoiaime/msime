@@ -1,0 +1,103 @@
+[
+  {
+    "documentation": "https://everyapi.ai/models",
+    "endpoint": "https://api.everyapi.ai/v1/chat/completions",
+    "id": "everyapi",
+    "model": "deepseek-v4-flash",
+    "models": ["deepseek-v4-flash", "deepseek-v4-pro", "claude-sonnet-5", "glm-5.3-flash"],
+    "title": "EveryAPI"
+  },
+  {
+    "documentation": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+    "endpoint": "https://api.openai.com/v1/chat/completions",
+    "id": "openai",
+    "model": "gpt-4.1-mini",
+    "models": ["gpt-4.1-mini"],
+    "title": "OpenAI"
+  },
+  {
+    "documentation": "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk",
+    "endpoint": "https://api.anthropic.com/v1/chat/completions",
+    "id": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "models": ["claude-sonnet-4-6", "claude-opus-5"],
+    "title": "Anthropic · Claude"
+  },
+  {
+    "documentation": "https://ai.google.dev/gemini-api/docs/openai",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "id": "gemini",
+    "model": "gemini-3.8-flash",
+    "models": ["gemini-3.8-flash", "gemini-2.5-flash"],
+    "title": "Google · Gemini"
+  },
+  {
+    "documentation": "https://api-docs.deepseek.com/",
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "id": "deepseek",
+    "model": "deepseek-v4-flash",
+    "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+    "title": "DeepSeek"
+  },
+  {
+    "documentation": "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+    "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "id": "qwen",
+    "model": "qwen-plus",
+    "models": ["qwen-plus"],
+    "title": "通义千问 · 阿里云百炼"
+  },
+  {
+    "documentation": "https://platform.kimi.com/docs/api/chat",
+    "endpoint": "https://api.moonshot.cn/v1/chat/completions",
+    "id": "kimi",
+    "model": "kimi-k2.6",
+    "models": ["kimi-k2.6", "kimi-k2.5"],
+    "title": "Kimi · 月之暗面"
+  },
+  {
+    "documentation": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7",
+    "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "id": "zhipu",
+    "model": "glm-4.7",
+    "models": ["glm-4.7", "glm-4.7-flashx"],
+    "title": "智谱 · GLM"
+  },
+  {
+    "documentation": "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
+    "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
+    "id": "siliconflow",
+    "model": "Qwen/Qwen3.6-27B",
+    "models": ["Qwen/Qwen3.6-27B"],
+    "title": "硅基流动"
+  },
+  {
+    "documentation": "https://console.groq.com/docs/quickstart",
+    "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+    "id": "groq",
+    "model": "llama-3.3-70b-versatile",
+    "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    "title": "Groq"
+  },
+  {
+    "documentation": "https://openrouter.ai/docs/quickstart",
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "id": "openrouter",
+    "model": "openrouter/auto",
+    "models": ["openrouter/auto"],
+    "title": "OpenRouter"
+  },
+  {
+    "documentation": "https://docs.ollama.com/api/openai-compatibility",
+    "endpoint": "http://localhost:11434/v1/chat/completions",
+    "id": "ollama",
+    "model": "",
+    "title": "Ollama"
+  },
+  {
+    "endpoint": "",
+    "id": "custom",
+    "model": "",
+    "title": "自定义"
+  }
+]

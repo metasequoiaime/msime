@@ -135,6 +135,18 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 
 AI 服务商选择是原生 select 原则的局部例外：该控件用 combobox/listbox 呈现选项内图标，自行维护键盘、焦点、定位与高对比度；其他 select 继续使用系统控件，鸿蒙手机继续使用整行选择面板。
 
+## 共享 AI 服务目录
+
+`settings/ai-provider-options.ts` 读取 `settings/ai-provider-catalog.json`，事实源是 `crates/client-providers/src/ai/provider_catalog.rs`。十三项标题、默认地址、默认模型、建议模型和文档沿用原有值与顺序；空建议列表和空文档不导出字段，保留原 UI 对象形状。
+
+```sh
+cargo run --quiet --locked -p msime-client-providers --example export_ai_provider_catalog -- --write
+pnpm exec vp fmt packages/ui/src/settings/ai-provider-catalog.json
+cargo run --quiet --locked -p msime-client-providers --example export_ai_provider_catalog -- --check
+```
+
+同一工具生成 Windows 设置消费的 `shared/ai/AiProviderCatalog.h`，静态宽字符串表保留原 `Provider` 字段与惰性初始化生命周期。Linux 设置应用 CI 使用真实导出器检查 JSON 语义和 C++ 字节；消费者不增加运行时文件或网络访问。平台过滤、Ollama 免 Token、自定义字段优先和未知服务回退继续由原策略处理；iOS、语音和偏好首次默认值的独立策略不由本目录替换。
+
 ## 共享语音目录
 
 识别、润色服务预设和豆包流式接口读取 `voice/voice-provider-catalog.json`，事实源是 `crates/client-providers/src/voice/provider_catalog.rs`。修改 Rust 目录后在仓库根目录生成，再检查：
