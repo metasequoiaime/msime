@@ -5,6 +5,7 @@ import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { ActionButton } from "./action-button";
 import * as doc from "./document-style";
 import { platformOsName } from "./label-helpers";
+import { useMountedRef } from "./use-mounted-ref";
 
 export interface SystemInfoSource {
   appVersion: string;
@@ -69,13 +70,26 @@ export function systemInfoText(entries: readonly SystemInfoEntry[]): string {
 export interface SystemInfoSectionProps extends SystemInfoSource {
   /** 宿主能写剪贴板时才给；没有时只列出各项，不画「复制」按钮。 */
   copyText?: (text: string) => Promise<void>;
+  setError?: (message: string) => void;
 }
 
 /** 「关于」页的「系统信息」分组：逐项列出，最后一行一键复制，反馈问题时贴进报告。 */
-export function SystemInfoSection({ copyText, ...source }: SystemInfoSectionProps) {
+export function SystemInfoSection({ copyText, setError, ...source }: SystemInfoSectionProps) {
+  const mounted = useMountedRef();
   const [copied, showCopied] = useTemporaryFlag(1600);
   const entries = systemInfoEntries(source);
-  const copy = copyText ? () => copyText(systemInfoText(entries)).then(showCopied) : undefined;
+  const copy = copyText
+    ? async () => {
+        if (!mounted.current) return;
+        setError?.("");
+        try {
+          await copyText(systemInfoText(entries));
+          if (mounted.current) showCopied();
+        } catch {
+          if (mounted.current) setError?.("复制系统信息失败，请重试。");
+        }
+      }
+    : undefined;
   return (
     <GroupList title="系统信息">
       {entries.map(({ label, value }) => (

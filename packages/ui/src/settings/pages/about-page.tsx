@@ -52,6 +52,7 @@ export function AboutSettingsPage() {
     chooseDataDirectory,
     selectPage,
     host,
+    setError,
     aboutTab,
     setAboutTab,
   } = useSettingsForm();
@@ -158,6 +159,7 @@ export function AboutSettingsPage() {
             host={host}
             scheme={schemeTitle(draft.scheme)}
             copyText={client.copyText}
+            setError={setError}
           />,
         )}
       {panel(
