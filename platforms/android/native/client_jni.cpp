@@ -478,6 +478,15 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceConf
     return bounded_request(env, directory, kMobileVoiceDirectoryLimit,
         msime_client_mobile_voice_configuration);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceStatusRaw(
+        JNIEnv *env, jclass, jbyteArray provider, jboolean resolved,
+        jboolean platform_available, jboolean model_ready, jboolean runtime_ready) {
+    return bounded_request(env, provider, 256,
+        [resolved, platform_available, model_ready, runtime_ready](const uint8_t *bytes, size_t length) {
+            return msime_client_mobile_voice_status(bytes, length, resolved == JNI_TRUE,
+                platform_available == JNI_TRUE, model_ready == JNI_TRUE, runtime_ready == JNI_TRUE);
+        });
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);

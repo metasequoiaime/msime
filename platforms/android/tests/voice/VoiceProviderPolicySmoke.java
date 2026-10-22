@@ -22,30 +22,6 @@ public final class VoiceProviderPolicySmoke {
                 && VoiceProviderPolicy.endpointProblem("openai", "") != null,
             "共享 JNI 不可用时不放行保存；地址规则由 Rust 和真实 JNI 设备套件验证");
 
-        // The shipped default provider is doubao with no key; the row must say the keyboard is really using the platform recogniser.
-        check("密钥未填写完整，暂用系统识别".equals(VoiceProviderPolicy.status("doubao", null)),
-            "an unconfigured default says what is actually used");
-        check("未填写 API Key，暂用系统识别".equals(VoiceProviderPolicy.status("openai", null)),
-            "a missing upload key says what is actually used");
-        check(VoiceProviderPolicy.status("openai", "openai") == null, "a working configuration needs no remark");
-        check("使用设备自带的语音识别服务".equals(VoiceProviderPolicy.status("system", null)),
-            "the platform recogniser is explained");
-        check("没有可用的系统识别服务，可改用本地模型或豆包".equals(
-                VoiceProviderPolicy.status("system", null, false)),
-            "a device without a platform recogniser offers an alternative");
-        check("密钥未填写完整，系统识别不可用".equals(
-                VoiceProviderPolicy.status("doubao", null, false)),
-            "an unconfigured cloud provider does not claim an unavailable fallback");
-        check("未填写 API Key，暂用系统识别".equals(
-                VoiceProviderPolicy.status("openai", null, true)),
-            "an available platform recogniser keeps the existing fallback wording");
-        check(VoiceProviderPolicy.status("local", "local") == null, "the local model reports through localStatus");
-        check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(VoiceProviderPolicy.localStatus(false, true))
-                && "还没有选用可用模型，请到「模型」选用、下载或导入".equals(VoiceProviderPolicy.localStatus(false, false)),
-            "a missing model is named first");
-        check("还需准备本地语音运行库，请到「模型」下载或导入".equals(VoiceProviderPolicy.localStatus(true, false)),
-            "a thin package also needs the runtime");
-        check(VoiceProviderPolicy.localStatus(true, true) == null, "a ready local model needs no remark");
-        System.out.println("Android voice provider settings: credentials, status and unavailable endpoint bridge passed");
+        System.out.println("Android voice provider settings: credentials and endpoint bridge passed");
     }
 }

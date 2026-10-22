@@ -18433,6 +18433,60 @@ fn voice_provider_catalog_export_matches_the_shared_catalog() {
 }
 
 #[test]
+fn mobile_voice_status_export_uses_shared_status_rules() {
+    let provider = "doubao";
+    let result = read(unsafe {
+        msime_client_mobile_voice_status(
+            provider.as_ptr(),
+            provider.len(),
+            false,
+            true,
+            false,
+            false,
+        )
+    });
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "ok": true,
+            "value": {"status": "密钥未填写完整，暂用系统识别"}
+        })
+    );
+
+    let provider = "local";
+    let result = read(unsafe {
+        msime_client_mobile_voice_status(
+            provider.as_ptr(),
+            provider.len(),
+            false,
+            true,
+            true,
+            false,
+        )
+    });
+    assert_eq!(
+        result["value"]["status"],
+        "还需准备本地语音运行库，请到「模型」下载或导入"
+    );
+
+    let provider = "system";
+    let result = read(unsafe {
+        msime_client_mobile_voice_status(
+            provider.as_ptr(),
+            provider.len(),
+            false,
+            false,
+            false,
+            false,
+        )
+    });
+    assert_eq!(
+        result["value"]["status"],
+        "没有可用的系统识别服务，可改用本地模型或豆包"
+    );
+}
+
+#[test]
 fn voice_provider_update_export_clears_fields_only_with_the_explicit_policy() {
     for (service, provider) in [
         ("voice.asr", "openai"),

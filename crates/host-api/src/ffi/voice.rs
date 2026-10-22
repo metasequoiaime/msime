@@ -117,6 +117,46 @@ pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {
     })
 }
 
+/// 设置页识别服务行的状态文案；纯计算，不读取偏好或设备状态。
+///
+/// # Safety
+/// `provider` 必须指向本次调用期间可读的 UTF-8 字节；空服务用 `system` 或空串表示。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_mobile_voice_status(
+    provider: *const u8,
+    provider_length: usize,
+    resolved: bool,
+    platform_available: bool,
+    model_ready: bool,
+    runtime_ready: bool,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            provider,
+            provider_length,
+            256,
+            "invalid voice status provider",
+            |bytes| {
+                let provider = std::str::from_utf8(bytes)
+                    .map_err(|_| "invalid voice status provider".to_owned())?;
+                let status = if provider == "local" {
+                    msime_client_providers::voice::provider::mobile_voice_local_status(
+                        model_ready,
+                        runtime_ready,
+                    )
+                } else {
+                    msime_client_providers::voice::provider::mobile_voice_provider_status(
+                        provider,
+                        resolved,
+                        platform_available,
+                    )
+                };
+                Ok(json!({"status": status}))
+            },
+        )
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct VoiceProviderUpdateRequest {
     service: msime_client_providers::voice::provider_settings::ProviderService,

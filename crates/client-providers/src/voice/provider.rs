@@ -115,6 +115,51 @@ pub fn valid_voice_credential(provider: &str, value: &str) -> bool {
             && (provider != "doubao" || value.is_ascii()))
 }
 
+/// 设置页识别服务行的状态文案；`resolved` 表示共享解析已经得到可用云端配置。
+pub fn mobile_voice_provider_status(
+    provider: &str,
+    resolved: bool,
+    platform_available: bool,
+) -> Option<&'static str> {
+    let network = !provider.is_empty() && provider != "system" && provider != "local";
+    if !network {
+        return if provider.is_empty() || provider == "system" {
+            Some(if platform_available {
+                "使用设备自带的语音识别服务"
+            } else {
+                "没有可用的系统识别服务，可改用本地模型或豆包"
+            })
+        } else {
+            None
+        };
+    }
+    if resolved {
+        return None;
+    }
+    Some(if provider == "doubao" {
+        if platform_available {
+            "密钥未填写完整，暂用系统识别"
+        } else {
+            "密钥未填写完整，系统识别不可用"
+        }
+    } else if platform_available {
+        "未填写 API Key，暂用系统识别"
+    } else {
+        "未填写 API Key，系统识别不可用"
+    })
+}
+
+/// 设置页本地模型行的状态文案。
+pub fn mobile_voice_local_status(model_ready: bool, runtime_ready: bool) -> Option<&'static str> {
+    if !model_ready {
+        Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+    } else if runtime_ready {
+        None
+    } else {
+        Some("还需准备本地语音运行库，请到「模型」下载或导入")
+    }
+}
+
 /// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
 /// 凭据不能嵌在 authority 中；缺少 authority 的地址若只检查 scheme 前缀会被错误放行，
 /// 随后又被平台传输层拒绝。
@@ -756,5 +801,40 @@ mod tests {
                 "{endpoint}"
             );
         }
+    }
+
+    #[test]
+    fn mobile_voice_status_explains_fallback_and_platform_availability() {
+        assert_eq!(
+            mobile_voice_provider_status("doubao", false, true),
+            Some("密钥未填写完整，暂用系统识别")
+        );
+        assert_eq!(
+            mobile_voice_provider_status("openai", false, false),
+            Some("未填写 API Key，系统识别不可用")
+        );
+        assert_eq!(mobile_voice_provider_status("openai", true, true), None);
+        assert_eq!(
+            mobile_voice_provider_status("system", false, true),
+            Some("使用设备自带的语音识别服务")
+        );
+        assert_eq!(
+            mobile_voice_provider_status("system", false, false),
+            Some("没有可用的系统识别服务，可改用本地模型或豆包")
+        );
+        assert_eq!(mobile_voice_provider_status("local", true, true), None);
+    }
+
+    #[test]
+    fn mobile_voice_local_status_prioritizes_model_then_runtime() {
+        assert_eq!(
+            mobile_voice_local_status(false, true),
+            Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+        );
+        assert_eq!(
+            mobile_voice_local_status(true, false),
+            Some("还需准备本地语音运行库，请到「模型」下载或导入")
+        );
+        assert_eq!(mobile_voice_local_status(true, true), None);
     }
 }

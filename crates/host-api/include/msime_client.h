@@ -556,6 +556,12 @@ void msime_client_release_process_cache(void);
  * 数组顺序即设置页顺序；不含平台特有的 system/local，宿主按能力追加。
  * models 仅作建议，不限制用户自定义模型。宿主复制字段后用 msime_client_string_free 释放返回的 JSON 缓冲区。 */
 char *msime_client_voice_provider_catalog(void);
+/* 设置页识别服务行的状态文案。provider 为 system、local、云端服务 id 或空串；resolved
+ * 表示共享解析已得到可用云端配置，platform_available 是宿主是否有系统识别服务，后两个
+ * 参数只在 provider 为 local 时使用。纯计算，返回 {status:string|null}。 */
+char *msime_client_mobile_voice_status(const uint8_t *provider, size_t provider_length,
+                                       bool resolved, bool platform_available,
+                                       bool model_ready, bool runtime_ready);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
  * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
  * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。
