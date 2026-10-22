@@ -8,6 +8,7 @@ NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSI
 #import "../core/WindowPresentation.h"
 #import "../core/EditionIdentity.h"
 #include <sys/stat.h>
+#include "../../../../shared/voice/VoiceProviderCatalog.h"
 
 namespace
 {
@@ -28,17 +29,30 @@ NSArray<NSDictionary<NSString *, NSString *> *> *ProviderSpecs()
     static NSArray<NSDictionary<NSString *, NSString *> *> *specs;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        specs = @[
-            @{@"id" : @"doubao", @"title" : @"豆包", @"endpoint" : @"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", @"model" : @""},
-            @{@"id" : @"openai", @"title" : @"OpenAI", @"endpoint" : @"https://api.openai.com/v1/audio/transcriptions", @"model" : @"whisper-1"},
-            @{@"id" : @"siliconflow", @"title" : @"SiliconFlow", @"endpoint" : @"https://api.siliconflow.cn/v1/audio/transcriptions", @"model" : @"FunAudioLLM/SenseVoiceSmall"},
-            @{@"id" : @"groq", @"title" : @"Groq", @"endpoint" : @"https://api.groq.com/openai/v1/audio/transcriptions", @"model" : @"whisper-large-v3-turbo"},
-            @{@"id" : @"everyapi", @"title" : @"EveryAPI", @"endpoint" : @"https://api.everyapi.ai/v1/audio/transcriptions", @"model" : @"volc.seedasr.sauc.duration"},
-            @{@"id" : @"mistral", @"title" : @"Mistral · Voxtral", @"endpoint" : @"https://api.mistral.ai/v1/audio/transcriptions", @"model" : @"voxtral-mini-latest"},
-            @{@"id" : @"bailian", @"title" : @"阿里云百炼 · 千问", @"endpoint" : @"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", @"model" : @"qwen3-asr-flash"},
+        const auto text = [](std::string_view value) {
+            return [[NSString alloc] initWithBytes:value.data() length:value.size() encoding:NSUTF8StringEncoding];
+        };
+        NSMutableDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *remote = [NSMutableDictionary dictionary];
+        for (const auto &preset : msime::voice::kAsrProviders) {
+            NSString *identifier = text(preset.id);
+            remote[identifier] = @{@"id": identifier, @"title": text(preset.title),
+                                   @"endpoint": text(preset.endpoint), @"model": text(preset.model)};
+        }
+        // 只保留 macOS 的历史顺序，不在宿主复制共享服务的元数据。
+        NSArray<NSString *> *priority = @[@"doubao", @"openai", @"siliconflow", @"groq",
+                                          @"everyapi", @"mistral", @"bailian"];
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *ordered = [NSMutableArray array];
+        for (NSString *identifier in priority)
+            if (remote[identifier]) [ordered addObject:remote[identifier]];
+        for (const auto &preset : msime::voice::kAsrProviders) {
+            NSString *identifier = text(preset.id);
+            if (![priority containsObject:identifier]) [ordered addObject:remote[identifier]];
+        }
+        [ordered addObjectsFromArray:@[
             @{@"id" : @"system", @"title" : @"macOS 系统识别", @"endpoint" : @"", @"model" : @""},
             @{@"id" : @"local", @"title" : @"本地模型", @"endpoint" : @"", @"model" : @""}
-        ];
+        ]];
+        specs = [ordered copy];
     });
     return specs;
 }

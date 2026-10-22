@@ -148,6 +148,8 @@ cargo run --quiet --locked -p msime-client-providers --example export_voice_prov
 
 导出器同时生成鸿蒙 `VoiceProviderCatalog.ts` 的润色与 HTTP 识别默认地址、模型和 HTTP 请求格式，润色器、识别策略与初始配置同步读取；HTTP 服务范围由 Rust `asr_request_format` 筛选，流式与本地服务不进入上传路径；Linux 的 `msime_voice_provider_catalog.py` 同步生成服务集合、默认地址/模型与 HTTP 格式，由原生语音脚本导入并随各版本安装；无参时仍只向标准输出生成 JSON。Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查，JSON 比较语义值，TypeScript 和 Python 逐字比较。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
 
+macOS 同时读取同一导出器生成的 `shared/voice/VoiceProviderCatalog.h`，共享 C++17 静态表持有识别服务的 id、标题、默认地址与模型，`--check` 逐字检查。宿主只保存历史 id 顺序，并追加系统与本地识别；不增加运行时 ABI 初始化、JSON 解析或配置读取。
+
 ## 共享润色提示词
 
 内置方案的名称与正文归 `crates/client-providers/src/voice/polish_catalog.rs`。修改它后，在仓库根目录运行：
