@@ -31,7 +31,7 @@ B2 出处 `_refs/parity-gaps.md`；共享目录机制见 #9231/#9239 的提交�
 
 ## Verification
 
-新目录项先以 stash 摘掉实现复现 4 项失败（目录断言、端点断言、ASR 凭据路由），恢复后 `cargo test -p msime-client-providers` 249 全过、`-p msime-client-core` 485 全过；`asr_request_format` 三家断言 multipart；两个导出器 `--check` 通过；Linux `provider_catalog.py`/`provider_request_format.py` pin 更新后通过；`cargo fmt --all --check` 通过。
+新目录项先以 stash 摘掉实现复现 4 项失败（目录断言、端点断言、ASR 凭据路由），恢复后 `cargo test -p msime-client-providers` 249 全过、`-p msime-client-core` 485 全过；`asr_request_format` 三家断言 multipart；两个导出器 `--check` 通过；Linux `provider_catalog.py`/`provider_request_format.py` pin 更新后通过；`cargo fmt --all --check` 通过。目录合入后 Windows UI 冒烟仍保留旧的 13 项断言，已同步为 15 项并允许新增服务暂不带品牌图标。
 
 ## Consequences
 
