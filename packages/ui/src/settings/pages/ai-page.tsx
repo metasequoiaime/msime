@@ -49,6 +49,7 @@ function AiAssistanceContent() {
     providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
+    setError,
   } = useSettingsForm();
 
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
@@ -73,6 +74,7 @@ function AiAssistanceContent() {
       aiTestStatus={aiTestStatus}
       aiTestBusy={aiTestBusy}
       testAi={testAi}
+      setError={setError}
       providerPresetControls={providerPresetControls}
       linuxPlatform={linuxPlatform}
       windowsPlatform={windowsPlatform}

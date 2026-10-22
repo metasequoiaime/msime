@@ -103,6 +103,38 @@ test("真实保存回执返回同值 AI 副本时，当前润色请求和结果�
   expect(await screen.findByText("有效的合成润色结果")).toBeTruthy();
 });
 
+test("AI 润色测试结果复制失败时显示可重试的错误", async () => {
+  const copyText = vi.fn().mockRejectedValue(new Error("synthetic clipboard failure"));
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        copyText,
+        host: testHost({ platform: "android" }),
+        aiAssistant: {
+          fetchModels: vi.fn(),
+          test: vi.fn().mockResolvedValue("可复制的合成结果"),
+        },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.change(screen.getByLabelText("AI API Token"), {
+    target: { value: "synthetic-token" },
+  });
+  fireEvent.click(screen.getByRole("switch", { name: "启用 AI 辅助" }));
+  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "合成测试文字" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
+  await screen.findByText("可复制的合成结果");
+
+  fireEvent.click(screen.getByRole("button", { name: "复制结果" }));
+
+  expect(await screen.findByText("复制 AI 测试结果失败，请重试。")).toBeTruthy();
+  expect(copyText).toHaveBeenCalledWith("可复制的合成结果");
+});
+
 test.each(["save", "clear"] as const)(
   "Linux AI 凭据 %s 完成后，旧模型列表不能覆盖配置",
   async (operation) => {

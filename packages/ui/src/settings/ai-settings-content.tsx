@@ -21,6 +21,7 @@ import { AiTestToolsSection } from "./ai-test-tools-section";
 import { NetworkProxySection } from "./network-proxy-section";
 import type { NetworkProxyPreferences } from "./network-proxy-preferences";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
+import { useMountedRef } from "./use-mounted-ref";
 import * as settings from "./settings-style";
 
 export interface AiSettingsContentProps {
@@ -42,6 +43,7 @@ export interface AiSettingsContentProps {
   aiTestStatus: string;
   aiTestBusy: boolean;
   testAi: () => Promise<void>;
+  setError?: (message: string) => void;
   providerPresetControls: ProviderPresetControlFactory;
   linuxPlatform: boolean;
   windowsPlatform: boolean;
@@ -88,6 +90,7 @@ export function AiSettingsContent({
   aiTestStatus,
   aiTestBusy,
   testAi,
+  setError,
   providerPresetControls,
   linuxPlatform,
   windowsPlatform,
@@ -108,6 +111,18 @@ export function AiSettingsContent({
   showNetwork = false,
   trailing,
 }: AiSettingsContentProps) {
+  const mounted = useMountedRef();
+  const copyAiTestOutput = client.copyText
+    ? async () => {
+        if (!mounted.current) return;
+        setError?.("");
+        try {
+          await client.copyText!(aiTestOutput);
+        } catch {
+          if (mounted.current) setError?.("复制 AI 测试结果失败，请重试。");
+        }
+      }
+    : undefined;
   const linuxCredentialTest = credentialTestControl(
     "ai.assistant",
     "测试 AI 辅助配置",
@@ -233,7 +248,7 @@ export function AiSettingsContent({
             output={aiTestOutput}
             onInputChange={setAiTestInput}
             onTest={() => void testAi()}
-            onCopyOutput={client.copyText ? () => void client.copyText!(aiTestOutput) : undefined}
+            onCopyOutput={copyAiTestOutput}
           />
         ) : null
       }
