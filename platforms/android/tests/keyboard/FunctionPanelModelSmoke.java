@@ -12,8 +12,15 @@ public final class FunctionPanelModelSmoke {
             "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "插入语音文字", "词库", "文本编辑",
-            "反馈", "关于", "打开官网", "设备信息", "宣传", "表情")), "page two");
-        check(labels(2).equals(List.of("剪贴板历史", "编辑工具栏")), "page three");
+            "编辑工具栏", "设备信息", "反馈", "宣传", "打开官网", "关于")), "page two");
+        check(labels(2).equals(List.of("表情", "剪贴板历史")), "page three");
+        List<Item> screenshotItems = FunctionPanelModel.itemsExcept(java.util.Set.of(
+            Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_RESULT));
+        List<String> screenshotPage = new ArrayList<>();
+        for (Item item : screenshotItems.subList(FunctionPanelModel.PAGE_SIZE, screenshotItems.size()))
+            screenshotPage.add(item.label());
+        check(screenshotPage.equals(List.of("振动", "振动强度", "词库", "编辑工具栏",
+            "设备信息", "反馈", "宣传", "打开官网", "关于")), "#9191 的第二页顺序");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),

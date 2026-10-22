@@ -201,6 +201,8 @@ CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-s
 
 专用测试桌面上可加 `--verify-image-animation`：工具对 `verify-canvas`（APNG 自由挂件）、`verify-canvas-frame`（GIF 自由挂件）与 `verify-v2-motion-system`（传统 APNG 装饰）检查没有按键与主动刷新时窗口像素确实变化，并检查休眠／唤醒、减弱动态效果、隐藏／重开。该选项在测试期间临时切换非持久化的系统动画偏好，退出恢复原值；不要在日常桌面使用。变化前后和减弱动态效果的截图随图库输出。CI 在原生 Windows runner 上先运行 `windows-candidate-image-animation.exe` 的解码与缓存像素断言，再启用这个选项。
 
+同一个选项还在 `verify-v2-motion-system` 的横竖排、明暗组合中检查装饰候选词：用保留的品红文字色统计真实窗口像素，依次改变高亮、当前页、独立标注和页外序号，再切坏图与关闭声明，确认文字更新或清空。`__overlay-*.png` 随图库输出。`windows-candidate-canvas-preview` 同时用候选窗共用的 DirectWrite layout 检查九种对齐、比例缩字、最小字号后的单行超框及空字清理；它仍受上述 Wine 九宫格限制，完整断言在原生 Windows runner 执行。
+
 CI 里 `windows` job 交叉编译出它以后，把它、host DLL 和三个运行时 DLL 去掉调试信息，上传为 `windows-candidate-skin-gallery-tool`；`windows-skin-gallery` job（Windows candidate skin gallery，`windows-2025`）下载后对 `crates/client-services/tests/fixtures/candidate-skins` 运行，截图上传为产物 `windows-candidate-skin-gallery`，这一步失败时也上传。
 
 ## 管道 I/O 与进程身份绑定

@@ -31,17 +31,31 @@ pub extern "C" fn msime_client_online_query(handle: u64) -> *mut c_char {
                 .requested
                 .as_ref()
                 .map_or(&session.applied, |snapshot| &snapshot.preferences);
-            if query.cloud_eligible && session.cloud_candidates_enabled() {
-                query.cloud_request = msime_client_core::cloud::candidates::build_request(
-                    &preferences.cloud_candidate_provider,
-                    &query.query_text,
-                    query.scheme == msime_engine::SchemeType::JapaneseRomaji as u8,
-                );
-                // 展开后超出边界时本次只用本地候选，不能让兼容分支改发默认 Google。
-                query.cloud_eligible = query.cloud_request.is_some();
+            let mut cloud_candidates = session.cloud_candidates_enabled();
+            if query.cloud_eligible && cloud_candidates {
+                query.cloud_request = if query.mode == msime_engine::OnlineInputMode::English {
+                    msime_client_core::cloud::candidates::build_english_request(
+                        &preferences.cloud_candidate_provider,
+                        &query.query_text,
+                        &query.ai_context,
+                    )
+                } else {
+                    msime_client_core::cloud::candidates::build_request(
+                        &preferences.cloud_candidate_provider,
+                        &query.query_text,
+                        query.scheme == msime_engine::SchemeType::JapaneseRomaji as u8,
+                    )
+                };
+                if query.mode == msime_engine::OnlineInputMode::English {
+                    // 英文查询的引擎身份保持不变；服务不支持英文时只关闭本次云请求，不能连带拒绝 AI 回答。
+                    cloud_candidates = query.cloud_request.is_some();
+                } else {
+                    // 展开后超出边界时本次只用本地候选，不能让兼容分支改发默认 Google。
+                    query.cloud_eligible = query.cloud_request.is_some();
+                }
             }
             let mut value = serde_json::to_value(query).map_err(|e| e.to_string())?;
-            value["cloud_candidates"] = Value::Bool(session.cloud_candidates_enabled());
+            value["cloud_candidates"] = Value::Bool(cloud_candidates);
             value["ai_assistant"] =
                 serde_json::to_value(session.ai_provider_config()).map_err(|e| e.to_string())?;
             Ok(value)
@@ -93,7 +107,18 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                     }
                 }
             }
+            let english = query.mode == msime_engine::OnlineInputMode::English;
             let request = AiSuggestionRequest {
+                mode: if english {
+                    msime_client_providers::ai::AiInputMode::English
+                } else {
+                    msime_client_providers::ai::AiInputMode::Pinyin
+                },
+                input: if english {
+                    query.query_text
+                } else {
+                    String::new()
+                },
                 segmented_pinyin: query.pinyin_segments,
                 context: query.ai_context,
                 candidate_limit: config.candidate_limit,

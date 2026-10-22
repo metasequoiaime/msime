@@ -323,6 +323,35 @@ function canvasGeometry(skin, mode) {
     outerInsets: insets(skin.outerInsetsDip, 500), lineGap: skin.lineGapDip == null ? null : dimension(skin.lineGapDip, 100) };
 }
 
+/** 装饰词使用独立的有界声明，不执行清单提供的样式或脚本。 */
+function decorationCandidate(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const values = { index: 1, fontSizeDip: 16, minFontSizeDip: 8, maxWidthDip: 0, color: "", alignH: "center", alignV: "center", offsetXDip: 0, offsetYDip: 0, stripBadge: true, ...raw };
+  if (!Number.isInteger(values.index) || values.index < 0 || values.index > 100
+      || ![values.fontSizeDip, values.minFontSizeDip].every((v) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 200)
+      || typeof values.maxWidthDip !== "number" || !Number.isFinite(values.maxWidthDip) || values.maxWidthDip < 0 || values.maxWidthDip > 2000
+      || ![values.offsetXDip, values.offsetYDip].every((v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 2000)
+      || !["left", "center", "right"].includes(values.alignH) || !["top", "center", "bottom"].includes(values.alignV)
+      || typeof values.stripBadge !== "boolean" || typeof values.color !== "string" || values.color.length > 80 || /[^A-Za-z0-9#(),.% /-]/.test(values.color)) return null;
+  // 来源的颜色解析允许无 # 的十六进制与浮点 rgb 通道，未知的安全声明使用白色。
+  const input = values.color.trim();
+  let color = "#FFFFFF";
+  if (input === "transparent") color = "#00000000";
+  else if (/^#?(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(input)) color = normalizedColor(input.startsWith("#") ? input : `#${input}`);
+  else if (input.startsWith("rgb(") || input.startsWith("rgba(")) {
+    const body = input.slice(input.indexOf("(") + 1, input.lastIndexOf(")")).replaceAll(",", " ");
+    const numbers = /^\s*(-?(?:\d+\.?\d*|\.\d+)(?:[eE]-?\d+)?)\s+(-?(?:\d+\.?\d*|\.\d+)(?:[eE]-?\d+)?)\s+(-?(?:\d+\.?\d*|\.\d+)(?:[eE]-?\d+)?)(?:\s+(-?(?:\d+\.?\d*|\.\d+)(?:[eE]-?\d+)?))?/.exec(body);
+    if (numbers) {
+      const channels = numbers.slice(1, 4).map((v) => Math.min(255, Math.max(0, Number(v))));
+      const alpha = numbers[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(numbers[4])));
+      if ([...channels, alpha].every(Number.isFinite)) color = `rgba(${channels.join(",")},${alpha})`;
+    }
+  }
+  return { index: values.index, fontSizeDip: values.fontSizeDip, minFontSizeDip: values.minFontSizeDip,
+    maxWidthDip: values.maxWidthDip, color, alignH: values.alignH, alignV: values.alignV,
+    offsetXDip: values.offsetXDip, offsetYDip: values.offsetYDip, stripBadge: values.stripBadge };
+}
+
 /** 画出来的皮肤包的几何：最小宽度、圆角、装饰带和背景图，取值规则同 `skinGeometryStyle` 和 `usePreviewBackground`。装饰带没有可用的图片时不画（网页上空着的装饰带只会在候选条上方留一块透明区域）。 */
 function packageGeometry(pkg, mode, layout = "horizontal") {
   const { skin } = pkg;
@@ -353,6 +382,7 @@ function packageGeometry(pkg, mode, layout = "horizontal") {
   // 与共享 catalog 的单字体名称约束一致，不把任意 CSS 字体串当作皮肤字段。
   if (typeof skin.fontFamily === "string" && skin.fontFamily.length > 0 && new TextEncoder().encode(skin.fontFamily).length <= 64
       && !/[\u0000-\u001f\u007f"'\\,;{}<>`]/.test(skin.fontFamily)) result.fontFamily = skin.fontFamily;
+  if (result.decoration && skin.decorationCandidate) result.decoration.candidate = decorationCandidate(skin.decorationCandidate);
   if (layoutGeometry) result.layout = layoutGeometry;
   return result;
 }

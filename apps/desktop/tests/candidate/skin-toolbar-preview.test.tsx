@@ -22,6 +22,9 @@ test("draft components and size update the SVG toolbar including language visibi
     screen_keyboard: false,
     voice: true,
     settings: true,
+    auto_hide: false,
+    auto_hide_delay: 5,
+    shadow: true,
     scale_percent: 100,
     font_size: 24,
   };

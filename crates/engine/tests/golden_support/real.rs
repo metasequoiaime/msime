@@ -192,6 +192,7 @@ pub fn product_options(options: &mut SessionOptions) {
         command: false,
         mention: false,
         chaizi: false,
+        symbol: true,
         shift_letter_entry: true,
     };
     options.wubi.mixed_pinyin = false;

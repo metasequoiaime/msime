@@ -49,7 +49,7 @@ test("面板状态支持目录分页、搜索复位和更多入口", async () =>
   expect(result.current.effectiveMode).toBe("copy");
 });
 
-test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目分页", async (uniqueCount) => {
+test.each([12, 60])("颜文字插件的重叠项目各自保留并分页（新增 %i 项）", async (uniqueCount) => {
   const shared = Array.from({ length: 48 }, (_, index) => ({
     text: `合成共同项${index}`,
     keywords: `shared-${index}`,
@@ -85,7 +85,7 @@ test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目�
   await waitFor(() => expect(result.current.catalogLoading).toBe(false));
   act(() => result.current.selectPage("kaomoji"));
   act(() => result.current.updateQuery("合成检索"));
-  const pageCount = Math.ceil(uniqueCount / 48);
+  const pageCount = Math.ceil((shared.length + uniqueCount) / 48);
   expect(result.current.itemPageCount).toBe(pageCount);
   const displayed: string[] = [];
   for (let page = 0; page < pageCount; page++) {
@@ -96,11 +96,11 @@ test.each([12, 60])("颜文字跨组重复时按去重后的 %i 个新增项目�
     );
     act(() => result.current.nextItemPage());
   }
-  expect(displayed).toEqual([...shared, ...unique].map((item) => item.text));
+  expect(displayed).toEqual([...shared, ...shared, ...unique].map((item) => item.text));
   expect(result.current.itemPage).toBe(pageCount - 1);
   if (pageCount > 1) {
     act(() => result.current.previousItemPage());
-    expect(result.current.itemPage).toBe(0);
+    expect(result.current.itemPage).toBe(pageCount - 2);
   }
 });
 
@@ -180,3 +180,58 @@ test("剪贴板操作互斥并在成功后刷新列表", async () => {
   expect(result.current.clipboard).toEqual(["合成保留记录"]);
   expect(result.current.clipboardBusy).toBe(false);
 });
+
+test.each(["kaomoji", "symbols"] as const)(
+  "%s 重试只回退内置目录，插件随新快照更新、卸载并支持目录恢复",
+  async (page) => {
+    type Catalog = Awaited<ReturnType<NonNullable<EmojiPanelClient["loadCatalog"]>>>;
+    const group = (title: string, pack?: string) => ({
+      title,
+      icon: "◉",
+      ...(pack ? { pack } : {}),
+      items: [{ text: title, keywords: title }],
+    });
+    const response = (
+      groups: Catalog["symbols"],
+      unavailable: Catalog["unavailable"],
+    ): Catalog => ({
+      emoji: [],
+      kaomoji: [],
+      symbols: [],
+      [page]: groups,
+      unavailable,
+    });
+    const builtin = group("合成已有内置组");
+    const oldPlugin = group("合成旧插件组", "synthetic-pack");
+    const newPlugin = group("合成新插件组", "synthetic-pack");
+    const recovered = group("合成恢复内置组");
+    const loadCatalog = vi
+      .fn<NonNullable<EmojiPanelClient["loadCatalog"]>>()
+      .mockResolvedValueOnce(response([builtin, oldPlugin], ["emoji"]))
+      .mockResolvedValueOnce(response([newPlugin], [page]))
+      .mockRejectedValueOnce(new Error("synthetic transport failure"))
+      .mockResolvedValueOnce(response([], [page]))
+      .mockResolvedValueOnce(response([recovered, newPlugin], []));
+    const client = { close: async () => {}, loadCatalog };
+    const { result } = renderHook(() => useEmojiPanel(client));
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    act(() => result.current.selectPage(page));
+    const titles = () => result.current.filteredGroups.map((entry) => entry.title);
+    expect(titles()).toEqual([builtin.title, oldPlugin.title]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual([page]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual(["emoji", "kaomoji", "symbols"]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([builtin.title]);
+    act(() => result.current.retryCatalog());
+    await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+    expect(titles()).toEqual([recovered.title, newPlugin.title]);
+    expect(result.current.catalogUnavailable).toEqual([]);
+  },
+);

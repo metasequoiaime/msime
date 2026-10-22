@@ -32,6 +32,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             .put("touch_keyboard_layout", "nine_key")
             .put("traditional_chinese_output", false)
             .put("candidate_english_gloss", false)
+            .put("english_suggestions", true)
             .put("mixed_input", new JSONObject().put("english", true)
                 .put("minimum_prefix", 2).put("emoji", false).put("kaomoji", false))
             .put("touch_keyboard_schemes", new JSONObject()
@@ -74,8 +75,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().length() > 0 && !node.isShowingHintText()));
 
-            // dict-v1.0.0 has zero English weights, so production acceptance deliberately
-            // checks the complete Engine candidate set instead of assuming first-page rank.
+            // 固定词库的英文权重为零，验收完整候选集，不假定首页排序。
             stage = "complete nine-key English candidates";
             tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
             tap(candidate("ok"));
@@ -123,11 +123,110 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             tap(describedPrefix("常用标点："));
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().equalsIgnoreCase("ok11、,")));
+
+            stage = "英文清除只删除当前词并保留前后文本";
+            setEditorText("alpha  tail", 6, 6);
+            awaitGone(described("清除当前英文单词"));
+            typeWord("languge");
+            await(described("清除当前英文单词"));
+            // 在纠错尚可能回包时清除，不先点原文或采用建议。
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+            awaitGone(described("清除当前英文单词"));
+            SystemClock.sleep(750);
+            awaitGone(describedPrefix("英文建议 "));
+            expectEditorText("alpha  tail");
+
+            stage = "清除后继续英文输入和选区保护";
+            typeWord("sample");
+            expectEditorText("alpha sample tail");
+            await(described("清除当前英文单词"));
+            setEditorSelection(8, 8);
+            awaitGone(described("清除当前英文单词"));
+            setEditorSelection(6, 12);
+            awaitGone(described("清除当前英文单词"));
+            setEditorSelection(12, 12);
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+
+            stage = "全角字母与撇号仍按当前词清除";
+            setEditorText("alpha ｓａｍｐｌｅ tail", 12, 12);
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+            setEditorText("alpha can't tail", 11, 11);
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+
+            stage = "截断的长词不提供清除";
+            char[] longWord = new char[129];
+            java.util.Arrays.fill(longWord, 'x');
+            setEditorText(new String(longWord), 129, 129);
+            awaitGone(described("清除当前英文单词"));
+
+            stage = "单词边界和中文模式不提供英文清除";
+            setEditorText("alpha ", 6, 6);
+            awaitGone(described("清除当前英文单词"));
+            stage = "切回中文时隐藏英文清除";
+            tap(key("英"));
+            await(key("中"));
+            await(key("ABC"));
+            tap(key("MNO"));
+            awaitGone(described("清除当前英文单词"));
+
+            stage = "关闭英文建议后仍可清除当前词";
+            base.put("english_suggestions", false);
+            publish(preferences, new JSONObject().put("format_version", 1)
+                .put("revision", revision + 2).put("preferences", base).toString()
+                .getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            tap(field("msime-test-plain"));
+            if (await(key("中").or(key("英"))).getText().toString().equals("中")) tap(key("中"));
+            setEditorText("alpha  tail", 6, 6);
+            typeWord("sample");
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+            awaitGone(describedPrefix("英文建议 "));
+
+            stage = "密码框不提供当前英文词清除";
+            tap(field("msime-test-password"));
+            awaitGone(described("清除当前英文单词"));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
+    }
+
+    private void typeWord(String word) throws Exception {
+        for (char letter : word.toCharArray()) tap(key(String.valueOf(letter)));
+    }
+
+    private void setEditorText(String text, int start, int end) throws Exception {
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))
+            throw new AssertionError("合成编辑器重置失败");
+        dropStaleNodes();
+        expectEditorText(text);
+        setEditorSelection(start, end);
+    }
+
+    private void setEditorSelection(int start, int end) throws Exception {
+        Bundle args = new Bundle();
+        args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
+        args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end);
+        AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+        if (editor.getTextSelectionStart() == start && editor.getTextSelectionEnd() == end) return;
+        if (!editor.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args))
+            throw new AssertionError("合成编辑器选区设置失败");
+        dropStaleNodes();
+        await(field("msime-test-plain").and(node -> node.getTextSelectionStart() == start
+            && node.getTextSelectionEnd() == end));
+    }
+
+    private void expectEditorText(String text) {
+        await(field("msime-test-plain").and(node -> equalsText(text, node.getText())));
     }
 
     private Predicate<AccessibilityNodeInfo> candidate(String text) {
@@ -155,7 +254,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             if (!shown) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("The quick punctuation stayed in the candidate strip after one was used; IME showed " + imeTexts());
+        throw new AssertionError("等待目标控件消失超时；输入法显示 " + imeTexts());
     }
 
     private void openEditor() throws Exception {

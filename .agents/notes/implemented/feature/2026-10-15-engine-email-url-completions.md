@@ -43,6 +43,8 @@ TSF DLL 在 Server 回答前就要给按键分类，`platforms/windows/tsf/Globa
 
 ### Windows 按键分类的状态归属
 
+行内预编辑的文字与光标也共用同一次宿主快照，绘制入口的失败策略与验证由[Windows 宿主预编辑光标](../bug-fix/2026-10-22-windows-host-preedit-caret.md)持有。
+
 TIP 的宿主会话处理输入时绕过 `AddVirtualKey`，旧键击缓冲可能一直为空。键盘编号或 TSF 内置候选列表选中网址开头、顶级域名后，宿主预编辑会直接替换。`CCompositionProcessorEngine::GetKeyCompositionState` 因此提供只读快照：有有效宿主时按其 `editing_text`、`caret_position` 和 `local_mode` 读取原文、光标、Unicode 与网址标记；宿主视图读取失败返回空状态，不能复用另一份旧会话。没有宿主会话的旧路径才从键击缓冲构建快照。中文方案和网址、Unicode 等本地模式的 `editing_text` 是 ASCII 原文，光标下标与 Windows UTF-16 一致；越南文、藏文的原文可含非 ASCII 字符，目前光标位于末尾，沿用按 UTF-16 长度钳制的位置。
 
 普通按键分类和排队按键的初始投影共用快照。投影已有效时仍按队列里尚未执行的按键推进，不用实时视图覆盖未来状态；队列完成后失效，下一次从宿主当前视图重新建立。宿主候选选择后不需要额外复制或修改旧缓冲。
@@ -93,6 +95,8 @@ TIP 的宿主会话处理输入时绕过 `AddVirtualKey`，旧键击缓冲可能
 - `scripts/test-email-suffixes.py`、`scripts/test-windows-expression-symbols-parity.py`；`platforms/windows/tsf/tests/input/local_mode_key_policy.cpp` 用 clang 在本机编译运行通过。没有在任何平台的真实宿主里装机验证。
 
 ## Related notes
+
+[特殊符号字面组字](../bug-fix/2026-10-22-pinyin-literal-symbol-composition.md)扩展普通全拼、双拼的 `spelling_symbols`；邮箱 `@` 和网址触发键仍由本篇规则持有。
 
 - [Android 邮箱后缀](2026-10-09-android-email-suffixes.md)：同一份后缀表和匹配规则，Android 在邮箱输入框里由宿主补全；邮箱输入框进框时切英文，引擎的网址模式不参与，两者不会同时出现。
 - [网址退回组字复用剩余文本](../testing/2026-10-08-url-reversion-buffer.md)：退回组字的路径（`restore_composition_from_url`）不变，退回条件多了“删的是末尾”。

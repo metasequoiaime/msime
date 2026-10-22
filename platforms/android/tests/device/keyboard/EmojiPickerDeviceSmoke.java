@@ -26,11 +26,28 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             android.content.SharedPreferences.Editor restore = history.edit();
             if (original == null) restore.remove("items"); else restore.putString("items", original);
             if (!restore.commit()) throw new AssertionError("常用历史恢复失败");
+            restartWithFreshEmojiHistory();
         }
     }
 
-    private void runPanelChecks() throws Exception {
+    /** 历史由主进程夹具改写，须重建同 UID 的键盘进程，避免旧 SharedPreferences 缓存跨用例保留。 */
+    private void restartWithFreshEmojiHistory() throws Exception {
+        shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+        android.app.ActivityManager manager =
+            getTargetContext().getSystemService(android.app.ActivityManager.class);
+        java.util.List<android.app.ActivityManager.RunningAppProcessInfo> processes =
+            manager == null ? null : manager.getRunningAppProcesses();
+        if (processes == null) throw new AssertionError("无法核对表情测试的键盘进程");
+        String name = getTargetContext().getPackageName() + ":ime";
+        for (android.app.ActivityManager.RunningAppProcessInfo process : processes) {
+            if (name.equals(process.processName) && process.uid == android.os.Process.myUid())
+                android.os.Process.killProcess(process.pid);
+        }
         restartIme();
+    }
+
+    private void runPanelChecks() throws Exception {
+        restartWithFreshEmojiHistory();
         openEditor();
         stage = "emoji composition";
         tap(key("n"));

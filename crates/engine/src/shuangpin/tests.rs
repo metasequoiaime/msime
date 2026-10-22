@@ -703,6 +703,43 @@ fn real_dictionary_answers_common_readings() {
     );
 }
 
+#[test]
+fn ziranma_shouyou_real_dictionary_keeps_complete_phrases() {
+    let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES") else {
+        eprintln!("跳过：未设置 MSIME_EVAL_RESOURCES，真实词库回归未执行");
+        return;
+    };
+    let user = tempfile::tempdir().unwrap();
+    let resources = PathBuf::from(resources);
+    let paths = RuntimePaths {
+        resources: resources.clone(),
+        user_data: user.path().to_path_buf(),
+        cache: user.path().to_path_buf(),
+        dictionaries: resources,
+    };
+    let profile = profile(ShuangpinProfileKind::Ziranma).unwrap();
+    let codes = HelpcodeKeymap::from_table_bytes(include_bytes!(
+        "../../../../resources/helpcodes/shouyou2_0_helpcode.txt"
+    ))
+    .unwrap();
+    let mut engine = ShuangpinEngine::new(profile, &paths);
+    for _ in 0..2 {
+        for (reading, expected) in [
+            ("shu'ru'fa", "输入法"),
+            ("kao'shi'fen'shu", "考试分数"),
+            ("ni'xi'huan'wo'ma", "你喜欢我吗"),
+        ] {
+            let typed = super::utils::encode_pinyin(reading, profile)
+                .unwrap()
+                .replace('\'', "");
+            let plain = engine.query(&request(&typed, false), None);
+            let with_helpcode = engine.query(&request(&typed, true), Some(&codes));
+            assert_eq!(words(&plain)[0], expected, "普通读法：{typed}");
+            assert_eq!(words(&with_helpcode)[0], expected, "首右辅助码：{typed}");
+        }
+    }
+}
+
 /// Without a sentence model no answer reads the committed context, so a new context keeps every cached answer, the online rows included.
 #[test]
 fn context_changes_keep_the_caches_without_a_model() {
@@ -982,6 +1019,69 @@ fn a_helpcode_never_moves_the_typo_sentence_to_the_first_seat() {
         let double = engine.query(&with_helpcode("mzgrcimX"), Some(&codes));
         assert!(double.is_empty(), "{:?}", words(&double));
     }
+}
+
+#[test]
+fn complete_shuangpin_keeps_its_reading_when_direct_helpcodes_also_match() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_s VALUES('shu','s','书',100),('shu','s','叔',90),\
+         ('shang','s','商',100),('su','s','苏',100),('sheng','s','声',100);\
+         CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_r VALUES('ru','r','如',100);\
+         CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_h VALUES('he','h','和',100);\
+         CREATE TABLE tbl_3_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_3_s VALUES('shu''ru''he','srh','书如和',100);\
+         CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_s VALUES('shu''shang','ss','叔商',10000),\
+         ('su''shang','ss','苏商',10000),('shu''sheng','ss','叔声',10000);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let codes = keymap(&[("叔", "ra"), ("苏", "ra"), ("商", "ea"), ("声", "ea")]);
+    let fuzzy = FuzzyPinyinOptions {
+        rules: fuzzy_rule::S_SH,
+    };
+
+    // 合成词条同时命中三音节双拼和两音节直接辅助码；重复查询覆盖两条缓存。
+    for _ in 0..2 {
+        for (typed, fuzzy_enabled, direct) in [("uuruhe", false, "叔商"), ("suruhe", true, "苏商")]
+        {
+            let mut query = request(typed, true);
+            if fuzzy_enabled {
+                query.fuzzy_pinyin = fuzzy;
+            }
+            let candidates = engine.query(&query, Some(&codes));
+            let ordinary = index_of(&candidates, "书如和");
+            assert!(
+                ordinary < index_of(&candidates, direct),
+                "{typed}: {:?}",
+                words(&candidates)
+            );
+            let candidate = &candidates[ordinary];
+            assert_eq!(candidate.canonical_pinyin, "shu'ru'he");
+            assert_eq!(candidate.pinyin.replace('\'', ""), typed);
+        }
+    }
+
+    // 大写明确指定音节内双辅助码时，仍然按约束选词。
+    let explicit = engine.query(&request("uurAuh", true), Some(&codes));
+    assert_eq!(words(&explicit)[0], "叔商");
+    assert_eq!(explicit[0].pinyin, "uurauh");
+
+    // 普通双拼无完整候选时保留直接辅助码优先级。
+    let fallback = engine.query(&request("uuruge", true), Some(&codes));
+    assert_eq!(words(&fallback)[0], "叔声");
+
+    // 没有整词也不能抢占普通逐音节组句。
+    Connection::open(fixture.paths.dictionary(assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute("DELETE FROM tbl_3_s", [])
+        .unwrap();
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let generated = engine.query(&request("uuruhe", true), Some(&codes));
+    assert!(index_of(&generated, "书如和") < index_of(&generated, "叔商"));
+    assert!(generated[index_of(&generated, "书如和")].sentence_association);
 }
 
 #[test]

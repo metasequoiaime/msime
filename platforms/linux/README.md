@@ -673,6 +673,8 @@ bash platforms/linux/tests/tools/check-image-toolchain.sh \
 
 Fcitx5 的 `tests/tools/check-container.sh /absolute/verified-resources --fcitx5` 还运行 `fcitx5-gtk-canvas-horizontal` 与 `fcitx5-gtk-canvas-vertical`，以及各自的 `-gif`、`-webp` 用例（合成图片需要 Pillow，专用验收镜像已包含）：真实 GTK 编辑器通过本次构建的插件唤起 classicui 候选，读取隔离 X11 显示像素，验证合成九宫格的明暗切换、坏图回退和修复恢复。期间不发送刷新按键，最终检查焦点保持、空格上屏与面板消失。在验收容器内直接运行 CTest 时，设置 `MSIME_TEST_CANVAS_ARTIFACTS` 为可写目录可保留各阶段截图。它覆盖 Xvfb／GTK／classicui，不包含 Wayland 合成器、真实字体或系统安装验收。
 
+`fcitx5-candidate-font-pixels-horizontal`／`vertical` 在固定 96 DPI 的 Xvfb 中测量 classicui 序号像素，覆盖 20／32 像素字号、150% 整体缩放、偏好热更新、焦点和空格上屏。参考字形按绝对像素字号由 Pango 单独测量；测试核对 daemon 实际加载的 core 与 classicui 均来自 `pkg-config Fcitx5Core` 指向的库目录。跨版本验收时先用旧开发库构建插件，再令 `PATH`、`LD_LIBRARY_PATH` 与 `PKG_CONFIG_PATH` 指向同一份新运行库前缀，运行这两项 CTest。默认容器覆盖其实际安装的版本，不把替换版本入口当作新运行库验收；X11 像素测试也不替代 Arch／niri 的安装与 Wayland 现场验收。
+
 同一验收还包含 `fcitx5-native-canvas-horizontal`／`vertical` 及各自的 `-scale2`、`-composited`：真实 GTK 编辑器检查原生 X11 窗口的挂件像素、独立行距热更新、随框架坐标移动、明暗、坏图回退与恢复、过期鼠标释放、滚轮翻页、左键上屏、右键置顶写入合成词库，以及失焦和切换输入法时隐藏。`-composited` 用专用 `xcompmgr` 检查实际 ARGB 窗口，其他用例覆盖无合成器的 Shape 回退。`linux-candidate-native-canvas` 在内存中检查几何、锚点、层级与透明中心，`linux-candidate-native-canvas-chrome` 检查 macOS 结构的首行、行与释义、网格、缩放、装饰带、调色板、定位和动效采样；它们不能替代这些真实窗口用例。`fcitx5-native-chrome-{horizontal,vertical}` 用 `system` 主题在真实 GTK 编辑器里验收默认画法：原生窗口出现、首行 › 与 ‹ 翻页、悬停不改变选中、横排 ↓ 展开网格和 Esc 收起、点选上屏，以及非 canvas 皮肤包的顶带装饰（带待机动效）画在卡片上方的透明带里、不压到候选行。另有 `fcitx5-native-canvas-{horizontal,vertical}-animation-{apng,gif,webp}` 六项真实 GTK 图片播放验收，覆盖连续输入、隐藏重显、同路径资源替换和九宫格边框动画。
 
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
@@ -779,16 +781,18 @@ IBus 宿主在后台通过共享 Host API 查询随包 `msime-english.db`。目�
 
 ## 随包语音服务
 
-`msime-linux-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
+`msime-linux-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow、EveryAPI、Mistral、百炼的 HTTP 语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
 
 ```sh
 msime-linux-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
-先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，至少含 `asr` 与 `polish` 对象之一；文件不存在时服务照常启动，只有本地识别可用，云端识别请求在文件写好后的下一次录音生效。批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，至少含 `asr` 与 `polish` 对象之一；文件不存在时服务照常启动，只有本地识别可用，云端识别请求在文件写好后的下一次录音生效。批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。HTTP ASR provider 支持 `openai`、`groq`、`siliconflow`、`everyapi`、`mistral`、`bailian`；润色支持 `openai`、`groq`、`siliconflow`、`deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
 
-服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
+服务集合、默认地址/模型与 HTTP 请求格式由共享 Rust 语音目录生成到 `scripts/msime_voice_provider_catalog.py`；语音脚本同步导入，私有配置和 profile 的校验、自定义值优先及本地/豆包的处理保持由宿主管理。修改共享目录后，在仓库根目录运行 `cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --write`，再用 `--check` 检查。生成模块与润色提示词模块一起安装到各版本的 `bin` 目录；`tests/voice/provider_catalog.py` 固定原目录并用合成模块验证实际配置和请求读取生成值，可用 `--provider <已安装的语音脚本>` 验证安装产物。
+
+服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV，按共享格式发送 multipart 上传或带 `input_audio` 的 Chat Completions 请求。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
 润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao 实时识别使用下述 WSS 配置。
 
@@ -1194,3 +1198,5 @@ Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：�
 IBus 与 Fcitx5 也保留 Backspace 长按的物理按键所有权：若首次按下发生在活动组字中，重复键可以继续删除预编辑；最后一个组字字符消失后，同一次按住的后续重复仍由输入法吞掉，不会开始删除编辑器里已经上屏的正文。按键松开、失焦、reset 或按下其他键都会解除所有权，之后一次新的 Backspace 仍正常交给编辑器。实现复用纯策略，但输入事件仍分别走 IBus 与 Fcitx5 的原生入口。
 
 字典导入沿用 Windows 固定提交 `6e03f577` 的全拼规则：普通字典和个人字典的 Pinyin 词条在 Host API 中调用固定 Engine 的全拼切分，并按词条汉字数解决无分隔拼音歧义，例如两字词 `西安` 的 `xian` 规范化为 `xi'an`。无效音节、非法 apostrophe 或无法匹配词长的行会被跳过并报告；Wubi、快捷短语和英文导入不经过该规范化。规范化只发生在带 Engine 选项的实际导入请求中，Linux IBus 不复制输入算法。
+
+X11 的传统装饰图启用 `candidate_overlay_*` 后，复用原生候选窗口按当前页和真实高亮绘制图内词，保留简繁转换并独立控制云／AI 来源标注。图片解码成功才接管，长词最小字号后仍完整单行，窗口放不进工作区时保留桌面面板。关闭声明、失效、菜单和隐藏会清理文字；无配色的 system 包沿用当前明暗的 Linux 原生颜色。其他 Wayland、IBus 和第三方 UI 的静态回退范围不变。专项入口为 `fcitx5-decoration-overlay-{horizontal,vertical}-scale{1,2}`，需要已验证词库、Xvfb、D-Bus 和真实 GTK 编辑器，与原生 canvas 用例共用隔离环境。

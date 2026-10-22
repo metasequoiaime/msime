@@ -5,6 +5,9 @@ public final class NineKeyLayoutSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
+        float total = 2 * NineKeyLayout.SIDE_COLUMN_WEIGHT + NineKeyLayout.GRID_WEIGHT;
+        check(Math.abs(NineKeyLayout.SIDE_COLUMN_WEIGHT / total - 0.15f) < 0.0001f);
+        check(Math.abs(NineKeyLayout.GRID_WEIGHT / total - 0.70f) < 0.0001f);
         check(NineKeyLayout.rows().size() == 3);
         check(NineKeyLayout.rows().stream().allMatch(row -> row.size() == 3));
         check(NineKeyLayout.rows().stream().flatMap(List::stream)

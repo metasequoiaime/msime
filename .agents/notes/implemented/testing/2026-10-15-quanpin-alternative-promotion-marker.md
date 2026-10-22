@@ -23,3 +23,5 @@ Status: implemented
 验证覆盖全拼系列专项、引擎完整单测与 golden、Clippy、Rustfmt、差异检查、笔记门禁和 quick 门禁。
 
 [替代合并行流](2026-10-16-quanpin-alternative-row-stream.md)直接把热主候选复制入合并向量，保留本文的唯一词地址标记与重复词回退。
+
+[合法备选系列](../bug-fix/2026-10-20-quanpin-alternative-series.md)在完整词合并后按字母覆盖追加前缀和整句，同覆盖保留本文的完整词顺序及保护座位。

@@ -7,6 +7,15 @@ public final class VoicePolishSettingsPolicySmoke {
     }
 
     public static void main(String[] args) {
+        check(java.util.Arrays.equals(VoicePolishSettingsPolicy.PROMPTS,
+                new String[] {"cleanup", "faithful", "zh2en", "casual", "custom_1", "custom_2", "custom_3"}),
+            "方案选择表保持内置目录和三个自定义槽位的既有顺序");
+        String[] labels = {"精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"};
+        for (int index = 0; index < labels.length; index++) {
+            check(labels[index].equals(VoicePolishSettingsPolicy.promptLabel(VoicePolishSettingsPolicy.PROMPTS[index])),
+                "方案显示名保持既有顺序");
+        }
+        check("精炼整理".equals(VoicePolishSettingsPolicy.promptLabel(null)), "未存方案按第一项显示");
         check(VoicePolishSettingsPolicy.promptLabel("").equals("精炼整理"), "nothing stored reads as the shipped cleanup preset");
         check(VoicePolishSettingsPolicy.promptLabel("zh2en").equals("中翻英")
                 && VoicePolishSettingsPolicy.promptLabel("custom_2").equals("自定义二"), "preset names match the shared page");

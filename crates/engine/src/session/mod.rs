@@ -381,6 +381,11 @@ impl Session {
         self.input.set_wubi_mixed_pinyin(enabled);
     }
 
+    /// 五笔拼音混输是否打开。
+    pub fn wubi_mixed_pinyin(&self) -> bool {
+        self.input.engine.wubi_input_options().mixed_pinyin
+    }
+
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型，让不再用它的进程能交还前缀索引和映射；本会话若正持有模型，照常用到会话结束。
     pub fn reset_cache(&mut self) {
         self.input.reset_cache();
@@ -436,6 +441,14 @@ impl Session {
     /// 让宿主把云候选的固定席位交给当前会话；关闭时立即去掉尚未回答的占位行。
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
         self.input.set_cloud_candidates_enabled(enabled);
+    }
+
+    pub fn english_online_candidates_enabled(&self) -> bool {
+        self.input.english_online_candidates_enabled
+    }
+
+    pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.input.set_english_online_candidates_enabled(enabled);
     }
 
     /// The committed text the neural sentence models condition on, updated without rebuilding the session. Only the last 64 characters matter.
@@ -532,10 +545,12 @@ impl Session {
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
-                    // AI 占位行和网址补全不回答按键：重排模型不能把它们提到前面。
+                    // 占位行、网址补全和联系人不交给重排模型；联系人保留本地优先顺序。
                     !matches!(
                         item.source,
-                        CandidateSource::AiPending | CandidateSource::CloudPending
+                        CandidateSource::AiPending
+                            | CandidateSource::CloudPending
+                            | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
                         && input.selection_completes_composition(item)
                 })

@@ -403,6 +403,71 @@ void verify_image_animation(CandidateWindow &window, const GalleryShot &shot, si
   report(gallery::shot_label(shot) + ": image animation pixels, suspend/resume, reduced motion and hide/show passed");
 }
 
+// 专用桌面里复用合成锦鲤图片，检查真实候选窗的文字像素及刷新、失败清理。
+void verify_decoration_overlay(CandidateWindow &window, CandidateSkinDecoration decoration,
+    CandidatePresentation &presentation, const GalleryShot &shot, const std::filesystem::path &output) {
+  AnimationPreference preference;
+  window.set_skin_animation({});
+  preference.set(false, window.handle());
+  const auto sample = [&](const char *stage) {
+    ++presentation.render_serial;
+    pump(&window, 150);
+    DwmFlush();
+    RECT rect{};
+    if (window.failed() || !GetWindowRect(window.handle(), &rect))
+      throw std::runtime_error("decoration capture rectangle unavailable");
+    std::string error;
+    const auto pixels = capture_screen(rect, error);
+    if (!pixels) throw std::runtime_error("decoration capture failed: " + error);
+    auto file = output / std::filesystem::u8path(gallery::shot_file_name(shot));
+    file.replace_filename(file.stem().wstring() + L"__overlay-" + std::filesystem::path(stage).wstring() + L".png");
+    if (!write_png(file, rect.right - rect.left, rect.bottom - rect.top, *pixels, error))
+      throw std::runtime_error("decoration evidence write failed: " + error);
+    size_t colored = 0;
+    for (size_t at = 0; at + 3 < pixels->size(); at += 4)
+      if ((*pixels)[at] > 180 && (*pixels)[at + 1] < 100 && (*pixels)[at + 2] > 180) ++colored;
+    return colored;
+  };
+  decoration.candidate.reset();
+  window.set_skin_decoration(decoration);
+  if (sample("off") != 0) throw std::runtime_error("decoration fixture contains the reserved word color");
+  msime::candidate::DecorationCandidate style;
+  style.index = 0; style.fontSizeDip = 20; style.color = "#FF00FFFF";
+  decoration.candidate = style;
+  presentation.candidates[0].text = "WWW";
+  presentation.candidates[1].text = "i";
+  window.set_skin_decoration(decoration);
+  const auto first = sample("first");
+  if (first < 20) throw std::runtime_error("decoration word has no visible pixels");
+  presentation.candidates[0].highlighted = false;
+  presentation.candidates[1].highlighted = true;
+  const auto selected = sample("highlight");
+  if (selected == 0 || selected >= first) throw std::runtime_error("decoration retained the previous highlight");
+  ++presentation.page;
+  presentation.candidates[1].text = "MMMM";
+  if (sample("page") <= selected) throw std::runtime_error("decoration retained the previous page");
+  decoration.candidate->index = 100;
+  window.set_skin_decoration(decoration);
+  if (sample("outside") != 0) throw std::runtime_error("out of page decoration word was not cleared");
+  decoration.candidate->index = 2;
+  presentation.candidates[1].text = "i";
+  presentation.candidates[1].badge = "WW";
+  window.set_skin_decoration(decoration);
+  const auto stripped = sample("strip-badge");
+  decoration.candidate->stripBadge = false;
+  window.set_skin_decoration(decoration);
+  if (stripped == 0 || sample("badge") <= stripped) throw std::runtime_error("decoration badge is not independent");
+  const auto image = decoration.image;
+  decoration.image += L".missing";
+  window.set_skin_decoration(decoration);
+  if (sample("broken") != 0) throw std::runtime_error("broken decoration image retained its word");
+  decoration.image = image;
+  decoration.candidate.reset();
+  window.set_skin_decoration(decoration);
+  if (sample("reset") != 0) throw std::runtime_error("decoration reset retained its word");
+  report(gallery::shot_label(shot) + ": decoration word pixels, highlight, page, badge, bounds and image failure passed");
+}
+
 // 画一张截图并写进 output。成功返回 true；失败时日志里写清楚是哪一步。
 bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defaults, POINT anchor,
                  Backdrop &backdrop, const std::filesystem::path &output, bool verify_images) {
@@ -422,7 +487,7 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
       return false;
     }
   }
-  const auto presentation = gallery::gallery_presentation(anchor.x, anchor.y);
+  auto presentation = gallery::gallery_presentation(anchor.x, anchor.y);
   const auto expanded =
       std::make_shared<const std::vector<ExpandedCandidate>>(gallery::gallery_expanded_candidates());
   // Server 那一侧：展开打开后快照带上 expansion_open 和这一代的完整候选（CandidateMailbox::snapshot）。
@@ -582,6 +647,8 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
         (shot.skin == "verify-canvas" || shot.skin == "verify-canvas-frame" ||
          shot.skin == "verify-v2-motion-system"))
       verify_image_animation(window, shot, frames, output);
+    if (verify_images && shot.skin == "verify-v2-motion-system" && !shot.expanded)
+      verify_decoration_overlay(window, look.assets.decoration, presentation, shot, output);
     return true;
   } catch (const std::exception &exception) {
     report(label + ": FAILED, " + exception.what());

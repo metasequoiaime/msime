@@ -69,10 +69,10 @@ final class PairedPunctuationTests: XCTestCase {
   }
 
   func testReplacingTheCommitKeepsTheRestOfTheSnapshot() {
-    let snapshot = MetasequoiaInputSnapshot(isHandled: true, commitText: "”", preedit: "", candidates: ["a"])
+    let snapshot = MetasequoiaInputSnapshot(isHandled: true, commitText: "”", preedit: "", candidates: ["a"], candidateHighlighted: [true])
     let reopened = snapshot.replacingCommit("“")
     XCTAssertEqual(reopened.commitText, "“")
-    XCTAssertEqual(reopened, MetasequoiaInputSnapshot(isHandled: true, commitText: "“", preedit: "", candidates: ["a"]))
+    XCTAssertEqual(reopened, MetasequoiaInputSnapshot(isHandled: true, commitText: "“", preedit: "", candidates: ["a"], candidateHighlighted: [true]))
   }
 
   func testTheClosingKeyStepsOverTheInnermostClosedPair() {

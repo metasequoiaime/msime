@@ -241,6 +241,7 @@ std::optional<ResolvedSkinLayout> ResolvedLayoutFromJSON(id raw)
     layout.cornerRadiusDip = NumberField(object, @"cornerRadiusDip");
     layout.borderWidthDip = NumberField(object, @"borderWidthDip");
     layout.itemCornerRadiusDip = NumberField(object, @"itemCornerRadiusDip");
+    if ([object[@"shadow"] isKindOfClass:NSString.class]) layout.shadow = StringField(object, @"shadow");
     layout.pageArrows = [object[@"pageArrows"] isKindOfClass:NSNumber.class] && [object[@"pageArrows"] boolValue];
     layout.fitContent = [object[@"fitContent"] isKindOfClass:NSNumber.class] && [object[@"fitContent"] boolValue];
     layout.expandPanel = [object[@"expandPanel"] isKindOfClass:NSNumber.class] && [object[@"expandPanel"] boolValue];
@@ -324,6 +325,23 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     if (period >= 1200.0 && period <= 8000.0) package.decorationMotionPeriodMs = period;
     const double frames = NumberField(object, @"decorationFrames");
     package.decorationFrames = frames >= 0.0 && frames <= 1000.0 ? static_cast<unsigned>(frames) : 0;
+    NSDictionary *overlay = object[@"decorationCandidate"];
+    if ([overlay isKindOfClass:NSDictionary.class]) {
+        msime::candidate::DecorationCandidate parsed;
+        const double index = NumberField(overlay, @"index");
+        parsed.index = std::isfinite(index) && index >= 0 && index <= 100 && std::floor(index) == index
+            ? static_cast<int>(index) : -1;
+        parsed.fontSizeDip = NumberField(overlay, @"fontSizeDip");
+        parsed.minFontSizeDip = NumberField(overlay, @"minFontSizeDip");
+        parsed.maxWidthDip = NumberField(overlay, @"maxWidthDip");
+        parsed.color = StringField(overlay, @"resolvedColor");
+        parsed.alignH = StringField(overlay, @"alignH");
+        parsed.alignV = StringField(overlay, @"alignV");
+        parsed.offsetXDip = NumberField(overlay, @"offsetXDip");
+        parsed.offsetYDip = NumberField(overlay, @"offsetYDip");
+        parsed.stripBadge = ![overlay[@"stripBadge"] isEqual:@NO];
+        if (parsed.valid()) package.decorationCandidate = std::move(parsed);
+    }
     NSDictionary *background = object[@"background"];
     if ([background isKindOfClass:NSDictionary.class] && !StringField(background, @"image").empty())
     {
@@ -342,6 +360,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
     }
     package.resolvedLayout = ResolvedLayoutFromJSON(object[@"resolvedLayout"]);
+    if ([object[@"shadow"] isKindOfClass:NSString.class]) package.shadow = StringField(object, @"shadow");
     if ([object[@"toolbarImage"] isKindOfClass:NSDictionary.class]) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:object[@"toolbarImage"] options:0 error:nil];
         if (data) package.toolbarImage.json.assign(static_cast<const char *>(data.bytes), data.length);
@@ -794,6 +813,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             resolved.tokens.preeditText = ParseCssColor(StringField(details, @"preedit_text"));
             resolved.tokens.preeditCaret = ParseCssColor(StringField(details, @"preedit_caret"));
             resolved.tokens.selectedBar = ParseCssColor(StringField(details, @"selected_bar"));
+            resolved.tokens.pageArrowDivider = ParseCssColor(StringField(details, @"page_arrow_divider"));
             if (auto selectedTranslation = ParseCssColor(StringField(details, @"selected_translation")))
                 resolved.tokens.selectedTranslation = selectedTranslation;
         }
@@ -807,6 +827,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 resolved.toolbarImage = package->toolbarImage;
                 resolved.toolbarImage.directory = skinsRoot / package->id;
                 resolved.canvas = package->canvas;
+                resolved.shadow = package->shadow;
                 if (resolved.canvas) {
                     const auto absolute = [&](const std::string &path) { return path.empty() ? path : (skinsRoot / package->id / path).string(); };
                     if (resolved.canvas->border) {
@@ -824,6 +845,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                 resolved.decorationAlign = package->decorationAlign;
                 resolved.decorationMotion = package->decorationMotion;
                 resolved.decorationMotionPeriodMs = package->decorationMotionPeriodMs;
+                resolved.decorationCandidate = package->decorationCandidate;
                 resolved.minWidthDip = package->minWidthDip;
                 if (package->cornerRadiusDip)
                 {
@@ -839,6 +861,9 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
                     resolved.layout = direction;
                     resolved.fitContent = layoutResult.fitContent;
                     resolved.expandRows = std::clamp(layoutResult.expandRows, 2u, 8u);
+                    resolved.shadow = layoutResult.shadow.value_or("normal");
+                    resolved.pageArrows = layoutResult.pageArrows;
+                    resolved.expandPanel = layoutResult.expandPanel;
                     resolved.tokens.radius = static_cast<float>(layoutResult.cornerRadiusDip);
                     resolved.tokens.borderWidth = static_cast<float>(layoutResult.borderWidthDip);
                     resolved.tokens.candidateRadius = resolved.tokens.selectedRadius = static_cast<float>(layoutResult.itemCornerRadiusDip);

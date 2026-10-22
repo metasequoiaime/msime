@@ -993,9 +993,11 @@ impl HttpFetcher {
 
     /// `https_only` is false only for the loopback test server, which speaks plain HTTP and must not go through a proxy from the environment.
     fn build(https_only: bool) -> Result<Self, LocalModelError> {
+        // 模型和资源包从 GitHub release 与镜像下载，都是 https 公网地址，按用户的网络代理设置走；
+        // 只有回环测试服务用明文 http，仍然直连。
         let builder = reqwest::blocking::Client::builder();
         let builder = if https_only {
-            builder
+            crate::proxy::configure_blocking(builder)
         } else {
             builder.no_proxy()
         };

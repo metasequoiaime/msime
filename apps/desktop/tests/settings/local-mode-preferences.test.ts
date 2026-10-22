@@ -39,6 +39,23 @@ test.each([false, true])("拆字显式值 %s 优先于两种宿主的缺省", (c
   }
 });
 
+test("符号模式缺键读作开，与 Windows 正式版的出厂配置一致", () => {
+  expect(localModeControlState(preferences, "symbol", true)).toEqual({
+    checked: true,
+    disabled: false,
+  });
+  expect(localModeControlState(preferences, "symbol", false)).toEqual({
+    checked: true,
+    disabled: false,
+  });
+  // 用户关掉后按文档里的值走，不回到缺省。
+  expect(localModeControlState({ ...preferences, symbol: false }, "symbol", true)).toEqual({
+    checked: false,
+    disabled: false,
+  });
+  expect(preferences).not.toHaveProperty("symbol");
+});
+
 test("总开关缺省开启，后加的 V、/、@ 开关缺省关闭", () => {
   expect(localModeControlState(preferences, "unicode", true)).toEqual({
     checked: true,
@@ -58,6 +75,7 @@ test("关闭总开关仅禁用字母入口模式且保留每项原勾选", () =>
     shift_letter_entry: false,
     expression: true,
     chaizi: false,
+    symbol: true,
   });
   const keys = [
     "unicode",
@@ -65,6 +83,7 @@ test("关闭总开关仅禁用字母入口模式且保留每项原勾选", () =>
     "quick_phrase",
     "emoji",
     "kaomoji",
+    "symbol",
     "super_jianpin",
     "temporary_english",
     "temporary_japanese",

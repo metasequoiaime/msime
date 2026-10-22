@@ -67,6 +67,16 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Feedback state was not exposed");
         for (String title : new String[] {"反馈", "关于", "打开官网", "词库", "文本编辑", "设备信息"})
             await(tool(title));
+        stage = "功能菜单辅助入口按截图顺序排列";
+        Rect previous = null;
+        for (String title : new String[] {"编辑工具栏", "设备信息", "反馈", "宣传", "打开官网", "关于"}) {
+            Rect bounds = new Rect();
+            await(tool(title)).getBoundsInScreen(bounds);
+            if (previous != null && (bounds.top < previous.top - 2
+                    || (Math.abs(bounds.top - previous.top) <= 2 && bounds.left <= previous.left)))
+                throw new AssertionError("功能菜单辅助入口顺序错误：" + title);
+            previous = bounds;
+        }
         String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
         stage = "more tools sound update";

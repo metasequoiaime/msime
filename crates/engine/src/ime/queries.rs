@@ -144,40 +144,63 @@ impl CandidateQueries {
         self.mentions = usable_mentions(entries);
     }
 
-    /// 普通组字里把联系人姓名的拼音映射成手机号。联系人排在本地词典前面，来源单独标记，选中后直接上屏且不写入个人词库。
+    /// 联系人按姓名、姓名加手机号成对置顶；完整匹配先于前缀，同名词典行替换为联系人来源。
     pub fn append_contact_candidates(&self, prefix: &str, candidates: &mut Vec<WordItem>) {
-        if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+        if self.mentions.is_empty()
+            || prefix.is_empty()
+            || !prefix
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
+        {
+            return;
+        }
+        let prefix = prefix.replace('\'', "");
+        if prefix.is_empty() {
             return;
         }
         let mut contacts = Vec::new();
-        for entry in &self.mentions {
-            if entry.phone.is_empty() || entry.key.is_empty() {
-                continue;
+        // 每个联系人占两行，完整匹配优先，不让较早导入的长姓名抢占精确姓名。
+        for exact in [true, false] {
+            for entry in &self.mentions {
+                if entry.phone.is_empty() || entry.key.is_empty() {
+                    continue;
+                }
+                let compact = entry.key.replace('\'', "");
+                let initials: String = entry
+                    .key
+                    .split('\'')
+                    .filter_map(|syllable| syllable.chars().next())
+                    .collect();
+                let matches = compact.starts_with(&prefix) || initials.starts_with(&prefix);
+                let is_exact = compact == prefix || initials == prefix;
+                if !matches || is_exact != exact {
+                    continue;
+                }
+                for text in [
+                    entry.text.clone(),
+                    format!("{} {}", entry.text, entry.phone),
+                ] {
+                    if contacts.iter().any(|item: &WordItem| item.word == text) {
+                        continue;
+                    }
+                    contacts.push(WordItem::new(
+                        entry.key.clone(),
+                        text,
+                        0,
+                        CandidateSource::Contact,
+                        entry.key.clone(),
+                    ));
+                }
+                if contacts.len() >= 18 {
+                    break;
+                }
             }
-            let compact = entry.key.replace('\'', "");
-            let initials: String = entry
-                .key
-                .split('\'')
-                .filter_map(|syllable| syllable.as_bytes().first().copied().map(char::from))
-                .collect();
-            if compact.starts_with(prefix) || initials.starts_with(prefix) {
-                contacts.push(WordItem::new(
-                    entry.key.clone(),
-                    entry.phone.clone(),
-                    0,
-                    CandidateSource::Contact,
-                    entry.key.clone(),
-                ));
-            }
-            if contacts.len() == 18 {
+            if contacts.len() >= 18 {
                 break;
             }
         }
-        for contact in contacts.into_iter().rev() {
-            if !candidates.iter().any(|item| item.word == contact.word) {
-                candidates.insert(0, contact);
-            }
-        }
+        candidates.retain(|item| !contacts.iter().any(|contact| contact.word == item.word));
+        candidates.splice(0..0, contacts);
     }
 
     /// Turns the embedded places of `@` mode on or off.
@@ -284,6 +307,11 @@ impl CandidateQueries {
                 scheme,
                 shuangpin,
                 self.chaizi_traditional_output,
+            )),
+            // 符号模式查两张编进引擎的表（分组码与符号名），不发诊断：表总在，输入只是没命中。
+            LocalInputMode::Symbol => rows(crate::local::symbol_groups::query_symbol_mode(
+                code,
+                crate::local::symbol_groups::SYMBOL_MODE_LIMIT,
             )),
         }
     }
@@ -1826,18 +1854,60 @@ mod tests {
     }
 
     #[test]
-    fn contact_candidates_precede_dictionary_rows_and_commit_phone() {
+    fn contact_candidates_replace_dictionary_duplicates_with_name_and_phone() {
         let mut queries = CandidateQueries::new(&RuntimePaths::default(), default_profile());
         queries.set_mentions(&[MentionEntry {
-            text: "张三".into(),
-            key: "zhang'san".into(),
-            phone: "13800138000".into(),
+            text: "拟好".into(),
+            key: "ni'hao".into(),
+            phone: "202-555-0101".into(),
         }]);
-        let mut rows = database(&["张三"]);
-        queries.append_contact_candidates("zhang", &mut rows);
-        assert_eq!(rows[0].word, "13800138000");
-        assert_eq!(rows[0].source, CandidateSource::Contact);
-        assert_eq!(rows[1].word, "张三");
+        for input in ["nihao", "ni'hao", "nh"] {
+            let mut rows = database(&["你好", "拟好"]);
+            queries.append_contact_candidates(input, &mut rows);
+            assert_eq!(words(&rows), ["拟好", "拟好 202-555-0101", "你好"]);
+            assert!(rows[..2]
+                .iter()
+                .all(|row| row.source == CandidateSource::Contact));
+        }
+    }
+
+    #[test]
+    fn contacts_prioritize_exact_names_and_ignore_plain_mentions() {
+        let mut queries = CandidateQueries::new(&RuntimePaths::default(), default_profile());
+        queries.set_mentions(&[
+            MentionEntry {
+                text: "合成甲乙".into(),
+                key: "he'cheng'jia'yi".into(),
+                phone: "202-555-0101".into(),
+            },
+            MentionEntry {
+                text: "合成甲".into(),
+                key: "he'cheng'jia".into(),
+                phone: "202-555-0102".into(),
+            },
+            MentionEntry {
+                text: "普通名单".into(),
+                key: "he'cheng'jia".into(),
+                phone: String::new(),
+            },
+        ]);
+        let mut rows = database(&["合成甲", "其他词"]);
+        queries.append_contact_candidates("hechengjia", &mut rows);
+        assert_eq!(
+            words(&rows),
+            [
+                "合成甲",
+                "合成甲 202-555-0102",
+                "合成甲乙",
+                "合成甲乙 202-555-0101",
+                "其他词"
+            ]
+        );
+        for invalid in ["", "'", "he1", "HE", "其他"] {
+            let mut rows = database(&["其他词"]);
+            queries.append_contact_candidates(invalid, &mut rows);
+            assert_eq!(words(&rows), ["其他词"]);
+        }
     }
 
     fn with_symbols(list: Vec<WordItem>, symbols: Vec<SymbolRow>) -> Vec<WordItem> {
@@ -1909,6 +1979,24 @@ mod tests {
             vec![symbol("π", "派", true, false)],
         );
         assert_eq!(words(&merged), vec!["排", "牌"]);
+    }
+
+    #[test]
+    fn number_symbols_preserve_the_first_three_words_and_require_the_number_anchor() {
+        let numbers = || {
+            query_mixed_symbols(
+                "yi",
+                SchemeType::Quanpin,
+                crate::shuangpin::profile::default_profile(),
+            )
+        };
+        let merged = with_symbols(database(&["一", "已", "以", "易", "衣"]), numbers());
+        assert_eq!(
+            words(&merged),
+            vec!["一", "已", "以", "①", "⑴", "⒈", "易", "衣"]
+        );
+        let merged = with_symbols(database(&["已", "以", "易"]), numbers());
+        assert_eq!(words(&merged), vec!["已", "以", "易"]);
     }
 
     #[test]

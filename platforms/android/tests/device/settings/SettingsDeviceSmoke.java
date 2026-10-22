@@ -60,19 +60,26 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private WebView web;
     private boolean skinDelete;
     private boolean vocabulary;
+    private boolean noticeQueue;
 
     @Override public void onCreate(Bundle arguments) {
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
+        noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
         if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
         if (vocabulary) return "bundled wordbooks extracted, listed through JNI and answered";
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (noticeQueue) {
+            new NoticeQueueDeviceCheck(this).run();
+            return;
+        }
         if (skinDelete) {
             new SkinDeleteDeviceCheck(this).run();
             return;

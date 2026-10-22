@@ -41,6 +41,8 @@ export type MsimeOut =
 
 export interface MsimeRow {
   text: string;
+  /** 宿主附加的候选标注，与候选原文分开；叠加皮肤可选择是否显示。 */
+  badge?: string;
   /** 候选的编码。 */
   code: string;
   /** 辅助码提示，如 `(aB)`：单字是它的两码，词是首字和末字的首码；全拼全大写，双拼只大写第二码。没开辅助码或表里没有这个字时为空串。 */
@@ -400,6 +402,8 @@ export interface MsimeSkin extends MsimeResolvedLayout {
   decorationMotion?: "none" | "float" | "sway" | "breathe" | "bounce";
   decorationMotionPeriodMs?: number;
   decorationFrames?: number;
+  /** 装饰框内叠加当前页候选词；v1、v2 均可用。 */
+  decorationCandidate?: MsimeDecorationCandidate | null;
   /** 候选框背景图；opacity 默认 1，夹到 0 到 1。 */
   background?: { image?: string; fit?: "cover" | "contain" | "stretch"; opacity?: number } | null;
   candidate?: { dark?: MsimeSkinPalette; light?: MsimeSkinPalette };
@@ -411,6 +415,27 @@ export interface MsimeSkin extends MsimeResolvedLayout {
   lineGapDip?: number | null;
   decorations?: readonly MsimeSkinFreeDecoration[];
   animation?: MsimeSkinAnimation | null;
+}
+
+export interface MsimeDecorationCandidate {
+  /** 0 跟随高亮，1 起为当前页序号，默认 1；越界时不显示。 */
+  index?: number;
+  /** 初始字号，默认 16，范围 (0, 200]。 */
+  fontSizeDip?: number;
+  /** 最小字号，默认 8，范围 (0, 200]；超过初始字号时使用初始字号。 */
+  minFontSizeDip?: number;
+  /** 最大宽，0 使用装饰框宽度；缩到最小字号仍过宽时允许超框，不换行。 */
+  maxWidthDip?: number;
+  /** 安全颜色声明，缺省或不能识别时白色。 */
+  color?: string;
+  /** 共享 catalog 的规范化颜色；保留声明的 color 供编辑与导出。 */
+  resolvedColor?: string;
+  alignH?: "left" | "center" | "right";
+  alignV?: "top" | "center" | "bottom";
+  offsetXDip?: number;
+  offsetYDip?: number;
+  /** 默认 true，只绘制 text；false 时追加单独的 badge，不删改候选原文。 */
+  stripBadge?: boolean;
 }
 
 /** resolveSkin 的结果，整个被冻结。颜色都是大写的 `#RRGGBB` 或 `#RRGGBBAA`。 */
@@ -482,6 +507,7 @@ export interface ResolvedSkin {
       top: number;
       width: number;
       align: "left" | "center" | "right";
+      candidate?: Readonly<Required<Omit<MsimeDecorationCandidate, "resolvedColor">>> | null;
     }> | null;
     background: Readonly<{
       url: string;

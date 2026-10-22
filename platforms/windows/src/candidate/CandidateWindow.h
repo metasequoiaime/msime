@@ -104,6 +104,7 @@ public:
     decoration_top_ = decoration.top_dip;
     decoration_width_ = decoration.width_dip;
     decoration_align_ = decoration.align;
+    decoration_candidate_ = decoration.candidate;
   }
   // The image a package draws over the card surface. Empty image means none.
   void set_skin_background(CandidateSkinBackground background) {
@@ -317,6 +318,7 @@ private:
   double decoration_top_ = 0.0;
   double decoration_width_ = 0.0;
   CandidateSkinAlign decoration_align_ = CandidateSkinAlign::right;
+  std::optional<msime::candidate::DecorationCandidate> decoration_candidate_;
   CandidateSkinBackground background_;
   std::optional<float> skin_radius_;
   CandidateSkinLayout skin_layout_;

@@ -27,7 +27,8 @@ tokio = { workspace = true, features = ["rt", "net", "time"] }
 tokio-tungstenite = { version = "0.30", features = ["__rustls-tls"] }
 rustls = { version = "0.23", default-features = false }
 webpki-roots = "1.0.10"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+# `system-proxy` 让 `reqwest` 按用户偏好读系统代理：关掉默认特性时它只读环境变量，读不到 macOS 的网络设置与 Windows 的注册表。
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls", "system-proxy"] }
 # On-device speech models: the catalog archives are tar.bz2. bzip2 0.6 defaults to the pure-Rust libbz2-rs-sys backend, so no C toolchain is needed on any host.
 tar = { version = "0.4", default-features = false }
 bzip2 = "0.6"

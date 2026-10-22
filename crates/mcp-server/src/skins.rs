@@ -36,7 +36,7 @@ pub struct SkinView {
     pub layouts: Vec<String>,
     /// The colour modes the skin supports: dark, light.
     pub themes: Vec<String>,
-    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 原生候选窗通过各自图片解码器绘制贴图，尚无对应绘制能力的宿主（目前是 Linux）使用不透明的可读回退。
+    /// 清单基底是否为 `canvas`：仅此时读取九宫格、自由挂件和边距。Web engine 与 macOS、Windows、iOS、Android、HarmonyOS 2in1 和 Linux X11 的对应原生入口通过各自图片解码器绘制贴图；Linux 原生窗口还要求焦点与 classicui 所有权，其他入口沿用各自静态或不透明的可读回退。声明可读不代表目标设备已完成绘制验收。
     pub canvas: bool,
     /// 不阻止加载的提示，例如非 canvas 基底上忽略的专用字段，或需要宿主绘制能力的 canvas 贴图；没有提示时是空列表。始终输出：输出 schema 把它列为必填，省略会让按 schema 校验结构化结果的客户端（如 Claude Code）拒绝整个列表。
     pub notices: Vec<String>,
@@ -58,8 +58,56 @@ pub struct SkinDecorationView {
     pub motion_period_ms: u16,
     /// 装饰图的帧数：静态 PNG、JPEG 为 1，APNG（以及手动装进皮肤目录的 GIF、WebP）为它的动画帧数。
     pub frames: u32,
-    /// 装饰图是不是多帧的 APNG（frames 大于 1）。能播帧动画的宿主（目前是 macOS）播放它，其他宿主只画第一帧。
+    /// 装饰图是否多帧（frames 大于 1）；这是资源元数据，实际帧播放与待机变换分别取决于宿主入口的能力，不能据此认定所有宿主都已播放动画。
     pub animated: bool,
+    /// 装饰框内叠加候选词的声明；绘制覆盖面由各宿主决定，不能把列表中的声明当成设备验收结果。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_overlay: Option<SkinDecorationCandidateView>,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinDecorationCandidateView {
+    /// 0 跟随高亮，1 起为当前页候选序号；越出当前页时不显示。
+    pub index: u8,
+    pub font_size_dip: f64,
+    pub min_font_size_dip: f64,
+    /// 0 使用装饰框宽；缩到最小字号仍放不下时不换行、允许超出。
+    pub max_width_dip: f64,
+    /// 原始安全颜色声明；不能识别的颜色由绘制器回退为白色。
+    pub color: String,
+    pub align_h: String,
+    pub align_v: String,
+    pub offset_x_dip: f64,
+    pub offset_y_dip: f64,
+    pub strip_badge: bool,
+}
+
+impl From<&catalog::SkinDecorationCandidate> for SkinDecorationCandidateView {
+    fn from(value: &catalog::SkinDecorationCandidate) -> Self {
+        Self {
+            index: value.index,
+            font_size_dip: value.font_size_dip,
+            min_font_size_dip: value.min_font_size_dip,
+            max_width_dip: value.max_width_dip,
+            color: value.color.clone(),
+            align_h: match value.align_h {
+                catalog::DecorationAlign::Left => "left",
+                catalog::DecorationAlign::Center => "center",
+                catalog::DecorationAlign::Right => "right",
+            }
+            .into(),
+            align_v: match value.align_v {
+                catalog::DecorationVerticalAlign::Top => "top",
+                catalog::DecorationVerticalAlign::Center => "center",
+                catalog::DecorationVerticalAlign::Bottom => "bottom",
+            }
+            .into(),
+            offset_x_dip: value.offset_x_dip,
+            offset_y_dip: value.offset_y_dip,
+            strip_badge: value.strip_badge,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema, PartialEq)]
@@ -210,6 +258,7 @@ pub fn list(state_dir: &Path) -> SkinList {
                         motion_period_ms: package.decoration_motion_period_ms,
                         frames: package.decoration_frames,
                         animated: package.decoration_frames > 1,
+                        candidate_overlay: package.decoration_candidate.as_ref().map(Into::into),
                     }),
             })
             .collect(),
@@ -578,7 +627,7 @@ mod tests {
     fn the_listing_reports_decoration_motion_and_frames() {
         let state = tempfile::tempdir().unwrap();
         for (id, image, motion) in [
-            ("whale", APNG, "motion = 'sway'\nmotion_period_ms = 2400\n"),
+            ("whale", APNG, "motion = 'sway'\nmotion_period_ms = 2400\ncandidate_overlay = true\ncandidate_overlay_index = 0\n"),
             ("still", PNG, ""),
         ] {
             let manifest = format!(
@@ -618,6 +667,18 @@ mod tests {
                 motion_period_ms: 2400,
                 frames: 3,
                 animated: true,
+                candidate_overlay: Some(SkinDecorationCandidateView {
+                    index: 0,
+                    font_size_dip: 16.0,
+                    min_font_size_dip: 8.0,
+                    max_width_dip: 0.0,
+                    color: String::new(),
+                    align_h: "center".into(),
+                    align_v: "center".into(),
+                    offset_x_dip: 0.0,
+                    offset_y_dip: 0.0,
+                    strip_badge: true,
+                }),
             }
         );
         assert_eq!(
@@ -627,8 +688,17 @@ mod tests {
                 motion_period_ms: 3000,
                 frames: 1,
                 animated: false,
+                candidate_overlay: None,
             }
         );
+        let json = serde_json::to_value(&listed).unwrap();
+        let still = json["skins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|skin| skin["id"] == "still")
+            .unwrap();
+        assert!(still["decoration"].get("candidate_overlay").is_none());
     }
 
     /// A version 2 manifest on `base`, with `extra` tables after `[candidate_window]`.

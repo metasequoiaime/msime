@@ -2728,6 +2728,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,
@@ -2762,6 +2763,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
   expect(screen.getByRole("switch", { name: /^Emoji/ })).toBeDefined();
   // 颜文字混输 sits on the same page under 候选与联想, so match the local mode alone.
   expect(screen.getByRole("switch", { name: /^颜文字(?!混输)/ })).toBeDefined();
+  expect(screen.getByRole("switch", { name: /^符号快捷输入/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeDefined();
   fireEvent.click(screen.getByRole("switch", { name: /^Unicode/ }));
   saveSettingsNow();
@@ -2774,6 +2776,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,
@@ -6405,6 +6408,16 @@ test("floating toolbar settings use Windows defaults and persist independently",
   );
   // 175% 一档写成 150% 缩放加 28 的图标，和以前两个下拉都拉满时一样大。
   fireEvent.change(screen.getByLabelText("工具栏大小"), { target: { value: "175" } });
+  // 自动隐藏出厂关（对齐 Windows v0.11.1）；和 Windows 设置页一样，关闭时延时的整行留着但置灰。
+  const autoHide = screen.getByRole("switch", { name: "自动隐藏工具栏" }) as HTMLInputElement;
+  expect(autoHide.checked).toBe(false);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("switch", { name: "工具栏阴影" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(autoHide);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText("自动隐藏延时"), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("switch", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
@@ -6428,6 +6441,10 @@ test("floating toolbar settings use Windows defaults and persist independently",
       screen_keyboard: true,
       voice: false,
       settings: true,
+      // 自动隐藏在默认快照里是关的，这一轮把它打开并调到 12 秒。
+      auto_hide: true,
+      auto_hide_delay: 12,
+      shadow: true,
       scale_percent: 150,
       font_size: 28,
     },
@@ -10485,8 +10502,9 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组。
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  // 桌面没有润色测试，服务配置直接可见，提示词单独折叠。Windows 固定候选数量，不出现「联想」组；
+  // 桌面宿主自己发请求，「网络」组给出代理设置。
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   expect(endpoint.closest("details")).toBeNull();
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
@@ -10520,7 +10538,7 @@ test.each(["macos", "windows", "linux", "harmony"])(
   },
 );
 
-test("the macOS AI page shows only the service group", async () => {
+test("the macOS AI page shows the service and network groups", async () => {
   render(
     <SettingsPage
       initialPage="ai"
@@ -10534,7 +10552,7 @@ test("the macOS AI page shows only the service group", async () => {
   );
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
-  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(pageGroupTitles(page)).toEqual(["服务", "网络"]);
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 

@@ -162,11 +162,20 @@ export function useEmojiPanel(
       .then((next) => {
         if (generation !== catalogGeneration.current) return;
         const unavailable = next.unavailable ?? [];
-        setCatalog((current) => ({
-          emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
-          kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
-          symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
-        }));
+        setCatalog((current) => {
+          const groupsFor = (kind: keyof typeof current) =>
+            unavailable.includes(kind)
+              ? [
+                  ...current[kind].filter((group) => !group.pack),
+                  ...next[kind].filter((group) => group.pack),
+                ]
+              : next[kind];
+          return {
+            emoji: groupsFor("emoji"),
+            kaomoji: groupsFor("kaomoji"),
+            symbols: groupsFor("symbols"),
+          };
+        });
         setCatalogUnavailable(unavailable);
       })
       .catch(() => {
@@ -553,16 +562,23 @@ export function useEmojiPanel(
   const seenDisplayItems = new Set<string>();
   const uniqueGroups = sourceGroups.map((group) => ({
     ...group,
-    items: group.items.filter((item) => {
-      if (seenDisplayItems.has(item.text)) return false;
-      seenDisplayItems.add(item.text);
-      return true;
-    }),
+    // 插件详情保留每组完整项目；首页合并预览和内置组仍按文本去重。
+    items:
+      page !== "home" && group.pack !== undefined
+        ? group.items
+        : group.items.filter((item) => {
+            if (seenDisplayItems.has(item.text)) return false;
+            seenDisplayItems.add(item.text);
+            return true;
+          }),
   }));
   const itemPageCount = Math.max(
     1,
     ...uniqueGroups.map((group) => Math.ceil(group.items.length / itemsPerPage)),
   );
+  useLayoutEffect(() => {
+    setItemPage((value) => Math.min(value, itemPageCount - 1));
+  }, [itemPageCount]);
   const displayGroups = uniqueGroups
     .map((group) => ({
       ...group,
