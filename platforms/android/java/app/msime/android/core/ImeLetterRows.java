@@ -200,8 +200,12 @@ final class ImeLetterRows {
         final float[] downY = new float[1];
         final boolean[] triggered = new boolean[1];
         final boolean[] optionsShown = new boolean[1];
+        final boolean[] candidateTouch = new boolean[1];
         Runnable hold = () -> {
             if (triggered[0] || !key.isPressed()) return;
+            // 候选栏出现时，长按也交给普通按键点击，避免误打开字母选项。
+            if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                    && ViewPolicy.isVisible(s.candidateViewport)) return;
             triggered[0] = true;
             optionsShown[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
@@ -222,6 +226,8 @@ final class ImeLetterRows {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     triggered[0] = false;
                     optionsShown[0] = false;
+                    candidateTouch[0] = !s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                        && ViewPolicy.isVisible(s.candidateViewport);
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
@@ -234,8 +240,14 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_MOVE -> {
                     if (optionsShown[0]) {
                         s.imeLayoutRows.moveLetterOptions(key, event);
-                    } else if (hint != null && !triggered[0]
-                            && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)) {
+                    } else if (hint != null && !triggered[0]) {
+                        boolean candidateVisible = candidateTouch[0]
+                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && ViewPolicy.isVisible(s.candidateViewport));
+                        if (candidateVisible) return false;
+                        if (!SwipeHintPolicy.enabled(
+                                touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), false))
+                            return false;
                         String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
                         String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
                         float currentY = DimensionPolicy.fromPixels(s, event.getY());
@@ -258,7 +270,18 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_UP -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
-                    if (!triggered[0]) return false;
+                    if (!triggered[0]) {
+                        // 候选态的长按或滑动必须等价于一次普通点按，即使位移让 Button 自己取消了点击。
+                        boolean candidateVisible = candidateTouch[0]
+                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && ViewPolicy.isVisible(s.candidateViewport));
+                        if (candidateVisible) {
+                            key.performClick();
+                            key.setPressed(false);
+                            return true;
+                        }
+                        return false;
+                    }
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
                     key.onTouchEvent(cancel);

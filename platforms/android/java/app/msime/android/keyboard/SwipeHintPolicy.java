@@ -11,6 +11,11 @@ public final class SwipeHintPolicy {
 
     private SwipeHintPolicy() { }
 
+    /** 26 键滑动输入符号是否应接管本次触摸；候选栏显示时保留普通点按选词。 */
+    public static boolean enabled(boolean swipeEnabled, boolean candidateVisible) {
+        return swipeEnabled && !candidateVisible;
+    }
+
     /**
      * 是否已经沿 `direction` 构成滑动。
      *

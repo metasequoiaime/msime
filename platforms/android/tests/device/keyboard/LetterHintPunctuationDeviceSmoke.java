@@ -149,27 +149,26 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             stage = "up swipe drag lowercase";
             gestureOption("q", false, "up", "q", false);
             expect("Vq");
-            stage = "composition option uses Chinese punctuation";
-            for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT)));
-            gestureOption("v", false, "up", "？", false);
-            expect("Vq你好？");
+            tap(key("⌫"));
+            tap(key("⌫"));
+            expect("");
             stage = "quote choices use engine alternation";
             gestureOption("l", false, "up", "“", false);
             gestureOption("l", false, "up", "“", false);
-            expect("Vq你好？“”");
+            expect("“”");
             stage = "long hold drag uppercase";
             gestureOption("q", true, "up", "Q", false);
-            expect("Vq你好？“”Q");
+            expect("“”Q");
             stage = "cancel selected option";
             gestureOption("w", false, "up", "W", true);
-            expect("Vq你好？“”Q");
+            expect("“”Q");
             stage = "release outside the selected option";
             gestureOption("w", false, "up", "W", false, true);
-            expect("Vq你好？“”Q");
+            expect("“”Q");
             stage = "long hold still supports separate tap";
             holdLetterDescribed("a");
             tap(described("输入 @"));
-            expect("Vq你好？“”Q@");
+            expect("“”Q@");
 
             configureSwipe(true, "down", false, false);
             stage = "ASCII option when Chinese punctuation is off";
@@ -196,6 +195,16 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             gestureOption("j", true, "up", "（", false);
             await(field(PLAIN).and(node -> equalsText("（）", node.getText())
                 && node.getTextSelectionStart() == 1 && node.getTextSelectionEnd() == 1));
+            configureSwipe(true, "down", true, false);
+            stage = "candidate swipe is a normal click";
+            tap(described("字母 N"));
+            tap(described("字母 I"));
+            await(describedPrefix("候选 1："));
+            simpleSwipe("v", "down");
+            await(field(PLAIN).and(node -> {
+                String text = String.valueOf(node.getText());
+                return text.contains("niv") && text.indexOf('？') < 0;
+            }));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(swipePreferences.toPath()); else publish(swipePreferences, original);

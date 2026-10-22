@@ -20,6 +20,12 @@ public final class SwipeHintPolicySmoke {
             "with swipes off the swipe types the letter");
         check("，".equals(SwipeHintPolicy.output("，", true, down, 0, 20)),
             "a key without a hint types itself");
+        check(!SwipeHintPolicy.enabled(true, true),
+            "candidate state disables 26-key symbol swipes");
+        check(SwipeHintPolicy.enabled(true, false),
+            "idle state keeps 26-key symbol swipes enabled");
+        check(!SwipeHintPolicy.enabled(false, false),
+            "the setting still disables 26-key symbol swipes");
         System.out.println("Android swipe hint: >14 dp threshold in either direction and hint output passed");
     }
 
