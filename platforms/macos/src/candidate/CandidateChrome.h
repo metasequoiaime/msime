@@ -465,6 +465,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 @property(nonatomic) BOOL canvasPanelLoaded;
 @property(nonatomic, strong, readonly) MSIMECandidateCanvasAssets *canvasAssets;
 - (void)drawCandidateCard;
+- (void)notifyCandidateAppearanceChanged;
 - (void)configureCanvas:(const msime::mac::SkinCanvas &)canvas assets:(MSIMECandidateCanvasAssets *)assets;
 - (void)setCanvasPlaybackVisible:(BOOL)visible anchor:(CFTimeInterval)anchor;
 @end
@@ -476,6 +477,16 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 - (BOOL)isOpaque { return NO; }
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 - (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; [self.owner drawCandidateCard]; }
+@end
+@interface MSIMECandidateContentView : NSView
+@property(nonatomic, weak) MSIMECandidateChromeView *owner;
+@end
+@implementation MSIMECandidateContentView
+- (void)viewDidChangeEffectiveAppearance
+{
+    [super viewDidChangeEffectiveAppearance];
+    [self.owner notifyCandidateAppearanceChanged];
+}
 @end
 @implementation MSIMECandidateChromeView
 {
@@ -492,7 +503,9 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
         _cardBackground.owner = self;
         _cardBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [self addSubview:_cardBackground];
-        _candidateContentView = [[NSView alloc] initWithFrame:self.bounds];
+        MSIMECandidateContentView *content = [[MSIMECandidateContentView alloc] initWithFrame:self.bounds];
+        content.owner = self;
+        _candidateContentView = content;
         _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [self addSubview:_candidateContentView];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self
@@ -595,6 +608,10 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 - (void)viewDidChangeEffectiveAppearance
 {
     [super viewDidChangeEffectiveAppearance];
+    [self notifyCandidateAppearanceChanged];
+}
+- (void)notifyCandidateAppearanceChanged
+{
     if (self.appearanceTarget != nil && self.appearanceAction != nullptr)
     {
 #pragma clang diagnostic push

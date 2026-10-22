@@ -18301,6 +18301,52 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
 }
 
 #[test]
+fn ai_provider_catalog_export_is_public_and_matches_the_shared_presets() {
+    let result = read(msime_client_ai_provider_catalog());
+    assert_eq!(result["ok"], true);
+    let presets = msime_client_providers::ai::provider_catalog::PROVIDERS;
+    assert_eq!(result["value"].as_array().unwrap().len(), presets.len());
+    for (index, preset) in presets.iter().enumerate() {
+        let mut expected = json!(preset);
+        expected["uses_token"] = json!(msime_client_providers::ai::provider_uses_token(preset.id));
+        assert_eq!(result["value"][index], expected);
+    }
+}
+
+#[test]
+fn ai_provider_update_export_returns_only_the_four_configuration_fields() {
+    let request = br#"{"provider":"openai","current":{"enabled":true,"provider":"deepseek","endpoint":"","model":""}}"#;
+    let result = read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["value"],
+        json!({"enabled":true,"provider":"openai","endpoint":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini"})
+    );
+}
+
+#[test]
+fn ai_provider_update_export_rejects_invalid_buffers_and_credential_fields() {
+    for request in [
+        r#"{"provider":"unknown","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":""}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","token":"synthetic-token"}}"#,
+        r#"{"provider":"openai","current":{"enabled":"true","provider":"deepseek","endpoint":"","model":""}}"#,
+    ] {
+        let result =
+            read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], false);
+        assert!(!result.to_string().contains("synthetic-token"));
+    }
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(b"x".as_ptr(), 16 * 1024 + 1) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
     let dir = tempfile::tempdir().unwrap();
     let store = msime_client_services::plugins::mentions::MentionStore::new(

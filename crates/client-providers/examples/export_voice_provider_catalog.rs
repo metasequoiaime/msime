@@ -91,6 +91,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_string_pretty(&endpoints)?,
         serde_json::to_string_pretty(&formats)?
     );
+    let mut header = format!(
+        "#pragma once\n// 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::voice {{\nstruct VoiceProviderCatalogEntry {{\n  std::string_view id;\n  std::string_view title;\n  std::string_view endpoint;\n  std::string_view model;\n}};\ninline constexpr std::array<VoiceProviderCatalogEntry, {}> kAsrProviders = {{{{\n",
+        ASR_PROVIDERS.len()
+    );
+    for preset in ASR_PROVIDERS {
+        header.push_str(&format!(
+            "  {{{}, {}, {}, {}}},\n",
+            serde_json::to_string(preset.id)?,
+            serde_json::to_string(preset.title)?,
+            serde_json::to_string(preset.endpoint)?,
+            serde_json::to_string(preset.model)?
+        ));
+    }
+    header.push_str("}};\n} // 命名空间 msime::voice\n");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (relative, content, semantic) in [
         (
@@ -108,6 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             python,
             false,
         ),
+        ("shared/voice/VoiceProviderCatalog.h", header, false),
     ] {
         let path = root.join(relative);
         if write {

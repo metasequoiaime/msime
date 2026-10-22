@@ -393,6 +393,9 @@ public final class NativeClient {
 
     /** 共享语音服务与豆包流式接口目录；纯计算，不读写偏好、不联网。 */
     public static String voiceProviderCatalog() { return TextPolicy.utf8(voiceProviderCatalogRaw()); }
+    public static String aiProviderCatalog() { return TextPolicy.utf8(aiProviderCatalogRaw()); }
+    public static String aiProviderUpdate(String request) { return TextPolicy.utf8(aiProviderUpdateRaw(utf8(request))); }
+    public static String aiModels(String request) { return TextPolicy.utf8(aiModelsRaw(utf8(request))); }
 
     /** 设置页的语音接口预检；纯计算，与 C ABI 共用 64 KiB 的 UTF-8 传输上限。 */
     public static String voiceEndpointIssue(String endpoint, boolean websocket) {
@@ -969,6 +972,9 @@ public final class NativeClient {
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] voiceProviderCatalogRaw();
+    private static native byte[] aiProviderCatalogRaw();
+    private static native byte[] aiProviderUpdateRaw(byte[] request);
+    private static native byte[] aiModelsRaw(byte[] request);
     private static native byte[] voiceEndpointIssueRaw(byte[] endpoint, boolean websocket);
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);

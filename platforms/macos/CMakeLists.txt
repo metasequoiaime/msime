@@ -1044,6 +1044,12 @@ target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wal
 target_link_libraries(voice-provider-settings-keys-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-keys COMMAND voice-provider-settings-keys-test)
+add_executable(voice-provider-catalog-test tests/voice/VoiceProviderCatalogTest.mm
+  src/voice/VoiceProviderSettings.mm)
+target_compile_options(voice-provider-catalog-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-provider-catalog-test PRIVATE "-framework AppKit" "-framework Security"
+  "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME voice-provider-catalog COMMAND voice-provider-catalog-test)
 add_executable(voice-provider-settings-validation-test tests/voice/VoiceSettingsTests.mm
   src/voice/VoiceProviderSettings.mm)
 target_compile_options(voice-provider-settings-validation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

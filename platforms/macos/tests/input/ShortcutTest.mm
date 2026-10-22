@@ -3226,6 +3226,7 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) NSUInteger total;
 @property(nonatomic) NSUInteger pageSize;
+@property(nonatomic) NSUInteger highlighted;
 @property(nonatomic, copy) NSString *prefix;
 @property(nonatomic, copy) NSString *editing;
 @property(nonatomic) NSUInteger allCandidateCalls;
@@ -3241,11 +3242,29 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
 }
 - (NSDictionary *)gridView {
     NSMutableArray *page = [NSMutableArray array];
-    for (NSUInteger index = 0; index < MIN(self.pageSize, self.total); ++index)
-        [page addObject:[self gridCandidate:index highlighted:index == 0]];
+    const NSUInteger start = self.highlighted / self.pageSize * self.pageSize;
+    for (NSUInteger index = start; index < MIN(start + self.pageSize, self.total); ++index)
+        [page addObject:[self gridCandidate:index highlighted:index == self.highlighted]];
     return @{@"focused": @YES, @"session": @1, @"generation": @(self.generation), @"editing_text": self.editing,
-             @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @0,
+             @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @(start / self.pageSize),
              @"page_count": @((self.total + self.pageSize - 1) / self.pageSize), @"candidates": page};
+}
+- (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
+    switch (command) {
+        case MSIME_NEXT_CANDIDATE: self.highlighted = MIN(self.highlighted + 1, self.total - 1); break;
+        case MSIME_PREVIOUS_CANDIDATE: self.highlighted = self.highlighted ? self.highlighted - 1 : 0; break;
+        case MSIME_NEXT_PAGE:
+            self.highlighted = MIN(self.highlighted / self.pageSize + 1, (self.total - 1) / self.pageSize) * self.pageSize;
+            break;
+        case MSIME_PREVIOUS_PAGE:
+            self.highlighted = self.highlighted >= self.pageSize ? (self.highlighted / self.pageSize - 1) * self.pageSize : 0;
+            break;
+        default: return [super command:command error:error];
+    }
+    self.lastCommand = command;
+    ++self.commandCalls;
+    ++self.generation;
+    return @{@"handled": @YES, @"view": [self gridView]};
 }
 - (NSDictionary *)allCandidatesWithError:(NSError **)error {
     (void)error;
@@ -3369,6 +3388,9 @@ static void TestExpandedCandidateGrid() {
     [controller setValue:client forKey:@"activeClient"];
     [controller setValue:panel forKey:@"panel"];
     void (^compose)(void) = ^{
+        session.generation = 7;
+        session.highlighted = 0;
+        client.committed = nil;
         [controller setValue:[session gridView] forKey:@"view"];
         [controller renderCandidates];
         assert(panel.isVisible);
@@ -3419,6 +3441,7 @@ static void TestExpandedCandidateGrid() {
     assert(session.lastCommand == MSIME_MOVE_RIGHT && !expanded());
 
     compose();
+    session.highlighted = 21;
     NSMutableDictionary *lastPage = [[session gridView] mutableCopy];
     lastPage[@"page"] = @4;
     lastPage[@"candidates"] = @[[session gridCandidate:20 highlighted:NO], [session gridCandidate:21 highlighted:YES], [session gridCandidate:22 highlighted:NO]];
@@ -3544,6 +3567,29 @@ static void TestExpandedCandidateGrid() {
     assert(!expanded() && session.lastCommand == UINT32_MAX && ExpandedGridSubview(panel, -3));
     assert(press(126));
     assert(session.lastCommand == MSIME_PREVIOUS_CANDIDATE);
+
+    // #9206：第三个候选展开后左移到第一个，↑ 收起仍高亮第一个；再次展开不回跳。
+    compose();
+    session.highlighted = 2;
+    [controller setValue:[session gridView] forKey:@"view"];
+    [controller renderCandidates];
+    assert(press(125) && cursor() == 2);
+    assert(press(123) && press(123) && cursor() == 0);
+    assert(press(126) && !expanded());
+    assert(session.highlighted == 0 && ExpandedGridHighlightedTag(panel) == 0 && !client.committed);
+    assert(press(125) && cursor() == 0);
+    // Esc 和鼠标收起也同步跨页、短末页上的高亮。
+    assert(press(125) && press(124) && cursor() == 6);
+    assert(press(53) && !expanded());
+    assert(session.highlighted == 6 && [[[controller valueForKey:@"view"] objectForKey:@"page"] isEqual:@1]);
+    assert(press(125) && cursor() == 6);
+    [controller setValue:@22 forKey:@"expandedCursor"];
+    [controller toggleExpandedCandidates:ExpandedGridSubview(panel, -3)];
+    assert(!expanded() && session.highlighted == 22 && !client.committed);
+    assert(press(125) && cursor() == 22);
+    assert(press(126) && cursor() == 17);
+    [controller closeExpandedCandidates];
+    assert(session.highlighted == 17 && !client.committed);
 
     // 网格不认的键先收起网格，再照常交给 Engine。
     compose();
@@ -7689,6 +7735,29 @@ show_selected_bar = true
             assert([bitmap colorAtX:2 y:(NSInteger)(bitmap.pixelsHigh * 0.8)].alphaComponent > 0.99);
         }
     }
+    external.vertical = NO;
+    assert(![external resolvedSkinForDark:YES].fitContent);
+    for (NSNumber *paged in @[@NO, @YES]) {
+        NSMutableDictionary *widthView = [@{
+            @"focused": @YES, @"editing_text": @"ceshi", @"page": @0,
+            @"page_count": paged.boolValue ? @2 : @1,
+            @"candidates": @[@{@"text": @"测试", @"highlighted": @YES}]
+        } mutableCopy];
+        [controller setValue:[widthView copy] forKey:@"view"];
+        [controller renderCandidates];
+        const CGFloat narrowWidth = panel.frame.size.width;
+        assert(panel.requestedVisible && narrowWidth >= 240);
+        widthView[@"candidates"] = @[@{@"text": @"合成候选窗口宽度回归测试用长文本", @"highlighted": @YES}];
+        [controller setValue:[widthView copy] forKey:@"view"];
+        [controller renderCandidates];
+        assert(panel.requestedVisible && panel.frame.size.width > narrowWidth);
+        widthView[@"page"] = paged.boolValue ? @1 : @0;
+        widthView[@"candidates"] = @[@{@"text": @"测试", @"highlighted": @YES}];
+        [controller setValue:[widthView copy] forKey:@"view"];
+        [controller renderCandidates];
+        assert(panel.requestedVisible && fabs(panel.frame.size.width - narrowWidth) < 0.01);
+    }
+    [controller setValue:before forKey:@"view"];
     // No disk reads while typing/rendering: removal takes effect only on explicit reload.
     std::filesystem::remove_all(root / "synthetic");
     [controller renderCandidates];
@@ -11312,6 +11381,9 @@ int main(int argc, char **argv) {
         assert([rendered.toolTip isEqualToString:@"合成候选布局测试文本"]);
         // Candidates wrap inside their column instead of being cut off with an ellipsis.
         assert(rendered.lineBreakMode == NSLineBreakByWordWrapping);
+        [controller setValue:@{@"candidates": @[@{@"text": @"测试", @"highlighted": @YES}]} forKey:@"view"];
+        [controller renderCandidates];
+        assert(layoutPanel.requestedVisible && fabs(layoutPanel.frame.size.width - shortWidth) < 0.01);
         client.caret = NSZeroRect;
         [controller renderCandidates];
         assert(!layoutPanel.requestedVisible);
@@ -11325,6 +11397,27 @@ int main(int argc, char **argv) {
         assert([previous.accessibilityLabel isEqual:@"上一页候选"]);
         assert([next.accessibilityLabel isEqual:@"下一页候选"]);
         assert(previous.frame.size.height == 26 && next.frame.size.width == 28);
+        // 面板不隐藏时，翻到短候选页和同页候选变短都必须收窄；翻回长候选页仍能变宽。
+        const CGFloat shortPageWidth = layoutPanel.frame.size.width;
+        NSMutableDictionary *widthView = [pageView mutableCopy];
+        widthView[@"candidates"] = @[@{@"text": @"合成候选布局测试文本", @"highlighted": @YES}];
+        [controller setValue:[widthView copy] forKey:@"view"];
+        [controller renderCandidates];
+        const CGFloat longPageWidth = layoutPanel.frame.size.width;
+        assert(longPageWidth > shortPageWidth && layoutPanel.requestedVisible);
+        for (NSNumber *pageIndex in @[@1, @0]) {
+            widthView[@"page"] = pageIndex;
+            widthView[@"candidates"] = pageView[@"candidates"];
+            [controller setValue:[widthView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(layoutPanel.requestedVisible && fabs(layoutPanel.frame.size.width - shortPageWidth) < 0.01);
+            MSIMECandidateButton *widthNext = (id)PageButton(layoutPanel.contentView, -2);
+            assert(NSMaxX(widthNext.frame) <= layoutPanel.contentView.bounds.size.width);
+            widthView[@"candidates"] = @[@{@"text": @"合成候选布局测试文本", @"highlighted": @YES}];
+            [controller setValue:[widthView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(layoutPanel.requestedVisible && fabs(layoutPanel.frame.size.width - longPageWidth) < 0.01);
+        }
         // A gloss-only update keeps the candidate identity and row geometry, so the visible row can
         // be updated in place without rebuilding its AppKit button.
         NSMutableDictionary *glossReuseView = [@{

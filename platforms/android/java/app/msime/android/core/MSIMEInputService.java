@@ -1589,37 +1589,53 @@ public final class MSIMEInputService extends InputMethodService {
         // 否则九键和 26 键会落入「直接输入」而无法组字。
         boolean engineWanted = info != null && connection != null
             && EditorPolicy.useEngine(info.inputType);
+        startInputRuntime(info, restarting, newDocument, startGeneration, engineWanted, true);
+    }
+
+    /** 配置准备完成后仍初始化原输入框；不重复触发生命周期，也不重放已直出的文字。 */
+    private void startInputRuntime(EditorInfo info, boolean restarting, boolean newDocument,
+            long startGeneration, boolean engineWanted, boolean allowBootstrap) {
         message = EngineStartupStatusPolicy.initialMessage(engineWanted);
         String statisticsPreferences = "";
         try {
-            JSONObject options = new JSONObject(
-                HostOptionsPolicy.readRuntimeOptions(getFilesDir()));
-            statisticsPreferences = InputViewValuePolicy.textOr(options, "preferences_directory", "");
-            languageDictionaries = options.optString("language_dictionaries", "");
-            resourcePacks = KeyboardScheme.availablePacks(
-                ResourcePacks.installedIds(this)::contains, options.optString("resources", ""));
-            JSONObject preferences = options.optJSONObject("preferences");
-            applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY);
-            if (newDocument) {
-                boolean defaultEnglish = "english".equals(defaultImeMode);
-                dedicatedEnglish = inputModeStore.modeFor(
-                    imeModeScope, currentEditorPackage, defaultEnglish);
-            }
-            Boolean englishOverride = inputContext.englishOverride(
-                EditorPolicy.prefersLatin(editorInputType), currentDocumentIdentifier, dedicatedEnglish);
-            if (englishOverride != null) dedicatedEnglish = englishOverride;
-            // 那份快照是首次安装时写下的，之后再没更新过（见 Bootstrap.prepare），所以它的偏好
-            // 永远是出厂默认。有引擎会话时实时偏好会由 preferencesReloader 补上；没有会话的输入
-            // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
-            if (!engineWanted) {
-                loadAppearanceWithoutSession(InputViewValuePolicy.textOr(options, "preferences_directory", ""));
-            }
-            runtimeOptionsBase = "";
-            if (engineWanted) {
-                runtimeOptionsBase = options.toString();
-                if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
-                runtimeOptionsForSnapshot = options.toString();
-                scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
+            if (engineWanted && allowBootstrap
+                    && !new File(getFilesDir(), "runtime-options.json").exists()) {
+                // 系统可直接启用刚安装的键盘；设置应用不是准备词库的必要入口。
+                runtimeOptionsBase = "";
+                runtimeOptionsForSnapshot = "";
+                pendingRuntimeBootstrap = new PendingRuntimeBootstrap(info, restarting, newDocument);
+                scheduleEngineStartup("", startGeneration);
+            } else {
+                pendingRuntimeBootstrap = null;
+                JSONObject options = new JSONObject(
+                    HostOptionsPolicy.readRuntimeOptions(getFilesDir()));
+                statisticsPreferences = InputViewValuePolicy.textOr(options, "preferences_directory", "");
+                languageDictionaries = options.optString("language_dictionaries", "");
+                resourcePacks = KeyboardScheme.availablePacks(
+                    ResourcePacks.installedIds(this)::contains, options.optString("resources", ""));
+                JSONObject preferences = options.optJSONObject("preferences");
+                applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY);
+                if (newDocument) {
+                    boolean defaultEnglish = "english".equals(defaultImeMode);
+                    dedicatedEnglish = inputModeStore.modeFor(
+                        imeModeScope, currentEditorPackage, defaultEnglish);
+                }
+                Boolean englishOverride = inputContext.englishOverride(
+                    EditorPolicy.prefersLatin(editorInputType), currentDocumentIdentifier, dedicatedEnglish);
+                if (englishOverride != null) dedicatedEnglish = englishOverride;
+                // 那份快照是首次安装时写下的，之后再没更新过（见 Bootstrap.prepare），所以它的偏好
+                // 永远是出厂默认。有引擎会话时实时偏好会由 preferencesReloader 补上；没有会话的输入
+                // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
+                if (!engineWanted) {
+                    loadAppearanceWithoutSession(InputViewValuePolicy.textOr(options, "preferences_directory", ""));
+                }
+                runtimeOptionsBase = "";
+                if (engineWanted) {
+                    runtimeOptionsBase = options.toString();
+                    if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
+                    runtimeOptionsForSnapshot = options.toString();
+                    scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
+                }
             }
         } catch (Exception | LinkageError error) {
             stop(false);
@@ -2035,6 +2051,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void stop(boolean finish, boolean keepMoreTools) {
         imeCompositionEditor.close();
         pendingEngineStartup = -1;
+        pendingRuntimeBootstrap = null;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
         // image after the user has enabled the privacy gate.
@@ -2133,12 +2150,38 @@ public final class MSIMEInputService extends InputMethodService {
             startEngineSession(options, null);
         };
         boolean suppressLearning = learningSuppressed();
+        PendingRuntimeBootstrap bootstrap = pendingRuntimeBootstrap;
+        InputConnection startupConnection = connection;
         try {
             preferencesWorker.execute(() -> {
                 // onStartInput/finishInputViewPresentation 会使上一代任务失效。工作线程是
                 // 单线程的，若让这些任务继续做实时偏好读取和个人词库同步，频繁
                 // restartInput 会把新的会话堵在「共享运行时准备中」。
                 if (generation != engineStartGeneration) return;
+                if (options.isEmpty() && bootstrap != null) {
+                    boolean prepared;
+                    try {
+                        Bootstrap.prepare(this);
+                        prepared = true;
+                    } catch (Exception | LinkageError error) {
+                        prepared = false;
+                    }
+                    boolean ready = prepared;
+                    main.post(() -> {
+                        if (generation != engineStartGeneration || connection == null
+                                || connection != startupConnection || session != 0
+                                || pendingRuntimeBootstrap != bootstrap) return;
+                        if (ready) {
+                            startInputRuntime(bootstrap.info(), bootstrap.restarting(),
+                                bootstrap.newDocument(), generation, true, false);
+                        } else {
+                            stop(false);
+                            message = "共享运行时未就绪：仅直接输入";
+                            render();
+                        }
+                    });
+                    return;
+                }
                 EngineStartOptions startOptions = withLivePreferences(options, suppressLearning);
                 if (generation != engineStartGeneration) return;
                 String notice = "";
@@ -4493,6 +4536,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** scheduleEngineStartup 排上、还没建好也没作废的那次会话启动所属的代次；没有时为 -1。 */
     private long pendingEngineStartup = -1;
+    /** 只在配置尚不存在的首次准备期间保留；换编辑器与失败沿 stop 清除。 */
+    private PendingRuntimeBootstrap pendingRuntimeBootstrap;
+    private record PendingRuntimeBootstrap(EditorInfo info, boolean restarting, boolean newDocument) {}
     private long dictionaryStartupRetryDeadline;
 
     /** 有一次会话启动在路上：排上之后没有换代（换输入框、收起、销毁都会换代），也没有被 stop 取消（建会话失败、输入连接失败都经过 stop）。 */

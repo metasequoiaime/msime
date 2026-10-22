@@ -673,7 +673,13 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
         const CGFloat initialWidth = NSWidth(((MSIMECandidateChromeView *)panel.contentView).cardBounds);
         if (!compact) assert(initialWidth >= 159);
         else assert(initialWidth < 140);
-        [controller setValue:@400 forKey:@"widestHorizontalCandidateWidth"];
+        NSDictionary *initialView = [controller valueForKey:@"view"];
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"ce", @"page": @0, @"page_count": @1,
+            @"candidates": @[@{@"text": @"合成候选窗口宽度回归测试合成候选窗口宽度回归测试", @"highlighted": @YES}]} forKey:@"view"];
+        [controller renderCandidates];
+        assert(NSWidth(((MSIMECandidateChromeView *)panel.contentView).cardBounds) > initialWidth + 20);
+        // 通过真实长短候选切换验证收窄，不能再注入已删除的历史最大宽度字段。
+        [controller setValue:initialView forKey:@"view"];
         [controller renderCandidates];
         MSIMECandidateButton *first = CandidateButton(panel.contentView, 0);
         assert(first && first.hasSkinLayout);
@@ -687,7 +693,7 @@ static void TestFactoryFitAndJustify(RowLayoutClient *client)
             assert(NSWidth(first.frame) > 100 && NSWidth(last.frame) > 100);
         } else {
             regularWidth = width;
-            assert(width >= 399);
+            assert(width >= 159 && fabs(width - initialWidth) < 1);
         }
         if (!justified) {
             [controller setValue:@{@"focused": @YES, @"editing_text": @"ce", @"page": @0, @"page_count": @1,
@@ -1113,6 +1119,69 @@ static void TestHostAppearance(BOOL visual)
         client.colors = @{NSBackgroundColorAttributeName:NSColor.whiteColor};
         assert([controller renderExpandedCandidates]);
         assert([panel.appearance.name isEqual:NSAppearanceNameAqua]);
+        // 保留玻璃而不是把自适应明暗写回窗口；连续按键与普通／展开切换只替换候选控件。
+        [controller setValue:nil forKey:@"expandedCandidates"];
+        [controller renderCandidates];
+        MSIMECandidateChromeView *stableChrome = (id)panel.contentView;
+        NSView *stableContent = stableChrome.candidateContentView;
+        NSView *glass = [stableChrome.subviews filteredArrayUsingPredicate:
+            [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
+                return [view.identifier isEqual:@"candidate-liquid-glass"];
+            }]].firstObject;
+        if (stableChrome.liquidGlassActive) {
+            assert(glass != nil);
+            for (NSNumber *expandedMode in @[@NO, @YES, @NO]) {
+                [controller setValue:expandedMode.boolValue ? expanded : nil forKey:@"expandedCandidates"];
+                if (expandedMode.boolValue) assert([controller renderExpandedCandidates]);
+                else [controller renderCandidates];
+                assert(panel.contentView == stableChrome);
+                assert(stableContent.clipsToBounds == expandedMode.boolValue);
+                for (NSString *name in @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+                    const NSUInteger reads = client.attributeReads;
+                    stableContent.appearance = [NSAppearance appearanceNamed:name];
+                    [stableContent viewDidChangeEffectiveAppearance];
+                    assert(client.attributeReads == reads);
+                    const BOOL dark = [name isEqual:NSAppearanceNameDarkAqua];
+                    auto tokens = [appearance candidateWindowSkinForDark:dark].tokens;
+                    msime::mac::ApplyNativeGlassCandidateContrast(tokens, dark);
+                    MSIMECandidateButton *row = CandidateButton(stableChrome, 1);
+                    assert([row.titleColor isEqual:SkinColor(tokens.text)]);
+                    assert([row.numberColor isEqual:SkinColor(tokens.number)]);
+                    assert([row.translationColor isEqual:SkinColor(tokens.number)]);
+                    MSIMECandidateButton *selected = CandidateButton(stableChrome, 0);
+                    assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
+                    assert(CandidateContrast(selected.titleColor, selected.fillColor) >= 4.5);
+                    for (NSUInteger key = 0; key < 4; ++key) {
+                        MSIMECandidateButton *previous = CandidateButton(stableChrome, 1);
+                        [controller setValue:nil forKey:@"renderedCandidateView"];
+                        if (key == 0) [controller hideCandidatePanel:"empty"];
+                        if (expandedMode.boolValue) assert([controller renderExpandedCandidates]);
+                        else [controller renderCandidates];
+                        assert(client.attributeReads == reads + key + 1);
+                        assert([panel.appearance.name isEqual:NSAppearanceNameAqua]);
+                        assert(panel.contentView == stableChrome && stableChrome.candidateContentView == stableContent);
+                        assert(glass.superview == stableChrome);
+                        assert([stableContent.effectiveAppearance.name isEqual:name]);
+                        assert(CandidateButton(stableChrome, 1) != previous && previous.superview == nil);
+                        assert([CandidateButton(stableChrome, 1).titleColor isEqual:SkinColor(tokens.text)]);
+                    }
+                }
+            }
+            stableContent.appearance = nil;
+        }
+        appearance.candidateTheme = @"light";
+        [controller renderCandidates];
+        assert([panel.appearance.name isEqual:NSAppearanceNameAqua]);
+        assert(panel.contentView != stableChrome);
+        appearance.candidateTheme = @"follow";
+        [controller renderCandidates];
+        NSView *previousClientChrome = panel.contentView;
+        RowLayoutClient *otherClient = [RowLayoutClient new];
+        otherClient.caret = client.caret;
+        [controller setValue:otherClient forKey:@"activeClient"];
+        [controller renderCandidates];
+        assert(panel.appearance == nil);
+        assert(panel.contentView != previousClientChrome);
         for (NSDictionary *invalid in @[@{NSBackgroundColorAttributeName:@"not a color"}, @{NSBackgroundColorAttributeName:NSColor.clearColor}, @{NSForegroundColorAttributeName:NSColor.redColor}])
             assert(MSIMECandidateHostAppearance(invalid) == nil);
         assert([MSIMECandidateHostAppearance(@{NSBackgroundColorAttributeName:NSColor.whiteColor, NSForegroundColorAttributeName:NSColor.whiteColor}).name isEqual:NSAppearanceNameAqua]);

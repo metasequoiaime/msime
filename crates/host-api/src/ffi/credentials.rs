@@ -155,6 +155,51 @@ pub unsafe extern "C" fn msime_client_ai_models(request: *const u8, length: usiz
     })
 }
 
+/// AI 公开预设目录；不读取偏好或凭据，不访问网络。
+#[no_mangle]
+pub extern "C" fn msime_client_ai_provider_catalog() -> *mut c_char {
+    response(|| {
+        use msime_client_providers::ai::{provider_catalog::PROVIDERS, provider_uses_token};
+        Ok(Value::Array(
+            PROVIDERS
+                .iter()
+                .map(|preset| {
+                    let mut entry = json!(preset);
+                    entry["uses_token"] = json!(provider_uses_token(preset.id));
+                    entry
+                })
+                .collect(),
+        ))
+    })
+}
+
+/// 计算服务商切换补丁；请求只含启用状态、服务商、端点和模型，不含凭据。
+/// # Safety
+/// `request` 指向 `length` 个可读 UTF-8 JSON 字节，长度不得超过 16 KiB。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ai_provider_update(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        use msime_client_providers::ai::provider_catalog::{provider_update, AiProviderFields};
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            provider: String,
+            current: AiProviderFields,
+        }
+        let request: Request = unsafe {
+            with_bounded_bytes(request, length, 16 * 1024, "ai_invalid", |bytes| {
+                serde_json::from_slice(bytes).map_err(|_| "ai_invalid".to_owned())
+            })
+        }?;
+        provider_update(&request.provider, &request.current)
+            .map(|patch| json!(patch))
+            .ok_or_else(|| "ai_invalid".to_owned())
+    })
+}
+
 /// The AI page's 「测试」, `{endpoint, model, prompt, token, text}` as the shared page's `aiAssistant.test` sends it, through `ai::settings::test_polish`, the function the Tauri `ai_test` command calls. Value: the reply text. Error: the command's code. Blocks on the network for up to about 15 seconds: call off the UI thread.
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.

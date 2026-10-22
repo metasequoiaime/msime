@@ -7415,7 +7415,7 @@ public:
       if (state->ensure()) {
         state->render();
         state->syncMusic();
-        // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
+        // 聚焦提示由独立偏好控制（#2589、#9154）；换到本输入法时已有 Fcitx5 自己的提示，密码和隐私输入框仍不提示。
         if (event.type() == fcitx::EventType::InputContextFocusIn)
           state->showInputModeHud(FcitxState::ModeHudTrigger::FocusEntered);
       }
@@ -8534,8 +8534,9 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   // 新的提示取代还在等光标的那条获得焦点提示。
   if (trigger != ModeHudTrigger::FocusSettled) cancelFocusInputModeHud();
 #endif
-  // 共享偏好 input_mode_hud 控制，默认开启。
-  if (!preferences_.value("input_mode_hud", true)) return;
+  // 切换提示默认开，聚焦提示默认关；光标等待完成后仍遵循聚焦偏好。
+  if (!(trigger == ModeHudTrigger::Switch ? preferences_.value("input_mode_hud", true)
+                                         : preferences_.value("input_mode_focus_hud", false))) return;
   if (restricted() || privateInput() || !ic_.hasFocus()) return;
   const std::string label = input_enabled_ ? "中" : "英";
   auto hint = msime::linux_host::ModeBadgeHint::PanelText;

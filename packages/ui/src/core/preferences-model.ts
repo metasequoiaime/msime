@@ -146,6 +146,8 @@ export type Preferences = PunctuationPreferences &
     candidate_follow_cursor?: boolean;
     /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
     input_mode_hud?: boolean;
+    /** Linux 聚焦输入框时提示当前模式，独立于切换提示，缺省关闭。 */
+    input_mode_focus_hud?: boolean;
     /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
     input_mode_status_item?: boolean;
     candidate_layout?: "horizontal" | "vertical";
