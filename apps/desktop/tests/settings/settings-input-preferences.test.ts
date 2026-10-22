@@ -30,7 +30,7 @@ test("keeps explicit input choices, including disabled switches", () => {
   expect(values.frequency.mode).toBe("promote");
 });
 
-test("旧文档缺少左右候选导航时沿用开启的默认值", () => {
+test("旧文档缺少左右候选导航时读作出厂默认值", () => {
   const values = settingsInputPreferences({
     navigation: {
       minus_equal: true,

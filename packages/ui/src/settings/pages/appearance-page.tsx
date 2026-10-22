@@ -222,6 +222,7 @@ export function AppearanceSettingsPage() {
         showCornerRadius={showCandidateCornerRadius}
         showPadding={showCandidatePadding}
         showItemGeometry={showCandidateItemGeometry}
+        showFitContent={host?.platform === "macos"}
         onChange={appearanceActions.onPreferencesChange}
       />
       {/* 候选徽标只有 macOS 宿主消费；其它平台画出来会是个不起作用的开关。 */}

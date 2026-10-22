@@ -17,7 +17,9 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -166,7 +168,12 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
         String raw = (String) nativeType.getMethod("aiProviderCatalog").invoke(null);
         Method parse = settingsType.getMethod("parseCatalog", String.class);
         List<?> catalog = (List<?>) parse.invoke(null, raw);
-        check(catalog.size() == 13, "完整共享目录包含既有全部服务");
+        JSONArray catalogEntries = new JSONObject(raw).getJSONArray("value");
+        Set<String> required = Set.of("everyapi", "openai", "anthropic", "gemini", "deepseek", "qwen",
+            "kimi", "zhipu", "minimax", "volcengine", "siliconflow", "groq", "openrouter", "ollama", "custom");
+        Set<String> actual = new HashSet<>();
+        for (int index = 0; index < catalogEntries.length(); index++) actual.add(catalogEntries.getJSONObject(index).getString("id"));
+        check(actual.containsAll(required), "完整共享目录包含既有全部服务");
         JSONObject wrong = new JSONObject(raw).put("ok", "true");
         reject(parse, wrong);
         JSONObject duplicate = new JSONObject(raw);

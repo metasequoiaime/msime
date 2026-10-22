@@ -46,7 +46,7 @@ inline constexpr const char *kDictionary = "词库…";
 inline constexpr const char *kMixedEnglish = "中英混输";
 }  // namespace menu_label
 
-// 「宣传水杉输入法」上屏的固定文字，两个宿主的 Ctrl+Shift+P 和工具栏菜单项共用。
+// 「宣传水杉输入法」上屏的固定文字，由工具栏菜单项使用。
 inline constexpr const char *kPromotionText =
     "水杉输入法\n一款博采众长的输入法，目前正在广纳言路，茁壮成长中\n官网：https://msime.app/\nGit 项目：https://github.com/metasequoiaime/msime";
 inline constexpr const char *kWebsiteUrl = "https://msime.app/";

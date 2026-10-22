@@ -282,6 +282,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         mixed_japanese: true,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_inline: true,
         local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
@@ -1349,7 +1350,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert!(!options.mixed_emoji);
         assert!(!options.mixed_kaomoji);
         assert!(!options.mixed_japanese);
-        // 符号混输默认开。
+        // 初始偏好把符号混输打开，延迟期间保留旧值。
         assert!(options.mixed_symbols);
     });
     read(msime_client_command(handle, 3));
@@ -1651,11 +1652,12 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
 }
 
 /// `navigation.left_right` 是共享偏好但由 runtime 解释：新建会话时读一次，之后每次偏好更新也跟着走，宿主的按键路由一行都不用改。
-/// 默认开启时右键在输入串末尾换成下一个候选，显式关闭后同一个键什么也不做。
+/// 开启时右键在输入串末尾换成下一个候选，显式关闭后同一个键什么也不做；缺键按出厂值读作开。
 #[test]
 fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
     let root = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
+    assert!(preferences.navigation.left_right);
     // 左右键只在横排候选窗里选词；缺省是竖排。
     preferences.candidate_layout = msime_client_core::preferences::CandidateLayout::Horizontal;
     let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
@@ -2889,7 +2891,7 @@ fn glide_request(word: &str) -> String {
     json!({"keys": keys, "key_width": 80.0, "key_height": 120.0, "points": points}).to_string()
 }
 
-/// 共享偏好 `mixed_input.symbols` 决定 Engine 的 `mixed_symbols`：默认开，打 `zhengfu` 时 ± 接在 正负 后面；关掉后（不在组字时立即生效）不再出现。
+/// 共享偏好 `mixed_input.symbols` 决定 Engine 的 `mixed_symbols`：缺键读作开（出厂值），打 `zhengfu` 时 ± 接在 正负 后面；关掉（不在组字时立即生效）不再出现。
 #[test]
 fn symbol_candidates_follow_the_mixed_input_preference() {
     let dir = tempfile::tempdir().unwrap();
@@ -3833,6 +3835,7 @@ fn helpcode_defaults_follow_windows_for_each_pinyin_scheme() {
     let handle = test_host(dir.path());
     SESSIONS.with(|sessions| {
         let session = &sessions.borrow()[&handle];
+        // 出厂开（v0.11.1 出厂关、pin 出厂开，本仓沿用开，差异已记录）；方案名与注释开关各自保持出厂值。
         assert!(session.options.helpcode);
         assert_eq!(session.options.helpcode_schema, "ziranma");
         assert!(!session.options.show_helpcode);
@@ -3898,6 +3901,7 @@ fn host_helpcode_fallback_survives_preference_and_plugin_changes() {
     )
     .unwrap();
     let mut preferences = chinese_preferences();
+    preferences.quanpin_helpcode.enabled = true;
     preferences.quanpin_helpcode.schema = HelpcodeSchema::Xiaohe;
     preferences.quanpin_helpcode.show_in_candidate_window = true;
     let document = json!({"api_version":1, "resources":dir.path().join("resources"),
@@ -6010,7 +6014,7 @@ fn generated_mode_selections_stay_out_of_selection_statistics() {
     assert_eq!(selections.total(), 1);
     read(msime_client_destroy(handle));
 }
-/// 拆字反查的开关：偏好里没有这个键时按宿主形态决定（触屏开、桌面关），用户明确打开后 Shift+C 进入；繁体输出开着时，转成同一个繁体字形的行只留一行。
+/// 拆字反查的开关：偏好里没有这个键时按宿主形态决定（触屏开、桌面关；Windows `radical_mode` 出厂开与本仓桌面缺省不同，差异已记录），用户明确打开后 Shift+C 进入；繁体输出开着时，转成同一个繁体字形的行只留一行。
 #[test]
 fn chaizi_follows_the_host_form_until_the_user_flips_it() {
     let dir = tempfile::tempdir().unwrap();

@@ -1220,6 +1220,7 @@ fn disabled_shift_shortcuts_leave_every_capital_available_for_pinyin() {
                 options.local_modes = crate::types::LocalModeOptions {
                     unicode: false,
                     date_time: false,
+                    date_time_inline: false,
                     quick_phrase: false,
                     emoji: false,
                     kaomoji: false,
@@ -4868,7 +4869,13 @@ fn date_time_keywords_add_rows_after_their_word() {
     let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
     let mut session = fixture.session();
     TestClock::install(&mut session);
-    let date = ["日期", "2026年8月9日", "📅日期", "2026-08-09", "2026年8月9日 星期日"];
+    let date = [
+        "日期",
+        "2026年8月9日",
+        "📅日期",
+        "2026-08-09",
+        "2026年8月9日 星期日",
+    ];
     for keyword in ["riqi", "ri'qi"] {
         type_text(&mut session, keyword);
         assert_eq!(words(&session)[..5], date, "{keyword}");
@@ -4894,7 +4901,10 @@ fn date_time_keywords_add_rows_after_their_word() {
     session.command(Command::Cancel);
 
     type_text(&mut session, "nongli");
-    assert_eq!(words(&session)[..3], ["农历", "丙午年六月二十七日", "📅日期"]);
+    assert_eq!(
+        words(&session)[..3],
+        ["农历", "丙午年六月二十七日", "📅日期"]
+    );
     session.command(Command::Cancel);
 
     // 不是关键词的组字、关键词的一部分都不加。
@@ -4909,6 +4919,41 @@ fn date_time_keywords_add_rows_after_their_word() {
         );
         session.command(Command::Cancel);
     }
+}
+
+/// `utility.date_time_candidates`：行内日期时间混入与 T 模式是两个开关。混入关着时关键词只出它本来的词，T 模式仍照常；T 模式关着而混入开着时日期行照出。
+#[test]
+fn inline_date_time_is_a_separate_switch_from_the_mode() {
+    let fixture = Fixture::new(INLINE_DATE_TIME_FIXTURE);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert!(
+        !words(&session)
+            .iter()
+            .any(|word| word.contains("2026") || word.contains("14:30") || word.starts_with("📅")),
+        "{:?}",
+        words(&session)
+    );
+    session.command(Command::Cancel);
+
+    let mut session = fixture.session_with(|options| {
+        options.local_modes.date_time = false;
+        options.local_modes.date_time_inline = true;
+    });
+    TestClock::install(&mut session);
+    type_text(&mut session, "riqi");
+    assert_eq!(
+        words(&session)[..5],
+        [
+            "日期",
+            "2026年8月9日",
+            "📅日期",
+            "2026-08-09",
+            "2026年8月9日 星期日"
+        ]
+    );
+    session.command(Command::Cancel);
 }
 
 /// 选中日期行上屏它的文字并结束组字；它不是拼音读出的词，打开学习时也不写进词库和日志。
@@ -4994,7 +5039,7 @@ fn date_time_menu_opens_the_full_format_list() {
     );
 }
 
-/// 词库里没有锚定词时什么都不加；关掉日期时间模式（T 模式）时 26 键、九宫格都不加。
+/// 词库里没有锚定词时什么都不加；关掉行内日期时间混入（`date_time_inline`）时 26 键、九宫格都不加。
 #[test]
 fn date_time_rows_need_their_word_and_the_date_time_switch() {
     let fixture = Fixture::new(&INLINE_DATE_TIME_FIXTURE.replace(
@@ -5007,7 +5052,7 @@ fn date_time_rows_need_their_word_and_the_date_time_switch() {
     assert!(!words(&session).contains(&"星期日".to_owned()));
     session.command(Command::Cancel);
 
-    let mut session = fixture.session_with(|options| options.local_modes.date_time = false);
+    let mut session = fixture.session_with(|options| options.local_modes.date_time_inline = false);
     TestClock::install(&mut session);
     type_text(&mut session, "riqi");
     assert_eq!(words(&session)[..1], ["日期"]);

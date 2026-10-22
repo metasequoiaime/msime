@@ -6,7 +6,7 @@ import type {
   CandidateFontPreferences,
   CandidateWindowStylePreferences,
 } from "../candidate/candidate-preferences";
-import { GroupList, Row, Slider } from "../core/platform-controls";
+import { GroupList, Row, Slider, Switch } from "../core/platform-controls";
 import {
   candidateFontPresetAvailable,
   candidateFontPresetPatch,
@@ -121,6 +121,8 @@ export interface CandidateWindowStyleSectionProps {
   /** 宿主声明了 `candidate_padding` 时显示「内边距」行（目前是 macOS 和 Linux 的 Fcitx5）。 */
   showPadding?: boolean;
   showItemGeometry?: boolean;
+  /** 宿主消费 `candidate_window_fit_content` 时显示「收紧窗口宽度」行（目前是 macOS）。 */
+  showFitContent?: boolean;
   onChange: (patch: Partial<Preferences>) => void;
   /** 排在窗口自身样式之后的行，例如链接到颜色和明暗设置处的那一行。 */
   children?: ReactNode;
@@ -157,6 +159,7 @@ export function CandidateWindowStyleRows({
   showCornerRadius,
   showPadding = false,
   showItemGeometry = false,
+  showFitContent = false,
   onChange,
 }: Omit<CandidateWindowStyleSectionProps, "children">) {
   const nativeGlass = useMacOSLiquidGlass();
@@ -167,6 +170,19 @@ export function CandidateWindowStyleRows({
   const padding = candidateCardPadding(preferences.candidate_padding);
   return (
     <>
+      {showFitContent && (
+        <Row
+          title="收紧窗口宽度"
+          description="严格按文字所需的宽度绘制候选窗，不垫出厂最小宽度；皮肤的 fit_content 打开时始终收紧"
+        >
+          <Switch
+            checked={preferences.candidate_window_fit_content ?? false}
+            onChange={(candidate_window_fit_content) =>
+              onChange({ candidate_window_fit_content })
+            }
+          />
+        </Row>
+      )}
       {showOpacity && (
         <SliderRow
           title="不透明度"

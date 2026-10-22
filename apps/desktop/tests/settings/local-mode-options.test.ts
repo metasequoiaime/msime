@@ -8,6 +8,7 @@ test("常规快捷模式保持原有顺序和组合键文案", () => {
   expect(rows.map(([key]) => key)).toEqual([
     "quick_phrase",
     "date_time",
+    "date_time_inline",
     "date_time_menu",
     "unicode",
     "emoji",
@@ -30,6 +31,7 @@ test("宿主能力筛选日语、触发模式和从属地名并保持顺序", ()
   expect(rows.map(([key]) => key)).toEqual([
     "quick_phrase",
     "date_time",
+    "date_time_inline",
     "date_time_menu",
     "unicode",
     "emoji",

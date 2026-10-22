@@ -113,6 +113,14 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(VoicePolishSettings.languages.map(\.id), ["zh-cn", "yue", "en", "auto"])
   }
 
+  func testLanguageChoicesConsumeTheSharedLanguageCatalog() {
+    XCTAssertEqual(
+      VoiceLanguageCatalog.mobile.map(\.id),
+      ["zh-cn", "yue", "en", "auto"]
+    )
+    XCTAssertEqual(VoiceLanguageCatalog.mobile.map(\.title), ["普通话", "粤语", "英语", "普通话 + 英语"])
+  }
+
   func testTranscriptionBodyCarriesTheLanguageOnlyWhenGiven() throws {
     let with = try AppServicesBridge.transcriptionBody(Data([1, 2]), model: "whisper-1", language: "zh")
     let without = try AppServicesBridge.transcriptionBody(Data([1, 2]), model: "whisper-1")

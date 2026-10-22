@@ -29,4 +29,6 @@ export type CandidateWindowStylePreferences = {
   candidate_item_corner_radius?: number | null;
   /** 横排列距或竖排行距（0–16pt）。 */
   candidate_item_spacing?: number | null;
+  /** 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows `appearance.candidate_window_fit_content`，出厂关）；与皮肤 `fit_content` 是或关系。关着时不写入文档。 */
+  candidate_window_fit_content?: boolean;
 };

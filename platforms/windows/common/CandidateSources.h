@@ -15,9 +15,14 @@ inline constexpr unsigned candidate_source_ai_pending = 12;
 // 云请求的占位行，文字是「☁」。引擎在等云端回答时先占住这个席位，回答到达而没有新词时还会留着它，免得候选位置来回跳（`crates/engine/src/ime/online_batch.rs`）。它不是候选：按它的数字键或点它，引擎「什么都不做但算处理过」（`crates/engine/src/session/commit.rs`，#6888），宿主也必须如此，不能把它当成一次失败的选择去丢掉组字。
 inline constexpr unsigned candidate_source_cloud_pending = 15;
 
-// 占位席位：占着一格和一个编号，但选不中。
+// 占位席位：引擎列表里占一格，但不是候选，选不中。
 inline constexpr bool candidate_source_is_pending_seat(unsigned source) {
   return source == candidate_source_ai_pending || source == candidate_source_cloud_pending;
+}
+
+// 这一行该不该出现在候选窗上。云的占位席位是引擎内部用来固定云候选位置的（`CandidateSource::CloudPending`，文字是「☁」），宿主不显示它，数字编号也不数它——否则用户会看到一个永远选不中的格子，它后面每一行的编号还都偏一位。移动三端早就这么做了（`CandidatePresentationPolicy.isVisible`），这里是桌面端的同一条规则。AI 占位行（12）照旧显示，只是画成次要色。
+inline constexpr bool candidate_source_is_visible(unsigned source) {
+  return source != candidate_source_cloud_pending;
 }
 
 } // namespace msime::windows

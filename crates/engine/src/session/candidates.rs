@@ -692,9 +692,9 @@ impl InputSession {
         mixed
     }
 
-    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。跟日期时间模式（T 模式）同一个开关；光标前缀解码、只出单字、专用英文和本地模式里不加。
+    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。与日期时间模式（T 模式）是两个开关：这里只看 `date_time_inline`；光标前缀解码、只出单字、专用英文和本地模式里不加。
     fn insert_inline_date_time(&self, items: &mut Vec<WordItem>) {
-        if !self.local_mode_options.date_time
+        if !self.local_mode_options.date_time_inline
             || self.prefix_active
             || self.single_character_only
             || self.dedicated_english

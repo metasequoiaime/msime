@@ -5010,6 +5010,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_inline: true,
         local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,

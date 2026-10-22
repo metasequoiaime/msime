@@ -40,6 +40,8 @@ Linux 的中英文切换提示和输入法菜单与 macOS 差得很远，同一�
 
 历史检索：[桌面端生命周期核心](../architecture/2026-10-11-desktop-lifecycle-core.md)的「自动重复照旧出声」在 Linux 上被本篇取代，已在那篇标注；[macOS 紧凑切换提示](../bug-fix/2026-10-14-macos-compact-input-mode-hud.md)定下了这里照搬的尺寸，部分重叠，互链；[Linux 设置页把工具栏写成输入法菜单](../bug-fix/2026-10-09-linux-toolbar-settings-menu-copy.md)说明工具栏在 Linux 上是菜单，这里没有改，只是让它的项目和默认值跟 macOS 一致，并打开那篇说过不动的三个能力位；[Windows 托盘菜单对齐 macOS](2026-10-10-windows-tray-menu-mac-parity.md)是同一件事在 Windows 上的做法，部分重叠；[Fcitx5 模式提示补宽](../bug-fix/2026-10-07-fcitx5-mode-hint-width.md)的补宽在面板提示那条路上照旧生效。
 
+IBus 原先保留的宣传快捷键后来由 [Linux 移除宣传彩蛋快捷键](../bug-fix/2026-10-22-linux-remove-promotion-shortcut.md)移除；Fcitx5 的菜单入口仍按本篇决定保留。
+
 ## Alternatives considered
 
 - **IBus 和 Fcitx5 也做成「中文输入」「英文输入」一对单选** — 与 macOS 一模一样。没有采用：IBus 的 `InputMode` 属性同时是面板读 中/英 符号的那个属性，ibus-ui-gtk3、GNOME Shell 和测试都按开关协议激活它（CHECKED/UNCHECKED）；拆成单选要么改这套协议，要么多一个隐藏的同步属性。一个勾选即中文的开关表达的是同一个状态。

@@ -433,7 +433,7 @@ impl ShuangpinDictionary {
         candidates.insert(at, sentence);
     }
 
-    /// Matched groups, then the full input read as pinyin, then the unmatched rows (SD:324-375).
+    /// 辅助码命中行优先；没有命中时先保留完整前缀，避免未完成尾音节让首选变短。
     fn filter_with_single_helpcode(
         &mut self,
         candidates: Vec<WordItem>,
@@ -449,11 +449,17 @@ impl ShuangpinDictionary {
         let matches = single_helpcode_matches(&candidates, &normalized, keymap);
         let (mut result, unmatched) =
             reorder_single_helpcode_rows(candidates, matches.as_slice(), prefer_last);
-        // The whole raw input, the last letter read as pinyin instead of a helpcode. The reference segments the raw input as one chunk, `'` included; the conversion drops the empty pieces that leaves (SD:370-372).
+        let no_helpcode_match = result.is_empty();
+        // 整段输入也按普通拼音查询；参考实现把撇号一起切分，转换时丢弃空段（SD:370-372）。
         let original_segmentation = pinyin_segmentation(raw, self.profile);
         let whole = self.generate_series(raw, &original_segmentation, "");
-        // The reference appended the whole-input answer and then the unmatched rows whole, so a word already among the matched rows, or in both lists, was listed again; a word already listed keeps its first seat.
+        // 尾部裸字母也可能是下一个音节的首键；没有辅助码命中时，完整前缀行不能被较短的整段回退行挤到后面。
         append_helpcode_rows(&mut result, whole, unmatched);
+        if no_helpcode_match {
+            result.sort_by_key(|item| {
+                std::cmp::Reverse(item.pinyin.bytes().filter(|&byte| byte != b'\'').count())
+            });
+        }
         result
     }
 

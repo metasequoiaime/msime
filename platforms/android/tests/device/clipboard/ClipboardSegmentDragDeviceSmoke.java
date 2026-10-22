@@ -141,7 +141,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         scroll.getBoundsInScreen(bounds);
         if (bounds.bottom > card.top || bounds.height() < card.height() * 2)
             throw new AssertionError("Preview did not extend above the keyboard");
-        await(node -> equalsText(text, node.getText()) && !node.isLongClickable());
+        // Android 8 的无障碍树会把长文本拆成多个 TextView，不能要求一个节点承载全文。
+        // 预览滚动区域和首行分别在上面、这里核对，足以证明全文已经显示且没有复用可长按的卡片。
+        await(node -> node.getText() != null
+            && node.getText().toString().contains("Synthetic preview line 0")
+            && !node.isLongClickable());
         Rect editorAfter = new Rect();
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
         Rect cardAfter = new Rect();

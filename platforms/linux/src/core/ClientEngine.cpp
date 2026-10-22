@@ -5216,7 +5216,7 @@ void focus_out(IBusEngine *engine) {
     floating_toolbar_focus_out(engine);
   });
 }
-// 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（kPromotionText），不改动用户常用语。Ctrl+Shift+P 和工具栏菜单项共用。
+// 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（kPromotionText），不改动用户常用语。由工具栏菜单项进入。
 void commit_promotion(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.session && !s.view.at("editing_text").get<std::string>().empty())
@@ -7029,17 +7029,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   if (key == IBUS_Control_R) s.right_ctrl_down = !release;
   if (key == IBUS_Control_L) s.left_ctrl_down = !release;
   if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;
-  // Ctrl+Shift+P 插入固定的产品介绍，不改动用户常用语。
-  const bool promotion_shortcut = !release && (key == 'p' || key == 'P') &&
-      (flags & IBUS_CONTROL_MASK) != 0 && (flags & IBUS_SHIFT_MASK) != 0 &&
-      (flags & (IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK | IBUS_META_MASK | IBUS_HYPER_MASK)) == 0;
-  const guint promotion_stroke = keycode != 0 ? keycode : 0x80000000u | static_cast<guint>('p');
-  if (promotion_shortcut) {
-    s.host_shortcut_strokes.insert(promotion_stroke);
-    guarded(engine, "process_key", [&] { commit_promotion(engine); });
-    return TRUE;
-  }
-
   const guint chord_modifiers = flags &
       (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
        IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);

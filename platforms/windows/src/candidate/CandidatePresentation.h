@@ -406,6 +406,9 @@ candidate_presentation_from_view(const FocusLease &lease,
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
     const auto candidate_source = candidate.value("source", uint8_t{});
+    // 云的占位席位不进候选窗。它是引擎内部用来固定云候选位置的一行（`CandidateSource::CloudPending`，文字就是「☁」），不是候选：选不中，却占着一格和一个编号——用户看到第 2 个数字键永远是废的，它后面每一行的编号还都比看到的大一位。移动三端从一开始就隐藏它并把序号映射回引擎索引（`CandidatePresentationPolicy.isVisible`），桌面端漏了这一半。每行仍带自己的 `index`（引擎身份），所以点击照常；数字键那一侧在 `ServerSession` 里同样只数可见行。
+    if (!candidate_source_is_visible(candidate_source))
+      continue;
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
@@ -487,6 +490,9 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
     const auto candidate_source = candidate.value("source", uint8_t{});
+    // 同上：云的占位席位不进候选窗，编号只数可见行。
+    if (!candidate_source_is_visible(candidate_source))
+      continue;
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),

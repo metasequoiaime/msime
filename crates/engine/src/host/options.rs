@@ -113,8 +113,11 @@ pub struct EngineOptions {
     /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
     pub mixed_japanese: bool,
     pub local_unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（`LocalModeOptions::date_time`）。行内日期时间混入普通候选由 `local_date_time_inline` 单独开关。
     pub local_date_time: bool,
-    /// 「📅日期」入口（`LocalModeOptions::date_time_menu`），依附 `local_date_time`。
+    /// 行内日期时间混入普通候选（`LocalModeOptions::date_time_inline`）。
+    pub local_date_time_inline: bool,
+    /// 「📅日期」入口（`LocalModeOptions::date_time_menu`），依附 `local_date_time_inline`。
     pub local_date_time_menu: bool,
     pub local_quick_phrase: bool,
     pub local_emoji: bool,
@@ -243,6 +246,7 @@ pub fn prepare_options_for(
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
+        local_date_time_inline: true,
         local_date_time_menu: true,
         local_quick_phrase: true,
         local_emoji: true,
@@ -378,6 +382,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,
+        date_time_inline: options.local_date_time_inline,
         date_time_menu: options.local_date_time_menu,
         quick_phrase: options.local_quick_phrase,
         emoji: options.local_emoji,

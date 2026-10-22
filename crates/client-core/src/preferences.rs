@@ -1111,6 +1111,9 @@ pub struct Preferences {
     /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_spacing: Option<u8>,
+    /// 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows `appearance.candidate_window_fit_content`，出厂关）。与皮肤包 `skin.toml` 的 `fit_content` 是或关系：任一为真即收紧。默认关，关着时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub candidate_window_fit_content: bool,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -1848,8 +1851,12 @@ pub enum PreeditStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalModePreferences {
     pub unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（Windows `utility.date_time_mode`，出厂开）。行内日期时间混入普通候选由 `date_time_inline` 单独开关。
     pub date_time: bool,
-    /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time`；缺这个键的旧文档读作开。
+    /// 日期时间混进普通候选（对应 Windows `utility.date_time_candidates`）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。与 `date_time`（T 模式）是两个独立开关；缺这个键的旧文档读作开——此前行内混入由 `date_time` 一并控制且默认开，保持同样的有效行为，开着时不写进文档。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub date_time_inline: bool,
+    /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time_inline`；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_menu: bool,
     pub quick_phrase: bool,
@@ -1886,6 +1893,7 @@ impl Default for LocalModePreferences {
         Self {
             unicode: true,
             date_time: true,
+            date_time_inline: true,
             date_time_menu: true,
             quick_phrase: true,
             emoji: true,
@@ -2353,7 +2361,7 @@ pub struct NavigationPreferences {
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
     pub arrows: bool,
-    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启。
+    /// 不带修饰键的左右方向键在横排候选窗里移动候选高亮（左是上一个、右是下一个）。高亮在首选时 ← 照旧编辑输入串，→ 在光标没到输入串末尾时照旧往末尾移，到了末尾才选下一个；高亮不在首选时左右键只移动候选。桌面候选窗竖排（`candidate_layout`）时左右键与候选方向垂直，只编辑输入串；触屏的候选栏总是横排。与 `arrows` 各自独立，默认开启（Windows `general.candidate_horizontal_arrow_navigation` 出厂为关，默认值差异已记录在案，是否对齐留待产品决策）。
     ///
     /// 判断放在 `input-runtime` 里而不是每个宿主各写一遍：宿主只把左右键当普通光标命令发下去，端点判断和高亮移动跟着 ↑/↓ 的那段代码一起走。
     #[serde(default = "enabled_by_default")]
@@ -2663,6 +2671,7 @@ fn default_doubao_auth_mode() -> String {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            candidate_window_fit_content: false,
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             app_input_mode_rules: BTreeMap::new(),
@@ -3050,6 +3059,7 @@ pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
     #[serde(default)]
     pub trigger_key: String,
+    /// Windows `shuangpin_helpcode`/`quanpin_helpcode` 出厂关、门禁 pin 出厂开，本仓沿用开；缺这个键的旧文档读作开。
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub schema: HelpcodeSchema,

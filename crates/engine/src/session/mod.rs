@@ -64,7 +64,7 @@ impl Session {
         nine_key.set_inline_date_time(
             options
                 .local_modes
-                .date_time
+                .date_time_inline
                 .then(|| Arc::clone(&input.clock.local)),
         );
         // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
@@ -91,7 +91,7 @@ impl Session {
 
     /// Replace the steady and local clocks, so tests can cross the 3 s / 8 s / 10 s personal-learning windows and the date/time mode can be pinned.
     pub fn set_clock(&mut self, clock: Clock) {
-        if self.input.local_mode_options.date_time {
+        if self.input.local_mode_options.date_time_inline {
             self.nine_key
                 .set_inline_date_time(Some(Arc::clone(&clock.local)));
         }

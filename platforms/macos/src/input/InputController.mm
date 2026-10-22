@@ -7780,7 +7780,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         preeditExtra = margin.top + margin.bottom + (preeditVisible && skin.canvas ? skin.canvas->lineGap.value_or(0) : 0);
         bodyRowGap = MSIMECandidateBodyRowGap(skin, preeditVisible, scale);
         _candidateLayoutGeometry = skin.layout;
-        _candidateLayoutFitContent = skin.fitContent;
+        _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
         _skinShowsSelectedBar = skin.tokens.showSelectedBar;
         if (skin.layout && skin.layout->padding)
             skin.tokens.pad = static_cast<float>(MSIMESkinLengthValue(skin.layout->padding, font.pointSize, scale, skin.tokens.pad));
@@ -8202,7 +8202,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
-    _candidateLayoutFitContent = skin.fitContent;
+    _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;
@@ -8466,7 +8466,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _candidateLayoutGeometry = skin.layout;
-    _candidateLayoutFitContent = skin.fitContent;
+    _candidateLayoutFitContent = skin.fitContent || _appearance.candidateWindowFitContent;
     if (_renderedCandidateSkin != skin.candidateSkin) _canvasAnimationAnchor = 0;
     _renderedCandidateSkin = skin.candidateSkin;
     _renderedCandidateAnimation = skin.animation;

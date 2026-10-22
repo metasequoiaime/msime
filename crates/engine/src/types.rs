@@ -1310,12 +1310,15 @@ impl Default for FrequencyAdjustmentOptions {
     }
 }
 
-/// Which local modes may be entered. The Shift+letter modes of the reference are on by default, symbol mode (`S`) among them, as the reference's factory configuration ships it on; expression (`V`), command (`/`), mention (`@`) and 拆字 (`C`) are off, because entering them takes a key that used to reach the host as text. 拆字的默认值由宿主按形态决定：host-api 在触屏宿主上打开它，桌面宿主等用户在设置里打开。
+/// Which local modes may be entered. The Shift+letter modes of the reference are on by default, symbol mode (`S`) among them, as the reference's factory configuration ships it on; expression (`V`) follows the reference's `v_mode` factory and is on, command (`/`) and mention (`@`) are off, because entering them takes a key that used to reach the host as text. 拆字 (`C`) 在共享偏好层默认开（对齐参考的 `radical_mode` 出厂值），host-api 把未写偏好的文档读作开。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalModeOptions {
     pub unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（参考 `utility.date_time_mode`）。行内日期时间混入普通候选由 `date_time_inline` 单独开关（参考 `utility.date_time_candidates`，出厂关）。
     pub date_time: bool,
-    /// 「📅日期」入口：日期时间混进普通候选时，第三位放一个入口，选中后候选窗换成这一组的全部格式（参考 `utility.date_time_menu`，出厂开）。依附 `date_time`。
+    /// 全拼输入 `riqi`/`sj`/`xq`/`nongli` 时把当前日期、时间、星期或农历接在对应的词后面（参考 `utility.date_time_candidates`）。与 T 模式独立：T 模式关着时行内混入仍可开。
+    pub date_time_inline: bool,
+    /// 「📅日期」入口：日期时间混进普通候选时，第三位放一个入口，选中后候选窗换成这一组的全部格式（参考 `utility.date_time_menu`，出厂开）。依附 `date_time_inline`。
     pub date_time_menu: bool,
     pub quick_phrase: bool,
     pub emoji: bool,
@@ -1339,6 +1342,7 @@ impl Default for LocalModeOptions {
         Self {
             unicode: true,
             date_time: true,
+            date_time_inline: true,
             date_time_menu: true,
             quick_phrase: true,
             emoji: true,

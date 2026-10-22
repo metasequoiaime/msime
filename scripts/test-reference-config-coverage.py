@@ -85,6 +85,7 @@ MAPPING: dict[str, str] = {
     "ai_assistant.thinking": "ai_assistant.thinking",
     "appearance.cand_text_color": "custom_theme.candidate_colors.text",
     "appearance.candidate_skin": "custom_theme.candidate_skin",
+    "appearance.candidate_window_fit_content": "candidate_window_fit_content",
     "appearance.candidate_window_follow_cursor": "candidate_follow_cursor",
     "appearance.candidate_window_layout": "candidate_layout",
     "appearance.candidate_window_preedit_font_size": "candidate_preedit_font_size",
@@ -118,6 +119,8 @@ MAPPING: dict[str, str] = {
     # written before the rename, and naming the alias here hid the fact that the page spells the
     # field.
     "general.candidate_arrow_navigation": "navigation.arrows",
+    # v0.11.1 出厂关；pin 没有这一键，是新仓在门禁之外引入的 post-pin 键。
+    "general.candidate_horizontal_arrow_navigation": "navigation.left_right",
     "general.candidate_translations": "candidate_translations",
     "general.candidate_window_diagnostic_log": "diagnostic_log",
     "general.clean_mode": "!dead: written by the reference's config template and read by nothing in it",
@@ -143,6 +146,7 @@ MAPPING: dict[str, str] = {
     "general.paging_mouse_wheel": "navigation.mouse_wheel",
     "general.paging_page_up_down": "navigation.page_up_down",
     "general.paging_tab": "navigation.tab",
+    "general.symbol_mixed_input": "mixed_input.symbols",
     "helpcode.quanpin_helpcode": "quanpin_helpcode.enabled",
     "helpcode.quanpin_helpcode_schema": "quanpin_helpcode.schema",
     "helpcode.show_qp_helpcode_in_candidate_window": "quanpin_helpcode.show_in_candidate_window",
@@ -205,6 +209,8 @@ MAPPING: dict[str, str] = {
     "tencent_tmt.secret_key": "tencent_tmt.secret_key",
     "tencent_tmt.target_language": "translation_target_language",
     "utility.clipboard_history": "clipboard_history",
+    # v0.11.1 的 date_time_candidates 是行内混入的独立开关，出厂关；新仓对应 local_modes.date_time_inline。
+    "utility.date_time_candidates": "local_modes.date_time_inline",
     "utility.date_time_menu": "local_modes.date_time_menu",
     "utility.date_time_mode": "local_modes.date_time",
     "utility.emoji_mode": "local_modes.emoji",
@@ -213,10 +219,13 @@ MAPPING: dict[str, str] = {
     "utility.quick_phrase": "local_modes.quick_phrase",
     "utility.quick_phrase_candidates": "mixed_input.quick_phrase",
     "utility.quick_phrase_frequency": "mixed_input.quick_phrase_frequency",
+    # v0.11.1 把 pin 的 unicode_mode 改名为 radical_mode（Shift+U 拆字反查）；新仓拆字在 Shift+C 的 local_modes.chaizi。
+    "utility.radical_mode": "local_modes.chaizi",
     "utility.symbol_mode": "local_modes.symbol",
     "utility.r_mode": "local_modes.temporary_japanese",
     "utility.study_english_word": "!dead: written by the reference's config template and read by nothing in it",
     "utility.unicode_mode": "local_modes.unicode",
+    "utility.v_mode": "local_modes.expression",
     "utility.y_mode": "local_modes.temporary_english",
     "voice_input.asr_app_key": "voice_input.asr_app_key",
     "voice_input.asr_endpoint": "voice_input.asr_endpoint",
