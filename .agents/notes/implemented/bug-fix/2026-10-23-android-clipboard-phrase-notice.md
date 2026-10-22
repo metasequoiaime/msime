@@ -36,11 +36,11 @@ Android 11 之前使用带自定义视图的系统 `Toast`，在状态栏和挖�
 ## Testing
 
 - API 28 安装原生 APK 后通过完整 `ClipboardSegmentActionsDeviceSmoke -e phrase-notice true`，覆盖成功、重复、无效正文、损坏文件、列表不动、焦点状态保持、超时、收起键盘撤销迟到结果与重新输入。
-- API 35 同一产品实现此前完整专项通过；最新夹具补充编辑器窗口焦点基线与系统无障碍 10 秒提示时长，正在复跑，设置在结束后恢复。
+- API 35 安装同一原生 APK 后通过完整专项，包含点按关闭、编辑器窗口焦点基线与系统无障碍 10 秒提示时长；设置在结束后恢复。
 - API 28/35 的默认 `ClipboardSegmentActionsDeviceSmoke` 均通过，覆盖分词分享、常用语保存、复制、最近记录与插入。
 - 像素检查要求提示位置实际有深色背景，提示下方到键盘之间保持原始编辑器画面，不能只认窗口坐标。API 28 的旧版 Toast 结合固定无障碍通知文字与像素定位；现代子窗口查可交互的无障碍节点。
 - Android 9 的长按预览流程可能已改变输入框节点焦点，专项比较添加前后的真实状态，并要求编辑器窗口继续取焦点、末尾无需再次聚焦即可输入。
-- 远端 `scripts/verify-local.sh --quick`（`20261023-073842`）、本地 `pnpm run verify-notes` 与 `git diff --check` 通过。最终夹具改动后补跑门禁。
+- 最终夹具的远端 `scripts/verify-local.sh --quick`（`20261023-074701`）、本地 `pnpm run verify-notes` 与 `git diff --check` 均通过。
 
 ## Consequences
 
