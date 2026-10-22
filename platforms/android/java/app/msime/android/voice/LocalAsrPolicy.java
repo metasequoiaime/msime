@@ -123,7 +123,7 @@ public final class LocalAsrPolicy {
             case UNAVAILABLE -> "麦克风被其他应用占用";
             case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
             case RUNTIME -> runtimeMissing
-                ? "本地语音识别组件尚未下载，请在设置中下载后再试"
+                ? "缺少本地语音运行库，请到「语音输入→模型」下载或从文件导入"
                 : "本地语音识别组件无法加载";
             case EMPTY -> "没有听到内容";
             case CANCELLED -> null;

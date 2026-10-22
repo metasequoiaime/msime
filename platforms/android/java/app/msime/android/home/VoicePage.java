@@ -317,10 +317,27 @@ public final class VoicePage extends ReloadingDetailPage {
         });
     }
 
-    /** 「本地模型」组：运行库状态，再列出每个模型的下载、取消、选用和删除。 */
+    /** 模型页先说明本地识别缺哪一项，再列出模型的下载、取消、选用和删除。 */
     private void modelsGroup(LinearLayout target, JSONObject voice, State state) {
-        GroupCard group = GroupCard.add(sectionColumn(target, "模型"), "本地模型");
-        if (!state.runtimeReady()) runtimeRow(group, state);
+        LinearLayout column = sectionColumn(target, "模型");
+        GroupCard preparation = GroupCard.add(column, "本地识别准备");
+        LocalVoiceModels.Model chosenModel = selectedModel(voice, state);
+        preparation.value("已选模型", null, chosenModel == null ? "未选用" : chosenModel.title());
+        if (state.runtimeReady()) preparation.value("本地语音运行库", null, "已就绪");
+        else {
+            runtimeRow(preparation, state);
+            ResourcePacks.Pack runtime = state.runtimePack();
+            ResourcePackService.Status status = ResourcePackService.status(ResourcePacks.VOICE_RUNTIME);
+            if (runtime != null && !runtime.importFiles().isEmpty() && (status == null || !status.running())) {
+                preparation.nav("从文件导入运行库", "网络不通时，用自己下载好的运行库安装", null,
+                    () -> explainImport(ResourcePacks.VOICE_RUNTIME, null,
+                        ResourcePackService.title(ResourcePacks.VOICE_RUNTIME), runtime.importFiles()));
+            }
+        }
+        preparation.footer(chosenModel != null && state.runtimeReady()
+            ? "模型和运行库均已准备好，可以开始语音输入。"
+            : "本地识别需要模型和语音运行库。导入模型后，还需单独准备运行库；「已选用」只表示选中了模型。");
+        GroupCard group = GroupCard.add(column, "本地模型");
         if (state.modelsError() != null) {
             group.note("读取模型列表失败（" + state.modelsError() + "），请稍后返回重试。");
             return;
@@ -345,14 +362,6 @@ public final class VoicePage extends ReloadingDetailPage {
         }
         List<Runnable> imports = new ArrayList<>();
         List<String> importLabels = new ArrayList<>();
-        ResourcePacks.Pack runtime = state.runtimePack();
-        ResourcePackService.Status runtimeStatus = ResourcePackService.status(ResourcePacks.VOICE_RUNTIME);
-        if (!state.runtimeReady() && runtime != null && !runtime.importFiles().isEmpty()
-                && (runtimeStatus == null || !runtimeStatus.running())) {
-            importLabels.add(ResourcePackService.title(ResourcePacks.VOICE_RUNTIME));
-            imports.add(() -> explainImport(ResourcePacks.VOICE_RUNTIME, null,
-                ResourcePackService.title(ResourcePacks.VOICE_RUNTIME), runtime.importFiles()));
-        }
         for (LocalVoiceModels.Model model : state.models()) {
             String key = ResourcePackService.voiceModelKey(model.id());
             ResourcePackService.Status status = ResourcePackService.status(key);

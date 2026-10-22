@@ -24,7 +24,7 @@ public final class LocalVoiceModelPolicySmoke {
                 && LocalVoiceModelPolicy.action(true, Download.FAILED) == Action.MANAGE,
             "an installed model is managed, even after a failed re-download");
 
-        check(LocalVoiceModelPolicy.installedValue(true).equals("使用中")
+        check(LocalVoiceModelPolicy.installedValue(true).equals("已选用")
                 && LocalVoiceModelPolicy.installedValue(false).equals("已下载"), "installed rows say whether they are in use");
 
         check(LocalVoiceModelPolicy.summary("中英流式", 158_000_000L, "约 0.5 GB").equals("中英流式 · 需下载 158 MB · 运行时约 0.5 GB"),
