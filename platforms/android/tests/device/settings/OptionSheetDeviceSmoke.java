@@ -15,12 +15,24 @@ import java.lang.reflect.Field;
 
 /** 原生设置宿主中的长选项面板，取消行无需拖动即可点击。 */
 public final class OptionSheetDeviceSmoke extends DeviceSmoke {
-    @Override protected String successDescription() { return "option sheet footer stays above system navigation"; }
+    private boolean animationOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        animationOnly = arguments != null && "true".equals(arguments.getString("animation-selection-only"));
+        super.onCreate(arguments);
+    }
+
+    @Override protected String successDescription() {
+        return animationOnly ? "animation selection follows saved value"
+            : "animation selection follows saved value and option sheet footer stays above system navigation";
+    }
 
     @SuppressWarnings("deprecation")
     @Override protected void runChecks() throws Exception {
+        new KeyboardAnimationDeviceChecks(this).run();
+        if (animationOnly) return;
         Activity activity = startActivitySync(new Intent().setClassName(getTargetContext(),
-            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.home.OptionSheet");
         Dialog[] dialog = new Dialog[1];
         stage = "show synthetic nine-option sheet";
