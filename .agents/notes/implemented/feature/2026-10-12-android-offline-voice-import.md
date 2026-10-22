@@ -16,7 +16,7 @@ Status: implemented
   - `ResourcePacks.install` 和 `LocalVoiceModels.install` 多一个 `files` 参数，`Pack` 和 `Model` 带上 `importFiles`。
   - `ResourcePackService.requestImport` 收到文件选择器给的 URI 之后，在下载线程上把长度对得上的文档复制进 `cacheDir/voice-model-import/<uuid>/`（`OfflineImportPolicy`：长度报不出来的也复制，但读到超过最大的那个文件就丢掉），再交给共享层安装。不论结果如何，复制出来的文件都删掉。
   - 导入和下载走同一条队列和同一条通知，状态多一个 `IMPORTING`（「导入中 x%」）。复制途中可以取消，失败和结果通知写「导入失败」「已导入」。URI 的读权限经启动服务的 Intent 的 `ClipData` 加 `FLAG_GRANT_READ_URI_PERMISSION` 交给服务，用户离开设置页后复制照样进行。
-  - 设置页的「本地模型」组多一行「从文件导入」。可选的目标是还没装的模型，以及（瘦包还缺的话）语音运行库。选中后先说明要下载哪些文件（上游文件名和大小，「下载地址」用浏览器打开上游链接），再打开多选的文件选择器。
+  - 设置页的「本地模型」组提供「从文件导入」，可选目标是还没装的模型；缺运行库时，模型页前面的准备组单独提供「从文件导入运行库」（见 [本地语音准备状态](../bug-fix/2026-10-21-android-local-voice-readiness.md)）。选中后先说明要下载哪些文件（上游文件名和大小，「下载地址」用浏览器打开上游链接），再打开多选的文件选择器。
 
 ## Alternatives considered
 
