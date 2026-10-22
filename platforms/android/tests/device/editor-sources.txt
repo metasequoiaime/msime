@@ -217,5 +217,6 @@ platforms/android/tests/device/candidate/CloudCandidateTransportDeviceSmoke.java
 platforms/android/tests/device/settings/ContactsDeviceSmoke.java
 
 platforms/android/tests/device/voice/VoiceAutoInsertDeviceCases.java
+platforms/android/tests/device/settings/LocalVoiceReadinessChecks.java
 platforms/android/tests/device/keyboard/CompositionSearchEditorActivity.java
 platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java
