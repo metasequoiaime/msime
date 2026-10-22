@@ -22,7 +22,7 @@ const SIMPLE: [(u8, &str); 15] = [
 const DOUBLE_QUOTE: (&str, &str) = ("“", "”");
 const SINGLE_QUOTE: (&str, &str) = ("‘", "’");
 
-/// `policy.json` 的 `styles.cornerQuotes`：直角引号下 `"` 和 `'` 的两组字。
+/// `policy.json` 的 `styles.cornerQuotes`：直角引号下 `"` 和 `'` 的两组字。第 3 版起 `{` `}` 也出这两组字，与样式无关——弯引号样式下「」『』因此和弯引号并存。
 const CORNER_DOUBLE_QUOTE: (&str, &str) = ("『", "』");
 const CORNER_SINGLE_QUOTE: (&str, &str) = ("「", "」");
 
@@ -65,6 +65,8 @@ pub struct PunctuationPolicy {
     marks: PunctuationMarks,
     next_double_quote_is_opening: bool,
     next_single_quote_is_opening: bool,
+    next_corner_single_is_opening: bool,
+    next_corner_double_is_opening: bool,
     book_title_nesting: u32,
 }
 
@@ -75,13 +77,15 @@ impl Default for PunctuationPolicy {
             marks: PunctuationMarks::default(),
             next_double_quote_is_opening: true,
             next_single_quote_is_opening: true,
+            next_corner_single_is_opening: true,
+            next_corner_double_is_opening: true,
             book_title_nesting: 0,
         }
     }
 }
 
 impl PunctuationPolicy {
-    /// The Chinese mark for an ASCII key, advancing quote and nesting state; `None` for keys without one (`{`, `@`, `-`, ...).
+    /// 将 ASCII 按键转成中文标点并推进引号与嵌套状态；没有映射的键（如 `@`、`-`）返回 `None`。
     pub fn translate(&mut self, key: u8) -> Option<&'static str> {
         if self.marks.brackets == BracketMarks::Hollow {
             if let Some(&(_, output)) = HOLLOW_BRACKETS.iter().find(|(input, _)| *input == key) {
@@ -110,6 +114,15 @@ impl PunctuationPolicy {
                 } else {
                     SINGLE_QUOTE
                 },
+            )),
+            // `{` `}` 的直角引号不吃样式：它们就是 cornerQuotes 里同一组字，交替状态与 `'` `"` 分开保存。
+            b'{' => Some(alternate(
+                &mut self.next_corner_single_is_opening,
+                CORNER_SINGLE_QUOTE,
+            )),
+            b'}' => Some(alternate(
+                &mut self.next_corner_double_is_opening,
+                CORNER_DOUBLE_QUOTE,
             )),
             NESTED_OPENING_INPUT => {
                 self.book_title_nesting += 1;
@@ -175,7 +188,7 @@ mod tests {
             "../../../shared/contracts/punctuation/policy.json"
         ))
         .expect("policy.json");
-        assert_eq!(spec["contractVersion"], 2);
+        assert_eq!(spec["contractVersion"], 3);
         let simple = spec["simple"].as_array().expect("simple");
         assert_eq!(simple.len(), SIMPLE.len());
         for ((input, output), row) in SIMPLE.iter().zip(simple) {
@@ -186,11 +199,13 @@ mod tests {
             assert_eq!(row["output"], *output);
         }
         let alternating = spec["alternating"].as_array().expect("alternating");
-        assert_eq!(alternating.len(), 2);
-        for (row, (input, (opening, closing))) in alternating
-            .iter()
-            .zip([("\"", DOUBLE_QUOTE), ("'", SINGLE_QUOTE)])
-        {
+        assert_eq!(alternating.len(), 4);
+        for (row, (input, (opening, closing))) in alternating.iter().zip([
+            ("\"", DOUBLE_QUOTE),
+            ("'", SINGLE_QUOTE),
+            ("{", CORNER_SINGLE_QUOTE),
+            ("}", CORNER_DOUBLE_QUOTE),
+        ]) {
             assert_eq!(row["input"], input);
             assert_eq!(row["opening"], opening);
             assert_eq!(row["closing"], closing);
@@ -211,11 +226,13 @@ mod tests {
 
         let styles = &spec["styles"];
         let corner = styles["cornerQuotes"].as_array().expect("cornerQuotes");
-        assert_eq!(corner.len(), 2);
-        for (row, (input, (opening, closing))) in corner
-            .iter()
-            .zip([("\"", CORNER_DOUBLE_QUOTE), ("'", CORNER_SINGLE_QUOTE)])
-        {
+        assert_eq!(corner.len(), 4);
+        for (row, (input, (opening, closing))) in corner.iter().zip([
+            ("\"", CORNER_DOUBLE_QUOTE),
+            ("'", CORNER_SINGLE_QUOTE),
+            ("{", CORNER_SINGLE_QUOTE),
+            ("}", CORNER_DOUBLE_QUOTE),
+        ]) {
             assert_eq!(row["input"], input);
             assert_eq!(row["opening"], opening);
             assert_eq!(row["closing"], closing);
@@ -244,13 +261,18 @@ mod tests {
         for (input, (opening, closing)) in [
             (b'"', DOUBLE_QUOTE),
             (b'\'', SINGLE_QUOTE),
+            (b'{', CORNER_SINGLE_QUOTE),
+            (b'}', CORNER_DOUBLE_QUOTE),
             (b'"', CORNER_DOUBLE_QUOTE),
             (b'\'', CORNER_SINGLE_QUOTE),
+            (b'{', CORNER_SINGLE_QUOTE),
+            (b'}', CORNER_DOUBLE_QUOTE),
         ] {
             let row = format!("{{{}, \"{opening}\", \"{closing}\"}}", literal(input));
             assert!(header.contains(&row), "policy.h lacks {row}");
         }
-        assert!(header.contains("std::array<AlternatingMapping, 2> corner_quotes"));
+        assert!(header.contains("std::array<AlternatingMapping, 4> alternating"));
+        assert!(header.contains("std::array<AlternatingMapping, 4> corner_quotes"));
         assert!(header.contains(&format!(
             "std::array<Mapping, {}> hollow_brackets",
             HOLLOW_BRACKETS.len()
@@ -289,7 +311,7 @@ mod tests {
         assert_eq!(policy.translate(b'"'), Some("”"));
         assert_eq!(policy.translate(b'<'), Some("《"));
         assert_eq!(policy.translate(b'<'), Some("〈"));
-        for key in *b"a{@-1 " {
+        for key in *b"a@-1 " {
             assert_eq!(policy.translate(key), None);
         }
     }
@@ -391,6 +413,27 @@ mod tests {
             translate_all(&mut hollow, "\"'<>"),
             ["“", "‘", "《", "》"].map(Some)
         );
+    }
+
+    /// 契约第 3 版：`Shift+[` `Shift+]`（`{` `}`）出直角引号「」和『』，与 `'` `"` 的交替互不共享状态，也不随引号样式改变。
+    #[test]
+    fn shifted_brackets_give_corner_quotes() {
+        let mut policy = PunctuationPolicy::default();
+        assert_eq!(
+            translate_all(&mut policy, "{}{{}"),
+            ["「", "『", "」", "「", "』"].map(Some)
+        );
+        // `{` `}` 的交替与 `'` `"` 各自独立：两个弯引号键从没按过，仍出前半个。
+        assert_eq!(
+            translate_all(&mut policy, "\"'}{"),
+            ["“", "‘", "『", "」"].map(Some)
+        );
+        // 直角引号样式下 `{` `}` 出的还是这两组字：样式只换 `'` `"` 的字。
+        let mut corner = styled(QuoteMarks::Corner, BracketMarks::Solid);
+        assert_eq!(translate_all(&mut corner, "{}"), ["「", "『"].map(Some));
+        // 成对补全关着也一样交替。
+        policy.set_paired_enabled(false);
+        assert_eq!(translate_all(&mut policy, "{"), ["「"].map(Some));
     }
 
     /// 缺省样式就是契约第 1 版那张表，逐键相同。

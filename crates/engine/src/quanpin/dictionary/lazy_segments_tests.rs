@@ -376,7 +376,7 @@ impl QuanpinDictionary {
             }
         }
         let segments = self.resolve_segments(raw, segmentation);
-        let association = self.sentence_association;
+        let association = self.sentence_association.clone();
         let has_rerankers = !self.rerankers.is_empty();
         let context = &self.rescoring_context;
         let (resolution_hash, (resolution, pinyin_segmentation, marking_alternatives, slot)) =
@@ -394,8 +394,12 @@ impl QuanpinDictionary {
                         .chain(&resolution.costlier_corrected_cuts)
                         .map(|cut| join_segments(cut))
                         .collect();
-                    let slot =
-                        series_slot_key(&resolution.cache_key, association, has_rerankers, context);
+                    let slot = series_slot_key(
+                        &resolution.cache_key,
+                        &association,
+                        has_rerankers,
+                        context,
+                    );
                     let owned = match resolution {
                         Cow::Borrowed(_) => None,
                         Cow::Owned(resolution) => Some(resolution),

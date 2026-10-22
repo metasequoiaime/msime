@@ -1041,13 +1041,19 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
     default: return 0;
     }
 }
-// 直角引号样式下出这个字的引号键：「」是 `'`，『』是 `"`；其他字为 0。
-static unichar MSIMECornerQuoteKey(id mark) {
-    if (![mark isKindOfClass:NSString.class] || [mark length] != 1) return 0;
-    switch ([mark characterAtIndex:0]) {
-    case 0x300C: case 0x300D: return '\''; // 「 」
-    case 0x300E: case 0x300F: return '"'; // 『 』
-    default: return 0;
+// 直角引号两组字：「」是 0x300C/0x300D，『』是 0x300E/0x300F。
+static BOOL MSIMEIsCornerQuoteMark(id mark) {
+    if (![mark isKindOfClass:NSString.class] || [mark length] != 1) return NO;
+    const unichar c = [mark characterAtIndex:0];
+    return c >= 0x300C && c <= 0x300F;
+}
+// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；契约第 3 版起引擎里 `{` `}` 也分别出这两组。普通中文方案的 `{` `}` 在到达引擎前被上面的宿主分支拦成「/」，仍按契约分组判：`{` 算出「」的键，`}` 不算——把它算进「」组会让 `}` 上的屏的」被改回「。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
+static BOOL MSIMEKeyProducesCornerQuote(unichar key, unichar mark, int scheme) {
+    const BOOL zhuyin = scheme == msime::mac::scheme::Zhuyin;
+    switch (mark) {
+    case 0x300C: case 0x300D: return key == '\'' || (!zhuyin && key == '{'); // 「 」
+    case 0x300E: case 0x300F: return key == '"' || (!zhuyin && key == '}');  // 『 』
+    default: return NO;
     }
 }
 // View 报告的引号与方头括号样式（host-api 已解析好 corner_when_traditional）；英文模式下的中文标点按它出字。
@@ -1278,6 +1284,7 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t _voiceGeneration;
     id _activeClient;
     NSAppearance *_candidateHostAppearance;
+    __weak id _candidateChromeClient;
     MSIMEToolTextReturn _emojiReturn;
     MSIMEDesktopInputSession *_desktopInputSession;
     MSIMEPanelTextCompletion _desktopEmojiCompletion;
@@ -1336,9 +1343,9 @@ static NSImage *MSIMECandidateLogoImage() {
     NSImage *_decorationFramesSource;
     MSIMEDecorationFrames *_decorationFrames;
     BOOL _rerenderingForCandidateSkin;
+    BOOL _refreshingCandidateSkin;
+    BOOL _candidateSkinRefreshPending;
     CGFloat _tallestVerticalCandidateHeight;
-    // 横排候选窗这次显示以来最宽的卡片宽度（不含 canvas 外留白），见 MSIMEWidestCandidateWidth。
-    CGFloat _widestHorizontalCandidateWidth;
     NSInteger _armedGlossColumn;
     // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
     // is untouched while that page is up - nothing was typed - so leaving it only needs the view
@@ -1612,11 +1619,15 @@ static NSImage *MSIMECandidateLogoImage() {
 }
 
 // Arms the space conversion from what a punctuation commit actually put in the document, as the reference's _NoteCommittedChinesePunctuation does: the committed tail decides, so a candidate committed together with its mark (nihao, gives 你好，) arms too, and the ASCII target comes from the mark map rather than the key pressed (the backslash key gives 、, which converts to /). Called after apply:, so an opening mark this host has just auto-closed is seen as a pending closing and does not arm. Anything else disarms.
-- (void)noteCommittedChinesePunctuation:(NSDictionary *)transition client:(id)client {
+- (void)noteCommittedChinesePunctuation:(NSDictionary *)transition key:(unichar)key client:(id)client {
     NSString *commit = transition[@"commit"];
-    const unichar ascii = [commit isKindOfClass:NSString.class] && commit.length
-        ? MSIMEASCIIForSmartChinesePunctuation([commit characterAtIndex:commit.length - 1])
-        : 0;
+    unichar ascii = 0;
+    if ([commit isKindOfClass:NSString.class] && commit.length) {
+        const unichar mark = [commit characterAtIndex:commit.length - 1];
+        ascii = MSIMEASCIIForSmartChinesePunctuation(mark);
+        // 直角引号的 ASCII 孪生按出的键算：`{` 出的「转回 `{`，不是样式键 `'`。
+        if (ascii && MSIMEKeyProducesCornerQuote(key, mark, MSIMEViewScheme(_view))) ascii = key;
+    }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
         _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
         [self clearSmartPunctuationSpaceConversion];
@@ -2163,11 +2174,39 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     _expandedPendingScrollDelta = 0;
 }
 
-// 收起网格，组字和普通候选窗原样留着。
+// 收起网格时把高亮交回普通候选窗；只导航，不选词或提交组字。
 - (void)closeExpandedCandidates {
     if (!_expandedCandidates) return;
+    NSDictionary *identifier = _expandedCursor < _expandedCandidates.count ? _expandedCandidates[_expandedCursor][@"id"] : nil;
+    NSUInteger target = 0, current = NSNotFound;
+    const BOOL valid = MSIMECurrentCandidateIdentity(identifier, _view) &&
+        [identifier[@"generation"] isEqual:_expandedGeneration] &&
+        MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &target);
+    for (NSDictionary *candidate in _view[@"candidates"])
+        if (MSIMEStrictBoolean(candidate[@"highlighted"])) {
+            MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &current);
+            break;
+        }
     [self discardExpandedCandidates];
-    [self renderCandidates];
+    const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
+    NSDictionary *transition = nil;
+    while (valid && current != NSNotFound && current != target) {
+        const uint32_t command = current / columns < target / columns ? MSIME_NEXT_PAGE
+                               : current / columns > target / columns ? MSIME_PREVIOUS_PAGE
+                               : current < target ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE;
+        NSDictionary *next = [_session command:command error:nil];
+        if (!next) {
+            msime_macos_diagnostic_write("expanded_candidates_close_navigation_failed");
+            break;
+        }
+        transition = next;
+        if (command == MSIME_NEXT_PAGE) current = (current / columns + 1) * columns;
+        else if (command == MSIME_PREVIOUS_PAGE) current = (current / columns - 1) * columns;
+        else if (command == MSIME_NEXT_CANDIDATE) ++current;
+        else --current;
+    }
+    if (transition) [self apply:transition];
+    else [self renderCandidates];
 }
 
 // 打开网格，高亮停在普通候选窗正高亮的那一个上。没有更多候选、或者网格画不出来（光标位置无效）时返回 NO，调用方照旧处理这个键。
@@ -3684,8 +3723,6 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
-    // 记住的横排宽度是按旧的字号、缩放、皮肤和内边距排出来的，换了设置就不再作数：不清掉的话，调小整体大小后卡片还停在原来的宽度。
-    _widestHorizontalCandidateWidth = 0;
     if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
@@ -6786,7 +6823,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (transition) {
             [self apply:transition];
             // Only the idle route commits the Engine's Chinese form; the ASCII route leaves the tail ASCII.
-            if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition client:sender];
+            if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition key:(unichar)keypadPunctuation client:sender];
             if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
         }
         if (keypadPunctuation == '.') {
@@ -7158,7 +7195,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self apply:transition];
     // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
     if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))
-        [self noteCommittedChinesePunctuation:transition client:sender];
+        [self noteCommittedChinesePunctuation:transition key:[event.characters characterAtIndex:0] client:sender];
     if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {
@@ -7298,12 +7335,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             markEndsLongerCommit = YES;
         }
     }
-    const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'';
-    // 直角引号（quote_style 为 corner）同理：」改回「，』改回『，但只在按的正是出这个字的引号键（`'` 出「」，`"` 出『』）时改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
+    const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'' ||
+        punctuationKey == '{' || punctuationKey == '}';
+    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`，以及契约第 3 版起非注音方案的 `{` `}`。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
-    const unichar cornerQuoteKey = MSIMECornerQuoteKey(mark);
+    const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
     if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
-        (!cornerQuoteKey || cornerQuoteKey == punctuationKey) &&
+        (!cornerQuoteMark || MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view))) &&
         !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         NSMutableDictionary *reopened = [transition mutableCopy];
         NSString *opening = reopenings[mark];
@@ -7313,8 +7351,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         transition = reopened;
     }
     NSString *openedClosing = nil;
-    // 注音 `[` `{` 出的「『同样不补后半个：这个宿主只在 `'` `"` 上跨过」』，`]` `}` 到了引擎照样再出一个，补了就成了「内容」」。没有按键的整段上屏（例如候选）照旧按字补。
-    const BOOL cornerQuoteFromOtherKey = cornerQuoteKey && punctuationKey && cornerQuoteKey != punctuationKey;
+    // 注音 `[` `{` `]` `}` 出的「』」『同样不补后半个：这个宿主只在出这个字的键上配对，`]` `}` 到了引擎照样再出一个，补了就成了「内容」」。没有按键的整段上屏（例如候选）照旧按字补。
+    const BOOL cornerQuoteFromOtherKey = cornerQuoteMark && punctuationKey &&
+        !MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view));
     if ([mark isKindOfClass:NSString.class] && mark.length && !cornerQuoteFromOtherKey &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
@@ -7861,19 +7900,42 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                                       accent:_renderedCandidateAccent animation:_renderedCandidateAnimation];
 }
 
-// 显式明暗及皮肤仍由用户决定；仅系统主题的自动模式采用输入区配色。
+- (BOOL)usesAutomaticCandidateAppearance {
+    if (@available(macOS 26.0, *)) {
+        return ![_appearance candidateAppearanceOverride] && [_appearance.globalTheme isEqual:@"system"] &&
+            [_appearance.themeMode isEqual:@"system"] && [_appearance.candidateTheme isEqual:@"follow"];
+    }
+    return NO;
+}
+
+// 窗口只采用显式主题或客户端颜色，不能把玻璃的自适应结果写回它的父窗口。
 - (NSAppearance *)candidateAppearanceForClientAttributes:(NSDictionary *)attributes {
     NSAppearance *override = [_appearance candidateAppearanceOverride];
-    NSAppearance *host = nil;
-    if (@available(macOS 26.0, *)) {
-        if (!override && [_appearance.globalTheme isEqual:@"system"] &&
-            [_appearance.themeMode isEqual:@"system"] && [_appearance.candidateTheme isEqual:@"follow"])
-            host = MSIMECandidateHostAppearance(attributes);
-    }
+    NSAppearance *host = [self usesAutomaticCandidateAppearance] ? MSIMECandidateHostAppearance(attributes) : nil;
     const BOOL update = _appearance.candidateAppearanceOverrideConfigured || _candidateHostAppearance != nil || host != nil;
     _candidateHostAppearance = host;
-    if (update) _panel.appearance = override ?: host;
-    return override ?: host;
+    NSAppearance *resolved = override ?: host;
+    if (update && _panel.appearance != resolved && ![_panel.appearance isEqual:resolved])
+        _panel.appearance = resolved;
+    return resolved;
+}
+
+- (MSIMECandidateChromeView *)candidateChromeWithFrame:(NSRect)frame skin:(const msime::mac::ResolvedSkin &)skin {
+    if ([self usesAutomaticCandidateAppearance] && skin.id == "system" && skin.candidateSkin.empty() &&
+        !skin.canvas && _candidateChromeClient == _activeClient &&
+        [_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) {
+        MSIMECandidateChromeView *content = (id)_panel.contentView;
+        if (content.liquidGlassActive && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {
+            // 保留玻璃及其自适应外观，只重建候选控件；旧按钮仍必须脱离当前内容容器。
+            content.appearanceTarget = nil;
+            [_candidateMotion endSelection];
+            for (NSView *child in content.candidateContentView.subviews) [child removeFromSuperview];
+            content.frame = frame;
+            return content;
+        }
+    }
+    _candidateChromeClient = _activeClient;
+    return [[MSIMECandidateChromeView alloc] initWithFrame:frame];
 }
 
 // The candidate window, created on first use. Its wheel pages the Engine's candidates, or scrolls the expanded grid while that is open.
@@ -8118,7 +8180,6 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         controller->_expandedPendingScrollDelta += event.scrollingDeltaY;
         [controller renderCandidates];
     };
-    if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
@@ -8250,7 +8311,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const CGFloat height = rowsHeight + 2 * verticalInset + decorationHeight + headerHeight + bodyRowGap;
     const CGFloat headerBottom = height - verticalInset - decorationHeight - headerHeight;
     [_panel setContentSize:NSMakeSize(width, height)];
-    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    MSIMECandidateChromeView *content = [self candidateChromeWithFrame:NSMakeRect(0, 0, width, height) skin:skin];
     content.candidateContentView.clipsToBounds = YES;
     content.candidateRowsRect = NSMakeRect(inset, verticalInset, MAX(0.0, width - 2 * inset - toggle.column()), rowsHeight);
     content.candidateRowsTouchTop = headerHeight == 0 && bodyRowGap == 0;
@@ -8320,7 +8381,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset preeditVisible:preedit.length > 0];
-    _panel.contentView = content;
+    if (_panel.contentView != content) _panel.contentView = content;
     // 网格不是 Engine 的一页：清掉记下的那一页，收起后第一次重画走完整的重建，而不是在网格的按钮上原地改释义。
     _renderedCandidateView = nil;
     content.appearanceTarget = self;
@@ -8381,7 +8442,6 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     // 只在候选窗从隐藏到出现时查，同一次输入里的后续按键不再 stat；显示期间的替换由每秒的偏好轮询发现。
     if (!_panel.isVisible) [self applyReplacedSkinPackages];
     NSAppearance *candidateAppearance = [self candidateAppearanceForClientAttributes:clientAttributes];
-    if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     const BOOL vertical = _appearance.vertical;
     NSAppearance *currentAppearance = candidateAppearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
@@ -8455,17 +8515,13 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         skin.canvas ? skin.canvas->outer : msime::mac::SkinInsets{}, decorationImage ? skin.decorationTopDip : 0);
     rowVisible.size.width = MAX(0.0, rowVisible.size.width - canvasExtra - 2 * (shadowInsets.left + shadowInsets.right));
     if (compactExpand) rowVisible.size.width = MAX(0.0, rowVisible.size.width - arrowWidth);
-    // 普通横排同次组字只变宽不变窄；fitContent 则允许缩回实际内容宽度。历史宽度含首行右端的展开键，当前页带它时先扣掉。
-    const CGFloat steadyWidth = vertical || skin.fitContent || !_panel.isVisible ? 0.0 : MAX(0.0, _widestHorizontalCandidateWidth - (compactExpand ? arrowWidth : 0));
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:pageControls visible:rowVisible preeditWidth:headerWidth
-                       minimumWidth:MAX(MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra), steadyWidth)
+                       minimumWidth:MAX(0.0, MAX(skin.minWidthDip, skin.decorationWidthDip) - canvasExtra)
                        reservesGloss:YES pagerWidth:listPager.column + toggle.column()];
     // 共享窄列可含半点 DIP，先取整总宽，避免 AppKit 调整内容宽度后按钮离右边多出半点。
     const CGFloat width = skinExpand ? ceil(pageGeometry.width) : pageGeometry.width + (compactExpand ? arrowWidth : 0);
-    _widestHorizontalCandidateWidth = skin.fitContent ? width
-        : MSIMEWidestCandidateWidth(_widestHorizontalCandidateWidth, width, vertical, _panel.isVisible);
     MSIMECandidatePanel *candidatePanel = [self candidatePanelWithAppearance:candidateAppearance];
     candidatePanel.scrollHandler = nil;
     if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];
@@ -8555,7 +8611,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         }
     }
     [_panel setContentSize:NSMakeSize(width, height)];
-    MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    MSIMECandidateChromeView *content = [self candidateChromeWithFrame:NSMakeRect(0, 0, width, height) skin:skin];
+    content.candidateContentView.clipsToBounds = NO;
     content.candidateRowsRect = NSMakeRect(inset, verticalInset + listPager.row, pageGeometry.lineWidth, pageGeometry.rowsHeight);
     content.candidateRowsTouchTop = headerHeight == 0 && bodyRowGap == 0;
     NSUInteger slot = 0;
@@ -8665,7 +8722,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         [content addSubview:decoration];
     }
     [self configureCanvasForContent:content skin:skin dark:skinDark inset:inset preeditVisible:preedit.length > 0];
-    _panel.contentView = content;
+    if (_panel.contentView != content) _panel.contentView = content;
     _renderedCandidateView = [_view copy];
     content.appearanceTarget = self;
     content.appearanceAction = @selector(refreshCandidateSkin);
@@ -8706,9 +8763,27 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 }
 
 - (void)refreshCandidateSkin {
+    if (_refreshingCandidateSkin) {
+        _candidateSkinRefreshPending = YES;
+        return;
+    }
+    _refreshingCandidateSkin = YES;
+    @try {
+        do {
+            _candidateSkinRefreshPending = NO;
+            [self refreshCandidateSkinOnce];
+        } while (_candidateSkinRefreshPending);
+    } @finally {
+        _refreshingCandidateSkin = NO;
+    }
+}
+
+- (void)refreshCandidateSkinOnce {
+    // 玻璃布局会同步重入外观回调；本轮结束后重读内容区外观，避免旧颜色盖回新颜色。
     if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
     MSIMECandidateChromeView *content = (id)_panel.contentView;
-    NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    // 玻璃会按背后的应用单独调整内容外观，文字必须跟随内容区域，而不是仍跟随系统的外层卡片。
+    NSString *match = [content.candidateContentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const BOOL dark = [match isEqual:NSAppearanceNameDarkAqua];
     const auto skin = [_appearance candidateWindowSkinForDark:dark];
     auto tokens = skin.tokens;
@@ -8723,8 +8798,6 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     if ((skin.candidateSkin != _renderedCandidateSkin || shadowGeometryChanged) &&
         _panel.isVisible && !_rerenderingForCandidateSkin) {
         _rerenderingForCandidateSkin = YES;
-        // 换了一个皮肤包，最小宽度和内边距都可能不同，记住的宽度从这次重排重新算。
-        _widestHorizontalCandidateWidth = 0;
         [self renderCandidates];
         _rerenderingForCandidateSkin = NO;
         return;

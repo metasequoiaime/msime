@@ -23,6 +23,10 @@ export type ResourcePackId =
   | "language-dictionaries"
   | "handwriting"
   | "settled-model"
+  | "grammar-model-wanxiang"
+  | "grammar-model-baguwen"
+  | "grammar-model-baguwen-compact"
+  | "grammar-model-baishuang"
   | "wubi"
   | "voice-runtime-macos";
 
@@ -43,6 +47,8 @@ export type ResourcePackClient = {
   install(id: ResourcePackId): Promise<string>;
   /** 返回是否有安装在跑；被取消的安装随后以 `local_model_cancelled` 失败。 */
   cancel(id: ResourcePackId): Promise<boolean>;
+  /** 删除已安装的资源包，返回是否有目录被删。语法模型删除前宿主会先释放引擎的共享内存映射。 */
+  remove(id: ResourcePackId): Promise<boolean>;
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
 };
 
@@ -51,6 +57,10 @@ export const resourcePackTitles: Record<ResourcePackId, string> = {
   "language-dictionaries": "粤语、注音与笔画词库",
   handwriting: "手写模型",
   "settled-model": "桌面神经联想模型",
+  "grammar-model-wanxiang": "语法模型·万象",
+  "grammar-model-baguwen": "语法模型·八股文",
+  "grammar-model-baguwen-compact": "语法模型·八股文（紧凑）",
+  "grammar-model-baishuang": "语法模型·白霜（实验）",
   wubi: "五笔码表",
   "voice-runtime-macos": "本地语音识别运行库",
 };
@@ -107,6 +117,8 @@ export type ResourcePacks = {
   ensure(id: ResourcePackId): void;
   install(id: ResourcePackId): void;
   cancel(id: ResourcePackId): void;
+  /** 删除已安装的资源包并刷新状态；没有宿主下载服务时不可用。 */
+  remove(id: ResourcePackId): void;
   /** 下载失败时就地设置下载镜像用；不提供时失败行只有原因和重试。 */
   mirror?: ResourcePackMirror;
 };
@@ -258,7 +270,30 @@ export function useResourcePacks(
       .catch(() => undefined);
   };
 
-  return { statuses, progress, errors, ensure, install, cancel, mirror };
+  const remove = (id: ResourcePackId) => {
+    const expected = client;
+    const generation = clientGeneration.current;
+    const key = runningKey(generation, id);
+    if (!expected || !current(expected, generation) || running.current.has(key)) return;
+    running.current.add(key);
+    setErrors((existing) => ({ ...existing, [id]: undefined }));
+    void (async () => {
+      try {
+        await expected.remove(id);
+      } catch (error) {
+        if (current(expected, generation))
+          setErrors((existing) => ({
+            ...existing,
+            [id]: localModelErrorMessage(error) ?? undefined,
+          }));
+      } finally {
+        running.current.delete(key);
+        if (current(expected, generation)) await refresh(expected, generation);
+      }
+    })();
+  };
+
+  return { statuses, progress, errors, ensure, install, cancel, remove, mirror };
 }
 
 /** 资源包未安装时的一行：说明大小并提供下载；下载中显示进度和取消；失败时显示原因和重试，并提供设置下载镜像的入口。已安装或宿主不提供下载服务时不渲染。 */

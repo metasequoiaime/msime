@@ -303,7 +303,7 @@ int main() {
 
             // A committed mark does not arm the space conversion in the Japanese scheme, so the arm cannot outlive a switch back to Chinese.
             SpaceConvertClient *arming = ClientWith(@"abc！");
-            [controller noteCommittedChinesePunctuation:@{@"commit" : @"！"} client:arming];
+            [controller noteCommittedChinesePunctuation:@{@"commit" : @"！"} key:'!' client:arming];
             assert([[controller valueForKey:@"spaceConvertMark"] integerValue] == (japanese ? 0 : '!'));
             [controller clearSmartPunctuationSpaceConversion];
 

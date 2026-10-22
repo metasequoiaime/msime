@@ -242,6 +242,44 @@ pub unsafe extern "C" fn msime_client_resource_pack_cancel(pack: *const u8, leng
     }));
 }
 
+/// 卸载一个已发布的资源包。阻塞只做一次目录删除。
+///
+/// Request `{"state_root": "<absolute dir>", "pack": "<id>"}`；response value
+/// `{"removed": <bool>}`，`false` 表示这个 state_root 下本来就没装。删除之前
+/// 释放资源包钉住文件在引擎侧的共享内存映射（目前只有 `.gram` 语法模型
+/// 会被 `GramDb::shared` 缓存；其他包的文件按路径查缓存是空跳），否则
+/// `.gram` 被 mmap 占着时目录删除在 Windows 上会失败。未发布目录、暂存目录
+/// 和符号链接都按「没装」处理，不会动。
+///
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resource_pack_remove(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct RemoveRequest {
+            state_root: String,
+            pack: String,
+        }
+        let request: RemoveRequest = resource_pack_request(request, length)?;
+        let state_root = absolute_directory(&request.state_root, "invalid state root")?;
+        let pack = known_resource_pack(&request.pack)?;
+        for artifact in &pack.set().artifacts {
+            crate::evict_grammar_model(
+                &resource_packs::root(state_root)
+                    .join(pack.id())
+                    .join(&*artifact.name),
+            );
+        }
+        let removed =
+            resource_packs::remove(state_root, pack).map_err(|error| error.to_string())?;
+        Ok(json!({ "removed": removed }))
+    })
+}
+
 /// 把升级前已经解压在本机的文件收编为已安装的资源包，不重新下载。阻塞（要哈希整组文件），只能在工作线程上调用。
 ///
 /// Request `{"state_root": "<absolute dir>", "pack": "<id>", "source": "<absolute dir>"}`. The pack's files are renamed out of `source` into a staging directory on the same filesystem (no copy), verified there against the compiled lock and published as `<state_root>/resource-packs/<id>`; other files in `source` are untouched. On any failure every moved file is renamed back and nothing is published, so the caller can fall back to downloading. If the process dies after the renames and before publishing, the next adoption or install of the same pack first renames the stranded files back into the recorded `source`. A pack already installed with the same bytes is left as it is and `source` is not touched. Response value `{"path": "<state_root>/resource-packs/<id>"}`. Errors as for install, plus "invalid source"; "resource_pack_busy" while the same pack is installing.

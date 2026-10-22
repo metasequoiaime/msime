@@ -62,6 +62,9 @@ pub struct ShuangpinDictionary {
     sentence_tables: SentenceNgramTables,
     personal: Arc<PersonalNgramStore>,
     rerankers: Vec<NeuralReranker>,
+    /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
+    /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
+    collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
     sentence_alternatives: bool,
     sentence_association: SentenceAssociationOptions,
     rescoring_context: String,
@@ -107,6 +110,7 @@ impl ShuangpinDictionary {
             sentence_tables,
             personal,
             rerankers: Vec::new(),
+            collocation_db: None,
             sentence_alternatives: false,
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
@@ -286,7 +290,11 @@ impl ShuangpinDictionary {
         raw: &str,
         accepts: impl Fn(usize, &str) -> bool,
     ) -> Vec<WordItem> {
-        if !self.sentence_association.word_lattice {
+        let association = self.sentence_association.clone();
+        let has_collocation =
+            self.collocation_db.is_some() && association.collocation_weight != 0.0;
+        let include_collocation_best = association.collocation_rerank && has_collocation;
+        if !association.word_lattice && !include_collocation_best {
             return Vec::new();
         }
         let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
@@ -294,6 +302,16 @@ impl ShuangpinDictionary {
             self.profile,
         ));
         let mut options = self.sentence_tables.options(self.sentence_alternatives);
+        let scorer;
+        if has_collocation {
+            let db = self.collocation_db.as_ref().expect("collocation db loaded");
+            let config = association.collocation_grammar;
+            scorer = move |tail: &str, word: &str, is_rear: bool| {
+                db.query(tail, word, is_rear, &config) * std::f64::consts::LOG10_E
+            };
+            options.collocation_scorer = Some(&scorer);
+            options.collocation_weight = association.collocation_weight;
+        }
         let model = self.personal.model();
         options.personal = (!model.is_empty()).then_some(&*model);
         let mut lookup = |span: &[String]| {
@@ -330,8 +348,12 @@ impl ShuangpinDictionary {
         typed: &str,
         rows_key: &str,
     ) {
-        let word_lattice = self.sentence_association.word_lattice;
-        if !word_lattice && self.rerankers.is_empty() {
+        let association = self.sentence_association.clone();
+        let word_lattice = association.word_lattice;
+        let has_collocation =
+            self.collocation_db.is_some() && association.collocation_weight != 0.0;
+        let include_collocation_best = association.collocation_rerank && has_collocation;
+        if !word_lattice && self.rerankers.is_empty() && !include_collocation_best {
             return;
         }
         let mut options = self.sentence_tables.options(self.sentence_alternatives);
@@ -339,7 +361,18 @@ impl ShuangpinDictionary {
             options.nbest = MAX_RERANK_PATHS;
         }
         options.include_lattice_best = word_lattice;
-        options.show_next_on_duplicate = self.sentence_association.show_next_on_duplicate;
+        options.include_collocation_best = include_collocation_best;
+        options.show_next_on_duplicate = association.show_next_on_duplicate;
+        let scorer;
+        if has_collocation {
+            let db = self.collocation_db.as_ref().expect("collocation db loaded");
+            let config = association.collocation_grammar;
+            scorer = move |tail: &str, word: &str, is_rear: bool| {
+                db.query(tail, word, is_rear, &config) * std::f64::consts::LOG10_E
+            };
+            options.collocation_scorer = Some(&scorer);
+            options.collocation_weight = association.collocation_weight;
+        }
         // Held for the whole merge: the options borrow the model.
         let model = self.personal.model();
         options.personal = (!model.is_empty()).then_some(&*model);
@@ -629,7 +662,13 @@ impl ShuangpinDictionary {
         if self.sentence_association == options {
             return;
         }
-        self.sentence_association = options;
+        // 模型路径为空或不可载时回退 `None`：与 `msime-bigram.bin` 缺失的既有降级一致。
+        self.collocation_db = if options.collocation_model.as_os_str().is_empty() {
+            None
+        } else {
+            crate::lattice::octagram::GramDb::shared(&options.collocation_model)
+        };
+        self.sentence_association = options.clone();
         self.rerankers.clear();
         if options.neural_keyboard {
             if let Some(model) =

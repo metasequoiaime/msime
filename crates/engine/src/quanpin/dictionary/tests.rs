@@ -135,19 +135,20 @@ fn series_slot_key_encodes_switches_and_context() {
         word_lattice: true,
         neural_keyboard: false,
         show_next_on_duplicate: true,
+        ..Default::default()
     };
     assert_eq!(
-        series_slot_key("T0:A:ni", options, false, ""),
+        series_slot_key("T0:A:ni", &options, false, ""),
         "T0:A:ni\u{1f}S101"
     );
     assert_eq!(
-        series_slot_key("T0:A:ni", options, true, "你好"),
+        series_slot_key("T0:A:ni", &options, true, "你好"),
         "T0:A:ni\u{1f}S101\u{1f}你好"
     );
     for key in ["", "T0:A:ni", "C:T3:A:gua", "T0:M:ni'hao"] {
         for context in ["", "合成上文😀", "合成较长上文甲乙丙丁"] {
             for has_rerankers in [false, true] {
-                let slot = series_slot_key(key, options, has_rerankers, context);
+                let slot = series_slot_key(key, &options, has_rerankers, context);
                 assert_eq!(
                     slot.capacity(),
                     slot.clone().capacity(),
@@ -1239,7 +1240,7 @@ fn association_switch_resets_the_series_cache() {
     let lattice_on = SentenceAssociationOptions::default();
     let lattice_off = SentenceAssociationOptions {
         word_lattice: false,
-        ..lattice_on
+        ..lattice_on.clone()
     };
     let has_sentence = |items: &[WordItem]| items.iter().any(|item| item.sentence_association);
     let cloud = |dictionary: &mut QuanpinDictionary| {
@@ -1314,6 +1315,7 @@ fn only_the_keyboard_model_answers_a_query() {
         word_lattice: true,
         neural_keyboard: true,
         show_next_on_duplicate: true,
+        ..Default::default()
     });
     dictionary.set_rescoring_context("我在用一个新的");
     assert_eq!(dictionary.rerankers.len(), 1);

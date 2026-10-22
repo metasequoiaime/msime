@@ -129,6 +129,15 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_themeCatalogRaw
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderCatalogRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_voice_provider_catalog());
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiProviderCatalogRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_ai_provider_catalog());
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiProviderUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 16 * 1024, msime_client_ai_provider_update);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiModelsRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 256 * 1024, msime_client_ai_models);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceEndpointIssueRaw(JNIEnv *env, jclass, jbyteArray endpoint, jboolean websocket) {
     return bounded_request(env, endpoint, kVoiceEndpointRequestLimit, [websocket](const uint8_t *bytes, size_t length) {
         return msime_client_voice_endpoint_issue(bytes, length, websocket == JNI_TRUE);

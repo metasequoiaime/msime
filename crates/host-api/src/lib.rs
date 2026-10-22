@@ -374,12 +374,47 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
 /// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    state_root: Option<&std::path::Path>,
 ) -> msime_engine::host::SentenceAssociationOptions {
+    // 选中的语法模型装好后才有文件路径；选中但没装（或包装在别处的 state_root
+    // 下没发布）时留空，引擎逐字节退回无模型基线。
+    let pack = match preferences.grammar_model {
+        msime_client_core::preferences::GrammarModel::None => None,
+        msime_client_core::preferences::GrammarModel::Wanxiang => {
+            Some(ResourcePack::GrammarWanxiang)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenWord => {
+            Some(ResourcePack::GrammarBaguwen)
+        }
+        msime_client_core::preferences::GrammarModel::BaguwenCompact => {
+            Some(ResourcePack::GrammarBaguwenCompact)
+        }
+        msime_client_core::preferences::GrammarModel::Baishuang => {
+            Some(ResourcePack::GrammarBaishuang)
+        }
+    };
+    let collocation_model = state_root
+        .zip(pack)
+        .and_then(|(root, pack)| {
+            pack.set()
+                .artifacts
+                .first()
+                .and_then(|artifact| resource_packs::installed_file(root, pack, &artifact.name))
+        })
+        .unwrap_or_default();
     msime_engine::host::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
         neural_keyboard: preferences.neural_keyboard,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
+        collocation_model,
+        collocation_rerank: pack.is_some(),
+        ..Default::default()
     }
+}
+
+/// 资源包卸载前摘掉引擎进程内的 `.gram` 映射，避免 Windows 删除目录时仍被文件句柄占用。
+pub fn evict_grammar_model(path: &std::path::Path) {
+    msime_engine::octagram::GramDb::evict_shared(path);
 }
 
 /// 引擎的引号与方头括号样式，由 client-core 从偏好解析（`corner_when_traditional` 在那里按繁体开关定下）。View 报告的是同一个解析结果。
@@ -728,8 +763,10 @@ impl HostSession {
             &preferences.plugins,
         );
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
-        options.sentence_association =
-            engine_sentence_association(&preferences.sentence_association);
+        options.sentence_association = engine_sentence_association(
+            &preferences.sentence_association,
+            self.state_root.as_deref(),
+        );
         // 引擎按宿主的每页候选数决定全长组要不要并入补全词；和下面交给 runtime 的值同源。
         let page_size = host_page_size(
             self.page_size_override
@@ -910,11 +947,15 @@ impl HostSession {
             state_root,
             Path::new(&self.options.resources),
         ));
+        let grammar_model =
+            engine_sentence_association(&self.applied.sentence_association, state_root)
+                .collocation_model;
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
             && stroke == self.options.stroke_dictionary
             && japanese == self.options.japanese_dictionary
             && wubi == self.options.wubi_dictionary
+            && grammar_model == self.options.sentence_association.collocation_model
         {
             return;
         }
@@ -1889,6 +1930,7 @@ impl HostOptions {
             helpcode_fallback_resources: self.helpcode_fallback_resources,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
+                absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
             ),
             rescoring_context: String::new(),
             sentence_alternatives: true,

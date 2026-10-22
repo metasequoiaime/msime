@@ -1,5 +1,5 @@
 {
-  "contractVersion": 2,
+  "contractVersion": 3,
   "simple": [
     { "input": ",", "output": "，" },
     { "input": ".", "output": "。" },
@@ -19,7 +19,9 @@
   ],
   "alternating": [
     { "input": "\"", "opening": "“", "closing": "”" },
-    { "input": "'", "opening": "‘", "closing": "’" }
+    { "input": "'", "opening": "‘", "closing": "’" },
+    { "input": "{", "opening": "「", "closing": "」" },
+    { "input": "}", "opening": "『", "closing": "』" }
   ],
   "nested": {
     "openingInput": "<",
@@ -32,7 +34,9 @@
   "styles": {
     "cornerQuotes": [
       { "input": "\"", "opening": "『", "closing": "』" },
-      { "input": "'", "opening": "「", "closing": "」" }
+      { "input": "'", "opening": "「", "closing": "」" },
+      { "input": "{", "opening": "「", "closing": "」" },
+      { "input": "}", "opening": "『", "closing": "』" }
     ],
     "hollowBrackets": [
       { "input": "[", "output": "〖" },

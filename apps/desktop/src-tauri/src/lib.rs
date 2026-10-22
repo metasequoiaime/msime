@@ -5738,6 +5738,8 @@ pub fn run() {
             desktop_resource_packs::resource_pack_install,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_cancel,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_remove,
             handwriting_can_input,
             submit_handwriting_candidate,
             open_external_url,

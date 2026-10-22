@@ -478,7 +478,7 @@ impl NineKeySession {
         if self.sentence_association == association && self.sentence_alternatives == alternatives {
             return;
         }
-        self.sentence_association = association;
+        self.sentence_association = association.clone();
         self.sentence_alternatives = alternatives;
         if !association.neural_keyboard {
             self.keyboard = None;
@@ -524,11 +524,12 @@ impl NineKeySession {
 
     /// 交给词库的句子联想设置。键盘模型不在词库里跑（每条切分各跑一次太贵），而由 `rerank_sentences` 跨切分统一跑一次；它要重排的是词网格整句，所以模型打开时即使用户关了词网格，词库也照样解出整句，挑完再去掉。
     fn dictionary_association(&self) -> SentenceAssociationOptions {
-        let association = self.sentence_association;
+        let association = self.sentence_association.clone();
         SentenceAssociationOptions {
             word_lattice: association.word_lattice || association.neural_keyboard,
             neural_keyboard: false,
             show_next_on_duplicate: association.show_next_on_duplicate,
+            ..association
         }
     }
 
@@ -1267,7 +1268,7 @@ impl NineKeySession {
         } else {
             let dictionary = self
                 .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options));
+                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
@@ -1316,7 +1317,7 @@ impl NineKeySession {
         append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
-            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options))
+            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));
@@ -2250,7 +2251,7 @@ fn rerank_cache_matches(entry: &RerankEntry, context: &str, scored: &[Option<&Wo
 
 /// 打开词库时要交给它的选项。取用词库的地方有三处，选项只在这一处攒齐（`dictionary_options`），
 /// 所以以后加选项不会再漏掉某一条路径，让它悄悄用上默认值。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct DictionaryOptions {
     /// `NineKeySession::dictionary_association` 给的句子联想设置。
     association: SentenceAssociationOptions,
@@ -2269,7 +2270,10 @@ fn open_dictionary(paths: &RuntimePaths, options: DictionaryOptions) -> QuanpinD
 
 /// 词网格解出的整句行（`lattice::merge::sentence_row` 的 `Generated` 行）。
 fn is_lattice_sentence(item: &WordItem) -> bool {
-    item.source == CandidateSource::Generated && item.sentence_association
+    matches!(
+        item.source,
+        CandidateSource::Generated | CandidateSource::Collocation
+    ) && item.sentence_association
 }
 
 /// 取候选列表中最多 `MAX_RERANK_PATHS` 条词网格整句，借用行本身而不建立临时索引向量。
@@ -6182,6 +6186,7 @@ mod tests {
             word_lattice,
             neural_keyboard: true,
             show_next_on_duplicate: false,
+            ..Default::default()
         };
         session.set_sentence_options(neural(true), false);
         type_digits(&mut session, "64426");

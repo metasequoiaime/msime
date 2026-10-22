@@ -1,0 +1,61 @@
+# Agent Note: Rime octagram `.gram` 语法模型读取端与逐边打分
+
+Status: implemented
+
+## Problem
+
+旧版 Windows 正式版（`metasequoiaime/msime-windows` v0.11.1）支持下载 octagram 语法模型（`.gram`），整句解码时对每个词边叠加搭配分，能把词频串错句拉回正确搭配。新架构只有 bigram/trigram + 神经重排，没有这条路径。
+
+## Decision
+
+新增 `crates/engine/src/lattice/octagram.rs`：纯 Rust 只读 `.gram` 查找模块。文件头 32 字节格式名 + 校验和 + 双数组大小，`Rime::Grammar` 魔数；正文是 darts-clone 布局的 u32 单元数组，查询键按旧版自定义编码展开码点（ASCII 1 字节、0x4000–0xA000 两字节、其余 7bit 组变长，上限 8 个码点），值为 `ln(共现频次)×10000` 的 i32，负值按 -1 处理。解码侧把查询结果乘 `LOG10_E` 换到主分域。
+
+`GramDb::shared` 经 `memmap2` 惰性映射并按路径共享 `Arc`；`load` 对缺失、截断、魔数不符、单元越界一律回 `None`，与 `msime-bigram.bin` 缺失的既有降级一致。`SentenceAssociationOptions` 新增 `collocation_model`/`collocation_weight`/`collocation_rerank`/`collocation_grammar` 四字段，全拼/双拼词典在 `set_sentence_association` 装载模型，`Option<GramDb>` 为 `None` 时打分器不装配。
+
+解码端 `LatticeOptions` 新增 `collocation_scorer`/`collocation_weight`/`include_collocation_best`。束搜索对每个出边在 `collocation_scorer` 激活时叠加 `weight × scorer(尾窗, 词, is_rear)`；尾窗沿 `prev` 链即时回溯取最后 8 个码点，不增 `Hyp` 字段，未激活路径零开销。句尾词（`edge.end == n`）触发 `.gram` 的 `$` rear 项。`CandidateSource::Collocation` 追加在枚举末尾（wire 值 17，已有值不变）；`is_generated_or_fallback`/`is_sentence_learning`/`static_evidence` 把它按 Generated 对待，保证选中搭配句仍走句子学习。
+
+合并端：`include_collocation_best` 开时首条词格行标 `Collocation`（它是解码最优路径，不是独立来源）；`include_lattice_best` 只在搭配开关同开时才让首行之后的备选继续上榜——无重排通道本来忽略它，基线语义不动。九键词典设置透传新字段，`neural_keyboard` 仍强制关。`series_slot_key` 的参数改为引用，避免 `SentenceAssociationOptions` 失去 `Copy` 后的无谓克隆；grammar 字段不入键——模型路径变化会触发 `set_sentence_association` 里的 `reset_cache`，同一路径下模型内容不可变。
+
+许可：万象 LTS = CC-BY-4.0（可用）；八股文 = LGPL（按资源包附带来源声明）；白霜 = GPL-3.0 且构建链许可未声明，本轮排除，进资源包前须重新评估。读取端按 BSD-3 的 librime-octagram 与 darts-clone 布局实现；本 PR 同时接入偏好、锁定 SHA-256 的按需下载与桌面设置，模型不随安装包分发。
+
+## Alternatives considered
+
+- `Hyp` 内联 33 字节尾窗（每个假设固定 40 字节增量）：会让冻结参考实现与现行实现的内存断言全部失真，改为激活时沿 `prev` 链回溯几跳取尾窗，未激活零成本。
+- 搭配分后置重排：只换顶层候选顺序，不进入束内路径选择，弱于逐边打分且多一次遍历，不采用。
+- 每次查询直接 `GramDb::load`：文件映射重复开销，采用 `shared` 共享；卸载入口通过 host-api 调用 `evict_shared`；活跃会话的引用仍保留到下次空闲重建，Windows 拒绝删除时如实报告失败。
+
+## Testing
+
+- `cargo test -p msime-engine` 2388 项全绿：octagram 单测覆盖编码边界、缺/损文件回 `None`、真实 darts 布局查询、上下文窗口与词首/句尾命中、弱搭配罚分；`decode_collocation_tests` 三项覆盖① 有 gram 时「一名一生」被纠正为「一名医生」、② scorer 在场但 weight=0 与无 scorer 输出逐字节一致、③ 缺/损文件经 `Option` 装配退回基线；`merge_collocation_tests` 三项覆盖 Collocation 标签、只留搭配行、双开关关时无重排基线照旧。
+- `cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings` 干净；`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets` 通过。
+- **真实模型已实测**（2026-10-21，用下载的模型包而非 fixture）：
+  - `zh-hans-t-essay-bgw-compact.gram`（八股文·词级紧凑，39 MB）：`GramDb::load` 成功，`北京+大学` 打 −0.393、`北京+大雪` 打 −2.676，端到端把词频偏向的「北京大雪」纠正成「北京大学」。
+  - `zh-moqi.gram`（白霜/墨奇，7 MB）：`load` 成功，但搭配覆盖稀疏，多数二元组落在未命中惩罚 −6.0 上（`我们+一起` −4.867 是少数命中）。端到端纠正那条按模型能力跳过。
+  - 两条真实模型测试用 `option_env!("MSIME_REAL_GRAM")` 注入路径，CI 上没有模型包时打印原因后跳过，不会假绿。
+- 未验证：万象 LTS（390 MB，下载太慢未取）与八股文·词级（197 MB）；九键/全拼候选窗的 Collocation 行外观；新架构 Windows 宿主的原生设置页行。
+
+读取端保留 RIME Developers 的版权声明，完整 BSD-3-Clause 文本经六个平台已有许可渠道分发；模型数据许可与代码移植许可分开记录。
+
+## Consequences
+
+模型缺失或损坏时行为与改动前逐字节一致；有模型时词格解码首选可被搭配分改写并标为 `Collocation`。`SentenceAssociationOptions` 不再 `Copy`，host-api 结构体镜像处已同步默认值。偏好枚举、资源包 SHA-256 校验与桌面设置单选在本 PR 一同接入。
+
+## 模型目录（与旧版 Windows 正式版一致）
+
+| 模型 | 文件 | 大小 | 许可 | 上游 |
+|---|---|---|---|---|
+| 万象 LTS | `wanxiang-lts-zh-hans.gram` | 约 380 MB | CC-BY-4.0 | `amzxyz/rime-wanxiang-data@LTS` |
+| 八股文·词级 | `zh-hans-t-essay-bgw.gram` | 约 197 MB | LGPL-3.0 | `lotem/rime-octagram-data@20260712` |
+| 八股文·词级紧凑 | `zh-hans-t-essay-bgw-compact.gram` | 约 39 MB | LGPL-3.0 | 同上 |
+| 白霜/墨奇（实验） | `zh-moqi.gram` | 约 7 MB | GPL-3.0，构建链未声明 | `gaboolic/rime-frost@d57f35b3` |
+
+四个模型来自三个仓库，所以锁文件按模型一条记录 `source_commit`，不共用。
+白霜的地址钉在 40 位提交上（上游 `master` 会动），实测该地址的字节与锁里的
+SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 与
+`rime-baishuang-GPL-3.0.txt`。
+
+## 2026-10-22 审查补充
+
+资源包卸载通过 `msime-host-api` 的边界摘除共享映射，桌面宿主不再直接依赖 Engine；卸载命令与其他桌面资源包命令使用相同的平台条件，不进入 Android/iOS 的 Tauri 命令表；白霜模型因 GPL 及构建链许可未确认继续不在桌面设置提供。模型包安装或删除后，宿主在下一次聚焦时比较当前 `.gram` 路径并触发 Engine 重建。读取端拒绝数组偏移落在文件末尾之外的非法头部。
+
+资源包卸载复用语音安装器的跨进程锁、目录描述符与先整体改名的流程，只处理已发布的真实目录，安装期间拒绝卸载；符号链接和未发布目录保持原样。活跃会话持有的映射不会被强制释放，Windows 的占用错误仍通过原有错误入口报告。

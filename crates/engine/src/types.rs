@@ -30,6 +30,9 @@ pub enum CandidateSource {
     CloudPending = 15,
     /// Android 联系人导入提供的手机号候选；选中后直接上屏，不学习、不管理。
     Contact = 16,
+    /// octagram `.gram` 语法模型参与词格解码时，解码首选的整句行。句子仍是词格
+    /// 解出来的，搭配强度表只负责逐边加分；落库/学习判定与 `Generated` 同类。
+    Collocation = 17,
 }
 
 impl CandidateSource {
@@ -51,6 +54,7 @@ impl CandidateSource {
             14 => Self::Plugin,
             15 => Self::CloudPending,
             16 => Self::Contact,
+            17 => Self::Collocation,
             _ => return None,
         })
     }
@@ -73,8 +77,10 @@ impl CandidateSource {
         self.is_online() || matches!(self, Self::AiPending | Self::CloudPending)
     }
 
+    /// 整句猜出来的行：词格 `Generated`/`Collocation`、解码器 `Fallback`。
+    /// 它们的选中都整段上屏、按词边界记进个人上下文、不落词库调频。
     pub fn is_generated_or_fallback(self) -> bool {
-        matches!(self, Self::Generated | Self::Fallback)
+        matches!(self, Self::Generated | Self::Fallback | Self::Collocation)
     }
 
     /// Rows a direct selection stores as a user phrase, because there is no dictionary row whose frequency could be adjusted instead.
@@ -795,7 +801,9 @@ impl WordItem {
         if !self.sentence_association
             || !matches!(
                 self.source,
-                CandidateSource::Generated | CandidateSource::NeuralKeyboard
+                CandidateSource::Generated
+                    | CandidateSource::NeuralKeyboard
+                    | CandidateSource::Collocation
             )
             || self.canonical_pinyin.is_empty()
             || self.word.is_empty()
@@ -885,11 +893,20 @@ pub fn request_autocorrect_mask(transposition: bool, neighbor: bool) -> u32 {
 }
 
 /// Neural sentence association switches. The desktop-model switch is not among them: that model runs only as the input runtime's settled reranker, which the host gates on the preference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SentenceAssociationOptions {
     pub word_lattice: bool,
     pub neural_keyboard: bool,
     pub show_next_on_duplicate: bool,
+    /// octagram `.gram` 语法模型的路径（宿主按模型包解析好后传入）；空 = 关闭。
+    /// 路径无效时词典静默退回无搭配打分，与 `msime-bigram.bin` 缺失的回退一致。
+    pub collocation_model: std::path::PathBuf,
+    /// 搭配项的标定系数（ln 域结果由装配方换算后按它缩放）；0 = 关闭。
+    pub collocation_weight: f64,
+    /// 解码最优路径是否作为 `Collocation` 整句行显示；关掉时搭配分仍参与解码。
+    pub collocation_rerank: bool,
+    /// octagram 六参数；默认对齐万象现行，见 `crate::lattice::octagram::GramConfig`。
+    pub collocation_grammar: crate::lattice::octagram::GramConfig,
 }
 
 impl Default for SentenceAssociationOptions {
@@ -898,6 +915,10 @@ impl Default for SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            collocation_model: std::path::PathBuf::new(),
+            collocation_weight: 1.0,
+            collocation_rerank: false,
+            collocation_grammar: crate::lattice::octagram::GramConfig::default(),
         }
     }
 }

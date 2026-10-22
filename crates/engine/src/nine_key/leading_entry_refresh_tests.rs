@@ -46,7 +46,7 @@ impl NineKeySession {
         } else {
             let dictionary = self
                 .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options));
+                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
@@ -93,7 +93,7 @@ impl NineKeySession {
         append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
-            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options))
+            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));

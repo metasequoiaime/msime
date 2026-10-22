@@ -31,3 +31,5 @@ The official plugin packs in Contents/Resources/plugin-packs of the input method
 The speech recognition models are not part of this application; the settings page downloads them on request, and each model directory carries its own license.
 
 The source tree retains each upstream notice. This collection is not a license-completeness or redistribution-authorization assessment; nested archives and distribution-specific dependencies must retain their own terms. The pinned resource hashes are verified before packaging, and the downloaded resource packs are verified against the same pinned hashes before they are used.
+
+* 语法模型查询与编码逻辑移植自 lotem/librime-octagram，提交 57d18b9f58e5284bd891d559f6bdd16cf60341e9，Copyright (c) 2014, RIME Developers，BSD-3-Clause（librime-octagram-BSD-3-Clause.txt）。

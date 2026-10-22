@@ -1,9 +1,21 @@
+/** octagram `.gram` 语法模型选择：`none` 不用（默认）；`wanxiang` 万象 LTS（CC-BY-4.0）；`baguwen_word`/`baguwen_compact` 八股文·词级与紧凑（LGPL-3.0）。白霜（GPL-3.0 且构建链许可未声明）不提供。 */
+export type GrammarModel = "none" | "wanxiang" | "baguwen_word" | "baguwen_compact" | "baishuang";
+
 /** 本地整句候选来源与可选的神经重排偏好。 */
 export type SentenceAssociationPreferences = {
   word_lattice?: boolean;
   neural_desktop?: boolean;
   neural_keyboard?: boolean;
   show_next_on_duplicate?: boolean;
+  grammar_model?: GrammarModel;
+};
+
+/** 每个语法模型对应的资源包 id；`none` 不对应包。 */
+export const grammarModelPack: Record<Exclude<GrammarModel, "none">, string> = {
+  wanxiang: "grammar-model-wanxiang",
+  baguwen_word: "grammar-model-baguwen",
+  baguwen_compact: "grammar-model-baguwen-compact",
+  baishuang: "grammar-model-baishuang",
 };
 
 /** HarmonyOS 手机「表达」页上「整句联想」的三个级别：0 关闭，1 标准（词网格），2 增强（词网格加键盘神经模型）。 */

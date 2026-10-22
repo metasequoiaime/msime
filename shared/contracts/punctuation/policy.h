@@ -5,7 +5,7 @@
 
 namespace metasequoia::punctuation_contract
 {
-inline constexpr int version = 2;
+inline constexpr int version = 3;
 struct Mapping
 {
     char input;
@@ -34,13 +34,17 @@ inline constexpr std::array<Mapping, 15> simple = {{
     {'^', "……"},
     {'_', "——"},
 }};
-inline constexpr std::array<AlternatingMapping, 2> alternating = {{
+inline constexpr std::array<AlternatingMapping, 4> alternating = {{
     {'"', "“", "”"},
     {'\'', "‘", "’"},
+    {'{', "「", "」"},
+    {'}', "『", "』"},
 }};
-inline constexpr std::array<AlternatingMapping, 2> corner_quotes = {{
+inline constexpr std::array<AlternatingMapping, 4> corner_quotes = {{
     {'"', "『", "』"},
     {'\'', "「", "」"},
+    {'{', "「", "」"},
+    {'}', "『", "』"},
 }};
 inline constexpr std::array<Mapping, 2> hollow_brackets = {{
     {'[', "〖"},

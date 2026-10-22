@@ -5145,7 +5145,7 @@ void focus_in(IBusEngine *engine) {
       // without re-registering it or disturbing repeated focus negotiation.
       publish_mode(engine);
     }
-    // Moving into another text field shows the current 中/英 as a switch does (#2589). Only a new focus: the replay IBus sends while it negotiates the client's identity is the same focus, and showing it again would put the hint back over input the user has started. show_input_mode_hint keeps to the input_mode_hud preference and stays quiet in blocked fields.
+    // 聚焦提示由独立偏好控制（#2589、#9154）。IBus 协商身份时重发的是同一焦点，不应再次盖住已开始的输入；敏感输入框仍不提示。
     if (!already_focused)
       show_input_mode_hint(engine, ModeHintTrigger::FocusEntered);
     floating_toolbar_focus_in(engine);
@@ -6803,7 +6803,7 @@ void hide_shuangpin_keymap() {
   if (auto &keymap = process_shuangpin_keymap()) keymap->hide();
 #endif
 }
-// 中英文切换后短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
+// 短暂显示「中」或「英」；切换由 input_mode_hud 控制，聚焦及其延迟回调由 input_mode_focus_hud 控制。
 //
 // macOS 只在光标旁显示一块徽章。这里能做到时也一样：X11 会话里自绘徽章按 macOS 的规则放到光标下方，不再发辅助文本。做不到时（Wayland 会话、没有可用的后端）用辅助文本：它由 panel 按当前输入上下文摆放，因此也跟着输入点走；用户打开「显示水杉图标」时另在屏幕角上显示带标志的徽章，因为辅助文本带不了图。规则与 Fcitx5 宿主相同，见 ModeBadgePlacement.h 的 mode_badge_hint。
 //
@@ -6817,8 +6817,11 @@ void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger t
   if (trigger != ModeHintTrigger::FocusSettled)
     s.mode_hint_after_focus = false;
 #endif
-  if (!configured.contains("preferences") ||
-      !configured.at("preferences").value("input_mode_hud", true))
+  if (!configured.contains("preferences"))
+    return;
+  const auto &preferences = configured.at("preferences");
+  if (!(trigger == ModeHintTrigger::Switch ? preferences.value("input_mode_hud", true)
+                                          : preferences.value("input_mode_focus_hud", false)))
     return;
   // IBus 自己的 "fake" 上下文也不显示：全局引擎下没有输入框获得焦点时，守护进程让它获得焦点，这时没有可以显示模式的输入框。面板把这样的提示画进 X11 候选窗，Hyprland 会把它映射成一个抢焦点的独立窗口。
   if (!s.focused || s.blocked || s.focused_client == "fake")

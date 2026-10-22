@@ -115,18 +115,26 @@ fn merge_lattice_graph(
                 if already.contains(path.sentence.as_str()) {
                     continue;
                 }
+                // 只放搭配行时词格自己的备选不上榜；
+                // 搭配开关没开时这个开关本来就被忽略（无重排基线语义）。
+                if !block.is_empty()
+                    && options.include_collocation_best
+                    && !options.include_lattice_best
+                {
+                    break;
+                }
                 if block.is_empty() {
                     block = Vec::with_capacity(capacity);
                 }
                 block.push(owned_sentence_row(
                     typed_pinyin,
                     path,
-                    CandidateSource::Generated,
+                    lattice_row_source(&block, options),
                 ));
             }
             block
         } else {
-            generated_block_linear(candidates, paths, typed_pinyin)
+            generated_block_linear(candidates, paths, typed_pinyin, options)
         }
     } else {
         let mut keyboard_order = [0; MAX_RERANK_PATHS];
@@ -142,7 +150,8 @@ fn merge_lattice_graph(
             }
         }
         // 所有模型处理完后确认没有可输出来源，保留已完成的纠错结果。
-        if !options.include_lattice_best && keyboard.is_none() {
+        if !options.include_lattice_best && !options.include_collocation_best && keyboard.is_none()
+        {
             return typo;
         }
         let already = existing_sentence_set(candidates, paths.len());
@@ -211,16 +220,34 @@ fn sentence_seen_linear(candidates: &[WordItem], block: &[WordItem], sentence: &
         .any(|item| item.word == sentence)
 }
 
+/// 词格行的来源标记：语法模型开着时首行是解码最优路径（`Collocation` 的归属），
+/// 其余行是词格自己的备选（`Generated`）。`include_lattice_best` 只在
+/// `include_collocation_best` 同开时才让首行之后的备选继续上榜——那是旧行为里
+/// 本就不看 `include_lattice_best` 的无重排通道。
+fn lattice_row_source(block: &[WordItem], options: &LatticeOptions<'_>) -> CandidateSource {
+    if block.is_empty() && options.include_collocation_best {
+        CandidateSource::Collocation
+    } else {
+        CandidateSource::Generated
+    }
+}
+
 fn generated_block_linear(
     candidates: &[WordItem],
     paths: Vec<SentencePath>,
     typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
 ) -> Vec<WordItem> {
     let mut block = Vec::new();
     let capacity = paths.len();
     for path in paths {
         if sentence_seen_linear(candidates, &block, &path.sentence) {
             continue;
+        }
+        // 只放搭配行时词格自己的备选不上榜；
+        // 搭配开关没开时这个开关本来就被忽略（无重排基线语义）。
+        if !block.is_empty() && options.include_collocation_best && !options.include_lattice_best {
+            break;
         }
         // 全部重复时不分配；首条保留句子沿用原容量，避免非空块新增扩容。
         if block.is_empty() {
@@ -229,7 +256,7 @@ fn generated_block_linear(
         block.push(owned_sentence_row(
             typed_pinyin,
             path,
-            CandidateSource::Generated,
+            lattice_row_source(&block, options),
         ));
     }
     block
@@ -265,8 +292,9 @@ fn reranked_block(
     typed_pinyin: &str,
     is_listed: impl Fn(&str) -> bool,
 ) -> Vec<WordItem> {
-    let literal = options
-        .include_lattice_best
+    // 搭配模型开着时词格首选归属 Collocation；`include_lattice_best` 关掉时
+    // 词格自己的行不出，但搭配行仍放。
+    let literal = (options.include_lattice_best || options.include_collocation_best)
         .then(|| take_sentence_index(&paths, lattice, None, options, &is_listed))
         .flatten();
     let pick = keyboard
@@ -277,7 +305,11 @@ fn reranked_block(
             rows[0] = Some(owned_sentence_row(
                 typed_pinyin,
                 path,
-                CandidateSource::Generated,
+                if options.include_collocation_best {
+                    CandidateSource::Collocation
+                } else {
+                    CandidateSource::Generated
+                },
             ));
         } else if pick == Some(index) {
             rows[1] = Some(owned_sentence_row(
@@ -874,3 +906,7 @@ mod empty_source_dedup_tests;
 #[cfg(test)]
 #[path = "merge_single_path_tests.rs"]
 mod single_path_tests;
+
+#[cfg(test)]
+#[path = "merge_collocation_tests.rs"]
+mod collocation_tests;

@@ -40,6 +40,10 @@ const sizes: Record<ResourcePackId, number> = {
   "language-dictionaries": 18_900_000,
   handwriting: 26_861_246,
   "settled-model": 25_480_184,
+  "grammar-model-wanxiang": 398_497_836,
+  "grammar-model-baguwen": 206_396_460,
+  "grammar-model-baguwen-compact": 40_925_228,
+  "grammar-model-baishuang": 7_339_052,
   wubi: 14_536_704,
   "voice-runtime-macos": 16_466_276,
 };
@@ -54,6 +58,10 @@ function fakePacks(
     "language-dictionaries": "missing",
     handwriting: "missing",
     "settled-model": "missing",
+    "grammar-model-wanxiang": "missing",
+    "grammar-model-baguwen": "missing",
+    "grammar-model-baguwen-compact": "missing",
+    "grammar-model-baishuang": "missing",
     wubi: "missing",
     "voice-runtime-macos": "missing",
     ...state,
@@ -77,6 +85,7 @@ function fakePacks(
         new Promise<string>((resolve, reject) => pending.set(id, { resolve, reject })),
     ),
     cancel: vi.fn(async () => true),
+    remove: vi.fn(async () => true),
     onProgress: vi.fn(async (listener: (progress: LocalVoiceModelProgress) => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -720,4 +729,24 @@ test("a handwriting download failure offers the download mirror and retries afte
   fireEvent.click(screen.getByRole("button", { name: "保存并重试" }));
   await waitFor(() => expect(modelMirror.save).toHaveBeenCalledWith("https://mirror.example.com"));
   await waitFor(() => expect(packs.client.install).toHaveBeenCalledTimes(2));
+});
+
+test("语法模型卸载失败保留已安装状态并显示错误，允许重试", async () => {
+  const id = "grammar-model-baguwen-compact";
+  const packs = fakePacks({ [id]: "installed" }, [id]);
+  packs.client.remove.mockRejectedValueOnce({ code: "resource_pack_remove_denied" });
+  renderSettings("windows", packs.client, {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      sentence_association: { grammar_model: "baguwen_compact" },
+    },
+  });
+  await settingsFormReady();
+  selectSettingsTab("候选与联想");
+  fireEvent.click(await screen.findByRole("button", { name: "删除语法模型·八股文（紧凑）" }));
+  expect(await screen.findByText("操作失败，请重试。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "删除语法模型·八股文（紧凑）" }));
+  await waitFor(() => expect(packs.client.remove).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("操作失败，请重试。")).toBeNull());
 });

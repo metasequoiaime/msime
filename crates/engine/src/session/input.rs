@@ -259,7 +259,7 @@ impl InputSession {
             .set_sentence_alternatives(options.sentence_alternatives);
         session
             .engine
-            .set_sentence_association(options.sentence_association);
+            .set_sentence_association(options.sentence_association.clone());
         session
             .engine
             .set_first_page_rows(FirstPageRows::new(options.first_page_rows));

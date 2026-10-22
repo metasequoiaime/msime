@@ -330,7 +330,7 @@ impl ShuangpinEngine {
         self.dictionary
             .set_sentence_alternatives(request.sentence_alternatives);
         self.dictionary
-            .set_sentence_association(request.sentence_association);
+            .set_sentence_association(request.sentence_association.clone());
         self.dictionary
             .set_rescoring_context(&request.rescoring_context);
         self.dictionary

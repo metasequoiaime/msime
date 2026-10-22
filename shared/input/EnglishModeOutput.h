@@ -10,6 +10,8 @@ namespace msime::input {
 struct EnglishPunctuationState {
   bool double_quote_open = false;
   bool single_quote_open = false;
+  bool corner_single_open = false;
+  bool corner_double_open = false;
   int book_title_nesting = 0;
 };
 
@@ -53,6 +55,13 @@ inline std::string english_mode_chinese_punctuation(
     if (marks.corner_quotes)
       return state.single_quote_open ? "「" : "」";
     return state.single_quote_open ? "‘" : "’";
+  // 契约第 3 版：`{` `}` 的直角引号不吃样式，交替状态与 `'` `"` 分开保存。
+  case '{':
+    state.corner_single_open = !state.corner_single_open;
+    return state.corner_single_open ? "「" : "」";
+  case '}':
+    state.corner_double_open = !state.corner_double_open;
+    return state.corner_double_open ? "『" : "』";
   case '<':
     return state.book_title_nesting++ == 0 ? "《" : "〈";
   case '>':

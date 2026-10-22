@@ -441,6 +441,7 @@
 		6EB221D66027E769AC309E7C /* KeyboardUsageReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C089971B5D38E645D6A81A /* KeyboardUsageReporting.swift */; };
 		6EC87E439C4EDAC3C1991027 /* CandidateCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B9143D7F2B0D1AE4E4896F /* CandidateCanvasView.swift */; };
 		6FC383E38C1A5F8C125E80B7 /* FourteenKeyKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2B8B3DA97562BBE84742FF /* FourteenKeyKeyboardTests.swift */; };
+		700183FCED3A471BFF991B5B /* librime-octagram-BSD-3-Clause.txt in Resources */ = {isa = PBXBuildFile; fileRef = F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */; };
 		702EE96E7A6894EE394EC8B0 /* SharedThemeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C1FF3113D3D2E64FBF8F3D /* SharedThemeTestSupport.swift */; };
 		70676AFFCF880A7935F01E09 /* CloudSyncStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2FCBDD503ED38EAEC810296 /* CloudSyncStateTests.swift */; };
 		70C791105C228EA6C641DED5 /* WAVPCMExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF406F60D186354E48767AFB /* WAVPCMExtractor.swift */; };
@@ -1511,6 +1512,7 @@
 		F0CE1B2A79B2393496CDEF85 /* GlobalTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalTheme.swift; sourceTree = "<group>"; };
 		F2134ADB15FD507683C832FF /* SkinCommunityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityTests.swift; sourceTree = "<group>"; };
 		F3223CD85934FCF0DF98B2D0 /* ClipboardHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryTests.swift; sourceTree = "<group>"; };
+		F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "librime-octagram-BSD-3-Clause.txt"; sourceTree = "<group>"; };
 		F6DAB2E686FB2D17A3C176F4 /* CloudDictionaryApplyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryApplyView.swift; sourceTree = "<group>"; };
 		F7C36B0249387E896711FACF /* HelpcodeChoicePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpcodeChoicePolicyTests.swift; sourceTree = "<group>"; };
 		F80CA053F64086B87190448F /* CommunityValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityValidation.swift; sourceTree = "<group>"; };
@@ -1871,6 +1873,7 @@
 				A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */,
 				EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */,
 				8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */,
+				F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */,
 				DAC83802853B57ACCD2EE104 /* OpenCC-Apache-2.0.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
@@ -2881,6 +2884,7 @@
 				7DDFFD711FA55B45823A5C33 /* kfcd-chaizi-CC-BY-3.0.txt in Resources */,
 				A59935F2ECE3BD02A941814B /* libchewing-data-LGPL-2.1.txt in Resources */,
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,
+				700183FCED3A471BFF991B5B /* librime-octagram-BSD-3-Clause.txt in Resources */,
 				84FD87453189A438FAF20604 /* msime-dictionary-manifest.json in Resources */,
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */,

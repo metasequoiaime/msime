@@ -302,6 +302,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,
@@ -18290,6 +18291,52 @@ fn voice_provider_update_export_rejects_invalid_requests_without_echoing_credent
 }
 
 #[test]
+fn ai_provider_catalog_export_is_public_and_matches_the_shared_presets() {
+    let result = read(msime_client_ai_provider_catalog());
+    assert_eq!(result["ok"], true);
+    let presets = msime_client_providers::ai::provider_catalog::PROVIDERS;
+    assert_eq!(result["value"].as_array().unwrap().len(), presets.len());
+    for (index, preset) in presets.iter().enumerate() {
+        let mut expected = json!(preset);
+        expected["uses_token"] = json!(msime_client_providers::ai::provider_uses_token(preset.id));
+        assert_eq!(result["value"][index], expected);
+    }
+}
+
+#[test]
+fn ai_provider_update_export_returns_only_the_four_configuration_fields() {
+    let request = br#"{"provider":"openai","current":{"enabled":true,"provider":"deepseek","endpoint":"","model":""}}"#;
+    let result = read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["value"],
+        json!({"enabled":true,"provider":"openai","endpoint":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini"})
+    );
+}
+
+#[test]
+fn ai_provider_update_export_rejects_invalid_buffers_and_credential_fields() {
+    for request in [
+        r#"{"provider":"unknown","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":""}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","token":"synthetic-token"}}"#,
+        r#"{"provider":"openai","current":{"enabled":"true","provider":"deepseek","endpoint":"","model":""}}"#,
+    ] {
+        let result =
+            read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], false);
+        assert!(!result.to_string().contains("synthetic-token"));
+    }
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_provider_update(b"x".as_ptr(), 16 * 1024 + 1) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn contacts_load_and_refresh_when_mention_mode_is_disabled() {
     let dir = tempfile::tempdir().unwrap();
     let store = msime_client_services::plugins::mentions::MentionStore::new(
@@ -18529,4 +18576,38 @@ fn language_cycle_abi_publishes_the_shared_state_machine() {
     ] {
         assert_eq!(invalid["ok"], false, "{invalid}");
     }
+}
+
+#[test]
+fn grammar_pack_install_and_remove_mark_the_session_for_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.applied.sentence_association.grammar_model =
+            msime_client_core::preferences::GrammarModel::BaguwenCompact;
+        session.state_root = Some(dir.path().to_path_buf());
+        session.options.sentence_association =
+            engine_sentence_association(&session.applied.sentence_association, Some(dir.path()));
+        session.resources_pending = false;
+        let pack = ResourcePack::GrammarBaguwenCompact;
+        let root = resource_packs::root(dir.path()).join(pack.id());
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("msime-model.json"),
+            serde_json::to_vec(&pack.manifest()).unwrap(),
+        )
+        .unwrap();
+        let model = root.join(&pack.set().artifacts[0].name);
+        std::fs::write(&model, b"synthetic").unwrap();
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+        session.resources_pending = false;
+        session.options.sentence_association.collocation_model = model;
+        assert!(resource_packs::remove(dir.path(), pack).unwrap());
+        session.refresh_resource_packs();
+        assert!(session.resources_pending);
+    });
+    read(msime_client_destroy(handle));
 }

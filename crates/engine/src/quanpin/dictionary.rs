@@ -187,6 +187,9 @@ pub struct QuanpinDictionary {
     /// 词网格解码查二元分的备忘，跨查询保留；表不变它就一直有效，见 `BigramMemo`。
     bigram_memo: RefCell<BigramMemo>,
     rerankers: Vec<NeuralReranker>,
+    /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
+    /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
+    collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
     sentence_alternatives: bool,
     sentence_association: SentenceAssociationOptions,
     /// 首页放得下几行，决定全长组的补全词是按权重并进来还是接在整组末尾；来自宿主的每页候选数（`QueryRequest::first_page_rows`）。存成 `FirstPageRows` 是为了让 0 在这里没有入口，全拼和九键的「0 当 1」只在 `FirstPageRows::new` 做一次。
@@ -235,6 +238,7 @@ impl QuanpinDictionary {
             row_cache_batch: None,
             bigram_memo: RefCell::default(),
             rerankers: Vec::new(),
+            collocation_db: None,
             sentence_alternatives: false,
             sentence_association: SentenceAssociationOptions::default(),
             first_page_rows: FirstPageRows::default(),
@@ -607,7 +611,13 @@ impl QuanpinDictionary {
         if self.sentence_association == options {
             return;
         }
-        self.sentence_association = options;
+        // 模型路径为空或不可载时回退 `None`：与 `msime-bigram.bin` 缺失的既有降级一致。
+        self.collocation_db = if options.collocation_model.as_os_str().is_empty() {
+            None
+        } else {
+            crate::lattice::octagram::GramDb::shared(&options.collocation_model)
+        };
+        self.sentence_association = options.clone();
         self.rerankers.clear();
         if options.neural_keyboard {
             if let Some(model) = shared_sentence_model(&self.paths.resource(NEURAL_MODEL_KEYBOARD))
@@ -632,7 +642,7 @@ impl QuanpinDictionary {
     fn series_slot(&self, cache_key: &str) -> String {
         series_slot_key(
             cache_key,
-            self.sentence_association,
+            &self.sentence_association,
             !self.rerankers.is_empty(),
             &self.rescoring_context,
         )
@@ -716,7 +726,7 @@ impl QuanpinDictionary {
         }
         let mut segments = None;
         let segmentation_cache = &mut self.segmentation_cache;
-        let association = self.sentence_association;
+        let association = self.sentence_association.clone();
         let has_rerankers = !self.rerankers.is_empty();
         let context = &self.rescoring_context;
         let pinyin_segmentation = &mut self.pinyin_segmentation;
@@ -741,8 +751,12 @@ impl QuanpinDictionary {
                         .chain(&resolution.costlier_corrected_cuts)
                         .map(|cut| join_segments(cut))
                         .collect();
-                    let slot =
-                        series_slot_key(&resolution.cache_key, association, has_rerankers, context);
+                    let slot = series_slot_key(
+                        &resolution.cache_key,
+                        &association,
+                        has_rerankers,
+                        context,
+                    );
                     let owned = match resolution {
                         Cow::Borrowed(_) => None,
                         Cow::Owned(resolution) => Some(resolution),
@@ -1086,8 +1100,12 @@ impl QuanpinDictionary {
         segments: &[String],
         include_typos: bool,
     ) {
-        let association = self.sentence_association;
-        if !association.word_lattice && self.rerankers.is_empty() {
+        let association = self.sentence_association.clone();
+        let has_collocation =
+            self.collocation_db.is_some() && association.collocation_weight != 0.0;
+        // 〔搭配〕行即解码最优路径：模型在且显示开关开时才出。
+        let include_collocation_best = association.collocation_rerank && has_collocation;
+        if !association.word_lattice && self.rerankers.is_empty() && !include_collocation_best {
             return;
         }
         // Held for the whole merge: the options borrow the model.
@@ -1098,9 +1116,22 @@ impl QuanpinDictionary {
             options.nbest = MAX_RERANK_PATHS;
         }
         options.include_lattice_best = association.word_lattice;
+        options.include_collocation_best = include_collocation_best;
         options.show_next_on_duplicate = association.show_next_on_duplicate;
         options.personal = Some(&*model);
         options.bigram_memo = Some(&self.bigram_memo);
+        // 搭配项逐边叠加字级搭配分，与二元/三元在同一 Viterbi 里竞争；
+        // query() 是自然对数域，乘 LN_TO_LOG10 换到主分的域。
+        let scorer;
+        if has_collocation {
+            let db = self.collocation_db.as_ref().expect("collocation db loaded");
+            let config = association.collocation_grammar;
+            scorer = move |tail: &str, word: &str, is_rear: bool| {
+                db.query(tail, word, is_rear, &config) * std::f64::consts::LOG10_E
+            };
+            options.collocation_scorer = Some(&scorer);
+            options.collocation_weight = association.collocation_weight;
+        }
 
         let typed = if segmentation.is_empty() {
             raw
@@ -1625,7 +1656,7 @@ fn truncate_last_segment(segmentation: &mut String) {
 
 fn series_slot_key(
     cache_key: &str,
-    options: SentenceAssociationOptions,
+    options: &SentenceAssociationOptions,
     has_rerankers: bool,
     rescoring_context: &str,
 ) -> String {

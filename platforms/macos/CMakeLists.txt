@@ -248,6 +248,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICE
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt" "${MSIME_LEGAL_DIRECTORY}/Administrative-divisions-of-China-WTFPL.txt" COPYONLY)
 # The Korean Hanja table, compiled into the engine from libhangul's data/hanja/hanja.txt (BSD-3-Clause, whose clause 2 requires the notice in binary distributions).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/libhangul-hanja-BSD-3-Clause.txt" COPYONLY)
+# 语法模型查询逻辑的移植声明随引擎分发。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/librime-octagram-BSD-3-Clause.txt" COPYONLY)
 # 拆字反查（C 模式）的部件拼音表，从 kfcd/chaizi（開放詞典《漢語拆字字典》，CC BY 3.0）改编后编进引擎；CC BY 3.0 第 4(b) 条要求分发改编作品时附上署名和改动说明，这份文件就是。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
 # 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0）；第 3(a) 条要求分发改编数据时附上署名、许可证地址和改动说明，这份文件就是。

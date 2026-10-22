@@ -68,6 +68,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,

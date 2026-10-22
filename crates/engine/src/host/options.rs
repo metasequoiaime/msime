@@ -376,7 +376,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.quick_phrase_table = options.quick_phrase_table.clone();
     session.quick_phrase_candidates = options.quick_phrase_candidates;
     session.sentence_alternatives = options.sentence_alternatives;
-    session.sentence_association = options.sentence_association;
+    session.sentence_association = options.sentence_association.clone();
     session.first_page_rows = options.first_page_rows;
     session.rescoring_context = options.rescoring_context.clone();
     // `personal_context` keeps its default: the bridge never exposed it (api-contract §1a).

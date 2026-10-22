@@ -13,7 +13,7 @@ styles = SPEC["styles"]
 corner_quotes = styles["cornerQuotes"]
 hollow_brackets = styles["hollowBrackets"]
 inputs = [entry["input"] for entry in simple + alternating] + [nested["openingInput"], nested["closingInput"]]
-if (SPEC["contractVersion"] != 2 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
+if (SPEC["contractVersion"] != 3 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
         len(set(inputs)) != len(inputs)):
     raise SystemExit("Invalid punctuation contract")
 # 样式是同一个键的另一组字，不是新键：直角引号只能替换交替引号的键，空心括号只能替换 simple 里的键，各键至多出现一次。

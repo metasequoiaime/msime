@@ -53,7 +53,7 @@ fn baseline_merge_lattice_graph(
             }
             block
         } else {
-            generated_block_linear(candidates, paths, typed_pinyin)
+            generated_block_linear(candidates, paths, typed_pinyin, options)
         }
     } else {
         let mut keyboard_order = [0; MAX_RERANK_PATHS];

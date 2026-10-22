@@ -25,6 +25,9 @@ use crate::paths::RuntimePaths;
 /// A lattice span row: exact key, value, dictionary weight.
 pub type LatticeLexeme = DictRow;
 
+/// 字级搭配打分函数的签名：`scorer(上下文尾窗, 候选词, 是否句尾词) -> 主分同域的搭配分`。
+pub type CollocationScorer<'a> = dyn Fn(&str, &str, bool) -> f64 + 'a;
+
 /// The knobs of one decode.
 #[derive(Clone)]
 pub struct LatticeOptions<'a> {
@@ -65,6 +68,15 @@ pub struct LatticeOptions<'a> {
     pub include_lattice_best: bool,
     /// With neural rerankers: take a source's next distinct path when its first pick is already listed.
     pub show_next_on_duplicate: bool,
+    /// 字级搭配打分（octagram `.gram`）：入参是路径已累计文本的尾窗、候选词、
+    /// 是否句尾词，返回解码主分同域的搭配分；`None`（默认）= 关闭。
+    /// 装配方把 `octagram::GramDb::query` 的自然对数域结果乘 `LOG10_E` 换算。
+    pub collocation_scorer: Option<&'a CollocationScorer<'a>>,
+    /// 搭配项的标定系数：scorer 存在且它大于 0 时，逐边叠加 `weight * scorer(...)` 到路径分。
+    pub collocation_weight: f64,
+    /// 语法模型激活时把解码最优路径以 `CandidateSource::Collocation` 行展示；
+    /// 与 `include_lattice_best` 同开且指向同一句时归属 Collocation。
+    pub include_collocation_best: bool,
 }
 
 /// 多字词每音节奖励，并扣一份作为每词插入代价。九宫格跨切分比较再扣音节奖励，保留已经计入的每词代价，见 `nine_key::comparable_weight`。
@@ -93,6 +105,9 @@ impl Default for LatticeOptions<'_> {
             bigram_memo: None,
             include_lattice_best: true,
             show_next_on_duplicate: false,
+            collocation_scorer: None,
+            collocation_weight: 0.0,
+            include_collocation_best: false,
         }
     }
 }
@@ -495,6 +510,82 @@ struct Hyp<'g> {
     typo_edges: usize,
 }
 
+/// 搭配查询的上下文窗口：`.gram` 的查询键最多编入 8 个码点，尾窗留 8 个足够。
+const COLLOCATION_TAIL_CODEPOINTS: usize = 8;
+
+/// 定长内联的 UTF-8 尾窗，随 `Hyp` 按值复制，不进堆。
+#[derive(Clone, Copy, Default)]
+struct CollocationTail {
+    bytes: [u8; COLLOCATION_TAIL_CODEPOINTS * 4],
+    len: u8,
+}
+
+impl CollocationTail {
+    fn as_str(&self) -> &str {
+        // 内容只由词边文本拼成，恒为合法 UTF-8；兜底空串不 panic。
+        std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    }
+
+    /// 尾窗推进一个词：留下 (tail + word) 的最后 `COLLOCATION_TAIL_CODEPOINTS` 个码点。
+    fn push(&mut self, word: &str) {
+        let word_cps = word.chars().count();
+        if word_cps >= COLLOCATION_TAIL_CODEPOINTS {
+            let start = word
+                .char_indices()
+                .nth(word_cps - COLLOCATION_TAIL_CODEPOINTS)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let tail = &word[start..];
+            self.bytes[..tail.len()].copy_from_slice(tail.as_bytes());
+            self.len = tail.len() as u8;
+            return;
+        }
+        let keep = COLLOCATION_TAIL_CODEPOINTS - word_cps;
+        // 先算好位置结束对 self 的只读借用，再原地搬移字节。
+        let (start, tail_len) = {
+            let tail = self.as_str();
+            let skip = tail.chars().count().saturating_sub(keep);
+            (
+                tail.char_indices()
+                    .nth(skip)
+                    .map(|(i, _)| i)
+                    .unwrap_or(tail.len()),
+                tail.len(),
+            )
+        };
+        let keep_bytes = tail_len - start;
+        self.bytes.copy_within(start..tail_len, 0);
+        self.bytes[keep_bytes..keep_bytes + word.len()].copy_from_slice(word.as_bytes());
+        self.len = (keep_bytes + word.len()) as u8;
+    }
+}
+
+/// 沿 `prev` 链回溯，把路径已累计文本的最后 `COLLOCATION_TAIL_CODEPOINTS`
+/// 个码点装进尾窗。只为 `collocation_scorer` 激活的路径逐边付出几跳解引，
+/// 未激活路径不占 `Hyp` 的内存。
+fn collocation_tail(columns: &[BeamColumn<'_>], pos: usize, index: usize) -> CollocationTail {
+    let mut words = [None; COLLOCATION_TAIL_CODEPOINTS];
+    let mut count = 0;
+    let mut cps = 0usize;
+    let (mut p, mut i) = (pos, index);
+    while let Some(edge) = columns[p].hyps[i].edge {
+        words[count] = Some(edge.word.as_str());
+        count += 1;
+        cps += edge.word.chars().count();
+        if cps >= COLLOCATION_TAIL_CODEPOINTS || count >= words.len() {
+            break;
+        }
+        let prev = columns[p].hyps[i].prev;
+        p = prev.0;
+        i = prev.1;
+    }
+    let mut tail = CollocationTail::default();
+    for word in words[..count].iter().rev().flatten() {
+        tail.push(word);
+    }
+    tail
+}
+
 /// The C++ comparator of both beam sorts (WL:106, WL:447).
 fn scores_higher(a: &Hyp<'_>, b: &Hyp<'_>) -> bool {
     a.score > b.score
@@ -577,6 +668,10 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
     let personal = active_personal(options);
     let bigram_table = options.bigram.as_ref();
     let bigram = options.bigram.as_deref();
+    // 搭配项是逐边加分：scorer 存在且标定系数为正才生效，退回现状与缺表完全一致。
+    let collocation = options
+        .collocation_scorer
+        .filter(|_| options.collocation_weight > 0.0);
     let mut memo = options.bigram_memo.map(RefCell::borrow_mut);
     let capacities = column_capacities(graph, extra, options.beam);
     let terminal_limit = if WIDE_TERMINAL {
@@ -698,6 +793,13 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
             });
             for (at, edge) in outgoing.clone().enumerate() {
                 let mut score = hyp.score + edge.log_prob;
+                if let Some(scorer) = collocation {
+                    // 句尾词把 is_rear 置真：`.gram` 的「词+$」rear 项据此参与打分。
+                    // 上下文尾窗沿 prev 链即时取，路径未激活搭配时这里整段不走。
+                    let tail = collocation_tail(done, pos, index);
+                    score += options.collocation_weight
+                        * scorer(tail.as_str(), &edge.word, edge.end == n);
+                }
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
                     // Only a pair the table favours moves the path. A pair it calls less likely than chance counts the same as one it never kept: the table drops rare pairs, so an absent pair is usually rarer still, and penalising the observed one made a common word lose to a rarer one with no pair at all. 句首→一大 is -1.0 and 句首→益达 is absent, which put 益达拖 ahead of 一大拖 for yidatuo (#7583).
@@ -1736,3 +1838,7 @@ mod constrained_tests;
 #[cfg(test)]
 #[path = "decode_row_index_tests.rs"]
 mod row_index_tests;
+
+#[cfg(test)]
+#[path = "decode_collocation_tests.rs"]
+mod collocation_tests;

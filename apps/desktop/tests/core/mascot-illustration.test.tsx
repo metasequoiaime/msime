@@ -93,6 +93,7 @@ test("资源包下载中的说明里配下载词库的插画，进度文字不�
     ensure: vi.fn(),
     install: vi.fn(),
     cancel: vi.fn(),
+    remove: vi.fn(),
   };
   const { container } = render(<ResourcePackRow packs={packs} id="language-dictionaries" />);
   expect(mascots(container)).toEqual(["downloading"]);

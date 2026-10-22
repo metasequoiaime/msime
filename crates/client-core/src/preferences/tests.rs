@@ -1994,6 +1994,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "custom_theme",
         "candidate_follow_cursor",
         "input_mode_hud",
+        "input_mode_focus_hud",
         "input_mode_status_item",
         "expand_candidates",
         "show_candidate_expand_button",
@@ -2003,7 +2004,9 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
-    // 菜单栏状态项是新加的开关，缺字段的旧文档和新装一样读成关闭。
+    // 聚焦提示与菜单栏状态项都缺省关闭，旧文档和新装相同。
+    assert!(!Preferences::default().input_mode_focus_hud);
+    assert!(!loaded.preferences.input_mode_focus_hud);
     assert!(!Preferences::default().input_mode_status_item);
     assert!(!loaded.preferences.input_mode_status_item);
     // 「展开候选」同样是新加的开关，缺字段的旧文档和新装都读成关闭。
@@ -2030,6 +2033,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         toolbar_theme: SettingsTheme::Light,
         candidate_follow_cursor: false,
         input_mode_hud: false,
+        input_mode_focus_hud: true,
         input_mode_status_item: true,
         expand_candidates: true,
         show_candidate_expand_button: false,
@@ -2037,6 +2041,15 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     };
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
+    assert!(store.load().unwrap().preferences.input_mode_focus_hud);
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .preferences
+            .restored_to_defaults()
+            .input_mode_focus_hud
+    );
     assert!(store.load().unwrap().preferences.input_mode_status_item);
     assert!(store.load().unwrap().preferences.expand_candidates);
     assert!(

@@ -488,6 +488,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,
@@ -619,6 +620,7 @@ fn activation_case(
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
     };
@@ -917,6 +919,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            ..Default::default()
         },
         rescoring_context: String::new(),
     };

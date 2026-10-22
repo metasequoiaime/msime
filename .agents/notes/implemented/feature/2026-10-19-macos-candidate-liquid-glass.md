@@ -22,6 +22,10 @@ macOS 26 起，`system` 主题、全局 `system` 与候选 `follow` 同时成立
 
 该机制依赖客户端提供的颜色信息，不能宣称覆盖所有自绘终端。只提供光标矩形的宿主仍回退系统明暗；该限制必须在验收中报告，不能用合成颜色测试冒充该终端的真实支持。
 
+玻璃内容区域的有效外观可以在停止输入后随背后的应用改变，而外层卡片仍保留系统外观。实际候选内容容器监听 `viewDidChangeEffectiveAppearance`，普通候选与展开网格的配色刷新都从该容器的 `effectiveAppearance` 解析明暗，不再从外层卡片取值，避免亮色系统下暗色应用中的深色文字落在暗色玻璃上（metasequoiaime/msime#9196）。这条刷新不重读客户端、不重建候选按钮，也不按应用名称推断主题；旧系统与关闭玻璃时内容容器继承卡片外观。
+
+曾尝试在当前控制器内记住玻璃明暗，并在后续重绘时用该外观初始化父窗口；用户实测出现逐键亮暗交替，这条写回方案由[保留候选玻璃实例](../bug-fix/2026-10-22-macos-candidate-glass-stable-surface.md)取代。当前只让系统管理材质外观，不再把玻璃的输出反馈为父窗口的输入；首次窗口明暗仍来自显式主题、客户端颜色或系统。
+
 ## Historical audit
 
 - [跨平台候选渲染边界](../../implemented/architecture/2026-10-13-cross-platform-candidate-rendering-boundaries.md)：部分重叠，保留原生宿主职责；只修改产品使用的 `MSIMECandidateChromeView`，不改测试专用 `CandidatePanel.mm`。

@@ -950,7 +950,7 @@ impl ImeSession {
         request.enable_quanpin_autocorrect_neighbor =
             self.autocorrect_types & autocorrect_type::NEIGHBOR != 0;
         request.fuzzy_pinyin = self.fuzzy;
-        request.sentence_association = self.sentence_association;
+        request.sentence_association = self.sentence_association.clone();
         request.first_page_rows = self.first_page_rows;
         request
             .rescoring_context

@@ -8,7 +8,9 @@ Status: implemented
 
 ## Decision
 
-`client-providers::ai::provider_catalog` 持有纯公开静态目录，按原共享页顺序导出 JSON 与 C++17 宽字符串头。共享 UI 直接消费 JSON，保留 Ollama 无 `models`、自定义项无 `models/documentation` 的对象形状。Windows 沿用 `Provider` 字段和静态 `const vector` 引用生命周期，从生成表取得相同内容，不引入运行时文件、JSON 解析或 ABI 初始化。
+复用已合入 Android 的 `client-providers::ai::provider_catalog::PROVIDERS` 作为唯一纯公开静态目录，按原共享页顺序导出 JSON 与 C++17 宽字符串头。共享 UI 直接消费 JSON，保留 Ollama 无 `models`、自定义项无 `models/documentation` 的对象形状。Windows 沿用 `Provider` 字段和静态 `const vector` 引用生命周期，从生成表取得相同内容，不引入运行时文件、JSON 解析或 ABI 初始化。
+
+`ui_provider_catalog` 投影省略空建议、空文档及 `desktop_only`，保留 UI 历史字段形状；Android C ABI 继续序列化完整目录，保留必需的 `models`、`documentation`、`desktop_only`，也保留服务切换补丁。两种协议不通过改全局序列化注解互相迁就。
 
 精确 id 匹配、未知值回退、换服务时自定义字段优先、Ollama 桌面过滤与免 Token、图标资源号保持；偏好的首次默认值、iOS 和语音目录仍各自负责原有策略。
 
@@ -32,6 +34,8 @@ Status: implemented
 UI 四文件回归共 412 项通过，类型检查、生产构建和定向 lint 通过。Rust 导出器与目录测试的严格 clippy、全仓 Rust 格式检查通过。生成物缺失或内容过期时，导出器检查拒绝继续；恢复后检查通过。独立审查未发现实质问题。
 
 完整本地 quick 通过：Rust、Android 目标及宿主、Wasm、HarmonyOS HAP、Linux 桌面层和原生宿主、macOS 与共享 Apple 桥构建通过，Linux 原生测试 109 项通过。Windows 可移植宿主测试 176 项通过；完整 Windows 交叉构建及 pipe-only 配置因缺少 MinGW 跳过，x86 语法检查缺少 x64 构建参数，完整原生构建由 PR CI 覆盖。本片未进行设备或 GUI 验收。
+
+合并 Android 目录后，目录与切换规则十项、C ABI 三项和 UI 五文件二十二项回归通过；导出器检查与定向严格 Clippy 通过，完整 quick 再次通过（Linux 原生 111 项、Windows 可移植宿主 176 项）。新增回归明确检查 Android 完整字段与 UI 缺省字段互不影响。
 
 ## Consequences
 

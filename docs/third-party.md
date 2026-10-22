@@ -423,3 +423,7 @@ macOS 的 `platforms/macos/src/candidate/CandidateShadow.h` 对照 msime-windows
 macOS 的 `platforms/macos/src/candidate/CandidatePager.h` 对照 msime-windows 固定提交 `a60e2948dbba29f32bec58ee4bf44d68ce953a0b` 的 `server/src/window/candidate_skin_scene.cpp` 与 `ui/src/PagerArrows.cpp`，以 AppKit 重写列表翻页尺寸、布局与圆角三角路径。按 GPL-3.0 与本仓一同分发，许可全文见仓库根目录 [LICENSE](../LICENSE)；二进制分发沿用对应源码提供要求。
 
 macOS 的 `platforms/macos/src/candidate/CandidateExpandToggle.h` 对照 msime-windows 固定提交 `b0bcb6ff5bef797d72e6b38930be8a6b9dccfb2f` 的 `server/src/window/candidate_skin_scene.cpp`，以 AppKit 重写卷轴展开／收起按钮的字号尺寸、两段折线与留白。按 GPL-3.0 与本仓一同分发，许可全文见仓库根目录 [LICENSE](../LICENSE)；二进制分发沿用对应源码提供要求。
+
+## Octagram 语法模型查询
+
+`crates/engine/src/lattice/octagram.rs` 的查询与编码逻辑移植自 [lotem/librime-octagram](https://github.com/lotem/librime-octagram/tree/57d18b9f58e5284bd891d559f6bdd16cf60341e9) 的 `src/gram_db.cc`、`src/gram_encoding.cc`、`src/octagram.cc`，固定提交 `57d18b9f58e5284bd891d559f6bdd16cf60341e9`。Copyright (c) 2014, RIME Developers，BSD-3-Clause；完整声明保存在 `resources/licenses/librime-octagram-BSD-3-Clause.txt`，经六个平台现有声明渠道随引擎分发。移植改用 Rust，并增加文件边界校验、共享映射缓存与词格打分接线。模型数据另行按需下载，其来源与许可由各资源包单独记录。

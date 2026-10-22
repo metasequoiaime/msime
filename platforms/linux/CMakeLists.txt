@@ -289,7 +289,7 @@ if(BUILD_TESTING)
   add_executable(ibus-mode-hint-lifecycle tests/runtime/mode_hint_lifecycle.cpp)
   target_compile_options(ibus-mode-hint-lifecycle PRIVATE -Wall -Wextra -Werror)
   target_link_libraries(ibus-mode-hint-lifecycle PRIVATE msime-ibus-host Threads::Threads)
-  foreach(scenario english blocked destroyed)
+  foreach(scenario english blocked destroyed focus-preferences)
     add_test(NAME ibus-mode-hint-${scenario} COMMAND ibus-mode-hint-lifecycle ${scenario})
     set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 15)
   endforeach()
@@ -300,7 +300,7 @@ if(BUILD_TESTING)
   find_program(MSIME_XVFB_RUN xvfb-run)
   if(MODE_BADGE_X11_FOUND AND MSIME_XVFB_RUN)
     target_compile_definitions(ibus-mode-hint-lifecycle PRIVATE MSIME_TEST_X11_BADGE)
-    foreach(scenario x11-badge x11-badge-no-caret x11-badge-point x11-toolbar)
+    foreach(scenario x11-badge x11-badge-no-caret x11-badge-point x11-toolbar focus-preferences-x11)
       add_test(NAME ibus-mode-hint-${scenario}
         COMMAND "${MSIME_XVFB_RUN}" -a $<TARGET_FILE:ibus-mode-hint-lifecycle> ${scenario})
       set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 30)
@@ -1263,6 +1263,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
@@ -1281,6 +1282,7 @@ set(MSIME_NOTICE_NAMES
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt
+  librime-octagram-BSD-3-Clause.txt
   kfcd-chaizi-CC-BY-3.0.txt
   rime-wanxiang-CC-BY-4.0.txt
   Unicode-License-V3.txt

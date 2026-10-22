@@ -167,6 +167,17 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
                 .any(|component| component == CHINESE_MAIN_COMPONENT)
                 && !installation.settled_model
         }
+        // 语法模型只给中文整句解码用，不带中文主词库的版本不提供；模型从不随包，
+        // 三个桌面平台都列出，选中型号由偏好决定。
+        ResourcePack::GrammarWanxiang
+        | ResourcePack::GrammarBaguwen
+        | ResourcePack::GrammarBaguwenCompact => edition
+            .resources
+            .components
+            .iter()
+            .any(|component| component == CHINESE_MAIN_COMPONENT),
+        // 白霜的 GPL 模型及其构建链许可尚未确认，不在桌面设置中提供。
+        ResourcePack::GrammarBaishuang => false,
         // 离线释义和 Android 的语音运行库只给 Android 按需下载；桌面发布包随包带着离线释义，语音运行库也按各平台的打包方式内置。
         ResourcePack::OfflineGlosses | ResourcePack::VoiceRuntime => false,
         ResourcePack::Wubi => {
@@ -260,6 +271,43 @@ pub(crate) async fn resource_pack_install<R: tauri::Runtime>(
     }
     let path = install_pack(&app, &installs, store.inner().clone(), pack).await?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// 卸载一个已发布的资源包，返回是否有目录被删。删除之前释放资源包钉住文件
+/// 在引擎侧的共享内存映射（目前只有 `.gram` 语法模型经 `GramDb::shared` 缓存；
+/// 其他包按路径查缓存是空跳），否则 `.gram` 被 mmap 占着时 Windows 上删不掉目录。
+#[tauri::command]
+pub(crate) async fn resource_pack_remove<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+    id: String,
+) -> Result<bool, HostActionError> {
+    let pack = known_pack(&id)?;
+    if !offered_by(pack, crate::package_edition(), &installation(&app).await?) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let root = state_root(store.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        for artifact in &pack.set().artifacts {
+            msime_host_api::evict_grammar_model(
+                &resource_packs::root(&root)
+                    .join(pack.id())
+                    .join(&artifact.name),
+            );
+        }
+        resource_packs::remove(&root, pack).map_err(|error| HostActionError {
+            code: match error.kind() {
+                std::io::ErrorKind::PermissionDenied => "resource_pack_remove_denied",
+                _ => "resource_pack_remove_failed",
+            },
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
 }
 
 /// 停止正在进行的资源包安装，返回是否有安装在跑；安装命令随后以 `local_model_cancelled` 失败。

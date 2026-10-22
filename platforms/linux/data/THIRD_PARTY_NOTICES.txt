@@ -48,3 +48,5 @@ Dictionaries fetched after installation by msime-linux-setup are verified agains
 Shared libraries such as IBus, Fcitx5, ICU, libcurl, ALSA (libasound, which the host library's audio capture and playback link), GTK and WebKitGTK are not bundled; they are loaded at run time from the distribution's packages, which carry their own copyright files.
 
 The source tree retains each upstream notice. This collection is not a license-completeness or redistribution-authorization assessment; nested archives and distribution-specific dependencies must retain their own terms.
+
+* 语法模型查询与编码逻辑移植自 lotem/librime-octagram，提交 57d18b9f58e5284bd891d559f6bdd16cf60341e9，Copyright (c) 2014, RIME Developers，BSD-3-Clause（librime-octagram-BSD-3-Clause.txt）。

@@ -1,6 +1,6 @@
 //! 导出共享设置页与 Windows 原生设置同步使用的公开 AI 目录，不读取配置或凭据。
 
-use msime_client_providers::ai::provider_catalog::AI_PROVIDER_PRESETS;
+use msime_client_providers::ai::provider_catalog::{ui_provider_catalog, PROVIDERS};
 use std::path::Path;
 
 fn wide(value: &str) -> Result<String, serde_json::Error> {
@@ -8,7 +8,7 @@ fn wide(value: &str) -> Result<String, serde_json::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = serde_json::to_value(AI_PROVIDER_PRESETS)?;
+    let catalog = serde_json::to_value(ui_provider_catalog())?;
     let json = format!("{}\n", serde_json::to_string_pretty(&catalog)?);
     let write = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
         [] => {
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut header = String::from(
         "#pragma once\n// 由共享 Rust AI 服务目录导出；通过 export_ai_provider_catalog 更新。\n#include <string_view>\n#include <vector>\n\nnamespace msime::ai {\nstruct ProviderPreset {\n  std::wstring_view id;\n  std::wstring_view title;\n  std::wstring_view endpoint;\n  std::wstring_view model;\n  std::vector<std::wstring_view> models;\n  std::wstring_view documentation;\n};\ninline const std::vector<ProviderPreset>& provider_catalog() {\n  static const std::vector<ProviderPreset> table{\n",
     );
-    for preset in AI_PROVIDER_PRESETS {
+    for preset in PROVIDERS {
         let models = preset
             .models
             .iter()

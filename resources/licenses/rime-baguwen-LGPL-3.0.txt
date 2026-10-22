@@ -1,0 +1,12 @@
+八股文（Baguwen）octagram 语法模型
+zh-hans-t-essay-bgw.gram / zh-hans-t-essay-bgw-compact.gram
+
+上游：https://github.com/lotem/rime-octagram-data（release 20260712）
+许可：LGPL-3.0
+
+这两个 .gram 数据文件按 LGPL-3.0 授权分发。本工程仅以运行时读取的方式
+使用它们（按需下载、进程内 mmap 只读查找），不链接、不修改其内容；
+模型由用户自行下载或删除，不随安装包分发。
+
+GNU LESSER GENERAL PUBLIC LICENSE 全文：
+https://www.gnu.org/licenses/lgpl-3.0.txt

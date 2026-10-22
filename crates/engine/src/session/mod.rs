@@ -67,7 +67,10 @@ impl Session {
                 .then(|| Arc::clone(&input.clock.local)),
         );
         // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
-        nine_key.set_sentence_options(options.sentence_association, options.sentence_alternatives);
+        nine_key.set_sentence_options(
+            options.sentence_association.clone(),
+            options.sentence_alternatives,
+        );
         nine_key.set_first_page_rows(FirstPageRows::new(options.first_page_rows));
         nine_key.set_rescoring_context(&options.rescoring_context);
         // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。

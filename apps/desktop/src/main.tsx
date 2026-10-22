@@ -263,15 +263,15 @@ const macosInputModes: NonNullable<SettingsClient["macosInputModes"]> = {
   openSettings: () => invoke("open_input_source_settings"),
 };
 // 桌面按需下载的资源包（macOS 的日文词库和「粤语、注音与笔画词库」，三个桌面平台的手写模型和桌面神经联想模型）；这些命令只在桌面宿主上注册，所以只在宿主报告桌面平台时提供给页面。本机提供哪些由宿主的列表决定。
-const resourcePacks: ResourcePackClient = createTauriProgressClient<
-  ResourcePackStatus[],
-  LocalVoiceModelProgress
->(invoke, listen, {
-  list: "resource_packs",
-  install: "resource_pack_install",
-  cancel: "resource_pack_cancel",
-  progress: "resource-pack-progress",
-});
+const resourcePacks: ResourcePackClient = {
+  ...createTauriProgressClient<ResourcePackStatus[], LocalVoiceModelProgress>(invoke, listen, {
+    list: "resource_packs",
+    install: "resource_pack_install",
+    cancel: "resource_pack_cancel",
+    progress: "resource-pack-progress",
+  }),
+  remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
+};
 const macosInstallClient: MacosInstallClient = {
   install: () => invoke("run_first_input_source_install"),
 };

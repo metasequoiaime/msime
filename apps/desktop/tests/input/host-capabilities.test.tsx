@@ -186,6 +186,30 @@ test("shortcut groups follow declared capabilities, not the platform name", asyn
   expect(screen.queryByText("打开屏幕键盘")).toBeNull();
 });
 
+test("Linux 可独立开启聚焦提示并保存，不改写切换提示", async () => {
+  const save = vi.fn(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  mount({ host: capabilities({ platform: "linux", input_mode_hud: true }), save });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  selectSettingsTab("中英模式");
+  const focus = screen.getByLabelText("聚焦输入框时提示") as HTMLInputElement;
+  expect(focus.checked).toBe(false);
+  expect((screen.getByLabelText("中英文切换提示") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(focus);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, input_mode_focus_hud: true });
+});
+
+test.each(["macos", "windows"] as const)("%s 不显示 Linux 聚焦提示选项", async (platform) => {
+  mount({ host: capabilities({ platform, input_mode_hud: true }) });
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  selectSettingsTab("中英模式");
+  expect(screen.getByLabelText("中英文切换提示")).toBeTruthy();
+  expect(screen.queryByLabelText("聚焦输入框时提示")).toBeNull();
+});
+
 test("Linux number-row selection follows its capability and saves through shared preferences", async () => {
   const save = vi.fn(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   mount({
