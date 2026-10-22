@@ -4,7 +4,8 @@ import * as settings from "./settings-style";
 import type { PluginPreferences } from "./plugin-preferences";
 import type { PluginClient, PluginSettingsPage } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
-import { scriptResidualRisk, ScriptPluginDetailView } from "./plugin-script-view";
+import { scriptResidualRisk } from "./plugin-script-model";
+import { ScriptPluginDetailView } from "./plugin-script-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
 import { PluginMentionsView } from "./plugin-mentions-view";
@@ -31,7 +32,6 @@ export type {
 } from "./plugin-types";
 export {
   SCRIPT_CAPABILITIES,
-  ScriptGrantDialog,
   capabilityLabels,
   SCRIPT_BUILTIN_NOTE,
   SCRIPT_COMMAND_MODE_NOTE,
@@ -39,8 +39,8 @@ export {
   scriptGrantState,
   scriptResidualRisk,
   toggleCapability,
-  type ScriptGrantDialogProps,
-} from "./plugin-script-view";
+} from "./plugin-script-model";
+export { ScriptGrantDialog, type ScriptGrantDialogProps } from "./script-grant-dialog";
 export { kindLabels, pluginErrorMessage } from "./plugin-catalog-helpers";
 export { MAX_MENTIONS, mentionListIssue } from "./plugin-mentions-view";
 

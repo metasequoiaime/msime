@@ -20,7 +20,7 @@ import type {
   ScriptGrantsResult,
 } from "./plugin-types";
 import type { PluginLibraryFilter } from "./plugin-library-view";
-import { runningScriptIds } from "./plugin-script-view";
+import { runningScriptIds } from "./plugin-script-model";
 import { mentionListIssue } from "./plugin-mentions-view";
 import { useAsyncGeneration } from "./use-async-generation";
 import { usePluginNavigation } from "./use-plugin-navigation";
