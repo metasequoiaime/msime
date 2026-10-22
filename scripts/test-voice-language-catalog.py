@@ -15,6 +15,7 @@ CATALOG = ROOT / "packages/ui/src/voice/voice-language-catalog.json"
 HEADER = ROOT / "shared/voice/VoiceLanguageCatalog.h"
 UI_SOURCE = ROOT / "packages/ui/src/voice/voice-language-options.tsx"
 WINDOWS_SOURCE = ROOT / "platforms/windows/settings/VoiceSettings.h"
+ANDROID_SOURCE = ROOT / "platforms/android/java/app/msime/android/home/VoicePage.java"
 
 EXPECTED = [
     {
@@ -129,7 +130,12 @@ def main() -> None:
             timeout=120,
         )
         subprocess.run([str(executable)], cwd=ROOT, check=True, timeout=30)
-    print("语音语言目录的 UI 与 Windows 消费者通过")
+    android = ANDROID_SOURCE.read_text(encoding="utf-8")
+    if "VoiceLanguageCatalog.mobile()" not in android or "VoiceLanguageCatalog.title(value)" not in android:
+        raise AssertionError("Android 没有接入生成的移动语言目录")
+    if 'LANGUAGES = {"zh-cn", "yue", "en", "auto"}' in android:
+        raise AssertionError("Android 仍保留移动语言表的手写副本")
+    print("语音语言目录的 UI、Windows 与 Android 消费者通过")
 
 
 if __name__ == "__main__":

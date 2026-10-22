@@ -29,6 +29,7 @@ import app.msime.android.VoicePolishSettingsPolicy;
 import app.msime.android.VoiceProviderCatalog;
 import app.msime.android.VoiceProviderPolicy;
 import app.msime.android.VoiceProviderSettings;
+import app.msime.android.VoiceLanguageCatalog;
 import app.msime.android.VoiceRecognitionActivity;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -57,8 +58,6 @@ public final class VoicePage extends ReloadingDetailPage {
         return java.util.List.of("识别", "服务", "模型", "润色", "隐私");
     }
 
-    private static final String[] LANGUAGES = {"zh-cn", "yue", "en", "auto"};
-    private static final String[] LANGUAGE_LABELS = {"普通话", "粤语", "英语", "普通话 + 英语"};
     private static final String[] TRIGGER_LABELS = {"长按空格", "工具栏按钮", "无"};
     private static final int TRIGGER_SPACE = 0;
     private static final int TRIGGER_TOOLBAR = 1;
@@ -673,10 +672,10 @@ public final class VoicePage extends ReloadingDetailPage {
 
     private void pickLanguage(String selected, GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "识别语言", null);
-        String current = selected.isEmpty() ? LANGUAGES[0] : selected;
-        for (int index = 0; index < LANGUAGES.length; index++) {
-            String value = LANGUAGES[index];
-            String label = LANGUAGE_LABELS[index];
+        String current = selected.isEmpty() ? VoiceLanguageCatalog.defaultValue() : selected;
+        for (VoiceLanguageCatalog.Language language : VoiceLanguageCatalog.mobile()) {
+            String value = language.value();
+            String label = language.title();
             sheet.option(label, value.equals(current), () -> {
                 row.setValue(label);
                 saveVoice("language", value);
@@ -772,10 +771,6 @@ public final class VoicePage extends ReloadingDetailPage {
 
     /** 未设置时按普通话显示（键盘的默认识别语言）；其他平台写入的语言原样显示。 */
     private static String languageLabel(String value) {
-        if (value.isEmpty()) return LANGUAGE_LABELS[0];
-        for (int index = 0; index < LANGUAGES.length; index++) {
-            if (LANGUAGES[index].equals(value)) return LANGUAGE_LABELS[index];
-        }
-        return "ja".equals(value) ? "日语" : value;
+        return VoiceLanguageCatalog.title(value);
     }
 }

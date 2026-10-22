@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在 `crates/client-providers/src/voice/language_catalog.rs` 持有语言的稳定 id、云端短代码、系统识别区域代码、桌面标题和移动标题。独立导出器生成共享 UI JSON 与 Windows 头文件；UI 和 Windows 按宿主能力投影有值的列。移动端本片只生成目录字段，下一片接入移动宿主，保留系统识别只支持普通话、未知保存值原样显示和本地模型自己的语言映射。
+在 `crates/client-providers/src/voice/language_catalog.rs` 持有语言的稳定 id、云端短代码、系统识别区域代码、桌面标题和移动标题。独立导出器生成共享 UI JSON、Windows 头文件和 Android Java 目录；UI、Windows 和 Android 按宿主能力投影有值的列，保留系统识别只支持普通话、未知保存值原样显示和本地模型自己的语言映射。
 
 ## Alternatives considered
 
@@ -17,13 +17,13 @@ Status: implemented
 
 ## Verification
 
-- 共享 Rust 目录生成 UI JSON 和 Windows 头文件，生成器支持 `--check`。
+- 共享 Rust 目录生成 UI JSON、Windows 头文件和 Android Java 目录，生成器支持 `--check`。
 - UI 桌面/移动选项和 Windows 系统/云端选项的实际输出与迁移前逐字一致。
 - `voice_input.language` 的存储值、系统识别区域值、未知值回显规则不变。
 - 生成物漂移、缺失和消费者未接线时有自动检查。
 
-Rust 目录单元测试通过，生成器 `--check` 通过；合成 C++ 消费者运行检查通过。旧 UI 的桌面语言选项和 Windows 的系统/云端选项逐字核对，当前目录投影保持相同顺序和值；本片尚未改移动端消费者。
+Rust 目录单元测试通过，生成器 `--check` 通过；合成 C++ 消费者和 Android Java 消费者运行检查通过。旧 UI 的桌面语言选项、Windows 的系统/云端选项和 Android 的移动选项逐字核对，当前目录投影保持相同顺序和值；iOS 仍待单独核对其区域值契约。
 
 ## Consequences
 
-共享 UI 与 Windows 不再维护语言值和标题的第二份表；导出生成物必须通过 `--check` 保持同步。移动端的 iOS/Android 识别器仍保留平台特有的映射，本片先接 UI 与 Windows，后续片分别接入移动宿主并用运行基线证明没有改变系统、本地模型和云端请求策略。
+共享 UI、Windows 和 Android 不再维护语言值和标题的第二份表；导出生成物必须通过 `--check` 保持同步。iOS 仍通过 `VoicePolishSettings.languages` 管理自己的 Swift 映射，待单独核对其区域值契约后再接入。
