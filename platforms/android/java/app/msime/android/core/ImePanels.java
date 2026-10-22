@@ -1717,13 +1717,14 @@ final class ImePanels {
     /**
      * 长按操作行里的「添加到常用语」（#5909）：把这一条存成无编码常用语，之后在键盘的「常用语」面板里点一下就能上屏。
      *
-     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程用 `notice` 说出来。剪贴板历史不限 1000 字、允许回车和制表符，常用语都不行：先把回车换成换行，仍存不下的在这里拦下，按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
+     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程显示独立提示，不重画剪贴板列表。先把回车换成换行，仍存不下的按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
      */
     private void addClipboardTextToPhrases(String entry) {
+        long request = s.beginClipboardPhraseNotice();
         String text = CommonPhrasesPanelPolicy.clipboardPhraseText(entry);
         String refusal = CommonPhrasesPanelPolicy.clipboardRefusal(text);
         if (refusal != null) {
-            s.notice(refusal);
+            s.showClipboardPhraseNotice(request, refusal);
             return;
         }
         try {
@@ -1736,10 +1737,10 @@ final class ImePanels {
                 }
                 String notice = CommonPhrasesPanelPolicy.clipboardAddNotice(
                     result != null && result.ok(), result == null ? "" : result.failure());
-                s.main.post(() -> s.notice(notice));
+                s.main.post(() -> s.showClipboardPhraseNotice(request, notice));
             });
         } catch (java.util.concurrent.RejectedExecutionException error) {
-            s.notice(CommonPhrasesStore.failureMessage(""));
+            s.showClipboardPhraseNotice(request, CommonPhrasesStore.failureMessage(""));
         }
     }
 
