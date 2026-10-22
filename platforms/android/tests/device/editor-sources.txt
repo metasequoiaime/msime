@@ -52,6 +52,7 @@ platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
+platforms/android/tests/device/settings/CommonPhraseNotesDeviceCheck.java
 platforms/android/tests/device/settings/NoticeQueueDeviceCheck.java
 platforms/android/tests/device/settings/SkinDeleteDeviceCheck.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java

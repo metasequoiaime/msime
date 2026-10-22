@@ -445,3 +445,114 @@ fn finished_scope_releases_inherited_lock() {
         &root.path().join(LOCK_FILE_NAME),
     );
 }
+
+#[test]
+fn common_phrase_notes_are_optional_local_metadata() {
+    let (_root, store) = fresh();
+    let legacy = store.add("synthetic command").unwrap();
+    assert!(legacy.phrases[0].note.is_empty());
+    let raw = fs::read(&store.file).unwrap();
+    assert!(
+        !serde_json::from_slice::<serde_json::Value>(&raw).unwrap()["phrases"][0]
+            .as_object()
+            .unwrap()
+            .contains_key("note")
+    );
+    let id = legacy.phrases[0].id;
+    let edited = store
+        .replace_with_note(id, "synthetic command", Some("用途说明\n第二行🙂"))
+        .unwrap();
+    assert_eq!(edited.phrases[0].text, "synthetic command");
+    assert_eq!(store.load().unwrap().phrases[0].note, "用途说明\n第二行🙂");
+    // 旧的正文修改及排序请求没有备注字段，必须保留说明。
+    assert_eq!(
+        store
+            .replace(id, "synthetic changed command")
+            .unwrap()
+            .phrases[0]
+            .note,
+        "用途说明\n第二行🙂"
+    );
+    assert_eq!(
+        store.move_to(id, 0).unwrap().phrases[0].note,
+        "用途说明\n第二行🙂"
+    );
+    let cleared = store
+        .replace_with_note(id, "synthetic changed command", Some(" \n "))
+        .unwrap();
+    assert!(cleared.phrases[0].note.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(&store.file).unwrap()).unwrap();
+    assert!(!value["phrases"][0]
+        .as_object()
+        .unwrap()
+        .contains_key("note"));
+}
+
+#[test]
+fn common_phrase_notes_validate_before_any_part_of_the_edit_is_written() {
+    let (_root, store) = fresh();
+    let document = store
+        .add_with_note("synthetic original", "synthetic note")
+        .unwrap();
+    let id = document.phrases[0].id;
+    let before = fs::read(&store.file).unwrap();
+    for note in [
+        "x".repeat(MAX_PHRASE_UTF16 + 1),
+        "🙂".repeat(501),
+        "tab\tvalue".into(),
+        "nul\0value".into(),
+    ] {
+        assert!(matches!(
+            store.replace_with_note(id, "synthetic changed", Some(&note)),
+            Err(CommonPhrasesError::InvalidNote)
+        ));
+        assert_eq!(fs::read(&store.file).unwrap(), before);
+    }
+    assert!(store
+        .replace_with_note(id, "synthetic original", Some(&"🙂".repeat(500)))
+        .is_ok());
+    assert!(matches!(
+        store.add_with_note("synthetic original", "different note"),
+        Err(CommonPhrasesError::Duplicate)
+    ));
+    assert!(store.remove(id).unwrap().phrases.is_empty());
+}
+
+#[test]
+fn common_phrase_note_actions_preserve_legacy_callers_and_allow_explicit_clear() {
+    let (_root, store) = fresh();
+    let action =
+        serde_json::from_value(serde_json::json!({"operation":"add", "text":"synthetic legacy"}))
+            .unwrap();
+    let document = store.perform(action).unwrap();
+    let id = document.document.phrases[0].id;
+    for request in [
+        serde_json::json!({"operation":"replace", "id":id, "text":"synthetic legacy", "note":"synthetic description"}),
+        serde_json::json!({"operation":"replace", "id":id, "text":"synthetic changed"}),
+    ] {
+        store
+            .perform(serde_json::from_value(request).unwrap())
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().phrases[0].note,
+            "synthetic description"
+        );
+    }
+    store.perform(serde_json::from_value(serde_json::json!({"operation":"replace", "id":id, "text":"synthetic changed", "note":""})).unwrap()).unwrap();
+    assert!(store.load().unwrap().phrases[0].note.is_empty());
+}
+
+#[test]
+fn common_phrase_malformed_note_is_not_overwritten() {
+    let (_root, store) = fresh();
+    let document = store.add("synthetic entry").unwrap();
+    let mut raw = serde_json::to_value(document).unwrap();
+    raw["phrases"][0]["note"] = serde_json::json!(false);
+    let before = serde_json::to_vec(&raw).unwrap();
+    fs::write(&store.file, &before).unwrap();
+    assert!(matches!(
+        store.add("synthetic second"),
+        Err(CommonPhrasesError::Corrupt)
+    ));
+    assert_eq!(fs::read(&store.file).unwrap(), before);
+}

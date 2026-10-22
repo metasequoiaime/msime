@@ -32,6 +32,9 @@ pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub struct CommonPhrase {
     pub id: Uuid,
     pub text: String,
+    /// 仅本机显示的用途说明，不参与正文去重或云同步。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
     pub pack: Option<Uuid>,
 }
 
@@ -57,12 +60,30 @@ pub struct CommonPhrases {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommonPhrasesAction {
     Load,
-    Add { text: String },
-    Remove { id: Uuid },
-    Replace { id: Uuid, text: String },
-    Move { id: Uuid, index: usize },
-    InstallPack { resource: Box<CommunityResource> },
-    RemovePack { id: Uuid },
+    Add {
+        text: String,
+        #[serde(default)]
+        note: String,
+    },
+    Remove {
+        id: Uuid,
+    },
+    Replace {
+        id: Uuid,
+        text: String,
+        /// 旧调用不传时保留原备注，空字符串显式清空。
+        note: Option<String>,
+    },
+    Move {
+        id: Uuid,
+        index: usize,
+    },
+    InstallPack {
+        resource: Box<CommunityResource>,
+    },
+    RemovePack {
+        id: Uuid,
+    },
 }
 
 /// 一次操作的结果：整份文档，以及安装短语包时因为超过本地长度上限或与包内已有文本重复而没有收下的条数。
@@ -86,6 +107,8 @@ pub enum CommonPhrasesError {
     Corrupt,
     #[error("common phrase is invalid")]
     Invalid,
+    #[error("common phrase note is invalid")]
+    InvalidNote,
     #[error("common phrase already exists in the same source")]
     Duplicate,
     #[error("common phrase limit reached")]
@@ -103,6 +126,7 @@ impl CommonPhrasesError {
             Self::Io(_) => "common_phrases_io",
             Self::Corrupt => "common_phrases_corrupt",
             Self::Invalid => "common_phrases_invalid",
+            Self::InvalidNote => "common_phrases_note_invalid",
             Self::Duplicate => "common_phrases_duplicate",
             Self::Limit => "common_phrases_limit",
             Self::TooLarge => "common_phrases_too_large",
@@ -116,6 +140,20 @@ pub fn valid_phrase_text(text: &str) -> bool {
     !text.trim().is_empty()
         && crate::text::is_bounded_utf16(text, MAX_PHRASE_UTF16)
         && !crate::has_disallowed_control_with_allowed(text, &['\n'])
+}
+
+/// 备注允许为空，长度和控制字符规则与正文相同。
+pub fn valid_phrase_note(note: &str) -> bool {
+    crate::text::is_bounded_utf16(note, MAX_PHRASE_UTF16)
+        && !crate::has_disallowed_control_with_allowed(note, &['\n'])
+}
+
+fn normalized_note(note: &str) -> &str {
+    if note.trim().is_empty() {
+        ""
+    } else {
+        note
+    }
 }
 
 /// 社区短语的换行可能是 `\r\n` 或 `\r`；本地只存 `\n`。
@@ -164,9 +202,13 @@ impl CommonPhrasesStore {
     ) -> Result<CommonPhrasesOutcome, CommonPhrasesError> {
         match action {
             CommonPhrasesAction::Load => self.load().map(Self::outcome),
-            CommonPhrasesAction::Add { text } => self.add(&text).map(Self::outcome),
+            CommonPhrasesAction::Add { text, note } => {
+                self.add_with_note(&text, &note).map(Self::outcome)
+            }
             CommonPhrasesAction::Remove { id } => self.remove(id).map(Self::outcome),
-            CommonPhrasesAction::Replace { id, text } => self.replace(id, &text).map(Self::outcome),
+            CommonPhrasesAction::Replace { id, text, note } => self
+                .replace_with_note(id, &text, note.as_deref())
+                .map(Self::outcome),
             CommonPhrasesAction::Move { id, index } => self.move_to(id, index).map(Self::outcome),
             CommonPhrasesAction::InstallPack { resource } => self.install_pack(&resource),
             CommonPhrasesAction::RemovePack { id } => self.remove_pack(id).map(Self::outcome),
@@ -188,6 +230,18 @@ impl CommonPhrasesStore {
 
     /// 在末尾加一条自己的常用语。与自己已有的某条完全相同时拒绝。
     pub fn add(&self, text: &str) -> Result<CommonPhrases, CommonPhrasesError> {
+        self.add_with_note(text, "")
+    }
+
+    /// 同时保存正文和本机备注，使用同一次文件锁及原子发布。
+    pub fn add_with_note(
+        &self,
+        text: &str,
+        note: &str,
+    ) -> Result<CommonPhrases, CommonPhrasesError> {
+        if !valid_phrase_note(note) {
+            return Err(CommonPhrasesError::InvalidNote);
+        }
         if !valid_phrase_text(text) {
             return Err(CommonPhrasesError::Invalid);
         }
@@ -209,6 +263,7 @@ impl CommonPhrasesStore {
             document.phrases.push(CommonPhrase {
                 id: Uuid::new_v4(),
                 text: text.to_owned(),
+                note: normalized_note(note).to_owned(),
                 pack: None,
             });
             Ok(())
@@ -226,6 +281,19 @@ impl CommonPhrasesStore {
 
     /// 改写一条的正文，它仍属于原来的来源；与同一来源里的另一条相同时拒绝。
     pub fn replace(&self, id: Uuid, text: &str) -> Result<CommonPhrases, CommonPhrasesError> {
+        self.replace_with_note(id, text, None)
+    }
+
+    /// `note` 未传时保留原值；传空字符串时删除备注，正文及备注原子保存。
+    pub fn replace_with_note(
+        &self,
+        id: Uuid,
+        text: &str,
+        note: Option<&str>,
+    ) -> Result<CommonPhrases, CommonPhrasesError> {
+        if note.is_some_and(|value| !valid_phrase_note(value)) {
+            return Err(CommonPhrasesError::InvalidNote);
+        }
         if !valid_phrase_text(text) {
             return Err(CommonPhrasesError::Invalid);
         }
@@ -242,6 +310,9 @@ impl CommonPhrasesStore {
                 return Err(CommonPhrasesError::Duplicate);
             }
             document.phrases[index].text = text.to_owned();
+            if let Some(note) = note {
+                document.phrases[index].note = normalized_note(note).to_owned();
+            }
             Ok(())
         })
     }
@@ -317,6 +388,7 @@ impl CommonPhrasesStore {
             let entries = texts.iter().map(|text| CommonPhrase {
                 id: Uuid::new_v4(),
                 text: text.clone(),
+                note: String::new(),
                 pack: Some(pack.id),
             });
             document.phrases.splice(insert_at..insert_at, entries);
@@ -435,6 +507,7 @@ fn validate(document: &CommonPhrases) -> Result<(), ()> {
         if phrase.id.is_nil()
             || !ids.insert(phrase.id)
             || !valid_phrase_text(&phrase.text)
+            || !valid_phrase_note(&phrase.note)
             || !texts.insert((phrase.pack, phrase.text.as_str()))
         {
             return Err(());

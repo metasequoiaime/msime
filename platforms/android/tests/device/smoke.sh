@@ -255,6 +255,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e notice-queue true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Notice queue isolation acceptance failed" >&2; exit 1; }
+# 常用语备注经原生设置、真实键盘和本地备份验收；最低 API 的核心验收也执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-notes true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase note acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"

@@ -2294,13 +2294,13 @@ final class ImePanels {
             }
             int phraseCapacity = result != null && result.ok()
                 ? result.document().phrases().size() : 0;
-            java.util.List<String> phrases = new java.util.ArrayList<>(phraseCapacity);
+            java.util.List<CommonPhrasesStore.Phrase> phrases = new java.util.ArrayList<>(phraseCapacity);
             String message;
             if (result == null || !result.ok()) {
                 message = result == null || result.failure().isEmpty() ? "常用语读取失败" : result.failure();
             } else {
                 for (CommonPhrasesStore.Phrase phrase : result.document().phrases())
-                    if (!phrase.text().isEmpty()) phrases.add(phrase.text());
+                    if (!phrase.text().isEmpty()) phrases.add(phrase);
                 message = phrases.isEmpty() ? EMPTY_PHRASES : null;
             }
             final String note = message;
@@ -2316,7 +2316,7 @@ final class ImePanels {
         }
     }
 
-    private void renderCommonPhrases(java.util.List<String> phrases, String message) {
+    private void renderCommonPhrases(java.util.List<CommonPhrasesStore.Phrase> phrases, String message) {
         LinearLayout panel = s.phrasePanel;
         panel.removeAllViews();
         LayoutPolicy.setPaddingDp(panel, s, 8, 4, 8, 8);
@@ -2328,19 +2328,35 @@ final class ImePanels {
             panel.addView(note, LayoutPolicy.matchWidthWrapParams());
         }
         java.util.List<View> lines = new java.util.ArrayList<>(phrases.size());
-        for (String phrase : phrases) {
-            KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, phrase,
-                "常用语 " + (phrase.length() > 20 ? phrase.substring(0, 20) : phrase), () -> {
+        for (CommonPhrasesStore.Phrase phrase : phrases) {
+            String text = phrase.text();
+            Runnable insert = () -> {
                     if (s.connection == null) return;
                     s.command(2);
-                    s.commitText(phrase);
+                    s.commitText(text);
                     s.closeCommonPhrases();
                     s.render();
-                });
+            };
+            String description = "常用语 " + (text.length() > 20 ? text.substring(0, 20) : text);
+            KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, text, description, insert);
             ViewPolicy.setStartCenteredTextSizeSp(row, 15);
             ViewPolicy.setMaxLinesEllipsized(row, 2);
             LayoutPolicy.setSymmetricPaddingDp(row, s, 12, 8);
-            panel.addView(row, LayoutPolicy.matchWidthWrapParams());
+            LinearLayout entry = LayoutPolicy.column(s);
+            entry.addView(row, LayoutPolicy.matchWidthWrapParams());
+            if (!phrase.note().isEmpty()) {
+                TextView annotation = new TextView(s);
+                annotation.setText("备注：" + phrase.note());
+                annotation.setContentDescription("常用语备注：" + phrase.note());
+                ViewPolicy.setTextSizeSp(annotation, 12);
+                ViewPolicy.setMaxLinesEllipsized(annotation, 2);
+                annotation.setAlpha(.65f);
+                LayoutPolicy.setPaddingDp(annotation, s, 12, 0, 12, 8);
+                // 备注区域也响应插入，但回调只捕获独立的正文。
+                bindFeedbackAction(annotation, insert);
+                entry.addView(annotation, LayoutPolicy.matchWidthWrapParams());
+            }
+            panel.addView(entry, LayoutPolicy.matchWidthWrapParams());
             View hairline = new View(s);
             LinearLayout.LayoutParams line = LayoutPolicy.matchWidthHeightPx(
                 DimensionPolicy.atLeastOnePixel(s, 1));
