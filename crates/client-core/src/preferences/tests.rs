@@ -3560,6 +3560,58 @@ fn first_document_tells_a_fresh_install_from_an_upgrade() {
 }
 
 #[test]
+fn touch_spelling_position_defaults_to_the_editor_independently_of_the_candidate_window() {
+    // 桌面候选窗默认画拼音行；触屏的拼写位置不能跟着它挪出输入框。
+    assert_eq!(
+        Preferences::default().candidate_preedit_style,
+        CandidatePreeditStyle::Pinyin
+    );
+    assert_eq!(
+        Preferences::default().touch_spelling_position,
+        TouchSpellingPosition::Editor
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("touch_spelling_position");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.touch_spelling_position,
+        TouchSpellingPosition::Editor
+    );
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                touch_spelling_position: TouchSpellingPosition::CandidateBar,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.touch_spelling_position,
+        TouchSpellingPosition::CandidateBar
+    );
+    assert_eq!(
+        saved.preferences.candidate_preedit_style,
+        CandidatePreeditStyle::Pinyin
+    );
+    assert_eq!(
+        serde_json::to_value(TouchSpellingPosition::CandidateBar).unwrap(),
+        "candidate_bar"
+    );
+    assert_eq!(
+        serde_json::to_value(TouchSpellingPosition::Editor).unwrap(),
+        "editor"
+    );
+}
+
+#[test]
 fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());

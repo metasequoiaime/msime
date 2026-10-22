@@ -56,6 +56,7 @@ NOT_APPLICABLE = {
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
     "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
+    "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",

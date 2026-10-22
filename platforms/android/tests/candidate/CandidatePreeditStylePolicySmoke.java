@@ -12,13 +12,20 @@ public final class CandidatePreeditStylePolicySmoke {
         String pinyin = CandidatePreeditStylePolicy.PINYIN;
         String empty = CandidatePreeditStylePolicy.EMPTY;
 
-        check(CandidatePreeditStylePolicy.normalize("pinyin").equals(pinyin),
+        String editor = CandidatePreeditStylePolicy.EDITOR;
+        String candidateBar = CandidatePreeditStylePolicy.CANDIDATE_BAR;
+        check(CandidatePreeditStylePolicy.normalize("candidate_bar").equals(candidateBar),
             "the candidate-bar preference is preserved");
-        check(CandidatePreeditStylePolicy.normalize("empty").equals(empty)
-                && CandidatePreeditStylePolicy.normalize("invalid").equals(empty),
+        check(CandidatePreeditStylePolicy.normalize("editor").equals(editor)
+                && CandidatePreeditStylePolicy.normalize(null).equals(editor)
+                && CandidatePreeditStylePolicy.normalize("invalid").equals(editor),
             "missing and invalid preferences use the editor fallback");
-        check(CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(pinyin)
-                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(empty),
+        // 桌面候选窗的 `candidate_preedit_style` 默认是 pinyin；这个值不能把触屏拼写挪出输入框。
+        check(CandidatePreeditStylePolicy.normalize(pinyin).equals(editor)
+                && CandidatePreeditStylePolicy.normalize(empty).equals(editor),
+            "candidate_preedit_style values never select the candidate bar");
+        check(CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(candidateBar)
+                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(editor),
             "the candidate-bar preference keeps spelling out of the editor");
 
         // 兼容例外只匹配应用完整包名和中文拼音，不影响其他应用、英文与其他语言。
@@ -47,9 +54,9 @@ public final class CandidatePreeditStylePolicySmoke {
             check(CandidatePreeditStylePolicy.style(scheme, false).equals(pinyin),
                 "a spelling kept out of the field is still drawn, scheme " + scheme);
         }
-        check(CandidatePreeditStylePolicy.style(pinyin, InputSchemeTraits.QUANPIN, true).equals(pinyin),
+        check(CandidatePreeditStylePolicy.style(candidateBar, InputSchemeTraits.QUANPIN, true).equals(pinyin),
             "candidate-bar mode keeps pinyin visible even when composition is available");
-        check(CandidatePreeditStylePolicy.style(empty, InputSchemeTraits.QUANPIN, true).equals(empty),
+        check(CandidatePreeditStylePolicy.style(editor, InputSchemeTraits.QUANPIN, true).equals(empty),
             "editor mode hides pinyin after composition is written");
         // 日语读音、就地组字的方案和笔画字形照常画在候选栏上。
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.KOREAN,

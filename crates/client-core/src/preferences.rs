@@ -102,6 +102,17 @@ pub enum TwentySixKeyNumberLayout {
     NineKey,
 }
 
+/// 触屏键盘把正在拼写的内容（全拼、双拼、五笔、粤拼）放在哪里。桌面宿主原样保留、不使用：桌面候选窗画不画拼音行归 `candidate_preedit_style`，它的默认值是画，拿它当触屏的位置开关会让触屏默认把拼写挪出输入框。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchSpellingPosition {
+    /// 作为组字写进输入框，候选栏不再重复画它。
+    #[default]
+    Editor,
+    /// 只画在候选栏上，不写进输入框。
+    CandidateBar,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -1021,6 +1032,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
+    #[serde(default)]
+    pub touch_spelling_position: TouchSpellingPosition,
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
@@ -2701,6 +2715,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_spelling_position: TouchSpellingPosition::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

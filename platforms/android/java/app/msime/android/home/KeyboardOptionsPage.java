@@ -108,11 +108,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, layoutLabel(current),
             pairOffered ? () -> pickLayout(current, pair) : null);
-        String candidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        String spellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
-            candidatePreeditStyleLabel(candidatePreeditStyle),
-            () -> pickCandidatePreeditStyle(candidatePreeditStyle));
+            spellingPositionLabel(spellingPosition),
+            () -> pickSpellingPosition(spellingPosition));
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言",
@@ -348,16 +348,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         };
     }
 
-    private static String candidatePreeditStyleLabel(String value) {
-        return CandidatePreeditStylePolicy.PINYIN.equals(value) ? "候选栏" : "输入框";
+    private static String spellingPositionLabel(String value) {
+        return CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(value) ? "候选栏" : "输入框";
     }
 
-    private void pickCandidatePreeditStyle(String current) {
+    private void pickSpellingPosition(String current) {
+        boolean candidateBar = CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(current);
         OptionSheet sheet = new OptionSheet(requireContext(), "拼音显示位置", null);
-        sheet.option("输入框", !CandidatePreeditStylePolicy.PINYIN.equals(current),
-            () -> savePreference("candidate_preedit_style", CandidatePreeditStylePolicy.EMPTY));
-        sheet.option("候选栏", CandidatePreeditStylePolicy.PINYIN.equals(current),
-            () -> savePreference("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
+        sheet.option("输入框", !candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.EDITOR));
+        sheet.option("候选栏", candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.CANDIDATE_BAR));
         sheet.show();
     }
 

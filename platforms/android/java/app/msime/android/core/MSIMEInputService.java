@@ -284,8 +284,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateHorizontal = true;
     int candidateFontSize = 16;
     int candidatePreeditFontSize = 16;
-    /** 拼音显示在候选栏还是输入框；共享偏好缺失或非法时沿用输入框。 */
-    private String candidatePreeditStyle = CandidatePreeditStylePolicy.EMPTY;
+    /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
+    private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     CandidateAppearance.Palette candidateAppearance =
         CandidateAppearance.fromSkin(KeyboardSkin.system(false));
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
@@ -957,8 +957,8 @@ public final class MSIMEInputService extends InputMethodService {
         applyClipboardPreference(preferences, source);
         applyChineseOutputPreference(preferences);
         applyCandidateGlossPreference(preferences);
-        candidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        spellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -2758,7 +2758,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
-        String previousCandidatePreeditStyle = candidatePreeditStyle;
+        String previousSpellingPosition = spellingPosition;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         CandidateTranslationRoute previousCandidateTranslationRoute = candidateTranslationRoute;
@@ -2792,7 +2792,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
-                || !previousCandidatePreeditStyle.equals(candidatePreeditStyle)
+                || !previousSpellingPosition.equals(spellingPosition)
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
                 || !previousCandidateTranslationRoute.equals(candidateTranslationRoute)
@@ -2855,8 +2855,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
-        String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", null));
+        String nextSpellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
         boolean nextCandidateTranslationAccount = candidateTranslationAccountFrom(preferences);
         CandidateTranslationRoute nextCandidateTranslationRoute = candidateTranslationRouteFrom(preferences);
@@ -2909,7 +2909,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHorizontal = nextHorizontal;
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
-        candidatePreeditStyle = nextCandidatePreeditStyle;
+        spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
@@ -3081,7 +3081,7 @@ public final class MSIMEInputService extends InputMethodService {
             && CandidatePreeditStylePolicy.writesSpelling(nextViewScheme)
             && "none".equals(InputViewValuePolicy.textOr(next, "local_mode", "none"));
         boolean spelling = spellingScheme && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(
-            candidatePreeditStyle);
+            spellingPosition);
         String typed = spellingScheme
             ? spelling
                 ? drawn
@@ -3102,7 +3102,7 @@ public final class MSIMEInputService extends InputMethodService {
                 next, "nine_key", false) || fourteenKeyGrid || shuangpinGrid,
                 ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) {
             composing = drawn && spellingScheme && spelling && !fourteenKeyGrid
-                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(candidatePreeditStyle)
+                && !CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
                 ? PhrasePreeditPolicy.composing(phrasePrefix, CandidatePreeditStylePolicy.inlineSpelling(true,
                     InputViewValuePolicy.textOr(next, "nine_key_reading", ""), preedit, editingText))
                 : "";
@@ -9875,7 +9875,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean spellingInEditor = view != null && connection != null && !editorCompositionSuppressed
                 && !composingText(view, editingText, true).isEmpty();
             localModeTitle = CandidatePreeditStylePolicy.composedText(CandidatePreeditStylePolicy.style(
-                candidatePreeditStyle, InputViewValuePolicy.scheme(view, -1), spellingInEditor),
+                spellingPosition, InputViewValuePolicy.scheme(view, -1), spellingInEditor),
                 localModeTitle, localModeName);
             boolean idleTitle = idle && editingText.isEmpty();
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。

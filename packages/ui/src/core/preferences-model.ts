@@ -119,6 +119,8 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
+    /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
+    touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;
     /** HarmonyOS 手机键盘的工具栏工具和显示方式；等于缺省时 client-core 不写进文档。 */
     harmony_toolbar?: Partial<HarmonyToolbarPreferences>;
