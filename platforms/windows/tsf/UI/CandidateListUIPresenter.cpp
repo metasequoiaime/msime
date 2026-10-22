@@ -457,9 +457,28 @@ HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ I
         !msime::tsf::EngineSessionAdapter::parse_result(viewRaw, &view, &error) ||
         !displayed.MatchesEngineView(view.view.session, view.view.generation))
         return S_FALSE;
+    // 候选身份按文字在本会话里唯一匹配，不套用显示项的下标。候选窗由 Server 画，TIP 的宿主会话是另一个引擎会话，两边各自学习、各自重排，同一个下标会指向不同的词；照抄下标上屏的就是用户没看见的那一个（打 bushang 时候选窗高亮「补上」，按下标选出来的是「不伤」）。续接候选早就是这条规则，见 `common/HostCandidateContinuation.h`：「候选必须在本地当前列表中唯一匹配，不能套用 Server 的身份」。
+    const std::wstring shown = displayed._ItemString.ToWString();
+    if (shown.empty()) return S_FALSE;
+    const int targetSize = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(),
+                                               static_cast<int>(shown.size()), nullptr, 0, nullptr, nullptr);
+    if (targetSize <= 0) return S_FALSE;
+    std::string target(static_cast<size_t>(targetSize), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, shown.data(), static_cast<int>(shown.size()),
+                            target.data(), targetSize, nullptr, nullptr) != targetSize)
+        return S_FALSE;
+    const msime::tsf::EngineCandidate *found = nullptr;
+    for (const auto &candidate : view.view.candidates)
+    {
+        if (candidate.text != target) continue;
+        // 同一页上同形的候选不止一个时不猜，交给调用方的兜底路径。
+        if (found) return S_FALSE;
+        found = &candidate;
+    }
+    if (!found) return S_FALSE;
     std::string raw;
     msime::tsf::EngineResult selected;
-    if (!host->select(displayed._EngineGeneration, displayed._EngineIndex, &raw, &error) ||
+    if (!host->select(view.view.generation, found->index, &raw, &error) ||
         !msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error))
         return S_FALSE;
     if (selected.has_commit && !selected.commit.empty())

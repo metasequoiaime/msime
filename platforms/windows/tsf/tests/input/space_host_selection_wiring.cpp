@@ -82,7 +82,14 @@ int main(int argc, char **argv) {
     const std::string worker = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateWorker(", "\n}\n");
     expect(worker, "return _SelectHighlightedHostCandidate(ec, pContext);", true, "digits select through the shared host selection");
     const std::string helper = between(presenter, "HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(", "\n}\n");
-    expect_before(helper, "displayed.MatchesEngineView(view.view.session, view.view.generation)", "host->select(displayed._EngineGeneration",
+    expect_before(helper, "displayed.MatchesEngineView(view.view.session, view.view.generation)", "host->select(view.view.generation",
                   "the host selection refuses a candidate window that no longer matches the host session");
+    // 候选身份按文字匹配，不套用显示项的下标：候选窗归 Server，宿主会话是另一个引擎会话，同一个下标会指向不同的词。
+    expect(helper, "displayed._EngineIndex", false,
+           "the host selection does not reuse the displayed candidate's index");
+    expect_before(helper, "candidate.text != target", "host->select(view.view.generation",
+                  "the host selection locates the displayed text in the host session before selecting");
+    expect_before(helper, "if (found) return S_FALSE;", "if (!found) return S_FALSE;",
+                  "an ambiguous match refuses instead of guessing");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
