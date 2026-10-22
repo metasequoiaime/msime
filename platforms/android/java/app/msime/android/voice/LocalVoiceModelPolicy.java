@@ -27,9 +27,9 @@ public final class LocalVoiceModelPolicy {
         return download == Download.FAILED ? Action.RETRY : Action.DOWNLOAD;
     }
 
-    /** 已装模型行尾的值：正在用的写「使用中」，其余「已下载」。 */
+    /** 已装模型行尾的值只说明选择；选用模型不代表语音运行库也已就绪。 */
     public static String installedValue(boolean selected) {
-        return selected ? "使用中" : "已下载";
+        return selected ? "已选用" : "已下载";
     }
 
     /** 没装的模型的说明：目录里的简介，加上下载大小和运行时大约占用的内存。 */

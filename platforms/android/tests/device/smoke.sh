@@ -223,7 +223,7 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.AiEndpointCheckDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "AI endpoint check acceptance failed" >&2; exit 1; }
-# 语音设置目录从 Rust 经真实 JNI 读取；中文、顺序、默认接口和损坏响应都在设备上核对。
+# 语音设置目录从 Rust 经真实 JNI 读取；同一套件还验证原生模型页的两项准备状态及运行库导入入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared voice catalog JNI acceptance failed" >&2; exit 1; }
@@ -324,6 +324,10 @@ do
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "${entry#*|}" >&2; exit 1; }
 done
+# 横向候选条的双拼部分选词复用完整候选入口，选词后禁止再滑动来触发刷新。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e strip-partial-selection true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Xiaohe strip partial selection acceptance failed" >&2; exit 1; }
 # 中文字母长按与上滑选择大小写/符号，复用标点套件的 instrumentation 入口。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e letter-hold true)
 printf '%s\n' "$result"
