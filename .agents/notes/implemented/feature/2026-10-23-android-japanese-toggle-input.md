@@ -32,7 +32,7 @@ Android 启动与热更新使用同一赋值入口。值变化时清除旧连点
 - 专用模拟器夹具覆盖关闭时一秒内「ささ」「やや」、开启时循环「し」「ゆ」、左滑「し」、热更新清状态、读屏、原生设置保存和按住提示。该专项注册在 API 35 非 `--core` 套件的基础输入验收之后；后续原有套件继续运行。
 - 设备运行已验证关闭时「ささ」「やや」、左滑「し」和开关热更新后的读屏变化；按住提示等待中心强调格实际绘制后截取，已目视确认中心是「さ」、四周为「し、す、せ、そ」，松手后仍输出「ささ」。开启时两次真实点击事件曾相隔 1006–1788 毫秒，超过一秒前提，不能算循环验收通过；夹具收集计时失败后继续独立验收，最终仍报失败。
 - 后续运行在连接或收尾阶段出现 `UiAutomation` 残留注册及系统拒绝附着，尚未证明热更新后的右箭头行为和原生设置落盘往返。启动日志或 instrumentation 的退出码 0 不代替 `MSIME_DEVICE_SMOKE_PASSED` 标记。
-- 当前设备验收和整套 quick 尚未通过。旧替代实现的 quick 在 Linux 原生 111 项中有 4 项失败（`ibus-mode-hint-focus-preferences`、`ibus-mode-hint-focus-preferences-x11`、`linux-voice-provider-degraded-start`、`linux-clipboard-tool-parity`），父脚本随后停止，不能当作本次验证。
+- 当前版本设备专项已通过：`MSIME_DEVICE_SMOKE_PASSED: Japanese toggle preference, repeated kana and flick input`。它覆盖关闭时「ささ」「やや」、左滑「し」、按住提示中心格、开启热更新、右箭头清理连点、设置页关闭并读回落盘。开启循环的两次事件计时满足一秒窗口后才允许通过；此前连接残留导致的失败日志不计作当前版本结果。`platforms/android/check-host.sh` 当前版本重新通过 258 项 JVM 冒烟、225 个设备源编译、JNI 和资源契约。完整 quick 仍受本机磁盘低于 50 GiB 规则保护；旧替代实现的 Linux 原生门禁曾有 4 项基线失败，不能当作本次验证。
 
 ## Consequences
 
