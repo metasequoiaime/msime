@@ -584,6 +584,8 @@ LRESULT CALLBACK CMetasequoiaIME::_BareShiftKeyboardHookProc(int code, WPARAM wP
         else if (!isKeyUp)
         {
             owner->_bareShiftArmed = false;
+            // 普通按下即使没有交给 TSF，也必须同时取消两路轻点判定。
+            owner->_shiftHotkeyArmed = false;
         }
     }
 
@@ -676,7 +678,9 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
     }
 
     const auto now = std::chrono::steady_clock::now();
-    if (isShift && IsOnlyModifierPhysicallyDown(VK_SHIFT))
+    // 钩子已经取消的这一轮不能被重复通知重新布防；先按着别的普通键也属于组合键。
+    if (isShift && IsOnlyModifierPhysicallyDown(VK_SHIFT) && !IsOtherKeyboardKeyDown() &&
+        (_bareShiftHook == nullptr || _bareShiftDownMask == 0 || _bareShiftArmed))
     {
         _shiftHotkeyArmed = true;
         _ctrlHotkeyArmed = false;
@@ -762,8 +766,13 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
     const UINT code = LOWORD(wParam);
     const auto now = std::chrono::steady_clock::now();
 
-    // The arming latch already proves that this modifier was pressed alone;
-    // unlike PureShiftKeyUp, it does not depend on a host's stale GetKeyState.
+    // 实体仍按住时不能靠宿主的松开回调切换，保留布防等待真实松开。
+    if (IsShiftVk(code) && (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+    {
+        return false;
+    }
+
+    // 布防记录证明这次单按过；不依赖宿主可能陈旧的 GetKeyState。
     if (IsShiftVk(code) && _shiftHotkeyArmed)
     {
         const bool fire = now < _modifierHotkeyExpire && FanyUtils::ReadConfiguredSwitchLanguageHotkeys().shift;
