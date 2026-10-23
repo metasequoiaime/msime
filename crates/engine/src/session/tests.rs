@@ -5203,7 +5203,7 @@ fn a_date_row_commits_and_leaves_date_time_mode() {
     type_text(&mut session, "rq");
     let snapshot = session.snapshot();
     assert_eq!(snapshot.preedit, "Trq");
-    assert_eq!(snapshot.candidates.len(), 17);
+    assert_eq!(snapshot.candidates.len(), 20);
     assert_eq!(snapshot.candidates[0].word, "2026年8月9日");
     assert_eq!(snapshot.candidates[16].word, "丙午年六月二十七日");
     assert!(snapshot
@@ -5463,7 +5463,7 @@ fn date_time_menu_opens_the_full_format_list() {
     assert!(result.handled);
     assert!(result.commit.is_none());
     let page = words(&session);
-    assert_eq!(page.len(), 17, "{page:?}");
+    assert_eq!(page.len(), 20, "{page:?}");
     assert_eq!(page[0], "2026年8月9日");
     assert_eq!(page[16], "丙午年六月二十七日");
     assert!(!session.snapshot().preedit.is_empty());
@@ -5475,7 +5475,7 @@ fn date_time_menu_opens_the_full_format_list() {
     // 非选词键先换回原来的候选再照常处理：退格删掉最后一个字母，候选跟着变。
     type_text(&mut session, "riqi");
     session.select(2);
-    assert_eq!(words(&session).len(), 17);
+    assert_eq!(words(&session).len(), 20);
     assert!(session.command(Command::Backspace).handled);
     let after = words(&session);
     assert!(
@@ -7470,10 +7470,10 @@ fn slash_opens_the_command_list_and_letters_filter_it() {
     assert_eq!(result.commit.as_deref(), Some("张三 2026-08-09"));
     assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
 
-    // A complete built-in trigger lists every reading of the date/time mode.
+    // 内置日期触发词输入完整后，列出全部格式。
     session.character(b'/', false);
     type_text(&mut session, "rq");
-    assert_eq!(words(&session).len(), 17);
+    assert_eq!(words(&session).len(), 20);
 
     // Nothing matches: the literal text is the only row, and Enter commits it too.
     session.command(Command::Cancel);
@@ -12128,25 +12128,30 @@ fn enumeration_comma_respects_command_prefix_and_composition() {
 /// 相对日期复用普通候选与九键出口，整段提交不留下原始拼写，也不学习生成文字。
 #[test]
 fn relative_date_keywords_reach_quanpin_and_nine_key_and_commit() {
-    let fixture = Fixture::new("CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
         INSERT INTO tbl_2_j VALUES('jin''tian','jt','今天',500),('jin''nian','jn','今年',500);\
         CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
         INSERT INTO tbl_2_z VALUES('zuo''tian','zt','昨天',500);\
         CREATE TABLE tbl_2_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
-        INSERT INTO tbl_2_q VALUES('qian''tian','qt','前天',500),('qian''nian','qn','前年',500),('qu''nian','qn','去年',500);\
+        INSERT INTO tbl_2_q VALUES('qian''tian','qt','前天',500),('qu''nian','qn','去年',500);\
         CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
-        INSERT INTO tbl_2_m VALUES('ming''tian','mt','明天',500);\
+        INSERT INTO tbl_2_m VALUES('ming''tian','mt','明天',500),('ming''nian','mn','明年',500);\
         CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
         INSERT INTO tbl_2_h VALUES('hou''tian','ht','后天',500);\
         CREATE TABLE tbl_2_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
-        INSERT INTO tbl_2_l VALUES('lai''nian','ln','来年',500);");
+        INSERT INTO tbl_2_l VALUES('lai''nian','ln','来年',500);\
+        CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_r VALUES('ri''qi','rq','日期',500);",
+    );
     let cases = [
-        ("jintian", "今天", "今天(08-09日 星期日)"),
-        ("zuotian", "昨天", "昨天(08-08日 星期六)"),
-        ("qiantian", "前天", "前天(08-07日 星期五)"),
-        ("mingtian", "明天", "明天(08-10日 星期一)"),
-        ("houtian", "后天", "后天(08-11日 星期二)"),
-        ("qiannian", "前年", "前年(2024年)"),
+        ("riqi", "日期", "今天(8月9日 星期日)"),
+        ("jintian", "今天", "今天(8月9日 星期日)"),
+        ("zuotian", "昨天", "昨天(8月8日 星期六)"),
+        ("qiantian", "前天", "前天(8月7日 星期五)"),
+        ("mingtian", "明天", "明天(8月10日 星期一)"),
+        ("houtian", "后天", "后天(8月11日 星期二)"),
+        ("mingnian", "明年", "明年(2027年)"),
         ("qunian", "去年", "去年(2025年)"),
         ("jinnian", "今年", "今年(2026年)"),
         ("lainian", "来年", "来年(2027年)"),
