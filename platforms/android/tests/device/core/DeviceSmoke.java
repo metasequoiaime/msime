@@ -358,6 +358,8 @@ public class DeviceSmoke extends Instrumentation {
         Rect previous = null;
         long deadline = SystemClock.uptimeMillis() + 15000;
         while (SystemClock.uptimeMillis() < deadline) {
+            // API 34 以上不会在 find 中 refresh；稳定性必须比较实时边界，不能重复读缓存。
+            dropStaleNodes();
             AccessibilityNodeInfo node = await(match);
             Rect bounds = new Rect();
             node.getBoundsInScreen(bounds);

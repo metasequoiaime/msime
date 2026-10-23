@@ -407,6 +407,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         card = awaitStableBounds(node -> node.isLongClickable() && node.getText() != null
             && node.getText().toString().startsWith(word(0)));
         card.getBoundsInScreen(bounds);
+        stage = "horizontal delete still works after vertical drag: " + bounds.toShortString();
         Rect swipeFrom = new Rect(bounds.right - 8, bounds.centerY(), bounds.right - 7, bounds.centerY() + 1);
         Rect swipeTo = new Rect(bounds.left + 8, bounds.centerY(), bounds.left + 9, bounds.centerY() + 1);
         drag(swipeFrom, swipeTo, false);
