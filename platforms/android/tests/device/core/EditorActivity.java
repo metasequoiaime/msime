@@ -35,6 +35,7 @@ public final class EditorActivity extends Activity {
     private static java.lang.ref.WeakReference<EditorActivity> probeActivity = new java.lang.ref.WeakReference<>(null);
     private EditText probePlain;
     private EditText probePassword;
+    private String probeFocusLoss = "none";
 
     @SuppressWarnings("deprecation")
     @Override public void onCreate(Bundle state) {
@@ -157,6 +158,7 @@ public final class EditorActivity extends Activity {
         if (requestFocus) result.putBoolean("accepted", editor.requestFocus());
         result.putBoolean("focused", editor.isFocused());
         result.putBoolean("window_focused", editor.hasWindowFocus());
+        result.putString("focus_loss", activity.probeFocusLoss);
         int[] position = new int[2];
         editor.getLocationOnScreen(position);
         result.putInt("left", position[0]);
@@ -327,6 +329,14 @@ public final class EditorActivity extends Activity {
 
     private void showImeOnFocus(EditText editor) {
         editor.setOnFocusChangeListener((view, focused) -> {
+            if (!focused && getIntent().getBooleanExtra("msime_test_editor_probe", false)) {
+                StringBuilder trace = new StringBuilder();
+                for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+                    if (trace.length() > 1600) break;
+                    trace.append(frame.getClassName()).append('.').append(frame.getMethodName()).append(';');
+                }
+                probeFocusLoss = trace.toString();
+            }
             if (focused) requestIme(editor);
         });
     }

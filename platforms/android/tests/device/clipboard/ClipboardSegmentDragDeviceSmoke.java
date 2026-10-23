@@ -316,7 +316,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Synthetic editor did not retain input focus (field="
-            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused") + ")");
+            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused")
+            + ", focus loss=" + snapshot.getString("focus_loss") + ")");
     }
 
     private Rect openFloatingPreview() {
