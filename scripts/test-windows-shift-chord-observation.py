@@ -16,6 +16,7 @@ def method(start, end):
 unit = r'''
 #include <chrono>
 #include <cstdint>
+#include <initializer_list>
 #include <cstdio>
 using UINT=unsigned; using BYTE=unsigned char; using WPARAM=std::uintptr_t;
 using LPARAM=std::intptr_t; using LRESULT=std::intptr_t; using ULONG_PTR=std::uintptr_t;
