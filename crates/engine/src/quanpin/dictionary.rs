@@ -61,6 +61,8 @@ use super::typo_edges::collect_typo_edges;
 #[cfg(test)]
 mod marking_buffer_tests;
 
+mod page_copy;
+
 pub const CACHE_CAPACITY: usize = 128;
 pub const TYPO_SPAN_CACHE_CAPACITY: usize = 512;
 /// 词网格的跨度查询结果按跨度缓存的条数。九键每按一键要对几十条切分各解一次词网格，这些切分大量共用同样的跨度，下一键又会重复上一键的大部分跨度，所以容量按一次长输入里出现的不同跨度数来定。
@@ -127,6 +129,27 @@ struct CachedLatticeSpan {
 enum ColdRows {
     Transfer,
     Borrow,
+}
+
+enum ProjectedRows {
+    Selected(Vec<WordItem>),
+    /// 只供借用冷页使用，谓词已全部接受，尚未复制字段。
+    All,
+}
+
+impl From<Vec<WordItem>> for ProjectedRows {
+    fn from(rows: Vec<WordItem>) -> Self {
+        Self::Selected(rows)
+    }
+}
+
+impl ProjectedRows {
+    fn selected(self) -> Vec<WordItem> {
+        match self {
+            Self::Selected(rows) => rows,
+            Self::All => unreachable!("只有借用冷页可以延后复制"),
+        }
+    }
 }
 
 /// The reference answered a failed write with `ERROR_CODE` and no message; callers map any failure to their own diagnostic.
@@ -315,13 +338,29 @@ impl QuanpinDictionary {
                 match rows {
                     Cow::Owned(mut rows) => {
                         rows.retain(|row| keep(row, cached));
-                        rows
+                        ProjectedRows::Selected(rows)
                     }
                     Cow::Borrowed(rows) => {
+                        if !cached {
+                            // 谓词全部成功前不淘汰缓存；全留时留给外层复用旧页复制。
+                            let Some(rejected) = rows.iter().position(|row| !keep(row, false))
+                            else {
+                                return ProjectedRows::All;
+                            };
+                            let mut result = Vec::with_capacity(rows.len());
+                            result.extend_from_slice(&rows[..rejected]);
+                            result.extend(
+                                rows[rejected + 1..]
+                                    .iter()
+                                    .filter(|row| keep(row, false))
+                                    .cloned(),
+                            );
+                            return ProjectedRows::Selected(result);
+                        }
                         // 容器预留完整行数，只跳过拒绝行的字段复制。
                         let mut result = Vec::with_capacity(rows.len());
                         result.extend(rows.iter().filter(|row| keep(row, cached)).cloned());
-                        result
+                        ProjectedRows::Selected(result)
                     }
                 }
             });
@@ -718,16 +757,16 @@ impl QuanpinDictionary {
 
     /// 同步投影只能筛选、复制或移交原行，不改字段和顺序；冷页全保留时可交换副本与原页。
     /// 回调的布尔值只标识核对失效后的系列热命中，借用的冷页仍为 `false`。
-    fn query_exact_projected(
+    fn query_exact_projected<P: Into<ProjectedRows>>(
         &mut self,
         raw: &str,
         segmentation: &str,
         types: u32,
         cold: ColdRows,
-        project: impl FnOnce(Cow<'_, [WordItem]>, bool) -> Vec<WordItem>,
+        project: impl FnOnce(Cow<'_, [WordItem]>, bool) -> P,
     ) -> Vec<WordItem> {
         if raw.is_empty() {
-            return project(Cow::Owned(Vec::new()), false);
+            return project(Cow::Owned(Vec::new()), false).into().selected();
         }
         self.current_autocorrect_types = types;
         if types & TYPO_EDGE_TYPES != 0 {
@@ -791,7 +830,7 @@ impl QuanpinDictionary {
                 self.reset_cache();
             }
             if let Some(cached) = self.series_cache.get_ref(&slot) {
-                return project(Cow::Borrowed(cached), true);
+                return project(Cow::Borrowed(cached), true).into().selected();
             }
         }
 
@@ -851,31 +890,42 @@ impl QuanpinDictionary {
         let (cached, projected) = match cold {
             ColdRows::Transfer => {
                 let cached = result.clone();
-                (cached, project(Cow::Owned(result), false))
+                (
+                    Some(cached),
+                    project(Cow::Owned(result), false).into().selected(),
+                )
             }
             ColdRows::Borrow => {
-                let projected = project(Cow::Borrowed(&result), false);
-                if projected.len() == result.len() {
-                    // 全保留时副本可直接入缓存，原页作为输出，省去额外缩容。
-                    (projected, result)
-                } else {
-                    // 外层富余容量不随整页转移而长期留在 FIFO 中。
-                    result.shrink_to_fit();
-                    (result, projected)
+                match project(Cow::Borrowed(&result), false).into() {
+                    ProjectedRows::All => (None, result),
+                    ProjectedRows::Selected(projected) => {
+                        if projected.len() == result.len() {
+                            // 既有投影回调已复制的全页仍直接入缓存。
+                            (Some(projected), result)
+                        } else {
+                            // 外层富余容量不随整页转移而长期留在 FIFO 中。
+                            result.shrink_to_fit();
+                            (Some(result), projected)
+                        }
+                    }
                 }
             }
         };
         // 单音节主路径也可能沿完整备选切分组句，需要跟随个人模型失效。
-        if segments.len() >= 2
+        let personal_scored = segments.len() >= 2
             || resolution.corrected.len() >= 2
             || alternatives
                 .iter()
-                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
-        {
-            self.series_cache.insert(slot.clone(), cached);
-            self.remember_personal_scored_key(slot);
-        } else {
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path));
+        let personal_slot = personal_scored.then(|| slot.clone());
+        if let Some(cached) = cached {
             self.series_cache.insert(slot, cached);
+        } else {
+            let (cached, previous) = self.series_cache.insert_with_previous(slot, Vec::new());
+            *cached = page_copy::clone_rows_reusing(&projected, previous.unwrap_or_default());
+        }
+        if let Some(slot) = personal_slot {
+            self.remember_personal_scored_key(slot);
         }
         projected
     }
@@ -2089,6 +2139,9 @@ mod filtered_query_tests;
 
 #[cfg(test)]
 mod empty_projection_tests;
+
+#[cfg(test)]
+mod evicted_page_tests;
 
 #[cfg(test)]
 mod online_cache_update_tests;
