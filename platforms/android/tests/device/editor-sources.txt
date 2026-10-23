@@ -138,6 +138,7 @@ platforms/android/java/app/msime/android/statistics/TypingStatisticsDocument.jav
 platforms/android/java/app/msime/android/statistics/TypingStatisticsModel.java
 platforms/android/java/app/msime/android/voice/BackendTranslationClient.java
 platforms/android/tests/device/settings/OptionSheetDeviceSmoke.java
+platforms/android/tests/device/settings/KeyboardAnimationDeviceChecks.java
 platforms/android/tests/device/keyboard/InitialKeyboardRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/LanguageNumberKeySwapDeviceSmoke.java
 
@@ -199,6 +200,7 @@ platforms/android/tests/device/core/BatchEditorActivity.java
 platforms/android/tests/device/keyboard/BatchCompositionDeviceSmoke.java
 platforms/android/tests/device/settings/ClipboardExportDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteUndoDeviceSmoke.java
+platforms/android/tests/device/keyboard/BackspaceScrubDeviceChecks.java
 platforms/android/tests/device/keyboard/QuickDeletePreviewDeviceSmoke.java
 platforms/android/tests/device/keyboard/QuickDeleteEditorActivity.java
 platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java
@@ -228,4 +230,5 @@ platforms/android/tests/device/keyboard/CompositionSearchEditorActivity.java
 platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java
 platforms/android/tests/device/keyboard/HistoryEditorActivity.java
 platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
+platforms/android/tests/device/keyboard/PortraitSplitDeviceChecks.java
 platforms/android/tests/device/keyboard/KeyboardFeedbackDeviceChecks.java

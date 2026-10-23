@@ -320,6 +320,22 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSRect caret = NSMakeRect(caretX, NSMinY(preeditRow) + 3.0, 1.5, NSHeight(preeditRow) - 6.0);
         [PreviewColor(tokens.accent) setFill];
         NSRectFill(caret);
+        // 与候选窗首行相同：拼音后面竖线隔开输入状态，首行和候选行之间一条淡线。预览放不下状态时不画它。
+        NSDictionary *statusAttributes = @{
+            NSFontAttributeName : [NSFont systemFontOfSize:msime::candidate::kCandidatePageIndicatorPointSize],
+            NSForegroundColorAttributeName : PreviewColor(tokens.number),
+        };
+        NSString *status = @"全拼 · 中 · 简";
+        const CGFloat dividerX = NSMaxX(caret) + 8.0;
+        const CGFloat statusX = dividerX + 1.0 + 8.0;
+        if (statusX + [status sizeWithAttributes:statusAttributes].width <= NSMaxX(preeditRow)) {
+            const CGFloat dividerHeight = round(NSHeight(preeditRow) * 0.5);
+            [[PreviewColor(tokens.number) colorWithAlphaComponent:tokens.number.a * 0.35] setFill];
+            NSRectFill(NSMakeRect(dividerX, NSMidY(preeditRow) - dividerHeight / 2.0, 1.0, dividerHeight));
+            DrawAlignedString(status, preeditRow, statusX, statusAttributes);
+        }
+        [[PreviewColor(tokens.number) colorWithAlphaComponent:tokens.number.a * 0.18] setFill];
+        NSRectFill(NSMakeRect(NSMinX(preeditRow), NSMaxY(preeditRow) - 1.0, NSWidth(preeditRow), 1.0));
     }
 
     const CGFloat textInset = tokens.itemPaddingHorizontal.value_or(8.0 + (tokens.showSelectedBar ? 6.0 : 0.0));

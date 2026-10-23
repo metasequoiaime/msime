@@ -33,7 +33,7 @@ test("文档缺 mixed_input 时 emoji 混输按宿主平台取缺省，与 clien
   expect(settingsInputPreferences({ mixed_input: stored }, "macos").mixedInput).toBe(stored);
 });
 
-test("读取旧文档时符号开、日文关，不补写可选键", () => {
+test("读取旧文档时总开关开、首页英文数为 1、符号开、日文关，不补写可选键", () => {
   const preferences = Object.freeze({
     english: true,
     minimum_prefix: 8,
@@ -41,41 +41,88 @@ test("读取旧文档时符号开、日文关，不补写可选键", () => {
     kaomoji: false,
   });
   expect(mixedInputControlState(preferences)).toEqual({
+    enabled: true,
     symbolsChecked: true,
     japaneseChecked: false,
+    englishDisabled: false,
     quickPhraseChecked: true,
     quickPhraseFrequencyChecked: true,
     minimumPrefixDisabled: false,
+    firstPageCountDisabled: false,
+    firstPageCount: 1,
   });
   expect(Object.keys(preferences)).toEqual(["english", "minimum_prefix", "emoji", "kaomoji"]);
 });
 
 test("显式关闭符号和开启日文优先于缺省值", () => {
   expect(mixedInputControlState({ ...defaultMixedInput, symbols: false, japanese: true })).toEqual({
+    enabled: true,
     symbolsChecked: false,
     japaneseChecked: true,
+    englishDisabled: false,
     quickPhraseChecked: true,
     quickPhraseFrequencyChecked: true,
     minimumPrefixDisabled: false,
+    firstPageCountDisabled: false,
+    firstPageCount: 1,
   });
 });
 
-test("关闭英文仅置灰触发字符数，保留数值与其他混输选择", () => {
+test("关闭英文仅置灰触发字符数与首页英文数，保留数值与其他混输选择", () => {
   const preferences = Object.freeze({
     english: false,
     minimum_prefix: 8,
+    first_page_count: 3,
     emoji: true,
     kaomoji: true,
     symbols: false,
     japanese: true,
   });
   expect(mixedInputControlState(preferences)).toEqual({
+    enabled: true,
+    symbolsChecked: false,
+    japaneseChecked: true,
+    englishDisabled: false,
+    quickPhraseChecked: true,
+    quickPhraseFrequencyChecked: true,
+    minimumPrefixDisabled: true,
+    firstPageCountDisabled: true,
+    firstPageCount: 3,
+  });
+  expect(settingsInputPreferences({ mixed_input: preferences }).mixedInput).toBe(preferences);
+  expect(preferences.minimum_prefix).toBe(8);
+});
+
+test("关闭总开关时各子行禁用但原值保留", () => {
+  const preferences = Object.freeze({
+    enabled: false,
+    english: true,
+    minimum_prefix: 4,
+    first_page_count: 2,
+    emoji: true,
+    kaomoji: false,
+    symbols: false,
+    japanese: true,
+  });
+  expect(mixedInputControlState(preferences)).toEqual({
+    enabled: false,
     symbolsChecked: false,
     japaneseChecked: true,
     quickPhraseChecked: true,
     quickPhraseFrequencyChecked: true,
+    englishDisabled: true,
     minimumPrefixDisabled: true,
+    firstPageCountDisabled: true,
+    firstPageCount: 2,
   });
-  expect(settingsInputPreferences({ mixed_input: preferences }).mixedInput).toBe(preferences);
-  expect(preferences.minimum_prefix).toBe(8);
+  expect(Object.keys(preferences)).toEqual([
+    "enabled",
+    "english",
+    "minimum_prefix",
+    "first_page_count",
+    "emoji",
+    "kaomoji",
+    "symbols",
+    "japanese",
+  ]);
 });

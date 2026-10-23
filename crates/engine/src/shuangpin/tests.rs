@@ -56,14 +56,19 @@ impl Fixture {
 }
 
 fn request(typed: &str, helpcode: bool) -> QueryRequest {
-    QueryRequest {
+    let mut request = QueryRequest {
         scheme: SchemeType::Shuangpin,
         raw_input: typed.to_ascii_lowercase(),
         raw_input_with_cases: typed.to_string(),
         enable_shuangpin_helpcode: helpcode,
         valid: true,
         ..QueryRequest::default()
-    }
+    };
+    // 本文件的辅助码用例都写于万象式直接恒开的版本：`direct_helpcode` 受控后，
+    // 用 helpcode 的请求继续开着它才有原来的覆盖面。
+    request.shuangpin_helpcode_modes.direct_helpcode = helpcode;
+    request.shuangpin_helpcode_modes.direct_helpcode_uppercase = true;
+    request
 }
 
 fn keymap(codes: &[(&str, &str)]) -> HelpcodeKeymap {

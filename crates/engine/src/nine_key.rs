@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use crate::assets;
 use crate::diagnostics;
-use crate::dictionary::english::EnglishDictionary;
+use crate::dictionary::english::{append_keypad_ranked, EnglishDictionary, KeypadRow};
 use crate::error::EngineError;
 use crate::ime::queries::{
     insert_expressive_rows, keep_expressive_rows_off_the_lead, MIXED_EXPRESSIVE_MINIMUM_INPUT,
@@ -45,7 +45,7 @@ use crate::user_dictionary::ranking::{self, RankingRequest};
 use crate::user_dictionary::removal;
 
 pub const PATH_LIMIT: usize = 48;
-pub const DIGIT_LIMIT: usize = 32;
+pub const DIGIT_LIMIT: usize = 48;
 pub const CANDIDATE_LIMIT: usize = 128;
 /// 每次刷新从排在前面、覆盖全部数字的行里取几条切分当种子，见 `seeded_paths`。
 const SENTENCE_SEED_LIMIT: usize = 4;
@@ -83,6 +83,8 @@ const FOURTEEN_KEY_GROUPS: [&str; 14] = [
 const ENGLISH_PREFIX_BUDGET: usize = 64;
 const ENGLISH_LIMIT: usize = 5;
 const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
+/// 一个字母前缀最多缓存这么多行；词库里最大的三字母前缀 `con` 有 1034 个词，超过上限的前缀组照旧逐次查询。
+const ENGLISH_CACHED_PREFIX_ROWS: usize = 2048;
 /// 九宫格简拼一次最多展开的码数：每个数字取它键上能作音节首字母的字母，五个数字最多 4^5 = 1024 个，五字以内的词都查得到；更长的输入展开太多，不查简拼。
 const INITIALS_CODE_LIMIT: usize = 1024;
 /// 简拼一次最多取的行数，按权重从高到低。
@@ -284,6 +286,8 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     /// 候选里混入 emoji、颜文字和符号（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji` / `mixed_input.symbols`）。引擎层默认都关，宿主按偏好打开。
     expressive: MixedExpressiveOptions,
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）：关着时英文、emoji、颜文字、符号和行内日期时间都不混进候选。
+    mixed_candidates_enabled: bool,
     /// 组字里的日期时间行（#5952）读的墙钟；`None` 时不出这些行。跟日期时间模式同一个开关。
     inline_date_time: Option<LocalClock>,
     /// 句子联想设置（`SessionOptions::sentence_association`），与 26 键相同：`word_lattice` 关掉时不出词网格整句行，`neural_keyboard` 打开时用键盘模型给整句重排（#6059）。
@@ -338,6 +342,8 @@ pub struct NineKeySession {
     english: Option<EnglishDictionary>,
     /// 完整分组码的 SQLite GLOB 模式；热刷新复用容量。
     english_pattern: String,
+    /// 上一次英文查询的数字和字母前缀下的全部匹配行，见 `EnglishKeypadCache`。
+    english_rows: Option<EnglishKeypadCache>,
     /// 和 `locked` 一一对应：撤销那次锁定要用的东西。部分上屏之后锁定的数字位置变了，记录随之作废成 `None`。
     lock_undo: Vec<Option<LockUndo>>,
     /// 从左列末尾选的字母：第一个未锁定的音节必须以它开头。
@@ -410,6 +416,7 @@ impl NineKeySession {
             fuzzy,
             english_options: english,
             expressive: MixedExpressiveOptions::default(),
+            mixed_candidates_enabled: true,
             inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
@@ -442,6 +449,7 @@ impl NineKeySession {
             prior: None,
             english: None,
             english_pattern: String::new(),
+            english_rows: None,
             lock_undo: Vec::new(),
             initial: None,
             single_character: false,
@@ -464,6 +472,11 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）；与英文选项一样只在建会话时设置。
+    pub fn set_mixed_candidates_enabled(&mut self, enabled: bool) {
+        self.mixed_candidates_enabled = enabled;
     }
 
     /// 数字正好拼出 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面，见 `local::date_time::insert_inline_date_time`；`None` 关掉。与 emoji 选项一样只在建会话时设置，测试换时钟时再设一次。
@@ -566,7 +579,7 @@ impl NineKeySession {
         self.grid = grid;
     }
 
-    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
+    /// `2`..=`9`；到 `DIGIT_LIMIT` 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理（运行时会先用 `limit_pick_ready` 判断能不能替用户选掉首选再接着打）。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
             // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
@@ -607,6 +620,18 @@ impl NineKeySession {
         self.set_caret(caret + 1);
         self.refresh();
         KeyResult::handled()
+    }
+
+    /// 组码已经到 `DIGIT_LIMIT`、光标在末尾，再按一个组码 `digit` 时，先选掉首选能不能腾出位置：首选要占用至少一位组码。光标在中间（用户在改前面的码）、首选不占组码或者没有候选时不行，那一键照旧按上限拦下。
+    pub fn limit_pick_ready(&self, digit: u8) -> bool {
+        self.active()
+            && self.grid.is_code(digit)
+            && self.digits.len() >= DIGIT_LIMIT
+            && self.caret_position() == self.digits.len()
+            && self
+                .candidates
+                .first()
+                .is_some_and(|candidate| !candidate.pinyin.is_empty())
     }
 
     /// 组字光标的位置，末尾是 `digits.len()`。
@@ -1042,6 +1067,8 @@ impl NineKeySession {
     /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
     fn clear_composition(&mut self) {
         self.path_scratch.pages.clear();
+        // 选词学习可能刚改了英文权重。
+        self.english_rows = None;
         self.digits.clear();
         self.locked.clear();
         self.lock_undo.clear();
@@ -1559,7 +1586,7 @@ impl NineKeySession {
             self.english_candidates(unanswered)
         };
         if !english.is_empty() {
-            // Second place is ahead of every pinyin reading but the first, which is worth it for a word the user is plainly spelling and not for one the frequency table has never seen; a zero-weight word still belongs in the list, at its end (NK:311-318).
+            // 有权重的英文保留第二位，零权重词仍接在拼音末尾；额外英文只占首页剩余空间。
             let first = english.remove(0);
             let slot = if first.weight > 0 {
                 candidates.len().min(1)
@@ -1567,6 +1594,15 @@ impl NineKeySession {
                 candidates.len()
             };
             candidates.insert(slot, first);
+            let extra = self
+                .english_options
+                .first_page_count
+                .saturating_sub(1)
+                .min(self.first_page_rows.get().saturating_sub(slot + 1))
+                .min(english.len());
+            if extra > 0 {
+                candidates.splice(slot + 1..slot + 1, english.drain(..extra));
+            }
             candidates.extend(english);
         }
         let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji, symbols);
@@ -1574,7 +1610,7 @@ impl NineKeySession {
         if let Some(clock) = self
             .inline_date_time
             .as_ref()
-            .filter(|_| initial.is_none() && !filtering)
+            .filter(|_| self.mixed_candidates_enabled && initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
             if let Some((_keyword, anchor, kind)) =
@@ -1703,9 +1739,10 @@ impl NineKeySession {
         alternatives: &[Path],
         candidates: &[WordItem],
     ) -> (Vec<ExpressiveRow>, Vec<ExpressiveRow>, Vec<SymbolRow>) {
-        let enabled = self.expressive.emoji_candidates
-            || self.expressive.kaomoji_candidates
-            || self.expressive.symbol_candidates;
+        let enabled = self.mixed_candidates_enabled
+            && (self.expressive.emoji_candidates
+                || self.expressive.kaomoji_candidates
+                || self.expressive.symbol_candidates);
         if !enabled || self.digits.len() < MIXED_EXPRESSIVE_MINIMUM_INPUT {
             return (Vec::new(), Vec::new(), Vec::new());
         }
@@ -2066,7 +2103,8 @@ impl NineKeySession {
             if self.digits.is_empty() || !self.locked.is_empty() {
                 return Vec::new();
             }
-        } else if !self.english_options.mixed_candidates
+        } else if !self.mixed_candidates_enabled
+            || !self.english_options.mixed_candidates
             || !self.locked.is_empty()
             || self.digits.len() < self.english_options.minimum_prefix
         {
@@ -2095,20 +2133,75 @@ impl NineKeySession {
             self.english_pattern.push(']');
         }
         self.english_pattern.push('*');
-        let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
-        let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
-        let mut words = Vec::new();
-        for prefix in prefixes {
-            for word in english.query_keypad_prefix(
-                &prefix,
-                &self.english_pattern,
-                digits.len(),
-                ENGLISH_LIMIT,
-            ) {
-                if words.capacity() == 0 {
-                    words.reserve_exact(capacity);
+        let depth = letter_prefix_depth(grid, digits, ENGLISH_PREFIX_BUDGET);
+        let reusable = self.english_rows.as_mut().filter(|cache| {
+            cache.grid == grid && cache.depth == depth && digits.starts_with(&cache.digits)
+        });
+        match reusable {
+            Some(cache) => {
+                if let Some(rows) = &mut cache.rows {
+                    let from = cache.digits.len();
+                    for prefix_rows in rows.iter_mut() {
+                        prefix_rows.retain(|row| word_spells_from(grid, &row.word, digits, from));
+                    }
+                } else {
+                    // 前缀组第二次出现时才取全部行：九键前三位每打一位前缀组都变，取了也用不上。
+                    cache.rows = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET)
+                        .iter()
+                        .map(|prefix| {
+                            english.keypad_prefix_rows(
+                                prefix,
+                                &self.english_pattern,
+                                ENGLISH_CACHED_PREFIX_ROWS,
+                            )
+                        })
+                        .collect();
                 }
-                words.push(word);
+                cache.digits.clear();
+                cache.digits.push_str(digits);
+            }
+            None => {
+                let cache = self.english_rows.get_or_insert_with(|| EnglishKeypadCache {
+                    grid,
+                    depth,
+                    digits: String::new(),
+                    rows: None,
+                });
+                cache.grid = grid;
+                cache.depth = depth;
+                cache.rows = None;
+                cache.digits.clear();
+                cache.digits.push_str(digits);
+            }
+        }
+        let mut words = Vec::new();
+        if let Some(rows) = self
+            .english_rows
+            .as_ref()
+            .and_then(|cache| cache.rows.as_ref())
+        {
+            let capacity = rows.len().saturating_mul(ENGLISH_LIMIT);
+            for prefix_rows in rows {
+                append_keypad_ranked(
+                    prefix_rows,
+                    digits.len(),
+                    ENGLISH_LIMIT,
+                    &mut words,
+                    capacity,
+                );
+            }
+        } else {
+            let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
+            let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
+            for prefix in prefixes {
+                english.append_keypad_prefix(
+                    &prefix,
+                    &self.english_pattern,
+                    digits.len(),
+                    ENGLISH_LIMIT,
+                    &mut words,
+                    capacity,
+                );
             }
         }
         deduplicate_english_words(&mut words);
@@ -2139,6 +2232,8 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
+        // 选词学习可能刚改了英文权重。
+        self.english_rows = None;
         // 与全拼键盘相同（`session/commit.rs` 的 `commit`）：选中一行后光标回到末尾。改完中间的数字选掉前一个词，接着打的是下一个词，应接在剩下的数字后面，而不是插在它们中间。
         self.caret = None;
         self.splits.retain_mut(|split| {
@@ -3143,8 +3238,8 @@ fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
         })
 }
 
-/// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
-fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
+/// `letter_prefixes` 展开到第几位数字、共多少个前缀。
+fn letter_prefix_span(grid: KeyGrid, digits: &str, budget: usize) -> (usize, usize) {
     let mut count = 1;
     let mut depth = 0;
     for digit in digits.bytes() {
@@ -3156,6 +3251,29 @@ fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
         count *= width;
         depth += 1;
     }
+    (depth, count)
+}
+
+fn letter_prefix_depth(grid: KeyGrid, digits: &str, budget: usize) -> usize {
+    letter_prefix_span(grid, digits, budget).0
+}
+
+/// `word` 从第 `from` 位起逐位落在 `digits` 对应键的字母里，即 `english_pattern` 在已知前 `from` 位匹配时的剩余条件；大小写都算。
+fn word_spells_from(grid: KeyGrid, word: &str, digits: &str, from: usize) -> bool {
+    word.len() >= digits.len()
+        && word.as_bytes()[from..digits.len()]
+            .iter()
+            .zip(&digits.as_bytes()[from..])
+            .all(|(&letter, &digit)| {
+                grid.letters(digit)
+                    .as_bytes()
+                    .contains(&letter.to_ascii_lowercase())
+            })
+}
+
+/// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
+fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
+    let (depth, count) = letter_prefix_span(grid, digits, budget);
     if depth == 0 {
         Vec::new()
     } else {
@@ -3192,6 +3310,17 @@ pub(crate) struct SpellingTable {
     /// Every prefix of every syllable, grouped by its code, with whether that piece is a complete syllable under this code. Partial syllables are included, but never letter combinations pinyin does not have (NK:52-68). 按字母归组的键盘上一个片段完不完整只看它是不是完整音节；九键双拼的 `a` 既是两位的完整音节，又是只打了一位的零声母片段，所以按码记。
     by_code: HashMap<String, Vec<(String, bool)>>,
     longest_code: usize,
+}
+
+/// 九键英文的逐前缀查询在第四位数字以后占一次刷新的约两成（每位最多 64 条带排序的 SQL）。前缀组只由前几位数字决定，之后数字变长只是让匹配的词变少，所以把每个前缀下匹配的全部行留在内存里：数字只在末尾变长时按新增的位筛掉不再匹配的行，再按 `append_keypad_ranked` 取前五，不查 SQLite。行按数字内容复用，只有词库变了才会过时，而组字中改英文权重的只有选词学习，`consume` 和 `clear_composition` 因此清掉它。
+struct EnglishKeypadCache {
+    grid: KeyGrid,
+    /// `letter_prefix_depth`：前缀组由前这么多位数字决定。
+    depth: usize,
+    /// `rows` 匹配的数字串。
+    digits: String,
+    /// 按 `letter_prefixes` 的顺序每个前缀一组；前缀组只出现过一次或某个前缀超过 `ENGLISH_CACHED_PREFIX_ROWS` 行时为 `None`。
+    rows: Option<Vec<Vec<KeypadRow>>>,
 }
 
 /// 搜索页只借用拼写表音节；每次切分从后向前完整覆写旧节点。
@@ -3622,6 +3751,8 @@ mod leading_entry_tests;
 
 #[cfg(test)]
 mod cached_rank_tests;
+#[cfg(test)]
+mod english_cache_tests;
 #[cfg(test)]
 mod syllable_count_tests;
 
@@ -4115,8 +4246,11 @@ mod tests {
             table.spellings_for("426", 2, None, &prior),
             ["gan", "gao", "han", "hao", "gang", "hang", "ga", "ha"]
         );
-        // With 31 digits already locked, only a one-digit completion still fits in 32.
-        assert_eq!(table.spellings_for("2", 31, None, &prior), ["a"]);
+        // 已经锁定了 `DIGIT_LIMIT - 1` 位时，只有一位就拼完的音节还放得下。
+        assert_eq!(
+            table.spellings_for("2", DIGIT_LIMIT - 1, None, &prior),
+            ["a"]
+        );
         assert!(table.spellings_for("", 0, None, &prior).is_empty());
         // 在两个数字之后切开，就排除了所有跨过这个位置的音节。
         assert_eq!(table.spellings_for("426", 0, Some(2), &prior), ["ga", "ha"]);
@@ -5733,6 +5867,8 @@ mod tests {
         );
 
         type_digits(&mut session, &"7".repeat(DIGIT_LIMIT));
+        // 到上限但没有候选可选：运行时不能替用户选首选，这一键照旧拦下。
+        assert!(!session.limit_pick_ready(b'7'));
         let result = session.character(b'7');
         assert!(result.handled);
         assert_eq!(
@@ -5746,6 +5882,20 @@ mod tests {
             session.finish(0).commit.as_deref(),
             Some("7".repeat(DIGIT_LIMIT).as_str())
         );
+
+        // 到上限、首选占用组码、光标在末尾时，运行时可以先选掉首选再接着打；光标移到中间时不行。不是组码的键不算。
+        let long = "64426".repeat(DIGIT_LIMIT / 5 + 1);
+        type_digits(&mut session, &long[..DIGIT_LIMIT]);
+        assert!(!session.snapshot().candidates.is_empty());
+        assert!(session.limit_pick_ready(b'6'));
+        assert!(!session.limit_pick_ready(b'1'));
+        session.command(Command::MoveLeft);
+        assert!(!session.limit_pick_ready(b'6'));
+        session.command(Command::MoveEnd);
+        assert!(session.limit_pick_ready(b'6'));
+        // 提示里写的上限和常量一致。
+        assert!(diagnostics::NINE_KEY_DIGIT_LIMIT.contains(&DIGIT_LIMIT.to_string()));
+        session.command(Command::Cancel);
     }
 
     /// #5613：光标移进数字中间后，退格、向后删除、打数字和切分都作用在光标处，用来改掉中间打错的那个数字。
@@ -6084,11 +6234,67 @@ mod tests {
     }
 
     #[test]
+    fn mixed_english_first_page_count_respects_the_page_budget() {
+        let fixture = fixture();
+        Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
+            .unwrap()
+            .execute_batch("INSERT INTO english_words VALUES('night','night',900),('nights','nights',800),('nightly','nightly',700);")
+            .unwrap();
+        for (count, page_rows, expected) in [
+            (
+                1,
+                5,
+                vec!["你", "night", "米", "你好", "nights", "nightly", "ogham"],
+            ),
+            (
+                2,
+                5,
+                vec!["你", "night", "nights", "米", "你好", "nightly", "ogham"],
+            ),
+            (
+                3,
+                5,
+                vec!["你", "night", "nights", "nightly", "米", "你好", "ogham"],
+            ),
+            (
+                3,
+                2,
+                vec!["你", "night", "米", "你好", "nights", "nightly", "ogham"],
+            ),
+        ] {
+            let mut session = open(
+                &fixture.paths,
+                false,
+                EnglishInputOptions {
+                    mixed_candidates: true,
+                    minimum_prefix: 2,
+                    first_page_count: count,
+                },
+            );
+            session.set_first_page_rows(FirstPageRows::new(page_rows));
+            type_digits(&mut session, "64");
+            assert_eq!(
+                words(&session),
+                expected,
+                "首页英文数={count}，首页行数={page_rows}"
+            );
+            assert_eq!(
+                session
+                    .select(index_of(&session, "nights"))
+                    .commit
+                    .as_deref(),
+                Some("nights")
+            );
+        }
+    }
+
+    #[test]
     fn english_only_spells_words_from_the_first_digit() {
         let fixture = fixture();
         let options = EnglishInputOptions {
             mixed_candidates: false,
             minimum_prefix: 2,
+            first_page_count: 1,
         };
         let mut words_only = open(&fixture.paths, false, options);
         words_only.set_english_only(true);
@@ -8125,3 +8331,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!shuangpin_word_spells(table, "zhong'guo", "81464"));
     }
 }
+
+#[cfg(test)]
+#[path = "nine_key/english_page_append_tests.rs"]
+mod english_page_append_tests;

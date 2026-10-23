@@ -424,6 +424,12 @@ pub struct PreferencesView {
     pub default_ime_mode: StartMode,
     /// 应用例外（macOS 和 Windows）：切到这些应用时固定从这里给的模式开始，优先于按应用记忆和 `default_ime_mode`；用户在应用里手动切换后，本次停留期间让位。键在 macOS 上是 bundle id，在 Windows 上是程序文件名（如 `code.exe`，不分大小写）。
     pub app_input_mode_rules: BTreeMap<String, StartMode>,
+    /// 中英切换（英文候选模式）热键，写法同设置页录入（如 `Ctrl+Shift+KeyE`）；空串表示不绑定。
+    pub toggle_english_candidates: String,
+    /// 全角 / 半角切换热键（如 `Ctrl+Shift+Space`）；空串表示不绑定。
+    pub toggle_full_width: String,
+    /// 中英文标点切换热键（如 `Ctrl+Period`）；空串表示不绑定。
+    pub toggle_punctuation: String,
     /// Vim 模式应用名单（macOS）：名单里的前台应用收到无修饰 Esc 时，输入法同时切到英文。标识口径同 `app_input_mode_rules`。
     pub vim_mode_apps: Vec<String>,
     /// The width of the ASCII letters, digits and punctuation the input method outputs.
@@ -499,6 +505,9 @@ impl From<&PreferencesSnapshot> for PreferencesView {
                 .iter()
                 .map(|(id, rule)| (id.clone(), (*rule).into()))
                 .collect(),
+            toggle_english_candidates: preferences.keybindings.toggle_english_candidates.clone(),
+            toggle_full_width: preferences.keybindings.toggle_full_width.clone(),
+            toggle_punctuation: preferences.keybindings.toggle_punctuation.clone(),
             vim_mode_apps: preferences.vim_mode_apps.clone(),
             character_width: preferences.character_width.into(),
             chinese_punctuation: preferences.chinese_punctuation,
@@ -564,6 +573,12 @@ pub struct PreferencesChange {
     pub default_ime_mode: Option<StartMode>,
     /// 整张替换应用例外表，`{}` 清空。最多 32 条；标识非空、不超过 64 字节、两端没有空白、不含控制字符和 `/` `\`，按 ASCII 不分大小写不能重复。
     pub app_input_mode_rules: Option<BTreeMap<String, StartMode>>,
+    /// 中英切换（英文候选模式）热键；写法同设置页录入（`Ctrl`/`Alt`/`Shift`/`Meta` 加主键），`""` 解绑。非法写法或与已有绑定冲突时整次更新被拒绝。
+    pub toggle_english_candidates: Option<String>,
+    /// 全角 / 半角切换热键，规则同上。
+    pub toggle_full_width: Option<String>,
+    /// 中英文标点切换热键，规则同上。
+    pub toggle_punctuation: Option<String>,
     /// 整张替换 Vim 模式应用名单，`[]` 清空。条数与标识口径同 `app_input_mode_rules`。
     pub vim_mode_apps: Option<Vec<String>>,
     pub character_width: Option<Width>,
@@ -619,6 +634,9 @@ impl PreferencesChange {
             && self.fuzzy_pinyin.is_none()
             && self.default_ime_mode.is_none()
             && self.app_input_mode_rules.is_none()
+            && self.toggle_english_candidates.is_none()
+            && self.toggle_full_width.is_none()
+            && self.toggle_punctuation.is_none()
             && self.vim_mode_apps.is_none()
             && self.character_width.is_none()
             && self.chinese_punctuation.is_none()
@@ -720,6 +738,15 @@ impl PreferencesChange {
                 .iter()
                 .map(|(id, mode)| (id.clone(), (*mode).into()))
                 .collect();
+        }
+        if let Some(chord) = &self.toggle_english_candidates {
+            preferences.keybindings.toggle_english_candidates = chord.clone();
+        }
+        if let Some(chord) = &self.toggle_full_width {
+            preferences.keybindings.toggle_full_width = chord.clone();
+        }
+        if let Some(chord) = &self.toggle_punctuation {
+            preferences.keybindings.toggle_punctuation = chord.clone();
         }
         if let Some(apps) = &self.vim_mode_apps {
             preferences.vim_mode_apps = apps.clone();
@@ -1248,6 +1275,50 @@ mod tests {
         assert_eq!(saved.nine_key_shuangpin_custom_profile, Some(table));
         // 26 键的自定义表不受影响。
         assert_eq!(saved.shuangpin_custom_profile, None);
+    }
+
+    #[test]
+    fn toggle_hotkeys_are_read_and_written_as_canonical_chords() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(before.toggle_english_candidates, "Ctrl+Shift+KeyE");
+        assert_eq!(before.toggle_full_width, "Ctrl+Shift+Space");
+        assert_eq!(before.toggle_punctuation, "Ctrl+Period");
+        let run = |change: &PreferencesChange| {
+            update(directory.path(), &options, Edition::full(), change)
+        };
+        // 别名写法归一成规范形落盘；空串解绑。
+        let updated = run(&PreferencesChange {
+            toggle_english_candidates: Some("control+alt+keyr".into()),
+            toggle_punctuation: Some(String::new()),
+            ..change(before.revision)
+        })
+        .unwrap();
+        assert_eq!(updated.toggle_english_candidates, "Ctrl+Alt+KeyR");
+        assert_eq!(updated.toggle_punctuation, "");
+        // 非法写法和撞已有绑定的写法都被拒绝，文档不动。
+        for (change, expected) in [
+            (
+                PreferencesChange {
+                    toggle_punctuation: Some("Ctrl+".into()),
+                    ..change(updated.revision)
+                },
+                "切换热键必须是合法的快捷键组合",
+            ),
+            (
+                PreferencesChange {
+                    toggle_punctuation: Some("Ctrl+Shift+Space".into()),
+                    ..change(updated.revision)
+                },
+                "切换热键不能互相相同",
+            ),
+        ] {
+            let error = run(&change).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+        assert_eq!(load(directory.path(), Edition::full()).unwrap(), updated);
     }
 
     #[test]

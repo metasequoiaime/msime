@@ -1231,6 +1231,108 @@ fn validate_shuangpin_custom_profile(
     msime_host_api::custom_shuangpin_profile_problem(&profile)
 }
 
+/// `SettingsClient.checkToggleHotkey` 的请求：把 `chord` 作为 `field` 的绑定试写，
+/// `keybindings` 是页面当前草稿（另外两键和占用开关按它判）。
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckToggleHotkeyRequest {
+    field: msime_client_core::preferences::ToggleHotkeySlot,
+    chord: String,
+    keybindings: msime_client_core::preferences::KeybindingPreferences,
+    /// `voice_input.hotkey_ctrl_f9`；缺省按占用处理，与偏好默认值一致。
+    #[serde(default = "voice_hotkey_ctrl_f9_default")]
+    voice_ctrl_f9: bool,
+    /// 只有页面录键传物理 DOM code；手工规范名与 MCP 不重译。
+    #[serde(default)]
+    physical_recording: bool,
+}
+
+fn voice_hotkey_ctrl_f9_default() -> bool {
+    true
+}
+
+/// `SettingsClient.checkToggleHotkey` 的回答：通过给规范写法；不通过给 `kind`（`invalid` /
+/// `conflict`），冲突另给 `owner` 的稳定标识让页面指出与哪一项冲突。
+#[derive(serde::Serialize)]
+struct CheckToggleHotkeyResult {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chord: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+/// `SettingsClient.checkToggleHotkey`：录键写入前的试写校验，与保存时 `Preferences::validate`
+/// 走同一张占用表和同一个 `conflicts_with`，不落盘。解析与冲突判定只在 Rust 一侧。
+#[tauri::command]
+async fn check_toggle_hotkey(
+    app: tauri::AppHandle,
+    request: CheckToggleHotkeyRequest,
+) -> CheckToggleHotkeyResult {
+    use msime_client_core::preferences::ToggleHotkeyRejection;
+    let chord = request.chord;
+    #[cfg(target_os = "macos")]
+    let chord = if request.physical_recording {
+        let (send, received) = std::sync::mpsc::sync_channel(1);
+        let dispatched = app.run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::normalize_recorded_toggle_chord(&chord));
+        });
+        let normalized = if dispatched.is_ok() {
+            tauri::async_runtime::spawn_blocking(move || received.recv())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::ok)
+        } else {
+            None
+        };
+        let Some(chord) = normalized else {
+            return CheckToggleHotkeyResult {
+                ok: false,
+                chord: None,
+                kind: Some("invalid"),
+                owner: None,
+                detail: Some("keyboard layout translation unavailable".into()),
+            };
+        };
+        chord
+    } else {
+        chord
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, request.physical_recording);
+    match request
+        .keybindings
+        .check_toggle_hotkey(request.field, &chord, request.voice_ctrl_f9)
+    {
+        Ok(chord) => CheckToggleHotkeyResult {
+            ok: true,
+            chord: Some(chord),
+            kind: None,
+            owner: None,
+            detail: None,
+        },
+        Err(ToggleHotkeyRejection::Invalid(error)) => CheckToggleHotkeyResult {
+            ok: false,
+            chord: None,
+            kind: Some("invalid"),
+            owner: None,
+            detail: Some(error.to_string()),
+        },
+        Err(ToggleHotkeyRejection::Conflict { owner, chord }) => CheckToggleHotkeyResult {
+            ok: false,
+            chord: Some(chord.to_string()),
+            kind: Some("conflict"),
+            owner: Some(owner.id()),
+            detail: None,
+        },
+    }
+}
+
 /// `SettingsClient.builtinShuangpinTable`：内置双拼方案的键位表，编辑自定义方案时从它开始；`custom` 没有内置的表，是 `null`。
 #[tauri::command]
 fn builtin_shuangpin_table(
@@ -5685,6 +5787,7 @@ pub fn run() {
             list_helpcode_schemas,
             resolve_theme,
             validate_shuangpin_custom_profile,
+            check_toggle_hotkey,
             builtin_shuangpin_table,
             nine_key_shuangpin_layout,
             read_skin_image,

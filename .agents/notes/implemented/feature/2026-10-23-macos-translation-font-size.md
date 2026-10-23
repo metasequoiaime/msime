@@ -32,6 +32,10 @@ macOS 原生偏好读取该值。所有候选页的宽高测量、译文预留�
 - 首轮 quick 中，Windows 宿主策略 164 项、鸿蒙设置页构建、笔记检查、Rust 工作区、Android 目标、Wasm 编译和 Clippy 通过；iOS 豆包传输检查首次因 120 秒构建超时失败，独立复跑 17 项通过。系统盘可用空间随后降至约 1GB，在 Android Java 阶段停止该轮门禁；将临时文件改放 Workspace 卷后，正常推送的完整 quick 门禁通过，包含 Linux 外壳和原生宿主 111 项、macOS 全目标及 Apple bridge。Windows 完整宿主和 pipe-only 缺少 MinGW，HarmonyOS 真工程缺少暂存依赖，按规则跳过。
 - PR #9390 首轮 CI 的共享 UI 布局用例未列入新增的「译文字号」行，补齐后该文件 7 项测试通过；本次原生平台 CI 构建通过。主题引导文案契约的基线冲突已由 develop 的 #9389 修复，后续 CI 仍需检查合并结果。
 
+- 合入固定 `develop` 提交 `2cf090bbc5` 后，共享 UI 两文件 14 项及 Linux 原生宿主 111 项通过。复用的正常 Host API 库出现源码与产物不一致：静态链接探针经 C ABI 保存 12 点后返回字段缺失，而本树 Rust 字段和测试仍存在；因此不能只凭构建命令成功认可合并结果。首次动态库探针也因本机 Mach-O LINKEDIT 格式错误未能加载，未计为通过。停止该轮已失效的构建后，刷新本树相关 crate 根文件的修改时间，使标准缓存重编译 `client-core`、消费方及 Host API（1 分 18 秒）。重新链接到产品所用静态库的探针通过：12／21／32／`null` 保存与重读一致，33 被拒绝且未改动已存偏好；源码逻辑没有为缓存错误作修改。独立动态库重编后仍有 LINKEDIT 加载错误，不计为通过，产品原生宿主使用静态库；重新构建的 `candidate-appearance-defaults`、`shortcut-english-punctuation`、`shortcut-translation-font-size` 三项原生回归全部通过（7.02 秒），完整 quick 重新从头验收。
+
+合入固定 `develop` 提交 `f3e9250e64c1db7fe5598af4221c1522fc2dccb9` 后，保留上游 `--session-recovery` 与 `--english-punctuation` 入口，将本项独立入口放在既有翻译测试入口前。刷新本树 crate 根文件后，标准缓存中的 Host API 和消费方重新构建完成；重新链接的静态 C ABI 探针通过 12／21／32／`null` 往返及 33 拒绝检查。共享 UI 两文件 14 项、TypeScript 检查及 Vite 生产构建通过；重新构建后，三项原生回归通过（7.86 秒），直接运行 `shortcut-test --session-recovery` 也通过。此前两轮基于 `2cf090bbc5` 的完整 quick 均已主动停止，不能计为最终门禁。本次固定新提交的完整 quick 从头运行并通过，覆盖仓库契约与笔记、Windows 宿主策略 164 项、Rust 工作区及 Android／Wasm 编译、Android Java、鸿蒙共享设置构建、Linux 设置应用与原生 111 项、macOS 全目标及 Apple bridge 构建；未配置的 MinGW 全构建与鸿蒙真打包仍按门禁明确跳过。
+
 ## Consequences
 
 用户可独立放大译文，恢复默认后与旧版一致；译文变大后每屏容纳的候选会减少。代价是共享配置增加一个可选字段和 macOS 的读取接线。Windows 字段与正文冲突仍存在，本项按明确正文实现 macOS，不声明 Windows 同时完成。本机系统盘低于仓库 50GB 新构建树门槛，本次复用已经存在且空闲的标准 `target/` 缓存补验证，不复制其他工作树的源码；尚未安装原生宿主，不能据语法检查或独立偏好测试宣称装机验收完成。

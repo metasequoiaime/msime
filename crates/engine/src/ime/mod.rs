@@ -341,6 +341,7 @@ impl ImeSession {
             }
         }
         self.bind_wubi_scheme();
+        self.bind_shuangpin_scheme();
         self.state = CompositionState::default();
         self.pinyin_tail = false;
         Ok(())
@@ -681,6 +682,7 @@ impl ImeSession {
                 self.profile,
                 raw,
                 raw_with_cases,
+                self.helpcode_uppercase_triggers(),
                 request,
             ),
             _ => return self.raw_request_through_scheme(raw, raw_with_cases, request),
@@ -756,11 +758,32 @@ impl ImeSession {
 
     pub fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
         self.shuangpin_helpcode = enabled;
+        // 末尾大写触发归谁同时看总开关，方案层要重算。
+        self.bind_shuangpin_scheme();
     }
 
     /// 双拼辅助码的触发方式；请求每次构建都带上，改动即时生效。
     pub fn set_shuangpin_helpcode_modes(&mut self, modes: crate::types::ShuangpinHelpcodeModes) {
         self.shuangpin_helpcode_modes = modes;
+        self.bind_shuangpin_scheme();
+    }
+
+    /// 大写字母开哪种辅助码段（`ime_session.h` 的 `helpcode_uppercase_triggers`）。
+    pub(super) fn helpcode_uppercase_triggers(
+        &self,
+    ) -> crate::shuangpin::mid_sentence::UppercaseTriggers {
+        crate::shuangpin::mid_sentence::uppercase_triggers(
+            &self.shuangpin_helpcode_modes,
+            self.shuangpin_helpcode,
+        )
+    }
+
+    /// 大写段按当时的触发方式解析，方案层要拿到和敲键时一致的设置（`configure_shuangpin_scheme`）。
+    fn bind_shuangpin_scheme(&mut self) {
+        let triggers = self.helpcode_uppercase_triggers();
+        if let Some(shuangpin) = self.scheme.as_shuangpin_mut() {
+            shuangpin.set_helpcode_uppercase_triggers(triggers);
+        }
     }
 
     pub fn set_fuzzy_pinyin_options(&mut self, options: FuzzyPinyinOptions) {
@@ -951,6 +974,14 @@ impl ImeSession {
     fn apply_request_options(&self, request: &mut QueryRequest) {
         request.enable_shuangpin_helpcode = self.shuangpin_helpcode;
         request.shuangpin_helpcode_modes = self.shuangpin_helpcode_modes;
+        // 末尾段只在「辅助码开、末尾直接关、万象式直接没接管」时筛候选（ime_session.cpp:386-404）；
+        // 串里残留的旧段降级成分隔符。
+        if !(self.shuangpin_helpcode
+            && !request.shuangpin_helpcode_modes.direct
+            && !request.shuangpin_helpcode_modes.direct_helpcode)
+        {
+            request.end_helpcodes.clear();
+        }
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
         request.enable_quanpin_autocorrect_transposition =
@@ -1131,17 +1162,22 @@ fn pinyin_prefix_with_next(tail: &str, next: u8) -> bool {
 
 /// 从已构造的请求复用方案显示文本，避免刷新时再次调用 `Scheme::preedit()` 分配同一份字符串。
 fn reuse_request_preedit(request: &QueryRequest, destination: &mut String) {
-    let source = match request.scheme {
-        SchemeType::Quanpin
-        | SchemeType::Shuangpin
-        | SchemeType::Wubi
-        | SchemeType::JapaneseRomaji
-        | SchemeType::Cantonese => &request.raw_input_with_cases,
-        SchemeType::Korean
-        | SchemeType::Zhuyin
-        | SchemeType::Vietnamese
-        | SchemeType::Tibetan
-        | SchemeType::Stroke => &request.normalized_segmentation,
+    // 带辅助码段时预编辑必须是用户敲的原串（含段标记），去段串只用于查询。
+    let source = if !request.raw_input_with_helpcode_marks.is_empty() {
+        &request.raw_input_with_helpcode_marks
+    } else {
+        match request.scheme {
+            SchemeType::Quanpin
+            | SchemeType::Shuangpin
+            | SchemeType::Wubi
+            | SchemeType::JapaneseRomaji
+            | SchemeType::Cantonese => &request.raw_input_with_cases,
+            SchemeType::Korean
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => &request.normalized_segmentation,
+        }
     };
     source.clone_into(destination);
 }

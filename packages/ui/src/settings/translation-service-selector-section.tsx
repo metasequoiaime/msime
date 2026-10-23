@@ -2,13 +2,7 @@ import { SettingsRowStack } from "./settings-row-stack";
 import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
 
-export type TranslationProvider =
-  | "none"
-  | "custom"
-  | "tencent"
-  | "niutrans"
-  | "account"
-  | "ai";
+export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account" | "ai";
 
 /** 不选在线服务时宿主还会用什么出释义，决定 `none` 一项的叫法。`system`：macOS，离线词库，macOS 26 起再加系统本机翻译（`InputController` 的 `currentOnDeviceGlossRequest`）。`dictionary`：Windows、Linux、HarmonyOS，没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询（`msime_client_translation_query` 的 `offline_gloss_languages`），各宿主照样查出释义。缺省（Android、iOS）沿用「关闭」，那边没有核对过。 */
 export type TranslationOfflineFallback = "system" | "dictionary";

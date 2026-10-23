@@ -62,6 +62,7 @@ pub mod how {
     pub const EDGE: u64 = 8;
     pub const HIGHLIGHTED: u64 = 9;
     pub const WUBI_AUTO: u64 = 10;
+    pub const GRID_LIMIT: u64 = 11;
 }
 
 /// `event::OUTCOME`：选中之后的结果（`candidate_selected`）。

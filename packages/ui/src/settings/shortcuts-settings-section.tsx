@@ -42,6 +42,8 @@ export interface ShortcutsSettingsSectionProps {
   harmony: boolean;
   /** HarmonyOS 手机的外接键盘翻页键；它们只对外接键盘有意义，所以放在这一页，不放在「候选栏」页。 */
   paging?: ReactNode;
+  /** 「切换热键」录键组：宿主声明 `toggle_hotkey_chords` 且提供 `checkToggleHotkey` 时由页面上层传入。 */
+  toggleHotkeys?: ReactNode;
   /** 把 `paging` 里的翻页键恢复为默认值；「恢复默认」恢复整页，所以和 `paging` 一起传。 */
   onRestorePaging?: () => void;
 }
@@ -75,6 +77,7 @@ export function ShortcutsSettingsSection({
   showPanelShortcuts,
   harmony,
   paging,
+  toggleHotkeys,
   onRestorePaging,
 }: ShortcutsSettingsSectionProps) {
   const showToast = useToast();
@@ -107,6 +110,7 @@ export function ShortcutsSettingsSection({
             trilingualCycle={trilingualCycle}
             harmonyPhone={harmonyPhone}
           />
+          {toggleHotkeys}
           <CandidateShortcutsSection
             navigation={navigation}
             wordCharacter={wordCharacter}

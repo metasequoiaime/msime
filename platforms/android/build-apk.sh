@@ -32,6 +32,16 @@ elif [ "$omit_on_demand" != 0 ]; then
   echo "MSIME_ANDROID_OMIT_ON_DEMAND must be 0 or 1" >&2
   exit 1
 fi
+# MSIME_ANDROID_DISTRIBUTION=play 打上传 Google Play 的 AAB（target/android/<apk_name>.aab），缺省 github 照旧打 APK。Play 版没有应用内自更新（gradle-app 的 -PmsimeDistribution=play），也不能下载可执行代码，所以瘦包照样省略词典这类数据，但本地语音运行库的两个 .so 留在包里。AAB 只能用发布密钥签：Play 应用签名登记的就是 msime-release，开发密钥签的 AAB 传上去也会被拒。
+distribution=${MSIME_ANDROID_DISTRIBUTION:-github}
+case "$distribution" in
+  github) package_ext=apk ;;
+  play)
+    package_ext=aab
+    native_flags=()
+    ;;
+  *) echo "MSIME_ANDROID_DISTRIBUTION must be github or play, not $distribution" >&2; exit 1 ;;
+esac
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 tools_dir="$android_sdk/build-tools/35.0.0"
 # The Gradle host module compiles against API 36. Check the same platform here so a
@@ -199,26 +209,45 @@ tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
 # The APK's versionName comes from version.txt; MSIME_ANDROID_VERSION (the release workflow's version input) overrides it.
 version_args=()
 [[ -n "${MSIME_ANDROID_VERSION:-}" ]] && version_args+=("-PmsimeVersion=$MSIME_ANDROID_VERSION")
-ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" ${version_args[@]+"${version_args[@]}"} "assemble${flavor}Release"
+if [ "$distribution" = play ]; then gradle_task="bundle${flavor}Release"; else gradle_task="assemble${flavor}Release"; fi
+ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" "-PmsimeDistribution=$distribution" ${version_args[@]+"${version_args[@]}"} "$gradle_task"
 
-unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-release-unsigned.apk"
-[[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
 # 签名密钥的选择（发布、beta、本地构建都用同一把发布密钥）见 scripts/signing.sh。
 source "$repo_root/platforms/android/scripts/signing.sh"
-output="$repo_root/target/android/$apk_name.apk"
-aligned="$repo_root/target/android/$apk_name-aligned.apk"
-"$tools_dir/zipalign" -f -P 16 4 "$unsigned" "$aligned"
-"$tools_dir/apksigner" sign "${android_signing[@]}" --out "$output" "$aligned"
-"$tools_dir/apksigner" verify --verbose --print-certs "$output"
-"$tools_dir/zipalign" -c -P 16 4 "$output"
+output="$repo_root/target/android/$apk_name.$package_ext"
+if [ "$distribution" = play ]; then
+  [ "$android_signed_with" = "release key" ] || { echo "MSIME_ANDROID_DISTRIBUTION=play needs the release key; Google Play rejects a bundle signed with the development key" >&2; exit 1; }
+  unsigned="$gradle_dir/app/build/outputs/bundle/${edition}Release/app-$edition-release.aab"
+  [[ -f "$unsigned" ]] || { echo "Expected host bundle not produced" >&2; exit 1; }
+  # AAB 用 JAR 签名，apksigner 不签它。
+  jarsigner=${JAVA_HOME:+$JAVA_HOME/bin/}jarsigner
+  cp "$unsigned" "$output"
+  "$jarsigner" -keystore "$android_release_keystore" -storetype PKCS12 \
+    -storepass:env MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD -keypass:env MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD "$output" msime-release
+  "$jarsigner" -verify "$output"
+  keytool=${JAVA_HOME:+$JAVA_HOME/bin/}keytool
+  "$keytool" -printcert -jarfile "$output" | grep -E 'Owner|SHA256'
+  # AAB 里的每个模块都在 <模块>/ 下，下面按 APK 写的条目检查加上这个前缀。
+  entry_prefix=base/
+else
+  unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-release-unsigned.apk"
+  [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
+  aligned="$repo_root/target/android/$apk_name-aligned.apk"
+  "$tools_dir/zipalign" -f -P 16 4 "$unsigned" "$aligned"
+  "$tools_dir/apksigner" sign "${android_signing[@]}" --out "$output" "$aligned"
+  "$tools_dir/apksigner" verify --verbose --print-certs "$output"
+  "$tools_dir/zipalign" -c -P 16 4 "$output"
+  rm -f "$aligned"
+  entry_prefix=
+fi
 # The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins for this edition).
 # 数据与许可通知都必须进入最终包，避免资源暂存与打包入口漂移。
 for name in emoji-combinations.txt emoji-combinations-NOTICE.txt; do
-  unzip -p "$output" "assets/$name" | cmp - "shared/emoji-combinations/$name" || {
+  unzip -p "$output" "${entry_prefix}assets/$name" | cmp - "shared/emoji-combinations/$name" || {
     echo "Combination emoji asset differs or is missing: $name" >&2; exit 1;
   }
 done
-apk_entries=$(unzip -Z1 "$output")
+apk_entries=$(unzip -Z1 "$output" | sed -n "s|^$entry_prefix||p")
 # 表情包目录里的每个文件都要进最终包：少一张图，网格里就是一个空格子，点了也发不出去。
 for sticker in resources/stickers/shuishan/*; do
   grep -qxF "assets/stickers/shuishan/$(basename "$sticker")" <<< "$apk_entries" || { echo "$output has no assets/stickers/shuishan/$(basename "$sticker")" >&2; exit 1; }
@@ -246,14 +275,25 @@ if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' 
   echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2
   exit 1
 fi
-# 省略按需资源的瘦包里不能混进任何一样该下载的东西：日文词典那一组、语言词库、非英文离线释义和两个语音运行库。
+# 省略按需资源的瘦包里不能混进任何一样该下载的东西：日文词典那一组、语言词库、非英文离线释义和两个语音运行库。Play 版例外的是语音运行库：它必须在包里，见上面 MSIME_ANDROID_DISTRIBUTION 的说明。
+voice_runtime_patterns=('^lib/[^/]+/libonnxruntime\.so$' '^lib/[^/]+/libsherpa-onnx-c-api\.so$')
+if [ "$distribution" = play ]; then
+  for pattern in "${voice_runtime_patterns[@]}"; do
+    grep -Eq "$pattern" <<< "$apk_entries" || { echo "$output has no $pattern; a Google Play package must carry the speech runtime instead of downloading it" >&2; exit 1; }
+  done
+fi
 if [ "$omit_on_demand" = 1 ]; then
-  for pattern in '(^|/)msime-japanese\.dat$' '^assets/dictionary/msime-mozc_' '^assets/language-dictionaries/' '^assets/offline-glosses/' '^lib/[^/]+/libonnxruntime\.so$' '^lib/[^/]+/libsherpa-onnx-c-api\.so$'; do
+  omitted_patterns=('(^|/)msime-japanese\.dat$' '^assets/dictionary/msime-mozc_' '^assets/language-dictionaries/' '^assets/offline-glosses/')
+  [ "$distribution" = play ] || omitted_patterns+=("${voice_runtime_patterns[@]}")
+  for pattern in "${omitted_patterns[@]}"; do
     if grep -Eq "$pattern" <<< "$apk_entries"; then
       echo "$output carries $(grep -E -m 1 "$pattern" <<< "$apk_entries"), which MSIME_ANDROID_OMIT_ON_DEMAND=1 leaves to download on demand" >&2
       exit 1
     fi
   done
+fi
+# 只量 GitHub 渠道的 APK：Play 版带着语音运行库，体积由 Play 按设备拆分后的下载大小把关。
+if [ "$omit_on_demand" = 1 ] && [ "$distribution" = github ]; then
   # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。背单词内置词书进包时瘦包约 130.5 MB（词书压缩后约 1 MB），上限随之从 130,000,000 提到 135,000,000，仍比任何一组按需资源回到包里时小得多。
   max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-135000000}
   [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
@@ -264,5 +304,4 @@ if [ "$omit_on_demand" = 1 ]; then
   fi
   echo "APK size $apk_bytes bytes, within the $max_apk_bytes-byte ceiling"
 fi
-rm -f "$aligned"
-echo "APK for edition $edition built and signed with the $android_signed_with: $output; not installed or device-verified"
+echo "$(tr a-z A-Z <<< "$package_ext") for edition $edition ($distribution) built and signed with the $android_signed_with: $output; not installed or device-verified"

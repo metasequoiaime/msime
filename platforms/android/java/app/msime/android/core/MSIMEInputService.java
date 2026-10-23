@@ -429,8 +429,9 @@ public final class MSIMEInputService extends InputMethodService {
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
-    /** 本地设置「横屏分离式键盘」；实际画不画还要看设备形态、方向和布局，见 {@link #splitKeyboardDrawn}。 */
+    /** 本地设置的分离主开关；实际画不画还要看窗口大小、方向和布局，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardEnabled;
+    boolean splitKeyboardPortrait;
     /** 本地设置「数字行」；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
@@ -1356,17 +1357,20 @@ public final class MSIMEInputService extends InputMethodService {
         clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
-        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 1);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 2);
         if (before != null && before.length() == 0) {
             // 空框外的艾特与引用不属于周边文字，应用只有收到退格事件才能处理；读取失败不当作空框。
             selectionEcho.invalidate();
+            imeLetterRows.invalidateBackspaceScrub();
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
             return;
         }
         if (InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0)) {
+            imeLetterRows.recordBackspaceScrubDelete(before);
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
+            imeLetterRows.invalidateBackspaceScrub();
             selectionEcho.invalidate();
         }
     }
@@ -1375,6 +1379,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean deleteSelection() {
         CharSequence selected = InputConnectionGuard.selectedText(connection);
         if (selected == null || selected.length() == 0) return false;
+        imeLetterRows.invalidateBackspaceScrub();
         selectionEcho.invalidate();
         InputConnectionGuard.commitText(connection, "", 1);
         return true;
@@ -2395,6 +2400,8 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
+        splitKeyboardPortrait = preferences != null
+            && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
     }
 
     /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
@@ -2750,7 +2757,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + shuangpinKeyHintsEnabled;
+            + shuangpinKeyHintsEnabled + ":" + splitKeyboardPortrait;
     }
 
     private void reloadPreferences(String response) {
@@ -2851,6 +2858,7 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
+        boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -2909,7 +2917,8 @@ public final class MSIMEInputService extends InputMethodService {
         markPrivateSession();
         boolean geometryChanged = touchKeySpacingTenths != nextKeySpacing
             || touchRowSpacingTenths != nextRowSpacing
-            || touchKeyboardHeightAdjustment != nextHeightAdjustment;
+            || touchKeyboardHeightAdjustment != nextHeightAdjustment
+            || splitKeyboardPortrait != nextSplitPortrait;
         skin = nextSkin;
         // 实时修改颜色模式和面板明暗时，表情与手写也必须同步；只更新键盘会保留旧配色。
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
@@ -2924,6 +2933,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
+        splitKeyboardPortrait = nextSplitPortrait;
         if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
@@ -4496,13 +4506,14 @@ public final class MSIMEInputService extends InputMethodService {
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
-    /** 现在是否画成分离式键盘：开关打开、大屏、横屏，并且正在画的是 26 键一族或韩文键盘（{@link SplitKeyboardPolicy#drawn}）。每次都按当前配置重算，旋转后不需要另外通知。 */
+    /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
         if (floatingDrawn() || imeLetterRows.numberPadDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
         return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
-            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view),
+            splitKeyboardPortrait);
     }
 
     /** 现在字母上方要不要画数字行（#6022）：手动或上下文开启、在字母层、画的是 26 键一族或韩文键盘、窗口够高（{@link KeyboardLayout#drawsNumberRow}）。 */
@@ -8385,6 +8396,61 @@ public final class MSIMEInputService extends InputMethodService {
         invalidateHandwritingRecognition();
         if (handwritingCanvas != null) handwritingCanvas.clear();
         showHandwritingStatus("在此手写，停笔后选字");
+    }
+
+    /** 水平删除的快照仅属于当前按压；敏感框和组字、墨迹继续走原有退格。 */
+    BackspaceScrub beginBackspaceScrub() {
+        if (connection == null || EditorPolicy.password(editorInputType) || !allowLearning
+                || incognitoEnabled || hasEngineComposition()
+                || handwritingCanvas != null && handwritingCanvas.hasInk()) return null;
+        BackspaceScrub.Frame frame = readBackspaceScrubFrame();
+        return frame == null || frame.before().isEmpty() ? null : new BackspaceScrub(connection, frame);
+    }
+
+    private BackspaceScrub.Frame readBackspaceScrubFrame() {
+        if (connection == null) return null;
+        try {
+            var request = new android.view.inputmethod.ExtractedTextRequest();
+            request.hintMaxChars = BackspaceScrub.MAX_UNITS + 2 * BackspaceScrub.CONTEXT_UNITS;
+            request.hintMaxLines = 32;
+            var extracted = connection.getExtractedText(request, 0);
+            if (extracted == null || extracted.text == null || extracted.partialStartOffset != -1
+                    || extracted.startOffset < 0 || extracted.selectionStart < 0
+                    || extracted.selectionStart != extracted.selectionEnd
+                    || extracted.selectionStart > extracted.text.length()) return null;
+            int at = extracted.selectionStart;
+            long absolute = (long) extracted.startOffset + at;
+            if (absolute > Integer.MAX_VALUE) return null;
+            String before = extracted.text.subSequence(Math.max(0,
+                at - BackspaceScrub.MAX_UNITS - BackspaceScrub.CONTEXT_UNITS), at).toString();
+            String after = extracted.text.subSequence(at,
+                Math.min(extracted.text.length(), at + BackspaceScrub.CONTEXT_UNITS)).toString();
+            return new BackspaceScrub.Frame((int) absolute, before, after);
+        } catch (RuntimeException ignored) { return null; }
+    }
+
+    void moveBackspaceScrub(BackspaceScrub scrub, int deleted) {
+        if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled
+                || hasEngineComposition() || handwritingCanvas != null && handwritingCanvas.hasInk()) {
+            scrub.invalidate();
+            return;
+        }
+        int previous = scrub.deleted();
+        scrub.move(new BackspaceScrub.Editor() {
+            @Override public Object target() { return connection; }
+            @Override public BackspaceScrub.Frame read() { return readBackspaceScrubFrame(); }
+            @Override public boolean delete(int units) { return deleteBeforeCursor(units); }
+            @Override public boolean restore(String text) {
+                // 恢复已删内容不计新输入；绕开统计、学习与剪贴板，只登记选区回声。
+                boolean accepted = InputConnectionGuard.commitText(connection, text, 1);
+                if (accepted) {
+                    selectionEcho.commit(text.length());
+                    selectionEcho.expect();
+                } else selectionEcho.invalidate();
+                return accepted;
+            }
+        }, deleted);
+        if (previous != scrub.deleted()) refreshAfterQuickDelete();
     }
 
     /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */

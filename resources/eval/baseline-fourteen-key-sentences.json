@@ -172,7 +172,7 @@
       "gold": "你周末有时间吗",
       "id": "nk-036",
       "input": "nizhoumoyoushijianma",
-      "rank": 45,
+      "rank": 44,
       "top1": "步骤摸头时间吗"
     },
     {
@@ -221,7 +221,7 @@
       "gold": "周末我们去看电影吧",
       "id": "nk-051",
       "input": "zhoumowomenqukandianyingba",
-      "rank": 46,
+      "rank": 43,
       "top1": "周末我们去看店听吧"
     },
     {

@@ -28,6 +28,8 @@ Status: implemented
 
 **SDK 和模板在 `docs/script-plugin-template/`。** `sdk/msime_script.h`（C 头文件，`import_module`/`import_name` 属性声明全部 18 个 import，宏给出全部编号）和 `sdk/msime_script.rs`（单文件，只用 `core`，按能力域分模块：`event`、`log`、`random`、`composition`、`commit`、`candidates`、`rewrite`、`rerank`、`filter`、`annotate`、`command`，外加 `status`、`hook` 和各枚举取值）。模板是一个自带 `[workspace]` 的独立 crate，`src/lib.rs` 是 pangu-spacing（`before_commit` 读 body，在中日韩文字和 ASCII 字母数字之间加空格，请求改写），`.cargo/config.toml` 默认目标 `wasm32-unknown-unknown` 并把栈缩到 64 KiB（Rust 默认 1 MiB 的栈会让线性内存最小 17 页，超过 `memory_pages` 的上限），`pack/plugin.toml` 是清单，`fixture.jsonl` 是给 `run` 的事件。`.gitignore` 排除 `*.wasm`、`target/` 和 `Cargo.lock`。`rust-toolchain.toml` 不动，README 写明要给固定的 1.97.1 加 `wasm32-unknown-unknown` 目标。`pack-tool/tests/sdk.rs` 解析头文件的整数宏和 Rust 绑定的 `pub const`，要求两边和运行时的常量不多不少，import 声明恰好是白名单。
 
+2026-10-23：九键到达组码上限时新增 `SelectionHow::GridLimit = 11`，运行时 ABI 已追加 `grid_limit`，两份作者 SDK 也必须分别导出 `MSIME_HOW_GRID_LIMIT` 和 `how::GRID_LIMIT`，值保持为 11。作者直接写数值可以绕过缺少符号的问题，但会把 ABI 编号的知识散落在插件里；把事件归并成旧原因可以沿用旧绑定，却会丢失到达上限的选词语义，因此只补齐绑定。已有常量和 ABI 版本沿用原值，继续由现有完整性测试逐项核对 C、Rust 两份 SDK；缺项会使该测试失败。
+
 **作者文档。** `docs/plugins.md` 新增「脚本插件」一节：在哪里运行（4 个桌面进程、只在开发构建、授权页之前要手写授权）、清单 v2、能力表、钩子表、ABI v1 的模块要求、限制（第 3 阶段的数值：模块 256 KiB、每轮 125 000、单次钩子 125 000/100 000/25 000、初始化 5 000 000、内存总账按每字节 128 倍估算）、隐私规则（含快照复位对未导出 global 和表的影响）、失败与停用、社区不收脚本包，以及 `msime-pack run` 的夹具和输出。开头"插件不能带可执行内容"一段写明唯一的例外。
 
 ## Alternatives considered

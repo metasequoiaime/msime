@@ -12,7 +12,7 @@ public final class EnglishLetterHoldPolicy {
         "ⁿ", "ᵒ", "ᵖ", "", "ʳ", "ˢ", "ᵗ", "ᵘ", "ᵛ", "ʷ", "ˣ", "ʸ", "ᶻ"};
     private static final String[] SUB = {
         "ₐ", "", "", "", "ₑ", "", "", "ₕ", "ᵢ", "ⱼ", "ₖ", "ₗ", "ₘ",
-        "ₙ", "ₒ", "ₚ", "", "ᵣ", "ₛ", "ₜ", "ᵤ", "ᵥ", "", "ₓ", "", ""};
+        "ₙ", "ₒ", "ₚ", "", "ᵣ", "ₛ", "ₜ", "ᵤ", "ᵥ", "₝", "ₓ", "₞", "₟"};
     private static final String SUPER_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
     private static final String SUB_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
     private static final String FINANCIAL_DIGITS = "零壹贰叁肆伍陆柒捌玖";

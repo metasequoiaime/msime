@@ -135,6 +135,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
+    /// 中文状态下首页最多展示几个英文候选（`mixed_input.first_page_count`，1–3）：在线座位整理时英文组在头段的留位数，第一行总能留位。
+    pub(crate) english_first_page_count: usize,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -772,6 +774,11 @@ impl<E: InputEngine> Runtime<E> {
         self.left_right_navigation = enabled;
     }
 
+    /// 首页英文候选上限（`mixed_input.first_page_count`）：1–3，越界按 1 处理；和 `set_left_right_navigation` 一样是宿主状态，下一次座位整理就生效。
+    pub fn set_english_first_page_count(&mut self, count: u8) {
+        self.english_first_page_count = usize::from(count.clamp(1, 3));
+    }
+
     /// 候选窗是否竖排：和 `set_left_right_navigation` 一样只影响左右键这一次怎么解释。
     pub fn set_vertical_candidates(&mut self, vertical: bool) {
         self.vertical_candidates = vertical;
@@ -1037,6 +1044,7 @@ impl<E: InputEngine> Runtime<E> {
             backspace_reverts_selection: true,
             escape_keeps_selected_word: false,
             left_right_navigation: false,
+            english_first_page_count: 1,
             vertical_candidates: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -2273,12 +2281,29 @@ impl<E: InputEngine> Runtime<E> {
 
             let mut next_seat = 0;
             let mut head = |group: usize, limit: usize| {
+                let limit = if group == ENGLISH_GROUP {
+                    // 额外英文只占首页余位，并为 AI 保留一格；原有第一行英文优先位继续保留。
+                    let following = if promoted_english {
+                        counts[LOCAL_GROUP].min(local_prefix)
+                            + counts[CLOUD_GROUP]
+                            + counts[JAPANESE_GROUP].min(1)
+                    } else {
+                        0
+                    };
+                    limit.min(
+                        self.page_size
+                            .saturating_sub(next_seat + following + usize::from(ai_count > 0))
+                            .max(1),
+                    )
+                } else {
+                    limit
+                };
                 head_starts[group] = next_seat;
                 head_counts[group] = counts[group].min(limit);
                 next_seat += head_counts[group];
             };
             if promoted_english {
-                head(ENGLISH_GROUP, 1);
+                head(ENGLISH_GROUP, self.english_first_page_count);
             }
             if promoted_japanese {
                 head(JAPANESE_GROUP, 1);
@@ -2289,7 +2314,7 @@ impl<E: InputEngine> Runtime<E> {
                 head(JAPANESE_GROUP, 1);
             }
             if !promoted_english {
-                head(ENGLISH_GROUP, 1);
+                head(ENGLISH_GROUP, self.english_first_page_count);
             }
             head(EMOJI_GROUP, 1);
             head(KAOMOJI_GROUP, 1);
@@ -3007,6 +3032,12 @@ impl<E: InputEngine> Runtime<E> {
             }
             _ => false,
         };
+        // 九宫格组码已经到上限（`DIGIT_LIMIT`）时再按一键：先替用户选掉首选腾出位置，再把这一键接着打，和顶字一样不丢键。引擎只在光标在末尾、首选确实占用组码时说可以；否则这一键照旧被拦下并给出提示。
+        let grid_limit_pick = match action {
+            Action::Character { value, .. } => self.engine.grid_limit_pick_ready(value, false),
+            Action::GridKey(letter) => self.engine.grid_limit_pick_ready(letter, true),
+            _ => false,
+        };
         // 这次把哪个座位的候选交给了引擎、经由哪条路径，引擎调用之后再与它的上屏核对（`selection_fact`）。标点结束组字的两条路由在 `punctuation`、`punctuation_ascii` 里自己记。
         let mut pick: Option<(SelectionHow, usize)> = None;
         // 原样上屏读音的路由：bare 前缀上的 Finish 和 `CommitRaw` 命令。
@@ -3070,6 +3101,21 @@ impl<E: InputEngine> Runtime<E> {
                         }
                         Ok(committed)
                     })
+            }
+            Action::Character { value, shift } if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine.select(self.engine_index(0)).and_then(|picked| {
+                    Ok(join_after_pick(
+                        picked,
+                        self.engine.character(value, shift)?,
+                    ))
+                })
+            }
+            Action::GridKey(letter) if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine
+                    .select(self.engine_index(0))
+                    .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
             Action::Character { value, .. }
@@ -3240,7 +3286,7 @@ impl<E: InputEngine> Runtime<E> {
             .as_deref()
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
-        let picked = selected_by_digit || selection_action;
+        let picked = selected_by_digit || selection_action || grid_limit_pick;
         // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
         // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
         let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
@@ -3261,6 +3307,8 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(selection) = self.facts.selection.as_mut() {
             if selection.outcome == SelectionOutcome::Committed
                 && selection.how != SelectionHow::WubiTop
+                && !(selection.how == SelectionHow::GridLimit
+                    && self.cached.editing_text.chars().count() <= 1)
                 && !self.cached.editing_text.is_empty()
             {
                 selection.outcome = SelectionOutcome::Partial;
@@ -3285,6 +3333,19 @@ impl<E: InputEngine> Runtime<E> {
             phrase_prefix_empty: self.phrase_prefix.is_empty(),
         })
     }
+}
+
+/// 先选掉首选、再把同一键交给引擎时，两步合成一个结果：选中的词在前，这一键若也上屏了什么就接在后面。这一键本身已经算处理过了。
+fn join_after_pick(mut picked: EngineResult, next: EngineResult) -> EngineResult {
+    if next.has_commit {
+        picked.commit.push_str(&next.commit);
+        picked.has_commit = true;
+    }
+    picked.handled = true;
+    if picked.diagnostic.is_empty() {
+        picked.diagnostic = next.diagnostic;
+    }
+    picked
 }
 
 /// `value` committed as it is, for a mark that has to leave together with a held phrase piece.

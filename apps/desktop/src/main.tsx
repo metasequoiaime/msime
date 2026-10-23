@@ -304,6 +304,7 @@ const client: SettingsClient = {
   // 两个都是无副作用的计算（host-api 不留存的校验和内置方案的表），桌面宿主都注册了，输入页据此提供自定义双拼的编辑、导入和导出。
   validateShuangpinCustomProfile: (profile) =>
     invoke("validate_shuangpin_custom_profile", { profile }),
+  checkToggleHotkey: (request) => invoke("check_toggle_hotkey", { request }),
   builtinShuangpinTable: (name) => invoke("builtin_shuangpin_table", { name }),
   nineKeyShuangpinLayout: (request) =>
     invoke("nine_key_shuangpin_layout", {

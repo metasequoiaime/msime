@@ -1919,7 +1919,12 @@ export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-pre
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
-export type { SettingsClient, PreferencesRecovery } from "./core/settings-client";
+export type {
+  SettingsClient,
+  PreferencesRecovery,
+  ToggleHotkeyCheckRequest,
+  ToggleHotkeyCheckResult,
+} from "./core/settings-client";
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 /**

@@ -58,7 +58,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
   var keywords: [String] {
     switch self {
     case .skin: return ["主题", "配色", "外观"]
-    case .candidate: return ["候选", "字号", "字体"]
+    case .candidate: return ["候选", "字号", "字体", "候选混输", "中英混输", "首页英文候选数"]
     case .toolbar: return ["工具栏", "按钮"]
     case .input: return ["方案", "拼音", "双拼", "五笔", "模糊音", "简繁", "辅助码", "翻译"]
     case .ai: return ["标点", "联想", "英文", "空格"]

@@ -100,9 +100,9 @@ export function useTranslationSettings({
       : "";
   const aiTranslationReady = Boolean(
     aiAssistant &&
-      aiOrigin &&
-      aiAssistant.model.trim() &&
-      (aiToken.trim() || !aiProviderUsesToken(aiAssistant.provider)),
+    aiOrigin &&
+    aiAssistant.model.trim() &&
+    (aiToken.trim() || !aiProviderUsesToken(aiAssistant.provider)),
   );
   const setTranslationProvider = (
     provider: "none" | "custom" | "tencent" | "niutrans" | "account" | "ai",

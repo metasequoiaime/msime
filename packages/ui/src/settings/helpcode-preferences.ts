@@ -18,7 +18,7 @@ export type CustomHelpcodeSchema = {
   name_en: string;
 };
 
-/** 双拼辅助码的触发方式（Windows v0.11.1 `[helpcode]` 组的双拼专属键）；只有 `shuangpin_helpcode` 一族读它。当前设置页仅暴露已实现的末尾直接开关。 */
+/** 双拼辅助码的触发方式（Windows v0.11.1 `[helpcode]` 组的双拼专属键）；只有 `shuangpin_helpcode` 一族读它。设置页按末尾直接、末尾间接、句中间接和逐音节直接列出开关。 */
 export type ShuangpinHelpcodeModes = {
   /** 末尾直接：完整音节后直接接辅码。 */
   direct: boolean;

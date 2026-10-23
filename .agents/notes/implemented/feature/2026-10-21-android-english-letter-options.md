@@ -39,3 +39,5 @@ API 35 的 `SuperscriptShortcutDeviceSmoke` 与 `NineKeyEnglishDeviceSmoke` 通�
 ## Consequences
 
 英文状态可以直接选择这些字符，不必逐次翻符号页。字体对上下标的基线和尺寸不同，按原始 Unicode 字符提交，不使用富文本模拟上下标；缺少常见字符的键不显示假选项。多行弹窗会暂时覆盖部分键盘，点外部仍关闭。
+
+[Unicode 18 下标补齐](../bug-fix/2026-10-23-android-unicode18-subscripts.md)补入 w/y/z 的真实码位，并仅在缺字形时缩小当前字母绘制，长按选项与候选共用局部标签处理。
