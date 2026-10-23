@@ -17,6 +17,8 @@ public final class TextTrackpadMagnifier {
     private final PreviewView content;
     private final PopupWindow popup;
     private final float density;
+    private View pendingKeyboard;
+    private Runnable pendingShow;
 
     public TextTrackpadMagnifier(Context context) {
         density = context.getResources().getDisplayMetrics().density;
@@ -30,23 +32,33 @@ public final class TextTrackpadMagnifier {
 
     public void show(View keyboard, RectF anchor, TextTrackpadText.Preview preview,
             int background, int foreground, int accent) {
+        clearPendingShow();
         if (keyboard == null || !keyboard.isAttachedToWindow() || keyboard.getWidth() == 0) return;
+        if (keyboard.isLayoutRequested() || keyboard.getRootView().isLayoutRequested()) {
+            pendingKeyboard = keyboard;
+            pendingShow = () -> show(keyboard, anchor, preview, background, foreground, accent);
+            keyboard.postOnAnimation(pendingShow);
+            return;
+        }
         int margin = Math.round(8 * density);
         int screenWidth = keyboard.getResources().getDisplayMetrics().widthPixels;
         int screenHeight = keyboard.getResources().getDisplayMetrics().heightPixels;
         int width = Math.min(Math.round(280 * density), screenWidth - margin * 2);
         int height = Math.round(76 * density);
         android.view.WindowInsets insets = keyboard.getRootWindowInsets();
-        int safeTop = margin;
+        android.graphics.Rect visible = new android.graphics.Rect();
+        keyboard.getWindowVisibleDisplayFrame(visible);
+        // 输入法窗口的局部 Insets 可不含顶部系统栏；可见显示区域提供屏幕上的安全边界。
+        int safeTop = Math.max(0, visible.top) + margin;
         if (insets != null) {
-            safeTop += WindowLayout.systemBars(insets).top;
+            safeTop = Math.max(safeTop, WindowLayout.systemBars(insets).top + margin);
             if (insets.getDisplayCutout() != null)
                 safeTop = Math.max(safeTop, insets.getDisplayCutout().getSafeInsetTop() + margin);
         }
         if (width <= 0 || screenHeight <= height) return;
         int[] location = new int[2];
         keyboard.getLocationOnScreen(location);
-        boolean anchored = anchor != null && anchor.top >= safeTop && anchor.bottom < location[1] - margin;
+        boolean anchored = anchor != null && anchor.top >= safeTop - margin && anchor.bottom < location[1] - margin;
         float center = anchored ? anchor.centerX() : location[0] + keyboard.getWidth() / 2f;
         int x = Math.max(margin, Math.min(screenWidth - width - margin, Math.round(center - width / 2f)));
         int y = anchored ? Math.round(anchor.top) - height - margin : location[1] - height - margin;
@@ -72,7 +84,14 @@ public final class TextTrackpadMagnifier {
         }
     }
 
+    private void clearPendingShow() {
+        if (pendingKeyboard != null && pendingShow != null) pendingKeyboard.removeCallbacks(pendingShow);
+        pendingKeyboard = null;
+        pendingShow = null;
+    }
+
     public void hide() {
+        clearPendingShow();
         if (popup.isShowing()) popup.dismiss();
         content.clear();
     }

@@ -139,7 +139,7 @@ fn android_text_trackpad_validates_ranges_and_persists_all_options() {
     }
     store.restore_defaults(saved.revision).unwrap();
     assert_eq!(store.load().unwrap().preferences, Preferences::default());
->>>>>>> 0bcf2cb795 (feat(android): add text editing trackpad and bounded caret preview)
+
 }
 
 #[test]

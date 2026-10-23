@@ -391,6 +391,9 @@ public final class MSIMEInputService extends InputMethodService {
     boolean clipboardPreviewExpanded;
     int clipboardPreviewKeyboardHeight;
     private int clipboardPreviewKeyboardTop;
+    int clipboardPreviewKeyboardHeight;
+    boolean textTrackpadPreviewExpanded;
+    int editorPreviewKeyboardHeight;
     /** 上一次套上的浮动布局是不是跟随光标的候选栏：它和浮动键盘的外框宽度、拖动条不同，在两者之间切换也要重新套。 */
     private boolean caretLayoutApplied;
     /** 第一次浮动前窗口与系统 inputArea 原来的高度，停靠时原样恢复；{@link Integer#MIN_VALUE} 表示还没记下。 */
@@ -9507,6 +9510,12 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 全文预览使用透明全高窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
+    /** 全文预览临时扩大透明窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
+    /** 两种编辑预览各自持有透明父窗口，只有最后一个结束时才恢复停靠窗口。 */
+    boolean editorPreviewExpanded() {
+        return clipboardPreviewExpanded || textTrackpadPreviewExpanded;
+    }
+
     void setClipboardPreviewExpanded(boolean expanded) {
         if (clipboardPreviewExpanded == expanded) return;
         if (expanded) {
@@ -9514,7 +9523,23 @@ public final class MSIMEInputService extends InputMethodService {
             keyboardSurface.getLocationOnScreen(floatingLocation);
             clipboardPreviewKeyboardTop = floatingLocation[1];
         }
+        if (expanded) clipboardPreviewKeyboardHeight = keyboardSurface.getHeight();
+        boolean previous = editorPreviewExpanded();
         clipboardPreviewExpanded = expanded;
+        updateEditorPreviewWindow(previous);
+    }
+
+    void setTextTrackpadPreviewExpanded(boolean expanded) {
+        if (textTrackpadPreviewExpanded == expanded) return;
+        boolean previous = editorPreviewExpanded();
+        textTrackpadPreviewExpanded = expanded;
+        updateEditorPreviewWindow(previous);
+    }
+
+    private void updateEditorPreviewWindow(boolean previous) {
+        boolean expanded = editorPreviewExpanded();
+        if (expanded == previous) return;
+        if (expanded) editorPreviewKeyboardHeight = keyboardSurface.getHeight();
         applyFloatingLayout(true);
         imeStyler.applySkin();
     }
@@ -9533,6 +9558,12 @@ public final class MSIMEInputService extends InputMethodService {
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
         fullWindowLayoutApplied = fullWindow;
         overlayLayoutApplied = floating;
+        boolean fullWindow = floating || clipboardPreviewExpanded;
+        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
+        floatingLayoutApplied = fullWindow;
+        boolean fullWindow = floating || editorPreviewExpanded();
+        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
+        floatingLayoutApplied = fullWindow;
         caretLayoutApplied = caret;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
@@ -9592,6 +9623,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
         if ((!overlayDrawn() && !clipboardPreviewExpanded && !stableDockedWindow())
                 || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !clipboardPreviewExpanded) || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !editorPreviewExpanded()) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -9607,6 +9640,8 @@ public final class MSIMEInputService extends InputMethodService {
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
         } else if (!overlayDrawn()) {
+        if (clipboardPreviewExpanded && !overlayDrawn()) {
+        if (editorPreviewExpanded() && !overlayDrawn()) {
             outInsets.contentTopInsets = floatingLocation[1];
             outInsets.visibleTopInsets = floatingLocation[1];
         }

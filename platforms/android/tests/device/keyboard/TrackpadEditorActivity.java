@@ -60,13 +60,22 @@ public final class TrackpadEditorActivity extends Activity {
             boolean password = "password".equals(kind);
             boolean terminal = "terminal".equals(kind);
             boolean noAnchor = "no-anchor".equals(kind);
+            boolean subscriptions = "subscriptions".equals(kind);
+            StringBuilder updates = new StringBuilder("updates=");
             EditText editor = new EditText(this) {
                 @Override public InputConnection onCreateInputConnection(EditorInfo info) {
                     InputConnection base = super.onCreateInputConnection(info);
                     if (base == null) return null;
                     return new InputConnectionWrapper(base, false) {
                         @Override public boolean requestCursorUpdates(int mode) {
-                            return !noAnchor && super.requestCursorUpdates(mode);
+                            boolean accepted = !noAnchor && super.requestCursorUpdates(mode);
+                            if (subscriptions) { updates.append(mode).append(';'); status.setText(updates.toString()); }
+                            return accepted;
+                        }
+                        @Override public boolean requestCursorUpdates(int mode, int filter) {
+                            boolean accepted = !noAnchor && super.requestCursorUpdates(mode, filter);
+                            if (subscriptions) { updates.append(mode).append(';'); status.setText(updates.toString()); }
+                            return accepted;
                         }
                         @Override public CharSequence getTextBeforeCursor(int length, int flags) {
                             if (password) { status.setText("reads=" + ++reads); return null; }
@@ -94,11 +103,11 @@ public final class TrackpadEditorActivity extends Activity {
             };
             editor.setInputType(InputType.TYPE_CLASS_TEXT | (password
                 ? InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_TEXT_FLAG_MULTI_LINE));
+            editor.setTypeface(android.graphics.Typeface.MONOSPACE);
             editor.setContentDescription("trackpad-editor");
-            editor.setText(password ? "synthetic-private-password" : TEXT);
+            editor.setText(password ? "synthetic-private-password" : "long-selection".equals(kind) ? String.join("", java.util.Collections.nCopies(200, TEXT)) : TEXT);
             editor.setSelection(8);
             root.addView(editor, new LinearLayout.LayoutParams(-1, 180));
-            editor.setOnFocusChangeListener((view, focused) -> { if (focused) showIme(view); });
             root.post(() -> { editor.requestFocus(); showIme(editor); });
         }
         setContentView(root);

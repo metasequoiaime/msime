@@ -453,6 +453,10 @@ final class ImeStyler {
         } else {
             ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
         }
+        int rootColor = floating || s.clipboardPreviewExpanded ? Color.TRANSPARENT : color(s.skin.background());
+        ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
+        int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
+        ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
         s.imeFrame.applyNavigationBar(floating ? Color.TRANSPARENT : color(s.skin.background()), s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         CandidateCanvasAssets canvas = s.candidateAppearance.canvas();
@@ -581,6 +585,8 @@ final class ImeStyler {
             width, s.clipboardPreviewExpanded ? s.clipboardPreviewKeyboardHeight
                 : s.stableDockedWindow() ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
+            width, s.clipboardPreviewExpanded ? s.clipboardPreviewKeyboardHeight : FrameLayout.LayoutParams.MATCH_PARENT,
+            width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.keyboardSurface.setLayoutParams(params);
         ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(10));

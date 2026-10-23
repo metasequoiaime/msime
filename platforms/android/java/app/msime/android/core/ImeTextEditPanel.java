@@ -591,6 +591,7 @@ final class ImeTextEditPanel {
         previewActive = wanted;
         previewTarget = wanted ? s.connection : null;
         if (!wanted && magnifier != null) magnifier.hide();
+        s.setTextTrackpadPreviewExpanded(wanted && android.os.Build.VERSION.SDK_INT < 30);
         s.synchronizeCursorUpdates();
         if (wanted) refreshPreview();
     }
