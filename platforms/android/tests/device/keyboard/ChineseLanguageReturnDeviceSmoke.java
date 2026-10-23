@@ -258,17 +258,20 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
             tap(japaneseKana("、"));
             await(field("msime-test-plain").and(node -> equalsText("a、b", node.getText())
                 && node.getTextSelectionStart() == 2));
-            stage = "toggle preference disabled and enabled clears old sequence";
+            stage = "toggle preference disabled clears old sequence";
             values.put("touch_japanese_toggle_input", false);
             publish(preferences, bytes(new JSONObject().put("format_version", 1)
                 .put("revision", ++revision).put("preferences", values)));
             await(describedPrefix("轻点输入さ；"));
+            stage = "toggle preference enabled after clearing old sequence";
             values.put("touch_japanese_toggle_input", true);
             publish(preferences, bytes(new JSONObject().put("format_version", 1)
                 .put("revision", ++revision).put("preferences", values)));
             await(describedPrefix("轻点输入さ，连续轻点依次切换"));
             // 右箭头不受一秒时间窗限制：旧连点残留时只结束连点，清理后会真正越过尾部字符。
-            tap(describedPrefix("结束连点切换"));
+            stage = "right arrow after Japanese toggle reset";
+            tap(describedPrefix("结束连点切换，开始下一个假名"));
+            stage = "right arrow moves caret after Japanese toggle reset";
             await(field("msime-test-plain").and(node -> equalsText("a、b", node.getText())
                 && node.getTextSelectionStart() == 3));
             stage = "Japanese setting saves from native input page";
