@@ -179,6 +179,8 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 tap(described("切换到数字和符号"));
             }
             stage = "password number grid type " + type;
+            // 先确认已经切到数字页，不能把字母页的自动数字行当作稳定网格。
+            await(key("#+="));
             assertGrid();
             typeLiteral("1203");
             awaitPasswordLength(4);
@@ -192,11 +194,13 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 awaitPasswordLength(4);
             }
             tap(described("切换到数字和符号"));
+            await(key("#+="));
             assertGrid();
             if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
                 tap(key("#+="));
                 await(key("123"));
                 tap(key("123"));
+                await(key("#+="));
                 assertGrid();
             }
         }
@@ -235,14 +239,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             dropStaleNodes();
             Rect[] current = new Rect[9];
             for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
-                AccessibilityNodeInfo root = window.getRoot();
-                for (int index = 0; index < current.length; index++) {
-                    AccessibilityNodeInfo node = find(root, key(Integer.toString(index + 1)));
-                    if (node == null) continue;
-                    Rect bounds = new Rect();
-                    node.getBoundsInScreen(bounds);
-                    if (!bounds.isEmpty()) current[index] = bounds;
-                }
+                collectGridBounds(window.getRoot(), current);
             }
             boolean complete = java.util.Arrays.stream(current).allMatch(java.util.Objects::nonNull);
             if (complete && java.util.Arrays.equals(previous, current)) return current;
@@ -250,6 +247,23 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(250);
         }
         throw new AssertionError("Number grid bounds never settled: " + java.util.Arrays.toString(previous));
+    }
+
+    /** 一次遍历取得整组坐标，避免 API 28 为九个数字各刷新整棵键盘子树。 */
+    private void collectGridBounds(AccessibilityNodeInfo node, Rect[] cells) {
+        if (node == null || Build.VERSION.SDK_INT < 34 && !node.refresh()) return;
+        if (node.isVisibleToUser()) {
+            for (int index = 0; index < cells.length; index++) {
+                if (cells[index] != null || !key(Integer.toString(index + 1)).test(node)) continue;
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty()) cells[index] = bounds;
+            }
+        }
+        for (int index = 0; index < node.getChildCount(); index++) {
+            if (java.util.Arrays.stream(cells).allMatch(java.util.Objects::nonNull)) return;
+            collectGridBounds(node.getChild(index), cells);
+        }
     }
 
     private void typeLiteral(String text) throws Exception {
