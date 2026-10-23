@@ -223,7 +223,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && !node.isLongClickable());
         stage = step + ": editor keeps focus";
         Rect editorAfter = new Rect();
-        await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
+        // 浮层遮住输入框后，API 28 会将它标为不可见；焦点和位置仍须从原节点核对。
+        awaitAny(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
         stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
@@ -293,7 +294,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(described("剪贴板"));
         stage = "changing input field removes floating preview";
         openFloatingPreview();
-        if (!await(field("msime-test-password")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+        if (!awaitAny(field("msime-test-password")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
             throw new AssertionError("Synthetic editor focus switch refused");
         await(field("msime-test-password").and(AccessibilityNodeInfo::isFocused));
         previewClosed();
