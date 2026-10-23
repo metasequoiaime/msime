@@ -52,4 +52,4 @@ macOS 设置在常用页面的正文顶部放一行页首引导：左边一句 1
 - 本机没有 WinUI 3 / C++/WinRT 工具链，`main.cpp` 和 `Settings.rc` 只能由 PR 的 `CI (platforms)`「Windows native settings」以 `/W4 /WX` 编译链接，并运行 `tests/tools/settings_ui.ps1`：每页确认引导说明是一句话、账号页逐字等于 macOS 的文案、「关于」页的 `settings-page-about` 是产品名；浅深色、800／1000 宽的整页截图用来审看插画、侧栏图标的大小与留白。
 - `tests/ui/settings_navigation.cpp` 用 `x86_64-w64-mingw32-g++ -std=c++20 -fsyntax-only` 做语法检查，并在 macOS 上用 clang++ 编译运行通过；两个新头文件单独过 `-Wall -Wextra -Wshadow -Werror`。
 - `scripts/test-windows-settings-art.py`、`test-windows-settings-ui-pages.py`、`test-windows-editions.py` 通过。
-- #9387 合入后的基线在主题页文案对齐断言失败；仅同步 Windows 文案后仍因共享条目改成多行而失败，提取模式兼容空白和尾随逗号后，三个脚本专项均通过。此次仅同步两句说明与提取格式，本机和远端磁盘均不足 50 GiB，未新建构建树、未重跑完整 quick；完整编译由 PR CI 验证，不据脚本专项声称 Windows 产品实测。
+- #9387 合入后的基线在主题页文案对齐断言失败；仅同步 Windows 文案后仍因共享条目改成多行而失败，提取模式兼容空白和尾随逗号后，三个脚本专项均通过。此次仅同步两句说明与提取格式，远端系统卷在构建前余量为 53 GiB，独立检出的 `12ed1eb84a` 通过完整 `bash scripts/verify-local.sh --quick`（退出码 0）：仓库契约、164 项 Windows 可移植原生测试、Rust workspace 检查（未构建设置应用资源，排除 `msime-desktop`）与共享 Apple 桥接编译通过。远端没有 Node，笔记校验在本机单独运行；未安装 MinGW，Windows 原生编译由 PR CI 验证，25 项通过、6 项按条件跳过。不据编译与脚本专项声称 Windows 产品实测。
