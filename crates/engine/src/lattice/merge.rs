@@ -2,6 +2,7 @@
 //!
 //! Ranking when merging into an existing list: exact SQLite full-key hits (Database / UserDatabase) first, then the lattice's whole sentences, then prefixes and everything else. The lattice never displaces a leading exact full-cover row (高碳钢 for gktjgh). Lattice rows weigh `trunc(log_prob * 1000)`, often negative: list order is the ranking, never sort these rows by weight.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::decode::{
@@ -121,13 +122,69 @@ pub(crate) fn merge_decoded(
     rescoring_context: &str,
     decoded: DecodedSentences,
 ) -> Option<TypoSentence> {
-    let DecodedSentences { mut paths, typo } = decoded;
+    let DecodedSentences { paths, typo } = decoded;
+    if paths.is_empty() {
+        return None;
+    }
+    merge_decoded_paths(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        rerankers,
+        rescoring_context,
+        Cow::Owned(paths),
+        typo,
+    )
+}
+
+/// 缓存命中时先借用路径，只为最终入选的候选复制字段；缓存内容与容量保持不变。
+pub(crate) fn merge_decoded_borrowed(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    decoded: &DecodedSentences,
+) -> Option<TypoSentence> {
+    merge_decoded_paths(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        rerankers,
+        rescoring_context,
+        Cow::Borrowed(&decoded.paths),
+        decoded.typo.clone(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+// 在两个入口保留已知的拥有方式，避免冷路径为借用支持增加一层调用。
+#[inline(always)]
+fn merge_decoded_paths(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    mut paths: Cow<'_, [SentencePath]>,
+    typo: Option<TypoSentence>,
+) -> Option<TypoSentence> {
     if paths.is_empty() {
         return None;
     }
 
     if rerankers.is_empty() && options.emit > 0 {
-        paths.truncate(options.emit);
+        paths = match paths {
+            Cow::Owned(mut paths) => {
+                paths.truncate(options.emit);
+                Cow::Owned(paths)
+            }
+            Cow::Borrowed(paths) => Cow::Borrowed(&paths[..paths.len().min(options.emit)]),
+        };
     }
     let block = if rerankers.is_empty() {
         let already = existing_sentence_set(candidates, paths.len());
@@ -136,7 +193,7 @@ pub(crate) fn merge_decoded(
             let mut block = Vec::new();
             let capacity = paths.len();
             // `decode_graph` 已消除同句的全部切分，此处只需过滤已有候选。
-            for path in paths {
+            for path in sentence_path_iter(paths) {
                 if already.contains(path.sentence.as_str()) {
                     continue;
                 }
@@ -153,7 +210,7 @@ pub(crate) fn merge_decoded(
                 }
                 block.push(owned_sentence_row(
                     typed_pinyin,
-                    path,
+                    path.into_owned(),
                     lattice_row_source(&block, options),
                 ));
             }
@@ -238,6 +295,29 @@ fn owned_sentence_row(typed_pinyin: &str, path: SentencePath, source: CandidateS
     item
 }
 
+enum SentencePathIter<'a> {
+    Owned(std::vec::IntoIter<SentencePath>),
+    Borrowed(std::slice::Iter<'a, SentencePath>),
+}
+
+impl<'a> Iterator for SentencePathIter<'a> {
+    type Item = Cow<'a, SentencePath>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Owned(paths) => paths.next().map(Cow::Owned),
+            Self::Borrowed(paths) => paths.next().map(Cow::Borrowed),
+        }
+    }
+}
+
+fn sentence_path_iter(paths: Cow<'_, [SentencePath]>) -> SentencePathIter<'_> {
+    match paths {
+        Cow::Owned(paths) => SentencePathIter::Owned(paths.into_iter()),
+        Cow::Borrowed(paths) => SentencePathIter::Borrowed(paths.iter()),
+    }
+}
+
 fn sentence_seen_linear(candidates: &[WordItem], block: &[WordItem], sentence: &str) -> bool {
     candidates
         .iter()
@@ -257,15 +337,16 @@ fn lattice_row_source(block: &[WordItem], options: &LatticeOptions<'_>) -> Candi
     }
 }
 
-fn generated_block_linear(
+fn generated_block_linear<'a>(
     candidates: &[WordItem],
-    paths: Vec<SentencePath>,
+    paths: impl Into<Cow<'a, [SentencePath]>>,
     typed_pinyin: &str,
     options: &LatticeOptions<'_>,
 ) -> Vec<WordItem> {
+    let paths = paths.into();
     let mut block = Vec::new();
     let capacity = paths.len();
-    for path in paths {
+    for path in sentence_path_iter(paths) {
         if sentence_seen_linear(candidates, &block, &path.sentence) {
             continue;
         }
@@ -280,7 +361,7 @@ fn generated_block_linear(
         }
         block.push(owned_sentence_row(
             typed_pinyin,
-            path,
+            path.into_owned(),
             lattice_row_source(&block, options),
         ));
     }
@@ -309,14 +390,15 @@ fn take_sentence_index(
 }
 
 /// 两个来源先按旧规则选索引，再把字段交给输出槽；槽顺序始终是字面、键盘。
-fn reranked_block(
-    paths: Vec<SentencePath>,
+fn reranked_block<'a>(
+    paths: impl Into<Cow<'a, [SentencePath]>>,
     lattice: impl IntoIterator<Item = usize>,
     keyboard: Option<impl IntoIterator<Item = usize>>,
     options: &LatticeOptions<'_>,
     typed_pinyin: &str,
     is_listed: impl Fn(&str) -> bool,
 ) -> Vec<WordItem> {
+    let paths = paths.into();
     // 搭配模型开着时词格首选归属 Collocation；`include_lattice_best` 关掉时
     // 词格自己的行不出，但搭配行仍放。
     let literal = (options.include_lattice_best || options.include_collocation_best)
@@ -325,11 +407,11 @@ fn reranked_block(
     let pick = keyboard
         .and_then(|keyboard| take_sentence_index(&paths, keyboard, literal, options, &is_listed));
     let mut rows = [None, None];
-    for (index, path) in paths.into_iter().enumerate() {
+    for (index, path) in sentence_path_iter(paths).enumerate() {
         if literal == Some(index) {
             rows[0] = Some(owned_sentence_row(
                 typed_pinyin,
-                path,
+                path.into_owned(),
                 if options.include_collocation_best {
                     CandidateSource::Collocation
                 } else {
@@ -339,7 +421,7 @@ fn reranked_block(
         } else if pick == Some(index) {
             rows[1] = Some(owned_sentence_row(
                 typed_pinyin,
-                path,
+                path.into_owned(),
                 CandidateSource::NeuralKeyboard,
             ));
         }
@@ -935,3 +1017,7 @@ mod single_path_tests;
 #[cfg(test)]
 #[path = "merge_collocation_tests.rs"]
 mod collocation_tests;
+
+#[cfg(test)]
+#[path = "decoded_projection_tests.rs"]
+mod decoded_projection_tests;

@@ -23,7 +23,7 @@ import type {
   ScriptGrantsResult,
 } from "./plugin-types";
 import { ActionButton } from "./action-button";
-import { scriptMarker } from "./plugin-script-view";
+import { scriptMarker } from "./plugin-script-model";
 import { PluginNavRow } from "./plugin-nav-row";
 import { PluginLibraryView, type PluginLibraryFilter } from "./plugin-library-view";
 

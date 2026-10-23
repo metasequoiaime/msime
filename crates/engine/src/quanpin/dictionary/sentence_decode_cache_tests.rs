@@ -86,3 +86,33 @@ fn switching_sentence_options_drops_the_decoded_sentences() {
     });
     assert_eq!(decoded_versions(&mut dictionary).len(), 0);
 }
+
+#[test]
+fn cached_duplicate_sentences_do_not_copy_discarded_paths() {
+    let fixture = fixture();
+    fixture.insert("fan", "翻", 190).insert("ou", "鸥", 90);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_sentence_alternatives(true);
+    let segments = vec!["fan".to_owned(), "ou".to_owned(), "er".to_owned()];
+    let mut candidates = Vec::new();
+    dictionary.merge_sentences_with_typos(
+        &mut candidates,
+        "fanouer",
+        "fan'ou'er",
+        &segments,
+        false,
+    );
+    assert!(candidates.len() > 1, "夹具必须覆盖多条缓存路径");
+    let before = words(&candidates);
+    let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        dictionary.merge_sentences_with_typos(
+            &mut candidates,
+            "fanouer",
+            "fan'ou'er",
+            &segments,
+            false,
+        );
+    });
+    assert_eq!(words(&candidates), before);
+    assert_eq!(allocations, 2, "全部路径重复时只应分配解码缓存键");
+}

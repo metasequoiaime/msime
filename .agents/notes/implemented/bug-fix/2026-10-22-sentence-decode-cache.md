@@ -12,6 +12,8 @@ iPhone XR 上九键每个数字仍要约 30 ms（打开词库映射之后，见 
 
 `QuanpinDictionary` 增加 `sentence_decode_cache`（`SENTENCE_DECODE_CACHE_CAPACITY` 条，FIFO），键由 `sentence_decode_key` 组成：音节串、这次查询的纠错类型、是否规划纠错整句。值是 `DecodedSentences`（未截断的整句路径与纠错整句）以及解码时的个人模型版本。
 
+命中后由[输出投影](../testing/2026-10-23-sentence-decode-cache-projection.md)借用解码路径，只复制最终入选的候选；冷解码仍保留本篇的一份缓存副本和原拥有路径输出。
+
 `lattice::merge` 把原来的建图、解码、合并拆成两步：`decode_lattice` / `decode_lattice_borrowed` 只依赖音节、词典行和解码参数，`merge_decoded` 负责 `emit` 截断、神经重排、去重与插入位置。`merge_lattice_candidates` 的签名不变，双拼等其他调用方照旧；原来只供全拼使用的 `merge_lattice_candidates_borrowed` 由这两步替代。
 
 缓存失效规则（must）：
@@ -41,3 +43,7 @@ iPhone XR 上九键每个数字仍要约 30 ms（打开词库映射之后，见 
 ## Testing
 
 `sentence_decode_cache_tests` 覆盖：去掉 `series_cache` 后同一读法从解码缓存重新合并、结果逐行相同且不新增条目；个人模型版本变化后重新解码并记下新版本；`set_sentence_alternatives`、`set_sentence_association` 清空缓存。`cargo test -p msime-engine --lib` 2472 项通过。`convert_eval` 的九键、九键长句、14 键、14 键长句四组都在基线上；全键盘 `words`、`sentences` 两组在本改动前的 develop 上就已与提交的基线不一致，改动前后两次的完整评测输出逐字相同（只有日志里的镜像目录不同），神经重排开着。
+
+## Related experiments
+
+[跨解码静态列评分缓存](../../rejected/testing/2026-10-23-lattice-column-score-cache.md)尝试复用不同图中的原始二元分，未取得可采用的性能证据，候选撤回；本篇的完整音节解码缓存及其失效规则保持。

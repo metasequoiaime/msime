@@ -710,7 +710,7 @@ mod tests {
             "农历",
             InlineDateTime::Lunar,
             "nl",
-            || LocalDateTime::default(),
+            LocalDateTime::default,
             Some("nl"),
         );
         assert_eq!(empty.len(), 1);

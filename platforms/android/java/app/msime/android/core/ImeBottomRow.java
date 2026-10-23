@@ -137,6 +137,7 @@ final class ImeBottomRow {
     /** 一个空格键自己的手势状态。分离式键盘有两个空格键，两根拇指可能先后按住它们，状态不能共用，否则后按下的会把先按下的那次长按计时和手势仲裁一起冲掉。 */
     private final class SpacePress {
         final SpaceGesturePolicy gesture = new SpaceGesturePolicy();
+        android.view.inputmethod.InputConnection copyTarget;
         /** 长按（450 ms）打开语音输入的计时；拖动先越过阈值时这次长按作废。 */
         Runnable longPress;
 
@@ -147,7 +148,7 @@ final class ImeBottomRow {
     }
 
     /**
-     * 空格键手势：{@link SpaceGesturePolicy} 仲裁长按 450 ms 打开语音（`touch_space_voice`）与水平拖动移动光标（`touch_space_cursor`），先满足的一方胜出；纵向滑走作废这次按压；两者都没发生时松手就是普通空格。
+     * 空格键手势：{@link SpaceGesturePolicy} 仲裁长按语音、水平移光标和上滑复制全文，先满足的一方胜出；下滑作废，短按输入普通空格。
      *
      * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指向上滑过键盘高度的 {@link VoiceHoldPolicy#CANCEL_ZONE_FRACTION} 进入取消区，聆听面板显示「松开取消」，在那里松手或触摸被系统取消都丢掉这次录音。
      */
@@ -156,6 +157,7 @@ final class ImeBottomRow {
         final boolean[] dragging = new boolean[1];
         final boolean[] cancelled = new boolean[1];
         final boolean[] voiced = new boolean[1];
+        final boolean[] copyAvailable = new boolean[1];
         // 这次按压开始的语音是按住说话（键区里真的开始了一次新的聆听）。
         final boolean[] holding = new boolean[1];
         // 按住说话时手指此刻在取消区。
@@ -192,8 +194,11 @@ final class ImeBottomRow {
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
                     boolean voice = touchPreference(AndroidLocalSettings.SPACE_VOICE) && s.voiceInsertionReady();
+                    copyAvailable[0] = s.imeTextEditPanel.canSwipeCopyAll();
+                    press.copyTarget = s.connection;
                     press.gesture.down(SystemClock.uptimeMillis(),
-                        DimensionPolicy.fromPixels(s, event.getX()), voice);
+                        DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()),
+                        voice, copyAvailable[0]);
                     press.cancelLongPress();
                     if (voice) {
                         press.longPress = () -> {
@@ -218,20 +223,36 @@ final class ImeBottomRow {
                         }
                         return true;
                     }
+                    if (press.gesture.state() == SpaceGesturePolicy.State.COPY) {
+                        press.gesture.move(SystemClock.uptimeMillis(), DimensionPolicy.fromPixels(s, event.getX()),
+                            DimensionPolicy.fromPixels(s, event.getY()));
+                        showSpaceCopyLabel(button, press.gesture.copyArmed());
+                        return true;
+                    }
                     if (!dragging[0] && !cancelled[0]) {
                         float horizontal = event.getX() - origin[0];
                         float vertical = event.getY() - origin[1];
                         press.gesture.move(SystemClock.uptimeMillis(),
-                            DimensionPolicy.fromPixels(s, event.getX()));
+                            DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()));
                         SpaceGesturePolicy.State state = press.gesture.state();
+                        if (state == SpaceGesturePolicy.State.COPY) {
+                            press.cancelLongPress();
+                            button.setPressed(false);
+                            s.imeKeyFeedback.playFeedback(button);
+                            showSpaceCopyLabel(button, true);
+                            return true;
+                        }
                         if (state == SpaceGesturePolicy.State.VOICE) {
-                            // VOICE is only reachable when long-press voice was on at ACTION_DOWN.
+                            // 只有按下时启用了长按语音，状态机才可能进入语音。
                             press.cancelLongPress();
                             if (s.voiceInsertionReady()) holdVoice.run();
                             return true;
                         }
                         if (state == SpaceGesturePolicy.State.PRESSED) {
-                            if (Math.abs(vertical) > touchSlop && Math.abs(vertical) >= Math.abs(horizontal)) {
+                            boolean approachingCopy = copyAvailable[0] && vertical < 0
+                                && -vertical < s.pixels((int) SpaceGesturePolicy.COPY_THRESHOLD_DP);
+                            if (!approachingCopy && Math.abs(vertical) > touchSlop
+                                    && Math.abs(vertical) >= Math.abs(horizontal)) {
                                 press.cancelLongPress();
                                 press.gesture.cancel();
                                 cancelled[0] = true;
@@ -273,9 +294,19 @@ final class ImeBottomRow {
                 }
                 case MotionEvent.ACTION_UP -> {
                     press.cancelLongPress();
+                    var copyTarget = press.copyTarget;
+                    press.copyTarget = null;
+                    boolean copyGesture = press.gesture.state() == SpaceGesturePolicy.State.COPY;
                     SpaceGesturePolicy.Outcome outcome = press.gesture.up(SystemClock.uptimeMillis());
                     button.getParent().requestDisallowInterceptTouchEvent(false);
                     button.setPressed(false);
+                    if (copyGesture) {
+                        resetSpaceCursor();
+                        s.countKey(button);
+                        if (outcome == SpaceGesturePolicy.Outcome.COPY && copyTarget == s.connection)
+                            s.imeTextEditPanel.copyAllFromGesture();
+                        return true;
+                    }
                     if (!voiced[0] && !dragging[0] && !cancelled[0]
                             && outcome == SpaceGesturePolicy.Outcome.VOICE
                             && touchPreference(AndroidLocalSettings.SPACE_VOICE)
@@ -300,6 +331,7 @@ final class ImeBottomRow {
                 }
                 case MotionEvent.ACTION_CANCEL -> {
                     press.cancelLongPress();
+                    press.copyTarget = null;
                     press.gesture.cancel();
                     button.getParent().requestDisallowInterceptTouchEvent(false);
                     dragging[0] = false;
@@ -314,6 +346,13 @@ final class ImeBottomRow {
                 default -> { return true; }
             }
         });
+    }
+
+    private void showSpaceCopyLabel(Button button, boolean armed) {
+        String label = armed ? "松开复制全文" : "取消复制";
+        button.setText(label);
+        button.setContentDescription(label);
+        if (button instanceof SpaceKeyFace face) face.setTransientLabel(label);
     }
 
     Button actionRowKey(KeyboardActionRow.DesignSlot slot) {

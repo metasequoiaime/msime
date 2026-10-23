@@ -20,6 +20,8 @@ Windows 端 `ai_assistant.thinking`（取值 `disabled|low|high|max`）控制 De
 
 槽位语义照 Windows：切换提供方先把旧提供方的现值写回槽位（与目录默认相同就删键，空槽自动跟上默认值升级），再按新提供方的槽位回填，没有槽位用目录默认值；编辑接口地址/模型时同步当前提供方的槽位。共享设置页 `ai-provider-update.ts`、Windows 原生设置的 `provider_update`/`select_ai_provider`/编辑处理器、Android 经 `msime_client_ai_provider_update` FFI 的 `provider_update` 三处同一语义；`AiProviderFields` 带上 `endpoints`/`models`，Java 侧 `switchProvider` 把槽位随补丁写回文档。`test-reference-config-coverage.py` 登记参考模板 12 对 `endpoint_*`/`model_*` 与 `thinking`/`polish_thinking` 到共享字段的映射。
 
+槽位缺键或值为空字符串都使用目录默认值，接口地址和模型独立回填。共享设置页不能用 `??` 把空字符串当成自定义配置；切换补丁保留其他槽位且不修改输入对象。公共 C 头文件说明完整的六字段响应，旧请求省略两个映射仍可用；宿主必须随补丁保存 `endpoints`/`models`，否则再次切换会丢掉记忆。真实 C ABI 回归覆盖旧请求、空槽回退、两个服务商的自定义配置往返、严格响应字段及凭据字段拒绝，共享页回归覆盖两个空槽和分别只有一个空槽。
+
 设置页给两个真实控件：AI 页「思考强度」下拉只在提供方选中 DeepSeek 时显示；语音润色页的「润色思考强度」同样只在 DeepSeek 时显示，说明里写明 30 秒超时直接上屏原文。
 
 ## Existing notes
@@ -43,3 +45,5 @@ Windows 端 `ai_assistant.thinking`（取值 `disabled|low|high|max`）控制 De
 ## Evidence
 
 先红后绿：基线上 `cargo test -p msime-client-providers --lib deepseek_thinking` 失败（`left:{"type":"disabled"} right:{"type":"enabled"}`）；`cargo test --test ai_provider_settings` 基线编译失败（`AiProviderFields` 无 `endpoints`/`models` 字段）；`vitest run tests/settings/ai-provider-update.test.ts` 基线 3 条全红。实现后 `cargo test -p msime-client-providers -p msime-client-core`、`cargo check -p msime-host-api -p msime-input-runtime -p msime-mcp-server --all-targets`、`pnpm --dir apps/desktop exec tsc --noEmit`、vitest 6 条全绿。未对真实 DeepSeek 端点验证请求被接受，形状以旧 Windows 实现为准。
+
+空槽审计回归在旧共享页下收到空地址，未得到 OpenAI 目录默认地址；修复后共享页 4 项、真实 C ABI 4 项通过。旧四字段 ABI 测试已按现行六字段契约更新，并继续检查凭据字段被拒绝。桌面与 Harmony 设置页的类型检查、构建通过；这里验证的是配置纯函数和接口边界，不涉及真实网络请求。

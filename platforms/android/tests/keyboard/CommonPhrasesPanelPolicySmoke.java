@@ -52,6 +52,13 @@ public final class CommonPhrasesPanelPolicySmoke {
             "length is checked after line endings are normalized");
         String blank = CommonPhrasesPanelPolicy.clipboardRefusal(" \r\n ");
         check(blank != null && blank.contains("没有文字"), "a blank entry says it has no text");
+        // 备注可空、可换行，边界按 UTF-16 计数，不能混入正文禁止的控制字符。
+        check(CommonPhrasesStore.validNote(""), "a note is optional");
+        check(CommonPhrasesStore.validNote("synthetic\nnote"), "notes allow newlines");
+        check(CommonPhrasesStore.validNote("😀".repeat(500)), "emoji at 1000 units fits");
+        check(!CommonPhrasesStore.validNote("😀".repeat(501)), "emoji above 1000 units does not fit");
+        check(!CommonPhrasesStore.validNote("synthetic\tnote"), "notes reject tabs");
+        check(!CommonPhrasesStore.validNote(null), "a null note is invalid");
         System.out.println("Android common phrases panel entry passed");
     }
 }

@@ -10,6 +10,10 @@ Status: implemented
 
 构建锁继续固定随包基线。设置宿主经现有词库请求 updates 启动共享 Rust 后台任务，默认自动更新，每天检查一次；输入进程只读已安装代次，不联网。使用官方仓库 HTTPS Release API 的资产摘要校验 manifest，再交叉核对产物摘要、格式版本、日文 magic 和许可状态。仅更新安装版本有的组件；保留原来固定的模型。
 
+共享设置页的请求调度由 `packages/ui/src/settings/use-automatic-dictionary-updates.ts` 的 `useAutomaticDictionaryUpdates` 持有，设置根模型只接入这个 Hook。它在首次挂载、窗口获得焦点和每小时调用 `dictionary.updates("automatic")`，复用[窗口焦点订阅](../simplification/2026-10-15-window-focus-resume-subscription.md)与[同步间隔订阅](../simplification/2026-10-15-shared-interval-hook.md)。更新入口函数变化时清理旧订阅、立即检查并从新时刻重新计时；普通重渲染和焦点检查不改变小时边界。请求继续以词库客户端为方法接收者，异步失败不会阻断后续调度。这里只安排请求，跨进程锁、每日节流、下载与回退仍由 Rust 持有。
+
+更新面板的状态、请求动作、运行状态与提示投影由内部 `useDictionaryUpdates` 持有，`DictionaryUpdates` 只连接展示组件。Hook 用 `useAsyncGeneration(request)` 在入口变化和卸载时使旧请求失效，每次操作继续推进同一代次，只接受最新请求的成功或失败；不增加互斥或串行队列。首次读取与两秒状态轮询仍在同一 effect 内启动，间隔复用 `subscribeToInterval`，入口替换时立即刷新并重算两秒边界；普通重渲染、成功与失败回包不改变轮询相位。入口替换和失败时保留已有状态，当前请求成功后清除错误，文案与操作可用性保持。
+
 每日节流使用持久化的 Unix 秒。系统校时回拨、当前时间早于上次检查时，旧间隔失效，允许自动检查；开始检查前记录修正后的时间，成功或失败都从这次尝试重新计一天。入口 `due` 和取跨进程锁后的后台检查复用同一个判断，关闭开关仍优先阻止自动检查。原来的两处 `saturating_sub` 都把回拨算成零间隔，导致重启后也必须等旧时间被追上再过一天。[Rust `SystemTime` 文档](https://doc.rust-lang.org/std/time/struct.SystemTime.html)明确墙上时钟不单调；仓库公告缓存的 `NoticeStore::current` 也会在回拨时让旧节流失效。
 
 不可变 Release 附件（含 manifest）复用 `resource_packs::PROJECT_MIRRORS`，优先从现有 `https://dl.msime.app/gh/` CDN 获取，网络、HTTP、长度或摘要失败时逐文件回退 GitHub 原地址；版本 API 不经过永久缓存 CDN。复用 `local_models::download_from_mirrors` 的换源与校验规则，摘要始终来自官方 HTTPS API，CDN 不提供信任依据。每个文件先流式写入更新目录中的匿名暂存文件，核对后再交给 ResourceStore；换源截断暂存字节并重算当前文件进度，选择记录与资源代次继续保留 GitHub 原地址，不因下载渠道变化而换代。
@@ -26,6 +30,10 @@ Status: implemented
 
 ## Alternatives considered
 
+只把面板内的 `setInterval` 换成公共订阅，改动最少，但完整的状态与动作仍绑定 JSX，故把它们一起收进业务 Hook。改用通用 `useAsyncActionRunner` 能同时复用忙碌状态与请求守卫，但它会拒绝重叠操作，改变现有轮询和手动动作的最新请求生效规则；这里只复用允许调用方推进代次的 `useAsyncGeneration`。把轮询另拆为 `useInterval` 能少写一个 effect，但入口变化时会保留旧相位，因此仍使用与首次读取同生命周期的同步订阅。
+
+只在设置根模型内替换焦点与间隔工具，改动最少；但完整的词库检查生命周期仍与设置页的全部状态耦合，因此将这段调度收进独立 Hook。直接拆成 `useInterval` 和另一个焦点 effect 能减少清理代码，但更新入口替换时会保留旧 interval 的相位，改变现有小时边界，故同步订阅仍在同一 effect 中重建。
+
 改用 `Instant` 能直接测量进程内的单调间隔，但检查状态要跨设置应用重启和进程保存，没有统一可持久化的单调纪元，因此保留 Unix 秒并明确处理回拨。只修入口的 `due` 改动最少，但后台任务在取锁后还会再次拒绝检查；两处共用规则，避免入口与执行漂移。
 
 继续随客户端发版能复现全部输入，但补词等待过长。直接覆盖现用 SQLite 文件最省空间，但 Windows 映射和各平台活跃会话使其无法安全替换；因此用分代安装。只信下载文件携带的摘要无法确定来源，因此入口固定为官方 GitHub 仓库，摘要来自 HTTPS API 并与 manifest 交叉检查。
@@ -37,6 +45,10 @@ Status: implemented
 附件直接走 GitHub 的代码最少，但绕过项目已有的国内 CDN，国内用户更新缓慢或失败；因此下载采用现有 CDN 优先与原站回退。只在建连失败时换源能直接流入 ResourceStore，却无法在 CDN 回了错误字节时重新取原站，改为逐文件校验后交给安装器。直接把文件装入内存也能重试，但大词库会明显提高移动端内存峰值，所以使用匿名暂存文件。
 
 ## Verification
+
+面板回归直接运行真实 `DictionaryUpdates`：核对两秒前一毫秒与恰好两秒、普通重渲染不改相位、下载大小取整与按钮禁用、手动检查/配置/回退参数、旧轮询成功和失败均不覆盖最新结果、入口替换立即读取并重算边界、当前失败保留版本与之后成功清除错误、卸载停止轮询。抽取前与抽取后运行同一组面板、自动检查、公共间隔和请求代次测试，验证共享前端状态与生命周期，不替代原生设备上的安装或回退验收。
+
+`dictionary-automatic-updates.test.tsx` 直接运行设置根模型，迁移前后核对首次和焦点检查、整小时前一毫秒与恰好一小时、普通重渲染不重置计时、客户端方法接收者、入口替换后重新计时、能力晚到、失败后继续调度及卸载清理；与词库更新 UI、公共焦点和间隔工具一起通过四文件二十五项测试。验证针对共享前端调度，不替代原生宿主或设备上的词库安装验收。
 
 时钟回拨回归：`cargo test -p msime-client-providers dictionary_updates` 通过 22 项，显式联网测试 1 项默认跳过。两项恢复用例先在旧实现分别因入口未到期、后台任务未执行而失败；合成临时状态把上次检查设在当前时间的一周后，不修改系统时钟。修复后入口与实际安装均恢复，成功和网络失败都会重新节流；纯时间表覆盖相等、一天前一秒、恰好一天、一天后一秒及全部情况下关闭开关。网络由既有 Fixture 提供，不访问线上服务。
 

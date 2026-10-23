@@ -13,7 +13,7 @@ import { aiSettingsPreferences } from "./ai-settings-preferences";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./use-settings-theme-previews";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { settingsPlatformPresentation } from "./settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings-page-environment";
 import { schemeTitle } from "./label-helpers";
@@ -57,6 +57,7 @@ import { communityDestinationView } from "../community/community-destination";
 import { describeInstallerTrust } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
 import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
+import { useAutomaticDictionaryUpdates } from "./use-automatic-dictionary-updates";
 
 export type SettingsPageProps = {
   client: SettingsClient;
@@ -70,18 +71,7 @@ export type SettingsPageProps = {
 /** 设置窗口的状态、副作用和处理器；外壳与各设置页面消费同一份模型。 */
 export function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
   const { introTabs, selectIntroTab } = useSettingsIntroTabs();
-  useEffect(() => {
-    const automatic = () => {
-      void client.dictionary?.updates?.("automatic").catch(() => undefined);
-    };
-    automatic();
-    window.addEventListener("focus", automatic);
-    const timer = setInterval(automatic, 60 * 60 * 1000);
-    return () => {
-      window.removeEventListener("focus", automatic);
-      clearInterval(timer);
-    };
-  }, [client.dictionary?.updates]);
+  useAutomaticDictionaryUpdates(client);
   const { confirm, confirmation } = useConfirm();
   const {
     host,

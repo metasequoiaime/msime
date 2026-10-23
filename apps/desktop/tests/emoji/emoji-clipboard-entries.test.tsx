@@ -80,6 +80,29 @@ test("触屏和点击聚焦不弹预览，键盘移来的焦点才弹", () => {
   expect(bubble()?.textContent).toBe("合成  记录\n下一行");
 });
 
+test("移动到另一行重新等待预览，内容更新和卸载取消待显示气泡", () => {
+  vi.useFakeTimers();
+  const props = { busy: false, canCopy: true, ...actions() };
+  const view = render(<EmojiClipboardEntries items={items} {...props} />);
+  const entries = view.container.querySelectorAll<HTMLButtonElement>("[data-clipboard-item]");
+  const bubble = () => view.container.querySelector("[data-clipboard-preview]");
+  fireEvent.pointerEnter(entries[0], { pointerType: "mouse" });
+  act(() => vi.advanceTimersByTime(349));
+  fireEvent.pointerEnter(entries[1], { pointerType: "mouse" });
+  act(() => vi.advanceTimersByTime(349));
+  expect(bubble()).toBeNull();
+  act(() => vi.advanceTimersByTime(1));
+  expect(bubble()?.textContent).toBe(items[1]);
+
+  fireEvent.pointerEnter(entries[0], { pointerType: "mouse" });
+  view.rerender(<EmojiClipboardEntries items={[items[1]]} {...props} />);
+  act(() => vi.advanceTimersByTime(350));
+  expect(bubble()).toBeNull();
+  fireEvent.pointerEnter(screen.getAllByRole("button")[0], { pointerType: "mouse" });
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 test.each([
   // 窗口顶部附近的第一行：一行的短预览在上方放得下，不盖住下面的行。
   { rowTop: 120, height: 40, above: true, top: "112px" },

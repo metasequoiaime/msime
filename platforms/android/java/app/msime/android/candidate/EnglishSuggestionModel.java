@@ -3,7 +3,7 @@ package app.msime.android.candidate;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Bounded decoder for session-free English completion responses. */
+/** 不创建输入会话的英文候选响应解码与有界展示合并。 */
 public final class EnglishSuggestionModel {
     private static final int MAX_ITEMS = 32;
     private static final int MAX_WORD_LENGTH = 128;
@@ -11,6 +11,17 @@ public final class EnglishSuggestionModel {
     private EnglishSuggestionModel() {}
 
     public record Result(String prefix, List<String> items) {}
+
+    /** 展示补全时仍把原文及唯一纠错放在前面；边界提交只使用独立的纠错查询。 */
+    public static Result withCompletions(Result corrections, Result completions) {
+        if (!corrections.prefix().equals(completions.prefix())) return corrections;
+        ArrayList<String> items = new ArrayList<>(corrections.items());
+        for (String word : completions.items()) {
+            if (items.size() >= MAX_ITEMS) break;
+            if (items.stream().noneMatch(item -> item.equalsIgnoreCase(word))) items.add(word);
+        }
+        return new Result(corrections.prefix(), List.copyOf(items));
+    }
 
     public static Result decode(String response) {
         if (response == null || response.length() > 262_144)

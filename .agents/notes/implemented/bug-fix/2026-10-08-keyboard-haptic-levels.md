@@ -36,6 +36,8 @@ Status: implemented
 - **代价**：Android 和 HarmonyOS 各多一条按设备能力降级的分支要维护。iOS 的「跟随系统」只在本机生效，不随账号同步，直到放开上传。
 - **未验证**：三端都没有在真机上逐档摸过；各档的强度数值可能还要按真机手感调。
 
+安卓输入视图复用时反馈设置的即时刷新与九键预览接入见[九键反馈](2026-10-23-android-nine-key-feedback.md)；该修复保留这里的档位映射与系统跟随规则。
+
 ## Verification
 
 - Android：`bash platforms/android/check-host.sh`（`KeyboardFeedbackSmoke` 核对四档方案各不相同，`KeyboardFeedbackStoreSmoke` 核对 `system` 的存取）。

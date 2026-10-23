@@ -155,7 +155,7 @@ final class ImeLetterRows {
     }
 
     private void showKeyPreview(Button key, String label) {
-        // No enlarged bubble in password fields: it would show each typed character to anyone looking at the screen.
+        // 密码框不放大显示按下的字符，避免旁观者看到输入。
         if (EditorPolicy.password(s.editorInputType)) return;
         KeyboardKeyPreview preview = keyPreview();
         if (preview == null || !key.isAttachedToWindow()) return;
@@ -186,6 +186,23 @@ final class ImeLetterRows {
     /** 只在气泡仍属于这个键时收起，避免先松开的手指收掉另一根仍按着的键的气泡。 */
     private void hideKeyPreview(Button key) {
         if (keyPreviewOwner == key) hideKeyPreview();
+    }
+
+    /** 九键复用字母键的预览；数字滑动另行更新键面，松手与取消只收起本键的气泡。 */
+    void updateKeyPreview(Button key, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                if (touchPreference(AndroidLocalSettings.KEY_POPUP))
+                    showKeyPreview(key, key.getText().toString());
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> hideKeyPreview(key);
+            default -> { }
+        }
+    }
+
+    /** 已显示的预览随滑动换成数字，不让关闭预览的设置被手势重新打开。 */
+    void updateKeyPreviewLabel(Button key, String label) {
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
     }
 
     /**

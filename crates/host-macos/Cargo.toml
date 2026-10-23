@@ -11,7 +11,7 @@ rust-version.workspace = true
 msime-client-core = { path = "../client-core" }
 serde.workspace = true
 serde_json.workspace = true
-socket2 = "0.6"
+socket2 = { version = "0.6", features = ["all"] }
 
 [dev-dependencies]
 tempfile.workspace = true

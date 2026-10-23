@@ -4,6 +4,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.SystemClock;
+import android.os.Bundle;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -18,12 +19,23 @@ import org.json.JSONObject;
 public final class ClipboardSegmentActionsDeviceSmoke extends DeviceSmoke {
     private static final String SOURCE = "SyntheticAlpha SyntheticBeta SyntheticGamma";
     private final Map<File, byte[]> backups = new LinkedHashMap<>();
+    private boolean phraseNotice;
+
+    @Override public void onCreate(Bundle arguments) {
+        phraseNotice = arguments != null && "true".equals(arguments.getString("phrase-notice"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
+        if (phraseNotice) return "clipboard phrase notice position, stable list, editor focus, dismissal and delayed-result cancellation";
         return "segmented sharing, common phrases, copying, recent preview and insertion";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (phraseNotice) {
+            new ClipboardPhraseNoticeDeviceCheck(this).run();
+            return;
+        }
         Context context = getTargetContext();
         File root = context.getFilesDir();
         JSONObject options = read(new File(root, "runtime-options.json"));

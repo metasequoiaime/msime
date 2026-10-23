@@ -33,6 +33,8 @@ B2 出处 `_refs/parity-gaps.md`；共享目录机制见 #9231/#9239 的提交�
 
 新目录项先以 stash 摘掉实现复现 4 项失败（目录断言、端点断言、ASR 凭据路由），恢复后 `cargo test -p msime-client-providers` 249 全过、`-p msime-client-core` 485 全过；`asr_request_format` 三家断言 multipart；两个导出器 `--check` 通过；Linux `provider_catalog.py`/`provider_request_format.py` pin 更新后通过；`cargo fmt --all --check` 通过。目录合入后 Windows UI 冒烟仍保留旧的 13 项断言，已同步为 15 项并允许新增服务暂不带品牌图标。
 
+移动桥的 ASR 请求矩阵同步覆盖三家新增的 `multipart` 服务商，并保留 `system`、`whisper`、未知标识和空标识的拒绝断言；回归通过 `MobileVoiceTranscriptionRequest::is_valid` 检查实际委托共享 `asr_request_format` 的请求校验，不在生产桥接层新增白名单。
+
 ## Consequences
 
 设置页识别/润色/AI 三个下拉按目录顺序直接出现新服务商，token 槽沿用 per-provider map 自然成立。jev 与 thinking 强度（A7）仍是独立后续项。

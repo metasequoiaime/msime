@@ -19,8 +19,8 @@ use crate::ime::online_batch::{
 };
 use crate::lattice::decode::{decode_pinned, BigramMemo, PinnedSpan, SentenceNgramTables};
 use crate::lattice::merge::{
-    decode_lattice, decode_lattice_borrowed, merge_decoded, whole_sentence_insert_position,
-    DecodedSentences,
+    decode_lattice, decode_lattice_borrowed, merge_decoded, merge_decoded_borrowed,
+    whole_sentence_insert_position, DecodedSentences,
 };
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
@@ -1176,10 +1176,17 @@ impl QuanpinDictionary {
         let cached = self
             .sentence_decode_cache
             .get_ref(&decode_key)
-            .filter(|cached| cached.personal_version == personal_version)
-            .map(|cached| cached.decoded.clone());
-        let decoded = if let Some(decoded) = cached {
-            Some(decoded)
+            .filter(|cached| cached.personal_version == personal_version);
+        let typo = if let Some(cached) = cached {
+            merge_decoded_borrowed(
+                result,
+                segments,
+                typed,
+                &options,
+                &mut self.rerankers,
+                &self.rescoring_context,
+                &cached.decoded,
+            )
         } else {
             let span_count = lattice_span_count(segments.len(), options.max_phrase_syllables);
             let decoded = if span_count <= LATTICE_SPAN_CACHE_CAPACITY {
@@ -1212,19 +1219,18 @@ impl QuanpinDictionary {
                     },
                 );
             }
-            decoded
+            decoded.and_then(|decoded| {
+                merge_decoded(
+                    result,
+                    segments,
+                    typed,
+                    &options,
+                    &mut self.rerankers,
+                    &self.rescoring_context,
+                    decoded,
+                )
+            })
         };
-        let typo = decoded.and_then(|decoded| {
-            merge_decoded(
-                result,
-                segments,
-                typed,
-                &options,
-                &mut self.rerankers,
-                &self.rescoring_context,
-                decoded,
-            )
-        });
 
         // A sentence that reads one or more syllables as a typo of another. It leads only when it beats the literal sentence by the lead margin per typo; otherwise it follows the whole-sentence rows, so a correction is offered without displacing what was typed.
         let Some(typo) = typo else {
