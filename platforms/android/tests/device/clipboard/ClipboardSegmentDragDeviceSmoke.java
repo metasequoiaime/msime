@@ -223,8 +223,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && !node.isLongClickable());
         stage = step + ": editor keeps focus";
         Rect editorAfter = new Rect();
-        // 浮层遮住输入框后，API 28 会将它标为不可见；焦点和位置仍须从原节点核对。
-        awaitAny(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
+        // API 28 的窗口枚举可能省略被浮层遮挡的编辑器；直接查询系统输入焦点。
+        awaitFocusedField("msime-test-plain").getBoundsInScreen(editorAfter);
         stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
@@ -294,10 +294,28 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(described("剪贴板"));
         stage = "changing input field removes floating preview";
         openFloatingPreview();
-        if (!awaitAny(field("msime-test-password")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+        AccessibilityNodeInfo editorRoot = awaitFocusedField("msime-test-plain");
+        for (AccessibilityNodeInfo parent; (parent = editorRoot.getParent()) != null;) editorRoot = parent;
+        AccessibilityNodeInfo password = findAny(editorRoot, field("msime-test-password"));
+        if (password == null || !password.performAction(AccessibilityNodeInfo.ACTION_FOCUS))
             throw new AssertionError("Synthetic editor focus switch refused");
-        await(field("msime-test-password").and(AccessibilityNodeInfo::isFocused));
+        awaitFocusedField("msime-test-password");
         previewClosed();
+    }
+
+    private AccessibilityNodeInfo awaitFocusedField(String description) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        boolean present = false;
+        boolean matched = false;
+        do {
+            AccessibilityNodeInfo focused = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+            present = focused != null;
+            matched = present && field(description).test(focused);
+            if (matched && focused.isFocused()) return focused;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic editor did not retain input focus (input node present="
+            + present + ", expected field=" + matched + ")");
     }
 
     private Rect openFloatingPreview() {
@@ -383,6 +401,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         card.refresh();
         assertFixedCard(card);
         stage = "horizontal delete still works after vertical drag";
+        // 纵向手势会交给外层列表；横滑前重新定位卡片，不能复用滚动前的坐标。
+        card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+        card = awaitStableBounds(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(word(0)));
+        card.getBoundsInScreen(bounds);
         Rect swipeFrom = new Rect(bounds.right - 8, bounds.centerY(), bounds.right - 7, bounds.centerY() + 1);
         Rect swipeTo = new Rect(bounds.left + 8, bounds.centerY(), bounds.left + 9, bounds.centerY() + 1);
         drag(swipeFrom, swipeTo, false);
