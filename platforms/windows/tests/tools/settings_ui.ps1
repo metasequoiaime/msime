@@ -348,6 +348,70 @@ function Assert-WubiCandidateSelection($window) {
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
     Write-Host 'Wubi shortcut toggle, atomic swap, reload and retained keys passed'
 }
+function Find-CandidatePageSizeSlider($window) {
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '每页候选项数量')
+    $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
+    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $typeCondition)
+    return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Find-SliderValue($window, $slider) {
+    $bounds = $slider.Current.BoundingRectangle
+    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+    $labels = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $found = $null
+    foreach ($label in $labels) {
+        if ($label.Current.IsOffscreen -or $label.Current.Name -notmatch '^\d+$') { continue }
+        $rect = $label.Current.BoundingRectangle
+        if ($rect.Left -ge $bounds.Right -and $rect.Left -lt $bounds.Right + 100 -and
+            $rect.Top -lt $bounds.Bottom -and $rect.Bottom -gt $bounds.Top) {
+            if ($found) { throw '滑块右侧存在多个数值标签，无法唯一定位' }
+            $found = $label
+        }
+    }
+    return $found
+}
+function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
+    $path = Join-Path $state 'preferences.json'
+    foreach ($expected in @(3, 9, 4, 6)) {
+        $slider = Find-CandidatePageSizeSlider $window
+        if (-not $slider -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可用' }
+        $slider.SetFocus()
+        $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+        $range.SetValue($expected)
+        # 检查同一个可见数值标签，不能用滑块 tooltip 或保存成功替代界面更新。
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $label = Find-SliderValue $window $slider
+            if ($label -and -not $label.Current.IsOffscreen -and $label.Current.Name -eq [string]$expected) { break }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $label -or $label.Current.IsOffscreen -or $label.Current.Name -ne [string]$expected) { throw "候选数量右侧标签未更新为 $expected" }
+        if ($range.Current.Value -ne $expected) { throw '候选数量标签与滑块数值不一致' }
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($saved.preferences.candidate_page_size -eq $expected) { break }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if ($saved.preferences.candidate_page_size -ne $expected) { throw '候选数量未保存' }
+        if ($expected -eq 9) { Save-Window $window "$screenshotPrefix-candidate-page-size-9.png" }
+    }
+    Open-Page $window 'toolbar'
+    Open-Page $window 'candidate'
+    Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
+    $slider = Find-CandidatePageSizeSlider $window
+    if (-not $slider) { throw '切页后候选数量滑块缺失' }
+    $slider.SetFocus()
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $label = Find-SliderValue $window $slider
+        if ($label) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $slider -or -not $label -or $label.Current.Name -ne '6' -or
+        $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value -ne 6) { throw '切页后候选数量未恢复已保存值' }
+    Write-Host '候选数量滑块、右侧数值、保存及切页恢复验证通过'
+}
 function Select-ComboChoice($window, [string]$id, [string]$label) {
     $combo = Find-ById $window $id
     if (-not $combo) { throw "Missing combo: $id" }
@@ -604,6 +668,7 @@ try {
                 if ($page -eq 'candidate') {
                     # 照 macOS 分「布局」「字体与大小」「窗口样式」「预编辑」四个标签，打开时是「布局」；预览在无标题卡片里，「游戏」组不属于哪个标签、一直在。
                     Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
+                    Assert-CandidatePageSize $window "$theme-$width"
                     $content = Find-ById $window 'settings-content'
                     foreach ($name in @('预览：固定样例随当前设置草稿变化，不代表实际输入候选。', '每页候选项数量', '跟随光标', '在游戏中显示候选窗口')) {
                         if (-not (Find-ByName $content $name)) { throw "Candidate layout tab is missing: $name" }
