@@ -1,0 +1,6 @@
+{
+  "baseline": "e7fa91f121e0b071bddfaa96917f87869e37018e",
+  "method": "query_single_path_miss",
+  "identical_after_private_rename": true,
+  "function_sha256": "7d9efb4c55dd20a415a8d1e26027d035a24914929b4f43797e0d2a38eadec8b0"
+}
