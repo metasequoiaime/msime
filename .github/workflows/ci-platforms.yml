@@ -303,7 +303,8 @@ jobs:
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
           cargo test --locked -p msime-script-runtime
-          cargo test --locked -p msime-pack-tool --test sdk
+          # SDK 之外，命令行退出码、包校验和事件夹具也有独立集成测试。
+          cargo test --locked -p msime-pack-tool
           bash scripts/test-script-plugins.sh
           # 随桌面安装包分发的官方插件包：重新构建，核对 latex-symbols 的生成器没有漂移、每个包过 msime-pack validate --builtin、uuid 的内容哈希等于 plugins/official-packs.json 锁定的值。锁以这台 ubuntu 的构建为准，和发版工作流的 official-plugins 作业相同；工具链或插件源码一变哈希就变，所有用户的授权随之作废，这一步让它在 PR 里变红、在 diff 里看得见。
           bash scripts/build-official-plugins.sh --check

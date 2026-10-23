@@ -25,7 +25,7 @@ Status: implemented
 
 **SDK 加了不校验 UTF-8 的读法。** `commit::bytes` 和 `candidates::bytes` 直接交回宿主复制的字节。宿主只复制 Rust 的 `&str`，内容一定是合法 UTF-8，而 `text()` 的校验在 wasmi 里每个汉字上百 fuel。没有新增常量，`pack-tool/tests/sdk.rs` 的一致性测试不受影响。
 
-**CI：`ci-platforms.yml` 新增「Script plugins」作业。** `changes` 作业多一个 `plugins` 输出：`plugins/`、`docs/script-plugin-template/`、`crates/script-runtime/`、`crates/pack-tool/`、三个脚本，以及插件包逐字节复制的 `resources/licenses/Unicode-License-V3.txt` 和生成器读的 `resources/character-glosses.lock.json` 改动时为真，共享路径（`shared`）为真时也为真。作业按引擎作业的写法：总是启动，没改动时走 unchanged 步骤；改动时 `rustup toolchain install`、`rustup target add wasm32-unknown-unknown`，先运行 `cargo test --locked -p msime-script-runtime`，执行运行时自身的沙箱单测，再运行 `cargo test --locked -p msime-pack-tool --test sdk`，逐项核对 C/Rust 作者 SDK 的常量及 import 白名单与运行时一致，再带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 运行 `scripts/test-script-plugins.sh`，用 sccache。仅构建插件不会读到 SDK 中未被插件引用的常量；已有 ABI 测试必须在这个同样覆盖 SDK 与运行时改动的作业里实际执行，避免符号模式新增编号而作者绑定遗漏。SDK 测试和插件夹具只把运行时当依赖构建，不会执行其 `cfg(test)` 内的测试，不能代替 fuel、内存、栈和快照隔离的单测。`verify-local.sh` 的完整 Rust 测试与 `--all-targets` Clippy 清单同样显式包含 `msime-script-runtime`；4 项人工性能测量保持忽略，普通沙箱测试照常执行。`verify-local.sh` 的 `scope_classify` 把 `plugins/*` 归进不触发平台阶段的那一组，否则它落进 `*) echo all`，只改插件的 push 会让 `--quick` 编译全部平台。
+**CI：`ci-platforms.yml` 新增「Script plugins」作业。** `changes` 作业多一个 `plugins` 输出：`plugins/`、`docs/script-plugin-template/`、`crates/script-runtime/`、`crates/pack-tool/`、三个脚本，以及插件包逐字节复制的 `resources/licenses/Unicode-License-V3.txt` 和生成器读的 `resources/character-glosses.lock.json` 改动时为真，共享路径（`shared`）为真时也为真。作业按引擎作业的写法：总是启动，没改动时走 unchanged 步骤；改动时 `rustup toolchain install`、`rustup target add wasm32-unknown-unknown`，先运行 `cargo test --locked -p msime-script-runtime`，执行运行时自身的沙箱单测，再运行 `cargo test --locked -p msime-pack-tool`，执行 `run`、`sdk`、`validate` 三组集成测试；其中 SDK 测试逐项核对 C/Rust 作者 SDK 的常量及 import 白名单与运行时一致，另两组覆盖工具的事件夹具、金样、包校验与退出码，再带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 运行 `scripts/test-script-plugins.sh`，用 sccache。仅构建插件不会读到 SDK 中未被插件引用的常量；已有 ABI 测试必须在这个同样覆盖 SDK 与运行时改动的作业里实际执行，避免符号模式新增编号而作者绑定遗漏。SDK 测试和插件夹具只把运行时当依赖构建，不会执行其 `cfg(test)` 内的测试，不能代替 fuel、内存、栈和快照隔离的单测。`verify-local.sh` 的完整 Rust 测试与 `--all-targets` Clippy 清单同样显式包含 `msime-script-runtime` 和 `msime-pack-tool`；4 项人工性能测量保持忽略，普通沙箱测试照常执行。`verify-local.sh` 的 `scope_classify` 把 `plugins/*` 归进不触发平台阶段的那一组，否则它落进 `*) echo all`，只改插件的 push 会让 `--quick` 编译全部平台。
 
 ### fuel 的计法
 
@@ -81,7 +81,7 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 
 - 运行时门禁的负对照：临时将已有最小模块单测的预期改错，旧 SDK 命令仍然两项通过，显式选择 `msime-script-runtime` 则该单测失败、退出 101；精确恢复后，普通套件 66 项通过、4 项人工性能测量忽略，全目标严格 Clippy 通过。一次性提取本地测试与 Clippy 循环、令运行时命令失败的接线检查中，旧清单未察觉失败，新清单均以 1 退出。
 
-- CI 新增的 `cargo test --locked -p msime-pack-tool --test sdk` 在本机实际执行两项测试；临时删掉 SDK 的 `MSIME_LOCAL_MODE_SYMBOL` 做缺项负对照时，常量对照失败并退出 101，恢复后通过。插件构建与夹具校验继续由原脚本承担。
+- CI 的工具检查运行完整 `cargo test --locked -p msime-pack-tool`，包含原 SDK 两项及 `run`、`validate` 测试。原 SDK 缺项负对照仍保留：临时删掉 `MSIME_LOCAL_MODE_SYMBOL` 时常量对照失败、退出 101，恢复后通过。完整包选择的负对照及本地接线依据见[作者工具](../feature/2026-10-12-script-plugin-author-tools.md)。插件构建与夹具校验继续由原脚本承担。
 
 - `scripts/test-script-plugins.sh`：pangu-spacing 的 22 个事件和 `expected.jsonl` 一致，最大 fuel 37 171；不授权时每个事件只有 `skip: denied` 日志，没有动作；文件夹和压缩包都通过 `msime-pack validate`。连续两次构建的压缩包 sha1 相同。把 `expected.jsonl` 改错一行时脚本以 1 退出并打印两边的差异。
 - `python3 scripts/test-script-plugin-data.py`：有缓存时 `common-chars.bin` 与生成结果一致；挪走缓存时打印 skip、以 0 退出。
