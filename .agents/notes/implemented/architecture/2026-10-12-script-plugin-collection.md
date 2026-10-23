@@ -25,7 +25,7 @@ Status: implemented
 
 **SDK 加了不校验 UTF-8 的读法。** `commit::bytes` 和 `candidates::bytes` 直接交回宿主复制的字节。宿主只复制 Rust 的 `&str`，内容一定是合法 UTF-8，而 `text()` 的校验在 wasmi 里每个汉字上百 fuel。没有新增常量，`pack-tool/tests/sdk.rs` 的一致性测试不受影响。
 
-**CI：`ci-platforms.yml` 新增「Script plugins」作业。** `changes` 作业多一个 `plugins` 输出：`plugins/`、`docs/script-plugin-template/`、`crates/script-runtime/`、`crates/pack-tool/`、三个脚本，以及插件包逐字节复制的 `resources/licenses/Unicode-License-V3.txt` 和生成器读的 `resources/character-glosses.lock.json` 改动时为真，共享路径（`shared`）为真时也为真。作业按引擎作业的写法：总是启动，没改动时走 unchanged 步骤；改动时 `rustup toolchain install`、`rustup target add wasm32-unknown-unknown`，先运行 `cargo test --locked -p msime-pack-tool --test sdk`，逐项核对 C/Rust 作者 SDK 的常量及 import 白名单与运行时一致，再带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 运行 `scripts/test-script-plugins.sh`，用 sccache。仅构建插件不会读到 SDK 中未被插件引用的常量；已有 ABI 测试必须在这个同样覆盖 SDK 与运行时改动的作业里实际执行，避免符号模式新增编号而作者绑定遗漏。`verify-local.sh` 的 `scope_classify` 把 `plugins/*` 归进不触发平台阶段的那一组，否则它落进 `*) echo all`，只改插件的 push 会让 `--quick` 编译全部平台。
+**CI：`ci-platforms.yml` 新增「Script plugins」作业。** `changes` 作业多一个 `plugins` 输出：`plugins/`、`docs/script-plugin-template/`、`crates/script-runtime/`、`crates/pack-tool/`、三个脚本，以及插件包逐字节复制的 `resources/licenses/Unicode-License-V3.txt` 和生成器读的 `resources/character-glosses.lock.json` 改动时为真，共享路径（`shared`）为真时也为真。作业按引擎作业的写法：总是启动，没改动时走 unchanged 步骤；改动时 `rustup toolchain install`、`rustup target add wasm32-unknown-unknown`，先运行 `cargo test --locked -p msime-script-runtime`，执行运行时自身的沙箱单测，再运行 `cargo test --locked -p msime-pack-tool --test sdk`，逐项核对 C/Rust 作者 SDK 的常量及 import 白名单与运行时一致，再带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 运行 `scripts/test-script-plugins.sh`，用 sccache。仅构建插件不会读到 SDK 中未被插件引用的常量；已有 ABI 测试必须在这个同样覆盖 SDK 与运行时改动的作业里实际执行，避免符号模式新增编号而作者绑定遗漏。SDK 测试和插件夹具只把运行时当依赖构建，不会执行其 `cfg(test)` 内的测试，不能代替 fuel、内存、栈和快照隔离的单测。`verify-local.sh` 的完整 Rust 测试与 `--all-targets` Clippy 清单同样显式包含 `msime-script-runtime`；4 项人工性能测量保持忽略，普通沙箱测试照常执行。`verify-local.sh` 的 `scope_classify` 把 `plugins/*` 归进不触发平台阶段的那一组，否则它落进 `*) echo all`，只改插件的 push 会让 `--quick` 编译全部平台。
 
 ### fuel 的计法
 
@@ -53,6 +53,8 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 
 ## Alternatives considered
 
+- **只补本地完整验证，CI 继续依赖 SDK 测试和插件夹具。** 最强的理由是符合部分 Rust 测试留在本地的既有分工，也不增加 CI 耗时。不用：运行时单测直接守住插件的资源限制与隔离，现有 Script plugins 作业已覆盖运行时路径并准备了同一工具链；复用该作业执行单测能让这条边界在 PR 上实际受检，不需要增加作业、触发范围或时限。
+
 - **放进 msime-plugins 仓库。** 最强的理由是那里本来就是社区扩展包合集，插件和输入法分开发版，用户也习惯去那里找包。不用：GitHub 上还没有这个仓库（只有本机的脚手架），它的 README 写明扩展包是纯数据、「不能带任何可执行内容，也不能申请权限」，它的 CI 只按 schema_version 1 校验；脚本包也不能发布到社区库。更要紧的是，这些插件依赖本仓库的 SDK、`msime-pack` 和运行时的 fuel 计法，三者一变插件就要跟着改、跟着重测，放在同一个仓库里，同一个 PR 的 CI 就能发现。
 - **把插件加进根工作区，或者每个插件自带 `.cargo/config.toml` 和 profile。** 加进工作区最强的理由是一条 `cargo build` 就能编全部。不用：工作区的成员都按宿主平台编译，`cargo test --workspace`、clippy 和各平台的构建会把 `no_std` 的 cdylib 编成宿主目标，`#[panic_handler]` 和 `core::arch::wasm32` 在宿主上编不过；`Cargo.lock` 也会被牵动。每个插件自带配置（模板的做法）最强的理由是复制出去就能单独编。不用：五份一样的配置迟早漂移；插件在仓库里，cargo 本来就会向上找到共用的那份。
 - **从仓库根用 `--manifest-path` 构建。** 最强的理由是脚本不用 `cd`。不用：cargo 按当前目录查找 `.cargo/config.toml`，从根调用时目标、栈大小和产物目录全部不生效，编出的是宿主目标，或者带 1 MiB 栈的 17 页模块。
@@ -68,7 +70,7 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 ## Consequences
 
 - 收益：插件和它依赖的 SDK、`msime-pack`、运行时在同一个 PR 里一起测；新插件只要建一个目录、写 `fixture.jsonl`，构建和测试脚本自动发现它，不用改共享文件（插件表和第三方说明除外）。每个插件的行为由日志逐行核对，最坏情况的 fuel 有断言卡住。
-- 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
+- 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）；运行时普通单测额外占用执行时间，其中对抗性模块膨胀上界检查较慢，沿用现有 30 分钟时限。本地完整验证也增加该 crate 的测试与全目标 Clippy。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
 - 代价：生僻字判定在 `shared/common_chars.rs`、hide-rare-chars 的 `scan.rs` 和 rare-chars-last 的 `rare.rs` 里有三种扫描写法，改常用字集的格式或「生僻」的定义要三处一起改；rare-chars-last 的编译期断言能拦住格式变化，定义变化只能靠夹具。
 - 代价：插件为测试写日志，每个事件多花一百多 fuel；`expected.jsonl` 不记录 fuel，fuel 的漂移只在越过上限一半时才被发现。
 - 插件代码和它编进的 SDK 用 MIT，沿用模板（模板的 `Cargo.toml` 和清单在合入 develop 时就声明 MIT）；仓库其余部分仍是 GPL-3.0-only。README 的「许可证」一节和 docs/third-party.md 的「本项目」一节写明这个例外的范围（`docs/script-plugin-template/` 和 `plugins/script/`），全文在这两个目录各自的 `LICENSE`。包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。
@@ -76,6 +78,8 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - pangu-spacing 和内置的[中英文之间加空格](../feature/2026-10-12-chinese-english-spacing.md)开关做相近的事；内置开关在 `before_commit` 之前执行，两个都开不会多出空格。插件的 README 写了两者的区别。
 
 ## Verification
+
+- 运行时门禁的负对照：临时将已有最小模块单测的预期改错，旧 SDK 命令仍然两项通过，显式选择 `msime-script-runtime` 则该单测失败、退出 101；精确恢复后，普通套件 66 项通过、4 项人工性能测量忽略，全目标严格 Clippy 通过。一次性提取本地测试与 Clippy 循环、令运行时命令失败的接线检查中，旧清单未察觉失败，新清单均以 1 退出。
 
 - CI 新增的 `cargo test --locked -p msime-pack-tool --test sdk` 在本机实际执行两项测试；临时删掉 SDK 的 `MSIME_LOCAL_MODE_SYMBOL` 做缺项负对照时，常量对照失败并退出 101，恢复后通过。插件构建与夹具校验继续由原脚本承担。
 
