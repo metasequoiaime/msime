@@ -202,29 +202,37 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
 
     private void floatingPreview(File history, String text) throws Exception {
         stage = "physical long press opens full-text preview above keyboard";
+        String step = stage;
         byte[] before = Files.readAllBytes(history.toPath());
         Bitmap beforePreview = automation.takeScreenshot();
         Rect editorBounds = new Rect();
         await(field("msime-test-plain")).getBoundsInScreen(editorBounds);
         Rect card = openFloatingPreview();
+        // 这一段有五处等待，失败时只报总阶段名看不出卡在哪一处，所以每处各标一句。
+        stage = step + ": preview scroll area settles";
         AccessibilityNodeInfo scroll = awaitStableBounds(described("剪贴板全文滚动区域"));
         Rect bounds = new Rect();
         scroll.getBoundsInScreen(bounds);
         if (bounds.bottom > card.top || bounds.height() < card.height() * 2)
             throw new AssertionError("Preview did not extend above the keyboard");
+        stage = step + ": preview text is a separate non-long-clickable node";
         // Android 8 的无障碍树会把长文本拆成多个 TextView，不能要求一个节点承载全文。
         // 预览滚动区域和首行分别在上面、这里核对，足以证明全文已经显示且没有复用可长按的卡片。
         await(node -> node.getText() != null
             && node.getText().toString().contains("Synthetic preview line 0")
             && !node.isLongClickable());
+        stage = step + ": editor keeps focus";
         Rect editorAfter = new Rect();
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
+        stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
             && node.getText().toString().startsWith("Synthetic preview line 0")).getBoundsInScreen(cardAfter);
         if (!editorBounds.equals(editorAfter) || !card.equals(cardAfter))
             throw new AssertionError("Floating preview moved the editor or keyboard card");
+        stage = step + ": record actions stay available";
         await(described("剪贴板记录操作"));
+        stage = step;
         // 仅在专用合成编辑器中留存画面，供核对浮层边界、配色和滚动条。
         automation.waitForIdle(300, 3000);
         SystemClock.sleep(250);
