@@ -5,6 +5,32 @@
 use super::*;
 
 #[test]
+fn touch_shuangpin_layout_defaults_persists_and_rejects_unsupported_layouts() {
+    let defaults = Preferences::default();
+    let legacy = serde_json::to_value(&defaults).unwrap();
+    assert!(legacy.get("touch_shuangpin_layout").is_none());
+    assert_eq!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .touch_shuangpin_layout,
+        TouchShuangpinLayout::TwentySixKey
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let configured = Preferences {
+        touch_shuangpin_layout: TouchShuangpinLayout::FourteenKey,
+        shuangpin_profile: ShuangpinProfile::Microsoft,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..defaults
+    };
+    store.save(0, configured.clone()).unwrap();
+    assert_eq!(store.load().unwrap().preferences, configured);
+    let mut invalid = legacy;
+    invalid["touch_shuangpin_layout"] = "nine_key".into();
+    assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+}
+
+#[test]
 fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     let defaults = Preferences::default();
     assert!(defaults.backspace_reverts_selection);

@@ -97,7 +97,7 @@ public final class KeyboardLayout {
     }
 
     /**
-     * 同 {@link #resolveTouchLayout(boolean, boolean, int, String)}，`fourteenKey` 是引擎此刻开着 14 键网格（`View.key_grid` 为 `fourteen_key`）且没有本地模式：本地模式要逐个确定的字母，14 键的组码打不出来，所以回落 26 键。14 键只在全拼下开，排在九键之前判断。
+     * 同 {@link #resolveTouchLayout(boolean, boolean, int, String)}，`fourteenKey` 是引擎此刻开着 14 键网格（`View.key_grid` 为 `fourteen_key`）且没有本地模式：本地模式要逐个确定的字母，14 键的组码打不出来，所以回落 26 键。14 键在全拼或双拼下开，排在九键之前判断。
      */
     public static int resolveTouchLayout(boolean handwriting, boolean nineKey, boolean fourteenKey,
                                          int scheme, String touchLayout) {

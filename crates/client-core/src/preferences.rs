@@ -80,6 +80,21 @@ pub enum TouchKeyboardLayout {
     NineKeyShuangpin,
 }
 
+/// 触屏双拼的字母键布局；与全拼的布局独立保存，切换方案后仍保留选择。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchShuangpinLayout {
+    #[default]
+    TwentySixKey,
+    FourteenKey,
+}
+
+impl TouchShuangpinLayout {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1173,6 +1188,9 @@ pub struct Preferences {
     /// Android 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。其他宿主原样保留。
     #[serde(default)]
     pub touch_keyboard_split_portrait: bool,
+    /// Android 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
+    #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
+    pub touch_shuangpin_layout: TouchShuangpinLayout,
     /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
     ///
     /// 总是写进文档，哪怕等于默认值：以前的版本在等于默认值时省略它，于是文档里没有它只能说明是以前的版本写的，按以前的默认列表读（[`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]）。新装的默认值已经不同，再省略就分不出这两种文档。
@@ -3100,6 +3118,7 @@ impl Default for Preferences {
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
+            touch_shuangpin_layout: TouchShuangpinLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),

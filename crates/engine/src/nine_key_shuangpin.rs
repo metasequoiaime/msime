@@ -670,13 +670,12 @@ impl NineKeyShuangpin {
                     return None;
                 }
                 offset += 2;
-            } else if let Some(key) = self.initial_key(piece) {
+            } else {
+                let key = self.initial_key(piece)?;
                 if remaining.first().is_some_and(|&value| value != key) {
                     return None;
                 }
                 offset += 1;
-            } else {
-                return None;
             }
         }
         (offset > 0).then_some(offset.min(input.len()))

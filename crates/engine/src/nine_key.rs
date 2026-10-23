@@ -153,7 +153,7 @@ impl KeyGrid {
         }
     }
 
-    /// `a..=z` 各自的组码；九键双拼不按字母归组，没有这张表。
+    /// `a..=z` 各自的组码；两种双拼网格使用音节编码表，不使用这张字母归组表。
     fn keypad(self) -> Option<&'static [u8; 26]> {
         match self {
             Self::NineKey => Some(KEYPAD),
@@ -162,7 +162,7 @@ impl KeyGrid {
         }
     }
 
-    /// 小写字母所在键的组码；不是小写字母、或者这种键盘不按字母归组（九键双拼）时为 `None`。
+    /// 字母所在键的组码；14 键双拼的分号也归入 L，九键双拼不按字母归组。
     pub fn code_of(self, letter: u8) -> Option<u8> {
         if matches!(self, Self::FourteenKeyShuangpin(_)) {
             return if letter == b';' {
@@ -241,7 +241,7 @@ impl KeyGrid {
         covered
     }
 
-    /// 一个完整音节（锁定的拼写、左列的音节、整句种子里的音节）占几个组码：按字母归组的键盘一个字母一个，九键双拼总是两个。
+    /// 一个完整音节（锁定的拼写、左列的音节、整句种子里的音节）占几个组码：全拼按字母计数，双拼总是两个。
     pub(crate) fn syllable_code_len(self, syllable: &str) -> usize {
         match self {
             Self::NineKeyShuangpin(_) | Self::FourteenKeyShuangpin(_) => 2,
@@ -275,7 +275,7 @@ impl KeyGrid {
         matches!(self, Self::NineKey | Self::NineKeyShuangpin(_))
     }
 
-    /// 能拼英文词（英文九键、英文混入）。九键双拼的数字是声母和韵母，不是字母的分组，没有英文九键。
+    /// 能拼英文词（英文九键、英文混入）。双拼网格按声母和韵母编码，不按字母分组拼英文。
     fn spells_english(self) -> bool {
         self.shuangpin_table().is_none()
     }
@@ -1237,7 +1237,11 @@ impl NineKeySession {
             }
         }
         SessionSnapshot {
-            scheme: SchemeType::Quanpin,
+            scheme: if matches!(self.grid, KeyGrid::FourteenKeyShuangpin(_)) {
+                SchemeType::Shuangpin
+            } else {
+                SchemeType::Quanpin
+            },
             local_mode: LocalInputMode::None,
             // The grid's snapshot stands in for the whole session's while it is composing, so it carries the mode too: a host that draws its English keys from this flag would otherwise put Chinese ones back on the first digit.
             dedicated_english: self.english_only,

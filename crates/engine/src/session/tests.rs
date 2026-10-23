@@ -4078,6 +4078,7 @@ fn fourteen_key_shuangpin_separates_touch_groups_from_hardware_letters() {
     }
     assert!(session.grid_composing());
     assert_eq!(session.snapshot().editing_text, "bugc");
+    assert_eq!(session.snapshot().scheme, SchemeType::Shuangpin);
     assert!(!session.character(b'q', false).handled);
     assert!(words(&session).contains(&"你好".to_owned()));
     assert_eq!(

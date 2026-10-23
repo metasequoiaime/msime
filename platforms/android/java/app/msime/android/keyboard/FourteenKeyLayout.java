@@ -54,6 +54,16 @@ public final class FourteenKeyLayout {
         return key.letters().toUpperCase(java.util.Locale.ROOT);
     }
 
+    /** 双拼把分号归到 L 组，键面明确画出这个入口；全拼保留原键面。 */
+    public static String face(Key key, boolean shuangpin) {
+        return shuangpin && "l".equals(key.letters()) ? "L;" : face(key);
+    }
+
+    /** 双拼 L 键同时读出分号，其他键沿用原描述。 */
+    public static String accessibilityLabel(Key key, boolean shuangpin) {
+        return shuangpin && "l".equals(key.letters()) ? "按键 L 分号" : accessibilityLabel(key);
+    }
+
     /** 读屏念的描述（不含「按键 」前缀）：两个字母之间隔一个空格，「Q W」。单字母键的完整描述见 {@link #accessibilityLabel}。 */
     public static String description(Key key) {
         String face = face(key);

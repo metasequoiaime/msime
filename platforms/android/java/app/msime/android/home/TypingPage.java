@@ -514,6 +514,16 @@ public final class TypingPage extends ReloadingDetailPage {
                     OptionSheet next = new OptionSheet(context, "双拼", "选择双拼方案");
                     for (KeyboardScheme scheme : shuangpin)
                         next.option(shuangpinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
+                    boolean fourteen = "fourteen_key".equals(InputViewValuePolicy.textOr(
+                        preferences, "touch_shuangpin_layout", "twenty_six_key"));
+                    next.submenu("键盘布局（" + (fourteen ? "14 键" : "26 键") + "）", false, () -> {
+                        OptionSheet layouts = new OptionSheet(context, "双拼键盘布局", "保留当前双拼方案");
+                        layouts.option("26 键", !fourteen, () -> savePreferences(
+                            values -> values.put("touch_shuangpin_layout", "twenty_six_key")));
+                        layouts.option("14 键", fourteen, () -> savePreferences(
+                            values -> values.put("touch_shuangpin_layout", "fourteen_key")));
+                        return layouts;
+                    });
                     return next;
                 });
             }

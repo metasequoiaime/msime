@@ -2018,7 +2018,11 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.command(Command::Cancel)?;
         for byte in selection.reading.bytes() {
             // 14 键的组码只认 `grid_key`；分词键 `'` 和九键的数字本来就从 `character` 进。
-            if selection.grid == Some(KeyGrid::FourteenKey) && byte != b'\'' {
+            if matches!(
+                selection.grid,
+                Some(KeyGrid::FourteenKey | KeyGrid::FourteenKeyShuangpin(_))
+            ) && byte != b'\''
+            {
                 self.engine.grid_key(byte)?;
             } else {
                 self.engine.character(byte, byte.is_ascii_uppercase())?;

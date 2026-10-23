@@ -15,14 +15,26 @@ import org.json.JSONObject;
  * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
+    private boolean shuangpinOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
+        super.onCreate(arguments);
+    }
+
     private static final String STRIP = "14 键拼音选择";
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
-        return "fourteen-key group keys, left-side pinyin column, three-column panel, separator, long-press letters, English and 123 layers";
+        return shuangpinOnly ? "14 键双拼设置、组码、消歧、分号、自定义表与布局回落"
+            : "14 键全拼与双拼的完整键面、侧栏、候选、分词、长按和布局回落";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (shuangpinOnly) {
+            FourteenKeyShuangpinDeviceChecks.run(this);
+            return;
+        }
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(
             Files.readAllBytes(new File(root, "runtime-options.json").toPath()),
@@ -253,6 +265,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
+        FourteenKeyShuangpinDeviceChecks.run(this);
     }
 
     // API 28 没有 clearCache；逐节点刷新，避免组字重建后仍点击已经拆掉的键面。

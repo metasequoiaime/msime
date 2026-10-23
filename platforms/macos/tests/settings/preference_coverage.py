@@ -56,6 +56,7 @@ NOT_APPLICABLE = {
     "touch_quick_punctuation_symbols": "仅 iOS 原生触屏键盘提供自定义快捷符号；macOS 屏幕键盘不读取此列表，共享设置页不提供此项",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
+    "touch_shuangpin_layout": "Android 双拼的 26 / 14 键选择；macOS 保留该字段，实体键盘仍按 26 键双拼输入",
     "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
     "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
     "touch_toolbar": "the touch keyboard's row above the keys",

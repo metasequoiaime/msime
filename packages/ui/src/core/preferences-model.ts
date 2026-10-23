@@ -108,6 +108,8 @@ export type Preferences = PunctuationPreferences &
       | "handwriting"
       | "fourteen_key"
       | "nine_key_shuangpin";
+    /** Android 双拼的 26 / 14 键选择；缺省为 26 键，与全拼布局独立保存。 */
+    touch_shuangpin_layout?: "twenty_six_key" | "fourteen_key";
     touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
     touch_key_spacing_tenths?: number;
     touch_row_spacing_tenths?: number;
