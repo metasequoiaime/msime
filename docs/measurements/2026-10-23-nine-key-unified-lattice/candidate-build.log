@@ -1,0 +1,5 @@
+   Compiling msime-client-base v0.1.0 (/Volumes/Workspace/worktrees/nine-key-unified-lattice/crates/client-base)
+   Compiling msime-engine v0.1.0 (/Volumes/Workspace/worktrees/nine-key-unified-lattice/crates/engine)
+   Compiling msime-client-core v0.1.0 (/Volumes/Workspace/worktrees/nine-key-unified-lattice/crates/client-core)
+   Compiling msime-input-runtime v0.1.0 (/Volumes/Workspace/worktrees/nine-key-unified-lattice/crates/input-runtime)
+    Finished `release` profile [optimized] target(s) in 44.63s

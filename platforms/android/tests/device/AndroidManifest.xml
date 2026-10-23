@@ -122,6 +122,7 @@
         <!-- 合成编辑器「复制图片」的来源（#6781）：不导出，剪贴板按 grantUriPermissions 把读权限授给读它的输入法。 -->
         <provider android:name="app.msime.android.test.ImageClipProvider" android:authorities="app.msime.android.test.images" android:exported="false" android:grantUriPermissions="true" />
         <activity android:name="app.msime.android.test.QuickDeleteEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.android.test.SpaceCopyEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.android.test.HistoryEditorActivity" android:exported="true" />
     </application>
     <instrumentation android:name="app.msime.android.test.ToolbarEdgesDeviceSmoke" android:targetPackage="app.msime.android" />

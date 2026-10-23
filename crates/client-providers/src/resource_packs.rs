@@ -182,7 +182,7 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().filter(|pack| pack.pinned())
     }
 
-    /// 锁文件是否固定了这个资源包的内容。只有 macOS 语音运行库可能为假：重签的运行库第一次发布、锁文件写上它的地址和摘要之前，这个资源包不存在。
+    /// 是否有已固定且允许提供的资源包内容。macOS 语音运行库在重签归档固定前不可用，白霜语法模型因许可限制保持不可用。
     pub fn pinned(self) -> bool {
         match self {
             ResourcePack::MacosVoiceRuntime => macos_voice_runtime().is_some(),
@@ -208,7 +208,7 @@ impl ResourcePack {
         }
     }
 
-    /// 按 id 找资源包；锁文件还没固定内容的不算（[`ResourcePack::pinned`]）。
+    /// 按 id 查找允许提供的已固定资源包（[`ResourcePack::pinned`]）。
     pub fn from_id(id: &str) -> Option<ResourcePack> {
         ResourcePack::available().find(|pack| pack.id() == id)
     }

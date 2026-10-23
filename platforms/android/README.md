@@ -2,7 +2,7 @@
 
 ## 目录结构与验证入口
 
-Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，例如 `voice/VoiceProviderPolicy.java` 仍持有凭据预检与状态文案。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
+Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，`voice/VoiceProviderPolicy.java` 的凭据预检与状态文案已通过 `msime_client_voice_credential_issue`、`msime_client_mobile_voice_status` 读取共享规则。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
 
 验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a（按需加 x86_64）的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
@@ -11,6 +11,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
 英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
+
+普通英文候选保留原文和唯一纠错，并追加固定英文词库的前缀补全，例如输入 `eng` 可点选 `English`。空格和标点仍只自动采用纠错，补全需要手动点击。密码、网址、邮箱和禁止建议的输入框不显示这些候选。`EnglishCorrectionDeviceSmoke` 同时验证补全、当前词替换与既有纠错门禁；`-e prefix-completion true` 只跑补全专项。
 
 ## 产品版本
 

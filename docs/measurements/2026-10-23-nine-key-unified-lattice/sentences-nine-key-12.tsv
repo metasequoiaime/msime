@@ -1,0 +1,17 @@
+# 九键长句回归集：手写的合成短句，4 到 12 个字每档 9 条，共 81 条，用 `convert_eval --nine-key` 在九宫格上逐键输入（字母换成键上的数字）。
+#
+# 为什么另起一份：九键最多 32 个数字（`DIGIT_LIMIT`），第 33 个数字起的键被丢掉，金标准永远出不来。`sentences-v1.tsv` 11 个音节以上的 7 条里有 6 条超过 32 个字母，`sentences-neutral-v1.tsv` 1105 条里有 279 条超过；`quanpin-words-v1.tsv` 是词级集，量不到整句。这份每条的字母数都不超过 32，所以 12 个字的句子也能整串打完（#6059）。
+#
+# 金标准是母语者在这串拼音下唯一自然的写法；拼音本身有两种同样自然写法的句子不收（哪里/那里、的/得），以 ta 开头或句中带 他/她 的不收。句子是为这份集合写的日常用语，不含任何真实的人名、地名以外的个人信息。
+#
+# 11 字和 12 字两档有几条是同一句加一个字，两档的数字因此不独立；n=81 时单个比例的 95% 置信半宽约 ±11 个百分点，前后对比要逐条看金标准的名次，不要只减汇总值。
+id	input	gold	syllables	tags
+nk-073	womenkeyiyiqiqumaidiandongxichi	我们可以一起去买点东西吃	12	statement
+nk-074	nikeyixianqunalidengwoyixiama	你可以先去那里等我一下吗	12	question
+nk-075	niyaobuyaohewoyiqiqukanyixia	你要不要和我一起去看一下	12	question
+nk-076	zhegedifangwoyiqianlaiguohaojici	这个地方我以前来过好几次	12	statement
+nk-077	nikeyibazhegefageiwokankanma	你可以把这个发给我看看吗	12	question
+nk-078	wojuedezhegejiageyoudiantaiguile	我觉得这个价格有点太贵了	12	statement
+nk-079	nixiacilaideshihoutiqiangaosuwo	你下次来的时候提前告诉我	12	request
+nk-080	womenjigerenxiawuyiqiquchifan	我们几个人下午一起去吃饭	12	statement
+nk-081	zheshiwodiyiciyigerenlaizheli	这是我第一次一个人来这里	12	statement

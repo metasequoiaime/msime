@@ -52,6 +52,7 @@ platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
+platforms/android/tests/device/settings/CommonPhraseNotesDeviceCheck.java
 platforms/android/tests/device/settings/NoticeQueueDeviceCheck.java
 platforms/android/tests/device/settings/SkinDeleteDeviceCheck.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java
@@ -151,6 +152,7 @@ platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardShareSinkActivity.java
 platforms/android/tests/device/clipboard/ClipboardSegmentActionsDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardPhraseNoticeDeviceCheck.java
 platforms/android/tests/device/clipboard/ClipboardSegmentDragDeviceSmoke.java
 platforms/android/tests/device/keyboard/FeedbackInputStabilityDeviceSmoke.java
 platforms/android/tests/device/settings/DiagnosticsBundleDeviceSmoke.java
@@ -174,6 +176,8 @@ platforms/android/tests/device/voice/SyntheticSpeechSetup.java
 
 platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java
 platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
+platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
+platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
@@ -225,3 +229,4 @@ platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java
 platforms/android/tests/device/keyboard/HistoryEditorActivity.java
 platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
 platforms/android/tests/device/keyboard/PortraitSplitDeviceChecks.java
+platforms/android/tests/device/keyboard/KeyboardFeedbackDeviceChecks.java

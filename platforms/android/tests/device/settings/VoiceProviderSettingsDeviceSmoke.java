@@ -52,6 +52,39 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
             check((Boolean) credential.invoke(null, "doubao", wrapped)
                     && "synthetic-key".equals(trim.invoke(null, wrapped)), "豆包预检与保存裁剪一致");
         }
+        Method status = policy.getMethod("status", String.class, String.class, boolean.class);
+        check("密钥未填写完整，暂用系统识别".equals(status.invoke(null, "doubao", null, true)),
+            "共享 JNI 返回云端服务的回退状态");
+        check("没有可用的系统识别服务，可改用本地模型或豆包".equals(
+                status.invoke(null, "system", null, false)),
+            "共享 JNI 返回系统识别不可用状态");
+        check("使用设备自带的语音识别服务".equals(status.invoke(null, null, null, true))
+                && "使用设备自带的语音识别服务".equals(status.invoke(null, "", null, true)),
+            "未选择服务时空 UTF-8 请求仍按系统识别解释");
+        Method localStatus = policy.getMethod("localStatus", boolean.class, boolean.class);
+        check("还需准备本地语音运行库，请到「模型」下载或导入".equals(
+                localStatus.invoke(null, true, false)),
+            "共享 JNI 返回本地运行库状态");
+        check(localStatus.invoke(null, true, true) == null
+                && status.invoke(null, "openai", "openai", false) == null
+                && status.invoke(null, "local", "local", true) == null,
+            "已就绪的配置无需状态提示");
+        check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(
+                localStatus.invoke(null, false, false)),
+            "缺少模型时优先提示模型");
+        Method statusParse = policy.getDeclaredMethod("parseStatus", String.class);
+        statusParse.setAccessible(true);
+        check("合成状态".equals(statusParse.invoke(null,
+                "{\"ok\":true,\"value\":{\"status\":\"合成状态\"}}")),
+            "状态内容来自共享信封");
+        for (String invalid : new String[] {"", "{}",
+                "{\"ok\":\"true\",\"value\":{\"status\":\"合成状态\"}}",
+                "{\"ok\":false,\"value\":{\"status\":\"合成状态\"}}",
+                "{\"ok\":true,\"value\":{}}",
+                "{\"ok\":true,\"value\":{\"status\":17}}",
+                "{\"ok\":true,\"value\":{\"status\":\"\"}}"}) {
+            check(statusParse.invoke(null, invalid) == null, "损坏状态信封不展示猜测文案");
+        }
         Method credentialParse = policy.getDeclaredMethod("credentialAccepted", String.class);
         credentialParse.setAccessible(true);
         check((Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":true}}"),

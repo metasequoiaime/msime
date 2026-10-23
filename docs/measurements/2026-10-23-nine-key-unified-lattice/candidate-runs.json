@@ -1,0 +1,430 @@
+[
+  {
+    "label": "nine-sentences",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-convert_eval",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--report",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-nine-sentences.json",
+      "--dump",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-nine-sentences.jsonl",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 13.818,
+    "log_sha256": "2d7bffb9bf136c20f67b8d0a3fd38dd89086ba9ed0240ba03f3e1cdbd5cab177",
+    "monitor": [
+      {
+        "elapsed_s": 0.045,
+        "load": [
+          28.11181640625,
+          42.1357421875,
+          39.71533203125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.093,
+        "load": [
+          26.8212890625,
+          41.63525390625,
+          39.552734375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.144,
+        "load": [
+          26.8212890625,
+          41.63525390625,
+          39.552734375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.216,
+        "load": [
+          28.11669921875,
+          41.65771484375,
+          39.57275390625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.299,
+        "load": [
+          28.11669921875,
+          41.65771484375,
+          39.57275390625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 10.392,
+        "load": [
+          28.11669921875,
+          41.65771484375,
+          39.57275390625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 12.46,
+        "load": [
+          28.74755859375,
+          41.5634765625,
+          39.5517578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-nine-sentences.log"
+  },
+  {
+    "label": "quanpin-sentences",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-convert_eval",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--report",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-quanpin-sentences.json",
+      "--dump",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-quanpin-sentences.jsonl"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 5.376,
+    "log_sha256": "4dca22b403ac54d189f101a070ccf97105ddef0756c76657b97ce6b3e33756e1",
+    "monitor": [
+      {
+        "elapsed_s": 0.086,
+        "load": [
+          28.74755859375,
+          41.5634765625,
+          39.5517578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.198,
+        "load": [
+          28.74755859375,
+          41.5634765625,
+          39.5517578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.265,
+        "load": [
+          31.08984375,
+          41.8359375,
+          39.65966796875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-quanpin-sentences.log"
+  },
+  {
+    "label": "nine-latency",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-rerank_latency",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 1,
+    "elapsed_s": 24.509,
+    "log_sha256": "d97957f65cfea0d74653d797cff03ef70b092e4d373c039fdd8da169729cb8ee",
+    "monitor": [
+      {
+        "elapsed_s": 0.066,
+        "load": [
+          31.08984375,
+          41.8359375,
+          39.65966796875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.14,
+        "load": [
+          31.00244140625,
+          41.63916015625,
+          39.60302734375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.291,
+        "load": [
+          31.00244140625,
+          41.63916015625,
+          39.60302734375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.373,
+        "load": [
+          31.00244140625,
+          41.63916015625,
+          39.60302734375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.455,
+        "load": [
+          30.12109375,
+          41.27978515625,
+          39.48779296875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 10.563,
+        "load": [
+          30.12109375,
+          41.27978515625,
+          39.48779296875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 12.655,
+        "load": [
+          31.552734375,
+          41.39111328125,
+          39.53759765625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 14.737,
+        "load": [
+          31.552734375,
+          41.39111328125,
+          39.53759765625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 16.84,
+        "load": [
+          31.552734375,
+          41.39111328125,
+          39.53759765625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 18.891,
+        "load": [
+          30.06689453125,
+          40.91943359375,
+          39.3818359375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 20.935,
+        "load": [
+          30.06689453125,
+          40.91943359375,
+          39.3818359375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 22.986,
+        "load": [
+          28.0595703125,
+          40.32275390625,
+          39.18017578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-nine-latency.log"
+  },
+  {
+    "label": "nine-12-latency",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-rerank_latency",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/sentences-nine-key-12.tsv",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 1,
+    "elapsed_s": 6.043,
+    "log_sha256": "743de080d052aaa359e658720703413f9bf8a6e46aedc8df1b3dc8dbe1ca6d89",
+    "monitor": [
+      {
+        "elapsed_s": 0.046,
+        "load": [
+          28.0595703125,
+          40.32275390625,
+          39.18017578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.136,
+        "load": [
+          28.0595703125,
+          40.32275390625,
+          39.18017578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.182,
+        "load": [
+          26.533203125,
+          39.802734375,
+          39.0029296875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-nine-12-latency.log"
+  }
+]

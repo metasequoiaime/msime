@@ -1,0 +1,681 @@
+{
+  "summary": {
+    "top1_gained": [
+      "nk-035",
+      "nk-042",
+      "nk-047",
+      "nk-062"
+    ],
+    "top1_lost": [
+      "nk-014"
+    ],
+    "found_gained": [
+      "nk-023",
+      "nk-035",
+      "nk-042",
+      "nk-047",
+      "nk-062",
+      "nk-063",
+      "nk-066"
+    ],
+    "found_lost": [
+      "nk-013",
+      "nk-014",
+      "nk-036",
+      "nk-050",
+      "nk-051",
+      "nk-054",
+      "nk-055"
+    ]
+  },
+  "cases": [
+    {
+      "id": "nk-001",
+      "gold": "我先走了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我先走了",
+      "candidate_top1": "我先走了"
+    },
+    {
+      "id": "nk-002",
+      "gold": "马上就到",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "马上就到",
+      "candidate_top1": "马上就到"
+    },
+    {
+      "id": "nk-003",
+      "gold": "明天再说",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "明天再说",
+      "candidate_top1": "明天再说"
+    },
+    {
+      "id": "nk-004",
+      "gold": "这能算吗",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这能算吗",
+      "candidate_top1": "这能算吗"
+    },
+    {
+      "id": "nk-005",
+      "gold": "我去开会",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我去开会",
+      "candidate_top1": "我去开会"
+    },
+    {
+      "id": "nk-006",
+      "gold": "天气很好",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "天气很好",
+      "candidate_top1": "天气很好"
+    },
+    {
+      "id": "nk-007",
+      "gold": "快点回家",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "快点回家",
+      "candidate_top1": "快点回家"
+    },
+    {
+      "id": "nk-008",
+      "gold": "晚上见面",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "晚上见面",
+      "candidate_top1": "晚上见面"
+    },
+    {
+      "id": "nk-009",
+      "gold": "我到家了",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "我倒加了",
+      "candidate_top1": "我倒加了"
+    },
+    {
+      "id": "nk-010",
+      "gold": "我在路上了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我在路上了",
+      "candidate_top1": "我在路上了"
+    },
+    {
+      "id": "nk-011",
+      "gold": "你吃饭了吗",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你吃饭了吗",
+      "candidate_top1": "你吃饭了吗"
+    },
+    {
+      "id": "nk-012",
+      "gold": "今天好冷啊",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "今天好冷啊",
+      "candidate_top1": "今天好冷啊"
+    },
+    {
+      "id": "nk-013",
+      "gold": "我们走路去",
+      "baseline_rank": 72,
+      "candidate_rank": null,
+      "baseline_top1": "我们有录取",
+      "candidate_top1": "我们有录取"
+    },
+    {
+      "id": "nk-014",
+      "gold": "下午三点见",
+      "baseline_rank": 1,
+      "candidate_rank": null,
+      "baseline_top1": "下午三点见",
+      "candidate_top1": "下午三点立案"
+    },
+    {
+      "id": "nk-015",
+      "gold": "这个太贵了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这个太贵了",
+      "candidate_top1": "这个太贵了"
+    },
+    {
+      "id": "nk-016",
+      "gold": "等我五分钟",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "等我五分钟",
+      "candidate_top1": "等我五分钟"
+    },
+    {
+      "id": "nk-017",
+      "gold": "帮我拿一下",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "帮我拿一下",
+      "candidate_top1": "帮我拿一下"
+    },
+    {
+      "id": "nk-018",
+      "gold": "明天不上班",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "明天不上班",
+      "candidate_top1": "明天不上班"
+    },
+    {
+      "id": "nk-019",
+      "gold": "你明天有空吗",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你明天有空吗",
+      "candidate_top1": "你明天有空吗"
+    },
+    {
+      "id": "nk-020",
+      "gold": "晚饭想吃什么",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "晚饭想吃什么",
+      "candidate_top1": "晚饭想吃什么"
+    },
+    {
+      "id": "nk-021",
+      "gold": "我们下周出发",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们下周出发",
+      "candidate_top1": "我们下周出发"
+    },
+    {
+      "id": "nk-022",
+      "gold": "记得早点睡觉",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "记得早点睡觉",
+      "candidate_top1": "记得早点睡觉"
+    },
+    {
+      "id": "nk-023",
+      "gold": "电脑突然死机",
+      "baseline_rank": null,
+      "candidate_rank": 103,
+      "baseline_top1": "电脑突然奇迹",
+      "candidate_top1": "电脑突然司机"
+    },
+    {
+      "id": "nk-024",
+      "gold": "会议改到明天",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "会议改到明天",
+      "candidate_top1": "会议改到明天"
+    },
+    {
+      "id": "nk-025",
+      "gold": "请把窗户关上",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "请把窗户关上",
+      "candidate_top1": "请把窗户关上"
+    },
+    {
+      "id": "nk-026",
+      "gold": "周末一起爬山",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "周末一起爬山",
+      "candidate_top1": "周末一起爬山"
+    },
+    {
+      "id": "nk-027",
+      "gold": "外面在下大雨",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "外面在下大雨",
+      "candidate_top1": "外面在下大雨"
+    },
+    {
+      "id": "nk-028",
+      "gold": "我已经到楼下了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我已经到楼下了",
+      "candidate_top1": "我已经到楼下了"
+    },
+    {
+      "id": "nk-029",
+      "gold": "这件衣服很好看",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这件衣服很好看",
+      "candidate_top1": "这件衣服很好看"
+    },
+    {
+      "id": "nk-030",
+      "gold": "我们一起去吃饭",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们一起去吃饭",
+      "candidate_top1": "我们一起去吃饭"
+    },
+    {
+      "id": "nk-031",
+      "gold": "你把文件发给我",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你把文件发给我",
+      "candidate_top1": "你把文件发给我"
+    },
+    {
+      "id": "nk-032",
+      "gold": "今天的作业太多",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "今天的作业太多",
+      "candidate_top1": "今天的作业太多"
+    },
+    {
+      "id": "nk-033",
+      "gold": "地铁站离这很近",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "地铁站记者很近",
+      "candidate_top1": "地铁站记者跟进"
+    },
+    {
+      "id": "nk-034",
+      "gold": "下班以后去超市",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "一把安置牧区便是",
+      "candidate_top1": "下班以后如此暗示"
+    },
+    {
+      "id": "nk-035",
+      "gold": "孩子已经睡着了",
+      "baseline_rank": null,
+      "candidate_rank": 1,
+      "baseline_top1": "还以已经睡着了",
+      "candidate_top1": "孩子已经睡着了"
+    },
+    {
+      "id": "nk-036",
+      "gold": "你周末有时间吗",
+      "baseline_rank": 7,
+      "candidate_rank": null,
+      "baseline_top1": "米粥哦哦有时间吗",
+      "candidate_top1": "米粥哦哦有时间吗"
+    },
+    {
+      "id": "nk-037",
+      "gold": "明天早上八点集合",
+      "baseline_rank": 3,
+      "candidate_rank": 3,
+      "baseline_top1": "明天晚上八点几个",
+      "candidate_top1": "明天晚上八点几个"
+    },
+    {
+      "id": "nk-038",
+      "gold": "我们下个月去旅游",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "我们下个学区具有",
+      "candidate_top1": "我们下个乐曲旅游"
+    },
+    {
+      "id": "nk-039",
+      "gold": "我的手机好像坏了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我的手机好像坏了",
+      "candidate_top1": "我的手机好像坏了"
+    },
+    {
+      "id": "nk-040",
+      "gold": "我刚才去了趟银行",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "我刚才去课堂姨娘",
+      "candidate_top1": "我刚采取课堂银行"
+    },
+    {
+      "id": "nk-041",
+      "gold": "晚上一起看电视吧",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "晚上一起看电视啊啊",
+      "candidate_top1": "晚上一起看点是吧"
+    },
+    {
+      "id": "nk-042",
+      "gold": "请你明天早点过来",
+      "baseline_rank": null,
+      "candidate_rank": 1,
+      "baseline_top1": "请你明天要点过来",
+      "candidate_top1": "请你明天早点过来"
+    },
+    {
+      "id": "nk-043",
+      "gold": "你什么时候有空啊",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你什么时候有空啊",
+      "candidate_top1": "你什么时候有空啊"
+    },
+    {
+      "id": "nk-044",
+      "gold": "请把灯关掉再出去",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "请把灯管掉在出去",
+      "candidate_top1": "请把灯管掉在出去"
+    },
+    {
+      "id": "nk-045",
+      "gold": "这个周末天气不错",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这个周末天气不错",
+      "candidate_top1": "这个周末天气不错"
+    },
+    {
+      "id": "nk-046",
+      "gold": "我觉得这个办法不错",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我觉得这个办法不错",
+      "candidate_top1": "我觉得这个办法不错"
+    },
+    {
+      "id": "nk-047",
+      "gold": "请大家准时参加会议",
+      "baseline_rank": null,
+      "candidate_rank": 1,
+      "baseline_top1": "请大家准时报价会议",
+      "candidate_top1": "请大家准时参加会议"
+    },
+    {
+      "id": "nk-048",
+      "gold": "我们明天上午去医院",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们明天上午去医院",
+      "candidate_top1": "我们明天上午去医院"
+    },
+    {
+      "id": "nk-049",
+      "gold": "这本书我已经看完了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这本书我已经看完了",
+      "candidate_top1": "这本书我已经看完了"
+    },
+    {
+      "id": "nk-050",
+      "gold": "天气预报说明天有雨",
+      "baseline_rank": 7,
+      "candidate_rank": null,
+      "baseline_top1": "天气预报说明提案由于",
+      "candidate_top1": "天气预报说明提案由于"
+    },
+    {
+      "id": "nk-051",
+      "gold": "周末我们去看电影吧",
+      "baseline_rank": 11,
+      "candidate_rank": null,
+      "baseline_top1": "周末我们去看电影啊啊",
+      "candidate_top1": "周末我们去看电影啊啊"
+    },
+    {
+      "id": "nk-052",
+      "gold": "今天的工作都做完了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "今天的工作都做完了",
+      "candidate_top1": "今天的工作都做完了"
+    },
+    {
+      "id": "nk-053",
+      "gold": "我们下周一开始放假",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们下周一开始放假",
+      "candidate_top1": "我们下周一开始放假"
+    },
+    {
+      "id": "nk-054",
+      "gold": "我已经把钱转给你了",
+      "baseline_rank": 4,
+      "candidate_rank": null,
+      "baseline_top1": "我已经把山庄顶了",
+      "candidate_top1": "我已经把其安装定了"
+    },
+    {
+      "id": "nk-055",
+      "gold": "我们一起去公园散步吧",
+      "baseline_rank": 7,
+      "candidate_rank": null,
+      "baseline_top1": "我们一起去公园散步啊啊",
+      "candidate_top1": "我们一起入宫渲染不把"
+    },
+    {
+      "id": "nk-056",
+      "gold": "明天的会议改到下午了",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "明天的回忆改到下雨了",
+      "candidate_top1": "明天的回忆改到下雨了"
+    },
+    {
+      "id": "nk-057",
+      "gold": "你吃完饭以后早点休息",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "你吃早饭以后要点注意",
+      "candidate_top1": "你吃早饭以后要点休息"
+    },
+    {
+      "id": "nk-058",
+      "gold": "你把那个红色的包给我",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "密保车工热的报给我",
+      "candidate_top1": "你把那个红色的报给我"
+    },
+    {
+      "id": "nk-059",
+      "gold": "这次考试的题目有点难",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "这次老实的题目有点难",
+      "candidate_top1": "这次老实的题目有点难"
+    },
+    {
+      "id": "nk-060",
+      "gold": "你可不可以帮我拿一下",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你可不可以帮我拿一下",
+      "candidate_top1": "你可不可以帮我拿一下"
+    },
+    {
+      "id": "nk-061",
+      "gold": "我们一起去喝杯咖啡吧",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们一起去喝杯咖啡吧",
+      "candidate_top1": "我们一起去喝杯咖啡吧"
+    },
+    {
+      "id": "nk-062",
+      "gold": "我们下次再来这里吃饭",
+      "baseline_rank": null,
+      "candidate_rank": 1,
+      "baseline_top1": "我们一百再来这里吃饭",
+      "candidate_top1": "我们下次再来这里吃饭"
+    },
+    {
+      "id": "nk-063",
+      "gold": "你们先吃我马上就过来",
+      "baseline_rank": null,
+      "candidate_rank": 3,
+      "baseline_top1": "你们小吃我马上就过来",
+      "candidate_top1": "你们小吃我马上就过来"
+    },
+    {
+      "id": "nk-064",
+      "gold": "我也不知道该怎么办才好",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我也不知道该怎么办才好",
+      "candidate_top1": "我也不知道该怎么办才好"
+    },
+    {
+      "id": "nk-065",
+      "gold": "你可以先去那里等我一下",
+      "baseline_rank": 9,
+      "candidate_rank": 119,
+      "baseline_top1": "你可以先去哪里等我一下",
+      "candidate_top1": "你可以陷入哪里等我一下"
+    },
+    {
+      "id": "nk-066",
+      "gold": "我们可以一起去买点东西",
+      "baseline_rank": null,
+      "candidate_rank": 6,
+      "baseline_top1": "我们可以一起去那个感恩你一",
+      "candidate_top1": "我们可以一起去那个好东西"
+    },
+    {
+      "id": "nk-067",
+      "gold": "你们几个人一起去吃饭吧",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你们几个人一起去吃饭吧",
+      "candidate_top1": "你们几个人一起去吃饭吧"
+    },
+    {
+      "id": "nk-068",
+      "gold": "这个地方我以前来过一次",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这个地方我以前来过一次",
+      "candidate_top1": "这个地方我以前来过一次"
+    },
+    {
+      "id": "nk-069",
+      "gold": "你要不要和我一起去看看",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你要不要和我一起去看看",
+      "candidate_top1": "你要不要和我一起去看看"
+    },
+    {
+      "id": "nk-070",
+      "gold": "我还以为你已经回到家了",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "我还以为你已经回到加了",
+      "candidate_top1": "我还以为你已经回到加了"
+    },
+    {
+      "id": "nk-071",
+      "gold": "我也不知道你说的是什么",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我也不知道你说的是什么",
+      "candidate_top1": "我也不知道你说的是什么"
+    },
+    {
+      "id": "nk-072",
+      "gold": "这是我第一次来这个地方",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "这是我第一避开这个地方",
+      "candidate_top1": "这是我第一避开这个地方"
+    },
+    {
+      "id": "nk-073",
+      "gold": "我们可以一起去买点东西吃",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "我们可以一起去那个感动一尺",
+      "candidate_top1": "我们可以一起去那个感动一尺"
+    },
+    {
+      "id": "nk-074",
+      "gold": "你可以先去那里等我一下吗",
+      "baseline_rank": 9,
+      "candidate_rank": 111,
+      "baseline_top1": "你可以先去哪里等我一下吗",
+      "candidate_top1": "你可以陷入哪里等我一下吗"
+    },
+    {
+      "id": "nk-075",
+      "gold": "你要不要和我一起去看一下",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你要不要和我一起去看一下",
+      "candidate_top1": "你要不要和我一起去看一下"
+    },
+    {
+      "id": "nk-076",
+      "gold": "这个地方我以前来过好几次",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这个地方我以前来过好几次",
+      "candidate_top1": "这个地方我以前来过好几次"
+    },
+    {
+      "id": "nk-077",
+      "gold": "你可以把这个发给我看看吗",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "你可以把这个发给我看看吗",
+      "candidate_top1": "你可以把这个发给我看看吗"
+    },
+    {
+      "id": "nk-078",
+      "gold": "我觉得这个价格有点太贵了",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我觉得这个价格有点太贵了",
+      "candidate_top1": "我觉得这个价格有点太贵了"
+    },
+    {
+      "id": "nk-079",
+      "gold": "你下次来的时候提前告诉我",
+      "baseline_rank": null,
+      "candidate_rank": null,
+      "baseline_top1": "你一才来的时候提前赶去我",
+      "candidate_top1": "你一才来的时候提前告诉我"
+    },
+    {
+      "id": "nk-080",
+      "gold": "我们几个人下午一起去吃饭",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "我们几个人下午一起去吃饭",
+      "candidate_top1": "我们几个人下午一起去吃饭"
+    },
+    {
+      "id": "nk-081",
+      "gold": "这是我第一次一个人来这里",
+      "baseline_rank": 1,
+      "candidate_rank": 1,
+      "baseline_top1": "这是我第一次一个人来这里",
+      "candidate_top1": "这是我第一次一个人来这里"
+    }
+  ]
+}

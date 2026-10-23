@@ -18,7 +18,7 @@ Windows 正式版（v0.11.1）有一个「符号模式」：没有组字时按 S
 - **分组码表另建一张**：`crates/engine/src/local/symbol_groups.tsv`（`编码<TAB>中文组名<TAB>符号...`，87 组、3 929 个符号、约 43 KB），`symbol_groups.rs` 用 `include_str!` 编进引擎，第一次查询时解析一次。没往 `symbol_candidates.tsv` 里塞分组码：那张表的每一行是「名称 + 拼音」，写法规则（中文名称只含汉字、音节数等于字数、单音节只收派和度、拉丁名称至少四个字母）由它的单测钉死，分组码不是名称、没有读音，塞进去要么放宽这些规则、要么在表里造出假拼音。
 - **默认开**，与 Windows 出厂 `symbol_mode = true` 对齐。Engine 的 `LocalModeOptions::symbol`、`EngineOptions::local_symbol` 默认 `true`；共享偏好是 `local_modes.symbol: bool`，`#[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]`，缺键读作开、只有用户关掉时文档里才出现 `"symbol": false`。这和混输符号的 `mixed_input.symbols` 是同一套写法（[那篇笔记](2026-10-13-symbol-candidates.md) 记过这个先例）。共享设置页的 `localModeControlState` 按 `symbol ?? true` 读，所以桌面和触屏宿主上勾选状态都与实际一致。
 - **设置页一行**：`packages/ui/src/settings/local-mode-options.ts` 的 `localModeRows` 在颜文字之后、超级简拼之前加「符号快捷输入(S 模式)」，说明写分组码与符号名两种查法，iOS 用触屏入口文案；它跟着「Shift+字母进入快捷模式」总开关一起禁用。macOS、Linux、HarmonyOS 的共享设置页可以修改该开关。Windows、iOS、Android 的原生设置页及 macOS 的原生回退设置未添加此项，见「没做的」。
-- **脚本插件 ABI**：`LOCAL_MODE` 表加 `("symbol", 14)`，`LocalModeClass::Symbol = 14`。符号行不在可读文本白名单里（`local_mode_allows_text` 只放 0–5），和拆字 13 一样。
+- **脚本插件 ABI**：`LOCAL_MODE` 表加 `("symbol", 14)`，`LocalModeClass::Symbol = 14`；供作者复制的 C/Rust SDK 分别提供 `MSIME_LOCAL_MODE_SYMBOL` 和 `local_mode::SYMBOL`，值同为 14。`pack-tool` 的现有 ABI 测试严格比较两份 SDK 的完整常量表，防止新增模式只同步运行时而漏掉绑定。符号行不在可读文本白名单里（`local_mode_allows_text` 只放 0–5），和拆字 13 一样。
 
 ### 分组码来源与许可判断
 

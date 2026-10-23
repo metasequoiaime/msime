@@ -99,6 +99,7 @@ pub mod local_mode {
     pub const DATE_TIME: u64 = 11;
     pub const QUICK_PHRASE: u64 = 12;
     pub const CHAIZI: u64 = 13;
+    pub const SYMBOL: u64 = 14;
     pub const UNKNOWN: u64 = 255;
 }
 

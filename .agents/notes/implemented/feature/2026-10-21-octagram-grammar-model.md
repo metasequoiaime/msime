@@ -12,7 +12,7 @@ Status: implemented
 
 `GramDb::shared` 经 `memmap2` 惰性映射并按路径共享 `Arc`；`load` 对缺失、截断、魔数不符、单元越界一律回 `None`，与 `msime-bigram.bin` 缺失的既有降级一致。`SentenceAssociationOptions` 新增 `collocation_model`/`collocation_weight`/`collocation_rerank`/`collocation_grammar` 四字段，全拼/双拼词典在 `set_sentence_association` 装载模型，`Option<GramDb>` 为 `None` 时打分器不装配。
 
-解码端 `LatticeOptions` 新增 `collocation_scorer`/`collocation_weight`/`include_collocation_best`。束搜索对每个出边在 `collocation_scorer` 激活时叠加 `weight × scorer(尾窗, 词, is_rear)`；尾窗沿 `prev` 链即时回溯取最后 8 个码点，不增 `Hyp` 字段，未激活路径零开销。句尾词（`edge.end == n`）触发 `.gram` 的 `$` rear 项。`CandidateSource::Collocation` 追加在枚举末尾（wire 值 17，已有值不变）；`is_generated_or_fallback`/`is_sentence_learning`/`static_evidence` 把它按 Generated 对待，保证选中搭配句仍走句子学习。
+解码端 `LatticeOptions` 新增 `collocation_scorer`/`collocation_weight`/`include_collocation_best`。束搜索对每个出边在 `collocation_scorer` 激活时叠加 `weight × scorer(尾窗, 词, is_rear)`；[尾窗按假设回溯一次](../testing/2026-10-23-lattice-collocation-tail.md)，取 `prev` 链最后 8 个码点并供该假设所有出边借用，不增 `Hyp` 字段，未激活或没有出边时不构造尾窗。句尾词（`edge.end == n`）触发 `.gram` 的 `$` rear 项。`CandidateSource::Collocation` 追加在枚举末尾（wire 值 17，已有值不变）；`is_generated_or_fallback`/`is_sentence_learning`/`static_evidence` 把它按 Generated 对待，保证选中搭配句仍走句子学习。
 
 合并端：`include_collocation_best` 开时首条词格行标 `Collocation`（它是解码最优路径，不是独立来源）；`include_lattice_best` 只在搭配开关同开时才让首行之后的备选继续上榜——无重排通道本来忽略它，基线语义不动。九键词典设置透传新字段，`neural_keyboard` 仍强制关。`series_slot_key` 的参数改为引用，避免 `SentenceAssociationOptions` 失去 `Copy` 后的无谓克隆；grammar 字段不入键——模型路径变化会触发 `set_sentence_association` 里的 `reset_cache`，同一路径下模型内容不可变。
 
@@ -59,6 +59,8 @@ SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 
 资源包卸载通过 `msime-host-api` 的边界摘除共享映射，桌面宿主不再直接依赖 Engine；卸载命令与其他桌面资源包命令使用相同的平台条件，不进入 Android/iOS 的 Tauri 命令表；白霜模型因 GPL 及构建链许可未确认继续不在桌面设置提供。模型包安装或删除后，宿主在下一次聚焦时比较当前 `.gram` 路径并触发 Engine 重建。读取端拒绝数组偏移落在文件末尾之外的非法头部。
 
 资源包卸载复用语音安装器的跨进程锁、目录描述符与先整体改名的流程，只处理已发布的真实目录，安装期间拒绝卸载；符号链接和未发布目录保持原样。活跃会话持有的映射不会被强制释放，Windows 的占用错误仍通过原有错误入口报告。
+
+`msime_client_resource_pack_remove` 在公共 `msime_client.h` 声明与 Rust 导出相同的字节缓冲区签名，原生宿主可直接包含头文件调用，响应使用标准 JSON 封装的 `{removed: bool}`。只补充导出而遗漏头文件会使 C/C++ 调用方编译失败；宿主接口一致性回归与 C、C++ 编译检查覆盖这一边界。
 
 ## 2026-10-22 补充：octagram 调参系数进偏好（对应 Windows `sentence_collocation_*`）
 

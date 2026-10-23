@@ -252,6 +252,42 @@ final class ImeTextEditPanel {
         renderState();
     }
 
+    boolean canSwipeCopyAll() {
+        return s.connection != null && !EditorPolicy.password(s.editorInputType) && !s.hasEngineComposition()
+            && (s.handwritingCanvas == null || !s.handwritingCanvas.hasInk());
+    }
+
+    /** 复制始终交给编辑器；提取结果只保留选区元数据，用于核对全选和恢复原位置。 */
+    void copyAllFromGesture() {
+        if (!canSwipeCopyAll()) return;
+        InputConnection target = s.connection;
+        s.selectionEcho.invalidate();
+        boolean copied = EditorCopyAll.copy(new EditorCopyAll.Editor() {
+            @Override public Object target() { return s.connection; }
+            @Override public EditorCopyAll.Selection read() {
+                try {
+                    var request = new android.view.inputmethod.ExtractedTextRequest();
+                    var text = target.getExtractedText(request, 0);
+                    if (text == null || text.text == null || text.startOffset != 0 || text.partialStartOffset != -1)
+                        return null;
+                    var selection = new EditorCopyAll.Selection(text.selectionStart, text.selectionEnd, text.text.length());
+                    return selection.valid() ? selection : null;
+                } catch (RuntimeException ignored) { return null; }
+            }
+            @Override public boolean selectAll() {
+                return InputConnectionGuard.performContextMenuAction(target, android.R.id.selectAll);
+            }
+            @Override public boolean copy() {
+                return InputConnectionGuard.performContextMenuAction(target, android.R.id.copy);
+            }
+            @Override public boolean select(int start, int end) {
+                try { return target.setSelection(start, end); }
+                catch (RuntimeException ignored) { return false; }
+            }
+        });
+        if (!copied) s.notice("当前输入框不支持复制全文");
+    }
+
     /**
      * 发一次按键。带 Shift 时先按下、最后松开左 Shift 键：EditText 只在文字缓冲里记着 Shift 按下时才延伸选区（ArrowKeyMovementMethod.isSelecting 看的是缓冲的修饰键状态，不看事件自己的 meta），WebView 则看事件的 meta，两者都给。
      */

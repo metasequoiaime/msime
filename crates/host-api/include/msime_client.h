@@ -556,6 +556,12 @@ void msime_client_release_process_cache(void);
  * 数组顺序即设置页顺序；不含平台特有的 system/local，宿主按能力追加。
  * models 仅作建议，不限制用户自定义模型。宿主复制字段后用 msime_client_string_free 释放返回的 JSON 缓冲区。 */
 char *msime_client_voice_provider_catalog(void);
+/* 设置页识别服务行的状态文案。provider 为 system、local、云端服务 id 或空串；resolved
+ * 表示共享解析已得到可用云端配置，platform_available 是宿主是否有系统识别服务，后两个
+ * 参数只在 provider 为 local 时使用。纯计算，返回 {status:string|null}。 */
+char *msime_client_mobile_voice_status(const uint8_t *provider, size_t provider_length,
+                                       bool resolved, bool platform_available,
+                                       bool model_ready, bool runtime_ready);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
  * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
  * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。
@@ -613,7 +619,7 @@ char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t lengt
 char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
 char *msime_client_voice_model_setting_check(const uint8_t *request, size_t length);
 /* 按需资源包存放在 <state_root>/resource-packs/<id>/；state_root 是 HostOptions 的 preferences_directory（Android: files/bootstrap/state），会话下次取得焦点时读取新发布的包。
- * 包 id：japanese、language-dictionaries、handwriting、settled-model、offline-glosses、voice-runtime、wubi、voice-runtime-macos（锁文件固定了重签的 macOS 运行库之后才有）。请求为 length 字节的 JSON（<=16384），响应使用标准封装。install 和 adopt 是阻塞调用，只能放在工作线程。
+ * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
  * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装或收编该包）或 "local_model_*"。
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...], import_files:[{name,url,size}]}]，每包一项；size 为下载字节数，import_files 为离线安装所需文件（voice-runtime 使用归档），url 为上游下载地址。
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...], files?:[absolute path]} -> {path}。
@@ -622,6 +628,7 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
  * progress 可为空，在调用线程收到 (context, phase "download"|"import"|"verify"|"done", done, total)，阶段字符串仅在回调期间有效。
  * 首次进度在任务登记后、任何文件或网络 I/O 前发送（done=0，total=资源包大小），回调可重入 resource_pack_cancel；取消后返回 "local_model_cancelled"。
  * resource_pack_cancel: pack 是原始 UTF-8 id（不是 JSON）；NULL/0 取消本进程全部资源包安装。可在任何线程调用，立即返回，不触发进度回调。
+ * resource_pack_remove: {state_root, pack} -> {removed: bool}。阻塞卸载已发布的资源包，先摘除引擎侧共享映射缓存；未安装、未发布目录和符号链接返回 false，活跃会话仍持有映射导致的删除失败如实返回错误。只能放在工作线程。
  * resource_pack_adopt: {state_root, pack, source: absolute dir} -> {path}。在同一文件系统内把包文件从 source 重命名移入（不复制），按编译锁校验后发布；失败则全部移回，不发布任何内容。已有相同字节的安装时直接返回，不改动 source。 */
 typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
                                                              uint64_t done, uint64_t total);
@@ -630,6 +637,7 @@ char *msime_client_resource_pack_install(const uint8_t *request, size_t length,
                                          msime_client_resource_pack_progress_callback progress,
                                          void *context);
 void msime_client_resource_pack_cancel(const uint8_t *pack, size_t length);
+char *msime_client_resource_pack_remove(const uint8_t *request, size_t length);
 char *msime_client_resource_pack_adopt(const uint8_t *request, size_t length);
 /* 自定义翻译请求描述器（不做网络 I/O）：api.deepl.com / api-free.deepl.com 用 DeepL v2 格式（DeepL-Auth-Key 鉴权、text 数组，没有密钥时报错），其他地址用 DeepLX 兼容格式。Request <=16 KiB:
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
@@ -687,8 +695,9 @@ char *msime_client_ai_endpoint_check(const uint8_t *endpoint, size_t length);
 char *msime_client_ai_models(const uint8_t *request, size_t length);
 /* AI 公开预设数组；含 id/title/endpoint/model/models/documentation/desktop_only/uses_token，不做 I/O。 */
 char *msime_client_ai_provider_catalog(void);
-/* 纯计算切换补丁。请求 <=16 KiB：{provider,current:{enabled,provider,endpoint,model}}。
- * 返回 {enabled,provider,endpoint,model}；不传凭据，错误码 ai_invalid。不保留请求缓冲区。 */
+/* 纯计算切换补丁。请求 <=16 KiB：`{provider,current:{enabled,provider,endpoint,model,endpoints?,models?}}`。
+ * `endpoints`/`models` 是按服务商 `id` 记忆自定义地址/模型的字符串映射，缺省为空映射；切换前保存当前自定义值，再按目标槽位回填，缺键或空字符串使用目录默认值。
+ * 返回 `{enabled,provider,endpoint,model,endpoints,models}`；宿主须将两个映射随补丁保存。不传凭据，错误码 `ai_invalid`。不保留请求缓冲区。 */
 char *msime_client_ai_provider_update(const uint8_t *request, size_t length);
 /* The AI settings page's 「测试」, the Tauri settings shell's ai_test. Request <=256 KiB:
  * {endpoint,model,prompt,token,text}: model non-empty <=256 bytes; prompt (may be empty) and

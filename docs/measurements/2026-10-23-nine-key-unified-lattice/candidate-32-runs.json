@@ -1,0 +1,846 @@
+[
+  {
+    "label": "nine-sentences",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-convert_eval",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--report",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-nine-sentences.json",
+      "--dump",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-nine-sentences.jsonl",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 22.102,
+    "log_sha256": "f9c38f630c6eb2f6c2fcc9c2ecd847e3d39c7d87c694e2c1e164f676c8d08818",
+    "monitor": [
+      {
+        "elapsed_s": 0.045,
+        "load": [
+          23.16064453125,
+          38.974609375,
+          39.30419921875
+        ],
+        "processes": {
+          "rustc": 1,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.123,
+        "load": [
+          23.16064453125,
+          38.974609375,
+          39.30419921875
+        ],
+        "processes": {
+          "rustc": 1,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.229,
+        "load": [
+          25.1494140625,
+          39.1240234375,
+          39.35498046875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.336,
+        "load": [
+          25.1494140625,
+          39.1240234375,
+          39.35498046875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.423,
+        "load": [
+          25.1494140625,
+          39.1240234375,
+          39.35498046875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 10.519,
+        "load": [
+          27.21923828125,
+          39.32080078125,
+          39.4228515625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 12.864,
+        "load": [
+          27.21923828125,
+          39.32080078125,
+          39.4228515625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 15.073,
+        "load": [
+          32.64697265625,
+          40.2451171875,
+          39.748046875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 17.164,
+        "load": [
+          32.64697265625,
+          40.2451171875,
+          39.748046875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 19.241,
+        "load": [
+          33.5556640625,
+          40.30712890625,
+          39.77294921875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 21.29,
+        "load": [
+          33.5556640625,
+          40.30712890625,
+          39.77294921875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-32-nine-sentences.log"
+  },
+  {
+    "label": "quanpin-sentences",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-convert_eval",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--report",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-quanpin-sentences.json",
+      "--dump",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-quanpin-sentences.jsonl"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 5.14,
+    "log_sha256": "4dca22b403ac54d189f101a070ccf97105ddef0756c76657b97ce6b3e33756e1",
+    "monitor": [
+      {
+        "elapsed_s": 0.05,
+        "load": [
+          33.5556640625,
+          40.30712890625,
+          39.77294921875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.108,
+        "load": [
+          31.3486328125,
+          39.7373046875,
+          39.57470703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.163,
+        "load": [
+          31.3486328125,
+          39.7373046875,
+          39.57470703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-32-quanpin-sentences.log"
+  },
+  {
+    "label": "nine-latency",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-rerank_latency",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/sentences-nine-key-v1.tsv",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 1,
+    "elapsed_s": 23.225,
+    "log_sha256": "e54b4182c23b2354afff1d0ca94b271e4c9ea8e88bf6ed6ff8d8e119ad8fc5f1",
+    "monitor": [
+      {
+        "elapsed_s": 0.053,
+        "load": [
+          31.3486328125,
+          39.7373046875,
+          39.57470703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.142,
+        "load": [
+          29.638671875,
+          39.2431640625,
+          39.4013671875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.195,
+        "load": [
+          29.638671875,
+          39.2431640625,
+          39.4013671875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.247,
+        "load": [
+          29.638671875,
+          39.2431640625,
+          39.4013671875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.308,
+        "load": [
+          27.98583984375,
+          38.74072265625,
+          39.22314453125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 10.352,
+        "load": [
+          27.98583984375,
+          38.74072265625,
+          39.22314453125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 12.402,
+        "load": [
+          26.22509765625,
+          38.19677734375,
+          39.0283203125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 14.458,
+        "load": [
+          26.22509765625,
+          38.19677734375,
+          39.0283203125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 16.516,
+        "load": [
+          25.40625,
+          37.828125,
+          38.89306640625
+        ],
+        "processes": {
+          "rustc": 3,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 18.595,
+        "load": [
+          25.40625,
+          37.828125,
+          38.89306640625
+        ],
+        "processes": {
+          "rustc": 3,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 20.69,
+        "load": [
+          25.40625,
+          37.828125,
+          38.89306640625
+        ],
+        "processes": {
+          "rustc": 4,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 22.749,
+        "load": [
+          27.53564453125,
+          38.06298828125,
+          38.9697265625
+        ],
+        "processes": {
+          "rustc": 5,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-32-nine-latency.log"
+  },
+  {
+    "label": "nine-12-latency",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-rerank_latency",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/sentences-nine-key-12.tsv",
+      "--grid",
+      "nine"
+    ],
+    "exit_code": 1,
+    "elapsed_s": 9.061,
+    "log_sha256": "29311abdeea2b05c6b9baabd0438aa8169f17ac0b4c048cdf3b55357df13e551",
+    "monitor": [
+      {
+        "elapsed_s": 0.074,
+        "load": [
+          27.53564453125,
+          38.06298828125,
+          38.9697265625
+        ],
+        "processes": {
+          "rustc": 5,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.126,
+        "load": [
+          27.53564453125,
+          38.06298828125,
+          38.9697265625
+        ],
+        "processes": {
+          "rustc": 5,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.377,
+        "load": [
+          30.29541015625,
+          38.4599609375,
+          39.1044921875
+        ],
+        "processes": {
+          "rustc": 3,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.43,
+        "load": [
+          30.29541015625,
+          38.4599609375,
+          39.1044921875
+        ],
+        "processes": {
+          "rustc": 1,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.478,
+        "load": [
+          28.349609375,
+          37.9208984375,
+          38.91015625
+        ],
+        "processes": {
+          "rustc": 1,
+          "cargo": 1,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-32-nine-12-latency.log"
+  },
+  {
+    "label": "nine-words",
+    "command": [
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-convert_eval",
+      "--resources",
+      "/Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+      "--set",
+      "resources/eval/quanpin-words-v1.tsv",
+      "--limit",
+      "3000",
+      "--grid",
+      "nine",
+      "--report",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-nine-words.json",
+      "--dump",
+      "/Volumes/Workspace/worktrees/nine-key-unified-lattice/target/unified-lattice-evidence/candidate-32-nine-words.jsonl"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 43.133,
+    "log_sha256": "059d67f434f0003b3ab03d4bec749fc27aad6540ceae9c97fe83528be1991dee",
+    "monitor": [
+      {
+        "elapsed_s": 0.044,
+        "load": [
+          23.27783203125,
+          36.33740234375,
+          38.4697265625
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 2.096,
+        "load": [
+          21.73388671875,
+          35.80029296875,
+          38.267578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 4.141,
+        "load": [
+          21.73388671875,
+          35.80029296875,
+          38.267578125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 6.193,
+        "load": [
+          20.2333984375,
+          35.25537109375,
+          38.060546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 8.238,
+        "load": [
+          20.2333984375,
+          35.25537109375,
+          38.060546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 10.284,
+        "load": [
+          20.2333984375,
+          35.25537109375,
+          38.060546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 12.335,
+        "load": [
+          19.09326171875,
+          34.76953125,
+          37.87255859375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 14.379,
+        "load": [
+          19.09326171875,
+          34.76953125,
+          37.87255859375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 16.429,
+        "load": [
+          18.04443359375,
+          34.29150390625,
+          37.685546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 18.481,
+        "load": [
+          18.04443359375,
+          34.29150390625,
+          37.685546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 20.529,
+        "load": [
+          18.04443359375,
+          34.29150390625,
+          37.685546875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 22.581,
+        "load": [
+          16.99951171875,
+          33.80517578125,
+          37.49365234375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 24.633,
+        "load": [
+          16.99951171875,
+          33.80517578125,
+          37.49365234375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 26.677,
+        "load": [
+          15.95849609375,
+          33.31005859375,
+          37.29736328125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 28.732,
+        "load": [
+          15.95849609375,
+          33.31005859375,
+          37.29736328125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 30.777,
+        "load": [
+          15.48095703125,
+          32.9228515625,
+          37.13720703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 32.821,
+        "load": [
+          15.48095703125,
+          32.9228515625,
+          37.13720703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 34.863,
+        "load": [
+          15.48095703125,
+          32.9228515625,
+          37.13720703125
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 36.914,
+        "load": [
+          14.4013671875,
+          32.4091796875,
+          36.93115234375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 38.958,
+        "load": [
+          14.4013671875,
+          32.4091796875,
+          36.93115234375
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 41.007,
+        "load": [
+          13.728515625,
+          31.970703125,
+          36.74951171875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      },
+      {
+        "elapsed_s": 43.061,
+        "load": [
+          13.728515625,
+          31.970703125,
+          36.74951171875
+        ],
+        "processes": {
+          "rustc": 0,
+          "cargo": 0,
+          "clang": 0,
+          "swift-frontend": 0
+        }
+      }
+    ],
+    "log_file": "candidate-32-nine-words.log"
+  }
+]

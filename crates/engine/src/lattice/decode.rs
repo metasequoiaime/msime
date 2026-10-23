@@ -522,6 +522,8 @@ struct CollocationTail {
 
 impl CollocationTail {
     fn as_str(&self) -> &str {
+        #[cfg(all(test, debug_assertions))]
+        collocation_tail_tests::record_tail_string();
         // 内容只由词边文本拼成，恒为合法 UTF-8；兜底空串不 panic。
         std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
     }
@@ -561,9 +563,11 @@ impl CollocationTail {
 }
 
 /// 沿 `prev` 链回溯，把路径已累计文本的最后 `COLLOCATION_TAIL_CODEPOINTS`
-/// 个码点装进尾窗。只为 `collocation_scorer` 激活的路径逐边付出几跳解引，
+/// 个码点装进尾窗。只为 `collocation_scorer` 激活的假设回溯一次，
 /// 未激活路径不占 `Hyp` 的内存。
 fn collocation_tail(columns: &[BeamColumn<'_>], pos: usize, index: usize) -> CollocationTail {
+    #[cfg(all(test, debug_assertions))]
+    collocation_tail_tests::record_tail();
     let mut words = [None; COLLOCATION_TAIL_CODEPOINTS];
     let mut count = 0;
     let mut cps = 0usize;
@@ -791,14 +795,18 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
                 };
                 personal.context(earlier, Some(previous))
             });
+            // 同一假设的出边共享上下文；空列或搭配停用时不回溯。
+            let prepared_tail = collocation
+                .filter(|_| outgoing_len != 0)
+                .map(|scorer| (scorer, collocation_tail(done, pos, index)));
+            let collocation = prepared_tail
+                .as_ref()
+                .map(|(scorer, tail)| (*scorer, tail.as_str()));
             for (at, edge) in outgoing.clone().enumerate() {
                 let mut score = hyp.score + edge.log_prob;
-                if let Some(scorer) = collocation {
+                if let Some((scorer, tail)) = collocation {
                     // 句尾词把 is_rear 置真：`.gram` 的「词+$」rear 项据此参与打分。
-                    // 上下文尾窗沿 prev 链即时取，路径未激活搭配时这里整段不走。
-                    let tail = collocation_tail(done, pos, index);
-                    score += options.collocation_weight
-                        * scorer(tail.as_str(), &edge.word, edge.end == n);
+                    score += options.collocation_weight * scorer(tail, &edge.word, edge.end == n);
                 }
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
@@ -1842,3 +1850,7 @@ mod row_index_tests;
 #[cfg(test)]
 #[path = "decode_collocation_tests.rs"]
 mod collocation_tests;
+
+#[cfg(test)]
+#[path = "decode_collocation_tail_tests.rs"]
+mod collocation_tail_tests;

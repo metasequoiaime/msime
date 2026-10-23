@@ -173,7 +173,7 @@ pub extern "C" fn msime_client_ai_provider_catalog() -> *mut c_char {
     })
 }
 
-/// 计算服务商切换补丁；请求只含启用状态、服务商、端点和模型，不含凭据。
+/// 计算服务商切换补丁；请求含启用状态、服务商、端点、模型及可选的地址/模型槽位，不含凭据。
 /// # Safety
 /// `request` 指向 `length` 个可读 UTF-8 JSON 字节，长度不得超过 16 KiB。
 #[no_mangle]

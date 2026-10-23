@@ -302,6 +302,7 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标。
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
+          cargo test --locked -p msime-pack-tool --test sdk
           bash scripts/test-script-plugins.sh
           # 随桌面安装包分发的官方插件包：重新构建，核对 latex-symbols 的生成器没有漂移、每个包过 msime-pack validate --builtin、uuid 的内容哈希等于 plugins/official-packs.json 锁定的值。锁以这台 ubuntu 的构建为准，和发版工作流的 official-plugins 作业相同；工具链或插件源码一变哈希就变，所有用户的授权随之作废，这一步让它在 PR 里变红、在 diff 里看得见。
           bash scripts/build-official-plugins.sh --check
@@ -344,7 +345,8 @@ jobs:
     needs: changes
     name: Shared settings UI
     runs-on: depot-ubuntu-24.04
-    timeout-minutes: 20
+    # 完整测试已接近 20 分钟；为依赖安装、类型检查和结果上传保留余量。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.changes.outputs.ui == 'true' }}

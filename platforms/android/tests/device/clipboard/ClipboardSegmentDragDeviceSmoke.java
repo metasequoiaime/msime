@@ -19,10 +19,17 @@ import org.json.JSONObject;
 public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private final Map<File, byte[]> backups = new LinkedHashMap<>();
     private long downTime;
+    private boolean previewActionsOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        previewActionsOnly = arguments != null && "true".equals(arguments.getString("preview-actions-only"));
+        super.onCreate(arguments);
+    }
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
-        return "floating full-text preview above IME, scrolling, close, action passthrough and lifecycle cleanup; card scroll, swipe and segment drag regression";
+        if (previewActionsOnly) return "full-text preview inserts original text, edits, saves and returns without leaking its window";
+        return "floating full-text preview above IME, scrolling, close, action passthrough and lifecycle cleanup; card scroll, swipe, segment drag and preview action regression";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -43,6 +50,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             write(preferences, prefs.toString());
             write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
                 .put("platform.android.toolbar_hidden", false)).toString());
+            if (previewActionsOnly) { previewActions(history); return; }
             StringBuilder source = new StringBuilder();
             for (int i = 0; i < 26; i++) { if (i > 0) source.append(' '); source.append(word(i)); }
             StringBuilder preview = new StringBuilder();
@@ -112,6 +120,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             selected(25, true);
             tap(key("插入"));
             await(field("msime-test-plain").and(node -> equalsText(source.toString(), node.getText())));
+            previewActions(history);
         } finally {
             for (Map.Entry<File, byte[]> entry : backups.entrySet()) {
                 if (entry.getValue() == null) Files.deleteIfExists(entry.getKey().toPath());
@@ -121,9 +130,66 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    private void previewActions(File history) throws Exception {
+        StringBuilder source = new StringBuilder();
+        for (int i = 0; i < 80; i++) source.append("Synthetic preview line ").append(i).append('\n');
+        String original = source.toString();
+        String replacement = "Synthetic modified preview text🙂";
+        write(history, new JSONArray().put(new JSONObject().put("text", original)
+            .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+        byte[] seeded = Files.readAllBytes(history.toPath());
+        openClipboardEditor(true);
+        stage = "preview insertion commits full original text once and restores keyboard";
+        openFloatingPreview();
+        touch(described("插入剪贴板全文"));
+        previewClosed();
+        stage = "preview insertion preserves every line in a multiline editor";
+        await(field("msime-test-plain").and(node -> equalsText(original, node.getText())));
+        await(key("n"));
+        if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("Preview insertion changed history");
+        // 再开合成编辑器，修改不应先把旧正文插入其中。
+        openClipboardEditor(true);
+        stage = "preview modification opens existing native editor with full text";
+        openFloatingPreview();
+        touch(described("修改剪贴板记录"));
+        previewClosed();
+        await(described("剪贴板记录的文字").and(node -> equalsText(original, node.getText())));
+        android.os.Bundle changed = new android.os.Bundle();
+        changed.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacement);
+        if (!await(described("剪贴板记录的文字")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, changed))
+            throw new AssertionError("Synthetic clipboard replacement refused");
+        tap(node -> equalsText("保存", node.getText()) && node.isEnabled());
+        stage = "preview edit saves and returns to unchanged external editor";
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        previewClosed();
+        tap(field("msime-test-plain"));
+        await(key("n"));
+        tap(described("剪贴板"));
+        AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(replacement));
+        if (!card.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+            throw new AssertionError("Modified synthetic record long press refused");
+        stage = "modified preview still inserts and preserves record identity";
+        touch(described("插入剪贴板全文"));
+        previewClosed();
+        await(field("msime-test-plain").and(node -> equalsText(replacement, node.getText())));
+        JSONArray saved = new JSONArray(new String(Files.readAllBytes(history.toPath()), StandardCharsets.UTF_8));
+        if (saved.length() != 1 || !saved.getJSONObject(0).getBoolean("pinned")
+                || saved.getJSONObject(0).getLong("timestampMs") != 1700000000000L
+                || !replacement.equals(saved.getJSONObject(0).getString("text")))
+            throw new AssertionError("Preview edit lost record identity");
+    }
+
     private void openClipboardEditor() throws Exception {
+        openClipboardEditor(false);
+    }
+
+    private void openClipboardEditor(boolean multiline) throws Exception {
         restartIme();
-        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
+            + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
         tap(described("剪贴板"));
