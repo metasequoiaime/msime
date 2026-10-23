@@ -44,6 +44,7 @@ Status: implemented
 
 - #9483 的 `english-swipe` 专项使用独立的 26 键期望表，真实注入 DOWN/MOVE/UP 检查上滑、下滑全部角标、D 取消不提交、关闭滑动后正常输入字母及符号后继续输入字母。配置和输入模式在结束时恢复；该专项接入普通 `smoke.sh`。本次设备专项及完整 quick 尚未运行，不能以 Java 源码编译代替设备验收。
 - #9483 的 Android 宿主检查通过：258 项 JVM 冒烟、225 份设备源码编译、Java/API 与 JNI 检查通过；仓库契约、笔记、shell 语法与差异检查通过。契约检查中按环境跳过的阶段不算运行验证。本机约 17 GiB、远端两个卷均不足 30 GiB，低于 50 GB 门槛，未新建完整构建树。
+- 推送到 PR 后的 Android host、Rust、契约、笔记、Windows/Linux/HarmonyOS、macOS 与 iOS CI 均通过；Android device job 按仓库规则跳过，因此仍不能替代 API 28/35 设备专项。
 - `platforms/android/tests/keyboard/LetterHintTableSmoke.java` 锁住 26 键的 `face(·, false)` 与 `hint()` 一致、`face(·, true)` 只换 j k l v b、`routesThroughEngine` 只对 ( ) " ? ! 为真；`check-host.sh` 自动发现并运行它。
 - `platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java` 注入按下、移动、抬起三个触屏事件下滑 v：中文标点下空闲得到「？」，打 nihao 后得到「你好？」，在「更多」面板关掉中文标点后得到 `?`。JVM 冒烟覆盖不到经 Engine 结束组字这一步，所以要在设备上驱动真实手势；它登记在 `smoke.sh` 的默认套件里，在 API 35 模拟器上运行。
 - 写这篇笔记时还没跑过的：这个设备冒烟本身、`build-apk.sh` 完整出包，以及手工验收（全角 （ ） “ 在角标位置的对齐、成对标点开时下滑 j 得到（|）、l 键连续下滑交替出 “ ”、按过 Shift 后滑出标点 Shift 不被消耗、各语言模式下与改动前一致）。实际跑过的只有 `check-host.sh`（含扩展后的 `LetterHintTableSmoke`，设备套件源码在 `-Werror` 下编译通过）和 Gradle 的 `compileFullReleaseJavaWithJavac`。`DeviceSmoke.tap` 的注释提到 Android 15 可能拒绝向输入法窗口注入坐标，而这个冒烟的下滑正是靠 `UiAutomation.injectInputEvent` 注入的；若在 API 35 上注入被拒或被吞，要改用 `smoke.sh` 里手写套件那套 root `sendevent` 触屏桥，而不是把它列进跳过名单了事。
