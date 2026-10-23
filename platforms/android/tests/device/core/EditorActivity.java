@@ -77,7 +77,9 @@ public final class EditorActivity extends Activity {
         showImeOnFocus(limited);
         layout.addView(limited);
         EditText password = new EditText(this);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // 密码键盘专项可指定类型，普通编辑器仍使用原有文字密码框。
+        password.setInputType(getIntent().getIntExtra("msime_test_password_type",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD));
         password.setContentDescription("msime-test-password");
         password.setHint("Password editor");
         showImeOnFocus(password);
