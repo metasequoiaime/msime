@@ -1,3 +1,4 @@
+import { candidateSkinSelection } from "../../skin/candidate-skin-selection";
 import { BuiltinThemeCard } from "../../skin/builtin-theme-card";
 import type { DesktopSkinTab } from "../desktop-skin-tabs";
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
@@ -7,10 +8,7 @@ import { SettingsGroupBlock } from "../settings-group-block";
 import {
   offeredThemeCatalog,
   applyCandidateSkin,
-  candidateSkinFor,
   removeCandidateSkin,
-  skinDrawsIn,
-  skinSlot,
 } from "../../theme/global-theme";
 import {
   ExternalSkinCard,
@@ -118,45 +116,12 @@ export function SkinSettingsPage({
   const packages = skins.catalog?.packages ?? [];
   // 只列本宿主提供的主题：「原生」只在 iOS 上有。
   const themeCatalog = offeredThemeCatalog(host?.platform);
-  // 皮肤包是自定义主题的一部分：放在浅色或深色槽位里的包都算正在使用，它们的卡片都打开；这时「自定义」卡片代表的是不带皮肤包的自定义主题。
-  const customTheme = draft.custom_theme;
-  const skinsInUse =
-    globalTheme === "custom"
-      ? [customTheme?.candidate_skin, customTheme?.candidate_skin_dark].filter((id): id is string =>
-          Boolean(id),
-        )
-      : [];
-  // 轮播停在当前预览明暗下用的那款皮肤上，没有时停在另一个槽位的那款上。
-  const previewSkin =
-    globalTheme === "custom"
-      ? candidateSkinFor(customTheme, candidatePreviewTheme === "dark")
-      : null;
-  const shownSkin = [previewSkin, ...skinsInUse].find((id) =>
-    packages.some((skin) => skin.id === id),
-  );
-  const packageInUse = packages.findIndex((skin) => skin.id === shownSkin);
-  // 应用皮肤时用目录判断原来那款皮肤属于哪个槽位，见 `applyCandidateSkin`。
-  const slotOf = (id: string) => {
-    const skin = packages.find((entry) => entry.id === id);
-    return skin ? skinSlot(skin.base) : undefined;
-  };
-  // 每种明暗下实际画的皮肤：取那个模式的槽位，包的 base 还得属于那种明暗。目录里还没有的包按 id 显示。
-  const drawnSkinName = (dark: boolean) => {
-    const id = candidateSkinFor(customTheme, dark);
-    if (!id) return null;
-    const skin = packages.find((entry) => entry.id === id);
-    if (!skin) return id;
-    return skinDrawsIn(skin.base, dark) ? skin.name : null;
-  };
-  const slotSummary =
-    skinsInUse.length > 0
-      ? ([false, true] as const)
-          .map((dark) => {
-            const name = drawnSkinName(dark);
-            return `${dark ? "深色" : "浅色"}模式${name ? `用「${name}」` : "不用皮肤"}`;
-          })
-          .join("，") + "。"
-      : null;
+  const { skinsInUse, packageInUse, slotOf, slotSummary } = candidateSkinSelection({
+    globalTheme,
+    customTheme: draft.custom_theme,
+    packages,
+    previewTheme: candidatePreviewTheme,
+  });
   // 鸿蒙手机画设计里的缩略图网格；其他宿主保留轮播。
   const phoneGrid = harmonyPlatform && mobilePlatform;
   // 触屏外壳把这页的标题叫作「皮肤」，所以页面也这样称呼自己。
