@@ -42,4 +42,8 @@ Status: implemented
 - 设置夹具使用实际子菜单的「更多选项」无障碍描述；每次从干净的设置任务进入并等「语言」分类就绪，避免上轮对话框残留或起始页同名文字造成误点。
 - 共享前端 `pnpm --filter @msime/desktop build`（含 TypeScript 检查）通过；偏好字段对齐、三端 14 键键表、macOS 偏好覆盖检查、Rust 格式、笔记校验和 `git diff --check` 通过。
 - 通用产品冒烟未整套通过：API 28 停在剪贴板全文预览的原有断言，单独复跑同样失败（历史笔记 [撤销重做](2026-10-22-android-toolbar-undo-redo.md) 记录过固定基线的全文预览失败）；API 35 停在放大镜长拼写夹具，相同 APK 单独复跑完整放大镜专项通过。首次失败根因未确认，不把 API 35 失败直接归为基线问题。
-- API 35 完整全拼/双拼 14 键、九键双拼、微软 26 键双拼回归均通过。完整 quick 已启动，当前继承的 Windows 设置引导检查失败由上游 #9389 修复，更新基线后复验。
+- API 35 完整全拼/双拼 14 键、九键双拼、微软 26 键双拼回归均通过。
+- 以 `7393afc81b` 为基线，代码提交 `7f40106460` 的完整 `bash scripts/verify-local.sh --quick` 通过；同步后 80 份相关文件哈希一致。包含 176 项 Windows 可移植原生测试、契约及 actionlint、Rust workspace、Android/WASM 目标、Android Java/JNI、macOS 原生宿主和共享 Apple 桥接构建。初次旧基线只失败 Windows 设置引导检查，上游 #9389 已修复，更新基线后的该项及整套 quick 均通过。
+- 远端没有 Node/pnpm，本机单独验证笔记及共享前端；Rust workspace 因未暂存设置应用资源排除 `msime-desktop`，Android 目标包含该 crate。远端没有 Docker、MinGW 或 HarmonyOS 打包环境，相应 Linux、Windows 原生与 HarmonyOS 构建阶段跳过，不据 quick 通过声称这些平台已实机验收。
+- 更新基线后重建的同一个产品 APK（SHA-256 `1a32509bd4e411f3d3558f3e201916668bb008d1ac2057d0d20dfeebaac9f443`）在 API 28 的完整双拼十四键专项及 API 35 的完整全拼/双拼十四键专项均通过；两版最终微软双拼「青」截图已查看。最终日志为 `target/verification/rebased-emulator-5606-fourteen.log`、`rebased-emulator-5620-fourteen.log` 与 `quick-rebased.log`。
+- 本机磁盘低于 50 GiB，未再次启动本机构建；推送使用仓库钩子注明的一次性 `--no-verify`，以哈希核对一致的远端完整 quick 通过及本机独立笔记校验为依据。最后的验证记录提交只改本篇笔记。
