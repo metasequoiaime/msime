@@ -38,10 +38,10 @@ API 28/35 上的 client-base 36 项、client-core 512 项和 client-providers 25
 
 操作排队修复后的 APK 已构建并签名，ELF 对齐、依赖和世界时钟导出检查通过；quick 的契约、actionlint、Rust workspace、Android 与 WASM 目标、Android 宿主 Java、macOS 原生宿主及共享 Apple bridge 均通过。当前机器缺少 Docker、MinGW、DevEco 和 PATH 中的 Node/pnpm，对应阶段按脚本跳过；笔记在本机单独校验通过。iOS 资源暂存与 XcodeGen 工程生成通过，未据此声称 iOS 产品实测。
 
-设备专项曾发现快照忙碌时吞点按/删除，已改为排队。API 28 的队列实现已通过完整世界时钟和 MoreTools 专项，换用系统 Home 的夹具也完成同样验收；截图确认系统卡片、东京与纽约时间和参考城市说明。API 35 在打开世界时钟前发生设置首页焦点 ANR，系统退出记录和线程栈已保留，不能将其称为功能通过。
+设备专项发现快照忙碌时吞点按/删除后，已改为排队。同一产品 APK 在远端 API 28 和本机 API 35 均通过完整 `WorldClockDeviceSmoke` 与 `MoreToolsDeviceSmoke`，覆盖实时刷新、添加东京与纽约、ISO 与星期插入、重启持久化、长按删除、删除后重启和返回键盘。两版最终截图已实际检查，确认系统卡片、城市时间和参考城市说明。
 
-夹具改用系统 Home 收起键盘，避免为了重启输入法而启动设置首页；通过原生 Intent 启动新合成编辑器，等待窗口事件与全部交互窗口中的可访问控件就绪，不能假设活动窗口始终属于编辑器。API 30 以上沿用其他设备套件的 `ime-requests-settled` 标记，等编辑器的延迟显示请求结束。提交后等待实际可点击的 Q 键恢复；先刷新节点再判断可见性，菜单展开后清理旧节点并确认面板出现。只对输入法注册准备步骤作有限重试，不重试功能断言。
+夹具通过系统 Home 收起键盘、原生 Intent 启动新合成编辑器，等待窗口事件与全部交互窗口中的可访问控件就绪，不能假设活动窗口始终属于编辑器。API 30 以上沿用其他设备套件的 `ime-requests-settled` 标记，等编辑器的延迟显示请求结束；刷新节点后再判断 Q 键可见性与可点击性，菜单展开后清理旧节点并确认面板。仅对输入法注册准备作有限重试，不重试功能断言。
 
-API 35 后续仍在编辑器、键区或菜单入口准备阶段失败，未执行时钟功能断言；系统记录两次合成编辑器 `failed to attach / start timeout`，超时截图停在桌面，另一次独立冷启动约 21 秒后才显示。复用已启动编辑器后能取得焦点，但仍出现键区不可见或菜单没有展开。截图和系统状态命令也出现长时间等待。保留日志、超时截图入口及草稿 PR，待补 API 35 世界时钟、MoreTools 和最终截图，不将编译通过当作设备验收。
+远端 API 35 曾在编辑器、键区或菜单入口准备阶段失败，未进入时钟功能断言；未改动的 MoreTools 基线也报 `IME showed []`。系统记录包含 `system_server` 的 `PointerEventDispatcher0` ANR、Launcher 焦点超时及合成编辑器 `failed to attach / start timeout`。保留日志和截图后，改用本机专用 API 35 AVD，使用已有 APK、不重新构建，两个完整 UI 专项均通过。不能仅根据 `am instrument` 的退出码判断成功，还必须检查 `MSIME_DEVICE_SMOKE_PASSED` 与失败标记。
 
-PR CI 发现 Windows 许可收集合成仓库漏建新声明，已补夹具并通过 PowerShell 专项及重跑 CI。macOS CI 的 170 项中 `settings-glass` 一次外观同步断言失败，其余 169 项通过；相同构建的该单项在远端复跑通过，不修改无关设置外观代码。提交 `e3725fddec` 的新一轮 PR CI 为 27 项通过、4 项按条件跳过，包含 macOS、iOS、Windows 和 Linux 构建；后续仅补设备夹具同步与验证记录。
+PR CI 发现 Windows 许可收集合成仓库漏建新声明，已补夹具并通过 PowerShell 专项。macOS `settings-glass` 曾一次外观同步断言失败，该单项复跑和新一轮完整 CI 均通过。代码提交 `3d73305284` 的 PR CI 已完成：28 项通过、6 项按条件跳过，无失败；后续提交仅同步最终验收记录。
