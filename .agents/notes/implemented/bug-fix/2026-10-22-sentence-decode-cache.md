@@ -43,3 +43,7 @@ iPhone XR 上九键每个数字仍要约 30 ms（打开词库映射之后，见 
 ## Testing
 
 `sentence_decode_cache_tests` 覆盖：去掉 `series_cache` 后同一读法从解码缓存重新合并、结果逐行相同且不新增条目；个人模型版本变化后重新解码并记下新版本；`set_sentence_alternatives`、`set_sentence_association` 清空缓存。`cargo test -p msime-engine --lib` 2472 项通过。`convert_eval` 的九键、九键长句、14 键、14 键长句四组都在基线上；全键盘 `words`、`sentences` 两组在本改动前的 develop 上就已与提交的基线不一致，改动前后两次的完整评测输出逐字相同（只有日志里的镜像目录不同），神经重排开着。
+
+## Related experiments
+
+[跨解码静态列评分缓存](../../rejected/testing/2026-10-23-lattice-column-score-cache.md)尝试复用不同图中的原始二元分，未取得可采用的性能证据，候选撤回；本篇的完整音节解码缓存及其失效规则保持。

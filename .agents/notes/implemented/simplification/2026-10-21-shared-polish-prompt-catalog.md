@@ -18,6 +18,8 @@ Android 的 `VoicePolishSettingsPolicy` 读取包内生成的 `VoicePolishPreset
 
 鸿蒙原有四篇简版正文逐字归入同一条目的 `compact_prompt`，该字段用 `#[serde(skip_serializing)]` 排除在现有 UI JSON 之外，避免改变其三字段契约。导出 `VoicePolishPromptCatalog.promptForId` 用显式类型与静态 switch 查正文，cleanup 与 default 共用一个字面量，不暴露可变表、不使用 ArkTS 不接受的动态索引。`HarmonyVoicePolisher` 保留原来的三个自定义槽位和 trim，只把内置查找与空槽位回退接到生成类。
 
+Swift 消费契约仅用标准库把 id 与名称逐项输出为 Unicode 码点，再由 Python 还原比较，避免为了传递测试结果引入 `Foundation`。PR #9347 的 Ubuntu runner 上，旧 JSON 探针连续两次在 Swift 编译的 60 秒限制处超时；本机独立 Linux 容器未复现超时，因此不把冷编译认定为唯一原因，也不放宽时限。码点传递保留空串、控制字符和非 BMP 字符，不依赖分隔符不会出现在名称里的假设。
+
 ## Alternatives considered
 
 - 直接把 C++ 头当事实源并解析源码导出：延续现有所有权，但需要自行解释 raw string 和 C++ 表达式，且不能让 Rust 层直接拥有方案。
@@ -28,6 +30,7 @@ Android 的 `VoicePolishSettingsPolicy` 读取包内生成的 `VoicePolishPreset
 - 再生成一份 macOS 专用的 Objective-C 字符串表：可以直接引用 `NSString` 字面量，省掉几次 UTF-8 转换；但会额外增加一份生成物和一套语言输出。现有 C++ 窄字符串目录已进入 macOS 请求路径，补齐名称后可直接复用；少量字符串转换只发生在读取设置选择表时，不引入桥接、文件定位或运行时 JSON。
 - 鸿蒙直接切换为完整版正文：能只维护一套正文，减少简版与完整版长期漂移；但会改变现有系统消息和模型输出行为。本片按行为保持的边界保留简版，待有产品需求和输出评估时再统一。
 - 同时把提示词选择策略全部迁入新 C ABI：能减少更多宿主规则，但要重接六个平台的调用、边界检查、分配与释放；本片先统一正文和名称，已有槽位规则继续由现有回归保护。
+- 保留 JSON 探针并延长 Swift 超时：能容纳较慢的 runner，修改也最少；但测试只需读取两个字符串字段，引入 Foundation 序列化并无必要。先去掉这项依赖，保留真实 Swift 编译与原有超时，让 CI 继续验证实际效果。
 
 ## Consequences
 
@@ -58,6 +61,7 @@ Android 的 `VoicePolishSettingsPolicy` 读取包内生成的 `VoicePolishPreset
 
 ### iOS 内置方案目录验证
 
+- PR #9347 的契约门禁两次在同一 Swift 编译命令超时。独立 Ubuntu/Swift 6.2 容器中，旧 Foundation 探针约 2 秒、标准库探针不足 1 秒，均未超时；不将这一对照冒充 CI 故障复现。改后的完整跨语言契约通过，真实 Swift 合成目录覆盖空串、NUL、制表符、换行、回车、反斜杠、引号、中文和非 BMP 字符，期望目录发生合成漂移时断言失败。
 - 新增 Swift 静态导出检查先在缺少生成文件时编译失败；生成后用真实 Swift 编译器执行目录并对照共享 JSON，四项 id、名称和顺序一致。没有 Swift 编译器的环境明确跳过这一部分，已有 C++ 与 Python 消费检查继续运行。
 - iOS 服务测试核对实际 `VoicePolishSettings.presets` 的内置目录、自定义槽位名称与顺序、以及各方案从偏好读回后的 id；未知 id 与正文回退继续由既有用例保护。原生模拟器测试由 PR CI 执行，本机不据静态目录检查宣称窗口验收。
 - 抽取改动前后真实 Swift `presets` 声明并编译执行，七项 id、名称和顺序逐字一致。临时把生成名称改成合成值，导出检查和 Swift 编译消费契约同时失败；恢复后通过。Rust 格式、exporter 严格 clippy 与 25 项 iOS 项目配置测试通过；本机 XcodeGen 校验因未暂存 `target/ios/EngineResources` 被资源前置阻止。

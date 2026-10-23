@@ -47,7 +47,7 @@ export function mentionListIssue(entries: readonly MentionEntry[]): string | nul
   return null;
 }
 
-/** The @ mode's name list. Its rows live in `PluginsSection`, so edits survive leaving this view until they are saved. While the @ mode (`local_modes.mention`) is off, or the scheme cannot open it, a note above the list says the names give no candidates. */
+/** @ 名单的编辑由 `usePluginsSection` 保留，离开子视图不丢失；@ 模式关闭或方案不支持时说明名单不会出候选。 */
 export function PluginMentionsView({
   mentions,
   setMentions,

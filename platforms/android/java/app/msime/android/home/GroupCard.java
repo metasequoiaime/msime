@@ -302,6 +302,11 @@ public final class GroupCard {
             ViewPolicy.setTextAndVisibility(subtitle, text);
         }
 
+        /** 限制副标题摘要的行数，完整内容仍由原记录和编辑入口持有。 */
+        public void setSubtitleMaxLines(int lines) {
+            ViewPolicy.setMaxLinesEllipsized(subtitle, lines);
+        }
+
         /** 改写行尾的值（导航行、值行、滑块行的数值标签）。 */
         public void setValue(@Nullable CharSequence text) {
             if (value != null) ViewPolicy.setTextAndVisibility(value, text);

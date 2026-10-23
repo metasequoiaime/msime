@@ -38,7 +38,7 @@ Status: implemented
 ## Consequences
 
 - 收益：Windows 用户能在原生设置应用里导入、授权、撤销、排序脚本插件，看到输入法停用了哪个和原因，残余风险写在分组、详情和授权对话框三处；Windows 的 release 构建和 macOS、Linux 一样运行脚本插件。Android 和 HarmonyOS 的 `msime_client_plugins` 请求不带新字段，回答不变。
-- 代价：Windows 上同一用户下的程序能伪造授权，让脚本插件读取或改写输入的文字；这与 macOS、Linux 相同，由授权页写明，提权窗口里不运行脚本是 Windows 额外的一道。`PluginPageModel.h` 又多了一份共享页规则的移植，`plugin-script-view.tsx` 改了要跟着改，头文件开头列了它。
+- 代价：Windows 上同一用户下的程序能伪造授权，让脚本插件读取或改写输入的文字；这与 macOS、Linux 相同，由授权页写明，提权窗口里不运行脚本是 Windows 额外的一道。`PluginPageModel.h` 又多了一份共享页规则的移植，`plugin-script-model.ts` 的规则与文案改了要跟着改，头文件开头列了它。
 - 「我的插件」列表后来换成 macOS 的插件库，见 [Windows 设置的「我的插件」改成 macOS 的插件库](../feature/2026-10-20-windows-settings-plugin-library.md)：「脚本插件（实验）」一组成了最后一个卡片分节，授权状态和第几位从行尾移到卡片里的强调色标记；「导入插件」一组和「从文件导入」一行去掉，区分数据插件和脚本插件的那句说明放进折叠的「插件导入说明」。详情、授权对话框和宿主调用仍按本篇。
 - `msime_client_plugins` 的契约多了 `script_page` 和 `user_data`；以后再有宿主要授权页，带上 `script_page` 即可，不必再加接口。
 - 设置应用的界面没有在本机编译和运行：它要 Windows App SDK 和 MSVC，PR 的 CI 也不编它（只有 Release Windows 工作流用 `Build-Client.ps1` 编），所以 `main.cpp` 的改动要到发版构建或真机才验证。
@@ -49,3 +49,5 @@ Status: implemented
 - `cargo clippy -p msime-client-core -p msime-host-api -p msime-desktop --all-targets -- -D warnings` 在 macOS 上干净，`cargo test -p msime-desktop --lib desktop_plugins` 通过；`cargo clippy -p msime-client-core -p msime-host-api --all-targets --target x86_64-pc-windows-gnu` 编译通过，警告都在这次没碰的文件里；`cargo check -p msime-client-core -p msime-host-api --all-targets --target aarch64-apple-ios` 通过（移动端的 cfg）。
 - `platforms/windows/tests/ui/plugin_page_model.cpp`：依赖联动、互斥、只在申请过的能力里变动、对话框每一项的勾选、禁用和说明、新版本不再申请的一项不算勾着、前 8 个里哈希对得上的才运行、各种标记、状态句、换位、重新授权不预先勾选、删除脚本包不碰偏好；本机用 `clang++ -std=c++17 -Wall -Wextra -Werror -Wconversion` 和 `x86_64-w64-mingw32-g++ -std=c++17 -Wall -Wextra -Werror` 编过，clang 的那份运行通过。
 - 没有验证：设置应用（`main.cpp`）没有在本机编译，也没有在真机上打开过：分组和详情的样子、授权对话框的初始焦点是否落在「取消」、勾选时焦点是否留在原处、关上后焦点回到开关、重排和撤销后的重画；Windows 上 Server 真的按授权运行脚本、提权窗口里不运行，也只有 host-api 的单测覆盖，没有在 Windows 真机上跑。
+
+共享脚本模型与授权组件的模块边界见[脚本插件模型与授权对话框](../simplification/2026-10-23-script-plugin-modules.md)，Windows 继续以宿主授权规则为准，并同步共享模型的展示规则与文案。

@@ -10,7 +10,7 @@ import {
   missingTitle,
   packMarker,
 } from "./plugin-catalog-helpers";
-import { scriptMarker } from "./plugin-script-view";
+import { scriptMarker } from "./plugin-script-model";
 import type { PluginListViewProps } from "./plugin-list-view";
 import type { PluginKind, PluginPackage } from "./plugin-types";
 import * as style from "./plugin-library-style";

@@ -78,3 +78,5 @@ Windows 的设置是原生 WinUI 应用（platforms/windows/settings），不是
 - 移动端：`cargo check -p msime-client-core -p msime-host-api --all-targets` 在 `aarch64-apple-ios`、`aarch64-linux-android`、`aarch64-unknown-linux-ohos` 上通过，`cargo check -p msime-desktop --target aarch64-linux-android --lib` 通过，`cargo tree -p msime-host-api -e normal -i wasmi` 在这三个目标上为空（钥匙串 MAC 去掉之前的结果，这次改动没有碰移动端的编译条件）。
 - `apps/desktop/tests/settings/script-plugins.test.tsx`：插件指令的列表、两种冲突的说法（冲突的插件用名字）、没授权和宿主没列出时的说法、`/` 关着时有说明和按钮且授权不改偏好、开着时没有按钮；依赖联动、互斥、对话框的"已更新，需要重新授权"和被总账拒绝时的原因、分组只在 `script_plugins` 时出现、macOS、Linux 和 Windows 都写明残余风险、macOS 页面不提钥匙串并且能打开授权对话框、撤销和重排调用的参数；包被换过时页面重读后按新的哈希写入，新版本不再申请的能力即使原来勾着也不交出去；对话框从"取消"开始、关掉后焦点回到开关；停用原因只在启用时显示。
 - 没有验证：签了名的真实安装上的端到端流程（设置应用授权、输入法运行、授权页的风险说明）。
+
+共享 React 的脚本规则由 `plugin-script-model.ts` 持有，授权选择与写入状态由 `use-script-grant-dialog.ts` 持有，对话框和详情分别在 `script-grant-dialog.tsx`、`plugin-script-view.tsx` 组合；拆分理由见[脚本插件模型与授权对话框](../simplification/2026-10-23-script-plugin-modules.md)，本篇的安全模型和授权语义继续有效。
