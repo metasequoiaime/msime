@@ -27,7 +27,8 @@ Status: implemented
 
 - **收益**：最大化或宽屏下正文保持可读宽度并居中；默认尺寸下版面不变。
 - **代价**：这一项上 Windows 原生窗口与共享样式的 `win:max-w-none` 不再一致，读共享样式的人不会从那里看出 Windows 的实际上限。
-- **重访信号**：共享样式给 `contentColumn` 的 `win:` 分支加了具体的 `max-width`，或 macOS 改掉自己的 `mac:max-w-none` 时，这里的 900 要跟着对齐。
+- **重访信号**：共享样式给 `contentColumn` 的 `win:` 分支加了具体的 `max-width`，或 macOS 改掉自己的 `mac:max-w-none` 时，这里的上限要跟着对齐。
+- **本篇的实现是错的，已被取代**：`MaxWidth` 与同时写上的 `HorizontalAlignment::Center` 互相抵消，居中让面板按自然宽度排版、不再拉伸，900 这个上限从未生效（实际宽度约 870，肉眼难分，所以当时的验证看上去是通过的）。限宽这个决定仍然成立，实现与取值改为[靠内边距实现、上限 1800](2026-10-23-windows-settings-width-by-padding.md)。
 - **不在范围内**：最窄的 800 × 560 下「输入」页六个标签的文字会折成两行。那是 `segmented_control` 既有的取舍（`main.cpp` 注释记着「与共享页按钮里的字折行相同」），本条没有改动它。
 
 ## Verification
