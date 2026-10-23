@@ -189,7 +189,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String animation = settings.choice(AndroidLocalSettings.KEY_ANIMATION);
         GroupCard.Row[] animationRow = new GroupCard.Row[1];
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
-            () -> pickAnimation(animation, animationRow[0]));
+            () -> pickAnimation(animationRow[0]));
 
         GroupCard gestures = GroupCard.add(sectionColumn(target, "手势"), "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
@@ -382,17 +382,23 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
     }
 
-    private void pickAnimation(String selected, GroupCard.Row row) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "按键动画", null);
-        for (int index = 0; index < ANIMATIONS.length; index++) {
-            String value = ANIMATIONS[index];
-            String label = ANIMATION_LABELS[index];
-            sheet.option(label, value.equals(selected), () -> {
-                row.setValue(label);
-                saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
-            });
-        }
-        sheet.show();
+    private void pickAnimation(GroupCard.Row row) {
+        HostTask.run(this, context -> AndroidLocalSettings.load(context).choice(AndroidLocalSettings.KEY_ANIMATION), selected -> {
+            if (selected == null) {
+                MsToast.show(requireContext(), "读取设置失败，请重试");
+                return;
+            }
+            OptionSheet sheet = new OptionSheet(requireContext(), "按键动画", null);
+            for (int index = 0; index < ANIMATIONS.length; index++) {
+                String value = ANIMATIONS[index];
+                String label = ANIMATION_LABELS[index];
+                sheet.option(label, value.equals(selected), () -> {
+                    row.setValue(label);
+                    saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
+                });
+            }
+            sheet.show();
+        });
     }
 
     private void pickSwipeDirection(String selected) {

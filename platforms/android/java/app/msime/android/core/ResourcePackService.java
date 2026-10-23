@@ -248,7 +248,9 @@ public final class ResourcePackService extends Service {
         }
         // startForegroundService 之后必须很快进入前台，即使这次请求最后什么也不做。
         enterForeground();
-        boolean known = pack != null && (PACKS.contains(pack) || isVoiceModel(pack));
+        // Play 版自带语音运行库，Play 的政策也不允许从别处下载可执行代码，所以不接 voice-runtime 的请求；语音页在运行库可用时本来就不会发这个请求。
+        boolean known = pack != null && (PACKS.contains(pack) || isVoiceModel(pack))
+            && !(ResourcePacks.VOICE_RUNTIME.equals(pack) && AppVersionPolicy.playDistribution());
         if (ACTION_INSTALL.equals(action) && known && claim(pack)) {
             IMPORTS.remove(pack);
             install(pack, null, null);

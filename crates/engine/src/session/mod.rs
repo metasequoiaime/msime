@@ -178,6 +178,16 @@ impl Session {
         self.after_nine_key(result)
     }
 
+    /// 九宫格组码已经到上限时，这一键能不能先选掉首选、再接着打（`NineKeySession::limit_pick_ready`）。`grid_key` 为真时 `value` 是 `grid_key` 收到的 14 键字母，否则是 `character` 收到的九键或九键双拼数字；两条路由各自只认自己的网格。
+    pub fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
+        let code = match self.key_grid {
+            Some(grid @ KeyGrid::FourteenKey) if grid_key => grid.code_of(value),
+            Some(KeyGrid::NineKey | KeyGrid::NineKeyShuangpin(_)) if !grid_key => Some(value),
+            _ => None,
+        };
+        code.is_some_and(|code| self.nine_key.limit_pick_ready(code))
+    }
+
     /// 九宫格会话活跃时选它的拼写；否则在注音里钉目标音节的读音。
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> KeyResult {
         if !self.nine_key.active() && self.input.zhuyin_rules_apply() {

@@ -28,6 +28,8 @@ pub struct CustomTranslations {
 const PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display LIMIT ";
 // 分组键盘在限额前匹配完整查询键；排序与九键的最终排序一致，展示按 UTF-8 字节计长。
 const KEYPAD_PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY CASE WHEN length(CAST(display AS BLOB))=?4 AND weight>0 THEN 0 ELSE 1 END,weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
+// 同一组筛选取出前缀下的全部行，按 KEYPAD_PREFIX_SQL 去掉首项后的排序键排好；首项只看展示字节长度和权重，由 `append_keypad_ranked` 在内存里按每次的输入长度分出来。
+const KEYPAD_PREFIX_ROWS_SQL: &str = "SELECT word,display,weight,length(CAST(display AS BLOB)),weight>0 FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
 const EN_ZH_SQL: &str = "SELECT chinese_gloss FROM en_zh_glosses WHERE english=?1";
 const ZH_EN_SQL: &str = "SELECT english_gloss FROM zh_en_glosses WHERE chinese=?1";
 const ENGLISH_WORDS_DDL: &str = "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;";
@@ -169,6 +171,46 @@ impl EnglishDictionary {
         append_prefix_rows(&mut rows, limit, candidates, capacity);
     }
 
+    /// `append_keypad_prefix` 的同一组行，不截前 `limit` 条，供九键在数字变长时在内存里继续筛选。超过 `limit` 行或读取出错返回 `None`，调用方照旧逐次查询。
+    pub(crate) fn keypad_prefix_rows(
+        &self,
+        prefix: &str,
+        pattern: &str,
+        limit: usize,
+    ) -> Option<Vec<KeypadRow>> {
+        let connection = self.connection.as_ref()?;
+        if !is_lower_ascii_word(prefix) || pattern.is_empty() {
+            return None;
+        }
+        let upper_bound = prefix_upper_bound(prefix);
+        let sql = format!(
+            "{KEYPAD_PREFIX_ROWS_SQL}{}",
+            sql_limit(limit.saturating_add(1))
+        );
+        let mut statement = connection.prepare_cached(&sql).ok()?;
+        let mut rows = statement
+            .query(rusqlite::params![prefix, upper_bound, pattern])
+            .ok()?;
+        let mut result = Vec::new();
+        while let Some(row) = rows.next().ok()? {
+            let is_null = |index| matches!(row.get_ref(index), Ok(ValueRef::Null));
+            if is_null(0) || is_null(1) {
+                continue;
+            }
+            if result.len() == limit {
+                return None;
+            }
+            result.push(KeypadRow {
+                word: column_text_ref(row, 0).ok()?.into_owned(),
+                display: column_text_ref(row, 1).ok()?.into_owned(),
+                weight: column_i64(row, 2).ok()?,
+                display_bytes: usize::try_from(column_i64(row, 3).ok()?).ok()?,
+                positive: column_i64(row, 4).ok()? != 0,
+            });
+        }
+        Some(result)
+    }
+
     /// Custom sidecar, then `en_zh_glosses`, then the learned store; exact key, English not lowercased. Empty when none has it.
     pub fn query_chinese_gloss(&self, english: &str) -> String {
         self.query_gloss(false, english)
@@ -217,6 +259,47 @@ impl EnglishDictionary {
                 String::new()
             }
         }
+    }
+}
+
+/// `keypad_prefix_rows` 的一行。
+pub(crate) struct KeypadRow {
+    pub(crate) word: String,
+    pub(crate) display: String,
+    pub(crate) weight: i64,
+    /// `length(CAST(display AS BLOB))`，按库里的原始字节算，与 SQL 排序用的是同一个数。
+    pub(crate) display_bytes: usize,
+    /// SQL 里的 `weight>0`。
+    pub(crate) positive: bool,
+}
+
+/// 按 KEYPAD_PREFIX_SQL 的顺序追加 `rows` 的前 `limit` 行：`rows` 已按除首项外的键排好，首项（展示正好 `typed` 字节且有权重的排前）是稳定的二分，所以先取这一类、再取其余，与 SQL 的结果逐行相同。容量预留与 `append_prefix_rows` 一致。
+pub(crate) fn append_keypad_ranked(
+    rows: &[KeypadRow],
+    typed: usize,
+    limit: usize,
+    candidates: &mut Vec<WordItem>,
+    capacity: usize,
+) {
+    let exact = |row: &&KeypadRow| row.display_bytes == typed && row.positive;
+    let start = candidates.len();
+    let capacity = capacity.max(start.saturating_add(limit));
+    let ranked = rows
+        .iter()
+        .filter(exact)
+        .chain(rows.iter().filter(|row| !exact(row)))
+        .take(limit);
+    for row in ranked {
+        if candidates.len() == candidates.capacity() {
+            candidates.reserve_exact(capacity - candidates.len());
+        }
+        candidates.push(WordItem::new(
+            row.word.as_str(),
+            row.display.as_str(),
+            row.weight,
+            CandidateSource::EnglishDictionary,
+            "",
+        ));
     }
 }
 

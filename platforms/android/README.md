@@ -28,6 +28,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 `MSIME_ANDROID_OMIT_ON_DEMAND=1`（只对 full 和 pinyin，其他版本设了直接失败）打发布用的瘦包，`release-android.yml` 给这两个版本打开它：日文词典那一组（`msime-japanese.dat` 与两份 Mozc 许可文本）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户添加日语或这些语言（拼音版不提供粤拼、注音和笔画，只会为临时日语下载日文词典）、打开离线释义、打开「离线识别」时作为资源包下载到 `files/bootstrap/state/resource-packs/<资源包>/`，启动时不自动下载。随包的 `desktop-dictionary.lock.json` 是本版本的锁去掉日文那一组后的子集（Bootstrap 只按它解包），暂存的词库按 `verify_resources --omit-on-demand` 校验；host-api 仍按编译进去的完整锁校验，日文那一组整体缺席时放行，用户词库的代次不变。APK 签名后再检查包里没有 `msime-japanese.dat`、Mozc 许可文本、`assets/language-dictionaries/`、`assets/offline-glosses/`、`libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，并且包不超过 135,000,000 字节（`MSIME_ANDROID_MAX_APK_BYTES` 可改）。瘦包只能是 arm64-v8a 单 ABI，`MSIME_ANDROID_ABIS` 带上 x86_64 时直接失败：资源包 `voice-runtime` 只有 arm64-v8a 的库，在 x86_64 上下载了也加载不了。这个开关与 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 互斥。不设时照旧全带，日文版的主词库就是日文词典，始终随包；Tauri 开发合包 `build-client-apk.sh` 也照旧全带。
 
+`MSIME_ANDROID_DISTRIBUTION=play` 打上传 Google Play 的包：输出 `target/android/<apk_name>.aab`，用 `jarsigner` 以发布密钥签名（没有发布密钥直接失败）。Gradle 收到 `-PmsimeDistribution=play`，BuildConfig 的 `DISTRIBUTION` 是 `play`，宿主不做应用内自更新、不下载 `voice-runtime` 资源包，清单去掉 `REQUEST_INSTALL_PACKAGES`；与瘦包同用时两个语音运行库仍随包，其余按需资源照旧下载。缺省 `github` 打 GitHub release 用的 APK。原因和发布流程见 `.agents/notes/implemented/process/2026-10-23-android-google-play-distribution.md`。
+
 ### 手机、大屏与二合一布局边界
 
 原生输入面依据 Android 的 `Configuration.smallestScreenWidthDp` 区分设备形态，而不是依据旋转后的当前窗口宽度。小于 600 dp 的手机始终让键盘铺满可用窗口；因此一台 411 dp 的手机即使横屏后当前宽度超过 600 dp，也不会突然切换成平板键盘。600 dp 起的平板、展开态折叠屏和二合一进入大屏布局：整套键盘表面在窗口底部水平居中，宽度取当前可用宽度与 720 dp 的较小值。左右空出的区域使用当前键盘皮肤的背景色，避免十列按键被拉伸到桌面宽度。

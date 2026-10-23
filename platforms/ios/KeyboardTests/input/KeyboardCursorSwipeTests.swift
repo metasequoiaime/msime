@@ -388,7 +388,8 @@ final class KeyboardCursorSwipeTests: XCTestCase {
 
   private func documentKeyboard() throws -> (KeyboardViewController, Document) {
     let document = Document()
-    try XCTSkipIf(KeyboardHostContext.documentIdentifier(for: document) == nil, "文档移动依赖 #9375 的公开代理身份读取修复")
+    XCTAssertEqual(KeyboardHostContext.documentIdentifier(for: document), document.documentIdentifier,
+      "公开代理文档身份读取必须可用，不能跳过文档移动回归")
     let selector = #selector(getter: UIInputViewController.textDocumentProxy)
     let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
     let original = method_getImplementation(inherited)
@@ -439,7 +440,8 @@ final class KeyboardCursorSwipeTests: XCTestCase {
   }
 
   private final class StartingTouch: UITouch {
-    weak var startingView: UIView?
+    // 夹具持有明确的起点，临时创建的控件也必须保留至本次委托判定完成。
+    var startingView: UIView?
     var phaseValue: UITouch.Phase = .began
     override var view: UIView? { startingView }
     override var phase: UITouch.Phase { phaseValue }

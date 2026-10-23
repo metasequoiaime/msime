@@ -1,4 +1,3 @@
-import { PageIntro } from "../../core/platform-controls";
 import type { DesktopSkinTab } from "../desktop-skin-tabs";
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { themeModeOptions } from "../theme-mode-options";
@@ -503,11 +502,7 @@ export function SkinSettingsPage({
   return (
     <>
       <SettingsPageFieldset disabled={busy} hidden={!shown} ariaLabel={pageName}>
-        {!mobilePlatform && (
-          <PageIntro>
-            选择皮肤与配色；候选窗口的布局、字体和显示方式在「候选窗口」中设置。
-          </PageIntro>
-        )}
+        {/* 桌面页首的插画引导已经说明本页管什么、布局在哪里改，这里不再重复一段。 */}
         {/* 手机网格的卡片没有分浅色/深色的预览，用不着这段说明。 */}
         {!phoneGrid && <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />}
         {/* 这条说明指出面板会忽略本页的皮肤和颜色，而它们在别处都无法编辑，所以除了「候选窗口」预览下方，这里也保留一份。 */}

@@ -116,6 +116,8 @@ fn english_page_append_removes_each_successful_page_container() {
     before.legacy_english_candidates(false);
     after.english_candidates(false);
     let (expected, old) = count(|| before.legacy_english_candidates(false));
+    // 同一串数字的第二次刷新会建 `EnglishKeypadCache`；让它对不上，量的是逐前缀查询这条路径。
+    after.english_rows.as_mut().unwrap().depth = usize::MAX;
     let (actual, new) = count(|| after.english_candidates(false));
     assert_eq!(actual, expected);
     assert_eq!(actual.capacity(), expected.capacity());
@@ -224,6 +226,7 @@ fn english_page_append_allocation_saving_tracks_nonempty_prefixes() {
             })
             .count();
         let (expected, old) = count(|| before.legacy_english_candidates(false));
+        after.english_rows.as_mut().unwrap().depth = usize::MAX;
         let (actual, new) = count(|| after.english_candidates(false));
         assert_eq!(actual, expected);
         assert_eq!(actual.capacity(), expected.capacity());

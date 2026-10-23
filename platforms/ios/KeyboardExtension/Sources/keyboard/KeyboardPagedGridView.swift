@@ -5,7 +5,7 @@ import UIKit
 /// 图块按行填满每一页，每页 `columns × rows` 个；行高固定为 `rowHeight`，行间隔 `rowGap`，等宽的列之间隔 `columnGap`，每页左右各留 `sidePadding`。页面贴着滚动区顶部，显示圆点时圆点在其下方 8pt、位于视图底部，与设计稿的 flex 纵向布局一致。
 ///
 /// 页面和滚动内容手动布局而不用 Auto Layout，这样设置内容尺寸的同一轮里就能重新套用页偏移：替换图块后仍停在用户原来那一页，而不是被 UIScrollView 把偏移夹回第一页。
-final class KeyboardPagedGridView: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
   static let dotsGap: CGFloat = 8
 
   let columns: Int
@@ -16,7 +16,6 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate, UIGestureRecogn
   private let sidePadding: CGFloat
   private let showsDots: Bool
   private let scrollView = KeyboardPagingScrollView()
-  private lazy var pagingPan = UIPanGestureRecognizer(target: self, action: #selector(handlePagingPan(_:)))
   private let dots = KeyboardPagerDotsView()
   private var pages: [UIStackView] = []
   private(set) var tiles: [UIView] = []
@@ -28,7 +27,6 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate, UIGestureRecogn
   private var isApplyingLayout = false
   /// 带动画的 `scrollToPage` 期间置位，免得中途的一次布局把偏移弹回去。
   private var isScrollAnimating = false
-  private var pagingStartOffset: CGFloat = 0
 
   init(columns: Int, rows: Int = 2, rowHeight: CGFloat, rowGap: CGFloat, columnGap: CGFloat, sidePadding: CGFloat, showsDots: Bool = true) {
     self.columns = max(1, columns)
@@ -47,12 +45,9 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate, UIGestureRecogn
     scrollView.alwaysBounceHorizontal = false
     scrollView.scrollsToTop = false
     scrollView.contentInsetAdjustmentBehavior = .never
-    // 分页由外层手势统一接管。这样从 UIButton、UIControl 或带长按手势的图块上开始拖动时，仍然能稳定翻页。
-    scrollView.panGestureRecognizer.isEnabled = false
-    pagingPan.delegate = self
-    pagingPan.maximumNumberOfTouches = 1
-    pagingPan.cancelsTouchesInView = true
-    scrollView.addGestureRecognizer(pagingPan)
+    // 翻页交给滚动视图自己的分页：抬手时按速度和距离停到整页。图块像按键一样在按下时高亮；从图块上开始的横向拖动仍能翻页，因为滚动视图可以取消它的触摸（见 `KeyboardPagingScrollView`）。
+    scrollView.delaysContentTouches = false
+    scrollView.canCancelContentTouches = true
     // 面板只有两三行高，系统的边缘渐隐会把两边的图块冲淡。
     scrollView.disableEdgeEffects()
     scrollView.onAccessibilityScroll = { [weak self] direction in self?.accessibilityTurnPage(direction) ?? false }
@@ -168,33 +163,6 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate, UIGestureRecogn
 
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
     if !decelerate { settlePageOffset() }
-  }
-
-  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-    guard gestureRecognizer === pagingPan else { return true }
-    let velocity = pagingPan.velocity(in: self)
-    return abs(velocity.x) > abs(velocity.y) && abs(velocity.x) > 0
-  }
-
-  @objc private func handlePagingPan(_ pan: UIPanGestureRecognizer) {
-    let width = scrollView.bounds.width
-    guard width > 0 else { return }
-    switch pan.state {
-    case .began:
-      isScrollAnimating = false
-      pagingStartOffset = scrollView.contentOffset.x
-    case .changed:
-      let maximum = max(0, width * CGFloat(pageCount - 1))
-      let offset = min(max(pagingStartOffset - pan.translation(in: self).x, 0), maximum)
-      scrollView.contentOffset = CGPoint(x: offset, y: 0)
-    case .ended:
-      let target = min(max(Int((scrollView.contentOffset.x / width).rounded()), 0), pageCount - 1)
-      scrollToPage(target, animated: true)
-    case .cancelled, .failed:
-      settlePageOffset()
-    default:
-      break
-    }
   }
 
   /// 结束拖动或动画时把偏移对齐到整页。面板重排、转屏或手势反向时可能在减速中触发布局；只依赖 `layoutSubviews` 会把滚动位置留在半页，下一次反向滑动就从错误的基准继续。

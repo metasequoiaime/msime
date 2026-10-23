@@ -42,7 +42,22 @@ Links `libMetasequoiaImeEngine.a` the way the reference test targets do (Boost h
 
 ## 3. Resource directory (real-dictionary goldens)
 
-The `dict-v2.0.5` set pinned by `resources/desktop-dictionary.lock.json` (sha256 of every file checked against the lock), minus `sentence-model*.safetensors`: `msime-pinyin.db msime-wubi.db msime-english.db msime-bigram.bin msime-trigram.bin msime-others.db msime-japanese.dat msime-dictionary-manifest.json msime-mozc_dictionary_oss_README.txt`.
+四份真实词库金样在提交 `a42356724c597e051f360b41e308e51b4d12dda7` 录制，使用该提交的 [`resources/desktop-dictionary.lock.json`](https://github.com/metasequoiaime/msime/blob/a42356724c597e051f360b41e308e51b4d12dda7/resources/desktop-dictionary.lock.json) 固定的 `dict-v2.0.1`。按这份历史锁校验每个文件的大小和 SHA-256；当前工作树的资源锁已随产品升级，不能用于重建这批录制输入。后来的 `dict-v2.0.5` 文件名迁移没有重新录制这四份 JSONL。
+
+参考引擎的历史录制目录保留原文件名，包含下面八项资源。当前 Rust 回放器按现行资产名查找文件，给 `MSIME_EVAL_RESOURCES` 准备目录时只按右列改名，文件字节仍须匹配历史锁；不加入 `dict_pinyin.dat` 或 `sentence-model*.safetensors`。
+
+| `dict-v2.0.1` 原文件名 | 当前 Rust 回放目录中的文件名 |
+| --- | --- |
+| `msime.db` | `msime-pinyin.db` |
+| `english.db` | `msime-english.db` |
+| `bigram.bin` | `msime-bigram.bin` |
+| `trigram.bin` | `msime-trigram.bin` |
+| `others.db` | `msime-others.db` |
+| `dict_japanese.dat` | `msime-japanese.dat` |
+| `dictionary-manifest.json` | `msime-dictionary-manifest.json` |
+| `mozc_dictionary_oss_README.txt` | `msime-mozc_dictionary_oss_README.txt` |
+
+资源匹配只排除词库版本差异。录制后有意改变的引擎行为仍可能产生回放差异，需要对照对应的行为决定逐项核实。
 
 ## 4. Record
 

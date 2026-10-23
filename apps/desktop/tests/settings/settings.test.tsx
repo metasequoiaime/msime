@@ -10115,6 +10115,9 @@ test("this window's own save echoed back by the monitor is not reported as anoth
   );
   await waitFor(() => expect(size.value).toBe("5"));
   expect(await screen.findByText("设置已从其他窗口更新。")).toBeDefined();
+  // 提示可以手动关掉。
+  fireEvent.click(screen.getByRole("button", { name: "关闭提示" }));
+  expect(screen.queryByText("设置已从其他窗口更新。")).toBeNull();
 });
 
 test("failed initial load never enables saving fabricated defaults", async () => {
