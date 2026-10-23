@@ -5,11 +5,15 @@ on:
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      play_track: {description: 正式版的 AAB 上传到哪条 Google Play 轨道（alpha 是封闭测试）；none 只留 workflow artifact，Play 上第一个包要手动上传时用它, required: false, default: alpha, type: choice, options: [none, internal, alpha, beta, production]}
+      play_status: {description: 在 Play 上建成的版本状态：draft 要有人在 Play Console 里点发布，completed 直接推给这条轨道的用户（应用还没通过过审核时 Play 只接受 draft）, required: false, default: draft, type: choice, options: [draft, completed]}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
+      play_track: {description: Google Play track for the final release bundle (none skips the upload), required: false, default: none, type: string}
+      play_status: {description: Status of the Google Play release (draft or completed), required: false, default: draft, type: string}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
@@ -42,10 +46,12 @@ jobs:
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ inputs.version }}", EDITION: "${{ matrix.edition }}", PUBLISH: "${{ inputs.publish }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/android/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+          # 只有发布的正式版另打一份给 Google Play 的 AAB（只有 full 上架 Play）。beta、alpha 的 versionCode 与随后的正式版相同，Play 不接受重复的 versionCode，所以它们不进 Play。
+          if [[ "$EDITION" == full && "$PUBLISH" == true && -z "$suffix" ]]; then echo "bundle=true" >> "$GITHUB_OUTPUT"; else echo "bundle=false" >> "$GITHUB_OUTPUT"; fi
       # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads.
       # build-apk.sh packs target/offline-glosses when it is there. full 和拼音版的瘦包改为按需下载离线释义，只有其余版本还要取；粤拼、注音和笔画词库原先只有 full 随包，现在也按需下载，没有版本再需要它们，所以不再取。
@@ -79,6 +85,7 @@ jobs:
           MSIME_EDITION: "${{ matrix.edition }}"
           MSIME_REQUIRE_WORDBOOKS: '1'
           PUBLISH: "${{ inputs.publish }}"
+          BUNDLE: "${{ steps.version.outputs.bundle }}"
           RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
           MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
         run: |
@@ -98,10 +105,23 @@ jobs:
           apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$MSIME_EDITION" apk_name)"
           mkdir -p dist
           cp "target/android/$apk_name.apk" dist/
+          # Play 版：同一份资源再打一次，不带自更新、带着语音运行库，输出 AAB（build-apk.sh 的 MSIME_ANDROID_DISTRIBUTION）。放进单独的 artifact，不进 GitHub 发布页。
+          if [[ "$BUNDLE" == true ]]; then
+            MSIME_ANDROID_DISTRIBUTION=play bash platforms/android/build-apk.sh "$resource_dir"
+            mkdir -p play
+            cp "target/android/$apk_name.aab" play/
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-android-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
+          if-no-files-found: error
+      # 名字故意不以 msime-android- 开头：publish 按 msime-android-*-<版本> 收集发布页上的 APK。
+      - if: steps.version.outputs.bundle == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: google-play-msime-android-${{ steps.version.outputs.value }}
+          path: play/
           if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
@@ -156,3 +176,35 @@ jobs:
           { echo; cat changes.md; } >> release-notes.md
           # 重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/SHA256SUMS dist/*.apk.sha256
+  # 把正式版的 AAB 传到 Google Play（只有 full 上架）。排在 GitHub 发布之后：发布页是权威的版本，它没发出去就不往 Play 传。条件与 release job 里打 AAB 的条件相同（发布的、不带后缀的正式版），另加选了轨道。
+  play:
+    needs: [source, release, publish]
+    if: inputs.publish && inputs.play_track != 'none' && needs.release.outputs.release == needs.release.outputs.version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: google-play-msime-android-${{ needs.release.outputs.version }}
+          path: play
+      - name: Upload the bundle to Google Play
+        # GOOGLE_PLAY_SERVICE_ACCOUNT_JSON 是 Google Cloud 里一个 service account 的 JSON 密钥，这个账号要在 Play Console 的「用户和权限」里有这个应用的发布权限。依赖装进临时 venv：runner 的系统 Python 是 externally-managed（PEP 668）。
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}"
+          TRACK: "${{ inputs.play_track }}"
+          STATUS: "${{ inputs.play_status }}"
+          VERSION: "${{ needs.release.outputs.version }}"
+        run: |
+          set -euo pipefail
+          [[ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]] || { echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON must be set to upload to Google Play" >&2; exit 1; }
+          key="$RUNNER_TEMP/google-play-service-account.json"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$key"
+          python3 -m venv "$RUNNER_TEMP/google-play"
+          "$RUNNER_TEMP/google-play/bin/pip" install --quiet --disable-pip-version-check 'google-api-python-client==2.201.0' 'google-auth==2.62.0'
+          package="$(python3 platforms/android/scripts/edition_android.py field --edition full application_id)"
+          apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition full apk_name)"
+          "$RUNNER_TEMP/google-play/bin/python" platforms/android/scripts/upload_play.py --package "$package" --bundle "play/$apk_name.aab" \
+            --track "$TRACK" --status "$STATUS" --name "$VERSION" --key-path "$key"

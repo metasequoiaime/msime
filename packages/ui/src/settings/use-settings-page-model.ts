@@ -27,7 +27,7 @@ import { useProviderCredentials } from "./use-provider-credentials";
 import { useFeedbackReport } from "./use-feedback-report";
 import { useDataDirectory } from "./use-data-directory";
 import { usePreferenceRecovery } from "./use-preference-recovery";
-import { useSettingsPersistence } from "./use-settings-persistence";
+import { useSettingsPersistence, useTransientSyncNotice } from "./use-settings-persistence";
 import { useInputSourceUninstall } from "./use-input-source-uninstall";
 import { useTouchKeyboardSettingsReset } from "./use-touch-keyboard-settings-reset";
 import { useExternalUrl } from "./use-external-url";
@@ -184,6 +184,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useTransientSyncNotice(notice, setNotice);
+  const dismissNotice = () => setNotice("");
   /** 最近一次修复生成的备份路径，在修复提示可见期间保留。 */
   const [recoveredBackup, setRecoveredBackup] = useState("");
   const {
@@ -758,6 +760,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     setError,
     error,
     notice,
+    dismissNotice,
     recoveredBackup,
     removeUserDataOnUninstall,
     setRemoveUserDataOnUninstall,

@@ -232,11 +232,13 @@ public final class LocalAsrRecognizer {
     /**
      * 载入 sherpa-onnx 运行库，载入不了时报 {@link Failure#RUNTIME}。
      *
-     * <p>安装包带着运行库时按名字就能载入。不带时（full 版改为按需下载）从 {@code files} 下已安装的 voice-runtime 资源包按绝对路径载入：libsherpa-onnx-c-api.so 按 soname 依赖 libonnxruntime.so 又没有 RUNPATH，链接器只认同一命名空间里已经载入的那份，所以先 {@link System#load} 它，再把 sherpa 的路径交给共享识别器。资源包没装时报 {@link Refused#runtimeMissing()}。这里只读不装：输入法进程从不下载资源包。载入成功后整个进程一直用这一份。
+     * <p>安装包带着运行库时按名字就能载入，Play 版（{@link AppVersionPolicy#playDistribution()}）只走这一条。不带时（full 版改为按需下载）从 {@code files} 下已安装的 voice-runtime 资源包按绝对路径载入：libsherpa-onnx-c-api.so 按 soname 依赖 libonnxruntime.so 又没有 RUNPATH，链接器只认同一命名空间里已经载入的那份，所以先 {@link System#load} 它，再把 sherpa 的路径交给共享识别器。资源包没装时报 {@link Refused#runtimeMissing()}。这里只读不装：输入法进程从不下载资源包。载入成功后整个进程一直用这一份。
      */
     private static void requireRuntime(Path files) throws Refused {
         synchronized (RUNTIME_LOCK) {
             if (NativeClient.localSpeechAvailable()) return;
+            // Play 版只用包里自带的运行库，从不载入 files 下的 .so：Play 的政策不允许执行从别处下载的代码。
+            if (AppVersionPolicy.playDistribution()) throw new Refused(Failure.RUNTIME);
             File directory = files == null ? null
                 : ResourcePacks.directory(files.toFile(), ResourcePacks.VOICE_RUNTIME);
             if (directory == null) throw new Refused(Failure.RUNTIME, true);

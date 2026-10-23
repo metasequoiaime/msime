@@ -2410,7 +2410,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([self.punctuationLock isEqual:@"chinese"]) return YES;
     if ([self.punctuationLock isEqual:@"english"]) return NO;
     NSNumber *value = _runtimeChinesePunctuation[[self runtimeInputStateKey]];
-    return value ? value.boolValue : self.chinesePunctuation;
+    // 新应用可能直接以英文启动，没有经过中英切换的标点同步；仅在未手动覆盖时按当前模式回退。
+    return value ? value.boolValue : (!self.englishMode && self.chinesePunctuation);
 }
 - (void)setRuntimeChinesePunctuation:(BOOL)value {
     if (!_runtimeChinesePunctuation) _runtimeChinesePunctuation = [NSMutableDictionary dictionary];

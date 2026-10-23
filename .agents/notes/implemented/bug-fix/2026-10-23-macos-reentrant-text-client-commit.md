@@ -25,9 +25,9 @@ macOS 使用现有 `_applySequence` 与客户端身份，不另建代次缓存�
 
 合成原生复现使用 `prefix|suffix` 文档，在上屏回调中开始下一轮 `ne` 组字；原实现得到 `prefix词|suffix` 且标记状态为关闭，丢失新组字。正式 `TextClientReentrancyTest` 中三种上屏重入在修复前均失败；修复后连同标记回调重入共四种场景通过，既有 `TextClientTest` 也通过。
 
-控制器专项覆盖普通上屏、外层剩余组字、开启标点对、消耗待闭合标点、嵌套再次上屏及客户端切换六种场景。回调内读取智能标点影子的新增断言在影子仍置于写入后时失败，提前发布后通过；最终断言同时确保嵌套末字与新客户端清除状态不被外层覆盖。最初直接编译本分支源码、复用其余原生对象的专项通过；随后由真实 CMake 目标重新构建，`text-client`、`text-client-reentrancy`、`shortcut`、`shortcut-vim-mode`、`shortcut-nested-commit` 和 `shortcut-translations` 六项 CTest 全部通过（167.81 秒）。macOS 全目标和共享 Apple 桥接层构建通过。
+控制器专项覆盖普通上屏、外层剩余组字、开启标点对、消耗待闭合标点、嵌套再次上屏及客户端切换六种场景。回调内读取智能标点影子的新增断言在影子仍置于写入后时失败，提前发布后通过；最终断言同时确保嵌套末字与新客户端清除状态不被外层覆盖。最初直接编译本分支源码、复用其余原生对象的专项通过；随后由真实 CMake 目标重新构建，同步 `develop` 后，`text-client`、`text-client-reentrancy`、`shortcut`、`shortcut-vim-mode`、`shortcut-nested-commit`、`shortcut-translations` 和新基线 `shortcut-english-punctuation` 七项 CTest 全部通过（205.78 秒）。macOS 全目标和共享 Apple 桥接层构建通过。
 
-第一次完整 quick 因 iOS 豆包传输测试的首次 Swift 编译超过原有 120 秒上限而失败，没有得到该套件的断言结果；没有修改超时或绕过钩子。同一脚本原命令复跑后，17 项测试全部通过，再通过正常推送重跑完整门禁。
+第一次完整 quick 因 iOS 豆包传输测试的首次 Swift 编译超过原有 120 秒上限而失败，没有得到该套件的断言结果；没有修改超时或绕过钩子。同一脚本原命令复跑后，17 项测试全部通过，正常推送的完整 quick 已通过；同步 `develop` 的合并结果也再次通过完整 quick，随后七项原生专项全部通过。
 
 尚未在报告中的应用验收，只能关联 #9271，不能据此关闭报告。
 

@@ -1356,17 +1356,20 @@ public final class MSIMEInputService extends InputMethodService {
         clearQuickDeleteUndo();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
-        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 1);
+        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 2);
         if (before != null && before.length() == 0) {
             // 空框外的艾特与引用不属于周边文字，应用只有收到退格事件才能处理；读取失败不当作空框。
             selectionEcho.invalidate();
+            imeLetterRows.invalidateBackspaceScrub();
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
             return;
         }
         if (InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0)) {
+            imeLetterRows.recordBackspaceScrubDelete(before);
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
+            imeLetterRows.invalidateBackspaceScrub();
             selectionEcho.invalidate();
         }
     }
@@ -1375,6 +1378,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean deleteSelection() {
         CharSequence selected = InputConnectionGuard.selectedText(connection);
         if (selected == null || selected.length() == 0) return false;
+        imeLetterRows.invalidateBackspaceScrub();
         selectionEcho.invalidate();
         InputConnectionGuard.commitText(connection, "", 1);
         return true;
@@ -8385,6 +8389,61 @@ public final class MSIMEInputService extends InputMethodService {
         invalidateHandwritingRecognition();
         if (handwritingCanvas != null) handwritingCanvas.clear();
         showHandwritingStatus("在此手写，停笔后选字");
+    }
+
+    /** 水平删除的快照仅属于当前按压；敏感框和组字、墨迹继续走原有退格。 */
+    BackspaceScrub beginBackspaceScrub() {
+        if (connection == null || EditorPolicy.password(editorInputType) || !allowLearning
+                || incognitoEnabled || hasEngineComposition()
+                || handwritingCanvas != null && handwritingCanvas.hasInk()) return null;
+        BackspaceScrub.Frame frame = readBackspaceScrubFrame();
+        return frame == null || frame.before().isEmpty() ? null : new BackspaceScrub(connection, frame);
+    }
+
+    private BackspaceScrub.Frame readBackspaceScrubFrame() {
+        if (connection == null) return null;
+        try {
+            var request = new android.view.inputmethod.ExtractedTextRequest();
+            request.hintMaxChars = BackspaceScrub.MAX_UNITS + 2 * BackspaceScrub.CONTEXT_UNITS;
+            request.hintMaxLines = 32;
+            var extracted = connection.getExtractedText(request, 0);
+            if (extracted == null || extracted.text == null || extracted.partialStartOffset != -1
+                    || extracted.startOffset < 0 || extracted.selectionStart < 0
+                    || extracted.selectionStart != extracted.selectionEnd
+                    || extracted.selectionStart > extracted.text.length()) return null;
+            int at = extracted.selectionStart;
+            long absolute = (long) extracted.startOffset + at;
+            if (absolute > Integer.MAX_VALUE) return null;
+            String before = extracted.text.subSequence(Math.max(0,
+                at - BackspaceScrub.MAX_UNITS - BackspaceScrub.CONTEXT_UNITS), at).toString();
+            String after = extracted.text.subSequence(at,
+                Math.min(extracted.text.length(), at + BackspaceScrub.CONTEXT_UNITS)).toString();
+            return new BackspaceScrub.Frame((int) absolute, before, after);
+        } catch (RuntimeException ignored) { return null; }
+    }
+
+    void moveBackspaceScrub(BackspaceScrub scrub, int deleted) {
+        if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled
+                || hasEngineComposition() || handwritingCanvas != null && handwritingCanvas.hasInk()) {
+            scrub.invalidate();
+            return;
+        }
+        int previous = scrub.deleted();
+        scrub.move(new BackspaceScrub.Editor() {
+            @Override public Object target() { return connection; }
+            @Override public BackspaceScrub.Frame read() { return readBackspaceScrubFrame(); }
+            @Override public boolean delete(int units) { return deleteBeforeCursor(units); }
+            @Override public boolean restore(String text) {
+                // 恢复已删内容不计新输入；绕开统计、学习与剪贴板，只登记选区回声。
+                boolean accepted = InputConnectionGuard.commitText(connection, text, 1);
+                if (accepted) {
+                    selectionEcho.commit(text.length());
+                    selectionEcho.expect();
+                } else selectionEcho.invalidate();
+                return accepted;
+            }
+        }, deleted);
+        if (previous != scrub.deleted()) refreshAfterQuickDelete();
     }
 
     /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */

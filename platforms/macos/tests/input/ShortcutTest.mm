@@ -3349,10 +3349,13 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
 @property(nonatomic) NSUInteger selectAnyCalls;
 @property(nonatomic) uint64_t selectAnyGeneration;
 @property(nonatomic) NSUInteger selectAnyIndex;
+@property(nonatomic) NSUInteger tallIndex;
 @end
 @implementation ExpandedGridSession
 - (NSDictionary *)gridCandidate:(NSUInteger)index highlighted:(BOOL)highlighted {
-    return @{@"text": [NSString stringWithFormat:@"%@%lu", self.prefix, (unsigned long)index],
+    NSString *text = [NSString stringWithFormat:@"%@%lu", self.prefix, (unsigned long)index];
+    if (self.tallIndex != 0 && index == self.tallIndex) text = [text stringByAppendingString:@"\n第二行"];
+    return @{@"text": text,
              @"id": @{@"session": @1, @"generation": @(self.generation), @"index": @(index)},
              @"highlighted": @(highlighted)};
 }
@@ -3610,14 +3613,18 @@ static void TestExpandedCandidateGrid() {
     [controller closeExpandedCandidates];
     session.total = 24;
     session.pageSize = 4;
+    session.tallIndex = 20;
     prefs.pageSize = 4;
     compose();
     assert(press(125) && expanded());
+    const CGFloat viewportHeight = panel.frame.size.height;
+    const CGFloat viewportRowsHeight = NSHeight(((MSIMECandidateChromeView *)panel.contentView).candidateRowsRect);
     const CGFloat firstCandidateY = NSMinY(ExpandedGridSubview(panel, 0).frame);
     [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
     [controller renderCandidates];
     assert([[controller valueForKey:@"expandedScrollOffset"] doubleValue] > 0.0);
     assert(fabs(NSMinY(ExpandedGridSubview(panel, 0).frame) - (firstCandidateY - 8.0)) < 0.01);
+    assert(fabs(panel.frame.size.height - viewportHeight) < 0.01);
     [controller setValue:@8.0 forKey:@"expandedPendingScrollDelta"];
     [controller renderCandidates];
     assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
@@ -3626,10 +3633,21 @@ static void TestExpandedCandidateGrid() {
     [controller renderCandidates];
     assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 1);
     assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    assert(fabs(panel.frame.size.height - viewportHeight) < 0.01);
     [controller setValue:@10000.0 forKey:@"expandedPendingScrollDelta"];
     [controller renderCandidates];
     assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 0);
     assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    // 字号变更开启新的布局预算，后续像素滚动仍保持这个新高度。
+    prefs.candidateScalePercent = 150;
+    [controller appearanceChanged:nil];
+    const CGFloat scaledViewportHeight = panel.frame.size.height;
+    assert(NSHeight(((MSIMECandidateChromeView *)panel.contentView).candidateRowsRect) > viewportRowsHeight * 1.4);
+    [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert(fabs(panel.frame.size.height - scaledViewportHeight) < 0.01);
+    prefs.candidateScalePercent = 100;
+    [controller appearanceChanged:nil];
     [controller closeExpandedCandidates];
     session.total = 23;
     session.pageSize = 5;
@@ -7184,7 +7202,33 @@ static void TestEnglishModePunctuationAndWidthOutput() {
     NSEvent *toggle = EnglishKey(@".", 47, NSEventModifierFlagControl);
     NSEvent *widthToggle = EnglishKey(@" ", 49, NSEventModifierFlagControl | NSEventModifierFlagShift);
 
-    // A Chinese lock converts English-mode punctuation with the Engine's forward table.
+    // 默认英文直接进入新应用时，不必先来回切换一次中英文才能得到英文标点。
+    [prefs applySharedInputPreferences:@{@"default_ime_mode":@"english", @"ime_mode_scope":@"app",
+                                        @"chinese_punctuation":@YES, @"punctuation_lock":@"follow"}];
+    [prefs activateInputModeForApplication:client.bundleIdentifier];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    assert(type(comma) == nil && type(letter) == nil);
+    assert(!prefs.runtimeFullWidthInput && prefs.chinesePunctuation);
+
+    // 手动覆盖仍按应用保留；新应用从英文标点开始，返回原应用不抹掉手动选择。
+    prefs.runtimeChinesePunctuation = YES;
+    [prefs activateInputModeForApplication:@"org.example.english-output-other"];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    [prefs activateInputModeForApplication:client.bundleIdentifier];
+    assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [prefs resetAllRuntimeInputState];
+    assert(!prefs.runtimeChinesePunctuation);
+
+    // 切回中文恢复保存的中文标点，回到英文重新跟随模式；固定英文标点不受模式影响。
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation && type(comma) == nil);
+    prefs.punctuationLock = @"english";
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.runtimeChinesePunctuation);
+
+    // 固定中文标点时，英文模式仍按引擎正向表转换标点。
     prefs.punctuationLock = @"chinese";
     [controller setEnglishInputMode:YES];
     assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
@@ -11192,6 +11236,11 @@ int main(int argc, char **argv) {
             TestNestedCommitKeepsTheNewerComposition();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--english-punctuation") {
+            @autoreleasepool { TestPerApplicationPunctuationAndWidth(); }
+            @autoreleasepool { TestEnglishModePunctuationAndWidthOutput(); }
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
             TestCapsLockTap();
             return 0;
@@ -11773,6 +11822,114 @@ int main(int argc, char **argv) {
             }
         }
         appearance.fontSize = 18;
+        {
+            // 首行：拼音后面竖线隔开输入状态，右侧依次是云候选预览和小装饰，首行和候选行之间一条细线。
+            assert([MSIMECandidateStatusText(@"小鹤双拼", @{@"script_conversion": @YES}, YES, YES) isEqual:@"小鹤双拼 · 中 · 繁 · 全角"]);
+            assert([MSIMECandidateStatusText(@"全拼", @{@"script_conversion": @YES, @"dedicated_english": @YES}, NO, NO) isEqual:@"全拼 · 英"]);
+            assert([MSIMECandidateStatusText(@"日语", @{@"script_conversion": @NO}, NO, NO) isEqual:@"日语 · 中"]);
+            NSDictionary *cloudRow = @{@"text": @"一行白鹭", @"source": @2, @"id": @{@"session": @1, @"generation": @2, @"index": @2}};
+            NSDictionary *aiRow = @{@"text": @"一行代码", @"source": @3, @"id": @{@"session": @1, @"generation": @2, @"index": @1}};
+            NSDictionary *placeholder = @{@"text": @"…", @"source": @12, @"id": @{@"session": @1, @"generation": @2, @"index": @3}};
+            assert(MSIMECandidateOnlinePreview(@[aiRow, cloudRow]) == cloudRow);
+            assert(MSIMECandidateOnlinePreview(@[placeholder, aiRow]) == aiRow);
+            assert(!MSIMECandidateOnlinePreview(@[placeholder, @{@"text": @"一行", @"source": @0}]));
+
+            const BOOL savedVertical = appearance.vertical;
+            appearance.vertical = NO;
+            appearance.showsCandidatePreedit = YES;
+            NSMutableDictionary *headerView = [pageView mutableCopy];
+            headerView[@"page_count"] = @1;
+            headerView[@"scheme"] = @0;
+            headerView[@"script_conversion"] = @YES;
+            headerView[@"editing_text"] = @"yihang";
+            headerView[@"caret_position"] = @6;
+            const CGFloat savedPreeditSize = appearance.preeditFontSize;
+            appearance.preeditFontSize = 16;
+            // 一整页候选，卡片宽度由候选行定，首行放得下全部内容。
+            NSMutableArray *headerCandidates = [@[
+                @{@"text": @"一样", @"highlighted": @YES, @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @0}},
+                aiRow, cloudRow] mutableCopy];
+            NSArray<NSString *> *fillers = @[@"移行", @"一行字", @"一行行", @"一行业", @"医行", @"一航"];
+            for (NSUInteger index = 0; index < fillers.count; ++index)
+                [headerCandidates addObject:@{@"text": fillers[index], @"source": @0, @"id": @{@"session": @1, @"generation": @2, @"index": @(index + 3)}}];
+            headerView[@"candidates"] = headerCandidates;
+            [controller setValue:[headerView copy] forKey:@"view"];
+            [controller renderCandidates];
+            NSView *preeditField = nil, *divider = nil, *ornament = nil, *rule = nil;
+            NSTextField *status = nil;
+            MSIMECandidateButton *preview = PageButton(layoutPanel.contentView, -4), *first = PageButton(layoutPanel.contentView, 0);
+            for (NSView *child in MSIMECandidateControlsView(layoutPanel.contentView).subviews) {
+                if ([child.identifier isEqual:@"candidate-preedit"]) preeditField = child;
+                if ([child.identifier isEqual:@"candidate-status-divider"]) divider = child;
+                if ([child.identifier isEqual:@"candidate-status"]) status = (id)child;
+                if ([child.identifier isEqual:@"candidate-header-ornament"]) ornament = child;
+                if ([child.identifier isEqual:@"candidate-header-rule"]) rule = child;
+            }
+            assert(preeditField && divider && status && ornament && rule && preview && first);
+            assert([status.stringValue isEqual:@"全拼 · 中 · 简"]);
+            assert([preview.title isEqual:@"一行白鹭"] && [preview.candidateID isEqual:cloudRow[@"id"]]);
+            assert(preview.action == @selector(selectCandidate:) && preview.target == controller);
+            assert([preview.accessibilityLabel isEqual:@"云候选：一行白鹭"]);
+            // 从左到右：拼音、竖线、状态、预览、装饰，互不重叠，都在卡片里；细线在首行和候选行之间。
+            const CGFloat cardWidth = layoutPanel.contentView.bounds.size.width;
+            assert(NSMaxX(preeditField.frame) <= NSMinX(divider.frame) && NSMaxX(divider.frame) <= NSMinX(status.frame));
+            assert(NSMaxX(status.frame) <= NSMinX(preview.frame) && NSMaxX(preview.frame) <= NSMinX(ornament.frame));
+            assert(NSMaxX(ornament.frame) <= cardWidth);
+            assert(NSMinY(rule.frame) >= NSMaxY(first.frame) && NSMaxY(rule.frame) <= NSMinY(preeditField.frame) + 1);
+            layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+            [controller refreshCandidateSkin];
+            auto headerTokens = [appearance resolvedSkinForDark:NO].tokens;
+            if (((MSIMECandidateChromeView *)layoutPanel.contentView).liquidGlassActive)
+                msime::mac::ApplyNativeGlassCandidateContrast(headerTokens, NO);
+            assert([status.textColor isEqual:[SkinColor(headerTokens.number) colorWithAlphaComponent:headerTokens.number.a * 0.8]]);
+            assert([((MSIMECandidateHeaderOrnamentView *)ornament).tintColor isEqual:SkinColor(headerTokens.accent)]);
+            assert([preview.contentTintColor isEqual:SkinColor(headerTokens.accent)]);
+
+            // 没有云候选和 AI 候选时不画预览；英文候选时状态是「英」，不写简繁。首行的内容不改变卡片宽度，中英切换时卡片不伸缩。
+            NSMutableArray *plainCandidates = [headerCandidates mutableCopy];
+            plainCandidates[1] = @{@"text": @"一行代码", @"source": @0, @"id": aiRow[@"id"]};
+            plainCandidates[2] = @{@"text": @"一行白鹭", @"source": @0, @"id": cloudRow[@"id"]};
+            headerView[@"candidates"] = plainCandidates;
+            [controller setValue:[headerView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(!PageButton(layoutPanel.contentView, -4));
+            const CGFloat chineseWidth = layoutPanel.frame.size.width;
+            headerView[@"dedicated_english"] = @YES;
+            [controller setValue:[headerView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(layoutPanel.frame.size.width == chineseWidth);
+            status = nil;
+            for (NSView *child in MSIMECandidateControlsView(layoutPanel.contentView).subviews)
+                if ([child.identifier isEqual:@"candidate-status"]) status = (id)child;
+            assert([status.stringValue isEqual:@"全拼 · 英"]);
+
+            // 关掉候选窗拼音时，状态、预览和装饰随拼音一起不画。
+            appearance.showsCandidatePreedit = NO;
+            headerView[@"candidates"] = headerCandidates;
+            [controller setValue:[headerView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(!PageButton(layoutPanel.contentView, -4));
+            for (NSView *child in MSIMECandidateControlsView(layoutPanel.contentView).subviews)
+                assert(![child.identifier isEqual:@"candidate-status"] && ![child.identifier isEqual:@"candidate-header-ornament"]);
+            appearance.showsCandidatePreedit = YES;
+            appearance.preeditFontSize = savedPreeditSize;
+            appearance.vertical = savedVertical;
+
+            // 卡片窄到放不下时先让出装饰和状态：只有一个短候选、拼音很长时，拼音拿到首行余下的全部宽度。
+            NSMutableDictionary *narrowView = [headerView mutableCopy];
+            narrowView[@"dedicated_english"] = @NO;
+            narrowView[@"preedit"] = @"yi'hang'bai'lu'shang'qing'tian";
+            narrowView[@"editing_text"] = @"yihangbailushangqingtian";
+            narrowView[@"caret_position"] = @24;
+            narrowView[@"candidates"] = @[headerCandidates[0]];
+            [controller setValue:[narrowView copy] forKey:@"view"];
+            [controller renderCandidates];
+            for (NSView *child in MSIMECandidateControlsView(layoutPanel.contentView).subviews) {
+                assert(![child.identifier isEqual:@"candidate-status"] && ![child.identifier isEqual:@"candidate-header-ornament"]);
+                if ([child.identifier isEqual:@"candidate-preedit"])
+                    assert(NSMaxX(child.frame) <= layoutPanel.contentView.bounds.size.width);
+            }
+        }
         [controller setValue:pageView forKey:@"view"];
         NSString *installedFamily = [NSFont fontWithName:@"Menlo" size:18].familyName;
         assert(installedFamily);

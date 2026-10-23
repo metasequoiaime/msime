@@ -171,7 +171,10 @@ message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
 set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${MSIME_MACOS_VERSION}")
 add_compile_definitions(MSIME_MACOS_VERSION_STRING="${MSIME_MACOS_VERSION}")
 set(MSIME_INPUT_SOURCE_REVISION "" CACHE STRING "写入输入法 bundle 的源码修订")
-if(MSIME_INPUT_SOURCE_REVISION AND NOT MSIME_INPUT_SOURCE_REVISION MATCHES "^[0-9A-Fa-f]{7,64}$")
+# CMake 的正则不支持 `{m,n}` 计数量词，写进正则的长度限制会让任何修订都不匹配，所以长度单独检查。
+string(LENGTH "${MSIME_INPUT_SOURCE_REVISION}" MSIME_INPUT_SOURCE_REVISION_LENGTH)
+if(MSIME_INPUT_SOURCE_REVISION AND (NOT MSIME_INPUT_SOURCE_REVISION MATCHES "^[0-9A-Fa-f]+$" OR
+   MSIME_INPUT_SOURCE_REVISION_LENGTH LESS 7 OR MSIME_INPUT_SOURCE_REVISION_LENGTH GREATER 64))
   message(FATAL_ERROR "MSIME_INPUT_SOURCE_REVISION must be a hexadecimal source revision")
 endif()
 set(MSIME_INPUT_SOURCE_REVISION_PLIST "")
@@ -996,6 +999,7 @@ target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framewor
 add_test(NAME shortcut COMMAND shortcut-test)
 add_test(NAME shortcut-vim-mode COMMAND shortcut-test --vim-mode)
 add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
+add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")

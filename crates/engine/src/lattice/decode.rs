@@ -82,6 +82,39 @@ pub struct LatticeOptions<'a> {
 /// 多字词每音节奖励，并扣一份作为每词插入代价。九宫格跨切分比较再扣音节奖励，保留已经计入的每词代价，见 `nine_key::comparable_weight`。
 pub const PHRASE_LENGTH_BONUS: f64 = 20.0;
 
+/// 句末语气词：整句最后一条边是这些单字之一、前面还有别的词时，加 `SENTENCE_FINAL_PARTICLE_BONUS`。n-gram 表只有句首记号、没有句尾，又是从维基百科统计的，几乎见不到口语句尾，「债券吗」「标注呀」只能按单字词频和同码或同音的「那」「亚」比，十有八九输掉。
+pub const SENTENCE_FINAL_PARTICLES: &[char] = &[
+    '啊', '呀', '吧', '呢', '吗', '啦', '嘛', '哦', '哇', '呗', '咯', '喽',
+];
+
+/// 句末语气词的加分（自然对数）。在 `resources/eval/sentences-particles-v1.tsv` 的一半上从 2 到 5 扫过，3 是现有评测集一项都不退步时最大的值：再大，九键长句集里原本找得到的金标准会被挤出列表。
+pub const SENTENCE_FINAL_PARTICLE_BONUS: f64 = 3.0;
+
+/// 叠字叹词（啊啊、呃呃）不是词组，不拿多音节的词组奖励，按单字口径计分。否则九宫格上 `22` 的「啊啊」凭奖励压过「吧」，「相关吧」变成「相关啊啊」。
+const REDUPLICATED_INTERJECTIONS: &[char] = &[
+    '啊', '呃', '哦', '嗯', '呀', '哇', '噢', '唉', '哎', '喔', '诶', '额', '谔',
+];
+
+fn is_sentence_final_particle(word: &str) -> bool {
+    let mut chars = word.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None) if SENTENCE_FINAL_PARTICLES.contains(&c))
+}
+
+/// 计词组奖励时这个词算几个音节：叠字叹词只算一个。
+fn bonus_syllables(word: &str, syllables: usize) -> usize {
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return syllables;
+    };
+    let reduplicated =
+        syllables > 1 && REDUPLICATED_INTERJECTIONS.contains(&first) && chars.all(|c| c == first);
+    if reduplicated {
+        1
+    } else {
+        syllables
+    }
+}
+
 impl Default for LatticeOptions<'_> {
     fn default() -> Self {
         Self {
@@ -400,6 +433,11 @@ pub(super) fn build_graph(
                         if row.value.is_empty() {
                             continue;
                         }
+                        let log_prob = edge_log_prob(
+                            row.weight,
+                            bonus_syllables(&row.value, end - start),
+                            options,
+                        );
                         edges.push(Edge {
                             end,
                             word: row.value,
@@ -408,7 +446,7 @@ pub(super) fn build_graph(
                             } else {
                                 row.key
                             },
-                            log_prob: edge_log_prob(row.weight, end - start, options),
+                            log_prob,
                             typo: false,
                         });
                     }
@@ -479,7 +517,11 @@ pub(super) fn build_graph_borrowed<'rows>(
                             } else {
                                 row.key.clone()
                             },
-                            log_prob: edge_log_prob(row.weight, end - start, options),
+                            log_prob: edge_log_prob(
+                                row.weight,
+                                bonus_syllables(&row.value, end - start),
+                                options,
+                            ),
                             typo: false,
                         });
                     }
@@ -807,6 +849,9 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
                 if let Some((scorer, tail)) = collocation {
                     // 句尾词把 is_rear 置真：`.gram` 的「词+$」rear 项据此参与打分。
                     score += options.collocation_weight * scorer(tail, &edge.word, edge.end == n);
+                }
+                if edge.end == n && hyp.edge.is_some() && is_sentence_final_particle(&edge.word) {
+                    score += SENTENCE_FINAL_PARTICLE_BONUS;
                 }
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
@@ -1313,6 +1358,36 @@ pub(super) mod tests {
         assert_eq!(paths[0].key, "gao'tan'gang'nie'zi");
         assert_eq!(paths[0].words, ["高", "碳钢", "镊子"]);
         assert_eq!(paths[0].typo_edges, 0);
+    }
+
+    #[test]
+    fn a_sentence_final_particle_beats_a_commoner_homophone() {
+        let rows = table(&[
+            ("zhai'quan", &[("债券", 5000)]),
+            ("ma", &[("马", 9000), ("吗", 3000)]),
+        ]);
+        assert_eq!(
+            best("zhai'quan'ma", &rows, &LatticeOptions::default()),
+            "债券吗"
+        );
+    }
+
+    #[test]
+    fn the_particle_bonus_is_only_for_the_last_word() {
+        let rows = table(&[
+            ("ma", &[("马", 9000), ("吗", 3000)]),
+            ("shang", &[("上", 9000)]),
+        ]);
+        assert_eq!(best("ma'shang", &rows, &LatticeOptions::default()), "马上");
+    }
+
+    #[test]
+    fn reduplicated_interjections_take_no_phrase_bonus() {
+        assert_eq!(bonus_syllables("啊啊", 2), 1);
+        assert_eq!(bonus_syllables("呃呃呃", 3), 1);
+        assert_eq!(bonus_syllables("爸爸", 2), 2);
+        assert_eq!(bonus_syllables("哈哈", 2), 2);
+        assert_eq!(bonus_syllables("啊", 1), 1);
     }
 
     /// test_pinyin.cpp:598-612.

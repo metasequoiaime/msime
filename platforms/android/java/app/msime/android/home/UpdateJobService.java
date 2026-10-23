@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * 自动更新：开关打开后每天一次（需要联网）在后台检查更新，有新版本就下载、核对 SHA-256 与签名，再发一条通知，点了交给系统安装器。系统安装器必须由用户确认，所以这里从不静默安装。
  *
- * <p>开关默认关闭，和更新通道一起存在宿主自己的 `msime_home_v1` 里，不进共享偏好、不同步：这是这台设备上这个安装包的事。从 Google Play 安装的包（安装来源是 `com.android.vending`）不做自更新，Play 的政策不允许，关于页也不显示这几项。
+ * <p>开关默认关闭，和更新通道一起存在宿主自己的 `msime_home_v1` 里，不进共享偏好、不同步：这是这台设备上这个安装包的事。由 Google Play 负责更新的包（为 Play 打的包，或安装来源是 `com.android.vending`，见 {@link #updatedByPlay}）不做自更新，Play 的政策不允许，关于页也不显示这几项。
  *
  * <p>这里同时放着关于页和后台任务共用的几个静态方法：读写这两项设置、排程、判断安装来源、当前版本、把核对过的安装包交给系统安装器。
  */
@@ -49,7 +49,7 @@ public final class UpdateJobService extends JobService {
 
     @Override public boolean onStartJob(JobParameters params) {
         Context context = getApplicationContext();
-        if (!autoUpdate(context) || installedFromPlay(context)) return false;
+        if (!autoUpdate(context) || updatedByPlay(context)) return false;
         worker = ThreadPolicy.namedThread("msime-update-job", () -> {
             boolean retry = false;
             try {
@@ -121,10 +121,9 @@ public final class UpdateJobService extends JobService {
         scheduler.schedule(job);
     }
 
-    /** 安装来源是 Google Play 时为真；读不出来源时按不是 Play 处理。 */
-    @SuppressWarnings("deprecation")
-    static boolean installedFromPlay(Context context) {
-        return PLAY_STORE.equals(installer(context));
+    /** 这个安装包由 Google Play 负责更新：为 Play 打的包（{@link AppVersionPolicy#playDistribution()}，不论经什么途径装上，它都没有安装未知应用的权限），或者安装来源是 Google Play。读不出安装来源时按不是 Play 处理。 */
+    static boolean updatedByPlay(Context context) {
+        return AppVersionPolicy.playDistribution() || PLAY_STORE.equals(installer(context));
     }
 
     @SuppressWarnings("deprecation")

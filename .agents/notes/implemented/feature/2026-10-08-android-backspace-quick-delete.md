@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+#9324 的[同次按压左右滑动](2026-10-23-android-backspace-scrub.md)补充逐步删除与恢复；水平激活和原有上下滑阶段互斥，原有快速删除及其跨按压撤回规则保留。
+
 - 连删逐级加速（`BackspaceRepeatPolicy`）：按下立即删一次，420 ms 后开始连删，前 8 次每 70 ms，接下来 12 次每 45 ms，之后每 30 ms。`ImeLetterRows.bindBackspaceRepeat` 的连删任务自己数次数，按 `repeatInterval(repeats)` 排下一次。起步的 420 ms 和第一档 70 ms 不变，所以短按和刚开始按住的手感与原来一样。
 - 没有撤回备份且没有组字时，420 ms 的首轮连删同时显示非待命的「快速删除」提示；手指仍在键内时继续连删。提示本身不把手势切到 `REVEALED`，所以原地松手不会清空。存在 #8325 的备份时沿用「下滑撤回」，不显示相反方向的清空提示；组字长按仍只丢弃整个音节。
 - 九键启动时第一份会话快照可能落后于实际绘制布局；响应应用按已画出的键区判断是否重建，保住正在按压的删除键。具体状态边界归[九键首帧一致性](../bug-fix/2026-10-11-android-shuangpin-hint-profile-hint.md)。
