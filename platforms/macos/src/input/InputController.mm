@@ -3728,6 +3728,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
         traditionalChineseOutputEnabled:_appearance.traditionalOutput];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
+    _expandedViewportRowsHeight = 0;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
@@ -5833,6 +5834,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // 选中的皮肤包被同名替换（MCP 的 `create_candidate_skin` 带 replace、皮肤编辑器、图库重装）时选择没变，偏好文档的 revision 也不变，-completePreferenceLoad: 不会重新应用，旧的配色和装饰图会一直画到进程重启。这里问外观设置包是否换过（几次 stat），换过就让工具栏取新的调色板；候选窗的皮肤和装饰图在下一次绘制时从外观设置读。
 - (BOOL)applyReplacedSkinPackages {
     if (!_appearance || ![_appearance reloadReplacedSkinPackages]) return NO;
+    _expandedViewportRowsHeight = 0;
     [_toolbar reloadToolbarImages];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
@@ -8445,6 +8447,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         if ([self expandedCandidatesStillApply] && [self renderExpandedCandidates]) return;
         [self discardExpandedCandidates];
     }
+    // 普通候选页结束上一轮展开布局，不能把旧字号或皮肤的视口带到下一次展开。
+    _expandedViewportRowsHeight = 0;
     if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
@@ -8820,11 +8824,12 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const auto previousExtra = content.shadowOuterInsets;
     const BOOL shadowGeometryChanged = extra.top != previousExtra.top || extra.right != previousExtra.right ||
         extra.bottom != previousExtra.bottom || extra.left != previousExtra.left;
-    if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
+    if (tokens.showSelectedBar != _skinShowsSelectedBar) { _expandedViewportRowsHeight = 0; [self renderCandidates]; return; }
     // 明暗切换后画的是另一个槽位的包（或者这种明暗不画包）：装饰、最小宽度和圆角都跟着变，只换颜色不够，整页重排一次。重排结束时还会回到这里，那时包已经对上，不会再重排。面板没在屏幕上时不重排：重排会把它重新显示出来，下一次显示候选时本来就按当时的明暗排版。
     if ((skin.candidateSkin != _renderedCandidateSkin || shadowGeometryChanged) &&
         _panel.isVisible && !_rerenderingForCandidateSkin) {
         _rerenderingForCandidateSkin = YES;
+        _expandedViewportRowsHeight = 0;
         [self renderCandidates];
         _rerenderingForCandidateSkin = NO;
         return;

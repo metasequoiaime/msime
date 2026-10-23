@@ -3543,6 +3543,7 @@ static void TestExpandedCandidateGrid() {
     compose();
     assert(press(125) && expanded());
     const CGFloat viewportHeight = panel.frame.size.height;
+    const CGFloat viewportRowsHeight = NSHeight(((MSIMECandidateChromeView *)panel.contentView).candidateRowsRect);
     const CGFloat firstCandidateY = NSMinY(ExpandedGridSubview(panel, 0).frame);
     [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
     [controller renderCandidates];
@@ -3562,6 +3563,16 @@ static void TestExpandedCandidateGrid() {
     [controller renderCandidates];
     assert([[controller valueForKey:@"expandedFirstRow"] unsignedIntegerValue] == 0);
     assert(fabs([[controller valueForKey:@"expandedScrollOffset"] doubleValue]) < 0.01);
+    // 字号变更开启新的布局预算，后续像素滚动仍保持这个新高度。
+    prefs.candidateScalePercent = 150;
+    [controller appearanceChanged:nil];
+    const CGFloat scaledViewportHeight = panel.frame.size.height;
+    assert(NSHeight(((MSIMECandidateChromeView *)panel.contentView).candidateRowsRect) > viewportRowsHeight * 1.4);
+    [controller setValue:@(-8.0) forKey:@"expandedPendingScrollDelta"];
+    [controller renderCandidates];
+    assert(fabs(panel.frame.size.height - scaledViewportHeight) < 0.01);
+    prefs.candidateScalePercent = 100;
+    [controller appearanceChanged:nil];
     [controller closeExpandedCandidates];
     session.total = 23;
     session.pageSize = 5;
