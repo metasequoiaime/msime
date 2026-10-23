@@ -57,6 +57,23 @@ public static class SettingsWindowProbe {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct GuiThreadInfo {
+        public uint Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public Rect CaretRect;
+    }
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    public static bool HasMouseCapture(IntPtr owner) {
+        uint process;
+        uint thread = GetWindowThreadProcessId(owner, out process);
+        if (thread == 0) throw new InvalidOperationException("Synthetic settings window has no GUI thread");
+        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        if (!GetGUIThreadInfo(thread, ref info)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        return info.Capture != IntPtr.Zero && GetAncestor(info.Capture, 2) == owner;
+    }
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     public static void Wheel(int delta) { mouse_event(0x0800, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
     public static void MouseButton(bool pressed) { mouse_event(pressed ? 0x0002u : 0x0004u, 0, 0, 0, UIntPtr.Zero); }
@@ -359,6 +376,9 @@ function Show-CandidatePageSizeSlider($window) {
     $content = Find-ById $window 'settings-content'
     $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
     $seekFromTop = $false
+    $lastBounds = $null
+    $lastPercent = -1.0
+    $stable = 0
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         $slider = Find-CandidatePageSizeSlider $window
@@ -370,14 +390,25 @@ function Show-CandidatePageSizeSlider($window) {
             $bounds.Top -ge $viewport.Top -and $bounds.Bottom -le $viewport.Bottom
         if ($visible -and (-not $scroll.Current.VerticallyScrollable -or
             $bounds.Bottom -le $viewport.Top + $viewport.Height / 2 -or
-            $scroll.Current.VerticalScrollPercent -ge 100)) { return $slider }
-        if (-not $scroll.Current.VerticallyScrollable) { throw '候选数量滑块不可见且正文无法滚动' }
-        # 离屏元素可能没有可用矩形，从顶部向下找，不能由空矩形推断滚动方向。
-        if (-not $seekFromTop) {
-            $scroll.SetScrollPercent(-1, 0)
-            $seekFromTop = $true
+            $scroll.Current.VerticalScrollPercent -ge 100)) {
+            # Scroll 返回时滚动动画仍可能在移动；坐标与偏移连续稳定后才能按下滑块柄。
+            $percent = $scroll.Current.VerticalScrollPercent
+            if ($null -ne $lastBounds -and $bounds.Equals($lastBounds) -and
+                [Math]::Abs($percent - $lastPercent) -lt 0.001) { $stable++ } else { $stable = 0 }
+            if ($stable -ge 3) { return $slider }
+            $lastBounds = $bounds
+            $lastPercent = $percent
         } else {
-            $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, [System.Windows.Automation.ScrollAmount]::SmallIncrement)
+            $stable = 0
+            $lastBounds = $null
+            if (-not $scroll.Current.VerticallyScrollable) { throw '候选数量滑块不可见且正文无法滚动' }
+            # 离屏元素可能没有可用矩形，从顶部向下找，不能由空矩形推断滚动方向。
+            if (-not $seekFromTop) {
+                $scroll.SetScrollPercent(-1, 0)
+                $seekFromTop = $true
+            } else {
+                $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, [System.Windows.Automation.ScrollAmount]::SmallIncrement)
+            }
         }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -403,7 +434,7 @@ function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
     $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     while ($range.Current.Value -ne $expected -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
-    if ($range.Current.Value -ne $expected) { throw "候选数量滑块未变为 $expected" }
+    if ($range.Current.Value -ne $expected) { throw "候选数量滑块未变为 $expected，实际为 $($range.Current.Value)" }
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         $bounds = $slider.Current.BoundingRectangle
@@ -464,9 +495,15 @@ function Assert-CandidatePageSizeDrag($window, [string]$screenshotPrefix) {
             $startX = [int]($grip.Left + $grip.Width / 2)
             $y = [int]($grip.Top + $grip.Height / 2)
             $endX = if ($expected -eq 9) { [int]($bounds.Right - 1) } else { [int]($bounds.Left + 1) }
+            Write-Host "候选数量拖动起点=($startX,$y)，终点=($endX,$y)，滑块=$bounds，滑块柄=$grip"
             if (-not [SettingsWindowProbe]::SetCursorPos($startX, $y)) { throw '无法将鼠标放到滑块柄上' }
             try {
+                if ([SettingsWindowProbe]::HasMouseCapture($handle)) { throw '拖动前合成窗口已存在鼠标捕获' }
                 [SettingsWindowProbe]::MouseButton($true)
+                # 先确认按下已被目标窗口处理，避免在捕获建立前把鼠标移离滑块柄。
+                $deadline = [DateTime]::UtcNow.AddSeconds(5)
+                while (-not [SettingsWindowProbe]::HasMouseCapture($handle) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+                if (-not [SettingsWindowProbe]::HasMouseCapture($handle)) { throw '候选数量滑块按下后未获得鼠标捕获' }
                 # 分步输入形成真实拖动；读取标签前先完成第一次数值变化。
                 for ($step = 1; $step -le 8; $step++) {
                     $x = [int]($startX + ($endX - $startX) * $step / 8)
