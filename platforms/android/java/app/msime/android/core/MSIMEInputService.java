@@ -2458,6 +2458,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 本地设置里由服务直接持有的几项。 */
     private void applyLocalSettings() {
+        if (!localSettings.bool(AndroidLocalSettings.JAPANESE_TOGGLE)) imeLayoutRows.resetJapaneseToggle();
         toolbarPhrase = localSettings.bool(AndroidLocalSettings.TOOLBAR_PHRASE);
         toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);

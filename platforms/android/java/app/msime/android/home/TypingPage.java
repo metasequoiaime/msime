@@ -267,7 +267,8 @@ public final class TypingPage extends ReloadingDetailPage {
             if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
                 languages.toggle("日语九键连点切换", "同一个键在 1 秒内连续轻点时循环假名；关闭后连续轻点输入重复假名，四向滑动仍可选其他假名",
                     state.local().bool(AndroidLocalSettings.JAPANESE_TOGGLE),
-                    checked -> saveLocalSetting(AndroidLocalSettings.JAPANESE_TOGGLE, checked));
+                    checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.JAPANESE_TOGGLE, checked,
+                        this::reload, this::reload));
             }
         }
         if (!addable.isEmpty()) {
