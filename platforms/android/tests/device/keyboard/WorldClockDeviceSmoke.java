@@ -115,13 +115,29 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
         checkpoint("world clock editor focus");
         // 窗口事件可能先于可访问树到达；冷启动只等待准备条件，不重试功能断言。
         long deadline = SystemClock.uptimeMillis() + 60000;
-        while (find(automation.getRootInActiveWindow(), field("msime-test-plain")) == null) {
-            if (SystemClock.uptimeMillis() >= deadline)
+        while (!editorReady()) {
+            if (SystemClock.uptimeMillis() >= deadline) {
+                Bitmap screenshot = automation.takeScreenshot();
+                if (screenshot != null) {
+                    try (FileOutputStream output = new FileOutputStream(new File(
+                            getTargetContext().getCacheDir(), "world-clock-editor-not-ready.png"))) {
+                        screenshot.compress(Bitmap.CompressFormat.PNG, 100, output);
+                    } finally { screenshot.recycle(); }
+                }
                 throw new AssertionError("Synthetic editor accessibility window did not become ready");
+            }
             SystemClock.sleep(100);
         }
         tap(field("msime-test-plain"));
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
+    }
+
+    private boolean editorReady() {
+        // 输入法也可能成为活动窗口；编辑器准备状态应从全部交互窗口判断。
+        for (var window : automation.getWindows()) {
+            if (find(window.getRoot(), field("msime-test-plain")) != null) return true;
+        }
+        return false;
     }
 
     private void leaveEditor() {
