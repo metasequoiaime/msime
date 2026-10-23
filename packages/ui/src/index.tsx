@@ -374,6 +374,13 @@ export {
   type UseAiSkinGenerationOptions,
   type AiSkinGenerationState,
 } from "./keyboard/use-ai-skin-generation";
+export {
+  useTouchKeyboardSkinLibrary,
+  type TouchKeyboardSkinLibraryState,
+  type TouchSkinLibraryNameEditor,
+  type TouchSkinLibraryConfirmation,
+  type TouchSkinLibrarySaveResult,
+} from "./keyboard/use-touch-keyboard-skin-library";
 export type {
   AiSkinClient,
   AiSkinProposal,
