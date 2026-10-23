@@ -56,7 +56,7 @@ impl QuanpinDictionary {
             merged.push(item);
         }
         *candidates = merged;
-        self.cache.insert(code.to_string(), expanded);
+        self.cache.insert(code.to_string(), expanded.into());
         let segments = self.resolve_segments(raw, segmentation);
         let resolution = self.resolution(raw, segmentation, &segments, autocorrect_types);
         let key = self.series_slot(&series_cache_key(
@@ -192,7 +192,10 @@ fn expansion_preserves_foreign_rows_slots_order_and_owned_fields() {
             assert_eq!(after.series_cache.get_ref_by(&slot), Some(&actual));
             assert_eq!(before.series_cache.get_ref_by(&slot), Some(&expected));
             actual[1].word.push_str("修改副本");
-            assert_ne!(after.cache.get_ref_by("n").unwrap()[0].word, actual[1].word);
+            assert_ne!(
+                after.cache.get_ref_by("n").unwrap().copy_rows("n")[0].word,
+                actual[1].word
+            );
             after.reset_cache();
             drop(after);
             assert!(actual[1].word.ends_with("修改副本"));

@@ -2740,7 +2740,15 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 125);
+    let matched_rows = session
+        .snapshot()
+        .candidates
+        .iter()
+        .filter(|row| row.pinyin == "ni'h")
+        .count();
+    assert_eq!(matched_rows, 5);
+    // 此冷页的 5 份匹配读音变为 1 个 Box；原光标检测预算精确减少 4 次申请。
+    assert_eq!(allocations, 125 - (5 - 1));
 }
 
 #[test]
