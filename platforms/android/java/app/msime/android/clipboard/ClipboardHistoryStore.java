@@ -31,6 +31,49 @@ public final class ClipboardHistoryStore {
         this.directory = directory == null ? null : directory.getAbsolutePath();
     }
 
+    public record Category(String id, String name) {}
+    public record Catalog(List<Category> categories, int maxCategories, int maxNameCharacters) {}
+    private List<Category> categories = List.of();
+
+    public List<Category> categories() { return categories; }
+
+    public Catalog catalog() {
+        JSONObject value = request("categories", null, false);
+        if (value == null) throw new IllegalStateException("Clipboard categories unavailable");
+        return new Catalog(parseCategories(value), value.optInt("maxCategories"), value.optInt("maxNameCharacters"));
+    }
+
+    public boolean addCategory(String name) { return categoryAction("add_category", null, name, null); }
+    public boolean renameCategory(String id, String name) { return categoryAction("rename_category", id, name, null); }
+    public boolean removeCategory(String id) { return categoryAction("remove_category", id, null, null); }
+    public boolean setCategory(String text, String id) { return categoryAction("set_category", id, null, text); }
+
+    private boolean categoryAction(String operation, String id, String name, String text) {
+        try {
+            JSONObject action = new JSONObject().put("operation", operation);
+            if (id != null) action.put("id", id);
+            if (name != null) action.put("name", name);
+            if (text != null) action.put("text", text);
+            JSONObject value = send(action);
+            return value != null && JsonPolicy.strictTrue(value.opt("updated"));
+        } catch (JSONException | LinkageError error) {
+            throw new IllegalStateException("Clipboard category operation unavailable", error);
+        }
+    }
+
+    private List<Category> parseCategories(JSONObject value) {
+        JSONArray values = value.optJSONArray("categories");
+        if (values == null) throw new IllegalStateException("Clipboard categories unavailable");
+        List<Category> result = new ArrayList<>();
+        for (int index = 0; index < values.length(); index++) {
+            JSONObject category = values.optJSONObject(index);
+            if (category == null || !(category.opt("id") instanceof String)
+                || !(category.opt("name") instanceof String)) throw new IllegalStateException("Invalid clipboard category");
+            result.add(new Category(category.optString("id"), category.optString("name")));
+        }
+        return List.copyOf(result);
+    }
+
     public List<ClipboardHistory.Item> load() {
         return entries(request("load", null, false));
     }
@@ -79,7 +122,7 @@ public final class ClipboardHistoryStore {
             JSONArray entries = new JSONArray();
             for (ClipboardHistory.Item item : items) entries.put(new JSONObject()
                 .put("text", item.text()).put("timestampMs", item.timestamp())
-                .put("pinned", item.pinned()));
+                .put("pinned", item.pinned()).put("categoryId", item.categoryId()));
             request("restore_many", entries);
         } catch (JSONException error) {
             throw new IllegalArgumentException("Clipboard history restore entries are invalid", error);
@@ -205,13 +248,16 @@ public final class ClipboardHistoryStore {
             Boolean pinned = JsonPolicy.strictBoolean(entry.opt("pinned"));
             if (text != null && pinned != null)
                 items.add(new ClipboardHistory.Item(text,
-                    ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned));
+                    ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned,
+                    JsonPolicy.strictString(entry.opt("categoryId"))));
         }
         return items;
     }
 
     private List<ClipboardHistory.Item> entries(JSONObject value) {
         updateLimit(value);
+        if (value == null) throw new IllegalStateException("Clipboard history unavailable");
+        categories = parseCategories(value);
         List<ClipboardHistory.Item> items = new ArrayList<>(limit);
         JSONArray entries = value == null ? null : value.optJSONArray("entries");
         if (entries == null) return items;
@@ -225,7 +271,8 @@ public final class ClipboardHistoryStore {
                 ? Boolean.FALSE : JsonPolicy.strictBoolean(rawPinned);
             if (pinned == null) continue;
             items.add(new ClipboardHistory.Item(text,
-                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned));
+                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned,
+                    JsonPolicy.strictString(entry.opt("categoryId"))));
         }
         return items;
     }

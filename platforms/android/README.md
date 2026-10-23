@@ -394,6 +394,8 @@ APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由�
 
 ## 专用模拟器验收
 
+剪贴板手动分类专项：安装当前分支的全功能原生 APK 并准备词库后，运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/clipboard-categories.sh <serial>`。API 28、35 都要执行；专项复用一个测试清单入口，不改变产品清单。用例备份并恢复私有合成状态，实际创建分类、移动记录、筛选、改名、重绑输入法后重读、删除分类保留正文，以及滚动后的固定顶栏和返回顶部。`ToolbarEdgesDeviceSmoke` 另检查 320/600dp 下的固定布局和返回顶部显隐。分类最多五个，名称最多十二个 Unicode 字素；分类与剪贴板正文一样只保存在本机，不进入现有备份或云同步。
+
 系统自动填充专项：构建当前原生宿主 APK 后运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/inline-autofill.sh emulator-5580`，API 28 用 `emulator-5566`。测试包的合成服务只提供固定虚构账号，API 35 验证真实内联请求、系统远程视图、隐藏／再显示、切框、空响应和系统多字段填充；API 28 验证旧菜单填充。退出时恢复原填充服务。专项替换默认设备套件的一个 instrumentation 入口，不增加系统限定的 100 项数量；下次运行普通 `build-editor.sh` 会恢复默认入口。内联功能需要 Android 11 以上、支持它的填充服务及提供填充信息的应用；不支持时由系统显示原有菜单。
 
 预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像，也不自动接受 SDK 许可。

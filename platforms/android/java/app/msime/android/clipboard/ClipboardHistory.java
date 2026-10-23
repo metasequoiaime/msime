@@ -22,8 +22,14 @@ public final class ClipboardHistory {
         private final String text;
         private final long timestamp;
         private final boolean pinned;
+        private final String categoryId;
 
         public Item(String text, long timestamp, boolean pinned) {
+            this(text, timestamp, pinned, null);
+        }
+
+        public Item(String text, long timestamp, boolean pinned, String categoryId) {
+            this.categoryId = categoryId;
             this.text = text;
             this.timestamp = timestamp;
             this.pinned = pinned;
@@ -32,5 +38,6 @@ public final class ClipboardHistory {
         public String text() { return text; }
         public long timestamp() { return timestamp; }
         public boolean pinned() { return pinned; }
+        public String categoryId() { return categoryId; }
     }
 }

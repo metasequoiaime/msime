@@ -6432,6 +6432,70 @@ fn mobile_clipboard_uses_structured_actions() {
 }
 
 #[test]
+fn mobile_clipboard_categories_validate_and_preserve_entry_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request =
+            serde_json::to_vec(&json!({"directory": directory.path(), "action": action})).unwrap();
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+    };
+    let limits = call(json!({"operation": "categories"}));
+    assert_eq!(limits["value"]["maxCategories"], 5);
+    assert_eq!(limits["value"]["maxNameCharacters"], 12);
+    for name in ["", "未分类", "带\n换行", "超过十二个字的分类名称不允许保存"]
+    {
+        assert_eq!(
+            call(json!({"operation": "add_category", "name": name}))["ok"],
+            false
+        );
+    }
+    assert_eq!(
+        call(json!({"operation": "add_category", "name": "合成分类"}))["value"]["updated"],
+        true
+    );
+    assert_eq!(
+        call(json!({"operation": "add_category", "name": "合成分类"}))["ok"],
+        false
+    );
+    let category = call(json!({"operation": "categories"}))["value"]["categories"][0].clone();
+    let id = category["id"].as_str().unwrap();
+    call(json!({"operation": "capture", "text": "synthetic category entry"}));
+    assert_eq!(
+        call(json!({"operation": "set_category", "text": "synthetic category entry", "id": id}))
+            ["value"]["updated"],
+        true
+    );
+    assert_eq!(
+        call(json!({"operation": "rename_category", "id": id, "name": "改名"}))["value"]["updated"],
+        true
+    );
+    let snapshot = call(json!({"operation": "load"}));
+    assert_eq!(snapshot["value"]["categories"][0]["name"], "改名");
+    assert_eq!(snapshot["value"]["entries"][0]["categoryId"], id);
+    assert_eq!(
+        call(
+            json!({"operation": "set_category", "text": "synthetic category entry", "id": "absent"})
+        )["ok"],
+        false
+    );
+    assert_eq!(
+        call(json!({"operation": "remove_category", "id": id}))["value"]["updated"],
+        true
+    );
+    let snapshot = call(json!({"operation": "load"}));
+    assert_eq!(
+        snapshot["value"]["entries"][0]["text"],
+        "synthetic category entry"
+    );
+    assert!(snapshot["value"]["entries"][0].get("categoryId").is_none());
+    assert_eq!(
+        call(json!({"operation": "set_category", "text": "synthetic category entry"}))["value"]
+            ["updated"],
+        true
+    );
+}
+
+#[test]
 fn mobile_clipboard_replace_edits_in_place_and_reports_why_it_did_not() {
     let directory = tempfile::tempdir().unwrap();
     let call = |action: Value| {

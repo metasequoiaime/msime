@@ -235,3 +235,5 @@ platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
 platforms/android/tests/device/keyboard/PortraitSplitDeviceChecks.java
 platforms/android/tests/device/keyboard/KeyboardFeedbackDeviceChecks.java
 platforms/android/tests/device/candidate/RelativeDateDeviceSmoke.java
+
+platforms/android/tests/device/clipboard/ClipboardCategoriesDeviceSmoke.java

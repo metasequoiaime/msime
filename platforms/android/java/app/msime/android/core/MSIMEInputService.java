@@ -192,6 +192,7 @@ public final class MSIMEInputService extends InputMethodService {
     ScrollView clipboardScroll;
     FrameLayout clipboardSurface;
     LinearLayout clipboardHeader;
+    Button clipboardBackToTop;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -5842,6 +5843,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeClipboardHistory() {
+        imePanels.resetClipboardCategoryPicker();
         imePanels.dismissClipboardPreview();
         if (clipboardSurface != null) ViewPolicy.hide(clipboardSurface);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
@@ -7524,6 +7526,13 @@ public final class MSIMEInputService extends InputMethodService {
         openHostPage(ClipboardHistoryPolicy.EDIT_PAGE, args);
     }
 
+    /** 从键盘进入原生分类设置页，避免回程补读已处理过的系统剪贴板。 */
+    void openClipboardCategories() {
+        forgetCurrentClip();
+        closeClipboardHistory();
+        openHostPage("CLIPBOARD_CATEGORIES");
+    }
+
     /**
      * 面板顶行的「搜索」（#5973）：打开应用里可搜索的剪贴板历史页，在那里输入查询、复制、编辑或删除。键盘里没有可输入的文本框，查询框放在应用里，和编辑（#5971）一样；页面读的是同一份共享存储。
      *
@@ -9074,6 +9083,14 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardScrollParams.topMargin = pixels(32);
         clipboardSurface.addView(clipboardScroll, clipboardScrollParams);
         clipboardSurface.addView(clipboardHeader, LayoutPolicy.frameMatchWidthWrapParams());
+        clipboardBackToTop = imePanels.buildClipboardBackToTop();
+        FrameLayout.LayoutParams backToTopParams = new FrameLayout.LayoutParams(pixels(44), pixels(44),
+            Gravity.BOTTOM | Gravity.END);
+        backToTopParams.setMarginEnd(pixels(8));
+        backToTopParams.bottomMargin = pixels(8);
+        ViewPolicy.hide(clipboardBackToTop);
+        clipboardSurface.addView(clipboardBackToTop, backToTopParams);
+        clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
         schemePanel = LayoutPolicy.column(this);
