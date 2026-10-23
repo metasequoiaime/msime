@@ -664,6 +664,12 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
     const bool isCtrl = IsControlVk(code);
     const bool isOtherModifier = IsAltVk(code) || IsWinVk(code);
 
+    // TSF 直接处理的键可能不到线程钩子，两条路径必须共同取消单按判定。
+    if (!isShift)
+    {
+        _bareShiftArmed = false;
+    }
+
     if (!isShift && !isCtrl && !isOtherModifier)
     {
         _shiftHotkeyArmed = false;
