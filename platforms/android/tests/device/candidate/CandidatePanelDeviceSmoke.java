@@ -21,6 +21,7 @@ import org.json.JSONObject;
 public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     private boolean stripPartialSelection;
     private boolean continuousStrip;
+    private volatile int stripScrollX;
 
     @Override public void onCreate(Bundle arguments) {
         stripPartialSelection = arguments != null && "true".equals(arguments.getString("strip-partial-selection"));
@@ -131,6 +132,12 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 .put("enabled", new JSONArray().put("quanpin")).put("selected", "quanpin"));
         long revision = original == null ? 1
             : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision") + 1;
+        automation.setOnAccessibilityEventListener(event -> {
+            if (event.getEventType() == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SCROLLED
+                    && equalsText("app.msime.android", event.getPackageName())
+                    && equalsText("android.widget.HorizontalScrollView", event.getClassName()))
+                stripScrollX = event.getScrollX();
+        });
         try {
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision)
                 .put("preferences", configured).toString().getBytes(StandardCharsets.UTF_8));
@@ -138,7 +145,7 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));
-            stage = "continuous strip Chinese mode";
+            continuousStage("continuous strip Chinese mode");
             Predicate<AccessibilityNodeInfo> language = node -> node.isClickable()
                 && node.getContentDescription() != null
                 && node.getContentDescription().toString().startsWith("切换到");
@@ -147,12 +154,12 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             Class<?> nativeType = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
             options.put("preferences", configured).put("phrase_preedit", true);
             for (String letters : new String[] {"wo", "m"}) {
-                stage = "prepare independent synthetic candidates " + letters;
+                continuousStage("prepare independent synthetic candidates " + letters);
                 JSONArray expected = syntheticCandidates(nativeType, options, letters);
                 int target = letters.equals("wo") ? expected.length() : 70;
                 if (target <= 9 || target > expected.length())
                     throw new AssertionError("合成候选未覆盖分页或追加边界");
-                stage = "compose horizontal candidates " + letters;
+                continuousStage("compose horizontal candidates " + letters);
                 for (char letter : letters.toCharArray()) tap(described("字母 " + Character.toUpperCase(letter)));
                 AccessibilityNodeInfo first = await(candidate(1));
                 AccessibilityNodeInfo scroller = first.getParent();
@@ -161,15 +168,15 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 if (scroller == null) throw new AssertionError("横向候选条不可用");
                 Rect viewport = new Rect();
                 scroller.getBoundsInScreen(viewport);
-                stage = "swipe beyond page and batch to " + target;
-                swipeTo(candidate(target), scroller, viewport, true);
+                continuousStage("swipe beyond page and batch to " + target);
+                swipeTo(target, scroller, viewport, true);
                 String expectedText = expected.getJSONObject(target - 1).getString("text");
                 if (!expectedText.equals(candidateText(await(candidate(target)))))
                     throw new AssertionError("完整候选顺序变化");
-                stage = "return to first candidate without expansion";
-                swipeTo(candidate(1), scroller, viewport, false);
-                stage = "return to later candidate and touch commit";
-                swipeTo(candidate(target), scroller, viewport, true);
+                continuousStage("return to first candidate without expansion");
+                swipeTo(1, scroller, viewport, false);
+                continuousStage("return to later candidate and touch commit");
+                swipeTo(target, scroller, viewport, true);
                 touch(candidate(target));
                 await(field("msime-test-plain").and(node -> equalsText(expectedText, node.getText())));
                 awaitGone(describedPrefix("候选 "));
@@ -183,6 +190,7 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             shellDiscard("screencap -p /sdcard/msime-candidate-strip-failure.png");
             throw error;
         } finally {
+            automation.setOnAccessibilityEventListener(null);
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
@@ -191,6 +199,13 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             if (!editor.commit()) throw new AssertionError("输入模式恢复失败");
             restartIme();
         }
+    }
+
+    private void continuousStage(String value) {
+        stage = value;
+        Bundle progress = new Bundle();
+        progress.putString("stream", "候选条专项阶段：" + value + "\n");
+        sendStatus(0, progress);
     }
 
     private JSONArray syntheticCandidates(Class<?> nativeType, JSONObject options, String letters) throws Exception {
@@ -212,9 +227,9 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
         return result.getJSONObject("value");
     }
 
-    private void swipeTo(Predicate<AccessibilityNodeInfo> target, AccessibilityNodeInfo scroller,
+    private void swipeTo(int ordinal, AccessibilityNodeInfo scroller,
                          Rect viewport, boolean forward) throws Exception {
-        String previous = "";
+        int previousX = Integer.MIN_VALUE;
         int stationary = 0;
         for (int attempt = 0; attempt < 220; attempt++) {
             dropStaleNodes();
@@ -228,34 +243,28 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 });
                 scroller.getBoundsInScreen(viewport);
             }
+            if (viewport.width() < 100 || viewport.height() < 20)
+                throw new AssertionError("候选条触摸范围无效");
             AccessibilityNodeInfo row = scroller.getChild(0);
             if (row == null || !row.refresh()) throw new AssertionError("候选条内容消失");
-            StringBuilder signature = new StringBuilder();
-            // 只检查候选行，避免每次横滑都刷新整块键盘和无关编辑器节点。
-            for (int index = 0; index < row.getChildCount(); index++) {
-                AccessibilityNodeInfo node = row.getChild(index);
-                if (node == null || android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) continue;
-                if (target.test(node)) {
-                    node.refresh();
-                    Rect bounds = new Rect();
-                    node.getBoundsInScreen(bounds);
-                    if (node.isVisibleToUser() && bounds.width() > 10
-                            && bounds.centerX() > viewport.left + 8
-                            && bounds.centerX() < viewport.right - 8) return;
-                }
-                if (node.isVisibleToUser()) {
-                    Rect bounds = new Rect();
-                    node.getBoundsInScreen(bounds);
-                    signature.append(node.getContentDescription()).append(bounds.toShortString());
-                }
+            // 此专项关闭云候选与混合输入，节点按完整候选的序号排列。只刷新目标，
+            // 通过真实滚动事件判定进展，避免 API 28 每帧刷新全部候选的 Binder 开销。
+            AccessibilityNodeInfo node = ordinal <= row.getChildCount() ? row.getChild(ordinal - 1) : null;
+            if (node != null && node.refresh() && candidate(ordinal).test(node)) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (node.isVisibleToUser() && bounds.width() > 10
+                        && bounds.centerX() > viewport.left + 8
+                        && bounds.centerX() < viewport.right - 8) return;
             }
-            String current = signature.toString();
-            stationary = current.equals(previous) ? stationary + 1 : 0;
+            int currentX = stripScrollX;
+            stationary = currentX == previousX ? stationary + 1 : 0;
             if (stationary >= 4) {
                 shellDiscard("screencap -p /sdcard/msime-candidate-strip-failure.png");
-                throw new AssertionError("横向候选已停止滚动，但目标仍不可见；已建 " + row.getChildCount() + " 项");
+                throw new AssertionError("横向候选已停止滚动，但目标仍不可见；已建 " + row.getChildCount()
+                    + " 项，目标 " + ordinal + "，偏移 " + currentX);
             }
-            previous = current;
+            previousX = currentX;
             int left = viewport.left + 15, right = viewport.right - 15;
             dragStrip(forward ? right : left, forward ? left : right, viewport.centerY());
         }
