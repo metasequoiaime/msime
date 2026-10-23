@@ -144,7 +144,7 @@ test.each([
   ["dictionary", "downloading", "管理词库、词条与常用表达。"],
   ["voice", "notes", "配置语音识别、服务与输入快捷键。"],
   ["tools", "sync", "设置剪贴板历史的保存与云端同步。"],
-  ["skin", "welcome", "挑选主题，调整输入界面的外观。"],
+  ["skin", "welcome", "选择皮肤与配色；候选窗口的布局、字体和显示方式在「候选窗口」中设置。"],
   ["account", "sync", "管理账号与跨设备设置同步。"],
 ] as const)("%s 页首使用对应场景并保留可用的页面内容", async (initialPage, scene, description) => {
   const { container } = render(

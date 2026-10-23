@@ -36,6 +36,23 @@ const CONFLICT_RETRIES = 3;
 
 const mergedNotice = "设置同时在其他窗口修改，已合并。";
 const externalNotice = "设置已从其他窗口更新。";
+/** 其他窗口改了设置时的提示停留多久。改动已经直接用在这一页上，提示只是告诉用户这一点，不需要一直占着页首。 */
+export const SETTINGS_SYNC_NOTICE_MS = 4000;
+
+/** 页首的提示是其他窗口改了设置时给的那两句之一时，过一会儿自动收起；换成别的提示或被手动关掉后不再碰它。 */
+export function useTransientSyncNotice(
+  notice: string,
+  setNotice: Dispatch<SetStateAction<string>>,
+) {
+  useEffect(() => {
+    if (notice !== mergedNotice && notice !== externalNotice) return;
+    const timer = setTimeout(
+      () => setNotice((current) => (current === notice ? "" : current)),
+      SETTINGS_SYNC_NOTICE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [notice, setNotice]);
+}
 
 export interface UseSettingsPersistenceOptions {
   client: SettingsClient;

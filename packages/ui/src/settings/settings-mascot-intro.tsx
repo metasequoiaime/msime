@@ -14,8 +14,14 @@ const introductions: Partial<Record<SettingsPageId, SettingsMascotIntro>> = {
   shortcuts: { scene: "input", description: "查看按键速查，设置常用快捷键。" },
   expression: { scene: "input", description: "设置标点、候选释义与翻译服务。" },
   handwriting: { scene: "notes", description: "设置手写识别与输入方式。" },
-  skin: { scene: "welcome", description: "挑选主题，调整输入界面的外观。" },
-  appearance: { scene: "welcome", description: "调整候选窗口的排版与显示效果。" },
+  skin: {
+    scene: "welcome",
+    description: "选择皮肤与配色；候选窗口的布局、字体和显示方式在「候选窗口」中设置。",
+  },
+  appearance: {
+    scene: "welcome",
+    description: "调整候选窗口的布局、字体和显示方式；皮肤与配色在「主题」中设置。",
+  },
   "floating-toolbar": { scene: "settings", description: "设置工具栏的显示与常用功能。" },
   "typing-statistics": { scene: "notes", description: "查看输入统计与使用习惯。" },
   plugins: { scene: "settings", description: "管理插件与功能扩展。" },

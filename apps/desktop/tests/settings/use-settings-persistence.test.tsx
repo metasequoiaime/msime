@@ -3,7 +3,11 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Preferences, Snapshot, SettingsClient } from "@msime/ui";
-import { useSettingsPersistence } from "../../../../packages/ui/src/settings/use-settings-persistence";
+import {
+  SETTINGS_SYNC_NOTICE_MS,
+  useSettingsPersistence,
+  useTransientSyncNotice,
+} from "../../../../packages/ui/src/settings/use-settings-persistence";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -329,4 +333,31 @@ test("retries an autosave that races with another window during unmount", async 
     ...latest.preferences,
     scheme: "wubi",
   });
+});
+
+test("其他窗口改了设置的提示过一会儿自动收起，别的提示留着", () => {
+  vi.useFakeTimers();
+  try {
+    const { result } = renderHook(() => {
+      const [notice, setNotice] = useState("设置已从其他窗口更新。");
+      useTransientSyncNotice(notice, setNotice);
+      return { notice, setNotice };
+    });
+    act(() => vi.advanceTimersByTime(SETTINGS_SYNC_NOTICE_MS - 1));
+    expect(result.current.notice).toBe("设置已从其他窗口更新。");
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.notice).toBe("");
+
+    act(() => result.current.setNotice("设置同时在其他窗口修改，已合并。"));
+    act(() => vi.advanceTimersByTime(SETTINGS_SYNC_NOTICE_MS));
+    expect(result.current.notice).toBe("");
+
+    // 别的提示（比如修复配置文件之后的那句）不会被收起；同步提示收起前换成别的提示时也不会把它清掉。
+    act(() => result.current.setNotice("设置已从其他窗口更新。"));
+    act(() => result.current.setNotice("已用备份恢复设置。"));
+    act(() => vi.advanceTimersByTime(SETTINGS_SYNC_NOTICE_MS * 2));
+    expect(result.current.notice).toBe("已用备份恢复设置。");
+  } finally {
+    vi.useRealTimers();
+  }
 });
