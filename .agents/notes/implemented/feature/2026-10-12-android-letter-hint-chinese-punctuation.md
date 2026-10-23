@@ -42,7 +42,7 @@ Status: implemented
 
 ## Verification
 
-- #9483 的 `english-swipe` 专项使用独立的 26 键期望表，真实注入 DOWN/MOVE/UP 检查上滑、下滑全部角标、D 取消不提交、关闭滑动后正常输入字母及符号后继续输入字母。配置和输入模式在结束时恢复；该专项接入普通 `smoke.sh`。本次设备专项及完整 quick 尚未运行，不能以 Java 源码编译代替设备验收。
+- #9483 的 `english-swipe` 专项使用独立的 26 键期望表，真实注入 DOWN/MOVE/UP 检查上滑、下滑全部角标、D 取消不提交、关闭滑动后正常输入字母及符号后继续输入字母。配置和输入模式在结束时恢复；该专项接入普通 `smoke.sh`。在 API 28（`emulator-5566`）和 API 35（`emulator-5590`）上均通过。设备包重编本分支 Java 与资源，复用已存在的 arm64 原生库；结果证明 Android 宿主手势路径，不代表本分支 Rust 核心重新构建验收。
 - #9483 的 Android 宿主检查通过：258 项 JVM 冒烟、225 份设备源码编译、Java/API 与 JNI 检查通过；仓库契约、笔记、shell 语法与差异检查通过。契约检查中按环境跳过的阶段不算运行验证。本机约 17 GiB、远端两个卷均不足 30 GiB，低于 50 GB 门槛，未新建完整构建树。
 - 推送到 PR 后的 Android host、Rust、契约、笔记、Windows/Linux/HarmonyOS、macOS 与 iOS CI 均通过；Android device job 按仓库规则跳过，因此仍不能替代 API 28/35 设备专项。
 - `platforms/android/tests/keyboard/LetterHintTableSmoke.java` 锁住 26 键的 `face(·, false)` 与 `hint()` 一致、`face(·, true)` 只换 j k l v b、`routesThroughEngine` 只对 ( ) " ? ! 为真；`check-host.sh` 自动发现并运行它。
