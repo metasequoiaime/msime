@@ -47,3 +47,6 @@ Status: implemented
 - 远端没有 Node/pnpm，本机单独验证笔记及共享前端；Rust workspace 因未暂存设置应用资源排除 `msime-desktop`，Android 目标包含该 crate。远端没有 Docker、MinGW 或 HarmonyOS 打包环境，相应 Linux、Windows 原生与 HarmonyOS 构建阶段跳过，不据 quick 通过声称这些平台已实机验收。
 - 更新基线后重建的同一个产品 APK（SHA-256 `1a32509bd4e411f3d3558f3e201916668bb008d1ac2057d0d20dfeebaac9f443`）在 API 28 的完整双拼十四键专项及 API 35 的完整全拼/双拼十四键专项均通过；两版最终微软双拼「青」截图已查看。最终日志为 `target/verification/rebased-emulator-5606-fourteen.log`、`rebased-emulator-5620-fourteen.log` 与 `quick-rebased.log`。
 - 本机磁盘低于 50 GiB，未再次启动本机构建；推送使用仓库钩子注明的一次性 `--no-verify`，以哈希核对一致的远端完整 quick 通过及本机独立笔记校验为依据。最后的验证记录提交只改本篇笔记。
+
+- 同步 `b8e0983085` 后解决 `preferences.rs` 的冲突，保留上游竖屏分离开关及本 PR 的双拼布局字段，两者分别采用原有默认值。完整 quick 再次通过，六项 `preferences::tests::touch_` 与竖屏分离兼容测试通过。
+- 冲突更新后重建 APK（SHA-256 `5bed187e4364c9afa501e0d0dfbbc1ca9b8725149fbb99ddf6862eb99f79e16b`），API 28 双拼十四键与 API 35 完整全拼/双拼十四键通过；两版使用同一产品 APK。设备夹具曾在微软双拼 `qing` 的多义候选中直接找首行「青」而失败，旧阶段标签误留在设置切换处；失败瞬间截图确认微软方案及 `qing` 已生效。夹具改为先锁定 `qing`、展开后选择「青」，保留实际上屏断言，微软和自定义表共用此步骤；不要求多义候选具有固定首行名次。移除全部临时命令和截图诊断后，API 35 完整套件、API 28 完整双拼专项及 `quick-reading-lock.log`（exit 0）通过。

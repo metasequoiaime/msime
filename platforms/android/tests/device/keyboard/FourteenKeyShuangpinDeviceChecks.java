@@ -96,16 +96,19 @@ final class FourteenKeyShuangpinDeviceChecks {
 
             t.stage = "switch shuangpin profile preserves fourteen keys";
             typingSettings();
+            t.stage = "open Mandarin to switch shuangpin profile";
             t.tap(t.key("普通话"));
+            t.stage = "open shuangpin choices to switch profile";
             t.tap(t.described("双拼（小鹤），更多选项"));
+            t.stage = "choose Microsoft shuangpin";
             t.tap(t.key("微软"));
             assertStored("microsoft", "fourteen_key");
             editor(false);
             t.await(t.described("按键 L 分号"));
             groups("Q W");
+            t.stage = "Microsoft semicolon spelling and commit";
             t.tap(t.described("按键 L 分号"));
-            t.await(t.described("选择拼音 qing"));
-            t.tap(candidate("青"));
+            commitQing();
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("青", node.getText())));
             t.shellDiscard("screencap -p /data/local/tmp/msime-8770-fourteen-shuangpin.png");
 
@@ -118,8 +121,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             editor(false);
             groups("Q W");
             t.tap(t.described("按键 L 分号"));
-            t.await(t.described("选择拼音 qing"));
-            t.tap(candidate("青"));
+            commitQing();
             configured.put("shuangpin_custom_profile", new JSONObject());
             save();
             t.restartIme();
@@ -139,6 +141,16 @@ final class FourteenKeyShuangpinDeviceChecks {
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else t.publish(preferences, original);
         }
+    }
+
+    private void commitQing() throws Exception {
+        t.await(t.described("选择拼音 qing"));
+        // 合并键有多种读音；先锁定目标音节，再从展开候选选择，不依赖首行排名。
+        t.tap(t.described("选择拼音 qing"));
+        t.await(reading("qing"));
+        t.tap(t.key("展开").and(AccessibilityNodeInfo::isEnabled));
+        t.await(t.described("九键候选面板"));
+        t.tap(candidate("青"));
     }
 
     private void groups(String... pairs) throws Exception {
