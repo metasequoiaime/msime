@@ -1,5 +1,8 @@
 use super::*;
 
+// SQL 独立冻结，避免生产表达式变化使旧入口也跟着改变。
+pub(super) const FROZEN_KEYPAD_PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY CASE WHEN length(CAST(display AS BLOB))=?4 AND weight>0 THEN 0 ELSE 1 END,weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
+
 // 固定 3a706bd021661aadcfcdf0cc477e28282c7928d8 的完整分组查询与行解码，仅改私有名称并移除注释。
 impl EnglishDictionary {
     pub(crate) fn legacy_query_keypad_prefix(
@@ -17,7 +20,7 @@ impl EnglishDictionary {
             return candidates;
         }
         let upper_bound = prefix_upper_bound(prefix);
-        let sql = format!("{KEYPAD_PREFIX_SQL}{}", sql_limit(limit));
+        let sql = format!("{FROZEN_KEYPAD_PREFIX_SQL}{}", sql_limit(limit));
         let Ok(mut statement) = connection.prepare_cached(&sql) else {
             return candidates;
         };

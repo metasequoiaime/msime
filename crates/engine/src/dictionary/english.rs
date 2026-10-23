@@ -27,9 +27,10 @@ pub struct CustomTranslations {
 /// 行数上限接在末尾写成字面量：`LIMIT ?` 会让 SQLite 每次执行都重新解析和规划整条语句，九键一键要查几十个前缀（见 `pinyin` 里的同一说明）。
 const PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display LIMIT ";
 // 分组键盘在限额前匹配完整查询键；排序与九键的最终排序一致，展示按 UTF-8 字节计长。
-const KEYPAD_PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY CASE WHEN length(CAST(display AS BLOB))=?4 AND weight>0 THEN 0 ELSE 1 END,weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
+// 模式从字符组起始，不能再提供索引前缀；TEXT 表达式避免绑定模式使 SQLite 反复规划，范围仍由 ?1/?2 给出。
+const KEYPAD_PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB CAST(?3 AS TEXT) AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY CASE WHEN length(CAST(display AS BLOB))=?4 AND weight>0 THEN 0 ELSE 1 END,weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
 // 同一组筛选取出前缀下的全部行，按 KEYPAD_PREFIX_SQL 去掉首项后的排序键排好；首项只看展示字节长度和权重，由 `append_keypad_ranked` 在内存里按每次的输入长度分出来。
-const KEYPAD_PREFIX_ROWS_SQL: &str = "SELECT word,display,weight,length(CAST(display AS BLOB)),weight>0 FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB ?3 AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
+const KEYPAD_PREFIX_ROWS_SQL: &str = "SELECT word,display,weight,length(CAST(display AS BLOB)),weight>0 FROM english_words WHERE word >= ?1 AND word < ?2 AND word GLOB CAST(?3 AS TEXT) AND word NOT GLOB '*[^a-zA-Z]*' AND instr(word,char(0))=0 AND display IS NOT NULL ORDER BY weight DESC,length(CAST(display AS BLOB)),CASE WHEN word=?1 THEN 0 ELSE 1 END,length(word),word,display LIMIT ";
 const EN_ZH_SQL: &str = "SELECT chinese_gloss FROM en_zh_glosses WHERE english=?1";
 const ZH_EN_SQL: &str = "SELECT english_gloss FROM zh_en_glosses WHERE chinese=?1";
 const ENGLISH_WORDS_DDL: &str = "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;";
@@ -1062,3 +1063,7 @@ mod empty_page_tests;
 #[cfg(test)]
 #[path = "english/keypad_append_tests.rs"]
 mod keypad_append_tests;
+
+#[cfg(test)]
+#[path = "english/keypad_reprepare_tests.rs"]
+mod keypad_reprepare_tests;
