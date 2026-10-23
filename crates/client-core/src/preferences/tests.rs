@@ -2134,12 +2134,14 @@ fn vim_mode_apps_stay_out_of_the_document_until_written() {
     // macOS 的 bundle id 和 Windows 的进程基名放在同一份名单里，保存再读回原样不变。
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut chosen = Preferences::default();
-    chosen.vim_mode_apps = vec![
-        "com.apple.Terminal".into(),
-        "code.exe".into(),
-        "nvim.exe".into(),
-    ];
+    let chosen = Preferences {
+        vim_mode_apps: vec![
+            "com.apple.Terminal".into(),
+            "code.exe".into(),
+            "nvim.exe".into(),
+        ],
+        ..Preferences::default()
+    };
     let written = serde_json::to_value(&chosen).unwrap();
     assert_eq!(
         written["vim_mode_apps"],
@@ -2204,8 +2206,10 @@ fn vim_mode_app_identifiers_are_validated() {
     // 拒绝的文档不会被保存。
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut rejected = Preferences::default();
-    rejected.vim_mode_apps = vec!["apps/code".into()];
+    let rejected = Preferences {
+        vim_mode_apps: vec!["apps/code".into()],
+        ..Preferences::default()
+    };
     assert!(matches!(
         store.save(0, rejected),
         Err(PreferencesError::InvalidVimModeApps)

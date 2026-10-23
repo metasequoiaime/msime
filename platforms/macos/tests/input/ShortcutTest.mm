@@ -3528,18 +3528,6 @@ static void TestExpandedCandidateGrid() {
     assert(ExpandedGridSubview(panel, 22) && !ExpandedGridSubview(panel, 23));
     MSIMECandidateButton *collapse = ExpandedGridSubview(panel, -3);
     assert(collapse && [collapse.identifier isEqual:@"candidate-collapse"]);
-    // 展开网格与普通候选共用译文字号，并乘整窗缩放；设置变化不能沿用旧字体。
-    NSMutableDictionary *sizedGrid = [[prefs sharedPreferencesByMerging:@{}] mutableCopy];
-    sizedGrid[@"candidate_translation_font_size"] = @21;
-    sizedGrid[@"candidate_scale_percent"] = @150;
-    [prefs applySharedCandidatePreferences:sizedGrid];
-    [controller renderCandidates];
-    assert(fabs(ExpandedGridSubview(panel, 0).translationFont.pointSize - 31.5) < 0.01);
-    sizedGrid[@"candidate_translation_font_size"] = NSNull.null;
-    sizedGrid[@"candidate_scale_percent"] = @100;
-    [prefs applySharedCandidatePreferences:sizedGrid];
-    [controller renderCandidates];
-    assert(fabs(ExpandedGridSubview(panel, 0).translationFont.pointSize - MSIMECandidateTranslationPointSize) < 0.01);
     // 只有高亮那一行标序号，数字键选的就是那一行。
     assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
 
@@ -7681,6 +7669,79 @@ static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
     return nil;
 }
 
+@interface TranslationFontSession : ExpandedGridSession
+@end
+@implementation TranslationFontSession
+- (NSDictionary *)gridCandidate:(NSUInteger)index highlighted:(BOOL)highlighted {
+    NSMutableDictionary *candidate = [[super gridCandidate:index highlighted:highlighted] mutableCopy];
+    candidate[@"translation"] = @"synthetic glossary";
+    return candidate;
+}
+@end
+
+static void TestCandidateTranslationFontSize() {
+    NSString *suite = [@"msime.translation-font." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.englishMode = NO;
+    prefs.candidateTranslations = YES;
+    prefs.expandCandidates = YES;
+    prefs.pageSize = 5;
+    ModeController *controller = [ModeController alloc];
+    TranslationFontSession *session = [TranslationFontSession new];
+    session.generation = 7;
+    session.total = 23;
+    session.pageSize = 5;
+    session.prefix = @"词";
+    session.editing = @"shi";
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(200, 400, 1, 18);
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    [controller setValue:[session gridView] forKey:@"view"];
+    NSMutableDictionary *preferences = [[prefs sharedPreferencesByMerging:@{}] mutableCopy];
+    for (NSNumber *vertical in @[@NO, @YES]) {
+        preferences[@"candidate_layout"] = vertical.boolValue ? @"vertical" : @"horizontal";
+        for (NSNumber *scale in @[@100, @150]) {
+            for (id size in @[@12, @21, @32, NSNull.null]) {
+                preferences[@"candidate_translation_font_size"] = size;
+                preferences[@"candidate_scale_percent"] = scale;
+                [prefs applySharedCandidatePreferences:preferences];
+                [controller renderCandidates];
+                MSIMECandidateButton *button = PageButton(panel.contentView, 0);
+                CGFloat expected = (size == NSNull.null ? MSIMECandidateTranslationPointSize : [size doubleValue]) * scale.doubleValue / 100;
+                assert(button && [button.translation isEqual:@"synthetic glossary"]);
+                assert(button.translationBelow == !vertical.boolValue);
+                assert(fabs(button.translationFont.pointSize - expected) < 0.01);
+                assert(button.frame.size.height >= MSIMETranslationTextSize(button.translation, button.translationFont).height);
+                NSBitmapImageRep *bitmap = [button bitmapImageRepForCachingDisplayInRect:button.bounds];
+                assert(bitmap);
+                [button cacheDisplayInRect:button.bounds toBitmapImageRep:bitmap];
+            }
+        }
+    }
+    preferences[@"candidate_layout"] = @"horizontal";
+    [prefs applySharedCandidatePreferences:preferences];
+    [controller renderCandidates];
+    assert([controller handleEvent:ModeKey(125, 0, NO) client:client]);
+    assert([controller valueForKey:@"expandedCandidates"]);
+    for (id size in @[@21, @32, NSNull.null]) {
+        preferences[@"candidate_translation_font_size"] = size;
+        [prefs applySharedCandidatePreferences:preferences];
+        [controller renderCandidates];
+        MSIMECandidateButton *button = ExpandedGridSubview(panel, 0);
+        CGFloat expected = (size == NSNull.null ? MSIMECandidateTranslationPointSize : [size doubleValue]) * 1.5;
+        assert(button && [button.translation isEqual:@"synthetic glossary"]);
+        assert(fabs(button.translationFont.pointSize - expected) < 0.01);
+        assert(button.frame.size.height >= MSIMETranslationTextSize(button.translation, button.translationFont).height);
+    }
+    [controller closeExpandedCandidates];
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestExternalSkin(MSIMEInputController *controller, HiddenCandidatePanel *panel, NSUserDefaults *defaults) {
     char temporary[] = "/tmp/msime-native-skin-XXXXXX";
     assert(mkdtemp(temporary));
@@ -11125,6 +11186,10 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--translation-font-size") {
+            TestCandidateTranslationFontSize();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
             TestCapsLockTap();
             return 0;
@@ -12802,22 +12867,6 @@ int main(int argc, char **argv) {
             NSBitmapImageRep *bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
             assert(bitmap);
             [translated cacheDisplayInRect:translated.bounds toBitmapImageRep:bitmap];
-            // 译文覆盖必须同时影响测量与绘制；改字号时不依赖候选内容变化。
-            NSMutableDictionary *sized = [[appearance sharedPreferencesByMerging:@{}] mutableCopy];
-            for (NSNumber *size in @[@21, @32]) {
-                sized[@"candidate_translation_font_size"] = size;
-                [appearance applySharedCandidatePreferences:sized];
-                [controller renderCandidates];
-                translated = PageButton(layoutPanel.contentView, 0);
-                assert(fabs(translated.translationFont.pointSize - size.doubleValue) < 0.01);
-                assert(translated.frame.size.height >= MSIMETranslationTextSize(translated.translation, translated.translationFont).height);
-                assert([translated.candidateID isEqual:word[@"id"]]);
-            }
-            sized[@"candidate_translation_font_size"] = NSNull.null;
-            [appearance applySharedCandidatePreferences:sized];
-            [controller renderCandidates];
-            translated = PageButton(layoutPanel.contentView, 0);
-            assert(fabs(translated.translationFont.pointSize - MSIMECandidateTranslationPointSize) < 0.01);
             [word removeObjectForKey:@"translation"];
         }
         // The reservation is real, not just an absent assertion: with the feature off the horizontal row is
