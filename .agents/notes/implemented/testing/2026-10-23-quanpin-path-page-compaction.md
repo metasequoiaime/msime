@@ -35,6 +35,8 @@ Rust 官方 [Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.with_
 
 本地完整 quick 在 5250.894 秒后退出 0：Rust workspace、Android target、两种 WASM 配置、Android 宿主 Java、Linux 桌面壳与原生宿主构建、Linux 111 项测试、macOS 原生宿主构建及 Apple 共享桥接层通过；本机 Windows 原生逻辑测试 164 项通过。Windows 完整构建和 HarmonyOS 真工程因环境缺失跳过；没有设备装机或界面验收。Clippy 全 targets、格式和笔记检查通过。
 
+随后普通 push 复跑门禁时，先遇到容器 I/O 极慢导致的主题测试超时，单项复测通过；第二次遇到宿主调度迟到触发监督器测试的墙钟上界。顺带修正的[监督器时钟夹具](2026-10-24-ibus-supervisor-controlled-clock.md)保留精确退避与信号生命周期断言，两次失败、复测和追加完整门禁记录另存于[追加验证目录](../../../../docs/measurements/2026-10-24-ibus-supervisor-controlled-clock/README.md)。
+
 ## Experiments
 
 首轮普通分配器的 84 格完整矩阵中，4 个空页热复制格回退 7.80%–11.89%，超过预定 1.05 上限。符号表未见独立的 `copy_rows`，据此推断已内联；在空页上仍需分辨完整页与压缩页并检查 Vec 长度。保留原结果，增加专门的 `Empty` 变体后重跑全部 84 格、每格 21 对，不筛选复测格。第二轮所有格通过：32/128 行冷插入中位比 0.6755–0.7033，热复制 0.8940–0.9076，追加 0.8917–0.9088，其余控制最大 1.0456。两轮实际 `PathPage` 均为 24 字节，等于旧 Vec。
