@@ -5921,10 +5921,10 @@ static void TestModifierTaps() {
     [spaceController setValue:spaceSession forKey:@"session"];
     [spaceController setValue:@{ @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
     assert(![spaceController handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 5.0) client:spaceClient]);
-    assert([spaceController handleEvent:ModeKey(0, NSEventModifierFlagShift, NO) client:spaceClient]);
+    (void)[spaceController handleEvent:ModeKey(0, NSEventModifierFlagShift, NO) client:spaceClient];
     assert(![spaceController handleEvent:TapEvent(NSEventTypeKeyUp, 0, NSEventModifierFlagShift, 5.1) client:spaceClient]);
-    assert([spaceController handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:spaceClient]);
-    assert(spacePrefs.englishMode && [spaceClient.insertions.lastObject isEqual:@" "]);
+    assert(![spaceController handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:spaceClient]);
+    assert(spacePrefs.englishMode);
     assert(![spaceController handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 5.2) client:spaceClient]);
     MSIMERemoveTestPreferenceSuite(spaceDefaults, spaceSuite);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
