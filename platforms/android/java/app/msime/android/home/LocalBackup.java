@@ -106,7 +106,8 @@ final class LocalBackup {
                 if (LocalBackupPolicy.backsUpLocalSetting(entry.getKey())) local.put(entry.getKey(), entry.getValue());
             }
             String skins = CustomSkinLibrary.exportDesigns(Paths.get(directory));
-            List<String> phrases = ownPhrases(context);
+            JSONObject phraseNotes = new JSONObject();
+            List<String> phrases = ownPhrases(context, phraseNotes);
             JSONObject snapshot = CloudSync.exportDictionarySnapshot(context, dictionary, true);
             Integer words = JsonPolicy.nonNegativeInteger(snapshot.opt("entries"));
             Integer learning = JsonPolicy.nonNegativeInteger(snapshot.opt("learning"));
@@ -122,7 +123,8 @@ final class LocalBackup {
             texts.put(LocalBackupPolicy.ANDROID_LOCAL, TextPolicy.utf8Bytes(local.toString()));
             texts.put(LocalBackupPolicy.SKINS, TextPolicy.utf8Bytes(skins));
             texts.put(LocalBackupPolicy.PHRASES,
-                TextPolicy.utf8Bytes(new JSONObject().put("phrases", new JSONArray(phrases)).toString()));
+                TextPolicy.utf8Bytes(new JSONObject().put("phrases", new JSONArray(phrases))
+                    .put("notes", phraseNotes).toString()));
             JSONObject checksums = new JSONObject();
             for (Map.Entry<String, byte[]> text : texts.entrySet()) checksums.put(text.getKey(), sha256(text.getValue()));
             checksums.put(LocalBackupPolicy.DICTIONARY, DigestPolicy.sha256Hex(dictionary));
@@ -196,13 +198,16 @@ final class LocalBackup {
     }
 
     /** 自己添加的常用语，按本机顺序；本机预置、没被用户认领过的示例不算，它们在每台设备上都会自己出现。 */
-    private static List<String> ownPhrases(Context context) throws IOException {
+    private static List<String> ownPhrases(Context context, JSONObject notes) throws IOException, JSONException {
         CommonPhrasesStore.Result result = CommonPhrasesStore.load(context);
         if (!result.ok()) throw new IOException("common phrases unavailable");
         Set<String> starters = CommonPhrasesStore.untouchedStarters(context);
         List<String> texts = new ArrayList<>(result.document().phrases().size());
         for (CommonPhrasesStore.Phrase phrase : result.document().phrases()) {
-            if (phrase.own() && !starters.contains(phrase.text())) texts.add(phrase.text());
+            if (phrase.own() && !starters.contains(phrase.text())) {
+                texts.add(phrase.text());
+                if (!phrase.note().isEmpty()) notes.put(phrase.text(), phrase.note());
+            }
         }
         return texts;
     }
@@ -315,6 +320,7 @@ final class LocalBackup {
             if (skins != null) new JSONArray(TextPolicy.utf8(skins));
             JSONObject phrases = jsonEntry(zip, LocalBackupPolicy.PHRASES, LocalBackupPolicy.MAX_PHRASES_BYTES);
             if (phrases != null && phrases.has("phrases") && phrases.optJSONArray("phrases") == null) return false;
+            if (phrases != null && phrases.has("notes") && phrases.optJSONObject("notes") == null) return false;
         } catch (JSONException malformed) {
             Log.w(TAG, "backup entry is not valid JSON", malformed);
             return false;
@@ -567,6 +573,8 @@ final class LocalBackup {
         JSONObject document = jsonEntry(zip, LocalBackupPolicy.PHRASES, LocalBackupPolicy.MAX_PHRASES_BYTES);
         JSONArray phrases = document == null ? null : document.optJSONArray("phrases");
         if (phrases == null) return 0;
+        // 正文数组保留旧格式；备注独立映射，旧备份缺少它时按空备注恢复。
+        JSONObject notes = document.optJSONObject("notes");
         String duplicate = CommonPhrasesStore.failureMessage("common_phrases_duplicate");
         String invalid = CommonPhrasesStore.failureMessage("common_phrases_invalid");
         String full = CommonPhrasesStore.failureMessage("common_phrases_limit");
@@ -578,7 +586,13 @@ final class LocalBackup {
                 skipped++;
                 continue;
             }
-            CommonPhrasesStore.Result result = CommonPhrasesStore.add(context, text);
+            Object rawNote = notes == null ? "" : notes.opt(text);
+            if (rawNote == null) rawNote = "";
+            if (!(rawNote instanceof String note) || !CommonPhrasesStore.validNote(note)) {
+                skipped++;
+                continue;
+            }
+            CommonPhrasesStore.Result result = CommonPhrasesStore.add(context, text, note);
             if (result.ok()) {
                 added++;
                 String id = addedId(result.document(), text);

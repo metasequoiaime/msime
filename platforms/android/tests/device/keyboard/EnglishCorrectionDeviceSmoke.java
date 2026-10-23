@@ -12,10 +12,17 @@ import org.json.JSONObject;
 
 /** 经真实软键和 InputConnection 验证共享纠错、边界提交与拒绝纠错。 */
 public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
+    private boolean completionsOnly;
+
+    @Override public void onCreate(Bundle arguments) {
+        completionsOnly = arguments != null && "true".equals(arguments.getString("prefix-completion"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() { return "mobile English correction and editor gates"; }
 
     @Override protected void runChecks() throws Exception {
-        EnglishSuggestionPendingChecks.run(this);
+        if (!completionsOnly) EnglishSuggestionPendingChecks.run(this);
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(
             new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
@@ -41,6 +48,8 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
             tap(field("correction-plain"));
             // 全局输入模式可能继承其他套件；只通过用户可见的中英键恢复英文。
             if (await(key("中").or(key("英"))).getText().toString().equals("中")) tap(key("中"));
+            checkCompletions();
+            if (completionsOnly) return;
             for (String[] example : new String[][] {
                 {"whatisthat", "what is that"}, {"languaage", "language"},
                 {"languge", "language"}, {"langiage", "language"},
@@ -92,6 +101,42 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
+    }
+
+    /** 展示补全需要真实词库和编辑器，不把手动候选当作空格默认扩写。 */
+    private void checkCompletions() throws Exception {
+        stage = "three-letter English completion";
+        clear("correction-plain");
+        typeWord("eng");
+        await(described("英文建议 1：eng"));
+        long started = android.os.SystemClock.elapsedRealtime();
+        Predicate<AccessibilityNodeInfo> english = node -> {
+            CharSequence description = node.getContentDescription();
+            return description != null && description.toString().startsWith("英文建议 ")
+                && description.toString().endsWith("：English");
+        };
+        awaitAny(english);
+        android.util.Log.i("MSIMEDeviceSmoke", "English completion observation ms="
+            + (android.os.SystemClock.elapsedRealtime() - started));
+        tap(key("空格"));
+        expect("correction-plain", "eng ");
+
+        stage = "explicit completion preserves preceding and following text";
+        clear("correction-plain");
+        Bundle text = new Bundle();
+        text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "left  right");
+        if (!await(field("correction-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text))
+            throw new AssertionError("Synthetic editor content failed");
+        Bundle selection = new Bundle();
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 5);
+        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 5);
+        if (!await(field("correction-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection))
+            throw new AssertionError("Synthetic editor selection failed");
+        dropStaleNodes();
+        typeWord("eng");
+        awaitAny(english);
+        tap(english);
+        expect("correction-plain", "left English right");
     }
 
     private void typeWord(String word) throws Exception {

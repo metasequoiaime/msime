@@ -35,8 +35,8 @@ export function updateAiProvider<T extends AiProviderPreferences>(
   storeSlot(models, current.provider, current.model.trim(), previous?.model);
   return {
     provider: next.id,
-    endpoint: endpoints[next.id] ?? next.endpoint,
-    model: models[next.id] ?? next.model,
+    endpoint: endpoints[next.id] || next.endpoint,
+    model: models[next.id] || next.model,
     endpoints,
     models,
   } as Partial<T>;

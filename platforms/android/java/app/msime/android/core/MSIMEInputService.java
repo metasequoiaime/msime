@@ -133,6 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -594,6 +595,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
+
+    long beginClipboardPhraseNotice() { return operationNotice.begin(); }
+
+    void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
     private long deviceInfoCopyGeneration;
 
@@ -1731,6 +1736,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
+        loadFeedbackPreferences();
+        refreshLocalSettings();
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
@@ -1761,7 +1769,6 @@ public final class MSIMEInputService extends InputMethodService {
                     effectiveInfo.inputType, effectiveInfo.imeOptions);
             }
             markPrivateSession();
-            loadFeedbackPreferences();
             refreshLocalSettings();
             refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
@@ -1773,6 +1780,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -1808,6 +1816,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -1862,6 +1871,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
+        operationNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -1929,6 +1939,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        operationNotice.cancel();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -3226,8 +3237,17 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             englishSuggestionWorker.execute(() -> {
                 try {
-                    EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                    EnglishSuggestionModel.Result suggestions = EnglishSuggestionModel.decode(
                         NativeClient.englishCorrections(prefix, resources));
+                    if (prefix.chars().allMatch(TextPolicy::isAsciiLetter)) {
+                        try {
+                            suggestions = EnglishSuggestionModel.withCompletions(suggestions,
+                                EnglishSuggestionModel.decode(NativeClient.englishCompletions(prefix, resources)));
+                        } catch (Exception | LinkageError ignored) {
+                            // 补全不可用时保留原文与纠错，空格提交仍只查询唯一纠错。
+                        }
+                    }
+                    EnglishSuggestionModel.Result result = suggestions;
                     main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
                 } catch (Exception | LinkageError ignored) {
                     // Completion failures are optional display state and never block input.
@@ -5441,6 +5461,10 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
+        button.setOnTouchListener((view, event) -> {
+            imeLetterRows.updateKeyPreview(button, event);
+            return false;
+        });
         return bindCountedAction(button, action);
     }
 
@@ -8659,6 +8683,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        operationNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();

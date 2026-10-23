@@ -63,7 +63,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         stage = "composition";
         for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(described("字母 " + key.toUpperCase(java.util.Locale.ROOT)));
         await(field(PLAIN).and(node -> equalsText("？nihao", node.getText())));
-        stage = "composition swipe";
+        stage = "commit composition before symbol swipe";
+        tap(key("空格"));
+        await(field(PLAIN).and(node -> equalsText("？你好", node.getText())));
+        stage = "committed composition swipe";
         swipeDown("v");
         await(field(PLAIN).and(node -> equalsText("？你好？", node.getText())));
 

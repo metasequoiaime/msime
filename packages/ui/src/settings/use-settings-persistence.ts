@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
+import { useDebouncedCallback } from "../core/use-debounced-callback";
 import { deepEqual } from "../core/deep-equal";
 import { errorCode } from "../core/error-code";
 import { errorMessage } from "../core/error-message";
@@ -69,6 +70,11 @@ export function useSettingsPersistence({
   const clientRef = useLatestRef(client);
   const loadingClientRef = useRef<SettingsClient | undefined>(undefined);
   const [saveState, setSaveState] = useState<SettingsSaveState>("idle");
+  const { schedule: scheduleSavedStatusReset, cancel: cancelSavedStatusReset } =
+    useDebouncedCallback(
+      () => setSaveState((state) => (state === "saved" ? "idle" : state)),
+      SETTINGS_SAVED_STATUS_MS,
+    );
   const [saveError, setSaveError] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const reloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
@@ -173,7 +179,7 @@ export function useSettingsPersistence({
 
   useEffect(() => {
     clearAutosave();
-    clearTimeout(savedStatusTimer.current);
+    cancelSavedStatusReset();
     saveTokenRef.current += 1;
     saveOwnerRef.current += 1;
     savingRef.current = false;
@@ -262,7 +268,6 @@ export function useSettingsPersistence({
   }
 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const savedStatusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   function clearAutosave() {
     if (autosaveTimer.current === undefined) return;
     clearTimeout(autosaveTimer.current);
@@ -308,7 +313,7 @@ export function useSettingsPersistence({
     const ownsSave = () => saveOwnerRef.current === owner && clientRef.current === saveClient;
     const saveToken = ++saveTokenRef.current;
     savingRef.current = true;
-    clearTimeout(savedStatusTimer.current);
+    cancelSavedStatusReset();
     setSaveState("saving");
     setSaveError("");
     let failed = false;
@@ -357,10 +362,7 @@ export function useSettingsPersistence({
         scheduleAutosave();
       } else {
         setSaveState("saved");
-        savedStatusTimer.current = setTimeout(
-          () => setSaveState((state) => (state === "saved" ? "idle" : state)),
-          SETTINGS_SAVED_STATUS_MS,
-        );
+        scheduleSavedStatusReset();
       }
     }
     const held = heldChange.current;
@@ -411,7 +413,6 @@ export function useSettingsPersistence({
   // Unmounting with an edit still counting down writes it without waiting for an answer: nothing is left on screen to show the result.
   useEffect(
     () => () => {
-      clearTimeout(savedStatusTimer.current);
       if (autosaveTimer.current === undefined) return;
       clearAutosave();
       const currentSnapshot = snapshotRef.current;

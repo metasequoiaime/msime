@@ -910,6 +910,9 @@ mod tests {
             ("groq", "multipart"),
             ("everyapi", "multipart"),
             ("mistral", "multipart"),
+            ("zhipu", "multipart"),
+            ("minimax", "multipart"),
+            ("custom", "multipart"),
             ("bailian", "chat_audio"),
         ] {
             assert!(MobileVoiceTranscriptionRequest {
@@ -931,7 +934,7 @@ mod tests {
             }
             .is_valid());
         }
-        for provider in ["system", "custom", ""] {
+        for provider in ["system", "whisper", "unknown", ""] {
             assert!(!MobileVoiceTranscriptionRequest {
                 provider: provider.into(),
                 ..request.clone()

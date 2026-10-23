@@ -78,23 +78,44 @@ fn currency_punctuation_follows_character_width_on_all_key_routes() {
         };
         let handle = test_host_with_pinyin_fixture(directory.path(), preferences);
         assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let confirm_literal = |result: &Value, expected: &str| {
+            assert_eq!(result["value"]["handled"], true, "{result}");
+            assert!(result["value"]["commit"].is_null(), "{result}");
+            let view = &result["value"]["view"];
+            assert_eq!(view["editing_text"], "nihao$", "{result}");
+            assert_eq!(view["candidates"].as_array().unwrap().len(), 1, "{result}");
+            assert_eq!(view["candidates"][0]["text"], "nihao$", "{result}");
+            let confirmed = read(msime_client_command(handle, 1));
+            assert_eq!(confirmed["value"]["commit"], expected, "{confirmed}");
+            assert_eq!(
+                confirmed["value"]["view"]["editing_text"], "",
+                "{confirmed}"
+            );
+        };
         for fullwidth in [false, true, false] {
             read(msime_client_set_character_width(handle, fullwidth));
             let currency = if fullwidth { "￥" } else { "¥" };
             for composing in [false, true] {
-                let prefix = if composing {
-                    let view = type_letters(handle, b"nihao");
-                    view["candidates"][0]["text"].as_str().unwrap().to_owned()
-                } else {
-                    String::new()
-                };
+                if composing {
+                    type_letters(handle, b"nihao");
+                }
                 let result = read(match route {
                     0 => msime_client_character(handle, b'$', true),
                     1 => msime_client_punctuation(handle, b'$'),
                     _ => msime_client_punctuation_with_context(handle, b'$', 0),
                 });
                 assert_eq!(result["value"]["handled"], true);
-                assert_eq!(result["value"]["commit"], format!("{prefix}{currency}"));
+                if composing {
+                    // 组字中的 `$` 保留原文；只有确认上屏时才转换字宽。
+                    let literal = if fullwidth {
+                        "ｎｉｈａｏ＄"
+                    } else {
+                        "nihao$"
+                    };
+                    confirm_literal(&result, literal);
+                } else {
+                    assert_eq!(result["value"]["commit"], currency);
+                }
             }
             assert_eq!(
                 read(msime_client_punctuation(handle, b','))["value"]["commit"],
@@ -102,20 +123,15 @@ fn currency_punctuation_follows_character_width_on_all_key_routes() {
             );
         }
         read(msime_client_set_chinese_punctuation(handle, false));
-        let view = type_letters(handle, b"nihao");
-        let prefix = view["candidates"][0]["text"].as_str().unwrap();
-        assert_eq!(
-            read(msime_client_punctuation(handle, b'$'))["value"]["commit"],
-            format!("{prefix}$")
-        );
+        type_letters(handle, b"nihao");
+        confirm_literal(&read(msime_client_punctuation(handle, b'$')), "nihao$");
         read(msime_client_set_chinese_punctuation(handle, true));
-        let view = type_letters(handle, b"nihao");
-        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        type_letters(handle, b"nihao");
         read(msime_client_set_caps_lock(handle, true));
-        // 大写锁定只在空闲时直出 ASCII，已有组字仍用中文标点。
-        assert_eq!(
-            read(msime_client_punctuation_with_context(handle, b'$', 0))["value"]["commit"],
-            format!("{prefix}¥")
+        // 大写锁定只在空闲时直出 ASCII，已有组字仍保留原文。
+        confirm_literal(
+            &read(msime_client_punctuation_with_context(handle, b'$', 0)),
+            "nihao$",
         );
         let idle = read(msime_client_punctuation_with_context(handle, b'$', 0));
         assert_eq!(idle["value"]["handled"], false);
@@ -1855,6 +1871,17 @@ fn a_nine_key_shuangpin_layout_starts_the_grid_with_the_chosen_table() {
         ..chinese_preferences()
     };
     let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    // 换表用例需要单字频度稳定切分排序，避免无频度的路径按字典序挤出查询预算。
+    let priors = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                  INSERT INTO tbl_1_n VALUES('ni','n','甲',100);
+                  CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                  INSERT INTO tbl_1_h VALUES('hao','h','乙',100);";
+    for directory in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(dir.path().join(directory).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(priors)
+            .unwrap();
+    }
     read(msime_client_focus(handle, true));
     let view = read(msime_client_view(handle));
     assert_eq!(view["value"]["key_grid"], "nine_key_shuangpin");
@@ -1875,16 +1902,20 @@ fn a_nine_key_shuangpin_layout_starts_the_grid_with_the_chosen_table() {
 
     // 米旮旯 2 的 ao 在 2：同一个词是 64 42。
     preferences.nine_key_shuangpin_profile = NineKeyShuangpinProfile::Migala2;
-    assert_eq!(
-        update(handle, 1, &preferences)["value"]["view"]["key_grid"],
-        "nine_key_shuangpin"
-    );
+    let updated = update(handle, 1, &preferences);
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(updated["value"]["deferred"], false, "{updated}");
+    assert_eq!(updated["value"]["view"]["key_grid"], "nine_key_shuangpin");
     for &digit in b"644" {
         read(msime_client_character(handle, digit, false));
     }
     typed = read(msime_client_character(handle, b'2', false));
     assert_eq!(
         typed["value"]["view"]["candidates"][0]["text"], "本地",
+        "{typed}"
+    );
+    assert_eq!(
+        typed["value"]["view"]["nine_key_reading"], "ni'hao",
         "{typed}"
     );
     // 米旮旯 2 不用 0 键：0 不进九宫格，组字照旧。
@@ -5976,7 +6007,7 @@ fn efficiency_is_not_counted_while_statistics_are_off() {
     read(msime_client_destroy(handle));
 }
 
-/// A result of the expression mode is picked, not typed: the preference opens the mode through the host, and the pick is kept out of the selection statistics as it is kept out of learning.
+/// 算式结果是生成的候选：通过宿主偏好开启模式后，选择结果既不学习，也不计入选择统计。
 #[test]
 fn generated_mode_selections_stay_out_of_selection_statistics() {
     let dir = tempfile::tempdir().unwrap();
@@ -5990,7 +6021,7 @@ fn generated_mode_selections_stay_out_of_selection_statistics() {
     assert_eq!(entered["value"]["view"]["local_mode"], "expression");
     assert_eq!(
         entered["value"]["view"]["spelling_symbols"],
-        "0123456789+-*/.()%^"
+        "0123456789+-*/.()%^#$&"
     );
     let mut view = Value::Null;
     for byte in b"1+2" {
@@ -18728,14 +18759,77 @@ fn ai_provider_catalog_export_is_public_and_matches_the_shared_presets() {
 }
 
 #[test]
-fn ai_provider_update_export_returns_only_the_four_configuration_fields() {
+fn ai_provider_update_export_accepts_legacy_requests_without_slots() {
     let request = br#"{"provider":"openai","current":{"enabled":true,"provider":"deepseek","endpoint":"","model":""}}"#;
     let result = read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
     assert_eq!(result["ok"], true);
     assert_eq!(
         result["value"],
-        json!({"enabled":true,"provider":"openai","endpoint":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini"})
+        json!({"enabled":true,"provider":"openai","endpoint":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini","endpoints":{},"models":{}})
     );
+}
+
+#[test]
+fn ai_provider_update_export_round_trips_provider_slots() {
+    let switch = |provider: &str, current: &Value| {
+        let request = json!({"provider": provider, "current": current}).to_string();
+        let result =
+            read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+        assert_eq!(result["ok"], true, "{result}");
+        result["value"].clone()
+    };
+    let current = json!({
+        "enabled": true,
+        "provider": "deepseek",
+        "endpoint": "https://alpha.example/v1/chat/completions",
+        "model": "synthetic-alpha",
+        "endpoints": {"openai": "https://beta.example/v1/chat/completions"},
+        "models": {"openai": "synthetic-beta"}
+    });
+    let openai = switch("openai", &current);
+    let endpoints = json!({
+        "deepseek": "https://alpha.example/v1/chat/completions",
+        "openai": "https://beta.example/v1/chat/completions"
+    });
+    let models = json!({"deepseek": "synthetic-alpha", "openai": "synthetic-beta"});
+    assert_eq!(
+        openai,
+        json!({
+            "enabled": true,
+            "provider": "openai",
+            "endpoint": "https://beta.example/v1/chat/completions",
+            "model": "synthetic-beta",
+            "endpoints": endpoints,
+            "models": models
+        })
+    );
+    let deepseek = switch("deepseek", &openai);
+    assert_eq!(
+        deepseek,
+        json!({
+            "enabled": true,
+            "provider": "deepseek",
+            "endpoint": "https://alpha.example/v1/chat/completions",
+            "model": "synthetic-alpha",
+            "endpoints": endpoints,
+            "models": models
+        })
+    );
+    assert_eq!(switch("openai", &deepseek), openai);
+}
+
+#[test]
+fn ai_provider_update_export_uses_defaults_for_empty_slots() {
+    let request = br#"{"provider":"openai","current":{"enabled":true,"provider":"deepseek","endpoint":"","model":"","endpoints":{"openai":""},"models":{"openai":""}}}"#;
+    let result = read(unsafe { msime_client_ai_provider_update(request.as_ptr(), request.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["value"]["endpoint"],
+        "https://api.openai.com/v1/chat/completions"
+    );
+    assert_eq!(result["value"]["model"], "gpt-4.1-mini");
+    assert_eq!(result["value"]["endpoints"], json!({"openai": ""}));
+    assert_eq!(result["value"]["models"], json!({"openai": ""}));
 }
 
 #[test]
@@ -18743,6 +18837,9 @@ fn ai_provider_update_export_rejects_invalid_buffers_and_credential_fields() {
     for request in [
         r#"{"provider":"unknown","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":""}}"#,
         r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","token":"synthetic-token"}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","tokens":{"synthetic-origin":"synthetic-token"}}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","endpoints":{"openai":42}}}"#,
+        r#"{"provider":"openai","current":{"enabled":false,"provider":"deepseek","endpoint":"","model":"","models":null}}"#,
         r#"{"provider":"openai","current":{"enabled":"true","provider":"deepseek","endpoint":"","model":""}}"#,
     ] {
         let result =

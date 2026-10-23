@@ -10,12 +10,12 @@ Status: implemented
 
 - 「我的 → 我的内容 → 备份与恢复」（`BackupPage`，`PageId.BACKUP`）：「导出备份」经系统文件选择器（SAF，不申请存储权限）写一个 zip，预填文件名 `<应用名>-<版本名>-<yyyyMMdd-HHmm>.zip`；「从备份恢复」选一个 zip，先读出说明让用户确认，再恢复。
 - 帮助页「遇到问题」提供「更新后仍有旧问题」的处理说明（#8994）：先切换输入法重试，仍有问题时可在备份后尝试重装。说明明确卸载会删除本机数据，须先把备份导出到应用外并确认成功；相邻入口直接打开 `PageId.BACKUP`，由备份页说明包含和排除的内容。此入口只导航，不代用户导出、卸载或恢复。
-- 包的内容与云同步相同，复用同一套导出和应用（`LocalBackup`，格式规则在纯 Java 的 `LocalBackupPolicy`）：
+- 包复用云同步的设置和词库导出与应用，另收录本机内容（`LocalBackup`，格式规则在纯 Java 的 `LocalBackupPolicy`）：
   - `manifest.json`：`format = "msime-android-backup"`、`version = 1`、应用名、版本名、产品版本、导出时间和各部分的条数；
   - `settings.json`：`msime_client_account_settings_export` 导出的设置文档（与云同步上传的同一份，凭据和诊断日志永远不在里面），不含皮肤库；
   - `android-local.json`：Android 本地设置文件里显式写过的值（含不随云同步的键盘高度、滑行输入、隐私模式等），但不含语音数据贡献（`platform.android.voice_contribute_audio`）和开发者选项（`platform.android.developer.*`），恢复时即使包里有也跳过（`LocalBackupPolicy.backsUpLocalSetting`）：语音数据贡献是在本机看过说明、点了确认才开的上传授权，开发者选项里有输入日志和 MCP 可访问的日志范围，从备份恢复会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志；
   - `skins.json`：自定义键盘皮肤的设计参数（`CustomSkinLibrary.exportDesigns`，不含照片）；
-  - `phrases.json`：自己添加的常用语（本机预置、没被认领的示例除外）；
+  - `phrases.json`：自己添加的常用语（本机预置、没被认领的示例除外）；正文仍是 `phrases` 数组，独立备注在可选的 `notes` 对象中按完整正文索引，旧备份缺少时按空备注恢复。本机已有的正文仍跳过，保留本机说明；格式版本不变，旧客户端恢复新备份时忽略备注，见[常用语备注](./2026-10-23-android-common-phrase-notes.md)；
   - `dictionary.ndjson`：`export_snapshot` 写的个人词库快照，格式与云端词库快照相同；本地备份导出时带 `include_learning`，快照里还有输入记录（学习调权、删除记录、固定位置和选词计数，见[输入记录笔记](./2026-10-09-android-backup-learning-state.md)），manifest 的 `contents.learning` 是它的条数。
 - 恢复是合并，不是覆盖。设置、皮肤和常用语写入失败时整次撤销、恢复前先整份校验，见[输入习惯与恢复校验](./2026-10-10-android-backup-habits-and-verified-restore.md)；词库部分仍是失败的部分在结果里点名：设置文档交给 `msime_client_account_settings_apply`，字段表按备份里每个值自己的类型声明（备份是 client-core 自己导出的，所以应用的映射与云同步完全一致），偏好按修订号比较并交换写回，被键盘抢先写了就重来一次；本地设置逐项按 `AndroidLocalSettings.Spec` 校验后写回，不认识的键跳过；皮肤按 id 和更新时间合并；常用语逐条添加，本机已有的跳过；个人词库在本机用户词库还是空的、也没有任何输入记录（新手机、重装）时把整份快照交给词库快照激活队列（`CloudSync.enqueueDictionarySnapshot`，请求来源记为 `local-backup`），原样恢复，与云同步第一次同步而本机没有词时的做法相同；本机已经有词或学过东西，或键盘还没打开过、队列里已有一份快照时合并（输入记录的合并见[输入记录笔记](./2026-10-09-android-backup-learning-state.md)）：词先全部记进命名词库的待发送队列（client-core `DictionaryCollectionsStore::queue_words`，Java 侧 `DictionaryCollectionsStore.queueUnownedWords`，不属于任何集合），再由键盘空闲时的同步和词库页一批批送进个人词库队列。不能直接走个人词库导入队列（`import_personal`）：它同时只收 128 个未完成的请求（`personal.rs` 的 `MAX_ACTIVE_REQUESTS`，是请求数而不是批数），几千个词的备份第 129 个以后全会被拒，而且再恢复一次还是同样的前 128 个。快照激活会整份替换本机的用户数据目录，连同 Engine 的学习状态，所以本机已有内容时不能用它来合并。不合规的词跳过并计数；排到一半失败时已排的词照样写入，再恢复一次不会重复。恢复后标记设置、皮肤和词库待同步，开着云同步时会照常上传。导出失败时保留选择器给的文档：写入前确认目标为空，非空目标拒绝写入；空目标写入中断时可能留下不完整文件，由用户手动删除。具体取舍见[备份目标保护笔记](../bug-fix/2026-10-09-android-backup-destination-safety.md)。
 - 格式版本比本应用新时拒绝恢复并提示升级；`format` 不对或没有 manifest 时说明不是备份文件。选中的文件先复制进应用缓存（最多 600 MiB，词库快照最多 512 MiB），只按固定的条目名读，每个条目有自己的大小上限，不按条目名解压到磁盘。

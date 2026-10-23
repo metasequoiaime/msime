@@ -12,7 +12,7 @@ Status: implemented
 
 `GramDb::shared` 经 `memmap2` 惰性映射并按路径共享 `Arc`；`load` 对缺失、截断、魔数不符、单元越界一律回 `None`，与 `msime-bigram.bin` 缺失的既有降级一致。`SentenceAssociationOptions` 新增 `collocation_model`/`collocation_weight`/`collocation_rerank`/`collocation_grammar` 四字段，全拼/双拼词典在 `set_sentence_association` 装载模型，`Option<GramDb>` 为 `None` 时打分器不装配。
 
-解码端 `LatticeOptions` 新增 `collocation_scorer`/`collocation_weight`/`include_collocation_best`。束搜索对每个出边在 `collocation_scorer` 激活时叠加 `weight × scorer(尾窗, 词, is_rear)`；尾窗沿 `prev` 链即时回溯取最后 8 个码点，不增 `Hyp` 字段，未激活路径零开销。句尾词（`edge.end == n`）触发 `.gram` 的 `$` rear 项。`CandidateSource::Collocation` 追加在枚举末尾（wire 值 17，已有值不变）；`is_generated_or_fallback`/`is_sentence_learning`/`static_evidence` 把它按 Generated 对待，保证选中搭配句仍走句子学习。
+解码端 `LatticeOptions` 新增 `collocation_scorer`/`collocation_weight`/`include_collocation_best`。束搜索对每个出边在 `collocation_scorer` 激活时叠加 `weight × scorer(尾窗, 词, is_rear)`；[尾窗按假设回溯一次](../testing/2026-10-23-lattice-collocation-tail.md)，取 `prev` 链最后 8 个码点并供该假设所有出边借用，不增 `Hyp` 字段，未激活或没有出边时不构造尾窗。句尾词（`edge.end == n`）触发 `.gram` 的 `$` rear 项。`CandidateSource::Collocation` 追加在枚举末尾（wire 值 17，已有值不变）；`is_generated_or_fallback`/`is_sentence_learning`/`static_evidence` 把它按 Generated 对待，保证选中搭配句仍走句子学习。
 
 合并端：`include_collocation_best` 开时首条词格行标 `Collocation`（它是解码最优路径，不是独立来源）；`include_lattice_best` 只在搭配开关同开时才让首行之后的备选继续上榜——无重排通道本来忽略它，基线语义不动。九键词典设置透传新字段，`neural_keyboard` 仍强制关。`series_slot_key` 的参数改为引用，避免 `SentenceAssociationOptions` 失去 `Copy` 后的无谓克隆；grammar 字段不入键——模型路径变化会触发 `set_sentence_association` 里的 `reset_cache`，同一路径下模型内容不可变。
 

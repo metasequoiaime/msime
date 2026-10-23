@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 设置页设备回归：默认操作 React 页面与 Tauri IPC，原生皮肤删除和背单词内置词书由显式参数选择。 */
+/** 设置页设备回归：默认操作 React 页面与 Tauri IPC，原生专项由显式参数选择。 */
 public final class SettingsDeviceSmoke extends DeviceSmoke {
     private static final String PUNCTUATION_CHECKBOX =
         "Array.from(document.querySelectorAll('label')).find(label => "
@@ -61,21 +61,28 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean skinDelete;
     private boolean vocabulary;
     private boolean noticeQueue;
+    private boolean phraseNotes;
 
     @Override public void onCreate(Bundle arguments) {
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
+        phraseNotes = arguments != null && "true".equals(arguments.getString("phrase-notes"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (phraseNotes) return "native common phrase note CRUD, persistence, backup and body-only keyboard insertion";
         if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
         if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
         if (vocabulary) return "bundled wordbooks extracted, listed through JNI and answered";
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (phraseNotes) {
+            new CommonPhraseNotesDeviceCheck(this).run();
+            return;
+        }
         if (noticeQueue) {
             new NoticeQueueDeviceCheck(this).run();
             return;

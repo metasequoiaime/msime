@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-// 「插件」页「我的插件」的规则和文案，照共享设置在 Windows 上的样子逐条移植：`plugin-preferences.ts`（选用和删除后的偏好）、`plugin-catalog-helpers.ts`（类型名、标记、缺失的选择、出错说明）、`plugin-library-view.tsx`（macOS 的插件库）的卡片说明、搜索与类型筛选、`plugin-sound-effects-view.tsx` 的包名、`plugin-detail-view.tsx` 的按钮与说明，`plugin-mentions-view.tsx` 的名单校验，以及 `plugin-script-view.tsx` 的脚本插件授权页。Windows 宿主的能力（`host_surface.rs`）全部为真：播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集；特效不是只闪光的那种（那是 HarmonyOS）。只有辅助码随版本：调用方传入。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「插件」页「我的插件」的规则和文案，照共享设置在 Windows 上的样子逐条移植：`plugin-preferences.ts`（选用和删除后的偏好）、`plugin-catalog-helpers.ts`（类型名、标记、缺失的选择、出错说明）、`plugin-library-view.tsx`（macOS 的插件库）的卡片说明、搜索与类型筛选、`plugin-sound-effects-view.tsx` 的包名、`plugin-detail-view.tsx` 的按钮与说明，`plugin-mentions-view.tsx` 的名单校验，以及 `plugin-script-model.ts` 的脚本展示规则、`script-grant-dialog.tsx` 与 `plugin-script-view.tsx` 的脚本插件授权页。Windows 宿主的能力（`host_surface.rs`）全部为真：播放音效和音乐、路由 / 与 @、画特效样式和特效包、背单词列单词本、符号面板列符号集；特效不是只闪光的那种（那是 HarmonyOS）。只有辅助码随版本：调用方传入。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::plugins {
 
 // ---- 包 ----
@@ -718,7 +718,7 @@ inline std::wstring imported_notice(Package const &pack) {
 
 // ---- 脚本插件（实验） ----
 
-// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-view.tsx` 和 `plugin-library-view.tsx` 的「脚本插件（实验）」节移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
+// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-model.ts`、`script-grant-dialog.tsx`、`plugin-script-view.tsx` 和 `plugin-library-view.tsx` 的「脚本插件（实验）」节移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
 
 // 脚本插件的能力，按 `msime_script_runtime::Capability::ALL` 的顺序（`SCRIPT_CAPABILITIES`）。
 inline constexpr std::array<std::wstring_view, 8> script_capabilities{

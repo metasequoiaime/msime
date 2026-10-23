@@ -12,6 +12,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
 
+普通英文候选保留原文和唯一纠错，并追加固定英文词库的前缀补全，例如输入 `eng` 可点选 `English`。空格和标点仍只自动采用纠错，补全需要手动点击。密码、网址、邮箱和禁止建议的输入框不显示这些候选。`EnglishCorrectionDeviceSmoke` 同时验证补全、当前词替换与既有纠错门禁；`-e prefix-completion true` 只跑补全专项。
+
 ## 产品版本
 
 版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi、japanese、vietnamese、tibetan）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
