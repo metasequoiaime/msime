@@ -46,6 +46,8 @@ struct Fixture {
     microsoft_shuangpin: bool,
     /// 引擎的首屏门槛，宿主每改一次分页就该跟着换一次。
     first_page_rows: usize,
+    /// 九宫格组码的上限，代替引擎的 `DIGIT_LIMIT`；0 表示没有上限。到上限且有候选时，`grid_limit_pick_ready` 说可以先选首选。
+    grid_limit: usize,
 }
 
 #[cfg(unix)]
@@ -991,6 +993,14 @@ impl InputEngine for Fixture {
     fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.set_key_grid(enabled.then_some(KeyGrid::NineKey))
     }
+    fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
+        let route = match self.key_grid {
+            Some(KeyGrid::NineKey) => !grid_key && (b'2'..=b'9').contains(&value),
+            Some(KeyGrid::FourteenKey) => grid_key && value.is_ascii_lowercase(),
+            _ => false,
+        };
+        route && self.grid_limit > 0 && self.text.len() >= self.grid_limit && !self.words.is_empty()
+    }
     fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
         self.key_grid = grid;
         self.nine_key_spellings.clear();
@@ -1706,6 +1716,7 @@ fn runtime() -> Runtime<Fixture> {
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
             first_page_rows: 0,
+            grid_limit: 0,
         },
         5,
     )
@@ -1762,6 +1773,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
+                grid_limit: 0,
             },
             9,
         )
@@ -2009,6 +2021,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
+                grid_limit: 0,
             },
             9,
         )
@@ -2260,6 +2273,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
                 first_page_rows: 0,
+                grid_limit: 0,
             },
             5,
         )
@@ -2364,6 +2378,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
             first_page_rows: 0,
+            grid_limit: 0,
         },
         5,
     )
@@ -3238,6 +3253,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
             first_page_rows: 0,
+            grid_limit: 0,
         },
         2,
     )
@@ -4009,6 +4025,83 @@ fn number_keys_select_the_visible_page_and_pass_through_when_idle() {
         })
         .unwrap();
     assert_eq!(result.commit.as_deref(), Some("candidate-6"));
+}
+
+/// 九宫格组码到上限后再按一键：先选掉首选，再把这一键接着打，按键不丢。
+#[test]
+fn grid_key_at_the_limit_picks_the_first_candidate_and_keeps_the_key() {
+    let digit = |value| Action::Character {
+        value,
+        shift: false,
+    };
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    runtime.set_nine_key_enabled(true).unwrap();
+    runtime.engine.grid_limit = 3;
+    for value in *b"644" {
+        assert!(runtime.dispatch(digit(value)).unwrap().commit.is_none());
+    }
+    // 首选占用了全部组码：它上屏，新按的 2 开始下一段组字。
+    let topped = runtime.dispatch(digit(b'2')).unwrap();
+    assert!(topped.handled);
+    assert_eq!(topped.commit.as_deref(), Some("candidate-0"));
+    assert_eq!(topped.view.editing_text, "2");
+    let selection = runtime.facts().selection.unwrap();
+    assert_eq!(selection.how, SelectionHow::GridLimit);
+    assert_eq!(selection.outcome, SelectionOutcome::Committed);
+
+    // 首选只占用了一部分：剩下的组码留着，新的一键接在后面，这次选择算部分选择。
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    for value in *b"644" {
+        runtime.dispatch(digit(value)).unwrap();
+    }
+    runtime.engine.remaining_after_select = Some("4".into());
+    let partial = runtime.dispatch(digit(b'2')).unwrap();
+    assert_eq!(partial.commit.as_deref(), Some("candidate-0"));
+    assert_eq!(partial.view.editing_text, "42");
+    assert_eq!(
+        runtime.facts().selection.unwrap().outcome,
+        SelectionOutcome::Partial
+    );
+
+    // 自己画词段的宿主把选掉的首选暂存进词段，和用户自己点选一样，不直接写进文档。
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    runtime.set_phrase_preedit(true);
+    for value in *b"644" {
+        runtime.dispatch(digit(value)).unwrap();
+    }
+    let held = runtime.dispatch(digit(b'2')).unwrap();
+    assert!(held.handled && held.commit.is_none());
+    assert_eq!(held.view.phrase_prefix, "candidate-0");
+    assert_eq!(held.view.editing_text, "2");
+
+    // 没到上限时数字照常进组码。
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    runtime.set_phrase_preedit(false);
+    runtime.engine.grid_limit = 0;
+    for value in *b"6442" {
+        assert!(runtime.dispatch(digit(value)).unwrap().commit.is_none());
+    }
+    assert_eq!(runtime.view().editing_text, "6442");
+}
+
+/// 14 键的字母从 `grid_key` 进来，到上限时同样先选首选再接着打。
+#[test]
+fn fourteen_key_at_the_limit_picks_the_first_candidate_and_keeps_the_key() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    runtime.set_key_grid(Some(KeyGrid::FourteenKey)).unwrap();
+    runtime.engine.grid_limit = 2;
+    runtime.dispatch(Action::GridKey(b'q')).unwrap();
+    runtime.dispatch(Action::GridKey(b'w')).unwrap();
+    let topped = runtime.dispatch(Action::GridKey(b'e')).unwrap();
+    assert!(topped.handled);
+    assert_eq!(topped.commit.as_deref(), Some("candidate-0"));
+    assert_eq!(topped.view.editing_text, "e");
+    assert_eq!(
+        runtime.facts().selection.unwrap().how,
+        SelectionHow::GridLimit
+    );
 }
 
 #[test]
@@ -6931,6 +7024,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
             first_page_rows: 0,
+            grid_limit: 0,
         },
         page_size,
     )

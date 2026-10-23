@@ -1615,18 +1615,18 @@
   },
   {
    "op": "type",
-   "arg": "77777777777777777777777777777777",
+   "arg": "777777777777777777777777777777777777777777777777",
    "result": {
     "handled": true
    },
    "snapshot": {
     "scheme": "quanpin",
     "local_mode": "none",
-    "preedit": "77777777777777777777777777777777",
+    "preedit": "777777777777777777777777777777777777777777777777",
     "raw_segmentation": "",
     "normalized_segmentation": "",
-    "editing_text": "77777777777777777777777777777777",
-    "caret": 32,
+    "editing_text": "777777777777777777777777777777777777777777777777",
+    "caret": 48,
     "dedicated_english": false,
     "shuangpin_profile": "",
     "nine_key_spellings": [
@@ -1645,16 +1645,16 @@
    "arg": "7",
    "result": {
     "handled": true,
-    "diagnostic": "九键最多输入 32 位，请先选择候选"
+    "diagnostic": "一次最多输入 48 个按键，请先选择候选"
    },
    "snapshot": {
     "scheme": "quanpin",
     "local_mode": "none",
-    "preedit": "77777777777777777777777777777777",
+    "preedit": "777777777777777777777777777777777777777777777777",
     "raw_segmentation": "",
     "normalized_segmentation": "",
-    "editing_text": "77777777777777777777777777777777",
-    "caret": 32,
+    "editing_text": "777777777777777777777777777777777777777777777777",
+    "caret": 48,
     "dedicated_english": false,
     "shuangpin_profile": "",
     "nine_key_spellings": [

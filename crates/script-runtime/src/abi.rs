@@ -134,6 +134,7 @@ pub mod scalar_values {
         ("edge", 8),
         ("highlighted", 9),
         ("wubi_auto", 10),
+        ("grid_limit", 11),
     ];
     /// `OUTCOME`：input-runtime 的 `SelectionOutcome`。
     pub const OUTCOME: &[(&str, u8)] =

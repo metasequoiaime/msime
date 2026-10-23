@@ -45,7 +45,7 @@ use crate::user_dictionary::ranking::{self, RankingRequest};
 use crate::user_dictionary::removal;
 
 pub const PATH_LIMIT: usize = 48;
-pub const DIGIT_LIMIT: usize = 32;
+pub const DIGIT_LIMIT: usize = 48;
 pub const CANDIDATE_LIMIT: usize = 128;
 /// 每次刷新从排在前面、覆盖全部数字的行里取几条切分当种子，见 `seeded_paths`。
 const SENTENCE_SEED_LIMIT: usize = 4;
@@ -571,7 +571,7 @@ impl NineKeySession {
         self.grid = grid;
     }
 
-    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
+    /// `2`..=`9`；到 `DIGIT_LIMIT` 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理（运行时会先用 `limit_pick_ready` 判断能不能替用户选掉首选再接着打）。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
             // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
@@ -612,6 +612,18 @@ impl NineKeySession {
         self.set_caret(caret + 1);
         self.refresh();
         KeyResult::handled()
+    }
+
+    /// 组码已经到 `DIGIT_LIMIT`、光标在末尾，再按一个组码 `digit` 时，先选掉首选能不能腾出位置：首选要占用至少一位组码。光标在中间（用户在改前面的码）、首选不占组码或者没有候选时不行，那一键照旧按上限拦下。
+    pub fn limit_pick_ready(&self, digit: u8) -> bool {
+        self.active()
+            && self.grid.is_code(digit)
+            && self.digits.len() >= DIGIT_LIMIT
+            && self.caret_position() == self.digits.len()
+            && self
+                .candidates
+                .first()
+                .is_some_and(|candidate| !candidate.pinyin.is_empty())
     }
 
     /// 组字光标的位置，末尾是 `digits.len()`。
@@ -4215,8 +4227,11 @@ mod tests {
             table.spellings_for("426", 2, None, &prior),
             ["gan", "gao", "han", "hao", "gang", "hang", "ga", "ha"]
         );
-        // With 31 digits already locked, only a one-digit completion still fits in 32.
-        assert_eq!(table.spellings_for("2", 31, None, &prior), ["a"]);
+        // 已经锁定了 `DIGIT_LIMIT - 1` 位时，只有一位就拼完的音节还放得下。
+        assert_eq!(
+            table.spellings_for("2", DIGIT_LIMIT - 1, None, &prior),
+            ["a"]
+        );
         assert!(table.spellings_for("", 0, None, &prior).is_empty());
         // 在两个数字之后切开，就排除了所有跨过这个位置的音节。
         assert_eq!(table.spellings_for("426", 0, Some(2), &prior), ["ga", "ha"]);
@@ -5833,6 +5848,8 @@ mod tests {
         );
 
         type_digits(&mut session, &"7".repeat(DIGIT_LIMIT));
+        // 到上限但没有候选可选：运行时不能替用户选首选，这一键照旧拦下。
+        assert!(!session.limit_pick_ready(b'7'));
         let result = session.character(b'7');
         assert!(result.handled);
         assert_eq!(
@@ -5846,6 +5863,20 @@ mod tests {
             session.finish(0).commit.as_deref(),
             Some("7".repeat(DIGIT_LIMIT).as_str())
         );
+
+        // 到上限、首选占用组码、光标在末尾时，运行时可以先选掉首选再接着打；光标移到中间时不行。不是组码的键不算。
+        let long = "64426".repeat(DIGIT_LIMIT / 5 + 1);
+        type_digits(&mut session, &long[..DIGIT_LIMIT]);
+        assert!(!session.snapshot().candidates.is_empty());
+        assert!(session.limit_pick_ready(b'6'));
+        assert!(!session.limit_pick_ready(b'1'));
+        session.command(Command::MoveLeft);
+        assert!(!session.limit_pick_ready(b'6'));
+        session.command(Command::MoveEnd);
+        assert!(session.limit_pick_ready(b'6'));
+        // 提示里写的上限和常量一致。
+        assert!(diagnostics::NINE_KEY_DIGIT_LIMIT.contains(&DIGIT_LIMIT.to_string()));
+        session.command(Command::Cancel);
     }
 
     /// #5613：光标移进数字中间后，退格、向后删除、打数字和切分都作用在光标处，用来改掉中间打错的那个数字。

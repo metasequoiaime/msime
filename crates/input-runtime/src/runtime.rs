@@ -3007,6 +3007,12 @@ impl<E: InputEngine> Runtime<E> {
             }
             _ => false,
         };
+        // 九宫格组码已经到上限（`DIGIT_LIMIT`）时再按一键：先替用户选掉首选腾出位置，再把这一键接着打，和顶字一样不丢键。引擎只在光标在末尾、首选确实占用组码时说可以；否则这一键照旧被拦下并给出提示。
+        let grid_limit_pick = match action {
+            Action::Character { value, .. } => self.engine.grid_limit_pick_ready(value, false),
+            Action::GridKey(letter) => self.engine.grid_limit_pick_ready(letter, true),
+            _ => false,
+        };
         // 这次把哪个座位的候选交给了引擎、经由哪条路径，引擎调用之后再与它的上屏核对（`selection_fact`）。标点结束组字的两条路由在 `punctuation`、`punctuation_ascii` 里自己记。
         let mut pick: Option<(SelectionHow, usize)> = None;
         // 原样上屏读音的路由：bare 前缀上的 Finish 和 `CommitRaw` 命令。
@@ -3070,6 +3076,21 @@ impl<E: InputEngine> Runtime<E> {
                         }
                         Ok(committed)
                     })
+            }
+            Action::Character { value, shift } if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine.select(self.engine_index(0)).and_then(|picked| {
+                    Ok(join_after_pick(
+                        picked,
+                        self.engine.character(value, shift)?,
+                    ))
+                })
+            }
+            Action::GridKey(letter) if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine
+                    .select(self.engine_index(0))
+                    .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
             Action::Character { value, .. }
@@ -3240,7 +3261,7 @@ impl<E: InputEngine> Runtime<E> {
             .as_deref()
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
-        let picked = selected_by_digit || selection_action;
+        let picked = selected_by_digit || selection_action || grid_limit_pick;
         // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
         // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
         let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
@@ -3261,6 +3282,8 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(selection) = self.facts.selection.as_mut() {
             if selection.outcome == SelectionOutcome::Committed
                 && selection.how != SelectionHow::WubiTop
+                && !(selection.how == SelectionHow::GridLimit
+                    && self.cached.editing_text.chars().count() <= 1)
                 && !self.cached.editing_text.is_empty()
             {
                 selection.outcome = SelectionOutcome::Partial;
@@ -3285,6 +3308,19 @@ impl<E: InputEngine> Runtime<E> {
             phrase_prefix_empty: self.phrase_prefix.is_empty(),
         })
     }
+}
+
+/// 先选掉首选、再把同一键交给引擎时，两步合成一个结果：选中的词在前，这一键若也上屏了什么就接在后面。这一键本身已经算处理过了。
+fn join_after_pick(mut picked: EngineResult, next: EngineResult) -> EngineResult {
+    if next.has_commit {
+        picked.commit.push_str(&next.commit);
+        picked.has_commit = true;
+    }
+    picked.handled = true;
+    if picked.diagnostic.is_empty() {
+        picked.diagnostic = next.diagnostic;
+    }
+    picked
 }
 
 /// `value` committed as it is, for a mark that has to leave together with a held phrase piece.
