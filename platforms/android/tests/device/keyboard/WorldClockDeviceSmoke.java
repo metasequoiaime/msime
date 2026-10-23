@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.graphics.Bitmap;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.os.Build;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -90,7 +91,7 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
             tap(node -> equalsText("返回", node.getText()) && equalsText("app.msime.android", node.getPackageName()));
             showTool("世界时钟");
             tap(key("更多"));
-            await(keyboardLetter());
+            awaitAny(keyboardLetter());
         } finally {
             leaveEditor();
             if (original == null) Files.deleteIfExists(cities.toPath()); else publish(cities, original);
@@ -130,6 +131,11 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
         }
         tap(field("msime-test-plain"));
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
+        if (Build.VERSION.SDK_INT >= 30) {
+            checkpoint("editor IME display requests settled");
+            awaitAny(field("msime-test-plain").and(node -> node.refresh()
+                    && equalsText("ime-requests-settled", node.getStateDescription())));
+        }
     }
 
     private boolean editorReady() {
@@ -161,11 +167,14 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
     private void openClock(String purpose) throws Exception {
         // 编辑器收到提交回声时，输入法还可能正在收起格式页；等键区恢复再重新展开菜单。
         checkpoint(purpose + ": keyboard restored");
-        AccessibilityNodeInfo letter = await(keyboardLetter());
+        dropStaleNodes();
+        AccessibilityNodeInfo letter = awaitAny(keyboardLetter());
         checkpoint(purpose + ": keyboard control " + letter.getClassName()
                 + " / " + letter.getContentDescription());
         checkpoint(purpose + ": expand function menu");
         tap(key("更多"));
+        dropStaleNodes();
+        awaitAny(toolPanel().and(AccessibilityNodeInfo::refresh));
         checkpoint(purpose + ": locate world clock entry");
         showTool("世界时钟");
         tap(tool("世界时钟"));
@@ -181,10 +190,10 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
     }
 
     private Predicate<AccessibilityNodeInfo> keyboardLetter() {
-        // 这里只同步键区恢复，不要求自定义按键向旧系统报告特定的控件类名或描述。
+        // 先刷新再判断可见性；通用 await 在刷新谓词之前会跳过缓存中仍不可见的节点。
         return node -> equalsText("app.msime.android", node.getPackageName())
                 && node.getText() != null && "q".equalsIgnoreCase(node.getText().toString())
-                && node.isClickable();
+                && node.refresh() && node.isVisibleToUser() && node.isClickable();
     }
 
     private void addCity(String region, String country, String zone) throws Exception {
