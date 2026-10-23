@@ -29,6 +29,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_quick_punctuation_symbols",
         # 大屏竖屏分离只在 Android 原生键盘设置页提供，其他宿主保留共享字段，React 设置页不显示。
         "touch_keyboard_split_portrait",
+        # 日语九键连点切换只在 Android 原生输入设置页提供，其他宿主保留共享字段，React 设置页不显示。
+        "touch_japanese_toggle_input",
     },
     "KeybindingPreferences": set(),
     "TouchToolbarPreferences": {
