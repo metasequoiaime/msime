@@ -34,6 +34,7 @@ Status: implemented
 
 - 最终设备夹具在 API 28、35 的完整 `QuickDeleteUndoDeviceSmoke` 均通过，覆盖原有上下滑、短按、选区、密码、不学习、切框与普通中文输入回归，并执行新增水平专项；两台的 `QuickDeletePreviewDeviceSmoke` 也通过，保留 26 键/九键长按提示及上滑清空。
 - 最终 `scripts/verify-local.sh --quick`（`20261023-035027`）通过；包含仓库契约、Rust workspace、Android 目标、Android Java 宿主与共享 Apple 桥接层，其余平台按范围跳过。远端 Node 缺失的笔记检查由本机 `pnpm run verify-notes` 补齐，`git diff --check` 通过。
+- 集成提交 `5a957811ae` 的完整本机 quick 与推送钩子均通过，额外覆盖 Linux 原生宿主的 111 项测试、Linux 设置外壳检查和 macOS 原生宿主编译。该提交的 PR CI 仅因基线 Windows 引导文案契约失败；基线修复 #9389 合入后，以补充验证记录的提交重新验证 PR 合并结果，不把基线失败视为设备回归。
 
 ## Consequences
 
