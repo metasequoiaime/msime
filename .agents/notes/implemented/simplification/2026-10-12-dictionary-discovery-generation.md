@@ -14,6 +14,8 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 
 为发现列表使用 `useAsyncGeneration(community)`，成功和失败回调只有在当前请求代次仍有效时才更新状态。列表上限、错误提示、添加动作和显示行为保持不变。
 
+`packages/ui/src/dictionary/dictionary-details.tsx` 提供可独立挂载的 `CollectionDetail` 与 `BuiltinDictionaryDetail`，不读取设置表单上下文。命名词库的开关、添加与删除通过回调交还页面；内置详情持有搜索、分页和添加状态。两个详情共用私有标题与已有编辑对话框，列表和详情共用 `dictionary-detail-parts.tsx` 的字标与加号。页面继续持有详情历史、列表刷新和导出文件操作；内置详情只接收可选 `onExport`，原有能力条件、返回提示和取消空串保持。
+
 内置详情使用 `useAsyncGeneration(dictionary, query)`，客户端、搜索词变化及卸载立即作废旧请求；每次加载仍递增代次，维持分页和添加词条后刷新的顺序。250 毫秒防抖、分页大小、拼音规范化与词语过滤保留在详情页，不进入通用守卫。
 
 外层修改使用 `useAsyncActionRunner`，owner 为 `collections`、`dictionary` 和 `communityResources`，共享忙碌、挂载与客户端代次守卫。图库打开不取消修改。列表刷新和内置计数使用独立的 `useAsyncGeneration(collections, dictionary, galleryOpen)`，图库打开立即作废旧刷新；每次刷新仍递增代次，公共 runner 接受修改后也递增刷新代次，保持修改结果优先于先前刷新。
@@ -24,6 +26,8 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 
 ## Alternatives considered
 
+- 把详情连同设置上下文、历史和文件导出一起迁移：调用方接线更少，但组件仍绑定整页宿主能力；详情只收数据、词库客户端和动作回调，使列表编排与详情展示各有归属。
+
 - 保留局部布尔值：能够处理卸载，但重复实现请求代次管理。
 - 只使用挂载 ref：不能在社区客户端变化后阻止旧客户端结果覆盖新列表。
 - 保留内置详情的本地计数并补 cleanup：可以分别修补防抖与卸载窗口，但会继续复制公共代次的 owner 生命周期；复用已有 hook 后只保留查询顺序的递增。
@@ -31,6 +35,10 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 - 把文件读取整个放进公共 runner：可以直接使用操作守卫，但会把准备文件阶段也计入修改忙碌，改变现有交互；保留读取流程并检查 owner 即可隔离过期准备结果。
 
 ## Consequences
+
+独立详情可以由其他共享界面直接组合，新增模块内部导出，不增加包入口符号。它仍依赖共享控件、toast 和请求代次 Hook，不接管平台文件能力。
+
+`dictionary-details.test.tsx` 在没有设置表单上下文的环境覆盖回调更新保留草稿、添加返回空值时继续编辑、忙碌与删除确认、可选导出及取消提示、分页与客户端变化后的旧响应隔离。迁移前相关五文件 61 项通过，迁移后加上独立详情共六文件 65 项通过；桌面生产构建、HarmonyOS 类型检查、lint、格式和笔记检查通过。六个组件声明及页面导出函数在排除模块导出、回调适配和格式差异后与基点一致；独立审查未发现阻断问题。
 
 发现词库列表与同页详情加载共用请求代次机制，移除局部 cleanup 样板。现有词库页测试和新增源码契约测试覆盖该抽取。
 

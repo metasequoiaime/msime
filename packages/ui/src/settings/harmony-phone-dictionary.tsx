@@ -1,14 +1,13 @@
+import { BuiltinDictionaryDetail, CollectionDetail } from "../dictionary/dictionary-details";
+import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { exceptionMessage } from "../core/exception-message";
 import { downloadBlob } from "../core/download-blob";
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionSheet } from "../core/action-sheet";
-import { useConfirm } from "../core/confirm";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
-import * as controls from "../core/platform-controls-style";
 import { useToast } from "../core/toast";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { useDebouncedCallback } from "../core/use-debounced-callback";
 import type {
   CommunityResource,
   CommunityResourceClient,
@@ -22,21 +21,16 @@ import {
   collectionImportSources,
   collectionNameFromFile,
   collectionSubtitle,
-  displayPinyinCode,
-  normalizePinyinCode,
-  validPinyinCode,
   type CollectionImportSource,
-  type DictionaryCollection,
   type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
-import { DictionaryNameDialog, DictionaryWordDialog } from "../dictionary/dictionary-edit-dialogs";
+import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
 import { dictionaryExportName, dictionaryExportPayload } from "../dictionary/dictionary-export";
 import { SCEL_PERSONAL_USE_NOTICE } from "../dictionary/dictionary-messages";
 import {
   MAX_SCEL_FILE_BYTES,
   readDictionaryFile,
   readScelFile,
-  type DictionaryEntry,
 } from "../dictionary/dictionary-file";
 import type { DictionaryClient } from "../dictionary/dictionary-contracts";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
@@ -47,8 +41,6 @@ import * as settings from "./settings-style";
 
 /** 「发现词库」列出的社区词库数，与 Android 的 `DISCOVER_LIMIT` 相同。 */
 const DISCOVER_LIMIT = 8;
-/** 内置词库详情页一次读的词条数，与 Android 的词库详情页相同。 */
-const ENTRY_PAGE_SIZE = 100;
 /** 命名词库一次导入的文本上限，与 client-services 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
 const MAX_COLLECTION_IMPORT_BYTES = 16 * 1024 * 1024;
 const BUILTIN = "builtin:pinyin";
@@ -176,7 +168,9 @@ export function HarmonyPhoneDictionary() {
       <BuiltinDictionaryDetail
         dictionary={dictionary}
         count={builtinCount}
-        saveExport={client.saveExport}
+        onExport={
+          dictionary.export ? () => exportUserPinyin(dictionary, client.saveExport) : undefined
+        }
       />
     );
   }
@@ -379,55 +373,9 @@ export function HarmonyPhoneDictionary() {
 /** 卡片下方的小字说明，与 Android 词库页「已安装」卡片的脚注一样放在卡片外面。 */
 const footnote = "m-0 px-4 text-[13px] leading-relaxed [color:var(--p-sub)]";
 
-/** 删除这类危险操作：一行红字，没有图标和箭头。 */
-function DangerRow({
-  title,
-  disabled,
-  onClick,
-}: {
-  title: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`${controls.navRow} ${controls.navRowButton}`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {/* 颜色给到文字上：行本身的样式固定用正文色。 */}
-      <span
-        className="flex min-h-[52px] min-w-0 flex-1 items-center text-[16px] text-danger"
-        data-row-title=""
-      >
-        {title}
-      </span>
-    </button>
-  );
-}
-
-/** 「添加」的加号，画在和词库行同样的字标方块里，看上去就是往列表里再加一项。图标库没有加号，这里直接画两条居中的线。 */
-function PlusGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 2.5v11M2.5 8h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 /** 「拼音词库」行的副标题。`count` 数的是自己加的词和学习时调过权重的内置词，不是内置词条的总量，所以照实写成「自己的词」；一条都没有时只写「内置词库」。 */
 function builtinDescription(count: number | null): string {
   return count ? `内置词库 · ${formatZhNumber(count)} 条自己的词` : "内置词库";
-}
-
-/** 行首的字标：词库名的第一个字，或者操作的符号，和 Android 词库页的徽标一样。 */
-function Badge({ children }: { children: ReactNode }) {
-  return (
-    <span className="flex size-7 items-center justify-center rounded-[8px] text-[14px] font-semibold [background:color-mix(in_srgb,var(--p-accent-text)_14%,transparent)] [color:var(--p-accent-text)]">
-      {children}
-    </span>
-  );
 }
 
 /** 「导出词库」：分页读出自己加过的拼音词条，交给宿主的保存对话框；返回要提示的话，用户取消时返回空串。 */
@@ -595,240 +543,5 @@ function DiscoverDictionaries({
       )}
       <NavRow variant="me" title="浏览更多词库" onClick={onBrowseMore} />
     </GroupList>
-  );
-}
-
-/** 词库详情页的标题。返回不另放按钮：打开详情时推入了一条历史记录，页面顶栏的返回和系统返回键都先回到词库列表，与 Android 的词库详情页一样只有一个返回。 */
-function DetailHeader({ title }: { title: string }) {
-  return (
-    <div className={settings.subViewHeader}>
-      <h2 className={settings.subViewTitle}>{title}</h2>
-    </div>
-  );
-}
-
-/** 一个命名词库：启用开关、条数、添加词条和删除。集合接口不列出单个集合的词条，所以和 Android 一样只显示条数。 */
-function CollectionDetail({
-  collection,
-  busy,
-  onEnabled,
-  onAddWord,
-  onDelete,
-}: {
-  collection: DictionaryCollection;
-  busy: boolean;
-  onEnabled: (enabled: boolean) => void;
-  onAddWord: (word: string, code: string) => Promise<DictionaryCollectionsView | undefined>;
-  onDelete: () => Promise<void>;
-}) {
-  const [adding, setAdding] = useState(false);
-  const { confirm, confirmation } = useConfirm();
-  const pending =
-    collection.pending > 0 ? `，还有 ${formatZhNumber(collection.pending)} 条等键盘同步` : "";
-  return (
-    <>
-      <DetailHeader title={collection.name} />
-      <GroupList>
-        <SwitchRow
-          title="启用此词库"
-          description={`${formatZhNumber(collection.entry_count)} 条${pending}`}
-          checked={collection.enabled}
-          disabled={busy}
-          onChange={onEnabled}
-        />
-      </GroupList>
-      <GroupList>
-        <NavRow
-          variant="me"
-          icon={
-            <Badge>
-              <PlusGlyph />
-            </Badge>
-          }
-          title="添加词条"
-          disabled={busy}
-          onClick={() => setAdding(true)}
-        />
-      </GroupList>
-      <GroupList>
-        <DangerRow
-          title="删除此词库"
-          disabled={busy}
-          onClick={async () => {
-            const confirmed = await confirm({
-              title: `删除「${collection.name}」？`,
-              message: "这个词库带来的词会从候选里去掉，你自己加过的词会留下。",
-              confirmLabel: "删除",
-              danger: true,
-            });
-            if (confirmed) await onDelete();
-          }}
-        />
-      </GroupList>
-      {adding && (
-        <DictionaryWordDialog
-          onClose={() => setAdding(false)}
-          onSubmit={async (word, code) => {
-            if (await onAddWord(word, code)) setAdding(false);
-          }}
-        />
-      )}
-      {confirmation}
-    </>
-  );
-}
-
-/** 内置拼音词库：始终启用，可以搜词条、加词和导出自己加过的词。 */
-function BuiltinDictionaryDetail({
-  dictionary,
-  count,
-  saveExport,
-}: {
-  dictionary: DictionaryClient;
-  count: number | null;
-  saveExport: ((name: string, contents: string) => Promise<string | null>) | undefined;
-}) {
-  const toast = useToast();
-  const [query, setQuery] = useState("");
-  const [entries, setEntries] = useState<DictionaryEntry[]>([]);
-  const [more, setMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const generation = useAsyncGeneration(dictionary, query);
-  const searchId = useId();
-
-  const load = async (search: string, offset: number) => {
-    const current = ++generation.current;
-    setLoading(true);
-    const code = normalizePinyinCode(search);
-    const byCode = search.trim() !== "" && validPinyinCode(code);
-    try {
-      const page = await dictionary.list(
-        offset,
-        ENTRY_PAGE_SIZE,
-        "pinyin",
-        byCode ? code : undefined,
-      );
-      if (current !== generation.current) return;
-      // 不像拼音的搜索词按词语过滤已读出的词条，与 Android 的词库详情页相同。
-      const found =
-        search.trim() !== "" && !byCode
-          ? page.entries.filter((entry) => entry.value.includes(search.trim()))
-          : page.entries;
-      setEntries((value) => (offset === 0 ? found : [...value, ...found]));
-      setMore(page.has_more);
-    } catch {
-      if (current === generation.current) toast("读取词条失败，请稍后重试。");
-    } finally {
-      if (current === generation.current) setLoading(false);
-    }
-  };
-  const { schedule: loadLater } = useDebouncedCallback(
-    (search: string) => void load(search, 0),
-    query ? 250 : 0,
-  );
-  useEffect(() => {
-    loadLater(query);
-  }, [loadLater, query, dictionary]);
-
-  return (
-    <>
-      <DetailHeader title="拼音词库" />
-      <GroupList>
-        <SwitchRow
-          title="启用此词库"
-          description={`内置词库始终启用${count ? `，有 ${formatZhNumber(count)} 条自己的词` : ""}`}
-          checked
-          disabled
-          onChange={() => undefined}
-        />
-      </GroupList>
-      <label htmlFor={searchId} className="sr-only">
-        搜索词条
-      </label>
-      <input
-        id={searchId}
-        type="search"
-        className="box-border h-10 w-full rounded-full border-0 px-4 text-[15px] [background:var(--p-group-bg)] [color:var(--p-text)]"
-        placeholder="搜索词条"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
-      {/* 与 Android 的词库详情页一样：词条和「添加词条」在同一张卡片里，导出单独一张。 */}
-      <GroupList>
-        {entries.map((entry) => (
-          <div
-            key={`${entry.key}\u0000${entry.value}`}
-            className="flex min-h-[48px] items-center gap-3 px-3.5 py-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[16px] [color:var(--p-text)]">
-                {entry.value}
-              </span>
-              <span className="block truncate text-[12px] [color:var(--p-sub)]">
-                {displayPinyinCode(entry.key)}
-              </span>
-            </span>
-            <span className="shrink-0 text-[13px] [color:var(--p-sub)]">{entry.weight}</span>
-          </div>
-        ))}
-        {!loading && entries.length === 0 && (
-          <p className={settings.groupNote}>
-            {query ? "没有匹配的词条。" : "还没有自己添加或学到的词。输入拼音可以搜索内置词条。"}
-          </p>
-        )}
-        {more && (
-          <NavRow
-            variant="me"
-            title={loading ? "正在读取…" : "加载更多"}
-            disabled={loading}
-            onClick={() => void load(query, entries.length)}
-          />
-        )}
-        <NavRow
-          variant="me"
-          icon={
-            <Badge>
-              <PlusGlyph />
-            </Badge>
-          }
-          title="添加词条"
-          onClick={() => setAdding(true)}
-        />
-      </GroupList>
-      {dictionary.export && (
-        <GroupList>
-          <NavRow
-            variant="me"
-            title="导出词库"
-            description="导出自己加过的拼音词条"
-            onClick={() =>
-              void exportUserPinyin(dictionary, saveExport).then(
-                (message) => message && toast(message),
-              )
-            }
-          />
-        </GroupList>
-      )}
-      {adding && (
-        <DictionaryWordDialog
-          onClose={() => setAdding(false)}
-          onSubmit={async (word, code) => {
-            try {
-              await dictionary.edit(
-                null,
-                { kind: "pinyin", key: code, value: word, weight: 10 },
-                `phone-dictionary-${Date.now()}`,
-              );
-              setAdding(false);
-              toast("已添加");
-              void load(query, 0);
-            } catch {
-              toast("添加失败，请稍后重试。");
-            }
-          }}
-        />
-      )}
-    </>
   );
 }
