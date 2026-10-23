@@ -45,3 +45,7 @@ API 28/35 上的 client-base 36 项、client-core 512 项和 client-providers 25
 远端 API 35 曾在编辑器、键区或菜单入口准备阶段失败，未进入时钟功能断言；未改动的 MoreTools 基线也报 `IME showed []`。系统记录包含 `system_server` 的 `PointerEventDispatcher0` ANR、Launcher 焦点超时及合成编辑器 `failed to attach / start timeout`。保留日志和截图后，改用本机专用 API 35 AVD，使用已有 APK、不重新构建，两个完整 UI 专项均通过。不能仅根据 `am instrument` 的退出码判断成功，还必须检查 `MSIME_DEVICE_SMOKE_PASSED` 与失败标记。
 
 PR CI 发现 Windows 许可收集合成仓库漏建新声明，已补夹具并通过 PowerShell 专项。macOS `settings-glass` 曾一次外观同步断言失败，该单项复跑和新一轮完整 CI 均通过。代码提交 `3d73305284` 的 PR CI 已完成：28 项通过、6 项按条件跳过，无失败；后续提交仅同步最终验收记录。
+
+同步 `70590fe035` 后，`verify-native.sh` 同时保留上游热键导出 `msime_client_toggle_hotkey_chords`、世界时钟 C API `msime_client_world_clock` 与 JNI `worldClockRaw`。冲突只标在 C API 长行，JNI 行仍有已自动合并的本 PR 改动；恢复整份上游文件会误删该行，首次 quick 的 `android jni names` 已拦住这个遗漏。补回后对两份导出清单分别检查上游与旧分支的完整并集，156 个 JNI 方法、127 个 C API 导出的契约专项通过。新基线世界时钟 8 项测试和 client-core 全目标 Clippy（`-D warnings`）通过，旧基线的 Clippy 限制已不存在。本次不改世界时钟运行逻辑；设备结果仍对应前述已验收 APK，不把新基线编译当作重跑设备验收。
+
+补齐 JNI 清单后的完整 `bash scripts/verify-local.sh --quick` 通过（`quick-exports-restored.exit` 为 0），包括 176 项 Windows 可移植测试、全部契约、Rust workspace、Android/WASM 目标、Android Java/JNI、macOS 原生宿主和共享 Apple 桥接构建。Docker、MinGW、DevEco 与远端 PATH 中的 Node/pnpm 仍缺少，对应阶段按脚本跳过；本机笔记与引导文案检查单独通过。本次新检出在远端系统卷构建，开始前空闲 62 GiB，本机未创建构建树。
