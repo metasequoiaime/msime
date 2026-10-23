@@ -2,35 +2,23 @@ import { AddDictionarySheet } from "../dictionary/add-dictionary-sheet";
 import { DiscoverDictionaries } from "../dictionary/dictionary-discovery";
 import { BuiltinDictionaryDetail, CollectionDetail } from "../dictionary/dictionary-details";
 import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
-import { exceptionMessage } from "../core/exception-message";
 import { useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
 import { useToast } from "../core/toast";
 import {
   binaryCollectionFormat,
-  collectionFailureMessage,
-  collectionFormatForFile,
-  collectionImportMessage,
   collectionImportSources,
-  collectionNameFromFile,
   collectionSubtitle,
 } from "../dictionary/dictionary-collections";
 import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
 import { exportPersonalPinyinDictionary } from "../dictionary/dictionary-export-action";
-import { SCEL_PERSONAL_USE_NOTICE } from "../dictionary/dictionary-messages";
-import {
-  MAX_SCEL_FILE_BYTES,
-  readDictionaryFile,
-  readScelFile,
-} from "../dictionary/dictionary-file";
+import { importDictionaryCollectionFile } from "../dictionary/dictionary-collection-import-action";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
 import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-collections-state";
 import { SwitchRow } from "./switch-row";
 
-/** 命名词库一次导入的文本上限，与 client-services 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
-const MAX_COLLECTION_IMPORT_BYTES = 16 * 1024 * 1024;
 const BUILTIN = "builtin:pinyin";
 
 /**
@@ -255,37 +243,14 @@ export function HarmonyPhoneDictionary() {
           onFile={async (source, file) => {
             const isCurrent = captureOwner();
             setAddingDictionary(false);
-            const name = collectionNameFromFile(file.name);
-            const format = collectionFormatForFile(file.name, source.format);
-            const importBytes = collections.importBytes;
-            if (binaryCollectionFormat(format)) {
-              if (!importBytes) {
-                toast(collectionFailureMessage({ code: "unsupported_format" }));
-                return;
-              }
-              let encoded: string;
-              try {
-                encoded = await readScelFile(file, MAX_SCEL_FILE_BYTES);
-              } catch (error) {
-                if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
-                return;
-              }
-              if (!isCurrent()) return;
-              const next = await run(() => importBytes(name, format, encoded));
-              if (next)
-                toast(`${collectionImportMessage(name, next.import)}。${SCEL_PERSONAL_USE_NOTICE}`);
-              return;
-            }
-            let text: string;
-            try {
-              text = await readDictionaryFile(file, MAX_COLLECTION_IMPORT_BYTES);
-            } catch (error) {
-              if (isCurrent()) toast(exceptionMessage(error, "读取文件失败，请重新选择。"));
-              return;
-            }
-            if (!isCurrent()) return;
-            const next = await run(() => collections.importFile(name, format, text));
-            if (next) toast(collectionImportMessage(name, next.import));
+            const message = await importDictionaryCollectionFile({
+              collections,
+              source,
+              file,
+              isCurrent,
+              run,
+            });
+            if (message && isCurrent()) toast(message);
           }}
         />
       )}

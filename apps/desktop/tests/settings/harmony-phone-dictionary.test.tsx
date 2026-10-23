@@ -757,6 +757,23 @@ test("a host that cannot send bytes does not offer the Sogou cell dictionary", a
   expect(within(sheet).queryByRole("button", { name: "导入搜狗细胞词库" })).toBeNull();
 });
 
+test("细胞词库导入保留客户端方法接收者", async () => {
+  const { collections } = setup({ scel: true, importBytes: true });
+  const importBytes = vi.fn(function (this: DictionaryCollectionsClient) {
+    return Promise.resolve(viewOf([work, slang]));
+  });
+  collections.importBytes = importBytes;
+  fireEvent.click(await screen.findByText("添加词库"));
+  fireEvent.click(screen.getByRole("button", { name: "导入搜狗细胞词库" }));
+  const input = screen.getByLabelText("选择词库文件");
+  Object.defineProperty(input, "files", {
+    value: [new File([new Uint8Array([0x40, 0x15, 0, 0])], "合成词库.scel")],
+  });
+  fireEvent.change(input);
+  await waitFor(() => expect(importBytes).toHaveBeenCalledOnce());
+  expect(importBytes.mock.contexts[0]).toBe(collections);
+});
+
 test.each(["txt", "scel"])("读取 %s 文件期间更换客户端，不向旧客户端导入", async (format) => {
   const { collections, changeCollections } = setup({ scel: true, importBytes: true });
   const reading = deferred<ArrayBuffer>();
