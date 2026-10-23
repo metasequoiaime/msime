@@ -295,6 +295,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
+    /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
+    boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -2400,6 +2402,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
+        applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
     }
@@ -2413,6 +2416,22 @@ public final class MSIMEInputService extends InputMethodService {
     /** 没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
     private static boolean shuangpinKeyHintsFrom(JSONObject preferences) {
         return preferences != null && preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false);
+    }
+
+    private static boolean japaneseToggleInputFrom(JSONObject preferences) {
+        InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
+        return preferences == null ? toggle.enabledByDefault()
+            : preferences.optBoolean(toggle.key(), toggle.enabledByDefault());
+    }
+
+    /** 开关切换后不继承先前的连点，避免重新开启时替换已经留下的假名。 */
+    private void applyJapaneseToggleInput(boolean enabled) {
+        if (japaneseToggleInputEnabled == enabled) return;
+        japaneseToggleInputEnabled = enabled;
+        if (imeLayoutRows != null) {
+            imeLayoutRows.resetJapaneseToggle();
+            imeLayoutRows.hideJapaneseFlickPreview();
+        }
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -2458,7 +2477,6 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 本地设置里由服务直接持有的几项。 */
     private void applyLocalSettings() {
-        if (!localSettings.bool(AndroidLocalSettings.JAPANESE_TOGGLE)) imeLayoutRows.resetJapaneseToggle();
         toolbarPhrase = localSettings.bool(AndroidLocalSettings.TOOLBAR_PHRASE);
         toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
@@ -2758,7 +2776,7 @@ public final class MSIMEInputService extends InputMethodService {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
-            + shuangpinKeyHintsEnabled + ":" + splitKeyboardPortrait;
+            + shuangpinKeyHintsEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled;
     }
 
     private void reloadPreferences(String response) {
@@ -2859,6 +2877,8 @@ public final class MSIMEInputService extends InputMethodService {
         int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
+        boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
+        boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -2939,6 +2959,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
+        applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -2998,6 +3019,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 引号与方头括号样式变了也重建键行：符号键、字母提示和 123 层的键面都跟着它画。
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView)
             || japaneseEmojiKeyChanged
+            || japaneseToggleInputChanged
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(nextView));
         enabledSchemes = nextSchemeConfiguration.enabled();

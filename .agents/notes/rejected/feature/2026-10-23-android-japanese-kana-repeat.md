@@ -1,16 +1,16 @@
 # Agent Note: Android 日语九键连点切换开关
 
-Status: implemented
+Status: rejected — 新设置规则必须归共享 Rust；替代方案见[共享偏好决定](../../implemented/feature/2026-10-23-android-japanese-toggle-input.md)
 
 ## Problem
 
 日语九键原本把同一个键在一秒内的连续轻点解释为循环假名。需要允许习惯直接重复输入的用户关闭这项行为，同时保留四向滑动选取其他假名和现有的按下提示。这个设置还必须在 Android 本机持久保存，不进入账号同步。
 
-## Decision
+## Proposal
 
 Android 本地设置增加 `platform.android.japanese_toggle`，默认值为开启，设置入口放在「输入」页的「语言与方案」卡片中，日语方案提供日语九键时显示。开关关闭时，轻点日语九键每次都选择键面中央假名并清除连点状态，因此连续轻点「さ」输入「ささ」；四向滑动仍直接按滑动方向选择假名，提示中间格也继续按当前轻点行为显示。设置页和输入法进程读取同一份 `AndroidLocalSettings.Snapshot`，沿用现有本地设置写入与热重载流程。
 
-这项设置与 [Android 日语九键按下即显示收在键内的五向提示](2026-10-10-android-japanese-flick-guide.md) 部分重叠：该笔记约束提示和默认连点行为，本次只增加用户可关闭连点的边界，默认开启以保持既有输入手感。
+这项设置与 [Android 日语九键按下即显示收在键内的五向提示](../../implemented/feature/2026-10-10-android-japanese-flick-guide.md) 部分重叠：该笔记约束提示和默认连点行为，本次只增加用户可关闭连点的边界，默认开启以保持既有输入手感。
 
 ## Alternatives considered
 

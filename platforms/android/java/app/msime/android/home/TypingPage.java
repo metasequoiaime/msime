@@ -265,10 +265,10 @@ public final class TypingPage extends ReloadingDetailPage {
                 shown == null ? null : schemeLabel(shown, preferences),
                 () -> showLanguage(language, offered, applied, preferences, state)));
             if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
-                languages.toggle("日语九键连点切换", "同一个键在 1 秒内连续轻点时循环假名；关闭后连续轻点输入重复假名，四向滑动仍可选其他假名",
-                    state.local().bool(AndroidLocalSettings.JAPANESE_TOGGLE),
-                    checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.JAPANESE_TOGGLE, checked,
-                        this::reload, this::reload));
+                InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
+                languages.toggle(toggle.title(), toggle.description(),
+                    preferences.optBoolean(toggle.key(), toggle.enabledByDefault()),
+                    checked -> savePreferences(values -> values.put(toggle.key(), checked)));
             }
         }
         if (!addable.isEmpty()) {

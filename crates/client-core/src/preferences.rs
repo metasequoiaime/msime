@@ -1199,6 +1199,9 @@ pub struct Preferences {
     /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
+    /// Android 日语九键连点同一键时循环假名；关闭后每次轻点都追加键面假名，四向滑动不变。默认开，保留旧文档的输入习惯；其他宿主原样保留。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_japanese_toggle_input: bool,
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
@@ -3133,6 +3136,7 @@ impl Default for Preferences {
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
             touch_shuangpin_key_hints: false,
+            touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),

@@ -99,6 +99,11 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "$core" != true ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Japanese toggle input acceptance failed" >&2; exit 1; }
+fi
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e app-composition true)
   printf '%s\n' "$result"

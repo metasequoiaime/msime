@@ -33,6 +33,9 @@ public final class InputFeatureToggleSmoke {
         // 说的就是键盘行为的反面，而「打开」它写进去的又是本来就在的值。
         check(enabledByDefault("backspace_reverts_selection"), "selection retreat stays enabled for existing users");
         check(enabledByDefault("learning"), "learning is on by default");
+        check(enabledByDefault("touch_japanese_toggle_input"), "Japanese toggle input keeps its legacy default");
+        check(all.stream().anyMatch(toggle -> "touch_japanese_toggle_input".equals(toggle.key())
+                && "日语".equals(toggle.group().title())), "Japanese input has its own settings group");
         // 自动纠错 is the two nested `quanpin` corrections, each with its own row in the sheet, not one top-level switch; scripts/test-android-preference-keys.py checks every key the sheets write against the shared schema.
         check(!hasToggle("autocorrect"), "there is no all-types autocorrect switch");
         // 新装默认关闭云候选和候选翻译；账号翻译仍是下面独立的主动开关。

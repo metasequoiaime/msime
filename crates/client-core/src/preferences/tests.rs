@@ -5,6 +5,40 @@
 use super::*;
 
 #[test]
+fn japanese_toggle_input_keeps_legacy_default_and_requires_a_boolean() {
+    assert!(Preferences::default().touch_japanese_toggle_input);
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(legacy.get("touch_japanese_toggle_input").is_none());
+    assert!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .touch_japanese_toggle_input
+    );
+    let mut malformed = legacy;
+    malformed["touch_japanese_toggle_input"] = "false".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+}
+
+#[test]
+fn japanese_toggle_input_persists_disabled() {
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["touch_japanese_toggle_input"] = false.into();
+    let disabled: Preferences = serde_json::from_value(value).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, disabled).unwrap();
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["touch_japanese_toggle_input"],
+        false
+    );
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().preferences).unwrap()
+            ["touch_japanese_toggle_input"],
+        false
+    );
+}
+
+#[test]
 fn candidate_translation_font_size_is_optional_bounded_and_round_trips() {
     let mut json = serde_json::to_value(Preferences::default()).unwrap();
     assert!(json.get("candidate_translation_font_size").is_none());
