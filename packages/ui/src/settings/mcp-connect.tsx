@@ -7,7 +7,7 @@ import { SettingsServiceRow } from "./settings-service-row";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
+import { SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
@@ -16,38 +16,25 @@ import { SettingsNotice } from "./settings-notice";
 import { StatusMessage } from "../core/status-message";
 import { ErrorAlert } from "../core/error-alert";
 import { useAsyncGeneration } from "./use-async-generation";
+import {
+  mcpConfigWithFlags,
+  mcpGrantMessage,
+  mcpInstallCommand,
+  mcpRemoveCommand,
+  mcpTerminalInstructions,
+  type McpClientId,
+  type McpFlag,
+  type McpInstallOutcome,
+  type McpServerStatus,
+} from "./mcp-command-model";
 
-/** The assistants the host can write the entry for. */
-export type McpClientId = "claude_desktop" | "cursor";
-
-/** 放宽助手权限的 `msime-mcp` 参数。 */
-export type McpFlag = "--allow-write" | "--allow-dictionary-read";
-
-export type McpClientStatus = {
-  id: McpClientId;
-  /** The assistant's configuration file. */
-  path: string;
-  /** 文件里的 `msime` 条目就是这里的服务器，可能带了 `flags` 里的权限参数。 */
-  configured: boolean;
-  /** 已写入条目带的权限参数，按固定顺序；未连接时为空。 */
-  flags: McpFlag[];
-  /** 已连接，但条目的命令是 Nix store 里以前那一版的路径，升级或垃圾回收后会失效；再写一次换成 `command`，权限照旧。 */
-  stale: boolean;
-};
-
-export type McpServerStatus = {
-  /** The absolute path of `msime-mcp` beside the settings app. */
-  command: string;
-  /** Whether that file exists. */
-  installed: boolean;
-  /** The runtime options the entry points at; absent before the input method is set up. */
-  options: string | null;
-  /** `{"mcpServers": {"msime": ...}}` to paste into any assistant. */
-  config: string | null;
-  clients: McpClientStatus[];
-};
-
-export type McpInstallOutcome = "added" | "updated" | "replaced" | "unchanged";
+export type {
+  McpClientId,
+  McpClientStatus,
+  McpFlag,
+  McpInstallOutcome,
+  McpServerStatus,
+} from "./mcp-command-model";
 
 const clientNames: Record<McpClientId, string> = {
   claude_desktop: "Claude Desktop",
@@ -92,120 +79,8 @@ function sameFlags(a: readonly McpFlag[], b: readonly McpFlag[]): boolean {
   return a.length === b.length && a.every((flag) => b.includes(flag));
 }
 
-/** 一键写入带权限的条目前，用大白话说清楚助手将能做什么。 */
-function grantMessage(name: string, flags: readonly McpFlag[]): string {
-  const write = flags.includes("--allow-write");
-  const read = flags.includes("--allow-dictionary-read");
-  const abilities = [
-    write
-      ? "修改设置和快捷短语、制作、切换和删除候选窗口皮肤，用你在设置里登录的账号把皮肤发布到社区"
-      : undefined,
-    read ? "读取你的用户词库、查看编码的候选" : undefined,
-    write && read ? "增删、调整和导入词" : undefined,
-  ].filter((ability) => ability !== undefined);
-  return `写入后，${name} 里的 AI 助手可以${abilities.join("；")}。只在你信任它时允许；之后关掉开关再更新即可收回。`;
-}
-
 /** The tabs: two command-line assistants, running the tools straight from a terminal, the clients the host writes into, and the JSON for anything else. */
 type McpTab = "claude_code" | "codex" | "terminal" | McpClientId | "json";
-
-/** One argument quoted for the shell the command is pasted into: double quotes for a Windows path, single quotes for a POSIX shell, and nothing when the argument needs none. */
-function shellQuote(value: string, windows: boolean): string {
-  if (/^[\w@%+=:,./-]+$/.test(value)) return value;
-  if (windows) return `"${value.replace(/"/g, '\\"')}"`;
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function isWindowsPath(path: string): boolean {
-  return /^[A-Za-z]:\\/.test(path);
-}
-
-const program = (text: string): SyntaxToken => ({ text, kind: "program" });
-const flag = (text: string): SyntaxToken => ({ text, kind: "flag" });
-const placeholder = (text: string): SyntaxToken => ({ text, kind: "placeholder" });
-
-/** `msime-mcp` with the runtime options and the chosen flags, quoted for the shell. */
-function serverProgram(server: McpServerStatus, flags: readonly McpFlag[]): SyntaxToken[] {
-  const windows = isWindowsPath(server.command);
-  const options: SyntaxToken[] = server.options
-    ? [flag("--options"), plain(" "), { text: shellQuote(server.options, windows), kind: "string" }]
-    : [];
-  return [
-    program(shellQuote(server.command, windows)),
-    ...[options, ...flags.map((name) => [flag(name)])]
-      .filter((part) => part.length > 0)
-      .flatMap((part) => [plain(" "), ...part]),
-  ];
-}
-
-function installCommand(
-  assistant: "claude_code" | "codex",
-  server: McpServerStatus,
-  flags: readonly McpFlag[],
-): SyntaxToken[] {
-  const head =
-    assistant === "claude_code"
-      ? [program("claude"), plain(" mcp add "), flag("--scope"), plain(" user msime ")]
-      : [program("codex"), plain(" mcp add msime ")];
-  return [...head, flag("--"), plain(" "), ...serverProgram(server, flags)];
-}
-
-/** What to tell an assistant that works in a terminal, such as in its AGENTS.md or CLAUDE.md: the same tools without registering a server, one command per tool. */
-function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]): SyntaxToken[] {
-  const msime = serverProgram(server, flags);
-  // Neither cmd nor Windows PowerShell passes a quoted JSON argument intact, so on Windows the arguments go through a file.
-  const call = isWindowsPath(server.command)
-    ? [
-        plain("把 JSON 参数以 UTF-8 写进一个文件，再运行 "),
-        ...msime,
-        plain(" call "),
-        placeholder("<工具名>"),
-        plain(" "),
-        placeholder("@<文件路径>"),
-      ]
-    : [
-        ...msime,
-        plain(" call "),
-        placeholder("<工具名>"),
-        plain(" "),
-        { text: "'<JSON 参数>'", kind: "string" } as const,
-        plain("，参数中有单引号时改为写进 UTF-8 文件并传 "),
-        placeholder("@<文件路径>"),
-      ];
-  return [
-    plain("水杉输入法（MSIME）可以在终端里直接管理：\n- 查看可用的工具和参数："),
-    ...msime,
-    plain(" tools\n- 调用一个工具，参数是 JSON 对象，输出 JSON："),
-    ...call,
-    plain("\n- 排查输入法问题（卡顿、候选窗口不见了）的步骤："),
-    ...msime,
-    plain(" prompt diagnose"),
-  ];
-}
-
-/** Removes an earlier registration: both assistants refuse to add a name that is already there, so changing the permissions means removing it first. */
-function removeCommand(assistant: "claude_code" | "codex"): SyntaxToken[] {
-  return assistant === "claude_code"
-    ? [program("claude"), plain(" mcp remove "), flag("--scope"), plain(" user msime")]
-    : [program("codex"), plain(" mcp remove msime")];
-}
-
-/** The host's JSON entry with the chosen flags added to `args`; the entry as the host wrote it, uncoloured, when no flag is chosen and it is not laid out as `JSON.stringify` would, or when it is not the expected shape. */
-function configWithFlags(config: string, flags: readonly McpFlag[]): SyntaxToken[] {
-  try {
-    const parsed = JSON.parse(config) as { mcpServers?: { msime?: { args?: unknown } } };
-    if (flags.length === 0) {
-      // The host writes it with serde_json's pretty printer, which lays it out exactly as JSON.stringify does; anything else is shown as written rather than reformatted.
-      return JSON.stringify(parsed, null, 2) === config ? jsonTokens(parsed) : [plain(config)];
-    }
-    const entry = parsed.mcpServers?.msime;
-    if (!entry || !Array.isArray(entry.args)) return [plain(config)];
-    entry.args = [...entry.args, ...flags];
-    return jsonTokens(parsed);
-  } catch {
-    return [plain(config)];
-  }
-}
 
 /**
  * 「连接 AI 助手」: the `msime-mcp` entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration, or the commands a terminal assistant runs the tools with directly.
@@ -281,7 +156,7 @@ export function McpConnectSection({
         if (flags.length > 0) {
           const granted = await confirm({
             title: `允许 ${name} 中的助手使用这些权限？`,
-            message: grantMessage(name, flags),
+            message: mcpGrantMessage(name, flags),
             confirmLabel: "允许并写入",
           });
           if (!granted) return;
@@ -412,18 +287,18 @@ export function McpConnectSection({
                     aria-label={
                       shownTab === "claude_code" ? "Claude Code 安装命令" : "Codex 安装命令"
                     }
-                    tokens={installCommand(shownTab, server, flags)}
+                    tokens={mcpInstallCommand(shownTab, server, flags)}
                   />
-                  {copyButton(shownTab, "复制命令", installCommand(shownTab, server, flags))}
+                  {copyButton(shownTab, "复制命令", mcpInstallCommand(shownTab, server, flags))}
                   <SettingsManagerNote>之前添加过的，先运行这条：</SettingsManagerNote>
                   <SyntaxBlock
                     className={command}
                     aria-label={
                       shownTab === "claude_code" ? "Claude Code 移除命令" : "Codex 移除命令"
                     }
-                    tokens={removeCommand(shownTab)}
+                    tokens={mcpRemoveCommand(shownTab)}
                   />
-                  {copyButton(`${shownTab}-remove`, "复制移除命令", removeCommand(shownTab))}
+                  {copyButton(`${shownTab}-remove`, "复制移除命令", mcpRemoveCommand(shownTab))}
                 </>
               )}
               {shownTab === "terminal" && (
@@ -436,9 +311,9 @@ export function McpConnectSection({
                   <SyntaxBlock
                     className={command}
                     aria-label="命令行用法"
-                    tokens={terminalInstructions(server, flags)}
+                    tokens={mcpTerminalInstructions(server, flags)}
                   />
-                  {copyButton("terminal", "复制说明", terminalInstructions(server, flags))}
+                  {copyButton("terminal", "复制说明", mcpTerminalInstructions(server, flags))}
                 </>
               )}
               {client && (
@@ -484,9 +359,9 @@ export function McpConnectSection({
                   <SyntaxBlock
                     className={code}
                     aria-label="MCP 配置"
-                    tokens={configWithFlags(server.config, flags)}
+                    tokens={mcpConfigWithFlags(server.config, flags)}
                   />
-                  {copyButton("json", "复制配置", configWithFlags(server.config, flags))}
+                  {copyButton("json", "复制配置", mcpConfigWithFlags(server.config, flags))}
                 </>
               )}
               {result && <StatusMessage role="status">{result}</StatusMessage>}
