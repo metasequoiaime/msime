@@ -12,7 +12,7 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.ViewPolicy;
 
 /**
- * 常用语页（设置、「我的」和键盘常用语面板下方的按钮都进这一页）：一组常用语，点一条修改正文与备注，行尾一个「删除」，下面一组「添加常用语」和「浏览社区短语包」（进社区短语的完整列表）。
+ * 常用语页：管理分类、默认展开项以及每条常用语的正文、备注和归属。
  *
  * <p>读写全部经 {@link CommonPhrasesStore}，键盘的「常用语」面板读的是同一份，所以这里改完键盘下次打开面板就能看到。修改经 {@link CommonPhrasesStore#replace}，条目仍属于原来的来源（自己添加的或某个短语包）。
  */
@@ -44,6 +44,14 @@ public final class PhrasesPage extends ReloadingDetailPage {
         LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
+        GroupCard categories = GroupCard.add(target, "分类（" + current.categories().size() + "/6）");
+        categories.nav("默认展开", "每次打开键盘常用语面板时使用", current.expandedCategory().isEmpty()
+            ? "不展开" : current.categoryName(current.expandedCategory()), this::chooseExpandedCategory);
+        for (CommonPhrasesStore.Category category : current.categories()) {
+            GroupCard.Row row = categories.nav(category.name(), null, "管理", () -> manageCategory(category));
+            row.view().setContentDescription("管理常用语分类 " + category.name());
+        }
+        categories.button("添加分类", "最多 6 个分类，名称最多 20 字", "新建", () -> editCategory(null));
         GroupCard list = GroupCard.add(target, "在键盘「常用语」面板中，点一下即可发送");
         if (current.phrases().isEmpty()) {
             list.note("还没有常用语。添加以后，在键盘的「常用语」面板里点一下就能发送。");
@@ -55,6 +63,11 @@ public final class PhrasesPage extends ReloadingDetailPage {
             // 点整行修改这一条（#5673）；行尾的「删除」按钮自己响应，不会连带打开修改框。
             ViewPolicy.makeClickable(row.view(), requireContext(), () -> showEditDialog(phrase));
             row.view().setContentDescription(phrase.text() + (phrase.note().isEmpty() ? "" : "，备注：" + phrase.note()) + "，点按修改");
+            if (!current.categories().isEmpty()) {
+                GroupCard.Row category = list.nav("分类", null, current.categoryName(phrase.category()),
+                    () -> chooseCategory(phrase));
+                category.view().setContentDescription("设置常用语分类 " + phrase.text());
+            }
         }
         if (!current.phrases().isEmpty()) list.footer("点一条常用语可以修改。");
         GroupCard add = GroupCard.add(target, null);
@@ -62,6 +75,54 @@ public final class PhrasesPage extends ReloadingDetailPage {
         // 社区短语包装进来就在这一页里；浏览和添加在社区短语的完整列表里，表达页的「发现短语」也通向那里。
         add.nav("浏览社区短语包", "别人分享的短语包，添加后出现在这里", null,
             () -> CommunityFragment.browse(requireContext(), CommunityRequest.Kind.PHRASE));
+    }
+
+    private void editCategory(@Nullable CommonPhrasesStore.Category category) {
+        InputDialog dialog = new InputDialog(requireContext(), category == null ? "添加分类" : "修改分类名称",
+            "名称最多 20 字，不能与已有分类或全部、未分类、不展开重名");
+        EditText name = dialog.addField("分类名称", category == null ? "" : category.name(), 0);
+        name.setContentDescription("常用语分类名称");
+        dialog.setPrimary("保存", values -> HostTask.run(this, context -> category == null
+            ? CommonPhrasesStore.addCategory(context, values.get(0))
+            : CommonPhrasesStore.renameCategory(context, category.id(), values.get(0)), this::apply));
+        dialog.show();
+    }
+
+    private void manageCategory(CommonPhrasesStore.Category category) {
+        new OptionSheet(requireContext(), category.name(), "删除分类会保留常用语，并将它们移为未分类")
+            .option("修改名称", false, () -> editCategory(category))
+            .destructive("删除分类", () -> HostTask.run(this,
+                context -> CommonPhrasesStore.removeCategory(context, category.id()), this::apply)).show();
+    }
+
+    private void chooseCategory(CommonPhrasesStore.Phrase phrase) {
+        if (document == null) return;
+        OptionSheet sheet = new OptionSheet(requireContext(), "常用语分类", null);
+        sheet.option("未分类", phrase.category().isEmpty(), () -> setCategory(phrase, ""));
+        for (CommonPhrasesStore.Category category : document.categories()) {
+            sheet.option(category.name(), phrase.category().equals(category.id()), () -> setCategory(phrase, category.id()));
+        }
+        sheet.show();
+    }
+
+    private void setCategory(CommonPhrasesStore.Phrase phrase, String category) {
+        HostTask.run(this, context -> CommonPhrasesStore.categorize(context, phrase.id(), category), this::apply);
+    }
+
+    private void chooseExpandedCategory() {
+        if (document == null) return;
+        OptionSheet sheet = new OptionSheet(requireContext(), "默认展开", "选择不展开时，点分类标题再查看内容");
+        String selected = document.expandedCategory();
+        sheet.option("全部", selected.equals("all"), () -> setExpandedCategory("all"));
+        sheet.option("不展开", selected.isEmpty(), () -> setExpandedCategory(""));
+        for (CommonPhrasesStore.Category category : document.categories()) {
+            sheet.option(category.name(), selected.equals(category.id()), () -> setExpandedCategory(category.id()));
+        }
+        sheet.show();
+    }
+
+    private void setExpandedCategory(String category) {
+        HostTask.run(this, context -> CommonPhrasesStore.setExpandedCategory(context, category), this::apply);
     }
 
     private void remove(CommonPhrasesStore.Phrase phrase) {

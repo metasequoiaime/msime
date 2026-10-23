@@ -54,7 +54,7 @@ public enum PageId {
     VOCABULARY_REVIEW("VocabularyReviewPage", "背单词", HostDeepLink.TAB_SETTINGS,
         "今日待复习", "已完成", "未开始", "词书", "每日新词", "导入词表（CSV / TXT）", "删除这个词表", "不认识", "认识", "清空复习进度"),
     PHRASES("PhrasesPage", "常用语", HostDeepLink.TAB_SETTINGS,
-        "添加常用语", "修改常用语", "删除常用语", "浏览社区短语包"),
+        "添加常用语", "修改常用语", "删除常用语", "浏览社区短语包", "分类", "默认展开"),
     VOICE("VoicePage", "语音输入", HostDeepLink.TAB_SETTINGS,
         "识别服务", "本地模型", "本地识别准备", "已选模型", "本地语音运行库", "离线", "从文件导入", "从文件导入运行库", "导入", "鉴权方式", "App ID", "API Key", "密钥", "识别接口", "资源 ID", "模型", "接口地址",
         "豆包", "SiliconFlow", "OpenAI", "Groq", "EveryAPI", "Mistral", "百炼", "DeepSeek",
