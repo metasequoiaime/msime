@@ -1104,13 +1104,18 @@ final class ImeLayoutRows {
     private String toggleEditing = "";
     private String toggleLiteral = "";
 
+    /** 日语九键同键连点是否启用；四向滑动不受这个开关影响。 */
+    private boolean japaneseToggleEnabled() {
+        return s.localSettings.bool(AndroidLocalSettings.JAPANESE_TOGGLE);
+    }
+
     void resetJapaneseToggle() {
         toggleKey = null;
     }
 
     /** 上一次连点留下的假名还原样在那里：组字没被别的输入改过，或标点仍是光标前那一个字。中间打过别的字、删过、选过候选，都从新的一个假名开始。时间窗只管「再点同一个键算不算接着切换」（`withinWindow`）；→ 是明确的意图，不受它限制。 */
     private boolean japaneseToggleCurrent(boolean withinWindow) {
-        if (toggleKey == null || s.connection == null || s.view == null) return false;
+        if (!japaneseToggleEnabled() || toggleKey == null || s.connection == null || s.view == null) return false;
         if (withinWindow && !JapaneseNineKeyLayout.withinToggleWindow(
                 android.os.SystemClock.uptimeMillis() - toggleAt)) return false;
         String editing = InputViewValuePolicy.editingText(s.view);
@@ -1133,7 +1138,7 @@ final class ImeLayoutRows {
 
     /** 轻点假名键：同一个键在 {@link JapaneseNineKeyLayout#TOGGLE_WINDOW_MS} 内再点，就把刚打的假名换成下一个（あ→い→う…），否则照常打键面上的假名。数字符号层没有连点切换。 */
     void tapJapaneseKey(JapaneseNineKeyLayout.Key key) {
-        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS || !japaneseToggleEnabled()) {
             resetJapaneseToggle();
             selectJapaneseKey(key, 0);
             return;

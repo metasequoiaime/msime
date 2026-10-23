@@ -42,6 +42,7 @@ public final class AndroidLocalSettingsSmoke {
         atomicWrite();
         splitKeyboardRoundTrip();
         capitalizationSetting();
+        japaneseToggleSetting();
         diagnosticDirectorySetting();
         syncedKeysMatchClientCore();
         System.out.println("AndroidLocalSettingsSmoke ok");
@@ -50,6 +51,7 @@ public final class AndroidLocalSettingsSmoke {
     private static void defaults() {
         AndroidLocalSettings.Snapshot settings = AndroidLocalSettings.defaults();
         check(!settings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION), "English defaults to lowercase");
+        check(settings.bool(AndroidLocalSettings.JAPANESE_TOGGLE), "Japanese nine-key toggle defaults to on");
         check("siji".equals(settings.choice(AndroidLocalSettings.APP_THEME)), "app theme default");
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
         check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
@@ -106,6 +108,17 @@ public final class AndroidLocalSettingsSmoke {
             AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.AUTO_CAPITALIZATION, true)));
         check(enabled.bool(AndroidLocalSettings.AUTO_CAPITALIZATION), "explicit opt-in is respected");
         check(!enabled.synced().containsKey(AndroidLocalSettings.AUTO_CAPITALIZATION), "opt-in is not synced");
+    }
+
+    private static void japaneseToggleSetting() {
+        AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.JAPANESE_TOGGLE);
+        check(spec.kind == AndroidLocalSettings.Spec.Kind.BOOLEAN && !spec.synced, "Japanese toggle is a local boolean");
+        check(spec.accept("true") == null && spec.accept(1) == null, "Japanese toggle only accepts booleans");
+        AndroidLocalSettings.Snapshot disabled = new AndroidLocalSettings.Snapshot(
+            AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.JAPANESE_TOGGLE, false)));
+        check(!disabled.bool(AndroidLocalSettings.JAPANESE_TOGGLE)
+            && disabled.has(AndroidLocalSettings.JAPANESE_TOGGLE), "explicitly disabled toggle reads back");
+        check(!disabled.synced().containsKey(AndroidLocalSettings.JAPANESE_TOGGLE), "Japanese toggle remains local");
     }
 
     private static void diagnosticDirectorySetting() {
@@ -210,6 +223,7 @@ public final class AndroidLocalSettingsSmoke {
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {
             check(!synced.containsKey(local), local + " never syncs");
         }
+        check(!synced.containsKey(AndroidLocalSettings.JAPANESE_TOGGLE), "Japanese toggle stays on this device");
         check(snapshot.equals(new AndroidLocalSettings.Snapshot(new TreeMap<>(accepted))), "snapshots compare by value");
     }
 
