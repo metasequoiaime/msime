@@ -2497,6 +2497,7 @@ dependencies = [
  "defmt",
  "jiff-core",
  "jiff-static",
+ "jiff-tzdb",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
@@ -2967,10 +2968,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
+ "chrono",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
  "hmac",
+ "jiff",
  "md-5",
  "msime-client-base",
  "msime-path-trust",
@@ -2980,6 +2983,7 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
+ "sunrise",
  "tempfile",
  "thiserror 2.0.21",
  "time",
@@ -5212,6 +5216,15 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "sunrise"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15eecb5ec59a060dd9fe8f88c48b701abecd6be9d9c28d55081b80bdda73981c"
+dependencies = [
+ "chrono",
+]
 
 [[package]]
 name = "swift-rs"

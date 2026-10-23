@@ -1087,6 +1087,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communitySkinIn
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keySoundPackRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kKeySoundPackLimit, msime_client_key_sound_pack);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_worldClockRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 16384, msime_client_world_clock);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_commonPhrasesRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCommonPhrasesLimit, msime_client_common_phrases);
 }

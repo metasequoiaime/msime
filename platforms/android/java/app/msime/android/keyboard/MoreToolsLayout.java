@@ -87,6 +87,7 @@ public final class MoreToolsLayout {
             case "打开官网" -> "↗";
             case "宣传" -> "吆";
             case "文本编辑" -> "⇄";
+            case "世界时钟" -> "◷";
             default -> "⌨";
         };
     }

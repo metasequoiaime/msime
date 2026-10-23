@@ -95,6 +95,8 @@ public final class NativeClient {
     public static String communitySkinInstall(String request) { return TextPolicy.utf8(communitySkinInstallRaw(utf8(request))); }
     /** 一个按键音包校验后的文件清单 `{state_root,sound_packs,pack}`。读文件，不在按键路径上调用。 */
     public static String keySoundPack(String request) { return TextPolicy.utf8(keySoundPackRaw(utf8(request))); }
+    /** 离线世界时钟 `{directory,action}`；加载、修改和快照统一在工作线程调用。 */
+    public static String worldClock(String request) { return TextPolicy.utf8(worldClockRaw(utf8(request))); }
     /** 无编码常用语 `{directory,action}`，返回整份文档；设置进程和键盘进程都用。持有文件锁，在工作线程调用。 */
     public static String commonPhrases(String request) { return TextPolicy.utf8(commonPhrasesRaw(utf8(request))); }
     /** 命名词库 `{options,action}`，词条经个人词库队列送进 Engine。读写文件，在工作线程调用。 */
@@ -959,6 +961,7 @@ public final class NativeClient {
     private static native byte[] keyboardSkinTrialRaw(byte[] request);
     private static native byte[] communitySkinInstallRaw(byte[] request);
     private static native byte[] keySoundPackRaw(byte[] request);
+    private static native byte[] worldClockRaw(byte[] request);
     private static native byte[] commonPhrasesRaw(byte[] request);
     private static native byte[] dictionaryCollectionsRaw(byte[] request);
     private static native byte[] diagnosticBundleRaw(byte[] request);

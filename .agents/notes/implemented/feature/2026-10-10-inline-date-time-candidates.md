@@ -38,3 +38,6 @@ Status: implemented
 #9450 回归覆盖相对日跨月、跨年与闰日、年份偏移、三种标签、无效时钟、日期与今天的行内及完整列表一致、九个关键词的全拼与九键候选、菜单与整段提交及关闭混入。对 PR 原提交 `df6b2e7d05` 的新增三项格式回归全部失败；修正后完整 `cargo test --locked -p msime-engine --lib` 为 2525 项通过、56 项按原条件忽略，包含 `/rq` 完整 20 行的回归。本机 `cargo fmt --all`、`pnpm run verify-notes` 和 `git diff --check` 通过。
 
 Android 原生专项 `RelativeDateDeviceSmoke` 使用当前原生 APK，在真实按键和展开候选上验证日期及九个触发词，选中带标签的生成行后核对合成编辑器。`MSIME_ANDROID_RELATIVE_DATE=1` 构建专项测试包，复用现有清单项以保持系统 100 项限制；默认构建恢复原入口。专项 Java 编译、dex 与签名通过；API 28 与 API 35 的独立专用 AVD 各完成全拼与九键的 20 组输入、展开选词与整段上屏检查，共 40 组全部通过。测试只修改已有局部模式对象中的日期开关，保留其必填字段；结束恢复原偏好与输入模式。完整远端 quick 通过，覆盖仓库契约、HarmonyOS 设置页、Rust workspace、Android／Wasm 目标、Android Java、macOS 原生编译和共享 Apple 桥接；Linux 容器、Windows 交叉编译及 HarmonyOS ArkTS 因前置条件不足跳过。
+
+键盘内免触发词查看和插入多国时间的独立入口见[离线世界时钟](2026-10-23-offline-world-clock.md)，本篇保留引擎关键词候选的决定。
+

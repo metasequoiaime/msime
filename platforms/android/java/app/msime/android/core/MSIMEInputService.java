@@ -121,6 +121,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
+    ImeWorldClock imeWorldClock;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
     ImeGlideTyping imeGlideTyping;
@@ -1684,6 +1685,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCandidates = new ImeCandidates(this);
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
+        imeWorldClock = new ImeWorldClock(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
         imeGlideTyping = new ImeGlideTyping(this);
@@ -1950,6 +1952,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onDestroy() {
         operationNotice.cancel();
+        if (imeWorldClock != null) imeWorldClock.close();
         voiceActivityGeneration++;
         getContentResolver().unregisterContentObserver(inputMethodWatcher);
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -2081,6 +2084,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
     private void stop(boolean finish, boolean keepMoreTools) {
+        if (imeWorldClock != null) imeWorldClock.close();
         imeCompositionEditor.close();
         pendingEngineStartup = -1;
         pendingRuntimeBootstrap = null;
@@ -5868,6 +5872,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeMoreTools() {
+        if (imeWorldClock != null) imeWorldClock.close();
         localInputToolsOpen = false;
         aiAssistChooserOpen = false;
         if (moreToolsScroll != null) ViewPolicy.hide(moreToolsScroll);

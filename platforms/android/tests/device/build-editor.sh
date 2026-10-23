@@ -20,6 +20,12 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
 editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 世界时钟专项复用一个产品宿主入口，避免超过 API 35 的 100 项 instrumentation 上限。
+if [[ "${MSIME_ANDROID_WORLD_CLOCK:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/world-clock-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.WorldClockDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
 # 完整上游皮肤仅用于显式验收；固定提交归档，不能复制检出目录里的未提交资源，也不进入默认测试包。
 if [[ -n "${MSIME_ANDROID_UPSTREAM_SKINS:-}" ]]; then
   upstream_commit=dd018f79858314ed542a47c528608752b13bd261

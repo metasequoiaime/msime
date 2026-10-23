@@ -93,4 +93,6 @@ cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang.txt"
 cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
 # 简繁转换内嵌的 OpenCC 词表许可证与原生库一并打包。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$notices/OpenCC-Apache-2.0.txt"
+# 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
+cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"
