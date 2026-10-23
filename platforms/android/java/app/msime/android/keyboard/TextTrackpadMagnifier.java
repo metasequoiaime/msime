@@ -36,16 +36,28 @@ public final class TextTrackpadMagnifier {
         int screenHeight = keyboard.getResources().getDisplayMetrics().heightPixels;
         int width = Math.min(Math.round(280 * density), screenWidth - margin * 2);
         int height = Math.round(76 * density);
+        android.view.WindowInsets insets = keyboard.getRootWindowInsets();
+        int safeTop = margin;
+        if (insets != null) {
+            safeTop += WindowLayout.systemBars(insets).top;
+            if (insets.getDisplayCutout() != null)
+                safeTop = Math.max(safeTop, insets.getDisplayCutout().getSafeInsetTop() + margin);
+        }
         if (width <= 0 || screenHeight <= height) return;
         int[] location = new int[2];
         keyboard.getLocationOnScreen(location);
-        boolean anchored = anchor != null && anchor.top >= margin && anchor.bottom < location[1] - margin;
+        boolean anchored = anchor != null && anchor.top >= safeTop && anchor.bottom < location[1] - margin;
         float center = anchored ? anchor.centerX() : location[0] + keyboard.getWidth() / 2f;
         int x = Math.max(margin, Math.min(screenWidth - width - margin, Math.round(center - width / 2f)));
         int y = anchored ? Math.round(anchor.top) - height - margin : location[1] - height - margin;
-        if (y < margin && anchored) y = Math.round(anchor.bottom) + margin;
+        if (y < safeTop && anchored) y = Math.round(anchor.bottom) + margin;
         if (y + height >= location[1]) y = location[1] - height - margin;
-        y = Math.max(margin, Math.min(screenHeight - height - margin, y));
+        y = Math.max(safeTop, Math.min(screenHeight - height - margin, y));
+        // PopupWindow 按父窗口坐标布局，光标与键盘位置是屏幕坐标；窗口原点并不总在屏幕顶部。
+        int[] inWindow = new int[2];
+        keyboard.getLocationInWindow(inWindow);
+        x += inWindow[0] - location[0];
+        y += inWindow[1] - location[1];
         content.update(preview, background, foreground, accent, width);
         try {
             if (popup.isShowing()) popup.update(x, y, width, height);
