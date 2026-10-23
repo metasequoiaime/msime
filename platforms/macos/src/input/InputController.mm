@@ -1316,7 +1316,94 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)disable:(id)sender { (void)sender; if (self.handler) self.handler(NO); }
 @end
 
-@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
+@protocol MSIMEInputSessionRecoveryDelegate <NSObject>
+- (void)retryUnavailableSession:(id)sender;
+- (void)restartUnavailableInputMethod:(id)sender;
+- (void)dismissSessionRecoveryNotice:(id)sender;
+@end
+
+// 故障提示不能进入模态循环或取得键盘焦点，否则会阻塞其他客户端输入。
+@interface MSIMEInputSessionRecoveryPanel : NSPanel
+@property(nonatomic, weak) id<MSIMEInputSessionRecoveryDelegate> recoveryDelegate;
+@property(nonatomic, readonly) NSTextField *message;
+@property(nonatomic, readonly) NSButton *retryButton;
+@property(nonatomic, readonly) NSButton *restartButton;
+@property(nonatomic, readonly) NSButton *laterButton;
++ (instancetype)sharedPanel;
++ (void)dismissForDelegate:(id<MSIMEInputSessionRecoveryDelegate>)delegate;
+- (void)showForDelegate:(id<MSIMEInputSessionRecoveryDelegate>)delegate;
+- (void)setRestartPending:(BOOL)pending;
+@end
+
+static MSIMEInputSessionRecoveryPanel *MSIMESessionRecoveryPanel;
+static BOOL MSIMESessionRecoveryNoticeScheduled = NO;
+static BOOL MSIMESessionRecoveryRestartPending = NO;
+static uint64_t MSIMESessionRecoveryLastNotice = 0;
+static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC;
+
+@implementation MSIMEInputSessionRecoveryPanel
++ (instancetype)sharedPanel {
+    if (!MSIMESessionRecoveryPanel) MSIMESessionRecoveryPanel = [[self alloc] init];
+    return MSIMESessionRecoveryPanel;
+}
++ (void)dismissForDelegate:(id<MSIMEInputSessionRecoveryDelegate>)delegate {
+    if (delegate && MSIMESessionRecoveryPanel.recoveryDelegate && MSIMESessionRecoveryPanel.recoveryDelegate != delegate) return;
+    [MSIMESessionRecoveryPanel orderOut:nil];
+    MSIMESessionRecoveryPanel.recoveryDelegate = nil;
+}
+- (instancetype)init {
+    self = [super initWithContentRect:NSMakeRect(0, 0, 430, 210)
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:YES];
+    if (!self) return nil;
+    self.title = MSIMEEditionDisplayName();
+    self.identifier = @"msime-session-recovery";
+    self.level = MSIMECandidateWindowLevel();
+    self.hidesOnDeactivate = NO;
+    self.becomesKeyOnlyIfNeeded = YES;
+    self.releasedWhenClosed = NO;
+    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary |
+        NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle;
+    NSTextField *title = [NSTextField labelWithString:@"中文输入暂不可用"];
+    title.font = [NSFont boldSystemFontOfSize:17];
+    title.frame = NSMakeRect(18, 166, 394, 28);
+    [self.contentView addSubview:title];
+    _message = [NSTextField wrappingLabelWithString:@""];
+    _message.frame = NSMakeRect(18, 64, 394, 94);
+    [self.contentView addSubview:_message];
+    _laterButton = [NSButton buttonWithTitle:@"稍后" target:self action:@selector(later:)];
+    _retryButton = [NSButton buttonWithTitle:@"重试" target:self action:@selector(retry:)];
+    _restartButton = [NSButton buttonWithTitle:@"重启输入法" target:self action:@selector(restart:)];
+    _laterButton.frame = NSMakeRect(18, 18, 68, 30);
+    _retryButton.frame = NSMakeRect(212, 18, 84, 30);
+    _restartButton.frame = NSMakeRect(304, 18, 108, 30);
+    for (NSButton *button in @[_laterButton, _retryButton, _restartButton]) {
+        button.keyEquivalent = @"";
+        [self.contentView addSubview:button];
+    }
+    return self;
+}
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+- (void)showForDelegate:(id<MSIMEInputSessionRecoveryDelegate>)delegate {
+    self.recoveryDelegate = delegate;
+    _message.stringValue = @"按键暂时会直接输入字母。请先重试；仍无法恢复时，可重启输入法，或切换系统中文输入法继续输入。\n\n重启会结束其他窗口中未完成的输入。";
+    [self setRestartPending:MSIMESessionRecoveryRestartPending];
+    [self center];
+    [self orderFrontRegardless];
+    NSAccessibilityPostNotificationWithUserInfo(self, NSAccessibilityAnnouncementRequestedNotification,
+        @{NSAccessibilityAnnouncementKey:@"中文输入暂不可用，可以重试或重启输入法。"});
+}
+- (void)setRestartPending:(BOOL)pending {
+    _retryButton.enabled = !pending;
+    _restartButton.enabled = !pending;
+    if (pending) _message.stringValue = @"正在重新启动输入法…";
+}
+- (void)retry:(id)sender { [self.recoveryDelegate retryUnavailableSession:sender]; }
+- (void)restart:(id)sender { [self.recoveryDelegate restartUnavailableInputMethod:sender]; }
+- (void)later:(id)sender { [self.recoveryDelegate dismissSessionRecoveryNotice:sender]; }
+@end
+
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
@@ -4180,6 +4267,15 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSMenu *menu = [[NSMenu alloc] initWithTitle:MSIMEEditionDisplayName()];
     menu.autoenablesItems = NO;
     ApplyMetasequoiaMenuTheme(menu, [self resolvedMenuThemePreferences]);
+    if (_sessionUnavailableReason && !_session) {
+        NSMenuItem *retry = [[NSMenuItem alloc] initWithTitle:@"重试中文输入" action:@selector(retryUnavailableSession:) keyEquivalent:@""];
+        retry.target = self;
+        [menu addItem:retry];
+        NSMenuItem *restart = [[NSMenuItem alloc] initWithTitle:@"重启输入法…" action:@selector(restartUnavailableInputMethod:) keyEquivalent:@""];
+        restart.target = self;
+        [menu addItem:restart];
+        [menu addItem:NSMenuItem.separatorItem];
+    }
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
@@ -4538,6 +4634,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
+    if (enabled) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const BOOL changed = _appearance.englishMode != enabled;
     if (changed && _managedEnglishComposition && ![self setManagedEnglishEnabled:NO]) return;
     // Read before the cancel below, whose reply need not repeat the flag.
@@ -4784,6 +4881,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
+    [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -5507,6 +5605,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
 
 - (void)activateServer:(id)sender {
     if (_activeClient && _activeClient != sender && ![self commitManagedEnglishRaw]) return;
+    [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
     // A newly activated IME session may target a different document/client.
     // Never carry host-owned closings across that boundary - including one this host still owed
     // the previous document, which cannot be written into this one.
@@ -5803,10 +5902,66 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options, NSError *e
 //
 // A category rather than the underlying error, because the Host API's errors can name private directories (see the note on MSIMERefreshRuntimeOptionsWith) and this goes to the unified log, which leaves the machine in a sysdiagnose. NSLog rather than the diagnostic log for the same reason the diagnostic log cannot carry it: it is configured from the preferences directory, which arrives in the very runtime options that are missing here.
 - (void)reportSessionUnavailable:(NSString *)reason {
-    if ([_sessionUnavailableReason isEqualToString:reason]) return;
-    _sessionUnavailableReason = [reason copy];
-    NSLog(@"MSIME has no input session (%@); keys pass through to the application until one opens", reason);
-    msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
+    if (![_sessionUnavailableReason isEqualToString:reason]) {
+        _sessionUnavailableReason = [reason copy];
+        NSLog(@"MSIME has no input session (%@); keys pass through to the application until one opens", reason);
+        msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
+    }
+    [self requestSessionRecoveryNotice];
+}
+
+- (BOOL)canPresentSessionRecovery {
+    return !_session && _sessionUnavailableReason && _activeClient && MSIMEFocusedController == self &&
+        !_appearance.englishMode && !_resumeDedicatedEnglish && !MSIMEStrictBoolean(_view[@"dedicated_english"]) &&
+        ![self secureEventInputActive];
+}
+
+- (void)requestSessionRecoveryNotice {
+    if (![self canPresentSessionRecovery] || MSIMESessionRecoveryRestartPending || MSIMESessionRecoveryNoticeScheduled || MSIMESessionRecoveryPanel.isVisible) return;
+    const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    if (MSIMESessionRecoveryLastNotice && now - MSIMESessionRecoveryLastNotice < MSIMESessionRecoveryNoticeInterval) return;
+    MSIMESessionRecoveryNoticeScheduled = YES;
+    __weak MSIMEInputController *weakSelf = self;
+    // 离开激活和按键栈后再画界面；队列送达前可能已经恢复、失焦或进入安全输入。
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MSIMESessionRecoveryNoticeScheduled = NO;
+        MSIMEInputController *owner = weakSelf;
+        if (![owner canPresentSessionRecovery] || MSIMESessionRecoveryRestartPending || MSIMESessionRecoveryPanel.isVisible) return;
+        const uint64_t delivered = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        if (MSIMESessionRecoveryLastNotice && delivered - MSIMESessionRecoveryLastNotice < MSIMESessionRecoveryNoticeInterval) return;
+        MSIMESessionRecoveryLastNotice = delivered;
+        [[MSIMEInputSessionRecoveryPanel sharedPanel] showForDelegate:owner];
+    });
+}
+
+- (void)dismissSessionRecoveryNotice:(id)sender {
+    (void)sender;
+    [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
+}
+
+- (void)retryUnavailableSession:(id)sender {
+    (void)sender;
+    if (![self canPresentSessionRecovery] || MSIMESessionRecoveryRestartPending) return;
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    [self prepareSession];
+    if ([self canPresentSessionRecovery]) {
+        MSIMESessionRecoveryLastNotice = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        [[MSIMEInputSessionRecoveryPanel sharedPanel] showForDelegate:self];
+        MSIMESessionRecoveryPanel.message.stringValue = @"重试后仍无法恢复中文输入。可以重启输入法，或切换系统中文输入法继续输入。\n\n重启会结束其他窗口中未完成的输入。";
+    }
+}
+
+- (void)restartUnavailableInputMethod:(id)sender {
+    if (![self canPresentSessionRecovery] || MSIMESessionRecoveryRestartPending) return;
+    // 菜单入口也先展示影响说明，第二次明确点击提示中的按钮才重启。
+    MSIMEInputSessionRecoveryPanel *panel = [MSIMEInputSessionRecoveryPanel sharedPanel];
+    if (sender != panel.restartButton || !panel.isVisible || panel.recoveryDelegate != self) {
+        MSIMESessionRecoveryLastNotice = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        [panel showForDelegate:self];
+        return;
+    }
+    [panel setRestartPending:YES];
+    [self restartCurrentInputMethod];
 }
 
 - (void)prepareSession {
@@ -5849,8 +6004,10 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options, NSError *e
                 _resumeDedicatedEnglish = NO;
             }
         }
-        if (_session) _sessionUnavailableReason = nil;
-        else [self reportSessionUnavailable:MSIMESessionUnavailableReason(options, sessionError)];
+        if (_session) {
+            _sessionUnavailableReason = nil;
+            [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
+        } else [self reportSessionUnavailable:MSIMESessionUnavailableReason(options, sessionError)];
     }
     [self syncPageSize];
     if (_session) {
@@ -6210,6 +6367,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self flushKeyPresses];
     // 上一个客户端迟到的回调不能拆掉当前客户端的组字、面板、监视和尚未松开的修饰键。成对标点也一样：activateServer: 已丢掉上一个客户端欠着的闭合符，此刻待补的闭合符和跳过记录都属于当前客户端，替它补上会把这一对提前合上、把组字中的 marked text 整段替换掉，所以迟到判断必须先于补闭合符。
     if (!sender || sender != _activeClient) return;
+    [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     if (![self commitManagedEnglishRaw]) return;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
@@ -6353,17 +6511,29 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)restartCurrentInputMethod {
+    if (MSIMESessionRecoveryRestartPending) return;
+    MSIMESessionRecoveryRestartPending = YES;
     // 完成块也被 NSWorkspace 并发队列上的回调持有，那边可能最后才释放它：只捕获弱引用，理由同 showCloudClipboard:。
     __weak MSIMEInputController *weakSelf = self;
-    MSIMELaunchInputSourceReregistration(NSBundle.mainBundle.bundleURL, NSWorkspace.sharedWorkspace,
-        ^(BOOL launched) {
-            if (!launched) {
-                NSBeep();
-                return;
+    [self launchInputMethodRestart:^(BOOL launched) {
+        MSIMEInputController *owner = weakSelf;
+        MSIMESessionRecoveryRestartPending = NO;
+        if (!launched) {
+            if (owner && MSIMESessionRecoveryPanel.recoveryDelegate == owner) {
+                [MSIMESessionRecoveryPanel setRestartPending:NO];
+                MSIMESessionRecoveryPanel.message.stringValue = @"未能启动输入法重启。请先切换系统中文输入法继续输入，并检查水杉输入法是否安装完整。";
             }
-            [weakSelf flushKeyPressesWaitingUntilWritten:YES];
-            [NSApp terminate:nil];
-        });
+            NSBeep();
+            return;
+        }
+        [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
+        if (owner) [owner terminateCurrentInputMethod];
+        else [NSApp terminate:nil];
+    }];
+}
+
+- (void)launchInputMethodRestart:(void (^)(BOOL launched))completion {
+    MSIMELaunchInputSourceReregistration(NSBundle.mainBundle.bundleURL, NSWorkspace.sharedWorkspace, completion);
 }
 
 - (void)terminateCurrentInputMethod {
@@ -6436,6 +6606,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 // 把字段属性报告给生命周期核心：安全输入是 SECURE，英文模式是 HOST_ENGLISH，macOS 两项都读得到，所以带 KNOWN。只在变了时调用，按契约先于这个键的 msime_client_key。核心按 SECURE 关掉声音、特效和音乐，所以安全输入的开关不必再由这里去开关音乐。
 - (void)syncFieldTraits {
     _secureEventInput = [self secureEventInputActive];
+    if (_secureEventInput) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const uint32_t traits = MSIME_TRAIT_KNOWN | (_secureEventInput ? MSIME_TRAIT_SECURE : 0) |
         (_appearance.englishMode ? MSIME_TRAIT_HOST_ENGLISH : 0);
     if (!_session || traits == _fieldTraits) return;
@@ -6683,6 +6854,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _backspaceHoldArmed = NO;
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
+        [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
         _activeClient = sender;
         MSIMEFocusedController = self;
         // Whatever the previous client was last given says nothing about this one.

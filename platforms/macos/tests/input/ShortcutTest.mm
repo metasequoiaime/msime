@@ -11235,6 +11235,159 @@ static void TestSessionUnavailableIsReported() {
 - (void)refreshTypingEffectSettings {}
 @end
 
+@interface SessionRecoveryNoticeController : SessionRecoveryController
+@property BOOL secureInput;
+@property NSUInteger restartRequests;
+@property NSUInteger terminations;
+@property(copy) void (^restartCompletion)(BOOL);
+@end
+@implementation SessionRecoveryNoticeController
+- (BOOL)secureEventInputActive { return self.secureInput; }
+- (void)launchInputMethodRestart:(void (^)(BOOL))completion {
+    ++self.restartRequests;
+    self.restartCompletion = completion;
+}
+- (void)terminateCurrentInputMethod { ++self.terminations; }
+@end
+
+static void TestSessionRecoveryNotice(NSDictionary *options) {
+    MSIMEInputController *previousFocus = MSIMEFocusedController;
+    MSIMESessionRecoveryLastNotice = 0;
+    [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
+    NSString *suite = [@"msime.session-recovery-notice." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
+        skinsRoot:[NSURL fileURLWithPath:options[@"resources"]]];
+    appearance.englishMode = NO;
+    auto makeController = ^SessionRecoveryNoticeController * {
+        SessionRecoveryNoticeController *controller = [SessionRecoveryNoticeController alloc];
+        controller.testOptions = options;
+        controller.failures = NSUIntegerMax;
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        return controller;
+    };
+    SessionRecoveryNoticeController *controller = makeController();
+    MSIMEFocusedController = controller;
+    NSWindow *previousKey = NSApp.keyWindow;
+    [controller prepareSession];
+    assert(!MSIMESessionRecoveryPanel.isVisible);
+    DrainMainQueue();
+    MSIMEInputSessionRecoveryPanel *panel = MSIMESessionRecoveryPanel;
+    assert(panel.isVisible && panel.recoveryDelegate == controller);
+    assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow && !panel.isKeyWindow);
+    assert(NSApp.keyWindow == previousKey);
+    assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0);
+    assert([panel.message.stringValue containsString:@"直接输入字母"]);
+    assert(panel.retryButton.keyEquivalent.length == 0 && panel.restartButton.keyEquivalent.length == 0);
+    uint64_t shown = MSIMESessionRecoveryLastNotice;
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(MSIMESessionRecoveryLastNotice == shown);
+    [panel.laterButton performClick:nil];
+    assert(!panel.isVisible && !panel.recoveryDelegate);
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(!panel.isVisible && MSIMESessionRecoveryLastNotice == shown);
+    NSMenu *menu = [controller menu];
+    assert([menu itemWithTitle:@"重试中文输入"].action == @selector(retryUnavailableSession:));
+    assert([menu itemWithTitle:@"重启输入法…"].action == @selector(restartUnavailableInputMethod:));
+
+    // 菜单先显示重启影响，提示中的明确点击才启动；失败后仍保留当前进程和可重试按钮。
+    [controller restartUnavailableInputMethod:nil];
+    assert(panel.isVisible && controller.restartRequests == 0);
+    [controller restartUnavailableInputMethod:[menu itemWithTitle:@"重启输入法…"]];
+    assert(panel.isVisible && controller.restartRequests == 0);
+    [panel.retryButton performClick:nil];
+    assert([panel.message.stringValue containsString:@"重试后仍无法恢复"]);
+    [panel.restartButton performClick:nil];
+    assert(controller.restartRequests == 1 && !panel.retryButton.enabled && !panel.restartButton.enabled);
+    [controller restartUnavailableInputMethod:nil];
+    assert(controller.restartRequests == 1);
+    SessionRecoveryNoticeController *peer = makeController();
+    MSIMEFocusedController = peer;
+    [peer prepareSession];
+    [peer restartUnavailableInputMethod:nil];
+    assert(peer.restartRequests == 0);
+    MSIMEFocusedController = controller;
+    controller.restartCompletion(NO);
+    assert(controller.terminations == 0 && panel.retryButton.enabled && panel.restartButton.enabled);
+    assert([panel.message.stringValue containsString:@"未能启动"]);
+
+    controller.failures = 0;
+    [panel.retryButton performClick:nil];
+    assert([controller valueForKey:@"session"] && ![controller valueForKey:@"sessionUnavailableReason"]);
+    assert(!panel.isVisible && !panel.recoveryDelegate);
+    assert(![[controller menu] itemWithTitle:@"重试中文输入"]);
+    [controller releaseDictionarySession];
+    controller.failures = NSUIntegerMax;
+
+    // 排队期间失焦、恢复或进入安全输入时，过时提示不能显示。
+    MSIMESessionRecoveryLastNotice = 0;
+    [controller prepareSession];
+    assert(MSIMESessionRecoveryNoticeScheduled);
+    [controller setValue:nil forKey:@"activeClient"];
+    DrainMainQueue();
+    assert(!panel.isVisible);
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    controller.secureInput = YES;
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(!panel.isVisible);
+    controller.secureInput = NO;
+    appearance.englishMode = YES;
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(!panel.isVisible);
+    appearance.englishMode = NO;
+    [controller prepareSession];
+    controller.failures = 0;
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(!panel.isVisible && [controller valueForKey:@"session"]);
+    [controller releaseDictionarySession];
+    controller.failures = NSUIntegerMax;
+    [controller prepareSession];
+    DrainMainQueue();
+    assert(panel.isVisible);
+    controller.secureInput = YES;
+    [controller syncFieldTraits];
+    assert(!panel.isVisible);
+    controller.secureInput = NO;
+
+    // 提醒频率按进程限制；另一个控制器不能因切换输入框而立即再弹。
+    SessionRecoveryNoticeController *other = makeController();
+    MSIMEFocusedController = other;
+    [other prepareSession];
+    DrainMainQueue();
+    assert(!panel.isVisible);
+    MSIMESessionRecoveryLastNotice = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - MSIMESessionRecoveryNoticeInterval - 1;
+    [other prepareSession];
+    DrainMainQueue();
+    assert(panel.isVisible && panel.recoveryDelegate == other);
+    NSUInteger creations = controller.creations;
+    [controller retryUnavailableSession:nil];
+    assert(controller.creations == creations && panel.recoveryDelegate == other);
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+    [other deactivateServer:[other valueForKey:@"activeClient"]];
+    method_setImplementation(base, original);
+    assert(!panel.isVisible && !panel.recoveryDelegate);
+
+    MSIMEFocusedController = controller;
+    [controller restartUnavailableInputMethod:nil];
+    [panel.restartButton performClick:nil];
+    assert(controller.restartRequests == 2);
+    controller.restartCompletion(YES);
+    assert(controller.terminations == 1 && !panel.isVisible);
+    controller.restartCompletion = nil;
+    [controller setValue:nil forKey:@"activeClient"];
+    MSIMEFocusedController = previousFocus;
+    MSIMESessionRecoveryLastNotice = 0;
+    DrainMainQueue();
+    [defaults removePersistentDomainForName:suite];
+}
+
 static void TestIdleSessionRecovery() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSError *error = nil;
@@ -11337,6 +11490,7 @@ static void TestIdleSessionRecovery() {
     [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
     assert([MSIMEInputController dictionarySessionHolders].count == 0);
     assert(setrlimit(RLIMIT_NOFILE, &previous) == 0);
+    TestSessionRecoveryNotice(options);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
