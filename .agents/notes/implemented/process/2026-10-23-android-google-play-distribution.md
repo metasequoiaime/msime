@@ -38,7 +38,8 @@ targetSdk 升到 36，所有渠道一起升。`<application>` 显式写 `android
 ## Consequences
 
 - Play Console 只接受手动上传的第一个包，API 在那之前找不到这个应用。上架前的第一次 Android 正式发版要带 `-f play_track=none`，从 workflow artifact 下载 AAB 手动上传；之后每次正式版自动以 draft 出现在 alpha 轨道，要有人在 Console 里点发布。确认流程稳定后可以把默认值改成 `completed`。
-- 账号是个人开发者账号：申请正式版之前，封闭测试要有至少 12 名测试者连续参与 14 天。
+- 应用建在 YLDM Co., Ltd. 的组织开发者账号下，不受个人账号「封闭测试 12 名测试者连续 14 天」的限制。
+- 建应用之前，包名先要在 Play Console「Android 开发者验证」里登记：选中 msime-release 的证书指纹，上传一个 assets 里带 `adi-registration.properties`（账号标识）、用这把密钥签名的 APK 证明持有私钥。这个 APK 只用于验证，可以是不含代码的空壳。2026-10-23 已提交，审核最长 48 小时。这份登记同样覆盖 GitHub 渠道：从 2027 年起，Play 之外分发的应用也要登记才能装在经过认证的设备上。
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 没配时 `play` job 失败，GitHub 发布不受影响（它排在前面）。
 - targetSdk 36 影响所有渠道的包。`android-device.yml` 仍在 API 28 和 35 上验收，没有在 Android 16 上跑过；设备测试脚本里有不少按 `emulator-5580`（API 35）写的假设，接 API 36 镜像需要单独处理。
 - Play 版比 GitHub 版大约多 27 MB（两个语音运行库），在 Play 按设备拆分后的下载上限之内。
