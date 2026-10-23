@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-现有类型、保留期选项和四组纯计算原样归入 `packages/ui/src/settings/typing-statistics-model.ts`。页面与概览直接依赖模型，页面旧路径保留重导出，包入口的公开符号集合保持不变。异步读取、轮询、摘要与本地日期刷新归入 `use-typing-statistics-state.ts`（见[读取状态边界](../simplification/2026-10-23-typing-statistics-state.md)）；日历与按键热力图视图归入 `statistics-heatmaps.tsx`，共用选择按钮归入 `statistics-chart-button.tsx`（见[热力图视图边界](../simplification/2026-10-23-statistics-heatmaps.md)）；分布扇区构造归入纯 `statistics-distribution-model.ts`，分布图与候选命中位置视图归入 `statistics-distributions.tsx`（见[分布模型与视图边界](../simplification/2026-10-23-statistics-distributions.md)）；提示文案、趋势和按日明细仍在页面。皮肤徽章的 `recordSkin` 仍是可选的后台记录：共享 UI 通过 `recordSkinSafely` 捕获同步抛出和异步拒绝，换肤动作不因统计存储失败而中断或产生未处理异常。
+现有类型、保留期选项和四组纯计算原样归入 `packages/ui/src/settings/typing-statistics-model.ts`。页面与概览直接依赖模型，页面旧路径保留重导出，包入口的公开符号集合保持不变。异步读取、轮询、摘要与本地日期刷新归入 `use-typing-statistics-state.ts`（见[读取状态边界](../simplification/2026-10-23-typing-statistics-state.md)）；日历与按键热力图视图归入 `statistics-heatmaps.tsx`，共用选择按钮归入 `statistics-chart-button.tsx`（见[热力图视图边界](../simplification/2026-10-23-statistics-heatmaps.md)）；分布扇区构造归入纯 `statistics-distribution-model.ts`，分布图与候选命中位置视图归入 `statistics-distributions.tsx`（见[分布模型与视图边界](../simplification/2026-10-23-statistics-distributions.md)）；每日趋势的柱图与手机折线、速度和小时对比归入 `statistics-trends.tsx`，内部保留几何计算与日均说明（见[趋势视图边界](../simplification/2026-10-23-statistics-trends.md)）；提示文案和按日明细仍在页面。皮肤徽章的 `recordSkin` 仍是可选的后台记录：共享 UI 通过 `recordSkinSafely` 捕获同步抛出和异步拒绝，换肤动作不因统计存储失败而中断或产生未处理异常。
 
 保留 60 秒速度门槛、并列时最早日期、未测活跃时间的 `null`、完整 24 桶小时基线和所有现有过滤行为；不更改存储、宿主契约或 Windows C++ 实现。Windows 的来源注释同步新路径。
 

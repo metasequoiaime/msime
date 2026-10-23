@@ -33,7 +33,7 @@ import { compactPage } from "../core/page-style";
 import { useMemo, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { KeyboardHeatmap, StatisticsHeatmap } from "./statistics-heatmaps";
-import { StatisticsChartButton } from "./statistics-chart-button";
+import { SpeedTrend, StatisticsDailyTrend, StatisticsHourlyBars } from "./statistics-trends";
 import { scopedBreakdown } from "./typing-breakdown";
 import { statisticsDistributionSlices } from "./statistics-distribution-model";
 import { CandidateRanks, Distribution } from "./statistics-distributions";
@@ -94,8 +94,6 @@ const menuItem =
 const page = compactPage;
 // HarmonyOS 外观下的纵向排列：分段控件、各卡片组和隐私说明之间按设计间隔 22px。
 const summaryPage = "flex flex-col gap-[22px] text-[color:var(--p-text)]";
-const bar = "block w-full min-h-0.5 rounded-t-[3px] rounded-b-[1px]";
-const axis = "mt-[7px] flex justify-between text-xs text-muted";
 
 // The segmented control behind the content tabs. The column count is a parameter because the tab row silently kept four columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width. Each count is spelled out so Tailwind sees the class.
 const segmentedColumns: Record<number, string> = {
@@ -171,291 +169,6 @@ function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
         个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
       </p>
     </section>
-  );
-}
-
-/** Horizontal position, in viewBox units, of the middle of column `index` of `count`, so a line drawn over a row of bars passes through each bar's centre. */
-const columnCenter = (index: number, count: number) => ((index + 0.5) / Math.max(1, count)) * 100;
-
-/** An SVG path through the known values, lifting the pen over every null so an unknown day reads as a gap rather than a dip to zero. */
-function linePath(values: readonly (number | null)[], y: (value: number) => number): string {
-  let path = "";
-  let drawing = false;
-  values.forEach((value, index) => {
-    if (value === null) {
-      drawing = false;
-      return;
-    }
-    path += `${drawing ? "L" : "M"}${columnCenter(index, values.length)},${y(value)} `;
-    drawing = true;
-  });
-  return path.trim();
-}
-
-/**
- * A dashed reference line across a plot. Dashed on purpose: it marks a threshold, not a grid. Its value is named in the caption above the plot rather than on the line, where a label would sit on top of the data.
- */
-function ReferenceLine({ bottom }: { bottom: number }) {
-  return (
-    <i
-      className="pointer-events-none absolute inset-x-0 block h-px bg-[repeating-linear-gradient(90deg,var(--text-muted)_0_4px,transparent_4px_8px)] opacity-70"
-      style={{ bottom: `${bottom}%` }}
-      aria-hidden="true"
-    />
-  );
-}
-
-/**
- * Characters per active minute for each day of the trend window.
- *
- * Speed is a rate, so it gets a line rather than bars, and the scale starts near the slowest day instead of at zero: a typist moving between 60 and 75 characters a minute would otherwise see a flat line at the top of the plot. The axis labels name both ends so the cropped scale is never hidden. Days without enough measured time are gaps.
- */
-function SpeedTrend({
-  days,
-  speeds,
-  averageSpeed,
-  selectedDay,
-}: {
-  days: { key: string; label: string }[];
-  speeds: (number | null)[];
-  averageSpeed: number;
-  selectedDay: string | null;
-}) {
-  const known = speeds.filter((speed): speed is number => speed !== null);
-  const count = (value: number) => formatZhNumber(Math.round(value));
-  if (known.length === 0)
-    return (
-      <SettingsEmptyMessage centered className="mt-3.5">
-        这段时间还没有测量到足够的活跃时长。每天连续打字满 1 分钟后，这里会画出当天的速度。
-      </SettingsEmptyMessage>
-    );
-  const high = Math.max(...known, averageSpeed);
-  const low = Math.min(...known, averageSpeed);
-  const spread = Math.max(high - low, high * 0.2, 1);
-  const top = Math.ceil(high + spread * 0.15);
-  const bottom = Math.max(0, Math.floor(low - spread * 0.25));
-  const height = (value: number) => ((value - bottom) / Math.max(1, top - bottom)) * 100;
-  const y = (value: number) => 100 - height(value);
-  // Every point gets a dot while they are far enough apart to read; past that only a point with no neighbour does, since a lone day draws no line at all.
-  const dotted = (index: number) =>
-    speeds[index] !== null &&
-    (days.length <= 45 || (speeds[index - 1] == null && speeds[index + 1] == null));
-  return (
-    <>
-      <StatisticsNote>
-        最快 {count(Math.max(...known))} · 最慢 {count(Math.min(...known))} · 虚线为平均{" "}
-        {count(averageSpeed)} 字 / 分钟 · {known.length} 天有测量
-      </StatisticsNote>
-      <div
-        className="relative mt-3 h-[120px] border-b border-edge text-accent"
-        role="img"
-        aria-label={`每日输入速度折线图，${known.length} 天有测量，平均 ${count(averageSpeed)} 字每分钟`}
-      >
-        {/* The scale does not start at zero, so both ends are labelled inside the plot, where they keep its columns aligned with the daily bars above. */}
-        <span
-          className="pointer-events-none absolute top-0 left-0 text-[10px] leading-none text-muted tabular-nums"
-          aria-hidden="true"
-        >
-          {top}
-        </span>
-        <span
-          className="pointer-events-none absolute bottom-1 left-0 text-[10px] leading-none text-muted tabular-nums"
-          aria-hidden="true"
-        >
-          {bottom}
-        </span>
-        <ReferenceLine bottom={height(averageSpeed)} />
-        <svg
-          className="absolute inset-0 block size-full overflow-visible"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <path
-            d={linePath(speeds, y)}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-        {/* Dots and hover columns are HTML rather than SVG: the plot stretches to its box, which would squash an SVG circle into an ellipse. */}
-        {days.map((day, index) => {
-          const speed = speeds[index];
-          const chosen = selectedDay === day.key;
-          return (
-            <span
-              className="absolute inset-y-0"
-              style={{
-                left: `${(index / days.length) * 100}%`,
-                width: `${100 / days.length}%`,
-              }}
-              key={day.key}
-              title={`${day.label}：${speed === null ? "活跃不足 1 分钟，未计算" : `${count(speed)} 字 / 分钟`}`}
-              aria-hidden="true"
-            >
-              {speed !== null && (dotted(index) || chosen) && (
-                <i
-                  className={`absolute left-1/2 block -translate-x-1/2 translate-y-1/2 rounded-full ring-2 ring-card-solid ${chosen ? "size-2.5 bg-[#e59b43]" : "size-[7px] bg-accent"}`}
-                  style={{ bottom: `${height(speed)}%` }}
-                />
-              )}
-            </span>
-          );
-        })}
-      </div>
-      <div className={axis}>
-        <span>{days[0]?.label}</span>
-        <span>{days.at(-1)?.label}</span>
-      </div>
-    </>
-  );
-}
-
-function StatisticsTrendLine({
-  days,
-  counts,
-  selectedDay,
-  average,
-}: {
-  days: { key: string; label: string }[];
-  counts: Record<string, number>;
-  selectedDay: string | null;
-  average: number;
-}) {
-  const values = days.map((day) => counts[day.key] ?? 0);
-  const lineValues =
-    days.length > 120
-      ? values.map((_, index) => {
-          const start = Math.max(0, index - 6);
-          const window = values.slice(start, index + 1);
-          return window.reduce((total, value) => total + value, 0) / window.length;
-        })
-      : values;
-  const maximum = Math.max(1, ...values, ...lineValues);
-  const point = (value: number, index: number) =>
-    `${(index / Math.max(1, days.length - 1)) * 100},${96 - (value / maximum) * 88}`;
-  const line = lineValues.map(point).join(" ");
-  const area = `0,100 ${values.map(point).join(" ")} 100,100`;
-  const selectedIndex = selectedDay ? days.findIndex((day) => day.key === selectedDay) : -1;
-  const selectedValue = selectedIndex >= 0 ? values[selectedIndex] : 0;
-  return (
-    <div
-      className="relative mt-3 h-[170px] w-full text-accent"
-      role="img"
-      aria-label={days.length > 120 ? "每日输入趋势折线图，显示七日均线" : "每日输入趋势折线图"}
-    >
-      {average > 0 && <ReferenceLine bottom={4 + (average / maximum) * 88} />}
-      <svg
-        className="block size-full overflow-visible"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id="statistics-trend-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="currentColor" stopOpacity=".34" />
-            <stop offset="1" stopColor="currentColor" stopOpacity=".03" />
-          </linearGradient>
-        </defs>
-        <polygon points={area} fill="url(#statistics-trend-area)" />
-        <polyline
-          points={line}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
-        />
-        {selectedIndex >= 0 && (
-          <circle
-            className="fill-[#e59b43] stroke-card stroke-[1.5px]"
-            cx={(selectedIndex / Math.max(1, days.length - 1)) * 100}
-            cy={96 - (selectedValue / maximum) * 88}
-            r="2.2"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-      </svg>
-    </div>
-  );
-}
-
-/**
- * Today's characters by local hour, set against the average of earlier days.
- *
- * Every hour gets a column, including the empty ones: a chart that only drew the hours with input would put 9am next to 3pm and read as continuous typing. Today is the point, so it is the accent bars; the usual day is context, so it is a thin neutral line over them, on the same scale.
- */
-function StatisticsHourlyBars({
-  hours,
-  usual,
-}: {
-  hours: readonly number[];
-  usual: { hours: number[]; days: number } | null;
-}) {
-  const peak = Math.max(1, ...hours, ...(usual?.hours ?? []));
-  const total = hours.reduce((sum, count) => sum + count, 0);
-  const count = (value: number) => formatZhNumber(Math.round(value));
-  return (
-    <>
-      <StatisticsNote>
-        最高 {count(Math.max(0, ...hours))} 字符 / 小时 · 共 {count(total)} 字符
-      </StatisticsNote>
-      {usual && (
-        <div className="mt-2 flex items-center gap-4 text-[11px] text-secondary" aria-hidden="true">
-          <span className="flex items-center gap-1.5">
-            <i className="block size-2.5 rounded-[2px] bg-accent" />
-            今日
-          </span>
-          <span className="flex items-center gap-1.5">
-            <i className="block h-0.5 w-3.5 rounded-full bg-[var(--text-secondary)]" />
-            平时（前 {formatZhNumber(usual.days)} 天平均）
-          </span>
-        </div>
-      )}
-      <div
-        className="relative mt-3 flex h-[110px] items-end gap-[3px]"
-        role="img"
-        aria-label={usual ? "今日各时段输入分布，与平时对比" : "今日各时段输入分布"}
-      >
-        {hours.map((value, hour) => (
-          <div
-            key={hour}
-            className="flex h-full min-w-0 flex-1 flex-col justify-end"
-            title={`${hour} 时：今日 ${value} 字符${usual ? `，平时 ${count(usual.hours[hour])} 字符` : ""}`}
-            aria-label={`${hour} 时，${value} 字符`}
-          >
-            <i
-              className={`${bar} bg-accent ${value === 0 ? "opacity-25" : "opacity-85"}`}
-              style={{ height: `${Math.max(2, (value / peak) * 100)}%` }}
-            />
-          </div>
-        ))}
-        {usual && (
-          <svg
-            className="pointer-events-none absolute inset-0 block size-full overflow-visible text-[var(--text-secondary)]"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <path
-              d={linePath(usual.hours, (value) => 100 - (value / peak) * 100)}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
-        )}
-      </div>
-      <div className={axis}>
-        <span>0 时</span>
-        <span>12 时</span>
-        <span>23 时</span>
-      </div>
-    </>
   );
 }
 
@@ -550,16 +263,7 @@ export function TypingStatisticsPage({
     : null;
   const scopeTitle = selectedLabel ?? "累计输入";
   const keyScopeLabel = selectedLabel ?? "累计";
-  const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
-  // The reference line is the average of the window's recorded days, the same "日均" the rhythm card uses, so empty days do not drag it down.
-  const trendRecorded = trendDays
-    .map((day) => statistics.days[day.key] ?? 0)
-    .filter((count) => count > 0);
-  const trendAverage =
-    trendRecorded.length === 0
-      ? 0
-      : trendRecorded.reduce((sum, count) => sum + count, 0) / trendRecorded.length;
   const { characterSlices, sourceSlices, languageSlices } = statisticsDistributionSlices(breakdown);
   const iosPlatform = platform === "ios";
   const availabilityMessage = availabilityNotice(statistics, status, iosPlatform);
@@ -774,58 +478,13 @@ export function TypingStatisticsPage({
           <h2 className={heading} id="statistics-trend-title">
             每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}
           </h2>
-          <StatisticsNote>
-            最高{" "}
-            {maximum === 1 && trendDays.every((day) => !statistics.days[day.key])
-              ? 0
-              : formatZhNumber(maximum)}{" "}
-            字符 / 天
-            {trendAverage > 0 && ` · 虚线为日均 ${formatZhNumber(Math.round(trendAverage))} 字符`}
-          </StatisticsNote>
-          {mobile ? (
-            <StatisticsTrendLine
-              days={trendDays}
-              counts={statistics.days}
-              selectedDay={selectedDay}
-              average={trendAverage}
-            />
-          ) : (
-            <div
-              className={`relative mt-3 flex h-[145px] items-end ${trendDays.length === 7 ? "gap-2.5" : "gap-[3px]"} max-phone:gap-0.5`}
-            >
-              {trendDays.map((day) => {
-                const count = statistics.days[day.key] ?? 0;
-                const chosen = selectedDay === day.key;
-                // A selection dims every other bar. The old stylesheet did this with two `:has()`
-                // selectors because CSS could not see which day was picked; here the component
-                // already holds it, so the state answers directly.
-                const dimmed = selectedDay !== null && !chosen;
-                return (
-                  <StatisticsChartButton
-                    className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 border-0 bg-transparent p-0 text-[10px] text-muted"
-                    key={day.key}
-                    title={`${day.label}：${count} 字符`}
-                    ariaLabel={`${day.label}，${count} 字符`}
-                    selected={chosen}
-                    onClick={() =>
-                      setSelectedDay((current) => (current === day.key ? null : day.key))
-                    }
-                  >
-                    {trendDays.length === 7 && <span>{count}</span>}
-                    <i
-                      className={`${bar} ${chosen ? "bg-[#e59b43]" : "bg-accent"} ${dimmed ? "opacity-40" : chosen ? "opacity-100" : "opacity-85"}`}
-                      style={{ height: `${Math.max(2, (count / maximum) * 100)}%` }}
-                    />
-                  </StatisticsChartButton>
-                );
-              })}
-              {trendAverage > 0 && <ReferenceLine bottom={(trendAverage / maximum) * 100} />}
-            </div>
-          )}
-          <div className={axis}>
-            <span>{trendDays[0]?.label}</span>
-            <span>{trendDays.at(-1)?.label}</span>
-          </div>
+          <StatisticsDailyTrend
+            days={trendDays}
+            counts={statistics.days}
+            selectedDay={selectedDay}
+            onSelect={(key) => setSelectedDay((current) => (current === key ? null : key))}
+            mobile={mobile}
+          />
           {mobile && (
             <>
               <p className="mt-[18px] mb-0 text-xs text-muted">每天一格，一列一周</p>
