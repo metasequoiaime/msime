@@ -4053,6 +4053,47 @@ fn repeated_dedicated_english_preserves_english_t9_composition() {
     assert!(session.snapshot().preedit.is_empty());
 }
 
+#[test]
+fn fourteen_key_shuangpin_separates_touch_groups_from_hardware_letters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+    });
+    let table = crate::nine_key_shuangpin::resolve_fourteen_key_shuangpin(
+        ShuangpinProfileKind::Xiaohe,
+        None,
+    )
+    .unwrap();
+    session.set_key_grid(Some(KeyGrid::FourteenKeyShuangpin(table)));
+    type_text(&mut session, "nihc");
+    assert!(!session.grid_composing());
+    assert!(!session.grid_key(b'n').handled);
+    assert_eq!(
+        select_word(&mut session, "你好").commit.as_deref(),
+        Some("你好")
+    );
+    for key in *b"nihc" {
+        assert!(session.grid_key(key).handled);
+    }
+    assert!(session.grid_composing());
+    assert_eq!(session.snapshot().editing_text, "bugc");
+    assert!(!session.character(b'q', false).handled);
+    assert!(words(&session).contains(&"你好".to_owned()));
+    assert_eq!(
+        select_word(&mut session, "你好").commit.as_deref(),
+        Some("你好")
+    );
+    session.set_dedicated_english(true);
+    assert!(!session.grid_key(b'n').handled);
+    session.set_dedicated_english(false);
+    assert!(session.grid_key(b'n').handled);
+    session.command(Command::Cancel);
+    let mut quanpin = fixture.session();
+    quanpin.set_key_grid(Some(KeyGrid::FourteenKeyShuangpin(table)));
+    assert!(!quanpin.grid_key(b'n').handled);
+}
+
 /// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。
 #[test]
 fn fourteen_key_letters_enter_the_grid_only_through_grid_key() {

@@ -449,13 +449,15 @@ fn canonical_part<K: Copy>(
         .collect()
 }
 
-/// 一张合法的九键双拼表，进程里按内容只留一份（[`nine_key_shuangpin`]），以 `&'static` 交给九宫格。
+/// 一张两键双拼表，进程里按内容只留一份，以 `&'static` 交给九宫格；九键用户表使用数字，14 键表从已解析的字母方案派生。
 pub struct NineKeyShuangpin {
     canonical: Canonical,
     /// 每个能打的音节的两位编码。
     codes: HashMap<&'static str, [u8; 2]>,
-    /// 每个数字键上能起头一个音节的字母，按字母序：声母的首字母（`zh` 算 `z`），以及编码从这个键开始的零声母音节的首字母。下标是数字的值。
-    letters: [String; 10],
+    /// 14 键保留原方案接受的其他编码，例如微软双拼把 j+ü 也解作 ju。九键用户表每个音节只有一种编码，此表为空。
+    aliases: HashMap<&'static str, Vec<[u8; 2]>>,
+    /// 每个组码键上能起头一个音节的字母，按字母序：声母的首字母（`zh` 算 `z`），以及编码从这个键开始的零声母音节的首字母。槽位由 `key_slot` 确定。
+    letters: [String; 36],
     /// 九宫格的拼写表，第一次在九宫格里用这张表时建（`KeyGrid::spelling_table`）。
     pub(crate) spelling: OnceLock<SpellingTable>,
 }
@@ -468,6 +470,14 @@ impl fmt::Debug for NineKeyShuangpin {
             .field("finals", &self.canonical.finals)
             .field("zero_initials", &self.canonical.zero_initials)
             .finish_non_exhaustive()
+    }
+}
+
+fn key_slot(key: u8) -> Option<usize> {
+    match key {
+        b'0'..=b'9' => Some(usize::from(key - b'0')),
+        b'a'..=b'z' => Some(10 + usize::from(key - b'a')),
+        _ => None,
     }
 }
 
@@ -509,9 +519,10 @@ impl NineKeyShuangpin {
             };
             codes.insert(syllable, code);
         }
-        let mut letters: [Vec<u8>; 10] = Default::default();
+        let mut letters: [Vec<u8>; 36] = std::array::from_fn(|_| Vec::new());
         let mut add = |digit: u8, letter: u8| {
-            let slot = &mut letters[usize::from(digit - b'0')];
+            let Some(index) = key_slot(digit) else { return };
+            let slot = &mut letters[index];
             if !slot.contains(&letter) {
                 slot.push(letter);
             }
@@ -529,6 +540,7 @@ impl NineKeyShuangpin {
         Self {
             canonical,
             codes,
+            aliases: HashMap::new(),
             letters,
             spelling: OnceLock::new(),
         }
@@ -537,6 +549,13 @@ impl NineKeyShuangpin {
     /// 完整音节的两位编码；不是能打的音节时为 `None`。
     pub fn syllable_code(&self, syllable: &str) -> Option<&[u8; 2]> {
         self.codes.get(syllable)
+    }
+
+    pub(crate) fn syllable_codes(&self, syllable: &str) -> impl Iterator<Item = &[u8; 2]> {
+        self.codes
+            .get(syllable)
+            .into_iter()
+            .chain(self.aliases.get(syllable).into_iter().flatten())
     }
 
     /// 声母所在的键。
@@ -550,9 +569,10 @@ impl NineKeyShuangpin {
 
     /// 能打的音节和它的编码，按音节表的顺序。
     pub(crate) fn coded_syllables(&self) -> impl Iterator<Item = (&'static str, &[u8; 2])> {
-        syllables()
-            .iter()
-            .filter_map(|syllable| Some((*syllable, self.codes.get(syllable)?)))
+        syllables().iter().flat_map(|&syllable| {
+            self.syllable_codes(syllable)
+                .map(move |code| (syllable, code))
+        })
     }
 
     /// 只打了一位时，这一位能代表的拼写片段：声母（`zh`、`b`），以及零声母音节的首字母（编码从这个键开始的 `a`、`e`、`o`）。片段都不完整，后面还要接韵母。
@@ -575,9 +595,8 @@ impl NineKeyShuangpin {
         let digits = digits.as_bytes();
         if digits.len() >= 2
             && self
-                .codes
-                .get(piece)
-                .is_some_and(|code| code[..] == digits[..2])
+                .syllable_codes(piece)
+                .any(|code| code[..] == digits[..2])
         {
             return Some(2);
         }
@@ -604,18 +623,14 @@ impl NineKeyShuangpin {
         syllable.get(..length).unwrap_or(syllable)
     }
 
-    /// 数字键上能起头一个音节的字母，见 `letters` 字段；不是数字或这个键上没有时为空。
+    /// 组码键上能起头一个音节的字母，见 `letters` 字段；不是组码或这个键上没有时为空。
     pub fn letters(&self, digit: u8) -> &str {
-        if digit.is_ascii_digit() {
-            &self.letters[usize::from(digit - b'0')]
-        } else {
-            ""
-        }
+        key_slot(digit).map_or("", |index| self.letters[index].as_str())
     }
 
-    /// 这张表用到了这个数字键：有声母、韵母或零声母编码放在它上面。
+    /// 这张表用到了这个组码键：有声母、韵母或零声母编码放在它上面。
     pub fn uses_key(&self, digit: u8) -> bool {
-        digit.is_ascii_digit()
+        key_slot(digit).is_some()
             && (self.canonical.initials.iter().any(|(_, key)| *key == digit)
                 || self.canonical.finals.iter().any(|(_, key)| *key == digit)
                 || self
@@ -641,10 +656,39 @@ impl NineKeyShuangpin {
         code
     }
 
+    /// 核对全拼的两键编码与输入共同覆盖的前缀；逐音节核对，保留别名而不展开所有编码的笛卡尔积。
+    pub(crate) fn matching_prefix_len(&self, pinyin: &str, input: &str) -> Option<usize> {
+        let mut offset = 0;
+        for piece in pinyin.split('\'') {
+            let remaining = input.as_bytes().get(offset..).unwrap_or_default();
+            if self.codes.contains_key(piece) {
+                let covered = remaining.len().min(2);
+                if !self
+                    .syllable_codes(piece)
+                    .any(|code| code[..covered] == remaining[..covered])
+                {
+                    return None;
+                }
+                offset += 2;
+            } else if let Some(key) = self.initial_key(piece) {
+                if remaining.first().is_some_and(|&value| value != key) {
+                    return None;
+                }
+                offset += 1;
+            } else {
+                return None;
+            }
+        }
+        (offset > 0).then_some(offset.min(input.len()))
+    }
+
     /// 关键词（日期时间的 `riqi`、`sj` 这类小写字母）正好拼出 `digits`：能切成完整音节时按音节的编码比，否则每个字母当一个音节的首字母按声母的键比（简拼）。首字母 `z` `c` `s` 也可以是 `zh` `ch` `sh`（`sj` 是 shi'jian），与简拼按首字母查词相同。
     pub fn spells_keyword(&self, keyword: &str, digits: &str) -> bool {
         let pieces = crate::pinyin::segment::cut_one_piece_min_segments(keyword, true);
-        if !pieces.is_empty() && self.encode(&pieces.join("'")) == digits {
+        if !pieces.is_empty()
+            && pieces.len() * 2 == digits.len()
+            && self.matching_prefix_len(&pieces.join("'"), digits) == Some(digits.len())
+        {
             return true;
         }
         keyword.len() == digits.len()
@@ -661,7 +705,7 @@ impl NineKeyShuangpin {
         let mut count = 0;
         for (syllable, &digit) in canonical_pinyin.split('\'').zip(digits.as_bytes()) {
             count += 1;
-            if self.codes.get(syllable).map(|code| code[0]) != Some(digit) {
+            if !self.syllable_codes(syllable).any(|code| code[0] == digit) {
                 return false;
             }
         }
@@ -739,6 +783,104 @@ pub fn nine_key_shuangpin(
     Ok(leaked)
 }
 
+/// 将已解析的 26 键双拼方案投到相邻字母合并的 14 键上；分号与 L 共键。九键用户表的数字校验不变，不接受字母格式的用户表。
+fn fourteen_key_shuangpin(
+    profile: &'static crate::shuangpin::ShuangpinProfile,
+) -> Option<&'static NineKeyShuangpin> {
+    type DerivedTable = (
+        &'static crate::shuangpin::ShuangpinProfile,
+        &'static NineKeyShuangpin,
+    );
+    static DERIVED: OnceLock<Mutex<Vec<DerivedTable>>> = OnceLock::new();
+    let mut derived = DERIVED
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, table)) = derived
+        .iter()
+        .find(|(source, _)| std::ptr::eq(*source, profile))
+    {
+        return Some(table);
+    }
+    let key = |value: u8| match value {
+        b';' => Some(b'l'),
+        letter => crate::KeyGrid::FourteenKey.code_of(letter),
+    };
+    let lookup = |pairs: &[(&str, &str)], unit: &str| {
+        pairs
+            .iter()
+            .find(|(name, _)| *name == unit)
+            .and_then(|(_, value)| match value.as_bytes() {
+                [letter] => key(*letter),
+                _ => None,
+            })
+    };
+    let canonical = Canonical {
+        initials: INITIALS
+            .iter()
+            .map(|&unit| {
+                let value = if unit.len() == 1 {
+                    key(unit.as_bytes()[0])
+                } else {
+                    lookup(profile.initials, unit)
+                }?;
+                Some((unit, value))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        finals: FINALS
+            .iter()
+            .map(|&unit| Some((unit, lookup(profile.finals, unit)?)))
+            .collect::<Option<Vec<_>>>()?,
+        zero_initials: ZERO_INITIALS
+            .iter()
+            .map(|&unit| {
+                let code = profile
+                    .zero_initials
+                    .iter()
+                    .find(|(name, _)| *name == unit)?
+                    .1;
+                let [first, second] = code.as_bytes() else {
+                    return None;
+                };
+                Some((unit, [key(*first)?, key(*second)?]))
+            })
+            .collect::<Option<Vec<_>>>()?,
+    };
+    let mut table = NineKeyShuangpin::build(canonical);
+    table
+        .codes
+        .retain(|syllable, _| crate::shuangpin::profile::accepted_syllables().contains(syllable));
+    for first in b'a'..=b'z' {
+        for second in (b'a'..=b'z').chain(std::iter::once(b';')) {
+            let raw = String::from_utf8(vec![first, second]).ok()?;
+            let decoded = crate::shuangpin::utils::cvt_single_sp_to_pinyin(&raw, profile);
+            let Some(&syllable) = syllables().iter().find(|&&value| value == decoded) else {
+                continue;
+            };
+            let code = [key(first)?, key(second)?];
+            if table.codes.get(syllable) != Some(&code) {
+                let aliases = table.aliases.entry(syllable).or_default();
+                if !aliases.contains(&code) {
+                    aliases.push(code);
+                }
+            }
+        }
+    }
+    let leaked: &'static NineKeyShuangpin = Box::leak(Box::new(table));
+    derived.push((profile, leaked));
+    Some(leaked)
+}
+
+/// 按当前内置或自定义双拼方案派生 14 键表；自定义表沿用 26 键校验，不接受另一套字母用户表。
+pub fn resolve_fourteen_key_shuangpin(
+    kind: crate::ShuangpinProfileKind,
+    custom: Option<&crate::ShuangpinCustomTable>,
+) -> crate::Result<&'static NineKeyShuangpin> {
+    let profile = crate::shuangpin::custom::session_profile(kind, custom, true)?;
+    fourteen_key_shuangpin(profile)
+        .ok_or_else(|| crate::EngineError::invalid("invalid fourteen-key shuangpin profile"))
+}
+
 /// 与 [`nine_key_shuangpin`] 的结论相同，但什么也不留下，给编辑中的表用（设置页每改一个键就问一次）。
 pub fn check_table(table: &NineKeyShuangpinTable) -> Result<(), NineKeyShuangpinError> {
     canonicalize(table).map(|_| ())
@@ -765,6 +907,87 @@ pub fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fourteen_key_preserves_every_accepted_builtin_and_custom_encoding() {
+        use crate::types::ShuangpinProfileKind;
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::SmartAbc,
+        ] {
+            let profile = crate::shuangpin::profile::profile(kind).unwrap();
+            let custom_source = crate::shuangpin::custom::builtin_table(kind).unwrap();
+            let table = resolve_fourteen_key_shuangpin(kind, None).unwrap();
+            assert!(std::ptr::eq(
+                table,
+                resolve_fourteen_key_shuangpin(kind, None).unwrap()
+            ));
+            let custom =
+                resolve_fourteen_key_shuangpin(ShuangpinProfileKind::Custom, Some(&custom_source))
+                    .unwrap();
+            let grid = crate::KeyGrid::FourteenKey;
+            for first in b'a'..=b'z' {
+                for second in (b'a'..=b'z').chain(std::iter::once(b';')) {
+                    let raw = String::from_utf8(vec![first, second]).unwrap();
+                    let syllable = crate::shuangpin::utils::cvt_single_sp_to_pinyin(&raw, profile);
+                    if syllable.is_empty() {
+                        continue;
+                    }
+                    let projected = [
+                        grid.code_of(first).unwrap(),
+                        if second == b';' {
+                            b'l'
+                        } else {
+                            grid.code_of(second).unwrap()
+                        },
+                    ];
+                    for actual in [table, custom] {
+                        assert!(
+                            actual
+                                .syllable_codes(&syllable)
+                                .any(|code| *code == projected),
+                            "{kind:?} {raw} {syllable} {projected:?}"
+                        );
+                        let input = String::from_utf8(projected.to_vec()).unwrap();
+                        assert_eq!(
+                            actual.matching_prefix_len(&syllable, &input),
+                            Some(2),
+                            "{kind:?} {raw}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fourteen_key_keeps_semicolon_aliases_and_rejects_invalid_custom_tables() {
+        use crate::types::ShuangpinProfileKind;
+        let table = resolve_fourteen_key_shuangpin(ShuangpinProfileKind::Microsoft, None).unwrap();
+        assert_eq!(table.encode("qing"), "ql");
+        for code in ["ju", "jt"] {
+            assert_eq!(table.matching_prefix_len("ju", code), Some(2));
+            assert_eq!(table.piece_code_len("ju", code), Some(2));
+            assert_eq!(
+                table.matching_prefix_len("ju'ni", &format!("{code}bu")),
+                Some(4)
+            );
+        }
+        assert_eq!(table.matching_prefix_len("ju", "ja"), None);
+        assert_eq!(table.matching_prefix_len("ju'unknown", "ju"), None);
+        assert!(resolve_fourteen_key_shuangpin(ShuangpinProfileKind::Custom, None).is_err());
+        assert!(resolve_fourteen_key_shuangpin(
+            ShuangpinProfileKind::Custom,
+            Some(&crate::ShuangpinCustomTable::default())
+        )
+        .is_err());
+        let mut digits = builtin_table(NineKeyShuangpinKind::Migala3).unwrap();
+        digits.initials[0].1 = "q".to_owned();
+        assert!(check_table(&digits).is_err(), "九键用户表仍只接受数字");
+    }
 
     fn table_of(kind: NineKeyShuangpinKind) -> NineKeyShuangpinTable {
         builtin_table(kind).unwrap()

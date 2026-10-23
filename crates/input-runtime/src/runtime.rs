@@ -1331,7 +1331,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.pending_suffix()
     }
 
-    /// 换触屏的组码网格。九键要求方案能打九键（全拼、注音），14 键和九键双拼只给全拼，否则报 `InvalidNineKeyScheme`；组字中切换报 `CompositionActive`。
+    /// 换触屏的组码网格。九键要求全拼或注音，全拼 14 键和九键双拼要求全拼，双拼 14 键要求双拼；方案不符报 `InvalidNineKeyScheme`，组字中切换报 `CompositionActive`。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<(), RuntimeError> {
         let scheme = scheme_type(self.cached.scheme);
         let supported = match grid {
@@ -1340,6 +1340,7 @@ impl<E: InputEngine> Runtime<E> {
             Some(KeyGrid::FourteenKey | KeyGrid::NineKeyShuangpin(_)) => {
                 scheme == Some(SchemeType::Quanpin)
             }
+            Some(KeyGrid::FourteenKeyShuangpin(_)) => scheme == Some(SchemeType::Shuangpin),
         };
         if !supported {
             return Err(RuntimeError::InvalidNineKeyScheme);
@@ -3361,7 +3362,7 @@ fn key_grid_name(grid: Option<KeyGrid>) -> &'static str {
     match grid {
         None => "none",
         Some(KeyGrid::NineKey) => "nine_key",
-        Some(KeyGrid::FourteenKey) => "fourteen_key",
+        Some(KeyGrid::FourteenKey | KeyGrid::FourteenKeyShuangpin(_)) => "fourteen_key",
         Some(KeyGrid::NineKeyShuangpin(_)) => "nine_key_shuangpin",
     }
 }

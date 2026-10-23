@@ -117,13 +117,16 @@ pub enum KeyGrid {
     FourteenKey,
     /// 九键双拼：组码是方案用到的数字，可以有 `1` 和 `0`。
     NineKeyShuangpin(&'static NineKeyShuangpin),
+    /// 14 键双拼：当前 26 键方案投到相邻字母组，每个音节仍占两键，分号与 L 共键。
+    FourteenKeyShuangpin(&'static NineKeyShuangpin),
 }
 
 impl PartialEq for KeyGrid {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::NineKey, Self::NineKey) | (Self::FourteenKey, Self::FourteenKey) => true,
-            (Self::NineKeyShuangpin(left), Self::NineKeyShuangpin(right)) => {
+            (Self::NineKeyShuangpin(left), Self::NineKeyShuangpin(right))
+            | (Self::FourteenKeyShuangpin(left), Self::FourteenKeyShuangpin(right)) => {
                 std::ptr::eq(*left, *right)
             }
             _ => false,
@@ -136,24 +139,38 @@ impl Eq for KeyGrid {}
 impl std::hash::Hash for KeyGrid {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
-        if let Self::NineKeyShuangpin(table) = self {
-            std::ptr::hash(*table, state);
+        if let Some(table) = self.shuangpin_table() {
+            std::ptr::hash(table, state);
         }
     }
 }
 
 impl KeyGrid {
+    fn shuangpin_table(self) -> Option<&'static NineKeyShuangpin> {
+        match self {
+            Self::NineKeyShuangpin(table) | Self::FourteenKeyShuangpin(table) => Some(table),
+            _ => None,
+        }
+    }
+
     /// `a..=z` 各自的组码；九键双拼不按字母归组，没有这张表。
     fn keypad(self) -> Option<&'static [u8; 26]> {
         match self {
             Self::NineKey => Some(KEYPAD),
             Self::FourteenKey => Some(FOURTEEN_KEYPAD),
-            Self::NineKeyShuangpin(_) => None,
+            Self::NineKeyShuangpin(_) | Self::FourteenKeyShuangpin(_) => None,
         }
     }
 
     /// 小写字母所在键的组码；不是小写字母、或者这种键盘不按字母归组（九键双拼）时为 `None`。
     pub fn code_of(self, letter: u8) -> Option<u8> {
+        if matches!(self, Self::FourteenKeyShuangpin(_)) {
+            return if letter == b';' {
+                Some(b'l')
+            } else {
+                Self::FourteenKey.code_of(letter)
+            };
+        }
         let keypad = self.keypad()?;
         letter
             .is_ascii_lowercase()
@@ -172,14 +189,18 @@ impl KeyGrid {
                 .find(|group| group.as_bytes().first() == Some(&code))
                 .copied()
                 .unwrap_or(""),
-            Self::NineKeyShuangpin(table) => table.letters(code),
+            Self::NineKeyShuangpin(table) | Self::FourteenKeyShuangpin(table) => {
+                table.letters(code)
+            }
         }
     }
 
     /// `byte` 是这种键盘的一个组码键。九键双拼是方案用到的数字。
     pub fn is_code(self, byte: u8) -> bool {
         match self {
-            Self::NineKeyShuangpin(table) => table.uses_key(byte),
+            Self::NineKeyShuangpin(table) | Self::FourteenKeyShuangpin(table) => {
+                table.uses_key(byte)
+            }
             _ => !self.letters(byte).is_empty(),
         }
     }
@@ -188,7 +209,9 @@ impl KeyGrid {
     pub fn encode(self, pinyin: &str) -> String {
         let Some(keypad) = self.keypad() else {
             return match self {
-                Self::NineKeyShuangpin(table) => table.encode(pinyin),
+                Self::NineKeyShuangpin(table) | Self::FourteenKeyShuangpin(table) => {
+                    table.encode(pinyin)
+                }
                 _ => String::new(),
             };
         };
@@ -202,10 +225,7 @@ impl KeyGrid {
     /// 返回相容组码覆盖的输入长度；按字母分组时只比较共同前缀，不拥有中间编码。
     fn matching_code_prefix_len(self, pinyin: &str, digits: &str) -> Option<usize> {
         let Some(keypad) = self.keypad() else {
-            // 双拼后续的非法音节会让整串失效，必须保留完整编码校验。
-            let code = self.encode(pinyin);
-            return (!code.is_empty() && (code.starts_with(digits) || digits.starts_with(&code)))
-                .then_some(code.len().min(digits.len()));
+            return self.shuangpin_table()?.matching_prefix_len(pinyin, digits);
         };
         let digits = digits.as_bytes();
         let mut covered = None;
@@ -224,7 +244,7 @@ impl KeyGrid {
     /// 一个完整音节（锁定的拼写、左列的音节、整句种子里的音节）占几个组码：按字母归组的键盘一个字母一个，九键双拼总是两个。
     pub(crate) fn syllable_code_len(self, syllable: &str) -> usize {
         match self {
-            Self::NineKeyShuangpin(_) => 2,
+            Self::NineKeyShuangpin(_) | Self::FourteenKeyShuangpin(_) => 2,
             _ => syllable.len(),
         }
     }
@@ -232,7 +252,9 @@ impl KeyGrid {
     /// 一行候选的全拼（`'` 连接的完整音节）一共占几个组码，不分配。
     fn reading_code_len(self, canonical_pinyin: &str) -> usize {
         match self {
-            Self::NineKeyShuangpin(_) => 2 * reading_syllable_count(canonical_pinyin),
+            Self::NineKeyShuangpin(_) | Self::FourteenKeyShuangpin(_) => {
+                2 * reading_syllable_count(canonical_pinyin)
+            }
             _ => canonical_pinyin
                 .bytes()
                 .filter(u8::is_ascii_lowercase)
@@ -244,7 +266,7 @@ impl KeyGrid {
     pub fn offers_raw_key(self) -> bool {
         match self {
             Self::NineKey | Self::NineKeyShuangpin(_) => true,
-            Self::FourteenKey => false,
+            Self::FourteenKey | Self::FourteenKeyShuangpin(_) => false,
         }
     }
 
@@ -255,7 +277,7 @@ impl KeyGrid {
 
     /// 能拼英文词（英文九键、英文混入）。九键双拼的数字是声母和韵母，不是字母的分组，没有英文九键。
     fn spells_english(self) -> bool {
-        !matches!(self, Self::NineKeyShuangpin(_))
+        self.shuangpin_table().is_none()
     }
 
     /// 这种键盘的拼写表，每种键盘（九键双拼是每张表）在进程里建一次。
@@ -269,7 +291,7 @@ impl KeyGrid {
                 static TABLE: OnceLock<SpellingTable> = OnceLock::new();
                 TABLE.get_or_init(|| SpellingTable::build(self, intact_pinyin_list()))
             }
-            Self::NineKeyShuangpin(table) => table
+            Self::NineKeyShuangpin(table) | Self::FourteenKeyShuangpin(table) => table
                 .spelling
                 .get_or_init(|| SpellingTable::build_shuangpin(self, table)),
         }
@@ -1448,7 +1470,7 @@ impl NineKeySession {
             }
         }
         // 九键双拼一个两位编码对应五六个音节，三个音节以上时，按音节频度留下的切分（每个位置 `PATH_LIMIT` 条）常常没有词的那一条：`22942288` 有一千多种读法，百依百顺 的 bai'yi'bai'shun 排不进去。词可以不靠切分找：按每个音节的声母那一位（第 1、3、5… 位）查简拼，只留编码正好以这串数字开头、音节数也对得上的词。全拼九宫格一个音节的码长不定，没有这一步。
-        if let KeyGrid::NineKeyShuangpin(table) = grid {
+        if let Some(table) = grid.shuangpin_table() {
             let codes = (self.locked.is_empty()
                 && initial.is_none()
                 && splits.is_empty()
@@ -1485,7 +1507,9 @@ impl NineKeySession {
                 self.learning && self.personal_context && !dictionary.personal_model().is_empty();
             // 九键双拼的简拼按首字母查出来的行还要逐个核对声母所在的键：`z` 同时查出 z 和 zh 开头的词，而它们常在不同的键上。核对会筛掉一部分，所以先多取一些行，核对之后再截。
             let shuangpin = match grid {
-                KeyGrid::NineKeyShuangpin(table) => Some(table),
+                KeyGrid::NineKeyShuangpin(table) | KeyGrid::FourteenKeyShuangpin(table) => {
+                    Some(table)
+                }
                 _ => None,
             };
             let mut rows = if personal {
@@ -1839,7 +1863,7 @@ impl NineKeySession {
     /// 只验证切分路径是否拼满输入，延后双拼边界向量的物化，避免为排序后丢弃的读法分配存储。
     fn reading_fits(&self, path: &Path) -> bool {
         let remaining = remaining_digits(&self.digits, self.locked_length());
-        let KeyGrid::NineKeyShuangpin(table) = self.grid else {
+        let Some(table) = self.grid.shuangpin_table() else {
             return path.iter().map(String::len).sum::<usize>() == remaining.len();
         };
         let mut offset = 0;
@@ -1859,7 +1883,7 @@ impl NineKeySession {
         boundaries: &'a [usize],
     ) -> Option<Cow<'a, [usize]>> {
         let remaining = remaining_digits(&self.digits, self.locked_length());
-        let KeyGrid::NineKeyShuangpin(table) = self.grid else {
+        let Some(table) = self.grid.shuangpin_table() else {
             return (path.iter().map(String::len).sum::<usize>() == remaining.len())
                 .then_some(Cow::Borrowed(boundaries));
         };
@@ -2021,7 +2045,7 @@ impl NineKeySession {
             return;
         }
         let covered = front.pinyin.len();
-        if let KeyGrid::NineKeyShuangpin(table) = self.grid {
+        if let Some(table) = self.grid.shuangpin_table() {
             // 一个音节两位；只覆盖了一位的那个音节显示它的声母（零声母音节显示首字母）：`8146` 上没打完的 中国 是 `zhong'g`。
             let mut digits = covered;
             for syllable in front.canonical_pinyin.split('\'') {
@@ -2445,9 +2469,9 @@ fn fitting_syllables(grid: KeyGrid, prefix: &str, digits: &str) -> (usize, usize
 fn letters_spell_code(grid: KeyGrid, letters: &str, code: &str) -> bool {
     let Some(keypad) = grid.keypad() else {
         return match grid {
-            KeyGrid::NineKeyShuangpin(table) => table
-                .syllable_code(letters)
-                .is_some_and(|pair| pair.as_slice() == code.as_bytes()),
+            KeyGrid::NineKeyShuangpin(table) | KeyGrid::FourteenKeyShuangpin(table) => table
+                .syllable_codes(letters)
+                .any(|pair| pair.as_slice() == code.as_bytes()),
             _ => false,
         };
     };
@@ -2847,8 +2871,8 @@ fn shuangpin_word_codes(grid: KeyGrid, digits: &str) -> Option<Vec<String>> {
 
 /// 词的全拼在九键双拼上的编码以 `digits` 开头，而且音节数正好是 `digits` 拼得出的那么多（末尾单独一位是下一个音节的声母）。
 fn shuangpin_word_spells(table: &NineKeyShuangpin, canonical_pinyin: &str, digits: &str) -> bool {
-    let code = table.encode(canonical_pinyin);
-    code.len() == digits.len().div_ceil(2) * 2 && code.starts_with(digits)
+    reading_syllable_count(canonical_pinyin) == digits.len().div_ceil(2)
+        && table.matching_prefix_len(canonical_pinyin, digits) == Some(digits.len())
 }
 
 /// 数字键上能作音节首字母的字母：i、u、v 不起头任何音节，词库也没有以它们命名的表，所以 4 只有 g、h，8 只有 t。
@@ -3209,7 +3233,9 @@ fn word_matches_digits(grid: KeyGrid, word: &str, digits: &str) -> bool {
 fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
     let Some(keypad) = grid.keypad() else {
         return match grid {
-            KeyGrid::NineKeyShuangpin(table) => table.spells_keyword(keyword, digits),
+            KeyGrid::NineKeyShuangpin(table) | KeyGrid::FourteenKeyShuangpin(table) => {
+                table.spells_keyword(keyword, digits)
+            }
             _ => false,
         };
     };
@@ -7721,7 +7747,9 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
                     .iter()
                     .map(|group| group.as_bytes()[0])
                     .collect(),
-                KeyGrid::NineKeyShuangpin(_) => unreachable!("GRIDS 只有按字母归组的键盘"),
+                KeyGrid::NineKeyShuangpin(_) | KeyGrid::FourteenKeyShuangpin(_) => {
+                    unreachable!("GRIDS 只有按字母归组的键盘")
+                }
             };
             for &code in &codes {
                 assert!(grid.is_code(code));
@@ -8080,6 +8108,63 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
 
     /// 九键双拼的测试词库：米旮旯 3 下 你好 是 64 47，中国 是 81 46，安 和 班 都是 25，路 是 50（u 在 0 键），走过 的 z 在 9 键、中国 的 zh 在 8 键。
     const SHUANGPIN_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_z VALUES('zhong','z','中',300);CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_g VALUES('guo','g','国',200);CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_a VALUES('an','a','安',150);CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_b VALUES('ban','b','班',120);CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_l VALUES('lu','l','路',90);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_z VALUES('zhong''guo','zg','中国',900),('zou''guo','zg','走过',950);";
+
+    #[test]
+    fn fourteen_key_shuangpin_locks_readings_and_finishes_real_pinyin() {
+        let fixture = fixture_with(SHUANGPIN_FIXTURE);
+        let mut session = open(&fixture.paths, false, mixed());
+        let table = crate::nine_key_shuangpin::resolve_fourteen_key_shuangpin(
+            crate::ShuangpinProfileKind::Xiaohe,
+            None,
+        )
+        .unwrap();
+        session.set_grid(KeyGrid::FourteenKeyShuangpin(table));
+        type_digits(&mut session, "bu");
+        let choices = session.snapshot().nine_key_spellings;
+        assert!(choices.iter().any(|value| value == "ni"), "{choices:?}");
+        assert!(choices.iter().any(|value| value == "bu"), "{choices:?}");
+        let selected = spelling_index(&session, "ni");
+        assert!(session.choose_spelling(selected).handled);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().editing_text, "bu");
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "ni"))
+                .handled
+        );
+        type_digits(&mut session, "gc");
+        assert!(words(&session).contains(&"你好".to_owned()));
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao");
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some("你好")
+        );
+        assert!(!session.active());
+    }
+
+    #[test]
+    fn fourteen_key_shuangpin_queries_semicolon_and_alternate_codes() {
+        let fixture = fixture_with("CREATE TABLE tbl_1_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_q VALUES('qing','q','青',100);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('ju','j','居',100);");
+        let mut session = open(&fixture.paths, false, mixed());
+        let table = crate::nine_key_shuangpin::resolve_fourteen_key_shuangpin(
+            crate::ShuangpinProfileKind::Microsoft,
+            None,
+        )
+        .unwrap();
+        session.set_grid(KeyGrid::FourteenKeyShuangpin(table));
+        for (code, word) in [("ql", "青"), ("ju", "居"), ("jt", "居")] {
+            type_digits(&mut session, code);
+            assert!(
+                words(&session).contains(&word.to_owned()),
+                "{code}: {:?}",
+                words(&session)
+            );
+            assert_eq!(
+                session.command(Command::CommitRaw).commit.as_deref(),
+                Some(word)
+            );
+        }
+    }
 
     fn shuangpin_session(paths: &RuntimePaths, kind: NineKeyShuangpinKind) -> NineKeySession {
         let mut session = open(paths, false, mixed());
