@@ -25,7 +25,7 @@
 
 水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。六个平台各有自己的原生输入法宿主，都接入同一套共享输入运行时；设置界面按平台归属：macOS、Linux 与 HarmonyOS 用同一份共享 React 设置页，Windows、iOS 与 Android 用各自的原生设置界面，设置的业务规则应当放在共享的 Rust 层、各平台界面只做界面（目前还有部分规则写在原生界面里）；React 设置页在 macOS 与 Linux 上通过 Tauri 调用普通 Rust 业务库，在 HarmonyOS 上不经过 Tauri，由 ArkWeb 加载、经 ArkTS 原生桥与 NAPI 调用 Rust；输入算法由 msime-engine 提供。
 
-项目主页：[msime.app](https://msime.app/) · [GitHub 仓库](https://github.com/metasequoiaime/msime) · [贡献者](https://github.com/metasequoiaime/msime/graphs/contributors) · [问题反馈](https://github.com/metasequoiaime/msime/issues) · [代码签名策略 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+项目主页：[msime.app](https://msime.app/) · [GitHub 仓库](https://github.com/metasequoiaime/msime) · [贡献者](https://github.com/metasequoiaime/msime/graphs/contributors) · [问题反馈](https://github.com/metasequoiaime/msime/issues) · [爱发电赞助](https://afdian.com/a/msime) · [代码签名策略 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 
 ## Star History
 
