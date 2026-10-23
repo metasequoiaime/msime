@@ -1,18 +1,14 @@
+import { AddDictionarySheet } from "../dictionary/add-dictionary-sheet";
+import { DiscoverDictionaries } from "../dictionary/dictionary-discovery";
 import { BuiltinDictionaryDetail, CollectionDetail } from "../dictionary/dictionary-details";
 import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { exceptionMessage } from "../core/exception-message";
 import { downloadBlob } from "../core/download-blob";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionSheet } from "../core/action-sheet";
+import { useCallback, useEffect, useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
 import { useToast } from "../core/toast";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import type {
-  CommunityResource,
-  CommunityResourceClient,
-} from "../community/community-resource-model";
-import { communityResourceSubtitle } from "../community/community-resource-model";
 import {
   binaryCollectionFormat,
   collectionFailureMessage,
@@ -21,7 +17,6 @@ import {
   collectionImportSources,
   collectionNameFromFile,
   collectionSubtitle,
-  type CollectionImportSource,
   type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
 import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
@@ -37,10 +32,7 @@ import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
 import { useAsyncGeneration } from "./use-async-generation";
 import { SwitchRow } from "./switch-row";
-import * as settings from "./settings-style";
 
-/** 「发现词库」列出的社区词库数，与 Android 的 `DISCOVER_LIMIT` 相同。 */
-const DISCOVER_LIMIT = 8;
 /** 命名词库一次导入的文本上限，与 client-services 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
 const MAX_COLLECTION_IMPORT_BYTES = 16 * 1024 * 1024;
 const BUILTIN = "builtin:pinyin";
@@ -409,139 +401,4 @@ async function exportUserPinyin(
       ? error.message
       : "词库导出失败，请稍后重试。";
   }
-}
-
-/** 「添加词库」：底部面板里先是「新建空词库」，再是各种导入来源；选了来源就打开系统的文件选择器，导入的词条成为一个新词库。 */
-function AddDictionarySheet({
-  open,
-  sources,
-  onClose,
-  onCreate,
-  onFile,
-}: {
-  open: boolean;
-  sources: CollectionImportSource[];
-  onClose: () => void;
-  onCreate: () => void;
-  onFile: (source: CollectionImportSource, file: File) => void;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  const chosen = useRef<CollectionImportSource | null>(null);
-  return (
-    <>
-      <ActionSheet
-        open={open}
-        title="添加词库"
-        subtitle="导入的词条会成为一个新的词库"
-        options={[
-          { value: "create", label: "新建空词库" },
-          ...sources.map((source) => ({ value: source.format, label: source.title })),
-        ]}
-        onSelect={(value) => {
-          if (value === "create") {
-            onCreate();
-            return;
-          }
-          const source = sources.find((item) => item.format === value);
-          if (!source || !input.current) return;
-          chosen.current = source;
-          input.current.accept = source.accept;
-          input.current.click();
-        }}
-        onClose={onClose}
-      />
-      <input
-        ref={input}
-        hidden
-        type="file"
-        aria-label="选择词库文件"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          const source = chosen.current;
-          event.currentTarget.value = "";
-          if (file && source) onFile(source, file);
-          else onClose();
-        }}
-      />
-    </>
-  );
-}
-
-/** 「发现词库」：社区词库的前几个，「添加」后成为一个独立的词库；已经装过的显示「已添加」。最后一行「浏览更多词库」切到底部「社区」标签的「词库」分类，搜索、详情、发布、我的作品和收藏都在那里。 */
-function DiscoverDictionaries({
-  community,
-  view,
-  busy,
-  onInstall,
-  onBrowseMore,
-}: {
-  community: CommunityResourceClient;
-  view: DictionaryCollectionsView | null;
-  busy: boolean;
-  onInstall: (resource: CommunityResource) => Promise<DictionaryCollectionsView | undefined>;
-  onBrowseMore: () => void;
-}) {
-  const [items, setItems] = useState<CommunityResource[] | null>(null);
-  const [failure, setFailure] = useState("");
-  const [adding, setAdding] = useState<string | null>(null);
-  const discoveryGeneration = useAsyncGeneration(community);
-  useEffect(() => {
-    const current = discoveryGeneration.current;
-    community
-      .list("dictionary", "", "", 0)
-      .then(
-        (page) =>
-          discoveryGeneration.current === current && setItems(page.items.slice(0, DISCOVER_LIMIT)),
-      )
-      .catch(
-        () =>
-          discoveryGeneration.current === current && setFailure("社区词库暂时读不到，请稍后再试。"),
-      );
-  }, [community]);
-  const installed = (id: string) =>
-    view?.collections.some(
-      (item) => item.source.type === "community" && item.source.resource_id === id,
-    ) ?? false;
-  return (
-    <GroupList title="发现词库">
-      {items === null || items.length === 0 ? (
-        <p className={settings.groupNote} role={failure ? "alert" : undefined}>
-          {failure || (items === null ? "正在读取社区词库…" : "社区里还没有词库。")}
-        </p>
-      ) : (
-        items.map((item) => {
-          const done = installed(item.id);
-          const pending = adding === item.id;
-          return (
-            <NavRow
-              key={item.id}
-              variant="me"
-              icon={<Badge>{Array.from(item.name)[0] ?? "词"}</Badge>}
-              title={item.name}
-              description={communityResourceSubtitle(item)}
-              trailing={
-                <button
-                  type="button"
-                  className="secondary"
-                  aria-label={`添加词库 ${item.name}`}
-                  disabled={done || pending || busy}
-                  onClick={async () => {
-                    setAdding(item.id);
-                    try {
-                      await onInstall(item);
-                    } finally {
-                      setAdding(null);
-                    }
-                  }}
-                >
-                  {done ? "已添加" : pending ? "添加中" : "添加"}
-                </button>
-              }
-            />
-          );
-        })
-      )}
-      <NavRow variant="me" title="浏览更多词库" onClick={onBrowseMore} />
-    </GroupList>
-  );
 }
