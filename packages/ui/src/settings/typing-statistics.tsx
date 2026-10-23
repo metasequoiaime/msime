@@ -25,7 +25,6 @@ export {
   type ActivityMetrics,
   type DailyDetailRow,
 } from "./typing-statistics-model";
-import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { rowHeading } from "../core/row-style";
 import { compactPage } from "../core/page-style";
 import { useMemo, useState } from "react";
@@ -44,6 +43,7 @@ import { formatDateTime } from "../core/format-date";
 import { useTypingStatisticsState } from "./use-typing-statistics-state";
 import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mobile-statistics";
 import { StatisticsNote } from "./statistics-note";
+import { StatisticsOptionsMenu } from "./statistics-options-menu";
 import { StatisticsDailyDetails } from "./statistics-daily-details";
 import { TypingStatisticsUpload } from "./typing-statistics-upload";
 export type { TypingBreakdown } from "./typing-speed";
@@ -72,14 +72,6 @@ const heading = rowHeading;
 const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
-// The phone's overflow menu: a details/summary disclosure, because it closes on an outside tap
-// without any state to keep in sync.
-const menuSummary =
-  "grid h-[30px] w-[34px] cursor-pointer list-none place-items-center rounded-[9px] border border-edge bg-card text-xl leading-none text-secondary hover:bg-[var(--button-secondary-hover)] hover:text-body [&::-webkit-details-marker]:hidden";
-const menuPopover =
-  "absolute top-9 right-0 flex min-w-[180px] flex-col gap-[3px] rounded-[10px] border border-edge bg-card p-1.5 shadow-card";
-const menuItem =
-  "flex min-h-[34px] w-full items-center justify-between gap-3 rounded-[7px] border-0 bg-transparent px-[9px] py-1.5 text-left text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";
 // The page container. Named because this component returns it from three places -- loading, error and
 // loaded -- and the loading branch was the one that got left behind when the class it used was
 // replaced.
@@ -205,66 +197,13 @@ export function TypingStatisticsPage({
     setSelectedDay(null);
     await update(client.reset);
   };
-  // 手机的溢出菜单。HarmonyOS 外观的图表下方没有设置区，所以保留期选项和开关、刷新、重置一起移到这里。
-  const optionsMenu = (rowClassName: string, retention: boolean) => (
-    <div className={`${rowClassName} flex min-h-0 justify-end`}>
-      <details className="relative z-[3]">
-        <summary className={menuSummary} aria-label="统计选项">
-          ⋯
-        </summary>
-        <div className={menuPopover} role="menu" aria-label="统计选项">
-          <label className={menuItem}>
-            <span>记录打字统计</span>
-            <ControlledCheckbox
-              aria-label="记录打字统计"
-              className="toggle"
-              checked={statistics.enabled}
-              disabled={busy}
-              onChange={(checked) => void update(() => client.setEnabled(checked))}
-            />
-          </label>
-          {retention && client.setRetention && (
-            <label className={menuItem}>
-              <span>自动清理</span>
-              <select
-                aria-label="自动清理"
-                className="max-w-[140px] rounded-[6px] border border-edge bg-transparent px-1.5 py-1 text-xs text-body"
-                value={statistics.retention ?? "forever"}
-                disabled={busy}
-                onChange={(event) => {
-                  const setRetention = client.setRetention;
-                  if (!setRetention) return;
-                  const chosen = event.target.value as StatisticsRetention;
-                  void update(() => setRetention(chosen));
-                }}
-              >
-                {retentionChoices.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <ActionButton
-            action={() => void update(() => client.load(), true)}
-            ariaBusy={busy}
-            className=""
-            disabled={busy}
-            label={busy ? "处理中…" : "刷新统计"}
-            role="menuitem"
-          />
-          <ActionButton
-            action={() => void resetStatistics()}
-            className={`${menuItem} text-danger`}
-            disabled={busy}
-            label="清空统计"
-            role="menuitem"
-          />
-        </div>
-      </details>
-    </div>
-  );
+  const menuActions = {
+    enabled: statistics.enabled,
+    busy,
+    onEnabledChange: (enabled: boolean) => void update(() => client.setEnabled(enabled)),
+    onRefresh: () => void update(() => client.load(), true),
+    onReset: () => void resetStatistics(),
+  };
 
   if (summaryLook) {
     const card = statisticsCardClass(summaryLook);
@@ -272,7 +211,20 @@ export function TypingStatisticsPage({
       <div className={summaryPage}>
         {confirmation}
         {error && <ErrorAlert>{error}</ErrorAlert>}
-        {optionsMenu("-mb-3.5", true)}
+        {/* 摘要外观的图表下方没有设置区，保留期选项只在这里进入菜单。 */}
+        <StatisticsOptionsMenu
+          {...menuActions}
+          className="-mb-3.5"
+          retention={statistics.retention}
+          onRetentionChange={
+            client.setRetention
+              ? (chosen) => {
+                  const setRetention = client.setRetention;
+                  if (setRetention) void update(() => setRetention(chosen));
+                }
+              : undefined
+          }
+        />
         {!statistics.enabled && (
           <section
             className={`${card} flex flex-col items-start gap-2 p-4`}
@@ -330,7 +282,7 @@ export function TypingStatisticsPage({
     <div className={page}>
       {confirmation}
       {error && <ErrorAlert>{error}</ErrorAlert>}
-      {mobile && optionsMenu("-mb-1", false)}
+      {mobile && <StatisticsOptionsMenu {...menuActions} className="-mb-1" />}
       {!statistics.enabled && (
         <section className="section m-0" aria-labelledby="statistics-disabled-title">
           <h2 id="statistics-disabled-title" className={heading}>
