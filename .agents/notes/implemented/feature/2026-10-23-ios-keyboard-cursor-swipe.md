@@ -30,10 +30,11 @@ Status: implemented
 - 原始 12 项 XCTest 在模拟器中先运行得到 52 条断言失败，再实现得到 0 失败；不是把 Xcode 无法发现 destination 的错误当成红灯。
 - 扩展到 21 项后，日语数字层的用例先运行得到 18 条失败，排除完整日语九键区域后得到 0 失败；7 项文档相关用例因缺少依赖而明确跳过。
 - 临时包含 PR #9375 的固定提交 `7be7f30db58a136c48b0f9821fbea7184cd5b7ee` 后，21 项全部执行，0 失败、0 跳过，覆盖文档累计位移、反向、结束/取消/失败、文档切换、空身份、非法位移、失焦、关闭开关和滑行抑制持有。依赖文件不属于本 PR，验证后恢复原始字节。
-- 多指复审增加 2 项回归，总计 23 项。缺陷版本和修复版本分别编译；模拟器安装等待系统服务回复，执行结果仍待核实，不能宣称新增多指用例已通过。
-- 独立复审确认，多指锁由新的单指 `.began` 解锁，旧首指的 `.moved` 或 `.stationary` 不会解锁；委托与 action 均检查锁定状态。新增两项用例覆盖两种触摸先后顺序、旧首指继续移动、新单指恢复与活动拖动取消；这些控制器级测试仍需实际运行，且不能替代真实 UIKit 触摸派发。
-- Xcode 的 `build-for-testing` 能编译键盘、共享与服务测试目标；`test` 与 `test-without-building` 无法发现具体模拟器 destination，因此临时场景式 UIKit runner 加载 Xcode 原样生成的 xctest，以公开 `XCTestSuite.testSuiteForTestCaseClass` 执行断言，并检查真实运行数量、失败数和跳过数。runner 只在忽略的产物目录中，不加入产品或工程。
-- 原生设置页的完整 `gestureGroup` 已使用真实 `DesignToggleRow`、`DesignGroup` 与偏好类型进行 Swift typecheck。完整原生 App 构建与真实触摸结果仍待核实，不能由这项局部检查推定。XcodeGen 工程随新增测试重新生成，同时补入已存在的 `VoiceLanguageCatalog.swift` 引用，避免生成工程继续漏编语音语言目录。
+- 多指复审增加 2 项回归，总计 23 项。缺陷版本在模拟器执行得到 73 条断言失败，修复版本得到 0 失败、0 跳过；失败集中在新增两项多指用例。标准 `xcodebuild test-without-building` 随后也实际执行 23 项、0 失败，并生成 xcresult。文档相关二进制包含上述固定依赖，依赖源码在编译后恢复。
+- 独立复审确认，多指锁由新的单指 `.began` 解锁，旧首指的 `.moved` 或 `.stationary` 不会解锁；委托与 action 均检查锁定状态。新增两项用例覆盖两种触摸先后顺序、旧首指继续移动、新单指恢复与活动拖动取消；控制器级测试不能替代真实 UIKit 触摸派发。
+- Xcode 的 `build-for-testing` 能编译键盘、共享与服务测试目标。具体模拟器 destination 起初不可发现时，临时场景式 UIKit runner 加载 Xcode 原样生成的 xctest，以公开 `XCTestSuite.testSuiteForTestCaseClass` 执行断言，并检查真实运行数量、失败数和跳过数；destination 恢复可发现后，补跑上述标准 XCTest。runner 只在忽略的产物目录中，不加入产品或工程。
+- 原生 App 的 `MSIMEApp` 模拟器完整构建通过，包含键盘扩展；此构建没有临时集成文档身份依赖，不能据此证明真实光标移动。原生设置页的完整 `gestureGroup` 也使用真实 `DesignToggleRow`、`DesignGroup` 与偏好类型通过 Swift typecheck。XcodeGen 工程随新增测试重新生成，同时补入已存在的 `VoiceLanguageCatalog.swift` 引用，避免生成工程继续漏编语音语言目录。
+- 两项 UI 回归通过 `MSIMEClientUITests` 的 `build-for-testing`：原生开关打开、关闭后分别重启宿主检查持久化；独立系统编辑器中检查连续点按、横滑不输出起始字母，以及开启时在文本内部插入合成标记、关闭时仍在末尾插入。后者关闭滑行输入并在 XCTest teardown 中恢复两个开关，断言中止也不依赖 Swift `defer`。首轮运行因 destination 不可发现实际执行 0 项；目标恢复后再次运行已进入系统设置和独立编辑器，但实际横滑结果仍待核实，不能把编译或入口步骤作为通过证据。这两项也不覆盖多指快打的真实手感。
 - 首次 quick 在豆包传输和语音语言目录检查的 120 秒限制处超时；两项分别重跑后通过，豆包套件执行 17 项、0 失败。完整 quick 重跑以 0 退出，Rust 工作区、Android 目标、Linux 设置壳与 Apple bridge 通过；其它平台按范围或缺少既有工具链跳过。笔记校验与 `git diff --check` 通过。
 
 ## Consequences
