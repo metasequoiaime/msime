@@ -259,7 +259,8 @@ impl GramDb {
         // 上下文取尾部 collocation_max_length-1 个码点，词取头部同样数量，
         // 再各自 encode。collocation_len = 上下文现存码点数 + 命中键的码点数，
         // 决定吃 collocation 惩罚还是更狠的 weak 惩罚。
-        let n = MAX_ENCODED_UNICODE.min((config.collocation_max_length - 1).max(0) as usize);
+        let n = MAX_ENCODED_UNICODE
+            .min(config.collocation_max_length.saturating_sub(1).max(0) as usize);
         if n < 1 {
             return result;
         }
@@ -753,6 +754,45 @@ mod tests {
             db.query("无关", long_word, true, &config),
             config.non_collocation_penalty
         );
+    }
+
+    #[test]
+    fn query_bounds_extreme_configured_window_lengths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = gram_file(
+            dir.path(),
+            "window-limits.gram",
+            &[
+                ([encode("名"), encode("医")].concat(), 180000),
+                ([encode("一名"), encode("医")].concat(), 200000),
+                ([encode("医生"), encode("$")].concat(), 190000),
+            ],
+        );
+        let db = GramDb::load(&path).expect("合成模型能加载");
+        for (length, expected) in [
+            (i32::MIN, -6.0),
+            (i32::MIN + 1, -6.0),
+            (-5, -6.0),
+            (0, -6.0),
+            (1, -6.0),
+            (2, 4.0),
+            (3, 6.0),
+            (6, 6.0),
+            (9, 6.0),
+            (i32::MAX, 6.0),
+        ] {
+            let config = GramConfig {
+                collocation_max_length: length,
+                ..GramConfig::default()
+            };
+            for is_rear in [false, true] {
+                assert_eq!(
+                    db.query("一名", "医生", is_rear, &config),
+                    expected,
+                    "窗口长度={length}，句尾={is_rear}"
+                );
+            }
+        }
     }
 
     #[test]

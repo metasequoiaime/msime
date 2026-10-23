@@ -68,6 +68,14 @@ Windows v0.11.1 出厂模板的 `[association]` 有七个不进设置页的高�
 
 **不进设置页**与 Windows 一致：两边都只让它们在配置文件里可写，共享设置页不加控件；TS 侧对象经 `...value` 展开保存，未知键原样保留不会被抹掉。
 
-**校验口径选了「逐键回退」而不是「整份拒绝」**，照 Windows 的实际做法：参考实现只走 `value_or(出厂值)`，类型不可转才回退，没有显式范围或有限性校验（`cn_en_mixed_input_*` 那种 clamp 是别的键的写法，不在这组上）。本侧用 `deserialize_with` 把「类型不符 / i32 放不下 / 非有限」逐键回出厂值，文档其余部分照常生效——偏好文档是全量写入的，整份拒绝会让一个手误把用户全部设置打回默认，比 Windows 的后果重得多。越界的有限值（如 `max_length = -5`）照 Windows 原样透传：引擎端 `n < 1` 与 `min(n, 8)` 已把极端值挡在安全范围，不为它发明语义。**与 v0.11.1 的差异（只记录）**：Windows 的 TOML 写 `inf`/`nan` 会原样进打分；本侧拦了非有限值（JSON `1e400` 可解析出 `inf`），属刻意的更严一侧。
+**校验口径选了「逐键回退」而不是「整份拒绝」**，照 Windows 的实际做法：参考实现只走 `value_or(出厂值)`，类型不可转才回退，没有显式范围或有限性校验（`cn_en_mixed_input_*` 那种 clamp 是别的键的写法，不在这组上）。本侧用 `deserialize_with` 把「类型不符 / i32 放不下 / 非有限」逐键回出厂值，文档其余部分照常生效——偏好文档是全量写入的，整份拒绝会让一个手误把用户全部设置打回默认，比 Windows 的后果重得多。越界的有限值（如 `max_length = -5`）照 Windows 原样透传：引擎端先用饱和减法求窗口，再以 `n < 1` 与 `min(n, 8)` 限定安全范围，不为它发明语义。**与 v0.11.1 的差异（只记录）**：Windows 的 TOML 写 `inf`/`nan` 会原样进打分；本侧拦了非有限值（JSON `1e400` 可解析出 `inf`），属刻意的更严一侧。
 
 `SentenceAssociationPreferences` 因引入 `f64` 字段移除了 `Eq`（保留 `PartialEq`），`Copy` 不变。缺键时由容器级 `#[serde(default)]` 落到 `Default` 出厂值，等于出厂值时 `skip_serializing_if` 不写进文档（与 `quote_style` 一致）。`scripts/test-windows-config-keys.py` 的钉住来源（345cb87a）早于这组键，不受影响；`preference_coverage.py` 因 host-api 直接读这些字段名而判定可达，无需 `NOT_APPLICABLE` 登记。
+
+## 2026-10-23 补充：极小窗口长度先饱和减一
+
+`sentence_collocation_max_length` 接受全部可表示的 `i32`，包括 `i32::MIN`。原查询端先执行 `max_length - 1`，之后才取零下限；这使该值在开启溢出检查时 panic，关闭检查时回绕并意外启用 8 字窗口。默认 macOS 开发构建同样开启溢出检查；启用有效语法模型后，非空上下文的逐边查询会经过这一步运算。
+
+查询端用 `saturating_sub(1)` 保住现有负值退回 `non_collocation_penalty` 的约定；其余值的评分与 8 字上限沿用原逻辑。配置反序列化层拒绝或重置负值能提前排除异常输入，但会改变已允许的手调值，且无法保护直接构造 `GramConfig` 的调用方，因此不采用。关闭溢出检查能避免 panic，却把负值变成有效窗口，也不采用。
+
+`query_bounds_extreme_configured_window_lengths` 使用合成 `.gram`，覆盖最小整数、其相邻值、普通负值、零、1、正常正值及最大整数，分别检查句尾和非句尾查询。修复前在最小整数处复现减法溢出；正常窗口仍需命中已知分值，避免以一律关闭搭配查询来通过边界测试。
