@@ -31,12 +31,18 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
+        if (arguments != null && "true".equals(arguments.getString("english-swipe")))
+            return "English symbol swipes in both directions, Unicode hints and cancellation";
         if (arguments != null && "true".equals(arguments.getString("letter-swipe")))
             return "letter option drag, release/cancel, engine punctuation and swipe direction/disable";
         return "letter hints and comma hold route punctuation once, commit composition and preserve the symbol panel entry";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (arguments != null && "true".equals(arguments.getString("english-swipe"))) {
+            runConfiguredChecks(false, true);
+            return;
+        }
         if (arguments != null && "true".equals(arguments.getString("letter-swipe"))) {
             runConfiguredChecks(true);
             return;
@@ -119,6 +125,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
 
     /** 配置只写专用模拟器中的产品沙盒，结束时恢复；输入与断言均使用合成值。 */
     private void runConfiguredChecks(boolean swipeOptions) throws Exception {
+        runConfiguredChecks(swipeOptions, false);
+    }
+
+    private void runConfiguredChecks(boolean swipeOptions, boolean englishSwipes) throws Exception {
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
         swipePreferences = new File(options.getString("preferences_directory"), "preferences.json").getCanonicalFile();
@@ -142,6 +152,10 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
                 .put("enabled", new JSONArray().put("quanpin")).put("selected", "quanpin"));
         try {
             if (!modes.edit().clear().commit()) throw new AssertionError("输入模式准备失败");
+            if (englishSwipes) {
+                runEnglishSwipeChecks();
+                return;
+            }
             configureSwipe(true, "down", true, false);
             if (!swipeOptions) {
                 runPunctuationChecks();
@@ -529,19 +543,61 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         await(described("字母 V").and(AccessibilityNodeInfo::isClickable));
     }
 
+    /** 英文角标包含三个非 ASCII 字符，期望表独立于产品字符表。 */
+    private void runEnglishSwipeChecks() throws Exception {
+        String letters = "dxcqwertyuiopasfghjklzvbnm";
+        String[] symbols = {"¥", "…", "、", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+            "@", "#", "%", "&", "*", "(", ")", "\"", "~", "?", "!", "-", "/"};
+        for (String direction : new String[] {"down", "up"}) {
+            configureSwipe(true, direction, true, false);
+            tap(described("切换到英文输入"));
+            await(described("切换到所选输入方案"));
+            StringBuilder expected = new StringBuilder();
+            for (int index = 0; index < letters.length(); index++) {
+                String letter = letters.substring(index, index + 1);
+                stage = "English " + direction + " swipe " + letter;
+                swipeLetter(letter, direction, false);
+                expected.append(symbols[index]);
+                expect(expected.toString());
+                await(described("切换到所选输入方案"));
+            }
+            stage = "English " + direction + " swipe cancellation";
+            swipeLetter("d", direction, true);
+            expect(expected.toString());
+            stage = "English letter after Unicode hints";
+            tap(described("字母 G"));
+            expected.append("g");
+            expect(expected.toString());
+            tap(described("切换到所选输入方案"));
+            await(described("切换到英文输入"));
+        }
+        configureSwipe(false, "down", true, false);
+        tap(described("切换到英文输入"));
+        await(described("切换到所选输入方案"));
+        stage = "disabled English symbol swipe keeps the letter";
+        simpleSwipe("d", "down");
+        expect("d");
+    }
+
     /** 在 `letter` 键中心按下，向下移过阈值后抬起。 */
     private void swipeDown(String letter) throws Exception {
+        swipeLetter(letter, "down", false);
+    }
+
+    private void swipeLetter(String letter, String direction, boolean cancel) throws Exception {
         automation.waitForIdle(500, 5000);
         AccessibilityNodeInfo target = await(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT)));
         Rect bounds = new Rect();
         target.getBoundsInScreen(bounds);
         float x = bounds.centerX();
         float startY = bounds.centerY();
-        float endY = startY + SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        float distance = SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        float endY = startY + ("up".equals(direction) ? -distance : distance);
         long downTime = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, startY, 0);
         MotionEvent move = MotionEvent.obtain(downTime, downTime + 40, MotionEvent.ACTION_MOVE, x, endY, 0);
-        MotionEvent up = MotionEvent.obtain(downTime, downTime + 80, MotionEvent.ACTION_UP, x, endY, 0);
+        MotionEvent up = MotionEvent.obtain(downTime, downTime + 80,
+            cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x, endY, 0);
         try {
             for (MotionEvent event : new MotionEvent[] {down, move, up}) {
                 event.setSource(InputDevice.SOURCE_TOUCHSCREEN);

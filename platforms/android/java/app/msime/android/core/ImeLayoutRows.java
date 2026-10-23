@@ -1442,7 +1442,8 @@ final class ImeLayoutRows {
 
     void commitNineKeyLiteral(String text) {
         if (s.connection == null) return;
-        if (s.dedicatedEnglish && text.length() == 1) {
+        // 英文纠错入口只接收 ASCII；非 ASCII 角标与其他符号一样按字面提交。
+        if (s.dedicatedEnglish && text.length() == 1 && text.charAt(0) < 128) {
             s.commitEnglishLiteral(text.charAt(0));
             return;
         }
