@@ -194,6 +194,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private void openClipboardEditor(boolean multiline) throws Exception {
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
+            + " --ez msime_test_editor_probe true"
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
@@ -205,8 +206,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         String step = stage;
         byte[] before = Files.readAllBytes(history.toPath());
         Bitmap beforePreview = automation.takeScreenshot();
-        Rect editorBounds = new Rect();
-        await(field("msime-test-plain")).getBoundsInScreen(editorBounds);
+        Rect editorBounds = awaitFocusedField("msime-test-plain");
         Rect card = openFloatingPreview();
         // 这一段有五处等待，失败时只报总阶段名看不出卡在哪一处，所以每处各标一句。
         stage = step + ": preview scroll area settles";
@@ -222,9 +222,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && node.getText().toString().contains("Synthetic preview line 0")
             && !node.isLongClickable());
         stage = step + ": editor keeps focus";
-        Rect editorAfter = new Rect();
-        // API 28 的窗口枚举可能省略被浮层遮挡的编辑器；直接查询系统输入焦点。
-        awaitFocusedField("msime-test-plain").getBoundsInScreen(editorAfter);
+        // API 28 遮挡期间连系统焦点查询也可能返回空；从合成编辑器主线程读取真实状态。
+        Rect editorAfter = awaitFocusedField("msime-test-plain");
         stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
@@ -294,28 +293,30 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(described("剪贴板"));
         stage = "changing input field removes floating preview";
         openFloatingPreview();
-        AccessibilityNodeInfo editorRoot = awaitFocusedField("msime-test-plain");
-        for (AccessibilityNodeInfo parent; (parent = editorRoot.getParent()) != null;) editorRoot = parent;
-        AccessibilityNodeInfo password = findAny(editorRoot, field("msime-test-password"));
-        if (password == null || !password.performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+        if (!editorProbe("focus", "msime-test-password").getBoolean("accepted"))
             throw new AssertionError("Synthetic editor focus switch refused");
         awaitFocusedField("msime-test-password");
         previewClosed();
     }
 
-    private AccessibilityNodeInfo awaitFocusedField(String description) {
+    private android.os.Bundle editorProbe(String method, String field) {
+        android.os.Bundle snapshot = getTargetContext().getContentResolver().call(EditorProbeProvider.URI, method, field, null);
+        if (snapshot == null) throw new AssertionError("Synthetic editor probe returned no state");
+        return snapshot;
+    }
+
+    private Rect awaitFocusedField(String description) {
         long deadline = SystemClock.uptimeMillis() + 15000;
-        boolean present = false;
-        boolean matched = false;
+        android.os.Bundle snapshot;
         do {
-            AccessibilityNodeInfo focused = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
-            present = focused != null;
-            matched = present && field(description).test(focused);
-            if (matched && focused.isFocused()) return focused;
+            snapshot = editorProbe("snapshot", description);
+            if (snapshot.getBoolean("focused") && snapshot.getBoolean("window_focused"))
+                return new Rect(snapshot.getInt("left"), snapshot.getInt("top"),
+                    snapshot.getInt("right"), snapshot.getInt("bottom"));
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Synthetic editor did not retain input focus (input node present="
-            + present + ", expected field=" + matched + ")");
+        throw new AssertionError("Synthetic editor did not retain input focus (field="
+            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused") + ")");
     }
 
     private Rect openFloatingPreview() {
