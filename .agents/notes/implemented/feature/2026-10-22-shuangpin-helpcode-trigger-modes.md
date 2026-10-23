@@ -50,3 +50,5 @@ PR #9243 把 `ShuangpinHelpcodeModes` 结构、默认值、写入端互斥归一
 合并 `develop` 时保留较长前缀排序、共享触发方式字段和全部设置开关；去掉自动合并重复加入的 `set_shuangpin_helpcode_modes`，由会重绑方案触发规则的版本承接。51 项双拼定向引擎测试、8 项设置页测试、前端类型检查和生产构建通过。按当前工具链清除不必要的闭包 `mut`、用 `is_multiple_of` 表达偶数判定，并把直接辅助码的两种结束标记作为一组传入递归，Clippy 的全部 target 在 `-D warnings` 下通过。复审前整合状态的完整引擎回归为 2494 项通过、55 项忽略；复审后补齐直接辅助码扫描器对两种结束标记的一致处理，以及关闭直接模式时大写路径的归属回归，53 项双拼定向用例通过。首次 quick 因语音语言目录导出冷编译超时失败；预编译成功后完整重跑退出码 0，报告 `quick check passed`，仓库契约、Rust workspace、Android/wasm 目标、Android Java 宿主、Linux 设置壳与原生宿主、macOS 原生宿主及共享 Apple 桥接层通过。MinGW 与 HarmonyOS 打包前置缺失的阶段按脚本明确跳过。
 
 提交钩子还检出整合进来的四个 TypeScript 文件不符合当前 oxfmt 输出；仅对钩子列出的共享候选样式组件、HarmonyOS 两个标点策略和键盘测试做格式化，未改行为。
+
+显式 Tab 入口与临时覆盖其它触发方式见[双拼手动辅助码](2026-10-23-shuangpin-manual-tab-helpcode.md)；既有触发偏好与解析规则继续保留。

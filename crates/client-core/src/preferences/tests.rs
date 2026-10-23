@@ -4118,6 +4118,7 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
 #[test]
 fn shuangpin_helpcode_modes_follow_windows_v0_11_1_defaults() {
     let modes = ShuangpinHelpcodeModes::default();
+    assert!(!modes.manual_tab);
     assert!(modes.direct);
     assert!(!modes.trigger_backtick && modes.trigger_semicolon && !modes.trigger_uppercase);
     assert!(!modes.mid_sentence);
@@ -4152,7 +4153,8 @@ fn shuangpin_helpcode_modes_roundtrip_and_stay_off_quanpin() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let modes = ShuangpinHelpcodeModes {
-        direct: false,
+        manual_tab: true,
+        direct: true,
         trigger_backtick: true,
         ..ShuangpinHelpcodeModes::default()
     };

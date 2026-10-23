@@ -7175,8 +7175,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([self revertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
-    // The sense page owns the keyboard while it is up, and hands back anything it does not claim.
-    if ([self glossSensePageActive] && [self handleGlossSenseEvent:event client:sender]) return YES;
+    // 释义页先处理按键；退出释义页的同一枚 Tab 继续沿用原有的列循环或翻页。
+    const BOOL glossSensePageWasActive = [self glossSensePageActive];
+    if (glossSensePageWasActive && [self handleGlossSenseEvent:event client:sender]) return YES;
     // Ctrl+Enter offers the highlighted candidate's gloss: one sense commits, several open the page
     // above. The reference and both Linux hosts do the same; here the chord used to fall through to
     // the rule below and commit the composition instead.
@@ -7235,6 +7236,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     uint32_t command = UINT32_MAX;
     [self ensureAppearance];
+    // 引擎只在完整双拼后公布 Tab；显式辅助码优先于普通候选翻页和释义列循环。
+    if (!glossSensePageWasActive && event.keyCode == 48 && !(event.modifierFlags & NSEventModifierFlagShift) &&
+        MSIMESpellingSymbolString(_view, @"\t")) {
+        NSDictionary *transition = [_session typeASCII:'\t' shift:NO error:nil];
+        if (MSIMEStrictBoolean(transition[@"handled"])) {
+            [self apply:transition];
+            return YES;
+        }
+    }
     if (_panel.isVisible && event.keyCode == 48 &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         if ([self cycleArmedGlossColumnBackwards:(event.modifierFlags & NSEventModifierFlagShift) != 0]) {

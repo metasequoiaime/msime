@@ -165,6 +165,7 @@ export function InputSettingsPage() {
       mobile={mobilePlatform}
       showShiftEntry={showHelpcodeShiftEntry}
       showTriggerKey={showHelpcodeTriggerKey}
+      showManualTab={macosPlatform}
       // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。鸿蒙手机和桌面只摆出这一族，iOS 和 Android 照旧两族直列。
       activeFamily={
         harmonyPhone || !mobilePlatform

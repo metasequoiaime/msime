@@ -51,6 +51,8 @@ export interface HelpcodeSettingsPageProps {
   mobile: boolean;
   showShiftEntry: boolean;
   showTriggerKey?: boolean;
+  /** 宿主已实现 Tab 手动双拼辅助码。 */
+  showManualTab?: boolean;
   disabled?: boolean;
   hidden?: boolean;
   /** Custom tables discovered by the host. They are optional for hosts without resource scanning. */
@@ -91,6 +93,7 @@ export function HelpcodeSettingsGroup({
   mobile,
   showShiftEntry,
   showTriggerKey = false,
+  showManualTab = false,
   customSchemas = [],
   packs = [],
   activeFamily,
@@ -250,9 +253,18 @@ export function HelpcodeSettingsGroup({
     const modes = { ...defaultShuangpinHelpcodeModes, ...current.modes };
     const setModes = (patch: Partial<ShuangpinHelpcodeModes>) =>
       onChange({ [key]: { ...current, modes: { ...modes, ...patch } } });
-    const disabled = !current.enabled;
+    const disabled = !current.enabled || (showManualTab && modes.manual_tab);
     return (
       <Fragment>
+        {showManualTab && (
+          <SwitchRow
+            title={`${label}手动辅助码（Tab）`}
+            description="按 Tab 后才输入辅助码；关闭后恢复其它触发设置"
+            disabled={!current.enabled}
+            checked={modes.manual_tab}
+            onChange={(manual_tab) => setModes({ manual_tab })}
+          />
+        )}
         <SwitchRow
           title={`${label}末尾直接辅助码`}
           description="完整音节后直接接辅助码"

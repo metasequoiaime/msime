@@ -13218,6 +13218,20 @@ int main(int argc, char **argv) {
         layoutPanel.requestedVisible = YES;
         NSEvent *reverseTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
+        // 引擎声明 Tab 是辅助码触发键时，普通 Tab 先送字符；Shift+Tab 仍翻上一页。
+        NSMutableDictionary *manualHelpcodeView = [pageView mutableCopy];
+        manualHelpcodeView[@"scheme"] = @1;
+        manualHelpcodeView[@"spelling_symbols"] = @"\t";
+        [controller setValue:manualHelpcodeView forKey:@"view"];
+        session.nextTransition = @{@"handled": @YES, @"view": manualHelpcodeView};
+        session.lastCommand = UINT32_MAX;
+        session.asciiCalls = 0;
+        NSEvent *manualTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
+        assert([controller handleEvent:manualTab client:client]);
+        assert(session.asciiCalls == 1 && session.lastASCII == '\t' && session.lastCommand == UINT32_MAX);
+        assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
+        session.nextTransition = nil;
+        [controller setValue:pageView forKey:@"view"];
         // 文档里存着 Tab 和 Page Up / Page Down 翻页为关时，它们照样翻页：macOS 固定开启这两组键。
         [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO, @"page_up_down": @NO}}];
         for (NSArray *entry in @[@[@"\t", @48, @0, @(MSIME_NEXT_PAGE)],
@@ -13266,6 +13280,27 @@ int main(int argc, char **argv) {
             }
             assert(session.commandCalls == commandsBeforeGloss);
         }
+        // 从独立释义页按 Tab 返回时沿用释义列循环，不顺便触发手动辅助码。
+        NSMutableDictionary *manualGlossView = [glossView mutableCopy];
+        manualGlossView[@"scheme"] = @1;
+        manualGlossView[@"candidates"] = @[@{@"text": @"你好", @"translation": @"1. hello; 2. hola", @"highlighted": @YES, @"id": @{@"session": @75, @"generation": @76, @"index": @0}}];
+        manualGlossView[@"spelling_symbols"] = @"\t";
+        [controller setValue:manualGlossView forKey:@"view"];
+        [controller setValue:@0 forKey:@"armedGlossColumn"];
+        appearance.candidateTranslations = YES;
+        layoutPanel.requestedVisible = YES;
+        NSEvent *openSenses = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagControl timestamp:0 windowNumber:0 context:nil characters:@"\r" charactersIgnoringModifiers:@"\r" isARepeat:NO keyCode:36];
+        assert([controller handleEvent:openSenses client:client]);
+        assert([[controller valueForKey:@"glossSenses"] count] > 1);
+        session.nextTransition = @{@"handled": @YES, @"view": manualGlossView};
+        session.asciiCalls = 0;
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:plainTab client:client]);
+        assert(session.asciiCalls == 0 && session.lastCommand == UINT32_MAX);
+        assert([[controller valueForKey:@"glossSenses"] count] == 0);
+        assert([[controller valueForKey:@"armedGlossColumn"] integerValue] == 1);
+        session.nextTransition = nil;
+        [controller setValue:@0 forKey:@"armedGlossColumn"];
         [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @YES}}];
         NSMutableDictionary *unglossedView = [glossView mutableCopy];
         unglossedView[@"candidates"] = @[@{@"text": @"你好", @"highlighted": @YES, @"id": @{@"session": @75, @"generation": @76, @"index": @0}}];

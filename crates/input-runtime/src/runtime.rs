@@ -1412,9 +1412,11 @@ impl<E: InputEngine> Runtime<E> {
             shuangpin_profile: self.cached.shuangpin_profile.clone(),
             answered_by_pinyin_fallback: self.cached.answered_by_pinyin_fallback,
             local_mode: self.cached.local_mode.clone(),
-            // A held phrase piece is a composition too: no key opens a mode behind it, and a host that reads the symbols (Harmony) must not compose or pick with them.
+            // 暂存词段后不开放新模式；Tab 仅在剩余拼写能接收末尾辅助码时由引擎公布。
             spelling_symbols: if self.phrase_prefix.is_empty() || self.cached.local_mode != "none" {
                 self.cached.spelling_symbols.clone()
+            } else if self.cached.spelling_symbols.contains('\t') {
+                "\t".to_owned()
             } else {
                 String::new()
             },
@@ -3117,9 +3119,10 @@ impl<E: InputEngine> Runtime<E> {
                     .select(self.engine_index(0))
                     .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
-            // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
+            // 暂存词段后的模式入口按标点结束；Tab 属于剩余拼写的辅助码，仍走字符接口。
             Action::Character { value, .. }
-                if !self.phrase_prefix.is_empty()
+                if value != b'\t'
+                    && !self.phrase_prefix.is_empty()
                     && self.cached.local_mode == "none"
                     && self.cached.spelling_symbols.as_bytes().contains(&value) =>
             {

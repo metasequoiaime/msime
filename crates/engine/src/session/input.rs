@@ -1278,6 +1278,9 @@ impl InputSession {
     pub fn spelling_symbols(&self) -> String {
         let mut symbols = self.base_spelling_symbols();
         symbols.extend(self.literal_spelling_symbols());
+        if self.shuangpin_helpcode_marker(b'\t').is_some() {
+            symbols.push('\t');
+        }
         symbols
     }
 
@@ -1742,14 +1745,21 @@ impl InputSession {
     /// `;` 先让给 `ing` 韵母（`accepts_semicolon_final_at`），两侧判断顺序一致。
     fn shuangpin_helpcode_marker(&self, value: u8) -> Option<u8> {
         use crate::shuangpin::mid_sentence;
-        if !matches!(value, b'`' | b';' | b'/')
+        if !matches!(value, b'`' | b';' | b'/' | b'\t')
             || self.scheme() != SchemeType::Shuangpin
             || !self.has_composition()
+            || self.dedicated_english
+            || self.local_mode != LocalInputMode::None
         {
             return None;
         }
         let request = self.engine.request();
         let modes = request.shuangpin_helpcode_modes;
+        if value == b'\t'
+            && (self.caret_position() != self.editing_text_len() || self.conversion.is_some())
+        {
+            return None;
+        }
         let typed = self.raw_with_cases().as_bytes();
         let caret = typed.len();
         // `/` 是万象式直接的结束键（`direct_helpcode_slash`）：原样落进输入串，
@@ -1781,6 +1791,7 @@ impl InputSession {
         let end = match value {
             b'`' => modes.trigger_backtick,
             b';' => modes.trigger_semicolon,
+            b'\t' => modes.manual_tab,
             _ => false,
         };
         if request.enable_shuangpin_helpcode
@@ -2151,12 +2162,27 @@ impl InputSession {
         }
     }
 
+    /// 手动辅助码的 Tab 标记与辅码不属于原文；无候选回退和回车使用同一份拼写。
+    pub(super) fn raw_commit_text(&self) -> String {
+        let request = self.engine.request();
+        if self.scheme() == SchemeType::Shuangpin
+            && self.local_mode == LocalInputMode::None
+            && !self.dedicated_english
+            && request.shuangpin_helpcode_modes.manual_tab
+            && request.raw_input_with_helpcode_marks.contains('|')
+        {
+            request.raw_input_with_cases.clone()
+        } else {
+            self.preedit()
+        }
+    }
+
     pub(super) fn commit_raw(&mut self) -> KeyResult {
         // 笔画的预编辑是字形，Enter 上屏的是键入的字母串（与粤拼一致）。
         let mut raw = if self.stroke_rules_apply() {
             self.engine.request().raw_input.clone()
         } else {
-            self.preedit()
+            self.raw_commit_text()
         };
         // 回车上屏的是屏幕上这段预编辑原文，本地模式的入口字母也算在内：临时模式以前把入口字母当标记丢掉，空输入时回车什么都不上屏（#7616）。进词库的词仍要去掉标记，见下面学习那一处。
         // 五笔临时拼音反查的引导键 `z` 同样是标记：回车上屏的是键入的拼音。

@@ -776,6 +776,7 @@ impl HostSession {
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
+        options.shuangpin_helpcode_modes = shuangpin_helpcode_modes(helpcode.modes);
         let plugin_root = self.plugin_roots.installed.as_deref();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_root,
@@ -1832,6 +1833,8 @@ fn shuangpin_helpcode_modes(
 ) -> msime_engine::ShuangpinHelpcodeModes {
     let modes = modes.normalized();
     msime_engine::ShuangpinHelpcodeModes {
+        // 目前只有 macOS 宿主把 Tab 送入字符接口；其它宿主保留原触发方式。
+        manual_tab: cfg!(target_os = "macos") && modes.manual_tab,
         direct: modes.direct,
         trigger_backtick: modes.trigger_backtick,
         trigger_semicolon: modes.trigger_semicolon,

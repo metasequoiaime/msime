@@ -20,6 +20,8 @@ export type CustomHelpcodeSchema = {
 
 /** 双拼辅助码的触发方式（Windows v0.11.1 `[helpcode]` 组的双拼专属键）；只有 `shuangpin_helpcode` 一族读它。设置页按末尾直接、末尾间接、句中间接和逐音节直接列出开关。 */
 export type ShuangpinHelpcodeModes = {
+  /** 仅按 Tab 后进入辅助码，保留其它触发偏好。 */
+  manual_tab: boolean;
   /** 末尾直接：完整音节后直接接辅码。 */
   direct: boolean;
   /** 末尾间接触发键：反引号。 */
@@ -59,6 +61,7 @@ export type HelpcodePackOption = { id: string; name: string };
 
 /** 与 client-core `ShuangpinHelpcodeModes::default`（Windows v0.11.1 出厂值）一致。 */
 export const defaultShuangpinHelpcodeModes: ShuangpinHelpcodeModes = {
+  manual_tab: false,
   direct: true,
   trigger_backtick: false,
   trigger_semicolon: true,

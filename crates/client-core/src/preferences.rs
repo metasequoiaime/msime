@@ -3492,6 +3492,8 @@ impl Default for HelpcodePreferences {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ShuangpinHelpcodeModes {
+    /// 只在 Tab 后输入辅助码；保留其它触发方式的设置，关闭后恢复。
+    pub manual_tab: bool,
     /// 末尾直接（`shuangpin_helpcode_direct`）：完整音节基座后直接接辅码，`ulpbx` 是单码、`ulpbxY` 是双码；关闭后末尾裸字母不再当辅助码，只有触发键开启的段才认。
     pub direct: bool,
     /// 末尾间接触发键：反引号段（`shuangpin_helpcode_trigger_backtick`）。
@@ -3520,6 +3522,7 @@ pub struct ShuangpinHelpcodeModes {
 impl Default for ShuangpinHelpcodeModes {
     fn default() -> Self {
         Self {
+            manual_tab: false,
             direct: true,
             trigger_backtick: false,
             trigger_semicolon: true,
