@@ -28,7 +28,7 @@ fn decoded_versions(dictionary: &mut QuanpinDictionary) -> Vec<u64> {
 
 fn words(rows: &[WordItem]) -> Vec<(String, String, i64)> {
     rows.iter()
-        .map(|row| (row.word.clone(), row.pinyin.clone(), row.weight))
+        .map(|row| (row.word.to_string(), row.pinyin.to_string(), row.weight))
         .collect()
 }
 

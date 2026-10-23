@@ -186,8 +186,9 @@ fn segment_row_cache_hit_borrows_the_segmentation_key() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.query_database(&segments, "ni'hao");
     });
+    // 一行输出的 `pinyin`、`canonical_pinyin`、`word` 各多一个 `SharedString` 的 `Arc`。
     assert_eq!(
-        allocations, 4,
+        allocations, 7,
         "热缓存分段查询仍创建了临时行页: {allocations}"
     );
 }
@@ -202,8 +203,9 @@ fn automatic_segmentation_reuses_the_joined_code_for_word_items() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.query_database(&segments, "");
     });
+    // 一行输出的 `pinyin`、`canonical_pinyin`、`word` 各多一个 `SharedString` 的 `Arc`。
     assert_eq!(
-        allocations, 5,
+        allocations, 8,
         "自动分段查询仍创建了临时行页: {allocations}"
     );
 }
@@ -680,8 +682,9 @@ fn longer_phrase_cache_hit_does_not_rebuild_the_full_key() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.longer_phrase_candidates("ni'hao", &segments);
     });
+    // 两行输出的 `pinyin`、`canonical_pinyin`、`word` 各多一个 `SharedString` 的 `Arc`。
     assert_eq!(
-        allocations, 7,
+        allocations, 13,
         "热缓存长词补全仍创建了临时行页: {allocations}"
     );
 }
@@ -1350,7 +1353,7 @@ fn warm_fuzzy_queries_reuse_the_fuzzy_slot() {
     let slot = fuzzy_cache_hash(fuzzy_rule::ALL, "zong'guo");
     let mut cached = dictionary.fuzzy_cache.get(&slot).expect("fuzzy slot");
     let mut marker = cached.candidates[0].clone();
-    marker.word = "哨兵".to_string();
+    marker.word = "哨兵".into();
     cached.candidates.push(marker);
     dictionary.fuzzy_cache.insert(slot, cached);
     let warm = dictionary.query("zongguo", "zong'guo", NONE, all);
@@ -1605,7 +1608,7 @@ fn row_caches_see_rows_another_connection_wrote() {
         items
             .iter()
             .find(|item| item.source == CandidateSource::Generated)
-            .map(|item| item.word.clone())
+            .map(|item| item.word.to_string())
     };
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
     // 缓存 `ni'hao` 等跨度的行。

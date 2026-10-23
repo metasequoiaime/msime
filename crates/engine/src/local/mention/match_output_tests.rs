@@ -3,10 +3,13 @@ use crate::ime::personal_rerank::allocations;
 
 fn assert_output_budget(code: &str, entries: &[MentionEntry], with_places: bool) {
     let expected = frozen_query_mentions(code, entries, with_places);
+    // 每个非空字段是一个字符串加一个 `SharedString` 的 `Arc`；空字段不占存储。
     let output_allocations = usize::from(!expected.is_empty())
         + expected
             .iter()
-            .map(|row| usize::from(!row.pinyin.is_empty()) + usize::from(!row.word.is_empty()))
+            .map(|row| {
+                2 * (usize::from(!row.pinyin.is_empty()) + usize::from(!row.word.is_empty()))
+            })
             .sum::<usize>();
     let (actual, allocations) = allocations::count(|| query_mentions(code, entries, with_places));
     assert_eq!(actual, expected, "code={code:?}, with_places={with_places}");

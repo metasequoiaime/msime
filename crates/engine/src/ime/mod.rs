@@ -1152,7 +1152,8 @@ fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) 
     for (target, candidate) in destination.iter_mut().take(common).zip(source.iter()) {
         target.pinyin.clear();
         target.canonical_pinyin.clear();
-        target.word.clone_from(&candidate.text);
+        target.word.clear();
+        target.word.push_str(&candidate.text);
         target.weight = 0;
         target.source = CandidateSource::Database;
         target.scheme = SchemeType::Zhuyin;

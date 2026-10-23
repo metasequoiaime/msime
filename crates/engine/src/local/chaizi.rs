@@ -346,7 +346,7 @@ mod tests {
     fn quanpin(code: &str) -> Vec<String> {
         query_chaizi(code, SchemeType::Quanpin, xiaohe(), false)
             .into_iter()
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect()
     }
 
@@ -477,7 +477,7 @@ mod tests {
         let traditional = query_chaizi("yanyi", SchemeType::Quanpin, xiaohe(), true);
         let words = |rows: &[WordItem]| {
             rows.iter()
-                .map(|item| item.word.clone())
+                .map(|item| item.word.to_string())
                 .collect::<Vec<_>>()
         };
         // 议 转成繁体就是 議：繁体输出时只留先出现的 议。

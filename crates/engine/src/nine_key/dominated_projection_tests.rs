@@ -224,7 +224,7 @@ impl NineKeySession {
                 });
             }
             for mut candidate in rows {
-                candidate.pinyin = self.digits.clone();
+                candidate.pinyin = self.digits.as_str().into();
                 push_ranked(
                     &mut candidates,
                     &mut leading,
@@ -362,7 +362,8 @@ fn assert_session(actual: &NineKeySession, expected: &NineKeySession) {
         ] {
             assert_eq!(actual.capacity(), expected.capacity());
         }
-        assert!(actual.pinyin.capacity() >= expected.pinyin.capacity());
+        // 九键给 `pinyin` 换上一份按长度新建的 `SharedString`，不再复用旧缓冲区，容量只能比内容。
+        assert_eq!(actual.pinyin, expected.pinyin);
         assert_eq!(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity()
@@ -421,9 +422,9 @@ fn assert_dominated_rows_are_rejected_before_field_copies() {
     let (_, new_count) = count(|| after.refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项、切分路径输出和搜索页缓冲。
+    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项、切分路径输出和搜索页缓冲。对照路径复制行字段现在是 `SharedString` 克隆，不再分配，差额从 1123 降到 777。
     assert_eq!(
-        new_count + 1123,
+        new_count + 777,
         old_count,
         "重复前缀行和读音字符串不能先复制再丢弃"
     );
@@ -604,7 +605,7 @@ fn projected_keys_equal_the_frozen_owned_keys() {
                             row.fuzzy = flags & 1 != 0;
                             let mut owned = row.clone();
                             let final_canonical = take_candidate_canonical_pinyin(&mut owned);
-                            owned.pinyin = "6".repeat(covered);
+                            owned.pinyin = "6".repeat(covered).into();
                             owned.canonical_pinyin = final_canonical;
                             let borrowed = if canonical.is_empty() {
                                 pinyin

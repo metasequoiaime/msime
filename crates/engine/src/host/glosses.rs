@@ -44,7 +44,7 @@ pub fn english_completions(resources: &str, prefix: &str, limit: usize) -> Resul
     Ok(dictionary
         .query_prefix(&prefix.to_ascii_lowercase(), limit)
         .into_iter()
-        .map(|item| item.word)
+        .map(|item| item.word.into_string())
         .collect())
 }
 

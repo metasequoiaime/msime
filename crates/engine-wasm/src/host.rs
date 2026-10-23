@@ -1074,11 +1074,11 @@ impl WebHost {
             .map(|&index| {
                 let item = &snapshot.candidates[index];
                 Row {
-                    text: item.word.clone(),
+                    text: item.word.to_string(),
                     code: if japanese {
                         String::new()
                     } else {
-                        item.pinyin.clone()
+                        item.pinyin.to_string()
                     },
                     // 辅助码关着时引擎的注释位只会是纠错提示，网页不开纠错，所以只在辅助码开着时取它。
                     hint: if hints {

@@ -927,7 +927,7 @@ mod tests {
         .map(|item| {
             assert!(item.sentence_association);
             assert_eq!(item.sentence_words, std::slice::from_ref(&item.word));
-            (item.word, item.source)
+            (item.word.into_string(), item.source)
         })
         .collect()
     }

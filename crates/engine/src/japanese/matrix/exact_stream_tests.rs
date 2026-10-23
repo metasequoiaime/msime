@@ -137,7 +137,8 @@ fn provider_exact_streaming_reuses_full_candidate_fields_and_saves_two_vectors()
     });
     assert_eq!(destination, expected);
     assert_eq!(destination.as_ptr(), pointer);
-    assert_eq!(allocations, 7);
+    // 云候选经 `clone_from` 与动态缓存共用 `SharedString` 存储；这一格改写成别的词时，三个共享字段的 `clear()` 只是放手，随后的 `push_str` 各新建一个字符串和 `Arc`，比原来多 6 次。
+    assert_eq!(allocations, 13);
 }
 
 #[test]

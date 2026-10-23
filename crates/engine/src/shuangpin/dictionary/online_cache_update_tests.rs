@@ -12,7 +12,7 @@ fn cached_rows(count: usize, source: CandidateSource) -> Vec<WordItem> {
             CandidateSource::Database,
             "ni",
         );
-        row.corrected_from = "合成纠错".to_owned();
+        row.corrected_from = "合成纠错".into();
         row.sentence_association = true;
         row.sentence_words = vec!["合成词甲".to_owned(), "合成词乙".to_owned()];
         rows.push(row);

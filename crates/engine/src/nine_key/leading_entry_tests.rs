@@ -103,7 +103,7 @@ fn rows(width: usize, mode: &str) -> Vec<WordItem> {
                 "ni'hao",
             );
             row.word.shrink_to_fit();
-            row.corrected_from = "synthetic".to_owned();
+            row.corrected_from = "synthetic".into();
             row.sentence_words = vec!["合成".to_owned(), "词段".to_owned()];
             row
         })
@@ -313,7 +313,8 @@ fn entry_matches_frozen_complete_refresh() {
                         assert_eq!(a.candidates, b.candidates);
                         assert_eq!(a.candidates.capacity(), b.candidates.capacity());
                         for (row, old) in a.candidates.iter().zip(&b.candidates) {
-                            assert_eq!(row.pinyin.capacity(), old.pinyin.capacity());
+                            // 九键给 `pinyin` 换上一份按长度新建的 `SharedString`，不再复用旧缓冲区，容量只能比内容。
+                            assert_eq!(row.pinyin, old.pinyin);
                             assert_eq!(row.word.capacity(), old.word.capacity());
                             assert_eq!(
                                 row.canonical_pinyin.capacity(),

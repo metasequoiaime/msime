@@ -206,7 +206,7 @@ fn provider_matches_old_pending_keys_across_edits_and_dynamic_rows() {
                 item.scheme = SchemeType::JapaneseRomaji;
                 item.fixed_position = 7;
                 item.fuzzy = true;
-                item.corrected_from = "synthetic".to_owned();
+                item.corrected_from = "synthetic".into();
                 item.sentence_association = true;
                 item.sentence_words = vec!["synthetic".to_owned()];
             }

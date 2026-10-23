@@ -461,7 +461,7 @@ mod tests {
         let request = request("ka");
         let mut destination = provider.query(&request);
         provider.query_into(&request, &mut destination);
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             provider.query_into(&request, &mut destination);
         });
@@ -484,7 +484,7 @@ mod tests {
         let request = request("kak");
         let mut destination = provider.query(&request);
         provider.query_into(&request, &mut destination);
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             provider.query_into(&request, &mut destination);
         });
@@ -511,7 +511,7 @@ mod tests {
         let request = request("kana");
         let mut destination = provider.query(&request);
         provider.query_into(&request, &mut destination);
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             provider.query_into(&request, &mut destination);
         });
@@ -531,7 +531,7 @@ mod tests {
         let (_root, mut provider) = provider_with(None);
         let request = request(raw);
         let mut destination = provider.query(&request);
-        let expected = destination.clone();
+        let expected = crate::ime::personal_rerank::allocations::unshared_rows(&destination);
         let pointer = destination.as_ptr();
         for row in &mut destination {
             row.source = CandidateSource::CloudSuggestion;

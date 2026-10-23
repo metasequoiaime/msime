@@ -1046,7 +1046,7 @@ mod tests {
                 .snapshot()
                 .candidates
                 .into_iter()
-                .map(|item| item.word)
+                .map(|item| item.word.into_string())
                 .collect::<Vec<_>>()
         };
         let root = tempfile::tempdir().unwrap();

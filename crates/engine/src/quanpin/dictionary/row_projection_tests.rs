@@ -24,8 +24,7 @@ impl QuanpinDictionary {
             };
             let mut rows = initial_items(rows);
             for item in &mut rows {
-                item.canonical_pinyin =
-                    std::mem::replace(&mut item.pinyin, matched_code.to_string());
+                item.canonical_pinyin = std::mem::replace(&mut item.pinyin, matched_code.into());
             }
             return rows;
         }
@@ -182,8 +181,9 @@ fn cold_and_warm_database_projection_preserves_fields_capacity_and_limits() {
             if initial && segments[0] == "n" {
                 assert_eq!(actual.len(), INITIAL_CANDIDATE_LIMIT);
             }
+            // 冻结实现每行为匹配码新建一个 `SharedString`（字符串加 `Arc`）。
             let saved = if initial {
-                actual.len()
+                2 * actual.len()
                     + usize::from(round == 1 && !actual.is_empty())
                     + usize::from(round == 1)
             } else {

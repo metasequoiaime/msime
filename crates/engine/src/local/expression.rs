@@ -365,7 +365,7 @@ mod tests {
     fn words(code: &str) -> Vec<String> {
         query_expression(code)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect()
     }
 

@@ -29,6 +29,7 @@ mod pinyin;
 mod punctuation;
 mod quanpin;
 mod session;
+mod shared_string;
 mod shuangpin;
 pub mod stroke;
 mod text;
