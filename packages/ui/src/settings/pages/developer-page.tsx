@@ -15,6 +15,7 @@ export function DeveloperSettingsPage() {
     macosPlatform,
     showRestartInputMethod,
     showInstallInputSource,
+    refreshInputSourceStartup,
     setDraft,
     busy,
     setError,
@@ -51,6 +52,7 @@ export function DeveloperSettingsPage() {
         linux={linuxPlatform}
         restartInputMethod={client.restartInputMethod}
         installInputSource={showInstallInputSource ? client.installInputSource : undefined}
+        onRepairFinished={refreshInputSourceStartup}
       />
       <DiagnosticLogsSection
         visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}

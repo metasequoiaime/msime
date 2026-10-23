@@ -90,3 +90,24 @@ test("points a missing install at the maintenance page", () => {
     "请在「维护与诊断」页的「输入法服务」中点「修复」。",
   );
 });
+
+test("系统安装待授权更新时指向主动修复，不误报重复安装或引导添加", () => {
+  render(
+    <InputSourceStartupNotice
+      status={{
+        ...installed,
+        action: "authorization_required",
+        enabled: false,
+        installation_scope: "system",
+      }}
+      onOpenSettings={vi.fn()}
+      onDismiss={vi.fn()}
+      onError={vi.fn()}
+    />,
+  );
+  const banner = screen.getByRole("status", { name: "水杉输入法安装状态" });
+  expect(banner.textContent).toContain("系统安装需要授权更新");
+  expect(banner.textContent).toContain("「维护与诊断」");
+  expect(banner.textContent).not.toContain("多了一份");
+  expect(screen.queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
