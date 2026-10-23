@@ -17,20 +17,24 @@ import org.json.JSONObject;
 /** #8104、#8175：在真实编辑器里检查选择状态、全选复制剪切、顶部预览与返回键。 */
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private boolean spaceCopyOnly;
+    private boolean trackpadOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override public void onCreate(Bundle arguments) {
         spaceCopyOnly = arguments != null && "true".equals(arguments.getString("space-copy-only"));
+        trackpadOnly = arguments != null && "true".equals(arguments.getString("trackpad"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (trackpadOnly) return "text trackpad through system editors, selection, temporary mode and key receiver";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
             : "space upward copy, selection mode, editor shortcuts, copy/cut preview and disabled suggestions";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (trackpadOnly) { new TextTrackpadDeviceChecks(this).run(); return; }
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = read(new File(root, "runtime-options.json"));
         File preferences = new File(options.getString("preferences_directory"), "preferences.json").getCanonicalFile();

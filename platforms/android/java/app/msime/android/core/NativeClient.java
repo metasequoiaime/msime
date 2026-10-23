@@ -65,6 +65,8 @@ public final class NativeClient {
     }
     /** 本版本的默认偏好文档（Android 新装默认值）。纯计算。 */
     public static String defaultPreferences() { return TextPolicy.utf8(defaultPreferencesRaw()); }
+    /** 触控板设置范围和默认值。纯计算，不重复定义 Java 侧规则。 */
+    public static String textTrackpadOptions() { return TextPolicy.utf8(textTrackpadOptionsRaw()); }
     /** 指定宿主（如 "android"）的能力描述。纯计算。 */
     public static String hostCapabilities(String platform) { return TextPolicy.utf8(hostCapabilitiesRaw(utf8(platform))); }
     /** 词库管理请求 `{options,action}`（列表、搜索、编辑、导入、导出）。会等待词库锁，在工作线程调用。 */
@@ -950,6 +952,7 @@ public final class NativeClient {
     private static native byte[] resolveAppThemeRaw(byte[] request);
     private static native byte[] restoreDefaultPreferencesRaw(byte[] directory, long expectedRevision);
     private static native byte[] defaultPreferencesRaw();
+    private static native byte[] textTrackpadOptionsRaw();
     private static native byte[] hostCapabilitiesRaw(byte[] platform);
     private static native byte[] dictionaryRaw(byte[] request);
     private static native byte[] personalDictionaryRequestRaw(byte[] request);

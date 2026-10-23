@@ -128,6 +128,47 @@ pub enum TouchSpellingPosition {
     CandidateBar,
 }
 
+/// Android 文本编辑触控板的本机偏好；默认值、步长范围和恢复设置归共享层，不参与账号同步。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextTrackpadPreferences {
+    pub enabled: bool,
+    pub hold_to_open: bool,
+    pub horizontal_dp: u16,
+    pub vertical_dp: u16,
+    pub tap_selection: bool,
+    pub haptics: bool,
+    pub trail: bool,
+    pub magnifier: bool,
+}
+
+impl Default for TextTrackpadPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            hold_to_open: false,
+            horizontal_dp: 12,
+            vertical_dp: 28,
+            tap_selection: true,
+            haptics: true,
+            trail: true,
+            magnifier: true,
+        }
+    }
+}
+
+impl TextTrackpadPreferences {
+    pub const HORIZONTAL_MIN_DP: u16 = 4;
+    pub const HORIZONTAL_MAX_DP: u16 = 48;
+    pub const VERTICAL_MIN_DP: u16 = 8;
+    pub const VERTICAL_MAX_DP: u16 = 96;
+
+    pub fn validate(&self) -> bool {
+        (Self::HORIZONTAL_MIN_DP..=Self::HORIZONTAL_MAX_DP).contains(&self.horizontal_dp)
+            && (Self::VERTICAL_MIN_DP..=Self::VERTICAL_MAX_DP).contains(&self.vertical_dp)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -1226,6 +1267,9 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
+    /// 仅 Android 使用，其他宿主原样保留。
+    #[serde(default)]
+    pub android_text_trackpad: TextTrackpadPreferences,
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
@@ -3153,6 +3197,7 @@ impl Default for Preferences {
             touch_shuangpin_layout: TouchShuangpinLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
+            android_text_trackpad: TextTrackpadPreferences::default(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
@@ -4007,6 +4052,9 @@ impl Preferences {
         if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&self.candidate_page_size) {
             return Err(PreferencesError::InvalidPageSize);
         }
+        if !self.android_text_trackpad.validate() {
+            return Err(PreferencesError::InvalidTextTrackpad);
+        }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
             || !(40..=100).contains(&self.touch_row_spacing_tenths)
             || !(-12..=48).contains(&self.touch_keyboard_height_adjustment)
@@ -4169,6 +4217,8 @@ pub enum PreferencesError {
     InvalidPageSize,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
+    InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
     #[error(

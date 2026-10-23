@@ -1054,6 +1054,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_restoreDefaultP
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_defaultPreferencesRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_default_preferences());
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_textTrackpadOptionsRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_text_trackpad_options());
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_hostCapabilitiesRaw(JNIEnv *env, jclass, jbyteArray platform) {
     return bounded_request(env, platform, kPlatformLimit, msime_client_host_capabilities);
 }

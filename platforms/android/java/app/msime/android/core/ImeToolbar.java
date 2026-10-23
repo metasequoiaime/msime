@@ -58,6 +58,7 @@ final class ImeToolbar {
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
             s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
+        s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
         for (Button button : new Button[] {s.moreButton, dismissButton}) {
             bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);

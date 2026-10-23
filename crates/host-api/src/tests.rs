@@ -4742,6 +4742,25 @@ fn restoring_default_preferences_is_a_locked_compare_and_swap() {
 }
 
 #[test]
+fn text_trackpad_options_publish_the_shared_defaults_and_slider_ranges() {
+    let options = read(msime_client_text_trackpad_options());
+    assert_eq!(options["ok"], true);
+    assert_eq!(
+        options["value"]["horizontal_dp"],
+        json!({"minimum": 4, "maximum": 48})
+    );
+    assert_eq!(
+        options["value"]["vertical_dp"],
+        json!({"minimum": 8, "maximum": 96})
+    );
+    assert_eq!(
+        options["value"]["defaults"],
+        serde_json::to_value(msime_client_core::preferences::TextTrackpadPreferences::default())
+            .unwrap()
+    );
+}
+
+#[test]
 fn exported_settings_import_as_a_compare_and_swap_that_keeps_local_services() {
     let source = tempfile::tempdir().unwrap();
     let source_store = PreferencesStore::new(source.path());

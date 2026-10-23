@@ -123,6 +123,11 @@ public final class HostStore {
         return themes == null ? new JSONArray() : themes;
     }
 
+    /** 触控板滑块范围与默认值归共享层，这里只解开标准结果。 */
+    @Nullable public static JSONObject textTrackpadOptions() {
+        return value(call(NativeClient::textTrackpadOptions));
+    }
+
     /**
      * The touch keyboard the stored global theme draws, in the mode `screen_keyboard_theme` and the app mode pick (`systemDark` stands in for the Android night mode). It goes through the same resolver the input service uses and, like {@link #themeCatalog}, takes no lock. A refused answer draws the Material 3 keyboard.
      */

@@ -350,6 +350,19 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
     })
 }
 
+/// 触控板设置控件的默认值和范围，宿主只负责展示；结果用 `msime_client_string_free` 释放。
+#[no_mangle]
+pub extern "C" fn msime_client_text_trackpad_options() -> *mut c_char {
+    use msime_client_core::preferences::TextTrackpadPreferences as Trackpad;
+    response(|| {
+        Ok(json!({
+            "defaults": Trackpad::default(),
+            "horizontal_dp": {"minimum": Trackpad::HORIZONTAL_MIN_DP, "maximum": Trackpad::HORIZONTAL_MAX_DP},
+            "vertical_dp": {"minimum": Trackpad::VERTICAL_MIN_DP, "maximum": Trackpad::VERTICAL_MAX_DP},
+        }))
+    })
+}
+
 /// The transcription provider and the optional rewrite, resolved from a preferences directory.
 ///
 /// The Android keyboard has its own voice entry and never goes through the desktop shell, so the
