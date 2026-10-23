@@ -14,17 +14,22 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 
 `packages/ui/src/dictionary/dictionary-discovery.tsx` 提供独立的 `DiscoverDictionaries`，接收社区客户端、集合视图、忙碌状态、安装与浏览更多回调，不读取设置表单上下文；安装读取最新详情、修改归属与图库导航仍由页面持有。发现列表继续使用 `useAsyncGeneration(community)`，成功和失败回调只有在当前请求代次仍有效时才更新状态。列表上限、错误提示、添加动作和显示行为保持不变。
 
-`packages/ui/src/dictionary/dictionary-details.tsx` 提供可独立挂载的 `CollectionDetail` 与 `BuiltinDictionaryDetail`，不读取设置表单上下文。命名词库的开关、添加与删除通过回调交还页面；内置详情持有搜索、分页和添加状态。两个详情共用私有标题与已有编辑对话框，列表和详情共用 `dictionary-detail-parts.tsx` 的字标与加号。页面继续持有详情历史、列表刷新和导出文件操作；内置详情只接收可选 `onExport`，原有能力条件、返回提示和取消空串保持。
+`packages/ui/src/dictionary/dictionary-details.tsx` 提供可独立挂载的 `CollectionDetail` 与 `BuiltinDictionaryDetail`，不读取设置表单上下文。命名词库的开关、添加与删除通过回调交还页面；内置详情持有搜索、分页和添加状态。两个详情共用私有标题与已有编辑对话框，列表和详情共用 `dictionary-detail-parts.tsx` 的字标与加号。页面继续持有详情历史和导出文件操作；内置详情只接收可选 `onExport`，原有能力条件、返回提示和取消空串保持。
 
 内置详情使用 `useAsyncGeneration(dictionary, query)`，客户端、搜索词变化及卸载立即作废旧请求；每次加载仍递增代次，维持分页和添加词条后刷新的顺序。250 毫秒防抖、分页大小、拼音规范化与词语过滤保留在详情页，不进入通用守卫。
 
-外层修改使用 `useAsyncActionRunner`，owner 为 `collections`、`dictionary` 和 `communityResources`，共享忙碌、挂载与客户端代次守卫。图库打开不取消修改。列表刷新和内置计数使用独立的 `useAsyncGeneration(collections, dictionary, galleryOpen)`，图库打开立即作废旧刷新；每次刷新仍递增代次，公共 runner 接受修改后也递增刷新代次，保持修改结果优先于先前刷新。
+`dictionary/use-dictionary-collections-state.ts` 提供独立的 `useDictionaryCollectionsState`，接收集合客户端、可选计数能力、社区归属对象、图库可见状态与提示回调，不读取设置表单或 toast 上下文。它拥有集合视图、刷新错误、内置计数、修改忙碌与有效结果返回；页面只接具体动作与导航。`captureOwner()` 在文件准备开始时捕获修改代次，返回读取完成或失败后可调用的守卫，不把底层 runner 的 ref 暴露给页面。
+
+外层修改在状态 hook 内使用 `useAsyncActionRunner`，owner 为 `collections`、`dictionary` 和 `communityResources`，共享忙碌、挂载与客户端代次守卫。图库打开不取消修改。列表刷新和内置计数使用独立的 `useAsyncGeneration(collections, dictionary, galleryOpen)`，图库打开立即作废旧刷新；每次刷新仍递增代次，公共 runner 接受修改后也递增刷新代次，保持修改结果优先于先前刷新。
 
 社区安装从读取详情起就进入公共 runner，详情回包后检查 owner 再调用安装接口，避免准备阶段更换客户端后进入旧闭包；详情失败也走当前操作的错误通道。准备期间全页修改保持忙碌，防止另一项修改抢占它。成功提示仍使用最新详情中的名称。
 
 领域包装继续返回有效的 `DictionaryCollectionsView`，让新建、添加和删除的调用方决定关闭对话框或打开详情；公共 runner 收尾后再次检查修改代次，过期结果返回 `undefined`。错误适配器忽略 runner 开始时清除错误的空字符串，以免生成空 toast；当前修改失败仍提示并重新加载列表。导入准备阶段捕获修改 owner 代次，读取完成或失败后检查它，防止客户端更换后调用旧客户端或弹出旧读取提示。
 
 ## Alternatives considered
+
+- 只抽刷新函数：接入更短，但视图、计数、修改抢占和过期结果返回仍依赖页面里的 ref 与 setter，无法独立组合完整状态生命周期。
+- 向页面返回底层 runner：可以逐行照搬原代码，但页面仍需知道挂载与代次 ref 的组合；返回调用时捕获的 `captureOwner()`，保留文件准备阶段既有时序而隐藏实现细节。
 
 - 将发现列表与安装、图库导航合并成一个设置页 Hook：调用方接线更少，但会把可独立展示的列表绑定设置上下文；组件只拥有读取第一页、当前添加项和展示反馈，页面保留跨功能编排。
 
@@ -38,6 +43,8 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 
 ## Consequences
 
+集合状态可以脱离设置表单与提示容器组合，页面不再直接持有刷新、修改的 ref；代价是多一个状态 hook 和准备阶段守卫函数。社区对象只作为修改 owner，不参与刷新 owner；图库可见状态只作废刷新，不取消已经提交的修改。已发出的宿主操作仍不会取消。文件读取、保存和协议都保留在原调用方。
+
 独立详情可以由其他共享界面直接组合，新增模块内部导出，不增加包入口符号。它仍依赖共享控件、toast 和请求代次 Hook，不接管平台文件能力。
 
 `dictionary-details.test.tsx` 在没有设置表单上下文的环境覆盖回调更新保留草稿、添加返回空值时继续编辑、忙碌与删除确认、可选导出及取消提示、分页与客户端变化后的旧响应隔离。迁移前相关五文件 61 项通过，迁移后加上独立详情共六文件 65 项通过；桌面生产构建、HarmonyOS 类型检查、lint、格式和笔记检查通过。六个组件声明及页面导出函数在排除模块导出、回调适配和格式差异后与基点一致；独立审查未发现阻断问题。
@@ -49,3 +56,11 @@ HarmonyOS 词库页的“发现词库”列表使用局部 `let current = true` 
 内置详情的行为测试通过实际词库页操作，覆盖客户端更换前后的旧成功/失败、搜索防抖期间的旧回包和退出详情后的迟到错误。客户端更换测试在局部计数实现上显示了过期词条，形成明确的失败到通过证据。守卫不取消宿主 I/O，只丢弃过期界面更新；验证范围为共享前端交互和构建。
 
 外层回归覆盖 StrictMode 重放、图库打开时的旧刷新成功/失败和计数、客户端更换时的旧修改成功/失败及新修改忙碌、重复切换和修改抢占刷新、文本和细胞词库读取期间的客户端更换以及旧读取失败，以及社区详情准备期间更换客户端的成功和失败。旧实现出现五项列表生命周期失败和三项读取准备失败，复用后社区安装还在未保护的详情准备阶段调用了旧安装接口并出现未处理拒绝；修补后词库页 39 项全部通过。quick 的刷新契约检查同步使用公共 hook 的声明，保留请求递增、回包守卫和修改抢占的检查。此改动只调整共享页面的异步归属，不改变宿主文件访问方式、解析器和导入协议；验证范围为前端交互、类型检查、构建与本地 quick 门禁。
+
+## 集合状态抽取验证
+
+迁移前七文件 68 项基线通过，独立状态测试先因缺少模块失败；实现后八文件 79 项通过，其中独立 hook 11 项覆盖初始读取、StrictMode 重放、图库遮挡、旧刷新与计数、修改优先、同步互斥、客户端更换、失败恢复及准备阶段归属与卸载。根级 `reactStrictMode` 明确触发 effect 重放；嵌套 StrictMode 不保证初次挂载的额外 effect 周期，依据 [React StrictMode 文档](https://react.dev/reference/react/StrictMode)。
+
+桌面生产构建、HarmonyOS 类型检查、变更文件 lint 与格式检查、笔记检查通过。刷新源码契约随实际归属迁到 hook，继续检查每次请求递增、计数与列表回包守卫及修改抢占，并补查页面接入与文件准备的调用时守卫；调用换行使用空白匹配，避免格式化使契约误报。共享逻辑和构建验证不代表原生设备验收。
+
+只读独立审查未发现阻断问题。`bash scripts/verify-local.sh --quick` 返回 0，覆盖全仓契约、笔记、Rust workspace、Android 目标、Linux 设置外壳与共享 Apple bridge 编译；HarmonyOS 真打包缺少 staged 依赖与 `hvigorw`，其余原生阶段按改动范围或工具链条件跳过。

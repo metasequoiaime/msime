@@ -4,11 +4,10 @@ import { BuiltinDictionaryDetail, CollectionDetail } from "../dictionary/diction
 import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { exceptionMessage } from "../core/exception-message";
 import { downloadBlob } from "../core/download-blob";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
 import { useToast } from "../core/toast";
-import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   binaryCollectionFormat,
   collectionFailureMessage,
@@ -17,7 +16,6 @@ import {
   collectionImportSources,
   collectionNameFromFile,
   collectionSubtitle,
-  type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
 import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
 import {
@@ -34,7 +32,7 @@ import {
 import type { DictionaryClient } from "../dictionary/dictionary-contracts";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
-import { useAsyncGeneration } from "./use-async-generation";
+import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-collections-state";
 import { SwitchRow } from "./switch-row";
 
 /** 命名词库一次导入的文本上限，与 client-services 的 `MAX_IMPORT_TEXT_BYTES` 相同。 */
@@ -60,9 +58,6 @@ export function HarmonyPhoneDictionary() {
   const collections = client.dictionaryCollections;
   const dictionary = client.dictionary;
   const toast = useToast();
-  const [view, setView] = useState<DictionaryCollectionsView | null>(null);
-  const [loadFailure, setLoadFailure] = useState("");
-  const [builtinCount, setBuiltinCount] = useState<number | null>(null);
   const {
     value: detail,
     open: openDictionaryDetail,
@@ -80,77 +75,14 @@ export function HarmonyPhoneDictionary() {
   });
   const [creating, setCreating] = useState(false);
   const [addingDictionary, setAddingDictionary] = useState(false);
-  const reportFailure = useCallback(
-    (message: string) => {
-      if (message) toast(message);
-    },
-    [toast],
-  );
-  const runner = useAsyncActionRunner(
-    reportFailure,
-    undefined,
-    collections,
-    dictionary,
-    client.communityResources,
-  );
-  const { busy, mounted } = runner;
-  const galleryOpen = communityGallery?.category === "dictionary";
-  const reloadGeneration = useAsyncGeneration(collections, dictionary, galleryOpen);
-
-  const reload = async (flush: boolean) => {
-    const current = ++reloadGeneration.current;
-    if (dictionary?.count) {
-      dictionary
-        .count("pinyin")
-        .then(
-          (count) =>
-            mounted.current && current === reloadGeneration.current && setBuiltinCount(count),
-        )
-        .catch(() => undefined);
-    }
-    if (!collections) return;
-    try {
-      // 读列表时顺手把还没送出的增删再送一批，与 Android 打开词库页时相同。
-      const next = flush ? await collections.flush() : await collections.load();
-      if (!mounted.current || current !== reloadGeneration.current) return;
-      setView(next);
-      setLoadFailure("");
-    } catch (error) {
-      if (mounted.current && current === reloadGeneration.current)
-        setLoadFailure(collectionFailureMessage(error));
-    }
-  };
-  // 社区词库图库盖在这页上面，在里面添加的词库关掉图库时才读进来，「已安装」和「发现词库」的「已添加」随之更新。
-  useEffect(() => {
-    if (galleryOpen) return;
-    void reload(true);
-  }, [collections, dictionary, galleryOpen]);
-
-  const run = async (
-    action: (isCurrent: () => boolean) => Promise<DictionaryCollectionsView | undefined>,
-    done?: string | (() => string),
-  ) => {
-    const current = runner.generation.current;
-    let next: DictionaryCollectionsView | undefined;
-    await runner.run(
-      async (isCurrent) => {
-        // 修改取得下一份列表的所有权，较早的刷新不能在回包时覆盖它。
-        reloadGeneration.current++;
-        const result = await action(isCurrent);
-        if (!result || !isCurrent()) return;
-        next = result;
-        setView(result);
-        if (done) toast(typeof done === "function" ? done() : done);
-      },
-      {
-        formatError: collectionFailureMessage,
-        onError: () => {
-          if (collections) void reload(false);
-        },
-      },
-    );
-    return mounted.current && current === runner.generation.current ? next : undefined;
-  };
+  const { view, loadFailure, builtinCount, busy, run, captureOwner } =
+    useDictionaryCollectionsState({
+      collections,
+      dictionary,
+      community: client.communityResources,
+      galleryOpen: communityGallery?.category === "dictionary",
+      onNotice: toast,
+    });
 
   const openDetail = (id: string) => {
     openDictionaryDetail(id);
@@ -325,8 +257,7 @@ export function HarmonyPhoneDictionary() {
             setCreating(true);
           }}
           onFile={async (source, file) => {
-            const current = runner.generation.current;
-            const isCurrent = () => mounted.current && current === runner.generation.current;
+            const isCurrent = captureOwner();
             setAddingDictionary(false);
             const name = collectionNameFromFile(file.name);
             const format = collectionFormatForFile(file.name, source.format);
