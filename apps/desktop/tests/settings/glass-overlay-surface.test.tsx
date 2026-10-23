@@ -58,7 +58,7 @@ const popupExemptions: Record<string, string> = {
     "`.font-family-menu` 使用近乎不透明的 `--dropdown-menu-bg`，玻璃外壳不改它",
   "settings/ai-provider-select.tsx":
     "`.ai-provider-menu` 自带厚玻璃规则与减少透明度、强制颜色的回退",
-  "settings/typing-statistics.tsx": "统计页的溢出菜单只在 HarmonyOS 和手机外观里出现",
+  "settings/statistics-options-menu.tsx": "统计页的溢出菜单只在 HarmonyOS 和手机外观里出现",
   "settings/use-settings-shell-navigation.tsx": "搜索结果就地替换侧栏列表，不浮在页面上",
 };
 
