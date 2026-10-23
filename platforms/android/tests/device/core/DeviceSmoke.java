@@ -436,8 +436,10 @@ public class DeviceSmoke extends Instrumentation {
         SystemClock.sleep(150);
         if (target.getExtras().containsKey("msime-test-ime-requests-settled")) {
             String description = target.getContentDescription().toString();
-            await(field(description).and(node -> node.isFocused()
-                && node.getExtras().getBoolean("msime-test-ime-requests-settled")));
+            String packageName = target.getPackageName().toString();
+            await(node -> equalsText(packageName, node.getPackageName())
+                && equalsText(description, node.getContentDescription()) && node.isFocused()
+                && node.getExtras().getBoolean("msime-test-ime-requests-settled"));
         }
     }
     // ---- 实体键盘 ----

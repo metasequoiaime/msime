@@ -379,9 +379,10 @@ public final class MSIMEInputService extends InputMethodService {
     private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
     /** 浮动面板顶部的拖动条，只在浮动时显示。 */
     FloatingKeyboardBar floatingBar;
-    /** 上一次窗口是否铺满透明区域（浮动键盘、跟随光标候选栏或全文预览）；起初是系统默认的停靠布局。 */
-    private boolean floatingLayoutApplied;
-    /** 全文预览只临时扩展窗口，停靠键区沿用扩展前的像素高度。 */
+    /** 上一次窗口是否铺满透明区域；API 28 从首次显示起固定全高，避免预览扩窗时使用旧 insets。 */
+    private boolean fullWindowLayoutApplied;
+    private boolean overlayLayoutApplied;
+    /** 全文预览期间停靠键区沿用打开前的像素高度。 */
     boolean clipboardPreviewExpanded;
     int clipboardPreviewKeyboardHeight;
     private int clipboardPreviewKeyboardTop;
@@ -8778,6 +8779,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
+            if (stableDockedWindow()) keyboardRoot.invalidate();
             // 面板变高变窄（换布局、调高度、旋转）后按存着的千分比重新摆，保证仍在窗口里；跟随光标的候选栏换了内容、变了高度后同样按光标重新摆。
             if (overlayDrawn()) positionKeyboardSurface();
         });
@@ -9399,7 +9401,12 @@ public final class MSIMEInputService extends InputMethodService {
         return floatingDrawn() || caretCandidatesDrawn();
     }
 
-    /** 全文预览临时扩大透明窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
+    /** Android 9 的可见窗口扩高时会先沿用旧 insets，停靠窗口从首次显示起保持全高。 */
+    boolean stableDockedWindow() {
+        return android.os.Build.VERSION.SDK_INT == 28;
+    }
+
+    /** 全文预览使用透明全高窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
     void setClipboardPreviewExpanded(boolean expanded) {
         if (clipboardPreviewExpanded == expanded) return;
         if (expanded) {
@@ -9414,16 +9421,18 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
-     * 剪贴板全文预览同样临时铺满透明窗口，但停靠键区保留原高，应用仍只为键区让出空间。
+     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        boolean fullWindow = floating || clipboardPreviewExpanded;
-        if (!force && fullWindow == floatingLayoutApplied && caret == caretLayoutApplied) return;
-        floatingLayoutApplied = fullWindow;
+        boolean fullWindow = stableDockedWindow() || floating || clipboardPreviewExpanded;
+        if (!force && fullWindow == fullWindowLayoutApplied
+                && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
+        fullWindowLayoutApplied = fullWindow;
+        overlayLayoutApplied = floating;
         caretLayoutApplied = caret;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
@@ -9465,23 +9474,24 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void setInputView(View view) {
         super.setInputView(view);
-        // 系统把新的输入视图按包裹高度放进 inputArea；浮动时要重新铺满，停靠时保持系统的样子。
+        // 系统把新的输入视图按包裹高度放进 inputArea；需要全高窗口时在首次显示前重新铺满。
         applyFloatingLayout(true);
     }
 
     @Override public void updateFullscreenMode() {
         super.updateFullscreenMode();
-        if (floatingLayoutApplied) applyFloatingLayout(true);
+        if (fullWindowLayoutApplied) applyFloatingLayout(true);
     }
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
-     * 全文预览的透明窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
+     * 全文预览及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
-        if ((!overlayDrawn() && !clipboardPreviewExpanded) || keyboardSurface == null) return;
+        if ((!overlayDrawn() && !clipboardPreviewExpanded && !stableDockedWindow())
+                || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -9496,6 +9506,9 @@ public final class MSIMEInputService extends InputMethodService {
             int keyboardTop = Math.max(0, clipboardPreviewKeyboardTop - windowOrigin[1]);
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
+        } else if (!overlayDrawn()) {
+            outInsets.contentTopInsets = floatingLocation[1];
+            outInsets.visibleTopInsets = floatingLocation[1];
         }
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
         if (keyboardSurface.getVisibility() != View.VISIBLE) {
