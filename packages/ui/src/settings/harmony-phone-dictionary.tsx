@@ -3,7 +3,6 @@ import { DiscoverDictionaries } from "../dictionary/dictionary-discovery";
 import { BuiltinDictionaryDetail, CollectionDetail } from "../dictionary/dictionary-details";
 import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { exceptionMessage } from "../core/exception-message";
-import { downloadBlob } from "../core/download-blob";
 import { useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
@@ -18,18 +17,13 @@ import {
   collectionSubtitle,
 } from "../dictionary/dictionary-collections";
 import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
-import {
-  dictionaryExportName,
-  dictionaryExportPayload,
-  loadDictionaryExportText,
-} from "../dictionary/dictionary-export";
+import { exportPersonalPinyinDictionary } from "../dictionary/dictionary-export-action";
 import { SCEL_PERSONAL_USE_NOTICE } from "../dictionary/dictionary-messages";
 import {
   MAX_SCEL_FILE_BYTES,
   readDictionaryFile,
   readScelFile,
 } from "../dictionary/dictionary-file";
-import type { DictionaryClient } from "../dictionary/dictionary-contracts";
 import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
 import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-collections-state";
@@ -97,7 +91,9 @@ export function HarmonyPhoneDictionary() {
         dictionary={dictionary}
         count={builtinCount}
         onExport={
-          dictionary.export ? () => exportUserPinyin(dictionary, client.saveExport) : undefined
+          dictionary.export
+            ? () => exportPersonalPinyinDictionary(dictionary, client.saveExport)
+            : undefined
         }
       />
     );
@@ -303,28 +299,4 @@ const footnote = "m-0 px-4 text-[13px] leading-relaxed [color:var(--p-sub)]";
 /** 「拼音词库」行的副标题。`count` 数的是自己加的词和学习时调过权重的内置词，不是内置词条的总量，所以照实写成「自己的词」；一条都没有时只写「内置词库」。 */
 function builtinDescription(count: number | null): string {
   return count ? `内置词库 · ${formatZhNumber(count)} 条自己的词` : "内置词库";
-}
-
-/** 「导出词库」：分页读出自己加过的拼音词条，交给宿主的保存对话框；返回要提示的话，用户取消时返回空串。 */
-async function exportUserPinyin(
-  dictionary: DictionaryClient,
-  saveExport: ((name: string, contents: string) => Promise<string | null>) | undefined,
-): Promise<string> {
-  if (!dictionary.export) return "";
-  try {
-    const text = await loadDictionaryExportText(dictionary, "pinyin", "standard");
-    const payload = dictionaryExportPayload("pinyin", "standard", text);
-    if (!payload.rows) return "还没有自己加过的拼音词条。";
-    const name = dictionaryExportName("pinyin");
-    if (saveExport) {
-      const path = await saveExport(name, payload.body);
-      return path === null ? "" : `已导出 ${formatZhNumber(payload.rows)} 条`;
-    }
-    downloadBlob(new Blob([payload.body], { type: "text/plain;charset=utf-8" }), name);
-    return `已导出 ${formatZhNumber(payload.rows)} 条`;
-  } catch (error) {
-    return error instanceof Error && error.message && !error.message.startsWith("dictionary_")
-      ? error.message
-      : "词库导出失败，请稍后重试。";
-  }
 }
