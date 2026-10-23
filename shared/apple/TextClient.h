@@ -36,6 +36,11 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText);
+/// 同步客户端调用可能处理较新的转换；宿主判定旧转换过期后，不再写它的预编辑。
+/// 判定与代次由宿主持有，nil 保留既有入口的行为；已落地的上屏不会撤销。
+void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
+                                       MSIMEInlinePreeditStyle style, NSString *closing,
+                                       BOOL *clientHasMarkedText, BOOL (^isCurrent)(void));
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
 

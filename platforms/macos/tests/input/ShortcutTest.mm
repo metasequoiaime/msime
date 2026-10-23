@@ -2877,9 +2877,16 @@ static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance
 
 @interface NestingClient : ShortcutClient
 @property(nonatomic, copy) void (^onMarkedText)(void);
+@property(nonatomic, copy) void (^onInsertText)(void);
 @property(nonatomic) NSUInteger markedWrites;
 @end
 @implementation NestingClient
+- (void)insertText:(id)text replacementRange:(NSRange)range {
+    [super insertText:text replacementRange:range];
+    void (^nested)(void) = self.onInsertText;
+    self.onInsertText = nil;
+    if (nested) nested();
+}
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
     ++self.markedWrites;
     [super setMarkedText:text selectionRange:selection replacementRange:range];
@@ -2944,6 +2951,74 @@ static void TestNestedApplyKeepsTheNewerView(MSIMEAppearancePreferences *appeara
     [controller apply:@{@"view":older}];
     assert(client.markedWrites >= 1);
     assert([[controller valueForKey:@"view"] isEqual:newer]);
+}
+
+static void TestNestedCommitKeepsTheNewerComposition() {
+    NSString *suite = [@"msime.nested-commit." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    appearance.pairedPunctuation = YES;
+    for (NSDictionary *scenario in @[
+        @{@"commit": @"甲", @"expected": @"ne"},
+        @{@"commit": @"甲", @"remaining": @"tail", @"expected": @"ne"},
+        @{@"commit": @"（", @"expected": @"ne）", @"pendingAfter": @"）"},
+        @{@"commit": @"甲", @"pendingBefore": @"）", @"expected": @"ne"},
+        @{@"commit": @"甲", @"nestedCommit": @"乙", @"expected": @"ne"},
+        @{@"commit": @"甲", @"switchClient": @YES}
+    ]) {
+        @autoreleasepool {
+            ModeController *controller = [ModeController alloc];
+            NestingClient *client = [NestingClient new];
+            [controller setValue:appearance forKey:@"appearance"];
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            [controller setValue:client forKey:@"activeClient"];
+            [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+            [controller setValue:scenario[@"pendingBefore"] forKey:@"pendingPairedClosing"];
+            NSDictionary *newer = @{@"session": @1, @"generation": @5, @"editing_text": @"ne",
+                                     @"preedit": @"ne", @"caret_position": @2, @"candidates": @[]};
+            __weak ModeController *weakController = controller;
+            ShortcutClient *replacement = [ShortcutClient new];
+            replacement.marked = @"external";
+            client.onInsertText = ^{
+                // 同步回调中的下一键必须已经能读到外层刚上屏的末字。
+                NSString *landed = scenario[@"pendingBefore"] ?: scenario[@"commit"];
+                assert([weakController precedingForSmartPunctuation:client] ==
+                    [landed characterAtIndex:landed.length - 1]);
+                if ([scenario[@"switchClient"] boolValue]) {
+                    [weakController setValue:replacement forKey:@"activeClient"];
+                    [weakController setValue:newer forKey:@"view"];
+                    [weakController invalidateSmartPunctuationShadow];
+                    return;
+                }
+                NSMutableDictionary *nested = [@{@"view": newer} mutableCopy];
+                if (scenario[@"nestedCommit"]) nested[@"commit"] = scenario[@"nestedCommit"];
+                [weakController apply:nested];
+            };
+            NSString *remaining = scenario[@"remaining"] ?: @"";
+            [controller apply:@{@"commit": scenario[@"commit"],
+                @"view": @{@"editing_text": remaining, @"caret_position": @(remaining.length), @"candidates": @[]}}];
+            if ([scenario[@"switchClient"] boolValue]) {
+                assert([replacement.marked isEqual:@"external"] && client.marked == nil);
+            } else {
+                assert([client.marked isEqual:scenario[@"expected"]]);
+            }
+            assert([[controller valueForKey:@"view"] isEqual:newer]);
+            id pending = [controller valueForKey:@"pendingPairedClosing"];
+            assert(scenario[@"pendingAfter"] ? [pending isEqual:scenario[@"pendingAfter"]] : pending == nil);
+            NSString *outerCommit = [scenario[@"commit"] stringByAppendingString:(scenario[@"pendingBefore"] ?: @"")];
+            assert([client.insertions.firstObject isEqual:outerCommit]);
+            assert(client.insertions.count == (scenario[@"nestedCommit"] ? 2u : 1u));
+            if ([scenario[@"switchClient"] boolValue]) {
+                assert([controller precedingForSmartPunctuation:replacement] == 0);
+            } else {
+                NSString *lastCommit = scenario[@"nestedCommit"] ?: outerCommit;
+                assert([controller precedingForSmartPunctuation:client] ==
+                    [lastCommit characterAtIndex:lastCommit.length - 1]);
+            }
+        }
+    }
+    [defaults removePersistentDomainForName:suite];
 }
 
 static void TestCandidatePanelSingleOwner() {
@@ -11113,6 +11188,10 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--nested-commit") {
+            TestNestedCommitKeepsTheNewerComposition();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--caps-lock") {
             TestCapsLockTap();
             return 0;

@@ -7428,24 +7428,29 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // A Korean, Zhuyin or Vietnamese composition is always drawn inline, whatever the preedit display preference says: until Option+Return opens a candidate list there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
     const MSIMEInlinePreeditStyle preeditStyle = MSIMESchemeTrait(displayTransition[@"view"], msime::mac::scheme::AlwaysInlinePreedit)
         ? MSIMEInlinePreeditStylePinyin : _appearance.inlinePreeditStyle;
-    MSIMEApplyTransitionTrackingMarkedText(displayTransition, (id<MSIMETextClient>)_activeClient, preeditStyle, pendingClosing, &_clientHasMarkedText);
-    // What a commit leaves left of the caret is known for certain, even in a host that never reads it back (Windows sets the shadow after every commit it makes). A pending closing mark goes in behind the commit, so it is the character the caret follows.
+    // 客户端调用可能同步处理下一键，先发布它应当看到的成对标点状态。
+    if (pendingClosing && [displayTransition[@"commit"] isKindOfClass:NSString.class]) {
+        _pairedPunctuation.push(pendingClosing.UTF8String);
+        _pendingPairedClosing = nil;
+    }
+    if (openedClosing) _pendingPairedClosing = openedClosing;
+    // 上屏回调中的下一键需要读到本次末字；较新的转换自行覆盖或清除，外层返回后不重写。
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
         NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
         if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
     }
-    if (pendingClosing && [displayTransition[@"commit"] isKindOfClass:NSString.class]) {
-        // The commit took the closing mark with it, so the pair is done and a later duplicate of
-        // that mark should be skipped rather than typed twice.
-        _pairedPunctuation.push(pendingClosing.UTF8String);
-        _pendingPairedClosing = nil;
-    }
-    if (openedClosing) {
-        _pendingPairedClosing = openedClosing;
-        _clientHasMarkedText = YES;
-        [(id<MSIMETextClient>)_activeClient setMarkedText:openedClosing
-                                          selectionRange:NSMakeRange(0, 0)
-                                        replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    id<MSIMETextClient> textClient = (id<MSIMETextClient>)_activeClient;
+    BOOL (^isCurrent)(void) = ^BOOL {
+        return applySequence == self->_applySequence && textClient == (id<MSIMETextClient>)self->_activeClient;
+    };
+    MSIMEApplyTransitionWithWriteGuard(displayTransition, textClient, preeditStyle, pendingClosing,
+                                       &_clientHasMarkedText, isCurrent);
+    if (isCurrent()) {
+        if (openedClosing) {
+            _clientHasMarkedText = YES;
+            [textClient setMarkedText:openedClosing selectionRange:NSMakeRange(0, 0)
+                    replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        }
     }
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length]) {
         const auto source = sourceOverride == msime::mac::TypingSource::Unknown
@@ -7460,8 +7465,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (feedback && MSIMEStrictUnsignedInteger(feedback[@"typing_effect"], &effect) && effect != 0 && effect <= UINT32_MAX)
             [self drawTypingEffect:static_cast<uint32_t>(effect) commit:YES];
     }
-    // A key handled while this transition's text was being written has already put the newer view on screen; this one is older and must not replace it.
-    if (applySequence != _applySequence) return;
+    // 同步写入中处理了较新的转换或换了客户端，旧转换不能再发布视图。
+    if (!isCurrent()) return;
     // A gloss that arrived during the write was merged into this same page, and the transition's copy of the page predates it.
     if (glossViewSequence == _glossViewSequence || ![_view[@"session"] isEqual:transition[@"view"][@"session"]] ||
         ![_view[@"generation"] isEqual:transition[@"view"][@"generation"]])

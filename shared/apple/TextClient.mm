@@ -115,14 +115,26 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText) {
+    MSIMEApplyTransitionWithWriteGuard(transition, client, style, closing, clientHasMarkedText, nil);
+}
+
+void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
+                                       MSIMEInlinePreeditStyle style, NSString *closing,
+                                       BOOL *clientHasMarkedText, BOOL (^isCurrent)(void)) {
     if (![transition isKindOfClass:NSDictionary.class]) return;
+    if (isCurrent && !isCurrent()) return;
     if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
     // A commit ends the pair: the closing mark goes in with the text it was holding open, and the
     // caret lands after it, where the next character belongs.
     if ([commit isKindOfClass:NSString.class] && closing)
         commit = [(NSString *)commit stringByAppendingString:closing];
-    if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    if ([commit isKindOfClass:NSString.class]) {
+        // 上屏先消耗旧标记；同步回调写下的新标记由较新的转换持有。
+        if (clientHasMarkedText) *clientHasMarkedText = NO;
+        [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        if (isCurrent && !isCurrent()) return;
+    }
     NSDictionary *view = transition[@"view"];
     if (![view isKindOfClass:NSDictionary.class]) return;
     NSString *editing = view[@"editing_text"];
