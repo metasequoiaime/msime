@@ -57,13 +57,15 @@ public static class SettingsWindowProbe {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
-    [StructLayout(LayoutKind.Sequential)] private struct GuiThreadInfo {
-        public uint Size, Flags;
-        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
-        public Rect CaretRect;
+    [StructLayout(LayoutKind.Sequential)] private struct MouseInput {
+        public int X, Y;
+        public uint Data, Flags, Time;
+        public IntPtr ExtraInfo;
     }
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+    [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public MouseInput Mouse; }
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
@@ -82,19 +84,27 @@ public static class SettingsWindowProbe {
     public static string MouseThreads(IntPtr owner, IntPtr target) {
         return "root=" + GuiThread(owner) + ", target=" + GuiThread(target) + ", hwnd=" + target.ToInt64().ToString("X");
     }
-    private static bool ThreadHasMouseCapture(IntPtr owner, uint thread) {
-        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
-        if (!GetGUIThreadInfo(thread, ref info)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-        return info.Capture != IntPtr.Zero && GetAncestor(info.Capture, 2) == owner;
+    private static void SendMouse(MouseInput mouse) {
+        var input = new Input { Mouse = mouse };
+        if (SendInput(1, new[] { input }, Marshal.SizeOf(typeof(Input))) != 1)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     }
-    public static bool HasMouseCapture(IntPtr owner, IntPtr target) {
-        uint ownerThread = GuiThread(owner), targetThread = GuiThread(target);
-        return ThreadHasMouseCapture(owner, ownerThread)
-            || (ownerThread != targetThread && ThreadHasMouseCapture(owner, targetThread));
+    public static bool LeftButtonDown() { return (GetAsyncKeyState(1) & 0x8000) != 0; }
+    public static void MouseButton(bool pressed) {
+        SendMouse(new MouseInput { Flags = pressed ? 0x0002u : 0x0004u });
+    }
+    public static void MoveMouse(int x, int y) {
+        int left = GetSystemMetrics(76), top = GetSystemMetrics(77);
+        int width = GetSystemMetrics(78), height = GetSystemMetrics(79);
+        if (width <= 1 || height <= 1) throw new InvalidOperationException("Invalid virtual desktop bounds");
+        SendMouse(new MouseInput {
+            X = (int)Math.Round((x - left) * 65535.0 / (width - 1)),
+            Y = (int)Math.Round((y - top) * 65535.0 / (height - 1)),
+            Flags = 0x0001u | 0x4000u | 0x8000u
+        });
     }
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     public static void Wheel(int delta) { mouse_event(0x0800, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
-    public static void MouseButton(bool pressed) { mouse_event(pressed ? 0x0002u : 0x0004u, 0, 0, 0, UIntPtr.Zero); }
 }
 '@
 . (Join-Path $PSScriptRoot 'settings_wheel.ps1')
@@ -518,18 +528,19 @@ function Assert-CandidatePageSizeDrag($window, [string]$screenshotPrefix) {
             $inputTarget = [SettingsWindowProbe]::MouseTarget($handle, $startX, $y)
             Write-Host "候选数量鼠标命中线程：$([SettingsWindowProbe]::MouseThreads($handle, $inputTarget))"
             try {
-                if ([SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget)) { throw '拖动前合成窗口已存在鼠标捕获' }
+                if ([SettingsWindowProbe]::LeftButtonDown()) { throw '拖动前鼠标左键已按下' }
                 [SettingsWindowProbe]::MouseButton($true)
-                # 先确认按下已被目标窗口处理，避免在捕获建立前把鼠标移离滑块柄。
+                # WinUI 的指针捕获不保证出现在 HWND 捕获字段；按下与移动统一进 SendInput 队列，保持输入顺序。
                 $deadline = [DateTime]::UtcNow.AddSeconds(5)
-                while (-not [SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
-                if (-not [SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget)) { throw '候选数量滑块按下后未获得鼠标捕获' }
+                while (-not [SettingsWindowProbe]::LeftButtonDown() -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+                if (-not [SettingsWindowProbe]::LeftButtonDown()) { throw '鼠标左键按下未进入系统输入状态' }
                 # 分步输入形成真实拖动；读取标签前先完成第一次数值变化。
                 for ($step = 1; $step -le 8; $step++) {
                     $x = [int]($startX + ($endX - $startX) * $step / 8)
-                    if (-not [SettingsWindowProbe]::SetCursorPos($x, $y)) { throw '无法移动滑块柄' }
+                    [SettingsWindowProbe]::MoveMouse($x, $y)
                     Start-Sleep -Milliseconds 25
                 }
+                if (-not [SettingsWindowProbe]::LeftButtonDown()) { throw '读取拖动数值前鼠标左键已松开' }
                 Assert-CandidatePageSizeLabel $window $slider $expected
                 if ($expected -eq 9) { Save-Window $window "$screenshotPrefix-candidate-page-size-drag-held-9.png" }
             } finally {
