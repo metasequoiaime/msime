@@ -81,7 +81,8 @@ android {
     defaultConfig {
         applicationId = "app.msime.android"
         minSdk = 28
-        targetSdk = 35
+        // Google Play 自 2026-08-31 起要求新应用和更新以 API 36 为目标。
+        targetSdk = 36
         // Grows with every release, as the platform requires for an update to install: 0.1.0 is 1000, 1.2.3 is 1002003.
         versionCode = releaseVersionParts[0] * 1_000_000 + releaseVersionParts[1] * 1_000 + releaseVersionParts[2]
         versionName = releaseVersion
