@@ -66,13 +66,31 @@ public static class SettingsWindowProbe {
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
-    public static bool HasMouseCapture(IntPtr owner) {
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    private static uint GuiThread(IntPtr window) {
         uint process;
-        uint thread = GetWindowThreadProcessId(owner, out process);
+        uint thread = GetWindowThreadProcessId(window, out process);
         if (thread == 0) throw new InvalidOperationException("Synthetic settings window has no GUI thread");
+        return thread;
+    }
+    public static IntPtr MouseTarget(IntPtr owner, int x, int y) {
+        var target = WindowFromPoint(new Point { X = x, Y = y });
+        if (target == IntPtr.Zero || GetAncestor(target, 2) != owner)
+            throw new InvalidOperationException("Slider point does not hit the synthetic settings window");
+        return target;
+    }
+    public static string MouseThreads(IntPtr owner, IntPtr target) {
+        return "root=" + GuiThread(owner) + ", target=" + GuiThread(target) + ", hwnd=" + target.ToInt64().ToString("X");
+    }
+    private static bool ThreadHasMouseCapture(IntPtr owner, uint thread) {
         var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
         if (!GetGUIThreadInfo(thread, ref info)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         return info.Capture != IntPtr.Zero && GetAncestor(info.Capture, 2) == owner;
+    }
+    public static bool HasMouseCapture(IntPtr owner, IntPtr target) {
+        uint ownerThread = GuiThread(owner), targetThread = GuiThread(target);
+        return ThreadHasMouseCapture(owner, ownerThread)
+            || (ownerThread != targetThread && ThreadHasMouseCapture(owner, targetThread));
     }
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     public static void Wheel(int delta) { mouse_event(0x0800, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
@@ -497,13 +515,15 @@ function Assert-CandidatePageSizeDrag($window, [string]$screenshotPrefix) {
             $endX = if ($expected -eq 9) { [int]($bounds.Right - 1) } else { [int]($bounds.Left + 1) }
             Write-Host "候选数量拖动起点=($startX,$y)，终点=($endX,$y)，滑块=$bounds，滑块柄=$grip"
             if (-not [SettingsWindowProbe]::SetCursorPos($startX, $y)) { throw '无法将鼠标放到滑块柄上' }
+            $inputTarget = [SettingsWindowProbe]::MouseTarget($handle, $startX, $y)
+            Write-Host "候选数量鼠标命中线程：$([SettingsWindowProbe]::MouseThreads($handle, $inputTarget))"
             try {
-                if ([SettingsWindowProbe]::HasMouseCapture($handle)) { throw '拖动前合成窗口已存在鼠标捕获' }
+                if ([SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget)) { throw '拖动前合成窗口已存在鼠标捕获' }
                 [SettingsWindowProbe]::MouseButton($true)
                 # 先确认按下已被目标窗口处理，避免在捕获建立前把鼠标移离滑块柄。
                 $deadline = [DateTime]::UtcNow.AddSeconds(5)
-                while (-not [SettingsWindowProbe]::HasMouseCapture($handle) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
-                if (-not [SettingsWindowProbe]::HasMouseCapture($handle)) { throw '候选数量滑块按下后未获得鼠标捕获' }
+                while (-not [SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+                if (-not [SettingsWindowProbe]::HasMouseCapture($handle, $inputTarget)) { throw '候选数量滑块按下后未获得鼠标捕获' }
                 # 分步输入形成真实拖动；读取标签前先完成第一次数值变化。
                 for ($step = 1; $step -le 8; $step++) {
                     $x = [int]($startX + ($endX - $startX) * $step / 8)
