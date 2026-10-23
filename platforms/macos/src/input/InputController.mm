@@ -423,6 +423,31 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
     return [text stringByAppendingString:badge];
 }
 
+// 候选窗首行拼音后面的输入状态：方案名，然后中文组字时是「中」、英文候选（专用英文或临时英文）时是「英」，简繁转换适用于这一页时（`view.script_conversion`）加「简」或「繁」，全角打开时加「全角」，用「 · 」隔开。方案名由调用方按 `view.scheme` 算好，空时不写。
+static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *view, BOOL traditional, BOOL fullWidth) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if ([schemeTitle isKindOfClass:NSString.class] && schemeTitle.length) [parts addObject:schemeTitle];
+    NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
+    const BOOL english = MSIMEStrictBoolean(view[@"dedicated_english"]) || [localMode isEqual:@"temporary_english"];
+    [parts addObject:english ? @"英" : @"中"];
+    if (!english && MSIMEStrictBoolean(view[@"script_conversion"])) [parts addObject:traditional ? @"繁" : @"简"];
+    if (fullWidth) [parts addObject:@"全角"];
+    return [parts componentsJoinedByString:@" · "];
+}
+
+// 这一页里第一条云候选（来源 2），没有时取 AI 候选（来源 3），首行右侧预览它；AI 占位行和空文本不算。两种都没有时为 nil。
+static NSDictionary *MSIMECandidateOnlinePreview(NSArray *candidates) {
+    NSDictionary *ai = nil;
+    for (NSDictionary *candidate in candidates) {
+        if (![candidate isKindOfClass:NSDictionary.class] || MSIMECandidateIsAIPlaceholder(candidate)) continue;
+        NSString *text = candidate[@"text"];
+        if (![text isKindOfClass:NSString.class] || !text.length || ![candidate[@"id"] isKindOfClass:NSDictionary.class]) continue;
+        const NSInteger source = MSIMEStrictInteger(candidate[@"source"], -1);
+        if (source == 2) return candidate;
+        if (source == 3 && !ai) ai = candidate;
+    }
+    return ai;
+}
 
 static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
     if (![candidate isKindOfClass:NSDictionary.class] || ![view isKindOfClass:NSDictionary.class]) return @"";
@@ -1225,6 +1250,56 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (self.showsCaret && self.stringValue.length) {
         [self.caretColor ?: NSColor.controlAccentColor setFill];
         NSRectFill(NSIntersectionRect(caret, self.bounds));
+    }
+}
+@end
+
+// 首行里的细线：拼音和输入状态之间的竖线、首行和候选行之间的横线。整块填色，颜色在 refreshCandidateSkin 里按主题给；不接收点击。
+@interface MSIMECandidateHeaderLineView : NSView
+@property(nonatomic, copy) NSColor *lineColor;
+@end
+
+@implementation MSIMECandidateHeaderLineView
+- (void)setLineColor:(NSColor *)value { _lineColor = [value copy]; self.needsDisplay = YES; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    [self.lineColor ?: NSColor.separatorColor setFill];
+    NSRectFillUsingOperation(self.bounds, NSCompositingOperationSourceOver);
+}
+@end
+
+// 首行右端的小装饰：一枝水杉的三片小叶，从左下往右上由小到大、由淡到浓，用主题的强调色画；不接收点击。
+@interface MSIMECandidateHeaderOrnamentView : NSView
+@property(nonatomic, copy) NSColor *tintColor;
+@end
+
+@implementation MSIMECandidateHeaderOrnamentView
+- (void)setTintColor:(NSColor *)value { _tintColor = [value copy]; self.needsDisplay = YES; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    NSColor *tint = self.tintColor ?: NSColor.controlAccentColor;
+    const NSRect bounds = NSInsetRect(self.bounds, 1, 1);
+    // 一根斜枝从左下到右上，三片叶沿着它排开，越往上越大越浓。
+    NSBezierPath *stem = [NSBezierPath bezierPath];
+    [stem moveToPoint:NSMakePoint(NSMinX(bounds), NSMinY(bounds))];
+    [stem lineToPoint:NSMakePoint(NSMaxX(bounds), NSMaxY(bounds))];
+    stem.lineWidth = MAX(0.75, NSWidth(bounds) / 18.0);
+    [[tint colorWithAlphaComponent:tint.alphaComponent * 0.4] setStroke];
+    [stem stroke];
+    const CGFloat unit = NSWidth(bounds) / 3.0;
+    for (NSUInteger index = 0; index < 3; ++index) {
+        const CGFloat length = unit * (1.0 + 0.3 * index);
+        const CGFloat along = (0.25 + 0.3 * index);
+        const NSPoint centre = NSMakePoint(NSMinX(bounds) + NSWidth(bounds) * along, NSMinY(bounds) + NSHeight(bounds) * along);
+        NSAffineTransform *transform = [NSAffineTransform transform];
+        [transform translateXBy:centre.x yBy:centre.y];
+        [transform rotateByDegrees:index % 2 ? 90 : 0];
+        NSBezierPath *leaf = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(-length / 2.0, -length * 0.22, length, length * 0.44)];
+        [leaf transformUsingAffineTransform:transform];
+        [[tint colorWithAlphaComponent:tint.alphaComponent * (0.45 + 0.275 * index)] setFill];
+        [leaf fill];
     }
 }
 @end
@@ -3716,13 +3791,14 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     [self refreshFloatingToolbarState];
     if (_activeClient) { [self renderCandidates]; [self reloadPreferences]; }
 }
-- (void)refreshFloatingToolbarState {
-    if (!_toolbar || !_appearance) return;
-    const BOOL englishCandidateMode = MSIMEStrictBoolean(_view[@"dedicated_english"]) && !_appearance.englishMode;
-    // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
+// 视图里正在跑的方案的标识，按引擎顺序编号：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
+- (NSString *)viewSchemeName {
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = MSIMEViewScheme(_view);
-    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
+    return index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
+}
+// 悬浮工具栏和候选窗首行显示的方案名，双拼带上它的方案（如「小鹤双拼」）。
+- (NSString *)schemeTitleForScheme:(NSString *)scheme {
     NSString *profile = _view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = _appearance.shuangpinProfile;
     NSDictionary<NSString *, NSString *> *schemeTitles = @{
@@ -3737,10 +3813,16 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
         @"tibetan": @"藏文",
         @"stroke": @"笔画",
     };
+    return schemeTitles[scheme];
+}
+- (void)refreshFloatingToolbarState {
+    if (!_toolbar || !_appearance) return;
+    const BOOL englishCandidateMode = MSIMEStrictBoolean(_view[@"dedicated_english"]) && !_appearance.englishMode;
+    NSString *scheme = [self viewSchemeName];
     [_toolbar updateEnglishInputMode:_appearance.englishMode
              englishCandidateMode:englishCandidateMode
                               scheme:scheme
-                         schemeTitle:schemeTitles[scheme]
+                         schemeTitle:[self schemeTitleForScheme:scheme]
                             capsLock:_capsLock
               chinesePunctuationEnabled:_appearance.runtimeChinesePunctuation
                        fullWidthEnabled:_appearance.runtimeFullWidthInput
@@ -8547,6 +8629,25 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
+    // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
+    NSString *statusText = preedit.length ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
+                                                                     _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
+    NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    const CGFloat statusGap = 8 * scale;
+    const CGFloat statusTextWidth = statusText.length ? ceil([statusText sizeWithAttributes:@{NSFontAttributeName: statusFont}].width) : 0;
+    const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;
+    NSDictionary *onlinePreview = preedit.length ? MSIMECandidateOnlinePreview(candidates) : nil;
+    NSString *previewText = onlinePreview ? MSIMEChineseOutputString(onlinePreview[@"text"],
+        _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) : @"";
+    NSFont *previewFont = [_appearance candidateFontOfSize:MSIMECandidatePageIndicatorPointSize * scale englishFirst:NO];
+    const CGFloat previewIconSide = ceil(previewFont.pointSize);
+    const CGFloat previewGap = 12 * scale;
+    // 预览最多占这么宽，再长的整句截断。
+    const CGFloat previewNatural = previewText.length
+        ? MIN(220 * scale, previewIconSide + 4 * scale + ceil([previewText sizeWithAttributes:@{NSFontAttributeName: previewFont}].width) + 4 * scale) : 0;
+    const CGFloat ornamentWidth = preedit.length ? 18 * scale : 0;
+    const CGFloat ornamentGap = 8 * scale;
+    // 这三样只占卡片已有的宽度，不计入最小宽度：云候选是异步到的，算进去的话回答一到卡片就突然变宽，中英切换也会让卡片跟着伸缩。
     const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControlsWidth ? indicatorGap : 0) + pageControlsWidth : 0;
     NSRect rowVisible = visible;
     const CGFloat canvasExtra = skin.canvas ? msime::mac::CanvasExtraWidth(*skin.canvas, inset) : 0;
@@ -8734,10 +8835,77 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
             frame:NSMakeRect(width - inset - arrowWidth, buttonBottom, arrowWidth, buttonHeight) scale:scale]];
     }
     if (preedit.length) {
+        const CGFloat rowBottom = headerBottom + preeditMargin.bottom;
+        const CGFloat left = inset + logoWidth + preeditMargin.left;
+        const CGFloat right = width - inset - preeditMargin.right - (pageControlsWidth ? pageControlsWidth + indicatorGap : 0);
+        const CGFloat preeditNatural = preeditWidth - preeditMargin.left - preeditMargin.right;
+        // 卡片宽度由候选行定，放不下整行时先让出装饰，再让出状态，预览按剩下的宽度截断，太窄就不画；拼音总能拿到余下的全部宽度，光标照旧在框里滚动。
+        CGFloat ornament = ornamentWidth, statusRoom = statusBlock, preview = previewNatural;
+        auto needed = [&] { return preeditNatural + statusRoom + (preview > 0 ? previewGap + preview : 0) + (ornament > 0 ? ornamentGap + ornament : 0); };
+        if (needed() > right - left) ornament = 0;
+        if (needed() > right - left) statusRoom = 0;
+        if (needed() > right - left) {
+            preview = MAX(0.0, right - left - preeditNatural - previewGap);
+            if (preview < previewIconSide + 40 * scale) preview = 0;
+        }
+        const CGFloat rightExtras = (preview > 0 ? previewGap + preview : 0) + (ornament > 0 ? ornamentGap + ornament : 0);
+        const CGFloat labelWidth = MAX(0.0, MIN(preeditNatural, right - left - statusRoom - rightExtras));
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
-        label.frame = NSMakeRect(inset + logoWidth + preeditMargin.left, headerBottom + preeditMargin.bottom + floor((headerContentHeight - preeditHeight) / 2),
-                                 MAX(0.0, width - 2 * inset - logoWidth - preeditMargin.left - preeditMargin.right - (pageControlsWidth ? pageControlsWidth + indicatorGap : 0)), preeditHeight);
+        label.frame = NSMakeRect(left, rowBottom + floor((headerContentHeight - preeditHeight) / 2),
+                                 statusRoom > 0 || rightExtras > 0 ? labelWidth : MAX(0.0, right - left), preeditHeight);
         [content.candidateContentView addSubview:label];
+        if (statusRoom > 0) {
+            const CGFloat dividerHeight = round(MIN(headerContentHeight, preeditHeight) * 0.5);
+            MSIMECandidateHeaderLineView *divider = [[MSIMECandidateHeaderLineView alloc]
+                initWithFrame:NSMakeRect(NSMaxX(label.frame) + statusGap, rowBottom + floor((headerContentHeight - dividerHeight) / 2), scale, dividerHeight)];
+            divider.identifier = @"candidate-status-divider";
+            [content.candidateContentView addSubview:divider];
+            NSTextField *statusLabel = [NSTextField labelWithString:statusText];
+            statusLabel.identifier = @"candidate-status";
+            statusLabel.accessibilityLabel = [NSString stringWithFormat:@"输入状态：%@", statusText];
+            statusLabel.font = statusFont;
+            statusLabel.lineBreakMode = NSLineBreakByClipping;
+            const CGFloat statusHeight = ceil([statusText sizeWithAttributes:@{NSFontAttributeName: statusFont}].height);
+            statusLabel.frame = NSMakeRect(NSMaxX(divider.frame) + statusGap, rowBottom + floor((headerContentHeight - statusHeight) / 2),
+                                           statusTextWidth, statusHeight);
+            [content.candidateContentView addSubview:statusLabel];
+        }
+        CGFloat trailing = right;
+        if (ornament > 0) {
+            MSIMECandidateHeaderOrnamentView *mark = [[MSIMECandidateHeaderOrnamentView alloc]
+                initWithFrame:NSMakeRect(trailing - ornament, rowBottom + floor((headerContentHeight - ornament) / 2), ornament, ornament)];
+            mark.identifier = @"candidate-header-ornament";
+            [content.candidateContentView addSubview:mark];
+            trailing -= ornament + ornamentGap;
+        }
+        if (preview > 0) {
+            // 和候选行里那一格是同一个候选：点它就选那一格，身份对不上当前视图时 selectCandidate: 不做任何事。
+            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:previewText target:self action:@selector(selectCandidate:)];
+            button.identifier = @"candidate-online-preview";
+            button.tag = -4;
+            button.bordered = NO;
+            button.font = previewFont;
+            button.candidateID = onlinePreview[@"id"];
+            const BOOL cloud = MSIMEStrictInteger(onlinePreview[@"source"], -1) == 2;
+            NSImage *icon = [NSImage imageWithSystemSymbolName:cloud ? @"cloud" : @"sparkles" accessibilityDescription:nil];
+            NSImageSymbolConfiguration *configuration = [NSImageSymbolConfiguration configurationWithPointSize:previewIconSide weight:NSFontWeightRegular];
+            button.image = [icon imageWithSymbolConfiguration:configuration] ?: icon;
+            button.imagePosition = NSImageLeading;
+            button.alignment = NSTextAlignmentRight;
+            button.cell.lineBreakMode = NSLineBreakByTruncatingTail;
+            button.toolTip = previewText;
+            button.accessibilityLabel = [NSString stringWithFormat:@"%@：%@", cloud ? @"云候选" : @"AI 候选", previewText];
+            button.frame = NSMakeRect(trailing - preview, rowBottom + floor((headerContentHeight - headerRow) / 2), preview, headerRow);
+            [content.candidateContentView addSubview:button];
+        }
+    }
+    if (headerHeight > 0 && !skin.canvas) {
+        // 首行和候选行之间一条细线，左右各让出内边距；有间距时画在间距正中。
+        const CGFloat hairline = 1.0 / MAX(1.0, _panel.backingScaleFactor);
+        MSIMECandidateHeaderLineView *rule = [[MSIMECandidateHeaderLineView alloc]
+            initWithFrame:NSMakeRect(inset, floor(rowsTop + bodyRowGap / 2), MAX(0.0, width - 2 * inset), hairline)];
+        rule.identifier = @"candidate-header-rule";
+        [content.candidateContentView addSubview:rule];
     }
     if (logo) {
         NSImageView *mark = [NSImageView imageViewWithImage:logo];
@@ -8875,6 +9043,27 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     for (NSView *child in content.candidateContentView.subviews) {
         if ([child.identifier isEqual:@"candidate-page-indicator"] && [child isKindOfClass:NSTextField.class])
             ((NSTextField *)child).textColor = SkinColor(tokens.number);
+        // 首行的输入状态和两条细线用次要色，细线再淡一些；装饰和云候选预览用强调色。
+        if ([child.identifier isEqual:@"candidate-status"] && [child isKindOfClass:NSTextField.class])
+            ((NSTextField *)child).textColor = [SkinColor(tokens.number) colorWithAlphaComponent:tokens.number.a * 0.8];
+        if ([child isKindOfClass:MSIMECandidateHeaderLineView.class])
+            ((MSIMECandidateHeaderLineView *)child).lineColor = [SkinColor(tokens.number) colorWithAlphaComponent:tokens.number.a *
+                ([child.identifier isEqual:@"candidate-header-rule"] ? 0.18 : 0.35)];
+        if ([child isKindOfClass:MSIMECandidateHeaderOrnamentView.class])
+            ((MSIMECandidateHeaderOrnamentView *)child).tintColor = SkinColor(tokens.accent);
+        if ([child isKindOfClass:MSIMECandidateButton.class] && child.tag == -4) {
+            MSIMECandidateButton *preview = (id)child;
+            NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+            paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+            paragraph.alignment = NSTextAlignmentRight;
+            preview.attributedTitle = [[NSAttributedString alloc] initWithString:preview.title attributes:@{
+                NSFontAttributeName: preview.font ?: [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize],
+                NSForegroundColorAttributeName: SkinColor(tokens.accent),
+                NSParagraphStyleAttributeName: paragraph,
+            }];
+            preview.contentTintColor = SkinColor(tokens.accent);
+            continue;
+        }
         if ([child.identifier isEqual:@"candidate-pager-divider"] && [child isKindOfClass:NSBox.class])
             ((NSBox *)child).fillColor = SkinColor(tokens.pageArrowDivider.value_or(msime::mac::Rgba{0, 0, 0, 0}));
         if (![child isKindOfClass:MSIMECandidateButton.class] || (child.tag != -1 && child.tag != -2 && child.tag != -3)) continue;

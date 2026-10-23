@@ -4371,8 +4371,6 @@ private:
       sender.as<StackPanel>().Padding(content_padding(args.NewSize().Width));
     });
     // 正文列不跟着窗口无限变宽。共享样式给 Windows 和 macOS 的是 `max-w-none`（`settings-style.ts` 的 `contentColumn`），那是照 macOS 定的，而 Windows 上最大化是常态：在 1700 宽的窗口里一行的标签贴着最左、控件贴着最右，中间一千多 DIP 全是空白，单选项也被拉成几百 DIP 宽的大块。上限取共享样式自己的基准 900（Linux 680、HarmonyOS 760、iPad 720 也都限宽），初始的 1000 × 780 下正文只有 730 DIP，这个值不改变它的样子，只在窗口拉宽后把正文居中留白。
-    page.MaxWidth(900);
-    page.HorizontalAlignment(HorizontalAlignment::Center);
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)
@@ -4409,10 +4407,17 @@ private:
     });
   }
 
+  // 正文列最宽 1400 DIP。再宽下去，一行里的标签贴着最左、控件贴着最右，中间拉开上千 DIP 的空白，读起来要来回扫；而限得太窄（曾经按共享样式的 900）在 2560 的屏上最大化后正文只占三分之一，缩成窄窄一条浮在中间。1400 在 2560 上占六成左右，两侧留白不喧宾夺主。共享样式给 Windows 和 macOS 的是 `max-w-none`，那份规格按 macOS 定，而 macOS 很少有人最大化设置窗口。
+  static constexpr double content_maximum_width = 1800;
+
   // 正文边距照 macOS 的 `contentColumn`（`settings-style.ts` 的 `mac:px-12 mac:pt-6 mac:pb-11`）：上 24、左右 48、下 44。macOS 窄于 601 时收起侧栏，这个窗口的侧栏常驻，窗口拉到最窄（800）时正文只剩 540 宽，左右退到 32，给卡片多留些宽度。
+  // 超过上限的部分摊进左右边距，正文因此居中。**不要**改用 `HorizontalAlignment::Center` 加 `MaxWidth`：居中会让面板按自身内容的自然宽度排版，不再拉伸，`MaxWidth` 于是永远碰不到，正文宽度变成卡片内容撑出来的那个值，改上限毫无效果。
   static Thickness content_padding(double width) {
     const double side = width > 0 && width < 640 ? 32 : 48;
-    return Thickness{side, 24, side, 44};
+    const double overflow = width > content_maximum_width
+                                ? (width - content_maximum_width) / 2
+                                : 0;
+    return Thickness{side + overflow, 24, side + overflow, 44};
   }
 
   // 「词库」页正开着背单词子页（macOS 上是单独的 `vocabulary` 子页）。

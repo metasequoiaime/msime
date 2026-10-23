@@ -66,6 +66,7 @@ function SettingsShell(props: SettingsPageProps) {
     setError,
     error,
     notice,
+    dismissNotice,
     recoveredBackup,
     inputSourceStartup,
     dismissInputSourceStartup,
@@ -359,6 +360,7 @@ function SettingsShell(props: SettingsPageProps) {
               <SettingsPageStatus
                 error={error}
                 notice={notice}
+                onDismissNotice={dismissNotice}
                 busy={busy}
                 recoveredBackup={recoveredBackup}
                 canRecover={Boolean(client.recoverPreferences)}

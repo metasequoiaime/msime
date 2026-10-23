@@ -4,13 +4,15 @@
 use msime_engine::host::{prepare_options, Session};
 use std::time::Instant;
 
-/// Nine-key digits for 你好, 我们, 今天天气, 很好, then 今天天气很好 as one composition.
-const WORDS: [&str; 5] = [
+/// Nine-key digits for 你好, 我们, 今天天气, 很好, then 今天天气很好 as one composition, then two whole sentences typed without committing: 感觉现在还挺准的 (26 digits) and the same continued to 47 digits, one under `DIGIT_LIMIT`.
+const WORDS: [&str; 7] = [
     "64426",
     "96636",
     "5468426842674",
     "436426",
     "5468426842674436426",
+    "42658394269244248464948633",
+    "42658394269244248464948633966366464842694747878",
 ];
 /// Rounds when `NINEKEY_ROUNDS` is unset; a profiler needs a longer run.
 const DEFAULT_ROUNDS: usize = 20;

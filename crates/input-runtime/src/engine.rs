@@ -182,6 +182,10 @@ pub trait InputEngine {
     fn wubi_mixed_pinyin(&self) -> bool {
         false
     }
+    /// 九宫格组码到上限时，这一键能不能先选掉首选再接着打。`grid_key` 为真时 `value` 来自 `grid_key`，否则来自 `character`。没有九宫格的引擎没有上限。
+    fn grid_limit_pick_ready(&self, _value: u8, _grid_key: bool) -> bool {
+        false
+    }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
@@ -409,6 +413,9 @@ impl InputEngine for Session {
     }
     fn wubi_mixed_pinyin(&self) -> bool {
         Session::wubi_mixed_pinyin(self)
+    }
+    fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
+        Session::grid_limit_pick_ready(self, value, grid_key)
     }
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError> {
         Session::character(self, value, shift)

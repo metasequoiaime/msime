@@ -110,7 +110,7 @@ for route, page in re.findall(r'\{"([a-z-]+)", "([a-z]+)"\}', aliases[1]):
     shared_ids_for.setdefault(page, set()).add(route)
 
 tsx = read(UI / "settings/settings-mascot-intro.tsx")
-intro_pattern = r'"?([a-z-]+)"?: \{ scene: "([a-z]+)", description: "([^"]+)" \}'
+intro_pattern = r'"?([a-z-]+)"?:\s*\{\s*scene:\s*"([a-z]+)",\s*description:\s*"([^"]+)",?\s*\}'
 shared_intros = re.findall(intro_pattern, tsx)
 assert shared_intros, "读不到 settings-mascot-intro.tsx 的引导文案"
 shared_pairs = {(scene, text) for _, scene, text in shared_intros}
