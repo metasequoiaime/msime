@@ -175,6 +175,7 @@ public final class EditorActivity extends Activity {
 
     private TextView imageStatus;
     private int imeRequestGeneration;
+    private int imeSettledGeneration = -1;
 
     /** 合成图片在本测试包缓存里的位置；{@link ImageClipProvider} 只提供这一个文件。 */
     static File syntheticImage(Context context) {
@@ -328,6 +329,14 @@ public final class EditorActivity extends Activity {
     }
 
     private void showImeOnFocus(EditText editor) {
+        editor.setAccessibilityDelegate(new android.view.View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(android.view.View host,
+                    android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.getExtras().putBoolean("msime-test-ime-requests-settled",
+                    imeSettledGeneration == imeRequestGeneration);
+            }
+        });
         editor.setOnFocusChangeListener((view, focused) -> {
             if (!focused && getIntent().getBooleanExtra("msime_test_editor_probe", false)) {
                 StringBuilder trace = new StringBuilder();
@@ -358,9 +367,11 @@ public final class EditorActivity extends Activity {
                 if (Build.VERSION.SDK_INT >= 30) {
                     WindowInsetsController controller = editor.getWindowInsetsController();
                     if (controller != null) controller.show(WindowInsets.Type.ime());
-                    // 最后一轮显示请求发出后，设备套件才开始注入第一颗实体键。
-                    if (delay == 3000 && generation == imeRequestGeneration)
-                        editor.setStateDescription("ime-requests-settled");
+                }
+                // 普通触摸与实体键输入都等最后一轮显示请求发出，旧系统通过节点 extras 读取。
+                if (delay == 3000 && generation == imeRequestGeneration) {
+                    imeSettledGeneration = generation;
+                    if (Build.VERSION.SDK_INT >= 30) editor.setStateDescription("ime-requests-settled");
                 }
             }, delay);
         }

@@ -333,6 +333,7 @@ public class DeviceSmoke extends Instrumentation {
     protected AccessibilityNodeInfo await(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
+            dropStaleNodes();
             for (AccessibilityWindowInfo window : automation.getWindows()) {
                 AccessibilityNodeInfo found = find(window.getRoot(), match);
                 if (found != null) return found;
@@ -344,6 +345,7 @@ public class DeviceSmoke extends Instrumentation {
     protected AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
+            dropStaleNodes();
             for (AccessibilityWindowInfo window : automation.getWindows()) {
                 AccessibilityNodeInfo found = findAny(window.getRoot(), match);
                 if (found != null) return found;
@@ -358,8 +360,6 @@ public class DeviceSmoke extends Instrumentation {
         Rect previous = null;
         long deadline = SystemClock.uptimeMillis() + 15000;
         while (SystemClock.uptimeMillis() < deadline) {
-            // API 34 以上不会在 find 中 refresh；稳定性必须比较实时边界，不能重复读缓存。
-            dropStaleNodes();
             AccessibilityNodeInfo node = await(match);
             Rect bounds = new Rect();
             node.getBoundsInScreen(bounds);
@@ -434,6 +434,11 @@ public class DeviceSmoke extends Instrumentation {
             if (!pressed || !released) throw new AssertionError("Touch injection failed");
         } finally { down.recycle(); up.recycle(); }
         SystemClock.sleep(150);
+        if (target.getExtras().containsKey("msime-test-ime-requests-settled")) {
+            String description = target.getContentDescription().toString();
+            await(field(description).and(node -> node.isFocused()
+                && node.getExtras().getBoolean("msime-test-ime-requests-settled")));
+        }
     }
     // ---- 实体键盘 ----
     // 宿主只把来自非虚拟、字母型键盘设备的按下当成实体键盘打字（`HardwareKeyboardModePolicy.physicalTyping`），`adb shell input` 的虚拟设备不算，而专用 AVD 自带的 `qwerty2` 在 `hw.keyboard=no` 时不是字母型。所以安卓 12（API 31）起用系统的 `uinput` 命令接上一块 USB 键盘：它是真的 evdev 设备，系统像对待蓝牙、USB 键盘一样报告「接着实体键盘」，测试结束关掉 `uinput` 就是拔掉。更早的系统只能用 `hw.keyboard=yes` 的 AVD 自带键盘，没有就失败并说明原因。
