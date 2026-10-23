@@ -29,8 +29,11 @@ public:
                 event.keyCode == 56 || event.keyCode == 58 || event.keyCode == 59 ||
                 event.keyCode == 60 || event.keyCode == 61 || event.keyCode == 62 ||
                 event.keyCode == 63;
-            // 空格本身由调用方决定是否是快捷键，不能把它当成打断字符。
-            if ((flags & NSEventModifierFlagShift) && event.keyCode != 49 && !modifier)
+            const auto competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
+                NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+            // 空格本身由调用方决定是否是快捷键；带其他修饰键的组合也不属于纯 Shift 轮次。
+            if ((flags & NSEventModifierFlagShift) && !(flags & competing) &&
+                event.keyCode != 49 && !modifier)
                 shiftChordInterrupted_ = true;
             keys_.insert(event.keyCode);
             armed_ = false;
