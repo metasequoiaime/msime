@@ -8,11 +8,12 @@ Status: implemented
 
 ## Decision
 
+- #9450 的相对日期沿用同一条锚定词出口：新增「今天、昨天、前天、明天、后天」和「前年、去年、今年、来年」的完整拼音。年份重复项按维护者选择的最佳方案补为「前年」；不增加有歧义的简拼别名（「前年」「去年」同为 `qn`）。相对日保留日期既有格式，另给「今天(10-23日)」「今天(星期五)」「今天(10-23日 星期五)」三种带触发词的形式；年份只给「今年(2026年)」。日期位移由注入时钟的公历日期计算，自动处理跨月、跨年和闰日；无效时钟或超出日期范围时不猜日期。年份没有额外格式，不生成重复的日期菜单。
 - 全拼组字（去掉 `'` 后）正好是关键词，或九宫格的数字正好按键盘拼出关键词时，把当前日期、时间、星期或农历接在候选里**第一个锚定词**的后面。关键词、锚定词和种类在 `crates/engine/src/local/date_time.rs` 的 `INLINE_KEYWORDS`：`riqi` / `rq` → 日期，`shijian` / `sj` → 时间，`xingqi` / `xq` → 星期，`nongli` / `nl` → 农历，`yinli` → 阴历。
 - 行的格式取自 `T` 模式同一套：日期是「2026年8月9日」「2026-08-09」「2026年8月9日 星期日」，时间是「14:30」「14:30:00」「下午2:30」，星期是「星期日」「周日」，农历一行（日历换算不了时没有）。完整的格式列表仍在 `T` 模式和 `/` 模式里。
 - 列表里已有同样文字的行（全拼 xingqi 下词库里的 星期六）不重复加：它在锚定词前面就不动，在后面就挪到锚定词后面，仍是词库行。
 - 候选里没有锚定词时什么都不加，也不读时钟。锚定让这一行只出现在用户显然在打这个词的时候：`sj` 的首选可能是 手机，日期时间行跟在 时间 后面而不是抢第二位；`7474` 同时是 piqi，脾气 排在前面时日期行仍在 日期 后面。
-- 开关沿用日期时间模式（`LocalModeOptions::date_time`，宿主偏好 `local_modes.date_time`，默认开），设置页说明里写明了这一点。光标前缀解码、只出单字、专用英文、本地模式里，以及九宫格选了首字母或在按单字、笔画筛选时不加。
+- 开关沿用行内日期时间候选（`LocalModeOptions::date_time_inline`，宿主偏好 `local_modes.date_time_inline`，默认开），与 T 模式的 `date_time` 分开，设置页说明里写明了这一点。光标前缀解码、只出单字、专用英文、本地模式里，以及九宫格选了首字母或在按单字、笔画筛选时不加。
 - 行是 `CandidateSource::Generated`，`pinyin` 是整段组字（26 键是原始字母，九宫格是全部数字），没有规范读音。上屏时吃掉整段组字；`learn_sentence_candidate` 因为规范读音为空不存词，`record_personal_context` 因为 `sentence_words` 为空不记上下文，九宫格的 `learn_selection` 同理不造词。Windows Server 的 `candidate_finishes_composition` 本来就把 `Generated` 当成整段结束。
 - 26 键在 `InputSession::mixed_from` 里、固定位置之前插入（`session/candidates.rs`），九宫格在 `NineKeySession::refresh` 里、emoji 之后固定位置之前插入（`nine_key.rs`），两边共用 `insert_inline_date_time`。
 - 九宫格不经过输入会话，也要读同一个墙钟，所以 `session::Clock::local` 从 `Box` 改成 `Arc`（`session::LocalClock`），`Session::new` 和 `Session::set_clock` 把它交给九宫格。
@@ -28,6 +29,10 @@ Status: implemented
 
 - 收益：六个平台的 26 键全拼和九宫格拼音都直接受益，不需要宿主改动；默认开，与日期时间模式一致。
 - 代价：打 riqi / sj / xingqi / nongli 这些词时候选列表多 1 到 3 行，原来在锚定词后面的候选各往后挪几位。关掉日期时间模式即可恢复原样。
-- 每次按键多一次关键词比较（9 个短字符串逐字节比较，不分配）；只有命中关键词且候选里有锚定词时才读一次墙钟、格式化几行。
+- 每次按键多一次关键词比较（18 个短字符串逐字节比较，不分配）；只有命中关键词且候选里有锚定词时才读一次墙钟、格式化几行。
 - `Clock::local` 的类型变了，这是 `msime-engine` 的公开类型；仓库里只有测试构造它。
 - 回滚：去掉 `mixed_from` 和 `NineKeySession::refresh` 里的两处调用即可，行的来源和格式不落盘。
+
+## Verification
+
+#9450 新增回归覆盖相对日跨月、跨年与闰日、年份偏移、三种触发词格式、无效时钟、九个关键词的全拼与九键候选、菜单与提交及关闭混入；远端 Studio 用既有 `target/` 跑 `cargo test --locked -p msime-engine date_time --lib`（30 项）和 `relative_date_keywords_reach_quanpin_and_nine_key_and_commit`（1 项）均通过；独立红绿专项证明旧实现的三项相对日期回归全部失败、新实现全部通过。完整 quick 与 Android 真机验收尚未执行。

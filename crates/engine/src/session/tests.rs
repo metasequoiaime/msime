@@ -12124,3 +12124,89 @@ fn enumeration_comma_respects_command_prefix_and_composition() {
     });
     assert_eq!(disabled.punctuation(b'/').commit.as_deref(), Some("、"));
 }
+
+/// 相对日期复用普通候选与九键出口，整段提交不留下原始拼写，也不学习生成文字。
+#[test]
+fn relative_date_keywords_reach_quanpin_and_nine_key_and_commit() {
+    let fixture = Fixture::new("CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_j VALUES('jin''tian','jt','今天',500),('jin''nian','jn','今年',500);\
+        CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_z VALUES('zuo''tian','zt','昨天',500);\
+        CREATE TABLE tbl_2_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_q VALUES('qian''tian','qt','前天',500),('qian''nian','qn','前年',500),('qu''nian','qn','去年',500);\
+        CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_m VALUES('ming''tian','mt','明天',500);\
+        CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_h VALUES('hou''tian','ht','后天',500);\
+        CREATE TABLE tbl_2_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+        INSERT INTO tbl_2_l VALUES('lai''nian','ln','来年',500);");
+    let cases = [
+        ("jintian", "今天", "今天(08-09日 星期日)"),
+        ("zuotian", "昨天", "昨天(08-08日 星期六)"),
+        ("qiantian", "前天", "前天(08-07日 星期五)"),
+        ("mingtian", "明天", "明天(08-10日 星期一)"),
+        ("houtian", "后天", "后天(08-11日 星期二)"),
+        ("qiannian", "前年", "前年(2024年)"),
+        ("qunian", "去年", "去年(2025年)"),
+        ("jinnian", "今年", "今年(2026年)"),
+        ("lainian", "来年", "来年(2027年)"),
+    ];
+    for nine_key in [false, true] {
+        let mut session = fixture.session_with(|options| options.learning = true);
+        TestClock::install(&mut session);
+        session.set_nine_key_enabled(nine_key);
+        for (keyword, anchor, expected) in cases {
+            let typed: String = if nine_key {
+                keyword
+                    .bytes()
+                    .map(|letter| match letter {
+                        b'a'..=b'c' => '2',
+                        b'd'..=b'f' => '3',
+                        b'g'..=b'i' => '4',
+                        b'j'..=b'l' => '5',
+                        b'm'..=b'o' => '6',
+                        b'p'..=b's' => '7',
+                        b't'..=b'v' => '8',
+                        _ => '9',
+                    })
+                    .collect()
+            } else {
+                keyword.to_owned()
+            };
+            type_text(&mut session, &typed);
+            let rows = words(&session);
+            assert!(
+                rows.contains(&anchor.to_owned()),
+                "{nine_key} {keyword}: {rows:?}"
+            );
+            assert!(
+                rows.contains(&expected.to_owned()),
+                "{nine_key} {keyword}: {rows:?}"
+            );
+            if !nine_key && keyword == "jintian" {
+                assert!(select_word(&mut session, "📅日期").commit.is_none());
+                assert!(words(&session).contains(&expected.to_owned()));
+                assert_eq!(words(&session).len(), 20);
+            }
+            assert_eq!(
+                select_word(&mut session, expected).commit.as_deref(),
+                Some(expected)
+            );
+            assert!(session.snapshot().editing_text.is_empty());
+            assert!(session.snapshot().candidates.is_empty());
+        }
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count(*) FROM user_dictionary_operations"
+            ),
+            0
+        );
+    }
+    let mut disabled = fixture.session_with(|options| options.local_modes.date_time_inline = false);
+    TestClock::install(&mut disabled);
+    type_text(&mut disabled, "jintian");
+    assert!(!words(&disabled)
+        .iter()
+        .any(|word| word.contains("2026") || word.contains('(')));
+}
