@@ -1,7 +1,11 @@
 package app.msime.android.test;
 
+import android.accessibilityservice.AccessibilityService;
 import android.graphics.Bitmap;
+import android.content.ComponentName;
+import android.content.Intent;
 import android.os.SystemClock;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -88,23 +92,41 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
             tap(key("更多"));
             await(keyboardLetter());
         } finally {
-            shellDiscard("am start -n app.msime.android/app.msime.android.home.HomeActivity");
+            leaveEditor();
             if (original == null) Files.deleteIfExists(cities.toPath()); else publish(cities, original);
             shellDiscard("ime set app.msime.android/.MSIMEInputService");
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void editor() throws Exception {
-        // 先离开时钟并重启输入法，避免定时更新让设置宿主的等待命令无法结束。
+        // 先用系统 Home 收起键盘再重启输入法，不启动与时钟无关的设置首页。
         checkpoint("leave clock and restart IME");
-        shellDiscard("am start -n app.msime.android/app.msime.android.home.HomeActivity");
+        leaveEditor();
         restartClockIme();
         // 输入法已停止时钟刷新；等新编辑器完成冷启动，再按节点确认焦点。
         checkpoint("launch fresh synthetic editor");
-        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        automation.executeAndWaitForEvent(() -> {
+            getContext().startActivity(new Intent().setComponent(new ComponentName(
+                    "app.msime.android.test", "app.msime.android.test.EditorActivity"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        }, event -> event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                && equalsText("app.msime.android.test", event.getPackageName()), 45000).recycle();
         checkpoint("world clock editor focus");
+        // 窗口事件可能先于可访问树到达；冷启动只等待准备条件，不重试功能断言。
+        long deadline = SystemClock.uptimeMillis() + 60000;
+        while (find(automation.getRootInActiveWindow(), field("msime-test-plain")) == null) {
+            if (SystemClock.uptimeMillis() >= deadline)
+                throw new AssertionError("Synthetic editor accessibility window did not become ready");
+            SystemClock.sleep(100);
+        }
         tap(field("msime-test-plain"));
         await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
+    }
+
+    private void leaveEditor() {
+        if (!automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME))
+            throw new AssertionError("System Home action failed");
     }
 
     private void restartClockIme() throws Exception {
@@ -124,7 +146,8 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
         // 编辑器收到提交回声时，输入法还可能正在收起格式页；等键区恢复再重新展开菜单。
         checkpoint(purpose + ": keyboard restored");
         AccessibilityNodeInfo letter = await(keyboardLetter());
-        checkpoint(purpose + ": keyboard control " + letter.getClassName());
+        checkpoint(purpose + ": keyboard control " + letter.getClassName()
+                + " / " + letter.getContentDescription());
         checkpoint(purpose + ": expand function menu");
         tap(key("更多"));
         checkpoint(purpose + ": locate world clock entry");
@@ -142,7 +165,10 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
     }
 
     private Predicate<AccessibilityNodeInfo> keyboardLetter() {
-        return described("字母 Q").or(described("大写 Q"));
+        // 这里只同步键区恢复，不要求自定义按键向旧系统报告特定的控件类名或描述。
+        return node -> equalsText("app.msime.android", node.getPackageName())
+                && node.getText() != null && "q".equalsIgnoreCase(node.getText().toString())
+                && node.isClickable();
     }
 
     private void addCity(String region, String country, String zone) throws Exception {
