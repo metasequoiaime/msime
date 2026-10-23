@@ -3,16 +3,13 @@ import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import { useState } from "react";
 import { ErrorAlert } from "../core/error-alert";
 import { useTouchKeyboardSkinLibrary } from "./use-touch-keyboard-skin-library";
+import { useTouchKeyboardSkinEditorState } from "./use-touch-keyboard-skin-editor-state";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
-  defaultTouchKeyboardSkinDesign,
   hasReadableSkinText,
-  normalizeTouchKeyboardSkinDesign,
-  readableSkinText,
   skinColor,
   skinColorNumber,
-  skinContrast,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
   type AiSkinClient,
@@ -130,8 +127,6 @@ export function TouchKeyboardSkinEditor({
   fullScreen?: boolean;
 }) {
   const [category, setCategory] = useState<Category>("背景");
-  const [undo, setUndo] = useState<TouchKeyboardSkinDesign[]>([]);
-  const [redo, setRedo] = useState<TouchKeyboardSkinDesign[]>([]);
   const [photoError, setPhotoError] = useState("");
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
   const {
@@ -157,45 +152,16 @@ export function TouchKeyboardSkinEditor({
     setCategory("我的");
     if (result === "created") onUse();
   };
-  const apply = (next: TouchKeyboardSkinDesign, record = true) => {
-    const normalized = normalizeTouchKeyboardSkinDesign(next);
-    if (JSON.stringify(normalized) === JSON.stringify(design)) return;
-    if (record) {
-      setUndo((items) => [...items, design].slice(-30));
-      setRedo([]);
-    }
-    onChange(normalized);
-  };
-  const patch = (value: Partial<TouchKeyboardSkinDesign>, record = true) =>
-    apply({ ...design, ...value }, record);
-  const stepBack = () => {
-    const next = undo.at(-1);
-    if (!next) return;
-    setUndo((items) => items.slice(0, -1));
-    setRedo((items) => [...items, design].slice(-30));
-    apply(next, false);
-  };
-  const stepForward = () => {
-    const next = redo.at(-1);
-    if (!next) return;
-    setRedo((items) => items.slice(0, -1));
-    setUndo((items) => [...items, design].slice(-30));
-    apply(next, false);
-  };
-  const optimizeContrast = () => {
-    const black = Math.min(
-      skinContrast(0, design.background),
-      skinContrast(0, design.keyBackground),
-    );
-    const white = Math.min(
-      skinContrast(0xffffff, design.background),
-      skinContrast(0xffffff, design.keyBackground),
-    );
-    patch({
-      keyForeground: readableSkinText(design.keyBackground),
-      accent: black >= white ? 0 : 0xffffff,
-    });
-  };
+  const {
+    apply,
+    patch,
+    undo: stepBack,
+    redo: stepForward,
+    canUndo,
+    canRedo,
+    reset,
+    optimizeContrast,
+  } = useTouchKeyboardSkinEditorState({ design, onChange });
 
   const editor = (
     <div
@@ -231,14 +197,14 @@ export function TouchKeyboardSkinEditor({
             <ActionButton
               action={stepBack}
               className={skin.iconButton}
-              disabled={!undo.length || disabled}
+              disabled={!canUndo || disabled}
               ariaLabel="撤销设计"
               label={<FluentIcon name="arrow_reset" />}
             />
             <ActionButton
               action={stepForward}
               className={skin.iconButton}
-              disabled={!redo.length || disabled}
+              disabled={!canRedo || disabled}
               ariaLabel="重做"
               label={<FluentIcon name="arrow_reset" className="-scale-x-100" />}
             />
@@ -692,11 +658,7 @@ export function TouchKeyboardSkinEditor({
               </div>
             </GroupList>
             <div className={skin.footerAction}>
-              <ActionButton
-                action={() => apply(defaultTouchKeyboardSkinDesign)}
-                className="danger-text"
-                label="重置我的皮肤"
-              />
+              <ActionButton action={reset} className="danger-text" label="重置我的皮肤" />
             </div>
           </>
         )}
