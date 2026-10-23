@@ -5,6 +5,7 @@
 #include <cassert>
 #include <fstream>
 #include <sqlite3.h>
+#include <sys/resource.h>
 #import <objc/runtime.h>
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
@@ -11196,6 +11197,147 @@ static void TestSessionUnavailableIsReported() {
     // The repeat says nothing new; without this every focus while the dictionary is missing writes a line.
     assert([log componentsSeparatedByString:@"reason=no usable runtime options"].count - 1 == 1);
     assert([log componentsSeparatedByString:@"reason=session refused the runtime options"].count - 1 == 1);
+
+    for (NSString *category in @[@"dictionary access unavailable", @"dictionary maintenance busy", @"invalid options document"]) {
+        NSError *error = [NSError errorWithDomain:@"synthetic" code:1 userInfo:@{NSLocalizedDescriptionKey:category}];
+        assert([MSIMESessionUnavailableReason(@{}, error) isEqual:category]);
+    }
+    NSError *privateError = [NSError errorWithDomain:@"synthetic" code:1
+        userInfo:@{NSLocalizedDescriptionKey:@"/synthetic/private-path synthetic-secret"}];
+    assert([MSIMESessionUnavailableReason(@{}, privateError) isEqual:@"session refused the runtime options"]);
+}
+
+@interface SessionRecoveryController : MSIMEInputController
+@property(strong) NSDictionary *testOptions;
+@property NSUInteger optionReads;
+@property NSUInteger creations;
+@property NSUInteger failures;
+@property BOOL missingFirstOptions;
+@end
+@implementation SessionRecoveryController
+- (NSDictionary *)runtimeOptions {
+    ++self.optionReads;
+    return self.missingFirstOptions && self.optionReads == 1 ? nil : self.testOptions;
+}
+- (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
+    ++self.creations;
+    if (self.creations <= self.failures) {
+        if (error) *error = [NSError errorWithDomain:@"synthetic" code:1
+            userInfo:@{NSLocalizedDescriptionKey:@"dictionary access unavailable"}];
+        return nil;
+    }
+    return [super createSessionWithOptions:options error:error];
+}
+// 本专项只验证原生控制器与真实 Rust 会话的生命周期，不启动后台偏好轮询或联网授权。
+- (void)startPreferencesMonitoring {}
+- (void)resolveCloudCandidatesConsentWithOptions:(NSDictionary *)options { (void)options; }
+- (void)confirmFieldTraitsBeforeFocus {}
+- (void)refreshTypingEffectSettings {}
+@end
+
+static void TestIdleSessionRecovery() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+    preferences[@"scheme"] = @"wubi";
+    preferences[@"learning"] = @NO;
+    preferences[@"wubi_mixed_pinyin"] = @NO;
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":preferences} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    for (NSString *path in @[[options[@"resources"] stringByAppendingPathComponent:@"msime-wubi.db"],
+                             [options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"]]) {
+        sqlite3 *database = nullptr;
+        assert(sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK);
+        assert(sqlite3_exec(database,
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
+            "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);"
+            "INSERT INTO wubi86 VALUES('wq','你',10);", nullptr, nullptr, nullptr) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+    }
+    auto makeController = ^SessionRecoveryController * {
+        SessionRecoveryController *controller = [SessionRecoveryController alloc];
+        controller.testOptions = options;
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        return controller;
+    };
+    auto sessionOf = ^MSIMEClientSession *(SessionRecoveryController *controller) {
+        return [controller valueForKey:@"session"];
+    };
+    struct rlimit previous = {};
+    assert(getrlimit(RLIMIT_NOFILE, &previous) == 0);
+    struct rlimit limited = previous;
+    limited.rlim_cur = MIN(previous.rlim_cur, (rlim_t)256);
+    assert(setrlimit(RLIMIT_NOFILE, &limited) == 0);
+    SessionRecoveryController *active = makeController();
+    [active prepareSession];
+    MSIMEClientSession *activeSession = sessionOf(active);
+    assert(activeSession);
+    [activeSession typeASCII:'w' shift:NO error:&error];
+    [activeSession typeASCII:'q' shift:NO error:&error];
+    assert(!error);
+    SessionRecoveryController *english = makeController();
+    [english prepareSession];
+    [english setValue:[sessionOf(english) setDedicatedEnglishEnabled:YES error:&error] forKey:@"view"];
+    assert(!error);
+    [english setValue:nil forKey:@"activeClient"];
+    NSMutableArray<SessionRecoveryController *> *controllers = [NSMutableArray arrayWithObject:english];
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+    for (NSUInteger index = 0; index < 64; ++index) {
+        @autoreleasepool {
+            SessionRecoveryController *controller = makeController();
+            [controllers addObject:controller];
+            [controller prepareSession];
+            MSIMEClientSession *session = sessionOf(controller);
+            assert(session && controller.creations == 1);
+            [session typeASCII:'w' shift:NO error:&error];
+            NSDictionary *typed = [session typeASCII:'q' shift:NO error:&error];
+            assert(!error && [typed[@"view"][@"scheme"] isEqual:@2]);
+            assert([typed[@"view"][@"candidates"][0][@"text"] isEqual:@"你"]);
+            [controller apply:[session command:MSIME_CANCEL error:&error]];
+            [controller deactivateServer:[controller valueForKey:@"activeClient"]];
+            NSUInteger idle = 0;
+            for (SessionRecoveryController *retained in controllers) if (sessionOf(retained)) ++idle;
+            assert(idle <= MSIMEIdleDictionarySessionLimit);
+            assert(sessionOf(active) == activeSession);
+            assert([[activeSession viewWithError:&error][@"editing_text"] isEqual:@"wq"] && !error);
+        }
+    }
+    method_setImplementation(base, original);
+    assert(!sessionOf(english) && [[english valueForKey:@"resumeDedicatedEnglish"] boolValue]);
+    [english setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [english prepareSession];
+    assert([sessionOf(english) viewWithError:&error][@"dedicated_english"] == (__bridge id)kCFBooleanTrue && !error);
+    [english setValue:nil forKey:@"activeClient"];
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+
+    for (NSUInteger scenario = 0; scenario < 3; ++scenario) {
+        SessionRecoveryController *idle = makeController();
+        [idle prepareSession];
+        assert(sessionOf(idle));
+        [idle setValue:nil forKey:@"activeClient"];
+        SessionRecoveryController *retry = makeController();
+        retry.failures = scenario == 0 ? 1 : (scenario == 1 ? 2 : 0);
+        retry.missingFirstOptions = scenario == 2;
+        [retry prepareSession];
+        assert(!sessionOf(idle));
+        assert(retry.optionReads == 2 && retry.creations == (scenario == 2 ? 1 : 2));
+        assert((sessionOf(retry) != nil) == (scenario != 1));
+        if (scenario == 1) assert([[retry valueForKey:@"sessionUnavailableReason"] isEqual:@"dictionary access unavailable"]);
+        [retry setValue:nil forKey:@"activeClient"];
+        [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    }
+    [active setValue:nil forKey:@"activeClient"];
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    assert([MSIMEInputController dictionarySessionHolders].count == 0);
+    assert(setrlimit(RLIMIT_NOFILE, &previous) == 0);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
 // Every preference object built here without an explicit skins root reads msime::mac::DefaultSkinsRoot(), which is otherwise the user's real skins folder: an external skin installed there adds a card to the skin page and breaks the counts below. The whole run gets an empty folder of its own, removed when main returns.
@@ -11252,6 +11394,11 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--session-recovery") {
+            TestSessionUnavailableIsReported();
+            TestIdleSessionRecovery();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--english-punctuation") {
             @autoreleasepool { TestPerApplicationPunctuationAndWidth(); }
             @autoreleasepool { TestEnglishModePunctuationAndWidthOutput(); }
@@ -11331,6 +11478,7 @@ int main(int argc, char **argv) {
         NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *previousVoiceHoldKeys = MSIMEDisableVoiceHoldKeys(standardDefaults);
         @autoreleasepool { TestSessionUnavailableIsReported(); }
+        @autoreleasepool { TestIdleSessionRecovery(); }
         @autoreleasepool { TestCloudCandidateScheduling(); }
         @autoreleasepool { TestCloudCandidateRetryAfterRejectedResponse(); }
         @autoreleasepool { TestCloudCandidateEngineDelivery(); }
