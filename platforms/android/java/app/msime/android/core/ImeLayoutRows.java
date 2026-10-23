@@ -1008,6 +1008,7 @@ final class ImeLayoutRows {
             String choice = choices.get(index);
             Button option = s.keyboardKey(choice, "输入 " + choice,
                 () -> action.accept(choice));
+            option.setText(CandidateSymbolLabel.apply(s, choice, 0, choice.length()));
             option.setContentDescription("⮕".equals(choice) ? "切换到拼音键盘" : "输入 " + choice);
             ViewPolicy.clearPadding(option);
             LinearLayout.LayoutParams params = LayoutPolicy.linearParamsPx(
