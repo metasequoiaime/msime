@@ -37,6 +37,7 @@ Status: implemented
 - Xcode 的 `build-for-testing` 能编译键盘、共享与服务测试目标。具体模拟器 destination 起初不可发现时，临时场景式 UIKit runner 加载 Xcode 原样生成的 xctest，以公开 `XCTestSuite.testSuiteForTestCaseClass` 执行断言，并检查真实运行数量、失败数和跳过数；destination 恢复可发现后，补跑上述标准 XCTest。runner 只在忽略的产物目录中，不加入产品或工程。
 - 原生 App 的 `MSIMEApp` 模拟器完整构建通过，包含键盘扩展；此构建没有临时集成文档身份依赖，不能据此证明真实光标移动。原生设置页的完整 `gestureGroup` 也使用真实 `DesignToggleRow`、`DesignGroup` 与偏好类型通过 Swift typecheck。XcodeGen 工程随新增测试重新生成，同时补入已存在的 `VoiceLanguageCatalog.swift` 引用，避免生成工程继续漏编语音语言目录。
 - 两项 UI 回归通过 `MSIMEClientUITests` 的 `build-for-testing`：原生开关打开、关闭后分别重启宿主检查持久化；独立系统编辑器中检查连续点按、横滑不输出起始字母，以及开启时在文本内部插入合成标记、关闭时仍在末尾插入。后者关闭滑行输入并在 XCTest teardown 中恢复两个开关，断言中止也不依赖 Swift `defer`。首轮运行因 destination 不可发现实际执行 0 项；iOS 27 重试已进入系统设置和独立编辑器，随后系统键盘切换的无障碍查询连续超时，XCTest 请求 spindump 等待 600 秒也超时，并停在调用栈符号化阶段。主动取消后进程以 143 退出，保留日志；横滑断言尚未执行，不能把编译或入口步骤作为通过证据。这两项也不覆盖多指快打的真实手感。
+- 清理空间并恢复专用 iOS 27 模拟器后，正式集成版本的两项 UI 回归已串行实际执行：`testCursorSwipeSettingPersistsAcrossRelaunch` 用时 86 秒通过，`testCursorSwipeMovesInSystemEditorAndPreservesTaps` 用时 204 秒通过，均为 1 项、0 失败、0 跳过且命令以 0 退出。后者已通过真实系统扩展输入 30 个合成字符，核对横滑后不插入起始字母、开启时 `q` 插入文本内部、关闭时 `q` 仍追加末尾，并在 teardown 恢复原设置。独立读取三份最终 xcresult 的 summary 和 test tree，确认测试名称、实际执行数量和跳过数；导出的开启、关闭截图也分别显示内部与末尾光标。
 - 首次 quick 在豆包传输和语音语言目录检查的 120 秒限制处超时；两项分别重跑后通过，豆包套件执行 17 项、0 失败。完整 quick 重跑以 0 退出，Rust 工作区、Android 目标、Linux 设置壳与 Apple bridge 通过；其它平台按范围或缺少既有工具链跳过。笔记校验与 `git diff --check` 通过。
 - 同步 `develop` 后的完整 quick 在空间不足时暂停，恢复空间后继续原进程并以 0 退出，覆盖 Rust 工作区、Android 目标和宿主 Java、wasm、Linux 设置壳、Linux 原生宿主的 111 项测试、macOS 原生编译及 Apple bridge；HarmonyOS 和 Windows 原生入口仍按现有工具链条件跳过。
 
@@ -44,4 +45,4 @@ Status: implemented
 
 收益是提供从字符键开始的光标定位，同时默认关闭以保留现有用户的连续点按习惯；位移精度与空格手势共用一套实现。代价是增加一个本机偏好、一个根手势和手势间的活动状态裁决。
 
-初始横向阈值与快速点按的真实手感需设备验收。委托条件测试与手势配置检查不能代替真实触摸取消、抬手不输入和编辑器光标位移的验证。模拟器内 UIKit/XCTest 并不是系统扩展或真机验收。#9375 已合入并同步到本分支，最终集成版本的 26 项控制器和文档身份回归已通过，系统编辑器横滑结果仍待验收。
+初始横向阈值与多指快打的真实手感仍需真机验收。最终集成版本已通过 26 项控制器和文档身份回归、1 项原生设置 UI 回归及 1 项独立编辑器内真实系统扩展 UI 回归，覆盖普通连续点按、触摸取消、抬手不输入起始字母和开关控制实际文档位移。控制器里的多指锁定断言不能替代真实多指触摸；模拟器的系统扩展验收也不等于真机手感验收。
