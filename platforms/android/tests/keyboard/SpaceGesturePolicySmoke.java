@@ -40,6 +40,29 @@ public final class SpaceGesturePolicySmoke {
 
         policy.down(0, 0, false);
         check(policy.up(600) == Outcome.SPACE, "with voice off a long hold types a space");
+        policy.down(0, 100, 50, true, true);
+        policy.move(100, 102, 20);
+        check(policy.state() == State.COPY && !policy.tick(600), "上滑锁定复制后不能启动语音");
+        check(policy.up(650) == Outcome.COPY, "松手复制");
+        policy.down(0, 100, 50, true, true);
+        policy.move(100, 100, 20);
+        policy.move(120, 100, 50);
+        check(policy.up(150) == Outcome.NONE, "滑回取消且不能补空格");
+        policy.down(0, 100, 50, true, true);
+        policy.tick(450);
+        policy.move(500, 100, -50);
+        check(policy.up(550) == Outcome.VOICE, "语音开始后的上滑仍交语音处理");
+        policy.down(0, 100, 50, false, true);
+        policy.move(100, 120, 49);
+        policy.move(120, 120, -50);
+        check(policy.up(150) == Outcome.CURSOR, "横滑锁定后不转成复制");
+        policy.down(0, 100, 50, false, true);
+        policy.move(100, 100, 20);
+        policy.cancel();
+        check(policy.up(150) == Outcome.NONE, "系统取消不复制");
+        policy.down(0, 100, 50, false, false);
+        policy.move(100, 100, 20);
+        check(policy.state() != State.COPY, "不适合复制的输入框不能进入复制手势");
         System.out.println("Android space gesture: 450 ms long press vs horizontal drag, first wins passed");
     }
 

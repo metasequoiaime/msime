@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "packages/ui/src/voice/polish-prompt-catalog.json"
@@ -118,8 +119,14 @@ else:
   }
 }
 ''', encoding="utf-8")
-        subprocess.run([swiftc, str(ROOT / "platforms/ios/App/Services/VoicePolishPresetCatalog.swift"),
-                        str(source), "-o", str(program)], check=True, timeout=60)
+        # 保留版本和阶段命令，下一次超时才能区分前端编译与链接；失败也记录实际耗时。
+        print(f"polish prompt catalog: Swift 编译开始（{swiftc}，限时 60 秒）", flush=True)
+        started = time.monotonic()
+        try:
+            subprocess.run([swiftc, "-v", str(ROOT / "platforms/ios/App/Services/VoicePolishPresetCatalog.swift"),
+                            str(source), "-o", str(program)], check=True, timeout=60)
+        finally:
+            print(f"polish prompt catalog: Swift 编译用时 {time.monotonic() - started:.3f} 秒", flush=True)
         lines = subprocess.check_output([str(program)], timeout=10).decode("ascii").splitlines()
         values = ["".join(chr(int(value)) for value in line.split()) for line in lines]
         projected = [dict(zip(("id", "title"), values[index:index + 2]))

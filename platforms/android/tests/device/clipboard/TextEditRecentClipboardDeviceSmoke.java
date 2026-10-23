@@ -16,11 +16,18 @@ import org.json.JSONObject;
 
 /** #8104、#8175：在真实编辑器里检查选择状态、全选复制剪切、顶部预览与返回键。 */
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
+    private boolean spaceCopyOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
+    @Override public void onCreate(Bundle arguments) {
+        spaceCopyOnly = arguments != null && "true".equals(arguments.getString("space-copy-only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
-        return "selection mode, scrollable editor shortcuts, copy/cut preview, paste, stable bounds, return and disabled suggestions";
+        return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
+            : "space upward copy, selection mode, editor shortcuts, copy/cut preview and disabled suggestions";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -41,10 +48,18 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         JSONObject settings = originalLocal == null ? new JSONObject().put("version", 1)
             .put("settings", new JSONObject()) : read(local);
         settings.getJSONObject("settings").put("platform.android.toolbar_text_edit", true)
+            .put("platform.android.space_cursor", true).put("platform.android.space_voice", true)
             .put("platform.android.clipboard_suggestion", true).put("platform.android.toolbar_hidden", false);
         try {
             save(preferences, ++revision, values);
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+            new SpaceCopyDeviceChecks(this).run(true);
+            if (spaceCopyOnly) {
+                values.put("clipboard_history", false);
+                save(preferences, ++revision, values);
+                new SpaceCopyDeviceChecks(this).run(false);
+                return;
+            }
             stage = "prepare editor before opening panel";
             openPanel();
             // API 28 的 UiAutomation 看不到面板内部节点；API 30+ 验证右列滚动快捷键及其真实编辑结果。
@@ -123,6 +138,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             click("全选");
             click("复制");
             absent(described("最近复制"));
+            new SpaceCopyDeviceChecks(this).run(false);
             stage = "local suggestion switch disables preview";
             values.put("clipboard_history", true);
             save(preferences, ++revision, values);

@@ -176,6 +176,8 @@ platforms/android/tests/device/voice/SyntheticSpeechSetup.java
 
 platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java
 platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
+platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
+platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
@@ -226,3 +228,4 @@ platforms/android/tests/device/keyboard/CompositionSearchEditorActivity.java
 platforms/android/tests/device/keyboard/AppCompositionDeviceChecks.java
 platforms/android/tests/device/keyboard/HistoryEditorActivity.java
 platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
+platforms/android/tests/device/keyboard/KeyboardFeedbackDeviceChecks.java
