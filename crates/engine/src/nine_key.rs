@@ -2099,17 +2099,14 @@ impl NineKeySession {
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::new();
         for prefix in prefixes {
-            for word in english.query_keypad_prefix(
+            english.append_keypad_prefix(
                 &prefix,
                 &self.english_pattern,
                 digits.len(),
                 ENGLISH_LIMIT,
-            ) {
-                if words.capacity() == 0 {
-                    words.reserve_exact(capacity);
-                }
-                words.push(word);
-            }
+                &mut words,
+                capacity,
+            );
         }
         deduplicate_english_words(&mut words);
         rank_english(&mut words, digits.len());
@@ -8125,3 +8122,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!shuangpin_word_spells(table, "zhong'guo", "81464"));
     }
 }
+
+#[cfg(test)]
+#[path = "nine_key/english_page_append_tests.rs"]
+mod english_page_append_tests;

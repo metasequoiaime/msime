@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-页面保存本地今天的日期状态。现有可见性轮询、窗口激活和手动操作刷新这个状态，同一天保留原对象；桌面和手机趋势缓存同时依赖日期键。数据签名仍只决定统计数据是否更新，日期推进单独触发渲染。
+页面通过 `use-typing-statistics-state.ts` 保存本地今天的日期状态（见[读取状态边界](../simplification/2026-10-23-typing-statistics-state.md)）。现有可见性轮询、窗口激活和手动操作刷新这个状态，同一天保留原对象；桌面和手机趋势缓存同时依赖日期键。数据签名仍只决定统计数据是否更新，日期推进单独触发渲染。
 
 ## Alternatives considered
 

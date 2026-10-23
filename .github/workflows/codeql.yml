@@ -52,13 +52,13 @@ jobs:
       - name: Install Rust
         if: matrix.language == 'rust'
         run: rustup toolchain install
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           languages: ${{ matrix.language }}
           # `none` 不做完整构建就建库（Rust 走 rust-analyzer，会处理 build.rs 与宏，但不编译整个
           # 工作区）；C/C++ 的分析是原生构建 CI 的补充而不是替代。
           build-mode: none
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           category: '/language:${{ matrix.language }}'
 
@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           python3 scripts/fetch_voice_runtime.py --platform ios
           (cd platforms/ios && xcodegen generate -s project.yml -p .)
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           languages: swift
           build-mode: manual
@@ -125,7 +125,7 @@ jobs:
           -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
           ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
           SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           category: '/language:swift'
       - name: Show what the Swift extractor reported
