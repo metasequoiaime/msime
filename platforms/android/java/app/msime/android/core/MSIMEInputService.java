@@ -187,6 +187,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button expandCandidates;
     boolean candidatePanelOpen;
     JSONObject candidatePanelSnapshot;
+    final ImeCandidateStrip imeCandidateStrip = new ImeCandidateStrip(this);
     PopupWindow nineKeyHoldPopup;
     ScrollView clipboardScroll;
     FrameLayout clipboardSurface;
@@ -7770,6 +7771,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0) command(3);
     }
 
+    /** 完整横向候选的译文回调保留取数时的身份，不能插入旧组字的译文。 */
+    void insertStripCandidateGloss(JSONObject snapshot, JSONObject candidate, JSONObject id,
+                                  String text, String gloss) {
+        if (!sameCandidateVersion(snapshot, view) || !candidateVersionIsCurrent(id)
+                || candidate == null || !sameCandidateIdentity(candidate.optJSONObject("id"), id)
+                || !text.equals(chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view))
+                || connection == null) return;
+        if (!commitText(gloss, TypingSource.LOCAL)) return;
+        if (session != 0) command(3);
+    }
+
     /** 高亮候选和它能插入的译文义项（#7079、#6792）。`eligible` 是组字中、候选非空、方案允许插入译文；释义显示关着时义项为空。 */
     private record TranslationTarget(boolean eligible, int slot, JSONObject candidate,
                                      java.util.List<String> senses) {}
@@ -8067,6 +8079,22 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
+    /** 触屏完整候选使用全局下标，沿用普通选词的编辑器状态收尾。 */
+    void selectStripCandidate(Button button, JSONObject candidate) {
+        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+        if (!candidateVersionIsCurrent(id)) return;
+        finishPendingCompositionMarkerLoss();
+        int source = InputViewValuePolicy.integer(candidate, "source", -1);
+        if (!candidateVersionIsCurrent(id) || AiPendingCandidatePolicy.isPlaceholder(source)
+                || AiPendingCandidatePolicy.isCloudPending(source)) return;
+        imeKeyFeedback.playFeedback(button);
+        closeCandidatePanel();
+        try {
+            apply(NativeClient.selectAnyCandidate(session, strictCandidateLong(id, "generation"),
+                strictCandidateLong(id, "index")));
+        } catch (JSONException | LinkageError error) { fail(error); }
+    }
+
     private boolean selectHardwareCandidate(int slot) {
         finishPendingCompositionMarkerLoss();
         int actualSlot = visibleCandidateSlot(slot);
@@ -8102,7 +8130,7 @@ public final class MSIMEInputService extends InputMethodService {
         return -1;
     }
 
-    private void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
+    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         ((ContactCandidateButton) button).setContactSource(source);
@@ -10294,6 +10322,10 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         candidateRenderDeferred = false;
+        boolean continuousStrip = candidateHorizontal && !hardwareKeyboardMode && !handwriting
+            && !imeTranslationSenses.active() && !hasNineKeyPunctuation && !imeEmailSuffixes.active()
+            && !englishSuggestionsActive() && !hasDiagnostic && !directEnglishActive();
+        JSONObject stripSnapshot = imeCandidateStrip.prepare(continuousStrip);
         candidateDecorationWords.clear();
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
@@ -10321,6 +10353,11 @@ public final class MSIMEInputService extends InputMethodService {
             imeEmailSuffixes.render(activeCandidates);
         } else if (englishSuggestionsActive()) {
             renderEnglishSuggestions(activeCandidates);
+        } else if (stripSnapshot != null) {
+            imeCandidateStrip.render(stripSnapshot, candidates, horizontalCandidateScroll);
+            if (expandCandidates != null
+                    && (strictCandidatePage(view, "page_count") > 1 || imeNineKeyPanel.eligible()))
+                ViewPolicy.show(expandCandidates);
         } else if (entries != null) {
             int visibleSlot = 0;
             for (int slot = 0; slot < entries.length(); slot++) {
