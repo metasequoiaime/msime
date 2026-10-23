@@ -51,6 +51,7 @@ NOT_APPLICABLE = {
     "touch_key_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
     "touch_row_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
     "touch_keyboard_height_adjustment": "the touch keyboard and the Windows panel window; the macOS screen keyboard window has a fixed height, and the page offers no slider (`touch_keyboard_height` is false)",
+    "touch_keyboard_split_portrait": "仅 Android 大屏触屏键盘支持竖屏分离；macOS 屏幕键盘不采用分离布局，共享设置页不提供此开关",
     "touch_voice_shortcut": "the touch keyboard",
     "touch_quick_punctuation_symbols": "仅 iOS 原生触屏键盘提供自定义快捷符号；macOS 屏幕键盘不读取此列表，共享设置页不提供此项",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
@@ -63,9 +64,6 @@ NOT_APPLICABLE = {
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
     # 下面几条是嵌套子字段。父结构整体不适用时门禁不下降，所以这里列出的是父结构仍在 macOS 被读、但这一项本身不读的字段。
-    "keybindings.toggle_english_candidates": "共享 KeyChord 契约的预留绑定字段；宿主路由与录键设置尚未接入，当前设置页不提供编辑入口，macOS 继续使用原有固定组合键（见 2026-10-21-rebindable-toggle-hotkeys 决策）",
-    "keybindings.toggle_full_width": "共享 KeyChord 契约的预留绑定字段；宿主路由与录键设置尚未接入，当前设置页不提供编辑入口，macOS 继续使用原有固定组合键（见 2026-10-21-rebindable-toggle-hotkeys 决策）",
-    "keybindings.toggle_punctuation": "共享 KeyChord 契约的预留绑定字段；宿主路由与录键设置尚未接入，当前设置页不提供编辑入口，macOS 继续使用原有固定组合键（见 2026-10-21-rebindable-toggle-hotkeys 决策）",
     "keybindings.switch_language_ctrl_space": "Ctrl+Space 换语言只在 Linux 提供：共享设置页按 `linux` 决定是否写这个字段（`packages/ui/src/settings/input-mode-shortcuts-model.ts` 的 `languageSwitchPatch`），macOS 走 Ctrl+Alt+Space 与 Caps Lock，不读这一项",
     "keybindings.toggle_japanese_ctrl_shift_j": "由 `HostCapabilities::japanese_toggle_shortcut` 门控，macOS 为 false（`crates/client-core/src/host_surface.rs`：macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要这个组合键），设置页不显示这一项",
     "wubi_candidate_selection.second_key": "由共享运行时经 `WubiCandidateSelectionPreferences::slot` 消费（`crates/input-runtime/src/runtime.rs` 的 `set_wubi_candidate_selection` / `candidate_for_slot`）；宿主不直接拼字段名，所以按名匹配看不见它",

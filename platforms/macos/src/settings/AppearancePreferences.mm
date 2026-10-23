@@ -25,8 +25,34 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+#include "msime_client.h"
 #include "../core/VimMode.h"
 #include <sys/stat.h>
+
+// 一个 chord 的解码结果（msime_client_toggle_hotkey_chords 回答里的一项）→ 认键组合。
+// 不是表、没有主键名或主键名认不出时都是不绑定。
+static msime::mac::ToggleChord MSIMEDecodeToggleChord(id decoded) {
+    if (![decoded isKindOfClass:NSDictionary.class]) return msime::mac::UnboundToggleChord();
+    id key = decoded[@"key"];
+    if (![key isKindOfClass:NSString.class]) return msime::mac::UnboundToggleChord();
+    return msime::mac::ToggleChordForKeyName(((NSString *)key).UTF8String,
+        [decoded[@"ctrl"] isEqual:@YES], [decoded[@"alt"] isEqual:@YES],
+        [decoded[@"shift"] isEqual:@YES], [decoded[@"meta"] isEqual:@YES]);
+}
+
+// keybindings 原值（nil 或为 null 按出厂值）→ {"english_candidates","full_width","punctuation"}
+// 各自的解码项；不是表、请求写不出或回答不合法时为 nil，调用方保持现值。
+static NSDictionary *MSIMEToggleHotkeyChords(id keys) {
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"keybindings": keys ?: NSNull.null} options:0 error:nil];
+    if (!body) return nil;
+    char *raw = msime_client_toggle_hotkey_chords(static_cast<const uint8_t *>(body.bytes), body.length);
+    if (!raw) return nil;
+    NSDictionary *response = [NSJSONSerialization JSONObjectWithData:
+        [NSData dataWithBytesNoCopy:raw length:strlen(raw) freeWhenDone:NO] options:0 error:nil];
+    msime_client_string_free(raw);
+    return [response[@"ok"] isEqual:@YES] && [response[@"value"] isKindOfClass:NSDictionary.class]
+        ? response[@"value"] : nil;
+}
 
 @interface MSIMETranslationSettingsWindow (Lifecycle)
 - (void)invalidatePendingCallbacks;
@@ -1069,6 +1095,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_controlOptionSpaceShortcutToggle;
     NSNumber *_sharedCharacterSetShortcut;
     NSNumber *_sharedFullWidthShortcut;
+    msime::mac::ToggleChord _englishCandidatesToggleChord;
+    msime::mac::ToggleChord _fullWidthToggleChord;
+    msime::mac::ToggleChord _punctuationToggleChord;
     NSSwitch *_characterSetShortcutToggle;
     NSMutableDictionary *_sharedHelpcodeOptions;
     // 共享文档里每个方案选中的辅助码表插件 id，空串是没有选；文档没读过时没有这一项。
@@ -1290,6 +1319,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (self) {
         _defaults = defaults;
         _skinsRoot = [root copy];
+        _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
+        _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
+        _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
         [self reloadSkins];
     }
     return self;
@@ -1300,10 +1332,16 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (self) {
         _defaults = defaults;
         _silent = YES;
+        _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
+        _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
+        _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
         [self reloadSkins];
     }
     return self;
 }
+- (msime::mac::ToggleChord)englishCandidatesToggleChord { return _englishCandidatesToggleChord; }
+- (msime::mac::ToggleChord)fullWidthToggleChord { return _fullWidthToggleChord; }
+- (msime::mac::ToggleChord)punctuationToggleChord { return _punctuationToggleChord; }
 - (NSURL *)skinsRoot { return _skinsRoot; }
 - (void)setTranslationPreferencesDirectory:(NSString *)directory {
     if ([_translationPreferencesDirectory isEqual:directory]) return;
@@ -2209,6 +2247,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         if (LocalModeBoolean(enabled)) _sharedCharacterSetShortcut = enabled;
         id fullWidth = keys[@"toggle_fullwidth_option_shift_h"];
         if (LocalModeBoolean(fullWidth)) _sharedFullWidthShortcut = fullWidth;
+    }
+    // 三个可重绑切换热键的写法交给共享契约解码：msime_client_toggle_hotkey_chords
+    // 给出主键规范名与修饰键集合，宿主按 ToggleChord 认键。keybindings 不是表或
+    // 解码失败时保持现值；keybindings 缺省或为 null 按出厂值。
+    if (NSDictionary *chords = MSIMEToggleHotkeyChords(keys)) {
+        _englishCandidatesToggleChord = MSIMEDecodeToggleChord(chords[@"english_candidates"]);
+        _fullWidthToggleChord = MSIMEDecodeToggleChord(chords[@"full_width"]);
+        _punctuationToggleChord = MSIMEDecodeToggleChord(chords[@"punctuation"]);
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;

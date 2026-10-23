@@ -1170,6 +1170,9 @@ pub struct Preferences {
     pub wubi_profile: WubiProfile,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
+    /// Android 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。其他宿主原样保留。
+    #[serde(default)]
+    pub touch_keyboard_split_portrait: bool,
     /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
     ///
     /// 总是写进文档，哪怕等于默认值：以前的版本在等于默认值时省略它，于是文档里没有它只能说明是以前的版本写的，按以前的默认列表读（[`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]）。新装的默认值已经不同，再省略就分不出这两种文档。
@@ -2280,8 +2283,17 @@ pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MixedInputPreferences {
+    /// 候选混输总开关（Windows `utility.mixed_candidates`）：关掉后英文、emoji、颜文字、符号、日文、快捷短语和行内日期时间都不再混进普通候选，各分开关的原值保留。后加的成员，开着时不写进文档，旧版本和没有这个键的文档都按开处理。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub enabled: bool,
     pub english: bool,
     pub minimum_prefix: u8,
+    /// 中文状态下首页最多展示几个英文候选（Windows `general.cn_en_mixed_input_first_page_count`，1–3）：第一行英文进优先位置之后，其余英文紧跟它继续占首页的空位，放不下的照旧接在列表末尾。后加的成员，为 1 时不写进文档，旧版本和没有这个键的文档都按 1 处理。
+    #[serde(
+        default = "default_first_page_count",
+        skip_serializing_if = "is_default_first_page_count"
+    )]
+    pub first_page_count: u8,
     pub emoji: bool,
     pub kaomoji: bool,
     /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
@@ -2301,8 +2313,10 @@ pub struct MixedInputPreferences {
 impl Default for MixedInputPreferences {
     fn default() -> Self {
         Self {
+            enabled: true,
             english: true,
             minimum_prefix: DEFAULT_MIXED_INPUT_MINIMUM_PREFIX,
+            first_page_count: DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT,
             emoji: source_mixed_emoji_default(),
             kaomoji: false,
             japanese: false,
@@ -2311,6 +2325,17 @@ impl Default for MixedInputPreferences {
             quick_phrase_frequency: true,
         }
     }
+}
+
+/// 中文状态下首页默认展示的英文候选数（Windows `cn_en_mixed_input_first_page_count` 的出厂值）。
+pub const DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT: u8 = 1;
+
+fn default_first_page_count() -> u8 {
+    DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT
+}
+
+fn is_default_first_page_count(value: &u8) -> bool {
+    *value == DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -2624,6 +2649,222 @@ fn toggle_chord(text: &str) -> Option<crate::key_chord::KeyChord> {
     }
 }
 
+/// 三个可重绑切换热键之一。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToggleHotkeySlot {
+    /// `keybindings.toggle_english_candidates`。
+    #[serde(rename = "toggle_english_candidates")]
+    EnglishCandidates,
+    /// `keybindings.toggle_full_width`。
+    #[serde(rename = "toggle_full_width")]
+    FullWidth,
+    /// `keybindings.toggle_punctuation`。
+    #[serde(rename = "toggle_punctuation")]
+    Punctuation,
+}
+
+/// 一个组合键已被谁占用：另一个切换热键，或某个开关随附的快捷键 / macOS 维护键。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToggleChordOwner {
+    EnglishCandidates,
+    FullWidth,
+    Punctuation,
+    /// `keybindings.switch_language_shift` 打开时 macOS 同时启用 `Shift+Space`。
+    SwitchLanguageShift,
+    /// `keybindings.switch_language_ctrl_space` 打开时的 `Ctrl+Space`。
+    SwitchLanguageCtrlSpace,
+    /// `keybindings.switch_language_ctrl_alt_space` 打开时的 `Ctrl+Alt+Space`。
+    SwitchLanguageCtrlAltSpace,
+    /// `keybindings.toggle_character_set_ctrl_shift_f` 打开时的 `Ctrl+Shift+KeyF`。
+    ToggleCharacterSetCtrlShiftF,
+    /// `keybindings.toggle_japanese_ctrl_shift_j` 打开时的 `Ctrl+Shift+KeyJ`。
+    ToggleJapaneseCtrlShiftJ,
+    /// macOS 独立的 `Alt+Shift+KeyH` 全半角入口。
+    ToggleFullwidthOptionShiftH,
+    /// macOS 无开关的 `Ctrl+Shift+Meta+KeyK` 屏幕键盘入口。
+    MacosScreenKeyboard,
+    /// `voice_input.hotkey_ctrl_f9` 打开时的 `Ctrl+F9` 与 `Ctrl+Shift+F9`（Windows 的语音开关只看 Ctrl 按住、不看 Shift）。
+    VoiceHotkey,
+    /// macOS 无开关的维护键 `Ctrl+Alt+Shift+KeyC/R/T`。
+    MacosMaintenance,
+}
+
+impl ToggleChordOwner {
+    /// 跨进程回传给设置页的稳定标识：切换热键用文档字段名，开关占用用开关字段名，其余用 `voice_hotkey` / `macos_maintenance`。
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::EnglishCandidates => "toggle_english_candidates",
+            Self::FullWidth => "toggle_full_width",
+            Self::Punctuation => "toggle_punctuation",
+            Self::SwitchLanguageShift => "switch_language_shift",
+            Self::SwitchLanguageCtrlSpace => "switch_language_ctrl_space",
+            Self::SwitchLanguageCtrlAltSpace => "switch_language_ctrl_alt_space",
+            Self::ToggleCharacterSetCtrlShiftF => "toggle_character_set_ctrl_shift_f",
+            Self::ToggleJapaneseCtrlShiftJ => "toggle_japanese_ctrl_shift_j",
+            Self::ToggleFullwidthOptionShiftH => "toggle_fullwidth_option_shift_h",
+            Self::MacosScreenKeyboard => "macos_screen_keyboard",
+            Self::VoiceHotkey => "voice_hotkey",
+            Self::MacosMaintenance => "macos_maintenance",
+        }
+    }
+}
+
+/// 试写一个切换热键不通过的结论。
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ToggleHotkeyRejection {
+    /// 写法不是合法 chord。
+    #[error("{0}")]
+    Invalid(crate::key_chord::KeyChordError),
+    /// 与 `owner` 占用的组合键相同（`chord` 是归一后的写法）。
+    #[error("conflicts with {owner:?}")]
+    Conflict {
+        owner: ToggleChordOwner,
+        chord: crate::key_chord::KeyChord,
+    },
+}
+
+impl KeybindingPreferences {
+    /// 三个切换热键的槽位与当前 chord：空串或非法写法为 `None`（不绑定）。
+    fn toggle_chords(&self) -> [(ToggleHotkeySlot, Option<crate::key_chord::KeyChord>); 3] {
+        [
+            (
+                ToggleHotkeySlot::EnglishCandidates,
+                self.english_candidates_chord(),
+            ),
+            (ToggleHotkeySlot::FullWidth, self.full_width_chord()),
+            (ToggleHotkeySlot::Punctuation, self.punctuation_chord()),
+        ]
+    }
+
+    /// 切换热键不能绑的占用键：随开关开合的快捷键加 macOS 无开关的维护键（`InputControllerPhysicalKeys.h`
+    /// 的 Ctrl+Shift+Option+C/R/T，对应 Alt 写作 Option 的一面），绑了它在 macOS 上会被维护动作吃掉。
+    /// `voice_hotkey_ctrl_f9` 是 `voice_input.hotkey_ctrl_f9`：Windows 的语音开关只看 Ctrl 按住、不看 Shift，
+    /// `Ctrl+Shift+F9` 同样触发，所以两个写法都占。
+    fn occupied_toggle_chords(
+        &self,
+        voice_hotkey_ctrl_f9: bool,
+    ) -> Vec<(crate::key_chord::KeyChord, ToggleChordOwner)> {
+        let mut occupied = Vec::new();
+        for (enabled, text, owner) in [
+            (
+                self.switch_language_shift,
+                "Shift+Space",
+                ToggleChordOwner::SwitchLanguageShift,
+            ),
+            (
+                self.toggle_fullwidth_option_shift_h,
+                "Alt+Shift+KeyH",
+                ToggleChordOwner::ToggleFullwidthOptionShiftH,
+            ),
+            (
+                true,
+                "Ctrl+Shift+Meta+KeyK",
+                ToggleChordOwner::MacosScreenKeyboard,
+            ),
+            (
+                self.switch_language_ctrl_space,
+                "Ctrl+Space",
+                ToggleChordOwner::SwitchLanguageCtrlSpace,
+            ),
+            (
+                self.switch_language_ctrl_alt_space,
+                "Ctrl+Alt+Space",
+                ToggleChordOwner::SwitchLanguageCtrlAltSpace,
+            ),
+            (
+                self.toggle_character_set_ctrl_shift_f,
+                "Ctrl+Shift+KeyF",
+                ToggleChordOwner::ToggleCharacterSetCtrlShiftF,
+            ),
+            (
+                self.toggle_japanese_ctrl_shift_j,
+                "Ctrl+Shift+KeyJ",
+                ToggleChordOwner::ToggleJapaneseCtrlShiftJ,
+            ),
+            (
+                voice_hotkey_ctrl_f9,
+                "Ctrl+F9",
+                ToggleChordOwner::VoiceHotkey,
+            ),
+            (
+                voice_hotkey_ctrl_f9,
+                "Ctrl+Shift+F9",
+                ToggleChordOwner::VoiceHotkey,
+            ),
+            (
+                true,
+                "Ctrl+Alt+Shift+KeyC",
+                ToggleChordOwner::MacosMaintenance,
+            ),
+            (
+                true,
+                "Ctrl+Alt+Shift+KeyR",
+                ToggleChordOwner::MacosMaintenance,
+            ),
+            (
+                true,
+                "Ctrl+Alt+Shift+KeyT",
+                ToggleChordOwner::MacosMaintenance,
+            ),
+        ] {
+            if enabled {
+                occupied.push((text.parse().expect("保留表里的写法必须是合法 chord"), owner));
+            }
+        }
+        occupied
+    }
+
+    /// 把 `text` 作为 `slot` 的绑定试写：通过时回规范写法（空串回空，表示不绑定）；
+    /// 不通过时给原因，冲突经 `owner` 指出占用它的是哪一项。
+    pub fn check_toggle_hotkey(
+        &self,
+        slot: ToggleHotkeySlot,
+        text: &str,
+        voice_hotkey_ctrl_f9: bool,
+    ) -> Result<String, ToggleHotkeyRejection> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(String::new());
+        }
+        let chord: crate::key_chord::KeyChord =
+            text.parse().map_err(ToggleHotkeyRejection::Invalid)?;
+        for (other, bound) in self.toggle_chords() {
+            if other == slot {
+                continue;
+            }
+            if bound.is_some_and(|bound| chord.conflicts_with(&bound)) {
+                return Err(ToggleHotkeyRejection::Conflict {
+                    owner: match other {
+                        ToggleHotkeySlot::EnglishCandidates => ToggleChordOwner::EnglishCandidates,
+                        ToggleHotkeySlot::FullWidth => ToggleChordOwner::FullWidth,
+                        ToggleHotkeySlot::Punctuation => ToggleChordOwner::Punctuation,
+                    },
+                    chord,
+                });
+            }
+        }
+        for (occupied, owner) in self.occupied_toggle_chords(voice_hotkey_ctrl_f9) {
+            if chord.conflicts_with(&occupied) {
+                return Err(ToggleHotkeyRejection::Conflict { owner, chord });
+            }
+        }
+        Ok(chord.to_string())
+    }
+
+    /// 三个切换热键的写法归一成规范形；不是 chord 的原样留下，交给 `Preferences::validate` 拒绝。
+    pub fn normalize_toggle_hotkeys(&mut self) {
+        for text in [
+            &mut self.toggle_english_candidates,
+            &mut self.toggle_full_width,
+            &mut self.toggle_punctuation,
+        ] {
+            if let Ok(chord) = text.trim().parse::<crate::key_chord::KeyChord>() {
+                *text = chord.to_string();
+            }
+        }
+    }
+}
+
 impl Default for KeybindingPreferences {
     fn default() -> Self {
         Self {
@@ -2880,6 +3121,7 @@ impl Default for Preferences {
             wubi_mixed_pinyin: false,
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
+            touch_keyboard_split_portrait: false,
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
@@ -3697,7 +3939,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidFloatingToolbar);
         }
-        if !(1..=8).contains(&self.mixed_input.minimum_prefix) {
+        if !(1..=8).contains(&self.mixed_input.minimum_prefix)
+            || !(1..=3).contains(&self.mixed_input.first_page_count)
+        {
             return Err(PreferencesError::InvalidMixedInput);
         }
         if !self.plugins.validate() {
@@ -3805,28 +4049,13 @@ impl Preferences {
         if self.word_character.enabled && paging {
             return Err(PreferencesError::ConflictingKeyBindings);
         }
-        // 三个切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。macOS 维护组合键没有开关、永远占用（`InputControllerPhysicalKeys.h` 的 Ctrl+Shift+Option+C/R/T，对应 Alt 写作 Option 的一面），绑了它在 macOS 上会被维护动作吃掉，所以跨平台文档一律不让绑。
+        // 三个切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。占用表的完整说明见 `KeybindingPreferences::occupied_toggle_chords`，设置页的录键试写走同一个表。
         let keybindings = &self.keybindings;
-        let mut occupied: Vec<crate::key_chord::KeyChord> = Vec::new();
-        for (enabled, text) in [
-            (keybindings.switch_language_ctrl_space, "Ctrl+Space"),
-            (keybindings.switch_language_ctrl_alt_space, "Ctrl+Alt+Space"),
-            (
-                keybindings.toggle_character_set_ctrl_shift_f,
-                "Ctrl+Shift+KeyF",
-            ),
-            (keybindings.toggle_japanese_ctrl_shift_j, "Ctrl+Shift+KeyJ"),
-            (self.voice_input.hotkey_ctrl_f9, "Ctrl+F9"),
-            // Windows 的语音开关只看 Ctrl 是否按住、不看 Shift，`Ctrl+Shift+F9` 同样触发。
-            (self.voice_input.hotkey_ctrl_f9, "Ctrl+Shift+F9"),
-            (true, "Ctrl+Alt+Shift+KeyC"),
-            (true, "Ctrl+Alt+Shift+KeyR"),
-            (true, "Ctrl+Alt+Shift+KeyT"),
-        ] {
-            if enabled {
-                occupied.push(text.parse().expect("保留表里的写法必须是合法 chord"));
-            }
-        }
+        let occupied: Vec<crate::key_chord::KeyChord> = keybindings
+            .occupied_toggle_chords(self.voice_input.hotkey_ctrl_f9)
+            .into_iter()
+            .map(|(chord, _)| chord)
+            .collect();
         let mut toggles: Vec<crate::key_chord::KeyChord> = Vec::new();
         for text in [
             &keybindings.toggle_english_candidates,
@@ -4264,6 +4493,8 @@ impl PreferencesStore {
         if current.preferences.smart_punctuation_migrated {
             preferences.smart_punctuation_migrated = true;
         }
+        // 切换热键在文档里只有规范形一种写法：别名写法在写入处归一，与出厂值等价的写法按出厂值不落盘。
+        preferences.keybindings.normalize_toggle_hotkeys();
         // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
         preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;

@@ -740,9 +740,11 @@ impl HostSession {
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
+        options.mixed_candidates = preferences.mixed_input.enabled;
         options.mixed_english = preferences.mixed_input.english;
         options.english_minimum_prefix =
             host_english_minimum_prefix(preferences.mixed_input.minimum_prefix);
+        options.english_first_page_count = preferences.mixed_input.first_page_count;
         options.mixed_emoji = preferences.mixed_input.emoji;
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
         options.mixed_symbols = preferences.mixed_input.symbols;
@@ -1146,6 +1148,9 @@ impl HostSession {
             ));
         self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        // 首页英文候选数同样是宿主状态：在线座位整理按它给英文组留位，改完下一次刷新就生效。
+        self.runtime
+            .set_english_first_page_count(requested_preferences.mixed_input.first_page_count);
         // 顶字同样是宿主状态：纯判定在 Engine 与 runtime 之间，改偏好不必等组字结束。
         self.runtime
             .set_wubi_fifth_code_top_commit(requested_preferences.wubi_fifth_code_top_commit);
@@ -2029,10 +2034,12 @@ impl HostOptions {
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
+            mixed_candidates: self.preferences.mixed_input.enabled,
             mixed_english: self.preferences.mixed_input.english,
             english_minimum_prefix: host_english_minimum_prefix(
                 self.preferences.mixed_input.minimum_prefix,
             ),
+            english_first_page_count: self.preferences.mixed_input.first_page_count,
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
             mixed_symbols: self.preferences.mixed_input.symbols,

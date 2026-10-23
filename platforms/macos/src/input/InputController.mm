@@ -833,12 +833,15 @@ static NSUInteger MSIMECandidateDeletionSlot(NSEvent *event) {
 }
 // 这次按键在当前键盘布局上对应的快捷键字母，规则见 `msime::mac::ShortcutLetter`。
 static char MSIMEShortcutLetter(NSEvent *event) {
-    NSString *characters = event.charactersIgnoringModifiers;
-    return msime::mac::ShortcutLetter(event.keyCode, characters.length == 1 ? [characters characterAtIndex:0] : 0);
+    return msime::mac::ShortcutLetter(event.keyCode, msime::mac::ToggleHotkeyCharacter(event));
 }
-static BOOL MSIMEPunctuationToggle(NSEvent *event) {
-    const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
-    return event.keyCode == 47 && (event.modifierFlags & modifiers) == NSEventModifierFlagControl;
+// 事件是否命中一个可重绑切换热键：可打印主键按无修饰布局字符认，
+// 修饰键四旗精确相等，与原来各分支的掩码语义一致。
+static BOOL MSIMEToggleChordMatches(msime::mac::ToggleChord chord, NSEvent *event) {
+    const NSEventModifierFlags flags = event.modifierFlags;
+    return msime::mac::ToggleChordMatches(chord, event.keyCode, msime::mac::ToggleHotkeyCharacter(event),
+        (flags & NSEventModifierFlagControl) != 0, (flags & NSEventModifierFlagOption) != 0,
+        (flags & NSEventModifierFlagShift) != 0, (flags & NSEventModifierFlagCommand) != 0);
 }
 // The marks this host closes for the user, opening first. The reference keeps the same list in its
 // TIP (`GetPairedPunctuationClosing`).
@@ -1336,6 +1339,7 @@ static NSImage *MSIMECandidateLogoImage() {
 
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
+    uint64_t _dictionarySessionLastUse;
     // Stands in for TISEnableInputSource when set, so a test can see which opt-in mode a scheme change enables.
     OSStatus (^_optInInputModeEnabler)(NSString *identifier);
     // 设置后代替菜单栏状态项，测试由此看到状态项被摆成哪个模式（nil 表示隐藏），不在测试进程里真的建 NSStatusItem。
@@ -5433,7 +5437,26 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     return holders;
 }
 + (void)holdDictionarySession:(MSIMEInputController *)controller {
+    controller->_dictionarySessionLastUse = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     [[self dictionarySessionHolders] addObject:controller];
+}
+// IMK 会保留多个客户端控制器；闲置会话继续持有词库文件和目录句柄，不能随客户端数量无限增长。
+static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
++ (NSUInteger)releaseIdleDictionarySessionsKeeping:(NSUInteger)limit {
+    NSUInteger kept = 0;
+    NSUInteger released = 0;
+    NSArray<MSIMEInputController *> *holders = [[self dictionarySessionHolders].allObjects
+        sortedArrayUsingComparator:^NSComparisonResult(MSIMEInputController *left, MSIMEInputController *right) {
+            if (left->_dictionarySessionLastUse == right->_dictionarySessionLastUse) return NSOrderedSame;
+            return left->_dictionarySessionLastUse > right->_dictionarySessionLastUse ? NSOrderedAscending : NSOrderedDescending;
+        }];
+    for (MSIMEInputController *controller in holders) {
+        if (controller->_activeClient || !controller->_session) continue;
+        if (kept++ < limit) continue;
+        [controller releaseDictionarySession];
+        ++released;
+    }
+    return released;
 }
 + (void)dictionaryMaintenanceWillBegin:(NSNotification *)notification {
     (void)notification;
@@ -5443,9 +5466,13 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     for (MSIMEInputController *controller in [self dictionarySessionHolders].allObjects)
         [controller releaseDictionarySessionIfQuiesced];
 }
-// Let go of the session, and with it the shared dictionary lock, while the settings window holds the maintenance lease. What was being typed is committed first, and work bound to the session is cancelled the way a focus change cancels it; the next key after the lease is gone opens a new session (prepareSession).
+// 设置窗口持有维护租约时关闭会话并释放词库锁；活动组字先上屏，下一次按键通过 prepareSession 重建。
 - (void)releaseDictionarySessionIfQuiesced {
     if (!_session || !MSIMEDictionaryQuiesced(_session.hostOptions)) return;
+    [self releaseDictionarySession];
+}
+- (void)releaseDictionarySession {
+    if (!_session) return;
     [self cancelLiveVoiceInput];
     [self cancelDoubaoVoiceInput];
     [self cancelHTTPVoiceInput];
@@ -5458,7 +5485,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     _preferenceLoadState.reset();
     if (_activeClient) {
         if (![self commitManagedEnglishRaw]) return;
-        // 会话即将为词库维护关闭，不是用户结束组字：按失焦上屏处理，不出声不画。
+        // 关闭活动会话时按失焦上屏处理，不出声不画。
         NSDictionary *finished = [_session command:MSIME_FINISH_ON_FOCUS_LOSS error:nil];
         if (finished) [self apply:finished];
         else MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
@@ -5759,12 +5786,15 @@ static NSString *MSIMEBundleSoundPacks(NSBundle *bundle) {
         ? directory : nil;
 }
 
-// The two reasons a session can be missing, as its own function for the reason MSIMESessionOptions is: what
-// it decides is reachable in a test, while the branch it is decided in needs a whole Engine to enter.
-// Nothing prepared the dictionary, or something did and the Engine would not take it - a different next step
-// each, which is the whole point of saying which one it was.
-static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
-    return options ? @"session refused the runtime options" : @"no usable runtime options";
+// 区分运行时配置不可用与引擎拒绝创建，并用可独立测试的固定错误类别说明失败原因。
+static NSString *MSIMESessionUnavailableReason(NSDictionary *options, NSError *error = nil) {
+    if (!options) return @"no usable runtime options";
+    // 只允许固定类别进入日志；引擎的其他错误可能包含私人路径或配置值。
+    NSString *message = error.localizedDescription;
+    for (NSString *category in @[@"dictionary access unavailable", @"dictionary maintenance busy",
+                                 @"invalid options document", @"unsupported host API version"])
+        if ([message isEqualToString:category]) return category;
+    return @"session refused the runtime options";
 }
 
 // Why there is no session, said once per reason.
@@ -5785,18 +5815,28 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     BOOL reopened = NO;
     BOOL created = NO;
     if (!_session) {
-        NSDictionary *options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle),
-                                                   NSBundle.mainBundle.resourcePath);
-        // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
-        if (options && MSIMEDictionaryQuiesced(options)) {
-            if (!_preferencesTimer) [self startPreferencesMonitoring];
-            return;
+        [MSIMEInputController releaseIdleDictionarySessionsKeeping:MSIMEIdleDictionarySessionLimit];
+        NSDictionary *options = nil;
+        NSError *sessionError = nil;
+        for (NSUInteger attempt = 0; attempt < 2; ++attempt) {
+            options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle),
+                                         NSBundle.mainBundle.resourcePath);
+            // 词库维护持有租约时保持等待，不能用回收重试绕过它。
+            if (options && MSIMEDictionaryQuiesced(options)) {
+                if (!_preferencesTimer) [self startPreferencesMonitoring];
+                return;
+            }
+            [self resolveCloudCandidatesConsentWithOptions:options];
+            sessionError = nil;
+            if (options) {
+                MSIMEConfigureDiagnosticLogBeforeSession(options);
+                _session = [self createSessionWithOptions:options error:&sessionError];
+            }
+            if (_session || attempt != 0 || [MSIMEInputController releaseIdleDictionarySessionsKeeping:0] == 0) break;
+            // 文件句柄耗尽也会让配置读取失败；释放闲置会话后重新读取，最多重试一次。
+            msime_macos_diagnostic_write("session_retry_after_idle_release");
         }
-        // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
-        [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
-            MSIMEConfigureDiagnosticLogBeforeSession(options);
-            _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
@@ -5810,7 +5850,7 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
             }
         }
         if (_session) _sessionUnavailableReason = nil;
-        else [self reportSessionUnavailable:MSIMESessionUnavailableReason(options)];
+        else [self reportSessionUnavailable:MSIMESessionUnavailableReason(options, sessionError)];
     }
     [self syncPageSize];
     if (_session) {
@@ -5831,6 +5871,10 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
         if (created && MSIMEMusicOwner == self) [self claimBackgroundMusic];
     }
     [self startPreferencesMonitoring];
+}
+
+- (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
+    return [[MSIMEClientSession alloc] initWithOptions:options error:error];
 }
 
 - (void)startPreferencesMonitoring {
@@ -6199,6 +6243,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self hideCandidatePanel:"focus_out"];
     _activeClient = nil;
     if (MSIMEFocusedController == self) MSIMEFocusedController = nil;
+    _dictionarySessionLastUse = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:MSIMEIdleDictionarySessionLimit];
     [super deactivateServer:sender];
 }
 
@@ -6738,7 +6784,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
-    if (MSIMEPunctuationToggle(event)) {
+    if (MSIMEToggleChordMatches(_appearance.punctuationToggleChord, event)) {
         if (!event.isARepeat) [self floatingToolbarDidRequestTogglePunctuation:nil];
         return YES;
     }
@@ -6749,15 +6795,17 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat && !_appearance.englishMode) [self floatingToolbarDidRequestToggleTraditionalOutput:nil];
         return YES;
     }
-    if (shortcutLetter == 'e' && (event.modifierFlags & (competing | NSEventModifierFlagShift)) == (NSEventModifierFlagControl | NSEventModifierFlagShift)) {
+    if (MSIMEToggleChordMatches(_appearance.englishCandidatesToggleChord, event)) {
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
-    // Only the Option+Shift+H arm is a preference; Ctrl+Shift+Space is the chord the Windows host
-    // reserves too, and the settings page says nothing about it.
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, shortcutLetter, event.modifierFlags) &&
-        (event.keyCode == 49 || _appearance.fullWidthShortcut) &&
-        (!_appearance.englishMode || event.keyCode == 49)) {
+    // 全半角：绑定的 chord 在中英文模式下都生效；Option+Shift+H 是 macOS 既有快捷键，
+    // 由 `toggle_fullwidth_option_shift_h` 开关门控，只在中文模式。
+    const auto widthArm = msime::mac::FullWidthInputToggleArm(
+        event.keyCode, msime::mac::ToggleHotkeyCharacter(event), event.modifierFlags, _appearance.fullWidthToggleChord);
+    if (widthArm != msime::mac::ToggleFullWidthArm::none &&
+        (widthArm == msime::mac::ToggleFullWidthArm::chord || _appearance.fullWidthShortcut) &&
+        (!_appearance.englishMode || widthArm == msime::mac::ToggleFullWidthArm::chord)) {
         if (!event.isARepeat) [self toggleRuntimeFullWidthInput];
         return YES;
     }

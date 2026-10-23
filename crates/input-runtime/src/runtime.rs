@@ -135,6 +135,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
+    /// 中文状态下首页最多展示几个英文候选（`mixed_input.first_page_count`，1–3）：在线座位整理时英文组在头段的留位数，第一行总能留位。
+    pub(crate) english_first_page_count: usize,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -772,6 +774,11 @@ impl<E: InputEngine> Runtime<E> {
         self.left_right_navigation = enabled;
     }
 
+    /// 首页英文候选上限（`mixed_input.first_page_count`）：1–3，越界按 1 处理；和 `set_left_right_navigation` 一样是宿主状态，下一次座位整理就生效。
+    pub fn set_english_first_page_count(&mut self, count: u8) {
+        self.english_first_page_count = usize::from(count.clamp(1, 3));
+    }
+
     /// 候选窗是否竖排：和 `set_left_right_navigation` 一样只影响左右键这一次怎么解释。
     pub fn set_vertical_candidates(&mut self, vertical: bool) {
         self.vertical_candidates = vertical;
@@ -1037,6 +1044,7 @@ impl<E: InputEngine> Runtime<E> {
             backspace_reverts_selection: true,
             escape_keeps_selected_word: false,
             left_right_navigation: false,
+            english_first_page_count: 1,
             vertical_candidates: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -2273,12 +2281,29 @@ impl<E: InputEngine> Runtime<E> {
 
             let mut next_seat = 0;
             let mut head = |group: usize, limit: usize| {
+                let limit = if group == ENGLISH_GROUP {
+                    // 额外英文只占首页余位，并为 AI 保留一格；原有第一行英文优先位继续保留。
+                    let following = if promoted_english {
+                        counts[LOCAL_GROUP].min(local_prefix)
+                            + counts[CLOUD_GROUP]
+                            + counts[JAPANESE_GROUP].min(1)
+                    } else {
+                        0
+                    };
+                    limit.min(
+                        self.page_size
+                            .saturating_sub(next_seat + following + usize::from(ai_count > 0))
+                            .max(1),
+                    )
+                } else {
+                    limit
+                };
                 head_starts[group] = next_seat;
                 head_counts[group] = counts[group].min(limit);
                 next_seat += head_counts[group];
             };
             if promoted_english {
-                head(ENGLISH_GROUP, 1);
+                head(ENGLISH_GROUP, self.english_first_page_count);
             }
             if promoted_japanese {
                 head(JAPANESE_GROUP, 1);
@@ -2289,7 +2314,7 @@ impl<E: InputEngine> Runtime<E> {
                 head(JAPANESE_GROUP, 1);
             }
             if !promoted_english {
-                head(ENGLISH_GROUP, 1);
+                head(ENGLISH_GROUP, self.english_first_page_count);
             }
             head(EMOJI_GROUP, 1);
             head(KAOMOJI_GROUP, 1);

@@ -1,0 +1,197 @@
+import type { TypingBreakdown } from "./typing-speed";
+import { sumStatisticValues } from "./typing-statistics-helpers";
+
+export type Slice = { id: string; title: string; count: number; color: string; symbol: string };
+
+export const palette = [
+  "#19a78d",
+  "#4c8ee8",
+  "#7772df",
+  "#e59b43",
+  "#db6f9f",
+  "#a879d7",
+  "#98705a",
+  "#888b92",
+];
+const characterKinds = [
+  ["han", "汉字"],
+  ["latin", "拉丁字母"],
+  ["otherLetter", "其他文字"],
+  ["number", "数字"],
+  ["punctuation", "标点"],
+  ["emoji", "表情"],
+  ["symbol", "其他符号"],
+  ["unknown", "历史未分类"],
+] as const;
+const sources = [
+  ["quanpin", "全拼 26 键"],
+  ["nineKey", "全拼 9 键"],
+  ["fourteenKey", "全拼 14 键"],
+  ["shuangpin", "小鹤双拼"],
+  ["ziranma", "自然码双拼"],
+  ["microsoft", "微软双拼"],
+  ["shoudao", "首道双拼"],
+  ["smart_abc", "智能 ABC 双拼"],
+  ["wubi", "五笔"],
+  ["japanese", "日语"],
+  ["korean", "韩语"],
+  ["cantonese", "粤拼"],
+  ["zhuyin", "注音"],
+  ["vietnamese", "越南语"],
+  ["tibetan", "藏文"],
+  ["stroke", "笔画"],
+  ["handwriting", "手写"],
+  ["english", "英文键盘"],
+  ["local", "本地输入"],
+  ["ai", "AI 润色"],
+  ["reply", "高情商回复"],
+  ["voice", "语音输入"],
+  ["unknown", "历史未分类"],
+] as const;
+const characterSymbols: Record<string, string> = {
+  han: "汉",
+  latin: "A",
+  otherLetter: "文",
+  number: "123",
+  punctuation: "，",
+  emoji: "😀",
+  symbol: "#",
+  unknown: "?",
+};
+const sourceSymbols: Record<string, string> = {
+  quanpin: "全",
+  nineKey: "9",
+  fourteenKey: "14",
+  shuangpin: "鹤",
+  ziranma: "自",
+  microsoft: "微",
+  shoudao: "首",
+  smart_abc: "智",
+  wubi: "五",
+  japanese: "日",
+  korean: "韩",
+  cantonese: "粤",
+  zhuyin: "注",
+  vietnamese: "越",
+  tibetan: "藏",
+  stroke: "笔",
+  handwriting: "手",
+  english: "A",
+  local: "本",
+  ai: "✦",
+  reply: "回",
+  voice: "♪",
+  unknown: "?",
+};
+
+export function statisticsDistributionSlices(breakdown: TypingBreakdown) {
+  const characterSlices = characterKinds.map(([id, title], index) => ({
+    id,
+    title,
+    count: breakdown.characters[id] ?? 0,
+    color: palette[index % palette.length],
+    symbol: characterSymbols[id] ?? "?",
+  }));
+  const sourceSlices = sources.map(([id, title], index) => ({
+    id,
+    title,
+    count: breakdown.sources[id] ?? 0,
+    color: palette[index % palette.length],
+    symbol: sourceSymbols[id] ?? "?",
+  }));
+  const languageSlices: Slice[] = [
+    {
+      id: "chinese",
+      title: "中文模式",
+      count: sumStatisticValues(breakdown.sources, [
+        "quanpin",
+        "nineKey",
+        "fourteenKey",
+        "shuangpin",
+        "ziranma",
+        "microsoft",
+        "shoudao",
+        "smart_abc",
+        "wubi",
+        "cantonese",
+        "zhuyin",
+        "stroke",
+      ]),
+      color: palette[0],
+      symbol: "中",
+    },
+    {
+      id: "japanese",
+      title: "日语模式",
+      count: breakdown.sources.japanese ?? 0,
+      color: palette[4],
+      symbol: "日",
+    },
+    {
+      id: "korean",
+      title: "韩语模式",
+      count: breakdown.sources.korean ?? 0,
+      color: palette[6],
+      symbol: "韩",
+    },
+    {
+      id: "vietnamese",
+      title: "越南语模式",
+      count: breakdown.sources.vietnamese ?? 0,
+      // 调色板的颜色都已被这里的扇区占用，越南语与高情商回复一样使用独立颜色。
+      color: "#d0605e",
+      symbol: "越",
+    },
+    {
+      id: "tibetan",
+      title: "藏文模式",
+      count: breakdown.sources.tibetan ?? 0,
+      // 调色板的颜色都已被这里的扇区占用，藏文和越南语一样用自己的颜色。
+      color: "#b8873a",
+      symbol: "藏",
+    },
+    {
+      id: "english",
+      title: "英文模式",
+      count: breakdown.sources.english ?? 0,
+      color: palette[1],
+      symbol: "A",
+    },
+    {
+      id: "local",
+      title: "本地输入",
+      count: breakdown.sources.local ?? 0,
+      color: palette[5],
+      symbol: "本",
+    },
+    {
+      id: "ai",
+      title: "AI 润色",
+      count: breakdown.sources.ai ?? 0,
+      color: palette[3],
+      symbol: "✦",
+    },
+    {
+      id: "reply",
+      title: "高情商回复",
+      count: breakdown.sources.reply ?? 0,
+      color: "#55bfa0",
+      symbol: "回",
+    },
+    {
+      id: "voice",
+      title: "语音输入",
+      count: breakdown.sources.voice ?? 0,
+      color: palette[2],
+      symbol: "♪",
+    },
+    {
+      id: "unknown",
+      title: "历史未分类",
+      count: breakdown.sources.unknown ?? 0,
+      color: palette[7],
+      symbol: "?",
+    },
+  ];
+  return { characterSlices, sourceSlices, languageSlices };
+}

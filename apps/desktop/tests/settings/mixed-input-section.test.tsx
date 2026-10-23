@@ -137,3 +137,35 @@ test("an edition without temporary Japanese does not list Japanese mixed input",
   expect(screen.queryByRole("switch", { name: /^日文混输（实验）/ })).toBeNull();
   expect(screen.getByRole("switch", { name: /^颜文字混输/ })).toBeTruthy();
 });
+
+test("关闭混输总开关也禁用快捷短语及调频，并保留两项选择", () => {
+  const onChange = vi.fn();
+  const stored = Object.freeze({
+    ...preferences,
+    enabled: false,
+    quick_phrase: true,
+    quick_phrase_frequency: true,
+  });
+  const view = render(
+    <MixedInputMoreRows preferences={stored} quickPhraseCandidates onChange={onChange} />,
+  );
+  for (const name of [/^快捷短语混输/, /^快捷短语参与调频/]) {
+    const control = screen.getByRole("switch", { name }) as HTMLInputElement;
+    expect(control.checked).toBe(true);
+    expect(control.disabled).toBe(true);
+    control.click();
+  }
+  expect(onChange).not.toHaveBeenCalled();
+  view.rerender(
+    <MixedInputMoreRows
+      preferences={{ ...stored, enabled: true }}
+      quickPhraseCandidates
+      onChange={onChange}
+    />,
+  );
+  for (const name of [/^快捷短语混输/, /^快捷短语参与调频/]) {
+    const control = screen.getByRole("switch", { name }) as HTMLInputElement;
+    expect(control.checked).toBe(true);
+    expect(control.disabled).toBe(false);
+  }
+});

@@ -2,6 +2,7 @@
 #import <AppKit/AppKit.h>
 #import "../../../../shared/apple/TextClient.h"
 #include "../candidate/CandidateSkin.h"
+#include "../input/ToggleHotkeys.h"
 
 @class MSIMECandidateCanvasAssets;
 
@@ -134,6 +135,10 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL controlOptionSpaceShortcut;
 @property(nonatomic) BOOL characterSetShortcut;
 @property(nonatomic) BOOL fullWidthShortcut;
+/// 三个可重绑切换热键（共享偏好 `keybindings.toggle_english_candidates`、`toggle_full_width`、`toggle_punctuation`）解码出的认键组合；写法为空或不合法时 bound=NO 不绑定。共享文档还没载入或没有 keybindings 时按出厂值（client-core 的 `TOGGLE_*_DEFAULT`）。
+@property(nonatomic, readonly) msime::mac::ToggleChord englishCandidatesToggleChord;
+@property(nonatomic, readonly) msime::mac::ToggleChord fullWidthToggleChord;
+@property(nonatomic, readonly) msime::mac::ToggleChord punctuationToggleChord;
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;

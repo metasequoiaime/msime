@@ -290,8 +290,10 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         frequency_mode: "disabled".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
+        mixed_candidates: true,
         mixed_english: false,
         english_minimum_prefix: 2,
+        english_first_page_count: 1,
         mixed_emoji: false,
         mixed_kaomoji: false,
         mixed_symbols: false,
@@ -1346,6 +1348,8 @@ fn mixed_input_changes_defer_until_composition_ends() {
     let before = read(msime_client_view(handle));
     let mut preferences = Preferences {
         mixed_input: MixedInputPreferences {
+            enabled: true,
+            first_page_count: 1,
             english: false,
             minimum_prefix: 8,
             emoji: true,
@@ -3820,6 +3824,8 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
             learning: false,
             touch_keyboard_layout: TouchKeyboardLayout::NineKey,
             mixed_input: MixedInputPreferences {
+                enabled: true,
+                first_page_count: 1,
                 english: true,
                 minimum_prefix: 2,
                 emoji: false,
@@ -9085,6 +9091,53 @@ fn direct_cloud_callbacks_follow_a_pending_enable() {
         .unwrap()
         .iter()
         .any(|candidate| candidate["text"] == "云候选"));
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn initial_session_preserves_first_page_english_count_when_cloud_arrives() {
+    let root = tempfile::tempdir().unwrap();
+    let dictionaries = root.path().join("dictionaries");
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    rusqlite::Connection::open(dictionaries.join("msime-english.db"))
+        .unwrap().execute_batch(
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);\
+             INSERT INTO english_words VALUES('nihao','nihao',100),('nihaos','nihaos',90),('nihaoly','nihaoly',80);",
+        ).unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        candidate_page_size: 6,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    preferences.mixed_input.english = true;
+    preferences.mixed_input.first_page_count = 3;
+    let handle = test_host_with_pinyin_fixture(root.path(), preferences);
+    read(msime_client_focus(handle, true));
+    type_letters(handle, b"nihao");
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let candidates = serde_json::to_vec(&json!(["合成云候选"])).unwrap();
+    let applied = read(unsafe {
+        msime_client_apply_online_candidates(
+            handle,
+            query.as_ptr(),
+            query.len(),
+            candidates.as_ptr(),
+            candidates.len(),
+            0,
+        )
+    });
+    assert_eq!(applied["value"]["applied"], true, "{applied}");
+    let actual: Vec<_> = applied["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &actual[..5],
+        ["本地", "合成云候选", "nihao", "nihaos", "nihaoly"]
+    );
     read(msime_client_destroy(handle));
 }
 

@@ -46,7 +46,7 @@ constexpr char PhysicalAnsiLetter(unsigned short keyCode)
     }
 }
 
-// 字母快捷键（Control+Shift+F、Option+Shift+H、Control+Shift+E、Control+Shift+Command+K 和下面的维护快捷键）认的是当前键盘布局在这个键上打出的字母，而不是美式布局的物理位置：Dvorak、Colemak 用户按标着 F 的键就是 Control+Shift+F，和 Windows 宿主按随布局变化的虚拟键码匹配一致，也和组字时按布局字符取字母一致。`layoutCharacter` 是 `charactersIgnoringModifiers` 的唯一字符（没有时传 0），它只保留 Shift 的作用，Control、Option 不会把它变成控制字符或 ç 这类 Option 字符，所以大小写一律折成小写。布局在这个键上放的是 ASCII 标点或数字（Dvorak 的物理 E 键打出 '.'）时它不是任何字母快捷键，不能再按物理位置认成 E，否则同一个快捷键会有两个键都能触发。只有拿不到 ASCII 字符时才退回物理位置：没有字符的合成事件，或者布局在这个键上给的是非拉丁字母。
+// 字母快捷键（Control+Shift+F、Option+Shift+H、Control+Shift+E、Control+Shift+Command+K 和下面的维护快捷键）认的是当前键盘布局在这个键上打出的字母，而不是美式布局的物理位置：Dvorak、Colemak 用户按标着 F 的键就是 Control+Shift+F，和 Windows 宿主按随布局变化的虚拟键码匹配一致，也和组字时按布局字符取字母一致。`layoutCharacter` 是 `charactersByApplyingModifiers:0` 的唯一字符（没有时传 0），去掉所有修饰键的字符变换，大小写一律折成小写。布局在这个键上放的是 ASCII 标点或数字（Dvorak 的物理 E 键打出 '.'）时它不是任何字母快捷键，不能再按物理位置认成 E，否则同一个快捷键会有两个键都能触发。只有拿不到 ASCII 字符时才退回物理位置：没有字符的合成事件，或者布局在这个键上给的是非拉丁字母。
 constexpr char ShortcutLetter(unsigned short keyCode, unsigned short layoutCharacter)
 {
     if (layoutCharacter >= 'A' && layoutCharacter <= 'Z') return static_cast<char>(layoutCharacter - 'A' + 'a');

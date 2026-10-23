@@ -286,6 +286,8 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     /// 候选里混入 emoji、颜文字和符号（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji` / `mixed_input.symbols`）。引擎层默认都关，宿主按偏好打开。
     expressive: MixedExpressiveOptions,
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）：关着时英文、emoji、颜文字、符号和行内日期时间都不混进候选。
+    mixed_candidates_enabled: bool,
     /// 组字里的日期时间行（#5952）读的墙钟；`None` 时不出这些行。跟日期时间模式同一个开关。
     inline_date_time: Option<LocalClock>,
     /// 句子联想设置（`SessionOptions::sentence_association`），与 26 键相同：`word_lattice` 关掉时不出词网格整句行，`neural_keyboard` 打开时用键盘模型给整句重排（#6059）。
@@ -414,6 +416,7 @@ impl NineKeySession {
             fuzzy,
             english_options: english,
             expressive: MixedExpressiveOptions::default(),
+            mixed_candidates_enabled: true,
             inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
@@ -469,6 +472,11 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 候选混输总开关（`SessionOptions::mixed_candidates`）；与英文选项一样只在建会话时设置。
+    pub fn set_mixed_candidates_enabled(&mut self, enabled: bool) {
+        self.mixed_candidates_enabled = enabled;
     }
 
     /// 数字正好拼出 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面，见 `local::date_time::insert_inline_date_time`；`None` 关掉。与 emoji 选项一样只在建会话时设置，测试换时钟时再设一次。
@@ -1578,7 +1586,7 @@ impl NineKeySession {
             self.english_candidates(unanswered)
         };
         if !english.is_empty() {
-            // Second place is ahead of every pinyin reading but the first, which is worth it for a word the user is plainly spelling and not for one the frequency table has never seen; a zero-weight word still belongs in the list, at its end (NK:311-318).
+            // 有权重的英文保留第二位，零权重词仍接在拼音末尾；额外英文只占首页剩余空间。
             let first = english.remove(0);
             let slot = if first.weight > 0 {
                 candidates.len().min(1)
@@ -1586,6 +1594,15 @@ impl NineKeySession {
                 candidates.len()
             };
             candidates.insert(slot, first);
+            let extra = self
+                .english_options
+                .first_page_count
+                .saturating_sub(1)
+                .min(self.first_page_rows.get().saturating_sub(slot + 1))
+                .min(english.len());
+            if extra > 0 {
+                candidates.splice(slot + 1..slot + 1, english.drain(..extra));
+            }
             candidates.extend(english);
         }
         let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji, symbols);
@@ -1593,7 +1610,7 @@ impl NineKeySession {
         if let Some(clock) = self
             .inline_date_time
             .as_ref()
-            .filter(|_| initial.is_none() && !filtering)
+            .filter(|_| self.mixed_candidates_enabled && initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
             if let Some((_keyword, anchor, kind)) =
@@ -1722,9 +1739,10 @@ impl NineKeySession {
         alternatives: &[Path],
         candidates: &[WordItem],
     ) -> (Vec<ExpressiveRow>, Vec<ExpressiveRow>, Vec<SymbolRow>) {
-        let enabled = self.expressive.emoji_candidates
-            || self.expressive.kaomoji_candidates
-            || self.expressive.symbol_candidates;
+        let enabled = self.mixed_candidates_enabled
+            && (self.expressive.emoji_candidates
+                || self.expressive.kaomoji_candidates
+                || self.expressive.symbol_candidates);
         if !enabled || self.digits.len() < MIXED_EXPRESSIVE_MINIMUM_INPUT {
             return (Vec::new(), Vec::new(), Vec::new());
         }
@@ -2085,7 +2103,8 @@ impl NineKeySession {
             if self.digits.is_empty() || !self.locked.is_empty() {
                 return Vec::new();
             }
-        } else if !self.english_options.mixed_candidates
+        } else if !self.mixed_candidates_enabled
+            || !self.english_options.mixed_candidates
             || !self.locked.is_empty()
             || self.digits.len() < self.english_options.minimum_prefix
         {
@@ -6215,11 +6234,67 @@ mod tests {
     }
 
     #[test]
+    fn mixed_english_first_page_count_respects_the_page_budget() {
+        let fixture = fixture();
+        Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
+            .unwrap()
+            .execute_batch("INSERT INTO english_words VALUES('night','night',900),('nights','nights',800),('nightly','nightly',700);")
+            .unwrap();
+        for (count, page_rows, expected) in [
+            (
+                1,
+                5,
+                vec!["你", "night", "米", "你好", "nights", "nightly", "ogham"],
+            ),
+            (
+                2,
+                5,
+                vec!["你", "night", "nights", "米", "你好", "nightly", "ogham"],
+            ),
+            (
+                3,
+                5,
+                vec!["你", "night", "nights", "nightly", "米", "你好", "ogham"],
+            ),
+            (
+                3,
+                2,
+                vec!["你", "night", "米", "你好", "nights", "nightly", "ogham"],
+            ),
+        ] {
+            let mut session = open(
+                &fixture.paths,
+                false,
+                EnglishInputOptions {
+                    mixed_candidates: true,
+                    minimum_prefix: 2,
+                    first_page_count: count,
+                },
+            );
+            session.set_first_page_rows(FirstPageRows::new(page_rows));
+            type_digits(&mut session, "64");
+            assert_eq!(
+                words(&session),
+                expected,
+                "首页英文数={count}，首页行数={page_rows}"
+            );
+            assert_eq!(
+                session
+                    .select(index_of(&session, "nights"))
+                    .commit
+                    .as_deref(),
+                Some("nights")
+            );
+        }
+    }
+
+    #[test]
     fn english_only_spells_words_from_the_first_digit() {
         let fixture = fixture();
         let options = EnglishInputOptions {
             mixed_candidates: false,
             minimum_prefix: 2,
+            first_page_count: 1,
         };
         let mut words_only = open(&fixture.paths, false, options);
         words_only.set_english_only(true);

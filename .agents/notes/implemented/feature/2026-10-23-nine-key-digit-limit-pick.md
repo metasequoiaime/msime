@@ -10,7 +10,7 @@ Status: implemented
 
 - `DIGIT_LIMIT` 从 32 提到 48，大约 15 个音节，足够打一个长句。
 - 到上限、光标在末尾、首选确实占用组码时，运行时不再让这一键被拦下：先替用户选掉首选，再把这一键交给引擎，就像五笔顶字那样不丢键。判定在引擎（`NineKeySession::limit_pick_ready`，经 `Session::grid_limit_pick_ready` 和 `InputEngine::grid_limit_pick_ready` 交给运行时），运行时只负责「先选再打」。九键、九键双拼的数字从 `character` 进来，14 键的字母从 `grid_key` 进来，各自只认自己的网格。
-- 这次选择的方式记成新的 `SelectionHow::GridLimit`（11），插件 ABI 的 `HOW` 表同时加上 `grid_limit`。首选只选掉一部分组码时，结果记成部分选择；全部选掉时，剩下的只有新打的这一键，记成已上屏，和顶字一样。
+- 这次选择的方式记成新的 `SelectionHow::GridLimit`（11），插件 ABI 的 `HOW` 表同时加上 `grid_limit`；作者 C/Rust SDK 对应提供 `MSIME_HOW_GRID_LIMIT` 和 `how::GRID_LIMIT`，值同为 11。首选只选掉一部分组码时，结果记成部分选择；全部选掉时，剩下的只有新打的这一键，记成已上屏，和顶字一样。
 - 自己画词段的宿主（`phrase_preedit`）把选掉的首选暂存进词段，和用户自己点选一样，不直接写进文档。
 - 光标在中间（用户在改前面的码）、没有候选、首选不占组码时，这一键照旧被拦下。提示改成「一次最多输入 48 个按键，请先选择候选」，不再写含义不清的「位」。
 
@@ -29,5 +29,7 @@ Status: implemented
 ## Consequences
 
 `nine_key.rs` 的单测覆盖 `limit_pick_ready` 的取舍：到上限有候选时可以，光标移到中间、键不是组码、没有候选时不可以，并检查提示里写的上限和常量一致。`input-runtime` 的两个用例覆盖九键和 14 键到上限时先选再打、部分选择的记法、词段宿主的暂存，以及没到上限时照常输入。golden 场景 `nine_key_session` 改为打 48 个 7。
+
+`pack-tool` 的既有 SDK 一致性测试逐项核对两份作者模板和运行时的常量及 import 白名单，防止只增加运行时编号、作者绑定仍缺项。首次 CI 暴露 `grid_limit` 未同步模板，本地复现常量对照失败；补齐两份模板后，常量和 import 白名单两项测试均通过。
 
 [九键整句格提案](../../proposed/feature/2026-10-09-nine-key-digit-lattice.md)里「长句超过 32 位、金标准打不出来」的统计是按旧上限算的；上限提到 48、到上限会先选首选以后，整句评测集里的长句可以完整输入。

@@ -1269,6 +1269,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
@@ -1343,6 +1344,12 @@ endif()
 if(MSIME_FRONTEND_NOTICES)
   list(APPEND MSIME_NOTICE_SOURCES "${MSIME_FRONTEND_NOTICES}")
   list(APPEND MSIME_NOTICE_NAMES frontend-npm-NOTICES.txt)
+endif()
+# ZIP_LISTS 按位置配对，两张表差一项时其后的声明全部错名，多出的名字配上空路径，不报错也装不上；长度不等直接停下。
+list(LENGTH MSIME_NOTICE_SOURCES MSIME_NOTICE_SOURCE_COUNT)
+list(LENGTH MSIME_NOTICE_NAMES MSIME_NOTICE_NAME_COUNT)
+if(NOT MSIME_NOTICE_SOURCE_COUNT EQUAL MSIME_NOTICE_NAME_COUNT)
+  message(FATAL_ERROR "MSIME_NOTICE_SOURCES has ${MSIME_NOTICE_SOURCE_COUNT} entries but MSIME_NOTICE_NAMES has ${MSIME_NOTICE_NAME_COUNT}")
 endif()
 set(MSIME_MISSING_NOTICES "")
 foreach(MSIME_NOTICE_SOURCE MSIME_NOTICE_NAME IN ZIP_LISTS MSIME_NOTICE_SOURCES MSIME_NOTICE_NAMES)

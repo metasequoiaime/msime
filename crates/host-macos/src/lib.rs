@@ -7,6 +7,32 @@
 #![allow(unsafe_code)]
 
 use msime_client_core::panels::KeyboardInputRequest;
+
+/// 主线程上将录入的 DOM 物理主键转成当前布局规范键；手工配置与 MCP 不经过此转换。
+#[cfg(target_os = "macos")]
+pub fn normalize_recorded_toggle_chord(text: &str) -> Result<String, &'static str> {
+    use msime_client_core::key_chord::KeyChord;
+    use std::ffi::{c_char, CStr, CString};
+    if text.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let mut chord: KeyChord = text.parse().map_err(|_| "invalid_key")?;
+    let physical = CString::new(chord.key.to_string()).map_err(|_| "invalid_key")?;
+    unsafe extern "C" {
+        fn msime_macos_recorded_toggle_key_name(physical: *const c_char) -> *const c_char;
+    }
+    // 输入是有效的 C 字符串，原生端只返回静态规范名或空指针，不保留输入。
+    let normalized = unsafe { msime_macos_recorded_toggle_key_name(physical.as_ptr()) };
+    if normalized.is_null() {
+        return Err("unavailable_key");
+    }
+    // 非空返回值指向共享主键表中的静态、以零结尾的字符串。
+    let name = unsafe { CStr::from_ptr(normalized) }
+        .to_str()
+        .map_err(|_| "invalid_key")?;
+    chord.key = name.parse::<KeyChord>().map_err(|_| "invalid_key")?.key;
+    Ok(chord.to_string())
+}
 #[cfg(target_os = "macos")]
 pub mod cloud_clipboard;
 #[cfg(target_os = "macos")]
