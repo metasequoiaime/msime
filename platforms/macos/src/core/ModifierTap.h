@@ -24,6 +24,8 @@ public:
         const auto flags = event.modifierFlags & mask;
         const auto previous = modifiers_;
         modifiers_ = flags;
+        // 释放通知可能丢失；普通按键报告的修饰键状态也能确认这一轮已结束。
+        if (!(flags & NSEventModifierFlagShift)) shiftChordInterrupted_ = false;
         if (event.type == NSEventTypeKeyDown) {
             const bool modifier = event.keyCode == 54 || event.keyCode == 55 ||
                 event.keyCode == 56 || event.keyCode == 58 || event.keyCode == 59 ||
@@ -65,8 +67,6 @@ public:
             armedModifier_ = required;
             pressedAt_ = time;
         }
-        if ((previous & NSEventModifierFlagShift) && !(flags & NSEventModifierFlagShift))
-            shiftChordInterrupted_ = false;
         return toggle;
     }
 private:
