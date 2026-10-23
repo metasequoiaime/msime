@@ -201,9 +201,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         gestures.toggle("滑动输入符号", "沿设定方向滑动输入角标，中文时反方向打开字母与符号选项；关闭后仍可长按", swipeSymbols,
             checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        GroupCard.Row directionRow = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
-            swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
-        directionRow.setEnabled(swipeSymbols);
+        GroupCard.Row[] directionRow = new GroupCard.Row[1];
+        directionRow[0] = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
+            swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection, directionRow[0]));
+        directionRow[0].setEnabled(swipeSymbols);
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
         if (quanpinNineKey) {
             String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
@@ -407,11 +408,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         });
     }
 
-    private void pickSwipeDirection(String selected) {
+    private void pickSwipeDirection(String selected, GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "滑动方向", null);
         for (String value : new String[] {SwipeHintPolicy.DOWN, SwipeHintPolicy.UP}) {
             sheet.option(swipeDirectionLabel(value), value.equals(selected),
-                () -> saveLocalSetting(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
+                () -> {
+                    row.setValue(swipeDirectionLabel(value));
+                    KeyboardSheets.saveLocal(this, AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value,
+                        this::reload, this::reload);
+                });
         }
         sheet.show();
     }
