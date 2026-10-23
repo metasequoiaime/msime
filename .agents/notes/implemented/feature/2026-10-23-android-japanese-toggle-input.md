@@ -12,6 +12,8 @@ Status: implemented
 
 Android 启动与热更新使用同一赋值入口。值变化时清除旧连点状态及提示，重建键行更新读屏说明；关闭时每次追加键面假名，四向滑动与变体键继续使用现有实现。其他宿主保留该字段，不改变输入行为。原生运行时经枚举读取键与默认值也算共享偏好消费者；设置表和只写设置的页面不能给自己作证。
 
+macOS 的偏好覆盖检查将此项明确列为不适用：原生宿主通过物理键盘输入罗马字，不提供 Android 日语九键的连点入口，共享设置页也不显示此开关。共享存储中新增平台专属字段时，必须同时维护其他宿主的不适用声明。
+
 ## Related decisions
 
 - [Java 本机设置方案](../../rejected/feature/2026-10-23-android-japanese-kana-repeat.md) 的存储决定被取代：它复用了现成本机设置热更新并避免账号同步，但「共享存储」与「账号同步」是两个独立边界，无需复制 Java 校验规则来避免同步。
@@ -29,13 +31,14 @@ Android 启动与热更新使用同一赋值入口。值变化时清除旧连点
 - `japanese_toggle_input_persists_disabled` 在字段加入前因保存后得到 `null` 而失败；接入共享字段后，与默认、缺键和非法类型检查共 2 项通过。
 - 共享 `client-core` 全部 515 项单测及 `cargo clippy --locked -p msime-client-core --all-targets -- -D warnings` 通过。Android 门禁通过 258 项 JVM 冒烟、225 个设备测试源编译、JNI 和资源契约；合成编辑器 APK 构建及笔记检查通过。
 - 实际偏好键门禁确认 16 项默认值、字段与消费者有效；合成夹具确认原生枚举消费者通过、只有设置页面写入的 5 个键全部被拒绝。
+- macOS CI 的 176 项测试中，175 项通过，`preference-coverage` 因缺少本字段的不适用声明而失败。补齐平台理由后，同一 `python3 platforms/macos/tests/settings/preference_coverage.py .` 检查通过，398 项共享偏好中 354 项可达、44 项有不适用说明；没有放宽检查或修改其他平台行为。
 - 专用模拟器夹具覆盖关闭时一秒内「ささ」「やや」、开启时循环「し」「ゆ」、左滑「し」、热更新清状态、读屏、原生设置保存和按住提示。该专项注册在 API 35 非 `--core` 套件的基础输入验收之后；后续原有套件继续运行。
 - 设备运行已验证关闭时「ささ」「やや」、左滑「し」和开关热更新后的读屏变化；按住提示等待中心强调格实际绘制后截取，已目视确认中心是「さ」、四周为「し、す、せ、そ」，松手后仍输出「ささ」。开启时两次真实点击事件曾相隔 1006–1788 毫秒，超过一秒前提，不能算循环验收通过；夹具收集计时失败后继续独立验收，最终仍报失败。
 - 后续运行在连接或收尾阶段出现 `UiAutomation` 残留注册及系统拒绝附着，尚未证明热更新后的右箭头行为和原生设置落盘往返。启动日志或 instrumentation 的退出码 0 不代替 `MSIME_DEVICE_SMOKE_PASSED` 标记。
-- 当前版本设备专项已通过：`MSIME_DEVICE_SMOKE_PASSED: Japanese toggle preference, repeated kana and flick input`。它覆盖关闭时「ささ」「やや」、左滑「し」、按住提示中心格、开启热更新、右箭头清理连点、设置页关闭并读回落盘。开启循环的两次事件计时满足一秒窗口后才允许通过；此前连接残留导致的失败日志不计作当前版本结果。`platforms/android/check-host.sh` 当前版本重新通过 258 项 JVM 冒烟、225 个设备源编译、JNI 和资源契约。完整 quick 仍受本机磁盘低于 50 GiB 规则保护；旧替代实现的 Linux 原生门禁曾有 4 项基线失败，不能当作本次验证。
+- 当前版本设备专项已通过：`MSIME_DEVICE_SMOKE_PASSED: Japanese toggle preference, repeated kana and flick input`。它覆盖关闭时「ささ」「やや」、左滑「し」、按住提示中心格、开启热更新、右箭头清理连点、设置页关闭并读回落盘。开启循环的两次事件计时满足一秒窗口后才允许通过；此前连接残留导致的失败日志不计作当前版本结果。`platforms/android/check-host.sh` 当前版本重新通过 258 项 JVM 冒烟、225 个设备源编译、JNI 和资源契约。该实现提交的正常 pre-push quick 已通过，详见原 PR 的验证记录；不能把旧替代实现的 Linux 基线失败当成本次通过证据。补齐 macOS 不适用声明后的首轮 quick 在 Linux 剪贴板工具检查发生 3 秒子进程超时；后续主题测试持续等待文件系统同步，确认已有失败后主动停止该轮 Linux 容器，因此没有完整的 111 项测试结果。原 quick 随后完成 macOS 与 Apple bridge 构建并以 1 退出。日志已归档于 `target/diagnostics/issue-9459-ci-coverage-quick-first.log` 和 `target/diagnostics/issue-9459-ci-coverage-linux-first.log`，该轮不计为通过。复验使用命令级 Docker 包装器，为 Linux 原生测试容器配置可执行的 512 MiB tmpfs `/tmp`，继续由正常 pre-push 执行全部门禁；编译产物仍复用规定的 `target/linux-build-gate`，完整结果单独记录。
 
 ## Consequences
 
 共享层持有默认、校验和持久化，Android 保留原有语言卡片入口，不新增账号同步或第二个开关。默认开启仍保留一秒循环窗口，用户需主动关闭。关闭时旧状态及提示一起清理，增加启动与热更新之间必须一致的约束。
 
-共享主机负载高，触摸与无障碍动作可能超过一秒；计时不满足前提时不算通过。磁盘低于 50 GB，验证只复用既有产物目录，不能创建新的 macOS 构建树。
+共享主机负载高，触摸与无障碍动作可能超过一秒；计时不满足前提时不算通过。创建新的本机构建树前必须确认至少 50 GB 可用空间；低于门槛时只复用既有产物目录或使用远端构建。
