@@ -5788,6 +5788,17 @@ static void TestModifierTaps() {
         assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, flag, 1.02), true, true));
         assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, code, flag, 1.04), true, true));
         assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, otherSide, 0, 1.1), true, true));
+        if (flag == NSEventModifierFlagShift) {
+            tap.reset();
+            assert(!tap.observe(down, true, true));
+            assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, flag, 1.02), true, true));
+            assert(tap.shiftChordInterrupted());
+            // 空格本身不应改变状态，控制器随后会把它交给正常输入路径。
+            assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 49, flag, 1.03), true, true));
+            assert(tap.shiftChordInterrupted());
+            assert(!tap.observe(up, true, true));
+            assert(!tap.shiftChordInterrupted());
+        }
     }
 
     NSString *suite = [@"msime.modifier-taps." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -5894,6 +5905,28 @@ static void TestModifierTaps() {
     assert(![controller handleEvent:down client:other]);
     assert(![controller handleEvent:up client:nil]);
     assert(![controller handleEvent:up client:other] && prefs.englishMode);
+
+    // Shift+字符后仍按住 Shift 按空格：这次空格必须走英文正常输入，不能再次切换中英文。
+    NSString *spaceSuite = [@"msime.shift-space-chord." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *spaceDefaults = [[NSUserDefaults alloc] initWithSuiteName:spaceSuite];
+    MSIMEAppearancePreferences *spacePrefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:spaceDefaults];
+    spacePrefs.inputModeShortcut = YES;
+    spacePrefs.shiftTapShortcut = NO;
+    spacePrefs.englishMode = YES;
+    ModeController *spaceController = [ModeController alloc];
+    ShortcutClient *spaceClient = [ShortcutClient new];
+    ShortcutSession *spaceSession = [ShortcutSession new];
+    [spaceController setValue:spacePrefs forKey:@"appearance"];
+    [spaceController setValue:spaceClient forKey:@"activeClient"];
+    [spaceController setValue:spaceSession forKey:@"session"];
+    [spaceController setValue:@{ @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    assert(![spaceController handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 5.0) client:spaceClient]);
+    assert([spaceController handleEvent:ModeKey(0, NSEventModifierFlagShift, NO) client:spaceClient]);
+    assert(![spaceController handleEvent:TapEvent(NSEventTypeKeyUp, 0, NSEventModifierFlagShift, 5.1) client:spaceClient]);
+    assert([spaceController handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:spaceClient]);
+    assert(spacePrefs.englishMode && [spaceClient.insertions.lastObject isEqual:@" "]);
+    assert(![spaceController handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 5.2) client:spaceClient]);
+    MSIMERemoveTestPreferenceSuite(spaceDefaults, spaceSuite);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 

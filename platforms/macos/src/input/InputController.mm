@@ -6952,7 +6952,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
-    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
+    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) &&
+        !(event.modifierFlags & competing) && !_modifierTap.shiftChordInterrupted()) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }

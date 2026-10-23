@@ -16,6 +16,8 @@ public:
         held_ = probe;
     }
     void setKeyHeldProbe(KeyHeldProbe probe) { held_ = probe ? probe : &MSIMEModifierTap::physicallyHeld; }
+    // Shift 被其他字符打断后，同一轮按住期间的 Shift+空格应交回正常输入。
+    bool shiftChordInterrupted() const { return shiftChordInterrupted_; }
     bool observe(NSEvent *event, bool shiftEnabled, bool controlEnabled) {
         const auto mask = NSEventModifierFlagShift | NSEventModifierFlagControl |
             NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
@@ -23,6 +25,13 @@ public:
         const auto previous = modifiers_;
         modifiers_ = flags;
         if (event.type == NSEventTypeKeyDown) {
+            const bool modifier = event.keyCode == 54 || event.keyCode == 55 ||
+                event.keyCode == 56 || event.keyCode == 58 || event.keyCode == 59 ||
+                event.keyCode == 60 || event.keyCode == 61 || event.keyCode == 62 ||
+                event.keyCode == 63;
+            // 空格本身由调用方决定是否是快捷键，不能把它当成打断字符。
+            if ((flags & NSEventModifierFlagShift) && event.keyCode != 49 && !modifier)
+                shiftChordInterrupted_ = true;
             keys_.insert(event.keyCode);
             armed_ = false;
             return false;
@@ -53,6 +62,8 @@ public:
             armedModifier_ = required;
             pressedAt_ = time;
         }
+        if ((previous & NSEventModifierFlagShift) && !(flags & NSEventModifierFlagShift))
+            shiftChordInterrupted_ = false;
         return toggle;
     }
 private:
@@ -81,4 +92,5 @@ private:
     NSEventModifierFlags armedModifier_ = 0;
     double pressedAt_ = 0;
     bool armed_ = false;
+    bool shiftChordInterrupted_ = false;
 };
