@@ -126,6 +126,22 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(KeyboardPagedGridView.pickerRows(formFactor: .tablet, landscape: true), 3)
   }
 
+  /// 翻页交给滚动视图自己的分页：分页打开，自带的 pan 开着、没有另装的拖动手势，从图块上开始的拖动能取消图块的触摸。
+  func testPagedGridUsesSystemPagingFromTiles() throws {
+    let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
+    let panel = KeyboardMorePickerView(tools: tools, formFactor: .phone)
+    panel.frame = CGRect(x: 0, y: 0, width: 380, height: 201)
+    panel.layoutIfNeeded()
+    let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
+    let tile = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardFunctionTileView }.first)
+    XCTAssertTrue(scroll.isPagingEnabled)
+    XCTAssertTrue(scroll.panGestureRecognizer.isEnabled)
+    XCTAssertEqual(scroll.gestureRecognizers?.filter { $0 is UIPanGestureRecognizer }.count, 1, "only the scroll view's own pan")
+    XCTAssertFalse(scroll.delaysContentTouches)
+    XCTAssertTrue(scroll.canCancelContentTouches)
+    XCTAssertTrue(scroll.touchesShouldCancel(in: tile))
+  }
+
   /// 反向拖动或布局中断减速时，分页网格必须回到最近的整页，避免下一次手势从半页继续。
   func testPagedGridSettlesAfterInterruptedDrag() throws {
     let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
