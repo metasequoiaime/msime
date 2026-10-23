@@ -584,6 +584,8 @@ LRESULT CALLBACK CMetasequoiaIME::_BareShiftKeyboardHookProc(int code, WPARAM wP
         else if (!isKeyUp)
         {
             owner->_bareShiftArmed = false;
+            // 宿主可能只让线程钩子看到组合键，TSF 的单按判定也必须取消。
+            owner->_shiftHotkeyArmed = false;
         }
     }
 
@@ -661,6 +663,12 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
     const bool isShift = IsShiftVk(code);
     const bool isCtrl = IsControlVk(code);
     const bool isOtherModifier = IsAltVk(code) || IsWinVk(code);
+
+    // TSF 直接处理的键可能不到线程钩子，不能留下另一条路径的单按判定。
+    if (!isShift)
+    {
+        _bareShiftArmed = false;
+    }
 
     if (!isShift && !isCtrl && !isOtherModifier)
     {
