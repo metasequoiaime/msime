@@ -544,7 +544,6 @@ function Assert-CandidatePageSizeDrag($window, [string]$screenshotPrefix) {
     Write-Host '候选数量真实鼠标拖动：按住、松开及保存验证通过'
 }
 function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
-    Assert-CandidatePageSizeDrag $window $screenshotPrefix
     foreach ($expected in @(3, 9, 4, 6)) {
         $slider = Show-CandidatePageSizeSlider $window
         if (-not $slider -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可用' }
@@ -556,6 +555,13 @@ function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
         Wait-CandidatePageSizeSaved $expected
         if ($expected -eq 9) { Save-Window $window "$screenshotPrefix-candidate-page-size-9.png" }
     }
+    Write-Host '候选数量 UIA 数值变更、可见标签与保存验证通过，开始真实鼠标拖动'
+    Assert-CandidatePageSizeDrag $window $screenshotPrefix
+    # 拖动最后停在 3；恢复成 6 后再检查切页，保持后续合成页面的基线一致。
+    $slider = Show-CandidatePageSizeSlider $window
+    $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue(6)
+    Assert-CandidatePageSizeLabel $window $slider 6
+    Wait-CandidatePageSizeSaved 6
     Open-Page $window 'toolbar'
     Open-Page $window 'candidate'
     Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
