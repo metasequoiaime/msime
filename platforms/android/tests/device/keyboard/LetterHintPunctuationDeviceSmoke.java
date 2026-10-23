@@ -549,6 +549,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         String[] symbols = {"¥", "…", "、", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
             "@", "#", "%", "&", "*", "(", ")", "\"", "~", "?", "!", "-", "/"};
         for (String direction : new String[] {"down", "up"}) {
+            shellDiscard("am force-stop app.msime.android.test");
             configureSwipe(true, direction, true, false);
             tap(described("切换到英文输入"));
             await(described("切换到所选输入方案"));
@@ -571,6 +572,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             tap(described("切换到所选输入方案"));
             await(described("切换到英文输入"));
         }
+        shellDiscard("am force-stop app.msime.android.test");
         configureSwipe(false, "down", true, false);
         tap(described("切换到英文输入"));
         await(described("切换到所选输入方案"));
