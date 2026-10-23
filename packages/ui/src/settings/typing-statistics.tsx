@@ -1,5 +1,4 @@
 import {
-  DETAIL_DAYS,
   retentionChoices,
   activityMetrics,
   usualHours,
@@ -9,7 +8,6 @@ import {
   type TypingStatistics,
   type TypingStatisticsStatus,
   type TypingStatisticsClient,
-  type DailyDetailRow,
 } from "./typing-statistics-model";
 export {
   HOURS,
@@ -42,21 +40,15 @@ import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
-import { formatZhNumber } from "../core/format-number";
 import { formatDateTime } from "../core/format-date";
-import { SettingsEmptyMessage } from "./settings-empty-message";
 import { useTypingStatisticsState } from "./use-typing-statistics-state";
 import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mobile-statistics";
 import { StatisticsNote } from "./statistics-note";
+import { StatisticsDailyDetails } from "./statistics-daily-details";
 import { TypingStatisticsUpload } from "./typing-statistics-upload";
 export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
-import {
-  dayLabel,
-  formatActiveTime,
-  mobileTrendLength,
-  recentDays,
-} from "./typing-statistics-helpers";
+import { dayLabel, mobileTrendLength, recentDays } from "./typing-statistics-helpers";
 import {
   StatisticsMetric,
   statisticsOverviewDetails,
@@ -105,73 +97,6 @@ const segmented = (columns: number) =>
 
 /** Days the desktop trend bars cover. */
 const DESKTOP_TREND_DAYS = 30;
-/** The table's columns: 汉字/字母 rather than the source's 中文/英文, because here kana and other scripts are neither and sit in 其他. */
-const detailColumns = [
-  "日期",
-  "字数",
-  "汉字",
-  "字母",
-  "数字",
-  "标点",
-  "其他",
-  "活跃",
-  "速度",
-] as const;
-
-function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
-  const count = (value: number) => formatZhNumber(value);
-  return (
-    <section className="section m-0" aria-labelledby="statistics-details-title">
-      <h2 className={heading} id="statistics-details-title">
-        按日明细 · 最近 {DETAIL_DAYS} 天
-      </h2>
-      {rows.length === 0 ? (
-        <SettingsEmptyMessage centered className="mt-3.5">
-          暂无输入记录
-        </SettingsEmptyMessage>
-      ) : (
-        <div className="mt-3 overflow-x-auto">
-          <table
-            className="w-full border-collapse text-xs tabular-nums [&_td]:border-t [&_td]:border-edge [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-right [&_td]:whitespace-nowrap [&_td:first-child]:text-left [&_th]:px-2 [&_th]:pb-1.5 [&_th]:text-right [&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-muted [&_th:first-child]:text-left"
-            aria-labelledby="statistics-details-title"
-          >
-            <thead>
-              <tr>
-                {detailColumns.map((title) => (
-                  <th scope="col" key={title}>
-                    {title}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key}>
-                  <td>{dayLabel(row.key)}</td>
-                  <td className="font-medium text-body">{count(row.total)}</td>
-                  {[row.han, row.latin, row.number, row.punctuation, row.other].map(
-                    (value, index) => (
-                      <td className="text-secondary" key={index}>
-                        {count(value)}
-                      </td>
-                    ),
-                  )}
-                  <td>{row.activeMs === null ? "—" : formatActiveTime(row.activeMs)}</td>
-                  <td>{row.speed === null ? "—" : `${count(Math.round(row.speed))} 字/分钟`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p className={footerNote}>
-        列出最近 {DETAIL_DAYS}{" "}
-        个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
-      </p>
-    </section>
-  );
-}
-
 /** Why the page has nothing to show, or "" when there is nothing to explain.
  *
  * Every message here ends in "type a few more characters and come back". That is only true advice
@@ -573,7 +498,7 @@ export function TypingStatisticsPage({
         />
       )}
       {!mobile && contentTab === "trend" && (
-        <DailyDetails rows={dailyDetailRows(statistics, today.key)} />
+        <StatisticsDailyDetails rows={dailyDetailRows(statistics, today.key)} />
       )}
       {contentTab === "ranks" && <CandidateRanks selections={statistics.selections} />}
       {mobile ? (
