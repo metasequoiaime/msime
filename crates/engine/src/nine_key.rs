@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use crate::assets;
 use crate::diagnostics;
-use crate::dictionary::english::EnglishDictionary;
+use crate::dictionary::english::{append_keypad_ranked, EnglishDictionary, KeypadRow};
 use crate::error::EngineError;
 use crate::ime::queries::{
     insert_expressive_rows, keep_expressive_rows_off_the_lead, MIXED_EXPRESSIVE_MINIMUM_INPUT,
@@ -83,6 +83,8 @@ const FOURTEEN_KEY_GROUPS: [&str; 14] = [
 const ENGLISH_PREFIX_BUDGET: usize = 64;
 const ENGLISH_LIMIT: usize = 5;
 const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
+/// 一个字母前缀最多缓存这么多行；词库里最大的三字母前缀 `con` 有 1034 个词，超过上限的前缀组照旧逐次查询。
+const ENGLISH_CACHED_PREFIX_ROWS: usize = 2048;
 /// 九宫格简拼一次最多展开的码数：每个数字取它键上能作音节首字母的字母，五个数字最多 4^5 = 1024 个，五字以内的词都查得到；更长的输入展开太多，不查简拼。
 const INITIALS_CODE_LIMIT: usize = 1024;
 /// 简拼一次最多取的行数，按权重从高到低。
@@ -338,6 +340,8 @@ pub struct NineKeySession {
     english: Option<EnglishDictionary>,
     /// 完整分组码的 SQLite GLOB 模式；热刷新复用容量。
     english_pattern: String,
+    /// 上一次英文查询的数字和字母前缀下的全部匹配行，见 `EnglishKeypadCache`。
+    english_rows: Option<EnglishKeypadCache>,
     /// 和 `locked` 一一对应：撤销那次锁定要用的东西。部分上屏之后锁定的数字位置变了，记录随之作废成 `None`。
     lock_undo: Vec<Option<LockUndo>>,
     /// 从左列末尾选的字母：第一个未锁定的音节必须以它开头。
@@ -442,6 +446,7 @@ impl NineKeySession {
             prior: None,
             english: None,
             english_pattern: String::new(),
+            english_rows: None,
             lock_undo: Vec::new(),
             initial: None,
             single_character: false,
@@ -1042,6 +1047,8 @@ impl NineKeySession {
     /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
     fn clear_composition(&mut self) {
         self.path_scratch.pages.clear();
+        // 选词学习可能刚改了英文权重。
+        self.english_rows = None;
         self.digits.clear();
         self.locked.clear();
         self.lock_undo.clear();
@@ -2095,18 +2102,76 @@ impl NineKeySession {
             self.english_pattern.push(']');
         }
         self.english_pattern.push('*');
-        let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
-        let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
+        let depth = letter_prefix_depth(grid, digits, ENGLISH_PREFIX_BUDGET);
+        let reusable = self.english_rows.as_mut().filter(|cache| {
+            cache.grid == grid && cache.depth == depth && digits.starts_with(&cache.digits)
+        });
+        match reusable {
+            Some(cache) => {
+                if let Some(rows) = &mut cache.rows {
+                    let from = cache.digits.len();
+                    for prefix_rows in rows.iter_mut() {
+                        prefix_rows.retain(|row| word_spells_from(grid, &row.word, digits, from));
+                    }
+                } else {
+                    // 前缀组第二次出现时才取全部行：九键前三位每打一位前缀组都变，取了也用不上。
+                    cache.rows = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET)
+                        .iter()
+                        .map(|prefix| {
+                            english.keypad_prefix_rows(
+                                prefix,
+                                &self.english_pattern,
+                                ENGLISH_CACHED_PREFIX_ROWS,
+                            )
+                        })
+                        .collect();
+                }
+                cache.digits.clear();
+                cache.digits.push_str(digits);
+            }
+            None => {
+                let cache = self.english_rows.get_or_insert_with(|| EnglishKeypadCache {
+                    grid,
+                    depth,
+                    digits: String::new(),
+                    rows: None,
+                });
+                cache.grid = grid;
+                cache.depth = depth;
+                cache.rows = None;
+                cache.digits.clear();
+                cache.digits.push_str(digits);
+            }
+        }
         let mut words = Vec::new();
-        for prefix in prefixes {
-            english.append_keypad_prefix(
-                &prefix,
-                &self.english_pattern,
-                digits.len(),
-                ENGLISH_LIMIT,
-                &mut words,
-                capacity,
-            );
+        if let Some(rows) = self
+            .english_rows
+            .as_ref()
+            .and_then(|cache| cache.rows.as_ref())
+        {
+            let capacity = rows.len().saturating_mul(ENGLISH_LIMIT);
+            for prefix_rows in rows {
+                append_keypad_ranked(
+                    prefix_rows,
+                    digits.len(),
+                    ENGLISH_LIMIT,
+                    &mut words,
+                    capacity,
+                );
+            }
+        } else {
+            let prefixes = letter_prefixes(grid, digits, ENGLISH_PREFIX_BUDGET);
+            let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
+            for prefix in prefixes {
+                english.append_keypad_prefix(
+                    &prefix,
+                    &self.english_pattern,
+                    digits.len(),
+                    ENGLISH_LIMIT,
+                    &mut words,
+                    capacity,
+                );
+            }
         }
         deduplicate_english_words(&mut words);
         rank_english(&mut words, digits.len());
@@ -2136,6 +2201,8 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
+        // 选词学习可能刚改了英文权重。
+        self.english_rows = None;
         // 与全拼键盘相同（`session/commit.rs` 的 `commit`）：选中一行后光标回到末尾。改完中间的数字选掉前一个词，接着打的是下一个词，应接在剩下的数字后面，而不是插在它们中间。
         self.caret = None;
         self.splits.retain_mut(|split| {
@@ -3140,8 +3207,8 @@ fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
         })
 }
 
-/// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
-fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
+/// `letter_prefixes` 展开到第几位数字、共多少个前缀。
+fn letter_prefix_span(grid: KeyGrid, digits: &str, budget: usize) -> (usize, usize) {
     let mut count = 1;
     let mut depth = 0;
     for digit in digits.bytes() {
@@ -3153,6 +3220,29 @@ fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
         count *= width;
         depth += 1;
     }
+    (depth, count)
+}
+
+fn letter_prefix_depth(grid: KeyGrid, digits: &str, budget: usize) -> usize {
+    letter_prefix_span(grid, digits, budget).0
+}
+
+/// `word` 从第 `from` 位起逐位落在 `digits` 对应键的字母里，即 `english_pattern` 在已知前 `from` 位匹配时的剩余条件；大小写都算。
+fn word_spells_from(grid: KeyGrid, word: &str, digits: &str, from: usize) -> bool {
+    word.len() >= digits.len()
+        && word.as_bytes()[from..digits.len()]
+            .iter()
+            .zip(&digits.as_bytes()[from..])
+            .all(|(&letter, &digit)| {
+                grid.letters(digit)
+                    .as_bytes()
+                    .contains(&letter.to_ascii_lowercase())
+            })
+}
+
+/// Every letter prefix of the leading digits, expanded while the count stays within `budget`.
+fn letter_prefixes(grid: KeyGrid, digits: &str, budget: usize) -> Vec<String> {
+    let (depth, count) = letter_prefix_span(grid, digits, budget);
     if depth == 0 {
         Vec::new()
     } else {
@@ -3189,6 +3279,17 @@ pub(crate) struct SpellingTable {
     /// Every prefix of every syllable, grouped by its code, with whether that piece is a complete syllable under this code. Partial syllables are included, but never letter combinations pinyin does not have (NK:52-68). 按字母归组的键盘上一个片段完不完整只看它是不是完整音节；九键双拼的 `a` 既是两位的完整音节，又是只打了一位的零声母片段，所以按码记。
     by_code: HashMap<String, Vec<(String, bool)>>,
     longest_code: usize,
+}
+
+/// 九键英文的逐前缀查询在第四位数字以后占一次刷新的约两成（每位最多 64 条带排序的 SQL）。前缀组只由前几位数字决定，之后数字变长只是让匹配的词变少，所以把每个前缀下匹配的全部行留在内存里：数字只在末尾变长时按新增的位筛掉不再匹配的行，再按 `append_keypad_ranked` 取前五，不查 SQLite。行按数字内容复用，只有词库变了才会过时，而组字中改英文权重的只有选词学习，`consume` 和 `clear_composition` 因此清掉它。
+struct EnglishKeypadCache {
+    grid: KeyGrid,
+    /// `letter_prefix_depth`：前缀组由前这么多位数字决定。
+    depth: usize,
+    /// `rows` 匹配的数字串。
+    digits: String,
+    /// 按 `letter_prefixes` 的顺序每个前缀一组；前缀组只出现过一次或某个前缀超过 `ENGLISH_CACHED_PREFIX_ROWS` 行时为 `None`。
+    rows: Option<Vec<Vec<KeypadRow>>>,
 }
 
 /// 搜索页只借用拼写表音节；每次切分从后向前完整覆写旧节点。
@@ -3619,6 +3720,8 @@ mod leading_entry_tests;
 
 #[cfg(test)]
 mod cached_rank_tests;
+#[cfg(test)]
+mod english_cache_tests;
 #[cfg(test)]
 mod syllable_count_tests;
 
