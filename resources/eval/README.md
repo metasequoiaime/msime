@@ -57,6 +57,12 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 同一份集合在全键盘上打（不带 `--nine-key`）是九键要追的参照：按切分路径各自解码时（#6377），九键 top-1 0.457、found 0.556；按键之间沿用前几次的好切分、跨切分比较时每个词组多扣一份奖励之后（#6059），0.506 / 0.617；全键盘 0.691 / 0.716。九键按键延迟用 `rerank_latency --nine-key` 在这份集合上量，见上文的「延迟基准」。
 
+### `sentences-particles-v1.tsv` — 103 条常用词接句末语气词
+
+常用的两字词后面接一个句末语气词（债券吗、标注呀、相关吧），全键盘、九键、14 键各打一遍，`verify-local.sh` 以 `particles`、`particles-nine-key`、`particles-fourteen-key` 跑它，对照同名基线。词级集的金标准几乎都是词库里的词，整句集是书面长句，都量不到这种口语短句；而词网格的 n-gram 表只有句首记号、没有句尾，又是从维基百科统计的，句尾的吗、呀、吧只能按单字词频和同音或同码的那、亚、把比。用例从锁定词库按权重靠前的两字词里抽出，取舍写在文件头。
+
+句末语气词加分（`SENTENCE_FINAL_PARTICLE_BONUS`）和叠字叹词不拿词组奖励之前与之后，top-1：全键盘 0.524 → 0.680，九键 0.146 → 0.194，14 键 0.282 → 0.311；top-5 九键 0.641 → 0.728、14 键 0.650 → 0.854。九键剩下的失败大多是整串数字被解成完全不同的读法（一词全码、此案蛀牙），这是词组边按 `ln(权重)`、单字边按 `ln(权重 / 10⁶)` 计分的口径差，见[句末语气词笔记](../../.agents/notes/implemented/bug-fix/2026-10-23-sentence-final-particles.md)。
+
 ### `--grid fourteen`：同两份集合在全拼 14 键上打
 
 `convert_eval --grid fourteen` 打开 Runtime 的 14 键网格，把每个字母换成它所在键的组码（QW 键是 q，BN 键是 b，即每组的首字母），用宿主触屏键面用的 `GridKey` 逐键送进去，金标准不变。14 键与九键是同一套解码（`KeyGrid`），只换码表：421 个全拼音节在九键上是 218 种码，在 14 键上是 314 种，重码少了，所以同一份集合上 14 键应当不低于九键。`verify-local.sh` 以 `fourteen-key`（`quanpin-words-v1.tsv --limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`）跑它们，对照 `baseline-fourteen-key.json` 和 `baseline-fourteen-key-sentences.json`。
