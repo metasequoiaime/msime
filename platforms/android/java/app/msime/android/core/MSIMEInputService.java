@@ -384,6 +384,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 全文预览只临时扩展窗口，停靠键区沿用扩展前的像素高度。 */
     boolean clipboardPreviewExpanded;
     int clipboardPreviewKeyboardHeight;
+    private int clipboardPreviewKeyboardTop;
     /** 上一次套上的浮动布局是不是跟随光标的候选栏：它和浮动键盘的外框宽度、拖动条不同，在两者之间切换也要重新套。 */
     private boolean caretLayoutApplied;
     /** 第一次浮动前窗口与系统 inputArea 原来的高度，停靠时原样恢复；{@link Integer#MIN_VALUE} 表示还没记下。 */
@@ -9401,7 +9402,11 @@ public final class MSIMEInputService extends InputMethodService {
     /** 全文预览临时扩大透明窗口；键区保留原高，应用仍只为停靠键盘让出空间。 */
     void setClipboardPreviewExpanded(boolean expanded) {
         if (clipboardPreviewExpanded == expanded) return;
-        if (expanded) clipboardPreviewKeyboardHeight = keyboardSurface.getHeight();
+        if (expanded) {
+            clipboardPreviewKeyboardHeight = keyboardSurface.getHeight();
+            keyboardSurface.getLocationOnScreen(floatingLocation);
+            clipboardPreviewKeyboardTop = floatingLocation[1];
+        }
         clipboardPreviewExpanded = expanded;
         applyFloatingLayout(true);
         imeStyler.applySkin();
@@ -9485,8 +9490,12 @@ public final class MSIMEInputService extends InputMethodService {
         outInsets.visibleTopInsets = height;
         keyboardSurface.getLocationInWindow(floatingLocation);
         if (clipboardPreviewExpanded && !overlayDrawn()) {
-            outInsets.contentTopInsets = floatingLocation[1];
-            outInsets.visibleTopInsets = floatingLocation[1];
+            // 窗口扩展与键区布局可能分两拍完成；始终保留原屏幕边界，避免过渡坐标把编辑器压成零高。
+            int[] windowOrigin = new int[2];
+            window.getDecorView().getLocationOnScreen(windowOrigin);
+            int keyboardTop = Math.max(0, clipboardPreviewKeyboardTop - windowOrigin[1]);
+            outInsets.contentTopInsets = keyboardTop;
+            outInsets.visibleTopInsets = keyboardTop;
         }
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
         if (keyboardSurface.getVisibility() != View.VISIBLE) {
