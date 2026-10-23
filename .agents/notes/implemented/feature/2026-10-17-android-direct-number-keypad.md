@@ -31,4 +31,10 @@ Android 把 `TYPE_CLASS_NUMBER` 和 `TYPE_CLASS_PHONE` 识别为直接数字输�
 
 `EditorSmoke` 覆盖普通数字、数字密码、电话输入和文本输入的分类边界；设备测试编辑器增加合成数字输入框，`NumberPadDeviceSmoke` 在 API 28 专用模拟器上先让普通文本框停在 `#+=` 页，再切换数字框，检查三列九宫格并输入 `1203`。`platforms/android/check-host.sh` 的 242 项 Android JVM 冒烟和 Gradle Java/Lint 构建通过；API 28 上单独运行 `NumberPadDeviceSmoke` 通过。完整 `smoke.sh emulator-5566 --core` 在无关的剪贴板导出取消选择阶段失败。
 
-#9474 专项 `NumberPadDeviceSmoke -e password-number-pad true` 覆盖三种文字密码及数字密码的默认键面、真实三列几何、数字输入和删除、返回字母、符号页往返；仅检查合成密码的长度，不依赖密码明文是否可通过无障碍读取。本次设备结果待补齐，以上旧验证不代表本次扩大范围已通过。
+#9474 专项 `NumberPadDeviceSmoke -e password-number-pad true` 在 API 28、35 均通过，覆盖普通、可见、网页文字密码及数字密码的默认键面、真实三列几何、数字输入和删除、返回字母、符号页往返。仅检查合成密码的长度，不依赖密码明文是否可通过无障碍读取。同一份最终测试夹具对固定旧包均在文字密码 `type 129` 的九宫格断言失败，修复包则跑完四种类型；两台设备实际安装的 APK SHA-256 均与待测产物一致。
+
+API 28 首轮在网页密码页采集几何超时：逐数字刷新整棵无障碍树导致未在期限内取得两帧坐标。测试改为一次遍历收集九个数字，保留连续两帧一致与三行三列断言；切层后先等待数字页的 `#+=`，避免误认字母页自动数字行。API 35 最终复跑前曾遇模拟器退出与 System UI ANR，中断日志另存，不计入通过结果。
+
+完整中文数字布局回归需要笔画、注音的语言词库。初轮新旧 APK 都在 `stroke letter face` 失败，因为所复用的核心包没有附带按需词库；复跑前经原生「输入」设置下载语言词库，遵循[设备门禁的词库前置约定](../testing/2026-10-08-android-device-gates.md)。缺少测试输入时先补输入，不跳过依赖这些方案的断言。 补齐后同一修复 APK 和最终夹具的 API 35 完整 `NumberPadDeviceSmoke` 通过，覆盖全拼、小鹤、十四键、九键、笔画、注音九键及全角数字，并检查连续算式、符号往返、原键面恢复与键位统计。
+
+本次 258 项 JVM 冒烟、225 份设备源码编译、包含最终测试夹具的完整 `scripts/verify-local.sh --quick` 和原生 Gradle `assembleFullRelease` 均通过。设备包重编本分支 Java 与资源，复用固定提交 `3d0040bad1f593cf758f62118d9335dd64522313` 的 JNI 和词库：逐项核对的 150 项原生库及固定资源一致，Java 构建生成的两份 dexopt baseline profile 单独排除并保留比较记录。此结果不代表当前 Rust 核心已重新在设备构建验收；本次不改 Rust、JNI 契约或词库，未在报告人的 vivo 真机或 KeePassDX 验收。
