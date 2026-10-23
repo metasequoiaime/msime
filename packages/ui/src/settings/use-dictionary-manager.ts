@@ -31,6 +31,7 @@ import {
   personalDictionaryExportName,
   personalDictionaryExportPayload,
   loadAllPersonalDictionaryEntries,
+  loadDictionaryExportText,
   dictionaryKindLabel,
 } from "../dictionary/dictionary-export";
 import {
@@ -475,23 +476,12 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       async (isCurrent) => {
         let text = "";
         if (dictionary.export) {
-          let offset = 0;
-          let hasMore = true;
-          while (hasMore && offset <= 1000000) {
-            const page = await dictionary.export(
-              dictionaryKind,
-              dictionaryFormat === "rime" ? "standard" : dictionaryFormat,
-              offset,
-              1000,
-            );
-            text += page.text;
-            if (utf8ByteLength(text) > MAX_DICTIONARY_EXPORT_BYTES) {
-              throw new Error("dictionary_export_limit");
-            }
-            const count = page.text ? page.text.trimEnd().split("\n").length : 0;
-            offset += count;
-            hasMore = page.has_more && count > 0;
-          }
+          text = await loadDictionaryExportText(
+            dictionary,
+            dictionaryKind,
+            dictionaryFormat === "rime" ? "standard" : dictionaryFormat,
+            MAX_DICTIONARY_EXPORT_BYTES,
+          );
         } else {
           text = phrases
             .map((entry) =>

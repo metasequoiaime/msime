@@ -20,7 +20,11 @@ import {
   type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
 import { DictionaryNameDialog } from "../dictionary/dictionary-edit-dialogs";
-import { dictionaryExportName, dictionaryExportPayload } from "../dictionary/dictionary-export";
+import {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  loadDictionaryExportText,
+} from "../dictionary/dictionary-export";
 import { SCEL_PERSONAL_USE_NOTICE } from "../dictionary/dictionary-messages";
 import {
   MAX_SCEL_FILE_BYTES,
@@ -377,16 +381,7 @@ async function exportUserPinyin(
 ): Promise<string> {
   if (!dictionary.export) return "";
   try {
-    let text = "";
-    let offset = 0;
-    let more = true;
-    while (more && offset <= 1_000_000) {
-      const page = await dictionary.export("pinyin", "standard", offset, 1000);
-      text += page.text;
-      const count = page.text ? page.text.trimEnd().split("\n").length : 0;
-      offset += count;
-      more = page.has_more && count > 0;
-    }
+    const text = await loadDictionaryExportText(dictionary, "pinyin", "standard");
     const payload = dictionaryExportPayload("pinyin", "standard", text);
     if (!payload.rows) return "还没有自己加过的拼音词条。";
     const name = dictionaryExportName("pinyin");

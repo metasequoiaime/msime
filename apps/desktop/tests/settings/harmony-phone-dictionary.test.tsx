@@ -126,12 +126,14 @@ function setup({ harmonyPhone = true, scel = false, importBytes = false, strict 
     })),
     detail: vi.fn(async (id: string) => resource(id, id === "r-game" ? "游戏术语" : "网络流行语")),
   };
+  const saveExport = vi.fn().mockResolvedValue("/synthetic/export.txt");
   const setDraft = vi.fn();
   const selectPage = vi.fn();
   const openCommunityGallery = vi.fn();
   const model = {
     client: {
       dictionary,
+      saveExport,
       dictionaryCollections: collections,
       communityResources,
       openCloudDictionary: vi.fn(),
@@ -177,6 +179,7 @@ function setup({ harmonyPhone = true, scel = false, importBytes = false, strict 
     collections,
     dictionary,
     communityResources,
+    saveExport,
     setDraft,
     selectPage,
     openCommunityGallery,
@@ -786,4 +789,56 @@ test("读取文件期间更换客户端，旧读取失败不弹出提示", async
   changeCollections({ ...collections, flush: vi.fn(async () => viewOf([slang])) });
   await act(async () => reading.reject(new Error("合成读取失败")));
   expect(screen.queryByText("合成读取失败")).toBeNull();
+});
+
+test("手机拼音导出逐页读取并过滤单字后保存", async () => {
+  const { dictionary, saveExport } = setup();
+  dictionary.export
+    .mockResolvedValueOnce({ text: "甲\ta\t1\n合成\thecheng\t2\n", has_more: true })
+    .mockResolvedValueOnce({ text: "测试\tceshi\t3\n", has_more: false });
+  fireEvent.click(await screen.findByText("拼音词库"));
+  fireEvent.click(await screen.findByRole("button", { name: /导出词库/ }));
+  expect(await screen.findByText("已导出 2 条")).toBeTruthy();
+  expect(dictionary.export.mock.calls).toEqual([
+    ["pinyin", "standard", 0, 1000],
+    ["pinyin", "standard", 2, 1000],
+  ]);
+  expect(saveExport).toHaveBeenCalledWith(
+    "水杉IME-拼音用户词库.txt",
+    "\ufeff合成\thecheng\t2\n测试\tceshi\t3\n",
+  );
+});
+
+test("手机导出仍在过滤拼音单字后检查文件上限", async () => {
+  const { dictionary, saveExport } = setup();
+  dictionary.export.mockResolvedValue({
+    text: "甲\t" + "a".repeat(32 * 1024 * 1024) + "\n合成\thecheng\t2\n",
+    has_more: false,
+  });
+  fireEvent.click(await screen.findByText("拼音词库"));
+  fireEvent.click(await screen.findByRole("button", { name: /导出词库/ }));
+  expect(await screen.findByText("已导出 1 条")).toBeTruthy();
+  expect(saveExport).toHaveBeenCalledWith("水杉IME-拼音用户词库.txt", "\ufeff合成\thecheng\t2\n");
+});
+
+test("手机导出取消保存不显示成功提示", async () => {
+  const { dictionary, saveExport } = setup();
+  dictionary.export.mockResolvedValue({ text: "合成\thecheng\t2\n", has_more: false });
+  saveExport.mockResolvedValue(null);
+  fireEvent.click(await screen.findByText("拼音词库"));
+  fireEvent.click(await screen.findByRole("button", { name: /导出词库/ }));
+  await waitFor(() => expect(saveExport).toHaveBeenCalledOnce());
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
+test.each([
+  ["synthetic failure", "synthetic failure"],
+  ["dictionary_export_limit", "词库导出失败，请稍后重试。"],
+])("手机保留宿主错误 %s 的提示", async (error, message) => {
+  const { dictionary, saveExport } = setup();
+  dictionary.export.mockRejectedValue(new Error(error));
+  fireEvent.click(await screen.findByText("拼音词库"));
+  fireEvent.click(await screen.findByRole("button", { name: /导出词库/ }));
+  expect(await screen.findByText(message)).toBeTruthy();
+  expect(saveExport).not.toHaveBeenCalled();
 });
