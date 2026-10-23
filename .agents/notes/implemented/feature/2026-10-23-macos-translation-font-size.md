@@ -29,7 +29,8 @@ macOS 原生偏好读取该值。所有候选页的宽高测量、译文预留�
 - 新增共享偏好缺省、边界和序列化往返测试通过；`cargo test -p msime-client-core --lib --locked` 的 506 项全部通过，`cargo clippy -p msime-client-core --all-targets --locked -- -D warnings` 通过。同一测试文件中两处已有的 `field_reassign_with_default` 警告改成结构体初始化，未改变测试数据和断言。
 - 当前源码的 Host API 静态库已构建，重新链接的 `candidate-appearance-defaults` 原生测试通过，覆盖合法值、非法值、`null` 和省略字段。独立的 `shortcut-translation-font-size` 原生测试通过：普通候选覆盖横排／竖排、100%／150% 缩放和 12／21／32／默认字号共 16 组，并执行实际位图绘制；展开候选通过 ↓ 事件进入，覆盖 150% 下的 21／32／默认字号及行高。独立入口使这些断言不依赖完整 `shortcut` 的前序用例。
 - 静态审查及独立字号测试复审均无阻断问题。`shortcut-translations` 首次在既有 `TestCustomTranslationIdleDelay` 的请求数量断言失败，同一二进制单独复跑通过（82.44 秒）；记录首次失败，不把复跑通过视为该延时用例稳定性的证明。
-- 首轮 quick 中，Windows 宿主策略 164 项、鸿蒙设置页构建、笔记检查、Rust 工作区、Android 目标、Wasm 编译和 Clippy 通过；iOS 豆包传输检查首次因 120 秒构建超时失败，独立复跑 17 项通过。系统盘可用空间随后降至约 1GB，在 Android Java 阶段停止该轮门禁；将临时文件改放 Workspace 卷后重新运行，完整 quick 仍待补齐。
+- 首轮 quick 中，Windows 宿主策略 164 项、鸿蒙设置页构建、笔记检查、Rust 工作区、Android 目标、Wasm 编译和 Clippy 通过；iOS 豆包传输检查首次因 120 秒构建超时失败，独立复跑 17 项通过。系统盘可用空间随后降至约 1GB，在 Android Java 阶段停止该轮门禁；将临时文件改放 Workspace 卷后，正常推送的完整 quick 门禁通过，包含 Linux 外壳和原生宿主 111 项、macOS 全目标及 Apple bridge。Windows 完整宿主和 pipe-only 缺少 MinGW，HarmonyOS 真工程缺少暂存依赖，按规则跳过。
+- PR #9390 首轮 CI 的共享 UI 布局用例未列入新增的「译文字号」行，补齐后该文件 7 项测试通过；本次原生平台 CI 构建通过。主题引导文案契约的基线冲突已由 develop 的 #9389 修复，后续 CI 仍需检查合并结果。
 
 ## Consequences
 
