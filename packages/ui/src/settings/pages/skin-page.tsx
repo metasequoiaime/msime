@@ -1,28 +1,17 @@
+import { BuiltinThemeCard } from "../../skin/builtin-theme-card";
 import type { DesktopSkinTab } from "../desktop-skin-tabs";
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { themeModeOptions } from "../theme-mode-options";
 import { recordSkinSafely } from "../typing-statistics-model";
-import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
-import { globalThemeDescription } from "../settings-options";
 import {
   offeredThemeCatalog,
-  themeEntry,
-  customCandidateStyle,
-  themeCandidateStyle,
-  keyboardThemeId,
   applyCandidateSkin,
   candidateSkinFor,
   removeCandidateSkin,
   skinDrawsIn,
   skinSlot,
 } from "../../theme/global-theme";
-import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
-import { candidateWindowStyle } from "../../candidate/candidate-window-style";
-import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
-import { SkinCardHeader } from "../../skin/skin-card-header";
-import { SkinPreviewStage } from "../../skin/skin-preview-stage";
-import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
 import {
   ExternalSkinCard,
   ExternalSkinDirectoryRow,
@@ -30,7 +19,6 @@ import {
 } from "../../skin/external-skins";
 import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publish-dialog";
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skin-model";
-import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
 import type { SavedTouchKeyboardSkin } from "../../keyboard/touch-keyboard-skin-design";
@@ -41,7 +29,6 @@ import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { SkinPlatformNotice } from "../skin-platform-notice";
-import { ActionButton } from "../action-button";
 import { ThemeCarousel } from "../theme-carousel";
 import { SwitchRow } from "../switch-row";
 import { SegmentedRow } from "../segmented-row";
@@ -365,103 +352,28 @@ export function SkinSettingsPage({
       onChange={(key, value) => onPreferencesChange({ [key]: value })}
     />
   );
-  const builtinCards = themeCatalog.map((entry) => {
-    const id = entry.id;
-    // 「自定义」卡片只画基础主题与配色；目录里找不到的皮肤包按这张卡片回退。
-    const selected = globalTheme === id && (id !== "custom" || packageInUse < 0);
-    const fixedAppearance =
-      id === "custom"
-        ? themeEntry(draft.custom_theme?.base ?? "system").appearance
-        : entry.appearance;
-    // 只有系统主题及其上的自定义主题跟随明暗，其余内置主题固定配色。
-    const previewTheme = fixedAppearance ?? skinPreviewThemes[id] ?? candidatePreviewTheme;
-    return (
-      <article aria-label={entry.title} className={settings.skinCard(selected)} key={id}>
-        <SkinCardHeader
-          title={entry.title}
-          theme={previewTheme}
-          selected={selected}
-          description={globalThemeDescription(entry, linuxPlatform)}
-          actions={
-            <>
-              <ActionButton
-                action={() =>
-                  onPreferencesChange(
-                    id === "custom"
-                      ? // 选「自定义」卡片本身会去掉两个槽位的皮肤包，保留自定义主题的其余部分，画在它自己的底上。
-                        {
-                          global_theme: "custom",
-                          custom_theme: {
-                            ...draft.custom_theme,
-                            candidate_skin: null,
-                            candidate_skin_dark: null,
-                          },
-                        }
-                      : { global_theme: id },
-                  )
-                }
-                ariaChecked={selected}
-                ariaLabel={entry.title}
-                className={settings.skinSwitch(selected)}
-                label={<span className={settings.skinSwitchKnob(selected)} />}
-                role="switch"
-              />
-              {fixedAppearance === null && (
-                <ActionButton
-                  action={() =>
-                    setSkinPreviewThemes((current) => ({
-                      ...current,
-                      [id]: (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
-                    }))
-                  }
-                  className={settings.skinPreviewSwitch}
-                  label={previewTheme === "dark" ? "预览浅色" : "预览深色"}
-                />
-              )}
-            </>
-          }
-        />
-        <SkinPreviewSurface
-          data-global-theme={id}
-          data-preview-theme={previewTheme}
-          style={{
-            ...(id === "custom"
-              ? customCandidateStyle(previewCustomTheme?.base, previewCustomTheme?.candidate_colors)
-              : themeCandidateStyle(id)),
-            // 用户设的窗口圆角和不透明度对每个主题都生效，卡片照实际候选窗画，与 macOS 原生设置页的预览一致。
-            ...candidateWindowStyle(draft),
-          }}
-          aria-hidden="true"
-        >
-          <div className={settings.skinCandidateStages}>
-            <SkinPreviewStage>
-              <SkinCandidatePreview orientation="horizontal" />
-            </SkinPreviewStage>
-            <SkinPreviewStage>
-              <SkinCandidatePreview orientation="vertical" />
-            </SkinPreviewStage>
-          </div>
-          {/* 触屏宿主没有悬浮工具栏，卡片改为展示键盘。 */}
-          {mobilePlatform ? (
-            <SkinPreviewStage>
-              <ScreenKeyboardPreview
-                theme={previewTheme}
-                skin={id === "custom" ? keyboardThemeId("custom", draft.custom_theme) : id}
-                customDesign={id === "custom" ? customTouchKeyboardSkin : undefined}
-                compact
-              />
-            </SkinPreviewStage>
-          ) : (
-            !linuxPlatform && (
-              <SkinPreviewStage>
-                <SkinToolbarPreview />
-              </SkinPreviewStage>
-            )
-          )}
-        </SkinPreviewSurface>
-      </article>
-    );
-  });
+  const builtinCards = themeCatalog.map((entry) => (
+    <BuiltinThemeCard
+      key={entry.id}
+      entry={entry}
+      globalTheme={globalTheme}
+      packageSelected={packageInUse >= 0}
+      preferences={draft}
+      previewCustomTheme={previewCustomTheme}
+      candidatePreviewTheme={candidatePreviewTheme}
+      previewTheme={skinPreviewThemes[entry.id]}
+      keyboardDesign={customTouchKeyboardSkin}
+      mobile={mobilePlatform}
+      linux={linuxPlatform}
+      onPreferencesChange={onPreferencesChange}
+      onTogglePreview={() =>
+        setSkinPreviewThemes((current) => ({
+          ...current,
+          [entry.id]: (current[entry.id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
+        }))
+      }
+    />
+  ));
   const localCards = packages.map((skin) => (
     <ExternalSkinCard
       key={`package:${skin.id}`}
