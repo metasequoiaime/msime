@@ -12,7 +12,6 @@ import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.core.InputViewValuePolicy;
-import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;

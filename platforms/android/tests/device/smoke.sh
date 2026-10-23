@@ -152,6 +152,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Stale candidate callback acceptance failed" >&2; exit 1; }
+# 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Continuous candidate strip acceptance failed" >&2; exit 1; }
 # 从安装产品绘制候选标签，旧系统缺字形时也必须在深浅主题中可见。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HeavyEqualsCandidateDeviceSmoke)
 printf '%s\n' "$result"
