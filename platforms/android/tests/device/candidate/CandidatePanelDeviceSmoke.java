@@ -257,10 +257,31 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             }
             previous = current;
             int left = viewport.left + 15, right = viewport.right - 15;
-            shellDiscard("input swipe " + (forward ? right : left) + " " + viewport.centerY()
-                + " " + (forward ? left : right) + " " + viewport.centerY() + " 350");
+            dragStrip(forward ? right : left, forward ? left : right, viewport.centerY());
         }
         throw new AssertionError("横向滑动未到达目标候选");
+    }
+
+    /** 显式送达多个 MOVE，避免旧系统负载高时 shell 滑动只留下 DOWN/UP 而退化成点击。 */
+    private void dragStrip(int startX, int endX, int y) {
+        long downTime = SystemClock.uptimeMillis();
+        injectStripEvent(downTime, MotionEvent.ACTION_DOWN, startX, y);
+        for (int step = 1; step <= 10; step++) {
+            SystemClock.sleep(30);
+            injectStripEvent(downTime, MotionEvent.ACTION_MOVE,
+                startX + (endX - startX) * step / 10f, y);
+        }
+        SystemClock.sleep(100);
+        injectStripEvent(downTime, MotionEvent.ACTION_UP, endX, y);
+        SystemClock.sleep(100);
+    }
+
+    private void injectStripEvent(long downTime, int action, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);
+        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            if (!automation.injectInputEvent(event, true)) throw new AssertionError("候选滑动事件未送达");
+        } finally { event.recycle(); }
     }
 
     /** 迟到的松开不能提前通知；滑出和取消必须照常解除按下且不产生点击。 */
