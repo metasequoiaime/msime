@@ -95,3 +95,48 @@ test("service section uses Linux restart wording", () => {
   ).toBeTruthy();
   expect(screen.getByText("立即重启输入法服务")).toBeTruthy();
 });
+
+test("取消系统修复授权后停止修复并说明取消", async () => {
+  const restart = vi.fn(async () => {});
+  const install = vi.fn(async () => {
+    throw { code: "cancelled" };
+  });
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={restart}
+      installInputSource={install}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(
+    await screen.findByText("已取消管理员授权，输入源未完成修复。可以重新点击修复。"),
+  ).toBeTruthy();
+  expect(restart).not.toHaveBeenCalled();
+  expect(screen.queryByText("输入源已修复。")).toBeNull();
+});
+
+test("修复结束后主动重读安装状态，无需等待窗口重新聚焦", async () => {
+  const calls: string[] = [];
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      installInputSource={async () => {
+        calls.push("install");
+      }}
+      restartInputMethod={async () => {
+        calls.push("register");
+      }}
+      onRepairFinished={async () => {
+        calls.push("refresh");
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(await screen.findByText("输入源已修复。")).toBeTruthy();
+  expect(calls).toEqual(["install", "register", "refresh"]);
+});

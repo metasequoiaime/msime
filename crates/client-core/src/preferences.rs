@@ -1248,6 +1248,9 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
+    /// 候选译文字号，12–32 点；缺省使用宿主的 12pt 默认值，目前由 macOS 消费。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_translation_font_size: Option<u8>,
     /// Overall size of the floating candidate window, 50-200 percent. The host multiplies `candidate_font_size` and every piece of window geometry (paddings, row heights, header, arrows, insets, shadow) by it.
     #[serde(default = "default_candidate_scale_percent")]
     pub candidate_scale_percent: u16,
@@ -3147,6 +3150,7 @@ impl Default for Preferences {
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_preedit_font_size(),
+            candidate_translation_font_size: None,
             candidate_scale_percent: default_candidate_scale_percent(),
             candidate_opacity_percent: default_candidate_opacity_percent(),
             candidate_corner_radius: None,
@@ -3997,6 +4001,12 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if !(12..=32).contains(&self.candidate_preedit_font_size) {
+            return Err(PreferencesError::InvalidCandidateFontSize);
+        }
+        if self
+            .candidate_translation_font_size
+            .is_some_and(|size| !(12..=32).contains(&size))
+        {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if !(50..=200).contains(&self.candidate_scale_percent)

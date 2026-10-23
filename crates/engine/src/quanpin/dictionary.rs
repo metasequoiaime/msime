@@ -62,6 +62,9 @@ use super::typo_edges::collect_typo_edges;
 mod marking_buffer_tests;
 
 mod page_copy;
+mod path_page;
+
+use path_page::PathPage;
 
 pub const CACHE_CAPACITY: usize = 128;
 pub const TYPO_SPAN_CACHE_CAPACITY: usize = 512;
@@ -194,8 +197,8 @@ pub struct QuanpinDictionary {
     personal_version: u64,
     /// Series keys whose lists were scored with the personal model, dropped when its version moves.
     personal_scored_keys: HashSet<String>,
-    /// Rows per segmentation (`query_single_path`).
-    cache: FifoCache<String, Vec<WordItem>>,
+    /// 每条切分的词典页，完整展开页保留原来的拥有型表示。
+    cache: FifoCache<String, PathPage>,
     /// Whole answers per series key, including online rows.
     series_cache: FifoCache<String, Vec<WordItem>>,
     segmentation_cache: FifoCache<String, Vec<String>>,
@@ -456,7 +459,7 @@ impl QuanpinDictionary {
         });
         debug_assert_eq!(removed, limited_count);
         candidates.splice(first_limited..first_limited, expanded.iter().cloned());
-        self.cache.insert(code.to_string(), expanded);
+        self.cache.insert(code.to_string(), expanded.into());
         // 按参考规则写入不带 `C:` 的槽（QD:554）：单字母不纠错。根据调用方查询重算键，避免第二次光标前缀查询把整段输入的展开列表写入自己的槽。
         let cache_key =
             self.project_resolution(raw, segmentation, autocorrect_types, |resolution| {
@@ -992,10 +995,14 @@ impl QuanpinDictionary {
             return result;
         }
         let cache_key = path_cache_key(raw, primary_segmentation);
+        enum PrimaryPage<'a> {
+            Cached(&'a PathPage),
+            Owned(Vec<WordItem>),
+        }
         let primary_full = if let Some(primary_full) = self.cache.get_ref_by(cache_key) {
-            Cow::Borrowed(primary_full.as_slice())
+            PrimaryPage::Cached(primary_full)
         } else {
-            Cow::Owned(self.query_single_path_miss(
+            PrimaryPage::Owned(self.query_single_path_miss(
                 cache_key,
                 primary_segmentation,
                 primary_segments,
@@ -1014,10 +1021,12 @@ impl QuanpinDictionary {
             })
             .collect();
         match primary_full {
-            Cow::Borrowed(rows) => {
-                merge_alternative_rows(result, rows.iter().cloned(), alternative_full)
+            PrimaryPage::Cached(page) => {
+                merge_alternative_rows(result, page.cloned_rows(cache_key), alternative_full)
             }
-            Cow::Owned(rows) => merge_alternative_segmentations(result, rows, alternative_full),
+            PrimaryPage::Owned(rows) => {
+                merge_alternative_segmentations(result, rows, alternative_full)
+            }
         }
     }
 
@@ -1327,7 +1336,7 @@ impl QuanpinDictionary {
         matched_items(rows, segmentation)
     }
 
-    /// Dictionary rows for one segmentation, cached by segmentation (QD:751-765). With the Google decoder gone an empty lookup stays empty.
+    /// 单条切分的词典页按原键缓存（QD:751-765），空查询仍为空。
     fn query_single_path(
         &mut self,
         raw: &str,
@@ -1336,7 +1345,7 @@ impl QuanpinDictionary {
     ) -> Vec<WordItem> {
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
-            return cached.clone();
+            return cached.copy_rows(cache_key);
         }
         self.query_single_path_miss(cache_key, segmentation, segments)
     }
@@ -1355,8 +1364,7 @@ impl QuanpinDictionary {
         }
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(rows) = self.cache.get_ref_by(cache_key) {
-            result.reserve(rows.len());
-            result.extend(rows.iter().cloned());
+            rows.append_to(cache_key, result);
             return;
         }
         let rows = self.query_single_path_miss(cache_key, segmentation, segments);
@@ -1371,7 +1379,10 @@ impl QuanpinDictionary {
         segments: &[String],
     ) -> Vec<WordItem> {
         let result = self.query_database(segments, segmentation);
-        self.cache.insert(cache_key.to_owned(), result.clone());
+        self.cache.insert(
+            cache_key.to_owned(),
+            PathPage::from_dictionary(cache_key, &result),
+        );
         result
     }
 

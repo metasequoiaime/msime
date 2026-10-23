@@ -134,6 +134,8 @@ cargo run -p msime-client-core --example install_resources -- target/resources
 cargo run -p msime-engine --example query_dictionary -- <上一步返回的资源目录>
 ```
 
+新版各平台的整句候选设置、神经模型与 `.gram` 语法模型的安装和更新方式，见[整句候选与模型](docs/sentence-models.md)。Windows 原生设置目前尚未提供完整模型管理入口，说明中列出了已有能力和缺口。
+
 整句神经重排模型另有一份 `resources/neural-model.lock.json`，把键盘用的小模型和桌面落定时使用的大模型锁在同一发布版本。需要单独准备两份模型时运行：
 
 ```sh

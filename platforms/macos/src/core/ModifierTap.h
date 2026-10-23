@@ -16,13 +16,27 @@ public:
         held_ = probe;
     }
     void setKeyHeldProbe(KeyHeldProbe probe) { held_ = probe ? probe : &MSIMEModifierTap::physicallyHeld; }
+    // Shift 被其他字符打断后，同一轮按住期间的 Shift+空格应交回正常输入。
+    bool shiftChordInterrupted() const { return shiftChordInterrupted_; }
     bool observe(NSEvent *event, bool shiftEnabled, bool controlEnabled) {
         const auto mask = NSEventModifierFlagShift | NSEventModifierFlagControl |
             NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
         const auto flags = event.modifierFlags & mask;
         const auto previous = modifiers_;
         modifiers_ = flags;
+        // 释放通知可能丢失；普通按键报告的修饰键状态也能确认这一轮已结束。
+        if (!(flags & NSEventModifierFlagShift)) shiftChordInterrupted_ = false;
         if (event.type == NSEventTypeKeyDown) {
+            const bool modifier = event.keyCode == 54 || event.keyCode == 55 ||
+                event.keyCode == 56 || event.keyCode == 58 || event.keyCode == 59 ||
+                event.keyCode == 60 || event.keyCode == 61 || event.keyCode == 62 ||
+                event.keyCode == 63;
+            const auto competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
+                NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+            // 空格本身由调用方决定是否是快捷键；带其他修饰键的组合也不属于纯 Shift 轮次。
+            if ((flags & NSEventModifierFlagShift) && !(flags & competing) &&
+                event.keyCode != 49 && !modifier)
+                shiftChordInterrupted_ = true;
             keys_.insert(event.keyCode);
             armed_ = false;
             return false;
@@ -81,4 +95,5 @@ private:
     NSEventModifierFlags armedModifier_ = 0;
     double pressedAt_ = 0;
     bool armed_ = false;
+    bool shiftChordInterrupted_ = false;
 };

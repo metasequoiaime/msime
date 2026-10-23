@@ -69,3 +69,7 @@ Status: implemented
 - Rust：`cargo test -p msime-desktop --lib`。`macos_input_source` 的测试覆盖 `after_install_refreshes`、退出码映射、重试、探针传参和超时杀进程，以及更新时替换前查到不在注册表里就留下新版本报 `RegistrationPending`、查到在或无从判断时照旧回滚、首次安装不查。`tests.rs` 覆盖 `up_to_date` 加 `enabled == Some(false)` 时的 `login_required`、只查一次、`None` 不缓存、`installed` / `updated` 不查、`finish` 后重查、并发请求只查一次、查询期间 `finish` 时旧结论不进缓存。
 - 前端：`apps/desktop/tests/settings/macos-install-page.test.tsx` 断言 `login_required` 时标题是「还差一步：注销并重新登录」，页面上没有「安装完成」。
 - 还没在真机上走过完整流程：用一个本次登录从未见过该 identifier 的新账户安装 DMG、重开设置应用、注销再登录。
+
+## 系统安装范围扩展
+
+2026-10-23 的[系统输入法安装支持](../bug-fix/2026-10-23-macos-system-input-method-install.md)让设置应用同时识别用户和系统目录，沿用现有安装位置修复并保留版本防降级。单独的系统副本是正常安装；仅主动安装或修复才请求管理员权限。首次安装的登录提示和输入法自身的 Sparkle 更新协议保持原有约定。

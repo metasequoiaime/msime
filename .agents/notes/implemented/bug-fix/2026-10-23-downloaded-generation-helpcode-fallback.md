@@ -27,7 +27,9 @@ Status: implemented
 
 `downloaded_generation_falls_back_to_the_bundled_helpcode_tables` 用合成词库装一个下载代次：新准备的文档带回退目录且指向有码表的随包目录；去掉这个键的旧文档从更新记录里找到同一目录；随包目录没有码表时不回退；还在用随包词库时不设回退。去掉两处修复后该测试失败。
 
-这次没有在 iOS 真机或模拟器上验收，也没拿到报告者的设备状态，是否装过在线更新是从代码推出的最可能原因。
+`HelpcodeSettingsTests.testXiaoheZiranmaYangCandidateAndCommit` 补充 #9416 的 iOS 原生桥接回归：在独立状态目录开启小鹤双拼和自然码辅助码，分别输入 `yh` 后的裸 `m` 与 Shift `M`，检查「杨」进入前两项、「阳」被过滤、注释为 `(mY)`，并选择「杨」验证上屏和组字清空。不固定前两项的先后顺序，避免上一轮选词学习改变排序后误报。
+
+iOS 27 模拟器上的全部六项 `HelpcodeSettingsTests` 与原生键盘的 `testShiftEntersHelpcodeWhileComposingShuangpin` 均通过，共七项、零失败。测试使用真实 Rust 静态库与随包词库；资源校验、原生测试构建和 quick 在远端完成，因远端模拟器服务无响应，编译后的测试包转到本机通过 `test-without-building` 执行。这验证随包词库下的候选、注释与提交，不是下载代次的 iOS 端到端验收，也不是系统键盘扩展或真机验收。尚未拿到报告者的设备状态，不能据此确认其根因或关闭 #9416；是否装过在线更新仍是从代码推出的可能原因。
 
 ## 历史笔记检索
 

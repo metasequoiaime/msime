@@ -73,8 +73,11 @@ final class CompositionMagnifierChecks {
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
                 Rect text = bounds(s.await(s.described("放大拼写")));
                 Rect handle = bounds(s.await(s.described("拼写光标拖动手柄")));
-                if (handle.left <= text.left || handle.top < text.bottom)
-                    throw new AssertionError("Handle overlaps the magnified spelling");
+                float density = s.getTargetContext().getResources().getDisplayMetrics().density;
+                if (handle.width() < 55 * density || handle.height() < 55 * density)
+                    throw new AssertionError("Handle is too small for a thumb");
+                if (handle.left <= text.left || handle.top - text.bottom < 28 * density)
+                    throw new AssertionError("Handle is too close to the magnified spelling");
                 drag(s, handle, text.right - 4, 1400);
                 s.await(s.described("放大拼写").and(node -> node.getText() != null
                     && node.getTextSelectionStart() == node.getText().length()));
@@ -115,11 +118,19 @@ final class CompositionMagnifierChecks {
 
     private static void longSpelling(DeviceSmoke s) throws Exception {
         s.stage = "magnifier long spelling follows the caret to both screen edges";
-        s.shellDiscard("input text nihaonihaonihaonihaonihaonihaonihaonihao");
+        String prefix = s.await(s.field("msime-test-plain")).getText().toString();
+        StringBuilder spelling = new StringBuilder();
+        // 逐组等待真实触屏输入，避免 shell 连发注入未完成就开始验收拖动。
+        for (int syllable = 0; syllable < 8; syllable++) {
+            for (String key : new String[] {"n", "i", "h", "a", "o"}) s.tap(s.key(key));
+            spelling.append("nihao");
+            String expected = prefix + spelling;
+            s.await(s.field("msime-test-plain").and(node -> node.refresh()
+                && DeviceSmoke.equalsText(expected, node.getText())));
+        }
         s.tap(s.described("编辑拼写"));
-        AccessibilityNodeInfo text = s.await(s.described("放大拼写"));
-        if (text.getText() == null || text.getText().length() < 35)
-            throw new AssertionError("Long spelling fixture was not entered");
+        AccessibilityNodeInfo text = s.await(s.described("放大拼写").and(node ->
+            node.getText() != null && node.getText().length() >= 35));
         select(text, 0);
         s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
         Rect area = bounds(text);

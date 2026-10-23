@@ -1027,10 +1027,10 @@ static bool MSIMEReleaseSystemCapsLock() {
     return released;
 }
 // 在原生查询边界替换合成状态，回归必须经过生产的实体按住判定。
-static CGEventFlags (*MSIMECapsLockFlagsState)(CGEventSourceStateID) = &CGEventSourceFlagsState;
+static CGEventFlags (*MSIMEPhysicalModifierFlagsState)(CGEventSourceStateID) = &CGEventSourceFlagsState;
 // 键码 0x39 的查询跟随大写锁定，松手后仍可能为真；只读 stateless 位区分实体按住与逻辑锁定。
 static bool MSIMECapsLockPhysicallyHeld() {
-    return (MSIMECapsLockFlagsState(kCGEventSourceStateHIDSystemState) & NX_ALPHASHIFT_STATELESS_MASK) != 0;
+    return (MSIMEPhysicalModifierFlagsState(kCGEventSourceStateHIDSystemState) & NX_ALPHASHIFT_STATELESS_MASK) != 0;
 }
 // 和 NSEvent.timestamp 同一个开机后时钟，单位毫秒。
 static std::int64_t MSIMEUptimeMilliseconds() {
@@ -6883,13 +6883,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     const BOOL voiceEnabled = MSIMEVoiceInputEnabled(voiceDefaults);
     if (!voiceEnabled) _voiceHoldShortcut.reset();
+    const NSEventModifierFlags physicalModifierFlags = voiceEnabled && event.type == NSEventTypeFlagsChanged
+        ? MSIMEPhysicalModifierFlagsState(kCGEventSourceStateHIDSystemState) : 0;
     const auto voiceShortcut = voiceEnabled ? _voiceHoldShortcut.observe(event, {
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"] != NO,
         // 空格锁定固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响。设置页不再给这个开关（`voice_space_lock_switch`），存下的 false 也不再读。
         true
-    }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
+    }, _voiceService.active, physicalModifierFlags) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
     // MSIME-Windows shows the overlay's cancel and confirm buttons once the hold is locked (ControlCommand::Lock).
     if (voiceShortcut.consumed && _voiceHoldShortcut.locked() && _voiceService.active) [_voiceOverlay setRecordingLocked:YES];
@@ -6952,7 +6954,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
-    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) && !(event.modifierFlags & competing)) {
+    if (_appearance.inputModeShortcut && event.keyCode == 49 && (event.modifierFlags & NSEventModifierFlagShift) &&
+        !(event.modifierFlags & competing) && !_modifierTap.shiftChordInterrupted()) {
         if (!event.isARepeat) [self toggleChineseEnglishMode];
         return YES;
     }
@@ -8101,7 +8104,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
         NSScreen *screen = MSIMECandidateScreen(cursor);
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
-        NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+        NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
         // 键位图先于候选窗更新，必须自行读取本次皮肤，不能使用上一次重绘留下的几何。
         NSAppearance *current = _keymapPanel.appearance ?: _panel.effectiveAppearance ?: NSApp.effectiveAppearance;
         NSString *theme = [current bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
@@ -8554,7 +8557,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
-    NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+    NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
@@ -8863,7 +8866,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
-    NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
+    NSFont *glossFont = [_appearance candidateFontOfSize:_appearance.translationFontSize * scale englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
     NSString *statusText = preedit.length ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,

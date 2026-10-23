@@ -5,6 +5,36 @@
 use super::*;
 
 #[test]
+fn candidate_translation_font_size_is_optional_bounded_and_round_trips() {
+    let mut json = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(json.get("candidate_translation_font_size").is_none());
+    for size in [12, 21, 32] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(preferences.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(preferences).unwrap()["candidate_translation_font_size"],
+            size
+        );
+    }
+    for size in [0, 11, 33, 255] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidCandidateFontSize)
+        ));
+    }
+    json["candidate_translation_font_size"] = serde_json::Value::Null;
+    let preferences: Preferences = serde_json::from_value(json).unwrap();
+    assert!(preferences.validate().is_ok());
+    assert!(serde_json::to_value(preferences)
+        .unwrap()
+        .get("candidate_translation_font_size")
+        .is_none());
+}
+
+#[test]
 fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     let defaults = Preferences::default();
     assert!(defaults.backspace_reverts_selection);

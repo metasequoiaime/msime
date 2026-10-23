@@ -8,11 +8,13 @@ export function HostActionButton({
   label,
   success,
   error,
+  cancelled,
 }: {
   action?: () => Promise<void>;
   label: string;
   success?: string;
   error?: string;
+  cancelled?: string;
 }) {
   const [result, setResult] = useState<"success" | "error" | null>(null);
   const [errorMessage, setErrorMessage] = useState("操作失败，请重试。");
@@ -29,6 +31,7 @@ export function HostActionButton({
       {
         formatError: (reason) => {
           const code = errorCode(reason);
+          if (code === "cancelled") return cancelled ?? "已取消操作，可以重试。";
           return code === "unknown_skin"
             ? "找不到该外部皮肤，请先刷新皮肤目录。"
             : code === "invalid_skin"

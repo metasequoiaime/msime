@@ -1687,3 +1687,6 @@ fn long_row_cache_batch_lets_a_waiting_writer_commit() {
     assert!(writer.join().unwrap().is_ok());
     drop(batch);
 }
+
+#[path = "path_page_compaction_tests.rs"]
+mod path_page_compaction_tests;

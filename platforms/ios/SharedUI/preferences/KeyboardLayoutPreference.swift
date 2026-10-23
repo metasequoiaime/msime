@@ -13,6 +13,7 @@ enum KeyboardLayoutPreference {
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   static let tabletSplitKey = "keyboard.tablet.split"
   static let glideTypingKey = "keyboard.gesture.glide"
+  static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
@@ -145,6 +146,11 @@ enum KeyboardLayoutPreference {
   static var glideTyping: Bool {
     get { defaults.object(forKey: glideTypingKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: glideTypingKey) }
+  }
+  /// 「横滑键盘移动光标」：无组字时从普通字符键横滑移动文档光标。默认关，与滑行输入一样只保存在本机 App Group。
+  static var cursorSwipe: Bool {
+    get { defaults.object(forKey: cursorSwipeKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: cursorSwipeKey) }
   }
   /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的启动方式由它和 `touch_voice_shortcut` 一起派生。
   static var spaceVoice: Bool {

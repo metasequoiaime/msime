@@ -100,6 +100,26 @@ test("Windows 主字体接线保留回退链，候选字号报告数值", () => 
   expect(values.onChange).toHaveBeenLastCalledWith({ candidate_font_size: 24 });
 });
 
+test("macOS 译文字号独立保存并可恢复默认，其他宿主不显示", () => {
+  const values = props();
+  const view = render(<CandidateFontSettingsRows {...values} />);
+  const translation = screen.getByLabelText("译文字号");
+  expect(translation).toHaveProperty("value", "");
+  expect(values.onChange).not.toHaveBeenCalled();
+  fireEvent.change(translation, { target: { value: "21" } });
+  expect(values.onChange).toHaveBeenLastCalledWith({ candidate_translation_font_size: 21 });
+  view.rerender(
+    <CandidateFontSettingsRows {...values} preferences={{ candidate_translation_font_size: 21 }} />,
+  );
+  expect(screen.getByLabelText("译文字号")).toHaveProperty("value", "21");
+  fireEvent.change(screen.getByLabelText("译文字号"), { target: { value: "" } });
+  expect(values.onChange).toHaveBeenLastCalledWith({ candidate_translation_font_size: null });
+  for (const platform of ["windows", "linux", "harmony", "android", "ios"] as const) {
+    view.rerender(<CandidateFontSettingsRows {...values} platform={platform} />);
+    expect(screen.queryByLabelText("译文字号")).toBeNull();
+  }
+});
+
 test("字体目录保持惰性，主字体和英文字体共用已有目录", async () => {
   const readFonts = vi.fn(async () => ["示例字体"]);
   render(<CandidateFontSettingsRows {...props({ readFonts, englishFont: true })} />);
@@ -125,8 +145,9 @@ test("组合保持各行同级且顺序不变", () => {
     screen.getByLabelText("英文字体"),
     screen.getByLabelText("字号"),
     screen.getByLabelText("预编辑字号"),
+    screen.getByLabelText("译文字号"),
   ];
-  expect(container.children).toHaveLength(5);
+  expect(container.children).toHaveLength(6);
   controls.forEach((control, index) =>
     expect(container.children[index].contains(control)).toBe(true),
   );

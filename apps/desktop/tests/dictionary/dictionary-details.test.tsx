@@ -153,3 +153,73 @@ test("独立内置详情保留搜索与分页，客户端变化后丢弃旧分�
   });
   expect(next.list).toHaveBeenLastCalledWith(0, 100, "pinyin", "he'cheng");
 });
+
+test("按词语过滤后，加载更多从宿主已读取条数继续", async () => {
+  vi.useFakeTimers();
+  const dictionary = dictionaryClient();
+  render(<BuiltinDictionaryDetail dictionary={dictionary} count={0} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  dictionary.list.mockResolvedValueOnce({
+    entries: [
+      { kind: "pinyin", key: "jia", value: "甲", weight: 1 },
+      { kind: "pinyin", key: "hecheng", value: "合成首词", weight: 2 },
+      { kind: "pinyin", key: "yi", value: "乙", weight: 3 },
+    ],
+    has_more: true,
+  });
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索词条" }), {
+    target: { value: "合成" },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250);
+  });
+  expect(screen.getByText("合成首词")).toBeTruthy();
+  expect(screen.queryByText("甲")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  expect(dictionary.list).toHaveBeenLastCalledWith(3, 100, "pinyin", undefined);
+  await act(async () => {});
+});
+
+test("内置详情添加成功后通过共享状态刷新当前查询并关闭对话框", async () => {
+  vi.useFakeTimers();
+  const dictionary = dictionaryClient();
+  render(
+    <ToastProvider>
+      <BuiltinDictionaryDetail dictionary={dictionary} count={0} />
+    </ToastProvider>,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索词条" }), {
+    target: { value: "He Cheng" },
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250);
+  });
+  dictionary.list.mockResolvedValueOnce({
+    entries: [{ kind: "pinyin", key: "he'cheng", value: "合成词条", weight: 10 }],
+    has_more: false,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "添加词条" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "词语" }), {
+    target: { value: "合成词条" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "拼音" }), {
+    target: { value: "He Cheng" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  });
+  expect(dictionary.edit).toHaveBeenCalledExactlyOnceWith(
+    null,
+    { kind: "pinyin", key: "he'cheng", value: "合成词条", weight: 10 },
+    expect.stringMatching(/^phone-dictionary-\d+$/),
+  );
+  expect(dictionary.list).toHaveBeenLastCalledWith(0, 100, "pinyin", "he'cheng");
+  expect(screen.getByText("合成词条")).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("status").textContent).toBe("已添加");
+});

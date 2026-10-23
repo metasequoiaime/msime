@@ -263,6 +263,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-notes true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase note acceptance failed" >&2; exit 1; }
+# 常用语分类覆盖原生管理、纵向展开、正文插入和本地备份；最低 API 同样执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-categories true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase category acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"

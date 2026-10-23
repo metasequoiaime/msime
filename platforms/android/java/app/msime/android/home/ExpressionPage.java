@@ -17,9 +17,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句联想三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
+ * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
- * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句联想三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
+ * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
 public final class ExpressionPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -28,6 +28,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
 
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
+    private static final String SENTENCE_DESCRIPTION =
+        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。上屏后不推荐下一个词";
     /** 共享偏好 `quote_style` 的取值与显示文字，缺省（文档里没有这个键）是弯引号。 */
     private static final String[] QUOTE_STYLES = {"curly", "corner", "corner_when_traditional"};
     private static final String[] QUOTE_STYLE_LABELS = {"弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号"};
@@ -125,7 +127,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
 
         GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
-        intelligence.nav("整句联想", "更准确，但更耗电", SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
+        intelligence.nav("整句候选", SENTENCE_DESCRIPTION, SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
         intelligence.toggle(english.title(), english.description(),
             values.optBoolean(english.key(), english.enabledByDefault()),
@@ -205,7 +207,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     private void pickSentence(int selected) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "整句联想", "更准确，但更耗电");
+        OptionSheet sheet = new OptionSheet(requireContext(), "整句候选", SENTENCE_DESCRIPTION);
         for (int index = 0; index < SENTENCE_LABELS.length; index++) {
             int level = index;
             sheet.option(SENTENCE_LABELS[index], index == selected, () -> savePreferences(edit -> {

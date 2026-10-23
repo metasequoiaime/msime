@@ -1,27 +1,20 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import { useToast } from "../core/toast";
-import { useDebouncedCallback } from "../core/use-debounced-callback";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 import { SwitchRow } from "../settings/switch-row";
 import * as settings from "../settings/settings-style";
 import {
   displayPinyinCode,
-  normalizePinyinCode,
-  validPinyinCode,
   type DictionaryCollection,
   type DictionaryCollectionsView,
 } from "./dictionary-collections";
 import { DictionaryWordDialog } from "./dictionary-edit-dialogs";
 import { Badge, PlusGlyph } from "./dictionary-detail-parts";
-import type { DictionaryEntry } from "./dictionary-file";
 import type { DictionaryClient } from "./dictionary-contracts";
-
-/** 内置词库详情页一次读的词条数，与 Android 的词库详情页相同。 */
-const ENTRY_PAGE_SIZE = 100;
+import { useBuiltinDictionaryEntries } from "./use-builtin-dictionary-entries";
 
 /** 删除这类危险操作：一行红字，没有图标和箭头。 */
 function DangerRow({
@@ -142,47 +135,11 @@ export function BuiltinDictionaryDetail({
   onExport?: () => Promise<string>;
 }) {
   const toast = useToast();
-  const [query, setQuery] = useState("");
-  const [entries, setEntries] = useState<DictionaryEntry[]>([]);
-  const [more, setMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const generation = useAsyncGeneration(dictionary, query);
-  const searchId = useId();
-
-  const load = async (search: string, offset: number) => {
-    const current = ++generation.current;
-    setLoading(true);
-    const code = normalizePinyinCode(search);
-    const byCode = search.trim() !== "" && validPinyinCode(code);
-    try {
-      const page = await dictionary.list(
-        offset,
-        ENTRY_PAGE_SIZE,
-        "pinyin",
-        byCode ? code : undefined,
-      );
-      if (current !== generation.current) return;
-      // 不像拼音的搜索词按词语过滤已读出的词条，与 Android 的词库详情页相同。
-      const found =
-        search.trim() !== "" && !byCode
-          ? page.entries.filter((entry) => entry.value.includes(search.trim()))
-          : page.entries;
-      setEntries((value) => (offset === 0 ? found : [...value, ...found]));
-      setMore(page.has_more);
-    } catch {
-      if (current === generation.current) toast("读取词条失败，请稍后重试。");
-    } finally {
-      if (current === generation.current) setLoading(false);
-    }
-  };
-  const { schedule: loadLater } = useDebouncedCallback(
-    (search: string) => void load(search, 0),
-    query ? 250 : 0,
+  const { query, setQuery, entries, more, loading, reload, loadMore } = useBuiltinDictionaryEntries(
+    { dictionary, onNotice: toast },
   );
-  useEffect(() => {
-    loadLater(query);
-  }, [loadLater, query, dictionary]);
+  const [adding, setAdding] = useState(false);
+  const searchId = useId();
 
   return (
     <>
@@ -235,7 +192,7 @@ export function BuiltinDictionaryDetail({
             variant="me"
             title={loading ? "正在读取…" : "加载更多"}
             disabled={loading}
-            onClick={() => void load(query, entries.length)}
+            onClick={() => void loadMore()}
           />
         )}
         <NavRow
@@ -271,7 +228,7 @@ export function BuiltinDictionaryDetail({
               );
               setAdding(false);
               toast("已添加");
-              void load(query, 0);
+              void reload();
             } catch {
               toast("添加失败，请稍后重试。");
             }

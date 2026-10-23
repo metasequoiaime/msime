@@ -1,6 +1,8 @@
 export type CandidateSizingPreferences = {
   candidate_font_size?: number;
   candidate_preedit_font_size?: number;
+  /** macOS 候选译文字号，12–32 点；省略或 null 使用默认 12pt。 */
+  candidate_translation_font_size?: number | null;
 };
 
 export type CandidateFontPreferences = {

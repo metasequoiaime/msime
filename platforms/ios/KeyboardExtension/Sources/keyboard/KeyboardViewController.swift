@@ -204,6 +204,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var glideTypingEnabled = false
   private let glideGesture = GlideTypingGestureRecognizer()
   private let glideTrail = GlideTrailView()
+  private var glideActive = false
+  private var cursorSwipeEnabled = false
+  private var cursorSwipeActive = false
+  private var cursorSwipeHadMultipleTouches = false
+  private var cursorSwipeDocument: UUID?
+  private lazy var keyboardCursorPan: UIPanGestureRecognizer = {
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleKeyboardCursorPan(_:)))
+    pan.name = "keyboardCursorPan"
+    pan.maximumNumberOfTouches = 1
+    pan.cancelsTouchesInView = true
+    pan.delaysTouchesBegan = false
+    pan.delaysTouchesEnded = false
+    pan.delegate = self
+    return pan
+  }()
   /// a..z 二十六个字母键，按字母顺序；滑行请求里的键中心按这个顺序给出。
   private var glideLetterKeys: [UIButton] = []
   private var microsoftFinalKey: UIButton?
@@ -919,10 +934,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                    enabled: DiagnosticLog.isEnabled(in: preferences) && !diagnosticLogSuppressed)
   }
 
-  /// 读本机的两项手势开关：长按空格语音和滑动输入符号。后者交给每个字母键，按键时不再读 App Group。
+  /// 读取本机手势开关；字母键和根手势使用缓存，按键时不再读 App Group。
   private func readGesturePreferences() {
     spaceVoiceEnabled = KeyboardLayoutPreference.spaceVoice
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
+    cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
+    if !cursorSwipeEnabled { endKeyboardCursorSwipe() }
+    keyboardCursorPan.isEnabled = cursorSwipeEnabled
     for letter in letterButtons { (letter.button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled }
     for space in spaceKeys {
       space.configuration?.contentInsets = .zero
@@ -1002,6 +1020,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func selectionDidChange(_ textInput: UITextInput?) {
     super.selectionDidChange(textInput)
+    cancelCursorSwipeIfDocumentChanged()
     // 光标移到了 `xxx@` 后面，或者从那里移开。
     refreshEmailSuffixes()
   }
@@ -1036,6 +1055,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardPicker()
     // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存，与 Android onFinishInputView 一致。
     closeInlineHeight(commit: false)
+    endKeyboardCursorSwipe()
     cursorMovement.cancel()
     spaceHoldMovesCursor = false
     endGlide()
@@ -1203,6 +1223,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     installGlideTyping(on: root)
+    root.addGestureRecognizer(keyboardCursorPan)
     updateKeyboardLayout()
   }
 
@@ -1343,7 +1364,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     glideGesture.onBegan = { [weak self, weak root] in
       guard let self, let root else { return }
-      root.suppressesKeyHits = true
+      glideActive = true
+      updateKeyHitSuppression()
       root.bringSubviewToFront(glideTrail)
     }
     glideGesture.onMoved = { [weak self] samples in
@@ -1368,8 +1390,65 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 滑行结束：键区重新接受新的手指，轨迹抬手时淡出，被打断时直接清空。
   private func endGlide(fading: Bool = false) {
-    (keyboardRoot as? KeyAreaStackView)?.suppressesKeyHits = false
+    glideActive = false
+    updateKeyHitSuppression()
     if fading { glideTrail.fadeOut() } else { glideTrail.clear() }
+  }
+
+  /// 两种根手势各自结束，不清掉另一种手势仍持有的按键抑制。
+  private func updateKeyHitSuppression() {
+    (keyboardRoot as? KeyAreaStackView)?.suppressesKeyHits = glideActive || cursorSwipeActive
+  }
+
+  private var cursorSwipeAllowed: Bool {
+    cursorSwipeEnabled && !cursorSwipeHadMultipleTouches && !hasComposition && !isInLocalMode && !replyKeyboardShown
+      && !glideTypingArmed && !glideActive
+      && !(isChineseMode && inputScheme == .japaneseNineKey)
+  }
+
+  private func cancelCursorSwipeIfDocumentChanged() {
+    if cursorSwipeActive && KeyboardHostContext.documentIdentifier(for: textDocumentProxy) != cursorSwipeDocument {
+      endKeyboardCursorSwipe()
+    }
+  }
+
+  /// 步进器失去文档或自行取消时，同时终止识别序列，旧的 changed 不能重新启动光标移动。
+  private func endKeyboardCursorSwipe(cancelGesture: Bool = true) {
+    if cursorSwipeActive {
+      cursorMovement.cancel()
+      updateSpaceKeyTitle()
+    }
+    cursorSwipeActive = false
+    cursorSwipeDocument = nil
+    updateKeyHitSuppression()
+    if cancelGesture && (keyboardCursorPan.state == .began || keyboardCursorPan.state == .changed) {
+      let enabled = keyboardCursorPan.isEnabled
+      keyboardCursorPan.isEnabled = false
+      keyboardCursorPan.isEnabled = enabled
+    }
+  }
+
+  @objc private func handleKeyboardCursorPan(_ pan: UIPanGestureRecognizer) {
+    switch pan.state {
+    case .began:
+      guard cursorSwipeAllowed, !cursorMovement.isActive,
+            let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+        endKeyboardCursorSwipe()
+        return
+      }
+      cursorSwipeActive = true
+      cursorSwipeDocument = document
+    case .changed:
+      guard cursorSwipeActive else { return }
+    case .ended, .cancelled, .failed:
+      endKeyboardCursorSwipe(cancelGesture: false)
+      return
+    default: return
+    }
+    handleSpaceCursorMovement(pan.state, at: pan.translation(in: view).x,
+                              velocity: pan.velocity(in: view).x, space: nil)
+    if cursorMovement.isActive { updateKeyHitSuppression() }
+    else { endKeyboardCursorSwipe() }
   }
 
   /// 抬手：把这一笔交给 Engine，回应像轻点字母键那样渲染。Engine 不处理（方案或模式不对、解不出音节）时丢掉这一笔，一个键也不输入。
@@ -3836,6 +3915,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func synchronizeInputContext() {
+    cancelCursorSwipeIfDocumentChanged()
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
     applyInputContext(keyboardType: textDocumentProxy.keyboardType ?? .default, documentIdentifier: document)
   }
@@ -5936,6 +6016,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    if gestureRecognizer.name == "keyboardCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer {
+      let velocity = pan.velocity(in: view)
+      return cursorSwipeAllowed && !cursorMovement.isActive
+        && velocity.x.isFinite && velocity.y.isFinite && abs(velocity.x) > abs(velocity.y)
+    }
     if gestureRecognizer.name == "spaceVoiceHold" {
       return (spaceVoiceArmed || (!spaceVoiceEnabled && (handwriting.isHidden || !handwriting.hasInk))) && !cursorMovement.isActive
     }
@@ -5944,6 +6029,41 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
     return !cursorMovement.isActive && abs(velocity.x) > abs(velocity.y)
+  }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
+    guard gestureRecognizer.name == "keyboardCursorPan", let touches = event.allTouches else { return true }
+    let active = touches.filter { $0.phase != .ended && $0.phase != .cancelled }
+    // 事件回调先于起点过滤，空格等功能键的第二指也必须参与单指裁决。
+    if active.count > 1 {
+      cursorSwipeHadMultipleTouches = true
+      endKeyboardCursorSwipe(cancelGesture: false)
+      gestureRecognizer.isEnabled = false
+      gestureRecognizer.isEnabled = cursorSwipeEnabled
+      return false
+    }
+    // 只有新的单指序列才能解锁；第二指抬起后，旧首指继续移动仍不能开始横滑。
+    if active.count == 1, active.first?.phase == .began { cursorSwipeHadMultipleTouches = false }
+    return true
+  }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    guard gestureRecognizer.name == "keyboardCursorPan" else { return true }
+    guard cursorSwipeEnabled, let root = keyboardRoot as? KeyAreaStackView,
+          let touched = touch.view, touched.isDescendant(of: root),
+          !touched.isDescendant(of: japaneseKeys),
+          !root.gapRoutingExclusions.contains(where: { touched.isDescendant(of: $0) }) else { return false }
+    var node: UIView? = touched
+    while let current = node, current !== root {
+      if let key = current as? KeyboardKeyButton {
+        guard !key.isFunctionKey, !spaceKeys.contains(where: { $0 === key }) else { return false }
+        // 九键全拼字母层的 1 打开标点，数字层和双拼的 1 才输入字符。
+        return showsSymbols || inputScheme == .nineKeyShuangpin
+          || !nineKeyGridKeys.contains(where: { $0.button === key && $0.digit == 1 })
+      }
+      node = current.superview
+    }
+    return false
   }
 
   private func moveCompositionCaret(by offset: Int, bySegment: Bool = false) {

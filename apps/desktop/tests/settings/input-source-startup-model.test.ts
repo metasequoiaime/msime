@@ -12,6 +12,8 @@ const actions: InputSourceStartupStatus["action"][] = [
   "up_to_date",
   "not_installed",
   "login_required",
+  "authorization_required",
+  "cancelled",
   "failed",
 ];
 

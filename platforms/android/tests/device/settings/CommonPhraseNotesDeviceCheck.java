@@ -106,6 +106,14 @@ final class CommonPhraseNotesDeviceCheck {
     private void settings() throws Exception {
         // CLEAR_TASK 确保走原生页面重建；不用 startActivitySync 等待复用实例。
         test.shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page PHRASES");
+        test.dropStaleNodes();
+        // 分类卡片增加了页面高度；先滚动到原有添加区域，再保留原来的可见性断言。
+        AccessibilityNodeInfo entry = test.awaitAny(text("添加常用语"));
+        if (!entry.isVisibleToUser()) {
+            if (!entry.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId()))
+                throw new AssertionError("Common phrase add section could not be scrolled into view");
+            test.dropStaleNodes();
+        }
         test.await(text("添加常用语"));
     }
 

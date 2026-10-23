@@ -61,5 +61,41 @@ int main() {
         step(61, lc | ro, false, Action::None, false); // Left Control is not right Control.
         shortcut.reset();
         step(61, 0, true, Action::None, false); // Departing focus cannot stop a successor.
+
+        all = {true, false, false, true};
+        auto physicalStep = [&](unsigned short key, NSEventModifierFlags flags, NSEventModifierFlags physicalFlags,
+                                bool recording, Action action, bool consumed, bool onRelease = false) {
+            const auto result = shortcut.observe(Event(key, flags), all, recording, physicalFlags);
+            assert(result.action == action && result.consumed == consumed && result.onRelease == onRelease);
+        };
+        const auto option = NSEventModifierFlagOption;
+        // 事件只带通用 Option 位时，从实体快照恢复右侧位；重复通知不能二次切换。
+        physicalStep(61, option, ro, false, Action::Toggle, true);
+        physicalStep(61, option, ro, true, Action::None, true);
+        physicalStep(61, 0, 0, true, Action::Toggle, true, true);
+        physicalStep(61, 0, 0, false, Action::None, false);
+        shortcut.reset();
+        // 左 Option 保持按住时，右 Option 的松开仍要结束录音。
+        physicalStep(58, option, lo, false, Action::None, false);
+        physicalStep(61, option, lo | ro, false, Action::Toggle, true);
+        physicalStep(61, option, lo, true, Action::Toggle, true, true);
+        physicalStep(61, option, lo, false, Action::None, false);
+        shortcut.reset();
+        // 左 Option 先松开不会结束右侧的按住；单独左侧也不能启动语音。
+        physicalStep(61, option, ro, false, Action::Toggle, true);
+        physicalStep(58, option, ro, true, Action::None, false);
+        physicalStep(61, 0, 0, true, Action::Toggle, true, true);
+        shortcut.reset();
+        physicalStep(58, option, lo, false, Action::None, false);
+        physicalStep(61, option, lo, false, Action::None, false);
+        shortcut.reset();
+        // 处理左侧事件时实体右侧已经按下，也不能提前占用尚未送达的右侧按下沿。
+        physicalStep(58, option, lo | ro, false, Action::None, false);
+        physicalStep(61, option, lo | ro, false, Action::Toggle, true);
+        physicalStep(61, option, lo, true, Action::Toggle, true, true);
+        shortcut.reset();
+        // 原生事件已有侧别位时，以事件快照为准，不让较晚的实体状态覆盖它。
+        physicalStep(61, ro, 0, false, Action::Toggle, true);
+        physicalStep(61, lo, ro, true, Action::Toggle, true, true);
     }
 }

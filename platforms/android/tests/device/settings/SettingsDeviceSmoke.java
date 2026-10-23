@@ -62,16 +62,19 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean vocabulary;
     private boolean noticeQueue;
     private boolean phraseNotes;
+    private boolean phraseCategories;
 
     @Override public void onCreate(Bundle arguments) {
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
         phraseNotes = arguments != null && "true".equals(arguments.getString("phrase-notes"));
+        phraseCategories = arguments != null && "true".equals(arguments.getString("phrase-categories"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (phraseCategories) return "native common phrase categories, accordion defaults, insertion and ZIP backup";
         if (phraseNotes) return "native common phrase note CRUD, persistence, backup and body-only keyboard insertion";
         if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
         if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
@@ -79,6 +82,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (phraseCategories) {
+            new CommonPhraseCategoriesDeviceCheck(this).run();
+            return;
+        }
         if (phraseNotes) {
             new CommonPhraseNotesDeviceCheck(this).run();
             return;

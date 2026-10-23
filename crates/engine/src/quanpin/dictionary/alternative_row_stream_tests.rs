@@ -358,10 +358,10 @@ fn alternative_stream_keeps_cached_fields_and_fifo_age() {
         let mut after = QuanpinDictionary::new(&fixture.paths);
         before.cache = FifoCache::new(2);
         after.cache = FifoCache::new(2);
-        before.cache.insert("xi'an".into(), rows.clone());
-        after.cache.insert("xi'an".into(), rows);
-        before.cache.insert("second".into(), Vec::new());
-        after.cache.insert("second".into(), Vec::new());
+        before.cache.insert("xi'an".into(), rows.clone().into());
+        after.cache.insert("xi'an".into(), rows.into());
+        before.cache.insert("second".into(), Vec::new().into());
+        after.cache.insert("second".into(), Vec::new().into());
         let before_cached = before.cache.get_ref_by("xi'an").unwrap().clone();
         let after_cached = after.cache.get_ref_by("xi'an").unwrap().clone();
         let segments = vec!["xi".into(), "an".into()];
@@ -375,8 +375,8 @@ fn alternative_stream_keeps_cached_fields_and_fifo_age() {
         assert_eq!(after.cache.get_ref_by("xi'an").unwrap(), &after_cached);
         actual[0].word.push_str("修改");
         assert_eq!(after.cache.get_ref_by("xi'an").unwrap(), &after_cached);
-        before.cache.insert("third".into(), Vec::new());
-        after.cache.insert("third".into(), Vec::new());
+        before.cache.insert("third".into(), Vec::new().into());
+        after.cache.insert("third".into(), Vec::new().into());
         for dictionary in [&before, &after] {
             assert!(dictionary.cache.get_ref_by("xi'an").is_none());
             assert!(dictionary.cache.get_ref_by("second").is_some());

@@ -107,7 +107,8 @@ final class LocalBackup {
             }
             String skins = CustomSkinLibrary.exportDesigns(Paths.get(directory));
             JSONObject phraseNotes = new JSONObject();
-            List<String> phrases = ownPhrases(context, phraseNotes);
+            JSONObject phraseOrganization = new JSONObject();
+            List<String> phrases = ownPhrases(context, phraseNotes, phraseOrganization);
             JSONObject snapshot = CloudSync.exportDictionarySnapshot(context, dictionary, true);
             Integer words = JsonPolicy.nonNegativeInteger(snapshot.opt("entries"));
             Integer learning = JsonPolicy.nonNegativeInteger(snapshot.opt("learning"));
@@ -124,7 +125,7 @@ final class LocalBackup {
             texts.put(LocalBackupPolicy.SKINS, TextPolicy.utf8Bytes(skins));
             texts.put(LocalBackupPolicy.PHRASES,
                 TextPolicy.utf8Bytes(new JSONObject().put("phrases", new JSONArray(phrases))
-                    .put("notes", phraseNotes).toString()));
+                    .put("notes", phraseNotes).put("organization", phraseOrganization).toString()));
             JSONObject checksums = new JSONObject();
             for (Map.Entry<String, byte[]> text : texts.entrySet()) checksums.put(text.getKey(), sha256(text.getValue()));
             checksums.put(LocalBackupPolicy.DICTIONARY, DigestPolicy.sha256Hex(dictionary));
@@ -198,7 +199,7 @@ final class LocalBackup {
     }
 
     /** 自己添加的常用语，按本机顺序；本机预置、没被用户认领过的示例不算，它们在每台设备上都会自己出现。 */
-    private static List<String> ownPhrases(Context context, JSONObject notes) throws IOException, JSONException {
+    private static List<String> ownPhrases(Context context, JSONObject notes, JSONObject organization) throws IOException, JSONException {
         CommonPhrasesStore.Result result = CommonPhrasesStore.load(context);
         if (!result.ok()) throw new IOException("common phrases unavailable");
         Set<String> starters = CommonPhrasesStore.untouchedStarters(context);
@@ -209,6 +210,17 @@ final class LocalBackup {
                 if (!phrase.note().isEmpty()) notes.put(phrase.text(), phrase.note());
             }
         }
+        JSONArray categories = new JSONArray();
+        for (CommonPhrasesStore.Category category : result.document().categories()) {
+            JSONArray members = new JSONArray();
+            for (CommonPhrasesStore.Phrase phrase : result.document().phrases())
+                if (phrase.own() && !starters.contains(phrase.text()) && phrase.category().equals(category.id()))
+                    members.put(phrase.text());
+            categories.put(new JSONObject().put("id", category.id()).put("name", category.name()).put("texts", members));
+        }
+        String expanded = result.document().expandedCategory();
+        organization.put("categories", categories).put("expanded_category",
+            expanded);
         return texts;
     }
 
@@ -575,6 +587,8 @@ final class LocalBackup {
         if (phrases == null) return 0;
         // 正文数组保留旧格式；备注独立映射，旧备份缺少它时按空备注恢复。
         JSONObject notes = document.optJSONObject("notes");
+        JSONObject organization = document.optJSONObject("organization");
+        if (document.has("organization") && organization == null) throw new IOException("invalid phrase organization");
         String duplicate = CommonPhrasesStore.failureMessage("common_phrases_duplicate");
         String invalid = CommonPhrasesStore.failureMessage("common_phrases_invalid");
         String full = CommonPhrasesStore.failureMessage("common_phrases_limit");
@@ -605,6 +619,12 @@ final class LocalBackup {
             } else {
                 throw new IOException("common phrase not added: " + result.failure());
             }
+        }
+        // 放在恢复正文的最后；共享层原子合并失败时，外层撤销本次新增正文，分类本身没有变化。
+        if (organization != null) {
+            CommonPhrasesStore.Result result = CommonPhrasesStore.importCategories(context,
+                organization.getJSONArray("categories"), organization.getString("expanded_category"), undo.addedPhrases);
+            if (!result.ok()) throw new IOException("common phrase categories not restored: " + result.failure());
         }
         if (skipped > 0) unheld.add(skipped + " 条常用语");
         return added;

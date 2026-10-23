@@ -9,6 +9,211 @@ fn fresh() -> (tempfile::TempDir, CommonPhrasesStore) {
     (root, store)
 }
 
+#[test]
+fn categories_keep_old_documents_and_default_expansion() {
+    let old: CommonPhrases =
+        serde_json::from_value(serde_json::json!({"phrases": [], "packs": []})).unwrap();
+    assert!(old.categories.is_empty());
+    assert_eq!(old.expanded_category, "all");
+    assert_eq!(
+        serde_json::to_value(old).unwrap(),
+        serde_json::json!({"phrases": [], "packs": []})
+    );
+}
+
+#[test]
+fn categories_validate_names_limits_and_keep_failed_writes_unchanged() {
+    let (_root, store) = fresh();
+    let first = store.add_category("  示例分类  ").unwrap();
+    assert_eq!(first.categories[0].name, "示例分类");
+    for name in [
+        "",
+        "\t",
+        "全部",
+        "未分类",
+        "不展开",
+        "a\nb",
+        "a\0b",
+        "过长分类名称超过二十个字就不能够再继续保存下去了",
+    ] {
+        assert!(matches!(
+            store.add_category(name),
+            Err(CommonPhrasesError::CategoryInvalid)
+        ));
+        assert_eq!(store.load().unwrap(), first);
+    }
+    assert!(matches!(
+        store.add_category("示例分类"),
+        Err(CommonPhrasesError::CategoryDuplicate)
+    ));
+    store.add_category(&"𠀀".repeat(10)).unwrap();
+    assert!(matches!(
+        store.add_category(&"𠀀".repeat(11)),
+        Err(CommonPhrasesError::CategoryInvalid)
+    ));
+    for index in 2..MAX_CATEGORIES {
+        store.add_category(&format!("合成分类{index}")).unwrap();
+    }
+    let full = store.load().unwrap();
+    assert!(matches!(
+        store.add_category("第七类"),
+        Err(CommonPhrasesError::CategoryLimit)
+    ));
+    assert_eq!(store.load().unwrap(), full);
+}
+
+#[test]
+fn category_rename_and_removal_keep_phrase_content_and_reset_default() {
+    let (_root, store) = fresh();
+    let phrase = store
+        .add_with_note("合成正文\n第二行", "合成备注")
+        .unwrap()
+        .phrases[0]
+        .clone();
+    let category = store.add_category("待改名").unwrap().categories[0].id;
+    store.categorize(phrase.id, Some(category)).unwrap();
+    store.set_expanded_category(&category.to_string()).unwrap();
+    store.rename_category(category, "已改名").unwrap();
+    let reloaded = CommonPhrasesStore::new(store.file.parent().unwrap())
+        .load()
+        .unwrap();
+    assert_eq!(reloaded.categories[0].name, "已改名");
+    assert_eq!(reloaded.phrases[0].category, Some(category));
+    assert_eq!(reloaded.expanded_category, category.to_string());
+    let removed = store.remove_category(category).unwrap();
+    assert_eq!(removed.phrases, vec![phrase]);
+    assert_eq!(removed.expanded_category, "all");
+    assert!(removed.categories.is_empty());
+}
+
+#[test]
+fn category_changes_reject_unknown_ids_and_allow_collapsed_default() {
+    let (_root, store) = fresh();
+    let document = store.add("合成正文").unwrap();
+    let phrase = document.phrases[0].id;
+    assert!(matches!(
+        store.categorize(phrase, Some(Uuid::new_v4())),
+        Err(CommonPhrasesError::NotFound)
+    ));
+    assert!(matches!(
+        store.set_expanded_category("unknown"),
+        Err(CommonPhrasesError::NotFound)
+    ));
+    assert_eq!(store.load().unwrap(), document);
+    assert!(store
+        .set_expanded_category("")
+        .unwrap()
+        .expanded_category
+        .is_empty());
+    assert_eq!(
+        store
+            .set_expanded_category("all")
+            .unwrap()
+            .expanded_category,
+        "all"
+    );
+}
+
+#[test]
+fn corrupt_category_references_leave_the_file_unchanged() {
+    let (_root, store) = fresh();
+    let document = store.add("合成正文").unwrap();
+    let mut invalid = serde_json::to_value(document).unwrap();
+    invalid["phrases"][0]["category"] = serde_json::json!(Uuid::new_v4());
+    let bytes = serde_json::to_vec(&invalid).unwrap();
+    fs::write(&store.file, &bytes).unwrap();
+    assert!(matches!(
+        store.add_category("合成分类"),
+        Err(CommonPhrasesError::Corrupt)
+    ));
+    assert_eq!(fs::read(&store.file).unwrap(), bytes);
+}
+
+#[test]
+fn category_backup_merges_names_preserves_existing_assignments_and_defaults() {
+    let (_root, store) = fresh();
+    let old = store.add("已有合成正文").unwrap().phrases[0].id;
+    let category = store.add_category("本机分类").unwrap().categories[0].id;
+    store.categorize(old, Some(category)).unwrap();
+    store.set_expanded_category("").unwrap();
+    let new = store.add("恢复的合成正文").unwrap().phrases[1].id;
+    let imported = store
+        .import_categories(
+            &[
+                CommonPhraseCategoryBackup {
+                    id: Uuid::from_u128(1),
+                    name: "本机分类".into(),
+                    texts: vec!["恢复的合成正文".into()],
+                },
+                CommonPhraseCategoryBackup {
+                    id: Uuid::from_u128(2),
+                    name: "备份分类".into(),
+                    texts: vec!["已有合成正文".into()],
+                },
+            ],
+            &Uuid::from_u128(2).to_string(),
+            &[new],
+        )
+        .unwrap();
+    assert_eq!(imported.categories.len(), 2);
+    assert_eq!(imported.phrases[0].category, Some(category));
+    assert_eq!(imported.phrases[1].category, Some(category));
+    assert!(imported.expanded_category.is_empty());
+}
+
+#[test]
+fn category_backup_adopts_default_on_empty_device_and_rejects_partial_imports() {
+    let (_root, store) = fresh();
+    let phrase = store.add("合成备份正文").unwrap().phrases[0].id;
+    let category = CommonPhraseCategoryBackup {
+        id: Uuid::from_u128(2),
+        name: "all".into(),
+        texts: vec!["合成备份正文".into()],
+    };
+    let imported = store
+        .import_categories(
+            std::slice::from_ref(&category),
+            &category.id.to_string(),
+            &[phrase],
+        )
+        .unwrap();
+    assert_eq!(imported.categories[0].name, "all");
+    assert_eq!(
+        imported.expanded_category,
+        imported.categories[0].id.to_string()
+    );
+    assert_eq!(
+        imported.phrases[0].category,
+        Some(imported.categories[0].id)
+    );
+    let invalid = CommonPhraseCategoryBackup {
+        id: Uuid::from_u128(3),
+        name: "另一分类".into(),
+        texts: vec!["合成备份正文".into()],
+    };
+    assert!(store
+        .import_categories(&[category, invalid], "all", &[phrase])
+        .is_err());
+    assert_eq!(store.load().unwrap(), imported);
+    for index in 1..MAX_CATEGORIES {
+        store.add_category(&format!("本机分类{index}")).unwrap();
+    }
+    let full = store.load().unwrap();
+    assert!(matches!(
+        store.import_categories(
+            &[CommonPhraseCategoryBackup {
+                id: Uuid::from_u128(4),
+                name: "第七分类".into(),
+                texts: vec![]
+            }],
+            "all",
+            &[]
+        ),
+        Err(CommonPhrasesError::CategoryLimit)
+    ));
+    assert_eq!(store.load().unwrap(), full);
+}
+
 fn pack(id: u128, revision: u32, texts: &[&str]) -> CommunityResource {
     CommunityResource {
         id: Uuid::from_u128(id),

@@ -200,6 +200,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
   } = useInputSourceUninstall({ uninstallInputSource: client.uninstallInputSource });
   const {
     dismissInputSourceStartup,
+    refreshInputSourceStartup,
     inputSourceStartup,
     onDeviceDownloadable,
     shuangpinKeymap: macosShuangpinKeymap,
@@ -774,6 +775,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     dataDirectoryBusy,
     dataDirectoryResult,
     inputSourceStartup,
+    refreshInputSourceStartup,
     dismissInputSourceStartup,
     page,
     requestedSettingsPage,
