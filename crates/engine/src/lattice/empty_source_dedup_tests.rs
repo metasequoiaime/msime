@@ -63,7 +63,7 @@ fn baseline_merge_lattice_candidates(
             }
             block
         } else {
-            generated_block_linear(candidates, paths, typed_pinyin)
+            generated_block_linear(candidates, paths, typed_pinyin, options)
         }
     } else {
         let mut keyboard = None;

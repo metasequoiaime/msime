@@ -21,6 +21,7 @@
   "local_modes": {
    "unicode": false,
    "date_time": false,
+   "date_time_inline": false,
    "quick_phrase": false,
    "emoji": false,
    "kaomoji": false

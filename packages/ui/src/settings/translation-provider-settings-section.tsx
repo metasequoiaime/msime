@@ -10,6 +10,10 @@ import {
   TencentTranslationSettingsSection,
   type TencentTranslationSettingsSectionProps,
 } from "./tencent-translation-settings-section";
+import {
+  AiTranslationSettingsSection,
+  type AiTranslationSettingsSectionProps,
+} from "./ai-translation-settings-section";
 import type { TranslationProvider } from "./translation-service-selector-section";
 
 export type TranslationNiuTransSettings = Omit<NiuTransSettingsSectionProps, "grouped">;
@@ -28,6 +32,8 @@ export interface TranslationProviderSettingsSectionProps {
   niutrans: TranslationNiuTransSettings;
   tencent: TranslationTencentSettings;
   custom: TranslationCustomSettings;
+  /** 选「AI 辅助」时显示的区块；宿主没有 AI 偏好投影时可缺省，此时只显示未配置提示。 */
+  ai?: Omit<AiTranslationSettingsSectionProps, "grouped">;
 }
 
 /** 所选翻译服务设置的共享绑定：腾讯、NiuTrans 或自定义服务。「翻译服务」下拉框是开启服务的唯一位置，所以其他服务的设置不会挡道。 */
@@ -38,8 +44,18 @@ export function TranslationProviderSettingsSection({
   niutrans,
   tencent,
   custom,
+  ai,
 }: TranslationProviderSettingsSectionProps) {
   switch (provider) {
+    case "ai":
+      return (
+        <AiTranslationSettingsSection
+          grouped={grouped}
+          summary={ai?.summary ?? ""}
+          ready={ai?.ready ?? false}
+          credentialTest={ai?.credentialTest}
+        />
+      );
     case "tencent":
       return (
         <TencentTranslationSettingsSection grouped={grouped} foldRegion={foldRegion} {...tencent} />

@@ -1,3 +1,5 @@
+import { VoiceProviderCatalog } from "./VoiceProviderCatalog";
+
 /** The non-secret shape of the voice settings read from the Engine's prepared preferences. */
 export interface VoicePolishTokens {
   siliconflow?: string;
@@ -99,8 +101,8 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   polish_provider: "siliconflow",
   polish_token: "",
   polish_tokens: {},
-  polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions",
-  polish_model: "Qwen/Qwen3-8B",
+  polish_endpoint: VoiceProviderCatalog.polishEndpoint("siliconflow"),
+  polish_model: VoiceProviderCatalog.polishModel("siliconflow"),
   polish_prompt_id: "cleanup",
   polish_prompt_custom_1: "",
   polish_prompt_custom_2: "",

@@ -12,7 +12,9 @@ export type PunctuationSwitch =
   | "smart_punctuation_direct_digit"
   | "smart_punctuation_direct_letter"
   | "paired_punctuation"
-  | "caps_lock_ascii_punctuation";
+  | "caps_lock_ascii_punctuation"
+  | "enumeration_comma_backslash"
+  | "enumeration_comma_slash";
 
 export type PunctuationSwitchCopy = readonly [PunctuationSwitch, string, string];
 
@@ -49,6 +51,20 @@ export const capsLockPunctuation: PunctuationSwitchCopy = [
   "caps_lock_ascii_punctuation",
   "大写锁定时使用英文标点",
   "大写锁定打开时，中文输入下的标点使用英文标点；正在组字或固定中文标点时不变",
+];
+
+/** 「顿号自定义」两个开关，至少留一个（是唯一开着的那个时开关变灰，见 `PunctuationSection`）。 */
+export const enumerationCommaSwitches: readonly PunctuationSwitchCopy[] = [
+  [
+    "enumeration_comma_backslash",
+    "顿号自定义 \\",
+    "中文标点下 \\ 键输出顿号「、」；至少保留一个顿号键",
+  ],
+  [
+    "enumeration_comma_slash",
+    "顿号自定义 /",
+    "中文标点下 / 键输出顿号「、」；没有组字时 / 仍打开命令模式，其余位置出顿号",
+  ],
 ];
 
 /** 桌面「标点」选择的选项，把「中文标点」开关和「固定标点」合成一行；取值的含义见 `PunctuationMode`。 */

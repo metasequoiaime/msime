@@ -2,36 +2,82 @@ package app.msime.android.test;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.Intent;
 import android.os.SystemClock;
 import android.os.Build;
 import android.graphics.Rect;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** 在真实输入法菜单中复制设备信息，兼容最低 API 并保留编辑器内容。 */
 public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "keyboard copies device information whitelist without changing editor contents";
+        return "keyboard copies device information without hiding its preview, preserves editor contents and falls back when suggestions are disabled";
     }
 
     @Override protected void runChecks() throws Exception {
-        Intent intent = new Intent(getTargetContext(), EditorActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        File root = getTargetContext().getFilesDir().getCanonicalFile();
+        JSONObject options = read(new File(root, "runtime-options.json"));
+        File preferences = new File(options.getString("preferences_directory"), "preferences.json").getCanonicalFile();
+        if (!preferences.toPath().startsWith(root.toPath())) throw new AssertionError("Preferences escaped sandbox");
+        File local = new File(root, "bootstrap/state/android-settings.json");
+        File history = new File(root, "MSIME/clipboard_history.json");
+        byte[] original = bytes(preferences), originalLocal = bytes(local), originalHistory = bytes(history);
+        long revision = original == null ? 0 : read(preferences).getLong("revision");
+        JSONObject values = new JSONObject((original == null ? options : read(preferences))
+            .getJSONObject("preferences").toString())
+            .put("scheme", "quanpin").put("touch_keyboard_layout", "twenty_six_key")
+            .put("privacy_mode", false).put("clipboard_history", true)
+            .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put("quanpin"))
+                .put("selected", "quanpin"));
+        JSONObject settings = originalLocal == null ? new JSONObject().put("version", 1)
+            .put("settings", new JSONObject()) : read(local);
+        settings.getJSONObject("settings").put("platform.android.toolbar_hidden", false)
+            .put("platform.android.clipboard_suggestion", true)
+            .put("platform.android.toolbar_floating", false).put("platform.android.toolbar_text_edit", false);
+        try {
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
+                .put("preferences", values).toString().getBytes(StandardCharsets.UTF_8));
+            publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+            copyAndCheck(true);
+            settings.getJSONObject("settings").put("platform.android.clipboard_suggestion", false);
+            publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+            copyAndCheck(false);
+        } finally {
+            restore(preferences, original);
+            restore(local, originalLocal);
+            restore(history, originalHistory);
+            restartIme();
+        }
+    }
+
+    @Override protected void tap(java.util.function.Predicate<android.view.accessibility.AccessibilityNodeInfo> match)
+            throws java.util.concurrent.TimeoutException {
+        super.tap(match);
+        // 编辑器和输入法分属两个进程；提交后的缓存子树可能仍停在旧文本。
+        dropStaleNodes();
+    }
+
+    private void copyAndCheck(boolean previewEnabled) throws Exception {
         // 先清除上个编辑器的焦点，等系统确认被测输入法已选中，避免异步回退留下系统键盘。
         shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         restartIme();
-        startActivitySync(intent);
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         stage = "device information editor focus";
         tap(field("msime-test-plain"));
-        stage = "device information copy retains editor";
-        for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
-        await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
-        stage = "device information initial commit";
-        tap(key("空格"));
-        await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
         ClipboardManager clipboard = getTargetContext().getSystemService(ClipboardManager.class);
         ClipData original = clipboard.getPrimaryClip();
         try {
+            // 先放合成哨兵，再输入；输入会按产品规则收起旧预览，避免挡住更多入口。
             clipboard.setPrimaryClip(ClipData.newPlainText("synthetic", "MSIME synthetic clipboard sentinel"));
+            stage = "device information copy retains editor";
+            for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("nihao", node.getText())));
+            stage = "device information initial commit (preview " + previewEnabled + ")";
+            tap(key("空格"));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好", node.getText())));
             Rect toolbar = new Rect();
             await(described("键盘快捷栏")).getBoundsInScreen(toolbar);
             stage = "device information menu open";
@@ -45,6 +91,18 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             }
             stage = "device information clipboard result";
             String copied = awaitDeviceInfo(clipboard);
+            if (previewEnabled) {
+                stage = "device information preview is not hidden by success notice";
+                await(node -> {
+                    if (described("提示：已复制设备信息").test(node))
+                        throw new AssertionError("Copy success notice hides the clipboard preview");
+                    return node.refresh() && describedPrefix("粘贴最近复制的内容：").test(node)
+                        && node.getText() != null && node.getText().toString().contains("设备信息");
+                });
+            } else {
+                stage = "device information disabled suggestions retain feedback";
+                await(described("提示：已复制设备信息"));
+            }
             String[] lines = copied.split("\\n");
             String[] labels = {"应用版本", "品牌", "型号", "系统版本", "系统构建", "处理器架构",
                 "屏幕分辨率", "存储空间", "运行内存", "Android System WebView", "键盘"};
@@ -59,23 +117,35 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
                 || copied.contains("屏幕分辨率：未知") || copied.contains("应用版本：未知"))
                 throw new AssertionError("Device information contains invalid diagnostics");
             stage = "device information copy returns to keyboard";
-            await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好", node.getText())));
             if (Build.VERSION.SDK_INT < 30) {
-                await(described("键盘快捷栏").and(node -> node.refresh() && node.isVisibleToUser()));
+                await(key("n").and(node -> node.refresh() && node.isVisibleToUser()));
             }
             stage = "typing after device information copy";
             for (String letter : new String[] {"s", "h", "i"}) tap(key(letter));
-            await(field("msime-test-plain").and(node -> equalsText("你好shi", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好shi", node.getText())));
             tap(key("空格"));
-            await(field("msime-test-plain").and(node -> equalsText("你好是", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好是", node.getText())));
         } finally {
             if (original == null) clipboard.clearPrimaryClip(); else clipboard.setPrimaryClip(original);
         }
     }
 
+    private static JSONObject read(File file) throws Exception {
+        return new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    }
+
+    private static byte[] bytes(File file) throws Exception {
+        return file.isFile() ? Files.readAllBytes(file.toPath()) : null;
+    }
+
+    private void restore(File file, byte[] original) throws Exception {
+        if (original == null) Files.deleteIfExists(file.toPath()); else publish(file, original);
+    }
+
     /**
      * API 28 的 UiAutomation 不提供覆盖在字母键上的菜单节点，改用真实触摸翻页和点击。
-     * 专用 AVD 使用默认全拼和工具栏配置；无语音结果的入口隐藏后，复制入口是第二页第三行第一列。坐标从当前工具栏边界和密度推导，
+     * 夹具固定工具栏的浮动键盘和文本编辑入口关闭；无语音结果的入口隐藏后，复制入口是第二页第二行第三列。坐标从当前工具栏边界和密度推导，
      * 不假设设备分辨率。结果仍读取系统剪贴板并验证完整白名单，触摸无效就失败。
      */
     private void copyFromLegacyMenu(Rect toolbar) throws Exception {
@@ -84,15 +154,16 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
         int right = toolbar.left + toolbar.width() * 7 / 8;
         int left = toolbar.left + toolbar.width() / 8;
         shellDiscard("input swipe " + right + " " + firstRow + " " + left + " " + firstRow + " 320");
-        // 网格翻页动画为 260 毫秒，结束后才点击第三行，避免点中滑动中的上一页磁贴。
+        // 网格翻页动画为 260 毫秒，结束后才点击第二行，避免点中滑动中的上一页磁贴。
         SystemClock.sleep(400);
         // 模拟器负载高时动画可能延迟调度；等待界面空闲后再点，不能只靠固定延时。
         automation.waitForIdle(1000, 10000);
-        int thirdRow = firstRow + Math.round(136 * density);
-        shellDiscard("input tap " + left + " " + thirdRow);
+        int secondRow = firstRow + Math.round(68 * density);
+        int thirdColumn = toolbar.left + toolbar.width() * 5 / 8;
+        shellDiscard("input tap " + thirdColumn + " " + secondRow);
     }
 
-    /** 测试编辑器保持前台，按系统剪贴板限制从当前焦点 UID 读取，不输出报告正文。 */
+    /** 测试编辑器保持前台，由当前默认输入法的 UID 读取系统剪贴板，不输出报告正文。 */
     private String awaitDeviceInfo(ClipboardManager clipboard) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {

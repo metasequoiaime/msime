@@ -20,6 +20,9 @@ import type {
   NiuTransPreferences,
   TencentTranslationPreferences,
 } from "./translation-credential-preferences";
+import type { AiAssistantPreferences } from "./ai-assistant-preferences";
+import { aiServiceCredentialTestConfig } from "./ai-credential-test-config";
+import { aiProviderOption } from "./ai-provider-options";
 import {
   customTranslationKeyIssue,
   tencentCredentialIssue,
@@ -42,6 +45,12 @@ export interface TranslationProviderSettingsOptions {
   tencentTranslation: TencentTranslationPreferences;
   niutrans: NiuTransPreferences;
   translationProvider: TranslationProvider;
+  /** 「AI 与云联想」页的偏好投影，选「AI 辅助」时用于显示当前服务商与模型。 */
+  aiAssistant?: AiAssistantPreferences;
+  /** AI 翻译凭据是否就绪（接口地址、Token、模型齐全）；与 host-api 的填充条件一致。 */
+  aiReady?: boolean;
+  /** 当前接口地址来源键下保存的 Token，仅供凭据测试发送。 */
+  aiToken?: string;
   providerCredentials: ProviderCredentialStatus | undefined;
   tencentCredentialInput: ProviderCredentials["tencentCredentialInput"];
   updateTencentCredentialInput: ProviderCredentials["updateTencentCredentialInput"];
@@ -67,6 +76,9 @@ export function createTranslationProviderSettings({
   tencentTranslation,
   niutrans,
   translationProvider,
+  aiAssistant,
+  aiReady = false,
+  aiToken = "",
   providerCredentials,
   tencentCredentialInput,
   updateTencentCredentialInput,
@@ -86,6 +98,20 @@ export function createTranslationProviderSettings({
   return {
     grouped,
     provider: translationProvider,
+    ai: {
+      summary: aiAssistant
+        ? `${aiProviderOption(aiAssistant.provider)?.title ?? aiAssistant.provider} · ${aiAssistant.model || "未配置"}`
+        : "",
+      ready: aiReady,
+      credentialTest:
+        translationProvider === "ai" &&
+        credentialTestControl(
+          "translation.ai",
+          "测试 AI 辅助配置",
+          aiAssistant ? aiServiceCredentialTestConfig(aiAssistant, aiToken) : {},
+          !candidateTranslations || !aiReady,
+        ),
+    },
     niutrans: {
       available: candidateTranslations,
       appId: niutrans.app_id,

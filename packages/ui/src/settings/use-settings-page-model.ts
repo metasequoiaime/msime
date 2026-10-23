@@ -13,7 +13,7 @@ import { aiSettingsPreferences } from "./ai-settings-preferences";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./use-settings-theme-previews";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { settingsPlatformPresentation } from "./settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings-page-environment";
 import { schemeTitle } from "./label-helpers";
@@ -27,7 +27,7 @@ import { useProviderCredentials } from "./use-provider-credentials";
 import { useFeedbackReport } from "./use-feedback-report";
 import { useDataDirectory } from "./use-data-directory";
 import { usePreferenceRecovery } from "./use-preference-recovery";
-import { useSettingsPersistence } from "./use-settings-persistence";
+import { useSettingsPersistence, useTransientSyncNotice } from "./use-settings-persistence";
 import { useInputSourceUninstall } from "./use-input-source-uninstall";
 import { useTouchKeyboardSettingsReset } from "./use-touch-keyboard-settings-reset";
 import { useExternalUrl } from "./use-external-url";
@@ -57,6 +57,7 @@ import { communityDestinationView } from "../community/community-destination";
 import { describeInstallerTrust } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
 import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
+import { useAutomaticDictionaryUpdates } from "./use-automatic-dictionary-updates";
 
 export type SettingsPageProps = {
   client: SettingsClient;
@@ -70,18 +71,7 @@ export type SettingsPageProps = {
 /** 设置窗口的状态、副作用和处理器；外壳与各设置页面消费同一份模型。 */
 export function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
   const { introTabs, selectIntroTab } = useSettingsIntroTabs();
-  useEffect(() => {
-    const automatic = () => {
-      void client.dictionary?.updates?.("automatic").catch(() => undefined);
-    };
-    automatic();
-    window.addEventListener("focus", automatic);
-    const timer = setInterval(automatic, 60 * 60 * 1000);
-    return () => {
-      window.removeEventListener("focus", automatic);
-      clearInterval(timer);
-    };
-  }, [client.dictionary?.updates]);
+  useAutomaticDictionaryUpdates(client);
   const { confirm, confirmation } = useConfirm();
   const {
     host,
@@ -108,6 +98,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showInstallInputSource,
     showFloatingToolbar,
     showToolbarAppearance,
+    showToolbarIdleBehavior,
     showToolbarComponents,
     showTouchKeyboardHeight,
     showTouchKeyboardSpacing,
@@ -116,6 +107,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showCandidateEnglishFont,
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
+    showHelpcodeTriggerKey,
     showShuangpinPreedit,
     showShuangpinKeymapHint,
     showCharacterWidth,
@@ -136,6 +128,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showCandidatePadding,
+    showCandidateItemGeometry,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,
@@ -191,6 +184,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useTransientSyncNotice(notice, setNotice);
+  const dismissNotice = () => setNotice("");
   /** 最近一次修复生成的备份路径，在修复提示可见期间保留。 */
   const [recoveredBackup, setRecoveredBackup] = useState("");
   const {
@@ -331,6 +326,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     issuesUrl: platformIssuesUrl,
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
+    setError,
   });
   const {
     dataDirectory,
@@ -486,6 +482,9 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     translationProvider,
     onDeviceMissingLanguages,
     setTranslationProvider,
+    aiAssistant,
+    aiTranslationReady,
+    aiToken: aiTranslationToken,
   } = useTranslationSettings({
     preferences: draft,
     mobile: mobilePlatform,
@@ -517,7 +516,9 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     localModelsAvailable: client.localVoiceModels !== undefined,
     onChange: onVoiceChange,
   });
-  const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
+  const providerPresetControls = createProviderPresetControl(
+    client.openExternalUrl ? openExternalUrl : undefined,
+  );
   const floatingToolbar = floatingToolbarPreferences(draft);
   const {
     themeMode,
@@ -688,6 +689,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showInstallInputSource,
     showFloatingToolbar,
     showToolbarAppearance,
+    showToolbarIdleBehavior,
     showToolbarComponents,
     showTouchKeyboardHeight,
     showTouchKeyboardSpacing,
@@ -696,6 +698,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showCandidateEnglishFont,
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
+    showHelpcodeTriggerKey,
     showHelpcode,
     customHelpcodeSchemas,
     helpcodePacks,
@@ -718,6 +721,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showCandidatePadding,
+    showCandidateItemGeometry,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,
@@ -756,6 +760,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     setError,
     error,
     notice,
+    dismissNotice,
     recoveredBackup,
     removeUserDataOnUninstall,
     setRemoveUserDataOnUninstall,
@@ -920,6 +925,9 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     translationProvider,
     onDeviceMissingLanguages,
     setTranslationProvider,
+    aiAssistant,
+    aiTranslationReady,
+    aiTranslationToken,
     runProviderCredential,
     credentialTestControl,
     providerPresetControls,

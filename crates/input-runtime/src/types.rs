@@ -107,7 +107,7 @@ pub struct View {
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
     pub character_width: CharacterWidth,
-    /// 已应用的引号与方头括号样式（`quote_style`、`bracket_style`，`corner_when_traditional` 已按繁体开关解析）。宿主画键面、做成对补全和英文模式下的中文标点时读它，不各自再解析偏好。和引擎同步：偏好改了要等空闲重建后才变。
+    /// 已应用的引号与方头括号样式和顿号键（`quote_style`、`bracket_style`、`enumeration_comma_*`，`corner_when_traditional` 已按繁体开关解析、两个顿号键已按「至少留一个」归一）。宿主画键面、做成对补全和英文模式下的中文标点时读它，不各自再解析偏好。和引擎同步：偏好改了要等空闲重建后才变。
     pub punctuation_marks: PunctuationMarks,
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
@@ -203,6 +203,8 @@ pub enum SelectionHow {
     Highlighted = 9,
     /// 五笔唯一四码在第四键自动上屏。
     WubiAuto = 10,
+    /// 九宫格组码到上限后再按一键，先选掉首选再接着打。
+    GridLimit = 11,
 }
 
 /// 选中之后发生了什么。
@@ -285,6 +287,9 @@ pub struct AiAssistantProviderConfig {
     pub endpoint: String,
     #[serde(default = "default_ai_candidate_limit")]
     pub candidate_limit: u8,
+    /// 参与陈旧判定：思考强度变了，在途的旧档位回答不算数（Windows 把它计入 AI 缓存键）。
+    #[serde(default)]
+    pub thinking: String,
     #[serde(default)]
     pub prompt_id: String,
     #[serde(default)]
@@ -304,6 +309,11 @@ pub const MAX_ONLINE_QUERY_BYTES: usize = 131_072;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OnlineQuery {
+    #[serde(
+        default,
+        skip_serializing_if = "msime_engine::OnlineInputMode::is_pinyin"
+    )]
+    pub mode: msime_engine::OnlineInputMode,
     /// Recent committed text supplied by the focused host, bounded to 1024 UTF-8 bytes.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ai_context: String,

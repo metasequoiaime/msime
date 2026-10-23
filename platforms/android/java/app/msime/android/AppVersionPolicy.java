@@ -44,6 +44,15 @@ public final class AppVersionPolicy {
         }
     }
 
+    /** 这个包是为 Google Play 打的：gradle-app 收到 -PmsimeDistribution=play 时把 BuildConfig 的 `DISTRIBUTION` 写成 `play`。这样的包不做应用内自更新，也不下载可执行的资源包，Play 的政策两样都不允许。经反射读的理由同 {@link #releaseDate()}；没有 BuildConfig 或这个字段时按 GitHub 渠道处理。 */
+    public static boolean playDistribution() {
+        try {
+            return "play".equals(Class.forName(BUILD_CONFIG).getField("DISTRIBUTION").get(null));
+        } catch (ReflectiveOperationException absent) {
+            return false;
+        }
+    }
+
     /** 关于页显示的版本：有发布日期时是 `0.4.2（2026-10-19 发布）`，没有时就是版本名本身。反馈和使用统计报的仍是纯版本名，不经过这里。 */
     public static String displayVersion(String versionName, String releaseDate) {
         if (releaseDate == null || releaseDate.isEmpty()) return versionName;

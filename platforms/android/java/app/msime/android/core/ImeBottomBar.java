@@ -71,7 +71,7 @@ final class ImeBottomBar {
         clipboardButton.setContentDescription("剪贴板");
         s.imeStyler.styleButton(clipboardButton, true);
         s.bindCountedAction(clipboardButton,
-            s.imeToolbar.panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+            s.imeToolbar.panelToggle(() -> s.clipboardSurface, s.imePanels::showClipboardHistory));
         bar.addView(clipboardButton, buttonParams());
         ViewPolicy.hide(bar);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
@@ -238,7 +238,7 @@ final class ImeBottomBar {
             button.setIconColors(iconColor, activeIconColor);
         }
         ViewPolicy.setSelected(clipboardButton,
-            ViewPolicy.isVisible(s.clipboardScroll));
+            ViewPolicy.isVisible(s.clipboardSurface));
         ViewPolicy.setTextColor(track, Color.argb(160, Color.red(iconColor), Color.green(iconColor),
             Color.blue(iconColor)));
     }

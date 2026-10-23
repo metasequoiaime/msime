@@ -5,6 +5,7 @@ pub mod decode;
 pub mod merge;
 pub mod neural;
 pub mod ngram;
+pub mod octagram;
 
 #[cfg(test)]
 pub(crate) mod active_tables_tests;

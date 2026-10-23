@@ -263,15 +263,15 @@ const macosInputModes: NonNullable<SettingsClient["macosInputModes"]> = {
   openSettings: () => invoke("open_input_source_settings"),
 };
 // 桌面按需下载的资源包（macOS 的日文词库和「粤语、注音与笔画词库」，三个桌面平台的手写模型和桌面神经联想模型）；这些命令只在桌面宿主上注册，所以只在宿主报告桌面平台时提供给页面。本机提供哪些由宿主的列表决定。
-const resourcePacks: ResourcePackClient = createTauriProgressClient<
-  ResourcePackStatus[],
-  LocalVoiceModelProgress
->(invoke, listen, {
-  list: "resource_packs",
-  install: "resource_pack_install",
-  cancel: "resource_pack_cancel",
-  progress: "resource-pack-progress",
-});
+const resourcePacks: ResourcePackClient = {
+  ...createTauriProgressClient<ResourcePackStatus[], LocalVoiceModelProgress>(invoke, listen, {
+    list: "resource_packs",
+    install: "resource_pack_install",
+    cancel: "resource_pack_cancel",
+    progress: "resource-pack-progress",
+  }),
+  remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
+};
 const macosInstallClient: MacosInstallClient = {
   install: () => invoke("run_first_input_source_install"),
 };
@@ -793,10 +793,12 @@ function DesktopSettings() {
                     ),
                 }
               : {}),
+            // 云剪贴板可以改走自建中继：macOS 与 Linux 的设置页和云剪贴板面板都在这个 Tauri 进程里，按偏好选路（`cloud_clipboard_request`）；macOS 输入法菜单启动的面板、原生云剪贴板窗口和表情面板的「发到云剪贴板」也按同一个 C 入口选路。Windows 的设置窗口是原生 WinUI，那一组在它自己的设置页里。
+            ...(host.platform === "macos" || host.platform === "linux"
+              ? { cloudClipboardRelay: true }
+              : {}),
             ...(host.platform === "linux"
               ? {
-                  // 云剪贴板可以改走自建中继：Linux 的设置页和云剪贴板面板都在这个 Tauri 进程里，按偏好选路（`cloud_clipboard_request`）。macOS 的输入法菜单在没登录时仍退回原生窗口、Windows 的设置窗口是原生 WinUI，这两处接上之前不显示这一组。
-                  cloudClipboardRelay: true,
                   customTouchKeyboardSkins: true,
                   customSkinLibrary: {
                     load: () => invoke("load_custom_skin_library"),

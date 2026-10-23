@@ -5,6 +5,7 @@ import { GroupList, MoreOptions } from "../core/platform-controls";
 import { ModelPickerRows } from "./model-picker-rows";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SwitchRow } from "./switch-row";
+import { SelectRow } from "./select-row";
 import { AiProviderSelect } from "./ai-provider-select";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
@@ -51,6 +52,9 @@ export interface AiSettingsPageSectionProps {
   candidateLimitShown: boolean;
   candidateLimit: number;
   onCandidateLimitChange: (candidateLimit: number) => void;
+  /** DeepSeek 思考强度（`ai_assistant.thinking`），选中 DeepSeek 时显示档位下拉。 */
+  thinking?: string;
+  onThinkingChange?: (thinking: string) => void;
   /** 当前的提示词槽位（`prompt_id`）。页面只编辑这一个槽位，不再提供切换：留空的槽位回退到内置提示词，切换三个槽位几乎没人用。 */
   promptId?: string;
   promptCustom1: string;
@@ -91,6 +95,8 @@ export function AiSettingsPageSection({
   candidateLimitShown,
   candidateLimit,
   onCandidateLimitChange,
+  thinking,
+  onThinkingChange,
   promptId,
   promptCustom1,
   promptCustom2,
@@ -151,6 +157,21 @@ export function AiSettingsPageSection({
           model={model}
           onChange={onModelChange}
         />
+        {onThinkingChange && (
+          <SelectRow
+            title="思考强度"
+            description="开启后候选更准，但要多等几秒到几十秒。"
+            hidden={provider !== "deepseek"}
+            value={thinking ?? "disabled"}
+            aria-label="思考强度"
+            onChange={(event) => onThinkingChange(event.currentTarget.value)}
+          >
+            <option value="disabled">关闭</option>
+            <option value="low">低</option>
+            <option value="high">高</option>
+            <option value="max">最高</option>
+          </SelectRow>
+        )}
         {modelCatalog && (
           <>
             <ActionRow

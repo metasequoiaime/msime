@@ -1,5 +1,6 @@
 #include "CandidateWindow.h"
 #include "CandidateCanvasDrawing.h"
+#include "CandidateDecorationDrawing.h"
 #include "AccessibleWindow.h"
 #include "CandidateAccessibility.h"
 #include "CandidateFlyoutWindow.h"
@@ -1172,8 +1173,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
   const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
   const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
+  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。
   const auto content_width =
-      (std::min)(static_cast<int64_t>(panel_width * scale + 0.5),
+      (std::min)(static_cast<int64_t>(std::ceil(panel_width * scale)),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1185,8 +1187,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   decoration_offset_ = decoration_image_.empty()
                            ? 0.0f
                            : static_cast<float>(decoration_top_);
+  // 同上，高度也向上取整：量高度用的是量尺寸那次的折行结论，绘制少半个像素就可能多折一行。
   const auto content_height =
-      (std::min)(static_cast<int64_t>(panel_height * scale + 0.5) + decoration,
+      (std::min)(static_cast<int64_t>(std::ceil(panel_height * scale)) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
@@ -1713,10 +1716,39 @@ void CandidateWindow::paint() {
               static_cast<float>(metrics.pad_x),
               static_cast<float>(metrics.pad_y), decoration_offset_,
               static_cast<float>(decoration_width_), natural.width,
-              natural.height))
+              natural.height)) {
         target->DrawBitmap(
             bitmap, D2D1_RECT_F{rect->left, rect->top, rect->right, rect->bottom},
-            1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            motion_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        if (decoration_candidate_) {
+          const auto &overlay = *decoration_candidate_;
+          const auto highlighted = std::find_if(value->candidates.begin(), value->candidates.end(),
+              [](const PresentationCandidate &candidate) { return candidate.highlighted; });
+          const int highlight = highlighted == value->candidates.end() ? -1
+              : static_cast<int>(highlighted - value->candidates.begin());
+          if (const auto seat = overlay.seat(value->candidates.size(), highlight)) {
+            const auto &candidate = value->candidates[*seat];
+            // 原文已按输出模式转换；只控制独立标注，不猜测括号、纠错标记或后缀。
+            const auto word = candidate.text + (overlay.stripBadge ? std::string{} : candidate.badge);
+            if (!word.empty() && word.size() <= 4096) {
+              const float box_width = static_cast<float>(decoration_width_);
+              const float box_height = static_cast<float>(decoration_top_);
+              const float align = decoration_align_ == CandidateSkinAlign::left ? 0.0f
+                  : decoration_align_ == CandidateSkinAlign::center ? 0.5f : 1.0f;
+              // 图片等比缩小时，声明框仍沿同一边与图片底边对齐。
+              const D2D1_RECT_F box{rect->left + (rect->right - rect->left - box_width) * align,
+                  rect->bottom - box_height,
+                  rect->left + (rect->right - rect->left - box_width) * align + box_width, rect->bottom};
+              const auto text = candidate_decoration_text(device_.GetDWriteFactory(),
+                  format(overlay.fontSizeDip, DWRITE_TEXT_ALIGNMENT_LEADING), wide(word), overlay, box);
+              if (text)
+                target->DrawTextLayout(text->origin, text->layout.Get(),
+                    brush(parse_css_color(overlay.color, candidate_rgb(0xffffff))),
+                    D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+          }
+        }
+      }
     }
   }
   // Fluent 风格的首行：左边是水杉 logo（`show_app_logo` 关掉时不画）和强调色半粗体的拼音，右边是次要色的页码和上一页、下一页箭头。只要有 logo 或翻页，拼音隐藏时这一行也在。

@@ -32,6 +32,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 model: ai.model.clone(),
                 endpoint: ai.endpoint.clone(),
                 candidate_limit: host_ai_candidate_limit(ai.candidate_limit),
+                thinking: ai.thinking.clone(),
                 prompt_id: ai.prompt_id.clone(),
                 prompt_custom_1: ai.prompt_custom_1.clone(),
                 prompt_custom_2: ai.prompt_custom_2.clone(),
@@ -55,6 +56,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             &options.resources,
         );
         let edition = options.edition();
+        let quick_phrase_candidates_requested = options.quick_phrase_candidates.unwrap_or(false);
         let mut options = options.into_engine_options();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
@@ -110,15 +112,20 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime
+            .set_english_online_candidates_enabled(applied.english_online_candidates)
+            .map_err(|e| e.to_string())?;
+        runtime
             .set_cloud_candidates_enabled(applied.cloud_candidates)
             .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
         runtime.set_backspace_reverts_selection(applied.backspace_reverts_selection);
+        runtime.set_escape_keeps_selected_word(applied.escape_keeps_selected_word);
         runtime.set_left_right_navigation(applied.navigation.left_right);
         runtime.set_vertical_candidates(crate::host_vertical_candidates(applied.candidate_layout));
         runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
         runtime.set_wubi_fifth_code_top_commit(applied.wubi_fifth_code_top_commit);
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
+        runtime.set_second_third_candidate(applied.second_third_candidate);
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
@@ -149,6 +156,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 HostSession {
                     runtime,
                     options,
+                    quick_phrase_candidates_requested,
                     edition,
                     applied,
                     requested: None,

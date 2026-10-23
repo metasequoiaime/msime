@@ -33,6 +33,8 @@ export type VoiceInputPreferences = {
   polish_token?: string;
   polish_tokens?: Record<string, string>;
   polish_model?: string;
+  /** DeepSeek 润色的思考强度：disabled | low | high | max，仅 DeepSeek 生效。 */
+  polish_thinking?: string;
   polish_prompt_id?: string;
   polish_prompt_custom_1?: string;
   polish_prompt_custom_2?: string;

@@ -112,6 +112,16 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardSpacingPolicy.layoutKeySpacing(-1, KeyboardLayout.STANDARD_TOUCH_LAYOUT) == 60);
         check(KeyboardSpacingPolicy.layoutKeySpacing(61, KeyboardLayout.KOREAN_LAYOUT) == 60);
         check(KeyboardHeightPolicy.heightAdjustment(Integer.MIN_VALUE) == 0);
+        // 九宫格加高只扩大上方键区；缩小时仍四行均分，底行不能被压扁。
+        for (int adjustment = -46; adjustment <= 129; adjustment++) {
+            int bottom = KeyboardHeightPolicy.bottomRowAdjustment(adjustment, true);
+            int grid = KeyboardHeightPolicy.keyRowsAdjustment(adjustment, true);
+            check(bottom + grid == adjustment, "九宫格高度增量守恒 " + adjustment);
+            check(bottom == (adjustment > 0 ? 0 : KeyboardHeightPolicy.bottomRowAdjustment(adjustment)),
+                "九宫格底行只分摊缩小量 " + adjustment);
+            check(KeyboardHeightPolicy.bottomRowAdjustment(adjustment, false)
+                == KeyboardHeightPolicy.bottomRowAdjustment(adjustment), "其他布局保留四行均分");
+        }
         check(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP == 48);
         check(KeyboardHeightPolicy.heightAdjustment(-13) == -12);
         check(KeyboardHeightPolicy.heightAdjustment(49) == 48);

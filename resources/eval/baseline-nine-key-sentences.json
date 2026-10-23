@@ -2,12 +2,12 @@
   "by_syllables": {
     "10": {
       "cases": 9,
-      "found": 0.444,
-      "mrr": 0.275,
-      "top1": 0.222,
-      "top1_char_prefix": 0.444,
+      "found": 0.333,
+      "mrr": 0.333,
+      "top1": 0.333,
+      "top1_char_prefix": 0.456,
       "top5": 0.333,
-      "top9": 0.444
+      "top9": 0.333
     },
     "11": {
       "cases": 9,
@@ -59,7 +59,7 @@
       "found": 0.667,
       "mrr": 0.571,
       "top1": 0.556,
-      "top1_char_prefix": 0.603,
+      "top1_char_prefix": 0.619,
       "top5": 0.556,
       "top9": 0.667
     },
@@ -68,18 +68,18 @@
       "found": 0.444,
       "mrr": 0.37,
       "top1": 0.333,
-      "top1_char_prefix": 0.667,
+      "top1_char_prefix": 0.639,
       "top5": 0.444,
       "top9": 0.444
     },
     "9": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.609,
-      "top1": 0.556,
-      "top1_char_prefix": 0.84,
-      "top5": 0.667,
-      "top9": 0.778
+      "mrr": 0.71,
+      "top1": 0.667,
+      "top1_char_prefix": 0.852,
+      "top5": 0.778,
+      "top9": 0.889
     }
   },
   "by_tag": {
@@ -88,41 +88,41 @@
       "found": 1.0,
       "mrr": 0.841,
       "top1": 0.818,
-      "top1_char_prefix": 0.856,
+      "top1_char_prefix": 0.869,
       "top5": 0.818,
       "top9": 1.0
     },
     "request": {
       "cases": 18,
       "found": 0.611,
-      "mrr": 0.464,
-      "top1": 0.444,
-      "top1_char_prefix": 0.713,
-      "top5": 0.444,
-      "top9": 0.556
+      "mrr": 0.562,
+      "top1": 0.556,
+      "top1_char_prefix": 0.711,
+      "top5": 0.556,
+      "top9": 0.611
     },
     "statement": {
       "cases": 52,
-      "found": 0.731,
-      "mrr": 0.655,
+      "found": 0.712,
+      "mrr": 0.649,
       "top1": 0.635,
       "top1_char_prefix": 0.779,
-      "top5": 0.692,
-      "top9": 0.712
+      "top5": 0.673,
+      "top9": 0.692
     }
   },
   "cases": 81,
   "gold_source": {
     "database": 7,
-    "generated": 53
+    "generated": 52
   },
   "overall": {
     "cases": 81,
-    "found": 0.741,
-    "mrr": 0.638,
-    "top1": 0.617,
-    "top1_char_prefix": 0.775,
-    "top5": 0.654,
+    "found": 0.728,
+    "mrr": 0.656,
+    "top1": 0.642,
+    "top1_char_prefix": 0.776,
+    "top5": 0.667,
     "top9": 0.716
   },
   "sample_failures": [
@@ -173,7 +173,7 @@
       "id": "nk-036",
       "input": "nizhoumoyoushijianma",
       "rank": 7,
-      "top1": "米粥哦哦有时间吗"
+      "top1": "你一女模有时间吗"
     },
     {
       "gold": "明天早上八点集合",
@@ -201,7 +201,7 @@
       "id": "nk-041",
       "input": "wanshangyiqikandianshiba",
       "rank": null,
-      "top1": "晚上一起看电视啊啊"
+      "top1": "晚上一起看点是吧"
     },
     {
       "gold": "请你明天早点过来",
@@ -232,25 +232,11 @@
       "top1": "天气预报说明提案由于"
     },
     {
-      "gold": "周末我们去看电影吧",
-      "id": "nk-051",
-      "input": "zhoumowomenqukandianyingba",
-      "rank": 11,
-      "top1": "周末我们去看电影啊啊"
-    },
-    {
       "gold": "我已经把钱转给你了",
       "id": "nk-054",
       "input": "woyijingbaqianzhuangeinile",
       "rank": 4,
       "top1": "我已经把山庄顶了"
-    },
-    {
-      "gold": "我们一起去公园散步吧",
-      "id": "nk-055",
-      "input": "womenyiqiqugongyuansanbuba",
-      "rank": 7,
-      "top1": "我们一起去公园散步啊啊"
     },
     {
       "gold": "明天的会议改到下午了",
@@ -291,7 +277,7 @@
       "gold": "你们先吃我马上就过来",
       "id": "nk-063",
       "input": "nimenxianchiwomashangjiuguolai",
-      "rank": 3,
+      "rank": null,
       "top1": "你们小吃我马上就过来"
     },
     {

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use super::journal::{
     open_dictionary_for_writing, open_journal, pinyin_segments, pinyin_table, write_upsert,
@@ -10,7 +10,10 @@ use super::journal::{
 };
 use super::positions::is_fixed;
 use crate::error::{EngineError, Result};
-use crate::types::{CandidateSource, FrequencyAdjustmentMode, PersonalDictionaryKind, WordItem};
+use crate::types::{
+    CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, PersonalDictionaryKind,
+    WordItem,
+};
 
 pub const MANAGED_WEIGHT_CEILING: i64 = 100_000_000;
 pub const MANAGED_WEIGHT_FLOOR: i64 = 1;
@@ -119,6 +122,140 @@ pub(crate) fn ranking_target(
         }
         FrequencyAdjustmentMode::Disabled | FrequencyAdjustmentMode::Pin => 0,
     }
+}
+
+/// 快捷短语组的槽位（`quick_phrase_slots` 日志表）：混进普通候选的整组短语按「组前面有几个普通候选」记位置。没有记录时组追加在末尾，这是混输的默认落位；学习写回槽位后组按它摆放（`mixed_input.quick_phrase_frequency`）。`candidate_selection_state` 表里的方向计数用这个前缀做 context_key，和普通调频的计数互不干扰。
+const QUICK_PHRASE_SLOT_CONTEXT: &str = "quick_phrase_slot:";
+
+fn read_quick_phrase_slot(connection: &Connection, code: &str) -> Result<Option<i64>> {
+    Ok(connection
+        .prepare_cached("SELECT slot FROM quick_phrase_slots WHERE code=?1")?
+        .query_row(params![code], |row| row.get(0))
+        .optional()?)
+}
+
+/// 槽位一律 upsert：存的 0 是「整组在首位」这个学过的位置，不是没有记录；没记录才表示从未学过、追加在末尾。
+fn write_quick_phrase_slot(connection: &Connection, code: &str, slot: i64) -> Result<()> {
+    connection.prepare_cached("INSERT INTO quick_phrase_slots(code,slot) VALUES(?1,?2) ON CONFLICT(code) DO UPDATE SET slot=excluded.slot")?
+        .execute(params![code, slot.max(0)])?;
+    Ok(())
+}
+
+/// 混输建列表时读整组短语学过的位置；没有日志、没有记录或读不了都按「追加在末尾」（`None`）处理。存了 0 的槽位是「整组在首位」这个学过的位置，照常返回。
+pub fn quick_phrase_slot(journal_path: &Path, code: &str) -> Option<usize> {
+    if code.is_empty() {
+        return None;
+    }
+    let journal = open_journal(journal_path).ok()?;
+    read_quick_phrase_slot(&journal, code)
+        .ok()
+        .flatten()
+        .and_then(|slot| usize::try_from(slot).ok())
+}
+
+fn count_slot_selection(
+    transaction: &Transaction<'_>,
+    code: &str,
+    direction: &str,
+    trigger_count: i32,
+) -> Result<bool> {
+    let trigger = i64::from(trigger_count.clamp(1, 10));
+    let context = format!("{QUICK_PHRASE_SLOT_CONTEXT}{code}");
+    let count: i64 = transaction
+        .prepare_cached(COUNT_SELECTION_SQL)?
+        .query_row(params![context, direction, code], |row| row.get(0))?;
+    if count < trigger {
+        return Ok(false);
+    }
+    transaction
+        .prepare_cached(RESET_SELECTION_SQL)?
+        .execute(params![context, direction, code])?;
+    Ok(true)
+}
+
+/// 选中组内一条快捷短语（`quick_phrase_frequency` 开着）：整组按调频规则前移（`slot` 是它在当前列表里的位置）；选的不是组内第一条时，那条短语在同码里升到最高权重 + 1，并写日志供重放（`learn_quick_phrase_selection`，user_dictionary_journal.cpp:974-1039）。
+pub fn learn_quick_phrase_selection(
+    main_db: &Path,
+    journal_path: &Path,
+    code: &str,
+    value: &str,
+    first_in_group: bool,
+    slot: usize,
+    frequency: &FrequencyAdjustmentOptions,
+) -> Result<()> {
+    if code.is_empty() || value.is_empty() {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    }
+    if frequency.mode == FrequencyAdjustmentMode::Disabled {
+        return Ok(());
+    }
+    let journal = open_journal(journal_path)?;
+    let transaction = Transaction::new_unchecked(&journal, TransactionBehavior::Immediate)?;
+    if count_slot_selection(&transaction, code, "promote", frequency.trigger_count)? {
+        let new_slot = ranking_target(slot, frequency.mode, frequency.linear_step, false);
+        if new_slot != slot {
+            write_quick_phrase_slot(&transaction, code, new_slot as i64)?;
+        }
+    }
+    if !first_in_group {
+        // 组内顺序按权重走：选中的那条升到同码最高 + 1（与 bump_wubi_weight 同语义），写进日志供换词库时重放。
+        let main = open_dictionary_for_writing(main_db)?;
+        let new_weight = clamp_managed_weight(
+            main.prepare_cached("SELECT MAX(weight) FROM quick_parases WHERE key=?1")?
+                .query_row(params![code], |row| row.get::<_, i64>(0))
+                .optional()?
+                .unwrap_or(0)
+                + 1,
+        );
+        main.prepare_cached("UPDATE quick_parases SET weight=?1 WHERE key=?2 AND value=?3")?
+            .execute(params![new_weight, code, value])?;
+        write_upsert(
+            &transaction,
+            PersonalDictionaryKind::QuickPhrase,
+            code,
+            value,
+            new_weight,
+            "",
+        )?;
+    }
+    Ok(transaction.commit()?)
+}
+
+/// 组在列表里时选了一个普通候选：选中的排在组之后（越过了整组）才计数，满 `trigger_count` 后槽位 + 1（整组后退一格），封顶 `max_slot`（首页末位，`first_page_rows - 1`）。`slot` 是组在当前列表里的位置（`learn_quick_phrase_bypass`，user_dictionary_journal.cpp:1041-1074）。
+pub fn learn_quick_phrase_bypass(
+    journal_path: &Path,
+    code: &str,
+    ordinary_rank: usize,
+    slot: usize,
+    max_slot: usize,
+    frequency: &FrequencyAdjustmentOptions,
+) -> Result<()> {
+    if code.is_empty() {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    }
+    if frequency.mode == FrequencyAdjustmentMode::Disabled || max_slot == 0 {
+        return Ok(());
+    }
+    // 选中的候选本来就在组前面，或者组已经退到首页末位。
+    if ordinary_rank < slot || slot >= max_slot {
+        return Ok(());
+    }
+    // 整组算作它前面的一个位置：它的目标位置落在组的位置或更前，才算越过了这一组。
+    let target = ranking_target(
+        ordinary_rank + 1,
+        frequency.mode,
+        frequency.linear_step,
+        false,
+    );
+    if target > slot {
+        return Ok(());
+    }
+    let journal = open_journal(journal_path)?;
+    let transaction = Transaction::new_unchecked(&journal, TransactionBehavior::Immediate)?;
+    if count_slot_selection(&transaction, code, "bypass", frequency.trigger_count)? {
+        write_quick_phrase_slot(&transaction, code, (slot + 1).min(max_slot) as i64)?;
+    }
+    Ok(transaction.commit()?)
 }
 
 /// J:251-262. Does not check that a row changed: the reference journals the weight either way, and replay then inserts the row.

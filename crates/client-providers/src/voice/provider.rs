@@ -35,7 +35,8 @@ pub const CHAT_AUDIO_MAX_WAV_BYTES: usize = 7_000_000;
 pub fn asr_request_format(provider: &str) -> Option<&'static str> {
     match provider {
         "doubao" => Some(ASR_REQUEST_DOUBAO_WEBSOCKET),
-        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral" => Some(ASR_REQUEST_MULTIPART),
+        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral" | "zhipu" | "minimax"
+        | "custom" => Some(ASR_REQUEST_MULTIPART),
         "bailian" => Some(ASR_REQUEST_CHAT_AUDIO),
         "local" => Some(ASR_REQUEST_LOCAL),
         _ => None,
@@ -77,12 +78,10 @@ pub struct MobileVoiceProviderConfiguration {
     pub model_path: String,
 }
 
-/// The optional rewrite that runs over a transcript, resolved the same way the provider is.
+/// 按服务配置解析的可选转写润色；未启用时返回 `None`，不视为错误。
 ///
-/// `None` means the user did not ask for it, which is the common case and not an error. The prompt
-/// itself is not resolved here: the shipped preset bodies live in `shared/voice/PolishPrompt.h`,
-/// and the host that sends the request reads them from there so there is one copy of the wording
-/// that tells the model the transcript is data rather than instructions.
+/// 这里只传递方案与自定义槽位，不解析正文。内置正文归 `polish_catalog` 所有，
+/// 宿主通过静态导出的 `shared/voice/PolishPromptCatalog.h` 读取同一份内容。
 #[derive(Debug, PartialEq, Eq)]
 pub struct MobileVoicePolishConfiguration {
     pub endpoint: String,
@@ -105,6 +104,60 @@ pub fn bounded_voice_fields(endpoint: &str, model: &str, token: &str) -> bool {
     crate::text::is_bounded_text(endpoint, 2_048)
         && crate::text::is_bounded_text(model, 512)
         && crate::text::is_bounded_text(token, 16 * 1024)
+}
+
+/// 设置页保存凭据前的共享预检。空白值表示删除凭据，因此允许；非空值必须是单行、有界文本。
+/// 豆包凭据会进入 WebSocket 握手头，必须保持 ASCII，其他服务允许 Unicode。
+pub fn valid_voice_credential(provider: &str, value: &str) -> bool {
+    let value = value.trim();
+    value.is_empty()
+        || (crate::text::is_bounded_text(value, 16 * 1024)
+            && (provider != "doubao" || value.is_ascii()))
+}
+
+/// 设置页识别服务行的状态文案；`resolved` 表示共享解析已经得到可用云端配置。
+pub fn mobile_voice_provider_status(
+    provider: &str,
+    resolved: bool,
+    platform_available: bool,
+) -> Option<&'static str> {
+    let network = !provider.is_empty() && provider != "system" && provider != "local";
+    if !network {
+        return if provider.is_empty() || provider == "system" {
+            Some(if platform_available {
+                "使用设备自带的语音识别服务"
+            } else {
+                "没有可用的系统识别服务，可改用本地模型或豆包"
+            })
+        } else {
+            None
+        };
+    }
+    if resolved {
+        return None;
+    }
+    Some(if provider == "doubao" {
+        if platform_available {
+            "密钥未填写完整，暂用系统识别"
+        } else {
+            "密钥未填写完整，系统识别不可用"
+        }
+    } else if platform_available {
+        "未填写 API Key，暂用系统识别"
+    } else {
+        "未填写 API Key，系统识别不可用"
+    })
+}
+
+/// 设置页本地模型行的状态文案。
+pub fn mobile_voice_local_status(model_ready: bool, runtime_ready: bool) -> Option<&'static str> {
+    if !model_ready {
+        Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+    } else if runtime_ready {
+        None
+    } else {
+        Some("还需准备本地语音运行库，请到「模型」下载或导入")
+    }
 }
 
 /// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
@@ -212,6 +265,8 @@ pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'stati
     {
         return Some((preset.endpoint, preset.model));
     }
+    // dashscope/moonshot 是 Windows 目录里的旧 id，对应目录中的 qwen/kimi；
+    // 与 everyapi/mistral 一样只解析不进目录。
     Some(match provider {
         "everyapi" => (
             "https://api.everyapi.ai/v1/chat/completions",
@@ -220,6 +275,14 @@ pub fn polish_provider_defaults(provider: &str) -> Option<(&'static str, &'stati
         "mistral" => (
             "https://api.mistral.ai/v1/chat/completions",
             "mistral-small-latest",
+        ),
+        "dashscope" => (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen-plus",
+        ),
+        "moonshot" => (
+            "https://api.moonshot.cn/v1/chat/completions",
+            "kimi-k2-0905-preview",
         ),
         _ => return None,
     })
@@ -513,6 +576,20 @@ mod tests {
     }
 
     #[test]
+    fn voice_credential_preflight_matches_the_mobile_contract() {
+        assert!(valid_voice_credential("openai", ""));
+        assert!(valid_voice_credential("openai", "  "));
+        assert!(valid_voice_credential("openai", "密钥"));
+        assert!(!valid_voice_credential("openai", "key\nvalue"));
+        assert!(!valid_voice_credential(
+            "openai",
+            &"x".repeat(16 * 1024 + 1)
+        ));
+        assert!(valid_voice_credential("doubao", "ascii-key"));
+        assert!(!valid_voice_credential("doubao", "密钥"));
+    }
+
+    #[test]
     fn local_provider_resolves_without_endpoint_or_token() {
         let mut preferences = Preferences::default();
         preferences.voice_input.asr_provider = "local".into();
@@ -724,5 +801,40 @@ mod tests {
                 "{endpoint}"
             );
         }
+    }
+
+    #[test]
+    fn mobile_voice_status_explains_fallback_and_platform_availability() {
+        assert_eq!(
+            mobile_voice_provider_status("doubao", false, true),
+            Some("密钥未填写完整，暂用系统识别")
+        );
+        assert_eq!(
+            mobile_voice_provider_status("openai", false, false),
+            Some("未填写 API Key，系统识别不可用")
+        );
+        assert_eq!(mobile_voice_provider_status("openai", true, true), None);
+        assert_eq!(
+            mobile_voice_provider_status("system", false, true),
+            Some("使用设备自带的语音识别服务")
+        );
+        assert_eq!(
+            mobile_voice_provider_status("system", false, false),
+            Some("没有可用的系统识别服务，可改用本地模型或豆包")
+        );
+        assert_eq!(mobile_voice_provider_status("local", true, true), None);
+    }
+
+    #[test]
+    fn mobile_voice_local_status_prioritizes_model_then_runtime() {
+        assert_eq!(
+            mobile_voice_local_status(false, true),
+            Some("还没有选用可用模型，请到「模型」选用、下载或导入")
+        );
+        assert_eq!(
+            mobile_voice_local_status(true, false),
+            Some("还需准备本地语音运行库，请到「模型」下载或导入")
+        );
+        assert_eq!(mobile_voice_local_status(true, true), None);
     }
 }

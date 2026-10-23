@@ -192,3 +192,32 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();
 });
+
+test("Linux 设置页保存辅助码触发键且保留另一族设置", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "linux", helpcode_trigger_key: true }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
+  selectSettingsTab("进阶");
+  fireEvent.change(screen.getByRole("combobox", { name: "全拼辅助码触发键" }), {
+    target: { value: "/" },
+  });
+  saveSettingsNow();
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        quanpin_helpcode: expect.objectContaining({ trigger_key: "/", schema: "ziranma" }),
+        shuangpin_helpcode: initial.preferences.shuangpin_helpcode,
+      }),
+    ),
+  );
+});

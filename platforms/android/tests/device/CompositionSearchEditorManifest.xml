@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.shengjingbank.mobile.cust" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+    <!-- 专用 AVD 中的无联网合成包；只复用兼容规则匹配的包名，不包含银行代码、资源或服务。 -->
+    <application android:label="MSIME 合成搜索框" android:allowBackup="false">
+        <activity android:name="app.msime.android.test.CompositionSearchEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+    </application>
+</manifest>

@@ -19,7 +19,8 @@ use crate::ime::online_batch::{
 };
 use crate::lattice::decode::{decode_pinned, BigramMemo, PinnedSpan, SentenceNgramTables};
 use crate::lattice::merge::{
-    merge_lattice_candidates, merge_lattice_candidates_borrowed, whole_sentence_insert_position,
+    decode_lattice, decode_lattice_borrowed, merge_decoded, merge_decoded_borrowed,
+    whole_sentence_insert_position, DecodedSentences,
 };
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
@@ -50,9 +51,10 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
     append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
-    merge_alternative_segmentations, resolve_series_query, series_cache_key, SeriesResolution,
-    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
-    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
+    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
+    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
+    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -65,6 +67,8 @@ pub const TYPO_SPAN_CACHE_CAPACITY: usize = 512;
 pub const LATTICE_SPAN_CACHE_CAPACITY: usize = 4096;
 /// 按切分缓存的词典原始行（`query_segments_keyed_flat`、单字母的 `query_initial`、`query_longer_phrases` 和模糊前缀的批量查询）每种的条数。`cache` 只有 128 条，九键一键的几十条切分会把它整个挤掉；这一层只存与查询方式无关的词典行，命中时与直接查库完全一样。
 pub const ROW_CACHE_CAPACITY: usize = 512;
+/// 按音节缓存的整句解码结果条数。九键每按一个数字要对二十条上下的切分各解一次整句，其中约三分之一是同一次刷新或上一个数字已经解过的音节串（同一条备选切分挂在好几条九键路径下）；一个长词打下来不同的音节串有两三百条。每条只存解码出的几条句子，内存很小。
+pub const SENTENCE_DECODE_CACHE_CAPACITY: usize = 512;
 /// `RowCacheBatch` 一段读事务最长持续的时间。词典的忙等待上限 `BUSY_TIMEOUT` 是 250 ms，这一段要远小于它，别的连接提交时才不会因为一次长刷新等到超时。
 const ROW_CACHE_BATCH_SPAN: Duration = Duration::from_millis(20);
 /// A single-letter query returns at most this many rows until `expand_initial_candidates`.
@@ -104,6 +108,13 @@ struct CachedFuzzyRows {
     limit: usize,
     typed: String,
     rows: Vec<DictRow>,
+}
+
+#[derive(Clone)]
+struct CachedDecode {
+    /// 解码时个人模型的版本；模型一变，条目作废。
+    personal_version: u64,
+    decoded: DecodedSentences,
 }
 
 #[derive(Clone)]
@@ -185,7 +196,12 @@ pub struct QuanpinDictionary {
     row_cache_batch: Option<Instant>,
     /// 词网格解码查二元分的备忘，跨查询保留；表不变它就一直有效，见 `BigramMemo`。
     bigram_memo: RefCell<BigramMemo>,
+    /// 整句解码结果，键见 `sentence_decode_key`。解码只取决于音节、词典行、n 元表、个人模型和整句选项：词典行变了随行缓存清空，个人模型按条目记的版本核对，整句选项和纠错资料变了在各自的 setter 里清空。
+    sentence_decode_cache: FifoCache<String, CachedDecode>,
     rerankers: Vec<NeuralReranker>,
+    /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
+    /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
+    collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
     sentence_alternatives: bool,
     sentence_association: SentenceAssociationOptions,
     /// 首页放得下几行，决定全长组的补全词是按权重并进来还是接在整组末尾；来自宿主的每页候选数（`QueryRequest::first_page_rows`）。存成 `FirstPageRows` 是为了让 0 在这里没有入口，全拼和九键的「0 当 1」只在 `FirstPageRows::new` 做一次。
@@ -233,7 +249,9 @@ impl QuanpinDictionary {
             row_cache_version: None,
             row_cache_batch: None,
             bigram_memo: RefCell::default(),
+            sentence_decode_cache: FifoCache::new(SENTENCE_DECODE_CACHE_CAPACITY),
             rerankers: Vec::new(),
+            collocation_db: None,
             sentence_alternatives: false,
             sentence_association: SentenceAssociationOptions::default(),
             first_page_rows: FirstPageRows::default(),
@@ -264,8 +282,8 @@ impl QuanpinDictionary {
             };
             let typed = fuzzy_segmentation(segmentation, &normalized_segments);
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
-            append_unique_words(&mut result, rows);
-            result.sort_by_key(|item| std::cmp::Reverse(matched_letters(&item.pinyin)));
+            // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
+            merge_series_by_coverage(&mut result, rows);
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
         }
         // Marking runs after every change, including the fuzzy merge, so every row the caller sees carries its mark.
@@ -590,6 +608,7 @@ impl QuanpinDictionary {
         // The cached lists were assembled under the previous answer.
         self.cache.clear();
         self.series_cache.clear();
+        self.sentence_decode_cache.clear();
     }
 
     /// 首页行数只决定补全词是按权重并进来还是接在整组末尾；改了就清掉按旧门槛组装的整条答案（照 `set_sentence_alternatives`）。`cache` 存的是按切分查出来的词库行，补全词是查完它才并进来的，所以这里动不了它，清掉只会白白丢掉 128 行、再查一次 SQLite。
@@ -606,7 +625,13 @@ impl QuanpinDictionary {
         if self.sentence_association == options {
             return;
         }
-        self.sentence_association = options;
+        // 模型路径为空或不可载时回退 `None`：与 `msime-bigram.bin` 缺失的既有降级一致。
+        self.collocation_db = if options.collocation_model.as_os_str().is_empty() {
+            None
+        } else {
+            crate::lattice::octagram::GramDb::shared(&options.collocation_model)
+        };
+        self.sentence_association = options.clone();
         self.rerankers.clear();
         if options.neural_keyboard {
             if let Some(model) = shared_sentence_model(&self.paths.resource(NEURAL_MODEL_KEYBOARD))
@@ -631,7 +656,7 @@ impl QuanpinDictionary {
     fn series_slot(&self, cache_key: &str) -> String {
         series_slot_key(
             cache_key,
-            self.sentence_association,
+            &self.sentence_association,
             !self.rerankers.is_empty(),
             &self.rescoring_context,
         )
@@ -649,6 +674,8 @@ impl QuanpinDictionary {
     }
 
     fn clear_row_caches(&mut self) {
+        // 整句是从这些行解出来的。
+        self.sentence_decode_cache.clear();
         self.lattice_span_cache.clear();
         self.segment_row_cache.clear();
         self.longer_row_cache.clear();
@@ -710,12 +737,14 @@ impl QuanpinDictionary {
             if generation != self.typo_generation {
                 self.typo_generation = generation;
                 self.series_cache.clear();
+                // 纠错整句按纠错资料规划。
+                self.sentence_decode_cache.clear();
                 self.personal_scored_keys.clear();
             }
         }
         let mut segments = None;
         let segmentation_cache = &mut self.segmentation_cache;
-        let association = self.sentence_association;
+        let association = self.sentence_association.clone();
         let has_rerankers = !self.rerankers.is_empty();
         let context = &self.rescoring_context;
         let pinyin_segmentation = &mut self.pinyin_segmentation;
@@ -740,8 +769,12 @@ impl QuanpinDictionary {
                         .chain(&resolution.costlier_corrected_cuts)
                         .map(|cut| join_segments(cut))
                         .collect();
-                    let slot =
-                        series_slot_key(&resolution.cache_key, association, has_rerankers, context);
+                    let slot = series_slot_key(
+                        &resolution.cache_key,
+                        &association,
+                        has_rerankers,
+                        context,
+                    );
                     let owned = match resolution {
                         Cow::Borrowed(_) => None,
                         Cow::Owned(resolution) => Some(resolution),
@@ -832,8 +865,13 @@ impl QuanpinDictionary {
                 }
             }
         };
-        // 缓存始终取得未筛选、未标记的整页；至少两音节登记个人计分键。
-        if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+        // 单音节主路径也可能沿完整备选切分组句，需要跟随个人模型失效。
+        if segments.len() >= 2
+            || resolution.corrected.len() >= 2
+            || alternatives
+                .iter()
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
+        {
             self.series_cache.insert(slot.clone(), cached);
             self.remember_personal_scored_key(slot);
         } else {
@@ -842,8 +880,53 @@ impl QuanpinDictionary {
         projected
     }
 
-    /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。
+    /// 完整词继续按词频合并，字面备选另外补齐前缀和整句，不能叠加一层纠错。
     fn merge_alternatives(
+        &mut self,
+        raw: &str,
+        primary_segmentation: &str,
+        primary_segments: &[String],
+        alternatives: &[Vec<String>],
+        result: Vec<WordItem>,
+    ) -> Vec<WordItem> {
+        let mut result = self.merge_alternative_full(
+            raw,
+            primary_segmentation,
+            primary_segments,
+            alternatives,
+            result,
+        );
+        let mut supplemental = Vec::new();
+        // 相同音节前缀在多条完整路径中会重复出现；它们的行和消费范围相同，只查一次。
+        let mut queried_prefixes = HashMap::new();
+        if is_literal_segmentation(raw, primary_segments) {
+            for count in 1..primary_segments.len() {
+                let key = join_segments(&primary_segments[..count]);
+                if let Some(rows) = self.cache.get_ref_by(&key) {
+                    queried_prefixes.insert(key, rows.len());
+                }
+            }
+        }
+        for path in alternatives {
+            if is_literal_segmentation(raw, path) {
+                let rows = self.query_series_with_typos(
+                    raw,
+                    &join_segments(path),
+                    path,
+                    false,
+                    Some(&mut queried_prefixes),
+                );
+                supplemental.extend(rows);
+            }
+        }
+        if !supplemental.is_empty() {
+            merge_series_by_coverage(&mut result, supplemental);
+        }
+        result
+    }
+
+    /// `merge_alternative_segmentations` 的完整词查询部分，升位与合并规则在 `series`。
+    fn merge_alternative_full(
         &mut self,
         raw: &str,
         primary_segmentation: &str,
@@ -904,10 +987,22 @@ impl QuanpinDictionary {
         segmentation: &str,
         segments: &[String],
     ) -> Vec<WordItem> {
+        self.query_series_with_typos(raw, segmentation, segments, true, None)
+    }
+
+    fn query_series_with_typos(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+        include_typos: bool,
+        mut queried_prefixes: Option<&mut HashMap<String, usize>>,
+    ) -> Vec<WordItem> {
         if segments.is_empty() {
             return self.query_single_path(raw, segmentation, segments);
         }
         let mut result = Vec::new();
+        let mut skipped_prefix_rows = 0usize;
         let prefix_key = series_prefix_key(segmentation, segments);
         let mut partial_segmentation = prefix_key.as_ref();
         for count in (1..=segments.len()).rev() {
@@ -918,8 +1013,18 @@ impl QuanpinDictionary {
             }
             let partial = &segments[..count];
             if count < segments.len() {
+                if let Some(prefixes) = queried_prefixes.as_deref_mut() {
+                    if let Some(&count) = prefixes.get(partial_segmentation) {
+                        skipped_prefix_rows = skipped_prefix_rows.saturating_add(count);
+                        continue;
+                    }
+                }
+                let before = result.len();
                 self.append_single_path(&mut result, raw, partial_segmentation, partial);
                 self.append_initial_split_rows(&mut result, raw, partial);
+                if let Some(prefixes) = queried_prefixes.as_deref_mut() {
+                    prefixes.insert(partial_segmentation.to_owned(), result.len() - before);
+                }
                 continue;
             }
             let mut rows = self.query_single_path(raw, partial_segmentation, partial);
@@ -953,10 +1058,15 @@ impl QuanpinDictionary {
         }
 
         if segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
-            self.merge_sentences(&mut result, raw, segmentation, segments);
+            if include_typos {
+                self.merge_sentences(&mut result, raw, segmentation, segments);
+            } else {
+                self.merge_sentences_with_typos(&mut result, raw, segmentation, segments, false);
+            }
         }
 
-        if result.len() < SPARSE_FALLBACK_THRESHOLD {
+        // 跳过的重复行仍计入原路径的稀疏门槛，不能因此额外触发读音回退。
+        if result.len().saturating_add(skipped_prefix_rows) < SPARSE_FALLBACK_THRESHOLD {
             for fallback in sparse_pinyin_fallback_segments(segments) {
                 if fallback.is_empty() {
                     continue;
@@ -997,8 +1107,23 @@ impl QuanpinDictionary {
         segmentation: &str,
         segments: &[String],
     ) {
-        let association = self.sentence_association;
-        if !association.word_lattice && self.rerankers.is_empty() {
+        self.merge_sentences_with_typos(result, raw, segmentation, segments, true);
+    }
+
+    fn merge_sentences_with_typos(
+        &mut self,
+        result: &mut Vec<WordItem>,
+        raw: &str,
+        segmentation: &str,
+        segments: &[String],
+        include_typos: bool,
+    ) {
+        let association = self.sentence_association.clone();
+        let has_collocation =
+            self.collocation_db.is_some() && association.collocation_weight != 0.0;
+        // 〔搭配〕行即解码最优路径：模型在且显示开关开时才出。
+        let include_collocation_best = association.collocation_rerank && has_collocation;
+        if !association.word_lattice && self.rerankers.is_empty() && !include_collocation_best {
             return;
         }
         // Held for the whole merge: the options borrow the model.
@@ -1009,9 +1134,22 @@ impl QuanpinDictionary {
             options.nbest = MAX_RERANK_PATHS;
         }
         options.include_lattice_best = association.word_lattice;
+        options.include_collocation_best = include_collocation_best;
         options.show_next_on_duplicate = association.show_next_on_duplicate;
         options.personal = Some(&*model);
         options.bigram_memo = Some(&self.bigram_memo);
+        // 搭配项逐边叠加字级搭配分，与二元/三元在同一 Viterbi 里竞争；
+        // query() 是自然对数域，乘 LN_TO_LOG10 换到主分的域。
+        let scorer;
+        if has_collocation {
+            let db = self.collocation_db.as_ref().expect("collocation db loaded");
+            let config = association.collocation_grammar;
+            scorer = move |tail: &str, word: &str, is_rear: bool| {
+                db.query(tail, word, is_rear, &config) * std::f64::consts::LOG10_E
+            };
+            options.collocation_scorer = Some(&scorer);
+            options.collocation_weight = association.collocation_weight;
+        }
 
         let typed = if segmentation.is_empty() {
             raw
@@ -1019,7 +1157,7 @@ impl QuanpinDictionary {
             segmentation
         };
         let types = self.current_autocorrect_types;
-        let typo_eligible = types & TYPO_EDGE_TYPES != 0 && !raw.contains('\'');
+        let typo_eligible = include_typos && types & TYPO_EDGE_TYPES != 0 && !raw.contains('\'');
         let span_limit = options.span_limit;
         let database = &self.database;
         let span_cache = &mut self.typo_span_cache;
@@ -1032,44 +1170,66 @@ impl QuanpinDictionary {
         } else {
             None
         };
-        let span_count = lattice_span_count(segments.len(), options.max_phrase_syllables);
-        let typo = if span_count <= LATTICE_SPAN_CACHE_CAPACITY {
-            warm_lattice_span_cache(
-                database,
-                &mut self.lattice_span_cache,
-                segments,
-                span_limit,
-                options.max_phrase_syllables,
-            );
-            let lattice_spans = &self.lattice_span_cache;
-            let mut lookup = |span: &[String]| {
-                cached_lattice_span_ref(lattice_spans, span, span_limit)
-                    .expect("warmed lattice span cache entry")
-            };
-            merge_lattice_candidates_borrowed(
+        // 模型已按需重载，此刻的版本就是这次解码用的版本。
+        let personal_version = personal.version();
+        let decode_key = sentence_decode_key(segments, types, typo_eligible);
+        let cached = self
+            .sentence_decode_cache
+            .get_ref(&decode_key)
+            .filter(|cached| cached.personal_version == personal_version);
+        let typo = if let Some(cached) = cached {
+            merge_decoded_borrowed(
                 result,
                 segments,
-                &mut lookup,
                 typed,
                 &options,
-                typo_source,
                 &mut self.rerankers,
                 &self.rescoring_context,
+                &cached.decoded,
             )
         } else {
-            let lattice_spans = &mut self.lattice_span_cache;
-            let mut lookup =
-                |span: &[String]| cached_lattice_span(database, lattice_spans, span, span_limit);
-            merge_lattice_candidates(
-                result,
-                segments,
-                &mut lookup,
-                typed,
-                &options,
-                typo_source,
-                &mut self.rerankers,
-                &self.rescoring_context,
-            )
+            let span_count = lattice_span_count(segments.len(), options.max_phrase_syllables);
+            let decoded = if span_count <= LATTICE_SPAN_CACHE_CAPACITY {
+                warm_lattice_span_cache(
+                    database,
+                    &mut self.lattice_span_cache,
+                    segments,
+                    span_limit,
+                    options.max_phrase_syllables,
+                );
+                let lattice_spans = &self.lattice_span_cache;
+                let mut lookup = |span: &[String]| {
+                    cached_lattice_span_ref(lattice_spans, span, span_limit)
+                        .expect("warmed lattice span cache entry")
+                };
+                decode_lattice_borrowed(segments, &mut lookup, &options, typo_source)
+            } else {
+                let lattice_spans = &mut self.lattice_span_cache;
+                let mut lookup = |span: &[String]| {
+                    cached_lattice_span(database, lattice_spans, span, span_limit)
+                };
+                decode_lattice(segments, &mut lookup, &options, typo_source)
+            };
+            if let Some(decoded) = &decoded {
+                self.sentence_decode_cache.insert(
+                    decode_key,
+                    CachedDecode {
+                        personal_version,
+                        decoded: decoded.clone(),
+                    },
+                );
+            }
+            decoded.and_then(|decoded| {
+                merge_decoded(
+                    result,
+                    segments,
+                    typed,
+                    &options,
+                    &mut self.rerankers,
+                    &self.rescoring_context,
+                    decoded,
+                )
+            })
         };
 
         // A sentence that reads one or more syllables as a typo of another. It leads only when it beats the literal sentence by the lead margin per typo; otherwise it follows the whole-sentence rows, so a correction is offered without displacing what was typed.
@@ -1468,6 +1628,27 @@ fn warm_lattice_span_cache(
     }
 }
 
+/// `sentence_decode_cache` 的键：音节串、这次查询的纠错类型和是否规划纠错整句。纠错整句只在后两者允许时才解，同一串音节在两种情况下的结果不同。
+fn sentence_decode_key(segments: &[String], types: u32, typo_eligible: bool) -> String {
+    let mut key = String::with_capacity(
+        segments
+            .iter()
+            .map(|segment| segment.len() + 1)
+            .sum::<usize>()
+            + 12,
+    );
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            key.push('\'');
+        }
+        key.push_str(segment);
+    }
+    key.push('\u{1f}');
+    key.push_str(&types.to_string());
+    key.push(if typo_eligible { 't' } else { '-' });
+    key
+}
+
 fn lattice_span_count(syllable_count: usize, max_phrase_syllables: usize) -> usize {
     let max_len = max_phrase_syllables.max(1);
     (0..syllable_count)
@@ -1536,7 +1717,7 @@ fn truncate_last_segment(segmentation: &mut String) {
 
 fn series_slot_key(
     cache_key: &str,
-    options: SentenceAssociationOptions,
+    options: &SentenceAssociationOptions,
     has_rerankers: bool,
     rescoring_context: &str,
 ) -> String {
@@ -1787,6 +1968,16 @@ fn remember_segmentation_key(
     true
 }
 
+/// 仅接受没有手动边界、没有替换字母的完整切分。
+fn is_literal_segmentation(raw: &str, segments: &[String]) -> bool {
+    !raw.contains('\'')
+        && has_only_complete_pinyin_segments(segments)
+        && segments
+            .iter()
+            .flat_map(|segment| segment.bytes())
+            .eq(raw.bytes())
+}
+
 /// Letters of a row's matched code, what the fuzzy merge sorts by.
 fn matched_letters(pinyin: &str) -> usize {
     pinyin.bytes().filter(|&byte| byte != b'\'').count()
@@ -1827,8 +2018,16 @@ fn first_correction_cut(pinyin: &str) -> Option<Vec<String>> {
 mod tests;
 
 #[cfg(test)]
+#[path = "dictionary/alternative_series_tests.rs"]
+mod alternative_series_tests;
+
+#[cfg(test)]
 #[path = "dictionary/lattice_span_cache_tests.rs"]
 mod lattice_span_cache_tests;
+
+#[cfg(test)]
+#[path = "dictionary/sentence_decode_cache_tests.rs"]
+mod sentence_decode_cache_tests;
 
 #[cfg(test)]
 #[path = "dictionary/row_projection_tests.rs"]

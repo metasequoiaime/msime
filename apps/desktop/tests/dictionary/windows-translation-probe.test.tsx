@@ -77,3 +77,57 @@ test.each([
     expect(probe).toHaveBeenCalledWith(service, expected);
   },
 );
+
+test("Windows AI-assisted translation probe sends the shared AI assistant configuration", async () => {
+  const snapshot: Snapshot = {
+    format_version: 1,
+    revision: 1,
+    preferences: {
+      scheme: "quanpin",
+      shuangpin_profile: "xiaohe",
+      candidate_page_size: 5,
+      learning: true,
+      chinese_punctuation: true,
+      candidate_translations: true,
+      tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "" },
+      niutrans: { enabled: false, app_id: "", apikey: "" },
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      translation_ai: true,
+      ai_assistant: {
+        enabled: false,
+        provider: "openai",
+        endpoint: "https://ai.example.invalid/v1/chat/completions",
+        model: "fixture-model",
+        candidate_limit: 3,
+        tokens: { "https://ai.example.invalid:443": "synthetic-token" },
+        prompt_custom_1: "",
+        prompt_custom_2: "",
+        prompt_custom_3: "",
+      },
+    },
+  };
+  const probe = vi.fn().mockResolvedValue({ ok: true, message: "fixture complete" });
+  render(
+    <SettingsPage
+      initialPage="expression"
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        testApiCredential: probe,
+        host: testHost({ platform: "windows" }),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  selectSettingsTab("翻译服务");
+  const button = await screen.findByRole("button", { name: "测试 AI 辅助配置" });
+  expect(probe).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  await screen.findByText("fixture complete");
+  expect(probe).toHaveBeenCalledWith("translation.ai", {
+    provider: "openai",
+    endpoint: "https://ai.example.invalid/v1/chat/completions",
+    model: "fixture-model",
+    token: "synthetic-token",
+  });
+});

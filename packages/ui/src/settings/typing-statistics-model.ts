@@ -67,6 +67,19 @@ export interface TypingStatisticsUploadClient {
   sync(): Promise<TypingStatisticsUploadStatus>;
 }
 
+/** 皮肤徽章统计属于后台记录；宿主写入失败不能影响已经完成的换肤动作。 */
+export function recordSkinSafely(
+  client: Pick<TypingStatisticsClient, "recordSkin"> | undefined,
+  id: string,
+): void {
+  try {
+    const result = client?.recordSkin?.(id);
+    if (result) void result.catch(() => undefined);
+  } catch {
+    // 宿主可能在调用时同步失败，同样静默处理。
+  }
+}
+
 export interface TypingStatisticsClient {
   load(): Promise<TypingStatisticsStatus>;
   setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;

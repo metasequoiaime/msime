@@ -80,8 +80,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             stage = "nihao through the group keys";
             for (String pair : new String[] {"B N", "U I", "G H", "A S", "O P"}) tap(described("按键 " + pair));
             // 组字是组码字母，不写进输入框；读音行显示引擎首选的读音（BN UI 也是 bu，首选可能是「不好」），不是组码 bugao。
-            await(described("ni'hao").or(described("bu'hao")));
-            awaitGone(described("bugao"));
+            // 读音文字与编辑拼写动作一并校验，不混用描述和文字。
+            await(reading("ni'hao").or(reading("bu'hao")));
+            awaitGone(reading("bugao"));
+            stage = "group composition leaves editor empty";
             await(field("msime-test-plain").and(FourteenKeyDeviceSmoke::emptyField));
             stage = "nihao commit";
             tap(candidate("你好"));
@@ -120,10 +122,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Pinyin row is smaller than the nine-key row: " + strip);
             stage = "lock shu";
             tap(described("选择拼音 shu"));
-            await(described("shu"));
+            await(reading("shu"));
             stage = "backspace undoes the lock";
             tap(key("⌫"));
-            await(described("shi"));
+            await(reading("shi"));
             await(described("选择拼音 shu"));
 
             // 展开候选用九键的三栏面板：左栏是拼音，单字筛选照常可用；返回收起面板，组字还在。
@@ -151,7 +153,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(described("按键 分词，在这里断开音节"));
             tap(described("按键 A S"));
             tap(described("按键 B N"));
-            await(described("xi'an"));
+            await(reading("xi'an"));
             tap(candidate("西安"));
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().endsWith("你好西安")));
@@ -242,7 +244,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
                 if (lastTop <= firstTop)
                     throw new AssertionError("Pinyin options are not stacked vertically");
                 tap(described("选择拼音 su"));
-                await(described("su"));
+                await(reading("su"));
             } finally {
                 shellDiscard("wm size reset");
             }
@@ -272,6 +274,11 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
 
     private static boolean emptyField(AccessibilityNodeInfo node) {
         return node.getText() == null || node.getText().length() == 0 || node.isShowingHintText();
+    }
+
+    /** 读音文字与「编辑拼写」动作描述分别校验，避免误匹配侧栏拼音。 */
+    private Predicate<AccessibilityNodeInfo> reading(String text) {
+        return described("编辑拼写").and(node -> equalsText(text, node.getText()));
     }
 
     /** 候选条上写着 `text` 的候选（描述是「候选 N：text；…」）。 */

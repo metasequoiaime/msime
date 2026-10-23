@@ -34,11 +34,14 @@ licenses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/l
 rm -rf "$licenses_staged"
 mkdir -p "$licenses_staged"
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$licenses_staged/"
+cp resources/licenses/librime-octagram-BSD-3-Clause.txt "$licenses_staged/"
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt resources/licenses/rime-stroke-LGPL-3.0.txt "$licenses_staged/"
 # 越南文和藏文方案编入原生库的 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用）的许可证全文。
 cp resources/licenses/vi-MIT.txt resources/licenses/ewts-MIT.txt "$licenses_staged/"
 # 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进原生库，第 4(b) 条要求随改编作品署名并说明改动，许可证文件里写着这些和法律文本全文。
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$licenses_staged/"
+# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），第 3(a) 条要求随改编数据署名并说明改动，许可证文件里写着这些和法律文本全文。
+cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 # 简繁转换内嵌的 OpenCC 词表许可证随 HAP 分发。

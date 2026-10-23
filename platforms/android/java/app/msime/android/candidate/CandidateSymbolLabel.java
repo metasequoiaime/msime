@@ -12,7 +12,7 @@ import android.text.Spanned;
 import android.text.style.ReplacementSpan;
 import android.util.SparseArray;
 
-/** 旧系统字体缺少粗等号或手势时，只补候选绘制，不改变选中的字符或序号。 */
+/** 旧系统字体缺少粗等号、手势或新下标时，只补标签绘制，不改变选中的字符或序号。 */
 public final class CandidateSymbolLabel {
     private CandidateSymbolLabel() {}
 
@@ -26,6 +26,11 @@ public final class CandidateSymbolLabel {
                     next++;
                 if (result == null) result = new SpannableString(label);
                 result.setSpan(new HeavyEqualsSpan(label.subSequence(offset, next).toString()),
+                    offset, next, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else if (codePoint >= 0x209d && codePoint <= 0x209f) {
+                if (result == null) result = new SpannableString(label);
+                result.setSpan(new SubscriptSpan(label.subSequence(offset, next).toString(),
+                        codePoint == 0x209d ? "w" : codePoint == 0x209e ? "y" : "z"),
                     offset, next, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             } else if (codePoint == 0x1faf1 || codePoint == 0x1faf2
                     || codePoint == 0x1faf7 || codePoint == 0x1faf8) {
@@ -53,6 +58,40 @@ public final class CandidateSymbolLabel {
             offset = next;
         }
         return result == null ? label : result;
+    }
+
+    private static final class SubscriptSpan extends ReplacementSpan {
+        private final String glyph;
+        private final String base;
+
+        SubscriptSpan(String glyph, String base) {
+            this.glyph = glyph;
+            this.base = base;
+        }
+
+        private Paint smallPaint(Paint paint) {
+            Paint small = new Paint(paint);
+            small.setTextSize(paint.getTextSize() * 0.65f);
+            return small;
+        }
+
+        @Override public int getSize(Paint paint, CharSequence text, int start, int end,
+                Paint.FontMetricsInt metrics) {
+            if (metrics != null) paint.getFontMetricsInt(metrics);
+            return (int) Math.ceil(paint.hasGlyph(glyph)
+                ? paint.measureText(glyph) : smallPaint(paint).measureText(base));
+        }
+
+        @Override public void draw(Canvas canvas, CharSequence text, int start, int end,
+                float x, int top, int y, int bottom, Paint paint) {
+            if (paint.hasGlyph(glyph)) {
+                canvas.drawText(glyph, x, y, paint);
+                return;
+            }
+            Paint small = smallPaint(paint);
+            // 对齐原行下降部，让下标低于基线，同时保留 y 的下降笔画。
+            canvas.drawText(base, x, y + paint.descent() - small.descent(), small);
+        }
     }
 
     private static final class HandEmojiSpan extends ReplacementSpan {

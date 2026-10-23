@@ -51,6 +51,15 @@ int main() {
     assert(asr_request_format("BAILIAN") == "chat_audio");
     for (const auto *provider : {"openai", "groq", "siliconflow", "everyapi", "mistral"})
         assert(asr_request_format(provider) == "multipart");
+    // Windows v0.11.1 目录里的三家：智谱与 MiniMax 是 OpenAI 兼容表单上传，自定义由用户填地址。
+    assert(default_asr_endpoint("zhipu") == "https://open.bigmodel.cn/api/paas/v4/audio/transcriptions");
+    assert(default_asr_model("zhipu") == "glm-asr");
+    assert(default_asr_endpoint("minimax") == "https://api.minimax.cn/v1/speech_to_text");
+    assert(default_asr_model("minimax") == "asr-1.0");
+    assert(default_asr_endpoint("custom").empty());
+    assert(default_asr_model("custom").empty());
+    for (const auto *provider : {"zhipu", "minimax", "custom"})
+        assert(asr_request_format(provider) == "multipart");
     assert(asr_request_format("doubao") == "doubao_websocket");
     assert(asr_request_format("local") == "local");
     assert(asr_request_format("system").empty());

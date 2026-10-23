@@ -242,6 +242,7 @@ if(BUILD_TESTING)
   endif()
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE
+    MSIME_HELPCODE_FIXTURE_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/../../../resources"
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
     MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin"
     MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor"
@@ -282,6 +283,9 @@ if(BUILD_TESTING)
   add_test(NAME fcitx5-cloud-clipboard COMMAND fcitx5-native-test --cloud-clipboard)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
+    add_test(NAME fcitx5-helpcode-trigger
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --helpcode-trigger)
+    set_tests_properties(fcitx5-helpcode-trigger PROPERTIES TIMEOUT 60)
     add_test(NAME fcitx5-native-context
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
     add_test(NAME fcitx5-native-smart-abc
@@ -332,7 +336,26 @@ if(BUILD_TESTING)
             "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+        # 自定义模式提示从 5.1.11 起可用，旧开发库不编入这条生产路径。
+        if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
+          add_test(NAME fcitx5-mode-hint-preferences
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_MODE_HINT_PREFERENCES=1
+              MSIME_FCITX5_CANDIDATE_RENDERER=classicui
+              "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" -- "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-mode-hint-preferences PROPERTIES TIMEOUT 90)
+        endif()
         foreach(canvas_layout horizontal vertical)
+          add_test(NAME fcitx5-candidate-font-pixels-${canvas_layout}
+            COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+              MSIME_TEST_FONT_GEOMETRY=1 MSIME_FCITX5_CANDIDATE_RENDERER=classicui
+              "${XVFB_RUN}" -a -s "-screen 0 1024x768x24 -dpi 96" "${DBUS_RUN_SESSION}" --
+              "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+              "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+              "$<TARGET_FILE:msime-fcitx5>")
+          set_tests_properties(fcitx5-candidate-font-pixels-${canvas_layout} PROPERTIES TIMEOUT 90)
           # 这一项验收 X11 上的 classicui 主题本身，所以用逃生口关掉默认的原生画布。
           add_test(NAME fcitx5-translation-below-${canvas_layout}
             COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
@@ -350,6 +373,16 @@ if(BUILD_TESTING)
               "$<TARGET_FILE:msime-fcitx5>")
           set_tests_properties(fcitx5-gtk-canvas-${canvas_layout} PROPERTIES TIMEOUT 90)
           if(MSIME_BADGE_X11_FOUND)
+            foreach(overlay_scale 1 2)
+              add_test(NAME fcitx5-decoration-overlay-${canvas_layout}-scale${overlay_scale}
+                COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout}
+                  MSIME_TEST_NATIVE_CANVAS=1 MSIME_TEST_DECORATION_OVERLAY=1 GDK_SCALE=${overlay_scale}
+                  "${XVFB_RUN}" -a -s "-screen 0 1920x1280x24" "${DBUS_RUN_SESSION}" --
+                  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/canvas_editor.py"
+                  "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+                  "$<TARGET_FILE:msime-fcitx5>")
+              set_tests_properties(fcitx5-decoration-overlay-${canvas_layout}-scale${overlay_scale} PROPERTIES TIMEOUT 120)
+            endforeach()
             add_test(NAME fcitx5-native-canvas-${canvas_layout}
               COMMAND "${CMAKE_COMMAND}" -E env MSIME_TEST_CANVAS_LAYOUT=${canvas_layout} MSIME_TEST_NATIVE_CANVAS=1
                 "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --

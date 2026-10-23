@@ -31,6 +31,7 @@ function service() {
     list: vi.fn(async () => missing),
     install: vi.fn(() => download.promise),
     cancel: vi.fn(async () => true),
+    remove: vi.fn(async () => true),
     onProgress: vi.fn(async (listener: (progress: LocalVoiceModelProgress) => void) => {
       listeners.push(listener);
       return () => {};

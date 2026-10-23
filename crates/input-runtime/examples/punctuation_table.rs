@@ -25,9 +25,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     options.chinese_punctuation = true;
 
+    // `/` 是契约 enumerationComma 段里默认关掉的键：打开偏好开关它才出顿号，关着时引擎不处理它。
+    options.enumeration_comma_slash = true;
+
     // The guide's own list, in its own order.
     let expected = [
         ('\\', "、"),
+        ('/', "、"),
         ('`', "·"),
         ('^', "……"),
         ('_', "——"),

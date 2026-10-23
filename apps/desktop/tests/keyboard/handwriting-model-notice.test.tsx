@@ -20,6 +20,7 @@ function packs(overrides: Partial<ResourcePacks> = {}): ResourcePacks {
     ensure: vi.fn(),
     install: vi.fn(),
     cancel: vi.fn(),
+    remove: vi.fn(),
     ...overrides,
   };
 }

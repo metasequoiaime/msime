@@ -96,6 +96,7 @@ pub struct ImeSession {
     autocorrect_types: u32,
     quanpin_helpcode: bool,
     shuangpin_helpcode: bool,
+    shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
     sentence_alternatives: bool,
     /// 首页行数随每个请求交给各方案引擎；只影响词库要不要并入补全词。
@@ -169,6 +170,7 @@ impl ImeSession {
             autocorrect_types: 0,
             quanpin_helpcode: false,
             shuangpin_helpcode: false,
+            shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
             sentence_alternatives: false,
             first_page_rows: FirstPageRows::default(),
@@ -756,6 +758,11 @@ impl ImeSession {
         self.shuangpin_helpcode = enabled;
     }
 
+    /// 双拼辅助码的触发方式；请求每次构建都带上，改动即时生效。
+    pub fn set_shuangpin_helpcode_modes(&mut self, modes: crate::types::ShuangpinHelpcodeModes) {
+        self.shuangpin_helpcode_modes = modes;
+    }
+
     pub fn set_fuzzy_pinyin_options(&mut self, options: FuzzyPinyinOptions) {
         self.fuzzy = options;
     }
@@ -943,6 +950,7 @@ impl ImeSession {
 
     fn apply_request_options(&self, request: &mut QueryRequest) {
         request.enable_shuangpin_helpcode = self.shuangpin_helpcode;
+        request.shuangpin_helpcode_modes = self.shuangpin_helpcode_modes;
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
         request.enable_quanpin_autocorrect_transposition =
@@ -950,7 +958,7 @@ impl ImeSession {
         request.enable_quanpin_autocorrect_neighbor =
             self.autocorrect_types & autocorrect_type::NEIGHBOR != 0;
         request.fuzzy_pinyin = self.fuzzy;
-        request.sentence_association = self.sentence_association;
+        request.sentence_association = self.sentence_association.clone();
         request.first_page_rows = self.first_page_rows;
         request
             .rescoring_context
@@ -1278,6 +1286,7 @@ fn apply_shuangpin_helpcode_segmentation(request: &mut QueryRequest, profile: &S
     const HELPCODE_LENGTH: usize = 2;
     if request.scheme != SchemeType::Shuangpin
         || !request.enable_shuangpin_helpcode
+        || !request.shuangpin_helpcode_modes.direct
         || detect_active_double_helpcode_length(
             &request.raw_input,
             &request.raw_input_with_cases,

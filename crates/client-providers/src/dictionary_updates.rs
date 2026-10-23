@@ -288,14 +288,20 @@ pub fn set_for_directory(state: &Path, baseline: &ResourceSet, path: &Path) -> O
 pub fn installed_file(state: &Path, baseline: &ResourceSet, name: &str) -> Option<PathBuf> {
     let selection = selected(state, baseline)?;
     for set in std::iter::once(&selection.desktop).chain(selection.languages.iter()) {
-        if let Some(artifact) = set.artifacts.iter().find(|a| a.name == name) {
-            let path = directory(state, set).ok()?.join(name);
-            msime_path_trust::reject_symlinked_components(&path).ok()?;
-            let metadata = std::fs::metadata(&path).ok()?;
-            return (metadata.is_file() && metadata.len() == artifact.size).then_some(path);
+        if set.artifacts.iter().any(|a| a.name == name) {
+            return generation_file(&directory(state, set).ok()?, set, name);
         }
     }
     None
+}
+
+/// `set` 的代次目录 `directory`（[`directory`] 的结果）里的 `name`：路径上没有符号链接，是普通文件，长度与 `set` 记录的一致。`set` 里没有这个文件时为 `None`。和 [`installed_file`] 一样只做身份和长度检查；已经拿到选择记录和代次目录的调用方用它查同一代次里的多个文件，不必每个文件重读一次选择记录。
+pub fn generation_file(directory: &Path, set: &ResourceSet, name: &str) -> Option<PathBuf> {
+    let artifact = set.artifacts.iter().find(|a| a.name == name)?;
+    let path = directory.join(name);
+    msime_path_trust::reject_symlinked_components(&path).ok()?;
+    let metadata = std::fs::metadata(&path).ok()?;
+    (metadata.is_file() && metadata.len() == artifact.size).then_some(path)
 }
 
 pub fn due(context: &UpdateContext) -> bool {

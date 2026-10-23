@@ -53,6 +53,16 @@ public final class ChineseSymbolFacesSmoke {
         check(ChineseSymbolFaces.face("'", true, ChineseSymbolFaces.Marks.DEFAULT).equals("‘")
                 && ChineseSymbolFaces.face("[", true, null).equals("【"),
             "the default style keeps the contract faces");
+        // 顿号键面随 View 的顿号开关：`\` 关着画 `\`，`/` 开着画 `、`。
+        ChineseSymbolFaces.Marks slashOnly = ChineseSymbolFaces.Marks.of("curly", "solid", false, true);
+        check(ChineseSymbolFaces.face("\\", true, slashOnly).equals("\\"),
+            "a disabled backslash key keeps its ASCII face");
+        check(ChineseSymbolFaces.face("/", true, slashOnly).equals("、"),
+            "an enabled slash key shows the ideographic comma");
+        check(ChineseSymbolFaces.face("/", true, ChineseSymbolFaces.Marks.DEFAULT).equals("/"),
+            "slash keeps its ASCII face while disabled by default");
+        check(ChineseSymbolFaces.face("\\", true, ChineseSymbolFaces.Marks.DEFAULT).equals("、"),
+            "the default marks keep backslash as the ideographic comma key");
         System.out.println("Android Chinese symbol faces: punctuation and language switching passed");
     }
 }

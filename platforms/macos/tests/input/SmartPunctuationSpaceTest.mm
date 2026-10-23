@@ -139,13 +139,35 @@ static void TestRealKeyArming(MSIMEAppearancePreferences *appearance) {
     assert([composed.document isEqual:@"你好,"] && composed.replacements == composedReplacements + 1);
 
     // (b) The ASCII target comes from the mark map, not the key: the backslash key gives 、, and Space turns it into /.
+    // 顿号孪生现在按顿号开关判（契约 enumerationComma 段）：按下的 `\` 开着，转回 `\`。
     SpaceConvertClient *enumeration = ClientWith(@"");
     Focus(enumeration);
     assert([controller handleEvent:PhysicalKey(42, @"\\", 0) client:enumeration]);
     assert([enumeration.document isEqual:@"、"]);
-    assert([[controller valueForKey:@"spaceConvertMark"] integerValue] == '/');
+    assert([[controller valueForKey:@"spaceConvertMark"] integerValue] == '\\');
     assert([controller handleEvent:space client:enumeration]);
-    assert([enumeration.document isEqual:@"/"]);
+    assert([enumeration.document isEqual:@"\\"]);
+
+    // `/` 缺省关着：按它武装的、`、` 快照在转换时不再认——`/` 不是顿号来源。
+    [controller setValue:@{@"editing_text" : @"", @"candidates" : @[]} forKey:@"view"];
+    SpaceConvertClient *disabledSlash = ClientWith(@"abc、");
+    Focus(disabledSlash);
+    Arm(controller, '/', disabledSlash);
+    assert(![controller convertSmartPunctuationSpace:space client:disabledSlash]);
+    assert([disabledSlash.document isEqual:@"abc、"] && disabledSlash.replacements == 0);
+
+    // `/` 开着时武装 `/` 的、`、` 转回 `/`；顿号两键都开时 `、` 也转回 `/`。
+    [controller setValue:@{@"editing_text" : @"", @"candidates" : @[],
+        @"punctuation_marks" : @{@"enumeration_comma_backslash" : @NO, @"enumeration_comma_slash" : @YES}}
+        forKey:@"view"];
+    SpaceConvertClient *slashOnly = ClientWith(@"abc、");
+    Focus(slashOnly);
+    Arm(controller, '/', slashOnly);
+    assert([controller convertSmartPunctuationSpace:space client:slashOnly]);
+    assert([slashOnly.document isEqual:@"abc/"]);
+
+    // View 的顿号键回到缺省（`\` 开、`/` 关），后面的用例照旧。
+    [controller setValue:@{@"editing_text" : @"", @"candidates" : @[]} forKey:@"view"];
 
     // Shift is how several marks are typed; an idle Shift+1 commits ！ and arms !.
     SpaceConvertClient *shifted = ClientWith(@"abc");
@@ -218,7 +240,7 @@ int main() {
         appearance.smartPunctuationSpaceConvert = YES;
         assert(appearance.smartPunctuation && appearance.smartPunctuationSpaceConvert);
 
-        // Enabled: every standalone Chinese mark from the source mapping becomes its ASCII form. The space is the gesture and is consumed; it is not document content after a successful rewrite. 、 is covered with the real backslash key in TestRealKeyArming, since its ASCII target is not the key that types it.
+        // Enabled: every standalone Chinese mark from the source mapping becomes its ASCII form. The space is the gesture and is consumed; it is not document content after a successful rewrite. 、 is covered with the real backslash key in TestRealKeyArming, since its ASCII target follows the enumeration-comma switches rather than one fixed key.
         for (NSString *pair in @[ @",，", @".。", @":：", @"!！", @"?？", @";；",
                                   @"\"“", @"\"”", @"'‘", @"'’", @"[【", @"]】", @"<《",
                                   @">》", @"(（", @")）", @"'「", @"'」", @"\"『", @"\"』",
@@ -303,7 +325,7 @@ int main() {
 
             // A committed mark does not arm the space conversion in the Japanese scheme, so the arm cannot outlive a switch back to Chinese.
             SpaceConvertClient *arming = ClientWith(@"abc！");
-            [controller noteCommittedChinesePunctuation:@{@"commit" : @"！"} client:arming];
+            [controller noteCommittedChinesePunctuation:@{@"commit" : @"！"} key:'!' client:arming];
             assert([[controller valueForKey:@"spaceConvertMark"] integerValue] == (japanese ? 0 : '!'));
             [controller clearSmartPunctuationSpaceConversion];
 
@@ -374,7 +396,7 @@ int main() {
             return editor;
         };
         auto Ascii = [](NSString *pair) { return [pair substringToIndex:1]; };
-        for (NSString *pair in @[ @",，", @".。", @":：", @"!！", @"?？", @";；", @"/、",
+        for (NSString *pair in @[ @",，", @".。", @":：", @"!！", @"?？", @";；", @"\\、",
                                   @"\"“", @"\"”", @"'‘", @"'’", @"[【", @"]】", @"<《",
                                   @">》", @"(（", @")）", @"'「", @"'」", @"\"『", @"\"』",
                                   @"[〖", @"]〗" ]) {

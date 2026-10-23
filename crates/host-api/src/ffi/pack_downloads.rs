@@ -100,10 +100,13 @@ pub type ResourcePackProgress =
 
 /// 每个资源包的安装状态。
 ///
-/// Request `{"state_root": "<absolute dir>"}`; response value `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`, `import_files` being the files an offline install (`files` on install) needs, one entry per pack id (`japanese`, `language-dictionaries`, `handwriting`, `settled-model`, `offline-glosses`, `voice-runtime`, `wubi`, and `voice-runtime-macos` once its lock pins the re-signed runtime). `size` is the download size in bytes. An installed pack lives in `<state_root>/resource-packs/<id>/`. Reads only a few file attributes.
+/// 请求为 `{"state_root": "<absolute dir>"}`，响应值为 `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`。
+/// 响应数组中每个可用包对应一项，`import_files` 列出该包离线安装（安装请求中的 `files`）所需文件。
+/// 包 ID 为 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`，以及锁文件固定重签运行库后才提供的 `voice-runtime-macos`。
+/// `size` 是下载大小（字节）。已安装的包位于 `<state_root>/resource-packs/<id>/`；查询只读取少量文件属性。
 ///
 /// # Safety
-/// `request` must point to `length` readable bytes. Null is rejected.
+/// `request` 必须指向 `length` 个可读字节；拒绝空指针。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_resource_packs(
     request: *const u8,
@@ -242,6 +245,44 @@ pub unsafe extern "C" fn msime_client_resource_pack_cancel(pack: *const u8, leng
     }));
 }
 
+/// 卸载一个已发布的资源包。阻塞只做一次目录删除。
+///
+/// Request `{"state_root": "<absolute dir>", "pack": "<id>"}`；response value
+/// `{"removed": <bool>}`，`false` 表示这个 state_root 下本来就没装。删除之前
+/// 释放资源包钉住文件在引擎侧的共享内存映射（目前只有 `.gram` 语法模型
+/// 会被 `GramDb::shared` 缓存；其他包的文件按路径查缓存是空跳），否则
+/// `.gram` 被 mmap 占着时目录删除在 Windows 上会失败。未发布目录、暂存目录
+/// 和符号链接都按「没装」处理，不会动。
+///
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resource_pack_remove(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct RemoveRequest {
+            state_root: String,
+            pack: String,
+        }
+        let request: RemoveRequest = resource_pack_request(request, length)?;
+        let state_root = absolute_directory(&request.state_root, "invalid state root")?;
+        let pack = known_resource_pack(&request.pack)?;
+        for artifact in &pack.set().artifacts {
+            crate::evict_grammar_model(
+                &resource_packs::root(state_root)
+                    .join(pack.id())
+                    .join(&*artifact.name),
+            );
+        }
+        let removed =
+            resource_packs::remove(state_root, pack).map_err(|error| error.to_string())?;
+        Ok(json!({ "removed": removed }))
+    })
+}
+
 /// 把升级前已经解压在本机的文件收编为已安装的资源包，不重新下载。阻塞（要哈希整组文件），只能在工作线程上调用。
 ///
 /// Request `{"state_root": "<absolute dir>", "pack": "<id>", "source": "<absolute dir>"}`. The pack's files are renamed out of `source` into a staging directory on the same filesystem (no copy), verified there against the compiled lock and published as `<state_root>/resource-packs/<id>`; other files in `source` are untouched. On any failure every moved file is renamed back and nothing is published, so the caller can fall back to downloading. If the process dies after the renames and before publishing, the next adoption or install of the same pack first renames the stranded files back into the recorded `source`. A pack already installed with the same bytes is left as it is and `source` is not touched. Response value `{"path": "<state_root>/resource-packs/<id>"}`. Errors as for install, plus "invalid source"; "resource_pack_busy" while the same pack is installing.
@@ -316,6 +357,9 @@ mod tests {
             "language-dictionaries",
             "handwriting",
             "settled-model",
+            "grammar-model-wanxiang",
+            "grammar-model-baguwen",
+            "grammar-model-baguwen-compact",
             "offline-glosses",
             "voice-runtime",
             "wubi",

@@ -15,12 +15,31 @@ import java.lang.reflect.Field;
 
 /** 原生设置宿主中的长选项面板，取消行无需拖动即可点击。 */
 public final class OptionSheetDeviceSmoke extends DeviceSmoke {
-    @Override protected String successDescription() { return "option sheet footer stays above system navigation"; }
+    private boolean animationOnly;
+    private String keyFeedback;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        animationOnly = arguments != null && "true".equals(arguments.getString("animation-selection-only"));
+        keyFeedback = arguments == null ? null : arguments.getString("key-feedback");
+        super.onCreate(arguments);
+    }
+
+    @Override protected String successDescription() {
+        return keyFeedback == null ? "animation selection follows saved value and option sheet footer stays above system navigation"
+            : "sound-only".equals(keyFeedback) ? "app key sound follows its switch independently of system touch effects"
+            : "nine-key preview lifecycle and immediate feedback preferences";
+    }
 
     @SuppressWarnings("deprecation")
     @Override protected void runChecks() throws Exception {
+        if (keyFeedback != null) {
+            new KeyboardFeedbackDeviceChecks(this).run(keyFeedback);
+            return;
+        }
+        new KeyboardAnimationDeviceChecks(this).run();
+        if (animationOnly) return;
         Activity activity = startActivitySync(new Intent().setClassName(getTargetContext(),
-            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.home.OptionSheet");
         Dialog[] dialog = new Dialog[1];
         stage = "show synthetic nine-option sheet";

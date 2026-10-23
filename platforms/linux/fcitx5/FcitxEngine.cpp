@@ -3356,15 +3356,18 @@ public:
   bool apply(char *raw,
              std::optional<std::string> spaceConvertPreceding = std::nullopt,
              msime::linux_host::PunctuationPairMode pairMode =
-                 msime::linux_host::PunctuationPairMode::Unpaired) {
+                 msime::linux_host::PunctuationPairMode::Unpaired,
+             char spaceConvertKey = 0) {
     auto result = response(raw);
     pair_inserted_ = false;
     if (result.contains("commit") && result["commit"].is_string()) {
       auto text = result["commit"].get<std::string>();
       if (traditionalApplies()) text = msime_linux_simplified_to_traditional(text, traditional_variant_);
+      // `、` 的 ASCII 孪生按产生它的键和 View 的顿号开关定（enumerationComma 段）。
       const auto spaceConvertAscii =
           spaceConvertPreceding
-              ? msime::linux_host::smart_punctuation_ascii_mark(text)
+              ? msime::linux_host::smart_punctuation_ascii_mark(
+                    text, spaceConvertKey, viewPunctuationMarks())
               : 0;
       pair_inserted_ = msime::linux_host::normalize_punctuation_pair(text, pairMode);
       // An ASCII mark smart punctuation kept can be taken back to Chinese by
@@ -3397,6 +3400,7 @@ public:
       if (spaceConvertAscii != 0 && !pair_inserted_) {
         // Preserve Engine's actual half (notably opening/closing quotes).
         space_convert_mark_ = text;
+        space_convert_key_ = spaceConvertKey;
         space_convert_preceding_ = std::move(*spaceConvertPreceding);
       }
     }
@@ -3434,7 +3438,8 @@ public:
     const auto marks = view_.value("punctuation_marks", Json::object());
     if (!marks.is_object()) return {};
     return msime::linux_host::punctuation_marks_from_view(
-        marks.value("quotes", std::string{}), marks.value("brackets", std::string{}));
+        marks.value("quotes", std::string{}), marks.value("brackets", std::string{}),
+        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false));
   }
   // The session types Korean: jamo compose in the preedit, punctuation is always half-width ASCII and none of the Chinese punctuation helpers apply. The dedicated English mode keeps its own rules in every scheme.
   bool korean() const {
@@ -3524,7 +3529,7 @@ public:
     const auto ascii = static_cast<char>(value);
     const bool arm = smart_punctuation_ && smart_punctuation_space_convert_ &&
                      chinese_punctuation_ &&
-                     msime::linux_host::is_space_conversion_key(ascii) &&
+                     msime::linux_host::is_space_conversion_key(ascii, viewPunctuationMarks()) &&
                      !(paired_punctuation_ &&
                        msime::linux_host::is_auto_paired_opening_key(ascii)) &&
                      !composingOrCandidates();
@@ -3551,7 +3556,7 @@ public:
                            msime::linux_host::strict_json_value(view_, "scheme", 0u) != 3 && !withoutHostPunctuation();
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
-              std::move(spaceConvertPreceding), pairMode);
+              std::move(spaceConvertPreceding), pairMode, ascii);
     if (handled && smart_punctuation_rejected_ == ascii)
       forgetSmartPunctuationRepeat();
     if (!handled && keptAscii) {
@@ -3673,15 +3678,17 @@ public:
   // A successful rewrite consumes the Space.
   bool convertSmartPunctuationSpace() {
     const auto mark = std::move(space_convert_mark_);
+    const auto convertKey = space_convert_key_;
     const auto expected = std::move(space_convert_preceding_);
     space_convert_mark_.clear();
+    space_convert_key_ = 0;
     space_convert_preceding_.clear();
     if (mark.empty() || !smart_punctuation_ ||
         !smart_punctuation_space_convert_ || !chinese_punctuation_ ||
         composingOrCandidates())
       return false;
-    const auto replacement =
-        msime::linux_host::space_conversion_ascii_text(mark);
+    const auto replacement = msime::linux_host::space_conversion_ascii_text(
+        mark, convertKey, viewPunctuationMarks());
     const auto characters = precedingCharacters(2);
     if (replacement.empty() || !characters ||
         !msime::linux_host::space_conversion_matches_document(mark, expected,
@@ -4124,6 +4131,8 @@ public:
   // disarms. The fingerprint is there because the same mark usually appears more
   // than once and moving the caret inside a window is not a focus change.
   std::string space_convert_mark_;
+  // `、` 上屏时产生它的键：顿号有两个可配键，空格反查按它和 View 的顿号开关定 ASCII 孪生。
+  char space_convert_key_ = 0;
   std::string space_convert_preceding_;
   uint8_t punctuation_lock_ = 0;
   std::string online_socket_, online_query_;
@@ -4287,6 +4296,8 @@ struct FcitxCandidateDisplay {
   // 原生画布的 macOS 结构分开画的几段：不带训音的正文、韩文汉字的训音（画在释义行第一行）、收拾过的插件注释（释义行最后一行，斜体），以及 AI 占位行。
   std::string word, reading, script_annotation;
   bool pending = false;
+  std::optional<std::string> decoration_text;
+  std::string decoration_badge;
 };
 // `variant` 是繁体变体的编号，只在 `traditional` 为真时用到。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
@@ -4300,9 +4311,12 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
         fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit});
     return display;
   }
-  fcitx::Text row((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
-                               : candidate.at("text").get<std::string>()) +
-      // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
+  display.decoration_text = traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
+                                       : candidate.at("text").get<std::string>();
+  const auto source = msime::linux_host::strict_json_value(candidate, "source", uint64_t{});
+  display.decoration_badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+  fcitx::Text row(*display.decoration_text +
+      // 纠错标记只属于普通显示行；装饰词保留完成简繁转换的原文，选择仍沿用候选身份。
       (candidate.value("corrected", false) ? "*" : "") +
       // 注释括起来紧贴候选字，角标隔一个空格跟在后面，与 macOS 候选窗的写法相同（CandidateRowText.h）。
       (!hanjaGloss.empty() || !annotations ? std::string() :
@@ -6377,13 +6391,20 @@ public:
     const auto background = host::candidate_skin_background(catalog, resolved.candidate_skin);
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
     const auto canvas_directory = host::fcitx_canvas_directory(catalog);
+    const auto overlay_stamp = host::fcitx_overlay_stamp(decoration);
+    std::map<std::filesystem::path, std::string> source_stamps;
+    const auto source_stamp = [&](const std::filesystem::path &path) {
+      auto at = source_stamps.find(path);
+      if (at == source_stamps.end()) at = source_stamps.emplace(path, host::fcitx_canvas_file_stamp(path)).first;
+      return at->second;
+    };
     const auto theme_inputs = [&] {
       Json canvas_stamps = Json::array();
       if (canvas_directory && host::safe_skin_id(resolved.candidate_skin)) {
-        canvas_stamps.push_back(host::fcitx_canvas_file_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
-        if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(candidate_canvas_source_));
+        canvas_stamps.push_back(source_stamp(*canvas_directory / resolved.candidate_skin / "skin.toml"));
+        if (!candidate_canvas_source_.empty()) canvas_stamps.push_back(source_stamp(candidate_canvas_source_));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-        for (const auto &source : native_canvas_sources_) canvas_stamps.push_back(host::fcitx_canvas_file_stamp(source));
+        for (const auto &source : native_canvas_sources_) canvas_stamps.push_back(source_stamp(source));
 #endif
       }
       return Json{
@@ -6395,7 +6416,7 @@ public:
                        {"item_radius", style.item_radius ? Json(*style.item_radius) : Json(nullptr)}}},
         {"logo", show_logo},
         {"background", background ? host::fcitx_canvas_file_stamp(background->image) : std::string()},
-        {"overlay", host::fcitx_overlay_stamp(decoration)},
+        {"overlay", overlay_stamp},
         {"canvas", std::move(canvas_stamps)}}.dump();
     };
     auto inputs = theme_inputs();
@@ -6470,14 +6491,26 @@ public:
           canvas_package = package.value("canvas", false);
 #endif
           candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
-          canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
-                                                         &candidate_canvas_source_);
+          if (const auto border = package.find("borderImage"); package.value("canvas", false) && border != package.end()) {
+            const auto &image = border->at(!resolved.dark && border->contains("lightSource") ? "lightSource" : "source");
+            if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, image))
+              candidate_canvas_source_ = *source;
+          }
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-          native_canvas_assets_ = host::load_native_canvas(package, *canvas_directory, resolved.candidate_skin, resolved.dark);
           for (const auto &item : package.value("decorations", Json::array())) {
             if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, item.at("image")))
               native_canvas_sources_.push_back(*source);
           }
+          if (const auto image = package.find("decorationImage"); image != package.end())
+            if (const auto source = host::fcitx_canvas_resource(*canvas_directory, resolved.candidate_skin, *image))
+              native_canvas_sources_.push_back(*source);
+#endif
+          // 新依赖也在解码前取戳；已有路径与清单沿用本次调用首次读到的戳。
+          inputs = theme_inputs();
+          canvas_panel = host::prepare_fcitx_canvas_panel(package, *canvas_directory, resolved.candidate_skin, resolved.dark,
+                                                         &candidate_canvas_source_);
+#ifdef MSIME_FCITX5_NATIVE_CANVAS
+          if (canvas_package) native_canvas_assets_ = host::load_native_canvas(package, *canvas_directory, resolved.candidate_skin, resolved.dark);
 #endif
           if (canvas_panel
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
@@ -6491,7 +6524,7 @@ public:
             const auto query = request.dump();
             const auto panel_document = response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(query.data()), query.size()));
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
-            native_canvas_palette_ = host::native_canvas_palette(panel_document);
+            native_canvas_palette_ = host::native_canvas_palette(panel_document, resolved.dark);
             if (native_canvas_assets_ && corner_radius) {
               native_canvas_assets_->card_radius = *corner_radius;
               native_canvas_assets_->user_radius = user_radius;
@@ -6568,8 +6601,6 @@ public:
         candidate_theme_retry_at_ = now + kCandidateThemeRetry;
         return false;
       }
-      // 首次准备资源后把已选图片的戳写进同一份缓存，之后每拍只 stat，不再扫描或解码。
-      inputs = theme_inputs();
 #ifdef MSIME_FCITX5_HINT_FONT
       // 装饰图的宽度只在写主题时读一次，模式提示切换时直接用结果。
       hint_text_width_ = fcitx_hint_width_from_theme(*file);
@@ -6585,6 +6616,7 @@ public:
     if (replace_dark) current.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
     hint_inputs_ = fcitx_hint_inputs(current, system_dark);
     classicui_hint_stamp_ = read_classicui_hint_stamp();
+    // 只缓存解码前的完整依赖快照，不能把加载期间的新文件误记为已解码。
     candidate_theme_applied_ = std::move(inputs);
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     native_canvas_owned_ = host::fcitx_candidate_theme_drawn(
@@ -7392,7 +7424,7 @@ public:
       if (state->ensure()) {
         state->render();
         state->syncMusic();
-        // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
+        // 聚焦提示由独立偏好控制（#2589、#9154）；换到本输入法时已有 Fcitx5 自己的提示，密码和隐私输入框仍不提示。
         if (event.type() == fcitx::EventType::InputContextFocusIn)
           state->showInputModeHud(FcitxState::ModeHudTrigger::FocusEntered);
       }
@@ -8335,6 +8367,8 @@ bool FcitxState::renderNativeCanvas() {
   const auto make_item = [&](const FcitxCandidateDisplay &display, std::string number) {
     host::NativeCanvasItem result{std::move(number), chrome ? display.word : display.body, display.translation,
         display.suffix, display.translation_runs, display.fixed};
+    result.decoration_text = display.decoration_text;
+    result.decoration_badge = display.decoration_badge;
     if (chrome) {
       result.reading = display.reading;
       result.script_annotation = display.script_annotation;
@@ -8342,6 +8376,14 @@ bool FcitxState::renderNativeCanvas() {
     }
     return result;
   };
+  // 装饰词始终取普通当前页；展开网格只改变候选的显示与选择，不改变装饰词索引。
+  content.decoration_items.emplace();
+  content.decoration_selected = list->cursorIndex();
+  for (int at = 0; at < list->size(); ++at) {
+    if (const auto *candidate = dynamic_cast<const FcitxCandidate *>(&list->candidate(at)))
+      content.decoration_items->push_back(make_item(candidate->display(), {}));
+    else content.decoration_items->push_back({{}, {}});
+  }
   // 展开状态已在 render() 开头对照过当前视图；两种样式都只认展开时的那种画法。
   const bool grid = chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::grid;
   const bool scroll = !chrome && !expanded_.empty() && expanded_style_ == ExpandStyle::scroll;
@@ -8501,8 +8543,9 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   // 新的提示取代还在等光标的那条获得焦点提示。
   if (trigger != ModeHudTrigger::FocusSettled) cancelFocusInputModeHud();
 #endif
-  // 共享偏好 input_mode_hud 控制，默认开启。
-  if (!preferences_.value("input_mode_hud", true)) return;
+  // 切换提示默认开，聚焦提示默认关；光标等待完成后仍遵循聚焦偏好。
+  if (!(trigger == ModeHudTrigger::Switch ? preferences_.value("input_mode_hud", true)
+                                         : preferences_.value("input_mode_focus_hud", false))) return;
   if (restricted() || privateInput() || !ic_.hasFocus()) return;
   const std::string label = input_enabled_ ? "中" : "英";
   auto hint = msime::linux_host::ModeBadgeHint::PanelText;

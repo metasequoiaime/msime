@@ -25,7 +25,7 @@ inline bool local_mode_spelling(const nlohmann::json &view, char32_t character) 
          spelling_symbol(view, character);
 }
 
-// 组字中（editing_text 非空、不在本地模式）Engine 列出的符号是它要收的输入：全拼、双拼和五笔的组字原文是网址触发词（www、http、https、ftp）时，Engine 只列出打开网址模式的那个键（"." 或 ":"），宿主必须把它当字符交给 Engine，而不是翻页键或中文标点。其他组字状态下这些方案不列任何符号，所以这条不会抢走普通的标点和翻页键。空闲时列出的 "/"、"@" 不在此列，editing_text 为空。
+// 组字中（editing_text 非空、本地模式为 none）Engine 列出的符号都优先作为输入，包括网址入口和已配置的辅助码前导键。空闲时列出的 "/"、"@" 仍走标点路径。
 inline bool composing_spelling(const nlohmann::json &view, char32_t character) {
   if (!view.is_object()) return false;
   const auto mode = view.find("local_mode");

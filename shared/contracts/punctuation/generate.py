@@ -12,8 +12,9 @@ nested = SPEC["nested"]
 styles = SPEC["styles"]
 corner_quotes = styles["cornerQuotes"]
 hollow_brackets = styles["hollowBrackets"]
+enumeration_comma = SPEC["enumerationComma"]
 inputs = [entry["input"] for entry in simple + alternating] + [nested["openingInput"], nested["closingInput"]]
-if (SPEC["contractVersion"] != 2 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
+if (SPEC["contractVersion"] != 4 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
         len(set(inputs)) != len(inputs)):
     raise SystemExit("Invalid punctuation contract")
 # 样式是同一个键的另一组字，不是新键：直角引号只能替换交替引号的键，空心括号只能替换 simple 里的键，各键至多出现一次。
@@ -24,6 +25,13 @@ hollow_inputs = [entry["input"] for entry in hollow_brackets]
 if (sorted(corner_inputs) != sorted(alternating_inputs) or any(value not in simple_inputs for value in hollow_inputs) or
         len(set(hollow_inputs)) != len(hollow_inputs)):
     raise SystemExit("Invalid punctuation contract styles")
+# enumerationComma 是「可被偏好关掉的顿号键」：键可以来自 simple（`\`，偏好把它从无条件映射里摘掉），也可以是新键（`/`，不在 is_supported 里）；交替引号和嵌套书名号是状态机，不属于它。
+enumeration_inputs = [entry["input"] for entry in enumeration_comma]
+if (len(enumeration_comma) != 2 or len(set(enumeration_inputs)) != len(enumeration_inputs) or
+        any(len(value) != 1 or not 32 <= ord(value) < 127 for value in enumeration_inputs) or
+        any(value in alternating_inputs or value in (nested["openingInput"], nested["closingInput"]) for value in enumeration_inputs) or
+        any(entry["output"] != enumeration_comma[0]["output"] for entry in enumeration_comma)):
+    raise SystemExit("Invalid punctuation contract enumerationComma")
 
 
 def char_literal(value):
@@ -75,6 +83,11 @@ lines += [
 lines += [f"    {{{char_literal(entry['input'])}, {json.dumps(entry['output'], ensure_ascii=False)}}}," for entry in hollow_brackets]
 lines += [
     "}};",
+    f"inline constexpr std::array<Mapping, {len(enumeration_comma)}> enumeration_comma = {{{{",
+]
+lines += [f"    {{{char_literal(entry['input'])}, {json.dumps(entry['output'], ensure_ascii=False)}}}," for entry in enumeration_comma]
+lines += [
+    "}};",
     f"inline constexpr char nested_opening_input = {char_literal(nested['openingInput'])};",
     f"inline constexpr char nested_closing_input = {char_literal(nested['closingInput'])};",
     f"inline constexpr char nested_opening[] = {json.dumps(nested['opening'], ensure_ascii=False)};",
@@ -110,6 +123,12 @@ lines += [
     "constexpr const char *hollow_bracket_output(char input)",
     "{",
     "    for (const auto &mapping : hollow_brackets)",
+    "        if (mapping.input == input) return mapping.output;",
+    "    return nullptr;",
+    "}",
+    "constexpr const char *enumeration_comma_output(char input)",
+    "{",
+    "    for (const auto &mapping : enumeration_comma)",
     "        if (mapping.input == input) return mapping.output;",
     "    return nullptr;",
     "}",

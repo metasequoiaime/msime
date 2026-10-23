@@ -15,7 +15,9 @@ public final class ToolbarOrderPolicy {
         SKIN("skin", "皮肤", "skin"),
         SCHEME("scheme", "输入方式", AndroidLocalSettings.TOOLBAR_SCHEME),
         FLOATING("floating", "浮动键盘", AndroidLocalSettings.TOOLBAR_FLOATING),
-        TEXT_EDIT("text_edit", "文本编辑", AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
+        TEXT_EDIT("text_edit", "文本编辑", AndroidLocalSettings.TOOLBAR_TEXT_EDIT),
+        UNDO("undo", "撤销", "undo"),
+        REDO("redo", "重做", "redo");
 
         public final String id;
         public final String label;

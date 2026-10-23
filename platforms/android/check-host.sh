@@ -273,13 +273,15 @@ if ! rg -q 'MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105' \
   echo "Android Home/End must map to the shared first/last candidate commands" >&2
   exit 1
 fi
-# 拼写写进输入框后候选栏不再画它，这只管拼写：已选的那一段按这个宿主的请求留在文档之外，无论如何都要画在候选栏上，否则就是 scripts/test-phrase-preedit-hosts.py 从另一边防的那种半截状态。这个行为是固定的，不再读共享偏好 `candidate_preedit_style`，也不能再从别处把开关接回来。
+# 拼音显示位置只管拼写：已选的那一段按这个宿主的请求留在文档之外，无论如何都要画在候选栏上，否则就是 scripts/test-phrase-preedit-hosts.py 从另一边防的那种半截状态。共享偏好由策略统一规范化，不能在宿主里复制一套。位置读 `touch_spelling_position`，不读桌面候选窗的 `candidate_preedit_style`：后者默认是 pinyin，读它会让所有没动过设置的用户默认把拼写挪出输入框（#9255 就这样让设备冒烟的 phrase composition 失败）。
 if ! rg -q 'CandidatePreeditStylePolicy\.composedText' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
   || rg -q 'CandidatePreeditStylePolicy[^;]*phrase_prefix' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q '"touch_spelling_position"' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q '"touch_spelling_position"' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || rg -q '"candidate_preedit_style"' "$repo_root/platforms/android/java"; then
-  echo "Android candidate preedit style must gate the spelling, never the phrase prefix, and must not read candidate_preedit_style" >&2
+  echo "Android spelling position must gate the spelling, never the phrase prefix, and must read touch_spelling_position rather than candidate_preedit_style" >&2
   exit 1
 fi
 # The polish presets carry their own prompt-injection wording and already exist in four places in

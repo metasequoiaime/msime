@@ -3,54 +3,54 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.59,
-      "top1": 0.42,
-      "top1_char_prefix": 0.455,
-      "top5": 0.82,
-      "top9": 0.902
+      "mrr": 0.593,
+      "top1": 0.423,
+      "top1_char_prefix": 0.456,
+      "top5": 0.823,
+      "top9": 0.904
     },
     "3": {
       "cases": 365,
       "found": 0.989,
-      "mrr": 0.949,
-      "top1": 0.915,
-      "top1_char_prefix": 0.936,
+      "mrr": 0.95,
+      "top1": 0.918,
+      "top1_char_prefix": 0.937,
       "top5": 0.984,
       "top9": 0.989
     },
     "4": {
       "cases": 556,
-      "found": 0.885,
-      "mrr": 0.881,
-      "top1": 0.879,
-      "top1_char_prefix": 0.901,
-      "top5": 0.883,
-      "top9": 0.883
+      "found": 0.856,
+      "mrr": 0.853,
+      "top1": 0.851,
+      "top1_char_prefix": 0.88,
+      "top5": 0.854,
+      "top9": 0.854
     },
     "5": {
       "cases": 10,
-      "found": 0.1,
-      "mrr": 0.1,
-      "top1": 0.1,
-      "top1_char_prefix": 0.54,
-      "top5": 0.1,
-      "top9": 0.1
+      "found": 0.0,
+      "mrr": 0.0,
+      "top1": 0.0,
+      "top1_char_prefix": 0.44,
+      "top5": 0.0,
+      "top9": 0.0
     }
   },
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2702,
+    "database": 2685,
     "generated": 3
   },
   "overall": {
     "cases": 2791,
-    "found": 0.969,
-    "mrr": 0.693,
-    "top1": 0.575,
-    "top1_char_prefix": 0.607,
-    "top5": 0.852,
-    "top9": 0.907
+    "found": 0.963,
+    "mrr": 0.689,
+    "top1": 0.571,
+    "top1_char_prefix": 0.604,
+    "top5": 0.847,
+    "top9": 0.902
   },
   "sample_failures": [
     {
@@ -80,13 +80,6 @@
       "input": "aixi",
       "rank": 20,
       "top1": "笔者"
-    },
-    {
-      "gold": "岸边",
-      "id": "w-00055",
-      "input": "anbian",
-      "rank": 2,
-      "top1": "波长"
     },
     {
       "gold": "暗地里",
@@ -197,7 +190,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baochan",
-      "rank": 9,
+      "rank": 6,
       "top1": "操场"
     },
     {
@@ -211,7 +204,7 @@
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baojiang",
-      "rank": 3,
+      "rank": 2,
       "top1": "颁奖"
     },
     {
@@ -332,10 +325,17 @@
       "input": "biaoyu",
       "rank": 5,
       "top1": "超越"
+    },
+    {
+      "gold": "壁画",
+      "id": "w-00964",
+      "input": "bihua",
+      "rank": 6,
+      "top1": "此话"
     }
   ],
   "top1_source": {
-    "database": 2737,
-    "generated": 54
+    "database": 2720,
+    "generated": 71
   }
 }

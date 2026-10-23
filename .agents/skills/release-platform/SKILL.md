@@ -118,6 +118,7 @@ gh run watch <id> --exit-status --interval 30        # Android 六个版本并�
 - tag 后缀由触发分支决定：`main` 无后缀、正式版；`develop` 加 `-beta`，`release/*` 等其他分支加 `-alpha`，带后缀的一律是 prerelease，应用内更新检查不会提供。**用户要 beta 就 `--ref develop`**，不需要 release PR。只有一种情况要先改版本号：develop 上的 `version.txt` 还等于刚发出的正式版，这时直接发会得到排在正式版后面、版本号却相同的 `<os>-vX.Y.Z-beta`，先照第 2 步把修订号加一（macOS 0.54.0 之后的测试版就是这样发成 `macos-v0.54.1-beta` 的），再从 develop 触发。
 - Android 按 `editions.json` 打六个版本（full、wubi、pinyin、japanese、vietnamese、tibetan），任何一个失败整个发布不会发出去（`fail-fast: true`）。签名密钥只在 GitHub 托管 runner 上解码，不要把这个 job 挪到自托管或 Depot。
 - iOS 默认还会上传 TestFlight 并提交外部测试审核（`testflight`、`testflight_external` 两个输入），不想送审就 `-f testflight_external=false`。nightly 只在这个版本号已有 `ios-v` 标签时才送外部组，所以 develop 改了 iOS 版本号就要尽快发 iOS，否则外部测试者一直停在旧版本号的构建上；2026-10 的 0.52.0 因为没跑 iOS 发布，nightly 已经把 0.52.0 送给外部测试者一周多，官网还显示 0.51.5。
+- Android 正式版（main 上触发、`publish` 开）还会在 full 那一格另打一份 Google Play 用的 AAB（artifact `google-play-msime-android-<版本>`），`play` job 在 GitHub 发布之后把它传到 Play：默认 `play_track=alpha`（封闭测试）、`play_status=draft`，传上去后要在 Play Console 里点发布。Play Console 只认手动上传的第一个包，第一次上架那次发版带 `-f play_track=none`，从 artifact 下载 AAB 手动上传。`GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 没配时 `play` job 失败，GitHub 发布不受影响。beta、alpha 不进 Play（versionCode 与随后的正式版相同）。
 - 网页引擎（`release-web-engine.yml`）不同：版本号不读 `version.txt`，publish 默认关，打开时会发 npm 的 `latest`，只能从 main 跑。
 
 ## 5. 核对发布

@@ -114,6 +114,9 @@ test("shared ASR service provider ids cover the credential-backed providers", ()
     "mistral",
     "bailian",
     "doubao",
+    "zhipu",
+    "minimax",
+    "custom",
   ]);
 });
 

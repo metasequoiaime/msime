@@ -2,6 +2,7 @@
 //!
 //! Ranking when merging into an existing list: exact SQLite full-key hits (Database / UserDatabase) first, then the lattice's whole sentences, then prefixes and everything else. The lattice never displaces a leading exact full-cover row (高碳钢 for gktjgh). Lattice rows weigh `trunc(log_prob * 1000)`, often negative: list order is the ranking, never sort these rows by weight.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::decode::{
@@ -29,64 +30,72 @@ pub fn merge_lattice_candidates(
     rescoring_context: &str,
 ) -> Option<TypoSentence> {
     // Two syllables are enough since lattice_reading: a two-syllable key can miss the exact lookup and otherwise leave prefix-range rows ahead of the sentence. Abbreviated segments (g'k't) are refused so `canonical_pinyin` stays a complete pronunciation (WL:541-545).
+    let decoded = decode_lattice(syllables, lookup, options, typo_source)?;
+    merge_decoded(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        rerankers,
+        rescoring_context,
+        decoded,
+    )
+}
+
+/// 一次整句解码的结果：未截断的路径和纠错整句。只取决于音节、查到的词库行和解码参数，与已有候选、重排上下文无关，所以可以按音节缓存后再交给 `merge_decoded`。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DecodedSentences {
+    pub(crate) paths: Vec<SentencePath>,
+    pub(crate) typo: Option<TypoSentence>,
+}
+
+/// `merge_lattice_candidates` 的解码一半：少于两个音节或含不完整音节时为 `None`，与合并时不插入任何行一致。
+pub(crate) fn decode_lattice(
+    syllables: &[String],
+    lookup: &mut LatticeLookup<'_>,
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+) -> Option<DecodedSentences> {
     if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
         return None;
     }
     let graph = build_graph(syllables, lookup, options);
-    merge_lattice_graph(
-        candidates,
+    Some(decode_graph_sentences(
         syllables,
-        typed_pinyin,
         options,
         typo_source,
-        rerankers,
-        rescoring_context,
-        graph,
-    )
+        &graph,
+    ))
 }
 
-/// 词典缓存行在建图期间保持借用，避免缓存命中先复制整页行再复制图边字段。
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn merge_lattice_candidates_borrowed<'rows>(
-    candidates: &mut Vec<WordItem>,
+/// 借用缓存行建图的 `decode_lattice`：词典缓存行在建图期间保持借用，避免缓存命中先复制整页行再复制图边字段。
+pub(crate) fn decode_lattice_borrowed<'rows>(
     syllables: &[String],
     lookup: &mut impl FnMut(&[String]) -> &'rows [super::decode::LatticeLexeme],
-    typed_pinyin: &str,
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
-    rerankers: &mut [NeuralReranker],
-    rescoring_context: &str,
-) -> Option<TypoSentence> {
+) -> Option<DecodedSentences> {
     if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
         return None;
     }
     let graph = build_graph_borrowed(syllables, lookup, options);
-    merge_lattice_graph(
-        candidates,
+    Some(decode_graph_sentences(
         syllables,
-        typed_pinyin,
         options,
         typo_source,
-        rerankers,
-        rescoring_context,
-        graph,
-    )
+        &graph,
+    ))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn merge_lattice_graph(
-    candidates: &mut Vec<WordItem>,
+fn decode_graph_sentences(
     syllables: &[String],
-    typed_pinyin: &str,
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
-    rerankers: &mut [NeuralReranker],
-    rescoring_context: &str,
-    graph: super::decode::Graph,
-) -> Option<TypoSentence> {
-    let mut paths = decode_graph(&graph, options, None);
+    graph: &super::decode::Graph,
+) -> DecodedSentences {
+    let paths = decode_graph(graph, options, None);
     if paths.is_empty() {
-        return None;
+        return DecodedSentences { paths, typo: None };
     }
     // Typo spans cover two or three syllables, so a shorter input would only ever be replaced whole. Decoded from the same graph so the dictionary is not asked twice, and from the unreranked best so the typo sentence answers the literal reading.
     let typo = match typo_source {
@@ -95,14 +104,87 @@ fn merge_lattice_graph(
             if edges.is_empty() {
                 None
             } else {
-                decode_typo_on_graph(&graph, options, &paths[0], &edges)
+                decode_typo_on_graph(graph, options, &paths[0], &edges)
             }
         }
         _ => None,
     };
+    DecodedSentences { paths, typo }
+}
+
+/// `merge_lattice_candidates` 的合并一半：把解码出的整句按 `emit`、重排和去重插进候选，返回纠错整句交给调用方安放。
+pub(crate) fn merge_decoded(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    decoded: DecodedSentences,
+) -> Option<TypoSentence> {
+    let DecodedSentences { paths, typo } = decoded;
+    if paths.is_empty() {
+        return None;
+    }
+    merge_decoded_paths(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        rerankers,
+        rescoring_context,
+        Cow::Owned(paths),
+        typo,
+    )
+}
+
+/// 缓存命中时先借用路径，只为最终入选的候选复制字段；缓存内容与容量保持不变。
+pub(crate) fn merge_decoded_borrowed(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    decoded: &DecodedSentences,
+) -> Option<TypoSentence> {
+    merge_decoded_paths(
+        candidates,
+        syllables,
+        typed_pinyin,
+        options,
+        rerankers,
+        rescoring_context,
+        Cow::Borrowed(&decoded.paths),
+        decoded.typo.clone(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+// 在两个入口保留已知的拥有方式，避免冷路径为借用支持增加一层调用。
+#[inline(always)]
+fn merge_decoded_paths(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    mut paths: Cow<'_, [SentencePath]>,
+    typo: Option<TypoSentence>,
+) -> Option<TypoSentence> {
+    if paths.is_empty() {
+        return None;
+    }
 
     if rerankers.is_empty() && options.emit > 0 {
-        paths.truncate(options.emit);
+        paths = match paths {
+            Cow::Owned(mut paths) => {
+                paths.truncate(options.emit);
+                Cow::Owned(paths)
+            }
+            Cow::Borrowed(paths) => Cow::Borrowed(&paths[..paths.len().min(options.emit)]),
+        };
     }
     let block = if rerankers.is_empty() {
         let already = existing_sentence_set(candidates, paths.len());
@@ -111,22 +193,30 @@ fn merge_lattice_graph(
             let mut block = Vec::new();
             let capacity = paths.len();
             // `decode_graph` 已消除同句的全部切分，此处只需过滤已有候选。
-            for path in paths {
+            for path in sentence_path_iter(paths) {
                 if already.contains(path.sentence.as_str()) {
                     continue;
+                }
+                // 只放搭配行时词格自己的备选不上榜；
+                // 搭配开关没开时这个开关本来就被忽略（无重排基线语义）。
+                if !block.is_empty()
+                    && options.include_collocation_best
+                    && !options.include_lattice_best
+                {
+                    break;
                 }
                 if block.is_empty() {
                     block = Vec::with_capacity(capacity);
                 }
                 block.push(owned_sentence_row(
                     typed_pinyin,
-                    path,
-                    CandidateSource::Generated,
+                    path.into_owned(),
+                    lattice_row_source(&block, options),
                 ));
             }
             block
         } else {
-            generated_block_linear(candidates, paths, typed_pinyin)
+            generated_block_linear(candidates, paths, typed_pinyin, options)
         }
     } else {
         let mut keyboard_order = [0; MAX_RERANK_PATHS];
@@ -142,7 +232,8 @@ fn merge_lattice_graph(
             }
         }
         // 所有模型处理完后确认没有可输出来源，保留已完成的纠错结果。
-        if !options.include_lattice_best && keyboard.is_none() {
+        if !options.include_lattice_best && !options.include_collocation_best && keyboard.is_none()
+        {
             return typo;
         }
         let already = existing_sentence_set(candidates, paths.len());
@@ -204,6 +295,29 @@ fn owned_sentence_row(typed_pinyin: &str, path: SentencePath, source: CandidateS
     item
 }
 
+enum SentencePathIter<'a> {
+    Owned(std::vec::IntoIter<SentencePath>),
+    Borrowed(std::slice::Iter<'a, SentencePath>),
+}
+
+impl<'a> Iterator for SentencePathIter<'a> {
+    type Item = Cow<'a, SentencePath>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Owned(paths) => paths.next().map(Cow::Owned),
+            Self::Borrowed(paths) => paths.next().map(Cow::Borrowed),
+        }
+    }
+}
+
+fn sentence_path_iter(paths: Cow<'_, [SentencePath]>) -> SentencePathIter<'_> {
+    match paths {
+        Cow::Owned(paths) => SentencePathIter::Owned(paths.into_iter()),
+        Cow::Borrowed(paths) => SentencePathIter::Borrowed(paths.iter()),
+    }
+}
+
 fn sentence_seen_linear(candidates: &[WordItem], block: &[WordItem], sentence: &str) -> bool {
     candidates
         .iter()
@@ -211,16 +325,35 @@ fn sentence_seen_linear(candidates: &[WordItem], block: &[WordItem], sentence: &
         .any(|item| item.word == sentence)
 }
 
-fn generated_block_linear(
+/// 词格行的来源标记：语法模型开着时首行是解码最优路径（`Collocation` 的归属），
+/// 其余行是词格自己的备选（`Generated`）。`include_lattice_best` 只在
+/// `include_collocation_best` 同开时才让首行之后的备选继续上榜——那是旧行为里
+/// 本就不看 `include_lattice_best` 的无重排通道。
+fn lattice_row_source(block: &[WordItem], options: &LatticeOptions<'_>) -> CandidateSource {
+    if block.is_empty() && options.include_collocation_best {
+        CandidateSource::Collocation
+    } else {
+        CandidateSource::Generated
+    }
+}
+
+fn generated_block_linear<'a>(
     candidates: &[WordItem],
-    paths: Vec<SentencePath>,
+    paths: impl Into<Cow<'a, [SentencePath]>>,
     typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
 ) -> Vec<WordItem> {
+    let paths = paths.into();
     let mut block = Vec::new();
     let capacity = paths.len();
-    for path in paths {
+    for path in sentence_path_iter(paths) {
         if sentence_seen_linear(candidates, &block, &path.sentence) {
             continue;
+        }
+        // 只放搭配行时词格自己的备选不上榜；
+        // 搭配开关没开时这个开关本来就被忽略（无重排基线语义）。
+        if !block.is_empty() && options.include_collocation_best && !options.include_lattice_best {
+            break;
         }
         // 全部重复时不分配；首条保留句子沿用原容量，避免非空块新增扩容。
         if block.is_empty() {
@@ -228,8 +361,8 @@ fn generated_block_linear(
         }
         block.push(owned_sentence_row(
             typed_pinyin,
-            path,
-            CandidateSource::Generated,
+            path.into_owned(),
+            lattice_row_source(&block, options),
         ));
     }
     block
@@ -257,32 +390,38 @@ fn take_sentence_index(
 }
 
 /// 两个来源先按旧规则选索引，再把字段交给输出槽；槽顺序始终是字面、键盘。
-fn reranked_block(
-    paths: Vec<SentencePath>,
+fn reranked_block<'a>(
+    paths: impl Into<Cow<'a, [SentencePath]>>,
     lattice: impl IntoIterator<Item = usize>,
     keyboard: Option<impl IntoIterator<Item = usize>>,
     options: &LatticeOptions<'_>,
     typed_pinyin: &str,
     is_listed: impl Fn(&str) -> bool,
 ) -> Vec<WordItem> {
-    let literal = options
-        .include_lattice_best
+    let paths = paths.into();
+    // 搭配模型开着时词格首选归属 Collocation；`include_lattice_best` 关掉时
+    // 词格自己的行不出，但搭配行仍放。
+    let literal = (options.include_lattice_best || options.include_collocation_best)
         .then(|| take_sentence_index(&paths, lattice, None, options, &is_listed))
         .flatten();
     let pick = keyboard
         .and_then(|keyboard| take_sentence_index(&paths, keyboard, literal, options, &is_listed));
     let mut rows = [None, None];
-    for (index, path) in paths.into_iter().enumerate() {
+    for (index, path) in sentence_path_iter(paths).enumerate() {
         if literal == Some(index) {
             rows[0] = Some(owned_sentence_row(
                 typed_pinyin,
-                path,
-                CandidateSource::Generated,
+                path.into_owned(),
+                if options.include_collocation_best {
+                    CandidateSource::Collocation
+                } else {
+                    CandidateSource::Generated
+                },
             ));
         } else if pick == Some(index) {
             rows[1] = Some(owned_sentence_row(
                 typed_pinyin,
-                path,
+                path.into_owned(),
                 CandidateSource::NeuralKeyboard,
             ));
         }
@@ -874,3 +1013,11 @@ mod empty_source_dedup_tests;
 #[cfg(test)]
 #[path = "merge_single_path_tests.rs"]
 mod single_path_tests;
+
+#[cfg(test)]
+#[path = "merge_collocation_tests.rs"]
+mod collocation_tests;
+
+#[cfg(test)]
+#[path = "decoded_projection_tests.rs"]
+mod decoded_projection_tests;

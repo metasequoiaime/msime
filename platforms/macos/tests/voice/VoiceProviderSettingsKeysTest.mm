@@ -228,7 +228,7 @@ static void TestEveryRuntimeProviderIsEditable()
 {
     NSArray *providers = MSIMEVoiceASRProviderIDs();
     NSArray *expected = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"everyapi", @"mistral",
-                           @"bailian", @"system", @"local" ];
+                           @"bailian", @"zhipu", @"minimax", @"custom", @"system", @"local" ];
     assert([providers isEqual:expected]);
     assert(MSIMEVoiceASRProviderTitles().count == providers.count);
     NSDictionary *defaults = @{

@@ -92,6 +92,26 @@ Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MOD
 
 使用 Fcitx5 后仍然失败，请附上 `fcitx5 --version`、相关 daemon 的进程信息、宿主与玲珑应用内 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、预装拼音在同一应用里是否可用，以及焦点在该应用时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的结果。请延迟采样并在等待时切回失败应用，避免将执行命令的终端误当成目标上下文。仅保留复现用的合成编辑器上下文，不附真实输入、私人应用名或凭据。当前隔离验收已覆盖 Fcitx5 IBus 兼容前端和 GTK IBus 模块的中文上屏，但尚未证明 Deepin 玲珑场景的问题已解决，#8009 保持打开。
 
+### 第三方输入源菜单集成
+
+[Omarchy Input Menu](https://github.com/Ray0907/omarchy-input-menu) 一类精简输入源菜单需要区分 Fcitx5 的输入法列表和当前输入法的设置动作。水杉的输入方案、主题、云联想等菜单项都是设置；其中可勾选的动作通过 `fcitx::Action::setCheckable(true)` 保留当前状态。
+
+Fcitx5 的 DBusMenu 导出会把所有可勾选动作写为 `toggle-type="radio"`（见 [Fcitx5 5.1.23 的导出实现](https://github.com/fcitx/fcitx5/blob/5.1.23/src/modules/notificationitem/dbusmenu.cpp#L338-L351)）。因此，`radio` 表示菜单的勾选行为，无法单独证明一个条目是输入源或中英文模式。子菜单设置项也可能没有图标；旧版本的多项设置可能共用键盘图标。
+
+第三方菜单集成时应遵守以下边界：
+
+- 输入源列表按 Fcitx5 当前组里的输入法生成，水杉作为一个输入法列出。
+- 只有已明确支持某个引擎的模式协议时，才把它的子菜单动作展开为模式；不要把任意子菜单中的 `radio` 条目全部展开，也不要把空图标或共享图标当作模式标识。
+- 缓存的模式列表在读取时也要按同样规则过滤。只修正新数据而继续读取旧缓存，会让错误条目在重启后再次出现。
+
+如果菜单出现几十个重复的 `ABC` 或把云联想、主题等设置列成输入源，应先检查第三方菜单的筛选逻辑和缓存。水杉保留这些设置的勾选状态，Fcitx5 原生菜单仍用它们显示当前配置。
+
+## 辅助码触发键
+
+设置应用的「输入 → 辅助码」可分别选择全拼、双拼的触发键：Shift 加字母（默认），或分号、斜杠、反斜杠、反引号、等号。选择标点后，在拼音组字末尾按该键，再输入一到两个辅助码字母即可筛选；Shift 加字母仍然可用。未输入码时按退格只退出辅助码输入，保留已有拼音。没有组字、编辑中间的拼音、英文及快捷模式仍保留这些标点原本的作用。微软双拼未完成的半音节优先接收分号作为韵母。
+
+IBus 与 Fcitx5 的专项验收分别是 `ibus-engine-smoke <已验证词库目录> --helpcode-trigger` 和 `fcitx5-native-test <已验证词库目录> --helpcode-trigger`，覆盖两族独立设置、双辅助码筛选、上屏、退格及微软分号韵母。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：
@@ -434,7 +454,7 @@ Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、完成按钮；
 
 Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，语音浮层跟随颜色模式（存下的 `voice_theme` 不再读取），因此全局颜色模式为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
 
-切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），两个宿主都短暂提示当前的「中」或「英」，规则与 macOS 的紧凑切换提示一致：一次切换只出一处提示，显示 0.6 秒后在 0.18 秒内淡出。X11 会话里（Fcitx5 按输入上下文是否为 X11 客户端判断，IBus 按会话里没有 `WAYLAND_DISPLAY` 判断）自绘一块徽章放在光标正下方 10 px、水平居中，下方放不下就翻到光标上方，离所在显示器工作区边缘至少 8 px；输入框没报光标时放在工作区水平居中、下沿离底边四分之一高的位置。这时不再发面板的文字提示。焦点进入输入框时 GTK、Qt 的输入法模块要过一会儿才补报光标位置，所以这时的徽章先等光标报来（Fcitx5 等光标矩形变化事件，IBus 等 `set_cursor_location`），最多等 150 ms；等完仍没有光标就改用面板的文字提示，不把徽章放到屏幕下方。每个宿主只有一块徽章，新的提示替换屏幕上那块，不会在几个输入框的光标下同时留着几块；徽章在第一次真要画时才连接显示服务器，Wayland 客户端且没打开标志时一直不连。其余情况（Wayland 客户端的光标矩形是它自己表面里的局部坐标，徽章放不过去）由面板的文字提示跟随光标：Fcitx5 是面板自带的输入法信息弹窗，IBus 是辅助区域。从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。焦点不在任何输入框时（切换窗口、落在文件列表上），开着全局引擎的 IBus 把引擎挂到它自己的 `fake` 上下文上，这时没有输入框可提示，焦点进入和切换中英文都不显示。徽章与 macOS 同尺寸：18 px 常规字重的字，32 px 高，左右各 8 px 内边距，8 px 圆角，有合成器时带一圈柔和阴影并淡出（没有合成器的 X11 上不画阴影，到时直接收起）；产品标志只在打开「显示水杉图标」（`show_app_logo`，默认关）时以 16 px 画在字前。打开了标志而徽章放不到光标旁时，带标志的徽章另显示在屏幕右下角（Wayland 经 `wlr-layer-shell`，没有 layer-shell 的会话如 GNOME 经 Xwayland 用 X11 窗口），因为面板的文字提示带不了图。X11 徽章是不抢焦点、点击穿透的原生窗口，按光标所在的显示器（没有光标时按前台窗口或指针所在，经 XRandR 枚举）定位，尺寸、标志和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章有自己的固定大小，不读共享偏好里的悬浮工具栏大小，与 macOS 的紧凑提示一样。徽章深浅跟随颜色模式（`theme`），颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗；存下的 `toolbar_theme` 和 `candidate_theme` 都不读，固定明暗的全局主题（水杉是深色，纸白是浅色）照样决定明暗。Linux 在焦点进入新输入框时也提示（#2589），macOS 只在切换时提示，这一点是有意保留的差异。
+切换中英文时（`input_mode_hud`，默认开启），两个宿主短暂提示当前的「中」或「英」。进入输入框时是否提示由独立的 `input_mode_focus_hud` 控制，默认关闭；Linux 设置页「输入 → 中英模式」可分别调整「中英文切换提示」和「聚焦输入框时提示」，两者互不依赖。缺字段的旧文档同样关闭聚焦提示。提示的显示规则与 macOS 的紧凑切换提示一致：一次切换只出一处提示，显示 0.6 秒后在 0.18 秒内淡出。X11 会话里（Fcitx5 按输入上下文是否为 X11 客户端判断，IBus 按会话里没有 `WAYLAND_DISPLAY` 判断）自绘一块徽章放在光标正下方 10 px、水平居中，下方放不下就翻到光标上方，离所在显示器工作区边缘至少 8 px；输入框没报光标时放在工作区水平居中、下沿离底边四分之一高的位置。这时不再发面板的文字提示。焦点进入输入框时 GTK、Qt 的输入法模块要过一会儿才补报光标位置，所以这时的徽章先等光标报来（Fcitx5 等光标矩形变化事件，IBus 等 `set_cursor_location`），最多等 150 ms；等完仍没有光标就改用面板的文字提示，不把徽章放到屏幕下方。每个宿主只有一块徽章，新的提示替换屏幕上那块，不会在几个输入框的光标下同时留着几块；徽章在第一次真要画时才连接显示服务器，Wayland 客户端且没打开标志时一直不连。其余情况（Wayland 客户端的光标矩形是它自己表面里的局部坐标，徽章放不过去）由面板的文字提示跟随光标：Fcitx5 是面板自带的输入法信息弹窗，IBus 是辅助区域。从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。焦点不在任何输入框时（切换窗口、落在文件列表上），开着全局引擎的 IBus 把引擎挂到它自己的 `fake` 上下文上，这时没有输入框可提示，焦点进入和切换中英文都不显示。徽章与 macOS 同尺寸：18 px 常规字重的字，32 px 高，左右各 8 px 内边距，8 px 圆角，有合成器时带一圈柔和阴影并淡出（没有合成器的 X11 上不画阴影，到时直接收起）；产品标志只在打开「显示水杉图标」（`show_app_logo`，默认关）时以 16 px 画在字前。打开了标志而徽章放不到光标旁时，带标志的徽章另显示在屏幕右下角（Wayland 经 `wlr-layer-shell`，没有 layer-shell 的会话如 GNOME 经 Xwayland 用 X11 窗口），因为面板的文字提示带不了图。X11 徽章是不抢焦点、点击穿透的原生窗口，按光标所在的显示器（没有光标时按前台窗口或指针所在，经 XRandR 枚举）定位，尺寸、标志和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章有自己的固定大小，不读共享偏好里的悬浮工具栏大小，与 macOS 的紧凑提示一样。徽章深浅跟随颜色模式（`theme`），颜色模式为「跟随系统」时跟随上述 portal 报告的系统明暗；存下的 `toolbar_theme` 和 `candidate_theme` 都不读，固定明暗的全局主题（水杉是深色，纸白是浅色）照样决定明暗。Linux 可选的聚焦提示保留 #2589 的需求；默认行为与 macOS 相同，只在切换时提示。
 
 两个宿主都按共享偏好 `floating_toolbar` 画一条悬浮工具栏，对应 macOS 的 `MetasequoiaFloatingToolbarPanel`（`src/overlay/FloatingToolbar*`）。它是一块不抢焦点的 override-redirect 窗口，用 cairo 和 pango 画：左端是水杉标志（`show_app_logo` 关着时是一条两列三行的握把），按住它拖动；分隔线之后依次是中/英（显示方案徽标：中、双、五、日、한、粤、注、越、ཀ、笔，直接输入时「英」，英文候选模式「En」，大写锁定「A」；与 macOS 一样，「En」时点它退出英文候选模式回到中文，其余时候切换中文输入与直接输入）、切换输入方案（弹出可用方案的菜单，正在用的打勾）、标点（。/.）、全半角（半/全）、简繁（简/繁）、表情、手写、屏幕键盘、语音和设置，各按钮跟随自己的开关，默认只开中/英、切换方案、标点、全半角、简繁和设置六个。几何照搬 macOS：按钮宽高是字号加 8、相隔 2，标志 34（握把 10）加 4，整条高字号加 20、圆角 10，按 `scale_percent`（75/100/125/150）和 `font_size`（16 到 28 的偶数）缩放，再乘桌面的 `Xft.dpi`/`GDK_SCALE`；默认的一行是 255 × 44。指针停在按钮上 0.6 秒出提示（文字与 macOS 的辅助功能标签相同），悬停和按下时按钮下垫一块圆角底；设置按钮左键打开设置，右键弹出 macOS 齿轮菜单的那些项（表情面板、设置、宣传、官网、帮助、关于、反馈和「隐藏悬浮状态栏」，Linux 没有系统字符面板，也由包管理器更新，所以不列「检查更新」）。按钮的动作走「工具栏」子菜单里同一项的路径。IBus 的这条路径只对获得焦点的引擎生效，所以属主失焦后工具栏留在屏幕上时，中/英、切换方案、标点、全半角、简繁、语音这些要输入框的按钮和工具菜单里的「宣传」画成淡色、点了不做事，打开面板、设置、官网和隐藏照样能用，回到输入框就恢复；macOS 在失焦后这些按钮仍然生效，IBus 引擎在失焦时改输入状态会让会话以为自己有焦点，所以不这样做。Fcitx5 把失焦的上下文留给状态区菜单，按钮照样生效。颜色按 THEME_CONTRACT §3 从候选调色板推出：系统主题是 Adwaita 的白或 #303030 底，菜单里的勾和选中色是 GNOME 的蓝；皮肤画自己的候选配色；明暗跟随颜色模式，与切换徽章相同。皮肤包里单独的 `[toolbar]` 段（工具栏自己的底色、描边、分隔线、图标、悬停色和圆角，macOS 经 ToolbarSkinTokens 叠在候选配色上）Linux 还不读：共享层发给宿主的皮肤目录（`host_candidate_catalog`）为控制文档大小不带工具栏段，所以 Linux 的工具栏用候选配色和固定的 10 圆角，与 macOS 在这些皮肤下的工具栏颜色会有差别。有合成器时带一圈柔和阴影，没有时按画出来的形状裁出外形。
 
@@ -671,7 +691,11 @@ bash platforms/linux/tests/tools/check-image-toolchain.sh \
 
 隔离验收脚本只读挂载源码，输入引擎是仓库里的 Rust crate，不再需要预先准备或借用任何 Engine 树，因此在 worktree 里也能直接跑。它的测试镜像与编译门禁一样按 checkout 路径打 tag，并发的 worktree 不会互相覆盖镜像。随包在线/语音/剪贴板 provider、凭据、豆包鉴权、翻译缓存、录音设备这一整片 Python 测试都在容器内执行。
 
+`ibus-mode-hint-focus-preferences`／`-x11` 在真实 IBus 宿主中检查缺字段及显式关闭不提示、关闭切换提示后仍可单独开启聚焦提示，分别观察私有 D-Bus 辅助信号与 Xvfb 徽章。`fcitx5-mode-hint-preferences` 只在 Fcitx5 开发库不低于 5.1.11、编入自定义模式提示路径时登记，通过真实 GTK 编辑器反复聚焦、按 Shift 切换中英文并检查实际窗口像素，验证默认行为、两个开关的独立热更新及继续组字上屏。它们不代表 QQ 或 GNOME／niri Wayland 的现场验收。
+
 Fcitx5 的 `tests/tools/check-container.sh /absolute/verified-resources --fcitx5` 还运行 `fcitx5-gtk-canvas-horizontal` 与 `fcitx5-gtk-canvas-vertical`，以及各自的 `-gif`、`-webp` 用例（合成图片需要 Pillow，专用验收镜像已包含）：真实 GTK 编辑器通过本次构建的插件唤起 classicui 候选，读取隔离 X11 显示像素，验证合成九宫格的明暗切换、坏图回退和修复恢复。期间不发送刷新按键，最终检查焦点保持、空格上屏与面板消失。在验收容器内直接运行 CTest 时，设置 `MSIME_TEST_CANVAS_ARTIFACTS` 为可写目录可保留各阶段截图。它覆盖 Xvfb／GTK／classicui，不包含 Wayland 合成器、真实字体或系统安装验收。
+
+`fcitx5-candidate-font-pixels-horizontal`／`vertical` 在固定 96 DPI 的 Xvfb 中测量 classicui 序号像素，覆盖 20／32 像素字号、150% 整体缩放、偏好热更新、焦点和空格上屏。参考字形按绝对像素字号由 Pango 单独测量；测试核对 daemon 实际加载的 core 与 classicui 均来自 `pkg-config Fcitx5Core` 指向的库目录。跨版本验收时先用旧开发库构建插件，再令 `PATH`、`LD_LIBRARY_PATH` 与 `PKG_CONFIG_PATH` 指向同一份新运行库前缀，运行这两项 CTest。默认容器覆盖其实际安装的版本，不把替换版本入口当作新运行库验收；X11 像素测试也不替代 Arch／niri 的安装与 Wayland 现场验收。
 
 同一验收还包含 `fcitx5-native-canvas-horizontal`／`vertical` 及各自的 `-scale2`、`-composited`：真实 GTK 编辑器检查原生 X11 窗口的挂件像素、独立行距热更新、随框架坐标移动、明暗、坏图回退与恢复、过期鼠标释放、滚轮翻页、左键上屏、右键置顶写入合成词库，以及失焦和切换输入法时隐藏。`-composited` 用专用 `xcompmgr` 检查实际 ARGB 窗口，其他用例覆盖无合成器的 Shape 回退。`linux-candidate-native-canvas` 在内存中检查几何、锚点、层级与透明中心，`linux-candidate-native-canvas-chrome` 检查 macOS 结构的首行、行与释义、网格、缩放、装饰带、调色板、定位和动效采样；它们不能替代这些真实窗口用例。`fcitx5-native-chrome-{horizontal,vertical}` 用 `system` 主题在真实 GTK 编辑器里验收默认画法：原生窗口出现、首行 › 与 ‹ 翻页、悬停不改变选中、横排 ↓ 展开网格和 Esc 收起、点选上屏，以及非 canvas 皮肤包的顶带装饰（带待机动效）画在卡片上方的透明带里、不压到候选行。另有 `fcitx5-native-canvas-{horizontal,vertical}-animation-{apng,gif,webp}` 六项真实 GTK 图片播放验收，覆盖连续输入、隐藏重显、同路径资源替换和九宫格边框动画。
 
@@ -779,16 +803,18 @@ IBus 宿主在后台通过共享 Host API 查询随包 `msime-english.db`。目�
 
 ## 随包语音服务
 
-`msime-linux-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
+`msime-linux-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow、EveryAPI、Mistral、百炼的 HTTP 语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
 
 ```sh
 msime-linux-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
-先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，至少含 `asr` 与 `polish` 对象之一；文件不存在时服务照常启动，只有本地识别可用，云端识别请求在文件写好后的下一次录音生效。批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，至少含 `asr` 与 `polish` 对象之一；文件不存在时服务照常启动，只有本地识别可用，云端识别请求在文件写好后的下一次录音生效。批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。HTTP ASR provider 支持 `openai`、`groq`、`siliconflow`、`everyapi`、`mistral`、`bailian`；润色支持 `openai`、`groq`、`siliconflow`、`deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
 
-服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
+服务集合、默认地址/模型与 HTTP 请求格式由共享 Rust 语音目录生成到 `scripts/msime_voice_provider_catalog.py`；语音脚本同步导入，私有配置和 profile 的校验、自定义值优先及本地/豆包的处理保持由宿主管理。修改共享目录后，在仓库根目录运行 `cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --write`，再用 `--check` 检查。生成模块与润色提示词模块一起安装到各版本的 `bin` 目录；`tests/voice/provider_catalog.py` 固定原目录并用合成模块验证实际配置和请求读取生成值，可用 `--provider <已安装的语音脚本>` 验证安装产物。
+
+服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV，按共享格式发送 multipart 上传或带 `input_audio` 的 Chat Completions 请求。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
 润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao 实时识别使用下述 WSS 配置。
 
@@ -1194,3 +1220,5 @@ Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：�
 IBus 与 Fcitx5 也保留 Backspace 长按的物理按键所有权：若首次按下发生在活动组字中，重复键可以继续删除预编辑；最后一个组字字符消失后，同一次按住的后续重复仍由输入法吞掉，不会开始删除编辑器里已经上屏的正文。按键松开、失焦、reset 或按下其他键都会解除所有权，之后一次新的 Backspace 仍正常交给编辑器。实现复用纯策略，但输入事件仍分别走 IBus 与 Fcitx5 的原生入口。
 
 字典导入沿用 Windows 固定提交 `6e03f577` 的全拼规则：普通字典和个人字典的 Pinyin 词条在 Host API 中调用固定 Engine 的全拼切分，并按词条汉字数解决无分隔拼音歧义，例如两字词 `西安` 的 `xian` 规范化为 `xi'an`。无效音节、非法 apostrophe 或无法匹配词长的行会被跳过并报告；Wubi、快捷短语和英文导入不经过该规范化。规范化只发生在带 Engine 选项的实际导入请求中，Linux IBus 不复制输入算法。
+
+X11 的传统装饰图启用 `candidate_overlay_*` 后，复用原生候选窗口按当前页和真实高亮绘制图内词，保留简繁转换并独立控制云／AI 来源标注。图片解码成功才接管，长词最小字号后仍完整单行，窗口放不进工作区时保留桌面面板。关闭声明、失效、菜单和隐藏会清理文字；无配色的 system 包沿用当前明暗的 Linux 原生颜色。其他 Wayland、IBus 和第三方 UI 的静态回退范围不变。专项入口为 `fcitx5-decoration-overlay-{horizontal,vertical}-scale{1,2}`，需要已验证词库、Xvfb、D-Bus 和真实 GTK 编辑器，与原生 canvas 用例共用隔离环境。

@@ -46,7 +46,7 @@ impl NineKeySession {
         } else {
             let dictionary = self
                 .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options));
+                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
@@ -93,7 +93,7 @@ impl NineKeySession {
         append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
-            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options))
+            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));
@@ -329,10 +329,10 @@ impl NineKeySession {
             .filter(|_| initial.is_none() && !filtering)
         {
             let digits = self.digits.as_str();
-            if let Some((anchor, kind)) =
+            if let Some((_keyword, anchor, kind)) =
                 inline_date_time_keyword(|keyword| keyword_spells_digits(grid, keyword, digits))
             {
-                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock());
+                insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
         positions::apply_fixed_positions(

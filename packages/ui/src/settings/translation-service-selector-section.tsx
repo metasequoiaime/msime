@@ -2,7 +2,13 @@ import { SettingsRowStack } from "./settings-row-stack";
 import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
 
-export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account";
+export type TranslationProvider =
+  | "none"
+  | "custom"
+  | "tencent"
+  | "niutrans"
+  | "account"
+  | "ai";
 
 /** 不选在线服务时宿主还会用什么出释义，决定 `none` 一项的叫法。`system`：macOS，离线词库，macOS 26 起再加系统本机翻译（`InputController` 的 `currentOnDeviceGlossRequest`）。`dictionary`：Windows、Linux、HarmonyOS，没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询（`msime_client_translation_query` 的 `offline_gloss_languages`），各宿主照样查出释义。缺省（Android、iOS）沿用「关闭」，那边没有核对过。 */
 export type TranslationOfflineFallback = "system" | "dictionary";
@@ -63,6 +69,7 @@ function translationServiceOptions(
       <option value="tencent">腾讯云机器翻译</option>
       <option value="niutrans">小牛翻译（NiuTrans）</option>
       <option value="custom">自定义（DeepLX 或 DeepL API）</option>
+      <option value="ai">AI 辅助</option>
       {showAccountProvider && (
         <option value="account">水杉账号（候选词发送到 api.msime.app）</option>
       )}
@@ -79,9 +86,14 @@ export function TranslationServiceSelectorSection({
   offlineFallback,
   onChange,
 }: TranslationServiceSelectorSectionProps) {
-  const description = offlineFallback
-    ? offlineFallbackCopy[offlineFallback].description
-    : undefined;
+  // 选中 AI 辅助时换成复用说明与成本提示（与 Windows 设置页「复用 AI 辅助配置」一致）；
+  // AI 模型逐条生成释义，按 token 计费且比专用翻译接口慢。
+  const description =
+    provider === "ai"
+      ? "复用「AI 与云联想」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务"
+      : offlineFallback
+        ? offlineFallbackCopy[offlineFallback].description
+        : undefined;
   return grouped ? (
     <SettingsRowStack role="group" aria-label="候选词翻译服务">
       <SelectRow

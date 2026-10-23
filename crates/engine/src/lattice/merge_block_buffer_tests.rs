@@ -26,7 +26,9 @@ fn generated_empty_block_keeps_no_heap_storage() {
     let candidates = existing(&["甲乙", "甲丙"]);
     let (old, before) = measure(|| frozen_generated_block_linear(&candidates, &paths, "aba"));
     let owned_paths = paths.to_vec();
-    let (new, after) = measure(|| generated_block_linear(&candidates, owned_paths, "aba"));
+    let (new, after) = measure(|| {
+        generated_block_linear(&candidates, owned_paths, "aba", &LatticeOptions::default())
+    });
     assert_eq!(new, old);
     assert!(new.is_empty());
     assert_eq!(before.allocations, 1);
@@ -62,7 +64,9 @@ fn generated_nonempty_blocks_preserve_fields_and_capacity_with_exact_copy_saving
             let (old, before) =
                 measure(|| frozen_generated_block_linear(&candidates, &paths, "aba"));
             let owned_paths = paths.to_vec();
-            let (new, after) = measure(|| generated_block_linear(&candidates, owned_paths, "aba"));
+            let (new, after) = measure(|| {
+                generated_block_linear(&candidates, owned_paths, "aba", &LatticeOptions::default())
+            });
             assert_eq!(new, old);
             if new.is_empty() {
                 assert_eq!(new.capacity(), 0);

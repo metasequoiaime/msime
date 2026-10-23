@@ -16,6 +16,8 @@ export interface SettingsStatusMessagesProps {
   /** 自动保存失败的原因；空串表示没有失败。保存状态本来只写在表单最后一行，页面一长就得滚到底才看得见，改了设置却存不下来时用户在原处什么也看不到，所以失败也在页面顶部说一次。 */
   saveError?: string;
   onRetrySave?: () => void;
+  /** 关掉页首的提示（其他窗口改了设置、配置已修复等）。 */
+  onDismissNotice?: () => void;
 }
 
 /** Error and save-status messages shared by the settings content surface. */
@@ -31,6 +33,7 @@ export function SettingsStatusMessages({
   onError,
   saveError = "",
   onRetrySave,
+  onDismissNotice,
 }: SettingsStatusMessagesProps) {
   return (
     <>
@@ -57,7 +60,7 @@ export function SettingsStatusMessages({
         </ErrorAlert>
       )}
       {notice && (
-        <SettingsNotice role="status">
+        <SettingsNotice role="status" onDismiss={onDismissNotice}>
           {notice}
           {recoveredBackup && openPreferencesDirectory && (
             <>

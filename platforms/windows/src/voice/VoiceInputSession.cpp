@@ -1077,6 +1077,7 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       auto polished =
           polish_cloud_text(text, config.polish_provider, endpoint, model,
                             config.polish_token, polish_prompt(config),
+                            config.polish_thinking,
                             cancelled, voice_polish_timeout_ms);
       if (!polished.empty())
         final_text = std::move(polished);

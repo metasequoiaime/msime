@@ -1,0 +1,4 @@
+<!-- Google Play 渠道（gradle-app 的 -PmsimeDistribution=play）叠加在 release 上的清单。REQUEST_INSTALL_PACKAGES 只为关于页把更新安装包交给系统安装器而声明；Play 只允许经 Play 更新，Play 版没有这条路径，而这项权限是 Play 的受限权限，留着就要在 Console 里申报一个自更新不被认可的用途。RECEIVE_BOOT_COMPLETED 不删：它不受限，ML Kit 带进来的 WorkManager 也靠它在重启后重新排队。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+</manifest>

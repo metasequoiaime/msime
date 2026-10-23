@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import {
+  SystemInfoSection,
   systemInfoEntries,
   systemInfoText,
 } from "../../../../packages/ui/src/settings/system-info-section";
@@ -177,4 +178,68 @@ test("without a clipboard the fields are still listed but there is no 复制 but
   const group = within(about).getByRole("region", { name: "系统信息" });
   expect(await within(group).findByText("x86_64")).toBeTruthy();
   expect(within(group).queryByRole("button", { name: "复制系统信息" })).toBeNull();
+});
+
+const copyFailure = "复制系统信息失败，请重试。";
+
+async function openSystemInfo() {
+  const about = await screen.findByRole("group", { name: "关于" });
+  fireEvent.click(within(about).getByRole("tab", { name: "系统信息" }));
+  return within(about).getByRole("region", { name: "系统信息" });
+}
+
+test.each(["异步拒绝", "同步异常"])("系统信息复制的%s显示可重试的错误", async (failure) => {
+  const copyText = vi.fn<(text: string) => Promise<void>>().mockImplementation(() => {
+    if (failure === "同步异常") throw new Error("synthetic clipboard failure");
+    return Promise.reject({ code: "unavailable" });
+  });
+  renderAbout(copyText);
+  const group = await openSystemInfo();
+  fireEvent.click(within(group).getByRole("button", { name: "复制系统信息" }));
+
+  await waitFor(() => expect(screen.queryByText(copyFailure)).not.toBeNull());
+  expect(within(group).queryByText("已复制")).toBeNull();
+});
+
+test("系统信息复制重试开始时清除旧错误，成功后才显示已复制", async () => {
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const copyText = vi
+    .fn<(text: string) => Promise<void>>()
+    .mockRejectedValueOnce({ code: "unavailable" })
+    .mockReturnValueOnce(pending);
+  renderAbout(copyText);
+  const group = await openSystemInfo();
+  const button = within(group).getByRole("button", { name: "复制系统信息" });
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.queryByText(copyFailure)).not.toBeNull());
+
+  fireEvent.click(button);
+  expect(screen.queryByText(copyFailure)).toBeNull();
+  expect(within(group).queryByText("已复制")).toBeNull();
+  await act(async () => finish());
+
+  expect(within(group).getByText("已复制")).toBeTruthy();
+  expect(screen.queryByText(copyFailure)).toBeNull();
+  expect(copyText).toHaveBeenCalledTimes(2);
+  expect(copyText.mock.calls[1][0]).toContain("水杉 IME 系统信息\n");
+});
+
+test.each(["成功", "失败"])("系统信息组件卸载后忽略迟到的复制%s", async (outcome) => {
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve, reject) => {
+    finish = () => (outcome === "成功" ? resolve() : reject({ code: "unavailable" }));
+  });
+  const setError = vi.fn();
+  const { unmount } = render(
+    <SystemInfoSection appVersion="0.11.0" copyText={() => pending} setError={setError} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "复制系统信息" }));
+  setError.mockClear();
+  unmount();
+  await act(async () => finish());
+
+  expect(setError).not.toHaveBeenCalled();
 });

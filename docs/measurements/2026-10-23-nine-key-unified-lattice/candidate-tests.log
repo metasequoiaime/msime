@@ -1,0 +1,11 @@
+   Compiling msime-engine v0.1.0 (/Volumes/Workspace/worktrees/nine-key-unified-lattice/crates/engine)
+    Finished `test` profile [unoptimized] target(s) in 20.98s
+     Running unittests src/lib.rs (target/debug/deps/msime_engine-1889359a73991104)
+
+running 4 tests
+test lattice::decode::tests::digit_lattice_removes_syllable_rewards_before_competing_readings ... ok
+test lattice::decode::tests::digit_lattice_decodes_edges_that_start_at_shared_digit_columns ... ok
+test nine_key::digit_lattice::tests::every_complete_reading_remains_available_without_a_path_limit ... ok
+test nine_key::digit_lattice::tests::word_prefix_edges_are_matched_against_digits_and_refresh_after_dictionary_writes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 2527 filtered out; finished in 0.03s

@@ -60,6 +60,7 @@ struct VoiceInputConfig {
   bool polish_text = false;
   std::string polish_provider;
   std::string polish_token;
+  std::string polish_thinking = "disabled";
   std::string polish_endpoint;
   std::string polish_model;
   std::string polish_prompt_id = "cleanup";

@@ -1,13 +1,13 @@
 package app.msime.android;
 
-/** Fixed visual mapping for the Android shortcut strip. */
+/** Android 工具栏按钮的固定图标映射。 */
 public final class KeyboardShortcutIconPolicy {
     /**
      * `BOOKMARK` 不在快捷栏上，是回复面板里的模板入口，所以 {@link #forLabel} 不映射它。
      *
      * <p>`PHRASE`、`CLIPBOARD`、`SCHEME` 是新设计工具栏上的常用语、剪贴板、输入方式；它们与 `EMOJI`、`SKIN`、`DISMISS` 一起由 {@link KeyboardShortcutButton} 按设计的 Material 实心图标绘制。
      */
-    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE, BOOKMARK, PHRASE, CLIPBOARD, SCHEME, FLOATING, TEXT_EDIT }
+    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE, BOOKMARK, PHRASE, CLIPBOARD, SCHEME, FLOATING, TEXT_EDIT, UNDO, REDO }
 
     private KeyboardShortcutIconPolicy() {}
 
@@ -25,6 +25,8 @@ public final class KeyboardShortcutIconPolicy {
             case "输入方式" -> Icon.SCHEME;
             case "浮动键盘" -> Icon.FLOATING;
             case "文本编辑" -> Icon.TEXT_EDIT;
+            case "撤销" -> Icon.UNDO;
+            case "重做" -> Icon.REDO;
             default -> throw new IllegalArgumentException("No shortcut icon for: " + label);
         };
     }
@@ -33,7 +35,7 @@ public final class KeyboardShortcutIconPolicy {
     public static boolean materialGlyph(Icon icon) {
         return switch (icon) {
             case EMOJI, PHRASE, CLIPBOARD, SKIN, SCHEME, FLOATING, TEXT_EDIT, DISMISS -> true;
-            case SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK -> false;
+            case SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK, UNDO, REDO -> false;
         };
     }
 }

@@ -3,9 +3,11 @@ export interface UseExternalUrlOptions {
   setError: (error: string) => void;
 }
 
+export const externalUrlMaxLength = 4096;
+
 function isSafeExternalUrl(url: string): boolean {
   if (
-    url.length > 4096 ||
+    url.length > externalUrlMaxLength ||
     !url.startsWith("https://") ||
     url.slice("https://".length).startsWith("/") ||
     url.split("").some((character) => {
@@ -36,6 +38,7 @@ export function useExternalUrl({
   setError,
 }: UseExternalUrlOptions) {
   async function openExternalUrl(url: string) {
+    setError("");
     try {
       if (!isSafeExternalUrl(url)) throw new Error("invalid URL");
       if (hostOpenExternalUrl) {

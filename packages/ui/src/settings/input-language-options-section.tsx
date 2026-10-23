@@ -12,6 +12,8 @@ export interface InputLanguageOptionsSectionProps {
   mixedInput?: MixedInputPreferences;
   /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
   temporaryJapanese?: boolean;
+  /** 宿主能把快捷短语混进普通候选（`HostCapabilities.quick_phrase_candidates`），决定是否列出快捷短语混输与调频开关。缺省为 false。 */
+  quickPhraseCandidates?: boolean;
   /** 是否画「触发字符数」一行；宿主固定这个值（如 macOS）时传 false，与输入页同一个能力位 `showMixedInputMinimumPrefix`。缺省为 true。 */
   showMixedInputMinimumPrefix?: boolean;
   includeCandidateControls?: boolean;
@@ -37,6 +39,7 @@ export function InputLanguageOptionsSection({
   includeMixed = false,
   mixedInput,
   temporaryJapanese = true,
+  quickPhraseCandidates = false,
   showMixedInputMinimumPrefix = true,
   includeCandidateControls = false,
   showCandidateEnglishGloss = false,
@@ -65,6 +68,7 @@ export function InputLanguageOptionsSection({
           <MixedInputMoreRows
             preferences={mixedInput}
             temporaryJapanese={temporaryJapanese}
+            quickPhraseCandidates={quickPhraseCandidates}
             onChange={onMixedInputChange}
           />
         </>

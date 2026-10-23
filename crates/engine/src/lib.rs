@@ -46,6 +46,9 @@ pub use error::{EngineError, Result};
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub use handwriting::handwriting_recognize;
 pub use handwriting::order_handwriting_candidates;
+// 按需下载的 `.gram` 语法模型由宿主侧资源包管理，删除包时需要释放
+// `GramDb::shared` 缓存的内存映射，经这个窄出口暴露给 host-api。
+pub use lattice::octagram;
 pub use nine_key::KeyGrid;
 pub use nine_key_shuangpin::NineKeyShuangpin;
 pub use paths::RuntimePaths;
@@ -56,10 +59,11 @@ pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
     Command, CommandTranslationQuery, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode, LocalModeOptions,
-    MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineQuery,
-    PersonalDictionaryEntry, PersonalDictionaryKind, PluginCommand, PluginCommandQuery, SchemeSet,
-    SchemeType, SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind, WordItem,
-    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineInputMode,
+    OnlineQuery, PersonalDictionaryEntry, PersonalDictionaryKind, PluginCommand,
+    PluginCommandQuery, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinCustomTable,
+    ShuangpinHelpcodeModes, ShuangpinProfileKind, WordItem, WubiInputOptions, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,

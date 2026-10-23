@@ -214,7 +214,19 @@ mod tests {
             status: Some(200),
             bodies: RefCell::default(),
         };
-        for provider in ["deepseek", "siliconflow", "openai", "groq"] {
+        for provider in [
+            "deepseek",
+            "siliconflow",
+            "openai",
+            "groq",
+            "minimax",
+            "kimi",
+            "zhipu",
+            "qwen",
+            "volcengine",
+            "openrouter",
+            "custom",
+        ] {
             for service in ["ai.assistant", "voice.polish"] {
                 assert!(test_chat(service, &config(provider), &fake).ok);
             }

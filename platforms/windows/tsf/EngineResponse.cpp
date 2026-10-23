@@ -46,7 +46,8 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
             parsed.view.generation = raw_id.value("generation", uint64_t{0});
         }
         parsed.view.candidates.push_back({std::move(id), candidate.value("text", ""),
-                                          candidate.value("highlighted", false), index});
+                                          candidate.value("highlighted", false), index,
+                                          candidate.value("source", 0u)});
       }
     }
     if (out) *out = std::move(parsed);

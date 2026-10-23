@@ -155,7 +155,7 @@ final class ImeLetterRows {
     }
 
     private void showKeyPreview(Button key, String label) {
-        // No enlarged bubble in password fields: it would show each typed character to anyone looking at the screen.
+        // 密码框不放大显示按下的字符，避免旁观者看到输入。
         if (EditorPolicy.password(s.editorInputType)) return;
         KeyboardKeyPreview preview = keyPreview();
         if (preview == null || !key.isAttachedToWindow()) return;
@@ -188,8 +188,25 @@ final class ImeLetterRows {
         if (keyPreviewOwner == key) hideKeyPreview();
     }
 
+    /** 九键复用字母键的预览；数字滑动另行更新键面，松手与取消只收起本键的气泡。 */
+    void updateKeyPreview(Button key, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                if (touchPreference(AndroidLocalSettings.KEY_POPUP))
+                    showKeyPreview(key, key.getText().toString());
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> hideKeyPreview(key);
+            default -> { }
+        }
+    }
+
+    /** 已显示的预览随滑动换成数字，不让关闭预览的设置被手势重新打开。 */
+    void updateKeyPreviewLabel(Button key, String label) {
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
+    }
+
     /**
-     * 字母键按压时按「按键弹出」（`touch_key_popup`）显示气泡。长按英文键提供大写、上下标和声调，中文键提供小写、大写和角标；长按不受气泡和滑动设置影响。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置方向滑过 14 dp 松手仍输入角标；未触发手势时照常交给按钮的点击。
+     * 字母键按压按「按键弹出」显示气泡。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，长按不受滑动开关影响。滑动输入符号启用时，沿设置方向滑过 14 dp 松手输入角标；中文反方向滑动打开选项并可继续拖选。关闭开关停用两种滑动，未触发手势时照常交给按钮点击。
      *
      * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
      *
@@ -200,8 +217,12 @@ final class ImeLetterRows {
         final float[] downY = new float[1];
         final boolean[] triggered = new boolean[1];
         final boolean[] optionsShown = new boolean[1];
+        final boolean[] candidateTouch = new boolean[1];
         Runnable hold = () -> {
             if (triggered[0] || !key.isPressed()) return;
+            // 候选栏出现时，长按也交给普通按键点击，避免误打开字母选项。
+            if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                    && ViewPolicy.isVisible(s.candidateViewport)) return;
             triggered[0] = true;
             optionsShown[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
@@ -209,8 +230,10 @@ final class ImeLetterRows {
                 hideKeyPreview(key);
                 s.imeLayoutRows.showEnglishLetterOptions(key, input);
             } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
+                hideKeyPreview(key);
                 s.imeLayoutRows.showLetterOptions(key, input);
             } else {
+                optionsShown[0] = false;
                 showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
@@ -219,6 +242,10 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     triggered[0] = false;
+                    optionsShown[0] = false;
+                    candidateTouch[0] = !s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                        && ViewPolicy.isVisible(s.candidateViewport);
+                    s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
                     if (hint != null) {
@@ -228,48 +255,65 @@ final class ImeLetterRows {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (hint != null && !triggered[0]
-                            && !s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                            && SwipeHintPolicy.swiped("up", 14f, downY[0],
-                                DimensionPolicy.fromPixels(s, event.getY()))) {
-                        triggered[0] = true;
-                        optionsShown[0] = true;
-                        key.removeCallbacks(hold);
-                        s.imeLayoutRows.showLetterOptions(key, input);
-                    } else if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
-                            && SwipeHintPolicy.swiped(
-                                s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
-                                DimensionPolicy.fromPixels(s, event.getY()))) {
-                        triggered[0] = true;
-                        key.removeCallbacks(hold);
-                        optionsShown[0] = false;
-                        if (keyPreview != null && keyPreviewOwner == key)
-                            keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                    if (optionsShown[0]) {
+                        s.imeLayoutRows.moveLetterOptions(key, event);
+                    } else if (hint != null && !triggered[0]) {
+                        boolean candidateVisible = candidateTouch[0]
+                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && ViewPolicy.isVisible(s.candidateViewport));
+                        if (candidateVisible) return false;
+                        if (!SwipeHintPolicy.enabled(
+                                touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), false))
+                            return false;
+                        String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
+                        String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
+                        float currentY = DimensionPolicy.fromPixels(s, event.getY());
+                        if (SwipeHintPolicy.swiped(direction, downY[0], currentY)) {
+                            triggered[0] = true;
+                            key.removeCallbacks(hold);
+                            if (keyPreview != null && keyPreviewOwner == key)
+                                keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation(), s.punctuationMarks()));
+                        } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
+                            triggered[0] = true;
+                            optionsShown[0] = true;
+                            key.removeCallbacks(hold);
+                            hideKeyPreview(key);
+                            s.imeLayoutRows.showLetterOptions(key, input);
+                        }
                     }
                     return triggered[0];
                 }
                 case MotionEvent.ACTION_UP -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
-                    if (!triggered[0]) return false;
+                    if (!triggered[0]) {
+                        // 候选态的长按或滑动必须等价于一次普通点按，即使位移让 Button 自己取消了点击。
+                        boolean candidateVisible = candidateTouch[0]
+                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+                                && ViewPolicy.isVisible(s.candidateViewport));
+                        if (candidateVisible) {
+                            key.performClick();
+                            key.setPressed(false);
+                            return true;
+                        }
+                        return false;
+                    }
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
                     key.onTouchEvent(cancel);
                     cancel.recycle();
                     key.setPressed(false);
+                    if (optionsShown[0] && s.imeLayoutRows.finishLetterOptions(key, event)) return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
-                    // Engine 不收时（会话还没起来）退回按字面上屏，和注音九键的逗号键、commitNineKeyPeriod 同一个写法。
-                    if (!optionsShown[0]) {
-                        boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
-                            && s.punctuation(hint.charAt(0));
-                        if (!engine) s.imeLayoutRows.commitNineKeyLiteral(hint);
-                    }
+                    if (!optionsShown[0]) s.imeLayoutRows.commitLetterHint(input);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
+                    s.imeLayoutRows.cancelLetterOptions(key);
                     return false;
                 }
                 default -> { return false; }
@@ -391,9 +435,24 @@ final class ImeLetterRows {
     private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
     private boolean backspaceUndo;
     private boolean backspaceUndoHeld;
+    private BackspaceScrub backspaceScrub;
+    private float backspaceDownX;
+    private float backspaceDownY;
+    private float backspaceTravel;
+    private float backspaceActivation;
+    private int backspaceInitialDeleted;
+    private boolean backspaceHorizontal;
+
+    void recordBackspaceScrubDelete(CharSequence before) {
+        if (backspaceScrub != null) backspaceScrub.ordinaryDelete(before);
+    }
+
+    void invalidateBackspaceScrub() {
+        if (backspaceScrub != null) backspaceScrub.invalidate();
+    }
 
     /**
-     * 短按删一次，按住连删并逐级加速，同时显示上滑快速删除提示（#8321）；上滑框内松手快速删除（#5585）。存在备份时短按改为松手删，长按后下滑框内松手撤回（#8325）。
+     * 短按删一次，按住连删并逐级加速；左滑锁定水平删除，未松手时右滑恢复（#9324）。上下滑仍提供快速删除（#5585）与撤回（#8325），方向一旦锁定就不切换。
      */
     void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
@@ -404,6 +463,15 @@ final class ImeLetterRows {
                     s.backspaceRepeated = false;
                     s.backspaceClearedComposition = false;
                     backspaceUndo = s.canUndoQuickDelete();
+                    backspaceDownX = event.getX();
+                    backspaceDownY = event.getY();
+                    int[] keyLocation = new int[2];
+                    int[] rootLocation = new int[2];
+                    button.getLocationOnScreen(keyLocation);
+                    if (s.keyboardRoot != null) s.keyboardRoot.getLocationOnScreen(rootLocation);
+                    backspaceTravel = Math.max(32f * DimensionPolicy.density(s),
+                        keyLocation[0] + event.getX() - rootLocation[0] - 8f * DimensionPolicy.density(s));
+                    if (!backspaceUndo) backspaceScrub = s.beginBackspaceScrub();
                     button.setPressed(true);
                     // 没有备份时按下即删并计数；有备份先等到松手，免得下滑撤回之前又破坏恢复位置。
                     if (!backspaceUndo) button.performClick();
@@ -447,6 +515,24 @@ final class ImeLetterRows {
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     if (s.backspaceRepeatButton != button) return true;
+                    float dx = backspaceDownX - event.getX();
+                    if (!backspaceHorizontal && backspaceScrub != null && backspaceScrub.available()
+                            && backspaceSwipePhase == BackspaceSwipePolicy.Phase.IDLE
+                            && BackspaceScrub.starts(dx, event.getY() - backspaceDownY, DimensionPolicy.density(s))) {
+                        backspaceHorizontal = true;
+                        backspaceActivation = 8f * DimensionPolicy.density(s);
+                        backspaceInitialDeleted = Math.max(1, backspaceScrub.deleted());
+                        stopBackspaceRepeatTask();
+                        button.setPressed(false);
+                        if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();
+                        s.imeKeyFeedback.playFeedback(button);
+                    }
+                    if (backspaceHorizontal) {
+                        int deleted = BackspaceScrub.deletionCount(dx, backspaceTravel, backspaceScrub.count(),
+                            backspaceActivation, backspaceInitialDeleted);
+                        s.moveBackspaceScrub(backspaceScrub, deleted);
+                        return true;
+                    }
                     if (backspaceUndo) {
                         if (backspaceUndoHeld) {
                             BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.undoPhase(
@@ -512,6 +598,7 @@ final class ImeLetterRows {
         BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
         backspaceSwipePhase = next;
         if (previous == BackspaceSwipePolicy.Phase.IDLE) {
+            backspaceScrub = null;
             stopBackspaceRepeatTask();
             button.setPressed(false);
         }
@@ -536,6 +623,8 @@ final class ImeLetterRows {
         backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
         backspaceUndo = false;
         backspaceUndoHeld = false;
+        backspaceScrub = null;
+        backspaceHorizontal = false;
         if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();
     }
 

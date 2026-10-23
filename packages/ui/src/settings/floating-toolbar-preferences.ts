@@ -14,6 +14,12 @@ export type FloatingToolbarPreferences = {
   screen_keyboard: boolean;
   voice: boolean;
   settings: boolean;
+  /** 显示一段时间无交互后把工具栏淡出隐藏。出厂默认关，对齐 Windows 旧正式版 v0.11.1。 */
+  auto_hide: boolean;
+  /** 自动隐藏延时（秒），可选 1–60，出厂默认 5。 */
+  auto_hide_delay: number;
+  /** 工具栏周围的柔和阴影。出厂默认开，对齐 Windows 旧正式版 v0.11.1。 */
+  shadow: boolean;
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };

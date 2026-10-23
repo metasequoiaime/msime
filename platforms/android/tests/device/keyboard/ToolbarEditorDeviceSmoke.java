@@ -2,16 +2,29 @@ package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.os.Build;
+import android.os.Bundle;
 
 /** 通过真实长按和菜单进入原生工具栏编辑页，已有键盘设置页不能吞掉跳转。 */
 public final class ToolbarEditorDeviceSmoke extends DeviceSmoke {
+    private boolean historyOnly;
+
+    @Override public void onCreate(Bundle arguments) {
+        historyOnly = arguments != null && "true".equals(arguments.getString("history-only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (historyOnly) return "native undo/redo switches, persistence, editor history, field isolation and password guard";
         return Build.VERSION.SDK_INT < 30
-            ? "physical brand and skin long presses open toolbar editor; native order sheet cancellation"
-            : "physical brand and skin long presses, menu entry, existing settings route and native order sheet cancellation";
+            ? "physical brand and skin long presses open toolbar editor; native order sheet cancellation; native undo/redo switches, persistence, editor history, field isolation and password guard"
+            : "physical brand and skin long presses, menu entry, existing settings route and native order sheet cancellation; native undo/redo switches, persistence, editor history, field isolation and password guard";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (historyOnly) {
+            new ToolbarHistoryDeviceChecks(this).run();
+            return;
+        }
         stage = "existing keyboard settings page";
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page KEYBOARD_OPTIONS");
         await(node -> equalsText("英文自动大写", node.getText()));
@@ -42,6 +55,7 @@ public final class ToolbarEditorDeviceSmoke extends DeviceSmoke {
             tap(tool("编辑工具栏"));
             awaitToolbarEditor();
         }
+        new ToolbarHistoryDeviceChecks(this).run();
     }
 
     private void openKeyboard() throws Exception {

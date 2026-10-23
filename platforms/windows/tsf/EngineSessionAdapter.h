@@ -12,6 +12,8 @@ struct EngineCandidate {
   std::string text;
   bool highlighted = false;
   std::size_t index = 0;
+  // 引擎的 `CandidateSource`（`common/CandidateSources.h`）。占位席位要靠它认出来：它们占着一格和一个编号却选不中。
+  unsigned source = 0;
 };
 struct EngineView {
   uint64_t session = 0;

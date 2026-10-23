@@ -6,7 +6,8 @@
 static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider, BOOL providerSocketAvailable) {
     if (providerSocketAvailable) return NO;
     NSString *identifier = provider.lowercaseString ?: @"";
-    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"bailian"]
+    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"bailian",
+              @"zhipu", @"minimax", @"custom"]
         containsObject:identifier];
 }
 

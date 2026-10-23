@@ -11,7 +11,7 @@ macOS 的「我的插件」从 10-19 起是插件库（`packages/ui/src/settings
 - `build_plugin_list` 照 `PluginLibraryView` 画：各块上下相隔 20，快捷卡片（可用宽度够 380 时两列，`responsive_grid(184, 12, 2)`）、标题行（「已安装」17 DIP 半粗体，同一 TextBlock 里接 12 DIP 次要色的「N 个插件」，读到目录后才有；导入按钮在右边）、导入后的说明、搜索框、筛选、分节、「无法载入的插件」、「插件导入说明」。卡片、筛选、搜索框、空状态和折叠说明的尺寸与颜色取自 `plugin-library-style.ts` 和 `styles.css` 的 macOS 一节（`--p-hair`、`--accent-soft`、`--accent-soft-border`），写在 `plugin_library_card`、`plugin_library_chip`、`plugin_library_search`、`plugin_empty_message`、`plugin_import_help` 里。
 - 卡片是整张按钮，读屏名是标题，说明和标记作为帮助文本（与原来的列表行相同）；底色、描边和前景经模板资源覆盖，悬停铺淡强调色；插件卡片的类型图标不写死颜色、继承按钮前景，平时次要色，悬停和按下换成强调色（`packIcon` 的 `group-hover:text-accent`），快捷卡片的图标一直是强调色。类型图标是 `kindIcons` 在 Segoe Fluent Icons 里最接近的字形（`plugin_kind_glyph`），缺失的选择用信息图标。卡片说明照 macOS：内置包写「内置」，其余写版本，再接「按键旋律」和非内置包的作者（不再加「作者」二字），脚本插件也用这一句；`PluginPageModel.h` 的 `pack_row_description` 改成这个规则。
 - 分类、筛选、搜索和分节的规则放进 `PluginPageModel.h` 的「插件库」一节（`library_categories`、`library_selected_kind`、`library_query`、`library_matches`、`library_groups`、`library_count`、`library_section_title`、`library_empty_message`、`command_table_note`），由 `tests/ui/plugin_page_model.cpp` 核对。Windows 宿主路由 / 指令也运行脚本插件，所以指令表一类总在、脚本插件排在最后，分节标题是「脚本插件（实验）」，筛选按钮上是「脚本插件」。搜索按 JavaScript 的 trim 去掉两头空白再逐字转小写，匹配名称、id、作者、描述和类型名；缺失的选择匹配标题加 id。选中的类型从目录里消失时按「全部」画，记下的值不改。
-- 筛选和搜索记在窗口成员 `plugin_library_kind_`、`plugin_library_query_`，打开详情再回来、离开页面再回来都保留（共享页的 `libraryFilter` 在 `PluginsSection` 里，页面失活时不清）。侧栏搜索结果落到插件页时清掉两者，被藏起来的卡片才画得出来。建搜索索引时不看筛选和搜索，每个包都记下，结果的位置写成「插件 › 类型」；「导入文件夹」「导入 .zip」也记进索引，替代原来的「从文件导入」一行。
+- 筛选和搜索记在窗口成员 `plugin_library_kind_`、`plugin_library_query_`，打开详情再回来、离开页面再回来都保留（共享页的 `libraryFilter` 在 `usePluginsSection` 里，页面失活时不清）。侧栏搜索结果落到插件页时清掉两者，被藏起来的卡片才画得出来。建搜索索引时不看筛选和搜索，每个包都记下，结果的位置写成「插件 › 类型」；「导入文件夹」「导入 .zip」也记进索引，替代原来的「从文件导入」一行。
 - 搜索框打字时只清空并重画分节面板（`fill_plugin_sections`），不重建页面，焦点留在框里。点筛选按钮时整页重画，焦点经 `plugin_pending_focus_ = "filter/<类型>"` 落回刚点的按钮。关上详情后焦点回到原来那张卡片的逻辑不变。
 - 筛选按钮放在 `VariableSizedWrapGrid` 的定宽格子里（100 × 34），按钮铺满格子；WinUI 没有按内容宽度换行的面板，这是与 macOS 的 `flex-wrap` 唯一的外观差别。
 
@@ -33,3 +33,5 @@ macOS 的「我的插件」从 10-19 起是插件库（`packages/ui/src/settings
 
 - `tests/ui/plugin_page_model.cpp` 用 `x86_64-w64-mingw32-g++ -std=c++20 -fsyntax-only -Wall -Wextra -Wshadow -Werror` 编过，用本机 clang++ 编译运行输出 `plugin page model: ok`。
 - `main.cpp` 依赖 WinUI 和 C++/WinRT 头文件，本机编不了，只能靠 PR 的 Windows CI。
+
+共享状态与导航的模块边界见[插件设置状态与导航](../simplification/2026-10-23-plugins-section-state.md)，本篇的布局和筛选保留规则继续有效。

@@ -1262,6 +1262,7 @@ int wmain(int argc, wchar_t **argv) {
           next.polish_token = provider_token(input, "polish_tokens",
                                              "polish_token",
                                              next.polish_provider);
+          next.polish_thinking = input.value("polish_thinking", std::string{"disabled"});
           next.polish_endpoint = input.value("polish_endpoint", std::string{});
           next.polish_model = input.value("polish_model", std::string{});
           next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});

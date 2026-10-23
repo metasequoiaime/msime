@@ -1,13 +1,22 @@
 import {
+  grammarModelPack,
   sentenceAssociationControlState,
   sentenceAssociationLevel,
   sentenceAssociationWithLevel,
+  type GrammarModel,
   type SentenceAssociationLevel,
   type SentenceAssociationPreferences,
 } from "./sentence-association-preferences";
 import { formatModelBytes } from "../voice/local-model-helpers";
-import { ResourcePackRow, resourcePackStatus, type ResourcePacks } from "./resource-packs";
+import {
+  ResourcePackRow,
+  resourcePackStatus,
+  resourcePackTitles,
+  type ResourcePackId,
+  type ResourcePacks,
+} from "./resource-packs";
 import { SelectRow } from "./select-row";
+import { ActionRow } from "./action-row";
 import { SwitchRow } from "./switch-row";
 
 export {
@@ -89,6 +98,55 @@ export function SentenceAssociationSection({
           description="某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果。"
           checked={value?.show_next_on_duplicate ?? false}
           onChange={(checked) => onChange({ ...value, show_next_on_duplicate: checked })}
+        />
+      )}
+      {!mobile && (
+        <GrammarModelRow value={value} resourcePacks={resourcePacks} onChange={onChange} />
+      )}
+    </>
+  );
+}
+
+/** 语法模型单选及其下载/删除行，只有桌面宿主提供。选中但没装好时显示下载
+ * 行（文件校验 SHA-256 后才发布），装好后提供删除入口；删除前先由宿主
+ * 释放引擎的共享内存映射。 */
+function GrammarModelRow({
+  value,
+  resourcePacks,
+  onChange,
+}: {
+  value: SentenceAssociationPreferences | undefined;
+  resourcePacks?: ResourcePacks;
+  onChange: (value: SentenceAssociationPreferences) => void;
+}) {
+  const model = value?.grammar_model ?? "none";
+  const pack = model === "none" ? undefined : (grammarModelPack[model] as ResourcePackId);
+  const status = pack ? resourcePackStatus({ statuses: resourcePacks?.statuses }, pack) : undefined;
+  return (
+    <>
+      <SelectRow
+        title="语法模型"
+        description="octagram 语法模型给整句候选加分；模型按需下载，不随安装包。选择后切换一次输入框生效。"
+        value={model}
+        onChange={(event) =>
+          onChange({ ...value, grammar_model: event.target.value as GrammarModel })
+        }
+      >
+        <option value="none">不使用</option>
+        <option value="wanxiang">万象 LTS（约 380MB，CC-BY-4.0）</option>
+        <option value="baguwen_word">八股文·词级（约 197MB，LGPL-3.0）</option>
+        <option value="baguwen_compact">八股文·词级紧凑（约 39MB，LGPL-3.0）</option>
+      </SelectRow>
+      {pack && resourcePacks && <ResourcePackRow packs={resourcePacks} id={pack} />}
+      {pack && status?.state === "installed" && resourcePacks && (
+        <ActionRow
+          title={resourcePackTitles[pack]}
+          description={
+            resourcePacks.errors[pack] ?? "已安装；删除后切换输入框即可退回无语法模型的候选行为。"
+          }
+          action={() => resourcePacks.remove(pack)}
+          label="删除"
+          ariaLabel={`删除${resourcePackTitles[pack]}`}
         />
       )}
     </>

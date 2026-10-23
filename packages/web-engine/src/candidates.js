@@ -241,7 +241,8 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
   pointer-events: none;
 }
 .skin-background-image[hidden],
-.skin-decoration-image[hidden] {
+.skin-decoration-image[hidden],
+.skin-decoration-word[hidden] {
   display: none;
 }
 
@@ -502,6 +503,17 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
   left: max(0px, calc(50% - var(--msime-skin-decoration-width) / 2));
   object-position: center bottom;
 }
+.skin-decoration-word {
+  position: absolute;
+  z-index: 3;
+  font-family: var(--cand-font-family);
+  font-weight: normal;
+  line-height: 1.2;
+  white-space: pre;
+  width: max-content;
+  overflow: visible;
+  pointer-events: none;
+}
 .pinyin .text { color: var(--cand-preedit-text, var(--cand-text)); }
 .cursor { background: var(--cand-caret, var(--accent-strong)); }
 .first::before { background: var(--cand-selected-bar-color, var(--accent-strong)); }
@@ -654,6 +666,9 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   const parent = element(doc, "div", "containerParent");
   const decoration = element(doc, "img", "skin-decoration-image", PARTS.decoration);
   decoration.alt = "";
+  const decorationWord = element(doc, "span", "skin-decoration-word");
+  decorationWord.hidden = true;
+  decorationWord.setAttribute("aria-hidden", "true");
   const card = element(doc, "div", "container", PARTS.card);
   const background = element(doc, "img", "skin-background-image", PARTS.background);
   background.alt = "";
@@ -665,15 +680,21 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   const panel = element(doc, "div", "skin-panel");
   panel.setAttribute("aria-hidden", "true");
   stage.append(below, card, above);
-  parent.append(decoration, stage);
+  parent.append(decoration, decorationWord, stage);
   root.append(parent);
   shadow.append(root);
 
   // 装饰图、背景图加载失败就不画，候选框照常显示（桌面端解码失败时也是这样）。
   const onImageError = (e) => {
     e.currentTarget.hidden = true;
+    if (e.currentTarget === decoration) {
+      decorationWord.hidden = true;
+      decorationWord.textContent = "";
+    }
   };
+  const onDecorationLoad = () => { if (!destroyed && frame && !root.hidden) place(); };
   decoration.addEventListener("error", onImageError);
+  decoration.addEventListener("load", onDecorationLoad);
   background.addEventListener("error", onImageError);
 
   // 点候选时不要让文本框失焦。
@@ -822,6 +843,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
 
   // 把 resolveSkin 的结果写到根元素上：先清掉上一个皮肤写的属性，再逐个 setProperty 写 variables。图片地址来自已校验的 geometry；先由 <img> 确认可用，面板失败时保留可读回退。
   const applySkin = () => {
+    decorationWord.hidden = true;
+    decorationWord.textContent = "";
     for (const name of applied) root.style.removeProperty(name);
     applied = [];
     root.className = `candidate wnd-${resolved.layout === "vertical" ? "v" : "h"}`;
@@ -1029,6 +1052,30 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     }
   };
 
+  const layoutDecorationWord = () => {
+    const deco = resolved.geometry.decoration;
+    const style = deco?.candidate;
+    const page = Array.isArray(frame?.page) ? frame.page : [];
+    const index = style?.index === 0 ? frame?.highlight : (style?.index ?? 0) - 1;
+    const item = Number.isInteger(index) && index >= 0 && index < page.length ? page[index] : null;
+    const text = item && style ? String(item.text ?? "") + (style.stripBadge ? "" : String(item.badge ?? "")) : "";
+    decorationWord.textContent = text;
+    decorationWord.hidden = !text || !style || decoration.hidden || !decoration.complete || decoration.naturalWidth === 0;
+    if (decorationWord.hidden) return;
+    decorationWord.style.setProperty("color", style.color);
+    px(decorationWord, "font-size", style.fontSizeDip);
+    const naturalWidth = decorationWord.offsetWidth;
+    const limit = style.maxWidthDip > 0 ? style.maxWidthDip : deco.width;
+    if (naturalWidth > limit && naturalWidth > 0) {
+      px(decorationWord, "font-size", Math.max(Math.min(style.fontSizeDip, style.minFontSizeDip), style.fontSizeDip * limit / naturalWidth));
+    }
+    // 与来源一样相对声明的装饰框对齐，不拿等比缩放后图片的不透明像素当框。
+    const x = style.alignH === "center" ? (deco.width - decorationWord.offsetWidth) / 2 : style.alignH === "right" ? deco.width - decorationWord.offsetWidth : 0;
+    const y = style.alignV === "center" ? (deco.top - decorationWord.offsetHeight) / 2 : style.alignV === "bottom" ? deco.top - decorationWord.offsetHeight : 0;
+    px(decorationWord, "left", decoration.offsetLeft + x + style.offsetXDip);
+    px(decorationWord, "top", decoration.offsetTop + decoration.offsetHeight - deco.top + y + style.offsetYDip);
+  };
+
   // 与 macOS 候选窗（CandidatePanel.mm）一致：整个候选栏（含装饰带）放在锚点正下方，下面放不下时翻到锚点上方，再夹在视口里。纵排时用这次组字里最高的一页决定上下，翻页时不会因为某页变高而跳到另一侧。
   const place = () => {
     const html = doc.documentElement;
@@ -1040,6 +1087,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     root.style.setProperty("top", "0px");
     layoutExpanded(vh);
     layoutCanvas();
+    layoutDecorationWord();
     const { width, height } = root.getBoundingClientRect();
     const items = card.querySelector(".candidate-items");
     if (items && resolved.geometry.layout?.itemCornersFollowCard) {
@@ -1119,6 +1167,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     }
     tallest = 0;
     frame = null;
+    decorationWord.textContent = "";
+    decorationWord.hidden = true;
     anchor = null;
     shownHighlight = null;
     gridIdentity = null;
@@ -1181,6 +1231,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       root.removeEventListener("scroll", onScroll, true);
       root.removeEventListener("wheel", onWheel);
       decoration.removeEventListener("error", onImageError);
+      decoration.removeEventListener("load", onDecorationLoad);
       background.removeEventListener("error", onImageError);
       host.remove();
     },

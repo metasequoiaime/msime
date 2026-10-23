@@ -164,6 +164,9 @@ mod tests {
             "everyapi",
             "mistral",
             "bailian",
+            "zhipu",
+            "minimax",
+            "custom",
         ] {
             assert!(test(&config(provider), &Fake(Some(200))).ok);
             for status in [None, Some(301), Some(401), Some(403), Some(429), Some(500)] {

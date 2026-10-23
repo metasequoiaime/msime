@@ -66,12 +66,14 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.sourceGetsNoGloss(6)
                 && CandidateTranslationPolicy.sourceGetsNoGloss(7)
                 && CandidateTranslationPolicy.sourceGetsNoGloss(13)
-                && CandidateTranslationPolicy.sourceGetsNoGloss(14),
+                && CandidateTranslationPolicy.sourceGetsNoGloss(14)
+                && CandidateTranslationPolicy.sourceGetsNoGloss(16),
             "all gloss-blocked sources are recognized by the display gate");
         check(!CandidateTranslationPolicy.userTranslationSourceAllowed(6)
                 && !CandidateTranslationPolicy.userTranslationSourceAllowed(7)
                 && !CandidateTranslationPolicy.userTranslationSourceAllowed(13)
-                && !CandidateTranslationPolicy.userTranslationSourceAllowed(14),
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(14)
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(16),
             "emoji, kaomoji, mixed Japanese, and plugin candidates are not sent to user services");
         check(CandidateTranslationPolicy.userTranslationSourceAllowed(0)
                 && CandidateTranslationPolicy.userTranslationSourceAllowed(12),

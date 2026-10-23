@@ -6,6 +6,7 @@ import { SettingsPage, type Snapshot, type TouchKeyboardSkinDesign } from "@msim
 import { SkinGrid } from "../../../../packages/ui/src/settings/skin-grid";
 import type { ExternalSkin } from "../../../../packages/ui/src/skin/external-skins";
 import { offeredThemeCatalog } from "../../../../packages/ui/src/theme/global-theme";
+import { recordSkinSafely } from "../../../../packages/ui/src/settings/typing-statistics-model";
 import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 
@@ -302,6 +303,15 @@ function communitySkins() {
 
 const skinTab = (name: string) =>
   within(screen.getByRole("tablist", { name: "皮肤分类" })).getByRole("tab", { name });
+
+test("skin usage statistics rejection is handled", async () => {
+  const recordSkin = vi.fn().mockRejectedValue(new Error("synthetic statistics failure"));
+  const onApplied = vi.fn((id: string) => recordSkinSafely({ recordSkin }, id));
+  grid({ onApplied });
+  expect(() => fireEvent.click(screen.getByRole("button", { name: "纸白" }))).not.toThrow();
+  expect(onApplied).toHaveBeenCalledWith("paper");
+  await waitFor(() => expect(recordSkin).toHaveBeenCalledWith("paper"));
+});
 
 test("the HarmonyOS phone's 皮肤 page is only the grid, without 更多选项", async () => {
   const save = vi.fn().mockImplementation(async (_revision: number, preferences) => ({

@@ -45,6 +45,8 @@ struct CandidateLayoutMetrics
     double itemMinWidth = 0.0;
     // 横排每行剩余宽度只均分给可见候选，空行不能变成可点击的空格。
     bool justifyRows = false;
+    // 显式候选项上下留白包住所有文字行；缺省为零，保留宿主已有的行高规则。
+    double paddingVertical = 0.0;
 };
 
 // A run's box relative to the row's content column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.
@@ -59,6 +61,7 @@ struct CandidateRunBox
 
 struct CandidateItemLayout
 {
+    double contentTop = 0.0;
     double textWidth = 0.0;
     // Height of the text's box from the row top: one candidateRow, or the measured wrapped height when the text is wider than the column. The text is centred in it, and runs placed below the first line start under it.
     double textHeight = 0.0;
@@ -133,6 +136,10 @@ inline CandidateItemLayout LayoutCandidateItem(const CandidateItemWidths &item, 
             layout.translation = below(CandidateRun::translation, item.translation, width, line);
         }
     }
+    layout.contentTop = std::max(0.0, metrics.paddingVertical);
+    layout.annotation.y += layout.contentTop;
+    layout.translation.y += layout.contentTop;
+    layout.height += 2.0 * layout.contentTop;
     return layout;
 }
 

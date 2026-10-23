@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
         ? msime::voice::recognize_cloud_asr({0.0f}, argv[2], argv[3],
               "fixture", "synthetic-token", "zh-CN", cancelled)
         : msime::voice::polish_cloud_text("synthetic transcript", argv[2],
-              argv[3], "fixture", "synthetic-token", "fixture prompt", cancelled);
+              argv[3], "fixture", "synthetic-token", "fixture prompt", "disabled", cancelled);
     return expected && result == "synthetic result" ? 0 : 1;
   } catch (const std::exception &) {
     // Do not print response bodies or transport diagnostics.

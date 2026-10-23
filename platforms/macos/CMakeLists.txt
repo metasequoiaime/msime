@@ -28,6 +28,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
+# 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
+add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
+target_compile_options(trilingual-cycle-routing-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+set_target_properties(trilingual-cycle-routing-test PROPERTIES OBJCXX_STANDARD 20)
+target_link_libraries(trilingual-cycle-routing-test PRIVATE "-framework Foundation")
+add_test(NAME trilingual-cycle-routing COMMAND trilingual-cycle-routing-test)
 add_executable(desktop-input-interop-test tests/input/DesktopInputInteropTest.mm src/core/DesktopInputSession.mm)
 target_compile_options(desktop-input-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-input-interop-test PRIVATE "-framework AppKit")
@@ -143,23 +150,37 @@ target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 # 单按 Caps Lock 切换中英文时用 IOKit 的 IOHIDSetModifierLockState 撤回大写锁定（系统框架，不需要额外权限）。
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework IOKit")
-# build-number.txt 是同一版本内的构建号，与 version.txt 放在一起、随它手工设定：每个新版本从 1 重新开始，同一版本需要和上一次区分的重新构建再往上加。CFBundleVersion 不直接用它，而是把版本号编进去：((主 × 1000 + 次) × 1000 + 修订) × 1000 + 构建号，0.54.0 的构建 1 是 54000001。Sparkle 的安装进程（Autoupdate 的 SUPlainInstaller）只用标准比较器比新旧 bundle 的 CFBundleVersion，新的更小就当降级拒绝装，不经过输入法里的任何委托；构建号每个版本从 1 重来的话，0.53.0 的构建 3 升 0.54.0 的构建 1 就会被拒。编码后的值跨版本单调递增，又仍是一个整数：设置应用把构建号按 u64 解析（apps/desktop/src-tauri/src/platform/macos/macos_input_source.rs 的 BundleVersion），带点的写法会让它读不出版本。次版本号、修订号和构建号因此都必须小于 1000。
+# build-number.txt 是本地构建的默认构建号；发布工作流传入 MSIME_BUILD_NUMBER，用全局工作流运行 ID 区分同一版本的 beta、nightly 和不同发布运行。CFBundleVersion 不直接用它，而是把版本号编进去：((主 × 1000 + 次) × 1000 + 修订) × 1,000,000,000 + 构建号。这样发布构建号可以在 1 到 999999999 之间增长，且跨版本保持单调；0.54.0 的本地构建 1 是 5400000000000000001。Sparkle 的安装进程（Autoupdate 的 SUPlainInstaller）只用标准比较器比新旧 bundle 的 CFBundleVersion，新的更小就当降级拒绝装，不经过输入法里的任何委托。设置应用把构建号按 u64 解析（apps/desktop/src-tauri/src/platform/macos/macos_input_source.rs 的 BundleVersion）。
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
-file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" MSIME_BUILD_NUMBER LIMIT_COUNT 1)
+set(MSIME_BUILD_NUMBER "" CACHE STRING "macOS bundle 构建号；缺省使用 build-number.txt")
+if(NOT MSIME_BUILD_NUMBER)
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" MSIME_BUILD_NUMBER LIMIT_COUNT 1)
+endif()
 string(STRIP "${MSIME_BUILD_NUMBER}" MSIME_BUILD_NUMBER)
-if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]?[0-9]?$")
-  message(FATAL_ERROR "platforms/macos/build-number.txt must hold an integer from 1 to 999, not '${MSIME_BUILD_NUMBER}'")
+if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]*$" OR MSIME_BUILD_NUMBER GREATER 999999999)
+  message(FATAL_ERROR "MSIME_BUILD_NUMBER must hold an integer from 1 to 999999999, not '${MSIME_BUILD_NUMBER}'")
 endif()
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" MSIME_MACOS_VERSION LIMIT_COUNT 1)
 string(STRIP "${MSIME_MACOS_VERSION}" MSIME_MACOS_VERSION)
 if(NOT MSIME_MACOS_VERSION MATCHES "^([0-9]+)\\.([0-9][0-9]?[0-9]?)\\.([0-9][0-9]?[0-9]?)$")
   message(FATAL_ERROR "platforms/macos/version.txt must be MAJOR.MINOR.PATCH with MINOR and PATCH below 1000, not '${MSIME_MACOS_VERSION}'")
 endif()
-math(EXPR MACOSX_BUNDLE_BUNDLE_VERSION "((${CMAKE_MATCH_1} * 1000 + ${CMAKE_MATCH_2}) * 1000 + ${CMAKE_MATCH_3}) * 1000 + ${MSIME_BUILD_NUMBER}")
+math(EXPR MACOSX_BUNDLE_BUNDLE_VERSION "((${CMAKE_MATCH_1} * 1000 + ${CMAKE_MATCH_2}) * 1000 + ${CMAKE_MATCH_3}) * 1000000000 + ${MSIME_BUILD_NUMBER}")
 message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
 # version.txt is the only place the version is written: Info.plist.in takes CFBundleShortVersionString from this variable, and the sources that need a fallback for an unbundled executable read MSIME_MACOS_VERSION_STRING, so a release bumps version.txt (and build-number.txt) and nothing else.
 set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${MSIME_MACOS_VERSION}")
 add_compile_definitions(MSIME_MACOS_VERSION_STRING="${MSIME_MACOS_VERSION}")
+set(MSIME_INPUT_SOURCE_REVISION "" CACHE STRING "写入输入法 bundle 的源码修订")
+# CMake 的正则不支持 `{m,n}` 计数量词，写进正则的长度限制会让任何修订都不匹配，所以长度单独检查。
+string(LENGTH "${MSIME_INPUT_SOURCE_REVISION}" MSIME_INPUT_SOURCE_REVISION_LENGTH)
+if(MSIME_INPUT_SOURCE_REVISION AND (NOT MSIME_INPUT_SOURCE_REVISION MATCHES "^[0-9A-Fa-f]+$" OR
+   MSIME_INPUT_SOURCE_REVISION_LENGTH LESS 7 OR MSIME_INPUT_SOURCE_REVISION_LENGTH GREATER 64))
+  message(FATAL_ERROR "MSIME_INPUT_SOURCE_REVISION must be a hexadecimal source revision")
+endif()
+set(MSIME_INPUT_SOURCE_REVISION_PLIST "")
+if(MSIME_INPUT_SOURCE_REVISION)
+  set(MSIME_INPUT_SOURCE_REVISION_PLIST "<key>MSIMEInputSourceRevision</key><string>${MSIME_INPUT_SOURCE_REVISION}</string>")
+endif()
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -241,8 +262,12 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICE
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt" "${MSIME_LEGAL_DIRECTORY}/Administrative-divisions-of-China-WTFPL.txt" COPYONLY)
 # The Korean Hanja table, compiled into the engine from libhangul's data/hanja/hanja.txt (BSD-3-Clause, whose clause 2 requires the notice in binary distributions).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/libhangul-hanja-BSD-3-Clause.txt" COPYONLY)
+# 语法模型查询逻辑的移植声明随引擎分发。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/librime-octagram-BSD-3-Clause.txt" COPYONLY)
 # 拆字反查（C 模式）的部件拼音表，从 kfcd/chaizi（開放詞典《漢語拆字字典》，CC BY 3.0）改编后编进引擎；CC BY 3.0 第 4(b) 条要求分发改编作品时附上署名和改动说明，这份文件就是。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
+# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0）；第 3(a) 条要求分发改编数据时附上署名、许可证地址和改动说明，这份文件就是。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
 # 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
@@ -424,6 +449,7 @@ add_test(NAME secure-file-reader COMMAND "${CMAKE_CURRENT_BINARY_DIR}/secure-fil
 set_tests_properties(secure-file-reader PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES ${MSIME_BACKEND_RUST_ACCOUNT_SOURCES}
   src/backend/clipboard/BackendCloudClipboardProvider.swift
+  src/backend/clipboard/BackendCloudClipboardRoute.swift
   src/backend/clipboard/BackendCloudClipboardDriver.swift tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
@@ -680,6 +706,13 @@ add_test(NAME macos-diagnostic-log COMMAND macos-diagnostic-log-test)
 add_executable(system-path-alias-test tests/core/SystemPathAliasTest.cpp)
 target_compile_options(system-path-alias-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME system-path-alias COMMAND system-path-alias-test)
+# 纯逻辑：悬浮工具栏的自动隐藏与阴影判定不碰窗口，所以在没有图形会话的机器上也能跑。
+add_executable(floating-toolbar-behavior-test tests/core/FloatingToolbarBehaviorTest.cpp)
+target_compile_options(floating-toolbar-behavior-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME floating-toolbar-behavior COMMAND floating-toolbar-behavior-test)
+add_executable(vim-mode-test tests/core/VimModeTest.cpp)
+target_compile_options(vim-mode-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME vim-mode COMMAND vim-mode-test)
 add_executable(shared-voice-preferences-test tests/voice/SharedVoicePreferencesTest.mm)
 target_compile_options(shared-voice-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shared-voice-preferences-test PRIVATE "-framework Foundation")
@@ -880,7 +913,7 @@ target_compile_options(external-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG
 add_test(NAME external-skin COMMAND external-skin-test)
 add_executable(text-client-test tests/core/TextClientTest.mm)
 target_compile_options(text-client-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(text-client-test PRIVATE apple-client "-lsqlite3")
+target_link_libraries(text-client-test PRIVATE apple-client)
 add_test(NAME text-client COMMAND text-client-test)
 add_executable(cloud-candidate-request-test tests/candidate/CloudCandidateRequestTest.mm src/cloud/CloudCandidateRequest.mm)
 target_compile_options(cloud-candidate-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -959,6 +992,8 @@ target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText" "-framework CoreAudio" "-framework UniformTypeIdentifiers")
 add_test(NAME shortcut COMMAND shortcut-test)
+add_test(NAME shortcut-vim-mode COMMAND shortcut-test --vim-mode)
+add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1030,12 +1065,22 @@ target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wal
 target_link_libraries(voice-provider-settings-keys-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-keys COMMAND voice-provider-settings-keys-test)
+add_executable(voice-provider-catalog-test tests/voice/VoiceProviderCatalogTest.mm
+  src/voice/VoiceProviderSettings.mm)
+target_compile_options(voice-provider-catalog-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-provider-catalog-test PRIVATE "-framework AppKit" "-framework Security"
+  "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME voice-provider-catalog COMMAND voice-provider-catalog-test)
 add_executable(voice-provider-settings-validation-test tests/voice/VoiceSettingsTests.mm
   src/voice/VoiceProviderSettings.mm)
 target_compile_options(voice-provider-settings-validation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-provider-settings-validation-test PRIVATE "-framework AppKit" "-framework Security"
   "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-provider-settings-validation COMMAND voice-provider-settings-validation-test)
+add_executable(voice-polish-presets-test tests/voice/VoicePolishPresetsTest.mm)
+target_compile_options(voice-polish-presets-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-polish-presets-test PRIVATE "-framework AppKit")
+add_test(NAME voice-polish-presets COMMAND voice-polish-presets-test)
 add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm src/voice/HTTPVoiceRequest.mm)
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
@@ -1062,6 +1107,14 @@ add_test(NAME candidate-panel COMMAND candidate-panel-test)
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
+# 候选释义的词性显示与单条释义两个开关，纯逻辑，不依赖窗口。
+add_executable(candidate-translation-display-test tests/core/CandidateTranslationDisplayTest.cpp)
+target_compile_options(candidate-translation-display-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-translation-display COMMAND candidate-translation-display-test)
+# 候选徽标的字形选择（AI 来源两档、固定排位开关与三档样式），纯逻辑，不依赖窗口。
+add_executable(candidate-badge-policy-test tests/core/CandidateBadgePolicyTest.cpp)
+target_compile_options(candidate-badge-policy-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-badge-policy COMMAND candidate-badge-policy-test)
 # The readings drawn after gloss lines: language per line, romaji from the system tokenizer, and the drawn string.
 add_executable(candidate-pronunciation-test tests/candidate/CandidatePronunciationTest.mm)
 target_compile_options(candidate-pronunciation-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
@@ -1076,6 +1129,19 @@ add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
+# 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
+add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
+# 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
+add_test(NAME candidate-factory-layout COMMAND candidate-row-layout-test --factory-layout)
+add_test(NAME candidate-factory-shadow COMMAND candidate-row-layout-test --shadow-host)
+add_test(NAME candidate-factory-pager COMMAND candidate-row-layout-test --pager-host)
+add_test(NAME candidate-factory-expand-toggle COMMAND candidate-row-layout-test --expand-toggle)
+# 装饰词的真实控制器绘制独立运行，避免大布局矩阵与动效计时互相影响。
+add_executable(candidate-decoration-overlay-test tests/candidate/CandidateDecorationOverlayTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm)
+target_link_libraries(candidate-decoration-overlay-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_compile_options(candidate-decoration-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME candidate-decoration-overlay COMMAND candidate-decoration-overlay-test)
+set_tests_properties(candidate-decoration-overlay PROPERTIES TIMEOUT 30)
 # Canvas 的切片与动画资源独立验证，不依赖输入会话和词库。
 add_executable(candidate-canvas-test tests/candidate/CandidateCanvasTest.mm src/candidate/CandidateCanvas.mm)
 target_compile_options(candidate-canvas-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

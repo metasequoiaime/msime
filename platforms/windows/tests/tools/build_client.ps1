@@ -166,7 +166,7 @@ try {
         if ($calls[$index].Prefix -ne $x86) { throw 'Incorrect x86 dependency scope' }
     }
     if ($calls[14].Values -notcontains 'x64' -or
-        $calls[14].Values -notcontains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $calls[14].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF' -or
         $calls[20].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
         $calls[20].Values -notcontains 'Win32' -or
         $calls[21].Values -notcontains 'msime-tsf' -or
@@ -183,6 +183,7 @@ try {
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1' -RustOutputs $prebuilt
     $calls = @($global:ClientBuildCalls)
     if ($calls.Count -ne 20 -or @($calls | Where-Object { $_.Name -in 'cargo', 'pnpm' }).Count -ne 0) { throw 'Build compiled Rust although -RustOutputs was given' }
+    if ($calls[0].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF') { throw 'Prebuilt unsigned package requested UIAccess' }
     if ($calls[0].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib')) -or
         $calls[2].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api.dll') -or
         $calls[4].Values -notcontains (Join-Path $prebuilt 'x64/MSIME.exe') -or
@@ -190,6 +191,17 @@ try {
         $calls[12].Values -notcontains (Join-Path $prebuilt 'arm64/msime_host_api.dll') -or
         $calls[16].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib'))) {
         throw 'Build did not take its Rust inputs from -RustOutputs'
+    }
+    # 同一输出目录从可信签名构建切回普通构建时，OFF 必须显式覆盖旧缓存。
+    foreach ($enabled in @($true, $false)) {
+        $global:ClientBuildCalls.Clear()
+        & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -RustOutputs $prebuilt -ServerUiAccess:$enabled
+        $expected = if ($enabled) { 'ON' } else { 'OFF' }
+        $configures = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-S' })
+        if ($configures[0].Values -notcontains "-DMSIME_SERVER_UIACCESS=$expected" -or
+            @($configures | Select-Object -Skip 1 | Where-Object { $_.Values -match 'MSIME_SERVER_UIACCESS' }).Count -ne 0) {
+            throw 'Server UIAccess mode was not isolated to the x64 Server configuration'
+        }
     }
     foreach ($invalid in @('relative rust', (Join-Path $fixture 'missing rust'))) {
         $global:ClientBuildCalls.Clear()

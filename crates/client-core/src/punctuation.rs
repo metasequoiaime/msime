@@ -11,20 +11,37 @@ pub enum QuoteMarks {
     Corner,
 }
 
-/// 中文标点下引号键和方头括号键实际出哪一组字。引擎、View 和 Windows Server 都只认这两种确定的值；View 里序列化成 `{"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+/// 中文标点下引号键和方头括号键实际出哪一组字、`\` 和 `/` 谁出顿号。引擎、View 和 Windows Server 都只认解析好的值；View 里序列化成 `{"quotes": "curly"|"corner", "brackets": "solid"|"hollow", "enumeration_comma_backslash": bool, "enumeration_comma_slash": bool}`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct PunctuationMarks {
     pub quotes: QuoteMarks,
     pub brackets: BracketStyle,
+    /// `\` 键在中文标点下出顿号「、」。
+    pub enumeration_comma_backslash: bool,
+    /// `/` 键在中文标点下出顿号「、」。
+    pub enumeration_comma_slash: bool,
 }
 
-/// 从偏好算出生效的标点样式，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号。Windows Server 读偏好 JSON 时照抄这条规则（`server_main.cpp` 的 `tsf_local_config`）。
+impl Default for PunctuationMarks {
+    /// 与偏好的缺省一致：`\` 出顿号、`/` 是命令模式触发键，不出顿号。
+    fn default() -> Self {
+        Self {
+            quotes: QuoteMarks::Curly,
+            brackets: BracketStyle::Solid,
+            enumeration_comma_backslash: true,
+            enumeration_comma_slash: false,
+        }
+    }
+}
+
+/// 从偏好算出生效的标点样式与顿号键，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；「至少留一个」在这里归一，两个顿号键都关掉时按「`\` 开」读，采用 Windows IPC 无效值的反斜杠回退。Windows Server 读偏好 JSON 时照抄样式规则（`server_main.cpp` 的 `tsf_local_config`）。
 pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
     let corner = match preferences.quote_style {
         QuoteStyle::Curly => false,
         QuoteStyle::Corner => true,
         QuoteStyle::CornerWhenTraditional => preferences.traditional_chinese_output,
     };
+    let slash = preferences.enumeration_comma_slash;
     PunctuationMarks {
         quotes: if corner {
             QuoteMarks::Corner
@@ -32,6 +49,8 @@ pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
             QuoteMarks::Curly
         },
         brackets: preferences.bracket_style,
+        enumeration_comma_backslash: preferences.enumeration_comma_backslash || !slash,
+        enumeration_comma_slash: slash,
     }
 }
 
@@ -185,10 +204,21 @@ pub fn should_replace_repeat(
     chinese_mark(context.ascii)
 }
 
+/// `、` 的 ASCII 孪生按当前开着的顿号键判（契约 `enumerationComma` 段）：`source` 是产生它的键，开着时原样转回；不是顿号键（候选上屏）时按契约序取开着的那个——`\` 优先、`/` 其次；两个都关按归一的 `\`。
+pub fn enumeration_comma_ascii(source: u8, marks: &PunctuationMarks) -> u8 {
+    match source {
+        b'\\' if marks.enumeration_comma_backslash => b'\\',
+        b'/' if marks.enumeration_comma_slash => b'/',
+        _ if marks.enumeration_comma_backslash => b'\\',
+        _ if marks.enumeration_comma_slash => b'/',
+        _ => b'\\',
+    }
+}
+
 /// The ASCII twin of a Chinese punctuation mark, or `None` where there is none.
 ///
-/// Both quote directions map to the same ASCII quote: a straight quote has no handedness. 直角引号和空心方头括号是同一个键的另一组字（`quote_style`、`bracket_style`），同样转回那个键。
-pub fn ascii_for_chinese_mark(chinese: char) -> Option<u8> {
+/// Both quote directions map to the same ASCII quote: a straight quote has no handedness. 直角引号和空心方头括号是同一个键的另一组字（`quote_style`、`bracket_style`），同样转回那个键。顿号按 `source`（产生它的键，没有时传 0）和 `marks` 里开着的顿号键定。
+pub fn ascii_for_chinese_mark(chinese: char, source: u8, marks: &PunctuationMarks) -> Option<u8> {
     Some(match chinese {
         '。' => b'.',
         '\u{ff0c}' => b',',
@@ -196,7 +226,7 @@ pub fn ascii_for_chinese_mark(chinese: char) -> Option<u8> {
         '？' => b'?',
         '；' => b';',
         '\u{ff1a}' => b':',
-        '、' => b'/',
+        '、' => enumeration_comma_ascii(source, marks),
         '\u{201c}' | '\u{201d}' => b'"',
         '\u{2018}' | '\u{2019}' => b'\'',
         '『' | '』' => b'"',
@@ -231,6 +261,8 @@ pub fn arm_space_convert(
     smart_punctuation: bool,
     space_convert: bool,
     editor_generation: u64,
+    source: u8,
+    marks: &PunctuationMarks,
 ) -> Option<SpaceConvertSnapshot> {
     if !smart_punctuation || !space_convert || auto_closed_pair {
         return None;
@@ -242,7 +274,7 @@ pub fn arm_space_convert(
     }
     Some(SpaceConvertSnapshot {
         chinese,
-        ascii: ascii_for_chinese_mark(chinese)?,
+        ascii: ascii_for_chinese_mark(chinese, source, marks)?,
         editor_generation,
     })
 }
@@ -554,6 +586,7 @@ mod tests {
 
     #[test]
     fn space_conversion_covers_the_marks_the_source_maps_and_no_others() {
+        let marks = PunctuationMarks::default();
         for (chinese, ascii) in [
             ('。', b'.'),
             ('\u{ff0c}', b','),
@@ -561,7 +594,6 @@ mod tests {
             ('？', b'?'),
             ('；', b';'),
             ('\u{ff1a}', b':'),
-            ('、', b'/'),
             ('【', b'['),
             ('】', b']'),
             ('《', b'<'),
@@ -569,13 +601,17 @@ mod tests {
             ('（', b'('),
             ('）', b')'),
         ] {
-            assert_eq!(ascii_for_chinese_mark(chinese), Some(ascii), "{chinese}");
+            assert_eq!(
+                ascii_for_chinese_mark(chinese, 0, &marks),
+                Some(ascii),
+                "{chinese}"
+            );
         }
         // Both directions of a quote map to the one straight quote, which has no handedness.
-        assert_eq!(ascii_for_chinese_mark('\u{201c}'), Some(b'"'));
-        assert_eq!(ascii_for_chinese_mark('\u{201d}'), Some(b'"'));
-        assert_eq!(ascii_for_chinese_mark('\u{2018}'), Some(b'\''));
-        assert_eq!(ascii_for_chinese_mark('\u{2019}'), Some(b'\''));
+        assert_eq!(ascii_for_chinese_mark('\u{201c}', 0, &marks), Some(b'"'));
+        assert_eq!(ascii_for_chinese_mark('\u{201d}', 0, &marks), Some(b'"'));
+        assert_eq!(ascii_for_chinese_mark('\u{2018}', 0, &marks), Some(b'\''));
+        assert_eq!(ascii_for_chinese_mark('\u{2019}', 0, &marks), Some(b'\''));
         // 直角引号与空心括号转回同一个键。
         for (chinese, ascii) in [
             ('「', b'\''),
@@ -585,42 +621,98 @@ mod tests {
             ('〖', b'['),
             ('〗', b']'),
         ] {
-            assert_eq!(ascii_for_chinese_mark(chinese), Some(ascii), "{chinese}");
+            assert_eq!(
+                ascii_for_chinese_mark(chinese, 0, &marks),
+                Some(ascii),
+                "{chinese}"
+            );
         }
         for other in ['中', 'a', '.', '…', '—'] {
-            assert_eq!(ascii_for_chinese_mark(other), None, "{other}");
+            assert_eq!(ascii_for_chinese_mark(other, 0, &marks), None, "{other}");
         }
+    }
+
+    /// 顿号空格反查随当前开着的键判：按下的键开着时转回它，否则 `\` 优先、`/` 其次；关掉 `/` 后 `/` 不再被当成顿号来源。
+    #[test]
+    fn enumeration_comma_space_reverse_follows_the_enabled_keys() {
+        let marks = |backslash, slash| PunctuationMarks {
+            enumeration_comma_backslash: backslash,
+            enumeration_comma_slash: slash,
+            ..PunctuationMarks::default()
+        };
+        // 缺省「只有 `\`」：按 `\` 出的顿号转回 `\`，候选上屏的顿号也转回 `\`，`/` 不再是来源。
+        let backslash_only = marks(true, false);
+        for source in [b'\\', b'/', 0] {
+            assert_eq!(
+                ascii_for_chinese_mark('、', source, &backslash_only),
+                Some(b'\\'),
+                "source {source}"
+            );
+            assert_eq!(
+                enumeration_comma_ascii(source, &backslash_only),
+                b'\\',
+                "source {source}"
+            );
+        }
+        // 只有 `/`：转回 `/`，按 `\` 出的顿号也归到开着的那个键。
+        let slash_only = marks(false, true);
+        for source in [b'\\', b'/', 0] {
+            assert_eq!(
+                enumeration_comma_ascii(source, &slash_only),
+                b'/',
+                "source {source}"
+            );
+        }
+        // 两个都开：按下的键开着时转回它，候选上屏按契约序归 `\`。
+        let both = marks(true, true);
+        assert_eq!(enumeration_comma_ascii(b'\\', &both), b'\\');
+        assert_eq!(enumeration_comma_ascii(b'/', &both), b'/');
+        assert_eq!(enumeration_comma_ascii(0, &both), b'\\');
+        // 两个都关（未经归一的值）：按归一的 `\`。
+        assert_eq!(enumeration_comma_ascii(b'/', &marks(false, false)), b'\\');
+        // 反查落到快照里：关掉 `/` 后，`、` 的空格转换不再把 `/` 转回。
+        let armed = arm_space_convert("、", false, true, true, 7, b'\\', &backslash_only);
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('、'), false, 7),
+            Some(b'\\')
+        );
+        let armed = arm_space_convert("、", false, true, true, 7, b'/', &slash_only);
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('、'), false, 7),
+            Some(b'/')
+        );
     }
 
     #[test]
     fn space_conversion_arms_only_a_lone_mark_the_user_finished_typing() {
-        assert!(arm_space_convert("。", false, true, true, 1).is_some());
+        let marks = PunctuationMarks::default();
+        assert!(arm_space_convert("。", false, true, true, 1, 0, &marks).is_some());
         assert!(
-            arm_space_convert("。", true, true, true, 1).is_none(),
+            arm_space_convert("。", true, true, true, 1, 0, &marks).is_none(),
             "auto-closed pair"
         );
         assert!(
-            arm_space_convert("好。", false, true, true, 1).is_none(),
+            arm_space_convert("好。", false, true, true, 1, 0, &marks).is_none(),
             "not the only scalar"
         );
         assert!(
-            arm_space_convert("中", false, true, true, 1).is_none(),
+            arm_space_convert("中", false, true, true, 1, 0, &marks).is_none(),
             "not a mark"
         );
-        assert!(arm_space_convert("", false, true, true, 1).is_none());
+        assert!(arm_space_convert("", false, true, true, 1, 0, &marks).is_none());
         assert!(
-            arm_space_convert("。", false, false, true, 1).is_none(),
+            arm_space_convert("。", false, false, true, 1, 0, &marks).is_none(),
             "smart punctuation off"
         );
         assert!(
-            arm_space_convert("。", false, true, false, 1).is_none(),
+            arm_space_convert("。", false, true, false, 1, 0, &marks).is_none(),
             "the switch is off"
         );
     }
 
     #[test]
     fn space_converts_only_when_the_mark_is_still_there() {
-        let armed = arm_space_convert("，", false, true, true, 4);
+        let armed = arm_space_convert("，", false, true, true, 4, 0, &PunctuationMarks::default());
         assert_eq!(
             decide_space_convert(armed, b' ', Some('\u{ff0c}'), false, 4),
             Some(b',')
@@ -663,13 +755,7 @@ mod tests {
             })
         };
         let defaults = punctuation_marks(&Preferences::default());
-        assert_eq!(
-            defaults,
-            PunctuationMarks {
-                quotes: QuoteMarks::Curly,
-                brackets: BracketStyle::Solid,
-            }
-        );
+        assert_eq!(defaults, PunctuationMarks::default());
         for traditional in [false, true] {
             assert_eq!(
                 marks(QuoteStyle::Curly, BracketStyle::Solid, traditional).quotes,
@@ -702,7 +788,33 @@ mod tests {
             PunctuationMarks {
                 quotes: QuoteMarks::Corner,
                 brackets: BracketStyle::Hollow,
+                ..PunctuationMarks::default()
             }
         );
+    }
+
+    /// 顿号自定义（契约 `enumerationComma` 段）：`\` 默认开、`/` 默认关；手改文档把两个都关掉时归一成「`\` 开」，采用 Windows IPC 无效值的反斜杠回退。
+    #[test]
+    fn enumeration_comma_keys_keep_at_least_one() {
+        let marks = |backslash, slash| {
+            punctuation_marks(&Preferences {
+                enumeration_comma_backslash: backslash,
+                enumeration_comma_slash: slash,
+                ..Preferences::default()
+            })
+        };
+        let defaults = marks(true, false);
+        assert!(defaults.enumeration_comma_backslash);
+        assert!(!defaults.enumeration_comma_slash);
+        // 各自独立开关。
+        assert!(marks(false, true).enumeration_comma_slash);
+        assert!(!marks(false, true).enumeration_comma_backslash);
+        assert!(marks(true, true).enumeration_comma_backslash);
+        assert!(marks(true, true).enumeration_comma_slash);
+        // 两个都关按「`\` 开」读。
+        let normalized = marks(false, false);
+        assert!(normalized.enumeration_comma_backslash);
+        assert!(!normalized.enumeration_comma_slash);
+        assert_eq!(normalized, marks(true, false));
     }
 }

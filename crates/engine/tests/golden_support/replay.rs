@@ -248,6 +248,8 @@ pub fn apply_options(options: &mut SessionOptions, value: &Value) {
                     match name.as_str() {
                         "unicode" => modes.unicode = on,
                         "date_time" => modes.date_time = on,
+                        "date_time_inline" => modes.date_time_inline = on,
+                        "date_time_menu" => modes.date_time_menu = on,
                         "quick_phrase" => modes.quick_phrase = on,
                         "emoji" => modes.emoji = on,
                         "kaomoji" => modes.kaomoji = on,

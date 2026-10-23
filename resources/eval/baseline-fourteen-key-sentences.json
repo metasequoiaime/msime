@@ -57,7 +57,7 @@
     "7": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.68,
+      "mrr": 0.678,
       "top1": 0.667,
       "top1_char_prefix": 0.73,
       "top5": 0.667,
@@ -145,7 +145,7 @@
       "id": "nk-014",
       "input": "xiawusandianjian",
       "rank": 5,
-      "top1": "下午三度按键"
+      "top1": "下午三地安检"
     },
     {
       "gold": "电脑突然死机",
@@ -158,7 +158,7 @@
       "gold": "这件衣服很好看",
       "id": "nk-029",
       "input": "zhejianyifuhenhaokan",
-      "rank": 10,
+      "rank": 13,
       "top1": "这款衣服很好看"
     },
     {
@@ -172,7 +172,7 @@
       "gold": "你周末有时间吗",
       "id": "nk-036",
       "input": "nizhoumoyoushijianma",
-      "rank": 45,
+      "rank": 44,
       "top1": "步骤摸头时间吗"
     },
     {
@@ -221,7 +221,7 @@
       "gold": "周末我们去看电影吧",
       "id": "nk-051",
       "input": "zhoumowomenqukandianyingba",
-      "rank": 46,
+      "rank": 43,
       "top1": "周末我们去看店听吧"
     },
     {

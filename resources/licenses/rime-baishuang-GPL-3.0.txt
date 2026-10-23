@@ -1,0 +1,17 @@
+白霜 / 墨奇（Baishuang / Moqi）octagram 语法模型
+zh-moqi.gram
+
+上游：https://github.com/gaboolic/rime-frost（提交 d57f35b3，完整提交与 SHA-256 见资源锁文件）
+许可：GPL-3.0
+
+这个 .gram 数据文件所在的 rime-frost 仓库以 GPL-3.0 分发，但上游没有声明
+该文件的构建链许可（用什么语料、经哪些工具产出）。所以这里如实记录为
+「GPL-3.0，构建链许可未声明」，在许可确认前不向用户提供下载。收录范围与旧版 Windows
+正式版（`metasequoiaime/msime-windows` v0.11.1 的 `collocation_model.cpp`
+目录）一致。
+
+读取端支持这类文件并以合成数据测试格式兼容性；目录保留来源记录，
+桌面设置与资源包安装入口均不提供此模型，不随安装包分发。
+
+GNU GENERAL PUBLIC LICENSE 全文：
+https://www.gnu.org/licenses/gpl-3.0.txt

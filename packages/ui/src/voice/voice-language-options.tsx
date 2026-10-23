@@ -1,3 +1,5 @@
+import catalog from "./voice-language-catalog.json";
+
 export interface VoiceLanguageOptionsProps {
   /** Native system recognizers use locale identifiers such as `zh-CN`; provider recognizers use the short forms. */
   systemVoice?: boolean;
@@ -7,10 +9,13 @@ export interface VoiceLanguageOptionsProps {
 export function VoiceLanguageOptions({ systemVoice = false }: VoiceLanguageOptionsProps) {
   return (
     <>
-      <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
-      <option value={systemVoice ? "en-US" : "en"}>English</option>
-      <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
-      {!systemVoice && <option value="auto">自动识别</option>}
+      {catalog
+        .filter((choice) => (systemVoice ? choice.system_value : choice.provider_value))
+        .map((choice) => (
+          <option key={choice.id} value={systemVoice ? choice.system_value : choice.provider_value}>
+            {systemVoice ? choice.system_title : choice.provider_title}
+          </option>
+        ))}
     </>
   );
 }
@@ -18,36 +23,41 @@ export function VoiceLanguageOptions({ systemVoice = false }: VoiceLanguageOptio
 /** Display a stored language code in the same names used by the voice settings choices. */
 export function voiceLanguageTitle(language: string | undefined): string {
   const code = (language ?? "").trim();
+  // 目录中的 mobile_title 也覆盖当前移动端未提供选择项的语言（例如日语），
+  // 因而已保存的旧值仍能显示本地化标题；未知值继续由 default 原样回显。
+  const mobileTitle = (id: string) =>
+    catalog.find((choice) => choice.id === id)?.mobile_title ?? id;
   switch (code.toLowerCase()) {
     case "":
     case "zh":
     case "zh-cn":
-      return "普通话";
+      return mobileTitle("zh-cn");
     case "yue":
     case "zh-hk":
-      return "粤语";
+      return mobileTitle("yue");
     case "en":
     case "en-us":
-      return "英语";
+      return mobileTitle("en");
     case "ja":
     case "ja-jp":
-      return "日语";
+      return mobileTitle("ja");
     case "auto":
-      return "普通话 + 英语";
+      return mobileTitle("auto");
     default:
       return code;
   }
 }
 
 /** 手机语音页提供的识别语言，按设计稿的顺序。它们是 Android 的 `VoicePage` 写入 `voice_input.language` 的值。 */
-export const MOBILE_VOICE_LANGUAGES = [
-  { value: "zh-cn", label: "普通话" },
-  { value: "yue", label: "粤语" },
-  { value: "en", label: "英语" },
-  { value: "auto", label: "普通话 + 英语" },
-] as const;
+export type MobileVoiceLanguage = Exclude<(typeof catalog)[number]["mobile_value"], "">;
 
-export type MobileVoiceLanguage = (typeof MOBILE_VOICE_LANGUAGES)[number]["value"];
+export const MOBILE_VOICE_LANGUAGES: readonly { value: MobileVoiceLanguage; label: string }[] =
+  catalog
+    .filter((choice) => choice.mobile_value)
+    .map((choice) => ({
+      value: choice.mobile_value as MobileVoiceLanguage,
+      label: choice.mobile_title,
+    }));
 
 /** 存储的 `voice_input.language` 对应哪个提供的语言。忽略大小写，所以交给系统识别器的区域形式 `zh-CN` 读作普通话；空值也是普通话，因为每个识别器都回退到普通话。其他值为 null：页面原样显示，而不是假装它是四种之一。 */
 export function mobileVoiceLanguageOf(value: string): MobileVoiceLanguage | null {

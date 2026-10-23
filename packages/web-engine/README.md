@@ -223,6 +223,7 @@ attachInput(textarea, engine, {
 ```
 
 - 颜色接受 `#RGB`、`#RRGGBB`、`#RRGGBBAA`、`rgb()`、`rgba()` 和 `transparent`，读不懂的颜色当没写，由 `base` 补上；越界的尺寸当 0。
+- 装饰框可用 `decorationCandidate: { index: 0, fontSizeDip: 16, minFontSizeDip: 8, color: "#FFFFFF" }` 叠加当前页候选词，v1、v2 都可用。`index` 默认 1，0 跟随高亮，越界不显示；`stripBadge` 默认 true，false 时只追加帧里的独立 `badge`，不删改 `text`。`maxWidthDip` 默认 0，使用装饰框宽；词过宽时按比例缩字号，最小字号仍放不下时允许超框、不换行。`alignH`（left/center/right）与 `alignV`（top/center/bottom）默认居中，`offsetXDip`、`offsetYDip` 可微调位置。隐藏、换肤或图片失败会清理叠加词；原文仍从普通候选行选择。
 - 桌面 `SkinSummary` 里的 `decorationMotion`、`decorationMotionPeriodMs` 和 `decorationFrames`（装饰图的待机动效和帧数）可以原样传入，网页引擎不播放待机动效；装饰图是 APNG 时由浏览器自己逐帧播放。
 - 图片可以是 `http:`、`https:`、`blob:`、`data:image/*` 或相对地址（按页面地址解析），其他地址（如 `javascript:`）和含引号、括号、空白的地址一律丢弃；`data:image/*` 里的括号和单引号（`encodeURIComponent` 写出的 SVG 常带）会换成百分号编码，图片不变。图片加载失败时只是不画它。
 - 皮肤不支持当前的布局或明暗时，和桌面端一样只画 `base`。`base` 是全局主题时，皮肤固定画在那个主题的明暗下。

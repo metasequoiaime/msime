@@ -24,6 +24,11 @@ final class ClipboardTextPreview {
     }
 
     void show(String text) {
+        show(text, null, null);
+    }
+
+    /** 动作由记录所属面板提供；只读预览不带插入和修改入口。 */
+    void show(String text, Runnable insert, Runnable edit) {
         dismiss();
         View anchor = service.keyboardRoot;
         if (anchor == null || !anchor.isShown() || !anchor.isAttachedToWindow()) return;
@@ -33,13 +38,13 @@ final class ClipboardTextPreview {
         pendingLayout = () -> {
             if (anchor.isLayoutRequested()) return;
             clearPendingLayout();
-            showInWindow(anchor, text);
+            showInWindow(anchor, text, insert, edit);
         };
         anchor.getViewTreeObserver().addOnGlobalLayoutListener(pendingLayout);
         anchor.requestLayout();
     }
 
-    private void showInWindow(View anchor, String text) {
+    private void showInWindow(View anchor, String text, Runnable insert, Runnable edit) {
         if (!anchor.isShown() || !anchor.isAttachedToWindow()) { dismiss(); return; }
         View keyboard = service.keyboardSurface;
         int gap = service.pixels(12);
@@ -75,13 +80,13 @@ final class ClipboardTextPreview {
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
         panel.addView(scroll, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        Button close = new Button(service);
-        close.setText("关闭");
-        close.setContentDescription("关闭剪贴板全文预览");
-        close.setTextColor(Color.parseColor(service.skin.keyForeground()));
-        close.setBackground(DrawablePolicy.rounded(
-            Color.parseColor(service.skin.keyBackground()), service.pixels(8)));
-        panel.addView(close, new LinearLayout.LayoutParams(
+        LinearLayout actions = new LinearLayout(service);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setContentDescription("剪贴板全文预览操作");
+        if (insert != null) addAction(actions, "插入", "插入剪贴板全文", insert);
+        if (edit != null) addAction(actions, "修改", "修改剪贴板记录", edit);
+        addAction(actions, "关闭", "关闭剪贴板全文预览", () -> { });
+        panel.addView(actions, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, service.pixels(44)));
 
         PopupWindow window = new PopupWindow(panel, width, height, false);
@@ -90,10 +95,6 @@ final class ClipboardTextPreview {
         window.setOutsideTouchable(true);
         window.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
         window.setAnimationStyle(0);
-        close.setOnClickListener(ignored -> {
-            service.imeKeyFeedback.playFeedback(close);
-            dismiss();
-        });
         View.OnLayoutChangeListener layout = (view, l, t, r, b, oldL, oldT, oldR, oldB) -> {
             if (l != oldL || t != oldT || r != oldR || b != oldB) dismiss();
         };
@@ -125,6 +126,25 @@ final class ClipboardTextPreview {
             dismiss();
             cleanup.run();
         }
+    }
+
+    private void addAction(LinearLayout row, String title, String description, Runnable action) {
+        Button button = new Button(service);
+        button.setText(title);
+        button.setContentDescription(description);
+        button.setTextColor(Color.parseColor(service.skin.keyForeground()));
+        button.setBackground(DrawablePolicy.rounded(
+            Color.parseColor(service.skin.keyBackground()), service.pixels(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        if (row.getChildCount() > 0) params.setMarginStart(service.pixels(8));
+        row.addView(button, params);
+        button.setOnClickListener(ignored -> {
+            service.imeKeyFeedback.playFeedback(button);
+            // 先清理浮层、正文和临时父窗口，再向编辑器或应用编辑页交付动作。
+            dismiss();
+            action.run();
+        });
     }
 
     private void clearPendingLayout() {

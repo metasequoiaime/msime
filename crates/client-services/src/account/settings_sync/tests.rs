@@ -118,6 +118,8 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.bracket_style",
             "input.character_set",
             "input.chinese_punctuation",
+            "input.enumeration_comma_backslash",
+            "input.enumeration_comma_slash",
             "input.frequency_linear_step",
             "input.frequency_mode",
             "input.frequency_trigger_count",

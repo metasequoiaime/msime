@@ -118,6 +118,13 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case DISMISS -> drawDismiss(canvas);
             case GLOBE -> drawGlobe(canvas);
             case BOOKMARK -> drawBookmark(canvas);
+            case UNDO, REDO -> {
+                if (icon == KeyboardShortcutIconPolicy.Icon.REDO) {
+                    canvas.translate(100f, 0f);
+                    canvas.scale(-1f, 1f);
+                }
+                drawHistory(canvas);
+            }
             case PHRASE, CLIPBOARD, SCHEME, FLOATING, TEXT_EDIT -> { }
         }
         canvas.restore();
@@ -151,7 +158,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case FLOATING -> KeyboardIconPaths.Icon.TOOLBAR_FLOATING;
             // 和功能面板「文本编辑」磁贴同一个图标，用户在两处认得出是同一个面板。
             case TEXT_EDIT -> KeyboardIconPaths.Icon.TEXT_EDIT;
-            case DISMISS, SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK ->
+            case DISMISS, SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK, UNDO, REDO ->
                 KeyboardIconPaths.Icon.TOOLBAR_DISMISS;
         };
         float iconDp = icon == KeyboardShortcutIconPolicy.Icon.DISMISS
@@ -244,6 +251,19 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         path.lineTo(50f, 68f);
         path.lineTo(28f, 86f);
         path.close();
+        canvas.drawPath(path, paint);
+    }
+
+    /** 撤销弧箭头；重做使用同一条路径水平镜像，不依赖字体字形。 */
+    private void drawHistory(Canvas canvas) {
+        path.reset();
+        path.moveTo(16f, 43f);
+        path.cubicTo(45f, 12f, 86f, 31f, 86f, 70f);
+        canvas.drawPath(path, paint);
+        path.reset();
+        path.moveTo(16f, 20f);
+        path.lineTo(16f, 43f);
+        path.lineTo(40f, 43f);
         canvas.drawPath(path, paint);
     }
 

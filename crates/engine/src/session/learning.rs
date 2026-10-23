@@ -10,6 +10,7 @@ use super::composition::{
 use super::input::InputSession;
 use crate::assets;
 use crate::diagnostics;
+use crate::ime::queries::counts_toward_quick_phrase_slot;
 use crate::lattice::personal::PersonalTransition;
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::autocorrect::autocorrect_suppression_key;
@@ -24,7 +25,8 @@ use crate::types::{
 use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
 use crate::user_dictionary::ranking::{
-    adjust_candidate_ranking, adjust_english_candidate_ranking, RankingRequest,
+    adjust_candidate_ranking, adjust_english_candidate_ranking, learn_quick_phrase_bypass,
+    learn_quick_phrase_selection, RankingRequest,
 };
 use crate::user_dictionary::typo_profile::is_storable_autocorrect_suppression;
 
@@ -92,6 +94,76 @@ impl InputSession {
         if !self.learning_enabled || self.engine.wubi_pinyin_lookup_active() {
             return None;
         }
+        let quick_phrase = self.learn_quick_phrase_order(index);
+        let ranked = self.learn_ranked_candidate(index);
+        quick_phrase.or(ranked)
+    }
+
+    /// 快捷短语参与调频（`mixed_input.quick_phrase_frequency`，Windows `utility.quick_phrase_frequency`）：组在普通候选里时，选中组内短语让整组按调频规则前移，越过整组选普通候选让整组后退一格、最多退到首页末位（`learn_quick_phrase_order`，input_session.cpp:1054-1096）。
+    fn learn_quick_phrase_order(&mut self, index: usize) -> Option<String> {
+        if !self.quick_phrase_frequency
+            || self.frequency.mode == FrequencyAdjustmentMode::Disabled
+            || !self.quick_phrase_candidates
+            || self.local_mode != LocalInputMode::None
+            || self.dedicated_english
+            || self.prefix_active
+        {
+            return None;
+        }
+        let code = self.engine.request().raw_input.clone();
+        if code.is_empty() || !code.bytes().all(|byte| byte.is_ascii_lowercase()) {
+            return None;
+        }
+        let ordered = self.ranking_list();
+        let selected = ordered.get(index)?;
+        let group_start = ordered
+            .iter()
+            .position(|item| item.source == CandidateSource::QuickPhrase)?;
+        let slot = ordered[..group_start]
+            .iter()
+            .filter(|item| counts_toward_quick_phrase_slot(item))
+            .count();
+        let journal = self.journal_path().to_owned();
+        if selected.source == CandidateSource::QuickPhrase {
+            let first_in_group = index == group_start;
+            // 组在首位、选的又是组内第一条：这就是默认上屏的那一个，没有可学的。
+            if slot == 0 && first_in_group {
+                return None;
+            }
+            let main_db = self.paths.dictionary(assets::MAIN_DICTIONARY);
+            return learn_quick_phrase_selection(
+                &main_db,
+                &journal,
+                &code,
+                &selected.word,
+                first_in_group,
+                slot,
+                &self.frequency,
+            )
+            .err()
+            .map(|_| diagnostics::FREQUENCY_NOT_PERSISTED.to_owned());
+        }
+        if !counts_toward_quick_phrase_slot(selected) {
+            return None;
+        }
+        let ordinary_rank = ordered[..index]
+            .iter()
+            .filter(|item| counts_toward_quick_phrase_slot(item))
+            .count();
+        let max_slot = self.first_page_rows.saturating_sub(1);
+        learn_quick_phrase_bypass(
+            &journal,
+            &code,
+            ordinary_rank,
+            slot,
+            max_slot,
+            &self.frequency,
+        )
+        .err()
+        .map(|_| diagnostics::FREQUENCY_NOT_PERSISTED.to_owned())
+    }
+
+    fn learn_ranked_candidate(&mut self, index: usize) -> Option<String> {
         let selected_source = self.ranking_list().get(index)?.source;
         let temporary_english = self.local_mode == LocalInputMode::TemporaryEnglish;
         if (self.dedicated_english || temporary_english)

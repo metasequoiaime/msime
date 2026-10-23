@@ -16,6 +16,7 @@ public final class AiPendingCandidatePolicySmoke {
                 .equals("候选 2：你好，英文 hello"), "source " + source + " description unchanged");
         }
         check(AiPendingCandidatePolicy.alpha(15) == 0.45f, "cloud placeholder drawn dimmed");
+        check(!AiPendingCandidatePolicy.offersMenu(16), "联系人没有词库管理菜单");
         check(!AiPendingCandidatePolicy.offersMenu(15), "cloud placeholder has no long-press menu");
         check(!AiPendingCandidatePolicy.isVisible(15), "cloud placeholder is hidden on Android");
         check(AiPendingCandidatePolicy.isVisible(2), "completed cloud candidate remains visible");

@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.AiEndpointPolicy;
 import app.msime.android.AiPolishConfiguration;
+import app.msime.android.AiProviderSettings;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.TextPolicy;
@@ -20,7 +21,7 @@ import org.json.JSONObject;
  *
  * <p>最下面是「社区回复模板」：社区里别人分享的 AI 回复模板列前几个，点开看详情、可以举报，末尾「浏览更多回复模板」进完整列表（{@link CommunityFragment}）。回复模板手机上还不能添加进键盘的回复面板，这里和完整列表都只能浏览。
  *
- * <p>与原来键盘页的底部面板写法相同：启用时端点必须是 https 地址，或指向本机、局域网的 http 地址（规则见 `AiEndpointPolicy`，键盘会拒绝别的地址，这里也不写进去）；凭据按端点的来源（origin）分别存放在 `ai_assistant.tokens` 里，换端点不会把凭据带到另一个主机，留空凭据只删掉这个来源的那一条；提示词写进 `prompt_id` 选中的那个槽位，也就是键盘读的那个。每一项点开是一个输入框，确认后立即保存。
+ * <p>与原来键盘页的底部面板写法相同：启用时端点必须是 https 地址，或指向本机、局域网的 http 地址（规则见 `AiEndpointPolicy`，键盘会拒绝别的地址，这里也不写进去）；凭据按端点的来源（origin）分别存放在 `ai_assistant.tokens` 里，换端点不会把凭据带到另一个主机，留空凭据只删掉这个来源的那一条；提示词写进 `prompt_id` 选中的那个槽位，也就是键盘读的那个。服务商与模型使用选择面板，地址、凭据与提示词使用输入框，确认后立即保存。
  */
 public final class AiSettingsPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -35,8 +36,21 @@ public final class AiSettingsPage extends ReloadingDetailPage {
     @Nullable private String repliesFailure;
     private boolean repliesRequested;
 
+    private record State(JSONObject preferences, List<AiProviderSettings.Provider> catalog) {}
+
+    /** 比较请求归属时才用到凭据；禁止默认 record 的 toString 输出它。 */
+    private record ModelRequest(String provider, String endpoint, String token) {
+        @Override public String toString() { return "AI model catalog request"; }
+    }
+
+    private List<String> fetchedModels = List.of();
+    @Nullable private ModelRequest fetchedFor;
+    private boolean modelsBusy;
+    @Nullable private String modelsStatus;
+    private long editGeneration;
+
     @Override protected void reload() {
-        HostTask.run(this, KeyboardSheets::preferences, this::render);
+        HostTask.run(this, context -> new State(KeyboardSheets.preferences(context), AiProviderSettings.catalog()), this::render);
         // 社区目录每次打开这一页只读一次，读到之后再按刚读的偏好整页重画。
         if (!repliesRequested) {
             repliesRequested = true;
@@ -51,16 +65,26 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         }
     }
 
-    private void render(@Nullable JSONObject preferences) {
+    @Override protected void onContentDestroyed() {
+        editGeneration++;
+        modelsBusy = false;
+        fetchedFor = null;
+        fetchedModels = List.of();
+    }
+
+    private void render(@Nullable State state) {
         LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
+        JSONObject preferences = state == null ? null : state.preferences();
         if (preferences == null) {
             GroupCard.add(target, null).note("读取设置失败。请先完成首次设置，或稍后返回重试。");
             return;
         }
         JSONObject ai = preferences.optJSONObject("ai_assistant");
         if (ai == null) ai = new JSONObject();
+        List<AiProviderSettings.Provider> catalog = state.catalog();
+        String provider = InputViewValuePolicy.textOr(ai, "provider", "");
         boolean enabled = ai.optBoolean("enabled", false);
         String endpoint = InputViewValuePolicy.textOr(ai, "endpoint", "");
         String model = InputViewValuePolicy.textOr(ai, "model", "");
@@ -72,6 +96,41 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         String prompt = ai.optString(promptKey, "");
 
         GroupCard service = GroupCard.add(sectionColumn(target, "服务"), "服务");
+        AiProviderSettings.Provider selected = null;
+        for (AiProviderSettings.Provider entry : catalog) if (entry.id().equals(provider)) selected = entry;
+        service.nav("服务商", catalog.isEmpty() ? "服务目录暂不可用，仍可手动填写地址与模型" : "选择后自动填写预设地址和模型",
+            selected == null ? (provider.isEmpty() ? "未设置" : provider) : selected.title(),
+            catalog.isEmpty() ? null : () -> pickProvider(provider, catalog));
+        String problem = endpointProblem(endpoint);
+        service.nav("端点 URL", problem != null ? problem : "https 地址，或本机、局域网的 http 地址",
+            endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint),
+            () -> editEndpoint(endpoint, enabled));
+        service.nav("凭据", !origin.isEmpty() ? "只用于 " + origin
+                : problem != null ? "公网端点必须用 https，凭据不会明文发出" : "先填写端点", hasToken ? "已设置" : "未设置",
+            origin.isEmpty() ? null : () -> editToken(origin));
+        java.util.LinkedHashSet<String> choices = new java.util.LinkedHashSet<>();
+        if (!model.isEmpty()) choices.add(model);
+        if (selected != null) choices.addAll(selected.models());
+        ModelRequest request = modelRequest(ai, catalog);
+        if (!request.equals(fetchedFor)) {
+            fetchedFor = request;
+            fetchedModels = List.of();
+            modelsStatus = null;
+        }
+        choices.addAll(fetchedModels);
+        service.nav("模型", "从列表选择，也可以自定义模型名称", model.isEmpty() ? "未设置" : model,
+            () -> pickModel(model, List.copyOf(choices)));
+        service.nav("获取模型列表", modelsStatus != null ? modelsStatus : "从当前服务读取可用模型；不会自动联网",
+            modelsBusy ? "获取中…" : null,
+            modelsBusy || origin.isEmpty() ? null : () -> fetchModels(request));
+        if (selected != null && !selected.documentation().isEmpty()) {
+            String documentation = selected.documentation();
+            service.nav("AI 接入说明与 API Key", "查看所选服务的官方接入说明", null,
+                () -> {
+                    if (!LinkActions.open(requireContext(), documentation))
+                        MsToast.show(requireContext(), "没有可以打开链接的应用");
+                });
+        }
         GroupCard.Row[] enabledRow = new GroupCard.Row[1];
         enabledRow[0] = service.toggle("启用 AI 入口", "在键盘上显示 AI 回复与润色", enabled, checked -> {
             if (checked && !AiEndpointPolicy.allowed(endpoint)) {
@@ -82,15 +141,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             }
             saveAi(next -> next.put("enabled", checked));
         });
-        String problem = endpointProblem(endpoint);
-        service.nav("端点 URL", problem != null ? problem : "https 地址，或本机、局域网的 http 地址",
-            endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint),
-            () -> editEndpoint(endpoint, enabled));
-        service.nav("模型", null, model.isEmpty() ? "未设置" : model, () -> editText("模型", null, model,
-            InputType.TYPE_CLASS_TEXT, value -> saveAi(next -> next.put("model", value))));
-        service.nav("凭据", !origin.isEmpty() ? "只用于 " + origin
-                : problem != null ? "公网端点必须用 https，凭据不会明文发出" : "先填写端点", hasToken ? "已设置" : "未设置",
-            origin.isEmpty() ? null : () -> editToken(origin));
+        service.note("AI 设计皮肤使用水杉账号服务，请到外观中的「AI 设计皮肤」操作。");
         service.nav("AI 对话", "在独立页面里对话，同时可以试用键盘", null,
             () -> ((HomeActivity) requireActivity()).openChatSecondary(false));
 
@@ -127,6 +178,62 @@ public final class AiSettingsPage extends ReloadingDetailPage {
     private void showReply(CommunityCatalog.Item item) {
         CommunitySkinSheet.show(requireContext(), item, false, "", null,
             () -> CommunityReportDialog.show(this, item), null);
+    }
+
+    private void pickProvider(String current, List<AiProviderSettings.Provider> catalog) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "服务商", "切换保留手填地址、模型和各服务已存的凭据");
+        for (AiProviderSettings.Provider entry : catalog) {
+            if (entry.desktopOnly() && !entry.id().equals(current)) continue;
+            sheet.option(entry.title(), entry.id().equals(current),
+                () -> saveAi(ai -> AiProviderSettings.switchProvider(ai, entry.id())));
+        }
+        sheet.show();
+    }
+
+    private void pickModel(String current, List<String> models) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "模型", "预设仅供参考，实际可用模型由服务和账号决定");
+        for (String model : models) sheet.option(model, model.equals(current),
+            () -> saveAi(ai -> ai.put("model", model)));
+        sheet.option("自定义…", false, () -> editText("模型", null, current, InputType.TYPE_CLASS_TEXT,
+            value -> saveAi(ai -> ai.put("model", value))));
+        sheet.show();
+    }
+
+    private static ModelRequest modelRequest(JSONObject ai, List<AiProviderSettings.Provider> catalog) {
+        String endpoint = InputViewValuePolicy.textOr(ai, "endpoint", "");
+        String provider = InputViewValuePolicy.textOr(ai, "provider", "");
+        JSONObject tokens = ai.optJSONObject("tokens");
+        String origin = originOf(endpoint);
+        String token = tokens == null || origin.isEmpty() ? "" : InputViewValuePolicy.textOr(tokens, origin, "");
+        // 服务目录不可用时不猜鉴权规则；不把旧 Token 交给不鉴权的服务。
+        boolean usesToken = false;
+        for (AiProviderSettings.Provider entry : catalog) if (entry.id().equals(provider)) usesToken = entry.usesToken();
+        return new ModelRequest(provider, endpoint, usesToken ? token : "");
+    }
+
+    private void fetchModels(ModelRequest request) {
+        long generation = editGeneration;
+        modelsBusy = true;
+        modelsStatus = null;
+        reload();
+        HostTask.runNetwork(this, context -> {
+            try {
+                return AiProviderSettings.fetchModels(request.endpoint(), request.token());
+            } catch (JSONException | IllegalArgumentException | LinkageError error) {
+                return List.<String>of();
+            }
+        }, result -> HostTask.run(this, KeyboardSheets::preferences, preferences -> {
+            modelsBusy = false;
+            JSONObject latest = preferences == null ? null : preferences.optJSONObject("ai_assistant");
+            if (generation != editGeneration || latest == null || !request.equals(modelRequest(latest, AiProviderSettings.catalog()))) {
+                reload();
+                return;
+            }
+            fetchedFor = request;
+            fetchedModels = result == null ? List.of() : result;
+            modelsStatus = fetchedModels.isEmpty() ? "获取失败，可使用预设或手动填写模型名称" : "已获取 " + fetchedModels.size() + " 个模型";
+            reload();
+        }));
     }
 
     private void editEndpoint(String current, boolean enabled) {
@@ -178,6 +285,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
 
     /** 改 `ai_assistant` 的一处；改完后启用状态下端点不合法就整次不写，键盘继续用磁盘上原来的设置。 */
     private void saveAi(AiEdit edit) {
+        editGeneration++;
         KeyboardSheets.save(this, preferences -> {
             JSONObject ai = KeyboardSheets.child(preferences, "ai_assistant");
             edit.apply(ai);

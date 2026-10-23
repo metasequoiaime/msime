@@ -163,7 +163,8 @@ fn generated_rows_reuse_path_field_storage() {
             )
         })
         .collect();
-    let (rows, allocations) = count(|| generated_block_linear(&[], paths, "abaca"));
+    let (rows, allocations) =
+        count(|| generated_block_linear(&[], paths, "abaca", &LatticeOptions::default()));
     assert_eq!(rows.len(), 3);
     for (item, expected) in rows.iter().zip(original) {
         assert_eq!(

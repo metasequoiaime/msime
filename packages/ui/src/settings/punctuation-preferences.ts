@@ -14,9 +14,27 @@ export type PunctuationPreferences = {
   quote_style?: QuoteStyle;
   /** 中文标点下方头括号键的样式；缺省是实心。 */
   bracket_style?: BracketStyle;
+  /** 顿号自定义：中文标点下 `\` 键输出顿号「、」；缺省开。 */
+  enumeration_comma_backslash?: boolean;
+  /** 顿号自定义：中文标点下 `/` 键输出顿号「、」；缺省关。词首的 `/` 仍打开命令模式。 */
+  enumeration_comma_slash?: boolean;
 };
 
 export type QuoteStyle = "curly" | "corner" | "corner_when_traditional";
+
+/** 按界面显示的归一状态一起保存两个顿号键，避免手改的双关闭文档在点击后撤掉仍显示为开的键。 */
+export function enumerationCommaPatch(
+  preferences: PunctuationPreferences,
+  key: "enumeration_comma_backslash" | "enumeration_comma_slash",
+  checked: boolean,
+): Partial<PunctuationPreferences> {
+  const state = punctuationControlState(preferences);
+  return {
+    enumeration_comma_backslash: state.enumeration_comma_backslash,
+    enumeration_comma_slash: state.enumeration_comma_slash,
+    [key]: checked,
+  };
+}
 export type BracketStyle = "solid" | "hollow";
 
 /** 标点控件显示的有效状态；只补齐缺省值，不改写用户偏好。 */
@@ -37,6 +55,11 @@ export function punctuationControlState(
     caps_lock_ascii_punctuation: preferences.caps_lock_ascii_punctuation ?? false,
     quote_style: preferences.quote_style ?? "curly",
     bracket_style: preferences.bracket_style ?? "solid",
+    // 「至少留一个」的显示归一，与 client-core `punctuation_marks` 的读出归一一致：两个都关按「\ 开」显示。
+    enumeration_comma_slash: preferences.enumeration_comma_slash ?? false,
+    enumeration_comma_backslash:
+      (preferences.enumeration_comma_backslash ?? true) ||
+      !(preferences.enumeration_comma_slash ?? false),
   };
 }
 

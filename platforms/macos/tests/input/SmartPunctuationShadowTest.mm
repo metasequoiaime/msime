@@ -297,7 +297,7 @@ int main() {
         // Space after a Chinese mark in a terminal: the committed mark is the shadow, and the ASCII form is posted over it. The same key then posts the Chinese mark back.
         Focus(terminal);
         [controller apply:@{@"handled" : @YES, @"commit" : @"你好，", @"view" : @{@"editing_text" : @"", @"candidates" : @[]}}];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"你好，"} client:terminal];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"你好，"} key:',' client:terminal];
         assert([controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:terminal]);
         assert([controller.posted isEqual:@[ @',' ]]);
         assert(Shadow(controller) == ',');
@@ -309,14 +309,14 @@ int main() {
         Focus(terminal);
         controller.permitted = NO;
         [controller apply:@{@"handled" : @YES, @"commit" : @"，", @"view" : @{@"editing_text" : @"", @"candidates" : @[]}}];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} client:terminal];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} key:',' client:terminal];
         assert(![controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:terminal]);
         assert(controller.posted.count == 0);
         controller.permitted = YES;
 
         // With no shadow there is no evidence of what is on screen, so nothing is posted.
         Focus(terminal);
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} client:terminal];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} key:',' client:terminal];
         assert(![controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:terminal]);
         assert(controller.posted.count == 0);
 
@@ -332,7 +332,7 @@ int main() {
         assert(controller.posted.count == 0);
 
         [controller apply:@{@"handled" : @YES, @"commit" : @"，", @"view" : @{@"editing_text" : @"", @"candidates" : @[]}}];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} client:editor];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} key:',' client:editor];
         assert([controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:editor]);
         assert([editor.document isEqual:@"1。,"] && controller.posted.count == 0);
 
@@ -342,7 +342,7 @@ int main() {
         movedEditor.selection = NSMakeRange(3, 0);
         Focus(movedEditor);
         [controller noteSmartPunctuationShadow:0xFF0C];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} client:movedEditor];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} key:',' client:movedEditor];
         assert(![controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:movedEditor]);
         assert([movedEditor.document isEqual:@"abc"] && controller.posted.count == 0);
 
@@ -352,7 +352,7 @@ int main() {
         selecting.selection = NSMakeRange(0, 0);
         Focus(selecting);
         [controller apply:@{@"handled" : @YES, @"commit" : @"你好，", @"view" : @{@"editing_text" : @"", @"candidates" : @[]}}];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"你好，"} client:selecting];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"你好，"} key:',' client:selecting];
         assert([selecting.document isEqual:@"你好，"] && ShadowValid(controller) && Shadow(controller) == 0xFF0C);
         selecting.selection = NSMakeRange(0, 2);
         assert(![controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:selecting]);
@@ -362,7 +362,7 @@ int main() {
         Focus(selecting);
         selecting.selection = NSMakeRange(selecting.document.length, 0);
         [controller apply:@{@"handled" : @YES, @"commit" : @"，", @"view" : @{@"editing_text" : @"", @"candidates" : @[]}}];
-        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} client:selecting];
+        [controller noteCommittedChinesePunctuation:@{@"commit" : @"，"} key:',' client:selecting];
         NSString *committed = selecting.document;
         selecting.selection = NSMakeRange(0, 0);
         assert(![controller convertSmartPunctuationSpace:Key(49, @" ", 0) client:selecting]);

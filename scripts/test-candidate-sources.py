@@ -14,7 +14,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENUM = ROOT / "crates/engine/src/types.rs"
-POLICY = ROOT / "platforms/windows/src/candidate/CandidateActionAvailability.h"
+# 来源取值移到了 common/，Server 的候选窗与 TIP 的选词共用一份。
+POLICY = ROOT / "platforms/windows/common/CandidateSources.h"
 
 # The C++ constant, and the enumerator whose value it copies.
 NAMES = {

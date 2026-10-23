@@ -135,15 +135,41 @@ Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-
 
 AI 服务商选择是原生 select 原则的局部例外：该控件用 combobox/listbox 呈现选项内图标，自行维护键盘、焦点、定位与高对比度；其他 select 继续使用系统控件，鸿蒙手机继续使用整行选择面板。
 
+## 共享 AI 服务目录
+
+`settings/ai-provider-options.ts` 读取 `settings/ai-provider-catalog.json`，事实源是 `crates/client-providers/src/ai/provider_catalog.rs`。十三项标题、默认地址、默认模型、建议模型和文档沿用原有值与顺序；空建议列表和空文档不导出字段，保留原 UI 对象形状。
+
+```sh
+cargo run --quiet --locked -p msime-client-providers --example export_ai_provider_catalog -- --write
+pnpm exec vp fmt packages/ui/src/settings/ai-provider-catalog.json
+cargo run --quiet --locked -p msime-client-providers --example export_ai_provider_catalog -- --check
+```
+
+同一工具生成 Windows 设置消费的 `shared/ai/AiProviderCatalog.h`，静态宽字符串表保留原 `Provider` 字段与惰性初始化生命周期。Linux 设置应用 CI 使用真实导出器检查 JSON 语义和 C++ 字节；消费者不增加运行时文件或网络访问。平台过滤、Ollama 免 Token、自定义字段优先和未知服务回退继续由原策略处理；iOS、语音和偏好首次默认值的独立策略不由本目录替换。
+
 ## 共享语音目录
 
 识别、润色服务预设和豆包流式接口读取 `voice/voice-provider-catalog.json`，事实源是 `crates/client-providers/src/voice/provider_catalog.rs`。修改 Rust 目录后在仓库根目录生成，再检查：
 
 ```sh
 mkdir -p target
-cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog > target/voice-provider-catalog.json && mv target/voice-provider-catalog.json packages/ui/src/voice/voice-provider-catalog.json
+cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --write
 pnpm exec vp fmt packages/ui/src/voice/voice-provider-catalog.json
 cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
 ```
 
-Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
+导出器同时生成鸿蒙 `VoiceProviderCatalog.ts` 的润色与 HTTP 识别默认地址、模型和 HTTP 请求格式，润色器、识别策略与初始配置同步读取；HTTP 服务范围由 Rust `asr_request_format` 筛选，流式与本地服务不进入上传路径；Linux 的 `msime_voice_provider_catalog.py` 同步生成服务集合、默认地址/模型与 HTTP 格式，由原生语音脚本导入并随各版本安装；无参时仍只向标准输出生成 JSON。Linux 设置应用 CI 在构建 Rust 依赖后执行同一个检查，JSON 比较语义值，TypeScript 和 Python 逐字比较。JSON 随前端打包，宿主无需增加异步桥接，读取预设不会访问网络或偏好。UI 只追加系统识别和本地模型，并保持公开凭据服务数组的历史顺序；选择器顺序由 Rust 目录决定。
+
+macOS 同时读取同一导出器生成的 `shared/voice/VoiceProviderCatalog.h`，共享 C++17 静态表持有识别服务的 id、标题、默认地址与模型，`--check` 逐字检查。宿主只保存历史 id 顺序，并追加系统与本地识别；不增加运行时 ABI 初始化、JSON 解析或配置读取。
+
+## 共享润色提示词
+
+内置方案的名称与正文归 `crates/client-providers/src/voice/polish_catalog.rs`。修改它后，在仓库根目录运行：
+
+```sh
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --write
+pnpm exec vp fmt packages/ui/src/voice/polish-prompt-catalog.json packages/ui/src/voice/polish-preset-ids.ts
+cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
+```
+
+导出工具同步更新 UI JSON、公开 id 字面量元组、共享 C++ 窄字符串目录头、Windows 设置页的宽字符串目录头、Linux Python 模块、iOS 的内置方案 Swift 目录、Android 的内置方案 Java 目录和鸿蒙简版正文的 TypeScript 类，Linux 设置应用 CI 检查它们。鸿蒙简版在 Rust 条目的 `compact_prompt` 中维护，不进入 UI JSON；`HarmonyVoicePolisher` 同步调用生成类，四篇正文、空槽位和未知 id 的 cleanup 回退保持。macOS 回退设置的名称与 id 也读取 C++ 窄字符串目录。`scripts/test-polish-prompt-catalog.py` 用真实 C++ 解析函数、Windows 设置目录、Python 模块、编译后的 Swift 内置方案目录，以及 Android 和 macOS 实际设置选择表对照 UI JSON；没有 C++17、Swift 编译器、JDK 17 或 Apple 宿主时分别明确跳过对应部分。Java 生成方法每次返回独立数组，Android 和 macOS 设置策略追加三个自定义槽位。自定义槽位、未知方案与空正文的既有处理继续由各消费方的回归覆盖。

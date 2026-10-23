@@ -4,13 +4,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 平板横屏分离式键盘的纯逻辑：什么时候分离（设置 × 设备形态 × 方向）、哪些布局分离、每一行的断点和空隙宽度、底行空格的拆法、空隙里的按下不归任何键，以及与单手模式的互斥。
+ * 大屏分离式键盘的纯逻辑：什么时候分离（设置 × 设备形态 × 方向）、哪些布局分离、每一行的断点和空隙宽度、底行空格的拆法、空隙里的按下不归任何键，以及与单手模式的互斥。
  */
 public final class SplitKeyboardPolicySmoke {
     private static final float EPSILON = 1e-4f;
 
     public static void main(String[] args) {
         whenSplitApplies();
+        portraitOverride();
         whichLayoutsSplit();
         gapWidth();
         letterRowCuts();
@@ -54,6 +55,31 @@ public final class SplitKeyboardPolicySmoke {
         check(!SplitKeyboardPolicy.drawn(true, 800, false, KeyboardLayout.KOREAN_LAYOUT), "not drawn in portrait");
         check(!SplitKeyboardPolicy.drawn(false, 800, true, KeyboardLayout.STANDARD_TOUCH_LAYOUT), "not drawn when off");
         check(!SplitKeyboardPolicy.drawn(true, 599, true, KeyboardLayout.STANDARD_TOUCH_LAYOUT), "not drawn on a phone");
+    }
+
+    private static void portraitOverride() {
+        for (boolean enabled : new boolean[] {false, true}) {
+            for (boolean portrait : new boolean[] {false, true}) {
+                for (boolean landscape : new boolean[] {false, true}) {
+                    for (int width : new int[] {360, 599, 600, 840}) {
+                        boolean active = enabled && width >= 600 && (landscape || portrait);
+                        check(SplitKeyboardPolicy.active(enabled, width, landscape, portrait) == active,
+                            "竖屏覆盖仍须满足主开关和大屏条件");
+                        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT,
+                                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT,
+                                KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+                            check(SplitKeyboardPolicy.drawn(enabled, width, landscape, layout, portrait)
+                                == (active && SplitKeyboardPolicy.splitsLayout(layout)),
+                                "竖屏覆盖不改变支持的布局");
+                        }
+                    }
+                }
+            }
+        }
+        check(SplitKeyboardPolicy.drawn(true, 673, false, KeyboardLayout.STANDARD_TOUCH_LAYOUT, true),
+            "展开内屏竖放时分离");
+        check(!SplitKeyboardPolicy.drawn(true, 344, false, KeyboardLayout.STANDARD_TOUCH_LAYOUT, true),
+            "折叠到窄外屏后恢复完整键盘");
     }
 
     private static void gapWidth() {

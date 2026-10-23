@@ -70,6 +70,14 @@ impl InputSession {
         if !self.has_composition() {
             return KeyResult::unhandled();
         }
+        // 「📅日期」入口的边缘选择和选中一样打开换页；日期页里的行没有可拆的字。
+        if let Some(keyword) = self.date_time_menu_keyword_at(index) {
+            self.enter_date_time_menu(&keyword);
+            return KeyResult::handled();
+        }
+        if self.date_time_menu_page.is_some() {
+            return KeyResult::unhandled();
+        }
         let Some(candidate) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
@@ -139,6 +147,12 @@ impl InputSession {
             result = self.commit_conversion();
             index = 0;
         }
+        // 高亮停在「📅日期」入口上时上屏打开的是换页，不是这个字：入口不上屏，组字原样留着。
+        if let Some(keyword) = self.date_time_menu_keyword_at(index) {
+            self.enter_date_time_menu(&keyword);
+            result.handled = true;
+            return result;
+        }
         while self.has_composition() {
             let part = self.commit(index);
             index = 0;
@@ -160,6 +174,12 @@ impl InputSession {
 
     /// input_session.cpp:828-956.
     pub(super) fn commit(&mut self, index: usize) -> KeyResult {
+        // 「📅日期」入口不上屏：候选窗换成这一组的全部格式，组字原样留着（`EnterDateTimeCandidatePage`）。
+        if let Some(keyword) = self.date_time_menu_keyword_at(index) {
+            self.enter_date_time_menu(&keyword);
+            return KeyResult::handled();
+        }
+        self.helpcode_entry = None;
         if let Some(result) = self.commit_literal_candidate(index) {
             return result;
         }

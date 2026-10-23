@@ -445,7 +445,7 @@ impl QuanpinDictionary {
         }
         let mut segments = None;
         let segmentation_cache = &mut self.segmentation_cache;
-        let association = self.sentence_association;
+        let association = self.sentence_association.clone();
         let has_rerankers = !self.rerankers.is_empty();
         let context = &self.rescoring_context;
         let (resolution_hash, (resolution, pinyin_segmentation, marking_alternatives, slot)) =
@@ -468,8 +468,12 @@ impl QuanpinDictionary {
                         .chain(&resolution.costlier_corrected_cuts)
                         .map(|cut| join_segments(cut))
                         .collect();
-                    let slot =
-                        series_slot_key(&resolution.cache_key, association, has_rerankers, context);
+                    let slot = series_slot_key(
+                        &resolution.cache_key,
+                        &association,
+                        has_rerankers,
+                        context,
+                    );
                     let owned = match resolution {
                         Cow::Borrowed(_) => None,
                         Cow::Owned(resolution) => Some(resolution),
@@ -542,7 +546,13 @@ impl QuanpinDictionary {
                 );
             }
         }
-        if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+        // 保留原分配对照，只同步备选系列新增的个人模型依赖。
+        if segments.len() >= 2
+            || resolution.corrected.len() >= 2
+            || alternatives
+                .iter()
+                .any(|path| path.len() >= 2 && is_literal_segmentation(raw, path))
+        {
             self.series_cache.insert(slot.clone(), result.clone());
             self.remember_personal_scored_key(slot);
         } else {

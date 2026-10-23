@@ -65,10 +65,13 @@ std::string recognize_cloud_asr(
     std::string_view endpoint, std::string_view model, std::string_view token,
     std::string_view language,
     const std::shared_ptr<std::atomic_bool> &cancelled);
-// timeout_ms is the whole request budget - connection, upload and response - not a connect timeout. The default is the Windows one; a host that needs longer states its own. Getting this wrong is silent: callers keep the ASR text when polish fails, so a budget the service cannot meet means the transcript was uploaded and the answer thrown away with nothing shown.
+// DeepSeek 思考强度档位：disabled | low | high | max；后三档在请求体里写成 reasoning_effort。其余值一律按 disabled 处理。
+bool valid_thinking_level(std::string_view level);
+// timeout_ms is the whole request budget - connection, upload and response - not a connect timeout. The default is the Windows one; a host that needs longer states its own. Getting this wrong is silent: callers keep the ASR text when polish fails, so a budget the service cannot meet means the transcript was uploaded and the answer thrown away with nothing shown. `thinking` 是 voice_input.polish_thinking 的档位，只有接口地址属于 DeepSeek 才写进请求体。
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
+    std::string_view thinking,
     const std::shared_ptr<std::atomic_bool> &cancelled, long timeout_ms = 3000);
 // Whether this host can recognize on-device: the sherpa-onnx runtime loads (LocalAsr.h). Hosts offer the "local" provider only when it answers true; without it the recognizer below always throws, and a host that advertised the option anyway would fall back to the platform recognizer without saying so.
 bool local_asr_available();

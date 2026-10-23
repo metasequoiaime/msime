@@ -4371,8 +4371,6 @@ private:
       sender.as<StackPanel>().Padding(content_padding(args.NewSize().Width));
     });
     // 正文列不跟着窗口无限变宽。共享样式给 Windows 和 macOS 的是 `max-w-none`（`settings-style.ts` 的 `contentColumn`），那是照 macOS 定的，而 Windows 上最大化是常态：在 1700 宽的窗口里一行的标签贴着最左、控件贴着最右，中间一千多 DIP 全是空白，单选项也被拉成几百 DIP 宽的大块。上限取共享样式自己的基准 900（Linux 680、HarmonyOS 760、iPad 720 也都限宽），初始的 1000 × 780 下正文只有 730 DIP，这个值不改变它的样子，只在窗口拉宽后把正文居中留白。
-    page.MaxWidth(900);
-    page.HorizontalAlignment(HorizontalAlignment::Center);
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)
@@ -4409,10 +4407,17 @@ private:
     });
   }
 
+  // 正文列最宽 1400 DIP。再宽下去，一行里的标签贴着最左、控件贴着最右，中间拉开上千 DIP 的空白，读起来要来回扫；而限得太窄（曾经按共享样式的 900）在 2560 的屏上最大化后正文只占三分之一，缩成窄窄一条浮在中间。1400 在 2560 上占六成左右，两侧留白不喧宾夺主。共享样式给 Windows 和 macOS 的是 `max-w-none`，那份规格按 macOS 定，而 macOS 很少有人最大化设置窗口。
+  static constexpr double content_maximum_width = 1800;
+
   // 正文边距照 macOS 的 `contentColumn`（`settings-style.ts` 的 `mac:px-12 mac:pt-6 mac:pb-11`）：上 24、左右 48、下 44。macOS 窄于 601 时收起侧栏，这个窗口的侧栏常驻，窗口拉到最窄（800）时正文只剩 540 宽，左右退到 32，给卡片多留些宽度。
+  // 超过上限的部分摊进左右边距，正文因此居中。**不要**改用 `HorizontalAlignment::Center` 加 `MaxWidth`：居中会让面板按自身内容的自然宽度排版，不再拉伸，`MaxWidth` 于是永远碰不到，正文宽度变成卡片内容撑出来的那个值，改上限毫无效果。
   static Thickness content_padding(double width) {
     const double side = width > 0 && width < 640 ? 32 : 48;
-    return Thickness{side, 24, side, 44};
+    const double overflow = width > content_maximum_width
+                                ? (width - content_maximum_width) / 2
+                                : 0;
+    return Thickness{side + overflow, 24, side + overflow, 44};
   }
 
   // 「词库」页正开着背单词子页（macOS 上是单独的 `vocabulary` 子页）。
@@ -14150,6 +14155,21 @@ private:
     schedule_save();
   }
 
+  // 编辑接口地址/模型时同步进当前服务商的槽位（共享设置页 ai-provider-update.ts 的 slotUpdate）：与目录默认相同的值删键回默认。
+  void write_ai_slot(std::wstring_view map, std::wstring const &value, bool endpoint_slot) {
+    const auto provider = document_.String(L"ai_assistant.provider", L"deepseek");
+    const auto *preset = ais::find_provider(provider);
+    const std::wstring fallback =
+        preset ? (endpoint_slot ? std::wstring(preset->endpoint) : std::wstring(preset->model))
+               : L"";
+    const auto trimmed = msime::settings::js_trim(value);
+    if (!provider.empty() && !trimmed.empty() && trimmed != fallback)
+      document_.SetEntry(map, provider, trimmed);
+    else
+      document_.RemoveEntry(map, provider);
+    schedule_save();
+  }
+
   // 「测试配置」按钮和结果（共享页的 `CredentialTestSection`），放在一张卡片里。config 给出输入框里的当前配置，disabled 说明按钮此刻能不能按。结果只在配置与测试时相同时显示，改了任何一项就收起；测试进行中按钮显示「测试中…」。
   void add_credential_test(StackPanel const &group, std::wstring const &service,
                            std::wstring const &label, std::function<JsonObject()> config,
@@ -22731,6 +22751,7 @@ private:
         L"AI 接口地址", endpoint_text, false, L"https://example.com/v1/chat/completions", true,
         [this](std::wstring const &value) {
           write_credential(L"ai_assistant.endpoint", value);
+          write_ai_slot(L"ai_assistant.endpoints", value, true);
           ai_edited(true);
           sync_ai();
           return value.empty() || ai_endpoint(value).origin.has_value();
@@ -22767,11 +22788,13 @@ private:
           ai_change([&](PreferencesDocument &doc) {
             doc.SetString(L"ai_assistant.model", value);
           }, false);
+          write_ai_slot(L"ai_assistant.models", value, false);
         },
         [this](std::wstring const &name) {
           return credential_input(name, document_.String(L"ai_assistant.model", L""), false, L"",
                                   true, [this](std::wstring const &value) {
                                     write_credential(L"ai_assistant.model", value);
+                                    write_ai_slot(L"ai_assistant.models", value, false);
                                     ai_edited(false);
                                     sync_ai();
                                     return true;
@@ -22844,15 +22867,38 @@ private:
         });
   }
 
-  // 换服务商（aiProviderUpdate）：接口地址和模型为空或还是原服务商的默认值时换成新服务商的默认值，保存后重画整页。
+  // 换服务商（aiProviderUpdate）：旧服务商的接口地址/模型写回它的槽位，新服务商从槽位回填或取目录默认，保存后重画整页。
   void select_ai_provider(std::wstring const &value) {
     const ais::ProviderFields current{document_.String(L"ai_assistant.provider", L"deepseek"),
                                       document_.String(L"ai_assistant.endpoint", L""),
                                       document_.String(L"ai_assistant.model", L"")};
     if (value == current.provider)
       return;
-    const auto update = ais::provider_update(value, current);
     ai_change([&](PreferencesDocument &doc) {
+      const auto *next = ais::find_provider(value);
+      if (!next)
+        next = &ais::providers().back();
+      // 槽位只取切换双方需要的键：新服务商的槽位先读进 map 让 provider_update 回填，旧服务商的槽位由它改写后落回文档。
+      std::map<std::wstring, std::wstring> endpoints, models;
+      const auto endpoint_slot = doc.Entry(L"ai_assistant.endpoints", next->id, L"");
+      if (!endpoint_slot.empty())
+        endpoints.emplace(next->id, endpoint_slot);
+      const auto model_slot = doc.Entry(L"ai_assistant.models", next->id, L"");
+      if (!model_slot.empty())
+        models.emplace(next->id, model_slot);
+      const auto update = ais::provider_update(value, current, endpoints, models);
+      const auto write_slot = [&doc](std::wstring_view map, std::wstring_view provider,
+                                     const std::map<std::wstring, std::wstring> &slots) {
+        const auto slot = slots.find(std::wstring(provider));
+        if (slot != slots.end())
+          doc.SetEntry(map, provider, slot->second);
+        else
+          doc.RemoveEntry(map, provider);
+      };
+      if (!current.provider.empty()) {
+        write_slot(L"ai_assistant.endpoints", current.provider, endpoints);
+        write_slot(L"ai_assistant.models", current.provider, models);
+      }
       doc.SetString(L"ai_assistant.provider", update.provider);
       doc.SetString(L"ai_assistant.endpoint", update.endpoint);
       doc.SetString(L"ai_assistant.model", update.model);

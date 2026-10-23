@@ -289,7 +289,7 @@ if(BUILD_TESTING)
   add_executable(ibus-mode-hint-lifecycle tests/runtime/mode_hint_lifecycle.cpp)
   target_compile_options(ibus-mode-hint-lifecycle PRIVATE -Wall -Wextra -Werror)
   target_link_libraries(ibus-mode-hint-lifecycle PRIVATE msime-ibus-host Threads::Threads)
-  foreach(scenario english blocked destroyed)
+  foreach(scenario english blocked destroyed focus-preferences)
     add_test(NAME ibus-mode-hint-${scenario} COMMAND ibus-mode-hint-lifecycle ${scenario})
     set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 15)
   endforeach()
@@ -300,7 +300,7 @@ if(BUILD_TESTING)
   find_program(MSIME_XVFB_RUN xvfb-run)
   if(MODE_BADGE_X11_FOUND AND MSIME_XVFB_RUN)
     target_compile_definitions(ibus-mode-hint-lifecycle PRIVATE MSIME_TEST_X11_BADGE)
-    foreach(scenario x11-badge x11-badge-no-caret x11-badge-point x11-toolbar)
+    foreach(scenario x11-badge x11-badge-no-caret x11-badge-point x11-toolbar focus-preferences-x11)
       add_test(NAME ibus-mode-hint-${scenario}
         COMMAND "${MSIME_XVFB_RUN}" -a $<TARGET_FILE:ibus-mode-hint-lifecycle> ${scenario})
       set_tests_properties(ibus-mode-hint-${scenario} PROPERTIES TIMEOUT 30)
@@ -311,9 +311,13 @@ if(BUILD_TESTING)
   target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host Threads::Threads)
   # 注音和笔画用例把测试词库安装到独立目录，锁定资源中没有这些词库。
   target_compile_definitions(ibus-engine-smoke PRIVATE
+    MSIME_HELPCODE_FIXTURE_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/../../resources"
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-helpcode-trigger
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --helpcode-trigger)
+    set_tests_properties(ibus-helpcode-trigger PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-page-number-visibility
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --page-number)
     set_tests_properties(ibus-page-number-visibility PROPERTIES TIMEOUT 60)
@@ -598,6 +602,8 @@ if(BUILD_TESTING)
   set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
   add_test(NAME linux-voice-provider-degraded-start
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_degraded_start.py")
+  add_test(NAME linux-voice-provider-catalog
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_catalog.py")
   add_test(NAME linux-voice-local-stream
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/local_stream.py")
   add_test(NAME linux-voice-provider-local
@@ -690,7 +696,7 @@ foreach(MSIME_PROVIDER online voice)
   install(FILES "${MSIME_UNIT_SOURCE}" DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}"
           RENAME ${MSIME_EDITION_PACKAGE}-${MSIME_PROVIDER}.socket)
 endforeach()
-install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_provider_runtime.py scripts/host_api.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_voice_polish_prompts.py scripts/msime_voice_provider_catalog.py scripts/msime_provider_runtime.py scripts/host_api.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # The helper and the sherpa-onnx runtime share the host library's private directory: the helper finds the runtime in its own directory, and libsherpa-onnx-c-api.so finds libonnxruntime.so through its $ORIGIN RPATH.
 install(TARGETS msime-voice-local RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 set(MSIME_VOICE_RUNTIME_DIR "" CACHE PATH "sherpa-onnx runtime for on-device recognition, as unpacked by scripts/fetch_voice_runtime.py --platform linux-<arch>")
@@ -1261,7 +1267,9 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
@@ -1279,7 +1287,9 @@ set(MSIME_NOTICE_NAMES
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
   libhangul-hanja-BSD-3-Clause.txt
+  librime-octagram-BSD-3-Clause.txt
   kfcd-chaizi-CC-BY-3.0.txt
+  rime-wanxiang-CC-BY-4.0.txt
   Unicode-License-V3.txt
   rime-cantonese-CC-BY-4.0.txt
   libchewing-data-LGPL-2.1.txt
@@ -1334,6 +1344,12 @@ endif()
 if(MSIME_FRONTEND_NOTICES)
   list(APPEND MSIME_NOTICE_SOURCES "${MSIME_FRONTEND_NOTICES}")
   list(APPEND MSIME_NOTICE_NAMES frontend-npm-NOTICES.txt)
+endif()
+# ZIP_LISTS 按位置配对，两张表差一项时其后的声明全部错名，多出的名字配上空路径，不报错也装不上；长度不等直接停下。
+list(LENGTH MSIME_NOTICE_SOURCES MSIME_NOTICE_SOURCE_COUNT)
+list(LENGTH MSIME_NOTICE_NAMES MSIME_NOTICE_NAME_COUNT)
+if(NOT MSIME_NOTICE_SOURCE_COUNT EQUAL MSIME_NOTICE_NAME_COUNT)
+  message(FATAL_ERROR "MSIME_NOTICE_SOURCES has ${MSIME_NOTICE_SOURCE_COUNT} entries but MSIME_NOTICE_NAMES has ${MSIME_NOTICE_NAME_COUNT}")
 endif()
 set(MSIME_MISSING_NOTICES "")
 foreach(MSIME_NOTICE_SOURCE MSIME_NOTICE_NAME IN ZIP_LISTS MSIME_NOTICE_SOURCES MSIME_NOTICE_NAMES)

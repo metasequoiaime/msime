@@ -1,0 +1,742 @@
+{
+  "baseline_commit": "657503e4c3d1b2bff7c0a93108a2db945a30ce9c",
+  "resource_commit": "128a332cabc5fa42b1cf5f827033ad5697ff528b",
+  "resource_generation": "7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe",
+  "decision": "reject_current_unconstrained_prototype",
+  "latency_is_single_round_exploratory": true,
+  "binaries_sha256": {
+    "baseline-convert_eval": "327e9883c059fcefdd12812526ae667782c641e2075fd8113714edc92abbfe13",
+    "baseline-rerank_latency": "6f0ff74a5d2e038ffcc72e331da7c1067e7587bcd602fdf6b0a76e4896bcd489",
+    "candidate-convert_eval": "a433c9011d57c8da571f58d13c9956f779390c2088ac39348c2ad6d2e24c7c8d",
+    "candidate-rerank_latency": "1ec1420bae1a8786a80b2e469732326fc733c77a4057ee7e6a31800e4232d116",
+    "candidate-32-convert_eval": "2d8392dcb7557a0eae424578ea240f7c0dfb83330560bae9eab020419658781e",
+    "candidate-32-rerank_latency": "2e3efe59e825b00ed2604d60849660976d0e09e5ebc439f18805958b8346b669"
+  },
+  "resources_sha256": {
+    "msime-bigram.bin": {
+      "sha256": "79607ae9fcd80ef6df2f001cfbc1fa6048f81c1de00f45c634bbc8e132642d88",
+      "bytes": 12000016
+    },
+    "msime-japanese.dat": {
+      "sha256": "83e093c5697ee81e3ccde63856e9131446e373d452854b4012ad34eb6efbe469",
+      "bytes": 66547565
+    },
+    "msime-mozc_dictionary_oss_README.txt": {
+      "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
+      "bytes": 5750
+    },
+    "sentence-model.safetensors": {
+      "sha256": "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
+      "bytes": 4486280
+    },
+    "msime-mozc_LICENSE.txt": {
+      "sha256": "44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c",
+      "bytes": 5734
+    },
+    "msime-pinyin.db": {
+      "sha256": "7c672458e6068c22c07b33b146c5a07f4e734959abc3bddd2784fe18a7582a76",
+      "bytes": 73723904
+    },
+    "msime-dictionary-manifest.json": {
+      "sha256": "5b656a5db35b4dcf804ce4348d8584c899d0012fe62bbbe3689204ddaba8722f",
+      "bytes": 4627
+    },
+    "msime-others.db": {
+      "sha256": "9f3cae5b407038e0e4536c40582a0bc0feb732657f0ae2d38196374cede52f94",
+      "bytes": 1314816
+    },
+    "msime-english.db": {
+      "sha256": "d216f66cab7edb9072ba7a07f3fe35623e76870438b76d360a89cc2a4795d3cd",
+      "bytes": 4526080
+    },
+    "msime-scowl_Copyright.txt": {
+      "sha256": "586063cc4345559d5347c6cdb73fbb4d1261118bb009a03530754df004419193",
+      "bytes": 4028
+    },
+    "msime-wubi.db": {
+      "sha256": "851ed68211311a76847fe6a26096702747abbaab8dffb141698e0365143b31c1",
+      "bytes": 14536704
+    },
+    "msime-trigram.bin": {
+      "sha256": "59e4eeba6f3e96cc46f3ae1477e9268187bb9df346634564e989889b282d68ea",
+      "bytes": 12000016
+    }
+  },
+  "quality": {
+    "baseline": {
+      "nine-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.728,
+          "mrr": 0.634,
+          "top1": 0.617,
+          "top1_char_prefix": 0.775,
+          "top5": 0.642,
+          "top9": 0.704
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.333,
+            "mrr": 0.238,
+            "top1": 0.222,
+            "top1_char_prefix": 0.444,
+            "top5": 0.222,
+            "top9": 0.333
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.568,
+            "top1": 0.556,
+            "top1_char_prefix": 0.818,
+            "top5": 0.556,
+            "top9": 0.667
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.679,
+            "top1": 0.667,
+            "top1_char_prefix": 0.787,
+            "top5": 0.667,
+            "top9": 0.778
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.933,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "6": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.571,
+            "top1": 0.556,
+            "top1_char_prefix": 0.603,
+            "top5": 0.556,
+            "top9": 0.667
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.37,
+            "top1": 0.333,
+            "top1_char_prefix": 0.667,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "9": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.609,
+            "top1": 0.556,
+            "top1_char_prefix": 0.84,
+            "top5": 0.667,
+            "top9": 0.778
+          }
+        }
+      },
+      "quanpin-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.84,
+          "mrr": 0.807,
+          "top1": 0.79,
+          "top1_char_prefix": 0.903,
+          "top5": 0.827,
+          "top9": 0.827
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.8,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.722,
+            "top1": 0.667,
+            "top1_char_prefix": 0.879,
+            "top5": 0.778,
+            "top9": 0.778
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.833,
+            "top1": 0.778,
+            "top1_char_prefix": 0.898,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.926,
+            "top1": 0.889,
+            "top1_char_prefix": 0.956,
+            "top5": 1.0,
+            "top9": 1.0
+          },
+          "6": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.937,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.444,
+            "top1": 0.444,
+            "top1_char_prefix": 0.778,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "9": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top1_char_prefix": 1.0,
+            "top5": 1.0,
+            "top9": 1.0
+          }
+        }
+      },
+      "nine-words": {
+        "overall": {
+          "cases": 2791,
+          "found": 0.963,
+          "mrr": 0.689,
+          "top1": 0.571,
+          "top1_char_prefix": 0.604,
+          "top5": 0.847,
+          "top9": 0.902
+        },
+        "by_syllables": {
+          "2": {
+            "cases": 1860,
+            "found": 0.995,
+            "mrr": 0.593,
+            "top1": 0.423,
+            "top1_char_prefix": 0.456,
+            "top5": 0.823,
+            "top9": 0.904
+          },
+          "3": {
+            "cases": 365,
+            "found": 0.989,
+            "mrr": 0.95,
+            "top1": 0.918,
+            "top1_char_prefix": 0.937,
+            "top5": 0.984,
+            "top9": 0.989
+          },
+          "4": {
+            "cases": 556,
+            "found": 0.856,
+            "mrr": 0.853,
+            "top1": 0.851,
+            "top1_char_prefix": 0.88,
+            "top5": 0.854,
+            "top9": 0.854
+          },
+          "5": {
+            "cases": 10,
+            "found": 0.0,
+            "mrr": 0.0,
+            "top1": 0.0,
+            "top1_char_prefix": 0.44,
+            "top5": 0.0,
+            "top9": 0.0
+          }
+        }
+      }
+    },
+    "candidate": {
+      "nine-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.704,
+          "mrr": 0.665,
+          "top1": 0.654,
+          "top1_char_prefix": 0.805,
+          "top5": 0.679,
+          "top9": 0.691
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.37,
+            "top1": 0.333,
+            "top1_char_prefix": 0.556,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.574,
+            "top1": 0.556,
+            "top1_char_prefix": 0.798,
+            "top5": 0.556,
+            "top9": 0.667
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.769,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.778,
+            "top1": 0.778,
+            "top1_char_prefix": 0.911,
+            "top5": 0.778,
+            "top9": 0.778
+          },
+          "6": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.778,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.556,
+            "mrr": 0.481,
+            "top1": 0.444,
+            "top1_char_prefix": 0.667,
+            "top5": 0.556,
+            "top9": 0.556
+          },
+          "9": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.889,
+            "top5": 0.667,
+            "top9": 0.667
+          }
+        }
+      },
+      "quanpin-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.84,
+          "mrr": 0.807,
+          "top1": 0.79,
+          "top1_char_prefix": 0.903,
+          "top5": 0.827,
+          "top9": 0.827
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.8,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.722,
+            "top1": 0.667,
+            "top1_char_prefix": 0.879,
+            "top5": 0.778,
+            "top9": 0.778
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.833,
+            "top1": 0.778,
+            "top1_char_prefix": 0.898,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.926,
+            "top1": 0.889,
+            "top1_char_prefix": 0.956,
+            "top5": 1.0,
+            "top9": 1.0
+          },
+          "6": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.937,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.444,
+            "top1": 0.444,
+            "top1_char_prefix": 0.778,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "9": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top1_char_prefix": 1.0,
+            "top5": 1.0,
+            "top9": 1.0
+          }
+        }
+      }
+    },
+    "candidate-32": {
+      "nine-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.728,
+          "mrr": 0.665,
+          "top1": 0.654,
+          "top1_char_prefix": 0.805,
+          "top5": 0.679,
+          "top9": 0.691
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.37,
+            "top1": 0.333,
+            "top1_char_prefix": 0.556,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.575,
+            "top1": 0.556,
+            "top1_char_prefix": 0.798,
+            "top5": 0.556,
+            "top9": 0.667
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.668,
+            "top1": 0.667,
+            "top1_char_prefix": 0.769,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.778,
+            "top1": 0.778,
+            "top1_char_prefix": 0.911,
+            "top5": 0.778,
+            "top9": 0.778
+          },
+          "6": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.778,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.556,
+            "mrr": 0.481,
+            "top1": 0.444,
+            "top1_char_prefix": 0.667,
+            "top5": 0.556,
+            "top9": 0.556
+          },
+          "9": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.889,
+            "top5": 0.667,
+            "top9": 0.667
+          }
+        }
+      },
+      "quanpin-sentences": {
+        "overall": {
+          "cases": 81,
+          "found": 0.84,
+          "mrr": 0.807,
+          "top1": 0.79,
+          "top1_char_prefix": 0.903,
+          "top5": 0.827,
+          "top9": 0.827
+        },
+        "by_syllables": {
+          "10": {
+            "cases": 9,
+            "found": 0.667,
+            "mrr": 0.667,
+            "top1": 0.667,
+            "top1_char_prefix": 0.8,
+            "top5": 0.667,
+            "top9": 0.667
+          },
+          "11": {
+            "cases": 9,
+            "found": 0.778,
+            "mrr": 0.722,
+            "top1": 0.667,
+            "top1_char_prefix": 0.879,
+            "top5": 0.778,
+            "top9": 0.778
+          },
+          "12": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.833,
+            "top1": 0.778,
+            "top1_char_prefix": 0.898,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "4": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.917,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "5": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.926,
+            "top1": 0.889,
+            "top1_char_prefix": 0.956,
+            "top5": 1.0,
+            "top9": 1.0
+          },
+          "6": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 0.89,
+            "top1": 0.889,
+            "top1_char_prefix": 0.963,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "7": {
+            "cases": 9,
+            "found": 0.889,
+            "mrr": 0.889,
+            "top1": 0.889,
+            "top1_char_prefix": 0.937,
+            "top5": 0.889,
+            "top9": 0.889
+          },
+          "8": {
+            "cases": 9,
+            "found": 0.444,
+            "mrr": 0.444,
+            "top1": 0.444,
+            "top1_char_prefix": 0.778,
+            "top5": 0.444,
+            "top9": 0.444
+          },
+          "9": {
+            "cases": 9,
+            "found": 1.0,
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top1_char_prefix": 1.0,
+            "top5": 1.0,
+            "top9": 1.0
+          }
+        }
+      },
+      "nine-words": {
+        "overall": {
+          "cases": 2791,
+          "found": 0.972,
+          "mrr": 0.697,
+          "top1": 0.578,
+          "top1_char_prefix": 0.608,
+          "top5": 0.857,
+          "top9": 0.911
+        },
+        "by_syllables": {
+          "2": {
+            "cases": 1860,
+            "found": 0.995,
+            "mrr": 0.593,
+            "top1": 0.423,
+            "top1_char_prefix": 0.456,
+            "top5": 0.823,
+            "top9": 0.904
+          },
+          "3": {
+            "cases": 365,
+            "found": 0.992,
+            "mrr": 0.952,
+            "top1": 0.918,
+            "top1_char_prefix": 0.937,
+            "top5": 0.989,
+            "top9": 0.992
+          },
+          "4": {
+            "cases": 556,
+            "found": 0.899,
+            "mrr": 0.889,
+            "top1": 0.881,
+            "top1_char_prefix": 0.902,
+            "top5": 0.897,
+            "top9": 0.897
+          },
+          "5": {
+            "cases": 10,
+            "found": 0.0,
+            "mrr": 0.0,
+            "top1": 0.0,
+            "top1_char_prefix": 0.44,
+            "top5": 0.0,
+            "top9": 0.0
+          }
+        }
+      }
+    }
+  },
+  "quanpin_reports_and_full_candidates_identical": true,
+  "environment": {
+    "cpu": "Apple M1 Max",
+    "os": "macOS 27.0.1 (26A434)",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "1.97.1 (c980f4866 2026-06-30)"
+  }
+}

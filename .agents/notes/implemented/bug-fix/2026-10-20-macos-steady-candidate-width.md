@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+macOS 的只增不减策略由[按当前页内容恢复收窄](2026-10-22-macos-candidate-width-follows-content.md)取代；以下保留原决定的动机、取舍与验证范围，共享函数及 Linux 使用方不受这次 macOS 修复影响。
+
 `shared/candidate/CandidatePlacement.h` 的 `WidestCandidateWidth`（macOS 经 `platforms/macos/src/candidate/CandidatePlacement.h` 的 `MSIMEWidestCandidateWidth` 调用，Linux 原生画布直接用），`InputController` 用 `_widestHorizontalCandidateWidth` 记住横排卡片这次显示以来最宽的一次：
 
 - 候选窗一直开着（`_panel.isVisible`）的这段时间里，记下的宽度作为最小宽度交给 `candidatePageGeometry:`，卡片只变宽不变窄。

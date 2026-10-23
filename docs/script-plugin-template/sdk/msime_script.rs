@@ -62,6 +62,7 @@ pub mod how {
     pub const EDGE: u64 = 8;
     pub const HIGHLIGHTED: u64 = 9;
     pub const WUBI_AUTO: u64 = 10;
+    pub const GRID_LIMIT: u64 = 11;
 }
 
 /// `event::OUTCOME`：选中之后的结果（`candidate_selected`）。
@@ -99,6 +100,7 @@ pub mod local_mode {
     pub const DATE_TIME: u64 = 11;
     pub const QUICK_PHRASE: u64 = 12;
     pub const CHAIZI: u64 = 13;
+    pub const SYMBOL: u64 = 14;
     pub const UNKNOWN: u64 = 255;
 }
 

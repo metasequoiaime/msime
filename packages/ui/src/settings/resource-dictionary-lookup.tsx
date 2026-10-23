@@ -14,6 +14,7 @@ import { TextInputRow } from "./text-input-row";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsInputDescription } from "./settings-input-description";
 import { ErrorAlert } from "../core/error-alert";
+import { useDebouncedCallback } from "../core/use-debounced-callback";
 import * as settings from "./settings-style";
 
 const placeholders: Record<ResourceDictionaryKind, string> = {
@@ -43,32 +44,37 @@ export function ResourceDictionaryLookup({
   const [error, setError] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
 
-  useEffect(() => {
-    let current = true;
-    setBusy(true);
-    setError("");
-    const timer = window.setTimeout(async () => {
+  const { schedule: browseLater, cancel: cancelBrowse } = useDebouncedCallback(
+    async (isCurrent: () => boolean) => {
       try {
         if (!dictionary.browse) return;
         const page = await dictionary.browse(offset, DICTIONARY_PAGE_SIZE, kind, query.trim());
-        if (current) {
+        if (isCurrent()) {
           setResult({ ...page, entries: page.entries.filter((entry) => entry.kind === kind) });
           if (listRef.current) listRef.current.scrollTop = 0;
         }
       } catch (reason) {
-        if (current) {
+        if (isCurrent()) {
           setResult({ entries: [], has_more: false, available: true });
           setError(dictionaryErrorMessage(reason, "无法读取词库，请重试。"));
         }
       } finally {
-        if (current) setBusy(false);
+        if (isCurrent()) setBusy(false);
       }
-    }, 280);
+    },
+    280,
+  );
+
+  useEffect(() => {
+    let current = true;
+    setBusy(true);
+    setError("");
+    browseLater(() => current);
     return () => {
       current = false;
-      window.clearTimeout(timer);
+      cancelBrowse();
     };
-  }, [dictionary, kind, query, offset]);
+  }, [dictionary, kind, query, offset, browseLater, cancelBrowse]);
 
   const label = resourceDictionaryKinds.find(([value]) => value === kind)?.[1];
   const status = busy

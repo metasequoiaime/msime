@@ -547,15 +547,24 @@ fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelErr
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// Delete an installed model. Only catalog ids are accepted, so the id can never name anything outside `root`. Removing a model that is not installed succeeds.
+/// 删除目录内已安装的语音模型；只接受目录中的模型 id。
 pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     let model = find_model(id)?;
-    check_root(root)?;
+    remove_installed(root, &model.id, false).map(|_| ())
+}
+
+/// 资源包调用前已通过枚举限制 id；卸载与安装使用同一把跨进程锁。
+pub(crate) fn remove_installed(
+    root: &Path,
+    id: &str,
+    published_only: bool,
+) -> Result<bool, LocalModelError> {
+    check_install(root, id, &[])?;
     if matches!(
         fs::symlink_metadata(root),
         Err(error) if error.kind() == io::ErrorKind::NotFound
     ) {
-        return Ok(());
+        return Ok(false);
     }
     #[cfg(unix)]
     let root_directory = crate::storage::open_private_directory(root)?;
@@ -574,27 +583,34 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
         #[cfg(unix)]
         root: root_directory,
     };
-    let target = root.join(&model.id);
+    let target = root.join(id);
+    if published_only
+        && (!fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_dir())
+            || !fs::symlink_metadata(target.join(MANIFEST_FILE))
+                .is_ok_and(|m| m.file_type().is_file()))
+    {
+        return Ok(false);
+    }
     #[cfg(unix)]
-    remove_leftovers_at(_lock.root(), &model.id);
+    remove_leftovers_at(_lock.root(), id);
     #[cfg(not(unix))]
-    remove_leftovers(root, &model.id);
+    remove_leftovers(root, id);
     #[cfg(not(unix))]
     let target_is_dir = match fs::symlink_metadata(&target) {
         Ok(metadata) => metadata.is_dir(),
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(false),
     };
     #[cfg(unix)]
     if fs::symlink_metadata(&target).is_err() {
-        return Ok(());
+        return Ok(false);
     }
-    // Renamed aside first so a deletion interrupted halfway never leaves a directory that still carries its manifest.
-    let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
+    // 先整体改名，删除中断时也不留下带有发布清单的残缺目录。
+    let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
     #[cfg(unix)]
     {
         rustix::fs::renameat(
             _lock.root(),
-            std::ffi::OsStr::new(&model.id),
+            std::ffi::OsStr::new(id),
             _lock.root(),
             aside.file_name().expect("generated aside name"),
         )
@@ -613,7 +629,7 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
             fs::remove_file(&aside)?;
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 fn check_root(root: &Path) -> Result<(), LocalModelError> {

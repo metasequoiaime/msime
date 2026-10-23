@@ -1,6 +1,17 @@
 import XCTest
 
 final class VoicePolishTests: XCTestCase {
+  func testPresetChoicesConsumeSharedCatalogAndKeepCustomSlots() {
+    let builtIns = VoicePolishPresetCatalog.builtIns
+    XCTAssertEqual(VoicePolishSettings.presets.map(\.id), builtIns.map(\.id) + VoicePolishSettings.customSlots)
+    XCTAssertEqual(Array(VoicePolishSettings.presets.prefix(builtIns.count)).map(\.title), builtIns.map(\.title))
+    XCTAssertEqual(Array(VoicePolishSettings.presets.suffix(3)).map(\.title), ["自定义一", "自定义二", "自定义三"])
+    for preset in VoicePolishSettings.presets {
+      let settings = VoicePolishSettings(["voice_input": ["polish_prompt_id": preset.id]])
+      XCTAssertEqual(settings.promptID, preset.id)
+    }
+  }
+
   func testPresetsComeFromTheSharedPromptHeader() {
     var settings = VoicePolishSettings()
     XCTAssertTrue(settings.systemPrompt.hasPrefix("你是语音转写整理助手。"))
@@ -100,6 +111,14 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(auto.language, "auto")
     XCTAssertNil(auto.transcriptionLanguage(for: .groq))
     XCTAssertEqual(VoicePolishSettings.languages.map(\.id), ["zh-cn", "yue", "en", "auto"])
+  }
+
+  func testLanguageChoicesConsumeTheSharedLanguageCatalog() {
+    XCTAssertEqual(
+      VoiceLanguageCatalog.mobile.map(\.id),
+      ["zh-cn", "yue", "en", "auto"]
+    )
+    XCTAssertEqual(VoiceLanguageCatalog.mobile.map(\.title), ["普通话", "粤语", "英语", "普通话 + 英语"])
   }
 
   func testTranscriptionBodyCarriesTheLanguageOnlyWhenGiven() throws {

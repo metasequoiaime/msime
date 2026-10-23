@@ -1,0 +1,47 @@
+[
+  {
+    "id": "zh-cn",
+    "provider_value": "zh-cn",
+    "provider_title": "中文（普通话）",
+    "system_value": "zh-CN",
+    "system_title": "中文（普通话）",
+    "mobile_value": "zh-cn",
+    "mobile_title": "普通话"
+  },
+  {
+    "id": "yue",
+    "provider_value": "",
+    "provider_title": "",
+    "system_value": "",
+    "system_title": "",
+    "mobile_value": "yue",
+    "mobile_title": "粤语"
+  },
+  {
+    "id": "en",
+    "provider_value": "en",
+    "provider_title": "English",
+    "system_value": "en-US",
+    "system_title": "English",
+    "mobile_value": "en",
+    "mobile_title": "英语"
+  },
+  {
+    "id": "ja",
+    "provider_value": "ja",
+    "provider_title": "日本語",
+    "system_value": "ja-JP",
+    "system_title": "日本語",
+    "mobile_value": "",
+    "mobile_title": "日语"
+  },
+  {
+    "id": "auto",
+    "provider_value": "auto",
+    "provider_title": "自动识别",
+    "system_value": "",
+    "system_title": "",
+    "mobile_value": "auto",
+    "mobile_title": "普通话 + 英语"
+  }
+]

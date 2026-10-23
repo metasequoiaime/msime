@@ -25,6 +25,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+#include "../core/VimMode.h"
 #include <sys/stat.h>
 
 @interface MSIMETranslationSettingsWindow (Lifecycle)
@@ -63,12 +64,13 @@ static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
 /// 「Shift+字母进入快捷模式」总开关和各模式开关存在同一张表里（共享文档的 `local_modes.shift_letter_entry`），缺省同样是开；设置窗口把它单独放在模式网格上方。
 static NSString *const ShiftLetterEntryMode = @"shift_letter_entry";
-/// 拆字反查（C 模式）在桌面宿主默认关：共享文档的 `local_modes.chaizi` 只在用户动过开关后才出现，host-api 在桌面构建里把缺键读作关，这里也要读作关，否则勾选和实际不一致。
+/// 拆字反查（C 模式）在桌面默认关：共享文档的 `local_modes.chaizi` 只在用户动过开关后才出现，host-api 按宿主形态读缺键（桌面关、触屏开），这里读作关，否则勾选和实际不一致。
 static NSString *const ChaiziMode = @"chaizi";
 static NSArray<NSArray<NSString *> *> *LocalModeControls() {
     return @[@[ShiftLetterEntryMode, @"Shift+字母进入快捷模式"], @[@"quick_phrase", @"快捷短语（K 模式）"], @[@"date_time", @"日期与时间（T 模式）"],
              @[@"unicode", @"Unicode 录入（U 模式）"], @[@"emoji", @"Emoji（E 模式）"],
-             @[@"kaomoji", @"颜文字（M 模式）"], @[@"super_jianpin", @"超级简拼（J 模式）"],
+             @[@"kaomoji", @"颜文字（M 模式）"], @[@"symbol", @"符号快捷输入（S 模式）"],
+             @[@"super_jianpin", @"超级简拼（J 模式）"],
              @[@"temporary_english", @"临时英文（Y 模式）"], @[@"temporary_japanese", @"临时日语（R 模式）"],
              @[ChaiziMode, @"拆字反查（C 模式）"]];
 }
@@ -157,6 +159,12 @@ static BOOL ValidCandidateScale(id value) { return ValidCandidateStyleInteger(va
 static BOOL ValidCandidateOpacity(id value) { return ValidCandidateStyleInteger(value, 50, 100); }
 static BOOL ValidCandidateCornerRadius(id value) { return ValidCandidateStyleInteger(value, 0, 32); }
 static BOOL ValidCandidatePadding(id value) { return ValidCandidateStyleInteger(value, 0, 16); }
+
+static NSArray<NSString *> *CandidateGeometryKeys() {
+    return @[@"candidate_padding_horizontal", @"candidate_padding_vertical",
+             @"candidate_item_padding_horizontal", @"candidate_item_padding_vertical",
+             @"candidate_item_corner_radius", @"candidate_item_spacing"];
+}
 /// The 候选字体 presets in the order the popup lists them: a title, then the families the preset writes. The first family is the one this host puts in 候选字体; all of them go to the front of the fallback list, because the document is shared and the Windows and Linux names are what those hosts will find there. 默认 is the shared default pair (crates/client-core) rather than a preset of its own.
 static NSArray<NSArray<NSString *> *> *CandidateFontPresets() {
     return @[
@@ -198,6 +206,8 @@ static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
 ///
 /// 规则表现在是共享偏好文档的 `app_input_mode_rules`（crates/client-core 的 `Preferences::app_input_mode_rules`，macOS 按 bundle id、Windows 按进程基名），共享设置页和 Windows 也读写它。这个 NSUserDefaults 键只剩三种用途：升级前写下的规则在文档还没有这个键时照样生效，并由输入法载入文档后立即发起的一次保存（applicationInputModeRulesAwaitPublication）发布进文档；本窗口改规则时先记在这里，等同一次合并把它写进文档；偏好库收不下的旧规则（标识不合法，或超出 32 条）留在这里，只在本机生效。文档一旦带着这个键载入，它就是权威来源，已经进了文档的规则随即从这个键里删掉，键空了就整个删除。不在 -cloudSettingsSnapshot 里：bundle id 只对本机有意义。
 static NSString *const AppInputModeRulesKey = @"MSIMEClientAppInputModeRules";
+/// Vim 模式应用名单：共享文档的 `vim_mode_apps`（crates/client-core 的 `Preferences::vim_mode_apps`，macOS 按 bundle id）。与 AppInputModeRulesKey 同一套共享/本地通路，但没有升级前的本地键要迁移——这个功能在本机从没存在过。
+static NSString *const VimModeAppsKey = @"MSIMEClientVimModeApps";
 static BOOL ValidInputModeRule(id value) {
     return [value isKindOfClass:NSString.class] && [@[@"chinese", @"english"] containsObject:value];
 }
@@ -259,6 +269,32 @@ static NSDictionary<NSString *, NSString *> *PublishableInputModeRules(NSDiction
         if (published.count >= MaxPublishedInputModeRules) break;
         if (!PublishableInputModeRuleIdentifier(identifier) || InputModeRulesContainIdentifier(published, identifier)) continue;
         published[identifier] = rules[identifier];
+    }
+    return published;
+}
+/// 一份 Vim 模式名单里合法的条目：非空字符串、ASCII 不分大小写不重复；别的丢掉。
+static NSArray<NSString *> *ValidVimModeApps(id stored) {
+    if (![stored isKindOfClass:NSArray.class]) return @[];
+    NSMutableArray<NSString *> *apps = [NSMutableArray array];
+    for (id entry in stored) {
+        if (![entry isKindOfClass:NSString.class] || [entry length] == 0) continue;
+        BOOL duplicate = NO;
+        for (NSString *existing in apps)
+            if (InputModeRuleIdentifiersEqual(existing, entry)) { duplicate = YES; break; }
+        if (!duplicate) [apps addObject:[entry copy]];
+    }
+    return apps;
+}
+/// 能写进共享文档的那部分名单：丢掉不合法的标识和只差大小写的重复项，最多 MaxPublishedInputModeRules 条（与应用例外同一档上限）。
+static NSArray<NSString *> *PublishableVimModeApps(NSArray<NSString *> *apps) {
+    NSMutableArray<NSString *> *published = [NSMutableArray array];
+    for (NSString *identifier in apps) {
+        if (published.count >= MaxPublishedInputModeRules) break;
+        if (!PublishableInputModeRuleIdentifier(identifier)) continue;
+        BOOL duplicate = NO;
+        for (NSString *existing in published)
+            if (InputModeRuleIdentifiersEqual(existing, identifier)) { duplicate = YES; break; }
+        if (!duplicate) [published addObject:identifier];
     }
     return published;
 }
@@ -324,10 +360,20 @@ static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
 // 这个开关接进共享偏好之前 macOS 从不兑现它：defaults 里留下的任何 NO（旧缺省、升级前套用云快照写回的）都是历史缺省而不是用户选择。这个标记记下用户在新语义下第一次在原生面板里做出的选择，在那之前 WubiKey 的存量值一律当未设置，缺省为开。
 static NSString *const WubiAutoCommitUniqueAdoptedKey = @"MSIMEClientWubiAutoCommitUniqueAdopted";
 static NSString *const WubiMixedPinyinKey = @"MSIMEClientWubiMixedPinyin";
+/// `wubi_z_wildcard`：五笔码里的 z 匹配该位置的任意一个字母。缺省关，与来源出厂 `wubi_z_mode = "off"` 一致。
+static NSString *const WubiZWildcardKey = @"MSIMEClientWubiZWildcard";
+/// `wubi_fifth_code_top_commit`：完整四码后再敲字母时上屏首选。缺省开，与来源出厂 `wubi_fifth_code_top_commit = true` 一致。
+static NSString *const WubiFifthCodeTopCommitKey = @"MSIMEClientWubiFifthCodeTopCommit";
+/// `sentence_association` 里这个窗口提供开关的两项。`word_lattice` 与 `neural_keyboard` 由别的界面读写，合并时原样保留。
+static NSString *const SentenceAssociationNeuralDesktopKey = @"MSIMEClientSentenceAssociationNeuralDesktop";
+static NSString *const SentenceAssociationShowNextOnDuplicateKey = @"MSIMEClientSentenceAssociationShowNextOnDuplicate";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
 static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const CapsLockTapShortcutKey = @"MSIMEClientCapsLockTapShortcut";
+// 中日英循环切换只由共享设置页写进共享文档；这个本机键留着的是它到达之前的读数和测试入口，
+// 和全半角、繁简这些同类的纯共享开关一样，缺键读作关（共享偏好的默认值）。
+static NSString *const TrilingualCycleKey = @"MSIMEClientTrilingualCycle";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
@@ -376,6 +422,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         InputModeHUDKey : @"sharedInputModeHUD",
         InputModeStatusItemKey : @"sharedInputModeStatusItem",
         AppInputModeRulesKey : @"sharedAppInputModeRules",
+        VimModeAppsKey : @"sharedVimModeApps",
         AppLogoKey : @"sharedShowsAppLogo",
         CandidatePageNumberKey : @"sharedShowsCandidatePageNumber",
         ExpandCandidatesKey : @"sharedExpandCandidates",
@@ -387,6 +434,10 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         WubiProfileKey : @"sharedWubiProfile",
         WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
         WubiKey : @"sharedWubiAutoCommitUnique",
+        WubiZWildcardKey : @"sharedWubiZWildcard",
+        WubiFifthCodeTopCommitKey : @"sharedWubiFifthCodeTopCommit",
+        SentenceAssociationNeuralDesktopKey : @"sharedSentenceAssociationNeuralDesktop",
+        SentenceAssociationShowNextOnDuplicateKey : @"sharedSentenceAssociationShowNextOnDuplicate",
         LocalModesKey : @"sharedLocalModes",
         FontKey : @"sharedFontSize",
         FontFamilyKey : @"sharedFontFamily",
@@ -441,6 +492,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         ShiftTapShortcutKey : @"sharedShiftTapShortcut",
         ControlTapShortcutKey : @"sharedControlTapShortcut",
         CapsLockTapShortcutKey : @"sharedCapsLockTapShortcut",
+        TrilingualCycleKey : @"sharedTrilingualCycle",
         ControlOptionSpaceShortcutKey : @"sharedControlOptionSpaceShortcut",
         CharacterSetShortcutKey : @"sharedCharacterSetShortcut",
         FullWidthShortcutKey : @"sharedFullWidthShortcut",
@@ -452,7 +504,12 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
 /// 应用例外, read by the probe table below. It is not in AppearancePreferences.h because nothing outside this file reads or writes a rule — the lookup that consults them is -englishMode, which is public already — and the probes are written above the implementation, so the name has to be declared before they can ask for it by it.
 @interface MSIMEAppearancePreferences ()
 - (NSDictionary<NSString *, NSString *> *)applicationInputModeRules;
+- (NSArray<NSString *> *)vimModeApps;
 - (instancetype)initSilentlyWithDefaults:(NSUserDefaults *)defaults;
+@property(nonatomic) BOOL wubiZWildcard;
+@property(nonatomic) BOOL wubiFifthCodeTopCommit;
+@property(nonatomic) BOOL sentenceAssociationNeuralDesktop;
+@property(nonatomic) BOOL sentenceAssociationShowNextOnDuplicate;
 @end
 
 /// What one stored key currently reads as, asked of the accessors rather than of the stored entry.
@@ -471,6 +528,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             DefaultImeModeKey : ^id(MSIMEAppearancePreferences *p) { return p.defaultImeMode ?: NSNull.null; },
             ImeModeScopeKey : ^id(MSIMEAppearancePreferences *p) { return p.imeModeScope ?: NSNull.null; },
             AppInputModeRulesKey : ^id(MSIMEAppearancePreferences *p) { return [p applicationInputModeRules]; },
+            VimModeAppsKey : ^id(MSIMEAppearancePreferences *p) { return [p vimModeApps]; },
             SchemeKey : ^id(MSIMEAppearancePreferences *p) { return p.inputScheme ?: NSNull.null; },
             ShuangpinProfileKey : ^id(MSIMEAppearancePreferences *p) { return p.shuangpinProfile ?: NSNull.null; },
             ShuangpinPreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinPreeditUsesRaw); },
@@ -478,6 +536,10 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             KeymapKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinKeymap); },
             WubiKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiAutoCommitUnique); },
             WubiMixedPinyinKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiMixedPinyinEnabled); },
+            WubiZWildcardKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiZWildcard); },
+            WubiFifthCodeTopCommitKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiFifthCodeTopCommit); },
+            SentenceAssociationNeuralDesktopKey : ^id(MSIMEAppearancePreferences *p) { return @(p.sentenceAssociationNeuralDesktop); },
+            SentenceAssociationShowNextOnDuplicateKey : ^id(MSIMEAppearancePreferences *p) { return @(p.sentenceAssociationShowNextOnDuplicate); },
             QuanpinHelpcodeKey : ^id(MSIMEAppearancePreferences *p) { return @(p.quanpinHelpcodeEnabled); },
             ShuangpinHelpcodeKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinHelpcodeEnabled); },
             HelpcodeOptionsKey : ^id(MSIMEAppearancePreferences *p) {
@@ -546,6 +608,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             ShiftTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shiftTapShortcut); },
             ControlTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.controlTapShortcut); },
             CapsLockTapShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.capsLockTapShortcut); },
+            TrilingualCycleKey : ^id(MSIMEAppearancePreferences *p) { return @(p.trilingualCycle); },
             ControlOptionSpaceShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.controlOptionSpaceShortcut); },
             CharacterSetShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.characterSetShortcut); },
             FullWidthShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.fullWidthShortcut); },
@@ -955,6 +1018,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedImeModeScope;
     // 共享文档里的应用例外（加上还没发布、文档收得下的旧规则，和本窗口对它的改动）；文档没有这个键时为 nil，查找退回 NSUserDefaults 里升级前的规则。本窗口改规则时只改它和 _localOnlyAppInputModeRules 里那一条，两边不合并，见 -setInputMode:forApplication:。
     NSDictionary<NSString *, NSString *> *_sharedAppInputModeRules;
+    // 共享文档里的 Vim 模式名单；文档没有这个键时为 nil，查找退回本地键（本机从没写过，等同空名单）。
+    NSArray<NSString *> *_sharedVimModeApps;
     // 文档收不下的旧规则：标识不合法（超过 64 字节、带 / 或 \ 等），或文档已满 32 条。它们留在 NSUserDefaults 里，只在本机查找时生效，不发布。
     NSDictionary<NSString *, NSString *> *_localOnlyAppInputModeRules;
     // 有文档还没有、但收得下的规则，需要保存一次才能发布；见 applicationInputModeRulesAwaitPublication。
@@ -996,6 +1061,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedShiftTapShortcut;
     NSNumber *_sharedControlTapShortcut;
     NSNumber *_sharedCapsLockTapShortcut;
+    NSNumber *_sharedTrilingualCycle;
     NSSwitch *_shiftTapShortcutToggle;
     NSSwitch *_controlTapShortcutToggle;
     NSSwitch *_capsLockTapShortcutToggle;
@@ -1030,6 +1096,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedCloudCandidates;
     NSSwitch *_cloudCandidatesToggle;
+    NSNumber *_sharedWubiZWildcard, *_sharedWubiFifthCodeTopCommit;
+    NSNumber *_sharedSentenceAssociationNeuralDesktop, *_sharedSentenceAssociationShowNextOnDuplicate;
+    NSSwitch *_wubiZWildcardToggle, *_wubiFifthCodeTopCommitToggle;
+    NSSwitch *_sentenceNeuralDesktopToggle, *_sentenceShowNextOnDuplicateToggle;
     NSNumber *_sharedCandidateTranslations;
     NSSwitch *_candidateTranslationsToggle;
     NSNumber *_sharedCandidateEnglishGloss;
@@ -1078,6 +1148,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedCandidateCornerRadius;
     /// Padding in points, or NSNull for a document that follows the skin.
     id _sharedCandidatePadding;
+    /// 共享文档的 `candidate_window_fit_content`：用户要求候选窗严格按文字宽度收紧；与皮肤 `fit_content` 是或关系。
+    NSNumber *_sharedCandidateFitContent;
+    NSDictionary<NSString *, id> *_sharedCandidateGeometry;
     NSSlider *_candidateScaleSlider;
     NSTextField *_candidateScaleLabel;
     NSSlider *_candidateOpacitySlider;
@@ -1281,8 +1354,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if ([_defaults objectForKey:ImeModeScopeKey] != nil) merged[@"ime_mode_scope"] = self.imeModeScope;
     // 整张表一起写，MSIMEMergePreferenceSnapshot 对这个键整体替换而不是逐项合并，移除的规则才会从文档里消失。表为空时写空对象，偏好库保存时把它省掉。载入过文档时取文档那张表（加上本窗口的改动和收得下、等待发布的旧规则），文档没有这个键时取本地键里的整张表；只写偏好库收得下的部分（PublishableInputModeRules），否则整份保存都会被拒。
     // 还没载入过文档时一律不写，即使本地键存在：迁移之后本地键只剩文档收不下、只在本机生效的旧规则，和本窗口写下、等待下一次载入确认已进文档的规则，并不是完整的规则表，写进去会把文档里的整张表换成这一小部分甚至清空。升级前还没发布的旧规则也不会因此丢掉：载入文档后 applicationInputModeRulesAwaitPublication 为真，输入法随即保存一次把它们发布出去。
-    if (_sharedInputPreferencesApplied)
+    if (_sharedInputPreferencesApplied) {
         merged[@"app_input_mode_rules"] = PublishableInputModeRules(_sharedAppInputModeRules ?: [self applicationInputModeRules]);
+        // 与应用例外同一张表：宿主写来的就是整份名单，空表让文档里的名单消失（恢复默认值走这条路）。
+        merged[@"vim_mode_apps"] = PublishableVimModeApps([self vimModeApps]);
+    }
     // Apple exposes one switch for both a solitary Shift tap and Shift+Space.
     // Keep the legacy native keys independent when no shared snapshot exists,
     // but publish one shared value for both routes.
@@ -1346,6 +1422,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"wubi_profile"] = self.wubiProfile;
     merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
     merged[@"wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
+    merged[@"wubi_z_wildcard"] = @(self.wubiZWildcard);
+    merged[@"wubi_fifth_code_top_commit"] = @(self.wubiFifthCodeTopCommit);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
     qh[@"enabled"] = @(self.quanpinHelpcodeEnabled);
     merged[@"quanpin_helpcode"] = qh;
@@ -1409,6 +1487,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_opacity_percent"] = @(self.candidateOpacityPercent);
     merged[@"candidate_corner_radius"] = self.candidateCornerRadius ?: (id)NSNull.null;
     merged[@"candidate_padding"] = self.candidatePadding ?: (id)NSNull.null;
+    if (_sharedCandidateFitContent) merged[@"candidate_window_fit_content"] = _sharedCandidateFitContent;
+    for (NSString *key in CandidateGeometryKeys()) {
+        if (_sharedCandidateGeometry) merged[key] = _sharedCandidateGeometry[key] ?: (id)NSNull.null;
+    }
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"smart_punctuation"] = @(self.smartPunctuation);
@@ -1476,6 +1558,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     toolbar[@"scale_percent"] = @(self.floatingToolbarScalePercent);
     toolbar[@"font_size"] = @(self.floatingToolbarFontSize);
     merged[@"floating_toolbar"] = toolbar;
+    // `sentence_association` 里本窗口只管这两项；`word_lattice`、`neural_keyboard` 和将来的字段按合并的惯例原样留在文档里。恢复默认值后两边都没有存储值，要写成缺省的关，否则下次载入时旧值又回来。
+    NSMutableDictionary *sentence = [merged[@"sentence_association"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (_sharedInputPreferencesApplied || _sharedSentenceAssociationNeuralDesktop != nil ||
+        [_defaults objectForKey:SentenceAssociationNeuralDesktopKey] != nil)
+        sentence[@"neural_desktop"] = @(self.sentenceAssociationNeuralDesktop);
+    if (_sharedInputPreferencesApplied || _sharedSentenceAssociationShowNextOnDuplicate != nil ||
+        [_defaults objectForKey:SentenceAssociationShowNextOnDuplicateKey] != nil)
+        sentence[@"show_next_on_duplicate"] = @(self.sentenceAssociationShowNextOnDuplicate);
+    if (sentence.count) merged[@"sentence_association"] = sentence;
     NSDictionary *stored = [_defaults dictionaryForKey:LocalModesKey];
     NSMutableDictionary *modes = [merged[@"local_modes"] mutableCopy] ?: [NSMutableDictionary dictionary];
     for (NSArray *entry in LocalModeControls()) {
@@ -1488,7 +1579,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)localModeEnabled:(NSString *)mode {
     if (!KnownLocalMode(mode)) return NO;
     NSNumber *value = _sharedLocalModes[mode] ?: [_defaults dictionaryForKey:LocalModesKey][mode];
-    return LocalModeBoolean(value) ? value.boolValue : ![mode isEqual:ChaiziMode];
+    if (LocalModeBoolean(value)) return value.boolValue;
+    // 缺省：拆字在桌面读作关（打开后大写 C 会进模式），其余模式为开。
+    return ![mode isEqual:@"unicode"] && ![mode isEqual:@"chaizi"];
 }
 - (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled {
     if (!KnownLocalMode(mode)) return;
@@ -2015,6 +2108,42 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setBool:value forKey:WubiMixedPinyinKey];
     [self preferencesChanged];
 }
+- (BOOL)wubiZWildcard {
+    if (_sharedWubiZWildcard) return _sharedWubiZWildcard.boolValue;
+    return [_defaults boolForKey:WubiZWildcardKey];
+}
+- (void)setWubiZWildcard:(BOOL)value {
+    _sharedWubiZWildcard = nil;
+    [_defaults setBool:value forKey:WubiZWildcardKey];
+    [self preferencesChanged];
+}
+- (BOOL)wubiFifthCodeTopCommit {
+    if (_sharedWubiFifthCodeTopCommit) return _sharedWubiFifthCodeTopCommit.boolValue;
+    return [_defaults objectForKey:WubiFifthCodeTopCommitKey] == nil ? YES : [_defaults boolForKey:WubiFifthCodeTopCommitKey];
+}
+- (void)setWubiFifthCodeTopCommit:(BOOL)value {
+    _sharedWubiFifthCodeTopCommit = nil;
+    [_defaults setBool:value forKey:WubiFifthCodeTopCommitKey];
+    [self preferencesChanged];
+}
+- (BOOL)sentenceAssociationNeuralDesktop {
+    if (_sharedSentenceAssociationNeuralDesktop) return _sharedSentenceAssociationNeuralDesktop.boolValue;
+    return [_defaults boolForKey:SentenceAssociationNeuralDesktopKey];
+}
+- (void)setSentenceAssociationNeuralDesktop:(BOOL)value {
+    _sharedSentenceAssociationNeuralDesktop = nil;
+    [_defaults setBool:value forKey:SentenceAssociationNeuralDesktopKey];
+    [self preferencesChanged];
+}
+- (BOOL)sentenceAssociationShowNextOnDuplicate {
+    if (_sharedSentenceAssociationShowNextOnDuplicate) return _sharedSentenceAssociationShowNextOnDuplicate.boolValue;
+    return [_defaults boolForKey:SentenceAssociationShowNextOnDuplicateKey];
+}
+- (void)setSentenceAssociationShowNextOnDuplicate:(BOOL)value {
+    _sharedSentenceAssociationShowNextOnDuplicate = nil;
+    [_defaults setBool:value forKey:SentenceAssociationShowNextOnDuplicateKey];
+    [self preferencesChanged];
+}
 - (MSIMEInlinePreeditStyle)inlinePreeditStyle {
     NSString *value = _sharedInlinePreeditStyle ?: @"raw";
     if ([value isEqual:@"raw"]) return MSIMEInlinePreeditStyleRaw;
@@ -2058,8 +2187,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         _localOnlyAppInputModeRules = nil;
         _applicationInputModeRulesAwaitPublication = PublishableInputModeRules(legacy).count > 0;
     }
+    // vim_mode_apps 是字符串数组，标识认法与应用例外相同；文档缺这个键就是空名单，没有要迁移的旧键。
+    id vimApps = preferences[@"vim_mode_apps"];
+    _sharedVimModeApps = [vimApps isKindOfClass:NSArray.class] ? ValidVimModeApps(vimApps) : nil;
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
+        // 中日英循环切换：缺键读作关，和共享偏好的默认值（对齐旧版 Windows 出厂值）一致。
+        id cycle = keys[@"trilingual_cycle"];
+        if (LocalModeBoolean(cycle)) _sharedTrilingualCycle = cycle;
         id shift = keys[@"switch_language_shift"];
         if (LocalModeBoolean(shift)) {
             // The shared Tauri setting reaches both native Shift routes.
@@ -2119,6 +2254,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     id wubiAutoCommitUnique = preferences[@"wubi_auto_commit_unique"];
+    id wubiZWildcard = preferences[@"wubi_z_wildcard"];
+    id wubiFifthCodeTopCommit = preferences[@"wubi_fifth_code_top_commit"];
     id wubiProfile = preferences[@"wubi_profile"];
     if (MSIMEEditionOffersScheme(scheme)) _sharedInputScheme = [scheme copy];
     id lastChinese = preferences[@"last_chinese_scheme"];
@@ -2137,6 +2274,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         if (![wubiAutoCommitUnique boolValue]) [_defaults setBool:YES forKey:WubiAutoCommitUniqueAdoptedKey];
     }
     if ([@[@"wubi86", @"wubi98"] containsObject:wubiProfile]) _sharedWubiProfile = [wubiProfile copy];
+    if (LocalModeBoolean(wubiZWildcard)) _sharedWubiZWildcard = wubiZWildcard;
+    if (LocalModeBoolean(wubiFifthCodeTopCommit)) _sharedWubiFifthCodeTopCommit = wubiFifthCodeTopCommit;
+    id sentenceAssociation = preferences[@"sentence_association"];
+    if ([sentenceAssociation isKindOfClass:NSDictionary.class]) {
+        if (LocalModeBoolean(sentenceAssociation[@"neural_desktop"]))
+            _sharedSentenceAssociationNeuralDesktop = sentenceAssociation[@"neural_desktop"];
+        if (LocalModeBoolean(sentenceAssociation[@"show_next_on_duplicate"]))
+            _sharedSentenceAssociationShowNextOnDuplicate = sentenceAssociation[@"show_next_on_duplicate"];
+    }
     id inlinePreedit = preferences[@"tsf_preedit_style"];
     if ([@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit]) _sharedInlinePreeditStyle = [inlinePreedit copy];
     [self refreshControls];
@@ -2181,6 +2327,16 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return ValidInputModeRules([_defaults dictionaryForKey:AppInputModeRulesKey]);
 }
 - (BOOL)applicationInputModeRulesAwaitPublication { return _applicationInputModeRulesAwaitPublication; }
+/// 名单按 ASCII 不分大小写查，与应用例外的标识认法一致：共享设置页写下的标识大小写未必和 bundle id 相同。
+- (NSArray<NSString *> *)vimModeApps {
+    return _sharedVimModeApps ?: ValidVimModeApps([_defaults arrayForKey:VimModeAppsKey]);
+}
+- (BOOL)vimModeEnabledForApplication:(NSString *)identifier {
+    if (![identifier isKindOfClass:NSString.class] || identifier.length == 0) return NO;
+    std::vector<std::string> apps;
+    for (NSString *entry in [self vimModeApps]) apps.emplace_back(entry.UTF8String);
+    return msime::mac::VimModeListContains(apps, identifier.UTF8String);
+}
 /// Writes one rule, or removes it when the mode is nil. The key goes rather than being left holding an empty dictionary, so that 恢复默认值 has nothing to offer once the last rule is gone.
 - (void)setInputMode:(NSString *)mode forApplication:(NSString *)identifier {
     if (![identifier isKindOfClass:NSString.class] || identifier.length == 0) return;
@@ -2254,7 +2410,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([self.punctuationLock isEqual:@"chinese"]) return YES;
     if ([self.punctuationLock isEqual:@"english"]) return NO;
     NSNumber *value = _runtimeChinesePunctuation[[self runtimeInputStateKey]];
-    return value ? value.boolValue : self.chinesePunctuation;
+    // 新应用可能直接以英文启动，没有经过中英切换的标点同步；仅在未手动覆盖时按当前模式回退。
+    return value ? value.boolValue : (!self.englishMode && self.chinesePunctuation);
 }
 - (void)setRuntimeChinesePunctuation:(BOOL)value {
     if (!_runtimeChinesePunctuation) _runtimeChinesePunctuation = [NSMutableDictionary dictionary];
@@ -2490,6 +2647,17 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return _sharedControlTapShortcut ? _sharedControlTapShortcut.boolValue : [_defaults boolForKey:ControlTapShortcutKey];
 }
 // 缺省为关，和共享偏好 `keybindings.switch_language_caps_lock` 一致。
+// 中日英循环切换（共享偏好 `keybindings.trilingual_cycle`，默认关）：打开后「切换中英文」那一组
+// 快捷键按 中 → 日 → 英 → 中 转圈，顺序和「有组字时先上屏」在共享层（`msime_client_language_cycle`）。
+- (BOOL)trilingualCycle {
+    if (_sharedTrilingualCycle) return _sharedTrilingualCycle.boolValue;
+    return [_defaults boolForKey:TrilingualCycleKey];
+}
+- (void)setTrilingualCycle:(BOOL)value {
+    _sharedTrilingualCycle = nil;
+    [_defaults setBool:value forKey:TrilingualCycleKey];
+    [self preferencesChanged];
+}
 - (BOOL)capsLockTapShortcut {
     return _sharedCapsLockTapShortcut ? _sharedCapsLockTapShortcut.boolValue : [_defaults boolForKey:CapsLockTapShortcutKey];
 }
@@ -2862,12 +3030,25 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setObject:value ? @(value.integerValue) : @"" forKey:CandidatePaddingKey];
     [self preferencesChanged];
 }
+- (BOOL)candidateWindowFitContent {
+    return [_sharedCandidateFitContent boolValue];
+}
 - (msime::mac::CandidateWindowStyle)candidateWindowStyle {
     msime::mac::CandidateWindowStyle style;
     style.scale = self.candidateScalePercent / 100.0;
     style.opacity = self.candidateOpacityPercent / 100.0;
     if (NSNumber *radius = self.candidateCornerRadius) style.cornerRadius = radius.doubleValue;
     if (NSNumber *padding = self.candidatePadding) style.padding = padding.doubleValue;
+    const auto length = [&](NSString *key) -> std::optional<double> {
+        id value = _sharedCandidateGeometry[key];
+        return [value isKindOfClass:NSNumber.class] ? std::optional<double>([value doubleValue]) : std::nullopt;
+    };
+    style.paddingHorizontal = length(@"candidate_padding_horizontal");
+    style.paddingVertical = length(@"candidate_padding_vertical");
+    style.itemPaddingHorizontal = length(@"candidate_item_padding_horizontal");
+    style.itemPaddingVertical = length(@"candidate_item_padding_vertical");
+    style.itemCornerRadius = length(@"candidate_item_corner_radius");
+    style.itemSpacing = length(@"candidate_item_spacing");
     return style;
 }
 - (msime::mac::ResolvedSkin)candidateWindowSkinForDark:(BOOL)dark {
@@ -3077,6 +3258,17 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id padding = preferences[@"candidate_padding"];
     if (ValidCandidatePadding(padding)) _sharedCandidatePadding = padding;
     else if (!padding || padding == NSNull.null) _sharedCandidatePadding = NSNull.null;
+    id fitContent = preferences[@"candidate_window_fit_content"];
+    _sharedCandidateFitContent = LocalModeBoolean(fitContent) ? fitContent : nil;
+    NSMutableDictionary *geometry = [_sharedCandidateGeometry mutableCopy] ?: [NSMutableDictionary dictionary];
+    for (NSString *key in CandidateGeometryKeys()) {
+        id value = preferences[key];
+        const NSInteger maximum = [key isEqual:@"candidate_item_corner_radius"] ? 32 : 16;
+        if (ValidCandidateStyleInteger(value, 0, maximum)) geometry[key] = value;
+        else if (!value || value == NSNull.null) [geometry removeObjectForKey:key];
+        else NSLog(@"MSIME ignored invalid candidate geometry preference: %@", key);
+    }
+    _sharedCandidateGeometry = [geometry copy];
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if (ValidCandidateStyleInteger(font, 12, 32)) _sharedFontSize = font;
@@ -3181,6 +3373,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _keymapToggle.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiToggle.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiMixedPinyinToggle.state = self.wubiMixedPinyinEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _wubiZWildcardToggle.state = self.wubiZWildcard ? NSControlStateValueOn : NSControlStateValueOff;
+    _wubiFifthCodeTopCommitToggle.state = self.wubiFifthCodeTopCommit ? NSControlStateValueOn : NSControlStateValueOff;
+    _sentenceNeuralDesktopToggle.state = self.sentenceAssociationNeuralDesktop ? NSControlStateValueOn : NSControlStateValueOff;
+    _sentenceShowNextOnDuplicateToggle.state =
+        self.sentenceAssociationShowNextOnDuplicate ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationToggle.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _smartPunctuationToggle.state = self.smartPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _smartPunctuationRepeatToggle.state = self.smartPunctuationRepeatToChinese ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3709,6 +3906,13 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
     _wubiMixedPinyinToggle = MSIMESettingSwitch(self, @selector(wubiMixedPinyinChanged:), @"五笔拼音混输");
+    _wubiZWildcardToggle = MSIMESettingSwitch(self, @selector(wubiZWildcardChanged:), @"z 键通配");
+    _wubiFifthCodeTopCommitToggle =
+        MSIMESettingSwitch(self, @selector(wubiFifthCodeTopCommitChanged:), @"第五码将首选上屏");
+    _sentenceNeuralDesktopToggle =
+        MSIMESettingSwitch(self, @selector(sentenceNeuralDesktopChanged:), @"桌面神经联想");
+    _sentenceShowNextOnDuplicateToggle =
+        MSIMESettingSwitch(self, @selector(sentenceShowNextOnDuplicateChanged:), @"去重后补充次选");
     _punctuationToggle = MSIMESettingSwitch(self, @selector(punctuationChanged:), @"中文标点");
     _smartPunctuationToggle = MSIMESettingSwitch(self, @selector(smartPunctuationChanged:), @"智能标点");
     _smartPunctuationRepeatToggle = MSIMESettingSwitch(self, @selector(smartPunctuationRepeatChanged:), @"重复标点转中文");
@@ -3899,6 +4103,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
                   detail:@"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"
                  control:_wubiMixedPinyinToggle
                      aka:@[@"五笔混拼", @"编码打不出时用拼音候选"]],
+        [self settingRow:@"z 键通配" detail:@"五笔码里的 z 匹配该位置的任意一个字母。" control:_wubiZWildcardToggle],
+        [self settingRow:@"第五码将首选上屏"
+                  detail:@"完整四码后再敲字母时上屏首选，该字母留作下一组开头。"
+                 control:_wubiFifthCodeTopCommitToggle],
     ], 0.0);
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
@@ -3909,11 +4117,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         // The first card is the only one on the page that had no heading, which also left the two
         // settings on it in no section and so out of reach of a section-level restore.
         [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
-        [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey]], appRuleCard,
+        [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey, VimModeAppsKey]], appRuleCard,
         [self sectionHeader:@"中文输入方案"
                        keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey, WubiProfileKey,
-                              WubiMixedPinyinKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
-                              ShuangpinHelpcodeKey]],
+                              WubiMixedPinyinKey, WubiZWildcardKey, WubiFifthCodeTopCommitKey, HelpcodeOptionsKey,
+                              QuanpinHelpcodeKey, ShuangpinHelpcodeKey]],
         schemeCard, _quanpinCard, _shuangpinCard, _wubiCard,
     ]];
 
@@ -4194,6 +4402,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         [self settingRow:@"显示候选释义" control:_candidateTranslationsToggle aka:@[@"翻译"]],
         [self settingRow:@"显示离线英文释义" control:_candidateEnglishGlossToggle aka:@[@"英文"]],
         [self settingRow:@"AI 联想" control:aiButton],
+        [self settingRow:@"桌面神经联想"
+                  detail:@"使用神经模型重排整句候选；没有模型时保持现有候选。"
+                 control:_sentenceNeuralDesktopToggle],
+        [self settingRow:@"去重后补充次选"
+                  detail:@"模型排第一的整句与已有候选重复时，改显示它排名最高的下一条不同结果。"
+                 control:_sentenceShowNextOnDuplicateToggle],
         [self settingRow:@"翻译服务与目标语言" control:translationButton aka:@[@"候选翻译"]],
     ], 0.0);
     cloudCard.accessibilityLabel = @"云端与智能候选卡片";
@@ -4213,7 +4427,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         // are not what a restore here would touch.
         [self sectionHeader:@"本机词库" keys:@[]], dictionaryCard,
         [self sectionHeader:@"云端与智能候选"
-                       keys:@[CloudCandidatesKey, CandidateTranslationsKey, CandidateEnglishGlossKey]],
+                       keys:@[CloudCandidatesKey, CandidateTranslationsKey, CandidateEnglishGlossKey,
+                              SentenceAssociationNeuralDesktopKey, SentenceAssociationShowNextOnDuplicateKey]],
         cloudCard,
     ]];
 
@@ -4358,7 +4573,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
                                 summary:@"切换中英文、翻页选字与开始语音输入使用的按键。"
                                 content:@[
         [self sectionHeader:@"输入状态切换"
-                       keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey,
+                       keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey, TrilingualCycleKey,
                               ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
                               VoiceHotkeyCtrlF9Key, VoiceHotkeyRightAltKey, VoiceHotkeyCtrlCommandKey,
                               VoiceHotkeyCtrlOptionKey]],
@@ -5025,6 +5240,16 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)keymapChanged:(NSSwitch *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
 - (void)wubiMixedPinyinChanged:(NSSwitch *)sender { self.wubiMixedPinyinEnabled = sender.state == NSControlStateValueOn; }
+- (void)wubiZWildcardChanged:(NSSwitch *)sender { self.wubiZWildcard = sender.state == NSControlStateValueOn; }
+- (void)wubiFifthCodeTopCommitChanged:(NSSwitch *)sender {
+    self.wubiFifthCodeTopCommit = sender.state == NSControlStateValueOn;
+}
+- (void)sentenceNeuralDesktopChanged:(NSSwitch *)sender {
+    self.sentenceAssociationNeuralDesktop = sender.state == NSControlStateValueOn;
+}
+- (void)sentenceShowNextOnDuplicateChanged:(NSSwitch *)sender {
+    self.sentenceAssociationShowNextOnDuplicate = sender.state == NSControlStateValueOn;
+}
 - (void)punctuationChanged:(NSSwitch *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
 - (void)smartPunctuationChanged:(NSSwitch *)sender {
     const BOOL enabled = sender.state == NSControlStateValueOn;

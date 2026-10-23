@@ -201,6 +201,9 @@ fn capabilities_describe_each_host() {
             && linux.floating_toolbar_voice
             && linux.floating_toolbar_input_scheme
     );
+    // 自动隐藏、延时与阴影只有 macOS 的面板读：Linux 是输入法菜单，Windows 与
+    // HarmonyOS 的面板还没接，所以共享设置页在它们上面不列这三行。
+    assert!(!linux.floating_toolbar_idle_behavior);
     assert!(linux.panel_shortcuts);
     assert!(linux.number_row_selection);
     assert!(linux.voice_capture_devices);
@@ -255,6 +258,8 @@ fn capabilities_describe_each_host() {
             && windows.floating_toolbar_voice
             && windows.floating_toolbar_input_scheme
     );
+    // 自动隐藏、延时与阴影还没接进 Windows 的 FloatingToolbarWindow，设置页不列这三行。
+    assert!(!windows.floating_toolbar_idle_behavior);
     assert!(windows.candidate_font_controls);
     assert!(windows.candidate_preedit_font);
     assert!(windows.candidate_row_colors);
@@ -274,6 +279,8 @@ fn capabilities_describe_each_host() {
             && macos.floating_toolbar_appearance
             && macos.floating_toolbar_components
     );
+    // macOS 的面板按 FloatingToolbarBehavior.h 读自动隐藏、延时与阴影，所以只有它列这三行。
+    assert!(macos.floating_toolbar_idle_behavior);
     assert!(macos.fuzzy_pinyin);
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);
@@ -341,6 +348,17 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
     }
+    // 中日英循环目前只有 macOS 接上：Windows 的 TIP 和 Server 之间还要新开一条协议，Linux 的两个引擎各自处理切换。
+    assert!(HostCapabilities::for_platform(HostPlatform::Macos).trilingual_cycle);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).trilingual_cycle);
+    }
     // 能在光标旁放徽标的宿主才声明它：触屏键盘在键面上就显示了模式。Windows 的 Server 自己画，Linux 交给 Fcitx5 面板。
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);
@@ -352,6 +370,17 @@ fn capabilities_describe_each_host() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
+    // Vim 模式的共享键先只给 macOS：Windows 仍读它自己在 TSF 本地的名单。
+    assert!(macos.vim_mode_apps);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).vim_mode_apps);
+    }
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
     // 菜单栏状态项只有 macOS 画：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。
@@ -951,6 +980,23 @@ fn only_macos_and_linux_offer_the_candidate_padding() {
     }
 }
 
+#[test]
+fn only_macos_offers_candidate_item_geometry() {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).candidate_item_geometry,
+            platform == HostPlatform::Macos
+        );
+    }
+}
+
 /// 「键盘高度」只给真正按它改变键盘高度的宿主：macOS 和 Linux 的键盘窗口高度固定。间距只在 macOS 上固定成默认值，其余宿主照旧可调。
 #[test]
 fn touch_keyboard_geometry_is_offered_where_the_keyboard_applies_it() {
@@ -1137,5 +1183,39 @@ fn fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults() {
         assert_eq!(platform.fixed_effect_intensity(), None, "{platform:?}");
         let json = serde_json::to_value(&host).unwrap();
         assert!(json.get("fixed_effect_intensity").is_none(), "{platform:?}");
+    }
+}
+
+#[test]
+fn english_online_capability_only_names_a_host_with_the_input_path() {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).english_online_candidates,
+            platform == HostPlatform::Macos
+        );
+    }
+}
+
+#[test]
+fn custom_helpcode_trigger_is_only_offered_by_linux() {
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).helpcode_trigger_key,
+            platform == HostPlatform::Linux
+        );
     }
 }

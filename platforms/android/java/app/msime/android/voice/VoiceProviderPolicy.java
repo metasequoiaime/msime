@@ -29,12 +29,26 @@ public final class VoiceProviderPolicy {
         return AUTH_LEGACY.equals(mode == null ? "" : mode.trim());
     }
 
-    /** 密钥、App ID 能不能存：留空表示删除；否则不能有控制字符，长度与共享层的上限一致。豆包的凭据放进 WebSocket 握手的请求头，非 ASCII 的值共享层会拒绝，这里提前拦下。 */
+    /** 密钥、App ID 能不能存：规则由共享 Rust 预检，桥接失败时拒绝保存。 */
     public static boolean validCredential(String provider, String value) {
-        String trimmed = value == null ? "" : value.trim();
-        if (trimmed.isEmpty()) return true;
-        if (TextPolicy.hasControl(trimmed) || !TextPolicy.boundedNonBlank(trimmed, 16 * 1024)) return false;
-        return !DoubaoAsrPolicy.isStreaming(provider) || trimmed.chars().allMatch(c -> c < 0x80);
+        try {
+            String response = NativeClient.voiceCredentialIssue(provider == null ? "" : provider,
+                value == null ? "" : value);
+            return credentialAccepted(response);
+        } catch (IllegalArgumentException | LinkageError error) {
+            return false;
+        }
+    }
+
+    /** 只接受共享层的严格成功信封；不把字符串布尔值或缺字段当成允许保存。 */
+    private static boolean credentialAccepted(String response) {
+        try {
+            JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
+            if (value == null || !value.has("accepted")) return false;
+            return Boolean.TRUE.equals(JsonPolicy.strictBoolean(value.opt("accepted")));
+        } catch (JSONException error) {
+            return false;
+        }
     }
 
     /** 读取共享运行时规则的设置提示；留空用默认值，失败时返回错误提示并阻止保存。 */
@@ -65,12 +79,9 @@ public final class VoiceProviderPolicy {
         return ENDPOINT_UNAVAILABLE;
     }
 
-    /**
-     * 选了本地模型时「识别服务」行的说明：还没选用装好的模型，或这个安装包不带、也还没下载语音运行库时，说明缺什么；都齐了为 null。本地识别不会回退到系统识别（录音不该在用户不知道时离开手机），所以这里说的是「还不能用」而不是「暂用系统识别」。
-     */
+    /** 读取共享层计算的本地模型状态文案。 */
     public static String localStatus(boolean modelReady, boolean runtimeReady) {
-        if (!modelReady) return "还没有可用的模型，请在下面下载一个";
-        return runtimeReady ? null : "还要下载本地语音运行库";
+        return sharedStatus(LOCAL, false, true, modelReady, runtimeReady);
     }
 
     /**
@@ -90,10 +101,31 @@ public final class VoiceProviderPolicy {
      * 设置页看不出该改用本地模型或豆包。
      */
     public static String status(String provider, String resolved, boolean platformAvailable) {
-        if (!network(provider)) return SYSTEM.equals(provider) || provider == null || provider.isEmpty()
-            ? platformAvailable ? "使用设备自带的语音识别服务" : "没有可用的系统识别服务，可改用本地模型或豆包" : null;
-        if (resolved != null) return null;
-        String fallback = platformAvailable ? "暂用系统识别" : "系统识别不可用";
-        return DoubaoAsrPolicy.isStreaming(provider) ? "密钥未填写完整，" + fallback : "未填写 API Key，" + fallback;
+        return sharedStatus(provider == null ? "" : provider, resolved != null, platformAvailable,
+            true, true);
+    }
+
+    /** 只接受共享层完整成功信封和字符串或 null 状态。 */
+    private static String sharedStatus(String provider, boolean resolved, boolean platformAvailable,
+            boolean modelReady, boolean runtimeReady) {
+        try {
+            String response = NativeClient.mobileVoiceStatus(provider, resolved, platformAvailable,
+                modelReady, runtimeReady);
+            return parseStatus(response);
+        } catch (IllegalArgumentException | LinkageError error) {
+            return null;
+        }
+    }
+
+    /** 只解析共享层成功信封，拒绝缺字段、错误类型和无界文本。 */
+    private static String parseStatus(String response) {
+        try {
+            JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
+            if (value == null || !value.has("status") || value.isNull("status")) return null;
+            String status = JsonPolicy.strictString(value.opt("status"));
+            return status != null && TextPolicy.boundedNonBlank(status, 512) ? status : null;
+        } catch (JSONException error) {
+            return null;
+        }
     }
 }

@@ -1,0 +1,281 @@
+    Finished `test` profile [unoptimized] target(s) in 0.43s
+     Running unittests src/lib.rs (target/debug/deps/msime_engine-1889359a73991104)
+
+running 227 tests
+test nine_key::cached_rank_tests::full_ranking_paired_budget ... ignored, 手动配对完整九键排名，不与构建、采样或其它计时并行
+test nine_key::code_prefix_tests::complete_code_prefix_paired_budget ... ignored, 独占配对完整组码判定，包含编码构造及析构
+test nine_key::code_prefix_tests::letter_grid_checks_do_not_allocate ... ok
+test nine_key::dominated_projection_tests::dominated_projection_paired_latency ... ignored, 手动运行普通系统分配器下的完整刷新配对计时
+test nine_key::cached_rank_tests::short_ranking_keeps_the_existing_allocation_budget ... ok
+test nine_key::digit_lattice::tests::every_complete_reading_remains_available_without_a_path_limit ... ok
+test nine_key::cached_rank_tests::large_ranking_evaluates_each_key_at_most_once ... ok
+test nine_key::code_prefix_tests::shuangpin_checks_keep_the_original_allocation_budget ... ok
+test nine_key::dominated_projection_tests::projected_keys_equal_the_frozen_owned_keys ... ok
+test nine_key::cached_rank_tests::ranking_preserves_active_interleaving_and_personal_boost ... ok
+test nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks ... FAILED
+test nine_key::initials_code_tests::paired_initials_timing ... ignored, 局部配对计时，使用 release 串行手动运行
+test nine_key::initials_code_tests::rejected_initials_do_not_allocate_partial_codes ... ok
+test nine_key::initials_code_tests::representative_initials_allocation_measurements ... ok
+test nine_key::isolated_test::a_missing_child_target_is_not_success ... ok
+test nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies ... FAILED
+test nine_key::leading_entry_tests::entry_handles_colliding_words_and_updates_each_winner ... ok
+test nine_key::code_prefix_tests::compatible_coverage_matches_owned_encoding ... ok
+test nine_key::leading_entry_tests::entry_paired_latency ... ignored, 手动运行普通分配器下的完整入列配对计时
+test nine_key::isolated_test::child_assertion_failures_reach_the_parent ... ok
+test nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks ... FAILED
+test nine_key::filter_projection_tests::full_hot_refresh_saves_completion_copies ... ok
+test nine_key::path_buffer_tests::split_paths_into_reduces_warm_path_allocations ... ok
+test nine_key::path_buffer_tests::split_paths_into_reuses_existing_path_strings ... ok
+test nine_key::path_chain_tests::complete_split_paths_paired_budget ... ignored, 手动配对完整切分函数，不与构建、采样或其它计时并行
+test nine_key::path_chain_tests::empty_dead_and_short_paths_keep_the_allocation_budget ... ok
+test nine_key::path_chain_tests::evaluation_prefixes_complete_split_paths_paired_budget ... ignored, 四轮端到端结果有漂移，单独配对评测集全部实际按键前缀
+test nine_key::path_chain_tests::intermediate_paths_do_not_materialize_owned_suffixes ... ok
+test nine_key::path_buffer_tests::cold_paths_keep_frozen_allocation_budget ... ok
+test nine_key::path_scratch_tests::evaluation_prefixes_path_scratch_paired_budget ... ignored, 手动普通System分配器逐句复用工作区，完整配对1791个按键前缀
+test nine_key::path_scratch_tests::path_scratch_paired_budget ... ignored, 手动普通System分配器冷热配对，不与构建或其它计时并行
+test nine_key::dominated_projection_tests::initials_rows_reuse_their_existing_pinyin_capacity ... ok
+test nine_key::leading_entry_tests::entry_matches_frozen_complete_refresh ... FAILED
+test nine_key::path_scratch_tests::warm_path_search_reuses_page_storage ... ok
+test nine_key::seed_dedup_tests::complete_duplicate_seed_needs_no_path_allocations ... ok
+test nine_key::seed_dedup_tests::duplicate_seed_tails_skip_prefix_materialization ... ok
+test nine_key::digit_lattice::tests::word_prefix_edges_are_matched_against_digits_and_refresh_after_dictionary_writes ... ok
+test nine_key::seed_dedup_tests::seeded_dedup_paired_budget ... ignored, 手动 release 配对；不与构建或其他性能测试同时运行
+test nine_key::seed_dedup_tests::seeded_dedup_preserves_prefixes_beyond_the_session_digit_limit ... ok
+test nine_key::dominated_projection_tests::invalidated_rows_and_owned_outputs_remain_independent ... FAILED
+test nine_key::seed_tail_tests::seeded_tail_does_not_materialize_discarded_paths ... ok
+test nine_key::seed_tail_tests::seeded_tail_paired_budget ... ignored, 手动普通系统分配器完整配对，不与构建和采样并行
+test nine_key::path_scratch_tests::scratch_recomputes_pages_after_grid_prior_and_length_changes ... ok
+test nine_key::spelling_buffer_tests::reused_spelling_rows_match_frozen_queries_across_grids_and_lengths ... ok
+test nine_key::spelling_buffer_tests::spelling_strings_keep_their_storage_on_warm_queries ... ok
+test nine_key::seed_tail_tests::seeded_tail_preserves_frozen_output_and_allocation_budget ... ok
+test nine_key::syllable_count_tests::full_pipeline_paired_budget ... ignored, 手动完整入列加排名126形状配对；仅在普通分配器构建中运行
+test nine_key::syllable_count_tests::full_pipeline_does_not_increase_allocation_count_or_peak_bytes ... ok
+test nine_key::syllable_count_tests::full_pipeline_preserves_active_interleaving_and_boost ... ok
+test nine_key::syllable_count_tests::full_pipeline_preserves_winner_changes_across_rank_dimensions ... ok
+test nine_key::seed_dedup_tests::seeded_dedup_matches_frozen_order_and_allocation_budget ... ok
+test nine_key::tests::a_fuzzy_leading_row_has_no_reading ... ok
+test nine_key::tests::a_key_digit_inside_a_phrase_keeps_it_from_being_stored ... ok
+test nine_key::tests::a_key_letter_narrows_the_next_syllable_and_backspace_takes_it_back ... ok
+test nine_key::tests::a_letter_survives_typing_but_not_deleting_past_it ... ok
+test nine_key::tests::a_missing_english_dictionary_means_no_english_rows ... ok
+test nine_key::tests::a_missing_keyboard_model_leaves_the_lattice_rows_to_their_switch ... ok
+test nine_key::tests::a_prefix_scores_as_its_best_syllable ... ok
+test nine_key::tests::a_split_dropped_by_a_lock_comes_back_with_it ... ok
+test nine_key::tests::a_symbol_row_never_leads_after_its_name_is_fixed_further_down ... ok
+test nine_key::tests::a_synthesised_exact_row_never_leads_a_dictionary_completion ... ok
+test nine_key::initials_code_tests::initials_preserve_order_limits_empty_invalid_and_long_single_choice ... ok
+test nine_key::tests::after_a_split_an_exact_reading_leads_a_completion ... ok
+test nine_key::tests::backspace_takes_back_the_last_lock_only_while_every_digit_is_locked ... ok
+test nine_key::tests::a_used_word_tied_with_a_crowded_table_is_kept ... ok
+test nine_key::tests::candidate_word_lookup_scans_existing_rows ... ok
+test nine_key::tests::candidates_rank_by_coverage_then_dictionary_rows ... ok
+test nine_key::path_buffer_tests::changing_paths_match_frozen_order_limits_and_owned_text ... ok
+test nine_key::tests::choosing_a_nine_key_letter_does_not_clone_spelling_choices ... FAILED
+test nine_key::tests::choosing_a_symbol_row_commits_it_and_eats_every_digit ... ok
+test nine_key::tests::choosing_a_spelling_with_a_split_does_not_allocate_a_second_partition ... ok
+test nine_key::tests::codes_follow_the_keypad ... ok
+test nine_key::tests::choosing_an_expressive_row_commits_it_and_ends_the_composition ... ok
+test nine_key::tests::commit_raw_moves_the_digit_buffer_into_the_result ... ok
+test nine_key::tests::commit_raw_releases_search_pages_before_returning ... ok
+test nine_key::tests::complete_two_digit_readings_precede_longer_completions ... ok
+test nine_key::leading_entry_tests::entry_preserves_order_slots_capacities_and_allocations ... ok
+test nine_key::tests::consuming_digits_drops_covered_locked_syllables ... ok
+test nine_key::tests::consuming_digits_reuses_split_storage ... ok
+test nine_key::tests::digits_offer_readings_and_ranked_english ... ok
+test nine_key::path_chain_tests::paths_preserve_old_order_with_ties_priors_splits_and_grids ... ok
+test nine_key::cached_rank_tests::ranking_preserves_all_fields_ties_duplicates_and_boosts ... ok
+test nine_key::tests::digits_spell_words_by_their_initials ... ok
+test nine_key::tests::digits_without_a_reading_offer_english_even_with_mixing_off ... ok
+test nine_key::tests::english_dedup_keeps_the_first_row_for_each_display_word ... ok
+test nine_key::tests::english_digits_take_no_split ... ok
+test nine_key::tests::english_exact_code_leads_only_with_a_weight ... ok
+test nine_key::tests::digits_put_emoji_and_kaomoji_after_the_words_they_depict ... ok
+test nine_key::tests::english_keypad_invalid_rows_do_not_consume_prefix_limit ... ok
+test nine_key::tests::english_keypad_prefix_limit_uses_final_ranking ... ok
+test nine_key::tests::english_keypad_shipped_dictionary_reported_words ... ignored, 需要通过 MSIME_TEST_ENGLISH_DICTIONARY 指定已校验的发布英文词库
+test nine_key::tests::digits_spelling_a_whole_symbol_name_add_its_symbol_after_the_name ... ok
+test nine_key::tests::english_refresh_does_not_allocate_a_copy_of_typed_digits ... ok
+test nine_key::tests::english_t9_empty_matches_do_not_reserve_prefix_capacity ... ok
+test nine_key::tests::english_only_spells_words_from_the_first_digit ... ok
+test nine_key::tests::english_t9_filtered_matches_do_not_reserve_prefix_capacity ... ok
+test nine_key::tests::english_t9_hits_keep_the_original_prefix_capacity ... ok
+test nine_key::tests::expressive_boundary_check_does_not_materialize_syllables ... ok
+test nine_key::tests::english_t9_uses_the_lookup_word_when_display_has_punctuation ... ok
+test nine_key::tests::expressive_keys_must_split_at_the_fixed_boundaries ... ok
+test nine_key::tests::expressive_readings_are_capped_and_led_by_the_candidates ... ok
+test nine_key::tests::earlier_uses_are_ignored_with_personal_context_off ... ok
+test nine_key::tests::commands_edit_commit_and_cancel_the_digits ... ok
+test nine_key::tests::expressive_rows_follow_a_leading_english_word ... ok
+test nine_key::tests::expressive_readings_do_not_allocate_a_separate_locked_prefix ... ok
+test nine_key::tests::expressive_symbol_query_preserves_rows_without_cut_results ... ok
+test nine_key::tests::failed_learning_keeps_the_commit ... ok
+test nine_key::tests::expressive_rows_follow_chosen_syllables_and_splits ... ok
+test nine_key::tests::english_keypad_filters_full_code_before_prefix_limit ... ok
+test nine_key::tests::both_switches_off_leave_the_list_unchanged ... ok
+test nine_key::tests::expressive_rows_need_two_digits_and_pinyin ... ok
+test nine_key::tests::finish_reuses_the_first_commit_buffer ... ok
+test nine_key::tests::fourteen_key_locks_undoes_and_backspaces ... ok
+test nine_key::tests::fourteen_key_shares_codes_between_syllables ... ok
+test nine_key::tests::fourteen_key_left_column_has_letters_but_no_raw_key ... ok
+test nine_key::tests::grid_codes_come_from_the_printed_keys ... ok
+test nine_key::tests::grid_initials_expand_each_key_and_stop_at_keys_without_initials ... ok
+test nine_key::tests::grid_letter_prefixes_and_english_matches ... ok
+test nine_key::tests::initials_apply_only_when_every_digit_can_be_a_syllable ... ok
+test nine_key::tests::initials_codes_take_one_initial_per_digit ... ok
+test nine_key::tests::fourteen_key_commit_raw_finishes_instead_of_writing_the_codes ... ok
+test nine_key::tests::fourteen_key_mixes_english_words_and_reads_them ... ok
+test nine_key::tests::lattice_sentence_slots_filter_in_order_without_allocations ... ok
+test nine_key::tests::leading_slot_keeps_distinct_words_when_hashes_collide ... ok
+test nine_key::tests::fourteen_key_types_words_sentences_and_splits ... ok
+test nine_key::tests::letter_prefixes_do_not_allocate_discarded_intermediate_levels ... ok
+test nine_key::tests::letter_prefixes_stop_at_the_budget ... ok
+test nine_key::tests::locked_refresh_reuses_the_existing_ranking_context_prefix ... ok
+test nine_key::tests::locked_syllables_constrain_readings ... ok
+test nine_key::tests::finishing_stores_the_chosen_pieces_with_the_rest ... ok
+test nine_key::tests::initials_rows_survive_more_syllable_rows_than_the_limit ... ok
+test nine_key::tests::nine_key_shuangpin_does_not_change_the_nine_key_grid ... ok
+test nine_key::tests::expressive_boundary_check_matches_owned_cuts ... ok
+test nine_key::tests::nine_key_shuangpin_initials_check_the_key_of_each_initial ... ok
+test nine_key::tests::nine_key_shuangpin_splits_and_letters_follow_the_table ... ok
+test nine_key::tests::nine_key_shuangpin_words_are_found_by_their_initial_keys ... ok
+test nine_key::tests::one_digit_keeps_predictive_readings_ahead_of_single_letter_syllables ... ok
+test nine_key::tests::nine_key_shuangpin_types_two_digits_per_syllable ... ok
+test nine_key::tests::nine_key_shuangpin_shares_codes_and_locks_one_reading ... ok
+test nine_key::tests::path_key_builder_reuses_existing_string_storage ... ok
+test nine_key::tests::paths_keep_at_most_the_limit_per_offset ... ok
+test nine_key::tests::paths_prefer_fewer_syllables_then_a_complete_tail ... ok
+test nine_key::tests::phrase_insertion_cost_is_not_deducted_again_across_paths ... ok
+test nine_key::tests::ordinary_nine_key_readings_borrow_shared_boundaries ... ok
+test nine_key::tests::push_ranked_defers_leading_capacity_until_a_candidate_exists ... ok
+test nine_key::tests::push_ranked_leading_map_allocation_profile ... ok
+test nine_key::tests::query_key_dedup_switches_to_hashing_after_small_batch_boundary ... ok
+test nine_key::tests::query_key_lookup_deduplicates_paths_and_hashed_keys ... ok
+test nine_key::tests::query_key_scan_uses_no_temporary_heap_state ... ok
+test nine_key::tests::reading_is_judged_by_where_the_leading_row_came_from ... ok
+test nine_key::tests::real_dictionary_lists_exact_syllables_before_completions ... ok
+test nine_key::tests::nine_key_picks_are_recorded_for_the_initials ... ok
+test nine_key::tests::refresh_appends_key_choices_without_a_temporary_vector ... ok
+test nine_key::tests::recently_selected_candidate_leads_the_same_nine_key_context ... ok
+test nine_key::tests::refresh_discards_spellings_when_there_is_no_pinyin_target ... ok
+test nine_key::tests::refresh_keeps_spelling_string_buffers ... ok
+test nine_key::tests::refresh_reuses_candidate_vector_storage ... ok
+test nine_key::tests::refresh_reuses_candidate_pinyin_storage ... ok
+test nine_key::tests::learned_phrases_come_back_by_their_initials ... ok
+test nine_key::tests::refresh_reuses_spelling_vector_storage ... ok
+test nine_key::tests::refresh_reuses_reading_storage ... ok
+test nine_key::tests::refresh_tail_is_borrowed_from_digits ... ok
+test nine_key::tests::rerank_cache_match_uses_borrowed_rows_without_allocating ... ok
+test nine_key::tests::seed_prefixes_fit_digits_syllable_by_syllable ... ok
+test nine_key::tests::seed_tails_keep_a_reading_whose_best_character_barely_loses ... ok
+test nine_key::tests::seeded_paths_extend_the_fitting_prefix_with_tail_splits ... ok
+test nine_key::tests::refresh_reuses_split_path_storage ... ok
+test nine_key::tests::seeds_take_distinct_prefixes_then_keep_old_ones_that_still_fit ... ok
+test nine_key::tests::refresh_reuses_search_pages_and_releases_them_outside_pinyin_composition ... ok
+test nine_key::tests::seeds_survive_a_partial_syllable_and_end_with_the_composition ... ok
+test nine_key::tests::sentences_from_different_paths_compare_without_the_phrase_bonus ... ok
+test nine_key::tests::short_unique_word_retain_avoids_temporary_heap_state ... ok
+test nine_key::tests::shuangpin_readings_do_not_allocate_an_intermediate_boundary_table ... ok
+test nine_key::tests::shuangpin_readings_materialize_boundaries_only_for_retained_readings ... ok
+test nine_key::tests::selecting_a_nine_key_candidate_does_not_clone_unused_row_fields ... ok
+test nine_key::tests::single_character_only_keeps_one_character_readings ... ok
+test nine_key::tests::learning_and_management_use_canonical_keys ... ok
+test nine_key::tests::picking_a_used_initials_word_moves_it_once ... ok
+test nine_key::tests::snapshot_shows_locked_syllables_before_the_open_digits ... ok
+test nine_key::tests::snapshot_reuses_locked_prefix_length_for_an_initial ... ok
+test nine_key::tests::spelling_match_indices_reuse_storage ... ok
+test nine_key::tests::single_character_filter_keeps_single_characters_until_the_composition_ends ... ok
+test nine_key::tests::skipping_outranked_rows_ranks_like_pushing_everything ... ok
+test nine_key::tests::sentence_rows_follow_the_sentence_association_options ... ok
+test nine_key::tests::spellings_lock_and_partial_selection_advances ... ok
+test nine_key::tests::spellings_put_exact_syllables_first_then_frequent_ones ... ok
+test nine_key::tests::spellings_sort_by_digits_covered_within_the_limit ... ok
+test nine_key::tests::only_chosen_pieces_become_words ... ok
+test nine_key::tests::split_refresh_reuses_normalized_boundaries ... ok
+test nine_key::tests::split_keeps_both_sides_open_and_backspace_removes_it_first ... ok
+test nine_key::tests::spelling_recent_preserves_unlocked_manual_slots ... ok
+test nine_key::tests::syllable_codes_per_grid ... ok
+test nine_key::tests::syllable_prior_does_not_clone_static_spelling_keys ... ok
+test nine_key::tests::symbols_only_does_not_allocate_an_unused_other_dictionary_path ... ok
+test nine_key::syllable_count_tests::full_pipeline_preserves_fields_capacity_ties_improvements_and_filters ... ok
+test nine_key::tests::taking_back_a_lock_restores_the_digits_it_extended ... ok
+test nine_key::tests::the_caret_edits_digits_in_the_middle ... ok
+test nine_key::tests::switching_grids_ends_the_composition ... ok
+test nine_key::tests::the_keyboard_pick_follows_the_best_lattice_sentence ... ok
+test nine_key::tests::the_limit_keeps_frequent_syllables_rather_than_early_letters ... ok
+test nine_key::tests::the_rescoring_context_keeps_the_characters_the_model_reads ... ok
+test nine_key::tests::the_key_digit_commits_itself_and_the_rest_keeps_composing ... ok
+test nine_key::tests::unique_word_retain_keeps_the_first_sorted_row ... ok
+test nine_key::tests::unreadable_paths_do_not_reserve_each_offset_page ... ok
+test nine_key::tests::unfinished_top_candidate_does_not_displace_complete_readings ... ok
+test nine_key::tests::stroke_filter_matches_the_first_character_stroke_prefix ... ok
+test nine_key::tests::spelling_selection_remembers_first_and_later_candidates_without_a_lock ... ok
+test nine_key::tests::used_initials_words_stay_behind_the_leading_syllable_rows ... ok
+test nine_key::tests::without_a_split_a_completion_keeps_its_weight_over_an_exact_syllable ... ok
+test nine_key::tests::spelling_recent_replaces_the_previous_unlocked_pick ... ok
+test zhuyin::nine_key::tests::every_bopomofo_is_on_exactly_the_patent_key ... ok
+test zhuyin::nine_key::tests::index_accepts_only_prefixes_of_some_syllable ... ok
+test zhuyin::nine_key::tests::index_groups_syllables_by_digits_and_tone ... ok
+test zhuyin::nine_key::tests::index_reading_lookups_do_not_allocate_temporary_keys ... ok
+test zhuyin::nine_key::tests::index_reading_lookups_preserve_key_part_and_invalid_input_behavior ... ok
+test zhuyin::nine_key::tests::index_skips_symbols_off_the_keypad ... ok
+test zhuyin::nine_key::tests::symbol_strings_hold_digits_and_space_only_while_composing ... ok
+test zhuyin::nine_key::tests::tone_keys_map_to_marks_and_space_is_the_first_tone ... ok
+test nine_key::tests::spelling_recent_requires_learning_and_an_explicit_whole_selection ... ok
+test nine_key::tests::without_quanpin_the_grid_spells_english_only ... ok
+test nine_key::tests::the_caret_meets_key_letters_and_taking_back_locks ... ok
+test nine_key::tests::used_initials_words_only_move_with_frequency_adjustment ... ok
+test nine_key::tests::used_initials_words_survive_the_row_limit_and_move_up ... ok
+test nine_key::tests::used_initials_words_follow_the_frequency_mode_and_trigger_count ... ok
+test nine_key::seed_tail_tests::final_limit_keeps_full_search_order_and_independent_paths ... ok
+test nine_key::syllable_count_tests::reading_counts_and_rank_keys_preserve_empty_segments_and_unicode ... ok
+test nine_key::path_scratch_tests::scratch_preserves_frozen_output_and_allocation_budget ... ok
+
+failures:
+
+---- nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks stdout ----
+
+thread 'nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks' (111976579) panicked at crates/engine/src/nine_key/dominated_projection_tests.rs:473:6:
+called `Result::unwrap()` on an `Err` value: "隔离测试失败：exit status: 101\nstdout:\n\nrunning 1 test\ntest nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks ... FAILED\n\nfailures:\n\nfailures:\n    nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2530 filtered out; finished in 0.08s\n\n\nstderr:\n\nthread 'nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks' (111976588) panicked at crates/engine/src/nine_key/dominated_projection_tests.rs:530:29:\nNineKey/ni/0/0/false: 130>125\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies stdout ----
+
+thread 'nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies' (111976581) panicked at crates/engine/src/nine_key/dominated_projection_tests.rs:406:6:
+called `Result::unwrap()` on an `Err` value: "隔离测试失败：exit status: 101\nstdout:\n\nrunning 1 test\ntest nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies ... FAILED\n\nfailures:\n\nfailures:\n    nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2530 filtered out; finished in 0.09s\n\n\nstderr:\n\nthread 'nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies' (111976589) panicked at crates/engine/src/nine_key/dominated_projection_tests.rs:365:9:\nassertion failed: actual.pinyin.capacity() >= expected.pinyin.capacity()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+
+---- nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks stdout ----
+
+thread 'nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks' (111976586) panicked at crates/engine/src/nine_key/filter_projection_tests.rs:396:6:
+called `Result::unwrap()` on an `Err` value: "隔离测试失败：exit status: 101\nstdout:\n\nrunning 1 test\ntest nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks ... FAILED\n\nfailures:\n\nfailures:\n    nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2530 filtered out; finished in 0.13s\n\n\nstderr:\n\nthread 'nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks' (111976593) panicked at crates/engine/src/nine_key/filter_projection_tests.rs:355:9:\nassertion failed: actual.pinyin.capacity() >= expected.pinyin.capacity()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+
+---- nine_key::leading_entry_tests::entry_matches_frozen_complete_refresh stdout ----
+
+thread 'nine_key::leading_entry_tests::entry_matches_frozen_complete_refresh' (111976612) panicked at crates/engine/src/nine_key/leading_entry_tests.rs:316:29:
+assertion `left == right` failed
+  left: 5
+ right: 6
+
+---- nine_key::dominated_projection_tests::invalidated_rows_and_owned_outputs_remain_independent stdout ----
+
+thread 'nine_key::dominated_projection_tests::invalidated_rows_and_owned_outputs_remain_independent' (111976584) panicked at crates/engine/src/nine_key/dominated_projection_tests.rs:365:9:
+assertion failed: actual.pinyin.capacity() >= expected.pinyin.capacity()
+
+---- nine_key::tests::choosing_a_nine_key_letter_does_not_clone_spelling_choices stdout ----
+
+thread 'nine_key::tests::choosing_a_nine_key_letter_does_not_clone_spelling_choices' (111976725) panicked at crates/engine/src/nine_key.rs:4838:9:
+九键选择字母复制音节列表产生了 434 次分配
+
+
+failures:
+    nine_key::dominated_projection_tests::dominated_projection_matches_frozen_refresh_across_grids_and_locks
+    nine_key::dominated_projection_tests::dominated_rows_are_rejected_before_field_copies
+    nine_key::dominated_projection_tests::invalidated_rows_and_owned_outputs_remain_independent
+    nine_key::filter_projection_tests::filtered_refresh_matches_frozen_full_refresh_across_grids_and_locks
+    nine_key::leading_entry_tests::entry_matches_frozen_complete_refresh
+    nine_key::tests::choosing_a_nine_key_letter_does_not_clone_spelling_choices
+
+test result: FAILED. 208 passed; 6 failed; 13 ignored; 0 measured; 2304 filtered out; finished in 9.55s
+
+error: test failed, to rerun pass `-p msime-engine --lib`
+error: 1 target failed:
+    `-p msime-engine --lib`

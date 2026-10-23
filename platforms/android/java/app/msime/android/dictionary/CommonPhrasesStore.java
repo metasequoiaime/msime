@@ -39,7 +39,8 @@ public final class CommonPhrasesStore {
     public static final int MAX_PHRASE_UNITS = 1000;
 
     /** 一条常用语；`pack` 为空串表示用户自己添加的，否则是它所属社区短语包的 id。 */
-    public record Phrase(String id, String text, String pack) {
+    public record Phrase(String id, String text, String pack, String note) {
+        public Phrase(String id, String text, String pack) { this(id, text, pack, ""); }
         public boolean own() { return pack.isEmpty(); }
     }
 
@@ -126,6 +127,18 @@ public final class CommonPhrasesStore {
         if (!validText(text)) return Result.failed(failureMessage("common_phrases_invalid"));
         try {
             return adopted(context, text, perform(context, action("add").put("text", text), true));
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
+    /** 同一次保存正文和备注；备注只在本机显示，不进入正文同步。 */
+    public static Result add(Context context, String text, String note) {
+        if (!validText(text)) return Result.failed(failureMessage("common_phrases_invalid"));
+        if (!validNote(note)) return Result.failed(failureMessage("common_phrases_note_invalid"));
+        try {
+            return adopted(context, text, perform(context,
+                action("add").put("text", text).put("note", note), true));
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }
@@ -277,6 +290,18 @@ public final class CommonPhrasesStore {
         }
     }
 
+    /** 显式保存备注；旧的正文修改入口仍让 Rust 保留已有备注。 */
+    public static Result replace(Context context, String id, String text, String note) {
+        if (!validText(text)) return Result.failed(failureMessage("common_phrases_invalid"));
+        if (!validNote(note)) return Result.failed(failureMessage("common_phrases_note_invalid"));
+        try {
+            return adopted(context, text, perform(context,
+                action("replace").put("id", id).put("text", text).put("note", note), true));
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
     /** 把一条移到第 `index` 位（从 0 数）。 */
     public static Result move(Context context, String id, int index) {
         try {
@@ -316,10 +341,17 @@ public final class CommonPhrasesStore {
         return !TextPolicy.hasControlExceptNewline(text);
     }
 
+    /** 仅用于确认按钮的即时反馈；保存仍由 Rust 校验。 */
+    public static boolean validNote(String note) {
+        return note != null && note.length() <= MAX_PHRASE_UNITS
+            && !TextPolicy.hasControlExceptNewline(note);
+    }
+
     /** 把 client-services 的错误码换成可直接展示的话；不认识的码一律按通用失败处理，不把内部信息漏给用户。 */
     public static String failureMessage(String code) {
         if (code == null) code = "";
         switch (code) {
+            case "common_phrases_note_invalid": return "备注最多 1000 字，仅支持普通文字和换行。";
             case "common_phrases_invalid": return "常用语不能为空，最多 1000 字。";
             case "common_phrases_duplicate": return "已经有这条常用语了。";
             case "common_phrases_limit": return "常用语已达上限（自己添加的最多 200 条），请先删掉一些。";
@@ -344,7 +376,10 @@ public final class CommonPhrasesStore {
                 Object rawPack = phrase.opt("pack");
                 String pack = rawPack == null || rawPack == JSONObject.NULL ? "" : JsonPolicy.strictString(rawPack);
                 if (id == null || text == null || pack == null) continue;
-                phrases.add(new Phrase(id, text, pack));
+                Object rawNote = phrase.opt("note");
+                String note = rawNote == null ? "" : JsonPolicy.strictString(rawNote);
+                if (note == null) continue;
+                phrases.add(new Phrase(id, text, pack, note));
             }
         }
         JSONArray rawPacks = value.optJSONArray("packs");

@@ -8,14 +8,25 @@ import android.view.MotionEvent;
 
 /** 在合成编辑器中通过系统触摸执行清除、下滑撤回、滑回取消和输入框切换。 */
 public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
+    private boolean scrubOnly;
     private QuickDeleteEditorActivity fixture;
     private static final String EDITOR = "msime-test-plain";
 
+    @Override public void onCreate(android.os.Bundle arguments) {
+        scrubOnly = arguments != null && "true".equals(arguments.getString("scrub-only"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
-        return "quick delete, held downward undo, disarm, cancel, short delete and editor boundary";
+        return scrubOnly ? "horizontal backspace delete/restore within one held gesture and editor boundaries"
+            : "quick delete, held downward undo, horizontal scrub, cancel, short delete and editor boundary";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (scrubOnly) {
+            new BackspaceScrubDeviceChecks(this).run();
+            return;
+        }
         stage = "select installed input method";
         restartIme();
         stage = "open synthetic quick-delete editor";
@@ -104,6 +115,7 @@ public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
         undo(false, false);
         expect("");
         if (fixture.acceptedWrites != accepted) throw new AssertionError("Private editor unexpectedly restored text");
+        new BackspaceScrubDeviceChecks(this).run();
         stage = "normalize Chinese mode before ordinary input regression";
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field(EDITOR));

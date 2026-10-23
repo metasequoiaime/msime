@@ -2,13 +2,17 @@
 
 ## 目录结构与验证入口
 
-Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，例如 `voice/VoiceProviderPolicy.java` 仍持有凭据预检与状态文案。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
+Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；现有代码还没有完全做到，`voice/VoiceProviderPolicy.java` 的凭据预检与状态文案已通过 `msime_client_voice_credential_issue`、`msime_client_mobile_voice_status` 读取共享规则。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
 
 验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a（按需加 x86_64）的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
+
+语音润色的内置方案 id、名称与顺序由共享 Rust 的 `voice::polish_catalog` 导出到 `voice/VoicePolishPresetCatalog.java`；`VoicePolishSettingsPolicy` 追加原有三个自定义槽位，选择表不在 Java 里另写一份。更新与检查使用[共享润色提示词导出命令](../../packages/ui/UPSTREAM.md#共享润色提示词)，生成文件随源码提交，普通 APK 与 JVM 冒烟都按现有源码发现规则编译它。`scripts/test-polish-prompt-catalog.py` 在 JDK 17 可用时编译真实设置选择表，与共享 JSON 对照并检查生成数组互不影响。
 
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
 英文 26 键长按显示大写、原角标、可用的字母上下标和对应拼音声调（`v` 对应 ü）；首排另有提示数字的上下标和财务数字，短按已有的小写不重复。O 保留「切换到拼音键盘」入口。菜单按键盘宽度排成最多五列，完整放在 IME 窗口内，避免 Android 9 裁剪；下滑符号保持原行为。字符表在 `EnglishLetterHoldPolicy`，设备专项复用 `LetterHintPunctuationDeviceSmoke` 的 `-e english-hold true` 参数，并由普通 `tests/device/smoke.sh` 执行。决定见[英文长按变体笔记](../../.agents/notes/implemented/feature/2026-10-21-android-english-letter-options.md)。
+
+普通英文候选保留原文和唯一纠错，并追加固定英文词库的前缀补全，例如输入 `eng` 可点选 `English`。空格和标点仍只自动采用纠错，补全需要手动点击。密码、网址、邮箱和禁止建议的输入框不显示这些候选。`EnglishCorrectionDeviceSmoke` 同时验证补全、当前词替换与既有纠错门禁；`-e prefix-completion true` 只跑补全专项。
 
 ## 产品版本
 
@@ -24,6 +28,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 `MSIME_ANDROID_OMIT_ON_DEMAND=1`（只对 full 和 pinyin，其他版本设了直接失败）打发布用的瘦包，`release-android.yml` 给这两个版本打开它：日文词典那一组（`msime-japanese.dat` 与两份 Mozc 许可文本）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户添加日语或这些语言（拼音版不提供粤拼、注音和笔画，只会为临时日语下载日文词典）、打开离线释义、打开「离线识别」时作为资源包下载到 `files/bootstrap/state/resource-packs/<资源包>/`，启动时不自动下载。随包的 `desktop-dictionary.lock.json` 是本版本的锁去掉日文那一组后的子集（Bootstrap 只按它解包），暂存的词库按 `verify_resources --omit-on-demand` 校验；host-api 仍按编译进去的完整锁校验，日文那一组整体缺席时放行，用户词库的代次不变。APK 签名后再检查包里没有 `msime-japanese.dat`、Mozc 许可文本、`assets/language-dictionaries/`、`assets/offline-glosses/`、`libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，并且包不超过 135,000,000 字节（`MSIME_ANDROID_MAX_APK_BYTES` 可改）。瘦包只能是 arm64-v8a 单 ABI，`MSIME_ANDROID_ABIS` 带上 x86_64 时直接失败：资源包 `voice-runtime` 只有 arm64-v8a 的库，在 x86_64 上下载了也加载不了。这个开关与 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 互斥。不设时照旧全带，日文版的主词库就是日文词典，始终随包；Tauri 开发合包 `build-client-apk.sh` 也照旧全带。
 
+`MSIME_ANDROID_DISTRIBUTION=play` 打上传 Google Play 的包：输出 `target/android/<apk_name>.aab`，用 `jarsigner` 以发布密钥签名（没有发布密钥直接失败）。Gradle 收到 `-PmsimeDistribution=play`，BuildConfig 的 `DISTRIBUTION` 是 `play`，宿主不做应用内自更新、不下载 `voice-runtime` 资源包，清单去掉 `REQUEST_INSTALL_PACKAGES`；与瘦包同用时两个语音运行库仍随包，其余按需资源照旧下载。缺省 `github` 打 GitHub release 用的 APK。原因和发布流程见 `.agents/notes/implemented/process/2026-10-23-android-google-play-distribution.md`。
+
 ### 手机、大屏与二合一布局边界
 
 原生输入面依据 Android 的 `Configuration.smallestScreenWidthDp` 区分设备形态，而不是依据旋转后的当前窗口宽度。小于 600 dp 的手机始终让键盘铺满可用窗口；因此一台 411 dp 的手机即使横屏后当前宽度超过 600 dp，也不会突然切换成平板键盘。600 dp 起的平板、展开态折叠屏和二合一进入大屏布局：整套键盘表面在窗口底部水平居中，宽度取当前可用宽度与 720 dp 的较小值。左右空出的区域使用当前键盘皮肤的背景色，避免十列按键被拉伸到桌面宽度。
@@ -32,18 +38,19 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 这条原生键盘策略与共享设置页的响应式布局彼此独立：`platforms/android` 负责系统 IME 窗口，Tauri/React 设置页仍按自身 600 px CSS 断点在手机底部标签栏与大屏侧栏之间切换。后一句只适用于不发布的 Tauri 合包（`build-client-apk.sh`）；发布的 APK 不含这套页面，设置是 `home/` 下的原生 Java 页面。`KeyboardFormFactorPolicySmoke` 固定验证 599/600 dp 边界、手机横屏、600 dp 折叠展开态、1280 dp 二合一的 720 dp 上限，以及配置暂时缺失当前宽度时的安全回退；`check-host.sh` 会编译并执行该回归。设备上的旋转、分屏、自由窗口和折叠铰链切换走的是同一条策略，JVM 回归钉住的是策略边界本身。
 
-### 平板横屏分离式键盘
+### 大屏分离式键盘
 
-键盘设置「布局」里的「横屏分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备（同上，`smallestScreenWidthDp` ≥ 600）横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。手机横屏、平板竖屏和开关关着时一律照旧。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
+键盘设置「布局」里的「分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备（同上，`smallestScreenWidthDp` ≥ 600）横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。默认平板竖屏不分离；开启旁边的「竖屏也分离」（共享布尔偏好 `touch_keyboard_split_portrait`，默认关）后，大屏竖屏同样分离。折叠到窄外屏（最小宽度低于 600 dp）或关闭主开关后使用完整键盘，再展开恢复分离。手机横屏也不分离。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
 
-- 分离的布局：标准 26 键一族（全拼、各家双拼连同微软双拼的 `;` 键、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式，以及它们的 123 / #+= 层。九键、日文假名网格、手写、大千注音、笔画、注音 9 键和它们的符号页，以及符号、表情、剪贴板、功能面板都不分离；正在画的布局不分离时，键盘和平时一样是 720 dp 居中外框。
+- 分离的布局：标准 26 键一族（全拼、各家双拼连同微软双拼的 `;` 键、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式，以及仍采用横排行的 123 / #+= 层；中文数字九宫格保持完整面板。九键、日文假名网格、手写、大千注音、笔画、注音 9 键和它们的符号页，以及符号、表情、剪贴板、功能面板都不分离；正在画的布局不分离时，键盘和平时一样是 720 dp 居中外框。
 - 分离式键盘画着的时候整套键盘表面不受 720 dp 上限约束，铺满可用宽度（`KeyboardFormFactorPolicy.surfaceWidthDp` 的第三个参数）。候选区、工具栏和盖在键区上的各个面板与键区共用这个外框，同样铺满；它们本身不分成两半。
 - 每一行都是「不分离时的那一行缩到 75%，在中间的键边界上断开，两段各自贴到两侧」：中间插入一个普通的 `View` 作为空隙，键之间原有的宽度比例和第二行的半键缩进原样保留，所以第二行的断口比第一行偏右半个键。断点取使左段份额最接近整行一半的那个键边界，一样接近时多出来的键归左边：qwert | yuiop、asdfg | hjkl、⇧zxcv | bnm⌫，123 / #+= 层第三行是 #+= 加三个标点 | 两个标点加 ⌫。⇧ 和 ⌫ 始终在两侧外缘。
 - 字母层的第二、三行在右半边内侧重复左半边最内侧的字母（#6022）：asdfg | ghjkl、⇧zxcv | vbnm⌫（韩文两套式同一位置是 ㅎ、ㅍ），总是生效，没有子开关。重复的键是同一种字母键，输入、提示角标、滑动符号和键位 id 都与左边那个相同；它从空隙里占一个键宽（`SplitKeyboardPolicy.gapWeight(float, float)`），所以三行键宽不变，两段等宽、空隙仍居中，只是这两行的空隙比第一行窄一个键。只在重复之后两段正好相等时才重复（`SplitKeyboardPolicy.duplicatesInnerKey` 按这一行的实际份额判断）：微软双拼显示 `;` 时第二行本来就是 asdfg | hjkl; 五对五，这一行不重复 G。第一行、数字行和 123 / #+= 层不重复。滑行输入只认左边那个 G、V：交给 Engine 的键位每个字母只有一个中心点，右边的重复键在滑行时和空隙一样不算字母键，点按照常输入。
 - 底行（字母层的功能行，以及 123 / #+= 层自带的底行）的空格键拆成两个，分别在两半的内侧，左边那个的宽度让空隙正好落在整行中间（每一半至少保留原宽度的四分之一）。两个都是空格：右边那个直接绑定同一个 `space()`，按键反馈、计数和键位 id（`Space`）与原空格相同，长按语音和拖动移光标用同一套手势，且两个键各有自己的手势状态，两根拇指先后按住时互不干扰。
 - 中间空隙是死区：它不是键、不可点击，也不带键距外边距。`KeyboardKeyArea` 只把落在某个键外边距里的按下交还给那个键，空隙在所有键的外边距之外，所以点它什么也不发生，只有紧贴内侧键的那几 dp 键距仍归内侧键。
-- 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到竖屏或换到不分离的布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
+- 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到不分离的窗口或布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
 - 键高、键盘高度设置、键距和行距都不变；打开「数字行」时数字行同样从中间分开（12345 | 67890）。旋转、换布局或开关变化后，下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.splitStale`），不动 Engine session 和当前组合。
+- `KeyboardHeightDeviceSmoke` 的 `-e portrait-split true` 专项通过真实键盘节点测量中缝，覆盖大屏竖屏热更新与组字保留、原生设置保存、数字符号页、窄外屏恢复和横屏兼容；测试结束恢复窗口尺寸、密度、旋转与偏好。模拟窗口变化不等于折叠屏真机验收。
 
 ### 数字行
 
@@ -56,7 +63,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 面板宽度是当前窗口的 80%，夹在 240–480 dp 之间且不超过窗口；高度与停靠时相同（键盘高度设置照样生效），顶部多一条 22 dp 的拖动条，按住横条拖动，右端的「停靠」键回到停靠在底部的完整键盘。
 - 位置按可移动范围（系统栏之间的区域减去面板大小）里的千分比存在 `platform.android.floating_keyboard_x` / `_y`，默认水平居中、贴底；松手时写入。旋转、分屏或面板变高后换算回像素，面板总在窗口里。拖动只改面板的平移，不重新布局。
 - 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
-- 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部（打开下文的「物理键盘时候选栏跟随光标」时跟着光标走），浮动磁贴与按钮显示为不可用。
+- 浮动时单手模式和分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部（打开下文的「物理键盘时候选栏跟随光标」时跟着光标走），浮动磁贴与按钮显示为不可用。
 
 ### 键盘底栏
 
@@ -209,6 +216,8 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点，以及右列的删除、重输和 ！，并显示 Engine 返回的拼音消歧条：它是一列铺满左侧标点栏的纵向滚动列表（与 iOS、HarmonyOS 一致），有可选项时盖住标点栏，依次是完整音节、下一个数字键上能起头的大写字母（限定下一个音节的首字母）和只在没有锁定音节时出现的数字本身。点候选条右端的展开键时，全拼 9 键组字中的展开面板换成三栏：左栏是同一列拼音（可切成 横 竖 撇 点 折 五个笔画键，顶部显示已选笔画），中间是可纵向滚动的完整候选，右栏是 返回、⌫、重输、拼音/笔画、全部/单字。在面板里选拼音或按 ⌫ 不收起面板，而是按新的一代重新取完整候选；笔画模式下 ⌫ 先撤一笔。全部/单字与笔画筛选经 `msime_client_set_nine_key_filter` 交给 Engine，状态以 `View.nine_key_single_character` 和 `View.nine_key_strokes` 为准；离开笔画模式清掉笔画筛选，面板收起时（组字结束、返回或选了候选）如组字还在就清掉全部筛选。这个面板在只有一页候选时也能打开；其他布局的展开面板不变。纯逻辑在 `NineKeyPanelPolicy`，由 JVM 回归覆盖。左侧标点栏（笔画键盘同样）是可上下滑动的 `NineKeySymbolRail`，一屏五个符号，默认 `， 。 ？ 、 ： ； …… ～ @`，可在设置「键盘 › 布局 › 九键左侧符号」里改成自己的符号表（本地设置 `platform.android.nine_key_symbols`，不随账号同步），解析与校验在 `NineKeySidebarPolicy`。拼音九键的字母键面没有单独的句点键；笔画键盘最下一行的句点走与其他标点相同的 Engine 策略：中文标点开启时输入 `。`，英文或关闭中文标点时输入 `.`。拼音九键数字键面的小数点见下一段。右列中间的「重输」在组字时丢掉整串数字和选过的拼音，没在组字时什么也不做；组字时 1 键从「@#」换成「分词」，在已打的数字末尾定一个音节分界。没在组字时点 1 键（「@#」）不打开符号面板，而是把当前模式的常用标点放进候选条（与 26 键逗号键长按的那一组相同，中文模式是 ， 。 ？ ！ 、 ； ：，键面随中文标点开关），点一个与逗号键一样经 Engine 上屏，中英文标点、成对标点照常；它们只留到下一次 Engine 转换，按任何键候选条就换回 Engine 自己的候选，点选上屏后候选条回到空闲（`ImeNineKeyQuickPunctuation`，与 iOS 一致；九键双拼最后一行的「@#」同样如此）。拼音九键和笔画键盘的底行是 符 | 123 |（地球）| 空格 | 中/英 | 回车，符 打开符号面板、与 中/英 同宽（`KeyboardActionRow.designEntries`，「交换语言键与数字键」时 符 仍在最左）；数字键面改为 九键 | 符 |（地球）| 0 | 中/英 | 回车，0 在底行中间，原空格键移到右列底部并保留长按语音和拖动光标。标准 26 键一族（全拼、各家双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文两套式的字母层底行也是 符 | 123 |（地球）| 空格 | 中/英 | 回车（与搜狗一致，没有逗号句号键），中英文模式相同，符 记作 `SoftSymbol`；14 键（第三行左端已有 符）、手写和大千注音的底行仍是 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。长按退格时，若 Engine 正在组字，就一次取消整段组合并立即停止连删，若没有组合才持续删除编辑器正文。短按退格仍只删除一次。2–9 键支持长按弹出该键的数字和小写字母；在设置「键盘 › 手势 › 九键滑动输入数字」选了上滑或下滑后（本地设置 `platform.android.nine_key_swipe`，默认关闭，不随账号同步，和 26 键的「滑动输入符号」分开），沿这个方向滑过「九键滑动距离」松手输入键上印的数字（1 键是 1），往反方向滑弹出和长按相同的选项（`NineKeySwipePolicy`）；默认关闭是为了不改变老用户的九键点按。「九键滑动距离」在同一组里（本地设置 `platform.android.nine_key_swipe_distance`，14–48 dp、步长 2、默认 24 dp，不随账号同步），只作用于九键，26 键「滑动输入符号」的阈值仍是 14 dp：九键的键高，快速连打时手指往上带一下就会超过 14 dp，组字中误判时整串拼音会按原始数字上屏（#6208）。选择字面字符前先由 Engine 提交当前组合，再通过普通编辑器路径上屏。组字时编辑器里写的不是按下的数字，而是 Engine 给的拼音读音 `View.nine_key_reading`（`64426` 写成 `ni'hao`，选过的音节在前），候选栏不再画这段读音；只有 Engine 没给读音时（首行是英文词或模糊音行）才退回 `View.preedit`。光标被点到别处、不经 Engine 结束组字区而编辑器还报告着组字区时，组字区被删掉，不在文档里留下读音（`EditorBridge.settle`）。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。九键英文候选按固定来源 `MSIME-Apple@1a0d7194bba6ae1ee4555a7d2866bfb06a9fca6b` 和 `msime-engine@15ff08fc50ff9b469dae0f4bdabeae76c2a66b91` 接入，继续由共享 `mixed_input.english` 与 `minimum_prefix` 控制（设置「表达 › 智能」里的「中英混输」和「触发字母数」，九键按按键数计；拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不受这两项限制），Android 只发送数字、展示并选择 Engine 候选。合成加权词典回归验证完整编码 `65` 的 `ok` 排在更高频前缀词 `old` 前；候选顺序由 Engine 和当前锁定词库的权重决定，Android 只发送数字、展示并选择 Engine 返回的候选。
 
+九键开启学习时，先选侧栏读法再确认完整候选（包括该读法的首候选），下次直接输入同一数字串也会优先显示这次选择；分段选词和默认结束组字不产生此记录，已有的其它手动槽位保留。决策与边界见[锁定读法后的最近选择](../../.agents/notes/implemented/bug-fix/2026-10-21-nine-key-locked-selection-recent.md)。设备专项使用 `adb -s emulator-5580 shell am instrument --no-restart -e recent-learning true -w app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke`（API 28 去掉 `--no-restart`）；默认完整九键面板套件也覆盖这一路径。
+
 数字键面固定是 1 2 3 在上，与字母键面同一个行序。中文的 26 键、14 键、手写、笔画和注音 9 键按「123」借用拼音九键的数字键面（左栏底部另有 `#+=` 打开扩展符号页，0、小数点和统计口径见 `.agents/notes/implemented/feature/2026-10-15-mobile-default-number-pad.md`）；英文、日文罗马字、越南语、藏文、韩文两套式和本地工具模式仍是新设计的 123 层（1 到 0 排一行，下面是符号行）。共享偏好里的 `touch_number_keypad_order` 和 `touch_twenty_six_key_number_layout` 仍随配置和同步原样保留，但键盘不读它们，设置页也不再列出。全拼 9 键按“符号”切到数字键面时仍然是九键，与 Apple 一致，不再交给 26 键符号页——那会把十列键盘塞进用户特意选的三列布局。九个网格键改印自身数字（含只喂分词符的 1 键），无障碍描述改为“数字 N”，点击以本地输入来源直接上屏数字而不进入拼音会话；数字键面的左栏换成另一张符号表，默认 `+ - * / = % ( ) : @ ， 。 ？ ！`（本地设置 `platform.android.nine_key_digit_symbols`，设置页「九键数字键盘左侧符号」可改），右列从删除、重输、！ 换成删除、字面上屏的小数点 `.`（不随中文标点变成「。」）和带语音手势的空格键，`0` 移到底行中间；返回字母键面恢复分词/ABC–WXYZ 键面、长按弹出和原来的标点栏。在数字 / 符号键面上（九键和 26 键都算），光标前末尾是 `12*12` 这样带二元运算的算式时，工具栏品牌键右边出现「= 144」，点按以字面上屏 `=144`（算式后已有 `=` 时只上屏 `144`）；`ImeCalculator` 在选区变化和切换键面时读光标前最多 64 个字符，密码框不读，求值在无 Android 依赖的 `ArithmeticResultPolicy`（BigDecimal，加减乘除、括号、`×` `÷` 与全角字符）。两套九键都自带数字键面，因此快捷条的 Shift 在它们的数字键面同样隐藏。键面与描述由无 Android 依赖的 `NineKeyLayout` 提供并在 JVM 回归中验证。
 
 全拼 14 键（触屏方案和 `touch_keyboard_layout` 都是 `fourteen_key`，引擎方案是全拼，默认不启用；设置的「中文键盘」是 26 键 / 14 键 / 9 键三档，选中即启用并切换）把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，底行是 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车（26 键底行为 123 | 符 | 空格 | ， | 中/英 | 回车、逗号长按输入句号，14 键第三行左端已经有 符，所以保留带逗号句号的这一行，逗号键长按照样弹出常用标点），四行与 26 键等高，两端边键是 26 键的边键宽度。键表在无 Android 依赖的 `FourteenKeyLayout`，与 iOS、HarmonyOS 的 `FourteenKeyLayout` 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对四处的键、组码和 `Fourteen*` 键位 id。点一下经 `NativeClient.gridKey`（`msime_client_grid_key`）送这一组的首字母，不走 `type()`：硬件键盘的字母仍走 `character()`，是确定的全拼字母，14 键组字进行中则不受理。Engine 按组码网格解码，`View.key_grid` 是 `fourteen_key`（`nine_key` 为假），14 键的判断都看它。组字不写进编辑器，读音行显示 `nine_key_reading`（拼写写进输入框后候选栏不画读音，14 键是例外）；拼音选择与九键共用键区左侧的纵向侧栏（`SpellingPlacement.SIDEBAR`），空闲时显示符号、有拼音可选时覆盖符号栏，字母键位不会在开始组字时移动；不挤占读音或候选行，也不增加键盘高度，内容与九键左列相同但没有原样数字那一项，点音节锁定、退格先撤销锁定；展开候选是九键的三栏面板。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板）。两个字母的键长按弹出这两个字母，选中后先结束组字再上屏，L、M 不弹；没有按键气泡、Shift、滑行、数字行、分体、双拼键位提示和角标。英文模式、密码和网址框、本地模式画 26 键，切回中文恢复 14 键，`touch_keyboard_layout` 不变；123 打开 26 键的设计层。组字中回车、点 123 层的字符等走原样上屏（命令 2）的路径时，Engine 结束组字取首选，因为组码只是每组首字母，原样上屏会写出 `bugao` 这种字母。打字统计的来源是「全拼 14 键」（`fourteenKey`），键位 id 是 `FourteenQW` 到 `FourteenM` 共 14 个，分词键记作 `SoftSymbol`。设备验收在 `FourteenKeyDeviceSmoke`，`KeyboardHeightDeviceSmoke` 另有一轮核对 14 键与 26 键等高。
@@ -233,7 +242,7 @@ Android 14 起可以拿手写笔直接在应用的输入框上写字（#7080，�
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除收进「删除词条…」的子菜单，点开当场展开「确认删除此词条」（与 iOS 的嵌套子菜单同款），不弹系统对话框，删除后只刷新候选列表、键盘保持打开。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
-候选 UI 现在消费共享的 `candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。正在拼写的内容总是作为组字（`setComposingText`）写进输入框，与 Apple 自带键盘和 Gboard 一样，候选栏上方的读音行不再重复画它，只留页码和提示；这是固定行为，不读共享偏好 `candidate_preedit_style`，也没有开关（`CandidatePreeditStylePolicy`）。26 键写 Engine 的 `View.preedit`（全拼是按下的字母，双拼按「双拼预编辑」可以是分好词的拼音），光标被点到别处时留在文档里的仍是按下的键。例外照旧画在读音行上：正在拼的词里已经选中的那一段、本地输入模式的名字、全拼 14 键的读音（它的组字是组码字母，不写进输入框）、日语读音和韩语、注音、越南语、藏文、笔画这类方案的组字，以及编辑器长度限制截掉组字、整段组字只能留在键盘上的时候。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。共享的 `candidate_layout` 只描述桌面候选窗：触屏候选条只有一行高，和 iOS 一样始终横排，释义在候选下面另起一行，更多候选在展开面板里看。偏好热更新成功后立即调整候选字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
+候选 UI 现在消费共享的 `candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。正在拼写的内容默认作为组字（`setComposingText`）写进输入框，Android 设置里的「拼音显示位置」（共享偏好 `touch_spelling_position`，缺省 `editor`）可以切换为只显示在候选栏；不读桌面候选窗的 `candidate_preedit_style`，它默认是 `pinyin`，拿来当位置开关会让所有用户默认把拼写挪出输入框；候选栏模式不把数字键串写进九键输入框，候选提交后仍由引擎正常上屏。候选栏模式下读音行显示拼音，输入框模式下拼写写入输入框后不重复画它（`CandidatePreeditStylePolicy`）。26 键写 Engine 的 `View.preedit`（全拼是按下的字母，双拼按「双拼预编辑」可以是分好词的拼音），光标被点到别处时留在文档里的仍是按下的键。例外照旧画在读音行上：正在拼的词里已经选中的那一段、本地输入模式的名字、全拼 14 键的读音（它的组字是组码字母，不写进输入框）、日语读音和韩语、注音、越南语、藏文、笔画这类方案的组字，以及编辑器长度限制截掉组字、整段组字只能留在键盘上的时候。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。共享的 `candidate_layout` 只描述桌面候选窗：触屏候选条只有一行高，和 iOS 一样始终横排，释义在候选下面另起一行，更多候选在展开面板里看。偏好热更新成功后立即调整候选字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
 
 横向候选条在 Engine session、generation 或候选页变化时回到当前页首项；这样翻页或新组字不会沿用上一页的横向偏移，把用户带到旧列表的中段。仅释义/翻译等同一代次的显示重绘保留用户当前滚动位置。候选身份仍由共享 session/generation/index 决定，Android 不自行排序或改写候选内容。
 
@@ -267,7 +276,9 @@ Android 账号设置中的云词库现通过同一认证会话访问 HTTPS API�
 
 个人词库设置同时提供 Apple 对齐的 `msime-personal-dictionary` JSON 导入：文件最多 1 MiB、每次 1–128 条，支持拼音、五笔、快捷短语和英文，页面先在本地校验格式、编码、重复项和长度并展示预览，用户确认后才加入 Android 与 `:ime` 进程共享的逐条同步队列。导入文件不上传；同步失败的条目沿用现有重试/移除记录机制，Engine 仍负责最终规范化和应用。
 
-配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备。
+原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。首次启用键盘而配置尚不存在时，服务会在后台准备资源，在原输入框继续创建会话；设置应用也使用相同的幂等准备入口。已有但损坏的配置保持失败，不自动覆盖。
+
+拼音版的首次键盘入口用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/pinyin-startup.sh <专用AVD序列号> <原生拼音APK路径> --fresh` 验收。`--fresh` 明确清除专用设备上拼音包的数据；不带它则检查已安装状态。流程只从系统启用键盘，不打开设置应用，在同一输入框等待会话、两次输入 `nihao` 并核对真实组字标记和「你好」上屏，结束后恢复原默认输入法。再加 `--hide-resume` 会先收起并重开首次显示的键盘；该检查不保证收起时后台准备尚未完成。它复用 `DeviceSmoke -e pinyin-startup true` 入口，不增加已达 100 项的 instrumentation 清单。
 
 本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0，以及 `rg`（缺它会让脚本里所有 `if rg` 守卫静默通过，因此脚本直接拒绝运行）。脚本先逐条比对 Android 侧与 `crates/host-api/src/ffi/input.rs` 的共享命令契约，再用 `javac --release 17 -Xlint:all -Werror` 编译不依赖 Android 框架的那部分宿主 Java（排除 `java/app/msime/android/home/` 与任何 import AndroidX/Material 的文件——那些是 AAR，只有 Gradle 能解析），执行 99 个不依赖 Android 运行时的策略冒烟，并用 `aapt2 compile` 校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
 
@@ -383,9 +394,13 @@ APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由�
 
 ## 专用模拟器验收
 
+系统自动填充专项：构建当前原生宿主 APK 后运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/inline-autofill.sh emulator-5580`，API 28 用 `emulator-5566`。测试包的合成服务只提供固定虚构账号，API 35 验证真实内联请求、系统远程视图、隐藏／再显示、切框、空响应和系统多字段填充；API 28 验证旧菜单填充。退出时恢复原填充服务。专项替换默认设备套件的一个 instrumentation 入口，不增加系统限定的 100 项数量；下次运行普通 `build-editor.sh` 会恢复默认入口。内联功能需要 Android 11 以上、支持它的填充服务及提供填充信息的应用；不支持时由系统显示原有菜单。
+
 预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像，也不自动接受 SDK 许可。
 
 完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装 `app.msime.android` 开发包和独立合成编辑器，准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
+
+默认冒烟还通过 `NineKeyPanelDeviceSmoke -e partial-selection true` 验证九键逐字选词：真实触摸展开面板中的单字后，剩余组字必须自动刷新；不发送返回操作即可再次展开并选完四个合成音节。每次核对真实编辑器的已选前缀与组字标记，最终确认完整提交并结束组字。专项复用既有清单入口，不增加 instrumentation 数量。
 
 完整上游皮肤需显式运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/upstream-skins.sh emulator-5580 <msime-windows检出目录>`（API 28 同理）。先按上面的步骤安装当前原生 APK 并准备好词库；此命令只重建和安装测试编辑器。它从固定提交 `dd018f79858314ed542a47c528608752b13bd261` 归档 `green_leaf`、`sakura-night`，不读取未提交资源，不把上游图片加入本仓库或默认测试包。真实 JNI 确认面板及全部挂件解码，随后在独立合成编辑器中保存两款皮肤 × 明暗 × 普通／展开的八张候选区截图，并检查底层按键隐藏、顶部候选条保留、窗口尺寸不变、两种收起入口与点击上屏；结束恢复原偏好并移除本次临时皮肤。同名已安装目录会拒绝覆盖。截图保存在 `target/android/device-test/<serial>/upstream-*/`，必须目测图片、文字、挂件与裁切，脚本成功不等于逐像素一致或动画全部验收。
 
@@ -414,6 +429,22 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
+
+联系人专项验收（#9000）只在专用 API 28/35 AVD 上执行。先构建并安装当前分支的原生 APK（必须包含当前 Rust 库），再运行：
+
+```sh
+MSIME_ANDROID_CONTACTS_SMOKE=1 bash platforms/android/tests/device/build-editor.sh
+adb -s <serial> install -r target/android/editor-test.apk
+adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.ContactsDeviceSmoke
+```
+
+此开关仅在测试清单中替换一个入口，避免超过 Android 35 的 100 项 instrumentation 限制，不改变产品清单。用例经系统联系人 provider 创建合成姓名和保留号码，实际点击导入、刷新、清空，核对保存计数、普通条及展开面板的完整上屏和右上角标；结束移除本次合成电话本条目并恢复原名单与偏好。必须检查输出含 `MSIME_DEVICE_SMOKE_PASSED` 且不含 `FAILED`，不能只依赖 adb 退出码。
+
+验收拼音版时先安装本分支的 `pinyin` 原生 APK，再用 `MSIME_ANDROID_CONTACTS_SMOKE=pinyin` 构建测试包；instrumentation 命令相同，目标切到 `app.msime.android.pinyin`，测试不会借用全功能版的数据目录。
+
+### 装饰图中的候选词
+
+原生候选列与展开候选支持传统装饰图的 `candidate_overlay_*`，普通当前页的真实高亮用于索引 0，其余索引从 1 开始。图片、字号和偏移使用 DIP，文字按声明框对齐，缩到最小字号后保留完整单行；云／AI 来源标记独立于原文。资源在偏好线程解码，逐键复用，隐藏停止图片动画。装饰带参与 Android 既有候选容器的留白测量，未接入桌面装饰待机变换。设备回归入口为 `CandidateCanvasDeviceSmoke`，需在 API 28 与 35 的专用 AVD 上运行，Java 编译通过不代替设备绘制验收。
 
 ### 拼写放大编辑
 

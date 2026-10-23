@@ -28,6 +28,69 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
     private void runCases() throws Exception {
         ClassLoader loader = getTargetContext().getClassLoader();
         Class<?> type = loader.loadClass("app.msime.android.VoiceProviderSettings");
+        Class<?> policy = loader.loadClass("app.msime.android.VoiceProviderPolicy");
+        Method credential = policy.getMethod("validCredential", String.class, String.class);
+        check((Boolean) credential.invoke(null, "openai", "") && (Boolean) credential.invoke(null, "openai", "密钥"),
+            "共享 JNI 接受空值和 Unicode 凭据");
+        check(!(Boolean) credential.invoke(null, "openai", "key\nvalue")
+                && !(Boolean) credential.invoke(null, "doubao", "密钥")
+                && !(Boolean) credential.invoke(null, "openai", "x".repeat(16 * 1024 + 1)),
+            "共享 JNI 拒绝控制字符、豆包非 ASCII 和超长凭据");
+        Method trim = loader.loadClass("app.msime.android.TextPolicy")
+            .getMethod("trimUnicodeWhitespace", String.class);
+        Method hasToken = loader.loadClass("app.msime.android.home.VoicePage")
+            .getDeclaredMethod("hasToken", String.class, JSONObject.class, String.class);
+        hasToken.setAccessible(true);
+        for (String whitespace : new String[] {"\u0085", "\u00a0", "\u202f", "\u3000"}) {
+            check((Boolean) credential.invoke(null, "doubao", whitespace), "共享预检允许空白删除");
+            String normalized = (String) trim.invoke(null, whitespace);
+            check(normalized.isEmpty(), "保存时使用与 Rust 相同的空白裁剪");
+            check(!(Boolean) hasToken.invoke(null, normalized, null, "openai"), "空白当前凭据显示为未设置");
+            check(!(Boolean) hasToken.invoke(null, "", new JSONObject().put("openai", whitespace), "openai"),
+                "旧空白槽位显示为未设置");
+            String wrapped = whitespace + "synthetic-key" + whitespace;
+            check((Boolean) credential.invoke(null, "doubao", wrapped)
+                    && "synthetic-key".equals(trim.invoke(null, wrapped)), "豆包预检与保存裁剪一致");
+        }
+        Method status = policy.getMethod("status", String.class, String.class, boolean.class);
+        check("密钥未填写完整，暂用系统识别".equals(status.invoke(null, "doubao", null, true)),
+            "共享 JNI 返回云端服务的回退状态");
+        check("没有可用的系统识别服务，可改用本地模型或豆包".equals(
+                status.invoke(null, "system", null, false)),
+            "共享 JNI 返回系统识别不可用状态");
+        check("使用设备自带的语音识别服务".equals(status.invoke(null, null, null, true))
+                && "使用设备自带的语音识别服务".equals(status.invoke(null, "", null, true)),
+            "未选择服务时空 UTF-8 请求仍按系统识别解释");
+        Method localStatus = policy.getMethod("localStatus", boolean.class, boolean.class);
+        check("还需准备本地语音运行库，请到「模型」下载或导入".equals(
+                localStatus.invoke(null, true, false)),
+            "共享 JNI 返回本地运行库状态");
+        check(localStatus.invoke(null, true, true) == null
+                && status.invoke(null, "openai", "openai", false) == null
+                && status.invoke(null, "local", "local", true) == null,
+            "已就绪的配置无需状态提示");
+        check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(
+                localStatus.invoke(null, false, false)),
+            "缺少模型时优先提示模型");
+        Method statusParse = policy.getDeclaredMethod("parseStatus", String.class);
+        statusParse.setAccessible(true);
+        check("合成状态".equals(statusParse.invoke(null,
+                "{\"ok\":true,\"value\":{\"status\":\"合成状态\"}}")),
+            "状态内容来自共享信封");
+        for (String invalid : new String[] {"", "{}",
+                "{\"ok\":\"true\",\"value\":{\"status\":\"合成状态\"}}",
+                "{\"ok\":false,\"value\":{\"status\":\"合成状态\"}}",
+                "{\"ok\":true,\"value\":{}}",
+                "{\"ok\":true,\"value\":{\"status\":17}}",
+                "{\"ok\":true,\"value\":{\"status\":\"\"}}"}) {
+            check(statusParse.invoke(null, invalid) == null, "损坏状态信封不展示猜测文案");
+        }
+        Method credentialParse = policy.getDeclaredMethod("credentialAccepted", String.class);
+        credentialParse.setAccessible(true);
+        check((Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":true}}"),
+            "严格成功信封允许保存");
+        check(!(Boolean) credentialParse.invoke(null, "{\"ok\":true,\"value\":{\"accepted\":\"true\"}}"),
+            "字符串布尔值不允许保存");
         Method change = type.getMethod("switchProvider", JSONObject.class, String.class, String.class);
         JSONObject voice = new JSONObject().put("asr_provider", "groq")
             .put("asr_token", "合成当前🍃").put("asr_endpoint", "https://example.invalid/synthetic-proxy")

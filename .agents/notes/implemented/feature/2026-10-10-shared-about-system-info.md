@@ -9,7 +9,7 @@ Status: implemented
 ## Decision
 
 - 共享「关于」页（HarmonyOS 之外的分支）在「版本与更新」和「许可与隐私」之间新增「系统信息」组，逐项列出应用版本（非 full 版本附版本名）、系统、内核、桌面环境、输入法框架、设备型号、处理器架构和输入方案，组末「复制系统信息」把同样的内容按「名称：值」每行一项放进剪贴板。宿主有 `copyText` 才画复制按钮。列表与文本由 `packages/ui/src/settings/system-info-section.tsx` 的纯函数 `systemInfoEntries()` / `systemInfoText()` 生成。
-- 宿主报告不了的项直接省略，不写「未知」。这与 Android 原生页不同：共享页面对六个宿主，多数字段只有 Linux 填，满屏「未知」只会让其他平台看起来坏了。
+- 宿主报告不了的项直接省略，不写「未知」。这与 Android 原生页不同：共享页面对六个宿主，多数字段只有 Linux 填，满屏「未知」只会让其他平台看起来坏了。复制系统信息经宿主失败时由共享页现有错误区域显示「复制系统信息失败，请重试。」；成功标记只在复制完成后出现，卸载后的迟到结果不再更新界面。
 - `HostCapabilities` 新增四个运行时可选字段 `kernel_version`、`desktop_session`、`input_method_framework`、`device_model`，与 `os_version` 一样不属于 `for_platform` 的平台假设，由宿主在之后按实际机器填写，缺省不序列化，旧文档照常解析。解析与清洗放在 `crates/client-core/src/host_surface/environment.rs`，只接受短的、不含控制字符的文本，读到别的就不报告。
 - Linux 设置应用（`apps/desktop/src-tauri/src/lib.rs` 的 `fill_linux_environment`）填：`os_version` 取 `/etc/os-release`（或 `/usr/lib/os-release`）的 `PRETTY_NAME`；内核取 `/proc/sys/kernel/osrelease`；桌面环境取 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`；设备型号取 DMI 的 `sys_vendor` 与 `product_name`；输入法框架取运行中的宿主写的 `candidate-panel.json` 的 `host`（`ibus` → `IBus`，`fcitx5` → `Fcitx5`）。全是小文件和环境变量，不起进程。
 - 所有字段只描述机器、会话和输入法设置，不含账号、输入内容或路径；只在用户点「复制」时进剪贴板，什么都不上传。
@@ -37,4 +37,4 @@ Status: implemented
 
 - `cargo test -p msime-client-core --lib environment`：8 项通过（os-release 解析与转义、内核、桌面会话、框架、设备型号，以及读到异常内容时不报告）。
 - `apps/desktop/tests/settings/system-info-section.test.tsx`：字段顺序与省略、复制文本格式、非 full 版本名、「关于」页里的分组与复制按钮、没有剪贴板时不画按钮。
-- `apps/desktop` 的 `vitest run`、`tsc --noEmit`，`cargo clippy -p msime-client-core --all-targets -- -D warnings`，`bash scripts/run-checks.sh`；`msime-desktop` 的 Linux 分支经推送前门禁的容器 `cargo check` 编译。没有在真实 Linux 桌面上打开设置应用看过实际读到的值。
+- `apps/desktop` 的 `vitest run`、`tsc --noEmit`，`cargo clippy -p msime-client-core --all-targets -- -D warnings`，`bash scripts/run-checks.sh`；`msime-desktop` 的 Linux 分支经推送前门禁的容器 `cargo check` 编译。系统信息复制的同步异常、异步拒绝、重试清错和卸载后迟到结果回归测试通过；没有在真实 Linux 桌面上打开设置应用看过实际读到的值。

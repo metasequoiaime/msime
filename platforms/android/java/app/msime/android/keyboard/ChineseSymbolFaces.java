@@ -4,26 +4,34 @@ import java.util.Map;
 
 /** Displays the punctuation a standard symbol key inserts in Chinese mode. */
 public final class ChineseSymbolFaces {
+    // `、` 不在表里：它的顿号键（`\` 和 `/`）由 View 的顿号开关决定，键面走 face() 的开关分支。
     private static final Map<String, String> CHINESE_FACES = Map.ofEntries(
         Map.entry(",", "，"), Map.entry(".", "。"), Map.entry("?", "？"),
         Map.entry("!", "！"), Map.entry(";", "；"), Map.entry(":", "："),
         Map.entry("(", "（"), Map.entry(")", "）"), Map.entry("[", "【"),
-        Map.entry("]", "】"), Map.entry("\\", "、"), Map.entry("<", "《"),
+        Map.entry("]", "】"), Map.entry("<", "《"),
         Map.entry(">", "》"), Map.entry("'", "‘"), Map.entry("\"", "“"),
         Map.entry("_", "——"));
 
     private ChineseSymbolFaces() {}
 
     /**
-     * 引号与方头括号样式，取自 View 的 `punctuation_marks`（host-api 已按繁体输出开关解析好 `corner_when_traditional`）。直角引号下 `'` 出「」、`"` 出『』，空心括号下 `[` `]` 出〖〗。
+     * 引号与方头括号样式，取自 View 的 `punctuation_marks`（host-api 已按繁体输出开关解析好 `corner_when_traditional`）。直角引号下 `'` 出「」、`"` 出『』，空心括号下 `[` `]` 出〖〗。`enumerationComma*` 是同一 View 的顿号键开关：`\` 缺省开、`/` 缺省关，顿号键面按它们画。
      */
-    public record Marks(boolean cornerQuotes, boolean hollowBrackets) {
-        /** 缺省：弯引号、实心括号，即没有这两个偏好时的行为。 */
-        public static final Marks DEFAULT = new Marks(false, false);
+    public record Marks(boolean cornerQuotes, boolean hollowBrackets,
+                        boolean enumerationCommaBackslash, boolean enumerationCommaSlash) {
+        /** 缺省：弯引号、实心括号、顿号只有 `\`，即没有这些偏好时的行为。 */
+        public static final Marks DEFAULT = new Marks(false, false, true, false);
 
-        /** `quotes` 和 `brackets` 是 View 里的取值（"curly"|"corner"、"solid"|"hollow"），不认识的取值按缺省。 */
+        /** `quotes` 和 `brackets` 是 View 里的取值（"curly"|"corner"、"solid"|"hollow"），不认识的取值按缺省；顿号键按缺省开关。 */
         public static Marks of(String quotes, String brackets) {
-            return new Marks("corner".equals(quotes), "hollow".equals(brackets));
+            return of(quotes, brackets, true, false);
+        }
+
+        public static Marks of(String quotes, String brackets,
+                               boolean enumerationCommaBackslash, boolean enumerationCommaSlash) {
+            return new Marks("corner".equals(quotes), "hollow".equals(brackets),
+                enumerationCommaBackslash, enumerationCommaSlash);
         }
     }
 
@@ -59,6 +67,9 @@ public final class ChineseSymbolFaces {
             if ("[".equals(ascii)) return "〖";
             if ("]".equals(ascii)) return "〗";
         }
+        // 顿号键随 View 的顿号开关：关着的键画它自己的 ASCII 面。
+        if ("\\".equals(ascii)) return styled.enumerationCommaBackslash() ? "、" : ascii;
+        if ("/".equals(ascii)) return styled.enumerationCommaSlash() ? "、" : ascii;
         return CHINESE_FACES.getOrDefault(ascii, ascii);
     }
 }

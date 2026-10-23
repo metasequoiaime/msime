@@ -70,18 +70,40 @@ export interface MixedInputMoreRowsProps {
   preferences: MixedInputPreferences;
   /** 本版本带临时日文（`HostCapabilities.edition.temporary_japanese`）；为 false 时不列出日文混输开关，因为 host-api 在这样的版本里始终把它关掉，和临时日语开关一样。缺省为 true。 */
   temporaryJapanese?: boolean;
+  /** 宿主能把快捷短语混进普通候选（`HostCapabilities.quick_phrase_candidates`，macOS 和 Linux）；为 false 时不列出这两个开关。 */
+  quickPhraseCandidates?: boolean;
   onChange: (preferences: MixedInputPreferences) => void;
 }
 
-/** 少有人改的混输开关：符号混输（默认开，要打完整名称才出现）、颜文字混输（默认关，M 模式另有入口）和实验性的日文混输。输入页把它们收进「候选与联想」组的「更多选项」。 */
+/** 少有人改的混输开关：符号混输（默认开，要打完整名称才出现）、颜文字混输（默认关，M 模式另有入口）、快捷短语混输与调频（只有 macOS、Linux 提供入口）和实验性的日文混输。输入页把它们收进「候选与联想」组的「更多选项」。 */
 export function MixedInputMoreRows({
   preferences,
   temporaryJapanese = true,
+  quickPhraseCandidates = false,
   onChange,
 }: MixedInputMoreRowsProps) {
   const state = mixedInputControlState(preferences);
   return (
     <>
+      {quickPhraseCandidates && (
+        <>
+          <SwitchRow
+            title="快捷短语混输"
+            description="中文输入的编码恰好是某条快捷短语的编码时，短语排在普通候选之后；Shift+K 的 K 模式不受影响"
+            checked={state.quickPhraseChecked}
+            onChange={(quick_phrase) => onChange({ ...preferences, quick_phrase })}
+          />
+          <SwitchRow
+            title="快捷短语参与调频"
+            description="常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移"
+            checked={state.quickPhraseFrequencyChecked}
+            disabled={!state.quickPhraseChecked}
+            onChange={(quick_phrase_frequency) =>
+              onChange({ ...preferences, quick_phrase_frequency })
+            }
+          />
+        </>
+      )}
       <SwitchRow
         title="符号混输"
         description="打出符号的名称时，在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现"

@@ -130,6 +130,8 @@ jobs:
         run: swift test --package-path shared/backend
       - name: Test standalone voice transport lifecycle
         run: python3 scripts/test-ios-doubao-session-lifecycle.py
+      - name: Test shared AI catalog projection
+        run: python3 scripts/test-ios-ai-provider-catalog.py
       - name: Validate keyboard configuration
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py

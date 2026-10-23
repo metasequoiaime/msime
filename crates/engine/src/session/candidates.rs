@@ -69,7 +69,7 @@ impl InputSession {
         if source != CandidateSource::EnglishDictionary
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
-            || (self.has_active_helpcode() && !self.has_literal_capitals())
+            || (self.has_active_helpcode() && !self.has_literal_input())
         {
             return;
         }
@@ -106,14 +106,21 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
-            self.queries
-                .append_contact_candidates(self.engine.request().raw_input.as_str(), &mut decoded);
-            // 宿主请求了这项能力还不够：设置页「快捷短语」开关的说明写的是两种入口都由它管，关掉它时普通候选里也不再出现短语。
+            // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。
             if self.quick_phrase_candidates && self.local_mode_options.quick_phrase {
-                self.queries.append_quick_phrase_candidates(
-                    self.engine.request().raw_input.as_str(),
-                    &mut decoded,
-                );
+                let code = self.engine.request().raw_input.clone();
+                // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时照旧追加在末尾。
+                let slot = (self.quick_phrase_frequency
+                    && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
+                    .then(|| {
+                        crate::user_dictionary::ranking::quick_phrase_slot(
+                            self.journal_path(),
+                            &code,
+                        )
+                    })
+                    .flatten();
+                self.queries
+                    .insert_quick_phrase_candidates(&code, &mut decoded, slot);
             }
         }
         self.personal_reranked = false;
@@ -183,6 +190,11 @@ impl InputSession {
         if self.local_mode == LocalInputMode::Url {
             self.add_url_completions();
         }
+        if self.local_mode == LocalInputMode::TemporaryEnglish {
+            let mut candidates = std::mem::take(&mut self.local_candidates);
+            self.append_english_online_rows(&mut candidates);
+            self.local_candidates = candidates;
+        }
         result.diagnostic
     }
 
@@ -239,6 +251,7 @@ impl InputSession {
                 "",
             ));
         }
+        self.append_english_online_rows(&mut candidates);
         self.dedicated_english_candidates = candidates;
     }
 
@@ -412,7 +425,7 @@ impl InputSession {
     /// 0 clears.
     pub(super) fn set_candidate_position(&mut self, index: usize, position: i32) -> KeyResult {
         // 改字的候选是光标处一段的替换，不是这串拼音的候选，不能固定、置顶或删除。
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         if !(0..=5).contains(&position) {
@@ -450,7 +463,8 @@ impl InputSession {
     }
 
     pub(super) fn pin_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        // 「📅日期」页里的行按日期格式索引，pin 会落到真实列表里同下标的另一行。
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(index) = self.ranking_index(index) else {
@@ -492,7 +506,7 @@ impl InputSession {
     }
 
     pub(super) fn remove_candidate(&mut self, index: usize) -> KeyResult {
-        if self.conversion.is_some() {
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return KeyResult::unhandled();
         }
         let Some(selected) = self.candidates().get(index) else {
@@ -656,12 +670,31 @@ impl InputSession {
         }
         // 放在最后：网址补全不参与固定位置，也不被挪开。
         self.insert_url_scheme_completions(&mut mixed);
+        // 联系人优先级高于固定位置和云候选；两行相邻，不能让云占位插进姓名与组合文本之间。
+        // 光标前缀只解码局部，联系人选择却会结束整段组字，因此只在完整普通拼音组字中加入。
+        if !self.prefix_active
+            && !self.dedicated_english
+            && self.local_mode == LocalInputMode::None
+            && !self.has_active_helpcode()
+            && !self.single_character_only
+        {
+            let input = match scheme {
+                SchemeType::Quanpin => {
+                    Some(Cow::Borrowed(self.engine.request().raw_input.as_str()))
+                }
+                SchemeType::Shuangpin => Some(self.pinyin_ranking_context()),
+                _ => None,
+            };
+            if let Some(input) = input {
+                self.queries.append_contact_candidates(&input, &mut mixed);
+            }
+        }
         mixed
     }
 
-    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。跟日期时间模式（T 模式）同一个开关；光标前缀解码、只出单字、专用英文和本地模式里不加。
+    /// 全拼组字正好是 `riqi`、`sj` 这类关键词时，把当前日期、时间、星期或农历接在对应的词后面（#5952）。与日期时间模式（T 模式）是两个开关：这里只看 `date_time_inline`；光标前缀解码、只出单字、专用英文和本地模式里不加。
     fn insert_inline_date_time(&self, items: &mut Vec<WordItem>) {
-        if !self.local_mode_options.date_time
+        if !self.local_mode_options.date_time_inline
             || self.prefix_active
             || self.single_character_only
             || self.dedicated_english
@@ -671,14 +704,15 @@ impl InputSession {
             return;
         }
         let raw = self.engine.request().raw_input.as_str();
-        let Some((anchor, kind)) = inline_date_time_keyword(|keyword| {
+        let Some((keyword, anchor, kind)) = inline_date_time_keyword(|keyword| {
             raw.bytes()
                 .filter(|&byte| byte != b'\'')
                 .eq(keyword.bytes())
         }) else {
             return;
         };
-        insert_inline_date_time(items, anchor, kind, raw, || self.local_now());
+        let menu = self.local_mode_options.date_time_menu.then_some(keyword);
+        insert_inline_date_time(items, anchor, kind, raw, || self.local_now(), menu);
     }
 }
 

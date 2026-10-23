@@ -78,11 +78,16 @@ def linux_ai_budget(failures: list[str]) -> bool:
     if not all(path.is_file() for path in paths):
         return False
     descriptor = AI_DESCRIPTOR.read_text(encoding="utf-8")
-    match = re.search(r'"timeout_ms":(\d+),"connect_timeout_ms":(\d+)', descriptor)
+    # DeepSeek 思考开着时描述符给 30 秒预算（`if thinking {30000} else {8000}`）；Linux 的 provider 脚本恒发 disabled，只会产生普通档，这里取普通档数字核它的预算。
+    match = re.search(
+        r'"timeout_ms":if thinking \{\d+\} else \{(\d+)\},"connect_timeout_ms":(\d+)'
+        r'|"timeout_ms":(\d+),"connect_timeout_ms":(\d+)',
+        descriptor,
+    )
     if not match:
         failures.append("client-providers' AI descriptor no longer declares timeout_ms and connect_timeout_ms")
         return True
-    total_ms, connect_ms = int(match.group(1)), int(match.group(2))
+    total_ms, connect_ms = int(match.group(1) or match.group(3)), int(match.group(2) or match.group(4))
 
     provider = LINUX_PROVIDER.read_text(encoding="utf-8")
     for name, expected_ms in (("AI_REQUEST_TIMEOUT", total_ms), ("AI_CONNECT_TIMEOUT", connect_ms)):

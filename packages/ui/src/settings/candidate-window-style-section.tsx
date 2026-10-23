@@ -6,7 +6,7 @@ import type {
   CandidateFontPreferences,
   CandidateWindowStylePreferences,
 } from "../candidate/candidate-preferences";
-import { GroupList, Row, Slider } from "../core/platform-controls";
+import { GroupList, Row, Slider, Switch } from "../core/platform-controls";
 import {
   candidateFontPresetAvailable,
   candidateFontPresetPatch,
@@ -27,6 +27,9 @@ import {
   candidateScalePatch,
   candidateScalePercent,
   candidateScaleSlider,
+  candidateGeometryFields,
+  candidateGeometryValue,
+  candidateGeometryPatch,
 } from "../candidate/candidate-window-style";
 import * as settings from "./settings-style";
 import { SegmentedRow } from "./segmented-row";
@@ -110,16 +113,16 @@ export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowPr
 }
 
 export interface CandidateWindowStyleSectionProps {
-  preferences: Pick<
-    CandidateWindowStylePreferences,
-    "candidate_opacity_percent" | "candidate_corner_radius" | "candidate_padding"
-  > & { global_theme?: Preferences["global_theme"] };
+  preferences: CandidateWindowStylePreferences & { global_theme?: Preferences["global_theme"] };
   /** 宿主平台，决定「跟随皮肤」时滑块停在哪个圆角和内边距上。 */
   platform?: HostPlatform;
   showOpacity: boolean;
   showCornerRadius: boolean;
   /** 宿主声明了 `candidate_padding` 时显示「内边距」行（目前是 macOS 和 Linux 的 Fcitx5）。 */
   showPadding?: boolean;
+  showItemGeometry?: boolean;
+  /** 宿主消费 `candidate_window_fit_content` 时显示「收紧窗口宽度」行（目前是 macOS）。 */
+  showFitContent?: boolean;
   onChange: (patch: Partial<Preferences>) => void;
   /** 排在窗口自身样式之后的行，例如链接到颜色和明暗设置处的那一行。 */
   children?: ReactNode;
@@ -155,6 +158,8 @@ export function CandidateWindowStyleRows({
   showOpacity,
   showCornerRadius,
   showPadding = false,
+  showItemGeometry = false,
+  showFitContent = false,
   onChange,
 }: Omit<CandidateWindowStyleSectionProps, "children">) {
   const nativeGlass = useMacOSLiquidGlass();
@@ -165,6 +170,19 @@ export function CandidateWindowStyleRows({
   const padding = candidateCardPadding(preferences.candidate_padding);
   return (
     <>
+      {showFitContent && (
+        <Row
+          title="收紧窗口宽度"
+          description="严格按文字所需的宽度绘制候选窗，不垫出厂最小宽度；皮肤的 fit_content 打开时始终收紧"
+        >
+          <Switch
+            checked={preferences.candidate_window_fit_content ?? false}
+            onChange={(candidate_window_fit_content) =>
+              onChange({ candidate_window_fit_content })
+            }
+          />
+        </Row>
+      )}
       {showOpacity && (
         <SliderRow
           title="不透明度"
@@ -209,7 +227,7 @@ export function CandidateWindowStyleRows({
           </span>
         </Row>
       )}
-      {showPadding && (
+      {showPadding && !showItemGeometry && (
         <Row
           title="内边距"
           description={
@@ -238,6 +256,42 @@ export function CandidateWindowStyleRows({
           </span>
         </Row>
       )}
+      {showItemGeometry &&
+        candidateGeometryFields.map((field) => {
+          const value = candidateGeometryValue(preferences, field.key);
+          return (
+            <Row
+              key={field.key}
+              title={field.title}
+              description={value === null ? "跟随皮肤与窗口布局" : `${value}pt，覆盖皮肤与窗口布局`}
+            >
+              <span className="candidate-color-control">
+                <span className={settings.sliderControl}>
+                  <Slider
+                    min={0}
+                    max={field.max}
+                    step={1}
+                    value={value ?? field.followed}
+                    valueText={value === null ? "跟随皮肤" : `${value}pt`}
+                    onChange={(next) =>
+                      onChange(candidateGeometryPatch(preferences, field.key, next))
+                    }
+                  />
+                </span>
+                <ActionButton
+                  action={() => {
+                    if (value !== null) {
+                      onChange(candidateGeometryPatch(preferences, field.key, null));
+                    }
+                  }}
+                  ariaPressed={value === null}
+                  className={`candidate-color-reset${value === null ? " is-active" : ""}`}
+                  label="跟随皮肤"
+                />
+              </span>
+            </Row>
+          );
+        })}
     </>
   );
 }

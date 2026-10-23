@@ -1,0 +1,4 @@
+verified evaluation resources: source_commit=128a332cabc5fa42b1cf5f827033ad5697ff528b generation=7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe
+25119 cases from 1 set(s)
+no settled model at /Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe/sentence-model-desktop.safetensors
+reranking with /Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe/sentence-model.safetensors

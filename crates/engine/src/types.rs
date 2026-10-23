@@ -30,6 +30,9 @@ pub enum CandidateSource {
     CloudPending = 15,
     /// Android 联系人导入提供的手机号候选；选中后直接上屏，不学习、不管理。
     Contact = 16,
+    /// octagram `.gram` 语法模型参与词格解码时，解码首选的整句行。句子仍是词格
+    /// 解出来的，搭配强度表只负责逐边加分；落库/学习判定与 `Generated` 同类。
+    Collocation = 17,
 }
 
 impl CandidateSource {
@@ -51,6 +54,7 @@ impl CandidateSource {
             14 => Self::Plugin,
             15 => Self::CloudPending,
             16 => Self::Contact,
+            17 => Self::Collocation,
             _ => return None,
         })
     }
@@ -73,8 +77,10 @@ impl CandidateSource {
         self.is_online() || matches!(self, Self::AiPending | Self::CloudPending)
     }
 
+    /// 整句猜出来的行：词格 `Generated`/`Collocation`、解码器 `Fallback`。
+    /// 它们的选中都整段上屏、按词边界记进个人上下文、不落词库调频。
     pub fn is_generated_or_fallback(self) -> bool {
-        matches!(self, Self::Generated | Self::Fallback)
+        matches!(self, Self::Generated | Self::Fallback | Self::Collocation)
     }
 
     /// Rows a direct selection stores as a user phrase, because there is no dictionary row whose frequency could be adjusted instead.
@@ -795,7 +801,9 @@ impl WordItem {
         if !self.sentence_association
             || !matches!(
                 self.source,
-                CandidateSource::Generated | CandidateSource::NeuralKeyboard
+                CandidateSource::Generated
+                    | CandidateSource::NeuralKeyboard
+                    | CandidateSource::Collocation
             )
             || self.canonical_pinyin.is_empty()
             || self.word.is_empty()
@@ -885,11 +893,20 @@ pub fn request_autocorrect_mask(transposition: bool, neighbor: bool) -> u32 {
 }
 
 /// Neural sentence association switches. The desktop-model switch is not among them: that model runs only as the input runtime's settled reranker, which the host gates on the preference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SentenceAssociationOptions {
     pub word_lattice: bool,
     pub neural_keyboard: bool,
     pub show_next_on_duplicate: bool,
+    /// octagram `.gram` 语法模型的路径（宿主按模型包解析好后传入）；空 = 关闭。
+    /// 路径无效时词典静默退回无搭配打分，与 `msime-bigram.bin` 缺失的回退一致。
+    pub collocation_model: std::path::PathBuf,
+    /// 搭配项的标定系数（ln 域结果由装配方换算后按它缩放）；0 = 关闭。
+    pub collocation_weight: f64,
+    /// 解码最优路径是否作为 `Collocation` 整句行显示；关掉时搭配分仍参与解码。
+    pub collocation_rerank: bool,
+    /// octagram 六参数；默认对齐万象现行，见 `crate::lattice::octagram::GramConfig`。
+    pub collocation_grammar: crate::lattice::octagram::GramConfig,
 }
 
 impl Default for SentenceAssociationOptions {
@@ -898,6 +915,10 @@ impl Default for SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
+            collocation_model: std::path::PathBuf::new(),
+            collocation_weight: 1.0,
+            collocation_rerank: false,
+            collocation_grammar: crate::lattice::octagram::GramConfig::default(),
         }
     }
 }
@@ -925,6 +946,47 @@ impl Default for FirstPageRows {
     }
 }
 
+/// 双拼辅助码的触发方式开关（Windows v0.11.1 `[helpcode]` 组的双拼专属键），随 `QueryRequest` 交给双拼引擎。默认值与 Windows 出厂配置一致；当前引擎只读 `direct`，其余键在输入串契约扩展后逐层生效（`trigger_*` 末尾间接、`mid_sentence*` 句中间接、`direct_helpcode*` 万象式直接）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShuangpinHelpcodeModes {
+    /// 末尾直接：完整音节基座后的裸字母按辅助码读。关闭后只认触发键开启的段。
+    pub direct: bool,
+    /// 末尾间接触发键：反引号段。
+    pub trigger_backtick: bool,
+    /// 末尾间接触发键：分号段。
+    pub trigger_semicolon: bool,
+    /// 末尾间接触发键：段首大写。
+    pub trigger_uppercase: bool,
+    /// 句中（间接）辅助码总开关。
+    pub mid_sentence: bool,
+    pub mid_sentence_backtick: bool,
+    pub mid_sentence_semicolon: bool,
+    pub mid_sentence_uppercase: bool,
+    /// 句中（直接）「万象式」总开关。
+    pub direct_helpcode: bool,
+    pub direct_helpcode_slash: bool,
+    pub direct_helpcode_uppercase: bool,
+}
+
+impl Default for ShuangpinHelpcodeModes {
+    /// Windows v0.11.1 出厂值：末尾直接开、末尾间接的分号开，句中间接与万象式直接关。
+    fn default() -> Self {
+        Self {
+            direct: true,
+            trigger_backtick: false,
+            trigger_semicolon: true,
+            trigger_uppercase: false,
+            mid_sentence: false,
+            mid_sentence_backtick: true,
+            mid_sentence_semicolon: false,
+            mid_sentence_uppercase: false,
+            direct_helpcode: false,
+            direct_helpcode_slash: true,
+            direct_helpcode_uppercase: false,
+        }
+    }
+}
+
 /// What a scheme turns its composition into for the providers. Built fresh on every refresh; providers never mutate it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct QueryRequest {
@@ -938,6 +1000,8 @@ pub struct QueryRequest {
     pub normalized_segmentation: String,
     pub segmentation: String,
     pub enable_shuangpin_helpcode: bool,
+    /// 双拼辅助码的触发方式；`enable_shuangpin_helpcode` 为真时才读。
+    pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub enable_quanpin_helpcode: bool,
     /// 会话的「拼音纠错」开关。名字带 quanpin 是历史原因：双拼也按它决定是否给纠错整句。
     pub enable_quanpin_autocorrect_transposition: bool,
@@ -1111,6 +1175,8 @@ pub enum LocalInputMode {
     Url,
     /// `C`：拆字反查，按部件的拼音找字（`huohuohuo` 得 焱）。
     Chaizi,
+    /// `S`：符号模式，按分组码（`xl`、`sx`、`szq`、`jt`）或符号名（`alpha`、`infinity`）查符号。
+    Symbol,
 }
 
 impl LocalInputMode {
@@ -1131,6 +1197,7 @@ impl LocalInputMode {
             Self::Mention => "mention",
             Self::Url => "url",
             Self::Chaizi => "chaizi",
+            Self::Symbol => "symbol",
         }
     }
 
@@ -1151,6 +1218,7 @@ impl LocalInputMode {
             Self::Mention,
             Self::Url,
             Self::Chaizi,
+            Self::Symbol,
         ]
         .into_iter()
         .find(|mode| mode.name() == name)
@@ -1242,11 +1310,16 @@ impl Default for FrequencyAdjustmentOptions {
     }
 }
 
-/// Which local modes may be entered. The Shift+letter modes of the reference are on by default; expression (`V`), command (`/`), mention (`@`) and 拆字 (`C`) are off, because entering them takes a key that used to reach the host as text. 拆字的默认值由宿主按形态决定：host-api 在触屏宿主上打开它，桌面宿主等用户在设置里打开。
+/// Which local modes may be entered. The Shift+letter modes of the reference are on by default, symbol mode (`S`) among them, as the reference's factory configuration ships it on; expression (`V`) follows the reference's `v_mode` factory and is on, command (`/`) and mention (`@`) are off, because entering them takes a key that used to reach the host as text. 拆字 (`C`) 在共享偏好层默认开（对齐参考的 `radical_mode` 出厂值），host-api 把未写偏好的文档读作开。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalModeOptions {
     pub unicode: bool,
+    /// Shift+T 日期时间快捷输入模式（参考 `utility.date_time_mode`）。行内日期时间混入普通候选由 `date_time_inline` 单独开关（参考 `utility.date_time_candidates`，出厂关）。
     pub date_time: bool,
+    /// 全拼输入 `riqi`/`sj`/`xq`/`nongli` 时把当前日期、时间、星期或农历接在对应的词后面（参考 `utility.date_time_candidates`）。与 T 模式独立：T 模式关着时行内混入仍可开。
+    pub date_time_inline: bool,
+    /// 「📅日期」入口：日期时间混进普通候选时，第三位放一个入口，选中后候选窗换成这一组的全部格式（参考 `utility.date_time_menu`，出厂开）。依附 `date_time_inline`。
+    pub date_time_menu: bool,
     pub quick_phrase: bool,
     pub emoji: bool,
     pub kaomoji: bool,
@@ -1258,7 +1331,9 @@ pub struct LocalModeOptions {
     pub mention: bool,
     /// `C`：拆字反查。
     pub chaizi: bool,
-    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V/C）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
+    /// `S`：符号模式。
+    pub symbol: bool,
+    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V/C/S）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
     pub shift_letter_entry: bool,
 }
 
@@ -1267,6 +1342,8 @@ impl Default for LocalModeOptions {
         Self {
             unicode: true,
             date_time: true,
+            date_time_inline: true,
+            date_time_menu: true,
             quick_phrase: true,
             emoji: true,
             kaomoji: true,
@@ -1277,6 +1354,7 @@ impl Default for LocalModeOptions {
             command: false,
             mention: false,
             chaizi: false,
+            symbol: true,
             shift_letter_entry: true,
         }
     }
@@ -1359,9 +1437,25 @@ pub struct WubiInputOptions {
     pub z_wildcard: bool,
 }
 
-/// The request a host sends to its cloud or AI provider, and must hand back unchanged with the answer. The engine revalidates every field against the live composition before inserting anything.
+/// 在线请求的输入语义；缺省沿用原有的拼音及方案转换路径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnlineInputMode {
+    #[default]
+    Pinyin,
+    English,
+}
+
+impl OnlineInputMode {
+    pub fn is_pinyin(&self) -> bool {
+        *self == Self::Pinyin
+    }
+}
+
+/// 宿主交给云或 AI 服务的查询，回包必须原样带回；引擎在插入候选前核对当前组字的每个字段。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OnlineQuery {
+    pub mode: OnlineInputMode,
     pub scheme: SchemeType,
     pub generation: u64,
     pub identity: String,
@@ -1701,7 +1795,8 @@ mod tests {
                 LocalInputMode::Command => LocalInputMode::Mention,
                 LocalInputMode::Mention => LocalInputMode::Url,
                 LocalInputMode::Url => LocalInputMode::Chaizi,
-                LocalInputMode::Chaizi => return None,
+                LocalInputMode::Chaizi => LocalInputMode::Symbol,
+                LocalInputMode::Symbol => return None,
             })
         }
         let mut names = Vec::new();
@@ -1715,9 +1810,10 @@ mod tests {
             names.push(current.name());
             mode = next(current);
         }
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 15);
         assert!(names.contains(&"url"));
         assert!(names.contains(&"chaizi"));
+        assert!(names.contains(&"symbol"));
         assert_eq!(LocalInputMode::from_name("unknown"), None);
     }
 

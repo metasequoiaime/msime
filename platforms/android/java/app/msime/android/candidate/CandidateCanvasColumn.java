@@ -27,6 +27,10 @@ public final class CandidateCanvasColumn extends LinearLayout {
             setPadding(padding[3], padding[0], padding[1], padding[2]);
     }
 
+    public void decorationWords(java.util.List<CandidateCanvasAssets.Word> words, android.graphics.Typeface font) {
+        renderer.words(words, font);
+    }
+
     @Override protected void dispatchDraw(Canvas canvas) {
         renderer.before(canvas, surface);
         super.dispatchDraw(canvas);

@@ -69,7 +69,10 @@ pub(super) fn resolve_shuangpin_composition_base<'a>(
         raw_input_with_cases,
         helpcode_length: 0,
     };
-    if !request.enable_shuangpin_helpcode || base.effective_raw_input.is_empty() {
+    if !request.enable_shuangpin_helpcode
+        || !request.shuangpin_helpcode_modes.direct
+        || base.effective_raw_input.is_empty()
+    {
         return base;
     }
     if detect_active_double_helpcode_length(&base.raw_input, &base.raw_input_with_cases, profile)
@@ -122,7 +125,7 @@ fn remove_consumed_leading_separators(raw: &str) -> &str {
 /// Detect an active shuangpin helpcode without constructing the owned composition base. The
 /// candidate refresh path only needs this length to decide whether dynamic rows can move.
 fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinProfile) -> usize {
-    if !request.enable_shuangpin_helpcode {
+    if !request.enable_shuangpin_helpcode || !request.shuangpin_helpcode_modes.direct {
         return 0;
     }
     let raw = &request.raw_input;
@@ -569,7 +572,7 @@ impl InputSession {
 
     /// input_session_composition.cpp:417-449.
     pub(super) fn pinyin_segmentation_with_cases(&self) -> Cow<'_, str> {
-        if self.has_literal_capitals() {
+        if self.has_literal_input() {
             return Cow::Borrowed(self.raw_with_cases());
         }
         let request = self.engine.request();
@@ -950,22 +953,39 @@ mod tests {
     fn helpcode_length_matches_the_composition_base() {
         let profile =
             crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
-        for (raw, raw_with_cases, enabled) in [
-            ("nihcAB", "nihcAB", true),
-            ("uiu", "uiu", true),
-            ("ui'u", "ui'u", true),
-            ("uiu", "uiu", false),
+        for (raw, raw_with_cases, enabled, direct) in [
+            ("nihcAB", "nihcAB", true, true),
+            ("uiu", "uiu", true, true),
+            ("ui'u", "ui'u", true, true),
+            ("uiu", "uiu", false, true),
+            // 末尾直接关闭后末尾裸字母不再算辅助码。
+            ("uiu", "uiu", true, false),
+            ("nihcAB", "nihcAB", true, false),
         ] {
             let request = QueryRequest {
                 raw_input: raw.to_owned(),
                 raw_input_with_cases: raw_with_cases.to_owned(),
                 enable_shuangpin_helpcode: enabled,
+                shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes {
+                    direct,
+                    ..crate::types::ShuangpinHelpcodeModes::default()
+                },
                 ..QueryRequest::default()
+            };
+            let expected = match (enabled, direct, raw) {
+                (true, true, "nihcAB") => 2,
+                (true, true, "uiu") => 1,
+                _ => 0,
             };
             assert_eq!(
                 active_shuangpin_helpcode_length(&request, profile),
+                expected,
+                "length {raw}/{raw_with_cases}/{enabled}/{direct}"
+            );
+            assert_eq!(
                 resolve_shuangpin_composition_base(&request, profile).helpcode_length,
-                "{raw}/{raw_with_cases}/{enabled}"
+                expected,
+                "base {raw}/{raw_with_cases}/{enabled}/{direct}"
             );
         }
     }

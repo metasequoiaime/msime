@@ -3,11 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       version: {description: Semantic version (defaults to platforms/macos/version.txt), required: false, type: string}
+      build_number: {description: 唯一的 macOS bundle 构建号（缺省使用本次工作流运行 ID）, required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a macos-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
+      build_number: {description: 唯一的 macOS bundle 构建号, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
 permissions: {contents: write}
@@ -80,11 +82,16 @@ jobs:
       # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         name: Resolve independent macOS version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ inputs.version }}", REQUESTED_BUILD_NUMBER: "${{ inputs.build_number }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/macos/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          build_number="$REQUESTED_BUILD_NUMBER"
+          [[ -n "$build_number" ]] || build_number="$((GITHUB_RUN_ID % 999999999))"
+          [[ "$build_number" != 0 ]] || build_number=999999999
+          [[ "$build_number" =~ ^[1-9][0-9]{0,8}$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
         run: brew install nlohmann-json
@@ -164,6 +171,7 @@ jobs:
       - name: Build macOS package
         env:
           VERSION: "${{ steps.version.outputs.value }}"
+          MSIME_BUILD_NUMBER: "${{ steps.version.outputs.build_number }}"
           MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'
           MSIME_REQUIRE_WORDBOOKS: '1'
           APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"

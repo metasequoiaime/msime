@@ -1,0 +1,619 @@
+diff --git a/crates/engine/src/dictionary/pinyin.rs b/crates/engine/src/dictionary/pinyin.rs
+index e140fbc0fd..7a37b30ff6 100644
+--- a/crates/engine/src/dictionary/pinyin.rs
++++ b/crates/engine/src/dictionary/pinyin.rs
+@@ -415,6 +415,51 @@ impl PinyinDatabase {
+         rows
+     }
+
++    /// 查询完整音节前缀下的长词行。前缀末尾保留撇号，因此只返回以完整音节继续的词。
++    pub fn query_lattice_prefix(
++        &self,
++        prefix: &[String],
++        max_extra_syllables: usize,
++        limit: usize,
++    ) -> Vec<DictRow> {
++        if self.connection.is_none()
++            || prefix.len() < 2
++            || max_extra_syllables == 0
++            || limit == 0
++            || !has_only_complete_pinyin_segments(prefix)
++        {
++            return Vec::new();
++        }
++        let pages = max_extra_syllables.min(
++            MAXIMUM_NUMBERED_SYLLABLES
++                .saturating_sub(prefix.len())
++                .saturating_add(1),
++        );
++        let prefix_key = longer_phrase_prefix(prefix);
++        let upper_bound = key_prefix_upper_bound(&prefix_key);
++        let Some(initial) = prefix[0].as_bytes().first().copied() else {
++            return Vec::new();
++        };
++        let mut rows = Vec::new();
++        for extra in 1..=pages {
++            let Some(table) = quanpin_table(prefix.len() + extra, initial) else {
++                continue;
++            };
++            let remaining = limit.saturating_sub(rows.len());
++            if remaining == 0 {
++                break;
++            }
++            rows.extend(self.rows(
++                &range_sql(&table, sql_limit(remaining)),
++                [prefix_key.as_str(), upper_bound.as_str()],
++                query_capacity(remaining),
++            ));
++        }
++        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
++        rows.truncate(limit);
++        rows
++    }
++
+     /// Whether any shipped single-character table holds `han` (QQ:1017-1050).
+     pub fn han_char_exists(&self, han: &str) -> bool {
+         let Some(connection) = &self.connection else {
+diff --git a/crates/engine/src/lattice/decode.rs b/crates/engine/src/lattice/decode.rs
+index 598b8b1f97..49a041735b 100644
+--- a/crates/engine/src/lattice/decode.rs
++++ b/crates/engine/src/lattice/decode.rs
+@@ -348,9 +348,51 @@ pub(super) struct Edge {
+     typo: bool,
+ }
+
++/// 数字层词网格的一条边。列是数字位置而不是固定音节位置，`key` 仍保留这条词边的全拼读法。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DigitLatticeEdge {
++    pub start: usize,
++    pub end: usize,
++    pub word: String,
++    pub key: String,
++    pub weight: i64,
++    pub syllables: usize,
++}
++
+ /// Edges by start column.
+ pub(super) type Graph = Vec<Vec<Edge>>;
+
++/// 在数字位置组成的共享词网格上解码整句。
++pub fn decode_digit_lattice(
++    digit_count: usize,
++    edges: &[DigitLatticeEdge],
++    options: &LatticeOptions<'_>,
++) -> Vec<SentencePath> {
++    if digit_count == 0 {
++        return Vec::new();
++    }
++    let mut graph: Graph = (0..digit_count).map(|_| Vec::new()).collect();
++    for edge in edges {
++        if edge.start >= edge.end
++            || edge.end > digit_count
++            || edge.word.is_empty()
++            || edge.key.is_empty()
++            || edge.syllables == 0
++        {
++            continue;
++        }
++        graph[edge.start].push(Edge {
++            end: edge.end,
++            word: edge.word.clone(),
++            key: edge.key.clone(),
++            log_prob: edge_log_prob(edge.weight, edge.syllables, options)
++                - PHRASE_LENGTH_BONUS * edge.syllables as f64,
++            typo: false,
++        });
++    }
++    decode_graph(&graph, options, None)
++}
++
+ /// WL:110-148.
+ pub(super) fn build_graph(
+     syllables: &[String],
+@@ -1785,6 +1827,67 @@ pub(super) mod tests {
+         )
+         .is_empty());
+     }
++
++    #[test]
++    fn digit_lattice_removes_syllable_rewards_before_competing_readings() {
++        let edges = [
++            DigitLatticeEdge {
++                start: 0,
++                end: 4,
++                word: "甲乙".into(),
++                key: "xi'an".into(),
++                weight: 1000,
++                syllables: 2,
++            },
++            DigitLatticeEdge {
++                start: 0,
++                end: 4,
++                word: "丙丁戊".into(),
++                key: "xi'a'nan".into(),
++                weight: 200,
++                syllables: 3,
++            },
++        ];
++        let paths = decode_digit_lattice(4, &edges, &LatticeOptions::default());
++        assert_eq!(paths[0].sentence, "甲乙");
++        assert!((paths[0].log_prob - (1000_f64.ln() - PHRASE_LENGTH_BONUS)).abs() < 1e-9);
++    }
++
++    #[test]
++    fn digit_lattice_decodes_edges_that_start_at_shared_digit_columns() {
++        let edges = vec![
++            DigitLatticeEdge {
++                start: 0,
++                end: 2,
++                word: "你好".to_owned(),
++                key: "ni'hao".to_owned(),
++                weight: 1000,
++                syllables: 2,
++            },
++            DigitLatticeEdge {
++                start: 0,
++                end: 1,
++                word: "你".to_owned(),
++                key: "ni".to_owned(),
++                weight: 9000,
++                syllables: 1,
++            },
++            DigitLatticeEdge {
++                start: 1,
++                end: 2,
++                word: "好".to_owned(),
++                key: "hao".to_owned(),
++                weight: 9000,
++                syllables: 1,
++            },
++        ];
++        let paths = decode_digit_lattice(2, &edges, &LatticeOptions::default());
++        assert_eq!(
++            paths.first().map(|path| path.sentence.as_str()),
++            Some("你好")
++        );
++        assert_eq!(paths.first().map(|path| path.key.as_str()), Some("ni'hao"));
++    }
+ }
+
+ #[cfg(test)]
+diff --git a/crates/engine/src/nine_key.rs b/crates/engine/src/nine_key.rs
+index f8f1a664e8..920077bf0e 100644
+--- a/crates/engine/src/nine_key.rs
++++ b/crates/engine/src/nine_key.rs
+@@ -274,6 +274,8 @@ impl KeyGrid {
+     }
+ }
+
++mod digit_lattice;
++
+ type Path = Vec<String>;
+
+ pub struct NineKeySession {
+@@ -1339,6 +1341,24 @@ impl NineKeySession {
+         // 模糊页已拥有结果；九键双拼的覆盖核对会另建编码，保留原单次核对路径。
+         let filter_dominated =
+             self.fuzzy.rules == 0 && matches!(grid, KeyGrid::NineKey | KeyGrid::FourteenKey);
++        let digit_edges = (matches!(grid, KeyGrid::NineKey)
++            && self.locked.is_empty()
++            && splits.is_empty()
++            && initial.is_none()
++            && self.fuzzy.rules == 0
++            && self
++                .sentence_association
++                .collocation_model
++                .as_os_str()
++                .is_empty()
++            && (self.sentence_association.word_lattice
++                || self.sentence_association.neural_keyboard)
++            && !self.single_character_only
++            && !self.single_character
++            && self.strokes.is_empty())
++        .then(|| digit_lattice::build_edges(&mut dictionary, table, remaining))
++        .flatten();
++        let unified_sentence_lattice = digit_edges.is_some();
+         for (index, path) in alternatives.iter().enumerate() {
+             append_path_key(&mut key, &locked_key, path);
+             if key.is_empty() || !query_key_is_new(&alternatives, index, &key, queried.as_ref()) {
+@@ -1399,9 +1419,14 @@ impl NineKeySession {
+                 }
+                 true
+             };
+-            for mut candidate in
++            let rows = if unified_sentence_lattice {
++                dictionary.query_filtered_rows_without_sentences(&key, &key, path, |candidate| {
++                    accepts_reading(candidate, false)
++                })
++            } else {
+                 dictionary.query_filtered_rows(&key, &key, self.fuzzy, accepts_reading)
+-            {
++            };
++            for mut candidate in rows {
+                 let canonical = take_candidate_canonical_pinyin(&mut candidate);
+                 let matched = if candidate.fuzzy {
+                     candidate.pinyin.as_str()
+@@ -1428,6 +1453,43 @@ impl NineKeySession {
+                 seen.insert(key.clone());
+             }
+         }
++        if let Some(edges) = digit_edges {
++            let paths = dictionary.decode_digit_paths(self.digits.len(), &edges);
++            let mut emitted = 0;
++            for path in paths {
++                let syllables = reading_syllable_count(&path.key);
++                if syllables < 2 || candidates.iter().any(|item| item.word == path.sentence) {
++                    continue;
++                }
++                // 搜索时已按每音节消去奖励；行权重恢复共享格式，排序和模型入口仍经 comparable_weight。
++                let weight =
++                    ((path.log_prob + PHRASE_LENGTH_BONUS * syllables as f64) * 1000.0) as i64;
++                let mut row = WordItem::new(
++                    &self.digits,
++                    path.sentence,
++                    weight,
++                    CandidateSource::Generated,
++                    path.key,
++                );
++                row.sentence_association = true;
++                row.sentence_words = path.words;
++                push_ranked(
++                    &mut candidates,
++                    &mut leading,
++                    row,
++                    prefer_exact,
++                    initials_lead,
++                    grid,
++                );
++                emitted += 1;
++                if emitted == 1
++                    && !self.sentence_alternatives
++                    && !self.sentence_association.neural_keyboard
++                {
++                    break;
++                }
++            }
++        }
+         // 九键双拼一个两位编码对应五六个音节，三个音节以上时，按音节频度留下的切分（每个位置 `PATH_LIMIT` 条）常常没有词的那一条：`22942288` 有一千多种读法，百依百顺 的 bai'yi'bai'shun 排不进去。词可以不靠切分找：按每个音节的声母那一位（第 1、3、5… 位）查简拼，只留编码正好以这串数字开头、音节数也对得上的词。全拼九宫格一个音节的码长不定，没有这一步。
+         if let KeyGrid::NineKeyShuangpin(table) = grid {
+             let codes = (self.locked.is_empty()
+diff --git a/crates/engine/src/quanpin/dictionary.rs b/crates/engine/src/quanpin/dictionary.rs
+index abf865af55..13c706b4e3 100644
+--- a/crates/engine/src/quanpin/dictionary.rs
++++ b/crates/engine/src/quanpin/dictionary.rs
+@@ -17,7 +17,10 @@ use crate::error::{EngineError, Result};
+ use crate::ime::online_batch::{
+     replace_cached_online_candidate_batch, replace_online_candidate_batch,
+ };
+-use crate::lattice::decode::{decode_pinned, BigramMemo, PinnedSpan, SentenceNgramTables};
++use crate::lattice::decode::{
++    decode_digit_lattice, decode_pinned, BigramMemo, DigitLatticeEdge, PinnedSpan,
++    SentenceNgramTables,
++};
+ use crate::lattice::merge::{
+     decode_lattice, decode_lattice_borrowed, merge_decoded, whole_sentence_insert_position,
+     DecodedSentences,
+@@ -188,6 +191,10 @@ pub struct QuanpinDictionary {
+     segment_row_cache: FifoCache<String, Vec<DictRow>>,
+     /// 每条切分的 `query_longer_phrases` 结果，键是切分本身。
+     longer_row_cache: FifoCache<String, Vec<DictRow>>,
++    /// 数字词网格按两个完整音节缓存精确词与长词前缀；随词典版本失效。
++    digit_prefix_cache: FifoCache<String, Vec<DictRow>>,
++    /// 数字图模式下不带整句的候选页；词典版本变化时与行缓存一起清空。
++    digit_rows_cache: FifoCache<String, Vec<WordItem>>,
+     /// `fuzzy_candidates` 里每个前缀那一次批量查询的结果，键是模糊规则、路径上限和前缀切分；三者定下来，查的路径和返回的行就定了。
+     fuzzy_row_cache: FifoCache<u64, CachedFuzzyRows>,
+     /// 上面四个行缓存填入时的 `PRAGMA data_version`。它们只存词典行，随其他缓存一起清空；此外每次真正计算一个查询前都对一次版本，别的连接写过词典就先清掉，所以命中的行永远和此刻直接查库一样，不会像 `cache` 那样等到下次 `reset_cache_if_database_changed` 才更新。
+@@ -245,6 +252,8 @@ impl QuanpinDictionary {
+             lattice_span_cache: FifoCache::new(LATTICE_SPAN_CACHE_CAPACITY),
+             segment_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
+             longer_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
++            digit_prefix_cache: FifoCache::new(ROW_CACHE_CAPACITY),
++            digit_rows_cache: FifoCache::new(CACHE_CAPACITY),
+             fuzzy_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
+             row_cache_version: None,
+             row_cache_batch: None,
+@@ -375,6 +384,42 @@ impl QuanpinDictionary {
+         )
+     }
+
++    /// 九键数字词网格读取一个精确音节跨度；行缓存与普通整句解码共用。
++    pub(crate) fn query_lattice_span_rows(
++        &mut self,
++        span: &[String],
++        span_limit: usize,
++    ) -> Vec<DictRow> {
++        self.validate_row_caches();
++        cached_lattice_span(
++            &self.database,
++            &mut self.lattice_span_cache,
++            span,
++            span_limit,
++        )
++    }
++
++    /// 九键数字词网格读取一个完整音节前缀下的长词行。
++    pub(crate) fn query_lattice_prefix_rows(&mut self, prefix: &[String; 2]) -> &[DictRow] {
++        self.validate_row_caches();
++        let key = prefix.join("'");
++        if !self.digit_prefix_cache.contains(&key) {
++            let mut rows = self.database.query_lattice_span(prefix, 32);
++            let mut longer = self.database.query_lattice_prefix(prefix, 5, usize::MAX);
++            let mut counts = HashMap::new();
++            longer.retain(|row| {
++                let count = counts.entry(row.key.clone()).or_insert(0);
++                *count += 1;
++                *count <= 32
++            });
++            rows.extend(longer);
++            self.digit_prefix_cache.insert(key.clone(), rows);
++        }
++        self.digit_prefix_cache
++            .get_ref(&key)
++            .expect("数字前缀页已缓存")
++    }
++
+     /// 首字母的 24 行候选展开为全部行（QD:506-558），同时更新行缓存与产生该列表的查询槽。
+     pub fn expand_initial_candidates(
+         &mut self,
+@@ -679,6 +724,8 @@ impl QuanpinDictionary {
+         self.lattice_span_cache.clear();
+         self.segment_row_cache.clear();
+         self.longer_row_cache.clear();
++        self.digit_prefix_cache.clear();
++        self.digit_rows_cache.clear();
+         self.fuzzy_row_cache.clear();
+     }
+
+@@ -990,12 +1037,50 @@ impl QuanpinDictionary {
+         self.query_series_with_typos(raw, segmentation, segments, true, None)
+     }
+
++    /// 九键数字词网格只需要词库行；整句在数字位置共享图上一次完成，不能让每条数字切分各自解码。
++    pub(crate) fn query_filtered_rows_without_sentences(
++        &mut self,
++        raw: &str,
++        segmentation: &str,
++        segments: &[String],
++        mut keep: impl FnMut(&WordItem) -> bool,
++    ) -> Vec<WordItem> {
++        self.validate_row_caches();
++        if let Some(rows) = self.digit_rows_cache.get_ref_by(segmentation) {
++            return rows.iter().filter(|row| keep(row)).cloned().collect();
++        }
++        let rows =
++            self.query_series_with_typos_mode(raw, segmentation, segments, false, false, None);
++        let result = rows.iter().filter(|row| keep(row)).cloned().collect();
++        self.digit_rows_cache.insert(segmentation.to_owned(), rows);
++        result
++    }
++
+     fn query_series_with_typos(
+         &mut self,
+         raw: &str,
+         segmentation: &str,
+         segments: &[String],
+         include_typos: bool,
++        queried_prefixes: Option<&mut HashMap<String, usize>>,
++    ) -> Vec<WordItem> {
++        self.query_series_with_typos_mode(
++            raw,
++            segmentation,
++            segments,
++            include_typos,
++            true,
++            queried_prefixes,
++        )
++    }
++
++    fn query_series_with_typos_mode(
++        &mut self,
++        raw: &str,
++        segmentation: &str,
++        segments: &[String],
++        include_typos: bool,
++        include_sentences: bool,
+         mut queried_prefixes: Option<&mut HashMap<String, usize>>,
+     ) -> Vec<WordItem> {
+         if segments.is_empty() {
+@@ -1057,7 +1142,7 @@ impl QuanpinDictionary {
+             Self::append_query_rows(&mut result, rows);
+         }
+
+-        if segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
++        if include_sentences && segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
+             if include_typos {
+                 self.merge_sentences(&mut result, raw, segmentation, segments);
+             } else {
+@@ -1110,6 +1195,25 @@ impl QuanpinDictionary {
+         self.merge_sentences_with_typos(result, raw, segmentation, segments, true);
+     }
+
++    /// 数字词网格复用全拼的表、个人模型与解码参数，按数字位置只搜索一次。
++    pub(crate) fn decode_digit_paths(
++        &self,
++        digit_count: usize,
++        edges: &[DigitLatticeEdge],
++    ) -> Vec<SentencePath> {
++        let personal = self.personal.model();
++        let mut options = self.sentence_tables.options(self.sentence_alternatives);
++        // 整句备选展示末列保留的全部唯一读法；模型入口仍只读取前 MAX_RERANK_PATHS 条。
++        options.nbest = if self.sentence_alternatives {
++            options.beam
++        } else {
++            MAX_RERANK_PATHS
++        };
++        options.personal = Some(&*personal);
++        options.bigram_memo = Some(&self.bigram_memo);
++        decode_digit_lattice(digit_count, edges, &options)
++    }
++
+     fn merge_sentences_with_typos(
+         &mut self,
+         result: &mut Vec<WordItem>,
+diff --git a/crates/engine/src/nine_key/digit_lattice.rs b/crates/engine/src/nine_key/digit_lattice.rs
+new file mode 100644
+index 0000000000..1023a7e278
+--- /dev/null
++++ b/crates/engine/src/nine_key/digit_lattice.rs
+@@ -0,0 +1,160 @@
++use super::*;
++use crate::lattice::decode::DigitLatticeEdge;
++
++/// 按数字位置保留全部完整音节，不经过按频度截断的切分路径。
++fn syllable_edges<'a>(table: &'a SpellingTable, digits: &str) -> Vec<Vec<(usize, &'a str)>> {
++    (0..digits.len())
++        .map(|start| {
++            let mut edges = Vec::new();
++            for end in start + 1..=digits.len().min(start + table.longest_code) {
++                if let Some(pieces) = table.by_code.get(&digits[start..end]) {
++                    edges.extend(
++                        pieces.iter().filter_map(|(piece, complete)| {
++                            complete.then_some((end, piece.as_str()))
++                        }),
++                    );
++                }
++            }
++            edges
++        })
++        .collect()
++}
++
++/// 单字精确查询、两音节精确与长词前缀查询共同构造数字词边；没有完整音节路径时沿用旧查询。
++pub(super) fn build_edges(
++    dictionary: &mut QuanpinDictionary,
++    table: &SpellingTable,
++    digits: &str,
++) -> Option<Vec<DigitLatticeEdge>> {
++    let syllables = syllable_edges(table, digits);
++    let mut reaches_end = vec![false; digits.len() + 1];
++    reaches_end[digits.len()] = true;
++    for start in (0..digits.len()).rev() {
++        reaches_end[start] = syllables[start].iter().any(|&(end, _)| reaches_end[end]);
++    }
++    if !reaches_end[0] {
++        return None;
++    }
++    let mut reachable = vec![false; digits.len() + 1];
++    reachable[0] = true;
++    let mut edges = Vec::new();
++    let mut seen = HashSet::new();
++    for start in 0..digits.len() {
++        if !reachable[start] {
++            continue;
++        }
++        for &(end, first) in &syllables[start] {
++            if !reaches_end[end] {
++                continue;
++            }
++            reachable[end] = true;
++            for row in dictionary.query_lattice_span_rows(&[first.to_owned()], 32) {
++                let identity = (start, end, row.key.clone(), row.value.clone());
++                if seen.insert(identity) {
++                    edges.push(DigitLatticeEdge {
++                        start,
++                        end,
++                        word: row.value,
++                        key: row.key,
++                        weight: row.weight,
++                        syllables: 1,
++                    });
++                }
++            }
++            if end == digits.len() {
++                continue;
++            }
++            for &(second_end, second) in &syllables[end] {
++                if !reaches_end[second_end] {
++                    continue;
++                }
++                let prefix = [first.to_owned(), second.to_owned()];
++                for row in dictionary.query_lattice_prefix_rows(&prefix) {
++                    let count = reading_syllable_count(&row.key);
++                    if count > 7 {
++                        continue;
++                    }
++                    let word_end = start + row.key.bytes().filter(u8::is_ascii_lowercase).count();
++                    let Some(code) = digits.get(start..word_end) else {
++                        continue;
++                    };
++                    if !reaches_end[word_end] || table.grid.encode(&row.key) != code {
++                        continue;
++                    }
++                    let identity = (start, word_end, row.key.clone(), row.value.clone());
++                    if seen.insert(identity) {
++                        edges.push(DigitLatticeEdge {
++                            start,
++                            end: word_end,
++                            word: row.value.clone(),
++                            key: row.key.clone(),
++                            weight: row.weight,
++                            syllables: count,
++                        });
++                    }
++                }
++            }
++        }
++    }
++    Some(edges)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn word_prefix_edges_are_matched_against_digits_and_refresh_after_dictionary_writes() {
++        use crate::dictionary::pinyin::PinyinDatabase;
++        let directory = tempfile::tempdir().unwrap();
++        let database = directory.path().join(assets::MAIN_DICTIONARY);
++        rusqlite::Connection::open(&database)
++            .unwrap()
++            .execute_batch(
++                "CREATE TABLE tbl_2_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
++             CREATE TABLE tbl_3_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
++             INSERT INTO tbl_2_x VALUES('xi''an','xa','甲乙',1000);
++             INSERT INTO tbl_3_x VALUES('xi''an''nan','xan','甲乙丙',100);
++             INSERT INTO tbl_3_x VALUES('xi''ang''nan','xan','甲乙丁',200);",
++            )
++            .unwrap();
++        let paths = RuntimePaths {
++            resources: directory.path().into(),
++            user_data: directory.path().into(),
++            cache: directory.path().into(),
++            dictionaries: directory.path().into(),
++        };
++        let mut dictionary = QuanpinDictionary::new(&paths);
++        let table = KeyGrid::NineKey.spelling_table();
++        let before = build_edges(&mut dictionary, table, "9426626").unwrap();
++        assert!(before
++            .iter()
++            .any(|edge| edge.start == 0 && edge.end == 7 && edge.word == "甲乙丙"));
++        assert!(!before.iter().any(|edge| edge.word == "甲乙丁"));
++        let other = PinyinDatabase::open(&database);
++        other.insert_word("xi'an'nan", "合成词").unwrap();
++        let after = build_edges(&mut dictionary, table, "9426626").unwrap();
++        assert!(after.iter().any(|edge| edge.word == "合成词"));
++    }
++
++    #[test]
++    fn every_complete_reading_remains_available_without_a_path_limit() {
++        let table = KeyGrid::NineKey.spelling_table();
++        let graph = syllable_edges(table, "9426626");
++        assert!(graph[0]
++            .iter()
++            .any(|&(end, syllable)| end == 2 && syllable == "xi"));
++        assert!(graph[0]
++            .iter()
++            .any(|&(end, syllable)| end == 2 && syllable == "yi"));
++        assert!(graph[0]
++            .iter()
++            .any(|&(end, syllable)| end == 4 && syllable == "xian"));
++        assert!(graph[2]
++            .iter()
++            .any(|&(end, syllable)| end == 4 && syllable == "an"));
++        assert!(graph[4]
++            .iter()
++            .any(|&(end, syllable)| end == 7 && syllable == "nan"));
++    }
++}

@@ -1,0 +1,257 @@
+verified evaluation resources: source_commit=128a332cabc5fa42b1cf5f827033ad5697ff528b generation=7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe
+81 cases from 1 set(s)
+no settled model at /Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe/sentence-model-desktop.safetensors
+reranking with /Volumes/Workspace/ime/msime/target/resources/7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe/sentence-model.safetensors
+{
+  "by_syllables": {
+    "10": {
+      "cases": 9,
+      "found": 0.667,
+      "mrr": 0.667,
+      "top1": 0.667,
+      "top1_char_prefix": 0.8,
+      "top5": 0.667,
+      "top9": 0.667
+    },
+    "11": {
+      "cases": 9,
+      "found": 0.778,
+      "mrr": 0.722,
+      "top1": 0.667,
+      "top1_char_prefix": 0.879,
+      "top5": 0.778,
+      "top9": 0.778
+    },
+    "12": {
+      "cases": 9,
+      "found": 0.889,
+      "mrr": 0.833,
+      "top1": 0.778,
+      "top1_char_prefix": 0.898,
+      "top5": 0.889,
+      "top9": 0.889
+    },
+    "4": {
+      "cases": 9,
+      "found": 0.889,
+      "mrr": 0.889,
+      "top1": 0.889,
+      "top1_char_prefix": 0.917,
+      "top5": 0.889,
+      "top9": 0.889
+    },
+    "5": {
+      "cases": 9,
+      "found": 1.0,
+      "mrr": 0.926,
+      "top1": 0.889,
+      "top1_char_prefix": 0.956,
+      "top5": 1.0,
+      "top9": 1.0
+    },
+    "6": {
+      "cases": 9,
+      "found": 1.0,
+      "mrr": 0.89,
+      "top1": 0.889,
+      "top1_char_prefix": 0.963,
+      "top5": 0.889,
+      "top9": 0.889
+    },
+    "7": {
+      "cases": 9,
+      "found": 0.889,
+      "mrr": 0.889,
+      "top1": 0.889,
+      "top1_char_prefix": 0.937,
+      "top5": 0.889,
+      "top9": 0.889
+    },
+    "8": {
+      "cases": 9,
+      "found": 0.444,
+      "mrr": 0.444,
+      "top1": 0.444,
+      "top1_char_prefix": 0.778,
+      "top5": 0.444,
+      "top9": 0.444
+    },
+    "9": {
+      "cases": 9,
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
+    }
+  },
+  "by_tag": {
+    "question": {
+      "cases": 11,
+      "found": 0.909,
+      "mrr": 0.864,
+      "top1": 0.818,
+      "top1_char_prefix": 0.936,
+      "top5": 0.909,
+      "top9": 0.909
+    },
+    "request": {
+      "cases": 18,
+      "found": 0.778,
+      "mrr": 0.75,
+      "top1": 0.722,
+      "top1_char_prefix": 0.853,
+      "top5": 0.778,
+      "top9": 0.778
+    },
+    "statement": {
+      "cases": 52,
+      "found": 0.846,
+      "mrr": 0.814,
+      "top1": 0.808,
+      "top1_char_prefix": 0.913,
+      "top5": 0.827,
+      "top9": 0.827
+    }
+  },
+  "cases": 81,
+  "gold_source": {
+    "database": 7,
+    "generated": 61
+  },
+  "overall": {
+    "cases": 81,
+    "found": 0.84,
+    "mrr": 0.807,
+    "top1": 0.79,
+    "top1_char_prefix": 0.903,
+    "top5": 0.827,
+    "top9": 0.827
+  },
+  "sample_failures": [
+    {
+      "gold": "我到家了",
+      "id": "nk-009",
+      "input": "wodaojiale",
+      "rank": null,
+      "top1": "我倒加了"
+    },
+    {
+      "gold": "我们走路去",
+      "id": "nk-013",
+      "input": "womenzouluqu",
+      "rank": 3,
+      "top1": "我们走录取"
+    },
+    {
+      "gold": "电脑突然死机",
+      "id": "nk-023",
+      "input": "diannaoturansiji",
+      "rank": 141,
+      "top1": "电脑突然司机"
+    },
+    {
+      "gold": "地铁站离这很近",
+      "id": "nk-033",
+      "input": "ditiezhanlizhehenjin",
+      "rank": null,
+      "top1": "地铁站立着很近"
+    },
+    {
+      "gold": "我们下个月去旅游",
+      "id": "nk-038",
+      "input": "womenxiageyuequlvyou",
+      "rank": null,
+      "top1": "我们下个约去旅游"
+    },
+    {
+      "gold": "我刚才去了趟银行",
+      "id": "nk-040",
+      "input": "wogangcaiquletangyinhang",
+      "rank": null,
+      "top1": "我刚才去了唐银行"
+    },
+    {
+      "gold": "晚上一起看电视吧",
+      "id": "nk-041",
+      "input": "wanshangyiqikandianshiba",
+      "rank": null,
+      "top1": "晚上一起看点是吧"
+    },
+    {
+      "gold": "你什么时候有空啊",
+      "id": "nk-043",
+      "input": "nishenmeshihouyoukonga",
+      "rank": null,
+      "top1": "你什么时候有空尬"
+    },
+    {
+      "gold": "请把灯关掉再出去",
+      "id": "nk-044",
+      "input": "qingbadengguandiaozaichuqu",
+      "rank": null,
+      "top1": "请把灯管掉在出去"
+    },
+    {
+      "gold": "明天的会议改到下午了",
+      "id": "nk-056",
+      "input": "mingtiandehuiyigaidaoxiawule",
+      "rank": null,
+      "top1": "明天的回忆改到下雾了"
+    },
+    {
+      "gold": "你吃完饭以后早点休息",
+      "id": "nk-057",
+      "input": "nichiwanfanyihouzaodianxiuxi",
+      "rank": null,
+      "top1": "你吃晚饭以后早点休息"
+    },
+    {
+      "gold": "你把那个红色的包给我",
+      "id": "nk-058",
+      "input": "nibanagehongsedebaogeiwo",
+      "rank": null,
+      "top1": "你把那个红色的报给我"
+    },
+    {
+      "gold": "你可以先去那里等我一下",
+      "id": "nk-065",
+      "input": "nikeyixianqunalidengwoyixia",
+      "rank": 2,
+      "top1": "你可以先去哪里等我一下"
+    },
+    {
+      "gold": "我还以为你已经回到家了",
+      "id": "nk-070",
+      "input": "wohaiyiweiniyijinghuidaojiale",
+      "rank": null,
+      "top1": "我还以为你已经回到加了"
+    },
+    {
+      "gold": "这是我第一次来这个地方",
+      "id": "nk-072",
+      "input": "zheshiwodiyicilaizhegedifang",
+      "rank": null,
+      "top1": "这是我第一次来着各地方"
+    },
+    {
+      "gold": "我们可以一起去买点东西吃",
+      "id": "nk-073",
+      "input": "womenkeyiyiqiqumaidiandongxichi",
+      "rank": null,
+      "top1": "我们可以一起去买电动细齿"
+    },
+    {
+      "gold": "你可以先去那里等我一下吗",
+      "id": "nk-074",
+      "input": "nikeyixianqunalidengwoyixiama",
+      "rank": 2,
+      "top1": "你可以先去哪里等我一下吗"
+    }
+  ],
+  "top1_source": {
+    "database": 7,
+    "generated": 74
+  }
+}

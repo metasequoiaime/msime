@@ -40,7 +40,12 @@ export class SmartPunctuationSpacePolicy {
    * Transcribed from `SmartPunctuationAsciiFor` in the source's Composition.cpp. Both quote
    * directions map to the same ASCII quote, as they do there: a straight quote has no handedness.
    */
-  static asciiFor(chinese: number): number {
+  static asciiFor(
+    chinese: number,
+    key: number = 0,
+    enumerationCommaBackslash: boolean = true,
+    enumerationCommaSlash: boolean = false,
+  ): number {
     switch (chinese) {
       case 0x3002:
         return 0x2e; // 。 .
@@ -55,7 +60,13 @@ export class SmartPunctuationSpacePolicy {
       case 0xff1a:
         return 0x3a; // ： :
       case 0x3001:
-        return 0x2f; // 、 /
+        // 顿号的 ASCII 孪生按产生它的键和 View 的顿号开关定（契约 enumerationComma
+        // 段）：按下的键开着时转回它，否则 `\` 优先、`/` 其次，两个都关按归一的 `\`。
+        if (key === 0x5c && enumerationCommaBackslash) return 0x5c;
+        if (key === 0x2f && enumerationCommaSlash) return 0x2f;
+        if (enumerationCommaBackslash) return 0x5c;
+        if (enumerationCommaSlash) return 0x2f;
+        return 0x5c;
       case 0x201c:
         return 0x22; // “ "
       case 0x201d:
@@ -103,6 +114,9 @@ export class SmartPunctuationSpacePolicy {
     smartPunctuation: boolean,
     spaceConvert: boolean,
     editorGeneration: number,
+    key: number = 0,
+    enumerationCommaBackslash: boolean = true,
+    enumerationCommaSlash: boolean = false,
   ): SmartPunctuationSpaceSnapshot | null {
     if (!smartPunctuation || !spaceConvert || autoClosedPair) {
       return null;
@@ -117,7 +131,8 @@ export class SmartPunctuationSpacePolicy {
       return null;
     }
     const chinese: number = points[0];
-    const ascii: number = SmartPunctuationSpacePolicy.asciiFor(chinese);
+    const ascii: number = SmartPunctuationSpacePolicy.asciiFor(
+      chinese, key, enumerationCommaBackslash, enumerationCommaSlash);
     if (ascii === 0) {
       return null;
     }

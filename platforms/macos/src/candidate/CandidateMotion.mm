@@ -278,7 +278,54 @@ bool StaggersRows(SkinAnimationPreset preset)
 }
 @end
 
+@interface MSIMEDecorationWordView : NSView
+@property(nonatomic, copy) NSAttributedString *text;
+@end
+@implementation MSIMEDecorationWordView
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isOpaque { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; [self.text drawAtPoint:NSZeroPoint]; }
+@end
+
 @implementation MSIMECandidateDecorationView
+{
+    MSIMEDecorationWordView *_candidateWord;
+}
+
+- (void)setCandidateWord:(NSString *)word style:(const std::optional<msime::candidate::DecorationCandidate> &)style
+                boxSize:(NSSize)boxSize alignment:(msime::mac::DecorationAlign)alignment font:(NSFont *)font
+{
+    if (!style || word.length == 0 || boxSize.width <= 0 || boxSize.height <= 0) {
+        [_candidateWord removeFromSuperview];
+        _candidateWord = nil;
+        return;
+    }
+    const auto &value = *style;
+    NSFont *initial = [NSFont fontWithDescriptor:font.fontDescriptor size:value.fontSizeDip];
+    const CGFloat naturalWidth = [word sizeWithAttributes:@{NSFontAttributeName: initial}].width;
+    NSFont *fitted = [NSFont fontWithDescriptor:font.fontDescriptor size:value.fittedFont(naturalWidth, boxSize.width)];
+    const auto color = msime::mac::ParseCssColor(value.color).value_or(msime::mac::Rgba{1, 1, 1, 1});
+    NSAttributedString *text = [[NSAttributedString alloc] initWithString:word attributes:@{
+        NSFontAttributeName: fitted,
+        NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a]
+    }];
+    const NSSize measured = text.size;
+    if (!_candidateWord) {
+        _candidateWord = [[MSIMEDecorationWordView alloc] initWithFrame:NSZeroRect];
+        _candidateWord.identifier = @"candidate-decoration-word";
+        _candidateWord.accessibilityElement = NO;
+        [self addSubview:_candidateWord];
+    }
+    // 图像可能被等比缩小，文字仍相对声明的装饰框定位；超框的部分不裁切。
+    const CGFloat originX = alignment == msime::mac::DecorationAlign::left ? 0
+        : (NSWidth(self.bounds) - boxSize.width) * (alignment == msime::mac::DecorationAlign::center ? 0.5 : 1);
+    _candidateWord.frame = NSMakeRect(originX + value.left(boxSize.width, measured.width),
+        boxSize.height - value.top(boxSize.height, measured.height) - measured.height,
+        std::ceil(measured.width), std::ceil(measured.height));
+    _candidateWord.text = text;
+    _candidateWord.needsDisplay = YES;
+}
 
 - (instancetype)initWithFrame:(NSRect)frameRect
 {
@@ -287,6 +334,7 @@ bool StaggersRows(SkinAnimationPreset preset)
     {
         self.wantsLayer = YES;
         self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
+        self.clipsToBounds = NO;
     }
     return self;
 }
@@ -650,7 +698,9 @@ bool StaggersRows(SkinAnimationPreset preset)
     NSWindow *shadowPanel = _shadowPanel;
     if (shadowPanel != nil)
     {
-        shadowPanel.hasShadow = YES;
+        id content = shadowPanel.contentView;
+        shadowPanel.hasShadow = [content conformsToProtocol:@protocol(MSIMECandidateWindowShadowHost)]
+            ? [(id<MSIMECandidateWindowShadowHost>)content nativeWindowShadowEnabled] : YES;
         [shadowPanel invalidateShadow];
     }
     _shadowPanel = nil;
@@ -796,7 +846,7 @@ bool StaggersRows(SkinAnimationPreset preset)
     NSColor *ring = accent ?: fill;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    // 自定义四角沿用行自己的路径与坐标方向，原生主题继续内缩 1 点画统一圆角。
+    // 静态与动画高亮都铺满候选项，自定义四角沿用行自己的路径与坐标方向。
     if (shape) {
         layer.frame = rowLayer.frame;
         layer.bounds = rowLayer.bounds;
@@ -805,7 +855,7 @@ bool StaggersRows(SkinAnimationPreset preset)
         shape.fillColor = fill.CGColor;
         CGPathRelease(path);
     } else {
-        layer.frame = CGRectInset(rowLayer.frame, 1.0, 1.0);
+        layer.frame = rowLayer.frame;
         layer.cornerRadius = MAX(0.0, cornerRadius);
         layer.backgroundColor = fill.CGColor;
     }

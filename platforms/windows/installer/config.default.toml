@@ -37,6 +37,10 @@ paging_page_up_down = true
 # 依赖 Windows「当我悬停在非活动窗口上方时滚动它们」，该系统设置关闭时本项不生效
 paging_mouse_wheel = false
 candidate_arrow_navigation = true
+# 左右方向键在横排候选窗里移动候选高亮（post-pin 键，门禁参考里没有；v0.11.1 出厂关，本仓出厂值保持原默认开——差异已记录，是否对齐留待产品决策）
+candidate_horizontal_arrow_navigation = true
+# 打拼音出符号：整段打出符号名称时在候选里给出符号（post-pin 键；v0.11.1 出厂关，本仓出厂值保持原默认开）
+symbol_mixed_input = true
 # 中文输入状态下显示英文前缀候选
 cn_en_mixed_input = true
 # 中英混输触发所需的最少字母数，范围 1–8
@@ -125,6 +129,8 @@ page_size = 6
 candidate_window_follow_cursor = true
 # 候选窗口排列方式，可选："vertical", "horizontal"
 candidate_window_layout = "vertical"
+# 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows v0.11.1 出厂关；post-pin 键，与皮肤 fit_content 是或关系）
+candidate_window_fit_content = false
 # 候选窗口、悬浮工具栏、菜单和屏幕键盘的配色与皮肤在「设置 → 主题」中选择（共享偏好 global_theme / custom_theme），不在本文件配置。
 # 候选窗口顶部预编辑，可选："pinyin", "empty"
 #   pinyin -> 显示分词预编辑（与候选框当前行为一致）
@@ -308,6 +314,8 @@ polish_token_groq = "<YOUR_POLISH_TOKEN_GROQ>"
 polish_endpoint = "https://api.deepseek.com/chat/completions"
 # 留空则按提供商填默认值，例如 Qwen/Qwen3-8B、gpt-4o-mini。
 polish_model = "deepseek-v4-flash"
+# DeepSeek 润色的思考强度: disabled | low | high | max，仅 DeepSeek 生效。开启后上屏前要多等几秒到几十秒。
+polish_thinking = "disabled"
 # 润色提示词: cleanup | faithful | zh2en | casual | custom_1 | custom_2 | custom_3
 polish_prompt_id = "cleanup"
 polish_prompt_custom_1 = ""
@@ -343,9 +351,15 @@ clipboard_history = false # 表情面板剪贴板历史，仅记录文本；关�
 study_english_word = "false" # 背单词功能，开启后可以在候选项旁边显示英文
 quick_phrase = true # Shift+K 进入快捷短语模式
 unicode_mode = true # Shift+U 进入 Unicode 码位输入模式
+# v0.11.1 把 pin 的 unicode_mode 改名为 radical_mode 并把 Shift+U 换成拆字反查；本仓 Shift+U 留给码位输入，拆字在 Shift+C（local_modes.chaizi）
+radical_mode = false # Shift+U 进入拆字反查模式（post-pin 键；本仓对应 local_modes.chaizi，Shift+C；v0.11.1 出厂开，本仓桌面缺省按宿主形态读作关，保持原值）
 date_time_mode = true # Shift+T 进入日期与时间快捷模式
-emoji_mode = true # Shift+E 进入 Emoji 快捷模式（支持全拼/简拼/双拼/英文）
-kaomoji_mode = true # Shift+M 进入颜文字快捷模式（支持全拼/简拼/双拼/英文）
+# 日期时间混入普通候选：全拼输入 riqi/sj/xq/nongli 时把当前日期、时间、星期或农历接在对应的词后面（post-pin 键，对应 local_modes.date_time_inline；v0.11.1 出厂关，本仓出厂值保持原默认开）
+date_time_candidates = true
+date_time_menu = true # 日期时间混入候选时，在第三位放一个「📅日期」，选中后候选框换成全部日期格式（和 Shift+T 模式相同）
+emoji_mode = true # Shift+E 进入 Emoji 快捷模式（支持全拼/简拼/双拼/英文）；v0.11.1 出厂关，本仓出厂值保持原默认开——差异已记录
+kaomoji_mode = true # Shift+M 进入颜文字快捷模式（支持全拼/简拼/双拼/英文）；v0.11.1 出厂关，本仓出厂值保持原默认开——差异已记录
+v_mode = false # Shift+V 进入计算与数字模式（post-pin 键，对应 local_modes.expression；v0.11.1 出厂开，本仓出厂值保持原默认关——差异已记录）
 jianpin_mode = true # Shift+J 进入超级简拼模式（每个字母作为简拼；双拼按方案转换 zh/ch/sh）
 y_mode = true # Shift+Y 进入临时英文模式（中文状态下直接打英文，上屏后回到中文）
 r_mode = true # Shift+R 进入临时日语模式（中文状态下使用罗马字输入日语，上屏后回到中文）
@@ -366,6 +380,8 @@ token_groq = "<YOUR_AI_TOKEN_GROQ>"
 endpoint = "https://api.deepseek.com/chat/completions"
 model = "deepseek-v4-flash"
 candidate_limit = 3
+# DeepSeek 思考强度: disabled | low | high | max，仅 DeepSeek 生效。开启后联想明显变慢。
+thinking = "disabled"
 prompt_id = "custom_1"
 # 自定义槽位留空时使用内置提示词。
 prompt_custom_1 = ""

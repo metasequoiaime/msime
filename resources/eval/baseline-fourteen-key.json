@@ -6,7 +6,7 @@
       "mrr": 0.688,
       "top1": 0.535,
       "top1_char_prefix": 0.569,
-      "top5": 0.892,
+      "top5": 0.891,
       "top9": 0.952
     },
     "3": {
@@ -20,12 +20,12 @@
     },
     "4": {
       "cases": 556,
-      "found": 0.91,
-      "mrr": 0.907,
-      "top1": 0.905,
-      "top1_char_prefix": 0.928,
-      "top5": 0.91,
-      "top9": 0.91
+      "found": 0.899,
+      "mrr": 0.896,
+      "top1": 0.894,
+      "top1_char_prefix": 0.918,
+      "top5": 0.899,
+      "top9": 0.899
     },
     "5": {
       "cases": 10,
@@ -40,17 +40,17 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2718,
+    "database": 2712,
     "generated": 3
   },
   "overall": {
     "cases": 2791,
-    "found": 0.975,
-    "mrr": 0.766,
-    "top1": 0.66,
-    "top1_char_prefix": 0.691,
-    "top5": 0.906,
-    "top9": 0.946
+    "found": 0.973,
+    "mrr": 0.764,
+    "top1": 0.658,
+    "top1_char_prefix": 0.689,
+    "top5": 0.903,
+    "top9": 0.944
   },
   "sample_failures": [
     {
@@ -313,6 +313,13 @@
       "top1": "你就"
     },
     {
+      "gold": "不绝于耳",
+      "id": "w-01387",
+      "input": "bujueyuer",
+      "rank": null,
+      "top1": "不解一二"
+    },
+    {
       "gold": "不明",
       "id": "w-01450",
       "input": "buming",
@@ -325,17 +332,10 @@
       "input": "buque",
       "rank": 3,
       "top1": "你却"
-    },
-    {
-      "gold": "哺乳",
-      "id": "w-01486",
-      "input": "buru",
-      "rank": 4,
-      "top1": "比如"
     }
   ],
   "top1_source": {
-    "database": 2747,
-    "generated": 44
+    "database": 2743,
+    "generated": 48
   }
 }

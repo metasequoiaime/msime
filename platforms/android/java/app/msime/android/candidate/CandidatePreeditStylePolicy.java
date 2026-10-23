@@ -3,7 +3,7 @@ package app.msime.android;
 /**
  * 候选栏上画不画正在拼写的内容，以及写进输入框的是哪一段拼写。
  *
- * <p>拼写作为组字写进输入框（与 Apple 自带键盘和 Gboard 一样），候选栏就不再重复画它：读音行只剩页码和提示，候选不随拼写变长而变化。这是固定的行为，不再读共享偏好 `candidate_preedit_style`，也不提供开关。只有拼写类方案（全拼、双拼、五笔、粤拼，与 iOS `hasSpellingCaret` 同一组）这样做：日语读音、韩语音节这类就地组字的方案和笔画字形照常画在候选栏上；全拼 14 键的组字是组码字母（`bugao`），不写进输入框，读音仍画在候选栏上；编辑器截短了组字、整段组字只能留在键盘上时也照常画。
+ * <p>拼写可以作为组字写进输入框，也可以只画在候选栏上，由共享偏好 `touch_spelling_position` 决定，缺省写进输入框。不读 `candidate_preedit_style`：那是桌面候选窗画不画拼音行，默认值是画，拿它当位置开关会让所有没动过设置的用户默认把拼写挪出输入框。盛京银行的全拼、双拼因搜索框不区分组字而留在键盘上，见 {@link #keepsPinyinOnKeyboard}。只有拼写类方案（全拼、双拼、五笔、粤拼，与 iOS `hasSpellingCaret` 同一组）这样做：日语读音、韩语音节这类就地组字的方案和笔画字形照常画在候选栏上；全拼 14 键的组字是组码字母（`bugao`），不写进输入框，读音仍画在候选栏上；编辑器截短了组字、整段组字只能留在键盘上时也照常画。
  *
  * <p>有两样东西不归这里管。
  *
@@ -14,13 +14,33 @@ package app.msime.android;
 public final class CandidatePreeditStylePolicy {
     public static final String PINYIN = "pinyin";
     public static final String EMPTY = "empty";
+    /** 共享偏好 `touch_spelling_position` 的两个值。 */
+    public static final String EDITOR = "editor";
+    public static final String CANDIDATE_BAR = "candidate_bar";
 
     private CandidatePreeditStylePolicy() {}
+
+    /** 不区分组字的应用按精确包名豁免；专用英文与其他语言仍按各自规则写入。 */
+    public static boolean keepsPinyinOnKeyboard(String packageName, int scheme, boolean dedicatedEnglish) {
+        return !dedicatedEnglish && (scheme == InputSchemeTraits.QUANPIN
+            || scheme == InputSchemeTraits.SHUANGPIN)
+            && "com.shengjingbank.mobile.cust".equals(packageName);
+    }
 
     /** 拼写写进输入框、候选栏不再画它的方案：全拼（含九键、九键双拼）、双拼、五笔和粤拼。 */
     public static boolean writesSpelling(int scheme) {
         return scheme == InputSchemeTraits.QUANPIN || scheme == InputSchemeTraits.SHUANGPIN
             || scheme == InputSchemeTraits.WUBI || scheme == InputSchemeTraits.CANTONESE;
+    }
+
+    /** 共享偏好只接受两个值；缺失和未知值按输入框回退，保持 Android 原来的行为。 */
+    public static String normalize(String position) {
+        return CANDIDATE_BAR.equals(position) ? CANDIDATE_BAR : EDITOR;
+    }
+
+    /** 拼写是否只显示在候选栏，不写入编辑器。 */
+    public static boolean keepsSpellingOnKeyboard(String position) {
+        return CANDIDATE_BAR.equals(normalize(position));
     }
 
     /**
@@ -30,6 +50,11 @@ public final class CandidatePreeditStylePolicy {
      */
     public static String style(int scheme, boolean spellingInEditor) {
         return writesSpelling(scheme) && spellingInEditor ? EMPTY : PINYIN;
+    }
+
+    /** 按拼写位置偏好和实际组字状态决定候选栏样式。 */
+    public static String style(String position, int scheme, boolean spellingInEditor) {
+        return keepsSpellingOnKeyboard(position) ? PINYIN : style(scheme, spellingInEditor);
     }
 
     /** 候选栏画不画组字。 */

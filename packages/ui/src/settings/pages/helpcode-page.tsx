@@ -9,6 +9,7 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 import {
   defaultHelpcode,
+  defaultShuangpinHelpcodeModes,
   helpcodeSchemaOptions,
   type CustomHelpcodeSchema,
   type HelpcodeKey,
@@ -16,6 +17,7 @@ import {
   type HelpcodePreferences,
   type HelpcodeSchema,
   type HelpcodeSettings,
+  type ShuangpinHelpcodeModes,
 } from "../helpcode-preferences";
 
 export { defaultHelpcode } from "../helpcode-preferences";
@@ -26,6 +28,7 @@ export type {
   HelpcodePreferences,
   HelpcodeSchema,
   HelpcodeSettings,
+  ShuangpinHelpcodeModes,
 } from "../helpcode-preferences";
 
 /** 下拉框里辅助码表插件的值前缀：`pack:<插件 id>`。 */
@@ -47,6 +50,7 @@ export interface HelpcodeSettingsPageProps {
   value: HelpcodeSettings;
   mobile: boolean;
   showShiftEntry: boolean;
+  showTriggerKey?: boolean;
   disabled?: boolean;
   hidden?: boolean;
   /** Custom tables discovered by the host. They are optional for hosts without resource scanning. */
@@ -86,6 +90,7 @@ export function HelpcodeSettingsGroup({
   value: draft,
   mobile,
   showShiftEntry,
+  showTriggerKey = false,
   customSchemas = [],
   packs = [],
   activeFamily,
@@ -175,6 +180,34 @@ export function HelpcodeSettingsGroup({
     );
   };
 
+  const triggerRow = (key: HelpcodeKey, label: string) => {
+    if (!showTriggerKey) return null;
+    const current = currentOf(key);
+    return (
+      <SelectRow
+        title={`${label}辅助码触发键`}
+        description="组字末尾按所选标点，再输入一到两个辅助码字母。Shift 加字母仍可使用；微软双拼的分号优先补全韵母。"
+        disabled={!current.enabled}
+        value={current.trigger_key ?? ""}
+        onChange={(event) =>
+          onChange({
+            [key]: {
+              ...current,
+              trigger_key: event.target.value as HelpcodePreferences["trigger_key"],
+            },
+          })
+        }
+      >
+        <option value="">Shift + 字母</option>
+        {[";", "/", "\\", "`", "="].map((key) => (
+          <option key={key} value={key}>
+            {key}
+          </option>
+        ))}
+      </SelectRow>
+    );
+  };
+
   const importRow = (key: HelpcodeKey, label: string) =>
     onImport && (
       <ActionRow
@@ -208,6 +241,28 @@ export function HelpcodeSettingsGroup({
     );
   };
 
+  /** 双拼专属的「末尾直接辅助码」开关；尚未实现的间接触发键继续保存在偏好结构中，但不在设置页伪装成可用功能。 */
+  const modesRows = (key: HelpcodeKey, label: string) => {
+    if (key !== "shuangpin_helpcode") {
+      return null;
+    }
+    const current = currentOf(key);
+    const modes = { ...defaultShuangpinHelpcodeModes, ...current.modes };
+    const setModes = (patch: Partial<ShuangpinHelpcodeModes>) =>
+      onChange({ [key]: { ...current, modes: { ...modes, ...patch } } });
+    return (
+      <Fragment>
+        <SwitchRow
+          title={`${label}末尾直接辅助码`}
+          description="完整音节后直接接辅助码"
+          disabled={!current.enabled}
+          checked={modes.direct}
+          onChange={(direct) => setModes({ direct })}
+        />
+      </Fragment>
+    );
+  };
+
   const shiftNote = showShiftEntry && (
     <SettingsGroupNote>
       全拼或双拼组字时，按 Shift
@@ -224,7 +279,9 @@ export function HelpcodeSettingsGroup({
         {schemaRow(activeFamily, activeLabel, `${activeLabel}辅助码方案`)}
         {importRow(activeFamily, activeLabel)}
         {importNote}
+        {triggerRow(activeFamily, activeLabel)}
         {displayRow(activeFamily, activeLabel)}
+        {modesRows(activeFamily, activeLabel)}
         <MoreOptions>
           {families
             .filter(([key]) => key !== activeFamily)
@@ -233,6 +290,7 @@ export function HelpcodeSettingsGroup({
                 {enabledRow(key, label)}
                 {schemaRow(key, label, `${label}辅助码方案`)}
                 {importRow(key, label)}
+                {triggerRow(key, label)}
                 {displayRow(key, label)}
               </Fragment>
             ))}
@@ -254,7 +312,9 @@ export function HelpcodeSettingsGroup({
             <Fragment key={key}>
               {enabledRow(key, label)}
               {key !== activeFamily && schemaRow(key, label, `${label}辅助码方案`)}
+              {triggerRow(key, label)}
               {displayRow(key, label)}
+              {modesRows(key, label)}
             </Fragment>
           ))}
         </MoreOptions>
@@ -272,7 +332,9 @@ export function HelpcodeSettingsGroup({
           {enabledRow(key, label)}
           {schemaRow(key, label, `${label}辅助码方案`)}
           {importRow(key, label)}
+          {triggerRow(key, label)}
           {displayRow(key, label)}
+          {modesRows(key, label)}
         </Fragment>
       ))}
     </GroupList>

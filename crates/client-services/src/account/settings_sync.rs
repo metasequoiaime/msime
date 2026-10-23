@@ -608,6 +608,17 @@ pub(super) fn insert_input_settings(
             BracketStyle::Hollow => "hollow",
         },
     );
+    // 顿号自定义两个键。服务端字段表收录它们之前，上传前的过滤会去掉它们（与 quote_style 相同的情形）。
+    insert_bool(
+        settings,
+        "input.enumeration_comma_backslash",
+        preferences.enumeration_comma_backslash,
+    );
+    insert_bool(
+        settings,
+        "input.enumeration_comma_slash",
+        preferences.enumeration_comma_slash,
+    );
     insert_bool(settings, "input.wubi_code_hint", preferences.wubi_code_hint);
     insert_bool(
         settings,
@@ -948,6 +959,13 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
             _ => return None,
         };
         Some(())
+    })?;
+    // 「至少留一个」不在写入时归一：远端理论上的「两个都关」由 `punctuation_marks` 读出时归一成「`\` 开」。
+    applier.set_bool("input.enumeration_comma_backslash", |preferences, value| {
+        preferences.enumeration_comma_backslash = value
+    })?;
+    applier.set_bool("input.enumeration_comma_slash", |preferences, value| {
+        preferences.enumeration_comma_slash = value
     })?;
     applier.set_bool("input.wubi_code_hint", |preferences, value| {
         preferences.wubi_code_hint = value

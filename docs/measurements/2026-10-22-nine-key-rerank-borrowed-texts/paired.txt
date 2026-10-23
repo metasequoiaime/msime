@@ -1,0 +1,22 @@
+# 九键整句重排借用词面候选：否决证据
+
+baseline_commit=395b2f10a5
+resource_generation=7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe
+model=sentence-model.safetensors
+allocator=System（临时移除测试 CountingAllocator 后的 release 测试二进制）
+paired_order=交替 old/new，每档21对，中位数，校准至少5ms
+
+# borrowed_texts_paired_latency
+paths repeats old_s new_s ratio
+2 2 1.0096
+6 1 0.9982
+12 1 0.9986
+
+threshold=cold rerank new/old < 0.95
+result=reject（2、6、12 三档均未达到门槛）
+
+# 语义与质量
+cargo test --locked -p msime-engine --lib lattice::neural::score_buffer_tests:: --no-fail-fast: 4 passed
+cargo test --locked -p msime-engine --lib nine_key:: --no-fail-fast: 212 passed, 13 ignored
+convert_eval --set resources/eval/sentences-nine-key-v1.tsv --nine-key --baseline: at baseline
+rerank_latency --set resources/eval/sentences-nine-key-v1.tsv --grid nine: p95=19.88ms, budget=16.00ms（超预算）

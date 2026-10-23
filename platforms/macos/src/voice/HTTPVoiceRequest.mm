@@ -54,7 +54,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
             // the cleaned answer was discarded every time. Waiting is the lesser cost; sending the text and
             // binning the reply is the one nobody asked for.
             auto polished = msime::voice::polish_cloud_text(text, provider, endpoint, model,
-                String(options, @"polish_token"), prompt, cancelled, 30000);
+                String(options, @"polish_token"), prompt, String(options, @"polish_thinking"), cancelled, 30000);
             if (!polished.empty() && polished.size() <= 65536) text = std::move(polished);
         }
     } catch (const std::exception &) { /* Optional polish failure preserves ASR. */ }
@@ -81,7 +81,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     if (![options isKindOfClass:NSDictionary.class]) { if (error) *error = Failure(); return nil; }
     NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
     for (NSString *key in @[@"asr_provider", @"asr_endpoint", @"asr_model", @"asr_model_path", @"asr_token", @"language",
-        @"polish_provider", @"polish_endpoint", @"polish_model", @"polish_token", @"polish_prompt_id",
+        @"polish_provider", @"polish_endpoint", @"polish_model", @"polish_token", @"polish_thinking", @"polish_prompt_id",
         @"polish_prompt_custom_1", @"polish_prompt_custom_2", @"polish_prompt_custom_3"]) {
         id value = options[key];
         if (value && (![value isKindOfClass:NSString.class] || [value length] > 8192 ||

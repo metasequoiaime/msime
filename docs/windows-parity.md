@@ -191,7 +191,7 @@
 
 **Emoji 混输在 Windows 与 macOS 上默认开启，其余宿主默认关闭。** 来源的 `config.default.toml` 出厂就是 `emoji_mixed_input = true`。共享默认 `source_mixed_emoji_default()` 写成 `cfg!(any(windows, target_os = "macos"))`，让 Windows 与 macOS 的全新 profile 都得到同样的答案。macOS 原生侧 `mixedEmojiInput` 在共享快照或本地值出现之前的回退值与之一致。颜文字混输在所有宿主上仍默认关闭，与来源相同。Linux、Android、iOS、HarmonyOS 保持原样，因为让偏好在老用户脚下变掉比按平台不同更糟；已存下来的值不受影响。判据在 `scripts/test-default-config-parity.py`。
 
-**符号混输在所有宿主上默认开启。** 符号混输（`mixed_input.symbols`，整段打出符号的名称时在候选里接着那个词给出符号，如 `zhengfu` → ±）是本客户端新增的，来源没有对应项，所以不分平台，共享文档只在关掉时写这个键。它不在 `scripts/test-default-config-parity.py` 的判据里，缺键读作开、只在关掉时写出由 client-core 的 `mixed_input_symbols_default_on_and_are_written_only_when_off` 守着。
+**符号混输在所有宿主上默认开启。** 符号混输（`mixed_input.symbols`，整段打出符号的名称时在候选里接着那个词给出符号，如 `zhengfu` → ±）对应来源 post-pin 键 `general.symbol_mixed_input`：v0.11.1 出厂关，本仓出厂值为开，差异已记录在案、是否对齐留待产品决策。共享文档只在关掉时写这个键。它不在 `scripts/test-default-config-parity.py` 的判据里，缺键读作开、只在关掉时写出由 client-core 的 `mixed_input_symbols_default_on_and_are_written_only_when_off` 守着。
 
 **润色服务与 AI 助手在 Windows 与 macOS 上默认指向 DeepSeek，AI 助手默认开启；其余宿主保持 SiliconFlow / Qwen 与 AI 关闭。** 来源的 `config.default.toml` 出厂把 `polish_provider` 设为 `deepseek`、`polish_endpoint` 设为 `https://api.deepseek.com/chat/completions`、`polish_model` 设为 `deepseek-v4-flash`，`[ai_assistant]` 为 `enabled = true` 并用同一个 provider、接口与模型，Windows 随包模板也一样；运行中的宿主读的是共享偏好文档，共享默认若不跟随，模板的值就到不了全新 profile，与语音开关是同一个道理。共享默认里润色三项由 `default_polish_service()` 成组给出（沿用 `source_voice_default()` 的判定），AI 助手由 `source_ai_default()`（`cfg!(any(windows, target_os = "macos"))`）决定开关并附带 DeepSeek 接口与模型，`enabled` 缺键时的 serde 默认也用它；接口与模型缺键时仍为空，已存下来的空值不被重新解释。AI 助手默认开启但不带 Token，`chat_completion_http_request` 在 Token 为空或是占位值时返回 `InvalidConfiguration`，不会发出任何请求；原生 AI 设置窗口要求开启时接口有效，默认接口满足这一点。macOS 原生侧在共享快照写进 NSUserDefaults 之前的润色回退值（`SharedVoicePreferences.h` 的 `MSIMEVoicePolishDefault*`，供语音设置窗口、备用 provider 窗口和录音请求共用）与之一致。Linux、Android、iOS、HarmonyOS 保持原样，因为让偏好在老用户脚下变掉比按平台不同更糟；已存下来的值不受影响。判据在 `scripts/test-default-config-parity.py`，它同时核对来源模板、Windows 模板与共享默认。
 
@@ -511,7 +511,7 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 - **设置键映射**：来源 `settings_app.cpp` 里 `path == "…"` 的 73 个键逐个在共享偏好或共享设置页里找到对应物，差异全是命名（`paging_brackets` → `navigation.brackets`、`cn_en_mixed_input` → `mixed_input.english`、`utility.*_mode` → `local_modes.*`、`word_to_character` → `word_character`、`*_helpcode_schema` → `quanpin_helpcode.schema` 等）。`input.wubi_schema` 对应共享字段 `wubi_profile`（86 五笔 / 98 五笔）；`input.japanese_schema` 在来源那边只有一个选项（罗马字），不需要共享字段。
 - **宿主能力矩阵**：`HostCapabilities::for_platform` 里没有任何一项是「Windows 有、macOS 没有」。
 - **悬浮工具栏缩放**：macOS 的白名单 75/100/125/150 与来源下拉逐项相同。
-- **翻页键的缺省**：原生窗口那个三选一的「候选翻页快捷键」只在共享 `navigation` 没有显式布尔值时充当缺省，一旦设置页写过就以共享值为准；它推出的缺省（minus_equal 开、brackets 关、其余开、mouse_wheel 关）与共享 `NavigationPreferences::default()` 逐项相同；后来加的 `left_right`（横排候选窗里，首选上左右键编辑输入串、→ 到末尾为止，其余候选上左右键移动候选高亮；竖排时左右键只编辑输入串）默认开启，来源那边没有这一项。用户显式关闭后仍以保存值为准。
+- **翻页键的缺省**：原生窗口那个三选一的「候选翻页快捷键」只在共享 `navigation` 没有显式布尔值时充当缺省，一旦设置页写过就以共享值为准；它推出的缺省（minus_equal 开、brackets 关、其余开、mouse_wheel 关）与共享 `NavigationPreferences::default()` 逐项相同；`left_right`（横排候选窗里，首选上左右键编辑输入串、→ 到末尾为止，其余候选上左右键移动候选高亮；竖排时左右键只编辑输入串）对应来源 post-pin 键 `candidate_horizontal_arrow_navigation`：v0.11.1 出厂关，本仓出厂值为开，差异已记录在案、是否对齐留待产品决策。用户显式关闭后仍以保存值为准。
 - **候选字号**：`metasequoia::mac` 下那两个只认 16/18/20 的 `NormalizeCandidateFontSize` 属保留的 Apple 适配层（`MetasequoiaInputController.mm`，不编进产物）；发出去的宿主走的是 12–32。
 
 混输最小前缀默认值的来源依据：

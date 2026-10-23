@@ -241,3 +241,62 @@ test("macOS calls the no-service choice offline translation, the other desktop h
     createCandidateTranslationSettings({ ...options, ios: true }).offlineFallback,
   ).toBeUndefined();
 });
+
+test("selecting AI-assisted translation writes translation_ai and reads it back", () => {
+  const preferences = {
+    candidate_translations: true,
+    custom_translation: { enabled: false, endpoint: "", api_key: "" },
+    tencent_tmt: { enabled: true, secret_id: "", secret_key: "", region: "" },
+    niutrans: { enabled: false, app_id: "", apikey: "" },
+    ai_assistant: {
+      enabled: false,
+      provider: "openai",
+      endpoint: "https://ai.example.invalid/v1/chat/completions",
+      model: "fixture-model",
+      candidate_limit: 3,
+      tokens: { "https://ai.example.invalid:443": "synthetic-token" },
+      prompt_custom_1: "",
+      prompt_custom_2: "",
+      prompt_custom_3: "",
+    },
+  } as unknown as Preferences;
+  const changes: Preferences[] = [];
+  const hook = renderHook(
+    ({ preferences }) =>
+      useTranslationSettings({
+        preferences,
+        mobile: false,
+        macos: true,
+        linux: false,
+        windows: false,
+        candidateEnglishGlossAvailable: false,
+        onDeviceDownloadable: [],
+        onChange: (next) => changes.push(next),
+      }),
+    { initialProps: { preferences } },
+  );
+
+  // 选中「AI 辅助」写入互斥标记，其余翻译服务全部关闭；联想开关不替翻译服务授权。
+  act(() => hook.result.current.setTranslationProvider("ai"));
+  const written = changes.at(-1)!;
+  expect(written.translation_ai).toBe(true);
+  expect(written.tencent_tmt?.enabled).toBe(false);
+  expect(written.niutrans?.enabled).toBe(false);
+  expect(written.custom_translation?.enabled).toBe(false);
+  expect(written.translation_account).toBeUndefined();
+
+  // 保存的选择回显为 ai，AI 配置齐全时 ready。
+  hook.rerender({ preferences: written });
+  expect(hook.result.current.translationProvider).toBe("ai");
+  expect(hook.result.current.aiTranslationReady).toBe(true);
+
+  // AI 辅助没配好（缺模型或 Token）：选择仍是 ai、ready 为假，设置页据此显示提示而不是静默不翻译。
+  hook.rerender({
+    preferences: {
+      ...written,
+      ai_assistant: { ...written.ai_assistant!, model: "", tokens: {} },
+    },
+  });
+  expect(hook.result.current.translationProvider).toBe("ai");
+  expect(hook.result.current.aiTranslationReady).toBe(false);
+});

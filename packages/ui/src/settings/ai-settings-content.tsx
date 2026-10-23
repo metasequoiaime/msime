@@ -4,7 +4,7 @@ import type { AiAssistantPreferences } from "./ai-assistant-preferences";
 import type { SettingsClient } from "../core/settings-client";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import { aiProviderOption, aiProviderOptionsFor, aiProviderUsesToken } from "./ai-provider-options";
-import { aiProviderUpdate } from "./ai-provider-update";
+import { aiProviderUpdate, aiEndpointUpdate, aiModelUpdate } from "./ai-provider-update";
 import {
   aiCredentialTestDisabled,
   aiProviderCredentialTestConfig,
@@ -21,6 +21,7 @@ import { AiTestToolsSection } from "./ai-test-tools-section";
 import { NetworkProxySection } from "./network-proxy-section";
 import type { NetworkProxyPreferences } from "./network-proxy-preferences";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
+import { useMountedRef } from "./use-mounted-ref";
 import * as settings from "./settings-style";
 
 export interface AiSettingsContentProps {
@@ -42,6 +43,7 @@ export interface AiSettingsContentProps {
   aiTestStatus: string;
   aiTestBusy: boolean;
   testAi: () => Promise<void>;
+  setError?: (message: string) => void;
   providerPresetControls: ProviderPresetControlFactory;
   linuxPlatform: boolean;
   windowsPlatform: boolean;
@@ -88,6 +90,7 @@ export function AiSettingsContent({
   aiTestStatus,
   aiTestBusy,
   testAi,
+  setError,
   providerPresetControls,
   linuxPlatform,
   windowsPlatform,
@@ -108,6 +111,18 @@ export function AiSettingsContent({
   showNetwork = false,
   trailing,
 }: AiSettingsContentProps) {
+  const mounted = useMountedRef();
+  const copyAiTestOutput = client.copyText
+    ? async () => {
+        if (!mounted.current) return;
+        setError?.("");
+        try {
+          await client.copyText!(aiTestOutput);
+        } catch {
+          if (mounted.current) setError?.("复制 AI 测试结果失败，请重试。");
+        }
+      }
+    : undefined;
   const linuxCredentialTest = credentialTestControl(
     "ai.assistant",
     "测试 AI 辅助配置",
@@ -152,8 +167,10 @@ export function AiSettingsContent({
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
-      onModelChange={(model) => updateAi({ model })}
-      onEndpointChange={(endpoint) => updateAi({ endpoint })}
+      onModelChange={(model) => updateAi(aiModelUpdate(model, ai))}
+      onEndpointChange={(endpoint) => updateAi(aiEndpointUpdate(endpoint, ai))}
+      thinking={ai.thinking}
+      onThinkingChange={(thinking) => updateAi({ thinking })}
       // 不鉴权的服务（Ollama）没有 Token 可填，整块不显示；Linux 的 provider 直接用页面上的地址和模型。
       credentialSection={
         !aiProviderUsesToken(ai.provider) ? null : linuxPlatform && client.providerCredentials ? (
@@ -231,7 +248,7 @@ export function AiSettingsContent({
             output={aiTestOutput}
             onInputChange={setAiTestInput}
             onTest={() => void testAi()}
-            onCopyOutput={client.copyText ? () => void client.copyText!(aiTestOutput) : undefined}
+            onCopyOutput={copyAiTestOutput}
           />
         ) : null
       }

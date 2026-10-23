@@ -1,9 +1,11 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#import <QuartzCore/CAShapeLayer.h>
 #import "CandidateTypography.h"
 #import "CandidateTextMetrics.h"
 #include "../../../../shared/candidate/CandidateItemLayout.h"
 #include "CandidateSkin.h"
+#include "CandidateShadow.h"
 #import "CandidatePronunciation.h"
 #import "CandidateMotion.h"
 #import "CandidateCanvas.h"
@@ -291,7 +293,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 - (CGPathRef)createSelectionFillPath
 {
     if (!self.hasCornerRadii) return nullptr;
-    return MSIMECreateCandidateCornerPath(NSInsetRect(self.bounds, 1, 1), self.cornerRadii, self.isFlipped);
+    return MSIMECreateCandidateCornerPath(self.bounds, self.cornerRadii, self.isFlipped);
 }
 - (void)drawRect:(NSRect)dirtyRect
 {
@@ -311,7 +313,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
             CGContextFillPath(context);
             CGPathRelease(path);
         } else {
-            [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
+            [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
         }
     }
     if (self.candidateHighlighted && self.showSelectedBar)
@@ -380,12 +382,12 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
                                                  self.translationBelow, MSIMECandidateRunMeasure(word, annotation, translation, self.font, glossFont, scale));
     }
     // The number sits on the text's first line.
-    CGFloat textTop = (layout.textHeight - wordSize.height) / 2;
+    CGFloat textTop = layout.contentTop + (layout.textHeight - wordSize.height) / 2;
     CGFloat firstLine = wordSize.height;
     if (layout.textWrapped)
     {
         const CGFloat drawn = MSIMECandidateWrappedHeight(word, self.font, layout.textWidth);
-        textTop = MAX(0.0, (layout.textHeight - drawn) / 2);
+        textTop = layout.contentTop + MAX(0.0, (layout.textHeight - drawn) / 2);
         firstLine = MSIMECandidateTextHeight(@"", self.font);
         [word drawInRect:box(contentLeft, textTop, layout.textWidth, drawn) withAttributes:MSIMECandidateRunAttributes(self.font, titleColor, YES)];
     }
@@ -436,7 +438,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 @end
 
-@interface MSIMECandidateChromeView : NSView
+@interface MSIMECandidateChromeView : NSView <MSIMECandidateWindowShadowHost>
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;
 @property(nonatomic, copy) NSColor *fillColor;
@@ -452,14 +454,18 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 // 候选列表的实际区域；画布平移时与真实按钮一起移动。
 @property(nonatomic) NSRect candidateRowsRect;
 @property(nonatomic) BOOL candidateRowsTouchTop;
+@property(nonatomic) BOOL clipsCandidateContent;
 // 系统主题允许原生玻璃；旧系统和降低透明度时仍画原有卡片。
 @property(nonatomic) BOOL liquidGlassEnabled;
 @property(nonatomic, readonly) BOOL liquidGlassActive;
 @property(nonatomic, strong, readonly) NSView *candidateContentView;
 @property(nonatomic) msime::mac::SkinInsets canvasOuterInsets;
+@property(nonatomic) msime::mac::SkinInsets shadowOuterInsets;
+@property(nonatomic) msime::mac::CandidateShadow candidateShadow;
 @property(nonatomic) BOOL canvasPanelLoaded;
 @property(nonatomic, strong, readonly) MSIMECandidateCanvasAssets *canvasAssets;
 - (void)drawCandidateCard;
+- (void)notifyCandidateAppearanceChanged;
 - (void)configureCanvas:(const msime::mac::SkinCanvas &)canvas assets:(MSIMECandidateCanvasAssets *)assets;
 - (void)setCanvasPlaybackVisible:(BOOL)visible anchor:(CFTimeInterval)anchor;
 @end
@@ -471,6 +477,16 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 - (BOOL)isOpaque { return NO; }
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 - (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; [self.owner drawCandidateCard]; }
+@end
+@interface MSIMECandidateContentView : NSView
+@property(nonatomic, weak) MSIMECandidateChromeView *owner;
+@end
+@implementation MSIMECandidateContentView
+- (void)viewDidChangeEffectiveAppearance
+{
+    [super viewDidChangeEffectiveAppearance];
+    [self.owner notifyCandidateAppearanceChanged];
+}
 @end
 @implementation MSIMECandidateChromeView
 {
@@ -487,7 +503,9 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
         _cardBackground.owner = self;
         _cardBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [self addSubview:_cardBackground];
-        _candidateContentView = [[NSView alloc] initWithFrame:self.bounds];
+        MSIMECandidateContentView *content = [[MSIMECandidateContentView alloc] initWithFrame:self.bounds];
+        content.owner = self;
+        _candidateContentView = content;
         _candidateContentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [self addSubview:_candidateContentView];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self
@@ -498,6 +516,7 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (NSView *)candidateContentView { return _candidateContentView; }
 - (BOOL)liquidGlassActive { return _glassBackground != nil; }
+- (BOOL)nativeWindowShadowEnabled { return self.candidateShadow.nativeWindow; }
 - (void)dealloc
 {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -509,7 +528,10 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (NSRect)cardBounds
 {
-    const auto outer = self.canvasOuterInsets;
+    auto outer = self.canvasOuterInsets;
+    const auto shadow = self.shadowOuterInsets;
+    outer.top += shadow.top; outer.right += shadow.right;
+    outer.bottom += shadow.bottom; outer.left += shadow.left;
     return NSMakeRect(NSMinX(self.bounds) + outer.left, NSMinY(self.bounds) + outer.bottom,
                      MAX(0.0, NSWidth(self.bounds) - outer.left - outer.right),
                      MAX(0.0, NSHeight(self.bounds) - MAX(0.0, self.cardTopInset) - outer.top - outer.bottom));
@@ -562,6 +584,19 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 {
     [super layout];
     [self updateGlassBackground];
+    if (self.clipsCandidateContent) {
+        const CGFloat halfBorder = MAX(0.0, self.lineWidth) / 2.0;
+        const NSRect bounds = NSInsetRect(_candidateContentView.bounds, halfBorder, halfBorder);
+        const CGFloat radius = MAX(0.0, self.cornerRadius - halfBorder);
+        CAShapeLayer *mask = [CAShapeLayer layer];
+        CGPathRef path = CGPathCreateWithRoundedRect(NSRectToCGRect(bounds), radius, radius, nullptr);
+        mask.path = path;
+        CGPathRelease(path);
+        _candidateContentView.wantsLayer = YES;
+        _candidateContentView.layer.mask = mask;
+    } else {
+        _candidateContentView.layer.mask = nil;
+    }
 }
 - (BOOL)isOpaque { return NO; }
 - (void)viewDidMoveToWindow
@@ -573,6 +608,10 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 - (void)viewDidChangeEffectiveAppearance
 {
     [super viewDidChangeEffectiveAppearance];
+    [self notifyCandidateAppearanceChanged];
+}
+- (void)notifyCandidateAppearanceChanged
+{
     if (self.appearanceTarget != nil && self.appearanceAction != nullptr)
     {
 #pragma clang diagnostic push
@@ -609,13 +648,31 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 - (void)drawCandidateCard
 {
+    const NSRect shadowBounds = self.cardBounds;
+    NSBezierPath *shadowPath = [NSBezierPath bezierPathWithRoundedRect:shadowBounds
+        xRadius:self.cornerRadius yRadius:self.cornerRadius];
+    // 阴影只落在卡片外，半透明底色不会被阴影压暗；不透明遮罩与底色透明度无关。
+    for (const auto &pass : self.candidateShadow.passes) {
+        if (pass.alpha <= 0) continue;
+        [NSGraphicsContext saveGraphicsState];
+        NSBezierPath *clip = [NSBezierPath bezierPathWithRect:self.bounds];
+        [clip appendBezierPath:shadowPath];
+        clip.windingRule = NSWindingRuleEvenOdd;
+        [clip addClip];
+        NSShadow *shadow = [NSShadow new];
+        shadow.shadowOffset = NSMakeSize(pass.x, -pass.y);
+        shadow.shadowBlurRadius = pass.blur;
+        shadow.shadowColor = [NSColor colorWithWhite:0 alpha:pass.alpha];
+        [shadow set];
+        [NSColor.blackColor setFill];
+        [shadowPath fill];
+        [NSGraphicsContext restoreGraphicsState];
+    }
     // 原生玻璃提供底色和边缘高光，不再叠一层不透明填色把材质盖住。
     if (_glassBackground || self.canvasPanelLoaded) return;
     // 坐标未翻转：装饰带在顶部，卡片只占下面的部分。
-    const NSRect bounds = self.cardBounds;
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds
-                                                         xRadius:self.cornerRadius
-                                                         yRadius:self.cornerRadius];
+    const NSRect bounds = shadowBounds;
+    NSBezierPath *path = shadowPath;
     [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
     [path fill];
     NSImage *background = self.backgroundImage;

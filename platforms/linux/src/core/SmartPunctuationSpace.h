@@ -17,9 +17,10 @@ struct SmartPunctuationMapping {
 // the Windows product's complete Chinese -> ASCII rewrite contract. Both quote
 // halves intentionally map to the same key. Auto-completed pairs are excluded
 // by the hosts before they arm the gesture.
+// `、` 不在表里：它的顿号键（`\` 和 `/`）由 View 的顿号开关决定，正反查都走 enumeration_comma_ascii。
 inline constexpr SmartPunctuationMapping kSmartPunctuationSpaceMap[] = {
     {"。", '.'}, {"，", ','}, {"！", '!'}, {"？", '?'}, {"；", ';'},
-    {"：", ':'}, {"、", '/'}, {"“", '"'},  {"”", '"'},  {"‘", '\''},
+    {"：", ':'}, {"“", '"'},  {"”", '"'},  {"‘", '\''},
     {"’", '\''}, {"【", '['}, {"】", ']'}, {"《", '<'}, {"》", '>'},
     {"（", '('}, {"）", ')'},
     // 直角引号和空心方头括号是同一个键的另一组字（quote_style、bracket_style），排在缺省那组后面，所以 chinese_punctuation_mark 仍给缺省的字。
@@ -45,15 +46,40 @@ inline constexpr std::string_view chinese_punctuation_mark(char value) {
   return {};
 }
 
-inline constexpr char smart_punctuation_ascii_mark(std::string_view chinese) {
+// `、` 的顿号键可被偏好关掉（契约 enumerationComma 段，宿主读 View 的
+// punctuation_marks）：按下的键开着时这个键才是顿号来源。
+inline constexpr bool is_enumeration_comma_key(
+    char value, const msime::input::PunctuationMarks &marks) {
+  return (value == '\\' && marks.enumeration_comma_backslash) ||
+         (value == '/' && marks.enumeration_comma_slash);
+}
+
+// `、` 的 ASCII 孪生：按下的键开着时转回它（`/` 出的顿号转回 `/`，`\` 出的转回
+// `\`），否则按契约序取开着的那个——`\` 优先、`/` 其次；两个都关按归一的 `\`。
+inline constexpr char enumeration_comma_ascii(
+    char key, const msime::input::PunctuationMarks &marks) {
+  if (is_enumeration_comma_key(key, marks)) return key;
+  if (marks.enumeration_comma_backslash) return '\\';
+  if (marks.enumeration_comma_slash) return '/';
+  return '\\';
+}
+
+// `key` 是产生这个中文标点的键（候选上屏时传 0）：顿号按它和顿号开关定 ASCII 孪生。
+inline constexpr char smart_punctuation_ascii_mark(
+    std::string_view chinese, char key,
+    const msime::input::PunctuationMarks &marks) {
+  if (chinese == "、")
+    return enumeration_comma_ascii(key, marks);
   for (const auto &mapping : kSmartPunctuationSpaceMap)
     if (mapping.chinese == chinese)
       return mapping.ascii;
   return 0;
 }
 
-inline constexpr bool is_space_conversion_key(char value) {
-  return !chinese_punctuation_mark(value).empty();
+inline constexpr bool is_space_conversion_key(
+    char value, const msime::input::PunctuationMarks &marks) {
+  return !chinese_punctuation_mark(value).empty() ||
+         is_enumeration_comma_key(value, marks);
 }
 
 inline constexpr bool is_auto_paired_opening_key(char value) {
@@ -63,8 +89,10 @@ inline constexpr bool is_auto_paired_opening_key(char value) {
 
 // Space conversion always writes literal half-width ASCII. It is a rewrite
 // gesture, not ordinary character-width output.
-inline std::string space_conversion_ascii_text(std::string_view chinese) {
-  const auto ascii = smart_punctuation_ascii_mark(chinese);
+inline std::string space_conversion_ascii_text(
+    std::string_view chinese, char key,
+    const msime::input::PunctuationMarks &marks) {
+  const auto ascii = smart_punctuation_ascii_mark(chinese, key, marks);
   return ascii == 0 ? std::string{} : std::string(1, ascii);
 }
 

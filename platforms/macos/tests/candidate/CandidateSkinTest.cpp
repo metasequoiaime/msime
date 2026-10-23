@@ -1,4 +1,6 @@
 #include "../../src/candidate/CandidateSkin.h"
+#include "../../src/candidate/CandidateShadow.h"
+#include "../../src/candidate/CandidatePager.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -41,6 +43,74 @@ static bool SameTokens(const msime::mac::SkinTokens &left, const msime::mac::Ski
            left.showSelectedBar == right.showSelectedBar;
 }
 int main() {
+    {
+        msime::mac::ResolvedSkin skin;
+        skin.tokens = NativeCandidateTokens(false);
+        msime::mac::CandidateWindowStyle style;
+        style.padding = 7;
+        style.paddingHorizontal = 0;
+        style.paddingVertical = 12;
+        style.cornerRadius = 20;
+        style.itemCornerRadius = 0;
+        style.itemPaddingHorizontal = 3;
+        style.itemPaddingVertical = 2;
+        style.itemSpacing = 5;
+        for (double scale : {0.5, 1.0, 1.5, 2.0}) {
+            style.scale = scale;
+            auto resolved = msime::mac::StyledCandidateSkin(skin, style);
+            assert(msime::mac::CandidateInset(resolved.tokens) == 0);
+            assert(msime::mac::CandidateVerticalInset(resolved.tokens) == 12 * scale);
+            assert(resolved.tokens.radius == 20 * scale);
+            assert(resolved.tokens.candidateRadius == 0 && resolved.tokens.selectedRadius == 0);
+            assert(resolved.tokens.explicitItemRadius);
+            assert(*resolved.tokens.itemPaddingHorizontal == 3 * scale);
+            assert(*resolved.tokens.itemPaddingVertical == 2 * scale);
+            assert(*resolved.tokens.itemSpacing == 5 * scale);
+            style.cornerRadius = 32;
+            resolved = msime::mac::StyledCandidateSkin(skin, style);
+            assert(resolved.tokens.candidateRadius == 0);
+            style.cornerRadius = 20;
+        }
+        style.scale = 1;
+        style.paddingHorizontal.reset();
+        assert(msime::mac::CandidateInset(msime::mac::StyledCandidateSkin(skin, style).tokens) == 7);
+        skin.canvas = msime::mac::SkinCanvas{};
+        skin.canvas->content = msime::mac::SkinInsets{8, 9, 10, 11};
+        style.paddingHorizontal = 3;
+        const auto canvas = msime::mac::StyledCandidateSkin(skin, style);
+        const auto content = msime::mac::CanvasContentInsets(*canvas.canvas, 3, 12);
+        assert(content.left == 3 && content.right == 3 && content.top == 12 && content.bottom == 12);
+    }
+    for (const bool dark : {false, true}) for (const double scale : {1.0, 1.5}) {
+        for (const auto &style : {"none", "soft", "normal", "strong"}) {
+            const auto shadow = msime::mac::ResolveCandidateShadow(std::string(style), dark, false, false, scale);
+            assert(!shadow.nativeWindow);
+            if (std::string(style) == "none") {
+                assert(shadow.passes[0].alpha == 0 && shadow.outer.left == 0);
+                continue;
+            }
+            const double alpha = std::string(style) == "soft" ? 0.5 : std::string(style) == "strong" ? 1.6 : 1;
+            assert(std::abs(shadow.passes[0].alpha - (dark ? 0.34 : 0.18) * alpha) < 0.00001);
+            assert(std::abs(shadow.passes[1].alpha - (dark ? 0.22 : 0.10) * alpha) < 0.00001);
+            assert(shadow.passes[0].x == 8 * scale && shadow.passes[0].y == 10 * scale && shadow.passes[0].blur == 24 * scale);
+            assert(shadow.passes[1].x == 2 * scale && shadow.passes[1].y == 3 * scale && shadow.passes[1].blur == 8 * scale);
+            const auto suppressed = msime::mac::ResolveCandidateShadow(std::string(style), dark, true, true, scale);
+            assert(!suppressed.nativeWindow && suppressed.passes[0].alpha == 0 && suppressed.outer.left == 0);
+            const auto outer = msime::mac::CandidateShadowExtraInsets(shadow, {6 * scale, 50 * scale, 8 * scale, 4 * scale}, 12 * scale);
+            assert(outer.top == 2 * scale && outer.right == 0 && outer.bottom == 32 * scale && outer.left == 28 * scale);
+        }
+    }
+    assert(msime::mac::ResolveCandidateShadow(std::nullopt, false, false, false, 1).nativeWindow);
+    assert(!msime::mac::ResolveCandidateShadow(std::nullopt, false, true, false, 1).nativeWindow);
+    const auto chevron = msime::mac::CandidatePager(16, 1, 24, true, false);
+    assert(chevron.buttonWidth == 12 && chevron.buttonHeight == 14 && chevron.column == 28 && chevron.marginBottom == 5);
+    const auto triangle = msime::mac::CandidatePager(16, 1, 24, true, true);
+    assert(triangle.buttonWidth == 15 && triangle.buttonHeight == 24 && triangle.column == 38 && triangle.dividerWidth == 1);
+    const auto verticalChevron = msime::mac::CandidatePager(16, 1, 24, false, false);
+    const auto verticalTriangle = msime::mac::CandidatePager(16, 1, 24, false, true);
+    assert(verticalChevron.column == 0 && verticalChevron.row == 16);
+    assert(verticalTriangle.buttonWidth == 13 && verticalTriangle.row == 21);
+
     // 选中行的释义色：不透明的选中底色上按底色挑白或近黑、0.82 不透明度，和底色的对比度至少 3:1（释义和读音同色，读音不再减淡）；半透明底色上就是皮肤的释义色；皮肤没有释义色时没有它，指定了就不推导。
     {
         struct Case { unsigned selected, translation, text; bool unreadable; };
@@ -142,15 +212,15 @@ int main() {
         style.cornerRadius = 14.0;
         const auto loose = msime::mac::StyledCandidateSkin(packaged, style);
         assert(loose.tokens.radius == 14.0f && loose.tokens.candidateRadius == 10.0f && loose.tokens.selectedRadius == 10.0f);
-        // 最大圆角和零内边距只保留 1pt 细边框的宽度（#7974）：圆角和内边距随整体大小缩放，边框不变粗，所以扣除的始终是 1pt。
+        // 零内边距不再扣除边框宽度；各档缩放下候选行都可以贴边。
         style.cornerRadius = 32.0;
         style.padding = 0.0;
         for (double scale : {0.5, 1.0, 1.5, 2.0}) {
             style.scale = scale;
             const auto extreme = msime::mac::StyledCandidateSkin(packaged, style);
             assert(extreme.tokens.radius == 32.0 * scale);
-            assert(msime::mac::CandidateInset(extreme.tokens) == 1.0f);
-            assert(extreme.tokens.candidateRadius == 32.0 * scale - 1.0);
+            assert(msime::mac::CandidateInset(extreme.tokens) == 0.0f);
+            assert(extreme.tokens.candidateRadius == 32.0 * scale);
             assert(extreme.tokens.selectedRadius == extreme.tokens.candidateRadius);
         }
         // Without a user radius the package's stays, and the rows keep the host's 6pt shape they drew before the setting existed.
@@ -194,10 +264,14 @@ int main() {
         padStyle.padding = 40.0;
         assert(msime::mac::StyledCandidateSkin(padded, padStyle).tokens.pad == 16.0f);
 
-        // #7974：窗口的实际内边距可以低于 2pt，但不小于边框宽度，高亮不压住细边框；无边框的皮肤可以到 0。皮肤包给的负值也不会画到卡片外面。
+        // 边框不限制窗口内边距，0 与 1 分别生效；负值仍不允许把候选行移到卡片外。
         msime::mac::SkinTokens inset = skin.tokens;
         inset.pad = 0.0f;
+        assert(msime::mac::CandidateInset(inset) == 0.0f);
+        assert(msime::mac::CandidateVerticalInset(inset) == 0.0f);
+        inset.pad = 1.0f;
         assert(msime::mac::CandidateInset(inset) == 1.0f);
+        assert(msime::mac::CandidateVerticalInset(inset) == 1.0f);
         inset.pad = 1.5f;
         assert(msime::mac::CandidateInset(inset) == 1.5f);
         inset.borderWidth = 0.0f;
@@ -214,7 +288,7 @@ int main() {
         for (double tight : {1.0, 0.0}) {
             padStyle.padding = tight;
             const auto hairline = msime::mac::StyledCandidateSkin(skin, padStyle);
-            const float expected = 9.5f - 0.5f * tangent;
+            const float expected = 9.5f - (static_cast<float>(tight) - 0.5f) * tangent;
             assert(std::abs(hairline.tokens.candidateRadius - expected) < 0.0001f && hairline.tokens.selectedRadius == hairline.tokens.candidateRadius);
             assert(hairline.tokens.radius == 10.0f && hairline.tokens.pad == static_cast<float>(tight));
         }

@@ -15,9 +15,9 @@ void check(bool condition, const char *what) {
 } // namespace
 
 int main() {
-  // 共享页的十三个服务商，顺序相同，最后是没有默认值的「自定义」；id 不重复，与偏好库的 AI_PROVIDERS 相同。
+  // 共享页的十五个服务商，顺序相同，最后是没有默认值的「自定义」；id 不重复，与偏好库的 AI_PROVIDERS 相同。
   auto const &table = providers();
-  check(table.size() == 13 && table.front().id == L"everyapi" && table[4].id == L"deepseek" &&
+  check(table.size() == 15 && table.front().id == L"everyapi" && table[4].id == L"deepseek" &&
             table.back().id == L"custom" && table.back().endpoint.empty() &&
             table.back().model.empty() && table.back().models.empty() &&
             table.back().documentation.empty(),
@@ -25,10 +25,9 @@ int main() {
   std::set<std::wstring_view> ids;
   for (auto const &entry : table)
     ids.insert(entry.id);
-  const std::set<std::wstring_view> store{L"everyapi", L"openai",     L"anthropic", L"gemini",
-                                          L"deepseek", L"qwen",       L"kimi",      L"zhipu",
-                                          L"siliconflow", L"groq",    L"openrouter", L"ollama",
-                                          L"custom"};
+  const std::set<std::wstring_view> store{
+      L"everyapi", L"openai", L"anthropic", L"gemini", L"deepseek", L"qwen", L"kimi", L"zhipu",
+      L"minimax", L"volcengine", L"siliconflow", L"groq", L"openrouter", L"ollama", L"custom"};
   check(ids == store, "provider ids match the preferences store");
   for (auto const &entry : table)
     if (entry.id != L"custom" && entry.id != L"ollama")
@@ -48,42 +47,64 @@ int main() {
             provider_uses_token(L"deepseek"),
         "only ollama goes without a token");
 
-  // aiProviderUpdate：默认值跟着换，用户填的保留。
+  // aiProviderUpdate：默认值跟着换；自定义值存进原服务商的槽位，切走再切回来还在。
+  std::map<std::wstring, std::wstring> endpoints, models;
   auto update = provider_update(L"openai", {L"deepseek", L"https://api.deepseek.com/chat/completions",
-                                            L"deepseek-v4-flash"});
+                                            L"deepseek-v4-flash"},
+                                endpoints, models);
   check(update.provider == L"openai" &&
             update.endpoint == L"https://api.openai.com/v1/chat/completions" &&
-            update.model == L"gpt-4.1-mini",
-        "defaults follow the provider");
+            update.model == L"gpt-4.1-mini" && endpoints.empty() && models.empty(),
+        "defaults follow the provider and stay out of the slots");
   update = provider_update(L"openai", {L"deepseek", L"https://llm.internal.example/v1/chat/completions",
-                                       L"my-model"});
-  check(update.endpoint == L"https://llm.internal.example/v1/chat/completions" &&
+                                       L"my-model"},
+                           endpoints, models);
+  check(update.endpoint == L"https://api.openai.com/v1/chat/completions" &&
+            update.model == L"gpt-4.1-mini" &&
+            endpoints[L"deepseek"] == L"https://llm.internal.example/v1/chat/completions" &&
+            models[L"deepseek"] == L"my-model",
+        "custom endpoint and model move into the previous provider's slot");
+  // 切回 deepseek：它的槽位回来，openai 的默认值没有槽位可写。
+  update = provider_update(L"deepseek", update, endpoints, models);
+  check(update.provider == L"deepseek" &&
+            update.endpoint == L"https://llm.internal.example/v1/chat/completions" &&
             update.model == L"my-model",
-        "custom endpoint and model are kept");
-  update = provider_update(L"kimi", {L"deepseek", L"  ", L""});
+        "switching back restores the remembered values");
+  // openai 上改成自定义值再切走：槽位按编辑后的值更新。
+  update = provider_update(L"kimi", {L"openai", L"https://proxy.internal/v1", L"gpt-custom"},
+                           endpoints, models);
+  check(endpoints[L"openai"] == L"https://proxy.internal/v1" &&
+            models[L"openai"] == L"gpt-custom",
+        "a second provider keeps its own slot");
+  update = provider_update(L"kimi", {L"deepseek", L"  ", L""}, endpoints, models);
   check(update.endpoint == L"https://api.moonshot.cn/v1/chat/completions" &&
             update.model == L"kimi-k2.6",
         "blank values take the new defaults");
   update = provider_update(L"custom", {L"deepseek", L"https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash"});
+                                       L"deepseek-v4-flash"},
+                           endpoints, models);
   check(update.provider == L"custom" && update.endpoint.empty() && update.model.empty(),
-        "switching to custom clears the previous defaults");
-  update = provider_update(L"nonexistent", {L"openai", L"https://example.com/v1", L"x"});
-  check(update.provider == L"custom" && update.endpoint == L"https://example.com/v1" &&
-            update.model == L"x",
+        "switching to custom takes its empty defaults");
+  update = provider_update(L"nonexistent", {L"openai", L"https://example.com/v1", L"x"}, endpoints,
+                           models);
+  check(update.provider == L"custom" && update.endpoint.empty() && update.model.empty(),
         "an unknown provider falls back to custom");
-  // 原服务商不认识时，只有空值会被换掉；与默认值相同但不是原服务商的，也算用户自己填的。
+  // 原服务商不认识时，现值照存进它名下的槽位。
   update = provider_update(L"openai", {L"legacy", L"https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash"});
-  check(update.endpoint == L"https://api.deepseek.com/chat/completions" &&
-            update.model == L"deepseek-v4-flash",
-        "only the previous provider's defaults are replaced");
-  // 比较不去空白：带空格的默认值算用户填的。
-  update = provider_update(L"openai", {L"deepseek", L" https://api.deepseek.com/chat/completions",
-                                       L"deepseek-v4-flash "});
-  check(update.endpoint == L" https://api.deepseek.com/chat/completions" &&
-            update.model == L"deepseek-v4-flash ",
-        "padded defaults are kept");
+                                       L"deepseek-v4-flash"},
+                           endpoints, models);
+  check(update.endpoint == L"https://example.com/v1" && update.model == L"x" &&
+            endpoints[L"legacy"] == L"https://api.deepseek.com/chat/completions" &&
+            models[L"legacy"] == L"deepseek-v4-flash",
+        "an unknown previous provider still gets a slot");
+  // 与默认值相同的值不进槽位（比较前去掉首尾空白）。
+  endpoints.clear();
+  models.clear();
+  update = provider_update(L"openai", {L"deepseek", L" https://api.deepseek.com/chat/completions ",
+                                       L"deepseek-v4-flash "},
+                           endpoints, models);
+  check(update.endpoint == L"https://api.openai.com/v1/chat/completions" && endpoints.empty(),
+        "padded defaults are not custom values");
 
   // aiServiceCredentialTestDisabled。
   check(!credential_test_disabled(true, true, L"m", L"t", L"openai"), "complete settings can be tested");
@@ -136,10 +157,13 @@ int main() {
             L"https://example.com/v1/completions",
         "other endpoints keep their path");
 
-  // 服务商下拉的图标：除「自定义」外每个服务商都有，资源号从 150 起按表的顺序，Kimi 和 OpenRouter 用深色底板。
-  for (auto const &entry : table)
-    check((provider_icon_resource(entry.id) != 0) == (entry.id != L"custom"),
-          "every catalog provider but custom has an icon");
+  // 服务商下拉的图标：已有品牌资源从 150 起按表的顺序，目录新增服务商可以没有图标；
+  // Kimi 和 OpenRouter 使用深色底板。
+  for (auto const &icon : provider_icons)
+    check(find_provider(icon.provider) != nullptr, "every provider icon has a catalog provider");
+  check(provider_icon_resource(L"custom") == 0 && provider_icon_resource(L"minimax") == 0 &&
+            provider_icon_resource(L"volcengine") == 0,
+        "providers without shipped icons have no resource");
   check(provider_icon_resource(L"everyapi") == 150 && provider_icon_resource(L"ollama") == 161 &&
             provider_icon_resource(L"unknown") == 0,
         "icon resource ids");

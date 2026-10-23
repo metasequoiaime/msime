@@ -88,6 +88,35 @@ function mountPersistence(client: SettingsClient) {
   };
 }
 
+test("新保存取消旧的已保存提示倒计时，并从最新成功响应重新计时", async () => {
+  vi.useFakeTimers();
+  const pending = deferred<Snapshot>();
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockResolvedValueOnce(oldSaved).mockReturnValueOnce(pending.promise),
+  };
+  const hook = mountPersistence(client);
+  await act(async () => {});
+  hook.edit(oldDraft);
+  await act(async () => hook.flush());
+  expect(hook.result.current.saveState).toBe("saved");
+  act(() => vi.advanceTimersByTime(1000));
+
+  const nextDraft = { ...oldDraft, learning: false };
+  hook.edit(nextDraft);
+  const saving = hook.flush();
+  act(() => vi.advanceTimersByTime(1000));
+  expect(hook.result.current.saveState).toBe("saving");
+  await act(async () => {
+    pending.resolve({ ...oldSaved, revision: 3, preferences: nextDraft });
+    await saving;
+  });
+  act(() => vi.advanceTimersByTime(1999));
+  expect(hook.result.current.saveState).toBe("saved");
+  act(() => vi.advanceTimersByTime(1));
+  expect(hook.result.current.saveState).toBe("idle");
+});
+
 test.each(["success", "failure", "conflict"] as const)(
   "ignores a stale save %s after switching away from and back to the same client",
   async (outcome) => {

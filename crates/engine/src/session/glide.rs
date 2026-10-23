@@ -9,6 +9,7 @@ const GLIDE_HYPOTHESES: usize = 16;
 
 impl InputSession {
     pub(super) fn glide(&mut self, keyboard: &GlideKeyboard, points: &[GlidePoint]) -> KeyResult {
+        self.exit_date_time_menu();
         if self.dedicated_english
             || self.local_mode != LocalInputMode::None
             || self.scheme() != SchemeType::Quanpin

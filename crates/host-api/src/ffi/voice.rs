@@ -33,6 +33,46 @@ pub unsafe extern "C" fn msime_client_voice_endpoint_issue(
     })
 }
 
+/// 设置页保存语音凭据前的共享预检；不回显凭据。
+///
+/// # Safety
+/// `provider` 与 `value` 必须分别指向本次调用期间可读的 `length` 个字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_credential_issue(
+    provider: *const u8,
+    provider_length: usize,
+    value: *const u8,
+    value_length: usize,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            provider,
+            provider_length,
+            256,
+            "invalid voice credential",
+            |bytes| {
+                let provider = std::str::from_utf8(bytes)
+                    .map_err(|_| "invalid voice credential".to_owned())?;
+                with_bounded_bytes(
+                    value,
+                    value_length,
+                    16 * 1024,
+                    "invalid voice credential",
+                    |bytes| {
+                        let value = std::str::from_utf8(bytes)
+                            .map_err(|_| "invalid voice credential".to_owned())?;
+                        let accepted =
+                            msime_client_providers::voice::provider::valid_voice_credential(
+                                provider, value,
+                            );
+                        Ok(json!({"accepted": accepted}))
+                    },
+                )
+            },
+        )
+    })
+}
+
 /// 生成 Android 流式 WebSocket 使用的规范化传输描述；不返回原始地址或凭据。
 ///
 /// # Safety
@@ -74,6 +114,46 @@ pub extern "C" fn msime_client_voice_provider_catalog() -> *mut c_char {
             "asr": ASR_PROVIDERS, "polish": POLISH_PROVIDERS,
             "doubao_stream_endpoints": DOUBAO_STREAM_ENDPOINTS
         }))
+    })
+}
+
+/// 设置页识别服务行的状态文案；纯计算，不读取偏好或设备状态。
+///
+/// # Safety
+/// `provider` 必须指向本次调用期间可读的 UTF-8 字节；空服务用 `system` 或空串表示。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_mobile_voice_status(
+    provider: *const u8,
+    provider_length: usize,
+    resolved: bool,
+    platform_available: bool,
+    model_ready: bool,
+    runtime_ready: bool,
+) -> *mut c_char {
+    response(|| unsafe {
+        with_bounded_bytes(
+            provider,
+            provider_length,
+            256,
+            "invalid voice status provider",
+            |bytes| {
+                let provider = std::str::from_utf8(bytes)
+                    .map_err(|_| "invalid voice status provider".to_owned())?;
+                let status = if provider == "local" {
+                    msime_client_providers::voice::provider::mobile_voice_local_status(
+                        model_ready,
+                        runtime_ready,
+                    )
+                } else {
+                    msime_client_providers::voice::provider::mobile_voice_provider_status(
+                        provider,
+                        resolved,
+                        platform_available,
+                    )
+                };
+                Ok(json!({"status": status}))
+            },
+        )
     })
 }
 

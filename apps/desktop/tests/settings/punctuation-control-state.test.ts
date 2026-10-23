@@ -17,6 +17,8 @@ const defaults = {
   caps_lock_ascii_punctuation: false,
   quote_style: "curly",
   bracket_style: "solid",
+  enumeration_comma_backslash: true,
+  enumeration_comma_slash: false,
 };
 
 test("旧偏好缺少可选标点键时沿用现有控件缺省值", () => {
@@ -45,6 +47,8 @@ test("保留已存的全部标点设置且不修改原偏好", () => {
     caps_lock_ascii_punctuation: true,
     quote_style: "corner_when_traditional",
     bracket_style: "hollow",
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: true,
   });
   expect(punctuationControlState(preferences)).toEqual(preferences);
   expect(punctuationControlState(preferences)).not.toBe(preferences);
@@ -58,4 +62,21 @@ test("中文固定标点和直角引号不受其他缺省字段影响", () => {
       quote_style: "corner",
     }),
   ).toEqual({ ...defaults, punctuation_lock: "chinese", quote_style: "corner" });
+});
+
+test("顿号两个键都关时按「\\ 开」显示，与读出归一一致", () => {
+  expect(
+    punctuationControlState({
+      chinese_punctuation: true,
+      enumeration_comma_backslash: false,
+      enumeration_comma_slash: false,
+    }),
+  ).toEqual(defaults);
+  expect(
+    punctuationControlState({
+      chinese_punctuation: true,
+      enumeration_comma_backslash: false,
+      enumeration_comma_slash: true,
+    }).enumeration_comma_backslash,
+  ).toBe(false);
 });

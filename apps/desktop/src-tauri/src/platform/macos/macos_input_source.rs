@@ -727,16 +727,21 @@ pub(crate) fn development_options_override(
 
 /// The version an input method bundle declares: `CFBundleShortVersionString` first, then `CFBundleVersion`.
 ///
-/// The short version is the release and is compared numerically, component by component, with trailing zeros ignored (0.50 equals 0.50.0). The build number is the commit count CMake stamps into the bundle, which only orders builds of the same release.
+/// 短版本号是发布版本，按数字逐段比较并忽略末尾零（0.50 等于 0.50.0）。构建号用于排列同一发布版本的构建；发布 bundle 还带有 `MSIMEInputSourceRevision`，资源变化时即使构建号相同也能触发刷新。
 #[derive(Debug, Clone)]
 pub(crate) struct BundleVersion {
     short: Vec<u64>,
     build: u64,
+    revision: Option<String>,
     text: String,
 }
 
 impl BundleVersion {
     fn parse(short: &str, build: &str) -> Option<Self> {
+        Self::parse_with_revision(short, build, None)
+    }
+
+    fn parse_with_revision(short: &str, build: &str, revision: Option<String>) -> Option<Self> {
         let short = short.trim();
         let build = build.trim();
         let mut components = short
@@ -749,6 +754,7 @@ impl BundleVersion {
         Some(Self {
             short: components,
             build: build.parse().ok()?,
+            revision: revision.filter(|value| !value.is_empty()),
             text: format!("{short} ({build})"),
         })
     }
@@ -808,7 +814,8 @@ pub(crate) fn bundle_version(bundle: &Path) -> Option<BundleVersion> {
     let info = bundle.join("Contents/Info.plist");
     let short = plist_string(&info, "CFBundleShortVersionString")?;
     let build = plist_string(&info, "CFBundleVersion")?;
-    BundleVersion::parse(&short, &build)
+    let revision = plist_string(&info, "MSIMEInputSourceRevision");
+    BundleVersion::parse_with_revision(&short, &build, revision)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -835,6 +842,14 @@ pub(crate) fn refresh_decision(
         (None, _) => Refresh::UpToDate,
         (Some(_), None) => Refresh::Update,
         (Some(bundled), Some(installed)) if bundled > installed => Refresh::Update,
+        // 预发布包在发布工作流之外重打时可能沿用相同的营销版本和构建号。嵌入的源码修订覆盖了随输入法分发的资源，因此不能因为数字版本恰好相同就留下旧 bundle。
+        (Some(bundled), Some(installed))
+            if bundled == installed
+                && bundled.revision.is_some()
+                && bundled.revision != installed.revision =>
+        {
+            Refresh::Update
+        }
         _ => Refresh::UpToDate,
     }
 }
@@ -1401,6 +1416,30 @@ mod tests {
         assert_eq!(version("1.0", "7").label(), "1.0 (7)");
         assert!(BundleVersion::parse("0.50.x", "1").is_none());
         assert!(BundleVersion::parse("0.50.0", "").is_none());
+    }
+
+    #[test]
+    fn a_changed_source_revision_refreshes_an_equal_build() {
+        let installed =
+            BundleVersion::parse_with_revision("0.54.2", "54002001", Some("old-source".to_owned()))
+                .unwrap();
+        let bundled =
+            BundleVersion::parse_with_revision("0.54.2", "54002001", Some("new-source".to_owned()))
+                .unwrap();
+        assert_eq!(
+            refresh_decision(Some(&bundled), Some(&installed), true),
+            Refresh::Update
+        );
+        assert_eq!(
+            refresh_decision(Some(&installed), Some(&installed), true),
+            Refresh::UpToDate
+        );
+        // 没有修订标记的旧 bundle 不应被同样没有标记的新 bundle 反复替换。
+        let unmarked = version("0.54.2", "54002001");
+        assert_eq!(
+            refresh_decision(Some(&unmarked), Some(&installed), true),
+            Refresh::UpToDate
+        );
     }
 
     // `bundle_version` reads the plist through `/usr/bin/plutil`, which exists only on macOS. The

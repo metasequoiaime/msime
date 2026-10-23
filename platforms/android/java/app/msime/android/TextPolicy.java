@@ -243,6 +243,23 @@ public final class TextPolicy {
         return value.substring(start, end);
     }
 
+    /** 按 Unicode White_Space 属性裁剪，与 Rust str::trim 的字符集合一致。 */
+    public static String trimUnicodeWhitespace(String value) {
+        if (value == null || value.isEmpty()) return value;
+        int start = 0;
+        int end = value.length();
+        while (start < end && isUnicodeWhitespace(value.charAt(start))) start++;
+        while (end > start && isUnicodeWhitespace(value.charAt(end - 1))) end--;
+        return value.substring(start, end);
+    }
+
+    private static boolean isUnicodeWhitespace(char value) {
+        return (value >= '\t' && value <= '\r') || value == ' ' || value == '\u0085'
+            || value == '\u00a0' || value == '\u1680' || (value >= '\u2000' && value <= '\u200a')
+            || value == '\u2028' || value == '\u2029' || value == '\u202f'
+            || value == '\u205f' || value == '\u3000';
+    }
+
     /** Return text unchanged, treating a missing value as empty text. */
     public static String emptyIfNull(String value) {
         return value == null ? "" : value;

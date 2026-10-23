@@ -26,9 +26,17 @@ final class DictionarySnapshotWorker {
   private var prepared: Prepared?
   private var lease: DictionarySnapshotQueue.WorkerLease?
   private var lastVersionCheck = Date.distantPast
+  /// 本进程改动队列状态文件的代次：每次 tick 读状态之前、每个准备任务结束时推进（任务只在 tick 里开始）。后台预读的状态带着读取前的代次，交回 tick 时代次变了就作废。
+  private var stateRevision: UInt64 = 0
   var isPreparing: Bool { task != nil }
   var report: ((String) -> Void)?
   var applied: (() -> Void)?
+
+  /// 在主线程外预读的队列状态，见 `stateReader()`。
+  struct PrefetchedState: Sendable {
+    fileprivate let revision: UInt64
+    fileprivate let state: Result<DictionarySnapshotQueueState, Error>
+  }
 
   init(session: MetasequoiaInputSessionBridge, queue: DictionarySnapshotQueue = .init(),
        currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id },
@@ -44,11 +52,22 @@ final class DictionarySnapshotWorker {
     prepared = nil
     lease = nil
   }
-  func tick(idle: Bool, fullAccess: Bool, force: Bool = false) {
+  /// 空闲 tick 读队列状态是文件 IO，不必占用主线程：返回的函数只读状态文件、不取锁，可以在任意线程调用，结果交给 `tick(prefetched:)`。
+  ///
+  /// 读到的状态和在 tick 里当场读没有区别，只是早了几毫秒：别的进程随时可能改它，凡是据此改动队列的操作都会在 `state.lock` 下重新核对。本进程自己的改动则由代次挡住：读取之后这个工作者又跑过 tick 或准备任务时，tick 不用这份结果，当场重读。
+  func stateReader() -> @Sendable () -> PrefetchedState {
+    let revision = stateRevision
+    let queue = queue
+    return { PrefetchedState(revision: revision, state: Result { try queue.read() }) }
+  }
+
+  func tick(idle: Bool, fullAccess: Bool, force: Bool = false, prefetched: PrefetchedState? = nil) {
     guard fullAccess else { stop(); prepared = nil; lease = nil; return }
     guard idle, task == nil else { return }
+    let usable = prefetched.flatMap { $0.revision == stateRevision ? $0.state : nil }
+    stateRevision &+= 1
     do {
-      let state = try queue.read()
+      let state = try usable?.get() ?? queue.read()
       if let request = state.request, request.status.active {
         // 取消可能遇到 state.lock 争用；后续轮询仍必须确认账号，不能替另一个账号准备或激活。
         guard let owner = try? currentAccountID() else { return }
@@ -78,7 +97,10 @@ final class DictionarySnapshotWorker {
       let options = try session.dictionaryStateVersionOptions()
       let readVersion = self.readVersion
       task = Task { [weak self] in
-        defer { self?.task = nil }
+        defer {
+          self?.task = nil
+          self?.stateRevision &+= 1
+        }
         var claimedRequest: UUID?
         let poll = Task.detached(priority: .utility) { try readVersion(options) }
         do {

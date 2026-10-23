@@ -1,6 +1,7 @@
 import { utf8Length } from "../Utf8";
 import { TextPolicy } from "../TextPolicy";
 import { VoiceInputConfiguration, VoiceAsrTokens } from "./VoiceInputConfiguration";
+import { VoiceProviderCatalog } from "./VoiceProviderCatalog";
 
 export interface HttpAsrDefaults {
   endpoint: string;
@@ -19,13 +20,10 @@ export class HttpAsrConfigurationPolicy {
   }
 
   /**
-   * 整句上传的请求格式，取值与 client-providers 的 `asr_request_format` 相同；不是整句上传的 provider 为空串。本宿主的语音设置不经过共享层的 `MobileVoiceProviderConfiguration`，所以在这里留一份同样的对应，识别器和凭据测试只按格式挑请求构造。
+   * 整句上传格式由共享 Rust 目录导出；流式、本地与未知服务为空串。识别器和凭据测试只按格式挑请求构造。
    */
   static requestFormat(provider: string): string {
-    if (["openai", "siliconflow", "groq", "everyapi", "mistral"].includes(provider)) {
-      return HTTP_ASR_MULTIPART;
-    }
-    return provider === "bailian" ? HTTP_ASR_CHAT_AUDIO : "";
+    return VoiceProviderCatalog.httpAsrRequestFormat(provider);
   }
 
   /** chat_audio 的请求体：唯一一条 user 消息，内容是录音的 Base64 数据 URL。不带语种，交给模型自动识别。 */
@@ -45,40 +43,11 @@ export class HttpAsrConfigurationPolicy {
   }
 
   static defaults(provider: string): HttpAsrDefaults | null {
-    if (provider === "openai") {
-      return { endpoint: "https://api.openai.com/v1/audio/transcriptions", model: "whisper-1" };
-    }
-    if (provider === "siliconflow") {
-      return {
-        endpoint: "https://api.siliconflow.cn/v1/audio/transcriptions",
-        model: "FunAudioLLM/SenseVoiceSmall",
-      };
-    }
-    if (provider === "groq") {
-      return {
-        endpoint: "https://api.groq.com/openai/v1/audio/transcriptions",
-        model: "whisper-large-v3-turbo",
-      };
-    }
-    if (provider === "everyapi") {
-      return {
-        endpoint: "https://api.everyapi.ai/v1/audio/transcriptions",
-        model: "volc.seedasr.sauc.duration",
-      };
-    }
-    if (provider === "mistral") {
-      return {
-        endpoint: "https://api.mistral.ai/v1/audio/transcriptions",
-        model: "voxtral-mini-latest",
-      };
-    }
-    if (provider === "bailian") {
-      return {
-        endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        model: "qwen3-asr-flash",
-      };
-    }
-    return null;
+    if (VoiceProviderCatalog.httpAsrRequestFormat(provider).length === 0) return null;
+    return {
+      endpoint: VoiceProviderCatalog.httpAsrEndpoint(provider),
+      model: VoiceProviderCatalog.httpAsrModel(provider),
+    };
   }
 
   static endpoint(config: VoiceInputConfiguration): string {

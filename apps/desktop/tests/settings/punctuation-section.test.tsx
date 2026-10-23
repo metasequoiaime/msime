@@ -242,7 +242,7 @@ test("quote and bracket styles follow 标点, show their defaults and send their
     "corner",
     "corner_when_traditional",
   ]);
-  // 引号样式紧跟在「标点」选择之后、排在成对标点前面；方头括号样式收进「更多选项」，排在智能标点前面。
+  // 引号样式紧跟在「标点」选择之后、排在成对标点前面；方头括号样式收进「更多选项」，排在顿号自定义与智能标点前面。
   const controls = Array.from(document.querySelectorAll("input, select"));
   const mode = controls.indexOf(screen.getByRole("combobox", { name: /^标点/ }));
   expect(controls.indexOf(quotes())).toBe(mode + 1);
@@ -250,7 +250,7 @@ test("quote and bracket styles follow 标点, show their defaults and send their
     mode + 2,
   );
   expect(controls.indexOf(screen.getByRole("switch", { name: /^智能标点/ }))).toBe(
-    controls.indexOf(brackets()) + 1,
+    controls.indexOf(brackets()) + 3,
   );
   expect(quotes().closest("details")).toBeNull();
   expect(brackets().closest("details")?.textContent).toContain("更多选项");
@@ -273,6 +273,84 @@ test("quote and bracket styles follow 标点, show their defaults and send their
   );
   expect(quotes().value).toBe("corner_when_traditional");
   expect(brackets().value).toBe("hollow");
+});
+
+test("顿号自定义两个开关至少留一个", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <PunctuationSection
+      preferences={{ chinese_punctuation: true }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  const backslash = () =>
+    screen.getByRole("switch", { name: /^顿号自定义 \\/ }) as HTMLInputElement;
+  const slash = () => screen.getByRole("switch", { name: /^顿号自定义 \// }) as HTMLInputElement;
+  // 缺省：\ 开、/ 关；\ 是唯一开着的那个，变灰不可关。
+  expect(backslash().checked).toBe(true);
+  expect(backslash().disabled).toBe(true);
+  expect(slash().checked).toBe(false);
+  expect(slash().disabled).toBe(false);
+  expect(backslash().closest("details")?.textContent).toContain("更多选项");
+
+  fireEvent.click(slash());
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: true,
+  });
+
+  // 两个都开时都能点；只剩 / 时 / 变灰。
+  rerender(
+    <PunctuationSection
+      preferences={{
+        chinese_punctuation: true,
+        enumeration_comma_backslash: true,
+        enumeration_comma_slash: true,
+      }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  expect(backslash().disabled).toBe(false);
+  fireEvent.click(backslash());
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: false,
+    enumeration_comma_slash: true,
+  });
+  rerender(
+    <PunctuationSection
+      preferences={{
+        chinese_punctuation: true,
+        enumeration_comma_backslash: false,
+        enumeration_comma_slash: true,
+      }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  expect(slash().checked).toBe(true);
+  expect(slash().disabled).toBe(true);
+
+  // 手改成两个都关的文档按「\ 开」显示，与引擎的读出归一一致。
+  rerender(
+    <PunctuationSection
+      preferences={{
+        chinese_punctuation: true,
+        enumeration_comma_backslash: false,
+        enumeration_comma_slash: false,
+      }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  expect(backslash().checked).toBe(true);
+  expect(slash().checked).toBe(false);
+  fireEvent.click(slash());
+  expect(onChange).toHaveBeenLastCalledWith({
+    enumeration_comma_backslash: true,
+    enumeration_comma_slash: true,
+  });
 });
 
 test("the HarmonyOS phone section keeps both styles under 更多选项", () => {

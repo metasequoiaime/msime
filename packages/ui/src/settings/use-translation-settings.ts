@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { tencentSecretConfigured } from "./credential-utils";
+import { aiCredentialOrigin, tencentSecretConfigured } from "./credential-utils";
+import { aiProviderUsesToken } from "./ai-provider-options";
 import {
   defaultCustomTranslation,
   defaultNiuTrans,
@@ -67,7 +68,9 @@ export function useTranslationSettings({
           ? "custom"
           : tencentTranslation.enabled
             ? "tencent"
-            : "none";
+            : preferences?.translation_ai
+              ? "ai"
+              : "none";
   // 没有可用密钥的腾讯云不会被请求：host-api 的 `selected_translation_services` 只在两个密钥都可用时才把它放进查询，macOS（`InputController` 的 `currentOnDeviceGlossRequest`）、Windows（Server 的 `msime_client_translation_query`）和 HarmonyOS（`TranslationPolicy.provider`）都按查询走。所以新装时默认的 `enabled: true` 在这三处显示成 `none`，与实际一致；用户本次选了腾讯云才显示腾讯云，让凭据输入框出现。Linux 的显示不变：它的密钥在 provider 自己的 tencent-provider.json 里，偏好里的空密钥不代表没配置，host-api 也正靠 `enabled: true` 把查询交给那边。
   const translationProvider =
     (macos || windows || harmony) &&
@@ -87,8 +90,22 @@ export function useTranslationSettings({
           onDeviceDownloadable.includes(code),
       )
     : [];
+  const aiAssistant = preferences?.ai_assistant;
+  // 与 host-api `selected_translation_services` 填充 `ai_assistant` 一栏的条件一致：
+  // 服务商在目录内、模型非空、接口地址合规，且按来源键找得到 Token（Ollama 不鉴权除外）。
+  const aiOrigin = aiAssistant ? aiCredentialOrigin(aiAssistant.endpoint) : null;
+  const aiToken =
+    aiAssistant && aiOrigin && aiProviderUsesToken(aiAssistant.provider)
+      ? (aiAssistant.tokens?.[aiOrigin] ?? aiAssistant.token ?? "")
+      : "";
+  const aiTranslationReady = Boolean(
+    aiAssistant &&
+      aiOrigin &&
+      aiAssistant.model.trim() &&
+      (aiToken.trim() || !aiProviderUsesToken(aiAssistant.provider)),
+  );
   const setTranslationProvider = (
-    provider: "none" | "custom" | "tencent" | "niutrans" | "account",
+    provider: "none" | "custom" | "tencent" | "niutrans" | "account" | "ai",
   ) => {
     if (!preferences) return;
     setTencentChosen(provider === "tencent");
@@ -98,6 +115,7 @@ export function useTranslationSettings({
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
       translation_account: provider === "account" ? true : undefined,
+      translation_ai: provider === "ai" ? true : undefined,
     });
   };
 
@@ -114,6 +132,9 @@ export function useTranslationSettings({
     translationProvider,
     onDeviceMissingLanguages,
     setTranslationProvider,
+    aiAssistant,
+    aiTranslationReady,
+    aiToken,
   } as const;
 }
 

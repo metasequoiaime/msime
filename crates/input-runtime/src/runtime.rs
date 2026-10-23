@@ -3,8 +3,8 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order,
-    ParallelOrderRows,
+    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
+    runner_up_order, ParallelOrderRows, StaticEvidence,
 };
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
@@ -13,6 +13,7 @@ pub(crate) use msime_engine::ordering::{
 };
 use msime_engine::SchemeType;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 pub enum Action {
     ResetCache,
@@ -110,6 +111,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) wubi_fifth_code_top_commit: bool,
     pub(crate) wubi_candidate_selection:
         msime_client_core::preferences::WubiCandidateSelectionPreferences,
+    /// 通用「二三候选」键（`second_third_candidate`）：组字时 `;` 选当前页第二个、`'` 选第三个。
+    /// 宿主编排状态，与 `wubi_candidate_selection` 同在 `candidate_shortcut` 拦截。
+    pub(crate) second_third_candidate:
+        msime_client_core::preferences::SecondThirdCandidatePreferences,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -124,7 +129,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
-    /// 横排候选窗里，左右方向键在高亮不在首选、或者首选上 → 已经到了输入串末尾时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    /// 造词时按 Esc 是否只丢掉还没选的拼写、保留已经选好的词（Windows `input.escape_keeps_selected_word`）。默认关：Esc 连已选词一起丢掉，与旧行为一致。
+    pub(crate) escape_keeps_selected_word: bool,
+    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
@@ -163,6 +170,9 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) settled_reranker: Option<Reranker>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
+    // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
+    settled_settings_epoch: Arc<()>,
+    settled_model_epoch: Arc<()>,
     /// 最近一次 `dispatch` 或 `focus` 的旁路事实，见 [`DispatchFacts`]。
     pub(crate) facts: DispatchFacts,
     /// `facts.selection` 那个座位上候选的文本，用引擎调用之前的快照记下；没有选择时为空。`DispatchFacts` 要保持 `Copy`，文本单独放在这里，缓冲区在调用之间复用。
@@ -192,6 +202,35 @@ fn scheme_type(scheme: u8) -> Option<SchemeType> {
 pub(crate) fn script_conversion(scheme: u8, local_mode: &str) -> bool {
     scheme_type(scheme).is_some_and(SchemeType::script_conversion_applies)
         && !matches!(local_mode, "unicode" | "temporary_japanese")
+}
+
+/// 「二三候选」键在这个方案的组字里能不能选候选。日文把 `;`/`'` 用在罗马字输入里（`n'` 打出ん）；
+/// 韩文、注音、越南文、藏文由宿主自己组字或自己开候选列表。与 Windows
+/// `SecondThirdCandidatePolicy.h` 的 `second_third_candidate_scheme` 同一张表：
+/// 方案号未知时不接管的两边都不算，照样接管。
+fn second_third_candidate_scheme(scheme: u8) -> bool {
+    !matches!(
+        scheme_type(scheme),
+        Some(
+            SchemeType::JapaneseRomaji
+                | SchemeType::Korean
+                | SchemeType::Zhuyin
+                | SchemeType::Vietnamese
+                | SchemeType::Tibetan
+        )
+    )
+}
+
+/// 微软双拼（及零声母编码用 `;` 的方案）把 `;` 当韵母 ing：光标前、自上一个 `'` 起的片段
+/// 长度为奇数（刚打完声母）时它是输入。与 Windows `microsoft_shuangpin_final_position`
+/// 和引擎 `accepts_ing_key` 同一条判断；`editing` 是 ASCII 组字原文，`caret` 是它的字节偏移。
+fn microsoft_shuangpin_final_position(editing: &[u8], caret: usize) -> bool {
+    let caret = caret.min(editing.len());
+    let mut start = caret;
+    while start > 0 && editing[start - 1] != b'\'' {
+        start -= 1;
+    }
+    (caret - start) % 2 == 1
 }
 
 /// Move the flagged elements to the end, keeping both groups in their existing order.
@@ -241,6 +280,74 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
     .with_static_evidence(&snapshot.candidate_static_evidence)
 }
 
+/// 复制候选行，供停顿模型在会话线程之外评分。
+struct SettledRerankRows {
+    texts: Vec<String>,
+    sources: Vec<u8>,
+    answers_key: Vec<bool>,
+    corrected: Vec<bool>,
+    static_evidence: Vec<Option<StaticEvidence>>,
+}
+
+/// 脱离会话借用的停顿评分请求；模型随请求转移，必须经
+/// [`Runtime::apply_settled_rerank`] 或 [`Runtime::discard_settled_rerank`] 归还。
+pub struct SettledRerankRequest {
+    generation: u64,
+    settings_epoch: Arc<()>,
+    model_epoch: Arc<()>,
+    context: String,
+    scheme: u8,
+    answered_by_pinyin_fallback: bool,
+    rows: SettledRerankRows,
+    reranker: Reranker,
+}
+
+/// [`score_settled_rerank`] 产生的模型和待提升的候选行。
+pub struct SettledRerankScore {
+    generation: u64,
+    settings_epoch: Arc<()>,
+    model_epoch: Arc<()>,
+    promote: Option<usize>,
+    reranker: Reranker,
+}
+
+/// [`Runtime::apply_settled_rerank`] 对评分的发布结果。
+pub struct SettledRerankApplied {
+    /// 评分仍属于当前组字和配置；按键、开关或模型改变后为假且不重排。
+    /// 为真表示本次组字已评分，无论顺序是否变化。
+    pub current: bool,
+    /// 已发布的候选顺序发生变化。
+    pub moved: bool,
+}
+
+/// 计算 [`Runtime::begin_settled_rerank`] 取出的请求；拥有模型及候选副本，
+/// 不访问会话，可以在任意线程调用。
+pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankScore {
+    let promote = {
+        let rows = ParallelOrderRows::new(
+            &request.rows.texts,
+            &request.rows.sources,
+            &request.rows.answers_key,
+            &request.rows.corrected,
+        )
+        .with_static_evidence(&request.rows.static_evidence);
+        rerank_pick(
+            &mut request.reranker,
+            &request.context,
+            request.scheme,
+            request.answered_by_pinyin_fallback,
+            &rows,
+        )
+    };
+    SettledRerankScore {
+        generation: request.generation,
+        settings_epoch: request.settings_epoch,
+        model_epoch: request.model_epoch,
+        promote,
+        reranker: request.reranker,
+    }
+}
+
 impl Runtime<Session> {
     /// 打开或关闭云候选固定席位；宿主偏好变化时立即刷新当前组字。
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
@@ -250,6 +357,19 @@ impl Runtime<Session> {
         // 开关会插入或移除云占位行，必须在修改引擎前使旧候选身份失效。
         self.advance()?;
         self.engine.set_cloud_candidates_enabled(enabled);
+        self.refresh()
+    }
+
+    /// 英文在线授权的改变立即失效旧查询，并刷新已经显示的英文列表。
+    pub fn set_english_online_candidates_enabled(
+        &mut self,
+        enabled: bool,
+    ) -> Result<(), RuntimeError> {
+        if self.engine.english_online_candidates_enabled() == enabled {
+            return Ok(());
+        }
+        self.advance()?;
+        self.engine.set_english_online_candidates_enabled(enabled);
         self.refresh()
     }
 
@@ -270,6 +390,7 @@ impl Runtime<Session> {
             return Ok(None);
         }
         Ok(Some(OnlineQuery {
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity,
@@ -300,6 +421,7 @@ impl Runtime<Session> {
         let cloud_candidates = query.cloud_candidates;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -326,6 +448,7 @@ impl Runtime<Session> {
     ) -> Result<bool, RuntimeError> {
         let cloud_candidates = query.cloud_candidates;
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -339,6 +462,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,
@@ -411,6 +535,7 @@ impl Runtime<Session> {
         };
         let query = OnlineQuerySnapshot {
             available: true,
+            mode: query.mode,
             scheme: query.scheme,
             generation: query.generation,
             identity: query.identity.clone(),
@@ -438,6 +563,7 @@ impl Runtime<Session> {
             query.ai_candidate_limit()
         };
         let OnlineQuery {
+            mode,
             scheme,
             generation,
             identity,
@@ -451,6 +577,7 @@ impl Runtime<Session> {
         } = query;
         let query = OnlineQuerySnapshot {
             available: true,
+            mode,
             scheme,
             generation,
             identity,
@@ -635,6 +762,11 @@ impl<E: InputEngine> Runtime<E> {
         self.backspace_reverts_selection = enabled;
     }
 
+    /// 造词时第一次 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消。只影响下一次 Esc，不清空已选词段或历史，也不重建 Engine。
+    pub fn set_escape_keeps_selected_word(&mut self, enabled: bool) {
+        self.escape_keeps_selected_word = enabled;
+    }
+
     /// 左右键的候选回退（`navigation.left_right`）：只影响左右键这一次怎么解释，不动组字状态，也不重建 Engine。
     pub fn set_left_right_navigation(&mut self, enabled: bool) {
         self.left_right_navigation = enabled;
@@ -659,12 +791,27 @@ impl<E: InputEngine> Runtime<E> {
         &self.wubi_candidate_selection
     }
 
-    /// 将已解码的五笔选词字符转成当前页的候选动作，供统计与生命周期共用。
+    /// 「二三候选」键同样是宿主编排状态，切换配置无需等待 Engine 重建。
+    pub fn set_second_third_candidate(
+        &mut self,
+        settings: msime_client_core::preferences::SecondThirdCandidatePreferences,
+    ) {
+        self.second_third_candidate = settings;
+    }
+
+    pub fn second_third_candidate(
+        &self,
+    ) -> &msime_client_core::preferences::SecondThirdCandidatePreferences {
+        &self.second_third_candidate
+    }
+
+    /// 将已解码的选词字符转成当前页的候选动作，供统计与生命周期共用：五笔的自定义键在前，通用「二三候选」键在后。
     pub fn candidate_shortcut(&self, action: Action) -> Action {
         if !self.focused {
             return action;
         }
         self.wubi_candidate_shortcut(&action)
+            .or_else(|| self.second_third_candidate_shortcut(&action))
             .map(Action::Select)
             .unwrap_or(action)
     }
@@ -685,6 +832,48 @@ impl<E: InputEngine> Runtime<E> {
             _ => return None,
         };
         let slot = self.wubi_candidate_selection.slot(value)?;
+        let start = (self.highlighted / self.page_size) * self.page_size;
+        let index = start + slot;
+        (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
+            session: self.session,
+            generation: self.generation,
+            index,
+        })
+    }
+
+    /// 通用「二三候选」键：`;` 选当前页第二个、`'` 选第三个。边界与 `wubi_candidate_shortcut`
+    /// 相同（快照有效、组字中、无本地模式、非英文模式），方案与输入排除照 Windows
+    /// `SecondThirdCandidatePolicy.h` 的 `second_third_candidate_scheme` 与
+    /// `second_third_candidate_engine_input`。
+    fn second_third_candidate_shortcut(&self, action: &Action) -> Option<CandidateId> {
+        if !self.second_third_candidate.enabled
+            || !self.snapshot_valid
+            || self.cached.dedicated_english
+            || self.cached.local_mode != "none"
+            || self.cached.editing_text.is_empty()
+            || !second_third_candidate_scheme(self.cached.scheme)
+        {
+            return None;
+        }
+        let value = match action {
+            Action::Character { value, .. }
+            | Action::Punctuation(value)
+            | Action::PunctuationAscii(value) => *value,
+            _ => return None,
+        };
+        let slot = self.second_third_candidate.slot(value)?;
+        // 引擎在当前状态下把这个键当输入时不接管：网址、V 模式的拼写符号，
+        // 以及微软双拼声母后的韵母 ing。
+        if self.cached.spelling_symbols.contains(char::from(value))
+            || (value == b';'
+                && self.cached.microsoft_shuangpin
+                && microsoft_shuangpin_final_position(
+                    self.cached.editing_text.as_bytes(),
+                    self.cached.caret_position,
+                ))
+        {
+            return None;
+        }
         let start = (self.highlighted / self.page_size) * self.page_size;
         let index = start + slot;
         (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
@@ -822,6 +1011,8 @@ impl<E: InputEngine> Runtime<E> {
             reranker: None,
             settled_reranker: None,
             settled_rerank_enabled: true,
+            settled_settings_epoch: Arc::new(()),
+            settled_model_epoch: Arc::new(()),
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -841,8 +1032,10 @@ impl<E: InputEngine> Runtime<E> {
             wubi_auto_commit_unique: true,
             wubi_fifth_code_top_commit: true,
             wubi_candidate_selection: Default::default(),
+            second_third_candidate: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
+            escape_keeps_selected_word: false,
             left_right_navigation: false,
             vertical_candidates: false,
             phrase_prefix: String::new(),
@@ -890,14 +1083,18 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker.is_some()
     }
 
-    /// Attach the model that runs after typing settles. Absent leaves the behaviour unchanged.
+    /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.settled_model_epoch = Arc::new(());
         self.settled_reranker = reranker;
     }
 
-    /// Turn the settled rerank on or off without dropping the attached model, so switching it back on needs no reload. Hosts drive this from the desktop sentence model preference.
+    /// 开关改变时作废在途评分，但保留模型，重新开启时不必加载。
     pub fn set_settled_rerank_enabled(&mut self, enabled: bool) {
-        self.settled_rerank_enabled = enabled;
+        if self.settled_rerank_enabled != enabled {
+            self.settled_settings_epoch = Arc::new(());
+            self.settled_rerank_enabled = enabled;
+        }
     }
 
     pub fn settled_rerank_enabled(&self) -> bool {
@@ -909,43 +1106,166 @@ impl<E: InputEngine> Runtime<E> {
     /// The host decides when this is: it owns the clock and already runs a settle timer for cloud candidates. The runtime has no timer of its own and should not grow one — a keystroke that arrives while this is deciding makes the whole answer stale, and only the host knows that a keystroke arrived.
     ///
     /// Returns false when nothing changed, so a host can skip redrawing the candidate window. A window that repaints identically on every pause is a flicker the user cannot explain.
+    ///
+    /// 本方法在调用线程运行模型；输入线程应使用 [`Runtime::begin_settled_rerank`] 和
+    /// [`score_settled_rerank`] 异步计算，再经 [`Runtime::apply_settled_rerank`] 归还模型。
     pub fn rerank_settled(&mut self) -> bool {
-        // A reorder has to advance the generation (old IDs would otherwise select by the new seats), so an exhausted generation cannot reorder at all.
-        if !self.settled_rerank_enabled
+        if self.settled_rerank_blocked() {
+            return false;
+        }
+        self.snapshot_settled_seats();
+        let marked = self.settled_highlight();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        // 使用快速重排相同的后处理，保留固定席位。
+        let moved = self.rerank();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        self.finish_settled_presentation(moved, marked)
+    }
+
+    /// 后台评分可能改变顺序时取出停顿模型。
+    ///
+    /// `None` 保留模型，调用方可运行 [`Runtime::rerank_settled`] 完成无需模型的呈现整理。
+    /// `Some` 转移模型所有权，但按键仍使用快速模型；调用方必须经
+    /// [`Runtime::apply_settled_rerank`] 或 [`Runtime::discard_settled_rerank`] 归还。
+    pub fn begin_settled_rerank(&mut self) -> Option<SettledRerankRequest> {
+        if self.settled_rerank_blocked() || !self.settled_model_would_score() {
+            return None;
+        }
+        self.snapshot_settled_seats();
+        let generation = self.generation;
+        let context = self.ai_context.clone();
+        let scheme = self.cached.scheme;
+        let answered_by_pinyin_fallback = self.cached.answered_by_pinyin_fallback;
+        let texts = self.cached.candidates.clone();
+        let sources = self.cached.candidate_sources.clone();
+        let answers_key = self.cached.candidate_answers_key.clone();
+        let corrected = self.cached.candidate_corrected.clone();
+        let static_evidence = if self.cached.candidate_static_evidence.len() == texts.len() {
+            self.cached.candidate_static_evidence.clone()
+        } else {
+            Vec::new()
+        };
+        let reranker = self.settled_reranker.take()?;
+        Some(SettledRerankRequest {
+            generation,
+            settings_epoch: self.settled_settings_epoch.clone(),
+            model_epoch: self.settled_model_epoch.clone(),
+            context,
+            scheme,
+            answered_by_pinyin_fallback,
+            rows: SettledRerankRows {
+                texts,
+                sources,
+                answers_key,
+                corrected,
+                static_evidence,
+            },
+            reranker,
+        })
+    }
+
+    /// 仅发布同一组字、开关与模型版本的评分；开关变化不推进可见候选的身份。
+    pub fn apply_settled_rerank(&mut self, score: SettledRerankScore) -> SettledRerankApplied {
+        let SettledRerankScore {
+            generation,
+            settings_epoch,
+            model_epoch,
+            promote,
+            reranker,
+        } = score;
+        let current = generation == self.generation
+            && self.settled_rerank_enabled
+            && Arc::ptr_eq(&settings_epoch, &self.settled_settings_epoch)
+            && Arc::ptr_eq(&model_epoch, &self.settled_model_epoch);
+        self.restore_settled_reranker(reranker, &model_epoch);
+        if !current {
+            return SettledRerankApplied {
+                current: false,
+                moved: false,
+            };
+        }
+        // 评分期间用户仍可移动高亮，按发布前的实际选择恢复。
+        let marked = self.settled_highlight();
+        let moved = promote.is_some_and(|index| self.promote_row(index));
+        SettledRerankApplied {
+            current: true,
+            moved: self.finish_settled_presentation(moved, marked),
+        }
+    }
+
+    /// 放弃发布；模型未被替换或移除时才归还，关闭开关仍保留模型供下次使用。
+    pub fn discard_settled_rerank(&mut self, score: SettledRerankScore) {
+        self.restore_settled_reranker(score.reranker, &score.model_epoch);
+    }
+
+    fn settled_rerank_blocked(&self) -> bool {
+        // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
+        !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
+    }
+
+    /// 判断是否需要模型前向计算；提前退出的情况可留在会话线程处理。
+    fn settled_model_would_score(&self) -> bool {
+        if !self.cached.conversion.is_empty() {
+            return false;
+        }
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return false;
         }
+        rerank_needs_model(
+            snapshot.scheme,
+            snapshot.answered_by_pinyin_fallback,
+            &order_rows(snapshot),
+        )
+    }
+
+    fn snapshot_settled_seats(&mut self) {
         // 脚本插件的操作只按候选身份重放，不运行脚本：停顿的时机不能透露给脚本。是否挪动按重放之后的座位比较。
-        // 重排会就地挪动 `cached`，先记下高亮那一条。高亮还在第一条时不用记：落定之后仍停在第一条。
-        let previous_highlight = self.highlighted;
-        let marked = if previous_highlight == 0 {
-            None
-        } else {
-            self.cached
-                .candidates
-                .get(previous_highlight)
-                .cloned()
-                .map(|text| {
-                    (
-                        text,
-                        self.cached.candidate_codes.get(previous_highlight).cloned(),
-                    )
-                })
-        };
-        let replayed = self.has_candidate_ops();
-        if replayed {
-            let mut order = std::mem::take(&mut self.settled_order_scratch);
-            self.copy_seat_order(&mut order);
-            self.settled_order_scratch = order;
+        if !self.has_candidate_ops() {
+            return;
         }
-        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        // The same passes the fast path runs after its rerank, so the seats they fix stay fixed.
-        let mut moved = self.order_presentation();
-        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        if replayed {
+        let mut order = std::mem::take(&mut self.settled_order_scratch);
+        self.copy_seat_order(&mut order);
+        self.settled_order_scratch = order;
+    }
+
+    fn restore_settled_reranker(&mut self, reranker: Reranker, model_epoch: &Arc<()>) {
+        if Arc::ptr_eq(model_epoch, &self.settled_model_epoch) && self.settled_reranker.is_none() {
+            self.settled_reranker = Some(reranker);
+        }
+    }
+
+    fn settled_highlight(&self) -> Option<(usize, String, Option<String>)> {
+        if self.highlighted == 0 {
+            return None;
+        }
+        Some((
+            self.highlighted,
+            self.cached.candidates.get(self.highlighted)?.clone(),
+            self.cached.candidate_codes.get(self.highlighted).cloned(),
+        ))
+    }
+
+    fn finish_settled_presentation(
+        &mut self,
+        rerank_moved: bool,
+        marked: Option<(usize, String, Option<String>)>,
+    ) -> bool {
+        let mut moved = rerank_moved;
+        moved |= self.demote_runner_up_readings();
+        moved |= self.normalize_online_slots();
+        if self.has_candidate_ops() {
             let marks_changed = self.transform_candidates();
             moved = marks_changed || !self.seat_order_matches(&self.settled_order_scratch);
         }
@@ -953,8 +1273,8 @@ impl<E: InputEngine> Runtime<E> {
             self.snapshot_valid = true;
             // 用户还停在第一条时，落定重排换上来的词就是新的第一条。已经翻页或移动过高亮时，
             // 停在原来那一条上，不能弹回第一页。
-            if let Some((text, code)) = &marked {
-                self.keep_highlight_on_same_candidate(previous_highlight, text, code.as_deref());
+            if let Some((previous_highlight, text, code)) = &marked {
+                self.keep_highlight_on_same_candidate(*previous_highlight, text, code.as_deref());
             } else {
                 self.highlighted = 0;
             }
@@ -1709,14 +2029,16 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 暂存只消耗部分拼写的选词结果，等整段组字完成后一次上屏。
     /// 仍在组字时把刚选的词放进 `phrase_prefix`；有最终提交时把前缀接在它前面。
-    /// 拼写删空而没有提交时，取消丢掉前缀；分段编辑在仍有可回退历史时保留前缀；
-    /// 其余动作上屏前缀，避免丢掉已选文字。普通退格关闭回退时也走这条删空收尾路径。
+    /// 拼写删空而没有提交时，取消丢掉前缀；第一次 Esc 保留已选词时把词段留在组字里；
+    /// 分段编辑在仍有可回退历史时保留前缀；其余动作上屏前缀，避免丢掉已选文字。
+    /// 普通退格关闭回退时也走这条删空收尾路径。
     /// 只剩暂存词段时，提交或丢弃它都算处理了按键，防止回车、空格再穿透到应用。
     fn hold_phrase_progress(
         &mut self,
         picked: bool,
         discard: bool,
         keep_empty: bool,
+        keep_for_escape: bool,
         consumed: &str,
         result: &mut EngineResult,
     ) {
@@ -1748,6 +2070,12 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
         if self.phrase_prefix.is_empty() || composing {
+            return;
+        }
+        // 第一次 Esc 保留已选词：引擎的 Cancel 已经把没选的拼写清掉，词段留在组字里等下一次 Esc 或别的键。
+        // 不要求有可回退历史：选择没有消耗拼写时 `phrase_selections` 可以为空，词段仍要留下。
+        if keep_for_escape && !discard && !result.has_commit {
+            result.handled = true;
             return;
         }
         if keep_empty && !discard && !result.has_commit && !self.phrase_selections.is_empty() {
@@ -1914,8 +2242,19 @@ impl<E: InputEngine> Runtime<E> {
         let has_cloud = counts[CLOUD_GROUP] > 0;
         let ai_count = counts[AI_GROUP];
         let non_ai = count - ai_count;
-        // 第一条 AI 候选的座位：第一页最后一格，不占首位；第一页排不满时紧跟在其余行之后。
-        let ai_seat = self.page_size.saturating_sub(1).max(1).min(non_ai);
+        // 联系人姓名与组合文本占据开头的连续位置，云与 AI 候选都不能拆开这一组。
+        let contact_prefix = snapshot
+            .candidate_sources
+            .iter()
+            .take_while(|source| **source == msime_engine::CandidateSource::Contact as u8)
+            .count();
+        // 第一条 AI 候选通常坐第一页最后一格；小页数也必须让完整联系人组保持在它前面。
+        let ai_seat = self
+            .page_size
+            .saturating_sub(1)
+            .max(1)
+            .max(contact_prefix)
+            .min(non_ai);
 
         // 有云候选时其余行每组有优先段和剩余段，组内按引擎原顺序排列。
         let mut head_starts = [0; 7];
@@ -1930,7 +2269,7 @@ impl<E: InputEngine> Runtime<E> {
             let mut reading = snapshot.reading.chars();
             let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
                 && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
-            let local_prefix = if single_kana { 2 } else { 1 };
+            let local_prefix = (if single_kana { 2 } else { 1 }).max(contact_prefix);
 
             let mut next_seat = 0;
             let mut head = |group: usize, limit: usize| {
@@ -2031,7 +2370,9 @@ impl<E: InputEngine> Runtime<E> {
             }
             fixed_english_scratch.sort_by_key(|index| snapshot.candidate_positions[*index]);
             for &index in &fixed_english_scratch {
-                let seat = usize::from(snapshot.candidate_positions[index] - 1).min(write);
+                let seat = usize::from(snapshot.candidate_positions[index] - 1)
+                    .max(contact_prefix)
+                    .min(write);
                 order.copy_within(seat..write, seat + 1);
                 order[seat] = index;
                 write += 1;
@@ -2072,13 +2413,46 @@ impl<E: InputEngine> Runtime<E> {
         if !self.cached.conversion.is_empty() {
             return false;
         }
-        let Some(reranker) = self.reranker.as_mut() else {
+        let promote = {
+            let Some(reranker) = self.reranker.as_mut() else {
+                return false;
+            };
+            let snapshot = &self.cached;
+            let count = snapshot.candidates.len();
+            if count < 2
+                || snapshot.candidate_sources.len() != count
+                || snapshot.candidate_codes.len() != count
+                || snapshot.candidate_annotations.len() != count
+                || snapshot.candidate_positions.len() != count
+                || snapshot.candidate_corrected.len() != count
+                || snapshot.candidate_answers_key.len() != count
+            {
+                return false;
+            }
+            // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
+            let rows = order_rows(snapshot);
+            rerank_pick(
+                reranker,
+                &self.ai_context,
+                snapshot.scheme,
+                snapshot.answered_by_pinyin_fallback,
+                &rows,
+            )
+        };
+        let Some(promote) = promote else {
             return false;
         };
+        self.promote_row(promote)
+    }
+
+    /// 把 `promote` 旋到首位，并同步候选元数据和引擎座位映射。下标为 0 或越界时不动。
+    fn promote_row(&mut self, promote: usize) -> bool {
+        let count = self.cached.candidates.len();
+        if promote == 0 || promote >= count {
+            return false;
+        }
         let snapshot = &self.cached;
-        let count = snapshot.candidates.len();
-        if count < 2
-            || snapshot.candidate_sources.len() != count
+        if snapshot.candidate_sources.len() != count
             || snapshot.candidate_codes.len() != count
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
@@ -2087,17 +2461,6 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
-        let rows = order_rows(snapshot);
-        let Some(promote) = rerank_pick(
-            reranker,
-            &self.ai_context,
-            snapshot.scheme,
-            snapshot.answered_by_pinyin_fallback,
-            &rows,
-        ) else {
-            return false;
-        };
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         rotate_to_front(&mut snapshot.candidates, promote);
@@ -2345,7 +2708,7 @@ impl<E: InputEngine> Runtime<E> {
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
         // 失焦时送出用户已经选好的暂存段；获得焦点时旧词段已丢弃，不会产生提交。
-        self.hold_phrase_progress(false, false, false, "", &mut result);
+        self.hold_phrase_progress(false, false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another. The Engine's committed-word context follows the same rule: the next word
@@ -2441,12 +2804,13 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn punctuation_ascii(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
-        // A spelling symbol is input, as on the punctuation route: it extends the local mode in progress, and a scheme that spells with marks (Zhuyin's bopomofo keys) takes them whenever it lists them. The symbols that open a mode with nothing composed are the exception: there the host asked for the literal mark after weighing the surrounding text (a `/` after a digit), so it never opens a mode.
+        // 已发布的组字符号仍交给引擎；空闲的模式入口和普通拼音的网址触发键保留 ASCII 标点语义。
         let spells = self.cached.local_mode != "none"
             || (self.phrase_prefix.is_empty()
-                && scheme_type(self.cached.scheme)
-                    .is_some_and(|scheme| !scheme.opens_table_modes()));
-        // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
+                && (scheme_type(self.cached.scheme)
+                    .is_some_and(|scheme| !scheme.opens_table_modes())
+                    || (!self.cached.editing_text.is_empty()
+                        && !matches!(value, b'/' | b'@' | b'.' | b':'))));
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
         }
@@ -2643,12 +3007,27 @@ impl<E: InputEngine> Runtime<E> {
             }
             _ => false,
         };
+        // 九宫格组码已经到上限（`DIGIT_LIMIT`）时再按一键：先替用户选掉首选腾出位置，再把这一键接着打，和顶字一样不丢键。引擎只在光标在末尾、首选确实占用组码时说可以；否则这一键照旧被拦下并给出提示。
+        let grid_limit_pick = match action {
+            Action::Character { value, .. } => self.engine.grid_limit_pick_ready(value, false),
+            Action::GridKey(letter) => self.engine.grid_limit_pick_ready(letter, true),
+            _ => false,
+        };
         // 这次把哪个座位的候选交给了引擎、经由哪条路径，引擎调用之后再与它的上屏核对（`selection_fact`）。标点结束组字的两条路由在 `punctuation`、`punctuation_ascii` 里自己记。
         let mut pick: Option<(SelectionHow, usize)> = None;
         // 原样上屏读音的路由：bare 前缀上的 Finish 和 `CommitRaw` 命令。
         let mut raw_route = false;
         // 顶字时接在首选后面的那段文本的字符数。
         let mut top_tail = 0;
+        // Windows `input.escape_keeps_selected_word`（出厂关）：造词时第一次 Esc 只丢掉还没选的拼写、
+        // 留下已经选好的词，再按一次才整体取消（小狼毫的 ClearNonConfirmedComposition）。判据与
+        // `ShouldEscapeKeepSelectedWord` 相同：开关开着、还有没选的拼写、不在临时日文（R 模式只能整段重置）。
+        // 词段由 runtime 暂存，引擎的 Cancel 正好清掉拼写而留下它。
+        let escape_keeps_word = self.escape_keeps_selected_word
+            && matches!(action, Action::Command(Command::Cancel))
+            && !self.cached.editing_text.is_empty()
+            && !self.phrase_prefix.is_empty()
+            && self.cached.local_mode != "temporary_japanese";
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -2697,6 +3076,21 @@ impl<E: InputEngine> Runtime<E> {
                         }
                         Ok(committed)
                     })
+            }
+            Action::Character { value, shift } if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine.select(self.engine_index(0)).and_then(|picked| {
+                    Ok(join_after_pick(
+                        picked,
+                        self.engine.character(value, shift)?,
+                    ))
+                })
+            }
+            Action::GridKey(letter) if grid_limit_pick => {
+                pick = Some((SelectionHow::GridLimit, 0));
+                self.engine
+                    .select(self.engine_index(0))
+                    .and_then(|picked| Ok(join_after_pick(picked, self.engine.grid_key(letter)?)))
             }
             // A symbol that would open a mode behind a held phrase piece ends the phrase as punctuation instead, as on the punctuation route.
             Action::Character { value, .. }
@@ -2867,20 +3261,29 @@ impl<E: InputEngine> Runtime<E> {
             .as_deref()
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
-        let picked = selected_by_digit || selection_action;
-        // Escape throws the whole composition away, the chosen pieces with it - the reference's
-        // _HandleCancel clears `word_for_creating_word` in the same breath.
-        let discarded = matches!(action, Action::Command(Command::Cancel));
+        let picked = selected_by_digit || selection_action || grid_limit_pick;
+        // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
+        // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
+        let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;
         // Segment editing on an emptied reading leaves the held phrase for the next segment key or Backspace, instead of sending it to the document (the reference's `keep_creating_word_after_empty_raw`).
         let keep_empty = matches!(
             action,
             Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight
         );
-        self.hold_phrase_progress(picked, discarded, keep_empty, consumed, &mut result);
+        self.hold_phrase_progress(
+            picked,
+            discarded,
+            keep_empty,
+            escape_keeps_word,
+            consumed,
+            &mut result,
+        );
         // 选中的文本上屏了，读音却还在：这次选择只用掉了一部分读音。顶字时剩下的是新打的那一键，不算。
         if let Some(selection) = self.facts.selection.as_mut() {
             if selection.outcome == SelectionOutcome::Committed
                 && selection.how != SelectionHow::WubiTop
+                && !(selection.how == SelectionHow::GridLimit
+                    && self.cached.editing_text.chars().count() <= 1)
                 && !self.cached.editing_text.is_empty()
             {
                 selection.outcome = SelectionOutcome::Partial;
@@ -2905,6 +3308,19 @@ impl<E: InputEngine> Runtime<E> {
             phrase_prefix_empty: self.phrase_prefix.is_empty(),
         })
     }
+}
+
+/// 先选掉首选、再把同一键交给引擎时，两步合成一个结果：选中的词在前，这一键若也上屏了什么就接在后面。这一键本身已经算处理过了。
+fn join_after_pick(mut picked: EngineResult, next: EngineResult) -> EngineResult {
+    if next.has_commit {
+        picked.commit.push_str(&next.commit);
+        picked.has_commit = true;
+    }
+    picked.handled = true;
+    if picked.diagnostic.is_empty() {
+        picked.diagnostic = next.diagnostic;
+    }
+    picked
 }
 
 /// `value` committed as it is, for a mark that has to leave together with a held phrase piece.

@@ -10,7 +10,7 @@ Status: implemented
 
 在 `packages/ui/src/core/use-interval.ts` 提供 `useInterval(callback, delayMs)`，接口与现有 `useTimeout` 对齐：`delayMs` 为 `null` 时不注册，间隔变化时清理旧定时器，回调通过 `useLatestRef` 读取最新值。调用方继续各自决定何时启用、何时停止以及回调内部的代次和状态更新。
 
-统计总览和云词库应用页的 `useCloudDictionaryApplyPanel`（`packages/ui/src/keyboard/use-cloud-dictionary-apply-panel.ts`）的轮询与客户端代次在同一个 effect 中重建，因此保留各自的 effect，并复用同模块的 `subscribeToInterval(callback, delayMs)`。它只注册 interval 并返回清理函数，`useInterval` 自身也复用此入口。统计页仍先读取，再订阅窗口恢复和轮询；云词库仍先使旧代次失效并读取，卸载时先使代次失效再停止轮询。`overviewPollMs` 与 2000 毫秒频率、effect 依赖和请求闭包不变。
+统计总览的 `useTypingStatisticsState`（`packages/ui/src/settings/use-typing-statistics-state.ts`，见[读取状态边界](2026-10-23-typing-statistics-state.md)）和云词库应用页的 `useCloudDictionaryApplyPanel`（`packages/ui/src/keyboard/use-cloud-dictionary-apply-panel.ts`）的轮询与客户端代次在同一个 effect 中重建，因此保留各自的 effect，并复用同模块的 `subscribeToInterval(callback, delayMs)`。它只注册 interval 并返回清理函数，`useInterval` 自身也复用此入口。统计页仍先读取，再订阅窗口恢复和轮询；云词库仍先使旧代次失效并读取，卸载时先使代次失效再停止轮询。`overviewPollMs` 与 2000 毫秒频率、effect 依赖和请求闭包不变。
 
 ## Alternatives considered
 

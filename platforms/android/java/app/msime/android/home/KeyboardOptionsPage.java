@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
@@ -35,6 +36,7 @@ import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.ShuangpinKeyHintPolicy;
+import app.msime.android.SplitKeyboardPolicy;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -43,9 +45,9 @@ import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
@@ -107,6 +109,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, layoutLabel(current),
             pairOffered ? () -> pickLayout(current, pair) : null);
+        String spellingPosition = CandidatePreeditStylePolicy.normalize(
+            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
+        layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
+            spellingPositionLabel(spellingPosition),
+            () -> pickSpellingPosition(spellingPosition));
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言",
@@ -158,9 +165,13 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         boolean showLargeScreenOptions = KeyboardFormFactorPolicy.showLargeScreenOptions(
             requireContext().getResources().getConfiguration().smallestScreenWidthDp);
         if (showLargeScreenOptions) {
-            layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；右半边也有 G 和 V",
+            layout.toggle("分离式键盘", "默认仅在大屏横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；右半边也有 G 和 V",
                 settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
                 checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
+            layout.toggle("竖屏也分离", "平板或折叠屏内屏竖放时也分离；回到窄外屏后自动使用完整键盘",
+                preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false),
+                checked -> savePreference(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, checked))
+                .setEnabled(settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD));
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
@@ -183,14 +194,14 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String animation = settings.choice(AndroidLocalSettings.KEY_ANIMATION);
         GroupCard.Row[] animationRow = new GroupCard.Row[1];
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
-            () -> pickAnimation(animation, animationRow[0]));
+            () -> pickAnimation(animationRow[0]));
 
         GroupCard gestures = GroupCard.add(sectionColumn(target, "手势"), "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
-        gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
+        gestures.toggle("滑动输入符号", "沿设定方向滑动输入角标，中文时反方向打开字母与符号选项；关闭后仍可长按", swipeSymbols,
             checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        GroupCard.Row directionRow = gestures.nav("滑动方向", "选择在字母键上滑动输入角标符号的方向；关闭滑动输入符号后不生效",
+        GroupCard.Row directionRow = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
@@ -214,6 +225,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             checked -> saveLocalSetting(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
             checked -> saveLocalSetting(AndroidLocalSettings.SPACE_VOICE, checked));
+        gestures.note("退格键左滑可连续删除，保持按住再右滑可逐步恢复，松手后无法恢复；密码、无痕和禁止学习的输入框不支持此手势。上滑仍可快速删除，有备份时长按下滑可撤回。");
+        gestures.note("空格键上滑后松手可复制当前输入框的全文，滑回可取消；复制预览遵守下方剪贴板设置。长按语音开始后，上滑仍用于取消语音。");
 
         JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
         if (toolbar == null) toolbar = new JSONObject();
@@ -225,7 +238,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
-            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(toolbar, settings, member),
+            String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
+                ? "由当前应用处理；部分输入框不支持，密码框不可用" : null;
+            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -253,9 +268,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
-    /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */
+    /** 工具栏按钮是否开启：本地项读取本地设置，其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
     private static boolean toolbarButton(JSONObject toolbar, AndroidLocalSettings.Snapshot settings, String member) {
-        return AndroidLocalSettings.specs().containsKey(member) ? settings.bool(member) : toolbar.optBoolean(member, true);
+        if (AndroidLocalSettings.specs().containsKey(member)) return settings.bool(member);
+        return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
@@ -339,6 +355,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         };
     }
 
+    private static String spellingPositionLabel(String value) {
+        return CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(value) ? "候选栏" : "输入框";
+    }
+
+    private void pickSpellingPosition(String current) {
+        boolean candidateBar = CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(current);
+        OptionSheet sheet = new OptionSheet(requireContext(), "拼音显示位置", null);
+        sheet.option("输入框", !candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.EDITOR));
+        sheet.option("候选栏", candidateBar,
+            () -> savePreference("touch_spelling_position", CandidatePreeditStylePolicy.CANDIDATE_BAR));
+        sheet.show();
+    }
+
     /** 26 / 14 / 9 键是当前方案的那几个触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
     private void applyScheme(KeyboardScheme scheme) {
         HostTask.run(this, context -> {
@@ -358,17 +388,23 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
     }
 
-    private void pickAnimation(String selected, GroupCard.Row row) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "按键动画", null);
-        for (int index = 0; index < ANIMATIONS.length; index++) {
-            String value = ANIMATIONS[index];
-            String label = ANIMATION_LABELS[index];
-            sheet.option(label, value.equals(selected), () -> {
-                row.setValue(label);
-                saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
-            });
-        }
-        sheet.show();
+    private void pickAnimation(GroupCard.Row row) {
+        HostTask.run(this, context -> AndroidLocalSettings.load(context).choice(AndroidLocalSettings.KEY_ANIMATION), selected -> {
+            if (selected == null) {
+                MsToast.show(requireContext(), "读取设置失败，请重试");
+                return;
+            }
+            OptionSheet sheet = new OptionSheet(requireContext(), "按键动画", null);
+            for (int index = 0; index < ANIMATIONS.length; index++) {
+                String value = ANIMATIONS[index];
+                String label = ANIMATION_LABELS[index];
+                sheet.option(label, value.equals(selected), () -> {
+                    row.setValue(label);
+                    saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
+                });
+            }
+            sheet.show();
+        });
     }
 
     private void pickSwipeDirection(String selected) {

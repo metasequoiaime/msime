@@ -55,6 +55,13 @@ public final class TextPolicySmoke {
         check(TextPolicy.stripSpaceChars(null) == null
                 && TextPolicy.stripSpaceChars("\u2003").isEmpty(),
             "space-character trimming preserves null and removes all-space text");
+        check(TextPolicy.trimUnicodeWhitespace("\u0085\u00a0\u202f\u3000").isEmpty(),
+            "与 Rust 一致地把全部 Unicode 空白裁成空字符串");
+        check(TextPolicy.trimUnicodeWhitespace("\u0085合成🙂 key\u202f").equals("合成🙂 key"),
+            "只去掉首尾空白，保留正文与补充平面字符");
+        check(TextPolicy.trimUnicodeWhitespace("\u001c合成\u001f").equals("\u001c合成\u001f")
+                && TextPolicy.trimUnicodeWhitespace("\ufeff").equals("\ufeff"),
+            "不能像 Java 空白谓词那样去掉 Rust 不认可的控制字符或 BOM");
         String emojiBoundary = "a".repeat(1023) + "\ud83d\ude42";
         String clipped = TextPolicy.clipWithEllipsis(emojiBoundary, 1024);
         check(!Character.isHighSurrogate(clipped.charAt(1023)),

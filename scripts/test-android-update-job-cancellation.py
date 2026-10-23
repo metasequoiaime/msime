@@ -72,7 +72,7 @@ public final class UpdateJobCancellationSmoke {
     }
     Context getApplicationContext() { return new Context(); }
     static boolean autoUpdate(Context context) { return true; }
-    static boolean installedFromPlay(Context context) { return false; }
+    static boolean updatedByPlay(Context context) { return false; }
     static Object channel(Context context) { return null; }
     static String currentVersion(Context context) { return "1.0.0"; }
     void notifyReady(Context context, String version, File apk) { notifications++; }

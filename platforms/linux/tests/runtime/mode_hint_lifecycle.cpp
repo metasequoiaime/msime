@@ -29,7 +29,6 @@ void wait_until(Predicate ready, const char *message = "未收到预期的 IBus 
   require(ready(), message);
 }
 
-#ifdef MSIME_TEST_X11_BADGE
 // 让主循环空转 milliseconds 毫秒，期间到期的定时器都有机会执行。
 void run_for(int milliseconds) {
   bool elapsed = false;
@@ -50,6 +49,7 @@ void run_for(int milliseconds) {
   }
 }
 
+#ifdef MSIME_TEST_X11_BADGE
 struct BadgeWindow {
   int x = 0;
   int y = 0;
@@ -136,6 +136,14 @@ struct Fixture {
   guint subscription = 0;
   Observation seen;
 
+  static void configure(bool toolbar, std::optional<bool> focus_hint = true, bool switch_hint = true) {
+    std::string preferences = R"({"preferences":{"default_ime_mode":"english","clipboard_history":false,"voice_input":{"enabled":false},"input_mode_hud":)";
+    preferences += switch_hint && !toolbar ? "true" : "false";
+    if (focus_hint) preferences += std::string(",\"input_mode_focus_hud\":") + (*focus_hint ? "true" : "false");
+    preferences += std::string(",\"floating_toolbar\":{\"enabled\":") + (toolbar ? "true" : "false") + "}}}";
+    msime_ibus_configure(preferences);
+  }
+
   explicit Fixture(bool x11, bool toolbar = false) {
     g_unsetenv("XDG_CURRENT_DESKTOP");
     // 默认验证辅助文本那条路：没有显示服务器时宿主拿不到自绘徽章，只能用辅助文本提示。x11 场景由 xvfb-run 给出 DISPLAY，宿主把整个会话当成 X11，在光标下画徽章。
@@ -145,10 +153,7 @@ struct Fixture {
     const std::string display = x11 && g_getenv("DISPLAY") ? g_getenv("DISPLAY") : "";
     g_setenv("MSIME_DISABLE_IBUS_PROPERTIES", "1", TRUE);
     // 悬浮工具栏默认关着：别的场景只看切换徽章，屏幕上不该多出一块窗口。
-    msime_ibus_configure(
-        toolbar
-            ? R"({"preferences":{"default_ime_mode":"english","input_mode_hud":false,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":true}}})"
-            : R"({"preferences":{"default_ime_mode":"english","input_mode_hud":true,"clipboard_history":false,"voice_input":{"enabled":false},"floating_toolbar":{"enabled":false}}})");
+    configure(toolbar, !toolbar);
     ibus_init();
     bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
@@ -221,9 +226,9 @@ int main(int argc, char **argv) {
     return 2;
   const std::string scenario = argv[1];
   const bool toolbar = scenario == "x11-toolbar";
-  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret" || scenario == "x11-badge-point" || toolbar;
+  const bool x11 = scenario == "x11-badge" || scenario == "x11-badge-no-caret" || scenario == "x11-badge-point" || scenario == "focus-preferences-x11" || toolbar;
   if (scenario != "english" && scenario != "blocked" && scenario != "destroyed" &&
-      scenario != "compose" && !x11)
+      scenario != "compose" && scenario != "focus-preferences" && !x11)
     return 2;
   try {
     std::filesystem::path compose_directory;
@@ -247,6 +252,25 @@ int main(int argc, char **argv) {
       }
     } compose_cleanup{compose_directory};
     Fixture fixture(x11, toolbar);
+    if (scenario == "focus-preferences" || scenario == "focus-preferences-x11") {
+      for (const auto setting : {std::optional<bool>{}, std::optional<bool>{false}, std::optional<bool>{true}}) {
+        // 聚焦开启时关掉切换提示，证明两个开关独立；缺字段和显式关闭时保留切换提示。
+        Fixture::configure(false, setting, !setting.value_or(false));
+        const auto before = fixture.seen.shown;
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_in(fixture.engine);
+        if (x11) fixture.report_cursor(200, 300, 2, 20);
+        run_for(300);
+        bool shown = fixture.seen.shown > before;
+#ifdef MSIME_TEST_X11_BADGE
+        if (x11) shown = visible_badge().has_value();
+#endif
+        require(shown == setting.value_or(false), "聚焦提示没有独立遵循缺省关闭和显式选择");
+        IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_out(fixture.engine);
+        run_for(50);
+      }
+      std::cout << "IBus 独立聚焦提示偏好通过\n";
+      return 0;
+    }
     if (x11) {
 #ifdef MSIME_TEST_X11_BADGE
       IBUS_ENGINE_GET_CLASS(fixture.engine)->focus_in(fixture.engine);

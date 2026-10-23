@@ -146,14 +146,36 @@ const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 9] = [
     ("yinli", "阴历", InlineDateTime::Lunar),
 ];
 
-/// 第一个让 `spells` 认出的关键词的锚定词和种类；`spells` 判断组字（全拼字母或九宫格数字）是否拼出这个关键词。
+/// 第一个让 `spells` 认出的关键词、锚定词和种类；`spells` 判断组字（全拼字母或九宫格数字）是否拼出这个关键词。
 pub(crate) fn inline_date_time_keyword(
     mut spells: impl FnMut(&str) -> bool,
-) -> Option<(&'static str, InlineDateTime)> {
+) -> Option<(&'static str, &'static str, InlineDateTime)> {
     INLINE_KEYWORDS
         .iter()
         .find(|(keyword, _, _)| spells(keyword))
-        .map(|&(_, anchor, kind)| (anchor, kind))
+        .map(|&(keyword, anchor, kind)| (keyword, anchor, kind))
+}
+
+/// 混输里「📅日期」入口行的 `pinyin` 前缀（`date_time_query.cpp` 的 `kDateTimeMenuPrefix`）：入口不是要上屏的字，选中它把候选窗换成这一组的全部格式。
+pub(crate) const MENU_PREFIX: &str = "menu:";
+
+/// 入口文案与参考的 `date_time_menu_item` 一致：时间组用「🕒时间」、星期组用「📅星期」，其余（日期、农历）用「📅日期」。
+fn menu_label(kind: InlineDateTime) -> &'static str {
+    match kind {
+        InlineDateTime::Time => "🕒时间",
+        InlineDateTime::Week => "📅星期",
+        _ => "📅日期",
+    }
+}
+
+/// 入口行的判定同参考 `is_date_time_menu_item`：这边的日期时间行都是 `Generated`，所以靠 `menu:` 前缀区分。
+pub(crate) fn is_date_time_menu_item(item: &WordItem) -> bool {
+    item.source == CandidateSource::Generated && item.pinyin.starts_with(MENU_PREFIX)
+}
+
+/// 入口行记住的关键词，选中时按它给出 `query_date_time` 的整组格式。
+pub(crate) fn date_time_menu_keyword(item: &WordItem) -> &str {
+    item.pinyin.strip_prefix(MENU_PREFIX).unwrap_or("")
 }
 
 /// 组字里给出的几行，取自日期时间模式的同一套格式：日期是「年月日」、ISO 和带星期的写法，时间是 24 小时的时分、时分秒和「上午 / 下午」，星期是「星期X」和「周X」，农历只有一行，日历换算不了时没有。
@@ -192,12 +214,14 @@ pub(crate) fn inline_date_time_rows(kind: InlineDateTime, now: &LocalDateTime) -
 }
 
 /// 把 `kind` 的几行接在第一个锚定词候选后面，`pinyin` 是选中它们时吃掉的整段组字。候选里没有锚定词时不加，也不读时钟。新加的行是 `Generated` 且没有规范读音，上屏时不进词库、不记个人上下文；列表里已有同样文字的行时挪那一行，不重复。
+/// `menu_keyword` 给「📅日期」入口的关键词（`utility.date_time_menu`）：有行可跟时把入口放在第一行后面——锚定词在首位时正好是参考的第三位；一行都没有（农历换算不出来）时不放入口。入口的 `pinyin` 用 `menu:` 前缀记关键词而不是组字，选中它不会上屏。
 pub(crate) fn insert_inline_date_time(
     candidates: &mut Vec<WordItem>,
     anchor: &str,
     kind: InlineDateTime,
     pinyin: &str,
     now: impl FnOnce() -> LocalDateTime,
+    menu_keyword: Option<&str>,
 ) {
     let Some(position) = candidates.iter().position(|item| item.word == anchor) else {
         return;
@@ -218,6 +242,18 @@ pub(crate) fn insert_inline_date_time(
             ),
         }
         at += 1;
+    }
+    if let Some(keyword) = menu_keyword.filter(|_| at > position + 1) {
+        candidates.insert(
+            position + 2,
+            WordItem::new(
+                format!("{MENU_PREFIX}{keyword}"),
+                menu_label(kind),
+                0,
+                CandidateSource::Generated,
+                "",
+            ),
+        );
     }
 }
 
@@ -560,11 +596,11 @@ mod tests {
 
         assert_eq!(
             inline_date_time_keyword(|keyword| keyword == "sj"),
-            Some(("时间", InlineDateTime::Time))
+            Some(("sj", "时间", InlineDateTime::Time))
         );
         assert_eq!(
             inline_date_time_keyword(|keyword| keyword == "yinli"),
-            Some(("阴历", InlineDateTime::Lunar))
+            Some(("yinli", "阴历", InlineDateTime::Lunar))
         );
         assert_eq!(inline_date_time_keyword(|keyword| keyword == "date"), None);
     }
@@ -579,6 +615,7 @@ mod tests {
             InlineDateTime::Week,
             "riqi",
             sample_time,
+            None,
         );
         let words: Vec<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["日起", "日期", "星期日", "周日", "日期", "日企"]);
@@ -594,6 +631,7 @@ mod tests {
             InlineDateTime::Week,
             "xingqi",
             sample_time,
+            None,
         );
         let words: Vec<&str> = listed.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["星期五", "星期", "星期日", "周日", "星期一"]);
@@ -606,6 +644,7 @@ mod tests {
             InlineDateTime::Week,
             "xingqi",
             sample_time,
+            None,
         );
         let words: Vec<&str> = ahead.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["星期日", "星期", "周日"]);
@@ -617,8 +656,75 @@ mod tests {
             InlineDateTime::Date,
             "riqi",
             || panic!("没有锚定词时不读时钟"),
+            None,
         );
         assert_eq!(without_anchor.len(), 1);
+    }
+
+    /// `utility.date_time_menu`：入口跟在第一条行内日期时间行后面（锚定词在首位时即参考的第三位），`pinyin` 用 `menu:` 前缀记关键词、不是组字，选中不上屏。
+    #[test]
+    fn menu_row_follows_the_first_inline_row() {
+        let row = |word: &str| WordItem::new("rq", word, 10, CandidateSource::Database, "");
+        let mut candidates = vec![row("日期"), row("日企")];
+        insert_inline_date_time(
+            &mut candidates,
+            "日期",
+            InlineDateTime::Date,
+            "rq",
+            sample_time,
+            Some("rq"),
+        );
+        let words: Vec<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
+        assert_eq!(
+            words,
+            [
+                "日期",
+                "2026年8月9日",
+                "📅日期",
+                "2026-08-09",
+                "2026年8月9日 星期日",
+                "日企"
+            ]
+        );
+        let menu = &candidates[2];
+        assert!(is_date_time_menu_item(menu));
+        assert_eq!(date_time_menu_keyword(menu), "rq");
+        assert_eq!(menu.source, CandidateSource::Generated);
+        // 其余行不是入口：前缀判定不会误伤普通日期行。
+        assert!(!is_date_time_menu_item(&candidates[1]));
+
+        for (kind, label) in [
+            (InlineDateTime::Time, "🕒时间"),
+            (InlineDateTime::Week, "📅星期"),
+            (InlineDateTime::Lunar, "📅日期"),
+        ] {
+            let mut list = vec![row("农历")];
+            insert_inline_date_time(&mut list, "农历", kind, "nl", sample_time, Some("nl"));
+            assert_eq!(list[2].word, label, "{kind:?}");
+        }
+
+        // 农历换算不出来时没有行可跟，入口也不放。
+        let mut empty = vec![row("农历")];
+        insert_inline_date_time(
+            &mut empty,
+            "农历",
+            InlineDateTime::Lunar,
+            "nl",
+            LocalDateTime::default,
+            Some("nl"),
+        );
+        assert_eq!(empty.len(), 1);
+        // `menu_keyword` 为 None 时不放入口（九宫格路径）。
+        let mut no_menu = vec![row("日期")];
+        insert_inline_date_time(
+            &mut no_menu,
+            "日期",
+            InlineDateTime::Date,
+            "7474",
+            sample_time,
+            None,
+        );
+        assert!(!no_menu.iter().any(is_date_time_menu_item));
     }
 
     #[test]

@@ -814,9 +814,22 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testSymbolKeysShowThePunctuationTheyInsert() throws {
     XCTAssertEqual(KeyboardViewController.chineseSymbolFaces, [
       ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
-      "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
+      "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、", "/": "、",
       "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
     ])
+    // 顿号键面随 View 的顿号开关：`\` 关着时画 `\`，`/` 开着时画 `、`。
+    let enumFace = { (backslash: Bool, slash: Bool) in
+      (
+        KeyboardViewController.chineseSymbolFace("\\", cornerQuotes: false, hollowBrackets: false,
+                                                 enumerationCommaBackslash: backslash, enumerationCommaSlash: slash),
+        KeyboardViewController.chineseSymbolFace("/", cornerQuotes: false, hollowBrackets: false,
+                                                 enumerationCommaBackslash: backslash, enumerationCommaSlash: slash))
+    }
+    XCTAssertEqual(enumFace(true, false).0, "、")
+    XCTAssertEqual(enumFace(true, false).1, "/")
+    XCTAssertEqual(enumFace(false, true).0, "\\")
+    XCTAssertEqual(enumFace(false, true).1, "、")
+    XCTAssertEqual(enumFace(true, true).1, "、")
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .quanpin
@@ -2844,10 +2857,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session forgot nine-key mode")
   }
 
-  // A dismissal is not the only rebuild. Reading the personal dictionary hands the shared
-  // dictionary lease back the same way, and the keyboard refreshes that list on every appearance:
-  // the nine-key layout the host kept drawing was sitting on a 26-key engine from the first
-  // refresh onwards, which is why typing only started working after a trip through 26 keys.
+  // 收起键盘不是唯一的重建。词库维护（应用队列里的编辑、导出）同样销毁再重建会话；原来键盘每次出现刷新个人词库列表也走这条路，宿主一直画着九键，引擎却从第一次刷新起回到了 26 键，要绕一趟 26 键才能打字。列表现在不再重建会话，这里改用仍然重建的导出来守住重放。
   func testNineKeySurvivesTheSessionRebuiltForDictionaryMaintenance() throws {
     let bridge = MetasequoiaInputSessionBridge()
     _ = bridge.switchToNineKey()
@@ -2855,7 +2865,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
     XCTAssertTrue(snapshot.candidates.contains("你好"), "nine-key never reached the engine")
     _ = bridge.cancel()
-    _ = try bridge.personalEntries(atOffset: 0)
+    _ = try bridge.personalExport(kind: .quickPhrase, format: "standard", maximumPages: 1)
     snapshot = bridge.cancel()
     for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
     XCTAssertFalse(snapshot.preedit.isEmpty, "the rebuilt session ignored the digits entirely")

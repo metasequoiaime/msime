@@ -11829,7 +11829,27 @@ group("space after a Chinese mark rewrites it as ASCII", () => {
   // Transcribed from SmartPunctuationAsciiFor in the source. Both quote directions map to the same
   // straight quote, as they do there.
   check(SmartPunctuationSpacePolicy.asciiFor(0x3002) === 0x2e, "。 becomes .");
-  check(SmartPunctuationSpacePolicy.asciiFor(0x3001) === 0x2f, "、 becomes / rather than a comma");
+  // 顿号的 ASCII 孪生按顿号开关判：缺省「\` 开、`/` 关」时转回 `\`，`/`
+  // 开着才转回它自己；按下的键开着时原样转回，否则按契约序 `\` 优先、`/` 其次。
+  check(SmartPunctuationSpacePolicy.asciiFor(0x3001) === 0x5c, "、 becomes \\ while slash is off");
+  check(
+    SmartPunctuationSpacePolicy.asciiFor(0x3001, 0x2f) === 0x5c,
+    "a pressed / still falls back to \\ while slash is off",
+  );
+  check(
+    SmartPunctuationSpacePolicy.asciiFor(0x3001, 0x2f, false, true) === 0x2f,
+    "、 becomes / once slash is the enabled key",
+  );
+  check(
+    SmartPunctuationSpacePolicy.asciiFor(0x3001, 0x5c, true, true) === 0x5c &&
+      SmartPunctuationSpacePolicy.asciiFor(0x3001, 0x2f, true, true) === 0x2f &&
+      SmartPunctuationSpacePolicy.asciiFor(0x3001, 0, true, true) === 0x5c,
+    "with both keys on the pressed key decides, \\ first for an unknown source",
+  );
+  check(
+    SmartPunctuationSpacePolicy.asciiFor(0x3001, 0, false, false) === 0x5c,
+    "both switches off fall back to \\",
+  );
   check(SmartPunctuationSpacePolicy.asciiFor(0x201c) === 0x22, "“ becomes a straight quote");
   check(SmartPunctuationSpacePolicy.asciiFor(0x201d) === 0x22, "and so does ”");
   check(SmartPunctuationSpacePolicy.asciiFor(0x4e2d) === 0, "a Han character has no ASCII twin");

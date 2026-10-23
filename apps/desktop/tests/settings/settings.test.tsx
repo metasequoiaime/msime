@@ -45,6 +45,7 @@ import {
 } from "@msime/ui";
 import { describeInstallerTrust } from "../../../../packages/ui/src/settings/update-manifest";
 import { defaultFloatingToolbar } from "../../../../packages/ui/src/settings/floating-toolbar-defaults";
+import { defaultShuangpinHelpcodeModes } from "../../../../packages/ui/src/settings/helpcode-preferences";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -1429,6 +1430,8 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     "qwen",
     "kimi",
     "zhipu",
+    "minimax",
+    "volcengine",
     "siliconflow",
     "groq",
     "openrouter",
@@ -1449,14 +1452,20 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     endpoint: "https://api.anthropic.com/v1/chat/completions",
     model: "claude-sonnet-4-6",
   });
-  expect(
-    aiProviderUpdate("openai", {
-      ...base,
-      endpoint: "https://private.invalid/v1/chat/completions",
-      model: "private-model",
-    }),
-  ).toMatchObject({
+  // 自定义值进 deepseek 的槽位，新提供方用自己的默认值；切回来原样返回。
+  const patched = aiProviderUpdate("openai", {
+    ...base,
+    endpoint: "https://private.invalid/v1/chat/completions",
+    model: "private-model",
+  });
+  expect(patched).toMatchObject({
     provider: "openai",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4.1-mini",
+    endpoints: { deepseek: "https://private.invalid/v1/chat/completions" },
+    models: { deepseek: "private-model" },
+  });
+  expect(aiProviderUpdate("deepseek", { ...base, ...patched })).toMatchObject({
     endpoint: "https://private.invalid/v1/chat/completions",
     model: "private-model",
   });
@@ -2022,7 +2031,12 @@ test("helpcode schemes save independently and retain disabled selections", async
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "wubi86", show_in_candidate_window: true },
+    shuangpin_helpcode: {
+      enabled: true,
+      schema: "wubi86",
+      show_in_candidate_window: true,
+      modes: defaultShuangpinHelpcodeModes,
+    },
   });
 });
 
@@ -2728,6 +2742,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,
@@ -2762,6 +2777,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
   expect(screen.getByRole("switch", { name: /^Emoji/ })).toBeDefined();
   // 颜文字混输 sits on the same page under 候选与联想, so match the local mode alone.
   expect(screen.getByRole("switch", { name: /^颜文字(?!混输)/ })).toBeDefined();
+  expect(screen.getByRole("switch", { name: /^符号快捷输入/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeDefined();
   fireEvent.click(screen.getByRole("switch", { name: /^Unicode/ }));
   saveSettingsNow();
@@ -2774,6 +2790,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
       quick_phrase: true,
       emoji: true,
       kaomoji: true,
+      symbol: true,
       super_jianpin: true,
       temporary_english: true,
       temporary_japanese: true,
@@ -6405,6 +6422,16 @@ test("floating toolbar settings use Windows defaults and persist independently",
   );
   // 175% 一档写成 150% 缩放加 28 的图标，和以前两个下拉都拉满时一样大。
   fireEvent.change(screen.getByLabelText("工具栏大小"), { target: { value: "175" } });
+  // 自动隐藏出厂关（对齐 Windows v0.11.1）；和 Windows 设置页一样，关闭时延时的整行留着但置灰。
+  const autoHide = screen.getByRole("switch", { name: "自动隐藏工具栏" }) as HTMLInputElement;
+  expect(autoHide.checked).toBe(false);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("switch", { name: "工具栏阴影" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(autoHide);
+  expect((screen.getByLabelText("自动隐藏延时") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText("自动隐藏延时"), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("switch", { name: "在桌面显示悬浮工具栏" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "全角 / 半角" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "屏幕键盘" }));
@@ -6428,6 +6455,10 @@ test("floating toolbar settings use Windows defaults and persist independently",
       screen_keyboard: true,
       voice: false,
       settings: true,
+      // 自动隐藏在默认快照里是关的，这一轮把它打开并调到 12 秒。
+      auto_hide: true,
+      auto_hide_delay: 12,
+      shadow: true,
       scale_percent: 150,
       font_size: 28,
     },
@@ -10084,6 +10115,9 @@ test("this window's own save echoed back by the monitor is not reported as anoth
   );
   await waitFor(() => expect(size.value).toBe("5"));
   expect(await screen.findByText("设置已从其他窗口更新。")).toBeDefined();
+  // 提示可以手动关掉。
+  fireEvent.click(screen.getByRole("button", { name: "关闭提示" }));
+  expect(screen.queryByText("设置已从其他窗口更新。")).toBeNull();
 });
 
 test("failed initial load never enables saving fabricated defaults", async () => {

@@ -69,8 +69,14 @@ std::string default_asr_endpoint(std::string_view provider) {
     return "https://api.mistral.ai/v1/audio/transcriptions";
   if (id == "bailian")
     return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+  if (id == "zhipu")
+    return "https://open.bigmodel.cn/api/paas/v4/audio/transcriptions";
+  if (id == "minimax")
+    return "https://api.minimax.cn/v1/speech_to_text";
   if (id == "doubao")
     return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
+  if (id == "custom")
+    return {};
   // Keep unknown legacy values on the HTTP provider fallback used by the
   // Windows reference instead of silently selecting the Doubao websocket.
   return "https://api.siliconflow.cn/v1/audio/transcriptions";
@@ -90,7 +96,11 @@ std::string default_asr_model(std::string_view provider) {
     return "voxtral-mini-latest";
   if (id == "bailian")
     return "qwen3-asr-flash";
-  if (id == "doubao")
+  if (id == "zhipu")
+    return "glm-asr";
+  if (id == "minimax")
+    return "asr-1.0";
+  if (id == "doubao" || id == "custom")
     return {};
   return "FunAudioLLM/SenseVoiceSmall";
 }
@@ -100,7 +110,7 @@ std::string asr_request_format(std::string_view provider) {
   if (id == "doubao")
     return "doubao_websocket";
   if (id == "openai" || id == "groq" || id == "siliconflow" || id == "everyapi" ||
-      id == "mistral")
+      id == "mistral" || id == "zhipu" || id == "minimax" || id == "custom")
     return "multipart";
   if (id == "bailian")
     return "chat_audio";
@@ -123,6 +133,20 @@ std::string default_polish_endpoint(std::string_view provider) {
     return "https://api.deepseek.com/chat/completions";
   if (id == "groq")
     return "https://api.groq.com/openai/v1/chat/completions";
+  if (id == "minimax")
+    return "https://api.minimax.cn/v1/chat/completions";
+  if (id == "kimi" || id == "moonshot")
+    return "https://api.moonshot.cn/v1/chat/completions";
+  if (id == "zhipu")
+    return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+  if (id == "qwen" || id == "dashscope")
+    return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+  if (id == "volcengine")
+    return "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+  if (id == "openrouter")
+    return "https://openrouter.ai/api/v1/chat/completions";
+  if (id == "custom")
+    return {};
   return "https://api.siliconflow.cn/v1/chat/completions";
 }
 
@@ -134,6 +158,20 @@ std::string default_polish_model(std::string_view provider) {
     return "deepseek-v4-flash";
   if (id == "groq")
     return "llama-3.3-70b-versatile";
+  if (id == "minimax")
+    return "MiniMax-M3.1-Flash";
+  if (id == "kimi" || id == "moonshot")
+    return "kimi-k2-0905-preview";
+  if (id == "zhipu")
+    return "glm-4-flash";
+  if (id == "qwen" || id == "dashscope")
+    return "qwen-plus";
+  if (id == "volcengine")
+    return "doubao-seed-1.6-flash";
+  if (id == "openrouter")
+    return "openrouter/auto";
+  if (id == "custom")
+    return {};
   return "Qwen/Qwen3-8B";
 }
 
@@ -507,9 +545,49 @@ std::string recognize_cloud_asr(
   }
 }
 
+bool valid_thinking_level(std::string_view level) {
+  return level == "disabled" || level == "low" || level == "high" ||
+         level == "max";
+}
+
+namespace {
+// 应答服务的归属方：厂商字段（DeepSeek 的 thinking.type、SiliconFlow 的 enable_thinking）按接口地址的主机判断，不按设置页标签——槽位可以装任何 OpenAI 兼容地址，给不认这个字段的服务发出去会被整个拒绝（MiniMax 报 requires adaptive thinking）。
+enum class ChatVendor { other, deepseek, siliconflow };
+
+ChatVendor vendor_from_chat_endpoint(std::string_view endpoint) {
+  const auto scheme = endpoint.find("://");
+  if (scheme == std::string_view::npos) return ChatVendor::other;
+  std::string_view host = endpoint.substr(scheme + 3);
+  host = host.substr(0, host.find('/'));
+  host = host.substr(host.rfind('@') + 1);
+  host = host.substr(0, host.find(':'));
+  std::string lower(host);
+  for (auto &ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  const auto owned_by = [&lower](std::string_view domain) {
+    return lower == domain ||
+           (lower.size() > domain.size() && lower.compare(lower.size() - domain.size(), domain.size(), domain) == 0 &&
+            lower[lower.size() - domain.size() - 1] == '.');
+  };
+  if (owned_by("deepseek.com")) return ChatVendor::deepseek;
+  if (owned_by("siliconflow.cn")) return ChatVendor::siliconflow;
+  return ChatVendor::other;
+}
+
+// 地址认得出来就按地址；地址在但不属于任何已知厂商，标签说了也不算；只有地址缺失才让标签决定。
+ChatVendor vendor_for_request(std::string_view provider, std::string_view endpoint) {
+  const auto actual = vendor_from_chat_endpoint(endpoint);
+  if (actual != ChatVendor::other) return actual;
+  if (endpoint.find("://") != std::string_view::npos) return ChatVendor::other;
+  if (provider == "deepseek") return ChatVendor::deepseek;
+  if (provider == "siliconflow") return ChatVendor::siliconflow;
+  return ChatVendor::other;
+}
+} // namespace
+
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
+    std::string_view thinking,
     const std::shared_ptr<std::atomic_bool> &cancelled, long timeout_ms) {
   if (text.empty())
     return {};
@@ -526,9 +604,14 @@ std::string polish_cloud_text(
                      {{"role", "user"},
                       {"content", "<asr_text>\n" + std::string(text) +
                                       "\n</asr_text>"}}}}};
-  if (id == "siliconflow")
+  const auto vendor = vendor_for_request(id, endpoint);
+  if (vendor == ChatVendor::siliconflow)
     body["enable_thinking"] = false;
-  else if (id == "deepseek")
+  else if (vendor == ChatVendor::deepseek && valid_thinking_level(thinking) &&
+           thinking != "disabled") {
+    body["thinking"] = {{"type", "enabled"}};
+    body["reasoning_effort"] = std::string(thinking);
+  } else if (vendor == ChatVendor::deepseek)
     body["thinking"] = {{"type", "disabled"}};
   const std::string payload = body.dump();
   initialize_curl();

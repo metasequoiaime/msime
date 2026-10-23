@@ -38,6 +38,7 @@ jobs:
     with:
       prerelease: true
       publish: false
+      build_number: ${{ github.run_id }}
     secrets: inherit
 
   linux:

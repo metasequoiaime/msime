@@ -128,20 +128,28 @@ test("only the chosen service's settings are shown, in the order the select list
     "tencent",
     "niutrans",
     "custom",
+    "ai",
   ]);
   const shown = () => ({
     tencent: screen.queryByLabelText("腾讯云 SecretId") !== null,
     niutrans: screen.queryByLabelText("NiuTrans App ID") !== null,
     custom: screen.queryByLabelText("自定义翻译 Endpoint") !== null,
+    ai: screen.queryByText("当前服务商与模型") !== null,
   });
-  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: true });
+  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: true, ai: false });
+  // AI 辅助复用「AI 与云联想」页的配置；没配好时显示提示而不是静默不翻译。
+  fireEvent.change(select, { target: { value: "ai" } });
+  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false, ai: true });
+  expect(
+    screen.getByText("请先在「AI 与云联想」页面填写接口地址、Token 和模型"),
+  ).toBeTruthy();
   fireEvent.change(select, { target: { value: "tencent" } });
-  expect(shown()).toEqual({ tencent: true, niutrans: false, custom: false });
+  expect(shown()).toEqual({ tencent: true, niutrans: false, custom: false, ai: false });
   expect(screen.getByRole("heading", { name: "腾讯云机器翻译" })).toBeTruthy();
   fireEvent.change(select, { target: { value: "niutrans" } });
-  expect(shown()).toEqual({ tencent: false, niutrans: true, custom: false });
+  expect(shown()).toEqual({ tencent: false, niutrans: true, custom: false, ai: false });
   fireEvent.change(select, { target: { value: "none" } });
-  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false });
+  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false, ai: false });
   // 下拉框是选择服务的唯一方式；没有哪个组自带开关。
   for (const name of ["腾讯云机器翻译", "小牛翻译（NiuTrans）", "自定义翻译服务"]) {
     expect(screen.queryByRole("switch", { name })).toBeNull();

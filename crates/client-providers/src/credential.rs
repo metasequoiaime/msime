@@ -36,6 +36,10 @@ pub fn test_service(service: &str, config: &serde_json::Value) -> probe::ProbeRe
         }
         return asr::test(config, &asr::HttpTransport);
     }
+    // 「AI 辅助」翻译用的是同一套 Chat Completions 凭据，测试与 ai.assistant 走同一条探测。
+    if service == "translation.ai" {
+        return probe::test_chat("ai.assistant", config, &probe::ChatProbeTransport);
+    }
     if service.starts_with("translation.") {
         let milliseconds = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

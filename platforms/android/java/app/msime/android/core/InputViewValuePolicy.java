@@ -55,7 +55,9 @@ public final class InputViewValuePolicy {
         JSONObject marks = view == null ? null : view.optJSONObject("punctuation_marks");
         if (marks == null) return app.msime.android.ChineseSymbolFaces.Marks.DEFAULT;
         return app.msime.android.ChineseSymbolFaces.Marks.of(
-            textOr(marks, "quotes", "curly"), textOr(marks, "brackets", "solid"));
+            textOr(marks, "quotes", "curly"), textOr(marks, "brackets", "solid"),
+            booleanValue(marks, "enumeration_comma_backslash", true),
+            booleanValue(marks, "enumeration_comma_slash", false));
     }
 
     /** Read the input view's editing text using the shared strict text policy. */

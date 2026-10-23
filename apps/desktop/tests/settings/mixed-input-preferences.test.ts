@@ -43,6 +43,8 @@ test("读取旧文档时符号开、日文关，不补写可选键", () => {
   expect(mixedInputControlState(preferences)).toEqual({
     symbolsChecked: true,
     japaneseChecked: false,
+    quickPhraseChecked: true,
+    quickPhraseFrequencyChecked: true,
     minimumPrefixDisabled: false,
   });
   expect(Object.keys(preferences)).toEqual(["english", "minimum_prefix", "emoji", "kaomoji"]);
@@ -52,6 +54,8 @@ test("显式关闭符号和开启日文优先于缺省值", () => {
   expect(mixedInputControlState({ ...defaultMixedInput, symbols: false, japanese: true })).toEqual({
     symbolsChecked: false,
     japaneseChecked: true,
+    quickPhraseChecked: true,
+    quickPhraseFrequencyChecked: true,
     minimumPrefixDisabled: false,
   });
 });
@@ -68,6 +72,8 @@ test("关闭英文仅置灰触发字符数，保留数值与其他混输选择",
   expect(mixedInputControlState(preferences)).toEqual({
     symbolsChecked: false,
     japaneseChecked: true,
+    quickPhraseChecked: true,
+    quickPhraseFrequencyChecked: true,
     minimumPrefixDisabled: true,
   });
   expect(settingsInputPreferences({ mixed_input: preferences }).mixedInput).toBe(preferences);

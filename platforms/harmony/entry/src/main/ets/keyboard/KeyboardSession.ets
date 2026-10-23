@@ -1,3 +1,4 @@
+import { DecorationCandidateStyle } from './candidate/DecorationCandidatePolicy';
 import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
@@ -599,6 +600,9 @@ export interface KeyboardState {
   /** View 报告的引号与方头括号样式，键盘画符号键和 123 层键面时用。 */
   readonly cornerQuotes: boolean;
   readonly hollowBrackets: boolean;
+  /** View 报告的顿号键开关：顿号键面随它画。 */
+  readonly enumerationCommaBackslash: boolean;
+  readonly enumerationCommaSlash: boolean;
 }
 
 interface EngineValue {
@@ -973,6 +977,8 @@ export interface KeyboardPreferences {
   readonly candidateMinWidthVp: number;
   /** Image-only data URL for a compatible external candidate decoration. */
   readonly candidateDecorationImage: string | null;
+  /** 只在桌面装饰图成功读取时提供文字声明。 */
+  readonly candidateDecorationCandidate: DecorationCandidateStyle | null;
   readonly candidateDecorationTopVp: number;
   readonly candidateDecorationWidthVp: number;
   readonly candidateDecorationAspectRatio: number;
@@ -1271,6 +1277,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     globalThemeId: 'system',
     candidateMinWidthVp: CandidateWidthPolicy.MIN_WIDTH_VP,
     candidateDecorationImage: null,
+    candidateDecorationCandidate: null,
     candidateDecorationTopVp: 0,
     candidateDecorationWidthVp: 0,
     candidateDecorationAspectRatio: 1,
@@ -1655,6 +1662,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
           Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
       candidateDecorationImage: skinImage.image,
+      candidateDecorationCandidate: skinImage.image === null || packageId === null ? null
+        : CandidateSkinCatalogPolicy.decorationCandidate(skinPackages, packageId),
       candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
       candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
       candidateDecorationAspectRatio: skinImage.aspectRatio,
@@ -3920,9 +3929,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Armed off the Engine's own commit rather than off the key that was pressed: what reaches the
     // editor is what the space would be correcting, and the two differ whenever the punctuation
     // policy rewrote the mark.
+    // 顿号的反查按按下的键和 View 的顿号开关定（契约 enumerationComma 段）。
+    const punctuationMarks: PunctuationMarksView | undefined =
+      this.lastView?.punctuation_marks;
     this.smartPunctuationSpaceSnapshot = SmartPunctuationSpacePolicy.arm(
       committed, completion !== null, this.smartPunctuation, this.smartPunctuationSpaceConvert,
-      this.editorGeneration);
+      this.editorGeneration, ascii,
+      ChineseSymbolFaces.enumerationCommaBackslash(punctuationMarks),
+      ChineseSymbolFaces.enumerationCommaSlash(punctuationMarks));
     if (completion === null || this.inputClient === undefined) return;
     try {
       this.insertEditorTextSync(completion.closing);
@@ -4503,7 +4517,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         nineKeySingleCharacter: view.nine_key_single_character === true,
         nineKeyStrokes: view.nine_key_strokes ?? '',
         cornerQuotes: ChineseSymbolFaces.cornerQuotes(view.punctuation_marks),
-        hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks)
+        hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks),
+        enumerationCommaBackslash:
+          ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
+        enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks)
       });
     }
     if (this.onCandidateWidth !== undefined) {
@@ -4567,7 +4584,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       nineKeySingleCharacter: view.nine_key_single_character === true,
       nineKeyStrokes: view.nine_key_strokes ?? '',
       cornerQuotes: ChineseSymbolFaces.cornerQuotes(view.punctuation_marks),
-      hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks)
+      hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks),
+      enumerationCommaBackslash:
+        ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
+      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks)
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count));
@@ -4651,7 +4671,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       nineKeySingleCharacter: view?.nine_key_single_character === true,
       nineKeyStrokes: view?.nine_key_strokes ?? '',
       cornerQuotes: ChineseSymbolFaces.cornerQuotes(view?.punctuation_marks),
-      hollowBrackets: ChineseSymbolFaces.hollowBrackets(view?.punctuation_marks)
+      hollowBrackets: ChineseSymbolFaces.hollowBrackets(view?.punctuation_marks),
+      enumerationCommaBackslash:
+        ChineseSymbolFaces.enumerationCommaBackslash(view?.punctuation_marks),
+      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks)
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1));

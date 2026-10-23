@@ -503,6 +503,7 @@ mod tests {
             word_lattice: true,
             neural_keyboard: true,
             show_next_on_duplicate: true,
+            ..Default::default()
         });
         dictionary.set_rescoring_context("今天晚上");
         let key = "womenyiqiquchifan";
