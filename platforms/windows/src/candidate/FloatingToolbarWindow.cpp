@@ -521,16 +521,21 @@ void FloatingToolbarWindow::paint() {
     image_.draw_background(target, unit);
   }
   const auto value = reader_();
-  if (value && shown_ && same(value->lease, shown_->lease)) {
+  // 这一帧读不到模式（输入队列正忙，`reader_` 给不出值）或者读到的租约不是画面上这一份时，照上一帧已经画过的那份画，**不要**整块跳过：背景、阴影和圆角在上面已经无条件画好了，跳过内容的那一帧就只剩一块空白的圆角白条，logo、分隔线和按钮全不见（用户报「悬浮窗经常变成一块白的，什么字都没有」）。本函数末尾对读屏树早就是这个办法——「这次没读到模式……读屏的树也留着上一棵」——绘制这一侧漏了同样的兜底。
+  const ModePresentation *source =
+      (value && shown_ && same(value->lease, shown_->lease)) ? &*value
+      : shown_                                               ? &*shown_
+                                                             : nullptr;
+  if (source) {
     auto *factory = device_.GetDWriteFactory();
     const wchar_t *icon_family = icon_font_family(factory);
     // Each button's two-way mode, in slot order. An absent state means the
     // Server has not reported it, and the icon shows a question mark rather
     // than asserting a mode the user is not actually in.
     const std::optional<bool> states[] = {
-        value->chinese,
-        value->fullwidth,
-        value->chinese_punctuation,
+        source->chinese,
+        source->fullwidth,
+        source->chinese_punctuation,
         shown_character_set_,
         std::nullopt, std::nullopt, std::nullopt,
         std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt};

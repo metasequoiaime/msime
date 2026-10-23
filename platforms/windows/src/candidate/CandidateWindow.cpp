@@ -1173,8 +1173,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
   const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
   const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
+  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。
   const auto content_width =
-      (std::min)(static_cast<int64_t>(panel_width * scale + 0.5),
+      (std::min)(static_cast<int64_t>(std::ceil(panel_width * scale)),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1186,8 +1187,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   decoration_offset_ = decoration_image_.empty()
                            ? 0.0f
                            : static_cast<float>(decoration_top_);
+  // 同上，高度也向上取整：量高度用的是量尺寸那次的折行结论，绘制少半个像素就可能多折一行。
   const auto content_height =
-      (std::min)(static_cast<int64_t>(panel_height * scale + 0.5) + decoration,
+      (std::min)(static_cast<int64_t>(std::ceil(panel_height * scale)) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
