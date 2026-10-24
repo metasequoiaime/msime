@@ -7512,5 +7512,4 @@ fn text_edit_button_order_rejects_missing_duplicate_and_unknown_actions() {
     unknown["touch_text_edit_button_order"][6] = serde_json::json!("return");
     let error = serde_json::from_value::<Preferences>(unknown).unwrap_err();
     assert!(error.to_string().contains("unknown variant `return`"));
-
 }
