@@ -39,6 +39,54 @@ int overlay_io_error(Display *display) {
 }  // namespace
 #endif
 
+namespace {
+
+Window wm_check_window(Display *display, Window window, Atom property) {
+  Atom type = None;
+  int format = 0;
+  unsigned long count = 0, remaining = 0;
+  unsigned char *raw = nullptr;
+  const auto status = XGetWindowProperty(display, window, property, 0, 1, False, XA_WINDOW,
+                                          &type, &format, &count, &remaining, &raw);
+  const Window result = status == Success && type == XA_WINDOW && format == 32 && count == 1 &&
+                                remaining == 0 && raw
+                            ? *reinterpret_cast<const unsigned long *>(raw)
+                            : None;
+  if (raw) XFree(raw);
+  return result;
+}
+
+bool satellite_window_manager(Display *display) {
+  const auto check = XInternAtom(display, "_NET_SUPPORTING_WM_CHECK", True);
+  if (check == None) return false;
+  // WM 可在两次读取之间退出。沿浮层现有的主线程探测约定保护查询，再恢复原错误处理器。
+  XSync(display, False);
+  const auto previous = XSetErrorHandler([](Display *, XErrorEvent *) { return 0; });
+  const auto wm = wm_check_window(display, DefaultRootWindow(display), check);
+  bool satellite = false;
+  if (wm != None && wm_check_window(display, wm, check) == wm) {
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0, remaining = 0;
+    unsigned char *raw = nullptr;
+    constexpr char expected[] = "xwayland-satellite";
+    const auto property = XInternAtom(display, "_NET_WM_NAME", False);
+    const auto utf8 = XInternAtom(display, "UTF8_STRING", False);
+    const auto status = XGetWindowProperty(display, wm, property, 0, 64, False, AnyPropertyType,
+                                            &type, &format, &count, &remaining, &raw);
+    // satellite 0.8.2 写 STRING；同时接受 EWMH 规定的 UTF8_STRING，长度和内容都必须精确匹配。
+    satellite = status == Success && (type == XA_STRING || type == utf8) && format == 8 &&
+                count == sizeof(expected) - 1 && remaining == 0 && raw &&
+                std::memcmp(raw, expected, sizeof(expected) - 1) == 0;
+    if (raw) XFree(raw);
+  }
+  XSync(display, False);
+  XSetErrorHandler(previous);
+  return satellite;
+}
+
+}  // namespace
+
 Display *open_overlay_display(const char *name, bool *lost) {
   *lost = false;
   Display *display = XOpenDisplay(name);
@@ -55,6 +103,12 @@ Display *open_overlay_display(const char *name, bool *lost) {
         display, [](Display *, void *flag) { *static_cast<bool *>(flag) = true; }, lost);
   }
 #endif
+  // satellite 尚无 root overlay 语义：override-redirect 浮层会变成普通顶层并抢焦点。
+  // 工具栏和键位图共用此入口，拒绝后沿已有的无后端路径回退，不修改用户偏好。
+  if (display && (satellite_window_manager(display) || *lost)) {
+    close_overlay_display(display);
+    return nullptr;
+  }
   return display;
 }
 
