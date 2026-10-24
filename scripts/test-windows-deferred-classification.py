@@ -74,7 +74,11 @@ std::atomic<PunctuationLock> PunctuationLockMode{PunctuationLock::Normal};
 struct { bool active(ULONGLONG) const { return false; } } DedicatedEnglish;
 std::set<WCHAR> CommitWithHighlightedCandPunc;
 bool IsUiLessMode() { return false; }
+std::atomic_bool TsfDiagnosticLogEnabled{false};
 }
+// 生产代码里的诊断日志在测试里关闭，记录进空实现即可。
+void QueueTsfDiagnosticLog(const std::wstring &) {}
+inline std::wstring BoolFlag(bool value) { return value ? L"1" : L"0"; }
 struct ITfContext { int refs = 1; void AddRef() { ++refs; } void Release() { --refs; } };
 namespace msime::tsf {
 struct KeyCompositionState { std::wstring rawInput; std::size_t caret = 0; bool unicodeMode = false, urlMode = false, phraseActive = false; };
