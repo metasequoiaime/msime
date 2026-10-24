@@ -61,6 +61,7 @@ jobs:
             target/android/emulator.log
             target/android/ocr-camera-synthetic.png
             target/android/ocr-product-*.txt
+            target/android/ocr-product-*.png
             target/android/ocr-product-*.log
             target/android/ocr-product-test-lock.json
             platforms/android/gradle-app/ocr-module/build/reports/lint-results-release.txt
