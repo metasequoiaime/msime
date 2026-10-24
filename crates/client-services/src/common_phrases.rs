@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
 
+mod categories;
+pub use categories::{CommonPhraseCategory, CommonPhraseCategoryBackup, MAX_CATEGORIES};
+
 /// 常用语文件在偏好目录里的文件名。
 pub const FILE_NAME: &str = "CommonPhrases.json";
 const LOCK_FILE_NAME: &str = "CommonPhrases.json.lock";
@@ -35,6 +38,9 @@ pub struct CommonPhrase {
     /// 仅本机显示的用途说明，不参与正文去重或云同步。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// 本机分类；未分类时不写该字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<Uuid>,
     pub pack: Option<Uuid>,
 }
 
@@ -48,11 +54,30 @@ pub struct CommonPhrasePack {
 }
 
 /// 整份常用语文档，`phrases` 的顺序就是面板里的顺序。
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommonPhrases {
     pub phrases: Vec<CommonPhrase>,
     pub packs: Vec<CommonPhrasePack>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<CommonPhraseCategory>,
+    /// `all` 展开全部，空串全部收起，分类 UUID 展开对应组。
+    #[serde(
+        default = "categories::all",
+        skip_serializing_if = "categories::is_all"
+    )]
+    pub expanded_category: String,
+}
+
+impl Default for CommonPhrases {
+    fn default() -> Self {
+        Self {
+            phrases: Vec::new(),
+            packs: Vec::new(),
+            categories: Vec::new(),
+            expanded_category: categories::all(),
+        }
+    }
 }
 
 /// 一次操作，形状与 C ABI 的 `action` 相同（`operation` 区分种类）。
@@ -83,6 +108,28 @@ pub enum CommonPhrasesAction {
     },
     RemovePack {
         id: Uuid,
+    },
+    AddCategory {
+        name: String,
+    },
+    RenameCategory {
+        id: Uuid,
+        name: String,
+    },
+    RemoveCategory {
+        id: Uuid,
+    },
+    Categorize {
+        id: Uuid,
+        category: Option<Uuid>,
+    },
+    SetExpandedCategory {
+        category: String,
+    },
+    ImportCategories {
+        categories: Vec<CommonPhraseCategoryBackup>,
+        expanded_category: String,
+        phrase_ids: Vec<Uuid>,
     },
 }
 
@@ -117,6 +164,12 @@ pub enum CommonPhrasesError {
     TooLarge,
     #[error("common phrase or pack was not found")]
     NotFound,
+    #[error("common phrase category name is invalid")]
+    CategoryInvalid,
+    #[error("common phrase category already exists")]
+    CategoryDuplicate,
+    #[error("common phrase category limit reached")]
+    CategoryLimit,
 }
 
 impl CommonPhrasesError {
@@ -131,6 +184,9 @@ impl CommonPhrasesError {
             Self::Limit => "common_phrases_limit",
             Self::TooLarge => "common_phrases_too_large",
             Self::NotFound => "common_phrases_not_found",
+            Self::CategoryInvalid => "common_phrases_category_invalid",
+            Self::CategoryDuplicate => "common_phrases_category_duplicate",
+            Self::CategoryLimit => "common_phrases_category_limit",
         }
     }
 }
@@ -212,6 +268,28 @@ impl CommonPhrasesStore {
             CommonPhrasesAction::Move { id, index } => self.move_to(id, index).map(Self::outcome),
             CommonPhrasesAction::InstallPack { resource } => self.install_pack(&resource),
             CommonPhrasesAction::RemovePack { id } => self.remove_pack(id).map(Self::outcome),
+            CommonPhrasesAction::AddCategory { name } => {
+                self.add_category(&name).map(Self::outcome)
+            }
+            CommonPhrasesAction::RenameCategory { id, name } => {
+                self.rename_category(id, &name).map(Self::outcome)
+            }
+            CommonPhrasesAction::RemoveCategory { id } => {
+                self.remove_category(id).map(Self::outcome)
+            }
+            CommonPhrasesAction::Categorize { id, category } => {
+                self.categorize(id, category).map(Self::outcome)
+            }
+            CommonPhrasesAction::SetExpandedCategory { category } => {
+                self.set_expanded_category(&category).map(Self::outcome)
+            }
+            CommonPhrasesAction::ImportCategories {
+                categories,
+                expanded_category,
+                phrase_ids,
+            } => self
+                .import_categories(&categories, &expanded_category, &phrase_ids)
+                .map(Self::outcome),
         }
     }
 
@@ -264,6 +342,7 @@ impl CommonPhrasesStore {
                 id: Uuid::new_v4(),
                 text: text.to_owned(),
                 note: normalized_note(note).to_owned(),
+                category: None,
                 pack: None,
             });
             Ok(())
@@ -389,6 +468,7 @@ impl CommonPhrasesStore {
                 id: Uuid::new_v4(),
                 text: text.clone(),
                 note: String::new(),
+                category: None,
                 pack: Some(pack.id),
             });
             document.phrases.splice(insert_at..insert_at, entries);
@@ -486,6 +566,7 @@ fn position(document: &CommonPhrases, id: Uuid) -> Result<usize, CommonPhrasesEr
 
 /// 整份文档的不变量：id 唯一且非空、正文合法、每条的包都已安装、各来源的条数在上限内且同一来源内没有重复文本。读文件和写文件之前都检查一遍。
 fn validate(document: &CommonPhrases) -> Result<(), ()> {
+    categories::validate(document)?;
     if document.packs.len() > MAX_PACKS {
         return Err(());
     }

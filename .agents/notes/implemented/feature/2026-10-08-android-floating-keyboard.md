@@ -14,6 +14,8 @@ Status: implemented
 - 键盘列的系统栏内边距由服务自己的 insets 监听决定：停靠时照旧留出导航栏那一截，浮动时不留，系统栏四边只用来限制面板能拖到哪里（`WindowLayout.systemBars` 抽出了原来 `fitSystemBars` 里的换算）。
 - 浮动时单手模式和横屏分离式键盘不生效（存着的值不变）；外接键盘的候选条模式里不浮动（`FloatingKeyboardPolicy.active`），候选条停在底部。同一套铺满窗口的做法也用于[物理键盘时候选栏跟随光标](2026-10-11-android-hardware-caret-candidates.md)，`overlayDrawn()` 涵盖两者。
 
+API 28 的停靠父窗口边界由[Android 9 窗口 insets 修复](../../implemented/bug-fix/2026-10-24-android-api28-ime-window-insets.md)部分取代：该系统从首次显示起固定全高、键区包裹内容贴底，避免预览扩窗先采用旧 insets 导致编辑器失焦；其他系统继续恢复原停靠窗口高度。全高窗口状态与浮动表面状态独立比较，切换浮动时仍重新应用几何。
+
 ## Alternatives considered
 
 - **另开一个悬浮窗（`TYPE_APPLICATION_OVERLAY`）画键盘**：位置不受输入法窗口约束，拖动更自由；但要「显示在其他应用上层」权限，输入法窗口与悬浮窗之间还得同步焦点、显示与隐藏，系统切换输入法时悬浮窗不会自动消失。在输入法窗口里铺满再收窄触摸区域，不要额外权限，生命周期跟着输入法走。

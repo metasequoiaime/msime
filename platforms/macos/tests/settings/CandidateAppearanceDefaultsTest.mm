@@ -34,6 +34,18 @@ int main() {
                                                        skinsRoot:[NSURL fileURLWithPath:root]];
         expectString(prefs.fontFamily, @"Noto Sans SC", "候选主字体回退");
         expectUnsigned(prefs.preeditFontSize, 15, "预编辑字号回退");
+        expectUnsigned(prefs.translationFontSize, 12, "译文字号回退");
+        for (NSNumber *size in @[@12, @21, @32]) {
+            [prefs applySharedCandidatePreferences:@{@"candidate_translation_font_size": size}];
+            expectUnsigned(prefs.translationFontSize, size.unsignedIntegerValue, "共享译文字号");
+        }
+        [prefs applySharedCandidatePreferences:@{@"candidate_translation_font_size": @33}];
+        expectUnsigned(prefs.translationFontSize, 32, "无效字号不覆盖已加载值");
+        [prefs applySharedCandidatePreferences:@{@"candidate_translation_font_size": NSNull.null}];
+        expectUnsigned(prefs.translationFontSize, 12, "null 恢复默认译文字号");
+        [prefs applySharedCandidatePreferences:@{@"candidate_translation_font_size": @21}];
+        [prefs applySharedCandidatePreferences:@{}];
+        expectUnsigned(prefs.translationFontSize, 12, "省略字段恢复默认译文字号");
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return failures == 0 ? 0 : 1;

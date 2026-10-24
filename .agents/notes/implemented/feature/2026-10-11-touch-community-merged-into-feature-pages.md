@@ -18,7 +18,7 @@ Status: implemented
   - 词库页：鸿蒙手机的「发现词库」照旧列前 8 个、可直接添加，组末一行「浏览更多词库」；其他触屏宿主加一组「社区词库」，只有这一行。
   - AI 辅助页：新的一组「回复模板」列出社区的前 5 个回复模板（鸿蒙原先「社区」里叫「短语」的那一段就是它们），「添加」与图库里的「添加」同一条路（`addCommunityReply`：收藏、读最新一版、存进高情商回复键盘，没有这个键盘的宿主只收藏），鸿蒙手机用 toast 提示结果，其他触屏宿主写在组里；组末一行「浏览更多回复模板」。桌面的 AI 辅助页不变。
   - 「我的 → 社区作品」各行（我发布的皮肤 / 词库 / 回复模板、收藏的词库 / 回复模板）以及其他走 `openCommunity` 的入口，在触屏宿主上先去到对应的功能页，再在上面打开相应范围（我的作品 / 收藏）的图库，范围映射沿用 `communityDestinationView`。
-- 图库子视图由 `useCommunityGallerySubview` 管理，状态放在设置外壳的模型里，`CommunityGallerySubview` 画在设置 `<form>` 之外：图库自带搜索和发布表单，嵌在设置表单里会被 WebView 当成外层表单提交（`harmony-phone-dictionary.tsx` 的对话框为此不用 `<form>`）。它和 AI 皮肤抽卡一样以页面背景覆盖整个界面（复用 `fullScreenSurface` / `fullScreenColumn`），标题前带返回按钮。图库内容就是原来的 `CommunitySkinsPage` / `CommunityResourcesPage`，鸿蒙手机上用 `look="harmony"`，搜索、分类、详情、评分、举报、试用、发布、我的作品和收藏都在。
+- 图库子视图由 `useCommunityGallerySubview` 管理，状态放在设置外壳的模型里，`CommunityGallerySubview` 画在设置 `<form>` 之外：图库自带搜索和发布表单，嵌在设置表单里会被 WebView 当成外层表单提交（`dictionary-edit-dialogs.tsx` 的对话框为此不用 `<form>`）。它和 AI 皮肤抽卡一样以页面背景覆盖整个界面（复用 `fullScreenSurface` / `fullScreenColumn`），标题前带返回按钮。图库内容就是原来的 `CommunitySkinsPage` / `CommunityResourcesPage`，鸿蒙手机上用 `look="harmony"`，搜索、分类、详情、评分、举报、试用、发布、我的作品和收藏都在。
 - 历史记录约定：打开图库时先 `selectPage` 到所在功能页，再压一条 `{ page: <功能页>, communityGallery: { category, scope, initialMine } }`，与皮肤页的 `skinSubpage` 是同一种做法。`popstate` 时图库的开关只取自记录里的 `communityGallery`，且记录的 `page` 要等于它所在的功能页；离开那一页时图库随之关上。图库里的详情原先压的是写死的 `page: "community"`，现在由 `historyPage` 传入所在功能页（缺省仍是 `community`，桌面不变），而 `pushMobileSettingsState` 会带上当前记录里的 `communityGallery`，所以系统返回依次关掉详情、图库，最后才离开功能页。
 - 图库关上时功能页重读它依赖的本机数据：皮肤网格在图库打开期间不算可见，关上后重读皮肤库和社区第一页；鸿蒙手机词库页在图库关上后重读词库列表，图库里添加的词库出现在「已安装」，「发现词库」的「添加」变成「已添加」。图库里「添加」词库与原来的社区页一样：宿主有命名词库时 `installCommunity` 装成独立词库，否则导入本机词库。
 

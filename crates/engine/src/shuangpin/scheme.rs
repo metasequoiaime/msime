@@ -1,5 +1,9 @@
 //! 双拼的按键处理（`R/schemes/shuangpin_scheme.cpp`，schemes-lang.md §1.8）。方案用得到 `;` 键时（微软双拼把 ing 放在 `;` 上，自定义方案可以把韵母或零声母编码的第二个键放在 `;` 上，见 `ShuangpinProfile::uses_semicolon_key`），自上一个 `'` 以来的片段长度为奇数时把 `;` 当作按键接受。
 
+use super::mid_sentence::{
+    accepts_semicolon_final_at, has_mid_sentence_helpcode, parse_mid_sentence_helpcodes,
+    UppercaseTriggers, DIRECT_HELPCODE_SLASH, END_HELPCODE_MARKER, MID_SENTENCE_MARKER,
+};
 use super::query::{
     apply_segmentation_cases_into, effective_input_length, segment_input,
     to_quanpin_segmentation_into,
@@ -10,6 +14,8 @@ use crate::types::{QueryRequest, SchemeKey, SchemeType};
 pub struct ShuangpinScheme {
     profile: &'static ShuangpinProfile,
     raw: String,
+    /// 大写字母开哪种辅助码段（句中或末尾），由会话按触发方式开关设置；`'` 与 `|` 段不受它影响。
+    helpcode_uppercase_triggers: UppercaseTriggers,
 }
 
 impl ShuangpinScheme {
@@ -17,7 +23,13 @@ impl ShuangpinScheme {
         Self {
             profile,
             raw: String::new(),
+            helpcode_uppercase_triggers: UppercaseTriggers::default(),
         }
+    }
+
+    /// `ImeSession::configure_shuangpin_scheme` 的对应物：开关层算好归句中还是末尾后下发。
+    pub fn set_helpcode_uppercase_triggers(&mut self, triggers: UppercaseTriggers) {
+        self.helpcode_uppercase_triggers = triggers;
     }
 
     pub fn reset(&mut self) {
@@ -44,6 +56,19 @@ impl ShuangpinScheme {
                     false
                 }
             }
+            // 辅助码段标记：收不收由调用方按触发规则判断，这里只负责记下（scheme.cpp:72-92）。
+            SchemeKey::Symbol(MID_SENTENCE_MARKER) => {
+                self.raw.push(MID_SENTENCE_MARKER as char);
+                true
+            }
+            SchemeKey::Symbol(END_HELPCODE_MARKER) => {
+                self.raw.push(END_HELPCODE_MARKER as char);
+                true
+            }
+            SchemeKey::Symbol(DIRECT_HELPCODE_SLASH) => {
+                self.raw.push(DIRECT_HELPCODE_SLASH as char);
+                true
+            }
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
                 true
@@ -54,13 +79,17 @@ impl ShuangpinScheme {
         }
     }
 
-    /// `;` 只能是一个音节的第二个键，即接在奇数长度的片段之后（:12-22）。
+    /// `;` 只能是一个音节的第二个键，即接在奇数长度的片段之后；大写段与末尾段不算这一节的键，
+    /// 与 `contracts/mid_sentence_helpcode.h` 的 `AcceptsSemicolonFinalAt` 同一条规则。
     fn accepts_ing_key(&self) -> bool {
         if !self.profile.uses_semicolon_key() {
             return false;
         }
-        let chunk = self.raw.rsplit('\'').next().unwrap_or_default();
-        chunk.len() % 2 == 1
+        accepts_semicolon_final_at(
+            self.raw.as_bytes(),
+            self.raw.len(),
+            self.helpcode_uppercase_triggers,
+        )
     }
 
     /// :97-121.
@@ -72,29 +101,64 @@ impl ShuangpinScheme {
 
     /// 将双拼请求写入已有存储，避免逐键刷新重复构建按键和切分字符串。
     pub fn build_request_into(&self, request: &mut QueryRequest) {
-        Self::build_request_from_raw_into(self.profile, &self.raw, &self.raw, request);
+        Self::build_request_from_raw_into(
+            self.profile,
+            &self.raw,
+            &self.raw,
+            self.helpcode_uppercase_triggers,
+            request,
+        );
     }
 
-    /// 从原文直接写入查询请求，光标前缀查询不必创建临时方案。
+    /// 从原文直接写入查询请求，光标前缀查询不必创建临时方案。`triggers` 与敲键时的设置一致，
+    /// 否则前缀查询与正式查询切出来的大写段不一样。
     pub fn build_request_from_raw_into(
         profile: &'static ShuangpinProfile,
         raw: &str,
         raw_with_cases: &str,
+        triggers: UppercaseTriggers,
         request: &mut QueryRequest,
     ) {
         request.scheme = SchemeType::Shuangpin;
-        request.raw_input.clear();
-        request.raw_input.extend(
-            raw.bytes()
-                .map(|byte| char::from(byte.to_ascii_lowercase())),
-        );
         let raw_with_cases = if raw_with_cases.is_empty() {
             raw
         } else {
             raw_with_cases
         };
+        // 下游只认 `'` 分隔的双拼：每段（反引号、末尾或大写段）换成分隔符，约束与装饰单独带着，
+        // 原串留在 `raw_input_with_helpcode_marks` 给宿主回读和显示（scheme.cpp:124-144）。
+        let parse = has_mid_sentence_helpcode(raw_with_cases.as_bytes(), triggers)
+            .then(|| parse_mid_sentence_helpcodes(raw_with_cases, profile, triggers));
+        let input = parse
+            .as_ref()
+            .map_or(raw_with_cases, |parsed| parsed.input.as_str());
+        request.raw_input.clear();
+        request.raw_input.extend(
+            input
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
         request.raw_input_with_cases.clear();
-        request.raw_input_with_cases.push_str(raw_with_cases);
+        request.raw_input_with_cases.push_str(input);
+        match parse {
+            Some(parsed) => {
+                request.raw_input_with_helpcode_marks.clear();
+                request
+                    .raw_input_with_helpcode_marks
+                    .push_str(raw_with_cases);
+                request.syllable_helpcodes = parsed.helpcodes;
+                request.end_helpcodes = parsed.end_helpcodes;
+                request.helpcode_source_index = parsed.source_index;
+                request.helpcode_decorations = parsed.decorations;
+            }
+            None => {
+                request.raw_input_with_helpcode_marks.clear();
+                request.syllable_helpcodes.clear();
+                request.end_helpcodes.clear();
+                request.helpcode_source_index.clear();
+                request.helpcode_decorations.clear();
+            }
+        }
         request.valid = effective_input_length(&request.raw_input) > 0;
         if request.valid {
             let segmentation = segment_input(&request.raw_input, profile);
@@ -268,19 +332,37 @@ mod tests {
 
         for profile in profiles {
             let mut reused = QueryRequest::default();
-            ShuangpinScheme::build_request_from_raw_into(profile, "nihc", "NiHc", &mut reused);
+            ShuangpinScheme::build_request_from_raw_into(
+                profile,
+                "nihc",
+                "NiHc",
+                UppercaseTriggers::default(),
+                &mut reused,
+            );
             for raw in &corpus {
                 let uppercased = raw.to_ascii_uppercase();
                 for cased in ["", uppercased.as_str(), "Different"] {
                     let mut fresh = QueryRequest::default();
-                    ShuangpinScheme::build_request_from_raw_into(profile, raw, cased, &mut fresh);
+                    ShuangpinScheme::build_request_from_raw_into(
+                        profile,
+                        raw,
+                        cased,
+                        UppercaseTriggers::default(),
+                        &mut fresh,
+                    );
                     assert_eq!(
                         fresh.normalized_input,
                         normalize_input(&fresh.raw_input, profile),
                         "profile={:?}, raw={raw:?}, cased={cased:?}",
                         profile.kind
                     );
-                    ShuangpinScheme::build_request_from_raw_into(profile, raw, cased, &mut reused);
+                    ShuangpinScheme::build_request_from_raw_into(
+                        profile,
+                        raw,
+                        cased,
+                        UppercaseTriggers::default(),
+                        &mut reused,
+                    );
                     assert_eq!(
                         reused, fresh,
                         "profile={:?}, raw={raw:?}, cased={cased:?}",

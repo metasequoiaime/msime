@@ -62,6 +62,7 @@ export function CandidateFontSettingsRows({
         preferences={preferences}
         showFontControls={showFontSize}
         showPreeditFont={showPreeditFont}
+        showTranslationFont={platform === "macos"}
         onChange={onChange}
       />
     </>

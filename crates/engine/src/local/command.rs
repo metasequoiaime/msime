@@ -11,6 +11,11 @@ use crate::types::{CandidateSource, CommandTableEntry, PluginCommand, WordItem};
 
 /// Two pages of the nine-row Windows candidate window; typing more of a trigger narrows the list.
 pub const RESULT_LIMIT: usize = 18;
+const MAX_RESULT_LIMIT: usize = if super::date_time::RESULT_LIMIT > RESULT_LIMIT {
+    super::date_time::RESULT_LIMIT
+} else {
+    RESULT_LIMIT
+};
 /// Commands kept from a host table; the rest are ignored.
 pub const TABLE_LIMIT: usize = 256;
 pub const TRIGGER_LIMIT: usize = 32;
@@ -141,19 +146,23 @@ fn trigger_is_new(table: &[CommandTableEntry], index: usize, trigger: &str) -> b
         .all(|entry| !valid_trigger(&entry.trigger) || entry.trigger != trigger)
 }
 
-/// Generated rows for the letters after `/`, weight `count - index`, at most `RESULT_LIMIT`: commands whose trigger is the input, then commands it begins; table commands before built-in ones. `pinyin` holds the trigger. `table` must have gone through `usable_command_table`.
+/// `/` 后字母匹配的命令行，权重按顺序递减；日期完整命令保留全部格式，其他命令最多 `RESULT_LIMIT` 行。精确匹配在前，用户表在内置命令前，`pinyin` 保存触发词；`table` 必须先经过 `usable_command_table`。
 pub fn query_command(
     code: &str,
     now: &LocalDateTime,
     table: &[CommandTableEntry],
 ) -> Vec<WordItem> {
     let clock = clock(now);
-    let mut rows: [Option<(String, String)>; RESULT_LIMIT] = std::array::from_fn(|_| None);
+    let limit = if BUILTINS[0].0.contains(&code) {
+        MAX_RESULT_LIMIT
+    } else {
+        RESULT_LIMIT
+    };
+    let mut rows: [Option<(String, String)>; MAX_RESULT_LIMIT] = std::array::from_fn(|_| None);
     let mut row_count = 0;
     let mut push = |trigger: &str, text: String| {
-        // The command page is capped at 18 rows. Scanning it avoids cloning every text into a
-        // second owned deduplication set on each keystroke.
-        if row_count < RESULT_LIMIT
+        // 有界列表直接扫描，避免每次按键为去重再复制一份文本集合。
+        if row_count < limit
             && fits(&text)
             && !rows[..row_count]
                 .iter()
@@ -403,7 +412,8 @@ mod tests {
     #[test]
     fn a_complete_builtin_trigger_lists_the_date_time_rows() {
         let rows = query_command("rq", &now(), &[]);
-        assert_eq!(rows.len(), 17);
+        assert_eq!(words(&rows), words(&query_date_time("rq", &now())));
+        assert_eq!(rows.len(), 20);
         assert_eq!(rows[0].word, "2026年10月1日");
         assert!(rows.iter().all(|row| row.pinyin == "rq"));
         assert_eq!(query_command("week", &now(), &[])[0].word, "星期四");

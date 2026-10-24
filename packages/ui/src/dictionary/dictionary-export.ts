@@ -5,9 +5,34 @@ import {
   type LocalDictionaryKind,
 } from "./dictionary-file";
 import { utf8ByteLength } from "../core/text";
+import type { DictionaryClient } from "./dictionary-contracts";
 
 /** Keep the complete export within the size a settings bridge can hold at once. */
 export const MAX_DICTIONARY_EXPORT_BYTES = 32 * 1024 * 1024;
+
+/** 分页读取宿主导出文本；调用方按既有策略决定是否限制过滤前的累计字节。 */
+export async function loadDictionaryExportText(
+  dictionary: Pick<DictionaryClient, "export">,
+  kind: LocalDictionaryKind,
+  format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
+  maxBytes?: number,
+): Promise<string> {
+  if (!dictionary.export) return "";
+  let text = "";
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore && offset <= 1_000_000) {
+    const page = await dictionary.export(kind, format, offset, 1000);
+    text += page.text;
+    if (maxBytes !== undefined && utf8ByteLength(text) > maxBytes) {
+      throw new Error("dictionary_export_limit");
+    }
+    const count = page.text ? page.text.trimEnd().split("\n").length : 0;
+    offset += count;
+    hasMore = page.has_more && count > 0;
+  }
+  return text;
+}
 
 const PERSONAL_EXPORT_HEADER = "# 类别\t编码\t词条\t权重\n";
 

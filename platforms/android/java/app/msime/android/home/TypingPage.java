@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.InputFeatureToggle;
@@ -95,7 +96,7 @@ public final class TypingPage extends ReloadingDetailPage {
      * @param bundledGlosses 随安装包解压在资源目录旁的离线释义覆盖的目标语言（不带离线释义的安装包为空）
      * @param helpcodePacks 用户导入的辅助码表（已安装的 `helpcode` 插件包）；读不出来时为空
      */
-    private record State(JSONObject preferences, String languageDictionaries, Set<String> packs,
+    private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local, String languageDictionaries, Set<String> packs,
             Map<String, ResourcePacks.Pack> resourcePacks, Set<String> bundledGlosses, List<String[]> helpcodeSchemas,
             List<HelpcodeChoicePolicy.Pack> helpcodePacks) {}
 
@@ -157,7 +158,7 @@ public final class TypingPage extends ReloadingDetailPage {
         for (ResourcePacks.Pack pack : resourcePacks.values()) if (pack.installed()) packs.add(pack.id());
         List<String> targets = new ArrayList<>(TARGET_LANGUAGES.length);
         for (String[] entry : TARGET_LANGUAGES) targets.add(entry[0]);
-        return new State(preferences, HostStore.languageDictionaries(context), Set.copyOf(packs),
+        return new State(preferences, AndroidLocalSettings.load(context), HostStore.languageDictionaries(context), Set.copyOf(packs),
             Map.copyOf(resourcePacks), Set.copyOf(CandidateTranslationPolicy.offlineTargets(targets, resources)),
             helpcodeSchemas(), helpcodePacks(context));
     }
@@ -263,6 +264,12 @@ public final class TypingPage extends ReloadingDetailPage {
             languages.addView(KeyboardSheets.badgeNavRow(context, language.badge, language.title, null,
                 shown == null ? null : schemeLabel(shown, preferences),
                 () -> showLanguage(language, offered, applied, preferences, state)));
+            if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
+                InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
+                languages.toggle(toggle.title(), toggle.description(),
+                    preferences.optBoolean(toggle.key(), toggle.enabledByDefault()),
+                    checked -> savePreferences(values -> values.put(toggle.key(), checked)));
+            }
         }
         if (!addable.isEmpty()) {
             languages.addView(KeyboardSheets.actionRow(context, adding ? "✓" : "＋", adding ? "完成" : "添加语言", () -> {

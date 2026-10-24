@@ -1,6 +1,10 @@
 export type MixedInputPreferences = {
+  /** 候选混输总开关（Windows `utility.mixed_candidates`）。后加的可选成员：Rust 端开着时不写这个键，缺省按开处理；关掉后各分开关原值保留。 */
+  enabled?: boolean;
   english: boolean;
   minimum_prefix: number;
+  /** 中文状态下首页最多展示几个英文候选（Windows `cn_en_mixed_input_first_page_count`，1–3）。后加的可选成员：为 1 时不写这个键，缺省按 1 处理。 */
+  first_page_count?: number;
   emoji: boolean;
   kaomoji: boolean;
   /** 日文混输（实验）。后加的可选成员：Rust 端关着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按关处理；也因此不放进 `defaultMixedInput`。 */
@@ -30,11 +34,16 @@ export function mixedInputDefaultsFor(platform?: string | null): MixedInputPrefe
 
 /** 仅投影控件状态，不补写偏好或改变英文触发字符数。 */
 export function mixedInputControlState(preferences: MixedInputPreferences) {
+  const enabled = preferences.enabled ?? true;
   return {
+    enabled,
     symbolsChecked: preferences.symbols ?? true,
     japaneseChecked: preferences.japanese ?? false,
+    englishDisabled: !enabled,
+    minimumPrefixDisabled: !enabled || !preferences.english,
+    firstPageCountDisabled: !enabled || !preferences.english,
+    firstPageCount: preferences.first_page_count ?? 1,
     quickPhraseChecked: preferences.quick_phrase ?? true,
     quickPhraseFrequencyChecked: preferences.quick_phrase_frequency ?? true,
-    minimumPrefixDisabled: !preferences.english,
   };
 }

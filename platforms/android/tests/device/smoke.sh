@@ -99,6 +99,11 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "$core" != true ]]; then
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Japanese toggle input acceptance failed" >&2; exit 1; }
+fi
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e app-composition true)
   printf '%s\n' "$result"
@@ -152,6 +157,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Stale candidate callback acceptance failed" >&2; exit 1; }
+# 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Continuous candidate strip acceptance failed" >&2; exit 1; }
 # 从安装产品绘制候选标签，旧系统缺字形时也必须在深浅主题中可见。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HeavyEqualsCandidateDeviceSmoke)
 printf '%s\n' "$result"
@@ -207,6 +216,9 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Number pad acceptance failed" >&2; exit 1; }
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke -e password-number-pad true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Password number pad acceptance failed" >&2; exit 1; }
 # 导航必须在原生宿主中验收：设置列表有「皮肤」一行，底部第二格是没有返回按钮、顶部为「皮肤 / 词库」分类的社区根页，AI 对话从设置压入二级页。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke)
 printf '%s\n' "$result"
@@ -263,6 +275,10 @@ printf '%s\n' "$result"
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-notes true)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase note acceptance failed" >&2; exit 1; }
+# 常用语分类覆盖原生管理、纵向展开、正文插入和本地备份；最低 API 同样执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-categories true)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native common phrase category acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"

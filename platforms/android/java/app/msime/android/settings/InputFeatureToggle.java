@@ -39,6 +39,9 @@ public enum InputFeatureToggle {
     CHINESE_ENGLISH_SPACING(Group.OUTPUT, "chinese_english_spacing", false, "中英文之间加空格",
         "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加"),
 
+    JAPANESE_TOGGLE_INPUT(Group.JAPANESE, "touch_japanese_toggle_input", true, "日语九键连点切换",
+        "仅日语九键：连点同一键依次切换假名；关闭后每次轻点都输入键面假名，如「ささ」，其他假名用四向滑动选择"),
+
     CLIPBOARD_HISTORY(Group.PRIVACY, "clipboard_history", false, "剪贴板历史",
         "在键盘里保留最近复制的内容，仅存本机；关闭会立即清空"),
     CANDIDATE_TRANSLATIONS(Group.PRIVACY, "candidate_translations", false, "候选翻译",
@@ -54,6 +57,7 @@ public enum InputFeatureToggle {
     public enum Group {
         DICTIONARY("词库与联想"),
         OUTPUT("上屏与标点"),
+        JAPANESE("日语"),
         PRIVACY("需要留意的");
 
         private final String title;

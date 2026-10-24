@@ -28,6 +28,12 @@ ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\",\s*(true|fa
 ANDROID_CALL_DEFAULTS = {"smart_punctuation_default()": True}
 
 entries = ENTRY.findall(TOGGLES.read_text())
+toggle_names = {
+    key: name for name, key in re.findall(
+        r'^\s*([A-Z_]+)\(Group\.[A-Z_]+,\s*"([a-z0-9_]+)"',
+        TOGGLES.read_text(), re.MULTILINE,
+    )
+}
 if len(entries) < 5:
     sys.exit(f"expected the Android toggle table to have entries, parsed {len(entries)}")
 
@@ -67,19 +73,16 @@ for key in keys:
     if not re.search(rf"^\s*pub {re.escape(key)}:", schema, re.MULTILINE):
         failures.append(f"{key}: no `pub {key}:` field in {SCHEMA.relative_to(ROOT)}")
         continue
-    # Any mention outside the schema file and outside test trees counts as a reader.
-    # The quotes are inside single-quoted literals on purpose: written as `\"` inside
-    # an f-string they stay backslash-plus-quote in the argument, and rg's default
-    # engine rejects `\"` with "unrecognized escape sequence". It then exits 2 with an
-    # empty stdout, which this file read as "no reader" for every key at once - the
-    # whole table reported renamed at the same moment, which is a parse failure rather
-    # than a finding. The guard below is what turns that back into a visible error.
+    # 共享业务代码和 Android 输入运行时都可以是消费者；设置枚举表与写设置的页面不能给自己作证。
+    # 运行时经枚举读取键和默认值时，同时按对应枚举成员查找。
+    # 外层使用单引号，避免双引号前多出反斜杠，导致 rg 拒绝表达式并以 2 退出。
+    # 下方单独检查搜索错误，不能把查询失败的空输出当成所有键都没有消费者。
     found = subprocess.run(
         [
-            "rg", "-l", rf'\.{key}\b|"{key}"',
+            "rg", "-l", rf'\.{key}\b|"{key}"|InputFeatureToggle\.{toggle_names[key]}\b',
             "--glob", "!**/tests/**", "--glob", "!**/tests.rs",
             f"--glob=!{SCHEMA.relative_to(ROOT)}",
-            "crates", "apps",
+            "crates", "apps", "platforms/android/java/app/msime/android/core",
         ],
         cwd=ROOT,
         capture_output=True,

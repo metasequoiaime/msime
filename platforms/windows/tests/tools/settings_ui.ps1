@@ -57,6 +57,52 @@ public static class SettingsWindowProbe {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [StructLayout(LayoutKind.Sequential)] private struct MouseInput {
+        public int X, Y;
+        public uint Data, Flags, Time;
+        public IntPtr ExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public MouseInput Mouse; }
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    private static uint GuiThread(IntPtr window) {
+        uint process;
+        uint thread = GetWindowThreadProcessId(window, out process);
+        if (thread == 0) throw new InvalidOperationException("Synthetic settings window has no GUI thread");
+        return thread;
+    }
+    public static IntPtr MouseTarget(IntPtr owner, int x, int y) {
+        var target = WindowFromPoint(new Point { X = x, Y = y });
+        if (target == IntPtr.Zero || GetAncestor(target, 2) != owner)
+            throw new InvalidOperationException("Slider point does not hit the synthetic settings window");
+        return target;
+    }
+    public static string MouseThreads(IntPtr owner, IntPtr target) {
+        return "root=" + GuiThread(owner) + ", target=" + GuiThread(target) + ", hwnd=" + target.ToInt64().ToString("X");
+    }
+    private static void SendMouse(MouseInput mouse) {
+        var input = new Input { Mouse = mouse };
+        if (SendInput(1, new[] { input }, Marshal.SizeOf(typeof(Input))) != 1)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+    public static bool LeftButtonDown() { return (GetAsyncKeyState(1) & 0x8000) != 0; }
+    public static void MouseButton(bool pressed) {
+        SendMouse(new MouseInput { Flags = pressed ? 0x0002u : 0x0004u });
+    }
+    public static void MoveMouse(int x, int y) {
+        int left = GetSystemMetrics(76), top = GetSystemMetrics(77);
+        int width = GetSystemMetrics(78), height = GetSystemMetrics(79);
+        if (width <= 1 || height <= 1) throw new InvalidOperationException("Invalid virtual desktop bounds");
+        SendMouse(new MouseInput {
+            X = (int)Math.Round((x - left) * 65535.0 / (width - 1)),
+            Y = (int)Math.Round((y - top) * 65535.0 / (height - 1)),
+            Flags = 0x0001u | 0x4000u | 0x8000u
+        });
+    }
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     public static void Wheel(int delta) { mouse_event(0x0800, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
 }
@@ -348,6 +394,201 @@ function Assert-WubiCandidateSelection($window) {
     if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
     Write-Host 'Wubi shortcut toggle, atomic swap, reload and retained keys passed'
 }
+function Find-CandidatePageSizeSlider($window) {
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '每页候选项数量')
+    $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
+    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $typeCondition)
+    return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Show-CandidatePageSizeSlider($window) {
+    $content = Find-ById $window 'settings-content'
+    $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    $seekFromTop = $false
+    $lastBounds = $null
+    $lastPercent = -1.0
+    $stable = 0
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $slider = Find-CandidatePageSizeSlider $window
+        if (-not $slider) { throw '候选数量滑块缺失' }
+        $bounds = $slider.Current.BoundingRectangle
+        $viewport = $content.Current.BoundingRectangle
+        # 留出预览高度变化的空间，避免拖动后这一行再次被挤出视口。
+        $visible = -not $slider.Current.IsOffscreen -and $bounds.Height -gt 0 -and
+            $bounds.Top -ge $viewport.Top -and $bounds.Bottom -le $viewport.Bottom
+        if ($visible -and (-not $scroll.Current.VerticallyScrollable -or
+            $bounds.Bottom -le $viewport.Top + $viewport.Height / 2 -or
+            $scroll.Current.VerticalScrollPercent -ge 100)) {
+            # Scroll 返回时滚动动画仍可能在移动；坐标与偏移连续稳定后才能按下滑块柄。
+            $percent = $scroll.Current.VerticalScrollPercent
+            if ($null -ne $lastBounds -and $bounds.Equals($lastBounds) -and
+                [Math]::Abs($percent - $lastPercent) -lt 0.001) { $stable++ } else { $stable = 0 }
+            if ($stable -ge 3) { return $slider }
+            $lastBounds = $bounds
+            $lastPercent = $percent
+        } else {
+            $stable = 0
+            $lastBounds = $null
+            if (-not $scroll.Current.VerticallyScrollable) { throw '候选数量滑块不可见且正文无法滚动' }
+            # 离屏元素可能没有可用矩形，从顶部向下找，不能由空矩形推断滚动方向。
+            if (-not $seekFromTop) {
+                $scroll.SetScrollPercent(-1, 0)
+                $seekFromTop = $true
+            } else {
+                $scroll.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, [System.Windows.Automation.ScrollAmount]::SmallIncrement)
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw '候选数量滑块未滚动到可视区域'
+}
+function Find-SliderValue($window, $slider) {
+    $bounds = $slider.Current.BoundingRectangle
+    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+    $labels = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $found = $null
+    foreach ($label in $labels) {
+        if ($label.Current.IsOffscreen -or $label.Current.Name -notmatch '^\d+$') { continue }
+        $rect = $label.Current.BoundingRectangle
+        if ($rect.Left -ge $bounds.Right -and $rect.Left -lt $bounds.Right + 100 -and
+            $rect.Top -lt $bounds.Bottom -and $rect.Bottom -gt $bounds.Top) {
+            if ($found) { throw '滑块右侧存在多个数值标签，无法唯一定位' }
+            $found = $label
+        }
+    }
+    return $found
+}
+function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
+    $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ($range.Current.Value -ne $expected -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    if ($range.Current.Value -ne $expected) { throw "候选数量滑块未变为 $expected，实际为 $($range.Current.Value)" }
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $bounds = $slider.Current.BoundingRectangle
+        $viewport = (Find-ById $window 'settings-content').Current.BoundingRectangle
+        if ($slider.Current.IsOffscreen -or $bounds.Height -le 0 -or
+            $bounds.Top -lt $viewport.Top -or $bounds.Bottom -gt $viewport.Bottom) { throw '数值变化后候选数量滑块离开可视区域' }
+        $label = Find-SliderValue $window $slider
+        if ($label -and -not $label.Current.IsOffscreen -and $label.Current.Name -eq [string]$expected) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $label -or $label.Current.IsOffscreen -or $label.Current.Name -ne [string]$expected) { throw "候选数量右侧标签未更新为 $expected" }
+    if ($slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value -ne $expected) { throw '候选数量标签与滑块数值不一致' }
+}
+function Wait-CandidatePageSizeSaved([int]$expected) {
+    $path = Join-Path $state 'preferences.json'
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        if ($saved.preferences.candidate_page_size -eq $expected) { return }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw '候选数量未保存'
+}
+function Find-SliderThumb($slider) {
+    # WinUI 默认模板把滑块柄放在 Raw view，只遍历当前滑块，不能扫描右侧标签。
+    $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+    $pending = New-Object 'System.Collections.Generic.Stack[System.Windows.Automation.AutomationElement]'
+    $pending.Push($slider)
+    $found = $null
+    while ($pending.Count -gt 0) {
+        $node = $pending.Pop()
+        if ($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Thumb -and -not $node.Current.IsOffscreen) {
+            if ($found) { throw '滑块内存在多个可见滑块柄' }
+            $found = $node
+        }
+        $child = $walker.GetFirstChild($node)
+        while ($child) {
+            $pending.Push($child)
+            $child = $walker.GetNextSibling($child)
+        }
+    }
+    return $found
+}
+function Assert-CandidatePageSizeDrag($window, [string]$screenshotPrefix) {
+    $handle = [IntPtr]$window.Current.NativeWindowHandle
+    [SettingsWindowProbe]::SetForegroundWindow($handle) | Out-Null
+    if ([SettingsWindowProbe]::GetForegroundWindow() -ne $handle) { throw '拖动检查要求合成设置窗口在前台' }
+    $cursor = New-Object SettingsWindowProbe+Point
+    if (-not [SettingsWindowProbe]::GetCursorPos([ref]$cursor)) { throw '拖动检查需要交互桌面' }
+    try {
+        foreach ($expected in @(9, 3)) {
+            $slider = Show-CandidatePageSizeSlider $window
+            if (-not $slider -or $slider.Current.IsOffscreen -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可拖动' }
+            $thumb = Find-SliderThumb $slider
+            if (-not $thumb -or $thumb.Current.IsOffscreen) { throw '候选数量滑块缺少可见滑块柄' }
+            $bounds = $slider.Current.BoundingRectangle
+            $grip = $thumb.Current.BoundingRectangle
+            $startX = [int]($grip.Left + $grip.Width / 2)
+            $y = [int]($grip.Top + $grip.Height / 2)
+            $endX = if ($expected -eq 9) { [int]($bounds.Right - 1) } else { [int]($bounds.Left + 1) }
+            Write-Host "候选数量拖动起点=($startX,$y)，终点=($endX,$y)，滑块=$bounds，滑块柄=$grip"
+            if (-not [SettingsWindowProbe]::SetCursorPos($startX, $y)) { throw '无法将鼠标放到滑块柄上' }
+            $inputTarget = [SettingsWindowProbe]::MouseTarget($handle, $startX, $y)
+            Write-Host "候选数量鼠标命中线程：$([SettingsWindowProbe]::MouseThreads($handle, $inputTarget))"
+            try {
+                if ([SettingsWindowProbe]::LeftButtonDown()) { throw '拖动前鼠标左键已按下' }
+                [SettingsWindowProbe]::MouseButton($true)
+                # WinUI 的指针捕获不保证出现在 HWND 捕获字段；按下与移动统一进 SendInput 队列，保持输入顺序。
+                $deadline = [DateTime]::UtcNow.AddSeconds(5)
+                while (-not [SettingsWindowProbe]::LeftButtonDown() -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+                if (-not [SettingsWindowProbe]::LeftButtonDown()) { throw '鼠标左键按下未进入系统输入状态' }
+                # 分步输入形成真实拖动；读取标签前先完成第一次数值变化。
+                for ($step = 1; $step -le 8; $step++) {
+                    $x = [int]($startX + ($endX - $startX) * $step / 8)
+                    [SettingsWindowProbe]::MoveMouse($x, $y)
+                    Start-Sleep -Milliseconds 25
+                }
+                if (-not [SettingsWindowProbe]::LeftButtonDown()) { throw '读取拖动数值前鼠标左键已松开' }
+                Assert-CandidatePageSizeLabel $window $slider $expected
+                if ($expected -eq 9) { Save-Window $window "$screenshotPrefix-candidate-page-size-drag-held-9.png" }
+            } finally {
+                [SettingsWindowProbe]::MouseButton($false)
+            }
+            Wait-CandidatePageSizeSaved $expected
+            Assert-CandidatePageSizeLabel $window $slider $expected
+        }
+    } finally {
+        [SettingsWindowProbe]::SetCursorPos($cursor.X, $cursor.Y) | Out-Null
+    }
+    Write-Host '候选数量真实鼠标拖动：按住、松开及保存验证通过'
+}
+function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
+    foreach ($expected in @(3, 9, 4, 6)) {
+        $slider = Show-CandidatePageSizeSlider $window
+        if (-not $slider -or -not $slider.Current.IsEnabled) { throw '候选数量滑块不可用' }
+        $slider.SetFocus()
+        $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+        $range.SetValue($expected)
+        # 检查同一个可见数值标签，不能用滑块 tooltip 或保存成功替代界面更新。
+        Assert-CandidatePageSizeLabel $window $slider $expected
+        Wait-CandidatePageSizeSaved $expected
+        if ($expected -eq 9) { Save-Window $window "$screenshotPrefix-candidate-page-size-9.png" }
+    }
+    Write-Host '候选数量 UIA 数值变更、可见标签与保存验证通过，开始真实鼠标拖动'
+    Assert-CandidatePageSizeDrag $window $screenshotPrefix
+    # 拖动最后停在 3；恢复成 6 后再检查切页，保持后续合成页面的基线一致。
+    $slider = Show-CandidatePageSizeSlider $window
+    $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue(6)
+    Assert-CandidatePageSizeLabel $window $slider 6
+    Wait-CandidatePageSizeSaved 6
+    Open-Page $window 'toolbar'
+    Open-Page $window 'candidate'
+    Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
+    $slider = Show-CandidatePageSizeSlider $window
+    if (-not $slider) { throw '切页后候选数量滑块缺失' }
+    $slider.SetFocus()
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $label = Find-SliderValue $window $slider
+        if ($label) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $slider -or -not $label -or $label.Current.Name -ne '6' -or
+        $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value -ne 6) { throw '切页后候选数量未恢复已保存值' }
+    Write-Host '候选数量滑块、右侧数值、保存及切页恢复验证通过'
+}
 function Select-ComboChoice($window, [string]$id, [string]$label) {
     $combo = Find-ById $window $id
     if (-not $combo) { throw "Missing combo: $id" }
@@ -604,6 +845,7 @@ try {
                 if ($page -eq 'candidate') {
                     # 照 macOS 分「布局」「字体与大小」「窗口样式」「预编辑」四个标签，打开时是「布局」；预览在无标题卡片里，「游戏」组不属于哪个标签、一直在。
                     Select-PageTab $window 'candidate-tab-layout' '候选项排列方式'
+                    Assert-CandidatePageSize $window "$theme-$width"
                     $content = Find-ById $window 'settings-content'
                     foreach ($name in @('预览：固定样例随当前设置草稿变化，不代表实际输入候选。', '每页候选项数量', '跟随光标', '在游戏中显示候选窗口')) {
                         if (-not (Find-ByName $content $name)) { throw "Candidate layout tab is missing: $name" }

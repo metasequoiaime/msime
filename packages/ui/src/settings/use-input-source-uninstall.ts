@@ -6,13 +6,14 @@ export interface UseInputSourceUninstallOptions {
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
 }
 
-/** Owns the confirmation and result state for removing the native input source. */
+/** 管理原生输入源卸载的确认和结果。 */
 export function useInputSourceUninstall({ uninstallInputSource }: UseInputSourceUninstallOptions) {
   const [removeUserData, setRemoveUserData] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
-  const [result, setResult] = useState<"success" | "error" | "listed" | null>(null);
+  const [result, setResult] = useState<"success" | "error" | "listed" | "system" | null>(null);
   const { busy, run } = useAsyncActionRunner(
-    (message) => setResult(message === "listed" ? "listed" : message ? "error" : null),
+    (message) =>
+      setResult(message === "listed" || message === "system" ? message : message ? "error" : null),
     undefined,
     uninstallInputSource,
   );
@@ -27,8 +28,17 @@ export function useInputSourceUninstall({ uninstallInputSource }: UseInputSource
         setConfirmation(false);
         setResult("success");
       },
-      // The host refuses while System Settings still lists this input method and opens that page; the user removes it there and confirms again.
-      { formatError: (error) => (errorCode(error) === "input_source_listed" ? "listed" : "error") },
+      // 系统副本需手动移除；仍在输入源列表中的用户副本需先从系统设置移除。
+      {
+        formatError: (error) => {
+          const code = errorCode(error);
+          return code === "system_input_source"
+            ? "system"
+            : code === "input_source_listed"
+              ? "listed"
+              : "error";
+        },
+      },
     );
   }
 

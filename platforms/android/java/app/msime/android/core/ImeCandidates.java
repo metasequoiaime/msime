@@ -12,7 +12,6 @@ import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.core.InputViewValuePolicy;
-import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -146,6 +145,11 @@ final class ImeCandidates {
 
     boolean showCandidateMenu(Button button, int slot, JSONObject id, String text,
                                       JSONObject candidate, boolean expanded) {
+        return showCandidateMenu(button, slot, id, text, candidate, expanded, null);
+    }
+
+    boolean showCandidateMenu(Button button, int slot, JSONObject id, String text,
+                              JSONObject candidate, boolean expanded, JSONObject stripSnapshot) {
         if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
         PopupMenu popup = new PopupMenu(s, button);
         String translation = candidate == null || candidate.isNull("translation")
@@ -174,7 +178,9 @@ final class ImeCandidates {
             s.imeKeyFeedback.playFeedback(button);
             int glossIndex = item.getItemId() - 2000;
             if (glossIndex >= 0 && glossIndex < glosses.size()) {
-                if (expanded) s.insertExpandedCandidateGloss(candidate, id, text, glosses.get(glossIndex));
+                if (stripSnapshot != null)
+                    s.insertStripCandidateGloss(stripSnapshot, candidate, id, text, glosses.get(glossIndex));
+                else if (expanded) s.insertExpandedCandidateGloss(candidate, id, text, glosses.get(glossIndex));
                 else s.insertCandidateGloss(slot, id, text, glosses.get(glossIndex));
                 return true;
             }
@@ -207,6 +213,22 @@ final class ImeCandidates {
             String text = s.chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view);
             return showCandidateMenu(button, slot, id, text);
         });
+        return button;
+    }
+
+    /** 横向完整候选按全局身份选择，点击不再依赖引擎当前页的槽位。 */
+    Button stripCandidateButton(JSONObject snapshot, JSONObject candidate, int visibleSlot) {
+        KeyboardPressButton button = candidateButton();
+        s.bindCandidateRenderRelease(button);
+        s.updateCandidateButton(button, candidate, visibleSlot, visibleSlot);
+        JSONObject id = candidate.optJSONObject("id");
+        ViewPolicy.bindClick(button, () -> s.selectStripCandidate(button, candidate));
+        if (AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(candidate, "source", -1)))
+            button.setOnLongClickListener(ignored -> {
+                if (!s.candidateVersionIsCurrent(id)) return false;
+                String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
+                return showCandidateMenu(button, -1, id, text, candidate, false, snapshot);
+            });
         return button;
     }
 

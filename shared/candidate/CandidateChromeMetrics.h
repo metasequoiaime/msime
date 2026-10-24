@@ -8,7 +8,7 @@ namespace msime::candidate
 constexpr double kCandidateTranslationOpacity = 0.62;
 // 读音比它跟着的释义再淡一些，相对释义色。
 constexpr double kCandidatePronunciationOpacity = 0.72;
-// The translation under or beside a candidate is a fixed 12pt run at every candidate size (design-input-surfaces §2.1), so a large candidate font does not grow a gloss the eye only glances at.
+// 译文默认使用 12pt，不随候选字号变化；支持独立译文字号的宿主可用用户偏好覆盖它。
 constexpr double kCandidateTranslationPointSize = 12.0;
 // 首行：左边 logo 和拼音，右边「1 / 3」、‹ › 和展开键。
 constexpr double kCandidateHeaderHeight = 26.0;

@@ -4,6 +4,7 @@ pub mod custom;
 pub mod dictionary;
 pub mod engine;
 pub mod hints;
+pub mod mid_sentence;
 pub mod profile;
 pub mod query;
 pub mod scheme;

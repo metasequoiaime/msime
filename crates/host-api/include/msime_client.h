@@ -1204,7 +1204,13 @@ char *msime_client_music_pack(const uint8_t *request, size_t length);
  * "reorder_scripts" {ids:[id]}：ids 按给出的顺序排到最前，其余按原来的相对顺序；有重复或没有授权条目的 id 时整个拒绝。
  * 失败时为 {ok:false, error: 失败码, detail?}：失败码与桌面外壳相同（invalid、storage、plugin_invalid、plugin_unsupported_source、plugin_archive、plugin_reserved、plugin_storage、plugin_script_missing、plugin_script_changed、plugin_script_grant_invalid、plugin_script_limit、plugin_script_memory、plugin_script_grants_format、mention_invalid、mention_format、mention_storage），detail 存在时是被拒的包或条目违反的规则，中文，给设置页显示。会读写文件，导入最多复制一个音乐包大小的数据：宿主有工作线程时在工作线程上调用。 */
 char *msime_client_plugins(const uint8_t *request, size_t length);
-/* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}。Value 是整份文档 {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}；错误是固定的代码（common_phrases_io、_corrupt、_invalid、_duplicate、_limit、_too_large、_not_found）。设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
+/* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation, ...}}。
+ * 正文操作：load、add{text,note?}、remove{id}、replace{id,text,note?}、move{id,index}、install_pack{resource}、remove_pack{id}。
+ * 本机分类：add_category{name}、rename_category{id,name}、remove_category{id}、categorize{id,category:UUID|null}、set_expanded_category{category:UUID|"all"|""}。
+ * 备份分类合并：import_categories{categories:[{id,name,texts:[正文]}],expanded_category:备份分类UUID|"all"|"",phrase_ids:[本次新增UUID]}，原子合并，保留已有正文归属。
+ * Value 为 {phrases:[{id,text,pack,note?,category?}],packs:[{id,name,revision}],categories?:[{id,name}],expanded_category?:UUID|"",skipped?}；省略 expanded_category 表示 "all"。
+ * 错误码：common_phrases_io、_corrupt、_invalid、_note_invalid、_duplicate、_limit、_too_large、_not_found、_category_invalid、_category_duplicate、_category_limit。
+ * 设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
 char *msime_client_common_phrases(const uint8_t *request, size_t length);
 /* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush"|"synchronize"|"third_party_matches"{entries}, ...}}，格式见 client-services 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued；third_party_matches 只读地核对最多 128 个准备发布到社区的词，value 的 third_party_matches 是其中出现在搜狗细胞词库导入的集合里的下标。词条经个人词库队列传过去，键盘在下一次会话时应用。synchronize 在 budget_millis（1–2000，默认 2000）毫秒软预算内逐批应用个人队列并补充待发项，每批至多 128 项并释放维护租约，返回 {synchronized,pending_count,failed_count,snapshot_error,sent}，pending_count 包括未发送的集合条目；普通操作的 Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
 char *msime_client_dictionary_collections(const uint8_t *request, size_t length);

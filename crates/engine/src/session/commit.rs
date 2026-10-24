@@ -268,7 +268,7 @@ impl InputSession {
             None if self.engine.wubi_pinyin_lookup_active() => {
                 Some(self.preedit().split_off(1)).filter(|text| !text.is_empty())
             }
-            None => Some(self.preedit()),
+            None => Some(self.raw_commit_text()),
         };
         let diagnostic = self
             .ranking_index(index)

@@ -693,3 +693,71 @@ test("新搜索首页等待时旧保存回执不能沿用上个搜索的页码",
     vi.useRealTimers();
   }
 });
+
+test.each(["windows", "rime"] as const)("桌面导出保留 %s 格式与分页参数", async (format) => {
+  const text = format === "windows" ? "code\t合成\t2\n" : "合成\tcode\t2\n";
+  const exportPage = vi
+    .fn()
+    .mockResolvedValueOnce({ text, has_more: true })
+    .mockResolvedValueOnce({ text: "", has_more: true });
+  const saveExport = vi.fn().mockResolvedValue("/synthetic/export.txt");
+  const client: DictionaryManagerClient = {
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit: vi.fn(),
+      export: exportPage,
+    },
+    saveExport,
+  };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  act(() => {
+    result.current.setDictionaryKind("wubi98");
+    result.current.setDictionaryFormat(format);
+  });
+  await act(async () => result.current.exportPhrases());
+  expect(exportPage.mock.calls).toEqual([
+    ["wubi98", format === "rime" ? "standard" : format, 0, 1000],
+    ["wubi98", format === "rime" ? "standard" : format, 1, 1000],
+  ]);
+  expect(saveExport).toHaveBeenCalledWith("水杉IME-98五笔用户词库.txt", "\ufeff" + text);
+  expect(result.current.phraseNotice).toContain("已导出 1 条用户词条");
+});
+
+test("桌面逐页检查原始文本上限，过滤前超限也不能保存", async () => {
+  const exportPage = vi.fn().mockResolvedValue({
+    text: "甲\t" + "a".repeat(32 * 1024 * 1024) + "\n合成\thecheng\t2\n",
+    has_more: true,
+  });
+  const saveExport = vi.fn();
+  const client: DictionaryManagerClient = {
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit: vi.fn(),
+      export: exportPage,
+    },
+    saveExport,
+  };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  act(() => result.current.setDictionaryKind("pinyin"));
+  await act(async () => result.current.exportPhrases());
+  expect(exportPage).toHaveBeenCalledOnce();
+  expect(saveExport).not.toHaveBeenCalled();
+  expect(result.current.phraseError).toBe("词库导出失败，请稍后重试。");
+});
+
+test("桌面分页导出保留保存取消提示", async () => {
+  const saveExport = vi.fn().mockResolvedValue(null);
+  const client: DictionaryManagerClient = {
+    dictionary: {
+      list: vi.fn(),
+      edit: vi.fn(),
+      export: vi.fn().mockResolvedValue({ text: "合成\tcode\t2\n", has_more: false }),
+    },
+    saveExport,
+  };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  await act(async () => result.current.exportPhrases());
+  expect(saveExport).toHaveBeenCalledOnce();
+  expect(result.current.phraseNotice).toBe("已取消导出。");
+  expect(result.current.phraseError).toBe("");
+});

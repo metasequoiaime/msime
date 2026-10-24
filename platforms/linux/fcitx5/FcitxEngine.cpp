@@ -8552,9 +8552,12 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。只有 X11 客户端报的光标矩形是根窗口坐标；Wayland 客户端的是它自己表面里的局部坐标，拿来放徽章会放错地方。
   const bool show_logo = preferences_.value("show_app_logo", false);
+  const bool allow_corner = preferences_.value("input_mode_corner_hud", true);
   const bool x11_client = ic_.display().rfind("x11:", 0) == 0;
-  auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_client, show_logo) ? engine_->modeBadge() : nullptr;
-  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_client, show_logo);
+  auto *badge =
+      msime::linux_host::mode_badge_surface_wanted(x11_client, show_logo, allow_corner) ? engine_->modeBadge() : nullptr;
+  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_client,
+                                          show_logo, allow_corner);
   if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHudTrigger::FocusEntered && loop_) {
     mode_hud_after_focus_ = true;
     mode_hud_focus_timer_ = loop_->addTimeEvent(

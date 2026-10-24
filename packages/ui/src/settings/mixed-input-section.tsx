@@ -33,11 +33,33 @@ export function MixedInputSection({
     <>
       <SettingsRowStack role="group" aria-label="中英混输">
         <SwitchRow
+          title="候选混输"
+          description="中文输入时把英文、emoji、颜文字、符号和快捷短语混进候选；关掉后各开关原值保留，重开即恢复"
+          checked={state.enabled}
+          onChange={(enabled) => onChange({ ...preferences, enabled })}
+        />
+        <SwitchRow
           title="中英混输"
           description="中文输入时在候选项中补充英文单词"
           checked={preferences.english}
+          disabled={state.englishDisabled}
           onChange={(english) => onChange({ ...preferences, english })}
         />
+        <SelectRow
+          title="首页英文候选数"
+          description="中文输入时首页最多展示几个英文候选，放不下的接在候选列表末尾"
+          disabled={state.firstPageCountDisabled}
+          value={state.firstPageCount}
+          onChange={(event) =>
+            onChange({ ...preferences, first_page_count: Number(event.target.value) })
+          }
+        >
+          {[1, 2, 3].map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </SelectRow>
         {showMinimumPrefix && (
           <SelectRow
             title="触发字符数"
@@ -60,6 +82,7 @@ export function MixedInputSection({
         title="emoji 混输"
         description={emojiDescription}
         checked={preferences.emoji}
+        disabled={state.englishDisabled}
         onChange={(emoji) => onChange({ ...preferences, emoji })}
       />
     </>
@@ -91,13 +114,14 @@ export function MixedInputMoreRows({
             title="快捷短语混输"
             description="中文输入的编码恰好是某条快捷短语的编码时，短语排在普通候选之后；Shift+K 的 K 模式不受影响"
             checked={state.quickPhraseChecked}
+            disabled={!state.enabled}
             onChange={(quick_phrase) => onChange({ ...preferences, quick_phrase })}
           />
           <SwitchRow
             title="快捷短语参与调频"
             description="常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移"
             checked={state.quickPhraseFrequencyChecked}
-            disabled={!state.quickPhraseChecked}
+            disabled={!state.enabled || !state.quickPhraseChecked}
             onChange={(quick_phrase_frequency) =>
               onChange({ ...preferences, quick_phrase_frequency })
             }
@@ -108,12 +132,14 @@ export function MixedInputMoreRows({
         title="符号混输"
         description="打出符号的名称时，在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现"
         checked={state.symbolsChecked}
+        disabled={state.englishDisabled}
         onChange={(symbols) => onChange({ ...preferences, symbols })}
       />
       <SwitchRow
         title="颜文字混输"
         description={kaomojiDescription}
         checked={preferences.kaomoji}
+        disabled={state.englishDisabled}
         onChange={(kaomoji) => onChange({ ...preferences, kaomoji })}
       />
       {temporaryJapanese && (
@@ -121,6 +147,7 @@ export function MixedInputMoreRows({
           title="日文混输（实验）"
           description="全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）。用的是临时日文的那份日文词典，词典不在时不生效"
           checked={state.japaneseChecked}
+          disabled={state.englishDisabled}
           onChange={(japanese) => onChange({ ...preferences, japanese })}
         />
       )}

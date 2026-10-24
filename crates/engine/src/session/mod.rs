@@ -61,6 +61,7 @@ impl Session {
         );
         nine_key.set_stroke_dictionary(options.stroke_dictionary.clone());
         nine_key.set_mixed_expressive(options.expressive);
+        nine_key.set_mixed_candidates_enabled(options.mixed_candidates);
         nine_key.set_inline_date_time(
             options
                 .local_modes

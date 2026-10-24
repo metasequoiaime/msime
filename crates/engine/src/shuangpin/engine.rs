@@ -39,15 +39,25 @@ struct DirectSpelling {
     end: usize,
 }
 
-fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<DirectSpelling>> {
+/// 万象式直接的逐音节切分（`direct_helpcode`）：`slash` 开着时 `uiab/`、`uia/` 用 `/`
+/// 结束一段辅码，`uppercase` 开着时 `uiaB` 第二位辅码大写结束一段（`spelling_graph.h`
+/// 的 `Aux2Slash`/`Aux2Upper`）。
+fn direct_helpcode_paths(
+    typed: &str,
+    profile: &ShuangpinProfile,
+    slash: bool,
+    uppercase: bool,
+) -> Vec<Vec<DirectSpelling>> {
     fn visit(
         typed: &str,
         position: usize,
         profile: &ShuangpinProfile,
+        endings: (bool, bool),
         path: &mut Vec<DirectSpelling>,
         paths: &mut Vec<Vec<DirectSpelling>>,
         remaining: &mut usize,
     ) {
+        let (slash, uppercase) = endings;
         if paths.len() >= 64 || *remaining == 0 {
             return;
         }
@@ -69,40 +79,100 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
         if cvt_single_sp_to_pinyin(code_text, profile).is_empty() {
             return;
         }
-        path.push(DirectSpelling {
-            code,
-            first: None,
-            second: None,
-            end: position + 2,
-        });
-        visit(typed, position + 2, profile, path, paths, remaining);
-        path.pop();
+        let visit_at = |spelling: DirectSpelling,
+                        path: &mut Vec<DirectSpelling>,
+                        paths: &mut Vec<Vec<DirectSpelling>>,
+                        remaining: &mut usize| {
+            let end = spelling.end;
+            path.push(spelling);
+            visit(
+                typed,
+                end,
+                profile,
+                (slash, uppercase),
+                path,
+                paths,
+                remaining,
+            );
+            path.pop();
+        };
+        visit_at(
+            DirectSpelling {
+                code,
+                first: None,
+                second: None,
+                end: position + 2,
+            },
+            path,
+            paths,
+            remaining,
+        );
 
         if position + 3 <= typed.len() {
             let first = typed.as_bytes()[position + 2] as char;
             if first.is_ascii_lowercase() {
-                path.push(DirectSpelling {
-                    code,
-                    first: Some(first.to_ascii_lowercase()),
-                    second: None,
-                    end: position + 3,
-                });
-                visit(typed, position + 3, profile, path, paths, remaining);
-                path.pop();
+                visit_at(
+                    DirectSpelling {
+                        code,
+                        first: Some(first.to_ascii_lowercase()),
+                        second: None,
+                        end: position + 3,
+                    },
+                    path,
+                    paths,
+                    remaining,
+                );
+                // `uia/`：一位辅码加 `/` 结束这一段（`slash_marker`）。
+                if slash && typed.as_bytes().get(position + 3) == Some(&b'/') {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: None,
+                            end: position + 4,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
             }
         }
         if position + 4 <= typed.len() {
             let first = typed.as_bytes()[position + 2] as char;
             let second = typed.as_bytes()[position + 3] as char;
-            if first.is_ascii_lowercase() && second.is_ascii_uppercase() {
-                path.push(DirectSpelling {
-                    code,
-                    first: Some(first.to_ascii_lowercase()),
-                    second: Some(second.to_ascii_lowercase()),
-                    end: position + 4,
-                });
-                visit(typed, position + 4, profile, path, paths, remaining);
-                path.pop();
+            if first.is_ascii_lowercase() {
+                // `uiaB`：第二位辅码大写结束这一段（`uppercase_marker`）。
+                if uppercase && second.is_ascii_uppercase() {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: Some(second.to_ascii_lowercase()),
+                            end: position + 4,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
+                // `uiab/`：两位辅码加 `/` 结束这一段（`slash_marker`）。
+                if slash
+                    && second.is_ascii_lowercase()
+                    && typed.as_bytes().get(position + 4) == Some(&b'/')
+                {
+                    visit_at(
+                        DirectSpelling {
+                            code,
+                            first: Some(first.to_ascii_lowercase()),
+                            second: Some(second.to_ascii_lowercase()),
+                            end: position + 5,
+                        },
+                        path,
+                        paths,
+                        remaining,
+                    );
+                }
             }
         }
     }
@@ -110,23 +180,38 @@ fn direct_helpcode_paths(typed: &str, profile: &ShuangpinProfile) -> Vec<Vec<Dir
     let mut paths = Vec::new();
     if typed.is_ascii() {
         // 同时限制搜索节点，避免大量无解分支绕过结果数量上限。
-        visit(typed, 0, profile, &mut Vec::new(), &mut paths, &mut 512);
+        visit(
+            typed,
+            0,
+            profile,
+            (slash, uppercase),
+            &mut Vec::new(),
+            &mut paths,
+            &mut 512,
+        );
     }
     paths
 }
 
 /// 音节内双辅助码的第二码可以大写，但音节本身的大写仍属于字面英文。
-pub(crate) fn direct_helpcodes_own_capitals(typed: &str, profile: &ShuangpinProfile) -> bool {
-    direct_helpcode_paths(typed, profile).iter().any(|path| {
-        let mut start = 0;
-        path.iter().all(|spelling| {
-            let lowercase_code = typed.as_bytes()[start..start + 2]
-                .iter()
-                .all(u8::is_ascii_lowercase);
-            start = spelling.end;
-            lowercase_code
+pub(crate) fn direct_helpcodes_own_capitals(
+    typed: &str,
+    profile: &ShuangpinProfile,
+    slash: bool,
+    uppercase: bool,
+) -> bool {
+    direct_helpcode_paths(typed, profile, slash, uppercase)
+        .iter()
+        .any(|path| {
+            let mut start = 0;
+            path.iter().all(|spelling| {
+                let lowercase_code = typed.as_bytes()[start..start + 2]
+                    .iter()
+                    .all(u8::is_ascii_lowercase);
+                start = spelling.end;
+                lowercase_code
+            })
         })
-    })
 }
 
 fn direct_helpcode_matches(word: &str, path: &[DirectSpelling], keymap: &HelpcodeKeymap) -> bool {
@@ -254,15 +339,46 @@ impl ShuangpinEngine {
         request: &QueryRequest,
         keymap: Option<&HelpcodeKeymap>,
     ) -> Vec<WordItem> {
+        // 句中间接（`mid_sentence`）：逐音节约束跟着请求进词典，签名进缓存键；没有辅助码表
+        // 时约束没有可对照的码，直接作废而不是把候选全筛没。
+        let mid_active = request.scheme == SchemeType::Shuangpin
+            && request.shuangpin_helpcode_modes.mid_sentence
+            && !request.syllable_helpcodes.is_empty()
+            && keymap.is_some_and(|keymap| !keymap.is_empty());
+        self.dictionary.set_syllable_helpcodes(if mid_active {
+            &request.syllable_helpcodes
+        } else {
+            &[]
+        });
         let mut candidates = self.query_standard(request, keymap);
-        if !request.valid {
-            return candidates;
+        if request.valid {
+            let alternatives =
+                fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
+            if !alternatives.is_empty() {
+                candidates =
+                    self.query_fuzzy_alternatives(request, keymap, candidates, alternatives);
+            }
         }
-        let alternatives =
-            fuzzy_initial_spellings(&request.raw_input, self.profile, request.fuzzy_pinyin, 32);
-        if alternatives.is_empty() {
-            return candidates;
+        if mid_active {
+            let segmentation = segment_input(&request.raw_input, self.profile);
+            self.apply_syllable_constraints(
+                &mut candidates,
+                &segmentation,
+                &request.raw_input,
+                keymap,
+            );
         }
+        candidates
+    }
+
+    /// 纠错替代读法并回主列表（原 `query` 的循环体；句中过滤要在它的结果之后做）。
+    fn query_fuzzy_alternatives(
+        &mut self,
+        request: &QueryRequest,
+        keymap: Option<&HelpcodeKeymap>,
+        mut candidates: Vec<WordItem>,
+        alternatives: Vec<String>,
+    ) -> Vec<WordItem> {
         let mut single_helpcode = None;
         for spelling in alternatives {
             let mut alternate = request.clone();
@@ -319,6 +435,34 @@ impl ShuangpinEngine {
         candidates
     }
 
+    /// 句中间接约束收尾（`query` → `filter_by_syllable_helpcodes`）：约束整句插到候选前面，
+    /// 再筛掉不满足逐音节约束的拼音行。`query_standard` 各分支（末尾段、普通、直接）共用。
+    fn apply_syllable_constraints(
+        &mut self,
+        candidates: &mut Vec<WordItem>,
+        segmentation: &str,
+        raw: &str,
+        keymap: Option<&HelpcodeKeymap>,
+    ) {
+        let Some(keymap) = keymap else {
+            return;
+        };
+        if self.dictionary.syllable_helpcodes.is_empty() {
+            return;
+        }
+        let mut sentences =
+            self.dictionary
+                .generate_constrained_sentences(segmentation, raw, |start, word| {
+                    self.dictionary
+                        .span_satisfies_syllable_helpcodes(start, word, keymap)
+                });
+        // 整句行与词库行同词时只留词库那一份（`merge_lattice_candidates` 的座位规则）。
+        sentences.retain(|sentence| !candidates.iter().any(|item| item.word == sentence.word));
+        candidates.splice(0..0, sentences);
+        self.dictionary
+            .filter_by_syllable_helpcodes(candidates, keymap);
+    }
+
     fn query_standard(
         &mut self,
         request: &QueryRequest,
@@ -344,6 +488,27 @@ impl ShuangpinEngine {
         let empty_keymap = HelpcodeKeymap::default();
         let keymap = keymap.unwrap_or(&empty_keymap);
 
+        // 引导键触发的末尾辅助码：辅码由方案层从末尾段里取出，输入串里已经没有它们，不用再猜哪几个
+        // 键是辅码，也不会和「再打一个声母」混在一起，所以单码不补原拼音的候选（engine.cpp:163-172）。
+        if !request.end_helpcodes.is_empty() {
+            let segmentation = segment_input(raw, self.profile);
+            let exact =
+                self.dictionary
+                    .generate_series(&remove_manual_delimiters(raw), &segmentation, raw);
+            let filtered = if request.end_helpcodes.len() == 2 {
+                filter_candidates_with_double_helpcodes(exact, &request.end_helpcodes, keymap)
+            } else {
+                reorder_candidates_with_single_helpcode(exact, &request.end_helpcodes, keymap)
+            };
+            return self.append_fuzzy(
+                filtered,
+                &segmentation,
+                request.fuzzy_pinyin,
+                &request.end_helpcodes,
+                keymap,
+            );
+        }
+
         // 移动端在直接辅助码后会继续输入：`uibjm` 是 `ui` 加首码 `b` 再加 `jm`，
         // `tartantab` 则在三个音节上各带一位辅助码。普通的末尾辅助码路径只会看到最后一个奇数字母，
         // 所以把这类编码解析成逐音节约束；与完整小写双拼有歧义时仍保留普通读法。
@@ -353,9 +518,17 @@ impl ShuangpinEngine {
             request.raw_input_with_cases.as_str()
         };
         let mut ambiguous_direct = None;
-        if request.enable_shuangpin_helpcode && !keymap.is_empty() {
+        // `direct_helpcode` 是万象式直接的主开关（出厂关）：开着才做逐音节切分；
+        // `/` 与第二码大写各自的开关决定结束方式。
+        let direct_modes = request.shuangpin_helpcode_modes;
+        if request.enable_shuangpin_helpcode && !keymap.is_empty() && direct_modes.direct_helpcode {
             let mut direct_best: Option<(usize, Vec<WordItem>)> = None;
-            for path in direct_helpcode_paths(typed, self.profile) {
+            for path in direct_helpcode_paths(
+                typed,
+                self.profile,
+                direct_modes.direct_helpcode_slash,
+                direct_modes.direct_helpcode_uppercase,
+            ) {
                 if typed.len() < 4 && path.len() == 1 {
                     continue;
                 }
@@ -735,10 +908,10 @@ mod tests {
         let profile =
             crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Ziranma)
                 .unwrap();
-        assert!(super::direct_helpcode_paths("uib字", profile).is_empty());
-        assert!(super::direct_helpcode_paths("ui'bjm", profile).is_empty());
+        assert!(super::direct_helpcode_paths("uib字", profile, true, true).is_empty());
+        assert!(super::direct_helpcode_paths("ui'bjm", profile, true, true).is_empty());
         let ambiguous = "ta".repeat(80);
-        assert!(super::direct_helpcode_paths(&ambiguous, profile).len() <= 64);
+        assert!(super::direct_helpcode_paths(&ambiguous, profile, true, true).len() <= 64);
     }
 
     #[test]
@@ -771,7 +944,7 @@ mod tests {
                 .unwrap();
 
         let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            super::direct_helpcode_paths("tartantab", profile)
+            super::direct_helpcode_paths("tartantab", profile, true, true)
         });
 
         assert!(!paths.is_empty());

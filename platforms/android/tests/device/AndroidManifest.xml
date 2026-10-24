@@ -118,6 +118,7 @@
         <activity android:name="app.msime.android.test.QuoteEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <!-- 明暗验收保留合成编辑器的焦点和输入连接，只让输入法收到系统配置变化。 -->
         <activity android:name="app.msime.android.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="uiMode" />
+        <provider android:name="app.msime.android.test.EditorProbeProvider" android:authorities="app.msime.android.test.editor-probe" android:exported="true" />
         <activity android:name="app.msime.android.test.EnglishCorrectionEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <!-- 合成编辑器「复制图片」的来源（#6781）：不导出，剪贴板按 grantUriPermissions 把读权限授给读它的输入法。 -->
         <provider android:name="app.msime.android.test.ImageClipProvider" android:authorities="app.msime.android.test.images" android:exported="false" android:grantUriPermissions="true" />
