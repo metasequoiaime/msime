@@ -434,7 +434,7 @@ fn page_copy_preserves_all_fields_and_clone_capacities_across_shapes() {
                 let make = |index| WordItem {
                     pinyin: "ni'hao".into(),
                     canonical_pinyin: "ni'hao'ma".into(),
-                    word: format!("合成字段{index:03}😀"),
+                    word: format!("合成字段{index:03}😀").into(),
                     weight: i64::MIN + index as i64,
                     source: CandidateSource::Generated,
                     scheme: SchemeType::Shuangpin,
