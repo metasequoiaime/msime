@@ -383,6 +383,7 @@ final class OfflineVoiceDeviceCases {
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
         PendingIntent pending = PendingIntent.getBroadcast(context, 9159,
             new Intent(action).setPackage(context.getPackageName()), flags);
+        Throwable primaryFailure = null;
         try {
             Bundle extras = new Bundle();
             extras.putString("synthetic_marker", "preserved");
@@ -513,18 +514,22 @@ final class OfflineVoiceDeviceCases {
             } else if (data.hasExtra(RecognizerIntent.EXTRA_RESULTS)) {
                 throw new AssertionError("Cancelled request retained caller-supplied results");
             }
+        } catch (Exception | AssertionError error) {
+            primaryFailure = error;
+            throw error;
         } finally {
             try {
                 if (activity != null) instrumentation.runOnMainSync(activity::finish);
-                // 重建可留下已结束请求的系统权限窗口；清理后才能恢复权限或开始下一项。
+                // API 28 的权限窗口不响应返回键；只点击系统拒绝按钮，不能在清理时授予录音权限。
                 if (scenario.equals("offline-recreate") && permissionVisible()) {
-                    try (var input = instrumentation.getUiAutomation().executeShellCommand("input keyevent 4");
-                            var stream = new java.io.FileInputStream(input.getFileDescriptor())) {
-                        byte[] discard = new byte[4096];
-                        while (stream.read(discard) != -1) { }
-                    }
+                    await(() -> !permissionVisible() || requestPermissionDenial(),
+                        "Recreated permission window has no system deny button");
                     await(() -> !permissionVisible(), "Recreated permission window was not dismissed");
                 }
+            } catch (Exception | AssertionError cleanupFailure) {
+                // 主体断言失败优先保留；清理失败仍附在异常上，不能把真正的失败覆盖掉。
+                if (primaryFailure != null) primaryFailure.addSuppressed(cleanupFailure);
+                else throw cleanupFailure;
             } finally {
                 pending.cancel();
                 context.unregisterReceiver(receiver);
