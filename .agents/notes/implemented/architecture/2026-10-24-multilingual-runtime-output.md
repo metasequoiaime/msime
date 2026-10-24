@@ -87,6 +87,14 @@ SSH Session 0 中的 Windows 原生全套 267 项中 261 项通过，初步失�
 
 首轮 PR CI 的 `Script plugins` 因作者 SDK 漏同步新枚举值失败，本地 `pack-tool --test sdk` 重现一项通过、一项失败。补齐 C 与 Rust 的 `FirstCandidateCommand = 12` 常量后两项通过；`msime-pack-tool` 与 `msime-script-runtime` 全套随后通过，原有四项性能测量按测试定义忽略。此遗漏属于本次新增 ABI 的配套缺口，不归为 develop 基线问题。
 
+### Apple CI 的测试契约补齐
+
+首轮 iOS CI 在 Xcode 26.3 对旧 `MorePanelFoldTests.expectedTitles` 的长数组拼接表达式报类型检查超时。拆为顺序追加，保留每一标题、条件与短路读取次序。本机 Xcode 27.0 的专用 iOS 26.5 模拟器随后通过该类 12 项及 `InputBridgeResponseTests` 8 项，合计 20 项；模拟器已关闭并删除。此结果不代替 CI 的 Xcode 26.3 验证。
+
+macOS 首轮四项 CI 失败在本地原样重现：三个快捷键测试的会话替身未实现新增输出 setter，覆盖检查还保留了 `traditional_chinese_variant` 的旧豁免。只补 setter 后仍有两个布局断言失败，独立复审定位到返回基类空视图覆盖组字状态。普通替身现在显式保存夹具当前视图，布局与繁简两处注入时同步；展开网格从自己的 `gridView` 动态生成，保留代次、分页及派生释义。未删产品通知、未将 setter 总返回 nil，也未放松原布局或滚动断言。真正读取该偏好的共享 `ffi/input.rs` 已由 macOS 调用，因此删除过时豁免。
+
+重编 `shortcut-test` 后，原四项 `shortcut`、`shortcut-expanded-scroll`、`shortcut-translations`、`preference-coverage` 全部通过；派生网格的 `shortcut-translation-font-size` 也通过。首次补 setter 的两项失败日志保留，不因日志文件名带 green 而记为通过。本轮提交前完整 quick 通过，Windows 本机交叉编译与 pipe-only 仍按缺少工具链跳过。
+
 ## Consequences
 
 Host API 已注入所选语言并按普通全拼能力、至少两种可用语言和日文模型路径门控；六宿主沿相同来源及上屏标记消费输出。共享 React 和 Windows（WinUI 与 Win7）、Android、iOS 原生设置提供默认关闭的总开关及语言集合，关闭保留选择，显式空列表不恢复为默认三语。iOS 活着的键盘会话重载列表包含 `multilingual_input`。后台日文准备不阻塞连续输入的契约见[词库适配笔记](2026-10-24-multilingual-dictionary-adapter.md)。不能把内部逐段回归或交叉编译通过写成 #8921 全平台真实系统入口已验收。

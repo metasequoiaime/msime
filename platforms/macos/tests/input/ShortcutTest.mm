@@ -136,6 +136,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *cancelTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
+@property(nonatomic, copy) NSDictionary *fixtureView;
 @property(nonatomic) NSUInteger settledRerankCalls;
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
@@ -215,11 +216,16 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
     (void)error; self.fullwidth = fullwidth; ++self.widthCalls; return nil;
 }
+- (NSDictionary *)setMultilingualOutput:(BOOL)traditional error:(NSError **)error {
+    (void)traditional;
+    return [self viewWithError:error];
+}
 - (BOOL)setCapsLockEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error; self.capsLock = enabled; ++self.capsLockCalls; return YES;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
+    if (self.fixtureView) return self.fixtureView;
     return @{@"focused":@NO, @"editing_text":@"", @"candidates":@[], @"dedicated_english":@(self.dedicatedEnglish)};
 }
 - (NSDictionary *)setDedicatedEnglishEnabled:(BOOL)enabled error:(NSError **)error {
@@ -3470,6 +3476,10 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     return @{@"focused": @YES, @"session": @1, @"generation": @(self.generation), @"editing_text": self.editing,
              @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @(start / self.pageSize),
              @"page_count": @((self.total + self.pageSize - 1) / self.pageSize), @"candidates": page};
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return [self gridView];
 }
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     switch (command) {
@@ -13440,6 +13450,8 @@ int main(int argc, char **argv) {
         }
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
+        // 外观通知会重新读取会话；夹具与控制器必须持有同一代候选。
+        session.fixtureView = pageView;
         [controller appearanceChanged:nil];
         assert(session.lastCommand == UINT32_MAX);
         assert(layoutPanel.frame.size.height < verticalHeight);
@@ -14129,6 +14141,7 @@ int main(int argc, char **argv) {
         assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
+        session.fixtureView = scriptView;
         NSDictionary *preserved = [[controller valueForKey:@"view"] copy];
         [controller selectTraditionalOutput:nil];
         [controller appearanceChanged:nil];
