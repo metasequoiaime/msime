@@ -30,12 +30,13 @@ avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test || "$avd_name" == msime-client-test-api* ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
 [[ $("$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { echo "Test AVD has not booted" >&2; exit 1; }
 bash platforms/android/tests/device/build-editor.sh
-"$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
-"$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
-"$adb" -s "$serial" install --no-incremental -r target/android/first-frame-editor.apk
+# 先推送完整 APK 再交给包管理器，避免 API 28 的流式安装桥卡住而阻塞整套验收。
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/msime-android.apk
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/editor-test.apk
+"$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/first-frame-editor.apk
 # 同包名搜索夹具只在专用兼容验收时安装，不进入默认设备测试。
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
-  "$adb" -s "$serial" install --no-incremental -r target/android/composition-search-editor.apk
+  "$adb" -s "$serial" install --no-streaming --no-incremental -r target/android/composition-search-editor.apk
 fi
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"

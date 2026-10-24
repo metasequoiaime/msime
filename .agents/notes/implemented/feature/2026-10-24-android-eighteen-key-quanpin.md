@@ -60,3 +60,5 @@ API 35 按仓库流程预先启动原生设置，再以 `--no-restart` 附着产
 本轮更新夹具后的远端 `verify-local.sh --quick` 通过，包含 Rust、Android、Wasm、Java/JNI、共享前端和 Linux 宿主门禁。Windows 原生、Apple 原生及真实 ArkTS 构建仍按实际环境跳过。两级设备安装的产品和测试包 SHA-256 均与本任务的本地产物一致，避免将其他会话换包后的结果混入。
 
 PR #9564 在设备整套验收期间由其他会话合入 `develop`（合并提交 `574ce2d98c`），远端 head 分支随之删除。后续夹具提交在推送时被拒绝，未重新创建已合并分支；改从最新 `origin/develop` 建 `test/issue-8892-device-fixtures`，单独交付本节记录的资源修改时间和拼写展示夹具修正。原 PR 不包含这两个后续夹具修正，#8892 保留打开以跟踪整套验收。
+
+API 28 后续整套重跑在 `adb install` 上传产品 APK 时卡住：安装会话 `mClientProgress` 多次保持 0.36827967，设备 `/data` 仍有约 8 GiB，包管理器查询正常，测试尚未开始。结束本任务这一条上传并放弃其安装会话后，同一 APK 用 `adb install --no-streaming --no-incremental -r` 在约 2 秒内推送完成并安装成功。`adb help` 明确说明该模式先完整推送 APK 再调用包管理器；设备冒烟的四个安装入口统一采用它，保留真实安装与后续全部断言，不重启共享 adb server。完整核心套件仍按实际结束结果记录，安装成功不代替设备验收。
