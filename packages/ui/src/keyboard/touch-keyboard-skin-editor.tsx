@@ -27,26 +27,10 @@ import { GroupList, Row } from "../core/platform-controls";
 import { SelectRow } from "../settings/select-row";
 import { SliderRow } from "../settings/slider-row";
 import { SwitchRow } from "../settings/switch-row";
+import { CheckGlyph } from "../core/check-glyph";
 import { RgbColorRow } from "../settings/rgb-color-row";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
-
-function CheckGlyph() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </svg>
-  );
-}
 
 function ChevronGlyph() {
   return (
