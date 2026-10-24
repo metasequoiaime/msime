@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AccountPage, ToastProvider, type AccountClient, type AccountUser } from "@msime/ui";
@@ -22,7 +23,7 @@ function client(): AccountClient {
   return {
     status: async () => ({ user }),
     providers: async () => ({ email: true, phone: false }),
-    profile: async () => ({ user, providers: ["email"] }),
+    profile: async () => ({ user, providers: ["email"], providerNames: accountProviderNames }),
     requestCode: vi.fn(),
     login: vi.fn(),
     namePresentation: presentAccountName,
@@ -87,7 +88,7 @@ test("资料页草稿等待或校验失败时使用已保存的共享头像首�
     <MobileAccountProfilePage
       client={account}
       user={user}
-      profile={{ user, providers: ["email"] }}
+      profile={{ user, providers: ["email"], providerNames: accountProviderNames }}
       onBack={vi.fn()}
       onSignedOut={vi.fn()}
       onProfileUpdated={vi.fn()}

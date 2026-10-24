@@ -1604,6 +1604,11 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
     "handwriting points stay inside the canvas",
   );
+  const widePoint = HandwritingStrokePolicy.pointInCanvas(600, 300, 700, 420);
+  check(
+    widePoint.x === 600 && widePoint.y === 300,
+    "wide handwriting areas retain points outside the fixed recognition canvas",
+  );
   check(!HandwritingStrokePolicy.canRecognize([]), "empty ink does not trigger OCR");
   check(
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),

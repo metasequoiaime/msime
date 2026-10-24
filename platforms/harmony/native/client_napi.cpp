@@ -534,6 +534,11 @@ static napi_value Notices(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_notices, "MSIME notices");
 }
 
+// 笔画模型的读取和分类在工作线程执行，避免阻塞正在书写的界面。
+static napi_value Handwriting(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_handwriting, "MSIME handwriting");
+}
+
 // 「关于」页的检查更新：读取 GitHub 发布列表最多要十秒，所以绝不能在 UI 线程上执行。
 static napi_value UpdateCheck(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_update_check, "MSIME update check");
@@ -1654,6 +1659,7 @@ static napi_value KeySoundRenderNotes(napi_env env, napi_callback_info info) {
 static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor properties[] = {
         ENTRY("abiVersion", AbiVersion),
+        ENTRY("handwriting", Handwriting),
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
         ENTRY("loadPreferences", LoadPreferences),

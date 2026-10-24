@@ -19,11 +19,16 @@ public abstract class ReloadingDetailPage extends ColumnDetailPage {
     /** Allows a page to start extra work after scheduling its first refresh. */
     protected void onInitialReloadScheduled() {}
 
-    @Override protected void onBecameVisible() {
-        if (contentColumn() != null && shouldReloadWhenVisible()) reload();
+    @Override protected final void onBecameVisible() {
+        if (contentColumn() != null) onVisible();
     }
 
-    /** Allows a page to preserve active editing state when it becomes visible again. */
+    /** 页面重新可见时执行刷新或页面自己的前置操作。 */
+    protected void onVisible() {
+        if (shouldReloadWhenVisible()) reload();
+    }
+
+    /** 允许页面在重新可见时保留正在编辑的状态。 */
     protected boolean shouldReloadWhenVisible() { return true; }
 
     /** Saves one Android-local setting and refreshes the page after success or failure. */

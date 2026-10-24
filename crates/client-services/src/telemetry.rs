@@ -6,6 +6,7 @@
 //! - `session`: one per host process lifetime that ended through [`TelemetryStore::end_session`]. It is queued at the end and sent on a later flush.
 //! - `session_crash`：一个开始过、没有正常结束、并且留下了自己崩溃记录的会话。只留下标记（进程被系统杀掉、注销、关机、内存不足）不算崩溃，不产生事件。同一目录可能同时有几个宿主进程各自的会话（例如同一用户的两个图形会话），所以这里按会话 id 认领崩溃记录，而不是只看最后写下的那个标记，见 `.agents/notes/implemented/bug-fix/2026-10-24-telemetry-session-ownership.md`。
 //! - `crash`: a crash record the host's crash handler wrote to disk, turned into an event on the next start. The handler only writes a file ([`TelemetryStore::record_crash`], or a raw write to the path [`TelemetryStore::begin_session`] returned, which is what an async-signal handler can do); it never sends.
+//! - 系统事后报告的崩溃（iOS 的 MetricKit 诊断，在 App 下次打开时才送到）经 [`TelemetryStore::record_diagnosed_crash`] 按进程号认领：进程当时有未结束的会话，就写成那个会话的崩溃记录（`crash` 加 `session_crash`）；那个会话已经由进程自己的崩溃处理程序记过，就不再写第二份；没有会话的（App 自身、键盘收起后被挂起的进程）只报 `crash`。系统强制结束（SIGKILL：看门狗、内存上限、挂起时持有共享容器的文件锁）按上面的规则不算会话崩溃，由宿主不带进程号调用，只报 `crash`。见 `.agents/notes/implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md`。
 //!
 //! Clients never send `download`: release downloads are counted on the server and installs by `active`.
 //!
@@ -58,6 +59,8 @@ pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
 /// 记住的未结束会话上限。超过时淘汰最旧的：被淘汰的会话之后再留下崩溃记录，只报 `crash`，不再报 `session_crash`。
 const MAX_OPEN_SESSIONS: usize = 16;
+/// 记住的、已经补报过 `session_crash` 的进程号上限，用来认出系统事后为同一次崩溃再送来的诊断。
+const MAX_CRASHED_PROCESSES: usize = 16;
 /// A `Retry-After` beyond this is treated as this, so a malformed header cannot silence reporting for good.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// The delay after a `429` without a usable `Retry-After`.
@@ -202,6 +205,18 @@ pub struct SessionStart {
     pub crashes: usize,
 }
 
+/// 系统事后报告的一次崩溃（[`TelemetryStore::record_diagnosed_crash`]）记到了哪里。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosedCrash {
+    /// 写成了该进程未结束会话的崩溃记录：下次开始会话时报 `crash` 和这个会话的 `session_crash`。
+    Session,
+    /// 不属于任何未结束的会话，写成单独的记录：下次开始会话时只报 `crash`。
+    Outside,
+    /// 该进程这次崩溃已经由它自己的崩溃处理程序记下（或已经报过），没有再写。
+    Duplicate,
+}
+
 /// The result of one delivery attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
@@ -261,6 +276,9 @@ struct TelemetryState {
     /// 已经开始、既没有正常结束也没有因崩溃记录被关闭的会话，旧的在前。其中可能有仍在运行的别的进程的会话，也有被杀掉、永远不会再有下文的会话；两者从文件上分不出来，所以只按数量（[`MAX_OPEN_SESSIONS`]）淘汰最旧的。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     open_sessions: Vec<SessionMarker>,
+    /// 最近因崩溃记录补报过 `session_crash` 的会话所在的进程号，旧的在前，最多 [`MAX_CRASHED_PROCESSES`] 个。系统事后送来同一进程的诊断时据此认出它已经报过。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    crashed_processes: Vec<u32>,
 }
 
 impl TelemetryState {
@@ -278,6 +296,9 @@ struct SessionMarker {
     platform: String,
     version: String,
     started_at_unix_ms: u64,
+    /// 开始这个会话的进程号，只留在本机，用来把系统事后报告的崩溃对回会话。旧版本写下的标记没有这一项。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
 }
 
 impl SessionMarker {
@@ -319,6 +340,15 @@ impl TelemetryStore {
         app: &TelemetryApp,
         now: SystemTime,
     ) -> Result<SessionStart, TelemetryError> {
+        self.begin_session_in_process(app, now, std::process::id())
+    }
+
+    pub(crate) fn begin_session_in_process(
+        &self,
+        app: &TelemetryApp,
+        now: SystemTime,
+        pid: u32,
+    ) -> Result<SessionStart, TelemetryError> {
         let _lock = self.lock()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
@@ -334,12 +364,17 @@ impl TelemetryStore {
         }
         let known = open.clone();
         let mut previous_session_crashed = false;
+        let crashed_processes = &mut state.crashed_processes;
         open.retain(|session| {
             let record = crashes_directory.join(format!("{}.{CRASH_EXTENSION}", session.id));
             if !is_regular_file(&record) {
                 return true;
             }
             previous_session_crashed = true;
+            if let Some(pid) = session.pid {
+                crashed_processes.retain(|known| *known != pid);
+                crashed_processes.push(pid);
+            }
             push(
                 &mut queue,
                 TelemetryEvent {
@@ -356,6 +391,9 @@ impl TelemetryStore {
             );
             false
         });
+        if crashed_processes.len() > MAX_CRASHED_PROCESSES {
+            crashed_processes.drain(..crashed_processes.len() - MAX_CRASHED_PROCESSES);
+        }
         let crashes =
             self.ingest_crash_records(&crashes_directory, app, &known, &install_id, &mut queue)?;
         push_active(&mut state, &mut queue, app, &install_id, now);
@@ -364,6 +402,7 @@ impl TelemetryStore {
             platform: app.platform.to_owned(),
             version: app.version.clone(),
             started_at_unix_ms: unix_ms(now),
+            pid: Some(pid),
         };
         open.push(marker.clone());
         if open.len() > MAX_OPEN_SESSIONS {
@@ -475,6 +514,42 @@ impl TelemetryStore {
         file.write_all(stack.as_bytes())?;
         file.sync_all()?;
         Ok(true)
+    }
+
+    /// 记下系统事后报告的一次崩溃（iOS 的 MetricKit 诊断）。`pid` 是崩溃进程的进程号：它有未结束的会话时写成最近开始的那个会话的崩溃记录；这个进程的崩溃已经由它自己的崩溃处理程序记下（记录还在，或已经补报过 `session_crash`）时什么都不写，一次崩溃只报一次；都不是时写成不属于任何会话的记录。`pid` 为 `None` 用于系统强制结束（SIGKILL）：按会话语义它不算会话崩溃，总是写成单独的记录。不联网；会加锁，不能在崩溃处理程序里调用。
+    pub fn record_diagnosed_crash(
+        &self,
+        pid: Option<u32>,
+        message: &str,
+        stack: &str,
+    ) -> Result<DiagnosedCrash, TelemetryError> {
+        let _lock = self.lock()?;
+        if let Some(pid) = pid {
+            let state = self.read_state();
+            if state.crashed_processes.contains(&pid) {
+                return Ok(DiagnosedCrash::Duplicate);
+            }
+            let mut open = state.open_sessions;
+            if let Some(marker) = self.read_marker() {
+                if !open.iter().any(|session| session.id == marker.id) {
+                    open.push(marker);
+                }
+            }
+            if let Some(session) = open
+                .iter()
+                .filter(|session| session.pid == Some(pid))
+                .max_by_key(|session| session.started_at_unix_ms)
+            {
+                return Ok(if self.record_crash_for(&session.id, message, stack)? {
+                    DiagnosedCrash::Session
+                } else {
+                    DiagnosedCrash::Duplicate
+                });
+            }
+        }
+        let id = Uuid::new_v4().hyphenated().to_string();
+        self.record_crash_for(&id, message, stack)?;
+        Ok(DiagnosedCrash::Outside)
     }
 
     /// Queues today's `active` unless it was already queued today. Long-running hosts call this (or [`Self::flush_with`]) periodically so a process that runs across midnight still counts the new day.
@@ -608,10 +683,12 @@ impl TelemetryStore {
         if !state.active_day.is_empty()
             || state.retry_after_unix_ms != 0
             || !state.open_sessions.is_empty()
+            || !state.crashed_processes.is_empty()
         {
             state.active_day.clear();
             state.retry_after_unix_ms = 0;
             state.open_sessions.clear();
+            state.crashed_processes.clear();
             if !state.install_id.is_empty() {
                 self.write_state(&state)?;
             }

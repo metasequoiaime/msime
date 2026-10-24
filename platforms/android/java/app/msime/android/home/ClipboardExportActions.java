@@ -13,7 +13,11 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.ClipboardOperationAuthenticationPolicy;
 import java.io.IOException;
 
 /** 设置页与历史页共用目录选择和显式导出动作；结果由 HostTask 绑定当前视图。 */
@@ -24,6 +28,7 @@ final class ClipboardExportActions {
     private boolean exportAfterPicking;
     private boolean busy;
     private TextView button;
+    private BiometricPrompt authentication;
 
     ClipboardExportActions(ReloadingDetailPage page, Runnable reload) {
         this.page = page;
@@ -33,7 +38,12 @@ final class ClipboardExportActions {
 
     void restore(Bundle state) { exportAfterPicking = state != null && state.getBoolean("clipboardExportAfterPicking"); }
     void save(Bundle state) { state.putBoolean("clipboardExportAfterPicking", exportAfterPicking); }
-    void destroyed() { busy = false; button = null; }
+    void destroyed() {
+        if (authentication != null) authentication.cancelAuthentication();
+        authentication = null;
+        busy = false;
+        button = null;
+    }
 
     TextView button() {
         var context = page.requireContext();
@@ -48,6 +58,43 @@ final class ClipboardExportActions {
 
     void export() {
         if (busy) return;
+        if (ClipboardOperationAuthenticationPolicy.requiresAuthentication()) {
+            requestAuthentication();
+            return;
+        }
+        exportAfterAuthentication();
+    }
+
+    private void requestAuthentication() {
+        if (!ClipboardOperationAuthenticationPolicy.shouldStartAuthentication(authentication != null)) return;
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        android.content.Context context = page.requireContext();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            MsToast.show(context, "这台设备没有可用的系统认证");
+            return;
+        }
+        authentication = new BiometricPrompt(page, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult value) {
+                    authentication = null;
+                    if (page.getView() != null) exportAfterAuthentication();
+                }
+
+                @Override public void onAuthenticationError(int code, CharSequence message) {
+                    authentication = null;
+                }
+            });
+        BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("导出剪贴板历史包含本机记录")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        authentication.authenticate(info);
+    }
+
+    private void exportAfterAuthentication() {
         setBusy(true);
         HostTask.run(page, context -> ClipboardExport.export(context), message -> {
             setBusy(false);

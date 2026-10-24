@@ -23,6 +23,11 @@ export {
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 export { PluginNavRow, type PluginNavRowProps } from "./settings/plugin-nav-row";
 export { PluginActionBlock, type PluginActionBlockProps } from "./settings/plugin-action-block";
+export {
+  SettingsSubViewHeader,
+  type SettingsSubViewBackProps,
+  type SettingsSubViewHeaderProps,
+} from "./settings/settings-subview-header";
 
 export {
   type TouchKeyboardScheme,
@@ -429,6 +434,7 @@ export {
   type TypingStatisticsStatus,
   type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
+export { StatisticsSection, type StatisticsSectionProps } from "./settings/statistics-section";
 export type {
   TypingStatisticsUploadClient,
   TypingStatisticsUploadStatus,
@@ -468,6 +474,16 @@ export {
   type McpServerStatus,
 } from "./settings/mcp-connect";
 export { AccountPage } from "./account/account-page";
+export {
+  AccountMeSection,
+  AccountMeGroup,
+  AccountMeRow,
+  AccountMeSupportGroup,
+  type AccountMeGroupProps,
+  type AccountMeSectionProps,
+  type AccountMeRowProps,
+  type AccountMeSupportGroupProps,
+} from "./account/account-me-components";
 export type {
   AccountChallenge,
   AccountClient,

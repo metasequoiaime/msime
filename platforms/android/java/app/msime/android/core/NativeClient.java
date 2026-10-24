@@ -379,9 +379,10 @@ public final class NativeClient {
     public static final int KEY_GRID_FOURTEEN_KEY = 2;
     /** 全拼十八键，与共享 C ABI 布局编号一致。 */
     public static final int KEY_GRID_EIGHTEEN_KEY = 4;
-    /** 字母组网格的一键：`letter` 是组内的小写字母，宿主送首字母；返回与 {@link #character} 相同的输入响应。 */
+    /** 字母组网格的一键：小写送整组；仅十八键双拼的大写 ASCII 表示精确小写字母。返回与 {@link #character} 相同的输入响应。 */
     public static String gridKey(long session, char letter) {
-        if (letter < 'a' || letter > 'z') throw new IllegalArgumentException("Grid key must be a lowercase letter");
+        if ((letter < 'a' || letter > 'z') && (letter < 'A' || letter > 'Z'))
+            throw new IllegalArgumentException("Grid key must be an ASCII letter");
         return TextPolicy.utf8(gridKeyRaw(session, letter));
     }
     public static String setEnglishMode(long session, boolean enabled) {
@@ -406,6 +407,22 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid voice status provider");
         return TextPolicy.utf8(mobileVoiceStatusRaw(utf8(provider), resolved, platformAvailable,
             modelReady, runtimeReady));
+    }
+
+    /** 语音润色设置行的共享状态文案；纯计算，不读写偏好。 */
+    public static String mobileVoicePolishStatus(boolean enabled, boolean configured,
+            boolean hasToken) {
+        return TextPolicy.utf8(mobileVoicePolishStatusRaw(enabled, configured, hasToken));
+    }
+
+    /** 共享语音设置的服务分类和豆包鉴权模式；纯计算，不读写偏好。 */
+    public static String mobileVoicePolicy(String provider, String authMode) {
+        if (provider == null || authMode == null || !TextPolicy.validUnicode(provider)
+                || !TextPolicy.validUnicode(authMode) || provider.length() > 256
+                || authMode.length() > 256 || TextPolicy.utf8Length(provider) > 256
+                || TextPolicy.utf8Length(authMode) > 256)
+            throw new IllegalArgumentException("Invalid voice provider policy");
+        return TextPolicy.utf8(mobileVoicePolicyRaw(utf8(provider), utf8(authMode)));
     }
 
     /** 共享语音服务与豆包流式接口目录；纯计算，不读写偏好、不联网。 */
@@ -1016,6 +1033,9 @@ public final class NativeClient {
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] mobileVoiceStatusRaw(byte[] provider, boolean resolved,
         boolean platformAvailable, boolean modelReady, boolean runtimeReady);
+    private static native byte[] mobileVoicePolishStatusRaw(boolean enabled, boolean configured,
+        boolean hasToken);
+    private static native byte[] mobileVoicePolicyRaw(byte[] provider, byte[] authMode);
     private static native byte[] voiceProviderCatalogRaw();
     private static native byte[] aiProviderCatalogRaw();
     private static native byte[] aiProviderUpdateRaw(byte[] request);

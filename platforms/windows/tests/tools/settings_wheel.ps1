@@ -69,22 +69,33 @@ function Assert-SettingsWheelHitRegions($window, [IntPtr]$handle, [string]$label
         }
         throw 'Wheel scroll animation did not settle'
     }
+    # UIA 的矩形使用物理像素；百分比须按实际滚动范围换算，避免把亚像素舍入当成边界移动。
+    function Get-WheelRangePixels {
+        $viewSize = $pattern.Current.VerticalViewSize
+        $height = $content.Current.BoundingRectangle.Height
+        if ($viewSize -le 0 -or $viewSize -ge 100 -or $height -le 0) { throw 'Wheel fixture has no measurable scroll range' }
+        return $height * (100 / $viewSize - 1)
+    }
     function Set-WheelOffset([double]$percent) {
         $pattern.SetScrollPercent(-1, $percent)
         $actual = Read-WheelOffset
-        if ([Math]::Abs($actual - $percent) -gt 0.01) { throw "Wheel starting offset was not applied: $percent -> $actual" }
+        if ([Math]::Abs($actual - $percent) / 100 * (Get-WheelRangePixels) -gt 1) { throw "Wheel starting offset was not applied: $percent -> $actual" }
     }
     function Send-CheckedWheel([string]$region, [double]$x, [double]$y, [int]$delta, [bool]$moves) {
         $before = Read-WheelOffset
         [SettingsWheelHitProbe]::Wheel([int]$x, [int]$y, $delta)
         Start-Sleep -Milliseconds 150
         $after = Read-WheelOffset
-        $results.Add([pscustomobject]@{region = $region; delta = $delta; before = $before; after = $after})
-        $change = $after - $before
-        $valid = if ($moves) { if ($delta -lt 0) { $change -gt 0.01 } else { $change -lt -0.01 } }
-                 else { [Math]::Abs($change) -lt 0.01 }
-        if (-not $valid) { throw "Native wheel $label $region failed: $before -> $after" }
-        Write-Host "Native wheel $label $region passed: $before -> $after"
+        $range = Get-WheelRangePixels
+        $changePixels = ($after - $before) / 100 * $range
+        $results.Add([pscustomobject]@{region = $region; delta = $delta; before = $before; after = $after;
+            viewportPixels = $content.Current.BoundingRectangle.Height; viewSize = $pattern.Current.VerticalViewSize;
+            rangePixels = $range; changePixels = $changePixels})
+        # 阳性对照同样要求超过一个物理像素，边界和弹出层最多允许一个栅格像素的舍入。
+        $valid = if ($moves) { if ($delta -lt 0) { $changePixels -gt 1 } else { $changePixels -lt -1 } }
+                 else { [Math]::Abs($changePixels) -le 1 }
+        if (-not $valid) { throw "Native wheel $label $region failed: $before -> $after ($changePixels px)" }
+        Write-Host "Native wheel $label $region passed: $before -> $after ($changePixels px)"
     }
     function Send-PageWheel([string]$region, [double]$x, [double]$y, [int]$delta, [bool]$moves) {
         $bounds = $content.Current.BoundingRectangle

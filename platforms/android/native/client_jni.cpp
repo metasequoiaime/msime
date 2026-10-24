@@ -37,6 +37,8 @@ static jbyteArray response(JNIEnv *env, char *value) {
 
 namespace {
 template <typename Call> jbyteArray bounded_request(JNIEnv *env, jbyteArray request, jsize limit, Call call);
+template <typename Call> jbyteArray bounded_pair(JNIEnv *env, jbyteArray first, jsize first_limit,
+    jbyteArray second, jsize second_limit, Call call);
 constexpr jsize kThemeRequestLimit = 1 * 1024 * 1024;
 // 与 msime_client_voice_provider_update 的请求上限一致；请求和响应不得记录。
 constexpr jsize kVoiceProviderRequestLimit = 1 * 1024 * 1024;
@@ -487,6 +489,20 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceStat
                 platform_available == JNI_TRUE, model_ready == JNI_TRUE, runtime_ready == JNI_TRUE);
         });
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoicePolishStatusRaw(
+        JNIEnv *env, jclass, jboolean enabled, jboolean configured, jboolean has_token) {
+    return response(env, msime_client_mobile_voice_polish_status(
+        enabled == JNI_TRUE, configured == JNI_TRUE, has_token == JNI_TRUE));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoicePolicyRaw(
+        JNIEnv *env, jclass, jbyteArray provider, jbyteArray auth_mode) {
+    return bounded_pair(env, provider, 256, auth_mode, 256,
+        [](const uint8_t *provider_bytes, size_t provider_length,
+           const uint8_t *auth_mode_bytes, size_t auth_mode_length) {
+            return msime_client_mobile_voice_policy(
+                provider_bytes, provider_length, auth_mode_bytes, auth_mode_length);
+        });
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);
@@ -517,7 +533,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_characterRaw(JN
     }
     return response(env, msime_client_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE));
 }
-// 14 键的一键：送这一组的首字母，组外的字母由引擎回 handled=false。只拦非 ASCII，免得截断成 uint8 后变成另一个字母。
+// 字母网格小写送整组，十八键双拼的大写送精确字母；有效性由引擎判定。先拦非 ASCII，避免截断成另一字母。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridKeyRaw(JNIEnv *env, jclass, jlong handle, jint letter) {
     if (letter < 0 || letter > 127) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Grid key must be ASCII");

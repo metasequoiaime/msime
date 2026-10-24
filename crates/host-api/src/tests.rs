@@ -3259,16 +3259,21 @@ fn creating_a_session_records_the_resources_it_loaded_for_dictionary_updates() {
 /// 三端宿主都开着 `phrase_preedit`。14 键里选了只覆盖前一段的词，退格到只剩一个组码再退格，收回这次选词：组码要回到 14 键网格里，而不是变成全拼 26 键的 `bu`，之后的 14 键照样能打。
 #[test]
 fn retreating_a_fourteen_key_selection_keeps_composing_on_the_grid() {
-    check_letter_key_selection_retreat(false, false);
-    check_letter_key_selection_retreat(true, false);
+    check_letter_key_selection_retreat(false, false, false);
+    check_letter_key_selection_retreat(true, false, false);
 }
 
 #[test]
 fn eighteen_key_shuangpin_selection_retreat_keeps_composing_on_the_grid() {
-    check_letter_key_selection_retreat(true, true);
+    check_letter_key_selection_retreat(true, true, false);
 }
 
-fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
+#[test]
+fn eighteen_key_exact_selection_retreat_preserves_letter_constraints() {
+    check_letter_key_selection_retreat(true, true, true);
+}
+
+fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool, exact: bool) {
     let dir = tempfile::tempdir().unwrap();
     let path = |name| {
         let path = dir.path().join(name);
@@ -3326,14 +3331,18 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     }
 
     // 全拼「你好」是 BN UI GH AS OP，小鹤双拼是 BN UI GH CV。
-    let codes = if eighteen {
+    let codes = if exact {
+        "NiHC"
+    } else if eighteen {
         "bihx"
     } else if shuangpin {
         "bugc"
     } else {
         "bugao"
     };
-    let tail = if eighteen {
+    let tail = if exact {
+        "HC"
+    } else if eighteen {
         "hx"
     } else if shuangpin {
         "gc"
@@ -3362,7 +3371,13 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     }
     assert_eq!(
         read(msime_client_view(handle))["value"]["editing_text"],
-        if eighteen { "h" } else { "g" }
+        if exact {
+            "H"
+        } else if eighteen {
+            "h"
+        } else {
+            "g"
+        }
     );
 
     let restored = read(msime_client_command(handle, 0));
@@ -3378,7 +3393,13 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
     );
     assert_eq!(
         view["editing_text"],
-        if eighteen { "bi" } else { "bu" },
+        if exact {
+            "Ni"
+        } else if eighteen {
+            "bi"
+        } else {
+            "bu"
+        },
         "{restored}"
     );
     assert!(
@@ -3392,14 +3413,36 @@ fn check_letter_key_selection_retreat(shuangpin: bool, eighteen: bool) {
         !view["nine_key_spellings"].as_array().unwrap().is_empty(),
         "{restored}"
     );
+    if exact {
+        assert!(
+            !view["nine_key_spellings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s == "bi"),
+            "{restored}"
+        );
+    }
     let next = read(msime_client_grid_key(
         handle,
-        if eighteen { b'h' } else { b'g' },
+        if exact {
+            b'H'
+        } else if eighteen {
+            b'h'
+        } else {
+            b'g'
+        },
     ));
     assert_eq!(next["value"]["handled"], true, "{next}");
     assert_eq!(
         next["value"]["view"]["editing_text"],
-        if eighteen { "bih" } else { "bug" },
+        if exact {
+            "NiH"
+        } else if eighteen {
+            "bih"
+        } else {
+            "bug"
+        },
         "{next}"
     );
     read(msime_client_destroy(handle));
@@ -16523,6 +16566,56 @@ fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     assert_eq!(unknown["ok"], false);
 }
 
+/// iOS App 事后收到的 MetricKit 诊断：带 `pid` 时记到该进程未结束的会话名下且只记一次，`outside_session` 只报 `crash`。
+#[test]
+fn telemetry_abi_attributes_a_diagnosed_crash_to_the_session_of_its_process() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let begin =
+        json!({"directory": directory, "platform": "ios", "version": "0.52.0", "enabled": true});
+    let started = reporting_call(msime_client_telemetry_begin, begin.clone());
+    let session = started["value"]["session_id"].as_str().unwrap().to_owned();
+    let record = std::path::PathBuf::from(started["value"]["crash_record_path"].as_str().unwrap());
+    let diagnosed = |extra: Value| {
+        let mut request = json!({"directory": directory, "message": "Crash exception 10 code 0 signal 6", "stack": "0 MSIMEKeyboardExtension + 1"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        reporting_call(msime_client_telemetry_record_crash, request)
+    };
+    let pid = std::process::id();
+    assert_eq!(diagnosed(json!({"pid": pid}))["value"], true);
+    assert!(record.is_file());
+    assert_eq!(diagnosed(json!({"pid": pid}))["value"], false);
+    assert_eq!(diagnosed(json!({"outside_session": true}))["value"], true);
+    assert_eq!(
+        diagnosed(json!({"pid": pid, "session": session}))["ok"],
+        false
+    );
+    assert_eq!(
+        diagnosed(json!({"pid": pid, "outside_session": true}))["ok"],
+        false
+    );
+    assert_eq!(diagnosed(json!({"outside_session": false}))["value"], false);
+
+    let next = reporting_call(msime_client_telemetry_begin, begin);
+    assert_eq!(next["value"]["previous_session_crashed"], true);
+    assert_eq!(next["value"]["crashes"], 2);
+    // 崩溃已经报过，同一进程再送来的诊断不再记。
+    assert_eq!(diagnosed(json!({"pid": pid}))["value"], false);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let session_crashes: Vec<_> = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .filter(|event| serde_json::to_value(event.kind).unwrap() == json!("session_crash"))
+        .map(|event| event.id)
+        .collect();
+    assert_eq!(session_crashes, [format!("session-{session}")]);
+}
+
 #[test]
 fn telemetry_abi_reads_consent_from_the_shared_preferences() {
     use crate::ffi::reporting::*;
@@ -19151,6 +19244,67 @@ fn mobile_voice_status_export_uses_shared_status_rules() {
     assert_eq!(
         result["value"]["status"],
         "没有可用的系统识别服务，可改用本地模型或豆包"
+    );
+}
+
+#[test]
+fn mobile_voice_polish_status_export_uses_shared_status_rules() {
+    for (enabled, configured, has_token, expected) in [
+        (false, false, false, serde_json::Value::Null),
+        (true, true, true, serde_json::Value::Null),
+        (
+            true,
+            false,
+            false,
+            serde_json::json!("未填写 API Key，识别结果不会润色"),
+        ),
+        (
+            true,
+            false,
+            true,
+            serde_json::json!("配置不完整，识别结果不会润色"),
+        ),
+    ] {
+        let result = read(msime_client_mobile_voice_polish_status(
+            enabled, configured, has_token,
+        ));
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":true,"value":{"status":expected}})
+        );
+    }
+}
+
+#[test]
+fn mobile_voice_policy_export_uses_shared_provider_rules() {
+    let provider = "openai";
+    let mode = " legacy ";
+    let result = read(unsafe {
+        msime_client_mobile_voice_policy(
+            provider.as_ptr(),
+            provider.len(),
+            mode.as_ptr(),
+            mode.len(),
+        )
+    });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{"network":true,"legacy_auth":true}})
+    );
+
+    let provider = "local";
+    let mode = "api_key";
+    let result = read(unsafe {
+        msime_client_mobile_voice_policy(
+            provider.as_ptr(),
+            provider.len(),
+            mode.as_ptr(),
+            mode.len(),
+        )
+    });
+    assert_eq!(
+        result,
+        serde_json::json!({"ok":true,"value":{"network":false,"legacy_auth":false}})
     );
 }
 

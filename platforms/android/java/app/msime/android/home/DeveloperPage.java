@@ -14,7 +14,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import app.msime.android.AccountFailureText;
+import app.msime.android.SettingsResetAuthenticationPolicy;
 import app.msime.android.AccountStore;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppVersionPolicy;
@@ -74,6 +78,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private boolean cloudLoaded;
     private boolean confirming;
     private boolean busy;
+    @Nullable private BiometricPrompt resetAuthentication;
     private boolean exportAfterPicking;
     private String exportDirectoryName = "未选择";
     private long generation;
@@ -103,6 +108,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentDestroyed() {
+        if (resetAuthentication != null) resetAuthentication.cancelAuthentication();
+        resetAuthentication = null;
         generation++;
         cloudAccountId = "";
         cloudSessionId = "";
@@ -576,6 +583,44 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private void confirmReset() {
         MessageDialog.confirm(requireContext(), "重置所有设置",
             "所有设置恢复为出厂设置，词库、统计和服务凭据不受影响。", "重置", () -> {
+                if (SettingsResetAuthenticationPolicy.requiresAuthentication()) {
+                    requestResetAuthentication();
+                    return;
+                }
+                resetSettings();
+            });
+    }
+
+    private void requestResetAuthentication() {
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+        Context context = requireContext();
+        if (BiometricManager.from(context).canAuthenticate(authenticators)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            MsToast.show(context, "这台设备没有可用的系统认证");
+            return;
+        }
+        resetAuthentication = new BiometricPrompt(this, ContextCompat.getMainExecutor(context),
+            new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    resetAuthentication = null;
+                    if (getView() != null) resetSettings();
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    resetAuthentication = null;
+                    if (getContext() != null) MsToast.show(requireContext(), "未通过系统认证，没有重置设置");
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle("重置所有设置会恢复为出厂值")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        resetAuthentication.authenticate(prompt);
+    }
+
+    private void resetSettings() {
                 busy = true;
                 render();
                 HostTask.run(this, context -> {
@@ -607,7 +652,6 @@ public final class DeveloperPage extends ReloadingDetailPage {
                     reload();
                     MsToast.show(requireContext(), "已恢复出厂设置");
                 });
-            });
     }
 
     // ---- 本地设置 ----

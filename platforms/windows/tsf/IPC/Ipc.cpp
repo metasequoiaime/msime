@@ -1,4 +1,5 @@
 #include "Ipc.h"
+#include "ReplyWaitPolicy.h"
 #include "AuxNamedpipeSender.h"
 #include "../../../../shared/contracts/ipc_negotiation.h"
 #include "../../common/PipeMetadata.h"
@@ -1337,7 +1338,6 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout)
 {
-    constexpr int timeoutMs = 50;
     PerfTimer replyWaitTimer;
 
     auto transportUnavailable = []() {
@@ -1382,7 +1382,7 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         }
     }
 
-    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    const ULONGLONG deadline = GetTickCount64() + msime::windows::tsf::kServerReplyWaitTimeoutMs;
 
     while (true)
     {

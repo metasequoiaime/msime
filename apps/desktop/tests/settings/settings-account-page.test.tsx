@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { presentAccountName } from "../support/account-name";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -21,7 +22,9 @@ function account(): AccountClient {
     providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
     requestCode: vi.fn(),
     login: vi.fn(),
-    profile: vi.fn().mockResolvedValue({ user, providers: [] }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ user, providers: [], providerNames: accountProviderNames }),
     namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),

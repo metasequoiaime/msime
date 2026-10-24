@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -36,17 +37,12 @@ inline std::wstring initial(std::wstring_view name) {
   return std::wstring(name.substr(0, length));
 }
 
-// accountProviderName：已绑定的登录方式在「登录方式」里的名字，sms 也是手机号。
-inline std::wstring provider_name(std::wstring_view provider) {
-  if (provider == L"apple")
-    return L"Apple";
-  if (provider == L"google")
-    return L"Google";
-  if (provider == L"email")
-    return L"邮箱";
-  if (provider == L"phone" || provider == L"sms")
-    return L"手机号";
-  return std::wstring(provider);
+using ProviderNames = std::map<std::wstring, std::wstring, std::less<>>;
+
+// 登录方式名称由共享资料响应提供，宿主只查表。
+inline std::wstring provider_name(std::wstring_view provider, const ProviderNames &names) {
+  const auto found = names.find(provider);
+  return found == names.end() ? std::wstring(provider) : found->second;
 }
 
 // isAccountCancellation：取消的操作不报错。

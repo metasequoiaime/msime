@@ -118,12 +118,27 @@ impl From<AccountChallenge> for ChallengeResponse {
 pub struct ProfileResponse {
     user: UserResponse,
     providers: Vec<String>,
+    /// 已知登录方式及本次资料中新增标识的显示名称；未关联的已知方式也供关联入口使用。
+    provider_names: BTreeMap<String, String>,
 }
 
 impl From<AccountProfile> for ProfileResponse {
     fn from(profile: AccountProfile) -> Self {
         let mut providers = Vec::with_capacity(profile.identities.len());
+        let mut provider_names: BTreeMap<String, String> = [
+            ("apple", "Apple"),
+            ("google", "Google"),
+            ("email", "邮箱"),
+            ("phone", "手机号"),
+            ("sms", "手机号"),
+        ]
+        .into_iter()
+        .map(|(provider, name)| (provider.into(), name.into()))
+        .collect();
         for identity in profile.identities {
+            provider_names
+                .entry(identity.provider.clone())
+                .or_insert_with(|| identity.provider.clone());
             if !providers.contains(&identity.provider) {
                 providers.push(identity.provider);
             }
@@ -131,6 +146,7 @@ impl From<AccountProfile> for ProfileResponse {
         Self {
             user: profile.user.into(),
             providers,
+            provider_names,
         }
     }
 }
@@ -286,6 +302,37 @@ mod tests {
     }
 
     #[test]
+    fn profile_response_carries_shared_provider_names_and_preserves_identity_order() {
+        let response = serde_json::to_value(ProfileResponse::from(AccountProfile {
+            user: user(),
+            identities: ["sms", "email", "synthetic-provider", "sms", "phone"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, provider)| AccountProfileIdentity {
+                    provider: provider.into(),
+                    subject: format!("synthetic-subject-{index}"),
+                })
+                .collect(),
+        }))
+        .unwrap();
+        assert_eq!(
+            response["providers"],
+            json!(["sms", "email", "synthetic-provider", "phone"])
+        );
+        assert_eq!(
+            response["providerNames"],
+            json!({
+                "apple": "Apple",
+                "google": "Google",
+                "email": "邮箱",
+                "phone": "手机号",
+                "sms": "手机号",
+                "synthetic-provider": "synthetic-provider"
+            })
+        );
+    }
+
+    #[test]
     fn provider_and_profile_responses_normalize_backend_names() {
         let providers = providers_response(HashMap::from([
             ("email".into(), true),
@@ -319,7 +366,8 @@ mod tests {
             serde_json::to_value(profile).unwrap(),
             json!({
                 "user":{"id":"synthetic-user","displayName":"测试账号","preferredName":"测试账号","createdAt":"2026-01-01T00:00:00Z"},
-                "providers":["email","phone"]
+                "providers":["email","phone"],
+                "providerNames":{"apple":"Apple","google":"Google","email":"邮箱","phone":"手机号","sms":"手机号"}
             })
         );
     }

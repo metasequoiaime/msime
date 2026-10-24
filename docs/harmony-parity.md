@@ -64,7 +64,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `JapaneseNineKeyView`、`HandwritingInputView` | 日语面与手写面 | 已覆盖 |
 | `KeyboardAIView`（AI 润色） | 润色面（`AiPolishPolicy.ts` + `KeyboardView.polishFace`） | 已覆盖。来源润色的是**选区**，而 HarmonyOS 不给输入法读取选区的能力（`InputClient` 只有光标前后的文本，选区只以下标通知），照抄手势等于画一个不知道自己在操作什么的按钮，所以改为润色光标前的文字 |
 | `KeyboardVoiceView` | 无，且不该有 | 来源那一套是 iOS 的变通：键盘扩展不能录音，所以 App 录完把文字交接给键盘（`VoiceTextHandoffStore`、「发送到键盘」「等待键盘插入」整组文案）。鸿蒙键盘自己能录音，这一整个交接面不存在是正确的 |
-| `HandwritingInputView` 的模型下载流程 | 无，且不该有 | 同上：来源要联网下载 Google 手写模型，鸿蒙用系统 Core Vision Kit OCR，没有模型可下 |
+| `HandwritingInputView` 的模型下载流程 | 无，且不该有 | 来源需要 Google 手写模型；鸿蒙随包带经资源锁校验的 Tegaki zh_CN 模型，直接识别笔画，无需运行时下载 |
 
 这条轴找到的另一处是无障碍标签：来源 `KeyboardViewController` 有 55 处 `accessibilityLabel`，而 `LetterKeyFacePolicy.accessibilityLabel`、`EnglishLetterCaseState.accessibilityLabel/accessibilityValue`、`JapaneseVariantPolicy.accessibilityLabel`、`CandidateGlossPolicy.accessibilitySuffix` 四份标签策略在鸿蒙侧都已经移植过来、都有单测，调用方却只有它们自己的测试——标签算出来了，从没挂到任何控件上。抓到它靠的是从渲染那一端反过来数：不是问「标签在不在」，而是问「有没有人把标签挂上去」。这条已接线，并由下面那道符号可达门禁看着。
 
@@ -82,7 +82,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `NineKeyInputAndLayoutSwitches`、`ShiftIsDiscoverableAndSwitchesToEnglishCapitalization`、`SymbolKeyOpensAPanelInsteadOfAMenu` | 动作键那一行写在 26 键分支内部，三块自绘键面都没有它——九宫格和日语假名格没有空格、没有回车、退不出英文 | 动作行由三块键面共用的 `actionRow()` 生成 |
 | `NineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows`、日语的 `DigitLayerKeepsTheSameThreeColumnGrid` | 按 `123` 会掉进十列符号排 | 数字层保持三列网格，第十二格是括号键 |
 | `JapaneseNineKeyTests` | 展开候选按内容无限增宽 | 单行且不越界 |
-| `HandwritingTests` | 每笔后立即 OCR，且识别期间丢弃后续触摸；来源是 550 ms 停笔去抖 | 停笔去抖 + 最新快照串行识别 |
+| `HandwritingTests` | 每笔后立即 OCR，且识别期间丢弃后续触摸；来源是 550 ms 停笔去抖 | 停笔去抖 + 最新笔画串行识别 |
 | `KeyboardAITests` | 关闭面板只丢本地 generation，会话仍缓存晚到结果，销毁后回调未解除 | 关闭、取消、清空与模式切换都按 generation 作废晚到结果 |
 | `KeyboardSkinTests` | 渐变、照片、图案、键帽形状/材质/阴影全被解析，真实 ArkUI 键盘只用了颜色和字体 | 自定义皮肤完整进入原生键盘渲染 |
 | `CustomServiceTests`（模型目录） | 设置页把 `provider` 交给 Harmony，原生模型目录桥却全按 Bearer、单页和 `/v1/models` 请求，丢掉 Anthropic 的 `x-api-key`/分页、Gemini 的 `/v1beta/openai/models`、EveryAPI 的能力过滤 | 协议差异由 `AiModelCatalogPolicy` 明确建模 |
