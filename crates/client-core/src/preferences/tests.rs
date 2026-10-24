@@ -25,7 +25,7 @@ fn touch_shuangpin_layout_defaults_persists_and_rejects_unsupported_layouts() {
     };
     store.save(0, configured.clone()).unwrap();
     assert_eq!(store.load().unwrap().preferences, configured);
-    let mut invalid = legacy;
+    let mut invalid = legacy.clone();
     invalid["touch_shuangpin_layout"] = "nine_key".into();
     assert!(serde_json::from_value::<Preferences>(invalid).is_err());
 }
@@ -2837,6 +2837,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     assert_eq!(
         store.load().unwrap().preferences.mixed_input,
         MixedInputPreferences {
+            enabled: true,
+            first_page_count: 1,
             english: false,
             minimum_prefix: 3,
             emoji: true,
@@ -2851,6 +2853,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     for mask in 0..32 {
         let preferences = Preferences {
             mixed_input: MixedInputPreferences {
+                enabled: true,
+                first_page_count: 1,
                 english: mask & 1 != 0,
                 emoji: mask & 2 != 0,
                 kaomoji: mask & 4 != 0,
