@@ -139,7 +139,6 @@ fn android_text_trackpad_validates_ranges_and_persists_all_options() {
     }
     store.restore_defaults(saved.revision).unwrap();
     assert_eq!(store.load().unwrap().preferences, Preferences::default());
-
 }
 
 #[test]
