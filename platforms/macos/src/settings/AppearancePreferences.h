@@ -123,8 +123,12 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *defaultImeMode;
 @property(nonatomic, copy) NSString *imeModeScope;
 - (void)activateInputModeForApplication:(NSString *)identifier;
+/// 最近激活时已取得的应用标识；按键路径可读取它而不向客户端新增同步查询。
+@property(nonatomic, readonly, copy) NSString *activeInputModeApplication;
 /// Vim 模式（共享偏好 `vim_mode_apps`）：这个 bundle id 的前台应用是否把无修饰 Esc 搭车切英文。
 - (BOOL)vimModeEnabledForApplication:(NSString *)identifier;
+/// 仅消费共享设置页写入的跨次空格配置，不在原生回退窗口添加入口。
+@property(nonatomic, readonly, copy) NSDictionary *crossCommitSpacing;
 - (void)lockActiveInputMode;
 - (void)resetRememberedInputModes;
 @property(nonatomic) BOOL inputModeShortcut;

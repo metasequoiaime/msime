@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { accountNameResult, presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
@@ -32,7 +33,7 @@ const user: AccountUser = {
   preferredName: "水杉测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
-const profile: AccountProfile = { user, providers: ["email"] };
+const profile: AccountProfile = { user, providers: ["email"], providerNames: accountProviderNames };
 
 function account(overrides: Partial<AccountClient> = {}): AccountClient {
   return {
@@ -118,7 +119,11 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   const client = account({
     namePresentation: async (name) => accountNameResult(name === "  新昵称  " ? "新昵称" : name),
     status: vi.fn().mockResolvedValue({ user }),
-    rename: vi.fn().mockResolvedValue({ user: renamed, providers: ["email"] }),
+    rename: vi.fn().mockResolvedValue({
+      user: renamed,
+      providers: ["email"],
+      providerNames: accountProviderNames,
+    }),
   });
   render(<AccountPage client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
@@ -167,6 +172,7 @@ test("a late profile mutation is ignored after the profile page unmounts", async
   finish({
     user: { ...user, displayName: "晚到的昵称", preferredName: "晚到的昵称" },
     providers: ["email"],
+    providerNames: accountProviderNames,
   });
   await Promise.resolve();
 });
@@ -201,6 +207,7 @@ test("a desktop profile rename response from a replaced client is ignored", asyn
     resolveOld({
       user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
       providers: ["email"],
+      providerNames: accountProviderNames,
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -247,6 +254,7 @@ test("mobile profile ignores a same-tick duplicate nickname save", async () => {
   pending.resolve({
     user: { ...user, displayName: "移动端新昵称", preferredName: "移动端新昵称" },
     providers: ["email"],
+    providerNames: accountProviderNames,
   });
   await waitFor(() => expect(screen.getByText("昵称已更新。")).not.toBeNull());
 });
@@ -272,6 +280,7 @@ test("a mobile profile rename response from a replaced client is ignored", async
   resolveOld({
     user: { ...user, displayName: "响应旧昵称", preferredName: "响应旧昵称" },
     providers: ["email"],
+    providerNames: accountProviderNames,
   });
   await Promise.resolve();
   expect(screen.queryByText("响应旧昵称")).toBeNull();
@@ -454,7 +463,9 @@ test("desktop Google sign-in runs through the native account client", async () =
   const onLoginComplete = vi.fn();
   const client = account({
     providers: vi.fn().mockResolvedValue({ email: true, phone: false, google: true }),
-    profile: vi.fn().mockResolvedValue({ user, providers: ["google"] }),
+    profile: vi
+      .fn()
+      .mockResolvedValue({ user, providers: ["google"], providerNames: accountProviderNames }),
     googleLogin,
   });
   render(<AccountPage client={client} onLoginComplete={onLoginComplete} />);
@@ -1317,7 +1328,11 @@ test("a signed-in card shows the avatar the host fetched and the Google email", 
     <AccountPage
       client={account({
         status: vi.fn().mockResolvedValue({ user: signedIn }),
-        profile: vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] }),
+        profile: vi.fn().mockResolvedValue({
+          user: signedIn,
+          providers: ["google"],
+          providerNames: accountProviderNames,
+        }),
         avatar,
       })}
     />,
@@ -1356,15 +1371,24 @@ test("the edit dialog uploads and removes a custom avatar without losing the nam
   const withUpload: AccountProfile = {
     user: { ...signedIn, avatarUrl: uploaded, avatarUploaded: true },
     providers: ["google"],
+    providerNames: accountProviderNames,
   };
   const avatar = vi.fn().mockImplementation(async () => avatarImage);
   const chooseAvatar = vi.fn().mockResolvedValue(withUpload);
-  const removeAvatar = vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] });
+  const removeAvatar = vi.fn().mockResolvedValue({
+    user: signedIn,
+    providers: ["google"],
+    providerNames: accountProviderNames,
+  });
   render(
     <AccountPage
       client={account({
         status: vi.fn().mockResolvedValue({ user: signedIn }),
-        profile: vi.fn().mockResolvedValue({ user: signedIn, providers: ["google"] }),
+        profile: vi.fn().mockResolvedValue({
+          user: signedIn,
+          providers: ["google"],
+          providerNames: accountProviderNames,
+        }),
         avatar,
         chooseAvatar,
         removeAvatar,
@@ -1626,7 +1650,11 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   const mailUser = { ...user, email: "fixture@example.test" };
   const client = account({
     status: vi.fn().mockResolvedValue({ user: mailUser }),
-    profile: vi.fn().mockResolvedValue({ user: mailUser, providers: ["email"] }),
+    profile: vi.fn().mockResolvedValue({
+      user: mailUser,
+      providers: ["email"],
+      providerNames: accountProviderNames,
+    }),
   });
   harmonyMe({
     client,
@@ -1763,6 +1791,7 @@ test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet 
   const renamed: AccountProfile = {
     user: { ...user, displayName: "新的名字", preferredName: "新的名字" },
     providers: ["email"],
+    providerNames: accountProviderNames,
   };
   const client = account({
     status: vi.fn().mockResolvedValue({ user }),

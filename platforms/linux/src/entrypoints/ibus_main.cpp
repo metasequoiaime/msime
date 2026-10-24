@@ -11,7 +11,12 @@
 #include <iterator>
 #include <exception>
 #include <filesystem>
+#include <cerrno>
+#include <csignal>
 #include <cstdlib>
+#include <fcntl.h>
+#include <glib-unix.h>
+#include <unistd.h>
 #include <nlohmann/json.hpp>
 #include "Telemetry.h"
 
@@ -71,6 +76,48 @@ void restore_global_engine(IBusBus *bus) {
             nullptr);
       },
       nullptr);
+}
+
+// ---- 停止信号 ----
+// ibus-daemon 停止组件、注销或关机时，宿主收到的是 SIGTERM（启动器把它转给宿主），而不是总线断开。按默认动作直接退出的话，主循环之后的收尾和 `telemetry::end()` 都不会执行，这个正常结束的会话就不报 `session`，崩溃率的分母于是只剩碰巧先等到总线断开的那部分会话。这里把 SIGTERM、SIGHUP、SIGINT 改为先退出主循环、走完正常收尾，再以同一个信号的默认动作结束进程，所以启动器和 ibus-daemon 看到的退出状态与以前相同。
+// 处理函数只做 async-signal-safe 的事：写管道唤醒主循环，并用 alarm() 设一个期限。主循环卡住时管道没人读，期限一到 SIGALRM 的默认动作照样结束进程，SIGTERM 不会因此失效；SA_RESETHAND 让第二个同样的信号立即按默认动作生效。
+constexpr unsigned kStopDeadlineSeconds = 5;
+int stop_pipe[2] = {-1, -1};
+int stop_signal = 0;
+
+void stop_requested(int number) {
+  const int saved = errno;
+  alarm(kStopDeadlineSeconds);
+  const auto byte = static_cast<unsigned char>(number);
+  [[maybe_unused]] const auto written = ::write(stop_pipe[1], &byte, 1);
+  errno = saved;
+}
+
+void install_stop_handlers() {
+  if (pipe2(stop_pipe, O_CLOEXEC | O_NONBLOCK) != 0)
+    return;
+  g_unix_fd_add(
+      stop_pipe[0], G_IO_IN,
+      +[](gint fd, GIOCondition, gpointer) -> gboolean {
+        unsigned char byte = 0;
+        if (::read(fd, &byte, 1) == 1 && stop_signal == 0) {
+          stop_signal = byte;
+          ibus_quit();
+        }
+        return G_SOURCE_CONTINUE;
+      },
+      nullptr);
+  for (const int number : {SIGTERM, SIGHUP, SIGINT}) {
+    struct sigaction previous {};
+    // 被忽略的信号保持忽略：非交互 shell 的后台子进程启动时 SIGINT 就是忽略的，nohup 下 SIGHUP 也是。
+    if (sigaction(number, nullptr, &previous) != 0 || previous.sa_handler == SIG_IGN)
+      continue;
+    struct sigaction action {};
+    action.sa_handler = stop_requested;
+    action.sa_flags = SA_RESETHAND | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    sigaction(number, &action, nullptr);
+  }
 }
 
 // Downloaded dictionaries are not replaced by a package upgrade, so a release that raises the dictionary version leaves this user on the previous generation until they fetch the new files. The guide script beside this executable posts the notification, limited to once per login session; it is asynchronous so startup does not wait on it, and GLib reaps the intermediate child.
@@ -227,6 +274,7 @@ int main(int argc, char **argv) {
     return G_SOURCE_CONTINUE;
   }, &options_watch);
   const auto theme_watch = msime_watch_system_theme();
+  install_stop_handlers();
   ibus_main();
   msime_ibus_shutdown_key_presses();
   msime_unwatch_system_theme(theme_watch);
@@ -242,6 +290,11 @@ int main(int argc, char **argv) {
   g_object_unref(bus);
   // Every way out of the main loop is a normal end of this session.
   msime::telemetry::end();
+  // 因停止信号退出：收尾已经做完，按这个信号的默认动作结束，退出状态与没有处理函数时相同。
+  if (stop_signal != 0) {
+    signal(stop_signal, SIG_DFL);
+    raise(stop_signal);
+  }
   // 0 means the bus went away because ibus-daemon is exiting or restarting, so the supervisor must not restart this host. After `ibus restart` the new daemon starts the launcher again when the engine is selected; after `ibus exit` nothing runs again, which is intended.
   if (msime_ibus_maintenance_stop_requested())
     return msime_ibus_maintenance_stop_exit;

@@ -38,7 +38,7 @@ jobs:
     with:
       prerelease: true
       publish: false
-      build_number: ${{ github.run_id }}
+      # 不传 build_number；复用 workflow 在 shell 中把 run_id 映射到 Apple 允许的九位范围。
     secrets: inherit
 
   linux:

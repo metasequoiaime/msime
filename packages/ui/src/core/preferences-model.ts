@@ -202,6 +202,9 @@ export type Preferences = PunctuationPreferences &
     traditional_chinese_variant?: TraditionalChineseVariant;
     /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
     chinese_english_spacing?: boolean;
+    /** 跨次上屏的中英文边界补空格，独立开关、缺省关闭；目前仅 macOS 接入。 */
+    cross_commit_spacing?: boolean;
+    cross_commit_spacing_excluded_apps?: string[];
     /** 提示音包、音乐和指令表；全部取默认值时文档省略这一段。 */
     plugins?: PluginPreferences;
   };

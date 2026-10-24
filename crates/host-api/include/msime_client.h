@@ -104,9 +104,9 @@ char *msime_client_relay_cloud_clipboard(const uint8_t *request, size_t length);
 /* 向自建中继发端到端加密驱动（msime_client_cloud_clipboard_e2e）给出的一个请求，给自己跑驱动、自己保存密钥串的宿主用：Android 把中继的密钥串交给 AndroidKeyStore 加密，不经上面那个由 Rust 把密钥串存成明文文件的入口跑驱动。request 是 length 字节（最多 131072）的 UTF-8 JSON {url: 中继基地址, token: 中继令牌, method: GET|PUT|POST|DELETE, path: 驱动给的路径（必须在 /v1/users/me/clipboard 之下）, body: 可选，驱动给的 JSON 正文文本}。url 和 token 是宿主在这次操作开始时从偏好的 cloud_clipboard_relay 读到的那一份，整次操作都传同一份，中途改了偏好也不会发到另一个中继；校验规则与偏好相同，不合规时 error 是 relay_not_configured。Value 是 {status, body}，状态码和正文原样交回驱动。不读偏好、不读写任何密钥串。请求不合规时 error 是 invalid_cloud_clipboard（不发出去），中继拒绝令牌时是 relay_unauthorized，连不上或响应过大是 relay_unavailable。阻塞网络：放在工作线程上调用。 */
 char *msime_client_relay_cloud_clipboard_exchange(const uint8_t *request, size_t length);
 /* Anonymous usage reporting to https://api.msime.app/v1/telemetry/events (no credentials). Every request is UTF-8 JSON of length bytes; maximum 16 KiB (256 KiB for record_crash). directory is an absolute directory the host owns for its telemetry files (the queue telemetry.json, telemetry-state.json with the random install id, the session marker and telemetry-crashes/). platform is windows, macos, linux, android, ios or harmony (aliases such as win, darwin, ohos are mapped); version is the real app version. Consent: enabled (the usage_reporting switch, default on) or, for hosts on the shared preferences, preferences_directory to read usage_reporting from; with reporting off, begin and flush clear everything and send nothing.
- * begin {directory, platform, version, enabled?|preferences_directory?}: call once at host start. Closes the previous session (session_crash only when it left a crash record; a leftover marker alone is no crash), queues crash records as crash events with paths reduced to file names, queues today's active, writes a new marker. Value {enabled, crash_record_path?, previous_session_crashed?, crashes?}. No network.
- * end {directory}: the host is exiting normally; queues the session event. Value true when a session was running. No network.
- * record_crash {directory, message, stack}: from a crash handler that may allocate (C++ terminate handler). Writes the session's crash record only; first line of message is the summary, stack is frames as module+offset or symbol. Value false when no session runs or a record exists. An async-signal handler instead writes crash_record_path from begin itself: open(O_WRONLY|O_CREAT|O_EXCL, 0600), the summary line, '\n', the frames.
+ * begin {directory, platform, version, enabled?|preferences_directory?}：宿主启动时调用一次。为每个留下了崩溃记录、尚未结束的会话补报 session_crash（只留下标记的不算崩溃；同目录里几个进程各自的会话按 id 区分），把崩溃记录排成 crash 事件（路径只留文件名），排进当天的 active，写下新会话的标记。Value {enabled, crash_record_path?, session_id?, previous_session_crashed?, crashes?}。不联网。
+ * end {directory, session?}：宿主正常退出，排进 session 事件。session 是 begin 返回的 session_id，给了就只结束这个会话，不给则结束标记里记着的会话（标记可能已属于同目录里后来启动的别的进程）。有对应会话在运行时 Value 为 true。不联网。
+ * record_crash {directory, message, stack, session?}：给可以分配内存的崩溃处理（C++ terminate handler）用，只写会话的崩溃记录；message 第一行是摘要，stack 是 module+offset 或符号形式的帧。session 是 begin 返回的 session_id，给了就写这个会话的记录，不给则写标记里记着的会话的记录。没有会话在运行或记录已存在时 Value 为 false。async-signal 处理函数改为自己写 begin 返回的 crash_record_path：open(O_WRONLY|O_CREAT|O_EXCL, 0600)、摘要行、'\n'、各帧。
  * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
  * clear {directory}: usage reporting was just turned off. */
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
@@ -829,6 +829,9 @@ char *msime_client_punctuation(uint64_t session, uint8_t ascii);
  * inspected and no document text is retained. */
 char *msime_client_punctuation_with_context(uint64_t session, uint8_t ascii,
                                             uint32_t preceding);
+
+/* 无会话、无 I/O 的跨次空格策略。请求含 config（enabled/excluded_apps）、application、context（scheme/local_mode），可带 text、preceding Unicode 标量、secure、full_width。返回 {enabled,text}；先询问 enabled，再读取必要的前文。最多 65536 字节；结果按通常的 ok/value 信封返回，由 msime_client_string_free 释放。 */
+char *msime_client_cross_commit_spacing(const uint8_t *request, size_t length);
 /* Balance Engine nesting after the host emitted a paired closing mark. Only
  * the ASCII book-title opening '<' is accepted. */
 char *msime_client_balance_paired_punctuation_after_auto_close(uint64_t session,

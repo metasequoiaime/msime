@@ -1605,6 +1605,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_announcedCandidate;
     // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
     uint64_t _applySequence;
+    // 每个输入事件与焦点生命周期推进代次，只让可选的上屏格式化过期。
+    uint64_t _spacingInputSequence;
     // Bumped when a gloss arrival replaces the view, which can also happen inside an apply:'s marked-text write.
     uint64_t _glossViewSequence;
     // Whether the client may still hold marked text this controller's compositions wrote; see MSIMEApplyTransitionTrackingMarkedText. Wrongly YES costs one redundant clear, wrongly NO leaves a composition stranded in the document, so anything that might mark text sets it.
@@ -5746,6 +5748,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
 }
 
 - (void)activateServer:(id)sender {
+    ++_spacingInputSequence;
     if (_activeClient && _activeClient != sender && ![self commitManagedEnglishRaw]) return;
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
     // A newly activated IME session may target a different document/client.
@@ -6503,6 +6506,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)deactivateServer:(id)sender {
+    ++_spacingInputSequence;
     [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
     [[MSIMETypingEffectPanel sharedPanel] settle];
     // Every focus loss writes the key heatmap counts, including a late one for a previous client: they are this controller's presses either way.
@@ -6745,6 +6749,57 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_session setLifecycleActive:NO];
 }
 
+- (NSDictionary *)directEnglishSpacingContext {
+    const int scheme = msime::mac::cycle::LastChineseSchemeCode(_appearance.inputScheme.UTF8String);
+    return @{@"scheme":@(scheme < 0 ? 255 : scheme), @"local_mode":@"direct_english"};
+}
+
+// 先让原文落地再读上下文，避免同步查询中的下一键越过尚未上屏的文字。
+- (void)formatCrossCommitText:(NSString *)text context:(NSDictionary *)context
+                       client:(id<MSIMETextClient>)client isCurrent:(BOOL (^)(void))isCurrent {
+    NSDictionary *config = _appearance.crossCommitSpacing;
+    if (!text.length || text.length > 4096 || ![config[@"enabled"] isEqual:@YES] ||
+        _appearance.runtimeFullWidthInput || ![context isKindOfClass:NSDictionary.class]) return;
+    BOOL (^canFormat)(void) = ^BOOL {
+        return isCurrent() && ![self secureEventInputActive] && !self->_appearance.runtimeFullWidthInput &&
+            [config isEqual:self->_appearance.crossCommitSpacing];
+    };
+    if (!canFormat()) return;
+    @try {
+        NSString *application = [client respondsToSelector:@selector(bundleIdentifier)] ? [(id)client bundleIdentifier] : nil;
+        if (!canFormat()) return;
+        NSMutableDictionary *request = [@{@"config":config, @"application":application ?: @"", @"context":context} mutableCopy];
+        if (![[MSIMEClientSession crossCommitSpacingRequest:request][@"enabled"] isEqual:@YES]) return;
+        uint32_t preceding = 0;
+        NSRange committed = MSIMETextClientCommittedRange(client, text, &preceding, canFormat);
+        if (!canFormat() || committed.location == NSNotFound || !preceding) return;
+        request[@"preceding"] = @(preceding);
+        request[@"text"] = text;
+        NSString *spaced = [MSIMEClientSession crossCommitSpacingRequest:request][@"text"];
+        if (canFormat() && [spaced isKindOfClass:NSString.class] && ![spaced isEqualToString:text])
+            [client insertText:spaced replacementRange:committed];
+    } @catch (NSException *exception) {
+        // 客户端可拒绝文档范围；原文已上屏，格式化失败不重试、不记录输入内容。
+        (void)exception;
+    }
+}
+
+- (void)writeDirectEnglishText:(NSString *)text client:(id<MSIMETextClient>)client {
+    if ((id)client != _activeClient) return;
+    const uint64_t sequence = _applySequence;
+    const uint64_t inputSequence = _spacingInputSequence;
+    BOOL (^isCurrent)(void) = ^BOOL {
+        return (id)client == self->_activeClient && sequence == self->_applySequence &&
+            inputSequence == self->_spacingInputSequence;
+    };
+    [client insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    if (isCurrent())
+        [self formatCrossCommitText:text context:[self directEnglishSpacingContext] client:client isCurrent:isCurrent];
+    // 格式化替换不重复计数，统计只记本次原始上屏。
+    MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
+                                msime::mac::TypingSource::English);
+}
+
 // 把字段属性报告给生命周期核心：安全输入是 SECURE，英文模式是 HOST_ENGLISH，macOS 两项都读得到，所以带 KNOWN。只在变了时调用，按契约先于这个键的 msime_client_key。核心按 SECURE 关掉声音、特效和音乐，所以安全输入的开关不必再由这里去开关音乐。
 - (void)syncFieldTraits {
     _secureEventInput = [self secureEventInputActive];
@@ -6842,8 +6897,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [panel presentEffect:packed commit:commit caretRect:caret candidateView:card cardRect:cardRect cornerRadius:card.cornerRadius];
 }
 
-// Every key down leaves through here, so the smart punctuation shadow sees each one exactly once, after it has been handled and with what became of it. Events this host posted itself (the voice sendinput route and the smart punctuation rewrite) are skipped: whoever posted them has already recorded what they carry.
+// 每个按键按下都会从这里离开，因此智能标点影子只在按键处理完、结果确定后看到一次。宿主自己派发的事件（语音 sendinput 路径和智能标点重写）会跳过：派发者已经记录了它们携带的内容。
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
+    ++_spacingInputSequence;
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     const NSEventType type = event.type;
@@ -7253,16 +7309,21 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             if (!output.empty()) {
                 NSString *text = [[NSString alloc] initWithBytes:output.data() length:output.size()
                                                          encoding:NSUTF8StringEncoding];
-                [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-                MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
-                                            msime::mac::TypingSource::English);
+                [self writeDirectEnglishText:text client:(id<MSIMETextClient>)sender];
                 return YES;
             }
-            if (_capsLockTapReleased && character >= 'a' && character <= 'z') {
-                NSString *text = [NSString stringWithCharacters:&character length:1];
-                [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-                MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
-                                            msime::mac::TypingSource::English);
+            // 使用激活时已有的应用标识判定接管；排除应用仍把原键交回，不在落字前查客户端。
+            const BOOL spacingEnabled = !_appearance.runtimeFullWidthInput && ![self secureEventInputActive] &&
+                [_appearance.crossCommitSpacing[@"enabled"] isEqual:@YES] &&
+                [[MSIMEClientSession crossCommitSpacingRequest:@{
+                    @"config":_appearance.crossCommitSpacing,
+                    @"application":_appearance.activeInputModeApplication ?: @"",
+                    @"context":[self directEnglishSpacingContext]}][@"enabled"] isEqual:@YES];
+            const BOOL asciiLetterOrDigit = (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            if ((spacingEnabled && asciiLetterOrDigit) || (_capsLockTapReleased && character >= 'a' && character <= 'z')) {
+                [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]
+                                      client:(id<MSIMETextClient>)sender];
                 return YES;
             }
         }
@@ -7836,6 +7897,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)apply:(NSDictionary *)transition {
+    ++_applySequence;
     if (!transition || !_activeClient) return;
     // An Engine answer replaces the view the sense page was drawn over, so the page goes with it.
     [self discardGlossSensePage];
@@ -7942,35 +8004,43 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
     }
-    const uint64_t applySequence = ++_applySequence;
+    const uint64_t applySequence = _applySequence;
+    const uint64_t inputSequence = _spacingInputSequence;
     const uint64_t glossViewSequence = _glossViewSequence;
     NSString *pendingClosing = _pendingPairedClosing;
     // A Korean, Zhuyin or Vietnamese composition is always drawn inline, whatever the preedit display preference says: until Option+Return opens a candidate list there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
     const MSIMEInlinePreeditStyle preeditStyle = MSIMESchemeTrait(displayTransition[@"view"], msime::mac::scheme::AlwaysInlinePreedit)
         ? MSIMEInlinePreeditStylePinyin : _appearance.inlinePreeditStyle;
-    // 客户端调用可能同步处理下一键，先发布它应当看到的成对标点状态。
+    // 沿用 #9405 的写后保护：同步回调读到新标点状态，外层不再覆盖较新的标记。
+
     if (pendingClosing && [displayTransition[@"commit"] isKindOfClass:NSString.class]) {
         _pairedPunctuation.push(pendingClosing.UTF8String);
         _pendingPairedClosing = nil;
     }
     if (openedClosing) _pendingPairedClosing = openedClosing;
-    // 上屏回调中的下一键需要读到本次末字；较新的转换自行覆盖或清除，外层返回后不重写。
+
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
         NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
         if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
     }
     id<MSIMETextClient> textClient = (id<MSIMETextClient>)_activeClient;
     BOOL (^isCurrent)(void) = ^BOOL {
-        return applySequence == self->_applySequence && textClient == (id<MSIMETextClient>)self->_activeClient;
+        return applySequence == self->_applySequence &&
+            textClient == (id<MSIMETextClient>)self->_activeClient;
     };
-    MSIMEApplyTransitionWithWriteGuard(displayTransition, textClient, preeditStyle, pendingClosing,
-                                       &_clientHasMarkedText, isCurrent);
-    if (isCurrent()) {
-        if (openedClosing) {
-            _clientHasMarkedText = YES;
-            [textClient setMarkedText:openedClosing selectionRange:NSMakeRange(0, 0)
-                    replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-        }
+    MSIMEApplyTransitionWithCommitObserver(displayTransition, textClient, preeditStyle, pendingClosing,
+        &_clientHasMarkedText, isCurrent, ^(NSString *text) {
+            BOOL (^canFormat)(void) = ^BOOL {
+                return isCurrent() && inputSequence == self->_spacingInputSequence;
+            };
+            if (sourceOverride == msime::mac::TypingSource::Unknown)
+                [self formatCrossCommitText:text context:transition[@"commit_context"] client:textClient isCurrent:canFormat];
+        });
+    if (isCurrent() && openedClosing) {
+        _clientHasMarkedText = YES;
+        [textClient setMarkedText:openedClosing selectionRange:NSMakeRange(0, 0)
+                replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+
     }
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length]) {
         const auto source = sourceOverride == msime::mac::TypingSource::Unknown
@@ -7985,7 +8055,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (feedback && MSIMEStrictUnsignedInteger(feedback[@"typing_effect"], &effect) && effect != 0 && effect <= UINT32_MAX)
             [self drawTypingEffect:static_cast<uint32_t>(effect) commit:YES];
     }
-    // 同步写入中处理了较新的转换或换了客户端，旧转换不能再发布视图。
+    // 新派发或焦点已接管客户端，不能再发布旧视图。
+
     if (!isCurrent()) return;
     // A gloss that arrived during the write was merged into this same page, and the transition's copy of the page predates it.
     if (glossViewSequence == _glossViewSequence || ![_view[@"session"] isEqual:transition[@"view"][@"session"]] ||

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { accountNameResult, presentAccountName } from "../support/account-name";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -20,6 +21,7 @@ const profile: AccountProfile = {
     createdAt: "2026-01-01T00:00:00Z",
   },
   providers: ["email"],
+  providerNames: accountProviderNames,
 };
 
 function client(overrides: Partial<AccountClient> = {}): AccountClient {

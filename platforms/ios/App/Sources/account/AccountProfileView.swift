@@ -1,17 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// 后端在 `identities` 中报告的登录方式的显示名称。
-private func providerTitle(_ provider: String) -> String {
-  switch provider {
-  case "apple": return "Apple"
-  case "google": return "Google"
-  case "email": return "邮箱"
-  case "phone", "sms": return "手机号"
-  default: return provider
-  }
-}
-
 /// 单独占一张卡片、居中的 16pt 红色行：「退出登录」和「注销账号」。
 private struct ProfileDangerRow: View {
   let title: String
@@ -62,8 +51,7 @@ struct AccountProfileEditor: View {
 
   /// 已关联的登录方式，按 Rust 列出的顺序，每种只出现一次。
   private var providers: [String] {
-    var seen = Set<String>()
-    return (profile?.providers ?? []).filter { seen.insert($0).inserted }
+    profile?.providers ?? []
   }
 
   private static func looksLikeEmail(_ value: String) -> Bool {
@@ -150,7 +138,7 @@ struct AccountProfileEditor: View {
           .padding(.top, 2)
       }
       if let provider = providers.first {
-        Text("通过 \(providerTitle(provider)) 登录")
+        Text("通过 \(profile?.providerNames[provider] ?? provider) 登录")
           .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.accent)
           .padding(.horizontal, 10).padding(.vertical, 3)
           .background(MetasequoiaTheme.accentSoft, in: Capsule())
@@ -199,7 +187,7 @@ struct AccountProfileEditor: View {
     DesignGroup(title: "登录方式", radius: MetasequoiaTheme.tabCardRadius) {
       ForEach(Array(providers.enumerated()), id: \.element) { index, provider in
         if index > 0 { DesignDivider() }
-        SettingsNavigationLabel(title: providerTitle(provider), value: "已关联", showsChevron: false,
+        SettingsNavigationLabel(title: profile?.providerNames[provider] ?? provider, value: "已关联", showsChevron: false,
           valueTruncationMode: .middle)
       }
     }

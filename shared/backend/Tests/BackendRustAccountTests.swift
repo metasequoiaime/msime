@@ -208,9 +208,10 @@ final class BackendRustAccountTests: XCTestCase {
                     #"{"challengeId":"c","expiresIn":true}"#, #"{"challengeId":"c","expiresIn":3,"nonce":1}"#] {
       XCTAssertThrowsError(try BackendRustAccount.challenge(Data(invalid.utf8)), invalid)
     }
-    let profile = try BackendRustAccount.profile(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t","email":"u@example.invalid"},"providers":["google","email"]}"#.utf8))
+    let profile = try BackendRustAccount.profile(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t","email":"u@example.invalid"},"providers":["google","email"],"providerNames":{"google":"合成谷歌方式","email":"合成邮箱方式"}}"#.utf8))
     XCTAssertEqual(profile.user.email, "u@example.invalid")
     XCTAssertEqual(profile.providers, ["google", "email"])
+    XCTAssertEqual(profile.providerNames, ["google": "合成谷歌方式", "email": "合成邮箱方式"])
     XCTAssertThrowsError(try BackendRustAccount.profile(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t"}}"#.utf8)))
     XCTAssertEqual(try BackendRustAccount.signedInUser(Data(#"{"user":{"id":"u","displayName":"名","createdAt":"t"}}"#.utf8)).id, "u")
   }
@@ -220,5 +221,18 @@ final class BackendRustAccountTests: XCTestCase {
     let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
     let providers = try await account.providers()
     XCTAssertEqual(providers, ["email": true, "phone": false, "google": true])
+  }
+
+  func testProfileRejectsMalformedSharedProviderNames() throws {
+    let base: [String: Any] = [
+      "user": ["id": "synthetic-user", "displayName": "合成账号", "createdAt": "synthetic-date"],
+      "providers": ["email"]
+    ]
+    XCTAssertThrowsError(try BackendRustAccount.profile(JSONSerialization.data(withJSONObject: base)))
+    for invalid: Any in [NSNull(), [String](), ["email": 42], false] {
+      var response = base
+      response["providerNames"] = invalid
+      XCTAssertThrowsError(try BackendRustAccount.profile(JSONSerialization.data(withJSONObject: response)))
+    }
   }
 }

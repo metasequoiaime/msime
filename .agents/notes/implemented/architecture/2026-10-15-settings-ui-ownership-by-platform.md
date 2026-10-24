@@ -55,7 +55,18 @@ Android 的 `AccountNamePolicy` 经 `NativeClient.accountName` 和受 16 KiB 限
 
 `displayName` 保留原始值，继续用于编辑框；展示字段只属于脱敏的账号页响应，不进入账号存储格式或后端用户契约。代价是每份用户响应多携带一个派生字符串，所有页面替身也必须补齐字段；原生宿主的既有解析器忽略新增字段。页面和宿主随产品一起构建，TypeScript 将 `preferredName` 设为必需字段，不用可选字段配另一份本地规则维持旧宿主。展示无需等待昵称编辑接口，校验接口不可用也不影响已经加载的显示名。
 
+### 登录方式显示名称
+
+`client-services::account::page::ProfileResponse` 随资料返回必需的 `providerNames` 名称表。已知的 `apple`、`google`、`email`、`phone`、`sms` 只有 Rust 一处映射；资料里的未知标识由 Rust 原样作为名称加入。`providers` 继续保持原始标识、既有顺序和去重行为，不改变身份、登录请求或后端格式。名称表包含未关联的已知方式，Android 的关联入口也能读取同一名称，不必保留另一张表。iOS「我的」卡片保持既有提供方优先级，名称也从资料表读取。WinUI 接纳重新加载的会话时清空旧资料的登录方式和名称表，避免切换账号后新资料读取失败仍显示上一账号的快照。
+
+React 资料信息、Harmony 资料页的登录标记与登录方式行、SwiftUI 资料页、Android 资料页及关联成功提示、Windows 的 WinUI 与 Windows 7 设置窗口都只查这张表。Swift、Java 和 Windows 的解析器检查名称表的类型、非空名称与已关联方式的覆盖，解析失败沿用资料不可用状态；各平台不通过硬编码名称补救损坏响应。宿主的通用查表可保留原始标识用于不在资料中的查询，但不再维护提供方到品牌或中文名称的分支。
+
+字段只属于脱敏资料响应，资料、改名和头像操作都由同一个 DTO 构造。代价是每次资料响应多带一张小表，页面与测试替身须同时更新；收益是名称随资料一起就绪，无需增加 C ABI、JNI 或异步展示请求。
+
 ## Alternatives considered
+
+- **每个宿主调用单独的提供方名称接口。** 可以保留现在各页面的字符串参数，也无需扩充资料 DTO；但名称本来在读取资料时就能生成，新增桥接会让同步绘制多出等待、失败与旧回复隔离。直接随资料提供名称表可覆盖所有原生和共享界面。
+- **只给已关联的提供方附名称，或给两条平行数组。** 响应更短；但 Android 的未关联入口仍需要这些名称，平行数组还必须靠下标保持配对。名称表保留原始标识作为键，既不更改现有 `providers` 契约，也能供未关联入口读取。
 
 - **每处展示都异步请求昵称纯函数。** 可以直接复用上一片的 `namePresentation`，不扩充账号页响应；但账号卡片与头像会增加桥接、等待和旧回复隔离状态，而 Rust 在构造同一份用户响应时已有名字与 ID。把结果随用户一起传递可以同步绘制，也保证登录、改名和头像更新拿到成对的新原文与新显示名。
 - **React 保留同步 JS 校验。** 无须等待宿主回复，输入时能立即显示提示；但旧规则漏掉 C1 控制字符，HTML 的 64 单元限制还会截断允许的补充平面昵称。继续补字符表会保留另一份业务规则，因此接既有 Rust 纯函数，并明确等待和不可用状态。
@@ -83,3 +94,5 @@ Android 的 `AccountNamePolicy` 经 `NativeClient.accountName` 和受 16 KiB 限
 - React 昵称展示：旧响应缺字段的 Rust 回归和旧组件的 6 项展示回归先失败；Rust 账号页测试覆盖原文保留、共享空白、空名回退、Unicode ID 截取与 ASCII 大写。前端测试覆盖各账号页直接消费共享显示名、Harmony 资料页与编辑框的数据分工、补充平面头像首字；头像草稿等待状态的回归也先失败，修复后覆盖等待、失败与恢复成功，只有共享规范化成功才覆盖预览。C 接口的合成会话状态测试核对新增字段，前端替身不重建昵称回退规则。
 - HarmonyOS：`platforms/harmony/entry/src/main/ets/pages/Settings.ets` 用 `$rawfile('settings/index.html')` 加载设置页。
 - macOS 冻结：`git log -- platforms/macos/src/settings platforms/macos/src/core/AISettingsWindow.mm platforms/macos/src/cloud/TranslationSettingsWindow.mm platforms/macos/src/voice/VoiceProviderSettings.mm` 在本篇之后只应出现缺陷修复，不出现新设置项。
+
+- 登录方式展示：Rust 回归覆盖名称表、未知提供方、原始标识与顺序；组件回归用有意不同于旧映射的合成名称验证桌面、移动资料页和 Harmony。Swift 解析回归拒绝缺失或类型错误的名称表，Java 与 C++ 的查表用例也使用合成名称，避免宿主重新映射后仍让测试通过。

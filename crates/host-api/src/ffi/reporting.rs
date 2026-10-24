@@ -88,7 +88,7 @@ struct DirectoryRequest {
     directory: String,
 }
 
-/// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
+/// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, session_id, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -118,7 +118,16 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
     })
 }
 
-/// Ends the running session normally (`{directory}`), queueing its `session` event for the next flush. Value is false when no session was running. No network I/O, so it can run on a shutdown path.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EndRequest {
+    directory: String,
+    /// begin 返回的 `session_id`。给了就只结束这个会话；不给则结束标记里记着的会话（旧宿主的行为）。
+    #[serde(default)]
+    session: Option<String>,
+}
+
+/// 正常结束会话（`{directory, session?}`），排进它的 `session` 事件，下次 flush 时发送。带 `session`（begin 返回的 `session_id`）时只结束这个会话，同目录里别的进程的会话不受影响；不带时结束标记里记着的会话。没有对应的会话在运行时值为 false。不联网，可以在退出路径上调用。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -128,11 +137,14 @@ pub unsafe extern "C" fn msime_client_telemetry_end(
 ) -> *mut c_char {
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
-        let request: DirectoryRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
-        TelemetryStore::new(absolute_directory(&request.directory)?)
-            .end_session()
-            .map(Value::Bool)
-            .map_err(|error| error.to_string())
+        let request: EndRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
+        let store = TelemetryStore::new(absolute_directory(&request.directory)?);
+        match request.session.as_deref() {
+            Some(session) => store.end_session_by_id(session),
+            None => store.end_session(),
+        }
+        .map(Value::Bool)
+        .map_err(|error| error.to_string())
     })
 }
 
@@ -143,9 +155,12 @@ struct CrashRequest {
     message: String,
     #[serde(default)]
     stack: String,
+    /// begin 返回的 `session_id`。给了就写这个会话的记录，不看标记现在属于谁。
+    #[serde(default)]
+    session: Option<String>,
 }
 
-/// Writes the running session's crash record (`{directory, message, stack}`) from a crash handler that may allocate, such as a C++ terminate handler. Takes no lock and does no network I/O; the record becomes a `crash` event on the next start. Value is false when no session is running or this session already has a record. Signal handlers write the record file returned by `msime_client_telemetry_begin` directly instead.
+/// 从可以分配内存的崩溃处理（如 C++ terminate handler）写会话的崩溃记录（`{directory, message, stack, session?}`）。带 `session` 时写这个会话的记录；不带时写标记里记着的会话的记录，而标记可能已属于同目录里别的进程。不加锁，不联网；记录在下次启动时成为 `crash` 事件。没有会话在运行或这个会话已有记录时值为 false。信号处理函数改为直接写 `msime_client_telemetry_begin` 返回的记录文件。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
@@ -156,10 +171,13 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
         let request: CrashRequest = unsafe { document(request, length, MAX_CRASH_REQUEST_BYTES)? };
-        TelemetryStore::new(absolute_directory(&request.directory)?)
-            .record_crash(&request.message, &request.stack)
-            .map(Value::Bool)
-            .map_err(|error| error.to_string())
+        let store = TelemetryStore::new(absolute_directory(&request.directory)?);
+        match request.session.as_deref() {
+            Some(session) => store.record_crash_for(session, &request.message, &request.stack),
+            None => store.record_crash(&request.message, &request.stack),
+        }
+        .map(Value::Bool)
+        .map_err(|error| error.to_string())
     })
 }
 

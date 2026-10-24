@@ -38,6 +38,8 @@ using Request = char *(*)(const uint8_t *, size_t);
 std::mutex host_lock;
 Host current;
 bool configured = false;
+// 本进程正在运行的会话 id（begin 返回的 session_id），由 host_lock 保护；没有会话时为空。结束会话和 terminate 路径的崩溃记录都按它找自己的会话：同一目录可能还有别的宿主进程（例如同一用户的另一个图形会话），标记文件只记着最后开始的那个。
+std::string session_id;
 
 // The crash record path of the running session, read by crash handlers that may not allocate or lock. armed is cleared before the path changes and set after, so a handler sees a whole path or none.
 std::atomic<bool> armed{false};
@@ -105,8 +107,11 @@ bool begin_locked(const Host &host) {
   const auto value = call(msime_client_telemetry_begin, session_request(host));
   if (!value || !value->is_object() || !value->value("enabled", false)) {
     disarm();
+    session_id.clear();
     return false;
   }
+  const auto id = value->find("session_id");
+  session_id = id != value->end() && id->is_string() ? id->get<std::string>() : std::string();
   const auto path = value->find("crash_record_path");
   if (path != value->end() && path->is_string())
     arm(path->get<std::string>());
@@ -382,7 +387,11 @@ void end() {
   if (!configured)
     return;
   disarm();
-  call(msime_client_telemetry_end, nlohmann::json{{"directory", utf8(current.directory)}});
+  // 只结束自己的会话；本进程没有会话（上报关着）时什么都不做，免得把同目录里别的进程的会话当成自己的结束掉。
+  if (session_id.empty())
+    return;
+  call(msime_client_telemetry_end, nlohmann::json{{"directory", utf8(current.directory)}, {"session", session_id}});
+  session_id.clear();
 }
 
 void flush() {
@@ -420,6 +429,7 @@ void set_enabled(bool enabled) {
     begin_locked(current);
   } else {
     disarm();
+    session_id.clear();
     call(msime_client_telemetry_clear, nlohmann::json{{"directory", utf8(current.directory)}});
   }
 }
@@ -471,15 +481,20 @@ void record_terminate() {
     if (!armed.load(std::memory_order_acquire))
       return;
     std::filesystem::path directory;
+    std::string session;
     {
       // try_lock: the thread that holds the lock may be the one terminating.
       std::unique_lock guard(host_lock, std::try_to_lock);
-      if (!guard.owns_lock() || !configured)
+      if (!guard.owns_lock() || !configured || session_id.empty())
         return;
       directory = current.directory;
+      session = session_id;
     }
-    call(msime_client_telemetry_record_crash,
-         nlohmann::json{{"directory", utf8(directory)}, {"message", current_exception_summary()}, {"stack", current_stack(1)}});
+    // 写本进程会话的记录，与信号处理函数写的是同一个文件（O_EXCL），所以 terminate 之后的 SIGABRT 不会再记第二份；不按标记找会话，标记可能已经属于同目录里后来启动的别的进程。
+    call(msime_client_telemetry_record_crash, nlohmann::json{{"directory", utf8(directory)},
+                                                            {"message", current_exception_summary()},
+                                                            {"stack", current_stack(1)},
+                                                            {"session", session}});
   } catch (...) {
   }
 }
