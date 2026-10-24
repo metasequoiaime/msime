@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { useAccountRename } from "../../../../packages/ui/src/account/use-account-rename";
@@ -14,6 +15,7 @@ const profile = {
     createdAt: "2026-01-01T00:00:00Z",
   },
   providers: ["email"],
+  providerNames: accountProviderNames,
 };
 function deferred<T>() {
   let resolve!: (value: T) => void;

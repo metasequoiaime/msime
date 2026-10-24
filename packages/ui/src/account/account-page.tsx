@@ -958,6 +958,7 @@ function AccountDetailsPage({
             <AccountIdentityDetails
               user={user}
               providers={profile?.providers ?? []}
+              providerNames={profile?.providerNames ?? {}}
               copied={copiedAccountId}
               onCopy={copyAccountId}
             />

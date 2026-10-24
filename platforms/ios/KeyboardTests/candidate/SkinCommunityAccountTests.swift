@@ -47,10 +47,11 @@ final class SkinCommunityAccountTests: XCTestCase {
         state.user = nil
         return FakeRust.ok(operation == "account_delete" ? ["voice_samples": ["ok": true]] as Any : NSNull())
       case "profile":
-        return FakeRust.ok(["user": FakeRust.user("user-1", "旧昵称", email: "u@example.com"), "providers": ["google", "email"]])
+        return FakeRust.ok(["user": FakeRust.user("user-1", "旧昵称", email: "u@example.com"), "providers": ["google", "email"],
+                            "providerNames": ["google": "Google", "email": "邮箱"]])
       case "rename":
         let name = call.action["display_name"] as? String ?? ""
-        return FakeRust.ok(["user": FakeRust.user("user-1", name), "providers": ["apple"]])
+        return FakeRust.ok(["user": FakeRust.user("user-1", name), "providers": ["apple"], "providerNames": ["apple": "Apple"]])
       default: return FakeRust.failure("account_invalid")
       }
     }
@@ -199,6 +200,7 @@ final class SkinCommunityAccountTests: XCTestCase {
     XCTAssertEqual(profile.user.display_name, "旧昵称")
     XCTAssertEqual(profile.user.email, "u@example.com")
     XCTAssertEqual(profile.providers, ["google", "email"])
+    XCTAssertEqual(profile.providerNames, ["google": "Google", "email": "邮箱"])
 
     for invalid in ["  ", String(repeating: "字", count: 65), "名字\n换行"] {
       do { _ = try await api.updateProfile(name: invalid); XCTFail("invalid name accepted") }
