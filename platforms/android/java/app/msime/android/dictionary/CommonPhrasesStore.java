@@ -39,17 +39,30 @@ public final class CommonPhrasesStore {
     public static final int MAX_PHRASE_UNITS = 1000;
 
     /** 一条常用语；`pack` 为空串表示用户自己添加的，否则是它所属社区短语包的 id。 */
-    public record Phrase(String id, String text, String pack, String note) {
-        public Phrase(String id, String text, String pack) { this(id, text, pack, ""); }
+    public record Phrase(String id, String text, String pack, String note, String category) {
+        public Phrase(String id, String text, String pack) { this(id, text, pack, "", ""); }
+        public Phrase(String id, String text, String pack, String note) { this(id, text, pack, note, ""); }
         public boolean own() { return pack.isEmpty(); }
     }
 
     /** 一个已安装的社区短语包。 */
     public record Pack(String id, String name, int revision) {}
 
+    public record Category(String id, String name) {}
+
     /** 整份常用语；`skipped` 只在安装短语包时可能大于 0，是因为过长或重复而没有收下的条数。 */
-    public record Document(List<Phrase> phrases, List<Pack> packs, int skipped) {
+    public record Document(List<Phrase> phrases, List<Pack> packs, int skipped,
+            List<Category> categories, String expandedCategory) {
+        public Document(List<Phrase> phrases, List<Pack> packs, int skipped) {
+            this(phrases, packs, skipped, List.of(), "all");
+        }
         public static final Document EMPTY = new Document(List.of(), List.of(), 0);
+
+        public String categoryName(String id) {
+            if (id.equals("all")) return "全部";
+            for (Category category : categories) if (category.id().equals(id)) return category.name();
+            return "未分类";
+        }
 
         /** 用户自己添加的条数，用来在界面上提前拦住超过上限的添加。 */
         public int ownCount() {
@@ -333,6 +346,45 @@ public final class CommonPhrasesStore {
         }
     }
 
+    /** 分类只在本机使用；操作和规则均交给共享存储，不另建 Android 文件。 */
+    public static Result addCategory(Context context, String name) {
+        try { return perform(context, action("add_category").put("name", name), false); }
+        catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
+    public static Result renameCategory(Context context, String id, String name) {
+        try { return perform(context, action("rename_category").put("id", id).put("name", name), false); }
+        catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
+    public static Result removeCategory(Context context, String id) {
+        try { return perform(context, action("remove_category").put("id", id), false); }
+        catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
+    public static Result categorize(Context context, String id, String category) {
+        try {
+            Result result = perform(context, action("categorize").put("id", id)
+                .put("category", category.isEmpty() ? JSONObject.NULL : category), true);
+            // 用户给预置示例分类后也应把它作为自己的常用语保留到备份。
+            if (result.ok()) for (Phrase phrase : result.document().phrases())
+                if (phrase.id().equals(id) && phrase.own()) return adopted(context, phrase.text(), result);
+            return result;
+        } catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
+    public static Result setExpandedCategory(Context context, String category) {
+        try { return perform(context, action("set_expanded_category").put("category", category), false); }
+        catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
+    /** 备份恢复的最后一步：分类合并在 Rust 中原子执行，失败不会留下半份分类。 */
+    public static Result importCategories(Context context, JSONArray categories, String expanded, List<String> phraseIds) {
+        try { return perform(context, action("import_categories").put("categories", categories)
+            .put("expanded_category", expanded).put("phrase_ids", new JSONArray(phraseIds)), false); }
+        catch (JSONException error) { return Result.failed(failureMessage("")); }
+    }
+
     /**
      * 常用语正文能否保存，与 client-services 的 `valid_phrase_text` 一致：不全是空白，1–1000 个 UTF-16 单元，除换行以外不含控制字符。界面用它决定确认按钮是否可点，最终仍以 client-services 的校验为准。
      */
@@ -351,6 +403,9 @@ public final class CommonPhrasesStore {
     public static String failureMessage(String code) {
         if (code == null) code = "";
         switch (code) {
+            case "common_phrases_category_invalid": return "分类名称须为 1–20 字，不能包含控制字符或使用全部、未分类、不展开。";
+            case "common_phrases_category_duplicate": return "已经有同名分类了。";
+            case "common_phrases_category_limit": return "最多可以设置 6 个分类，请先删除一些分类。";
             case "common_phrases_note_invalid": return "备注最多 1000 字，仅支持普通文字和换行。";
             case "common_phrases_invalid": return "常用语不能为空，最多 1000 字。";
             case "common_phrases_duplicate": return "已经有这条常用语了。";
@@ -379,7 +434,9 @@ public final class CommonPhrasesStore {
                 Object rawNote = phrase.opt("note");
                 String note = rawNote == null ? "" : JsonPolicy.strictString(rawNote);
                 if (note == null) continue;
-                phrases.add(new Phrase(id, text, pack, note));
+                String category = phrase.isNull("category") ? "" : JsonPolicy.strictString(phrase.opt("category"));
+                if (category == null) continue;
+                phrases.add(new Phrase(id, text, pack, note, category));
             }
         }
         JSONArray rawPacks = value.optJSONArray("packs");
@@ -395,8 +452,18 @@ public final class CommonPhrasesStore {
                 packs.add(new Pack(id, name, revision));
             }
         }
+        List<Category> categories = new ArrayList<>();
+        JSONArray rawCategories = value.optJSONArray("categories");
+        if (rawCategories != null) for (int index = 0; index < rawCategories.length(); index++) {
+            JSONObject category = rawCategories.optJSONObject(index);
+            if (category == null) continue;
+            String id = JsonPolicy.strictString(category.opt("id"));
+            String name = JsonPolicy.strictString(category.opt("name"));
+            if (id != null && name != null) categories.add(new Category(id, name));
+        }
         return new Document(ListPolicy.copyOrEmpty(phrases), ListPolicy.copyOrEmpty(packs),
-            JsonPolicy.nonNegativeInteger(value.opt("skipped"), 0));
+            JsonPolicy.nonNegativeInteger(value.opt("skipped"), 0), ListPolicy.copyOrEmpty(categories),
+            value.optString("expanded_category", "all"));
     }
 
     private static Result perform(Context context, JSONObject action, boolean writes) {

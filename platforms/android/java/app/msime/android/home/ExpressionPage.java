@@ -17,9 +17,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句联想三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
+ * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
- * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句联想三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
+ * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
 public final class ExpressionPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -28,6 +28,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
 
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
+    private static final String SENTENCE_DESCRIPTION =
+        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。上屏后不推荐下一个词";
     /** 共享偏好 `quote_style` 的取值与显示文字，缺省（文档里没有这个键）是弯引号。 */
     private static final String[] QUOTE_STYLES = {"curly", "corner", "corner_when_traditional"};
     private static final String[] QUOTE_STYLE_LABELS = {"弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号"};
@@ -125,31 +127,38 @@ public final class ExpressionPage extends ReloadingDetailPage {
 
         GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
-        intelligence.nav("整句联想", "更准确，但更耗电", SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
+        intelligence.nav("整句候选", SENTENCE_DESCRIPTION, SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
         intelligence.toggle(english.title(), english.description(),
             values.optBoolean(english.key(), english.enabledByDefault()),
             checked -> savePreferences(edit -> edit.put(english.key(), checked)));
         JSONObject mixed = values.optJSONObject("mixed_input");
         // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
+        boolean mixedEnabled = mixed == null || mixed.optBoolean("enabled", true);
+        intelligence.toggle("候选混输", "在中文候选中补充英文、符号、表情和快捷内容；关闭后保留各项设置",
+            mixedEnabled, checked -> savePreferences(edit -> mixedInput(edit).put("enabled", checked)));
         boolean mixedEnglish = mixed == null || mixed.optBoolean("english", true);
         intelligence.toggle("中英混输", "中文候选里补充英文；达到下方字母或按键数后补全，26 键中更短的完整词仍可选",
-            mixedEnglish, checked -> savePreferences(edit -> mixedInput(edit).put("english", checked)));
+            mixedEnglish, checked -> savePreferences(edit -> mixedInput(edit).put("english", checked))).setEnabled(mixedEnabled);
         GroupCard.Row prefixRow = intelligence.slider("触发字母数", MIXED_PREFIX_MIN, MIXED_PREFIX_MAX, 1,
             mixed == null ? MIXED_PREFIX_DEFAULT : NumberPolicy.strictInt(mixed, "minimum_prefix", MIXED_PREFIX_DEFAULT),
             Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("minimum_prefix", value)));
-        prefixRow.setEnabled(mixedEnglish);
+        prefixRow.setEnabled(mixedEnabled && mixedEnglish);
+        intelligence.slider("首页英文候选数", 1, 3, 1,
+            mixed == null ? 1 : NumberPolicy.strictInt(mixed, "first_page_count", 1),
+            Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("first_page_count", value)))
+            .setEnabled(mixedEnabled && mixedEnglish);
         // 候选带符号（打拼音出符号）：整段打出符号的名称时，Engine 在候选里接着那个词给出符号（共享偏好 mixed_input.symbols）。后加的可选字段，默认开，开着时文档里没有这个键，所以缺键读作开。
         intelligence.toggle("候选带符号", "全拼（26 键或 9 键）、双拼输入时，打出符号的名称就在候选里加入对应的符号，紧跟在那个词后面，例如「正负」后面是 ±",
             mixed == null || mixed.optBoolean("symbols", true),
-            checked -> savePreferences(edit -> mixedInput(edit).put("symbols", checked)));
+            checked -> savePreferences(edit -> mixedInput(edit).put("symbols", checked))).setEnabled(mixedEnabled);
         // 候选里带 emoji / 颜文字（#5667）：Engine 早就会按拼音从随包的 msime-others.db 找匹配的 emoji 和颜文字插进候选（共享偏好 mixed_input.emoji / kaomoji），Android 只是没有开关，默认又是关的。
         intelligence.toggle("候选带 emoji", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸",
             mixed != null && mixed.optBoolean("emoji", false),
-            checked -> savePreferences(edit -> mixedInput(edit).put("emoji", checked)));
+            checked -> savePreferences(edit -> mixedInput(edit).put("emoji", checked))).setEnabled(mixedEnabled);
         intelligence.toggle("候选带颜文字", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后",
             mixed != null && mixed.optBoolean("kaomoji", false),
-            checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked)));
+            checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked))).setEnabled(mixedEnabled);
 
     }
 
@@ -198,7 +207,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     private void pickSentence(int selected) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "整句联想", "更准确，但更耗电");
+        OptionSheet sheet = new OptionSheet(requireContext(), "整句候选", SENTENCE_DESCRIPTION);
         for (int index = 0; index < SENTENCE_LABELS.length; index++) {
             int level = index;
             sheet.option(SENTENCE_LABELS[index], index == selected, () -> savePreferences(edit -> {

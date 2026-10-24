@@ -54,6 +54,19 @@ impl<K: Hash + Eq, V: Clone> FifoCache<K, V> {
         }
     }
 
+    /// 返回新槽和被替换或淘汰的旧值；重插不改年龄，满容插入仍复用原节点。
+    pub fn insert_with_previous(&mut self, key: K, value: V) -> (&mut V, Option<V>) {
+        if self.entries.contains(&key) {
+            let slot = self.entries.peek_mut(&key).expect("已确认缓存槽存在");
+            let previous = std::mem::replace(slot, value);
+            return (slot, Some(previous));
+        }
+        let previous = self.entries.push(key, value).map(|(_, value)| value);
+        // 新键总在链首；直接借用，避免为了再次查找而复制键。
+        let (_, slot) = self.entries.iter_mut().next().expect("新插入的槽必须存在");
+        (slot, previous)
+    }
+
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.entries.pop(key)
     }
@@ -104,5 +117,30 @@ mod tests {
         let mut cache = FifoCache::new(2);
         cache.insert("a".to_owned(), 1);
         assert_eq!(cache.get_ref_by("a"), Some(&1));
+    }
+
+    #[test]
+    fn recovered_values_keep_fifo_age_and_reuse_the_full_cache_node() {
+        use crate::ime::personal_rerank::allocations::count;
+
+        let mut cache = FifoCache::new(2);
+        let (slot, previous) = cache.insert_with_previous("a", 1);
+        assert_eq!(previous, None);
+        *slot = 2;
+        cache.insert("b", 3);
+        let ((slot, previous), allocations) = count(|| cache.insert_with_previous("a", 4));
+        assert_eq!(previous, Some(2));
+        assert_eq!(allocations, 0);
+        *slot = 5;
+        assert_eq!(cache.get(&"a"), Some(5));
+        let ((slot, previous), allocations) = count(|| cache.insert_with_previous("c", 6));
+        assert_eq!(previous, Some(5));
+        assert_eq!(allocations, 0);
+        *slot = 7;
+        assert!(!cache.contains(&"a"));
+        assert_eq!(cache.get(&"b"), Some(3));
+        assert_eq!(cache.get(&"c"), Some(7));
+        cache.insert("d", 8);
+        assert!(!cache.contains(&"b"));
     }
 }

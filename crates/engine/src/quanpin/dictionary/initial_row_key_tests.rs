@@ -217,10 +217,14 @@ impl QuanpinDictionary {
     ) -> Vec<WordItem> {
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
-            return cached.clone();
+            return cached.copy_rows(cache_key);
         }
         let result = self.legacy_initial_key_query_database(segments, segmentation);
-        self.cache.insert(cache_key.to_owned(), result.clone());
+        // 与新入口共用当前页表示，只隔离首字母键的构造。
+        self.cache.insert(
+            cache_key.to_owned(),
+            PathPage::from_dictionary(cache_key, &result),
+        );
         result
     }
 

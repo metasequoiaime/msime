@@ -83,6 +83,13 @@ int main() {
     assert(host::mode_badge_hint(true, false, true, true) == ModeBadgeHint::PanelTextAndCornerBadge);
     assert(host::mode_badge_hint(true, true, false, true) == ModeBadgeHint::PanelTextAndCornerBadge);
     assert(host::mode_badge_hint(false, false, false, true) == ModeBadgeHint::PanelText);
+    // 关闭角落提示后，带标志的 Wayland 提示退回面板；X11 光标徽章及其标志仍可用。
+    assert(host::mode_badge_hint(true, false, false, true, false) == ModeBadgeHint::PanelText);
+    assert(host::mode_badge_hint(true, true, false, true, false) == ModeBadgeHint::PanelText);
+    assert(host::mode_badge_hint(true, false, true, true, false) == ModeBadgeHint::PanelText);
+    assert(host::mode_badge_hint(true, true, true, true, false) == ModeBadgeHint::CaretBadge);
+    assert(!host::mode_badge_surface_wanted(false, true, false));
+    assert(host::mode_badge_surface_wanted(true, true, false));
     // Wayland 客户端且没要标志时结果一定是面板提示，不必建表面。
     assert(!host::mode_badge_surface_wanted(false, false));
     assert(host::mode_badge_surface_wanted(true, false) && host::mode_badge_surface_wanted(false, true));

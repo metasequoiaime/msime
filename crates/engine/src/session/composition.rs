@@ -434,11 +434,29 @@ impl InputSession {
                             base.raw_input.len(),
                         )
                     };
-                    Some((
-                        remove_consumed_leading_separators(&base.raw_input[start..end]).to_owned(),
-                        remove_consumed_leading_separators(&base.raw_input_with_cases[start..end])
+                    Some(if request.raw_input_with_helpcode_marks.is_empty() {
+                        (
+                            remove_consumed_leading_separators(&base.raw_input[start..end])
+                                .to_owned(),
+                            remove_consumed_leading_separators(
+                                &base.raw_input_with_cases[start..end],
+                            )
                             .to_owned(),
-                    ))
+                        )
+                    } else {
+                        // 带辅助码段时按 source_index 把去段串的剩余范围映回原串
+                        // （`RemapMidSentenceRest`）：段随已消耗的音节一起走。
+                        let marks = request.raw_input_with_helpcode_marks.as_str();
+                        let map = &request.helpcode_source_index;
+                        let skip = base.raw_input_with_cases[start..end]
+                            .bytes()
+                            .take_while(|&byte| byte == b'\'')
+                            .count();
+                        let full_begin = map.get(start + skip).copied().unwrap_or(marks.len());
+                        let full_end = map.get(end).copied().unwrap_or(marks.len());
+                        let rest = &marks[full_begin..full_end];
+                        (rest.to_lowercase(), rest.to_owned())
+                    })
                 } else {
                     None
                 };
@@ -589,12 +607,22 @@ impl InputSession {
                 if request.raw_segmentation.is_empty() {
                     Cow::Borrowed(&request.raw_input)
                 } else {
-                    Cow::Borrowed(&request.raw_segmentation)
+                    // 辅助码段按原样接回对应音节的后面（`decorate_mid_sentence_segmentation`）。
+                    Cow::Owned(crate::shuangpin::mid_sentence::decorate_segmentation(
+                        &request.raw_segmentation,
+                        &request.helpcode_decorations,
+                    ))
                 },
                 request,
             ),
             SchemeType::Quanpin => build_quanpin_autocorrect_display(request),
-            SchemeType::Shuangpin => with_trailing_separator(self.pinyin_segmentation(), request),
+            SchemeType::Shuangpin => with_trailing_separator(
+                Cow::Owned(crate::shuangpin::mid_sentence::decorate_segmentation(
+                    &self.pinyin_segmentation(),
+                    &request.helpcode_decorations,
+                )),
+                request,
+            ),
         }
     }
 
@@ -668,7 +696,8 @@ impl InputSession {
             | SchemeType::Tibetan
             | SchemeType::Stroke => false,
             SchemeType::Shuangpin => {
-                active_shuangpin_helpcode_length(request, self.shuangpin_profile()) > 0
+                !request.end_helpcodes.is_empty()
+                    || active_shuangpin_helpcode_length(request, self.shuangpin_profile()) > 0
             }
             SchemeType::Quanpin => {
                 request.enable_quanpin_helpcode

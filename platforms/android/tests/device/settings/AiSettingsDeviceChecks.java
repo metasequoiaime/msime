@@ -48,7 +48,8 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
         JSONObject original = new JSONObject(ai().toString());
         try {
             JSONObject seed = new JSONObject(original.toString()).put("enabled", false).put("provider", "deepseek")
-                .put("endpoint", "").put("model", "").put("tokens", new JSONObject()
+                .put("endpoint", "").put("model", "")
+                .put("endpoints", new JSONObject()).put("models", new JSONObject()).put("tokens", new JSONObject()
                     .put("https://api.openai.com:443", "synthetic-openai")
                     .put("https://fixture.invalid:443", "synthetic-other"));
             writeAi(seed);
@@ -72,6 +73,7 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
             tap(option("DeepSeek"));
             awaitAi("endpoint", "https://api.deepseek.com/chat/completions");
             check(!ai().getString("model").isEmpty(), "再次选择默认服务补齐模型");
+            String deepseekModel = ai().getString("model");
             clickPage("服务商");
             tap(option("OpenAI"));
             awaitAi("endpoint", "https://api.openai.com/v1/chat/completions");
@@ -83,9 +85,16 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
             setInput("synthetic-custom-model");
             tap(option("保存"));
             awaitAi("model", "synthetic-custom-model");
+            stage = "native provider selection restores each provider model";
             clickPage("服务商");
             tap(option("DeepSeek"));
             awaitAi("provider", "deepseek");
+            awaitAi("endpoint", "https://api.deepseek.com/chat/completions");
+            awaitAi("model", deepseekModel);
+            clickPage("服务商");
+            tap(option("OpenAI"));
+            awaitAi("provider", "openai");
+            awaitAi("endpoint", "https://api.openai.com/v1/chat/completions");
             awaitAi("model", "synthetic-custom-model");
 
             stage = "fetch and select models through the native product page";
@@ -112,7 +121,7 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
                 server.release();
                 awaitNotBusy();
                 checkNoFetchedModels();
-                awaitAi("model", "synthetic-current");
+                awaitAi("model", "synthetic-custom-model");
             }
 
             stage = "credential edits discard a delayed model catalog";
@@ -187,9 +196,20 @@ public abstract class AiSettingsDeviceChecks extends DeviceSmoke {
             .put("endpoint", "https://fixture.invalid/custom").put("model", "synthetic-custom")
             .put("tokens", new JSONObject().put("https://fixture.invalid:443", "合成凭据🍃"))
             .put("prompt_custom_2", "合成提示词");
-        settingsType.getMethod("switchProvider", JSONObject.class, String.class).invoke(null, ai, "openai");
-        check("https://fixture.invalid/custom".equals(ai.getString("endpoint")), "自定义地址不被预设覆盖");
-        check("synthetic-custom".equals(ai.getString("model")), "自定义模型保留");
+        // 每个服务商各记一份接口地址和模型（#9250）：切走时现值写进原服务商的槽位，目标服务商没有槽位就用它的预设，切回来按槽位原样恢复。
+        JSONObject openai = null;
+        for (int index = 0; index < catalogEntries.length(); index++)
+            if ("openai".equals(catalogEntries.getJSONObject(index).getString("id"))) openai = catalogEntries.getJSONObject(index);
+        check(openai != null, "共享目录包含 openai");
+        Method switchProvider = settingsType.getMethod("switchProvider", JSONObject.class, String.class);
+        switchProvider.invoke(null, ai, "openai");
+        check(openai.getString("endpoint").equals(ai.getString("endpoint")), "切到没有槽位的服务商时用它的预设地址");
+        check(openai.getString("model").equals(ai.getString("model")), "切到没有槽位的服务商时用它的预设模型");
+        check("https://fixture.invalid/custom".equals(ai.getJSONObject("endpoints").getString("deepseek")), "自定义地址存进原服务商的槽位");
+        check("synthetic-custom".equals(ai.getJSONObject("models").getString("deepseek")), "自定义模型存进原服务商的槽位");
+        switchProvider.invoke(null, ai, "deepseek");
+        check("https://fixture.invalid/custom".equals(ai.getString("endpoint")), "切回时恢复自定义地址");
+        check("synthetic-custom".equals(ai.getString("model")), "切回时恢复自定义模型");
         check("合成凭据🍃".equals(ai.getJSONObject("tokens").getString("https://fixture.invalid:443")), "合成 origin 凭据不变");
         check("合成提示词".equals(ai.getString("prompt_custom_2")), "切换保留提示词槽");
     }

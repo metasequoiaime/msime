@@ -2,6 +2,7 @@
 #import <AppKit/AppKit.h>
 #import "../../../../shared/apple/TextClient.h"
 #include "../candidate/CandidateSkin.h"
+#include "../input/ToggleHotkeys.h"
 
 @class MSIMECandidateCanvasAssets;
 
@@ -76,6 +77,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
 - (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
+/// 共享偏好中的译文字号，缺省为 12 点；设置入口由共享设置页提供。
+@property(nonatomic, readonly) NSUInteger translationFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 /// The candidate window's own style: `candidate_scale_percent` (50-200, 100 by default), which multiplies the candidate fonts and every length of the window; `candidate_opacity_percent` (50-100, 100 by default), which fades only the card surface, its border and a package background; `candidate_corner_radius` (0-32 points), nil to keep the theme's or the package's card radius; and `candidate_padding` (0-16 points between the card's edge and its candidates), nil to keep the theme's or the package's `pad`. A value outside its range is refused and leaves the setting as it was.
 @property(nonatomic) NSInteger candidateScalePercent;
@@ -134,6 +137,10 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL controlOptionSpaceShortcut;
 @property(nonatomic) BOOL characterSetShortcut;
 @property(nonatomic) BOOL fullWidthShortcut;
+/// 三个可重绑切换热键（共享偏好 `keybindings.toggle_english_candidates`、`toggle_full_width`、`toggle_punctuation`）解码出的认键组合；写法为空或不合法时 bound=NO 不绑定。共享文档还没载入或没有 keybindings 时按出厂值（client-core 的 `TOGGLE_*_DEFAULT`）。
+@property(nonatomic, readonly) msime::mac::ToggleChord englishCandidatesToggleChord;
+@property(nonatomic, readonly) msime::mac::ToggleChord fullWidthToggleChord;
+@property(nonatomic, readonly) msime::mac::ToggleChord punctuationToggleChord;
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;

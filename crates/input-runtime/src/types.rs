@@ -203,6 +203,8 @@ pub enum SelectionHow {
     Highlighted = 9,
     /// 五笔唯一四码在第四键自动上屏。
     WubiAuto = 10,
+    /// 九宫格组码到上限后再按一键，先选掉首选再接着打。
+    GridLimit = 11,
 }
 
 /// 选中之后发生了什么。

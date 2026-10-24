@@ -368,12 +368,24 @@ export {
   useVoiceInputSettings,
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
+export {
+  useTouchKeyboardSkinEditorState,
+  type UseTouchKeyboardSkinEditorStateOptions,
+  type TouchKeyboardSkinEditorState,
+} from "./keyboard/use-touch-keyboard-skin-editor-state";
 export { AiSkinGeneration, type AiSkinGenerationProps } from "./keyboard/ai-skin-generation";
 export {
   useAiSkinGeneration,
   type UseAiSkinGenerationOptions,
   type AiSkinGenerationState,
 } from "./keyboard/use-ai-skin-generation";
+export {
+  useTouchKeyboardSkinLibrary,
+  type TouchKeyboardSkinLibraryState,
+  type TouchSkinLibraryNameEditor,
+  type TouchSkinLibraryConfirmation,
+  type TouchSkinLibrarySaveResult,
+} from "./keyboard/use-touch-keyboard-skin-library";
 export type {
   AiSkinClient,
   AiSkinProposal,
@@ -1544,6 +1556,13 @@ export {
   type SettingsShortcutKeyProps,
 } from "./settings/settings-shortcut-key";
 export { SkinCardHeader, type SkinCardHeaderProps } from "./skin/skin-card-header";
+export { BuiltinThemeCard, type BuiltinThemeCardProps } from "./skin/builtin-theme-card";
+export {
+  candidateSkinSelection,
+  type CandidateSkinSelection,
+  type CandidateSkinSelectionOptions,
+  type CandidateSkinSelectionPackage,
+} from "./skin/candidate-skin-selection";
 export { SkinPreviewStage, type SkinPreviewStageProps } from "./skin/skin-preview-stage";
 export { SkinPreviewSurface, type SkinPreviewSurfaceProps } from "./skin/skin-preview-surface";
 export {
@@ -1919,7 +1938,12 @@ export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-pre
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
-export type { SettingsClient, PreferencesRecovery } from "./core/settings-client";
+export type {
+  SettingsClient,
+  PreferencesRecovery,
+  ToggleHotkeyCheckRequest,
+  ToggleHotkeyCheckResult,
+} from "./core/settings-client";
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 /**

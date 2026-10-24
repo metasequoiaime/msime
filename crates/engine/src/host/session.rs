@@ -556,6 +556,11 @@ impl Session {
             .apply_online_candidates(&request, candidates, source))
     }
 
+    /// 九宫格组码到上限时，这一键能不能先选掉首选再接着打；见 `Session::grid_limit_pick_ready`。
+    pub fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
+        self.inner.grid_limit_pick_ready(value, grid_key)
+    }
+
     /// 由引擎判断第五码是否继续混输拼音，宿主不复制读音规则。
     pub fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
         self.inner.wubi_pinyin_continues(value, shift)

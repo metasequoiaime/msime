@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { AiAssistantPreferences } from "./ai-assistant-preferences";
 import type { SettingsClient } from "../core/settings-client";
 import type { useProviderCredentials } from "./use-provider-credentials";
-import { aiProviderOption, aiProviderOptionsFor, aiProviderUsesToken } from "./ai-provider-options";
+import { aiProviderOption, aiProviderOptionsFor } from "./ai-provider-options";
 import { aiProviderUpdate, aiEndpointUpdate, aiModelUpdate } from "./ai-provider-update";
 import {
   aiCredentialTestDisabled,
@@ -11,11 +11,8 @@ import {
   aiServiceCredentialTestConfig,
   aiServiceCredentialTestDisabled,
 } from "./ai-credential-test-config";
-import { aiCredentialSaveConfig } from "./ai-credential-save-config";
 import { AiSettingsPageSection } from "./ai-settings-page-section";
-import { AiCredentialSection } from "./ai-credential-section";
-import { AiLinuxProviderSection } from "./ai-linux-provider-section";
-import { AiApiTokenSection } from "./ai-api-token-section";
+import { AiCredentialControl } from "./ai-credential-control";
 import { aiEndpointHint } from "./ai-endpoint-policy";
 import { AiTestToolsSection } from "./ai-test-tools-section";
 import { NetworkProxySection } from "./network-proxy-section";
@@ -70,7 +67,7 @@ export interface AiSettingsContentProps {
   trailing: ReactNode;
 }
 
-/** Complete AI settings composition; host state and provider operations stay with SettingsPage. */
+/** 完整的 AI 设置组合；宿主状态和服务操作继续由 SettingsPage 持有。 */
 export function AiSettingsContent({
   disabled,
   hidden,
@@ -171,44 +168,22 @@ export function AiSettingsContent({
       onEndpointChange={(endpoint) => updateAi(aiEndpointUpdate(endpoint, ai))}
       thinking={ai.thinking}
       onThinkingChange={(thinking) => updateAi({ thinking })}
-      // 不鉴权的服务（Ollama）没有 Token 可填，整块不显示；Linux 的 provider 直接用页面上的地址和模型。
       credentialSection={
-        !aiProviderUsesToken(ai.provider) ? null : linuxPlatform && client.providerCredentials ? (
-          <AiCredentialSection
-            endpoint={ai.endpoint}
-            model={ai.model}
-            origin={aiOrigin}
-            token={aiCredentialInput}
-            stored={storedAiCredential}
-            invalid={providerCredentials?.aiInvalid === true}
-            busy={providerCredentialBusy === "ai"}
-            message={providerCredentialMessages.ai}
-            onTokenChange={setAiCredentialInput}
-            onSave={() =>
-              void runProviderCredential(
-                "ai",
-                (credentials) => credentials.saveAi(aiCredentialSaveConfig(ai, aiCredentialInput)),
-                "凭据已保存，provider 服务下次请求时生效。",
-              )
-            }
-            onClear={() =>
-              void runProviderCredential(
-                "ai",
-                (credentials) => credentials.clearAi(ai.provider),
-                "凭据已清除。",
-              )
-            }
-          />
-        ) : linuxPlatform ? (
-          <AiLinuxProviderSection />
-        ) : (
-          <AiApiTokenSection
-            origin={aiOrigin}
-            endpoint={ai.endpoint}
-            token={aiToken}
-            onTokenChange={updateAiToken}
-          />
-        )
+        <AiCredentialControl
+          ai={ai}
+          aiOrigin={aiOrigin}
+          aiToken={aiToken}
+          updateAiToken={updateAiToken}
+          linuxPlatform={linuxPlatform}
+          providerCredentialAvailable={Boolean(client.providerCredentials)}
+          providerCredentials={providerCredentials}
+          storedAiCredential={storedAiCredential}
+          aiCredentialInput={aiCredentialInput}
+          setAiCredentialInput={setAiCredentialInput}
+          providerCredentialBusy={providerCredentialBusy}
+          providerCredentialMessages={providerCredentialMessages}
+          runProviderCredential={runProviderCredential}
+        />
       }
       // Linux 的测试按钮同样放在服务组末尾，与其他平台一致。
       desktopCredentialTest={serviceCredentialTest ?? (linuxPlatform ? linuxCredentialTest : null)}

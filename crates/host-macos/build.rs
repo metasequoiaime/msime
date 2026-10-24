@@ -4,6 +4,8 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=native/keyboard.mm");
     println!("cargo:rerun-if-changed=native/keyboard.h");
+    println!("cargo:rerun-if-changed=../../platforms/macos/src/input/ToggleHotkeyEvent.h");
+    println!("cargo:rerun-if-changed=../../platforms/macos/src/input/ToggleHotkeys.h");
     println!(
         "cargo:rerun-if-changed=../../platforms/macos/src/core/ScreenKeyboardWindowAppearance.h"
     );

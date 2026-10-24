@@ -72,6 +72,12 @@ check(nativeAbis.all { it == "arm64-v8a" || it == "x86_64" }) {
     "msimeAbis supports arm64-v8a and x86_64, got $nativeAbis"
 }
 
+// 分发渠道：默认 github（GitHub release 上的 APK，靠应用内更新），build-apk.sh 在 MSIME_ANDROID_DISTRIBUTION=play 时转交 -PmsimeDistribution=play，打上传 Google Play 的 AAB。Play 渠道写进 BuildConfig 的 `DISTRIBUTION`，宿主据此关掉自更新、不下载可执行的资源包；release 再叠加 platforms/android/distribution/play/AndroidManifest.xml，删掉只为自更新声明的权限。Play 的政策不允许上架的应用绕过 Play 更新自己，也不允许从别处下载可执行代码，见 .agents/notes/implemented/process/2026-10-23-android-google-play-distribution.md。
+val distribution = (findProperty("msimeDistribution") as String?)?.trim()?.takeIf { it.isNotEmpty() } ?: "github"
+check(distribution == "github" || distribution == "play") {
+    "msimeDistribution supports github and play, got '$distribution'"
+}
+
 android {
     namespace = "app.msime.android"
     compileSdk = 36
@@ -81,12 +87,15 @@ android {
     defaultConfig {
         applicationId = "app.msime.android"
         minSdk = 28
-        targetSdk = 35
+        // Google Play 自 2026-08-31 起要求新应用和更新以 API 36 为目标。
+        targetSdk = 36
         // Grows with every release, as the platform requires for an update to install: 0.1.0 is 1000, 1.2.3 is 1002003.
         versionCode = releaseVersionParts[0] * 1_000_000 + releaseVersionParts[1] * 1_000 + releaseVersionParts[2]
         versionName = releaseVersion
         // 宿主经反射读它（AppVersionPolicy.releaseDate），理由同下面 productFlavors 里的 EDITION。
         buildConfigField("String", "RELEASE_DATE", "\"$releaseDate\"")
+        // 宿主经反射读它（AppVersionPolicy.playDistribution），理由同上。
+        buildConfigField("String", "DISTRIBUTION", "\"$distribution\"")
         ndk { abiFilters += nativeAbis }
     }
 
@@ -97,6 +106,9 @@ android {
         // The verified dictionary and the native licence notices are staged by build-apk.sh.
         assets.setSrcDirs(listOf(hostRoot.resolve("../../target/android/host-assets")))
         jniLibs.setSrcDirs(listOf(hostRoot.resolve("../../target/android/jniLibs")))
+    }
+    if (distribution == "play") {
+        sourceSets.getByName("release") { manifest.srcFile(hostRoot.resolve("distribution/play/AndroidManifest.xml")) }
     }
 
     flavorDimensions += "edition"

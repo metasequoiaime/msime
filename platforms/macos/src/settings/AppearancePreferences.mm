@@ -25,8 +25,35 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+#include "../../../../shared/candidate/CandidateChromeMetrics.h"
+#include "msime_client.h"
 #include "../core/VimMode.h"
 #include <sys/stat.h>
+
+// 一个 chord 的解码结果（msime_client_toggle_hotkey_chords 回答里的一项）→ 认键组合。
+// 不是表、没有主键名或主键名认不出时都是不绑定。
+static msime::mac::ToggleChord MSIMEDecodeToggleChord(id decoded) {
+    if (![decoded isKindOfClass:NSDictionary.class]) return msime::mac::UnboundToggleChord();
+    id key = decoded[@"key"];
+    if (![key isKindOfClass:NSString.class]) return msime::mac::UnboundToggleChord();
+    return msime::mac::ToggleChordForKeyName(((NSString *)key).UTF8String,
+        [decoded[@"ctrl"] isEqual:@YES], [decoded[@"alt"] isEqual:@YES],
+        [decoded[@"shift"] isEqual:@YES], [decoded[@"meta"] isEqual:@YES]);
+}
+
+// keybindings 原值（nil 或为 null 按出厂值）→ {"english_candidates","full_width","punctuation"}
+// 各自的解码项；不是表、请求写不出或回答不合法时为 nil，调用方保持现值。
+static NSDictionary *MSIMEToggleHotkeyChords(id keys) {
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"keybindings": keys ?: NSNull.null} options:0 error:nil];
+    if (!body) return nil;
+    char *raw = msime_client_toggle_hotkey_chords(static_cast<const uint8_t *>(body.bytes), body.length);
+    if (!raw) return nil;
+    NSDictionary *response = [NSJSONSerialization JSONObjectWithData:
+        [NSData dataWithBytesNoCopy:raw length:strlen(raw) freeWhenDone:NO] options:0 error:nil];
+    msime_client_string_free(raw);
+    return [response[@"ok"] isEqual:@YES] && [response[@"value"] isKindOfClass:NSDictionary.class]
+        ? response[@"value"] : nil;
+}
 
 @interface MSIMETranslationSettingsWindow (Lifecycle)
 - (void)invalidatePendingCallbacks;
@@ -1069,6 +1096,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_controlOptionSpaceShortcutToggle;
     NSNumber *_sharedCharacterSetShortcut;
     NSNumber *_sharedFullWidthShortcut;
+    msime::mac::ToggleChord _englishCandidatesToggleChord;
+    msime::mac::ToggleChord _fullWidthToggleChord;
+    msime::mac::ToggleChord _punctuationToggleChord;
     NSSwitch *_characterSetShortcutToggle;
     NSMutableDictionary *_sharedHelpcodeOptions;
     // 共享文档里每个方案选中的辅助码表插件 id，空串是没有选；文档没读过时没有这一项。
@@ -1142,6 +1172,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSMutableDictionary<NSString *, NSColorWell *> *_candidateColorWells;
     NSMutableDictionary<NSString *, NSButton *> *_candidateColorResets;
     NSNumber *_sharedPreeditFontSize;
+    NSNumber *_sharedTranslationFontSize;
     NSNumber *_sharedCandidateScale;
     NSNumber *_sharedCandidateOpacity;
     /// A radius in points, or NSNull for a document that follows the skin.
@@ -1290,6 +1321,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (self) {
         _defaults = defaults;
         _skinsRoot = [root copy];
+        _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
+        _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
+        _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
         [self reloadSkins];
     }
     return self;
@@ -1300,10 +1334,16 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (self) {
         _defaults = defaults;
         _silent = YES;
+        _englishCandidatesToggleChord = msime::mac::FactoryEnglishCandidatesToggleChord();
+        _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
+        _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
         [self reloadSkins];
     }
     return self;
 }
+- (msime::mac::ToggleChord)englishCandidatesToggleChord { return _englishCandidatesToggleChord; }
+- (msime::mac::ToggleChord)fullWidthToggleChord { return _fullWidthToggleChord; }
+- (msime::mac::ToggleChord)punctuationToggleChord { return _punctuationToggleChord; }
 - (NSURL *)skinsRoot { return _skinsRoot; }
 - (void)setTranslationPreferencesDirectory:(NSString *)directory {
     if ([_translationPreferencesDirectory isEqual:directory]) return;
@@ -2210,6 +2250,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         id fullWidth = keys[@"toggle_fullwidth_option_shift_h"];
         if (LocalModeBoolean(fullWidth)) _sharedFullWidthShortcut = fullWidth;
     }
+    // 三个可重绑切换热键的写法交给共享契约解码：msime_client_toggle_hotkey_chords
+    // 给出主键规范名与修饰键集合，宿主按 ToggleChord 认键。keybindings 不是表或
+    // 解码失败时保持现值；keybindings 缺省或为 null 按出厂值。
+    if (NSDictionary *chords = MSIMEToggleHotkeyChords(keys)) {
+        _englishCandidatesToggleChord = MSIMEDecodeToggleChord(chords[@"english_candidates"]);
+        _fullWidthToggleChord = MSIMEDecodeToggleChord(chords[@"full_width"]);
+        _punctuationToggleChord = MSIMEDecodeToggleChord(chords[@"punctuation"]);
+    }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
     id smart = preferences[@"smart_punctuation"];
@@ -2410,7 +2458,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([self.punctuationLock isEqual:@"chinese"]) return YES;
     if ([self.punctuationLock isEqual:@"english"]) return NO;
     NSNumber *value = _runtimeChinesePunctuation[[self runtimeInputStateKey]];
-    return value ? value.boolValue : self.chinesePunctuation;
+    // 新应用可能直接以英文启动，没有经过中英切换的标点同步；仅在未手动覆盖时按当前模式回退。
+    return value ? value.boolValue : (!self.englishMode && self.chinesePunctuation);
 }
 - (void)setRuntimeChinesePunctuation:(BOOL)value {
     if (!_runtimeChinesePunctuation) _runtimeChinesePunctuation = [NSMutableDictionary dictionary];
@@ -2989,6 +3038,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setInteger:value >= 12 && value <= 32 ? value : 15 forKey:PreeditFontKey];
     [self preferencesChanged];
 }
+- (NSUInteger)translationFontSize {
+    return _sharedTranslationFontSize ? _sharedTranslationFontSize.unsignedIntegerValue
+        : static_cast<NSUInteger>(msime::candidate::kCandidateTranslationPointSize);
+}
 - (NSInteger)candidateScalePercent {
     id value = _sharedCandidateScale ?: [_defaults objectForKey:CandidateScaleKey];
     return ValidCandidateScale(value) ? [value integerValue] : 100;
@@ -3243,6 +3296,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;
+    id translationFont = preferences[@"candidate_translation_font_size"];
+    if (!translationFont || translationFont == NSNull.null) _sharedTranslationFontSize = nil;
+    else if (ValidCandidateStyleInteger(translationFont, 12, 32)) _sharedTranslationFontSize = translationFont;
     if ([@[@"pinyin", @"empty"] containsObject:preeditStyle]) _sharedCandidatePreedit = preeditStyle;
     // The shared serializer leaves out a style value at its default, so an omitted key always reads as 100% or as following the skin, on the first document too: these keys are newer than the shared document, so there is no native-only value to keep the way 候选窗英文字体 above does, and a stored value that outlived a reset elsewhere would otherwise draw and then be published back. A value outside the shared ranges is ignored rather than clamped.
     id scale = preferences[@"candidate_scale_percent"];

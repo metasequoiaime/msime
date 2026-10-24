@@ -1,0 +1,324 @@
+{
+  "by_syllables": {
+    "3": {
+      "cases": 103,
+      "found": 0.951,
+      "mrr": 0.369,
+      "top1": 0.194,
+      "top1_char_prefix": 0.369,
+      "top5": 0.728,
+      "top9": 0.874
+    }
+  },
+  "by_tag": {
+    "particle": {
+      "cases": 103,
+      "found": 0.951,
+      "mrr": 0.369,
+      "top1": 0.194,
+      "top1_char_prefix": 0.369,
+      "top5": 0.728,
+      "top9": 0.874
+    }
+  },
+  "cases": 103,
+  "gold_source": {
+    "database": 12,
+    "generated": 86
+  },
+  "overall": {
+    "cases": 103,
+    "found": 0.951,
+    "mrr": 0.369,
+    "top1": 0.194,
+    "top1_char_prefix": 0.369,
+    "top5": 0.728,
+    "top9": 0.874
+  },
+  "sample_failures": [
+    {
+      "gold": "威望啊",
+      "id": "p000",
+      "input": "weiwanga",
+      "rank": 4,
+      "top1": "威亚米啊"
+    },
+    {
+      "gold": "标注呀",
+      "id": "p001",
+      "input": "biaozhuya",
+      "rank": 5,
+      "top1": "此案蛀牙"
+    },
+    {
+      "gold": "相关吧",
+      "id": "p002",
+      "input": "xiangguanba",
+      "rank": 4,
+      "top1": "相互安吧"
+    },
+    {
+      "gold": "开发呢",
+      "id": "p003",
+      "input": "kaifane",
+      "rank": 6,
+      "top1": "开饭店"
+    },
+    {
+      "gold": "债券吗",
+      "id": "p004",
+      "input": "zhaiquanma",
+      "rank": 4,
+      "top1": "一词全码"
+    },
+    {
+      "gold": "只会啦",
+      "id": "p005",
+      "input": "zhihuila",
+      "rank": 4,
+      "top1": "智慧卡"
+    },
+    {
+      "gold": "处理啊",
+      "id": "p006",
+      "input": "chulia",
+      "rank": 15,
+      "top1": "储量"
+    },
+    {
+      "gold": "新车呀",
+      "id": "p007",
+      "input": "xincheya",
+      "rank": 5,
+      "top1": "一马河崖"
+    },
+    {
+      "gold": "实现吗",
+      "id": "p010",
+      "input": "shixianma",
+      "rank": 4,
+      "top1": "狮子安娜"
+    },
+    {
+      "gold": "文件啦",
+      "id": "p011",
+      "input": "wenjianla",
+      "rank": 4,
+      "top1": "文集安啦"
+    },
+    {
+      "gold": "信息啊",
+      "id": "p012",
+      "input": "xinxia",
+      "rank": 28,
+      "top1": "印章"
+    },
+    {
+      "gold": "轿车呀",
+      "id": "p013",
+      "input": "jiaocheya",
+      "rank": 2,
+      "top1": "轿车哇"
+    },
+    {
+      "gold": "欺诈吧",
+      "id": "p014",
+      "input": "qizhaba",
+      "rank": 4,
+      "top1": "妻子吧啊"
+    },
+    {
+      "gold": "登录吗",
+      "id": "p016",
+      "input": "dengluma",
+      "rank": 2,
+      "top1": "登录码"
+    },
+    {
+      "gold": "精华啊",
+      "id": "p018",
+      "input": "jinghuaa",
+      "rank": 8,
+      "top1": "精华版"
+    },
+    {
+      "gold": "院长呀",
+      "id": "p019",
+      "input": "yuanzhangya",
+      "rank": 5,
+      "top1": "武安象牙"
+    },
+    {
+      "gold": "市场吗",
+      "id": "p022",
+      "input": "shichangma",
+      "rank": 4,
+      "top1": "视察密码"
+    },
+    {
+      "gold": "我国啦",
+      "id": "p023",
+      "input": "woguola",
+      "rank": 2,
+      "top1": "我过来"
+    },
+    {
+      "gold": "文章呀",
+      "id": "p025",
+      "input": "wenzhangya",
+      "rank": 6,
+      "top1": "蚊香蛙"
+    },
+    {
+      "gold": "拥有吧",
+      "id": "p026",
+      "input": "yongyouba",
+      "rank": 4,
+      "top1": "我你又把"
+    },
+    {
+      "gold": "金钱呢",
+      "id": "p027",
+      "input": "jinqianne",
+      "rank": 4,
+      "top1": "金沙抹额"
+    },
+    {
+      "gold": "应用吗",
+      "id": "p028",
+      "input": "yingyongma",
+      "rank": 4,
+      "top1": "以你用那"
+    },
+    {
+      "gold": "招标啦",
+      "id": "p029",
+      "input": "zhaobiaola",
+      "rank": null,
+      "top1": "下马好啦"
+    },
+    {
+      "gold": "一下啊",
+      "id": "p030",
+      "input": "yixiaa",
+      "rank": 3,
+      "top1": "以一般"
+    },
+    {
+      "gold": "形成呀",
+      "id": "p031",
+      "input": "xingchengya",
+      "rank": 5,
+      "top1": "以你承压"
+    },
+    {
+      "gold": "披露呢",
+      "id": "p033",
+      "input": "pilune",
+      "rank": null,
+      "top1": "齐鲁呢"
+    },
+    {
+      "gold": "公司啦",
+      "id": "p035",
+      "input": "gongsila",
+      "rank": 5,
+      "top1": "红起来"
+    },
+    {
+      "gold": "关系啊",
+      "id": "p036",
+      "input": "guanxia",
+      "rank": 8,
+      "top1": "管辖"
+    },
+    {
+      "gold": "项目吧",
+      "id": "p038",
+      "input": "xiangmuba",
+      "rank": 3,
+      "top1": "项模板"
+    },
+    {
+      "gold": "点击呢",
+      "id": "p039",
+      "input": "dianjine",
+      "rank": 5,
+      "top1": "电离能"
+    },
+    {
+      "gold": "工程啦",
+      "id": "p041",
+      "input": "gongchengla",
+      "rank": 4,
+      "top1": "公车米拉"
+    },
+    {
+      "gold": "判决啊",
+      "id": "p042",
+      "input": "panjuea",
+      "rank": null,
+      "top1": "三巨大"
+    },
+    {
+      "gold": "一定呀",
+      "id": "p043",
+      "input": "yidingya",
+      "rank": 9,
+      "top1": "一定要"
+    },
+    {
+      "gold": "方式吧",
+      "id": "p044",
+      "input": "fangshiba",
+      "rank": 6,
+      "top1": "大米是吧"
+    },
+    {
+      "gold": "孩子呢",
+      "id": "p045",
+      "input": "haizine",
+      "rank": 2,
+      "top1": "孩子们"
+    },
+    {
+      "gold": "开展吗",
+      "id": "p046",
+      "input": "kaizhanma",
+      "rank": 4,
+      "top1": "来自安娜"
+    },
+    {
+      "gold": "豆腐啦",
+      "id": "p047",
+      "input": "doufula",
+      "rank": 4,
+      "top1": "恶女服啦"
+    },
+    {
+      "gold": "资源啊",
+      "id": "p048",
+      "input": "ziyuana",
+      "rank": 17,
+      "top1": "资源部"
+    },
+    {
+      "gold": "基本吧",
+      "id": "p050",
+      "input": "jibenba",
+      "rank": 4,
+      "top1": "计策哪啊"
+    },
+    {
+      "gold": "自己吗",
+      "id": "p052",
+      "input": "zijima",
+      "rank": 3,
+      "top1": "紫禁城"
+    }
+  ],
+  "top1_source": {
+    "database": 50,
+    "generated": 53
+  }
+}

@@ -111,6 +111,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let mut runtime =
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
+        runtime.set_english_first_page_count(applied.mixed_input.first_page_count);
         runtime
             .set_english_online_candidates_enabled(applied.english_online_candidates)
             .map_err(|e| e.to_string())?;

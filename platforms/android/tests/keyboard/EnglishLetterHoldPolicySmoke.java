@@ -28,6 +28,9 @@ public final class EnglishLetterHoldPolicySmoke {
             "v 提供 ü 与四声");
         check(EnglishLetterHoldPolicy.choices("e").containsAll(List.of("ê", "ē", "é", "ě", "è")), "e 的声调");
         check(EnglishLetterHoldPolicy.choices("n").containsAll(List.of("ń", "ň", "ǹ")), "n 的声调");
+        for (String[] entry : new String[][] {{"w", "\u209d"}, {"y", "\u209e"}, {"z", "\u209f"}})
+            check(EnglishLetterHoldPolicy.choices(entry[0]).contains(entry[1]),
+                "Unicode 18 的 " + entry[0] + " 下标不能遗漏");
         check(EnglishLetterHoldPolicy.choices("b").equals(List.of("B", "!", "ᵇ")), "不伪造 b 的下标");
         check(EnglishLetterHoldPolicy.choices("q").equals(List.of("Q", "1", "¹", "₁", "壹")),
             "缺字的 q 不以普通字母或其他字形替代");

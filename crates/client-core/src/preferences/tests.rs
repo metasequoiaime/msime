@@ -5,6 +5,70 @@
 use super::*;
 
 #[test]
+fn japanese_toggle_input_keeps_legacy_default_and_requires_a_boolean() {
+    assert!(Preferences::default().touch_japanese_toggle_input);
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(legacy.get("touch_japanese_toggle_input").is_none());
+    assert!(
+        serde_json::from_value::<Preferences>(legacy.clone())
+            .unwrap()
+            .touch_japanese_toggle_input
+    );
+    let mut malformed = legacy;
+    malformed["touch_japanese_toggle_input"] = "false".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+}
+
+#[test]
+fn japanese_toggle_input_persists_disabled() {
+    let mut value = serde_json::to_value(Preferences::default()).unwrap();
+    value["touch_japanese_toggle_input"] = false.into();
+    let disabled: Preferences = serde_json::from_value(value).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, disabled).unwrap();
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["touch_japanese_toggle_input"],
+        false
+    );
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().preferences).unwrap()
+            ["touch_japanese_toggle_input"],
+        false
+    );
+}
+
+#[test]
+fn candidate_translation_font_size_is_optional_bounded_and_round_trips() {
+    let mut json = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(json.get("candidate_translation_font_size").is_none());
+    for size in [12, 21, 32] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(preferences.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(preferences).unwrap()["candidate_translation_font_size"],
+            size
+        );
+    }
+    for size in [0, 11, 33, 255] {
+        json["candidate_translation_font_size"] = serde_json::json!(size);
+        let preferences: Preferences = serde_json::from_value(json.clone()).unwrap();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidCandidateFontSize)
+        ));
+    }
+    json["candidate_translation_font_size"] = serde_json::Value::Null;
+    let preferences: Preferences = serde_json::from_value(json).unwrap();
+    assert!(preferences.validate().is_ok());
+    assert!(serde_json::to_value(preferences)
+        .unwrap()
+        .get("candidate_translation_font_size")
+        .is_none());
+}
+
+#[test]
 fn backspace_selection_preference_keeps_legacy_default_and_persists_disabled() {
     let defaults = Preferences::default();
     assert!(defaults.backspace_reverts_selection);
@@ -348,6 +412,218 @@ fn toggle_hotkeys_all_empty_disables_every_toggle() {
     preferences.keybindings.toggle_punctuation = String::new();
     preferences.validate().unwrap();
     assert!(preferences.keybindings.english_candidates_chord().is_none());
+}
+
+#[test]
+fn toggle_hotkey_check_returns_the_canonical_spelling() {
+    let keybindings = KeybindingPreferences::default();
+    for (slot, text, expected) in [
+        (
+            ToggleHotkeySlot::EnglishCandidates,
+            "Ctrl+Alt+KeyR",
+            "Ctrl+Alt+KeyR",
+        ),
+        // 解析比文档宽：别名、大小写和修饰键顺序都归一成规范形。
+        (
+            ToggleHotkeySlot::Punctuation,
+            "control+alt+slash",
+            "Ctrl+Alt+Slash",
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "shift+ctrl+period",
+            "Ctrl+Shift+Period",
+        ),
+    ] {
+        assert_eq!(
+            keybindings.check_toggle_hotkey(slot, text, true),
+            Ok(expected.to_string()),
+            "{text}"
+        );
+    }
+    // 空串是合法的「不绑定」，通过且回空。
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "  ", true),
+        Ok(String::new())
+    );
+    // 写回自己当前的绑定不算冲突（写法不同、指向同一按键也归一成同一个值）。
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "control+period", true),
+        Ok("Ctrl+Period".to_string())
+    );
+}
+
+#[test]
+fn toggle_hotkey_check_rejects_unparseable_text() {
+    let keybindings = KeybindingPreferences::default();
+    for bad in ["Ctrl+", "Ctrl+Alt+Shift", "Ctrl+Banana", "Period+Ctrl"] {
+        assert!(
+            matches!(
+                keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, bad, true),
+                Err(ToggleHotkeyRejection::Invalid(_))
+            ),
+            "{bad} must fail"
+        );
+    }
+}
+
+#[test]
+fn toggle_hotkey_shift_space_follows_language_switch() {
+    let mut keybindings = KeybindingPreferences::default();
+    for slot in [
+        ToggleHotkeySlot::EnglishCandidates,
+        ToggleHotkeySlot::FullWidth,
+        ToggleHotkeySlot::Punctuation,
+    ] {
+        assert!(matches!(
+            keybindings.check_toggle_hotkey(slot, "Shift+Space", false),
+            Err(ToggleHotkeyRejection::Conflict { .. })
+        ));
+    }
+    let mut preferences = Preferences::default();
+    preferences.keybindings.toggle_punctuation = "Shift+Space".into();
+    assert!(preferences.validate().is_err());
+    keybindings.switch_language_shift = false;
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "Shift+Space", false),
+        Ok("Shift+Space".into())
+    );
+    preferences.keybindings.switch_language_shift = false;
+    assert!(preferences.validate().is_ok());
+}
+
+#[test]
+fn toggle_hotkey_reserves_macos_width_and_screen_keyboard() {
+    let mut keys = KeybindingPreferences::default();
+    for text in ["Alt+Shift+KeyH", "Ctrl+Shift+Meta+KeyK"] {
+        assert!(matches!(
+            keys.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, text, false),
+            Err(ToggleHotkeyRejection::Conflict { .. })
+        ));
+        let mut preferences = Preferences::default();
+        preferences.keybindings.toggle_punctuation = text.into();
+        assert!(preferences.validate().is_err());
+    }
+    keys.toggle_fullwidth_option_shift_h = false;
+    assert_eq!(
+        keys.check_toggle_hotkey(ToggleHotkeySlot::Punctuation, "Alt+Shift+KeyH", false),
+        Ok("Alt+Shift+KeyH".into())
+    );
+}
+
+#[test]
+fn toggle_hotkey_check_names_the_conflicting_owner() {
+    let keybindings = KeybindingPreferences {
+        toggle_japanese_ctrl_shift_j: true,
+        ..KeybindingPreferences::default()
+    };
+    // 撞另一个切换热键：owner 是那个槽位，设置页按它指出「与哪一项冲突」。
+    for (slot, text, owner) in [
+        (
+            ToggleHotkeySlot::Punctuation,
+            "ctrl+shift+keye",
+            ToggleChordOwner::EnglishCandidates,
+        ),
+        (
+            ToggleHotkeySlot::EnglishCandidates,
+            "Ctrl+Period",
+            ToggleChordOwner::Punctuation,
+        ),
+        // 撞已启用开关占用的组合键：owner 指到占用它的开关。
+        (
+            ToggleHotkeySlot::Punctuation,
+            "Ctrl+Shift+KeyF",
+            ToggleChordOwner::ToggleCharacterSetCtrlShiftF,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Space",
+            ToggleChordOwner::SwitchLanguageCtrlSpace,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Shift+KeyJ",
+            ToggleChordOwner::ToggleJapaneseCtrlShiftJ,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+F9",
+            ToggleChordOwner::VoiceHotkey,
+        ),
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Shift+F9",
+            ToggleChordOwner::VoiceHotkey,
+        ),
+        // macOS 维护键没有开关，照样指名。
+        (
+            ToggleHotkeySlot::FullWidth,
+            "Ctrl+Alt+Shift+KeyT",
+            ToggleChordOwner::MacosMaintenance,
+        ),
+    ] {
+        let Err(ToggleHotkeyRejection::Conflict {
+            owner: actual,
+            chord,
+        }) = keybindings.check_toggle_hotkey(slot, text, true)
+        else {
+            panic!("{text} must conflict");
+        };
+        assert_eq!(actual, owner, "{text}");
+        assert_eq!(chord, text.parse().unwrap(), "{text}");
+    }
+    // owner 有跨进程用的稳定标识：撞切换热键时用文档字段名，撞占用键时用开关字段名或 `voice_hotkey` / `macos_maintenance`。
+    assert_eq!(
+        ToggleChordOwner::EnglishCandidates.id(),
+        "toggle_english_candidates"
+    );
+    assert_eq!(ToggleChordOwner::VoiceHotkey.id(), "voice_hotkey");
+    assert_eq!(ToggleChordOwner::MacosMaintenance.id(), "macos_maintenance");
+
+    // 占用随开关开合：关掉简繁、中日切换和语音热键后，这些组合键可以绑出去。
+    let mut keybindings = KeybindingPreferences {
+        toggle_character_set_ctrl_shift_f: false,
+        toggle_japanese_ctrl_shift_j: false,
+        ..KeybindingPreferences::default()
+    };
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+Shift+KeyF", false),
+        Ok("Ctrl+Shift+KeyF".to_string())
+    );
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+F9", false),
+        Ok("Ctrl+F9".to_string())
+    );
+    // 另一个切换热键解绑（空串）后，这个组合键也可以绑出去。
+    keybindings.toggle_punctuation = String::new();
+    assert_eq!(
+        keybindings.check_toggle_hotkey(ToggleHotkeySlot::FullWidth, "Ctrl+Period", false),
+        Ok("Ctrl+Period".to_string())
+    );
+}
+
+#[test]
+fn saving_canonicalizes_toggle_hotkey_spellings() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences.clone();
+    preferences.keybindings.toggle_punctuation = "control+alt+slash".into();
+    // 与出厂值等价的别名写法归一后与出厂写法相同，一样不落盘。
+    preferences.keybindings.toggle_english_candidates = "control+shift+keye".into();
+    let saved = store.save(snapshot.revision, preferences).unwrap();
+    assert_eq!(
+        saved.preferences.keybindings.toggle_punctuation,
+        "Ctrl+Alt+Slash"
+    );
+    assert_eq!(
+        saved.preferences.keybindings.toggle_english_candidates,
+        "Ctrl+Shift+KeyE"
+    );
+    let document = serde_json::to_value(&saved).unwrap();
+    let keybindings = document["preferences"]["keybindings"].as_object().unwrap();
+    assert_eq!(keybindings["toggle_punctuation"], "Ctrl+Alt+Slash");
+    assert!(!keybindings.contains_key("toggle_english_candidates"));
 }
 
 #[test]
@@ -2104,12 +2380,14 @@ fn vim_mode_apps_stay_out_of_the_document_until_written() {
     // macOS 的 bundle id 和 Windows 的进程基名放在同一份名单里，保存再读回原样不变。
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut chosen = Preferences::default();
-    chosen.vim_mode_apps = vec![
-        "com.apple.Terminal".into(),
-        "code.exe".into(),
-        "nvim.exe".into(),
-    ];
+    let chosen = Preferences {
+        vim_mode_apps: vec![
+            "com.apple.Terminal".into(),
+            "code.exe".into(),
+            "nvim.exe".into(),
+        ],
+        ..Preferences::default()
+    };
     let written = serde_json::to_value(&chosen).unwrap();
     assert_eq!(
         written["vim_mode_apps"],
@@ -2174,8 +2452,10 @@ fn vim_mode_app_identifiers_are_validated() {
     // 拒绝的文档不会被保存。
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut rejected = Preferences::default();
-    rejected.vim_mode_apps = vec!["apps/code".into()];
+    let rejected = Preferences {
+        vim_mode_apps: vec!["apps/code".into()],
+        ..Preferences::default()
+    };
     assert!(matches!(
         store.save(0, rejected),
         Err(PreferencesError::InvalidVimModeApps)
@@ -2198,6 +2478,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "candidate_follow_cursor",
         "input_mode_hud",
         "input_mode_focus_hud",
+        "input_mode_corner_hud",
         "input_mode_status_item",
         "expand_candidates",
         "show_candidate_expand_button",
@@ -2210,6 +2491,8 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     // 聚焦提示与菜单栏状态项都缺省关闭，旧文档和新装相同。
     assert!(!Preferences::default().input_mode_focus_hud);
     assert!(!loaded.preferences.input_mode_focus_hud);
+    assert!(Preferences::default().input_mode_corner_hud);
+    assert!(loaded.preferences.input_mode_corner_hud);
     assert!(!Preferences::default().input_mode_status_item);
     assert!(!loaded.preferences.input_mode_status_item);
     // 「展开候选」同样是新加的开关，缺字段的旧文档和新装都读成关闭。
@@ -2237,6 +2520,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         candidate_follow_cursor: false,
         input_mode_hud: false,
         input_mode_focus_hud: true,
+        input_mode_corner_hud: false,
         input_mode_status_item: true,
         expand_candidates: true,
         show_candidate_expand_button: false,
@@ -2245,6 +2529,13 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
     assert!(store.load().unwrap().preferences.input_mode_focus_hud);
+    assert!(!store.load().unwrap().preferences.input_mode_corner_hud);
+    assert!(
+        saved
+            .preferences
+            .restored_to_defaults()
+            .input_mode_corner_hud
+    );
     assert!(
         !store
             .load()
@@ -2595,6 +2886,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     assert_eq!(
         store.load().unwrap().preferences.mixed_input,
         MixedInputPreferences {
+            enabled: true,
+            first_page_count: 1,
             english: false,
             minimum_prefix: 3,
             emoji: true,
@@ -2609,6 +2902,8 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     for mask in 0..32 {
         let preferences = Preferences {
             mixed_input: MixedInputPreferences {
+                enabled: true,
+                first_page_count: 1,
                 english: mask & 1 != 0,
                 emoji: mask & 2 != 0,
                 kaomoji: mask & 4 != 0,
@@ -3898,6 +4193,7 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
 #[test]
 fn shuangpin_helpcode_modes_follow_windows_v0_11_1_defaults() {
     let modes = ShuangpinHelpcodeModes::default();
+    assert!(!modes.manual_tab);
     assert!(modes.direct);
     assert!(!modes.trigger_backtick && modes.trigger_semicolon && !modes.trigger_uppercase);
     assert!(!modes.mid_sentence);
@@ -3932,7 +4228,8 @@ fn shuangpin_helpcode_modes_roundtrip_and_stay_off_quanpin() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let modes = ShuangpinHelpcodeModes {
-        direct: false,
+        manual_tab: true,
+        direct: true,
         trigger_backtick: true,
         ..ShuangpinHelpcodeModes::default()
     };
@@ -6303,6 +6600,37 @@ fn restoring_defaults_in_the_store_is_one_compare_and_swap() {
     assert_eq!(store.load().unwrap(), restored);
 }
 
+#[test]
+fn android_portrait_split_defaults_and_validates_without_changing_legacy_documents() {
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document
+        .as_object_mut()
+        .unwrap()
+        .remove("touch_keyboard_split_portrait");
+    let legacy = document.to_string();
+    let loaded: Preferences = serde_json::from_str(&legacy).unwrap();
+    assert_eq!(
+        serde_json::to_value(loaded).unwrap()["touch_keyboard_split_portrait"],
+        false
+    );
+    for enabled in [false, true] {
+        document["touch_keyboard_split_portrait"] = enabled.into();
+        let loaded: Preferences = serde_json::from_value(document.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(loaded).unwrap()["touch_keyboard_split_portrait"],
+            enabled
+        );
+    }
+    for invalid in [
+        serde_json::json!("true"),
+        serde_json::json!(1),
+        serde_json::Value::Null,
+    ] {
+        document["touch_keyboard_split_portrait"] = invalid;
+        assert!(serde_json::from_value::<Preferences>(document.clone()).is_err());
+    }
+}
+
 /// 偏好里键名像凭据、但确实不是凭据的字段。新字段名含 token|key|secret|password 时，要么进 `Preferences::credential_slots`，要么在这里说明它不是凭据。
 const NOT_CREDENTIALS: &[&str] = &[
     "custom_theme.keyboard",
@@ -6323,6 +6651,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_height_adjustment",
     "touch_keyboard_layout",
     "touch_keyboard_schemes",
+    "touch_keyboard_split_portrait",
     "touch_number_keypad_order",
     "touch_shuangpin_key_hints",
     "touch_twenty_six_key_number_layout",

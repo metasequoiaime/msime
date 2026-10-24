@@ -20,11 +20,21 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     private static final String BOTTOM_PADDING_SETTING = "platform.android.bottom_padding";
     private static final String BOTTOM_PADDING_HEIGHT_SETTING = "platform.android.bottom_padding_height";
 
+    private boolean portraitOnly;
+
+    @Override public void onCreate(Bundle arguments) {
+        portraitOnly = arguments != null && "true".equals(arguments.getString("portrait-split"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (portraitOnly) return "portrait split live setting, native control and narrow cover window fallback";
         return "keyboard height live preview, composition preservation, persistence, restart, bottom padding and a bottom row as tall as the letter rows";
     }
 
     @Override protected void runChecks() throws Exception {
+        PortraitSplitDeviceChecks.run(this);
+        if (portraitOnly) return;
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(
             new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));

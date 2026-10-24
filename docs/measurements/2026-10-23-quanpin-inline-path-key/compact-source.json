@@ -1,0 +1,22 @@
+{
+  "package": {
+    "name": "compact_str",
+    "version": "0.10.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "checksum": "79fcda08c33bb58b97008b2cdada6622500e949e060f5913361763121abd2416",
+    "dependencies": [
+      "castaway",
+      "cfg-if",
+      "itoa",
+      "static_assertions",
+      "zmij"
+    ]
+  },
+  "vcs": {
+    "git": {
+      "sha1": "9696af7f7a9451478766b19dedac7371594eee0d"
+    },
+    "path_in_vcs": "compact_str"
+  },
+  "license_sha256": "0d52feec79589df30138dad3800323fe5686b764b73347330a2dfef8ac83efe8"
+}

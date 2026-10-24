@@ -1231,6 +1231,108 @@ fn validate_shuangpin_custom_profile(
     msime_host_api::custom_shuangpin_profile_problem(&profile)
 }
 
+/// `SettingsClient.checkToggleHotkey` 的请求：把 `chord` 作为 `field` 的绑定试写，
+/// `keybindings` 是页面当前草稿（另外两键和占用开关按它判）。
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckToggleHotkeyRequest {
+    field: msime_client_core::preferences::ToggleHotkeySlot,
+    chord: String,
+    keybindings: msime_client_core::preferences::KeybindingPreferences,
+    /// `voice_input.hotkey_ctrl_f9`；缺省按占用处理，与偏好默认值一致。
+    #[serde(default = "voice_hotkey_ctrl_f9_default")]
+    voice_ctrl_f9: bool,
+    /// 只有页面录键传物理 DOM code；手工规范名与 MCP 不重译。
+    #[serde(default)]
+    physical_recording: bool,
+}
+
+fn voice_hotkey_ctrl_f9_default() -> bool {
+    true
+}
+
+/// `SettingsClient.checkToggleHotkey` 的回答：通过给规范写法；不通过给 `kind`（`invalid` /
+/// `conflict`），冲突另给 `owner` 的稳定标识让页面指出与哪一项冲突。
+#[derive(serde::Serialize)]
+struct CheckToggleHotkeyResult {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chord: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+/// `SettingsClient.checkToggleHotkey`：录键写入前的试写校验，与保存时 `Preferences::validate`
+/// 走同一张占用表和同一个 `conflicts_with`，不落盘。解析与冲突判定只在 Rust 一侧。
+#[tauri::command]
+async fn check_toggle_hotkey(
+    app: tauri::AppHandle,
+    request: CheckToggleHotkeyRequest,
+) -> CheckToggleHotkeyResult {
+    use msime_client_core::preferences::ToggleHotkeyRejection;
+    let chord = request.chord;
+    #[cfg(target_os = "macos")]
+    let chord = if request.physical_recording {
+        let (send, received) = std::sync::mpsc::sync_channel(1);
+        let dispatched = app.run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::normalize_recorded_toggle_chord(&chord));
+        });
+        let normalized = if dispatched.is_ok() {
+            tauri::async_runtime::spawn_blocking(move || received.recv())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::ok)
+        } else {
+            None
+        };
+        let Some(chord) = normalized else {
+            return CheckToggleHotkeyResult {
+                ok: false,
+                chord: None,
+                kind: Some("invalid"),
+                owner: None,
+                detail: Some("keyboard layout translation unavailable".into()),
+            };
+        };
+        chord
+    } else {
+        chord
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, request.physical_recording);
+    match request
+        .keybindings
+        .check_toggle_hotkey(request.field, &chord, request.voice_ctrl_f9)
+    {
+        Ok(chord) => CheckToggleHotkeyResult {
+            ok: true,
+            chord: Some(chord),
+            kind: None,
+            owner: None,
+            detail: None,
+        },
+        Err(ToggleHotkeyRejection::Invalid(error)) => CheckToggleHotkeyResult {
+            ok: false,
+            chord: None,
+            kind: Some("invalid"),
+            owner: None,
+            detail: Some(error.to_string()),
+        },
+        Err(ToggleHotkeyRejection::Conflict { owner, chord }) => CheckToggleHotkeyResult {
+            ok: false,
+            chord: Some(chord.to_string()),
+            kind: Some("conflict"),
+            owner: Some(owner.id()),
+            detail: None,
+        },
+    }
+}
+
 /// `SettingsClient.builtinShuangpinTable`：内置双拼方案的键位表，编辑自定义方案时从它开始；`custom` 没有内置的表，是 `null`。
 #[tauri::command]
 fn builtin_shuangpin_table(
@@ -2844,12 +2946,17 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
 /// 设置页「修复输入源」的第一步：和启动检查一样按版本决定，没装时安装、随附的更新时替换，从不降级；与启动检查不同的是版本相同也重装一遍，因为版本号读得出来不代表 bundle 完好。已装的可能比设置应用随附的新（Sparkle 更新了输入法、`scripts/install.sh` 装了更新的构建、新版之后又打开了旧 DMG 里的应用），强制重装会把用户悄悄退回旧版本。
 #[cfg(target_os = "macos")]
 #[tauri::command]
-async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionError> {
+async fn install_input_source(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<(), HostActionError> {
     let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
         code: "unavailable",
     })?;
+    let state = Arc::clone(&state);
     tauri::async_runtime::spawn_blocking(move || {
-        repair_install_result(macos_input_source::repair(&resource_directory))
+        let result = macos_input_source::repair(&resource_directory);
+        finish_input_source_repair(&state, &resource_directory, result)
     })
     .await
     .map_err(|_| HostActionError {
@@ -2860,29 +2967,45 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
 /// 「修复输入源」只在真正装坏时报失败：不是打包运行、没有随附的输入源（`SourceUnavailable`）时没有可装的，bundle 已经留在原处只等登记（`RegistrationPending`）时下一步的重新登记正好接上，这两种都让修复接着去重新登记。
 #[cfg(target_os = "macos")]
 fn repair_install_result(
-    result: Result<macos_input_source::RefreshOutcome, macos_input_source::InstallError>,
+    result: &Result<macos_input_source::RefreshOutcome, macos_input_source::InstallError>,
 ) -> Result<(), HostActionError> {
     match result {
         Ok(_)
         | Err(macos_input_source::InstallError::SourceUnavailable)
         | Err(macos_input_source::InstallError::RegistrationPending) => Ok(()),
+        Err(macos_input_source::InstallError::Cancelled) => {
+            Err(HostActionError { code: "cancelled" })
+        }
         Err(_) => Err(HostActionError {
             code: "unavailable",
         }),
     }
 }
 
-/// What the start-time install/refresh of the input method did, for the settings page to tell the user.
+#[cfg(target_os = "macos")]
+fn finish_input_source_repair(
+    state: &InputSourceStartupState,
+    resource_directory: &std::path::Path,
+    result: Result<macos_input_source::RefreshOutcome, macos_input_source::InstallError>,
+) -> Result<(), HostActionError> {
+    let response = repair_install_result(&result);
+    state.finish(input_source_startup_result(resource_directory, result));
+    response
+}
+
+/// 启动检查或主动安装的结果，供设置页展示。
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct InputSourceStartupStatus {
-    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login; reported by a first install whose registration found nothing, and by a later launch in the same login session that finds the input method missing from the registry, see `input_source_status_now`) or `failed`.
+    /// 安装、更新、当前版本、待安装、等待登录、待授权、取消或失败。
     action: &'static str,
-    /// Whether the input source is in the System Settings list at the time of the request (see `input_source_status_now`); absent when that list could not be read.
+    /// 请求时输入源是否在系统设置列表中，读不到时为 None。
     enabled: Option<bool>,
     bundled_version: Option<String>,
     installed_version: Option<String>,
-    /// Copies of the input method in `/Library/Input Methods`, read at the time of the request like `enabled`. They compete with the user's copy and need an administrator to remove, which the settings page status notice asks the user to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    installation_scope: Option<macos_input_source::InstallationScope>,
+    /// 只有两个安装目录均有副本才列出冲突项，每次请求重新读取。
     system_bundles: Vec<String>,
 }
 
@@ -2945,7 +3068,21 @@ fn run_input_source_startup(
     resource_directory: &std::path::Path,
     defer_first_install: bool,
 ) -> Option<InputSourceStartupStatus> {
-    let status = match macos_input_source::ensure_current(resource_directory, defer_first_install) {
+    input_source_startup_result(
+        resource_directory,
+        macos_input_source::ensure_current(resource_directory, defer_first_install),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn input_source_startup_result(
+    resource_directory: &std::path::Path,
+    result: Result<macos_input_source::RefreshOutcome, macos_input_source::InstallError>,
+) -> Option<InputSourceStartupStatus> {
+    let scope = macos_input_source::installed_bundle_path()
+        .ok()
+        .map(|target| macos_input_source::installation_scope(&target));
+    let status = match result {
         Ok(outcome) => InputSourceStartupStatus {
             action: match outcome.refresh {
                 macos_input_source::Refresh::Install => "installed",
@@ -2955,6 +3092,7 @@ fn run_input_source_startup(
             },
             enabled: None,
             system_bundles: Vec::new(),
+            installation_scope: scope,
             bundled_version: outcome
                 .bundled
                 .as_ref()
@@ -2965,15 +3103,17 @@ fn run_input_source_startup(
                 .map(|version| version.label().to_string()),
         },
         Err(macos_input_source::InstallError::SourceUnavailable) => return None,
-        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported. 更新时替换前就查到这次登录的注册表里没有它（首次安装后还没重新登录），同样留下新版本、报 `login_required`。
+        // 读取实际仍在目标位置的版本：用户目录安装可回滚，系统 Installer 完成后则保留新包；登记等待登录时同样保留。
         Err(error) => InputSourceStartupStatus {
-            action: if matches!(error, macos_input_source::InstallError::RegistrationPending) {
-                "login_required"
-            } else {
-                "failed"
+            action: match error {
+                macos_input_source::InstallError::RegistrationPending => "login_required",
+                macos_input_source::InstallError::AuthorizationRequired => "authorization_required",
+                macos_input_source::InstallError::Cancelled => "cancelled",
+                _ => "failed",
             },
             enabled: None,
             system_bundles: Vec::new(),
+            installation_scope: scope,
             bundled_version: macos_input_source::bundle_version(
                 &resource_directory.join(macos_input_source::input_source_bundle_name()),
             )
@@ -3059,11 +3199,12 @@ async fn input_source_startup_status(
     })
 }
 
-/// The install window's button: the start-time check run again without deferring, so a first install reports the same `installed` / `login_required` / `failed` the start-time check would have. The result replaces the start-time one, which is what the settings page reads once the window has made way for it.
+/// 首次安装按钮按明确选择的范围安装；结果替换启动检查状态，供后续设置页读取。
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn run_first_input_source_install(
     app: tauri::AppHandle,
+    scope: Option<macos_input_source::InstallationScope>,
     state: tauri::State<'_, Arc<InputSourceStartupState>>,
 ) -> Result<InputSourceStartupStatus, HostActionError> {
     let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
@@ -3071,7 +3212,11 @@ async fn run_first_input_source_install(
     })?;
     let state = Arc::clone(&state);
     tauri::async_runtime::spawn_blocking(move || {
-        let status = run_input_source_startup(&resource_directory, false);
+        let scope = scope.unwrap_or(macos_input_source::InstallationScope::User);
+        let status = input_source_startup_result(
+            &resource_directory,
+            macos_input_source::first_install(&resource_directory, scope),
+        );
         state.finish(status);
         input_source_status_now(
             &state,
@@ -3090,9 +3235,9 @@ async fn run_first_input_source_install(
     })
 }
 
-/// The install window's size. The main window opens at it on a first install (see the start-time check in `run`) and returns to the settings size once the user leaves the window.
+/// 首次安装窗口为范围选项预留高度，完成后恢复设置窗口大小。
 #[cfg(target_os = "macos")]
-const FIRST_INSTALL_WINDOW_SIZE: (f64, f64) = (480.0, 440.0);
+const FIRST_INSTALL_WINDOW_SIZE: (f64, f64) = (480.0, 480.0);
 /// The settings window's size and minimum, as declared for `main` in tauri.macos.conf.json.
 #[cfg(target_os = "macos")]
 const SETTINGS_WINDOW_SIZE: (f64, f64) = (1000.0, 780.0);
@@ -3630,8 +3775,19 @@ async fn uninstall_input_source(
     // 只卸载本设置应用所属版本的输入法，同时安装的其他版本不动。
     let bundle = input_methods.join(macos_input_source::input_source_bundle_name());
     tauri::async_runtime::spawn_blocking(move || {
-        // Wait for a start-time refresh or a manual install that is still writing the bundle.
+        // 等待尚未完成的启动刷新或主动安装。
         let _guard = macos_input_source::install_lock();
+        let installed =
+            macos_input_source::installed_bundle_path().map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        if macos_input_source::installation_scope(&installed)
+            == macos_input_source::InstallationScope::System
+        {
+            return Err(HostActionError {
+                code: "system_input_source",
+            });
+        }
         // macOS 27 lets only System Settings change the enabled input source list: TISDisableInputSource from any other process, the input method's own IMK server included, ends in cfprefsd refusing the write to com.apple.inputsources, and so does writing that domain directly. Once the bundle is gone TIS no longer knows its sources, and their entries stay in System Settings until the user removes each one. So the user removes them first, while the bundle can still answer for them, and the uninstall waits until the list no longer has this input method.
         // Only the input method entry counts: a mode entry it left behind is shown nowhere and cannot be removed, and would hold the uninstall back for good.
         if macos_input_source::input_method_listed() == Some(true) {
@@ -5685,6 +5841,7 @@ pub fn run() {
             list_helpcode_schemas,
             resolve_theme,
             validate_shuangpin_custom_profile,
+            check_toggle_hotkey,
             builtin_shuangpin_table,
             nine_key_shuangpin_layout,
             read_skin_image,

@@ -950,8 +950,9 @@ fi
 # for that reason, and its 86 tests had never run. msime-engine and msime-tauri-mobile-platform
 # were missing too, and nothing else runs their tests on the host target.
 # msime-clipboard-relay 也不在 default-members 里，其他地方都不跑它的测试；它的端到端测试在 127.0.0.1 上起参考中继，用真正的客户端驱动连它。
-for package in msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-desktop; do
+# msime-pack-tool 的 run、sdk、validate 各有集成测试；构建插件工具不能代替执行它们。
+for package in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
+  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-script-runtime msime-pack-tool msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
   status=0 build_failed=0
@@ -996,14 +997,14 @@ else
 fi
 
 note "clippy: first-party crates"
-# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面十二个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
+# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面这些 crate 在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
-for crate in msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
+for crate in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
+             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-pack-tool; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done
@@ -1077,7 +1078,8 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # `nine-key-sentences` 是九键长句：4 到 12 个字的整句在九宫格上打，每条都在 32 个数字以内。词级集量不到整句，而整句集的长句大多超过九键的数字上限（#6059）。
   #
   # `fourteen-key` 和 `fourteen-key-sentences` 是同样两份集合在全拼 14 键上打：每个字母换成它所在键的组码（这一组的首字母），从 `GridKey` 送进去。14 键与九键共用一套解码，只换码表，所以两者的数字可以直接比。
-  for set in sentences harvested neutral words nine-key nine-key-sentences fourteen-key fourteen-key-sentences; do
+  # `particles`、`particles-nine-key`、`particles-fourteen-key` 是常用词接句末语气词（债券吗、标注呀）在三种键盘上打：n-gram 表没有句尾，这类口语短句其余几份集合都量不到。
+  for set in sentences harvested neutral words nine-key nine-key-sentences fourteen-key fourteen-key-sentences particles particles-nine-key particles-fourteen-key; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
@@ -1087,6 +1089,9 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
       nine-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --nine-key" ;;
       fourteen-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen" ;;
       fourteen-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --grid fourteen" ;;
+      particles) args="--set resources/eval/sentences-particles-v1.tsv" ;;
+      particles-nine-key) args="--set resources/eval/sentences-particles-v1.tsv --nine-key" ;;
+      particles-fourteen-key) args="--set resources/eval/sentences-particles-v1.tsv --grid fourteen" ;;
     esac
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \

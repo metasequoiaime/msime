@@ -13,6 +13,7 @@ export interface CandidateSizingSectionProps {
   preferences: CandidateSizingPreferences;
   showFontControls: boolean;
   showPreeditFont: boolean;
+  showTranslationFont?: boolean;
   onChange: (patch: Partial<CandidateSizingPreferences>) => void;
 }
 
@@ -21,6 +22,7 @@ export function CandidateSizingSection({
   preferences,
   showFontControls,
   showPreeditFont,
+  showTranslationFont = false,
   onChange,
 }: CandidateSizingSectionProps) {
   return (
@@ -46,6 +48,25 @@ export function CandidateSizingSection({
             onChange({ candidate_preedit_font_size: Number(event.target.value) })
           }
         >
+          {candidateFontSizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </SelectRow>
+      )}
+      {showTranslationFont && (
+        <SelectRow
+          title="译文字号"
+          value={preferences.candidate_translation_font_size ?? ""}
+          onChange={(event) =>
+            onChange({
+              candidate_translation_font_size:
+                event.target.value === "" ? null : Number(event.target.value),
+            })
+          }
+        >
+          <option value="">默认（12 点）</option>
           {candidateFontSizes.map((size) => (
             <option key={size} value={size}>
               {size}

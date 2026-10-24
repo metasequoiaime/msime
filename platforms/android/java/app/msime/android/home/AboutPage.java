@@ -49,7 +49,7 @@ import java.util.concurrent.Future;
 /**
  * 关于：居中的标、应用名与版本、检查更新药丸，更新设置（自动更新、更新通道），设备信息（反馈问题时一键复制，{@link DeviceInfo}），官网、隐私政策、开源许可等链接，页脚一行版权与「输入内容默认只在本机处理」。
  *
- * <p>检查更新查 msime.app 的 Android 发行版，找到新版本后由用户点「下载」，下载完核对 SHA-256 与签名证书再交给系统安装器（{@link UpdateApi}）。从 Google Play 安装时这三项（检查更新、自动更新、更新通道）都不显示，Play 的政策不允许应用自己更新；同时「给我们评分」才有确定的去处，所以只在这种情况下显示。用户协议还没有确定的页面，不显示。
+ * <p>检查更新查 msime.app 的 Android 发行版，找到新版本后由用户点「下载」，下载完核对 SHA-256 与签名证书再交给系统安装器（{@link UpdateApi}）。由 Google Play 负责更新时（{@link UpdateJobService#updatedByPlay}）这三项（检查更新、自动更新、更新通道）都不显示，Play 的政策不允许应用自己更新；同时「给我们评分」才有确定的去处，所以只在这种情况下显示。用户协议还没有确定的页面，不显示。
  *
  * <p>开源许可列出 APK 里随包带的许可通知（`assets/native-notices/`、词库与离线释义的许可等），以及已下载的资源包（日文词典、语言词库、离线释义）里随数据一起下载的许可文本，都没有时（例如开发构建）链接到仓库。
  */
@@ -91,7 +91,7 @@ public final class AboutPage extends DetailPage {
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
-        boolean play = UpdateJobService.installedFromPlay(context);
+        boolean play = UpdateJobService.updatedByPlay(context);
         sectionColumn(column, "应用").addView(header(context, play));
 
         if (!play) {

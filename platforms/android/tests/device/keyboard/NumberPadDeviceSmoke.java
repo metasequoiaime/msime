@@ -13,11 +13,23 @@ import org.json.JSONObject;
 
 /** 中文数字入口的真实网格、连续字面输入、符号往返和键位统计。 */
 public final class NumberPadDeviceSmoke extends DeviceSmoke {
+    private boolean passwordNumberPad;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        passwordNumberPad = arguments != null && "true".equals(arguments.getString("password-number-pad"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (passwordNumberPad) return "文字密码框可在字母与数字九宫格间往返，数字密码直接显示九宫格";
         return "Chinese number-pad geometry, continuous arithmetic input, symbols, return and key statistics";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (passwordNumberPad) {
+            verifyPasswordNumberPad();
+            return;
+        }
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = new JSONObject(read(new File(root, "runtime-options.json")));
         File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
@@ -150,6 +162,56 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    private void verifyPasswordNumberPad() throws Exception {
+        restartIme();
+        for (int type : new int[] {
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+                android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}) {
+            stage = "password keyboard type " + type;
+            shellDiscard("am force-stop app.msime.android.test");
+            shellDiscard("am start -f 0x10008000 -n app.msime.android.test/.EditorActivity"
+                + " --ei msime_test_password_type " + type);
+            tap(field("msime-test-password"));
+            if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
+                await(key("q"));
+                tap(described("切换到数字和符号"));
+            }
+            stage = "password number grid type " + type;
+            // 先确认已经切到数字页，不能把字母页的自动数字行当作稳定网格。
+            await(key("#+="));
+            assertGrid();
+            typeLiteral("1203");
+            awaitPasswordLength(4);
+            tap(key("⌫"));
+            awaitPasswordLength(3);
+            tap(described("切换到字母键盘"));
+            await(key("q"));
+            // 文字密码仍能输入字母；数字密码的编辑器会过滤字母，因此只检查往返键面。
+            if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
+                tap(key("q"));
+                awaitPasswordLength(4);
+            }
+            tap(described("切换到数字和符号"));
+            await(key("#+="));
+            assertGrid();
+            if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
+                tap(key("#+="));
+                await(key("123"));
+                tap(key("123"));
+                await(key("#+="));
+                assertGrid();
+            }
+        }
+    }
+
+    /** 只核对合成密码的长度，避免依赖系统是否暴露密码节点的明文。 */
+    private void awaitPasswordLength(int length) {
+        await(field("msime-test-password").and(node -> !node.isShowingHintText()
+            && node.getText() != null && node.getText().length() == length));
+    }
+
     private void assertGrid() {
         Rect[] cells = awaitStableGrid();
         for (int index = 0; index < cells.length; index++) {
@@ -177,14 +239,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             dropStaleNodes();
             Rect[] current = new Rect[9];
             for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
-                AccessibilityNodeInfo root = window.getRoot();
-                for (int index = 0; index < current.length; index++) {
-                    AccessibilityNodeInfo node = find(root, key(Integer.toString(index + 1)));
-                    if (node == null) continue;
-                    Rect bounds = new Rect();
-                    node.getBoundsInScreen(bounds);
-                    if (!bounds.isEmpty()) current[index] = bounds;
-                }
+                collectGridBounds(window.getRoot(), current);
             }
             boolean complete = java.util.Arrays.stream(current).allMatch(java.util.Objects::nonNull);
             if (complete && java.util.Arrays.equals(previous, current)) return current;
@@ -192,6 +247,23 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(250);
         }
         throw new AssertionError("Number grid bounds never settled: " + java.util.Arrays.toString(previous));
+    }
+
+    /** 一次遍历取得整组坐标，避免 API 28 为九个数字各刷新整棵键盘子树。 */
+    private void collectGridBounds(AccessibilityNodeInfo node, Rect[] cells) {
+        if (node == null || Build.VERSION.SDK_INT < 34 && !node.refresh()) return;
+        if (node.isVisibleToUser()) {
+            for (int index = 0; index < cells.length; index++) {
+                if (cells[index] != null || !key(Integer.toString(index + 1)).test(node)) continue;
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty()) cells[index] = bounds;
+            }
+        }
+        for (int index = 0; index < node.getChildCount(); index++) {
+            if (java.util.Arrays.stream(cells).allMatch(java.util.Objects::nonNull)) return;
+            collectGridBounds(node.getChild(index), cells);
+        }
     }
 
     private void typeLiteral(String text) throws Exception {

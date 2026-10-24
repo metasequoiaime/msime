@@ -3,6 +3,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::mid_sentence::{
+    satisfies_syllable_helpcodes, syllable_helpcode_matches, syllable_helpcodes_signature,
+};
 use super::query::{remove_manual_delimiters, trim_trailing_letters_preserve_delimiters};
 use super::typo_edges::{collect_shuangpin_typo_edges, SHUANGPIN_TYPO_TYPES};
 use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmentation};
@@ -32,7 +35,7 @@ use crate::quanpin::dictionary::{
 };
 use crate::quanpin::series::fold_reading;
 use crate::text::last_characters;
-use crate::types::{CandidateSource, SentenceAssociationOptions, WordItem};
+use crate::types::{CandidateSource, SentenceAssociationOptions, SyllableHelpcode, WordItem};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 
 // 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
@@ -53,6 +56,21 @@ fn double_helpcode_cache_key(pinyin: &str, help_codes: &str) -> String {
     key.push(':');
     key.push_str(help_codes);
     key
+}
+
+/// `filter_by_syllable_helpcodes` 只筛按拼音出的汉字候选：整词都是汉字的词库/生成/云/AI 行
+/// 才逐音节对应约束；英文、快捷短语、表情之类的不是拼音答案，留着。
+fn is_pinyin_word(item: &WordItem) -> bool {
+    matches!(
+        item.source,
+        CandidateSource::Database
+            | CandidateSource::UserDatabase
+            | CandidateSource::Generated
+            | CandidateSource::Fallback
+            | CandidateSource::NeuralKeyboard
+            | CandidateSource::CloudSuggestion
+            | CandidateSource::AiSuggestion
+    ) && crate::text::count_han_chars(&item.word) == item.word.chars().count()
 }
 
 pub struct ShuangpinDictionary {
@@ -85,6 +103,10 @@ pub struct ShuangpinDictionary {
     typo_span_cache: FifoCache<String, Vec<DictRow>>,
     /// 当前请求的纠错类型（会话的「拼音纠错」开关，见 `ShuangpinEngine::query`）。改变时清掉整句答案的缓存，它们是按另一个设置组出来的。
     autocorrect_types: u32,
+    /// 当前请求的逐音节辅助码约束（句中间接触发）。不清缓存：约束签名进缓存键，换约束等于换键
+    /// （`set_syllable_helpcodes`）。
+    pub(super) syllable_helpcodes: Vec<SyllableHelpcode>,
+    syllable_helpcodes_signature: String,
 }
 
 impl ShuangpinDictionary {
@@ -123,7 +145,68 @@ impl ShuangpinDictionary {
             personal_version,
             typo_span_cache: FifoCache::new(TYPO_SPAN_CACHE_CAPACITY),
             autocorrect_types: 0,
+            syllable_helpcodes: Vec::new(),
+            syllable_helpcodes_signature: String::new(),
         }
+    }
+
+    /// 逐音节辅助码约束跟着请求走；签名拼在系列/辅助码缓存键后面，同一串拼音带不同约束不共用答案。
+    pub fn set_syllable_helpcodes(&mut self, helpcodes: &[SyllableHelpcode]) {
+        self.syllable_helpcodes = helpcodes.to_vec();
+        self.syllable_helpcodes_signature = syllable_helpcodes_signature(helpcodes);
+    }
+
+    /// `rows_key + signature`：签名为空时直接借用原键，不为一次空拼接多分配。
+    /// 返回值只借 `rows_key`，不会把 `self` 钉在不可变借用上。
+    fn signed_rows_key<'a>(&self, rows_key: &'a str) -> std::borrow::Cow<'a, str> {
+        if self.syllable_helpcodes_signature.is_empty() {
+            std::borrow::Cow::Borrowed(rows_key)
+        } else {
+            std::borrow::Cow::Owned(format!("{rows_key}{}", self.syllable_helpcodes_signature))
+        }
+    }
+
+    /// 这个字能不能落在 helpcode 约束的音节上（`accepts_syllable_char`）。
+    fn accepts_syllable_char(
+        &self,
+        helpcode: &SyllableHelpcode,
+        character: &str,
+        keymap: &HelpcodeKeymap,
+    ) -> bool {
+        keymap
+            .code(character)
+            .is_some_and(|code| syllable_helpcode_matches(helpcode, code.as_bytes()))
+    }
+
+    /// 跨度起点在 `syllable_start` 的词，每个覆盖到约束位置的字都要满足约束；跨度不含该位置时这条约束与它无关。
+    pub(super) fn span_satisfies_syllable_helpcodes(
+        &self,
+        syllable_start: usize,
+        word: &str,
+        keymap: &HelpcodeKeymap,
+    ) -> bool {
+        let chars: Vec<char> = word.chars().collect();
+        self.syllable_helpcodes.iter().all(|helpcode| {
+            let index = helpcode.syllable.wrapping_sub(syllable_start);
+            index >= chars.len()
+                || self.accepts_syllable_char(helpcode, &chars[index].to_string(), keymap)
+        })
+    }
+
+    /// 只筛按拼音出的汉字候选；英文、快捷短语之类的不是逐音节对应的，留着
+    /// （`filter_by_syllable_helpcodes`）。云和 AI 拿到的是去掉段的拼音，不知道约束，结果同样要核。
+    pub fn filter_by_syllable_helpcodes(
+        &self,
+        candidates: &mut Vec<WordItem>,
+        keymap: &HelpcodeKeymap,
+    ) {
+        if self.syllable_helpcodes.is_empty() {
+            return;
+        }
+        candidates.retain(|item| {
+            !is_pinyin_word(item)
+                || satisfies_syllable_helpcodes(&self.syllable_helpcodes, &item.word, keymap)
+        });
     }
 
     /// Series and helpcode answers carry the reranked sentence rows, which depend on the committed context. The C++ bypassed these caches while a model was loaded because its rows arrived asynchronously; scoring here is synchronous, so the trimmed context joins the key instead and a commit moves to fresh entries without clearing the context-free row cache (overlays.md §1.6.2). Without a reranker no answer reads the context, so the key stays the raw input.
@@ -235,17 +318,21 @@ impl ShuangpinDictionary {
             _ => {}
         }
         let rows_key = if raw.is_empty() { pure } else { raw };
-        let mut key = (!self.rerankers.is_empty()).then(|| self.sentence_cache_key(rows_key));
+        // 同一串拼音带不同逐音节约束不是同一个答案：系列缓存键带上约束签名
+        // （`generateSeries` 的 `cache_key + signature`），`generate` 内部的行缓存仍按原拼音走。
+        let series_key_owned = self.signed_rows_key(rows_key);
+        let series_key = series_key_owned.as_ref();
+        let mut key = (!self.rerankers.is_empty()).then(|| self.sentence_cache_key(series_key));
         self.drop_personal_scored_results();
         let cache_hit = match key.as_ref() {
             Some(key) => self.series_cache.get_ref(key).is_some(),
-            None => self.series_cache.get_ref_by(rows_key).is_some(),
+            None => self.series_cache.get_ref_by(series_key).is_some(),
         };
         if cache_hit {
             self.reset_cache_if_database_changed();
             let cached = match key.as_ref() {
                 Some(key) => self.series_cache.get_ref(key),
-                None => self.series_cache.get_ref_by(rows_key),
+                None => self.series_cache.get_ref_by(series_key),
             };
             if let Some(cached) = cached {
                 return cached.clone();
@@ -269,7 +356,7 @@ impl ShuangpinDictionary {
         ));
         self.merge_sentences(&mut candidates, &segments, segmentation, pure, rows_key);
 
-        let key = key.take().unwrap_or_else(|| rows_key.to_owned());
+        let key = key.take().unwrap_or_else(|| series_key.to_owned());
         self.series_cache.insert(key.clone(), candidates.clone());
         // Only keys long enough for the lattice carry personal scores.
         if segments.len() >= 2 {
@@ -478,6 +565,8 @@ impl ShuangpinDictionary {
             2 => self.sentence_cache_key(&double_helpcode_cache_key(raw, help_codes)),
             _ => String::new(),
         };
+        // 末尾辅码的答案同样受逐音节约束影响，约束签名拼到缓存键尾。
+        let cache_key = self.signed_rows_key(&cache_key).into_owned();
         if !cache_key.is_empty()
             && self
                 .helpcode_cache(help_codes.len(), reversed)
@@ -565,7 +654,7 @@ impl ShuangpinDictionary {
         debug_assert_eq!(removed, limited);
         candidates.splice(first_limited..first_limited, expanded.iter().cloned());
         if !series_key.is_empty() {
-            let key = self.sentence_cache_key(series_key);
+            let key = self.sentence_cache_key(&self.signed_rows_key(series_key));
             self.series_cache.insert(key, candidates.clone());
         }
         true
@@ -581,7 +670,8 @@ impl ShuangpinDictionary {
         if raw.is_empty() {
             return false;
         }
-        let key = self.sentence_cache_key(raw);
+        // 键与 `generate_series` 一致：带上当前请求的逐音节约束签名。
+        let key = self.sentence_cache_key(&self.signed_rows_key(raw));
         if let Some(list) = self.series_cache.get_mut(&key) {
             return replace_cached_online_candidate_batch(list, raw, words, source);
         }
@@ -609,11 +699,18 @@ impl ShuangpinDictionary {
             };
             replace_cached_online_candidate_batch(list, raw, words, source)
         };
+        let sign = |key: String| {
+            if self.syllable_helpcodes_signature.is_empty() {
+                key
+            } else {
+                format!("{key}{}", self.syllable_helpcodes_signature)
+            }
+        };
         if !help_codes.is_empty() {
-            let key = self.sentence_cache_key(&double_helpcode_cache_key(raw, help_codes));
+            let key = sign(self.sentence_cache_key(&double_helpcode_cache_key(raw, help_codes)));
             return insert(&mut self.double_helpcode_cache, &key);
         }
-        let key = self.sentence_cache_key(raw);
+        let key = sign(self.sentence_cache_key(raw));
         let single = insert(&mut self.single_helpcode_cache, &key);
         let reversed = insert(&mut self.reversed_single_helpcode_cache, &key);
         single || reversed

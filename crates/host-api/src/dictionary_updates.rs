@@ -309,4 +309,92 @@ mod tests {
             std::fs::canonicalize(&resources).unwrap()
         );
     }
+
+    /// 下载的代次目录没有 `helpcodes/`：新准备的文档记下当前安装包的目录，只经 `refresh_host_options` 换过 `resources`、没有这个键的旧文档从更新记录里找到随包目录。
+    #[test]
+    fn downloaded_generation_falls_back_to_the_bundled_helpcode_tables() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut baseline = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut baseline, "dict-v2.0.9");
+        std::fs::create_dir_all(resources.join("helpcodes")).unwrap();
+        std::fs::write(resources.join("helpcodes/helpcode.txt"), "你=ab\n").unwrap();
+        let prepare = || -> Value {
+            serde_json::from_str(
+                &crate::prepare_host_with_updates(&resources, &state, Edition::full(), &baseline)
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        // 还在用随包词库时资源目录自己有码表，不需要回退。
+        let shipped = prepare();
+        assert!(shipped.get("helpcode_fallback_resources").is_none());
+        assert_eq!(
+            HostOptions::from_document(shipped)
+                .unwrap()
+                .into_engine_options()
+                .helpcode_fallback_resources,
+            None
+        );
+
+        let mut updated = baseline.clone();
+        updated.source_commit = "b".repeat(40);
+        hash_files(&resources, &mut updated, "dict-v2.0.10");
+        let installed = crate::ResourceStore::new(state.join("dictionary-updates/generations"))
+            .install(&updated, |file| {
+                Ok(Box::new(std::fs::File::open(resources.join(&file.name))?))
+            })
+            .unwrap();
+        assert!(!installed.join("helpcodes").exists());
+        let selection = updates::Selection {
+            baseline_generation: baseline.generation().unwrap(),
+            version: "dict-v2.0.10".into(),
+            desktop: updated,
+            languages: None,
+            bundled_resources: resources.clone(),
+        };
+        msime_client_core::file_lock::replace_private_file(
+            state.join("dictionary-updates/installed.json"),
+            &serde_json::to_vec(&json!({"active":selection,"previous":null})).unwrap(),
+        )
+        .unwrap();
+
+        let mut document = prepare();
+        let options = HostOptions::from_document(document.clone())
+            .unwrap()
+            .into_engine_options();
+        assert_eq!(
+            Path::new(&options.resources),
+            std::fs::canonicalize(&installed).unwrap()
+        );
+        let fallback = options.helpcode_fallback_resources.unwrap();
+        assert!(Path::new(&fallback)
+            .join("helpcodes/helpcode.txt")
+            .is_file());
+
+        // 旧文档没有这个键：编译进来的词库锁与这里的合成锁不同，直接拿合成锁查更新记录。
+        document
+            .as_object_mut()
+            .unwrap()
+            .remove("helpcode_fallback_resources");
+        let refreshed = HostOptions::from_document(document).unwrap();
+        assert_eq!(
+            crate::recorded_helpcode_bundle(&state, &baseline).as_deref(),
+            resources.to_str()
+        );
+        assert_eq!(
+            crate::helpcode_fallback_resources(
+                None,
+                Path::new(&refreshed.resources),
+                None,
+                Edition::full()
+            ),
+            None,
+            "没有状态目录就没有更新记录可查"
+        );
+        // 更新记录里的随包目录没有码表时不回退。
+        std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
+        assert_eq!(crate::recorded_helpcode_bundle(&state, &baseline), None);
+    }
 }

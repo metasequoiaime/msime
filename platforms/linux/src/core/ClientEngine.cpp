@@ -6843,9 +6843,12 @@ void show_input_mode_hint(IBusEngine *engine, [[maybe_unused]] ModeHintTrigger t
 #ifdef MSIME_IBUS_MODE_BADGE
   // 标志跟随「显示水杉图标」（show_app_logo，默认关），与 macOS 一致。
   const bool show_logo = configured.at("preferences").value("show_app_logo", false);
+  const bool allow_corner = preferences.value("input_mode_corner_hud", true);
   const bool x11_session = mode_badge_x11_session();
-  auto *badge = msime::linux_host::mode_badge_surface_wanted(x11_session, show_logo) ? mode_badge_surface() : nullptr;
-  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_session, show_logo);
+  auto *badge =
+      msime::linux_host::mode_badge_surface_wanted(x11_session, show_logo, allow_corner) ? mode_badge_surface() : nullptr;
+  hint = msime::linux_host::mode_badge_hint(badge != nullptr, badge && badge->follows_caret(), x11_session,
+                                          show_logo, allow_corner);
   // 获得焦点时客户端还没报光标：GTK、Qt 的输入法模块在 FocusIn 之后才在空闲回调里补报 set_cursor_location，这时的 cursor_area 还是上一个位置或全 0。先等它报来（set_cursor_location 里放），最多等 focus_caret_wait_ms。
   if (hint == msime::linux_host::ModeBadgeHint::CaretBadge && trigger == ModeHintTrigger::FocusEntered) {
     s.mode_hint_after_focus = true;

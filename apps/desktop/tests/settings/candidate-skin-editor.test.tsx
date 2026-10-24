@@ -293,9 +293,11 @@ test("a Windows look asks the host for its palette, and leaving edits asks first
     ),
   );
   expect((screen.getByRole("textbox", { name: "皮肤名称" }) as HTMLInputElement).value).toBe("");
-  expect(
-    (screen.getByRole("textbox", { name: "选中背景（浅色）色值" }) as HTMLInputElement).value,
-  ).toBe("#07C160");
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("textbox", { name: "选中背景（浅色）色值" }) as HTMLInputElement).value,
+    ).toBe("#07C160"),
+  );
 });
 
 test("duplicating an installed skin starts from a copy with its own id", async () => {

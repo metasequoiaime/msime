@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+#9324 的[同次按压左右滑动](2026-10-23-android-backspace-scrub.md)补充逐步删除与恢复；水平激活和原有上下滑阶段互斥，原有快速删除及其跨按压撤回规则保留。
+
 - `QuickDeleteUndo.Capture` 收集快速清除明确接受删除的片段，按原顺序恢复，包含快速清除当时的选区。容量为 65,536 个 UTF-16 单元（至多 128 KiB 文本负载），给[共享的 Binder 事务缓冲](https://developer.android.com/reference/android/os/TransactionTooLargeException)留出余量；超限放弃整份备份，不提供残缺撤回。
 - 备份只存在当前 `InputConnection` 的内存，最多 60 秒。密码、禁止学习和无痕输入框不保存。结束输入、切换输入框、普通文字输入或删除、上下文不符时释放；不写剪贴板、日志、统计或磁盘。
 - 删除完成后记录绝对折叠光标、光标两侧各 64 单元及连接身份。撤回前重新读取核对。位置取 `getExtractedText` 的 `startOffset + selectionStart`，读取失败、选区未折叠、实际删除位移不符均不提供撤回。清除本身仍兼容不支持读取位置的编辑器。分段删除的中间选区回报可能晚于最终备份到达；收到不同位置的回报时重新读取真实编辑器核对，避免旧回声误删备份，同时仍拒绝用户实际移动后的位置。

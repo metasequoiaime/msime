@@ -79,9 +79,10 @@ test("换服务读取独立默认模型并保留自定义值与未知服务回�
     endpoints: { custom: "https://custom.example.invalid/v1" },
     models: { custom: "synthetic-custom-model" },
   });
-  expect(
-    updateAiProvider("custom", { ...custom, ...patched }, AI_PROVIDER_OPTIONS),
-  ).toMatchObject({ endpoint: "https://custom.example.invalid/v1", model: "synthetic-custom-model" });
+  expect(updateAiProvider("custom", { ...custom, ...patched }, AI_PROVIDER_OPTIONS)).toMatchObject({
+    endpoint: "https://custom.example.invalid/v1",
+    model: "synthetic-custom-model",
+  });
   expect(
     updateAiProvider(
       "unknown",

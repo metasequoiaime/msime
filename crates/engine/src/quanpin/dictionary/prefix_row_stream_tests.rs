@@ -73,11 +73,10 @@ impl QuanpinDictionary {
     ) -> Vec<WordItem> {
         let cache_key = path_cache_key(raw, segmentation);
         if let Some(cached) = self.cache.get_ref_by(cache_key) {
-            return cached.clone();
+            return cached.copy_rows(cache_key);
         }
-        let result = self.query_database(segments, segmentation);
-        self.cache.insert(cache_key.to_owned(), result.clone());
-        result
+        // 冷存储共用当前入口，旧路径仍将热页整体复制后追加。
+        self.query_single_path_miss(cache_key, segmentation, segments)
     }
 }
 
@@ -242,7 +241,14 @@ fn series_stream_keeps_cache_and_owned_output() {
                 for length in 1..=cuts.len() {
                     let key = join_segments(&cuts[..length]);
                     if let Some(expected) = before.cache.get_ref_by(key.as_str()) {
-                        assert_rows(after.cache.get_ref_by(key.as_str()).unwrap(), expected);
+                        assert_rows(
+                            &after
+                                .cache
+                                .get_ref_by(key.as_str())
+                                .unwrap()
+                                .copy_rows(&key),
+                            &expected.copy_rows(&key),
+                        );
                     }
                 }
                 if let Some(first) = actual.first_mut() {
@@ -299,10 +305,10 @@ fn prefix_append_preserves_metadata_capacity_and_fifo_age() {
                 let mut after = QuanpinDictionary::new(&fixture.paths);
                 before.cache = FifoCache::new(2);
                 after.cache = FifoCache::new(2);
-                before.cache.insert("ni".to_owned(), cached());
-                after.cache.insert("ni".to_owned(), cached());
-                before.cache.insert("second".to_owned(), Vec::new());
-                after.cache.insert("second".to_owned(), Vec::new());
+                before.cache.insert("ni".to_owned(), cached().into());
+                after.cache.insert("ni".to_owned(), cached().into());
+                before.cache.insert("second".to_owned(), Vec::new().into());
+                after.cache.insert("second".to_owned(), Vec::new().into());
                 let mut expected = Vec::with_capacity(capacity);
                 let mut actual = Vec::with_capacity(capacity);
                 if populated {
@@ -322,11 +328,11 @@ fn prefix_append_preserves_metadata_capacity_and_fifo_age() {
                 after.append_single_path(&mut actual, "ni", "ni", &cuts);
                 assert_rows(&actual, &expected);
                 assert_rows(
-                    after.cache.get_ref_by("ni").unwrap(),
-                    before.cache.get_ref_by("ni").unwrap(),
+                    &after.cache.get_ref_by("ni").unwrap().copy_rows("ni"),
+                    &before.cache.get_ref_by("ni").unwrap().copy_rows("ni"),
                 );
-                before.cache.insert("third".to_owned(), Vec::new());
-                after.cache.insert("third".to_owned(), Vec::new());
+                before.cache.insert("third".to_owned(), Vec::new().into());
+                after.cache.insert("third".to_owned(), Vec::new().into());
                 assert!(before.cache.get_ref_by("ni").is_none());
                 assert!(after.cache.get_ref_by("ni").is_none());
                 assert!(after.cache.get_ref_by("second").is_some());

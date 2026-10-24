@@ -71,3 +71,7 @@ Sparkle 更新的是输入法本体，也就是 `~/Library/Input Methods` 里那
 - 以 `-DMSIME_SPARKLE_APPCAST_BASE_URL` 配置的本地构建，0.53.0 构建 1 的 `CFBundleVersion` 是 `53000001`，Info.plist 带全部 Sparkle 键；不带该变量时一个都没有。
 - `package-release.sh` 的公钥核对：32 字节种子推出的公钥与 `generate_keys` 打印的一致，96 字节旧格式取出的公钥正确，其他长度报错。
 - `generate_appcast` 产出的 appcast 带 `sparkle-signatures`，`sign_update --verify` 对 feed 和 zip 都通过，改动一个字节的 zip 被拒。
+
+## 系统安装范围扩展
+
+2026-10-23 的[系统输入法安装支持](../bug-fix/2026-10-23-macos-system-input-method-install.md)让设置应用同时识别用户和系统目录，沿用现有安装位置修复并保留版本防降级。单独的系统副本是正常安装；仅主动安装或修复才请求管理员权限。首次安装的登录提示和输入法自身的 Sparkle 更新协议保持原有约定。

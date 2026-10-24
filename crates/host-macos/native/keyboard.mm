@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include "../../../platforms/macos/src/input/ToggleHotkeyEvent.h"
 #include "../../../platforms/macos/src/core/ScreenKeyboardWindowAppearance.h"
 
 @interface MSIMEDetachedWindowContent : NSObject
@@ -7,6 +8,12 @@
 @end
 @implementation MSIMEDetachedWindowContent
 @end
+
+extern "C" const char *msime_macos_recorded_toggle_key_name(const char *physicalName) {
+    @autoreleasepool {
+        return msime::mac::RecordedToggleKeyName(physicalName);
+    }
+}
 
 extern "C" uintptr_t msime_macos_detach_window_content(uintptr_t address) {
     if (!NSThread.isMainThread) return 0;

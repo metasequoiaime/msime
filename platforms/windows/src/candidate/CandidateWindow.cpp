@@ -726,12 +726,22 @@ bool CandidateWindow::exit_lease_lost() const {
          !lease_current_(exit_value_->lease);
 }
 
+std::optional<CandidatePresentation> CandidateWindow::read_presentation() const {
+  auto value = reader_();
+  // 非阻塞读取争用不代表组字结束。只沿用仍属当前焦点的可见帧，真实快照（包括明确隐藏）始终优先。
+  if (!value && !finishing_animation_ && shown_ && shown_->visible &&
+      lease_current_ && lease_current_(shown_->lease))
+    return shown_;
+  return value;
+}
+
 void CandidateWindow::hide_for(const std::optional<CandidatePresentation> &value) {
-  // 读取不阻塞，读不到快照常常只是这一轮没抢到锁或闸门，不能据此打断正在播的退场，也不能把还开着的卡片（连同展开的网格）硬收掉：没在退场时走 hide()，有退场的皮肤开始退场，下一次读到可见快照就取消它；没有退场的主题和以前一样立即收起。退场那一帧的租约已经不是当前焦点（焦点换走了）时，旧候选不能留在新的前台上，立即收起，和 macOS 隐私收起时 finishExit 一样；刚开始的退场也当场查一次，之后每一帧的 paint 和这里都会查。读到了快照时，退场只在组字正常结束时开始。
+  // 当前焦点里的可见旧帧已经由 read_presentation 保留。剩下的读空只能继续租约已确认的正常退场，不能据此新开退场或保留未知归属的候选。
   if (!value) {
-    hide();
-    if (exit_lease_lost())
-      hide_immediately();
+    if (finishing_animation_ && exit_value_ && lease_current_ &&
+        lease_current_(exit_value_->lease))
+      return;
+    hide_immediately();
     return;
   }
   if (value->composition_ended)
@@ -897,7 +907,7 @@ void CandidateWindow::keep_on_top() {
   topmost_at_ = now;
 }
 void CandidateWindow::reposition() {
-  auto value = reader_();
+  auto value = read_presentation();
   if (!value || !value->visible) {
     hide_for(value);
     return;
@@ -1173,8 +1183,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
   const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
   const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
+  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。
   const auto content_width =
-      (std::min)(static_cast<int64_t>(panel_width * scale + 0.5),
+      (std::min)(static_cast<int64_t>(std::ceil(panel_width * scale)),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1186,8 +1197,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   decoration_offset_ = decoration_image_.empty()
                            ? 0.0f
                            : static_cast<float>(decoration_top_);
+  // 同上，高度也向上取整：量高度用的是量尺寸那次的折行结论，绘制少半个像素就可能多折一行。
   const auto content_height =
-      (std::min)(static_cast<int64_t>(panel_height * scale + 0.5) + decoration,
+      (std::min)(static_cast<int64_t>(std::ceil(panel_height * scale)) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
@@ -1423,8 +1435,10 @@ void CandidateWindow::paint() {
   Painting painting(window_);
   if (!painting.dc)
     throw std::runtime_error("Candidate painting unavailable");
-  auto value = reader_(); // Never paint the last cached owner's text unless an exit animation owns that last frame.
-  if ((!value || !value->visible) && finishing_animation_ && exit_value_ && !exit_lease_lost())
+  // 与定位共用读取规则：争用时只画当前租约的已显示帧，失焦不能沿用旧内容。
+  auto value = read_presentation();
+  if ((!value || (!value->visible && value->composition_ended)) &&
+      finishing_animation_ && exit_value_ && lease_current_ && !exit_lease_lost())
     value = exit_value_;
   if (!value || !value->visible) {
     hide_for(value);

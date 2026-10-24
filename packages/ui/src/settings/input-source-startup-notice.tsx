@@ -22,7 +22,7 @@ export interface InputSourceStartupNoticeProps {
 const settingsPath = "「系统设置 › 键盘 › 文字输入 › 输入法」";
 const openSettingsError = `无法打开系统设置，请手动前往${settingsPath}。`;
 
-/** The steps for adding the source. macOS 27 does not let a process enable a keyboard input mode (`TISEnableInputSource` answers noErr and changes nothing, see platforms/macos/README.md), so this is the one step the settings app cannot do for the user. */
+/** 添加输入源必须由用户在系统设置中完成；macOS 27 的 `TISEnableInputSource` 返回成功但不生效。 */
 function AddSteps() {
   return (
     <ol className="m-0 flex list-decimal flex-col gap-1 pl-5 text-[var(--text-secondary)]">
@@ -33,7 +33,7 @@ function AddSteps() {
   );
 }
 
-/** Shows the macOS input-source installation result reported during startup, and what is left for the user to do. */
+/** 显示启动检查结果和用户仍需完成的操作。 */
 export function InputSourceStartupNotice({
   status,
   onOpenSettings,
@@ -54,6 +54,13 @@ export function InputSourceStartupNotice({
   if (failed) {
     title = "水杉输入法没能自动安装或更新";
     detail = "请在「维护与诊断」页的「输入法服务」中点「修复」重试。";
+  } else if (status.action === "authorization_required") {
+    title = "系统安装需要授权更新";
+    detail =
+      "请在「维护与诊断」页的「输入法服务」中点「修复」，确认管理员授权后更新所有用户的输入法。";
+  } else if (status.action === "cancelled") {
+    title = "已取消管理员授权";
+    detail = "输入法安装未完成。需要时可在「维护与诊断」页的「输入法服务」中点「修复」重试。";
   } else if (status.action === "not_installed") {
     title = "水杉输入法还没有安装到本机";
     detail = "请在「维护与诊断」页的「输入法服务」中点「修复」。";
@@ -73,8 +80,10 @@ export function InputSourceStartupNotice({
     title = version ? `水杉输入法 ${version} 已安装` : "水杉输入法已安装";
   } else if (status.action === "updated") {
     title = version ? `水杉输入法已更新到 ${version}` : "水杉输入法已更新";
-  } else {
+  } else if (status.system_bundles?.length) {
     title = "系统目录里多了一份水杉输入法";
+  } else {
+    title = "水杉输入法已是当前版本";
   }
   // 只在顺利装好或更新、用户无事可做时配图；失败、要重新登录、要手动加入列表时，页面要把注意力留给接下来的操作。
   const celebrate =

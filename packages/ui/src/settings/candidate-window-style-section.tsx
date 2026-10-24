@@ -177,9 +177,7 @@ export function CandidateWindowStyleRows({
         >
           <Switch
             checked={preferences.candidate_window_fit_content ?? false}
-            onChange={(candidate_window_fit_content) =>
-              onChange({ candidate_window_fit_content })
-            }
+            onChange={(candidate_window_fit_content) => onChange({ candidate_window_fit_content })}
           />
         </Row>
       )}

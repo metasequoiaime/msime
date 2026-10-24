@@ -14,6 +14,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
+  @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
@@ -273,6 +274,13 @@ struct KeyboardLayoutSettingsView: View {
                       }))
       .accessibilityIdentifier("appGlideTypingSwitch")
       DesignDivider()
+      DesignToggleRow(title: "横滑键盘移动光标", subtitle: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
+                      isOn: Binding(get: { cursorSwipe }, set: { enabled in
+                        cursorSwipe = enabled
+                        KeyboardLayoutPreference.cursorSwipe = enabled
+                      }))
+      .accessibilityIdentifier("appCursorSwipeSwitch")
+      DesignDivider()
       DesignToggleRow(title: "长按空格语音输入",
                       subtitle: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
                       isOn: Binding(get: { spaceVoice }, set: { enabled in
@@ -443,6 +451,7 @@ struct KeyboardLayoutSettingsView: View {
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     tabletSplit = KeyboardLayoutPreference.tabletSplit
     glideTyping = KeyboardLayoutPreference.glideTyping
+    cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     spaceVoice = KeyboardLayoutPreference.spaceVoice
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()

@@ -15,21 +15,24 @@ import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 真实键盘上全文浮层、卡片滚动和跨行拖选，只使用合成文本。 */
+/** 真实键盘上全文浮层、列表滚动和跨行拖选，只使用合成文本。 */
 public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private final Map<File, byte[]> backups = new LinkedHashMap<>();
     private long downTime;
+    private boolean fixedCardsOnly;
     private boolean previewActionsOnly;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        fixedCardsOnly = arguments != null && "true".equals(arguments.getString("fixed-cards-only"));
         previewActionsOnly = arguments != null && "true".equals(arguments.getString("preview-actions-only"));
         super.onCreate(arguments);
     }
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
+        if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
         if (previewActionsOnly) return "full-text preview inserts original text, edits, saves and returns without leaking its window";
-        return "floating full-text preview above IME, scrolling, close, action passthrough and lifecycle cleanup; card scroll, swipe, segment drag and preview action regression";
+        return "floating full-text preview above IME and lifecycle cleanup; fixed cards, list scroll, swipe, segment drag and preview action regression";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -50,6 +53,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             write(preferences, prefs.toString());
             write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
                 .put("platform.android.toolbar_hidden", false)).toString());
+            if (fixedCardsOnly) { fixedCardsScrollList(history); return; }
             if (previewActionsOnly) { previewActions(history); return; }
             StringBuilder source = new StringBuilder();
             for (int i = 0; i < 26; i++) { if (i > 0) source.append(' '); source.append(word(i)); }
@@ -59,12 +63,13 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
             openClipboardEditor();
             floatingPreview(history, preview.toString());
+            fixedCardsScrollList(history);
             write(history, new JSONArray().put(new JSONObject().put("text", source.toString())
                 .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
             openClipboardEditor();
             AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
                 && node.getText().toString().startsWith(word(0)));
-            stage = "long clipboard card scrolls without insertion";
+            stage = "long clipboard card stays fixed without insertion";
             byte[] seededHistory = Files.readAllBytes(history.toPath());
             previewCard(card);
             stage = "preview, swipe and dismiss leave editor and history untouched";
@@ -189,6 +194,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private void openClipboardEditor(boolean multiline) throws Exception {
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
+            + " --ez msime_test_editor_probe true"
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
@@ -197,29 +203,36 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
 
     private void floatingPreview(File history, String text) throws Exception {
         stage = "physical long press opens full-text preview above keyboard";
+        String step = stage;
         byte[] before = Files.readAllBytes(history.toPath());
         Bitmap beforePreview = automation.takeScreenshot();
-        Rect editorBounds = new Rect();
-        await(field("msime-test-plain")).getBoundsInScreen(editorBounds);
+        Rect editorBounds = awaitFocusedField("msime-test-plain");
         Rect card = openFloatingPreview();
+        // 这一段有五处等待，失败时只报总阶段名看不出卡在哪一处，所以每处各标一句。
+        stage = step + ": preview scroll area settles";
         AccessibilityNodeInfo scroll = awaitStableBounds(described("剪贴板全文滚动区域"));
         Rect bounds = new Rect();
         scroll.getBoundsInScreen(bounds);
         if (bounds.bottom > card.top || bounds.height() < card.height() * 2)
             throw new AssertionError("Preview did not extend above the keyboard");
+        stage = step + ": preview text is a separate non-long-clickable node";
         // Android 8 的无障碍树会把长文本拆成多个 TextView，不能要求一个节点承载全文。
         // 预览滚动区域和首行分别在上面、这里核对，足以证明全文已经显示且没有复用可长按的卡片。
         await(node -> node.getText() != null
             && node.getText().toString().contains("Synthetic preview line 0")
             && !node.isLongClickable());
-        Rect editorAfter = new Rect();
-        await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused)).getBoundsInScreen(editorAfter);
+        stage = step + ": editor keeps focus";
+        // API 28 遮挡期间连系统焦点查询也可能返回空；从合成编辑器主线程读取真实状态。
+        Rect editorAfter = awaitFocusedField("msime-test-plain");
+        stage = step + ": clipboard card stays in the panel";
         Rect cardAfter = new Rect();
         await(node -> node.isLongClickable() && node.getText() != null
             && node.getText().toString().startsWith("Synthetic preview line 0")).getBoundsInScreen(cardAfter);
         if (!editorBounds.equals(editorAfter) || !card.equals(cardAfter))
             throw new AssertionError("Floating preview moved the editor or keyboard card");
+        stage = step + ": record actions stay available";
         await(described("剪贴板记录操作"));
+        stage = step;
         // 仅在专用合成编辑器中留存画面，供核对浮层边界、配色和滚动条。
         automation.waitForIdle(300, 3000);
         SystemClock.sleep(250);
@@ -280,10 +293,31 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(described("剪贴板"));
         stage = "changing input field removes floating preview";
         openFloatingPreview();
-        if (!await(field("msime-test-password")).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+        if (!editorProbe("focus", "msime-test-password").getBoolean("accepted"))
             throw new AssertionError("Synthetic editor focus switch refused");
-        await(field("msime-test-password").and(AccessibilityNodeInfo::isFocused));
+        awaitFocusedField("msime-test-password");
         previewClosed();
+    }
+
+    private android.os.Bundle editorProbe(String method, String field) {
+        android.os.Bundle snapshot = getTargetContext().getContentResolver().call(EditorProbeProvider.URI, method, field, null);
+        if (snapshot == null) throw new AssertionError("Synthetic editor probe returned no state");
+        return snapshot;
+    }
+
+    private Rect awaitFocusedField(String description) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        android.os.Bundle snapshot;
+        do {
+            snapshot = editorProbe("snapshot", description);
+            if (snapshot.getBoolean("focused") && snapshot.getBoolean("window_focused"))
+                return new Rect(snapshot.getInt("left"), snapshot.getInt("top"),
+                    snapshot.getInt("right"), snapshot.getInt("bottom"));
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic editor did not retain input focus (field="
+            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused")
+            + ", focus loss=" + snapshot.getString("focus_loss") + ")");
     }
 
     private Rect openFloatingPreview() {
@@ -320,8 +354,46 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Floating preview survived its close boundary");
     }
 
+    private void fixedCardsScrollList(File history) throws Exception {
+        JSONArray records = new JSONArray();
+        for (int i = 0; i < 20; i++) records.put(new JSONObject()
+            .put("text", "Synthetic fixed card " + i + "\nSecond synthetic line\nThird synthetic line\nHidden synthetic tail")
+            .put("timestampMs", 1700000000000L - i).put("pinned", true));
+        write(history, records.toString());
+        byte[] before = Files.readAllBytes(history.toPath());
+        openClipboardEditor();
+        stage = "fixed card exposes no private scroll actions";
+        AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith("Synthetic fixed card 0\n"));
+        assertFixedCard(card);
+        AccessibilityNodeInfo list = card.getParent();
+        while (list != null && (!list.isScrollable() || !equalsText("android.widget.ScrollView", list.getClassName())))
+            list = list.getParent();
+        if (list == null) throw new AssertionError("Synthetic history did not overflow its list");
+        Rect bounds = new Rect();
+        card.getBoundsInScreen(bounds);
+        stage = "vertical drag starting inside long card moves the history list";
+        drag(new Rect(bounds.centerX(), bounds.bottom - 12, bounds.centerX() + 1, bounds.bottom - 11),
+            new Rect(bounds.centerX(), bounds.top + 12, bounds.centerX() + 1, bounds.top + 13), false);
+        SystemClock.sleep(400);
+        list.refresh();
+        if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+            throw new AssertionError("Card swallowed vertical drag instead of scrolling history");
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        if (!java.util.Arrays.equals(before, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("List scroll rewrote history");
+    }
+
+    private void assertFixedCard(AccessibilityNodeInfo card) {
+        if (card.isScrollable()
+                || card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                || card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+            throw new AssertionError("Clipboard card still scrolls independently of its list");
+    }
+
     private void previewCard(AccessibilityNodeInfo card) throws Exception {
-        if (!card.isScrollable()) throw new AssertionError("Long card was not scrollable");
+        assertFixedCard(card);
         Rect bounds = new Rect();
         card.getBoundsInScreen(bounds);
         Rect from = new Rect(bounds.centerX(), bounds.bottom - 8, bounds.centerX() + 1, bounds.bottom - 7);
@@ -329,21 +401,14 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         drag(from, to, false);
         SystemClock.sleep(200);
         card.refresh();
-        Rect after = new Rect();
-        card.getBoundsInScreen(after);
-        if (!bounds.equals(after)) throw new AssertionError("Preview scrolled the outer list");
-        // 读屏也能翻页到全文末尾，再回到开头，滚动动作不能触发插入。
-        int pages = 0;
-        while (card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
-            if (++pages > 40) throw new AssertionError("Preview did not reach the end");
-            card.refresh();
-        }
-        if (pages == 0) throw new AssertionError("Preview fixture did not span multiple pages");
-        while (card.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
-            if (--pages < -2) throw new AssertionError("Preview did not return to the start");
-            card.refresh();
-        }
-        stage = "horizontal delete still works after vertical preview";
+        assertFixedCard(card);
+        stage = "horizontal delete still works after vertical drag";
+        // 纵向手势会交给外层列表；横滑前重新定位卡片，不能复用滚动前的坐标。
+        card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+        card = awaitStableBounds(node -> node.isLongClickable() && node.getText() != null
+            && node.getText().toString().startsWith(word(0)));
+        card.getBoundsInScreen(bounds);
+        stage = "horizontal delete still works after vertical drag: " + bounds.toShortString();
         Rect swipeFrom = new Rect(bounds.right - 8, bounds.centerY(), bounds.right - 7, bounds.centerY() + 1);
         Rect swipeTo = new Rect(bounds.left + 8, bounds.centerY(), bounds.left + 9, bounds.centerY() + 1);
         drag(swipeFrom, swipeTo, false);

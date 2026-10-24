@@ -1,0 +1,324 @@
+{
+  "by_syllables": {
+    "3": {
+      "cases": 103,
+      "found": 1.0,
+      "mrr": 0.51,
+      "top1": 0.311,
+      "top1_char_prefix": 0.531,
+      "top5": 0.854,
+      "top9": 0.903
+    }
+  },
+  "by_tag": {
+    "particle": {
+      "cases": 103,
+      "found": 1.0,
+      "mrr": 0.51,
+      "top1": 0.311,
+      "top1_char_prefix": 0.531,
+      "top5": 0.854,
+      "top9": 0.903
+    }
+  },
+  "cases": 103,
+  "gold_source": {
+    "database": 12,
+    "generated": 91
+  },
+  "overall": {
+    "cases": 103,
+    "found": 1.0,
+    "mrr": 0.51,
+    "top1": 0.311,
+    "top1_char_prefix": 0.531,
+    "top5": 0.854,
+    "top9": 0.903
+  },
+  "sample_failures": [
+    {
+      "gold": "威望啊",
+      "id": "p000",
+      "input": "weiwanga",
+      "rank": 2,
+      "top1": "为王啊"
+    },
+    {
+      "gold": "标注呀",
+      "id": "p001",
+      "input": "biaozhuya",
+      "rank": 7,
+      "top1": "尼奥之塔"
+    },
+    {
+      "gold": "相关吧",
+      "id": "p002",
+      "input": "xiangguanba",
+      "rank": 4,
+      "top1": "相互安娜"
+    },
+    {
+      "gold": "债券吗",
+      "id": "p004",
+      "input": "zhaiquanma",
+      "rank": 4,
+      "top1": "债务鞍马"
+    },
+    {
+      "gold": "只会啦",
+      "id": "p005",
+      "input": "zhihuila",
+      "rank": 3,
+      "top1": "只回来"
+    },
+    {
+      "gold": "处理啊",
+      "id": "p006",
+      "input": "chulia",
+      "rank": 11,
+      "top1": "储量"
+    },
+    {
+      "gold": "新车呀",
+      "id": "p007",
+      "input": "xincheya",
+      "rank": 5,
+      "top1": "子女和他"
+    },
+    {
+      "gold": "地址吧",
+      "id": "p008",
+      "input": "dizhiba",
+      "rank": 2,
+      "top1": "复制版"
+    },
+    {
+      "gold": "实现吗",
+      "id": "p010",
+      "input": "shixianma",
+      "rank": 4,
+      "top1": "狮子暗骂"
+    },
+    {
+      "gold": "文件啦",
+      "id": "p011",
+      "input": "wenjianla",
+      "rank": 4,
+      "top1": "文集安啦"
+    },
+    {
+      "gold": "信息啊",
+      "id": "p012",
+      "input": "xinxia",
+      "rank": 16,
+      "top1": "心下"
+    },
+    {
+      "gold": "轿车呀",
+      "id": "p013",
+      "input": "jiaocheya",
+      "rank": 2,
+      "top1": "轿车他"
+    },
+    {
+      "gold": "欺诈吧",
+      "id": "p014",
+      "input": "qizhaba",
+      "rank": 2,
+      "top1": "无战事"
+    },
+    {
+      "gold": "登录吗",
+      "id": "p016",
+      "input": "dengluma",
+      "rank": 2,
+      "top1": "登录码"
+    },
+    {
+      "gold": "签约啦",
+      "id": "p017",
+      "input": "qianyuela",
+      "rank": 4,
+      "top1": "全体饿啦"
+    },
+    {
+      "gold": "精华啊",
+      "id": "p018",
+      "input": "jinghuaa",
+      "rank": 5,
+      "top1": "精华素"
+    },
+    {
+      "gold": "院长呀",
+      "id": "p019",
+      "input": "yuanzhangya",
+      "rank": 5,
+      "top1": "图案长牙"
+    },
+    {
+      "gold": "我国啦",
+      "id": "p023",
+      "input": "woguola",
+      "rank": 2,
+      "top1": "我过来"
+    },
+    {
+      "gold": "网络啊",
+      "id": "p024",
+      "input": "wangluoa",
+      "rank": 4,
+      "top1": "网络是"
+    },
+    {
+      "gold": "文章呀",
+      "id": "p025",
+      "input": "wenzhangya",
+      "rank": 2,
+      "top1": "文章他"
+    },
+    {
+      "gold": "拥有吧",
+      "id": "p026",
+      "input": "yongyouba",
+      "rank": 2,
+      "top1": "拥有那"
+    },
+    {
+      "gold": "招标啦",
+      "id": "p029",
+      "input": "zhaobiaola",
+      "rank": 4,
+      "top1": "找你熬啦"
+    },
+    {
+      "gold": "形成呀",
+      "id": "p031",
+      "input": "xingchengya",
+      "rank": 2,
+      "top1": "形成他"
+    },
+    {
+      "gold": "关系啊",
+      "id": "p036",
+      "input": "guanxia",
+      "rank": 15,
+      "top1": "管辖"
+    },
+    {
+      "gold": "项目吧",
+      "id": "p038",
+      "input": "xiangmuba",
+      "rank": 5,
+      "top1": "项模板"
+    },
+    {
+      "gold": "点击呢",
+      "id": "p039",
+      "input": "dianjine",
+      "rank": 4,
+      "top1": "伏案金额"
+    },
+    {
+      "gold": "面包吗",
+      "id": "p040",
+      "input": "mianbaoma",
+      "rank": 4,
+      "top1": "谜案宝马"
+    },
+    {
+      "gold": "判决啊",
+      "id": "p042",
+      "input": "panjuea",
+      "rank": 2,
+      "top1": "判决书"
+    },
+    {
+      "gold": "一定呀",
+      "id": "p043",
+      "input": "yidingya",
+      "rank": 3,
+      "top1": "一定要"
+    },
+    {
+      "gold": "方式吧",
+      "id": "p044",
+      "input": "fangshiba",
+      "rank": 4,
+      "top1": "方顺石"
+    },
+    {
+      "gold": "资源啊",
+      "id": "p048",
+      "input": "ziyuana",
+      "rank": 12,
+      "top1": "资源税"
+    },
+    {
+      "gold": "基本吧",
+      "id": "p050",
+      "input": "jibenba",
+      "rank": 2,
+      "top1": "聚苯板"
+    },
+    {
+      "gold": "游戏呀",
+      "id": "p055",
+      "input": "youxiya",
+      "rank": 5,
+      "top1": "有需要"
+    },
+    {
+      "gold": "解决吗",
+      "id": "p058",
+      "input": "jiejuema",
+      "rank": 4,
+      "top1": "巨额解码"
+    },
+    {
+      "gold": "介绍啦",
+      "id": "p059",
+      "input": "jieshaola",
+      "rank": 4,
+      "top1": "接啊好啦"
+    },
+    {
+      "gold": "没有啊",
+      "id": "p060",
+      "input": "meiyoua",
+      "rank": 3,
+      "top1": "没有睡"
+    },
+    {
+      "gold": "很多呀",
+      "id": "p061",
+      "input": "henduoya",
+      "rank": 5,
+      "top1": "很低哦呀"
+    },
+    {
+      "gold": "记者吧",
+      "id": "p062",
+      "input": "jizheba",
+      "rank": 3,
+      "top1": "急诊室"
+    },
+    {
+      "gold": "发现呢",
+      "id": "p063",
+      "input": "faxianne",
+      "rank": 2,
+      "top1": "大仙杯"
+    },
+    {
+      "gold": "选择吗",
+      "id": "p064",
+      "input": "xuanzema",
+      "rank": 4,
+      "top1": "西安责骂"
+    }
+  ],
+  "top1_source": {
+    "database": 49,
+    "generated": 54
+  }
+}

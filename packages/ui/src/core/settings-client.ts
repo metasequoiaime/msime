@@ -93,6 +93,8 @@ export interface SettingsClient {
   ) => Promise<ShuangpinCustomProblem | null>;
   /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
   builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
+  /** 录键写入前的试写校验：把 `chord` 作为 `field` 的绑定问宿主，通过回规范写法；不通过给 `invalid`（写法不是合法组合键）或 `conflict`（与 `owner` 占用项相同）。与保存时的 `Preferences::validate` 走同一张占用表，不落盘；只有声明 `host.toggle_hotkey_chords` 的宿主提供。 */
+  checkToggleHotkey?: (request: ToggleHotkeyCheckRequest) => Promise<ToggleHotkeyCheckResult>;
   /** 九键双拼的内置表与用户表校验，复用引擎的无状态布局接口。 */
   nineKeyShuangpinLayout?: NineKeyShuangpinLayoutReader;
   readSkinImage?: SkinImageReader;
@@ -238,6 +240,21 @@ export interface SettingsClient {
   /** 向服务发送应用内反馈报告；只通过 GitHub issue 途径反馈的宿主没有这一项。 */
   feedback?: FeedbackClient;
 }
+
+/** 一次切换热键试写：`field` 是 `keybindings` 的三个切换热键字段名，`chord` 是录下的写法（空串表示解绑），`keybindings` 与 `voice_ctrl_f9` 是页面当前草稿。 */
+export interface ToggleHotkeyCheckRequest {
+  field: "toggle_english_candidates" | "toggle_full_width" | "toggle_punctuation";
+  chord: string;
+  keybindings: Record<string, unknown>;
+  voice_ctrl_f9: boolean;
+  /** 录键传物理 DOM code，由宿主按当前布局归一；手工规范键名默认不重译。 */
+  physical_recording?: boolean;
+}
+
+export type ToggleHotkeyCheckResult =
+  | { ok: true; chord: string }
+  | { ok: false; kind: "invalid"; detail: string }
+  | { ok: false; kind: "conflict"; owner: string; chord: string };
 
 export interface PreferencesRecovery {
   snapshot: Snapshot;

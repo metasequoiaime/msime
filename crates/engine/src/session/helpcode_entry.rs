@@ -9,6 +9,8 @@ impl InputSession {
             return false;
         };
         if !self.helpcode_enabled()
+            || (self.scheme() == SchemeType::Shuangpin
+                && self.engine.request().shuangpin_helpcode_modes.manual_tab)
             || self.dedicated_english
             || self.local_mode != LocalInputMode::None
             || self.conversion.is_some()

@@ -104,12 +104,16 @@ impl InputSession {
         if self.has_literal_symbols() {
             return true;
         }
-        let Some(first) = raw.bytes().position(|byte| byte.is_ascii_uppercase()) else {
+        // 辅助码段（`` ` ``/`|`/大写码）在请求里已剥掉：字面大写判定看去段后的查询串，
+        // 句中段的码（`b;j;X`）不再误当字面大写尾巴，末尾段（`nihcXY`）也不靠豁免。
+        let probe = self.engine.request().raw_input_with_cases.as_str();
+        let probe = if probe.is_empty() { raw } else { probe };
+        let Some(first) = probe.bytes().position(|byte| byte.is_ascii_uppercase()) else {
             return false;
         };
         // 末尾辅助码只能接在没有字面大写的拼音之后，全大写词不能被误判为「拼音加双辅助码」。
         let trailing_helpcode =
-            first > 0 && first >= raw.len().saturating_sub(2) && self.has_active_helpcode();
+            first > 0 && first >= probe.len().saturating_sub(2) && self.has_active_helpcode();
         !trailing_helpcode
             && !(self.is_shuangpin()
                 && self.engine.request().enable_shuangpin_helpcode
@@ -117,7 +121,23 @@ impl InputSession {
                     .helpcode_keymap
                     .as_ref()
                     .is_some_and(|keymap| !keymap.is_empty())
-                && crate::shuangpin::engine::direct_helpcodes_own_capitals(raw, self.profile))
+                && self
+                    .engine
+                    .request()
+                    .shuangpin_helpcode_modes
+                    .direct_helpcode
+                && crate::shuangpin::engine::direct_helpcodes_own_capitals(
+                    probe,
+                    self.profile,
+                    self.engine
+                        .request()
+                        .shuangpin_helpcode_modes
+                        .direct_helpcode_slash,
+                    self.engine
+                        .request()
+                        .shuangpin_helpcode_modes
+                        .direct_helpcode_uppercase,
+                ))
     }
 
     /// 含特殊符号时只提供原文；否则只转换第一个小写片段，大写及后续片段保留原文边界。
@@ -203,6 +223,7 @@ impl InputSession {
         }
         // 英文行保留词库身份，大小写只在快照和上屏副本中恢复。内部光标时不提供会整段结束组字的英文行。
         if end == raw.len()
+            && self.mixed_candidates_enabled
             && self.english_options.mixed_candidates
             && raw.len() >= self.english_options.minimum_prefix
             && raw.bytes().all(|byte| byte.is_ascii_alphabetic())

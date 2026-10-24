@@ -28,6 +28,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 `MSIME_ANDROID_OMIT_ON_DEMAND=1`（只对 full 和 pinyin，其他版本设了直接失败）打发布用的瘦包，`release-android.yml` 给这两个版本打开它：日文词典那一组（`msime-japanese.dat` 与两份 Mozc 许可文本）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户添加日语或这些语言（拼音版不提供粤拼、注音和笔画，只会为临时日语下载日文词典）、打开离线释义、打开「离线识别」时作为资源包下载到 `files/bootstrap/state/resource-packs/<资源包>/`，启动时不自动下载。随包的 `desktop-dictionary.lock.json` 是本版本的锁去掉日文那一组后的子集（Bootstrap 只按它解包），暂存的词库按 `verify_resources --omit-on-demand` 校验；host-api 仍按编译进去的完整锁校验，日文那一组整体缺席时放行，用户词库的代次不变。APK 签名后再检查包里没有 `msime-japanese.dat`、Mozc 许可文本、`assets/language-dictionaries/`、`assets/offline-glosses/`、`libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，并且包不超过 135,000,000 字节（`MSIME_ANDROID_MAX_APK_BYTES` 可改）。瘦包只能是 arm64-v8a 单 ABI，`MSIME_ANDROID_ABIS` 带上 x86_64 时直接失败：资源包 `voice-runtime` 只有 arm64-v8a 的库，在 x86_64 上下载了也加载不了。这个开关与 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 互斥。不设时照旧全带，日文版的主词库就是日文词典，始终随包；Tauri 开发合包 `build-client-apk.sh` 也照旧全带。
 
+`MSIME_ANDROID_DISTRIBUTION=play` 打上传 Google Play 的包：输出 `target/android/<apk_name>.aab`，用 `jarsigner` 以发布密钥签名（没有发布密钥直接失败）。Gradle 收到 `-PmsimeDistribution=play`，BuildConfig 的 `DISTRIBUTION` 是 `play`，宿主不做应用内自更新、不下载 `voice-runtime` 资源包，清单去掉 `REQUEST_INSTALL_PACKAGES`；与瘦包同用时两个语音运行库仍随包，其余按需资源照旧下载。缺省 `github` 打 GitHub release 用的 APK。原因和发布流程见 `.agents/notes/implemented/process/2026-10-23-android-google-play-distribution.md`。
+
 ### 手机、大屏与二合一布局边界
 
 原生输入面依据 Android 的 `Configuration.smallestScreenWidthDp` 区分设备形态，而不是依据旋转后的当前窗口宽度。小于 600 dp 的手机始终让键盘铺满可用窗口；因此一台 411 dp 的手机即使横屏后当前宽度超过 600 dp，也不会突然切换成平板键盘。600 dp 起的平板、展开态折叠屏和二合一进入大屏布局：整套键盘表面在窗口底部水平居中，宽度取当前可用宽度与 720 dp 的较小值。左右空出的区域使用当前键盘皮肤的背景色，避免十列按键被拉伸到桌面宽度。
@@ -36,18 +38,19 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 这条原生键盘策略与共享设置页的响应式布局彼此独立：`platforms/android` 负责系统 IME 窗口，Tauri/React 设置页仍按自身 600 px CSS 断点在手机底部标签栏与大屏侧栏之间切换。后一句只适用于不发布的 Tauri 合包（`build-client-apk.sh`）；发布的 APK 不含这套页面，设置是 `home/` 下的原生 Java 页面。`KeyboardFormFactorPolicySmoke` 固定验证 599/600 dp 边界、手机横屏、600 dp 折叠展开态、1280 dp 二合一的 720 dp 上限，以及配置暂时缺失当前宽度时的安全回退；`check-host.sh` 会编译并执行该回归。设备上的旋转、分屏、自由窗口和折叠铰链切换走的是同一条策略，JVM 回归钉住的是策略边界本身。
 
-### 平板横屏分离式键盘
+### 大屏分离式键盘
 
-键盘设置「布局」里的「横屏分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备（同上，`smallestScreenWidthDp` ≥ 600）横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。手机横屏、平板竖屏和开关关着时一律照旧。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
+键盘设置「布局」里的「分离式键盘」（本地设置 `platform.android.split_keyboard`，布尔，默认关，随账号同步，在 `crates/client-services` 的 `ANDROID_LOCAL_SETTINGS` 里）打开后，大屏设备（同上，`smallestScreenWidthDp` ≥ 600）横屏时把键盘分成左右两半，中间空出约四分之一的宽度给双手握持。默认平板竖屏不分离；开启旁边的「竖屏也分离」（共享布尔偏好 `touch_keyboard_split_portrait`，默认关）后，大屏竖屏同样分离。折叠到窄外屏（最小宽度低于 600 dp）或关闭主开关后使用完整键盘，再展开恢复分离。手机横屏也不分离。规则集中在无 Android 依赖的 `SplitKeyboardPolicy`，`SplitKeyboardPolicySmoke` 逐条验证：
 
-- 分离的布局：标准 26 键一族（全拼、各家双拼连同微软双拼的 `;` 键、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式，以及它们的 123 / #+= 层。九键、日文假名网格、手写、大千注音、笔画、注音 9 键和它们的符号页，以及符号、表情、剪贴板、功能面板都不分离；正在画的布局不分离时，键盘和平时一样是 720 dp 居中外框。
+- 分离的布局：标准 26 键一族（全拼、各家双拼连同微软双拼的 `;` 键、五笔、英文、日文罗马字、粤拼、越南语、藏文）、韩文两套式，以及仍采用横排行的 123 / #+= 层；中文数字九宫格保持完整面板。九键、日文假名网格、手写、大千注音、笔画、注音 9 键和它们的符号页，以及符号、表情、剪贴板、功能面板都不分离；正在画的布局不分离时，键盘和平时一样是 720 dp 居中外框。
 - 分离式键盘画着的时候整套键盘表面不受 720 dp 上限约束，铺满可用宽度（`KeyboardFormFactorPolicy.surfaceWidthDp` 的第三个参数）。候选区、工具栏和盖在键区上的各个面板与键区共用这个外框，同样铺满；它们本身不分成两半。
 - 每一行都是「不分离时的那一行缩到 75%，在中间的键边界上断开，两段各自贴到两侧」：中间插入一个普通的 `View` 作为空隙，键之间原有的宽度比例和第二行的半键缩进原样保留，所以第二行的断口比第一行偏右半个键。断点取使左段份额最接近整行一半的那个键边界，一样接近时多出来的键归左边：qwert | yuiop、asdfg | hjkl、⇧zxcv | bnm⌫，123 / #+= 层第三行是 #+= 加三个标点 | 两个标点加 ⌫。⇧ 和 ⌫ 始终在两侧外缘。
 - 字母层的第二、三行在右半边内侧重复左半边最内侧的字母（#6022）：asdfg | ghjkl、⇧zxcv | vbnm⌫（韩文两套式同一位置是 ㅎ、ㅍ），总是生效，没有子开关。重复的键是同一种字母键，输入、提示角标、滑动符号和键位 id 都与左边那个相同；它从空隙里占一个键宽（`SplitKeyboardPolicy.gapWeight(float, float)`），所以三行键宽不变，两段等宽、空隙仍居中，只是这两行的空隙比第一行窄一个键。只在重复之后两段正好相等时才重复（`SplitKeyboardPolicy.duplicatesInnerKey` 按这一行的实际份额判断）：微软双拼显示 `;` 时第二行本来就是 asdfg | hjkl; 五对五，这一行不重复 G。第一行、数字行和 123 / #+= 层不重复。滑行输入只认左边那个 G、V：交给 Engine 的键位每个字母只有一个中心点，右边的重复键在滑行时和空隙一样不算字母键，点按照常输入。
 - 底行（字母层的功能行，以及 123 / #+= 层自带的底行）的空格键拆成两个，分别在两半的内侧，左边那个的宽度让空隙正好落在整行中间（每一半至少保留原宽度的四分之一）。两个都是空格：右边那个直接绑定同一个 `space()`，按键反馈、计数和键位 id（`Space`）与原空格相同，长按语音和拖动移光标用同一套手势，且两个键各有自己的手势状态，两根拇指先后按住时互不干扰。
 - 中间空隙是死区：它不是键、不可点击，也不带键距外边距。`KeyboardKeyArea` 只把落在某个键外边距里的按下交还给那个键，空隙在所有键的外边距之外，所以点它什么也不发生，只有紧贴内侧键的那几 dp 键距仍归内侧键。
-- 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到竖屏或换到不分离的布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
+- 与单手模式互斥：分离式键盘画着时单手模式不生效，侧栏不显示；存着的 `platform.android.one_handed` 不改，回到不分离的窗口或布局时原来的单手模式自动回来。功能面板里的「单手模式」磁贴这时显示为不可用。
 - 键高、键盘高度设置、键距和行距都不变；打开「数字行」时数字行同样从中间分开（12345 | 67890）。旋转、换布局或开关变化后，下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.splitStale`），不动 Engine session 和当前组合。
+- `KeyboardHeightDeviceSmoke` 的 `-e portrait-split true` 专项通过真实键盘节点测量中缝，覆盖大屏竖屏热更新与组字保留、原生设置保存、数字符号页、窄外屏恢复和横屏兼容；测试结束恢复窗口尺寸、密度、旋转与偏好。模拟窗口变化不等于折叠屏真机验收。
 
 ### 数字行
 
@@ -60,7 +63,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 面板宽度是当前窗口的 80%，夹在 240–480 dp 之间且不超过窗口；高度与停靠时相同（键盘高度设置照样生效），顶部多一条 22 dp 的拖动条，按住横条拖动，右端的「停靠」键回到停靠在底部的完整键盘。
 - 位置按可移动范围（系统栏之间的区域减去面板大小）里的千分比存在 `platform.android.floating_keyboard_x` / `_y`，默认水平居中、贴底；松手时写入。旋转、分屏或面板变高后换算回像素，面板总在窗口里。拖动只改面板的平移，不重新布局。
 - 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
-- 浮动时单手模式和横屏分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部（打开下文的「物理键盘时候选栏跟随光标」时跟着光标走），浮动磁贴与按钮显示为不可用。
+- 浮动时单手模式和分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部（打开下文的「物理键盘时候选栏跟随光标」时跟着光标走），浮动磁贴与按钮显示为不可用。
 
 ### 键盘底栏
 
@@ -455,3 +458,16 @@ adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.
 adb -s emulator-5580 shell am instrument --no-restart -e magnifier true -w \
   app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke
 ```
+
+### 相对日期候选
+
+相对日期专项：先安装当前分支构建的原生完整版 APK、打开设置应用等待词库准备完成，在专用 AVD 上启用水杉输入法，再执行以下命令（API 28 同理）。测试通过真实全拼与九键按键输入「日期」及九个日期／年份触发词，展开候选并点击带触发词的结果，核对合成编辑器上屏且没有原拼写残留；结束恢复原偏好。专项复用现有 instrumentation 入口，下次普通构建恢复默认清单。
+
+```sh
+MSIME_ANDROID_RELATIVE_DATE=1 bash platforms/android/tests/device/build-editor.sh
+"$ANDROID_SDK_ROOT/platform-tools/adb" -s emulator-5580 install --no-incremental -r target/android/editor-test.apk
+"$ANDROID_SDK_ROOT/platform-tools/adb" -s emulator-5580 shell am instrument --no-restart -w \
+  app.msime.android.test/app.msime.android.test.RelativeDateDeviceSmoke
+```
+
+API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参数。测试跨午夜时应重跑。

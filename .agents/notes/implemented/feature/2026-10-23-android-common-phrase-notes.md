@@ -14,6 +14,8 @@ Status: implemented
 
 本地备份的 `phrases.json` 保留正文数组，新增按完整正文索引的可选 `notes` 映射；旧版本可忽略这个附加字段，新版恢复旧备份按空备注添加。本机已有相同正文时继续跳过，保留本机备注，不在恢复过程中覆盖已有说明。
 
+[常用语分类](../../implemented/feature/2026-10-23-android-phrase-categories.md)扩展同一文档和 Android 列表，仍保留备注的独立校验、显示和只插入正文的边界。
+
 ## Existing notes
 
 检索常用语、`CommonPhrases` 和同步：与[常用语锁绑定父目录句柄](../../implemented/bug-fix/2026-10-09-common-phrases-lock-directory.md)部分重叠，继续使用其锁和原子发布，不另存 Java 文件。[剪贴板一步存为常用语](../../implemented/feature/2026-10-09-android-clipboard-to-phrases.md)继续只提交正文，缺省备注为空；[Android 云同步接入 Rust](../../implemented/architecture/2026-10-18-android-cloud-sync-through-rust.md)的同步边界不变。与[Android 本地备份](../../implemented/feature/2026-10-08-android-local-backup.md)部分重叠，同步其备注格式描述。本片没有完全吸收或需要作废的旧笔记。

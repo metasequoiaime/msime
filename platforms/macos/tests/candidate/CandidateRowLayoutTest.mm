@@ -71,9 +71,15 @@
 
 static MSIMECandidateButton *CandidateButton(NSView *content, NSInteger tag)
 {
-    for (NSView *view in MSIMECandidateControlsView(content).subviews)
+    for (NSView *view in MSIMECandidateControlSubviews(content))
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (MSIMECandidateButton *)view;
     return nil;
+}
+
+static NSRect CandidateFrame(NSView *view) {
+    NSView *chrome = view.superview;
+    while (chrome && ![chrome isKindOfClass:MSIMECandidateChromeView.class]) chrome = chrome.superview;
+    return chrome ? [view convertRect:view.bounds toView:MSIMECandidateControlsView(chrome)] : view.frame;
 }
 
 // 直接检查真实绘制方法的四条直边，布局矩形贴边不能代替背景像素贴边。
@@ -786,17 +792,23 @@ static void TestFactoryCornerRadii(RowLayoutClient *client)
             if (!follow) { assert(path == nullptr); continue; }
             assert(path && CGRectEqualToRect(CGPathGetBoundingBox(path), first.bounds));
             assert(fabs(first.cornerRadii[0] - (preedit.boolValue ? first.cornerRadius : outer)) < 0.01);
-            if (fabs(last.cornerRadii[3] - outer) >= 0.01)
+            const double lastBottomLeft = expanded.boolValue ? last.cornerRadius : outer;
+            if (expanded.boolValue) {
+                // 展开共享列处于同一行，只有第一列贴着左下边界。
+                assert(fabs(NSMinY(CandidateFrame(first)) - NSMinY(CandidateFrame(last))) < 0.01);
+                assert(fabs(first.cornerRadii[3] - outer) < 0.01);
+            }
+            if (fabs(last.cornerRadii[3] - lastBottomLeft) >= 0.01)
                 fprintf(stderr, "corner geometry skin=%s scale=%.1f vertical=%d preedit=%d expanded=%d area=%s first=%s last=%s radius=%.2f expected=%.2f\n",
                     identifier, scale, vertical.boolValue, preedit.boolValue, expanded.boolValue, NSStringFromRect(chrome.candidateRowsRect).UTF8String,
-                    NSStringFromRect(first.frame).UTF8String, NSStringFromRect(last.frame).UTF8String, last.cornerRadii[3], outer);
-            assert(fabs(last.cornerRadii[3] - outer) < 0.01);
+                    NSStringFromRect(CandidateFrame(first)).UTF8String, NSStringFromRect(CandidateFrame(last)).UTF8String, last.cornerRadii[3], lastBottomLeft);
+            assert(fabs(last.cornerRadii[3] - lastBottomLeft) < 0.01);
             if (vertical.boolValue) {
                 assert(fabs(first.cornerRadii[1] - (preedit.boolValue ? first.cornerRadius : outer)) < 0.01);
                 assert(fabs(last.cornerRadii[2] - outer) < 0.01);
             } else {
-                // 末行只有一项，右缘没有贴满卡片，不能凭“末候选”借右下角。
-                assert(NSMaxX(last.frame) + scale < NSMaxX(chrome.candidateRowsRect));
+                // 此夹具右缘没有贴满候选区域，不能凭“末候选”借右下角。
+                assert(NSMaxX(CandidateFrame(last)) + scale < NSMaxX(chrome.candidateRowsRect));
                 assert(fabs(last.cornerRadii[2] - last.cornerRadius) < 0.01);
             }
             // 动效必须拿到同一路径，glow 也沿路径描边，不能退回统一 CALayer 圆角。
@@ -891,8 +903,8 @@ static void TestSkinPreeditGap(RowLayoutClient *client)
                 for (NSView *child in chrome.candidateContentView.subviews)
                     if ([child.identifier isEqual:@"candidate-preedit"]) preedit = (id)child;
                 assert((preedit != nil) == shown);
-                const CGFloat actualGap = shown ? NSMinY(preedit.frame) - NSMaxY(first.frame) - (canvas ? 0 : 13 * scale)
-                    : NSHeight(chrome.cardBounds) - padding - NSMaxY(first.frame) - header;
+                const CGFloat actualGap = shown ? NSMinY(preedit.frame) - NSMaxY(CandidateFrame(first)) - (canvas ? 0 : 13 * scale)
+                    : NSHeight(chrome.cardBounds) - padding - NSMaxY(CandidateFrame(first)) - header;
                 const CGFloat expected = shown ? (canvas ? 19 : 2) * scale : expectedGap;
                 const CGFloat tolerance = 1.0 / panel.backingScaleFactor + 0.01;
                 if (fabs(actualGap - expected) > tolerance)
@@ -918,7 +930,7 @@ static void TestSkinPreeditGap(RowLayoutClient *client)
                             assert(fabs(NSMinY(child.frame) - NSMinY(arrow.frame)) < 0.01);
                 }
                 // 透明空隙不属于候选按钮的命中区域。
-                const NSPoint top = NSMakePoint(NSMidX(first.frame), NSMaxY(first.frame) + expectedGap / 2);
+                const NSPoint top = NSMakePoint(NSMidX(CandidateFrame(first)), NSMaxY(CandidateFrame(first)) + expectedGap / 2);
                 if (!shown && expectedGap > 0) {
                     NSView *hit = [chrome.candidateContentView hitTest:[chrome.candidateContentView convertPoint:top toView:chrome.candidateContentView.superview]];
                     assert(hit != first && ![hit isDescendantOf:first]);
@@ -989,9 +1001,9 @@ static void TestFactoryPreeditMargins(RowLayoutClient *client)
                 for (NSView *child in MSIMECandidateControlsView(panel.contentView).subviews)
                     if ([child.identifier isEqual:@"candidate-preedit"]) label = (id)child;
                 assert(first && first.hasSkinLayout && label);
-                const CGFloat inset = NSMinX(first.frame);
+                const CGFloat inset = NSMinX(CandidateFrame(first));
                 const CGFloat top = NSHeight(MSIMECandidateControlsView(panel.contentView).bounds) - inset - NSMaxY(label.frame);
-                const CGFloat bottom = NSMinY(label.frame) - NSMaxY(first.frame);
+                const CGFloat bottom = NSMinY(label.frame) - NSMaxY(CandidateFrame(first));
                 if (plain) baseline[scaling][vertical][expanded] = {top, bottom};
                 const auto before = baseline[scaling][vertical][expanded];
                 const CGFloat marginTop = plain ? 0 : vertical ? 3 : 7;
@@ -1162,7 +1174,7 @@ static void TestHostAppearance(BOOL visual)
                         assert(panel.contentView == stableChrome && stableChrome.candidateContentView == stableContent);
                         assert(glass.superview == stableChrome);
                         assert([stableContent.effectiveAppearance.name isEqual:name]);
-                        assert(CandidateButton(stableChrome, 1) != previous && previous.superview == nil);
+                        assert(CandidateButton(stableChrome, 1) != previous && ![previous isDescendantOf:stableContent]);
                         assert([CandidateButton(stableChrome, 1).titleColor isEqual:SkinColor(tokens.text)]);
                     }
                 }
@@ -1257,17 +1269,56 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
             assert(std::abs(NSHeight(chrome.bounds) - NSHeight(card) - skin.canvas->outer.top - skin.canvas->outer.bottom) < 0.01);
             assert(NSEqualRects(chrome.candidateContentView.frame, card));
             MSIMECandidateButton *first = CandidateButton(chrome, 0);
-            assert(first.superview == chrome.candidateContentView);
+            assert([first isDescendantOf:chrome.candidateContentView]);
+            if (expanded.boolValue) {
+                assert([first.enclosingScrollView isKindOfClass:MSIMEExpandedCandidateScrollView.class] &&
+                    first.enclosingScrollView.contentView.clipsToBounds);
+                NSScrollView *viewport = first.enclosingScrollView;
+                assert(fabs(NSMinX(viewport.frame) - padding.left + msime::mac::CandidateInset(skin.tokens)) < 0.01);
+                assert(fabs(NSMinX(first.frame) - msime::mac::CandidateInset(skin.tokens)) < 0.01);
+                assert(NSMaxX(viewport.frame) <= NSWidth(card) + positionTolerance);
+                if (!skin.expandPanel.value_or(false)) {
+                    if (fabs(NSMaxX(viewport.frame) - NSWidth(card)) > positionTolerance)
+                        fprintf(stderr, "canvas viewport=%s card=%s padding=%.2f,%.2f inset=%.2f scale=%ld skin=%s\n",
+                            NSStringFromRect(viewport.frame).UTF8String, NSStringFromRect(card).UTF8String,
+                            padding.left, padding.right, msime::mac::CandidateInset(skin.tokens),
+                            (long)percent.integerValue, identifier.UTF8String);
+                    assert(fabs(NSMaxX(viewport.frame) - NSWidth(card)) <= positionTolerance);
+                }
+                assert(fabs(NSWidth(viewport.documentView.frame) - NSWidth(viewport.contentView.bounds)) < 0.01);
+                assert(!viewport.hasHorizontalScroller);
+                viewport.autohidesScrollers = NO;
+                [viewport tile];
+                const NSRect scroller = [viewport.verticalScroller convertRect:viewport.verticalScroller.bounds
+                    toView:chrome.candidateContentView];
+                assert(!NSIsEmptyRect(scroller) && NSMaxX(scroller) <= NSWidth(card) + positionTolerance);
+                for (NSInteger tag = 0; tag < 3; ++tag)
+                    assert(NSMaxX(CandidateFrame(CandidateButton(chrome, tag))) <=
+                        NSMinX(scroller) - 4 * percent.doubleValue / 100 + 0.01);
+            }
             const CGFloat itemRadius = [identifier isEqual:@"canvas-host"] ? 3.5 : [identifier isEqual:@"green_leaf"] ? 5 : 6;
             assert(std::abs(first.cornerRadius - itemRadius * percent.doubleValue / 100) < 0.01);
-            assert(std::abs(NSMinX(first.frame) - padding.left) < 0.01);
+            // 原生裁剪视口会按 backing 像素定位；逻辑单元格仍在上面严格检查。
+            const CGFloat rowPositionTolerance = expanded.boolValue ? positionTolerance : 0.01;
+            if (std::abs(NSMinX(CandidateFrame(first)) - padding.left) > rowPositionTolerance)
+                fprintf(stderr, "canvas candidate x: percent=%ld vertical=%d dark=%d expanded=%d backing=%.1f frame=%s expected=%.3f viewport=%s clip=%s document=%s\n",
+                    (long)percent.integerValue, vertical.boolValue, dark.boolValue, expanded.boolValue, panel.backingScaleFactor,
+                    NSStringFromRect(CandidateFrame(first)).UTF8String, padding.left,
+                    NSStringFromRect(first.enclosingScrollView.frame).UTF8String,
+                    NSStringFromRect(first.enclosingScrollView.contentView.bounds).UTF8String,
+                    NSStringFromRect(first.enclosingScrollView.documentView.frame).UTF8String);
+            assert(std::abs(NSMinX(CandidateFrame(first)) - padding.left) <= rowPositionTolerance);
             CGFloat bottom = CGFLOAT_MAX;
             for (NSInteger tag = 0; tag < 3; ++tag) {
                 MSIMECandidateButton *button = CandidateButton(chrome, tag);
-                assert(button && NSMaxX(button.frame) <= NSWidth(card) - padding.right + 0.01);
-                bottom = MIN(bottom, NSMinY(button.frame));
+                assert(button && NSMaxX(CandidateFrame(button)) <= NSWidth(card) - padding.right + positionTolerance);
+                bottom = MIN(bottom, NSMinY(CandidateFrame(button)));
             }
-            assert(std::abs(bottom - padding.bottom) < 0.01);
+            if (std::abs(bottom - padding.bottom) > rowPositionTolerance)
+                fprintf(stderr, "canvas candidate bottom: percent=%ld vertical=%d dark=%d expanded=%d backing=%.1f actual=%.3f expected=%.3f\n",
+                    (long)percent.integerValue, vertical.boolValue, dark.boolValue, expanded.boolValue,
+                    panel.backingScaleFactor, bottom, padding.bottom);
+            assert(std::abs(bottom - padding.bottom) <= rowPositionTolerance);
             const NSPoint hit = [first convertPoint:NSMakePoint(NSMidX(first.bounds), NSMidY(first.bounds)) toView:chrome];
             assert([chrome hitTest:hit] == first);
             assert([first.titleColor isEqual:SkinColor(skin.tokens.selectedText)]);
@@ -1287,8 +1338,11 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
             const CGFloat headerHeight = MAX(NSHeight(preedit.frame), headerHasControls ? MSIMECandidateHeaderHeight * scale : 0);
             const CGFloat centeredOffset = floor((headerHeight - NSHeight(preedit.frame)) / 2);
             const auto preeditMargin = MSIMECandidatePreeditMargins(skin, YES, scale);
-            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.frame) -
-                skin.canvas->lineGap.value_or(0) - preeditMargin.bottom - centeredOffset) < 0.01);
+            if (expanded.boolValue)
+                assert(std::abs(NSMinY(preedit.frame) - NSMaxY(first.enclosingScrollView.frame) -
+                    skin.canvas->lineGap.value_or(0) - preeditMargin.bottom - centeredOffset) < 0.01);
+            assert(std::abs(NSMinY(preedit.frame) - NSMaxY(CandidateFrame(first)) -
+                skin.canvas->lineGap.value_or(0) - preeditMargin.bottom - centeredOffset) <= rowPositionTolerance);
             for (NSView *child in chrome.subviews) {
                 if ([child isKindOfClass:MSIMECandidateCanvasView.class]) {
                     [levels addObject:child.identifier];
@@ -1308,8 +1362,13 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
             const auto otherSkin = [appearance candidateWindowSkinForDark:!dark.boolValue];
             assert([first.titleColor isEqual:SkinColor(otherSkin.tokens.selectedText)]);
             if ([identifier isEqual:@"canvas-host"]) {
-                for (NSView *child in chrome.subviews) if ([child.identifier isEqual:@"candidate-canvas-0"])
-                    assert(CGImageGetWidth((__bridge CGImageRef)child.layer.sublayers[4].contents) == (dark.boolValue ? 10 : 8));
+                for (NSView *child in chrome.subviews) if ([child.identifier isEqual:@"candidate-canvas-0"]) {
+                    // 零边框只生成中间贴图，不能假设始终有九个切片。
+                    size_t widest = 0;
+                    for (CALayer *sprite in child.layer.sublayers)
+                        widest = MAX(widest, CGImageGetWidth((__bridge CGImageRef)sprite.contents));
+                    assert(widest == (dark.boolValue ? 10 : 8));
+                }
             }
             chrome.appearance = originalAppearance;
             [controller refreshCandidateSkin];
@@ -1348,8 +1407,15 @@ static void TestCanvasHost(const std::filesystem::path &root, NSString *identifi
         // 底部挂件留白较大时，整窗夹紧会把卡片向上推，不能用未夹紧的光标位置作期望。
         const CGFloat cardBottom = MAX(NSMaxY(client.caret) + 4, NSMinY(screen) + NSMinY(chrome.cardBounds));
         assert(std::abs(NSMinY(panel.frame) + NSMinY(chrome.cardBounds) - cardBottom) <= 1.0 / panel.backingScaleFactor + 0.01);
-        assert(std::abs(NSMaxY(CandidateButton(chrome, 0).frame) - NSHeight(chrome.cardBounds)
-            + skin.canvas->content->top + 2.0 * appearance.candidateScalePercent / 100.0) < 0.01);
+        const CGFloat topInset = skin.canvas->content->top + 2.0 * appearance.candidateScalePercent / 100.0;
+        const CGFloat actualTop = NSMaxY(CandidateFrame(CandidateButton(chrome, 0)));
+        const CGFloat expectedTop = NSHeight(chrome.cardBounds) - topInset;
+        const CGFloat topTolerance = 1.0 / panel.backingScaleFactor + 0.01;
+        if (std::abs(actualTop - expectedTop) > topTolerance)
+            fprintf(stderr, "canvas headerless top: expanded=%d percent=%ld backing=%.1f actual=%.3f expected=%.3f card=%s\n",
+                expanded.boolValue, (long)appearance.candidateScalePercent, panel.backingScaleFactor, actualTop,
+                expectedTop, NSStringFromRect(chrome.cardBounds).UTF8String);
+        assert(std::abs(actualTop - expectedTop) <= topTolerance);
     }
     [controller hideCandidatePanel:"empty"];
     [controller setValue:nil forKey:@"activeClient"];
@@ -1362,7 +1428,7 @@ static void TestCanvasHostFixture()
     std::filesystem::create_directories(root / "canvas-host");
     WriteApng(root / "canvas-host" / "panel.png", 12, 12, 1, 0.1);
     WriteApng(root / "canvas-host" / "panel-light.png", 14, 12, 1, 0.1);
-    {
+    for (int right : {0, 2, 21}) for (int left : {0, 23}) for (bool expand : {false, true}) {
         std::ofstream manifest(root / "canvas-host" / "skin.toml");
         manifest << R"toml(schema_version = 2
 id = "canvas-host"
@@ -1376,16 +1442,17 @@ themes = ["light", "dark"]
 min_width_dip = 240
 line_gap_dip = 9
 item_corner_radius_dip = 3.5
+)toml" << "expand_panel = " << (expand ? "true" : "false") << R"toml(
 [candidate_window.border_image]
 source = "panel.png"
 light_source = "panel-light.png"
 slice_dip = [2]
-width_dip = [4]
+width_dip = [0]
 [candidate_window.content_insets_dip]
 top = 17
-right = 21
+right = )toml" << right << R"toml(
 bottom = 19
-left = 23
+left = )toml" << left << R"toml(
 [candidate_window.outer_insets_dip]
 top = 11
 right = 13
@@ -1419,8 +1486,9 @@ selected_text = "#ffffff"
 selected_bar = "#77ccee"
 )toml";
         assert(manifest.good());
+        manifest.close();
+        TestCanvasHost(root, @"canvas-host", nil);
     }
-    TestCanvasHost(root, @"canvas-host", nil);
     std::filesystem::remove_all(root);
 }
 
@@ -1855,8 +1923,18 @@ static void TestFactoryExpandToggle(RowLayoutClient *client)
                         (long)font, scale, expanded, NSWidth(toggle.frame), side);
                 assert(fabs(NSWidth(toggle.frame) - side) < 0.01 && fabs(NSHeight(toggle.frame) - side) < 0.01);
                 const CGFloat top = MAX(0, (pointSize * 1.35 + 2 * scale - side) / 2);
-                assert(fabs(NSMaxY(first.frame) - NSMaxY(toggle.frame) - top) < 0.01);
-                const CGFloat right = canvas ? 9 * scale : NSMinX(first.frame);
+                if (expanded)
+                    assert(fabs(NSMaxY(first.enclosingScrollView.frame) - NSMaxY(toggle.frame) - top) < 0.01);
+                const CGFloat topTolerance = expanded ? 1.0 / panel.backingScaleFactor + 0.01 : 0.01;
+                if (fabs(NSMaxY(CandidateFrame(first)) - NSMaxY(toggle.frame) - top) > topTolerance)
+                    fprintf(stderr, "expand toggle top: canvas=%d dark=%d font=%ld percent=%ld preedit=%d pages=%d expanded=%d backing=%.1f first=%s toggle=%s expected=%.3f viewport=%s clip=%s document=%s\n",
+                        canvas, dark, (long)font, (long)percent, preedit, pageControls, expanded, panel.backingScaleFactor,
+                        NSStringFromRect(CandidateFrame(first)).UTF8String, NSStringFromRect(toggle.frame).UTF8String, top,
+                        NSStringFromRect(first.enclosingScrollView.frame).UTF8String,
+                        NSStringFromRect(first.enclosingScrollView.contentView.bounds).UTF8String,
+                        NSStringFromRect(first.enclosingScrollView.documentView.frame).UTF8String);
+                assert(fabs(NSMaxY(CandidateFrame(first)) - NSMaxY(toggle.frame) - top) <= topTolerance);
+                const CGFloat right = canvas ? 9 * scale : NSMinX(CandidateFrame(first));
                 if (fabs(NSWidth(chrome.cardBounds) - NSMaxX(toggle.frame) - right - scale) >= 0.01)
                     fprintf(stderr, "expand toggle right: canvas=%d font=%ld scale=%.1f expanded=%d card=%.2f toggle=%.2f right=%.2f\n",
                         canvas, (long)font, scale, expanded, NSWidth(chrome.cardBounds), NSMaxX(toggle.frame), right);

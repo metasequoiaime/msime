@@ -1,15 +1,16 @@
 package app.msime.android;
 
 /**
- * 平板横屏的分离式键盘：什么时候分、哪些布局分、每一行从哪里断开、中间空出多宽，以及它与单手模式的互斥。纯计算，不依赖 Android，便于在 JVM 上测试。
+ * 大屏的分离式键盘：什么时候分、哪些布局分、每一行从哪里断开、中间空出多宽，以及它与单手模式的互斥。纯计算，不依赖 Android，便于在 JVM 上测试。
  *
- * <p>分离只在三个条件同时成立时生效：本地设置 `platform.android.split_keyboard` 打开、设备是大屏（{@link KeyboardFormFactorPolicy#expanded}，按 `smallestScreenWidthDp` 判断，手机横屏不算）、当前是横屏；并且正在画的布局属于 26 键一族（{@link #splitsLayout}）。九键、日文假名网格、手写、大千注音、笔画和注音 9 键这类网格布局不分离，键盘照常画成大屏的 720 dp 居中外框。
+ * <p>分离需要本地设置 `platform.android.split_keyboard` 打开、当前窗口是大屏（{@link KeyboardFormFactorPolicy#expanded}，按 `smallestScreenWidthDp` 判断，手机横屏不算），并且横屏或 `touch_keyboard_split_portrait` 打开；正在画的布局也必须属于 26 键一族（{@link #splitsLayout}）。九键、日文假名网格、手写、大千注音、笔画和注音 9 键这类网格布局不分离，键盘照常画成大屏的 720 dp 居中外框。
  *
  * <p>每一行都是「不分离时的那一行，整体缩到键盘宽度的 75%，在中间某个键的边界上断开，左右两段各自贴到键盘两侧」。中间空出的 25% 是一个不属于任何键的占位视图，键与键之间原有的宽度比例、第二行的半键缩进都原样保留，所以第二行的断口比第一行偏右半个键，就像整副键盘从中间掰开。断点取使左段份额最接近整行一半的键边界；两个边界一样接近时（奇数个等宽键）多出来的那个键归左边。底行的空格键不在键边界上断，而是拆成两个空格键，分别放在两半的内侧，左边那个的宽度让空隙正好居中。
  *
  * <p>字母层的第二、三行在右半边内侧重复左半边最内侧的那个字母（#6022）：a–l 行是 asdfg | ghjkl，⇧ zxcvbnm ⌫ 是 ⇧zxcv | vbnm⌫，双手握持时两边拇指都够得着 G、V，双拼也更顺手。重复的键从空隙里占一个键宽（{@link #gapWeight(float, float)}），所以三行的键宽不变，这两行的空隙比第一行窄一个键；两段的份额恰好相等（第二行 0.5 + 5 对 5 + 0.5，第三行 ⇧ + 4 对 4 + ⌫），空隙仍在正中。只有重复之后两段正好相等时才重复（{@link #duplicatesInnerKey}）：微软双拼显示第十个键 `;` 时第二行没有半键缩进，asdfg | hjkl; 本来就是五对五，再重复 G 右边就多出一个键、空隙偏开半个键，所以这一行不重复。第一行 qwert | yuiop 本来左右各五个，不重复；数字行、123 / #+= 层也不重复。
  */
 public final class SplitKeyboardPolicy {
+    public static final String PORTRAIT_PREFERENCE = "touch_keyboard_split_portrait";
     /** 中间空隙占整行宽度的比例。 */
     public static final float GAP_FRACTION = 0.25f;
     /** 拆开的空格键每一半至少保留原宽度的这个比例，避免某一侧只剩一条窄缝。中/英挪到回车左边后，空格右侧的键（。中 ↵）比左侧（123 ，）宽得多，逗号隐藏时要让空隙仍落在正中，右半只剩约 16%，所以下限取 15%。 */
@@ -27,7 +28,12 @@ public final class SplitKeyboardPolicy {
      * @param landscape `Configuration.orientation` 是否为横屏
      */
     public static boolean active(boolean enabled, int smallestWidthDp, boolean landscape) {
-        return enabled && landscape && KeyboardFormFactorPolicy.expanded(smallestWidthDp);
+        return active(enabled, smallestWidthDp, landscape, false);
+    }
+
+    /** 竖屏覆盖只改变方向条件，不绕过主开关和大屏边界。 */
+    public static boolean active(boolean enabled, int smallestWidthDp, boolean landscape, boolean portrait) {
+        return enabled && (landscape || portrait) && KeyboardFormFactorPolicy.expanded(smallestWidthDp);
     }
 
     /**
@@ -40,7 +46,13 @@ public final class SplitKeyboardPolicy {
 
     /** 当前是否真的画成分离式：前提满足且正在画的布局可以分离。键盘外框宽度、行的拆分和单手模式的互斥都只看这一个结果。 */
     public static boolean drawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout) {
-        return active(enabled, smallestWidthDp, landscape) && splitsLayout(touchLayout);
+        return drawn(enabled, smallestWidthDp, landscape, touchLayout, false);
+    }
+
+    /** 当前窗口的方向变化不清除偏好；窄外屏仍不分离。 */
+    public static boolean drawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout,
+                                boolean portrait) {
+        return active(enabled, smallestWidthDp, landscape, portrait) && splitsLayout(touchLayout);
     }
 
     /** 份额合计为 `rowWeight` 的一行需要多大份额的空隙，才能让空隙占插入后整行的 {@link #GAP_FRACTION}。 */
@@ -120,7 +132,7 @@ public final class SplitKeyboardPolicy {
     }
 
     /**
-     * 分离式键盘画着的时候单手模式不生效：返回实际要套用的单手取值。存着的偏好不改，回到竖屏或换到不分离的布局时原来的单手模式自动回来。
+     * 分离式键盘画着的时候单手模式不生效：返回实际要套用的单手取值。存着的偏好不改，回到不分离的窗口或布局时原来的单手模式自动回来。
      *
      * @param stored 本地设置 `platform.android.one_handed`（`off` / `left` / `right`）
      * @param splitDrawn {@link #drawn} 的结果

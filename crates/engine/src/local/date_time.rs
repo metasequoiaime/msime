@@ -3,11 +3,11 @@
 //! `nl`/`nongli`/`yinli` 是参考实现之外新增的农历关键词（#5952）：农历原本只排在 `rq` 列表最后一行，单独的关键词让它不用翻页就能选到。
 
 use lunar_lite::{solar_to_lunar, SolarDate};
-use time::{Date, Month, OffsetDateTime};
+use time::{Date, Duration, Month, OffsetDateTime};
 
 use crate::types::{CandidateSource, WordItem};
 
-pub const RESULT_LIMIT: usize = 17;
+pub const RESULT_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LocalDateTime {
@@ -21,18 +21,18 @@ pub struct LocalDateTime {
     pub second: u32,
 }
 
-/// Whether the date fields describe a real Gregorian calendar date.
+/// 日期字段是否构成有效公历日期。
 pub(crate) fn is_valid_calendar_date(year: i32, month: u32, day: u32) -> bool {
-    let Some(month) = u8::try_from(month)
-        .ok()
-        .and_then(|month| Month::try_from(month).ok())
-    else {
-        return false;
-    };
-    let Some(day) = u8::try_from(day).ok() else {
-        return false;
-    };
-    Date::from_calendar_date(year, month, day).is_ok()
+    calendar_date(year, month, day).is_some()
+}
+
+fn calendar_date(year: i32, month: u32, day: u32) -> Option<Date> {
+    Date::from_calendar_date(
+        year,
+        Month::try_from(u8::try_from(month).ok()?).ok()?,
+        u8::try_from(day).ok()?,
+    )
+    .ok()
 }
 
 pub(crate) const WEEKDAYS: [&str; 7] = [
@@ -89,7 +89,7 @@ pub fn current_local_date_time() -> LocalDateTime {
     }
 }
 
-/// Generated rows, weight `count - index`, at most 17; nothing for an unknown keyword.
+/// 生成行的权重为 `count - index`，最多 20 条；未知关键词没有候选。
 pub fn query_date_time(keyword: &str, now: &LocalDateTime) -> Vec<WordItem> {
     query_date_time_with_limit(keyword, now, RESULT_LIMIT)
 }
@@ -101,11 +101,22 @@ pub fn query_date_time_with_limit(
     limit: usize,
 ) -> Vec<WordItem> {
     let texts = match keyword {
-        "rq" | "riqi" | "date" => date_candidates(now),
+        "rq" | "riqi" | "date" => date_candidates_with_label("今天", now),
         "sj" | "shijian" | "time" => time_candidates(now),
         "xq" | "xingqi" | "week" => week_candidates(now),
         "nl" | "nongli" | "yinli" => lunar_candidates(now),
-        _ => return Vec::new(),
+        _ => match inline_date_time_keyword(|candidate| candidate == keyword) {
+            Some((_, _, InlineDateTime::RelativeDay { label, days })) => {
+                let Some(date) = relative_date(now, days) else {
+                    return Vec::new();
+                };
+                date_candidates_with_label(label, &date)
+            }
+            Some((_, _, kind @ InlineDateTime::RelativeYear { .. })) => {
+                inline_date_time_rows(kind, now)
+            }
+            _ => return Vec::new(),
+        },
     };
     let count = texts.len().min(limit);
     texts
@@ -131,10 +142,12 @@ pub(crate) enum InlineDateTime {
     Time,
     Week,
     Lunar,
+    RelativeDay { label: &'static str, days: i64 },
+    RelativeYear { label: &'static str, years: i32 },
 }
 
 /// 拼音组字正好是这些全拼或简拼时，候选里接着锚定词给出当前的日期、时间、星期或农历：(关键词, 锚定词, 种类)。只认锚定词出现在候选里的情况，所以词库里没有这个词、或者它被别的读法挤出列表时什么都不加。
-const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 9] = [
+const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 18] = [
     ("riqi", "日期", InlineDateTime::Date),
     ("rq", "日期", InlineDateTime::Date),
     ("shijian", "时间", InlineDateTime::Time),
@@ -144,6 +157,78 @@ const INLINE_KEYWORDS: [(&str, &str, InlineDateTime); 9] = [
     ("nongli", "农历", InlineDateTime::Lunar),
     ("nl", "农历", InlineDateTime::Lunar),
     ("yinli", "阴历", InlineDateTime::Lunar),
+    (
+        "jintian",
+        "今天",
+        InlineDateTime::RelativeDay {
+            label: "今天",
+            days: 0,
+        },
+    ),
+    (
+        "zuotian",
+        "昨天",
+        InlineDateTime::RelativeDay {
+            label: "昨天",
+            days: -1,
+        },
+    ),
+    (
+        "qiantian",
+        "前天",
+        InlineDateTime::RelativeDay {
+            label: "前天",
+            days: -2,
+        },
+    ),
+    (
+        "mingtian",
+        "明天",
+        InlineDateTime::RelativeDay {
+            label: "明天",
+            days: 1,
+        },
+    ),
+    (
+        "houtian",
+        "后天",
+        InlineDateTime::RelativeDay {
+            label: "后天",
+            days: 2,
+        },
+    ),
+    (
+        "mingnian",
+        "明年",
+        InlineDateTime::RelativeYear {
+            label: "明年",
+            years: 1,
+        },
+    ),
+    (
+        "qunian",
+        "去年",
+        InlineDateTime::RelativeYear {
+            label: "去年",
+            years: -1,
+        },
+    ),
+    (
+        "jinnian",
+        "今年",
+        InlineDateTime::RelativeYear {
+            label: "今年",
+            years: 0,
+        },
+    ),
+    (
+        "lainian",
+        "来年",
+        InlineDateTime::RelativeYear {
+            label: "来年",
+            years: 1,
+        },
+    ),
 ];
 
 /// 第一个让 `spells` 认出的关键词、锚定词和种类；`spells` 判断组字（全拼字母或九宫格数字）是否拼出这个关键词。
@@ -178,12 +263,9 @@ pub(crate) fn date_time_menu_keyword(item: &WordItem) -> &str {
     item.pinyin.strip_prefix(MENU_PREFIX).unwrap_or("")
 }
 
-/// 组字里给出的几行，取自日期时间模式的同一套格式：日期是「年月日」、ISO 和带星期的写法，时间是 24 小时的时分、时分秒和「上午 / 下午」，星期是「星期X」和「周X」，农历只有一行，日历换算不了时没有。
+/// 行内复用完整日期格式中的年月日、ISO 和带星期写法，再附三种相对日标签；年份只有一行。时间是时分、时分秒和上下午，星期有长短两种，农历换算失败时没有行。
 pub(crate) fn inline_date_time_rows(kind: InlineDateTime, now: &LocalDateTime) -> Vec<String> {
     let LocalDateTime {
-        year,
-        month,
-        day,
         hour,
         minute,
         second,
@@ -191,11 +273,13 @@ pub(crate) fn inline_date_time_rows(kind: InlineDateTime, now: &LocalDateTime) -
     } = *now;
     let weekday = weekday_index(now);
     match kind {
-        InlineDateTime::Date => vec![
-            format!("{year}年{month}月{day}日"),
-            format!("{year:04}-{month:02}-{day:02}"),
-            format!("{year}年{month}月{day}日 {}", WEEKDAYS[weekday]),
-        ],
+        InlineDateTime::Date => {
+            let mut rows = inline_date_rows(now);
+            if calendar_date(now.year, now.month, now.day).is_some() {
+                rows.extend(relative_day_labels("今天", now));
+            }
+            rows
+        }
         InlineDateTime::Time => {
             let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
             let period = if hour < 12 { "上午" } else { "下午" };
@@ -210,7 +294,64 @@ pub(crate) fn inline_date_time_rows(kind: InlineDateTime, now: &LocalDateTime) -
             SHORT_WEEKDAYS[weekday].to_owned(),
         ],
         InlineDateTime::Lunar => lunar_date(now).into_iter().collect(),
+        InlineDateTime::RelativeDay { label, days } => {
+            let Some(date) = relative_date(now, days) else {
+                return Vec::new();
+            };
+            let mut rows = inline_date_rows(&date);
+            rows.extend(relative_day_labels(label, &date));
+            rows
+        }
+        InlineDateTime::RelativeYear { label, years } => {
+            let Some(year) = calendar_date(now.year, now.month, now.day)
+                .and_then(|date| date.year().checked_add(years))
+                .filter(|&year| Date::from_calendar_date(year, Month::January, 1).is_ok())
+            else {
+                return Vec::new();
+            };
+            vec![format!("{label}({year}年)")]
+        }
     }
+}
+
+fn inline_date_rows(now: &LocalDateTime) -> Vec<String> {
+    let LocalDateTime {
+        year, month, day, ..
+    } = *now;
+    vec![
+        format!("{year}年{month}月{day}日"),
+        format!("{year:04}-{month:02}-{day:02}"),
+        format!("{year}年{month}月{day}日 {}", WEEKDAYS[weekday_index(now)]),
+    ]
+}
+
+fn date_candidates_with_label(label: &str, now: &LocalDateTime) -> Vec<String> {
+    let mut rows = date_candidates(now);
+    if calendar_date(now.year, now.month, now.day).is_some() {
+        rows.extend(relative_day_labels(label, now));
+    }
+    rows
+}
+
+fn relative_date(now: &LocalDateTime, days: i64) -> Option<LocalDateTime> {
+    let date = calendar_date(now.year, now.month, now.day)?.checked_add(Duration::days(days))?;
+    Some(LocalDateTime {
+        year: date.year(),
+        month: u32::from(u8::from(date.month())),
+        day: u32::from(date.day()),
+        weekday: u32::from(date.weekday().number_days_from_sunday()),
+        ..*now
+    })
+}
+
+fn relative_day_labels(label: &str, now: &LocalDateTime) -> [String; 3] {
+    let date = format!("{}月{}日", now.month, now.day);
+    let weekday = WEEKDAYS[weekday_index(now)];
+    [
+        format!("{label}({date})"),
+        format!("{label}({weekday})"),
+        format!("{label}({date} {weekday})"),
+    ]
 }
 
 /// 把 `kind` 的几行接在第一个锚定词候选后面，`pinyin` 是选中它们时吃掉的整段组字。候选里没有锚定词时不加，也不读时钟。新加的行是 `Generated` 且没有规范读音，上屏时不进词库、不记个人上下文；列表里已有同样文字的行时挪那一行，不重复。
@@ -243,7 +384,9 @@ pub(crate) fn insert_inline_date_time(
         }
         at += 1;
     }
-    if let Some(keyword) = menu_keyword.filter(|_| at > position + 1) {
+    if let Some(keyword) = menu_keyword
+        .filter(|_| at > position + 1 && !matches!(kind, InlineDateTime::RelativeYear { .. }))
+    {
         candidates.insert(
             position + 2,
             WordItem::new(
@@ -487,6 +630,9 @@ mod tests {
             "二〇二六年八月九日",
             "贰零贰陆年捌月零玖日",
             "丙午年六月二十七日",
+            "今天(8月9日)",
+            "今天(星期日)",
+            "今天(8月9日 星期日)",
         ];
         for keyword in ["rq", "riqi", "date"] {
             assert_words(&query_date_time(keyword, &sample_time()), &expected);
@@ -569,7 +715,14 @@ mod tests {
         let now = sample_time();
         assert_eq!(
             inline_date_time_rows(InlineDateTime::Date, &now),
-            ["2026年8月9日", "2026-08-09", "2026年8月9日 星期日"]
+            [
+                "2026年8月9日",
+                "2026-08-09",
+                "2026年8月9日 星期日",
+                "今天(8月9日)",
+                "今天(星期日)",
+                "今天(8月9日 星期日)"
+            ]
         );
         assert_eq!(
             inline_date_time_rows(InlineDateTime::Time, &now),
@@ -683,6 +836,9 @@ mod tests {
                 "📅日期",
                 "2026-08-09",
                 "2026年8月9日 星期日",
+                "今天(8月9日)",
+                "今天(星期日)",
+                "今天(8月9日 星期日)",
                 "日企"
             ]
         );
@@ -776,14 +932,14 @@ mod tests {
     /// test_local_modes.cpp:185-215, moved to lunar-lite's range: its table covers lunar years 1850..=2150 where the reference's ended at 2101-01-28, so the dropped-row cases use dates past that range instead.
     #[test]
     fn lunar_row_only_when_the_calendar_resolves() {
-        assert_generated(&query_date_time("rq", &at(2101, 1, 28, 5)), 17);
-        assert_generated(&query_date_time("rq", &at(2101, 1, 29, 6)), 17);
-        assert_generated(&query_date_time("date", &at(1900, 1, 1, 1)), 17);
+        assert_generated(&query_date_time("rq", &at(2101, 1, 28, 5)), 20);
+        assert_generated(&query_date_time("rq", &at(2101, 1, 29, 6)), 20);
+        assert_generated(&query_date_time("date", &at(1900, 1, 1, 1)), 20);
 
-        assert_generated(&query_date_time("date", &at(1800, 1, 1, 3)), 16);
+        assert_generated(&query_date_time("date", &at(1800, 1, 1, 3)), 19);
         let far_future = query_date_time("riqi", &at(2200, 6, 15, 0));
-        assert_generated(&far_future, 16);
-        assert_eq!(far_future.last().unwrap().word, "贰贰零零年陆月壹伍日");
+        assert_generated(&far_future, 19);
+        assert_eq!(far_future[15].word, "贰贰零零年陆月壹伍日");
         assert_eq!(far_future.last().unwrap().weight, 1);
 
         assert_generated(&query_date_time("rq", &at(2023, 2, 30, 0)), 16);
@@ -807,7 +963,7 @@ mod tests {
     fn leap_months() {
         // 2023-03-22 is the first day of the leap second month of 癸卯.
         let rows = query_date_time("rq", &at(2023, 3, 22, 3));
-        assert_eq!(rows.last().unwrap().word, "癸卯年闰二月一日");
+        assert_eq!(rows[16].word, "癸卯年闰二月一日");
         assert_eq!(
             lunar_date(&at(2023, 1, 21, 6)).unwrap(),
             "壬寅年十二月三十日"
@@ -980,5 +1136,212 @@ mod tests {
                 (day(2097, August, 7), 30),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod relative_date_tests {
+    use super::*;
+
+    #[test]
+    fn date_and_today_have_identical_inline_and_menu_formats() {
+        let now = LocalDateTime {
+            weekday: 5,
+            ..at(2026, 10, 23)
+        };
+        let (_, _, today) = inline_date_time_keyword(|key| key == "jintian").unwrap();
+        assert_eq!(
+            inline_date_time_rows(InlineDateTime::Date, &now),
+            inline_date_time_rows(today, &now)
+        );
+        let expected = query_date_time("jintian", &now);
+        for keyword in ["rq", "riqi", "date"] {
+            assert_eq!(query_date_time(keyword, &now), expected, "{keyword}");
+        }
+    }
+
+    #[test]
+    fn mingnian_generates_the_next_calendar_year() {
+        let now = at(2026, 10, 23);
+        let rows = query_date_time("mingnian", &now);
+        assert_eq!(
+            rows.iter().map(|row| row.word.as_str()).collect::<Vec<_>>(),
+            ["明年(2027年)"]
+        );
+        assert!(inline_date_time_keyword(|key| key == "mingnian").is_some());
+    }
+
+    #[test]
+    fn relative_labels_use_the_month_and_day_from_the_requested_format() {
+        let now = at(2026, 10, 23);
+        let rows = query_date_time("zuotian", &now);
+        for expected in ["昨天(10月22日)", "昨天(星期四)", "昨天(10月22日 星期四)"]
+        {
+            assert!(rows.iter().any(|row| row.word == expected), "{expected}");
+        }
+    }
+
+    fn at(year: i32, month: u32, day: u32) -> LocalDateTime {
+        // 星期故意不与日期同步，相对日必须从公历重新求星期。
+        LocalDateTime {
+            year,
+            month,
+            day,
+            weekday: 0,
+            hour: 9,
+            minute: 5,
+            second: 7,
+        }
+    }
+
+    #[test]
+    fn relative_days_cross_months_years_and_leap_days() {
+        for (keyword, label, now, expected, month_day, weekday) in [
+            (
+                "jintian",
+                "今天",
+                at(2026, 10, 23),
+                "2026-10-23",
+                "10月23",
+                "星期五",
+            ),
+            (
+                "zuotian",
+                "昨天",
+                at(2026, 1, 1),
+                "2025-12-31",
+                "12月31",
+                "星期三",
+            ),
+            (
+                "qiantian",
+                "前天",
+                at(2024, 3, 1),
+                "2024-02-28",
+                "2月28",
+                "星期三",
+            ),
+            (
+                "mingtian",
+                "明天",
+                at(2024, 2, 28),
+                "2024-02-29",
+                "2月29",
+                "星期四",
+            ),
+            (
+                "houtian",
+                "后天",
+                at(2026, 12, 31),
+                "2027-01-02",
+                "1月2",
+                "星期六",
+            ),
+            (
+                "zuotian",
+                "昨天",
+                at(2023, 3, 1),
+                "2023-02-28",
+                "2月28",
+                "星期二",
+            ),
+        ] {
+            let rows = query_date_time(keyword, &now);
+            assert_eq!(rows.len(), 20, "{keyword}");
+            assert_eq!(rows[1].word, expected);
+            let labels = [
+                format!("{label}({month_day}日)"),
+                format!("{label}({weekday})"),
+                format!("{label}({month_day}日 {weekday})"),
+            ];
+            assert_eq!(
+                rows[17..].iter().map(|row| &row.word).collect::<Vec<_>>(),
+                labels.iter().collect::<Vec<_>>()
+            );
+            let (_, anchor, kind) =
+                inline_date_time_keyword(|candidate| candidate == keyword).unwrap();
+            assert_eq!(anchor, label);
+            let inline = inline_date_time_rows(kind, &now);
+            assert_eq!(inline.len(), 6);
+            assert_eq!(inline[1], expected);
+            assert_eq!(inline[3..], labels);
+            assert_eq!(query_date_time_with_limit(keyword, &now, 2).len(), 2);
+            assert!(rows
+                .iter()
+                .all(|row| row.source == CandidateSource::Generated
+                    && row.canonical_pinyin.is_empty()));
+        }
+    }
+
+    #[test]
+    fn relative_years_only_show_the_named_year_without_a_redundant_menu() {
+        for (keyword, label, year) in [
+            ("mingnian", "明年", 2027),
+            ("qunian", "去年", 2025),
+            ("jinnian", "今年", 2026),
+            ("lainian", "来年", 2027),
+        ] {
+            let now = at(2026, 10, 23);
+            let expected = format!("{label}({year}年)");
+            let rows = query_date_time(keyword, &now);
+            assert_eq!(
+                rows.iter().map(|row| row.word.as_str()).collect::<Vec<_>>(),
+                [expected.as_str()]
+            );
+            let (_, anchor, kind) =
+                inline_date_time_keyword(|candidate| candidate == keyword).unwrap();
+            let mut candidates = vec![WordItem::new(
+                keyword,
+                anchor,
+                10,
+                CandidateSource::Database,
+                "",
+            )];
+            insert_inline_date_time(
+                &mut candidates,
+                anchor,
+                kind,
+                keyword,
+                || now,
+                Some(keyword),
+            );
+            assert_eq!(candidates.len(), 2);
+            assert_eq!(candidates[1].word, expected);
+            assert!(!candidates.iter().any(is_date_time_menu_item));
+        }
+    }
+
+    #[test]
+    fn invalid_or_out_of_range_relative_dates_produce_no_guessed_rows() {
+        for keyword in [
+            "jintian", "zuotian", "qiantian", "mingtian", "houtian", "mingnian", "qunian",
+            "jinnian", "lainian",
+        ] {
+            for now in [LocalDateTime::default(), at(2026, 2, 30)] {
+                assert!(
+                    query_date_time(keyword, &now).is_empty(),
+                    "{keyword}: {now:?}"
+                );
+                let (_, _, kind) =
+                    inline_date_time_keyword(|candidate| candidate == keyword).unwrap();
+                assert!(inline_date_time_rows(kind, &now).is_empty());
+            }
+        }
+        for (keyword, date) in [
+            ("zuotian", Date::MIN),
+            ("mingtian", Date::MAX),
+            ("mingnian", Date::MAX),
+            ("lainian", Date::MAX),
+        ] {
+            assert!(query_date_time(
+                keyword,
+                &at(
+                    date.year(),
+                    u32::from(u8::from(date.month())),
+                    u32::from(date.day())
+                )
+            )
+            .is_empty());
+        }
     }
 }

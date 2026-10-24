@@ -8,6 +8,8 @@ import CoreFoundation
 ///
 /// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
+  @State private var mixedEnabled = true
+  @State private var firstPageCount = 1
   @State private var english = true
   @State private var minimumPrefix = 5
   @State private var emoji = false
@@ -100,25 +102,44 @@ struct CandidateOptionsSettingsView: View {
           DesignToggleRow(title: "英文单词提示", subtitle: "英文输入时提示常用单词，点选补全", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestions")
           DesignDivider()
+          DesignToggleRow(title: "候选混输", subtitle: "关闭后保留各项设置，再开启时恢复",
+                          isOn: stored("mixed_input", "enabled", $mixedEnabled))
+            .accessibilityIdentifier("mixedInputEnabled")
+          DesignDivider()
           DesignToggleRow(title: "中英混输", subtitle: "中文输入时在候选中补充英文单词",
                           isOn: stored("mixed_input", "english", $english))
             .accessibilityIdentifier("mixedEnglish")
+            .disabled(!mixedEnabled)
           DesignDivider()
           stepperRow("触发字母数", value: "\(minimumPrefix)", binding: stored("mixed_input", "minimum_prefix", $minimumPrefix),
                      in: 1...8, identifier: "mixedEnglishMinimumPrefix") {
             detail("达到此长度后补全英文；26 键中更短的完整词仍可选")
           }
-          .disabled(!english)
-          .opacity(english ? 1 : 0.45)
+          .disabled(!mixedEnabled || !english)
+          .opacity(mixedEnabled && english ? 1 : 0.45)
+          DesignDivider()
+          stepperRow("首页英文候选数", value: "\(firstPageCount)",
+                     binding: stored("mixed_input", "first_page_count", $firstPageCount),
+                     in: 1...3, identifier: "mixedEnglishFirstPageCount") {
+            detail("首页有空间时优先排列的英文候选数")
+          }
+          .disabled(!mixedEnabled || !english)
+          .opacity(mixedEnabled && english ? 1 : 0.45)
           DesignDivider()
           DesignToggleRow(title: "符号混输", subtitle: "打出符号的名称时在候选中加入对应符号，如「正负」后面是 ±", isOn: stored("mixed_input", "symbols", $symbols))
             .accessibilityIdentifier("mixedSymbols")
+            .disabled(!mixedEnabled)
+            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
           DesignToggleRow(title: "emoji 混输", subtitle: "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面", isOn: stored("mixed_input", "emoji", $emoji))
             .accessibilityIdentifier("mixedEmoji")
+            .disabled(!mixedEnabled)
+            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
           DesignToggleRow(title: "颜文字混输", subtitle: "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后", isOn: stored("mixed_input", "kaomoji", $kaomoji))
             .accessibilityIdentifier("mixedKaomoji")
+            .disabled(!mixedEnabled)
+            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
           DesignToggleRow(title: "以词定字", subtitle: "长按词语候选，只上屏首字或末字",
                           isOn: stored("word_character", "enabled", $wordCharacter))
@@ -208,6 +229,8 @@ struct CandidateOptionsSettingsView: View {
       cloudRecipient = URL(string: endpoint.replacingOccurrences(of: "{query}", with: "query"))?.host ?? "所选自定义服务"
     } else { cloudRecipient = "Google input-tools（inputtools.google.com）" }
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
+    mixedEnabled = mixed["enabled"] as? Bool ?? true
+    firstPageCount = mixed["first_page_count"] as? Int ?? 1
     english = mixed["english"] as? Bool ?? english
     minimumPrefix = Self.minimumPrefix(mixed["minimum_prefix"]) ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
