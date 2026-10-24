@@ -339,6 +339,18 @@ impl JapaneseProvider {
         }
     }
 
+    /// 连续多语言输入只接收已就绪的模型；未命中不记为加载失败，下次按键仍可接收后台结果。
+    pub(crate) fn prepare_if_cached(&mut self) -> bool {
+        if self.dictionary.as_ref().is_some_and(Option::is_some) {
+            return true;
+        }
+        if let Some(dictionary) = JapaneseDictionary::cached(&self.model) {
+            self.dictionary = Some(Some(dictionary));
+            return true;
+        }
+        false
+    }
+
     /// 整段罗马字读音有没有完全相同读音的词条，以及读音有几拍（日文混输「精确」信号的原料，规则见 `ImeSession::mixed_japanese_conversion`）。`request` 是日文请求，同 [`JapaneseProvider::query_into`]；读音还有待定字母、不到两个假名，或者模型缺失时答 `None`：只能给假名行的时候不算日文。
     pub(crate) fn whole_reading_lemma(
         &mut self,

@@ -25,6 +25,7 @@ pub struct DictionaryComposer {
     chinese: Option<QuanpinEngine>,
     english: Option<EnglishDictionary>,
     japanese: Option<JapaneseProvider>,
+    japanese_ready: bool,
     japanese_scheme: JapaneseRomajiScheme,
     japanese_request: QueryRequest,
     input: String,
@@ -54,6 +55,7 @@ impl DictionaryComposer {
             japanese: (active && languages.contains(&Language::Japanese))
                 .then(|| JapaneseProvider::new(model)),
             languages,
+            japanese_ready: false,
             japanese_scheme: JapaneseRomajiScheme::new(),
             japanese_request: QueryRequest::default(),
             input: String::new(),
@@ -72,6 +74,14 @@ impl DictionaryComposer {
     /// 只返回全串覆盖的混合备选，完整中文的存在性由 `chinese_complete` 保留。
     /// 当前仅接受小写拉丁编码；非法输入或预算不足时不返回部分路径。
     pub fn convert(&mut self, input: &str) -> Option<Conversion> {
+        let japanese_ready = self
+            .japanese
+            .as_mut()
+            .is_some_and(JapaneseProvider::prepare_if_cached);
+        if japanese_ready != self.japanese_ready {
+            self.forget_input();
+            self.japanese_ready = japanese_ready;
+        }
         if input == self.input {
             return self.answer.clone();
         }
@@ -165,7 +175,7 @@ impl DictionaryComposer {
         {
             self.push(range.clone(), Language::English, row.word.to_string())?;
         }
-        if let Some(japanese) = &mut self.japanese {
+        if let Some(japanese) = self.japanese.as_mut().filter(|_| self.japanese_ready) {
             self.japanese_scheme.set_raw_input(raw, "");
             self.japanese_scheme
                 .build_request_into(&mut self.japanese_request);

@@ -6,7 +6,7 @@ use rusqlite::Connection;
 
 const ALL: &[Language] = &[Language::Chinese, Language::English, Language::Japanese];
 
-fn fixture() -> Fixture {
+fn cold_fixture() -> Fixture {
     let fixture = Fixture::new();
     fixture
         .insert("ni'hao", "你好", 1000)
@@ -37,6 +37,15 @@ fn fixture() -> Fixture {
         ),
     )
     .unwrap();
+    fixture
+}
+
+fn fixture() -> Fixture {
+    let fixture = cold_fixture();
+    assert!(crate::japanese::decoder::JapaneseDictionary::shared(
+        &fixture.paths.resource(assets::JAPANESE_MODEL)
+    )
+    .is_some());
     fixture
 }
 
@@ -127,6 +136,7 @@ fn session_multilingual_reads_the_explicit_downloaded_japanese_model() {
     let fixture = fixture();
     let model = fixture.paths.cache.join("synthetic-japanese.dat");
     std::fs::rename(fixture.paths.resource(assets::JAPANESE_MODEL), &model).unwrap();
+    assert!(crate::japanese::decoder::JapaneseDictionary::shared(&model).is_some());
     let mut options = crate::SessionOptions::new(fixture.paths.clone());
     options.helpcode = false;
     options.multilingual_languages = ALL.to_vec();
@@ -463,4 +473,80 @@ fn whole_words_invalid_input_and_oversized_surfaces_do_not_make_mixed_rows() {
         .unwrap();
     composer.clear();
     assert!(composer.convert("hellonihao").is_none());
+}
+
+#[test]
+fn background_japanese_loading_never_blocks_multilingual_keystrokes() {
+    use crate::japanese::decoder::{JapaneseDictionary, SHARED_CACHE_TEST_LOCK};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let _cache = SHARED_CACHE_TEST_LOCK.lock().unwrap();
+    let fixture = cold_fixture();
+    let model = fixture.paths.resource(assets::JAPANESE_MODEL);
+    let pause = JapaneseDictionary::pause_next_load(&model);
+    let mut composer = DictionaryComposer::new(&fixture.paths, ALL);
+    composer.warm_up_in_background();
+    pause.wait();
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let chinese_english = composer.convert("hellonihao");
+        let pending_japanese = composer.convert("hellonihaoohayou");
+        sender.send((chinese_english, pending_japanese)).unwrap();
+        composer
+    });
+    // 加载线程被屏障挂起；接收限时只负责发现阻塞，放行后总会归还工作线程。
+    let early = receiver.recv_timeout(Duration::from_secs(1));
+    pause.wait();
+    let mut composer = worker.join().unwrap();
+    let (chinese_english, pending_japanese) = early.expect("按键不得等待日文模型加载");
+    assert_eq!(text(&chinese_english.unwrap()), "hello你好");
+    assert!(pending_japanese.is_none_or(|conversion| conversion
+        .segments
+        .iter()
+        .all(|segment| segment.language != Language::Japanese)));
+    assert!(JapaneseDictionary::shared(&model).is_some());
+    // 模型就绪后，即使输入串没变，也必须重查先前未命中的日文跨度。
+    assert_eq!(
+        text(&composer.convert("hellonihaoohayou").unwrap()),
+        "hello你好おはよう"
+    );
+}
+
+#[test]
+fn simultaneous_japanese_mixing_never_waits_for_the_background_model() {
+    use crate::japanese::decoder::{JapaneseDictionary, SHARED_CACHE_TEST_LOCK};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let _cache = SHARED_CACHE_TEST_LOCK.lock().unwrap();
+    let fixture = cold_fixture();
+    let model = fixture.paths.resource(assets::JAPANESE_MODEL);
+    let pause = JapaneseDictionary::pause_next_load(&model);
+    let mut options = crate::SessionOptions::new(fixture.paths.clone());
+    options.helpcode = false;
+    options.multilingual_languages = ALL.to_vec();
+    options.japanese_mixing = true;
+    let (ready_sender, ready_receiver) = mpsc::channel();
+    let (go_sender, go_receiver) = mpsc::channel();
+    let (done_sender, done_receiver) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut session = crate::Session::new(options).unwrap();
+        ready_sender.send(()).unwrap();
+        go_receiver.recv().unwrap();
+        type_input(&mut session, "nihao");
+        done_sender
+            .send(session.snapshot().candidates[0].word.clone())
+            .unwrap();
+    });
+    ready_receiver.recv().unwrap();
+    pause.wait();
+    go_sender.send(()).unwrap();
+    let early = done_receiver.recv_timeout(Duration::from_secs(1));
+    pause.wait();
+    worker.join().unwrap();
+    assert_eq!(
+        early.expect("连续输入与日文混输并用不得等待模型加载"),
+        "你好"
+    );
 }

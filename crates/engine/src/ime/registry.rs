@@ -432,7 +432,11 @@ impl ProviderRegistry {
         &mut self,
         request: &QueryRequest,
     ) -> Option<WholeReadingLemma> {
-        self.japanese.as_mut()?.whole_reading_lemma(request)
+        let japanese = self.japanese.as_mut()?;
+        if !japanese.prepare_if_cached() {
+            return None;
+        }
+        japanese.whole_reading_lemma(request)
     }
 
     /// 日文混输：整段罗马字读音的最佳整句。没有 provider 时答 `None`；其余见 `JapaneseProvider::whole_reading_best_path`。

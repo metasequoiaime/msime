@@ -517,6 +517,14 @@ impl JapaneseDictionary {
         Some(model)
     }
 
+    /// 只取已经就绪的共享模型，不获取加载锁，也不读取和校验模型内容。
+    pub(crate) fn cached(path: &Path) -> Option<Arc<JapaneseDictionary>> {
+        if let Some(preloaded) = lock(&PRELOADED).get(path) {
+            return Some(Arc::clone(preloaded));
+        }
+        lock(&SHARED).current(path, SHARED_MODEL_CAPACITY)
+    }
+
     /// 放掉进程级缓存对全部模型的强引用。正在用它的会话照常用到结束，这期间再要同一路径拿到的仍是这一份（不另读一份，内存告警时也不会因此多出一份）；没人用了它就随之释放，之后第一个查日文的会话重新读文件。宿主的清缓存动作经 `Session::reset_cache` 调到这里，iOS 键盘扩展在内存告警时靠它交出前缀索引和映射。预载的模型不受影响，它们只能由 [`JapaneseDictionary::unload`] 放掉。
     pub fn release_shared() {
         lock(&SHARED).release();
