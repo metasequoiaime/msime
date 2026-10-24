@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <array>
+#include <cstddef>
 
 namespace msime::settings::win7::chrome {
 
@@ -32,6 +33,17 @@ inline constexpr std::array<Page, 23> pages{{
     {L"连接 AI 助手", L"管理 AI 助手的本机连接与授权。"},
     {L"键盘皮肤制作", L"设计键盘外观，预览并保存自己的皮肤。"},
 }};
+
+// Win7 只展示能够在本机独立完成的设置。在线账号、社区、云端同步和
+// 依赖现代桌面宿主的助手页面不在兼容版导航中；索引仍保留以兼容旧路由契约。
+constexpr bool page_available(std::size_t page) {
+  switch (page) {
+    case 0: case 1: case 2: case 3: case 4: case 5:
+    case 8: case 10: case 11: case 13: case 14: case 15:
+    case 16: case 19: case 20: case 22: return true;
+    default: return false;
+  }
+}
 inline constexpr COLORREF background = RGB(255, 255, 255);
 inline constexpr COLORREF sidebar = RGB(246, 248, 247);
 inline constexpr COLORREF ink = RGB(31, 44, 39);
