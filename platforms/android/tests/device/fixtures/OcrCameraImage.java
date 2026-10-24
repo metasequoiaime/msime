@@ -8,14 +8,21 @@ import javax.imageio.ImageIO;
 /** 生成模拟器相机的固定合成图；不读取外部图片、字体或用户文件。 */
 final class OcrCameraImage {
     public static void main(String[] arguments) throws Exception {
-        BufferedImage image = new BufferedImage(1280, 720, BufferedImage.TYPE_INT_RGB);
+        BufferedImage image = new BufferedImage(1024, 1024, BufferedImage.TYPE_INT_RGB);
         Graphics2D canvas = image.createGraphics();
         try {
             canvas.setColor(Color.WHITE);
             canvas.fillRect(0, 0, image.getWidth(), image.getHeight());
             canvas.setColor(Color.BLACK);
-            canvas.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 48));
-            canvas.drawString("SYNTHETIC OCR 2468", 220, 360);
+            canvas.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
+                java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            canvas.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 40));
+            String text = "SYNTHETIC OCR 2468";
+            var metrics = canvas.getFontMetrics();
+            // 中央半幅内保留完整字符串，为模拟器不同宽高比的预览与 JPEG 流留足裁剪边缘。
+            if (metrics.stringWidth(text) > image.getWidth() / 2) throw new IllegalStateException("fixture_width");
+            canvas.drawString(text, (image.getWidth() - metrics.stringWidth(text)) / 2,
+                (image.getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
         } finally { canvas.dispose(); }
         if (!ImageIO.write(image, "png", new File(arguments[0]))) throw new IllegalStateException("fixture_image");
     }

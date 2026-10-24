@@ -96,9 +96,18 @@ final class ImeOcr {
         s.button(header, "返回", () -> { close(); s.imeFunctionPanel.renderMoreTools(); });
         s.button(header, "拍照识字设置", this::setup);
         s.moreToolsPanel.addView(header);
+        s.moreToolsScroll.scrollTo(0, 0);
     }
 
-    private void setupButton() { s.button(s.moreToolsPanel, "导入模块与相机权限", this::setup); }
+    private Button action(String label, Runnable callback) {
+        // 公用按钮使用横排的零宽度权重，不能直接放入纵向面板。
+        LinearLayout row = LayoutPolicy.row(s);
+        Button button = s.button(row, label, callback);
+        s.moreToolsPanel.addView(row);
+        return button;
+    }
+
+    private void setupButton() { action("导入模块与相机权限", this::setup); }
 
     private void setup() {
         s.closeMoreTools();
@@ -113,7 +122,7 @@ final class ImeOcr {
         viewport.setClipChildren(true);
         int height = Math.max(s.pixels(72), Math.min(s.pixels(180), s.moreToolsScroll.getHeight() - s.pixels(128)));
         viewport.addView(surface, new FrameLayout.LayoutParams(-1, -1));
-        capture = s.button(s.moreToolsPanel, "拍照并识别", () -> {
+        capture = action("拍照并识别", () -> {
             if (!valid(expected) || camera == null || !capture.isEnabled()) return;
             capture.setEnabled(false);
             OcrCamera source = camera;
@@ -160,7 +169,7 @@ final class ImeOcr {
             camera = null;
             base();
             message("相机不可用，可能被其他应用占用或权限已撤回。");
-            s.button(s.moreToolsPanel, "重试", this::open);
+            action("重试", this::open);
         });
     }
 
@@ -237,7 +246,7 @@ final class ImeOcr {
             resultText = message(String.join("\n", lines));
             resultText.setTextIsSelectable(true);
         }
-        s.button(s.moreToolsPanel, "重新拍照", this::open);
+        action("重新拍照", this::open);
     }
 
     private void insert(long expected, String text) {

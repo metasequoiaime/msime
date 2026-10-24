@@ -253,7 +253,10 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         tap(key("更多"));
         showTool("拍照识字");
         tap(tool("拍照识字"));
-        awaitAny(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        AccessibilityNodeInfo capture = await(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        capture.getBoundsInScreen(bounds);
+        check(bounds.width() > 0 && bounds.height() > 0, "capture control has visible touch bounds");
     }
 
     private void screenshot(String name) throws Exception {
