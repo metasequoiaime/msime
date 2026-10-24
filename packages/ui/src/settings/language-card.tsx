@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { ActionSheet, type SheetOption } from "../core/action-sheet";
 import { ChevronGlyph } from "../core/chevron-glyph";
+import { PlusGlyph } from "../core/plus-glyph";
 import {
   languageRemovalFallback,
   offeredLanguageSchemes,
@@ -283,17 +284,7 @@ export function LanguageCard({
             className="flex size-[30px] flex-none items-center justify-center"
             aria-hidden="true"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <PlusGlyph variant="row" size={20} strokeWidth={2.2} />
           </span>
           <span className="[font-size:var(--p-row-fs)]">{adding ? "完成" : "添加语言"}</span>
         </button>
