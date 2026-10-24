@@ -134,7 +134,9 @@ public final class OcrProbe extends Instrumentation {
                     boolean matches = SyntheticOcrFixture.matches(cases[index]);
                     if (matches) completeCases++;
                     // 所有字号均保留匹配结果，不能只展示最好的那个字号。
-                    android.util.Log.i("MSIME_OCR_PROBE", "synthetic_case=" + index + ",complete=" + matches);
+                    String exact = String.join("", cases[index]).replaceAll("\\s", "");
+                    android.util.Log.i("MSIME_OCR_PROBE", "synthetic_case=" + index + ",complete=" + matches
+                        + ",exact-simplified=" + (exact.contains("SYNTHETICOCR2468") && exact.contains("中文测试")));
                 } finally {
                     bitmap.recycle();
                 }

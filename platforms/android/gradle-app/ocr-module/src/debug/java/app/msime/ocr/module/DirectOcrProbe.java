@@ -37,7 +37,9 @@ public final class DirectOcrProbe extends Instrumentation {
                         cases[index] = lines.toArray(new String[0]);
                         boolean matches = SyntheticOcrFixture.matches(cases[index]);
                         if (matches) completeCases++;
-                        android.util.Log.i("MSIME_OCR_DIRECT", "synthetic_case=" + index + ",complete=" + matches);
+                        String exact = String.join("", cases[index]).replaceAll("\\s", "");
+                        android.util.Log.i("MSIME_OCR_DIRECT", "synthetic_case=" + index + ",complete=" + matches
+                            + ",exact-simplified=" + (exact.contains("SYNTHETICOCR2468") && exact.contains("中文测试")));
                     } finally {
                         bitmap.recycle();
                     }

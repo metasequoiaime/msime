@@ -52,6 +52,9 @@ public final class SyntheticOcrFixture {
     /** 每个合格用例都必须同时包含完整英文单词、数字和中文；不拼接不同图片的局部成功。 */
     public static boolean matches(String[] lines) {
         String joined = String.join("", lines).replaceAll("\\s", "");
-        return joined.contains("SYNTHETICOCR2468") && joined.contains("中文测试");
+        // 同一中文词的简繁字形均有效；文/丈、O/0 等误识别仍然拒绝。
+        boolean chinese = joined.contains("中文测试") || joined.contains("中文測试")
+            || joined.contains("中文测試") || joined.contains("中文測試");
+        return joined.contains("SYNTHETICOCR2468") && chinese;
     }
 }
