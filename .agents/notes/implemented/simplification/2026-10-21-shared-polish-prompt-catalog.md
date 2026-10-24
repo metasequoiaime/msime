@@ -96,3 +96,7 @@ Swift 消费契约仅用标准库把 id 与名称逐项输出为 Unicode 码点�
 - 独立审查通过：另从固定 base 读取旧手写表并对照 Rust 简版，独立严格编译 TS 回归，核对序列化边界、生成类的源码发现、ArkTS 静态类型和真实宿主导入、自定义槽位与回退接线。
 - 当前 base 与接入后的 `build-native.sh arm64-v8a` 和 `hvigorw assembleHap --no-daemon` 均通过，实际 `CompileArkTS` 编译宿主与生成类；检查最终 HAP 含 `modules.abc` 和三份 arm64 原生库。README 补齐本机已验证的 `DEVECO_SDK_HOME` 设置。没有执行设备安装或输入法界面验收。
 - 完整 `bash scripts/verify-local.sh --quick` 通过：176 项 Windows 可移植测试、仓库契约和笔记、Rust workspace、Android 交叉与 JVM 宿主检查、Wasm、真实鸿蒙 ArkTS/HAP、Linux 设置外壳与原生 108 项测试及版本安装检查、macOS 原生构建和共享 Apple bridge。Windows 原生交叉构建因缺少 MinGW 明确跳过。首轮因把 DevEco Node 18 提到 PATH 前面而遇到 pnpm 版本不符；保留系统 Node 24，只让 Hvigor 通过 `NODE_HOME` 使用配套 Node 后完整重跑通过，环境区别已写入 README。
+
+### 后续超时预算调整
+
+2026-10-24 的 Ubuntu runner 实测 Swift 6.4 标准库探针编译用时 58.5 秒，另一轮在相同 60 秒限制下超时；因此该限制由 [CI Swift 合同检查超时修复](../bug-fix/2026-10-24-ci-swift-contract-timeout.md) 调整为 120 秒。原先保留 60 秒的决定不再适用于当前 runner 负载，但仍保留详细编译日志和 10 秒执行限制。
