@@ -992,7 +992,7 @@ final class ImeLetterRows {
                 else KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
                 if (keyButton instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 String letters = FourteenKeyLayout.holdLetters(key);
-                EighteenKeySwipePolicy.Gesture swipe = eighteen && fourteenShuangpin() && letters.length() == 2
+                EighteenKeySwipePolicy.Gesture swipe = eighteen && letters.length() == 2
                     ? bindEighteenKeySwipe(keyButton, letters) : null;
                 if (!letters.isEmpty()) {
                     keyButton.setOnLongClickListener(ignored -> {
@@ -1020,6 +1020,12 @@ final class ImeLetterRows {
         String face = key.getText().toString();
         key.setOnTouchListener((view, event) -> {
             updateKeyPreview(key, event);
+            if (!fourteenShuangpin()) {
+                gesture.cancel();
+                key.setText(face);
+                hideKeyPreview(key);
+                return false;
+            }
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
