@@ -199,7 +199,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard gestures = GroupCard.add(sectionColumn(target, "手势"), "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
         gestures.toggle("滑动输入符号", "沿设定方向滑动输入角标，中文时反方向打开字母与符号选项；关闭后仍可长按", swipeSymbols,
-            checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
+            checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked,
+                this::reload, this::reload));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row[] directionRow = new GroupCard.Row[1];
         directionRow[0] = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
