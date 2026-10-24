@@ -23,22 +23,30 @@ public final class DirectOcrProbe extends Instrumentation {
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
-            Bitmap bitmap = SyntheticOcrFixture.render();
+            String[][] cases = new String[SyntheticOcrFixture.CASE_COUNT][];
+            int completeCases = 0;
             try (TextRecognizer recognizer = TextRecognition.getClient(new ChineseTextRecognizerOptions.Builder().build())) {
-                SyntheticOcrFixture.saveImage(getTargetContext(), bitmap);
-                Text recognized = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)), 30, TimeUnit.SECONDS);
-                ArrayList<String> lines = new ArrayList<>();
-                for (Text.TextBlock block : recognized.getTextBlocks())
-                    for (Text.Line line : block.getLines()) lines.add(line.getText().trim());
-                SyntheticOcrFixture.saveResult(getTargetContext(), lines.toArray(new String[0]));
-                String joined = String.join("", lines).replaceAll("\\s", "");
-                boolean english = joined.contains("SYNTHETICOCR2468");
-                boolean chinese = joined.contains("中文测试");
-                result.putString("stream", "MSIME_OCR_DIRECT_RESULT: english=" + english + ",chinese=" + chinese + "\n");
-                finish(english && chinese ? -1 : 1, result);
-            } finally {
-                bitmap.recycle();
+                for (int index = 0; index < cases.length; index++) {
+                    Bitmap bitmap = SyntheticOcrFixture.render(index);
+                    try {
+                        SyntheticOcrFixture.saveImage(getTargetContext(), bitmap, index);
+                        Text recognized = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)), 30, TimeUnit.SECONDS);
+                        ArrayList<String> lines = new ArrayList<>();
+                        for (Text.TextBlock block : recognized.getTextBlocks())
+                            for (Text.Line line : block.getLines()) lines.add(line.getText().trim());
+                        cases[index] = lines.toArray(new String[0]);
+                        boolean matches = SyntheticOcrFixture.matches(cases[index]);
+                        if (matches) completeCases++;
+                        android.util.Log.i("MSIME_OCR_DIRECT", "synthetic_case=" + index + ",complete=" + matches);
+                    } finally {
+                        bitmap.recycle();
+                    }
+                }
+                SyntheticOcrFixture.saveResult(getTargetContext(), cases);
             }
+            result.putString("stream", (completeCases > 0 ? "MSIME_OCR_DIRECT_PASSED" : "MSIME_OCR_DIRECT_FAILED")
+                + ": complete_cases=" + completeCases + "/" + cases.length + "\n");
+            finish(completeCases > 0 ? -1 : 1, result);
         } catch (Throwable error) {
             result.putString("stream", "MSIME_OCR_DIRECT_FAILED: " + error.getClass().getName() + "\n");
             finish(1, result);

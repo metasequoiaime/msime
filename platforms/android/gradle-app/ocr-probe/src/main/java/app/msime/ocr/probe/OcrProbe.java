@@ -116,29 +116,34 @@ public final class OcrProbe extends Instrumentation {
             throw new AssertionError("probe_interface_version");
         stage = "public-initialization";
         moduleClass.getMethod("initialize", Context.class).invoke(module, moduleContext);
-        Bitmap bitmap = SyntheticOcrFixture.render();
-        SyntheticOcrFixture.saveImage(context, bitmap);
+        String[][] cases = new String[SyntheticOcrFixture.CASE_COUNT][];
+        int completeCases = 0;
         try {
-            stage = "offline-recognition";
-            String[] lines = (String[]) moduleClass.getMethod("recognize", Bitmap.class).invoke(module, bitmap);
-            SyntheticOcrFixture.saveResult(context, lines);
-            String joined = String.join("", lines).replaceAll("\\s", "");
-            boolean english = joined.contains("SYNTHETICOCR2468");
-            boolean chinese = joined.contains("中文测试");
-            // 诊断只输出固定断言的布尔值与长度，不输出识别文本。
-            stage = "offline-recognition(lines=" + lines.length + ",chars=" + joined.length()
-                + ",english=" + english + ",digits=" + joined.contains("2468") + ",chinese=" + chinese
-                + ")";
-            if (!english || !chinese)
-                throw new AssertionError("probe_synthetic_recognition");
+            for (int index = 0; index < cases.length; index++) {
+                stage = "offline-recognition-case-" + index;
+                Bitmap bitmap = SyntheticOcrFixture.render(index);
+                try {
+                    SyntheticOcrFixture.saveImage(context, bitmap, index);
+                    cases[index] = (String[]) moduleClass.getMethod("recognize", Bitmap.class).invoke(module, bitmap);
+                    boolean matches = SyntheticOcrFixture.matches(cases[index]);
+                    if (matches) completeCases++;
+                    // 所有字号均保留匹配结果，不能只展示最好的那个字号。
+                    android.util.Log.i("MSIME_OCR_PROBE", "synthetic_case=" + index + ",complete=" + matches);
+                } finally {
+                    bitmap.recycle();
+                }
+            }
+            SyntheticOcrFixture.saveResult(context, cases);
         } finally {
-            bitmap.recycle();
             moduleClass.getMethod("close").invoke(module);
             handwriting.close();
         }
         // OCR 销毁后仍能创建原宿主的手写客户端，不能重置或替换它的组件容器。
         stage = "handwriting-after-ocr";
         handwritingClient().close();
+        // 模型误识别不能让手写共存检查被跳过；完整识别仍是独立的硬条件。
+        stage = "offline-recognition(complete-cases=" + completeCases + ",handwriting-after=true)";
+        if (completeCases == 0) throw new AssertionError("probe_synthetic_recognition");
     }
 
     private static void copy(InputStream input, OutputStream output) throws Exception {

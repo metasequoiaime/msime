@@ -12,11 +12,14 @@ import org.json.JSONArray;
 
 /** 两种加载方式共用的固定合成输入；不接受文件、相机或编辑器内容。 */
 public final class SyntheticOcrFixture {
+    public static final int CASE_COUNT = 3;
     private SyntheticOcrFixture() {}
 
-    public static Bitmap render() {
-        Bitmap bitmap = Bitmap.createBitmap(1400, 360, Bitmap.Config.ARGB_8888);
+    public static Bitmap render(int index) {
+        if (index < 0 || index >= CASE_COUNT) throw new IllegalArgumentException("probe_fixture_index");
+        Bitmap bitmap = Bitmap.createBitmap(1400 >> index, 360 >> index, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
+        canvas.scale(1f / (1 << index), 1f / (1 << index));
         canvas.drawColor(Color.WHITE);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setColor(Color.BLACK);
@@ -26,19 +29,29 @@ public final class SyntheticOcrFixture {
         return bitmap;
     }
 
-    public static void saveImage(Context context, Bitmap bitmap) throws Exception {
-        try (FileOutputStream output = new FileOutputStream(new File(context.getFilesDir(), "ocr-synthetic.png"))) {
+    public static void saveImage(Context context, Bitmap bitmap, int index) throws Exception {
+        try (FileOutputStream output = new FileOutputStream(new File(context.getFilesDir(), "ocr-synthetic-" + index + ".png"))) {
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
                 throw new AssertionError("probe_synthetic_image");
         }
     }
 
     /** 仅用于对照固定合成图的测试产物；此类不进入模块的 release 构建。 */
-    public static void saveResult(Context context, String[] lines) throws Exception {
+    public static void saveResult(Context context, String[][] cases) throws Exception {
         JSONArray result = new JSONArray();
-        for (String line : lines) result.put(line);
+        for (String[] lines : cases) {
+            JSONArray entry = new JSONArray();
+            for (String line : lines) entry.put(line);
+            result.put(entry);
+        }
         try (FileOutputStream output = new FileOutputStream(new File(context.getFilesDir(), "ocr-synthetic-result.json"))) {
             output.write(result.toString().getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /** 每个合格用例都必须同时包含完整英文单词、数字和中文；不拼接不同图片的局部成功。 */
+    public static boolean matches(String[] lines) {
+        String joined = String.join("", lines).replaceAll("\\s", "");
+        return joined.contains("SYNTHETICOCR2468") && joined.contains("中文测试");
     }
 }
