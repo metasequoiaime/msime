@@ -85,8 +85,18 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
+      # 仅本隔离验证分支使用：独立执行文本编辑专项，失败后仍保留完整套件的结果。
+      - name: 验证文本编辑设置与五种布局
+        id: text_edit_layout
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bash platforms/android/tests/device/smoke.sh "$SERIAL" --text-edit-layout | tee target/android/text-edit-layout.log
       - name: Install, prepare resources and accept input on the AVD
         run: bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }}
+      - name: 汇总文本编辑专项失败
+        if: ${{ always() && steps.text_edit_layout.outcome == 'failure' }}
+        run: exit 1
       - name: Collect device logs
         if: failure()
         run: |
@@ -94,13 +104,14 @@ jobs:
           "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+        if: always()
         with:
           name: android-device-api${{ matrix.api }}-logs
           path: |
             target/android/emulator.log
             target/android/logcat.txt
             target/android/crash.txt
+            target/android/text-edit-layout.log
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always()
