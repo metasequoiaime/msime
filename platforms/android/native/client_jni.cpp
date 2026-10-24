@@ -487,6 +487,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceStat
                 platform_available == JNI_TRUE, model_ready == JNI_TRUE, runtime_ready == JNI_TRUE);
         });
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoicePolishStatusRaw(
+        JNIEnv *env, jclass, jboolean enabled, jboolean configured, jboolean has_token) {
+    return response(env, msime_client_mobile_voice_polish_status(
+        enabled == JNI_TRUE, configured == JNI_TRUE, has_token == JNI_TRUE));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);

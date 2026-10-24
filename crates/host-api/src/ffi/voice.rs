@@ -157,6 +157,21 @@ pub unsafe extern "C" fn msime_client_mobile_voice_status(
     })
 }
 
+/// 设置页润色行的状态文案；纯计算，不读取偏好或设备状态。
+#[no_mangle]
+pub extern "C" fn msime_client_mobile_voice_polish_status(
+    enabled: bool,
+    configured: bool,
+    has_token: bool,
+) -> *mut c_char {
+    response(|| {
+        let status = msime_client_providers::voice::provider::mobile_voice_polish_status(
+            enabled, configured, has_token,
+        );
+        Ok(json!({"status": status}))
+    })
+}
+
 #[derive(serde::Deserialize)]
 struct VoiceProviderUpdateRequest {
     service: msime_client_providers::voice::provider_settings::ProviderService,

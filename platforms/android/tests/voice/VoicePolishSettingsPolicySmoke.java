@@ -1,6 +1,6 @@
 import app.msime.android.VoicePolishSettingsPolicy;
 
-/** 润色方案、自定义提示词字段和状态提示；服务名称由共享目录快照冒烟覆盖。 */
+/** 润色方案、自定义提示词字段和测试标题；状态提示由真实 JNI 设备套件覆盖。 */
 public final class VoicePolishSettingsPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -26,13 +26,6 @@ public final class VoicePolishSettingsPolicySmoke {
             "custom slots map to the fields the keyboard reads");
         check(VoicePolishSettingsPolicy.customField("cleanup") == null && VoicePolishSettingsPolicy.customField("custom_4") == null
                 && VoicePolishSettingsPolicy.customField(null) == null, "built-in presets and unknown ids have no editable text");
-
-        check(VoicePolishSettingsPolicy.status(false, false, false) == null, "a switched-off polish needs no remark");
-        check(VoicePolishSettingsPolicy.status(true, true, true) == null, "a working configuration needs no remark");
-        check("未填写 API Key，识别结果不会润色".equals(VoicePolishSettingsPolicy.status(true, false, false)),
-            "a missing key says polishing will not run");
-        check("配置不完整，识别结果不会润色".equals(VoicePolishSettingsPolicy.status(true, false, true)),
-            "a key with a bad endpoint or model says so");
 
         check(VoicePolishSettingsPolicy.testTitle(true).equals("测试通过")
                 && VoicePolishSettingsPolicy.testTitle(false).equals("测试未通过"), "test dialog titles");

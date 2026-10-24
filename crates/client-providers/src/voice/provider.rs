@@ -160,6 +160,22 @@ pub fn mobile_voice_local_status(model_ready: bool, runtime_ready: bool) -> Opti
     }
 }
 
+/// 设置页润色行的状态文案；configured 表示共享解析已经得到可用润色配置。
+pub fn mobile_voice_polish_status(
+    enabled: bool,
+    configured: bool,
+    has_token: bool,
+) -> Option<&'static str> {
+    if !enabled || configured {
+        return None;
+    }
+    Some(if has_token {
+        "配置不完整，识别结果不会润色"
+    } else {
+        "未填写 API Key，识别结果不会润色"
+    })
+}
+
 /// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
 /// 凭据不能嵌在 authority 中；缺少 authority 的地址若只检查 scheme 前缀会被错误放行，
 /// 随后又被平台传输层拒绝。
@@ -823,6 +839,20 @@ mod tests {
             Some("没有可用的系统识别服务，可改用本地模型或豆包")
         );
         assert_eq!(mobile_voice_provider_status("local", true, true), None);
+    }
+
+    #[test]
+    fn mobile_voice_polish_status_explains_missing_configuration() {
+        assert_eq!(mobile_voice_polish_status(false, false, false), None);
+        assert_eq!(mobile_voice_polish_status(true, true, true), None);
+        assert_eq!(
+            mobile_voice_polish_status(true, false, false),
+            Some("未填写 API Key，识别结果不会润色")
+        );
+        assert_eq!(
+            mobile_voice_polish_status(true, false, true),
+            Some("配置不完整，识别结果不会润色")
+        );
     }
 
     #[test]

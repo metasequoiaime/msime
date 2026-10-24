@@ -574,6 +574,9 @@ char *msime_client_voice_provider_catalog(void);
 char *msime_client_mobile_voice_status(const uint8_t *provider, size_t provider_length,
                                        bool resolved, bool platform_available,
                                        bool model_ready, bool runtime_ready);
+/* 设置页润色行的状态文案；enabled 是润色开关，configured 表示共享解析已有可用配置，
+ * has_token 表示当前服务或槽位存在凭据。纯计算，返回 {status:string|null}。 */
+char *msime_client_mobile_voice_polish_status(bool enabled, bool configured, bool has_token);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
  * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
  * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。

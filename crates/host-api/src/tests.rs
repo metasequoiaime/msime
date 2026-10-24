@@ -19155,6 +19155,34 @@ fn mobile_voice_status_export_uses_shared_status_rules() {
 }
 
 #[test]
+fn mobile_voice_polish_status_export_uses_shared_status_rules() {
+    for (enabled, configured, has_token, expected) in [
+        (false, false, false, serde_json::Value::Null),
+        (true, true, true, serde_json::Value::Null),
+        (
+            true,
+            false,
+            false,
+            serde_json::json!("未填写 API Key，识别结果不会润色"),
+        ),
+        (
+            true,
+            false,
+            true,
+            serde_json::json!("配置不完整，识别结果不会润色"),
+        ),
+    ] {
+        let result = read(msime_client_mobile_voice_polish_status(
+            enabled, configured, has_token,
+        ));
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":true,"value":{"status":expected}})
+        );
+    }
+}
+
+#[test]
 fn voice_provider_update_export_clears_fields_only_with_the_explicit_policy() {
     for (service, provider) in [
         ("voice.asr", "openai"),

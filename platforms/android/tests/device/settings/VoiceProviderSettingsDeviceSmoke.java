@@ -72,6 +72,18 @@ public final class VoiceProviderSettingsDeviceSmoke extends Instrumentation {
         check("还没有选用可用模型，请到「模型」选用、下载或导入".equals(
                 localStatus.invoke(null, false, false)),
             "缺少模型时优先提示模型");
+        Class<?> polishPolicy = loader.loadClass("app.msime.android.VoicePolishSettingsPolicy");
+        Method polishStatus = polishPolicy.getMethod("status", boolean.class, boolean.class, boolean.class);
+        check(polishStatus.invoke(null, false, false, false) == null,
+            "关闭润色时没有状态提示");
+        check(polishStatus.invoke(null, true, true, true) == null,
+            "已配置的润色没有状态提示");
+        check("未填写 API Key，识别结果不会润色".equals(
+                polishStatus.invoke(null, true, false, false)),
+            "共享 JNI 返回缺少润色凭据状态");
+        check("配置不完整，识别结果不会润色".equals(
+                polishStatus.invoke(null, true, false, true)),
+            "共享 JNI 返回润色配置不完整状态");
         Method statusParse = policy.getDeclaredMethod("parseStatus", String.class);
         statusParse.setAccessible(true);
         check("合成状态".equals(statusParse.invoke(null,

@@ -118,7 +118,7 @@ public final class VoiceProviderPolicy {
     }
 
     /** 只解析共享层成功信封，拒绝缺字段、错误类型和无界文本。 */
-    private static String parseStatus(String response) {
+    static String parseStatus(String response) {
         try {
             JSONObject value = response == null ? null : JsonPolicy.objectValue(new JSONObject(response));
             if (value == null || !value.has("status") || value.isNull("status")) return null;
