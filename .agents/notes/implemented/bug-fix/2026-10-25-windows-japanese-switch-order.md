@@ -36,4 +36,6 @@ Windows 构建先用既有 Rust 缓存定位回归，再复制依赖缓存到本
 
 PR 的 Windows GNU 交叉构建发现共享 IPC 契约仍把 `MaxKnown` 断言为旧尾项 `HostOnlineCandidates`（36），新增 `PreferenceTransition`（37）后因此编译失败。保留旧编号断言并增加新编号及尾项断言。此前本地可移植 Windows runner 只发现 Server 与 TSF 测试目录，没有运行 `shared/contracts/tests`。共享契约现在由 `scripts/test-shared-native-contracts.py` 自动发现 `*_contract.cpp`，以 C++17、完整版本定义、严格警告和启用断言的宿主编译器编译运行原测试；缺编译器明确跳过，编译或运行失败均失败。独立入口避免把不依赖 Windows 的测试与平台测试的可移植性跳过规则混在一起，也不复制测试断言。该入口通过 `run-checks.sh` 自动进入 quick 与契约 CI；先复现同一 `37 == 36` 编译失败，再修正契约。修复后本机 Clang 与 Linux GCC 均运行原四份契约通过，真实 Windows MSVC 的 `windows-ipc-contract` CMake 目标编译、ctest 通过；远端同目录完整 quick 再次退出 0。
 
+修正契约后的 GNU CI 编到 99% 才暴露第二个限制：`server_main.cpp.obj` 含 33131 个节，超过普通 PE/COFF 的 32768 节上限。Server 入口目标现在仅在 MinGW 的 GNU C++ 编译中传递 `-Wa,-mbig-obj`，采用工具链支持的大对象格式；CMake 的语言与编译器生成表达式避免把选项交给 RC 或 MSVC。该选择保留调试信息与原优化级别。拆分入口单元能降低模板实例数量，但会扩大这次顺序修复的架构改动；关闭调试信息也能降低节数，却削弱调试能力，二者均未采用。限制与选项依据 [GNU as 的 i386 选项说明](https://www.sourceware.org/binutils/docs/as/i386_002dOptions.html)。真实 Windows 的 MSVC Server 目标重新生成、编译链接通过；远端原目录完整 quick 再次退出 0。GNU 的完整编译与链接仍由新提交的 CI 核实。
+
 官方约束参考：[PostMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew)、[TSF edit sessions](https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions)。消息投递不代表执行完成，文档变更必须保留 edit session。

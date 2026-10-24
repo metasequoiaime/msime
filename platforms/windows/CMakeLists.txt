@@ -1936,6 +1936,8 @@ if(WIN32)
   set_tests_properties(windows-preview-help PROPERTIES TIMEOUT 5)
   # Windows subsystem: the Watchdog and the TSF DLL start the Server in the background, and a console-subsystem image would open a console window for every launch. Keep wmain as the entry so argument handling is unchanged; a preview run attaches to its terminal at startup (server_main.cpp).
   if(MINGW)
+    # 入口单元的模板实例超过普通 PE/COFF 的 32768 节上限；只对 GNU C++ 启用大对象，资源编译仍用原选项。
+    target_compile_options(msime-client-server PRIVATE "$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wa,-mbig-obj>")
     target_link_options(msime-client-server PRIVATE -municode -mwindows)
     target_link_options(windows-session-smoke PRIVATE -municode)
   endif()
