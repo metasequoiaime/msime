@@ -55,11 +55,13 @@ int main() {
   check(initial(L"水杉") == L"水" && initial(L"\U0001F98C鹿") == L"\U0001F98C" && initial(L"").empty(),
         "avatar initial");
 
-  // accountProviderName。
-  check(provider_name(L"sms") == L"手机号" && provider_name(L"phone") == L"手机号" &&
-            provider_name(L"email") == L"邮箱" && provider_name(L"google") == L"Google" &&
-            provider_name(L"apple") == L"Apple" && provider_name(L"wechat") == L"wechat",
-        "provider names");
+  // 宿主读取共享名称，不重建已知登录方式的映射。
+  const ProviderNames provider_names{{L"email", L"合成邮件方式"}, {L"sms", L"合成短信方式"},
+                                    {L"synthetic-provider", L"合成新方式"}};
+  check(provider_name(L"email", provider_names) == L"合成邮件方式" &&
+            provider_name(L"sms", provider_names) == L"合成短信方式" &&
+            provider_name(L"synthetic-provider", provider_names) == L"合成新方式" &&
+            provider_name(L"wechat", provider_names) == L"wechat", "shared provider names");
 
   // accountMessage：逐条跑各平台共用的 shared/contracts/account-errors/cases.json，每个码说成 `shared` 那一句（与共享账号页相同，不读 Retry-After）。
   const auto contract =

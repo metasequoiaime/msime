@@ -2,6 +2,7 @@
 #include "TranslationServiceSettings.h"
 #include "../../../shared/voice/PolishPromptWideCatalog.h"
 #include "../../../shared/voice/VoiceLanguageCatalog.h"
+#include "../../../shared/voice/VoiceHoldKeyCatalog.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -112,18 +113,9 @@ inline bool asr_advanced_changed(std::vector<ProviderDefaults> const &table,
 
 // ---- 语音快捷键（voice-hotkeys.ts） ----
 
-// 三个长按录音的组合键，按设置页列出的先后，连同下拉里的名字和存储里缺这个键时宿主用的出厂值（client-core 的 VoiceInputPreferences::default()，只有右 Alt 默认打开）。宿主同一时刻只认一个，所以设置页把它们合成一个「长按录音」选择。
-struct HoldKey {
-  std::wstring_view key;
-  std::wstring_view label;
-  bool fallback;
-};
-
-inline constexpr std::array<HoldKey, 3> hold_keys{{
-    {L"hotkey_ralt", L"右 Alt", true},
-    {L"hotkey_rctrl_ralt", L"右 Ctrl+右 Alt", false},
-    {L"hotkey_ctrl_win", L"Ctrl+Win", false},
-}};
+// 组合键顺序、名称和缺键默认值直接读取共享 Rust 目录的静态投影。
+using HoldKey = msime::voice::VoiceHoldKeyCatalogEntry;
+inline constexpr auto hold_keys = msime::voice::kVoiceHoldKeys;
 
 // 「不使用」在下拉里的值；三个组合键的值是各自的偏好名。
 inline constexpr std::wstring_view no_hold_key = L"none";
@@ -139,10 +131,11 @@ inline std::wstring_view selected_hold_key(std::map<std::wstring_view, bool> con
 }
 
 // 选中 `key`（「不使用」或不认识的值时三个都关）时要写入的值（holdKeyPatch）：三个一起写，选中的那个为开，其余为关。
-inline std::array<std::pair<std::wstring_view, bool>, 3> hold_key_patch(std::wstring_view key) {
-  return {{{hold_keys[0].key, hold_keys[0].key == key},
-           {hold_keys[1].key, hold_keys[1].key == key},
-           {hold_keys[2].key, hold_keys[2].key == key}}};
+inline std::array<std::pair<std::wstring_view, bool>, hold_keys.size()> hold_key_patch(std::wstring_view key) {
+  std::array<std::pair<std::wstring_view, bool>, hold_keys.size()> patch{};
+  for (size_t index = 0; index < hold_keys.size(); ++index)
+    patch[index] = {hold_keys[index].key, hold_keys[index].key == key};
+  return patch;
 }
 
 // 豆包鉴权方式：没有存或存空时是新版 API Key。

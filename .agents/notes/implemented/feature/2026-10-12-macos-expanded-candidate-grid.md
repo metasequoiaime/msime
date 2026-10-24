@@ -55,3 +55,5 @@ macOS 普通拼音候选的方向键分工及展开末页显示由[拼音与候�
 - **验证**：`cargo test -p msime-client-core -p msime-host-api` 覆盖偏好默认关闭、缺字段读成关闭、往返，能力位只在 macOS 为真，以及经 C ABI 读到的能力值；`apps/desktop/tests/settings/settings.test.tsx` 断言开关只在 macOS 出现、默认关闭、打开后保存 `expand_candidates: true`。macOS 原生：`candidate-expanded-grid`（`tests/candidate/CandidateExpandedGridTest.cpp`）覆盖行内、行间、短行、第一行 ↑ 收起、翻页和可见窗口；`shortcut` 里的 `TestExpandedCandidateGrid` 覆盖偏好关闭、竖排、只有一页时 ↓ 和 ←/→ 不变，展开不发 Engine 命令，网格里的移动、数字、空格、回车、Esc、第一行 ↑、不认的键、鼠标展开/收起/点选（指针先于选择报告）、偏好关闭或改竖排后收起，以及原生开关与共享文档读写同一个值；`TestExpandedCandidateGridGeneration` 覆盖同一组字换代时重载并保持高亮、原来的词没了时夹住、组字变化时收起、视图已换代时点旧按钮不选、Engine 拒绝过期一代时不上屏、焦点换客户端时收起。真机上的观感（浅色、深色、皮肤装饰、触控板滚动、刘海屏宽度）还没有在装好的输入法里看过。
 
 共享皮肤声明 `expandPanel = true` 时，展开／收起入口另按[共享皮肤布局](2026-10-20-skin-factory-layout.md)使用来源字号、两段折线和候选右侧窄列；收起入口由独立按钮偏好控制，不借用原生行号开关。本篇的首行模板图与行号布局继续适用于没有该声明的原生布局，键盘选词、身份校验和视图换代规则不变。
+
+主动部分选词后继续保留网格的生命周期由[部分选词保留展开](../bug-fix/2026-10-25-macos-expanded-partial-selection.md)补充：剩一页也保留，整句结束、旧代次拒绝与普通编辑仍沿用关闭规则。

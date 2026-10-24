@@ -127,6 +127,41 @@ fn client(origin: &str) -> BackendAccountClient {
 }
 
 #[test]
+fn dictionary_add_posts_to_the_collection_route() {
+    let entry = json!({
+        "id": "a".repeat(64), "kind": "english", "code": "fixture",
+        "word": "synthetic", "weight": 1, "revision": 1
+    });
+    let (origin, received) = serve(vec![json_response(
+        "201 Created",
+        json!({"revision": 1, "previous": null, "replacement": entry}),
+    )]);
+    let result = client(&origin)
+        .add_dictionary(
+            DictionaryKind::English,
+            "fixture",
+            "synthetic",
+            1,
+            &token('a'),
+        )
+        .unwrap();
+    assert_eq!(result.revision, 1);
+    let request = received.recv().unwrap();
+    assert_eq!(
+        request.line(),
+        "POST /v1/users/me/dictionaries/english HTTP/1.1"
+    );
+    assert_eq!(
+        request.header("authorization"),
+        Some(format!("Bearer {}", token('a')).as_str())
+    );
+    assert_eq!(
+        request.json(),
+        json!({"code": "fixture", "word": "synthetic", "weight": 1})
+    );
+}
+
+#[test]
 fn translate_posts_the_validated_body_and_normalizes_the_answer() {
     let (origin, received) = serve(vec![
         json_response(

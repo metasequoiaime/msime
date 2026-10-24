@@ -644,6 +644,51 @@ const CESHI: &str =
     r#"{"operation":"personal_query","query":{"operation":"candidates","text":"ceshi","limit":3}}"#;
 
 #[test]
+fn personal_requests_reject_out_of_range_nested_limits() {
+    let resources = resources();
+    for operation in ["personal_query", "personal_rank", "personal_delete"] {
+        for limit in [0, -1, 201, i64::MIN, i64::MAX] {
+            let response = personal(
+                json!({"operation": operation,
+                       "query": {"operation": "candidates", "text": "ceshi", "limit": limit},
+                       "action": {"code": "ce'shi", "word": "侧视"}}),
+                "{\"snapshot_revision\":1}\n",
+                resources.path(),
+            );
+            assert_eq!(
+                response,
+                json!({"error": "invalid_request"}),
+                "{operation}, limit={limit}"
+            );
+        }
+    }
+}
+
+#[test]
+fn personal_query_keeps_valid_limits_and_ranks_before_truncating() {
+    let resources = resources();
+    for limit in [Some(1_usize), Some(200), None] {
+        let mut query = json!({"operation": "candidates", "text": "ceshi"});
+        if let Some(limit) = limit {
+            query["limit"] = json!(limit);
+        }
+        let response = personal(
+            json!({"operation": "personal_query", "query": query}),
+            "{\"fixed\":{\"context\":\"ce'shi\",\"code\":\"ce'shi\",\"word\":\"侧视\",\"position\":1}}\n",
+            resources.path(),
+        );
+        let items = ranked(&response);
+        assert_eq!(items[0], ("侧视".to_owned(), 6, 1), "limit={limit:?}");
+        assert!(items.len() <= limit.unwrap_or(20), "limit={limit:?}");
+        if limit == Some(1) {
+            assert_eq!(items.len(), 1);
+        } else {
+            assert!(items.len() > 1, "limit={limit:?}");
+        }
+    }
+}
+
+#[test]
 fn personal_query_replays_the_overlay_and_reports_the_revision() {
     let resources = resources();
     let request: Value = serde_json::from_str(CESHI).unwrap();

@@ -15,6 +15,7 @@ import { DictionaryWordDialog } from "./dictionary-edit-dialogs";
 import { Badge, PlusGlyph } from "./dictionary-detail-parts";
 import type { DictionaryClient } from "./dictionary-contracts";
 import { useBuiltinDictionaryEntries } from "./use-builtin-dictionary-entries";
+import { SettingsSubViewHeader } from "../settings/settings-subview-header";
 
 /** 删除这类危险操作：一行红字，没有图标和箭头。 */
 function DangerRow({
@@ -44,15 +45,6 @@ function DangerRow({
   );
 }
 
-/** 词库详情页的标题。返回不另放按钮：打开详情时推入了一条历史记录，页面顶栏的返回和系统返回键都先回到词库列表，与 Android 的词库详情页一样只有一个返回。 */
-function DetailHeader({ title }: { title: string }) {
-  return (
-    <div className={settings.subViewHeader}>
-      <h2 className={settings.subViewTitle}>{title}</h2>
-    </div>
-  );
-}
-
 /** 一个命名词库：启用开关、条数、添加词条和删除。集合接口不列出单个集合的词条，所以和 Android 一样只显示条数。 */
 export function CollectionDetail({
   collection,
@@ -73,7 +65,7 @@ export function CollectionDetail({
     collection.pending > 0 ? `，还有 ${formatZhNumber(collection.pending)} 条等键盘同步` : "";
   return (
     <>
-      <DetailHeader title={collection.name} />
+      <SettingsSubViewHeader title={collection.name} />
       <GroupList>
         <SwitchRow
           title="启用此词库"
@@ -143,7 +135,7 @@ export function BuiltinDictionaryDetail({
 
   return (
     <>
-      <DetailHeader title="拼音词库" />
+      <SettingsSubViewHeader title="拼音词库" />
       <GroupList>
         <SwitchRow
           title="启用此词库"

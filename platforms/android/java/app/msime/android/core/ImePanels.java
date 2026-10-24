@@ -2189,8 +2189,9 @@ final class ImePanels {
         boolean lastInRow = index == count - 1
             || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
         if (lastInRow) {
+            // Space 按最小内容高度测量，普通 View 会占满 AT_MOST 高度，把操作行挤出视口。
             for (int empty = column + 1; empty < columns; empty++)
-                clipboardCardRow.addView(new View(s), clipboardCellParams(empty));
+                clipboardCardRow.addView(new android.widget.Space(s), clipboardCellParams(empty));
             clipboardCardRow = null;
         }
     }

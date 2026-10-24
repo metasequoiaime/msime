@@ -46,8 +46,10 @@ def main() -> int:
             "protected boolean shouldReloadOnContentReady()",
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
-            "@Override protected void onBecameVisible()",
-            "if (contentColumn() != null && shouldReloadWhenVisible()) reload();",
+            "@Override protected final void onBecameVisible()",
+            "if (contentColumn() != null) onVisible();",
+            "protected void onVisible()",
+            "if (shouldReloadWhenVisible()) reload();",
             "protected boolean shouldReloadWhenVisible()",
             "protected abstract void reload();",
         )

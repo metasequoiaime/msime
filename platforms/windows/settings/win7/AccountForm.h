@@ -238,6 +238,18 @@ public:
       if (!user.is_object() || string(user, "id") != user_id_) {
         notice_ = L"账号资料无法读取，请刷新登录状态后重试。"; refresh(); return std::nullopt;
       }
+      account::ProviderNames names;
+      bool valid_names = value.contains("providerNames") && value.at("providerNames").is_object();
+      if (valid_names) for (const auto& entry : value.at("providerNames").items()) {
+        if (!entry.value().is_string() || entry.value().get<std::string>().empty()) { valid_names = false; break; }
+        names.emplace(control_text::wide(entry.key()), control_text::wide(entry.value().get<std::string>()));
+      }
+      if (valid_names && value.contains("providers") && value.at("providers").is_array())
+        for (const auto& item : value.at("providers"))
+          if (item.is_string() && names.find(control_text::wide(item.get<std::string>())) == names.end()) valid_names = false;
+      if (!valid_names) {
+        notice_ = L"账号资料无法读取，请刷新登录状态后重试。"; refresh(); return std::nullopt;
+      }
       user_name_ = control_text::wide(string(user, "displayName")); name_ = user_name_;
       avatar_uploaded_ = flag(user, "avatarUploaded");
       const auto avatar_url = string(user, "avatarUrl");
@@ -245,7 +257,7 @@ public:
       profile_text_ = L"账号 ID：" + control_text::wide(user_id_) + L"\r\n邮箱：" + control_text::wide(string(user, "email")) +
           L"\r\n加入时间：" + control_text::wide(string(user, "createdAt")) + L"\r\n登录方式：";
       if (value.contains("providers") && value.at("providers").is_array()) for (const auto& item : value.at("providers"))
-        if (item.is_string()) profile_text_ += account::provider_name(control_text::wide(item.get<std::string>())) + L"　";
+        if (item.is_string()) profile_text_ += account::provider_name(control_text::wide(item.get<std::string>()), names) + L"　";
       if (operation == "rename") notice_ = L"昵称已更新。";
       else {
         if (operation == "upload_avatar") notice_ = L"头像已更新。";

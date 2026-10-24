@@ -5998,8 +5998,21 @@ private:
       for (auto const &item : list.GetArray())
         if (item.ValueType() == JsonValueType::String)
           providers.emplace_back(item.GetString().c_str());
+    const auto names_value = object.GetNamedValue(L"providerNames", JsonValue::CreateNullValue());
+    if (names_value.ValueType() != JsonValueType::Object)
+      return false;
+    am::ProviderNames names;
+    for (auto const &entry : names_value.GetObject()) {
+      if (entry.Value().ValueType() != JsonValueType::String || entry.Value().GetString().empty())
+        return false;
+      names.emplace(entry.Key().c_str(), entry.Value().GetString().c_str());
+    }
+    for (auto const &provider : providers)
+      if (names.find(provider) == names.end())
+        return false;
     account_user_ = std::move(user);
     account_providers_linked_ = std::move(providers);
+    account_provider_names_ = std::move(names);
     if (!keep_name)
       account_name_ = account_user_->display_name;
     return true;
@@ -6008,6 +6021,7 @@ private:
   void account_signed_out() {
     account_user_.reset();
     account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_name_.clear();
     reset_settings_sync();
     reset_qq_links();
@@ -6107,6 +6121,8 @@ private:
       return;
     }
     account_name_ = account_user_->display_name;
+    account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_request(account_action(L"profile"), [this](Response const &response) {
       if (!response.ok || !apply_account_profile(response, false)) {
         if (const auto code = account_failure(response); !am::cancelled(code))
@@ -6144,6 +6160,7 @@ private:
     account_user_ = std::move(user);
     account_name_ = account_user_->display_name;
     account_providers_linked_.clear();
+    account_provider_names_.clear();
     account_request(account_action(L"profile"), [this](Response const &profile) {
       if (!profile.ok || !apply_account_profile(profile, false)) {
         account_finish(account_failure(profile));
@@ -7447,7 +7464,7 @@ private:
       if (auto value = weak_providers.get()) {
         std::wstring names;
         for (auto const &provider : account_providers_linked_)
-          names += (names.empty() ? L"" : L"、") + am::provider_name(provider);
+          names += (names.empty() ? L"" : L"、") + am::provider_name(provider, account_provider_names_);
         value.Text(hstring(names.empty() ? L"正在读取" : names));
       }
       if (auto value = weak_joined.get())
@@ -24629,6 +24646,7 @@ private:
   std::optional<Response> account_pending_providers_;
   std::optional<AccountUser> account_user_;
   std::vector<std::wstring> account_providers_linked_;
+  am::ProviderNames account_provider_names_;
   bool account_email_ = false;
   bool account_phone_ = false;
   bool account_google_ = false;

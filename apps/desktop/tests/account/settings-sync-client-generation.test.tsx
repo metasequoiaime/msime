@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountProviderNames } from "../support/account-provider-names";
 import { presentAccountName } from "../support/account-name";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -51,7 +52,7 @@ function account(settingsSync: SettingsSyncClient): AccountClient {
   return {
     status: async () => ({ user }),
     providers: async () => ({ email: true, phone: false }),
-    profile: async () => ({ user, providers: ["email"] }),
+    profile: async () => ({ user, providers: ["email"], providerNames: accountProviderNames }),
     requestCode: vi.fn(),
     login: vi.fn(),
     namePresentation: presentAccountName,
