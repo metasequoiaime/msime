@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AccountPage, type AccountClient, type AccountUser } from "@msime/ui";
@@ -18,6 +19,7 @@ afterEach(() => {
 const user: AccountUser = {
   id: "fixture-user-id",
   displayName: "合成测试用户",
+  preferredName: "合成测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 
@@ -32,6 +34,7 @@ test.each([undefined, "android"] as const)(
       requestCode: vi.fn(),
       login: vi.fn(),
       profile: async () => ({ user, providers: ["email"] }),
+      namePresentation: presentAccountName,
       rename: vi.fn(),
       logout: vi.fn(),
       deleteAccount: vi.fn(),

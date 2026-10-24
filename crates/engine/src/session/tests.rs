@@ -3150,6 +3150,18 @@ INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);\
 CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 CREATE TABLE tbl_3_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);";
 
+/// 生产词库里字面整句可能比纠错词更高频；纠错候选仍应出现在候选列表中，而不是只在它胜过字面整句时出现。
+const SHUANGPIN_NONLEADING_TYPO_FIXTURE: &str =
+    "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mei','m','没',1000000);\
+CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('gen','g','跟',1000000),('guan','g','关',1000);\
+CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_x VALUES('xi','x','系',1000000);\
+CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',1);\
+CREATE TABLE tbl_3_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);";
+
 const QUANPIN_EXTRA_LETTER_FIXTURE: &str =
     "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_s VALUES('shang','s','上',1000);\
@@ -3240,6 +3252,26 @@ fn shuangpin_offers_the_typo_sentence_under_the_autocorrect_switch() {
         "{:?}",
         words(&plain)
     );
+}
+
+#[test]
+fn shuangpin_offers_a_nonleading_typo_sentence_from_a_full_dictionary() {
+    let fixture = Fixture::new(SHUANGPIN_NONLEADING_TYPO_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        options.autocorrect_types = crate::types::autocorrect_type::TRANSPOSITION
+            | crate::types::autocorrect_type::NEIGHBOR;
+    });
+    type_text(&mut session, "mwgfxi");
+    let snapshot = session.snapshot();
+    let corrected = snapshot
+        .candidates
+        .iter()
+        .position(|item| item.word == "没关系")
+        .unwrap_or_else(|| panic!("{:?}", words(&session)));
+    assert!(corrected > 0, "{:?}", words(&session));
+    assert_eq!(snapshot.candidates[corrected].corrected_from, "mwgfxi");
 }
 
 /// 双拼方案在宿主重建会话时切换。重建后的会话按新方案的编码纠错：自然码下 `mzgrci` 纠回没关系，小鹤的误触串 `mwgfxi` 不再纠；切回小鹤后反过来。

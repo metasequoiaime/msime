@@ -38,7 +38,7 @@ Status: implemented
 - 应用按键回放 191 项、延迟分类 225 项均通过；分类测试执行真实 FIFO 和 drain，确认组码保存来源与完整所有者。测试中的系统/COM 替身不代表真实焦点租约已验收。
 - 原生通用 `windows-session` 与 `windows-reply-composer` 仍失败。在固定 `c208d5748a` 对应的原生源码上重建运行后，分别同样报 `Preference retry task failed` 与回复断言失败；没有增加豁免或删掉断言。
 - 同步 `feaeb3ae4d` 后 Windows 完整 quick 实际退出 1；Rust workspace 与 pipe-only 编译通过，七项发布/平台/环境契约仍失败：Android、Linux、Windows 发布页，macOS 公证流程、发布附加内容、设置更新器，以及语音语言目录。没有新增豁免；合并标记和符号组的旧失败已消失。四项原生专项（租约、主管道、双会话、回车）均通过，71 份原生与协议源码的哈希与此前通过输入一致。
-- GNU CI 暴露生命周期夹具漏了两个新增网格 C ABI 符号，MSVC 同样复现链接失败。夹具补齐两个入口并在误入时直接失败；MSVC 链接已通过。完整生命周期用例仍在部分选词后的 `recorded` 断言失败：固定 `feaeb3ae4d` 的相关原生源码和原夹具重建后在第 344 行同样失败，恢复特性后为同一断言的第 353 行，没有改断言。恢复后四份文件哈希重新核对。
+- GNU CI 暴露生命周期夹具漏了两个新增网格 C ABI 符号，MSVC 同样复现链接失败。夹具补齐两个入口并在误入时直接失败；MSVC 链接已通过。初次验证的生命周期用例在部分选词后的 `recorded` 断言失败：固定 `feaeb3ae4d` 的相关原生源码和原夹具重建后在第 344 行同样失败，恢复特性后为同一断言的第 353 行。Win7 集成复验确认替身仍返回旧式逐段 commit，而 Server 已请求 Runtime 的 `phrase_preedit`；替身补齐暂存前缀、最终合并、失焦／取消清理，并断言创建请求启用该契约。原统计、特效和调用顺序断言全部保留；生命周期、组码租约、主管道与双会话四项专项在 MSVC x64／x86 全部通过。主管道计数使用无符号常量以修正 x86 `/WX` 下的比较警告，不降低警告等级。实际 Win7 与最终安装证据归[产品构建](2026-10-24-windows7-product-build.md)。
 - 五笔抽取夹具同步后在 macOS 重新执行 32 项，全部通过。回车观察 17 项、Shift 观察 33 项、游戏兼容与 Shift 组合键回归均通过。Host Windows 严格 Clippy 仍被既有 `read_clipboard_text` 的 `Result<_, ()>` 挡住；核心 all-targets 严格 Clippy 通过，没有放宽 lint。
 
 ## Consequences

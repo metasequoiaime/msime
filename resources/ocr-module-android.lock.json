@@ -1,0 +1,6 @@
+{
+  "source_commit": "d79bd159c972cfc57d58fbc50cbbaa8396d9c138",
+  "interface_version": 1,
+  "abis": ["arm64-v8a", "x86_64"],
+  "artifact": null
+}

@@ -20,8 +20,6 @@ import org.json.JSONObject;
  * <p>每个方法都阻塞（读状态也要等 Rust 的会话锁），不要在主线程调用。
  */
 public final class DeviceDataApi {
-    /** 昵称上限，与服务端 `utf8.RuneCountInString(name) > 64` 一致，按码点计。 */
-    public static final int MAX_DISPLAY_NAME = 64;
     /** 头像上传上限，与服务端 `maxAvatarUploadBytes` 一致。 */
     public static final int MAX_AVATAR_BYTES = 1024 * 1024;
     /** 云端数据里可以单独删除的分类，顺序即确认框里的顺序；voice 是这台设备匿名账号名下的语音样本（Rust 的 data_delete 另删匿名账号的那一份）。 */
@@ -92,12 +90,12 @@ public final class DeviceDataApi {
         return avatarBytes(url);
     }
 
-    /** 改昵称：去掉首尾空白后 1–64 个码点（Rust 不接受空昵称）。 */
+    /** 改昵称：规范化和合法性都由共享 Rust 计算。 */
     public Profile rename(String displayName) throws AccountStore.Failure {
-        String name = TextPolicy.trimmed(displayName);
-        if (!validDisplayName(name)) throw new AccountStore.Failure("account_invalid", 0);
+        AccountNamePolicy.Presentation name = AccountNamePolicy.present(displayName);
+        if (name == null || !name.valid()) throw new AccountStore.Failure("account_invalid", 0);
         try {
-            return parseProfile(call(op("rename").put("display_name", name)));
+            return parseProfile(call(op("rename").put("display_name", name.normalized())));
         } catch (JSONException impossible) {
             throw new AccountStore.Failure("account_invalid", 0);
         }
@@ -230,16 +228,6 @@ public final class DeviceDataApi {
     private static AccountStore.Failure recentLogin(AccountStore.Failure failure) throws RecentLoginRequired {
         if (recentLoginRequired(failure.code)) throw new RecentLoginRequired(failure);
         return failure;
-    }
-
-    /** 昵称：去掉首尾空白后 1–64 个码点，不含控制字符。Rust 不接受空昵称，所以「留空恢复默认」不再提供。 */
-    public static boolean validDisplayName(String name) {
-        if (name == null || name.isEmpty() || !TextPolicy.withinCodePoints(name, MAX_DISPLAY_NAME)) return false;
-        for (int index = 0; index < name.length(); index++) {
-            char c = name.charAt(index);
-            if (c < 0x20 || c == 0x7F) return false;
-        }
-        return true;
     }
 
     /** 删除分类必须非空、属于允许集合且不能重复。 */

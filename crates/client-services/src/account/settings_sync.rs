@@ -394,6 +394,7 @@ fn keyboard_layout(layout: TouchKeyboardLayout) -> &'static str {
         TouchKeyboardLayout::Handwriting => "handwriting",
         TouchKeyboardLayout::FourteenKey => "fourteen_key",
         TouchKeyboardLayout::NineKeyShuangpin => "nine_key_shuangpin",
+        TouchKeyboardLayout::EighteenKey => "eighteen_key",
     }
 }
 
@@ -1112,6 +1113,7 @@ pub(super) fn apply_touch_settings(
             "handwriting" => TouchKeyboardLayout::Handwriting,
             "fourteen_key" => TouchKeyboardLayout::FourteenKey,
             "nine_key_shuangpin" => TouchKeyboardLayout::NineKeyShuangpin,
+            "eighteen_key" => TouchKeyboardLayout::EighteenKey,
             _ => return None,
         };
         Some(())

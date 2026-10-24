@@ -10,17 +10,19 @@
 - 每个版本注册在它的默认方案所属的语言下（版本表 `langid`）：中文版本是简体中文 0x0804，日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下；
 - `release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本：少了一个，那个版本就不出安装包，共存检查（按 `edition_windows.py editions` 找安装包）也会因找不到它而失败。
 
-ISPP 的真实编译只能在装了 Inno Setup 的 Windows 上做（`release-windows.yml`）；这里的预处理器只认 `#include`、`#define`、`#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`、`#error` 和行内 `{#名字}`，遇到别的指令就失败，免得在它看不懂的地方给出错误的结论。
+ISPP 的真实编译只能在装了 Inno Setup 的 Windows 上做（`release-windows.yml`）；这里的预处理器只认 `#include`、`#define`、`#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`、`#error`、资源条目使用的 `#sub`／`#for`／`#call`、文件枚举与 SHA-256 函数，以及行内 `{#表达式}`，遇到别的指令就失败，免得在它看不懂的地方给出错误的结论。
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EDITIONS = ROOT / "shared/contracts/editions.json"
@@ -63,10 +65,59 @@ SCANNED_SUFFIXES = {".h", ".cpp", ".rs", ".ps1", ".iss", ".rc", ".vcxproj", ".cm
 class Ispp:
     """ISPP 的一个小子集，只够展开本仓库的安装脚本。字符串是 Pascal 风格（反斜杠不转义），整数和字符串可以用 + 拼接；版本用预定义的 Ver 和 EncodeVer(主, 次, 修订[, 构建]) 比较。"""
 
-    TOKEN = re.compile(r'\s*(?:(?P<string>"[^"]*")|(?P<number>\d+)|(?P<name>[A-Za-z_]\w*)|(?P<op>==|!=|>=|!|\+|\(|\)|,))')
+    TOKEN = re.compile(r'\s*(?:(?P<string>"[^"]*")|(?P<number>\d+)|(?P<name>[A-Za-z_]\w*)|(?P<op>==|!=|>=|&&|!|\+|\||\(|\)|,))')
 
-    def __init__(self, defines: dict[str, object]):
+    def __init__(self, defines: dict[str, object], source_root: pathlib.Path | None = None):
         self.defines = dict(defines)
+        self.defines.update(faReadOnly=1, faHidden=2, faSysFile=4, faArchive=32)
+        self.source_root = source_root
+        self.subs: dict[str, list[str]] = {}
+        self.finds: dict[int, tuple[list[pathlib.Path], int]] = {}
+        self.next_find = 1
+
+    def call(self, name: str, arguments: list[object]) -> object:
+        arities = {"EncodeVer": (3, 4), "FindFirst": (2,), "FindNext": (1,),
+                   "FindGetFileName": (1,), "FindClose": (1,), "GetSHA256OfFile": (1,)}
+        if name not in arities or len(arguments) not in arities[name]:
+            raise SystemExit(f"ISPP subset: unsupported call {name}/{len(arguments)}")
+        if name == "EncodeVer":
+            return encode_ver(*arguments)
+        if name == "FindFirst":
+            pattern = pathlib.Path(str(arguments[0]).replace("\\", "/"))
+            if not pattern.is_absolute():
+                pattern = self.source_root / pattern
+            files = sorted(p for p in pattern.parent.glob(pattern.name) if p.is_file())
+            if not files:
+                return 0
+            handle = self.next_find
+            self.next_find += 1
+            self.finds[handle] = (files, 0)
+            return handle
+        if name == "FindNext":
+            files, index = self.finds[arguments[0]]
+            self.finds[arguments[0]] = (files, index + 1)
+            return int(index + 1 < len(files))
+        if name == "FindGetFileName":
+            files, index = self.finds[arguments[0]]
+            return files[index].name
+        if name == "FindClose":
+            del self.finds[arguments[0]]
+            return 0
+        if name == "GetSHA256OfFile":
+            path = pathlib.Path(str(arguments[0]).replace("\\", "/"))
+            if not path.is_absolute():
+                path = self.source_root / path
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        raise SystemExit(f"ISPP subset: unsupported function {name}")
+
+    def assign(self, expression: str) -> None:
+        names = expression.split("=")
+        value = self.evaluate(names[-1])
+        for name in names[:-1]:
+            name = name.strip()
+            if not re.fullmatch(r"[A-Za-z_]\w*", name):
+                raise SystemExit(f"ISPP subset: invalid assignment {expression!r}")
+            self.defines[name] = value
 
     def evaluate(self, expression: str) -> object:
         tokens = []
@@ -79,13 +130,20 @@ class Ispp:
             position = match.end()
             kind = match.lastgroup
             tokens.append((kind, match.group(kind)))
-        value, rest = self.parse_comparison(tokens)
+        value, rest = self.parse_condition(tokens)
         if rest:
             raise SystemExit(f"ISPP subset: trailing tokens in {expression!r}")
         return value
 
+    def parse_condition(self, tokens):
+        value, tokens = self.parse_comparison(tokens)
+        while tokens and tokens[0] == ("op", "&&"):
+            right, tokens = self.parse_comparison(tokens[1:])
+            value = int(bool(value) and bool(right))
+        return value, tokens
+
     def parse_comparison(self, tokens):
-        left, tokens = self.parse_sum(tokens)
+        left, tokens = self.parse_bitwise(tokens)
         if tokens and tokens[0] == ("op", "=="):
             right, tokens = self.parse_sum(tokens[1:])
             return int(left == right), tokens
@@ -96,6 +154,13 @@ class Ispp:
             right, tokens = self.parse_sum(tokens[1:])
             return int(left >= right), tokens
         return left, tokens
+
+    def parse_bitwise(self, tokens):
+        value, tokens = self.parse_sum(tokens)
+        while tokens and tokens[0] == ("op", "|"):
+            right, tokens = self.parse_sum(tokens[1:])
+            value |= right
+        return value, tokens
 
     def parse_sum(self, tokens):
         value, tokens = self.parse_unary(tokens)
@@ -112,7 +177,7 @@ class Ispp:
             value, rest = self.parse_unary(tokens[1:])
             return int(not value), rest
         if (kind, text) == ("op", "("):
-            value, rest = self.parse_comparison(tokens[1:])
+            value, rest = self.parse_condition(tokens[1:])
             if not rest or rest[0] != ("op", ")"):
                 raise SystemExit("ISPP subset: unbalanced parenthesis")
             return value, rest[1:]
@@ -120,17 +185,17 @@ class Ispp:
             return text[1:-1], tokens[1:]
         if kind == "number":
             return int(text), tokens[1:]
-        if kind == "name" and text == "EncodeVer" and tokens[1:2] == [("op", "(")]:
+        if kind == "name" and tokens[1:2] == [("op", "(")]:
             parts, rest = [], tokens[2:]
             while True:
-                part, rest = self.parse_sum(rest)
+                part, rest = self.parse_bitwise(rest)
                 parts.append(part)
                 if rest and rest[0] == ("op", ","):
                     rest = rest[1:]
                     continue
-                if not rest or rest[0] != ("op", ")") or not 3 <= len(parts) <= 4:
-                    raise SystemExit("ISPP subset: EncodeVer takes three or four numbers")
-                return encode_ver(*parts), rest[1:]
+                if not rest or rest[0] != ("op", ")"):
+                    raise SystemExit(f"ISPP subset: unbalanced call to {text}")
+                return self.call(text, parts), rest[1:]
         if kind == "name":
             if text not in self.defines:
                 raise SystemExit(f"ISPP subset: {text} is not defined")
@@ -143,6 +208,11 @@ class Ispp:
         return re.sub(r"\{#([^}]*)\}", value, line)
 
     def run(self, path: pathlib.Path) -> list[str]:
+        if self.source_root is None:
+            self.source_root = path.parent
+        return self.run_lines(path.read_text(encoding="utf-8-sig").splitlines(keepends=True), path)
+
+    def run_lines(self, lines: list[str], path: pathlib.Path) -> list[str]:
         output: list[str] = []
         # 每层条件：(这一层当前是否生效, 这一层是否已经有分支生效过, 外层是否生效)
         stack: list[tuple[bool, bool, bool]] = []
@@ -150,8 +220,18 @@ class Ispp:
         def active() -> bool:
             return all(entry[0] for entry in stack)
 
-        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        sub_name = None
+        sub_body: list[str] = []
+        for line in lines:
             stripped = line.strip()
+            if sub_name is not None:
+                if stripped == "#endsub":
+                    self.subs[sub_name] = sub_body
+                    sub_name = None
+                    sub_body = []
+                else:
+                    sub_body.append(line)
+                continue
             if stripped.startswith("#"):
                 directive, _, argument = stripped[1:].partition(" ")
                 argument = argument.strip()
@@ -180,6 +260,22 @@ class Ispp:
                 elif directive == "define":
                     name, _, value = argument.partition(" ")
                     self.defines[name] = self.evaluate(value) if value.strip() else ""
+                elif directive == "sub":
+                    sub_name = argument
+                elif directive == "for":
+                    match = re.fullmatch(r"\{(.*);(.*);(.*)\}\s+(\w+)", argument)
+                    if not match or match[4] not in self.subs:
+                        raise SystemExit(f"ISPP subset: unsupported loop {argument!r}")
+                    self.assign(match[1])
+                    iterations = 0
+                    while self.evaluate(match[2]):
+                        iterations += 1
+                        if iterations > 10000:
+                            raise SystemExit("ISPP subset: loop iteration limit exceeded")
+                        output += self.run_lines(self.subs[match[4]], path)
+                        self.assign(match[3])
+                elif directive == "call":
+                    self.evaluate(argument)
                 elif directive == "error":
                     raise SystemExit(f"ISPP subset: #error {argument}")
                 else:
@@ -187,6 +283,8 @@ class Ispp:
                 continue
             if active():
                 output.append(self.expand_inline(line))
+        if sub_name is not None:
+            raise SystemExit(f"ISPP subset: unterminated subroutine in {path.name}")
         if stack:
             raise SystemExit(f"ISPP subset: unterminated conditional in {path.name}")
         return output
@@ -200,11 +298,31 @@ def encode_ver(major: int, minor: int, revision: int, build: int = 0) -> int:
 CI_ISPP_VERSION = encode_ver(6, 7, 1)
 
 
-def preprocess(edition_id: str, light: bool = False, ispp_version: int = CI_ISPP_VERSION) -> str:
+def preprocess(edition_id: str, light: bool = False, ispp_version: int = CI_ISPP_VERSION, windows7_architecture: str | None = None) -> str:
     defines: dict[str, object] = {"Edition": edition_id, "Ver": ispp_version}
+    if windows7_architecture is not None:
+        defines["Windows7Architecture"] = windows7_architecture
     if light:
         defines["LightPackage"] = 1
-    return "".join(Ispp(defines).run(SETUP))
+    # 用真实合成文件展开资源循环与摘要；不依赖本机已暂存哪个产品，也不略过新语法。
+    with tempfile.TemporaryDirectory(prefix="msime-ispp-") as directory:
+        root = pathlib.Path(directory)
+        if not light:
+            resources = root / "server_exe/resources"
+            resources.mkdir(parents=True)
+            (resources / "msime-pinyin.db").write_bytes(b"synthetic pinyin resource")
+            (resources / "msime-others.db").write_bytes(b"synthetic other resource")
+        expanded = "".join(Ispp(defines, root).run(SETUP))
+        resource_rows = [line for line in expanded.splitlines() if "Check: ResourceNeedsReplacement(" in line]
+        expected_count = 0 if light else 2
+        if len(resource_rows) != expected_count:
+            raise SystemExit("ISPP subset: resource loop emitted an incorrect number of entries")
+        if not light:
+            for resource in sorted(resources.iterdir()):
+                digest = hashlib.sha256(resource.read_bytes()).hexdigest()
+                if not any(resource.name in line and digest in line for line in resource_rows):
+                    raise SystemExit("ISPP subset: resource digest does not match source bytes")
+        return expanded
 
 
 def load_generator():
@@ -261,7 +379,7 @@ def check_installer(errors: list[str], editions: list[dict], msime_windows: dict
         # 每个版本（包括 full）都只停本安装 server 目录里的进程：几个版本的进程同名，按映像名结束会停掉同时安装的其他版本。
         if "taskkill.exe" in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: stops processes by image name, which also stops the other installed editions")
-        server_dir = "ServerDir := ExpandConstant('{commonpf64}\\" + entry["platforms"]["windows"]["install_dir"] + "\\server');"
+        server_dir = "ServerDir := ExpandConstant('{autopf}\\" + entry["platforms"]["windows"]["install_dir"] + "\\server');"
         if server_dir not in output or "StopProcessesUnder(ServerDir, '');" not in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: does not stop exactly the processes under its own server directory ({server_dir!r})")
         # 停进程之前先占住 TSF 的 Server 启动互斥量，名字与已装 TIP 用的完全一致：否则加载在各程序里的 TIP 会把刚停掉的 Server 重新拉起来，[Files] 替换词库时以错误 32 失败。
@@ -280,6 +398,23 @@ def check_installer(errors: list[str], editions: list[dict], msime_windows: dict
     # 轻量包也要能展开（它走另一组 #ifdef 分支）。
     for entry in editions:
         preprocess(entry["id"], light=True)
+    # 展开两架构的 Win7 分支；现代包继续保持 x64 安装模式与原文件名。
+    for entry in editions:
+        modern = outputs[entry["id"]]
+        if "ArchitecturesAllowed=x64compatible\n" not in modern or "ArchitecturesInstallIn64BitMode=x64compatible\n" not in modern:
+            errors.append(f"edition {entry['id']}: modern architecture policy changed")
+        for arch in ("x64", "x86"):
+            for light in (False, True):
+                expanded = preprocess(entry["id"], light=light, windows7_architecture=arch)
+                expected_name = entry["platforms"]["windows"]["installer_base_name"] + "_v0.0.1" + ("_light" if light else "") + "_win7_" + arch
+                expected_arch = f"ArchitecturesAllowed={arch}os\n"
+                server_dir = "ServerDir := ExpandConstant('{autopf}\\" + entry["platforms"]["windows"]["install_dir"] + "\\server');"
+                if expected_arch not in expanded or f"OutputBaseFilename={expected_name}\n" not in expanded or "MinVersion=6.1sp1\n" not in expanded or server_dir not in expanded:
+                    errors.append(f"edition {entry['id']}: Win7 {arch} package identity, minimum OS or server directory changed")
+                if ("ArchitecturesInstallIn64BitMode=x64os\n" in expanded) != (arch == "x64"):
+                    errors.append(f"edition {entry['id']}: Win7 {arch} has incorrect install mode")
+                if ("Source: \".\\tsf_dll\\64\\*.dll\"" in expanded) != (arch == "x64"):
+                    errors.append(f"edition {entry['id']}: Win7 {arch} has incorrect 64-bit TIP payload")
     # 系统目录里的工具要绕开 WOW64 重定向才看得到真正的 System32：Inno 6 在 64 位安装模式下 Exec 本来就绕开，Inno 7 的 32 位 Setup 只有 ExecWithNativeSysDir 绕开。两个版本各展开一次，确认走到了对的那个函数。
     for version, expected in ((CI_ISPP_VERSION, "Exec("), (encode_ver(7, 0, 0), "ExecWithNativeSysDir(")):
         expanded = preprocess(editions[0]["id"], ispp_version=version)

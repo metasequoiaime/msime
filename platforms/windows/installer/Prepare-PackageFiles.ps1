@@ -29,6 +29,9 @@ param(
     [string]$VoiceRuntimeDirectory = 'target/voice-runtime/windows-x64',
     # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。决定从哪个构建目录取文件（full 是 target/windows-full，其他版本是 target/windows-<id>）、host DLL 的名字、按哪份资源锁校验词库、带哪些语言词库，以及 Server 目录里版本声明写哪个版本。缺省是 full。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
+    [ValidateSet('', 'x64', 'x86')][string]$Windows7Architecture = '',
+    # 独立暂存目录让 Win7 包与现代包可同时保留，不修改另一份已准备的安装文件。
+    [string]$PackageDirectory = '',
     [switch]$Light
 )
 
@@ -37,6 +40,19 @@ Set-StrictMode -Version Latest
 
 if ($TargetVersion -notmatch '^[0-9][0-9A-Za-z.+-]*$') {
     throw "Invalid installer version: $TargetVersion"
+}
+
+if ($PackageDirectory -eq '') {
+    $PackageDirectory = if ($Windows7Architecture -ne '') { Join-Path $RepoRoot "target/windows7-package/$Edition/$Windows7Architecture" } else { $PSScriptRoot }
+}
+if (-not [IO.Path]::IsPathRooted($PackageDirectory)) { throw 'PackageDirectory 必须是绝对目录' }
+if ($Windows7Architecture -ne '') {
+    $win7Build = "target/windows7-$Edition"
+    $ServerReleaseDirectory = "$win7Build/$Windows7Architecture/runtime"
+    $DesktopExecutable = "$ServerReleaseDirectory/msime-client-settings-win7.exe"
+    $DesktopPreviewExecutable = "$ServerReleaseDirectory/msime-client-panels-win7.exe"
+    $Tsf32ReleaseDirectory = "$win7Build/x86/runtime"
+    $Tsf64ReleaseDirectory = "$win7Build/x64/runtime"
 }
 
 $editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -56,7 +72,7 @@ $languageDictionaryNames = @($editionEntry[0].language_dictionaries)
 # 非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义，只给提供中文方案的版本（版本表 features.offline_glosses，scripts/test-editions.py 检查它等于版本是否提供中文方案）。日文、越南文和藏文版不装。
 $editionOfflineGlosses = [bool]$editionEntry[0].features.offline_glosses
 $editionBuild = "target/windows-$Edition"
-if (-not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
+if ($Windows7Architecture -eq '' -and -not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
     $DesktopExecutable = "$editionBuild/x64/bin/msime-client-settings.exe"
 }
 
@@ -64,7 +80,7 @@ function Test-PackageTestArtifact {
     param([Parameter(Mandatory)][string]$BaseName)
     # Client CMake tests use windows-*; the other patterns cover the remaining test executables.
     # Production entry points use MetasequoiaIme* or msime-client-* names.
-    return $BaseName -like '*Tests' -or $BaseName -like 'test_*' -or $BaseName -like 'windows-*'
+    return $BaseName -like '*Tests' -or $BaseName -like 'test_*' -or $BaseName -like 'windows-*' -or $BaseName -like 'windows7-*'
 }
 
 function Assert-PathExists {
@@ -176,13 +192,15 @@ Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输�
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
 Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
-Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
+if ($Windows7Architecture -ne 'x86') { Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL' }
+if ($Windows7Architecture -eq '') {
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsfArm64Release -Description 'Arm64X TSF Release DLL'
 Assert-PathExists -LiteralPath $tsfArm64Pdb -Description 'Arm64X TSF Release PDB'
 Assert-PathExists -LiteralPath $tsfArm64Host -Description "Arm64X TSF 的 $arm64HostDllName"
-foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
+}
+foreach ($hostDll in @($tsf32Host) + @($(if ($Windows7Architecture -ne 'x86') { $tsf64Host }))) {
     if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
         throw "缺少对应架构 TSF 的 $hostDllName"
     }
@@ -190,6 +208,8 @@ foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
 # TIP 的运行时 DLL。x86 输出目录里只有 32 位 TIP 的构建产物、它的宿主 DLL 和 Copy-RuntimeDependencies.ps1 放进去的 vcpkg DLL，所以其中其他 DLL 都是 TIP 的依赖。x64 输出目录与 Server、自包含的 WinUI 设置程序和语音运行时共用，整个复制会在 64 位 TIP 旁边多放一份 Windows App SDK 和 onnxruntime/sherpa；两个前缀装的是同一份 vcpkg 清单，所以 64 位 TIP 取 32 位 TIP 旁边那些名字，每一个都必须在它旁边存在。
 # 别的版本的宿主 DLL 永远不是本版本 TIP 的依赖。
 $editionHostDllNames = @($editionTable.editions | Where-Object { $null -ne $_.platforms.windows } | ForEach-Object { [string]$_.platforms.windows.host_dll })
+$tsf32Dependencies = @(); $tsf64Dependencies = @()
+if ($Windows7Architecture -eq '') {
 $tsf32Dependencies = @(
     Get-ChildItem -LiteralPath (Split-Path -Parent $tsf32Release) -File -Filter '*.dll' |
         Where-Object { $_.Name -notin (@('MetasequoiaImeTsf.dll') + $editionHostDllNames) } |
@@ -204,8 +224,9 @@ $tsf64Dependencies = @(
         $candidate
     }
 )
+}
 # 安装器从 tsf_dll\64 那一份把 x64 宿主 DLL 和这些依赖装进 Server 目录，包里只存一份；Server 输出里同名却内容不同的文件会被它悄悄替换，所以在替换任何旧的暂存内容之前就在这里拒绝。
-foreach ($shared in @($tsf64Host) + $tsf64Dependencies) {
+foreach ($shared in @($(if ($Windows7Architecture -eq 'x86') { $tsf32Host } else { $tsf64Host })) + $tsf64Dependencies) {
     $serverCopy = Join-Path $serverRelease (Split-Path -Leaf $shared)
     if ((Test-Path -LiteralPath $serverCopy -PathType Leaf) -and
         (Get-FileHash -LiteralPath $serverCopy).Hash -ne (Get-FileHash -LiteralPath $shared).Hash) {
@@ -228,7 +249,7 @@ $missingServerPdb = @(
         } |
         ForEach-Object { Join-Path $_.DirectoryName "$($_.BaseName).pdb" }
 )
-if ($missingServerPdb.Count -gt 0) {
+if ($Windows7Architecture -eq '' -and $missingServerPdb.Count -gt 0) {
     throw "Server Release 缺少同名 PDB：$($missingServerPdb -join ', ')"
 }
 Assert-PathExists -LiteralPath $appIcon -Description '应用图标'
@@ -297,9 +318,15 @@ if ($null -ne $voiceRuntimeFrom) {
     }
 }
 
-$targetAppData = Join-Path $PSScriptRoot 'app_data'
-$targetServer = Join-Path $PSScriptRoot 'server_exe'
-$targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
+# Win7 的原生候选与表情面板静态链接 HarfBuzz，不能沿用新增依赖前的旧声明集合。
+if ($Windows7Architecture -and -not ([IO.File]::ReadAllText($thirdPartyNotices).ToLowerInvariant().Contains('harfbuzz'))) {
+    throw 'Win7 第三方声明缺少 HarfBuzz，请按实际依赖前缀重新运行 Collect-Notices.ps1'
+}
+
+New-Item -ItemType Directory -Path $PackageDirectory -Force | Out-Null
+$targetAppData = Join-Path $PackageDirectory 'app_data'
+$targetServer = Join-Path $PackageDirectory 'server_exe'
+$targetTsf = Join-Path $PackageDirectory 'tsf_dll'
 
 if ($Light) {
     Write-Host '轻量模式：跳过词库、辅助码和出厂配置，刷新 TSF、Server 与 Tauri。'
@@ -327,21 +354,23 @@ Copy-DirectoryContents -Source (Join-Path $RepoRoot 'resources/sound-packs') -De
 # Server Release 输出整体复制，但测试程序及其 PDB 绝不能进入安装包。其他 PDB 照常暂存在对应 EXE 旁边，供发布流程打成单独的符号包；msime_setup.iss 不把 PDB 和 .ilk 装到用户机器上。
 Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
-# Match ShellSurfaces.h, independent of Cargo/Tauri's build artifact filename.
-Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $targetServer 'msime-client-settings.exe') -Force
+# 使用与 ShellSurfaces.h 一致的产品入口名，不依赖 Cargo 或 Tauri 的产物名。
+$desktopFileName = if ($Windows7Architecture -ne '') { 'msime-client-settings-win7.exe' } else { 'msime-client-settings.exe' }
+$panelFileName = if ($Windows7Architecture -ne '') { 'msime-client-panels-win7.exe' } else { 'MSIME.exe' }
+Copy-Item -LiteralPath $desktopSource -Destination (Join-Path $targetServer $desktopFileName) -Force
 # An explicit shell override must not inherit a PDB from the native shell that
 # was copied with Server output. Only stage symbols beside the chosen source.
-$targetDesktopPdb = Join-Path $targetServer 'msime-client-settings.pdb'
+$targetDesktopPdb = Join-Path $targetServer ([IO.Path]::ChangeExtension($desktopFileName,'.pdb'))
 if (Test-Path -LiteralPath $targetDesktopPdb) { Remove-Item -LiteralPath $targetDesktopPdb -Force }
 $desktopPdbSource = [IO.Path]::ChangeExtension($desktopSource, '.pdb')
 if (Test-Path -LiteralPath $desktopPdbSource -PathType Leaf) {
     Copy-Item -LiteralPath $desktopPdbSource -Destination $targetDesktopPdb
 }
 if ($previewSource) {
-    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer 'MSIME.exe') -Force
+    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer $panelFileName) -Force
     $previewPdbSource = [IO.Path]::ChangeExtension($previewSource, '.pdb')
     if (Test-Path -LiteralPath $previewPdbSource -PathType Leaf) {
-        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME.pdb') -Force
+        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer ([IO.Path]::ChangeExtension($panelFileName,'.pdb'))) -Force
     }
 }
 # 随桌面安装包分发的官方插件包（scripts/build-official-plugins.sh 构建到 target/plugin-packs/<kind>/<id>/）。放进 server_exe\plugin-packs，由 Inno 随 Server 装到 Program Files：那里只有管理员能写，Server 和设置应用都从自己所在的目录找它（src/system/PluginPackRoot.h）。不放 app_data：DataDir 普通用户可写，放在那里的「内置」包谁都能换。没有构建它时照旧打包、只是不带官方包；发版设 MSIME_REQUIRE_OFFICIAL_PLUGINS=1，那时缺了就失败。
@@ -515,7 +544,8 @@ Get-ChildItem -LiteralPath $targetServer -Recurse -File |
     } |
     Remove-Item -Force
 # CI 里 Server 输出目录同时也是 x64 TIP 的构建目录。TIP 和它的符号暂存在 tsf_dll\64 下，只从版本目录加载；宿主 DLL 和 TIP 的运行时 DLL 也从同一份 tsf_dll\64 进入 Server 目录（msime_setup.iss），所以它们都不重复暂存。Build-Client.ps1 也把宿主 DLL 的 PDB 留在这里；Collect-Symbols.ps1 直接从构建输出取它打进符号包，所以它完全不暂存。
-foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $hostDllName, 'msime_host_api.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ })) {
+$sharedRemoval = if ($Windows7Architecture -eq '') { @($hostDllName,'msime_host_api.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ }) } else { @('windows7-runtime-closure.json','windows7-imports.txt','files.txt') }
+foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb') + $sharedRemoval) {
     $staged = Join-Path $targetServer $name
     if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
 }
@@ -528,6 +558,14 @@ Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'
 $targetTsf64 = Join-Path $targetTsf '64'
 $targetTsfArm64 = Join-Path $targetTsf 'arm64'
+if ($Windows7Architecture -ne '') {
+    foreach ($target in @(@('x86',$tsf32Release,$targetTsf32),@('x64',$tsf64Release,$targetTsf64))) {
+        if ($Windows7Architecture -eq 'x86' -and $target[0] -eq 'x64') { continue }
+        $sourceDirectory = Split-Path -Parent $target[1]
+        & (Join-Path (Split-Path -Parent $PSScriptRoot) 'Copy-Windows7RuntimeClosure.ps1') -ProgramDirectory $sourceDirectory `
+            -EntryPoints @('MetasequoiaImeTsf.dll') -DependencyDirectories @($sourceDirectory) -Destination $target[2] -Architecture $target[0]
+    }
+} else {
 New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64, $targetTsfArm64 -Force | Out-Null
 Copy-Item -LiteralPath $tsf32Release -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf32Pdb -Destination $targetTsf32 -Force
@@ -540,17 +578,19 @@ Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host -Destinatio
 # Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。
 foreach ($dependency in $tsf32Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf32 -Force }
 foreach ($dependency in $tsf64Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf64 -Force }
-Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
+}
+Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PackageDirectory 'MetasequoiaIME.ico') -Force
 # rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime-pinyin.db, so the
 # notice has to reach the user's disk rather than only exist in the source repository.
-Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.txt') -Force
+Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $PackageDirectory 'THIRD_PARTY_NOTICES.txt') -Force
 # GPLv3 sections 4 and 6 require a copy of the licence to reach whoever receives the program, and the
 # packaged product includes third-party GPL-3.0 dictionary data. macOS and Linux already install the
 # licence text (CMakeLists.txt in MSIME-Apple and MSIME-Linux); Windows is the platform that actually
 # ships at volume and was the only one omitting it. THIRD_PARTY_NOTICES.txt does not cover this: it
 # points at "the LICENSE file" without carrying the GPL text itself.
-Copy-Item -LiteralPath $license -Destination (Join-Path $PSScriptRoot 'LICENSE.txt') -Force
+Copy-Item -LiteralPath $license -Destination (Join-Path $PackageDirectory 'LICENSE.txt') -Force
 
+if ($Windows7Architecture -eq '') {
 $targetIss = Join-Path $PSScriptRoot 'msime_setup.iss'
 Assert-PathExists -LiteralPath $targetIss -Description '安装脚本'
 $issContent = Get-Content -LiteralPath $targetIss -Raw -Encoding UTF8
@@ -565,11 +605,13 @@ $updatedIss = [regex]::Replace(
 $updatedIss = $updatedIss.TrimEnd("`r", "`n") + "`r`n"
 [IO.File]::WriteAllText($targetIss, $updatedIss, [Text.UTF8Encoding]::new($false))
 
+}
+
 $serverBinaryCount = @(Get-ChildItem -LiteralPath $targetServer -Recurse -File -Include '*.exe', '*.dll').Count
 $tsfBinaryCount = @(Get-ChildItem -LiteralPath $targetTsf -Recurse -File -Include '*.exe', '*.dll').Count
 $symbolCount = @(
     Get-ChildItem -LiteralPath $targetServer, $targetTsf -Recurse -File -Filter '*.pdb'
 ).Count
 $modeLabel = if ($Light) { '轻量' } else { '完整' }
-Write-Host "安装文件准备完成（$modeLabel）：$PSScriptRoot"
+Write-Host "安装文件准备完成（$modeLabel）：$PackageDirectory"
 Write-Host "版本：$TargetVersion；Server EXE/DLL：$serverBinaryCount 个；TSF EXE/DLL：$tsfBinaryCount 个；PDB：$symbolCount 个。"

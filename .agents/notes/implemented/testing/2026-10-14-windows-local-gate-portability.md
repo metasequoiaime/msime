@@ -18,6 +18,16 @@ Windows 的笔记根目录通过 `cygpath -w` 传给原生 Node；MSYS 的 `/c/.
 
 本机 Python 启动器、Git Bash 搜索次序和原生工具读取 `/dev/fd` 的问题通过临时调用环境处理，不把本机路径、凭据或工具 shim 加入仓库。缺少 SDK、设备或构建依赖的阶段仍如实报告，不能据此声称全门禁通过。
 
+Linux 发布页测试的 `gh`、`curl` 与 `docker` 必须使用测试目录中的替身。Git 的 `bin/bash.exe` 启动器会将 `mingw64/bin` 前置，使真实 `curl` 覆盖替身并访问合成版本的线上地址；Windows 入口因此在首次进入 Bash 后重新前置替身目录，再用 `$BASH` 指向的实际解释器执行原脚本，避免重复经过启动器。渲染脚本需要的 `python3` 也在同一测试目录转交当前 `sys.executable`，不依赖 Windows Store 别名或本机安装布局。POSIX 入口保持原样，真实发布脚本不变。
+
+该发布页夹具修正已在 Windows 11 的 Git Bash／原生 Python 和 macOS 的 Bash／GNU coreutils 上运行原有 16 项测试，均通过；Windows 的共享界面对话框、37 个偏好类型与 220 项参考配置契约复验同样通过。失败时的真实 `curl` 搜索次序已通过 `type -a` 复现，未放宽原断言。
+
+鸿蒙设置包检查在原生 Windows 子进程中移除继承的 `MSYS_NO_PATHCONV` 与 `MSYS2_ARG_CONV_EXCL`，只对其构建子进程恢复路径转换：Corepack 的 POSIX 启动脚本需要把 `/c/.../pnpm.js` 交给 Windows Node，而 C++ 编译仍需门禁原有的禁止转换环境。该隔离已在显式继承两项禁止转换变量的 Windows 环境实际生成单文件设置页面通过，不将编译器路径规则全局删除。
+
+候选宽度夹具避免遮蔽外层 `inline_card`；HUD 时长和工具栏缩放的常量断言使用 `static_assert`，不让 MSVC 的常量条件警告中断 `/WX`。TSF 标点策略测试显式以 UTF-8 读取中文字符，避免开发机代码页把多个 Unicode case 折成同一个值。上述修正保留检查内容，不调整警告级别或失败基线。
+
+可移植 Windows 测试运行器在原生 Windows clang 下采用与 CMake 一致的 `NOMINMAX`、Unicode 别名与 msimeui 头文件目录。缺少其他翻译单元或入口仍交回完整 CMake 构建：MSVC 的 `LNK2001/2019/1561` 与原有 Unix `undefined reference` 等价，按错误码读取 stdout 与 stderr，避免本地化文本导致误报；其他编译和链接错误继续失败。需要真实产品目录与清单的 Win7 冷装载探针明确由系统验收驱动，不无参调用。路径编码夹具在 C++17 使用 `u8path`、在 C++20 使用 `char8_t` 路径构造器生成 UTF-8 合成路径，避免 Windows 的 ANSI 路径构造器先损坏测试输入。实际 Windows clang 运行 130 项通过，2 项保留原宿主差异排除，129 项由完整 Windows 构建负责；没有添加失败基线。
+
 `candidate_layout_reload` 的离线释义夹具用原子 `create_directory` 取得独立目录，名字含单调时钟值，碰撞时换名重试；只清理自己成功创建的目录。多个 worktree 的本机门禁可以同时运行，不能在测试开头删除固定名字的共享目录。
 
 原生 Windows 的逐翻译单元检查使用与 CMake 一致的 `NOMINMAX`、`UNICODE` 和 `_UNICODE`，并补齐公共绘制头的 include 路径。只把确定的 MSVC 缺符号错误码、LLVM `lld-link` 的缺符号和缺入口诊断交还原生 CMake 构建；语法错误、仓库头缺少 include 路径和已运行程序的非零退出仍失败。UTF-8 路径夹具在 C++17 使用 `std::filesystem::u8path`，在提供 `char8_t` 的 C++20 使用 `path` 构造函数，不依赖 Windows 当前代码页，也不屏蔽标准库的弃用诊断。Git Bash 向原生 Node 传递笔记根目录前用 `cygpath` 转成 Windows 路径，防止查到不存在的 `/e/...` 并空扫通过。TSF 标点测试明确使用 UTF-8 编译；常量规则用 `static_assert` 检查，局部变量仅改名，严格告警保持启用。
@@ -47,6 +57,8 @@ Windows 的笔记根目录通过 `cygpath -w` 传给原生 Node；MSYS 的 `/c/.
 - Windows 示例的运行仍受系统链接创建权限约束，编译通过不等于已运行词库诊断。临时工具 shim 只修正调用环境，不屏蔽失败或替代真实检查；后续运行本机门禁仍需相同的工具环境。
 
 ## Verification
+
+Win7 支持分支补齐 Git Bash 替身优先级与鸿蒙子进程路径环境后，同一 Windows 构建机完整 `bash scripts/verify-local.sh --quick` 退出 0，输出 `quick check passed`。可移植 Windows 程序 131 项通过、2 项沿用宿主差异排除、136 项交给原生 Windows 构建；鸿蒙单文件设置、Linux 发布页原 16 项、1836 篇笔记与 4 项归档封印，以及 Rust workspace、原生宿主和 pipe-only 编译通过。未配置 SDK／设备的跨平台阶段仍明确报告跳过。此前各次失败记录属于当时的树与调用环境，保留用于追溯，不代表最终树仍有同样失败。
 
 在 [#9439 多桌面路由](../feature/2026-10-24-windows-desktop-candidate-routing.md)的 Windows runner 上，固定基点 `839cf5d2b6` 的可移植 runner 复现 30 项既有失败；新增 `ClientDesktop` 源文件额外暴露 MSVC 链接诊断未分类的问题，其正式 MSVC CMake 测试已运行通过。完整 quick 同时复现未修改的 TSF 实验编辑器被 `min` 宏阻止编译。补齐诊断与编译上下文后，可移植 runner 剩余 6 项失败，均在原 30 项集合内，没有新增失败。真实编译器的未解析符号分类、语法错误保留及非零退出保留三项验证通过；两个新增原生 CMake 专项均实际通过。Windows Node 修正笔记根路径后实际扫描 1766 篇与 4 个归档封印通过。
 

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { accountNameResult, presentAccountName } from "../support/account-name";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -15,6 +16,7 @@ const profile: AccountProfile = {
   user: {
     id: "synthetic-profile-user",
     displayName: "合成昵称",
+    preferredName: "合成昵称",
     createdAt: "2026-01-01T00:00:00Z",
   },
   providers: ["email"],
@@ -27,6 +29,7 @@ function client(overrides: Partial<AccountClient> = {}): AccountClient {
     requestCode: vi.fn(),
     login: vi.fn(),
     profile: vi.fn(),
+    namePresentation: presentAccountName,
     rename: vi.fn().mockResolvedValue(profile),
     logout: vi.fn().mockResolvedValue(undefined),
     deleteAccount: vi.fn().mockResolvedValue(undefined),
@@ -68,14 +71,23 @@ function editName(variant: (typeof variants)[number], name: string) {
 afterEach(cleanup);
 
 test.each(variants)("%s 资料页独立保存昵称并通知调用方，返回由调用方处理", async (variant) => {
-  const updated = { ...profile, user: { ...profile.user, displayName: "更新合成昵称" } };
-  const accountClient = client({ rename: vi.fn().mockResolvedValue(updated) });
+  const updated = {
+    ...profile,
+    user: { ...profile.user, displayName: "更新合成昵称", preferredName: "更新合成昵称" },
+  };
+  const accountClient = client({
+    namePresentation: async (name) =>
+      accountNameResult(name === "  更新合成昵称  " ? "更新合成昵称" : name),
+    rename: vi.fn().mockResolvedValue(updated),
+  });
   const onProfileUpdated = vi.fn();
   const onBack = vi.fn();
   const historyState = window.history.state;
   render(page(variant, accountClient, onProfileUpdated, vi.fn(), onBack));
   editName(variant, "  更新合成昵称  ");
-  fireEvent.click(screen.getByRole("button", { name: variant === "mobile" ? "保存昵称" : "保存" }));
+  const save = screen.getByRole("button", { name: variant === "mobile" ? "保存昵称" : "保存" });
+  await waitFor(() => expect(save).toHaveProperty("disabled", false));
+  fireEvent.click(save);
   await waitFor(() => expect(onProfileUpdated).toHaveBeenCalledWith(updated));
   expect(accountClient.rename).toHaveBeenCalledWith("更新合成昵称");
   if (variant === "harmony") expect(screen.queryByRole("dialog", { name: "昵称" })).toBeNull();
@@ -126,11 +138,16 @@ test.each(variants)("%s 独立资料页忽略被替换客户端的迟到昵称�
   const onProfileUpdated = vi.fn();
   const view = render(page(variant, old, onProfileUpdated));
   editName(variant, "旧请求合成昵称");
-  fireEvent.click(screen.getByRole("button", { name: variant === "mobile" ? "保存昵称" : "保存" }));
-  expect(old.rename).toHaveBeenCalledOnce();
+  const save = screen.getByRole("button", { name: variant === "mobile" ? "保存昵称" : "保存" });
+  await waitFor(() => expect(save).toHaveProperty("disabled", false));
+  fireEvent.click(save);
+  await waitFor(() => expect(old.rename).toHaveBeenCalledOnce());
   view.rerender(page(variant, client(), onProfileUpdated));
   await act(async () =>
-    finish({ ...profile, user: { ...profile.user, displayName: "迟到合成昵称" } }),
+    finish({
+      ...profile,
+      user: { ...profile.user, displayName: "迟到合成昵称", preferredName: "迟到合成昵称" },
+    }),
   );
   expect(onProfileUpdated).not.toHaveBeenCalled();
   expect(screen.queryByText("迟到合成昵称")).toBeNull();

@@ -47,6 +47,7 @@ final class KeyboardVoiceDictation {
   func finish() {
     guard let request, !stopRequested else { return }
     stopRequested = true
+    onEvent?(.recognizing(text: "", message: ""))
     guard acknowledged else { return }
     sendStop(request)
   }
@@ -71,7 +72,7 @@ final class KeyboardVoiceDictation {
         watchdog?.cancel()
         if stopRequested { sendStop(request) }
       }
-      onEvent?(.listening(state.text))
+      onEvent?(stopRequested ? .recognizing(text: state.text, message: "") : .listening(state.text))
     case .recognizing:
       acknowledged = true
       onEvent?(.recognizing(text: state.text, message: state.message))

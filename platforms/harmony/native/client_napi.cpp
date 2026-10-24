@@ -284,6 +284,8 @@ TEXT_ENTRY(TelemetryClear, msime_client_telemetry_clear)
 TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
 // 宿主自报的 User-Agent 由 Rust 拼装和清洗（#8201 的 P11）：纯函数，不联网、不读文件。
 TEXT_ENTRY(ClientAgent, msime_client_client_agent)
+// 昵称草稿的纯计算入口，与其他宿主共享规范化、校验和控件上限。
+TEXT_ENTRY(AccountName, msime_client_account_name)
 // 取消一次 AI 皮肤生成：立即返回，可以在任意线程上调用。
 TEXT_ENTRY(AiSkinCancel, msime_client_ai_skin_cancel)
 
@@ -1705,6 +1707,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
         ENTRY("ensureAnonymousAccountWithAgent", EnsureAnonymousAccountWithAgent),
         ENTRY("clientAgent", ClientAgent),
+        ENTRY("accountName", AccountName),
         ENTRY("account", Account),
         ENTRY("accountThread", AccountThread),
         ENTRY("accountStatus", AccountStatus),

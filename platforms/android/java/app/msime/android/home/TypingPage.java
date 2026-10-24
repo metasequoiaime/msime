@@ -65,7 +65,7 @@ public final class TypingPage extends ReloadingDetailPage {
 
     /** 一门语言：徽标、名字和它的触屏方案（按面板里的顺序）。 */
     private enum Language {
-        MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
+        MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
             KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
             KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO,
             KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.WUBI,
@@ -492,7 +492,7 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private static String schemeLabel(KeyboardScheme scheme, JSONObject preferences) {
         return switch (scheme) {
-            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
             case CANTONESE -> "粤拼";
             case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";
@@ -506,8 +506,9 @@ public final class TypingPage extends ReloadingDetailPage {
         Context context = requireContext();
         OptionSheet sheet = new OptionSheet(context, language.title, offered.size() > 1 ? "选择输入方案" : null);
         if (language == Language.MANDARIN) {
-            // 全拼的 26 / 14 / 9 键是同一个方案的几种排法，这里只列一项「全拼」，保留正在用的排法；换排法在「键盘 › 中文键盘」里。
+            // 全拼的几种键数属于同一个方案，这里保留当前布局；换排法在「键盘 › 中文键盘」里。
             boolean quanpin = applied == KeyboardScheme.QUANPIN || applied == KeyboardScheme.QUANPIN_FOURTEEN_KEY
+                || applied == KeyboardScheme.QUANPIN_EIGHTEEN_KEY
                 || applied == KeyboardScheme.QUANPIN_NINE_KEY;
             KeyboardScheme quanpinChoice = quanpin ? applied : KeyboardScheme.QUANPIN;
             if (offered.contains(quanpinChoice)) sheet.option("全拼", quanpin, () -> applyScheme(quanpinChoice, null));
@@ -523,12 +524,16 @@ public final class TypingPage extends ReloadingDetailPage {
                         next.option(shuangpinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
                     boolean fourteen = "fourteen_key".equals(InputViewValuePolicy.textOr(
                         preferences, "touch_shuangpin_layout", "twenty_six_key"));
-                    next.submenu("键盘布局（" + (fourteen ? "14 键" : "26 键") + "）", false, () -> {
+                    boolean eighteen = "eighteen_key".equals(InputViewValuePolicy.textOr(
+                        preferences, "touch_shuangpin_layout", "twenty_six_key"));
+                    next.submenu("键盘布局（" + (eighteen ? "18 键" : fourteen ? "14 键" : "26 键") + "）", false, () -> {
                         OptionSheet layouts = new OptionSheet(context, "双拼键盘布局", "保留当前双拼方案");
-                        layouts.option("26 键", !fourteen, () -> savePreferences(
+                        layouts.option("26 键", !fourteen && !eighteen, () -> savePreferences(
                             values -> values.put("touch_shuangpin_layout", "twenty_six_key")));
                         layouts.option("14 键", fourteen, () -> savePreferences(
                             values -> values.put("touch_shuangpin_layout", "fourteen_key")));
+                        layouts.option("18 键", eighteen, () -> savePreferences(
+                            values -> values.put("touch_shuangpin_layout", "eighteen_key")));
                         return layouts;
                     });
                     return next;

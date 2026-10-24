@@ -163,6 +163,11 @@ class Harness(unittest.TestCase):
             tool = self.bin / name
             tool.write_text(f"#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} -I {shlex.quote(str(script))} \"$@\"\n", encoding="utf-8")
             tool.chmod(0o755)
+        if os.name == "nt":
+            # 原生 Windows 可能只有 python.exe；渲染脚本也使用本次测试的解释器。
+            python = self.bin / "python3"
+            python.write_text(f"#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} \"$@\"\n", encoding="utf-8", newline="\n")
+            python.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "MSIME_TEST_RELEASES": str(self.state)}
         self.env.pop("MSIME_RELEASE_DIR", None)
         self.env.pop("MSIME_DEFINITIONS", None)
@@ -176,7 +181,13 @@ class Harness(unittest.TestCase):
             args = tuple(Path(arg).as_posix() if Path(arg).is_absolute() else arg for arg in args)
             if "MSIME_RELEASE_DIR" in environment:
                 environment["MSIME_RELEASE_DIR"] = Path(environment["MSIME_RELEASE_DIR"]).as_posix()
-        return subprocess.run(["bash", *args], capture_output=True, text=True, errors="replace", env=environment, cwd=cwd or self.directory)
+            # Git 的 bin/bash.exe 启动器会把 mingw64/bin 前置，盖过合成 curl。
+            # 在实际 Bash 中恢复替身优先级，再直接用该解释器执行，避免再次经过启动器。
+            command = ["bash", "-c", 'export PATH="$(cygpath -u "$1"):$PATH"; shift; exec "$BASH" "$@"',
+                       "msime-linux-release-page", self.bin.as_posix(), *args]
+        else:
+            command = ["bash", *args]
+        return subprocess.run(command, capture_output=True, text=True, errors="replace", env=environment, cwd=cwd or self.directory)
 
     def release(self, tag: str) -> Path:
         return self.state / "releases" / tag

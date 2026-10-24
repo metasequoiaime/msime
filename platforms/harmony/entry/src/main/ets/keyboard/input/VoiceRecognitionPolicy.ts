@@ -27,7 +27,17 @@ export class VoiceRecognitionPolicy {
     if (trimmed.length === 0) {
       return "zh-CN";
     }
-    return trimmed.slice(0, VOICE_MAX_LANGUAGE);
+    // 共享语言目录使用小写标签，系统识别引擎要求规范形式，例如 `zh-CN`。
+    return trimmed
+      .slice(0, VOICE_MAX_LANGUAGE)
+      .split("-")
+      .map((part: string, index: number): string => {
+        if (index === 0) return part.toLowerCase();
+        if (part.length === 2) return part.toUpperCase();
+        if (part.length === 4) return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+        return part;
+      })
+      .join("-");
   }
 
   static engineLanguageChanged(current: string, next: string): boolean {
@@ -55,11 +65,9 @@ export class VoiceRecognitionPolicy {
     );
   }
 
-  /**
-   * 最终结果能否不经审阅界面直接上屏（之后还要过 `insertsDirectly` 的编辑框检查）：只有触屏上的流式录音、且语音界面仍开着时才行，这正是显示聆听界面的那种录音，与 Android 键盘内只对 LOCAL / STREAMING 识别器直接上屏一致。上传式服务商（OpenAI 兼容）的录音在审阅界面上用「停止录音」结束，结果也留在那里等「提交」；2in1 总是审阅。
-   */
-  static skipsReview(touch: boolean, streamed: boolean, voiceSurfaceOpen: boolean): boolean {
-    return touch && streamed && voiceSurfaceOpen;
+  /** 手机识别结束后直接上屏；服务商的传输方式不改变交互，输入位置仍由 `insertsDirectly` 校验。 */
+  static skipsReview(touch: boolean, voiceSurfaceOpen: boolean): boolean {
+    return touch && voiceSurfaceOpen;
   }
 
   /**

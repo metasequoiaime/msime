@@ -30,8 +30,9 @@ pub use crate::nine_key_shuangpin::{
     builtin_table as nine_key_shuangpin_builtin_table,
     check_table as check_nine_key_shuangpin_table,
     nine_key_shuangpin as validate_nine_key_shuangpin_table, resolve as resolve_nine_key_shuangpin,
-    resolve_fourteen_key_shuangpin, table_key_hints as nine_key_shuangpin_table_key_hints,
-    NineKeyShuangpinError, NineKeyShuangpinKeyHint,
+    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin,
+    table_key_hints as nine_key_shuangpin_table_key_hints, NineKeyShuangpinError,
+    NineKeyShuangpinKeyHint,
 };
 pub use crate::types::{
     CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, PluginCommand,

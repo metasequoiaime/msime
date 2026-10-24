@@ -553,6 +553,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Quanpin
         | TouchKeyboardScheme::NineKey
         | TouchKeyboardScheme::FourteenKey
+        | TouchKeyboardScheme::EighteenKey
         | TouchKeyboardScheme::NineKeyShuangpin
         | TouchKeyboardScheme::Handwriting => {
             preferences.scheme = InputScheme::Quanpin;
@@ -560,6 +561,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.touch_keyboard_layout = match selected {
                 TouchKeyboardScheme::NineKey => TouchKeyboardLayout::NineKey,
                 TouchKeyboardScheme::FourteenKey => TouchKeyboardLayout::FourteenKey,
+                TouchKeyboardScheme::EighteenKey => TouchKeyboardLayout::EighteenKey,
                 TouchKeyboardScheme::NineKeyShuangpin => TouchKeyboardLayout::NineKeyShuangpin,
                 TouchKeyboardScheme::Handwriting => TouchKeyboardLayout::Handwriting,
                 _ => TouchKeyboardLayout::TwentySixKey,

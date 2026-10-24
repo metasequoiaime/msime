@@ -1,6 +1,6 @@
 import type { EditionInfo } from "../core/host-capabilities";
 import type { InputScheme } from "../core/input-scheme";
-import { useCallback, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useRef, useState, type PointerEvent, type CSSProperties } from "react";
 import { Switch } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { useAsyncActionRunner } from "../core/use-async-action";
@@ -105,9 +105,15 @@ function Splash({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** HarmonyOS 首次启动的开屏（dc.html L2692-2698）：第一帧和系统启动窗相同（启动窗底色上的圆盘和水杉标志，跟随系统深浅色），随后淡入当季颜色、泛起波纹、出字，底部一条进度条在开屏停留期间填满。只在首次启动的欢迎流程里播，平时冷启动不播。点一下仍可跳过；设计里没有提示这一点。 */
-function HarmonySplash({ onDone }: { onDone: () => void }) {
-  useTimeout(onDone, SPLASH_MS);
+/** HarmonyOS 首次启动的开屏（dc.html L2692-2698）：第一帧和系统启动窗相同（启动窗底色上的圆盘和水杉标志，跟随系统深浅色），随后淡入当季颜色、泛起波纹、出字，底部一条进度条在开屏停留期间填满。冷启动与首次欢迎流程复用这套画面。点一下仍可跳过；设计里没有提示这一点。 */
+function HarmonySplash({
+  onDone,
+  durationMs = SPLASH_MS,
+}: {
+  onDone: () => void;
+  durationMs?: number;
+}) {
+  useTimeout(onDone, durationMs);
   return (
     <button type="button" className={onboarding.hSplash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.hSplashGlow} aria-hidden="true" />
@@ -129,6 +135,42 @@ function HarmonySplash({ onDone }: { onDone: () => void }) {
         <span className={onboarding.hSplashFill} />
       </span>
     </button>
+  );
+}
+
+/** 手机冷启动复用欢迎开屏，缩短出字与波纹节奏，系统栏保持启动窗的颜色。 */
+export function HarmonyLaunchSplash({
+  onDone,
+  appTheme = null,
+  chrome,
+  dark,
+}: {
+  onDone: () => void;
+  appTheme?: ResolvedAppTheme | null;
+  chrome?: HostChromeClient;
+  dark: boolean;
+}) {
+  useHarmonyWelcomeSystemBars(chrome, appTheme, dark, true);
+  const style = {
+    ...appThemeStyle(appTheme, dark, "harmony"),
+    "--animate-splash-name": "splash-rise 0.3s 0.3s both",
+    "--animate-splash-tagline": "splash-rise 0.3s 0.45s both",
+    "--animate-splash-veil": "splash-veil 0.3s ease-out 0.05s both",
+    "--animate-splash-ripple": "splash-ripple 0.6s ease-out 0.55s",
+    "--animate-splash-load": "splash-load 1.2s ease-out both",
+  } as CSSProperties;
+  return (
+    <main
+      className={onboarding.hSplashShell}
+      aria-label="启动动画"
+      data-onboarding-shell=""
+      data-mobile=""
+      data-platform="harmony"
+      data-season={seasonAttr(appTheme)}
+      style={style}
+    >
+      <HarmonySplash onDone={onDone} durationMs={1400} />
+    </main>
   );
 }
 

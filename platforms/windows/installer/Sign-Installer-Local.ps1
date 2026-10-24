@@ -13,7 +13,8 @@
 # 传 -Light 时签名 Output\MetasequoiaIME-Full_Setup_v*_light.exe。
 
 param(
-    [switch]$Light
+    [switch]$Light,
+    [string]$InstallerPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -151,18 +152,20 @@ function Invoke-Sign {
     }
 }
 
-$issPath = Join-Path $PSScriptRoot 'msime_setup.iss'
-if (-not (Test-Path -LiteralPath $issPath -PathType Leaf)) {
-    throw "找不到安装脚本：$issPath"
-}
-$issContent = Get-Content -LiteralPath $issPath -Raw -Encoding UTF8
-if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[^"]+)"') {
-    throw '未能在 msime_setup.iss 中找到 MyAppVersion。'
-}
-$version = $Matches.version
+if ($InstallerPath -eq '') {
+    $issPath = Join-Path $PSScriptRoot 'msime_setup.iss'
+    if (-not (Test-Path -LiteralPath $issPath -PathType Leaf)) {
+        throw "找不到安装脚本：$issPath"
+    }
+    $issContent = Get-Content -LiteralPath $issPath -Raw -Encoding UTF8
+    if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[^"]+)"') {
+        throw '未能在 msime_setup.iss 中找到 MyAppVersion。'
+    }
+    $version = $Matches.version
 
-$suffix = if ($Light) { '_light' } else { '' }
-$installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME-Full_Setup_v$version$suffix.exe"
+    $suffix = if ($Light) { '_light' } else { '' }
+    $installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME-Full_Setup_v$version$suffix.exe"
+}
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "安装文件不存在，请先用 Inno Setup 编译 msime_setup.iss：$installerPath"
 }

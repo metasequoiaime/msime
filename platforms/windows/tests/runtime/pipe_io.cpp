@@ -126,13 +126,12 @@ void listeners() {
   require(GetSecurityInfo(accepted.connection->handle(), SE_KERNEL_OBJECT,
                           DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl,
                           nullptr, &security) == ERROR_SUCCESS);
-  // Inspect actual kernel ACL, not just the descriptor string.
+  // 检查真实内核 ACL；Win7 不支持 WinBuiltinAnyPackageSid 枚举构造，
+  // 以规范数值 SID 核对，仍要求恰好三个 ACE、没有 Everyone、仅连接权限。
   bool acl_ok = dacl && dacl->AceCount == 3;
   bool connect_only_appcontainer = false;
-  BYTE app_sid[SECURITY_MAX_SID_SIZE];
-  DWORD sid_size = sizeof(app_sid);
-  acl_ok = acl_ok && CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr,
-                                        app_sid, &sid_size);
+  PSID app_sid = nullptr;
+  acl_ok = acl_ok && ConvertStringSidToSidW(L"S-1-15-2-1", &app_sid);
   if (acl_ok) {
     for (DWORD i = 0; i < dacl->AceCount; ++i) {
       void *raw = nullptr;
@@ -153,6 +152,7 @@ void listeners() {
         connect_only_appcontainer = ace->Mask == 0x12019bu;
     }
   }
+  LocalFree(app_sid);
   LocalFree(security);
   require(acl_ok && connect_only_appcontainer);
   require(!PipeListener::create(name, error));

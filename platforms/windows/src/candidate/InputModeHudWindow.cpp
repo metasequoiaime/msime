@@ -1,4 +1,5 @@
 #include "InputModeHudWindow.h"
+#include "../../compat/WindowsDpi.h"
 #include "ServerResources.h"
 #include "ToolbarCoordinates.h"
 #include "WindowShadow.h"
@@ -16,16 +17,8 @@ constexpr wchar_t kClassName[] = L"MSIME.Client.InputModeHud" MSIME_EDITION_NAME
 constexpr UINT_PTR kHideTimer = 0x4601;
 // 淡出的帧计时器，按 input_mode_hud_fade_frame_ms 重画，不透明度降到 0 时隐藏。
 constexpr UINT_PTR kFadeTimer = 0x4602;
-// 和候选窗一样只在这次界面操作里切到每显示器 DPI v2，结束时恢复调用方的线程设置；窗口在整个生命期里保持 v2，坐标都是物理像素，和 TSF 报来的光标锚点一致。
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope()
-      : previous(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 long scaled(double value, double unit) { return static_cast<long>(std::lround(value * unit)); }
 
 // UiaRaiseNotificationEvent 的两个枚举值（NotificationKind_ActionCompleted、NotificationProcessing_MostRecent）。按数值写在这里，不依赖 SDK 头文件按 NTDDI_VERSION 是否声明它们。
@@ -139,18 +132,18 @@ std::optional<HudRect> InputModeHudWindow::system_caret(HWND foreground) {
   info.cbSize = sizeof(info);
   if (!GetGUIThreadInfo(GetWindowThreadProcessId(foreground, nullptr), &info) || !info.hwndCaret)
     return std::nullopt;
-  if (GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(info.hwndCaret)) !=
+  if (msime::windows::compat::awareness(msime::windows::compat::window_context(info.hwndCaret)) !=
       DPI_AWARENESS_PER_MONITOR_AWARE)
     return std::nullopt;
   // 换算放在每显示器 DPI v2 的线程上下文里做，得到的才是物理像素。
   const DPI_AWARENESS_CONTEXT previous =
-      SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+      msime::windows::compat::thread_context(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   if (!previous)
     return std::nullopt;
   POINT top_left{info.rcCaret.left, info.rcCaret.top};
   POINT bottom_right{info.rcCaret.right, info.rcCaret.bottom};
   const bool mapped = ClientToScreen(info.hwndCaret, &top_left) && ClientToScreen(info.hwndCaret, &bottom_right);
-  SetThreadDpiAwarenessContext(previous);
+  msime::windows::compat::thread_context(previous);
   if (!mapped)
     return std::nullopt;
   const HudRect caret{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
@@ -183,7 +176,7 @@ void InputModeHudWindow::show(bool chinese, std::optional<HudRect> caret, HWND f
                       SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
       throw std::runtime_error("Input mode HUD move failed");
     // 只按显示器 DPI 换算成像素，不乘工具栏的缩放。
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), 1.0);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), 1.0);
     const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_);
     InputModeHudPlacementInput placement;
     if (usable)
@@ -267,7 +260,7 @@ void InputModeHudWindow::paint() {
     const float side = static_cast<float>(metrics.logo);
     const float top = (card.top + card.bottom - side) / 2.0f;
     // 以真实像素取图标帧：msime.ico 带 16 到 256 的各档，取对尺寸才清晰。
-    const double pixels = metrics.logo * toolbar_pixel_unit(GetDpiForWindow(window_), 1.0);
+    const double pixels = metrics.logo * toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), 1.0);
     if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
       target->DrawBitmap(logo, D2D1_RECT_F{left, top, left + side, top + side}, 1.0f,
                          D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);

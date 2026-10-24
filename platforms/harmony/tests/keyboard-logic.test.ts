@@ -614,7 +614,7 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
 
 group("names keys with the shared key heatmap ids and nothing else", () => {
   const knownKeyId = (id: string): boolean => KEY_IDS.includes(id);
-  check(KEY_IDS.length === 141, "the whitelist has the shared store's 141 ids");
+  check(KEY_IDS.length === 159, "白名单包含共享存储的原有键位和新增十八键");
   check(new Set(KEY_IDS).size === KEY_IDS.length, "no id is listed twice");
   for (const id of [
     KeyIdPolicy.SPACE,

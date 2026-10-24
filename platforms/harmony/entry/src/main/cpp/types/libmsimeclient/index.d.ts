@@ -104,6 +104,8 @@ export const ensureAnonymousAccount: (directory: string) => Promise<string>;
 export const ensureAnonymousAccountWithAgent: (request: string) => Promise<string>;
 /** `msime_client_client_agent`：`{platform, version, device?, system?, edition}` 拼成宿主自报的 User-Agent，纯函数，同步调用。 */
 export const clientAgent: (request: string) => string;
+/** 昵称草稿的纯计算，直接返回共享 C 接口的成功或失败信封。 */
+export const accountName: (request: string) => string;
 /**
  * `msime_client_account` 在工作线程上：`{directory, client_agent?, action}`，操作见 C 头文件。会阻塞网络，或要等同一目录上另一次刷新放开 `account-refresh.lock`。
  */

@@ -28,7 +28,7 @@ foreach ($tsf in @(@('32', '{commonpf32}\{#MyEditionInstallDir}\{code:GetVersion
     if (-not $check -and $tip[0].Value -match '\bCheck:') { throw "TSF $arch is limited to some machines" }
 }
 # Server 目录的 x64 宿主 DLL 和运行时 DLL 取自 TIP 所用的 tsf_dll\64 源文件，包里只存一份；server_exe 不再自带一份。
-$serverShared = @($records | Where-Object { $_.Value.Contains('\tsf_dll\64\*.dll') -and $_.Value.Contains('{commonpf64}\{#MyEditionInstallDir}\server"') })
+$serverShared = @($records | Where-Object { $_.Value.Contains('\tsf_dll\64\*.dll') -and $_.Value.Contains('{autopf}\{#MyEditionInstallDir}\server"') })
 if ($serverShared.Count -ne 1 -or $serverShared[0].Value -match '\bregserver\b' -or
     -not $serverShared[0].Value.Contains('Excludes: "MetasequoiaImeTsf.dll"')) {
     throw 'Server folder does not install the shared x64 host and runtime DLLs from tsf_dll\64'

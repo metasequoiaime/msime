@@ -855,7 +855,7 @@ void session_pump_tests(const std::string &options) {
           return result;
         }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 12);
-    require(transport.writes.size() == 13 + (uiless ? 12 : mode == 1 ? 9 : 0));
+    require(transport.writes.size() == 13u + (uiless ? 12u : mode == 1 ? 9u : 0u));
     queue.stop();
   }
   for (auto event : {FanyImePipeEventType::PuncSwitch,

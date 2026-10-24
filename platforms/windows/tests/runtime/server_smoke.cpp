@@ -1,4 +1,5 @@
 #include "CandidateCardSize.h"
+#include "../../compat/WindowsDpi.h"
 #include "CandidateClickWorker.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateWindow.h"
@@ -30,7 +31,7 @@ void require_at(bool value, int line) {
 LPARAM first_candidate_point(HWND window, size_t count) {
   RECT client{};
   require(GetClientRect(window, &client));
-  const double scale = GetDpiForWindow(window) / 96.0;
+  const double scale = msime::windows::compat::window_dpi(window) / 96.0;
   // The card sits inside transparent shadow margins, and the window hit-tests
   // against the card rather than against itself: rows are laid out in the
   // card's width, and a point in card space has to be moved back out by the
@@ -73,6 +74,18 @@ struct ClientPipe {
 };
 } // namespace
 namespace {
+// 旧系统没有线程 DPI 查询；测试仍须能装载，并核对它实际使用的进程 DPI。
+DPI_AWARENESS_CONTEXT current_thread_dpi_context() {
+  using Query = DPI_AWARENESS_CONTEXT(WINAPI *)();
+  static const auto query = compat::user32_function<Query>("GetThreadDpiAwarenessContext");
+  return query ? query() : (IsProcessDPIAware() ? DPI_AWARENESS_CONTEXT_SYSTEM_AWARE
+                                               : DPI_AWARENESS_CONTEXT_UNAWARE);
+}
+bool same_dpi_context(DPI_AWARENESS_CONTEXT lhs, DPI_AWARENESS_CONTEXT rhs) {
+  using Equal = BOOL(WINAPI *)(DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT);
+  static const auto equal = compat::user32_function<Equal>("AreDpiAwarenessContextsEqual");
+  return equal ? equal(lhs, rhs) != FALSE : lhs == rhs;
+}
 // Wine honours SetThreadDpiAwarenessContext(PER_MONITOR_AWARE_V2) for the
 // thread and then reports windows created on it as v1. Ask ntdll whether this
 // is Wine rather than inferring it from the failure: treating "the assertion
@@ -82,16 +95,17 @@ bool running_under_wine() {
   const auto ntdll = GetModuleHandleW(L"ntdll.dll");
   return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
 }
-// Exactly what the thread asked for on Windows; at least per-monitor v1 on
-// Wine, which does not carry v2 through to the window. The thread's own context
-// is still asserted strictly, so the product is still on the hook for setting it.
+// 新 Windows 严格要求窗口保留线程请求的 PMv2；Wine 保留既有 PMv1 验收。
+// 缺少窗口 DPI 上下文 API 的旧系统按实际进程 DPI 核对，不能跳过整个断言。
 bool window_awareness_is_expected(HWND window) {
-  const auto context = GetWindowDpiAwarenessContext(window);
-  if (AreDpiAwarenessContextsEqual(context,
+  const auto context = msime::windows::compat::window_context(window);
+  if (!compat::dpi_api().query_context)
+    return same_dpi_context(context, current_thread_dpi_context());
+  if (same_dpi_context(context,
                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
     return true;
   return running_under_wine() &&
-         AreDpiAwarenessContextsEqual(context,
+         same_dpi_context(context,
                                       DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
 }
 } // namespace
@@ -99,10 +113,9 @@ int main() {
   try {
     {
       std::optional<CandidatePresentation> value;
-      const auto original_dpi = GetThreadDpiAwarenessContext();
+      const auto original_dpi = current_thread_dpi_context();
       CandidateWindow window([&] { return value; });
-      require(AreDpiAwarenessContextsEqual(original_dpi,
-                                           GetThreadDpiAwarenessContext()));
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
       require(window_awareness_is_expected(window.handle()));
       require(!IsWindowVisible(window.handle()));
       require((GetWindowLongPtrW(window.handle(), GWL_EXSTYLE) &
@@ -138,8 +151,7 @@ int main() {
       UpdateWindow(window.handle());
       window.refresh();
       require(!GetUpdateRect(window.handle(), nullptr, FALSE));
-      require(AreDpiAwarenessContextsEqual(original_dpi,
-                                           GetThreadDpiAwarenessContext()));
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
       SendMessageW(window.handle(), WM_DPICHANGED, MAKELONG(192, 192), 0);
       window.refresh();
       require(GetUpdateRect(window.handle(), nullptr, FALSE));

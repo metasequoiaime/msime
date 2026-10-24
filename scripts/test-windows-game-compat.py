@@ -45,7 +45,9 @@ int GetKeyState(int key) { assert(key == VK_CAPITAL); return toggle ? 1 : 0; }
 HWND GetAncestor(HWND window, int) { return window; }
 int MonitorFromWindow(HWND, int) { return 1; }
 bool GetMonitorInfoW(int, MONITORINFO* info) { info->rcWork = {-3840, -500, 0, 1588}; return true; }
-bool LogicalToPhysicalPointForPerMonitorDPI(HWND, POINT* point) { ++conversions; point->x *= 2; point->y *= 2; return true; }
+namespace msime::windows::compat {
+bool physical_point(HWND, POINT* point) { ++conversions; point->x *= 2; point->y *= 2; return true; }
+}
 bool SUCCEEDED(int result) { return result >= 0; }
 struct ITfContextView { int GetWnd(HWND* window) { *window = reinterpret_cast<HWND>(1); return 0; } };
 namespace Global {

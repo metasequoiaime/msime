@@ -78,6 +78,8 @@ pub enum TouchKeyboardLayout {
     FourteenKey,
     /// 九键双拼：数字键上每个音节固定两位（声母一位、韵母一位），表由 `nine_key_shuangpin_profile` 选，与九键共用九宫格会话（#6572）。引擎方案是全拼，不配别的方案。
     NineKeyShuangpin,
+    /// 全拼十八键；目前只由 Android 原生宿主自动启用，其他宿主保留偏好。
+    EighteenKey,
 }
 
 /// 触屏双拼的字母键布局；与全拼的布局独立保存，切换方案后仍保留选择。
@@ -87,6 +89,7 @@ pub enum TouchShuangpinLayout {
     #[default]
     TwentySixKey,
     FourteenKey,
+    EighteenKey,
 }
 
 impl TouchShuangpinLayout {
@@ -522,11 +525,13 @@ pub enum TouchKeyboardScheme {
     FourteenKey,
     /// 九键双拼（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::NineKeyShuangpin`，表由 `nine_key_shuangpin_profile` 选）。默认不启用。
     NineKeyShuangpin,
+    /// Android 全拼十八键；默认不启用，由用户选择布局。
+    EighteenKey,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -546,6 +551,7 @@ impl TouchKeyboardScheme {
         Self::ZhuyinNineKey,
         Self::FourteenKey,
         Self::NineKeyShuangpin,
+        Self::EighteenKey,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。

@@ -1,4 +1,5 @@
 #include "msimeui/Window.h"
+#include "../../compat/WindowsDpi.h"
 
 #include "msimeui/Application.h"
 #include "msimeui/Theme.h"
@@ -169,7 +170,7 @@ float Window::GetDpi() const
     {
         return dpiOverride_;
     }
-    return hwnd_ ? static_cast<float>(GetDpiForWindow(hwnd_)) : 96.0f;
+    return hwnd_ ? static_cast<float>(msime::windows::compat::window_dpi(hwnd_)) : 96.0f;
 }
 
 PointF Window::ClientPixelsToDips(const POINT &point) const

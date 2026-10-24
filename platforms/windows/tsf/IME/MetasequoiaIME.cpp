@@ -2887,6 +2887,22 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         break;
     }
     case WM_ThreadFocus: {
+        // Win7 的旧编辑器可能只在激活后通知线程焦点，而不重发已存在的文档焦点。
+        // 延后到这里重新读取当前线程与文档，仅补上尚未建立的连接；活动会话不换代。
+        if (!Global::g_connected && IsNamedpipeFocusStateOwner(pIME))
+        {
+            BOOL focused = FALSE;
+            auto *thread = pIME->_GetThreadMgr();
+            ITfDocumentMgr *document = nullptr;
+            if (thread && SUCCEEDED(thread->IsThreadFocus(&focused)) && focused &&
+                SUCCEEDED(thread->GetFocus(&document)) && document)
+            {
+                if (SUCCEEDED(thread->IsThreadFocus(&focused)) && focused &&
+                    IsNamedpipeFocusStateOwner(pIME) && !Global::g_connected)
+                    pIME->OnSetFocus(document, nullptr);
+                document->Release();
+            }
+        }
         // Some Chromium/Electron window switches surface only as thread-focus
         // changes. Refresh this thread's cached TSF language-bar item even when
         // there was no document-focus transition.

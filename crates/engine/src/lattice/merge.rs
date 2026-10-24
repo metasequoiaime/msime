@@ -6,8 +6,8 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::decode::{
-    build_graph, build_graph_borrowed, decode_graph, decode_typo_on_graph, LatticeOptions,
-    SentencePath, TypoSentence,
+    build_graph, build_graph_borrowed, decode_graph, decode_typo_on_graph,
+    decode_typo_on_graph_with_policy, LatticeOptions, SentencePath, TypoSentence,
 };
 use super::neural::{NeuralReranker, MAX_RERANK_PATHS};
 use super::{LatticeLookup, TypoEdgeSource};
@@ -19,6 +19,7 @@ const SMALL_SENTENCE_MERGE: usize = 64;
 
 /// Decode `syllables` and insert the sentence rows (Generated, and the NeuralKeyboard pick when the keyboard reranker is given) as one block at `whole_sentence_insert_position`. Nothing for fewer than two syllables or an incomplete one. With `typo_source` and three or more syllables, also returns the typo sentence for the caller to place; the source receives the literal best path and returns the planned typo edges.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub fn merge_lattice_candidates(
     candidates: &mut Vec<WordItem>,
     syllables: &[String],
@@ -29,8 +30,40 @@ pub fn merge_lattice_candidates(
     rerankers: &mut [NeuralReranker],
     rescoring_context: &str,
 ) -> Option<TypoSentence> {
+    merge_lattice_candidates_with_typo_policy(
+        candidates,
+        syllables,
+        lookup,
+        typed_pinyin,
+        options,
+        typo_source,
+        rerankers,
+        rescoring_context,
+        false,
+    )
+}
+
+/// 双拼的纠错整句即使分数低于字面整句也要保留为候选；全拼沿用只接受胜过字面整句的规则。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_lattice_candidates_with_typo_policy(
+    candidates: &mut Vec<WordItem>,
+    syllables: &[String],
+    lookup: &mut LatticeLookup<'_>,
+    typed_pinyin: &str,
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+    rerankers: &mut [NeuralReranker],
+    rescoring_context: &str,
+    allow_nonleading_typo: bool,
+) -> Option<TypoSentence> {
     // Two syllables are enough since lattice_reading: a two-syllable key can miss the exact lookup and otherwise leave prefix-range rows ahead of the sentence. Abbreviated segments (g'k't) are refused so `canonical_pinyin` stays a complete pronunciation (WL:541-545).
-    let decoded = decode_lattice(syllables, lookup, options, typo_source)?;
+    let decoded = decode_lattice_with_typo_policy(
+        syllables,
+        lookup,
+        options,
+        typo_source,
+        allow_nonleading_typo,
+    )?;
     merge_decoded(
         candidates,
         syllables,
@@ -56,15 +89,26 @@ pub(crate) fn decode_lattice(
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
 ) -> Option<DecodedSentences> {
+    decode_lattice_with_typo_policy(syllables, lookup, options, typo_source, false)
+}
+
+fn decode_lattice_with_typo_policy(
+    syllables: &[String],
+    lookup: &mut LatticeLookup<'_>,
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+    allow_nonleading_typo: bool,
+) -> Option<DecodedSentences> {
     if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
         return None;
     }
     let graph = build_graph(syllables, lookup, options);
-    Some(decode_graph_sentences(
+    Some(decode_graph_sentences_with_policy(
         syllables,
         options,
         typo_source,
         &graph,
+        allow_nonleading_typo,
     ))
 }
 
@@ -79,19 +123,31 @@ pub(crate) fn decode_lattice_borrowed<'rows>(
         return None;
     }
     let graph = build_graph_borrowed(syllables, lookup, options);
-    Some(decode_graph_sentences(
+    Some(decode_graph_sentences_with_policy(
         syllables,
         options,
         typo_source,
         &graph,
+        false,
     ))
 }
 
+#[cfg(test)]
 fn decode_graph_sentences(
     syllables: &[String],
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
     graph: &super::decode::Graph,
+) -> DecodedSentences {
+    decode_graph_sentences_with_policy(syllables, options, typo_source, graph, false)
+}
+
+fn decode_graph_sentences_with_policy(
+    syllables: &[String],
+    options: &LatticeOptions<'_>,
+    typo_source: Option<&mut TypoEdgeSource<'_>>,
+    graph: &super::decode::Graph,
+    allow_nonleading_typo: bool,
 ) -> DecodedSentences {
     let paths = decode_graph(graph, options, None);
     if paths.is_empty() {
@@ -104,7 +160,11 @@ fn decode_graph_sentences(
             if edges.is_empty() {
                 None
             } else {
-                decode_typo_on_graph(graph, options, &paths[0], &edges)
+                if allow_nonleading_typo {
+                    decode_typo_on_graph_with_policy(graph, options, &paths[0], &edges, true)
+                } else {
+                    decode_typo_on_graph(graph, options, &paths[0], &edges)
+                }
             }
         }
         _ => None,

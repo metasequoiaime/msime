@@ -62,6 +62,11 @@ ARGUMENTS = {
     "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-stroke.db"],
 }
 
+# 这些探针必须由专用系统验收提供真实产物，不能无参执行冒充单元测试。
+BUILD_DRIVEN = {
+    "runtime/windows7_import_load.cpp": "需要同架构产品目录、导入清单和隔离的插件冷装载子进程",
+}
+
 # The three online workers are the exception to "one translation unit": their
 # class bodies live in a .cpp of their own, so a test of the queueing above them
 # links that file too. Every one of those files reaches the shared host library
@@ -267,6 +272,7 @@ def include_flags() -> list[str]:
     # shared/contracts/msime_edition.h 要求构建选定一个版本；Windows 的 CMake 缺省编 full，这里照做。
     flags += ["-DMSIME_EDITION_FULL", "-DNOMINMAX"]
     if sys.platform == "win32":
+        # 与原生 CMake 相同，避免 Windows SDK 的窄字符别名改变被测源码。
         flags += ["-DUNICODE", "-D_UNICODE"]
     return flags
 
@@ -322,6 +328,8 @@ def build(
 ) -> tuple[pathlib.Path | None, str]:
     """(executable, reason). A null executable with a reason is a failure to report."""
     relative = key_for(source)
+    if relative in BUILD_DRIVEN:
+        return None, ""
     binary = workspace / relative.replace("/", "_").removesuffix(".cpp")
     companions = companion_flags(relative)
     if companions is None:
@@ -369,7 +377,7 @@ def build(
         if found:
             return None, f"cannot find {missing.group(1)}, which this repository has at {found}: the include path here is missing its directory"
     if any(marker in diagnostic for marker in ordinary) or re.search(
-        r"\berror LNK(?:2001|2019|1120):", diagnostic
+        r"\berror LNK(?:2001|2019|1120|1561):", diagnostic
     ):
         return None, ""
     # LLVM 在 Windows 上的同类链接错误也表示缺少独立翻译单元的依赖。

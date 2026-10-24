@@ -471,6 +471,7 @@ export { AccountPage } from "./account/account-page";
 export type {
   AccountChallenge,
   AccountClient,
+  AccountNamePresentation,
   AccountCommunityDestination,
   AccountDeletion,
   AccountPreferenceSchema,
@@ -538,6 +539,7 @@ export type { HomePageActions } from "./keyboard/home-model";
 export { openKeyboardSwitchGuide } from "./keyboard/keyboard-switch-guide";
 export {
   WelcomeFlowPage,
+  HarmonyLaunchSplash,
   type OnboardingActions,
   type OnboardingChoices,
   type OnboardingInputScheme,

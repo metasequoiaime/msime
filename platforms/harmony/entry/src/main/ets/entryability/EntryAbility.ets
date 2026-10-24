@@ -1,3 +1,4 @@
+import { HarmonyMicrophonePermission } from '../keyboard/input/HarmonyMicrophonePermission';
 import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
@@ -44,8 +45,25 @@ export default class EntryAbility extends UIAbility {
     return SettingsPageLink.fromParameter(parameters['page']);
   }
 
+  private microphoneRequested: boolean = false;
+  private microphoneRequestPending: boolean = false;
+
+  private requestMicrophone(): void {
+    if (this.microphoneRequestPending) return;
+    this.microphoneRequested = false;
+    this.microphoneRequestPending = true;
+    void HarmonyMicrophonePermission.request(this.context).finally((): void => {
+      this.microphoneRequestPending = false;
+    });
+  }
+
+  onForeground(): void {
+    if (this.microphoneRequested) this.requestMicrophone();
+  }
+
   onCreate(want: Want, launch: AbilityConstant.LaunchParam): void {
     KeyboardLog.info('app created');
+    this.microphoneRequested = want.parameters?.['requestMicrophone'] === true;
     EntryAbility.pendingPage = EntryAbility.linkedPage(want);
     // Sends what usage reporting has queued (and today's active) when the switch is on; the keyboard owns the sessions.
     HarmonyTelemetry.applicationStarted(`${this.context.filesDir}/state`);
@@ -67,6 +85,7 @@ export default class EntryAbility extends UIAbility {
    * 已打开的设置页面原地导航；否则请求会等到页面加载后来取。
    */
   onNewWant(want: Want, launch: AbilityConstant.LaunchParam): void {
+    if (want.parameters?.['requestMicrophone'] === true) this.requestMicrophone();
     const page: string | null = EntryAbility.linkedPage(want);
     if (page === null) {
       return;

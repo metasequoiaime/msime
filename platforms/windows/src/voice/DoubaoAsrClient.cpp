@@ -6,7 +6,11 @@
 
 #include <nlohmann/json.hpp>
 #include <windows.h>
+#if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+#include "../../compat/Windows7WebSocket.h"
+#else
 #include <winhttp.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -22,6 +26,7 @@ constexpr std::size_t kMaximumQueuedBytes = 16000 * 2 * 10; // 10 seconds of PCM
 // transcript; neither may exhaust the Server process.
 constexpr std::size_t kMaximumResponseBytes = 1024 * 1024;
 
+#if !defined(MSIME_WINDOWS7_CLIENT) || !MSIME_WINDOWS7_CLIENT
 struct WinHttpHandle
 {
     HINTERNET value = nullptr;
@@ -47,6 +52,8 @@ std::wstring Utf8ToWide(const std::string &value)
     MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size);
     return result;
 }
+
+#endif
 
 // 豆包 v1 帧由共享宿主库（crates/client-providers/src/voice/doubao_frame.rs）构造和解码，其他所有宿主用的也是这个编解码器。每个构造函数调用两次：第一次不给缓冲区，用来得知帧的大小，第二次再写入。
 template <typename Build> std::vector<std::uint8_t> BuildFrame(Build build)
@@ -77,12 +84,15 @@ std::vector<std::uint8_t> AudioFrame(std::int32_t sequence, const std::uint8_t *
     });
 }
 
+#if !defined(MSIME_WINDOWS7_CLIENT) || !MSIME_WINDOWS7_CLIENT
 bool SendBinary(HINTERNET websocket, const std::vector<std::uint8_t> &packet)
 {
     return !packet.empty() && WinHttpWebSocketSend(websocket, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE,
                                                    const_cast<std::uint8_t *>(packet.data()),
                                                    static_cast<DWORD>(packet.size())) == NO_ERROR;
 }
+
+#endif
 
 struct ParsedResponse
 {
@@ -121,6 +131,7 @@ ParsedResponse ParseResponse(const std::vector<std::uint8_t> &message)
     return response;
 }
 
+#if !defined(MSIME_WINDOWS7_CLIENT) || !MSIME_WINDOWS7_CLIENT
 bool ReceiveMessage(HINTERNET websocket, std::vector<std::uint8_t> &message)
 {
     message.clear();
@@ -195,6 +206,7 @@ HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &auth_
         return nullptr;
     return WinHttpWebSocketCompleteUpgrade(request.value, 0);
 }
+#endif
 } // namespace
 
 DoubaoAsrClient::DoubaoAsrClient(std::string endpoint, std::string auth_mode, std::string app_key, std::string access_key,
@@ -288,10 +300,23 @@ void DoubaoAsrClient::Cancel()
 
 void DoubaoAsrClient::Run()
 {
+#if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+    msime::windows::compat::Windows7WebSocket websocket;
+    const auto auth = msime::voice::doubao_auth_headers(auth_mode_, app_key_, access_key_, resource_id_);
+    const auto send = [&](const std::vector<std::uint8_t>& packet) { return websocket.send(packet); };
+    const auto receive = [&](std::vector<std::uint8_t>& message) { return websocket.receive(message); };
+    const auto close = [&] { websocket.close(); };
+    const bool connected = auth && websocket.connect(endpoint_, *auth);
+#else
     WinHttpHandle session;
     WinHttpHandle connection;
     WinHttpHandle websocket(ConnectWebSocket(endpoint_, auth_mode_, app_key_, access_key_, resource_id_, session, connection));
-    if (!websocket.value)
+    const auto send = [&](const std::vector<std::uint8_t>& packet) { return SendBinary(websocket.value, packet); };
+    const auto receive = [&](std::vector<std::uint8_t>& message) { return ReceiveMessage(websocket.value, message); };
+    const auto close = [&] { WinHttpWebSocketClose(websocket.value, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0); };
+    const bool connected = websocket.value != nullptr;
+#endif
+    if (!connected)
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
         error_ = "无法连接豆包语音识别。请检查鉴权方式、凭据、资源 ID 和接口地址。";
@@ -300,19 +325,18 @@ void DoubaoAsrClient::Run()
 
     // The full client request is sequence 1; audio sequences start at 2.
     std::int32_t sequence = 2;
-    if (!SendBinary(websocket.value, StartFrame(enable_itn_, enable_punc_, enable_ddc_, boosting_table_id_)))
+    if (!send(StartFrame(enable_itn_, enable_punc_, enable_ddc_, boosting_table_id_)))
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
         error_ = "豆包语音识别握手失败。";
         return;
     }
 
-    // WinHTTP WebSocket supports one concurrent send and one concurrent receive.
-    // Receiving here, instead of waiting for Finish(), makes partial ASR text available live.
-    std::thread receiver([this, websocket_handle = websocket.value] {
+    // 两种传输均允许独立收发，识别增量在 Finish 前交回；curl 的单句柄调用由适配器串行化。
+    std::thread receiver([this, &receive] {
         std::vector<std::uint8_t> message;
         std::string last_notified_text;
-        while (ReceiveMessage(websocket_handle, message))
+        while (receive(message))
         {
             const ParsedResponse response = ParseResponse(message);
             if (!response.text.empty())
@@ -358,7 +382,7 @@ void DoubaoAsrClient::Run()
     });
 
     auto close_and_join_receiver = [&] {
-        WinHttpWebSocketClose(websocket.value, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+        close();
         if (receiver.joinable())
             receiver.join();
     };
@@ -386,7 +410,7 @@ void DoubaoAsrClient::Run()
         }
         while (pending.size() >= kPcmChunkBytes && !finishing)
         {
-            if (!SendBinary(websocket.value, AudioFrame(sequence++, pending.data(), kPcmChunkBytes, false)))
+            if (!send(AudioFrame(sequence++, pending.data(), kPcmChunkBytes, false)))
             {
                 {
                     std::lock_guard<std::mutex> lock(result_mutex_);
@@ -402,7 +426,7 @@ void DoubaoAsrClient::Run()
         // Drain complete chunks, leaving the final chunk for the negative sequence packet.
         while (pending.size() > kPcmChunkBytes)
         {
-            if (!SendBinary(websocket.value, AudioFrame(sequence++, pending.data(), kPcmChunkBytes, false)))
+            if (!send(AudioFrame(sequence++, pending.data(), kPcmChunkBytes, false)))
             {
                 {
                     std::lock_guard<std::mutex> lock(result_mutex_);
@@ -413,7 +437,7 @@ void DoubaoAsrClient::Run()
             }
             pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(kPcmChunkBytes));
         }
-        if (!SendBinary(websocket.value, AudioFrame(sequence, pending.data(), pending.size(), true)))
+        if (!send(AudioFrame(sequence, pending.data(), pending.size(), true)))
         {
             {
                 std::lock_guard<std::mutex> lock(result_mutex_);
@@ -426,5 +450,5 @@ void DoubaoAsrClient::Run()
     }
     if (receiver.joinable())
         receiver.join();
-    WinHttpWebSocketClose(websocket.value, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+    close();
 }

@@ -1,4 +1,6 @@
+#include "../../compat/WindowsVersion.h"
 #include "CandidateFlyoutWindow.h"
+#include "../../compat/WindowsDpi.h"
 
 #include <stdexcept>
 #include "../../../../shared/contracts/msime_edition.h"
@@ -7,18 +9,8 @@ namespace msime::windows {
 namespace {
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.CandidateFlyout" MSIME_EDITION_NAME_SUFFIX;
 constexpr size_t no_row = static_cast<size_t>(-1);
-// Affect only this UI operation; restore the caller's thread context even on
-// failure.
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope()
-      : previous(SetThreadDpiAwarenessContext(
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -67,7 +59,7 @@ void CandidateFlyoutWindow::create(Panel &panel) {
   // No redirection bitmap: the card is composed with per-pixel alpha, which is
   // what gives it rounded corners instead of a rectangular window cut-out.
   panel.window = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-                                     WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP,
+                                     WS_EX_TOPMOST | msime::windows::compat::no_redirection_bitmap_style(),
                                  class_name, L"", WS_POPUP, 0, 0, 1, 1, nullptr,
                                  nullptr, GetModuleHandleW(nullptr), this);
   if (!panel.window)
@@ -142,7 +134,7 @@ bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
     actions_available_ = actions_available;
     fixed_position_ = fixed_position;
     auto items = candidate_menu_items(code_points, actions_available_, slot);
-    menu_.dpi = GetDpiForWindow(menu_.window);
+    menu_.dpi = msime::windows::compat::window_dpi(menu_.window);
     const auto &work = monitor.rcWork;
     const auto bounds = candidate_menu_bounds(
         pointer_x, pointer_y, work.left, work.top, work.right, work.bottom,

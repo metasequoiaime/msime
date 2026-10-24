@@ -159,13 +159,16 @@ final class VoiceAutoInsertDeviceCases {
         space.setText("synthetic space");
         keys.addView(space, new LinearLayout.LayoutParams(600, 600));
         keys.layout(0, 0, 600, 600);
-        method(entryType, "show", ViewGroup.class, boolean.class).invoke(entry, keys, true);
+        method(entryType, "show", ViewGroup.class).invoke(entry, keys);
         keys.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY));
         keys.layout(0, 0, 600, 600);
-        Button done = (Button) field(entryType, "uploadDone").get(entry);
+        Button done = (Button) field(entryType, "finishButton").get(entry);
         check(done != null && done.getHeight() > 0 && done.getWidth() > 0 && done.isEnabled(),
-            "整句上传必须有可点击的完成按钮");
+            "所有识别方式共用可点击的说完了按钮");
+        check("说完了".contentEquals(done.getText()), "结束采集不能写成提交结果");
+        View listening = (View) field(entryType, "listening").get(entry);
+        check(!listening.hasOnClickListeners(), "点击正文或空白不能丢弃录音");
         check(done.getTop() >= 0 && done.getBottom() <= 600, "完成按钮必须在键区范围内");
         check(space.getVisibility() == View.INVISIBLE, "聆听时原空格键被遮住");
         field(entryType, "upload").set(entry, upload);
@@ -185,7 +188,7 @@ final class VoiceAutoInsertDeviceCases {
             "主动结束后的权限失败只能结束当前识别");
         check(space.getVisibility() == View.VISIBLE && keys.getChildCount() == 1,
             "结束后必须移除整个聆听面板并恢复键行");
-        method(entryType, "show", ViewGroup.class, boolean.class).invoke(entry, keys, true);
+        method(entryType, "show", ViewGroup.class).invoke(entry, keys);
         Object cancelled = uploadType.getConstructor().newInstance();
         field(entryType, "upload").set(entry, cancelled);
         field(entryType, "recognizing").setBoolean(entry, true);

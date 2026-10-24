@@ -7,7 +7,7 @@ public enum TypingSource {
     WUBI("wubi"), JAPANESE("japanese"), KOREAN("korean"), CANTONESE("cantonese"),
     ZHUYIN("zhuyin"), VIETNAMESE("vietnamese"), TIBETAN("tibetan"), STROKE("stroke"), HANDWRITING("handwriting"),
     ENGLISH("english"), LOCAL("local"), AI("ai"), REPLY("reply"),
-    VOICE("voice"), UNKNOWN("unknown");
+    VOICE("voice"), UNKNOWN("unknown"), EIGHTEEN_KEY("eighteenKey");
 
     private final String id;
 
@@ -26,6 +26,7 @@ public enum TypingSource {
             // 九键双拼用的是九宫格键盘，记到「9 键」：统计按键盘的形态分，它没有自己的一档。
             case QUANPIN_NINE_KEY, NINE_KEY_SHUANGPIN -> NINE_KEY;
             case QUANPIN_FOURTEEN_KEY -> FOURTEEN_KEY;
+            case QUANPIN_EIGHTEEN_KEY -> EIGHTEEN_KEY;
             case XIAOHE -> SHUANGPIN;
             case ZIRANMA -> ZIRANMA;
             case MICROSOFT -> MICROSOFT;

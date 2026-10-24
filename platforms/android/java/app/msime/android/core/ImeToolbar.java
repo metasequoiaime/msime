@@ -209,8 +209,8 @@ final class ImeToolbar {
             KeyboardShortcutIconPolicy.Icon.REDO, () -> performHistory(true));
         s.redoShortcutButton.setContentDescription("重做");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
-            KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
-        s.voiceShortcutButton.setContentDescription("打开语音结果");
+            KeyboardShortcutIconPolicy.Icon.VOICE, s::startVoiceRecognition);
+        s.voiceShortcutButton.setContentDescription("语音输入");
         s.keyId(s.voiceShortcutButton, "SoftVoice");
         s.aiPolishShortcutButton = s.button(s.shortcutBar, "AI", s.imePanels::showAiPolish);
         s.aiPolishShortcutButton.setContentDescription("打开 AI 润色");

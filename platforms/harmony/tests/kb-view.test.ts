@@ -269,14 +269,19 @@ group("a voice result goes straight in only where listening began", () => {
   check(VOICE_DONE_NOTICE_MS === 1200 && VOICE_SILENCE_STOP_MS === 1500, "Android's timings");
 });
 
-group("只有触屏上的流式录音免审阅上屏，上传式服务商的结果等「提交」", () => {
-  check(VoiceRecognitionPolicy.skipsReview(true, true, true), "流式录音、聆听界面仍在");
-  check(
-    !VoiceRecognitionPolicy.skipsReview(true, false, true),
-    "上传式服务商（OpenAI 兼容）的录音在审阅界面上结束，结果留给「提交」",
-  );
-  check(!VoiceRecognitionPolicy.skipsReview(true, true, false), "语音界面已关闭");
-  check(!VoiceRecognitionPolicy.skipsReview(false, true, true), "2in1 总是审阅");
+group("系统语音使用规范语言标签，不改写保存的语言选择", () => {
+  check(VoiceRecognitionPolicy.language("zh-cn") === "zh-CN", "共享目录的默认中文标签");
+  check(VoiceRecognitionPolicy.language(" en-us ") === "en-US", "规范地区大小写并去掉首尾空白");
+  check(VoiceRecognitionPolicy.language("zh-hans-cn") === "zh-Hans-CN", "规范文字和地区标签");
+  check(!VoiceRecognitionPolicy.engineLanguageChanged("zh-cn", "zh-CN"), "大小写不改变引擎语言");
+  check(VoiceRecognitionPolicy.engineLanguageChanged("zh-cn", "en-us"), "不同语言仍需重新创建引擎");
+});
+
+group("手机的最终转写直接上屏，不以识别服务决定是否审阅", () => {
+  check(VoiceRecognitionPolicy.skipsReview(true, true), "手机语音面板仍打开时直接上屏");
+  check(!VoiceRecognitionPolicy.skipsReview(true, false), "语音界面已关闭，不上屏迟到结果");
+  check(!VoiceRecognitionPolicy.skipsReview(false, true), "2in1 沿用审阅流程");
+  check(!VoiceRecognitionPolicy.skipsReview(false, false), "关闭的 2in1 面板不上屏");
 });
 
 group("触屏离开语音界面时放弃正在进行的录音", () => {

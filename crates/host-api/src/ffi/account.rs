@@ -1370,6 +1370,7 @@ mod tests {
             json!({ "ok": true, "value": { "user": {
                 "id": "synthetic-user",
                 "displayName": "合成用户",
+                "preferredName": "合成用户",
                 "createdAt": "2026-01-01T00:00:00Z",
                 "email": "person@example.test",
                 "avatarUrl": "https://media.msime.app/avatars/abc.jpg",

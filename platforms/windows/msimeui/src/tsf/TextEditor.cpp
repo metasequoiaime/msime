@@ -1,4 +1,5 @@
 #include <array>
+#include "../../../compat/WindowsDpi.h"
 #include <algorithm>
 #include <string>
 #include <sstream>
@@ -682,7 +683,7 @@ void CTextEditor::UpdateLayout()
         return;
     }
 
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     const LONG width = max(_rcHost.right - _rcHost.left, 1L);
     const LONG height = max(_rcHost.bottom - _rcHost.top, 1L);
     _layout.Layout(GetTextBuffer(), GetTextLength(), &_lfCurrentFont, static_cast<FLOAT>(width),

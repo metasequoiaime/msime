@@ -30,3 +30,5 @@ API 28 的旧坐标把“宣传”误认作复制入口；夹具固定浮动键�
 完整设备冒烟仍有缺口：API 35 在前置 `DeviceSmoke` 的隐藏键盘组字检查处失败；API 28 整套运行曾在修正前的复制坐标处停止。专项通过不等于完整设备套件通过。
 
 在远端镜像运行 `bash scripts/verify-local.sh --quick`（任务 `20261022-104627`），结果为 `quick check passed`、退出码 0：Android Java/JNI、Rust workspace、Android 与 WASM target、Linux 设置壳、Linux 原生 109 项、macOS 原生宿主和共享 Apple bridge 检查通过。HarmonyOS HAP 与 Windows MinGW 因缺少环境跳过。已核对生产 Java 和测试清单与被测源码逐字节一致；测试 Java 只修正了关于剪贴板读取 UID 的中文注释。
+
+全拼宿主显示改为分词后，复制专项在开始复制之前仍精确等待旧的 `nihao`。API 28 原核心验收实际显示 `ni'hao`，在这个前置等待处失败，尚未执行复制。该处现在遵循[全拼宿主预编辑分词](2026-10-23-quanpin-host-preedit-segmentation.md)，精确等待 `ni'hao`；后续提交、设备信息白名单、即时预览、关闭建议时反馈和继续输入断言均保留。同一固定开发原生包上的 API 28 对照中，原正式夹具再次在上述前置等待失败；只改这一处显示预期的完整复制专项通过，覆盖预览开启与关闭、十一项白名单、编辑器内容保留及继续输入。前后原生 APK 摘要不变、正式测试包恢复且无 ANR 事件。该结果不代表最新公开原生源码重建或默认完整 smoke 通过；原完整 API 28 核心 smoke 在此处停止的记录保留。本轮本地 quick 门禁另行运行。

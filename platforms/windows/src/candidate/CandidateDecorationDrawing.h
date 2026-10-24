@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/Windows7EmojiFont.h"
 #include "../../../../shared/contracts/candidate_decoration_overlay.h"
 #include <d2d1.h>
 #include <dwrite.h>
@@ -19,7 +20,7 @@ inline std::optional<CandidateDecorationText> candidate_decoration_text(
       !(box.right > box.left) || !(box.bottom > box.top)) return std::nullopt;
   CandidateDecorationText result;
   const DWRITE_TEXT_RANGE range{0, static_cast<UINT32>(word.size())};
-  if (FAILED(factory->CreateTextLayout(word.c_str(), range.length, format, 65536, 1000,
+  if (FAILED(compat::CreateTextLayoutWithWindows7Emoji(factory, word.c_str(), range.length, format, 65536, 1000,
           result.layout.GetAddressOf()))) return std::nullopt;
   if (FAILED(result.layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING)) ||
       FAILED(result.layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR)) ||

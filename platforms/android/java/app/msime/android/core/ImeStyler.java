@@ -134,6 +134,14 @@ final class ImeStyler {
     }
 
     void applyKeyboardGeometry(View node) {
+        if (node.getTag() instanceof MSIMEInputService.KeyboardHeightRole role
+                && role.rowCount == 3 && role.rowIndex == 1
+                && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+                && s.displayedTouchLayout(s.view) == KeyboardLayout.EIGHTEEN_KEY_LAYOUT) {
+            // 第二行少一个字母键；两侧补回该键的外边距，让七份权重扣除相同的键距后再分配宽度。
+            ViewPolicy.setHorizontalPaddingPreservingVertical(node,
+                s.halfSpacingPixels(layoutKeySpacingTenths()));
+        }
         if (s.followsKeySpacing(node)
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
             android.view.ViewGroup.MarginLayoutParams params =
@@ -154,6 +162,7 @@ final class ImeStyler {
         s.imePanels.applyReplyGeometry();
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
+        s.imeLetterRows.applyEighteenKeyIndentGeometry(s.halfSpacingPixels(layoutKeySpacingTenths()));
         applyKeyboardHeight(s.keyRows);
         // 功能行是键行的兄弟而不是其中一行，按同一网格状态分摊高度；九宫格加高时底行保持默认高度，键帽照样带键距。
         if (s.actionRow != null) {

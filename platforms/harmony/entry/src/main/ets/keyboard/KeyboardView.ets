@@ -1,3 +1,4 @@
+import { HarmonyMicrophonePermission } from './input/HarmonyMicrophonePermission';
 import { CandidateDecorationView } from './candidate/CandidateDecorationView';
 import { CandidateCanvasFrame } from './candidate/CandidateCanvasFrame';
 import {
@@ -233,6 +234,7 @@ const BACKSPACE_REPEAT_MILLIS: number = 70;
 // like it should cost.
 const CURSOR_STEP_VP: number = 12;
 const KEY_HINT_FONT_SIZE: number = 10;
+const KEY_HINT_LINE_HEIGHT_VP: number = 12;
 // 角标提示距键上边和右边的距离（Android 的 `KeyHintButton.CORNER_HINT_TOP_DP` / `CORNER_HINT_RIGHT_DP`）。
 const CORNER_HINT_TOP_VP: number = 3;
 const CORNER_HINT_RIGHT_VP: number = 5;
@@ -709,7 +711,7 @@ struct KeyboardView {
   private voiceGeneration: number = 0;
   /** 录音是否由语音快捷键按住；快捷键会自己结束录音，所以说话停顿不能结束它。 */
   private voiceHeldByKey: boolean = false;
-  /** 当前录音的服务商是否边听边流式返回文字（`VoiceRecordingBehaviourPolicy.streamsPartialResults`）。只有这种录音才使用触屏聆听界面，点一下即取消，说话停顿即停止；上传式服务商仍用审阅界面及其「停止录音」。在 `voiceBusy` 之前设置，这样为忙碌状态绘制的界面读到的是新值。 */
+  /** 当前识别服务是否返回中间文字，用于提示停顿自动结束或点「说完了」；在 `voiceBusy` 之前更新，供手机聆听面板读取。 */
   private voiceStreams: boolean = true;
   private voiceSilenceTimer: number = -1;
   /** 经过 VAD 的本地整段模型此刻是否听到说话；其他识别器从不报，始终为 false。 */
@@ -1710,50 +1712,68 @@ struct KeyboardView {
     .scale({ x: this.keyPressedScale, y: this.keyPressedScale })
   }
 
+  private keyFaceHasCornerHint(options: KeyOptions): boolean {
+    return options.cornerHint !== undefined && options.cornerHint.length > 0;
+  }
+
   @Builder
   keyFace($$: KeyOptions) {
-    Column() {
-      if ($$.icon !== undefined && $$.icon.length > 0) {
-        KeyboardLineIcon({
-          d: $$.icon ?? '',
-          iconSize: KEY_ICON_VP,
-          stroke: KeyboardIconPaths.KEY_STROKE,
-          color: $$.accentIcon === true ? this.skin.accent
-            : this.skin.keyLabelColor($$.emphasized, $$.special === true)
-        })
-      } else {
-        Text($$.letter === undefined ? $$.face : this.letterFace($$.letter))
-          .fontSize($$.size)
-          .fontWeight($$.fontWeight ?? 400)
-          .maxLines(1)
-          .fontColor(this.skin.keyLabelColor($$.emphasized, $$.special === true))
-          .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
-          .textAlign(TextAlign.Center)
-          .width('100%')
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Column() {
+        if ($$.icon !== undefined && $$.icon.length > 0) {
+          KeyboardLineIcon({
+            d: $$.icon ?? '',
+            iconSize: KEY_ICON_VP,
+            stroke: KeyboardIconPaths.KEY_STROKE,
+            color: $$.accentIcon === true ? this.skin.accent
+              : this.skin.keyLabelColor($$.emphasized, $$.special === true)
+          })
+        } else {
+          Text($$.letter === undefined ? $$.face : this.letterFace($$.letter))
+            .fontSize($$.size)
+            .minFontSize(KEY_HINT_FONT_SIZE)
+            .maxFontSize($$.size)
+            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            .layoutWeight(this.keyFaceHasCornerHint($$) ? 1 : 0)
+            .fontWeight($$.fontWeight ?? 400)
+            .maxLines(1)
+            .fontColor(this.skin.keyLabelColor($$.emphasized, $$.special === true))
+            .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+        }
+        if ($$.hint !== undefined && $$.hint.length > 0) {
+          Text($$.hint)
+            .fontSize(KEY_HINT_FONT_SIZE)
+            .minFontSize(7)
+            .maxFontSize(KEY_HINT_FONT_SIZE)
+            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            .height(KEY_HINT_LINE_HEIGHT_VP)
+            .maxLines(1)
+            .fontColor(this.skin.accent)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+        }
       }
-      if ($$.hint !== undefined && $$.hint.length > 0) {
-        // Along the bottom edge, which is why the letter above it is not centred in the whole key.
-        Text($$.hint)
-          .fontSize(KEY_HINT_FONT_SIZE)
-          .maxLines(1)
-          .fontColor(this.skin.accent)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-      }
-      if ($$.cornerHint !== undefined && $$.cornerHint.length > 0) {
-        // 脱离列的布局流，按设计稿和 Android 的 `KeyHintButton` 的位置放在距顶部 3 vp、距右侧 5 vp 处，这样字母和双拼行保持原位。
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .height('100%')
+      // 角标有独立的顶部区域，字母与双拼提示只在下方剩余高度内排版。
+      .padding({ top: this.keyFaceHasCornerHint($$)
+        ? CORNER_HINT_TOP_VP + KEY_HINT_LINE_HEIGHT_VP : 0 })
+      if (this.keyFaceHasCornerHint($$)) {
         Text($$.cornerHint)
           .fontSize(KEY_HINT_FONT_SIZE)
+          .height(KEY_HINT_LINE_HEIGHT_VP)
           .maxLines(1)
           .fontColor(this.skin.secondary)
-          .position({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
+          .margin({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
           .hitTestBehavior(HitTestMode.None)
       }
     }
-    .justifyContent(FlexAlign.Center)
     .width('100%')
     .height('100%')
-    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。否则键面这一层按自己的键帽大小被命中，挡住伸进这块键帽的邻键（紧挨回车的中/英键），而外层的回车又不在自己的触摸区里，这一下就落空了。
+    // 键面只负责画，不接收触摸：触摸归外层的键，由它的 `responseRegion` 决定。
     .hitTestBehavior(HitTestMode.None)
   }
 
@@ -5548,7 +5568,7 @@ struct KeyboardView {
   }
 
   /**
-   * 按住空格说话的手指离开：`finish` 为 true 时结束录音并打开语音界面看结果（流式识别器的结果在那里直接上屏，与从工具栏开始的录音相同）；为 false 时放弃这次录音。录音没能开始时，结束仍打开语音界面，让用户看到原因。按住期间不切换界面，是为了让空格键一直在，松手事件才送得到这里。
+   * 按住空格说话的手指离开：`finish` 为 true 时结束录音并打开语音界面看结果（识别结果在那里直接上屏，与从工具栏开始的录音相同）；为 false 时放弃这次录音。录音没能开始时，结束仍打开语音界面，让用户看到原因。按住期间不切换界面，是为了让空格键一直在，松手事件才送得到这里。
    */
   private endSpaceVoice(finish: boolean): void {
     const held: boolean = this.spaceVoiceHeld;
@@ -6552,6 +6572,11 @@ struct KeyboardView {
       this.voiceNotice = '语音输入已在设置中关闭';
       return;
     }
+    if (!HarmonyMicrophonePermission.granted()) {
+      this.voiceNotice = '请允许麦克风权限，返回后重新录音';
+      KeyboardSession.shared.requestVoicePermission();
+      return;
+    }
     this.voiceGeneration = KeyboardSession.shared.voiceStart();
     if (this.voiceGeneration === 0) {
       this.voiceNotice = '语音会话不可用';
@@ -6573,8 +6598,7 @@ struct KeyboardView {
     KeyboardSession.shared.setVoiceRecording(true);
     this.voiceRecognizer.start(voiceConfiguration.language || 'zh-CN', voiceConfiguration,
       (text: string, final: boolean): void => {
-      // A partial result only reaches the panel when the user asked to watch the recognizer work.
-      // The final one always does: it is the result.
+      // 中间结果按「边说边显示」展示，最终结果始终进入上屏流程。
       if (text.length > 0
           && (final || VoiceRecordingBehaviourPolicy.showsInterimResults(voiceConfiguration))) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
@@ -6623,21 +6647,20 @@ struct KeyboardView {
   }
 
   /**
-   * 会话接受后的最终结果。在触屏上，若这次是流式录音（聆听界面仍在）、编辑框也还是开始聆听时那个，就直接进入编辑框，与 Android 键盘内 LOCAL / STREAMING 识别器的做法一致；随后界面短暂显示「已识别：…」并把按键交还。上传式服务商的结果、编辑框已变化的结果以及 2in1 上的结果都留在审阅界面等待「提交」。
+   * 手机接受的最终转写直接进入开始录音时的输入位置，不按识别服务区分。输入位置变化时保留结果供显式插入；二合一沿用审阅面板。
    */
   private deliverVoice(accepted: string | null): void {
     if (accepted === null || accepted.length === 0) {
-      this.voiceNotice = accepted !== null ? '识别完成，可提交结果。' :
+      this.voiceNotice = accepted !== null ? '没有识别到语音。' :
         (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       return;
     }
-    if (!VoiceRecognitionPolicy.skipsReview(this.touchDesign(), this.voiceStreams,
-      this.surface === SURFACE_VOICE)) {
+    if (!VoiceRecognitionPolicy.skipsReview(this.touchDesign(), this.surface === SURFACE_VOICE)) {
       this.voiceNotice = '识别完成，可提交结果。';
       return;
     }
     if (!KeyboardSession.shared.voiceTargetMatches()) {
-      this.voiceNotice = '输入位置已变化，结果已保留，可点提交插入。';
+      this.voiceNotice = '输入位置已变化，结果已保留，可点插入文字。';
       return;
     }
     KeyboardSession.shared.insertVoiceResult(accepted);
@@ -6665,7 +6688,7 @@ struct KeyboardView {
   }
 
   /**
-   * 听到文字后，停顿 `VOICE_SILENCE_STOP_MS` 即结束录音并给出结果，即 Android 的静音停止：触屏聆听界面没有停止按钮，因为点击任意位置即取消。由快捷键或空格键按住的录音在松开按键时结束。到点时 VAD 还听到说话就顺延（`VoiceRecognitionPolicy.silenceStops`）。
+   * 流式识别听到文字后停顿 `VOICE_SILENCE_STOP_MS` 自动结束；上传式识别没有中间文字，用户点「说完了」结束。按住空格或快捷键的录音在松手时结束，VAD 仍听到说话时顺延静音计时。
    */
   private armVoiceSilence(): void {
     if (!this.touchDesign() || this.voiceHeldByKey || !this.voiceBusy || this.voiceFinishing) {
@@ -6750,14 +6773,10 @@ struct KeyboardView {
       KeyboardSession.shared.voiceInputConfiguration());
   }
 
-  /** 触屏上，流式识别器运行期间以及结果刚直接上屏后的片刻，用聆听界面代替审阅界面；审阅界面用于上传式服务商的录音（需要它的「停止录音」）、需要等待的结果、失败，以及 2in1。 */
-  private voiceListening(): boolean {
-    return this.touchDesign() && ((this.voiceBusy && this.voiceStreams) || this.voiceDone.length > 0);
-  }
-
   /** 聆听界面的标题：结果上屏后为「识别完成」，即 Android 的 `VoiceListeningView` 文案。 */
   private voiceListeningTitle(): string {
-    return this.voiceDone.length > 0 ? '识别完成' : '正在聆听…';
+    return this.voiceDone.length > 0 ? '识别完成'
+      : this.voiceFinishing ? '正在识别…' : this.voiceBusy ? '正在聆听…' : '语音输入';
   }
 
   /** 标题下方的一行：已上屏的内容、录音正在收尾、目前听到的文字，或如何取消。 */
@@ -6768,10 +6787,33 @@ struct KeyboardView {
     if (this.voiceFinishing) {
       return '正在识别…';
     }
-    return this.voiceHeard.length > 0 ? this.voiceHeard : '点任意处取消';
+    if (!this.voiceBusy) {
+      return this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription();
+    }
+    if (this.voiceHeard.length > 0) return this.voiceHeard;
+    return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
   }
 
-  /** 点按聆听界面：停止聆听并回到按键。 */
+  /** 手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。 */
+  private voicePrimaryLabel(): string {
+    if (this.voiceDone.length > 0 || (this.voiceHeldByKey && this.voiceBusy)) return '';
+    if (this.voiceFinishing) return '正在识别…';
+    if (this.voiceBusy) return '说完了';
+    return this.voiceText.length > 0 ? '插入文字' : '重新录音';
+  }
+
+  private voicePrimaryAction(): void {
+    if (this.voiceBusy) {
+      this.stopVoice();
+    } else if (this.voiceText.length > 0) {
+      this.submitVoice();
+      this.show(SURFACE_NONE);
+    } else {
+      this.startVoice();
+    }
+  }
+
+  /** 取消录音或返回按键，均不提交未完成的转写。 */
   private cancelListening(): void {
     this.cancelVoice();
     this.show(SURFACE_NONE);
@@ -6779,7 +6821,7 @@ struct KeyboardView {
 
   @Builder
   voiceFace() {
-    if (this.voiceListening()) {
+    if (this.touchDesign()) {
       Column() {
         VoiceListening({
           accent: this.voiceSkin.accent,
@@ -6788,6 +6830,10 @@ struct KeyboardView {
           micPath: KeyboardIconPaths.MIC,
           title: this.voiceListeningTitle(),
           hint: this.voiceListeningHint(),
+          primaryLabel: this.voicePrimaryLabel(),
+          primaryEnabled: !this.voiceFinishing,
+          cancelLabel: this.voiceBusy ? '取消' : '返回键盘',
+          onPrimary: (): void => this.voicePrimaryAction(),
           onCancel: (): void => this.cancelListening()
         })
       }

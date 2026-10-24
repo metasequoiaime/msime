@@ -96,6 +96,28 @@ fn multilingual_input_preserves_future_fields_when_other_settings_change() {
 }
 
 #[test]
+fn eighteen_key_quanpin_preferences_round_trip_without_changing_defaults() {
+    let defaults = Preferences::default();
+    let mut document = serde_json::to_value(&defaults).unwrap();
+    document["touch_keyboard_layout"] = serde_json::json!("eighteen_key");
+    document["touch_keyboard_schemes"] = serde_json::json!({
+        "enabled": ["eighteen_key"],
+        "selected": "eighteen_key"
+    });
+    let saved: Preferences = serde_json::from_value(document).unwrap();
+    let value = serde_json::to_value(saved).unwrap();
+    assert_eq!(value["touch_keyboard_layout"], "eighteen_key");
+    assert_eq!(value["touch_keyboard_schemes"]["selected"], "eighteen_key");
+    assert_eq!(
+        defaults.touch_keyboard_layout,
+        TouchKeyboardLayout::TwentySixKey
+    );
+    assert!(!serde_json::to_string(&defaults.touch_keyboard_schemes)
+        .unwrap()
+        .contains("eighteen_key"));
+}
+
+#[test]
 fn touch_shuangpin_layout_defaults_persists_and_rejects_unsupported_layouts() {
     let defaults = Preferences::default();
     let legacy = serde_json::to_value(&defaults).unwrap();
@@ -3049,6 +3071,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             symbols: true,
             quick_phrase: true,
             quick_phrase_frequency: true,
+            ..Default::default()
         }
     );
     fs::write(store.path(), &bytes).unwrap();
@@ -3875,9 +3898,10 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::ZhuyinNineKey,
             TouchKeyboardScheme::FourteenKey,
             TouchKeyboardScheme::NineKeyShuangpin,
+            TouchKeyboardScheme::EighteenKey,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 19);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 20);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,

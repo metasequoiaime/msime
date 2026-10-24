@@ -2,7 +2,7 @@ import ObjectiveC
 import UIKit
 import XCTest
 
-/// 空格长按与语音结果面板：长按按住说话（会话没开时转交主 App 开启），面板仍负责待插入结果；光标拖动裁决方式同 Android 的 `SpaceGesturePolicy`。
+/// 空格长按、点按语音入口与聆听面板：识别完成直接上屏，会话未开时由主 App 开启；光标拖动裁决方式同 Android。
 @MainActor
 final class SpaceVoicePanelTests: XCTestCase {
   private var storedScheme = InputSchemePreference.scheme
@@ -152,7 +152,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     }
   }
 
-  /// VoiceOver 通过空格键的 语音输入 操作进入面板。测试宿主没有完全访问权限，结果永远无法从 App 传回：键盘会直接提示这一点，而不是打开面板。
+  /// 没有完全访问权限时，读屏语音操作说明原因，不打开聆听面板。
   func testVoiceOverOpensVoiceAndExplainsMissingFullAccess() throws {
     let controller = makeController()
     let space = try XCTUnwrap(spaceKeys(in: controller).first)
@@ -161,56 +161,96 @@ final class SpaceVoicePanelTests: XCTestCase {
     XCTAssertFalse(controller.hasFullAccess)
     XCTAssertTrue(voice.actionHandler?(voice) ?? false)
     controller.view.layoutIfNeeded()
-    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardVoicePanel" })
+    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardVoiceListening" })
     let label = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "diagnosticLabel" } as? UILabel)
     XCTAssertEqual(label.text, "语音输入需要开启键盘的“允许完全访问”。")
   }
 
-  func testThePanelSaysWhatTheOrbDoes() {
-    XCTAssertEqual(KeyboardVoicePanelView.status(for: nil), "轻点开启语音")
-    XCTAssertEqual(KeyboardVoicePanelView.orbLabel(for: nil), "去水杉 App 开启语音")
-    let entry = VoiceTextHandoff(id: UUID(), text: "明天见", createdAt: Date(), expiresAt: Date().addingTimeInterval(600))
-    XCTAssertEqual(KeyboardVoicePanelView.status(for: entry), "已识别：明天见")
-    XCTAssertEqual(KeyboardVoicePanelView.orbLabel(for: entry), "插入语音结果")
-  }
-
-  /// 设计稿的面板：72pt 圆球在上，下面是 15pt 状态文字和 12.5pt 说明文字，间隔 14pt；点圆球执行操作，点其他任何地方取消。
-  func testThePanelLayoutAndTaps() throws {
-    let panel = KeyboardVoicePanelView(entry: nil, skin: KeyboardTheme.current)
-    var orbTaps = 0, cancels = 0
-    panel.onOrb = { orbTaps += 1 }
+  /// 点击明确的结束与取消按钮；正文、空白和圆球不会丢弃录音。
+  func testTheListeningPanelHasSeparateFinishAndCancelActions() throws {
+    let panel = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
+    var finishes = 0, cancels = 0
+    panel.onFinish = { finishes += 1 }
     panel.onCancel = { cancels += 1 }
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 300))
     window.addSubview(panel)
-    panel.frame = CGRect(x: 0, y: 0, width: 384, height: 189)
+    panel.frame = CGRect(x: 0, y: 0, width: 384, height: 260)
     panel.layoutIfNeeded()
 
     let orb = panel.orb.convert(panel.orb.bounds, to: panel)
     XCTAssertEqual(orb.size, CGSize(width: 72, height: 72))
     XCTAssertEqual(orb.midX, panel.bounds.midX, accuracy: 0.5)
-    let status = panel.statusLabel.convert(panel.statusLabel.bounds, to: panel)
-    let caption = panel.captionLabel.convert(panel.captionLabel.bounds, to: panel)
-    XCTAssertEqual(status.minY - orb.maxY, 14, accuracy: 0.5)
-    XCTAssertEqual(caption.minY - status.maxY, 14, accuracy: 0.5)
-    XCTAssertEqual(panel.statusLabel.text, "轻点开启语音")
-    XCTAssertEqual(panel.statusLabel.font.pointSize, 15)
-    XCTAssertEqual(panel.captionLabel.text, "点任意处取消")
-    XCTAssertEqual(panel.captionLabel.font.pointSize, 12.5)
-    XCTAssertEqual(panel.orb.accessibilityLabel, "去水杉 App 开启语音")
+    XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
+    XCTAssertEqual(panel.captionLabel.text, "说完后点「说完了」，识别后自动上屏")
+    XCTAssertFalse(panel.finishButton.isHidden)
+    XCTAssertGreaterThanOrEqual(panel.finishButton.bounds.height, 44)
+    XCTAssertTrue(panel.bounds.contains(panel.finishButton.convert(panel.finishButton.bounds, to: panel)))
+    XCTAssertTrue(panel.bounds.contains(panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)))
+    XCTAssertFalse(panel.orb.isUserInteractionEnabled)
     XCTAssertEqual(panel.orb.isPulsing, !UIAccessibility.isReduceMotionEnabled)
-
-    XCTAssertTrue(panel.hitTest(CGPoint(x: orb.midX, y: orb.midY), with: nil) === panel.orb)
-    XCTAssertTrue(panel.hitTest(CGPoint(x: caption.midX, y: caption.midY), with: nil) === panel)
-    XCTAssertTrue(panel.hitTest(CGPoint(x: 10, y: 10), with: nil) === panel)
-    panel.orb.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(orbTaps, 1)
+    panel.finishButton.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(finishes, 1)
     XCTAssertEqual(cancels, 0)
-    panel.sendActions(for: .touchUpInside)
+    panel.showRecognizing(text: "合成文字", message: "")
+    XCTAssertFalse(panel.finishButton.isEnabled)
+    panel.cancelButton.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(cancels, 1)
     XCTAssertTrue(panel.accessibilityPerformEscape())
     XCTAssertEqual(cancels, 2)
     panel.removeFromSuperview()
-    XCTAssertFalse(panel.orb.isPulsing, "the ring stops off screen")
+    XCTAssertFalse(panel.orb.isPulsing)
+
+    let held = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
+    XCTAssertTrue(held.finishButton.isHidden, "按住空格时由松手结束")
+    XCTAssertFalse(held.cancelButton.isHidden)
+  }
+
+  /// 从工具栏的真实按钮进入听写，结束后经真实会话通知自动上屏，不经过结果面板。
+  func testToolbarStartsDictationAndFinalTextEntersTheOriginalEditor() throws {
+    let selector = #selector(getter: UIInputViewController.hasFullAccess)
+    let method = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(method)
+    let block: @convention(block) (AnyObject) -> Bool = { _ in true }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(method)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    defer {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
+    let directory = try XCTUnwrap(VoiceTextHandoffStore.defaultDirectory).appendingPathComponent("VoiceSession")
+    let saved = ["state.json", "command.json"].map { (directory.appendingPathComponent($0), try? Data(contentsOf: directory.appendingPathComponent($0))) }
+    defer {
+      for (file, data) in saved {
+        if let data { try? data.write(to: file, options: .atomic) }
+        else { try? FileManager.default.removeItem(at: file) }
+      }
+    }
+    let channel = VoiceSessionChannel()
+    let now = Date()
+    channel.publish(VoiceSessionState(phase: .ready, request: nil, heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+    let document = CursorDocument()
+    try attach(document)
+    let controller = makeController()
+    let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "layoutVoiceShortcut" } as? UIButton)
+    XCTAssertEqual(toolbar.accessibilityLabel, "语音输入")
+    toolbar.sendActions(for: .primaryActionTriggered)
+    let command = try XCTUnwrap(channel.readCommand())
+    XCTAssertEqual(command.action, .start, "点语音入口应直接开始听写")
+    let panel = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardVoicePanelView }.first)
+    channel.publish(VoiceSessionState(phase: .listening, request: command.request, text: "合成",
+      heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    panel.finishButton.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(channel.readCommand()?.action, .stop)
+    XCTAssertFalse(panel.finishButton.isEnabled)
+    XCTAssertEqual(document.insertions, [], "结束采集时仍等待最终转写")
+    channel.publish(VoiceSessionState(phase: .finished, request: command.request, text: "合成语音文字",
+      heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(document.insertions, ["合成语音文字"])
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardVoicePanelView })
   }
 
   private func makeController() -> KeyboardViewController {

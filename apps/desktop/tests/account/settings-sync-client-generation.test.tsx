@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -12,7 +13,12 @@ import type {
 
 afterEach(cleanup);
 
-const user = { id: "synthetic-user", displayName: "合成用户", createdAt: "2026-01-01T00:00:00Z" };
+const user = {
+  id: "synthetic-user",
+  displayName: "合成用户",
+  preferredName: "合成用户",
+  createdAt: "2026-01-01T00:00:00Z",
+};
 const schema: AccountPreferenceSchema = {
   fields: { "input.schema": { type: "string" } },
   maximumBytes: 65536,
@@ -48,6 +54,7 @@ function account(settingsSync: SettingsSyncClient): AccountClient {
     profile: async () => ({ user, providers: ["email"] }),
     requestCode: vi.fn(),
     login: vi.fn(),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),

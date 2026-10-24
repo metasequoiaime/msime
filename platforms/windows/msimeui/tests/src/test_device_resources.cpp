@@ -1,4 +1,6 @@
+#include "../../../compat/WindowsVersion.h"
 #include "tests/includes/test_framework.h"
+#include "../../../compat/WindowsDpi.h"
 
 #include "msimeui/DeviceResources.h"
 
@@ -13,7 +15,7 @@ class HiddenWindow
     HiddenWindow()
     {
         REQUIRE(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)));
-        hwnd = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, L"STATIC", L"DPI resource test", WS_POPUP, 0, 0, 256, 128,
+        hwnd = CreateWindowExW(msime::windows::compat::no_redirection_bitmap_style(), L"STATIC", L"DPI resource test", WS_POPUP, 0, 0, 256, 128,
                                nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         REQUIRE(hwnd != nullptr);
     }
@@ -37,7 +39,7 @@ void CheckReusedTargetDpi(bool composition)
     REQUIRE(ensure());
     ID2D1RenderTarget *const target = resources.GetRenderTarget();
     REQUIRE(target != nullptr);
-    const float windowDpi = static_cast<float>(GetDpiForWindow(window.hwnd));
+    const float windowDpi = static_cast<float>(msime::windows::compat::window_dpi(window.hwnd));
 
     // Reproduce the retained render target from the previous monitor DPI without
     // changing the user's display settings. Reuse must refresh DPI, not recreate it.

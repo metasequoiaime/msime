@@ -1636,6 +1636,32 @@ pub unsafe extern "C" fn msime_client_custom_skin_library(
     })
 }
 
+/// 读取共用键盘皮肤目录，或显式重置、选择模板／背景及优化对比度；不写设置或命名库。
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节；空指针和超过 1 MiB 的请求被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_keyboard_skin_design(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // SAFETY: 调用方保证指针有效，公共边界先检查长度和空指针。
+        unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                1024 * 1024,
+                "keyboard_skin_invalid",
+                |bytes| {
+                    let action = serde_json::from_slice(bytes)
+                        .map_err(|_| "keyboard_skin_invalid".to_owned())?;
+                    msime_client_core::keyboard_skin::edit(action).map_err(str::to_owned)
+                },
+            )
+        }
+    })
+}
+
 /// The codes the shared community pages already have a sentence for. A host that
 /// forwarded the `Display` text instead would put an English sentence written
 /// for a log into a Chinese dialog.

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -64,6 +65,7 @@ const initial: Snapshot = {
 const user = {
   id: "fixture-user-id",
   displayName: "水杉测试用户",
+  preferredName: "水杉测试用户",
   createdAt: "2026-01-01T00:00:00Z",
 };
 
@@ -74,6 +76,7 @@ function account(): AccountClient {
     requestCode: vi.fn(),
     login: vi.fn(),
     profile: vi.fn().mockResolvedValue({ user, providers: ["email"] }),
+    namePresentation: presentAccountName,
     rename: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn(),
@@ -151,20 +154,18 @@ function renderPhone(
   return { skins, resources };
 }
 
-const communityRow = async (name: string) =>
-  within(await screen.findByRole("region", { name: "社区作品" })).findByRole("button", { name });
-
-// 「我的 → 收藏的回复模板」不去「社区」标签页（那里只有皮肤和词库）：它打开「AI 辅助」页，并在上面打开收藏范围的回复模板图库。返回依次关掉详情、图库，再回到「我的」。
-test("a 我的 community row opens the gallery on its feature page, and back unwinds detail, gallery and page", async () => {
-  const { resources } = renderPhone("account");
-  fireEvent.click(await communityRow("收藏的回复模板"));
+// 回复模板从 AI 辅助页进入，收藏筛选在图库里；返回依次关闭详情和图库。
+test("回复模板图库保留收藏筛选和逐层返回", async () => {
+  const { resources } = renderPhone("ai");
+  fireEvent.click(await screen.findByRole("button", { name: "浏览更多回复模板" }));
 
   expect(await screen.findByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
   const gallery = await screen.findByRole("dialog", { name: "社区回复模板" });
+  fireEvent.click(within(gallery).getByRole("button", { name: "收藏" }));
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("reply", "saved", "", 0));
   expect(window.history.state).toMatchObject({
     page: "ai",
-    communityGallery: { category: "reply", scope: "saved", initialMine: false },
+    communityGallery: { category: "reply", scope: "", initialMine: false },
   });
   // 底部的「社区」标签没有点亮：回复模板图库盖在「AI 辅助」页上。
   const bar = screen.getByRole("navigation", { name: "主要功能" });
@@ -187,30 +188,31 @@ test("a 我的 community row opens the gallery on its feature page, and back unw
   window.history.back();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "社区回复模板" })).toBeNull());
   expect(screen.getByRole("heading", { level: 1, name: /^(AI|AI 辅助)$/ })).toBeTruthy();
-
-  window.history.back();
-  expect(await screen.findByRole("heading", { level: 1, name: "我的" })).toBeTruthy();
 });
 
-test("我发布的皮肤 opens the skin gallery on 皮肤 with only the user's own skins", async () => {
-  const { skins } = renderPhone("account");
-  fireEvent.click(await communityRow("我发布的皮肤"));
-
-  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
-  const gallery = await screen.findByRole("dialog", { name: "社区皮肤" });
+test("社区皮肤保留我的作品筛选", async () => {
+  const { skins } = renderPhone("community");
+  const tabs = await screen.findByRole("tablist", { name: "社区分类" });
+  const gallery = screen.getByRole("tabpanel", { name: "皮肤" });
+  fireEvent.click(within(gallery).getByRole("button", { name: "我的作品" }));
   await waitFor(() => expect(skins.list).toHaveBeenCalledWith(0, "", true, null));
+  expect(within(tabs).getByRole("tab", { name: "皮肤" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
   expect(
     within(gallery).getByRole("button", { name: "我的作品" }).getAttribute("aria-pressed"),
   ).toBe("true");
 });
 
-test("我发布的词库 opens the dictionary gallery on 词库 in the user's own scope", async () => {
-  const { resources } = renderPhone("account");
-  fireEvent.click(await communityRow("我发布的词库"));
-
-  expect(await screen.findByRole("heading", { level: 1, name: /^(词库|词库管理)$/ })).toBeTruthy();
-  expect(await screen.findByRole("dialog", { name: "社区词库" })).toBeTruthy();
+test("社区词库保留我的作品与收藏筛选", async () => {
+  const { resources } = renderPhone("community");
+  const tabs = await screen.findByRole("tablist", { name: "社区分类" });
+  fireEvent.click(within(tabs).getByRole("tab", { name: "词库" }));
+  const gallery = screen.getByRole("tabpanel", { name: "词库" });
+  fireEvent.click(within(gallery).getByRole("button", { name: "我的作品" }));
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "mine", "", 0));
+  fireEvent.click(within(gallery).getByRole("button", { name: "收藏" }));
+  await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "saved", "", 0));
 });
 
 // 鸿蒙手机皮肤页的「社区」分类直接就是完整的社区皮肤图库（搜索、分类、详情、发布），不再是网格里的第一页预览加「浏览更多皮肤」，与 Android 皮肤页一致。
@@ -240,9 +242,9 @@ test("the HarmonyOS phone's 社区 tab is the full skin gallery on the page itse
 
 // 图库自带搜索和发布表单，不能嵌在设置的 <form> 里：嵌套的表单在 WebView 里会被当成外层表单提交。
 test("the gallery is drawn outside the settings form", async () => {
-  renderPhone("account");
-  fireEvent.click(await communityRow("我发布的皮肤"));
-  const gallery = await screen.findByRole("dialog", { name: "社区皮肤" });
+  renderPhone("ai");
+  fireEvent.click(await screen.findByRole("button", { name: "浏览更多回复模板" }));
+  const gallery = await screen.findByRole("dialog", { name: "社区回复模板" });
   expect(gallery.closest("form")).toBeNull();
 });
 

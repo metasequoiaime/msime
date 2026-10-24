@@ -270,7 +270,7 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
             await(describedPrefix("轻点输入さ，连续轻点依次切换"));
             // 右箭头不受一秒时间窗限制：旧连点残留时只结束连点，清理后会真正越过尾部字符。
             stage = "right arrow after Japanese toggle reset";
-            tap(describedPrefix("结束连点切换，开始下一个假名"));
+            tap(describedPrefix("按键 结束连点切换，开始下一个假名"));
             stage = "right arrow moves caret after Japanese toggle reset";
             await(field("msime-test-plain").and(node -> equalsText("a、b", node.getText())
                 && node.getTextSelectionStart() == 3));

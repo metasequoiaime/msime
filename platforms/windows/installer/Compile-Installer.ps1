@@ -4,6 +4,10 @@ param(
     [string]$IssPath = (Join-Path $PSScriptRoot 'msime_setup.iss'),
     # 产品版本，交给 ISCC 的 /DEdition（editions.iss 按它选出 AppId、安装目录、注册表键和安装包名）。full 不传这个定义，编译命令与引入版本之前相同。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
+    [ValidateSet('', 'x64', 'x86')][string]$Windows7Architecture = '',
+    [string]$SourceDirectory = '',
+    [string]$OutputDirectory = '',
+    [ValidatePattern('^$|^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')][string]$TargetVersion = '',
     [switch]$Light
 )
 
@@ -83,6 +87,16 @@ Write-Host "Inno Setup 编译器：$resolvedIsccPath"
 Write-Host "安装脚本：$resolvedIssPath"
 
 $isccArgs = @()
+if ($Windows7Architecture -ne '') { $isccArgs += "/DWindows7Architecture=$Windows7Architecture" }
+if ($SourceDirectory -ne '') {
+    if (-not [IO.Path]::IsPathRooted($SourceDirectory) -or -not (Test-Path -LiteralPath $SourceDirectory -PathType Container)) { throw 'SourceDirectory 必须是已存在的绝对目录' }
+    $isccArgs += "/DMySourceRoot=$SourceDirectory"
+}
+if ($OutputDirectory -ne '') {
+    if (-not [IO.Path]::IsPathRooted($OutputDirectory)) { throw 'OutputDirectory 必须是绝对目录' }
+    $isccArgs += "/O$OutputDirectory"
+}
+if ($TargetVersion -ne '') { $isccArgs += "/DMyAppVersion=$TargetVersion" }
 if ($Edition -ne 'full') {
     $isccArgs += "/DEdition=$Edition"
     Write-Host "版本：$Edition"
@@ -104,4 +118,5 @@ finally {
     Pop-Location
 }
 
-Write-Host "安装包编译完成，输出目录：$(Join-Path $PSScriptRoot 'Output')"
+$resolvedOutput = if ($OutputDirectory -ne '') { $OutputDirectory } else { Join-Path $PSScriptRoot 'Output' }
+Write-Host "安装包编译完成，输出目录：$resolvedOutput"

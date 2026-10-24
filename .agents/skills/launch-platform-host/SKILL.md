@@ -120,6 +120,7 @@ cd platforms/harmony && ohpm install && hvigorw assembleHap --no-daemon
 
 产出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。
 
+- **复用缓存也必须带齐包内容。** Hvigor 不会把顶层符号链接形式的 `entry/libs/` 当作原生库输入；另一检出的 `resources/resfile/` 缺失时也能构建和签名成功，但键盘缺词库就起不来。复用既有产物时把这两个暂存目录作为真实目录交给打包，安装前打开 HAP 核对原生库、核心词库、音效与许可证；仅改 ArkTS 时可与已验证的包逐项比较，除代码和源码映射外的内容应相同。签名校验与安装成功都不能代替这个检查。
 - **`ohpm install` 不能省**：它建立 `entry/oh_modules/` 里的链接，`import client from 'libmsimeclient.so'` 才能解析到 `.d.ts`。不跑它，ArkTS 把整个 NAPI 边界当成无类型，**构建照样成功**——于是「构建通过」可能意味着一个原生调用都没被检查。
 - `hvigorw assembleHap` 是唯一编译 ArkTS 的地方。`tsc` 全过、单测全绿、`verify-local.sh --quick` 通过，都不代表 HAP 打得出来：曾有 13 个 ArkTS 错误进入 develop 而没有任何门禁发现。改过 `.ets` 就跑一次。
 - 设置页 `rawfile/settings/index.html` 不提交，由 `stage-settings.sh` 在打包前从 `packages/ui` 构建；改了 `packages/ui` 重跑一次它再打包，设备上才是新界面。不要把这个文件加回版本库。

@@ -1,4 +1,7 @@
+#include "../../compat/WindowsVersion.h"
 #include "CandidateWindow.h"
+#include "../../common/Windows7EmojiFont.h"
+#include "../../compat/WindowsDpi.h"
 #include "CandidateCanvasDrawing.h"
 #include "CandidateDecorationDrawing.h"
 #include "AccessibleWindow.h"
@@ -52,18 +55,8 @@ constexpr UINT_PTR image_frame_timer = 0x4504;
 constexpr UINT typing_flash_frame_millis = 30;
 // 还没有会话发布特效设置时闪光的强度。Windows 固定打字效果强度为 50（client-core 的 `HostPlatform::fixed_effect_intensity`），不读 plugins.effect_intensity；特效包自带的强度随每个按键从输入线程发布（TypingEffectSignal），不受影响。
 constexpr uint32_t typing_effect_default_intensity = 50;
-// Affect only this UI operation; restore the caller's thread context even on
-// failure. The created HWND retains PMv2 awareness for its entire lifetime.
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope()
-      : previous(SetThreadDpiAwarenessContext(
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 struct Font {
   HDC dc;
   HFONT font;
@@ -133,7 +126,7 @@ double measured_width(msimeui::DeviceResources &device, const std::wstring &text
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
   DWRITE_TEXT_METRICS metrics{};
   if (factory && format &&
-      SUCCEEDED(factory->CreateTextLayout(text.c_str(),
+      SUCCEEDED(compat::CreateTextLayoutWithWindows7Emoji(factory, text.c_str(),
                                           static_cast<UINT32>(text.size()),
                                           format, 8192.0f, size * 4.0f,
                                           layout.GetAddressOf())) &&
@@ -154,7 +147,7 @@ double measured_line_height(msimeui::DeviceResources &device, const std::wstring
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
   DWRITE_TEXT_METRICS metrics{};
   if (size > 0.0f && factory && format &&
-      SUCCEEDED(factory->CreateTextLayout(text.c_str(),
+      SUCCEEDED(compat::CreateTextLayoutWithWindows7Emoji(factory, text.c_str(),
                                           static_cast<UINT32>(text.size()),
                                           format, 8192.0f, size * 4.0f,
                                           layout.GetAddressOf())) &&
@@ -184,7 +177,7 @@ double wrapped_height(msimeui::DeviceResources &device, const std::wstring &text
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
   DWRITE_TEXT_METRICS metrics{};
   if (factory && format &&
-      SUCCEEDED(factory->CreateTextLayout(text.c_str(),
+      SUCCEEDED(compat::CreateTextLayoutWithWindows7Emoji(factory, text.c_str(),
                                           static_cast<UINT32>(text.size()),
                                           format, static_cast<float>(width),
                                           65536.0f, layout.GetAddressOf())) &&
@@ -408,7 +401,7 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
   // No redirection bitmap: the card is composed with per-pixel alpha, which is
   // what gives it rounded corners instead of a rectangular window cut-out.
   window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
-                                WS_EX_NOREDIRECTIONBITMAP,
+                                msime::windows::compat::no_redirection_bitmap_style(),
                             class_name, L"", WS_POPUP, 0, 0, 1, 1, nullptr,
                             nullptr, descriptor.hInstance, this);
   if (!window_)
@@ -1017,7 +1010,7 @@ void CandidateWindow::reposition() {
   }
   value = anchored;
   // render_serial 也要比：读音在同一个 Engine generation 上单独到达（CandidateMailbox::readings），只换了快照编号。
-  if (shown_ && shown_dpi_ == GetDpiForWindow(window_) &&
+  if (shown_ && shown_dpi_ == msime::windows::compat::window_dpi(window_) &&
       shown_->session == value->session &&
       shown_->generation == value->generation &&
       shown_->render_serial == value->render_serial && shown_->x == value->x &&
@@ -1045,7 +1038,7 @@ void CandidateWindow::reposition() {
                       SWP_NOACTIVATE | SWP_NOZORDER))
       throw std::runtime_error("Candidate monitor move failed");
   }
-  const auto dpi = GetDpiForWindow(window_);
+  const auto dpi = msime::windows::compat::window_dpi(window_);
   const auto bounds = card_bounds(*value, work, dpi);
   const bool was_visible = IsWindowVisible(window_) != FALSE;
   const auto previous_highlight = [&]() -> std::optional<size_t> {
@@ -1459,7 +1452,7 @@ void CandidateWindow::paint() {
   device_.SetDpiOverride(
       style_.scale_percent == 100
           ? 0.0f
-          : static_cast<float>(layout_scale(GetDpiForWindow(window_)) * 96.0));
+          : static_cast<float>(layout_scale(msime::windows::compat::window_dpi(window_)) * 96.0));
   // 皮肤的系统材质（CandidateBackdrop.h）：要垫材质时 DeviceResources 换成 Windows.UI.Composition 合成，材质参数先交给它，建表面时就用上。建不起来就记下，这个窗口以后按材质不可用的回退画。
   auto backdrop = backdrop_plan();
   if (backdrop.active())
@@ -1782,7 +1775,7 @@ void CandidateWindow::paint() {
   // Loaded at the size it is drawn at, in real pixels, as the floating toolbar loads it, and skipped rather than substituted if the icon will not load.
   if (metrics.logo_visible)
     if (auto *logo = logo_bitmap(static_cast<int>(std::lround(
-            metrics.logo_side * layout_scale(GetDpiForWindow(window_))))))
+            metrics.logo_side * layout_scale(msime::windows::compat::window_dpi(window_))))))
       target->DrawBitmap(logo, box(candidate_logo_bounds(metrics)), 1.0f,
                          D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
   // 皮肤打开 `page_arrows` 时首行不画翻页，箭头在候选画完之后画进列表（candidate_list_arrows_layout）。
@@ -1795,7 +1788,7 @@ void CandidateWindow::paint() {
                                                font_fallback_.Get()),
                                 metrics);
   if (pager) {
-    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
+    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, label.c_str(), static_cast<UINT32>(label.size()),
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       box(pager->indicator), brush(palette_.number));
     // The previous arrow is dimmed on the first page, where it does nothing. The next one never is: the Engine fetches candidates lazily, so the page count grows as the user pages and the last page counted is not known to be the last.
@@ -1803,10 +1796,10 @@ void CandidateWindow::paint() {
     if (value->page == 0)
       previous_color.a *= 0.4f;
     const wchar_t previous_glyph[] = L"\u2039", next_glyph[] = L"\u203A";
-    target->DrawText(previous_glyph, 1,
+    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, previous_glyph, 1,
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
                       box(pager->previous), brush(previous_color));
-    target->DrawText(next_glyph, 1,
+    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, next_glyph, 1,
                       format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
                       box(pager->next), brush(palette_.number));
   }
@@ -1833,7 +1826,7 @@ void CandidateWindow::paint() {
                       : 0.0;
     if (static_cast<double>(preedit_rect.left) + reading_width + metrics.pager_gap + combo_width <=
         static_cast<double>(preedit_rect.right))
-      target->DrawText(combo.c_str(), static_cast<UINT32>(combo.size()),
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, combo.c_str(), static_cast<UINT32>(combo.size()),
                         format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING, false,
                                false, DWRITE_FONT_WEIGHT_SEMI_BOLD),
                         preedit_rect, brush(flash > 0.0f && effect_.tier_up ? effect_accent_ : palette_.number),
@@ -1861,7 +1854,7 @@ void CandidateWindow::paint() {
                        value->preedit_caret <= value->preedit.size();
     // Same clamp, same reason as the candidate rows below: a long enough reading would otherwise be drawn past the card, or under the pager.
     if (rect.right > rect.left && !caret) {
-      target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), preedit_format, rect,
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, text.c_str(), static_cast<UINT32>(text.size()), preedit_format, rect,
                        preedit_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     } else if (rect.right > rect.left) {
       // The insertion point. Without it, moving left or right inside a long pinyin string gave no indication of where the next key would land. 和 macOS 一样，光标在拼音中间时两边的字让开，不压字；拼音长过这一段时整行左移，插入点总在看得见的地方（candidate_preedit_caret）。
@@ -1874,11 +1867,11 @@ void CandidateWindow::paint() {
       const float scroll = static_cast<float>(place.scroll);
       target->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_ALIASED);
       if (!before.empty())
-        target->DrawText(before.c_str(), static_cast<UINT32>(before.size()), preedit_format,
+        compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, before.c_str(), static_cast<UINT32>(before.size()), preedit_format,
                          D2D1_RECT_F{rect.left - scroll, rect.top, rect.right, rect.bottom},
                          preedit_brush);
       if (!after.empty())
-        target->DrawText(after.c_str(), static_cast<UINT32>(after.size()), preedit_format,
+        compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, after.c_str(), static_cast<UINT32>(after.size()), preedit_format,
                          D2D1_RECT_F{rect.left + static_cast<float>(place.after), rect.top,
                                      (std::max)(rect.right, rect.left + static_cast<float>(place.after)),
                                      rect.bottom},
@@ -1918,7 +1911,7 @@ void CandidateWindow::paint() {
         candidate_expand_held_viewport(expand_.expanded, value->expanded != nullptr,
                                        expand_viewport_));
     candidate_expand_clamp(expand_, expand_layout->max_offset());
-    const double pixels = layout_scale(GetDpiForWindow(window_));
+    const double pixels = layout_scale(msime::windows::compat::window_dpi(window_));
     expand_offset = std::round(expand_.offset * pixels) / pixels;
     rows = expand_layout->rows;
     for (auto &row : rows) {
@@ -2028,7 +2021,7 @@ void CandidateWindow::paint() {
     // 序号从行左缘 number_left 处左对齐（缺省 8 DIP，皮肤写了 number_inset 时是它），到候选文字之前为止，和第一行文字竖直居中，和 macOS 一样。number_scale 让序号字号小到画不出（0）时就不画。
     const auto number_label = std::to_wstring(i + 1);
     if (metrics.number_font >= 1.0)
-      target->DrawText(
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
           number_label.c_str(), static_cast<UINT32>(number_label.size()),
           format(metrics.number_font, DWRITE_TEXT_ALIGNMENT_LEADING),
           D2D1_RECT_F{rect.left + static_cast<float>(metrics.number_left), rect.top,
@@ -2036,7 +2029,7 @@ void CandidateWindow::paint() {
           brush(number_color));
     const auto text = wide(candidate_primary_text(value->candidates[i]));
     // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
-    target->DrawText(
+    compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
         text.c_str(), static_cast<UINT32>(text.size()),
         format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, item.text_wrapped, true),
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
@@ -2056,7 +2049,7 @@ void CandidateWindow::paint() {
       const auto run_text = wide(run);
       const float left = rect.left + gutter + static_cast<float>(box.x);
       const float top = rect.top + static_cast<float>(box.y);
-      target->DrawText(run_text.c_str(), static_cast<UINT32>(run_text.size()),
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, run_text.c_str(), static_cast<UINT32>(run_text.size()),
                         format(size, DWRITE_TEXT_ALIGNMENT_LEADING, box.below),
                         D2D1_RECT_F{left, top, rect.right,
                                     top + static_cast<float>(box.height)},
@@ -2090,7 +2083,7 @@ void CandidateWindow::paint() {
       };
       const float left = rect.left + gutter + static_cast<float>(item.translation.x);
       bool ready =
-          SUCCEEDED(factory->CreateTextLayout(
+          SUCCEEDED(compat::CreateTextLayoutWithWindows7Emoji(factory,
               run_text.c_str(), static_cast<UINT32>(run_text.size()),
               format(metrics.translation_font, DWRITE_TEXT_ALIGNMENT_LEADING,
                      item.translation.below),
@@ -2140,7 +2133,7 @@ void CandidateWindow::paint() {
         target->FillRoundedRectangle(D2D1_ROUNDED_RECT{rect, row_radius, row_radius},
                                      brush(palette_.hover));
       const auto text = wide((*grid.items)[grid.start + slot].text);
-      target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
+      compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, text.c_str(), static_cast<UINT32>(text.size()),
                        format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
                        D2D1_RECT_F{rect.left + gutter, rect.top, rect.right, rect.bottom},
                        brush(cell_text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
@@ -2256,7 +2249,7 @@ void CandidateWindow::paint() {
   painted_ = value;
   painted_rows_ = std::move(rows);
   painted_pager_ = pager ? pager : list_pager;
-  painted_dpi_ = GetDpiForWindow(window_);
+  painted_dpi_ = msime::windows::compat::window_dpi(window_);
   painted_backdrop_ = backdrop;
   painted_card_ = D2D1_RECT_F{static_cast<float>(panel.left), static_cast<float>(panel.top),
                               static_cast<float>(panel.right), static_cast<float>(panel.bottom)};

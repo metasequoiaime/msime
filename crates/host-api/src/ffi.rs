@@ -236,6 +236,10 @@ pub mod settled;
 pub mod skin_image;
 pub mod translation;
 pub mod voice;
+#[cfg(windows)]
+pub mod windows_handwriting;
+#[cfg(windows)]
+pub mod windows_voice;
 
 #[cfg(test)]
 mod preference_schema_tests;
@@ -257,3 +261,7 @@ pub use settled::*;
 pub use skin_image::*;
 pub use translation::*;
 pub use voice::*;
+#[cfg(windows)]
+pub use windows_handwriting::*;
+#[cfg(windows)]
+pub use windows_voice::*;

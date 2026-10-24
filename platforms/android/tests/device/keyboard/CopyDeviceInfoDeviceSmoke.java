@@ -74,7 +74,7 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             clipboard.setPrimaryClip(ClipData.newPlainText("synthetic", "MSIME synthetic clipboard sentinel"));
             stage = "device information copy retains editor";
             for (String letter : new String[] {"n", "i", "h", "a", "o"}) tap(key(letter));
-            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("nihao", node.getText())));
+            await(field("msime-test-plain").and(node -> node.refresh() && equalsText("ni'hao", node.getText())));
             stage = "device information initial commit (preview " + previewEnabled + ")";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> node.refresh() && equalsText("你好", node.getText())));
@@ -112,7 +112,7 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
             for (int index = 0; index < labels.length; index++)
                 if (!lines[index + 2].startsWith(labels[index] + "："))
                     throw new AssertionError("Device information field missing: " + labels[index]);
-            if (copied.contains("nihao") || copied.contains("你好") || copied.contains("MSIME synthetic clipboard sentinel")
+            if (copied.contains("nihao") || copied.contains("ni'hao") || copied.contains("你好") || copied.contains("MSIME synthetic clipboard sentinel")
                 || !copied.contains("键盘：已启用 · 当前默认")
                 || copied.contains("屏幕分辨率：未知") || copied.contains("应用版本：未知"))
                 throw new AssertionError("Device information contains invalid diagnostics");

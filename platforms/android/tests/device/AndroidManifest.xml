@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.android.test" android:versionCode="1" android:versionName="1">
     <instrumentation android:name="app.msime.android.test.CloudCandidateTransportDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <instrumentation android:name="app.msime.android.test.VoicePolishReplyDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SyntheticSpeechSetup" android:targetPackage="app.msime.android.test" />
@@ -106,6 +107,12 @@
         <!-- 系统文档选择器可见的合成目录；产品必须通过选择器取得跨 UID 授权。 -->
         <provider android:name="app.msime.android.test.DiagnosticDocumentsProvider"
             android:authorities="app.msime.android.test.diagnostic-documents" android:exported="true"
+            android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <!-- OCR 专项资产只通过系统文档选择器授予产品读取权限。 -->
+        <provider android:name="app.msime.android.test.OcrDocumentsProvider"
+            android:authorities="app.msime.android.test.ocr-documents" android:exported="true"
             android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
             <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
         </provider>

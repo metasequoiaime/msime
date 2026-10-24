@@ -67,7 +67,7 @@ final class ToolbarHistoryDeviceChecks {
             text("history-first", "你好");
             t.stage = "history native commit undo returns precommit spelling";
             t.tap(t.key("撤销"));
-            text("history-first", "nihao");
+            text("history-first", "ni'hao");
             t.stage = "history native commit redo";
             t.tap(t.key("重做"));
             text("history-first", "你好");

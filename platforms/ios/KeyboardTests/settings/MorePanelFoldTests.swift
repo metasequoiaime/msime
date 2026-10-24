@@ -49,7 +49,9 @@ final class MorePanelFoldTests: XCTestCase {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
     return ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘高度", "设置", "按键音"]
       + (haptics ? ["振动"] : [])
-      + ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音结果"]
+      + ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入"]
+      + ((!TouchToolbarLocalPreference.hidden && KeyboardLayoutPreference.voiceShortcutEnabled) ? [] : ["语音输入"])
+      + ((try? VoiceTextHandoffStore().read()) != nil ? ["插入语音文字"] : [])
       + (haptics ? ["振动强度 \(KeyboardFeedbackPreference.hapticStrength.title)"] : [])
       + ["表情", "宣传", "剪贴板历史", "清除候选缓存"]
   }

@@ -22,7 +22,7 @@ macOS 上读屏（VoiceOver）能读出候选窗的每一行（`InputController.
 - `publish`、`focus`、`menu_opened`、`menu_closed`、`disconnect` 只在窗口的 UI 线程上调用。提供者对象可能在 UI Automation 的线程上被调用：它们与窗口共用一个 `AccessibleShared`（互斥锁、窗口句柄、最近一次发布的树、序号），只在锁里读树；`UiaReturnRawElementProvider`、各种 `UiaRaise*` 和窗口位置的量取都在锁外，提供者从不碰窗口的其他成员。
 - 读屏要执行一个元素时，提供者 must 把 `accessible_invoke_message`（wparam 是元素 id，lparam 是树的序号）投递回窗口，由窗口在 UI 线程上用 `AccessibleWindow::current` 核对序号后执行；树变过（换页、换了快照、焦点移动）的旧请求直接丢掉，never 按旧树里的位置点到新树里的另一样东西。
 - 树和上一棵完全相同时 `publish` 什么也不做；变了才在有读屏在听（`UiaClientsAreListening`）且已经交出过根时发 `StructureChangeType_ChildrenInvalidated`。候选窗每次打字闪光都会重画，这样不会产生事件。
-- 子元素提供者按 id 缓存在 `AccessibleShared` 里（每个窗口只有一小组固定 id），同一元素总是同一个对象。窗口析构时先 `disconnect()`（`WM_DESTROY` 里也调用一次，幂等）：对每个交出去的提供者 `UiaDisconnectProvider`，再 `UiaReturnRawElementProvider(hwnd, 0, 0, nullptr)`；之后仍被读屏拿着的提供者一律回答 `UIA_E_ELEMENTNOTAVAILABLE`。
+- 子元素提供者按 id 缓存在 `AccessibleShared` 里（每个窗口只有一小组固定 id），同一元素总是同一个对象。窗口析构时先 `disconnect()`（`WM_DESTROY` 里也调用一次，幂等）：系统提供 `UiaDisconnectProvider` 时对每个交出去的提供者调用它，再 `UiaReturnRawElementProvider(hwnd, 0, 0, nullptr)`；之后仍被读屏拿着的提供者一律回答 `UIA_E_ELEMENTNOTAVAILABLE`。Win7 没有逐提供者断开接口，按实际导出探测；仍先把共享状态标记为断开、拆除自持引用，再使用传统窗口注销。提供者实现属于 Server EXE，不能在外部引用尚存时卸载为插件；现代系统的清理调用保持原样。
 - 坐标：Server 进程不感知 DPI，候选窗和托盘卡片按每显示器感知建立，悬浮状态栏不是。元素坐标在窗口自己的客户区坐标系里，提供者按「窗口在每显示器感知下的屏幕矩形 / 窗口自己坐标系里的客户区大小」换成读屏要的物理像素（`accessible_frame`），与调用线程的 DPI 上下文无关。
 
 ### 构建
@@ -57,3 +57,5 @@ macOS 上读屏（VoiceOver）能读出候选窗的每一行（`InputController.
 - `platforms/windows/tests/candidate/candidate_accessibility.cpp`（`windows-candidate-accessibility`）：候选窗各元素的名字、顺序、坐标，第一页的上一页不可用，只能键盘选的列表不可执行，logo、预编辑、翻页缺席时的树。
 - 两个测试在宿主机上用 `clang++ -std=c++17 -Wall -Wextra -Werror` 编译并通过；`AccessibleWindow.cpp`、三个窗口和两个测试在 x86_64 与 i686 MinGW-w64 下 `-fsyntax-only -Wall -Wextra -Werror` 通过。
 - 相关笔记：[候选窗补齐 macOS](2026-10-10-windows-candidate-window-mac-parity.md)、[悬浮工具栏补齐 macOS](2026-10-10-windows-floating-toolbar-mac-parity.md)、[托盘菜单补齐 macOS](2026-10-10-windows-tray-menu-mac-parity.md)。
+
+`windows-accessible-window-runtime` 用真实 UIA MTA 客户端读取窗口和候选子元素，持有子元素引用后在 UI 线程重复断开，确认旧引用返回 `UIA_E_ELEMENTNOTAVAILABLE`。x64／x86 在 Windows 11 与 Windows 7 SP1 x64 的交互桌面全部通过；不替代讲述人或 NVDA 的交互验收。

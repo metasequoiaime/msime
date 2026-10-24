@@ -37,6 +37,7 @@ pub mod helpcode;
 pub mod host_surface;
 pub mod ios_keyboard;
 pub mod key_chord;
+pub mod keyboard_skin;
 pub mod language_cycle;
 pub mod network;
 pub mod panels;

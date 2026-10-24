@@ -1,4 +1,5 @@
 #include "TextInputCtrl.h"
+#include "../../../compat/WindowsDpi.h"
 #include "commdlg.h"
 #include "TsfTextServices.h"
 
@@ -266,7 +267,7 @@ BOOL CTextInputCtrl::CreateDeviceResources()
         return FALSE;
     }
 
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     _pRenderTarget->SetDpi(dpi, dpi);
 
     return TRUE;
@@ -312,7 +313,7 @@ void CTextInputCtrl::OnPaint()
         return;
     }
 
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     _pRenderTarget->SetDpi(dpi, dpi);
     _pRenderTarget->BeginDraw();
     _pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
@@ -336,7 +337,7 @@ void CTextInputCtrl::OnSize()
     {
         RECT rc = {};
         GetClientRect(_hwnd, &rc);
-        const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+        const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
         _pRenderTarget->SetDpi(dpi, dpi);
         _pRenderTarget->Resize(D2D1::SizeU(max(rc.right, 1L), max(rc.bottom, 1L)));
     }

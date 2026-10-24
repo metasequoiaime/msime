@@ -770,7 +770,6 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
     })
 }
 
-#[cfg(unix)]
 #[derive(Deserialize)]
 pub(crate) struct EmojiCatalogQuery {
     #[serde(flatten)]
@@ -794,16 +793,12 @@ pub(crate) struct EmojiCatalogQuery {
     pub(crate) list_plugin_symbol_groups: bool,
 }
 
-/// Query the local verified `msime-others.db` Emoji catalog without a provider socket.
-/// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
-/// With `cursor:true`, also returns `next_offset` and `complete`, preserves
-/// duplicate entries, and advances past invalid rows without treating them as EOF.
-/// Unavailable or unreadable catalogs return an error, not an empty item list.
+/// 从本地已校验的 `msime-others.db` 读取表情目录，不需要提供商套接字。
+/// 成功值包含 `{items:[{text,annotation,group}]}`；`cursor:true` 还返回
+/// `next_offset` 与 `complete`，保留重复条目并越过坏行。目录不可读时返回错误。
 ///
 /// # Safety
-/// All pointers must reference readable buffers of the stated lengths for
-/// the duration of this call; the buffers are not retained.
-#[cfg(unix)]
+/// 所有指针须在调用期间指向所述长度的可读缓冲区；函数不保留缓冲区。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_emoji_catalog_request(
     query: *const u8,
@@ -828,7 +823,7 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             "resources path is not UTF-8",
             "resources path must be absolute",
         )?;
-        if query.offset > i64::MAX as usize || query.panel.limit == 0 {
+        if i64::try_from(query.offset).is_err() || query.panel.limit == 0 {
             return Err("invalid emoji page".into());
         }
         if query.list_groups {

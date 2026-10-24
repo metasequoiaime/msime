@@ -1,4 +1,6 @@
+#include "../../compat/WindowsVersion.h"
 #include "TrayMenuWindow.h"
+#include "../../compat/WindowsDpi.h"
 #include "AccessibleWindow.h"
 #include "IconFont.h"
 #include "TrayMenuAccessibility.h"
@@ -29,18 +31,8 @@ std::bitset<256> swallowed_keys;
 // 读屏键（Caps Lock、Insert）此刻是否按着，由钩子按它看到的按下和松开记录：读屏自己的钩子会吞掉读屏键，GetAsyncKeyState 读不到它按着。
 bool caps_lock_held = false;
 bool insert_held = false;
-// Affect only this UI operation; restore the caller's thread context even on
-// failure.
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope()
-      : previous(SetThreadDpiAwarenessContext(
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -109,7 +101,7 @@ void TrayMenuWindow::create_window() {
   // No redirection bitmap: the card is composed with per-pixel alpha, which is
   // what gives it rounded corners instead of a rectangular window cut-out.
   window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-                                WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP,
+                                WS_EX_TOPMOST | msime::windows::compat::no_redirection_bitmap_style(),
                             class_name, L"", WS_POPUP, 0, 0, 1, 1, nullptr,
                             nullptr, descriptor.hInstance, this);
   if (!window_)

@@ -235,10 +235,20 @@ std::vector<fs::path> library_candidates() {
 
 void *open_library(const fs::path &path, std::string &error) {
 #if defined(_WIN32)
-  // Altered search path: onnxruntime.dll, which the C API imports, is found beside the DLL instead of in the process directory.
-  HMODULE module = path.has_parent_path()
-                       ? LoadLibraryExW(path.wstring().c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)
-                       : LoadLibraryW(path.wstring().c_str());
+  // 相邻依赖搜索要求标准 Windows 绝对路径；正斜杠可能使它拾取系统的另一个 ONNX。
+  HMODULE module = nullptr;
+  if (path.has_parent_path()) {
+    std::error_code failure;
+    auto location = fs::absolute(path, failure);
+    if (failure) {
+      error = path.u8string() + ": cannot resolve runtime path";
+      return nullptr;
+    }
+    location.make_preferred();
+    module = LoadLibraryExW(location.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+  } else {
+    module = LoadLibraryW(path.c_str());
+  }
   if (!module)
     error = path.u8string() + ": LoadLibrary error " + std::to_string(GetLastError());
   return reinterpret_cast<void *>(module);

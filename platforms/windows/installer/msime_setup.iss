@@ -1,4 +1,4 @@
-; Metasequoia IME — Inno Setup script
+﻿; Metasequoia IME — Inno Setup script
 ; 源文件根目录：本脚本所在目录
 ;
 ; 编译方法：
@@ -19,10 +19,24 @@
 
 #include "editions.iss"
 #define MyAppName      MyEditionAppName
+#ifndef MyAppVersion
 #define MyAppVersion   "0.0.1"
+#endif
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
+#ifdef Windows7Architecture
+#if (Windows7Architecture != "x64") && (Windows7Architecture != "x86")
+#error Windows7Architecture must be x64 or x86
+#endif
+#define MySettingsExeName "msime-client-settings-win7.exe"
+#define MyWindowsSuffix "_win7_" + Windows7Architecture
+#if Windows7Architecture == "x86"
+#define Windows7X86
+#endif
+#else
 #define MySettingsExeName "msime-client-settings.exe"
+#define MyWindowsSuffix ""
+#endif
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName MyEditionWatchdogTask
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
@@ -36,7 +50,9 @@
 #else
 #define ExecNativeSys "Exec"
 #endif
+#ifndef MySourceRoot
 #define MySourceRoot   "."
+#endif
 #ifdef LightPackage
 #define MyOutputSuffix "_light"
 #else
@@ -55,7 +71,7 @@ DisableDirPage=yes
 AlwaysShowDirOnReadyPage=yes
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}
+OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}{#MyWindowsSuffix}
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
 Compression=lzma2
 SolidCompression=yes
@@ -63,10 +79,22 @@ SolidCompression=yes
 WizardStyle=modern dynamic
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
+; TSF 的宿主应用会持有只读词库；发生资源更新时，也要让 Restart Manager 检查这些文件。
+CloseApplicationsFilter=*.exe,*.dll,*.chm,*.db,*.bin,*.dat
+#ifdef Windows7Architecture
+MinVersion=6.1sp1
+#ifdef Windows7X86
+ArchitecturesAllowed=x86os
+#else
+ArchitecturesAllowed=x64os
+ArchitecturesInstallIn64BitMode=x64os
+#endif
+#else
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 UninstallDisplayName={#MyAppName}
-UninstallDisplayIcon={commonpf64}\{#MyEditionInstallDir}\MetasequoiaIME.ico
+UninstallDisplayIcon={autopf}\{#MyEditionInstallDir}\MetasequoiaIME.ico
 VersionInfoVersion={#MyAppVersion}
 
 [Languages]
@@ -75,26 +103,28 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Dirs]
 Name: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"
+#ifndef Windows7X86
 Name: "{#MySystemTipDir}\{code:GetVersionDir}"
-Name: "{commonpf64}\{#MyEditionInstallDir}\server"
+#endif
+Name: "{autopf}\{#MyEditionInstallDir}\server"
 ; Server 与设置窗口是中完整性的用户进程，要写这里的配置、用户词库和 runtime-options.json；安装器以高完整性建的目录它们改不动，数据目录放到其他盘时继承来的 ACL 也未必允许普通用户写。ssPostInstall 里的 EnsureImeUserDataDir 再对已有目录补一遍。
 Name: "{code:GetDataDir}"; Permissions: users-modify
 
 [Files]
 ; 独立安装应用图标，供 Windows“已安装的应用”列表稳定显示。
 Source: "{#MySourceRoot}\MetasequoiaIME.ico"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
+    DestDir: "{autopf}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; 第三方声明随包安装。词库主体含 rime-ice（GPL-3.0）内容，其许可要求保留署名，
 ; 因此这份文件必须落到用户磁盘上，而不能只存在于源码仓库里。
 Source: "{#MySourceRoot}\THIRD_PARTY_NOTICES.txt"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
+    DestDir: "{autopf}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; GPLv3 第 4、6 条要求分发时向接收者提供许可证副本，而 THIRD_PARTY_NOTICES.txt 只是指向
 ; "the LICENSE file"、本身不含 GPL 正文。macOS 与 Linux 的 CMake 安装规则早已随包装入许可证，
 ; Windows 是唯一大规模分发却漏掉这一步的平台。
 Source: "{#MySourceRoot}\LICENSE.txt"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
+    DestDir: "{autopf}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
 ; 64 位 TIP（Windows on Arm 上是 Arm64X 那一份）连同它从同目录加载的宿主 DLL 和运行时 DLL 装进 System32\IME\<install_dir>\<版本目录>，不装进 Program Files：CS2 的 Trusted Mode 拒绝加载系统目录以外的外来 DLL，只放行系统目录里带有效 Authenticode 签名的模块，装在 Program Files 时水杉在 CS2 里根本进不去（见 .agents/notes/implemented/feature/2026-10-08-windows-cs2-trusted-mode-system32-deployment.md）。用自己的子目录而不是直接放在 System32 下：各版本的 TIP 同名，运行时 DLL 也是 vcpkg 的通用名字，放在一起会互相覆盖，也会和别的软件撞名。CS2 只有 64 位，32 位 TIP 留在 Program Files。被占用的系统副本在卸载时排到重启后删除（uninsrestartdelete），所以 GetVersionDir 也要避开系统目录里已有的版本目录。
@@ -105,20 +135,27 @@ Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
     DestDir: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion 32bit
 
+#ifndef Windows7X86
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
     DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion uninsrestartdelete
 
+#endif
+
 Source: "{#MySourceRoot}\tsf_dll\32\MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver 32bit
 
+#ifndef Windows7X86
 Source: "{#MySourceRoot}\tsf_dll\64\MetasequoiaImeTsf.dll"; \
     DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver uninsrestartdelete; Check: not IsArm64
 
+#endif
+
 ; Windows on Arm 上 64 位 TIP 换成 Arm64X 的那一份：原生 ARM64 进程（资源管理器、Edge、记事本等）和模拟运行的 x64 进程共用同一个 InprocServer32 路径，x64 TIP 只能被后者加载。它原生的那一半导入同目录的 ARM64 宿主 DLL，ARM64EC 那一半导入上面装进同一目录的 x64 宿主 DLL。Server 和其余程序仍是 x64，在模拟下运行。
+#ifndef Windows7Architecture
 Source: "{#MySourceRoot}\tsf_dll\arm64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
     DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
@@ -128,17 +165,36 @@ Source: "{#MySourceRoot}\tsf_dll\arm64\MetasequoiaImeTsf.dll"; \
     DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver uninsrestartdelete; Check: IsArm64
 
+#endif
+
 ; Server、设置窗口和 MCP 服务需要与 64 位 TIP 相同的 x64 宿主 DLL 和运行时 DLL。Prepare-PackageFiles.ps1 只把它们暂存在 tsf_dll\64 下，而 Inno 对同一个源文件无论有几条安装条目都只存一份，所以包里只有一份。
+#ifndef Windows7X86
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\server"; \
+    DestDir: "{autopf}\{#MyEditionInstallDir}\server"; \
     Flags: ignoreversion
+
+#endif
 
 ; server_exe 含本地语音识别运行时（sherpa-onnx-c-api.dll、onnxruntime.dll、onnxruntime_providers_shared.dll）。Server 从自身目录 LoadLibrary 加载它们，因此必须与 MetasequoiaImeServer.exe 同目录；ignoreversion 保证升级时换成本包锁定的版本。PDB 和链接器的 .ilk 不装，见上面 TSF 一节。
 Source: "{#MySourceRoot}\server_exe\*"; \
-    Excludes: "*.pdb,*.ilk"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\server"; \
+    Excludes: "*.pdb,*.ilk,resources\*"; \
+    DestDir: "{autopf}\{#MyEditionInstallDir}\server"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
+
+
+; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。
+#define ResourceFindHandle
+#define ResourceFindResult
+#sub InstallResource
+  #define ResourceName FindGetFileName(ResourceFindHandle)
+  #define ResourceSource MySourceRoot + "\server_exe\resources\" + ResourceName
+Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA256OfFile(ResourceSource)}')
+#endsub
+#for {ResourceFindHandle = ResourceFindResult = FindFirst(MySourceRoot + "\server_exe\resources\*", faReadOnly | faHidden | faSysFile | faArchive); ResourceFindResult; ResourceFindResult = FindNext(ResourceFindHandle)} InstallResource
+#if ResourceFindHandle
+  #call FindClose(ResourceFindHandle)
+#endif
 
 #ifndef LightPackage
 ; 包内故意不带 config.toml。通配复制再排除一次，防止以后又把用户配置打进包内。
@@ -154,19 +210,19 @@ Source: "{#MySourceRoot}\app_data\config.default.toml"; \
 
 [InstallDelete]
 ; 符号改为单独发布资产之前的包会把所有 PDB、设置程序增量链接的 .ilk 和一份多余的 TSF DLL 装进 Server 目录，而升级沿用这个目录；这里删掉它们，让升级收回空间。那里的 TSF DLL 从未被加载或注册：TIP 从版本目录运行。
-Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.pdb"
-Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.ilk"
-Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\MetasequoiaImeTsf.dll"
+Type: files; Name: "{autopf}\{#MyEditionInstallDir}\server\*.pdb"
+Type: files; Name: "{autopf}\{#MyEditionInstallDir}\server\*.ilk"
+Type: files; Name: "{autopf}\{#MyEditionInstallDir}\server\MetasequoiaImeTsf.dll"
 ; 手写模型和落定重排模型改为由设置应用按需下载到数据目录的 resource-packs 之前，包把它们装在 Server 目录的 handwriting 和 settled-model 下。升级时删掉这两份旧副本：宿主优先用随包的那份，留着它们会让按锁更新过的下载永远轮不到，还白占约 50 MB。
-Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\handwriting"
-Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\settled-model"
+Type: filesandordirs; Name: "{autopf}\{#MyEditionInstallDir}\server\handwriting"
+Type: filesandordirs; Name: "{autopf}\{#MyEditionInstallDir}\server\settled-model"
 ; 官方插件包（server_exe\plugin-packs）每次整个换掉：新版去掉或改名的包不残留在 Server 目录里，被当作内置包列出。
-Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\plugin-packs"
+Type: filesandordirs; Name: "{autopf}\{#MyEditionInstallDir}\server\plugin-packs"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; \
-    Filename: "{commonpf64}\{#MyEditionInstallDir}\server\{#MySettingsExeName}"; \
-    WorkingDir: "{commonpf64}\{#MyEditionInstallDir}\server"
+    Filename: "{autopf}\{#MyEditionInstallDir}\server\{#MySettingsExeName}"; \
+    WorkingDir: "{autopf}\{#MyEditionInstallDir}\server"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Registry]
@@ -175,7 +231,7 @@ Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     Flags: uninsdeletevalue
 Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "ServerPath"; \
-    ValueData: "{commonpf64}\{#MyEditionInstallDir}\server\{#MyAppExeName}"; \
+    ValueData: "{autopf}\{#MyEditionInstallDir}\server\{#MyAppExeName}"; \
     Flags: uninsdeletevalue
 Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "DataDir"; ValueData: "{code:GetDataDir}"; \
@@ -301,6 +357,10 @@ var
   Prompt: String;
 begin
   Result := True;
+#ifdef Windows7Architecture
+  { Win7 产品由原生窗口与已核验的随应用运行库组成，无需 WebView2 或系统 VC 安装。 }
+  exit;
+#endif
 
   WebView2Version := ReadWebView2Version;
   NeedsWebView2 := WebView2Version = '';
@@ -626,7 +686,7 @@ begin
   end;
 
   ProtectedDirs[0] := ExpandConstant('{win}');
-  ProtectedDirs[1] := ExpandConstant('{commonpf64}');
+  ProtectedDirs[1] := ExpandConstant('{autopf}');
   ProtectedDirs[2] := ExpandConstant('{commonpf32}');
   ProtectedDirs[3] := ExpandConstant('{commonappdata}');
   for Index := 0 to 3 do
@@ -639,7 +699,7 @@ begin
   end;
 
   Critical[0] := ExpandConstant('{win}');
-  Critical[1] := ExpandConstant('{commonpf64}');
+  Critical[1] := ExpandConstant('{autopf}');
   Critical[2] := ExpandConstant('{commonpf32}');
   Critical[3] := ExpandConstant('{localappdata}');
   Critical[4] := ExpandConstant('{userappdata}');
@@ -802,7 +862,7 @@ begin
     完成页点击 Finish 后，以原用户身份执行 ShellExecute（等同双击）。}
   ShellExecAsOriginalUser(
     '',
-    ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server\{#MyAppExeName}'),
+    ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\{#MyAppExeName}'),
     '--production',
     '',
     SW_SHOWNORMAL,
@@ -811,7 +871,7 @@ begin
   );
   ShellExecAsOriginalUser(
     '',
-    ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server\{#MyWatchdogName}'),
+    ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\{#MyWatchdogName}'),
     '',
     '',
     SW_SHOWNORMAL,
@@ -893,7 +953,7 @@ begin
       DirExists(ExpandConstant(
         '{commonpf32}\{#MyEditionInstallDir}\' + Candidate)) or
       DirExists(ExpandConstant(
-        '{commonpf64}\{#MyEditionInstallDir}\' + Candidate)) or
+        '{autopf}\{#MyEditionInstallDir}\' + Candidate)) or
       SystemDirExists(ExpandConstant(
         '{#MySystemTipDir}\' + Candidate))
     do
@@ -935,6 +995,22 @@ begin
     IsUserSkinDirectory(FileName) or
     (CompareText(FileName, DataDirMarkerName) = 0) or
     (not IsPackageAppDataItem(FileName));
+end;
+
+{ 已加载 TIP 的应用会保留词库连接。相同摘要的不可变资源无需覆盖；变化或无法读取的文件仍走正常安装与占用检查，不能跳过真实更新。不得缓存：准备阶段之后旧文件可能被清理。 }
+function ResourceNeedsReplacement(const ExpectedHash: String): Boolean;
+var
+  Destination: String;
+begin
+  Result := True;
+  Destination := ExpandConstant(CurrentFilename);
+  if not FileExists(Destination) then
+    exit;
+  try
+    Result := CompareText(GetSHA256OfFile(Destination), ExpectedHash) <> 0;
+  except
+    Log('Unable to verify existing resource; normal replacement is required.');
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
@@ -984,7 +1060,7 @@ var
   ServerDir: String;
 begin
   HoldServerLaunchGate;
-  ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');
+  ServerDir := ExpandConstant('{autopf}\{#MyEditionInstallDir}\server');
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
   StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');
   { 然后是 Server、WinUI 设置窗口、承载面板的 MSIME.exe 和 AI 助手拉起的 msime-mcp.exe：它们都在 server 目录里，也都不在 Server 的进程树里。}
@@ -1040,7 +1116,7 @@ var
 begin
   ResultCode := -1;
   WatchdogPath := ExpandConstant(
-    '{commonpf64}\{#MyEditionInstallDir}\server\{#MyWatchdogName}');
+    '{autopf}\{#MyEditionInstallDir}\server\{#MyWatchdogName}');
   { /F replaces the same fixed-name task during an upgrade. /IT keeps the
     task in the interactive user's session; LIMITED avoids an elevated token.
     schtasks splits the /TR value at its first space into program and arguments unless the program itself is quoted, so the Program Files path would become the program "C:\Program" with the rest as its arguments. The escaped inner quotes survive schtasks' own argument parsing and keep the path whole. }
@@ -1109,14 +1185,16 @@ procedure TryDeleteSystemVersionDirs(const Keep: String);
 var
   ResultCode: Integer;
 begin
+  if not IsWin64 then
+    exit;
   {#ExecNativeSys}(
     ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
-    'if (-not [Environment]::Is64BitProcess) { exit 3 }; ' +
+    'if ([IntPtr]::Size -ne 8) { exit 3 }; ' +
     '$root = ''' + ExpandConstant('{#MySystemTipDir}') + '''; ' +
     '$keep = ''' + Keep + '''; ' +
     'if (-not (Test-Path -LiteralPath $root)) { exit 0 }; ' +
-    'Get-ChildItem -LiteralPath $root -Directory -Filter ''msime_v*'' | ' +
+    'Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
     'Where-Object { $_.Name -ine $keep } | ' +
     'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; ' +
     'if (($keep -eq '''') -and -not (Get-ChildItem -LiteralPath $root -Force)) { ' +
@@ -1340,11 +1418,11 @@ begin
   CleanAppDataExceptUserFiles;
 #endif
   TryDeleteTree(ExpandConstant(
-    '{commonpf64}\{#MyEditionInstallDir}\server'));
+    '{autopf}\{#MyEditionInstallDir}\server'));
   TryDeleteOldVersionDirs(ExpandConstant(
     '{commonpf32}\{#MyEditionInstallDir}'));
   TryDeleteOldVersionDirs(ExpandConstant(
-    '{commonpf64}\{#MyEditionInstallDir}'));
+    '{autopf}\{#MyEditionInstallDir}'));
   TryDeleteSystemVersionDirs(VersionDirName);
   { 随后的 [Files] 与 ssPostInstall 会写入新 Server 和登录任务。}
   Result := '';
@@ -1431,20 +1509,25 @@ begin
   begin
     { Both TSF DLLs have been unregistered by now. DllUnregisterServer removes the language profile but, like the SampleIME code it came from, never calls ITfInputProcessorProfiles::Unregister, so the TIP key and its category entries stay behind; remove them from both registry views. }
     { 只在卸载清掉本版本的兼容名称记录，升级重新注册时保留。 }
-    RegDeleteValue(HKLM64, '{#MyEditionRegistryKey}', 'GameCompatProfileName');
-    RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
+    if IsWin64 then
+    begin
+      RegDeleteValue(HKLM64, '{#MyEditionRegistryKey}', 'GameCompatProfileName');
+      RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
+    end
+    else
+      RegDeleteValue(HKLM32, '{#MyEditionRegistryKey}', 'GameCompatProfileName');
     RegDeleteKeyIncludingSubkeys(HKLM32, '{#MyTipKey}');
     TryDeleteTree(ExpandConstant(
-      '{commonpf64}\{#MyEditionInstallDir}\server'));
+      '{autopf}\{#MyEditionInstallDir}\server'));
     if VersionDirName <> '' then
     begin
       TryDeleteTree(ExpandConstant(
         '{commonpf32}\{#MyEditionInstallDir}\' + VersionDirName));
       TryDeleteTree(ExpandConstant(
-        '{commonpf64}\{#MyEditionInstallDir}\' + VersionDirName));
+        '{autopf}\{#MyEditionInstallDir}\' + VersionDirName));
     end;
     TryDeleteTree(ExpandConstant('{commonpf32}\{#MyEditionInstallDir}'));
-    TryDeleteTree(ExpandConstant('{commonpf64}\{#MyEditionInstallDir}'));
+    TryDeleteTree(ExpandConstant('{autopf}\{#MyEditionInstallDir}'));
     TryDeleteSystemVersionDirs('');
     { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。只有用户选了删除（DecideUserDataRemoval）才删。}
     if RemoveUserDataOnUninstall and OwnsDataDir(ResolvePreviousDataDir) then

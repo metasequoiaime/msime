@@ -12,9 +12,9 @@ import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.TextView;
 
 /**
- * 键盘内的语音聆听面板：72 dp 的 accent 圆盘托着麦克风，外圈一道 1.2 s 循环的脉冲环（扩到 18 dp），识别器报音量时圆盘外再贴一圈随音量涨落的光圈（最多 12 dp），下面「正在聆听…」和「点任意处取消」。
+ * 键盘内的语音聆听面板：72 dp 的 accent 圆盘托着麦克风，外圈一道 1.2 s 循环的脉冲环（扩到 18 dp），识别器报音量时圆盘外再贴一圈随音量涨落的光圈（最多 12 dp），下面显示状态和如何结束录音的提示。
  *
- * <p>节点 text 是「正在聆听…」，描述「正在聆听，点任意处取消」（§2.8）；整个面板可点，点击即取消，回调由调用方用 `setOnClickListener` 设置。颜色由调用方从皮肤传入。
+ * <p>节点 text 是「正在聆听…」，状态与提示由调用方更新；结束采集与取消由面板中的显式按钮处理。颜色由调用方从皮肤传入。
  *
  * <p>按住空格说话时手指滑进取消区，面板换成「松开取消」的样子（{@link #setReleaseToCancel}）：标题改成「松开取消」，圆盘和光圈改用提示色，滑回去即恢复。
  */
@@ -40,7 +40,7 @@ public final class VoiceListeningView extends TextView {
     private float pulse;
     private float level;
     private ValueAnimator animator;
-    private String hintText = "点任意处取消";
+    private String hintText = "识别结束后自动上屏";
     private String fittedTitle;
     private String fittedTitleSource;
     private String fittedHint;
@@ -52,8 +52,8 @@ public final class VoiceListeningView extends TextView {
     public VoiceListeningView(Context context) {
         super(context);
         setText("正在聆听…");
-        setContentDescription("正在聆听，点任意处取消");
-        ViewPolicy.setInteractive(this, true);
+        setContentDescription("正在聆听，识别结束后自动上屏");
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         ViewPolicy.clearBackground(this);
         title.setTextAlign(Paint.Align.CENTER);
         hint.setTextAlign(Paint.Align.CENTER);

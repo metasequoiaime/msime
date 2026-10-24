@@ -1,4 +1,6 @@
+#include "../../compat/WindowsVersion.h"
 #include "ShuangpinKeymapWindow.h"
+#include "../../compat/WindowsDpi.h"
 #include "CandidateWindow.h"
 #include "ToolbarCoordinates.h"
 #include "ToolbarTooltips.h"
@@ -14,16 +16,8 @@
 namespace msime::windows {
 namespace {
 constexpr wchar_t kClassName[] = L"MSIME.Client.ShuangpinKeymap" MSIME_EDITION_NAME_SUFFIX;
-// 和候选窗一样只在这次界面操作里切到每显示器 DPI v2，结束时恢复调用方的线程设置；窗口坐标都是物理像素，和候选窗、TSF 报来的锚点一致。
-struct DpiScope {
-  DPI_AWARENESS_CONTEXT previous;
-  DpiScope()
-      : previous(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
-    if (!previous)
-      throw std::runtime_error("Per-monitor DPI unavailable");
-  }
-  ~DpiScope() { SetThreadDpiAwarenessContext(previous); }
-};
+// 系统支持时只在这次界面操作中切换线程 DPI 并恢复；旧系统沿用宿主启动时设置的系统 DPI。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 long scaled(double value, double unit) { return static_cast<long>(std::lround(value * unit)); }
 std::wstring wide(const std::string &text) {
   if (text.empty())
@@ -64,7 +58,7 @@ ShuangpinKeymapWindow::ShuangpinKeymapWindow() {
     throw std::runtime_error("Shuangpin keymap class unavailable");
   // 不激活、不进任务栏和 Alt+Tab、置顶；WS_EX_TRANSPARENT 让鼠标点击穿过去，和 macOS 面板的 ignoresMouseEvents 一样只给人看。没有重定向位图：卡片按像素带透明度合成，圆角和阴影外面是透明的。
   window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT |
-                                WS_EX_NOREDIRECTIONBITMAP,
+                                msime::windows::compat::no_redirection_bitmap_style(),
                             kClassName, L"MSIME shuangpin keymap", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr,
                             type.hInstance, this);
   if (!window_)
@@ -128,7 +122,7 @@ void ShuangpinKeymapWindow::update(const std::optional<ShuangpinKeymapFrame> &fr
     load_profile(profile);
     highlighted_ = frame->hint.key;
     // 尺寸按候选窗所在显示器的 DPI 算，和候选窗一起跨屏时也一致。
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(candidate), 1.0);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(candidate), 1.0);
     ShuangpinKeymapPlacementInput placement;
     placement.candidate = {card.left, card.top, card.right, card.bottom};
     placement.anchor_x = frame->anchor_x;

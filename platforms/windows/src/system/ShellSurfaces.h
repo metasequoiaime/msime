@@ -96,13 +96,18 @@ inline std::string shell_surface_route(const ShellSurfaceRequest &request) {
   return request.panel;
 }
 
-// File names the package stages beside the Server. Settings is a native WinUI
-// 3 process; the shared Tauri process remains the owner of the other panels.
+// 同仓 Win7 包使用系统原生窗口；普通包继续使用 WinUI 设置与共享面板。由构建明确选定，不能按目录残留文件猜测。
 inline std::vector<std::wstring>
 shell_executable_names(const ShellSurfaceRequest &request) {
+#if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+  if (request.panel.empty())
+    return {L"msime-client-settings-win7.exe"};
+  return {L"msime-client-panels-win7.exe"};
+#else
   if (request.panel.empty())
     return {L"msime-client-settings.exe"};
   return {L"MSIME.exe"};
+#endif
 }
 inline std::optional<std::filesystem::path>
 shell_executable(const std::filesystem::path &directory,

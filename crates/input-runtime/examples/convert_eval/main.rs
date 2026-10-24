@@ -365,12 +365,15 @@ fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-/// 一键怎么送：九键和九键双拼的数字、全键盘的字母走 `Character`，14 键的组码走宿主触屏键面用的 `GridKey`。
+/// 一键怎么送：九键和九键双拼的数字、全键盘的字母走 `Character`，字母网格的组码走宿主触屏键面用的 `GridKey`。
 fn key_action(grid: Option<KeyGrid>, byte: u8) -> Action {
     match grid {
-        Some(KeyGrid::FourteenKey | KeyGrid::EighteenKey | KeyGrid::FourteenKeyShuangpin(_)) => {
-            Action::GridKey(byte)
-        }
+        Some(
+            KeyGrid::FourteenKey
+            | KeyGrid::EighteenKey
+            | KeyGrid::FourteenKeyShuangpin(_)
+            | KeyGrid::EighteenKeyShuangpin(_),
+        ) => Action::GridKey(byte),
         Some(KeyGrid::NineKey | KeyGrid::NineKeyShuangpin(_)) | None => Action::Character {
             value: byte,
             shift: false,

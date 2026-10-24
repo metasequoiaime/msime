@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../msime_setup.iss') -Raw -Encoding UTF8
 $script = $script -replace '\\\r?\n\s*', ' '
@@ -12,7 +12,7 @@ if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
     throw 'Missing native WinUI/Tauri executable installation rule'
 }
 # 调试符号和链接器的增量状态不进安装包；PDB 由 Collect-Symbols.ps1 打成单独的发布资产。
-if (-not $server[0].Value.Contains('Excludes: "*.pdb,*.ilk"')) {
+if (-not $server[0].Value.Contains('Excludes: "*.pdb,*.ilk,resources\*"')) {
     throw 'Server files include PDB or .ilk files'
 }
 # The voice runtime DLLs carry upstream version resources; an upgrade must replace them with the pinned build even when an older one reports a higher version.

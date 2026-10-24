@@ -330,18 +330,28 @@ int main() {
         std::lock_guard<std::mutex> lock(statistics_mutex);
         require(statistics_batches.size() == 2 && key_batches.size() == 3);
       }
-      // Progress is the click count, not `dispatched`: acknowledged verbs have already pushed that counter past any fixed target, which would turn deliver's retry into a single send that races the listener's next accept.
+      // 等待本次点击，不能使用已被之前七次点击满足的固定目标。
       const auto clicks = [&] { return uint64_t(collected.snapshot().size()); };
-      require(deliver(name, L"LangbarRightClick|10|10|50|50", clicks, 7));
-      require(collected.wait_for(7));
+      const auto next_click = clicks() + 1;
+      require(deliver(name, L"LangbarRightClick|10|10|50|50", clicks, next_click));
+      require(collected.wait_for(static_cast<size_t>(next_click)));
 
-      // A client that connects and never writes must not wedge the endpoint.
-      HANDLE idle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                                nullptr, OPEN_EXISTING, 0, nullptr);
+      // 不写入的客户端不能卡住端点。上一连接正在收尾时，允许有界等待下一实例；
+      // 其他错误立即失败，不能用无限重试掩盖端点故障。
+      HANDLE idle = INVALID_HANDLE_VALUE;
+      const auto idle_deadline = GetTickCount64() + 2000;
+      do {
+        idle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                           nullptr, OPEN_EXISTING, 0, nullptr);
+        if (idle != INVALID_HANDLE_VALUE)
+          break;
+        require(GetLastError() == ERROR_PIPE_BUSY);
+        (void)WaitNamedPipeW(name.c_str(), 20);
+      } while (GetTickCount64() < idle_deadline);
       require(idle != INVALID_HANDLE_VALUE);
       CloseHandle(idle);
-      require(deliver(name, L"LangbarRightClick|20|20|60|60", clicks, 8));
-      require(collected.wait_for(8));
+      require(deliver(name, L"LangbarRightClick|20|20|60|60", clicks, next_click + 1));
+      require(collected.wait_for(static_cast<size_t>(next_click + 1)));
 
       // Stopping twice is safe, and no hard failure was latched.
       listener->stop();

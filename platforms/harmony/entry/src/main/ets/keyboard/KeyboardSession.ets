@@ -1401,7 +1401,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
   /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。 */
-  onOpenSettings: ((page: string | undefined) => void) | undefined = undefined;
+  onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean) => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -6735,11 +6735,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     };
   }
 
-  /**
-   * Offer a hardware key to the voice shortcuts.
-   *
-   * Returns whether the key was claimed, so the caller knows not to hand it on.
-   */
+  /** 麦克风未授权时只打开本应用的授权窗口，不在输入法扩展里采集或申请权限。 */
+  requestVoicePermission(): void {
+    this.onOpenSettings?.(undefined, true);
+  }
+
   /**
    * 打开设置应用：词库、快捷短语、云端和语音服务都在那里，而不在键盘上。
    *

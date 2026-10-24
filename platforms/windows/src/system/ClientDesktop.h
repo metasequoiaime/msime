@@ -1,16 +1,78 @@
 #pragma once
 #include "PipeTicket.h"
 #include <windows.h>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <utility>
 
 namespace msime::windows {
+namespace desktop_identity {
+// Win7 没有对象比较接口；专用无窗口线程用实际绑定后的桌面根窗口确认身份。
+// 进程内共用探针并串行请求，避免在线程本地对象析构中等待另一线程的退出。
+class BindingProbe final {
+public:
+  BindingProbe() : worker_([this] { run(); }) {}
+  ~BindingProbe() {
+    { std::lock_guard lock(mutex_); stopping_ = true; }
+    changed_.notify_one();
+    worker_.join();
+  }
+  bool same(HDESK first, HDESK second) {
+    std::lock_guard request(request_mutex_);
+    std::unique_lock lock(mutex_);
+    first_ = first; second_ = second; pending_ = true; complete_ = false;
+    changed_.notify_one();
+    completed_.wait(lock, [this] { return complete_; });
+    return result_;
+  }
+private:
+  void run() {
+    std::unique_lock lock(mutex_);
+    for (;;) {
+      changed_.wait(lock, [this] { return pending_ || stopping_; });
+      if (stopping_) return;
+      const auto first = first_, second = second_;
+      pending_ = false;
+      lock.unlock();
+      bool result = false;
+      const auto original = GetThreadDesktop(GetCurrentThreadId());
+      if (original && SetThreadDesktop(first)) {
+        const auto root = GetDesktopWindow();
+        if (root && SetThreadDesktop(second)) result = root == GetDesktopWindow();
+        // 返回前恢复借用桌面，调用方随后可以关闭自己的拥有句柄。
+        if (!SetThreadDesktop(original)) result = false;
+      }
+      lock.lock();
+      result_ = result; complete_ = true;
+      completed_.notify_one();
+    }
+  }
+  std::mutex request_mutex_, mutex_;
+  std::condition_variable changed_, completed_;
+  HDESK first_ = nullptr, second_ = nullptr;
+  bool pending_ = false, complete_ = false, result_ = false, stopping_ = false;
+  std::thread worker_;
+};
+inline bool same_by_binding(HDESK first, HDESK second) {
+  if (!first || !second) return false;
+  try {
+    static BindingProbe probe;
+    return probe.same(first, second);
+  } catch (...) { return false; }
+}
+} // namespace desktop_identity
+
 // 桌面句柄不能按数值或名字比较：不同窗口站可以有同名桌面。
 inline bool same_desktop_object(HDESK first, HDESK second) {
   using Compare = BOOL(WINAPI *)(HANDLE, HANDLE);
   static const auto compare = reinterpret_cast<Compare>(reinterpret_cast<void *>(
       GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "CompareObjectHandles")));
-  return first && second && compare && compare(first, second);
+  if (!first || !second) return false;
+  if (compare) return compare(first, second) != FALSE;
+  // 实际绑定同时核对进程窗口站，不能把另一窗口站的同名桌面误当成目标。
+  return desktop_identity::same_by_binding(first, second);
 }
 
 // 只接受来自当前焦点租约的已认证 PipeTicket：PipePeer 已核对高 32 位与真实管道对端。

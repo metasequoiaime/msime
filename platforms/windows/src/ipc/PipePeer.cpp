@@ -1,3 +1,4 @@
+#include "../../compat/WindowsVersion.h"
 #include "PipePeer.h"
 #include <vector>
 
@@ -82,8 +83,7 @@ bool same_user(HANDLE process, DWORD &error) {
   }
   return true;
 }
-// Not an AppContainer and at least medium integrity: what the settings
-// process is, and what a sandboxed host the TIP runs inside is not.
+// 设置进程必须属于当前账号、会话、非 AppContainer，且至少中完整性。
 bool desktop_token(HANDLE process, DWORD &error) {
   Handle token;
   if (!OpenProcessToken(process, TOKEN_QUERY, &token.value)) {
@@ -94,7 +94,9 @@ bool desktop_token(HANDLE process, DWORD &error) {
   if (!GetTokenInformation(token.value, TokenIsAppContainer, &app_container,
                            sizeof(app_container), &size)) {
     error = GetLastError();
-    return false;
+    if (error != ERROR_INVALID_PARAMETER || !compat::predates_appcontainers())
+      return false;
+    app_container = 0;
   }
   if (app_container) {
     error = ERROR_ACCESS_DENIED;
@@ -124,6 +126,7 @@ bool desktop_token(HANDLE process, DWORD &error) {
     error = ERROR_ACCESS_DENIED;
     return false;
   }
+  error = ERROR_SUCCESS;
   return true;
 }
 } // namespace

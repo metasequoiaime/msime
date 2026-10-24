@@ -1,5 +1,6 @@
 #include <string>
 #include "TextEditor.h"
+#include "../../../compat/WindowsDpi.h"
 
 extern ITfThreadMgr *g_pThreadMgr;
 extern TfClientId g_TfClientId;
@@ -284,7 +285,7 @@ void CTextEditor::UpdateLayout()
 
     RECT rcClient = {};
     GetClientRect(_hwnd, &rcClient);
-    const FLOAT dpi = static_cast<FLOAT>(GetDpiForWindow(_hwnd));
+    const FLOAT dpi = static_cast<FLOAT>(msime::windows::compat::window_dpi(_hwnd));
     _layout.Layout(GetTextBuffer(), GetTextLength(), &_lfCurrentFont, static_cast<FLOAT>(max(rcClient.right, 1L)), dpi,
                    dpi);
 }

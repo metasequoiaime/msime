@@ -340,8 +340,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private static KeyboardScheme[] layoutPair(KeyboardScheme current) {
         return switch (current) {
-            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN,
-                KeyboardScheme.QUANPIN_FOURTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY};
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN,
+                KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.QUANPIN_FOURTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY};
             case ZHUYIN, ZHUYIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY};
             case JAPANESE, JAPANESE_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY};
             default -> null;
@@ -356,11 +356,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         sheet.show();
     }
 
-    /** 「中文键盘」一行和选项上的排法名：按入口存下的触屏布局，`nine_key` 是「9 键」，`fourteen_key` 是「14 键」，其余是「26 键」。 */
+    /** 「中文键盘」按入口存下的触屏布局显示九、十四、十八或二十六键。 */
     private static String layoutLabel(KeyboardScheme scheme) {
         return switch (scheme.touchKeyboardLayout()) {
             case "nine_key" -> "9 键";
             case "fourteen_key" -> "14 键";
+            case "eighteen_key" -> "18 键";
             default -> "26 键";
         };
     }
@@ -379,7 +380,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         sheet.show();
     }
 
-    /** 26 / 14 / 9 键是当前方案的那几个触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
+    /** 当前方案的布局经 {@link SchemePreferences#withScheme} 与输入页、引导页按同一契约保存。 */
     private void applyScheme(KeyboardScheme scheme) {
         HostTask.run(this, context -> {
             JSONObject snapshot = HostStore.loadPreferences(context);

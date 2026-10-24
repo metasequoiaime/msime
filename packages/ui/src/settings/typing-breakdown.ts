@@ -56,6 +56,7 @@ export function summaryComposition(characters: Record<string, number>): Breakdow
 const notInputMethods = new Set([
   "nineKey",
   "fourteenKey",
+  "eighteenKey",
   "voice",
   "handwriting",
   "unknown",
@@ -73,6 +74,7 @@ export function summaryMethods(sources: Record<string, number>): BreakdownShare[
   return shares([
     ["26 键", full],
     ["14 键", count(sources, "fourteenKey")],
+    ["18 键", count(sources, "eighteenKey")],
     ["9 键", count(sources, "nineKey")],
     ["语音", count(sources, "voice")],
     ["手写", count(sources, "handwriting")],

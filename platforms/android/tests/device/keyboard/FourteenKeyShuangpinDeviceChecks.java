@@ -10,17 +10,31 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Android 14 键双拼：真实设置、组码、消歧、分号、回落和重启的验收。 */
+/** Android 字母组双拼：真实设置、组码、消歧、分号、回落和重启的验收。 */
 final class FourteenKeyShuangpinDeviceChecks {
     private final DeviceSmoke t;
+    private final boolean eighteen;
+    private final String layout;
+    private final String layoutTitle;
+    private final String layoutKeyDescription;
     private File preferences;
     private JSONObject configured;
     private long revision;
 
-    private FourteenKeyShuangpinDeviceChecks(DeviceSmoke test) { t = test; }
+    private FourteenKeyShuangpinDeviceChecks(DeviceSmoke test, boolean eighteen) {
+        t = test;
+        this.eighteen = eighteen;
+        layout = eighteen ? "eighteen_key" : "fourteen_key";
+        layoutTitle = eighteen ? "18 键" : "14 键";
+        layoutKeyDescription = eighteen ? "按键 W E" : "按键 Q W";
+    }
 
     static void run(DeviceSmoke test) throws Exception {
-        new FourteenKeyShuangpinDeviceChecks(test).run();
+        new FourteenKeyShuangpinDeviceChecks(test, false).run();
+    }
+
+    static void runEighteen(DeviceSmoke test) throws Exception {
+        new FourteenKeyShuangpinDeviceChecks(test, true).run();
     }
 
     private void run() throws Exception {
@@ -44,8 +58,9 @@ final class FourteenKeyShuangpinDeviceChecks {
             save();
             t.restartIme();
             t.stage = "choose fourteen shuangpin in native settings";
-            layoutSetting("小鹤", "26 键", "14 键");
-            assertStored("xiaohe", "fourteen_key");
+            layoutSetting("小鹤", "26 键", layoutTitle);
+            assertStored("xiaohe", layout);
+            if (eighteen) EighteenKeyGeometryDeviceChecks.run(t);
             editor(false);
             t.stage = "fourteen shuangpin nihao";
             groups("B N", "U I", "G H", "C V");
@@ -55,11 +70,11 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.stage = "fourteen shuangpin disambiguation and lock undo";
             groups("B N", "U I");
             t.await(t.described("选择拼音 ni"));
-            t.await(t.described("选择拼音 bu"));
+            t.await(t.described("选择拼音 " + (eighteen ? "bi" : "bu")));
             t.tap(t.described("选择拼音 ni"));
             t.await(reading("ni"));
             t.tap(t.key("⌫"));
-            t.await(t.described("选择拼音 bu"));
+            t.await(t.described("选择拼音 " + (eighteen ? "bi" : "bu")));
             t.tap(t.key("展开").and(AccessibilityNodeInfo::isEnabled));
             t.await(t.described("九键候选面板"));
             t.tap(t.described("收起候选面板"));
@@ -73,26 +88,26 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.tap(t.key("中"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
             t.tap(t.key("英"));
-            t.await(t.described("按键 Q W"));
+            t.await(t.described(layoutKeyDescription));
             t.tap(t.key("123"));
             t.await(t.key("1").and(AccessibilityNodeInfo::isClickable));
             t.tap(t.described("切换到字母键盘"));
-            t.await(t.described("按键 Q W"));
-            assertStored("xiaohe", "fourteen_key");
+            t.await(t.described(layoutKeyDescription));
+            assertStored("xiaohe", layout);
 
             t.stage = "fourteen shuangpin password and URL fallback";
             t.tap(t.field("msime-test-password"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
-            absent(t.described("按键 Q W"));
+            absent(t.described(layoutKeyDescription));
             editor(true);
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
-            absent(t.described("按键 Q W"));
+            absent(t.described(layoutKeyDescription));
             editor(false);
-            t.await(t.described("按键 Q W"));
+            t.await(t.described(layoutKeyDescription));
             t.restartIme();
             editor(false);
-            t.await(t.described("按键 Q W"));
-            assertStored("xiaohe", "fourteen_key");
+            t.await(t.described(layoutKeyDescription));
+            assertStored("xiaohe", layout);
 
             t.stage = "switch shuangpin profile preserves fourteen keys";
             typingSettings();
@@ -102,7 +117,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.tap(t.described("双拼（小鹤），更多选项"));
             t.stage = "choose Microsoft shuangpin";
             t.tap(t.key("微软"));
-            assertStored("microsoft", "fourteen_key");
+            assertStored("microsoft", layout);
             editor(false);
             t.await(t.described("按键 L 分号"));
             groups("Q W");
@@ -110,7 +125,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.tap(t.described("按键 L 分号"));
             commitQing();
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("青", node.getText())));
-            t.shellDiscard("screencap -p /data/local/tmp/msime-8770-fourteen-shuangpin.png");
+            t.shellDiscard("screencap -p /data/local/tmp/" + (eighteen ? "msime-9124-eighteen" : "msime-8770-fourteen") + "-shuangpin.png");
 
             t.stage = "fourteen shuangpin custom semicolon and invalid table fallback";
             configured = stored().put("shuangpin_profile", "custom")
@@ -131,11 +146,11 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你好", node.getText())));
             // 设置布局只改布局字段，不能把自定义表回退时显示的小鹤写成用户选择。
             t.stage = "switch back to twenty-six keys keeps the custom profile";
-            layoutSetting("小鹤", "14 键", "26 键");
+            layoutSetting("小鹤", layoutTitle, "26 键");
             assertStored("custom", "twenty_six_key");
             editor(false);
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));
-            absent(t.described("按键 Q W"));
+            absent(t.described(layoutKeyDescription));
         } finally {
             t.shellDiscard("am start -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -154,7 +169,16 @@ final class FourteenKeyShuangpinDeviceChecks {
     }
 
     private void groups(String... pairs) throws Exception {
-        for (String pair : pairs) t.tap(t.described("按键 " + pair));
+        for (String pair : pairs) {
+            String letters = eighteen ? switch (pair) {
+                case "U I" -> "I O";
+                case "G H" -> "H";
+                case "C V" -> "X C";
+                case "Q W" -> "Q";
+                default -> pair;
+            } : pair;
+            t.tap(t.described((letters.length() == 1 ? "字母 " : "按键 ") + letters));
+        }
     }
 
     private void editor(boolean url) throws Exception {
@@ -233,7 +257,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             if (!present) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("不应显示 14 键的输入框仍有组码键");
+        throw new AssertionError("不应显示字母网格的输入框仍有组码键");
     }
 
     private JSONObject customMicrosoft() throws Exception {

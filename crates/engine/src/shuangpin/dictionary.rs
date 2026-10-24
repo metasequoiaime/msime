@@ -25,7 +25,8 @@ use crate::ime::online_batch::{
 };
 use crate::lattice::decode::{decode_constrained_sentences, decode_sentences, SentenceNgramTables};
 use crate::lattice::merge::{
-    merge_decoded, merge_lattice_candidates, whole_sentence_insert_position, DecodedSentences,
+    merge_decoded, merge_lattice_candidates_with_typo_policy, whole_sentence_insert_position,
+    DecodedSentences,
 };
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
@@ -528,7 +529,7 @@ impl ShuangpinDictionary {
         } else {
             Some(&mut typo_edges)
         };
-        let typo = merge_lattice_candidates(
+        let typo = merge_lattice_candidates_with_typo_policy(
             candidates,
             segments,
             &mut lookup,
@@ -537,8 +538,8 @@ impl ShuangpinDictionary {
             typo_source,
             &mut self.rerankers,
             &self.rescoring_context,
+            true,
         );
-
         // 纠错整句不抢首选：不论比字面整句好多少，一律排在全码词条和整句块之后，只作为一个可选的改正。
         let Some(typo) = typo else {
             return;

@@ -1,4 +1,5 @@
 #include "msimeui/DeviceResources.h"
+#include "../../compat/WindowsDpi.h"
 
 #include "CompositionInterop.h"
 #include "msimeui/Fonts.h"
@@ -76,6 +77,21 @@ struct WinRtFunctions
 template <class Function> Function LoadFunction(HMODULE module, const char *name)
 {
     return module ? reinterpret_cast<Function>(reinterpret_cast<void *>(GetProcAddress(module, name))) : nullptr;
+}
+
+// Win7 没有 dcomp.dll；静态导入会让整个 Server 在分层窗口回退之前就装载失败。系统支持时仍调用同一个入口，缺失时由 EnsureForComposition 选择原有回退。
+HRESULT CreateCompositionDevice(IDXGIDevice *device, REFIID iid, void **result)
+{
+    using Create = HRESULT(WINAPI *)(IDXGIDevice *, REFIID, void **);
+    static const Create create = LoadFunction<Create>(
+        LoadLibraryExW(L"dcomp.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32), "DCompositionCreateDevice");
+    if (!create)
+    {
+        if (result)
+            *result = nullptr;
+        return HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND);
+    }
+    return create(device, iid, result);
 }
 
 const WinRtFunctions &WinRt()
@@ -359,7 +375,7 @@ FLOAT DeviceResources::DpiForHwnd() const
     {
         return 96.0f;
     }
-    const UINT dpi = GetDpiForWindow(hwnd_);
+    const UINT dpi = msime::windows::compat::window_dpi(hwnd_);
     return dpi > 0 ? static_cast<FLOAT>(dpi) : 96.0f;
 }
 
@@ -583,7 +599,7 @@ bool DeviceResources::EnsureCompositionSurface(HWND hwnd)
         }
 
         // 窗口刚从材质模式切回来时，合成器的桌面窗口目标可能还占着最上层那个位置，退而用另一个；这个窗口没有重定向位图，两个位置画出来一样。
-        if (FAILED(DCompositionCreateDevice(dxgiDevice_.Get(), IID_PPV_ARGS(dcompDevice_.GetAddressOf()))) ||
+        if (FAILED(CreateCompositionDevice(dxgiDevice_.Get(), IID_PPV_ARGS(dcompDevice_.GetAddressOf()))) ||
             (FAILED(dcompDevice_->CreateTargetForHwnd(hwnd, TRUE, dcompTarget_.GetAddressOf())) &&
              FAILED(dcompDevice_->CreateTargetForHwnd(hwnd, FALSE, dcompTarget_.GetAddressOf()))) ||
             FAILED(dcompDevice_->CreateVisual(dcompVisual_.GetAddressOf())) ||

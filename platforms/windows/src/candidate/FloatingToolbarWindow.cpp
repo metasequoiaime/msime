@@ -1,4 +1,5 @@
 #include "FloatingToolbarWindow.h"
+#include "../../compat/WindowsDpi.h"
 #include "AccessibleWindow.h"
 #include "FloatingToolbarPlacement.h"
 #include "ToolbarAccessibility.h"
@@ -29,7 +30,7 @@ constexpr int kHeight = 52;
 // 图片工具栏自己的悬停/按下药丸的圆角，DIP。普通条的悬停圆角跟按钮尺寸走（toolbar_button_radius），toolbar_palette 不再设 item_radius，药丸用这个固定值，保持合并前图片工具栏的 6.5。
 constexpr float kImagePillRadius = 6.5f;
 int dpi_scale(HWND window, int value) {
-  const UINT dpi = GetDpiForWindow(window);
+  const UINT dpi = msime::windows::compat::window_dpi(window);
   return MulDiv(value, static_cast<int>(dpi ? dpi : USER_DEFAULT_SCREEN_DPI), USER_DEFAULT_SCREEN_DPI);
 }
 std::optional<POINT> clamp_position(POINT position, int width, int height) {
@@ -77,21 +78,21 @@ ToolbarRect FloatingToolbarWindow::cell(size_t index) const {
 }
 std::optional<size_t> FloatingToolbarWindow::button_at_pixel(double x, double y) const {
   if (image_.active()) {
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
     return image_.button_at(x / unit, y / unit);
   }
-  return toolbar_button_at_pixel(x, y, GetDpiForWindow(window_), scale_, slots().size(), metrics());
+  return toolbar_button_at_pixel(x, y, msime::windows::compat::window_dpi(window_), scale_, slots().size(), metrics());
 }
 bool FloatingToolbarWindow::drag_at_pixel(double x, double y) const {
   if (image_.active()) {
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
     return image_.drag_at(x / unit, y / unit);
   }
-  return toolbar_drag_at_pixel(x, y, GetDpiForWindow(window_), scale_, slots().size(), metrics());
+  return toolbar_drag_at_pixel(x, y, msime::windows::compat::window_dpi(window_), scale_, slots().size(), metrics());
 }
 bool FloatingToolbarWindow::card_at_pixel(double x, double y) const {
   return image_.active() ? (button_at_pixel(x, y).has_value() || drag_at_pixel(x, y))
-      : toolbar_card_at_pixel(x, y, GetDpiForWindow(window_), scale_, slots().size(), metrics());
+      : toolbar_card_at_pixel(x, y, msime::windows::compat::window_dpi(window_), scale_, slots().size(), metrics());
 }
 void FloatingToolbarWindow::update_image() {
   image_dirty_ = false;
@@ -140,7 +141,7 @@ ToolbarMenuAnchor FloatingToolbarWindow::menu_anchor(std::optional<size_t> index
     if (!GetWindowRect(window_, &physical))
       physical = window;
   }
-  const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+  const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
   const auto card = image_.active() ? ToolbarRect{0, 0, image_.width, image_.height} : toolbar_card(slots().size(), metrics());
   double centre = static_cast<double>(x);
   if (index) {
@@ -171,7 +172,7 @@ void FloatingToolbarWindow::sync_tooltips() {
     SendMessageW(tooltip_, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
   }
   tooltip_tools_ = 0;
-  const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+  const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
   const auto count = slots().size();
   for (size_t index = 0; index < count; ++index) {
     const auto cell = this->cell(index);
@@ -225,11 +226,11 @@ void FloatingToolbarWindow::sync_accessibility(const std::optional<ModePresentat
   for (const int button : slots())
     buttons.push_back({button, utf8(button_name(button, value)), usable(button)});
   auto tree = toolbar_accessible_tree(
-      buttons, metrics(), toolbar_pixel_unit(GetDpiForWindow(window_), scale_), layout_.show_logo,
+      buttons, metrics(), toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_), layout_.show_logo,
       MSIME_EDITION_DISPLAY_NAME_UTF8);
   if (image_.active()) {
     tree = toolbar_accessible_tree(buttons, metrics(), 1, false, MSIME_EDITION_DISPLAY_NAME_UTF8);
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
     for (size_t at = 0; at < tree.elements.size(); ++at) {
       const auto box = cell(at);
       tree.elements[at].bounds = {std::floor(box.left * unit), std::floor(box.top * unit),
@@ -399,7 +400,7 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     if (!GetMonitorInfoW(monitor, &info)) throw std::runtime_error("Toolbar monitor unavailable");
     work = info.rcWork;
     const auto layout = metrics();
-    const double unit = toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
     const int width = static_cast<int>(std::ceil(
         (image_.active() ? image_.width : toolbar_window_width(slots().size(), layout)) * unit));
     const int height = static_cast<int>(std::ceil((image_.active() ? image_.height : toolbar_window_height(layout)) * unit));
@@ -548,7 +549,7 @@ void FloatingToolbarWindow::paint() {
       if (layout_.show_logo) {
         // 按画出来的实际像素尺寸加载，而不是 Direct2D 的 DIP：msime.ico 带 16 到 256 的各档图像，取对那一档图标才清晰，取错就是重新采样过的模糊图标。
         const double pixels = (mark.right - mark.left) *
-                              toolbar_pixel_unit(GetDpiForWindow(window_), scale_);
+                              toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), scale_);
         if (auto *logo = logo_bitmap(static_cast<int>(std::lround(pixels))))
           target->DrawBitmap(logo,
                              D2D1_RECT_F{static_cast<float>(mark.left) * unit,
@@ -810,7 +811,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
             GetClientRect(window, &bounds) &&
             (self->image_.active()
                  ? self->drag_at_pixel(cursor.x, cursor.y)
-                 : toolbar_logo_at_pixel(cursor.x, cursor.y, GetDpiForWindow(window),
+                 : toolbar_logo_at_pixel(cursor.x, cursor.y, msime::windows::compat::window_dpi(window),
                                          self->scale_, self->metrics()))) {
           SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
           return TRUE;

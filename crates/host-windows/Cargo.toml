@@ -46,5 +46,23 @@ windows = { version = "0.62", features = [
 windows-numerics = "0.3"
 windows-collections = "0.3"
 
+# Win7 使用系统 Tablet PC COM，普通 Windows 的发布构建不启用这组投影。
+[target.'cfg(all(windows, target_vendor = "win7"))'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_UI_TabletPC",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+] }
+
+# 普通 Windows 的单测同样执行兼容后端，避免只能在专用目标发现 COM 边界错误。
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = [
+  "Win32_UI_TabletPC",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+] }
+
 [lints]
 workspace = true

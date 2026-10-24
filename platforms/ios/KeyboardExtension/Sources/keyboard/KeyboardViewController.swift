@@ -2152,7 +2152,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       countKeyPress(TypingKeyID.voice)
-      showKeyboardVoice()
+      startVoiceFromSpace(held: false)
     }, for: .primaryActionTriggered)
     replyShortcut.addAction(UIAction { [weak self] _ in self?.toggleReplyKeyboard() }, for: .primaryActionTriggered)
     // 工具栏图标对应的面板已打开时，再点就关掉；否则在键区打开它的面板。
@@ -2223,7 +2223,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     moreShortcut.apply(skin: skin)
     moreShortcut.accessibilityLabel = "功能"
     // 语音入口只在「顶部语音入口」打开时显示；简繁是设一次就很少再动的开关，和其他开关一起放在功能菜单里。
-    configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
+    configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音输入", id: "layoutVoiceShortcut")
     scriptShortcut.isEnabled = true
     scriptShortcut.accessibilityValue = nil
     scriptShortcut.isHidden = !KeyboardLayoutPreference.voiceShortcutEnabled
@@ -2411,10 +2411,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                    enabled: supportsLocalTools && !enabledLocalInputModes.isEmpty) { [weak self] in
         self?.showMoreToolsPage(.localInput)
       },
-      KeyboardTool(id: "voiceResult", title: "语音结果", face: .icon(.voiceResult)) { [weak self] in
-        self?.closeKeyboardPicker(); self?.showKeyboardVoice()
+      KeyboardTool(id: "voiceInput", title: "语音输入", face: .icon(.voiceResult)) { [weak self] in
+        self?.startVoiceFromSpace(held: false)
       },
     ]
+    if (try? VoiceTextHandoffStore().read()) != nil {
+      tools.append(KeyboardTool(id: "voiceResult", title: "插入语音文字", face: .icon(.voiceResult)) { [weak self] in
+        self?.closeKeyboardPicker(); self?.showKeyboardVoice()
+      })
+    }
     if KeyboardFeedbackPreference.hapticsAvailable {
       let strength = KeyboardFeedbackPreference.hapticStrength
       tools.append(KeyboardTool(id: "vibrationStrength", title: "振动强度 \(strength.title)", accessibilityLabel: "振动强度",
@@ -2449,6 +2454,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.closeKeyboardPicker(); self?.resetCandidateCache()
       },
     ]
+    if !toolbarRowHidden && !scriptShortcut.isHidden {
+      tools.removeAll { $0.id == "voiceInput" }
+    }
     return tools
   }
 
@@ -3442,7 +3450,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     enabled && fullAccess && !handwritingInk && !composing && !localMode()
   }
 
-  /// 空格键的 VoiceOver 操作。关掉长按空格语音后不再提供「语音输入」；提供时它是用户明确的请求，所以不看完全访问权限，没有权限时由 `showVoicePanel` 说明原因。
+  /// 空格键的 VoiceOver 操作。关掉长按空格语音后不再提供「语音输入」；提供时它是用户明确的请求，所以不看完全访问权限，没有权限时由语音入口说明原因。
   private func spaceAccessibilityActions() -> [UIAccessibilityCustomAction] {
     var actions = [
       UIAccessibilityCustomAction(name: "光标左移") { [weak self] _ in self?.moveCursor(by: -1); return self != nil },
@@ -3451,8 +3459,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if spaceVoiceEnabled {
       actions.append(UIAccessibilityCustomAction(name: "语音输入") { [weak self] _ in
         guard let self, voiceInsertionReady else { return false }
-        // 会话开着时直接开始听写，点圆球结束；没开时先打开语音面板，由它去开启会话或插入待取的结果。
-        if hasFullAccess && KeyboardVoiceDictation().sessionAvailable { startVoiceFromSpace(held: false) } else { showVoicePanel() }
+        startVoiceFromSpace(held: false)
         return true
       })
     }
@@ -4758,7 +4765,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     originY - y > height * voiceCancelFraction
   }
 
-  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时是读屏操作开始的听写，点圆球结束。
+  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时由工具栏、功能菜单或读屏操作开始听写，点「说完了」结束。
   private func startVoiceFromSpace(held: Bool, originY: CGFloat? = nil) {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
@@ -4780,7 +4787,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     voiceHoldOriginY = held ? originY : nil
     let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
     panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
-    panel.onOrb = { [weak self] in self?.voiceDictation?.finish() }
+    panel.onFinish = { [weak self] in self?.voiceDictation?.finish() }
     dictation.onEvent = { [weak self] event in self?.handleVoiceDictation(event) }
     voiceDictation = dictation
     voicePanel = panel
@@ -4847,61 +4854,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       showDiagnostic(error.localizedDescription)
     }
     renderCandidateStrip()
-  }
-
-  /// 键区里的语音结果面板，读屏的「语音输入」操作在语音会话还没开时打开它：有待插入的交接结果时点圆球插入，没有时点圆球去 App 开启语音会话；长按空格走 `startVoiceFromSpace(held:originY:)`。插入前会核对结果与当前编辑器是否对得上，与 `showKeyboardVoice` 插入前的检查一样。
-  private func showVoicePanel() {
-    guard hasFullAccess else {
-      showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
-      renderCandidateStrip()
-      return
-    }
-    guard voiceInsertionReady else { return }
-    let store = VoiceTextHandoffStore()
-    let entry: VoiceTextHandoff?
-    do { entry = try store.read() } catch {
-      showDiagnostic(error.localizedDescription)
-      renderCandidateStrip()
-      return
-    }
-    let context = KeyboardHostContext.documentIdentifier(for: textDocumentProxy).map {
-      KeyboardDocumentContext(document: $0, before: textDocumentProxy.documentContextBeforeInput,
-                              selected: textDocumentProxy.selectedText, after: textDocumentProxy.documentContextAfterInput)
-    }
-    closeKeyboardService()
-    closeKeyboardPicker()
-    let panel = KeyboardVoicePanelView(entry: entry, skin: KeyboardTheme.current)
-    panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
-    panel.onOrb = { [weak self] in
-      guard let self else { return }
-      closeKeyboardPicker()
-      guard let entry else {
-        openVoiceSession()
-        return
-      }
-      insertVoiceHandoff(entry, store: store, context: context)
-    }
-    voicePanel = panel
-    installPanel(panel)
-  }
-
-  /// 如果编辑器仍停在面板打开时的位置，就插入等待中的语音结果，并把它从交接里清掉。
-  private func insertVoiceHandoff(_ entry: VoiceTextHandoff, store: VoiceTextHandoffStore, context: KeyboardDocumentContext?) {
-    guard hasFullAccess, let context,
-          context.matches(document: KeyboardHostContext.documentIdentifier(for: textDocumentProxy),
-                          before: textDocumentProxy.documentContextBeforeInput, selected: textDocumentProxy.selectedText,
-                          after: textDocumentProxy.documentContextAfterInput) else {
-      showDiagnostic("输入位置已变化，请重新长按空格打开语音输入。")
-      renderCandidateStrip()
-      return
-    }
-    do {
-      let text = try store.consume(entry.id)
-      insertOwnText(text, source: .voice)
-    } catch {
-      showDiagnostic(error.localizedDescription)
-      renderCandidateStrip()
-    }
   }
 
   private func closeKeyboardService() {

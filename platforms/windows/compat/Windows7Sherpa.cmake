@@ -1,0 +1,17 @@
+# 专用构建必须使用同次构建的 ONNX，禁止上游静默下载不兼容的预编译运行库。
+if(NOT PROJECT_NAME STREQUAL "sherpa-onnx")
+  return()
+endif()
+function(msime_check_windows7_onnx_dependency)
+  if(NOT TARGET onnxruntime)
+    message(FATAL_ERROR "Win7 识别库没有使用预期的 ONNX 依赖")
+  endif()
+  get_target_property(msime_onnx_import onnxruntime IMPORTED_IMPLIB)
+  file(TO_CMAKE_PATH "$ENV{SHERPA_ONNXRUNTIME_LIB_DIR}/onnxruntime.lib" msime_expected_import)
+  file(TO_CMAKE_PATH "${msime_onnx_import}" msime_actual_import)
+  if(NOT msime_actual_import STREQUAL msime_expected_import OR
+      NOT EXISTS "${msime_expected_import}")
+    message(FATAL_ERROR "Win7 识别库必须链接本次兼容构建的 ONNX 导入库")
+  endif()
+endfunction()
+cmake_language(DEFER CALL msime_check_windows7_onnx_dependency)

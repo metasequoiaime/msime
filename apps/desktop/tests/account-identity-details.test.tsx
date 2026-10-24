@@ -7,12 +7,7 @@ import * as ui from "@msime/ui";
 afterEach(cleanup);
 
 type IdentityDetailsProps = {
-  user: {
-    id: string;
-    displayName: string;
-    createdAt: string;
-    email?: string;
-  };
+  user: ui.AccountUser;
   providers: string[];
   copied?: boolean;
   onCopy: () => void;
@@ -29,6 +24,7 @@ test("account identity details share the account fields and copy action", () => 
       user={{
         id: "abcdef123456",
         displayName: "合成用户",
+        preferredName: "合成用户",
         createdAt: "2026-01-02T00:00:00Z",
         email: "user@example.test",
       }}
@@ -49,7 +45,12 @@ test("account identity details show the copied label", () => {
     .AccountIdentityDetails;
   render(
     <Details
-      user={{ id: "abcdef123456", displayName: "合成用户", createdAt: "2026-01-02T00:00:00Z" }}
+      user={{
+        id: "abcdef123456",
+        displayName: "合成用户",
+        preferredName: "合成用户",
+        createdAt: "2026-01-02T00:00:00Z",
+      }}
       providers={[]}
       copied
       onCopy={vi.fn()}

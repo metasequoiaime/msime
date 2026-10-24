@@ -7,6 +7,13 @@
 #include <string>
 
 using namespace msime::windows;
+#if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+constexpr wchar_t settings_file[] = L"msime-client-settings-win7.exe";
+constexpr wchar_t panels_file[] = L"msime-client-panels-win7.exe";
+#else
+constexpr wchar_t settings_file[] = L"msime-client-settings.exe";
+constexpr wchar_t panels_file[] = L"MSIME.exe";
+#endif
 void require_at(bool value, int line) {
   if (!value)
     throw std::runtime_error("Shell surface test failed at line " +
@@ -61,7 +68,7 @@ int main() {
     require(cloud && cloud->panel == "cloud-clipboard" && cloud->page.empty());
     require(shell_surface_route(*cloud) == "cloud-clipboard");
     require(shell_route_argument(*cloud) == L"cloud-clipboard");
-    require(shell_executable_names(*cloud) == std::vector<std::wstring>{L"MSIME.exe"});
+    require(shell_executable_names(*cloud) == std::vector<std::wstring>{panels_file});
     require(entries(shell_environment_block(L"\0", *cloud))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-clipboard");
     // 「云词库…」按 cloud-dictionary 路由打开共享应用的云词库面板，与 macOS 输入菜单的同名一行相同。
@@ -69,7 +76,7 @@ int main() {
     require(cloud_dictionary && cloud_dictionary->panel == "cloud-dictionary" &&
             cloud_dictionary->page.empty());
     require(shell_route_argument(*cloud_dictionary) == L"cloud-dictionary");
-    require(shell_executable_names(*cloud_dictionary) == std::vector<std::wstring>{L"MSIME.exe"});
+    require(shell_executable_names(*cloud_dictionary) == std::vector<std::wstring>{panels_file});
     require(entries(shell_environment_block(L"\0", *cloud_dictionary))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-dictionary");
     // 卡片自己的翻页、主题行、繁体输出和英文候选模式都不经过外壳。
@@ -149,7 +156,7 @@ int main() {
       require(rejected);
     }
 
-    // Discovery accepts only an existing file: settings opens the native settings binary and panels the shared shell.
+    // 两种产品布局都只接受实际存在的设置与面板文件，保留显式设置路径和相对路径拒绝规则。
     const auto root =
         std::filesystem::temp_directory_path() /
         ("msime-shell-fixture-" +
@@ -157,25 +164,25 @@ int main() {
     std::filesystem::create_directories(root);
     require(!shell_executable(root, {}, *settings));
     require(!shell_executable("relative", {}, *settings));
-    std::ofstream(root / "MSIME.exe") << "fixture";
+    std::ofstream(root / panels_file) << "fixture";
     require(!shell_executable(root, {}, *settings));
-    std::ofstream(root / "msime-client-settings.exe") << "fixture";
+    std::ofstream(root / settings_file) << "fixture";
     require(shell_executable(
                 root, {}, *shell_surface_request(TrayMenuCommand::OpenSettings)) ==
-            root / "msime-client-settings.exe");
+            root / settings_file);
     require(shell_executable(
                 root, {}, *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / "MSIME.exe");
+            root / panels_file);
     const auto configured_shell = root / "configured-settings.exe";
     std::ofstream(configured_shell) << "fixture";
     require(shell_executable(root, configured_shell.wstring(), *settings) ==
             configured_shell);
     require(shell_executable(root, configured_shell.wstring(),
                              *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / "MSIME.exe");
+            root / panels_file);
     const auto configured = root / "elsewhere.exe";
     require(!shell_executable(root, configured.wstring(), *settings));
-    require(!shell_executable(root, L"msime-client-settings.exe", *settings));
+    require(!shell_executable(root, settings_file, *settings));
 
     // Every surface also travels as the cross-platform route the shell parses.
     // A settings section becomes "settings:<category>": the bare section name is

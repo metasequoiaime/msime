@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { presentAccountName } from "../support/account-name";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
@@ -170,6 +171,7 @@ test.each([
           requestCode: vi.fn(),
           login: vi.fn(),
           profile: vi.fn(),
+          namePresentation: presentAccountName,
           rename: vi.fn(),
           logout: vi.fn(),
           deleteAccount: vi.fn(),

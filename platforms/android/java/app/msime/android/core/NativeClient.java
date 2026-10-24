@@ -364,9 +364,10 @@ public final class NativeClient {
     public static String setNineKeyMode(long session, boolean enabled) {
         return TextPolicy.utf8(setNineKeyModeRaw(session, enabled));
     }
-    /** 换引擎的组码网格：{@link #KEY_GRID_NONE}、{@link #KEY_GRID_NINE_KEY} 或 {@link #KEY_GRID_FOURTEEN_KEY}。只在组字结束后调用；`View.key_grid` 是权威状态。 */
+    /** 换引擎的组码网格；只在组字结束后调用，`View.key_grid` 是权威状态。 */
     public static String setKeyGrid(long session, int grid) {
-        if (grid != KEY_GRID_NONE && grid != KEY_GRID_NINE_KEY && grid != KEY_GRID_FOURTEEN_KEY)
+        if (grid != KEY_GRID_NONE && grid != KEY_GRID_NINE_KEY && grid != KEY_GRID_FOURTEEN_KEY
+                && grid != KEY_GRID_EIGHTEEN_KEY)
             throw new IllegalArgumentException("Unknown key grid");
         return TextPolicy.utf8(setKeyGridRaw(session, grid));
     }
@@ -376,7 +377,9 @@ public final class NativeClient {
     public static final int KEY_GRID_NINE_KEY = 1;
     /** 当前全拼或双拼方案的 14 键。 */
     public static final int KEY_GRID_FOURTEEN_KEY = 2;
-    /** 14 键的一键：`letter` 是这一组里的一个小写字母，宿主送首字母；返回与 {@link #character} 相同的输入响应。 */
+    /** 全拼十八键，与共享 C ABI 布局编号一致。 */
+    public static final int KEY_GRID_EIGHTEEN_KEY = 4;
+    /** 字母组网格的一键：`letter` 是组内的小写字母，宿主送首字母；返回与 {@link #character} 相同的输入响应。 */
     public static String gridKey(long session, char letter) {
         if (letter < 'a' || letter > 'z') throw new IllegalArgumentException("Grid key must be a lowercase letter");
         return TextPolicy.utf8(gridKeyRaw(session, letter));
@@ -547,6 +550,15 @@ public final class NativeClient {
     /** 由 Rust 拼出本宿主自报的 User-Agent（{@code msime_client_client_agent}）。不联网，任意线程。 */
     static String clientAgent(String request) { return TextPolicy.utf8(clientAgentRaw(utf8(request))); }
 
+    /** 昵称的共享纯计算；严格 UTF-8，传输上限与 C 接口一致。 */
+    public static String accountName(String request) {
+        if (request == null || request.length() > 16 * 1024 || !TextPolicy.validUnicode(request))
+            throw new IllegalArgumentException("Invalid account name request");
+        byte[] payload = utf8(request);
+        if (payload.length > 16 * 1024) throw new IllegalArgumentException("Invalid account name request");
+        return TextPolicy.utf8(accountNameRaw(payload));
+    }
+
     /** 账号操作（{@code msime_client_account}），请求带 {@code session_store}。除 status 和 forget 外都阻塞网络，经存储的调用都不能放在主线程上。 */
     static String account(String request) { return TextPolicy.utf8(accountRaw(utf8(request))); }
 
@@ -667,6 +679,11 @@ public final class NativeClient {
     /** 翻译服务设置页的「测试连接」：请求 {@code {service, config}}，service 是 translation.custom、translation.niutrans 或 translation.tencent，config 是表单里的值；value 是 {@code {ok, message}}，message 不含凭据和服务的回复。阻塞到约 15 秒，只在工作线程上调用。请求带着凭据，不得写进日志。 */
     public static String testApiCredential(String requestJson) {
         return TextPolicy.utf8(testApiCredentialRaw(utf8(requestJson)));
+    }
+
+    /** 只读校验固定资源包的完整内容：请求 {@code {"state_root","pack"}}，只在工作线程上调用。 */
+    public static String resourcePackVerify(String requestJson) {
+        return TextPolicy.utf8(resourcePackVerifyRaw(utf8(requestJson)));
     }
 
     /** 把升级前已解压在本机的文件收编为资源包：请求 {@code {"state_root","pack","source"}}。要哈希整组文件，只在主进程的工作线程上调用。 */
@@ -1055,6 +1072,7 @@ public final class NativeClient {
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
+    private static native byte[] resourcePackVerifyRaw(byte[] request);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native byte[] testVoiceCredentialRaw(byte[] request);
     private static native byte[] customTranslationHttpRequestRaw(byte[] request);
@@ -1086,6 +1104,7 @@ public final class NativeClient {
     private static native byte[] sessionStoreRegisterRaw(SessionStore store, byte[] clientAgent);
     private static native byte[] sessionStoreUnregisterRaw(long sessionStore);
     private static native byte[] clientAgentRaw(byte[] request);
+    private static native byte[] accountNameRaw(byte[] request);
     private static native byte[] accountRaw(byte[] request);
     private static native byte[] accountAccessTokenRaw(byte[] request);
     private static native byte[] accountCloudClipboardRaw(byte[] request);

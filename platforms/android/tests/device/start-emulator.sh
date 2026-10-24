@@ -20,6 +20,9 @@ serial="emulator-$port"
 existing=$("$android_sdk/platform-tools/adb" -s "$serial" emu avd name 2>/dev/null | tr -d '\r' | head -1 || true)
 if [[ -n "$existing" ]]; then
   [[ "$existing" == "$name" ]] || { echo "Port $port belongs to another AVD" >&2; exit 1; }
+  if [[ -n "${MSIME_ANDROID_CAMERA_IMAGE:-}" ]]; then
+    echo "Camera fixture requires a freshly started dedicated AVD" >&2; exit 1
+  fi
   echo "Dedicated AVD $name is already live at $serial"; exit 0
 fi
 avd_home="$repo_root/target/android/avd-home"
@@ -34,7 +37,15 @@ if [[ ! -f "$avd_home/$name.ini" ]]; then
     "$android_sdk/cmdline-tools/latest/bin/avdmanager" create avd --name "$name" \
       --package "$image" --path "$avd_home/$name.avd" --device pixel_6
 fi
+# OCR 验收可显式指定合成相机图片；默认设备和其他会话的相机配置不变。
+camera_options=()
+if [[ -n "${MSIME_ANDROID_CAMERA_IMAGE:-}" ]]; then
+  [[ -f "$MSIME_ANDROID_CAMERA_IMAGE" && "$MSIME_ANDROID_CAMERA_IMAGE" == /* ]] || {
+    echo "Camera fixture must name an existing absolute file" >&2; exit 1;
+  }
+  camera_options=(-camera-back "imagefile:$MSIME_ANDROID_CAMERA_IMAGE")
+fi
 echo "Starting $name at $serial" >&2
 exec env ANDROID_HOME="$android_sdk" ANDROID_AVD_HOME="$avd_home" \
   "$android_sdk/emulator/emulator" -avd "$name" -port "$port" \
-  -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -memory 2560
+  -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -memory 2560 "${camera_options[@]}"

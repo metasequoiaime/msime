@@ -346,6 +346,25 @@ fn settings_sync_round_trips_the_fourteen_key_layout() {
     }
 }
 
+#[test]
+fn settings_sync_round_trips_the_eighteen_key_layout() {
+    let expected = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::EighteenKey,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&expected, None).unwrap();
+    assert_eq!(
+        exported.get("platform.android.keyboard_layout"),
+        Some(&AccountPreferenceValue::String("eighteen_key".into()))
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert_eq!(
+        applied.preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::EighteenKey
+    );
+    assert!(applied.skipped.is_empty());
+}
+
 /// 本机选着账号装不下的方案时不导出 `input.schema`，账号里留着上次的方案。把合并结果应用回来（上传之后写回本机）、或者应用别的设备上传的文档时，Android 和桌面都保留本机的方案，文档里其余的键照常应用。
 #[test]
 fn settings_sync_keeps_a_scheme_the_account_cannot_hold() {

@@ -147,6 +147,8 @@ test("key names follow the host platform's modifier names", () => {
   expect(keyLabel("Nine0")).toBe("九宫格 0");
   expect(keyLabel("FourteenQW")).toBe("14 键 QW");
   expect(keyLabel("FourteenL")).toBe("14 键 L");
+  expect(keyLabel("EighteenWE")).toBe("18 键 WE");
+  expect(keyLabel("EighteenQ")).toBe("18 键 Q");
   expect(keyLabel("SoftVoice")).toBe("语音");
 });
 

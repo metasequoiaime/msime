@@ -224,6 +224,35 @@ pub fn select_platform_release(
                 update.installer_sha256 = installer.and_then(|asset| asset.sha256);
                 update.signed = Some(false);
             }
+            "windows7" => {
+                if tag != format!("v{}", update.version.display)
+                    || html_url != format!("{RELEASES_PAGE_URL}/tag/windows7-{tag}")
+                {
+                    continue;
+                }
+                let architecture = match arch {
+                    Some("x86_64" | "x64") => "x64",
+                    Some("x86" | "i686") => "x86",
+                    _ => continue,
+                };
+                // 专用发布必须包含本版本唯一的兼容安装包；缺包时继续找较早的可安装发布。
+                let installer = edition_installer_prefix(edition).and_then(|prefix| {
+                    let expected = format!(
+                        "{}{}_win7_{architecture}.exe",
+                        prefix, update.version.display
+                    );
+                    select_unique_release_asset(
+                        assets.map(|assets| assets.iter().collect()),
+                        &[&|name: &str| name.eq_ignore_ascii_case(&expected)],
+                    )
+                });
+                let Some(installer) = installer else {
+                    continue;
+                };
+                update.installer_name = Some(installer.name);
+                update.installer_sha256 = installer.sha256;
+                update.signed = Some(false);
+            }
             _ => {}
         }
         if newest

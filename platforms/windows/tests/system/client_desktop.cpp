@@ -117,17 +117,51 @@ void same_process(HDESK first, HDESK second) {
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  if (argc == 2) return child(argv[1]);
+  const bool require_station = argc == 2 && !lstrcmpW(argv[1], L"--require-window-station");
+  if (argc == 2 && !require_station) return child(argv[1]);
   const auto token = L"MSIME9439Native" + std::to_wstring(GetCurrentProcessId()) +
                      L"x" + std::to_wstring(GetTickCount64());
   Desktop first{CreateDesktopW(token.c_str(), nullptr, nullptr, 0, 0xC3, nullptr)};
   Desktop second{CreateDesktopW((token + L"Other").c_str(), nullptr, nullptr, 0, 0xC3, nullptr)};
   assert(first.value && second.value);
+  // 同名桌面位于另一个窗口站时，Win7 回退也必须拒绝；只在建窗前临时切换进程窗口站。
+  const HWINSTA original_station = GetProcessWindowStation();
+  const HWINSTA other_station = CreateWindowStationW((token + L"Station").c_str(), 0,
+      WINSTA_CREATEDESKTOP | WINSTA_ENUMDESKTOPS | WINSTA_READATTRIBUTES, nullptr);
+  if (other_station) {
+    assert(original_station && SetProcessWindowStation(other_station));
+    Desktop same_name{CreateDesktopW(token.c_str(), nullptr, nullptr, 0, 0xC3, nullptr)};
+    assert(same_name.value && SetProcessWindowStation(original_station));
+    assert(!desktop_identity::same_by_binding(first.value, same_name.value));
+    assert(!same_desktop_object(first.value, same_name.value));
+    assert(CloseDesktop(same_name.value));
+    same_name.value = nullptr;
+    assert(CloseWindowStation(other_station));
+    std::puts("cross-window-station desktop identity passed");
+  } else {
+    // Win7 的普通令牌不能创建窗口站；提权专项用参数强制覆盖，不能伪报此项已通过。
+    assert(!require_station && GetLastError() == ERROR_ACCESS_DENIED);
+    std::puts("cross-window-station creation denied: run elevated with --require-window-station to verify this boundary");
+  }
+  assert(desktop_identity::same_by_binding(first.value, first.value));
+  assert(!desktop_identity::same_by_binding(first.value, second.value));
+  assert(!desktop_identity::same_by_binding(first.value, nullptr));
   assert(!ClientDesktop::resolve({}));
   assert(!ClientDesktop::resolve(ticket(GetCurrentProcessId(), 0)));
   assert(!ClientDesktop::resolve(ticket(0, GetCurrentThreadId())));
   cross_process(token, first.value);
   same_process(first.value, second.value);
+  // 多个候选线程共享探针时，每次结果仍绑定本次请求，线程退出也不能等待加载锁。
+  std::vector<std::thread> callers;
+  for (unsigned index = 0; index < 4; ++index) {
+    callers.emplace_back([&] {
+      for (unsigned iteration = 0; iteration < 16; ++iteration) {
+        assert(desktop_identity::same_by_binding(first.value, first.value));
+        assert(!desktop_identity::same_by_binding(first.value, second.value));
+      }
+    });
+  }
+  for (auto &caller : callers) caller.join();
   std::puts("client desktop: ownership, isolation, binding, process mismatch and exited thread passed");
   return 0;
 }

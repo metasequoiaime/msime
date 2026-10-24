@@ -1,3 +1,4 @@
+import { HarmonyLaunch } from "./launch";
 import { StrictMode } from "react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -132,6 +133,8 @@ interface NativeBridge {
   dictionary(action: string): string;
   /** 只计算九键双拼键位和错误，不读写偏好。 */
   nineKeyShuangpinLayout(request: string): string;
+  /** 昵称草稿的共享纯计算，不读取登录会话。 */
+  accountName(request: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
   /**
@@ -184,10 +187,6 @@ interface NativeBridge {
   appTheme(request: string): string;
   /** `{background,navigationBar,dark}`，均为 `#RRGGBB` 颜色：宿主据此把状态栏和导航栏涂成与页面一致。 */
   setSystemBars(bars: string): void;
-  /** `{"ok":true,"value":boolean}`：欢迎闪屏是否已在本设备上播放过。 */
-  splashSeen(): string;
-  /** 记录闪屏已播放。写在宿主的文件里而不是页面存储里，因为从资源加载的页面不保证留得住页面存储。 */
-  markSplashSeen(): void;
   /** 从设置重放欢迎流程，宿主在流程显示期间暂缓显示通知卡片。 */
   onboardingStarted(): void;
   /** 欢迎流程已结束（走完或跳过），宿主可以重新显示它的通知卡片。 */
@@ -567,12 +566,6 @@ function savedFlowTheme(native: NativeBridge): FlowTheme {
   return { themeMode, settingsTheme };
 }
 
-/** 欢迎闪屏是否已在本设备上播放过。宿主答不上来时就播放，在有这个标记之前每个宿主都是这么做的。 */
-function splashSeen(native: NativeBridge): boolean {
-  if (typeof native.splashSeen !== "function") return false;
-  return bridgeValue(native.splashSeen()) === true;
-}
-
 /**
  * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，「添加语言」打开的「输入」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
  */
@@ -614,11 +607,15 @@ globalThis.msimeHarmonyOpenPage = (page: string) => {
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
 
 function accountClient(native: NativeBridge): AccountClient {
-  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），回答已经是共享账号页读的形状：user 是 {id,displayName,createdAt,email?,avatarUrl?,avatarUploaded?}，不再在这里换写法。
+  // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），user 含原始 displayName 和共享 preferredName，直接透传共享账号页，不在这里重建显示名。
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
   return {
     status: () => request<{ user: AccountUser | null }>({ operation: "status" }),
+    namePresentation: async (name, id = "") => {
+      if (typeof native.accountName !== "function") throw { code: "account_unavailable" };
+      return unwrap(native.accountName(JSON.stringify({ name, id })));
+    },
     providers: () => request<AccountProviders>({ operation: "providers" }),
     requestCode: (provider, target) =>
       request<AccountChallenge>({ operation: "request_code", provider, target }),
@@ -1510,14 +1507,12 @@ type OnboardingFinish = (
 function HarmonyWelcomeFlow({
   native,
   client,
-  splash,
   theme,
   onComplete,
   onSkip,
 }: {
   native: NativeBridge;
   client: SettingsClient;
-  splash: boolean;
   theme: FlowTheme;
   onComplete: OnboardingFinish;
   onSkip: OnboardingFinish;
@@ -1562,10 +1557,6 @@ function HarmonyWelcomeFlow({
       current = false;
     };
   }, [client]);
-  // 在闪屏开始而不是结束时标记，与 Android 相同，这样闪屏中途被关掉的那次启动不会再播一遍。
-  useEffect(() => {
-    if (splash && typeof native.markSplashSeen === "function") native.markSplashSeen();
-  }, [native, splash]);
   return (
     <WelcomeFlowPage
       actions={{
@@ -1591,7 +1582,6 @@ function HarmonyWelcomeFlow({
       chrome={client.chrome}
       onComplete={onComplete}
       onSkip={onSkip}
-      splash={splash}
     />
   );
 }
@@ -1599,13 +1589,10 @@ function HarmonyWelcomeFlow({
 function HarmonySettings({
   native,
   onboarding,
-  splashUnseen,
   linkedPage,
 }: {
   native: NativeBridge;
   onboarding: boolean;
-  /** 闪屏尚未在本设备上播放过，取自宿主在启动时的报告。 */
-  splashUnseen: boolean;
   /** 键盘要求本窗口打开的页面，启动时从宿主读取。 */
   linkedPage: string | undefined;
 }): ReactNode {
@@ -1613,8 +1600,6 @@ function HarmonySettings({
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
   // keyboard the user has decided to set up later is not a reason to withhold its settings.
   const [bootstrapRequired, setBootstrapRequired] = useState(onboarding);
-  // The splash belongs to a first launch; a flow replayed from settings opens on its first step.
-  const [replayed, setReplayed] = useState(false);
   // 流程绘制所用的外观：首次启动用系统外观，重放时用用户自己的选择。
   const [flowTheme, setFlowTheme] = useState<FlowTheme>(SYSTEM_THEME);
   // 设置打开时所在的页面：键盘链接到的页面，或流程最后「登录」之后的「我的」，登录入口就在那里。
@@ -1680,6 +1665,18 @@ function HarmonySettings({
       linkedPageListener = undefined;
     };
   }, [bootstrapRequired]);
+  const dark = useDocumentDark();
+  const appTheme = useResolvedAppTheme(client.appTheme, dark);
+  const withLaunch = (content: ReactNode) => (
+    <HarmonyLaunch
+      mobile={client.host?.mobile_settings !== false}
+      appTheme={appTheme}
+      chrome={client.chrome}
+      dark={dark}
+    >
+      {content}
+    </HarmonyLaunch>
+  );
   if (bootstrapRequired) {
     // 流程中选的方案正是那一步的意义所在；丢掉它会让用户的键盘仍是他们刚刚放弃的布局。写入方式与移动端宿主相同，这样在它们之间同步的配置含义一致。「跳过」也保留它：提前离开引导不等于放弃已在其中做出的选择。
     const applyChoices = async (scheme: OnboardingInputScheme, choices: OnboardingChoices) => {
@@ -1694,11 +1691,10 @@ function HarmonySettings({
       if (typeof native.onboardingFinished === "function") native.onboardingFinished();
       setBootstrapRequired(false);
     };
-    return (
+    return withLaunch(
       <HarmonyWelcomeFlow
         native={native}
         client={client}
-        splash={client.host?.mobile_settings !== false && !replayed && splashUnseen}
         theme={flowTheme}
         onComplete={async (scheme, choices) => {
           await applyChoices(scheme, choices);
@@ -1710,10 +1706,10 @@ function HarmonySettings({
           await applyChoices(scheme, choices).catch(() => undefined);
           leaveFlow();
         }}
-      />
+      />,
     );
   }
-  return (
+  return withLaunch(
     <>
       <div className="contents" inert={cloudClipboardOpen || cloudDictionaryOpen}>
         <SettingsPage
@@ -1724,7 +1720,6 @@ function HarmonySettings({
             setFlowTheme(savedFlowTheme(native));
             // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
             setInitialPage(undefined);
-            setReplayed(true);
             // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
             if (typeof native.onboardingStarted === "function") native.onboardingStarted();
             setBootstrapRequired(true);
@@ -1756,7 +1751,7 @@ function HarmonySettings({
           )}
         </div>
       )}
-    </>
+    </>,
   );
 }
 
@@ -1772,7 +1767,7 @@ function reportLaunchPainted(): void {
 /**
  * 子树第一次提交后再等两帧（第一帧回调时这一帧还没上屏）调用 `onPainted`。
  *
- * 冷启动时宿主在网页上盖着和系统启动窗一模一样的启动画面，页面加载期间不露出空白的网页。设置页第一次提交时还在读设置（「正在读取设置」），但读取是同步的桥接调用，下一个微任务就带着设置重画，所以两帧之后上屏的已经是设置本身；欢迎流程的第一帧则是和启动窗一样的开屏。撤掉盖板时看到的就是画好的页面。
+ * 冷启动时宿主在网页上盖着和系统启动窗一模一样的启动画面，页面加载期间不露出空白的网页。设置页第一次提交时还在读设置（「正在读取设置」），但读取是同步的桥接调用，下一个微任务就带着设置重画，所以两帧之后上屏的已经是设置本身；手机文档的第一帧则是和启动窗一样的开屏。撤掉盖板时看到的就是画好的页面。
  */
 function AfterFirstPaint({ onPainted, children }: { onPainted: () => void; children: ReactNode }) {
   useEffect(() => {
@@ -1800,7 +1795,7 @@ if (root) {
   const app = createRoot(root);
   // 启动页是第一帧，所以必须在它渲染前设好主题。它跟随系统，直到知道用户自选外观的欢迎流程或设置页接管文档。
   const stopFollowingSystemTheme = followSystemTheme();
-  // 等桥接最多要五秒。手机上这段时间什么都不画：宿主盖着和系统启动窗一样的画面（跟随系统深浅色），等设置页或首次启动的欢迎流程画出来才撤掉，中间不露出启动页、空白网页或「正在读取设置」。二合一是桌面形态，照旧显示共享的启动页。此时还不知道宿主报告的形态，按与样式表 max-phone 相同的宽度判断。
+  // 等桥接最多要五秒。手机上这段时间什么都不画：宿主盖着和系统启动窗一样的画面（跟随系统深浅色），等手机开屏或二合一设置页画出来才撤掉，中间不露出启动页、空白网页或「正在读取设置」。二合一是桌面形态，照旧显示共享的启动页。此时还不知道宿主报告的形态，按与样式表 max-phone 相同的宽度判断。
   const phoneLaunch = window.matchMedia("(max-width: 600px)").matches;
   if (!phoneLaunch)
     app.render(
@@ -1818,20 +1813,14 @@ if (root) {
       // 在页面表明欢迎流程不会挡路之前，宿主会暂缓显示通知卡片。页面直接打开设置时（包括等首次读取等太久而放弃之后），不会再有别的地方告诉它。
       if (!onboarding && typeof native.onboardingFinished === "function")
         native.onboardingFinished();
-      // 两者都在这里、在 React 之外读取，因为都是一次性的宿主读取：链接的页面只交出一次，而闪屏标记会在欢迎流程播完开屏时写入。
+      // 链接的页面只交出一次，在 React 之外读取，避免重渲染消耗或丢失它。
       const linkedPage = pendingLinkedPage(native);
-      const splashUnseen = !splashSeen(native);
       stopFollowingSystemTheme();
-      // 开屏只属于首次启动：欢迎流程在闪屏标记未写入时播它，平时冷启动直接进设置。
+      // 每个手机设置文档先播一段开屏，再显示设置或首次引导；前台恢复不重建文档。
       app.render(
         <StrictMode>
           <AfterFirstPaint onPainted={reportLaunchPainted}>
-            <HarmonySettings
-              native={native}
-              onboarding={onboarding}
-              splashUnseen={splashUnseen}
-              linkedPage={linkedPage}
-            />
+            <HarmonySettings native={native} onboarding={onboarding} linkedPage={linkedPage} />
           </AfterFirstPaint>
         </StrictMode>,
       );

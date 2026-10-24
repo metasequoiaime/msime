@@ -1102,20 +1102,21 @@ final class ImeLayoutRows {
         }
     }
 
-    // ---- toggle input (トグル入力) ----
+    // ---- 连点切换假名（トグル入力） ----
     private JapaneseNineKeyLayout.Key toggleKey;
     private int toggleDirection;
     private long toggleAt;
     private String toggleEditing = "";
     private String toggleLiteral = "";
 
+    /** 结束当前连点序列，下一次轻点从键面假名开始。 */
     void resetJapaneseToggle() {
         toggleKey = null;
     }
 
     /** 上一次连点留下的假名还原样在那里：组字没被别的输入改过，或标点仍是光标前那一个字。中间打过别的字、删过、选过候选，都从新的一个假名开始。时间窗只管「再点同一个键算不算接着切换」（`withinWindow`）；→ 是明确的意图，不受它限制。 */
     private boolean japaneseToggleCurrent(boolean withinWindow) {
-        if (toggleKey == null || s.connection == null || s.view == null) return false;
+        if (!s.japaneseToggleInputEnabled || toggleKey == null || s.connection == null || s.view == null) return false;
         if (withinWindow && !JapaneseNineKeyLayout.withinToggleWindow(
                 android.os.SystemClock.uptimeMillis() - toggleAt)) return false;
         String editing = InputViewValuePolicy.editingText(s.view);
@@ -1136,9 +1137,9 @@ final class ImeLayoutRows {
         }
     }
 
-    /** 轻点假名键：同一个键在 {@link JapaneseNineKeyLayout#TOGGLE_WINDOW_MS} 内再点，就把刚打的假名换成下一个（あ→い→う…），否则照常打键面上的假名。数字符号层没有连点切换。 */
+    /** 开启连点切换时，同一个键在 {@link JapaneseNineKeyLayout#TOGGLE_WINDOW_MS} 内再点会把刚打的假名换成下一个（あ→い→う…）。关闭时和数字符号层一样，每次都追加键面字符。 */
     void tapJapaneseKey(JapaneseNineKeyLayout.Key key) {
-        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS || !s.japaneseToggleInputEnabled) {
             resetJapaneseToggle();
             selectJapaneseKey(key, 0);
             return;
@@ -1318,7 +1319,8 @@ final class ImeLayoutRows {
         ViewPolicy.setSingleLine(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, 22);
         button.setContentDescription("轻点输入" + key.kana().get(0)
-            + "，连续轻点依次切换；左、上、右、下滑动选择其他假名");
+            + (s.japaneseToggleInputEnabled ? "，连续轻点依次切换" : "")
+            + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         return button;
@@ -1511,6 +1513,7 @@ final class ImeLayoutRows {
         // 注音 9 键的选择条列出当前要钉住的那个音节的各个读音（ㄋㄧˇ、ㄌㄧˇ），拼音九键的列出拼音。
         boolean zhuyin = layout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         boolean fourteenKey = layout == MSIMEInputService.FOURTEEN_KEY_LAYOUT;
+        boolean eighteenKey = layout == KeyboardLayout.EIGHTEEN_KEY_LAYOUT;
         Spellings spellings = Spellings.of(s.view);
         boolean visible = !suppressed && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && (MSIMEInputService.drawsKeyGrid(layout) || zhuyin)
@@ -1523,7 +1526,7 @@ final class ImeLayoutRows {
             else ViewPolicy.show(nineKeyPunctuation);
         }
         s.nineKeySpellingScroll.setContentDescription(zhuyin ? "注音读音选择"
-            : fourteenKey ? "14 键拼音选择" : "九键拼音选择");
+            : fourteenKey ? "14 键拼音选择" : eighteenKey ? "18 键拼音选择" : "九键拼音选择");
         if (!visible) {
             s.nineKeySpellingIndices = java.util.List.of();
             s.nineKeySpellingGeneration = -1;
