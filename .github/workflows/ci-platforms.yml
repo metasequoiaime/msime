@@ -41,6 +41,24 @@ jobs:
           timeout 600 "$adb" -s "$serial" wait-for-device
           # shellcheck disable=SC2016 # 环境变量由子 shell 读取。
           MSIME_OCR_ADB="$adb" MSIME_OCR_SERIAL="$serial" timeout 600 bash -c 'until [ "$("$MSIME_OCR_ADB" -s "$MSIME_OCR_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 5; done'
+      - name: 复现固定旧模块的重开失败
+        run: |
+          set -euo pipefail
+          source=platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrModule.java
+          cp "$source" target/android/OcrModule.fixed.java
+          trap 'cp target/android/OcrModule.fixed.java "$source"' EXIT
+          git fetch --no-tags --depth=1 origin d6df3d75ff96ebf849e228098a254830b35d54d1
+          git show "d6df3d75ff96ebf849e228098a254830b35d54d1:$source" > "$source"
+          if bash platforms/android/tests/device/ocr-runtime-probe.sh "$SERIAL" > target/android/ocr-reopen-baseline-build.log 2>&1; then
+            echo 'Expected the original module to reject its second initialization' >&2
+            exit 1
+          fi
+          cp target/android/ocr-runtime-probe.log target/android/ocr-reopen-baseline.log
+          baseline=$(cat target/android/ocr-reopen-baseline.log)
+          [[ "$baseline" == *'MSIME_OCR_PROBE_FAILED: module-reopen-1 / java.lang.IllegalStateException'* ]]
+          cp target/android/OcrModule.fixed.java "$source"
+          trap - EXIT
+          git diff --exit-code -- "$source"
       - name: 运行无网络权限的 OCR 与手写共存探针
         run: bash platforms/android/tests/device/ocr-runtime-probe.sh "$SERIAL"
       - name: 收取探针日志
@@ -58,6 +76,7 @@ jobs:
             target/android/ocr-synthetic*.png
             target/android/ocr-synthetic*.json
             target/android/ocr-direct-probe.log
+            target/android/ocr-reopen-baseline*.log
             target/android/ocr-module-dependencies.txt
             target/android/ocr-logcat.txt
             target/android/ocr-crash.txt
