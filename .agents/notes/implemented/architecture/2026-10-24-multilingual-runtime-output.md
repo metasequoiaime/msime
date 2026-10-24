@@ -95,6 +95,14 @@ macOS 首轮四项 CI 失败在本地原样重现：三个快捷键测试的会�
 
 重编 `shortcut-test` 后，原四项 `shortcut`、`shortcut-expanded-scroll`、`shortcut-translations`、`preference-coverage` 全部通过；派生网格的 `shortcut-translation-font-size` 也通过。首次补 setter 的两项失败日志保留，不因日志文件名带 green 而记为通过。本轮提交前完整 quick 通过，Windows 本机交叉编译与 pipe-only 仍按缺少工具链跳过。
 
+### 再同步 develop 的合并边界
+
+接上远端已同步固定 develop `a33e619f80b83d01b98d4ce4820910bd119dbe06` 的合并提交 `c12da1c7dc9af33dbe72ef33763072596f304ac9`，不重建或覆盖远端历史。唯一冲突是上游也修补了 iOS 长数组类型检查表达式；保留该文件的上游版本，显式 `[String]` 与展开的条件均不改变标题、顺序或短路读取。两份偏好 Rust 文件的自动合并结果按仓库 edition 2021 格式化。独立三方合并复核确认其他共有文件没有语义丢失，中文优先、混合备选、来源 18 与 SDK 相对本分支前一提交保持不变。
+
+合并后首次 macOS 链接因本地旧 Host API 库缺少上游新增 `cross_commit_spacing` 接口失败，重编同源库后成功。五项专项中四项 CTest 通过，`shortcut-expanded-scroll` 两次超过原有 60 秒上限；同环境直接运行原程序和原断言退出 0，用时 72.31 秒，采样在 AppKit 约束布局中。保留超时证据，不修改时限、不把该次 CTest 记为全绿。固定合并提交的 macOS CI 原生 184 项随后全部通过，展开滚动专项耗时 12.51 秒；iOS CI 的两个修补目标类也通过。
+
+该合并树的完整 quick 退出 0。本机再次运行 iOS 专项时编译完成，但安装测试宿主在 CoreSimulator 桥接中持续等待超过 20 分钟；中断本任务的测试后退出 75，专用模拟器已关闭并删除，不记录为测试通过。CI 结果与本机旧轮的 20 项通过分别保留，不能把编译完成当成本轮设备运行通过。
+
 ## Consequences
 
 Host API 已注入所选语言并按普通全拼能力、至少两种可用语言和日文模型路径门控；六宿主沿相同来源及上屏标记消费输出。共享 React 和 Windows（WinUI 与 Win7）、Android、iOS 原生设置提供默认关闭的总开关及语言集合，关闭保留选择，显式空列表不恢复为默认三语。iOS 活着的键盘会话重载列表包含 `multilingual_input`。后台日文准备不阻塞连续输入的契约见[词库适配笔记](2026-10-24-multilingual-dictionary-adapter.md)。不能把内部逐段回归或交叉编译通过写成 #8921 全平台真实系统入口已验收。

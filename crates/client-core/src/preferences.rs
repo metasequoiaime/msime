@@ -4363,7 +4363,9 @@ pub enum PreferencesError {
     InvalidFloatingToolbar,
     #[error("AI assistant provider or candidate limit is invalid")]
     InvalidAiAssistant,
-    #[error("网络代理地址必须是 host:port（可带 http:// 或 https:// 前缀），不能包含用户名、路径、查询或片段")]
+    #[error(
+        "网络代理地址必须是 host:port（可带 http:// 或 https:// 前缀），不能包含用户名、路径、查询或片段"
+    )]
     InvalidNetwork,
     #[error("voice recognition or polishing provider is not supported")]
     InvalidVoiceInput,
@@ -4395,7 +4397,9 @@ pub enum PreferencesError {
     InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
-    #[error("candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16")]
+    #[error(
+        "candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16"
+    )]
     InvalidCandidateWindowStyle,
     #[error("candidate text color must be #RRGGBB or omitted")]
     InvalidCandidateTextColor,
@@ -4411,7 +4415,9 @@ pub enum PreferencesError {
     InvalidCandidateSurfaceColor,
     #[error("candidate border color must be #RRGGBB or omitted")]
     InvalidCandidateBorderColor,
-    #[error("candidate font family must be non-empty, contain no control characters, and be at most 128 bytes")]
+    #[error(
+        "candidate font family must be non-empty, contain no control characters, and be at most 128 bytes"
+    )]
     InvalidCandidateFontFamily,
     #[error("custom theme candidate skin identifier is invalid")]
     InvalidCandidateSkin,
@@ -4427,15 +4433,25 @@ pub enum PreferencesError {
     InvalidMixedInput,
     #[error("plugin settings are invalid")]
     InvalidPlugins,
-    #[error("game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total")]
+    #[error(
+        "game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total"
+    )]
     InvalidGameCompatibility,
-    #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    #[error(
+        "app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
     InvalidAppInputModeRules,
-    #[error("vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    #[error(
+        "vim mode app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
     InvalidVimModeApps,
-    #[error("cross-commit spacing app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total")]
+    #[error(
+        "cross-commit spacing app identifiers must be distinct of at most 64 bytes without control characters or path separators, at most 32 in total"
+    )]
     InvalidCrossCommitSpacingApps,
-    #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
+    #[error(
+        "cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters"
+    )]
     InvalidCloudClipboardRelay,
     #[error(
         "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"

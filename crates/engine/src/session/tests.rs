@@ -1809,15 +1809,22 @@ fn japanese_mixing_fixture() -> Fixture {
     fixture
 }
 
-fn japanese_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
+fn japanese_session(
+    fixture: &Fixture,
+    configure: impl FnOnce(&mut SessionOptions),
+) -> (
+    Session,
+    Option<std::sync::Arc<crate::japanese::decoder::JapaneseDictionary>>,
+) {
+    // 行为断言持有已就绪的模型，避免并行用例的全局清缓存把它在首个查询前释放。
+    let model = crate::japanese::decoder::JapaneseDictionary::shared(
+        &fixture.path().join(assets::JAPANESE_MODEL),
+    );
     let session = fixture.session_with(|options| {
         options.japanese_mixing = true;
         configure(options);
     });
-    crate::japanese::decoder::JapaneseDictionary::wait_until_warmed(
-        &fixture.path().join(assets::JAPANESE_MODEL),
-    );
-    session
+    (session, model)
 }
 
 /// 列表里日文混输行的下标；没有时为 `None`，有两行就失败。
@@ -1837,7 +1844,7 @@ fn japanese_index(session: &Session) -> Option<usize> {
 #[test]
 fn a_japanese_conversion_leads_or_follows_the_whole_chinese_word() {
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
 
     type_text(&mut session, "ohayou");
     assert_eq!(japanese_index(&session), Some(0), "{:?}", words(&session));
@@ -1886,7 +1893,7 @@ fn a_japanese_conversion_leads_or_follows_the_whole_chinese_word() {
 #[test]
 fn short_exact_readings_stay_out_and_unknown_readings_do_not_lead() {
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
     for raw in ["kai", "shou"] {
         type_text(&mut session, raw);
         assert_eq!(
@@ -1911,18 +1918,18 @@ fn japanese_mixing_stays_out_unless_every_gate_passes() {
     type_text(&mut off, "ohayou");
     assert_eq!(japanese_index(&off), None);
 
-    let mut quanpin_only = japanese_session(&fixture, |options| {
+    let (mut quanpin_only, _japanese_model) = japanese_session(&fixture, |options| {
         options.enabled_schemes = SchemeSet::of(&[SchemeType::Quanpin]);
     });
     type_text(&mut quanpin_only, "ohayou");
     assert_eq!(japanese_index(&quanpin_only), None);
 
     let missing = Fixture::new(JAPANESE_MIXING_FIXTURE);
-    let mut missing = japanese_session(&missing, |_| {});
+    let (mut missing, _japanese_model) = japanese_session(&missing, |_| {});
     type_text(&mut missing, "ohayou");
     assert_eq!(japanese_index(&missing), None);
 
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
     for raw in ["kai'shi", "su", "kaish"] {
         type_text(&mut session, raw);
         assert_eq!(
@@ -1956,13 +1963,14 @@ fn japanese_mixing_stays_out_unless_every_gate_passes() {
 #[test]
 fn shuangpin_mixes_a_japanese_conversion_too() {
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |options| options.scheme = SchemeType::Shuangpin);
+    let (mut session, _japanese_model) =
+        japanese_session(&fixture, |options| options.scheme = SchemeType::Shuangpin);
     type_text(&mut session, "sugoi");
     // 双拼辅助码开着时奇数长度的第五键算辅助码，不混日文。
     assert!(session.input.has_active_helpcode());
     assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
 
-    let mut session = japanese_session(&fixture, |options| {
+    let (mut session, _japanese_model) = japanese_session(&fixture, |options| {
         options.scheme = SchemeType::Shuangpin;
         options.helpcode = false;
     });
@@ -1976,7 +1984,7 @@ fn shuangpin_mixes_a_japanese_conversion_too() {
 fn a_leading_japanese_conversion_follows_a_leading_english_word() {
     let fixture = japanese_mixing_fixture()
         .with_english("INSERT INTO english_words VALUES('tabemasu','tabemasu',100);");
-    let mut session = japanese_session(&fixture, |options| {
+    let (mut session, _japanese_model) = japanese_session(&fixture, |options| {
         options.english.mixed_candidates = true;
         options.personal_context = false;
         options.frequency.mode = FrequencyAdjustmentMode::Promote;
@@ -2010,7 +2018,7 @@ fn japanese_rows_skip_duplicates_and_respect_the_online_seats() {
             connection.execute_batch("INSERT INTO tbl_2_k VALUES('kai''shi','ks','開始',50);")
         })
         .unwrap();
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
     type_text(&mut session, "kaishi");
     assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
     assert_eq!(
@@ -2023,7 +2031,7 @@ fn japanese_rows_skip_duplicates_and_respect_the_online_seats() {
     session.command(Command::Cancel);
 
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
     type_text(&mut session, "kaishi");
     let query = session.online_query().expect("全拼查询");
     assert!(session.apply_online_candidates(
@@ -2053,7 +2061,7 @@ fn japanese_rows_skip_duplicates_and_respect_the_online_seats() {
 #[test]
 fn committing_a_japanese_row_ends_the_composition_and_learns_nothing() {
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |options| {
+    let (mut session, _japanese_model) = japanese_session(&fixture, |options| {
         options.frequency.mode = FrequencyAdjustmentMode::Promote;
         options.frequency.trigger_count = 1;
     });
@@ -2104,7 +2112,7 @@ fn committing_a_japanese_row_ends_the_composition_and_learns_nothing() {
 #[test]
 fn picking_the_chinese_row_behind_a_leading_japanese_row_is_the_default_pick() {
     let fixture = japanese_mixing_fixture();
-    let mut session = japanese_session(&fixture, |options| {
+    let (mut session, _japanese_model) = japanese_session(&fixture, |options| {
         options.personal_context = false;
         options.frequency.mode = FrequencyAdjustmentMode::Promote;
     });
@@ -2125,7 +2133,7 @@ fn japanese_rows_carry_no_helpcode() {
         crate::japanese::decoder::test_model::bytes(&[("すごい", "好", 0, 0, 600)], 1, &[0]),
     )
     .unwrap();
-    let mut session = japanese_session(&fixture, |_| {});
+    let (mut session, _japanese_model) = japanese_session(&fixture, |_| {});
     type_text(&mut session, "sugoi");
     let index = japanese_index(&session).unwrap();
     assert_eq!(words(&session)[index], "好");
@@ -2144,7 +2152,8 @@ fn japanese_mixing_warms_the_model_when_the_session_is_built() {
     let _off = fixture.session();
     JapaneseDictionary::wait_until_warmed(&model);
     assert!(!JapaneseDictionary::is_shared(&model));
-    let _on = japanese_session(&fixture, |_| {});
+    // 预热专项直接建会话，不经行为夹具预先读取模型。
+    let _on = fixture.session_with(|options| options.japanese_mixing = true);
     JapaneseDictionary::wait_until_warmed(&model);
     assert!(JapaneseDictionary::is_shared(&model));
 }
