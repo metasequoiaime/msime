@@ -5164,7 +5164,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!reply.ok || reply.value === undefined) {
       throw new Error(reply.error ?? 'handwriting_unavailable');
     }
-    return reply.value.candidates;
+    return HandwritingStrokePolicy.candidates(reply.value.candidates.join(''));
   }
 
   /** Whether the Cantonese or Zhuyin dictionary `file` is staged in `language-dictionaries` beside the resources, which is where host preparation looks for it. */
