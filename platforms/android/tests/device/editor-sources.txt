@@ -253,3 +253,4 @@ platforms/android/tests/device/keyboard/TextTrackpadDeviceChecks.java
 platforms/android/tests/device/keyboard/OcrProductDeviceSmoke.java
 platforms/android/tests/device/keyboard/OcrDocumentsProvider.java
 platforms/android/gradle-app/ocr-fixture/app/msime/ocr/fixture/SyntheticOcrFixture.java
+platforms/android/tests/device/keyboard/TextEditLineDeviceChecks.java

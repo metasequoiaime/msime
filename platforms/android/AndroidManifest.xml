@@ -45,6 +45,7 @@
         <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity android:name="app.msime.android.OcrSetupActivity" android:exported="false" android:label="拍照识字设置" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <activity android:name="app.msime.android.ClipboardAuthenticationActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <activity android:name="app.msime.android.OfflineVoiceRecognitionActivity" android:label="水杉离线语音输入" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar">
             <intent-filter>
                 <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

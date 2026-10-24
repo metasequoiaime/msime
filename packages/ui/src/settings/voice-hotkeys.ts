@@ -1,3 +1,7 @@
+import { VOICE_HOLD_KEYS, VOICE_HOLD_PRESETS } from "./voice-hold-key-catalog";
+
+export { VOICE_HOLD_KEYS } from "./voice-hold-key-catalog";
+
 export type VoiceHotkeyPlatform = "linux" | "macos" | "windows" | "harmony" | "other";
 export type VoiceHotkeyKey =
   | "hotkey_ctrl_f9"
@@ -6,33 +10,18 @@ export type VoiceHotkeyKey =
   | "hotkey_ctrl_win"
   | "hotkey_hold_space_lock";
 
-/** 三个按住录音的组合键，按设置页列出的先后。同一时刻宿主只认一个按住的组合键，所以设置页把它们合成一个选择。 */
-export const VOICE_HOLD_KEYS = ["hotkey_ralt", "hotkey_rctrl_ralt", "hotkey_ctrl_win"] as const;
 export type VoiceHoldKey = (typeof VOICE_HOLD_KEYS)[number];
 
 export function hotkeyOptions(platform: VoiceHotkeyPlatform): [VoiceHotkeyKey, string][] {
   const macos = platform === "macos";
-  // HarmonyOS answers an attached keyboard with the Windows hold, lock and toggle semantics (VoiceHotkeyPolicy), so it takes the Windows labels.
-  const desktop =
-    platform === "macos" ||
-    platform === "windows" ||
-    platform === "linux" ||
-    platform === "harmony";
+  // HarmonyOS 外接键盘采用桌面的按住、锁定和切换语义，读取同一份桌面名称。
+  const desktop = platform === "windows" || platform === "linux" || platform === "harmony";
   return [
     ["hotkey_ctrl_f9", "Ctrl+F9 切换语音"],
-    ["hotkey_ralt", macos ? "按住右 Option 录音" : desktop ? "长按右 Alt 录音" : "右 Alt 切换语音"],
-    [
-      "hotkey_rctrl_ralt",
-      macos
-        ? "按住右 Control+右 Option 录音"
-        : desktop
-          ? "长按右 Ctrl+右 Alt 录音"
-          : "Ctrl+右 Alt 切换语音",
-    ],
-    [
-      "hotkey_ctrl_win",
-      macos ? "按住 Control+Command 录音" : desktop ? "长按 Ctrl+Win 录音" : "Ctrl+Win 切换语音",
-    ],
+    ...VOICE_HOLD_PRESETS.map((entry): [VoiceHotkeyKey, string] => [
+      entry.key,
+      macos ? entry.macos_action : desktop ? entry.desktop_action : entry.other_action,
+    ]),
     [
       "hotkey_hold_space_lock",
       platform === "windows" || platform === "linux" || platform === "harmony"
@@ -47,55 +36,31 @@ export function holdChoice(platform: VoiceHotkeyPlatform): {
   title: string;
   labels: Record<VoiceHoldKey, string>;
 } {
-  if (platform === "macos")
-    return {
-      title: "按住录音",
-      labels: {
-        hotkey_ralt: "右 Option",
-        hotkey_rctrl_ralt: "右 Control+右 Option",
-        hotkey_ctrl_win: "Control+Command",
-      },
-    };
-  if (platform === "other")
-    return {
-      title: "切换语音",
-      labels: {
-        hotkey_ralt: "右 Alt",
-        hotkey_rctrl_ralt: "Ctrl+右 Alt",
-        hotkey_ctrl_win: "Ctrl+Win",
-      },
-    };
+  const macos = platform === "macos";
+  const other = platform === "other";
   return {
-    title: "长按录音",
-    labels: {
-      hotkey_ralt: "右 Alt",
-      hotkey_rctrl_ralt: "右 Ctrl+右 Alt",
-      hotkey_ctrl_win: "Ctrl+Win",
-    },
+    title: macos ? "按住录音" : other ? "切换语音" : "长按录音",
+    labels: Object.fromEntries(
+      VOICE_HOLD_PRESETS.map((entry) => [
+        entry.key,
+        macos ? entry.macos_label : other ? entry.other_label : entry.desktop_label,
+      ]),
+    ) as Record<VoiceHoldKey, string>,
   };
 }
 
-/** 存储里缺某个组合键时宿主用的出厂值，与 client-core 的 `VoiceInputPreferences::default()` 一致：只有右 Alt / 右 Option 默认打开。 */
-const HOLD_DEFAULTS: Record<VoiceHoldKey, boolean> = {
-  hotkey_ralt: true,
-  hotkey_rctrl_ralt: false,
-  hotkey_ctrl_win: false,
-};
-
-/** 当前选中的组合键：存储里打开的第一个（缺的键按 `HOLD_DEFAULTS` 算）；三个都关时为 null，即「不使用」。以前可以同时打开几个，这样的配置在用户改动之前照旧显示第一个，不改写存储。 */
+/** 当前选中的组合键：按共享目录顺序读取显式值或出厂默认；都关时为 null。读取不改写旧文档。 */
 export function selectedHoldKey(
   values: Partial<Record<VoiceHotkeyKey, boolean>>,
 ): VoiceHoldKey | null {
-  return VOICE_HOLD_KEYS.find((key) => values[key] ?? HOLD_DEFAULTS[key]) ?? null;
+  return VOICE_HOLD_PRESETS.find((entry) => values[entry.key] ?? entry.fallback)?.key ?? null;
 }
 
 /** 选中 `key`（null 为「不使用」）时要写入的值：三个一起写，选中的那个为开，其余为关。 */
 export function holdKeyPatch(key: VoiceHoldKey | null): Record<VoiceHoldKey, boolean> {
-  return {
-    hotkey_ralt: key === "hotkey_ralt",
-    hotkey_rctrl_ralt: key === "hotkey_rctrl_ralt",
-    hotkey_ctrl_win: key === "hotkey_ctrl_win",
-  };
+  return Object.fromEntries(
+    VOICE_HOLD_KEYS.map((candidate) => [candidate, candidate === key]),
+  ) as Record<VoiceHoldKey, boolean>;
 }
 
 export function description(platform: VoiceHotkeyPlatform): string {

@@ -1,7 +1,7 @@
 import Foundation
 import MetricKit
 
-/// The app's crash reports come from MetricKit, which delivers a crash on a later launch, ObjC exceptions and Swift traps included. Each becomes a crash record (UsageReporting.storeCrashDiagnostic) that the keyboard's next start queues; the app is not the input method, so it has no session to mark as crashed.
+/// 系统的崩溃报告来自 MetricKit：它在 App 之后某次启动时送来 App 和键盘扩展两者的崩溃（含 ObjC 异常、Swift trap 和系统强制结束）。每一条经 `UsageReporting.recordDiagnosedCrash` 写成崩溃记录，由键盘下次启动时排队：键盘扩展的真崩溃按进程号对回它当时未结束的会话，补报那个会话的 `session_crash`，键盘自己的处理程序已经记过的不再记第二份；系统强制结束和 App 自身的崩溃不属于任何会话，只报 `crash`。
 final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   static let shared = CrashDiagnostics()
 
@@ -11,21 +11,13 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
     guard UsageReporting.isEnabled, let directory = UsageReporting.directory else { return }
     for payload in payloads {
       for crash in payload.crashDiagnostics ?? [] {
-        UsageReporting.storeCrashDiagnostic(message: Self.summary(crash),
+        let summary = UsageReporting.diagnosticSummary(exceptionType: crash.exceptionType, exceptionCode: crash.exceptionCode,
+                                                       signal: crash.signal, exceptionName: crash.exceptionReason?.exceptionName,
+                                                       terminationReason: crash.terminationReason)
+        UsageReporting.recordDiagnosedCrash(summary,
                                             stack: UsageReporting.frames(fromCallStackTree: crash.callStackTree.jsonRepresentation()),
-                                            in: directory)
+                                            pid: crash.metaData.pid, in: directory)
       }
     }
-  }
-
-  /// The exception type, signal and the system's termination reason: numbers and system text only. The ObjC exception's composed message is left out because it can quote app data.
-  private static func summary(_ crash: MXCrashDiagnostic) -> String {
-    var parts = ["Crash"]
-    if let type = crash.exceptionType { parts.append("exception \(type)") }
-    if let code = crash.exceptionCode { parts.append("code \(code)") }
-    if let signal = crash.signal { parts.append("signal \(signal)") }
-    if let name = crash.exceptionReason?.exceptionName, !name.isEmpty { parts.append(name) }
-    if let reason = crash.terminationReason, !reason.isEmpty { parts.append(reason) }
-    return parts.joined(separator: " ").replacingOccurrences(of: "\n", with: " ")
   }
 }

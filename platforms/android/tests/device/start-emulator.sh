@@ -48,4 +48,4 @@ fi
 echo "Starting $name at $serial" >&2
 exec env ANDROID_HOME="$android_sdk" ANDROID_AVD_HOME="$avd_home" \
   "$android_sdk/emulator/emulator" -avd "$name" -port "$port" \
-  -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -memory 2560 "${camera_options[@]}"
+  -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -memory 2560 ${camera_options[@]+"${camera_options[@]}"}

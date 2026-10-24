@@ -64,7 +64,7 @@ final class ImeTextEditPanel {
         previewReads = new TextTrackpadReadQueue<>(trackpadWorker, s.main::post);
     }
 
-    /** 所有操作同屏可见；中央十字的四角留白，父面板拦截空白处触摸。 */
+    /** 所有操作同屏可见；中央十字下排两角留白，父面板拦截空白处触摸。 */
     LinearLayout build() {
         LinearLayout panel = LayoutPolicy.column(s);
         panel.setContentDescription("文本编辑面板");
@@ -109,14 +109,14 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
-        // 触控板只替代中央前三行；两侧七键和底部首尾、换行保持可用。
+        // 触控板替代中央第二、三行；上排行首尾、两侧七键和底部首尾、换行保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = right - left, height = bottom - top, margin = s.pixels(3);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                Math.max(1, width * 6 / 10 - 2 * margin), Math.max(1, height * 3 / 4 - 2 * margin));
+                Math.max(1, width * 6 / 10 - 2 * margin), Math.max(1, height / 2 - 2 * margin));
             params.leftMargin = width * 2 / 10 + margin;
-            params.topMargin = margin;
+            params.topMargin = height / 4 + margin;
             currentTrackpad.setLayoutParams(params);
         });
         panel.addView(movement, LayoutPolicy.weightedWidthParams(1));
@@ -154,6 +154,18 @@ final class ImeTextEditPanel {
         if (action == TextEditPanelModel.Action.DELETE) {
             button = s.backspaceKey(run);
             s.imeLetterRows.bindBackspaceRepeat(button, run);
+        } else if (action == TextEditPanelModel.Action.RETURN) {
+            button = new TextEditReturnButton(s);
+            button.setText(spec.label());
+            s.imeStyler.styleButton(button, false);
+            s.bindCountedAction(button, run);
+            button.setOnLongClickListener(ignored -> {
+                if (s.connection == null || s.session == 0 || s.symbolPanel == null
+                        || s.textEditPanel == null || !s.textEditPanel.isShown()) return true;
+                close();
+                s.imePanels.showSymbolPanel();
+                return true;
+            });
         } else {
             button = s.keyboardKey(spec.label(), spec.description(), run);
             if (isArrow(action)) {

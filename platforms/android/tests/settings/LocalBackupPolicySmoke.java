@@ -18,6 +18,8 @@ public final class LocalBackupPolicySmoke {
 
     public static void main(String[] args) {
         LocalDateTime now = LocalDateTime.of(2026, 10, 8, 9, 5);
+        equal(LocalBackupPolicy.baseName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905",
+            "shared export name carries the app name, version and export time");
         equal(LocalBackupPolicy.fileName("水杉输入法", "0.2.2", now), "水杉输入法-0.2.2-20261008-0905.zip",
             "file name carries the app name, the version and the export time");
         equal(LocalBackupPolicy.fileName("水杉 五笔", "1.0/beta", now), "水杉_五笔-1.0_beta-20261008-0905.zip",

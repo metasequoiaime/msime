@@ -14,6 +14,8 @@ Status: implemented
 
 与已合入的触控板共存时，面板顶部保留模式切换行；触控板只覆盖中央前三行的移动区，方向键模式仍是四行固定网格。两侧七键、底部首尾与换行始终可用；触控板的选择开关放在模式行，避免与移动手势重叠。重新打开按保存顺序重建网格前，取消旧手势、预览和异步选区回读。
 
+上排两个空角与触控板覆盖前三行的决定由[行边界与换行长按符号](2026-10-25-android-text-edit-line-keys.md)部分取代：当前十七键同屏，上排增加行首、行尾，触控区覆盖中央第二、三行。七键顺序、固定网格与下排两角留白继续成立。
+
 ## Related notes audit
 
 [原文本编辑面板](../../implemented/feature/2026-10-08-android-text-edit-panel.md)持有编辑器动作和旧滚动布局，本篇只替代布局及滚动访问的决定；[最近复制预览](../../implemented/feature/2026-10-15-android-recent-copy-in-text-edit.md)继续持有预览和返回行为。[工具栏顺序](../../implemented/feature/2026-10-15-android-toolbar-order.md)提供排序交互参照，但工具栏与文本编辑键位分别持久化。
