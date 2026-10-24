@@ -1,3 +1,4 @@
+import CMSIMEClient
 import Foundation
 
 struct CommunitySkin: Codable, Identifiable, Sendable {
@@ -99,16 +100,27 @@ enum CommunityResponseValidation {
 }
 
 enum CommunityProfilePolicy {
-  static let maximumNameScalars = 64
+  struct NamePresentation: Decodable {
+    let normalized: String
+    let valid: Bool
+    let maximumCharacters: Int
 
-  static func normalizedName(_ value: String) -> String {
-    value.trimmingCharacters(in: .whitespacesAndNewlines)
+    enum CodingKeys: String, CodingKey {
+      case normalized, valid
+      case maximumCharacters = "maximum_chars"
+    }
   }
 
-  static func validName(_ value: String) -> Bool {
-    let name = normalizedName(value)
-    return !name.isEmpty && name.unicodeScalars.count <= maximumNameScalars
-      && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+  /// 昵称规则由共享 Rust 决定；纯计算不读会话、文件或网络，可以同步更新输入提示。
+  static func present(_ value: String) throws -> NamePresentation {
+    let request = try BackendRustClient.request(["name": value, "id": ""])
+    let raw = request.withUnsafeBytes { bytes in
+      msime_client_account_name(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+    }
+    guard let raw else { throw BackendRustClient.Failure.invalidResponse }
+    defer { msime_client_string_free(raw) }
+    let data = Data(bytes: raw, count: strlen(raw))
+    return try JSONDecoder().decode(NamePresentation.self, from: BackendRustClient.envelope(data).get())
   }
 }
 
@@ -196,11 +208,13 @@ actor SkinCommunityAPI {
     try BackendRustAccount.profile(try await rust().account(["operation": "profile"]))
   }
   func updateProfile(name: String) async throws -> CommunityProfile {
-    let name = CommunityProfilePolicy.normalizedName(name)
-    guard CommunityProfilePolicy.validName(name) else {
-      throw CommunityFailure(message: "昵称需为 1–64 个字符，不能包含换行或控制字符。")
+    guard let presentation = try? CommunityProfilePolicy.present(name) else {
+      throw CommunityFailure(message: "昵称无法校验，请缩短后重试。")
     }
-    return try BackendRustAccount.profile(try await rust().account(["operation": "rename", "display_name": name]))
+    guard presentation.valid else {
+      throw CommunityFailure(message: "昵称需为 1–\(presentation.maximumCharacters) 个字符，不能包含换行或控制字符。")
+    }
+    return try BackendRustAccount.profile(try await rust().account(["operation": "rename", "display_name": presentation.normalized]))
   }
   /// 退出（`logout`，`all` 为 true 时退出所有设备）或注销（`account_delete`）。Rust 退出时总是先清掉本机会话再请服务端撤销，所以断网时本机已经退出、这里仍然抛出那次失败；注销需要最近登录时是 `account_recent_login_required`，本机登录留着。本机会话清掉以后取消原来那个账号排队中的词库快照。
   func logout(deleteAccount: Bool = false, all: Bool = false) async throws {

@@ -31,8 +31,16 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 归属表和这两条规则的现行表述在 `docs/ARCHITECTURE.md` 的「设置界面按平台归属」一节，根 README、各语言 README、parity 文档和平台 README 都指向那里。
 
+### iOS 昵称
+
+iOS 的 `CommunityProfilePolicy` 只经既有 `msime_client_account_name` 取得规范化昵称、合法性与长度上限；昵称编辑页和保存入口消费同一份结果，不再用 Foundation 的空白集合、控制字符集合和本地常量重建规则。这个接口不创建会话、不访问文件和网络，可以同步用于输入提示；请求仍受共享 C 接口的 16 KiB 上限约束，失败时不能保存，不用 Swift 校验兜底。
+
+这会统一既有差异：首尾 U+FEFF 与共享设置页一样去掉，含 U+200D 的组合表情与 Windows、Rust 一样允许；64 个 Unicode 标量的上限、C0/C1 控制字符拒绝由共享层决定。Swift 只为计数展示读取规范化结果的 `unicodeScalars.count`。iOS 产品已静态链接宿主库，适配器直接调用纯 C 接口并释放响应，不扩充只供 `shared/backend` 动态调用的函数表。
+
 ## Alternatives considered
 
+- **iOS 继续用 Foundation 集合近似共享昵称规则。** 无须过 C 接口，页面代码较短；但 `controlCharacters` 会额外拒绝 U+200D，去空白集合也不等于共享设置页的集合。复用已服务 Windows 的纯函数，消除保存前后的平台分歧。
+- **为昵称扩充 Apple 的 Rust 函数表。** 可以沿用后端动态桥和替身表；但这一片只消费已经静态链接 Rust 的 iOS 产品入口，`shared/backend` 的 macOS 动态库不使用该适配器，扩表会额外改变两个宿主的跨语言契约。保持适配器在 iOS 服务层，测试直接调用真实 Rust 规则。
 - **全面原生：macOS、Linux、HarmonyOS 也各写原生设置。** 最强的理由是每个平台只剩一套设置实现，界面完全贴合系统，设置不依赖 WebView 或 Tauri 运行时；macOS 已经有 11 页、约 1 万行的 AppKit 设置，离全原生最近，改完还能顺带消掉 macOS 上 React 与 AppKit 并存的那一份重复。不选，因为 Linux 和 HarmonyOS 今天没有任何原生设置界面（fcitx5 插件声明 `Configurable=False`，`Settings.ets` 只是 ArkWeb 外壳），要为 IBus/Fcitx5 两个环境和 ArkTS 从零写全部页面；`packages/ui/src` 自 10-08 起有 451 个提交，是改动最多的设置代码，它服务的三个平台改成原生后，每个设置功能要写的份数从四份变成六份。
 - **回归 React 统一：Windows、iOS、Android 也改回共享 React 设置页。** 最强的理由是每个设置功能只写一次，Caps Lock 那种一天写三遍的情况直接消失；`packages/ui` 已经有完整页面，仓库里也有 Tauri iOS 工程（`MSIME_IOS_TAURI_COMPONENT=1`）和 Android 合包（`build-client-apk.sh`）的构建脚本，看上去有现成的路；但两者都不在任何 CI 或发布 workflow 里，能不能构建、构建出来能不能用都未经 CI 验证。不选，因为三个平台的原生设置是刚做完的有意选择：Windows 09-24 用 WinUI 3 重建（41f15b5b22，#733），10-11 把剩下交给共享应用的页面全部搬成原生（#7129），10-15 又按 macOS 结构重做了框架（2d7ad264c3，#7978）；Android 10-06 重新设计了原生设置 App（56495eff8a，#3782）；iOS 一直是原生 SwiftUI。回归要放弃这三份原生代码（Windows 设置 25,620 行、iOS App 19,749 行、Android `home/` 21,477 行），并把 Tauri/WebView 带进两个现在都不含它的移动发布包。逐个功能的决定也一直落在原生这一边：[Windows 界面采用 macOS 的分组与选中样式](../feature/2026-10-15-windows-ui-macos-layout.md)考虑过让 Windows 承载共享 React 设置页，因为会动到已有的账号、社区和文件对话框路径而放弃；[Android 原生设置页可以选识别服务、填密钥](../feature/2026-10-12-android-voice-provider-settings.md)和[Android 原生设置页可以下载、选用和删除本地语音模型](../feature/2026-10-12-android-local-voice-models.md)都考虑过把共享 React 的对应部分嵌进 WebView，都因为原生应用的其余页面都是原生的、单独嵌一个 WebView 页要接上 Tauri 命令桥、工作量和范围远超补原生设置而放弃；[五笔反查](../feature/2026-10-11-wubi-reverse-lookup.md)因为 iOS 与 Android 的产品里没有 WebView，在两边各写了一个原生查码页。
 
@@ -47,6 +55,7 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 - Windows：`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 全部是 `PageHost::Native`，`shell_links::all` 只有 5 个面板；`ShellSurfaces.h` 的 `shell_executable_names` 对空面板返回 `msime-client-settings.exe`，其余返回 `MSIME.exe`。`tests/ui/settings_navigation.cpp` 核对页面模型。
 - iOS：`git grep -l -e "import WebKit" -e WKWebView -- platforms/ios/App platforms/ios/SharedUI platforms/ios/KeyboardExtension` 没有输出。
+- iOS 昵称：旧 Swift 规则的基线探针复现组合表情被拒绝、首尾 U+FEFF 未清除。`SkinCommunityAccountTests` 在 Xcode 27 / iOS 26.5 的临时干净模拟器上 15 项通过，其中新增三项直接调用真实 Rust 昵称接口，覆盖共享空白与控制字符、64 个 Unicode 标量（含补充平面与组合字符）、规范化后的提交和 16 KiB 请求上限；账号请求继续使用合成替身，不访问真实账号。`MSIMEApp` 原生模拟器构建通过；测试必须按 iOS README 保留 ad-hoc 签名与 App Group entitlement。
 - Android：`.github/workflows/release-android.yml` 只调用 `platforms/android/build-apk.sh`，`.github/` 下没有任何 workflow 调用 `build-client-apk.sh`。
 - HarmonyOS：`platforms/harmony/entry/src/main/ets/pages/Settings.ets` 用 `$rawfile('settings/index.html')` 加载设置页。
 - macOS 冻结：`git log -- platforms/macos/src/settings platforms/macos/src/core/AISettingsWindow.mm platforms/macos/src/cloud/TranslationSettingsWindow.mm platforms/macos/src/voice/VoiceProviderSettings.mm` 在本篇之后只应出现缺陷修复，不出现新设置项。

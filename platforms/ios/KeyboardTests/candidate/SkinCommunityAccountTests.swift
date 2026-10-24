@@ -209,4 +209,38 @@ final class SkinCommunityAccountTests: XCTestCase {
     XCTAssertEqual(renamed.user.display_name, "新昵称")
     XCTAssertEqual(FakeRust.calls("rename").first?.action["display_name"] as? String, "新昵称")
   }
+
+  func testNicknamePresentationUsesRealSharedUnicodeRules() throws {
+    let name = try CommunityProfilePolicy.present("\u{feff}\u{3000}合成👩‍💻\u{a0}\u{feff}")
+    XCTAssertEqual(name.normalized, "合成👩‍💻")
+    XCTAssertTrue(name.valid)
+    XCTAssertEqual(name.maximumCharacters, 64)
+    for invalid in ["", " \u{feff} ", "合成\n昵称", "合成\u{7f}昵称", "合成\u{85}昵称"] {
+      XCTAssertFalse(try CommunityProfilePolicy.present(invalid).valid)
+    }
+  }
+
+  func testNicknamePresentationCountsScalarsInsteadOfUTF16OrGraphemes() throws {
+    for scalar in ["字", "𠮷", "🦌"] {
+      XCTAssertTrue(try CommunityProfilePolicy.present(String(repeating: scalar, count: 64)).valid)
+      XCTAssertFalse(try CommunityProfilePolicy.present(String(repeating: scalar, count: 65)).valid)
+    }
+    XCTAssertTrue(try CommunityProfilePolicy.present(String(repeating: "e\u{301}", count: 32)).valid)
+    XCTAssertFalse(try CommunityProfilePolicy.present(String(repeating: "e\u{301}", count: 33)).valid)
+  }
+
+  func testRenameSubmitsSharedNormalizationAndRejectsOversizedRequests() async throws {
+    answer(SignedIn("user-1"))
+    let api = api(CancelRecorder())
+    let profile = try await api.updateProfile(name: "\u{feff} 合成👩‍💻 \u{feff}")
+    XCTAssertEqual(profile.user.display_name, "合成👩‍💻")
+    XCTAssertEqual(FakeRust.calls("rename").first?.action["display_name"] as? String, "合成👩‍💻")
+    do {
+      _ = try await api.updateProfile(name: String(repeating: "字", count: 6_000))
+      XCTFail("超出共享接口上限的昵称不能提交")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("缩短"))
+    }
+    XCTAssertEqual(FakeRust.calls("rename").count, 1)
+  }
 }

@@ -307,12 +307,14 @@ private struct AccountNicknameEditor: View {
     _name = State(initialValue: profile.user.preferredDisplayName)
   }
 
-  private var normalizedName: String { CommunityProfilePolicy.normalizedName(name) }
-  private var validName: Bool { CommunityProfilePolicy.validName(name) }
+  private var namePresentation: CommunityProfilePolicy.NamePresentation? { try? CommunityProfilePolicy.present(name) }
+  private var normalizedName: String { namePresentation?.normalized ?? name }
+  private var validName: Bool { namePresentation?.valid ?? false }
   private var hasChanges: Bool { normalizedName != profile.user.preferredDisplayName }
   private var nameHint: String {
+    guard let presentation = namePresentation else { return "昵称无法校验，请缩短后重试。" }
     if normalizedName.isEmpty { return "取一个喜欢的名字，让大家记住你。" }
-    if !validName { return "昵称最多 64 个字符，请勿使用换行或控制字符。" }
+    if !validName { return "昵称最多 \(presentation.maximumCharacters) 个字符，请勿使用换行或控制字符。" }
     return "昵称会显示在社区作品中，已发布的作品也会同步更新。"
   }
 
@@ -341,9 +343,11 @@ private struct AccountNicknameEditor: View {
         HStack(alignment: .top, spacing: 16) {
           Text(nameHint).fixedSize(horizontal: false, vertical: true)
           Spacer(minLength: 0)
-          Text("\(normalizedName.unicodeScalars.count)/64")
-            .monospacedDigit().fixedSize()
-            .accessibilityLabel("已输入 \(normalizedName.unicodeScalars.count) 个字符，最多 64 个")
+          if let presentation = namePresentation {
+            Text("\(normalizedName.unicodeScalars.count)/\(presentation.maximumCharacters)")
+              .monospacedDigit().fixedSize()
+              .accessibilityLabel("已输入 \(normalizedName.unicodeScalars.count) 个字符，最多 \(presentation.maximumCharacters) 个")
+          }
         }
         .font(.system(size: 13))
         .foregroundStyle(validName || normalizedName.isEmpty ? MetasequoiaTheme.sub : MetasequoiaTheme.danger)
