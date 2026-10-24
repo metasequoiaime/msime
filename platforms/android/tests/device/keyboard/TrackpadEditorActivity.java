@@ -20,6 +20,7 @@ import app.msime.android.WindowLayout;
 /** 触控板的独立合成编辑器和按键接收宿主；不连接网络，不读取其他应用文档。 */
 public final class TrackpadEditorActivity extends Activity {
     static final String TEXT = "alpha beta\ngamma delta\nepsilon zeta";
+    static final String WRAPPED_TEXT = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     private TextView status;
     private int reads;
     private final StringBuilder keys = new StringBuilder();
@@ -57,6 +58,7 @@ public final class TrackpadEditorActivity extends Activity {
                 + "document.addEventListener('selectionchange',report);editor.addEventListener('keyup',report);"
                 + "editor.addEventListener('input',report);</script>", "text/html", "utf-8", null);
         } else {
+            boolean wrapped = "wrapped".equals(kind);
             boolean password = "password".equals(kind);
             boolean terminal = "terminal".equals(kind);
             boolean noAnchor = "no-anchor".equals(kind);
@@ -105,9 +107,20 @@ public final class TrackpadEditorActivity extends Activity {
                 ? InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_TEXT_FLAG_MULTI_LINE));
             editor.setTypeface(android.graphics.Typeface.MONOSPACE);
             editor.setContentDescription("trackpad-editor");
-            editor.setText(password ? "synthetic-private-password" : "long-selection".equals(kind) ? String.join("", java.util.Collections.nCopies(200, TEXT)) : TEXT);
-            editor.setSelection(8);
-            root.addView(editor, new LinearLayout.LayoutParams(-1, 180));
+            editor.setText(wrapped ? WRAPPED_TEXT : password ? "synthetic-private-password" : "long-selection".equals(kind) ? String.join("", java.util.Collections.nCopies(200, TEXT)) : TEXT);
+            editor.setSelection(wrapped ? 14 : 8);
+            root.addView(editor, new LinearLayout.LayoutParams(wrapped
+                ? Math.round(160 * getResources().getDisplayMetrics().density) : -1, 180));
+            if (wrapped) editor.addOnLayoutChangeListener((view, left, top, right, bottom,
+                    oldLeft, oldTop, oldRight, oldBottom) -> {
+                android.text.Layout layout = editor.getLayout();
+                if (layout == null) return;
+                int line = Math.min(1, layout.getLineCount() - 1);
+                // 合成宿主报告真实排版边界；没有换行符的段落必须发生自动折行。
+                status.setText("wrap-anchor=" + (layout.getLineStart(line) + 2)
+                    + ";wrap-start=" + layout.getLineStart(line) + ";wrap-end="
+                    + (layout.getLineEnd(line) - 1));
+            });
             root.post(() -> { editor.requestFocus(); showIme(editor); });
         }
         setContentView(root);

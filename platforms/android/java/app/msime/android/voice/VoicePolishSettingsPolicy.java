@@ -38,8 +38,12 @@ public final class VoicePolishSettingsPolicy {
      * @param configured 共享解析给出了润色配置（`VoiceConfiguration#polish` 不为 null）
      */
     public static String status(boolean enabled, boolean configured, boolean hasToken) {
-        if (!enabled || configured) return null;
-        return hasToken ? "配置不完整，识别结果不会润色" : "未填写 API Key，识别结果不会润色";
+        try {
+            return VoiceProviderPolicy.parseStatus(
+                NativeClient.mobileVoicePolishStatus(enabled, configured, hasToken));
+        } catch (IllegalArgumentException | LinkageError error) {
+            return null;
+        }
     }
 
     /** 测试结果对话框的标题。 */

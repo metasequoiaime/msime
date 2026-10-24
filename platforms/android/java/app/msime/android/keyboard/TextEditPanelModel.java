@@ -3,7 +3,7 @@ package app.msime.android;
 import android.view.KeyEvent;
 import java.util.List;
 
-/** 文本编辑面板的固定十字、文档边界与七个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
+/** 文本编辑面板的固定十字、行与文档边界、七个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
 public final class TextEditPanelModel {
     public static final int ROWS = 4;
     /** 横向以半格计数，底部两个文档边界键各占一点五格。 */
@@ -13,7 +13,7 @@ public final class TextEditPanelModel {
     /** 键的动作，IME 按它接线。 */
     public enum Action {
         LEFT, UP, SELECT, DOWN, RIGHT, SELECT_ALL, COPY, CUT, PASTE, DOCUMENT_START, DOCUMENT_END, DELETE,
-        NUMBER_PAD, SPACE, RETURN
+        NUMBER_PAD, SPACE, RETURN, LINE_START, LINE_END
     }
 
     /**
@@ -36,6 +36,8 @@ public final class TextEditPanelModel {
         new Key(Action.SELECT, "选择", "选择模式", 1, 4, 1, 2, false),
         new Key(Action.DOWN, "↓", "光标下移", 2, 4, 1, 2, true),
         new Key(Action.RIGHT, "→", "光标右移", 1, 6, 1, 2, true),
+        new Key(Action.LINE_START, "行首", "移到行首", 0, 2, 1, 2, false),
+        new Key(Action.LINE_END, "行尾", "移到行尾", 0, 6, 1, 2, false),
         new Key(Action.SELECT_ALL, "全选", "全选", 0, 0, 1, 2, false),
         new Key(Action.COPY, "复制", "复制", 0, 0, 1, 2, false),
         new Key(Action.CUT, "剪切", "剪切", 0, 0, 1, 2, false),
@@ -45,11 +47,11 @@ public final class TextEditPanelModel {
         new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
         new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
         new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
-        new Key(Action.RETURN, "换行", "插入换行", 3, 8, 1, 2, false));
+        new Key(Action.RETURN, "换行", "插入换行，长按打开符号", 3, 8, 1, 2, false));
 
     private TextEditPanelModel() { }
 
-    /** 根据共享偏好给出的完整顺序排键，列表按行列排序，四个空白角不生成键。 */
+    /** 根据共享偏好给出的完整顺序排键，列表按行列排序，下排两个空白角不生成键。 */
     public static List<Key> keys(List<Action> order) {
         java.util.ArrayList<Key> result = new java.util.ArrayList<>();
         for (Key key : KEYS) {
@@ -74,8 +76,8 @@ public final class TextEditPanelModel {
             case RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT;
             case UP -> KeyEvent.KEYCODE_DPAD_UP;
             case DOWN -> KeyEvent.KEYCODE_DPAD_DOWN;
-            case DOCUMENT_START -> KeyEvent.KEYCODE_MOVE_HOME;
-            case DOCUMENT_END -> KeyEvent.KEYCODE_MOVE_END;
+            case DOCUMENT_START, LINE_START -> KeyEvent.KEYCODE_MOVE_HOME;
+            case DOCUMENT_END, LINE_END -> KeyEvent.KEYCODE_MOVE_END;
             case DELETE -> KeyEvent.KEYCODE_DEL;
             case SPACE -> KeyEvent.KEYCODE_SPACE;
             case RETURN -> KeyEvent.KEYCODE_ENTER;
@@ -83,11 +85,12 @@ public final class TextEditPanelModel {
         };
     }
 
-    /** 按键事件的修饰键：移动类的键在选择模式下带 Shift；开头结尾始终带 Ctrl（整篇文档而不是当前行）；删除不带。 */
+    /** 移动键在选择模式下带 Shift；只有文档首尾始终带 Ctrl，行边界与删除不带 Ctrl。 */
     public static int metaState(Action action, boolean selecting) {
         int meta = 0;
         boolean moves = action == Action.LEFT || action == Action.RIGHT || action == Action.UP
-            || action == Action.DOWN || action == Action.DOCUMENT_START || action == Action.DOCUMENT_END;
+            || action == Action.DOWN || action == Action.DOCUMENT_START || action == Action.DOCUMENT_END
+            || action == Action.LINE_START || action == Action.LINE_END;
         if (moves && selecting) meta |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
         if (action == Action.DOCUMENT_START || action == Action.DOCUMENT_END)
             meta |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;

@@ -107,6 +107,8 @@ char *msime_client_relay_cloud_clipboard_exchange(const uint8_t *request, size_t
  * begin {directory, platform, version, enabled?|preferences_directory?}：宿主启动时调用一次。为每个留下了崩溃记录、尚未结束的会话补报 session_crash（只留下标记的不算崩溃；同目录里几个进程各自的会话按 id 区分），把崩溃记录排成 crash 事件（路径只留文件名），排进当天的 active，写下新会话的标记。Value {enabled, crash_record_path?, session_id?, previous_session_crashed?, crashes?}。不联网。
  * end {directory, session?}：宿主正常退出，排进 session 事件。session 是 begin 返回的 session_id，给了就只结束这个会话，不给则结束标记里记着的会话（标记可能已属于同目录里后来启动的别的进程）。有对应会话在运行时 Value 为 true。不联网。
  * record_crash {directory, message, stack, session?}：给可以分配内存的崩溃处理（C++ terminate handler）用，只写会话的崩溃记录；message 第一行是摘要，stack 是 module+offset 或符号形式的帧。session 是 begin 返回的 session_id，给了就写这个会话的记录，不给则写标记里记着的会话的记录。没有会话在运行或记录已存在时 Value 为 false。async-signal 处理函数改为自己写 begin 返回的 crash_record_path：open(O_WRONLY|O_CREAT|O_EXCL, 0600)、摘要行、'\n'、各帧。
+ * record_crash {directory, message, stack, pid}：系统事后报告的崩溃（iOS 的 MetricKit 诊断）。pid 是崩溃进程的进程号：它有尚未结束的会话时写成那个会话的记录，下次启动连同 session_crash 补报；该进程这次崩溃已由它自己的处理程序记下时不写，Value 为 false；没有会话时写成单独的记录，只报 crash。
+ * record_crash {directory, message, stack, outside_session: true}：系统事后报告的强制结束（SIGKILL：看门狗、内存上限、挂起时持有文件锁），不算会话崩溃，总是写成单独的记录，只报 crash。带 pid 或 outside_session 的两种会加锁，不能在崩溃处理程序里调用；session、pid、outside_session 三者互斥。
  * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
  * clear {directory}: usage reporting was just turned off. */
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
@@ -574,6 +576,13 @@ char *msime_client_voice_provider_catalog(void);
 char *msime_client_mobile_voice_status(const uint8_t *provider, size_t provider_length,
                                        bool resolved, bool platform_available,
                                        bool model_ready, bool runtime_ready);
+/* 设置页润色行的状态文案；enabled 是润色开关，configured 表示共享解析已有可用配置，
+ * has_token 表示当前服务或槽位存在凭据。纯计算，返回 {status:string|null}。 */
+char *msime_client_mobile_voice_polish_status(bool enabled, bool configured, bool has_token);
+/* Android 语音设置的服务分类和豆包鉴权模式。provider 与 auth_mode 是 <=256 字节 UTF-8，返回
+ * {network:boolean,legacy_auth:boolean}，纯计算，不读取偏好或设备状态。 */
+char *msime_client_mobile_voice_policy(const uint8_t *provider, size_t provider_length,
+                                       const uint8_t *auth_mode, size_t auth_mode_length);
 /* 切换语音服务的纯函数；请求 <=1 MiB：{service:"voice.asr"|"voice.polish",provider:string,
  * current:{provider?,endpoint?,model?,token?,tokens?:{id:string}},field_policy?:"fill_defaults"|"clear"}。
  * current 缺少的字段按空值处理。field_policy 缺省为 fill_defaults，只替换空白或出厂值；clear 在换服务时清空地址和模型。
