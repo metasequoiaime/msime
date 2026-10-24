@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Preferences } from "../core/preferences-model";
 import { ActionSheet, type SheetOption } from "../core/action-sheet";
+import { ChevronGlyph } from "../core/chevron-glyph";
 import {
   languageRemovalFallback,
   offeredLanguageSchemes,
@@ -246,20 +247,7 @@ export function LanguageCard({
           </span>
           <span className={name}>{language.title}</span>
           {shown && <span className={value}>{rowValue(shown, wubiProfile)}</span>}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            className="flex-none [color:var(--p-sub)]"
-          >
-            <path d="m9 6 6 6-6 6" />
-          </svg>
+          <ChevronGlyph size={14} className="flex-none [color:var(--p-sub)]" />
         </button>
       ))}
       {adding &&
