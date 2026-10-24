@@ -771,14 +771,16 @@ impl WubiProfileKind {
     }
 }
 
+pub use crate::shared_string::SharedString;
+
 /// One candidate row. Every field the goldens record is here from the start, including the ones the overlays added.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WordItem {
     /// The code the row matched, as typed. Composition advance consumes exactly this.
-    pub pinyin: String,
+    pub pinyin: SharedString,
     /// The complete quanpin key from the dictionary, used when a phrase is persisted.
-    pub canonical_pinyin: String,
-    pub word: String,
+    pub canonical_pinyin: SharedString,
+    pub word: SharedString,
     /// Dictionary weight; for lattice rows `trunc(log_prob * 1000)`, which is not a sort key.
     pub weight: i64,
     pub source: CandidateSource,
@@ -788,7 +790,7 @@ pub struct WordItem {
     pub fixed_position: i32,
     pub fuzzy: bool,
     /// Non-empty for a row read from an autocorrected spelling; holds the folded letters the user typed.
-    pub corrected_from: String,
+    pub corrected_from: SharedString,
     /// Only whole-sentence association rows (lattice and neural sentences).
     pub sentence_association: bool,
     /// Word boundaries of a decoded sentence, for personal context learning.
@@ -827,9 +829,9 @@ impl WordItem {
         canonical_pinyin: impl Into<String>,
     ) -> Self {
         Self {
-            pinyin: pinyin.into(),
-            canonical_pinyin: canonical_pinyin.into(),
-            word: word.into(),
+            pinyin: SharedString::from(Into::<String>::into(pinyin)),
+            canonical_pinyin: SharedString::from(Into::<String>::into(canonical_pinyin)),
+            word: SharedString::from(Into::<String>::into(word)),
             weight,
             source,
             ..Self::default()

@@ -56,7 +56,7 @@ fn fixture(length: usize, mode: usize) -> Vec<WordItem> {
             );
             row.fixed_position = (index % 6) as i32;
             row.fuzzy = mode == 0 && index % 7 == 0;
-            row.corrected_from = format!("synthetic-{index}");
+            row.corrected_from = format!("synthetic-{index}").into();
             row.sentence_association = index % 2 == 0;
             row.sentence_words = vec![format!("part-{index}")];
             row
@@ -544,7 +544,7 @@ mod frozen {
                 if leading.is_empty() {
                     leading.reserve(CANDIDATE_LIMIT);
                 }
-                leading.insert(candidate.word.clone(), key);
+                leading.insert(candidate.word.to_string(), key);
             }
         }
         candidates.push(candidate);

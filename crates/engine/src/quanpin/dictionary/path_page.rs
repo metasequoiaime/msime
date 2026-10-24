@@ -35,12 +35,12 @@ impl PathPage {
         }
         let mut compact = Vec::with_capacity(rows.len());
         compact.extend(rows.iter().map(|row| DictRow {
-            key: row.canonical_pinyin.clone(),
-            value: row.word.clone(),
+            key: row.canonical_pinyin.to_string(),
+            value: row.word.to_string(),
             weight: row.weight,
         }));
         Self::Compact(Box::new(CompactPage {
-            pinyin: separate_reading.then(|| first.pinyin.clone()),
+            pinyin: separate_reading.then(|| first.pinyin.to_string()),
             rows: compact,
         }))
     }

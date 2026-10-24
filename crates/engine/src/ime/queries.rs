@@ -1178,7 +1178,7 @@ mod tests {
         let others = |list: &[WordItem]| -> Vec<String> {
             list.iter()
                 .filter(|item| !item.source.holds_ai_seat())
-                .map(|item| item.word.clone())
+                .map(|item| item.word.to_string())
                 .collect()
         };
         for cloud in [false, true] {

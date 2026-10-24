@@ -516,7 +516,7 @@ impl ShuangpinDictionary {
         );
         sentence.sentence_association = true;
         sentence.sentence_words = typo.words;
-        sentence.corrected_from = fold_reading(typed);
+        sentence.corrected_from = fold_reading(typed).into();
         candidates.insert(at, sentence);
     }
 

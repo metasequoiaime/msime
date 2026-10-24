@@ -394,7 +394,7 @@ mod tests {
     fn words(code: &str) -> Vec<String> {
         query_mentions(code, &list(), false)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect()
     }
 
@@ -426,12 +426,12 @@ mod tests {
             usable_mentions(&[mention("张珊", "zhang'shan"), mention("张三", "zhang'san")]);
         let rows: Vec<String> = query_mentions("zs", &entries, false)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect();
         assert_eq!(rows, ["张珊", "张三"]);
         let rows: Vec<String> = query_mentions("zhangsan", &entries, false)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect();
         assert_eq!(rows, ["张三"]);
     }
@@ -445,7 +445,7 @@ mod tests {
         ]);
         let rows: Vec<String> = query_mentions("zs", &entries, false)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect();
         assert_eq!(rows, ["双重", "完整", "前缀"]);
     }
@@ -453,7 +453,7 @@ mod tests {
     fn with_places(code: &str, entries: &[MentionEntry]) -> Vec<String> {
         query_mentions(code, entries, true)
             .into_iter()
-            .map(|row| row.word)
+            .map(|row| row.word.into_string())
             .collect()
     }
 

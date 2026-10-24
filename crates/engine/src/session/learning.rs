@@ -536,12 +536,15 @@ impl InputSession {
             return None;
         }
         let dictionary = selected.source.is_dictionary();
-        // 借用现有词文本，避免为上下文记录额外构造中间词列表。
-        let words = if dictionary {
-            std::slice::from_ref(&selected.word)
+        // 借用现有词文本：词库行直接借用词面，整句只收集各段的借用。
+        let single = [selected.word.as_str()];
+        let sentence: Vec<&str>;
+        let words: &[&str] = if dictionary {
+            &single
         } else if selected.source.is_generated_or_fallback() && !selected.sentence_words.is_empty()
         {
-            selected.sentence_words.as_slice()
+            sentence = selected.sentence_words.iter().map(String::as_str).collect();
+            &sentence
         } else {
             self.chain.reset();
             return None;
@@ -560,7 +563,7 @@ impl InputSession {
             transitions.push(PersonalTransition {
                 earlier: self.chain.earlier.clone().unwrap_or_default(),
                 previous: self.chain.previous.clone().unwrap_or_default(),
-                word: word.to_owned(),
+                word: (*word).to_owned(),
                 times,
             });
             self.chain.advance(word, composition_left, now);
@@ -708,7 +711,7 @@ mod tests {
             .snapshot()
             .candidates
             .into_iter()
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect()
     }
 
@@ -1431,7 +1434,7 @@ mod tests {
             .candidates
             .iter()
             .position(|item| item.source.is_sentence_learning())
-            .map(|index| (index, session.snapshot().candidates[index].word.clone()))
+            .map(|index| (index, session.snapshot().candidates[index].word.to_string()))
     }
 
     /// ISC:51-53: a generated sentence longer than `MAX_LEARNED_SENTENCE_SYLLABLES` is committed but never stored; one at the cap is.

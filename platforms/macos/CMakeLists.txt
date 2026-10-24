@@ -272,6 +272,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxia
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
 # 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/OpenCC-Apache-2.0.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/world-clock-NOTICE.txt" "${MSIME_LEGAL_DIRECTORY}/world-clock-NOTICE.txt" COPYONLY)
 # The Cantonese and Zhuyin schemes, whose syllables and words come from the dictionaries in language-dictionaries/ (when installed), built from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-cantonese-CC-BY-4.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt" "${MSIME_LEGAL_DIRECTORY}/libchewing-data-LGPL-2.1.txt" COPYONLY)

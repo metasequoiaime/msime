@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { CheckGlyph } from "./check-glyph";
 
 export interface SheetOption {
   value: string;
@@ -180,20 +181,7 @@ export function ActionSheet({
                 {item.label}
                 {item.submenu && <span aria-hidden="true">{" ›"}</span>}
                 {item.selected && (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                    className="absolute right-5"
-                  >
-                    <path d="m5 12.5 4.5 4.5L19 7.5" />
-                  </svg>
+                  <CheckGlyph size={18} strokeWidth={2.6} className="absolute right-5" />
                 )}
               </button>
             ))}

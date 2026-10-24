@@ -79,6 +79,7 @@
 		124D12A6ECD4C9616D3F97FD /* InputBridgeResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBE9695A9999FED54F35DC6 /* InputBridgeResponseTests.swift */; };
 		125946F8D2A74C025396390D /* CloudDictionaryTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18EB48D354D07B2AD46ECB31 /* CloudDictionaryTransferTests.swift */; };
 		129D48DA284F061FAB954F02 /* AppAppearancePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */; };
+		12E1F4B872538DE5CEA96003 /* world-clock-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */; };
 		136383918D3731BC76A0C165 /* SentenceAssociationSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191AB35B3CA2D670F7300C33 /* SentenceAssociationSettingsTests.swift */; };
 		136EC132A4C880E0E2C886C8 /* PersonalDictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D568B29EC474A5A2B36A15A /* PersonalDictionaryView.swift */; };
 		13874BE962112BD4DABA2776 /* DefaultImeModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E8A8E6142CFA3FF2724809 /* DefaultImeModeTests.swift */; };
@@ -1212,6 +1213,7 @@
 		4A50D7142E85E6E4C4429351 /* EnglishSuggestionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnglishSuggestionPolicyTests.swift; sourceTree = "<group>"; };
 		4AFE0A14F6F996427CD894BE /* VoiceLanguageCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLanguageCatalog.swift; sourceTree = "<group>"; };
 		4BA92C5A35ED33AEFD30AF0B /* CrashDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnostics.swift; sourceTree = "<group>"; };
+		4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "world-clock-NOTICE.txt"; sourceTree = "<group>"; };
 		4D125B353EBC926D95C46617 /* LocalModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModeSettingsView.swift; sourceTree = "<group>"; };
 		4D80D54CEEFD4C3DB52AF32A /* CloudDictionaryFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryFilesView.swift; sourceTree = "<group>"; };
 		4E98D3FBDDCA31BF49882659 /* FakeRustTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeRustTable.swift; sourceTree = "<group>"; };
@@ -1907,6 +1909,7 @@
 				3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */,
 				878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */,
 				F00250F90DDDC57808459590 /* vi-MIT.txt */,
+				4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */,
 			);
 			name = licenses;
 			path = ../../resources/licenses;
@@ -2921,6 +2924,7 @@
 				6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */,
 				51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */,
 				3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */,
+				12E1F4B872538DE5CEA96003 /* world-clock-NOTICE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

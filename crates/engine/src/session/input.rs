@@ -2068,7 +2068,7 @@ impl InputSession {
             }
             _ => false,
         };
-        continues.then(|| item.word.clone())
+        continues.then(|| item.word.to_string())
     }
 
     fn enter_local_mode(&mut self, mode: LocalInputMode, letter: u8) -> Option<String> {

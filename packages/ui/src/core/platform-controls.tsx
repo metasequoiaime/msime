@@ -18,6 +18,7 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 import { ActionSheet, type SheetOption } from "./action-sheet";
+import { ChevronGlyph } from "./chevron-glyph";
 import { FluentIcon } from "./fluent-icons";
 import { clamp } from "./number";
 import * as style from "./platform-controls-style";
@@ -563,20 +564,7 @@ export function PickerRow({
   const value = (
     <span className={description ? style.pickerValueDescribed : style.pickerValue}>
       <span className={style.pickerValueText}>{valueLabel}</span>
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className="shrink-0"
-      >
-        <path d="m9 6 6 6-6 6" />
-      </svg>
+      <ChevronGlyph size={13} strokeWidth={2.6} className="shrink-0" />
     </span>
   );
   return (

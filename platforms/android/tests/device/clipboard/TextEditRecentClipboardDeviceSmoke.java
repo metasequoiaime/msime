@@ -19,22 +19,26 @@ import org.json.JSONObject;
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private boolean spaceCopyOnly;
     private boolean layoutOnly;
+    private boolean trackpadOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override public void onCreate(Bundle arguments) {
         spaceCopyOnly = arguments != null && "true".equals(arguments.getString("space-copy-only"));
         layoutOnly = arguments != null && "true".equals(arguments.getString("layout-only"));
+        trackpadOnly = arguments != null && "true".equals(arguments.getString("trackpad"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
         if (layoutOnly) return "saved/cancelled/reset side order and all fifteen keys in portrait, landscape, one-handed and floating modes";
+        if (trackpadOnly) return "text trackpad through system editors, selection, temporary mode and key receiver";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
             : "fixed editor grid, saved/cancelled/reset side order, shortcuts, selection and clipboard preview";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (trackpadOnly) { new TextTrackpadDeviceChecks(this).run(); return; }
         File root = getTargetContext().getFilesDir().getCanonicalFile();
         JSONObject options = read(new File(root, "runtime-options.json"));
         File preferences = new File(options.getString("preferences_directory"), "preferences.json").getCanonicalFile();
@@ -200,6 +204,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                 await(field("msime-test-plain").and(node -> equalsText(TEXT + " ", node.getText())));
                 click("退格");
                 await(field("msime-test-plain").and(node -> equalsText(TEXT, node.getText())));
+                checkTrackpadCoexistence(mode);
             }
         } finally {
             restoreSystem("user_rotation", rotation);
@@ -210,6 +215,24 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private void restoreSystem(String key, String value) throws Exception {
         shellDiscard(value.matches("[0-9]+") ? "settings put system " + key + " " + value
             : "settings delete system " + key);
+    }
+
+    /** 与已合并的触控板共存；切换移动区不能遮住侧边操作与文档边界。 */
+    private void checkTrackpadCoexistence(String mode) throws Exception {
+        click("切换为触控板");
+        Rect pad = bounds(awaitStableBounds(describedPrefix("文本编辑触控板")));
+        Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
+        if (pad.isEmpty() || !panel.contains(pad))
+            throw new AssertionError("Trackpad is outside " + mode + " panel");
+        for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾",
+                "退格", "打开数字键盘", "插入空格", "插入换行", "选择模式"}) {
+            Rect key = bounds(awaitStableBounds(described(description).and(AccessibilityNodeInfo::isClickable)));
+            if (key.isEmpty() || !panel.contains(key) || Rect.intersects(pad, key))
+                throw new AssertionError("Trackpad covered editor key in " + mode + ": " + description);
+        }
+        click("切换为方向键");
+        await(described("光标左移"));
+        checkAllKeyBounds(mode);
     }
 
     private void checkAllKeyBounds(String mode) {
@@ -322,7 +345,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
 
     private void click(String description) throws Exception {
         dropStaleNodes();
-        tap(described(description).and(AccessibilityNodeInfo::isClickable));
+        tap(described(description).and(AccessibilityNodeInfo::isClickable).and(AccessibilityNodeInfo::isEnabled));
     }
 
     private void absent(Predicate<AccessibilityNodeInfo> match) {

@@ -72,12 +72,12 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
             .candidate_annotations
             .get(index)
             .cloned()
-            .unwrap_or_else(|| candidate.corrected_from.clone());
+            .unwrap_or_else(|| candidate.corrected_from.to_string());
         if let Some(keymap) = keymap {
             if !session.show_helpcode {
                 let helpcode = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 if !helpcode.is_empty() && annotation == helpcode {
-                    annotation = candidate.corrected_from.clone();
+                    annotation = candidate.corrected_from.to_string();
                 }
             } else if annotation.is_empty() && candidate.source == CandidateSource::Generated {
                 annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
@@ -118,8 +118,8 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         output
             .candidate_static_evidence
             .push(candidate.static_evidence());
-        output.candidate_codes.push(candidate.pinyin);
-        output.candidates.push(candidate.word);
+        output.candidate_codes.push(candidate.pinyin.into_string());
+        output.candidates.push(candidate.word.into_string());
     }
     Ok(output)
 }

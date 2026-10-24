@@ -268,7 +268,7 @@ impl InputSession {
             && item.source.is_generated_or_fallback()
             && item.canonical_pinyin.is_empty()
             && !item.pinyin.is_empty()
-            && self.raw_with_cases().starts_with(&item.pinyin))
+            && self.raw_with_cases().starts_with(item.pinyin.as_str()))
         .then_some(item.pinyin.len())
     }
 

@@ -790,6 +790,32 @@ fn settings_sync_new_android_keys_round_trip() {
     assert_eq!(applied.preferences, expected);
 }
 
+#[test]
+fn settings_sync_keeps_android_text_trackpad_on_this_device() {
+    let mut local = Preferences::default();
+    local.android_text_trackpad.enabled = true;
+    local.android_text_trackpad.hold_to_open = true;
+    local.android_text_trackpad.horizontal_dp = 48;
+    local.android_text_trackpad.vertical_dp = 8;
+    local.android_text_trackpad.tap_selection = false;
+    local.android_text_trackpad.haptics = false;
+    local.android_text_trackpad.trail = false;
+    local.android_text_trackpad.magnifier = false;
+    assert_eq!(
+        export_android_settings(&local, None).unwrap(),
+        export_android_settings(&Preferences::default(), None).unwrap()
+    );
+    let applied = apply(
+        &local,
+        export_android_settings(&Preferences::default(), None).unwrap(),
+        &full_schema(),
+    );
+    assert_eq!(
+        applied.preferences.android_text_trackpad,
+        local.android_text_trackpad
+    );
+}
+
 /// 本地设置的全部同步键，取一组非默认值。
 fn local_values() -> BTreeMap<String, AccountPreferenceValue> {
     use AccountPreferenceValue::{Boolean, Integer, String};

@@ -1054,6 +1054,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_restoreDefaultP
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_defaultPreferencesRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_default_preferences());
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_textTrackpadOptionsRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_text_trackpad_options());
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_hostCapabilitiesRaw(JNIEnv *env, jclass, jbyteArray platform) {
     return bounded_request(env, platform, kPlatformLimit, msime_client_host_capabilities);
 }
@@ -1086,6 +1089,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communitySkinIn
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keySoundPackRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kKeySoundPackLimit, msime_client_key_sound_pack);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_worldClockRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 16384, msime_client_world_clock);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_commonPhrasesRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCommonPhrasesLimit, msime_client_common_phrases);

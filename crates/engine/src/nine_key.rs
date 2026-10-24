@@ -38,7 +38,7 @@ use crate::types::{
     CandidateSource, Command, EnglishInputOptions, FirstPageRows, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
     MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
-    WordItem,
+    SharedString, WordItem,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -812,7 +812,7 @@ impl NineKeySession {
         let selected_canonical_pinyin = if self.learning
             && (selected_source.is_dictionary() || selected_source.is_sentence_learning())
         {
-            selected.canonical_pinyin.clone()
+            selected.canonical_pinyin.to_string()
         } else {
             String::new()
         };
@@ -1265,7 +1265,7 @@ impl NineKeySession {
             candidate_annotations: self
                 .candidates
                 .iter()
-                .map(|item| item.corrected_from.clone())
+                .map(|item| item.corrected_from.to_string())
                 .collect(),
             // The same test `select` performs: consuming the candidate's digits empties the buffer exactly when its code covers everything typed.
             candidate_answers_key: self
@@ -1465,8 +1465,8 @@ impl NineKeySession {
                 let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
                     continue;
                 };
-                candidate.pinyin.clear();
-                candidate.pinyin.push_str(&self.digits[..covered]);
+                // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
+                candidate.pinyin = SharedString::from(&self.digits[..covered]);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -1717,13 +1717,13 @@ impl NineKeySession {
                 let signature: Vec<(String, i64)> = scored
                     .iter()
                     .flatten()
-                    .map(|item| (item.word.clone(), comparable_weight(item)))
+                    .map(|item| (item.word.to_string(), comparable_weight(item)))
                     .collect();
                 let mut sentences: Vec<SentencePath> = scored
                     .iter()
                     .flatten()
                     .map(|item| SentencePath {
-                        sentence: item.word.clone(),
+                        sentence: item.word.to_string(),
                         // 重排器只读取词面和静态分；规范读法和词段不会参与模型评分，
                         // 也不会在重排后回到候选行，因此不必为临时路径复制它们。
                         key: String::new(),
@@ -1834,7 +1834,7 @@ impl NineKeySession {
             .map(|row| &mut row.item)
             .chain(symbols.iter_mut().map(|row| &mut row.item))
         {
-            item.pinyin.clone_from(&self.digits);
+            item.pinyin = SharedString::from(&self.digits);
         }
         (emoji, kaomoji, symbols)
     }
@@ -2534,7 +2534,7 @@ fn next_seeds(
             .position(|old| *old == item.canonical_pinyin)
         {
             Some(index) => previous.remove(index),
-            None => item.canonical_pinyin.clone(),
+            None => item.canonical_pinyin.to_string(),
         };
         seeds.push(seed);
     }
@@ -2933,7 +2933,7 @@ fn initials_codes(grid: KeyGrid, digits: &str, limit: usize) -> Option<Vec<Strin
     Some(codes)
 }
 
-fn take_candidate_canonical_pinyin(candidate: &mut WordItem) -> String {
+fn take_candidate_canonical_pinyin(candidate: &mut WordItem) -> SharedString {
     if candidate.canonical_pinyin.is_empty() {
         candidate.pinyin.clone()
     } else {
@@ -3047,7 +3047,7 @@ fn rank_candidates(
 /// 简拼行按用户用过的次数挪位（#6185），沿用调频的模式、触发次数和步长。
 struct InitialsBoost {
     /// 用过的简拼词和它在个人上下文模型里的计数。
-    used: HashMap<String, u32>,
+    used: HashMap<SharedString, u32>,
     frequency: FrequencyAdjustmentOptions,
 }
 
@@ -4534,13 +4534,16 @@ mod tests {
         source: CandidateSource,
     ) -> WordItem {
         let mut row = item(word, digits, weight, source);
-        row.canonical_pinyin = canonical.to_owned();
+        row.canonical_pinyin = canonical.into();
         row
     }
 
     fn ranked(mut candidates: Vec<WordItem>, prefer_exact: bool) -> Vec<String> {
         rank_candidates(&mut candidates, prefer_exact, false, None, KeyGrid::NineKey);
-        candidates.into_iter().map(|item| item.word).collect()
+        candidates
+            .into_iter()
+            .map(|item| item.word.into_string())
+            .collect()
     }
 
     #[test]
@@ -4606,7 +4609,7 @@ mod tests {
                 );
                 row.fuzzy = next(3) == 0;
                 row.canonical_pinyin =
-                    ["e", "de", "xi'an", "zi'cong", "ni'hao'ma"][next(5) as usize].to_owned();
+                    ["e", "de", "xi'an", "zi'cong", "ni'hao'ma"][next(5) as usize].into();
                 rows.push(row);
             }
             let prefer_exact = round % 2 == 0;
@@ -4837,7 +4840,7 @@ mod tests {
             .snapshot()
             .candidates
             .into_iter()
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect()
     }
 
@@ -6368,7 +6371,7 @@ mod tests {
             .candidates
             .into_iter()
             .filter(is_lattice_sentence)
-            .map(|item| item.word)
+            .map(|item| item.word.into_string())
             .collect()
     }
 
@@ -6495,7 +6498,7 @@ mod tests {
             context: "上文".to_owned(),
             sentences: rows
                 .iter()
-                .map(|row| (row.word.clone(), comparable_weight(row)))
+                .map(|row| (row.word.to_string(), comparable_weight(row)))
                 .collect(),
             ranked: vec!["整句 1".to_owned(), "整句 0".to_owned()],
         };
@@ -6947,7 +6950,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         .record(&[PersonalTransition {
             earlier: String::new(),
             previous: String::new(),
-            word: word.to_owned(),
+            word: word.into(),
             times: PERSONAL_PICK_TIMES,
         }])
         .expect("record a use");

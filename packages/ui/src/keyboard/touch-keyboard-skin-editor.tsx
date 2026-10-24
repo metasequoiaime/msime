@@ -9,7 +9,6 @@ import { readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
   hasReadableSkinText,
   skinColor,
-  skinColorNumber,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
   type AiSkinClient,
@@ -28,75 +27,11 @@ import { GroupList, Row } from "../core/platform-controls";
 import { SelectRow } from "../settings/select-row";
 import { SliderRow } from "../settings/slider-row";
 import { SwitchRow } from "../settings/switch-row";
+import { CheckGlyph } from "../core/check-glyph";
+import { ChevronGlyph } from "../core/chevron-glyph";
+import { RgbColorRow } from "../settings/rgb-color-row";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
-
-/** 颜色设置行：末端是当前色值和一个圆形色块，色块就是原生取色器，点开即系统的取色面板。 */
-function ColorRow({
-  title,
-  value,
-  hidden,
-  onChange,
-}: {
-  title: string;
-  value: number;
-  hidden?: boolean;
-  onChange: (value: number) => void;
-}) {
-  const hex = skinColor(value);
-  return (
-    <Row title={title} hidden={hidden}>
-      <span className={skin.colorControl}>
-        <span className={skin.colorValue} aria-hidden="true">
-          {hex}
-        </span>
-        <input
-          className={skin.colorSwatch}
-          aria-label={title}
-          type="color"
-          value={hex}
-          onChange={(event) => onChange(skinColorNumber(event.target.value))}
-        />
-      </span>
-    </Row>
-  );
-}
-
-function CheckGlyph() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </svg>
-  );
-}
-
-function ChevronGlyph() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m9 6 6 6-6 6" />
-    </svg>
-  );
-}
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -315,7 +250,7 @@ export function TouchKeyboardSkinEditor({
                 <strong>AI 皮肤抽卡</strong>
                 <small>一次抽三款原创皮肤，喜欢就留下</small>
               </span>
-              <ChevronGlyph />
+              <ChevronGlyph size={16} />
             </>
           }
         />
@@ -389,7 +324,7 @@ export function TouchKeyboardSkinEditor({
               </div>
             </GroupList>
             <GroupList title="颜色">
-              <ColorRow
+              <RgbColorRow
                 title={design.gradientEnd === undefined ? "背景颜色" : "渐变起始色"}
                 value={design.background}
                 onChange={(background) => patch({ background })}
@@ -401,7 +336,7 @@ export function TouchKeyboardSkinEditor({
                   patch({ gradientEnd: checked ? design.background : undefined })
                 }
               />
-              <ColorRow
+              <RgbColorRow
                 title="渐变结束色"
                 hidden={design.gradientEnd === undefined}
                 value={design.gradientEnd ?? design.background}
@@ -507,17 +442,17 @@ export function TouchKeyboardSkinEditor({
         {category === "按键" && (
           <>
             <GroupList title="颜色">
-              <ColorRow
+              <RgbColorRow
                 title="键帽颜色"
                 value={design.keyBackground}
                 onChange={(keyBackground) => patch({ keyBackground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="功能键颜色"
                 value={design.actionBackground}
                 onChange={(actionBackground) => patch({ actionBackground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="边框颜色"
                 value={design.customBorderColor ?? design.accent}
                 onChange={(customBorderColor) => patch({ customBorderColor })}
@@ -604,12 +539,12 @@ export function TouchKeyboardSkinEditor({
                 checked={design.monospaced}
                 onChange={(monospaced) => patch({ monospaced })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="按键文字"
                 value={design.keyForeground}
                 onChange={(keyForeground) => patch({ keyForeground })}
               />
-              <ColorRow
+              <RgbColorRow
                 title="提示与工具栏"
                 value={design.accent}
                 onChange={(accent) => patch({ accent })}

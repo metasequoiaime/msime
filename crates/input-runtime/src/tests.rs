@@ -7142,6 +7142,30 @@ fn paging_reaches_candidates_the_engine_withheld() {
     );
 }
 
+/// 停在不满的末页再按 `+`，展开会把隐藏的候选放出来，末页随之后移。展开之后这一页已经不是
+/// 末页了，高亮必须真的前进，否则候选窗换了一帧、页码还停在旧页，数字键 1 选到的是翻页前
+/// 那一页的第一个候选（#9517）。
+#[test]
+fn paging_past_the_short_last_page_moves_the_highlight() {
+    // 三个候选、每页五个：只有一页，而且不满。按 `+` 会展开隐藏的七个，候选数从 3 变成 10，
+    // 末页从第 0 页后移到第 1 页——这一页已经不再是末页，高亮必须跟着走。
+    let mut runtime = withholding_runtime(3, 7, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.view().page_count, 1);
+    let past = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(
+        past.page, 1,
+        "展开长出了新页之后高亮必须前进，否则数字键选的是翻页前那一页"
+    );
+    // 候选窗看到的第一行，和按 1 选中的第一个候选必须是同一行。
+    assert!(!past.candidates.is_empty());
+    let shown_first = past.candidates[0].text.clone();
+    let first = past.candidates[0].id;
+    let committed = runtime.dispatch(Action::Select(first)).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some(shown_first.as_str()));
+}
+
 /// 云联想的回包在组字没变时改写候选。用户还停在第一条时，高亮留在新的第一条；
 /// 已经按 `+` 翻到下一页时，高亮留在那一页，不弹回第一页。再打一个字母仍从第一页开始。
 #[test]

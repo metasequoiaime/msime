@@ -315,7 +315,13 @@ test("the status card reads the host's state on mount and unsubscribes on unmoun
   const setup = fakeSetup({ enabled: true, current: true });
   renderTouchHome({ actions: { setup: setup.client } });
 
-  expect(within(statusCard()).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  const card = statusCard();
+  expect(within(card).getByText("已启用 · 小鹤双拼")).toBeTruthy();
+  expect(
+    card
+      .querySelector('svg path[d="m5 12.5 4.5 4.5L19 7.5"]')
+      ?.parentElement?.getAttribute("focusable"),
+  ).toBe("false");
   expect(setup.listeners.size).toBe(1);
   cleanup();
   expect(setup.listeners.size).toBe(0);

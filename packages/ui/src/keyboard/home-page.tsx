@@ -3,6 +3,7 @@ import { globalThemeTitle, keyboardThemeId, themeEntry } from "../theme/global-t
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import { ActionButton } from "../core/action-button";
 import { NavGroup } from "../core/platform-controls";
+import { SearchGlyph } from "../core/search-glyph";
 import { openHomeKeyboard, type HomePageActions } from "./home-model";
 import { useHomeSearch } from "./use-home-search";
 import type { Preferences } from "../core/preferences-model";
@@ -135,20 +136,7 @@ function TouchHomePage({
   return (
     <section className="flex flex-col gap-5" aria-label="首页">
       <label className={searchPill}>
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          aria-hidden="true"
-          className="shrink-0"
-        >
-          <circle cx="7" cy="7" r="5" />
-          <path d="m11 11 3.5 3.5" />
-        </svg>
+        <SearchGlyph size={16} className="shrink-0" />
         <input
           type="search"
           className={searchField}

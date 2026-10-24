@@ -152,7 +152,7 @@ fn empty_projection_preserves_stateful_visits_rows_and_cache_storage() {
                         let mut old_visits = Vec::new();
                         let mut new_visits = Vec::new();
                         let keep = |visits: &mut Vec<(String, bool)>, row: &WordItem, cached| {
-                            visits.push((row.word.clone(), cached));
+                            visits.push((row.word.to_string(), cached));
                             match mode {
                                 0 => false,
                                 1 => visits.len() == 1,

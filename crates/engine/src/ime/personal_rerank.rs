@@ -424,6 +424,19 @@ pub(crate) mod allocations {
             },
         )
     }
+
+    /// 逐字段重建出不与 `rows` 共享存储的期望值。`clone` 出来的期望值与原行共用同一个 `Arc`，热查询改写这些共享字段时只能另建存储，量到的就不再是原地复用时查询本身的分配。
+    pub(crate) fn unshared_rows(rows: &[crate::types::WordItem]) -> Vec<crate::types::WordItem> {
+        rows.iter()
+            .map(|row| crate::types::WordItem {
+                pinyin: row.pinyin.as_str().into(),
+                canonical_pinyin: row.canonical_pinyin.as_str().into(),
+                word: row.word.as_str().into(),
+                corrected_from: row.corrected_from.as_str().into(),
+                ..row.clone()
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

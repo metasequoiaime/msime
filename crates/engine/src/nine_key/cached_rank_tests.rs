@@ -82,7 +82,7 @@ fn fixture(length: usize, tied: bool) -> Vec<WordItem> {
             );
             row.fixed_position = (index % 6) as i32;
             row.fuzzy = !tied && index % 7 == 0;
-            row.corrected_from = format!("synthetic-{index}");
+            row.corrected_from = format!("synthetic-{index}").into();
             row.sentence_association = index % 2 == 0;
             row.sentence_words = vec![format!("part-{index}")];
             row
@@ -108,7 +108,9 @@ fn ranking_preserves_all_fields_ties_duplicates_and_boosts() {
             .expect("内置九键双拼表");
     let shuangpin = crate::nine_key_shuangpin::nine_key_shuangpin(&table).expect("合法表");
     let boost = InitialsBoost {
-        used: (0..17).map(|index| (format!("样例{index}"), 100)).collect(),
+        used: (0..17)
+            .map(|index| (format!("样例{index}").into(), 100))
+            .collect(),
         frequency: FrequencyAdjustmentOptions {
             mode: FrequencyAdjustmentMode::Linear,
             trigger_count: 1,
@@ -159,13 +161,13 @@ fn ranking_preserves_active_interleaving_and_personal_boost() {
                 if initials { "ni'hao'ma" } else { "man" },
             );
             row.fixed_position = (index % 6) as i32;
-            row.corrected_from = format!("synthetic-{index}");
+            row.corrected_from = format!("synthetic-{index}").into();
             row.sentence_words = vec![format!("part-{index}")];
             row
         })
         .collect();
     let boost = InitialsBoost {
-        used: [("简拼0".to_string(), 100)].into(),
+        used: [(SharedString::from("简拼0"), 100)].into(),
         frequency: FrequencyAdjustmentOptions {
             mode: FrequencyAdjustmentMode::Linear,
             trigger_count: 1,

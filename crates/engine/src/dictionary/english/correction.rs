@@ -179,8 +179,8 @@ impl EnglishDictionary {
             self.query_prefix(prefix, PREFIX_ROWS)
                 .into_iter()
                 .map(|item| Lexeme {
-                    key: item.pinyin,
-                    display: item.word,
+                    key: item.pinyin.into_string(),
+                    display: item.word.into_string(),
                     weight: item.weight,
                 })
                 .collect::<Vec<_>>(),

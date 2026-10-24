@@ -4742,6 +4742,25 @@ fn restoring_default_preferences_is_a_locked_compare_and_swap() {
 }
 
 #[test]
+fn text_trackpad_options_publish_the_shared_defaults_and_slider_ranges() {
+    let options = read(msime_client_text_trackpad_options());
+    assert_eq!(options["ok"], true);
+    assert_eq!(
+        options["value"]["horizontal_dp"],
+        json!({"minimum": 4, "maximum": 48})
+    );
+    assert_eq!(
+        options["value"]["vertical_dp"],
+        json!({"minimum": 8, "maximum": 96})
+    );
+    assert_eq!(
+        options["value"]["defaults"],
+        serde_json::to_value(msime_client_core::preferences::TextTrackpadPreferences::default())
+            .unwrap()
+    );
+}
+
+#[test]
 fn exported_settings_import_as_a_compare_and_swap_that_keeps_local_services() {
     let source = tempfile::tempdir().unwrap();
     let source_store = PreferencesStore::new(source.path());
@@ -19523,5 +19542,46 @@ fn sentence_collocation_tuning_reaches_engine_options() {
             weak_collocation_penalty: -120.0,
             rear_penalty: -25.0,
         }
+    );
+}
+
+#[test]
+fn world_clock_validates_and_forwards_offline_requests() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action| {
+        call_android_data(
+            msime_client_world_clock,
+            json!({"directory": directory.path(), "action": action}),
+        )
+    };
+    let catalog = call(json!({"operation": "catalog"}));
+    assert!(catalog["value"].as_array().unwrap().len() > 400);
+    assert_eq!(
+        call(json!({"operation": "add", "id": "Asia/Tokyo"}))["ok"],
+        true
+    );
+    assert_eq!(
+        call(json!({"operation": "load"}))["value"]["cities"],
+        json!(["Asia/Tokyo"])
+    );
+    assert_eq!(
+        call(json!({"operation": "add", "id": "invalid"}))["error"],
+        "world_clock_invalid"
+    );
+    let snapshot = call(
+        json!({"operation": "snapshot", "timestamp": 1792686283_i64, "system_zone": "UTC", "system_offset": 0, "cities": ["Asia/Tokyo"]}),
+    );
+    assert_eq!(snapshot["ok"], true);
+    assert_eq!(snapshot["value"][1]["offset"], "UTC+09:00");
+    assert_eq!(
+        call(json!({"operation": "load", "unexpected": true}))["error"],
+        "world_clock_invalid"
+    );
+    assert_eq!(
+        call_android_data(
+            msime_client_world_clock,
+            json!({"directory": "relative", "action": {"operation": "load"}})
+        )["ok"],
+        false
     );
 }

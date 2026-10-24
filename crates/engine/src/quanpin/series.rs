@@ -198,7 +198,7 @@ pub fn mark_autocorrect_candidates(
                 && folded_reading_equal(cut, &item.pinyin)
         }) {
             let folded = raw_letters.get_or_insert_with(|| fold_reading(raw));
-            item.corrected_from = folded.clone();
+            item.corrected_from = folded.as_str().into();
         }
     }
 }
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn marking_uses_alternative_cuts_and_keeps_existing_labels() {
         let mut items = vec![row("zhan", "站", 100), row("shan", "山", 100)];
-        items[1].corrected_from = "earlier".to_string();
+        items[1].corrected_from = "earlier".into();
         mark_autocorrect_candidates(&mut items, "ahan", "shan", &["zhan".to_string()]);
         assert_eq!(items[0].corrected_from, "ahan");
         assert_eq!(items[1].corrected_from, "earlier");

@@ -54,7 +54,7 @@ impl ConversionEdit {
         let words = if words_cover {
             row.sentence_words.clone()
         } else {
-            vec![row.word.clone()]
+            vec![row.word.to_string()]
         };
         let mut segments = Vec::with_capacity(words.len());
         let mut start = 0;
@@ -246,8 +246,8 @@ impl InputSession {
         let pin = PinnedSpan {
             start,
             end,
-            word: row.word.clone(),
-            key: row.canonical_pinyin.clone(),
+            word: row.word.to_string(),
+            key: row.canonical_pinyin.to_string(),
         };
         edit.pins
             .retain(|other| other.end <= start || other.start >= end);
@@ -277,13 +277,13 @@ impl InputSession {
         }
         let text = edit.text();
         let mut item = edit.origin;
-        item.canonical_pinyin = edit.syllables.join("'");
+        item.canonical_pinyin = edit.syllables.join("'").into();
         item.sentence_words = edit
             .segments
             .into_iter()
             .map(|segment| segment.word)
             .collect();
-        item.word = text.clone();
+        item.word = text.as_str().into();
         item.weight = 0;
         item.source = CandidateSource::Generated;
         item.sentence_association = true;

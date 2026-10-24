@@ -181,7 +181,11 @@ fn generated_rows_reuse_path_field_storage() {
             expected
         );
     }
-    assert_eq!(allocations, 4, "只有输出块和三行typed_pinyin需分配");
+    // 句子和键的缓冲区原样移进 `SharedString`，每行只为 `pinyin`、`canonical_pinyin`、`word` 各建一个 `Arc`：1 + 3 + 3 × 3。
+    assert_eq!(
+        allocations, 13,
+        "只有输出块、三行typed_pinyin和每个字段的Arc需分配"
+    );
 }
 
 // 冻结 adb6100b435990ef8077e93736e112b787839988 的完整合并及助手，仅改名、可见性和移除注释。

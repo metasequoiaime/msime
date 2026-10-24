@@ -1247,6 +1247,8 @@ export {
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
+export { HexColorRow, type HexColorRowProps } from "./settings/hex-color-row";
+export { RgbColorRow, type RgbColorRowProps } from "./settings/rgb-color-row";
 export { SelectRow, type SelectRowProps } from "./settings/select-row";
 export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
 export {
@@ -1571,6 +1573,9 @@ export {
 } from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
+export { CheckGlyph, type CheckGlyphProps } from "./core/check-glyph";
+export { ChevronGlyph, type ChevronGlyphProps } from "./core/chevron-glyph";
+export { SearchGlyph, type SearchGlyphProps } from "./core/search-glyph";
 export { formatDateTime, formatZhDate, formatZhMonthDay } from "./core/format-date";
 export { formatZhNumber, formatZhPercent } from "./core/format-number";
 export { StatusMessage, type StatusMessageProps } from "./core/status-message";

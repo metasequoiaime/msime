@@ -214,7 +214,7 @@ impl NineKeySession {
                 });
             }
             for mut candidate in rows {
-                candidate.pinyin = self.digits.clone();
+                candidate.pinyin = self.digits.as_str().into();
                 push_ranked(
                     &mut candidates,
                     &mut leading,
@@ -352,7 +352,8 @@ fn assert_session(actual: &NineKeySession, expected: &NineKeySession) {
         ] {
             assert_eq!(actual.capacity(), expected.capacity());
         }
-        assert!(actual.pinyin.capacity() >= expected.pinyin.capacity());
+        // 九键给 `pinyin` 换上一份按长度新建的 `SharedString`，不再复用旧缓冲区，容量只能比内容。
+        assert_eq!(actual.pinyin, expected.pinyin);
         assert_eq!(
             actual.sentence_words.capacity(),
             expected.sentence_words.capacity()
@@ -474,9 +475,6 @@ fn assert_full_hot_refresh_saves_completion_copies() {
     let (_, new_count) = count(|| after.before_dominated_refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    assert_eq!(
-        new_count + 3 * 3,
-        old_count,
-        "三条被拒补全行应各省三个字段副本"
-    );
+    // 字段副本现在是 `SharedString` 克隆，只加引用计数不分配，提前拒绝这三行不再省下申请，两条路径的申请次数相同。
+    assert_eq!(new_count, old_count, "三条被拒补全行的字段副本不应分配");
 }

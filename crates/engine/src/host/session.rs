@@ -285,7 +285,7 @@ impl Session {
         for (index, candidate) in value.candidates.into_iter().enumerate() {
             let mut annotation = annotations
                 .next()
-                .unwrap_or_else(|| candidate.corrected_from.clone());
+                .unwrap_or_else(|| candidate.corrected_from.to_string());
             if let Some(keymap) = keymap {
                 if self.show_helpcode
                     && annotation.is_empty()
@@ -333,8 +333,8 @@ impl Session {
             output
                 .candidate_static_evidence
                 .push(candidate.static_evidence());
-            output.candidate_codes.push(candidate.pinyin);
-            output.candidates.push(candidate.word);
+            output.candidate_codes.push(candidate.pinyin.into_string());
+            output.candidates.push(candidate.word.into_string());
         }
         Ok(output)
     }

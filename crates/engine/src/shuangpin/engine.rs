@@ -418,7 +418,7 @@ impl ShuangpinEngine {
                 let Some(code) = code else {
                     return false;
                 };
-                row.pinyin = code;
+                row.pinyin = code.into();
                 row.fuzzy = true;
                 true
             });
@@ -561,7 +561,7 @@ impl ShuangpinEngine {
                 for candidate in &mut candidates {
                     let syllables = candidate.canonical_pinyin.split('\'').count();
                     if let Some(spelling) = path.get(syllables - 1) {
-                        candidate.pinyin = raw[..spelling.end].to_string();
+                        candidate.pinyin = raw[..spelling.end].into();
                     }
                 }
                 let constrained = path
@@ -1162,7 +1162,7 @@ mod tests {
             for item in &mut expected {
                 let count = split_segments(&item.pinyin).len();
                 if count <= typed.len() {
-                    item.pinyin = join_segments(&typed[..count]);
+                    item.pinyin = join_segments(&typed[..count]).into();
                 }
             }
             relabel_fuzzy_rows(&mut rows, raw);
@@ -1242,10 +1242,10 @@ mod tests {
             "mei'guan'xi",
         );
         typo.sentence_association = true;
-        typo.corrected_from = "mwgfxi".to_owned();
+        typo.corrected_from = "mwgfxi".into();
         let words = |rows: &[WordItem]| {
             rows.iter()
-                .map(|item| item.word.clone())
+                .map(|item| item.word.to_string())
                 .collect::<Vec<_>>()
         };
 
@@ -1272,7 +1272,7 @@ mod tests {
 
         // 前面有不止一条纠错行时，第一条非纠错行提到首位，其余行相对顺序不变。
         let mut other_typo = typo.clone();
-        other_typo.word = "美关系".to_owned();
+        other_typo.word = "美关系".into();
         let mut rows = vec![typo, other_typo, prefix("没跟"), prefix("没")];
         keep_typo_sentence_off_first_seat(&mut rows);
         assert_eq!(words(&rows), ["没跟", "没关系", "美关系", "没"]);

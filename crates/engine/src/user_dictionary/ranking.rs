@@ -591,11 +591,11 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
 /// The key a row is stored under for a context (J:229-249).
 pub fn candidate_dictionary_key(item: &WordItem, context_key: &str) -> String {
     if !item.canonical_pinyin.is_empty() {
-        return item.canonical_pinyin.clone();
+        return item.canonical_pinyin.to_string();
     }
     let mut segments = pinyin_segments(context_key);
     if segments.len() <= 1 {
-        return item.pinyin.clone();
+        return item.pinyin.to_string();
     }
     // A context "ni'hao'a" answered by the two-character row 你好 stores it under the first two syllables.
     let characters = item.word.chars().count();
@@ -1028,7 +1028,7 @@ mod tests {
         assert_eq!(candidate_dictionary_key(&row, "ni'hao'a"), "ni'hao");
         assert_eq!(candidate_dictionary_key(&row, "nihao"), "ni");
         assert_eq!(candidate_dictionary_key(&row, "ni''hao"), "ni");
-        row.word = "你好啊呀".to_owned();
+        row.word = "你好啊呀".into();
         assert_eq!(candidate_dictionary_key(&row, "ni'hao"), "ni'hao");
     }
 

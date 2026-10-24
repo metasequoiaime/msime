@@ -29,6 +29,9 @@ base64 = "0.23"
 uuid = { workspace = true, features = ["serde", "v4"] }
 # 只用来取当前 UTC 时间、拼损坏备份的文件名，不需要 `formatting`：命令表插件包的 strftime 校验已随插件搬到 msime-client-services，那边自己开着。
 time.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+jiff = { version = "0.2.35", default-features = false, features = ["std", "tzdb-bundle-always"] }
+sunrise = "3.0.0"
 # 偏好、翻译和地址形状校验只解析地址、不联网，直接用 `url`，不经 `reqwest::Url`。锁文件里只有一份 url 2.5.8，和 reqwest 用的是同一个类型。
 url = "2.5"
 

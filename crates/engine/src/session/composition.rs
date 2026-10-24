@@ -292,7 +292,7 @@ impl InputSession {
             && !selected.canonical_pinyin.is_empty()
             && !selected.pinyin.contains('\'')
             && consumed > selected.canonical_pinyin.split('\'').count() * 2
-            && request.raw_input.starts_with(&selected.pinyin))
+            && request.raw_input.starts_with(selected.pinyin.as_str()))
         .then_some(consumed)
     }
 
@@ -377,7 +377,7 @@ impl InputSession {
         selected: &WordItem,
     ) -> SelectionTransition {
         let mut transition = SelectionTransition {
-            selected_canonical_pinyin: selected.canonical_pinyin.clone(),
+            selected_canonical_pinyin: selected.canonical_pinyin.to_string(),
             wubi_native: selected.scheme == SchemeType::Wubi,
             ..SelectionTransition::default()
         };
@@ -764,7 +764,7 @@ impl InputSession {
                     _ => String::new(),
                 };
                 if helpcode.is_empty() || hide_helpcode {
-                    item.corrected_from.clone()
+                    item.corrected_from.to_string()
                 } else {
                     helpcode
                 }

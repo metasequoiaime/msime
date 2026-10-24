@@ -3,6 +3,7 @@ import type { ImeSetupClient } from "../core/host-contracts";
 import { useImeSetupState } from "./setup-status-card";
 import { useInterval } from "../core/use-interval";
 import { useTimeout } from "../core/use-timeout";
+import { CheckGlyph } from "../core/check-glyph";
 
 /**
  * 「设为默认输入法」在 HarmonyOS 手机上的引导：弹出键盘，告诉用户长按键盘左下角的 🌐、在菜单里选「水杉输入法」。
@@ -83,7 +84,7 @@ function KeyboardSwitchGuide({ setup }: { setup?: ImeSetupClient }) {
             className="m-0 flex items-center gap-2 text-[15px] text-[var(--p-accent-text,var(--accent-color))]"
             role="status"
           >
-            <CheckGlyph />
+            <CheckGlyph size={18} strokeWidth={2.4} />
             已设为默认
           </p>
         ) : (
@@ -124,24 +125,6 @@ function GlobeGlyph() {
     >
       <circle cx="12" cy="12" r="9" />
       <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9M12 3c-2.5 2.6-3.8 5.6-3.8 9s1.3 6.4 3.8 9" />
-    </svg>
-  );
-}
-
-function CheckGlyph() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
     </svg>
   );
 }

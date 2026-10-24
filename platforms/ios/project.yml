@@ -136,6 +136,9 @@ targets:
       # 这张表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
       - path: ../../resources/licenses/Unicode-License-V3.txt
         buildPhase: resources
+      # 世界时钟的城市目录和时间计算依赖随 App 分发许可。
+      - path: ../../resources/licenses/world-clock-NOTICE.txt
+        buildPhase: resources
       # 简繁转换内嵌的 OpenCC 词表许可证随 App 分发。
       - path: ../../resources/licenses/OpenCC-Apache-2.0.txt
         buildPhase: resources

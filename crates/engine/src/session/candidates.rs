@@ -777,15 +777,15 @@ mod tests {
     #[test]
     fn cloning_candidate_rows_replaces_metadata_and_handles_length_changes() {
         let marked = WordItem {
-            pinyin: "ni'hao".to_owned(),
-            canonical_pinyin: "li'hao".to_owned(),
-            word: "合成词".to_owned(),
+            pinyin: "ni'hao".into(),
+            canonical_pinyin: "li'hao".into(),
+            word: "合成词".into(),
             weight: 42,
             source: CandidateSource::Generated,
             scheme: crate::types::SchemeType::Shuangpin,
             fixed_position: 2,
             fuzzy: true,
-            corrected_from: "lihao".to_owned(),
+            corrected_from: "lihao".into(),
             sentence_association: true,
             sentence_words: vec!["合".to_owned(), "成词".to_owned()],
         };

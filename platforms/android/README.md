@@ -475,3 +475,10 @@ MSIME_ANDROID_RELATIVE_DATE=1 bash platforms/android/tests/device/build-editor.s
 ```
 
 API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参数。测试跨午夜时应重跑。
+
+## 世界时钟
+
+键盘工具栏的「更多」里打开「世界时钟」，默认显示系统日期、星期和时分秒；日出日落标注时区的参考城市，未匹配到参考城市时明确提示，不请求定位。轻点卡片选择日期、时间、星期、ISO 8601 或 Unix 时间等格式插入当前输入框。通过「添加城市」按地区、国家/地区、城市离线选择，最多保存 32 个；长按已添加城市选择删除。目录包含 IANA 各国家/地区的代表时区城市和北京，并非全部城镇。
+
+设备专项：`MSIME_ANDROID_WORLD_CLOCK=1 bash platforms/android/tests/device/build-editor.sh`，安装测试 APK 后运行 `app.msime.android.test/app.msime.android.test.WorldClockDeviceSmoke`。此专项复用清单入口，保持 API 35 instrumentation 数量限制；API 28 普通启动，API 35 在设置宿主已运行时加 `--no-restart`。
+

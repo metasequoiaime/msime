@@ -445,7 +445,7 @@ final class ImeStyler {
         s.handwritingSkin = themed(s.handwritingSkin);
         // 浮动（以及候选栏跟随光标）时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
         boolean floating = s.overlayDrawn();
-        int rootColor = floating || s.clipboardPreviewExpanded ? Color.TRANSPARENT : color(s.skin.background());
+        int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
         if (s.stableDockedWindow()) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
@@ -578,7 +578,7 @@ final class ImeStyler {
             configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
-            width, s.clipboardPreviewExpanded ? s.clipboardPreviewKeyboardHeight
+            width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight
                 : s.stableDockedWindow() ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);

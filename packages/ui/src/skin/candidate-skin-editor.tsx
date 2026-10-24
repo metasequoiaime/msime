@@ -9,11 +9,11 @@ import { bytesToBase64 } from "../core/base64";
 import { SelectRow } from "../settings/select-row";
 import { SliderRow } from "../settings/slider-row";
 import { TextInputRow } from "../settings/text-input-row";
+import { HexColorRow } from "../settings/hex-color-row";
 import { SettingsTextareaField } from "../settings/settings-textarea-field";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import * as settings from "../settings/settings-style";
-import { colorSwatch } from "../keyboard/touch-skin-style";
-import { normalizedColor, themeEntry, type BaseGlobalTheme } from "../theme/global-theme";
+import { themeEntry, type BaseGlobalTheme } from "../theme/global-theme";
 import { notifySkinCatalogChanged } from "./skin-catalog-changes";
 import { skinSlotLabel, type ExternalSkin, type SkinCatalog } from "./external-skins";
 import type { SkinImageReader } from "./skin-image";
@@ -63,55 +63,6 @@ import {
   useMotionReplay,
   usePrefersReducedMotion,
 } from "./candidate-skin-editor-preview";
-
-/** 一个颜色：原生取色器选 RGB，旁边的文本框可以写带透明度的 `#RRGGBBAA`。取色器改颜色时保留原来的透明度。 */
-function ColorRow({
-  title,
-  value,
-  onChange,
-}: {
-  title: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
-  const invalid = normalizedColor(text) === null || !text.trim().startsWith("#");
-  const alpha = value.length === 9 ? value.slice(7) : "";
-  return (
-    <Row title={title}>
-      <span className={settings.skinEditorColor}>
-        <input
-          type="color"
-          className={colorSwatch}
-          aria-label={`${title}取色器`}
-          value={value.slice(0, 7).toLowerCase()}
-          onChange={(event) => onChange(`${event.target.value.toUpperCase()}${alpha}`)}
-        />
-        <input
-          type="text"
-          className={settings.skinEditorHex}
-          aria-label={`${title}色值`}
-          aria-invalid={invalid}
-          spellCheck={false}
-          maxLength={9}
-          value={text}
-          onChange={(event) => {
-            const next = event.target.value.trim();
-            setText(next);
-            const normalized = next.startsWith("#") ? normalizedColor(next) : null;
-            if (normalized) onChange(normalized);
-          }}
-          onBlur={() => setText(value)}
-        />
-        {/* 原生取色器画不出透明度，半透明的颜色在色值后面写出不透明度。 */}
-        <span className={settings.skinEditorAlpha} aria-hidden="true">
-          {alpha ? `${Math.round((parseInt(alpha, 16) / 255) * 100)}%` : ""}
-        </span>
-      </span>
-    </Row>
-  );
-}
 
 /** 选一张图片：按钮打开系统的文件选择器（隐藏的文件输入框只接收结果，键盘焦点停在按钮上）。 */
 function ImageRow({
@@ -710,7 +661,7 @@ export function CandidateSkinEditor({
             </Row>
           )}
           {draftColorKeys.map((key: DraftColorKey) => (
-            <ColorRow
+            <HexColorRow
               key={`${shownMode}-${key}`}
               title={`${draftColorTitles[key]}（${shownMode === "dark" ? "深色" : "浅色"}）`}
               value={palette[key]}

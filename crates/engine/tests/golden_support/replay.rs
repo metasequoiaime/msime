@@ -505,7 +505,11 @@ impl Scenario {
     /// Editing text and candidate words: what a host watches to send the page back to 0.
     fn view_key(&self) -> (String, Vec<String>) {
         let view = self.session.as_ref().expect("an open session").snapshot();
-        let words = view.candidates.into_iter().map(|item| item.word).collect();
+        let words = view
+            .candidates
+            .into_iter()
+            .map(|item| item.word.into_string())
+            .collect();
         (view.editing_text, words)
     }
 

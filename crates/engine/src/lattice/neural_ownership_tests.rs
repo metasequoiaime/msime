@@ -266,7 +266,8 @@ fn selected_neural_rows_preserve_sources_duplicates_and_exact_copy_savings() {
                                     })
                                     .sum();
                                 assert_eq!(after + saved, before, "路径={n}/键盘={keyboard:?}/字面={include_lattice_best}/继续={show_next_on_duplicate}/已有={blocked}/占位={filler}/哈希={hashed}");
-                                assert_eq!(after, usize::from(!new.is_empty()) + new.len());
+                                // 每行一个 typed_pinyin 字符串，加上 `pinyin`、`canonical_pinyin`、`word` 各一个 `SharedString` 的 `Arc`。
+                                assert_eq!(after, usize::from(!new.is_empty()) + new.len() * 4);
                                 cases += 1;
                             }
                         }
@@ -333,5 +334,9 @@ fn neural_rows_move_original_fields_and_restore_source_order() {
             expected.6
         );
     }
-    assert_eq!(allocations, 3, "只有输出块和两行typed_pinyin分配");
+    // 句子和键的缓冲区原样移进 `SharedString`，每行只为 `pinyin`、`canonical_pinyin`、`word` 各建一个 `Arc`：1 + 2 + 2 × 3。
+    assert_eq!(
+        allocations, 9,
+        "只有输出块、两行typed_pinyin和每个字段的Arc分配"
+    );
 }
