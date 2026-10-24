@@ -139,7 +139,7 @@ public:
     }
     if (traditional)
       for (auto &item : items)
-        item.text = simplified_to_traditional(item.text, true);
+        item.text = candidate_output(item.text, true, item.source);
     auto shared = std::make_shared<const std::vector<ExpandedCandidate>>(std::move(items));
     std::lock_guard lock(mutex_);
     // 换算期间切换了简繁：这份文字已经不对，等下一次取。

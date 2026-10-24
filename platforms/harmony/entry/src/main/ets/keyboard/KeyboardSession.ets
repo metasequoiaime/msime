@@ -620,6 +620,8 @@ interface EngineValue {
 }
 
 interface CommitContext {
+  /** 共享运行时已转换的混合提交禁止宿主再次整行转换。 */
+  script_conversion?: boolean;
   /** False for text the expression, command and mention modes generated, which the user did not type out and typing statistics do not count. */
   typing_statistics: boolean;
 }
@@ -1067,6 +1069,16 @@ interface TypingEffectSettingsResponse {
   ok: boolean;
   value: ResolvedTypingEffectDocument;
   error: string;
+}
+
+interface PreferencesUpdateResponse {
+  ok: boolean;
+  value: PreferencesUpdateValue;
+  error: string;
+}
+
+interface PreferencesUpdateValue {
+  view: EngineView;
 }
 
 interface PrepareResponse {
@@ -2345,8 +2357,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
         return this.fuzzyPinyin;
       }
-      const applied: PrepareResponse = JSON.parse(client.updatePreferences(this.handle,
-        PrivacyGate.sessionPreferences(saved.value, this.sessionPrivate))) as PrepareResponse;
+      const applied: PreferencesUpdateResponse = JSON.parse(client.updatePreferences(this.handle,
+        PrivacyGate.sessionPreferences(saved.value, this.sessionPrivate))) as PreferencesUpdateResponse;
       if (applied.ok !== true) {
         // On disk but not in the session: leaving the revision behind makes the next focus rebuild from the document.
         KeyboardLog.error(`preferences refused: ${applied.error}`);
@@ -4318,9 +4330,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const commit: string | null | undefined = value.commit;
     if (commit !== null && commit !== undefined && commit.length > 0
         && this.inputClient !== undefined) {
-      // The Engine commits simplified; whether the user wanted traditional is a host decision, the
-      // same boundary the Apple and Android hosts draw.
-      const output: string = this.asTraditional(commit);
+      // 来源 18 的中文片段已由运行时转换，按提交上下文保留日文和英文。
+      const output: string = value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit);
       this.insertEditorText(output);
       // What the V, / and @ modes generated is not the user's typing: an evaluated sum or an expanded command template would count characters nobody typed.
       if (value.commit_context?.typing_statistics !== false) {
@@ -4475,7 +4486,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         continue;
       }
       entries.push({
-        text: this.asTraditional(candidate.text),
+        text: this.asTraditional(candidate.text, candidate.source),
         highlighted: candidate.highlighted,
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position,
@@ -4553,7 +4564,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         continue;
       }
       entries.push({
-        text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
+        text: this.asTraditional(candidate.text, candidate.source), highlighted: candidate.highlighted,
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position, source: candidate.source,
         translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
@@ -6262,8 +6273,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         snapshot.preferences['clipboard_history']);
       snapshot.revision = expected + 1;
       const document: string = JSON.stringify(snapshot);
-      const applied: PrepareResponse = JSON.parse(client.updatePreferences(this.handle,
-        PrivacyGate.sessionPreferences(snapshot, this.sessionPrivate))) as PrepareResponse;
+      const applied: PreferencesUpdateResponse = JSON.parse(client.updatePreferences(this.handle,
+        PrivacyGate.sessionPreferences(snapshot, this.sessionPrivate))) as PreferencesUpdateResponse;
       if (applied.ok !== true) {
         KeyboardLog.error(`preferences refused: ${applied.error}`);
         return false;
@@ -6278,6 +6289,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       } else {
         // Our own write, already applied; the next focus must not rebuild the session for it. The revision is the store's answer rather than expected + 1: a save that changes nothing keeps the stored revision, and assuming the next one would make the next real change made elsewhere look like this one.
         this.preferencesRevision = saved.value.revision;
+      }
+      if (EngineViewValuePolicy.isValid(applied.value.view)) {
+        this.lastView = applied.value.view;
       }
       this.refreshPreparedPreferences(document);
       this.clipboardHistoryEnabled = nextClipboardHistory;
@@ -6448,9 +6462,10 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * The conversion is the shared phrase-level OpenCC s2t tables compiled into the native library, the same one the Windows, macOS, Linux and Android hosts call, so 头发 becomes 頭髮 and 发展 becomes 發展 here exactly as there. A converter that fails must not lose the text, so anything it cannot do falls back to what came in. The policy decides whether it applies at all; dedicated English, Japanese and the temporary Japanese mode are not Chinese output however the setting reads.
    */
-  private asTraditional(text: string): string {
-    return ChineseOutputPolicy.output(text, this.traditional,
+  private asTraditional(text: string, source: number = -1): string {
+    return ChineseOutputPolicy.candidateOutput(text, this.traditional,
       ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode),
+      source,
       (value: string): string | null => client.simplifiedToTraditional(value));
   }
 
@@ -7076,7 +7091,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         }
         this.expandedCandidateIndices.push(index);
         entries.push({
-          text: this.asTraditional(candidate.text),
+          text: this.asTraditional(candidate.text, candidate.source),
           annotation: CandidateGlossPolicy.annotation(
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,

@@ -9504,13 +9504,13 @@ private:
           // ResourceDetail 的 unpublish 只关上详情：列表不重读，也不说明。
           if constexpr (resource_item<Item>) {
             gallery_end<Item>();
-            return;
+          } else {
+            gallery.installed = false;
+            gallery.confirm_replace = false;
+            gallery.notice = message;
+            gallery_list<Item>(gallery.active_search, false, gallery.active_mine,
+                               [this](bool) { gallery_end<Item>(); });
           }
-          gallery.installed = false;
-          gallery.confirm_replace = false;
-          gallery.notice = message;
-          gallery_list<Item>(gallery.active_search, false, gallery.active_mine,
-                             [this](bool) { gallery_end<Item>(); });
         });
   }
 
@@ -13804,6 +13804,45 @@ private:
         });
   }
 
+  // 语言列表缺省才使用共享默认值；显式空列表保留为全不选。
+  void build_multilingual_input(StackPanel const &group, bool mixed_enabled) {
+    if (!edition_offers_scheme(L"quanpin"))
+      return;
+    const bool enabled = document_.Boolean(L"multilingual_input.enabled", false);
+    bool_row(group, 0xE774, L"连续多语言输入（实验）",
+             L"开启候选混输后，在全拼 26 键中连续输入所选语言的编码；完整中文优先，混合结果作为备选。至少需要两种可用语言",
+             L"multilingual_input.enabled", false, true);
+    const auto stored = document_.Value(L"multilingual_input.languages");
+    const auto languages = stored && stored.ValueType() == JsonValueType::Array
+                               ? document_.Strings(L"multilingual_input.languages")
+                               : std::vector<std::wstring>{L"chinese", L"english", L"japanese"};
+    for (auto const &option : std::vector<Option>{{L"chinese", L"中文"},
+                                                 {L"english", L"英文"},
+                                                 {L"japanese", L"日文"}}) {
+      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
+        if (option.value == L"japanese")
+          continue;
+      }
+      const auto language = option.value;
+      const auto title = L"连续输入：" + option.label;
+      add_row(group, 0xE774, title,
+              language == L"japanese" ? L"使用已有日文词典，未安装或准备中时暂不参与" : L"",
+              toggle_control(title, std::find(languages.begin(), languages.end(), language) != languages.end(),
+                             [this, language](bool selected) {
+                               change([&](PreferencesDocument &doc) {
+                                 const auto value = doc.Value(L"multilingual_input.languages");
+                                 auto next = value && value.ValueType() == JsonValueType::Array
+                                                 ? doc.Strings(L"multilingual_input.languages")
+                                                 : std::vector<std::wstring>{L"chinese", L"english", L"japanese"};
+                                 next.erase(std::remove(next.begin(), next.end(), language), next.end());
+                                 if (selected)
+                                   next.push_back(language);
+                                 doc.SetOrderedStrings(L"multilingual_input.languages", next);
+                               }, false);
+                             }, enabled && mixed_enabled));
+    }
+  }
+
   // 「候选与联想」「输出设置」「高级选项」三个标签的内容，与共享页 InputSharedSettingsSection 的 candidates、output、advanced 三块相同。
   void build_input_habits(StackPanel const &page, std::wstring const &tab) {
     if (in_tab(tab, L"candidates")) {
@@ -13845,6 +13884,7 @@ private:
                  L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
                  L"mixed_input.japanese", false, false, mixed_enabled);
       }
+      build_multilingual_input(candidates_more, mixed_enabled);
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);

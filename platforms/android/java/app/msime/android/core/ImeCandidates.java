@@ -210,7 +210,8 @@ final class ImeCandidates {
             if (id == null || (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled())) return false;
             // AI 占位行（来源 12，共享内核已经不再产出）没有可管理的词，长按不弹菜单（#6888）；平时它也不可长按，见 updateCandidateButton。
             if (!AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(current, "source", -1))) return false;
-            String text = s.chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view);
+            String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view,
+                InputViewValuePolicy.integer(current, "source", -1));
             return showCandidateMenu(button, slot, id, text);
         });
         return button;
@@ -226,7 +227,8 @@ final class ImeCandidates {
         if (AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(candidate, "source", -1)))
             button.setOnLongClickListener(ignored -> {
                 if (!s.candidateVersionIsCurrent(id)) return false;
-                String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
+                String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view,
+                    InputViewValuePolicy.integer(candidate, "source", -1));
                 return showCandidateMenu(button, -1, id, text, candidate, false, snapshot);
             });
         return button;
@@ -237,7 +239,8 @@ final class ImeCandidates {
         KeyboardPressButton button = candidateButton();
         s.bindCandidateRenderRelease(button);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
-        String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
+        String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view,
+            InputViewValuePolicy.integer(candidate, "source", -1));
         ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""

@@ -771,6 +771,9 @@ char *msime_client_english_completions_request(const uint8_t *request,
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
+/* 即时设置来源 18 混合候选的中文片段输出，保留组字与候选身份；返回最新 View。
+ * 不落盘，变体沿用最新共享偏好；后续偏好更新可替换此临时值。 */
+char *msime_client_set_multilingual_output(uint64_t session, bool traditional);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
 /* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。等同于 msime_client_set_key_grid 的 1（开）和 0（关），所以关掉时 14 键也一并关掉。

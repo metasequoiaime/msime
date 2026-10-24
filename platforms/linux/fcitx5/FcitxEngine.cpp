@@ -3365,7 +3365,9 @@ public:
     pair_inserted_ = false;
     if (result.contains("commit") && result["commit"].is_string()) {
       auto text = result["commit"].get<std::string>();
-      if (traditionalApplies()) text = msime_linux_simplified_to_traditional(text, traditional_variant_);
+      const auto context = result.value("commit_context", Json(nullptr));
+      if (traditionalApplies() && (!context.is_object() || context.value("script_conversion", true)))
+        text = msime_linux_simplified_to_traditional(text, traditional_variant_);
       // `、` 的 ASCII 孪生按产生它的键和 View 的顿号开关定（enumerationComma 段）。
       const auto spaceConvertAscii =
           spaceConvertPreceding
@@ -3390,7 +3392,6 @@ public:
         last_smart_punctuation_ = 0;
         last_smart_punctuation_at_ = {};
       }
-      const auto context = result.value("commit_context", Json(nullptr));
       commitText(text, std::nullopt,
                  !context.is_object() || context.value("typing_statistics", true));
       // 上屏音（或随上屏前进的旋律音符）由生命周期核心在这次派发里出过了，排在按键音之后；隐私字段里核心什么都不出。回复的 feedback 带着上屏之后的打字特效：上屏不计数，只报告连击现在的样子，停顿后断掉的连击就这样让接着画出的辅助行跟着清掉。focus 等不是派发的调用没有它，连击照旧。
@@ -4316,7 +4317,7 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
         fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit});
     return display;
   }
-  display.decoration_text = traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
+  display.decoration_text = traditional && candidate.value("source", 0) != 18 ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>(), variant)
                                        : candidate.at("text").get<std::string>();
   const auto source = msime::linux_host::strict_json_value(candidate, "source", uint64_t{});
   display.decoration_badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";

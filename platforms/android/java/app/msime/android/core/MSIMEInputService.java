@@ -2780,6 +2780,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     String chineseOutput(String text, JSONObject context) {
+        if (context != null && context.has("script_conversion")
+                && !context.optBoolean("script_conversion", true)) return text;
         int scheme = context == null
             ? (view == null ? -1 : InputViewValuePolicy.scheme(view, -1))
             : InputViewValuePolicy.scheme(context, -1);
@@ -2788,6 +2790,16 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.outputString(
             text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
+    }
+
+    String chineseCandidateOutput(String text, JSONObject context, int source) {
+        int scheme = context == null ? (view == null ? -1 : InputViewValuePolicy.scheme(view, -1))
+            : InputViewValuePolicy.scheme(context, -1);
+        String localMode = context == null ? (view == null ? "none"
+            : InputViewValuePolicy.textOr(view, "local_mode", "none"))
+            : InputViewValuePolicy.textOr(context, "local_mode", "none");
+        return AndroidChineseTextConversion.candidateOutput(text, traditionalChineseOutput,
+            dedicatedEnglish, scheme, localMode, source);
     }
 
     private String candidateAppearanceKey() {
@@ -7817,7 +7829,8 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject currentId = current == null ? null : current.optJSONObject("id");
         return current != null && currentId != null && id != null
             && sameCandidateIdentity(currentId, id)
-            && text.equals(chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), view));
+            && text.equals(chineseCandidateOutput(InputViewValuePolicy.textOr(current, "text", ""), view,
+                InputViewValuePolicy.integer(current, "source", -1)));
     }
 
     boolean candidateGlossInsertionEnabled() {
@@ -7845,7 +7858,8 @@ public final class MSIMEInputService extends InputMethodService {
                                   String text, String gloss) {
         if (!sameCandidateVersion(snapshot, view) || !candidateVersionIsCurrent(id)
                 || candidate == null || !sameCandidateIdentity(candidate.optJSONObject("id"), id)
-                || !text.equals(chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view))
+                || !text.equals(chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
+                    InputViewValuePolicy.integer(candidate, "source", -1)))
                 || connection == null) return;
         if (!commitText(gloss, TypingSource.LOCAL)) return;
         if (session != 0) command(3);
@@ -7877,7 +7891,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void performTranslationCommit(int action, TranslationTarget target) {
         if (action == HardwareTranslationCommitPolicy.COMMIT) {
             JSONObject id = target.candidate().optJSONObject("id");
-            String text = chineseOutput(InputViewValuePolicy.textOr(target.candidate(), "text", ""), view);
+            String text = chineseCandidateOutput(InputViewValuePolicy.textOr(target.candidate(), "text", ""), view,
+                InputViewValuePolicy.integer(target.candidate(), "source", -1));
             closeCandidatePanel();
             insertCandidateGloss(target.slot(), id, text, target.senses().get(0));
         } else if (action == HardwareTranslationCommitPolicy.OPEN_PAGE) {
@@ -7954,7 +7969,8 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject candidateId = candidate.optJSONObject("id");
         return candidateId != null
             && sameCandidateIdentity(candidateId, id)
-            && text.equals(chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view));
+            && text.equals(chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
+                InputViewValuePolicy.integer(candidate, "source", -1)));
     }
 
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
@@ -8108,7 +8124,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
             return false;
-        String displayed = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
+        String displayed = chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
+            InputViewValuePolicy.integer(candidate, "source", -1));
         try {
             candidatePanelOpen = false;
             if (apply(NativeClient.selectEdge(session, strictCandidateLong(id, "generation"),
@@ -8201,7 +8218,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
-        String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
+        String text = chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
+            InputViewValuePolicy.integer(candidate, "source", -1));
         ((ContactCandidateButton) button).setContactSource(source);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         CandidateCanvasAssets canvas = candidateAppearance.canvas();

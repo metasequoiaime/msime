@@ -40,6 +40,40 @@ fn selection_statistics_use_the_candidate_id_absolute_index() {
 }
 
 #[test]
+fn multilingual_preference_mapping_filters_unavailable_japanese_and_needs_two_languages() {
+    use msime_client_core::preferences::MultilingualLanguage;
+    let mut preferences = Preferences::default();
+    preferences.multilingual_input.enabled = true;
+    preferences.multilingual_input.languages = vec![
+        MultilingualLanguage::Chinese,
+        MultilingualLanguage::English,
+        MultilingualLanguage::Japanese,
+    ];
+    assert_eq!(
+        multilingual_languages_for(&preferences, Edition::full(), true),
+        vec![
+            msime_engine::multilingual::Language::Chinese,
+            msime_engine::multilingual::Language::English,
+            msime_engine::multilingual::Language::Japanese,
+        ]
+    );
+    assert_eq!(
+        multilingual_languages_for(&preferences, Edition::full(), false),
+        vec![
+            msime_engine::multilingual::Language::Chinese,
+            msime_engine::multilingual::Language::English,
+        ]
+    );
+    for id in ["wubi", "japanese", "vietnamese", "tibetan"] {
+        assert!(
+            multilingual_languages_for(&preferences, Edition::by_id(id).unwrap(), true).is_empty()
+        );
+    }
+    preferences.multilingual_input.languages = vec![MultilingualLanguage::Japanese];
+    assert!(multilingual_languages_for(&preferences, Edition::full(), true).is_empty());
+}
+
+#[test]
 fn completed_transition_keeps_dispatch_view_without_pending_changes() {
     let directory = tempfile::tempdir().unwrap();
     let handle = test_host(directory.path());
@@ -6910,6 +6944,143 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true);
     created["value"]["session"].as_u64().unwrap()
+}
+
+fn test_host_with_multilingual_fixture(root: &std::path::Path, preferences: Preferences) -> u64 {
+    let path = |name| {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    let dictionaries = path("dictionaries");
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO tbl_2_w VALUES('wang''luo','wl','网络',100);",
+            )
+            .unwrap();
+        let english = directory.join("msime-english.db");
+        msime_engine::ensure_english_schema(&english).unwrap();
+        rusqlite::Connection::open(english)
+            .unwrap()
+            .execute_batch("INSERT INTO english_words VALUES('hello','hello',100);")
+            .unwrap();
+    }
+    bundle_wubi_table(&resources);
+    let options = json!({
+        "api_version": 1,
+        "resources": resources,
+        "user_data": path("user"),
+        "cache": path("cache"),
+        "dictionaries": dictionaries,
+        "preferences": preferences
+    })
+    .to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    created["value"]["session"].as_u64().unwrap()
+}
+
+#[test]
+fn multilingual_preferences_reach_host_session_and_rebuild() {
+    use msime_client_core::preferences::MultilingualLanguage;
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.multilingual_input.enabled = true;
+    preferences.traditional_chinese_output = true;
+    preferences.multilingual_input.languages =
+        vec![MultilingualLanguage::Chinese, MultilingualLanguage::English];
+    let handle = test_host_with_multilingual_fixture(directory.path(), preferences.clone());
+    SESSIONS.with(|sessions| {
+        assert_eq!(
+            sessions.borrow()[&handle].options.multilingual_languages,
+            vec![
+                msime_engine::multilingual::Language::Chinese,
+                msime_engine::multilingual::Language::English,
+            ]
+        );
+    });
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut typed = Value::Null;
+    for byte in b"hellowangluo" {
+        typed = read(msime_client_character(handle, *byte, false));
+    }
+    let mixed = typed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate["source"] == 18)
+        .cloned()
+        .expect("the enabled preference should expose a multilingual candidate");
+    assert_eq!(mixed["text"], "hello網絡");
+    preferences.multilingual_input.enabled = false;
+    preferences.traditional_chinese_output = false;
+    let changed = update(handle, 1, &preferences);
+    assert_eq!(changed["value"]["deferred"], true);
+    assert!(changed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello网络"));
+    let selected = read(msime_client_select(
+        handle,
+        mixed["id"]["generation"].as_u64().unwrap(),
+        mixed["id"]["index"].as_u64().unwrap() as usize,
+    ));
+    assert_eq!(selected["value"]["commit"], "hello网络");
+    assert_eq!(
+        selected["value"]["commit_context"]["script_conversion"],
+        false
+    );
+
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .multilingual_languages
+            .is_empty());
+    });
+    preferences.multilingual_input.enabled = true;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let simplified = type_letters(handle, b"hellowangluo");
+    let mixed = simplified["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["source"] == 18 && row["text"] == "hello网络")
+        .unwrap();
+    preferences.candidate_page_size = 7;
+    assert_eq!(update(handle, 3, &preferences)["value"]["deferred"], true);
+    let switched = read(msime_client_set_multilingual_output(handle, true));
+    assert!(switched["value"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello網絡"));
+    let selected = read(msime_client_select(
+        handle,
+        mixed["id"]["generation"].as_u64().unwrap(),
+        mixed["id"]["index"].as_u64().unwrap() as usize,
+    ));
+    assert_eq!(selected["value"]["commit"], "hello網絡");
+    let rebuilt = type_letters(handle, b"hellowangluo");
+    assert!(rebuilt["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello網絡"));
+    // 临时宿主投影跨越空闲重建保留，下一次显式偏好更新才接管输出。
+    let reset = update(handle, 4, &preferences);
+    assert!(reset["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["source"] == 18 && row["text"] == "hello网络"));
+
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 #[test]
@@ -16929,6 +17100,11 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let mut preferences = Preferences::default();
     preferences.local_modes.temporary_japanese = true;
     preferences.mixed_input.japanese = true;
+    preferences.multilingual_input.enabled = true;
+    preferences.multilingual_input.languages = vec![
+        MultilingualLanguage::Chinese,
+        MultilingualLanguage::Japanese,
+    ];
     let options = || {
         let document = json!({ "api_version": 1, "resources": resources, "user_data": "/u", "cache": "/c", "dictionaries": "/d", "preferences": preferences, "preferences_directory": state });
         serde_json::from_value::<HostOptions>(document)
@@ -16941,6 +17117,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     assert_eq!(without.japanese_dictionary, "");
     assert!(!without.local_temporary_japanese);
     assert!(!without.mixed_japanese);
+    assert!(without.multilingual_languages.is_empty());
 
     // 只在暂存目录里：仍然不算。
     let staging = resource_packs::root(&state)
@@ -16967,6 +17144,13 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     );
     assert!(with.local_temporary_japanese);
     assert!(with.mixed_japanese);
+    assert_eq!(
+        with.multilingual_languages,
+        vec![
+            msime_engine::multilingual::Language::Chinese,
+            msime_engine::multilingual::Language::Japanese,
+        ]
+    );
 
     // 资源目录内置的那份照旧可用，字段为空时 Engine 读它。
     std::fs::remove_dir_all(resource_packs::root(&state)).unwrap();
@@ -16975,6 +17159,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     assert_eq!(bundled.japanese_dictionary, "");
     assert!(bundled.local_temporary_japanese);
     assert!(bundled.mixed_japanese);
+    assert_eq!(bundled.multilingual_languages, with.multilingual_languages);
 }
 
 #[test]
@@ -17372,7 +17557,13 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
         dictionaries.join("msime-pinyin.db"),
     )
     .unwrap();
-    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": chinese_preferences(), "preferences_directory": state }).to_string();
+    let mut preferences = chinese_preferences();
+    preferences.multilingual_input.enabled = true;
+    preferences.multilingual_input.languages = vec![
+        MultilingualLanguage::Chinese,
+        MultilingualLanguage::Japanese,
+    ];
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences, "preferences_directory": state }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
@@ -17392,6 +17583,12 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     assert_eq!(before, LanguageDictionaries::default());
     assert_eq!(japanese, "");
     assert!(!pending);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .multilingual_languages
+            .is_empty())
+    });
 
     let language = publish_resource_pack(
         &state,
@@ -17425,6 +17622,15 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
         japanese.join("msime-japanese.dat").to_str().unwrap()
     );
     assert!(!pending, "an idle session rebuilds at once");
+    SESSIONS.with(|sessions| {
+        assert_eq!(
+            sessions.borrow()[&handle].options.multilingual_languages,
+            vec![
+                msime_engine::multilingual::Language::Chinese,
+                msime_engine::multilingual::Language::Japanese
+            ]
+        )
+    });
 
     // 没有变化时不再标记重建。
     SESSIONS.with(|sessions| {

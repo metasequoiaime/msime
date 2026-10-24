@@ -418,8 +418,8 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
     const BOOL integerSource = [source isKindOfClass:NSNumber.class] &&
                                CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
                                !CFNumberIsFloatType((__bridge CFNumberRef)source);
-    // Engine CandidateSource MixedJapanese=13：日文混输行是日文，不做简转繁（学校不能显示成學校）；上屏时 input-runtime 也为它关掉 script_conversion。
-    if (!(integerSource && [source isEqual:@13])) text = MSIMEChineseOutputString(text, traditional);
+    // 来源 13 是日文，来源 18 已由运行时逐段转换；两者都不能再次整行简转繁。
+    if (!(integerSource && ([source isEqual:@13] || [source isEqual:@18]))) text = MSIMEChineseOutputString(text, traditional);
     // 来源与固定排位角标只参与显示，不改变候选身份或上屏内容。
     NSString *badge = CandidateSourceBadge(candidate, aiBadge);
     if (fixedBadge.length && MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]))
@@ -4068,6 +4068,8 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
         traditionalChineseOutputEnabled:_appearance.traditionalOutput];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
+    NSDictionary *outputView = [_session setMultilingualOutput:_appearance.traditionalOutput error:nil];
+    if (outputView) _view = outputView;
     _expandedViewportHeight = 0;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
@@ -8700,7 +8702,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                 NSString *badge = skin.decorationCandidate->stripBadge ? @"" : CandidateSourceBadge(candidate, _aiBadgeString);
                 word = MSIMEChineseOutputString([text stringByAppendingString:badge],
                     _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view) &&
-                    ![candidate[@"source"] isEqual:@13]);
+                    ![candidate[@"source"] isEqual:@13] && ![candidate[@"source"] isEqual:@18]);
             }
         }
     }

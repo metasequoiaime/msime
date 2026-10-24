@@ -37,6 +37,10 @@ public final class ChineseOutputPolicySmoke {
         check(ChineseOutputPolicy.output("输入法", true, true, text -> {
             throw new IllegalArgumentException();
         }).equals("输入法"));
+        ChineseOutputPolicy.Converter han = text -> text.replace("国", "國");
+        check(ChineseOutputPolicy.candidateOutput("hello網絡中国", true, true, 18, han)
+            .equals("hello網絡中国"));
+        check(ChineseOutputPolicy.candidateOutput("中国", true, true, 0, han).equals("中國"));
         System.out.println("Android Chinese output: boundaries and conversion failure fallback passed");
     }
 }

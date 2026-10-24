@@ -14,6 +14,7 @@ TYPES = ROOT / "platforms/harmony/entry/src/main/cpp/types/libmsimeclient/index.
 SESSION = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 VIEW = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 SOURCES = ROOT / "platforms/harmony/entry/src/main/ets"
+POLICY = SOURCES / "keyboard/input/ChineseOutputPolicy.ts"
 
 
 def body(text: str, opening: str, closing: str) -> str:
@@ -31,9 +32,10 @@ def main() -> int:
     types = TYPES.read_text(encoding="utf-8")
     session = SESSION.read_text(encoding="utf-8")
     view = VIEW.read_text(encoding="utf-8")
+    policy = POLICY.read_text(encoding="utf-8")
 
     binding = body(native, "static napi_value SimplifiedToTraditional(", "\n}\n")
-    convert = body(session, "  private asTraditional(text: string): string {", "\n  }\n")
+    convert = body(session, "  private asTraditional(text: string, source: number = -1): string {", "\n  }\n")
 
     required = {
         "C ABI declaration": "char *msime_client_simplified_to_traditional(const uint8_t *text, size_t length);"
@@ -45,10 +47,15 @@ def main() -> int:
         "NAPI export": 'ENTRY("simplifiedToTraditional", SimplifiedToTraditional)' in native,
         "ArkTS declaration": "export const simplifiedToTraditional: (text: string) => string | null;" in types,
         "session converts natively": "client.simplifiedToTraditional(value)" in convert,
-        "session keeps the output policy": "ChineseOutputPolicy.output(text, this.traditional," in convert
-        and "ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode)" in convert,
-        # The candidate bar, the flat list it is built from and the expanded panel all show converted text.
-        "candidate display converts": session.count("text: this.asTraditional(candidate.text)") == 3,
+        "session keeps the output policy": "ChineseOutputPolicy.candidateOutput(text, this.traditional," in convert
+        and "ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode)" in convert
+        and re.search(r"localMode\),\s*source,", convert) is not None,
+        # 候选栏、平面列表和展开面板都携带来源，防止整行再次转换多语言候选。
+        "candidate display converts": session.count("text: this.asTraditional(candidate.text, candidate.source)") == 3,
+        "multilingual candidate keeps segment conversion":
+        "ChineseOutputPolicy.output(text, traditional, applies && source !== 18, converter)" in policy,
+        "commit keeps runtime conversion boundary":
+        "value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit)" in session,
         # The switch flips only once the store has taken the new value, then republishes at once, so a refused write leaves the output as it was.
         "switch republishes the candidates": re.search(
             r"toggleCharacterSet\(\): boolean \{\s*"

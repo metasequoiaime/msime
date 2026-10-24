@@ -36,6 +36,24 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["nine_key_single_character": 1]]))
   }
 
+  /// 来源 18 的提交已在运行时逐段转换，解码与标点替换不能恢复整行转换。
+  func testMultilingualCommitKeepsItsConversionBoundary() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let snapshot = try bridge.snapshot(from: [
+      "commit": "hello網絡学校", "commit_context": ["script_conversion": false],
+      "view": ["candidates": [["text": "hello網絡学校", "source": 18]]],
+    ])
+    XCTAssertFalse(snapshot.scriptConversion)
+    XCTAssertFalse(snapshot.replacingCommit("hello網絡学校。").scriptConversion)
+    XCTAssertEqual(snapshot.candidateSources, [18])
+    XCTAssertTrue(try bridge.snapshot(from: ["view": [:]]).scriptConversion)
+    XCTAssertThrowsError(try bridge.snapshot(from: [
+      "commit_context": ["script_conversion": 0], "view": [:],
+    ]))
+  }
+
   func testCandidateHighlightIsStrictAndAlignedWithRows() throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: state) }

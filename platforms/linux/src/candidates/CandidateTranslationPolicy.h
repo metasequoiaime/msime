@@ -19,7 +19,7 @@ namespace msime::linux_host {
 // text-only candidate list, so hosts must apply the source gate before
 // stripping the metadata.
 inline bool candidate_translation_source_allowed(std::uint64_t source) {
-  return source != 6 && source != 7 && source != 13 && source != 14;
+  return source != 6 && source != 7 && source != 13 && source != 14 && source != 18;
 }
 
 // The dictionary joins multiple senses with either an ASCII or a full-width semicolon; IBus and Fcitx5 present them as the same secondary translation choices. The rule is shared with every other host - see shared/input/GlossSenses.h.

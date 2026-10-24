@@ -43,6 +43,10 @@ int main() {
     // Mixed text converts only the Chinese and keeps everything else in place.
     require(simplified_to_traditional("hello 国家 😀", true) == "hello 國家 😀");
 
+    // 来源 18 已逐段转换，日文汉字不得整行转成中文繁体。
+    require(candidate_output("hello網絡学校", true, 18) == "hello網絡学校");
+    require(candidate_output("学校", true, 0) == "學校");
+
     std::cout << "Chinese conversion contract holds\n";
     return 0;
   } catch (const std::exception &error) {

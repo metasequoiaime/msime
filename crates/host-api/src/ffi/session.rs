@@ -128,6 +128,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
         runtime.set_second_third_candidate(applied.second_third_candidate);
         runtime.set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(&applied));
+        runtime.set_multilingual_output(
+            applied.traditional_chinese_output,
+            applied.traditional_chinese_variant,
+        );
         runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
         // The settled model is optional and independent: a resource set that ships only the small

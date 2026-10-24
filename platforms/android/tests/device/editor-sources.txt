@@ -15,6 +15,7 @@ platforms/android/tests/device/core/EditorProbeProvider.java
 platforms/android/tests/device/clipboard/ClipboardImageDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidatePanelDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateCanvasDeviceSmoke.java
+platforms/android/tests/device/keyboard/MultilingualInputDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateUpstreamSkinDeviceSmoke.java
 platforms/android/tests/device/candidate/AiCandidateSeatDeviceSmoke.java
 platforms/android/tests/device/keyboard/MoreToolsDeviceSmoke.java

@@ -10,7 +10,7 @@ Status: implemented
 
 `Preferences::multilingual_input` 使用独立的 `MultilingualInputPreferences`，语言枚举归 client-core，默认关闭、预选中英日。整项为默认值时不写入文档，旧配置缺项仍读为关闭；关闭时保留所选语言，开启后按配置顺序去重，不足两种时返回空集合。未知语言和错误字段类型由反序列化拒绝。现有 `MixedInputPreferences` 继续保持 `Copy`，不引入对 Engine 的依赖。
 
-`EngineOptions` 显式传递语言集合，现有 Host API 构造继续空集合关闭。`EngineSnapshot::multilingual_conversion` 转述实际来源 18 行的原始编码及 `Conversion`；不扩展随座位排列的平行数组。
+`EngineOptions` 显式传递语言集合，Host API 按共享偏好、版本提供的全拼方案、日文资源可用性筛选；有效语言不足两种时关闭。五笔混拼不视为全拼方案。初建和资源变化后的空闲重建沿用同一映射。`EngineSnapshot::multilingual_conversion` 转述实际来源 18 行的原始编码及 `Conversion`；不扩展随座位排列的平行数组。
 
 Runtime 只在来源、编码、当前输入、完整词面和连续范围全部匹配时消费分段。输入须为非空小写 ASCII、在既有输入预算内，范围完整覆盖且至少涉及两种语言。候选展示只转换 `Chinese` 段，保留引擎缓存和选择身份；简繁设置变更、有效分段变更均使候选视图失效。
 
@@ -20,9 +20,15 @@ Runtime 只在来源、编码、当前输入、完整词面和连续范围全部
 
 `Command::CommitCandidate` 保留引擎选择原始首行的语义，运行时经引擎顺序映射逆查其呈现座位，并在提交词面确实匹配后记录选择。`SelectionHow::FirstCandidateCommand = 12` 只追加枚举值，同步脚本 ABI 的 `first_candidate_command` 表和契约穷举，不复用高亮或点选的含义。
 
+## Host output
+
+六宿主展示来源 18 时保留运行时词面，提交按 `commit_context.script_conversion` 决定是否继续整行转换；来源 18 不请求整行中文释义。Windows 展开条目保留来源，展示文字的身份比较也使用相同的来源规则。iOS 快照及标点替换保留提交转换标记，候选重用缓存包含来源，以词定字菜单沿用对应来源。
+
+语言集合变更等待空闲重建，繁简投影即时更新 Runtime，不结束组字。Windows 快捷键和 macOS 外观通知通过附加 C ABI `msime_client_set_multilingual_output` 同步投影，后续明确偏好更新替换这个临时值；该接口不写文档，变体取最新共享偏好。iOS 与 Harmony 切换后读取新视图，避免重画旧的来源 18 字符串。
+
 ## Existing note audit
 
-- [统一输入提案](../../proposed/feature/2026-10-24-unified-language-composition.md)：部分重叠，产品偏好、资源门控、四套设置与六宿主仍待接入。
+- [统一输入提案](../../proposed/feature/2026-10-24-unified-language-composition.md)：部分重叠，产品偏好、资源门控和六宿主输出接线落在本篇；四套设置与产品验收仍归提案。
 - [会话候选](2026-10-24-multilingual-session-candidates.md)：部分重叠，沿用默认关闭、唯一最佳路径和来源 18，本篇补充 Host 元数据与共享展示输出。
 - [日文整段混输](../feature/2026-10-12-mixed-japanese-candidates.md)：部分重叠，旧来源 13 的整段语义不变，新路径不复用它。
 
@@ -45,6 +51,14 @@ Host 语言映射先得到 30 通过、2 失败，补映射后元数据仍缺失
 
 Windows 的引擎、Runtime、client-core 和 script-runtime 全部 target 严格 clippy、工作区格式、Host API ABI 枚举契约、Host API 构建及正规 CMake 配置通过；既有链接器 stdout 诊断保留。首轮完整 quick 唯一失败是早期 proposed 笔记缺少必需章节，本篇转为 implemented 并通过 1819 篇笔记及 4 份归档封印检查后，使用原门禁重跑，不改测试基线或脚本。笔记转为 implemented 后，同一 `scripts/verify-local.sh --quick` 在 Windows runner 重跑退出 0；既有 131 项通过、2 项按宿主差异排除、116 项交 Windows 原生构建，Linux/Docker、Apple、Harmony 等缺失环境按脚本跳过。
 
+本机 Host API 的普通全拼版本过滤、少于两种可用语言、下载日文包和焦点资源刷新专项已通过。真实 Host Session 覆盖组字期间语言变更延后、中文简繁即时投影、来源 18 上屏禁止二次转换；附加接口保持原候选身份。共享设置三项交互覆盖默认关、显式空列表、关闭保留选择以及不支持日文时保留存储列表，全部通过。
+
+后续宿主接入验证：本机引擎及 Host API 严格 clippy 通过；iOS 专用模拟器上的 `InputBridgeResponseTests` 八项全部通过，包含来源 18 的提交转换边界。Windows 同源引擎多语言 34 项、Host API 两项专项通过，原生宿主及原生设置均编译完成。设置页新增版本条件使用 `if constexpr`，并将既有资源撤回回调的分支改为编译期 `else`，消除 MSVC 的常量条件与不可达代码警告，不改变撤回行为。
+
+Windows 原生套件初次加载了测试目录中的旧 DLL；同步本次 Host API DLL 并校验 SHA-256 后，261 项中 251 项通过，另十项失败仍待主线集成后核对，不能记为全套通过。Windows 严格 clippy 仍被既有剪贴板 `Result<_, ()>` 签名拦截。Harmony 文本契约同时检查三处候选展示传来源、来源 18 跳过整行转换和提交上下文边界，不能只把原签名检查删除；共享偏好字段检查要求类型别名，因此设置类型沿用 `export type`。
+
+最新 Harmony 原生库、共享设置 rawfile 和 `assembleHap` 均构建通过。Android 专用 API35 `emulator-5590` 安装原生发布形态 APK 后，应用 UID 的 `MultilingualInputDeviceSmoke` 通过：共享偏好开启三语、真实 IME 输入 `hellowangluogakkou` 得到 `hello网络学校`，组字期间用既有 `Ctrl+Shift+F` 切换后显示并上屏 `hello網絡学校`，日文「学校」未被整行转换。首次设备用例试图在组字时寻找隐藏的工具栏，改用可在组字中工作的快捷键；不为测试改变产品工具栏策略。测试结束恢复偏好文档和原输入法。APK SHA-256 为 `c4d0c2b86d1b652894bb2712172031f946dc8e26f35122075c57bd9499ebe99e`；此结论只覆盖 API35 专用模拟器，未扩写为 API28 或真机验收。
+
 ## Consequences
 
-共享偏好可以持久化，但 Host API 尚未注入、没有资源门控、设置入口及六宿主消费。HostAPI 现有构造继续传空语言集合，不能把内部逐段回归通过写成 #8921 已完成，也不能声称 APK、系统 IME 或真实编辑器已经验收。首次日文资源加载锁竞争仍需后续解决。
+Host API 已注入所选语言并按普通全拼能力、至少两种可用语言和日文模型路径门控；六宿主沿相同来源及上屏标记消费输出。共享 React 和 Windows、Android、iOS 原生设置提供默认关闭的总开关及语言集合，关闭保留选择，显式空列表不恢复为默认三语。iOS 活着的键盘会话重载列表包含 `multilingual_input`。后台日文准备不阻塞连续输入的契约见[词库适配笔记](2026-10-24-multilingual-dictionary-adapter.md)。不能把内部逐段回归或交叉编译通过写成 #8921 全平台真实系统入口已验收。

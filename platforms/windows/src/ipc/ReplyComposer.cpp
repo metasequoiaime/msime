@@ -61,6 +61,12 @@ bool traditional_projection(const ServerSession &session) {
 }
 // The view's scheme, as the scheme traits take it.
 int view_scheme(const nlohmann::json &view) { return static_cast<int>(view.value("scheme", 0u)); }
+
+// 提交上下文属于上屏前的候选；混合行的中文片段已在运行时转换。
+bool commit_conversion(const nlohmann::json &transition, bool traditional) {
+  const auto context = transition.value("commit_context", nlohmann::json::object());
+  return traditional && (!context.is_object() || context.value("script_conversion", true));
+}
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase)
     : client_(client), epoch_(epoch), runtime_phrase_(runtime_phrase) {
@@ -88,7 +94,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
-      simplified_to_traditional(delta, traditional_output_);
+      simplified_to_traditional(delta, commit_conversion(result.transition, traditional_output_));
   // By name, not by position: PendingReply has gained fields twice, and a
   // positional list silently shifts every value past the new one rather than
   // failing to compile.
@@ -670,8 +676,8 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       selected_source = candidate.value("source", uint8_t{});
     }
   }
-  if (!found || (expanded_text && simplified_to_traditional(selected_candidate,
-                                                            traditional_output_) !=
+  if (!found || (expanded_text && candidate_output(selected_candidate,
+                                                  traditional_output_, selected_source) !=
                                       *expanded_text))
     return std::nullopt;
   auto transition = expanded_text
@@ -681,7 +687,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   const auto delta =
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
-      simplified_to_traditional(delta, traditional_output_);
+      simplified_to_traditional(delta, commit_conversion(transition, traditional_output_));
   const auto &next_view = transition.at("view");
   const auto raw = next_view.at("editing_text").get<std::string>();
   PendingReply next;
